@@ -1,4 +1,4 @@
-module SiennaTemplate
+module PowerOperationsModels
 using DocStringExtensions
 
 @template (FUNCTIONS, METHODS) = """

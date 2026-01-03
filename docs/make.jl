@@ -1,13 +1,13 @@
 using Documenter
 import DataStructures: OrderedDict
-using SiennaTemplate
+using PowerOperationsModels
 
 pages = OrderedDict(
     "Welcome Page" => "index.md",
     "Tutorials" => Any["stub" => "tutorials/stub.md"],
     "How to..." => Any["stub" => "how_to_guides/stub.md"],
     "Explanation" => Any["stub" => "explanation/stub.md"],
-    "Reference" => Any[ 
+    "Reference" => Any[
         "Developers" => ["Developer Guidelines" => "reference/developer_guidelines.md",
         "Internals" => "reference/internal.md"],
         "Public API" => "reference/public.md",
@@ -16,18 +16,18 @@ pages = OrderedDict(
 )
 
 makedocs(
-    modules = [SiennaTemplate],
+    modules = [PowerOperationsModels],
     format = Documenter.HTML(
         prettyurls = haskey(ENV, "GITHUB_ACTIONS"),
         size_threshold = nothing,),
-    sitename = "github.com/NREL-Sienna/SiennaTemplate.jl",
+    sitename = "github.com/NREL-Sienna/PowerOperationsModels.jl",
     authors = "Freddy Mercury",
     pages = Any[p for p in pages],
     draft = false,
 )
 
 deploydocs(
-    repo="github.com/NREL-Sienna/SiennaTemplate.jl",
+    repo="github.com/NREL-Sienna/PowerOperationsModels.jl",
     target="build",
     branch="gh-pages",
     devbranch="main",
@@ -35,4 +35,3 @@ deploydocs(
     push_preview=true,
     versions=["stable" => "v^", "v#.#"],
 )
-

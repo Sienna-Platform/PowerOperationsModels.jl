@@ -1,14 +1,53 @@
-using Test
-import Logging
+include("includes.jl")
 
+# Code Quality Tests
 import Aqua
-Aqua.test_unbound_args(SiennaTemplate)
-Aqua.test_undefined_exports(SiennaTemplate)
-Aqua.test_ambiguities(SiennaTemplate)
-Aqua.test_stale_deps(SiennaTemplate)
-Aqua.test_deps_compat(SiennaTemplate)
+Aqua.test_undefined_exports(PowerOptimizationModels)
+Aqua.test_ambiguities(PowerOptimizationModels)
+Aqua.test_stale_deps(PowerOptimizationModels)
+Aqua.find_persistent_tasks_deps(PowerOptimizationModels)
+Aqua.test_persistent_tasks(PowerOptimizationModels)
+Aqua.test_unbound_args(PowerOptimizationModels)
 
-LOG_FILE = "power-systems.log"
+const LOG_FILE = "power-simulations-test.log"
+
+const DISABLED_TEST_FILES = [  # Can generate with ls -1 test | grep "test_.*.jl"
+    # "test_basic_model_structs.jl",
+    # "test_device_branch_constructors.jl",
+    # "test_device_hvdc.jl",
+    # "test_device_lcc.jl",
+    # "test_device_load_constructors.jl",
+    # "test_device_renewable_generation_constructors.jl",
+    # "test_device_source_constructors.jl",
+    # "test_device_thermal_generation_constructors.jl",
+    # "test_events.jl",
+    # "test_formulation_combinations.jl",
+    # "test_import_export_cost.jl",
+    # "test_initialization_problem.jl",
+    # "test_jump_utils.jl",
+    # "test_market_bid_cost.jl",
+    # "test_mbc_sanity_check.jl",
+    # "test_model_decision.jl",
+    # "test_model_emulation.jl",
+    # "test_network_constructors.jl",
+    # "test_power_flow_in_the_loop.jl",
+    # "test_print.jl",
+    # "test_problem_template.jl",
+    # "test_recorder_events.jl",
+    "test_security_constrained_models.jl",
+    # "test_services_constructor.jl",
+    # "test_simulation_build.jl",
+    # "test_simulation_execute.jl",
+    # "test_simulation_models.jl",
+    # "test_simulation_partitions.jl",
+    # "test_simulation_results_export.jl",
+    # "test_simulation_results.jl",
+    # "test_simulation_sequence.jl",
+    # "test_simulation_store.jl",
+    "test_static_injection_security_constrained_models.jl",
+    # "test_utils.jl",
+]
+
 LOG_LEVELS = Dict(
     "Debug" => Logging.Debug,
     "Info" => Logging.Info,
@@ -16,11 +55,15 @@ LOG_LEVELS = Dict(
     "Error" => Logging.Error,
 )
 
-"""
-Copied @includetests from https://github.com/ssfrr/TestSetExtensions.jl.
-Ideally, we could import and use TestSetExtensions.  Its functionality was broken by changes
-in Julia v0.7.  Refer to https://github.com/ssfrr/TestSetExtensions.jl/pull/7.
-"""
+function get_logging_level(env_name::String, default)
+    level = get(ENV, env_name, default)
+    log_level = get(LOG_LEVELS, level, nothing)
+    if log_level === nothing
+        error("Invalid log level $level: Supported levels: $(values(LOG_LEVELS))")
+    end
+
+    return log_level
+end
 
 """
 Includes the given test files, given as a list without their ".jl" extensions.
@@ -50,7 +93,11 @@ macro includetests(testarg...)
             tests = map(f -> string(f, ".jl"), tests)
         end
         println()
+        if !isempty(DISABLED_TEST_FILES)
+            @warn("Some tests are disabled $DISABLED_TEST_FILES")
+        end
         for test in tests
+            test ∈ DISABLED_TEST_FILES && continue
             print(splitext(test)[1], ": ")
             include(test)
             println()
@@ -64,7 +111,7 @@ function get_logging_level_from_env(env_name::String, default)
 end
 
 function run_tests()
-    logging_config_filename = get(ENV, "SIENNA_LOGGING_CONFIG", nothing)
+    logging_config_filename = get(ENV, "SIIP_LOGGING_CONFIG", nothing)
     if logging_config_filename !== nothing
         config = IS.LoggingConfiguration(logging_config_filename)
     else
@@ -76,7 +123,7 @@ function run_tests()
     end
     console_logger = ConsoleLogger(config.console_stream, config.console_level)
 
-    IS.open_file_logger(config.filename, config.file_level) do file_logger
+    IS.open_file_logger(LOG_FILE, config.file_level) do file_logger
         levels = (Logging.Info, Logging.Warn, Logging.Error)
         multi_logger =
             IS.MultiLogger([console_logger, file_logger], IS.LogEventTracker(levels))
@@ -86,12 +133,12 @@ function run_tests()
             IS.set_group_levels!(multi_logger, config.group_levels)
         end
 
-        # Testing Topological components of the schema
-        @time @testset "Begin SIENNA-PACKAGE tests" begin
+        @time @testset "Begin PowerOptimizationModels tests" begin
             @includetests ARGS
         end
 
         @test length(IS.get_log_events(multi_logger.tracker, Logging.Error)) == 0
+
         @info IS.report_log_summary(multi_logger)
     end
 end
