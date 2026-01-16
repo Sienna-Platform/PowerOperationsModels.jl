@@ -6,7 +6,7 @@ CurrentModule = PowerOperationsModels
 
 ## Overview
 
-`PowerOperationsModels.jl` is a [`Julia`](http://www.julialang.org) package that provides blah blah
+`PowerOperationsModels.jl` is a [`Julia`](http://www.julialang.org) package that provides optimization models for power system components including thermal generators, renewable energy sources, energy storage, HVDC systems, and loads. It is designed to work with `PowerOptimizationModels.jl` infrastructure and integrates with `PowerSystems.jl` for power system data structures.
 
 ## About
 

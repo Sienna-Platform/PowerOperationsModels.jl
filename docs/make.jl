@@ -21,7 +21,7 @@ makedocs(
         prettyurls = haskey(ENV, "GITHUB_ACTIONS"),
         size_threshold = nothing,),
     sitename = "github.com/NREL-Sienna/PowerOperationsModels.jl",
-    authors = "Freddy Mercury",
+    authors = "NREL-Sienna",
     pages = Any[p for p in pages],
     draft = false,
 )

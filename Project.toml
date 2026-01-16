@@ -1,10 +1,11 @@
 name = "PowerOperationsModels"
 uuid = "bed98974-b02a-5e2f-9ee0-a103f5c450dd"
-authors = ["YOUR_NAME"]
 version = "0.1.0"
+authors = ["NREL-Sienna"]
 
 [deps]
 DocStringExtensions = "ffbed154-4ef7-542d-bbb7-c09d3a79fcae"
+PowerOptimizationModels = "bed98974-b02a-5e2f-9ee0-a103f5c45069"
 
 [compat]
 DocStringExtensions = "~0.8, ~0.9"
