@@ -193,14 +193,14 @@ function add_constraints!(
     return
 end
 
-function PSI.objective_function!(
-    container::PSI.OptimizationContainer,
+function objective_function!(
+    container::OptimizationContainer,
     devices::IS.FlattenIteratorWrapper{T},
-    ::PSI.DeviceModel{T, U},
+    ::DeviceModel{T, U},
     ::Type{V},
 ) where {T <: PSY.Source, U <: AbstractSourceFormulation, V <: PM.AbstractPowerModel}
-    PSI.add_variable_cost!(container, PSI.ActivePowerOutVariable(), devices, U())
-    PSI.add_variable_cost!(container, PSI.ActivePowerInVariable(), devices, U())
+    add_variable_cost!(container, ActivePowerOutVariable(), devices, U())
+    add_variable_cost!(container, ActivePowerInVariable(), devices, U())
     return
 end
 

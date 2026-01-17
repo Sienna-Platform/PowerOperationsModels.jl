@@ -3,9 +3,11 @@ Abstract type for Device Formulations (a.k.a Models)
 
 # Example
 
-import PowerOptimizationModels
-const POM = PowerOptimizationModels
-struct MyCustomDeviceFormulation <: PSI.AbstractDeviceFormulation
+```julia
+import PowerOperationsModels
+const POM = PowerOperationsModels
+struct MyCustomDeviceFormulation <: POM.AbstractDeviceFormulation end
+```
 """
 abstract type AbstractDeviceFormulation end
 
@@ -121,11 +123,13 @@ struct ImportExportSourceModel <: AbstractSourceFormulation end
 Abstract type for Branch Formulations (a.k.a Models)
 
 # Example
-import PowerOptimizationModels
-const POM = PowerOptimizationModels
-struct MyCustomBranchFormulation <: PSI.AbstractDeviceFormulation
+
+```julia
+import PowerOperationsModels
+const POM = PowerOperationsModels
+struct MyCustomBranchFormulation <: POM.AbstractBranchFormulation end
+```
 """
-# Generic Branch Models
 abstract type AbstractBranchFormulation <: AbstractDeviceFormulation end
 
 ############################### AC/DC Branch Formulations #####################################
@@ -226,9 +230,11 @@ Abstract type for Service Formulations (a.k.a Models)
 
 # Example
 
-import PowerOptimizationModels
-const POM = PowerOptimizationModels
-struct MyServiceFormulation <: PSI.AbstractServiceFormulation
+```julia
+import PowerOperationsModels
+const POM = PowerOperationsModels
+struct MyServiceFormulation <: POM.AbstractServiceFormulation end
+```
 """
 abstract type AbstractServiceFormulation end
 

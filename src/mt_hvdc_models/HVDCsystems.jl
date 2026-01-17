@@ -742,7 +742,7 @@ function add_constraints!(
             time_steps,
         )
 
-    use_linear_loss = PSI.get_attribute(model, "use_linear_loss")
+    use_linear_loss = get_attribute(model, "use_linear_loss")
     if use_linear_loss
         pos_current = get_variable(container, ConverterPositiveCurrent(), U)
         neg_current = get_variable(container, ConverterNegativeCurrent(), U)

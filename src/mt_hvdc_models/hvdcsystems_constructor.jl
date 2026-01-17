@@ -60,7 +60,7 @@ function construct_device!(
     # Add Current Variables: i, i+, i-
     add_variables!(container, ConverterCurrent, devices, QuadraticLossConverter()) # i
     add_variables!(container, SquaredConverterCurrent, devices, QuadraticLossConverter()) # i^sq
-    use_linear_loss = PSI.get_attribute(model, "use_linear_loss")
+    use_linear_loss = get_attribute(model, "use_linear_loss")
     if use_linear_loss
         add_variables!(
             container,
@@ -99,9 +99,9 @@ function construct_device!(
 
     #### Add Interpolation Variables ####
 
-    v_segments = PSI.get_attribute(model, "voltage_segments")
-    i_segments = PSI.get_attribute(model, "current_segments")
-    γ_segments = PSI.get_attribute(model, "bilinear_segments")
+    v_segments = get_attribute(model, "voltage_segments")
+    i_segments = get_attribute(model, "current_segments")
+    γ_segments = get_attribute(model, "bilinear_segments")
 
     vars_vector = [
         # Voltage v #
@@ -182,7 +182,7 @@ function construct_device!(
         model,
         network_model,
     )
-    use_linear_loss = PSI.get_attribute(model, "use_linear_loss")
+    use_linear_loss = get_attribute(model, "use_linear_loss")
     if use_linear_loss
         add_constraints!(
             container,

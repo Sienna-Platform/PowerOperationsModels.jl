@@ -1591,7 +1591,7 @@ function construct_device!(
     ::ModelConstructStage,
     device_model::DeviceModel{PSY.AreaInterchange, StaticBranch},
     network_model::NetworkModel{T},
-) where {T <: PSI.AbstractPTDFModel}
+) where {T <: AbstractPTDFModel}
     devices = get_available_components(device_model, sys)
     add_constraints!(container, FlowLimitConstraint, devices, device_model, network_model)
     # Not ideal to do this here, but it is a not terrible workaround
