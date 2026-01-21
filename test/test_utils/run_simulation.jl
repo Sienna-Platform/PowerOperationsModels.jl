@@ -79,7 +79,7 @@ function run_simulation(
     )
 
     build_out = build!(sim; console_level = Logging.Error)
-    @test build_out == PSI.SimulationBuildStatus.BUILT
+    @test build_out == POM.SimulationBuildStatus.BUILT
 
     exports = Dict(
         "models" => [
@@ -102,7 +102,7 @@ function run_simulation(
         "optimizer_stats" => true,
     )
     execute_out = execute!(sim; exports = exports, in_memory = in_memory)
-    @test execute_out == PSI.RunStatus.SUCCESSFULLY_FINALIZED
+    @test execute_out == POM.RunStatus.SUCCESSFULLY_FINALIZED
 
     return sim
 end

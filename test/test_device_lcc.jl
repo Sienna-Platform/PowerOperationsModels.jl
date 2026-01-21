@@ -51,7 +51,7 @@
         ),
     )
 
-    set_device_model!(template, TwoTerminalLCCLine, PSI.HVDCTwoTerminalLCC)
+    set_device_model!(template, TwoTerminalLCCLine, POM.HVDCTwoTerminalLCC)
     set_device_model!(template, ThermalStandard, ThermalDispatchNoMin)
 
     model = DecisionModel(
@@ -61,6 +61,6 @@
         horizon = Hour(2),
     )
     @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
-          PSI.ModelBuildStatus.BUILT
-    @test solve!(model) == PSI.RunStatus.SUCCESSFULLY_FINALIZED
+          POM.ModelBuildStatus.BUILT
+    @test solve!(model) == POM.RunStatus.SUCCESSFULLY_FINALIZED
 end

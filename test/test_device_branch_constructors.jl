@@ -7,10 +7,10 @@
         )
         model_m = DecisionModel(template, system; optimizer = HiGHS_optimizer)
         @test build!(model_m; output_dir = mktempdir(; cleanup = true)) ==
-              PSI.ModelBuildStatus.BUILT
+              POM.ModelBuildStatus.BUILT
         @test check_variable_bounded(model_m, FlowActivePowerVariable, MonitoredLine)
 
-        @test solve!(model_m) == PSI.RunStatus.SUCCESSFULLY_FINALIZED
+        @test solve!(model_m) == POM.RunStatus.SUCCESSFULLY_FINALIZED
         @test check_flow_variable_values(
             model_m,
             FlowActivePowerVariable,
@@ -27,12 +27,12 @@ end
     template = get_thermal_dispatch_template_network(ACPPowerModel)
     model_m = DecisionModel(template, system; optimizer = ipopt_optimizer)
     @test build!(model_m; output_dir = mktempdir(; cleanup = true)) ==
-          PSI.ModelBuildStatus.BUILT
+          POM.ModelBuildStatus.BUILT
 
     @test check_variable_bounded(model_m, FlowActivePowerFromToVariable, MonitoredLine)
     @test check_variable_unbounded(model_m, FlowReactivePowerFromToVariable, MonitoredLine)
 
-    @test solve!(model_m) == PSI.RunStatus.SUCCESSFULLY_FINALIZED
+    @test solve!(model_m) == POM.RunStatus.SUCCESSFULLY_FINALIZED
     @test check_flow_variable_values(
         model_m,
         FlowActivePowerFromToVariable,
@@ -55,9 +55,9 @@ end
         set_device_model!(template, DeviceModel(MonitoredLine, StaticBranchUnbounded))
         model_m = DecisionModel(template, system; optimizer = HiGHS_optimizer)
         @test build!(model_m; output_dir = mktempdir(; cleanup = true)) ==
-              PSI.ModelBuildStatus.BUILT
+              POM.ModelBuildStatus.BUILT
 
-        @test solve!(model_m) == PSI.RunStatus.SUCCESSFULLY_FINALIZED
+        @test solve!(model_m) == POM.RunStatus.SUCCESSFULLY_FINALIZED
         @test check_flow_variable_values(model_m, FlowActivePowerVariable, Line, "2", 1.5)
     end
 end
@@ -71,11 +71,11 @@ end
         set_device_model!(template, DeviceModel(MonitoredLine, StaticBranchUnbounded))
         model_m = DecisionModel(template, system; optimizer = HiGHS_optimizer)
         @test build!(model_m; output_dir = mktempdir(; cleanup = true)) ==
-              PSI.ModelBuildStatus.BUILT
+              POM.ModelBuildStatus.BUILT
 
         @test check_variable_bounded(model_m, FlowActivePowerVariable, Line)
 
-        @test solve!(model_m) == PSI.RunStatus.SUCCESSFULLY_FINALIZED
+        @test solve!(model_m) == POM.RunStatus.SUCCESSFULLY_FINALIZED
         @test check_flow_variable_values(model_m, FlowActivePowerVariable, Line, "2", 1.5)
     end
 
@@ -88,7 +88,7 @@ end
     )
     model_m = DecisionModel(template, system; optimizer = HiGHS_optimizer)
     @test build!(model_m; output_dir = mktempdir(; cleanup = true)) ==
-          PSI.ModelBuildStatus.BUILT
+          POM.ModelBuildStatus.BUILT
 
     @test check_variable_bounded(model_m, FlowActivePowerVariable, Line)
     @test check_variable_bounded(model_m, FlowActivePowerVariable, MonitoredLine)
@@ -97,15 +97,15 @@ end
     @test !check_variable_bounded(model_m, FlowActivePowerSlackLowerBound, MonitoredLine)
     @test !check_variable_bounded(model_m, FlowActivePowerSlackUpperBound, MonitoredLine)
 
-    @test solve!(model_m) == PSI.RunStatus.SUCCESSFULLY_FINALIZED
+    @test solve!(model_m) == POM.RunStatus.SUCCESSFULLY_FINALIZED
 end
 
 @testset "DC Power Flow Models for TwoTerminalGenericHVDCLine  with with Line Flow Constraints, TapTransformer & Transformer2W Unbounded" begin
     ratelimit_constraint_keys = [
-        PSI.ConstraintKey(FlowRateConstraint, Transformer2W, "ub"),
-        PSI.ConstraintKey(FlowRateConstraint, Transformer2W, "lb"),
-        PSI.ConstraintKey(FlowRateConstraint, TapTransformer, "ub"),
-        PSI.ConstraintKey(FlowRateConstraint, TapTransformer, "lb"),
+        POM.ConstraintKey(FlowRateConstraint, Transformer2W, "ub"),
+        POM.ConstraintKey(FlowRateConstraint, Transformer2W, "lb"),
+        POM.ConstraintKey(FlowRateConstraint, TapTransformer, "ub"),
+        POM.ConstraintKey(FlowRateConstraint, TapTransformer, "lb"),
     ]
 
     system = PSB.build_system(PSITestSystems, "c_sys14_dc")
@@ -130,11 +130,11 @@ end
         set_device_model!(template, DeviceModel(TapTransformer, StaticBranch))
         model_m = DecisionModel(template, system; optimizer = ipopt_optimizer)
         @test build!(model_m; output_dir = mktempdir(; cleanup = true)) ==
-              PSI.ModelBuildStatus.BUILT
+              POM.ModelBuildStatus.BUILT
 
         psi_constraint_test(model_m, ratelimit_constraint_keys)
 
-        @test solve!(model_m) == PSI.RunStatus.SUCCESSFULLY_FINALIZED
+        @test solve!(model_m) == POM.RunStatus.SUCCESSFULLY_FINALIZED
 
         @test check_flow_variable_values(
             model_m,
@@ -189,7 +189,7 @@ end
         set_device_model!(template, DeviceModel(Transformer2W, StaticBranchBounds))
         model_m = DecisionModel(template, system; optimizer = ipopt_optimizer)
         @test build!(model_m; output_dir = mktempdir(; cleanup = true)) ==
-              PSI.ModelBuildStatus.BUILT
+              POM.ModelBuildStatus.BUILT
 
         @test check_variable_unbounded(
             model_m,
@@ -199,7 +199,7 @@ end
         @test check_variable_bounded(model_m, FlowActivePowerVariable, TapTransformer)
         @test check_variable_bounded(model_m, FlowActivePowerVariable, TapTransformer)
 
-        @test solve!(model_m) == PSI.RunStatus.SUCCESSFULLY_FINALIZED
+        @test solve!(model_m) == POM.RunStatus.SUCCESSFULLY_FINALIZED
 
         @test check_flow_variable_values(
             model_m,
@@ -277,7 +277,7 @@ end
     ptdf_vars =
         read_variables(OptimizationProblemResults(model); table_format = TableFormat.WIDE)
     ptdf_values = ptdf_vars["FlowActivePowerVariable__TwoTerminalGenericHVDCLine"]
-    ptdf_objective = PSI.get_optimization_container(model).optimizer_stats.objective_value
+    ptdf_objective = POM.get_optimization_container(model).optimizer_stats.objective_value
 
     set_network_model!(template_uc, NetworkModel(DCPPowerModel))
 
@@ -294,7 +294,7 @@ end
         read_variables(OptimizationProblemResults(model); table_format = TableFormat.WIDE)
     dcp_values = dcp_vars["FlowActivePowerVariable__TwoTerminalGenericHVDCLine"]
     dcp_objective =
-        PSI.get_optimization_container(model).optimizer_stats.objective_value
+        POM.get_optimization_container(model).optimizer_stats.objective_value
 
     @test isapprox(dcp_objective, ptdf_objective; atol = 0.1)
     # Resulting solution is in the 4e5 order of magnitude
@@ -392,7 +392,7 @@ end
             hvdc_tf_no_loss_values =
                 no_loss_vars["FlowActivePowerToFromVariable__TwoTerminalGenericHVDCLine"]
             no_loss_objective =
-                PSI.get_optimization_container(model).optimizer_stats.objective_value
+                POM.get_optimization_container(model).optimizer_stats.objective_value
             no_loss_total_gen = sum(
                 sum.(
                     eachrow(
@@ -469,14 +469,14 @@ end
 
 @testset "DC Power Flow Models for TwoTerminalGenericHVDCLine  Dispatch and TapTransformer & Transformer2W Unbounded" begin
     ratelimit_constraint_keys = [
-        PSI.ConstraintKey(FlowRateConstraint, Transformer2W, "ub"),
-        PSI.ConstraintKey(FlowRateConstraint, Line, "ub"),
-        PSI.ConstraintKey(FlowRateConstraint, Line, "lb"),
-        PSI.ConstraintKey(FlowRateConstraint, TapTransformer, "ub"),
-        PSI.ConstraintKey(FlowRateConstraint, Transformer2W, "lb"),
-        PSI.ConstraintKey(FlowRateConstraint, TapTransformer, "lb"),
-        PSI.ConstraintKey(FlowRateConstraint, TwoTerminalGenericHVDCLine, "ub"),
-        PSI.ConstraintKey(FlowRateConstraint, TwoTerminalGenericHVDCLine, "lb"),
+        POM.ConstraintKey(FlowRateConstraint, Transformer2W, "ub"),
+        POM.ConstraintKey(FlowRateConstraint, Line, "ub"),
+        POM.ConstraintKey(FlowRateConstraint, Line, "lb"),
+        POM.ConstraintKey(FlowRateConstraint, TapTransformer, "ub"),
+        POM.ConstraintKey(FlowRateConstraint, Transformer2W, "lb"),
+        POM.ConstraintKey(FlowRateConstraint, TapTransformer, "lb"),
+        POM.ConstraintKey(FlowRateConstraint, TwoTerminalGenericHVDCLine, "ub"),
+        POM.ConstraintKey(FlowRateConstraint, TwoTerminalGenericHVDCLine, "lb"),
     ]
 
     system = PSB.build_system(PSITestSystems, "c_sys14_dc")
@@ -504,11 +504,11 @@ end
     )
     model_m = DecisionModel(template, system; optimizer = HiGHS_optimizer)
     @test build!(model_m; output_dir = mktempdir(; cleanup = true)) ==
-          PSI.ModelBuildStatus.BUILT
+          POM.ModelBuildStatus.BUILT
 
     psi_constraint_test(model_m, ratelimit_constraint_keys)
 
-    @test solve!(model_m) == PSI.RunStatus.SUCCESSFULLY_FINALIZED
+    @test solve!(model_m) == POM.RunStatus.SUCCESSFULLY_FINALIZED
 
     @test check_flow_variable_values(
         model_m,
@@ -562,7 +562,7 @@ end
     set_device_model!(template, DeviceModel(PhaseShiftingTransformer, PhaseAngleControl))
     model_m = DecisionModel(template, system; optimizer = HiGHS_optimizer)
     @test build!(model_m; output_dir = mktempdir(; cleanup = true)) ==
-          PSI.ModelBuildStatus.BUILT
+          POM.ModelBuildStatus.BUILT
 
     @test check_variable_unbounded(
         model_m,
@@ -570,7 +570,7 @@ end
         PhaseShiftingTransformer,
     )
 
-    @test solve!(model_m) == PSI.RunStatus.SUCCESSFULLY_FINALIZED
+    @test solve!(model_m) == POM.RunStatus.SUCCESSFULLY_FINALIZED
 
     @test check_flow_variable_values(
         model_m,
@@ -592,12 +592,12 @@ end
 
 @testset "AC Power Flow Models for TwoTerminalGenericHVDCLine  Flow Constraints and TapTransformer & Transformer2W Unbounded" begin
     ratelimit_constraint_keys = [
-        PSI.ConstraintKey(FlowRateConstraintFromTo, Transformer2W),
-        PSI.ConstraintKey(FlowRateConstraintToFrom, Transformer2W),
-        PSI.ConstraintKey(FlowRateConstraintFromTo, TapTransformer),
-        PSI.ConstraintKey(FlowRateConstraintToFrom, TapTransformer),
-        PSI.ConstraintKey(FlowRateConstraint, TwoTerminalGenericHVDCLine, "ub"),
-        PSI.ConstraintKey(FlowRateConstraint, TwoTerminalGenericHVDCLine, "lb"),
+        POM.ConstraintKey(FlowRateConstraintFromTo, Transformer2W),
+        POM.ConstraintKey(FlowRateConstraintToFrom, Transformer2W),
+        POM.ConstraintKey(FlowRateConstraintFromTo, TapTransformer),
+        POM.ConstraintKey(FlowRateConstraintToFrom, TapTransformer),
+        POM.ConstraintKey(FlowRateConstraint, TwoTerminalGenericHVDCLine, "ub"),
+        POM.ConstraintKey(FlowRateConstraint, TwoTerminalGenericHVDCLine, "lb"),
     ]
 
     system = PSB.build_system(PSITestSystems, "c_sys14_dc")
@@ -623,7 +623,7 @@ end
     )
     model_m = DecisionModel(template, system; optimizer = ipopt_optimizer)
     @test build!(model_m; output_dir = mktempdir(; cleanup = true)) ==
-          PSI.ModelBuildStatus.BUILT
+          POM.ModelBuildStatus.BUILT
     @test check_variable_bounded(model_m, FlowActivePowerFromToVariable, TapTransformer)
     @test check_variable_unbounded(model_m, FlowReactivePowerFromToVariable, TapTransformer)
     @test check_variable_bounded(model_m, FlowActivePowerToFromVariable, Transformer2W)
@@ -631,7 +631,7 @@ end
 
     psi_constraint_test(model_m, ratelimit_constraint_keys)
 
-    @test solve!(model_m) == PSI.RunStatus.SUCCESSFULLY_FINALIZED
+    @test solve!(model_m) == POM.RunStatus.SUCCESSFULLY_FINALIZED
 
     @test check_flow_variable_values(
         model_m,
@@ -678,8 +678,8 @@ end
         )
         model_m = DecisionModel(template, system; optimizer = optimizer)
         @test build!(model_m; output_dir = mktempdir(; cleanup = true)) ==
-              PSI.ModelBuildStatus.BUILT
-        @test solve!(model_m) == PSI.RunStatus.SUCCESSFULLY_FINALIZED
+              POM.ModelBuildStatus.BUILT
+        @test solve!(model_m) == POM.RunStatus.SUCCESSFULLY_FINALIZED
         res = OptimizationProblemResults(model_m)
         vars = read_variable(
             res,
@@ -703,9 +703,9 @@ end
         model_m;
         console_level = Logging.AboveMaxLevel,
         output_dir = mktempdir(; cleanup = true),
-    ) == PSI.ModelBuildStatus.BUILT
+    ) == POM.ModelBuildStatus.BUILT
 
-    @test solve!(model_m) == PSI.RunStatus.SUCCESSFULLY_FINALIZED
+    @test solve!(model_m) == POM.RunStatus.SUCCESSFULLY_FINALIZED
     res = OptimizationProblemResults(model_m)
     vars = read_variable(
         res,
@@ -725,8 +725,8 @@ end
     )
     model_m = DecisionModel(template, system; optimizer = fast_ipopt_optimizer)
     @test build!(model_m; output_dir = mktempdir(; cleanup = true)) ==
-          PSI.ModelBuildStatus.BUILT
-    @test solve!(model_m) == PSI.RunStatus.SUCCESSFULLY_FINALIZED
+          POM.ModelBuildStatus.BUILT
+    @test solve!(model_m) == POM.RunStatus.SUCCESSFULLY_FINALIZED
     res = OptimizationProblemResults(model_m)
     vars = read_variable(
         res,
@@ -874,9 +874,9 @@ end
 
         model_m = DecisionModel(template, system; optimizer = HiGHS_optimizer)
         @test build!(model_m; output_dir = mktempdir(; cleanup = true)) ==
-              PSI.ModelBuildStatus.BUILT
+              POM.ModelBuildStatus.BUILT
 
-        @test solve!(model_m) == PSI.RunStatus.SUCCESSFULLY_FINALIZED
+        @test solve!(model_m) == POM.RunStatus.SUCCESSFULLY_FINALIZED
 
         # Test flow constraints
         transformer = PSY.get_component(Transformer3W, system, "Transformer3W_busD")
@@ -893,6 +893,6 @@ end
     set_device_model!(template_ac, DeviceModel(Transformer3W, StaticBranch))
     model_ac = DecisionModel(template_ac, system; optimizer = ipopt_optimizer)
     @test build!(model_ac; output_dir = mktempdir(; cleanup = true)) ==
-          PSI.ModelBuildStatus.BUILT
-    @test solve!(model_ac) == PSI.RunStatus.SUCCESSFULLY_FINALIZED
+          POM.ModelBuildStatus.BUILT
+    @test solve!(model_ac) == POM.RunStatus.SUCCESSFULLY_FINALIZED
 end

@@ -27,8 +27,8 @@ const TIME1 = DateTime("2024-01-01T00:00:00")
                 system_to_file = false,
                 optimizer_solve_log_print = true,
             )
-            @test build!(model; output_dir = test_path) == PSI.ModelBuildStatus.BUILT
-            @test solve!(model) == PSI.RunStatus.SUCCESSFULLY_FINALIZED
+            @test build!(model; output_dir = test_path) == POM.ModelBuildStatus.BUILT
+            @test solve!(model) == POM.RunStatus.SUCCESSFULLY_FINALIZED
             results = OptimizationProblemResults(model)
             expr = read_expression(
                 results,
@@ -62,8 +62,8 @@ const TIME1 = DateTime("2024-01-01T00:00:00")
             system_to_file = false,
             optimizer_solve_log_print = true,
         )
-        @test build!(model_no_startup; output_dir = test_path) == PSI.ModelBuildStatus.BUILT
-        @test solve!(model_no_startup) == PSI.RunStatus.SUCCESSFULLY_FINALIZED
+        @test build!(model_no_startup; output_dir = test_path) == POM.ModelBuildStatus.BUILT
+        @test solve!(model_no_startup) == POM.RunStatus.SUCCESSFULLY_FINALIZED
 
         results_no_startup = OptimizationProblemResults(model_no_startup)
         expr_no_startup = read_expression(
@@ -92,8 +92,8 @@ const TIME1 = DateTime("2024-01-01T00:00:00")
             optimizer_solve_log_print = true,
         )
         @test build!(model_with_startup; output_dir = test_path) ==
-              PSI.ModelBuildStatus.BUILT
-        @test solve!(model_with_startup) == PSI.RunStatus.SUCCESSFULLY_FINALIZED
+              POM.ModelBuildStatus.BUILT
+        @test solve!(model_with_startup) == POM.RunStatus.SUCCESSFULLY_FINALIZED
 
         results_with_startup = OptimizationProblemResults(model_with_startup)
         expr_with_startup = read_expression(
@@ -140,8 +140,8 @@ end
                 optimizer = HiGHS_optimizer,
                 system_to_file = false,
             )
-            @test build!(model; output_dir = test_path) == PSI.ModelBuildStatus.BUILT
-            @test solve!(model) == PSI.RunStatus.SUCCESSFULLY_FINALIZED
+            @test build!(model; output_dir = test_path) == POM.ModelBuildStatus.BUILT
+            @test solve!(model) == POM.RunStatus.SUCCESSFULLY_FINALIZED
             =#
         end
     end
@@ -151,21 +151,21 @@ end
 ################################### Unit Commitment tests ##################################
 @testset "Thermal UC With DC - PF" begin
     bin_variable_keys = [
-        PSI.VariableKey(OnVariable, PSY.ThermalStandard),
-        PSI.VariableKey(StartVariable, PSY.ThermalStandard),
-        PSI.VariableKey(StopVariable, PSY.ThermalStandard),
+        POM.VariableKey(OnVariable, PSY.ThermalStandard),
+        POM.VariableKey(StartVariable, PSY.ThermalStandard),
+        POM.VariableKey(StopVariable, PSY.ThermalStandard),
     ]
 
     uc_constraint_keys = [
-        PSI.ConstraintKey(RampConstraint, PSY.ThermalStandard, "up"),
-        PSI.ConstraintKey(RampConstraint, PSY.ThermalStandard, "dn"),
-        PSI.ConstraintKey(DurationConstraint, PSY.ThermalStandard, "up"),
-        PSI.ConstraintKey(DurationConstraint, PSY.ThermalStandard, "dn"),
+        POM.ConstraintKey(RampConstraint, PSY.ThermalStandard, "up"),
+        POM.ConstraintKey(RampConstraint, PSY.ThermalStandard, "dn"),
+        POM.ConstraintKey(DurationConstraint, PSY.ThermalStandard, "up"),
+        POM.ConstraintKey(DurationConstraint, PSY.ThermalStandard, "dn"),
     ]
 
     aux_variables_keys = [
-        PSI.AuxVarKey(PSI.TimeDurationOff, ThermalStandard),
-        PSI.AuxVarKey(PSI.TimeDurationOn, ThermalStandard),
+        POM.AuxVarKey(POM.TimeDurationOff, ThermalStandard),
+        POM.AuxVarKey(POM.TimeDurationOn, ThermalStandard),
     ]
     device_model = DeviceModel(ThermalStandard, ThermalStandardUnitCommitment)
 
@@ -195,20 +195,20 @@ end
 
 @testset "Thermal UC With AC - PF" begin
     bin_variable_keys = [
-        PSI.VariableKey(OnVariable, PSY.ThermalStandard),
-        PSI.VariableKey(StartVariable, PSY.ThermalStandard),
-        PSI.VariableKey(StopVariable, PSY.ThermalStandard),
+        POM.VariableKey(OnVariable, PSY.ThermalStandard),
+        POM.VariableKey(StartVariable, PSY.ThermalStandard),
+        POM.VariableKey(StopVariable, PSY.ThermalStandard),
     ]
     uc_constraint_keys = [
-        PSI.ConstraintKey(RampConstraint, PSY.ThermalStandard, "up"),
-        PSI.ConstraintKey(RampConstraint, PSY.ThermalStandard, "dn"),
-        PSI.ConstraintKey(DurationConstraint, PSY.ThermalStandard, "up"),
-        PSI.ConstraintKey(DurationConstraint, PSY.ThermalStandard, "dn"),
+        POM.ConstraintKey(RampConstraint, PSY.ThermalStandard, "up"),
+        POM.ConstraintKey(RampConstraint, PSY.ThermalStandard, "dn"),
+        POM.ConstraintKey(DurationConstraint, PSY.ThermalStandard, "up"),
+        POM.ConstraintKey(DurationConstraint, PSY.ThermalStandard, "dn"),
     ]
 
     aux_variables_keys = [
-        PSI.AuxVarKey(PSI.TimeDurationOff, ThermalStandard),
-        PSI.AuxVarKey(PSI.TimeDurationOn, ThermalStandard),
+        POM.AuxVarKey(POM.TimeDurationOff, ThermalStandard),
+        POM.AuxVarKey(POM.TimeDurationOn, ThermalStandard),
     ]
 
     device_model = DeviceModel(ThermalStandard, ThermalStandardUnitCommitment)
@@ -240,15 +240,15 @@ end
 
 @testset "Thermal MultiStart UC With DC - PF" begin
     bin_variable_keys = [
-        PSI.VariableKey(OnVariable, PSY.ThermalMultiStart),
-        PSI.VariableKey(StartVariable, PSY.ThermalMultiStart),
-        PSI.VariableKey(StopVariable, PSY.ThermalMultiStart),
+        POM.VariableKey(OnVariable, PSY.ThermalMultiStart),
+        POM.VariableKey(StartVariable, PSY.ThermalMultiStart),
+        POM.VariableKey(StopVariable, PSY.ThermalMultiStart),
     ]
     uc_constraint_keys = [
-        PSI.ConstraintKey(RampConstraint, PSY.ThermalMultiStart, "up"),
-        PSI.ConstraintKey(RampConstraint, PSY.ThermalMultiStart, "dn"),
-        PSI.ConstraintKey(DurationConstraint, PSY.ThermalMultiStart, "up"),
-        PSI.ConstraintKey(DurationConstraint, PSY.ThermalMultiStart, "dn"),
+        POM.ConstraintKey(RampConstraint, PSY.ThermalMultiStart, "up"),
+        POM.ConstraintKey(RampConstraint, PSY.ThermalMultiStart, "dn"),
+        POM.ConstraintKey(DurationConstraint, PSY.ThermalMultiStart, "up"),
+        POM.ConstraintKey(DurationConstraint, PSY.ThermalMultiStart, "dn"),
     ]
     device_model = DeviceModel(ThermalMultiStart, ThermalStandardUnitCommitment)
 
@@ -266,15 +266,15 @@ end
 
 @testset "Thermal MultiStart UC With AC - PF" begin
     bin_variable_keys = [
-        PSI.VariableKey(OnVariable, PSY.ThermalMultiStart),
-        PSI.VariableKey(StartVariable, PSY.ThermalMultiStart),
-        PSI.VariableKey(StopVariable, PSY.ThermalMultiStart),
+        POM.VariableKey(OnVariable, PSY.ThermalMultiStart),
+        POM.VariableKey(StartVariable, PSY.ThermalMultiStart),
+        POM.VariableKey(StopVariable, PSY.ThermalMultiStart),
     ]
     uc_constraint_keys = [
-        PSI.ConstraintKey(RampConstraint, PSY.ThermalMultiStart, "up"),
-        PSI.ConstraintKey(RampConstraint, PSY.ThermalMultiStart, "dn"),
-        PSI.ConstraintKey(DurationConstraint, PSY.ThermalMultiStart, "up"),
-        PSI.ConstraintKey(DurationConstraint, PSY.ThermalMultiStart, "dn"),
+        POM.ConstraintKey(RampConstraint, PSY.ThermalMultiStart, "up"),
+        POM.ConstraintKey(RampConstraint, PSY.ThermalMultiStart, "dn"),
+        POM.ConstraintKey(DurationConstraint, PSY.ThermalMultiStart, "up"),
+        POM.ConstraintKey(DurationConstraint, PSY.ThermalMultiStart, "dn"),
     ]
     device_model = DeviceModel(ThermalMultiStart, ThermalStandardUnitCommitment)
 
@@ -293,9 +293,9 @@ end
 ################################### Basic Unit Commitment tests ############################
 @testset "Thermal Basic UC With DC - PF" begin
     bin_variable_keys = [
-        PSI.VariableKey(OnVariable, PSY.ThermalStandard),
-        PSI.VariableKey(StartVariable, PSY.ThermalStandard),
-        PSI.VariableKey(StopVariable, PSY.ThermalStandard),
+        POM.VariableKey(OnVariable, PSY.ThermalStandard),
+        POM.VariableKey(StartVariable, PSY.ThermalStandard),
+        POM.VariableKey(StopVariable, PSY.ThermalStandard),
     ]
     device_model = DeviceModel(ThermalStandard, ThermalBasicUnitCommitment)
 
@@ -324,9 +324,9 @@ end
 
 @testset "Thermal Basic UC With AC - PF" begin
     bin_variable_keys = [
-        PSI.VariableKey(OnVariable, PSY.ThermalStandard),
-        PSI.VariableKey(StartVariable, PSY.ThermalStandard),
-        PSI.VariableKey(StopVariable, PSY.ThermalStandard),
+        POM.VariableKey(OnVariable, PSY.ThermalStandard),
+        POM.VariableKey(StartVariable, PSY.ThermalStandard),
+        POM.VariableKey(StopVariable, PSY.ThermalStandard),
     ]
     device_model = DeviceModel(ThermalStandard, ThermalBasicUnitCommitment)
 
@@ -355,9 +355,9 @@ end
 
 @testset "Thermal MultiStart Basic UC With DC - PF" begin
     bin_variable_keys = [
-        PSI.VariableKey(OnVariable, PSY.ThermalMultiStart),
-        PSI.VariableKey(StartVariable, PSY.ThermalMultiStart),
-        PSI.VariableKey(StopVariable, PSY.ThermalMultiStart),
+        POM.VariableKey(OnVariable, PSY.ThermalMultiStart),
+        POM.VariableKey(StartVariable, PSY.ThermalMultiStart),
+        POM.VariableKey(StopVariable, PSY.ThermalMultiStart),
     ]
     device_model = DeviceModel(ThermalMultiStart, ThermalBasicUnitCommitment)
 
@@ -374,9 +374,9 @@ end
 
 @testset "Thermal MultiStart Basic UC With AC - PF" begin
     bin_variable_keys = [
-        PSI.VariableKey(OnVariable, PSY.ThermalMultiStart),
-        PSI.VariableKey(StartVariable, PSY.ThermalMultiStart),
-        PSI.VariableKey(StopVariable, PSY.ThermalMultiStart),
+        POM.VariableKey(OnVariable, PSY.ThermalMultiStart),
+        POM.VariableKey(StartVariable, PSY.ThermalMultiStart),
+        POM.VariableKey(StopVariable, PSY.ThermalMultiStart),
     ]
     device_model = DeviceModel(ThermalMultiStart, ThermalBasicUnitCommitment)
 
@@ -461,7 +461,7 @@ end
     model = DecisionModel(MockOperationProblem, DCPPowerModel, c_sys5)
     mock_construct_device!(model, device_model)
     moi_tests(model, 120, 0, 120, 120, 0, false)
-    key = PSI.ConstraintKey(ActivePowerVariableLimitsConstraint, ThermalStandard, "lb")
+    key = POM.ConstraintKey(ActivePowerVariableLimitsConstraint, ThermalStandard, "lb")
     moi_lbvalue_test(model, key, 0.0)
     psi_checkobjfun_test(model, GAEVF)
     model = DecisionModel(MockOperationProblem, DCPPowerModel, c_sys5)
@@ -473,7 +473,7 @@ end
     model = DecisionModel(MockOperationProblem, DCPPowerModel, c_sys14)
     mock_construct_device!(model, device_model)
     moi_tests(model, 120, 0, 120, 120, 0, false)
-    key = PSI.ConstraintKey(ActivePowerVariableLimitsConstraint, ThermalStandard, "lb")
+    key = POM.ConstraintKey(ActivePowerVariableLimitsConstraint, ThermalStandard, "lb")
     moi_lbvalue_test(model, key, 0.0)
     psi_checkobjfun_test(model, GQEVF)
     model = DecisionModel(MockOperationProblem, DCPPowerModel, c_sys14)
@@ -487,7 +487,7 @@ end
     model = DecisionModel(MockOperationProblem, ACPPowerModel, c_sys5)
     mock_construct_device!(model, device_model)
     moi_tests(model, 240, 0, 240, 240, 0, false)
-    key = PSI.ConstraintKey(ActivePowerVariableLimitsConstraint, ThermalStandard, "lb")
+    key = POM.ConstraintKey(ActivePowerVariableLimitsConstraint, ThermalStandard, "lb")
     moi_lbvalue_test(model, key, 0.0)
     psi_checkobjfun_test(model, GAEVF)
     model = DecisionModel(MockOperationProblem, ACPPowerModel, c_sys5)
@@ -499,7 +499,7 @@ end
     model = DecisionModel(MockOperationProblem, ACPPowerModel, c_sys14;)
     mock_construct_device!(model, device_model)
     moi_tests(model, 240, 0, 240, 240, 0, false)
-    key = PSI.ConstraintKey(ActivePowerVariableLimitsConstraint, ThermalStandard, "lb")
+    key = POM.ConstraintKey(ActivePowerVariableLimitsConstraint, ThermalStandard, "lb")
     moi_lbvalue_test(model, key, 0.0)
     psi_checkobjfun_test(model, GQEVF)
     model = DecisionModel(MockOperationProblem, ACPPowerModel, c_sys14;)
@@ -541,8 +541,8 @@ end
 ################################## Ramp Limited Testing ##################################
 @testset "ThermalStandard with ThermalStandardDispatch With DC - PF" begin
     constraint_keys = [
-        PSI.ConstraintKey(RampConstraint, PSY.ThermalStandard, "up"),
-        PSI.ConstraintKey(RampConstraint, PSY.ThermalStandard, "dn"),
+        POM.ConstraintKey(RampConstraint, PSY.ThermalStandard, "up"),
+        POM.ConstraintKey(RampConstraint, PSY.ThermalStandard, "dn"),
     ]
     device_model = DeviceModel(ThermalStandard, ThermalStandardDispatch)
     c_sys5_uc = PSB.build_system(PSITestSystems, "c_sys5_uc")
@@ -568,8 +568,8 @@ end
 
 @testset "ThermalStandard with ThermalStandardDispatch With AC - PF" begin
     constraint_keys = [
-        PSI.ConstraintKey(RampConstraint, PSY.ThermalStandard, "up"),
-        PSI.ConstraintKey(RampConstraint, PSY.ThermalStandard, "dn"),
+        POM.ConstraintKey(RampConstraint, PSY.ThermalStandard, "up"),
+        POM.ConstraintKey(RampConstraint, PSY.ThermalStandard, "dn"),
     ]
     device_model = DeviceModel(ThermalStandard, ThermalStandardDispatch)
     c_sys5_uc = PSB.build_system(PSITestSystems, "c_sys5_uc")
@@ -595,8 +595,8 @@ end
 
 @testset "ThermalMultiStart with ThermalStandardDispatch With DC - PF" begin
     constraint_keys = [
-        PSI.ConstraintKey(RampConstraint, PSY.ThermalMultiStart, "up"),
-        PSI.ConstraintKey(RampConstraint, PSY.ThermalMultiStart, "dn"),
+        POM.ConstraintKey(RampConstraint, PSY.ThermalMultiStart, "up"),
+        POM.ConstraintKey(RampConstraint, PSY.ThermalMultiStart, "dn"),
     ]
     device_model = DeviceModel(ThermalMultiStart, ThermalStandardDispatch)
     c_sys5_uc = PSB.build_system(PSITestSystems, "c_sys5_pglib")
@@ -612,8 +612,8 @@ end
 
 @testset "ThermalMultiStart with ThermalStandardDispatch With AC - PF" begin
     constraint_keys = [
-        PSI.ConstraintKey(RampConstraint, PSY.ThermalMultiStart, "up"),
-        PSI.ConstraintKey(RampConstraint, PSY.ThermalMultiStart, "dn"),
+        POM.ConstraintKey(RampConstraint, PSY.ThermalMultiStart, "up"),
+        POM.ConstraintKey(RampConstraint, PSY.ThermalMultiStart, "dn"),
     ]
     device_model = DeviceModel(ThermalMultiStart, ThermalStandardDispatch)
     c_sys5_uc = PSB.build_system(PSITestSystems, "c_sys5_pglib")
@@ -631,30 +631,30 @@ end
 
 @testset "Thermal MultiStart with MultiStart UC and DC - PF" begin
     constraint_keys = [
-        PSI.ConstraintKey(ActiveRangeICConstraint, PSY.ThermalMultiStart),
-        PSI.ConstraintKey(StartTypeConstraint, PSY.ThermalMultiStart),
-        PSI.ConstraintKey(
+        POM.ConstraintKey(ActiveRangeICConstraint, PSY.ThermalMultiStart),
+        POM.ConstraintKey(StartTypeConstraint, PSY.ThermalMultiStart),
+        POM.ConstraintKey(
             StartupTimeLimitTemperatureConstraint,
             PSY.ThermalMultiStart,
             "warm",
         ),
-        PSI.ConstraintKey(
+        POM.ConstraintKey(
             StartupTimeLimitTemperatureConstraint,
             PSY.ThermalMultiStart,
             "hot",
         ),
-        PSI.ConstraintKey(
+        POM.ConstraintKey(
             StartupInitialConditionConstraint,
             PSY.ThermalMultiStart,
             "lb",
         ),
-        PSI.ConstraintKey(
+        POM.ConstraintKey(
             StartupInitialConditionConstraint,
             PSY.ThermalMultiStart,
             "ub",
         ),
     ]
-    device_model = DeviceModel(PSY.ThermalMultiStart, PSI.ThermalMultiStartUnitCommitment)
+    device_model = DeviceModel(PSY.ThermalMultiStart, POM.ThermalMultiStartUnitCommitment)
     c_sys5_pglib = PSB.build_system(PSITestSystems, "c_sys5_pglib")
     model = DecisionModel(MockOperationProblem, DCPPowerModel, c_sys5_pglib;)
     mock_construct_device!(model, device_model)
@@ -668,30 +668,30 @@ end
 
 @testset "Thermal MultiStart with MultiStart UC and AC - PF" begin
     constraint_keys = [
-        PSI.ConstraintKey(ActiveRangeICConstraint, PSY.ThermalMultiStart),
-        PSI.ConstraintKey(StartTypeConstraint, PSY.ThermalMultiStart),
-        PSI.ConstraintKey(
+        POM.ConstraintKey(ActiveRangeICConstraint, PSY.ThermalMultiStart),
+        POM.ConstraintKey(StartTypeConstraint, PSY.ThermalMultiStart),
+        POM.ConstraintKey(
             StartupTimeLimitTemperatureConstraint,
             PSY.ThermalMultiStart,
             "warm",
         ),
-        PSI.ConstraintKey(
+        POM.ConstraintKey(
             StartupTimeLimitTemperatureConstraint,
             PSY.ThermalMultiStart,
             "hot",
         ),
-        PSI.ConstraintKey(
+        POM.ConstraintKey(
             StartupInitialConditionConstraint,
             PSY.ThermalMultiStart,
             "lb",
         ),
-        PSI.ConstraintKey(
+        POM.ConstraintKey(
             StartupInitialConditionConstraint,
             PSY.ThermalMultiStart,
             "ub",
         ),
     ]
-    device_model = DeviceModel(PSY.ThermalMultiStart, PSI.ThermalMultiStartUnitCommitment)
+    device_model = DeviceModel(PSY.ThermalMultiStart, POM.ThermalMultiStartUnitCommitment)
     c_sys5_pglib = PSB.build_system(PSITestSystems, "c_sys5_pglib")
     model = DecisionModel(MockOperationProblem, ACPPowerModel, c_sys5_pglib;)
     mock_construct_device!(model, device_model)
@@ -705,7 +705,7 @@ end
 
 ################################ Thermal Compact UC Testing ################################
 @testset "Thermal Standard with Compact UC and DC - PF" begin
-    device_model = DeviceModel(PSY.ThermalStandard, PSI.ThermalCompactUnitCommitment)
+    device_model = DeviceModel(PSY.ThermalStandard, POM.ThermalCompactUnitCommitment)
     c_sys5 = PSB.build_system(PSITestSystems, "c_sys5")
     model = DecisionModel(MockOperationProblem, DCPPowerModel, c_sys5)
     mock_construct_device!(model, device_model)
@@ -717,7 +717,7 @@ end
 end
 
 @testset "Thermal MultiStart with Compact UC and DC - PF" begin
-    device_model = DeviceModel(PSY.ThermalMultiStart, PSI.ThermalCompactUnitCommitment)
+    device_model = DeviceModel(PSY.ThermalMultiStart, POM.ThermalCompactUnitCommitment)
     c_sys5_pglib = PSB.build_system(PSITestSystems, "c_sys5_pglib")
     model = DecisionModel(MockOperationProblem, DCPPowerModel, c_sys5_pglib;)
     mock_construct_device!(model, device_model)
@@ -729,7 +729,7 @@ end
 end
 
 @testset "Thermal Standard with Compact UC and AC - PF" begin
-    device_model = DeviceModel(PSY.ThermalStandard, PSI.ThermalCompactUnitCommitment)
+    device_model = DeviceModel(PSY.ThermalStandard, POM.ThermalCompactUnitCommitment)
     c_sys5 = PSB.build_system(PSITestSystems, "c_sys5")
     model = DecisionModel(MockOperationProblem, ACPPowerModel, c_sys5)
     mock_construct_device!(model, device_model)
@@ -741,7 +741,7 @@ end
 end
 
 @testset "Thermal MultiStart with Compact UC and AC - PF" begin
-    device_model = DeviceModel(PSY.ThermalMultiStart, PSI.ThermalCompactUnitCommitment)
+    device_model = DeviceModel(PSY.ThermalMultiStart, POM.ThermalCompactUnitCommitment)
     c_sys5_pglib = PSB.build_system(PSITestSystems, "c_sys5_pglib")
     model = DecisionModel(MockOperationProblem, ACPPowerModel, c_sys5_pglib;)
     mock_construct_device!(model, device_model)
@@ -754,7 +754,7 @@ end
 
 ################################ Thermal Basic Compact UC Testing ################################
 @testset "Thermal Standard with Compact UC and DC - PF" begin
-    device_model = DeviceModel(PSY.ThermalStandard, PSI.ThermalBasicCompactUnitCommitment)
+    device_model = DeviceModel(PSY.ThermalStandard, POM.ThermalBasicCompactUnitCommitment)
     c_sys5 = PSB.build_system(PSITestSystems, "c_sys5")
     model = DecisionModel(MockOperationProblem, DCPPowerModel, c_sys5)
     mock_construct_device!(model, device_model)
@@ -766,7 +766,7 @@ end
 end
 
 @testset "Thermal MultiStart with Compact UC and DC - PF" begin
-    device_model = DeviceModel(PSY.ThermalMultiStart, PSI.ThermalBasicCompactUnitCommitment)
+    device_model = DeviceModel(PSY.ThermalMultiStart, POM.ThermalBasicCompactUnitCommitment)
     c_sys5_pglib = PSB.build_system(PSITestSystems, "c_sys5_pglib")
     model = DecisionModel(MockOperationProblem, DCPPowerModel, c_sys5_pglib;)
     mock_construct_device!(model, device_model)
@@ -778,7 +778,7 @@ end
 end
 
 @testset "Thermal Standard with Compact UC and AC - PF" begin
-    device_model = DeviceModel(PSY.ThermalStandard, PSI.ThermalBasicCompactUnitCommitment)
+    device_model = DeviceModel(PSY.ThermalStandard, POM.ThermalBasicCompactUnitCommitment)
     c_sys5 = PSB.build_system(PSITestSystems, "c_sys5")
     model = DecisionModel(MockOperationProblem, ACPPowerModel, c_sys5)
     mock_construct_device!(model, device_model)
@@ -790,7 +790,7 @@ end
 end
 
 @testset "Thermal MultiStart with Compact UC and AC - PF" begin
-    device_model = DeviceModel(PSY.ThermalMultiStart, PSI.ThermalBasicCompactUnitCommitment)
+    device_model = DeviceModel(PSY.ThermalMultiStart, POM.ThermalBasicCompactUnitCommitment)
     c_sys5_pglib = PSB.build_system(PSITestSystems, "c_sys5_pglib")
     model = DecisionModel(MockOperationProblem, ACPPowerModel, c_sys5_pglib;)
     mock_construct_device!(model, device_model)
@@ -803,7 +803,7 @@ end
 
 ############################ Thermal Compact Dispatch Testing ##############################
 @testset "Thermal Standard with Compact Dispatch and DC - PF" begin
-    device_model = DeviceModel(PSY.ThermalStandard, PSI.ThermalCompactDispatch)
+    device_model = DeviceModel(PSY.ThermalStandard, POM.ThermalCompactDispatch)
     c_sys5 = PSB.build_system(PSITestSystems, "c_sys5")
     model = DecisionModel(MockOperationProblem, DCPPowerModel, c_sys5)
     mock_construct_device!(model, device_model; built_for_recurrent_solves = true)
@@ -820,7 +820,7 @@ end
 end
 
 @testset "Thermal MultiStart with Compact Dispatch and DC - PF" begin
-    device_model = DeviceModel(PSY.ThermalMultiStart, PSI.ThermalCompactDispatch)
+    device_model = DeviceModel(PSY.ThermalMultiStart, POM.ThermalCompactDispatch)
     c_sys5_pglib = PSB.build_system(PSITestSystems, "c_sys5_pglib")
     model = DecisionModel(MockOperationProblem, DCPPowerModel, c_sys5_pglib)
     mock_construct_device!(model, device_model; built_for_recurrent_solves = true)
@@ -837,7 +837,7 @@ end
 end
 
 @testset "Thermal Standard with Compact Dispatch and AC - PF" begin
-    device_model = DeviceModel(PSY.ThermalStandard, PSI.ThermalCompactDispatch)
+    device_model = DeviceModel(PSY.ThermalStandard, POM.ThermalCompactDispatch)
     c_sys5 = PSB.build_system(PSITestSystems, "c_sys5")
     model = DecisionModel(MockOperationProblem, ACPPowerModel, c_sys5)
     mock_construct_device!(model, device_model; built_for_recurrent_solves = true)
@@ -854,7 +854,7 @@ end
 end
 
 @testset "Thermal MultiStart with Compact Dispatch and AC - PF" begin
-    device_model = DeviceModel(PSY.ThermalMultiStart, PSI.ThermalCompactDispatch)
+    device_model = DeviceModel(PSY.ThermalMultiStart, POM.ThermalCompactDispatch)
     c_sys5_pglib = PSB.build_system(PSITestSystems, "c_sys5_pglib")
     model = DecisionModel(MockOperationProblem, ACPPowerModel, c_sys5_pglib)
     mock_construct_device!(model, device_model; built_for_recurrent_solves = true)
@@ -883,7 +883,7 @@ end
         optimizer = HiGHS_optimizer,
         initialize_model = false,
     )
-    @test build!(ED; output_dir = mktempdir(; cleanup = true)) == PSI.ModelBuildStatus.BUILT
+    @test build!(ED; output_dir = mktempdir(; cleanup = true)) == POM.ModelBuildStatus.BUILT
     moi_tests(ED, 10, 0, 20, 10, 5, false)
     psi_checksolve_test(ED, [MOI.OPTIMAL], 11191.00)
 end
@@ -900,7 +900,7 @@ end
         store_variable_names = true,
     )
     build!(UC; output_dir = mktempdir(; cleanup = true))
-    @test build!(UC; output_dir = mktempdir(; cleanup = true)) == PSI.ModelBuildStatus.BUILT
+    @test build!(UC; output_dir = mktempdir(; cleanup = true)) == POM.ModelBuildStatus.BUILT
     moi_tests(UC, 56, 0, 56, 14, 21, true)
     psi_checksolve_test(UC, [MOI.OPTIMAL], 8223.50)
 end
@@ -925,7 +925,7 @@ end
         set_device_model!(template, ThermalStandard, model)
         UC = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
         @test build!(UC; output_dir = mktempdir(; cleanup = true)) ==
-              PSI.ModelBuildStatus.BUILT
+              POM.ModelBuildStatus.BUILT
         psi_checksolve_test(UC, [MOI.OPTIMAL, MOI.LOCALLY_SOLVED], 340000, 100000)
     end
 end
@@ -944,8 +944,8 @@ end
         affected_values = [ActivePowerVariable],
     )
 
-    PSI.attach_feedforward!(device_model, ff_sc)
-    PSI.attach_feedforward!(device_model, ff_ub)
+    POM.attach_feedforward!(device_model, ff_sc)
+    POM.attach_feedforward!(device_model, ff_ub)
     c_sys5 = PSB.build_system(PSITestSystems, "c_sys5")
     model = DecisionModel(MockOperationProblem, DCPPowerModel, c_sys5)
     mock_construct_device!(model, device_model; built_for_recurrent_solves = true)
@@ -974,8 +974,8 @@ end
         affected_values = [ActivePowerVariable],
     )
 
-    PSI.attach_feedforward!(device_model, ff_sc)
-    PSI.attach_feedforward!(device_model, ff_ub)
+    POM.attach_feedforward!(device_model, ff_sc)
+    POM.attach_feedforward!(device_model, ff_ub)
     c_sys5 = PSB.build_system(PSITestSystems, "c_sys5")
     model = DecisionModel(MockOperationProblem, DCPPowerModel, c_sys5)
     mock_construct_device!(model, device_model; built_for_recurrent_solves = true)
@@ -991,7 +991,7 @@ end
 end
 
 @testset "Test Feedforwards to ThermalStandard with ThermalCompactDispatch" begin
-    device_model = DeviceModel(PSY.ThermalStandard, PSI.ThermalCompactDispatch)
+    device_model = DeviceModel(PSY.ThermalStandard, POM.ThermalCompactDispatch)
     ff_sc = SemiContinuousFeedforward(;
         component_type = ThermalStandard,
         source = OnVariable,
@@ -1000,12 +1000,12 @@ end
 
     ff_ub = UpperBoundFeedforward(;
         component_type = ThermalStandard,
-        source = PSI.PowerAboveMinimumVariable,
-        affected_values = [PSI.PowerAboveMinimumVariable],
+        source = POM.PowerAboveMinimumVariable,
+        affected_values = [POM.PowerAboveMinimumVariable],
     )
 
-    PSI.attach_feedforward!(device_model, ff_sc)
-    PSI.attach_feedforward!(device_model, ff_ub)
+    POM.attach_feedforward!(device_model, ff_sc)
+    POM.attach_feedforward!(device_model, ff_ub)
     c_sys5 = PSB.build_system(PSITestSystems, "c_sys5")
     model = DecisionModel(MockOperationProblem, DCPPowerModel, c_sys5)
     mock_construct_device!(model, device_model; built_for_recurrent_solves = true)
@@ -1034,8 +1034,8 @@ end
         affected_values = [ActivePowerVariable],
     )
 
-    PSI.attach_feedforward!(device_model, ff_sc)
-    PSI.attach_feedforward!(device_model, ff_ub)
+    POM.attach_feedforward!(device_model, ff_sc)
+    POM.attach_feedforward!(device_model, ff_ub)
     c_sys5 = PSB.build_system(PSITestSystems, "c_sys5_pglib")
     model = DecisionModel(MockOperationProblem, DCPPowerModel, c_sys5)
     mock_construct_device!(model, device_model; built_for_recurrent_solves = true)
@@ -1064,8 +1064,8 @@ end
         affected_values = [ActivePowerVariable],
     )
 
-    PSI.attach_feedforward!(device_model, ff_sc)
-    PSI.attach_feedforward!(device_model, ff_ub)
+    POM.attach_feedforward!(device_model, ff_sc)
+    POM.attach_feedforward!(device_model, ff_ub)
     c_sys5 = PSB.build_system(PSITestSystems, "c_sys5_pglib")
     model = DecisionModel(MockOperationProblem, DCPPowerModel, c_sys5)
     mock_construct_device!(model, device_model; built_for_recurrent_solves = true)
@@ -1081,21 +1081,21 @@ end
 end
 
 @testset "Test Feedforwards to ThermalMultiStart with ThermalCompactDispatch" begin
-    device_model = DeviceModel(PSY.ThermalMultiStart, PSI.ThermalCompactDispatch)
+    device_model = DeviceModel(PSY.ThermalMultiStart, POM.ThermalCompactDispatch)
     ff_sc = SemiContinuousFeedforward(;
         component_type = ThermalMultiStart,
         source = OnVariable,
-        affected_values = [PSI.PowerAboveMinimumVariable],
+        affected_values = [POM.PowerAboveMinimumVariable],
     )
 
     ff_ub = UpperBoundFeedforward(;
         component_type = ThermalMultiStart,
-        source = PSI.PowerAboveMinimumVariable,
-        affected_values = [PSI.PowerAboveMinimumVariable],
+        source = POM.PowerAboveMinimumVariable,
+        affected_values = [POM.PowerAboveMinimumVariable],
     )
 
-    PSI.attach_feedforward!(device_model, ff_sc)
-    PSI.attach_feedforward!(device_model, ff_ub)
+    POM.attach_feedforward!(device_model, ff_sc)
+    POM.attach_feedforward!(device_model, ff_ub)
     c_sys5 = PSB.build_system(PSITestSystems, "c_sys5_pglib")
     model = DecisionModel(MockOperationProblem, DCPPowerModel, c_sys5)
     mock_construct_device!(model, device_model; built_for_recurrent_solves = true)
@@ -1183,12 +1183,12 @@ end
 
     mock_construct_device!(model, device_model)
     moi_tests(model, 480, 0, 504, 120, 120, true)
-    key = PSI.ConstraintKey(
+    key = POM.ConstraintKey(
         ActivePowerVariableTimeSeriesLimitsConstraint,
         ThermalStandard,
         "ub",
     )
-    constraint = PSI.get_constraint(PSI.get_optimization_container(model), key)
+    constraint = POM.get_constraint(POM.get_optimization_container(model), key)
     ub_value = get_max_active_power(solitude) * 0.8
     for ix in eachindex(constraint)
         @test JuMP.normalized_rhs(constraint[ix]) == ub_value
@@ -1257,7 +1257,7 @@ end
     # Test time series <-> parameter correspondence
     fc_uc = read_parameter(
         res_uc,
-        PSI.FuelCostParameter,
+        POM.FuelCostParameter,
         PSY.ThermalStandard;
         table_format = TableFormat.WIDE,
     )
@@ -1334,33 +1334,33 @@ end
         optimizer_solve_log_print = false,
     )
     @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
-          PSI.ModelBuildStatus.BUILT
+          POM.ModelBuildStatus.BUILT
     solve!(model)
     moi_tests(model, 288, 0, 192, 120, 72, false)
-    container = PSI.get_optimization_container(model)
+    container = POM.get_optimization_container(model)
     @test isa(
-        PSI.get_invariant_terms(PSI.get_objective_expression(container)),
+        POM.get_invariant_terms(POM.get_objective_expression(container)),
         JuMP.QuadExpr,
     )
 end
 
 @testset "Thermal UC With Slack on Ramps" begin
     bin_variable_keys = [
-        PSI.VariableKey(OnVariable, PSY.ThermalStandard),
-        PSI.VariableKey(StartVariable, PSY.ThermalStandard),
-        PSI.VariableKey(StopVariable, PSY.ThermalStandard),
+        POM.VariableKey(OnVariable, PSY.ThermalStandard),
+        POM.VariableKey(StartVariable, PSY.ThermalStandard),
+        POM.VariableKey(StopVariable, PSY.ThermalStandard),
     ]
 
     uc_constraint_keys = [
-        PSI.ConstraintKey(RampConstraint, PSY.ThermalStandard, "up"),
-        PSI.ConstraintKey(RampConstraint, PSY.ThermalStandard, "dn"),
-        PSI.ConstraintKey(DurationConstraint, PSY.ThermalStandard, "up"),
-        PSI.ConstraintKey(DurationConstraint, PSY.ThermalStandard, "dn"),
+        POM.ConstraintKey(RampConstraint, PSY.ThermalStandard, "up"),
+        POM.ConstraintKey(RampConstraint, PSY.ThermalStandard, "dn"),
+        POM.ConstraintKey(DurationConstraint, PSY.ThermalStandard, "up"),
+        POM.ConstraintKey(DurationConstraint, PSY.ThermalStandard, "dn"),
     ]
 
     aux_variables_keys = [
-        PSI.AuxVarKey(PSI.TimeDurationOff, ThermalStandard),
-        PSI.AuxVarKey(PSI.TimeDurationOn, ThermalStandard),
+        POM.AuxVarKey(POM.TimeDurationOff, ThermalStandard),
+        POM.AuxVarKey(POM.TimeDurationOn, ThermalStandard),
     ]
     # Unit Commitment #
     device_model =
@@ -1395,8 +1395,8 @@ end
     device_model =
         DeviceModel(ThermalStandard, ThermalStandardDispatch; use_slacks = true)
     uc_constraint_keys = [
-        PSI.ConstraintKey(RampConstraint, PSY.ThermalStandard, "up"),
-        PSI.ConstraintKey(RampConstraint, PSY.ThermalStandard, "dn"),
+        POM.ConstraintKey(RampConstraint, PSY.ThermalStandard, "up"),
+        POM.ConstraintKey(RampConstraint, PSY.ThermalStandard, "dn"),
     ]
 
     c_sys5_uc = PSB.build_system(PSITestSystems, "c_sys5_uc")

@@ -1,20 +1,20 @@
 # NOTE: None of the models and function in this file are functional. All of these are used for testing purposes and do not represent valid examples either to develop custom
 # models. Please refer to the documentation.
 
-struct MockOperationProblem <: PSI.DefaultDecisionProblem end
-struct MockEmulationProblem <: PSI.DefaultEmulationProblem end
+struct MockOperationProblem <: POM.DefaultDecisionProblem end
+struct MockEmulationProblem <: POM.DefaultEmulationProblem end
 
-function PSI.DecisionModel(
+function POM.DecisionModel(
     ::Type{MockOperationProblem},
     ::Type{T},
     sys::PSY.System;
     name = nothing,
     kwargs...,
 ) where {T <: PM.AbstractPowerModel}
-    settings = PSI.Settings(sys; kwargs...)
+    settings = POM.Settings(sys; kwargs...)
     available_resolutions = PSY.get_time_series_resolutions(sys)
     if length(available_resolutions) == 1
-        PSI.set_resolution!(settings, first(available_resolutions))
+        POM.set_resolution!(settings, first(available_resolutions))
     else
         error("System has multiple resolutions MockOperationProblem won't work")
     end
@@ -55,7 +55,7 @@ function make_mock_singletimeseries(horizon, resolution)
     return SingleTimeSeries(; name = "mock_timeseries", data = timeseries_data)
 end
 
-function PSI.DecisionModel(::Type{MockOperationProblem}; name = nothing, kwargs...)
+function POM.DecisionModel(::Type{MockOperationProblem}; name = nothing, kwargs...)
     sys = System(100.0)
     add_component!(sys, ACBus(nothing))
     l = PowerLoad(nothing)
@@ -71,7 +71,7 @@ function PSI.DecisionModel(::Type{MockOperationProblem}; name = nothing, kwargs.
         get(kwargs, :steps, 2),
     )
     add_time_series!(sys, l, forecast)
-    settings = PSI.Settings(sys;
+    settings = POM.Settings(sys;
         horizon = get(kwargs, :horizon, Hour(24)),
         resolution = get(kwargs, :resolution, Hour(1)))
     return DecisionModel{MockOperationProblem}(
@@ -83,7 +83,7 @@ function PSI.DecisionModel(::Type{MockOperationProblem}; name = nothing, kwargs.
     )
 end
 
-function PSI.EmulationModel(::Type{MockEmulationProblem}; name = nothing, kwargs...)
+function POM.EmulationModel(::Type{MockEmulationProblem}; name = nothing, kwargs...)
     sys = System(100.0)
     add_component!(sys, ACBus(nothing))
     l = PowerLoad(nothing)
@@ -98,7 +98,7 @@ function PSI.EmulationModel(::Type{MockEmulationProblem}; name = nothing, kwargs
     )
     add_time_series!(sys, l, single_ts)
 
-    settings = PSI.Settings(sys;
+    settings = POM.Settings(sys;
         horizon = get(kwargs, :resolution, Hour(1)),
         resolution = get(kwargs, :resolution, Hour(1)))
     return EmulationModel{MockEmulationProblem}(
@@ -112,77 +112,68 @@ end
 
 # Only used for testing
 function mock_construct_device!(
-    problem::PSI.DecisionModel{MockOperationProblem},
+    problem::POM.DecisionModel{MockOperationProblem},
     model;
     built_for_recurrent_solves = false,
     add_event_model = false,
 )
     if add_event_model
-        device_type = typeof(model).parameters[1]
-        event_device = collect(get_components(device_type, PSI.get_system(problem)))[1]
-        transition_data = PSY.FixedForcedOutage(; outage_status = 0.0)
-        add_supplemental_attribute!(PSI.get_system(problem), event_device, transition_data)
-        mock_event_key = PowerSimulations.EventKey{FixedForcedOutage, device_type}("")
-        mock_event_model = EventModel(
-            FixedForcedOutage,
-            PSI.ContinuousCondition(),
-        )
-        model.events = Dict(mock_event_key => mock_event_model)
+        error("Event models are not supported in PowerOptimizationModels. Use PowerSimulations for event modeling.")
     end
     set_device_model!(problem.template, model)
-    template = PSI.get_template(problem)
-    PSI.finalize_template!(template, PSI.get_system(problem))
-    PSI.validate_time_series!(problem)
-    PSI.init_optimization_container!(
-        PSI.get_optimization_container(problem),
-        PSI.get_network_model(template),
-        PSI.get_system(problem),
+    template = POM.get_template(problem)
+    POM.finalize_template!(template, POM.get_system(problem))
+    POM.validate_time_series!(problem)
+    POM.init_optimization_container!(
+        POM.get_optimization_container(problem),
+        POM.get_network_model(template),
+        POM.get_system(problem),
     )
-    PSI.get_network_model(template).subnetworks =
-        PNM.find_subnetworks(PSI.get_system(problem))
-    PSI.get_optimization_container(problem).built_for_recurrent_solves =
+    POM.get_network_model(template).subnetworks =
+        PNM.find_subnetworks(POM.get_system(problem))
+    POM.get_optimization_container(problem).built_for_recurrent_solves =
         built_for_recurrent_solves
-    PSI.initialize_system_expressions!(
-        PSI.get_optimization_container(problem),
-        PSI.get_network_model(template),
-        PSI.get_network_model(template).subnetworks,
-        PSI.get_system(problem),
+    POM.initialize_system_expressions!(
+        POM.get_optimization_container(problem),
+        POM.get_network_model(template),
+        POM.get_network_model(template).subnetworks,
+        POM.get_system(problem),
         Dict{Int64, Set{Int64}}(),
     )
-    if PSI.validate_available_devices(model, PSI.get_system(problem))
-        PSI.construct_device!(
-            PSI.get_optimization_container(problem),
-            PSI.get_system(problem),
-            PSI.ArgumentConstructStage(),
+    if POM.validate_available_devices(model, POM.get_system(problem))
+        POM.construct_device!(
+            POM.get_optimization_container(problem),
+            POM.get_system(problem),
+            POM.ArgumentConstructStage(),
             model,
-            PSI.get_network_model(template),
+            POM.get_network_model(template),
         )
-        PSI.construct_device!(
-            PSI.get_optimization_container(problem),
-            PSI.get_system(problem),
-            PSI.ModelConstructStage(),
+        POM.construct_device!(
+            POM.get_optimization_container(problem),
+            POM.get_system(problem),
+            POM.ModelConstructStage(),
             model,
-            PSI.get_network_model(template),
+            POM.get_network_model(template),
         )
     end
 
-    PSI.check_optimization_container(PSI.get_optimization_container(problem))
+    POM.check_optimization_container(POM.get_optimization_container(problem))
 
     JuMP.@objective(
-        PSI.get_jump_model(problem),
+        POM.get_jump_model(problem),
         MOI.MIN_SENSE,
-        PSI.get_objective_expression(
-            PSI.get_optimization_container(problem).objective_function,
+        POM.get_objective_expression(
+            POM.get_optimization_container(problem).objective_function,
         )
     )
     return
 end
 
-function mock_construct_network!(problem::PSI.DecisionModel{MockOperationProblem}, model)
-    PSI.set_network_model!(problem.template, model)
-    PSI.construct_network!(
-        PSI.get_optimization_container(problem),
-        PSI.get_system(problem),
+function mock_construct_network!(problem::POM.DecisionModel{MockOperationProblem}, model)
+    POM.set_network_model!(problem.template, model)
+    POM.construct_network!(
+        POM.get_optimization_container(problem),
+        POM.get_system(problem),
         model,
         problem.template.branches,
     )
@@ -226,21 +217,21 @@ end
 
 function setup_ic_model_container!(model::DecisionModel)
     # This function is only for testing purposes.
-    if !PSI.isempty(model)
-        PSI.reset!(model)
+    if !POM.isempty(model)
+        POM.reset!(model)
     end
 
-    PSI.init_optimization_container!(
-        PSI.get_optimization_container(model),
-        PSI.get_network_model(PSI.get_template(model)),
-        PSI.get_system(model),
+    POM.init_optimization_container!(
+        POM.get_optimization_container(model),
+        POM.get_network_model(POM.get_template(model)),
+        POM.get_system(model),
     )
 
-    PSI.init_model_store_params!(model)
+    POM.init_model_store_params!(model)
 
     @info "Make Initial Conditions Model"
-    PSI.set_output_dir!(model, mktempdir(; cleanup = true))
-    PSI.build_initial_conditions!(model)
-    PSI.initialize!(model)
+    POM.set_output_dir!(model, mktempdir(; cleanup = true))
+    POM.build_initial_conditions!(model)
+    POM.initialize!(model)
     return
 end

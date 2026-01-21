@@ -15,9 +15,9 @@
     set_device_model!(template_uc, DeviceModel(TModelHVDCLine, LosslessLine))
     set_hvdc_network_model!(template_uc, TransportHVDCNetworkModel)
     model = DecisionModel(template_uc, sys_5; name = "UC", optimizer = HiGHS_optimizer)
-    @test build!(model; output_dir = mktempdir()) == PSI.ModelBuildStatus.BUILT
+    @test build!(model; output_dir = mktempdir()) == POM.ModelBuildStatus.BUILT
     moi_tests(model, 1656, 288, 1248, 528, 888, true)
-    @test solve!(model) == PSI.RunStatus.SUCCESSFULLY_FINALIZED
+    @test solve!(model) == POM.RunStatus.SUCCESSFULLY_FINALIZED
 
     template_uc = ProblemTemplate(NetworkModel(
         PTDFPowerModel;
@@ -34,9 +34,9 @@
     set_device_model!(template_uc, DeviceModel(TModelHVDCLine, LosslessLine))
     set_hvdc_network_model!(template_uc, TransportHVDCNetworkModel)
     model = DecisionModel(template_uc, sys_5; name = "UC", optimizer = HiGHS_optimizer)
-    @test build!(model; output_dir = mktempdir()) == PSI.ModelBuildStatus.BUILT
+    @test build!(model; output_dir = mktempdir()) == POM.ModelBuildStatus.BUILT
     moi_tests(model, 1128, 0, 1248, 528, 384, true)
-    @test solve!(model) == PSI.RunStatus.SUCCESSFULLY_FINALIZED
+    @test solve!(model) == POM.RunStatus.SUCCESSFULLY_FINALIZED
 end
 
 function _generate_test_hvdc_sys()
@@ -92,8 +92,8 @@ end
             optimizer = HiGHS_optimizer,
         )
     @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
-          PSI.ModelBuildStatus.BUILT
-    @test solve!(model) == PSI.RunStatus.SUCCESSFULLY_FINALIZED
+          POM.ModelBuildStatus.BUILT
+    @test solve!(model) == POM.RunStatus.SUCCESSFULLY_FINALIZED
 end
 
 @testset "HVDC System with Losses Network" begin
@@ -122,6 +122,6 @@ end
             optimizer = HiGHS_optimizer,
         )
     @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
-          PSI.ModelBuildStatus.BUILT
-    @test solve!(model) == PSI.RunStatus.SUCCESSFULLY_FINALIZED
+          POM.ModelBuildStatus.BUILT
+    @test solve!(model) == POM.RunStatus.SUCCESSFULLY_FINALIZED
 end

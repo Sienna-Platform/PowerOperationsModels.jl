@@ -1,20 +1,20 @@
 # See also test_import_export_cost.jl
 
 const BASIC_SOURCE_CONSTRAINT_KEYS = [
-    PSI.ConstraintKey(ImportExportBudgetConstraint, PSY.Source, "import"),
-    PSI.ConstraintKey(ImportExportBudgetConstraint, PSY.Source, "export"),
-    PSI.ConstraintKey(ActivePowerVariableLimitsConstraint, PSY.Source, "ub"),
-    PSI.ConstraintKey(ActivePowerVariableLimitsConstraint, PSY.Source, "lb"),
-    PSI.ConstraintKey(InputActivePowerVariableLimitsConstraint, PSY.Source, "ub"),
-    PSI.ConstraintKey(InputActivePowerVariableLimitsConstraint, PSY.Source, "lb"),
-    PSI.ConstraintKey(PiecewiseLinearBlockIncrementalOfferConstraint, PSY.Source),
-    PSI.ConstraintKey(PiecewiseLinearBlockDecrementalOfferConstraint, PSY.Source),
+    ConstraintKey(ImportExportBudgetConstraint, PSY.Source, "import"),
+    ConstraintKey(ImportExportBudgetConstraint, PSY.Source, "export"),
+    ConstraintKey(ActivePowerVariableLimitsConstraint, PSY.Source, "ub"),
+    ConstraintKey(ActivePowerVariableLimitsConstraint, PSY.Source, "lb"),
+    ConstraintKey(InputActivePowerVariableLimitsConstraint, PSY.Source, "ub"),
+    ConstraintKey(InputActivePowerVariableLimitsConstraint, PSY.Source, "lb"),
+    ConstraintKey(PiecewiseLinearBlockIncrementalOfferConstraint, PSY.Source),
+    ConstraintKey(PiecewiseLinearBlockDecrementalOfferConstraint, PSY.Source),
 ]
 
 const TS_SOURCE_CONSTRAINT_KEYS = [
     BASIC_SOURCE_CONSTRAINT_KEYS...,
-    PSI.ConstraintKey(ActivePowerOutVariableTimeSeriesLimitsConstraint, Source, "ub"),
-    PSI.ConstraintKey(ActivePowerInVariableTimeSeriesLimitsConstraint, Source, "ub"),
+    ConstraintKey(ActivePowerOutVariableTimeSeriesLimitsConstraint, PSY.Source, "ub"),
+    ConstraintKey(ActivePowerInVariableTimeSeriesLimitsConstraint, PSY.Source, "ub"),
 ]
 
 @testset "ImportExportSource Source With CopperPlate" begin
@@ -124,8 +124,8 @@ end
         optimizer_solve_log_print = false,
     )
 
-    @test build!(model; output_dir = mktempdir()) == PSI.ModelBuildStatus.BUILT
-    @test solve!(model) == PSI.RunStatus.SUCCESSFULLY_FINALIZED
+    @test build!(model; output_dir = mktempdir()) == ModelBuildStatus.BUILT
+    @test solve!(model) == RunStatus.SUCCESSFULLY_FINALIZED
 
     res = OptimizationProblemResults(model)
     p_out = read_variable(
