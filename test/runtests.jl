@@ -2,12 +2,12 @@ include("includes.jl")
 
 # Code Quality Tests
 import Aqua
-Aqua.test_undefined_exports(PowerOptimizationModels)
-Aqua.test_ambiguities(PowerOptimizationModels)
-Aqua.test_stale_deps(PowerOptimizationModels)
-Aqua.find_persistent_tasks_deps(PowerOptimizationModels)
-Aqua.test_persistent_tasks(PowerOptimizationModels)
-Aqua.test_unbound_args(PowerOptimizationModels)
+Aqua.test_undefined_exports(InfrastructureOptimizationModels)
+Aqua.test_ambiguities(InfrastructureOptimizationModels)
+Aqua.test_stale_deps(InfrastructureOptimizationModels)
+Aqua.find_persistent_tasks_deps(InfrastructureOptimizationModels)
+Aqua.test_persistent_tasks(InfrastructureOptimizationModels)
+Aqua.test_unbound_args(InfrastructureOptimizationModels)
 
 const LOG_FILE = "power-simulations-test.log"
 
@@ -133,7 +133,7 @@ function run_tests()
             IS.set_group_levels!(multi_logger, config.group_levels)
         end
 
-        @time @testset "Begin PowerOptimizationModels tests" begin
+        @time @testset "Begin InfrastructureOptimizationModels tests" begin
             @includetests ARGS
         end
 

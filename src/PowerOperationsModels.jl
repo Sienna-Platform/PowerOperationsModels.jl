@@ -63,13 +63,13 @@ include("core/formulations.jl")
 include("core/network_formulations.jl")
 
 #################################################################################
-# Import and re-export from PowerOptimizationModels
+# Import and re-export from InfrastructureOptimizationModels
 # Infrastructure types and functions that are not type definitions
 #################################################################################
-import PowerOptimizationModels
-const POM = PowerOptimizationModels
+import InfrastructureOptimizationModels
+const POM = InfrastructureOptimizationModels
 
-using PowerOptimizationModels:
+using InfrastructureOptimizationModels:
     # Base Models
     DecisionModel,
     EmulationModel,

@@ -14,7 +14,7 @@
 # struct TapControl <: AbstractBranchFormulation end
 
 #################################### Branch Variables ##################################################
-# Because of the way we integrate with PowerModels, most of the time PowerOptimizationModels will create variables
+# Because of the way we integrate with PowerModels, most of the time InfrastructureOptimizationModels will create variables
 # for the branch flows either in AC or DC.
 
 #! format: off

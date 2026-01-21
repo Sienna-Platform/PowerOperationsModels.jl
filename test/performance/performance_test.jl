@@ -1,7 +1,7 @@
-precompile_time = @timed using PowerOptimizationModels
+precompile_time = @timed using InfrastructureOptimizationModels
 
-using PowerOptimizationModels
-const POM = PowerOptimizationModels
+using InfrastructureOptimizationModels
+const POM = InfrastructureOptimizationModels
 using PowerSystems
 const PSY = PowerSystems
 using Logging
@@ -12,7 +12,7 @@ using HiGHS
 using Dates
 using PowerFlows
 
-@info pkgdir(PowerOptimizationModels)
+@info pkgdir(InfrastructureOptimizationModels)
 
 function is_running_on_ci()
     return get(ENV, "CI", "false") == "true" || haskey(ENV, "GITHUB_ACTIONS")

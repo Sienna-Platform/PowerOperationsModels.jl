@@ -82,7 +82,7 @@ function construct_network!(
     if T in UNSUPPORTED_POWERMODELS
         throw(
             ArgumentError(
-                "$(T) formulation is not currently supported in PowerOptimizationModels",
+                "$(T) formulation is not currently supported in InfrastructureOptimizationModels",
             ),
         )
     end
@@ -120,7 +120,7 @@ function construct_network!(
     if T in UNSUPPORTED_POWERMODELS
         throw(
             ArgumentError(
-                "$(T) formulation is not currently supported in PowerOptimizationModels",
+                "$(T) formulation is not currently supported in InfrastructureOptimizationModels",
             ),
         )
     end
@@ -172,7 +172,7 @@ function construct_network!(
     if T in UNSUPPORTED_POWERMODELS
         throw(
             ArgumentError(
-                "$(T) formulation is not currently supported in PowerOptimizationModels",
+                "$(T) formulation is not currently supported in InfrastructureOptimizationModels",
             ),
         )
     end
@@ -256,7 +256,7 @@ function construct_network!(
     if T in UNSUPPORTED_POWERMODELS
         throw(
             ArgumentError(
-                "$(T) formulation is not currently supported in PowerOptimizationModels",
+                "$(T) formulation is not currently supported in InfrastructureOptimizationModels",
             ),
         )
     end

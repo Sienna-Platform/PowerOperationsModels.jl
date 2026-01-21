@@ -1,5 +1,5 @@
 # SIIP Packages
-using PowerOptimizationModels
+using InfrastructureOptimizationModels
 using PowerSystems
 using PowerSystemCaseBuilder
 using InfrastructureSystems
@@ -33,14 +33,14 @@ import LinearAlgebra
 
 const PM = PowerModels
 const PSY = PowerSystems
-const POM = PowerOptimizationModels
+const POM = InfrastructureOptimizationModels
 const PFS = PowerFlows
 const PSB = PowerSystemCaseBuilder
 const PNM = PowerNetworkMatrices
 const ISOPT = InfrastructureSystems.Optimization
 
 const IS = InfrastructureSystems
-const BASE_DIR = string(dirname(dirname(pathof(PowerOptimizationModels))))
+const BASE_DIR = string(dirname(dirname(pathof(InfrastructureOptimizationModels))))
 const DATA_DIR = joinpath(BASE_DIR, "test/test_data")
 
 include("test_utils/common_operation_model.jl")
