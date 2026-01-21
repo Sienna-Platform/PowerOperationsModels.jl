@@ -6,7 +6,6 @@ module PowerOperationsModels
 import Dates
 import InfrastructureSystems
 import JuMP
-import PowerModels
 import PowerSystems
 import TimerOutputs
 
@@ -22,7 +21,7 @@ using DocStringExtensions
 #################################################################################
 const IS = InfrastructureSystems
 const ISOPT = InfrastructureSystems.Optimization
-const PM = PowerModels
+
 const PSY = PowerSystems
 
 # Import abstract types from InfrastructureSystems.Optimization
