@@ -298,10 +298,10 @@ using InfrastructureOptimizationModels:
     # Result writing/conversion methods to extend
     should_write_resulting_value,
     convert_result_to_natural_units
-    # Note: add_feedforward_arguments!, add_feedforward_constraints!,
-    # get_default_on_variable, get_default_off_variable are defined in POM, not IOM
-    # Note: ABSOLUTE_TOLERANCE is defined in POM's definitions.jl
-    # Note: TimeDurationOn and TimeDurationOff are defined in POM, not IOM
+# Note: add_feedforward_arguments!, add_feedforward_constraints!,
+# get_default_on_variable, get_default_off_variable are defined in POM, not IOM
+# Note: ABSOLUTE_TOLERANCE is defined in POM's definitions.jl
+# Note: TimeDurationOn and TimeDurationOff are defined in POM, not IOM
 
 #################################################################################
 # Include core type definitions

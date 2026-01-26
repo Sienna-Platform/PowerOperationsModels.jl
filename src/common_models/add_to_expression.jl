@@ -370,9 +370,17 @@ function add_to_expression!(
         ref_bus_to = get_reference_bus(network_model, PSY.get_arc(d).to)
         for t in get_time_steps(container)
             flow_variable = var[PSY.get_name(d), t]
-            add_proportional_to_jump_expression!(nodal_expr[bus_no_to, t], flow_variable, -1.0)
+            add_proportional_to_jump_expression!(
+                nodal_expr[bus_no_to, t],
+                flow_variable,
+                -1.0,
+            )
             if ref_bus_from != ref_bus_to
-                add_proportional_to_jump_expression!(sys_expr[ref_bus_to, t], flow_variable, -1.0)
+                add_proportional_to_jump_expression!(
+                    sys_expr[ref_bus_to, t],
+                    flow_variable,
+                    -1.0,
+                )
             end
         end
     end
@@ -407,9 +415,17 @@ function add_to_expression!(
         ref_bus_from = get_reference_bus(network_model, PSY.get_arc(d).from)
         for t in get_time_steps(container)
             flow_variable = var[PSY.get_name(d), t]
-            add_proportional_to_jump_expression!(nodal_expr[bus_no_from, t], flow_variable, -1.0)
+            add_proportional_to_jump_expression!(
+                nodal_expr[bus_no_from, t],
+                flow_variable,
+                -1.0,
+            )
             if ref_bus_from != ref_bus_to
-                add_proportional_to_jump_expression!(sys_expr[ref_bus_from, t], flow_variable, -1.0)
+                add_proportional_to_jump_expression!(
+                    sys_expr[ref_bus_from, t],
+                    flow_variable,
+                    -1.0,
+                )
             end
         end
     end
@@ -444,9 +460,17 @@ function add_to_expression!(
         ref_bus_from = get_reference_bus(network_model, PSY.get_arc(d).from)
         for t in get_time_steps(container)
             flow_variable = var[PSY.get_name(d), t]
-            add_proportional_to_jump_expression!(nodal_expr[bus_no_from, t], flow_variable, 1.0)
+            add_proportional_to_jump_expression!(
+                nodal_expr[bus_no_from, t],
+                flow_variable,
+                1.0,
+            )
             if ref_bus_from != ref_bus_to
-                add_proportional_to_jump_expression!(sys_expr[ref_bus_from, t], flow_variable, 1.0)
+                add_proportional_to_jump_expression!(
+                    sys_expr[ref_bus_from, t],
+                    flow_variable,
+                    1.0,
+                )
             end
         end
     end
@@ -478,7 +502,11 @@ function add_to_expression!(
             PNM.get_mapped_bus_number(network_reduction, PSY.get_arc(d).from)
         for t in get_time_steps(container)
             flow_variable = var[PSY.get_name(d), t]
-            add_proportional_to_jump_expression!(nodal_expr[bus_no_from, t], flow_variable, -1.0)
+            add_proportional_to_jump_expression!(
+                nodal_expr[bus_no_from, t],
+                flow_variable,
+                -1.0,
+            )
         end
     end
     return
@@ -509,7 +537,11 @@ function add_to_expression!(
             PNM.get_mapped_bus_number(network_reduction, PSY.get_arc(d).to)
         for t in get_time_steps(container)
             flow_variable = var[PSY.get_name(d), t]
-            add_proportional_to_jump_expression!(nodal_expr[bus_no_to, t], flow_variable, 1.0)
+            add_proportional_to_jump_expression!(
+                nodal_expr[bus_no_to, t],
+                flow_variable,
+                1.0,
+            )
         end
     end
     return
@@ -540,7 +572,11 @@ function add_to_expression!(
             PNM.get_mapped_bus_number(network_reduction, PSY.get_arc(d).from)
         for t in get_time_steps(container)
             flow_variable = var[PSY.get_name(d), t]
-            add_proportional_to_jump_expression!(nodal_expr[bus_no_from, t], flow_variable, -1.0)
+            add_proportional_to_jump_expression!(
+                nodal_expr[bus_no_from, t],
+                flow_variable,
+                -1.0,
+            )
         end
     end
     return
@@ -571,7 +607,11 @@ function add_to_expression!(
             PNM.get_mapped_bus_number(network_reduction, PSY.get_arc(d).to)
         for t in get_time_steps(container)
             flow_variable = var[PSY.get_name(d), t]
-            add_proportional_to_jump_expression!(nodal_expr[bus_no_to, t], flow_variable, -1.0)
+            add_proportional_to_jump_expression!(
+                nodal_expr[bus_no_to, t],
+                flow_variable,
+                -1.0,
+            )
         end
     end
     return
@@ -605,9 +645,17 @@ function add_to_expression!(
         ref_bus_from = get_reference_bus(network_model, PSY.get_arc(d).from)
         for t in get_time_steps(container)
             flow_variable = var[PSY.get_name(d), t]
-            add_proportional_to_jump_expression!(nodal_expr[bus_no_to, t], flow_variable, 1.0)
+            add_proportional_to_jump_expression!(
+                nodal_expr[bus_no_to, t],
+                flow_variable,
+                1.0,
+            )
             if ref_bus_from != ref_bus_to
-                add_proportional_to_jump_expression!(sys_expr[ref_bus_to, t], flow_variable, 1.0)
+                add_proportional_to_jump_expression!(
+                    sys_expr[ref_bus_to, t],
+                    flow_variable,
+                    1.0,
+                )
             end
         end
     end
@@ -640,7 +688,11 @@ function add_to_expression!(
             for t in get_time_steps(container)
                 flow_variable = var[PSY.get_name(d), t]
                 if ref_bus_from != ref_bus_to
-                    add_proportional_to_jump_expression!(sys_expr[ref_bus_to, t], flow_variable, 1.0)
+                    add_proportional_to_jump_expression!(
+                        sys_expr[ref_bus_to, t],
+                        flow_variable,
+                        1.0,
+                    )
                 end
             end
         end
@@ -674,7 +726,11 @@ function add_to_expression!(
             for t in get_time_steps(container)
                 flow_variable = var[PSY.get_name(d), t]
                 if ref_bus_from != ref_bus_to
-                    add_proportional_to_jump_expression!(sys_expr[ref_bus_to, t], flow_variable, -1.0)
+                    add_proportional_to_jump_expression!(
+                        sys_expr[ref_bus_to, t],
+                        flow_variable,
+                        -1.0,
+                    )
                 end
             end
         end
@@ -1122,7 +1178,11 @@ function add_to_expression!(
         ref_bus = get_reference_bus(network_model, device_bus)
         for t in get_time_steps(container)
             mult = get_expression_multiplier(U(), T(), d, W())
-            add_proportional_to_jump_expression!(expression[ref_bus, t], parameter[name, t], mult)
+            add_proportional_to_jump_expression!(
+                expression[ref_bus, t],
+                parameter[name, t],
+                mult,
+            )
         end
     end
     return
@@ -1266,8 +1326,16 @@ function add_to_expression!(
         device_bus = PSY.get_bus(d)
         ref_index = _ref_index(network_model, device_bus)
         for t in get_time_steps(container)
-            add_proportional_to_jump_expression!(sys_expr[ref_index, t], parameter[name, t], mult)
-            add_proportional_to_jump_expression!(nodal_expr[bus_no, t], parameter[name, t], mult)
+            add_proportional_to_jump_expression!(
+                sys_expr[ref_index, t],
+                parameter[name, t],
+                mult,
+            )
+            add_proportional_to_jump_expression!(
+                nodal_expr[bus_no, t],
+                parameter[name, t],
+                mult,
+            )
         end
     end
     return
@@ -1553,11 +1621,27 @@ function add_to_expression!(
         ref_bus_to = get_reference_bus(network_model, PSY.get_arc(d).to)
         for t in get_time_steps(container)
             flow_variable = var[PSY.get_name(d), t]
-            add_proportional_to_jump_expression!(nodal_expr[bus_no_from, t], flow_variable, -1.0)
-            add_proportional_to_jump_expression!(nodal_expr[bus_no_to, t], flow_variable, 1.0)
+            add_proportional_to_jump_expression!(
+                nodal_expr[bus_no_from, t],
+                flow_variable,
+                -1.0,
+            )
+            add_proportional_to_jump_expression!(
+                nodal_expr[bus_no_to, t],
+                flow_variable,
+                1.0,
+            )
             if ref_bus_from != ref_bus_to
-                add_proportional_to_jump_expression!(sys_expr[ref_bus_from, t], flow_variable, -1.0)
-                add_proportional_to_jump_expression!(sys_expr[ref_bus_to, t], flow_variable, 1.0)
+                add_proportional_to_jump_expression!(
+                    sys_expr[ref_bus_from, t],
+                    flow_variable,
+                    -1.0,
+                )
+                add_proportional_to_jump_expression!(
+                    sys_expr[ref_bus_to, t],
+                    flow_variable,
+                    1.0,
+                )
             end
         end
     end
@@ -1599,8 +1683,16 @@ function add_to_expression!(
             end
             for t in get_time_steps(container)
                 flow_variable = var[PSY.get_name(d), t]
-                add_proportional_to_jump_expression!(sys_expr[ref_bus_from, t], flow_variable, -1.0)
-                add_proportional_to_jump_expression!(sys_expr[ref_bus_to, t], flow_variable, 1.0)
+                add_proportional_to_jump_expression!(
+                    sys_expr[ref_bus_from, t],
+                    flow_variable,
+                    -1.0,
+                )
+                add_proportional_to_jump_expression!(
+                    sys_expr[ref_bus_to, t],
+                    flow_variable,
+                    1.0,
+                )
             end
         end
     end
@@ -2091,7 +2183,11 @@ function add_to_expression!(
         mult = get_expression_multiplier(U(), T(), d, W())
         for t in get_time_steps(container)
             name = PSY.get_name(d)
-            add_proportional_to_jump_expression!(expression[name, t], parameter_array[name, t], -mult)
+            add_proportional_to_jump_expression!(
+                expression[name, t],
+                parameter_array[name, t],
+                -mult,
+            )
         end
     end
     return
