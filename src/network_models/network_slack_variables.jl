@@ -162,7 +162,7 @@ function objective_function!(
     variable_up = get_variable(container, SystemBalanceSlackUp(), PSY.ACBus)
     variable_dn = get_variable(container, SystemBalanceSlackDown(), PSY.ACBus)
     bus_numbers = axes(variable_up)[1]
-    @assert_op bus_numbers == axes(variable_dn)[1]
+    IS.@assert_op bus_numbers == axes(variable_dn)[1]
     for t in get_time_steps(container), n in bus_numbers
         add_to_objective_invariant_expression!(
             container,
@@ -182,7 +182,7 @@ function objective_function!(
     variable_q_up = get_variable(container, SystemBalanceSlackUp(), PSY.ACBus, "Q")
     variable_q_dn = get_variable(container, SystemBalanceSlackDown(), PSY.ACBus, "Q")
     bus_numbers = axes(variable_p_up)[1]
-    @assert_op bus_numbers == axes(variable_q_dn)[1]
+    IS.@assert_op bus_numbers == axes(variable_q_dn)[1]
     for t in get_time_steps(container), n in bus_numbers
         add_to_objective_invariant_expression!(
             container,
