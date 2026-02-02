@@ -40,6 +40,21 @@ variable_cost(cost::PSY.OperationalCost, ::ActivePowerVariable, ::PSY.ElectricLo
 
 #! format: on
 
+# proportional cost: connects to common implementation in IOM
+# see also the definition in thermal_generation.jl
+add_proportional_cost!(
+    container::OptimizationContainer,
+    ::U,
+    devices::IS.FlattenIteratorWrapper{T},
+    ::PowerLoadInterruption,
+) where {U <: OnVariable, T <: PSY.ControllableLoad} =
+    add_proportional_cost_maybe_time_variant!(
+        container,
+        U,
+        devices,
+        PowerLoadInterruption(),
+    )
+
 function get_default_time_series_names(
     ::Type{<:PSY.ElectricLoad},
     ::Type{<:Union{FixedOutput, AbstractLoadFormulation}},

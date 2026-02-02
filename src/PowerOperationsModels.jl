@@ -93,7 +93,11 @@ import InfrastructureOptimizationModels:
     # Variable/expression multiplier functions (have stubs in IOM)
     get_variable_multiplier,
     get_expression_multiplier,
-    get_multiplier_value
+    get_multiplier_value,
+    # proportional cost
+    add_proportional_cost!,
+    add_proportional_cost_maybe_time_variant!,
+    skip_proportional_cost
 
 # Import types needed by device model files
 using InfrastructureOptimizationModels:

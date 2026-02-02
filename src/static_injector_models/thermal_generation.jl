@@ -1452,6 +1452,23 @@ function add_constraints!(
     return
 end
 
+# proportional cost: connects to common implementation in IOM
+# see also the definition in with electric_loads.jl
+skip_proportional_cost(d::PSY.ThermalGen) = get_must_run(d)
+
+add_proportional_cost!(
+    container::OptimizationContainer,
+    ::U,
+    devices::IS.FlattenIteratorWrapper{T},
+    formulation::AbstractThermalFormulation,
+) where {U <: OnVariable, T <: PSY.ThermalGen} =
+    add_proportional_cost_maybe_time_variant!(
+        container,
+        U(),
+        devices,
+        formulation,
+    )
+
 ########################### Objective Function Calls#############################################
 # These functions are custom implementations of the cost data. In the file objective_functions.jl there are default implementations. Define these only if needed.
 

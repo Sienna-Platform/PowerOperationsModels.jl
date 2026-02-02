@@ -2356,29 +2356,6 @@ function add_to_expression!(
     return
 end
 
-# this forces CostExpressions and FuelConsumptionExpression to be defined here.
-"""
-Add a cost expression term to a cost-related expression container.
-This is distinct from the device-form add_to_expression! methods.
-"""
-function add_cost_to_expression!(
-    container::OptimizationContainer,
-    ::Type{S},
-    cost_expression::JuMPOrFloat,
-    component::T,
-    time_period::Int,
-) where {S <: Union{CostExpressions, FuelConsumptionExpression}, T <: PSY.Component}
-    if has_container_key(container, S, T)
-        device_cost_expression = get_expression(container, S(), T)
-        component_name = PSY.get_name(component)
-        JuMP.add_to_expression!(
-            device_cost_expression[component_name, time_period],
-            cost_expression,
-        )
-    end
-    return
-end
-
 function add_cost_to_expression!(
     container::OptimizationContainer,
     ::Type{S},
