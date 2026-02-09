@@ -965,7 +965,7 @@ end
 ########### Objective Function #############
 ############################################
 
-function objective_function!(
+function add_to_objective_function!(
     ::OptimizationContainer,
     ::IS.FlattenIteratorWrapper{PSY.InterconnectingConverter},
     ::DeviceModel{PSY.InterconnectingConverter, D},

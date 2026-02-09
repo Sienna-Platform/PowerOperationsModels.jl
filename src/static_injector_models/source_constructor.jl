@@ -29,7 +29,8 @@ function construct_device!(
         add_variables!(container, ReservationVariable, devices, D())
     end
 
-    process_import_export_parameters!(container, devices, model)
+    #process_import_export_parameters!(container, devices, model)
+    error("process_import_export_parameters! not yet implemented in POM")
 
     add_to_expression!(
         container,
@@ -151,7 +152,12 @@ function construct_device!(
 
     add_feedforward_constraints!(container, model, devices)
 
-    objective_function!(container, devices, model, get_network_formulation(network_model))
+    add_to_objective_function!(
+        container,
+        devices,
+        model,
+        get_network_formulation(network_model),
+    )
     add_constraint_dual!(container, sys, model)
     return
 end
@@ -186,7 +192,8 @@ function construct_device!(
         add_variables!(container, ReservationVariable, devices, D())
     end
 
-    process_import_export_parameters!(container, devices, model)
+    #process_import_export_parameters!(container, devices, model)
+    error("process_import_export_parameters! not yet implemented in POM")
 
     add_to_expression!(
         container,
@@ -308,7 +315,12 @@ function construct_device!(
 
     add_feedforward_constraints!(container, model, devices)
 
-    objective_function!(container, devices, model, get_network_formulation(network_model))
+    add_to_objective_function!(
+        container,
+        devices,
+        model,
+        get_network_formulation(network_model),
+    )
     add_constraint_dual!(container, sys, model)
     return
 end

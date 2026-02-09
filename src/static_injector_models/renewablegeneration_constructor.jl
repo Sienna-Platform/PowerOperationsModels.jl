@@ -18,7 +18,8 @@ function construct_device!(
     if haskey(get_time_series_names(model), ReactivePowerTimeSeriesParameter)
         add_parameters!(container, ReactivePowerTimeSeriesParameter, devices, model)
     end
-    process_market_bid_parameters!(container, devices, model)
+    #process_market_bid_parameters!(container, devices, model)
+    error("process_market_bid_parameters! not yet implemented in POM")
 
     add_expressions!(container, ProductionCostExpression, devices, model)
 
@@ -107,7 +108,12 @@ function construct_device!(
     )
     add_feedforward_constraints!(container, model, devices)
 
-    objective_function!(container, devices, model, get_network_formulation(network_model))
+    add_to_objective_function!(
+        container,
+        devices,
+        model,
+        get_network_formulation(network_model),
+    )
 
     add_event_constraints!(container, devices, model, network_model)
     add_constraint_dual!(container, sys, model)
@@ -132,7 +138,8 @@ function construct_device!(
     if haskey(get_time_series_names(model), ActivePowerTimeSeriesParameter)
         add_parameters!(container, ActivePowerTimeSeriesParameter, devices, model)
     end
-    process_market_bid_parameters!(container, devices, model)
+    #process_market_bid_parameters!(container, devices, model)
+    error("process_market_bid_parameters! not yet implemented in POM")
 
     add_expressions!(container, ProductionCostExpression, devices, model)
 
@@ -204,7 +211,12 @@ function construct_device!(
     end
     add_feedforward_constraints!(container, model, devices)
 
-    objective_function!(container, devices, model, get_network_formulation(network_model))
+    add_to_objective_function!(
+        container,
+        devices,
+        model,
+        get_network_formulation(network_model),
+    )
 
     add_event_constraints!(container, devices, model, network_model)
     add_constraint_dual!(container, sys, model)
@@ -223,7 +235,8 @@ function construct_device!(
 
     add_parameters!(container, ActivePowerTimeSeriesParameter, devices, model)
     add_parameters!(container, ReactivePowerTimeSeriesParameter, devices, model)
-    process_market_bid_parameters!(container, devices, model)
+    #process_market_bid_parameters!(container, devices, model)
+    error("process_market_bid_parameters! not yet implemented in POM")
 
     add_to_expression!(
         container,
@@ -263,7 +276,8 @@ function construct_device!(
         model,
         network_model,
     )
-    process_market_bid_parameters!(container, devices, model)
+    #process_market_bid_parameters!(container, devices, model)
+    error("process_market_bid_parameters! not yet implemented in POM")
     add_event_arguments!(container, devices, model, network_model)
     return
 end

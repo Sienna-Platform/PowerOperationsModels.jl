@@ -261,7 +261,7 @@ function add_constraints!(
     return
 end
 
-function objective_function!(
+function add_to_objective_function!(
     container::OptimizationContainer,
     agcs::IS.FlattenIteratorWrapper{T},
     ::ServiceModel{<:PSY.AGC, U},

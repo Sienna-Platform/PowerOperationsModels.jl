@@ -296,7 +296,7 @@ function add_constraints!(
     return
 end
 
-function objective_function!(
+function add_to_objective_function!(
     container::OptimizationContainer,
     service::SR,
     ::ServiceModel{SR, T},
@@ -502,7 +502,7 @@ function add_constraints!(
     return
 end
 
-function objective_function!(
+function add_to_objective_function!(
     container::OptimizationContainer,
     service::PSY.ReserveDemandCurve{T},
     ::ServiceModel{PSY.ReserveDemandCurve{T}, SR},

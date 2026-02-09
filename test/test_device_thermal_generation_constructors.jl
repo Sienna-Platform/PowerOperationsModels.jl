@@ -871,6 +871,8 @@ end
 end
 
 ############################# Model validation tests #######################################
+
+# FIXME UnitCommitmentProblem and EconomicDispatchProblem not defined anywhere?!
 @testset "Solving ED with CopperPlate for testing Ramping Constraints" begin
     ramp_test_sys = PSB.build_system(PSITestSystems, "c_ramp_test")
     template = ProblemTemplate(CopperPlatePowerModel)
@@ -1257,7 +1259,7 @@ end
     # Test time series <-> parameter correspondence
     fc_uc = read_parameter(
         res_uc,
-        POM.FuelCostParameter,
+        IOM.FuelCostParameter,
         PSY.ThermalStandard;
         table_format = TableFormat.WIDE,
     )

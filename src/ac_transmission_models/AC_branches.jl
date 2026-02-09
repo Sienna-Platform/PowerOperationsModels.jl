@@ -1065,7 +1065,7 @@ function add_constraints!(
     return
 end
 
-function objective_function!(
+function add_to_objective_function!(
     container::OptimizationContainer,
     ::IS.FlattenIteratorWrapper{T},
     device_model::DeviceModel{T, <:AbstractBranchFormulation},
@@ -1086,7 +1086,7 @@ function objective_function!(
     return
 end
 
-function objective_function!(
+function add_to_objective_function!(
     container::OptimizationContainer,
     ::IS.FlattenIteratorWrapper{T},
     device_model::DeviceModel{T, <:AbstractBranchFormulation},

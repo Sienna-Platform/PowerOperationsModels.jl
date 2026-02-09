@@ -13,10 +13,11 @@ get_variable_multiplier(::FlowActivePowerVariable, ::Type{<:PSY.TwoTerminalHVDC}
 get_parameter_multiplier(::FixValueParameter, ::PSY.TwoTerminalHVDC, ::AbstractTwoTerminalDCLineFormulation) = 1.0
 get_variable_multiplier(::FlowActivePowerFromToVariable, ::Type{<:PSY.TwoTerminalHVDC}, ::AbstractTwoTerminalDCLineFormulation) = -1.0
 get_variable_multiplier(::FlowActivePowerToFromVariable, ::Type{<:PSY.TwoTerminalHVDC}, ::AbstractTwoTerminalDCLineFormulation) = -1.0
-
+get_variable_multiplier(::HVDCLosses, ::Type{<:PSY.TwoTerminalHVDC}, ::HVDCTwoTerminalDispatch) = -1.0
+#=
 function get_variable_multiplier(
     ::HVDCLosses,
-    d::PSY.TwoTerminalHVDC,
+    ::PSY.TwoTerminalHVDC,
     ::HVDCTwoTerminalDispatch,
 )
     loss = PSY.get_loss(d)
@@ -33,6 +34,7 @@ function get_variable_multiplier(
         return -1.0
     end
 end
+=#
 
 get_variable_lower_bound(::FlowActivePowerVariable, d::PSY.TwoTerminalHVDC, ::HVDCTwoTerminalUnbounded) = nothing
 get_variable_upper_bound(::FlowActivePowerVariable, d::PSY.TwoTerminalHVDC, ::HVDCTwoTerminalUnbounded) = nothing

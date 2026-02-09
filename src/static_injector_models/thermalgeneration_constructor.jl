@@ -17,7 +17,10 @@ end
         add_parameters!(container, FuelCostParameter, devices, model)
     end
 
-    process_market_bid_parameters!(container, devices, model)
+    if any(typeof.(PSY.get_operation_cost.(devices)) .== PSY.MarketBidCost)
+        error("cannot handle MBC right now")
+    end
+    #process_market_bid_parameters!(container, devices, model)
 end
 
 function construct_device!(
@@ -194,7 +197,7 @@ function construct_device!(
     add_feedforward_constraints!(container, device_model, devices)
     add_event_constraints!(container, devices, device_model, network_model)
 
-    objective_function!(
+    add_to_objective_function!(
         container,
         devices,
         device_model,
@@ -333,7 +336,7 @@ function construct_device!(
 
     add_feedforward_constraints!(container, device_model, devices)
 
-    objective_function!(
+    add_to_objective_function!(
         container,
         devices,
         device_model,
@@ -487,7 +490,7 @@ function construct_device!(
 
     add_feedforward_constraints!(container, device_model, devices)
 
-    objective_function!(
+    add_to_objective_function!(
         container,
         devices,
         device_model,
@@ -623,7 +626,7 @@ function construct_device!(
 
     add_feedforward_constraints!(container, device_model, devices)
 
-    objective_function!(
+    add_to_objective_function!(
         container,
         devices,
         device_model,
@@ -757,7 +760,7 @@ function construct_device!(
 
     add_feedforward_constraints!(container, device_model, devices)
 
-    objective_function!(
+    add_to_objective_function!(
         container,
         devices,
         device_model,
@@ -874,7 +877,7 @@ function construct_device!(
 
     add_feedforward_constraints!(container, device_model, devices)
 
-    objective_function!(
+    add_to_objective_function!(
         container,
         devices,
         device_model,
@@ -992,7 +995,7 @@ function construct_device!(
 
     add_feedforward_constraints!(container, device_model, devices)
 
-    objective_function!(
+    add_to_objective_function!(
         container,
         devices,
         device_model,
@@ -1093,7 +1096,7 @@ function construct_device!(
     add_feedforward_constraints!(container, device_model, devices)
     add_event_constraints!(container, devices, device_model, network_model)
 
-    objective_function!(
+    add_to_objective_function!(
         container,
         devices,
         device_model,
@@ -1287,7 +1290,7 @@ function construct_device!(
 
     add_feedforward_constraints!(container, device_model, devices)
 
-    objective_function!(
+    add_to_objective_function!(
         container,
         devices,
         device_model,
@@ -1461,7 +1464,7 @@ function construct_device!(
 
     add_feedforward_constraints!(container, device_model, devices)
 
-    objective_function!(
+    add_to_objective_function!(
         container,
         devices,
         device_model,
@@ -1622,7 +1625,7 @@ function construct_device!(
 
     add_feedforward_constraints!(container, device_model, devices)
 
-    objective_function!(
+    add_to_objective_function!(
         container,
         devices,
         device_model,
@@ -1769,7 +1772,7 @@ function construct_device!(
 
     add_feedforward_constraints!(container, device_model, devices)
 
-    objective_function!(
+    add_to_objective_function!(
         container,
         devices,
         device_model,
@@ -1928,7 +1931,7 @@ function construct_device!(
 
     add_feedforward_constraints!(container, device_model, devices)
 
-    objective_function!(
+    add_to_objective_function!(
         container,
         devices,
         device_model,
@@ -2071,7 +2074,7 @@ function construct_device!(
 
     add_feedforward_constraints!(container, device_model, devices)
 
-    objective_function!(
+    add_to_objective_function!(
         container,
         devices,
         device_model,
@@ -2211,7 +2214,7 @@ function construct_device!(
 
     add_feedforward_constraints!(container, device_model, devices)
 
-    objective_function!(
+    add_to_objective_function!(
         container,
         devices,
         device_model,
@@ -2335,7 +2338,7 @@ function construct_device!(
 
     add_feedforward_constraints!(container, device_model, devices)
 
-    objective_function!(
+    add_to_objective_function!(
         container,
         devices,
         device_model,

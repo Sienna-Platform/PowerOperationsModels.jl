@@ -155,7 +155,7 @@ function add_constraints!(
 end
 
 ##################################### renewable generation cost ############################
-function objective_function!(
+function add_to_objective_function!(
     container::OptimizationContainer,
     devices::IS.FlattenIteratorWrapper{T},
     ::DeviceModel{T, U},

@@ -205,12 +205,8 @@ r_{d,t} \\le \\text{RequirementTimeSeriesParameter}_{t} \\cdot \\text{PF}\\quad 
 ```
 """
 struct ParticipationFractionConstraint <: ConstraintType end
-"""
-Struct to create the PiecewiseLinearCostConstraint associated with a specified variable.
 
-See [Piecewise linear cost functions](@ref pwl_cost) for more information.
-"""
-struct PiecewiseLinearCostConstraint <: ConstraintType end
+# PiecewiseLinearCostConstraint: moved into IOM.
 
 abstract type AbstractPiecewiseLinearBlockOfferConstraint <: ConstraintType end
 

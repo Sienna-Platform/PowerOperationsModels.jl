@@ -84,7 +84,7 @@ import InfrastructureOptimizationModels:
     add_variables!,
     add_constraints!,
     add_to_expression!,
-    objective_function!,
+    add_to_objective_function!,
     initial_condition_variable,
     initial_condition_default,
     get_initial_conditions_value,
@@ -174,6 +174,12 @@ using InfrastructureOptimizationModels:
     OptimizerStats,
     ConstraintBounds,
     VariableBounds,
+    # parameter types
+    FuelCostParameter,
+    ShutdownCostParameter, # only used in like 2 places right now...
+    StartUpCostParameter,
+    VariableValueParameter,
+    OnStatusParameter,
     # Constants
     # Note: COST_EPSILON, INITIALIZATION_PROBLEM_HORIZON_COUNT, HOURS_IN_WEEK
     # are defined in POM's definitions.jl, not imported from IOM
@@ -221,7 +227,7 @@ using InfrastructureOptimizationModels:
     add_constraints_container!,
     add_expression_container!,
     add_variable_cost!,
-    objective_function!,
+    add_to_objective_function!,
     # Initial condition functions
     add_initial_condition!,
     add_initial_condition_container!,
@@ -257,7 +263,6 @@ using InfrastructureOptimizationModels:
     serialize_optimization_model,
     validate_time_series!,
     init_optimization_container!,
-    process_market_bid_parameters!,
     # JuMP access
     get_jump_model,
     jump_value,
@@ -402,7 +407,6 @@ export set_network_model!
 export get_network_formulation
 export get_hvdc_network_model
 export set_hvdc_network_model!
-export process_market_bid_parameters!
 export validate_time_series!
 export init_optimization_container!
 export get_network_model

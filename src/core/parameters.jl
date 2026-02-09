@@ -76,7 +76,7 @@ struct MinInterfaceFlowLimitParameter <: TimeSeriesParameter end
 # Variable Value Parameters
 #################################################################################
 
-abstract type VariableValueParameter <: RightHandSideParameter end
+# VariableValueParameter: moved into IOM.
 
 """
 Parameter to define variable upper bound
@@ -88,10 +88,7 @@ Parameter to define variable lower bound
 """
 struct LowerBoundValueParameter <: VariableValueParameter end
 
-"""
-Parameter to define unit commitment status updated from the system state
-"""
-struct OnStatusParameter <: VariableValueParameter end
+# OnStatusParameter: moved into IOM.
 
 """
 Parameter to FixValueParameter
@@ -107,16 +104,7 @@ Parameter to define cost function coefficient
 """
 struct CostFunctionParameter <: ObjectiveFunctionParameter end
 
-"""
-Parameter to define fuel cost time series
-"""
-struct FuelCostParameter <: ObjectiveFunctionParameter end
-
-"Parameter to define startup cost time series"
-struct StartupCostParameter <: ObjectiveFunctionParameter end
-
-"Parameter to define shutdown cost time series"
-struct ShutdownCostParameter <: ObjectiveFunctionParameter end
+# startup, shutdown, fuel cost parameters: in IOM
 
 "Parameters to define the cost at the minimum available power"
 abstract type AbstractCostAtMinParameter <: ObjectiveFunctionParameter end
