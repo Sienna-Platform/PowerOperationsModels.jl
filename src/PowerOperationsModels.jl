@@ -169,17 +169,17 @@ include("core/auxiliary_variables.jl")
 include("core/parameters.jl")
 include("core/formulations.jl")
 include("core/network_formulations.jl")
-include("core/feedforward_stubs.jl")
+include("core/feedforward_interface.jl")
 
 # Common models - expression infrastructure
 # Expression container creation (add_expressions!) and helpers
 include("common_models/add_expressions.jl")
 # Device-specific add_to_expression! implementations
 include("common_models/add_to_expression.jl")
-include("common_models/add_param_container.jl")
+# add_param_container.jl: moved into IOM
 include("common_models/add_parameters.jl")
 include("common_models/make_system_expressions.jl")
-include("common_models/range_constraints.jl")
+include("common_models/reserve_range_constraints.jl")
 
 # Initial Conditions - Device-specific implementations
 # These extend the generic infrastructure from IOM
@@ -522,7 +522,7 @@ export RequirementTimeSeriesParameter
 export UpperBoundValueParameter
 export LowerBoundValueParameter
 export OnStatusParameter
-export FixValueParameter
+# FixValueParameter: moved into IOM, re-exported via `using IOM`
 
 #################################################################################
 # Exports - Formulation Types (defined in core/formulations.jl)

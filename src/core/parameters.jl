@@ -90,10 +90,7 @@ struct LowerBoundValueParameter <: VariableValueParameter end
 
 # OnStatusParameter: moved into IOM.
 
-"""
-Parameter to FixValueParameter
-"""
-struct FixValueParameter <: VariableValueParameter end
+# FixValueParameter: moved into IOM.
 
 #################################################################################
 # Objective Function Parameters
