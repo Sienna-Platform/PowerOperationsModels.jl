@@ -230,8 +230,7 @@ include("mt_hvdc_models/hvdcsystems_constructor.jl")
 include("network_models/hvdc_networks.jl")
 include("network_models/hvdc_network_constructor.jl")
 
-# Operation Problem Templates (must come after all device/service formulations)
-include("core/operation_problem_templates.jl")
+# Operation problem templates removed per design review.
 
 # TODO: Add more model includes as they are ready
 # include("static_injector_models/static_injection_security_constrained_models.jl")
@@ -348,11 +347,6 @@ export SimulationBuildStatus
 # Problem Types
 export DefaultDecisionProblem
 export DefaultEmulationProblem
-export EconomicDispatchProblem
-export UnitCommitmentProblem
-export AGCReserveDeployment
-export template_unit_commitment
-export template_economic_dispatch
 
 # Settings and Data Types
 export Settings

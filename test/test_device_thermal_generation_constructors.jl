@@ -909,7 +909,7 @@ end
     set_device_model!(template, ThermalStandard, ThermalStandardDispatch)
     set_device_model!(template, PowerLoad, StaticPowerLoad)
     ED = DecisionModel(
-        EconomicDispatchProblem,
+        DefaultDecisionProblem,
         template,
         ramp_test_sys;
         optimizer = HiGHS_optimizer,
@@ -924,7 +924,7 @@ end
 @testset "Solving UC with CopperPlate for testing Duration Constraints" begin
     template = get_thermal_standard_uc_template()
     UC = DecisionModel(
-        UnitCommitmentProblem,
+        DefaultDecisionProblem,
         template,
         PSB.build_system(PSITestSystems, "c_duration_test");
         optimizer = HiGHS_optimizer,
