@@ -5,7 +5,7 @@
 
 ## Overview
 
-Modeling library for power systems operations. For general Sienna coding practices, conventions, and performance guidelines, see [Sienna.md](Sienna.md). Always check both files before making plans or changes. **Update [claude.md](claude.md) whenever the file/directory structure changes.**
+Modeling library for power systems operations. For general Sienna coding practices, conventions, and performance guidelines, see [Sienna.md](Sienna.md). Always [Sienna.md](Sienna.md) check both files before making plans, changes or running tests. **Update [claude.md](claude.md) whenever the file/directory structure changes.**
 
 ## Design Philosophy: Layered Abstractions
 
@@ -145,7 +145,6 @@ PowerOperationsModels.jl/
 │   │   ├── source_constructor.jl
 │   │   ├── reactivepower_device.jl         # Reactive power device (SynCon)
 │   │   ├── reactivepowerdevice_constructor.jl
-│   │   └── static_injection_security_constrained_models.jl
 │   ├── ac_transmission_models/
 │   │   ├── AC_branches.jl                  # AC line/transformer formulations
 │   │   └── branch_constructor.jl
