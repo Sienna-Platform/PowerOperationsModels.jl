@@ -575,7 +575,7 @@ struct ReactivePowerOutageConstraint <: EventConstraint end
 Struct to create the constraints that set the current flowing through a DC line.
 ```math
 \\begin{align*}
-& i_l^{dc} = \\frac{1}{r_l} (v_{from,l} - v_{to,l}), \\quad \\forall t \\in \\{1,\\dots, T\\} 
+& i_l^{dc} = \\frac{1}{r_l} (v_{from,l} - v_{to,l}), \\quad \\forall t \\in \\{1,\\dots, T\\}
 \\end{align*}
 ```
 """
@@ -676,8 +676,199 @@ The specified constraint is formulated as:
 \\begin{align*}
 & i_c^{dc} = i_c^+ - i_c^-, \\quad \\forall t \\in \\{1,\\dots, T\\}  \\\\
 & i_c^+ \\le I_{max} \\cdot \\nu_c,  \\quad \\forall t \\in \\{1,\\dots, T\\}  \\\\
-& i_c^+ \\le I_{max} \\cdot (1 - \\nu_c),  \\quad \\forall t \\in \\{1,\\dots, T\\}  
+& i_c^+ \\le I_{max} \\cdot (1 - \\nu_c),  \\quad \\forall t \\in \\{1,\\dots, T\\}
 \\end{align*}
 ```
 """
 struct CurrentAbsoluteValueConstraint <: ConstraintType end
+
+#################################################################################
+# Hydro Constraints
+#################################################################################
+
+struct EnergyLimitConstraint <: ConstraintType end
+"""
+Struct to create the constraint that set-up the target for reservoir formulations.
+
+For more information check [HydroPowerSimulations Formulations](@ref HydroPowerSimulations-Formulations).
+
+The specified constraint is formulated as:
+
+```math
+e_t + e^\\text{shortage} + e^\\text{surplus} = \\text{EnergyTargetTimeSeriesParameter}_t, \\quad \\forall t \\in \\{1,\\dots, T\\}
+```
+"""
+struct EnergyTargetConstraint <: ConstraintType end
+
+"""
+Struct to create the constraint that set-up the target for reservoir formulations. It can use head or volume as the storage variable.
+
+For more information check [HydroPowerSimulations Formulations](@ref HydroPowerSimulations-Formulations).
+
+The specified constraint is formulated as:
+
+```math
+l_t + l^\\text{shortage} + l^\\text{surplus} = \\text{WaterTargetTimeSeriesParameter}_t, \\quad \\forall t \\in \\{1,\\dots, T\\}
+```
+"""
+struct WaterTargetConstraint <: ConstraintType end
+struct EnergyShortageVariableLimitsConstraint <: ConstraintType end
+
+"""
+Struct to create the constraint that limits the budget for reservoir formulations.
+
+For more information check [HydroPowerSimulations Formulations](@ref HydroPowerSimulations-Formulations).
+
+The specified constraint is formulated as:
+
+```math
+\\sum_{t=1}^T p^\\text{hy}_t \\le \\sum_{t=1}^T \\text{EnergyBudgetTimeSeriesParameter}_t,
+```
+"""
+struct EnergyBudgetConstraint <: ConstraintType end
+"""
+Struct to create the constraint that limits the budget for reservoir formulations.
+
+For more information check [HydroPowerSimulations Formulations](@ref HydroPowerSimulations-Formulations).
+
+The specified constraint is formulated as:
+
+```math
+\\sum_{t=1}^T f^\\text{hy}_t \\le \\sum_{t=1}^T \\text{WaterBudgetTimeSeriesParameter}_t,
+```
+"""
+struct WaterBudgetConstraint <: ConstraintType end
+struct EnergyCapacityConstraint <: ConstraintType end
+
+"""
+Struct to create the constraint that limits the pump power  for hydro pump formulations.
+
+For more information check [HydroPowerSimulations Formulations](@ref HydroPowerSimulations-Formulations).
+
+The specified constraint is formulated as:
+
+```math
+p^\\text{pump}_t \\le \\text{ActivePowerTimeSeriesParameter}_t,
+```
+"""
+struct ActivePowerPumpVariableLimitsConstraint <: ConstraintType end
+
+"""
+Struct to create the constraint that limits the pump power based on the reservoir variable for hydro pump formulations.
+
+For more information check [HydroPowerSimulations Formulations](@ref HydroPowerSimulations-Formulations).
+
+The specified constraint is formulated as:
+
+```math
+p^\\text{pump}_t \\le P^\\text{max,pump} \\cdot (1 - \\text{ReservationVariable}_t),
+```
+"""
+struct ActivePowerPumpReservationConstraint <: ConstraintType end
+
+"""
+Struct to create the constraint that limits the pump power  for hydro pump formulations.
+
+For more information check [HydroPowerSimulations Formulations](@ref HydroPowerSimulations-Formulations).
+
+The specified constraint is formulated as:
+
+```math
+e^\\text{pump}_t \\le \\text{EnergyCapacityTimeSeriesParameter}_t,
+```
+"""
+struct EnergyCapacityTimeSeriesLimitsConstraint <: ConstraintType end
+
+"""
+Struct to create the constraint that limits the hydro usage for hydro formulations.
+
+For more information check [HydroPowerSimulations Formulations](@ref HydroPowerSimulations-Formulations).
+
+The specified constraint is formulated as:
+
+```math
+\\sum_{t=1}^T E^\\text{hy}_t \\le  \\text{HydroUsageLimitParameter}_T,
+```
+"""
+struct FeedForwardHydroUsageLimitConstraint <: ConstraintType end
+
+"""
+Struct to model turbine outflow limits
+
+For more information check [HydroPowerSimulations Formulations](@ref HydroPowerSimulations-Formulations).
+
+The specified constraint is formulated as:
+
+```math
+\\ p_{t} = \\Delta t (f^{Tu}_{t-1}(0.5 K_1 (v_{t} + v_{t-1}) + K_2))
+```
+"""
+struct HydroPowerConstraint <: ConstraintType end
+
+"""
+Struct to create the constraint for hydro reservoir storage
+
+For more information check [HydroPowerSimulations Formulations](@ref HydroPowerSimulations-Formulations).
+
+The specified constraint is formulated as:
+
+```math
+\\ v_{t} = v_{t-1} + \\Delta t (f^{UR}_{t-1} - f^{Sp}_{t-1} - f^{Tu}_{t-1})
+```
+"""
+struct ReservoirInventoryConstraint <: ConstraintType end
+
+"""
+Struct to limit the turbine flow
+
+```math
+QW^{min} \\le \\sum_{j \\in J(i)}^T wq_{jt} \\le  QW^{max},
+```
+"""
+struct TurbineFlowLimitConstraint <: ConstraintType end
+
+"""
+Struct to model turbine power output as a function of head
+
+```math
+p_{t} = \\eta \\rho g h_{t} f^{Tu}_{t},
+```
+"""
+struct TurbinePowerOutputConstraint <: ConstraintType end
+
+"""
+Struct to model reservoir stored volume/head limits
+
+```math
+h_{t}^{min} \\le h_{t} \\le h_{t}^{max},
+```
+"""
+struct ReservoirLevelLimitConstraint <: ConstraintType end
+
+"""
+Struct to model the final (target) volume/head storage constraint
+
+```math
+v_{T} = V^\\text{target},
+```
+"""
+struct ReservoirLevelTargetConstraint <: ConstraintType end
+
+"""
+Struct to model the transformation from head to volume constraint
+
+```math
+v_{t} = h_{t} \\text{head_to_volume},
+```
+"""
+struct ReservoirHeadToVolumeConstraint <: ConstraintType end
+
+"""
+Feedforward constraint to limit the water level budget for reservoir formulations.
+"""
+struct FeedForwardWaterLevelBudgetConstraint <: ConstraintType end
+
+"""
+Constraint to limit the active power pump variable during an event
+"""
+struct ActivePowerPumpOutageConstraint <: EventConstraint end
