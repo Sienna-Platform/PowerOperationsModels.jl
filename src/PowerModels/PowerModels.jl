@@ -18,6 +18,7 @@ const pm_it_name = "pm"
 const pm_it_sym = Symbol(pm_it_name)
 
 include("core/data.jl")
+include("core/solution.jl")
 include("core/ref.jl")
 include("core/base.jl")
 include("core/types.jl")
