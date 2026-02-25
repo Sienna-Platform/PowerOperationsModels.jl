@@ -709,7 +709,11 @@ function add_to_expression!(
             variable = get_variable(container, U(), V, "$(typeof(s))_$s_name")
             mult = get_variable_multiplier(U, T, d, W(), s) * get_fraction(T, s)
             for t in get_time_steps(container)
-                add_proportional_to_jump_expression!(expression[name, t], variable[name, t], mult)
+                add_proportional_to_jump_expression!(
+                    expression[name, t],
+                    variable[name, t],
+                    mult,
+                )
             end
         end
     end
@@ -737,7 +741,11 @@ function add_to_expression!(
             variable = get_variable(container, U(), V, "$(typeof(s))_$s_name")
             mult = get_variable_multiplier(U, T, d, W(), s) * get_fraction(T, s)
             for t in get_time_steps(container)
-                add_proportional_to_jump_expression!(expression[name, t], variable[name, t], mult)
+                add_proportional_to_jump_expression!(
+                    expression[name, t],
+                    variable[name, t],
+                    mult,
+                )
             end
         end
     end
@@ -764,7 +772,11 @@ function add_to_expression!(
             expression = get_expression(container, T(), V, "$(typeof(s))_$(s_name)")
             variable = get_variable(container, U(), V, "$(typeof(s))_$s_name")
             for t in get_time_steps(container)
-                add_proportional_to_jump_expression!(expression[name, t], variable[name, t], 1.0)
+                add_proportional_to_jump_expression!(
+                    expression[name, t],
+                    variable[name, t],
+                    1.0,
+                )
             end
         end
     end
@@ -790,7 +802,11 @@ function add_to_expression!(
         expression = get_expression(container, T(), UV, "$(V)_$(s_name)")
         variable = get_variable(container, U(), V, s_name)
         for t in get_time_steps(container)
-            add_proportional_to_jump_expression!(expression[name, t], variable[name, t], -1.0)
+            add_proportional_to_jump_expression!(
+                expression[name, t],
+                variable[name, t],
+                -1.0,
+            )
         end
     end
     return
