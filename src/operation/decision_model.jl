@@ -40,7 +40,7 @@ Build the Decision Model based on the specified DecisionProblem.
 # Arguments
 
   - `model::DecisionModel{<:DecisionProblem}`: DecisionModel object
-  - `output_dir::String`: Output directory for results
+  - `output_dir::String`: Output directory for outputs
   - `recorders::Vector{Symbol} = []`: recorder names to register
   - `console_level = Logging.Error`:
   - `file_level = Logging.Info`:
@@ -121,7 +121,7 @@ keyword arguments to that function.
 # Arguments
 
   - `model::OperationModel = model`: operation model
-  - `export_problem_results::Bool = false`: If true, export OptimizationProblemResults DataFrames to CSV files.
+  - `export_problem_outputs::Bool = false`: If true, export OptimizationProblemOutputs DataFrames to CSV files.
   - `console_level = Logging.Error`:
   - `file_level = Logging.Info`:
   - `disable_timer_outputs = false` : Enable/Disable timing outputs
@@ -130,13 +130,13 @@ keyword arguments to that function.
 # Examples
 
 ```julia
-results = solve!(OpModel)
-results = solve!(OpModel, export_problem_results = true)
+outputs = solve!(OpModel)
+outputs = solve!(OpModel, export_problem_outputs = true)
 ```
 """
 function solve!(
     model::DecisionModel{<:DecisionProblem};
-    export_problem_results = false,
+    export_problem_outputs = false,
     console_level = Logging.Error,
     file_level = Logging.Info,
     disable_timer_outputs = false,
@@ -174,7 +174,7 @@ function solve!(
                     IOM._pre_solve_model_checks(model, optimizer)
                     IOM.solve_model!(model)
                     current_time = get_initial_time(model)
-                    write_results!(IOM.get_store(model), model, current_time, current_time)
+                    write_outputs!(IOM.get_store(model), model, current_time, current_time)
                     IOM.write_optimizer_stats!(
                         IOM.get_store(model),
                         get_optimizer_stats(model),
@@ -187,10 +187,10 @@ function solve!(
                         serialize_optimization_model(model)
                     end
                 end
-                TimerOutputs.@timeit IOM.RUN_OPERATION_MODEL_TIMER "Results processing" begin
-                    results = OptimizationProblemResults(model)
-                    serialize_results(results, IOM.get_output_dir(model))
-                    export_problem_results && export_results(results)
+                TimerOutputs.@timeit IOM.RUN_OPERATION_MODEL_TIMER "Outputs processing" begin
+                    outputs = OptimizationProblemOutputs(model)
+                    serialize_outputs(outputs, IOM.get_output_dir(model))
+                    export_problem_outputs && export_outputs(outputs)
                 end
                 @info "\n$(IOM.RUN_OPERATION_MODEL_TIMER)\n"
             catch e

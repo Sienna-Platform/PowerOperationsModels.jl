@@ -94,23 +94,23 @@ function psi_checksolve_test(model::DecisionModel, status)
     @test termination_status(model) in status
 end
 
-function psi_checksolve_test(model::DecisionModel, status, expected_result, tol = 0.0)
+function psi_checksolve_test(model::DecisionModel, status, expected_output, tol = 0.0)
     res = solve!(model)
     model = IOM.get_jump_model(model)
     @test termination_status(model) in status
     obj_value = JuMP.objective_value(model)
-    @test isapprox(obj_value, expected_result, atol = tol)
+    @test isapprox(obj_value, expected_output, atol = tol)
 end
 
-function psi_ptdf_lmps(res::OptimizationProblemResults, ptdf)
+function psi_ptdf_lmps(outputs::OptimizationProblemOutputs, ptdf)
     cp_duals =
-        read_dual(res, IOM.ConstraintKey(CopperPlateBalanceConstraint, PSY.System))
+        read_dual(outputs, IOM.ConstraintKey(CopperPlateBalanceConstraint, PSY.System))
     λ = Matrix{Float64}(cp_duals[:, propertynames(cp_duals) .!= :DateTime])
 
-    flow_duals = read_dual(res, IOM.ConstraintKey(NetworkFlowConstraint, PSY.Line))
+    flow_duals = read_dual(outputs, IOM.ConstraintKey(NetworkFlowConstraint, PSY.Line))
     μ = Matrix{Float64}(flow_duals[:, PNM.get_branch_ax(ptdf)])
 
-    buses = get_components(Bus, get_system(res))
+    buses = get_components(Bus, get_system(outputs))
     lmps = OrderedDict()
     for bus in buses
         lmps[get_name(bus)] = μ * ptdf[:, get_number(bus)]

@@ -84,7 +84,7 @@ const IOM = InfrastructureOptimizationModels
 # Import utility functions that core files will extend with new methods
 import InfrastructureOptimizationModels:
     should_write_resulting_value,
-    convert_result_to_natural_units,
+    convert_output_to_natural_units,
     # Network model compatibility checks (extended in core/network_formulations.jl)
     requires_all_branch_models,
     supports_branch_filtering,
@@ -180,7 +180,7 @@ using InfrastructureOptimizationModels
 #################################################################################
 # Include core type definitions
 # These define concrete Variable, Expression, Constraint, and Parameter types
-# and extend should_write_resulting_value/convert_result_to_natural_units
+# and extend should_write_resulting_value/convert_output_to_natural_units
 #################################################################################
 include("core/definitions.jl")
 include("core/physical_constant_definitions.jl")
@@ -305,7 +305,7 @@ export InitialEnergyLevel
 export build!
 export get_initial_conditions
 export serialize_problem
-export serialize_results
+export serialize_outputs
 export serialize_optimization_model
 export solve!
 export run!
@@ -332,7 +332,7 @@ export ISOPT
 # Re-export TableFormat from InfrastructureSystems (via IOM)
 export TableFormat
 
-# Results interfaces
+# Outputs interfaces
 export get_variable_values
 export get_dual_values
 export get_parameter_values
@@ -355,8 +355,8 @@ export get_objective_value
 export read_optimizer_stats
 
 # Utils
-export OptimizationProblemResults
-export OptimizationProblemResultsExport
+export OptimizationProblemOutputs
+export OptimizationProblemOutputsExport
 export OptimizerStats
 export get_all_constraint_index
 export get_all_variable_index

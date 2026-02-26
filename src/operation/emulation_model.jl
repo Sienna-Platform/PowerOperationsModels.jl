@@ -138,7 +138,7 @@ function execute_emulation!(
             # emulation in POM does not update between steps.
             IOM.solve_model!(model)
             current_time = initial_time + (execution - 1) * get_resolution(model)
-            write_results!(IOM.get_store(model), model, execution, current_time)
+            write_outputs!(IOM.get_store(model), model, execution, current_time)
             IOM.write_optimizer_stats!(
                 IOM.get_store(model),
                 get_optimizer_stats(model),
@@ -167,7 +167,7 @@ keyword arguments to that function.
   - `model::EmulationModel = model`: Emulation model
   - `optimizer::MOI.OptimizerWithAttributes`: The optimizer that is used to solve the model
   - `executions::Int`: Number of executions for the emulator run
-  - `export_problem_results::Bool`: If true, export OptimizationProblemResults DataFrames to CSV files.
+  - `export_problem_outputs::Bool`: If true, export OptimizationProblemOutputs DataFrames to CSV files.
   - `output_dir::String`: Required if the model is not already built, otherwise ignored
   - `enable_progress_bar::Bool`: Enables/Disable progress bar printing
   - `export_optimization_model::Bool`: If true, serialize the model to a file to allow re-execution later.
@@ -181,11 +181,12 @@ status = run!(model; output_dir = ./model_output, optimizer = HiGHS.Optimizer, e
 """
 function run!(
     model::EmulationModel{<:EmulationProblem};
-    export_problem_results = false,
+    export_problem_outputs = false,
     console_level = Logging.Error,
     file_level = Logging.Info,
     disable_timer_outputs = false,
     export_optimization_model = true,
+    enable_progress_bar = _progress_meter_enabled(),
     kwargs...,
 )
     build_if_not_already_built!(
@@ -215,7 +216,11 @@ function run!(
                     IOM.get_store_params(model),
                 )
                 TimerOutputs.@timeit IOM.RUN_OPERATION_MODEL_TIMER "Run" begin
-                    execute_emulation!(model; kwargs...)
+                    execute_emulation!(
+                        model;
+                        enable_progress_bar = enable_progress_bar,
+                        kwargs...,
+                    )
                     IOM.set_run_status!(model, RunStatus.SUCCESSFULLY_FINALIZED)
                 end
                 if export_optimization_model
@@ -225,10 +230,10 @@ function run!(
                         serialize_optimization_model(model)
                     end
                 end
-                TimerOutputs.@timeit IOM.RUN_OPERATION_MODEL_TIMER "Results processing" begin
-                    results = OptimizationProblemResults(model)
-                    serialize_results(results, IOM.get_output_dir(model))
-                    export_problem_results && export_results(results)
+                TimerOutputs.@timeit IOM.RUN_OPERATION_MODEL_TIMER "Outputs processing" begin
+                    outputs = OptimizationProblemOutputs(model)
+                    serialize_outputs(outputs, IOM.get_output_dir(model))
+                    export_problem_outputs && export_outputs(outputs)
                 end
                 @info "\n$(IOM.RUN_OPERATION_MODEL_TIMER)\n"
             catch e
