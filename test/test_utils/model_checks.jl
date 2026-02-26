@@ -569,3 +569,10 @@ function check_constraint_count(
         filter_func = x -> x.name in device_name_set,
     )
 end
+
+"""
+Return a DataFrame from a CSV file.
+"""
+function read_dataframe(filename::AbstractString)
+    return CSV.read(filename, DataFrames.DataFrame)
+end

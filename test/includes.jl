@@ -20,6 +20,8 @@ using DataFramesMeta
 using Dates
 using JuMP
 import JuMP.Containers: DenseAxisArray, SparseAxisArray
+import JuMP.MOI as MOI
+import MathOptInterface.Utilities as MOIU
 using TimeSeries
 using CSV
 import JSON3

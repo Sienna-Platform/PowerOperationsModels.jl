@@ -251,7 +251,7 @@ end
     for net in networks
         for reservoir_model in models
             formulation = get_formulation(reservoir_model)
-            attrs = get_attributes(reservoir_model)
+            attrs = IOM.get_attributes(reservoir_model)
             energy_target = get(attrs, "energy_target", false)
             hydro_budget = get(attrs, "hydro_budget", false)
             @testset "$(formulation) with energy_target: $energy_target, and hydro_budget: $hydro_budget, ED model on $(net)" begin
@@ -307,7 +307,7 @@ end
 
     for reservoir_model in models
         formulation = get_formulation(reservoir_model)
-        attrs = get_attributes(reservoir_model)
+        attrs = IOM.get_attributes(reservoir_model)
         energy_target = get(attrs, "energy_target", false)
         hydro_budget = get(attrs, "hydro_budget", false)
         @testset "$(formulation) with energy_target: $energy_target, and hydro_budget: $hydro_budget, ED model on $(net)" begin
