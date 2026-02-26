@@ -142,7 +142,8 @@ import InfrastructureOptimizationModels:
     _get_initial_condition_type,
     initialize_hvdc_system!,
     build_initial_conditions_model!,
-    set_ic_quantity!
+    set_ic_quantity!,
+    get_initial_conditions_device_model
 
 # Market bid cost: import IOM functions that POM extends with device-specific methods
 import InfrastructureOptimizationModels:
