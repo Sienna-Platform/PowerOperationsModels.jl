@@ -1,9 +1,7 @@
 @testset "Test generate_formulation_combinations" begin
     res = IOM.generate_formulation_combinations()
     found_valid_device = false
-    found_invalid_device = false
     found_valid_service = false
-    found_invalid_service = false
 
     for item in res["device_formulations"]
         if item["device_type"] == PSY.ThermalStandard &&
@@ -20,9 +18,7 @@
     end
 
     @test found_valid_device
-    @test !found_invalid_device
     @test found_valid_service
-    @test !found_invalid_service
 end
 
 @testset "Test generate_formulation_combinations with system" begin
@@ -44,9 +40,8 @@ end
 @testset "Test write_formulation_combinations" begin
     res = IOM.generate_formulation_combinations()
 
-    filename = joinpath(tempdir(), "data.json")
-    @test !isfile(filename)
-    try
+    mktempdir() do tmpdir
+        filename = joinpath(tmpdir, "data.json")
         IOM.write_formulation_combinations(filename)
         @test isfile(filename)
         data = open(filename) do io
@@ -56,7 +51,5 @@ end
         @test length(data["device_formulations"]) == length(res["device_formulations"])
         @test "service_formulations" in keys(data)
         @test length(data["service_formulations"]) == length(res["service_formulations"])
-    finally
-        isfile(filename) && rm(filename)
     end
 end

@@ -277,6 +277,16 @@ import InfrastructureOptimizationModels:
     get_param_eltype,
     CONTAINER_KEY_EMPTY_META
 
+# Import high-frequency IOM internals used throughout operation lifecycle code.
+# Note: BUILD_PROBLEMS_TIMER and RUN_OPERATION_MODEL_TIMER are defined in POM's
+# definitions.jl, so they are NOT imported from IOM.
+import InfrastructureOptimizationModels:
+    LOG_GROUP_OPTIMIZATION_CONTAINER,
+    get_store,
+    set_status!,
+    get_problem_size,
+    validate_available_devices
+
 #################################################################################
 # Exports - Base Models
 #################################################################################
