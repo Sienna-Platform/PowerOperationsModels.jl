@@ -145,14 +145,14 @@ function mock_construct_device!(
         Dict{Int64, Set{Int64}}(),
     )
     if IOM.validate_available_devices(model, IOM.get_system(problem))
-        IOM.construct_device!(
+        construct_device!(
             IOM.get_optimization_container(problem),
             IOM.get_system(problem),
             IOM.ArgumentConstructStage(),
             model,
             IOM.get_network_model(template),
         )
-        IOM.construct_device!(
+        construct_device!(
             IOM.get_optimization_container(problem),
             IOM.get_system(problem),
             IOM.ModelConstructStage(),

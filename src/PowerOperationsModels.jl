@@ -91,18 +91,9 @@ import InfrastructureOptimizationModels:
     ignores_branch_filtering
 
 # Import functions that POM extends with device-specific implementations
-# These are the main extension points where POM provides concrete implementations
 import InfrastructureOptimizationModels:
-    construct_device!,
-    construct_service!,
     add_variables!,
-    add_constraints!,
     add_to_expression!,
-    add_to_objective_function!,
-    # Variable/expression multiplier functions (have stubs in IOM)
-    get_variable_multiplier,
-    get_expression_multiplier,
-    get_multiplier_value,
     # Variable property functions (IOM has default stubs, POM adds device-specific methods)
     get_variable_binary,
     get_variable_lower_bound,
@@ -127,18 +118,16 @@ import InfrastructureOptimizationModels:
     # Build-pipeline extension points (IOM declares stubs, POM extends)
     calculate_aux_variable_value!,
     is_from_power_flow,
-    # Bulk-added via systematic search of POM→IOM references:
     # Functions POM extends with new methods
     _onvar_cost,
     add_cost_to_expression!,
     add_linear_ramp_constraints!,
-    add_variable!,
+    add_service_variables!,
     requires_initialization,
     get_min_max_limits,
     start_up_cost,
     _get_initial_condition_type,
     set_ic_quantity!,
-    get_initial_conditions_device_model,
     update_container_parameter_values!
 
 # Market bid cost: import IOM functions that POM extends with device-specific methods
@@ -183,6 +172,7 @@ using InfrastructureOptimizationModels
 # and extend should_write_resulting_value/convert_output_to_natural_units
 #################################################################################
 include("core/definitions.jl")
+include("core/interfaces.jl")
 include("core/physical_constant_definitions.jl")
 include("core/variables.jl")
 include("core/expressions.jl")
@@ -271,6 +261,8 @@ include("initial_conditions/initialization.jl")
 include("operation/decision_model.jl")
 include("operation/emulation_model.jl")
 
+include("utils/generate_valid_formulations.jl")
+
 # Import private/internal helpers (use import to avoid undeclared warning)
 import InfrastructureOptimizationModels: _get_ramp_constraint_devices
 import InfrastructureOptimizationModels:
@@ -286,6 +278,18 @@ import InfrastructureOptimizationModels:
     set_status!,
     get_problem_size,
     validate_available_devices
+
+# Functions defined in POM (core/interfaces.jl)
+export construct_device!
+export construct_service!
+export add_to_objective_function!
+export add_constraints!
+export get_variable_multiplier
+export get_expression_multiplier
+export get_multiplier_value
+export add_power_flow_data!
+export get_initial_conditions_device_model
+export add_reserve_variables!
 
 #################################################################################
 # Exports - Base Models

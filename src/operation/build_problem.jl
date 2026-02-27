@@ -162,7 +162,7 @@ function build_problem!(
         LOG_GROUP_OPTIMIZATION_CONTAINER
 
     TimerOutputs.@timeit BUILD_PROBLEMS_TIMER "Power Flow Initialization" begin
-        IOM.add_power_flow_data!(
+        add_power_flow_data!(
             container,
             get_power_flow_evaluation(transmission_model),
             sys,

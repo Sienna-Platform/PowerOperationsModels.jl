@@ -327,9 +327,9 @@ end
 """
 Adds a variable to the optimization model for the OnVariable of Thermal Units
 """
-function add_variable!(
+function add_variables!(
     container::OptimizationContainer,
-    variable_type::T,
+    ::Type{T},
     devices::U,
     formulation::AbstractThermalFormulation,
 ) where {
@@ -337,6 +337,7 @@ function add_variable!(
     U <: Union{Vector{D}, IS.FlattenIteratorWrapper{D}},
 } where {D <: PSY.ThermalGen}
     @assert !isempty(devices)
+    variable_type = T()
     time_steps = get_time_steps(container)
     settings = get_settings(container)
     binary = get_variable_binary(variable_type, D, formulation)
