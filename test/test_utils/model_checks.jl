@@ -102,6 +102,10 @@ function psi_checksolve_test(model::DecisionModel, status, expected_output, tol 
     @test isapprox(obj_value, expected_output, atol = tol)
 end
 
+# currently unused. we've removed get_system on Outputs, so would need to pass 
+# the system separately if we want to use this.
+
+#=
 function psi_ptdf_lmps(outputs::OptimizationProblemOutputs, ptdf)
     cp_duals =
         read_dual(outputs, IOM.ConstraintKey(CopperPlateBalanceConstraint, PSY.System))
@@ -118,6 +122,7 @@ function psi_ptdf_lmps(outputs::OptimizationProblemOutputs, ptdf)
     lmp = λ .+ DataFrames.DataFrame(lmps)
     return lmp[!, sort(propertynames(lmp))]
 end
+=#
 
 function check_variable_unbounded(
     model::DecisionModel,

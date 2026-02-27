@@ -292,7 +292,7 @@ end
     @test isa(IOM.get_source_data(res), PSY.System)
     @test length(get_timestamps(res)) == 24
 
-    PSY.set_available!(first(get_components(ThermalStandard, get_system(res))), false)
+    PSY.set_available!(first(get_components(ThermalStandard, sys)), false)
     # FIXME missing functions, get_groups and get_components on OptimizationProblemOutputs.
     #@test collect(get_components(ThermalStandard, res)) ==
     #      collect(get_available_components(ThermalStandard, get_system(res)))
@@ -398,9 +398,9 @@ end
     outputs3 = OptimizationProblemOutputs(outputs_path)
     var3 = read_variable(outputs3, ActivePowerVariable, ThermalStandard)
     @test var1_a == var3
-    @test get_system(outputs3) === nothing
-    set_system!(outputs3, get_system(outputs1))
-    @test get_system(outputs3) isa PSY.System
+    @test get_source_data(outputs3) === nothing
+    set_source_data!(outputs3, get_source_data(outputs1))
+    @test get_source_data(outputs3) isa PSY.System
 
     exp_file =
         joinpath(path, "outputs", "variables", "ActivePowerVariable__ThermalStandard.csv")
