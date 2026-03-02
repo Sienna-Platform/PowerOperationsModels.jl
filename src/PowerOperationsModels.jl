@@ -265,6 +265,9 @@ include("mt_hvdc_models/hvdcsystems_constructor.jl")
 include("network_models/hvdc_networks.jl")
 include("network_models/hvdc_network_constructor.jl")
 
+# Area interchange
+include("area_interchange.jl")
+
 # Operation lifecycle: build/solve/run
 include("operation/build_problem.jl")
 include("initial_conditions/initialization.jl")
