@@ -61,7 +61,7 @@ function add_to_expression!(
     U <: TimeSeriesParameter,
     V <: PSY.ElectricLoad,
     W <: AbstractLoadFormulation,
-    X <: PM.AbstractPowerModel
+    X <: PM.AbstractPowerModel,
 }
     param_container = get_parameter(container, U(), V)
     multiplier = get_multiplier_array(param_container)
@@ -1394,8 +1394,16 @@ function add_to_expression!(
         ref_index = _ref_index(network_model, device_bus)
         param = get_parameter_column_refs(param_container, name)
         for t in get_time_steps(container)
-            add_proportional_to_jump_expression!(sys_expr[ref_index, t], param[t], multiplier[name, t])
-            add_proportional_to_jump_expression!(nodal_expr[bus_no, t], param[t], multiplier[name, t])
+            add_proportional_to_jump_expression!(
+                sys_expr[ref_index, t],
+                param[t],
+                multiplier[name, t],
+            )
+            add_proportional_to_jump_expression!(
+                nodal_expr[bus_no, t],
+                param[t],
+                multiplier[name, t],
+            )
         end
     end
     return
