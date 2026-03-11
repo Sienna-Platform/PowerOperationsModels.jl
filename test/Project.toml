@@ -16,6 +16,7 @@ LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
 Logging = "56ddb016-857b-54e1-b83d-db4d58db5568"
 MathOptInterface = "b8f27783-ece8-5eb3-8dc8-9495eed66fee"
 Pkg = "44cfe95a-1eb2-52ea-b672-e2afdf69b78f"
+PowerFlows = "94fada2c-fd9a-4e89-8d82-81405f5cb4f6"
 PowerNetworkMatrices = "bed98974-b02a-5e2f-9fe0-a103f5c450dd"
 PowerOperationsModels = "bed98974-b02a-5e2f-9ee0-a103f5c450dd"
 PowerSystemCaseBuilder = "f00506e0-b84f-492a-93c2-c0a9afc4364e"
@@ -31,8 +32,8 @@ TimerOutputs = "a759f4b9-e2f1-59dc-863e-4aeb61b1ea8f"
 UUIDs = "cf7118a7-6976-5b1a-9a39-7adc72f591a4"
 
 [sources]
-InfrastructureSystems = {url = "https://github.com/NREL-Sienna/InfrastructureSystems.jl", rev = "IS4"}
-InfrastructureOptimizationModels = {url = "https://github.com/NREL-Sienna/InfrastructureOptimizationModels.jl", rev = "main"}
+InfrastructureOptimizationModels = {rev = "main", url = "https://github.com/NREL-Sienna/InfrastructureOptimizationModels.jl"}
+InfrastructureSystems = {rev = "IS4", url = "https://github.com/NREL-Sienna/InfrastructureSystems.jl"}
 
 [compat]
 HiGHS = "1"
