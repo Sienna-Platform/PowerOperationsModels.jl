@@ -621,7 +621,7 @@ Auxiliary Variable for Storage Models that solve for total energy output
 """
 struct StorageEnergyOutput <: AuxVariableType end
 
-const MULTI_START_VARIABLES = Tuple(IS.get_all_concrete_subtypes(MultiStartVariable))
+const MULTI_START_VARIABLES = (HotStartVariable, WarmStartVariable, ColdStartVariable)
 
 should_write_resulting_value(::Type{PiecewiseLinearCostVariable}) = false
 should_write_resulting_value(::Type{PiecewiseLinearBlockIncrementalOffer}) = false
