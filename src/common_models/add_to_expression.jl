@@ -34,7 +34,8 @@ function add_to_expression!(
     param_container = get_parameter(container, U(), V)
     multiplier = get_multiplier_array(param_container)
     network_reduction = get_network_reduction(network_model)
-    for d in devices, t in get_time_steps(container)
+    time_steps = get_time_steps(container)
+    for d in devices, t in time_steps
         bus_no = PNM.get_mapped_bus_number(network_reduction, PSY.get_bus(d))
         name = PSY.get_name(d)
         add_proportional_to_jump_expression!(
@@ -68,6 +69,7 @@ function add_to_expression!(
     network_reduction = get_network_reduction(network_model)
     ts_name = get_time_series_names(model)[U]
     ts_type = get_default_time_series_type(container)
+    time_steps = get_time_steps(container)
     for d in devices
         bus_no = PNM.get_mapped_bus_number(network_reduction, PSY.get_bus(d))
         name = PSY.get_name(d)
@@ -75,7 +77,7 @@ function add_to_expression!(
         if !has_ts
             @warn "Device $(name) does not have time series of type $(ts_type) with name $(ts_name). Using default value of 1.0 for all time steps."
         end
-        for t in get_time_steps(container)
+        for t in time_steps
             if has_ts
                 param_value = get_parameter_column_refs(param_container, name)[t]
                 mult = multiplier[name, t]
@@ -111,9 +113,10 @@ function add_to_expression!(
     X <: AbstractPowerModel,
 }
     network_reduction = get_network_reduction(network_model)
+    time_steps = get_time_steps(container)
     for d in devices
         bus_no = PNM.get_mapped_bus_number(network_reduction, PSY.get_bus(d))
-        for t in get_time_steps(container)
+        for t in time_steps
             add_proportional_to_jump_expression!(
                 get_expression(container, T(), PSY.ACBus)[bus_no, t],
                 PSY.get_active_power(d),
@@ -141,10 +144,11 @@ function add_to_expression!(
     W <: StaticPowerLoad,
 }
     network_reduction = get_network_reduction(network_model)
+    time_steps = get_time_steps(container)
     for d in devices
         bus = PSY.get_bus(d)
         area_name = PSY.get_name(PSY.get_area(bus))
-        for t in get_time_steps(container)
+        for t in time_steps
             add_proportional_to_jump_expression!(
                 get_expression(container, T(), PSY.Area)[area_name, t],
                 PSY.get_active_power(d),
@@ -173,9 +177,10 @@ function add_to_expression!(
     X <: ACPPowerModel,
 }
     network_reduction = get_network_reduction(network_model)
+    time_steps = get_time_steps(container)
     for d in devices
         bus_no = PNM.get_mapped_bus_number(network_reduction, PSY.get_bus(d))
-        for t in get_time_steps(container)
+        for t in time_steps
             add_proportional_to_jump_expression!(
                 get_expression(container, T(), PSY.ACBus)[bus_no, t],
                 PSY.get_reactive_power(d),
@@ -201,7 +206,8 @@ function add_to_expression!(
 }
     param_container = get_parameter(container, U(), V)
     multiplier = get_multiplier_array(param_container)
-    for d in devices, t in get_time_steps(container)
+    time_steps = get_time_steps(container)
+    for d in devices, t in time_steps
         bus = PSY.get_bus(d)
         area_name = PSY.get_name(PSY.get_area(bus))
         name = PSY.get_name(d)
@@ -231,6 +237,7 @@ function add_to_expression!(
     multiplier = get_multiplier_array(param_container)
     ts_name = get_time_series_names(model)[U]
     ts_type = get_default_time_series_type(container)
+    time_steps = get_time_steps(container)
     for d in devices
         bus = PSY.get_bus(d)
         area_name = PSY.get_name(PSY.get_area(bus))
@@ -239,7 +246,7 @@ function add_to_expression!(
         if !has_ts
             @warn "Device $(name) does not have time series of type $(ts_type) with name $(ts_name). Using default value of 1.0 for all time steps."
         end
-        for t in get_time_steps(container)
+        for t in time_steps
             if has_ts
                 param_value = get_parameter_column_refs(param_container, name)[t]
                 mult = multiplier[name, t]
@@ -273,7 +280,8 @@ function add_to_expression!(
 }
     parameter = get_parameter_array(container, U(), V)
     network_reduction = get_network_reduction(network_model)
-    for d in devices, t in get_time_steps(container)
+    time_steps = get_time_steps(container)
+    for d in devices, t in time_steps
         bus_no = PNM.get_mapped_bus_number(network_reduction, PSY.get_bus(d))
         name = PSY.get_name(d)
         mult = get_expression_multiplier(U(), T(), d, W())
@@ -306,10 +314,11 @@ function add_to_expression!(
     variable = get_variable(container, U(), V)
     expression = get_expression(container, T(), PSY.ACBus)
     network_reduction = get_network_reduction(network_model)
+    time_steps = get_time_steps(container)
     for d in devices
         name = PSY.get_name(d)
         bus_no = PNM.get_mapped_bus_number(network_reduction, PSY.get_bus(d))
-        for t in get_time_steps(container)
+        for t in time_steps
             add_proportional_to_jump_expression!(
                 expression[bus_no, t],
                 variable[name, t],
@@ -335,7 +344,8 @@ function add_to_expression!(
 }
     variable = get_variable(container, U(), V)
     expression = get_expression(container, T(), PSY.Area)
-    for d in devices, t in get_time_steps(container)
+    time_steps = get_time_steps(container)
+    for d in devices, t in time_steps
         name = PSY.get_name(d)
         bus = PSY.get_bus(d)
         area_name = PSY.get_name(PSY.get_area(bus))
@@ -367,6 +377,7 @@ function add_to_expression!(
 }
     variable = get_variable(container, U(), V)
     expression = get_expression(container, T(), PSY.System)
+    time_steps = get_time_steps(container)
     for d in devices
         name = PSY.get_name(d)
         device_bus_from = PSY.get_arc(d).from
@@ -374,7 +385,7 @@ function add_to_expression!(
         ref_bus_from = get_reference_bus(network_model, device_bus_from)
         ref_bus_to = get_reference_bus(network_model, device_bus_to)
         if ref_bus_from == ref_bus_to
-            for t in get_time_steps(container)
+            for t in time_steps
                 add_proportional_to_jump_expression!(
                     expression[ref_bus_from, t],
                     variable[name, t],
@@ -404,11 +415,12 @@ function add_to_expression!(
 }
     variable = get_variable(container, U(), V)
     expression = get_expression(container, T(), PSY.Area)
+    time_steps = get_time_steps(container)
     for d in devices
         name = PSY.get_name(d)
         device_bus_from = PSY.get_arc(d).from
         area_name = PSY.get_name(PSY.get_area(device_bus_from))
-        for t in get_time_steps(container)
+        for t in time_steps
             add_proportional_to_jump_expression!(
                 expression[area_name, t],
                 variable[name, t],
@@ -439,12 +451,14 @@ function add_to_expression!(
     nodal_expr = get_expression(container, T(), PSY.ACBus)
     sys_expr = get_expression(container, T(), PSY.System)
     network_reduction = get_network_reduction(network_model)
+    time_steps = get_time_steps(container)
     for d in devices
+        name = PSY.get_name(d)
         bus_no_to = PNM.get_mapped_bus_number(network_reduction, PSY.get_arc(d).to)
         ref_bus_from = get_reference_bus(network_model, PSY.get_arc(d).from)
         ref_bus_to = get_reference_bus(network_model, PSY.get_arc(d).to)
-        for t in get_time_steps(container)
-            flow_variable = var[PSY.get_name(d), t]
+        for t in time_steps
+            flow_variable = var[name, t]
             add_proportional_to_jump_expression!(
                 nodal_expr[bus_no_to, t],
                 flow_variable,
@@ -483,13 +497,15 @@ function add_to_expression!(
     nodal_expr = get_expression(container, T(), PSY.ACBus)
     sys_expr = get_expression(container, T(), _system_expression_type(X))
     network_reduction = get_network_reduction(network_model)
+    time_steps = get_time_steps(container)
     for d in devices
+        name = PSY.get_name(d)
         bus_no_from =
             PNM.get_mapped_bus_number(network_reduction, PSY.get_arc(d).from)
         ref_bus_to = get_reference_bus(network_model, PSY.get_arc(d).to)
         ref_bus_from = get_reference_bus(network_model, PSY.get_arc(d).from)
-        for t in get_time_steps(container)
-            flow_variable = var[PSY.get_name(d), t]
+        for t in time_steps
+            flow_variable = var[name, t]
             add_proportional_to_jump_expression!(
                 nodal_expr[bus_no_from, t],
                 flow_variable,
@@ -528,13 +544,15 @@ function add_to_expression!(
     nodal_expr = get_expression(container, T(), PSY.ACBus)
     sys_expr = get_expression(container, T(), _system_expression_type(X))
     network_reduction = get_network_reduction(network_model)
+    time_steps = get_time_steps(container)
     for d in devices
+        name = PSY.get_name(d)
         bus_no_from =
             PNM.get_mapped_bus_number(network_reduction, PSY.get_arc(d).from)
         ref_bus_to = get_reference_bus(network_model, PSY.get_arc(d).to)
         ref_bus_from = get_reference_bus(network_model, PSY.get_arc(d).from)
-        for t in get_time_steps(container)
-            flow_variable = var[PSY.get_name(d), t]
+        for t in time_steps
+            flow_variable = var[name, t]
             add_proportional_to_jump_expression!(
                 nodal_expr[bus_no_from, t],
                 flow_variable,
@@ -572,11 +590,13 @@ function add_to_expression!(
     var = get_variable(container, U(), V)
     nodal_expr = get_expression(container, T(), PSY.ACBus)
     network_reduction = get_network_reduction(network_model)
+    time_steps = get_time_steps(container)
     for d in devices
+        name = PSY.get_name(d)
         bus_no_from =
             PNM.get_mapped_bus_number(network_reduction, PSY.get_arc(d).from)
-        for t in get_time_steps(container)
-            flow_variable = var[PSY.get_name(d), t]
+        for t in time_steps
+            flow_variable = var[name, t]
             add_proportional_to_jump_expression!(
                 nodal_expr[bus_no_from, t],
                 flow_variable,
@@ -607,11 +627,13 @@ function add_to_expression!(
     var = get_variable(container, U(), V)
     nodal_expr = get_expression(container, T(), PSY.ACBus)
     network_reduction = get_network_reduction(network_model)
+    time_steps = get_time_steps(container)
     for d in devices
+        name = PSY.get_name(d)
         bus_no_to =
             PNM.get_mapped_bus_number(network_reduction, PSY.get_arc(d).to)
-        for t in get_time_steps(container)
-            flow_variable = var[PSY.get_name(d), t]
+        for t in time_steps
+            flow_variable = var[name, t]
             add_proportional_to_jump_expression!(
                 nodal_expr[bus_no_to, t],
                 flow_variable,
@@ -642,11 +664,13 @@ function add_to_expression!(
     var = get_variable(container, U(), V)
     nodal_expr = get_expression(container, T(), PSY.ACBus)
     network_reduction = get_network_reduction(network_model)
+    time_steps = get_time_steps(container)
     for d in devices
+        name = PSY.get_name(d)
         bus_no_from =
             PNM.get_mapped_bus_number(network_reduction, PSY.get_arc(d).from)
-        for t in get_time_steps(container)
-            flow_variable = var[PSY.get_name(d), t]
+        for t in time_steps
+            flow_variable = var[name, t]
             add_proportional_to_jump_expression!(
                 nodal_expr[bus_no_from, t],
                 flow_variable,
@@ -677,11 +701,13 @@ function add_to_expression!(
     var = get_variable(container, U(), V)
     nodal_expr = get_expression(container, T(), PSY.ACBus)
     network_reduction = get_network_reduction(network_model)
+    time_steps = get_time_steps(container)
     for d in devices
+        name = PSY.get_name(d)
         bus_no_to =
             PNM.get_mapped_bus_number(network_reduction, PSY.get_arc(d).to)
-        for t in get_time_steps(container)
-            flow_variable = var[PSY.get_name(d), t]
+        for t in time_steps
+            flow_variable = var[name, t]
             add_proportional_to_jump_expression!(
                 nodal_expr[bus_no_to, t],
                 flow_variable,
@@ -713,13 +739,15 @@ function add_to_expression!(
     nodal_expr = get_expression(container, T(), PSY.ACBus)
     sys_expr = get_expression(container, T(), _system_expression_type(X))
     network_reduction = get_network_reduction(network_model)
+    time_steps = get_time_steps(container)
     for d in devices
+        name = PSY.get_name(d)
         bus_no_to =
             PNM.get_mapped_bus_number(network_reduction, PSY.get_arc(d).to)
         ref_bus_to = get_reference_bus(network_model, PSY.get_arc(d).to)
         ref_bus_from = get_reference_bus(network_model, PSY.get_arc(d).from)
-        for t in get_time_steps(container)
-            flow_variable = var[PSY.get_name(d), t]
+        for t in time_steps
+            flow_variable = var[name, t]
             add_proportional_to_jump_expression!(
                 nodal_expr[bus_no_to, t],
                 flow_variable,
@@ -757,11 +785,13 @@ function add_to_expression!(
     if has_subnetworks(network_model)
         var = get_variable(container, U(), V)
         sys_expr = get_expression(container, T(), PSY.System)
+        time_steps = get_time_steps(container)
         for d in devices
+            name = PSY.get_name(d)
             ref_bus_from = get_reference_bus(network_model, PSY.get_arc(d).from)
             ref_bus_to = get_reference_bus(network_model, PSY.get_arc(d).to)
-            for t in get_time_steps(container)
-                flow_variable = var[PSY.get_name(d), t]
+            for t in time_steps
+                flow_variable = var[name, t]
                 if ref_bus_from != ref_bus_to
                     add_proportional_to_jump_expression!(
                         sys_expr[ref_bus_to, t],
@@ -795,11 +825,13 @@ function add_to_expression!(
     if has_subnetworks(network_model)
         var = get_variable(container, U(), V)
         sys_expr = get_expression(container, T(), PSY.System)
+        time_steps = get_time_steps(container)
         for d in devices
+            name = PSY.get_name(d)
             ref_bus_from = get_reference_bus(network_model, PSY.get_arc(d).from)
             ref_bus_to = get_reference_bus(network_model, PSY.get_arc(d).to)
-            for t in get_time_steps(container)
-                flow_variable = var[PSY.get_name(d), t]
+            for t in time_steps
+                flow_variable = var[name, t]
                 if ref_bus_from != ref_bus_to
                     add_proportional_to_jump_expression!(
                         sys_expr[ref_bus_to, t],
@@ -833,11 +865,12 @@ function add_to_expression!(
     variable = get_variable(container, U(), V)
     expression = get_expression(container, T(), PSY.ACBus)
     network_reduction = get_network_reduction(network_model)
+    time_steps = get_time_steps(container)
     for d in devices
         name = PSY.get_name(d)
         bus_no_ = PSY.get_number(PSY.get_arc(d).from)
         bus_no = PNM.get_mapped_bus_number(network_reduction, bus_no_)
-        for t in get_time_steps(container)
+        for t in time_steps
             add_proportional_to_jump_expression!(
                 expression[bus_no, t],
                 variable[name, t],
@@ -868,11 +901,12 @@ function add_to_expression!(
     variable = get_variable(container, U(), V)
     expression = get_expression(container, T(), PSY.ACBus)
     network_reduction = get_network_reduction(network_model)
+    time_steps = get_time_steps(container)
     for d in devices
         name = PSY.get_name(d)
         bus_no_ = PSY.get_number(PSY.get_arc(d).to)
         bus_no = PNM.get_mapped_bus_number(network_reduction, bus_no_)
-        for t in get_time_steps(container)
+        for t in time_steps
             add_proportional_to_jump_expression!(
                 expression[bus_no, t],
                 variable[name, t],
@@ -898,11 +932,12 @@ function add_to_expression!(
     variable = get_variable(container, U(), V)
     expression = get_expression(container, T(), PSY.ACBus)
     radial_network_reduction = get_radial_network_reduction(network_model)
+    time_steps = get_time_steps(container)
     for d in devices
         name = PSY.get_name(d)
         bus_no_ = PSY.get_number(PSY.get_arc(d).to)
         bus_no = PNM.get_mapped_bus_number(network_reduction, bus_no_)
-        for t in get_time_steps(container)
+        for t in time_steps
             add_proportional_to_jump_expression!(
                 expression[bus_no, t],
                 variable[name, t],
@@ -1095,13 +1130,14 @@ function _add_to_expression!(
     variable = get_variable(container, U(), V)
     expression = get_expression(container, T(), PSY.ACBus)
     network_reduction = get_network_reduction(network_model)
+    time_steps = get_time_steps(container)
     for d in devices
         name = PSY.get_name(d)
         bus_no_ = PSY.get_number(PSY.get_bus(d))
         bus_no = PNM.get_mapped_bus_number(network_reduction, bus_no_)
         # Per-device P_min for compact dispatch OnVariable
         p_min = PSY.get_active_power_limits(d).min
-        for t in get_time_steps(container)
+        for t in time_steps
             if PSY.get_must_run(d)
                 add_proportional_to_jump_expression!(
                     expression[bus_no, t],
@@ -1134,13 +1170,14 @@ function add_to_expression!(
 }
     variable = get_variable(container, U(), V)
     expression = get_expression(container, T(), PSY.ACBus)
+    time_steps = get_time_steps(container)
     for d in devices
         name = PSY.get_name(d)
         bus = PSY.get_bus(d)
         area_name = PSY.get_name(PSY.get_area(bus))
         # Per-device P_min for compact dispatch OnVariable
         p_min = PSY.get_active_power_limits(d).min
-        for t in get_time_steps(container)
+        for t in time_steps
             if PSY.get_must_run(d)
                 add_proportional_to_jump_expression!(
                     expression[area_name, t],
@@ -1177,11 +1214,12 @@ function add_to_expression!(
     param_container = get_parameter(container, U(), V)
     multiplier = get_multiplier_array(param_container)
     expression = get_expression(container, T(), PSY.System)
+    time_steps = get_time_steps(container)
     for d in devices
         device_bus = PSY.get_bus(d)
         ref_bus = get_reference_bus(network_model, device_bus)
         name = PSY.get_name(d)
-        for t in get_time_steps(container)
+        for t in time_steps
             add_proportional_to_jump_expression!(
                 expression[ref_bus, t],
                 get_parameter_column_refs(param_container, name)[t],
@@ -1212,6 +1250,7 @@ function add_to_expression!(
     expression = get_expression(container, T(), PSY.System)
     ts_name = get_time_series_names(device_model)[U]
     ts_type = get_default_time_series_type(container)
+    time_steps = get_time_steps(container)
     for d in devices
         device_bus = PSY.get_bus(d)
         ref_bus = get_reference_bus(network_model, device_bus)
@@ -1220,7 +1259,7 @@ function add_to_expression!(
         if !has_ts
             @warn "Device $(name) does not have time series of type $(ts_type) with name $(ts_name). Using default value of 1.0 for all time steps."
         end
-        for t in get_time_steps(container)
+        for t in time_steps
             if has_ts
                 param_value = get_parameter_column_refs(param_container, name)[t]
                 mult = multiplier[name, t]
@@ -1255,10 +1294,11 @@ function add_to_expression!(
     W <: StaticPowerLoad,
 }
     expression = get_expression(container, T(), PSY.System)
+    time_steps = get_time_steps(container)
     for d in devices
         device_bus = PSY.get_bus(d)
         ref_bus = get_reference_bus(network_model, device_bus)
-        for t in get_time_steps(container)
+        for t in time_steps
             add_proportional_to_jump_expression!(
                 expression[ref_bus, t],
                 PSY.get_active_power(d),
@@ -1284,11 +1324,12 @@ function add_to_expression!(
 }
     parameter = get_parameter_array(container, U(), V)
     expression = get_expression(container, T(), PSY.System)
+    time_steps = get_time_steps(container)
     for d in devices
         name = PSY.get_name(d)
         device_bus = PSY.get_bus(d)
         ref_bus = get_reference_bus(network_model, device_bus)
-        for t in get_time_steps(container)
+        for t in time_steps
             mult = get_expression_multiplier(U(), T(), d, W())
             add_proportional_to_jump_expression!(
                 expression[ref_bus, t],
@@ -1318,11 +1359,12 @@ function add_to_expression!(
 }
     variable = get_variable(container, U(), V)
     expression = get_expression(container, T(), PSY.System)
+    time_steps = get_time_steps(container)
     for d in devices
         device_bus = PSY.get_bus(d)
         ref_bus = get_reference_bus(network_model, device_bus)
         name = PSY.get_name(d)
-        for t in get_time_steps(container)
+        for t in time_steps
             add_proportional_to_jump_expression!(
                 expression[ref_bus, t],
                 variable[name, t],
@@ -1348,13 +1390,14 @@ function add_to_expression!(
 }
     variable = get_variable(container, U(), V)
     expression = get_expression(container, T(), PSY.System)
+    time_steps = get_time_steps(container)
     for d in devices
         name = PSY.get_name(d)
         device_bus = PSY.get_bus(d)
         ref_bus = get_reference_bus(network_model, device_bus)
         # Per-device P_min for compact dispatch OnVariable
         p_min = PSY.get_active_power_limits(d).min
-        for t in get_time_steps(container)
+        for t in time_steps
             add_proportional_to_jump_expression!(
                 expression[ref_bus, t],
                 variable[name, t],
@@ -1387,13 +1430,14 @@ function add_to_expression!(
     sys_expr = get_expression(container, T(), _system_expression_type(X))
     nodal_expr = get_expression(container, T(), PSY.ACBus)
     network_reduction = get_network_reduction(network_model)
+    time_steps = get_time_steps(container)
     for d in devices
         name = PSY.get_name(d)
         device_bus = PSY.get_bus(d)
         bus_no = PNM.get_mapped_bus_number(network_reduction, PSY.get_number(device_bus))
         ref_index = _ref_index(network_model, device_bus)
         param = get_parameter_column_refs(param_container, name)
-        for t in get_time_steps(container)
+        for t in time_steps
             add_proportional_to_jump_expression!(
                 sys_expr[ref_index, t],
                 param[t],
@@ -1433,6 +1477,7 @@ function add_to_expression!(
     network_reduction = get_network_reduction(network_model)
     ts_name = get_time_series_names(device_model)[U]
     ts_type = get_default_time_series_type(container)
+    time_steps = get_time_steps(container)
     for d in devices
         name = PSY.get_name(d)
         has_ts = PSY.has_time_series(d, ts_type, ts_name)
@@ -1443,7 +1488,7 @@ function add_to_expression!(
         bus_no_ = PSY.get_number(device_bus)
         bus_no = PNM.get_mapped_bus_number(network_reduction, bus_no_)
         ref_index = _ref_index(network_model, device_bus)
-        for t in get_time_steps(container)
+        for t in time_steps
             if has_ts
                 param = get_parameter_column_refs(param_container, name)[t]
                 mult = multiplier[name, t]
@@ -1476,6 +1521,7 @@ function add_to_expression!(
     sys_expr = get_expression(container, T(), PSY.System)
     nodal_expr = get_expression(container, T(), PSY.ACBus)
     network_reduction = get_network_reduction(network_model)
+    time_steps = get_time_steps(container)
     for d in devices
         name = PSY.get_name(d)
         bus_no_ = PSY.get_number(PSY.get_bus(d))
@@ -1483,7 +1529,7 @@ function add_to_expression!(
         mult = get_expression_multiplier(U(), T(), d, W())
         device_bus = PSY.get_bus(d)
         ref_index = _ref_index(network_model, device_bus)
-        for t in get_time_steps(container)
+        for t in time_steps
             add_proportional_to_jump_expression!(
                 sys_expr[ref_index, t],
                 parameter[name, t],
@@ -1520,12 +1566,13 @@ function add_to_expression!(
     sys_expr = get_expression(container, T(), PSY.System)
     nodal_expr = get_expression(container, T(), PSY.ACBus)
     network_reduction = get_network_reduction(network_model)
+    time_steps = get_time_steps(container)
     for d in devices
         name = PSY.get_name(d)
         device_bus = PSY.get_bus(d)
         bus_no = PNM.get_mapped_bus_number(network_reduction, device_bus)
         ref_index = _ref_index(network_model, device_bus)
-        for t in get_time_steps(container)
+        for t in time_steps
             add_proportional_to_jump_expression!(
                 sys_expr[ref_index, t],
                 variable[name, t],
@@ -1561,11 +1608,12 @@ function add_to_expression!(
     sys_expr = get_expression(container, T(), PSY.System)
     nodal_expr = get_expression(container, T(), PSY.ACBus)
     network_reduction = get_network_reduction(network_model)
+    time_steps = get_time_steps(container)
     for d in devices
         device_bus = PSY.get_bus(d)
         bus_no = PNM.get_mapped_bus_number(network_reduction, device_bus)
         ref_index = _ref_index(network_model, device_bus)
-        for t in get_time_steps(container)
+        for t in time_steps
             add_proportional_to_jump_expression!(
                 sys_expr[ref_index, t],
                 PSY.get_active_power(d),
@@ -1600,12 +1648,13 @@ function add_to_expression!(
     area_expr = get_expression(container, T(), PSY.Area)
     nodal_expr = get_expression(container, T(), PSY.ACBus)
     network_reduction = get_network_reduction(network_model)
+    time_steps = get_time_steps(container)
     for d in devices
         name = PSY.get_name(d)
         device_bus = PSY.get_bus(d)
         area_name = PSY.get_name(PSY.get_area(device_bus))
         bus_no = PNM.get_mapped_bus_number(network_reduction, device_bus)
-        for t in get_time_steps(container)
+        for t in time_steps
             add_proportional_to_jump_expression!(
                 area_expr[area_name, t],
                 variable[name, t],
@@ -1642,13 +1691,14 @@ function add_to_expression!(
     sys_expr = get_expression(container, T(), _system_expression_type(PTDFPowerModel))
     nodal_expr = get_expression(container, T(), PSY.ACBus)
     network_reduction = get_network_reduction(network_model)
+    time_steps = get_time_steps(container)
     for d in devices
         name = PSY.get_name(d)
         bus_no = PNM.get_mapped_bus_number(network_reduction, PSY.get_bus(d))
         ref_index = _ref_index(network_model, PSY.get_bus(d))
         # Per-device P_min for compact dispatch OnVariable
         p_min = PSY.get_active_power_limits(d).min
-        for t in get_time_steps(container)
+        for t in time_steps
             add_proportional_to_jump_expression!(
                 sys_expr[ref_index, t],
                 variable[name, t],
@@ -1684,12 +1734,14 @@ function add_to_expression!(
     var = get_variable(container, U(), V)
     expression = get_expression(container, T(), PSY.ACBus)
     network_reduction = get_network_reduction(network_model)
+    time_steps = get_time_steps(container)
     for d in devices
+        name = PSY.get_name(d)
         bus_no_from =
             PNM.get_mapped_bus_number(network_reduction, PSY.get_arc(d).from)
         bus_no_to = PNM.get_mapped_bus_number(network_reduction, PSY.get_arc(d).to)
-        for t in get_time_steps(container)
-            flow_variable = var[PSY.get_name(d), t]
+        for t in time_steps
+            flow_variable = var[name, t]
             add_proportional_to_jump_expression!(
                 expression[bus_no_from, t],
                 flow_variable,
@@ -1718,18 +1770,20 @@ function add_to_expression!(
 }
     flow_variable = get_variable(container, FlowActivePowerVariable(), PSY.AreaInterchange)
     expression = get_expression(container, ActivePowerBalance(), PSY.Area)
+    time_steps = get_time_steps(container)
     for d in devices
+        name = PSY.get_name(d)
         area_from_name = PSY.get_name(PSY.get_from_area(d))
         area_to_name = PSY.get_name(PSY.get_to_area(d))
-        for t in get_time_steps(container)
+        for t in time_steps
             add_proportional_to_jump_expression!(
                 expression[area_from_name, t],
-                flow_variable[PSY.get_name(d), t],
+                flow_variable[name, t],
                 -1.0,
             )
             add_proportional_to_jump_expression!(
                 expression[area_to_name, t],
-                flow_variable[PSY.get_name(d), t],
+                flow_variable[name, t],
                 1.0,
             )
         end
@@ -1773,14 +1827,16 @@ function add_to_expression!(
     nodal_expr = get_expression(container, T(), PSY.ACBus)
     sys_expr = get_expression(container, T(), PSY.System)
     network_reduction = get_network_reduction(network_model)
+    time_steps = get_time_steps(container)
     for d in devices
+        name = PSY.get_name(d)
         bus_no_from =
             PNM.get_mapped_bus_number(network_reduction, PSY.get_arc(d).from)
         bus_no_to = PNM.get_mapped_bus_number(network_reduction, PSY.get_arc(d).to)
         ref_bus_from = get_reference_bus(network_model, PSY.get_arc(d).from)
         ref_bus_to = get_reference_bus(network_model, PSY.get_arc(d).to)
-        for t in get_time_steps(container)
-            flow_variable = var[PSY.get_name(d), t]
+        for t in time_steps
+            flow_variable = var[name, t]
             add_proportional_to_jump_expression!(
                 nodal_expr[bus_no_from, t],
                 flow_variable,
@@ -1835,14 +1891,16 @@ function add_to_expression!(
     if !isempty(inter_network_branches)
         var = get_variable(container, U(), V)
         sys_expr = get_expression(container, T(), PSY.System)
+        time_steps = get_time_steps(container)
         for d in devices
+            name = PSY.get_name(d)
             ref_bus_from = get_reference_bus(network_model, PSY.get_arc(d).from)
             ref_bus_to = get_reference_bus(network_model, PSY.get_arc(d).to)
             if ref_bus_from == ref_bus_to
                 continue
             end
-            for t in get_time_steps(container)
-                flow_variable = var[PSY.get_name(d), t]
+            for t in time_steps
+                flow_variable = var[name, t]
                 add_proportional_to_jump_expression!(
                     sys_expr[ref_bus_from, t],
                     flow_variable,
@@ -1873,14 +1931,16 @@ function add_to_expression!(
     var = get_variable(container, U(), PSY.PhaseShiftingTransformer)
     expression = get_expression(container, T(), PSY.ACBus)
     network_reduction = get_network_reduction(network_model)
+    time_steps = get_time_steps(container)
     for d in devices
+        name = PSY.get_name(d)
         bus_no_from =
             PNM.get_mapped_bus_number(network_reduction, PSY.get_arc(d).from)
         bus_no_to = PNM.get_mapped_bus_number(network_reduction, PSY.get_arc(d).to)
         # Per-device reactance multiplier for phase shifter
         x_mult = 1.0 / PSY.get_x(d)
-        for t in get_time_steps(container)
-            flow_variable = var[PSY.get_name(d), t]
+        for t in time_steps
+            flow_variable = var[name, t]
             add_proportional_to_jump_expression!(
                 expression[bus_no_from, t],
                 flow_variable,
@@ -1915,7 +1975,8 @@ function add_to_expression!(
         add_expressions!(container, T, devices, model)
     end
     expression = get_expression(container, T(), V)
-    for d in devices, t in get_time_steps(container)
+    time_steps = get_time_steps(container)
+    for d in devices, t in time_steps
         name = PSY.get_name(d)
         add_proportional_to_jump_expression!(expression[name, t], variable[name, t], 1.0)
     end
@@ -1941,7 +2002,8 @@ function add_to_expression!(
         add_expressions!(container, T, devices, model)
     end
     expression = get_expression(container, T(), V)
-    for d in devices, t in get_time_steps(container)
+    time_steps = get_time_steps(container)
+    for d in devices, t in time_steps
         name = PSY.get_name(d)
         add_proportional_to_jump_expression!(expression[name, t], variable[name, t], 1.0)
     end
@@ -1962,7 +2024,8 @@ function add_to_expression!(
     expression = get_expression(container, InterfaceTotalFlow(), PSY.TransmissionInterface)
     service_name = PSY.get_name(service)
     variable = get_variable(container, T(), PSY.TransmissionInterface, service_name)
-    for t in get_time_steps(container)
+    time_steps = get_time_steps(container)
+    for t in time_steps
         add_proportional_to_jump_expression!(
             expression[service_name, t],
             variable[t],
@@ -2283,7 +2346,8 @@ function add_to_expression!(
         add_expressions!(container, T, devices, model)
     end
     expression = get_expression(container, T(), V)
-    for d in devices, t in get_time_steps(container)
+    time_steps = get_time_steps(container)
+    for d in devices, t in time_steps
         name = PSY.get_name(d)
         add_proportional_to_jump_expression!(expression[name, t], variable[name, t], -1.0)
     end
@@ -2307,10 +2371,11 @@ function add_to_expression!(
         add_expressions!(container, T, devices, model)
     end
     expression = get_expression(container, T(), V)
+    time_steps = get_time_steps(container)
     for d in devices
+        name = PSY.get_name(d)
         mult = get_expression_multiplier(U(), T(), d, W())
-        for t in get_time_steps(container)
-            name = PSY.get_name(d)
+        for t in time_steps
             add_proportional_to_jump_expression!(
                 expression[name, t],
                 parameter_array[name, t],
@@ -2339,13 +2404,14 @@ function add_to_expression!(
         add_expressions!(container, T, devices, model)
     end
     expression = get_expression(container, T(), V)
+    time_steps = get_time_steps(container)
     for d in devices
         if PSY.get_must_run(d)
             continue
         end
+        name = PSY.get_name(d)
         mult = get_expression_multiplier(U(), T(), d, W())
-        for t in get_time_steps(container)
-            name = PSY.get_name(d)
+        for t in time_steps
             add_proportional_to_jump_expression!(
                 expression[name, t],
                 parameter_array[name, t],
@@ -2386,7 +2452,8 @@ function add_to_expression!(
     variable = get_variable(container, U(), PSY.System)
     expression = get_expression(container, T(), _system_expression_type(W))
     reference_buses = get_reference_buses(network_model)
-    for t in get_time_steps(container), n in reference_buses
+    time_steps = get_time_steps(container)
+    for t in time_steps, n in reference_buses
         add_proportional_to_jump_expression!(
             expression[n, t],
             variable[n, t],
@@ -2413,7 +2480,8 @@ function add_to_expression!(
     expression =
         get_expression(container, T(), _system_expression_type(AreaPTDFPowerModel))
     areas = get_available_components(network_model, PSY.Area, sys)
-    for t in get_time_steps(container), n in PSY.get_name.(areas)
+    time_steps = get_time_steps(container)
+    for t in time_steps, n in PSY.get_name.(areas)
         add_proportional_to_jump_expression!(
             expression[n, t],
             variable[n, t],
@@ -2436,7 +2504,8 @@ function add_to_expression!(
     variable = get_variable(container, U(), PSY.Area)
     expression = get_expression(container, T(), PSY.Area)
     @assert_op length(axes(variable, 1)) == length(axes(expression, 1))
-    for t in get_time_steps(container), n in axes(expression, 1)
+    time_steps = get_time_steps(container)
+    for t in time_steps, n in axes(expression, 1)
         add_proportional_to_jump_expression!(
             expression[n, t],
             variable[n, t],
@@ -2461,7 +2530,8 @@ function add_to_expression!(
     expression = get_expression(container, T(), PSY.ACBus)
     @assert_op length(axes(variable, 1)) == length(axes(expression, 1))
     # We uses axis here to avoid double addition of the slacks to the aggregated buses
-    for t in get_time_steps(container), n in axes(expression, 1)
+    time_steps = get_time_steps(container)
+    for t in time_steps, n in axes(expression, 1)
         add_proportional_to_jump_expression!(
             expression[n, t],
             variable[n, t],
@@ -2485,7 +2555,8 @@ function add_to_expression!(
     variable = get_variable(container, U(), PSY.ACBus, "P")
     expression = get_expression(container, T(), PSY.ACBus)
     # We uses axis here to avoid double addition of the slacks to the aggregated buses
-    for t in get_time_steps(container), n in axes(expression, 1)
+    time_steps = get_time_steps(container)
+    for t in time_steps, n in axes(expression, 1)
         add_proportional_to_jump_expression!(
             expression[n, t],
             variable[n, t],
@@ -2509,7 +2580,8 @@ function add_to_expression!(
     variable = get_variable(container, U(), PSY.ACBus, "Q")
     expression = get_expression(container, T(), PSY.ACBus)
     # We uses axis here to avoid double addition of the slacks to the aggregated buses
-    for t in get_time_steps(container), n in axes(expression, 1)
+    time_steps = get_time_steps(container)
+    for t in time_steps, n in axes(expression, 1)
         add_proportional_to_jump_expression!(
             expression[n, t],
             variable[n, t],
@@ -2701,9 +2773,10 @@ function add_to_expression!(
     expression = get_expression(container, T(), V)
     variable = get_variable(container, U(), V)
     mult = get_variable_multiplier(U(), V, W())
+    time_steps = get_time_steps(container)
     for d in devices
         name = PSY.get_name(d)
-        for t in get_time_steps(container)
+        for t in time_steps
             JuMP.add_to_expression!(
                 expression[name, t],
                 variable[name, t] * mult,
