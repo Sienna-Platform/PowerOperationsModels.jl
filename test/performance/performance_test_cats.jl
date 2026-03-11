@@ -44,7 +44,7 @@ try
             output_dir = mktempdir(; cleanup = true)
             status = build!(model; output_dir = joinpath(output_dir, "CATS_UC"))
         end
-        build_ok = status == IOM.ModelBuildStatus.BUILT 
+        build_ok = status == IOM.ModelBuildStatus.BUILT
         name = i > 1 ? "Postcompile" : "Precompile"
         open("cats_build_time.txt", "a") do io
             if build_ok
