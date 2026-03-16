@@ -183,6 +183,7 @@ include("core/auxiliary_variables.jl")
 include("core/parameters.jl")
 include("core/formulations.jl")
 include("core/network_formulations.jl")
+include("core/problem_template.jl")
 include("core/feedforward_interface.jl")
 include("core/initial_conditions.jl")
 
@@ -267,6 +268,7 @@ include("operation/decision_model.jl")
 include("operation/emulation_model.jl")
 
 include("utils/generate_valid_formulations.jl")
+include("utils/print.jl")
 
 # Import private/internal helpers (use import to avoid undeclared warning)
 import InfrastructureOptimizationModels: _get_ramp_constraint_devices
@@ -301,7 +303,7 @@ export add_reserve_variables!
 #################################################################################
 export DecisionModel
 export EmulationModel
-export ProblemTemplate
+export OperationsProblemTemplate
 export InitialCondition
 export OperationModel
 

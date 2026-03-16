@@ -752,7 +752,7 @@ function get_buses_to_pm(buses::IS.FlattenIteratorWrapper{PSY.ACBus})
     return PM_buses, PMmap_buses
 end
 
-function pass_to_pm(sys::PSY.System, template::ProblemTemplate, time_periods::Int)
+function pass_to_pm(sys::PSY.System, template::OperationsProblemTemplate, time_periods::Int)
     ac_lines, PMmap_ac = get_branches_to_pm(
         sys,
         get_network_model(template),

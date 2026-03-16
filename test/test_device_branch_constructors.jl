@@ -254,7 +254,7 @@ end
 
     add_component!(sys_5, hvdc)
 
-    template_uc = ProblemTemplate(
+    template_uc = OperationsProblemTemplate(
         NetworkModel(PTDFPowerModel),
     )
 
@@ -328,7 +328,7 @@ end
     for net_model in DC_NETWORK_MODELS_FOR_TESTING
         @testset "$net_model" begin
             PSY.set_loss!(hvdc, PSY.LinearCurve(0.0))
-            template_uc = ProblemTemplate(
+            template_uc = OperationsProblemTemplate(
                 NetworkModel(net_model; use_slacks = true),
             )
 

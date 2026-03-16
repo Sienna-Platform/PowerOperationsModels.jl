@@ -1,6 +1,6 @@
 @testset "HVDC System Tests" begin
     sys_5 = build_system(PSISystems, "sys10_pjm_ac_dc")
-    template_uc = ProblemTemplate(NetworkModel(
+    template_uc = OperationsProblemTemplate(NetworkModel(
         DCPPowerModel,
         #use_slacks=true,
         #PTDF_matrix=PTDF(sys_5),
@@ -19,7 +19,7 @@
     moi_tests(model, 1656, 288, 1248, 528, 888, true)
     @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
 
-    template_uc = ProblemTemplate(NetworkModel(
+    template_uc = OperationsProblemTemplate(NetworkModel(
         PTDFPowerModel;
         #use_slacks=true,
         PTDF_matrix = PTDF(sys_5),
@@ -78,7 +78,7 @@ end
 
 @testset "HVDC System with Transport Network" begin
     sys = _generate_test_hvdc_sys()
-    template = ProblemTemplate()
+    template = OperationsProblemTemplate()
     set_device_model!(template, ThermalStandard, ThermalDispatchNoMin)
     set_device_model!(template, PowerLoad, StaticPowerLoad)
     set_device_model!(template, DeviceModel(Line, StaticBranch))
@@ -99,7 +99,7 @@ end
 
 @testset "HVDC System with Losses Network" begin
     sys = _generate_test_hvdc_sys()
-    template = ProblemTemplate()
+    template = OperationsProblemTemplate()
     set_device_model!(template, ThermalStandard, ThermalDispatchNoMin)
     set_device_model!(template, PowerLoad, StaticPowerLoad)
     set_device_model!(template, DeviceModel(Line, StaticBranch))

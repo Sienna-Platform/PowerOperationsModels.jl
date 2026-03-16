@@ -244,7 +244,7 @@ function powermodels_network!(
     container::OptimizationContainer,
     system_formulation::Type{S},
     sys::PSY.System,
-    template::ProblemTemplate,
+    template::OperationsProblemTemplate,
     instantiate_model,
 ) where {S <: AbstractPowerModel}
     time_steps = get_time_steps(container)
@@ -284,7 +284,7 @@ function powermodels_network!(
     container::OptimizationContainer,
     system_formulation::Type{S},
     sys::PSY.System,
-    template::ProblemTemplate,
+    template::OperationsProblemTemplate,
     instantiate_model,
 ) where {S <: AbstractActivePowerModel}
     time_steps = get_time_steps(container)

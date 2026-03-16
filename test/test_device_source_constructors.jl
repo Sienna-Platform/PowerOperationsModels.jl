@@ -101,7 +101,7 @@ end
     add_time_series!(sys, source, ts_in)
     transform_single_time_series!(sys, Hour(24), Hour(24))
 
-    template = ProblemTemplate(NetworkModel(CopperPlatePowerModel))
+    template = OperationsProblemTemplate(NetworkModel(CopperPlatePowerModel))
     set_device_model!(template, ThermalStandard, ThermalStandardUnitCommitment)
     set_device_model!(template, PowerLoad, StaticPowerLoad)
     set_device_model!(template, DeviceModel(Line, StaticBranch))
