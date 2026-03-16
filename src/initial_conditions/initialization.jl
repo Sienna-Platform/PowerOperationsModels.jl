@@ -59,21 +59,6 @@ function get_initial_conditions_template(model::OperationModel, number_of_steps:
     return ic_template
 end
 
-function make_init_jump_model(ic_settings::Settings)
-    optimizer = get_optimizer(ic_settings)
-    JuMPmodel = JuMP.Model(optimizer)
-    warm_start_enabled = get_warm_start(ic_settings)
-    solver_supports_warm_start = validate_warm_start_support(JuMPmodel, warm_start_enabled)
-    set_warm_start!(ic_settings, solver_supports_warm_start)
-    if get_optimizer_solve_log_print(ic_settings)
-        JuMP.unset_silent(JuMPmodel)
-        @debug "optimizer unset to silent" _group = LOG_GROUP_OPTIMIZATION_CONTAINER
-    else
-        JuMP.set_silent(JuMPmodel)
-        @debug "optimizer set to silent" _group = LOG_GROUP_OPTIMIZATION_CONTAINER
-    end
-    return JuMPmodel
-end
 
 function build_initial_conditions_model!(model::T) where {T <: OperationModel}
     internal = get_internal(model)
@@ -85,7 +70,7 @@ function build_initial_conditions_model!(model::T) where {T <: OperationModel}
     ic_settings = deepcopy(get_settings(ic_container))
     main_problem_horizon = get_horizon(ic_settings)
     # TODO: add an interface to allow user to configure initial_conditions problem
-    ic_container.JuMPmodel = make_init_jump_model(ic_settings)
+    ic_container.JuMPmodel = make_empty_jump_model_with_settings(ic_settings)
     resolution = get_resolution(ic_settings)
     init_horizon = INITIALIZATION_PROBLEM_HORIZON_COUNT * resolution
     number_of_steps = min(init_horizon, main_problem_horizon)

@@ -159,9 +159,25 @@ import InfrastructureOptimizationModels:
     assign_dual_variable!,
     _calculate_dual_variable_value!,
     add_dual_container!,
-    variable_cost
+    variable_cost,
+# Extend IOM interface functions so POM methods are added to the same functions
+    get_device_models,
+    get_branch_models,
+    get_service_models,
+    get_network_model,
+    get_network_formulation,
+    get_hvdc_network_model,
+    get_component_types,
+    get_model,
+    set_network_model!,
+    set_hvdc_network_model!,
+    set_device_model!,
+    set_service_model!,
+    finalize_template!,
+    make_empty_jump_model_with_settings,
+    set_model!
 
-using InfrastructureOptimizationModels
+using InfrastructureOptimizationModels # TODO: use explicit imports.
 
 # Note: add_feedforward_arguments!, add_feedforward_constraints!,
 # get_default_on_variable, get_default_off_variable are defined in POM, not IOM
