@@ -70,7 +70,7 @@ function build_initial_conditions_model!(model::T) where {T <: OperationModel}
     ic_settings = deepcopy(get_settings(ic_container))
     main_problem_horizon = get_horizon(ic_settings)
     # TODO: add an interface to allow user to configure initial_conditions problem
-    ic_container.JuMPmodel = make_empty_jump_model_with_settings(ic_settings)
+    ic_container.JuMPmodel = IOM.make_empty_jump_model_with_settings(ic_settings)
     resolution = get_resolution(ic_settings)
     init_horizon = INITIALIZATION_PROBLEM_HORIZON_COUNT * resolution
     number_of_steps = min(init_horizon, main_problem_horizon)
