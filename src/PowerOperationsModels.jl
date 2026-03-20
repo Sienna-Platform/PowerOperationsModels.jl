@@ -160,7 +160,7 @@ import InfrastructureOptimizationModels:
     _calculate_dual_variable_value!,
     add_dual_container!,
     variable_cost,
-# Extend IOM interface functions so POM methods are added to the same functions
+    # Extend IOM interface functions so POM methods are added to the same functions
     get_device_models,
     get_branch_models,
     get_service_models,

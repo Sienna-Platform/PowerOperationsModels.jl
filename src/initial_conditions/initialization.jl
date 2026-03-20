@@ -59,7 +59,6 @@ function get_initial_conditions_template(model::OperationModel, number_of_steps:
     return ic_template
 end
 
-
 function build_initial_conditions_model!(model::T) where {T <: OperationModel}
     internal = get_internal(model)
     set_initial_conditions_model_container!(

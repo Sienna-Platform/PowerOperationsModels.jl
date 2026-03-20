@@ -6,7 +6,12 @@ function Base.show(io::IO, ::MIME"text/html", input::OperationsProblemTemplate)
     _show_method(io, input, :html; stand_alone = false, table_format = PSY.tf_html_simple)
 end
 
-function _show_method(io::IO, template::OperationsProblemTemplate, backend::Symbol; kwargs...)
+function _show_method(
+    io::IO,
+    template::OperationsProblemTemplate,
+    backend::Symbol;
+    kwargs...,
+)
     network_model = get_network_model(template)
     table = [
         "Network Model" string(get_network_formulation(network_model))

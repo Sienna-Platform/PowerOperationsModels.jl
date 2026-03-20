@@ -16,7 +16,9 @@ mutable struct OperationsProblemTemplate <: IOM.AbstractProblemTemplate
     devices::DevicesModelContainer
     branches::BranchModelContainer
     services::ServicesModelContainer
-    function OperationsProblemTemplate(network::NetworkModel{T}) where {T <: AbstractPowerModel}
+    function OperationsProblemTemplate(
+        network::NetworkModel{T},
+    ) where {T <: AbstractPowerModel}
         new(
             network,
             DevicesModelContainer(),
@@ -215,7 +217,10 @@ function _add_contributing_device_by_type!(
     return
 end
 
-function _populate_contributing_devices!(template::OperationsProblemTemplate, sys::PSY.System)
+function _populate_contributing_devices!(
+    template::OperationsProblemTemplate,
+    sys::PSY.System,
+)
     service_models = get_service_models(template)
     isempty(service_models) && return
 
@@ -322,7 +327,10 @@ function _add_services_to_device_model!(template::OperationsProblemTemplate)
     return
 end
 
-function _populate_aggregated_service_model!(template::OperationsProblemTemplate, sys::PSY.System)
+function _populate_aggregated_service_model!(
+    template::OperationsProblemTemplate,
+    sys::PSY.System,
+)
     services_template = get_service_models(template)
     for (key, service_model) in services_template
         attributes = get_attributes(service_model)
