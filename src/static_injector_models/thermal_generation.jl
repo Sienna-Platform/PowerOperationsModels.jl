@@ -1559,7 +1559,7 @@ Add PWL cost terms for ThermalDispatchNoMin formulation.
 Rejects non-convex or negative-slope PWL data since ThermalDispatchNoMin
 cannot use SOS-2 formulations.
 """
-function IOM._add_pwl_term!(
+function IOM.add_pwl_term_lambda!(
     container::IOM.OptimizationContainer,
     component::T,
     cost_function::Union{
@@ -1621,7 +1621,7 @@ function IOM._add_pwl_term!(
     temp_cost_function =
         IOM.create_temporary_cost_function_in_system_per_unit(cost_function, data)
     for t in time_steps
-        IOM._add_pwl_variables!(container, T, name, t, data)
+        IOM.add_pwl_variables_lambda!(container, T, name, t, data)
         power_var = IOM.get_variable(container, U(), T)[name, t]
         IOM._add_pwl_constraint_standard!(
             container,
@@ -1632,7 +1632,7 @@ function IOM._add_pwl_term!(
             power_var,
         )
         pwl_cost =
-            IOM._get_pwl_cost_expression(
+            IOM.get_pwl_cost_expression_lambda(
                 container,
                 component,
                 t,
