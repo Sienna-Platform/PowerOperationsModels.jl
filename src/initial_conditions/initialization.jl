@@ -26,16 +26,16 @@ function get_initial_conditions_template(model::OperationModel, number_of_steps:
     end
     network_model.modeled_branch_types =
         get_network_model(model.template).modeled_branch_types
-    ic_template = ProblemTemplate(network_model)
+    ic_template = OperationsProblemTemplate(network_model)
     # Do not copy events here for initialization
-    for device_model in values(model.template.devices)
+    for device_model in values(get_device_models(model.template))
         base_model = get_initial_conditions_device_model(model, device_model)
         base_model.use_slacks = device_model.use_slacks
         base_model.time_series_names = device_model.time_series_names
         base_model.attributes = device_model.attributes
         set_device_model!(ic_template, base_model)
     end
-    for device_model in values(model.template.branches)
+    for device_model in values(get_branch_models(model.template))
         base_model = get_initial_conditions_device_model(model, device_model)
         base_model.use_slacks = device_model.use_slacks
         base_model.time_series_names = device_model.time_series_names
@@ -43,7 +43,7 @@ function get_initial_conditions_template(model::OperationModel, number_of_steps:
         set_device_model!(ic_template, base_model)
     end
 
-    for service_model in values(model.template.services)
+    for service_model in values(get_service_models(model.template))
         base_model = get_initial_conditions_service_model(model, service_model)
         base_model.service_name = service_model.service_name
         base_model.contributing_devices_map = service_model.contributing_devices_map
@@ -53,26 +53,10 @@ function get_initial_conditions_template(model::OperationModel, number_of_steps:
         set_service_model!(ic_template, get_service_name(service_model), base_model)
     end
     set_number_of_steps!(network_model.reduced_branch_tracker, number_of_steps)
-    if !isempty(model.template.services)
+    if !isempty(get_service_models(model.template))
         _add_services_to_device_model!(ic_template)
     end
     return ic_template
-end
-
-function _make_init_jump_model(ic_settings::Settings)
-    optimizer = get_optimizer(ic_settings)
-    JuMPmodel = JuMP.Model(optimizer)
-    warm_start_enabled = get_warm_start(ic_settings)
-    solver_supports_warm_start = _validate_warm_start_support(JuMPmodel, warm_start_enabled)
-    set_warm_start!(ic_settings, solver_supports_warm_start)
-    if get_optimizer_solve_log_print(ic_settings)
-        JuMP.unset_silent(JuMPmodel)
-        @debug "optimizer unset to silent" _group = LOG_GROUP_OPTIMIZATION_CONTAINER
-    else
-        JuMP.set_silent(JuMPmodel)
-        @debug "optimizer set to silent" _group = LOG_GROUP_OPTIMIZATION_CONTAINER
-    end
-    return JuMPmodel
 end
 
 function build_initial_conditions_model!(model::T) where {T <: OperationModel}
@@ -85,7 +69,7 @@ function build_initial_conditions_model!(model::T) where {T <: OperationModel}
     ic_settings = deepcopy(get_settings(ic_container))
     main_problem_horizon = get_horizon(ic_settings)
     # TODO: add an interface to allow user to configure initial_conditions problem
-    ic_container.JuMPmodel = _make_init_jump_model(ic_settings)
+    ic_container.JuMPmodel = IOM.make_empty_jump_model_with_settings(ic_settings)
     resolution = get_resolution(ic_settings)
     init_horizon = INITIALIZATION_PROBLEM_HORIZON_COUNT * resolution
     number_of_steps = min(init_horizon, main_problem_horizon)

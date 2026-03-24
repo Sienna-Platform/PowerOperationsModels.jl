@@ -25,7 +25,7 @@ open("precompile_time.txt", "a") do io
     write(io, "| $(ARGS[1]) | $(precompile_time.time) |\n")
 end
 
-function set_device_models!(template::ProblemTemplate, uc::Bool = true)
+function set_device_models!(template::OperationsProblemTemplate, uc::Bool = true)
     if uc
         set_device_model!(template, ThermalMultiStart, ThermalStandardUnitCommitment)
         set_device_model!(template, ThermalStandard, ThermalStandardUnitCommitment)
@@ -62,7 +62,7 @@ try
     end
 
     for i in 1:2
-        template_uc = ProblemTemplate(
+        template_uc = OperationsProblemTemplate(
             NetworkModel(
                 PTDFPowerModel;
                 use_slacks = true,
@@ -72,7 +72,7 @@ try
         )
         set_device_models!(template_uc)
 
-        template_ed = ProblemTemplate(
+        template_ed = OperationsProblemTemplate(
             NetworkModel(
                 PTDFPowerModel;
                 use_slacks = true,

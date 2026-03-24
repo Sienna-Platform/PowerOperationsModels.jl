@@ -1,6 +1,6 @@
 # This file is WIP while the interface for templates is finalized
 @testset "Manual Operations Template" begin
-    template = ProblemTemplate(CopperPlatePowerModel)
+    template = OperationsProblemTemplate(CopperPlatePowerModel)
     set_device_model!(template, PowerLoad, StaticPowerLoad)
     set_device_model!(template, ThermalStandard, ThermalStandardUnitCommitment)
     set_device_model!(template, Line, StaticBranchUnbounded)
@@ -10,7 +10,7 @@
 end
 
 @testset "Operations Template Overwrite" begin
-    template = ProblemTemplate(CopperPlatePowerModel)
+    template = OperationsProblemTemplate(CopperPlatePowerModel)
     set_device_model!(template, PowerLoad, StaticPowerLoad)
     set_device_model!(template, ThermalStandard, ThermalStandardUnitCommitment)
     @test_logs (:warn, "Overwriting ThermalStandard existing model") set_device_model!(

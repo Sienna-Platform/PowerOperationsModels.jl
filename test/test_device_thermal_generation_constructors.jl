@@ -16,7 +16,7 @@ const TIME1 = DateTime("2024-01-01T00:00:00")
     for (i, cost_reference, thermal_formulation) in test_cases
         @testset "$i" begin
             sys = build_system(PSITestSystems, "c_$(i)")
-            template = ProblemTemplate(NetworkModel(CopperPlatePowerModel))
+            template = OperationsProblemTemplate(NetworkModel(CopperPlatePowerModel))
             set_device_model!(template, ThermalStandard, thermal_formulation)
             set_device_model!(template, PowerLoad, StaticPowerLoad)
             model = DecisionModel(
@@ -50,7 +50,7 @@ const TIME1 = DateTime("2024-01-01T00:00:00")
         # Run 1: Normal case (units already ON, no startup)
         sys_no_startup = build_system(PSITestSystems, "c_linear_cost_test")
 
-        template = ProblemTemplate(NetworkModel(CopperPlatePowerModel))
+        template = OperationsProblemTemplate(NetworkModel(CopperPlatePowerModel))
         set_device_model!(template, ThermalStandard, ThermalBasicUnitCommitment)
         set_device_model!(template, PowerLoad, StaticPowerLoad)
 
@@ -130,7 +130,7 @@ end
     for i in test_cases
         @testset "$i" begin
             sys = build_system(PSITestSystems, "c_$(i)")
-            template = ProblemTemplate(NetworkModel(CopperPlatePowerModel))
+            template = OperationsProblemTemplate(NetworkModel(CopperPlatePowerModel))
             set_device_model!(template, ThermalStandard, ThermalBasicUnitCommitment)
             #=
             model = DecisionModel(
@@ -905,7 +905,7 @@ end
 
 @testset "Solving ED with CopperPlate for testing Ramping Constraints" begin
     ramp_test_sys = PSB.build_system(PSITestSystems, "c_ramp_test")
-    template = ProblemTemplate(CopperPlatePowerModel)
+    template = OperationsProblemTemplate(CopperPlatePowerModel)
     set_device_model!(template, ThermalStandard, ThermalStandardDispatch)
     set_device_model!(template, PowerLoad, StaticPowerLoad)
     ED = DecisionModel(
@@ -1149,7 +1149,7 @@ end =#
 @testset "Test Must Run ThermalGen" begin
     sys_5 = build_system(PSITestSystems, "c_sys5_uc")
     template_uc =
-        ProblemTemplate(NetworkModel(CopperPlatePowerModel))
+        OperationsProblemTemplate(NetworkModel(CopperPlatePowerModel))
     set_device_model!(template_uc, ThermalStandard, ThermalStandardUnitCommitment)
     #set_device_model!(template_uc, RenewableDispatch, FixedOutput)
     set_device_model!(template_uc, PowerLoad, StaticPowerLoad)
@@ -1244,7 +1244,7 @@ end
 #= @testset "Thermal with fuel cost time series" begin
     sys = PSB.build_system(PSITestSystems, "c_sys5_re_fuel_cost")
 
-    template = ProblemTemplate(
+    template = OperationsProblemTemplate(
         NetworkModel(
             CopperPlatePowerModel;
             duals = [CopperPlateBalanceConstraint],
@@ -1328,7 +1328,7 @@ end =#
 @testset "Thermal with fuel cost time series with Quadratic and PWL" begin
     sys = PSB.build_system(PSITestSystems, "c_sys5_re_fuel_cost")
 
-    template = ProblemTemplate(
+    template = OperationsProblemTemplate(
         NetworkModel(
             CopperPlatePowerModel;
             duals = [CopperPlateBalanceConstraint],
@@ -1464,7 +1464,7 @@ end
 @testset "ThermalDispatchNoMin with PWL Costs" begin
     sys = build_system(PSISystems, "modified_RTS_GMLC_DA_sys")
 
-    template = ProblemTemplate(NetworkModel(PTDFPowerModel))
+    template = OperationsProblemTemplate(NetworkModel(PTDFPowerModel))
     set_device_model!(template, ThermalStandard, ThermalDispatchNoMin)
     set_device_model!(template, Line, StaticBranchBounds)
     set_device_model!(template, TapTransformer, StaticBranchBounds)

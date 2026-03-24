@@ -105,7 +105,7 @@ end
             ),
         ),
     )
-    template = ProblemTemplate(NetworkModel(CopperPlatePowerModel))
+    template = OperationsProblemTemplate(NetworkModel(CopperPlatePowerModel))
     set_device_model!(template, ThermalStandard, ThermalBasicUnitCommitment)
     set_device_model!(template, InterruptiblePowerLoad, PowerLoadDispatch)
     model = DecisionModel(template,
@@ -174,7 +174,7 @@ end
     networks = [CopperPlatePowerModel, PTDFPowerModel, DCPPowerModel, ACPPowerModel]
     solvers = [HiGHS_optimizer, HiGHS_optimizer, HiGHS_optimizer, ipopt_optimizer]
     for (ix, net) in enumerate(networks)
-        template = ProblemTemplate(
+        template = OperationsProblemTemplate(
             NetworkModel(
                 net;
             ),
@@ -218,7 +218,7 @@ end
     networks = [CopperPlatePowerModel, PTDFPowerModel, DCPPowerModel, ACPPowerModel]
     solvers = [HiGHS_optimizer, HiGHS_optimizer, HiGHS_optimizer, ipopt_optimizer]
     for (ix, net) in enumerate(networks)
-        template = ProblemTemplate(
+        template = OperationsProblemTemplate(
             NetworkModel(
                 net;
             ),

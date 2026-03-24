@@ -25,7 +25,7 @@ try
     transform_single_time_series!(sys, Hour(1), Hour(1))
 
     for i in 1:2
-        template = ProblemTemplate(
+        template = OperationsProblemTemplate(
             NetworkModel(PTDFPowerModel;
                 use_slacks = true,
                 duals = [CopperPlateBalanceConstraint],

@@ -13,7 +13,7 @@
 
     add_component!(sys, syncon)
 
-    template = ProblemTemplate(ACPPowerModel)
+    template = OperationsProblemTemplate(ACPPowerModel)
     set_device_model!(template, ThermalStandard, ThermalDispatchNoMin)
     set_device_model!(template, PowerLoad, StaticPowerLoad)
     set_device_model!(template, Line, StaticBranch)
@@ -39,7 +39,7 @@
     )
     @test any(q_syncon[!, 2] != 0.0)
 
-    template = ProblemTemplate(PTDFPowerModel)
+    template = OperationsProblemTemplate(PTDFPowerModel)
     set_device_model!(template, ThermalStandard, ThermalDispatchNoMin)
     set_device_model!(template, PowerLoad, StaticPowerLoad)
     set_device_model!(template, Line, StaticBranch)

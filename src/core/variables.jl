@@ -108,6 +108,8 @@ Docs abbreviation: ``r^\\text{sl}``
 """
 struct ReserveRequirementSlack <: VariableType end
 
+struct ServiceRequirementVariable <: VariableType end
+
 """
 Struct to dispatch the creation of Voltage Magnitude Variables for AC formulations
 
