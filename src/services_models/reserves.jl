@@ -543,7 +543,7 @@ function _add_reserves_variable_cost_to_objective!(
     end
 
     pwl_cost_expressions =
-        add_pwl_term_delta!(container, component, variable_cost, T(), U())
+        add_pwl_term!(container, component, variable_cost, T(), U())
     for t in time_steps
         add_to_expression!(
             container,
