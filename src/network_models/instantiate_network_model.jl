@@ -76,7 +76,6 @@ function IOM.instantiate_network_model!(
     number_of_steps::Int,
     sys::PSY.System,
 ) where {T <: AbstractPowerModel}
-    IOM._check_branch_network_compatibility(model, branch_models, sys)
     if isempty(model.subnetworks)
         model.subnetworks = PNM.find_subnetworks(sys)
     end
@@ -127,7 +126,6 @@ function IOM.instantiate_network_model!(
     number_of_steps::Int,
     sys::PSY.System,
 )
-    IOM._check_branch_network_compatibility(model, branch_models, sys)
     PNM.populate_branch_maps_by_type!(model.network_reduction)
     empty!(model.reduced_branch_tracker)
     IOM.set_number_of_steps!(model.reduced_branch_tracker, number_of_steps)
@@ -144,7 +142,6 @@ function IOM.instantiate_network_model!(
     number_of_steps::Int,
     sys::PSY.System,
 )
-    IOM._check_branch_network_compatibility(model, branch_models, sys)
     if isempty(model.subnetworks)
         model.subnetworks = PNM.find_subnetworks(sys)
     end
@@ -168,7 +165,6 @@ function IOM.instantiate_network_model!(
     number_of_steps::Int,
     sys::PSY.System,
 )
-    IOM._check_branch_network_compatibility(model, branch_models, sys)
     if IOM.get_PTDF_matrix(model) === nothing
         @info "PTDF Matrix not provided. Calculating using PowerNetworkMatrices.PTDF"
         if model.reduce_radial_branches && model.reduce_degree_two_branches
@@ -258,7 +254,6 @@ function IOM.instantiate_network_model!(
     number_of_steps::Int,
     sys::PSY.System,
 )
-    IOM._check_branch_network_compatibility(model, branch_models, sys)
     if IOM.get_PTDF_matrix(model) === nothing
         @info "PTDF Matrix not provided. Calculating using PowerNetworkMatrices.PTDF"
         if model.reduce_radial_branches && model.reduce_degree_two_branches

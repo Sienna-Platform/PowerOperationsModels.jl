@@ -175,7 +175,7 @@ function add_variable_cost_to_objective!(
     ::ImportExportSourceModel,
 )
     isnothing(get_output_offer_curves(cost_function)) && return
-    add_pwl_term_delta!(
+    add_pwl_term!(
         IncrementalOffer(),
         container,
         component,
@@ -194,7 +194,7 @@ function add_variable_cost_to_objective!(
     ::ImportExportSourceModel,
 )
     isnothing(get_input_offer_curves(cost_function)) && return
-    add_pwl_term_delta!(
+    add_pwl_term!(
         DecrementalOffer(),
         container,
         component,
@@ -221,7 +221,7 @@ function add_variable_cost_to_objective!(
     if !(isnothing(get_output_offer_curves(cost_function)))
         error("Component $(component_name) is not allowed to participate as a supply.")
     end
-    add_pwl_term_delta!(
+    add_pwl_term!(
         DecrementalOffer(),
         container,
         component,
@@ -241,7 +241,7 @@ _vom_offer_direction(::AbstractControllablePowerLoadFormulation) = DecrementalOf
 """
 PWL block offer constraints for ORDC (ReserveDemandCurve).
 """
-function add_pwl_constraint_delta!(
+function _add_pwl_constraint!(
     container::OptimizationContainer,
     component::T,
     ::U,
@@ -273,7 +273,7 @@ end
 """
 PWL cost terms for StepwiseCostReserve (AbstractServiceFormulation).
 """
-function add_pwl_term_delta!(
+function add_pwl_term!(
     container::OptimizationContainer,
     component::T,
     cost_data::PSY.CostCurve{PSY.PiecewiseIncrementalCurve},
@@ -300,7 +300,7 @@ function add_pwl_term_delta!(
     slopes = IS.get_y_coords(data)
     break_points = PSY.get_x_coords(data)
     for t in time_steps
-        pwl_vars = add_pwl_variables_delta!(
+        pwl_vars = add_pwl_variables!(
             container,
             PiecewiseLinearBlockIncrementalOffer,
             T,
@@ -309,9 +309,9 @@ function add_pwl_term_delta!(
             length(slopes);
             upper_bound = Inf,
         )
-        add_pwl_constraint_delta!(container, component, U(), break_points, pwl_vars, t)
+        _add_pwl_constraint!(container, component, U(), break_points, pwl_vars, t)
         pwl_cost_expressions[t] =
-            get_pwl_cost_expression_delta(pwl_vars, slopes, multiplier * dt)
+            get_pwl_cost_expression(pwl_vars, slopes, multiplier * dt)
     end
     return pwl_cost_expressions
 end
