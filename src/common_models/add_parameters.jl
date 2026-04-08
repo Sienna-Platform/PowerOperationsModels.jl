@@ -59,6 +59,12 @@ function _add_parameters!(
     U <: Union{Vector{D}, IS.FlattenIteratorWrapper{D}},
     W <: AbstractDeviceFormulation,
 } where {D <: PSY.Component}
+    # Gate: silently no-op when the DeviceModel has no time-series attribute
+    # for `T`. Lets constructors call add_parameters! unconditionally and lets
+    # constraint builders branch on parameter presence at runtime (see #43).
+    if !haskey(get_time_series_names(model), T)
+        return
+    end
     _add_time_series_parameters!(container, param, devices, model)
     return
 end
