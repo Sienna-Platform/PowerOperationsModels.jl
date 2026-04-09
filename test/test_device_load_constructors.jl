@@ -47,6 +47,39 @@ end
     end
 end
 
+# Regression test for #43: a DeviceModel with the ActivePowerTimeSeriesParameter
+# attribute explicitly omitted must build cleanly. Before the gate, this raised
+# KeyError(:ActivePowerTimeSeriesParameter) inside IOM's range constraint helper.
+@testset "PowerLoadDispatch / PowerLoadInterruption without TS attribute" begin
+    c_sys5_il = PSB.build_system(PSITestSystems, "c_sys5_il")
+    for formulation in (PowerLoadDispatch, PowerLoadInterruption)
+        device_model = DeviceModel(
+            InterruptiblePowerLoad,
+            formulation;
+            time_series_names = Dict{Type{<:ISOPT.TimeSeriesParameter}, String}(),
+        )
+        model = DecisionModel(MockOperationProblem, DCPPowerModel, c_sys5_il)
+        @test_nowarn mock_construct_device!(model, device_model)
+
+        container = IOM.get_optimization_container(model)
+        # The TS-driven UB constraint must NOT have been added.
+        @test !IOM.has_container_key(
+            container,
+            ActivePowerVariableTimeSeriesLimitsConstraint,
+            InterruptiblePowerLoad,
+        )
+        # The TS parameter must NOT have been created.
+        @test !IOM.has_container_key(
+            container,
+            ActivePowerTimeSeriesParameter,
+            InterruptiblePowerLoad,
+        )
+        # JuMP variable upper bounds (from get_max_active_power) must still be set.
+        var = IOM.get_variable(container, ActivePowerVariable(), InterruptiblePowerLoad)
+        @test all(JuMP.has_upper_bound, var)
+    end
+end
+
 @testset "PowerLoadDispatch AC- PF" begin
     models = [PowerLoadDispatch]
     c_sys5_il = PSB.build_system(PSITestSystems, "c_sys5_il")
