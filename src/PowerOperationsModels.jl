@@ -530,6 +530,7 @@ export HydroWaterFactorModel
 export HydroWaterModelReservoir
 export HydroTurbineBilinearDispatch
 export HydroTurbineWaterLinearDispatch
+export HydroTurbineBin2BilinearDispatch
 export HydroEnergyModelReservoir
 export HydroTurbineEnergyDispatch
 export HydroTurbineEnergyCommitment
