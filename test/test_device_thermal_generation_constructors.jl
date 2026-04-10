@@ -24,7 +24,6 @@ const TIME1 = DateTime("2024-01-01T00:00:00")
                 sys;
                 name = "UC_$(i)",
                 optimizer = HiGHS_optimizer,
-                system_to_file = false,
                 optimizer_solve_log_print = true,
             )
             @test build!(model; output_dir = test_path) == IOM.ModelBuildStatus.BUILT
@@ -59,7 +58,6 @@ const TIME1 = DateTime("2024-01-01T00:00:00")
             sys_no_startup;
             name = "UC_no_startup",
             optimizer = HiGHS_optimizer,
-            system_to_file = false,
             optimizer_solve_log_print = true,
         )
         @test build!(model_no_startup; output_dir = test_path) == IOM.ModelBuildStatus.BUILT
@@ -88,7 +86,6 @@ const TIME1 = DateTime("2024-01-01T00:00:00")
             sys_with_startup;
             name = "UC_with_startup",
             optimizer = HiGHS_optimizer,
-            system_to_file = false,
             optimizer_solve_log_print = true,
         )
         @test build!(model_with_startup; output_dir = test_path) ==
@@ -138,7 +135,6 @@ end
                 sys;
                 name = "UC_$(i)",
                 optimizer = HiGHS_optimizer,
-                system_to_file = false,
             )
             @test build!(model; output_dir = test_path) == IOM.ModelBuildStatus.BUILT
             @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
@@ -1164,7 +1160,6 @@ end =#
             sys_5;
             name = "UC",
             optimizer = HiGHS_optimizer,
-            system_to_file = false,
             store_variable_names = true,
             rebuild_model = rebuild,
         )
@@ -1260,7 +1255,6 @@ end
         sys;
         name = "UC",
         optimizer = HiGHS_optimizer,
-        system_to_file = false,
         store_variable_names = true,
         optimizer_solve_log_print = false,
     )
@@ -1368,7 +1362,6 @@ end =#
         sys;
         name = "UC",
         optimizer = ipopt_optimizer,
-        system_to_file = false,
         store_variable_names = true,
         optimizer_solve_log_print = false,
     )

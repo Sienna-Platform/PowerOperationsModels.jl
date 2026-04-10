@@ -66,6 +66,29 @@ _assign_subnetworks_to_buses(
     ::PSY.System,
 ) where {T <: AbstractPowerModel} = nothing
 
+function _get_unmodeled_branch_types(
+    branch_models::BranchModelContainer,
+    sys::PSY.System,
+)
+    unmodeled = DataType[]
+    for d in PSY.get_existing_device_types(sys)
+        if d <: PSY.ACTransmission && !haskey(branch_models, Symbol(d))
+            push!(unmodeled, d)
+        end
+    end
+    return unmodeled
+end
+
+function _validate_network_and_branches(
+    model::NetworkModel,
+    branch_models::BranchModelContainer,
+    sys::PSY.System,
+)
+    unmodeled = _get_unmodeled_branch_types(branch_models, sys)
+    IOM._check_branch_network_compatibility(model, unmodeled)
+    return
+end
+
 #################################################################################
 # Generic fallback for AbstractPowerModel (Ybus-based models: ACP, ACR, etc.)
 #################################################################################
@@ -76,7 +99,7 @@ function IOM.instantiate_network_model!(
     number_of_steps::Int,
     sys::PSY.System,
 ) where {T <: AbstractPowerModel}
-    IOM._check_branch_network_compatibility(model, branch_models, sys)
+    _validate_network_and_branches(model, branch_models, sys)
     if isempty(model.subnetworks)
         model.subnetworks = PNM.find_subnetworks(sys)
     end
@@ -127,7 +150,7 @@ function IOM.instantiate_network_model!(
     number_of_steps::Int,
     sys::PSY.System,
 )
-    IOM._check_branch_network_compatibility(model, branch_models, sys)
+    _validate_network_and_branches(model, branch_models, sys)
     PNM.populate_branch_maps_by_type!(model.network_reduction)
     empty!(model.reduced_branch_tracker)
     IOM.set_number_of_steps!(model.reduced_branch_tracker, number_of_steps)
@@ -144,7 +167,7 @@ function IOM.instantiate_network_model!(
     number_of_steps::Int,
     sys::PSY.System,
 )
-    IOM._check_branch_network_compatibility(model, branch_models, sys)
+    _validate_network_and_branches(model, branch_models, sys)
     if isempty(model.subnetworks)
         model.subnetworks = PNM.find_subnetworks(sys)
     end
@@ -168,7 +191,7 @@ function IOM.instantiate_network_model!(
     number_of_steps::Int,
     sys::PSY.System,
 )
-    IOM._check_branch_network_compatibility(model, branch_models, sys)
+    _validate_network_and_branches(model, branch_models, sys)
     if IOM.get_PTDF_matrix(model) === nothing
         @info "PTDF Matrix not provided. Calculating using PowerNetworkMatrices.PTDF"
         if model.reduce_radial_branches && model.reduce_degree_two_branches
@@ -258,7 +281,7 @@ function IOM.instantiate_network_model!(
     number_of_steps::Int,
     sys::PSY.System,
 )
-    IOM._check_branch_network_compatibility(model, branch_models, sys)
+    _validate_network_and_branches(model, branch_models, sys)
     if IOM.get_PTDF_matrix(model) === nothing
         @info "PTDF Matrix not provided. Calculating using PowerNetworkMatrices.PTDF"
         if model.reduce_radial_branches && model.reduce_degree_two_branches

@@ -280,6 +280,7 @@ include("area_interchange.jl")
 # Operation lifecycle: build/solve/run
 include("operation/build_problem.jl")
 include("initial_conditions/initialization.jl")
+include("operation/operation_model_serialization.jl")
 include("operation/decision_model.jl")
 include("operation/emulation_model.jl")
 

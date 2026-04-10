@@ -28,7 +28,6 @@ PowerFlowsExt = "PowerFlows"
 
 [sources]
 InfrastructureSystems = {url = "https://github.com/NREL-Sienna/InfrastructureSystems.jl", rev = "IS4"}
-InfrastructureOptimizationModels = {url = "https://github.com/NREL-Sienna/InfrastructureOptimizationModels.jl", rev = "main"}
 
 [compat]
 Dates = "1"
@@ -37,7 +36,7 @@ InfrastructureOptimizationModels = "0.1"
 InfrastructureSystems = "3"
 InteractiveUtils = "1.11.0"
 JuMP = "^1.28"
-PowerNetworkMatrices = "^0.18"
+PowerNetworkMatrices = "^0.19"
 PowerSystems = "5.3"
 ProgressMeter = "1.11.0"
 TimerOutputs = "~0.5"

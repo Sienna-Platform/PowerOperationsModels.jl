@@ -112,7 +112,6 @@ end
         c_sys5_il;
         name = "UC_fixed_market_bid_cost",
         optimizer = HiGHS_optimizer,
-        system_to_file = false,
         optimizer_solve_log_print = true)
     @test build!(model; output_dir = test_path) == IOM.ModelBuildStatus.BUILT
     @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
@@ -189,7 +188,6 @@ end
             name = "UC",
             store_variable_names = true,
             optimizer = solvers[ix],
-            system_to_file = false,
         )
 
         @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
@@ -234,7 +232,6 @@ end
             name = "UC",
             store_variable_names = true,
             optimizer = solvers[ix],
-            system_to_file = false,
         )
 
         @test build!(model; output_dir = mktempdir(; cleanup = true)) ==

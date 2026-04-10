@@ -89,7 +89,6 @@ try
             optimizer = optimizer_with_attributes(HiGHS.Optimizer,
                 "mip_rel_gap" => 0.01,
                 "log_to_console" => false),
-            system_to_file = false,
             initialize_model = true,
             optimizer_solve_log_print = false,
             direct_mode_optimizer = true,
@@ -103,7 +102,6 @@ try
             optimizer = optimizer_with_attributes(HiGHS.Optimizer,
                 "mip_rel_gap" => 0.01,
                 "log_to_console" => false),
-            system_to_file = false,
             initialize_model = true,
             check_numerical_bounds = false,
         )
