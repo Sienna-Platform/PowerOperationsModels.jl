@@ -280,6 +280,7 @@ include("area_interchange.jl")
 # Operation lifecycle: build/solve/run
 include("operation/build_problem.jl")
 include("initial_conditions/initialization.jl")
+include("operation/template_validation.jl")
 include("operation/decision_model.jl")
 include("operation/emulation_model.jl")
 
@@ -299,8 +300,7 @@ import InfrastructureOptimizationModels:
     LOG_GROUP_OPTIMIZATION_CONTAINER,
     get_store,
     set_status!,
-    get_problem_size,
-    validate_available_devices
+    get_problem_size
 
 # Functions defined in POM (core/interfaces.jl)
 export construct_device!
@@ -341,7 +341,6 @@ export InitialEnergyLevel
 # Functions
 export build!
 export get_initial_conditions
-export serialize_problem
 export serialize_outputs
 export serialize_optimization_model
 export solve!
