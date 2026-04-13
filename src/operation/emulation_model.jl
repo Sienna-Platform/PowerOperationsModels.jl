@@ -2,7 +2,7 @@
 # but not run in the tests and not yet refactored for IOM-POM split.
 function build_pre_step!(model::EmulationModel)
     TimerOutputs.@timeit BUILD_PROBLEMS_TIMER "Build pre-step" begin
-        IOM.validate_template(model)
+        validate_template(model)
         if !isempty(model)
             @info "EmulationProblem status not ModelBuildStatus.EMPTY. Resetting"
             reset!(model)
@@ -225,8 +225,6 @@ function run!(
                 end
                 if export_optimization_model
                     TimerOutputs.@timeit RUN_OPERATION_MODEL_TIMER "Serialize" begin
-                        optimizer = get(kwargs, :optimizer, nothing)
-                        serialize_problem(model; optimizer = optimizer)
                         serialize_optimization_model(model)
                     end
                 end
@@ -299,5 +297,14 @@ function handle_initial_conditions!(model::EmulationModel{<:EmulationProblem})
             nothing,
         )
     end
+    return
+end
+
+function validate_template(::EmulationModel{M}) where {M <: EmulationProblem}
+    error("validate_template is not implemented for EmulationModel{$M}")
+end
+
+function validate_template(model::EmulationModel{<:DefaultEmulationProblem})
+    validate_template_impl!(model)
     return
 end

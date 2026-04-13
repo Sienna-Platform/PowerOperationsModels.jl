@@ -89,9 +89,7 @@ const CYCLE_VIOLATION_COST = 5e3
 const STORAGE_REG_COST = 0.001
 
 # File Names definitions
-const PROBLEM_SERIALIZATION_FILENAME = "operation_problem.bin"
 const PROBLEM_LOG_FILENAME = "operation_problem.log"
-const SIMULATION_SERIALIZATION_FILENAME = "simulation.bin"
 const SIMULATION_LOG_FILENAME = "simulation.log"
 const REQUIRED_RECORDERS = (:simulation_status, :execution)
 const KNOWN_SIMULATION_PATHS = [

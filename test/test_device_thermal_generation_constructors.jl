@@ -938,7 +938,6 @@ end
     c_sys5_dc = PSB.build_system(PSITestSystems, "c_sys5_dc")
     systems = [c_sys5, c_sys5_dc]
     networks = [
-        PTDFPowerModel,
         DCPPowerModel,
         NFAPowerModel,
         PTDFPowerModel,
@@ -1279,7 +1278,7 @@ end
         simulation_folder = mktempdir(),
     )
 
-    build!(sim; console_level = Logging.Error, serialize = false)
+    build!(sim; console_level = Logging.Error)
     moi_tests(model, 432, 0, 192, 120, 72, false)
     execute!(sim)
 

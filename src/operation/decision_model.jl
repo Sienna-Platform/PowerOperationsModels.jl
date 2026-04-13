@@ -1,6 +1,6 @@
 function build_pre_step!(model::DecisionModel{<:DecisionProblem})
     TimerOutputs.@timeit BUILD_PROBLEMS_TIMER "Build pre-step" begin
-        IOM.validate_template(model)
+        validate_template(model)
         if !isempty(model)
             @info "OptimizationProblem status not ModelBuildStatus.EMPTY. Resetting"
             reset!(model)
@@ -183,7 +183,6 @@ function solve!(
                 end
                 if export_optimization_problem
                     TimerOutputs.@timeit RUN_OPERATION_MODEL_TIMER "Serialize" begin
-                        serialize_problem(model; optimizer = optimizer)
                         serialize_optimization_model(model)
                     end
                 end
@@ -275,5 +274,60 @@ function build_if_not_already_built!(model::OperationModel; kwargs...)
     if status != ModelBuildStatus.BUILT
         error("build! of the $(typeof(model)) $(get_name(model)) failed: $status")
     end
+    return
+end
+
+function validate_template(::DecisionModel{M}) where {M <: DecisionProblem}
+    error("validate_template is not implemented for DecisionModel{$M}")
+end
+
+function validate_template(model::DecisionModel{<:DefaultDecisionProblem})
+    validate_template_impl!(model)
+    return
+end
+
+function _make_device_cache(
+    filter_function::Function,
+    devices::IS.FlattenIteratorWrapper{T},
+    check_components::Bool,
+    sys::PSY.System,
+) where {T <: PSY.Device}
+    device_cache = sizehint!(Vector{T}(), length(devices))
+    for device in devices
+        if PSY.get_available(device) && filter_function(device)
+            check_components && PSY.check_component(sys, device)
+            push!(device_cache, device)
+        end
+    end
+    return device_cache
+end
+
+function _make_device_cache(
+    ::Nothing,
+    devices::IS.FlattenIteratorWrapper{T},
+    check_components::Bool,
+    sys::PSY.System,
+) where {T <: PSY.Device}
+    device_cache = sizehint!(Vector{T}(), length(devices))
+    for device in devices
+        if PSY.get_available(device)
+            check_components && PSY.check_component(sys, device)
+            push!(device_cache, device)
+        end
+    end
+    return device_cache
+end
+
+function make_device_cache!(
+    model::DeviceModel{T, <:AbstractDeviceFormulation},
+    system::PSY.System,
+    check_components::Bool,
+) where {T <: PSY.Device}
+    subsystem = get_subsystem(model)
+    !PSY.has_components(system, T) && return false
+    devices = PSY.get_components(T, system; subsystem_name = subsystem)
+    filt_func = get_attribute(model, "filter_function")
+    model.device_cache =
+        _make_device_cache(filt_func, devices, check_components, system)
     return
 end

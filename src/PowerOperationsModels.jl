@@ -141,8 +141,8 @@ import InfrastructureOptimizationModels:
     _include_constant_min_gen_power_in_constraint,
     add_variable_cost_to_objective!,
     _vom_offer_direction,
-    add_pwl_constraint_delta!,
-    add_pwl_term_delta!,
+    _add_pwl_constraint!,
+    add_pwl_term!,
     get_output_offer_curves,
     # Internal utilities used by market bid overrides and proportional_cost
     is_time_variant,
@@ -175,7 +175,7 @@ import InfrastructureOptimizationModels:
     set_service_model!,
     finalize_template!,
     make_empty_jump_model_with_settings,
-    set_model!
+    _set_model!
 
 using InfrastructureOptimizationModels # TODO: use explicit imports.
 
@@ -300,8 +300,7 @@ import InfrastructureOptimizationModels:
     LOG_GROUP_OPTIMIZATION_CONTAINER,
     get_store,
     set_status!,
-    get_problem_size,
-    validate_available_devices
+    get_problem_size
 
 # Functions defined in POM (core/interfaces.jl)
 export construct_device!
@@ -342,7 +341,6 @@ export InitialEnergyLevel
 # Functions
 export build!
 export get_initial_conditions
-export serialize_problem
 export serialize_outputs
 export serialize_optimization_model
 export solve!
@@ -825,5 +823,7 @@ export get_name
 export get_model_base_power
 export get_optimizer_stats
 export get_resolution
+
+export DynamicBranchRatingTimeSeriesParameter
 
 end
