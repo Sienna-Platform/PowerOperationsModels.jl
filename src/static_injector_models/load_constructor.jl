@@ -59,14 +59,16 @@ function construct_device!(
             sys,
         )
 
-    add_constraints!(
-        container,
-        ActivePowerVariableLimitsConstraint,
-        ActivePowerVariable,
-        devices,
-        model,
-        network_model,
-    )
+    if haskey(get_time_series_names(model), ActivePowerTimeSeriesParameter)
+        add_constraints!(
+            container,
+            ActivePowerVariableLimitsConstraint,
+            ActivePowerVariable,
+            devices,
+            model,
+            network_model,
+        )
+    end
     add_constraints!(
         container,
         ReactivePowerVariableLimitsConstraint,
@@ -139,14 +141,16 @@ function construct_device!(
             sys,
         )
 
-    add_constraints!(
-        container,
-        ActivePowerVariableLimitsConstraint,
-        ActivePowerVariable,
-        devices,
-        model,
-        network_model,
-    )
+    if haskey(get_time_series_names(model), ActivePowerTimeSeriesParameter)
+        add_constraints!(
+            container,
+            ActivePowerVariableLimitsConstraint,
+            ActivePowerVariable,
+            devices,
+            model,
+            network_model,
+        )
+    end
     add_feedforward_constraints!(container, model, devices)
 
     add_to_objective_function!(
@@ -219,14 +223,16 @@ function construct_device!(
             sys,
         )
 
-    add_constraints!(
-        container,
-        ActivePowerVariableLimitsConstraint,
-        ActivePowerVariable,
-        devices,
-        model,
-        network_model,
-    )
+    if haskey(get_time_series_names(model), ActivePowerTimeSeriesParameter)
+        add_constraints!(
+            container,
+            ActivePowerVariableLimitsConstraint,
+            ActivePowerVariable,
+            devices,
+            model,
+            network_model,
+        )
+    end
     add_constraints!(
         container,
         ActivePowerVariableLimitsConstraint,
@@ -304,14 +310,16 @@ function construct_device!(
             sys,
         )
 
-    add_constraints!(
-        container,
-        ActivePowerVariableLimitsConstraint,
-        ActivePowerVariable,
-        devices,
-        model,
-        network_model,
-    )
+    if haskey(get_time_series_names(model), ActivePowerTimeSeriesParameter)
+        add_constraints!(
+            container,
+            ActivePowerVariableLimitsConstraint,
+            ActivePowerVariable,
+            devices,
+            model,
+            network_model,
+        )
+    end
     add_constraints!(
         container,
         ActivePowerVariableLimitsConstraint,

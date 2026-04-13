@@ -122,27 +122,11 @@ function add_constraints!(
     devices::IS.FlattenIteratorWrapper{V},
     model::DeviceModel{V, W},
     ::NetworkModel{X},
-) where {V <: PSY.ControllableLoad, W <: PowerLoadDispatch, X <: AbstractPowerModel}
-    add_parameterized_upper_bound_range_constraints(
-        container,
-        ActivePowerVariableTimeSeriesLimitsConstraint,
-        U,
-        ActivePowerTimeSeriesParameter,
-        devices,
-        model,
-        X,
-    )
-    return
-end
-
-function add_constraints!(
-    container::OptimizationContainer,
-    T::Type{ActivePowerVariableLimitsConstraint},
-    U::Type{<:VariableType},
-    devices::IS.FlattenIteratorWrapper{V},
-    model::DeviceModel{V, W},
-    ::NetworkModel{X},
-) where {V <: PSY.ControllableLoad, W <: PowerLoadInterruption, X <: AbstractPowerModel}
+) where {
+    V <: PSY.ControllableLoad,
+    W <: Union{PowerLoadDispatch, PowerLoadInterruption},
+    X <: AbstractPowerModel,
+}
     add_parameterized_upper_bound_range_constraints(
         container,
         ActivePowerVariableTimeSeriesLimitsConstraint,
