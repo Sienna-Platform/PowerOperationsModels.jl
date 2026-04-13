@@ -1916,7 +1916,7 @@ function _add_variable_cost_to_objective!(
     @debug "Market Bid" _group = LOG_GROUP_COST_FUNCTIONS component_name
     incremental_cost_curves = PSY.get_incremental_offer_curves(cost_function)
     if !isnothing(incremental_cost_curves)
-        add_pwl_term_delta!(
+        add_pwl_term!(
             IncrementalOffer(),
             container,
             component,
@@ -1942,7 +1942,7 @@ function _add_variable_cost_to_objective!(
     @debug "Market Bid" _group = LOG_GROUP_COST_FUNCTIONS component_name
     decremental_cost_curves = PSY.get_decremental_offer_curves(cost_function)
     if !isnothing(decremental_cost_curves)
-        add_pwl_term_delta!(
+        add_pwl_term!(
             DecrementalOffer(),
             container,
             component,
