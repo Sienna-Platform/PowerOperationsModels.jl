@@ -141,8 +141,8 @@ import InfrastructureOptimizationModels:
     _include_constant_min_gen_power_in_constraint,
     add_variable_cost_to_objective!,
     _vom_offer_direction,
-    _add_pwl_constraint!,
-    add_pwl_term!,
+    add_pwl_constraint_delta!,
+    add_pwl_term_delta!,
     get_output_offer_curves,
     # Internal utilities used by market bid overrides and proportional_cost
     is_time_variant,
@@ -175,7 +175,7 @@ import InfrastructureOptimizationModels:
     set_service_model!,
     finalize_template!,
     make_empty_jump_model_with_settings,
-    _set_model!
+    set_model!
 
 using InfrastructureOptimizationModels # TODO: use explicit imports.
 
@@ -280,7 +280,7 @@ include("area_interchange.jl")
 # Operation lifecycle: build/solve/run
 include("operation/build_problem.jl")
 include("initial_conditions/initialization.jl")
-include("operation/operation_model_serialization.jl")
+include("operation/template_validation.jl")
 include("operation/decision_model.jl")
 include("operation/emulation_model.jl")
 
