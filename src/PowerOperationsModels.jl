@@ -142,7 +142,6 @@ import InfrastructureOptimizationModels:
     add_variable_cost_to_objective!,
     _vom_offer_direction,
     _add_pwl_constraint!,
-    _add_pwl_term!,
     add_pwl_term!,
     get_output_offer_curves,
     # Internal utilities used by market bid overrides and proportional_cost
@@ -824,5 +823,7 @@ export get_name
 export get_model_base_power
 export get_optimizer_stats
 export get_resolution
+
+export DynamicBranchRatingTimeSeriesParameter
 
 end

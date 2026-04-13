@@ -309,7 +309,7 @@ function add_pwl_term!(
             length(slopes);
             upper_bound = Inf,
         )
-        _add_pwl_constraint!(container, component, U(), break_points, pwl_vars, t)
+        add_pwl_constraint!(container, component, U(), break_points, pwl_vars, t)
         pwl_cost_expressions[t] =
             get_pwl_cost_expression(pwl_vars, slopes, multiplier * dt)
     end
