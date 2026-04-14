@@ -130,22 +130,17 @@ tweak_for_startup_shutdown!(sys::System) = tweak_system!(sys::System, 0.8, 1.0, 
 
 tweak_for_decremental_initial!(sys::PSY.System) = tweak_system!(sys, 1.0, 1.2, 0.5)
 
-"""Transfer the market bid cost from old_comp to new_comp, copying any time series in the process."""
+"""Transfer the market bid cost from old_comp to new_comp.
+
+Static `MarketBidCost` holds no time-series references, so a plain deepcopy is sufficient.
+Callers that need TS MBCs build them via `extend_mbc!` after transfer."""
 function transfer_mbc!(
     new_comp::PSY.Device,
     old_comp::PSY.Device,
-    new_sys::PSY.System,
+    ::PSY.System,
 )
     mbc = deepcopy(get_operation_cost(old_comp))
     @assert mbc isa PSY.MarketBidCost
-    for field in fieldnames(PSY.MarketBidCost)
-        val = getfield(mbc, field)
-        if val isa IS.TimeSeriesKey
-            ts = PSY.get_time_series(old_comp, val)
-            new_ts_key = add_time_series!(new_sys, new_comp, deepcopy(ts))
-            setfield!(mbc, field, new_ts_key)
-        end
-    end
     set_operation_cost!(new_comp, mbc)
     return
 end
@@ -153,40 +148,34 @@ end
 function zero_out_startup_shutdown_costs!(comp::PSY.Device)
     op_cost = get_operation_cost(comp)::MarketBidCost
     set_start_up!(op_cost, (hot = 0.0, warm = 0.0, cold = 0.0))
-    set_shut_down!(op_cost, 0.0)
+    set_shut_down!(op_cost, LinearCurve(0.0))
 end
 
-"""Set everything except the incremental_offer_curves to zero on the MarketBidCost attached to the unit."""
-function zero_out_non_incremental_curve!(sys::PSY.System, unit::PSY.Component)
+"""Set everything except the incremental_offer_curves to zero on the static MarketBidCost attached to the unit."""
+function zero_out_non_incremental_curve!(::PSY.System, unit::PSY.Component)
     cost = deepcopy(get_operation_cost(unit)::MarketBidCost)
-    set_no_load_cost!(cost, 0.0)
+    set_no_load_cost!(cost, LinearCurve(0.0))
     set_start_up!(cost, (hot = 0.0, warm = 0.0, cold = 0.0))
-    set_shut_down!(cost, 0.0)
+    set_shut_down!(cost, LinearCurve(0.0))
     # set minimum generation cost (but not min gen power) to zero.
-    if get_incremental_offer_curves(cost) isa IS.TimeSeriesKey
-        zero_ts = make_deterministic_ts(sys, "initial_input", 0.0, 0.0, 0.0)
-        zero_ts_key = add_time_series!(sys, unit, zero_ts)
-        set_incremental_initial_input!(cost, zero_ts_key)
-    else
-        base_curve = get_value_curve(get_incremental_offer_curves(cost))
-        x_coords = get_x_coords(base_curve)
-        slopes = get_slopes(base_curve)
-        new_curve = PiecewiseIncrementalCurve(0.0, x_coords, slopes)
-        set_incremental_offer_curves!(cost, CostCurve(new_curve))
-    end
+    base_curve = get_value_curve(get_incremental_offer_curves(cost))
+    x_coords = get_x_coords(base_curve)
+    slopes = get_slopes(base_curve)
+    new_curve = PiecewiseIncrementalCurve(0.0, x_coords, slopes)
+    set_incremental_offer_curves!(cost, CostCurve(new_curve))
     set_operation_cost!(unit, cost)
 end
 
-"Set the no_load_cost to `nothing` and the initial_input to the old no_load_cost. Not designed for time series"
+"Zero out the no_load_cost and fold its value into the incremental curve's initial_input. Not designed for time series."
 function no_load_to_initial_input!(comp::Generator)
     cost = get_operation_cost(comp)::MarketBidCost
-    no_load = PSY.get_no_load_cost(cost)
+    no_load = get_proportional_term(PSY.get_no_load_cost(cost))
     old_fd = get_function_data(
         get_value_curve(get_incremental_offer_curves(get_operation_cost(comp))),
     )::IS.PiecewiseStepData
     new_vc = PiecewiseIncrementalCurve(old_fd, no_load, nothing)
     set_incremental_offer_curves!(get_operation_cost(comp), CostCurve(new_vc))
-    set_no_load_cost!(get_operation_cost(comp), nothing)
+    set_no_load_cost!(get_operation_cost(comp), LinearCurve(0.0))
     return
 end
 
@@ -209,59 +198,106 @@ function adjust_min_power!(sys)
     end
 end
 
-"""
-Add startup and shutdown time series to a certain component. `with_increments`: whether the
-elements should be increasing over time or constant. Version A: designed for
-`c_fixed_market_bid_cost`.
-"""
-function add_startup_shutdown_ts_a!(sys::System, with_increments::Bool)
-    res_incr = with_increments ? 0.05 : 0.0
-    interval_incr = with_increments ? 0.01 : 0.0
-    unit1 = get_component(ThermalStandard, sys, "Test Unit1")
-    @assert get_operation_cost(unit1) isa MarketBidCost
-    startup_ts_1 = make_deterministic_ts(
+# Convert the static offer curve at `direction` into a constant time-series-backed curve.
+# Returns a `CostCurve{TimeSeriesPiecewiseIncrementalCurve}` suitable for the corresponding
+# field of a `MarketBidTimeSeriesCost`.
+function _constant_ts_offer_curve!(
+    sys::System,
+    comp::PSY.Component,
+    static_curve::CostCurve{PiecewiseIncrementalCurve},
+    incr_or_decr::String,
+)
+    baseline = get_value_curve(static_curve)::PiecewiseIncrementalCurve
+    init_ts = make_deterministic_ts(
         sys,
-        "start_up",
-        (1.0, 1.5, 2.0),
-        res_incr,
-        interval_incr,
+        "initial_input $(incr_or_decr)",
+        get_initial_input(baseline),
+        0.0,
+        0.0,
     )
-    set_start_up!(sys, unit1, startup_ts_1)
-    shutdown_ts_1 =
-        make_deterministic_ts(sys, "shut_down", 0.5, res_incr, interval_incr)
-    set_shut_down!(sys, unit1, shutdown_ts_1)
-    return startup_ts_1, shutdown_ts_1
+    pwl_ts = make_deterministic_ts(
+        sys,
+        "variable_cost $(incr_or_decr)",
+        get_function_data(baseline),
+        (0.0, 0.0, 0.0),
+        (0.0, 0.0, 0.0),
+    )
+    init_key = add_time_series!(sys, comp, init_ts)
+    pwl_key = add_time_series!(sys, comp, pwl_ts)
+    return PSY.make_market_bid_ts_curve(pwl_key, init_key)
+end
+
+# Promote `comp`'s static MarketBidCost to a `MarketBidTimeSeriesCost`, with all fields
+# backed by time series. Offer curves and no_load_cost get constant-valued series; startup
+# and shutdown optionally vary per `startup_incr`/`shutdown_incr = (res_incr, interval_incr)`.
+# Returns the startup and shutdown Deterministic objects (callers compare to these).
+function _promote_mbc_to_ts!(
+    sys::System,
+    comp::PSY.Component;
+    startup_incr::Tuple{Float64, Float64} = (0.0, 0.0),
+    shutdown_incr::Tuple{Float64, Float64} = (0.0, 0.0),
+    startup_base::Union{Nothing, NTuple{3, Float64}} = nothing,
+    shutdown_base::Union{Nothing, Float64} = nothing,
+)
+    op_cost = get_operation_cost(comp)::MarketBidCost
+    su_base = isnothing(startup_base) ? Tuple(get_start_up(op_cost)) : startup_base
+    sd_base = if isnothing(shutdown_base)
+        get_proportional_term(get_shut_down(op_cost))
+    else
+        shutdown_base
+    end
+    nl_base = get_proportional_term(get_no_load_cost(op_cost))
+
+    su_ts = make_deterministic_ts(sys, "start_up", su_base, startup_incr...)
+    sd_ts = make_deterministic_ts(sys, "shut_down", sd_base, shutdown_incr...)
+    nl_ts = make_deterministic_ts(sys, "no_load_cost", nl_base, 0.0, 0.0)
+    su_key = add_time_series!(sys, comp, su_ts)
+    sd_key = add_time_series!(sys, comp, sd_ts)
+    nl_key = add_time_series!(sys, comp, nl_ts)
+
+    incr_curve =
+        _constant_ts_offer_curve!(sys, comp, get_incremental_offer_curves(op_cost),
+            "incremental")
+    decr_curve =
+        _constant_ts_offer_curve!(sys, comp, get_decremental_offer_curves(op_cost),
+            "decremental")
+
+    new_cost = MarketBidTimeSeriesCost(;
+        no_load_cost = TimeSeriesLinearCurve(nl_key),
+        start_up = su_key,
+        shut_down = TimeSeriesLinearCurve(sd_key),
+        incremental_offer_curves = incr_curve,
+        decremental_offer_curves = decr_curve,
+    )
+    set_operation_cost!(comp, new_cost)
+    return su_ts, sd_ts
 end
 
 """
-Add startup and shutdown time series to a certain component. `with_increments`: whether the
-elements should be increasing over time or constant. Version B: designed for `c_sys5_pglib`.
+Promote a ThermalStandard's static MBC to a TS MBC with varying startup/shutdown.
+`with_increments`: whether the startup/shutdown series should vary over time.
+Version A: designed for `c_fixed_market_bid_cost`.
+"""
+function add_startup_shutdown_ts_a!(sys::System, with_increments::Bool)
+    incr = with_increments ? (0.05, 0.01) : (0.0, 0.0)
+    unit1 = get_component(ThermalStandard, sys, "Test Unit1")
+    return _promote_mbc_to_ts!(
+        sys, unit1;
+        startup_incr = incr,
+        shutdown_incr = incr,
+        startup_base = (1.0, 1.5, 2.0),
+        shutdown_base = 0.5,
+    )
+end
+
+"""
+Promote a ThermalMultiStart's static MBC to a TS MBC with varying startup/shutdown.
+Version B: designed for `c_sys5_pglib`.
 """
 function add_startup_shutdown_ts_b!(sys::System, with_increments::Bool)
-    res_incr = with_increments ? 0.05 : 0.0
-    interval_incr = with_increments ? 0.01 : 0.0
+    incr = with_increments ? (0.05, 0.01) : (0.0, 0.0)
     unit1 = get_component(ThermalMultiStart, sys, "115_STEAM_1")
-    base_startup = Tuple(get_start_up(get_operation_cost(unit1)))
-    base_shutdown = get_shut_down(get_operation_cost(unit1))
-    @assert get_operation_cost(unit1) isa MarketBidCost
-    startup_ts_1 = make_deterministic_ts(
-        sys,
-        "start_up",
-        base_startup,
-        res_incr,
-        interval_incr,
-    )
-    set_start_up!(sys, unit1, startup_ts_1)
-    shutdown_ts_1 =
-        make_deterministic_ts(
-            sys,
-            "shut_down",
-            base_shutdown,
-            res_incr,
-            interval_incr,
-        )
-    set_shut_down!(sys, unit1, shutdown_ts_1)
-    return startup_ts_1, shutdown_ts_1
+    return _promote_mbc_to_ts!(sys, unit1; startup_incr = incr, shutdown_incr = incr)
 end
 
 # functions for building the systems: calls the above
@@ -352,7 +388,7 @@ function remove_thermal_mbcs!(sys::PSY.System)
         new_op_cost = ThermalGenerationCost(;
             variable = get_incremental_offer_curves(old_cost),
             start_up = get_start_up(old_cost),
-            shut_down = get_shut_down(old_cost),
+            shut_down = get_proportional_term(get_shut_down(old_cost)),
             fixed = 0.0,
         )
         set_operation_cost!(comp, new_op_cost)
@@ -462,9 +498,9 @@ function create_multistart_sys(
     set_operation_cost!(
         ms_comp,
         MarketBidCost(;
-            no_load_cost = nothing,
+            no_load_cost = LinearCurve(0.0),
             start_up = (hot = 300.0, warm = 450.0, cold = 500.0),
-            shut_down = 100.0,
+            shut_down = LinearCurve(100.0),
             incremental_offer_curves = CostCurve(new_ic),
         ),
     )

@@ -311,21 +311,31 @@ _get_time_series_name(::StartupCostParameter, device::PSY.Component, ::DeviceMod
     IS.get_name(PSY.get_start_up(PSY.get_operation_cost(device)))
 
 _get_time_series_name(::ShutdownCostParameter, device::PSY.Component, ::DeviceModel) =
-    IS.get_name(PSY.get_shut_down(PSY.get_operation_cost(device)))
+    IS.get_name(IS.get_time_series_key(PSY.get_shut_down(PSY.get_operation_cost(device))))
 
 _get_time_series_name(
     ::IncrementalCostAtMinParameter,
     device::PSY.Device,
     ::DeviceModel,
-) =
-    IS.get_name(PSY.get_incremental_initial_input(PSY.get_operation_cost(device)))
+) = IS.get_name(
+    IS.get_initial_input(
+        PSY.get_value_curve(
+            PSY.get_incremental_offer_curves(PSY.get_operation_cost(device)),
+        ),
+    ),
+)
 
 _get_time_series_name(
     ::DecrementalCostAtMinParameter,
     device::PSY.Device,
     ::DeviceModel,
-) =
-    IS.get_name(PSY.get_decremental_initial_input(PSY.get_operation_cost(device)))
+) = IS.get_name(
+    IS.get_initial_input(
+        PSY.get_value_curve(
+            PSY.get_decremental_offer_curves(PSY.get_operation_cost(device)),
+        ),
+    ),
+)
 
 #################################################################################
 # _get_expected_time_series_eltype — for ObjectiveFunctionParameter

@@ -14,9 +14,9 @@ function add_mbc_inner!(
         error("At least one of incr_curve or decr_curve must be provided")
     end
     mbc = MarketBidCost(;
-        no_load_cost = 0.0,
+        no_load_cost = LinearCurve(0.0),
         start_up = (hot = 0.0, warm = 0.0, cold = 0.0),
-        shut_down = 0.0,
+        shut_down = LinearCurve(0.0),
     )
     if !isnothing(decr_curve)
         set_decremental_offer_curves!(mbc, CostCurve(decr_curve))
@@ -115,6 +115,7 @@ function extend_mbc!(
     # incremental_initial_input is cost at minimum generation, NOT cost at zero generation
     for comp in get_components(active_components, sys)
         op_cost = get_operation_cost(comp)
+        @assert op_cost isa MarketBidCost
         if do_override_min_x && :active_power_limits in fieldnames(typeof(comp))
             min_power = with_units_base(sys, UnitSystem.NATURAL_UNITS) do
                 get_active_power_limits(comp).min
@@ -123,29 +124,26 @@ function extend_mbc!(
             min_power = nothing
         end
 
-        @assert op_cost isa MarketBidCost
-        for (getter, setter_initial, setter_curves, incr_or_decr) in (
-            (
-                get_incremental_offer_curves,
-                set_incremental_initial_input!,
-                set_incremental_offer_curves!,
-                "incremental",
-            ),
-            (
-                get_decremental_offer_curves,
-                set_decremental_initial_input!,
-                set_decremental_offer_curves!,
-                "decremental",
-            ),
+        # Capture baseline scalar fields from the static MBC to preserve in the TS MBC.
+        old_no_load = get_proportional_term(get_no_load_cost(op_cost))
+        old_start_up = get_start_up(op_cost)
+        old_shut_down = get_proportional_term(get_shut_down(op_cost))
+
+        # TS-backed no_load and shut_down (constant TS of the baseline scalar value).
+        nl_ts = make_deterministic_ts(sys, "no_load_cost", old_no_load, 0.0, 0.0)
+        sd_ts = make_deterministic_ts(sys, "shut_down_cost", old_shut_down, 0.0, 0.0)
+        nl_key = add_time_series!(sys, comp, nl_ts)
+        sd_key = add_time_series!(sys, comp, sd_ts)
+
+        # Build TS-backed offer curves for both directions.
+        ts_curves = Dict{String, Any}()
+        for (getter, incr_or_decr) in (
+            (get_incremental_offer_curves, "incremental"),
+            (get_decremental_offer_curves, "decremental"),
         )
             cost_curve = getter(op_cost)
-            isnothing(cost_curve) && continue
-
             baseline = get_value_curve(cost_curve)::PiecewiseIncrementalCurve
-            baseline_initial = get_initial_input(baseline)
-            if zero_cost_at_min
-                baseline_initial = 0.0
-            end
+            baseline_initial = zero_cost_at_min ? 0.0 : get_initial_input(baseline)
             baseline_pwl = get_function_data(baseline)
             if do_override_min_x && isnothing(min_power)
                 min_power = first(get_x_coords(baseline_pwl))
@@ -183,9 +181,18 @@ function extend_mbc!(
             )
             initial_key = add_time_series!(sys, comp, my_initial_ts)
             curve_key = add_time_series!(sys, comp, my_pwl_ts)
-            setter_initial(op_cost, initial_key)
-            setter_curves(op_cost, curve_key)
+            ts_curves[incr_or_decr] =
+                PSY.make_market_bid_ts_curve(curve_key, initial_key)
         end
+
+        new_cost = MarketBidTimeSeriesCost(;
+            no_load_cost = TimeSeriesLinearCurve(nl_key),
+            start_up = old_start_up,
+            shut_down = TimeSeriesLinearCurve(sd_key),
+            incremental_offer_curves = ts_curves["incremental"],
+            decremental_offer_curves = ts_curves["decremental"],
+        )
+        set_operation_cost!(comp, new_cost)
     end
 end
 

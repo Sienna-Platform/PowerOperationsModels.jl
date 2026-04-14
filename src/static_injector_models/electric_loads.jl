@@ -232,42 +232,7 @@ function onvar_cost(
     return _onvar_cost(container, PSY.get_variable(cost), d, t)
 end
 
-is_time_variant_term(
-    ::OptimizationContainer,
-    ::PSY.LoadCost,
-    ::OnVariable,
-    ::PSY.ControllableLoad,
-    ::AbstractLoadFormulation,
-    ::Int,
-) = false
+is_time_variant_term(::PSY.LoadCost) = false
 
-is_time_variant_term(
-    ::OptimizationContainer,
-    cost::PSY.MarketBidCost,
-    ::OnVariable,
-    ::PSY.ControllableLoad,
-    ::PowerLoadInterruption,
-    ::Int,
-) =
-    is_time_variant(PSY.get_decremental_initial_input(cost))
-
-function proportional_cost(
-    container::OptimizationContainer,
-    cost::PSY.MarketBidCost,
-    ::OnVariable,
-    comp::T,
-    ::PowerLoadInterruption,
-    t::Int,
-) where {T <: PSY.ControllableLoad}
-    if is_time_variant(PSY.get_decremental_initial_input(cost))
-        name = get_name(comp)
-        param_arr = get_parameter_array(container, DecrementalCostAtMinParameter(), T)
-        param_mult =
-            get_parameter_multiplier_array(container, DecrementalCostAtMinParameter(), T)
-        return param_arr[name, t] * param_mult[name, t]
-    else
-        return PSY.get_initial_input(
-            PSY.get_decremental_offer_curves(PSY.get_operation_cost(comp)),
-        )
-    end
-end
+# MarketBidCost (static + time-series) proportional_cost/is_time_variant_term are generic —
+# see common_models/market_bid_overrides.jl.

@@ -94,24 +94,12 @@ initial_condition_variable(::InitialTimeDurationOff, d::PSY.ThermalGen, ::Abstra
 function proportional_cost(container::OptimizationContainer, cost::PSY.ThermalGenerationCost, S::OnVariable, T::PSY.ThermalGen, U::AbstractThermalFormulation, t::Int)
     return onvar_cost(container, cost, S, T, U, t) + PSY.get_constant_term(PSY.get_vom_cost(PSY.get_variable(cost))) + PSY.get_fixed(cost)
 end
-is_time_variant_term(::OptimizationContainer, ::PSY.ThermalGenerationCost, ::OnVariable, ::PSY.ThermalGen, ::AbstractThermalFormulation, t::Int) = false
+is_time_variant_term(::PSY.ThermalGenerationCost) = false
 
-function proportional_cost(container::OptimizationContainer, cost::PSY.MarketBidCost, ::OnVariable, comp::T, ::AbstractThermalFormulation, t::Int) where {T <: PSY.ThermalGen}
-    if is_time_variant(PSY.get_incremental_initial_input(cost))
-        name = get_name(comp)
-        # inelegant: an iterator wrapping either param_array[name, :] .* param_mult[name, :]
-        # (load values lazily) or repeat(constant_value) would be closer to what we want.
-        param_arr = get_parameter_array(container, IncrementalCostAtMinParameter(), T)
-        param_mult = get_parameter_multiplier_array(container, IncrementalCostAtMinParameter(), T)
-        return param_arr[name, t] * param_mult[name, t]
-    else
-        return PSY.get_initial_input(PSY.get_incremental_offer_curves(PSY.get_operation_cost(comp)))
-    end
-end
-is_time_variant_term(::OptimizationContainer, cost::PSY.MarketBidCost, ::OnVariable, ::PSY.ThermalGen, ::AbstractThermalFormulation, t::Int) =
-    is_time_variant(PSY.get_incremental_initial_input(cost))
+# MarketBidCost (static + time-series) proportional_cost/is_time_variant_term are generic —
+# see common_models/market_bid_overrides.jl.
 
-proportional_cost(::Union{PSY.MarketBidCost, PSY.ThermalGenerationCost}, ::Union{RateofChangeConstraintSlackUp, RateofChangeConstraintSlackDown}, ::PSY.ThermalGen, ::AbstractThermalFormulation) = CONSTRAINT_VIOLATION_SLACK_COST
+proportional_cost(::Union{IOM.MBC_TYPES, PSY.ThermalGenerationCost}, ::Union{RateofChangeConstraintSlackUp, RateofChangeConstraintSlackDown}, ::PSY.ThermalGen, ::AbstractThermalFormulation) = CONSTRAINT_VIOLATION_SLACK_COST
 
 
 has_multistart_variables(::PSY.ThermalGen, ::AbstractThermalFormulation)=false
