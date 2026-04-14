@@ -2323,7 +2323,7 @@ is_time_variant_term(
     ::OptimizationContainer,
     cost::PSY.MarketBidCost,
     ::OnVariable,
-    ::PSY.HydroGen,
+    ::Type{<:PSY.HydroGen},
     ::AbstractHydroUnitCommitment,
     t::Int,
 ) =
