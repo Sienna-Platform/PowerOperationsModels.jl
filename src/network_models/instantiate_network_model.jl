@@ -106,6 +106,29 @@ function _get_irreducible_buses_due_to_dlrs(
     return collect(irreducible_buses)
 end
 
+function _get_unmodeled_branch_types(
+    branch_models::BranchModelContainer,
+    sys::PSY.System,
+)
+    unmodeled = DataType[]
+    for d in PSY.get_existing_device_types(sys)
+        if d <: PSY.ACTransmission && !haskey(branch_models, Symbol(d))
+            push!(unmodeled, d)
+        end
+    end
+    return unmodeled
+end
+
+function _validate_network_and_branches(
+    model::NetworkModel,
+    branch_models::BranchModelContainer,
+    sys::PSY.System,
+)
+    unmodeled = _get_unmodeled_branch_types(branch_models, sys)
+    IOM._check_branch_network_compatibility(model, unmodeled)
+    return
+end
+
 #################################################################################
 # Generic fallback for AbstractPowerModel (Ybus-based models: ACP, ACR, etc.)
 #################################################################################
@@ -116,6 +139,7 @@ function IOM.instantiate_network_model!(
     number_of_steps::Int,
     sys::PSY.System,
 ) where {T <: AbstractPowerModel}
+    _validate_network_and_branches(model, branch_models, sys)
     if isempty(model.subnetworks)
         model.subnetworks = PNM.find_subnetworks(sys)
     end
@@ -181,6 +205,7 @@ function IOM.instantiate_network_model!(
     number_of_steps::Int,
     sys::PSY.System,
 )
+    _validate_network_and_branches(model, branch_models, sys)
     PNM.populate_branch_maps_by_type!(model.network_reduction)
     empty!(model.reduced_branch_tracker)
     IOM.set_number_of_steps!(model.reduced_branch_tracker, number_of_steps)
@@ -197,6 +222,7 @@ function IOM.instantiate_network_model!(
     number_of_steps::Int,
     sys::PSY.System,
 )
+    _validate_network_and_branches(model, branch_models, sys)
     if isempty(model.subnetworks)
         model.subnetworks = PNM.find_subnetworks(sys)
     end
@@ -225,7 +251,7 @@ function IOM.instantiate_network_model!(
         model,
         branch_models,
     )
-    IOM._check_branch_network_compatibility(model, branch_models, sys)
+    _validate_network_and_branches(model, branch_models, sys)
     if IOM.get_PTDF_matrix(model) === nothing || !isempty(irreducible_buses)
         if IOM.get_PTDF_matrix(model) !== nothing
             @warn "Provided PTDF Matrix is being ignored since irreducible buses were identified because of DLRs. Recalculating PTDF Matrix with PowerNetworkMatrices.PTDF and the identified irreducible buses."
@@ -334,7 +360,7 @@ function IOM.instantiate_network_model!(
         model,
         branch_models,
     )
-    IOM._check_branch_network_compatibility(model, branch_models, sys)
+    _validate_network_and_branches(model, branch_models, sys)
     if IOM.get_PTDF_matrix(model) === nothing || !isempty(irreducible_buses)
         if IOM.get_PTDF_matrix(model) !== nothing
             @warn "Provided PTDF Matrix is being ignored since irreducible buses were identified because of DLRs. Recalculating PTDF Matrix with PowerNetworkMatrices.PTDF and the identified irreducible buses."

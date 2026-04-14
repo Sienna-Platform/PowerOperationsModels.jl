@@ -140,7 +140,7 @@ function set_device_model!(
     template::OperationsProblemTemplate,
     model::DeviceModel{D},
 ) where {D <: IS.InfrastructureSystemsComponent}
-    _set_model!(template.devices, model)
+    set_model!(template.devices, model)
     return
 end
 
@@ -152,7 +152,7 @@ function set_device_model!(
     template::OperationsProblemTemplate,
     model::DeviceModel{D},
 ) where {D <: PSY.Branch}
-    _set_model!(template.branches, model)
+    set_model!(template.branches, model)
     return
 end
 
@@ -191,7 +191,7 @@ function set_service_model!(
     service_name::String,
     model::ServiceModel{T, <:AbstractServiceFormulation},
 ) where {T <: PSY.Service}
-    _set_model!(template.services, (service_name, Symbol(T)), model)
+    set_model!(template.services, (service_name, Symbol(T)), model)
     return
 end
 
@@ -199,7 +199,7 @@ function set_service_model!(
     template::OperationsProblemTemplate,
     model::ServiceModel{<:PSY.Service, <:AbstractServiceFormulation},
 )
-    _set_model!(template.services, model)
+    set_model!(template.services, model)
     return
 end
 

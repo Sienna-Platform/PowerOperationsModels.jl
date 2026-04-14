@@ -28,7 +28,6 @@ PowerFlowsExt = "PowerFlows"
 
 [sources]
 InfrastructureSystems = {url = "https://github.com/NREL-Sienna/InfrastructureSystems.jl", rev = "IS4"}
-InfrastructureOptimizationModels = {url = "https://github.com/NREL-Sienna/InfrastructureOptimizationModels.jl", rev = "main"}
 
 [compat]
 Dates = "1"
