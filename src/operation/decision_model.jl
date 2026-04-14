@@ -45,6 +45,7 @@ Build the Decision Model based on the specified DecisionProblem.
   - `console_level = Logging.Error`:
   - `file_level = Logging.Info`:
   - `disable_timer_outputs = false` : Enable/Disable timing outputs
+  - `store_system_in_results::Bool = true`: If true, stores the system as JSON in the results HDF5 file.
 """
 function build!(
     model::DecisionModel{<:DecisionProblem};
@@ -53,6 +54,7 @@ function build!(
     console_level = Logging.Error,
     file_level = Logging.Info,
     disable_timer_outputs = false,
+    store_system_in_results = true,
 )
     mkpath(output_dir)
     IOM.set_output_dir!(model, output_dir)
@@ -64,11 +66,19 @@ function build!(
     IOM.add_recorders!(model, recorders)
     IOM.register_recorders!(model, file_mode)
     logger = IS.configure_logging(get_internal(model), IOM.PROBLEM_LOG_FILENAME, file_mode)
+    if store_system_in_results
+        serialization_task =
+            Threads.@spawn IOM.serialize_system_to_json(model)
+    end
     try
         Logging.with_logger(logger) do
             try
                 TimerOutputs.@timeit BUILD_PROBLEMS_TIMER "Problem $(get_name(model))" begin
                     build_model!(model)
+                end
+                if store_system_in_results
+                    uuid, json_text = fetch(serialization_task)
+                    IOM.write_system_to_hdf5!(model, uuid, json_text)
                 end
                 set_status!(model, ModelBuildStatus.BUILT)
                 @info "\n$(BUILD_PROBLEMS_TIMER)\n"
@@ -126,6 +136,7 @@ keyword arguments to that function.
   - `file_level = Logging.Info`:
   - `disable_timer_outputs = false` : Enable/Disable timing outputs
   - `export_optimization_problem::Bool = true`: If true, serialize the model to a file to allow re-execution later.
+  - `store_system_in_results::Bool = true`: If true, stores the system as JSON in the results HDF5 file.
 
 # Examples
 
@@ -141,8 +152,13 @@ function solve!(
     file_level = Logging.Info,
     disable_timer_outputs = false,
     export_optimization_problem = true,
+    store_system_in_results = true,
     kwargs...,
 )
+    if store_system_in_results
+        serialization_task =
+            Threads.@spawn IOM.serialize_system_to_json(model)
+    end
     build_if_not_already_built!(
         model;
         console_level = console_level,
@@ -170,6 +186,10 @@ function solve!(
                     get_optimization_container(model),
                     IOM.get_store_params(model),
                 )
+                if store_system_in_results
+                    uuid, json_text = fetch(serialization_task)
+                    IOM.write_system_to_hdf5!(model, uuid, json_text)
+                end
                 TimerOutputs.@timeit RUN_OPERATION_MODEL_TIMER "Solve" begin
                     IOM._pre_solve_model_checks(model, optimizer)
                     IOM.solve_model!(model)
