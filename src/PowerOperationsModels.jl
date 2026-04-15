@@ -191,6 +191,7 @@ using InfrastructureOptimizationModels # TODO: use explicit imports.
 #################################################################################
 include("core/definitions.jl")
 include("core/interfaces.jl")
+include("core/default_interface_methods.jl")
 include("core/physical_constant_definitions.jl")
 include("core/variables.jl")
 include("core/expressions.jl")

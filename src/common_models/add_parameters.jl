@@ -307,35 +307,56 @@ end
 _get_time_series_name(::T, ::PSY.Component, model::DeviceModel) where {T <: ParameterType} =
     get_time_series_names(model)[T]
 
-_get_time_series_name(::StartupCostParameter, device::PSY.Component, ::DeviceModel) =
-    IS.get_name(IS.get_time_series_key(PSY.get_start_up(PSY.get_operation_cost(device))))
+# The fact that we're seeing these parameters means that we should
+# have a time-varying MBC/IEC, so the `get_time_series_key` call should be valid.
 
-_get_time_series_name(::ShutdownCostParameter, device::PSY.Component, ::DeviceModel) =
-    IS.get_name(IS.get_time_series_key(PSY.get_shut_down(PSY.get_operation_cost(device))))
+function _get_time_series_name(
+    ::StartupCostParameter,
+    device::PSY.Component,
+    ::DeviceModel,
+)
+    op_cost = PSY.get_operation_cost(device)
+    IS.@assert_op op_cost isa IOM.TS_OFFER_CURVE_COST_TYPES
+    return IS.get_name(IS.get_time_series_key(PSY.get_start_up(op_cost)))
+end
 
-_get_time_series_name(
+function _get_time_series_name(
+    ::ShutdownCostParameter,
+    device::PSY.Component,
+    ::DeviceModel,
+)
+    op_cost = PSY.get_operation_cost(device)
+    IS.@assert_op op_cost isa IOM.TS_OFFER_CURVE_COST_TYPES
+    return IS.get_name(IS.get_time_series_key(PSY.get_shut_down(op_cost)))
+end
+
+function _get_time_series_name(
     ::IncrementalCostAtMinParameter,
     device::PSY.Device,
     ::DeviceModel,
-) = IS.get_name(
-    IS.get_initial_input(
-        PSY.get_value_curve(
-            PSY.get_incremental_offer_curves(PSY.get_operation_cost(device)),
-        ),
-    ),
 )
+    op_cost = PSY.get_operation_cost(device)
+    IS.@assert_op op_cost isa IOM.TS_OFFER_CURVE_COST_TYPES
+    return IS.get_name(
+        IS.get_initial_input(
+            PSY.get_value_curve(PSY.get_incremental_offer_curves(op_cost)),
+        ),
+    )
+end
 
-_get_time_series_name(
+function _get_time_series_name(
     ::DecrementalCostAtMinParameter,
     device::PSY.Device,
     ::DeviceModel,
-) = IS.get_name(
-    IS.get_initial_input(
-        PSY.get_value_curve(
-            PSY.get_decremental_offer_curves(PSY.get_operation_cost(device)),
-        ),
-    ),
 )
+    op_cost = PSY.get_operation_cost(device)
+    IS.@assert_op op_cost isa IOM.TS_OFFER_CURVE_COST_TYPES
+    return IS.get_name(
+        IS.get_initial_input(
+            PSY.get_value_curve(PSY.get_decremental_offer_curves(op_cost)),
+        ),
+    )
+end
 
 #################################################################################
 # _get_expected_time_series_eltype — for ObjectiveFunctionParameter
