@@ -132,8 +132,10 @@ function extend_mbc!(
         # TS-backed no_load and shut_down (constant TS of the baseline scalar value).
         nl_ts = make_deterministic_ts(sys, "no_load_cost", old_no_load, 0.0, 0.0)
         sd_ts = make_deterministic_ts(sys, "shut_down_cost", old_shut_down, 0.0, 0.0)
+        su_ts = make_deterministic_ts(sys, "start_up", Tuple(old_start_up), 0.0, 0.0)
         nl_key = add_time_series!(sys, comp, nl_ts)
         sd_key = add_time_series!(sys, comp, sd_ts)
+        su_key = add_time_series!(sys, comp, su_ts)
 
         # Build TS-backed offer curves for both directions.
         ts_curves = Dict{String, Any}()
@@ -187,7 +189,7 @@ function extend_mbc!(
 
         new_cost = MarketBidTimeSeriesCost(;
             no_load_cost = TimeSeriesLinearCurve(nl_key),
-            start_up = old_start_up,
+            start_up = IS.TupleTimeSeries{PSY.StartUpStages}(su_key),
             shut_down = TimeSeriesLinearCurve(sd_key),
             incremental_offer_curves = ts_curves["incremental"],
             decremental_offer_curves = ts_curves["decremental"],

@@ -78,11 +78,13 @@ _consider_parameter(
 #################################################################################
 
 # ThermalMultiStart: accept NTuple{3, Float64} and StartUpStages without warning
-function validate_occ_component(
+function IOM.validate_occ_component(
     ::StartupCostParameter,
     device::PSY.ThermalMultiStart,
 )
     startup = PSY.get_start_up(PSY.get_operation_cost(device))
+    # TupleTimeSeries{StartUpStages} guarantees NTuple{3, Float64} values at construction
+    startup isa IS.TupleTimeSeries && return
     _validate_eltype(
         Union{Float64, NTuple{3, Float64}, StartUpStages},
         device,
@@ -93,13 +95,15 @@ end
 
 # Renewable / Storage: warn on nonzero startup, shutdown, and no-load costs
 
-function validate_occ_component(
+function IOM.validate_occ_component(
     ::StartupCostParameter,
     device::Union{PSY.RenewableDispatch, PSY.Storage},
 )
     startup = PSY.get_start_up(PSY.get_operation_cost(device))
     apply_maybe_across_time_series(device, startup) do x
-        if x != PSY.single_start_up_to_stages(0.0)
+        # x may be Float64 (TGC), StartUpStages (static MBC), or NTuple{3, Float64}
+        # (TupleTimeSeries elements). `values` normalizes both NamedTuple and Tuple.
+        if any(!iszero, x isa Number ? (x,) : values(x))
             @warn "Nonzero startup cost detected for renewable generation or storage device $(get_name(device))."
         end
     end
@@ -113,7 +117,7 @@ end
 _scalar_if_static(x::IS.LinearCurve) = IS.get_proportional_term(x)
 _scalar_if_static(::IS.TimeSeriesLinearCurve) = nothing
 
-function validate_occ_component(
+function IOM.validate_occ_component(
     ::ShutdownCostParameter,
     device::Union{PSY.RenewableDispatch, PSY.Storage},
 )
@@ -123,7 +127,7 @@ function validate_occ_component(
     end
 end
 
-function validate_occ_component(
+function IOM.validate_occ_component(
     ::IncrementalCostAtMinParameter,
     device::Union{PSY.RenewableDispatch, PSY.Storage},
 )
@@ -133,7 +137,7 @@ function validate_occ_component(
     end
 end
 
-function validate_occ_component(
+function IOM.validate_occ_component(
     ::DecrementalCostAtMinParameter,
     device::PSY.Storage,
 )

@@ -308,7 +308,7 @@ _get_time_series_name(::T, ::PSY.Component, model::DeviceModel) where {T <: Para
     get_time_series_names(model)[T]
 
 _get_time_series_name(::StartupCostParameter, device::PSY.Component, ::DeviceModel) =
-    IS.get_name(PSY.get_start_up(PSY.get_operation_cost(device)))
+    IS.get_name(IS.get_time_series_key(PSY.get_start_up(PSY.get_operation_cost(device))))
 
 _get_time_series_name(::ShutdownCostParameter, device::PSY.Component, ::DeviceModel) =
     IS.get_name(IS.get_time_series_key(PSY.get_shut_down(PSY.get_operation_cost(device))))

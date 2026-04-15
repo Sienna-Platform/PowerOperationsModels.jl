@@ -344,7 +344,7 @@ end
 function stub_ts_market_bid_cost(; power_units::PSY.UnitSystem = PSY.UnitSystem.SYSTEM_BASE)
     return PSY.MarketBidTimeSeriesCost(;
         no_load_cost = PSY.TimeSeriesLinearCurve(_stub_forecast_key("no_load")),
-        start_up = (hot = 0.0, warm = 0.0, cold = 0.0),
+        start_up = IS.TupleTimeSeries{PSY.StartUpStages}(_stub_forecast_key("start_up")),
         shut_down = PSY.TimeSeriesLinearCurve(_stub_forecast_key("shut_down")),
         incremental_offer_curves = stub_ts_offer_curve(;
             curve_name = "variable_cost incremental",
