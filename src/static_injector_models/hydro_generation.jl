@@ -1818,7 +1818,7 @@ function add_constraints!(
     X <: PM.AbstractPowerModel,
 }
     time_steps = get_time_steps(container)
-    base_power = get_base_power(container)
+    base_power = get_model_base_power(container)
     names = PSY.get_name.(devices)
     constraint =
         add_constraints_container!(
@@ -1831,34 +1831,43 @@ function add_constraints!(
     power = get_variable(container, ActivePowerVariable(), V)
     flow = get_variable(container, HydroTurbineFlowRateVariable(), V)
     head = get_variable(container, HydroReservoirHeadVariable(), PSY.HydroReservoir)
-
-    hf_prod = IOM._add_bilinear_approx!(
-        IOM.Bin2Config(IOM.SolverSOS2QuadConfig(4)),
-        container,
-        V,
-        names,
-        time_steps,
-        head,
-        flow,
-        get_variable_lower_bound(HydroTurbineFlowRateVariable(), V, W),
-        get_variable_upper_bound(HydroTurbineFlowRateVariable(), V, W),
-        get_variable_lower_bound(HydroReservoirHeadVariable(), V, W),
-        get_variable_upper_bound(HydroReservoirHeadVariable(), V, W),
-    )
-
     for d in devices
         name = PSY.get_name(d)
         conversion_factor = PSY.get_conversion_factor(d)
         reservoirs = filter(PSY.get_available, PSY.get_connected_head_reservoirs(sys, d))
         powerhouse_elevation = PSY.get_powerhouse_elevation(d)
+
+        fh_prod = IOM._add_bilinear_approx!(
+            IOM.Bin2Config(IOM.SolverSOS2QuadConfig(4)),
+            container,
+            V,
+            PSY.get_name.(reservoirs),
+            time_steps,
+            flow[name, :, :],
+            head,
+            [
+                (
+                    min = get_variable_lower_bound(HydroTurbineFlowRateVariable(), d, W()),
+                    max = get_variable_upper_bound(HydroTurbineFlowRateVariable(), d, W())
+                ) for _=1:length(reservoirs)
+            ],
+            [
+                (
+                    min = get_variable_lower_bound(HydroReservoirHeadVariable(), res, W()),
+                    max = get_variable_upper_bound(HydroReservoirHeadVariable(), res, W())
+                ) for res in reservoirs
+            ],
+            "$(get_name(d))_FlowHeadProduct"
+        )
+
         for t in time_steps
             constraint[name, t] = JuMP.@constraint(
                 container.JuMPmodel,
                 power[name, t] ==
                 GRAVITATIONAL_CONSTANT * WATER_DENSITY * conversion_factor *
                 sum(
-                    hf_prod[PSY.get_name(res), t] -
-                    powerhouse_elevation * flow[name, PSY.get_name(res), t]
+                    fh_prod[PSY.get_name(res), t]
+                    - powerhouse_elevation * flow[name, PSY.get_name(res), t]
                     for res in reservoirs
                 ) / (1e6 * base_power)
             )
