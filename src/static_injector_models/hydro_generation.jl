@@ -2291,7 +2291,7 @@ function add_proportional_cost!(
         for t in get_time_steps(container)
             cost_term = proportional_cost(container, op_cost_data, U(), d, V(), t)
             add_as_time_variant =
-                is_time_variant_term(container, op_cost_data, U(), d, V(), t)
+                is_time_variant_term(container, op_cost_data, U(), T, V(), t)
             iszero(cost_term) && continue
             cost_term *= multiplier
             exp = if d isa PSY.HydroPumpTurbine && PSY.get_must_run(d)
