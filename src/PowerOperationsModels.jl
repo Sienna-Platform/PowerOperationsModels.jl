@@ -342,7 +342,6 @@ export InitialEnergyLevel
 export build!
 export get_initial_conditions
 export serialize_outputs
-export serialize_optimization_model
 export solve!
 export run!
 export set_device_model!

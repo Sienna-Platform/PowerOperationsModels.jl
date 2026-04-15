@@ -125,7 +125,6 @@ keyword arguments to that function.
   - `console_level = Logging.Error`:
   - `file_level = Logging.Info`:
   - `disable_timer_outputs = false` : Enable/Disable timing outputs
-  - `export_optimization_problem::Bool = true`: If true, serialize the model to a file to allow re-execution later.
 
 # Examples
 
@@ -140,7 +139,6 @@ function solve!(
     console_level = Logging.Error,
     file_level = Logging.Info,
     disable_timer_outputs = false,
-    export_optimization_problem = true,
     kwargs...,
 )
     build_if_not_already_built!(
@@ -180,11 +178,6 @@ function solve!(
                         get_optimizer_stats(model),
                         current_time,
                     )
-                end
-                if export_optimization_problem
-                    TimerOutputs.@timeit RUN_OPERATION_MODEL_TIMER "Serialize" begin
-                        serialize_optimization_model(model)
-                    end
                 end
                 TimerOutputs.@timeit RUN_OPERATION_MODEL_TIMER "Outputs processing" begin
                     outputs = OptimizationProblemOutputs(model)
