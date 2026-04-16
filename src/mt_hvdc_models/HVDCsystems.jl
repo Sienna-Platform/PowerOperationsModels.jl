@@ -41,14 +41,14 @@ function _get_flow_bounds(d::PSY.TModelHVDCLine)
 end
 
 
-get_variable_binary(::FlowActivePowerVariable, ::Type{PSY.TModelHVDCLine}, ::AbstractBranchFormulation) = false
-get_variable_binary(::DCLineCurrent, ::Type{PSY.TModelHVDCLine}, ::AbstractBranchFormulation) = false
-get_variable_warm_start_value(::FlowActivePowerVariable, d::PSY.TModelHVDCLine, ::AbstractBranchFormulation) = PSY.get_active_power_flow(d)
-get_variable_lower_bound(::FlowActivePowerVariable, d::PSY.TModelHVDCLine, ::AbstractBranchFormulation) = _get_flow_bounds(d)[1]
-get_variable_upper_bound(::FlowActivePowerVariable, d::PSY.TModelHVDCLine, ::AbstractBranchFormulation) = _get_flow_bounds(d)[2]
+get_variable_binary(::Type{<:FlowActivePowerVariable}, ::Type{PSY.TModelHVDCLine}, ::Type{<:AbstractBranchFormulation}) = false
+get_variable_binary(::Type{<:DCLineCurrent}, ::Type{PSY.TModelHVDCLine}, ::Type{<:AbstractBranchFormulation}) = false
+get_variable_warm_start_value(::Type{<:FlowActivePowerVariable}, d::PSY.TModelHVDCLine, ::Type{<:AbstractBranchFormulation}) = PSY.get_active_power_flow(d)
+get_variable_lower_bound(::Type{<:FlowActivePowerVariable}, d::PSY.TModelHVDCLine, ::Type{<:AbstractBranchFormulation}) = _get_flow_bounds(d)[1]
+get_variable_upper_bound(::Type{<:FlowActivePowerVariable}, d::PSY.TModelHVDCLine, ::Type{<:AbstractBranchFormulation}) = _get_flow_bounds(d)[2]
 
 # This is an approximation for DC lines since the actual current limit depends on the voltage, that is a variable in the optimization problem
-function get_variable_lower_bound(::DCLineCurrent, d::PSY.TModelHVDCLine, ::AbstractBranchFormulation)
+function get_variable_lower_bound(::Type{<:DCLineCurrent}, d::PSY.TModelHVDCLine, ::Type{<:AbstractBranchFormulation})
     p_min_flow = _get_flow_bounds(d)[1]
     arc = PSY.get_arc(d)
     bus_from = arc.from
@@ -57,7 +57,7 @@ function get_variable_lower_bound(::DCLineCurrent, d::PSY.TModelHVDCLine, ::Abst
     return p_min_flow / max_v
 end
 # This is an approximation for DC lines since the actual current limit depends on the voltage, that is a variable in the optimization problem
-function get_variable_upper_bound(::DCLineCurrent, d::PSY.TModelHVDCLine, ::AbstractBranchFormulation)
+function get_variable_upper_bound(::Type{<:DCLineCurrent}, d::PSY.TModelHVDCLine, ::Type{<:AbstractBranchFormulation})
     p_max_flow = _get_flow_bounds(d)[2]
     arc = PSY.get_arc(d)
     bus_from = arc.from
@@ -65,7 +65,7 @@ function get_variable_upper_bound(::DCLineCurrent, d::PSY.TModelHVDCLine, ::Abst
     max_v = max(PSY.get_magnitude(bus_from), PSY.get_magnitude(bus_to))
     return p_max_flow / max_v
 end
-get_variable_multiplier(::VariableType, ::Type{PSY.TModelHVDCLine}, ::AbstractBranchFormulation) = 1.0
+get_variable_multiplier(::Type{<:VariableType}, ::Type{PSY.TModelHVDCLine}, ::Type{<:AbstractBranchFormulation}) = 1.0
 
 requires_initialization(::AbstractConverterFormulation) = false
 requires_initialization(::LosslessLine) = false
@@ -119,34 +119,34 @@ end
 ############################################
 
 ## Binaries ###
-get_variable_binary(::ConverterDCPower, ::Type{PSY.InterconnectingConverter}, ::AbstractConverterFormulation) = false
-get_variable_binary(::ConverterPowerDirection, ::Type{PSY.InterconnectingConverter}, ::AbstractConverterFormulation) = true
-get_variable_binary(::ConverterCurrent, ::Type{PSY.InterconnectingConverter}, ::AbstractConverterFormulation) = false
-get_variable_binary(::ConverterPositiveCurrent, ::Type{PSY.InterconnectingConverter}, ::AbstractConverterFormulation) = false
-get_variable_binary(::ConverterNegativeCurrent, ::Type{PSY.InterconnectingConverter}, ::AbstractConverterFormulation) = false
-get_variable_binary(::ConverterCurrentDirection, ::Type{PSY.InterconnectingConverter}, ::AbstractConverterFormulation) = true
-get_variable_binary(::SquaredConverterCurrent, ::Type{PSY.InterconnectingConverter}, ::AbstractConverterFormulation) = false
-get_variable_binary(::SquaredDCVoltage, ::Type{PSY.InterconnectingConverter}, ::AbstractConverterFormulation) = false
-get_variable_binary(::AuxBilinearConverterVariable, ::Type{PSY.InterconnectingConverter}, ::AbstractConverterFormulation) = false
-get_variable_binary(::AuxBilinearSquaredConverterVariable, ::Type{PSY.InterconnectingConverter}, ::AbstractConverterFormulation) = false
+get_variable_binary(::Type{<:ConverterDCPower}, ::Type{PSY.InterconnectingConverter}, ::Type{<:AbstractConverterFormulation}) = false
+get_variable_binary(::Type{<:ConverterPowerDirection}, ::Type{PSY.InterconnectingConverter}, ::Type{<:AbstractConverterFormulation}) = true
+get_variable_binary(::Type{<:ConverterCurrent}, ::Type{PSY.InterconnectingConverter}, ::Type{<:AbstractConverterFormulation}) = false
+get_variable_binary(::Type{<:ConverterPositiveCurrent}, ::Type{PSY.InterconnectingConverter}, ::Type{<:AbstractConverterFormulation}) = false
+get_variable_binary(::Type{<:ConverterNegativeCurrent}, ::Type{PSY.InterconnectingConverter}, ::Type{<:AbstractConverterFormulation}) = false
+get_variable_binary(::Type{<:ConverterCurrentDirection}, ::Type{PSY.InterconnectingConverter}, ::Type{<:AbstractConverterFormulation}) = true
+get_variable_binary(::Type{<:SquaredConverterCurrent}, ::Type{PSY.InterconnectingConverter}, ::Type{<:AbstractConverterFormulation}) = false
+get_variable_binary(::Type{<:SquaredDCVoltage}, ::Type{PSY.InterconnectingConverter}, ::Type{<:AbstractConverterFormulation}) = false
+get_variable_binary(::Type{<:AuxBilinearConverterVariable}, ::Type{PSY.InterconnectingConverter}, ::Type{<:AbstractConverterFormulation}) = false
+get_variable_binary(::Type{<:AuxBilinearSquaredConverterVariable}, ::Type{PSY.InterconnectingConverter}, ::Type{<:AbstractConverterFormulation}) = false
 function get_variable_binary(
-    ::W,
+    ::Type{<:W},
     ::Type{PSY.InterconnectingConverter},
-    ::AbstractConverterFormulation
+    ::Type{<:AbstractConverterFormulation}
 ) where W <: InterpolationVariableType
     return false
 end
 function get_variable_binary(
-    ::W,
+    ::Type{<:W},
     ::Type{PSY.InterconnectingConverter},
-    ::AbstractConverterFormulation
+    ::Type{<:AbstractConverterFormulation}
 ) where W <: BinaryInterpolationVariableType
     return true
 end
 
 
 ### Warm Start ###
-get_variable_warm_start_value(::ConverterCurrent, d::PSY.InterconnectingConverter, ::AbstractConverterFormulation) = PSY.get_dc_current(d)
+get_variable_warm_start_value(::Type{<:ConverterCurrent}, d::PSY.InterconnectingConverter, ::Type{<:AbstractConverterFormulation}) = PSY.get_dc_current(d)
 
 ### Lower Bounds ###
 get_variable_lower_bound(::ConverterDCPower, d::PSY.InterconnectingConverter, ::AbstractConverterFormulation) = PSY.get_active_power_limits(d).min

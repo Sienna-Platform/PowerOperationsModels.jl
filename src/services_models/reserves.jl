@@ -1,41 +1,41 @@
 #! format: off
 ############################### Reserve Variables #########################################
 
-get_variable_multiplier(::VariableType, ::Type{<:PSY.Reserve}, ::AbstractReservesFormulation) = NaN
+get_variable_multiplier(::Type{<:VariableType}, ::Type{<:PSY.Reserve}, ::Type{<:AbstractReservesFormulation}) = NaN
 ############################### PostContingencyActivePowerReserveDeploymentVariable, Reserve #########################################
-get_variable_binary(::PostContingencyActivePowerReserveDeploymentVariable, ::Type{<:PSY.Reserve}, ::AbstractSecurityConstrainedReservesFormulation) = false
-function get_variable_upper_bound(::PostContingencyActivePowerReserveDeploymentVariable, r::PSY.Reserve, d::PSY.Device, ::AbstractSecurityConstrainedReservesFormulation)
+get_variable_binary(::Type{<:PostContingencyActivePowerReserveDeploymentVariable}, ::Type{<:PSY.Reserve}, ::Type{<:AbstractSecurityConstrainedReservesFormulation}) = false
+function get_variable_upper_bound(::Type{<:PostContingencyActivePowerReserveDeploymentVariable}, r::PSY.Reserve, d::PSY.Device, ::Type{<:AbstractSecurityConstrainedReservesFormulation})
     return  PSY.get_max_active_power(d)
 end
-get_variable_lower_bound(::PostContingencyActivePowerReserveDeploymentVariable, ::PSY.Reserve, ::PSY.Device, _) = 0.0
-get_variable_warm_start_value(::PostContingencyActivePowerReserveDeploymentVariable, d::PSY.Reserve, ::AbstractSecurityConstrainedReservesFormulation) = 0.0
-get_variable_multiplier(::AbstractContingencyVariableType, ::Type{<:PSY.Reserve{PSY.ReserveDown}}, ::AbstractSecurityConstrainedReservesFormulation) = -1.0
-get_variable_multiplier(::AbstractContingencyVariableType, ::Type{<:PSY.Reserve{PSY.ReserveUp}}, ::AbstractSecurityConstrainedReservesFormulation) = 1.0
-get_variable_multiplier(::VariableType, ::Type{<:PSY.Generator}, ::AbstractSecurityConstrainedReservesFormulation) = -1.0
+get_variable_lower_bound(::Type{<:PostContingencyActivePowerReserveDeploymentVariable}, ::PSY.Reserve, ::PSY.Device, _) = 0.0
+get_variable_warm_start_value(::Type{<:PostContingencyActivePowerReserveDeploymentVariable}, d::PSY.Reserve, ::Type{<:AbstractSecurityConstrainedReservesFormulation}) = 0.0
+get_variable_multiplier(::Type{<:AbstractContingencyVariableType}, ::Type{<:PSY.Reserve{PSY.ReserveDown}}, ::Type{<:AbstractSecurityConstrainedReservesFormulation}) = -1.0
+get_variable_multiplier(::Type{<:AbstractContingencyVariableType}, ::Type{<:PSY.Reserve{PSY.ReserveUp}}, ::Type{<:AbstractSecurityConstrainedReservesFormulation}) = 1.0
+get_variable_multiplier(::Type{<:VariableType}, ::Type{<:PSY.Generator}, ::Type{<:AbstractSecurityConstrainedReservesFormulation}) = -1.0
 
 ############################### ActivePowerReserveVariable, Reserve #########################################
-get_variable_binary(::ActivePowerReserveVariable, ::Type{<:PSY.Reserve}, ::AbstractReservesFormulation) = false
-function get_variable_upper_bound(::ActivePowerReserveVariable, r::PSY.Reserve, d::PSY.Device, ::AbstractReservesFormulation)
+get_variable_binary(::Type{<:ActivePowerReserveVariable}, ::Type{<:PSY.Reserve}, ::Type{<:AbstractReservesFormulation}) = false
+function get_variable_upper_bound(::Type{<:ActivePowerReserveVariable}, r::PSY.Reserve, d::PSY.Device, ::Type{<:AbstractReservesFormulation})
     return PSY.get_max_output_fraction(r) * PSY.get_max_active_power(d)
 end
-get_variable_upper_bound(::ActivePowerReserveVariable, r::PSY.ReserveDemandCurve, d::PSY.Device, ::AbstractReservesFormulation) = PSY.get_max_active_power(d)
-get_variable_lower_bound(::ActivePowerReserveVariable, ::PSY.Reserve, ::PSY.Device, _) = 0.0
+get_variable_upper_bound(::Type{<:ActivePowerReserveVariable}, r::PSY.ReserveDemandCurve, d::PSY.Device, ::Type{<:AbstractReservesFormulation}) = PSY.get_max_active_power(d)
+get_variable_lower_bound(::Type{<:ActivePowerReserveVariable}, ::PSY.Reserve, ::PSY.Device, _) = 0.0
 
 ############################### ActivePowerReserveVariable, ReserveNonSpinning #########################################
-get_variable_binary(::ActivePowerReserveVariable, ::Type{<:PSY.ReserveNonSpinning}, ::AbstractReservesFormulation) = false
-function get_variable_upper_bound(::ActivePowerReserveVariable, r::PSY.ReserveNonSpinning, d::PSY.Device, ::AbstractReservesFormulation)
+get_variable_binary(::Type{<:ActivePowerReserveVariable}, ::Type{<:PSY.ReserveNonSpinning}, ::Type{<:AbstractReservesFormulation}) = false
+function get_variable_upper_bound(::Type{<:ActivePowerReserveVariable}, r::PSY.ReserveNonSpinning, d::PSY.Device, ::Type{<:AbstractReservesFormulation})
     return PSY.get_max_output_fraction(r) * PSY.get_max_active_power(d)
 end
-get_variable_lower_bound(::ActivePowerReserveVariable, ::PSY.ReserveNonSpinning, ::PSY.Device, _) = 0.0
+get_variable_lower_bound(::Type{<:ActivePowerReserveVariable}, ::PSY.ReserveNonSpinning, ::PSY.Device, _) = 0.0
 
 ############################### ServiceRequirementVariable, ReserveDemandCurve ################################
 
-get_variable_binary(::ServiceRequirementVariable, ::Type{<:PSY.ReserveDemandCurve}, ::AbstractReservesFormulation) = false
-get_variable_upper_bound(::ServiceRequirementVariable, ::PSY.ReserveDemandCurve, d::PSY.Component, ::AbstractReservesFormulation) = PSY.get_max_active_power(d)
-get_variable_lower_bound(::ServiceRequirementVariable, ::PSY.ReserveDemandCurve, ::PSY.Component, ::AbstractReservesFormulation) = 0.0
+get_variable_binary(::Type{<:ServiceRequirementVariable}, ::Type{<:PSY.ReserveDemandCurve}, ::Type{<:AbstractReservesFormulation}) = false
+get_variable_upper_bound(::Type{<:ServiceRequirementVariable}, ::PSY.ReserveDemandCurve, d::PSY.Component, ::Type{<:AbstractReservesFormulation}) = PSY.get_max_active_power(d)
+get_variable_lower_bound(::Type{<:ServiceRequirementVariable}, ::PSY.ReserveDemandCurve, ::PSY.Component, ::Type{<:AbstractReservesFormulation}) = 0.0
 
-get_multiplier_value(::RequirementTimeSeriesParameter, d::PSY.Reserve, ::AbstractReservesFormulation) = PSY.get_requirement(d)
-get_multiplier_value(::RequirementTimeSeriesParameter, d::PSY.ReserveNonSpinning, ::AbstractReservesFormulation) = PSY.get_requirement(d)
+get_multiplier_value(::Type{<:RequirementTimeSeriesParameter}, d::PSY.Reserve, ::Type{<:AbstractReservesFormulation}) = PSY.get_requirement(d)
+get_multiplier_value(::Type{<:RequirementTimeSeriesParameter}, d::PSY.ReserveNonSpinning, ::Type{<:AbstractReservesFormulation}) = PSY.get_requirement(d)
 
 get_parameter_multiplier(::VariableValueParameter, d::Type{<:PSY.AbstractReserve}, ::AbstractReservesFormulation) = 1.0
 get_initial_parameter_value(::VariableValueParameter, d::Type{<:PSY.AbstractReserve}, ::AbstractReservesFormulation) = 0.0

@@ -1,39 +1,39 @@
 #! format: off
 ########################### ElectricLoad ####################################
 
-get_variable_multiplier(::VariableType, ::Type{<:PSY.ElectricLoad}, ::AbstractLoadFormulation) = -1.0
+get_variable_multiplier(::Type{<:VariableType}, ::Type{<:PSY.ElectricLoad}, ::Type{<:AbstractLoadFormulation}) = -1.0
 
 ########################### ActivePowerVariable, ElectricLoad ####################################
 
-get_variable_binary(::ActivePowerVariable, ::Type{<:PSY.ElectricLoad}, ::AbstractLoadFormulation) = false
-get_variable_lower_bound(::ActivePowerVariable, d::PSY.ElectricLoad, ::AbstractLoadFormulation) = 0.0
-get_variable_upper_bound(::ActivePowerVariable, d::PSY.ElectricLoad, ::AbstractLoadFormulation) = PSY.get_max_active_power(d)
+get_variable_binary(::Type{<:ActivePowerVariable}, ::Type{<:PSY.ElectricLoad}, ::Type{<:AbstractLoadFormulation}) = false
+get_variable_lower_bound(::Type{<:ActivePowerVariable}, d::PSY.ElectricLoad, ::Type{<:AbstractLoadFormulation}) = 0.0
+get_variable_upper_bound(::Type{<:ActivePowerVariable}, d::PSY.ElectricLoad, ::Type{<:AbstractLoadFormulation}) = PSY.get_max_active_power(d)
 
 ########################### ReactivePowerVariable, ElectricLoad ####################################
 
-get_variable_binary(::ReactivePowerVariable, ::Type{<:PSY.ElectricLoad}, ::AbstractLoadFormulation) = false
+get_variable_binary(::Type{<:ReactivePowerVariable}, ::Type{<:PSY.ElectricLoad}, ::Type{<:AbstractLoadFormulation}) = false
 
-get_variable_lower_bound(::ReactivePowerVariable, d::PSY.ElectricLoad, ::AbstractLoadFormulation) = 0.0
-get_variable_upper_bound(::ReactivePowerVariable, d::PSY.ElectricLoad, ::AbstractLoadFormulation) = PSY.get_max_reactive_power(d)
+get_variable_lower_bound(::Type{<:ReactivePowerVariable}, d::PSY.ElectricLoad, ::Type{<:AbstractLoadFormulation}) = 0.0
+get_variable_upper_bound(::Type{<:ReactivePowerVariable}, d::PSY.ElectricLoad, ::Type{<:AbstractLoadFormulation}) = PSY.get_max_reactive_power(d)
 
 ########################### ReactivePowerVariable, ElectricLoad ####################################
 
-get_variable_binary(::OnVariable, ::Type{<:PSY.ElectricLoad}, ::AbstractLoadFormulation) = true
+get_variable_binary(::Type{<:OnVariable}, ::Type{<:PSY.ElectricLoad}, ::Type{<:AbstractLoadFormulation}) = true
 
-get_multiplier_value(::TimeSeriesParameter, d::PSY.ElectricLoad, ::StaticPowerLoad) = -1*PSY.get_max_active_power(d)
-get_multiplier_value(::ReactivePowerTimeSeriesParameter, d::PSY.ElectricLoad, ::StaticPowerLoad) = -1*PSY.get_max_reactive_power(d)
-get_multiplier_value(::TimeSeriesParameter, d::PSY.ElectricLoad, ::AbstractControllablePowerLoadFormulation) = PSY.get_max_active_power(d)
+get_multiplier_value(::Type{<:TimeSeriesParameter}, d::PSY.ElectricLoad, ::Type{<:StaticPowerLoad}) = -1*PSY.get_max_active_power(d)
+get_multiplier_value(::Type{<:ReactivePowerTimeSeriesParameter}, d::PSY.ElectricLoad, ::Type{<:StaticPowerLoad}) = -1*PSY.get_max_reactive_power(d)
+get_multiplier_value(::Type{<:TimeSeriesParameter}, d::PSY.ElectricLoad, ::Type{<:AbstractControllablePowerLoadFormulation}) = PSY.get_max_active_power(d)
 
 # To avoid ambiguity with default_interface_methods.jl:
-get_multiplier_value(::AbstractPiecewiseLinearBreakpointParameter, ::PSY.ElectricLoad, ::StaticPowerLoad) = 1.0
-get_multiplier_value(::AbstractPiecewiseLinearBreakpointParameter, ::PSY.ElectricLoad, ::AbstractControllablePowerLoadFormulation) = 1.0
+get_multiplier_value(::Type{<:AbstractPiecewiseLinearBreakpointParameter}, ::PSY.ElectricLoad, ::Type{<:StaticPowerLoad}) = 1.0
+get_multiplier_value(::Type{<:AbstractPiecewiseLinearBreakpointParameter}, ::PSY.ElectricLoad, ::Type{<:AbstractControllablePowerLoadFormulation}) = 1.0
 
 
 ########################Objective Function##################################################
-proportional_cost(cost::Nothing, ::OnVariable, ::PSY.ElectricLoad, ::AbstractControllablePowerLoadFormulation)=1.0
-proportional_cost(cost::PSY.OperationalCost, ::OnVariable, ::PSY.ElectricLoad, ::AbstractControllablePowerLoadFormulation)=PSY.get_fixed(cost)
+proportional_cost(cost::Nothing, ::Type{<:OnVariable}, ::PSY.ElectricLoad, ::Type{<:AbstractControllablePowerLoadFormulation})=1.0
+proportional_cost(cost::PSY.OperationalCost, ::Type{<:OnVariable}, ::PSY.ElectricLoad, ::Type{<:AbstractControllablePowerLoadFormulation})=PSY.get_fixed(cost)
 
-objective_function_multiplier(::VariableType, ::AbstractControllablePowerLoadFormulation)=OBJECTIVE_FUNCTION_NEGATIVE
+objective_function_multiplier(::Type{<:VariableType}, ::Type{<:AbstractControllablePowerLoadFormulation})=OBJECTIVE_FUNCTION_NEGATIVE
 
 #! format: on
 
@@ -211,9 +211,9 @@ end
 function proportional_cost(
     container::OptimizationContainer,
     cost::PSY.LoadCost,
-    S::OnVariable,
+    S::Type{<:OnVariable},
     T::PSY.ControllableLoad,
-    U::PowerLoadInterruption,
+    U::Type{<:PowerLoadInterruption},
     t::Int,
 )
     return onvar_cost(container, cost, S, T, U, t) +
@@ -224,9 +224,9 @@ end
 function onvar_cost(
     container::OptimizationContainer,
     cost::PSY.LoadCost,
-    ::OnVariable,
+    ::Type{<:OnVariable},
     d::PSY.ControllableLoad,
-    ::PowerLoadInterruption,
+    ::Type{<:PowerLoadInterruption},
     t::Int,
 )
     return _onvar_cost(container, PSY.get_variable(cost), d, t)
@@ -235,18 +235,18 @@ end
 is_time_variant_term(
     ::OptimizationContainer,
     ::PSY.LoadCost,
-    ::OnVariable,
+    ::Type{<:OnVariable},
     ::Type{<:PSY.ControllableLoad},
-    ::AbstractLoadFormulation,
+    ::Type{<:AbstractLoadFormulation},
     ::Int,
 ) = false
 
 is_time_variant_term(
     ::OptimizationContainer,
     cost::PSY.MarketBidCost,
-    ::OnVariable,
+    ::Type{<:OnVariable},
     ::Type{<:PSY.ControllableLoad},
-    ::PowerLoadInterruption,
+    ::Type{<:PowerLoadInterruption},
     ::Int,
 ) =
     is_time_variant(PSY.get_decremental_initial_input(cost))
@@ -254,9 +254,9 @@ is_time_variant_term(
 function proportional_cost(
     container::OptimizationContainer,
     cost::PSY.MarketBidCost,
-    ::OnVariable,
+    ::Type{<:OnVariable},
     comp::T,
-    ::PowerLoadInterruption,
+    ::Type{<:PowerLoadInterruption},
     t::Int,
 ) where {T <: PSY.ControllableLoad}
     if is_time_variant(PSY.get_decremental_initial_input(cost))

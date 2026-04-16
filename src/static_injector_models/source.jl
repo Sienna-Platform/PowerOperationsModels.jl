@@ -3,30 +3,30 @@
 requires_initialization(::ImportExportSourceModel) = false
 
 
-get_variable_multiplier(::ActivePowerOutVariable, ::Type{<:PSY.Source}, ::AbstractSourceFormulation) = 1.0
-get_variable_multiplier(::ActivePowerInVariable, ::Type{<:PSY.Source}, ::AbstractSourceFormulation) = -1.0
-get_variable_multiplier(::ReactivePowerVariable, ::Type{<:PSY.Source}, ::AbstractSourceFormulation) = 1.0
+get_variable_multiplier(::Type{<:ActivePowerOutVariable}, ::Type{<:PSY.Source}, ::Type{<:AbstractSourceFormulation}) = 1.0
+get_variable_multiplier(::Type{<:ActivePowerInVariable}, ::Type{<:PSY.Source}, ::Type{<:AbstractSourceFormulation}) = -1.0
+get_variable_multiplier(::Type{<:ReactivePowerVariable}, ::Type{<:PSY.Source}, ::Type{<:AbstractSourceFormulation}) = 1.0
 ############## ActivePowerVariables, Source ####################
-get_variable_binary(::ActivePowerInVariable, ::Type{<:PSY.Source}, ::AbstractSourceFormulation) = false
-get_variable_binary(::ActivePowerOutVariable, ::Type{<:PSY.Source}, ::AbstractSourceFormulation) = false
-get_variable_lower_bound(::ActivePowerInVariable, d::PSY.Source, ::AbstractSourceFormulation) = 0.0
-get_variable_lower_bound(::ActivePowerOutVariable, d::PSY.Source, ::AbstractSourceFormulation) = 0.0
-get_variable_upper_bound(::ActivePowerInVariable, d::PSY.Source, ::AbstractSourceFormulation) = -PSY.get_active_power_limits(d).min
-get_variable_upper_bound(::ActivePowerOutVariable, d::PSY.Source, ::AbstractSourceFormulation) = PSY.get_active_power_limits(d).max
+get_variable_binary(::Type{<:ActivePowerInVariable}, ::Type{<:PSY.Source}, ::Type{<:AbstractSourceFormulation}) = false
+get_variable_binary(::Type{<:ActivePowerOutVariable}, ::Type{<:PSY.Source}, ::Type{<:AbstractSourceFormulation}) = false
+get_variable_lower_bound(::Type{<:ActivePowerInVariable}, d::PSY.Source, ::Type{<:AbstractSourceFormulation}) = 0.0
+get_variable_lower_bound(::Type{<:ActivePowerOutVariable}, d::PSY.Source, ::Type{<:AbstractSourceFormulation}) = 0.0
+get_variable_upper_bound(::Type{<:ActivePowerInVariable}, d::PSY.Source, ::Type{<:AbstractSourceFormulation}) = -PSY.get_active_power_limits(d).min
+get_variable_upper_bound(::Type{<:ActivePowerOutVariable}, d::PSY.Source, ::Type{<:AbstractSourceFormulation}) = PSY.get_active_power_limits(d).max
 
 ############## ReactivePowerVariable, Source ####################
-get_variable_binary(::ReactivePowerVariable, ::Type{<:PSY.Source}, ::AbstractSourceFormulation) = false
-get_variable_lower_bound(::ReactivePowerVariable, d::PSY.Source, ::AbstractSourceFormulation) = PSY.get_reactive_power_limits(d).min
-get_variable_upper_bound(::ReactivePowerVariable, d::PSY.Source, ::AbstractSourceFormulation) = PSY.get_reactive_power_limits(d).max
+get_variable_binary(::Type{<:ReactivePowerVariable}, ::Type{<:PSY.Source}, ::Type{<:AbstractSourceFormulation}) = false
+get_variable_lower_bound(::Type{<:ReactivePowerVariable}, d::PSY.Source, ::Type{<:AbstractSourceFormulation}) = PSY.get_reactive_power_limits(d).min
+get_variable_upper_bound(::Type{<:ReactivePowerVariable}, d::PSY.Source, ::Type{<:AbstractSourceFormulation}) = PSY.get_reactive_power_limits(d).max
 
-get_multiplier_value(::ActivePowerTimeSeriesParameter, d::PSY.Source, ::AbstractSourceFormulation) = PSY.get_active_power_limits(d).max
-get_multiplier_value(::ActivePowerOutTimeSeriesParameter, d::PSY.Source, ::AbstractSourceFormulation) = PSY.get_active_power_limits(d).max
-get_multiplier_value(::ActivePowerInTimeSeriesParameter, d::PSY.Source, ::AbstractSourceFormulation) = PSY.get_active_power_limits(d).max
+get_multiplier_value(::Type{<:ActivePowerTimeSeriesParameter}, d::PSY.Source, ::Type{<:AbstractSourceFormulation}) = PSY.get_active_power_limits(d).max
+get_multiplier_value(::Type{<:ActivePowerOutTimeSeriesParameter}, d::PSY.Source, ::Type{<:AbstractSourceFormulation}) = PSY.get_active_power_limits(d).max
+get_multiplier_value(::Type{<:ActivePowerInTimeSeriesParameter}, d::PSY.Source, ::Type{<:AbstractSourceFormulation}) = PSY.get_active_power_limits(d).max
 # This additional method definition is used to avoid ambiguity with the method defined in default_interface_methods.jl
-get_multiplier_value(::AbstractPiecewiseLinearBreakpointParameter, d::PSY.Source, ::AbstractSourceFormulation) = 1.0
+get_multiplier_value(::Type{<:AbstractPiecewiseLinearBreakpointParameter}, d::PSY.Source, ::Type{<:AbstractSourceFormulation}) = 1.0
 
 ############## ReservationVariable, Source ####################
-get_variable_binary(::ReservationVariable, ::Type{<:PSY.Source}, ::ImportExportSourceModel) = true
+get_variable_binary(::Type{<:ReservationVariable}, ::Type{<:PSY.Source}, ::Type{<:ImportExportSourceModel}) = true
 
 
 #! format: on

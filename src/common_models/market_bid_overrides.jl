@@ -232,7 +232,7 @@ function add_variable_cost_to_objective!(
     return
 end
 
-_vom_offer_direction(::AbstractControllablePowerLoadFormulation) = DecrementalOffer()
+_vom_offer_direction(::Type{<:AbstractControllablePowerLoadFormulation}) = DecrementalOffer()
 
 #################################################################################
 # Section 7: Service-specific PWL (ReserveDemandCurve, StepwiseCostReserve)

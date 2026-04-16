@@ -1,16 +1,16 @@
 #! format: off
-get_variable_binary(::VariableType, ::Type{PSY.TransmissionInterface}, ::ConstantMaxInterfaceFlow) = false
-get_variable_lower_bound(::InterfaceFlowSlackUp, ::PSY.TransmissionInterface, ::ConstantMaxInterfaceFlow) = 0.0
-get_variable_lower_bound(::InterfaceFlowSlackDown, ::PSY.TransmissionInterface, ::ConstantMaxInterfaceFlow) = 0.0
+get_variable_binary(::Type{<:VariableType}, ::Type{PSY.TransmissionInterface}, ::Type{<:ConstantMaxInterfaceFlow}) = false
+get_variable_lower_bound(::Type{<:InterfaceFlowSlackUp}, ::PSY.TransmissionInterface, ::Type{<:ConstantMaxInterfaceFlow}) = 0.0
+get_variable_lower_bound(::Type{<:InterfaceFlowSlackDown}, ::PSY.TransmissionInterface, ::Type{<:ConstantMaxInterfaceFlow>) = 0.0
 
-get_variable_multiplier(::InterfaceFlowSlackUp, ::Type{PSY.TransmissionInterface}, ::ConstantMaxInterfaceFlow) = 1.0
-get_variable_multiplier(::InterfaceFlowSlackDown, ::Type{PSY.TransmissionInterface}, ::ConstantMaxInterfaceFlow) = -1.0
+get_variable_multiplier(::Type{<:InterfaceFlowSlackUp}, ::Type{PSY.TransmissionInterface}, ::Type{<:ConstantMaxInterfaceFlow}) = 1.0
+get_variable_multiplier(::Type{<:InterfaceFlowSlackDown}, ::Type{PSY.TransmissionInterface}, ::Type{<:ConstantMaxInterfaceFlow}) = -1.0
 
-get_variable_multiplier(::InterfaceFlowSlackUp, ::Type{PSY.TransmissionInterface}, ::VariableMaxInterfaceFlow) = 1.0
-get_variable_multiplier(::InterfaceFlowSlackDown, ::Type{PSY.TransmissionInterface}, ::VariableMaxInterfaceFlow) = -1.0
+get_variable_multiplier(::Type{<:InterfaceFlowSlackUp}, ::Type{PSY.TransmissionInterface}, ::Type{<:VariableMaxInterfaceFlow}) = 1.0
+get_variable_multiplier(::Type{<:InterfaceFlowSlackDown}, ::Type{PSY.TransmissionInterface}, ::Type{<:VariableMaxInterfaceFlow}) = -1.0
 
-get_multiplier_value(::MinInterfaceFlowLimitParameter, d::PSY.TransmissionInterface, ::VariableMaxInterfaceFlow) = PSY.get_min_active_power_flow_limit(d)
-get_multiplier_value(::MaxInterfaceFlowLimitParameter, d::PSY.TransmissionInterface, ::VariableMaxInterfaceFlow) = PSY.get_max_active_power_flow_limit(d)
+get_multiplier_value(::Type{<:MinInterfaceFlowLimitParameter}, d::PSY.TransmissionInterface, ::Type{<:VariableMaxInterfaceFlow}) = PSY.get_min_active_power_flow_limit(d)
+get_multiplier_value(::Type{<:MaxInterfaceFlowLimitParameter}, d::PSY.TransmissionInterface, ::Type{<:VariableMaxInterfaceFlow}) = PSY.get_max_active_power_flow_limit(d)
 
 #! format: On
 function get_default_time_series_names(

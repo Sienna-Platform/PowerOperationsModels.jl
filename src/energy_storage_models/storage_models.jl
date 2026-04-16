@@ -1,84 +1,84 @@
 #! format: off
 requires_initialization(::AbstractStorageFormulation) = false
 
-get_variable_multiplier(::VariableType, ::Type{<:PSY.Storage}, ::AbstractStorageFormulation) = NaN
+get_variable_multiplier(::Type{<:VariableType}, ::Type{<:PSY.Storage}, ::Type{<:AbstractStorageFormulation}) = NaN
 ########################### ActivePowerInVariable, Storage #################################
-get_variable_binary(::ActivePowerInVariable, ::Type{<:PSY.Storage}, ::AbstractStorageFormulation) = false
-get_variable_lower_bound(::ActivePowerInVariable, d::PSY.Storage, ::AbstractStorageFormulation) = 0.0
-get_variable_upper_bound(::ActivePowerInVariable, d::PSY.Storage, ::AbstractStorageFormulation) = PSY.get_input_active_power_limits(d).max
-get_variable_multiplier(::ActivePowerInVariable, d::Type{<:PSY.Storage}, ::AbstractStorageFormulation) = -1.0
+get_variable_binary(::Type{<:ActivePowerInVariable}, ::Type{<:PSY.Storage}, ::Type{<:AbstractStorageFormulation}) = false
+get_variable_lower_bound(::Type{<:ActivePowerInVariable}, d::PSY.Storage, ::Type{<:AbstractStorageFormulation}) = 0.0
+get_variable_upper_bound(::Type{<:ActivePowerInVariable}, d::PSY.Storage, ::Type{<:AbstractStorageFormulation}) = PSY.get_input_active_power_limits(d).max
+get_variable_multiplier(::Type{<:ActivePowerInVariable}, d::Type{<:PSY.Storage}, ::Type{<:AbstractStorageFormulation}) = -1.0
 
 ########################### ActivePowerOutVariable, Storage #################################
-get_variable_binary(::ActivePowerOutVariable, ::Type{<:PSY.Storage}, ::AbstractStorageFormulation) = false
-get_variable_lower_bound(::ActivePowerOutVariable, d::PSY.Storage, ::AbstractStorageFormulation) = 0.0
-get_variable_upper_bound(::ActivePowerOutVariable, d::PSY.Storage, ::AbstractStorageFormulation) = PSY.get_output_active_power_limits(d).max
-get_variable_multiplier(::ActivePowerOutVariable, d::Type{<:PSY.Storage}, ::AbstractStorageFormulation) = 1.0
+get_variable_binary(::Type{<:ActivePowerOutVariable}, ::Type{<:PSY.Storage}, ::Type{<:AbstractStorageFormulation}) = false
+get_variable_lower_bound(::Type{<:ActivePowerOutVariable}, d::PSY.Storage, ::Type{<:AbstractStorageFormulation}) = 0.0
+get_variable_upper_bound(::Type{<:ActivePowerOutVariable}, d::PSY.Storage, ::Type{<:AbstractStorageFormulation}) = PSY.get_output_active_power_limits(d).max
+get_variable_multiplier(::Type{<:ActivePowerOutVariable}, d::Type{<:PSY.Storage}, ::Type{<:AbstractStorageFormulation}) = 1.0
 
 ########################### ReactivePowerVariable, Storage #################################
-get_variable_binary(::ReactivePowerVariable, ::Type{<:PSY.Storage}, ::AbstractStorageFormulation) = false
-get_variable_lower_bound(::ReactivePowerVariable, d::PSY.Storage, ::AbstractStorageFormulation) = PSY.get_reactive_power_limits(d).min
-get_variable_upper_bound(::ReactivePowerVariable, d::PSY.Storage, ::AbstractStorageFormulation) = PSY.get_reactive_power_limits(d).max
-get_variable_multiplier(::ReactivePowerVariable, d::Type{<:PSY.Storage}, ::AbstractStorageFormulation) = 1.0
+get_variable_binary(::Type{<:ReactivePowerVariable}, ::Type{<:PSY.Storage}, ::Type{<:AbstractStorageFormulation}) = false
+get_variable_lower_bound(::Type{<:ReactivePowerVariable}, d::PSY.Storage, ::Type{<:AbstractStorageFormulation}) = PSY.get_reactive_power_limits(d).min
+get_variable_upper_bound(::Type{<:ReactivePowerVariable}, d::PSY.Storage, ::Type{<:AbstractStorageFormulation}) = PSY.get_reactive_power_limits(d).max
+get_variable_multiplier(::Type{<:ReactivePowerVariable}, d::Type{<:PSY.Storage}, ::Type{<:AbstractStorageFormulation}) = 1.0
 
 ############## EnergyVariable, Storage ####################
-get_variable_binary(::EnergyVariable, ::Type{<:PSY.Storage}, ::AbstractStorageFormulation) = false
-get_variable_upper_bound(::EnergyVariable, d::PSY.Storage, ::AbstractStorageFormulation) = PSY.get_storage_level_limits(d).max * PSY.get_storage_capacity(d) * PSY.get_conversion_factor(d)
-get_variable_lower_bound(::EnergyVariable, d::PSY.Storage, ::AbstractStorageFormulation) = PSY.get_storage_level_limits(d).min * PSY.get_storage_capacity(d) * PSY.get_conversion_factor(d)
-get_variable_warm_start_value(::EnergyVariable, d::PSY.Storage, ::AbstractStorageFormulation) = PSY.get_initial_storage_capacity_level(d) * PSY.get_storage_capacity(d) * PSY.get_conversion_factor(d)
+get_variable_binary(::Type{<:EnergyVariable}, ::Type{<:PSY.Storage}, ::Type{<:AbstractStorageFormulation}) = false
+get_variable_upper_bound(::Type{<:EnergyVariable}, d::PSY.Storage, ::Type{<:AbstractStorageFormulation}) = PSY.get_storage_level_limits(d).max * PSY.get_storage_capacity(d) * PSY.get_conversion_factor(d)
+get_variable_lower_bound(::Type{<:EnergyVariable}, d::PSY.Storage, ::Type{<:AbstractStorageFormulation}) = PSY.get_storage_level_limits(d).min * PSY.get_storage_capacity(d) * PSY.get_conversion_factor(d)
+get_variable_warm_start_value(::Type{<:EnergyVariable}, d::PSY.Storage, ::Type{<:AbstractStorageFormulation}) = PSY.get_initial_storage_capacity_level(d) * PSY.get_storage_capacity(d) * PSY.get_conversion_factor(d)
 
 ############## ReservationVariable, Storage ####################
-get_variable_binary(::ReservationVariable, ::Type{<:PSY.Storage}, ::AbstractStorageFormulation) = true
+get_variable_binary(::Type{<:ReservationVariable}, ::Type{<:PSY.Storage}, ::Type{<:AbstractStorageFormulation}) = true
 
 ############## Ancillary Services Variables ####################
-get_variable_binary(::AncillaryServiceVariableDischarge, ::Type{<:PSY.Storage}, ::AbstractStorageFormulation) = false
-get_variable_binary(::AncillaryServiceVariableCharge, ::Type{<:PSY.Storage}, ::AbstractStorageFormulation) = false
+get_variable_binary(::Type{<:AncillaryServiceVariableDischarge}, ::Type{<:PSY.Storage}, ::Type{<:AbstractStorageFormulation}) = false
+get_variable_binary(::Type{<:AncillaryServiceVariableCharge}, ::Type{<:PSY.Storage}, ::Type{<:AbstractStorageFormulation}) = false
 
-function get_variable_upper_bound(::AncillaryServiceVariableCharge, r::PSY.Reserve, d::PSY.Storage, ::AbstractStorageFormulation)
+function get_variable_upper_bound(::Type{<:AncillaryServiceVariableCharge}, r::PSY.Reserve, d::PSY.Storage, ::Type{<:AbstractStorageFormulation})
     return PSY.get_max_output_fraction(r) * PSY.get_input_active_power_limits(d).max
 end
 
-function get_variable_upper_bound(::AncillaryServiceVariableDischarge, r::PSY.Reserve, d::PSY.Storage, ::AbstractStorageFormulation)
+function get_variable_upper_bound(::Type{<:AncillaryServiceVariableDischarge}, r::PSY.Reserve, d::PSY.Storage, ::Type{<:AbstractStorageFormulation})
     return PSY.get_max_output_fraction(r) * PSY.get_output_active_power_limits(d).max
 end
 
-function get_variable_upper_bound(::AncillaryServiceVariableCharge, r::PSY.ReserveDemandCurve, d::PSY.Storage, ::AbstractStorageFormulation)
+function get_variable_upper_bound(::Type{<:AncillaryServiceVariableCharge}, r::PSY.ReserveDemandCurve, d::PSY.Storage, ::Type{<:AbstractStorageFormulation})
     return PSY.get_input_active_power_limits(d).max
 end
 
-function get_variable_upper_bound(::AncillaryServiceVariableDischarge, r::PSY.ReserveDemandCurve, d::PSY.Storage, ::AbstractStorageFormulation)
+function get_variable_upper_bound(::Type{<:AncillaryServiceVariableDischarge}, r::PSY.ReserveDemandCurve, d::PSY.Storage, ::Type{<:AbstractStorageFormulation})
     return PSY.get_output_active_power_limits(d).max
 end
 
-function get_variable_upper_bound(::ActivePowerReserveVariable, r::PSY.Reserve, d::PSY.Storage, ::AbstractReservesFormulation)
+function get_variable_upper_bound(::Type{<:ActivePowerReserveVariable}, r::PSY.Reserve, d::PSY.Storage, ::Type{<:AbstractReservesFormulation})
     return PSY.get_max_output_fraction(r) * (PSY.get_output_active_power_limits(d).max + PSY.get_input_active_power_limits(d).max)
 end
-function get_variable_upper_bound(::ActivePowerReserveVariable, r::PSY.ReserveDemandCurve, d::PSY.Storage, ::AbstractReservesFormulation)
+function get_variable_upper_bound(::Type{<:ActivePowerReserveVariable}, r::PSY.ReserveDemandCurve, d::PSY.Storage, ::Type{<:AbstractReservesFormulation})
     return PSY.get_max_output_fraction(r) * (PSY.get_output_active_power_limits(d).max + PSY.get_input_active_power_limits(d).max)
 end
 
 get_expression_type_for_reserve(::ActivePowerReserveVariable, ::Type{<:PSY.Storage}, ::Type{<:PSY.Reserve}) = TotalReserveOffering
 
 ############### Energy Targets Variables #############
-get_variable_binary(::StorageEnergyShortageVariable, ::Type{<:PSY.Storage}, ::AbstractStorageFormulation) = false
-get_variable_binary(::StorageEnergySurplusVariable, ::Type{<:PSY.Storage}, ::AbstractStorageFormulation) = false
+get_variable_binary(::Type{<:StorageEnergyShortageVariable}, ::Type{<:PSY.Storage}, ::Type{<:AbstractStorageFormulation}) = false
+get_variable_binary(::Type{<:StorageEnergySurplusVariable}, ::Type{<:PSY.Storage}, ::Type{<:AbstractStorageFormulation}) = false
 
 ############### Cycling Limits Variables #############
-get_variable_binary(::StorageChargeCyclingSlackVariable, ::Type{<:PSY.Storage}, ::AbstractStorageFormulation) = false
-get_variable_binary(::StorageDischargeCyclingSlackVariable, ::Type{<:PSY.Storage}, ::AbstractStorageFormulation) = false
+get_variable_binary(::Type{<:StorageChargeCyclingSlackVariable}, ::Type{<:PSY.Storage}, ::Type{<:AbstractStorageFormulation}) = false
+get_variable_binary(::Type{<:StorageDischargeCyclingSlackVariable}, ::Type{<:PSY.Storage}, ::Type{<:AbstractStorageFormulation}) = false
 
 ########################Objective Function##################################################
-objective_function_multiplier(::VariableType, ::AbstractStorageFormulation)=OBJECTIVE_FUNCTION_POSITIVE
-objective_function_multiplier(::StorageEnergySurplusVariable, ::AbstractStorageFormulation)=OBJECTIVE_FUNCTION_POSITIVE
-objective_function_multiplier(::StorageEnergyShortageVariable, ::AbstractStorageFormulation)=OBJECTIVE_FUNCTION_POSITIVE
+objective_function_multiplier(::Type{<:VariableType}, ::Type{<:AbstractStorageFormulation})=OBJECTIVE_FUNCTION_POSITIVE
+objective_function_multiplier(::Type{<:StorageEnergySurplusVariable}, ::Type{<:AbstractStorageFormulation})=OBJECTIVE_FUNCTION_POSITIVE
+objective_function_multiplier(::Type{<:StorageEnergyShortageVariable}, ::Type{<:AbstractStorageFormulation})=OBJECTIVE_FUNCTION_POSITIVE
 
-proportional_cost(cost::PSY.StorageCost, ::StorageEnergySurplusVariable, ::PSY.EnergyReservoirStorage, ::AbstractStorageFormulation)=PSY.get_energy_surplus_cost(cost)
-proportional_cost(cost::PSY.StorageCost, ::StorageEnergyShortageVariable, ::PSY.EnergyReservoirStorage, ::AbstractStorageFormulation)=PSY.get_energy_shortage_cost(cost)
-proportional_cost(::PSY.StorageCost, ::StorageChargeCyclingSlackVariable, ::PSY.EnergyReservoirStorage, ::AbstractStorageFormulation)=CYCLE_VIOLATION_COST
-proportional_cost(::PSY.StorageCost, ::StorageDischargeCyclingSlackVariable, ::PSY.EnergyReservoirStorage, ::AbstractStorageFormulation)=CYCLE_VIOLATION_COST
+proportional_cost(cost::PSY.StorageCost, ::Type{<:StorageEnergySurplusVariable}, ::PSY.EnergyReservoirStorage, ::Type{<:AbstractStorageFormulation})=PSY.get_energy_surplus_cost(cost)
+proportional_cost(cost::PSY.StorageCost, ::Type{<:StorageEnergyShortageVariable}, ::PSY.EnergyReservoirStorage, ::Type{<:AbstractStorageFormulation})=PSY.get_energy_shortage_cost(cost)
+proportional_cost(::PSY.StorageCost, ::Type{<:StorageChargeCyclingSlackVariable}, ::PSY.EnergyReservoirStorage, ::Type{<:AbstractStorageFormulation})=CYCLE_VIOLATION_COST
+proportional_cost(::PSY.StorageCost, ::Type{<:StorageDischargeCyclingSlackVariable}, ::PSY.EnergyReservoirStorage, ::Type{<:AbstractStorageFormulation})=CYCLE_VIOLATION_COST
 
 
-IOM.variable_cost(cost::PSY.StorageCost, ::ActivePowerOutVariable, ::Type{<:PSY.Storage}, ::AbstractStorageFormulation)=PSY.get_discharge_variable_cost(cost)
-IOM.variable_cost(cost::PSY.StorageCost, ::ActivePowerInVariable, ::Type{<:PSY.Storage}, ::AbstractStorageFormulation)=PSY.get_charge_variable_cost(cost)
+IOM.variable_cost(cost::PSY.StorageCost, ::Type{<:ActivePowerOutVariable}, ::Type{<:PSY.Storage}, ::Type{<:AbstractStorageFormulation})=PSY.get_discharge_variable_cost(cost)
+IOM.variable_cost(cost::PSY.StorageCost, ::Type{<:ActivePowerInVariable}, ::Type{<:PSY.Storage}, ::Type{<:AbstractStorageFormulation})=PSY.get_charge_variable_cost(cost)
 
 ######################## Parameters ##################################################
 
@@ -88,9 +88,9 @@ get_parameter_multiplier(::LowerBoundValueParameter, ::PSY.Storage, ::AbstractSt
 get_parameter_multiplier(::UpperBoundValueParameter, ::PSY.Storage, ::AbstractStorageFormulation) = 1.0
 
 ############## ReservationVariable, Storage ####################
-get_variable_binary(::StorageRegularizationVariable, ::Type{<:PSY.Storage}, ::AbstractStorageFormulation) = false
-get_variable_upper_bound(::StorageRegularizationVariable, d::PSY.Storage, ::AbstractStorageFormulation) = max(PSY.get_input_active_power_limits(d).max, PSY.get_output_active_power_limits(d).max)
-get_variable_lower_bound(::StorageRegularizationVariable, d::PSY.Storage, ::AbstractStorageFormulation) = 0.0
+get_variable_binary(::Type{<:StorageRegularizationVariable}, ::Type{<:PSY.Storage}, ::Type{<:AbstractStorageFormulation}) = false
+get_variable_upper_bound(::Type{<:StorageRegularizationVariable}, d::PSY.Storage, ::Type{<:AbstractStorageFormulation}) = max(PSY.get_input_active_power_limits(d).max, PSY.get_output_active_power_limits(d).max)
+get_variable_lower_bound(::Type{<:StorageRegularizationVariable}, d::PSY.Storage, ::Type{<:AbstractStorageFormulation}) = 0.0
 
 #! format: on
 
@@ -107,9 +107,9 @@ _include_min_gen_power_in_constraint(
 
 function IOM.variable_cost(
     ::PSY.StorageCost,
-    ::StorageRegularizationVariable,
+    ::Type{<:StorageRegularizationVariable},
     ::Type{<:PSY.Storage},
-    ::AbstractStorageFormulation,
+    ::Type{<:AbstractStorageFormulation},
 )
     return PSY.CostCurve(PSY.LinearCurve(STORAGE_REG_COST), PSY.UnitSystem.SYSTEM_BASE)
 end

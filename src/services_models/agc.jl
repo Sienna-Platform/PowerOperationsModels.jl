@@ -1,48 +1,48 @@
 #! format: off
-get_variable_multiplier(::VariableType, ::Type{<:PSY.AGC}, ::AbstractAGCFormulation) = NaN
+get_variable_multiplier(::Type{<:VariableType}, ::Type{<:PSY.AGC}, ::Type{<:AbstractAGCFormulation}) = NaN
 ########################## ActivePowerVariable, AGC ###########################
 
 ########################## SteadyStateFrequencyDeviation ##################################
-get_variable_binary(::SteadyStateFrequencyDeviation, ::Type{<:PSY.AGC}, ::AbstractAGCFormulation) = false
+get_variable_binary(::Type{<:SteadyStateFrequencyDeviation}, ::Type{<:PSY.AGC}, ::Type{<:AbstractAGCFormulation}) = false
 
-get_variable_binary(::ActivePowerVariable, ::Type{<:PSY.Area}, ::AbstractAGCFormulation) = false
+get_variable_binary(::Type{<:ActivePowerVariable}, ::Type{<:PSY.Area}, ::Type{<:AbstractAGCFormulation}) = false
 ########################## SmoothACE, AggregationTopology ###########################
 
-get_variable_binary(::SmoothACE, ::Type{<:PSY.AggregationTopology}, ::AbstractAGCFormulation) = false
-get_variable_binary(::SmoothACE, ::Type{<:PSY.AGC}, ::AbstractAGCFormulation) = false
+get_variable_binary(::Type{<:SmoothACE}, ::Type{<:PSY.AggregationTopology}, ::Type{<:AbstractAGCFormulation}) = false
+get_variable_binary(::Type{<:SmoothACE}, ::Type{<:PSY.AGC}, ::Type{<:AbstractAGCFormulation}) = false
 
 ########################## DeltaActivePowerUpVariable, AGC ###########################
 
-get_variable_binary(::DeltaActivePowerUpVariable, ::Type{<:PSY.AGC}, ::AbstractAGCFormulation) = false
-get_variable_lower_bound(::DeltaActivePowerUpVariable, ::PSY.AGC, ::AbstractAGCFormulation) = 0.0
+get_variable_binary(::Type{<:DeltaActivePowerUpVariable}, ::Type{<:PSY.AGC}, ::Type{<:AbstractAGCFormulation}) = false
+get_variable_lower_bound(::Type{<:DeltaActivePowerUpVariable}, ::PSY.AGC, ::Type{<:AbstractAGCFormulation}) = 0.0
 
 ########################## DeltaActivePowerDownVariable, AGC ###########################
 
-get_variable_binary(::DeltaActivePowerDownVariable, ::Type{<:PSY.AGC}, ::AbstractAGCFormulation) = false
-get_variable_lower_bound(::DeltaActivePowerDownVariable, ::PSY.AGC, ::AbstractAGCFormulation) = 0.0
+get_variable_binary(::Type{<:DeltaActivePowerDownVariable}, ::Type{<:PSY.AGC}, ::Type{<:AbstractAGCFormulation}) = false
+get_variable_lower_bound(::Type{<:DeltaActivePowerDownVariable}, ::PSY.AGC, ::Type{<:AbstractAGCFormulation}) = 0.0
 
 ########################## AdditionalDeltaPowerUpVariable, Area ###########################
 
-get_variable_binary(::AdditionalDeltaActivePowerUpVariable, ::Type{<:PSY.Area}, ::AbstractAGCFormulation) = false
-get_variable_lower_bound(::AdditionalDeltaActivePowerUpVariable, ::PSY.Area, ::AbstractAGCFormulation) = 0.0
+get_variable_binary(::Type{<:AdditionalDeltaActivePowerUpVariable}, ::Type{<:PSY.Area}, ::Type{<:AbstractAGCFormulation}) = false
+get_variable_lower_bound(::Type{<:AdditionalDeltaActivePowerUpVariable}, ::PSY.Area, ::Type{<:AbstractAGCFormulation}) = 0.0
 
 ########################## AdditionalDeltaPowerDownVariable, Area ###########################
 
-get_variable_binary(::AdditionalDeltaActivePowerDownVariable, ::Type{<:PSY.Area}, ::AbstractAGCFormulation) = false
-get_variable_lower_bound(::AdditionalDeltaActivePowerDownVariable, ::PSY.Area, ::AbstractAGCFormulation) = 0.0
+get_variable_binary(::Type{<:AdditionalDeltaActivePowerDownVariable}, ::Type{<:PSY.Area}, ::Type{<:AbstractAGCFormulation>) = false
+get_variable_lower_bound(::Type{<:AdditionalDeltaActivePowerDownVariable}, ::PSY.Area, ::Type{<:AbstractAGCFormulation}) = 0.0
 
 ########################## AreaMismatchVariable, AGC ###########################
-get_variable_binary(::AreaMismatchVariable, ::Type{<:PSY.AGC}, ::AbstractAGCFormulation) = false
+get_variable_binary(::Type{<:AreaMismatchVariable}, ::Type{<:PSY.AGC}, ::Type{<:AbstractAGCFormulation}) = false
 
 ########################## LiftVariable, Area ###########################
-get_variable_binary(::LiftVariable, ::Type{<:PSY.AGC}, ::AbstractAGCFormulation) = false
-get_variable_lower_bound(::LiftVariable, ::PSY.AGC, ::AbstractAGCFormulation) = 0.0
+get_variable_binary(::Type{<:LiftVariable}, ::Type{<:PSY.AGC}, ::Type{<:AbstractAGCFormulation}) = false
+get_variable_lower_bound(::Type{<:LiftVariable}, ::PSY.AGC, ::Type{<:AbstractAGCFormulation}) = 0.0
 
 initial_condition_default(::AreaControlError, d::PSY.AGC, ::AbstractAGCFormulation) = PSY.get_initial_ace(d)
 initial_condition_variable(::AreaControlError, d::PSY.AGC, ::AbstractAGCFormulation) = AreaMismatchVariable()
 
 # Per-device bias multiplier (-10 * get_bias(d)) computed inline at add_to_expression! call sites.
-get_variable_multiplier(::SteadyStateFrequencyDeviation, ::Type{<:PSY.AGC}, ::AbstractAGCFormulation) = 1.0
+get_variable_multiplier(::Type{<:SteadyStateFrequencyDeviation}, ::Type{<:PSY.AGC}, ::Type{<:AbstractAGCFormulation}) = 1.0
 
 #! format: on
 
