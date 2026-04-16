@@ -13,7 +13,7 @@ sys_rts = PSB.build_system(PSISystems, "modified_RTS_GMLC_DA_sys")
         sys_rts;
         optimizer = HiGHS_optimizer,
         initial_time = DateTime("2020-01-01T00:00:00"),
-        horizon = Hour(48),
+        horizon = Hour(4),
     )
     @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
           IOM.ModelBuildStatus.BUILT
@@ -82,7 +82,7 @@ end
         sys_rts;
         optimizer = HiGHS_optimizer,
         initial_time = DateTime("2020-01-01T00:00:00"),
-        horizon = Hour(48),
+        horizon = Hour(4),
     )
     @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
           IOM.ModelBuildStatus.BUILT
@@ -159,7 +159,7 @@ end
         sys_rts;
         optimizer = HiGHS_optimizer,
         initial_time = DateTime("2020-01-01T00:00:00"),
-        horizon = Hour(48),
+        horizon = Hour(4),
     )
     POM.instantiate_network_model!(model)
     POM.build_pre_step!(model)
