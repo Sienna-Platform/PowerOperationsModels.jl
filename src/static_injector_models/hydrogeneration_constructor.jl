@@ -1941,6 +1941,132 @@ function construct_device!(
 end
 
 ##########################################################
+########### HydroTurbineWaterLinearCommitment ############
+##########################################################
+
+"""
+Construct model for [`PowerSystems.HydroTurbine`](@extref) with [`HydroTurbineWaterLinearCommitment`](@ref) Formulation
+with only Active Power.
+"""
+function construct_device!(
+    container::OptimizationContainer,
+    sys::PSY.System,
+    ::ArgumentConstructStage,
+    model::DeviceModel{H, D},
+    network_model::NetworkModel{S},
+) where {
+    H <: PSY.HydroTurbine,
+    D <: HydroTurbineWaterLinearCommitment,
+    S <: PM.AbstractActivePowerModel,
+}
+    devices = get_available_components(model, sys)
+    reservoirs = get_available_reservoirs(sys)
+
+    add_variables!(
+        container,
+        HydroTurbineFlowRateVariable,
+        devices,
+        reservoirs,
+        D(),
+    )
+
+    add_variables!(container, ActivePowerVariable, devices, D())
+    add_variables!(container, OnVariable, devices, D())
+
+    add_to_expression!(
+        container,
+        ActivePowerBalance,
+        ActivePowerVariable,
+        devices,
+        model,
+        network_model,
+    )
+
+    add_to_expression!(
+        container,
+        ActivePowerRangeExpressionLB,
+        ActivePowerVariable,
+        devices,
+        model,
+        network_model,
+    )
+    add_to_expression!(
+        container,
+        ActivePowerRangeExpressionUB,
+        ActivePowerVariable,
+        devices,
+        model,
+        network_model,
+    )
+
+    process_market_bid_parameters!(container, devices, model)
+    if has_service_model(model)
+        error("$D does not support service models yet")
+    end
+
+    add_expressions!(container, ProductionCostExpression, devices, model)
+
+    add_feedforward_arguments!(container, model, devices)
+    add_event_arguments!(container, devices, model, network_model)
+    return
+end
+
+function construct_device!(
+    container::OptimizationContainer,
+    sys::PSY.System,
+    ::ModelConstructStage,
+    model::DeviceModel{H, D},
+    network_model::NetworkModel{S},
+) where {
+    H <: PSY.HydroTurbine,
+    D <: HydroTurbineWaterLinearCommitment,
+    S <: PM.AbstractActivePowerModel,
+}
+    devices = get_available_components(model, sys)
+
+    add_expressions!(
+        container,
+        sys,
+        TotalHydroFlowRateTurbineOutgoing,
+        devices,
+        model,
+    )
+
+    add_constraints!(
+        container,
+        ActivePowerVariableLimitsConstraint,
+        ActivePowerRangeExpressionLB,
+        devices,
+        model,
+        network_model,
+    )
+    add_constraints!(
+        container,
+        ActivePowerVariableLimitsConstraint,
+        ActivePowerRangeExpressionUB,
+        devices,
+        model,
+        network_model,
+    )
+
+    add_constraints!(
+        container,
+        sys,
+        TurbinePowerOutputConstraint,
+        devices,
+        model,
+        network_model,
+    )
+
+    add_feedforward_constraints!(container, model, devices)
+
+    objective_function!(container, devices, model, S)
+    add_event_constraints!(container, devices, model, network_model)
+    add_constraint_dual!(container, sys, model)
+    return
+end
+
+##########################################################
 ########### Hydro Pump Turbine Models ####################
 ##########################################################
 

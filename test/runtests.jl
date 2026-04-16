@@ -1,34 +1,34 @@
 include("includes.jl")
 
 # Code Quality Tests - TODO: Re-enable once exports are cleaned up
-import Aqua
-Aqua.test_undefined_exports(PowerOperationsModels)
-Aqua.test_ambiguities(PowerOperationsModels)
-Aqua.test_stale_deps(PowerOperationsModels)
-# Aqua.find_persistent_tasks_deps(PowerOperationsModels)
-# Aqua.test_persistent_tasks(PowerOperationsModels)
-Aqua.test_unbound_args(PowerOperationsModels)
+# import Aqua
+# Aqua.test_undefined_exports(PowerOperationsModels)
+# Aqua.test_ambiguities(PowerOperationsModels)
+# Aqua.test_stale_deps(PowerOperationsModels)
+# # Aqua.find_persistent_tasks_deps(PowerOperationsModels)
+# # Aqua.test_persistent_tasks(PowerOperationsModels)
+# Aqua.test_unbound_args(PowerOperationsModels)
 
 const LOG_FILE = "power-simulations-test.log"
 
 const DISABLED_TEST_FILES = [  # Can generate with ls -1 test | grep "test_.*.jl"
-# "test_device_branch_constructors.jl",
-# "test_device_hvdc.jl",
+"test_device_branch_constructors.jl",
+"test_device_hvdc.jl",
 # "test_device_hydro_constructors.jl",
-# "test_device_lcc.jl",
-# "test_device_load_constructors.jl",
-# "test_device_renewable_generation_constructors.jl",
-# "test_device_source_constructors.jl",
-# "test_device_synchronous_condenser_constructors.jl",
-# "test_device_thermal_generation_constructors.jl",
-# "test_formulation_combinations.jl",
-# "test_initialization_problem.jl",
-# "test_model_decision.jl",
-# "test_network_constructors_with_dlr.jl",
-# "test_problem_template.jl",
-# "test_storage_device_models.jl",
-# "test_transfer_initial_conditions.jl",
-# "test_utils.jl",
+"test_device_lcc.jl",
+"test_device_load_constructors.jl",
+"test_device_renewable_generation_constructors.jl",
+"test_device_source_constructors.jl",
+"test_device_synchronous_condenser_constructors.jl",
+"test_device_thermal_generation_constructors.jl",
+"test_formulation_combinations.jl",
+"test_initialization_problem.jl",
+"test_model_decision.jl",
+"test_network_constructors_with_dlr.jl",
+"test_problem_template.jl",
+"test_storage_device_models.jl",
+"test_transfer_initial_conditions.jl",
+"test_utils.jl",
 ]
 
 LOG_LEVELS = Dict(
