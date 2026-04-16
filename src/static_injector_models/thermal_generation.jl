@@ -96,7 +96,7 @@ function proportional_cost(container::OptimizationContainer, cost::PSY.ThermalGe
 end
 
 
-is_time_variant_term(::OptimizationContainer, ::PSY.ThermalGenerationCost, ::Type{OnVariable}, ::PSY.ThermalGen, ::Type{<:AbstractThermalFormulation}, t::Int) = false
+is_time_variant_term(::OptimizationContainer, ::PSY.ThermalGenerationCost, ::Type{OnVariable}, ::Type{<:PSY.ThermalGen}, ::Type{<:AbstractThermalFormulation}, t::Int) = false
 
 function proportional_cost(container::OptimizationContainer, cost::PSY.MarketBidCost, ::Type{OnVariable}, comp::T, ::Type{<:AbstractThermalFormulation}, t::Int) where {T <: PSY.ThermalGen}
     if is_time_variant(PSY.get_incremental_initial_input(cost))
@@ -110,7 +110,7 @@ function proportional_cost(container::OptimizationContainer, cost::PSY.MarketBid
         return PSY.get_initial_input(PSY.get_incremental_offer_curves(PSY.get_operation_cost(comp)))
     end
 end
-is_time_variant_term(::OptimizationContainer, cost::PSY.MarketBidCost, ::Type{OnVariable}, ::PSY.ThermalGen, ::Type{<:AbstractThermalFormulation}, t::Int) =
+is_time_variant_term(::OptimizationContainer, cost::PSY.MarketBidCost, ::Type{OnVariable}, ::Type{<:PSY.ThermalGen}, ::Type{<:AbstractThermalFormulation}, t::Int) =
     is_time_variant(PSY.get_incremental_initial_input(cost))
 
 proportional_cost(::Union{PSY.MarketBidCost, PSY.ThermalGenerationCost}, ::Type{<:Union{RateofChangeConstraintSlackUp, RateofChangeConstraintSlackDown}}, ::PSY.ThermalGen, ::Type{<:AbstractThermalFormulation}) = CONSTRAINT_VIOLATION_SLACK_COST
