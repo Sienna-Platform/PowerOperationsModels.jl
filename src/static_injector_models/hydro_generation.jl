@@ -15,6 +15,38 @@ function _add_proportional_term!(
     return lin_cost
 end
 
+function _add_proportional_term_variant!(
+    container::OptimizationContainer,
+    ::Type{T},
+    component::U,
+    linear_term::Float64,
+    time_period::Int,
+) where {T <: VariableType, U <: PSY.Component}
+    lin_cost = _add_proportional_term_helper(
+        container, T(), component, linear_term, time_period)
+    add_to_objective_variant_expression!(container, lin_cost)
+    return lin_cost
+end
+
+_add_proportional_term_maybe_variant!(
+    ::Val{false},
+    container::OptimizationContainer,
+    ::Type{T},
+    component::U,
+    linear_term::Float64,
+    time_period::Int,
+) where {T <: VariableType, U <: PSY.Component} =
+    _add_proportional_term!(container, T, component, linear_term, time_period)
+_add_proportional_term_maybe_variant!(
+    ::Val{true},
+    container::OptimizationContainer,
+    ::Type{T},
+    component::U,
+    linear_term::Float64,
+    time_period::Int,
+) where {T <: VariableType, U <: PSY.Component} =
+    _add_proportional_term_variant!(container, T, component, linear_term, time_period)
+
 # These methods are defined in PowerSimulations
 requires_initialization(::AbstractHydroReservoirFormulation) = false
 requires_initialization(::AbstractHydroUnitCommitment) = true

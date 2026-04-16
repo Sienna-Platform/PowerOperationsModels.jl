@@ -820,14 +820,13 @@ end
         sys;
         name = "UC",
         optimizer = HiGHS_optimizer,
-        system_to_file = false,
         store_variable_names = true,
         optimizer_solve_log_print = false,
     )
     @test build!(model; output_dir = mktempdir()) == ModelBuildStatus.BUILT
     @test solve!(model) == IS.Simulation.RunStatus.SUCCESSFULLY_FINALIZED
 
-    sol = OptimizationProblemResults(model)
+    sol = OptimizationProblemOutputs(model)
     flow = read_expression(sol, "TotalHydroFlowRateReservoirOutgoing__HydroReservoir")[
         !,
         "value",

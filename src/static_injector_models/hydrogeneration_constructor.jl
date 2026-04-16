@@ -1967,11 +1967,11 @@ function construct_device!(
         HydroTurbineFlowRateVariable,
         devices,
         reservoirs,
-        D(),
+        D,
     )
 
-    add_variables!(container, ActivePowerVariable, devices, D())
-    add_variables!(container, OnVariable, devices, D())
+    add_variables!(container, ActivePowerVariable, devices, D)
+    add_variables!(container, OnVariable, devices, D)
 
     add_to_expression!(
         container,

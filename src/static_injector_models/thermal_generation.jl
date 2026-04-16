@@ -501,8 +501,8 @@ function add_constraints!(
     X <: AbstractPowerModel,
 }
     time_steps = get_time_steps(container)
-    constraint_type = T()
-    variable_type = U()
+    constraint_type = T
+    variable_type = U
     component_type = V
     varp = get_variable(container, variable_type, component_type)
     varstatus = get_variable(container, OnVariable, component_type)
