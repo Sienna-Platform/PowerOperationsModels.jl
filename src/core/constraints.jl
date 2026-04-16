@@ -1054,7 +1054,6 @@ The specified constraints are formulated as:
 """
 struct StorageRegularizationConstraintDischarge <: ConstraintType end
 
-
 """
 Struct to create the constraint to balance shifted power over the user-defined time horizons.
 For more information check the [`PowerLoadShift`](@ref) formulation.
