@@ -59,7 +59,7 @@ function build_problem!(
             construct_device!(
                 container,
                 sys,
-                ArgumentConstructStage(),
+                ArgumentConstructStage,
                 device_model,
                 transmission_model,
             )
@@ -72,7 +72,7 @@ function build_problem!(
         construct_services!(
             container,
             sys,
-            ArgumentConstructStage(),
+            ArgumentConstructStage,
             get_service_models(template),
             get_device_models(template),
             transmission_model,
@@ -86,7 +86,7 @@ function build_problem!(
             construct_device!(
                 container,
                 sys,
-                ArgumentConstructStage(),
+                ArgumentConstructStage,
                 branch_model,
                 transmission_model,
             )
@@ -101,7 +101,7 @@ function build_problem!(
             construct_device!(
                 container,
                 sys,
-                ModelConstructStage(),
+                ModelConstructStage,
                 device_model,
                 transmission_model,
             )
@@ -126,7 +126,7 @@ function build_problem!(
             construct_device!(
                 container,
                 sys,
-                ModelConstructStage(),
+                ModelConstructStage,
                 branch_model,
                 transmission_model,
             )
@@ -139,7 +139,7 @@ function build_problem!(
         construct_services!(
             container,
             sys,
-            ModelConstructStage(),
+            ModelConstructStage,
             get_service_models(template),
             get_device_models(template),
             transmission_model,

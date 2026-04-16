@@ -20,10 +20,10 @@ function add_constraints!(
     end
 
     time_steps = get_time_steps(container)
-    dc_expr = get_expression(container, ActivePowerBalance(), PSY.DCBus)
+    dc_expr = get_expression(container, ActivePowerBalance, PSY.DCBus)
     balance_constraint = add_constraints_container!(
         container,
-        NodalBalanceActiveConstraint(),
+        NodalBalanceActiveConstraint,
         PSY.DCBus,
         axes(dc_expr)[1],
         time_steps,
@@ -51,10 +51,10 @@ function add_constraints!(
     end
 
     time_steps = get_time_steps(container)
-    dc_expr = get_expression(container, DCCurrentBalance(), PSY.DCBus)
+    dc_expr = get_expression(container, DCCurrentBalance, PSY.DCBus)
     balance_constraint = add_constraints_container!(
         container,
-        NodalBalanceCurrentConstraint(),
+        NodalBalanceCurrentConstraint,
         PSY.DCBus,
         axes(dc_expr)[1],
         time_steps,

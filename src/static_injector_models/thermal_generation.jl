@@ -78,16 +78,16 @@ get_expression_multiplier(::Type{<:OnStatusParameter}, ::Type{<:ActivePowerBalan
 
 #################### Initial Conditions for models ###############
 initial_condition_default(::DeviceStatus, d::PSY.ThermalGen, ::AbstractThermalFormulation) = PSY.get_status(d) ? 1.0 : 0.0
-initial_condition_variable(::DeviceStatus, d::PSY.ThermalGen, ::AbstractThermalFormulation) = OnVariable()
+initial_condition_variable(::DeviceStatus, d::PSY.ThermalGen, ::AbstractThermalFormulation) = OnVariable
 initial_condition_default(::DevicePower, d::PSY.ThermalGen, ::AbstractThermalFormulation) = PSY.get_active_power(d)
-initial_condition_variable(::DevicePower, d::PSY.ThermalGen, ::AbstractThermalFormulation) = ActivePowerVariable()
+initial_condition_variable(::DevicePower, d::PSY.ThermalGen, ::AbstractThermalFormulation) = ActivePowerVariable
 initial_condition_default(::DeviceAboveMinPower, d::PSY.ThermalGen, ::AbstractThermalFormulation) = max(0.0, PSY.get_active_power(d) - PSY.get_active_power_limits(d).min)
-initial_condition_variable(::DeviceAboveMinPower, d::PSY.ThermalGen, ::AbstractCompactUnitCommitment) = PowerAboveMinimumVariable()
-initial_condition_variable(::DeviceAboveMinPower, d::PSY.ThermalGen, ::ThermalCompactDispatch) = PowerAboveMinimumVariable()
+initial_condition_variable(::DeviceAboveMinPower, d::PSY.ThermalGen, ::AbstractCompactUnitCommitment) = PowerAboveMinimumVariable
+initial_condition_variable(::DeviceAboveMinPower, d::PSY.ThermalGen, ::ThermalCompactDispatch) = PowerAboveMinimumVariable
 initial_condition_default(::InitialTimeDurationOn, d::PSY.ThermalGen, ::AbstractThermalFormulation) = PSY.get_status(d) ? PSY.get_time_at_status(d) : 0.0
-initial_condition_variable(::InitialTimeDurationOn, d::PSY.ThermalGen, ::AbstractThermalFormulation) = OnVariable()
+initial_condition_variable(::InitialTimeDurationOn, d::PSY.ThermalGen, ::AbstractThermalFormulation) = OnVariable
 initial_condition_default(::InitialTimeDurationOff, d::PSY.ThermalGen, ::AbstractThermalFormulation) = !PSY.get_status(d) ? PSY.get_time_at_status(d) : 0.0
-initial_condition_variable(::InitialTimeDurationOff, d::PSY.ThermalGen, ::AbstractThermalFormulation) = OnVariable()
+initial_condition_variable(::InitialTimeDurationOff, d::PSY.ThermalGen, ::AbstractThermalFormulation) = OnVariable
 
 ########################Objective Function##################################################
 # TODO: Decide what is the cost for OnVariable, if fixed or constant term in variable
@@ -101,8 +101,8 @@ function proportional_cost(container::OptimizationContainer, cost::PSY.MarketBid
         name = get_name(comp)
         # inelegant: an iterator wrapping either param_array[name, :] .* param_mult[name, :]
         # (load values lazily) or repeat(constant_value) would be closer to what we want.
-        param_arr = get_parameter_array(container, IncrementalCostAtMinParameter(), T)
-        param_mult = get_parameter_multiplier_array(container, IncrementalCostAtMinParameter(), T)
+        param_arr = get_parameter_array(container, IncrementalCostAtMinParameter, T)
+        param_mult = get_parameter_multiplier_array(container, IncrementalCostAtMinParameter, T)
         return param_arr[name, t] * param_mult[name, t]
     else
         return PSY.get_initial_input(PSY.get_incremental_offer_curves(PSY.get_operation_cost(comp)))
@@ -122,9 +122,9 @@ objective_function_multiplier(::Type{<:VariableType}, ::Type{<:AbstractThermalFo
 # Startup cost interpretations!
 # Validators: check that the types match (formulation is optional) and redirect to the simpler methods
 start_up_cost(cost, ::Type{<:PSY.ThermalGen}, ::Type{T}, ::Type{<:Union{AbstractThermalFormulation, Nothing}} = Nothing) where {T <: StartVariable} =
-    start_up_cost(cost, T())
+    start_up_cost(cost, T)
 start_up_cost(cost, ::Type{<:PSY.ThermalMultiStart}, ::Type{T}, ::Type{<:ThermalMultiStartUnitCommitment} = ThermalMultiStartUnitCommitment) where {T <: MultiStartVariable} =
-    start_up_cost(cost, T())
+    start_up_cost(cost, T)
 
 # Implementations: given a single number, tuple, or StartUpStages and a variable, do the right thing
 # Single number to anything
@@ -176,9 +176,9 @@ function _onvar_cost(container::OptimizationContainer, cost_function::Union{PSY.
     if typeof(fuel_cost) <: Float64
         return constant_term * fuel_cost
     else
-        parameter_array = get_parameter_array(container, FuelCostParameter(), T)
+        parameter_array = get_parameter_array(container, FuelCostParameter, T)
         parameter_multiplier =
-            get_parameter_multiplier_array(container, FuelCostParameter(), T)
+            get_parameter_multiplier_array(container, FuelCostParameter, T)
         name = PSY.get_name(d)
         return constant_term * parameter_array[name, t] * parameter_multiplier[name, t]
     end
@@ -337,7 +337,7 @@ function add_variables!(
     U <: Union{Vector{D}, IS.FlattenIteratorWrapper{D}},
 } where {D <: PSY.ThermalGen}
     @assert !isempty(devices)
-    variable_type = T()
+    variable_type = T
     time_steps = get_time_steps(container)
     settings = get_settings(container)
     binary = get_variable_binary(variable_type, D, formulation)
@@ -499,13 +499,13 @@ function add_constraints!(
     X <: AbstractPowerModel,
 }
     time_steps = get_time_steps(container)
-    constraint_type = T()
-    variable_type = U()
+    constraint_type = T
+    variable_type = U
     component_type = V
     varp = get_variable(container, variable_type, component_type)
-    varstatus = get_variable(container, OnVariable(), component_type)
-    varon = get_variable(container, StartVariable(), component_type)
-    varoff = get_variable(container, StopVariable(), component_type)
+    varstatus = get_variable(container, OnVariable, component_type)
+    varon = get_variable(container, StartVariable, component_type)
+    varoff = get_variable(container, StopVariable, component_type)
 
     names = [PSY.get_name(x) for x in devices]
     con_on = add_constraints_container!(
@@ -579,11 +579,11 @@ function add_constraints!(
     X <: AbstractPowerModel,
 }
     time_steps = get_time_steps(container)
-    constraint_type = T()
-    expression_type = U()
+    constraint_type = T
+    expression_type = U
     component_type = V
     expression_products = get_expression(container, expression_type, component_type)
-    varp = get_variable(container, PowerAboveMinimumVariable(), component_type)
+    varp = get_variable(container, PowerAboveMinimumVariable, component_type)
 
     names = [PSY.get_name(x) for x in devices]
     con_lb = add_constraints_container!(
@@ -624,14 +624,14 @@ function add_constraints!(
     X <: AbstractPowerModel,
 }
     time_steps = get_time_steps(container)
-    constraint_type = T()
-    expression_type = U()
+    constraint_type = T
+    expression_type = U
     component_type = V
     expression_products = get_expression(container, expression_type, component_type)
-    varstatus = get_variable(container, OnVariable(), component_type)
-    varon = get_variable(container, StartVariable(), component_type)
-    varoff = get_variable(container, StopVariable(), component_type)
-    varp = get_variable(container, PowerAboveMinimumVariable(), component_type)
+    varstatus = get_variable(container, OnVariable, component_type)
+    varon = get_variable(container, StartVariable, component_type)
+    varoff = get_variable(container, StopVariable, component_type)
+    varp = get_variable(container, PowerAboveMinimumVariable, component_type)
 
     names = [PSY.get_name(x) for x in devices]
     con_on = add_constraints_container!(
@@ -691,16 +691,16 @@ function add_constraints!(
     S <: AbstractCompactUnitCommitment,
     X <: AbstractPowerModel,
 }
-    initial_conditions_power = get_initial_condition(container, DeviceAboveMinPower(), T)
-    initial_conditions_status = get_initial_condition(container, DeviceStatus(), T)
+    initial_conditions_power = get_initial_condition(container, DeviceAboveMinPower, T)
+    initial_conditions_status = get_initial_condition(container, DeviceStatus, T)
     ini_conds = _get_data_for_range_ic(initial_conditions_power, initial_conditions_status)
 
     if !isempty(ini_conds)
-        varstop = get_variable(container, StopVariable(), T)
+        varstop = get_variable(container, StopVariable, T)
         device_name_set = PSY.get_name.(devices)
         con = add_constraints_container!(
             container,
-            ActiveRangeICConstraint(),
+            ActiveRangeICConstraint,
             T,
             device_name_set,
         )
@@ -757,16 +757,16 @@ function add_constraints!(
     X <: AbstractPowerModel,
 }
     time_steps = get_time_steps(container)
-    varstart = get_variable(container, StartVariable(), U)
-    varstop = get_variable(container, StopVariable(), U)
-    varon = get_variable(container, OnVariable(), U)
+    varstart = get_variable(container, StartVariable, U)
+    varstop = get_variable(container, StopVariable, U)
+    varon = get_variable(container, OnVariable, U)
     names = axes(varstart, 1)
-    initial_conditions = get_initial_condition(container, DeviceStatus(), U)
+    initial_conditions = get_initial_condition(container, DeviceStatus, U)
     constraint =
-        add_constraints_container!(container, CommitmentConstraint(), U, names, time_steps)
+        add_constraints_container!(container, CommitmentConstraint, U, names, time_steps)
     aux_constraint = add_constraints_container!(
         container,
-        CommitmentConstraint(),
+        CommitmentConstraint,
         U,
         names,
         time_steps;
@@ -814,10 +814,10 @@ function initial_conditions!(
     devices::IS.FlattenIteratorWrapper{T},
     formulation::AbstractThermalUnitCommitment,
 ) where {T <: PSY.ThermalGen}
-    add_initial_condition!(container, devices, formulation, DeviceStatus())
-    add_initial_condition!(container, devices, formulation, DevicePower())
-    add_initial_condition!(container, devices, formulation, InitialTimeDurationOn())
-    add_initial_condition!(container, devices, formulation, InitialTimeDurationOff())
+    add_initial_condition!(container, devices, formulation, DeviceStatus)
+    add_initial_condition!(container, devices, formulation, DevicePower)
+    add_initial_condition!(container, devices, formulation, InitialTimeDurationOn)
+    add_initial_condition!(container, devices, formulation, InitialTimeDurationOff)
 
     return
 end
@@ -827,10 +827,10 @@ function initial_conditions!(
     devices::IS.FlattenIteratorWrapper{T},
     formulation::AbstractCompactUnitCommitment,
 ) where {T <: PSY.ThermalGen}
-    add_initial_condition!(container, devices, formulation, DeviceStatus())
-    add_initial_condition!(container, devices, formulation, DeviceAboveMinPower())
-    add_initial_condition!(container, devices, formulation, InitialTimeDurationOn())
-    add_initial_condition!(container, devices, formulation, InitialTimeDurationOff())
+    add_initial_condition!(container, devices, formulation, DeviceStatus)
+    add_initial_condition!(container, devices, formulation, DeviceAboveMinPower)
+    add_initial_condition!(container, devices, formulation, InitialTimeDurationOn)
+    add_initial_condition!(container, devices, formulation, InitialTimeDurationOff)
 
     return
 end
@@ -840,9 +840,9 @@ function initial_conditions!(
     devices::IS.FlattenIteratorWrapper{T},
     formulation::Union{ThermalBasicUnitCommitment, ThermalBasicCompactUnitCommitment},
 ) where {T <: PSY.ThermalGen}
-    add_initial_condition!(container, devices, formulation, DeviceStatus())
-    add_initial_condition!(container, devices, formulation, InitialTimeDurationOn())
-    add_initial_condition!(container, devices, formulation, InitialTimeDurationOff())
+    add_initial_condition!(container, devices, formulation, DeviceStatus)
+    add_initial_condition!(container, devices, formulation, InitialTimeDurationOn)
+    add_initial_condition!(container, devices, formulation, InitialTimeDurationOff)
     return
 end
 
@@ -851,7 +851,7 @@ function initial_conditions!(
     devices::IS.FlattenIteratorWrapper{T},
     formulation::AbstractThermalDispatchFormulation,
 ) where {T <: PSY.ThermalGen}
-    add_initial_condition!(container, devices, formulation, DevicePower())
+    add_initial_condition!(container, devices, formulation, DevicePower)
     return
 end
 
@@ -860,7 +860,7 @@ function initial_conditions!(
     devices::IS.FlattenIteratorWrapper{T},
     formulation::ThermalCompactDispatch,
 ) where {T <: PSY.ThermalGen}
-    add_initial_condition!(container, devices, formulation, DeviceAboveMinPower())
+    add_initial_condition!(container, devices, formulation, DeviceAboveMinPower)
     return
 end
 ############################ Auxiliary Variables Calculation ################################
@@ -869,9 +869,9 @@ function calculate_aux_variable_value!(
     ::AuxVarKey{TimeDurationOn, T},
     ::PSY.System,
 ) where {T <: PSY.ThermalGen}
-    on_variable_output = get_variable(container, OnVariable(), T)
-    aux_variable_container = get_aux_variable(container, TimeDurationOn(), T)
-    ini_cond = get_initial_condition(container, InitialTimeDurationOn(), T)
+    on_variable_output = get_variable(container, OnVariable, T)
+    aux_variable_container = get_aux_variable(container, TimeDurationOn, T)
+    ini_cond = get_initial_condition(container, InitialTimeDurationOn, T)
 
     time_steps = get_time_steps(container)
 
@@ -916,9 +916,9 @@ function calculate_aux_variable_value!(
     ::AuxVarKey{TimeDurationOff, T},
     ::PSY.System,
 ) where {T <: PSY.ThermalGen}
-    on_variable_output = get_variable(container, OnVariable(), T)
-    aux_variable_container = get_aux_variable(container, TimeDurationOff(), T)
-    ini_cond = get_initial_condition(container, InitialTimeDurationOff(), T)
+    on_variable_output = get_variable(container, OnVariable, T)
+    aux_variable_container = get_aux_variable(container, TimeDurationOff, T)
+    ini_cond = get_initial_condition(container, InitialTimeDurationOff, T)
 
     time_steps = get_time_steps(container)
     for ix in eachindex(JuMP.axes(aux_variable_container)[1])
@@ -963,18 +963,18 @@ function calculate_aux_variable_value!(
 ) where {T <: PSY.ThermalGen}
     time_steps = get_time_steps(container)
     if has_container_key(container, OnVariable, T)
-        on_variable_output = get_variable(container, OnVariable(), T)
+        on_variable_output = get_variable(container, OnVariable, T)
     elseif has_container_key(container, OnStatusParameter, T)
-        on_variable_output = get_parameter_array(container, OnStatusParameter(), T)
+        on_variable_output = get_parameter_array(container, OnStatusParameter, T)
     else
         error(
             "$T formulation is NOT supported without a Feedforward for CommitmentDecisions,
       please consider changing your simulation setup or adding a SemiContinuousFeedforward.",
         )
     end
-    p_variable_output = get_variable(container, PowerAboveMinimumVariable(), T)
+    p_variable_output = get_variable(container, PowerAboveMinimumVariable, T)
     device_name = axes(p_variable_output, 1)
-    aux_variable_container = get_aux_variable(container, PowerOutput(), T)
+    aux_variable_container = get_aux_variable(container, PowerOutput, T)
     for d_name in device_name
         d = PSY.get_component(T, system, d_name)
         name = PSY.get_name(d)
@@ -1128,17 +1128,17 @@ function add_constraints!(
     resolution = get_resolution(container)
     time_steps = get_time_steps(container)
     start_vars = [
-        get_variable(container, HotStartVariable(), T),
-        get_variable(container, WarmStartVariable(), T),
+        get_variable(container, HotStartVariable, T),
+        get_variable(container, WarmStartVariable, T),
     ]
-    varstop = get_variable(container, StopVariable(), T)
+    varstop = get_variable(container, StopVariable, T)
 
     names = PSY.get_name.(devices)
 
     con = [
         add_constraints_container!(
             container,
-            StartupTimeLimitTemperatureConstraint(),
+            StartupTimeLimitTemperatureConstraint,
             T,
             names,
             time_steps;
@@ -1147,7 +1147,7 @@ function add_constraints!(
         ),
         add_constraints_container!(
             container,
-            StartupTimeLimitTemperatureConstraint(),
+            StartupTimeLimitTemperatureConstraint,
             T,
             names,
             time_steps;
@@ -1202,17 +1202,17 @@ function add_constraints!(
     ::NetworkModel{<:AbstractPowerModel},
 ) where {T <: PSY.ThermalMultiStart}
     time_steps = get_time_steps(container)
-    varstart = get_variable(container, StartVariable(), T)
+    varstart = get_variable(container, StartVariable, T)
     start_vars = [
-        get_variable(container, HotStartVariable(), T),
-        get_variable(container, WarmStartVariable(), T),
-        get_variable(container, ColdStartVariable(), T),
+        get_variable(container, HotStartVariable, T),
+        get_variable(container, WarmStartVariable, T),
+        get_variable(container, ColdStartVariable, T),
     ]
 
     device_name_set = PSY.get_name.(devices)
     con = add_constraints_container!(
         container,
-        StartTypeConstraint(),
+        StartTypeConstraint,
         T,
         device_name_set,
         time_steps,
@@ -1254,19 +1254,19 @@ function add_constraints!(
 ) where {T <: PSY.ThermalMultiStart}
     resolution = get_resolution(container)
     initial_conditions_offtime =
-        get_initial_condition(container, InitialTimeDurationOff(), PSY.ThermalMultiStart)
+        get_initial_condition(container, InitialTimeDurationOff, PSY.ThermalMultiStart)
 
     time_steps = get_time_steps(container)
     device_name_set = [get_component_name(ic) for ic in initial_conditions_offtime]
-    varbin = get_variable(container, OnVariable(), T)
+    varbin = get_variable(container, OnVariable, T)
     varstarts = [
-        get_variable(container, HotStartVariable(), T),
-        get_variable(container, WarmStartVariable(), T),
+        get_variable(container, HotStartVariable, T),
+        get_variable(container, WarmStartVariable, T),
     ]
 
     con_ub = add_constraints_container!(
         container,
-        StartupInitialConditionConstraint(),
+        StartupInitialConditionConstraint,
         T,
         device_name_set,
         time_steps,
@@ -1276,7 +1276,7 @@ function add_constraints!(
     )
     con_lb = add_constraints_container!(
         container,
-        StartupInitialConditionConstraint(),
+        StartupInitialConditionConstraint,
         T,
         device_name_set,
         time_steps,
@@ -1371,8 +1371,8 @@ function add_constraints!(
     parameters = built_for_recurrent_solves(container)
     resolution = get_resolution(container)
     # Use getter functions that don't require creating the keys here
-    initial_conditions_on = get_initial_condition(container, InitialTimeDurationOn(), U)
-    initial_conditions_off = get_initial_condition(container, InitialTimeDurationOff(), U)
+    initial_conditions_on = get_initial_condition(container, InitialTimeDurationOn, U)
+    initial_conditions_off = get_initial_condition(container, InitialTimeDurationOff, U)
     ini_conds, time_params =
         _get_data_for_tdc(initial_conditions_on, initial_conditions_off, resolution)
     if !(isempty(ini_conds))
@@ -1381,8 +1381,8 @@ function add_constraints!(
                 container,
                 time_params,
                 ini_conds,
-                DurationConstraint(),
-                (OnVariable(), StartVariable(), StopVariable()),
+                DurationConstraint,
+                (OnVariable, StartVariable, StopVariable),
                 U,
             )
         else
@@ -1390,8 +1390,8 @@ function add_constraints!(
                 container,
                 time_params,
                 ini_conds,
-                DurationConstraint(),
-                (OnVariable(), StartVariable(), StopVariable()),
+                DurationConstraint,
+                (OnVariable, StartVariable, StopVariable),
                 U,
             )
         end
@@ -1410,8 +1410,8 @@ function add_constraints!(
 ) where {U <: PSY.ThermalGen}
     parameters = built_for_recurrent_solves(container)
     resolution = get_resolution(container)
-    initial_conditions_on = get_initial_condition(container, InitialTimeDurationOn(), U)
-    initial_conditions_off = get_initial_condition(container, InitialTimeDurationOff(), U)
+    initial_conditions_on = get_initial_condition(container, InitialTimeDurationOn, U)
+    initial_conditions_off = get_initial_condition(container, InitialTimeDurationOff, U)
     ini_conds, time_params =
         _get_data_for_tdc(initial_conditions_on, initial_conditions_off, resolution)
     if !(isempty(ini_conds))
@@ -1420,8 +1420,8 @@ function add_constraints!(
                 container,
                 time_params,
                 ini_conds,
-                DurationConstraint(),
-                (OnVariable(), StartVariable(), StopVariable()),
+                DurationConstraint,
+                (OnVariable, StartVariable, StopVariable),
                 U,
             )
         else
@@ -1429,8 +1429,8 @@ function add_constraints!(
                 container,
                 time_params,
                 ini_conds,
-                DurationConstraint(),
-                (OnVariable(), StartVariable(), StopVariable()),
+                DurationConstraint,
+                (OnVariable, StartVariable, StopVariable),
                 U,
             )
         end
@@ -1452,7 +1452,7 @@ add_proportional_cost!(
 ) where {U <: OnVariable, T <: PSY.ThermalGen} =
     add_proportional_cost_maybe_time_variant!(
         container,
-        U(),
+        U,
         devices,
         formulation,
     )
@@ -1466,13 +1466,13 @@ function add_to_objective_function!(
     device_model::DeviceModel{T, U},
     ::Type{<:AbstractPowerModel},
 ) where {T <: PSY.ThermalGen, U <: AbstractThermalUnitCommitment}
-    add_variable_cost!(container, ActivePowerVariable(), devices, U())
-    add_start_up_cost!(container, StartVariable(), devices, U())
-    add_shut_down_cost!(container, StopVariable(), devices, U())
-    add_proportional_cost!(container, OnVariable(), devices, U())
+    add_variable_cost!(container, ActivePowerVariable, devices, U)
+    add_start_up_cost!(container, StartVariable, devices, U)
+    add_shut_down_cost!(container, StopVariable, devices, U)
+    add_proportional_cost!(container, OnVariable, devices, U)
     if get_use_slacks(device_model)
-        add_proportional_cost!(container, RateofChangeConstraintSlackUp(), devices, U())
-        add_proportional_cost!(container, RateofChangeConstraintSlackDown(), devices, U())
+        add_proportional_cost!(container, RateofChangeConstraintSlackUp, devices, U)
+        add_proportional_cost!(container, RateofChangeConstraintSlackDown, devices, U)
     end
     return
 end
@@ -1483,13 +1483,13 @@ function add_to_objective_function!(
     device_model::DeviceModel{T, U},
     ::Type{<:AbstractPowerModel},
 ) where {T <: PSY.ThermalGen, U <: AbstractCompactUnitCommitment}
-    add_variable_cost!(container, PowerAboveMinimumVariable(), devices, U())
-    add_start_up_cost!(container, StartVariable(), devices, U())
-    add_shut_down_cost!(container, StopVariable(), devices, U())
-    add_proportional_cost!(container, OnVariable(), devices, U())
+    add_variable_cost!(container, PowerAboveMinimumVariable, devices, U)
+    add_start_up_cost!(container, StartVariable, devices, U)
+    add_shut_down_cost!(container, StopVariable, devices, U)
+    add_proportional_cost!(container, OnVariable, devices, U)
     if get_use_slacks(device_model)
-        add_proportional_cost!(container, RateofChangeConstraintSlackUp(), devices, U())
-        add_proportional_cost!(container, RateofChangeConstraintSlackDown(), devices, U())
+        add_proportional_cost!(container, RateofChangeConstraintSlackUp, devices, U)
+        add_proportional_cost!(container, RateofChangeConstraintSlackDown, devices, U)
     end
     return
 end
@@ -1500,15 +1500,15 @@ function add_to_objective_function!(
     device_model::DeviceModel{PSY.ThermalMultiStart, U},
     ::Type{<:AbstractPowerModel},
 ) where {U <: ThermalMultiStartUnitCommitment}
-    add_variable_cost!(container, PowerAboveMinimumVariable(), devices, U())
+    add_variable_cost!(container, PowerAboveMinimumVariable, devices, U)
     for var_type in MULTI_START_VARIABLES
-        add_start_up_cost!(container, var_type(), devices, U())
+        add_start_up_cost!(container, var_type(), devices, U)
     end
-    add_shut_down_cost!(container, StopVariable(), devices, U())
-    add_proportional_cost!(container, OnVariable(), devices, U())
+    add_shut_down_cost!(container, StopVariable, devices, U)
+    add_proportional_cost!(container, OnVariable, devices, U)
     if get_use_slacks(device_model)
-        add_proportional_cost!(container, RateofChangeConstraintSlackUp(), devices, U())
-        add_proportional_cost!(container, RateofChangeConstraintSlackDown(), devices, U())
+        add_proportional_cost!(container, RateofChangeConstraintSlackUp, devices, U)
+        add_proportional_cost!(container, RateofChangeConstraintSlackDown, devices, U)
     end
     return
 end
@@ -1519,10 +1519,10 @@ function add_to_objective_function!(
     device_model::DeviceModel{T, U},
     ::Type{<:AbstractPowerModel},
 ) where {T <: PSY.ThermalGen, U <: AbstractThermalDispatchFormulation}
-    add_variable_cost!(container, ActivePowerVariable(), devices, U())
+    add_variable_cost!(container, ActivePowerVariable, devices, U)
     if get_use_slacks(device_model)
-        add_proportional_cost!(container, RateofChangeConstraintSlackUp(), devices, U())
-        add_proportional_cost!(container, RateofChangeConstraintSlackDown(), devices, U())
+        add_proportional_cost!(container, RateofChangeConstraintSlackUp, devices, U)
+        add_proportional_cost!(container, RateofChangeConstraintSlackDown, devices, U)
     end
     return
 end
@@ -1533,10 +1533,10 @@ function add_to_objective_function!(
     device_model::DeviceModel{T, U},
     ::Type{<:AbstractPowerModel},
 ) where {T <: PSY.ThermalGen, U <: ThermalCompactDispatch}
-    add_variable_cost!(container, PowerAboveMinimumVariable(), devices, U())
+    add_variable_cost!(container, PowerAboveMinimumVariable, devices, U)
     if get_use_slacks(device_model)
-        add_proportional_cost!(container, RateofChangeConstraintSlackUp(), devices, U())
-        add_proportional_cost!(container, RateofChangeConstraintSlackDown(), devices, U())
+        add_proportional_cost!(container, RateofChangeConstraintSlackUp, devices, U)
+        add_proportional_cost!(container, RateofChangeConstraintSlackDown, devices, U)
     end
     return
 end
@@ -1622,7 +1622,7 @@ function IOM.add_pwl_term_lambda!(
         IOM.create_temporary_cost_function_in_system_per_unit(cost_function, data)
     for t in time_steps
         IOM.add_pwl_variables_lambda!(container, T, name, t, data)
-        power_var = IOM.get_variable(container, U(), T)[name, t]
+        power_var = IOM.get_variable(container, U, T)[name, t]
         IOM._add_pwl_constraint_standard!(
             container,
             component,
@@ -1637,8 +1637,8 @@ function IOM.add_pwl_term_lambda!(
                 component,
                 t,
                 temp_cost_function,
-                U(),
-                V(),
+                U,
+                V,
             )
         pwl_cost_expressions[t] = pwl_cost
     end

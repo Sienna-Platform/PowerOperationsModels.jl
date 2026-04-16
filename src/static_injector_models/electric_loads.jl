@@ -47,9 +47,9 @@ add_proportional_cost!(
 ) where {U <: OnVariable, T <: PSY.ControllableLoad} =
     add_proportional_cost_maybe_time_variant!(
         container,
-        U(),
+        U,
         devices,
-        PowerLoadInterruption(),
+        PowerLoadInterruption,
     )
 
 function get_default_time_series_names(
@@ -100,7 +100,7 @@ function add_constraints!(
     time_steps = get_time_steps(container)
     constraint = add_constraints_container!(
         container,
-        T(),
+        T,
         V,
         PSY.get_name.(devices),
         time_steps,
@@ -109,8 +109,8 @@ function add_constraints!(
     for t in time_steps, d in devices
         name = PSY.get_name(d)
         pf = sin(atan((PSY.get_max_reactive_power(d) / PSY.get_max_active_power(d))))
-        reactive = get_variable(container, U(), V)[name, t]
-        real = get_variable(container, ActivePowerVariable(), V)[name, t]
+        reactive = get_variable(container, U, V)[name, t]
+        real = get_variable(container, ActivePowerVariable, V)[name, t]
         constraint[name, t] = JuMP.@constraint(jump_model, reactive == real * pf)
     end
 end
@@ -166,14 +166,14 @@ function add_constraints!(
     time_steps = get_time_steps(container)
     constraint = add_constraints_container!(
         container,
-        T(),
+        T,
         V,
         PSY.get_name.(devices),
         time_steps;
         meta = "binary",
     )
-    on_variable = get_variable(container, U(), V)
-    power = get_variable(container, ActivePowerVariable(), V)
+    on_variable = get_variable(container, U, V)
+    power = get_variable(container, ActivePowerVariable, V)
     jump_model = get_jump_model(container)
     for t in time_steps, d in devices
         name = PSY.get_name(d)
@@ -191,7 +191,7 @@ function add_to_objective_function!(
     ::DeviceModel{T, U},
     ::Type{<:AbstractPowerModel},
 ) where {T <: PSY.ControllableLoad, U <: PowerLoadDispatch}
-    add_variable_cost!(container, ActivePowerVariable(), devices, U())
+    add_variable_cost!(container, ActivePowerVariable, devices, U)
     return
 end
 
@@ -201,8 +201,8 @@ function add_to_objective_function!(
     ::DeviceModel{T, U},
     ::Type{<:AbstractPowerModel},
 ) where {T <: PSY.ControllableLoad, U <: PowerLoadInterruption}
-    add_variable_cost!(container, ActivePowerVariable(), devices, U())
-    add_proportional_cost!(container, OnVariable(), devices, U())
+    add_variable_cost!(container, ActivePowerVariable, devices, U)
+    add_proportional_cost!(container, OnVariable, devices, U)
     return
 end
 
@@ -261,9 +261,9 @@ function proportional_cost(
 ) where {T <: PSY.ControllableLoad}
     if is_time_variant(PSY.get_decremental_initial_input(cost))
         name = get_name(comp)
-        param_arr = get_parameter_array(container, DecrementalCostAtMinParameter(), T)
+        param_arr = get_parameter_array(container, DecrementalCostAtMinParameter, T)
         param_mult =
-            get_parameter_multiplier_array(container, DecrementalCostAtMinParameter(), T)
+            get_parameter_multiplier_array(container, DecrementalCostAtMinParameter, T)
         return param_arr[name, t] * param_mult[name, t]
     else
         return PSY.get_initial_input(

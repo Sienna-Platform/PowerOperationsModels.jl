@@ -55,11 +55,11 @@ function add_constraints!(
     interface::T,
     model::ServiceModel{T, ConstantMaxInterfaceFlow},
 ) where {T <: PSY.TransmissionInterface}
-    expr = get_expression(container, InterfaceTotalFlow(), T)
+    expr = get_expression(container, InterfaceTotalFlow, T)
     interfaces, time_steps = axes(expr)
     constraint_container_ub = lazy_container_addition!(
         container,
-        InterfaceFlowLimit(),
+        InterfaceFlowLimit,
         T,
         interfaces,
         time_steps;
@@ -67,7 +67,7 @@ function add_constraints!(
     )
     constraint_container_lb = lazy_container_addition!(
         container,
-        InterfaceFlowLimit(),
+        InterfaceFlowLimit,
         T,
         interfaces,
         time_steps;
@@ -90,11 +90,11 @@ function add_constraints!(
     interface::T,
     model::ServiceModel{T, VariableMaxInterfaceFlow},
 ) where {T <: PSY.TransmissionInterface}
-    expr = get_expression(container, InterfaceTotalFlow(), T)
+    expr = get_expression(container, InterfaceTotalFlow, T)
     interfaces, timesteps = axes(expr)
     constraint_container_ub = lazy_container_addition!(
         container,
-        InterfaceFlowLimit(),
+        InterfaceFlowLimit,
         T,
         interfaces,
         timesteps;
@@ -102,7 +102,7 @@ function add_constraints!(
     )
     constraint_container_lb = lazy_container_addition!(
         container,
-        InterfaceFlowLimit(),
+        InterfaceFlowLimit,
         T,
         interfaces,
         timesteps;
@@ -110,18 +110,18 @@ function add_constraints!(
     )
     int_name = PSY.get_name(interface)
     param_container_min =
-        get_parameter(container, MinInterfaceFlowLimitParameter(), PSY.TransmissionInterface, int_name)
+        get_parameter(container, MinInterfaceFlowLimitParameter, PSY.TransmissionInterface, int_name)
     param_multiplier_min = get_parameter_multiplier_array(
         container,
-        MinInterfaceFlowLimitParameter(),
+        MinInterfaceFlowLimitParameter,
         PSY.TransmissionInterface,
         int_name,
     )
     param_container_max =
-        get_parameter(container, MaxInterfaceFlowLimitParameter(), PSY.TransmissionInterface, int_name)
+        get_parameter(container, MaxInterfaceFlowLimitParameter, PSY.TransmissionInterface, int_name)
     param_multiplier_max = get_parameter_multiplier_array(
         container,
-        MaxInterfaceFlowLimitParameter(),
+        MaxInterfaceFlowLimitParameter,
         PSY.TransmissionInterface,
         int_name,
     )

@@ -23,7 +23,7 @@ mutable struct OperationsProblemTemplate <: IOM.AbstractProblemTemplate
             network,
             DevicesModelContainer(),
             BranchModelContainer(),
-            ServicesModelContainer(),
+            ServicesModelContainer,
         )
     end
 end

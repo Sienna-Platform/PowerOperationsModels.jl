@@ -4,12 +4,12 @@ function add_constraints!(
     sys::PSY.System,
     model::NetworkModel{AreaBalancePowerModel},
 )
-    expressions = get_expression(container, ActivePowerBalance(), PSY.Area)
+    expressions = get_expression(container, ActivePowerBalance, PSY.Area)
     area_names, time_steps = axes(expressions)
 
     constraints = add_constraints_container!(
         container,
-        CopperPlateBalanceConstraint(),
+        CopperPlateBalanceConstraint,
         PSY.Area,
         area_names,
         time_steps,
@@ -35,12 +35,12 @@ function agc_area_balance(
 
     constraint = add_constraints_container!(
         container,
-        CopperPlateBalanceConstraint(),
+        CopperPlateBalanceConstraint,
         PSY.Area,
         keys(area_mapping),
         time_steps,
     )
-    area_balance = get_variable(container, ActivePowerVariable(), PSY.Area)
+    area_balance = get_variable(container, ActivePowerVariable, PSY.Area)
     for (k, buses_in_area) in area_mapping
         for t in time_steps
             area_net = JuMP.AffExpr(0.0)
@@ -52,12 +52,12 @@ function agc_area_balance(
         end
     end
 
-    expr_up = get_expression(container, EmergencyUp(), PSY.Area)
-    expr_dn = get_expression(container, EmergencyDown(), PSY.Area)
+    expr_up = get_expression(container, EmergencyUp, PSY.Area)
+    expr_dn = get_expression(container, EmergencyDown, PSY.Area)
 
     participation_assignment_up = add_constraints_container!(
         container,
-        AreaParticipationAssignmentConstraint(),
+        AreaParticipationAssignmentConstraint,
         PSY.Area,
         keys(area_mapping),
         time_steps;
@@ -65,7 +65,7 @@ function agc_area_balance(
     )
     participation_assignment_dn = add_constraints_container!(
         container,
-        AreaParticipationAssignmentConstraint(),
+        AreaParticipationAssignmentConstraint,
         PSY.Area,
         keys(area_mapping),
         time_steps;

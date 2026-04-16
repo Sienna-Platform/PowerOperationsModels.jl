@@ -18,5 +18,5 @@ requires_initialization(::AbstractDeviceFormulation) = false
 does_subcomponent_exist(T::PSY.Component, S::Type{<:PSY.Component}) =
     error("`does_subcomponent_exist` must be implemented for $T and subcomponent type $S")
 
-get_default_on_variable(::PSY.Component) = OnVariable()
-get_default_on_parameter(::PSY.Component) = OnStatusParameter()
+get_default_on_variable(::PSY.Component) = OnVariable
+get_default_on_parameter(::PSY.Component) = OnStatusParameter

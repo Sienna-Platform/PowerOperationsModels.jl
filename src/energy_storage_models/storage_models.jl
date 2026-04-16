@@ -152,14 +152,14 @@ initial_condition_variable(
     ::InitialEnergyLevel,
     d::PSY.Storage,
     ::AbstractStorageFormulation,
-) = EnergyVariable()
+) = EnergyVariable
 
 function initial_conditions!(
     container::OptimizationContainer,
     devices::IS.FlattenIteratorWrapper{St},
     formulation::AbstractStorageFormulation,
 ) where {St <: PSY.Storage}
-    add_initial_condition!(container, devices, formulation, InitialEnergyLevel())
+    add_initial_condition!(container, devices, formulation, InitialEnergyLevel)
     return
 end
 
@@ -238,12 +238,12 @@ function add_reserve_range_constraint_with_deployment!(
 }
     time_steps = get_time_steps(container)
     names = [PSY.get_name(x) for x in devices]
-    powerout_var = get_variable(container, U(), V)
-    ss_var = get_variable(container, ReservationVariable(), V)
-    r_up_ds = get_expression(container, ReserveDeploymentBalanceUpDischarge(), V)
-    r_dn_ds = get_expression(container, ReserveDeploymentBalanceDownDischarge(), V)
+    powerout_var = get_variable(container, U, V)
+    ss_var = get_variable(container, ReservationVariable, V)
+    r_up_ds = get_expression(container, ReserveDeploymentBalanceUpDischarge, V)
+    r_dn_ds = get_expression(container, ReserveDeploymentBalanceDownDischarge, V)
 
-    constraint = add_constraints_container!(container, T(), V, names, time_steps)
+    constraint = add_constraints_container!(container, T, V, names, time_steps)
 
     for d in devices, t in time_steps
         ci_name = PSY.get_name(d)
@@ -272,12 +272,12 @@ function add_reserve_range_constraint_with_deployment!(
     time_steps = get_time_steps(container)
     names = [PSY.get_name(x) for x in devices]
 
-    powerin_var = get_variable(container, U(), V)
-    ss_var = get_variable(container, ReservationVariable(), V)
-    r_up_ch = get_expression(container, ReserveDeploymentBalanceUpCharge(), V)
-    r_dn_ch = get_expression(container, ReserveDeploymentBalanceDownCharge(), V)
+    powerin_var = get_variable(container, U, V)
+    ss_var = get_variable(container, ReservationVariable, V)
+    r_up_ch = get_expression(container, ReserveDeploymentBalanceUpCharge, V)
+    r_dn_ch = get_expression(container, ReserveDeploymentBalanceDownCharge, V)
 
-    constraint = add_constraints_container!(container, T(), V, names, time_steps)
+    constraint = add_constraints_container!(container, T, V, names, time_steps)
 
     for d in devices, t in time_steps
         ci_name = PSY.get_name(d)
@@ -305,11 +305,11 @@ function add_reserve_range_constraint_with_deployment_no_reservation!(
 }
     time_steps = get_time_steps(container)
     names = [PSY.get_name(x) for x in devices]
-    powerout_var = get_variable(container, U(), V)
-    r_up_ds = get_expression(container, ReserveDeploymentBalanceUpDischarge(), V)
-    r_dn_ds = get_expression(container, ReserveDeploymentBalanceDownDischarge(), V)
+    powerout_var = get_variable(container, U, V)
+    r_up_ds = get_expression(container, ReserveDeploymentBalanceUpDischarge, V)
+    r_dn_ds = get_expression(container, ReserveDeploymentBalanceDownDischarge, V)
 
-    constraint = add_constraints_container!(container, T(), V, names, time_steps)
+    constraint = add_constraints_container!(container, T, V, names, time_steps)
 
     for d in devices, t in time_steps
         ci_name = PSY.get_name(d)
@@ -338,11 +338,11 @@ function add_reserve_range_constraint_with_deployment_no_reservation!(
     time_steps = get_time_steps(container)
     names = [PSY.get_name(x) for x in devices]
 
-    powerin_var = get_variable(container, U(), V)
-    r_up_ch = get_expression(container, ReserveDeploymentBalanceUpCharge(), V)
-    r_dn_ch = get_expression(container, ReserveDeploymentBalanceDownCharge(), V)
+    powerin_var = get_variable(container, U, V)
+    r_up_ch = get_expression(container, ReserveDeploymentBalanceUpCharge, V)
+    r_dn_ch = get_expression(container, ReserveDeploymentBalanceDownCharge, V)
 
-    constraint = add_constraints_container!(container, T(), V, names, time_steps)
+    constraint = add_constraints_container!(container, T, V, names, time_steps)
 
     for d in devices, t in time_steps
         ci_name = PSY.get_name(d)
@@ -417,14 +417,14 @@ function add_variables!(
 }
     @assert !isempty(devices)
     time_steps = get_time_steps(container)
-    services = Set()
+    services = Set
     for d in devices
         union!(services, PSY.get_services(d))
     end
     for service in services
         variable = add_variable_container!(
             container,
-            T(),
+            T,
             U,
             PSY.get_name.(devices),
             time_steps;
@@ -438,7 +438,7 @@ function add_variables!(
                 base_name = "$(T)_$(PSY.get_name(service))_{$(PSY.get_name(d)), $(t)}",
                 lower_bound = 0.0,
                 upper_bound =
-                    get_variable_upper_bound(T(), service, d, formulation)
+                    get_variable_upper_bound(T, service, d, formulation)
             )
         end
     end
@@ -459,7 +459,7 @@ function add_variables!(
     last_time_range = time_steps[end]:time_steps[end]
     variable = add_variable_container!(
         container,
-        T(),
+        T,
         U,
         PSY.get_name.(devices),
         last_time_range,
@@ -490,7 +490,7 @@ function add_variables!(
     last_time_range = time_steps[end]:time_steps[end]
     variable = add_variable_container!(
         container,
-        T(),
+        T,
         U,
         PSY.get_name.(devices),
         last_time_range,
@@ -663,9 +663,9 @@ function add_to_expression!(
     V <: PSY.Storage,
     W <: AbstractDeviceFormulation,
 }
-    variable = get_variable(container, U(), V)
-    area_expr = get_expression(container, T(), PSY.Area)
-    nodal_expr = get_expression(container, T(), PSY.ACBus)
+    variable = get_variable(container, U, V)
+    area_expr = get_expression(container, T, PSY.Area)
+    nodal_expr = get_expression(container, T, PSY.ACBus)
     network_reduction = get_network_reduction(network_model)
     for d in devices
         name = PSY.get_name(d)
@@ -676,12 +676,12 @@ function add_to_expression!(
             add_proportional_to_jump_expression!(
                 area_expr[area_name, t],
                 variable[name, t],
-                get_variable_multiplier(U(), V, W()),
+                get_variable_multiplier(U, V, W),
             )
             add_proportional_to_jump_expression!(
                 nodal_expr[bus_no, t],
                 variable[name, t],
-                get_variable_multiplier(U(), V, W()),
+                get_variable_multiplier(U, V, W),
             )
         end
     end
@@ -700,14 +700,14 @@ function add_to_expression!(
     V <: PSY.Storage,
     W <: StorageDispatchWithReserves,
 }
-    expression = get_expression(container, T(), V)
+    expression = get_expression(container, T, V)
     for d in devices
         name = PSY.get_name(d)
         services = PSY.get_services(d)
         for s in services
             s_name = PSY.get_name(s)
-            variable = get_variable(container, U(), V, "$(typeof(s))_$s_name")
-            mult = get_variable_multiplier(U, T, d, W(), s) * get_fraction(T, s)
+            variable = get_variable(container, U, V, "$(typeof(s))_$s_name")
+            mult = get_variable_multiplier(U, T, d, W, s) * get_fraction(T, s)
             for t in get_time_steps(container)
                 add_proportional_to_jump_expression!(
                     expression[name, t],
@@ -732,14 +732,14 @@ function add_to_expression!(
     V <: PSY.Storage,
     W <: StorageDispatchWithReserves,
 }
-    expression = get_expression(container, T(), V)
+    expression = get_expression(container, T, V)
     for d in devices
         name = PSY.get_name(d)
         services = PSY.get_services(d)
         for s in services
             s_name = PSY.get_name(s)
-            variable = get_variable(container, U(), V, "$(typeof(s))_$s_name")
-            mult = get_variable_multiplier(U, T, d, W(), s) * get_fraction(T, s)
+            variable = get_variable(container, U, V, "$(typeof(s))_$s_name")
+            mult = get_variable_multiplier(U, T, d, W, s) * get_fraction(T, s)
             for t in get_time_steps(container)
                 add_proportional_to_jump_expression!(
                     expression[name, t],
@@ -769,8 +769,8 @@ function add_to_expression!(
         services = PSY.get_services(d)
         for s in services
             s_name = PSY.get_name(s)
-            expression = get_expression(container, T(), V, "$(typeof(s))_$(s_name)")
-            variable = get_variable(container, U(), V, "$(typeof(s))_$s_name")
+            expression = get_expression(container, T, V, "$(typeof(s))_$(s_name)")
+            variable = get_variable(container, U, V, "$(typeof(s))_$s_name")
             for t in get_time_steps(container)
                 add_proportional_to_jump_expression!(
                     expression[name, t],
@@ -799,8 +799,8 @@ function add_to_expression!(
     for d in devices
         name = PSY.get_name(d)
         s_name = get_service_name(service_model)
-        expression = get_expression(container, T(), UV, "$(V)_$(s_name)")
-        variable = get_variable(container, U(), V, s_name)
+        expression = get_expression(container, T, UV, "$(V)_$(s_name)")
+        variable = get_variable(container, U, V, s_name)
         for t in get_time_steps(container)
             add_proportional_to_jump_expression!(
                 expression[name, t],
@@ -839,20 +839,20 @@ function add_energybalance_with_reserves!(
     resolution = get_resolution(container)
     fraction_of_hour = Dates.value(Dates.Minute(resolution)) / MINUTES_IN_HOUR
     names = [PSY.get_name(x) for x in devices]
-    initial_conditions = get_initial_condition(container, InitialEnergyLevel(), V)
-    energy_var = get_variable(container, EnergyVariable(), V)
+    initial_conditions = get_initial_condition(container, InitialEnergyLevel, V)
+    energy_var = get_variable(container, EnergyVariable, V)
 
-    powerin_var = get_variable(container, ActivePowerInVariable(), V)
-    powerout_var = get_variable(container, ActivePowerOutVariable(), V)
+    powerin_var = get_variable(container, ActivePowerInVariable, V)
+    powerout_var = get_variable(container, ActivePowerOutVariable, V)
 
-    r_up_ds = get_expression(container, ReserveDeploymentBalanceUpDischarge(), V)
-    r_up_ch = get_expression(container, ReserveDeploymentBalanceUpCharge(), V)
-    r_dn_ds = get_expression(container, ReserveDeploymentBalanceDownDischarge(), V)
-    r_dn_ch = get_expression(container, ReserveDeploymentBalanceDownCharge(), V)
+    r_up_ds = get_expression(container, ReserveDeploymentBalanceUpDischarge, V)
+    r_up_ch = get_expression(container, ReserveDeploymentBalanceUpCharge, V)
+    r_dn_ds = get_expression(container, ReserveDeploymentBalanceDownDischarge, V)
+    r_dn_ch = get_expression(container, ReserveDeploymentBalanceDownCharge, V)
 
     constraint = add_constraints_container!(
         container,
-        EnergyBalanceConstraint(),
+        EnergyBalanceConstraint,
         V,
         names,
         time_steps,
@@ -907,15 +907,15 @@ function add_energybalance_without_reserves!(
     resolution = get_resolution(container)
     fraction_of_hour = Dates.value(Dates.Minute(resolution)) / MINUTES_IN_HOUR
     names = [PSY.get_name(x) for x in devices]
-    initial_conditions = get_initial_condition(container, InitialEnergyLevel(), V)
-    energy_var = get_variable(container, EnergyVariable(), V)
+    initial_conditions = get_initial_condition(container, InitialEnergyLevel, V)
+    energy_var = get_variable(container, EnergyVariable, V)
 
-    powerin_var = get_variable(container, ActivePowerInVariable(), V)
-    powerout_var = get_variable(container, ActivePowerOutVariable(), V)
+    powerin_var = get_variable(container, ActivePowerInVariable, V)
+    powerout_var = get_variable(container, ActivePowerOutVariable, V)
 
     constraint = add_constraints_container!(
         container,
-        EnergyBalanceConstraint(),
+        EnergyBalanceConstraint,
         V,
         names,
         time_steps,
@@ -962,13 +962,13 @@ function add_constraints!(
 ) where {V <: PSY.Storage, X <: AbstractPowerModel}
     names = String[PSY.get_name(x) for x in devices]
     time_steps = get_time_steps(container)
-    powerout_var = get_variable(container, ActivePowerOutVariable(), V)
-    r_up_ds = get_expression(container, ReserveAssignmentBalanceUpDischarge(), V)
-    r_dn_ds = get_expression(container, ReserveAssignmentBalanceDownDischarge(), V)
+    powerout_var = get_variable(container, ActivePowerOutVariable, V)
+    r_up_ds = get_expression(container, ReserveAssignmentBalanceUpDischarge, V)
+    r_dn_ds = get_expression(container, ReserveAssignmentBalanceDownDischarge, V)
 
     constraint_ds_ub = add_constraints_container!(
         container,
-        ReserveDischargeConstraint(),
+        ReserveDischargeConstraint,
         V,
         names,
         time_steps;
@@ -977,7 +977,7 @@ function add_constraints!(
 
     constraint_ds_lb = add_constraints_container!(
         container,
-        ReserveDischargeConstraint(),
+        ReserveDischargeConstraint,
         V,
         names,
         time_steps;
@@ -1009,13 +1009,13 @@ function add_constraints!(
 ) where {V <: PSY.Storage, X <: AbstractPowerModel}
     names = String[PSY.get_name(x) for x in devices]
     time_steps = get_time_steps(container)
-    powerin_var = get_variable(container, ActivePowerInVariable(), V)
-    r_up_ch = get_expression(container, ReserveAssignmentBalanceUpCharge(), V)
-    r_dn_ch = get_expression(container, ReserveAssignmentBalanceDownCharge(), V)
+    powerin_var = get_variable(container, ActivePowerInVariable, V)
+    r_up_ch = get_expression(container, ReserveAssignmentBalanceUpCharge, V)
+    r_dn_ch = get_expression(container, ReserveAssignmentBalanceDownCharge, V)
 
     constraint_ch_ub = add_constraints_container!(
         container,
-        ReserveChargeConstraint(),
+        ReserveChargeConstraint,
         V,
         names,
         time_steps;
@@ -1024,7 +1024,7 @@ function add_constraints!(
 
     constraint_ch_lb = add_constraints_container!(
         container,
-        ReserveChargeConstraint(),
+        ReserveChargeConstraint,
         V,
         names,
         time_steps;
@@ -1067,10 +1067,10 @@ function add_constraints!(
     resolution = get_resolution(container)
     fraction_of_hour = Dates.value(Dates.Minute(resolution)) / MINUTES_IN_HOUR
     names = [PSY.get_name(x) for x in devices]
-    initial_conditions = get_initial_condition(container, InitialEnergyLevel(), V)
-    energy_var = get_variable(container, EnergyVariable(), V)
+    initial_conditions = get_initial_condition(container, InitialEnergyLevel, V)
+    energy_var = get_variable(container, EnergyVariable, V)
 
-    services_set = Set()
+    services_set = Set
     for ic in initial_conditions
         storage = get_component(ic)
         union!(services_set, PSY.get_services(storage))
@@ -1081,7 +1081,7 @@ function add_constraints!(
         if typeof(service) <: PSY.Reserve{PSY.ReserveUp}
             add_constraints_container!(
                 container,
-                T(),
+                T,
                 V,
                 names,
                 time_steps;
@@ -1090,7 +1090,7 @@ function add_constraints!(
         elseif typeof(service) <: PSY.Reserve{PSY.ReserveDown}
             add_constraints_container!(
                 container,
-                T(),
+                T,
                 V,
                 names,
                 time_steps;
@@ -1120,20 +1120,20 @@ function add_constraints!(
             service_name = PSY.get_name(service)
             reserve_var_discharge = get_variable(
                 container,
-                AncillaryServiceVariableDischarge(),
+                AncillaryServiceVariableDischarge,
                 V,
                 "$(typeof(service))_$service_name",
             )
             reserve_var_charge = get_variable(
                 container,
-                AncillaryServiceVariableCharge(),
+                AncillaryServiceVariableCharge,
                 V,
                 "$(typeof(service))_$service_name",
             )
             if typeof(service) <: PSY.Reserve{PSY.ReserveUp}
                 con_discharge = get_constraint(
                     container,
-                    T(),
+                    T,
                     V,
                     "$(typeof(service))_$(service_name)_discharge",
                 )
@@ -1163,7 +1163,7 @@ function add_constraints!(
             elseif typeof(service) <: PSY.Reserve{PSY.ReserveDown}
                 con_charge = get_constraint(
                     container,
-                    T(),
+                    T,
                     V,
                     "$(typeof(service))_$(service_name)_charge",
                 )
@@ -1215,10 +1215,10 @@ function add_constraints!(
     resolution = get_resolution(container)
     fraction_of_hour = Dates.value(Dates.Minute(resolution)) / MINUTES_IN_HOUR
     names = [PSY.get_name(x) for x in devices]
-    initial_conditions = get_initial_condition(container, InitialEnergyLevel(), V)
-    energy_var = get_variable(container, EnergyVariable(), V)
+    initial_conditions = get_initial_condition(container, InitialEnergyLevel, V)
+    energy_var = get_variable(container, EnergyVariable, V)
 
-    services_set = Set()
+    services_set = Set
     for ic in initial_conditions
         storage = get_component(ic)
         union!(services_set, PSY.get_services(storage))
@@ -1230,7 +1230,7 @@ function add_constraints!(
         if serv_type <: PSY.Reserve{PSY.ReserveUp}
             add_constraints_container!(
                 container,
-                T(),
+                T,
                 V,
                 names,
                 time_steps;
@@ -1239,7 +1239,7 @@ function add_constraints!(
         elseif serv_type <: PSY.Reserve{PSY.ReserveDown}
             add_constraints_container!(
                 container,
-                T(),
+                T,
                 V,
                 names,
                 time_steps;
@@ -1261,8 +1261,8 @@ function add_constraints!(
                   PSY.get_storage_capacity(storage) *
                   PSY.get_conversion_factor(storage),
         )
-        expr_up_discharge = Set()
-        expr_dn_charge = Set()
+        expr_up_discharge = Set
+        expr_dn_charge = Set
         for service in PSY.get_services(storage)
             sustained_time = PSY.get_sustained_time(service)
             num_periods = sustained_time / Dates.value(Dates.Second(resolution))
@@ -1271,13 +1271,13 @@ function add_constraints!(
             service_name = PSY.get_name(service)
             reserve_var_discharge = get_variable(
                 container,
-                AncillaryServiceVariableDischarge(),
+                AncillaryServiceVariableDischarge,
                 V,
                 "$(typeof(service))_$service_name",
             )
             reserve_var_charge = get_variable(
                 container,
-                AncillaryServiceVariableCharge(),
+                AncillaryServiceVariableCharge,
                 V,
                 "$(typeof(service))_$service_name",
             )
@@ -1298,7 +1298,7 @@ function add_constraints!(
         for serv_type in services_types
             if serv_type <: PSY.Reserve{PSY.ReserveUp}
                 con_discharge =
-                    get_constraint(container, T(), V, "$(serv_type)_discharge")
+                    get_constraint(container, T, V, "$(serv_type)_discharge")
                 total_sustained = JuMP.AffExpr()
                 for vds in expr_up_discharge
                     JuMP.add_to_expression!(total_sustained, vds[1])
@@ -1328,7 +1328,7 @@ function add_constraints!(
                     )
                 end
             elseif serv_type <: PSY.Reserve{PSY.ReserveDown}
-                con_charge = get_constraint(container, T(), V, "$(serv_type)_charge")
+                con_charge = get_constraint(container, T, V, "$(serv_type)_charge")
                 total_sustained = JuMP.AffExpr()
                 for vch in expr_dn_charge
                     JuMP.add_to_expression!(total_sustained, vch[1])
@@ -1373,7 +1373,7 @@ function add_constraints!(
     model::DeviceModel{V, StorageDispatchWithReserves},
     network_model::NetworkModel{X},
 ) where {V <: PSY.Storage, X <: AbstractPowerModel}
-    services = Set()
+    services = Set
     for d in devices
         union!(services, PSY.get_services(d))
     end
@@ -1382,14 +1382,14 @@ function add_constraints!(
         s_name = PSY.get_name(s)
         expression = get_expression(
             container,
-            TotalReserveOffering(),
+            TotalReserveOffering,
             V,
             "$(typeof(s))_$(s_name)",
         )
         device_names, time_steps = axes(expression)
         constraint_container = add_constraints_container!(
             container,
-            StorageTotalReserveConstraint(),
+            StorageTotalReserveConstraint,
             typeof(s),
             device_names,
             time_steps;
@@ -1410,14 +1410,14 @@ function add_constraints!(
     model::DeviceModel{V, StorageDispatchWithReserves},
     network_model::NetworkModel{X},
 ) where {V <: PSY.EnergyReservoirStorage, X <: AbstractPowerModel}
-    energy_var = get_variable(container, EnergyVariable(), V)
-    surplus_var = get_variable(container, StorageEnergySurplusVariable(), V)
-    shortfall_var = get_variable(container, StorageEnergyShortageVariable(), V)
+    energy_var = get_variable(container, EnergyVariable, V)
+    surplus_var = get_variable(container, StorageEnergySurplusVariable, V)
+    shortfall_var = get_variable(container, StorageEnergyShortageVariable, V)
 
     device_names, time_steps = axes(energy_var)
     constraint_container = add_constraints_container!(
         container,
-        StateofChargeTargetConstraint(),
+        StateofChargeTargetConstraint,
         V,
         device_names,
     )
@@ -1447,10 +1447,10 @@ function add_cycling_charge_without_reserves!(
     fraction_of_hour = Dates.value(Dates.Minute(resolution)) / MINUTES_IN_HOUR
     names = [PSY.get_name(x) for x in devices]
 
-    powerin_var = get_variable(container, ActivePowerInVariable(), V)
-    slack_var = get_variable(container, StorageChargeCyclingSlackVariable(), V)
+    powerin_var = get_variable(container, ActivePowerInVariable, V)
+    slack_var = get_variable(container, StorageChargeCyclingSlackVariable, V)
 
-    constraint = add_constraints_container!(container, StorageCyclingCharge(), V, names)
+    constraint = add_constraints_container!(container, StorageCyclingCharge, V, names)
 
     for d in devices
         name = PSY.get_name(d)
@@ -1482,11 +1482,11 @@ function add_cycling_charge_with_reserves!(
     fraction_of_hour = Dates.value(Dates.Minute(resolution)) / MINUTES_IN_HOUR
     names = [PSY.get_name(x) for x in devices]
 
-    powerin_var = get_variable(container, ActivePowerInVariable(), V)
-    slack_var = get_variable(container, StorageChargeCyclingSlackVariable(), V)
-    r_dn_ch = get_expression(container, ReserveDeploymentBalanceDownCharge(), V)
+    powerin_var = get_variable(container, ActivePowerInVariable, V)
+    slack_var = get_variable(container, StorageChargeCyclingSlackVariable, V)
+    r_dn_ch = get_expression(container, ReserveDeploymentBalanceDownCharge, V)
 
-    constraint = add_constraints_container!(container, StorageCyclingCharge(), V, names)
+    constraint = add_constraints_container!(container, StorageCyclingCharge, V, names)
 
     for d in devices
         name = PSY.get_name(d)
@@ -1535,11 +1535,11 @@ function add_cycling_discharge_without_reserves!(
     resolution = get_resolution(container)
     fraction_of_hour = Dates.value(Dates.Minute(resolution)) / MINUTES_IN_HOUR
     names = [PSY.get_name(x) for x in devices]
-    powerout_var = get_variable(container, ActivePowerOutVariable(), V)
-    slack_var = get_variable(container, StorageDischargeCyclingSlackVariable(), V)
+    powerout_var = get_variable(container, ActivePowerOutVariable, V)
+    slack_var = get_variable(container, StorageDischargeCyclingSlackVariable, V)
 
     constraint =
-        add_constraints_container!(container, StorageCyclingDischarge(), V, names)
+        add_constraints_container!(container, StorageCyclingDischarge, V, names)
 
     for d in devices
         name = PSY.get_name(d)
@@ -1571,12 +1571,12 @@ function add_cycling_discharge_with_reserves!(
     resolution = get_resolution(container)
     fraction_of_hour = Dates.value(Dates.Minute(resolution)) / MINUTES_IN_HOUR
     names = [PSY.get_name(x) for x in devices]
-    powerout_var = get_variable(container, ActivePowerOutVariable(), V)
-    slack_var = get_variable(container, StorageDischargeCyclingSlackVariable(), V)
-    r_up_ds = get_expression(container, ReserveDeploymentBalanceUpDischarge(), V)
+    powerout_var = get_variable(container, ActivePowerOutVariable, V)
+    slack_var = get_variable(container, StorageDischargeCyclingSlackVariable, V)
+    r_up_ds = get_expression(container, ReserveDeploymentBalanceUpDischarge, V)
 
     constraint =
-        add_constraints_container!(container, StorageCyclingDischarge(), V, names)
+        add_constraints_container!(container, StorageCyclingDischarge, V, names)
 
     for d in devices
         name = PSY.get_name(d)
@@ -1622,18 +1622,18 @@ function add_constraints!(
 ) where {V <: PSY.Storage, X <: AbstractPowerModel}
     names = [PSY.get_name(x) for x in devices]
     time_steps = get_time_steps(container)
-    reg_var = get_variable(container, StorageRegularizationVariableCharge(), V)
-    powerin_var = get_variable(container, ActivePowerInVariable(), V)
+    reg_var = get_variable(container, StorageRegularizationVariableCharge, V)
+    powerin_var = get_variable(container, ActivePowerInVariable, V)
     has_services = has_service_model(model)
 
     if has_services
-        r_up_ch = get_expression(container, ReserveDeploymentBalanceUpCharge(), V)
-        r_dn_ch = get_expression(container, ReserveDeploymentBalanceDownCharge(), V)
+        r_up_ch = get_expression(container, ReserveDeploymentBalanceUpCharge, V)
+        r_dn_ch = get_expression(container, ReserveDeploymentBalanceDownCharge, V)
     end
 
     constraint_ub = add_constraints_container!(
         container,
-        StorageRegularizationConstraintCharge(),
+        StorageRegularizationConstraintCharge,
         V,
         names,
         time_steps;
@@ -1642,7 +1642,7 @@ function add_constraints!(
 
     constraint_lb = add_constraints_container!(
         container,
-        StorageRegularizationConstraintCharge(),
+        StorageRegularizationConstraintCharge,
         V,
         names,
         time_steps;
@@ -1699,17 +1699,17 @@ function add_constraints!(
 ) where {V <: PSY.Storage, X <: AbstractPowerModel}
     names = [PSY.get_name(x) for x in devices]
     time_steps = get_time_steps(container)
-    reg_var = get_variable(container, StorageRegularizationVariableDischarge(), V)
-    powerout_var = get_variable(container, ActivePowerOutVariable(), V)
+    reg_var = get_variable(container, StorageRegularizationVariableDischarge, V)
+    powerout_var = get_variable(container, ActivePowerOutVariable, V)
     has_services = has_service_model(model)
     if has_services
-        r_up_ds = get_expression(container, ReserveDeploymentBalanceUpDischarge(), V)
-        r_dn_ds = get_expression(container, ReserveDeploymentBalanceDownDischarge(), V)
+        r_up_ds = get_expression(container, ReserveDeploymentBalanceUpDischarge, V)
+        r_dn_ds = get_expression(container, ReserveDeploymentBalanceDownDischarge, V)
     end
 
     constraint_ub = add_constraints_container!(
         container,
-        StorageRegularizationConstraintDischarge(),
+        StorageRegularizationConstraintDischarge,
         V,
         names,
         time_steps;
@@ -1718,7 +1718,7 @@ function add_constraints!(
 
     constraint_lb = add_constraints_container!(
         container,
-        StorageRegularizationConstraintDischarge(),
+        StorageRegularizationConstraintDischarge,
         V,
         names,
         time_steps;
@@ -1772,20 +1772,20 @@ function objective_function!(
     model::DeviceModel{T, U},
     ::Type{V},
 ) where {T <: PSY.Storage, U <: AbstractStorageFormulation, V <: AbstractPowerModel}
-    add_variable_cost!(container, ActivePowerOutVariable(), devices, U())
-    add_variable_cost!(container, ActivePowerInVariable(), devices, U())
+    add_variable_cost!(container, ActivePowerOutVariable, devices, U)
+    add_variable_cost!(container, ActivePowerInVariable, devices, U)
     if get_attribute(model, "regularization")
         add_variable_cost!(
             container,
-            StorageRegularizationVariableCharge(),
+            StorageRegularizationVariableCharge,
             devices,
-            U(),
+            U,
         )
         add_variable_cost!(
             container,
-            StorageRegularizationVariableDischarge(),
+            StorageRegularizationVariableDischarge,
             devices,
-            U(),
+            U,
         )
     end
 
@@ -1799,38 +1799,38 @@ function objective_function!(
     ::Type{V},
 ) where {T <: AbstractStorageFormulation, V <: AbstractPowerModel}
     # TODO problem with time varying MBC.
-    add_variable_cost!(container, ActivePowerOutVariable(), devices, T())
-    add_variable_cost!(container, ActivePowerInVariable(), devices, T())
+    add_variable_cost!(container, ActivePowerOutVariable, devices, T)
+    add_variable_cost!(container, ActivePowerInVariable, devices, T)
     if get_attribute(model, "energy_target")
-        add_proportional_cost!(container, StorageEnergySurplusVariable(), devices, T())
-        add_proportional_cost!(container, StorageEnergyShortageVariable(), devices, T())
+        add_proportional_cost!(container, StorageEnergySurplusVariable, devices, T)
+        add_proportional_cost!(container, StorageEnergyShortageVariable, devices, T)
     end
     if get_attribute(model, "cycling_limits")
         add_proportional_cost!(
             container,
-            StorageChargeCyclingSlackVariable(),
+            StorageChargeCyclingSlackVariable,
             devices,
-            T(),
+            T,
         )
         add_proportional_cost!(
             container,
-            StorageDischargeCyclingSlackVariable(),
+            StorageDischargeCyclingSlackVariable,
             devices,
-            T(),
+            T,
         )
     end
     if get_attribute(model, "regularization")
         add_variable_cost!(
             container,
-            StorageRegularizationVariableCharge(),
+            StorageRegularizationVariableCharge,
             devices,
-            T(),
+            T,
         )
         add_variable_cost!(
             container,
-            StorageRegularizationVariableDischarge(),
+            StorageRegularizationVariableDischarge,
             devices,
-            T(),
+            T,
         )
     end
     return
@@ -1847,11 +1847,11 @@ function add_proportional_cost!(
     U <: PSY.EnergyReservoirStorage,
 }
     time_steps = get_time_steps(container)
-    variable = get_variable(container, T(), U)
+    variable = get_variable(container, T, U)
     for d in devices
         name = PSY.get_name(d)
         op_cost_data = PSY.get_operation_cost(d)
-        cost_term = proportional_cost(op_cost_data, T(), d, formulation)
+        cost_term = proportional_cost(op_cost_data, T, d, formulation)
         add_to_objective_invariant_expression!(
             container,
             variable[name, time_steps[end]] * cost_term,
@@ -1869,11 +1869,11 @@ function add_proportional_cost!(
     U <: PSY.EnergyReservoirStorage,
 }
     time_steps = get_time_steps(container)
-    variable = get_variable(container, T(), U)
+    variable = get_variable(container, T, U)
     for d in devices
         name = PSY.get_name(d)
         op_cost_data = PSY.get_operation_cost(d)
-        cost_term = proportional_cost(op_cost_data, T(), d, formulation)
+        cost_term = proportional_cost(op_cost_data, T, d, formulation)
         add_to_objective_invariant_expression!(
             container,
             variable[name, time_steps[end]] * cost_term,
@@ -1889,8 +1889,8 @@ function calculate_aux_variable_value!(
     time_steps = get_time_steps(container)
     resolution = get_resolution(container)
     fraction_of_hour = Dates.value(Dates.Minute(resolution)) / MINUTES_IN_HOUR
-    p_variable_output = get_variable(container, ActivePowerOutVariable(), T)
-    aux_variable_container = get_aux_variable(container, StorageEnergyOutput(), T)
+    p_variable_output = get_variable(container, ActivePowerOutVariable, T)
+    aux_variable_container = get_aux_variable(container, StorageEnergyOutput, T)
     device_names = axes(aux_variable_container, 1)
     for name in device_names, t in time_steps
         aux_variable_container[name, t] =
@@ -1917,12 +1917,12 @@ function _add_variable_cost_to_objective!(
     incremental_cost_curves = PSY.get_incremental_offer_curves(cost_function)
     if !isnothing(incremental_cost_curves)
         add_pwl_term_delta!(
-            IncrementalOffer(),
+            IncrementalOffer,
             container,
             component,
             cost_function,
-            T(),
-            U(),
+            T,
+            U,
         )
     end
     return
@@ -1943,12 +1943,12 @@ function _add_variable_cost_to_objective!(
     decremental_cost_curves = PSY.get_decremental_offer_curves(cost_function)
     if !isnothing(decremental_cost_curves)
         add_pwl_term_delta!(
-            DecrementalOffer(),
+            DecrementalOffer,
             container,
             component,
             cost_function,
-            T(),
-            U(),
+            T,
+            U,
         )
     end
     return

@@ -325,11 +325,11 @@ end
 function PMvarmap(::Type{S}) where {S <: AbstractDCPModel}
     pm_variable_map = Dict{Type, Dict{Symbol, Union{VariableType, NamedTuple}}}()
 
-    pm_variable_map[PSY.ACBus] = Dict(:va => VoltageAngle())
+    pm_variable_map[PSY.ACBus] = Dict(:va => VoltageAngle)
     pm_variable_map[PSY.ACTransmission] =
-        Dict(:p => (from_to = FlowActivePowerVariable(), to_from = nothing))
+        Dict(:p => (from_to = FlowActivePowerVariable, to_from = nothing))
     pm_variable_map[PSY.TwoTerminalHVDC] =
-        Dict(:p_dc => (from_to = FlowActivePowerVariable(), to_from = nothing))
+        Dict(:p_dc => (from_to = FlowActivePowerVariable, to_from = nothing))
 
     return pm_variable_map
 end
@@ -337,12 +337,12 @@ end
 function PMvarmap(::Type{S}) where {S <: AbstractActivePowerModel}
     pm_variable_map = Dict{Type, Dict{Symbol, Union{VariableType, NamedTuple}}}()
 
-    pm_variable_map[PSY.ACBus] = Dict(:va => VoltageAngle())
-    pm_variable_map[PSY.ACTransmission] = Dict(:p => FlowActivePowerFromToVariable())
+    pm_variable_map[PSY.ACBus] = Dict(:va => VoltageAngle)
+    pm_variable_map[PSY.ACTransmission] = Dict(:p => FlowActivePowerFromToVariable)
     pm_variable_map[PSY.TwoTerminalHVDC] = Dict(
         :p_dc => (
-            from_to = FlowActivePowerFromToVariable(),
-            to_from = FlowActivePowerToFromVariable(),
+            from_to = FlowActivePowerFromToVariable,
+            to_from = FlowActivePowerToFromVariable,
         ),
     )
 
@@ -352,22 +352,22 @@ end
 function PMvarmap(::Type{S}) where {S <: AbstractPowerModel}
     pm_variable_map = Dict{Type, Dict{Symbol, Union{VariableType, NamedTuple}}}()
 
-    pm_variable_map[PSY.ACBus] = Dict(:va => VoltageAngle(), :vm => VoltageMagnitude())
+    pm_variable_map[PSY.ACBus] = Dict(:va => VoltageAngle, :vm => VoltageMagnitude)
     pm_variable_map[PSY.ACTransmission] = Dict(
         :p => (
-            from_to = FlowActivePowerFromToVariable(),
-            to_from = FlowActivePowerToFromVariable(),
+            from_to = FlowActivePowerFromToVariable,
+            to_from = FlowActivePowerToFromVariable,
         ),
         :q => (
-            from_to = FlowReactivePowerFromToVariable(),
-            to_from = FlowReactivePowerToFromVariable(),
+            from_to = FlowReactivePowerFromToVariable,
+            to_from = FlowReactivePowerToFromVariable,
         ),
     )
     pm_variable_map[PSY.TwoTerminalHVDC] = Dict(
-        :p_dc => (from_to = FlowActivePowerVariable(), to_from = nothing),
+        :p_dc => (from_to = FlowActivePowerVariable, to_from = nothing),
         :q_dc => (
-            from_to = FlowReactivePowerFromToVariable(),
-            to_from = FlowReactivePowerToFromVariable(),
+            from_to = FlowReactivePowerFromToVariable,
+            to_from = FlowReactivePowerToFromVariable,
         ),
     )
 
@@ -377,7 +377,7 @@ end
 function PMconmap(::Type{S}) where {S <: AbstractActivePowerModel}
     pm_constraint_map = Dict{Type, Dict{Symbol, <:ConstraintType}}()
 
-    pm_constraint_map[PSY.ACBus] = Dict(:power_balance_p => NodalBalanceActiveConstraint())
+    pm_constraint_map[PSY.ACBus] = Dict(:power_balance_p => NodalBalanceActiveConstraint)
     return pm_constraint_map
 end
 
@@ -385,8 +385,8 @@ function PMconmap(::Type{S}) where {S <: AbstractPowerModel}
     pm_constraint_map = Dict{Type, Dict{Symbol, ConstraintType}}()
 
     pm_constraint_map[PSY.ACBus] = Dict(
-        :power_balance_p => NodalBalanceActiveConstraint(),
-        :power_balance_q => NodalBalanceReactiveConstraint(),
+        :power_balance_p => NodalBalanceActiveConstraint,
+        :power_balance_q => NodalBalanceReactiveConstraint,
     )
     return pm_constraint_map
 end

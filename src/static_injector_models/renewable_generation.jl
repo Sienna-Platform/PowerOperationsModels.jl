@@ -90,11 +90,11 @@ function add_constraints!(
 }
     names = PSY.get_name.(devices)
     time_steps = get_time_steps(container)
-    p_var = get_variable(container, ActivePowerVariable(), V)
-    q_var = get_variable(container, ReactivePowerVariable(), V)
+    p_var = get_variable(container, ActivePowerVariable, V)
+    q_var = get_variable(container, ReactivePowerVariable, V)
     jump_model = get_jump_model(container)
     constraint =
-        add_constraints_container!(container, EqualityConstraint(), V, names, time_steps)
+        add_constraints_container!(container, EqualityConstraint, V, names, time_steps)
     for t in time_steps, d in devices
         name = PSY.get_name(d)
         pf = sin(acos(PSY.get_power_factor(d)))
@@ -157,6 +157,6 @@ function add_to_objective_function!(
     ::DeviceModel{T, U},
     ::Type{<:AbstractPowerModel},
 ) where {T <: PSY.RenewableGen, U <: AbstractRenewableDispatchFormulation}
-    add_variable_cost!(container, ActivePowerVariable(), devices, U())
+    add_variable_cost!(container, ActivePowerVariable, devices, U)
     return
 end

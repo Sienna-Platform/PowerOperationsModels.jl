@@ -135,9 +135,9 @@ function _add_dense_pwl_loss_variables!(
     # Create Variables
     time_steps = get_time_steps(container)
     settings = get_settings(container)
-    formulation = HVDCTwoTerminalPiecewiseLoss()
+    formulation = HVDCTwoTerminalPiecewiseLoss
     T = HVDCPiecewiseLossVariable
-    binary = get_variable_binary(T(), D, formulation)
+    binary = get_variable_binary(T, D, formulation)
     first_loss = PSY.get_loss(first(devices))
     if isa(first_loss, PSY.LinearCurve)
         len_segments = 4 # 2*1 + 2
@@ -151,7 +151,7 @@ function _add_dense_pwl_loss_variables!(
     T = HVDCPiecewiseLossVariable
     variable = add_variable_container!(
         container,
-        T(),
+        T,
         D,
         PSY.get_name.(devices),
         segments,
@@ -165,14 +165,14 @@ function _add_dense_pwl_loss_variables!(
             base_name = "$(T)_$(D)_{$(name), $(s), $(t)}",
             binary = binary
         )
-        ub = get_variable_upper_bound(T(), d, formulation)
+        ub = get_variable_upper_bound(T, d, formulation)
         ub !== nothing && JuMP.set_upper_bound(variable[name, s, t], ub)
 
-        lb = get_variable_lower_bound(T(), d, formulation)
+        lb = get_variable_lower_bound(T, d, formulation)
         lb !== nothing && JuMP.set_lower_bound(variable[name, s, t], lb)
 
         if get_warm_start(settings)
-            init = get_variable_warm_start_value(T(), d, formulation)
+            init = get_variable_warm_start_value(T, d, formulation)
             init !== nothing && JuMP.set_start_value(variable[name, s, t], init)
         end
     end
@@ -190,11 +190,11 @@ function _add_sparse_pwl_loss_variables!(
     # Create Variables
     time_steps = get_time_steps(container)
     settings = get_settings(container)
-    formulation = HVDCTwoTerminalPiecewiseLoss()
+    formulation = HVDCTwoTerminalPiecewiseLoss
     T = HVDCPiecewiseLossVariable
-    binary_T = get_variable_binary(T(), D, formulation)
+    binary_T = get_variable_binary(T, D, formulation)
     U = HVDCPiecewiseBinaryLossVariable
-    binary_U = get_variable_binary(U(), D, formulation)
+    binary_U = get_variable_binary(U, D, formulation)
     first_loss = PSY.get_loss(first(devices))
     if isa(first_loss, PSY.LinearCurve)
         len_segments = 3 # 2*1 + 1
@@ -204,8 +204,8 @@ function _add_sparse_pwl_loss_variables!(
         error("Should not be here")
     end
 
-    var_container = lazy_container_addition!(container, T(), D)
-    var_container_binary = lazy_container_addition!(container, U(), D)
+    var_container = lazy_container_addition!(container, T, D)
+    var_container_binary = lazy_container_addition!(container, U, D)
 
     for d in devices
         name = PSY.get_name(d)
@@ -219,10 +219,10 @@ function _add_sparse_pwl_loss_variables!(
                         base_name = "$(T)_$(name)_{pwl_$(i), $(t)}",
                         binary = binary_T
                     )
-                ub = get_variable_upper_bound(T(), d, formulation)
+                ub = get_variable_upper_bound(T, d, formulation)
                 ub !== nothing && JuMP.set_upper_bound(var_container[name, i, t], ub)
 
-                lb = get_variable_lower_bound(T(), d, formulation)
+                lb = get_variable_lower_bound(T, d, formulation)
                 lb !== nothing && JuMP.set_lower_bound(var_container[name, i, t], lb)
 
                 pwlvars_bin[i] =
@@ -327,7 +327,7 @@ function add_variables!(
         end
     end
     if !isempty(inter_network_branches)
-        add_variables!(container, FlowActivePowerVariable, inter_network_branches, U())
+        add_variables!(container, FlowActivePowerVariable, inter_network_branches, U)
     end
     return
 end
@@ -339,19 +339,19 @@ function add_constraints!(
     ::DeviceModel{U, HVDCTwoTerminalPiecewiseLoss},
     ::NetworkModel{<:AbstractPowerModel},
 ) where {T <: HVDCFlowCalculationConstraint, U <: PSY.TwoTerminalHVDC}
-    var_pwl = get_variable(container, HVDCPiecewiseLossVariable(), U)
-    var_pwl_bin = get_variable(container, HVDCPiecewiseBinaryLossVariable(), U)
+    var_pwl = get_variable(container, HVDCPiecewiseLossVariable, U)
+    var_pwl_bin = get_variable(container, HVDCPiecewiseBinaryLossVariable, U)
     names = PSY.get_name.(devices)
     time_steps = get_time_steps(container)
-    flow_ft = get_variable(container, HVDCActivePowerReceivedFromVariable(), U)
-    flow_tf = get_variable(container, HVDCActivePowerReceivedToVariable(), U)
+    flow_ft = get_variable(container, HVDCActivePowerReceivedFromVariable, U)
+    flow_tf = get_variable(container, HVDCActivePowerReceivedToVariable, U)
 
     constraint_from_to =
-        add_constraints_container!(container, T(), U, names, time_steps; meta = "ft")
+        add_constraints_container!(container, T, U, names, time_steps; meta = "ft")
     constraint_to_from =
-        add_constraints_container!(container, T(), U, names, time_steps; meta = "tf")
+        add_constraints_container!(container, T, U, names, time_steps; meta = "tf")
     constraint_binary =
-        add_constraints_container!(container, T(), U, names, time_steps; meta = "bin")
+        add_constraints_container!(container, T, U, names, time_steps; meta = "bin")
     for d in devices
         name = PSY.get_name(d)
         loss = PSY.get_loss(d)
@@ -458,11 +458,11 @@ function add_constraints!(
     time_steps = get_time_steps(container)
     names = PSY.get_name.(devices)
 
-    var = get_variable(container, FlowActivePowerVariable(), U)
+    var = get_variable(container, FlowActivePowerVariable, U)
     constraint_ub =
-        add_constraints_container!(container, T(), U, names, time_steps; meta = "ub")
+        add_constraints_container!(container, T, U, names, time_steps; meta = "ub")
     constraint_lb =
-        add_constraints_container!(container, T(), U, names, time_steps; meta = "lb")
+        add_constraints_container!(container, T, U, names, time_steps; meta = "lb")
     for d in devices
         min_rate, max_rate = _get_flow_bounds(d)
         for t in time_steps
@@ -499,11 +499,11 @@ function add_constraints!(
         end
     end
 
-    var = get_variable(container, FlowActivePowerVariable(), U)
+    var = get_variable(container, FlowActivePowerVariable, U)
     constraint_ub =
-        add_constraints_container!(container, T(), U, names, time_steps; meta = "ub")
+        add_constraints_container!(container, T, U, names, time_steps; meta = "ub")
     constraint_lb =
-        add_constraints_container!(container, T(), U, names, time_steps; meta = "lb")
+        add_constraints_container!(container, T, U, names, time_steps; meta = "lb")
     for d in modeled_devices
         min_rate, max_rate = _get_flow_bounds(d)
         for t in time_steps
@@ -528,7 +528,7 @@ function _add_hvdc_flow_constraints!(
     _add_hvdc_flow_constraints!(
         container,
         devices,
-        FlowActivePowerFromToVariable(),
+        FlowActivePowerFromToVariable,
         constraint,
     )
 end
@@ -541,7 +541,7 @@ function _add_hvdc_flow_constraints!(
     _add_hvdc_flow_constraints!(
         container,
         devices,
-        FlowActivePowerToFromVariable(),
+        FlowActivePowerToFromVariable,
         constraint,
     )
 end
@@ -567,8 +567,8 @@ function _add_hvdc_flow_constraints!(
         add_constraints_container!(container, constraint, T, names, time_steps; meta = "lb")
     for d in devices
         check_hvdc_line_limits_consistency(d)
-        max_rate = get_variable_upper_bound(var, d, HVDCTwoTerminalDispatch())
-        min_rate = get_variable_lower_bound(var, d, HVDCTwoTerminalDispatch())
+        max_rate = get_variable_upper_bound(var, d, HVDCTwoTerminalDispatch)
+        min_rate = get_variable_lower_bound(var, d, HVDCTwoTerminalDispatch)
         name = PSY.get_name(d)
         for t in time_steps
             constraint_ub[name, t] = JuMP.@constraint(
@@ -603,7 +603,7 @@ function add_constraints!(
         end
     end
     if !isempty(inter_network_branches)
-        _add_hvdc_flow_constraints!(container, devices, T())
+        _add_hvdc_flow_constraints!(container, devices, T)
     end
     return
 end
@@ -618,7 +618,7 @@ function add_constraints!(
     T <: Union{FlowRateConstraintToFrom, FlowRateConstraintFromTo},
     U <: PSY.TwoTerminalHVDC,
 }
-    _add_hvdc_flow_constraints!(container, devices, T())
+    _add_hvdc_flow_constraints!(container, devices, T)
     return
 end
 
@@ -632,7 +632,7 @@ function add_constraints!(
     T <: Union{FlowRateConstraintToFrom, FlowRateConstraintFromTo},
     U <: PSY.TwoTerminalHVDC,
 }
-    _add_hvdc_flow_constraints!(container, devices, T())
+    _add_hvdc_flow_constraints!(container, devices, T)
     return
 end
 
@@ -660,15 +660,15 @@ function add_constraints!(
             _add_hvdc_flow_constraints!(
                 container,
                 devices,
-                HVDCActivePowerReceivedFromVariable(),
-                T(),
+                HVDCActivePowerReceivedFromVariable,
+                T,
             )
         else
             _add_hvdc_flow_constraints!(
                 container,
                 devices,
-                HVDCActivePowerReceivedToVariable(),
-                T(),
+                HVDCActivePowerReceivedToVariable,
+                T,
             )
         end
     end
@@ -690,15 +690,15 @@ function add_constraints!(
         _add_hvdc_flow_constraints!(
             container,
             devices,
-            HVDCActivePowerReceivedFromVariable(),
-            T(),
+            HVDCActivePowerReceivedFromVariable,
+            T,
         )
     else
         _add_hvdc_flow_constraints!(
             container,
             devices,
-            HVDCActivePowerReceivedToVariable(),
-            T(),
+            HVDCActivePowerReceivedToVariable,
+            T,
         )
     end
     return
@@ -713,14 +713,14 @@ function add_constraints!(
 ) where {T <: PSY.TwoTerminalHVDC}
     time_steps = get_time_steps(container)
     names = PSY.get_name.(devices)
-    tf_var = get_variable(container, FlowActivePowerToFromVariable(), T)
-    ft_var = get_variable(container, FlowActivePowerFromToVariable(), T)
-    direction_var = get_variable(container, HVDCFlowDirectionVariable(), T)
-    losses = get_variable(container, HVDCLosses(), T)
+    tf_var = get_variable(container, FlowActivePowerToFromVariable, T)
+    ft_var = get_variable(container, FlowActivePowerFromToVariable, T)
+    direction_var = get_variable(container, HVDCFlowDirectionVariable, T)
+    losses = get_variable(container, HVDCLosses, T)
 
     constraint_ft_ub = add_constraints_container!(
         container,
-        HVDCPowerBalance(),
+        HVDCPowerBalance,
         T,
         names,
         time_steps;
@@ -728,7 +728,7 @@ function add_constraints!(
     )
     constraint_tf_ub = add_constraints_container!(
         container,
-        HVDCPowerBalance(),
+        HVDCPowerBalance,
         T,
         names,
         time_steps;
@@ -736,7 +736,7 @@ function add_constraints!(
     )
     constraint_ft_lb = add_constraints_container!(
         container,
-        HVDCPowerBalance(),
+        HVDCPowerBalance,
         T,
         names,
         time_steps;
@@ -744,7 +744,7 @@ function add_constraints!(
     )
     constraint_tf_lb = add_constraints_container!(
         container,
-        HVDCPowerBalance(),
+        HVDCPowerBalance,
         T,
         names,
         time_steps;
@@ -752,7 +752,7 @@ function add_constraints!(
     )
     constraint_loss = add_constraints_container!(
         container,
-        HVDCPowerBalance(),
+        HVDCPowerBalance,
         T,
         names,
         time_steps;
@@ -760,7 +760,7 @@ function add_constraints!(
     )
     constraint_loss_aux1 = add_constraints_container!(
         container,
-        HVDCPowerBalance(),
+        HVDCPowerBalance,
         T,
         names,
         time_steps;
@@ -768,7 +768,7 @@ function add_constraints!(
     )
     constraint_loss_aux2 = add_constraints_container!(
         container,
-        HVDCPowerBalance(),
+        HVDCPowerBalance,
         T,
         names,
         time_steps;
@@ -776,7 +776,7 @@ function add_constraints!(
     )
     constraint_loss_aux3 = add_constraints_container!(
         container,
-        HVDCPowerBalance(),
+        HVDCPowerBalance,
         T,
         names,
         time_steps;
@@ -784,7 +784,7 @@ function add_constraints!(
     )
     constraint_loss_aux4 = add_constraints_container!(
         container,
-        HVDCPowerBalance(),
+        HVDCPowerBalance,
         T,
         names,
         time_steps;
@@ -855,15 +855,15 @@ function add_constraints!(
 ) where {T <: PSY.TwoTerminalLCCLine}
     time_steps = get_time_steps(container)
     names = PSY.get_name.(devices)
-    rect_dc_voltage_var = get_variable(container, HVDCRectifierDCVoltageVariable(), T)
-    rect_ac_voltage_bus_var = get_variable(container, VoltageMagnitude(), PSY.ACBus)
-    rect_delay_angle_var = get_variable(container, HVDCRectifierDelayAngleVariable(), T)
-    rect_tap_setting_var = get_variable(container, HVDCRectifierTapSettingVariable(), T)
-    dc_line_current_var = get_variable(container, DCLineCurrentFlowVariable(), T)
+    rect_dc_voltage_var = get_variable(container, HVDCRectifierDCVoltageVariable, T)
+    rect_ac_voltage_bus_var = get_variable(container, VoltageMagnitude, PSY.ACBus)
+    rect_delay_angle_var = get_variable(container, HVDCRectifierDelayAngleVariable, T)
+    rect_tap_setting_var = get_variable(container, HVDCRectifierTapSettingVariable, T)
+    dc_line_current_var = get_variable(container, DCLineCurrentFlowVariable, T)
 
     constraint_rect_dc_volt = add_constraints_container!(
         container,
-        HVDCRectifierDCLineVoltageConstraint(),
+        HVDCRectifierDCLineVoltageConstraint,
         T,
         names,
         time_steps;
@@ -904,16 +904,16 @@ function add_constraints!(
 ) where {T <: PSY.TwoTerminalLCCLine}
     time_steps = get_time_steps(container)
     names = PSY.get_name.(devices)
-    inv_dc_voltage_var = get_variable(container, HVDCInverterDCVoltageVariable(), T)
-    inv_ac_voltage_bus_var = get_variable(container, VoltageMagnitude(), PSY.ACBus)
+    inv_dc_voltage_var = get_variable(container, HVDCInverterDCVoltageVariable, T)
+    inv_ac_voltage_bus_var = get_variable(container, VoltageMagnitude, PSY.ACBus)
     inv_extinction_angle_var =
-        get_variable(container, HVDCInverterExtinctionAngleVariable(), T)
-    inv_tap_setting_var = get_variable(container, HVDCInverterTapSettingVariable(), T)
-    dc_line_current_var = get_variable(container, DCLineCurrentFlowVariable(), T)
+        get_variable(container, HVDCInverterExtinctionAngleVariable, T)
+    inv_tap_setting_var = get_variable(container, HVDCInverterTapSettingVariable, T)
+    dc_line_current_var = get_variable(container, DCLineCurrentFlowVariable, T)
 
     constraint_inv_dc_volt = add_constraints_container!(
         container,
-        HVDCInverterDCLineVoltageConstraint(),
+        HVDCInverterDCLineVoltageConstraint,
         T,
         names,
         time_steps;
@@ -954,15 +954,15 @@ function add_constraints!(
 ) where {T <: PSY.TwoTerminalLCCLine}
     time_steps = get_time_steps(container)
     names = PSY.get_name.(devices)
-    rect_ac_voltage_bus_var = get_variable(container, VoltageMagnitude(), PSY.ACBus)
-    rect_delay_angle_var = get_variable(container, HVDCRectifierDelayAngleVariable(), T)
-    rect_overlap_angle_var = get_variable(container, HVDCRectifierOverlapAngleVariable(), T)
-    rect_tap_setting_var = get_variable(container, HVDCRectifierTapSettingVariable(), T)
-    dc_line_current_var = get_variable(container, DCLineCurrentFlowVariable(), T)
+    rect_ac_voltage_bus_var = get_variable(container, VoltageMagnitude, PSY.ACBus)
+    rect_delay_angle_var = get_variable(container, HVDCRectifierDelayAngleVariable, T)
+    rect_overlap_angle_var = get_variable(container, HVDCRectifierOverlapAngleVariable, T)
+    rect_tap_setting_var = get_variable(container, HVDCRectifierTapSettingVariable, T)
+    dc_line_current_var = get_variable(container, DCLineCurrentFlowVariable, T)
 
     constraint_rect_over_ang = add_constraints_container!(
         container,
-        HVDCRectifierOverlapAngleConstraint(),
+        HVDCRectifierOverlapAngleConstraint,
         T,
         names,
         time_steps;
@@ -1013,16 +1013,16 @@ function add_constraints!(
 ) where {T <: PSY.TwoTerminalLCCLine}
     time_steps = get_time_steps(container)
     names = PSY.get_name.(devices)
-    inv_ac_voltage_bus_var = get_variable(container, VoltageMagnitude(), PSY.ACBus)
+    inv_ac_voltage_bus_var = get_variable(container, VoltageMagnitude, PSY.ACBus)
     inv_extinction_angle_var =
-        get_variable(container, HVDCInverterExtinctionAngleVariable(), T)
-    inv_overlap_angle_var = get_variable(container, HVDCInverterOverlapAngleVariable(), T)
-    inv_tap_setting_var = get_variable(container, HVDCInverterTapSettingVariable(), T)
-    dc_line_current_var = get_variable(container, DCLineCurrentFlowVariable(), T)
+        get_variable(container, HVDCInverterExtinctionAngleVariable, T)
+    inv_overlap_angle_var = get_variable(container, HVDCInverterOverlapAngleVariable, T)
+    inv_tap_setting_var = get_variable(container, HVDCInverterTapSettingVariable, T)
+    dc_line_current_var = get_variable(container, DCLineCurrentFlowVariable, T)
 
     constraint_inv_over_ang = add_constraints_container!(
         container,
-        HVDCInverterOverlapAngleConstraint(),
+        HVDCInverterOverlapAngleConstraint,
         T,
         names,
         time_steps;
@@ -1073,14 +1073,14 @@ function add_constraints!(
 ) where {T <: PSY.TwoTerminalLCCLine}
     time_steps = get_time_steps(container)
     names = PSY.get_name.(devices)
-    rect_delay_angle_var = get_variable(container, HVDCRectifierDelayAngleVariable(), T)
-    rect_overlap_angle_var = get_variable(container, HVDCRectifierOverlapAngleVariable(), T)
+    rect_delay_angle_var = get_variable(container, HVDCRectifierDelayAngleVariable, T)
+    rect_overlap_angle_var = get_variable(container, HVDCRectifierOverlapAngleVariable, T)
     rect_power_factor_var =
-        get_variable(container, HVDCRectifierPowerFactorAngleVariable(), T)
+        get_variable(container, HVDCRectifierPowerFactorAngleVariable, T)
 
     constraint_rect_power_factor_ang = add_constraints_container!(
         container,
-        HVDCRectifierPowerFactorAngleConstraint(),
+        HVDCRectifierPowerFactorAngleConstraint,
         T,
         names,
         time_steps;
@@ -1136,14 +1136,14 @@ function add_constraints!(
     time_steps = get_time_steps(container)
     names = PSY.get_name.(devices)
     inv_extinction_angle_var =
-        get_variable(container, HVDCInverterExtinctionAngleVariable(), T)
-    inv_overlap_angle_var = get_variable(container, HVDCInverterOverlapAngleVariable(), T)
+        get_variable(container, HVDCInverterExtinctionAngleVariable, T)
+    inv_overlap_angle_var = get_variable(container, HVDCInverterOverlapAngleVariable, T)
     inv_power_factor_var =
-        get_variable(container, HVDCInverterPowerFactorAngleVariable(), T)
+        get_variable(container, HVDCInverterPowerFactorAngleVariable, T)
 
     constraint_inv_power_factor_ang = add_constraints_container!(
         container,
-        HVDCInverterPowerFactorAngleConstraint(),
+        HVDCInverterPowerFactorAngleConstraint,
         T,
         names,
         time_steps;
@@ -1198,12 +1198,12 @@ function add_constraints!(
 ) where {T <: PSY.TwoTerminalLCCLine}
     time_steps = get_time_steps(container)
     names = PSY.get_name.(devices)
-    rect_ac_current_var = get_variable(container, HVDCRectifierACCurrentVariable(), T)
-    dc_line_current_var = get_variable(container, DCLineCurrentFlowVariable(), T)
+    rect_ac_current_var = get_variable(container, HVDCRectifierACCurrentVariable, T)
+    dc_line_current_var = get_variable(container, DCLineCurrentFlowVariable, T)
 
     constraint_rect_ac_current = add_constraints_container!(
         container,
-        HVDCRectifierACCurrentFlowConstraint(),
+        HVDCRectifierACCurrentFlowConstraint,
         T,
         names,
         time_steps;
@@ -1233,12 +1233,12 @@ function add_constraints!(
 ) where {T <: PSY.TwoTerminalLCCLine}
     time_steps = get_time_steps(container)
     names = PSY.get_name.(devices)
-    inv_ac_current_var = get_variable(container, HVDCInverterACCurrentVariable(), T)
-    dc_line_current_var = get_variable(container, DCLineCurrentFlowVariable(), T)
+    inv_ac_current_var = get_variable(container, HVDCInverterACCurrentVariable, T)
+    dc_line_current_var = get_variable(container, DCLineCurrentFlowVariable, T)
 
     constraint_inv_ac_current = add_constraints_container!(
         container,
-        HVDCInverterACCurrentFlowConstraint(),
+        HVDCInverterACCurrentFlowConstraint,
         T,
         names,
         time_steps;
@@ -1268,17 +1268,17 @@ function add_constraints!(
 ) where {T <: PSY.TwoTerminalLCCLine}
     time_steps = get_time_steps(container)
     names = PSY.get_name.(devices)
-    rect_ac_ppower_var = get_variable(container, HVDCActivePowerReceivedFromVariable(), T)
-    rect_ac_qpower_var = get_variable(container, HVDCReactivePowerReceivedFromVariable(), T)
-    rect_ac_current_var = get_variable(container, HVDCRectifierACCurrentVariable(), T)
-    rect_ac_voltage_bus_var = get_variable(container, VoltageMagnitude(), PSY.ACBus)
+    rect_ac_ppower_var = get_variable(container, HVDCActivePowerReceivedFromVariable, T)
+    rect_ac_qpower_var = get_variable(container, HVDCReactivePowerReceivedFromVariable, T)
+    rect_ac_current_var = get_variable(container, HVDCRectifierACCurrentVariable, T)
+    rect_ac_voltage_bus_var = get_variable(container, VoltageMagnitude, PSY.ACBus)
     rect_power_factor_var =
-        get_variable(container, HVDCRectifierPowerFactorAngleVariable(), T)
-    rect_tap_setting_var = get_variable(container, HVDCRectifierTapSettingVariable(), T)
+        get_variable(container, HVDCRectifierPowerFactorAngleVariable, T)
+    rect_tap_setting_var = get_variable(container, HVDCRectifierTapSettingVariable, T)
 
     constraint_ft_p = add_constraints_container!(
         container,
-        HVDCRectifierPowerCalculationConstraint(),
+        HVDCRectifierPowerCalculationConstraint,
         T,
         names,
         time_steps;
@@ -1286,7 +1286,7 @@ function add_constraints!(
     )
     constraint_ft_q = add_constraints_container!(
         container,
-        HVDCRectifierPowerCalculationConstraint(),
+        HVDCRectifierPowerCalculationConstraint,
         T,
         names,
         time_steps;
@@ -1332,17 +1332,17 @@ function add_constraints!(
 ) where {T <: PSY.TwoTerminalLCCLine}
     time_steps = get_time_steps(container)
     names = PSY.get_name.(devices)
-    inv_ac_ppower_var = get_variable(container, HVDCActivePowerReceivedToVariable(), T)
-    inv_ac_qpower_var = get_variable(container, HVDCReactivePowerReceivedToVariable(), T)
-    inv_ac_current_var = get_variable(container, HVDCInverterACCurrentVariable(), T)
-    inv_ac_voltage_bus_var = get_variable(container, VoltageMagnitude(), PSY.ACBus)
+    inv_ac_ppower_var = get_variable(container, HVDCActivePowerReceivedToVariable, T)
+    inv_ac_qpower_var = get_variable(container, HVDCReactivePowerReceivedToVariable, T)
+    inv_ac_current_var = get_variable(container, HVDCInverterACCurrentVariable, T)
+    inv_ac_voltage_bus_var = get_variable(container, VoltageMagnitude, PSY.ACBus)
     inv_power_factor_var =
-        get_variable(container, HVDCInverterPowerFactorAngleVariable(), T)
-    inv_tap_setting_var = get_variable(container, HVDCInverterTapSettingVariable(), T)
+        get_variable(container, HVDCInverterPowerFactorAngleVariable, T)
+    inv_tap_setting_var = get_variable(container, HVDCInverterTapSettingVariable, T)
 
     constraint_ft_p = add_constraints_container!(
         container,
-        HVDCInverterPowerCalculationConstraint(),
+        HVDCInverterPowerCalculationConstraint,
         T,
         names,
         time_steps;
@@ -1350,7 +1350,7 @@ function add_constraints!(
     )
     constraint_ft_q = add_constraints_container!(
         container,
-        HVDCInverterPowerCalculationConstraint(),
+        HVDCInverterPowerCalculationConstraint,
         T,
         names,
         time_steps;
@@ -1396,13 +1396,13 @@ function add_constraints!(
 ) where {T <: PSY.TwoTerminalLCCLine}
     time_steps = get_time_steps(container)
     names = PSY.get_name.(devices)
-    rect_dc_voltage_var = get_variable(container, HVDCRectifierDCVoltageVariable(), T)
-    inv_dc_voltage_var = get_variable(container, HVDCInverterDCVoltageVariable(), T)
-    dc_line_current_var = get_variable(container, DCLineCurrentFlowVariable(), T)
+    rect_dc_voltage_var = get_variable(container, HVDCRectifierDCVoltageVariable, T)
+    inv_dc_voltage_var = get_variable(container, HVDCInverterDCVoltageVariable, T)
+    dc_line_current_var = get_variable(container, DCLineCurrentFlowVariable, T)
 
     constraint_tl_c = add_constraints_container!(
         container,
-        HVDCTransmissionDCLineConstraint(),
+        HVDCTransmissionDCLineConstraint,
         T,
         names,
         time_steps;

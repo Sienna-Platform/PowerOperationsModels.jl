@@ -7,7 +7,7 @@ which variable type corresponds to a given initial condition type for a particul
 device and formulation.
 
 # Arguments
-- `ic_type`: An instance of an InitialConditionType (e.g., DeviceStatus(), DevicePower())
+- `ic_type`: An instance of an InitialConditionType (e.g., DeviceStatus, DevicePower)
 - `component`: The device component
 - `formulation`: An instance of the device formulation
 
@@ -78,9 +78,9 @@ function get_initial_conditions_value(
     W <: PSY.Component,
 } where {U <: InitialConditionType}
     ic_data = get_initial_conditions_data(container)
-    var_type = initial_condition_variable(U(), component, V())
+    var_type = initial_condition_variable(U, component, V)
     if !has_initial_condition_value(ic_data, var_type, W)
-        val = initial_condition_default(U(), component, V())
+        val = initial_condition_default(U, component, V)
     else
         val = get_initial_condition_value(ic_data, var_type, W)[PSY.get_name(component), 1]
     end
@@ -102,9 +102,9 @@ function get_initial_conditions_value(
     W <: PSY.Component,
 } where {U <: InitialConditionType}
     ic_data = get_initial_conditions_data(container)
-    var_type = initial_condition_variable(U(), component, V())
+    var_type = initial_condition_variable(U, component, V)
     if !has_initial_condition_value(ic_data, var_type, W)
-        val = initial_condition_default(U(), component, V())
+        val = initial_condition_default(U, component, V)
     else
         val = get_initial_condition_value(ic_data, var_type, W)[PSY.get_name(component), 1]
     end
@@ -128,8 +128,8 @@ function get_initial_conditions_value(
     V <: AbstractDeviceFormulation,
     W <: PSY.Component,
 } where {U <: InitialEnergyLevel}
-    var_type = initial_condition_variable(U(), component, V())
-    val = initial_condition_default(U(), component, V())
+    var_type = initial_condition_variable(U, component, V)
+    val = initial_condition_default(U, component, V)
     @debug "Device $(PSY.get_name(component)) initialized $U as $val" _group =
         LOG_GROUP_BUILD_INITIAL_CONDITIONS
     return T(component, add_jump_parameter(get_jump_model(container), val))
@@ -147,8 +147,8 @@ function get_initial_conditions_value(
     V <: AbstractDeviceFormulation,
     W <: PSY.Component,
 } where {U <: InitialEnergyLevel}
-    var_type = initial_condition_variable(U(), component, V())
-    val = initial_condition_default(U(), component, V())
+    var_type = initial_condition_variable(U, component, V)
+    val = initial_condition_default(U, component, V)
     @debug "Device $(PSY.get_name(component)) initialized $U as $val" _group =
         LOG_GROUP_BUILD_INITIAL_CONDITIONS
     return T(component, val)
@@ -173,10 +173,10 @@ function add_initial_condition!(
         return
     end
 
-    ini_cond_vector = add_initial_condition_container!(container, D(), T, components)
+    ini_cond_vector = add_initial_condition_container!(container, D, T, components)
     for (ix, component) in enumerate(components)
         ini_cond_vector[ix] =
-            get_initial_conditions_value(ini_cond_vector, component, D(), U(), container)
+            get_initial_conditions_value(ini_cond_vector, component, D, U, container)
     end
     return
 end

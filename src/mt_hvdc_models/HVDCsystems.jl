@@ -199,8 +199,8 @@ function add_to_expression!(
     W <: AbstractDCLineFormulation,
     X <: AbstractPowerModel,
 }
-    variable = get_variable(container, U(), V)
-    expression = get_expression(container, T(), PSY.DCBus)
+    variable = get_variable(container, U, V)
+    expression = get_expression(container, T, PSY.DCBus)
     for d in devices
         arc = PSY.get_arc(d)
         to_bus_number = PSY.get_number(PSY.get_to(arc))
@@ -286,9 +286,9 @@ function _add_to_expression!(
     W <: AbstractConverterFormulation,
     X <: AbstractPowerModel,
 }
-    variable = get_variable(container, U(), V)
-    expression_dc = get_expression(container, T(), PSY.DCBus)
-    expression_ac = get_expression(container, T(), PSY.ACBus)
+    variable = get_variable(container, U, V)
+    expression_dc = get_expression(container, T, PSY.DCBus)
+    expression_ac = get_expression(container, T, PSY.ACBus)
     for d in devices, t in get_time_steps(container)
         name = PSY.get_name(d)
         bus_number_dc = PSY.get_number(PSY.get_dc_bus(d))
@@ -337,9 +337,9 @@ function add_to_expression!(
     V <: PSY.InterconnectingConverter,
     W <: AbstractConverterFormulation,
 }
-    variable = get_variable(container, U(), V)
-    expression_dc = get_expression(container, T(), PSY.DCBus)
-    expression_ac = get_expression(container, T(), PSY.ACBus)
+    variable = get_variable(container, U, V)
+    expression_dc = get_expression(container, T, PSY.DCBus)
+    expression_ac = get_expression(container, T, PSY.ACBus)
     for d in devices, t in get_time_steps(container)
         name = PSY.get_name(d)
         bus_number_dc = PSY.get_number(PSY.get_dc_bus(d))
@@ -387,9 +387,9 @@ function add_to_expression!(
     V <: PSY.InterconnectingConverter,
     W <: AbstractConverterFormulation,
 }
-    variable = get_variable(container, U(), V)
-    expression_dc = get_expression(container, T(), PSY.DCBus)
-    sys_expr = get_expression(container, T(), PSY.System)
+    variable = get_variable(container, U, V)
+    expression_dc = get_expression(container, T, PSY.DCBus)
+    sys_expr = get_expression(container, T, PSY.System)
     for d in devices
         name = PSY.get_name(d)
         device_bus = PSY.get_bus(d)
@@ -399,7 +399,7 @@ function add_to_expression!(
             add_proportional_to_jump_expression!(
                 sys_expr[ref_bus, t],
                 variable[name, t],
-                get_variable_multiplier(U(), V, W()),
+                get_variable_multiplier(U, V, W),
             )
             add_proportional_to_jump_expression!(
                 expression_dc[bus_number_dc, t],
@@ -424,8 +424,8 @@ function add_to_expression!(
     V <: PSY.InterconnectingConverter,
     W <: QuadraticLossConverter,
 }
-    variable = get_variable(container, U(), V)
-    sys_expr = get_expression(container, T(), PSY.System)
+    variable = get_variable(container, U, V)
+    sys_expr = get_expression(container, T, PSY.System)
     for d in devices
         name = PSY.get_name(d)
         device_bus = PSY.get_bus(d)
@@ -434,7 +434,7 @@ function add_to_expression!(
             add_proportional_to_jump_expression!(
                 sys_expr[ref_bus, t],
                 variable[name, t],
-                get_variable_multiplier(U(), V, W()),
+                get_variable_multiplier(U, V, W),
             )
         end
     end
@@ -454,8 +454,8 @@ function add_to_expression!(
     V <: PSY.InterconnectingConverter,
     W <: QuadraticLossConverter,
 }
-    variable = get_variable(container, U(), V)
-    expression_dc = get_expression(container, T(), PSY.DCBus)
+    variable = get_variable(container, U, V)
+    expression_dc = get_expression(container, T, PSY.DCBus)
     for d in devices
         name = PSY.get_name(d)
         bus_number_dc = PSY.get_number(PSY.get_dc_bus(d))
@@ -484,10 +484,10 @@ function add_to_expression!(
     W <: AbstractConverterFormulation,
     X <: PTDFPowerModel,
 }
-    variable = get_variable(container, U(), V)
-    expression_dc = get_expression(container, T(), PSY.DCBus)
-    expression_ac = get_expression(container, T(), PSY.ACBus)
-    sys_expr = get_expression(container, T(), PSY.System)
+    variable = get_variable(container, U, V)
+    expression_dc = get_expression(container, T, PSY.DCBus)
+    expression_ac = get_expression(container, T, PSY.ACBus)
+    sys_expr = get_expression(container, T, PSY.System)
     for d in devices
         name = PSY.get_name(d)
         device_bus = PSY.get_bus(d)
@@ -498,12 +498,12 @@ function add_to_expression!(
             add_proportional_to_jump_expression!(
                 sys_expr[ref_bus, t],
                 variable[name, t],
-                get_variable_multiplier(U(), V, W()),
+                get_variable_multiplier(U, V, W),
             )
             add_proportional_to_jump_expression!(
                 expression_ac[bus_number_ac, t],
                 variable[name, t],
-                get_variable_multiplier(U(), V, W()),
+                get_variable_multiplier(U, V, W),
             )
             add_proportional_to_jump_expression!(
                 expression_dc[bus_number_dc, t],
@@ -528,12 +528,12 @@ function add_constraints!(
     model::DeviceModel{T, U},
     network_model::NetworkModel{V},
 ) where {T <: PSY.TModelHVDCLine, U <: DCLossyLine, V <: AbstractPowerModel}
-    variable = get_variable(container, DCLineCurrent(), T)
-    dc_voltage = get_variable(container, DCVoltage(), PSY.DCBus)
+    variable = get_variable(container, DCLineCurrent, T)
+    dc_voltage = get_variable(container, DCVoltage, PSY.DCBus)
     time_steps = get_time_steps(container)
     constraints = add_constraints_container!(
         container,
-        DCLineCurrentConstraint(),
+        DCLineCurrentConstraint,
         T,
         PSY.get_name.(devices),
         time_steps,
@@ -578,18 +578,18 @@ function add_constraints!(
     X <: AbstractActivePowerModel,
 }
     time_steps = get_time_steps(container)
-    varcurrent = get_variable(container, ConverterCurrent(), U)
-    var_dcvoltage = get_variable(container, DCVoltage(), PSY.DCBus)
-    var_sq_current = get_variable(container, SquaredConverterCurrent(), U)
-    var_sq_voltage = get_variable(container, SquaredDCVoltage(), U)
-    var_bilinear = get_variable(container, AuxBilinearConverterVariable(), U)
-    var_sq_bilinear = get_variable(container, AuxBilinearSquaredConverterVariable(), U)
-    var_dc_power = get_variable(container, ConverterDCPower(), U)
+    varcurrent = get_variable(container, ConverterCurrent, U)
+    var_dcvoltage = get_variable(container, DCVoltage, PSY.DCBus)
+    var_sq_current = get_variable(container, SquaredConverterCurrent, U)
+    var_sq_voltage = get_variable(container, SquaredDCVoltage, U)
+    var_bilinear = get_variable(container, AuxBilinearConverterVariable, U)
+    var_sq_bilinear = get_variable(container, AuxBilinearSquaredConverterVariable, U)
+    var_dc_power = get_variable(container, ConverterDCPower, U)
     ipc_names = axes(varcurrent, 1)
     constraint =
         add_constraints_container!(
             container,
-            ConverterPowerCalculationConstraint(),
+            ConverterPowerCalculationConstraint,
             U,
             ipc_names,
             time_steps,
@@ -597,7 +597,7 @@ function add_constraints!(
     constraint_aux =
         add_constraints_container!(
             container,
-            ConverterPowerCalculationConstraint(),
+            ConverterPowerCalculationConstraint,
             U,
             ipc_names,
             time_steps;
@@ -639,14 +639,14 @@ function add_constraints!(
     X <: AbstractActivePowerModel,
 }
     time_steps = get_time_steps(container)
-    varcurrent = get_variable(container, ConverterCurrent(), U)
-    var_dcvoltage = get_variable(container, DCVoltage(), PSY.DCBus)
-    var_dc_power = get_variable(container, ConverterDCPower(), U)
+    varcurrent = get_variable(container, ConverterCurrent, U)
+    var_dcvoltage = get_variable(container, DCVoltage, PSY.DCBus)
+    var_dc_power = get_variable(container, ConverterDCPower, U)
     ipc_names = axes(varcurrent, 1)
     constraint1_under =
         add_constraints_container!(
             container,
-            ConverterMcCormickEnvelopes(),
+            ConverterMcCormickEnvelopes,
             U,
             ipc_names,
             time_steps;
@@ -655,7 +655,7 @@ function add_constraints!(
     constraint2_under =
         add_constraints_container!(
             container,
-            ConverterMcCormickEnvelopes(),
+            ConverterMcCormickEnvelopes,
             U,
             ipc_names,
             time_steps;
@@ -664,7 +664,7 @@ function add_constraints!(
     constraint1_over =
         add_constraints_container!(
             container,
-            ConverterMcCormickEnvelopes(),
+            ConverterMcCormickEnvelopes,
             U,
             ipc_names,
             time_steps;
@@ -673,7 +673,7 @@ function add_constraints!(
     constraint2_over =
         add_constraints_container!(
             container,
-            ConverterMcCormickEnvelopes(),
+            ConverterMcCormickEnvelopes,
             U,
             ipc_names,
             time_steps;
@@ -729,14 +729,14 @@ function add_constraints!(
     X <: AbstractActivePowerModel,
 }
     time_steps = get_time_steps(container)
-    var_sq_current = get_variable(container, SquaredConverterCurrent(), U)
-    var_ac_power = get_variable(container, ActivePowerVariable(), U)
-    var_dc_power = get_variable(container, ConverterDCPower(), U)
+    var_sq_current = get_variable(container, SquaredConverterCurrent, U)
+    var_ac_power = get_variable(container, ActivePowerVariable, U)
+    var_dc_power = get_variable(container, ConverterDCPower, U)
     ipc_names = axes(var_sq_current, 1)
     constraint =
         add_constraints_container!(
             container,
-            ConverterLossConstraint(),
+            ConverterLossConstraint,
             U,
             ipc_names,
             time_steps,
@@ -744,8 +744,8 @@ function add_constraints!(
 
     use_linear_loss = get_attribute(model, "use_linear_loss")
     if use_linear_loss
-        pos_current = get_variable(container, ConverterPositiveCurrent(), U)
-        neg_current = get_variable(container, ConverterNegativeCurrent(), U)
+        pos_current = get_variable(container, ConverterPositiveCurrent, U)
+        neg_current = get_variable(container, ConverterNegativeCurrent, U)
     end
 
     for device in devices
@@ -792,15 +792,15 @@ function add_constraints!(
     names = [PSY.get_name(d) for d in devices]
     JuMPmodel = get_jump_model(container)
     # current vars #
-    current_var = get_variable(container, ConverterCurrent(), U) # From direction
-    current_var_pos = get_variable(container, ConverterPositiveCurrent(), U) # From direction
-    current_var_neg = get_variable(container, ConverterNegativeCurrent(), U) # From direction
-    current_dir = get_variable(container, ConverterCurrentDirection(), U)
+    current_var = get_variable(container, ConverterCurrent, U) # From direction
+    current_var_pos = get_variable(container, ConverterPositiveCurrent, U) # From direction
+    current_var_neg = get_variable(container, ConverterNegativeCurrent, U) # From direction
+    current_dir = get_variable(container, ConverterCurrentDirection, U)
 
     constraint =
         add_constraints_container!(
             container,
-            CurrentAbsoluteValueConstraint(),
+            CurrentAbsoluteValueConstraint,
             U,
             names,
             time_steps,
@@ -808,7 +808,7 @@ function add_constraints!(
     constraint_pos_ub =
         add_constraints_container!(
             container,
-            CurrentAbsoluteValueConstraint(),
+            CurrentAbsoluteValueConstraint,
             U,
             names,
             time_steps;
@@ -817,7 +817,7 @@ function add_constraints!(
     constraint_neg_ub =
         add_constraints_container!(
             container,
-            CurrentAbsoluteValueConstraint(),
+            CurrentAbsoluteValueConstraint,
             U,
             names,
             time_steps;
@@ -870,11 +870,11 @@ function add_constraints!(
 
     _add_generic_incremental_interpolation_constraint!(
         container,
-        DCVoltage(),
-        SquaredDCVoltage(),
-        InterpolationSquaredVoltageVariable(),
-        InterpolationBinarySquaredVoltageVariable(),
-        InterpolationVoltageConstraints(),
+        DCVoltage,
+        SquaredDCVoltage,
+        InterpolationSquaredVoltageVariable,
+        InterpolationBinarySquaredVoltageVariable,
+        InterpolationVoltageConstraints,
         devices,
         dic_var_bkpts,
         dic_function_bkpts,
@@ -908,11 +908,11 @@ function add_constraints!(
 
     _add_generic_incremental_interpolation_constraint!(
         container,
-        ConverterCurrent(),
-        SquaredConverterCurrent(),
-        InterpolationSquaredCurrentVariable(),
-        InterpolationBinarySquaredCurrentVariable(),
-        InterpolationCurrentConstraints(),
+        ConverterCurrent,
+        SquaredConverterCurrent,
+        InterpolationSquaredCurrentVariable,
+        InterpolationBinarySquaredCurrentVariable,
+        InterpolationCurrentConstraints,
         devices,
         dic_var_bkpts,
         dic_function_bkpts,
@@ -949,11 +949,11 @@ function add_constraints!(
 
     _add_generic_incremental_interpolation_constraint!(
         container,
-        AuxBilinearConverterVariable(),
-        AuxBilinearSquaredConverterVariable(),
-        InterpolationSquaredBilinearVariable(),
-        InterpolationBinarySquaredBilinearVariable(),
-        InterpolationBilinearConstraints(),
+        AuxBilinearConverterVariable,
+        AuxBilinearSquaredConverterVariable,
+        InterpolationSquaredBilinearVariable,
+        InterpolationBinarySquaredBilinearVariable,
+        InterpolationBilinearConstraints,
         devices,
         dic_var_bkpts,
         dic_function_bkpts,

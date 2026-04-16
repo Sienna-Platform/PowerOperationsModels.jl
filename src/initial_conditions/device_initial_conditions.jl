@@ -15,9 +15,9 @@ function get_initial_conditions_value(
     W <: PSY.Component,
 } where {U <: InitialTimeDurationOff}
     ic_data = get_initial_conditions_data(container)
-    var_type = initial_condition_variable(U(), component, V())
+    var_type = initial_condition_variable(U, component, V)
     if !has_initial_condition_value(ic_data, var_type, W)
-        val = initial_condition_default(U(), component, V())
+        val = initial_condition_default(U, component, V)
     else
         var = get_initial_condition_value(ic_data, var_type, W)[PSY.get_name(component), 1]
         val = 0.0
@@ -42,9 +42,9 @@ function get_initial_conditions_value(
     W <: PSY.ThermalGen,
 } where {U <: InitialTimeDurationOff}
     ic_data = get_initial_conditions_data(container)
-    var_type = initial_condition_variable(U(), component, V())
+    var_type = initial_condition_variable(U, component, V)
     if !has_initial_condition_value(ic_data, var_type, W)
-        val = initial_condition_default(U(), component, V())
+        val = initial_condition_default(U, component, V)
     else
         var = get_initial_condition_value(ic_data, var_type, W)[PSY.get_name(component), 1]
         val = 0.0
@@ -72,10 +72,10 @@ function get_initial_conditions_value(
     W <: PSY.ThermalGen,
 } where {U <: InitialTimeDurationOn}
     ic_data = get_initial_conditions_data(container)
-    var_type = initial_condition_variable(U(), component, V())
+    var_type = initial_condition_variable(U, component, V)
     has_ic = has_initial_condition_value(ic_data, var_type, W)
     if !has_ic
-        val = initial_condition_default(U(), component, V())
+        val = initial_condition_default(U, component, V)
     else
         var = get_initial_condition_value(ic_data, var_type, W)[PSY.get_name(component), 1]
         val = 0.0
@@ -100,10 +100,10 @@ function get_initial_conditions_value(
     W <: PSY.ThermalGen,
 } where {U <: InitialTimeDurationOn}
     ic_data = get_initial_conditions_data(container)
-    var_type = initial_condition_variable(U(), component, V())
+    var_type = initial_condition_variable(U, component, V)
     has_ic = has_initial_condition_value(ic_data, var_type, W)
     if !has_ic
-        val = initial_condition_default(U(), component, V())
+        val = initial_condition_default(U, component, V)
     else
         var = get_initial_condition_value(ic_data, var_type, W)[PSY.get_name(component), 1]
         val = 0.0
@@ -138,7 +138,7 @@ function add_initial_condition!(
         return
     end
 
-    ini_cond_vector = add_initial_condition_container!(container, D(), T, components)
+    ini_cond_vector = add_initial_condition_container!(container, D, T, components)
     for (ix, component) in enumerate(components)
         if PSY.get_must_run(component)
             ini_cond_vector[ix] = InitialCondition{D, Nothing}(component, nothing)
@@ -147,8 +147,8 @@ function add_initial_condition!(
                 get_initial_conditions_value(
                     ini_cond_vector,
                     component,
-                    D(),
-                    U(),
+                    D,
+                    U,
                     container,
                 )
         end

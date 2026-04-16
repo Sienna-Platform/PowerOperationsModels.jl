@@ -176,12 +176,12 @@ function add_variable_cost_to_objective!(
 )
     isnothing(get_output_offer_curves(cost_function)) && return
     add_pwl_term_delta!(
-        IncrementalOffer(),
+        IncrementalOffer,
         container,
         component,
         cost_function,
-        ActivePowerOutVariable(),
-        ImportExportSourceModel(),
+        ActivePowerOutVariable,
+        ImportExportSourceModel,
     )
     return
 end
@@ -195,12 +195,12 @@ function add_variable_cost_to_objective!(
 )
     isnothing(get_input_offer_curves(cost_function)) && return
     add_pwl_term_delta!(
-        DecrementalOffer(),
+        DecrementalOffer,
         container,
         component,
         cost_function,
-        ActivePowerInVariable(),
-        ImportExportSourceModel(),
+        ActivePowerInVariable,
+        ImportExportSourceModel,
     )
     return
 end
@@ -222,17 +222,17 @@ function add_variable_cost_to_objective!(
         error("Component $(component_name) is not allowed to participate as a supply.")
     end
     add_pwl_term_delta!(
-        DecrementalOffer(),
+        DecrementalOffer,
         container,
         component,
         cost_function,
-        T(),
-        U(),
+        T,
+        U,
     )
     return
 end
 
-_vom_offer_direction(::Type{<:AbstractControllablePowerLoadFormulation}) = DecrementalOffer()
+_vom_offer_direction(::Type{<:AbstractControllablePowerLoadFormulation}) = DecrementalOffer
 
 #################################################################################
 # Section 7: Service-specific PWL (ReserveDemandCurve, StepwiseCostReserve)
@@ -250,10 +250,10 @@ function add_pwl_constraint_delta!(
     period::Int,
 ) where {T <: PSY.ReserveDemandCurve, U <: ServiceRequirementVariable}
     name = PSY.get_name(component)
-    variables = get_variable(container, U(), T, name)
+    variables = get_variable(container, U, T, name)
     const_container = lazy_container_addition!(
         container,
-        PiecewiseLinearBlockIncrementalOfferConstraint(),
+        PiecewiseLinearBlockIncrementalOfferConstraint,
         T,
         axes(variables)...;
         meta = name,
@@ -280,7 +280,7 @@ function add_pwl_term_delta!(
     ::U,
     ::V,
 ) where {T <: PSY.Component, U <: VariableType, V <: AbstractServiceFormulation}
-    multiplier = objective_function_multiplier(U(), V())
+    multiplier = objective_function_multiplier(U, V)
     resolution = get_resolution(container)
     dt = Dates.value(Dates.Second(resolution)) / SECONDS_IN_HOUR
     base_power = get_model_base_power(container)
@@ -309,7 +309,7 @@ function add_pwl_term_delta!(
             length(slopes);
             upper_bound = Inf,
         )
-        add_pwl_constraint_delta!(container, component, U(), break_points, pwl_vars, t)
+        add_pwl_constraint_delta!(container, component, U, break_points, pwl_vars, t)
         pwl_cost_expressions[t] =
             get_pwl_cost_expression_delta(pwl_vars, slopes, multiplier * dt)
     end

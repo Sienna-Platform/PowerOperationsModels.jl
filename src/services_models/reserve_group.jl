@@ -21,7 +21,7 @@ function check_activeservice_variables(
     for service in contributing_services
         get_variable(
             container,
-            ActivePowerReserveVariable(),
+            ActivePowerReserveVariable,
             typeof(service),
             PSY.get_name(service),
         )
@@ -44,16 +44,16 @@ function add_constraints!(
     service_name = PSY.get_name(service)
     add_constraints_container!(
         container,
-        RequirementConstraint(),
+        RequirementConstraint,
         SR,
         [service_name],
         time_steps;
         meta = service_name,
     )
-    constraint = get_constraint(container, RequirementConstraint(), SR, service_name)
+    constraint = get_constraint(container, RequirementConstraint, SR, service_name)
     use_slacks = get_use_slacks(model)
     reserve_variables = [
-        get_variable(container, ActivePowerReserveVariable(), typeof(r), PSY.get_name(r)) for r in contributing_services
+        get_variable(container, ActivePowerReserveVariable, typeof(r), PSY.get_name(r)) for r in contributing_services
     ]
 
     requirement = PSY.get_requirement(service)

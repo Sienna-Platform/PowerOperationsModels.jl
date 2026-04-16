@@ -39,7 +39,7 @@ get_variable_binary(::Type{<:LiftVariable}, ::Type{<:PSY.AGC}, ::Type{<:Abstract
 get_variable_lower_bound(::Type{<:LiftVariable}, ::PSY.AGC, ::Type{<:AbstractAGCFormulation}) = 0.0
 
 initial_condition_default(::AreaControlError, d::PSY.AGC, ::AbstractAGCFormulation) = PSY.get_initial_ace(d)
-initial_condition_variable(::AreaControlError, d::PSY.AGC, ::AbstractAGCFormulation) = AreaMismatchVariable()
+initial_condition_variable(::AreaControlError, d::PSY.AGC, ::AbstractAGCFormulation) = AreaMismatchVariable
 
 # Per-device bias multiplier (-10 * get_bias(d)) computed inline at add_to_expression! call sites.
 get_variable_multiplier(::Type{<:SteadyStateFrequencyDeviation}, ::Type{<:PSY.AGC}, ::Type{<:AbstractAGCFormulation}) = 1.0
@@ -68,7 +68,7 @@ function add_agc_variables!(
     ::Type{T},
 ) where {T <: SteadyStateFrequencyDeviation}
     time_steps = get_time_steps(container)
-    variable = add_variable_container!(container, T(), PSY.AGC, time_steps)
+    variable = add_variable_container!(container, T, PSY.AGC, time_steps)
     for t in time_steps
         variable[t] = JuMP.@variable(container.JuMPmodel, base_name = "ΔF_{$(t)}")
     end
@@ -95,11 +95,11 @@ function add_constraints!(
     time_steps = get_time_steps(container)
     agc_names = PSY.get_name.(agcs)
     container_lb =
-        add_constraints_container!(container, T(), U, agc_names, time_steps; meta = "lb")
+        add_constraints_container!(container, T, U, agc_names, time_steps; meta = "lb")
     container_ub =
-        add_constraints_container!(container, T(), U, agc_names, time_steps; meta = "ub")
-    mismatch = get_variable(container, AreaMismatchVariable(), U)
-    z = get_variable(container, LiftVariable(), U)
+        add_constraints_container!(container, T, U, agc_names, time_steps; meta = "ub")
+    mismatch = get_variable(container, AreaMismatchVariable, U)
+    z = get_variable(container, LiftVariable, U)
     jump_model = get_jump_model(container)
 
     for t in time_steps, a in agc_names
@@ -141,16 +141,16 @@ function add_constraints!(
     # This value is the one updated later in simulation based on the UC result
     inv_frequency_response = 1 / frequency_response
 
-    area_balance = get_variable(container, ActivePowerVariable(), PSY.Area)
-    frequency = get_variable(container, SteadyStateFrequencyDeviation(), U)
-    R_up = get_variable(container, DeltaActivePowerUpVariable(), U)
-    R_dn = get_variable(container, DeltaActivePowerDownVariable(), U)
+    area_balance = get_variable(container, ActivePowerVariable, PSY.Area)
+    frequency = get_variable(container, SteadyStateFrequencyDeviation, U)
+    R_up = get_variable(container, DeltaActivePowerUpVariable, U)
+    R_dn = get_variable(container, DeltaActivePowerDownVariable, U)
     R_up_emergency =
-        get_variable(container, AdditionalDeltaActivePowerUpVariable(), PSY.Area)
+        get_variable(container, AdditionalDeltaActivePowerUpVariable, PSY.Area)
     R_dn_emergency =
-        get_variable(container, AdditionalDeltaActivePowerUpVariable(), PSY.Area)
+        get_variable(container, AdditionalDeltaActivePowerUpVariable, PSY.Area)
 
-    const_container = add_constraints_container!(container, T(), PSY.System, time_steps)
+    const_container = add_constraints_container!(container, T, PSY.System, time_steps)
 
     for t in time_steps
         system_balance = sum(area_balance.data[:, t])
@@ -182,11 +182,11 @@ function add_constraints!(
     time_steps = get_time_steps(container)
     agc_names = PSY.get_name.(services)
     area_names = [PSY.get_name(PSY.get_area(s)) for s in services]
-    RAW_ACE = get_expression(container, RawACE(), U)
-    SACE = get_variable(container, SmoothACE(), U)
+    RAW_ACE = get_expression(container, RawACE, U)
+    SACE = get_variable(container, SmoothACE, U)
     SACE_pid = add_constraints_container!(
         container,
-        SACEPIDAreaConstraint(),
+        SACEPIDAreaConstraint,
         U,
         agc_names,
         time_steps,
@@ -201,7 +201,7 @@ function add_constraints!(
         a = PSY.get_name(service)
         for t in time_steps
             if t == 1
-                ACE_ini = get_initial_condition(container, AreaControlError(), PSY.AGC)[ix]
+                ACE_ini = get_initial_condition(container, AreaControlError, PSY.AGC)[ix]
                 ace_exp = get_value(ACE_ini) + kp * ((1 + Δt / (kp / ki)) * (RAW_ACE[a, t]))
                 SACE_pid[a, t] = JuMP.@constraint(jump_model, SACE[a, t] == ace_exp)
                 continue
@@ -232,19 +232,19 @@ function add_constraints!(
     agc_names = PSY.get_name.(agcs)
     aux_equation = add_constraints_container!(
         container,
-        BalanceAuxConstraint(),
+        BalanceAuxConstraint,
         PSY.System,
         agc_names,
         time_steps,
     )
-    area_mismatch = get_variable(container, AreaMismatchVariable(), PSY.AGC)
-    SACE = get_variable(container, SmoothACE(), PSY.AGC)
-    R_up = get_variable(container, DeltaActivePowerUpVariable(), PSY.AGC)
-    R_dn = get_variable(container, DeltaActivePowerDownVariable(), PSY.AGC)
+    area_mismatch = get_variable(container, AreaMismatchVariable, PSY.AGC)
+    SACE = get_variable(container, SmoothACE, PSY.AGC)
+    R_up = get_variable(container, DeltaActivePowerUpVariable, PSY.AGC)
+    R_dn = get_variable(container, DeltaActivePowerDownVariable, PSY.AGC)
     R_up_emergency =
-        get_variable(container, AdditionalDeltaActivePowerUpVariable(), PSY.Area)
+        get_variable(container, AdditionalDeltaActivePowerUpVariable, PSY.Area)
     R_dn_emergency =
-        get_variable(container, AdditionalDeltaActivePowerUpVariable(), PSY.Area)
+        get_variable(container, AdditionalDeltaActivePowerUpVariable, PSY.Area)
 
     for t in time_steps
         for agc in agcs
@@ -267,7 +267,7 @@ function add_to_objective_function!(
     agcs::IS.FlattenIteratorWrapper{T},
     ::ServiceModel{<:PSY.AGC, U},
 ) where {T <: PSY.AGC, U <: PIDSmoothACE}
-    add_service_proportional_cost!(container, LiftVariable(), agcs, U())
+    add_service_proportional_cost!(container, LiftVariable, agcs, U)
     return
 end
 
@@ -302,7 +302,7 @@ function add_service_proportional_cost!(
     agcs::IS.FlattenIteratorWrapper{T},
     ::PIDSmoothACE,
 ) where {T <: PSY.AGC, U <: LiftVariable}
-    lift_variable = get_variable(container, U(), T)
+    lift_variable = get_variable(container, U, T)
     for index in Iterators.product(axes(lift_variable)...)
         add_to_objective_invariant_expression!(
             container,

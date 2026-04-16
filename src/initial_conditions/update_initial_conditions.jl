@@ -2,12 +2,12 @@
 # IC type -> variable/aux-variable type mapping (dispatch-based)
 #################################################################################
 
-_ic_variable_type(::Type{DevicePower}) = ActivePowerVariable()
-_ic_variable_type(::Type{DeviceStatus}) = OnVariable()
-_ic_variable_type(::Type{DeviceAboveMinPower}) = PowerAboveMinimumVariable()
-_ic_variable_type(::Type{InitialTimeDurationOn}) = TimeDurationOn()
-_ic_variable_type(::Type{InitialTimeDurationOff}) = TimeDurationOff()
-_ic_variable_type(::Type{InitialEnergyLevel}) = EnergyVariable()
+_ic_variable_type(::Type{DevicePower}) = ActivePowerVariable
+_ic_variable_type(::Type{DeviceStatus}) = OnVariable
+_ic_variable_type(::Type{DeviceAboveMinPower}) = PowerAboveMinimumVariable
+_ic_variable_type(::Type{InitialTimeDurationOn}) = TimeDurationOn
+_ic_variable_type(::Type{InitialTimeDurationOff}) = TimeDurationOff
+_ic_variable_type(::Type{InitialEnergyLevel}) = EnergyVariable
 
 # Dispatch to the right container getter based on variable vs aux variable type
 # FIXME we should add something like this to the API.

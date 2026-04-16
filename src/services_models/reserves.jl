@@ -111,7 +111,7 @@ function add_reserve_variables!(
 }
     time_steps = get_time_steps(container)
     service_name = PSY.get_name(service)
-    variable_type = T()
+    variable_type = T
     variable = add_variable_container!(
         container,
         variable_type,
@@ -151,14 +151,14 @@ function add_constraints!(
     # TODO: Add a method for services that handles this better
     constraint = add_constraints_container!(
         container,
-        T(),
+        T,
         SR,
         [service_name],
         time_steps;
         meta = service_name,
     )
     reserve_variable =
-        get_variable(container, ActivePowerReserveVariable(), SR, service_name)
+        get_variable(container, ActivePowerReserveVariable, SR, service_name)
     use_slacks = get_use_slacks(model)
 
     ts_vector = IOM.get_time_series(container, service, "requirement")
@@ -168,7 +168,7 @@ function add_constraints!(
     jump_model = get_jump_model(container)
     if built_for_recurrent_solves(container)
         param_container =
-            get_parameter(container, RequirementTimeSeriesParameter(), SR, service_name)
+            get_parameter(container, RequirementTimeSeriesParameter, SR, service_name)
         param = get_parameter_column_refs(param_container, service_name)
         for t in time_steps
             if use_slacks
@@ -220,18 +220,18 @@ function add_constraints!(
     service_name = PSY.get_name(service)
     cons = add_constraints_container!(
         container,
-        T(),
+        T,
         SR,
         [PSY.get_name(d) for d in contributing_devices],
         time_steps;
         meta = service_name,
     )
-    var_r = get_variable(container, ActivePowerReserveVariable(), SR, service_name)
+    var_r = get_variable(container, ActivePowerReserveVariable, SR, service_name)
     jump_model = get_jump_model(container)
     requirement = PSY.get_requirement(service)
     ts_vector = IOM.get_time_series(container, service, "requirement")
     param_container =
-        get_parameter(container, RequirementTimeSeriesParameter(), SR, service_name)
+        get_parameter(container, RequirementTimeSeriesParameter, SR, service_name)
     param = get_parameter_column_refs(param_container, service_name)
     for t in time_steps, d in contributing_devices
         name = PSY.get_name(d)
@@ -268,14 +268,14 @@ function add_constraints!(
     # TODO: The constraint addition is still not clean enough
     constraint = add_constraints_container!(
         container,
-        T(),
+        T,
         SR,
         [service_name],
         time_steps;
         meta = service_name,
     )
     reserve_variable =
-        get_variable(container, ActivePowerReserveVariable(), SR, service_name)
+        get_variable(container, ActivePowerReserveVariable, SR, service_name)
     use_slacks = get_use_slacks(model)
     use_slacks && (slack_vars = reserve_slacks!(container, service))
 
@@ -301,7 +301,7 @@ function add_to_objective_function!(
     service::SR,
     ::ServiceModel{SR, T},
 ) where {SR <: PSY.AbstractReserve, T <: AbstractReservesFormulation}
-    add_reserves_proportional_cost!(container, ActivePowerReserveVariable(), service, T())
+    add_reserves_proportional_cost!(container, ActivePowerReserveVariable, service, T)
     return
 end
 
@@ -319,16 +319,16 @@ function add_constraints!(
     service_name = PSY.get_name(service)
     constraint = add_constraints_container!(
         container,
-        T(),
+        T,
         SR,
         [service_name],
         time_steps;
         meta = service_name,
     )
     reserve_variable =
-        get_variable(container, ActivePowerReserveVariable(), SR, service_name)
+        get_variable(container, ActivePowerReserveVariable, SR, service_name)
     requirement_variable =
-        get_variable(container, ServiceRequirementVariable(), SR, service_name)
+        get_variable(container, ServiceRequirementVariable, SR, service_name)
     jump_model = get_jump_model(container)
     for t in time_steps
         constraint[service_name, t] = JuMP.@constraint(
@@ -383,11 +383,11 @@ function add_constraints!(
         jump_model = get_jump_model(container)
         time_steps = get_time_steps(container)
         time_frame = PSY.get_time_frame(service)
-        variable = get_variable(container, ActivePowerReserveVariable(), SR, service_name)
+        variable = get_variable(container, ActivePowerReserveVariable, SR, service_name)
         device_name_set = [PSY.get_name(d) for d in ramp_devices]
         con_up = add_constraints_container!(
             container,
-            T(),
+            T,
             SR,
             device_name_set,
             time_steps;
@@ -424,11 +424,11 @@ function add_constraints!(
         jump_model = get_jump_model(container)
         time_steps = get_time_steps(container)
         time_frame = PSY.get_time_frame(service)
-        variable = get_variable(container, ActivePowerReserveVariable(), SR, service_name)
+        variable = get_variable(container, ActivePowerReserveVariable, SR, service_name)
         device_name_set = [PSY.get_name(d) for d in ramp_devices]
         con_down = add_constraints_container!(
             container,
-            T(),
+            T,
             SR,
             device_name_set,
             time_steps;
@@ -470,19 +470,19 @@ function add_constraints!(
     service_name = PSY.get_name(service)
     cons = add_constraints_container!(
         container,
-        T(),
+        T,
         SR,
         [PSY.get_name(d) for d in contributing_devices],
         time_steps;
         meta = service_name,
     )
-    var_r = get_variable(container, ActivePowerReserveVariable(), SR, service_name)
+    var_r = get_variable(container, ActivePowerReserveVariable, SR, service_name)
     reserve_response_time = PSY.get_time_frame(service)
     jump_model = get_jump_model(container)
     for d in contributing_devices
         component_type = typeof(d)
         name = PSY.get_name(d)
-        varstatus = get_variable(container, OnVariable(), component_type)
+        varstatus = get_variable(container, OnVariable, component_type)
         startup_time = PSY.get_time_limits(d).up
         ramp_limits = _get_ramp_limits(d)
         if reserve_response_time > startup_time
@@ -507,7 +507,7 @@ function add_to_objective_function!(
     service::PSY.ReserveDemandCurve{T},
     ::ServiceModel{PSY.ReserveDemandCurve{T}, SR},
 ) where {T <: PSY.ReserveDirection, SR <: StepwiseCostReserve}
-    add_reserves_variable_cost!(container, ServiceRequirementVariable(), service, SR())
+    add_reserves_variable_cost!(container, ServiceRequirementVariable, service, SR)
     return
 end
 
@@ -518,7 +518,7 @@ function add_reserves_variable_cost!(
     service::T,
     ::V,
 ) where {T <: PSY.ReserveDemandCurve, U <: VariableType, V <: StepwiseCostReserve}
-    _add_reserves_variable_cost_to_objective!(container, U(), service, V())
+    _add_reserves_variable_cost_to_objective!(container, U, service, V)
     return
 end
 
@@ -543,7 +543,7 @@ function _add_reserves_variable_cost_to_objective!(
     end
 
     pwl_cost_expressions =
-        add_pwl_term_delta!(container, component, variable_cost, T(), U())
+        add_pwl_term_delta!(container, component, variable_cost, T, U)
     for t in time_steps
         add_to_expression!(
             container,
@@ -568,7 +568,7 @@ function add_reserves_proportional_cost!(
     V <: AbstractReservesFormulation,
 }
     base_p = get_model_base_power(container)
-    reserve_variable = get_variable(container, U(), T, PSY.get_name(service))
+    reserve_variable = get_variable(container, U, T, PSY.get_name(service))
     for index in Iterators.product(axes(reserve_variable)...)
         add_to_objective_invariant_expression!(
             container,

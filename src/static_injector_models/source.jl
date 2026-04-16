@@ -107,20 +107,20 @@ function add_constraints!(
     resolution = get_resolution(container)
     resolution_in_hours = Dates.Hour(resolution).value
     hours_in_horizon = length(time_steps) * resolution_in_hours
-    p_out = get_variable(container, ActivePowerOutVariable(), U)
-    p_in = get_variable(container, ActivePowerInVariable(), U)
+    p_out = get_variable(container, ActivePowerOutVariable, U)
+    p_in = get_variable(container, ActivePowerInVariable, U)
     names = PSY.get_name.(devices)
     constraint_export =
         add_constraints_container!(
             container,
-            ImportExportBudgetConstraint(),
+            ImportExportBudgetConstraint,
             U,
             names;
             meta = "export",
         )
     constraint_import = add_constraints_container!(
         container,
-        ImportExportBudgetConstraint(),
+        ImportExportBudgetConstraint,
         U,
         names;
         meta = "import",
@@ -199,8 +199,8 @@ function add_to_objective_function!(
     ::DeviceModel{T, U},
     ::Type{V},
 ) where {T <: PSY.Source, U <: AbstractSourceFormulation, V <: AbstractPowerModel}
-    add_variable_cost!(container, ActivePowerOutVariable(), devices, U())
-    add_variable_cost!(container, ActivePowerInVariable(), devices, U())
+    add_variable_cost!(container, ActivePowerOutVariable, devices, U)
+    add_variable_cost!(container, ActivePowerInVariable, devices, U)
     return
 end
 

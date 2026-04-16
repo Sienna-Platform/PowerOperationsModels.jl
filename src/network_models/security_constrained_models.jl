@@ -53,7 +53,7 @@ function add_constraints!(
         meta = "ub",
     )
 
-    expressions = get_expression(container, PostContingencyBranchFlow(), T)
+    expressions = get_expression(container, PostContingencyBranchFlow, T)
 
     param_keys = get_parameter_keys(container)
 

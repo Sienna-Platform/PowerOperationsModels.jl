@@ -5,7 +5,7 @@ function reserve_slacks!(
     time_steps = get_time_steps(container)
     variable = add_variable_container!(
         container,
-        ReserveRequirementSlack(),
+        ReserveRequirementSlack,
         T,
         PSY.get_name(service),
         time_steps,

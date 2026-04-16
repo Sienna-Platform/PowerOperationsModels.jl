@@ -68,16 +68,16 @@ function construct_device!(
 }
     devices = get_available_components(device_model, sys)
 
-    add_variables!(container, ActivePowerVariable, devices, D())
-    add_variables!(container, ReactivePowerVariable, devices, D())
-    add_variables!(container, OnVariable, devices, D())
-    add_variables!(container, StartVariable, devices, D())
-    add_variables!(container, StopVariable, devices, D())
+    add_variables!(container, ActivePowerVariable, devices, D)
+    add_variables!(container, ReactivePowerVariable, devices, D)
+    add_variables!(container, OnVariable, devices, D)
+    add_variables!(container, StartVariable, devices, D)
+    add_variables!(container, StopVariable, devices, D)
 
-    add_variables!(container, TimeDurationOn, devices, D())
-    add_variables!(container, TimeDurationOff, devices, D())
+    add_variables!(container, TimeDurationOn, devices, D)
+    add_variables!(container, TimeDurationOff, devices, D)
 
-    initial_conditions!(container, devices, D())
+    initial_conditions!(container, devices, D)
 
     if haskey(get_time_series_names(device_model), ActivePowerTimeSeriesParameter)
         add_parameters!(container, ActivePowerTimeSeriesParameter, devices, device_model)
@@ -129,8 +129,8 @@ function construct_device!(
         device_model,
     )
     if get_use_slacks(device_model)
-        add_variables!(container, RateofChangeConstraintSlackUp, devices, D())
-        add_variables!(container, RateofChangeConstraintSlackDown, devices, D())
+        add_variables!(container, RateofChangeConstraintSlackUp, devices, D)
+        add_variables!(container, RateofChangeConstraintSlackDown, devices, D)
     end
     add_feedforward_arguments!(container, device_model, devices)
     add_event_arguments!(container, devices, device_model, network_model)
@@ -228,15 +228,15 @@ function construct_device!(
 ) where {T <: PSY.ThermalGen, D <: AbstractStandardUnitCommitment}
     devices = get_available_components(device_model, sys)
 
-    add_variables!(container, ActivePowerVariable, devices, D())
-    add_variables!(container, OnVariable, devices, D())
-    add_variables!(container, StartVariable, devices, D())
-    add_variables!(container, StopVariable, devices, D())
+    add_variables!(container, ActivePowerVariable, devices, D)
+    add_variables!(container, OnVariable, devices, D)
+    add_variables!(container, StartVariable, devices, D)
+    add_variables!(container, StopVariable, devices, D)
 
-    add_variables!(container, TimeDurationOn, devices, D())
-    add_variables!(container, TimeDurationOff, devices, D())
+    add_variables!(container, TimeDurationOn, devices, D)
+    add_variables!(container, TimeDurationOff, devices, D)
 
-    initial_conditions!(container, devices, D())
+    initial_conditions!(container, devices, D)
 
     if haskey(get_time_series_names(device_model), ActivePowerTimeSeriesParameter)
         add_parameters!(container, ActivePowerTimeSeriesParameter, devices, device_model)
@@ -280,8 +280,8 @@ function construct_device!(
         device_model,
     )
     if get_use_slacks(device_model)
-        add_variables!(container, RateofChangeConstraintSlackUp, devices, D())
-        add_variables!(container, RateofChangeConstraintSlackDown, devices, D())
+        add_variables!(container, RateofChangeConstraintSlackUp, devices, D)
+        add_variables!(container, RateofChangeConstraintSlackDown, devices, D)
     end
 
     add_feedforward_arguments!(container, device_model, devices)
@@ -356,15 +356,15 @@ function construct_device!(
 ) where {T <: PSY.ThermalGen}
     devices = get_available_components(device_model, sys)
 
-    add_variables!(container, ActivePowerVariable, devices, ThermalBasicUnitCommitment())
-    add_variables!(container, ReactivePowerVariable, devices, ThermalBasicUnitCommitment())
-    add_variables!(container, OnVariable, devices, ThermalBasicUnitCommitment())
-    add_variables!(container, StartVariable, devices, ThermalBasicUnitCommitment())
-    add_variables!(container, StopVariable, devices, ThermalBasicUnitCommitment())
+    add_variables!(container, ActivePowerVariable, devices, ThermalBasicUnitCommitment)
+    add_variables!(container, ReactivePowerVariable, devices, ThermalBasicUnitCommitment)
+    add_variables!(container, OnVariable, devices, ThermalBasicUnitCommitment)
+    add_variables!(container, StartVariable, devices, ThermalBasicUnitCommitment)
+    add_variables!(container, StopVariable, devices, ThermalBasicUnitCommitment)
 
-    add_variables!(container, TimeDurationOn, devices, ThermalBasicUnitCommitment())
-    add_variables!(container, TimeDurationOff, devices, ThermalBasicUnitCommitment())
-    initial_conditions!(container, devices, ThermalBasicUnitCommitment())
+    add_variables!(container, TimeDurationOn, devices, ThermalBasicUnitCommitment)
+    add_variables!(container, TimeDurationOff, devices, ThermalBasicUnitCommitment)
+    initial_conditions!(container, devices, ThermalBasicUnitCommitment)
 
     if haskey(get_time_series_names(device_model), ActivePowerTimeSeriesParameter)
         add_parameters!(container, ActivePowerTimeSeriesParameter, devices, device_model)
@@ -420,13 +420,13 @@ function construct_device!(
             container,
             RateofChangeConstraintSlackUp,
             devices,
-            ThermalBasicUnitCommitment(),
+            ThermalBasicUnitCommitment,
         )
         add_variables!(
             container,
             RateofChangeConstraintSlackDown,
             devices,
-            ThermalBasicUnitCommitment(),
+            ThermalBasicUnitCommitment,
         )
     end
 
@@ -510,14 +510,14 @@ function construct_device!(
 ) where {T <: PSY.ThermalGen}
     devices = get_available_components(device_model, sys)
 
-    add_variables!(container, ActivePowerVariable, devices, ThermalBasicUnitCommitment())
-    add_variables!(container, OnVariable, devices, ThermalBasicUnitCommitment())
-    add_variables!(container, StartVariable, devices, ThermalBasicUnitCommitment())
-    add_variables!(container, StopVariable, devices, ThermalBasicUnitCommitment())
+    add_variables!(container, ActivePowerVariable, devices, ThermalBasicUnitCommitment)
+    add_variables!(container, OnVariable, devices, ThermalBasicUnitCommitment)
+    add_variables!(container, StartVariable, devices, ThermalBasicUnitCommitment)
+    add_variables!(container, StopVariable, devices, ThermalBasicUnitCommitment)
 
-    add_variables!(container, TimeDurationOn, devices, ThermalBasicUnitCommitment())
-    add_variables!(container, TimeDurationOff, devices, ThermalBasicUnitCommitment())
-    initial_conditions!(container, devices, ThermalBasicUnitCommitment())
+    add_variables!(container, TimeDurationOn, devices, ThermalBasicUnitCommitment)
+    add_variables!(container, TimeDurationOff, devices, ThermalBasicUnitCommitment)
+    initial_conditions!(container, devices, ThermalBasicUnitCommitment)
 
     if haskey(get_time_series_names(device_model), ActivePowerTimeSeriesParameter)
         add_parameters!(container, ActivePowerTimeSeriesParameter, devices, device_model)
@@ -565,13 +565,13 @@ function construct_device!(
             container,
             RateofChangeConstraintSlackUp,
             devices,
-            ThermalBasicUnitCommitment(),
+            ThermalBasicUnitCommitment,
         )
         add_variables!(
             container,
             RateofChangeConstraintSlackDown,
             devices,
-            ThermalBasicUnitCommitment(),
+            ThermalBasicUnitCommitment,
         )
     end
 
@@ -646,10 +646,10 @@ function construct_device!(
 ) where {T <: PSY.ThermalGen}
     devices = get_available_components(device_model, sys)
 
-    add_variables!(container, ActivePowerVariable, devices, ThermalStandardDispatch())
-    add_variables!(container, ReactivePowerVariable, devices, ThermalStandardDispatch())
+    add_variables!(container, ActivePowerVariable, devices, ThermalStandardDispatch)
+    add_variables!(container, ReactivePowerVariable, devices, ThermalStandardDispatch)
 
-    initial_conditions!(container, devices, ThermalStandardDispatch())
+    initial_conditions!(container, devices, ThermalStandardDispatch)
 
     _handle_common_thermal_parameters!(container, devices, device_model)
 
@@ -701,13 +701,13 @@ function construct_device!(
             container,
             RateofChangeConstraintSlackUp,
             devices,
-            ThermalStandardDispatch(),
+            ThermalStandardDispatch,
         )
         add_variables!(
             container,
             RateofChangeConstraintSlackDown,
             devices,
-            ThermalStandardDispatch(),
+            ThermalStandardDispatch,
         )
     end
 
@@ -780,9 +780,9 @@ function construct_device!(
 ) where {T <: PSY.ThermalGen}
     devices = get_available_components(device_model, sys)
 
-    add_variables!(container, ActivePowerVariable, devices, ThermalStandardDispatch())
+    add_variables!(container, ActivePowerVariable, devices, ThermalStandardDispatch)
 
-    initial_conditions!(container, devices, ThermalStandardDispatch())
+    initial_conditions!(container, devices, ThermalStandardDispatch)
 
     _handle_common_thermal_parameters!(container, devices, device_model)
 
@@ -826,13 +826,13 @@ function construct_device!(
             container,
             RateofChangeConstraintSlackUp,
             devices,
-            ThermalStandardDispatch(),
+            ThermalStandardDispatch,
         )
         add_variables!(
             container,
             RateofChangeConstraintSlackDown,
             devices,
-            ThermalStandardDispatch(),
+            ThermalStandardDispatch,
         )
     end
 
@@ -897,8 +897,8 @@ function construct_device!(
 }
     devices = get_available_components(device_model, sys)
 
-    add_variables!(container, ActivePowerVariable, devices, D())
-    add_variables!(container, ReactivePowerVariable, devices, D())
+    add_variables!(container, ActivePowerVariable, devices, D)
+    add_variables!(container, ReactivePowerVariable, devices, D)
 
     _handle_common_thermal_parameters!(container, devices, device_model)
 
@@ -946,8 +946,8 @@ function construct_device!(
         device_model,
     )
     if get_use_slacks(device_model)
-        add_variables!(container, RateofChangeConstraintSlackUp, devices, D())
-        add_variables!(container, RateofChangeConstraintSlackDown, devices, D())
+        add_variables!(container, RateofChangeConstraintSlackUp, devices, D)
+        add_variables!(container, RateofChangeConstraintSlackDown, devices, D)
     end
 
     add_feedforward_arguments!(container, device_model, devices)
@@ -1015,7 +1015,7 @@ function construct_device!(
 }
     devices = get_available_components(device_model, sys)
 
-    add_variables!(container, ActivePowerVariable, devices, D())
+    add_variables!(container, ActivePowerVariable, devices, D)
 
     _handle_common_thermal_parameters!(container, devices, device_model)
 
@@ -1055,8 +1055,8 @@ function construct_device!(
         device_model,
     )
     if get_use_slacks(device_model)
-        add_variables!(container, RateofChangeConstraintSlackUp, devices, D())
-        add_variables!(container, RateofChangeConstraintSlackDown, devices, D())
+        add_variables!(container, RateofChangeConstraintSlackUp, devices, D)
+        add_variables!(container, RateofChangeConstraintSlackDown, devices, D)
     end
 
     add_feedforward_arguments!(container, device_model, devices)
@@ -1115,26 +1115,26 @@ function construct_device!(
         container,
         PowerAboveMinimumVariable,
         devices,
-        ThermalMultiStartUnitCommitment(),
+        ThermalMultiStartUnitCommitment,
     )
     add_variables!(
         container,
         ReactivePowerVariable,
         devices,
-        ThermalMultiStartUnitCommitment(),
+        ThermalMultiStartUnitCommitment,
     )
-    add_variables!(container, OnVariable, devices, ThermalMultiStartUnitCommitment())
-    add_variables!(container, StopVariable, devices, ThermalMultiStartUnitCommitment())
-    add_variables!(container, StartVariable, devices, ThermalMultiStartUnitCommitment())
-    add_variables!(container, ColdStartVariable, devices, ThermalMultiStartUnitCommitment())
-    add_variables!(container, WarmStartVariable, devices, ThermalMultiStartUnitCommitment())
-    add_variables!(container, HotStartVariable, devices, ThermalMultiStartUnitCommitment())
+    add_variables!(container, OnVariable, devices, ThermalMultiStartUnitCommitment)
+    add_variables!(container, StopVariable, devices, ThermalMultiStartUnitCommitment)
+    add_variables!(container, StartVariable, devices, ThermalMultiStartUnitCommitment)
+    add_variables!(container, ColdStartVariable, devices, ThermalMultiStartUnitCommitment)
+    add_variables!(container, WarmStartVariable, devices, ThermalMultiStartUnitCommitment)
+    add_variables!(container, HotStartVariable, devices, ThermalMultiStartUnitCommitment)
 
-    add_variables!(container, TimeDurationOn, devices, ThermalMultiStartUnitCommitment())
-    add_variables!(container, TimeDurationOff, devices, ThermalMultiStartUnitCommitment())
-    add_variables!(container, PowerOutput, devices, ThermalMultiStartUnitCommitment())
+    add_variables!(container, TimeDurationOn, devices, ThermalMultiStartUnitCommitment)
+    add_variables!(container, TimeDurationOff, devices, ThermalMultiStartUnitCommitment)
+    add_variables!(container, PowerOutput, devices, ThermalMultiStartUnitCommitment)
 
-    initial_conditions!(container, devices, ThermalMultiStartUnitCommitment())
+    initial_conditions!(container, devices, ThermalMultiStartUnitCommitment)
 
     if haskey(get_time_series_names(device_model), ActivePowerTimeSeriesParameter)
         add_parameters!(container, ActivePowerTimeSeriesParameter, devices, device_model)
@@ -1199,13 +1199,13 @@ function construct_device!(
             container,
             RateofChangeConstraintSlackUp,
             devices,
-            ThermalMultiStartUnitCommitment(),
+            ThermalMultiStartUnitCommitment,
         )
         add_variables!(
             container,
             RateofChangeConstraintSlackDown,
             devices,
-            ThermalMultiStartUnitCommitment(),
+            ThermalMultiStartUnitCommitment,
         )
     end
 
@@ -1311,18 +1311,18 @@ function construct_device!(
         container,
         PowerAboveMinimumVariable,
         devices,
-        ThermalMultiStartUnitCommitment(),
+        ThermalMultiStartUnitCommitment,
     )
-    add_variables!(container, OnVariable, devices, ThermalMultiStartUnitCommitment())
-    add_variables!(container, StopVariable, devices, ThermalMultiStartUnitCommitment())
-    add_variables!(container, StartVariable, devices, ThermalMultiStartUnitCommitment())
-    add_variables!(container, ColdStartVariable, devices, ThermalMultiStartUnitCommitment())
-    add_variables!(container, WarmStartVariable, devices, ThermalMultiStartUnitCommitment())
-    add_variables!(container, HotStartVariable, devices, ThermalMultiStartUnitCommitment())
+    add_variables!(container, OnVariable, devices, ThermalMultiStartUnitCommitment)
+    add_variables!(container, StopVariable, devices, ThermalMultiStartUnitCommitment)
+    add_variables!(container, StartVariable, devices, ThermalMultiStartUnitCommitment)
+    add_variables!(container, ColdStartVariable, devices, ThermalMultiStartUnitCommitment)
+    add_variables!(container, WarmStartVariable, devices, ThermalMultiStartUnitCommitment)
+    add_variables!(container, HotStartVariable, devices, ThermalMultiStartUnitCommitment)
 
-    add_variables!(container, TimeDurationOn, devices, ThermalMultiStartUnitCommitment())
-    add_variables!(container, TimeDurationOff, devices, ThermalMultiStartUnitCommitment())
-    add_variables!(container, PowerOutput, devices, ThermalMultiStartUnitCommitment())
+    add_variables!(container, TimeDurationOn, devices, ThermalMultiStartUnitCommitment)
+    add_variables!(container, TimeDurationOff, devices, ThermalMultiStartUnitCommitment)
+    add_variables!(container, PowerOutput, devices, ThermalMultiStartUnitCommitment)
 
     if haskey(get_time_series_names(device_model), ActivePowerTimeSeriesParameter)
         add_parameters!(container, ActivePowerTimeSeriesParameter, devices, device_model)
@@ -1379,13 +1379,13 @@ function construct_device!(
             container,
             RateofChangeConstraintSlackUp,
             devices,
-            ThermalMultiStartUnitCommitment(),
+            ThermalMultiStartUnitCommitment,
         )
         add_variables!(
             container,
             RateofChangeConstraintSlackDown,
             devices,
-            ThermalMultiStartUnitCommitment(),
+            ThermalMultiStartUnitCommitment,
         )
     end
 
@@ -1403,7 +1403,7 @@ function construct_device!(
 )
     devices = get_available_components(device_model, sys)
 
-    initial_conditions!(container, devices, ThermalMultiStartUnitCommitment())
+    initial_conditions!(container, devices, ThermalMultiStartUnitCommitment)
 
     add_constraints!(
         container,
@@ -1485,23 +1485,23 @@ function construct_device!(
         container,
         PowerAboveMinimumVariable,
         devices,
-        ThermalCompactUnitCommitment(),
+        ThermalCompactUnitCommitment,
     )
     add_variables!(
         container,
         ReactivePowerVariable,
         devices,
-        ThermalCompactUnitCommitment(),
+        ThermalCompactUnitCommitment,
     )
-    add_variables!(container, OnVariable, devices, ThermalCompactUnitCommitment())
-    add_variables!(container, StartVariable, devices, ThermalCompactUnitCommitment())
-    add_variables!(container, StopVariable, devices, ThermalCompactUnitCommitment())
+    add_variables!(container, OnVariable, devices, ThermalCompactUnitCommitment)
+    add_variables!(container, StartVariable, devices, ThermalCompactUnitCommitment)
+    add_variables!(container, StopVariable, devices, ThermalCompactUnitCommitment)
 
-    add_variables!(container, TimeDurationOn, devices, ThermalCompactUnitCommitment())
-    add_variables!(container, TimeDurationOff, devices, ThermalCompactUnitCommitment())
-    add_variables!(container, PowerOutput, devices, ThermalCompactUnitCommitment())
+    add_variables!(container, TimeDurationOn, devices, ThermalCompactUnitCommitment)
+    add_variables!(container, TimeDurationOff, devices, ThermalCompactUnitCommitment)
+    add_variables!(container, PowerOutput, devices, ThermalCompactUnitCommitment)
 
-    initial_conditions!(container, devices, ThermalCompactUnitCommitment())
+    initial_conditions!(container, devices, ThermalCompactUnitCommitment)
 
     if haskey(get_time_series_names(device_model), ActivePowerTimeSeriesParameter)
         add_parameters!(container, ActivePowerTimeSeriesParameter, devices, device_model)
@@ -1557,13 +1557,13 @@ function construct_device!(
             container,
             RateofChangeConstraintSlackUp,
             devices,
-            ThermalCompactUnitCommitment(),
+            ThermalCompactUnitCommitment,
         )
         add_variables!(
             container,
             RateofChangeConstraintSlackDown,
             devices,
-            ThermalCompactUnitCommitment(),
+            ThermalCompactUnitCommitment,
         )
     end
 
@@ -1646,17 +1646,17 @@ function construct_device!(
         container,
         PowerAboveMinimumVariable,
         devices,
-        ThermalCompactUnitCommitment(),
+        ThermalCompactUnitCommitment,
     )
-    add_variables!(container, OnVariable, devices, ThermalCompactUnitCommitment())
-    add_variables!(container, StartVariable, devices, ThermalCompactUnitCommitment())
-    add_variables!(container, StopVariable, devices, ThermalCompactUnitCommitment())
+    add_variables!(container, OnVariable, devices, ThermalCompactUnitCommitment)
+    add_variables!(container, StartVariable, devices, ThermalCompactUnitCommitment)
+    add_variables!(container, StopVariable, devices, ThermalCompactUnitCommitment)
 
-    add_variables!(container, TimeDurationOn, devices, ThermalCompactUnitCommitment())
-    add_variables!(container, TimeDurationOff, devices, ThermalCompactUnitCommitment())
-    add_variables!(container, PowerOutput, devices, ThermalCompactUnitCommitment())
+    add_variables!(container, TimeDurationOn, devices, ThermalCompactUnitCommitment)
+    add_variables!(container, TimeDurationOff, devices, ThermalCompactUnitCommitment)
+    add_variables!(container, PowerOutput, devices, ThermalCompactUnitCommitment)
 
-    initial_conditions!(container, devices, ThermalCompactUnitCommitment())
+    initial_conditions!(container, devices, ThermalCompactUnitCommitment)
 
     if haskey(get_time_series_names(device_model), ActivePowerTimeSeriesParameter)
         add_parameters!(container, ActivePowerTimeSeriesParameter, devices, device_model)
@@ -1712,13 +1712,13 @@ function construct_device!(
             container,
             RateofChangeConstraintSlackUp,
             devices,
-            ThermalCompactUnitCommitment(),
+            ThermalCompactUnitCommitment,
         )
         add_variables!(
             container,
             RateofChangeConstraintSlackDown,
             devices,
-            ThermalCompactUnitCommitment(),
+            ThermalCompactUnitCommitment,
         )
     end
 
@@ -1793,23 +1793,23 @@ function construct_device!(
         container,
         PowerAboveMinimumVariable,
         devices,
-        ThermalBasicCompactUnitCommitment(),
+        ThermalBasicCompactUnitCommitment,
     )
     add_variables!(
         container,
         ReactivePowerVariable,
         devices,
-        ThermalBasicCompactUnitCommitment(),
+        ThermalBasicCompactUnitCommitment,
     )
-    add_variables!(container, OnVariable, devices, ThermalBasicCompactUnitCommitment())
-    add_variables!(container, StartVariable, devices, ThermalBasicCompactUnitCommitment())
-    add_variables!(container, StopVariable, devices, ThermalBasicCompactUnitCommitment())
+    add_variables!(container, OnVariable, devices, ThermalBasicCompactUnitCommitment)
+    add_variables!(container, StartVariable, devices, ThermalBasicCompactUnitCommitment)
+    add_variables!(container, StopVariable, devices, ThermalBasicCompactUnitCommitment)
 
-    add_variables!(container, PowerOutput, devices, ThermalBasicCompactUnitCommitment())
-    add_variables!(container, TimeDurationOn, devices, ThermalBasicCompactUnitCommitment())
-    add_variables!(container, TimeDurationOff, devices, ThermalBasicCompactUnitCommitment())
+    add_variables!(container, PowerOutput, devices, ThermalBasicCompactUnitCommitment)
+    add_variables!(container, TimeDurationOn, devices, ThermalBasicCompactUnitCommitment)
+    add_variables!(container, TimeDurationOff, devices, ThermalBasicCompactUnitCommitment)
 
-    initial_conditions!(container, devices, ThermalBasicCompactUnitCommitment())
+    initial_conditions!(container, devices, ThermalBasicCompactUnitCommitment)
 
     if haskey(get_time_series_names(device_model), ActivePowerTimeSeriesParameter)
         add_parameters!(container, ActivePowerTimeSeriesParameter, devices, device_model)
@@ -1865,13 +1865,13 @@ function construct_device!(
             container,
             RateofChangeConstraintSlackUp,
             devices,
-            ThermalBasicCompactUnitCommitment(),
+            ThermalBasicCompactUnitCommitment,
         )
         add_variables!(
             container,
             RateofChangeConstraintSlackDown,
             devices,
-            ThermalBasicCompactUnitCommitment(),
+            ThermalBasicCompactUnitCommitment,
         )
     end
 
@@ -1952,16 +1952,16 @@ function construct_device!(
         container,
         PowerAboveMinimumVariable,
         devices,
-        ThermalBasicCompactUnitCommitment(),
+        ThermalBasicCompactUnitCommitment,
     )
-    add_variables!(container, OnVariable, devices, ThermalBasicCompactUnitCommitment())
-    add_variables!(container, StartVariable, devices, ThermalBasicCompactUnitCommitment())
-    add_variables!(container, StopVariable, devices, ThermalBasicCompactUnitCommitment())
+    add_variables!(container, OnVariable, devices, ThermalBasicCompactUnitCommitment)
+    add_variables!(container, StartVariable, devices, ThermalBasicCompactUnitCommitment)
+    add_variables!(container, StopVariable, devices, ThermalBasicCompactUnitCommitment)
 
-    add_variables!(container, PowerOutput, devices, ThermalBasicCompactUnitCommitment())
-    add_variables!(container, TimeDurationOn, devices, ThermalBasicCompactUnitCommitment())
-    add_variables!(container, TimeDurationOff, devices, ThermalBasicCompactUnitCommitment())
-    initial_conditions!(container, devices, ThermalBasicCompactUnitCommitment())
+    add_variables!(container, PowerOutput, devices, ThermalBasicCompactUnitCommitment)
+    add_variables!(container, TimeDurationOn, devices, ThermalBasicCompactUnitCommitment)
+    add_variables!(container, TimeDurationOff, devices, ThermalBasicCompactUnitCommitment)
+    initial_conditions!(container, devices, ThermalBasicCompactUnitCommitment)
 
     if haskey(get_time_series_names(device_model), ActivePowerTimeSeriesParameter)
         add_parameters!(container, ActivePowerTimeSeriesParameter, devices, device_model)
@@ -2017,13 +2017,13 @@ function construct_device!(
             container,
             RateofChangeConstraintSlackUp,
             devices,
-            ThermalBasicCompactUnitCommitment(),
+            ThermalBasicCompactUnitCommitment,
         )
         add_variables!(
             container,
             RateofChangeConstraintSlackDown,
             devices,
-            ThermalBasicCompactUnitCommitment(),
+            ThermalBasicCompactUnitCommitment,
         )
     end
     add_feedforward_arguments!(container, device_model, devices)
@@ -2091,10 +2091,10 @@ function construct_device!(
 ) where {T <: PSY.ThermalGen}
     devices = get_available_components(device_model, sys)
 
-    add_variables!(container, PowerAboveMinimumVariable, devices, ThermalCompactDispatch())
-    add_variables!(container, ReactivePowerVariable, devices, ThermalCompactDispatch())
+    add_variables!(container, PowerAboveMinimumVariable, devices, ThermalCompactDispatch)
+    add_variables!(container, ReactivePowerVariable, devices, ThermalCompactDispatch)
 
-    add_variables!(container, PowerOutput, devices, ThermalCompactDispatch())
+    add_variables!(container, PowerOutput, devices, ThermalCompactDispatch)
 
     add_parameters!(container, OnStatusParameter, devices, device_model)
 
@@ -2102,7 +2102,7 @@ function construct_device!(
 
     add_feedforward_arguments!(container, device_model, devices)
 
-    initial_conditions!(container, devices, ThermalCompactDispatch())
+    initial_conditions!(container, devices, ThermalCompactDispatch)
 
     add_to_expression!(
         container,
@@ -2160,13 +2160,13 @@ function construct_device!(
             container,
             RateofChangeConstraintSlackUp,
             devices,
-            ThermalCompactDispatch(),
+            ThermalCompactDispatch,
         )
         add_variables!(
             container,
             RateofChangeConstraintSlackDown,
             devices,
-            ThermalCompactDispatch(),
+            ThermalCompactDispatch,
         )
     end
     add_event_arguments!(container, devices, device_model, network_model)
@@ -2231,9 +2231,9 @@ function construct_device!(
 ) where {T <: PSY.ThermalGen}
     devices = get_available_components(device_model, sys)
 
-    add_variables!(container, PowerAboveMinimumVariable, devices, ThermalCompactDispatch())
+    add_variables!(container, PowerAboveMinimumVariable, devices, ThermalCompactDispatch)
 
-    add_variables!(container, PowerOutput, devices, ThermalCompactDispatch())
+    add_variables!(container, PowerOutput, devices, ThermalCompactDispatch)
 
     add_parameters!(container, OnStatusParameter, devices, device_model)
 
@@ -2259,7 +2259,7 @@ function construct_device!(
         network_model,
     )
 
-    initial_conditions!(container, devices, ThermalCompactDispatch())
+    initial_conditions!(container, devices, ThermalCompactDispatch)
 
     add_expressions!(container, ProductionCostExpression, devices, device_model)
     add_expressions!(container, FuelConsumptionExpression, devices, device_model)
@@ -2292,13 +2292,13 @@ function construct_device!(
             container,
             RateofChangeConstraintSlackUp,
             devices,
-            ThermalCompactDispatch(),
+            ThermalCompactDispatch,
         )
         add_variables!(
             container,
             RateofChangeConstraintSlackDown,
             devices,
-            ThermalCompactDispatch(),
+            ThermalCompactDispatch,
         )
     end
     add_event_arguments!(container, devices, device_model, network_model)
