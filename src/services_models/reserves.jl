@@ -40,7 +40,7 @@ get_multiplier_value(::Type{<:RequirementTimeSeriesParameter}, d::PSY.ReserveNon
 get_parameter_multiplier(::VariableValueParameter, d::Type{<:PSY.AbstractReserve}, ::AbstractReservesFormulation) = 1.0
 get_initial_parameter_value(::VariableValueParameter, d::Type{<:PSY.AbstractReserve}, ::AbstractReservesFormulation) = 0.0
 
-objective_function_multiplier(::ServiceRequirementVariable, ::StepwiseCostReserve) = -1.0
+objective_function_multiplier(::Type{<:ServiceRequirementVariable}, ::Type{<:StepwiseCostReserve}) = -1.0
 uses_compact_power(::PSY.ReserveDemandCurve, ::StepwiseCostReserve)=false
 #! format: on
 

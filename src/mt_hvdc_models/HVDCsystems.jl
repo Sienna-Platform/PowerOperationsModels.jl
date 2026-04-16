@@ -1,9 +1,9 @@
 #! format: off
-get_variable_binary(::ActivePowerVariable, ::Type{PSY.InterconnectingConverter}, ::AbstractConverterFormulation) = false
-get_variable_warm_start_value(::ActivePowerVariable, d::PSY.InterconnectingConverter, ::AbstractConverterFormulation) = PSY.get_active_power(d)
-get_variable_lower_bound(::ActivePowerVariable, d::PSY.InterconnectingConverter, ::AbstractConverterFormulation) = PSY.get_active_power_limits(d).min
-get_variable_upper_bound(::ActivePowerVariable, d::PSY.InterconnectingConverter, ::AbstractConverterFormulation) = PSY.get_active_power_limits(d).max
-get_variable_multiplier(::VariableType, ::Type{PSY.InterconnectingConverter}, ::AbstractConverterFormulation) = 1.0
+get_variable_binary(::Type{<:ActivePowerVariable}, ::Type{PSY.InterconnectingConverter}, ::Type{<:AbstractConverterFormulation}) = false
+get_variable_warm_start_value(::Type{<:ActivePowerVariable}, d::PSY.InterconnectingConverter, ::Type{<:AbstractConverterFormulation}) = PSY.get_active_power(d)
+get_variable_lower_bound(::Type{<:ActivePowerVariable}, d::PSY.InterconnectingConverter, ::Type{<:AbstractConverterFormulation}) = PSY.get_active_power_limits(d).min
+get_variable_upper_bound(::Type{<:ActivePowerVariable}, d::PSY.InterconnectingConverter, ::Type{<:AbstractConverterFormulation}) = PSY.get_active_power_limits(d).max
+get_variable_multiplier(::Type{<:VariableType}, ::Type{PSY.InterconnectingConverter}, ::Type{<:AbstractConverterFormulation}) = 1.0
 
 
 function _get_flow_bounds(d::PSY.TModelHVDCLine)
@@ -149,22 +149,22 @@ end
 get_variable_warm_start_value(::Type{<:ConverterCurrent}, d::PSY.InterconnectingConverter, ::Type{<:AbstractConverterFormulation}) = PSY.get_dc_current(d)
 
 ### Lower Bounds ###
-get_variable_lower_bound(::ConverterDCPower, d::PSY.InterconnectingConverter, ::AbstractConverterFormulation) = PSY.get_active_power_limits(d).min
-get_variable_lower_bound(::ConverterCurrent, d::PSY.InterconnectingConverter, ::AbstractConverterFormulation) = -PSY.get_max_dc_current(d)
-get_variable_lower_bound(::SquaredConverterCurrent, d::PSY.InterconnectingConverter, ::AbstractConverterFormulation) = 0.0
-get_variable_lower_bound(::SquaredDCVoltage, d::PSY.InterconnectingConverter, ::AbstractConverterFormulation) = PSY.get_voltage_limits(d.dc_bus).min^2
-get_variable_lower_bound(::InterpolationVariableType, d::PSY.InterconnectingConverter, ::AbstractConverterFormulation) = 0.0
-get_variable_lower_bound(::ConverterPositiveCurrent, d::PSY.InterconnectingConverter,::AbstractConverterFormulation) = 0.0
-get_variable_lower_bound(::ConverterNegativeCurrent, d::PSY.InterconnectingConverter,::AbstractConverterFormulation) = 0.0
+get_variable_lower_bound(::Type{<:ConverterDCPower}, d::PSY.InterconnectingConverter, ::Type{<:AbstractConverterFormulation}) = PSY.get_active_power_limits(d).min
+get_variable_lower_bound(::Type{<:ConverterCurrent}, d::PSY.InterconnectingConverter, ::Type{<:AbstractConverterFormulation}) = -PSY.get_max_dc_current(d)
+get_variable_lower_bound(::Type{<:SquaredConverterCurrent}, d::PSY.InterconnectingConverter, ::Type{<:AbstractConverterFormulation}) = 0.0
+get_variable_lower_bound(::Type{<:SquaredDCVoltage}, d::PSY.InterconnectingConverter, ::Type{<:AbstractConverterFormulation}) = PSY.get_voltage_limits(d.dc_bus).min^2
+get_variable_lower_bound(::Type{<:InterpolationVariableType}, d::PSY.InterconnectingConverter, ::Type{<:AbstractConverterFormulation}) = 0.0
+get_variable_lower_bound(::Type{<:ConverterPositiveCurrent}, d::PSY.InterconnectingConverter,::Type{<:AbstractConverterFormulation}) = 0.0
+get_variable_lower_bound(::Type{<:ConverterNegativeCurrent}, d::PSY.InterconnectingConverter,::Type{<:AbstractConverterFormulation}) = 0.0
 
 ### Upper Bounds ###
-get_variable_upper_bound(::ConverterDCPower, d::PSY.InterconnectingConverter, ::AbstractConverterFormulation) = PSY.get_active_power_limits(d).max
-get_variable_upper_bound(::ConverterCurrent, d::PSY.InterconnectingConverter, ::AbstractConverterFormulation) = PSY.get_max_dc_current(d)
-get_variable_upper_bound(::SquaredConverterCurrent, d::PSY.InterconnectingConverter, ::AbstractConverterFormulation) = PSY.get_max_dc_current(d)^2
-get_variable_upper_bound(::SquaredDCVoltage, d::PSY.InterconnectingConverter, ::AbstractConverterFormulation) = PSY.get_voltage_limits(d.dc_bus).max^2
-get_variable_upper_bound(::InterpolationVariableType, d::PSY.InterconnectingConverter, ::AbstractConverterFormulation) = 1.0
-get_variable_upper_bound(::ConverterPositiveCurrent, d::PSY.InterconnectingConverter,::AbstractConverterFormulation) = PSY.get_max_dc_current(d)
-get_variable_upper_bound(::ConverterNegativeCurrent, d::PSY.InterconnectingConverter,::AbstractConverterFormulation) = PSY.get_max_dc_current(d)
+get_variable_upper_bound(::Type{<:ConverterDCPower}, d::PSY.InterconnectingConverter, ::Type{<:AbstractConverterFormulation}) = PSY.get_active_power_limits(d).max
+get_variable_upper_bound(::Type{<:ConverterCurrent}, d::PSY.InterconnectingConverter, ::Type{<:AbstractConverterFormulation}) = PSY.get_max_dc_current(d)
+get_variable_upper_bound(::Type{<:SquaredConverterCurrent}, d::PSY.InterconnectingConverter, ::Type{<:AbstractConverterFormulation}) = PSY.get_max_dc_current(d)^2
+get_variable_upper_bound(::Type{<:SquaredDCVoltage}, d::PSY.InterconnectingConverter, ::Type{<:AbstractConverterFormulation}) = PSY.get_voltage_limits(d.dc_bus).max^2
+get_variable_upper_bound(::Type{<:InterpolationVariableType}, d::PSY.InterconnectingConverter, ::Type{<:AbstractConverterFormulation}) = 1.0
+get_variable_upper_bound(::Type{<:ConverterPositiveCurrent}, d::PSY.InterconnectingConverter,::Type{<:AbstractConverterFormulation}) = PSY.get_max_dc_current(d)
+get_variable_upper_bound(::Type{<:ConverterNegativeCurrent}, d::PSY.InterconnectingConverter,::Type{<:AbstractConverterFormulation}) = PSY.get_max_dc_current(d)
 
 
 function get_default_attributes(
