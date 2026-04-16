@@ -545,7 +545,6 @@ function _add_hvdc_flow_constraints!(
     )
 end
 
-# FIXME typeof(var), typeof(constraint) are runtime. Add function barrier and dispatch.
 function _add_hvdc_flow_constraints!(
     container::OptimizationContainer,
     devices::Union{Vector{T}, IS.FlattenIteratorWrapper{T}},
