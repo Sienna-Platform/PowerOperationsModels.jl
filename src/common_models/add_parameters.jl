@@ -511,7 +511,7 @@ function _add_parameters!(
 
     IOM.set_subsystem!(IOM.get_attributes(parameter_container), IOM.get_subsystem(model))
     jump_model = get_jump_model(container)
-    ts_vector = IOM.get_time_series(container, service, T(), name)
+    ts_vector = IOM.get_time_series(container, service, T, name)
     multiplier = get_multiplier_value(T, service, V)
     for t in time_steps
         IOM.set_multiplier!(parameter_container, multiplier, name, t)

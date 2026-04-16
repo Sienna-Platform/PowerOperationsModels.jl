@@ -1365,8 +1365,7 @@ function add_constraints!(
                 container,
                 time_params,
                 ini_conds,
-                DurationConstraint(),
-                (OnVariable, StartVariable, StopVariable),
+                DurationConstraint,
                 U,
             )
         else
@@ -1374,8 +1373,7 @@ function add_constraints!(
                 container,
                 time_params,
                 ini_conds,
-                DurationConstraint(),
-                (OnVariable, StartVariable, StopVariable),
+                DurationConstraint,
                 U,
             )
         end
@@ -1404,8 +1402,7 @@ function add_constraints!(
                 container,
                 time_params,
                 ini_conds,
-                DurationConstraint(),
-                (OnVariable, StartVariable, StopVariable),
+                DurationConstraint,
                 U,
             )
         else
@@ -1413,8 +1410,7 @@ function add_constraints!(
                 container,
                 time_params,
                 ini_conds,
-                DurationConstraint(),
-                (OnVariable, StartVariable, StopVariable),
+                DurationConstraint,
                 U,
             )
         end
