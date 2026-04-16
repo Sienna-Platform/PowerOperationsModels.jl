@@ -30,7 +30,7 @@ function add_reserve_range_constraints!(
     W <: AbstractDeviceFormulation,
     X <: AbstractPowerModel,
 }
-    array = get_variable(container, U(), V)
+    array = get_variable(container, U, V)
     add_reserve_bound_range_constraints!(
         container, T, LowerBound(), array, devices, model, true)
     add_reserve_bound_range_constraints!(
@@ -52,7 +52,7 @@ function add_reserve_range_constraints!(
     W <: AbstractDeviceFormulation,
     X <: AbstractPowerModel,
 }
-    array = get_expression(container, U(), W)
+    array = get_expression(container, U, W)
     add_reserve_bound_range_constraints!(
         container, T, get_bound_direction(U()), array, devices, model, true)
     return
@@ -92,7 +92,7 @@ function add_reserve_range_constraints!(
     X <: AbstractDeviceFormulation,
     Y <: AbstractPowerModel,
 }
-    array = get_variable(container, U(), W)
+    array = get_variable(container, U, W)
     add_reserve_bound_range_constraints!(
         container, T, LowerBound(), array, devices, model, false)
     add_reserve_bound_range_constraints!(
@@ -134,7 +134,7 @@ function add_reserve_range_constraints!(
     X <: AbstractDeviceFormulation,
     Y <: AbstractPowerModel,
 }
-    array = get_expression(container, U(), W)
+    array = get_expression(container, U, W)
     add_reserve_bound_range_constraints!(
         container, T, get_bound_direction(U()), array, devices, model, false)
     return

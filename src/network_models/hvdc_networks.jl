@@ -1,10 +1,26 @@
 ## To add method of upper_bounds and lower_bounds for DCVoltage
-get_variable_binary(::DCVoltage, ::Type{PSY.DCBus}, ::AbstractHVDCNetworkModel) = false
-get_variable_warm_start_value(::DCVoltage, ::PSY.DCBus, ::AbstractHVDCNetworkModel) =
+get_variable_binary(
+    ::Type{DCVoltage},
+    ::Type{PSY.DCBus},
+    ::Type{<:AbstractHVDCNetworkModel},
+) = false
+get_variable_warm_start_value(
+    ::Type{DCVoltage},
+    ::PSY.DCBus,
+    ::Type{<:AbstractHVDCNetworkModel},
+) =
     nothing
-get_variable_lower_bound(::DCVoltage, d::PSY.DCBus, ::AbstractHVDCNetworkModel) =
+get_variable_lower_bound(
+    ::Type{DCVoltage},
+    d::PSY.DCBus,
+    ::Type{<:AbstractHVDCNetworkModel},
+) =
     PSY.get_voltage_limits(d).min
-get_variable_upper_bound(::DCVoltage, d::PSY.DCBus, ::AbstractHVDCNetworkModel) =
+get_variable_upper_bound(
+    ::Type{DCVoltage},
+    d::PSY.DCBus,
+    ::Type{<:AbstractHVDCNetworkModel},
+) =
     PSY.get_voltage_limits(d).max
 
 function add_constraints!(
@@ -20,14 +36,13 @@ function add_constraints!(
     end
 
     time_steps = get_time_steps(container)
-    dc_expr = get_expression(container, ActivePowerBalance(), PSY.DCBus)
-    balance_constraint = add_constraints_container!(
-        container,
-        NodalBalanceActiveConstraint(),
-        PSY.DCBus,
-        axes(dc_expr)[1],
-        time_steps,
-    )
+    dc_expr = get_expression(container, ActivePowerBalance, PSY.DCBus)
+    balance_constraint =
+        add_constraints_container!(container, NodalBalanceActiveConstraint,
+            PSY.DCBus,
+            axes(dc_expr)[1],
+            time_steps,
+        )
     for d in dc_buses
         dc_bus_no = PSY.get_number(d)
         for t in time_steps
@@ -51,14 +66,13 @@ function add_constraints!(
     end
 
     time_steps = get_time_steps(container)
-    dc_expr = get_expression(container, DCCurrentBalance(), PSY.DCBus)
-    balance_constraint = add_constraints_container!(
-        container,
-        NodalBalanceCurrentConstraint(),
-        PSY.DCBus,
-        axes(dc_expr)[1],
-        time_steps,
-    )
+    dc_expr = get_expression(container, DCCurrentBalance, PSY.DCBus)
+    balance_constraint =
+        add_constraints_container!(container, NodalBalanceCurrentConstraint,
+            PSY.DCBus,
+            axes(dc_expr)[1],
+            time_steps,
+        )
     for d in dc_buses
         dc_bus_no = PSY.get_number(d)
         for t in time_steps

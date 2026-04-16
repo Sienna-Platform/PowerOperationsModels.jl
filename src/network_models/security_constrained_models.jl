@@ -35,7 +35,7 @@ function add_constraints!(
 
     con_lb = add_constraints_container!(
         container,
-        cons_type(),
+        cons_type,
         T,
         get_name.(branches_outages),
         device_names,
@@ -45,7 +45,7 @@ function add_constraints!(
 
     con_ub = add_constraints_container!(
         container,
-        cons_type(),
+        cons_type,
         T,
         get_name.(branches_outages),
         device_names,
@@ -53,7 +53,7 @@ function add_constraints!(
         meta = "ub",
     )
 
-    expressions = get_expression(container, PostContingencyBranchFlow(), T)
+    expressions = get_expression(container, PostContingencyBranchFlow, T)
 
     param_keys = get_parameter_keys(container)
 

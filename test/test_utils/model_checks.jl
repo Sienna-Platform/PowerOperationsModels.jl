@@ -170,7 +170,7 @@ function check_flow_variable_values(
     limit::Float64,
 ) where {T <: IOM.VariableType, U <: PSY.Component}
     psi_cont = IOM.get_optimization_container(model)
-    variable = IOM.get_variable(psi_cont, T(), U)
+    variable = IOM.get_variable(psi_cont, T, U)
     for var in variable[device_name, :]
         if !(IOM.jump_value(var) <= (limit + 1e-2))
             @error "$device_name out of bounds $(IOM.jump_value(var))"
@@ -194,9 +194,9 @@ function check_flow_variable_values(
     net_formulation = IOM.get_network_formulation(template)
     if dev_formulation <: Union{StaticBranch, StaticBranchUnbounded} &&
        net_formulation <: PTDFPowerModel
-        variable = IOM.get_expression(psi_cont, PTDFBranchFlow(), U)
+        variable = IOM.get_expression(psi_cont, PTDFBranchFlow, U)
     else
-        variable = IOM.get_variable(psi_cont, T(), U)
+        variable = IOM.get_variable(psi_cont, T, U)
     end
     for var in variable[device_name, :]
         if !(IOM.jump_value(var) <= (limit + 1e-2))
@@ -216,7 +216,7 @@ function check_flow_variable_values(
     limit_max::Float64,
 ) where {T <: IOM.VariableType, U <: PSY.Component}
     psi_cont = IOM.get_optimization_container(model)
-    variable = IOM.get_variable(psi_cont, T(), U)
+    variable = IOM.get_variable(psi_cont, T, U)
     for var in variable[device_name, :]
         if !(IOM.jump_value(var) <= (limit_max + 1e-2)) ||
            !(IOM.jump_value(var) >= (limit_min - 1e-2))
@@ -241,9 +241,9 @@ function check_flow_variable_values(
     net_formulation = IOM.get_network_formulation(template)
     if dev_formulation <: Union{StaticBranch, StaticBranchUnbounded} &&
        net_formulation <: PTDFPowerModel
-        variable = IOM.get_expression(psi_cont, PTDFBranchFlow(), U)
+        variable = IOM.get_expression(psi_cont, PTDFBranchFlow, U)
     else
-        variable = IOM.get_variable(psi_cont, T(), U)
+        variable = IOM.get_variable(psi_cont, T, U)
     end
     for var in variable[device_name, :]
         if !(IOM.jump_value(var) <= (limit_max + 1e-2)) ||
@@ -265,8 +265,8 @@ function check_flow_variable_values(
 ) where {T <: IOM.VariableType, U <: IOM.VariableType, V <: PSY.Component}
     psi_cont = IOM.get_optimization_container(model)
     time_steps = IOM.get_time_steps(psi_cont)
-    pvariable = IOM.get_variable(psi_cont, T(), V)
-    qvariable = IOM.get_variable(psi_cont, U(), V)
+    pvariable = IOM.get_variable(psi_cont, T, V)
+    qvariable = IOM.get_variable(psi_cont, U, V)
     for t in time_steps
         fp = IOM.jump_value(pvariable[device_name, t])
         fq = IOM.jump_value(qvariable[device_name, t])
@@ -288,8 +288,8 @@ function check_flow_variable_values(
 ) where {T <: IOM.VariableType, U <: IOM.VariableType, V <: PSY.Component}
     psi_cont = IOM.get_optimization_container(model)
     time_steps = IOM.get_time_steps(psi_cont)
-    pvariable = IOM.get_variable(psi_cont, T(), V)
-    qvariable = IOM.get_variable(psi_cont, U(), V)
+    pvariable = IOM.get_variable(psi_cont, T, V)
+    qvariable = IOM.get_variable(psi_cont, U, V)
     for t in time_steps
         fp = IOM.jump_value(pvariable[device_name, t])
         fq = IOM.jump_value(qvariable[device_name, t])
@@ -475,18 +475,18 @@ end
 
 function check_variable_count(
     model,
-    ::S,
+    ::Type{S},
     ::Type{T},
 ) where {S <: IOM.VariableType, T <: PSY.Component}
     no_component = length(PSY.get_components(PSY.get_available, T, model.sys))
     time_steps = IOM.get_time_steps(IOM.get_optimization_container(model))[end]
-    variable = IOM.get_variable(IOM.get_optimization_container(model), S(), T)
+    variable = IOM.get_variable(IOM.get_optimization_container(model), S, T)
     @test length(variable) == no_component * time_steps
 end
 
 function check_initialization_constraint_count(
     model,
-    ::S,
+    ::Type{S},
     ::Type{T};
     filter_func = PSY.get_available,
     meta = IOM.CONTAINER_KEY_EMPTY_META,
@@ -495,26 +495,26 @@ function check_initialization_constraint_count(
         get_initial_conditions_model_container(IOM.get_internal(model))
     no_component = length(PSY.get_components(filter_func, T, model.sys))
     time_steps = IOM.get_time_steps(container)[end]
-    constraint = IOM.get_constraint(container, S(), T, meta)
+    constraint = IOM.get_constraint(container, S, T, meta)
     @test length(constraint) == no_component * time_steps
 end
 
 function check_constraint_count(
     model,
-    ::S,
+    ::Type{S},
     ::Type{T};
     filter_func = PSY.get_available,
     meta = IOM.CONTAINER_KEY_EMPTY_META,
 ) where {S <: IOM.ConstraintType, T <: PSY.Component}
     no_component = length(PSY.get_components(filter_func, T, model.sys))
     time_steps = IOM.get_time_steps(IOM.get_optimization_container(model))[end]
-    constraint = IOM.get_constraint(IOM.get_optimization_container(model), S(), T, meta)
+    constraint = IOM.get_constraint(IOM.get_optimization_container(model), S, T, meta)
     @test length(constraint) == no_component * time_steps
 end
 
 function check_constraint_count(
     model,
-    ::POM.RampConstraint,
+    ::Type{POM.RampConstraint},
     ::Type{T},
 ) where {T <: PSY.Component}
     container = IOM.get_optimization_container(model)
@@ -527,14 +527,14 @@ function check_constraint_count(
         )
     check_constraint_count(
         model,
-        POM.RampConstraint(),
+        POM.RampConstraint,
         T;
         meta = "up",
         filter_func = x -> x.name in device_name_set,
     )
     check_constraint_count(
         model,
-        POM.RampConstraint(),
+        POM.RampConstraint,
         T;
         meta = "dn",
         filter_func = x -> x.name in device_name_set,
@@ -544,7 +544,7 @@ end
 
 function check_constraint_count(
     model,
-    ::POM.DurationConstraint,
+    ::Type{POM.DurationConstraint},
     ::Type{T},
 ) where {T <: PSY.Component}
     container = IOM.get_optimization_container(model)
@@ -561,14 +561,14 @@ function check_constraint_count(
     device_name_set = PSY.get_name.(duration_devices)
     check_constraint_count(
         model,
-        POM.DurationConstraint(),
+        POM.DurationConstraint,
         T;
         meta = "up",
         filter_func = x -> x.name in device_name_set,
     )
     return check_constraint_count(
         model,
-        POM.DurationConstraint(),
+        POM.DurationConstraint,
         T;
         meta = "dn",
         filter_func = x -> x.name in device_name_set,
