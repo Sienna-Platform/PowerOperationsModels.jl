@@ -14,8 +14,8 @@ function construct_device!(
             sys,
         )
 
-    add_variables!(container, ActivePowerVariable, devices, D())
-    add_variables!(container, ReactivePowerVariable, devices, D())
+    add_variables!(container, ActivePowerVariable, devices, D)
+    add_variables!(container, ReactivePowerVariable, devices, D)
 
     process_market_bid_parameters!(container, devices, model, false, true)
 
@@ -104,7 +104,7 @@ function construct_device!(
             sys,
         )
 
-    add_variables!(container, ActivePowerVariable, devices, D())
+    add_variables!(container, ActivePowerVariable, devices, D)
 
     # Add Variables to expressions
     add_to_expression!(
@@ -173,9 +173,9 @@ function construct_device!(
             sys,
         )
 
-    add_variables!(container, ActivePowerVariable, devices, PowerLoadInterruption())
-    add_variables!(container, ReactivePowerVariable, devices, PowerLoadInterruption())
-    add_variables!(container, OnVariable, devices, PowerLoadInterruption())
+    add_variables!(container, ActivePowerVariable, devices, PowerLoadInterruption)
+    add_variables!(container, ReactivePowerVariable, devices, PowerLoadInterruption)
+    add_variables!(container, OnVariable, devices, PowerLoadInterruption)
 
     # Add Variables to expressions
     add_to_expression!(
@@ -269,8 +269,8 @@ function construct_device!(
             sys,
         )
 
-    add_variables!(container, ActivePowerVariable, devices, PowerLoadInterruption())
-    add_variables!(container, OnVariable, devices, PowerLoadInterruption())
+    add_variables!(container, ActivePowerVariable, devices, PowerLoadInterruption)
+    add_variables!(container, OnVariable, devices, PowerLoadInterruption)
 
     process_market_bid_parameters!(container, devices, model, false, true)
     # Add Variables to expressions

@@ -627,7 +627,7 @@ end
     # We only test this field because most free solvers don't support detailed stats
     p_variable = IOM.get_variable(
         IOM.get_optimization_container(UC),
-        ActivePowerVariable(),
+        ActivePowerVariable,
         ThermalStandard,
     )
     @test "Alta" ∉ axes(p_variable, 1)

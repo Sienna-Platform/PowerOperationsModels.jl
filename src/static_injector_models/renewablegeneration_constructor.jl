@@ -10,8 +10,8 @@ function construct_device!(
 }
     devices = get_available_components(model, sys)
 
-    add_variables!(container, ActivePowerVariable, devices, D())
-    add_variables!(container, ReactivePowerVariable, devices, D())
+    add_variables!(container, ActivePowerVariable, devices, D)
+    add_variables!(container, ReactivePowerVariable, devices, D)
     if haskey(get_time_series_names(model), ActivePowerTimeSeriesParameter)
         add_parameters!(container, ActivePowerTimeSeriesParameter, devices, model)
     end
@@ -131,7 +131,7 @@ function construct_device!(
 }
     devices = get_available_components(model, sys)
 
-    add_variables!(container, ActivePowerVariable, devices, D())
+    add_variables!(container, ActivePowerVariable, devices, D)
     # this is always true!! see get_default_time_series_names in renewable_generation.jl
     # and line 62 of device_model.jl
     if haskey(get_time_series_names(model), ActivePowerTimeSeriesParameter)

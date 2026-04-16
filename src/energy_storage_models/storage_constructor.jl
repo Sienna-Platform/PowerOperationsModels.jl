@@ -5,8 +5,8 @@ function _add_ancillary_services!(
     model::DeviceModel{T, U},
     network_model::NetworkModel{V},
 ) where {T <: PSY.Storage, U <: StorageDispatchWithReserves, V <: AbstractPowerModel}
-    add_variables!(container, AncillaryServiceVariableDischarge, devices, U())
-    add_variables!(container, AncillaryServiceVariableCharge, devices, U())
+    add_variables!(container, AncillaryServiceVariableDischarge, devices, U)
+    add_variables!(container, AncillaryServiceVariableCharge, devices, U)
     time_steps = get_time_steps(container)
     for exp in [
         ReserveAssignmentBalanceUpDischarge,
@@ -20,7 +20,7 @@ function _add_ancillary_services!(
     ]
         lazy_container_addition!(
             container,
-            exp(),
+            exp,
             T,
             PSY.get_name.(devices),
             time_steps,
@@ -54,9 +54,7 @@ function _add_ancillary_services!(
         union!(services, PSY.get_services(d))
     end
     for s in services
-        lazy_container_addition!(
-            container,
-            TotalReserveOffering(),
+        lazy_container_addition!(container, TotalReserveOffering,
             T,
             PSY.get_name.(devices),
             time_steps;
@@ -120,23 +118,23 @@ function _active_power_variables_and_expressions(
     model::DeviceModel{T, U},
     network_model::NetworkModel,
 ) where {T <: PSY.Storage, U <: StorageDispatchWithReserves}
-    add_variables!(container, ActivePowerInVariable, devices, U())
-    add_variables!(container, ActivePowerOutVariable, devices, U())
-    add_variables!(container, EnergyVariable, devices, U())
-    add_variables!(container, StorageEnergyOutput, devices, U())
+    add_variables!(container, ActivePowerInVariable, devices, U)
+    add_variables!(container, ActivePowerOutVariable, devices, U)
+    add_variables!(container, EnergyVariable, devices, U)
+    add_variables!(container, StorageEnergyOutput, devices, U)
 
     if get_attribute(model, "reservation")
-        add_variables!(container, ReservationVariable, devices, U())
+        add_variables!(container, ReservationVariable, devices, U)
     end
 
     if get_attribute(model, "energy_target")
-        add_variables!(container, StorageEnergyShortageVariable, devices, U())
-        add_variables!(container, StorageEnergySurplusVariable, devices, U())
+        add_variables!(container, StorageEnergyShortageVariable, devices, U)
+        add_variables!(container, StorageEnergySurplusVariable, devices, U)
     end
 
     if get_attribute(model, "cycling_limits")
-        add_variables!(container, StorageChargeCyclingSlackVariable, devices, U())
-        add_variables!(container, StorageDischargeCyclingSlackVariable, devices, U())
+        add_variables!(container, StorageChargeCyclingSlackVariable, devices, U)
+        add_variables!(container, StorageDischargeCyclingSlackVariable, devices, U)
     end
 
     initial_conditions!(container, devices, U())
@@ -240,11 +238,11 @@ function construct_device!(
 ) where {St <: PSY.Storage, D <: StorageDispatchWithReserves, S <: AbstractPowerModel}
     devices = get_available_components(model, sys)
     _active_power_variables_and_expressions(container, devices, model, network_model)
-    add_variables!(container, ReactivePowerVariable, devices, D())
+    add_variables!(container, ReactivePowerVariable, devices, D)
 
     if get_attribute(model, "regularization")
-        add_variables!(container, StorageRegularizationVariableCharge, devices, D())
-        add_variables!(container, StorageRegularizationVariableDischarge, devices, D())
+        add_variables!(container, StorageRegularizationVariableCharge, devices, D)
+        add_variables!(container, StorageRegularizationVariableDischarge, devices, D)
     end
 
     add_to_expression!(
@@ -344,8 +342,8 @@ function construct_device!(
     _active_power_variables_and_expressions(container, devices, model, network_model)
 
     if get_attribute(model, "regularization")
-        add_variables!(container, StorageRegularizationVariableCharge, devices, D())
-        add_variables!(container, StorageRegularizationVariableDischarge, devices, D())
+        add_variables!(container, StorageRegularizationVariableCharge, devices, D)
+        add_variables!(container, StorageRegularizationVariableDischarge, devices, D)
     end
 
     if has_service_model(model)

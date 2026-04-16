@@ -96,9 +96,9 @@ function construct_device!(
 }
     devices = get_available_components(model, sys)
 
-    add_variables!(container, ActivePowerVariable, devices, D())
-    add_variables!(container, ReactivePowerVariable, devices, D())
-    add_variables!(container, HydroEnergyOutput, devices, D())
+    add_variables!(container, ActivePowerVariable, devices, D)
+    add_variables!(container, ReactivePowerVariable, devices, D)
+    add_variables!(container, HydroEnergyOutput, devices, D)
     add_to_expression!(
         container,
         ActivePowerBalance,
@@ -231,8 +231,8 @@ function construct_device!(
 }
     devices = get_available_components(model, sys)
 
-    add_variables!(container, ActivePowerVariable, devices, D())
-    add_variables!(container, HydroEnergyOutput, devices, D())
+    add_variables!(container, ActivePowerVariable, devices, D)
+    add_variables!(container, HydroEnergyOutput, devices, D)
     add_to_expression!(
         container,
         ActivePowerBalance,
@@ -350,9 +350,9 @@ function construct_device!(
 }
     devices = get_available_components(model, sys)
 
-    add_variables!(container, ActivePowerVariable, devices, D())
-    add_variables!(container, ReactivePowerVariable, devices, D())
-    add_variables!(container, HydroEnergyOutput, devices, D())
+    add_variables!(container, ActivePowerVariable, devices, D)
+    add_variables!(container, ReactivePowerVariable, devices, D)
+    add_variables!(container, HydroEnergyOutput, devices, D)
     add_to_expression!(
         container,
         ActivePowerBalance,
@@ -377,7 +377,7 @@ function construct_device!(
             container,
             HydroEnergyShortageVariable,
             devices,
-            D(),
+            D,
         )
     end
     process_market_bid_parameters!(container, devices, model)
@@ -493,8 +493,8 @@ function construct_device!(
 }
     devices = get_available_components(model, sys)
 
-    add_variables!(container, ActivePowerVariable, devices, D())
-    add_variables!(container, HydroEnergyOutput, devices, D())
+    add_variables!(container, ActivePowerVariable, devices, D)
+    add_variables!(container, HydroEnergyOutput, devices, D)
     add_to_expression!(
         container,
         ActivePowerBalance,
@@ -511,7 +511,7 @@ function construct_device!(
             container,
             HydroEnergyShortageVariable,
             devices,
-            D(),
+            D,
         )
     end
     process_market_bid_parameters!(container, devices, model)
@@ -618,10 +618,10 @@ function construct_device!(
 ) where {H <: PSY.HydroGen, D <: HydroCommitmentRunOfRiver, S <: AbstractPowerModel}
     devices = get_available_components(model, sys)
 
-    add_variables!(container, ActivePowerVariable, devices, D())
-    add_variables!(container, ReactivePowerVariable, devices, D())
-    add_variables!(container, OnVariable, devices, D())
-    add_variables!(container, HydroEnergyOutput, devices, D())
+    add_variables!(container, ActivePowerVariable, devices, D)
+    add_variables!(container, ReactivePowerVariable, devices, D)
+    add_variables!(container, OnVariable, devices, D)
+    add_variables!(container, HydroEnergyOutput, devices, D)
     add_to_expression!(
         container,
         ActivePowerBalance,
@@ -687,9 +687,9 @@ function construct_device!(
 }
     devices = get_available_components(model, sys)
 
-    add_variables!(container, ActivePowerVariable, devices, D())
-    add_variables!(container, OnVariable, devices, D())
-    add_variables!(container, HydroEnergyOutput, devices, D())
+    add_variables!(container, ActivePowerVariable, devices, D)
+    add_variables!(container, OnVariable, devices, D)
+    add_variables!(container, HydroEnergyOutput, devices, D)
     add_to_expression!(
         container,
         ActivePowerBalance,
@@ -811,25 +811,25 @@ function construct_device!(
         container,
         EnergyVariable,
         devices,
-        T(),
+        T,
     )
     add_variables!(
         container,
         WaterSpillageVariable,
         devices,
-        T(),
+        T,
     )
     add_variables!(
         container,
         HydroEnergyShortageVariable,
         devices,
-        T(),
+        T,
     )
     add_variables!(
         container,
         HydroEnergySurplusVariable,
         devices,
-        T(),
+        T,
     )
 
     add_parameters!(container, InflowTimeSeriesParameter, devices, model)
@@ -845,13 +845,13 @@ function construct_device!(
             container,
             HydroBalanceSurplusVariable,
             devices,
-            T(),
+            T,
         )
         add_variables!(
             container,
             HydroBalanceShortageVariable,
             devices,
-            T(),
+            T,
         )
     end
 
@@ -958,9 +958,9 @@ function construct_device!(
     # why is there no add_parameters here?
     devices = get_available_components(model, sys)
 
-    add_variables!(container, ActivePowerVariable, devices, D())
-    add_variables!(container, ReactivePowerVariable, devices, D())
-    add_variables!(container, HydroEnergyOutput, devices, D())
+    add_variables!(container, ActivePowerVariable, devices, D)
+    add_variables!(container, ReactivePowerVariable, devices, D)
+    add_variables!(container, HydroEnergyOutput, devices, D)
     add_to_expression!(
         container,
         ActivePowerBalance,
@@ -1090,8 +1090,8 @@ function construct_device!(
 }
     devices = get_available_components(model, sys)
 
-    add_variables!(container, ActivePowerVariable, devices, D())
-    add_variables!(container, HydroEnergyOutput, devices, D())
+    add_variables!(container, ActivePowerVariable, devices, D)
+    add_variables!(container, HydroEnergyOutput, devices, D)
     add_to_expression!(
         container,
         ActivePowerBalance,
@@ -1209,10 +1209,10 @@ function construct_device!(
 }
     devices = get_available_components(model, sys)
 
-    add_variables!(container, ActivePowerVariable, devices, D())
-    add_variables!(container, ReactivePowerVariable, devices, D())
-    add_variables!(container, OnVariable, devices, D())
-    add_variables!(container, HydroEnergyOutput, devices, D())
+    add_variables!(container, ActivePowerVariable, devices, D)
+    add_variables!(container, ReactivePowerVariable, devices, D)
+    add_variables!(container, OnVariable, devices, D)
+    add_variables!(container, HydroEnergyOutput, devices, D)
     add_to_expression!(
         container,
         ActivePowerBalance,
@@ -1342,9 +1342,9 @@ function construct_device!(
 }
     devices = get_available_components(model, sys)
 
-    add_variables!(container, ActivePowerVariable, devices, D())
-    add_variables!(container, HydroEnergyOutput, devices, D())
-    add_variables!(container, OnVariable, devices, D())
+    add_variables!(container, ActivePowerVariable, devices, D)
+    add_variables!(container, HydroEnergyOutput, devices, D)
+    add_variables!(container, OnVariable, devices, D)
     add_to_expression!(
         container,
         ActivePowerBalance,
@@ -1463,13 +1463,13 @@ function construct_device!(
         container,
         WaterSpillageVariable,
         devices,
-        HydroWaterFactorModel(),
+        HydroWaterFactorModel,
     )
     add_variables!(
         container,
         HydroReservoirVolumeVariable,
         devices,
-        HydroWaterFactorModel(),
+        HydroWaterFactorModel,
     )
 
     add_parameters!(container, InflowTimeSeriesParameter, devices, model)
@@ -1535,11 +1535,11 @@ function construct_device!(
         container,
         HydroTurbineFlowRateVariable,
         devices,
-        HydroWaterFactorModel(),
+        HydroWaterFactorModel,
     )
 
-    add_variables!(container, ActivePowerVariable, devices, D())
-    add_variables!(container, HydroEnergyOutput, devices, D())
+    add_variables!(container, ActivePowerVariable, devices, D)
+    add_variables!(container, HydroEnergyOutput, devices, D)
     add_to_expression!(
         container,
         ActivePowerBalance,
@@ -1661,31 +1661,31 @@ function construct_device!(
         container,
         HydroReservoirHeadVariable,
         devices,
-        R(),
+        R,
     )
     add_variables!(
         container,
         HydroReservoirVolumeVariable,
         devices,
-        R(),
+        R,
     )
     add_variables!(
         container,
         WaterSpillageVariable,
         devices,
-        R(),
+        R,
     )
     add_variables!(
         container,
         HydroWaterShortageVariable,
         devices,
-        R(),
+        R,
     )
     add_variables!(
         container,
         HydroWaterSurplusVariable,
         devices,
-        R(),
+        R,
     )
 
     add_parameters!(container, InflowTimeSeriesParameter, devices, model)
@@ -1820,10 +1820,10 @@ function construct_device!(
         HydroTurbineFlowRateVariable,
         devices,
         reservoirs,
-        D(),
+        D,
     )
 
-    add_variables!(container, ActivePowerVariable, devices, D())
+    add_variables!(container, ActivePowerVariable, devices, D)
 
     add_to_expression!(
         container,
@@ -2082,12 +2082,12 @@ function construct_device!(
     S <: AbstractPowerModel,
 }
     devices = get_available_components(model, sys)
-    add_variables!(container, ActivePowerVariable, devices, D())
-    add_variables!(container, ActivePowerPumpVariable, devices, D())
-    add_variables!(container, ReactivePowerVariable, devices, D())
+    add_variables!(container, ActivePowerVariable, devices, D)
+    add_variables!(container, ActivePowerPumpVariable, devices, D)
+    add_variables!(container, ReactivePowerVariable, devices, D)
 
     if get_attribute(model, "reservation")
-        add_variables!(container, ReservationVariable, devices, D())
+        add_variables!(container, ReservationVariable, devices, D)
     end
 
     process_market_bid_parameters!(container, devices, model)
@@ -2151,11 +2151,11 @@ function construct_device!(
     S <: AbstractActivePowerModel,
 }
     devices = get_available_components(model, sys)
-    add_variables!(container, ActivePowerVariable, devices, D())
-    add_variables!(container, ActivePowerPumpVariable, devices, D())
+    add_variables!(container, ActivePowerVariable, devices, D)
+    add_variables!(container, ActivePowerPumpVariable, devices, D)
 
     if get_attribute(model, "reservation")
-        add_variables!(container, ReservationVariable, devices, D())
+        add_variables!(container, ReservationVariable, devices, D)
     end
 
     process_market_bid_parameters!(container, devices, model)
@@ -2261,13 +2261,13 @@ function construct_device!(
     S <: AbstractPowerModel,
 }
     devices = get_available_components(model, sys)
-    add_variables!(container, ActivePowerVariable, devices, D())
-    add_variables!(container, ActivePowerPumpVariable, devices, D())
-    add_variables!(container, ReactivePowerVariable, devices, D())
-    add_variables!(container, OnVariable, devices, D())
+    add_variables!(container, ActivePowerVariable, devices, D)
+    add_variables!(container, ActivePowerPumpVariable, devices, D)
+    add_variables!(container, ReactivePowerVariable, devices, D)
+    add_variables!(container, OnVariable, devices, D)
 
     if get_attribute(model, "reservation")
-        add_variables!(container, ReservationVariable, devices, D())
+        add_variables!(container, ReservationVariable, devices, D)
     end
 
     process_market_bid_parameters!(container, devices, model)
@@ -2331,12 +2331,12 @@ function construct_device!(
     S <: AbstractActivePowerModel,
 }
     devices = get_available_components(model, sys)
-    add_variables!(container, ActivePowerVariable, devices, D())
-    add_variables!(container, ActivePowerPumpVariable, devices, D())
-    add_variables!(container, OnVariable, devices, D())
+    add_variables!(container, ActivePowerVariable, devices, D)
+    add_variables!(container, ActivePowerPumpVariable, devices, D)
+    add_variables!(container, OnVariable, devices, D)
 
     if get_attribute(model, "reservation")
-        add_variables!(container, ReservationVariable, devices, D())
+        add_variables!(container, ReservationVariable, devices, D)
     end
 
     process_market_bid_parameters!(container, devices, model)

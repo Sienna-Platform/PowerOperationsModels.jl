@@ -1,16 +1,16 @@
 #! format: off
-get_variable_binary(::VariableType, ::Type{PSY.TransmissionInterface}, ::ConstantMaxInterfaceFlow) = false
-get_variable_lower_bound(::InterfaceFlowSlackUp, ::PSY.TransmissionInterface, ::ConstantMaxInterfaceFlow) = 0.0
-get_variable_lower_bound(::InterfaceFlowSlackDown, ::PSY.TransmissionInterface, ::ConstantMaxInterfaceFlow) = 0.0
+get_variable_binary(::Type{<:VariableType}, ::Type{PSY.TransmissionInterface}, ::Type{ConstantMaxInterfaceFlow}) = false
+get_variable_lower_bound(::Type{InterfaceFlowSlackUp}, ::PSY.TransmissionInterface, ::Type{ConstantMaxInterfaceFlow}) = 0.0
+get_variable_lower_bound(::Type{InterfaceFlowSlackDown}, ::PSY.TransmissionInterface, ::Type{ConstantMaxInterfaceFlow}) = 0.0
 
-get_variable_multiplier(::InterfaceFlowSlackUp, ::Type{PSY.TransmissionInterface}, ::ConstantMaxInterfaceFlow) = 1.0
-get_variable_multiplier(::InterfaceFlowSlackDown, ::Type{PSY.TransmissionInterface}, ::ConstantMaxInterfaceFlow) = -1.0
+get_variable_multiplier(::Type{InterfaceFlowSlackUp}, ::Type{PSY.TransmissionInterface}, ::Type{ConstantMaxInterfaceFlow}) = 1.0
+get_variable_multiplier(::Type{InterfaceFlowSlackDown}, ::Type{PSY.TransmissionInterface}, ::Type{ConstantMaxInterfaceFlow}) = -1.0
 
-get_variable_multiplier(::InterfaceFlowSlackUp, ::Type{PSY.TransmissionInterface}, ::VariableMaxInterfaceFlow) = 1.0
-get_variable_multiplier(::InterfaceFlowSlackDown, ::Type{PSY.TransmissionInterface}, ::VariableMaxInterfaceFlow) = -1.0
+get_variable_multiplier(::Type{InterfaceFlowSlackUp}, ::Type{PSY.TransmissionInterface}, ::Type{VariableMaxInterfaceFlow}) = 1.0
+get_variable_multiplier(::Type{InterfaceFlowSlackDown}, ::Type{PSY.TransmissionInterface}, ::Type{VariableMaxInterfaceFlow}) = -1.0
 
-get_multiplier_value(::MinInterfaceFlowLimitParameter, d::PSY.TransmissionInterface, ::VariableMaxInterfaceFlow) = PSY.get_min_active_power_flow_limit(d)
-get_multiplier_value(::MaxInterfaceFlowLimitParameter, d::PSY.TransmissionInterface, ::VariableMaxInterfaceFlow) = PSY.get_max_active_power_flow_limit(d)
+get_multiplier_value(::Type{MinInterfaceFlowLimitParameter}, d::PSY.TransmissionInterface, ::Type{VariableMaxInterfaceFlow}) = PSY.get_min_active_power_flow_limit(d)
+get_multiplier_value(::Type{MaxInterfaceFlowLimitParameter}, d::PSY.TransmissionInterface, ::Type{VariableMaxInterfaceFlow}) = PSY.get_max_active_power_flow_limit(d)
 
 #! format: On
 function get_default_time_series_names(
@@ -55,19 +55,15 @@ function add_constraints!(
     interface::T,
     model::ServiceModel{T, ConstantMaxInterfaceFlow},
 ) where {T <: PSY.TransmissionInterface}
-    expr = get_expression(container, InterfaceTotalFlow(), T)
+    expr = get_expression(container, InterfaceTotalFlow, T)
     interfaces, time_steps = axes(expr)
-    constraint_container_ub = lazy_container_addition!(
-        container,
-        InterfaceFlowLimit(),
+    constraint_container_ub = lazy_container_addition!(container, InterfaceFlowLimit,
         T,
         interfaces,
         time_steps;
         meta = "ub",
     )
-    constraint_container_lb = lazy_container_addition!(
-        container,
-        InterfaceFlowLimit(),
+    constraint_container_lb = lazy_container_addition!(container, InterfaceFlowLimit,
         T,
         interfaces,
         time_steps;
@@ -90,19 +86,15 @@ function add_constraints!(
     interface::T,
     model::ServiceModel{T, VariableMaxInterfaceFlow},
 ) where {T <: PSY.TransmissionInterface}
-    expr = get_expression(container, InterfaceTotalFlow(), T)
+    expr = get_expression(container, InterfaceTotalFlow, T)
     interfaces, timesteps = axes(expr)
-    constraint_container_ub = lazy_container_addition!(
-        container,
-        InterfaceFlowLimit(),
+    constraint_container_ub = lazy_container_addition!(container, InterfaceFlowLimit,
         T,
         interfaces,
         timesteps;
         meta = "ub",
     )
-    constraint_container_lb = lazy_container_addition!(
-        container,
-        InterfaceFlowLimit(),
+    constraint_container_lb = lazy_container_addition!(container, InterfaceFlowLimit,
         T,
         interfaces,
         timesteps;
@@ -110,18 +102,14 @@ function add_constraints!(
     )
     int_name = PSY.get_name(interface)
     param_container_min =
-        get_parameter(container, MinInterfaceFlowLimitParameter(), PSY.TransmissionInterface, int_name)
-    param_multiplier_min = get_parameter_multiplier_array(
-        container,
-        MinInterfaceFlowLimitParameter(),
+        get_parameter(container, MinInterfaceFlowLimitParameter, PSY.TransmissionInterface, int_name)
+    param_multiplier_min = get_parameter_multiplier_array(container, MinInterfaceFlowLimitParameter,
         PSY.TransmissionInterface,
         int_name,
     )
     param_container_max =
-        get_parameter(container, MaxInterfaceFlowLimitParameter(), PSY.TransmissionInterface, int_name)
-    param_multiplier_max = get_parameter_multiplier_array(
-        container,
-        MaxInterfaceFlowLimitParameter(),
+        get_parameter(container, MaxInterfaceFlowLimitParameter, PSY.TransmissionInterface, int_name)
+    param_multiplier_max = get_parameter_multiplier_array(container, MaxInterfaceFlowLimitParameter,
         PSY.TransmissionInterface,
         int_name,
     )
