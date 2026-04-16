@@ -40,7 +40,7 @@ function add_expressions!(
 } where {D <: PSY.Component}
     time_steps = get_time_steps(container)
     names = PSY.get_name.(devices)
-    add_expression_container!(container, T(), D, names, time_steps)
+    add_expression_container!(container, T, D, names, time_steps)
     return
 end
 
@@ -74,9 +74,7 @@ function add_expressions!(
 
     if !isempty(names)
         expr_type = found_quad_fuel_functions ? JuMP.QuadExpr : GAE
-        add_expression_container!(
-            container,
-            T(),
+        add_expression_container!(container, T,
             D,
             names,
             time_steps;
@@ -102,9 +100,7 @@ function add_expressions!(
 } where {D <: PSY.Component}
     time_steps = get_time_steps(container)
     @assert length(devices) == 1
-    add_expression_container!(
-        container,
-        T(),
+    add_expression_container!(container, T,
         D,
         PSY.get_name.(devices),
         time_steps;
