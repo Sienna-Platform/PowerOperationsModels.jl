@@ -519,6 +519,10 @@ export HVDCLosses
 export ConverterDCPower
 export ConverterCurrentDirection
 
+# Load Variables
+export ShiftUpActivePowerVariable
+export ShiftDownActivePowerVariable
+
 ######## Hydro Formulations ########
 export HydroDispatchRunOfRiver
 export HydroDispatchRunOfRiverBudget
@@ -665,6 +669,11 @@ export DurationConstraint
 export CommitmentConstraint
 export StartTypeConstraint
 export StartupTimeLimitTemperatureConstraint
+export ShiftedActivePowerBalanceConstraint
+export ShiftUpActivePowerVariableLimitsConstraint
+export ShiftDownActivePowerVariableLimitsConstraint
+export RealizedShiftedLoadMinimumBoundConstraint
+export NonAnticipativityConstraint
 
 #################################################################################
 # Exports - Expression Types (defined in core/expressions.jl)
@@ -731,6 +740,7 @@ export ThermalSecurityConstrainedStandardUnitCommitment
 export StaticPowerLoad
 export PowerLoadInterruption
 export PowerLoadDispatch
+export PowerLoadShift
 
 # Renewable Formulations
 export RenewableFullDispatch
