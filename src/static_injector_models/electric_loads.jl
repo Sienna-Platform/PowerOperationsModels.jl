@@ -236,7 +236,7 @@ is_time_variant_term(
     ::OptimizationContainer,
     ::PSY.LoadCost,
     ::OnVariable,
-    ::PSY.ControllableLoad,
+    ::Type{<:PSY.ControllableLoad},
     ::AbstractLoadFormulation,
     ::Int,
 ) = false
@@ -245,7 +245,7 @@ is_time_variant_term(
     ::OptimizationContainer,
     cost::PSY.MarketBidCost,
     ::OnVariable,
-    ::PSY.ControllableLoad,
+    ::Type{<:PSY.ControllableLoad},
     ::PowerLoadInterruption,
     ::Int,
 ) =
