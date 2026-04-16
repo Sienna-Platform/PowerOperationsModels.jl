@@ -111,10 +111,9 @@ function add_reserve_variables!(
 }
     time_steps = get_time_steps(container)
     service_name = PSY.get_name(service)
-    variable_type = T()
     variable = add_variable_container!(
         container,
-        variable_type,
+        T,
         D,
         [service_name],
         time_steps;
