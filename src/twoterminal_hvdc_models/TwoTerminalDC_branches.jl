@@ -189,7 +189,7 @@ function _add_sparse_pwl_loss_variables!(
     # Create Variables
     time_steps = get_time_steps(container)
     settings = get_settings(container)
-    formulation = HVDCTwoTerminalPiecewiseLoss()
+    formulation = HVDCTwoTerminalPiecewiseLoss
     T = HVDCPiecewiseLossVariable
     binary_T = get_variable_binary(T, D, formulation)
     U = HVDCPiecewiseBinaryLossVariable
@@ -522,49 +522,52 @@ end
 function _add_hvdc_flow_constraints!(
     container::OptimizationContainer,
     devices::Union{Vector{T}, IS.FlattenIteratorWrapper{T}},
-    constraint::FlowRateConstraintFromTo,
+    ::Type{FlowRateConstraintFromTo},
 ) where {T <: PSY.TwoTerminalHVDC}
     _add_hvdc_flow_constraints!(
         container,
         devices,
-        FlowActivePowerFromToVariable(),
-        constraint,
+        FlowActivePowerFromToVariable,
+        FlowRateConstraintFromTo,
     )
 end
 
 function _add_hvdc_flow_constraints!(
     container::OptimizationContainer,
     devices::Union{Vector{T}, IS.FlattenIteratorWrapper{T}},
-    constraint::FlowRateConstraintToFrom,
+    ::Type{FlowRateConstraintToFrom},
 ) where {T <: PSY.TwoTerminalHVDC}
     _add_hvdc_flow_constraints!(
         container,
         devices,
-        FlowActivePowerToFromVariable(),
-        constraint,
+        FlowActivePowerToFromVariable,
+        FlowRateConstraintToFrom,
     )
 end
 
-# FIXME typeof(var), typeof(constraint) are runtime. Add function barrier and dispatch.
 function _add_hvdc_flow_constraints!(
     container::OptimizationContainer,
     devices::Union{Vector{T}, IS.FlattenIteratorWrapper{T}},
-    var::Union{
+    ::Type{V},
+    ::Type{C},
+) where {
+    T <: PSY.TwoTerminalHVDC,
+    V <: Union{
         FlowActivePowerFromToVariable,
         FlowActivePowerToFromVariable,
         HVDCActivePowerReceivedFromVariable,
         HVDCActivePowerReceivedToVariable,
     },
-    constraint::Union{FlowRateConstraintFromTo, FlowRateConstraintToFrom},
-) where {T <: PSY.TwoTerminalHVDC}
+    C <: Union{FlowRateConstraintFromTo, FlowRateConstraintToFrom},
+}
     time_steps = get_time_steps(container)
     names = PSY.get_name.(devices)
 
-    variable = get_variable(container, typeof(var), T)
+    variable = get_variable(container, V, T)
     constraint_ub =
         add_constraints_container!(
             container,
-            typeof(constraint),
+            C,
             T,
             names,
             time_steps;
@@ -573,7 +576,7 @@ function _add_hvdc_flow_constraints!(
     constraint_lb =
         add_constraints_container!(
             container,
-            typeof(constraint),
+            C,
             T,
             names,
             time_steps;
@@ -581,8 +584,8 @@ function _add_hvdc_flow_constraints!(
         )
     for d in devices
         check_hvdc_line_limits_consistency(d)
-        max_rate = get_variable_upper_bound(typeof(var), d, HVDCTwoTerminalDispatch)
-        min_rate = get_variable_lower_bound(typeof(var), d, HVDCTwoTerminalDispatch)
+        max_rate = get_variable_upper_bound(V, d, HVDCTwoTerminalDispatch)
+        min_rate = get_variable_lower_bound(V, d, HVDCTwoTerminalDispatch)
         name = PSY.get_name(d)
         for t in time_steps
             constraint_ub[name, t] = JuMP.@constraint(
@@ -617,7 +620,7 @@ function add_constraints!(
         end
     end
     if !isempty(inter_network_branches)
-        _add_hvdc_flow_constraints!(container, devices, T())
+        _add_hvdc_flow_constraints!(container, devices, T)
     end
     return
 end
@@ -632,7 +635,7 @@ function add_constraints!(
     T <: Union{FlowRateConstraintToFrom, FlowRateConstraintFromTo},
     U <: PSY.TwoTerminalHVDC,
 }
-    _add_hvdc_flow_constraints!(container, devices, T())
+    _add_hvdc_flow_constraints!(container, devices, T)
     return
 end
 
@@ -646,7 +649,7 @@ function add_constraints!(
     T <: Union{FlowRateConstraintToFrom, FlowRateConstraintFromTo},
     U <: PSY.TwoTerminalHVDC,
 }
-    _add_hvdc_flow_constraints!(container, devices, T())
+    _add_hvdc_flow_constraints!(container, devices, T)
     return
 end
 
@@ -674,15 +677,15 @@ function add_constraints!(
             _add_hvdc_flow_constraints!(
                 container,
                 devices,
-                HVDCActivePowerReceivedFromVariable(),
-                T(),
+                HVDCActivePowerReceivedFromVariable,
+                T,
             )
         else
             _add_hvdc_flow_constraints!(
                 container,
                 devices,
-                HVDCActivePowerReceivedToVariable(),
-                T(),
+                HVDCActivePowerReceivedToVariable,
+                T,
             )
         end
     end
@@ -704,15 +707,15 @@ function add_constraints!(
         _add_hvdc_flow_constraints!(
             container,
             devices,
-            HVDCActivePowerReceivedFromVariable(),
-            T(),
+            HVDCActivePowerReceivedFromVariable,
+            T,
         )
     else
         _add_hvdc_flow_constraints!(
             container,
             devices,
-            HVDCActivePowerReceivedToVariable(),
-            T(),
+            HVDCActivePowerReceivedToVariable,
+            T,
         )
     end
     return

@@ -130,14 +130,14 @@ get_variable_binary(::Type{SquaredDCVoltage}, ::Type{PSY.InterconnectingConverte
 get_variable_binary(::Type{AuxBilinearConverterVariable}, ::Type{PSY.InterconnectingConverter}, ::Type{<:AbstractConverterFormulation}) = false
 get_variable_binary(::Type{AuxBilinearSquaredConverterVariable}, ::Type{PSY.InterconnectingConverter}, ::Type{<:AbstractConverterFormulation}) = false
 function get_variable_binary(
-    ::W,
+    ::Type{W},
     ::Type{PSY.InterconnectingConverter},
     ::Type{<:AbstractConverterFormulation}
 ) where W <: InterpolationVariableType
     return false
 end
 function get_variable_binary(
-    ::W,
+    ::Type{W},
     ::Type{PSY.InterconnectingConverter},
     ::Type{<:AbstractConverterFormulation}
 ) where W <: BinaryInterpolationVariableType
@@ -848,11 +848,11 @@ function add_constraints!(
 
     _add_generic_incremental_interpolation_constraint!(
         container,
-        DCVoltage(),
-        SquaredDCVoltage(),
-        InterpolationSquaredVoltageVariable(),
-        InterpolationBinarySquaredVoltageVariable(),
-        InterpolationVoltageConstraints(),
+        DCVoltage,
+        SquaredDCVoltage,
+        InterpolationSquaredVoltageVariable,
+        InterpolationBinarySquaredVoltageVariable,
+        InterpolationVoltageConstraints,
         devices,
         dic_var_bkpts,
         dic_function_bkpts,
@@ -886,11 +886,11 @@ function add_constraints!(
 
     _add_generic_incremental_interpolation_constraint!(
         container,
-        ConverterCurrent(),
-        SquaredConverterCurrent(),
-        InterpolationSquaredCurrentVariable(),
-        InterpolationBinarySquaredCurrentVariable(),
-        InterpolationCurrentConstraints(),
+        ConverterCurrent,
+        SquaredConverterCurrent,
+        InterpolationSquaredCurrentVariable,
+        InterpolationBinarySquaredCurrentVariable,
+        InterpolationCurrentConstraints,
         devices,
         dic_var_bkpts,
         dic_function_bkpts,
@@ -927,11 +927,11 @@ function add_constraints!(
 
     _add_generic_incremental_interpolation_constraint!(
         container,
-        AuxBilinearConverterVariable(),
-        AuxBilinearSquaredConverterVariable(),
-        InterpolationSquaredBilinearVariable(),
-        InterpolationBinarySquaredBilinearVariable(),
-        InterpolationBilinearConstraints(),
+        AuxBilinearConverterVariable,
+        AuxBilinearSquaredConverterVariable,
+        InterpolationSquaredBilinearVariable,
+        InterpolationBinarySquaredBilinearVariable,
+        InterpolationBilinearConstraints,
         devices,
         dic_var_bkpts,
         dic_function_bkpts,

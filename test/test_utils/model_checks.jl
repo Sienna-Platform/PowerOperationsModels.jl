@@ -514,7 +514,7 @@ end
 
 function check_constraint_count(
     model,
-    ::POM.RampConstraint,
+    ::Type{POM.RampConstraint},
     ::Type{T},
 ) where {T <: PSY.Component}
     container = IOM.get_optimization_container(model)
@@ -527,14 +527,14 @@ function check_constraint_count(
         )
     check_constraint_count(
         model,
-        POM.RampConstraint(),
+        POM.RampConstraint,
         T;
         meta = "up",
         filter_func = x -> x.name in device_name_set,
     )
     check_constraint_count(
         model,
-        POM.RampConstraint(),
+        POM.RampConstraint,
         T;
         meta = "dn",
         filter_func = x -> x.name in device_name_set,
@@ -544,7 +544,7 @@ end
 
 function check_constraint_count(
     model,
-    ::POM.DurationConstraint,
+    ::Type{POM.DurationConstraint},
     ::Type{T},
 ) where {T <: PSY.Component}
     container = IOM.get_optimization_container(model)
@@ -561,14 +561,14 @@ function check_constraint_count(
     device_name_set = PSY.get_name.(duration_devices)
     check_constraint_count(
         model,
-        POM.DurationConstraint(),
+        POM.DurationConstraint,
         T;
         meta = "up",
         filter_func = x -> x.name in device_name_set,
     )
     return check_constraint_count(
         model,
-        POM.DurationConstraint(),
+        POM.DurationConstraint,
         T;
         meta = "dn",
         filter_func = x -> x.name in device_name_set,

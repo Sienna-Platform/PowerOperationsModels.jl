@@ -46,7 +46,7 @@ function add_constraints!(
         time_steps;
         meta = service_name,
     )
-    constraint = get_constraint(container, RequirementConstraint(), SR, service_name)
+    constraint = get_constraint(container, RequirementConstraint, SR, service_name)
     use_slacks = get_use_slacks(model)
     reserve_variables = [
         get_variable(container, ActivePowerReserveVariable, typeof(r), PSY.get_name(r))

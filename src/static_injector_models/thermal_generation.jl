@@ -1550,8 +1550,8 @@ function IOM.add_pwl_term_lambda!(
         PSY.CostCurve{PSY.PiecewisePointCurve},
         PSY.FuelCurve{PSY.PiecewisePointCurve},
     },
-    ::U,
-    ::V,
+    ::Type{U},
+    ::Type{V},
 ) where {T <: PSY.ThermalGen, U <: IOM.VariableType, V <: ThermalDispatchNoMin}
     name = PSY.get_name(component)
     value_curve = PSY.get_value_curve(cost_function)
@@ -1621,8 +1621,8 @@ function IOM.add_pwl_term_lambda!(
                 component,
                 t,
                 temp_cost_function,
-                U(),
-                V(),
+                U,
+                V,
             )
         pwl_cost_expressions[t] = pwl_cost
     end

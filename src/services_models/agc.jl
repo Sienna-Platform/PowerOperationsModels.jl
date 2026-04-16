@@ -145,6 +145,8 @@ function add_constraints!(
     frequency = get_variable(container, SteadyStateFrequencyDeviation, U)
     R_up = get_variable(container, DeltaActivePowerUpVariable, U)
     R_dn = get_variable(container, DeltaActivePowerDownVariable, U)
+    # FIXME dead code, file is unincluded, but likely bug: UpVariable for both.
+    # PSI issue #1593.
     R_up_emergency =
         get_variable(container, AdditionalDeltaActivePowerUpVariable, PSY.Area)
     R_dn_emergency =
