@@ -532,9 +532,7 @@ function construct_service!(
         transmission_interface_slacks!(container, interface)
     end
     # Lazy container addition for the expressions.
-    lazy_container_addition!(
-        container,
-        InterfaceTotalFlow(),
+    lazy_container_addition!(container, InterfaceTotalFlow,
         T,
         PSY.get_name.(interfaces),
         get_time_steps(container),
@@ -561,9 +559,7 @@ function construct_service!(
         transmission_interface_slacks!(container, interface)
     end
     # Lazy container addition for the expressions.
-    lazy_container_addition!(
-        container,
-        InterfaceTotalFlow(),
+    lazy_container_addition!(container, InterfaceTotalFlow,
         PSY.TransmissionInterface,
         PSY.get_name.(interfaces),
         get_time_steps(container),
@@ -803,9 +799,7 @@ function construct_service!(
         transmission_interface_slacks!(container, interface)
     end
     # Lazy container addition for the expressions.
-    lazy_container_addition!(
-        container,
-        InterfaceTotalFlow(),
+    lazy_container_addition!(container, InterfaceTotalFlow,
         PSY.TransmissionInterface,
         PSY.get_name.(interfaces),
         get_time_steps(container),

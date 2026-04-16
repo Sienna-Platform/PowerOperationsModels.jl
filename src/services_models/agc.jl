@@ -1,48 +1,48 @@
 #! format: off
-get_variable_multiplier(::VariableType, ::Type{<:PSY.AGC}, ::AbstractAGCFormulation) = NaN
+get_variable_multiplier(::Type{<:VariableType}, ::Type{<:PSY.AGC}, ::Type{<:AbstractAGCFormulation}) = NaN
 ########################## ActivePowerVariable, AGC ###########################
 
 ########################## SteadyStateFrequencyDeviation ##################################
-get_variable_binary(::SteadyStateFrequencyDeviation, ::Type{<:PSY.AGC}, ::AbstractAGCFormulation) = false
+get_variable_binary(::Type{SteadyStateFrequencyDeviation}, ::Type{<:PSY.AGC}, ::Type{<:AbstractAGCFormulation}) = false
 
-get_variable_binary(::ActivePowerVariable, ::Type{<:PSY.Area}, ::AbstractAGCFormulation) = false
+get_variable_binary(::Type{ActivePowerVariable}, ::Type{<:PSY.Area}, ::Type{<:AbstractAGCFormulation}) = false
 ########################## SmoothACE, AggregationTopology ###########################
 
-get_variable_binary(::SmoothACE, ::Type{<:PSY.AggregationTopology}, ::AbstractAGCFormulation) = false
-get_variable_binary(::SmoothACE, ::Type{<:PSY.AGC}, ::AbstractAGCFormulation) = false
+get_variable_binary(::Type{SmoothACE}, ::Type{<:PSY.AggregationTopology}, ::Type{<:AbstractAGCFormulation}) = false
+get_variable_binary(::Type{SmoothACE}, ::Type{<:PSY.AGC}, ::Type{<:AbstractAGCFormulation}) = false
 
 ########################## DeltaActivePowerUpVariable, AGC ###########################
 
-get_variable_binary(::DeltaActivePowerUpVariable, ::Type{<:PSY.AGC}, ::AbstractAGCFormulation) = false
-get_variable_lower_bound(::DeltaActivePowerUpVariable, ::PSY.AGC, ::AbstractAGCFormulation) = 0.0
+get_variable_binary(::Type{DeltaActivePowerUpVariable}, ::Type{<:PSY.AGC}, ::Type{<:AbstractAGCFormulation}) = false
+get_variable_lower_bound(::Type{DeltaActivePowerUpVariable}, ::PSY.AGC, ::Type{<:AbstractAGCFormulation}) = 0.0
 
 ########################## DeltaActivePowerDownVariable, AGC ###########################
 
-get_variable_binary(::DeltaActivePowerDownVariable, ::Type{<:PSY.AGC}, ::AbstractAGCFormulation) = false
-get_variable_lower_bound(::DeltaActivePowerDownVariable, ::PSY.AGC, ::AbstractAGCFormulation) = 0.0
+get_variable_binary(::Type{DeltaActivePowerDownVariable}, ::Type{<:PSY.AGC}, ::Type{<:AbstractAGCFormulation}) = false
+get_variable_lower_bound(::Type{DeltaActivePowerDownVariable}, ::PSY.AGC, ::Type{<:AbstractAGCFormulation}) = 0.0
 
 ########################## AdditionalDeltaPowerUpVariable, Area ###########################
 
-get_variable_binary(::AdditionalDeltaActivePowerUpVariable, ::Type{<:PSY.Area}, ::AbstractAGCFormulation) = false
-get_variable_lower_bound(::AdditionalDeltaActivePowerUpVariable, ::PSY.Area, ::AbstractAGCFormulation) = 0.0
+get_variable_binary(::Type{AdditionalDeltaActivePowerUpVariable}, ::Type{<:PSY.Area}, ::Type{<:AbstractAGCFormulation}) = false
+get_variable_lower_bound(::Type{AdditionalDeltaActivePowerUpVariable}, ::PSY.Area, ::Type{<:AbstractAGCFormulation}) = 0.0
 
 ########################## AdditionalDeltaPowerDownVariable, Area ###########################
 
-get_variable_binary(::AdditionalDeltaActivePowerDownVariable, ::Type{<:PSY.Area}, ::AbstractAGCFormulation) = false
-get_variable_lower_bound(::AdditionalDeltaActivePowerDownVariable, ::PSY.Area, ::AbstractAGCFormulation) = 0.0
+get_variable_binary(::Type{AdditionalDeltaActivePowerDownVariable}, ::Type{<:PSY.Area}, ::Type{<:AbstractAGCFormulation}) = false
+get_variable_lower_bound(::Type{AdditionalDeltaActivePowerDownVariable}, ::PSY.Area, ::Type{<:AbstractAGCFormulation}) = 0.0
 
 ########################## AreaMismatchVariable, AGC ###########################
-get_variable_binary(::AreaMismatchVariable, ::Type{<:PSY.AGC}, ::AbstractAGCFormulation) = false
+get_variable_binary(::Type{AreaMismatchVariable}, ::Type{<:PSY.AGC}, ::Type{<:AbstractAGCFormulation}) = false
 
 ########################## LiftVariable, Area ###########################
-get_variable_binary(::LiftVariable, ::Type{<:PSY.AGC}, ::AbstractAGCFormulation) = false
-get_variable_lower_bound(::LiftVariable, ::PSY.AGC, ::AbstractAGCFormulation) = 0.0
+get_variable_binary(::Type{LiftVariable}, ::Type{<:PSY.AGC}, ::Type{<:AbstractAGCFormulation}) = false
+get_variable_lower_bound(::Type{LiftVariable}, ::PSY.AGC, ::Type{<:AbstractAGCFormulation}) = 0.0
 
 initial_condition_default(::AreaControlError, d::PSY.AGC, ::AbstractAGCFormulation) = PSY.get_initial_ace(d)
 initial_condition_variable(::AreaControlError, d::PSY.AGC, ::AbstractAGCFormulation) = AreaMismatchVariable()
 
 # Per-device bias multiplier (-10 * get_bias(d)) computed inline at add_to_expression! call sites.
-get_variable_multiplier(::SteadyStateFrequencyDeviation, ::Type{<:PSY.AGC}, ::AbstractAGCFormulation) = 1.0
+get_variable_multiplier(::Type{SteadyStateFrequencyDeviation}, ::Type{<:PSY.AGC}, ::Type{<:AbstractAGCFormulation}) = 1.0
 
 #! format: on
 
@@ -68,7 +68,7 @@ function add_agc_variables!(
     ::Type{T},
 ) where {T <: SteadyStateFrequencyDeviation}
     time_steps = get_time_steps(container)
-    variable = add_variable_container!(container, T(), PSY.AGC, time_steps)
+    variable = add_variable_container!(container, T, PSY.AGC, time_steps)
     for t in time_steps
         variable[t] = JuMP.@variable(container.JuMPmodel, base_name = "ΔF_{$(t)}")
     end
@@ -95,11 +95,11 @@ function add_constraints!(
     time_steps = get_time_steps(container)
     agc_names = PSY.get_name.(agcs)
     container_lb =
-        add_constraints_container!(container, T(), U, agc_names, time_steps; meta = "lb")
+        add_constraints_container!(container, T, U, agc_names, time_steps; meta = "lb")
     container_ub =
-        add_constraints_container!(container, T(), U, agc_names, time_steps; meta = "ub")
-    mismatch = get_variable(container, AreaMismatchVariable(), U)
-    z = get_variable(container, LiftVariable(), U)
+        add_constraints_container!(container, T, U, agc_names, time_steps; meta = "ub")
+    mismatch = get_variable(container, AreaMismatchVariable, U)
+    z = get_variable(container, LiftVariable, U)
     jump_model = get_jump_model(container)
 
     for t in time_steps, a in agc_names
@@ -141,16 +141,16 @@ function add_constraints!(
     # This value is the one updated later in simulation based on the UC result
     inv_frequency_response = 1 / frequency_response
 
-    area_balance = get_variable(container, ActivePowerVariable(), PSY.Area)
-    frequency = get_variable(container, SteadyStateFrequencyDeviation(), U)
-    R_up = get_variable(container, DeltaActivePowerUpVariable(), U)
-    R_dn = get_variable(container, DeltaActivePowerDownVariable(), U)
+    area_balance = get_variable(container, ActivePowerVariable, PSY.Area)
+    frequency = get_variable(container, SteadyStateFrequencyDeviation, U)
+    R_up = get_variable(container, DeltaActivePowerUpVariable, U)
+    R_dn = get_variable(container, DeltaActivePowerDownVariable, U)
     R_up_emergency =
-        get_variable(container, AdditionalDeltaActivePowerUpVariable(), PSY.Area)
+        get_variable(container, AdditionalDeltaActivePowerUpVariable, PSY.Area)
     R_dn_emergency =
-        get_variable(container, AdditionalDeltaActivePowerUpVariable(), PSY.Area)
+        get_variable(container, AdditionalDeltaActivePowerUpVariable, PSY.Area)
 
-    const_container = add_constraints_container!(container, T(), PSY.System, time_steps)
+    const_container = add_constraints_container!(container, T, PSY.System, time_steps)
 
     for t in time_steps
         system_balance = sum(area_balance.data[:, t])
@@ -182,11 +182,9 @@ function add_constraints!(
     time_steps = get_time_steps(container)
     agc_names = PSY.get_name.(services)
     area_names = [PSY.get_name(PSY.get_area(s)) for s in services]
-    RAW_ACE = get_expression(container, RawACE(), U)
-    SACE = get_variable(container, SmoothACE(), U)
-    SACE_pid = add_constraints_container!(
-        container,
-        SACEPIDAreaConstraint(),
+    RAW_ACE = get_expression(container, RawACE, U)
+    SACE = get_variable(container, SmoothACE, U)
+    SACE_pid = add_constraints_container!(container, SACEPIDAreaConstraint,
         U,
         agc_names,
         time_steps,
@@ -230,21 +228,19 @@ function add_constraints!(
 ) where {T <: BalanceAuxConstraint, U <: PSY.AGC, V <: PIDSmoothACE}
     time_steps = get_time_steps(container)
     agc_names = PSY.get_name.(agcs)
-    aux_equation = add_constraints_container!(
-        container,
-        BalanceAuxConstraint(),
+    aux_equation = add_constraints_container!(container, BalanceAuxConstraint,
         PSY.System,
         agc_names,
         time_steps,
     )
-    area_mismatch = get_variable(container, AreaMismatchVariable(), PSY.AGC)
-    SACE = get_variable(container, SmoothACE(), PSY.AGC)
-    R_up = get_variable(container, DeltaActivePowerUpVariable(), PSY.AGC)
-    R_dn = get_variable(container, DeltaActivePowerDownVariable(), PSY.AGC)
+    area_mismatch = get_variable(container, AreaMismatchVariable, PSY.AGC)
+    SACE = get_variable(container, SmoothACE, PSY.AGC)
+    R_up = get_variable(container, DeltaActivePowerUpVariable, PSY.AGC)
+    R_dn = get_variable(container, DeltaActivePowerDownVariable, PSY.AGC)
     R_up_emergency =
-        get_variable(container, AdditionalDeltaActivePowerUpVariable(), PSY.Area)
+        get_variable(container, AdditionalDeltaActivePowerUpVariable, PSY.Area)
     R_dn_emergency =
-        get_variable(container, AdditionalDeltaActivePowerUpVariable(), PSY.Area)
+        get_variable(container, AdditionalDeltaActivePowerUpVariable, PSY.Area)
 
     for t in time_steps
         for agc in agcs
@@ -302,7 +298,7 @@ function add_service_proportional_cost!(
     agcs::IS.FlattenIteratorWrapper{T},
     ::PIDSmoothACE,
 ) where {T <: PSY.AGC, U <: LiftVariable}
-    lift_variable = get_variable(container, U(), T)
+    lift_variable = get_variable(container, U, T)
     for index in Iterators.product(axes(lift_variable)...)
         add_to_objective_invariant_expression!(
             container,

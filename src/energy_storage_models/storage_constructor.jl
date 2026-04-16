@@ -20,7 +20,7 @@ function _add_ancillary_services!(
     ]
         lazy_container_addition!(
             container,
-            exp(),
+            exp,
             T,
             PSY.get_name.(devices),
             time_steps,
@@ -54,9 +54,7 @@ function _add_ancillary_services!(
         union!(services, PSY.get_services(d))
     end
     for s in services
-        lazy_container_addition!(
-            container,
-            TotalReserveOffering(),
+        lazy_container_addition!(container, TotalReserveOffering,
             T,
             PSY.get_name.(devices),
             time_steps;

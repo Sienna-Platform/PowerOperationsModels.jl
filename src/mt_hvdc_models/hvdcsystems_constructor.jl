@@ -121,9 +121,7 @@ function construct_device!(
     ]
 
     for (T, len_segments) in vars_vector
-        add_sparse_pwl_interpolation_variables!(
-            container,
-            T(),
+        add_sparse_pwl_interpolation_variables!(container, T,
             devices,
             model,
             len_segments,

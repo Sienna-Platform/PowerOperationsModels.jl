@@ -423,7 +423,13 @@ function add_pm_variable_refs!(
     for (pm_v, ps_v) in pm_variable_map[PSY.ACBus]
         if pm_v in pm_variable_types
             var_container =
-                add_variable_container!(container, ps_v, PSY.ACBus, bus_names, time_steps)
+                add_variable_container!(
+                    container,
+                    typeof(ps_v),
+                    PSY.ACBus,
+                    bus_names,
+                    time_steps,
+                )
             for t in time_steps, (pm_bus, bus) in bus_dict
                 name = PSY.get_name(bus)
                 var_container[name, t] = PM.var(container.pm, t, pm_v)[pm_bus] # pm_vars[pm_v][pm_bus]
@@ -475,7 +481,7 @@ function add_pm_variable_refs!(
                     get_branch_argument_variable_axis(net_reduction_data, d_type)
                 var_container = add_variable_container!(
                     container,
-                    var_type,
+                    typeof(var_type),
                     d_type,
                     branch_names,
                     time_steps,
@@ -524,7 +530,7 @@ function add_pm_variable_refs!(
                     var_type === nothing && continue
                     var_container = add_variable_container!(
                         container,
-                        var_type,
+                        typeof(var_type),
                         d_type,
                         [PSY.get_name(d[2]) for d in devices],
                         time_steps,
@@ -556,7 +562,7 @@ function add_pm_constraint_refs!(
         if pm_v in pm_constraint_names
             cons_container = add_constraints_container!(
                 container,
-                ps_v,
+                typeof(ps_v),
                 PSY.ACBus,
                 [PSY.get_name(b) for b in values(bus_dict)],
                 time_steps,

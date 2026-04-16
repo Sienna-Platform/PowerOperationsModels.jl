@@ -1,10 +1,10 @@
 #! format: off
-get_multiplier_value(::FromToFlowLimitParameter, d::PSY.AreaInterchange, ::AbstractBranchFormulation) = -1.0 * PSY.get_from_to_flow_limit(d)
-get_multiplier_value(::ToFromFlowLimitParameter, d::PSY.AreaInterchange, ::AbstractBranchFormulation) = PSY.get_to_from_flow_limit(d)
+get_multiplier_value(::Type{FromToFlowLimitParameter}, d::PSY.AreaInterchange, ::Type{<:AbstractBranchFormulation}) = -1.0 * PSY.get_from_to_flow_limit(d)
+get_multiplier_value(::Type{ToFromFlowLimitParameter}, d::PSY.AreaInterchange, ::Type{<:AbstractBranchFormulation}) = PSY.get_to_from_flow_limit(d)
 
-get_parameter_multiplier(::FixValueParameter, ::PSY.AreaInterchange, ::AbstractBranchFormulation) = 1.0
-get_parameter_multiplier(::LowerBoundValueParameter, ::PSY.AreaInterchange, ::AbstractBranchFormulation) = 1.0
-get_parameter_multiplier(::UpperBoundValueParameter, ::PSY.AreaInterchange, ::AbstractBranchFormulation) = 1.0
+get_parameter_multiplier(::Type{FixValueParameter}, ::PSY.AreaInterchange, ::Type{<:AbstractBranchFormulation}) = 1.0
+get_parameter_multiplier(::Type{LowerBoundValueParameter}, ::PSY.AreaInterchange, ::Type{<:AbstractBranchFormulation}) = 1.0
+get_parameter_multiplier(::Type{UpperBoundValueParameter}, ::PSY.AreaInterchange, ::Type{<:AbstractBranchFormulation}) = 1.0
 
 get_initial_conditions_device_model(
     ::OperationModel,
@@ -39,9 +39,7 @@ function add_variables!(
 ) where {T <: AbstractPowerModel}
     time_steps = get_time_steps(container)
 
-    variable = add_variable_container!(
-        container,
-        FlowActivePowerVariable(),
+    variable = add_variable_container!(container, FlowActivePowerVariable,
         PSY.AreaInterchange,
         PSY.get_name.(devices),
         time_steps,
@@ -83,25 +81,21 @@ function add_constraints!(
     time_steps = get_time_steps(container)
     device_names = PSY.get_name.(devices)
 
-    con_ub = add_constraints_container!(
-        container,
-        FlowLimitConstraint(),
+    con_ub = add_constraints_container!(container, FlowLimitConstraint,
         PSY.AreaInterchange,
         device_names,
         time_steps;
         meta = "ub",
     )
 
-    con_lb = add_constraints_container!(
-        container,
-        FlowLimitConstraint(),
+    con_lb = add_constraints_container!(container, FlowLimitConstraint,
         PSY.AreaInterchange,
         device_names,
         time_steps;
         meta = "lb",
     )
 
-    var_array = get_variable(container, FlowActivePowerVariable(), PSY.AreaInterchange)
+    var_array = get_variable(container, FlowActivePowerVariable, PSY.AreaInterchange)
     if !all(PSY.has_time_series.(devices))
         for device in devices
             ci_name = PSY.get_name(device)
@@ -122,19 +116,17 @@ function add_constraints!(
         end
     else
         param_container_from_to =
-            get_parameter(container, FromToFlowLimitParameter(), PSY.AreaInterchange)
-        param_multiplier_from_to = get_parameter_multiplier_array(
-            container,
-            FromToFlowLimitParameter(),
-            PSY.AreaInterchange,
-        )
+            get_parameter(container, FromToFlowLimitParameter, PSY.AreaInterchange)
+        param_multiplier_from_to =
+            get_parameter_multiplier_array(container, FromToFlowLimitParameter,
+                PSY.AreaInterchange,
+            )
         param_container_to_from =
-            get_parameter(container, ToFromFlowLimitParameter(), PSY.AreaInterchange)
-        param_multiplier_to_from = get_parameter_multiplier_array(
-            container,
-            ToFromFlowLimitParameter(),
-            PSY.AreaInterchange,
-        )
+            get_parameter(container, ToFromFlowLimitParameter, PSY.AreaInterchange)
+        param_multiplier_to_from =
+            get_parameter_multiplier_array(container, ToFromFlowLimitParameter,
+                PSY.AreaInterchange,
+            )
         jump_model = get_jump_model(container)
         for device in devices
             name = PSY.get_name(device)
@@ -173,25 +165,21 @@ function add_constraints!(
     time_steps = get_time_steps(container)
     device_names = PSY.get_name.(devices)
 
-    con_ub = add_constraints_container!(
-        container,
-        LineFlowBoundConstraint(),
+    con_ub = add_constraints_container!(container, LineFlowBoundConstraint,
         PSY.AreaInterchange,
         device_names,
         time_steps;
         meta = "ub",
     )
 
-    con_lb = add_constraints_container!(
-        container,
-        LineFlowBoundConstraint(),
+    con_lb = add_constraints_container!(container, LineFlowBoundConstraint,
         PSY.AreaInterchange,
         device_names,
         time_steps;
         meta = "lb",
     )
 
-    area_ex_var = get_variable(container, FlowActivePowerVariable(), PSY.AreaInterchange)
+    area_ex_var = get_variable(container, FlowActivePowerVariable, PSY.AreaInterchange)
     jm = get_jump_model(container)
     for area_interchange in devices
         inter_change_name = PSY.get_name(area_interchange)
@@ -220,7 +208,7 @@ function add_constraints!(
             sum_of_flows = JuMP.AffExpr()
             for (mult, inter_area_branches) in direction_branch_map
                 for (type, names) in inter_area_branches
-                    flow_expr = get_expression(container, PTDFBranchFlow(), type)
+                    flow_expr = get_expression(container, PTDFBranchFlow, type)
                     for name in names
                         JuMP.add_to_expression!(sum_of_flows, flow_expr[name, t], mult)
                     end
