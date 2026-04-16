@@ -525,9 +525,9 @@ function construct_device!(
 )
     devices = get_available_components(model, sys)
 
-    add_variables!(container, ShiftUpActivePowerVariable, devices, PowerLoadShift())
-    add_variables!(container, ShiftDownActivePowerVariable, devices, PowerLoadShift())
-    add_variables!(container, ReactivePowerVariable, devices, PowerLoadShift())
+    add_variables!(container, ShiftUpActivePowerVariable, devices, PowerLoadShift)
+    add_variables!(container, ShiftDownActivePowerVariable, devices, PowerLoadShift)
+    add_variables!(container, ReactivePowerVariable, devices, PowerLoadShift)
 
     process_market_bid_parameters!(container, devices, model, false, true)
 
@@ -644,8 +644,8 @@ function construct_device!(
 )
     devices = get_available_components(model, sys)
 
-    add_variables!(container, ShiftUpActivePowerVariable, devices, PowerLoadShift())
-    add_variables!(container, ShiftDownActivePowerVariable, devices, PowerLoadShift())
+    add_variables!(container, ShiftUpActivePowerVariable, devices, PowerLoadShift)
+    add_variables!(container, ShiftDownActivePowerVariable, devices, PowerLoadShift)
 
     process_market_bid_parameters!(container, devices, model, false, true)
 

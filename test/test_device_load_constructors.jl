@@ -327,7 +327,7 @@ end
 
     @test solve!(model) == RunStatus.SUCCESSFULLY_FINALIZED
 
-    results = OptimizationProblemResults(model)
+    results = OptimizationProblemOutputs(model)
     up = read_variable(
         results,
         "ShiftUpActivePowerVariable__ShiftablePowerLoad";

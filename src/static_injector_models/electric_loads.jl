@@ -26,16 +26,16 @@ get_multiplier_value(::Type{<:TimeSeriesParameter}, d::PSY.ElectricLoad, ::Type{
 
 ########################### ShiftablePowerLoad #####################################
 
-get_variable_binary(::ShiftUpActivePowerVariable, ::Type{<:PSY.ElectricLoad}, ::PowerLoadShift) = false
-get_variable_lower_bound(::ShiftUpActivePowerVariable, d::PSY.ElectricLoad, ::PowerLoadShift) = 0.0
-get_variable_upper_bound(::ShiftUpActivePowerVariable, d::PSY.ElectricLoad, ::PowerLoadShift) = nothing # Unbounded above by default, but can be limited by time series parameters
+get_variable_binary(::Type{ShiftUpActivePowerVariable}, ::Type{<:PSY.ElectricLoad}, ::Type{PowerLoadShift}) = false
+get_variable_lower_bound(::Type{ShiftUpActivePowerVariable}, d::PSY.ElectricLoad, ::Type{PowerLoadShift}) = 0.0
+get_variable_upper_bound(::Type{ShiftUpActivePowerVariable}, d::PSY.ElectricLoad, ::Type{PowerLoadShift}) = nothing # Unbounded above by default, but can be limited by time series parameters
 
-get_variable_binary(::ShiftDownActivePowerVariable, ::Type{<:PSY.ElectricLoad}, ::PowerLoadShift) = false
-get_variable_lower_bound(::ShiftDownActivePowerVariable, d::PSY.ElectricLoad, ::PowerLoadShift) = 0.0
-get_variable_upper_bound(::ShiftDownActivePowerVariable, d::PSY.ElectricLoad, ::PowerLoadShift) = nothing # Unbounded above by default, but can be limited by time series parameters
+get_variable_binary(::Type{ShiftDownActivePowerVariable}, ::Type{<:PSY.ElectricLoad}, ::Type{PowerLoadShift}) = false
+get_variable_lower_bound(::Type{ShiftDownActivePowerVariable}, d::PSY.ElectricLoad, ::Type{PowerLoadShift}) = 0.0
+get_variable_upper_bound(::Type{ShiftDownActivePowerVariable}, d::PSY.ElectricLoad, ::Type{PowerLoadShift}) = nothing # Unbounded above by default, but can be limited by time series parameters
 
-variable_cost(cost::PSY.OperationalCost, ::ShiftUpActivePowerVariable, ::PSY.ElectricLoad, ::AbstractControllablePowerLoadFormulation)=PSY.get_variable(cost)
-variable_cost(cost::PSY.OperationalCost, ::ShiftDownActivePowerVariable, ::PSY.ElectricLoad, ::AbstractControllablePowerLoadFormulation)=PSY.get_variable(cost)
+variable_cost(cost::PSY.OperationalCost, ::Type{ShiftUpActivePowerVariable}, ::PSY.ElectricLoad, ::Type{<:AbstractControllablePowerLoadFormulation})=PSY.get_variable(cost)
+variable_cost(cost::PSY.OperationalCost, ::Type{ShiftDownActivePowerVariable}, ::PSY.ElectricLoad, ::Type{<:AbstractControllablePowerLoadFormulation})=PSY.get_variable(cost)
 
 ######################################################
 
@@ -49,8 +49,8 @@ proportional_cost(cost::Nothing, ::Type{OnVariable}, ::PSY.ElectricLoad, ::Type{
 proportional_cost(cost::PSY.OperationalCost, ::Type{OnVariable}, ::PSY.ElectricLoad, ::Type{<:AbstractControllablePowerLoadFormulation})=PSY.get_fixed(cost)
 
 objective_function_multiplier(::Type{<:VariableType}, ::Type{<:AbstractControllablePowerLoadFormulation})=OBJECTIVE_FUNCTION_NEGATIVE
-objective_function_multiplier(::ShiftUpActivePowerVariable, ::AbstractControllablePowerLoadFormulation)=OBJECTIVE_FUNCTION_NEGATIVE
-objective_function_multiplier(::ShiftDownActivePowerVariable, ::PowerLoadShift)=OBJECTIVE_FUNCTION_POSITIVE
+objective_function_multiplier(::Type{ShiftUpActivePowerVariable}, ::Type{<:AbstractControllablePowerLoadFormulation})=OBJECTIVE_FUNCTION_NEGATIVE
+objective_function_multiplier(::Type{ShiftDownActivePowerVariable}, ::Type{PowerLoadShift})=OBJECTIVE_FUNCTION_POSITIVE
 
 #! format: on
 
@@ -124,10 +124,10 @@ function add_expressions!(
 } where {D <: PSY.ShiftablePowerLoad}
     time_steps = get_time_steps(container)
     names = PSY.get_name.(devices)
-    expression = add_expression_container!(container, T(), D, names, time_steps)
-    shift_up = get_variable(container, ShiftUpActivePowerVariable(), D)
-    shift_down = get_variable(container, ShiftDownActivePowerVariable(), D)
-    param_container = get_parameter(container, ActivePowerTimeSeriesParameter(), D)
+    expression = add_expression_container!(container, T, D, names, time_steps)
+    shift_up = get_variable(container, ShiftUpActivePowerVariable, D)
+    shift_down = get_variable(container, ShiftDownActivePowerVariable, D)
+    param_container = get_parameter(container, ActivePowerTimeSeriesParameter, D)
     multiplier = get_multiplier_array(param_container)
     for t in time_steps, d in devices
         name = PSY.get_name(d)
@@ -151,8 +151,8 @@ function add_to_expression!(
     V <: PSY.StaticInjection,
     W <: AbstractDeviceFormulation,
 }
-    realized_load = get_expression(container, U(), V)
-    expression = get_expression(container, T(), PSY.System)
+    realized_load = get_expression(container, U, V)
+    expression = get_expression(container, T, PSY.System)
     for d in devices
         device_bus = PSY.get_bus(d)
         ref_bus = get_reference_bus(network_model, device_bus)
@@ -185,9 +185,9 @@ function add_to_expression!(
     W <: PowerLoadShift,
     X <: AbstractPTDFModel,
 }
-    realized_load = get_expression(container, U(), V)
-    sys_expr = get_expression(container, T(), _system_expression_type(X))
-    nodal_expr = get_expression(container, T(), PSY.ACBus)
+    realized_load = get_expression(container, U, V)
+    sys_expr = get_expression(container, T, _system_expression_type(X))
+    nodal_expr = get_expression(container, T, PSY.ACBus)
     network_reduction = get_network_reduction(network_model)
     for d in devices
         name = PSY.get_name(d)
@@ -320,12 +320,12 @@ function add_constraints!(
     time_steps = get_time_steps(container)
     constraint = add_constraints_container!(
         container,
-        T(),
+        T,
         V,
         PSY.get_name.(devices),
     )
-    up_variable = get_variable(container, ShiftUpActivePowerVariable(), V)
-    down_variable = get_variable(container, ShiftDownActivePowerVariable(), V)
+    up_variable = get_variable(container, ShiftUpActivePowerVariable, V)
+    down_variable = get_variable(container, ShiftDownActivePowerVariable, V)
     jump_model = get_jump_model(container)
     for d in devices
         name = PSY.get_name(d)
@@ -340,7 +340,7 @@ function add_constraints!(
     if !isnothing(additional_balance_interval)
         constraint_aux = add_constraints_container!(
             container,
-            T(),
+            T,
             V,
             PSY.get_name.(devices);
             meta = "additional",
@@ -374,12 +374,12 @@ function add_constraints!(
     time_steps = get_time_steps(container)
     constraint = add_constraints_container!(
         container,
-        T(),
+        T,
         V,
         PSY.get_name.(devices),
         time_steps,
     )
-    realized_load = get_expression(container, U(), V)
+    realized_load = get_expression(container, U, V)
     jump_model = get_jump_model(container)
     for d in devices, t in time_steps
         name = PSY.get_name(d)
@@ -398,13 +398,13 @@ function add_constraints!(
     time_steps = get_time_steps(container)
     constraint = add_constraints_container!(
         container,
-        T(),
+        T,
         V,
         PSY.get_name.(devices),
         time_steps,
     )
-    up_variable = get_variable(container, ShiftUpActivePowerVariable(), V)
-    down_variable = get_variable(container, ShiftDownActivePowerVariable(), V)
+    up_variable = get_variable(container, ShiftUpActivePowerVariable, V)
+    down_variable = get_variable(container, ShiftDownActivePowerVariable, V)
     jump_model = get_jump_model(container)
     for d in devices
         name = PSY.get_name(d)
@@ -554,21 +554,21 @@ function objective_function!(
     ::DeviceModel{T, U},
     ::Type{<:PM.AbstractPowerModel},
 ) where {T <: PSY.ShiftablePowerLoad, U <: PowerLoadShift}
-    add_variable_cost!(container, ShiftUpActivePowerVariable(), devices, U())
-    add_variable_cost!(container, ShiftDownActivePowerVariable(), devices, U())
+    add_variable_cost!(container, ShiftUpActivePowerVariable, devices, U)
+    add_variable_cost!(container, ShiftDownActivePowerVariable, devices, U)
     return
 end
 
 ### Special Method to skip VOM cost on ShiftUpActivePowerVariable ###
 function add_variable_cost!(
     container::OptimizationContainer,
-    ::U,
+    ::Type{U},
     devices::IS.FlattenIteratorWrapper{T},
-    ::V,
+    ::Type{V},
 ) where {T <: PSY.ShiftablePowerLoad, U <: ShiftUpActivePowerVariable, V <: PowerLoadShift}
     for d in devices
         op_cost_data = PSY.get_operation_cost(d)
-        _add_variable_cost_to_objective!(container, U(), d, op_cost_data, V())
+        add_variable_cost_to_objective!(container, U, d, op_cost_data, V)
     end
     return
 end

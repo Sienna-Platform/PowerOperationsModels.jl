@@ -110,6 +110,8 @@ import InfrastructureOptimizationModels:
     add_proportional_cost!,
     add_proportional_cost_maybe_time_variant!,
     skip_proportional_cost,
+    # variable cost
+    add_variable_cost!,
     # Network model instantiation (POM extends for concrete network formulations)
     instantiate_network_model!,
     # Parameter addition (POM provides concrete implementations)
