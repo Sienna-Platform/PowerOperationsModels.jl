@@ -9,7 +9,7 @@ function construct_device!(
         model,
         sys,
     )
-    add_variables!(container, ActivePowerVariable, devices, LosslessConverter())
+    add_variables!(container, ActivePowerVariable, devices, LosslessConverter)
     add_to_expression!(
         container,
         ActivePowerBalance,
@@ -60,46 +60,46 @@ function construct_device!(
     #####################
 
     # Add Power Variable
-    add_variables!(container, ActivePowerVariable, devices, QuadraticLossConverter()) # p_c^{ac}
-    add_variables!(container, ConverterDCPower, devices, QuadraticLossConverter()) # p_c
+    add_variables!(container, ActivePowerVariable, devices, QuadraticLossConverter) # p_c^{ac}
+    add_variables!(container, ConverterDCPower, devices, QuadraticLossConverter) # p_c
     # Add Current Variables: i, i+, i-
-    add_variables!(container, ConverterCurrent, devices, QuadraticLossConverter()) # i
-    add_variables!(container, SquaredConverterCurrent, devices, QuadraticLossConverter()) # i^sq
+    add_variables!(container, ConverterCurrent, devices, QuadraticLossConverter) # i
+    add_variables!(container, SquaredConverterCurrent, devices, QuadraticLossConverter) # i^sq
     use_linear_loss = get_attribute(model, "use_linear_loss")
     if use_linear_loss
         add_variables!(
             container,
             ConverterPositiveCurrent,
             devices,
-            QuadraticLossConverter(),
+            QuadraticLossConverter,
         ) # i^+
         add_variables!(
             container,
             ConverterNegativeCurrent,
             devices,
-            QuadraticLossConverter(),
+            QuadraticLossConverter,
         ) # i^-
         add_variables!(
             container,
             ConverterCurrentDirection,
             devices,
-            QuadraticLossConverter(),
+            QuadraticLossConverter,
         ) # ν
     end
     # Add Voltage Variables: v^sq
-    add_variables!(container, SquaredDCVoltage, devices, QuadraticLossConverter())
+    add_variables!(container, SquaredDCVoltage, devices, QuadraticLossConverter)
     # Add Bilinear Variables: γ, γ^{sq}
     add_variables!(
         container,
         AuxBilinearConverterVariable,
         devices,
-        QuadraticLossConverter(),
+        QuadraticLossConverter,
     ) # γ
     add_variables!(
         container,
         AuxBilinearSquaredConverterVariable,
         devices,
-        QuadraticLossConverter(),
+        QuadraticLossConverter,
     ) # γ^{sq}
 
     #### Add Interpolation Variables ####
@@ -239,7 +239,7 @@ function construct_device!(
         model,
         sys,
     )
-    add_variables!(container, FlowActivePowerVariable, devices, LosslessLine())
+    add_variables!(container, FlowActivePowerVariable, devices, LosslessLine)
     add_to_expression!(
         container,
         ActivePowerBalance,
@@ -273,7 +273,7 @@ function construct_device!(
         sys,
     )
 
-    add_variables!(container, DCLineCurrent, devices, DCLossyLine())
+    add_variables!(container, DCLineCurrent, devices, DCLossyLine)
     add_to_expression!(
         container,
         DCCurrentBalance,

@@ -410,7 +410,7 @@ function add_variables!(
     container::OptimizationContainer,
     ::Type{T},
     devices::IS.FlattenIteratorWrapper{U},
-    ::F,
+    ::Type{F},
 ) where {
     T <: Union{AncillaryServiceVariableDischarge, AncillaryServiceVariableCharge},
     U <: PSY.Storage,
@@ -448,7 +448,7 @@ function add_variables!(
     container::OptimizationContainer,
     ::Type{T},
     devices::IS.FlattenIteratorWrapper{U},
-    formulation::AbstractStorageFormulation,
+    ::Type{<:AbstractStorageFormulation},
 ) where {
     T <: Union{StorageEnergyShortageVariable, StorageEnergySurplusVariable},
     U <: PSY.Storage,
@@ -477,7 +477,7 @@ function add_variables!(
     container::OptimizationContainer,
     ::Type{T},
     devices::IS.FlattenIteratorWrapper{U},
-    formulation::AbstractStorageFormulation,
+    ::Type{<:AbstractStorageFormulation},
 ) where {
     T <: Union{StorageChargeCyclingSlackVariable, StorageDischargeCyclingSlackVariable},
     U <: PSY.Storage,

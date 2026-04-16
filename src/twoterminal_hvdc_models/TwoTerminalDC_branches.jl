@@ -311,7 +311,7 @@ function add_variables!(
     ::Type{FlowActivePowerVariable},
     network_model::NetworkModel{CopperPlatePowerModel},
     devices::IS.FlattenIteratorWrapper{T},
-    formulation::U,
+    ::Type{U},
 ) where {T <: PSY.TwoTerminalHVDC, U <: AbstractBranchFormulation}
     inter_network_branches = T[]
     for d in devices
@@ -326,7 +326,7 @@ function add_variables!(
         end
     end
     if !isempty(inter_network_branches)
-        add_variables!(container, FlowActivePowerVariable, inter_network_branches, U())
+        add_variables!(container, FlowActivePowerVariable, inter_network_branches, U)
     end
     return
 end

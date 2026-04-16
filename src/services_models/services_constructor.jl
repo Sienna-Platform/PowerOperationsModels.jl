@@ -99,7 +99,7 @@ function construct_service!(
         ActivePowerReserveVariable,
         service,
         contributing_devices,
-        RangeReserve(),
+        RangeReserve,
     )
     add_to_expression!(container, ActivePowerReserveVariable, model, devices_template)
     add_feedforward_arguments!(container, model, service)
@@ -156,7 +156,7 @@ function construct_service!(
         ActivePowerReserveVariable,
         service,
         contributing_devices,
-        RangeReserve(),
+        RangeReserve,
     )
     add_to_expression!(container, ActivePowerReserveVariable, model, devices_template)
     add_feedforward_arguments!(container, model, service)
@@ -217,7 +217,7 @@ function construct_service!(
         ActivePowerReserveVariable,
         service,
         contributing_devices,
-        StepwiseCostReserve(),
+        StepwiseCostReserve,
     )
     add_to_expression!(container, ActivePowerReserveVariable, model, devices_template)
     add_expressions!(container, ProductionCostExpression, [service], model)
@@ -270,14 +270,14 @@ function construct_service!(
     end
 
     add_agc_variables!(container, SteadyStateFrequencyDeviation)
-    add_variables!(container, AreaMismatchVariable, services, T())
-    add_variables!(container, SmoothACE, services, T())
-    add_variables!(container, LiftVariable, services, T())
-    add_variables!(container, ActivePowerVariable, areas, T())
-    add_variables!(container, DeltaActivePowerUpVariable, services, T())
-    add_variables!(container, DeltaActivePowerDownVariable, services, T())
-    add_variables!(container, AdditionalDeltaActivePowerUpVariable, areas, T())
-    add_variables!(container, AdditionalDeltaActivePowerDownVariable, areas, T())
+    add_variables!(container, AreaMismatchVariable, services, T)
+    add_variables!(container, SmoothACE, services, T)
+    add_variables!(container, LiftVariable, services, T)
+    add_variables!(container, ActivePowerVariable, areas, T)
+    add_variables!(container, DeltaActivePowerUpVariable, services, T)
+    add_variables!(container, DeltaActivePowerDownVariable, services, T)
+    add_variables!(container, AdditionalDeltaActivePowerUpVariable, areas, T)
+    add_variables!(container, AdditionalDeltaActivePowerDownVariable, areas, T)
 
     add_initial_condition!(container, services, T(), AreaControlError())
 
@@ -411,7 +411,7 @@ function construct_service!(
         ActivePowerReserveVariable,
         service,
         contributing_devices,
-        RampReserve(),
+        RampReserve,
     )
     add_to_expression!(container, ActivePowerReserveVariable, model, devices_template)
     add_feedforward_arguments!(container, model, service)
@@ -470,7 +470,7 @@ function construct_service!(
         ActivePowerReserveVariable,
         service,
         contributing_devices,
-        NonSpinningReserve(),
+        NonSpinningReserve,
     )
     add_feedforward_arguments!(container, model, service)
     return

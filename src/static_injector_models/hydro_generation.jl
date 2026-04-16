@@ -482,7 +482,7 @@ function add_variables!(
     variable_type::Type{T},
     turbines::U,
     reservoirs::W,
-    ::X,
+    ::Type{X},
 ) where {
     T <: HydroTurbineFlowRateVariable,
     U <: Union{Vector{D}, IS.FlattenIteratorWrapper{D}},

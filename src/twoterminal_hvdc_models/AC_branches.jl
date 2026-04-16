@@ -69,10 +69,11 @@ function add_variables!(
     ::Type{T},
     network_model::NetworkModel{<:AbstractPTDFModel},
     devices::IS.FlattenIteratorWrapper{U},
-    formulation::AbstractBranchFormulation,
+    ::Type{F},
 ) where {
     T <: AbstractACActivePowerFlow,
-    U <: PSY.ACTransmission}
+    U <: PSY.ACTransmission,
+    F <: AbstractBranchFormulation}
     time_steps = get_time_steps(container)
     net_reduction_data = network_model.network_reduction
     branch_names = get_branch_argument_variable_axis(net_reduction_data, devices)
@@ -97,8 +98,8 @@ function add_variables!(
         if has_entry
             @assert !isempty(tracker_container) name arc reduction
         end
-        ub = get_variable_upper_bound(T, reduction_entry, formulation)
-        lb = get_variable_lower_bound(T, reduction_entry, formulation)
+        ub = get_variable_upper_bound(T, reduction_entry, F)
+        lb = get_variable_lower_bound(T, reduction_entry, F)
         for t in time_steps
             if !has_entry
                 tracker_container[t] = JuMP.@variable(
@@ -119,7 +120,7 @@ function add_variables!(
     ::Type{T},
     network_model::NetworkModel{<:AbstractPTDFModel},
     devices::IS.FlattenIteratorWrapper{U},
-    formulation::StaticBranchUnbounded,
+    ::Type{StaticBranchUnbounded},
 ) where {
     T <: AbstractACActivePowerFlow,
     U <: PSY.ACTransmission}
@@ -173,7 +174,7 @@ function add_variables!(
     ::Type{S},
     network_model::NetworkModel{CopperPlatePowerModel},
     devices::IS.FlattenIteratorWrapper{T},
-    formulation::U,
+    ::Type{U},
 ) where {
     S <: AbstractACActivePowerFlow,
     T <: PSY.ACTransmission,

@@ -333,7 +333,7 @@ function add_variables!(
     container::OptimizationContainer,
     ::Type{T},
     devices::U,
-    ::F,
+    ::Type{F},
 ) where {
     T <: Union{OnVariable, StartVariable, StopVariable},
     U <: Union{Vector{D}, IS.FlattenIteratorWrapper{D}},
