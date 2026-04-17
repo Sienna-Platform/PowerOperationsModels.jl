@@ -225,7 +225,7 @@ function add_jump_var!(
     if !IOM.has_container_key(container, V, T)
         IOM.add_variable_container!(
             container,
-            V(),
+            V,
             T,
             [name],
             IOM.get_time_steps(container),

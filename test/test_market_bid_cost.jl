@@ -34,7 +34,7 @@ _decr_mbc(initial_input::Float64, xs::Vector{Float64}, slopes::Vector{Float64}) 
         container, IOM.ActivePowerVariable, PSY.InterruptiblePowerLoad, _LOAD_NAME, 1)
 
     POM.add_variable_cost_to_objective!(
-        container, IOM.ActivePowerVariable(), load, cost, POM.PowerLoadDispatch())
+        container, IOM.ActivePowerVariable, load, cost, POM.PowerLoadDispatch)
 
     # Decremental sign = -1, dt = 1 hr, SYSTEM_BASE ⇒ coefficient == -slope.
     @test pwl_delta_coefs(
@@ -60,7 +60,7 @@ end
         container, IOM.ActivePowerVariable, PSY.InterruptiblePowerLoad, _LOAD_NAME, 1)
 
     POM.add_variable_cost_to_objective!(
-        container, IOM.ActivePowerVariable(), load, cost, POM.PowerLoadDispatch())
+        container, IOM.ActivePowerVariable, load, cost, POM.PowerLoadDispatch)
 
     @test pwl_delta_coefs(
         container, IOM.DecrementalOffer(), PSY.InterruptiblePowerLoad, _LOAD_NAME, 1,
@@ -93,11 +93,11 @@ end
         dir = IOM.DecrementalOffer())
 
     POM.add_variable_cost_to_objective!(
-        container, IOM.ActivePowerVariable(), load, cost, POM.PowerLoadDispatch())
+        container, IOM.ActivePowerVariable, load, cost, POM.PowerLoadDispatch)
 
     variant = IOM.get_variant_terms(IOM.get_objective_expression(container))
     pwl = IOM.get_variable(
-        container, IOM.PiecewiseLinearBlockDecrementalOffer(),
+        container, IOM.PiecewiseLinearBlockDecrementalOffer,
         PSY.InterruptiblePowerLoad)
     @test [JuMP.coefficient(variant, pwl[(_LOAD_NAME, s, 1)]) for s in 1:2] ≈ [-3.0, -7.0]
     @test [JuMP.coefficient(variant, pwl[(_LOAD_NAME, s, 2)]) for s in 1:2] ≈ [-13.0, -17.0]
@@ -123,9 +123,9 @@ end
         container, IOM.OnVariable, PSY.InterruptiblePowerLoad, _LOAD_NAME, 1)
 
     IOM.add_variable_cost!(
-        container, IOM.ActivePowerVariable(), devs, POM.PowerLoadInterruption())
+        container, IOM.ActivePowerVariable, devs, POM.PowerLoadInterruption)
     POM.add_proportional_cost!(
-        container, IOM.OnVariable(), devs, POM.PowerLoadInterruption())
+        container, IOM.OnVariable, devs, POM.PowerLoadInterruption)
 
     # OnVariable: coefficient = initial_input × OBJECTIVE_FUNCTION_NEGATIVE = -2.0.
     @test obj_coef(
@@ -163,14 +163,14 @@ end
         [_LOAD_NAME], 1:2, reshape([2.5, 4.5], 1, 2))
 
     IOM.add_variable_cost!(
-        container, IOM.ActivePowerVariable(), devs, POM.PowerLoadInterruption())
+        container, IOM.ActivePowerVariable, devs, POM.PowerLoadInterruption)
     POM.add_proportional_cost!(
-        container, IOM.OnVariable(), devs, POM.PowerLoadInterruption())
+        container, IOM.OnVariable, devs, POM.PowerLoadInterruption)
 
     variant = IOM.get_variant_terms(IOM.get_objective_expression(container))
     on_var = IOM.get_variable(container, IOM.OnVariable, PSY.InterruptiblePowerLoad)
     pwl = IOM.get_variable(
-        container, IOM.PiecewiseLinearBlockDecrementalOffer(),
+        container, IOM.PiecewiseLinearBlockDecrementalOffer,
         PSY.InterruptiblePowerLoad)
 
     # OnVariable: param × OBJECTIVE_FUNCTION_NEGATIVE.
@@ -198,7 +198,7 @@ end
         container, IOM.ActivePowerVariable, PSY.InterruptiblePowerLoad, _LOAD_NAME, 1)
 
     @test_throws ArgumentError POM.add_variable_cost_to_objective!(
-        container, IOM.ActivePowerVariable(), load, cost, POM.PowerLoadDispatch())
+        container, IOM.ActivePowerVariable, load, cost, POM.PowerLoadDispatch)
 end
 
 @testset "ThermalStandard + ThermalBasicUnitCommitment + static MBC" begin
@@ -222,13 +222,13 @@ end
     end
 
     IOM.add_variable_cost!(
-        container, IOM.ActivePowerVariable(), devs, POM.ThermalBasicUnitCommitment())
+        container, IOM.ActivePowerVariable, devs, POM.ThermalBasicUnitCommitment)
     IOM.add_start_up_cost!(
-        container, IOM.StartVariable(), devs, POM.ThermalBasicUnitCommitment())
+        container, IOM.StartVariable, devs, POM.ThermalBasicUnitCommitment)
     IOM.add_shut_down_cost!(
-        container, IOM.StopVariable(), devs, POM.ThermalBasicUnitCommitment())
+        container, IOM.StopVariable, devs, POM.ThermalBasicUnitCommitment)
     POM.add_proportional_cost!(
-        container, IOM.OnVariable(), devs, POM.ThermalBasicUnitCommitment())
+        container, IOM.OnVariable, devs, POM.ThermalBasicUnitCommitment)
 
     # StartVariable takes the max over StartUpStages for basic UC formulations.
     @test obj_coef(
@@ -280,13 +280,13 @@ end
         [_THERMAL_NAME], 1:2, reshape([30.0, 45.0], 1, 2))
 
     IOM.add_variable_cost!(
-        container, IOM.ActivePowerVariable(), devs, POM.ThermalBasicUnitCommitment())
+        container, IOM.ActivePowerVariable, devs, POM.ThermalBasicUnitCommitment)
     IOM.add_start_up_cost!(
-        container, IOM.StartVariable(), devs, POM.ThermalBasicUnitCommitment())
+        container, IOM.StartVariable, devs, POM.ThermalBasicUnitCommitment)
     IOM.add_shut_down_cost!(
-        container, IOM.StopVariable(), devs, POM.ThermalBasicUnitCommitment())
+        container, IOM.StopVariable, devs, POM.ThermalBasicUnitCommitment)
     POM.add_proportional_cost!(
-        container, IOM.OnVariable(), devs, POM.ThermalBasicUnitCommitment())
+        container, IOM.OnVariable, devs, POM.ThermalBasicUnitCommitment)
 
     variant = IOM.get_variant_terms(IOM.get_objective_expression(container))
     for (V, expected_t1, expected_t2) in (
@@ -299,7 +299,7 @@ end
         @test JuMP.coefficient(variant, var[_THERMAL_NAME, 2]) ≈ expected_t2
     end
     pwl = IOM.get_variable(
-        container, IOM.PiecewiseLinearBlockIncrementalOffer(), PSY.ThermalStandard)
+        container, IOM.PiecewiseLinearBlockIncrementalOffer, PSY.ThermalStandard)
     @test [JuMP.coefficient(variant, pwl[(_THERMAL_NAME, s, 1)]) for s in 1:2] ≈ [3.0, 7.0]
     @test [JuMP.coefficient(variant, pwl[(_THERMAL_NAME, s, 2)]) for s in 1:2] ≈
           [13.0, 17.0]
@@ -326,7 +326,7 @@ end
 
     for V in (POM.HotStartVariable, POM.WarmStartVariable, POM.ColdStartVariable)
         IOM.add_start_up_cost!(
-            container, V(), devs, POM.ThermalMultiStartUnitCommitment())
+            container, V, devs, POM.ThermalMultiStartUnitCommitment)
     end
 
     variant = IOM.get_variant_terms(IOM.get_objective_expression(container))

@@ -206,7 +206,7 @@ end
     # indexing doesn't clash with the single-name axis `add_jump_var!` creates.
     names = ["thermal_ts", "thermal_static"]
     for V in (IOM.StartVariable, IOM.StopVariable)
-        IOM.add_variable_container!(container, V(), PSY.ThermalStandard, names, 1:3)
+        IOM.add_variable_container!(container, V, PSY.ThermalStandard, names, 1:3)
         for name in names, t in 1:3
             IOM.get_variable(container, V, PSY.ThermalStandard)[name, t] =
                 JuMP.@variable(IOM.get_jump_model(container),

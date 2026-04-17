@@ -37,10 +37,10 @@ _static_iec(import_xs, import_ys, export_xs, export_ys) = PSY.ImportExportCost(;
     add_jump_var!(container, IOM.ActivePowerInVariable, PSY.Source, _SOURCE_NAME, 1)
 
     POM.add_variable_cost_to_objective!(
-        container, IOM.ActivePowerOutVariable(), source, cost, POM.ImportExportSourceModel(),
+        container, IOM.ActivePowerOutVariable, source, cost, POM.ImportExportSourceModel,
     )
     POM.add_variable_cost_to_objective!(
-        container, IOM.ActivePowerInVariable(), source, cost, POM.ImportExportSourceModel(),
+        container, IOM.ActivePowerInVariable, source, cost, POM.ImportExportSourceModel,
     )
 
     # Import side: IncrementalOffer sign = +1.
@@ -80,10 +80,10 @@ end
     add_jump_var!(container, IOM.ActivePowerInVariable, PSY.Source, _SOURCE_NAME, 1)
 
     POM.add_variable_cost_to_objective!(
-        container, IOM.ActivePowerOutVariable(), source, cost, POM.ImportExportSourceModel(),
+        container, IOM.ActivePowerOutVariable, source, cost, POM.ImportExportSourceModel,
     )
     POM.add_variable_cost_to_objective!(
-        container, IOM.ActivePowerInVariable(), source, cost, POM.ImportExportSourceModel(),
+        container, IOM.ActivePowerInVariable, source, cost, POM.ImportExportSourceModel,
     )
 
     # Import slope coefficient = +(6 × 100) × 0.25 = +150.
@@ -129,17 +129,17 @@ end
         dir = IOM.DecrementalOffer())
 
     POM.add_variable_cost_to_objective!(
-        container, IOM.ActivePowerOutVariable(), source, cost, POM.ImportExportSourceModel(),
+        container, IOM.ActivePowerOutVariable, source, cost, POM.ImportExportSourceModel,
     )
     POM.add_variable_cost_to_objective!(
-        container, IOM.ActivePowerInVariable(), source, cost, POM.ImportExportSourceModel(),
+        container, IOM.ActivePowerInVariable, source, cost, POM.ImportExportSourceModel,
     )
 
     variant = IOM.get_variant_terms(IOM.get_objective_expression(container))
     incr_pwl = IOM.get_variable(
-        container, IOM.PiecewiseLinearBlockIncrementalOffer(), PSY.Source)
+        container, IOM.PiecewiseLinearBlockIncrementalOffer, PSY.Source)
     decr_pwl = IOM.get_variable(
-        container, IOM.PiecewiseLinearBlockDecrementalOffer(), PSY.Source)
+        container, IOM.PiecewiseLinearBlockDecrementalOffer, PSY.Source)
 
     @test [JuMP.coefficient(variant, incr_pwl[(_SOURCE_NAME, s, 1)]) for s in 1:2] ≈
           [2.0, 5.0]

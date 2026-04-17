@@ -35,9 +35,9 @@ _cost_at_min_param(::DecrementalOffer) = DecrementalCostAtMinParameter()
 proportional_cost(
     ::OptimizationContainer,
     ::PSY.MarketBidCost,
-    ::OnVariable,
+    ::Type{OnVariable},
     comp::Union{PSY.Generator, PSY.ControllableLoad},
-    ::AbstractDeviceFormulation,
+    ::Type{<:AbstractDeviceFormulation},
     ::Int,
 ) = IOM.get_initial_input(_onvar_offer_direction(comp), comp)
 
@@ -45,9 +45,9 @@ proportional_cost(
 function proportional_cost(
     container::OptimizationContainer,
     ::PSY.MarketBidTimeSeriesCost,
-    ::OnVariable,
+    ::Type{OnVariable},
     comp::T,
-    ::AbstractDeviceFormulation,
+    ::Type{<:AbstractDeviceFormulation},
     t::Int,
 ) where {T <: Union{PSY.Generator, PSY.ControllableLoad}}
     param = _cost_at_min_param(_onvar_offer_direction(comp))
