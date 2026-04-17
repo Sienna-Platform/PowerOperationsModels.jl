@@ -765,7 +765,7 @@ function _make_flow_expressions!(
     hint = length(nz_idx)
     expressions = Vector{JuMP.AffExpr}(undef, length(time_steps))
     for t in time_steps
-        acc = get_hinted_aff_expr(hint)
+        acc = IOM.get_hinted_aff_expr(hint)
         @inbounds for i in nz_idx
             JuMP.add_to_expression!(acc, ptdf_col[i], nodal_balance_expressions[i, t])
         end
@@ -786,7 +786,7 @@ function _make_flow_expressions!(
     hint = length(nz_idx)
     expressions = Vector{JuMP.AffExpr}(undef, length(time_steps))
     for t in time_steps
-        acc = get_hinted_aff_expr(hint)
+        acc = IOM.get_hinted_aff_expr(hint)
         @inbounds for k in eachindex(nz_idx)
             JuMP.add_to_expression!(
                 acc,

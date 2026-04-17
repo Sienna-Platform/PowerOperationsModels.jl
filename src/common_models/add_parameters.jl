@@ -27,7 +27,7 @@ function add_parameters!(
     if get_rebuild_model(get_settings(container)) && has_container_key(container, T, D)
         return
     end
-    _add_parameters!(container, T(), devices, model)
+    _add_parameters!(container, T, devices, model)
     return
 end
 
@@ -41,7 +41,7 @@ function add_parameters!(
        has_container_key(container, T, U, PSY.get_name(service))
         return
     end
-    _add_parameters!(container, T(), service, model)
+    _add_parameters!(container, T, service, model)
     return
 end
 
@@ -59,7 +59,7 @@ function add_branch_parameters!(
     if get_rebuild_model(get_settings(container)) && has_container_key(container, T, D)
         return
     end
-    _add_time_series_parameters!(container, T(), network_model, devices, model)
+    _add_time_series_parameters!(container, T, network_model, devices, model)
     return
 end
 
@@ -69,7 +69,7 @@ end
 
 function _add_parameters!(
     container::OptimizationContainer,
-    param::T,
+    param::Type{T},
     devices::U,
     model::DeviceModel{D, W},
 ) where {
@@ -87,7 +87,7 @@ end
 
 function _check_dynamic_branch_rating_ts(
     ts::AbstractArray,
-    ::T,
+    ::Type{T},
     device::PSY.Device,
     model::DeviceModel{D, W},
 ) where {D <: PSY.Component, T <: TimeSeriesParameter, W <: AbstractDeviceFormulation}
@@ -121,7 +121,7 @@ _size_wrapper(::Tuple) = ()
 
 function _add_time_series_parameters!(
     container::OptimizationContainer,
-    param::T,
+    param::Type{T},
     devices,
     model::DeviceModel{D, W},
 ) where {D <: PSY.Component, T <: TimeSeriesParameter, W <: AbstractDeviceFormulation}
@@ -131,7 +131,7 @@ function _add_time_series_parameters!(
     end
 
     time_steps = get_time_steps(container)
-    ts_name = _get_time_series_name(T(), first(devices), model)
+    ts_name = _get_time_series_name(T, first(devices), model)
 
     device_names = String[]
     devices_with_time_series = D[]
@@ -229,7 +229,7 @@ end
 
 function _add_time_series_parameters!(
     container::OptimizationContainer,
-    param::T,
+    ::Type{T},
     network_model::NetworkModel{<:AbstractPTDFModel},
     devices,
     model::DeviceModel{D, W},
@@ -245,7 +245,7 @@ function _add_time_series_parameters!(
     all_branch_maps_by_type = PNM.get_all_branch_maps_by_type(net_reduction_data)
 
     # TODO: Temporary workaround to get the name where we assume all the names are the same across devices.
-    ts_name = _get_time_series_name(T(), first(devices), model)
+    ts_name = _get_time_series_name(T, first(devices), model)
     model_interval = get_interval(get_settings(container))
     ts_interval = model_interval
     device_name_axis, ts_uuid_axis =
@@ -335,24 +335,24 @@ function _add_time_series_parameters!(
     return
 end
 
-_get_time_series_name(::T, ::PSY.Component, model::DeviceModel) where {T <: ParameterType} =
+_get_time_series_name(::Type{T}, ::PSY.Component, model::DeviceModel) where {T <: ParameterType} =
     get_time_series_names(model)[T]
 
-_get_time_series_name(::StartupCostParameter, device::PSY.Component, ::DeviceModel) =
+_get_time_series_name(::Type{StartupCostParameter}, device::PSY.Component, ::DeviceModel) =
     IS.get_name(PSY.get_start_up(PSY.get_operation_cost(device)))
 
-_get_time_series_name(::ShutdownCostParameter, device::PSY.Component, ::DeviceModel) =
+_get_time_series_name(::Type{ShutdownCostParameter}, device::PSY.Component, ::DeviceModel) =
     IS.get_name(PSY.get_shut_down(PSY.get_operation_cost(device)))
 
 _get_time_series_name(
-    ::IncrementalCostAtMinParameter,
+    ::Type{IncrementalCostAtMinParameter},
     device::PSY.Device,
     ::DeviceModel,
 ) =
     IS.get_name(PSY.get_incremental_initial_input(PSY.get_operation_cost(device)))
 
 _get_time_series_name(
-    ::DecrementalCostAtMinParameter,
+    ::Type{DecrementalCostAtMinParameter},
     device::PSY.Device,
     ::DeviceModel,
 ) =
@@ -398,7 +398,7 @@ _param_to_vars(
 
 calc_additional_axes(
     ::OptimizationContainer,
-    ::T,
+    ::Type{T},
     ::U,
     ::DeviceModel{D, W},
 ) where {
@@ -409,7 +409,7 @@ calc_additional_axes(
 
 calc_additional_axes(
     ::OptimizationContainer,
-    ::T,
+    ::Type{T},
     ::U,
     ::ServiceModel{D, W},
 ) where {
@@ -436,7 +436,7 @@ _unwrap_for_param(::ParameterType, ts_elem, expected_axs) = ts_elem
 
 function _add_parameters!(
     container::OptimizationContainer,
-    param::T,
+    param::Type{T},
     devices::U,
     model::DeviceModel{D, W},
 ) where {
@@ -456,7 +456,7 @@ function _add_parameters!(
     device_names = String[]
     active_devices = D[]
     for device in devices
-        ts_name = _get_time_series_name(T(), device, model)
+        ts_name = _get_time_series_name(T, device, model)
         if PSY.has_time_series(device, ts_type, ts_name)
             push!(ts_names, ts_name)
             push!(device_names, PSY.get_name(device))
@@ -475,10 +475,10 @@ function _add_parameters!(
         container,
         T,
         D,
-        _param_to_vars(T(), W()),
+        _param_to_vars(T, W),
         SOSStatusVariable.NO_VARIABLE,
         false,
-        _get_expected_time_series_eltype(T()),
+        _get_expected_time_series_eltype(T),
         device_names,
         additional_axes...,
         time_steps,
@@ -523,7 +523,7 @@ end
 
 function _add_parameters!(
     container::OptimizationContainer,
-    ::T,
+    ::Type{T},
     service::U,
     model::ServiceModel{U, V},
 ) where {T <: TimeSeriesParameter, U <: PSY.Service, V <: AbstractServiceFormulation}
@@ -545,7 +545,7 @@ function _add_parameters!(
         ),
     )
     @debug "adding" T U _group = IOM.LOG_GROUP_OPTIMIZATION_CONTAINER
-    additional_axes = calc_additional_axes(container, T(), [service], model)
+    additional_axes = calc_additional_axes(container, T, [service], model)
     parameter_container = add_param_container!(container, T,
         U,
         ts_type,
@@ -575,7 +575,7 @@ end
 
 function _add_parameters!(
     container::OptimizationContainer,
-    ::T,
+    ::Type{T},
     key::VariableKey{U, D},
     model::DeviceModel{D, W},
     devices::V,
@@ -622,7 +622,7 @@ end
 
 function _add_parameters!(
     container::OptimizationContainer,
-    ::T,
+    ::Type{T},
     key::VariableKey{U, D},
     model::DeviceModel{D, W},
     devices::V,
@@ -672,7 +672,7 @@ end
 
 function _add_parameters!(
     container::OptimizationContainer,
-    ::T,
+    ::Type{T},
     key::VariableKey{U, D},
     model::DeviceModel{D, W},
     devices::V,
@@ -720,7 +720,7 @@ end
 
 function _add_parameters!(
     container::OptimizationContainer,
-    ::T,
+    ::Type{T},
     key::AuxVarKey{U, D},
     model::DeviceModel{D, W},
     devices::V,
@@ -768,7 +768,7 @@ end
 
 function _add_parameters!(
     container::OptimizationContainer,
-    ::T,
+    ::Type{T},
     devices::V,
     model::DeviceModel{D, W},
 ) where {
@@ -818,7 +818,7 @@ end
 
 function _add_parameters!(
     container::OptimizationContainer,
-    ::T,
+    ::Type{T},
     key::VariableKey{U, S},
     model::ServiceModel{S, W},
     devices::V,
