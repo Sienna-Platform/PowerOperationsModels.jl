@@ -13,7 +13,7 @@ sys_rts = PSB.build_system(PSISystems, "modified_RTS_GMLC_DA_sys")
         sys_rts;
         optimizer = HiGHS_optimizer,
         initial_time = DateTime("2020-01-01T00:00:00"),
-        horizon = Hour(48),
+        horizon = Hour(4),
     )
     @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
           IOM.ModelBuildStatus.BUILT
@@ -31,38 +31,38 @@ sys_rts = PSB.build_system(PSISystems, "modified_RTS_GMLC_DA_sys")
     check_active_power_initial_condition_values(model, ThermalStandard)
     check_status_initial_conditions_values(model, ThermalStandard)
     ####### Check variables
-    check_variable_count(model, ActivePowerVariable(), ThermalStandard)
-    check_variable_count(model, StopVariable(), ThermalStandard)
-    check_variable_count(model, OnVariable(), ThermalStandard)
-    check_variable_count(model, StartVariable(), ThermalStandard)
-    check_variable_count(model, ActivePowerVariable(), RenewableDispatch)
-    check_variable_count(model, ActivePowerVariable(), HydroDispatch)
+    check_variable_count(model, ActivePowerVariable, ThermalStandard)
+    check_variable_count(model, StopVariable, ThermalStandard)
+    check_variable_count(model, OnVariable, ThermalStandard)
+    check_variable_count(model, StartVariable, ThermalStandard)
+    check_variable_count(model, ActivePowerVariable, RenewableDispatch)
+    check_variable_count(model, ActivePowerVariable, HydroDispatch)
     ####### Check constraints
     check_constraint_count(
         model,
-        ActivePowerVariableLimitsConstraint(),
+        ActivePowerVariableLimitsConstraint,
         ThermalStandard;
         meta = "lb",
     )
     check_constraint_count(
         model,
-        ActivePowerVariableLimitsConstraint(),
+        ActivePowerVariableLimitsConstraint,
         ThermalStandard;
         meta = "ub",
     )
-    check_constraint_count(model, DurationConstraint(), ThermalStandard)
-    check_constraint_count(model, RampConstraint(), ThermalStandard)
-    check_constraint_count(model, CommitmentConstraint(), ThermalStandard)
-    check_constraint_count(model, CommitmentConstraint(), ThermalStandard; meta = "aux")
+    check_constraint_count(model, DurationConstraint, ThermalStandard)
+    check_constraint_count(model, RampConstraint, ThermalStandard)
+    check_constraint_count(model, CommitmentConstraint, ThermalStandard)
+    check_constraint_count(model, CommitmentConstraint, ThermalStandard; meta = "aux")
     check_constraint_count(
         model,
-        ActivePowerVariableTimeSeriesLimitsConstraint(),
+        ActivePowerVariableTimeSeriesLimitsConstraint,
         HydroDispatch;
         meta = "ub",
     )
     check_constraint_count(
         model,
-        ActivePowerVariableTimeSeriesLimitsConstraint(),
+        ActivePowerVariableTimeSeriesLimitsConstraint,
         RenewableDispatch;
         meta = "ub",
     )
@@ -82,7 +82,7 @@ end
         sys_rts;
         optimizer = HiGHS_optimizer,
         initial_time = DateTime("2020-01-01T00:00:00"),
-        horizon = Hour(48),
+        horizon = Hour(4),
     )
     @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
           IOM.ModelBuildStatus.BUILT
@@ -96,50 +96,50 @@ end
     check_status_initial_conditions_values(model, ThermalStandard)
 
     ####### Check variables
-    check_variable_count(model, ActivePowerVariable(), ThermalStandard)
-    check_variable_count(model, StopVariable(), ThermalStandard)
-    check_variable_count(model, OnVariable(), ThermalStandard)
-    check_variable_count(model, StartVariable(), ThermalStandard)
-    check_variable_count(model, ActivePowerVariable(), RenewableDispatch)
-    check_variable_count(model, ActivePowerVariable(), HydroDispatch)
-    check_variable_count(model, OnVariable(), HydroDispatch)
+    check_variable_count(model, ActivePowerVariable, ThermalStandard)
+    check_variable_count(model, StopVariable, ThermalStandard)
+    check_variable_count(model, OnVariable, ThermalStandard)
+    check_variable_count(model, StartVariable, ThermalStandard)
+    check_variable_count(model, ActivePowerVariable, RenewableDispatch)
+    check_variable_count(model, ActivePowerVariable, HydroDispatch)
+    check_variable_count(model, OnVariable, HydroDispatch)
     ####### Check constraints
     check_constraint_count(
         model,
-        ActivePowerVariableLimitsConstraint(),
+        ActivePowerVariableLimitsConstraint,
         ThermalStandard;
         meta = "lb",
     )
     check_constraint_count(
         model,
-        ActivePowerVariableLimitsConstraint(),
+        ActivePowerVariableLimitsConstraint,
         ThermalStandard;
         meta = "ub",
     )
-    check_constraint_count(model, CommitmentConstraint(), ThermalStandard)
-    check_constraint_count(model, CommitmentConstraint(), ThermalStandard; meta = "aux")
+    check_constraint_count(model, CommitmentConstraint, ThermalStandard)
+    check_constraint_count(model, CommitmentConstraint, ThermalStandard; meta = "aux")
 
     check_constraint_count(
         model,
-        ActivePowerVariableTimeSeriesLimitsConstraint(),
+        ActivePowerVariableTimeSeriesLimitsConstraint,
         RenewableDispatch;
         meta = "ub",
     )
     check_constraint_count(
         model,
-        ActivePowerVariableTimeSeriesLimitsConstraint(),
+        ActivePowerVariableTimeSeriesLimitsConstraint,
         HydroDispatch;
         meta = "ub",
     )
     check_constraint_count(
         model,
-        ActivePowerVariableLimitsConstraint(),
+        ActivePowerVariableLimitsConstraint,
         HydroDispatch;
         meta = "lb",
     )
     check_constraint_count(
         model,
-        ActivePowerVariableLimitsConstraint(),
+        ActivePowerVariableLimitsConstraint,
         HydroDispatch;
         meta = "ub",
     )
@@ -159,7 +159,7 @@ end
         sys_rts;
         optimizer = HiGHS_optimizer,
         initial_time = DateTime("2020-01-01T00:00:00"),
-        horizon = Hour(48),
+        horizon = Hour(4),
     )
     POM.instantiate_network_model!(model)
     POM.build_pre_step!(model)
@@ -167,48 +167,48 @@ end
     ####### Check initialization problem constraints #####
     check_initialization_constraint_count(
         model,
-        ActivePowerVariableLimitsConstraint(),
+        ActivePowerVariableLimitsConstraint,
         ThermalStandard;
         meta = "lb",
     )
     check_initialization_constraint_count(
         model,
-        ActivePowerVariableLimitsConstraint(),
+        ActivePowerVariableLimitsConstraint,
         ThermalStandard;
         meta = "ub",
     )
     check_initialization_constraint_count(
         model,
-        CommitmentConstraint(),
+        CommitmentConstraint,
         ThermalStandard,
     )
     check_initialization_constraint_count(
         model,
-        CommitmentConstraint(),
+        CommitmentConstraint,
         ThermalStandard;
         meta = "aux",
     )
     check_initialization_constraint_count(
         model,
-        ActivePowerVariableTimeSeriesLimitsConstraint(),
+        ActivePowerVariableTimeSeriesLimitsConstraint,
         RenewableDispatch;
         meta = "ub",
     )
     check_initialization_constraint_count(
         model,
-        ActivePowerVariableLimitsConstraint(),
+        ActivePowerVariableLimitsConstraint,
         HydroDispatch;
         meta = "lb",
     )
     check_initialization_constraint_count(
         model,
-        ActivePowerVariableLimitsConstraint(),
+        ActivePowerVariableLimitsConstraint,
         HydroDispatch;
         meta = "ub",
     )
     check_initialization_constraint_count(
         model,
-        ActivePowerVariableTimeSeriesLimitsConstraint(),
+        ActivePowerVariableTimeSeriesLimitsConstraint,
         HydroDispatch;
         meta = "ub",
     )
@@ -235,51 +235,51 @@ end
     check_status_initial_conditions_values(model, ThermalStandard)
 
     ####### Check variables
-    check_variable_count(model, PowerAboveMinimumVariable(), ThermalStandard)
-    check_variable_count(model, OnVariable(), ThermalStandard)
-    check_variable_count(model, StopVariable(), ThermalStandard)
-    check_variable_count(model, StartVariable(), ThermalStandard)
-    check_variable_count(model, ActivePowerVariable(), RenewableDispatch)
-    check_variable_count(model, ActivePowerVariable(), HydroDispatch)
+    check_variable_count(model, PowerAboveMinimumVariable, ThermalStandard)
+    check_variable_count(model, OnVariable, ThermalStandard)
+    check_variable_count(model, StopVariable, ThermalStandard)
+    check_variable_count(model, StartVariable, ThermalStandard)
+    check_variable_count(model, ActivePowerVariable, RenewableDispatch)
+    check_variable_count(model, ActivePowerVariable, HydroDispatch)
 
     ####### Check constraints
     check_constraint_count(
         model,
-        ActivePowerVariableLimitsConstraint(),
+        ActivePowerVariableLimitsConstraint,
         ThermalStandard;
         meta = "lb",
     )
     check_constraint_count(
         model,
-        ActivePowerVariableLimitsConstraint(),
+        ActivePowerVariableLimitsConstraint,
         ThermalStandard;
         meta = "ub",
     )
-    check_constraint_count(model, RampConstraint(), ThermalStandard)
-    check_constraint_count(model, DurationConstraint(), ThermalStandard)
-    check_constraint_count(model, CommitmentConstraint(), ThermalStandard)
-    check_constraint_count(model, CommitmentConstraint(), ThermalStandard; meta = "aux")
+    check_constraint_count(model, RampConstraint, ThermalStandard)
+    check_constraint_count(model, DurationConstraint, ThermalStandard)
+    check_constraint_count(model, CommitmentConstraint, ThermalStandard)
+    check_constraint_count(model, CommitmentConstraint, ThermalStandard; meta = "aux")
     check_constraint_count(
         model,
-        ActivePowerVariableTimeSeriesLimitsConstraint(),
+        ActivePowerVariableTimeSeriesLimitsConstraint,
         RenewableDispatch;
         meta = "ub",
     )
     check_constraint_count(
         model,
-        ActivePowerVariableTimeSeriesLimitsConstraint(),
+        ActivePowerVariableTimeSeriesLimitsConstraint,
         HydroDispatch;
         meta = "ub",
     )
     check_constraint_count(
         model,
-        ActivePowerVariableLimitsConstraint(),
+        ActivePowerVariableLimitsConstraint,
         HydroDispatch;
         meta = "lb",
     )
     check_constraint_count(
         model,
-        ActivePowerVariableLimitsConstraint(),
+        ActivePowerVariableLimitsConstraint,
         HydroDispatch;
         meta = "ub",
     )

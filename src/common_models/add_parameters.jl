@@ -104,7 +104,7 @@ function _check_dynamic_branch_rating_ts(
         end
     end
 
-    multiplier = get_multiplier_value(T(), device, W())
+    multiplier = get_multiplier_value(T, device, W)
     if !all(x -> x >= rating, multiplier * ts)
         @warn "There are values of Parameter $T associated with $(typeof(device)) '$(PSY.get_name(device))' lower than the device static rating $(rating)."
     end
@@ -164,7 +164,7 @@ function _add_time_series_parameters!(
         calc_additional_axes(container, param, devices_with_time_series, model)
     param_container = add_param_container!(
         container,
-        param,
+        T,
         D,
         ts_type,
         ts_name,
@@ -187,7 +187,7 @@ function _add_time_series_parameters!(
     end
 
     for device in devices_with_time_series
-        multiplier = get_multiplier_value(T(), device, W())
+        multiplier = get_multiplier_value(T, device, W)
         device_name = PSY.get_name(device)
         for step in time_steps
             IOM.set_multiplier!(param_container, multiplier, device_name, step)
@@ -233,7 +233,7 @@ function _add_time_series_parameters!(
     additional_axes = ()
     param_container = add_param_container!(
         container,
-        param,
+        T,
         D,
         ts_type,
         ts_name,
@@ -273,7 +273,7 @@ function _add_time_series_parameters!(
                 _unwrap_for_param.(Ref(param_instance), raw_ts_vals, Ref(additional_axes))
             @assert all(_size_wrapper.(ts_vals) .== Ref(length.(additional_axes)))
         end
-        multiplier = get_multiplier_value(T(), reduction_entry, W())
+        multiplier = get_multiplier_value(T, reduction_entry, W)
         jump_model = get_jump_model(container)
         param_array = get_parameter_array(param_container)
         for t in time_steps
@@ -473,7 +473,7 @@ function _add_parameters!(
     additional_axes = calc_additional_axes(container, param, active_devices, model)
     param_container = add_param_container!(
         container,
-        param,
+        T,
         D,
         _param_to_vars(T(), W()),
         SOSStatusVariable.NO_VARIABLE,
@@ -500,7 +500,7 @@ function _add_parameters!(
             )
             IOM.set_multiplier!(
                 param_container,
-                get_multiplier_value(T(), device, W()),
+                get_multiplier_value(T, device, W),
                 device_name,
                 step,
             )
@@ -529,9 +529,7 @@ function _add_parameters!(
     ts_uuid = string(IS.get_time_series_uuid(ts_type, service, ts_name))
     @debug "adding" T U _group = IOM.LOG_GROUP_OPTIMIZATION_CONTAINER
     additional_axes = calc_additional_axes(container, T(), [service], model)
-    parameter_container = add_param_container!(
-        container,
-        T(),
+    parameter_container = add_param_container!(container, T,
         U,
         ts_type,
         ts_name,
@@ -544,8 +542,8 @@ function _add_parameters!(
 
     IOM.set_subsystem!(IOM.get_attributes(parameter_container), IOM.get_subsystem(model))
     jump_model = get_jump_model(container)
-    ts_vector = IOM.get_time_series(container, service, T(), name)
-    multiplier = get_multiplier_value(T(), service, V())
+    ts_vector = IOM.get_time_series(container, service, T, name)
+    multiplier = get_multiplier_value(T, service, V)
     for t in time_steps
         IOM.set_multiplier!(parameter_container, multiplier, name, t)
         IOM.set_parameter!(parameter_container, jump_model, ts_vector[t], ts_uuid, t)
@@ -573,19 +571,19 @@ function _add_parameters!(
     @debug "adding" T D U _group = IOM.LOG_GROUP_OPTIMIZATION_CONTAINER
     names = [PSY.get_name(device) for device in devices]
     time_steps = get_time_steps(container)
-    parameter_container = add_param_container!(container, T(), D, key, names, time_steps)
+    parameter_container = add_param_container!(container, T, D, key, names, time_steps)
     jump_model = get_jump_model(container)
     for d in devices
         name = PSY.get_name(d)
-        if get_variable_warm_start_value(U(), d, W()) === nothing
+        if get_variable_warm_start_value(U, d, W) === nothing
             inital_parameter_value = 0.0
         else
-            inital_parameter_value = get_variable_warm_start_value(U(), d, W())
+            inital_parameter_value = get_variable_warm_start_value(U, d, W)
         end
         for t in time_steps
             IOM.set_multiplier!(
                 parameter_container,
-                get_parameter_multiplier(T(), d, W()),
+                get_parameter_multiplier(T, d, W),
                 name,
                 t,
             )
@@ -620,22 +618,22 @@ function _add_parameters!(
     @debug "adding" T D U _group = IOM.LOG_GROUP_OPTIMIZATION_CONTAINER
     names = [PSY.get_name(device) for device in devices if !PSY.get_must_run(device)]
     time_steps = get_time_steps(container)
-    parameter_container = add_param_container!(container, T(), D, key, names, time_steps)
+    parameter_container = add_param_container!(container, T, D, key, names, time_steps)
     jump_model = get_jump_model(container)
     for d in devices
         if PSY.get_must_run(d)
             continue
         end
         name = PSY.get_name(d)
-        if get_variable_warm_start_value(U(), d, W()) === nothing
+        if get_variable_warm_start_value(U, d, W) === nothing
             inital_parameter_value = 0.0
         else
-            inital_parameter_value = get_variable_warm_start_value(U(), d, W())
+            inital_parameter_value = get_variable_warm_start_value(U, d, W)
         end
         for t in time_steps
             IOM.set_multiplier!(
                 parameter_container,
-                get_parameter_multiplier(T(), d, W()),
+                get_parameter_multiplier(T, d, W),
                 name,
                 t,
             )
@@ -671,19 +669,19 @@ function _add_parameters!(
     names = [PSY.get_name(device) for device in devices]
     time_steps = get_time_steps(container)
     parameter_container =
-        add_param_container!(container, T(), D, key, names, time_steps; meta = "$U")
+        add_param_container!(container, T, D, key, names, time_steps; meta = "$U")
     jump_model = get_jump_model(container)
     for d in devices
         name = PSY.get_name(d)
-        if get_variable_warm_start_value(U(), d, W()) === nothing
+        if get_variable_warm_start_value(U, d, W) === nothing
             inital_parameter_value = 0.0
         else
-            inital_parameter_value = get_variable_warm_start_value(U(), d, W())
+            inital_parameter_value = get_variable_warm_start_value(U, d, W)
         end
         for t in time_steps
             IOM.set_multiplier!(
                 parameter_container,
-                get_parameter_multiplier(T(), d, W()),
+                get_parameter_multiplier(T, d, W),
                 name,
                 t,
             )
@@ -718,9 +716,7 @@ function _add_parameters!(
     @debug "adding" T D U _group = IOM.LOG_GROUP_OPTIMIZATION_CONTAINER
     names = [PSY.get_name(device) for device in devices]
     time_steps = get_time_steps(container)
-    parameter_container = add_param_container!(
-        container,
-        T(),
+    parameter_container = add_param_container!(container, T,
         D,
         key,
         names,
@@ -733,14 +729,14 @@ function _add_parameters!(
         for t in time_steps
             IOM.set_multiplier!(
                 parameter_container,
-                get_parameter_multiplier(T(), d, W()),
+                get_parameter_multiplier(T, d, W),
                 name,
                 t,
             )
             IOM.set_parameter!(
                 parameter_container,
                 jump_model,
-                get_initial_parameter_value(T(), d, W()),
+                get_initial_parameter_value(T, d, W),
                 name,
                 t,
             )
@@ -770,9 +766,7 @@ function _add_parameters!(
     !isempty(IOM.get_feedforwards(model)) && return
     names = [PSY.get_name(device) for device in devices]
     time_steps = get_time_steps(container)
-    parameter_container = add_param_container!(
-        container,
-        T(),
+    parameter_container = add_param_container!(container, T,
         D,
         VariableKey(OnVariable, D),
         names,
@@ -785,14 +779,14 @@ function _add_parameters!(
         for t in time_steps
             IOM.set_multiplier!(
                 parameter_container,
-                get_parameter_multiplier(T(), d, W()),
+                get_parameter_multiplier(T, d, W),
                 name,
                 t,
             )
             IOM.set_parameter!(
                 parameter_container,
                 jump_model,
-                get_initial_parameter_value(T(), d, W()),
+                get_initial_parameter_value(T, d, W),
                 name,
                 t,
             )
@@ -822,9 +816,7 @@ function _add_parameters!(
     contributing_devices = IOM.get_contributing_devices(model)
     names = [PSY.get_name(device) for device in contributing_devices]
     time_steps = get_time_steps(container)
-    parameter_container = add_param_container!(
-        container,
-        T(),
+    parameter_container = add_param_container!(container, T,
         S,
         key,
         names,
@@ -837,14 +829,14 @@ function _add_parameters!(
         for t in time_steps
             IOM.set_multiplier!(
                 parameter_container,
-                get_parameter_multiplier(T(), S, W()),
+                get_parameter_multiplier(T, S, W),
                 name,
                 t,
             )
             IOM.set_parameter!(
                 parameter_container,
                 jump_model,
-                get_initial_parameter_value(T(), S, W()),
+                get_initial_parameter_value(T, S, W),
                 name,
                 t,
             )

@@ -67,7 +67,7 @@ is_time_variant_term(::PSY.MarketBidTimeSeriesCost) = true
 #################################################################################
 
 _consider_parameter(
-    ::StartupCostParameter,
+    ::Type{StartupCostParameter},
     container::OptimizationContainer,
     ::DeviceModel{T, D},
 ) where {T, D <: AbstractCompactUnitCommitment} =
@@ -79,7 +79,7 @@ _consider_parameter(
 
 # ThermalMultiStart: accept NTuple{3, Float64} and StartUpStages without warning
 function IOM.validate_occ_component(
-    ::StartupCostParameter,
+    ::Type{StartupCostParameter},
     device::PSY.ThermalMultiStart,
 )
     startup = PSY.get_start_up(PSY.get_operation_cost(device))
@@ -96,7 +96,7 @@ end
 # Renewable / Storage: warn on nonzero startup, shutdown, and no-load costs
 
 function IOM.validate_occ_component(
-    ::StartupCostParameter,
+    ::Type{StartupCostParameter},
     device::Union{PSY.RenewableDispatch, PSY.Storage},
 )
     startup = PSY.get_start_up(PSY.get_operation_cost(device))
@@ -118,7 +118,7 @@ _scalar_if_static(x::IS.LinearCurve) = IS.get_proportional_term(x)
 _scalar_if_static(::IS.TimeSeriesLinearCurve) = nothing
 
 function IOM.validate_occ_component(
-    ::ShutdownCostParameter,
+    ::Type{ShutdownCostParameter},
     device::Union{PSY.RenewableDispatch, PSY.Storage},
 )
     x = _scalar_if_static(PSY.get_shut_down(PSY.get_operation_cost(device)))
@@ -128,7 +128,7 @@ function IOM.validate_occ_component(
 end
 
 function IOM.validate_occ_component(
-    ::IncrementalCostAtMinParameter,
+    ::Type{IncrementalCostAtMinParameter},
     device::Union{PSY.RenewableDispatch, PSY.Storage},
 )
     x = _scalar_if_static(PSY.get_no_load_cost(PSY.get_operation_cost(device)))
@@ -138,7 +138,7 @@ function IOM.validate_occ_component(
 end
 
 function IOM.validate_occ_component(
-    ::DecrementalCostAtMinParameter,
+    ::Type{DecrementalCostAtMinParameter},
     device::PSY.Storage,
 )
     x = _scalar_if_static(PSY.get_no_load_cost(PSY.get_operation_cost(device)))
@@ -154,38 +154,38 @@ end
 
 _include_min_gen_power_in_constraint(
     ::Type{<:PSY.Source},
-    ::ActivePowerOutVariable,
-    ::AbstractDeviceFormulation,
+    ::Type{ActivePowerOutVariable},
+    ::Type{<:AbstractDeviceFormulation},
 ) = false
 _include_min_gen_power_in_constraint(
     ::Type{<:PSY.Source},
-    ::ActivePowerInVariable,
-    ::AbstractDeviceFormulation,
+    ::Type{ActivePowerInVariable},
+    ::Type{<:AbstractDeviceFormulation},
 ) = false
 _include_min_gen_power_in_constraint(
     ::Type{<:PSY.RenewableDispatch},
-    ::ActivePowerVariable,
-    ::AbstractDeviceFormulation,
+    ::Type{ActivePowerVariable},
+    ::Type{<:AbstractDeviceFormulation},
 ) = false
 _include_min_gen_power_in_constraint(
     ::Type{<:PSY.Generator},
-    ::ActivePowerVariable,
-    ::AbstractDeviceFormulation,
+    ::Type{ActivePowerVariable},
+    ::Type{<:AbstractDeviceFormulation},
 ) = true
 _include_min_gen_power_in_constraint(
     ::Type{<:PSY.ControllableLoad},
-    ::ActivePowerVariable,
-    ::PowerLoadInterruption,
+    ::Type{ActivePowerVariable},
+    ::Type{PowerLoadInterruption},
 ) = true
 _include_min_gen_power_in_constraint(
     ::Type{<:PSY.ControllableLoad},
-    ::ActivePowerVariable,
-    ::PowerLoadDispatch,
+    ::Type{ActivePowerVariable},
+    ::Type{PowerLoadDispatch},
 ) = false
 _include_min_gen_power_in_constraint(
     ::Type,
-    ::PowerAboveMinimumVariable,
-    ::AbstractDeviceFormulation,
+    ::Type{PowerAboveMinimumVariable},
+    ::Type{<:AbstractDeviceFormulation},
 ) = false
 
 #################################################################################
@@ -196,18 +196,18 @@ _include_min_gen_power_in_constraint(
 
 _include_constant_min_gen_power_in_constraint(
     ::Type{<:PSY.ControllableLoad},
-    ::ActivePowerVariable,
-    ::PowerLoadDispatch,
+    ::Type{ActivePowerVariable},
+    ::Type{PowerLoadDispatch},
 ) = true
 _include_constant_min_gen_power_in_constraint(
     ::Type{<:PSY.ControllableLoad},
-    ::ActivePowerVariable,
-    ::PowerLoadInterruption,
+    ::Type{ActivePowerVariable},
+    ::Type{PowerLoadInterruption},
 ) = false
 _include_constant_min_gen_power_in_constraint(
     ::Type{<:PSY.RenewableGen},
-    ::ActivePowerVariable,
-    ::AbstractRenewableDispatchFormulation,
+    ::Type{ActivePowerVariable},
+    ::Type{<:AbstractRenewableDispatchFormulation},
 ) = true
 
 #################################################################################
@@ -221,36 +221,38 @@ _include_constant_min_gen_power_in_constraint(
 # source) would be the better behavior — revisit once we have a cheap emptiness check.
 function add_variable_cost_to_objective!(
     container::OptimizationContainer,
-    ::ActivePowerOutVariable,
+    ::Type{ActivePowerOutVariable},
     component::PSY.Source,
     cost_function::IOM.IEC_TYPES,
-    ::ImportExportSourceModel,
+    ::Type{ImportExportSourceModel},
 )
+    isnothing(get_output_offer_curves(cost_function)) && return
     add_pwl_term_delta!(
         IncrementalOffer(),
         container,
         component,
         cost_function,
-        ActivePowerOutVariable(),
-        ImportExportSourceModel(),
+        ActivePowerOutVariable,
+        ImportExportSourceModel,
     )
     return
 end
 
 function add_variable_cost_to_objective!(
     container::OptimizationContainer,
-    ::ActivePowerInVariable,
+    ::Type{ActivePowerInVariable},
     component::PSY.Source,
     cost_function::IOM.IEC_TYPES,
-    ::ImportExportSourceModel,
+    ::Type{ImportExportSourceModel},
 )
+    isnothing(get_input_offer_curves(cost_function)) && return
     add_pwl_term_delta!(
         DecrementalOffer(),
         container,
         component,
         cost_function,
-        ActivePowerInVariable(),
-        ImportExportSourceModel(),
+        ActivePowerInVariable,
+        ImportExportSourceModel,
     )
     return
 end
@@ -261,10 +263,10 @@ end
 
 function add_variable_cost_to_objective!(
     container::OptimizationContainer,
-    ::T,
+    ::Type{T},
     component::PSY.Component,
     cost_function::PSY.OfferCurveCost,
-    ::U,
+    ::Type{U},
 ) where {T <: VariableType, U <: AbstractControllablePowerLoadFormulation}
     component_name = PSY.get_name(component)
     @debug "Market Bid" _group = LOG_GROUP_COST_FUNCTIONS component_name
@@ -280,13 +282,14 @@ function add_variable_cost_to_objective!(
         container,
         component,
         cost_function,
-        T(),
-        U(),
+        T,
+        U,
     )
     return
 end
 
-_vom_offer_direction(::AbstractControllablePowerLoadFormulation) = DecrementalOffer()
+_vom_offer_direction(::Type{<:AbstractControllablePowerLoadFormulation}) =
+    DecrementalOffer()
 
 #################################################################################
 # Section 7: Service-specific PWL (ReserveDemandCurve, StepwiseCostReserve)
@@ -298,16 +301,16 @@ PWL block offer constraints for ORDC (ReserveDemandCurve).
 function add_pwl_constraint_delta!(
     container::OptimizationContainer,
     component::T,
-    ::U,
+    ::Type{U},
     break_points::Vector{Float64},
     pwl_vars::Vector{JuMP.VariableRef},
     period::Int,
 ) where {T <: PSY.ReserveDemandCurve, U <: ServiceRequirementVariable}
     name = PSY.get_name(component)
-    variables = get_variable(container, U(), T, name)
+    variables = get_variable(container, U, T, name)
     const_container = lazy_container_addition!(
         container,
-        PiecewiseLinearBlockIncrementalOfferConstraint(),
+        PiecewiseLinearBlockIncrementalOfferConstraint,
         T,
         axes(variables)...;
         meta = name,
@@ -331,10 +334,10 @@ function add_pwl_term_delta!(
     container::OptimizationContainer,
     component::T,
     cost_data::PSY.CostCurve{PSY.PiecewiseIncrementalCurve},
-    ::U,
-    ::V,
+    ::Type{U},
+    ::Type{V},
 ) where {T <: PSY.Component, U <: VariableType, V <: AbstractServiceFormulation}
-    multiplier = objective_function_multiplier(U(), V())
+    multiplier = objective_function_multiplier(U, V)
     resolution = get_resolution(container)
     dt = Dates.value(Dates.Second(resolution)) / SECONDS_IN_HOUR
     base_power = get_model_base_power(container)
@@ -363,7 +366,7 @@ function add_pwl_term_delta!(
             length(slopes);
             upper_bound = Inf,
         )
-        add_pwl_constraint_delta!(container, component, U(), break_points, pwl_vars, t)
+        add_pwl_constraint_delta!(container, component, U, break_points, pwl_vars, t)
         pwl_cost_expressions[t] =
             get_pwl_cost_expression_delta(pwl_vars, slopes, multiplier * dt)
     end

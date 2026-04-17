@@ -3,9 +3,7 @@ function reserve_slacks!(
     service::T,
 ) where {T <: Union{PSY.Reserve, PSY.ReserveNonSpinning}}
     time_steps = get_time_steps(container)
-    variable = add_variable_container!(
-        container,
-        ReserveRequirementSlack(),
+    variable = add_variable_container!(container, ReserveRequirementSlack,
         T,
         PSY.get_name(service),
         time_steps,

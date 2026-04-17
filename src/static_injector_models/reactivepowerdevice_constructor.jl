@@ -9,7 +9,7 @@ function construct_device!(
     D <: AbstractReactivePowerDeviceFormulation,
 }
     devices = get_available_components(model, sys)
-    add_variables!(container, ReactivePowerVariable, devices, D())
+    add_variables!(container, ReactivePowerVariable, devices, D)
     add_to_expression!(
         container,
         ReactivePowerBalance,

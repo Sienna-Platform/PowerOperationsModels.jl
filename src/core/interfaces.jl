@@ -86,19 +86,19 @@ Get the multiplier for a variable type when adding to an expression.
 Default implementation returns 1.0.
 """
 get_variable_multiplier(
-    ::IS.Optimization.VariableType,
+    ::Type{<:IS.Optimization.VariableType},
     ::Type{<:IS.InfrastructureSystemsComponent},
-    ::IOM.AbstractDeviceFormulation,
+    ::Type{<:IOM.AbstractDeviceFormulation},
 ) = 1.0
 
 """
 Get the multiplier for an expression type based on parameter type.
 """
 function get_expression_multiplier(
-    ::P,
+    ::Type{P},
     ::Type{T},
     ::D,
-    ::F,
+    ::Type{F},
 ) where {
     P <: IS.Optimization.ParameterType,
     T <: IS.Optimization.ExpressionType,
@@ -115,9 +115,9 @@ end
 Get multiplier value for a time series parameter.
 """
 function get_multiplier_value(
-    ::T,
+    ::Type{T},
     ::U,
-    ::F,
+    ::Type{F},
 ) where {
     T <: IOM.TimeSeriesParameter,
     U <: IS.InfrastructureSystemsComponent,
@@ -130,9 +130,9 @@ end
 Get the multiplier value for a parameter type.
 """
 function get_multiplier_value(
-    ::P,
+    ::Type{P},
     ::D,
-    ::F,
+    ::Type{F},
 ) where {
     P <: IS.Optimization.ParameterType,
     D <: IS.InfrastructureSystemsComponent,
