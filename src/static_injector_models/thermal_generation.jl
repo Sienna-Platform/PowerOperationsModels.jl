@@ -1,3 +1,27 @@
+function create_temporary_cost_function_in_system_per_unit(
+    original_cost_function::PSY.CostCurve,
+    new_data::PSY.PiecewiseLinearData,
+)
+    return PSY.CostCurve(
+        PSY.PiecewisePointCurve(new_data),
+        PSY.UnitSystem.SYSTEM_BASE,
+        PSY.get_vom_cost(original_cost_function),
+    )
+end
+
+function create_temporary_cost_function_in_system_per_unit(
+    original_cost_function::PSY.FuelCurve,
+    new_data::PSY.PiecewiseLinearData,
+)
+    return PSY.FuelCurve(
+        PSY.PiecewisePointCurve(new_data),
+        PSY.UnitSystem.SYSTEM_BASE,
+        PSY.get_fuel_cost(original_cost_function),
+        IS.LinearCurve(0.0),  # setting fuel offtake cost to default value of 0
+        PSY.get_vom_cost(original_cost_function),
+    )
+end
+
 #! format: off
 
 requires_initialization(::AbstractThermalFormulation) = false
@@ -1586,7 +1610,7 @@ function IOM.add_pwl_term_lambda!(
     break_points = PSY.get_x_coords(data)
     sos_val = IOM._get_sos_value(container, V, component)
     temp_cost_function =
-        IOM.create_temporary_cost_function_in_system_per_unit(cost_function, data)
+        create_temporary_cost_function_in_system_per_unit(cost_function, data)
     for t in time_steps
         IOM.add_pwl_variables_lambda!(container, T, name, t, data)
         power_var = IOM.get_variable(container, U, T)[name, t]
