@@ -338,7 +338,11 @@ function _add_time_series_parameters!(
     return
 end
 
-_get_time_series_name(::Type{T}, ::PSY.Component, model::DeviceModel) where {T <: ParameterType} =
+_get_time_series_name(
+    ::Type{T},
+    ::PSY.Component,
+    model::DeviceModel,
+) where {T <: ParameterType} =
     get_time_series_names(model)[T]
 
 _get_time_series_name(::Type{StartupCostParameter}, device::PSY.Component, ::DeviceModel) =
@@ -372,12 +376,16 @@ _get_expected_time_series_eltype(::Type{StartupCostParameter}) = NTuple{3, Float
 # _param_to_vars — lookup: ObjectiveFunctionParameter → variable types
 #################################################################################
 
-_param_to_vars(::Type{FuelCostParameter}, ::Type{<:AbstractDeviceFormulation}) = (ActivePowerVariable,)
-_param_to_vars(::Type{StartupCostParameter}, ::Type{<:AbstractThermalFormulation}) = (StartVariable,)
+_param_to_vars(::Type{FuelCostParameter}, ::Type{<:AbstractDeviceFormulation}) =
+    (ActivePowerVariable,)
+_param_to_vars(::Type{StartupCostParameter}, ::Type{<:AbstractThermalFormulation}) =
+    (StartVariable,)
 _param_to_vars(::Type{StartupCostParameter}, ::Type{ThermalMultiStartUnitCommitment}) =
     MULTI_START_VARIABLES
-_param_to_vars(::Type{ShutdownCostParameter}, ::Type{<:AbstractThermalFormulation}) = (StopVariable,)
-_param_to_vars(::Type{<:AbstractCostAtMinParameter}, ::Type{<:AbstractDeviceFormulation}) = (OnVariable,)
+_param_to_vars(::Type{ShutdownCostParameter}, ::Type{<:AbstractThermalFormulation}) =
+    (StopVariable,)
+_param_to_vars(::Type{<:AbstractCostAtMinParameter}, ::Type{<:AbstractDeviceFormulation}) =
+    (OnVariable,)
 _param_to_vars(
     ::Union{
         Type{IncrementalPiecewiseLinearSlopeParameter},

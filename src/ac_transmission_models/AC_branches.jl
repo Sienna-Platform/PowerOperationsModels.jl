@@ -892,7 +892,6 @@ function add_expressions!(
         time_steps,
     )
 
-
     tasks = map(name_to_arc_map) do pair
         (name, (arc, _)) = pair
         ptdf_col = ptdf[arc, :]
