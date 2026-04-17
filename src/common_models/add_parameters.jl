@@ -136,6 +136,7 @@ function _add_time_series_parameters!(
     device_names = String[]
     devices_with_time_series = D[]
     initial_values = Dict{String, AbstractArray}()
+    # device name -> ts_uuid cache so the second loop below doesn't re-query IS.
     device_ts_uuids = Dict{String, String}()
     model_interval = get_interval(get_settings(container))
     is_ts_interval = _to_is_interval(model_interval)
@@ -260,6 +261,8 @@ function _add_time_series_parameters!(
         @info "No devices with time series $ts_name found for $D devices. Skipping parameter addition."
         return
     end
+    # name -> ts_uuid cache built from the axis pair so the per-branch loop below
+    # doesn't re-query IS.get_time_series_uuid for each branch.
     branch_ts_uuids = Dict{String, String}(zip(device_name_axis, ts_uuid_axis))
     additional_axes = ()
     param_container = add_param_container!(
@@ -362,33 +365,33 @@ _get_time_series_name(
 # _get_expected_time_series_eltype — for ObjectiveFunctionParameter
 #################################################################################
 
-_get_expected_time_series_eltype(::T) where {T <: ParameterType} = Float64
-_get_expected_time_series_eltype(::StartupCostParameter) = NTuple{3, Float64}
+_get_expected_time_series_eltype(::Type{T}) where {T <: ParameterType} = Float64
+_get_expected_time_series_eltype(::Type{StartupCostParameter}) = NTuple{3, Float64}
 
 #################################################################################
 # _param_to_vars — lookup: ObjectiveFunctionParameter → variable types
 #################################################################################
 
-_param_to_vars(::FuelCostParameter, ::AbstractDeviceFormulation) = (ActivePowerVariable,)
-_param_to_vars(::StartupCostParameter, ::AbstractThermalFormulation) = (StartVariable,)
-_param_to_vars(::StartupCostParameter, ::ThermalMultiStartUnitCommitment) =
+_param_to_vars(::Type{FuelCostParameter}, ::Type{<:AbstractDeviceFormulation}) = (ActivePowerVariable,)
+_param_to_vars(::Type{StartupCostParameter}, ::Type{<:AbstractThermalFormulation}) = (StartVariable,)
+_param_to_vars(::Type{StartupCostParameter}, ::Type{ThermalMultiStartUnitCommitment}) =
     MULTI_START_VARIABLES
-_param_to_vars(::ShutdownCostParameter, ::AbstractThermalFormulation) = (StopVariable,)
-_param_to_vars(::AbstractCostAtMinParameter, ::AbstractDeviceFormulation) = (OnVariable,)
+_param_to_vars(::Type{ShutdownCostParameter}, ::Type{<:AbstractThermalFormulation}) = (StopVariable,)
+_param_to_vars(::Type{<:AbstractCostAtMinParameter}, ::Type{<:AbstractDeviceFormulation}) = (OnVariable,)
 _param_to_vars(
     ::Union{
-        IncrementalPiecewiseLinearSlopeParameter,
-        IncrementalPiecewiseLinearBreakpointParameter,
+        Type{IncrementalPiecewiseLinearSlopeParameter},
+        Type{IncrementalPiecewiseLinearBreakpointParameter},
     },
-    ::AbstractDeviceFormulation,
+    ::Type{<:AbstractDeviceFormulation},
 ) =
     (PiecewiseLinearBlockIncrementalOffer,)
 _param_to_vars(
     ::Union{
-        DecrementalPiecewiseLinearSlopeParameter,
-        DecrementalPiecewiseLinearBreakpointParameter,
+        Type{DecrementalPiecewiseLinearSlopeParameter},
+        Type{DecrementalPiecewiseLinearBreakpointParameter},
     },
-    ::AbstractDeviceFormulation,
+    ::Type{<:AbstractDeviceFormulation},
 ) =
     (PiecewiseLinearBlockDecrementalOffer,)
 
