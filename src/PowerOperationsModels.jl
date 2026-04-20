@@ -106,7 +106,7 @@ import InfrastructureOptimizationModels:
     get_default_time_series_names,
     # proportional cost
     proportional_cost,
-    is_time_variant_term,
+    is_time_variant_proportional,
     add_proportional_cost!,
     add_proportional_cost_maybe_time_variant!,
     skip_proportional_cost,

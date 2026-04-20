@@ -826,7 +826,7 @@ function add_constraints!(
         get_parameter_multiplier_array(container, InflowTimeSeriesParameter, V)
 
     for ic in initial_conditions
-        device = get_component(ic)
+        device = IOM.get_component(ic)
         name = PSY.get_name(device)
         param = get_parameter_column_values(param_container, name)
         if get_use_slacks(model)
@@ -1542,7 +1542,7 @@ function add_constraints!(
     )
 
     for ic in initial_conditions
-        d = get_component(ic)
+        d = IOM.get_component(ic)
         name = PSY.get_name(d)
         inflow = get_parameter_column_refs(param_container, name)
 
@@ -2220,7 +2220,10 @@ proportional_cost(
 ) where {U <: OnVariable, V <: AbstractHydroUnitCommitment} =
     proportional_cost(cost, U, comp, V)
 
-is_time_variant_term(::PSY.HydroGenerationCost) = false
+# HydroGenerationCost uses CostCurves (no FuelCurve path), so the OnVariable
+# proportional term's rate is always static — `is_time_variant` on the variable
+# curve would be answering a broader question than this trait asks.
+IOM.is_time_variant_proportional(::PSY.HydroGenerationCost) = false
 
 skip_proportional_cost(d::PSY.HydroPumpTurbine) = PSY.get_must_run(d)
 
@@ -2232,7 +2235,7 @@ add_proportional_cost!(
 ) where {U <: OnVariable, T <: PSY.HydroGen, V <: AbstractHydroUnitCommitment} =
     add_proportional_cost_maybe_time_variant!(container, U, devices, V)
 
-# MarketBidCost (static + time-series) proportional_cost/is_time_variant_term are generic —
+# MarketBidCost (static + time-series) proportional_cost/is_time_variant_proportional are generic —
 # see common_models/market_bid_overrides.jl.
 
 # These _include_{constant}_min_gen_power functions are needed for MarketBidCost.

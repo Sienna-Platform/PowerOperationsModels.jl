@@ -109,8 +109,10 @@ get_offer_curves(::IOM.IncrementalOffer, op_cost::PSY.OfferCurveCost) =
 # Maps parameter types to PSY getter functions.
 #################################################################################
 
-IOM._get_parameter_field(::Type{<:StartupCostParameter}, op_cost) = PSY.get_start_up(op_cost)
-IOM._get_parameter_field(::Type{<:ShutdownCostParameter}, op_cost) = PSY.get_shut_down(op_cost)
+IOM._get_parameter_field(::Type{<:StartupCostParameter}, op_cost) =
+    PSY.get_start_up(op_cost)
+IOM._get_parameter_field(::Type{<:ShutdownCostParameter}, op_cost) =
+    PSY.get_shut_down(op_cost)
 IOM._get_parameter_field(::Type{<:IncrementalCostAtMinParameter}, op_cost) =
     IS.get_initial_input(IS.get_value_curve(get_output_offer_curves(op_cost)))
 IOM._get_parameter_field(::Type{<:DecrementalCostAtMinParameter}, op_cost) =
@@ -162,6 +164,13 @@ _has_parameter_time_series(::PSY.OperationalCost) = false
 
 # Mirrors IOM's TS-cost predicate so validate_occ_component can short-circuit on TS types.
 IOM._is_time_series_cost(::PSY.MarketBidTimeSeriesCost) = true
+
+# MBC / IEC cleanly split static vs TS by type, so `is_time_variant_proportional` is a flat
+# type dispatch — no instance lookup (unlike FuelCurve-backed ThermalGenerationCost).
+IOM.is_time_variant_proportional(::PSY.MarketBidCost) = false
+IOM.is_time_variant_proportional(::PSY.MarketBidTimeSeriesCost) = true
+IOM.is_time_variant_proportional(::PSY.ImportExportCost) = false
+IOM.is_time_variant_proportional(::PSY.ImportExportTimeSeriesCost) = true
 
 #################################################################################
 # Section 6: Validation
@@ -418,7 +427,11 @@ function IOM.add_pwl_term_delta!(
     ::PSY.OfferCurveCost,
     ::Type{U},
     ::Type{V},
-) where {T <: IS.InfrastructureSystemsComponent, U <: VariableType, V <: AbstractDeviceFormulation}
+) where {
+    T <: IS.InfrastructureSystemsComponent,
+    U <: VariableType,
+    V <: AbstractDeviceFormulation,
+}
     W = IOM._block_offer_var(dir)
     X = IOM._block_offer_constraint(dir)
 
@@ -472,9 +485,9 @@ function IOM.add_pwl_term_delta!(
         )
 
         if is_variant
-            add_to_objective_variant_expression!(container, pwl_cost)
+            IOM.add_to_objective_variant_expression!(container, pwl_cost)
         else
-            add_to_objective_invariant_expression!(container, pwl_cost)
+            IOM.add_to_objective_invariant_expression!(container, pwl_cost)
         end
     end
 end
@@ -537,7 +550,7 @@ function _add_vom_cost_to_objective_helper!(
 ) where {T <: VariableType, U <: AbstractDeviceFormulation}
     power_units = IS.get_power_units(cost_data)
     cost_term = IS.get_proportional_term(IS.get_vom_cost(cost_data))
-    add_proportional_cost_invariant!(container, T, component, cost_term, power_units)
+    IOM.add_proportional_cost_invariant!(container, T, component, cost_term, power_units)
     return
 end
 
@@ -567,7 +580,21 @@ IOM.set_units_base_system!(sys::PSY.System, base) = PSY.set_units_base_system!(s
 IOM.temp_set_units_base_system!(sys::PSY.System, base::String) =
     PSY.set_units_base_system!(sys, base)
 IOM.temp_get_forecast_initial_timestamp(sys::PSY.System) =
-    IS.get_forecast_initial_timestamp(sys)
+    PSY.get_forecast_initial_timestamp(sys)
+
+# PSY.System override for things in decision_model.jl
+# most just forward to sys.data.
+
+#=
+IOM.stores_time_series_in_memory(sys::PSY.System) = PSY.stores_time_series_in_memory(sys)
+IOM.get_time_series_counts_by_type(sys::PSY.System) = PSY.get_time_series_counts_by_type(sys)
+IOM.get_time_series_counts(sys::PSY.System) = PSY.get_time_series_counts(sys)
+IOM.get_forecast_interval(sys::PSY.System) = PSY.get_forecast_interval(sys)
+IOM.get_time_series_resolutions(sys::PSY.System) = PSY.get_time_series_resolutions(sys)
+IOM.get_forecast_horizon(sys::PSY.System) = PSY.get_forecast_horizon(sys)
+
+IOM.get_uuid(sys::PSY.System) = PSY.get_uuid(sys)
+=#
 
 # PSY cost-type dispatches for variable-cost and get_variable_cost:
 IOM.get_variable_cost(cost) = PSY.get_variable(cost)

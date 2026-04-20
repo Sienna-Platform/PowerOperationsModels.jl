@@ -852,7 +852,7 @@ function add_energybalance_with_reserves!(
     )
 
     for ic in initial_conditions
-        device = get_component(ic)
+        device = IOM.get_component(ic)
         efficiency = PSY.get_efficiency(device)
         name = PSY.get_name(device)
         constraint[name, 1] = JuMP.@constraint(
@@ -913,7 +913,7 @@ function add_energybalance_without_reserves!(
     )
 
     for ic in initial_conditions
-        device = get_component(ic)
+        device = IOM.get_component(ic)
         efficiency = PSY.get_efficiency(device)
         name = PSY.get_name(device)
         constraint[name, 1] = JuMP.@constraint(
@@ -1055,7 +1055,7 @@ function add_constraints!(
 
     services_set = Set()
     for ic in initial_conditions
-        storage = get_component(ic)
+        storage = IOM.get_component(ic)
         union!(services_set, PSY.get_services(storage))
     end
 
@@ -1079,7 +1079,7 @@ function add_constraints!(
     end
 
     for ic in initial_conditions
-        storage = get_component(ic)
+        storage = IOM.get_component(ic)
         ci_name = PSY.get_name(storage)
         inv_efficiency = 1.0 / PSY.get_efficiency(storage).out
         eff_in = PSY.get_efficiency(storage).in
@@ -1196,7 +1196,7 @@ function add_constraints!(
 
     services_set = Set()
     for ic in initial_conditions
-        storage = get_component(ic)
+        storage = IOM.get_component(ic)
         union!(services_set, PSY.get_services(storage))
     end
 
@@ -1221,7 +1221,7 @@ function add_constraints!(
     end
 
     for ic in initial_conditions
-        storage = get_component(ic)
+        storage = IOM.get_component(ic)
         ci_name = PSY.get_name(storage)
         inv_efficiency = 1.0 / PSY.get_efficiency(storage).out
         eff_in = PSY.get_efficiency(storage).in

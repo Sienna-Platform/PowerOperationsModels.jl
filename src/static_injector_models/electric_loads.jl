@@ -228,7 +228,9 @@ function onvar_cost(
     return _onvar_cost(container, PSY.get_variable(cost), d, t)
 end
 
-is_time_variant_term(::PSY.LoadCost) = false
+# LoadCost has no FuelCurve-backed `_onvar_cost` path; the OnVariable proportional
+# term's rate (vom_constant + fixed + onvar_cost) is always static here.
+IOM.is_time_variant_proportional(::PSY.LoadCost) = false
 
-# MarketBidCost (static + time-series) proportional_cost/is_time_variant_term are generic —
+# MarketBidCost (static + time-series) proportional_cost/is_time_variant_proportional are generic —
 # see common_models/market_bid_overrides.jl.

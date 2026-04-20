@@ -57,9 +57,6 @@ function proportional_cost(
     return param_arr[name, t] * param_mult[name, t]
 end
 
-is_time_variant_term(::PSY.MarketBidCost) = false
-is_time_variant_term(::PSY.MarketBidTimeSeriesCost) = true
-
 #################################################################################
 # Section 2: _consider_parameter — compact commitment startup
 # Compact/multi-start formulations have HotStart/WarmStart/ColdStart variables

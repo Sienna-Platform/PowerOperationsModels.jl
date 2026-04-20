@@ -286,6 +286,8 @@ end
         read_parameters(res; table_format = TableFormat.WIDE),
         Dict{String, DataFrames.DataFrame},
     )
+    # FIXME could make more uniform which we export and don't export.
+    # FIXME both PSY and IOM export get_resolution, which creats ambiguity.
     @test isa(IOM.get_resolution(res), Dates.TimePeriod)
     @test isa(IOM.get_forecast_horizon(res), Int64)
     @test isa(get_realized_timestamps(res), StepRange{DateTime})

@@ -522,7 +522,7 @@ function check_constraint_count(
         PSY.get_name.(
             IOM._get_ramp_constraint_devices(
                 container,
-                get_available_components(T, model.sys),
+                PSY.get_available_components(T, model.sys),
             ),
         )
     check_constraint_count(

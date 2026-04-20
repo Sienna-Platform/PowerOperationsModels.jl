@@ -118,9 +118,25 @@ initial_condition_variable(::InitialTimeDurationOff, d::PSY.ThermalGen, ::Abstra
 function proportional_cost(container::OptimizationContainer, cost::PSY.ThermalGenerationCost, S::Type{OnVariable}, T::PSY.ThermalGen, U::Type{<:AbstractThermalFormulation}, t::Int)
     return onvar_cost(container, cost, S, T, U, t) + PSY.get_constant_term(PSY.get_vom_cost(PSY.get_variable(cost))) + PSY.get_fixed(cost)
 end
-is_time_variant_term(::PSY.ThermalGenerationCost) = false
+# Is the OnVariable proportional term's *rate* time-varying? For ThermalGenerationCost
+# that rate is `onvar_cost + vom_constant + fixed`; only `onvar_cost` can vary, and
+# only for FuelCurve{Linear/Quadratic} (static or TS), where it equals
+# `constant_term * fuel_cost_at_t`. PWL FuelCurves have `onvar_cost ≡ 0`, and
+# CostCurves have no `_onvar_cost` overload — both statically invariant here.
+IOM.is_time_variant_proportional(cost::PSY.ThermalGenerationCost) =
+    _onvar_is_time_variant(PSY.get_variable(cost))
 
-# MarketBidCost (static + time-series) proportional_cost/is_time_variant_term are generic —
+_onvar_is_time_variant(::PSY.ProductionVariableCostCurve) = false
+_onvar_is_time_variant(
+    curve::PSY.FuelCurve{<:Union{
+        PSY.LinearCurve, PSY.QuadraticCurve,
+        PSY.TimeSeriesLinearCurve, PSY.TimeSeriesQuadraticCurve,
+    }},
+) = IS.is_time_series_backed(curve)
+
+IOM.uses_commitment_variables(::Type{<:PSY.ThermalGen}) = true
+
+# MarketBidCost (static + time-series) proportional_cost/is_time_variant_proportional are generic —
 # see common_models/market_bid_overrides.jl.
 
 proportional_cost(::Union{MBC_TYPES, PSY.ThermalGenerationCost}, ::Type{<:Union{RateofChangeConstraintSlackUp, RateofChangeConstraintSlackDown}}, ::PSY.ThermalGen, ::Type{<:AbstractThermalFormulation}) = CONSTRAINT_VIOLATION_SLACK_COST
@@ -462,8 +478,8 @@ function _get_data_for_range_ic(
     ini_conds = Matrix{InitialCondition}(undef, lenght_devices_power, 2)
     idx = 0
     for (ix, ic) in enumerate(initial_conditions_power)
-        g = get_component(ic)
-        IS.@assert_op g == get_component(initial_conditions_status[ix])
+        g = IOM.get_component(ic)
+        IS.@assert_op g == IOM.get_component(initial_conditions_status[ix])
         idx += 1
         ini_conds[idx, 1] = ic
         ini_conds[idx, 2] = initial_conditions_status[ix]
@@ -713,8 +729,8 @@ function add_constraints!(
         )
 
         for (ix, ic) in enumerate(ini_conds[:, 1])
-            name = get_component_name(ic)
-            device = get_component(ic)
+            name = IOM.get_component_name(ic)
+            device = IOM.get_component(ic)
             limits = PSY.get_active_power_limits(device)
             lag_ramp_limits = PSY.get_power_trajectory(device)
             val = max(limits.max - lag_ramp_limits.shutdown, 0)
@@ -779,8 +795,8 @@ function add_constraints!(
     )
 
     for ic in initial_conditions
-        name = PSY.get_name(PSY.get_component(ic))
-        if !PSY.get_must_run(PSY.get_component(ic))
+        name = IOM.get_component_name(ic)
+        if !PSY.get_must_run(IOM.get_component(ic))
             constraint[name, 1] = JuMP.@constraint(
                 get_jump_model(container),
                 varon[name, 1] == get_value(ic) + varstart[name, 1] - varstop[name, 1]
@@ -793,10 +809,10 @@ function add_constraints!(
     end
 
     for ic in initial_conditions
-        if PSY.get_must_run(PSY.get_component(ic))
+        if PSY.get_must_run(IOM.get_component(ic))
             continue
         else
-            name = get_component_name(ic)
+            name = IOM.get_component_name(ic)
             for t in time_steps[2:end]
                 constraint[name, t] = JuMP.@constraint(
                     get_jump_model(container),
@@ -887,7 +903,7 @@ function calculate_aux_variable_value!(
         if isnothing(get_value(ini_cond[ix]))
             sum_on_var = time_steps[end]
         else
-            on_var_name = get_component_name(ini_cond[ix])
+            on_var_name = IOM.get_component_name(ini_cond[ix])
             ini_cond_value = get_condition(ini_cond[ix])
             # On Var doesn't exist for a unit that has must_run = true
             on_var = jump_value.(on_variable_output[on_var_name, :])
@@ -932,7 +948,7 @@ function calculate_aux_variable_value!(
         if isnothing(get_value(ini_cond[ix]))
             sum_on_var = 0.0
         else
-            on_var_name = get_component_name(ini_cond[ix])
+            on_var_name = IOM.get_component_name(ini_cond[ix])
             # On Var doesn't exist for a unit that has must run
             on_var = jump_value.(on_variable_output[on_var_name, :])
             ini_cond_value = get_condition(ini_cond[ix])
@@ -1256,7 +1272,7 @@ function add_constraints!(
         get_initial_condition(container, InitialTimeDurationOff(), PSY.ThermalMultiStart)
 
     time_steps = get_time_steps(container)
-    device_name_set = [get_component_name(ic) for ic in initial_conditions_offtime]
+    device_name_set = [IOM.get_component_name(ic) for ic in initial_conditions_offtime]
     varbin = get_variable(container, OnVariable, T)
     varstarts = [
         get_variable(container, HotStartVariable, T),
@@ -1281,10 +1297,10 @@ function add_constraints!(
     )
 
     for t in time_steps, (ix, ic) in enumerate(initial_conditions_offtime)
-        name = PSY.get_name(PSY.get_component(ic))
-        startup_types = PSY.get_start_types(PSY.get_component(ic))
+        name = IOM.get_component_name(ic)
+        startup_types = PSY.get_start_types(IOM.get_component(ic))
         time_limits = _convert_hours_to_timesteps(
-            PSY.get_start_time_limits(get_component(ic)),
+            PSY.get_start_time_limits(IOM.get_component(ic)),
             resolution,
         )
         ic = initial_conditions_offtime[ix]
@@ -1331,8 +1347,8 @@ function _get_data_for_tdc(
     ini_conds = Matrix{InitialCondition}(undef, lenght_devices_on, 2)
     idx = 0
     for (ix, ic) in enumerate(initial_conditions_on)
-        g = get_component(ic)
-        IS.@assert_op g == get_component(initial_conditions_off[ix])
+        g = IOM.get_component(ic)
+        IS.@assert_op g == IOM.get_component(initial_conditions_off[ix])
         time_limits = PSY.get_time_limits(g)
         name = PSY.get_name(g)
         if time_limits !== nothing
@@ -1635,7 +1651,6 @@ function IOM.add_pwl_term_lambda!(
     end
     return pwl_cost_expressions
 end
-
 
 # ThermalGen range-constraint specialization: checks must_run to decide whether to use binary variable.
 # Overrides the generic IS.InfrastructureSystemsComponent version in IOM.

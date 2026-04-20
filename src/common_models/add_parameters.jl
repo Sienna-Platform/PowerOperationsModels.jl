@@ -247,7 +247,7 @@ function _add_time_series_parameters!(
     for (name, (arc, reduction)) in PNM.get_name_to_arc_map(net_reduction_data, D)
         reduction_entry = all_branch_maps_by_type[reduction][D][arc]
         device_with_time_series =
-            get_device_with_time_series(reduction_entry, ts_type, ts_name)
+            IOM.get_branch_with_time_series(reduction_entry, ts_type, ts_name)
         if device_with_time_series === nothing
             continue
         end
