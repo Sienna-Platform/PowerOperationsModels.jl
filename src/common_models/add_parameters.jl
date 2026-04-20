@@ -316,7 +316,7 @@ function _get_time_series_name(
     ::DeviceModel,
 )
     op_cost = PSY.get_operation_cost(device)
-    IS.@assert_op op_cost isa IOM.TS_OFFER_CURVE_COST_TYPES
+    IS.@assert_op op_cost isa TS_OFFER_CURVE_COST_TYPES
     return IS.get_name(IS.get_time_series_key(PSY.get_start_up(op_cost)))
 end
 
@@ -326,7 +326,7 @@ function _get_time_series_name(
     ::DeviceModel,
 )
     op_cost = PSY.get_operation_cost(device)
-    IS.@assert_op op_cost isa IOM.TS_OFFER_CURVE_COST_TYPES
+    IS.@assert_op op_cost isa TS_OFFER_CURVE_COST_TYPES
     return IS.get_name(IS.get_time_series_key(PSY.get_shut_down(op_cost)))
 end
 
@@ -336,7 +336,7 @@ function _get_time_series_name(
     ::DeviceModel,
 )
     op_cost = PSY.get_operation_cost(device)
-    IS.@assert_op op_cost isa IOM.TS_OFFER_CURVE_COST_TYPES
+    IS.@assert_op op_cost isa TS_OFFER_CURVE_COST_TYPES
     return IS.get_name(
         IS.get_initial_input(
             PSY.get_value_curve(PSY.get_incremental_offer_curves(op_cost)),
@@ -350,7 +350,7 @@ function _get_time_series_name(
     ::DeviceModel,
 )
     op_cost = PSY.get_operation_cost(device)
-    IS.@assert_op op_cost isa IOM.TS_OFFER_CURVE_COST_TYPES
+    IS.@assert_op op_cost isa TS_OFFER_CURVE_COST_TYPES
     return IS.get_name(
         IS.get_initial_input(
             PSY.get_value_curve(PSY.get_decremental_offer_curves(op_cost)),

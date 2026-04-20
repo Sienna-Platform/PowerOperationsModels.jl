@@ -211,7 +211,7 @@ function cost_due_to_time_varying_iec(
         @assert all(power_in_df.DateTime .== power_out_df.DateTime)
 
         @assert any([
-            get_operation_cost(comp) isa IOM.IEC_TYPES for
+            get_operation_cost(comp) isa IEC_TYPES for
             comp in get_components(T, sys)
         ])
         for gen_name in gen_names

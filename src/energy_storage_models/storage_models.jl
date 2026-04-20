@@ -1869,7 +1869,7 @@ function _add_variable_cost_to_objective!(
     container::OptimizationContainer,
     ::T,
     component::PSY.Component,
-    cost_function::IOM.MBC_TYPES,
+    cost_function::MBC_TYPES,
     ::U,
 ) where {
     T <: Union{ActivePowerOutVariable, StorageRegularizationVariableDischarge},
@@ -1895,7 +1895,7 @@ function _add_variable_cost_to_objective!(
     container::OptimizationContainer,
     ::T,
     component::PSY.Component,
-    cost_function::IOM.MBC_TYPES,
+    cost_function::MBC_TYPES,
     ::U,
 ) where {
     T <: Union{ActivePowerInVariable, StorageRegularizationVariableCharge},

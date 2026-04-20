@@ -134,7 +134,6 @@ import InfrastructureOptimizationModels:
 
 # Market bid cost: import IOM functions that POM extends with device-specific methods
 import InfrastructureOptimizationModels:
-    _has_market_bid_cost,
     _consider_parameter,
     validate_occ_component,
     _include_min_gen_power_in_constraint,
@@ -143,7 +142,6 @@ import InfrastructureOptimizationModels:
     _vom_offer_direction,
     add_pwl_constraint_delta!,
     add_pwl_term_delta!,
-    get_output_offer_curves,
     # Internal utilities used by market bid overrides and proportional_cost
     is_time_variant,
     apply_maybe_across_time_series,
@@ -154,7 +152,6 @@ import InfrastructureOptimizationModels:
     has_service_model,
     IncrementalOffer,
     DecrementalOffer,
-    get_input_offer_curves,
     add_constraint_dual!,
     assign_dual_variable!,
     _calculate_dual_variable_value!,
@@ -214,6 +211,10 @@ include("common_models/add_parameters.jl")
 include("common_models/make_system_expressions.jl")
 include("common_models/reserve_range_constraints.jl")
 
+# Market bid cost plumbing (PSY orchestration moved out of IOM). Must be included
+# before device-specific files that reference MBC_TYPES / IEC_TYPES.
+include("common_models/market_bid_plumbing.jl")
+
 # Initial Conditions
 include("initial_conditions/add_initial_condition.jl")
 include("initial_conditions/device_initial_conditions.jl")
@@ -238,7 +239,7 @@ include("static_injector_models/hydrogeneration_constructor.jl")
 include("energy_storage_models/storage_models.jl")
 include("energy_storage_models/storage_constructor.jl")
 
-# Market bid cost: device-specific overloads for IOM's generic market_bid.jl
+# POM market bid cost overrides (plumbing is included earlier, before device files)
 include("common_models/market_bid_overrides.jl")
 
 # AC Transmission Models

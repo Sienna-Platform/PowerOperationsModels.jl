@@ -214,7 +214,7 @@ end
         end
     end
 
-    IOM.process_market_bid_parameters!(container, devs, _PP_MODEL, false, false)
+    process_market_bid_parameters!(container, devs, _PP_MODEL, false, false)
 
     for P in (IOM.StartupCostParameter, IOM.ShutdownCostParameter)
         param_arr = IOM.get_parameter_array(container, P, PSY.ThermalStandard)

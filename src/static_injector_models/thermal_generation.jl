@@ -123,7 +123,7 @@ is_time_variant_term(::PSY.ThermalGenerationCost) = false
 # MarketBidCost (static + time-series) proportional_cost/is_time_variant_term are generic —
 # see common_models/market_bid_overrides.jl.
 
-proportional_cost(::Union{IOM.MBC_TYPES, PSY.ThermalGenerationCost}, ::Type{<:Union{RateofChangeConstraintSlackUp, RateofChangeConstraintSlackDown}}, ::PSY.ThermalGen, ::Type{<:AbstractThermalFormulation}) = CONSTRAINT_VIOLATION_SLACK_COST
+proportional_cost(::Union{MBC_TYPES, PSY.ThermalGenerationCost}, ::Type{<:Union{RateofChangeConstraintSlackUp, RateofChangeConstraintSlackDown}}, ::PSY.ThermalGen, ::Type{<:AbstractThermalFormulation}) = CONSTRAINT_VIOLATION_SLACK_COST
 
 
 has_multistart_variables(::PSY.ThermalGen, ::AbstractThermalFormulation)=false
@@ -138,7 +138,7 @@ start_up_cost(cost, ::Type{<:PSY.ThermalGen}, ::Type{T}, ::Type{<:Union{Abstract
 start_up_cost(cost, ::Type{<:PSY.ThermalMultiStart}, ::Type{T}, ::Type{ThermalMultiStartUnitCommitment} = ThermalMultiStartUnitCommitment) where {T <: MultiStartVariable} =
     start_up_cost(cost, T)
 
-# Implementations: given a single number, tuple, or StartUpStages and a variable, do the right thing
+# Implementations: given a single number, tuple, or PSY.StartUpStages and a variable, do the right thing
 # Single number to anything
 start_up_cost(cost::Float64, ::Type{StartVariable}) = cost
 # TODO in the case where we have a single number startup cost and we're modeling a multi-start, do we set all the values to that number?
@@ -147,14 +147,14 @@ start_up_cost(cost::Float64, ::Type{T}) where {T <: MultiStartVariable} =
 
 # 3-tuple to anything
 start_up_cost(cost::NTuple{3, Float64}, ::Type{T}) where {T <: VariableType} =
-    start_up_cost(StartUpStages(cost), T)
+    start_up_cost(PSY.StartUpStages(cost), T)
 
-# `StartUpStages` to anything
-start_up_cost(cost::StartUpStages, ::Type{ColdStartVariable}) = cost.cold
-start_up_cost(cost::StartUpStages, ::Type{WarmStartVariable}) = cost.warm
-start_up_cost(cost::StartUpStages, ::Type{HotStartVariable}) = cost.hot
+# `PSY.StartUpStages` to anything
+start_up_cost(cost::PSY.StartUpStages, ::Type{ColdStartVariable}) = cost.cold
+start_up_cost(cost::PSY.StartUpStages, ::Type{WarmStartVariable}) = cost.warm
+start_up_cost(cost::PSY.StartUpStages, ::Type{HotStartVariable}) = cost.hot
 # TODO in the opposite case, do we want to get the maximum or the hot?
-start_up_cost(cost::StartUpStages, ::Type{StartVariable}) = maximum(cost)
+start_up_cost(cost::PSY.StartUpStages, ::Type{StartVariable}) = maximum(cost)
 
 uses_compact_power(::PSY.ThermalGen, ::AbstractThermalFormulation)=false
 uses_compact_power(::PSY.ThermalGen, ::AbstractCompactUnitCommitment )=true
@@ -1100,14 +1100,14 @@ end
 ########################### start up trajectory constraints ######################################
 
 function _convert_hours_to_timesteps(
-    start_times_hr::StartUpStages,
+    start_times_hr::PSY.StartUpStages,
     resolution::Dates.TimePeriod,
 )
     _start_times_ts = (
         round((hr * MINUTES_IN_HOUR) / Dates.value(Dates.Minute(resolution)), RoundUp) for
         hr in start_times_hr
     )
-    start_times_ts = StartUpStages(_start_times_ts)
+    start_times_ts = PSY.StartUpStages(_start_times_ts)
     return start_times_ts
 end
 
@@ -1634,4 +1634,35 @@ function IOM.add_pwl_term_lambda!(
         pwl_cost_expressions[t] = pwl_cost
     end
     return pwl_cost_expressions
+end
+
+
+# ThermalGen range-constraint specialization: checks must_run to decide whether to use binary variable.
+# Overrides the generic IS.InfrastructureSystemsComponent version in IOM.
+function IOM._add_semicontinuous_bound_range_constraints_impl!(
+    container::OptimizationContainer,
+    ::Type{T},
+    dir::IOM.BoundDirection,
+    array,
+    devices::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
+    ::DeviceModel{V, W},
+) where {T <: ConstraintType, V <: PSY.ThermalGen, W <: AbstractDeviceFormulation}
+    time_steps = IOM.get_time_steps(container)
+    names = IS.get_name.(devices)
+    jump_model = IOM.get_jump_model(container)
+    con = IOM.add_constraints_container!(
+        container, T, V, names, time_steps; meta = IOM.constraint_meta(dir))
+    varbin = IOM.get_variable(container, OnVariable, V)
+
+    for device in devices
+        ci_name = IS.get_name(device)
+        limits = IOM.get_min_max_limits(device, T, W)
+        for t in time_steps
+            bin = PSY.get_must_run(device) ? 1.0 : varbin[ci_name, t]
+            IOM.add_range_bound_constraint!(
+                dir, jump_model, con, ci_name, t,
+                array[ci_name, t], IOM.get_bound(dir, limits), bin)
+        end
+    end
+    return
 end

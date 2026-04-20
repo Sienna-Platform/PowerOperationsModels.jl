@@ -13,7 +13,7 @@
 _has_market_bid_cost(::PSY.RenewableNonDispatch) = false
 _has_market_bid_cost(::PSY.PowerLoad) = false
 _has_market_bid_cost(device::PSY.ControllableLoad) =
-    PSY.get_operation_cost(device) isa IOM.MBC_TYPES
+    PSY.get_operation_cost(device) isa MBC_TYPES
 
 #################################################################################
 # Section 1b: Generic MarketBidCost OnVariable proportional cost
@@ -77,16 +77,16 @@ _consider_parameter(
 # Section 3: Device-specific validate_occ_component
 #################################################################################
 
-# ThermalMultiStart: accept NTuple{3, Float64} and StartUpStages without warning
+# ThermalMultiStart: accept NTuple{3, Float64} and PSY.StartUpStages without warning
 function IOM.validate_occ_component(
     ::Type{StartupCostParameter},
     device::PSY.ThermalMultiStart,
 )
     startup = PSY.get_start_up(PSY.get_operation_cost(device))
-    # TupleTimeSeries{StartUpStages} guarantees NTuple{3, Float64} values at construction
+    # TupleTimeSeries{PSY.StartUpStages} guarantees NTuple{3, Float64} values at construction
     startup isa IS.TupleTimeSeries && return
     _validate_eltype(
-        Union{Float64, NTuple{3, Float64}, StartUpStages},
+        Union{Float64, NTuple{3, Float64}, PSY.StartUpStages},
         device,
         startup,
         " startup cost",
@@ -101,7 +101,7 @@ function IOM.validate_occ_component(
 )
     startup = PSY.get_start_up(PSY.get_operation_cost(device))
     apply_maybe_across_time_series(device, startup) do x
-        # x may be Float64 (TGC), StartUpStages (static MBC), or NTuple{3, Float64}
+        # x may be Float64 (TGC), PSY.StartUpStages (static MBC), or NTuple{3, Float64}
         # (TupleTimeSeries elements). `values` normalizes both NamedTuple and Tuple.
         if any(!iszero, x isa Number ? (x,) : values(x))
             @warn "Nonzero startup cost detected for renewable generation or storage device $(get_name(device))."
@@ -223,7 +223,7 @@ function add_variable_cost_to_objective!(
     container::OptimizationContainer,
     ::Type{ActivePowerOutVariable},
     component::PSY.Source,
-    cost_function::IOM.IEC_TYPES,
+    cost_function::IEC_TYPES,
     ::Type{ImportExportSourceModel},
 )
     isnothing(get_output_offer_curves(cost_function)) && return
@@ -242,7 +242,7 @@ function add_variable_cost_to_objective!(
     container::OptimizationContainer,
     ::Type{ActivePowerInVariable},
     component::PSY.Source,
-    cost_function::IOM.IEC_TYPES,
+    cost_function::IEC_TYPES,
     ::Type{ImportExportSourceModel},
 )
     isnothing(get_input_offer_curves(cost_function)) && return
