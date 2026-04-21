@@ -104,7 +104,7 @@ function _check_dynamic_branch_rating_ts(
         end
     end
 
-    multiplier = get_multiplier_value(T(), device, W())
+    multiplier = get_multiplier_value(T, device, W)
     if !all(x -> x >= rating, multiplier * ts)
         @warn "There are values of Parameter $T associated with $(typeof(device)) '$(PSY.get_name(device))' lower than the device static rating $(rating)."
     end
