@@ -487,7 +487,11 @@ function add_variables!(
     T <: HydroTurbineFlowRateVariable,
     U <: Union{Vector{D}, IS.FlattenIteratorWrapper{D}},
     W <: Union{Vector{E}, IS.FlattenIteratorWrapper{E}},
-    X <: Union{HydroTurbineBilinearDispatch, HydroTurbineWaterLinearDispatch, HydroTurbineBin2BilinearDispatch},
+    X <: Union{
+        HydroTurbineBilinearDispatch,
+        HydroTurbineWaterLinearDispatch,
+        HydroTurbineBin2BilinearDispatch,
+    },
 } where {
     D <: PSY.HydroTurbine,
     E <: PSY.HydroReservoir,
@@ -1848,16 +1852,16 @@ function add_constraints!(
             [
                 (
                     min = get_variable_lower_bound(HydroTurbineFlowRateVariable, d, W),
-                    max = get_variable_upper_bound(HydroTurbineFlowRateVariable, d, W)
-                ) for _=1:length(reservoirs)
+                    max = get_variable_upper_bound(HydroTurbineFlowRateVariable, d, W),
+                ) for _ in 1:length(reservoirs)
             ],
             [
                 (
                     min = get_variable_lower_bound(HydroReservoirHeadVariable, res, W),
-                    max = get_variable_upper_bound(HydroReservoirHeadVariable, res, W)
+                    max = get_variable_upper_bound(HydroReservoirHeadVariable, res, W),
                 ) for res in reservoirs
             ],
-            "$(get_name(d))_FlowHeadProduct"
+            "$(get_name(d))_FlowHeadProduct",
         )
 
         for t in time_steps
@@ -1867,7 +1871,8 @@ function add_constraints!(
                 GRAVITATIONAL_CONSTANT * WATER_DENSITY * conversion_factor *
                 sum(
                     fh_prod[PSY.get_name(res), t]
-                    - powerhouse_elevation * flow[name, PSY.get_name(res), t]
+                    -
+                    powerhouse_elevation * flow[name, PSY.get_name(res), t]
                     for res in reservoirs
                 ) / (1e6 * base_power)
             )
