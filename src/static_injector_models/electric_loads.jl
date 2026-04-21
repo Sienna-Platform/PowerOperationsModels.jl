@@ -377,10 +377,11 @@ function add_constraints!(
             )
         end
 
-        interval_end_steps = [
-            time_steps[min(start_idx + interval_length - 1, length(time_steps))] for
+        interval_ranges = [
+            start_idx:min(start_idx + interval_length - 1, length(time_steps)) for
             start_idx in 1:interval_length:length(time_steps)
         ]
+        interval_end_steps = [time_steps[last(interval_range)] for interval_range in interval_ranges]
         constraint_aux = add_constraints_container!(
             container,
             T,
@@ -391,14 +392,13 @@ function add_constraints!(
         )
         for d in devices
             name = PSY.get_name(d)
-            for start_idx in 1:interval_length:length(time_steps)
-                end_idx = min(start_idx + interval_length - 1, length(time_steps))
-                end_time_step = time_steps[end_idx]
+            for interval_range in interval_ranges
+                end_time_step = time_steps[last(interval_range)]
                 constraint_aux[name, end_time_step] = JuMP.@constraint(
                     container.JuMPmodel,
                     sum(
                         up_variable[name, t] - down_variable[name, t] for
-                        t in time_steps[start_idx:end_idx]
+                        t in time_steps[interval_range]
                     ) == 0.0
                 )
             end
