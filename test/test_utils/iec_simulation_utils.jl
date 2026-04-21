@@ -161,7 +161,7 @@ function run_iec_sim(sys::System, comp_name::String, ::Type{T};
     end
 
     # TODO test slope, breakpoint written parameters against time series values
-    # (https://github.com/NREL-Sienna/PowerSimulations.jl/issues/1429)
+    # (https://github.com/Sienna-Platform/PowerSimulations.jl/issues/1429)
 
     decisions = (
         _read_one_value(res, IOM.ActivePowerOutVariable, T, comp_name),
