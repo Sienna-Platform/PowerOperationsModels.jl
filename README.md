@@ -21,4 +21,4 @@ Contributions to the development and enhancement of PowerOperationsModels.jl are
 
 ## License
 
-PowerOperationsModels.jl is released under a BSD [license](https://github.com/Sienna-Platform/PowerOperationsModels.jl/blob/main/LICENSE). PowerOperationsModels.jl has been developed as part of the Sienna ecosystem at the U.S. Department of Energy's National Renewable Energy Laboratory ([NREL](https://www.nrel.gov/))
+PowerOperationsModels.jl is released under a BSD [license](https://github.com/Sienna-Platform/PowerOperationsModels.jl/blob/main/LICENSE). PowerOperationsModels.jl has been developed as part of the Sienna ecosystem at the U.S. Department of Energy's National Laboratory of the Rockies ([NLR](https://www.nlr.gov/)), formerly known as NREL.
