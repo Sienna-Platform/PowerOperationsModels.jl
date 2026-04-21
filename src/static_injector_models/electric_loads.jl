@@ -319,6 +319,7 @@ function add_constraints!(
 ) where {V <: PSY.ShiftablePowerLoad, W <: PowerLoadShift, X <: PM.AbstractPowerModel}
     time_steps = get_time_steps(container)
     time_steps_end = time_steps[end]
+    # Keep this container 2D (name, terminal-time marker) to match standard indexing patterns.
     constraint = add_constraints_container!(
         container,
         T,
