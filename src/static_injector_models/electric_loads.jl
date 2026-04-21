@@ -318,18 +318,20 @@ function add_constraints!(
     ::NetworkModel{X},
 ) where {V <: PSY.ShiftablePowerLoad, W <: PowerLoadShift, X <: PM.AbstractPowerModel}
     time_steps = get_time_steps(container)
+    time_steps_end = time_steps[end]
     constraint = add_constraints_container!(
         container,
         T,
         V,
         PSY.get_name.(devices),
+        [time_steps_end],
     )
     up_variable = get_variable(container, ShiftUpActivePowerVariable, V)
     down_variable = get_variable(container, ShiftDownActivePowerVariable, V)
     jump_model = get_jump_model(container)
     for d in devices
         name = PSY.get_name(d)
-        constraint[name] =
+        constraint[name, time_steps_end] =
             JuMP.@constraint(
                 jump_model,
                 sum(up_variable[name, t] - down_variable[name, t] for t in time_steps) ==
@@ -338,26 +340,67 @@ function add_constraints!(
     end
     additional_balance_interval = get_attribute(model, "additional_balance_interval")
     if !isnothing(additional_balance_interval)
+        if !(additional_balance_interval isa Dates.Period)
+            throw(
+                IS.InvalidValue(
+                    "The additional_balance_interval attribute must be a Dates.Period.",
+                ),
+            )
+        end
+        interval_ms = Dates.Millisecond(additional_balance_interval).value
+        if interval_ms <= 0
+            throw(
+                IS.InvalidValue(
+                    "The additional_balance_interval attribute must be greater than zero.",
+                ),
+            )
+        end
+
+        resolution = get_resolution(container)
+        resolution_ms = Dates.Millisecond(resolution).value
+
+        if interval_ms % resolution_ms != 0
+            throw(
+                IS.InvalidValue(
+                    "The additional_balance_interval attribute must be an integer multiple of model resolution.",
+                ),
+            )
+        end
+
+        interval_length = interval_ms ÷ resolution_ms
+        if interval_length > length(time_steps)
+            throw(
+                IS.InvalidValue(
+                    "The additional_balance_interval attribute must be less than or equal to the optimization horizon.",
+                ),
+            )
+        end
+
+        interval_end_steps = [
+            time_steps[min(start_idx + interval_length - 1, length(time_steps))] for
+            start_idx in 1:interval_length:length(time_steps)
+        ]
         constraint_aux = add_constraints_container!(
             container,
             T,
             V,
-            PSY.get_name.(devices);
+            PSY.get_name.(devices),
+            interval_end_steps;
             meta = "additional",
         )
-        resolution = get_resolution(container)
-        interval_length =
-            Dates.Millisecond(additional_balance_interval).value ÷
-            Dates.Millisecond(resolution).value
         for d in devices
             name = PSY.get_name(d)
-            constraint_aux[name] = JuMP.@constraint(
-                container.JuMPmodel,
-                sum(
-                    up_variable[name, t] - down_variable[name, t] for
-                    t in 1:interval_length
-                ) == 0.0
-            )
+            for start_idx in 1:interval_length:length(time_steps)
+                end_idx = min(start_idx + interval_length - 1, length(time_steps))
+                end_time_step = time_steps[end_idx]
+                constraint_aux[name, end_time_step] = JuMP.@constraint(
+                    container.JuMPmodel,
+                    sum(
+                        up_variable[name, t] - down_variable[name, t] for
+                        t in time_steps[start_idx:end_idx]
+                    ) == 0.0
+                )
+            end
         end
     end
     return
