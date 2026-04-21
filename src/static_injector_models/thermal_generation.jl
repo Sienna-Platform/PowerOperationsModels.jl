@@ -94,10 +94,10 @@ initial_condition_variable(::InitialTimeDurationOff, d::PSY.ThermalGen, ::Abstra
 function proportional_cost(container::OptimizationContainer, cost::PSY.ThermalGenerationCost, S::Type{OnVariable}, T::PSY.ThermalGen, U::Type{<:AbstractThermalFormulation}, t::Int)
     return onvar_cost(container, cost, S, T, U, t) + PSY.get_constant_term(PSY.get_vom_cost(PSY.get_variable(cost))) + PSY.get_fixed(cost)
 end
-is_time_variant_term(::OptimizationContainer, ::PSY.ThermalGenerationCost, ::OnVariable, ::Type{<:PSY.ThermalGen}, ::AbstractThermalFormulation, t::Int) = false
+is_time_variant_term(::OptimizationContainer, ::PSY.ThermalGenerationCost, ::OnVariable, ::PSY.ThermalGen, ::AbstractThermalFormulation, t::Int) = false
 
 
-is_time_variant_term(::OptimizationContainer, ::PSY.ThermalGenerationCost, ::Type{OnVariable}, ::PSY.ThermalGen, ::Type{<:AbstractThermalFormulation}, t::Int) = false
+is_time_variant_term(::OptimizationContainer, ::PSY.ThermalGenerationCost, ::Type{OnVariable}, ::Type{<:PSY.ThermalGen}, ::Type{<:AbstractThermalFormulation}, t::Int) = false
 
 function proportional_cost(container::OptimizationContainer, cost::PSY.MarketBidCost, ::Type{OnVariable}, comp::T, ::Type{<:AbstractThermalFormulation}, t::Int) where {T <: PSY.ThermalGen}
     if is_time_variant(PSY.get_incremental_initial_input(cost))
@@ -111,7 +111,7 @@ function proportional_cost(container::OptimizationContainer, cost::PSY.MarketBid
         return PSY.get_initial_input(PSY.get_incremental_offer_curves(PSY.get_operation_cost(comp)))
     end
 end
-is_time_variant_term(::OptimizationContainer, cost::PSY.MarketBidCost, ::Type{OnVariable}, ::PSY.ThermalGen, ::Type{<:AbstractThermalFormulation}, t::Int) =
+is_time_variant_term(::OptimizationContainer, cost::PSY.MarketBidCost, ::Type{OnVariable}, ::Type{<:PSY.ThermalGen}, ::Type{<:AbstractThermalFormulation}, t::Int) =
     is_time_variant(PSY.get_incremental_initial_input(cost))
 
 proportional_cost(::Union{PSY.MarketBidCost, PSY.ThermalGenerationCost}, ::Type{<:Union{RateofChangeConstraintSlackUp, RateofChangeConstraintSlackDown}}, ::PSY.ThermalGen, ::Type{<:AbstractThermalFormulation}) = CONSTRAINT_VIOLATION_SLACK_COST
@@ -486,6 +486,10 @@ function add_constraints!(
     return
 end
 
+# FIXME: untested and possibly dead code. The ThermalMultiStart constructor
+# (thermalgeneration_constructor.jl) calls add_constraints! for
+# ActivePowerVariableLimitsConstraint with expression types
+# (ActivePowerRangeExpressionLB/UB), not variable types.
 """
 This function adds range constraint for the first time period. Constraint (10) from PGLIB formulation
 """
@@ -502,35 +506,32 @@ function add_constraints!(
     X <: AbstractPowerModel,
 }
     time_steps = get_time_steps(container)
-    constraint_type = T()
-    variable_type = U()
-    component_type = V
-    varp = get_variable(container, variable_type, component_type)
-    varstatus = get_variable(container, OnVariable, component_type)
-    varon = get_variable(container, StartVariable, component_type)
-    varoff = get_variable(container, StopVariable, component_type)
+    varp = get_variable(container, U, V)
+    varstatus = get_variable(container, OnVariable, V)
+    varon = get_variable(container, StartVariable, V)
+    varoff = get_variable(container, StopVariable, V)
 
     names = [PSY.get_name(x) for x in devices]
     con_on = add_constraints_container!(
         container,
-        constraint_type,
-        component_type,
+        T,
+        V,
         names,
         time_steps;
         meta = "on",
     )
     con_off = add_constraints_container!(
         container,
-        constraint_type,
-        component_type,
+        T,
+        V,
         names,
         time_steps[1:(end - 1)];
         meta = "off",
     )
     con_lb = add_constraints_container!(
         container,
-        constraint_type,
-        component_type,
+        T,
+        V,
         names,
         time_steps;
         meta = "lb",
@@ -1366,8 +1367,7 @@ function add_constraints!(
                 container,
                 time_params,
                 ini_conds,
-                DurationConstraint(),
-                (OnVariable, StartVariable, StopVariable),
+                DurationConstraint,
                 U,
             )
         else
@@ -1375,8 +1375,7 @@ function add_constraints!(
                 container,
                 time_params,
                 ini_conds,
-                DurationConstraint(),
-                (OnVariable, StartVariable, StopVariable),
+                DurationConstraint,
                 U,
             )
         end
@@ -1405,8 +1404,7 @@ function add_constraints!(
                 container,
                 time_params,
                 ini_conds,
-                DurationConstraint(),
-                (OnVariable, StartVariable, StopVariable),
+                DurationConstraint,
                 U,
             )
         else
@@ -1414,8 +1412,7 @@ function add_constraints!(
                 container,
                 time_params,
                 ini_conds,
-                DurationConstraint(),
-                (OnVariable, StartVariable, StopVariable),
+                DurationConstraint,
                 U,
             )
         end

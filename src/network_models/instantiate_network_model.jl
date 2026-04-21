@@ -263,6 +263,7 @@ function IOM.instantiate_network_model!(
             @info "Applying both radial and degree two reductions"
             ptdf = PNM.VirtualPTDF(
                 sys;
+                tol = PTDF_ZERO_TOL,
                 network_reductions = PNM.NetworkReduction[
                     PNM.RadialReduction(; irreducible_buses = irreducible_buses),
                     PNM.DegreeTwoReduction(;
@@ -277,6 +278,7 @@ function IOM.instantiate_network_model!(
             end
             ptdf = PNM.VirtualPTDF(
                 sys;
+                tol = PTDF_ZERO_TOL,
                 network_reductions = PNM.NetworkReduction[PNM.RadialReduction(;
                     irreducible_buses = irreducible_buses,
                 )],
@@ -285,12 +287,13 @@ function IOM.instantiate_network_model!(
             @info "Applying degree two reduction"
             ptdf = PNM.VirtualPTDF(
                 sys;
+                tol = PTDF_ZERO_TOL,
                 network_reductions = PNM.NetworkReduction[PNM.DegreeTwoReduction(;
                     irreducible_buses = irreducible_buses,
                 )],
             )
         else
-            ptdf = PNM.VirtualPTDF(sys)
+            ptdf = PNM.VirtualPTDF(sys; tol = PTDF_ZERO_TOL)
         end
         model.PTDF_matrix = ptdf
         model.network_reduction = deepcopy(ptdf.network_reduction_data)
@@ -371,6 +374,7 @@ function IOM.instantiate_network_model!(
             @info "Applying both radial and degree two reductions"
             ptdf = PNM.VirtualPTDF(
                 sys;
+                tol = PTDF_ZERO_TOL,
                 network_reductions = PNM.NetworkReduction[
                     PNM.RadialReduction(; irreducible_buses = irreducible_buses),
                     PNM.DegreeTwoReduction(; irreducible_buses = irreducible_buses),
@@ -383,6 +387,7 @@ function IOM.instantiate_network_model!(
             end
             ptdf = PNM.VirtualPTDF(
                 sys;
+                tol = PTDF_ZERO_TOL,
                 network_reductions = PNM.NetworkReduction[PNM.RadialReduction(;
                     irreducible_buses = irreducible_buses,
                 )],
@@ -391,12 +396,13 @@ function IOM.instantiate_network_model!(
             @info "Applying degree two reduction"
             ptdf = PNM.VirtualPTDF(
                 sys;
+                tol = PTDF_ZERO_TOL,
                 network_reductions = PNM.NetworkReduction[PNM.DegreeTwoReduction(;
                     irreducible_buses = irreducible_buses,
                 )],
             )
         else
-            ptdf = PNM.VirtualPTDF(sys)
+            ptdf = PNM.VirtualPTDF(sys; tol = PTDF_ZERO_TOL)
         end
         model.PTDF_matrix = ptdf
         model.network_reduction = deepcopy(ptdf.network_reduction_data)
