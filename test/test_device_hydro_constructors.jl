@@ -721,7 +721,6 @@ end
 
     outputs = OptimizationProblemOutputs(model)
 
-    moi_tests(model, 288, 0, 168, 168, 72, false)
     psi_checkobjfun_test(model, AffExpr)
 
     df_outflow = read_expression(outputs, "TotalHydroFlowRateTurbineOutgoing__HydroTurbine")

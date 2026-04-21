@@ -1823,14 +1823,14 @@ function add_constraints!(
     constraint =
         add_constraints_container!(
             container,
-            TurbinePowerOutputConstraint(),
+            TurbinePowerOutputConstraint,
             V,
             names,
             time_steps,
         )
-    power = get_variable(container, ActivePowerVariable(), V)
-    flow = get_variable(container, HydroTurbineFlowRateVariable(), V)
-    head = get_variable(container, HydroReservoirHeadVariable(), PSY.HydroReservoir)
+    power = get_variable(container, ActivePowerVariable, V)
+    flow = get_variable(container, HydroTurbineFlowRateVariable, V)
+    head = get_variable(container, HydroReservoirHeadVariable, PSY.HydroReservoir)
     for d in devices
         name = PSY.get_name(d)
         conversion_factor = PSY.get_conversion_factor(d)
@@ -1847,14 +1847,14 @@ function add_constraints!(
             head,
             [
                 (
-                    min = get_variable_lower_bound(HydroTurbineFlowRateVariable(), d, W()),
-                    max = get_variable_upper_bound(HydroTurbineFlowRateVariable(), d, W())
+                    min = get_variable_lower_bound(HydroTurbineFlowRateVariable, d, W),
+                    max = get_variable_upper_bound(HydroTurbineFlowRateVariable, d, W)
                 ) for _=1:length(reservoirs)
             ],
             [
                 (
-                    min = get_variable_lower_bound(HydroReservoirHeadVariable(), res, W()),
-                    max = get_variable_upper_bound(HydroReservoirHeadVariable(), res, W())
+                    min = get_variable_lower_bound(HydroReservoirHeadVariable, res, W),
+                    max = get_variable_upper_bound(HydroReservoirHeadVariable, res, W)
                 ) for res in reservoirs
             ],
             "$(get_name(d))_FlowHeadProduct"
