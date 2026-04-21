@@ -344,7 +344,7 @@ function add_constraints!(
         if !(additional_balance_interval isa Dates.Period)
             throw(
                 IS.InvalidValue(
-                    "The additional_balance_interval attribute must be a Dates.Period.",
+                    "The additional_balance_interval attribute must be a Dates.Period, got $(typeof(additional_balance_interval)).",
                 ),
             )
         end
@@ -363,7 +363,7 @@ function add_constraints!(
         if interval_ms % resolution_ms != 0
             throw(
                 IS.InvalidValue(
-                    "The additional_balance_interval attribute must be an integer multiple of model resolution.",
+                    "The additional_balance_interval attribute must be an integer multiple of model resolution (interval_ms = $(interval_ms), resolution_ms = $(resolution_ms)).",
                 ),
             )
         end
