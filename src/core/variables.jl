@@ -129,7 +129,7 @@ struct VoltageAngle <: VariableType end
 #########################################
 
 """
-Struct to dispatch the creation of Shifted Active Power Variables
+Struct to dispatch the creation of Shifted Up Active Power Variables
 Docs abbreviation: ``p^\\text{shift,up}``
 """
 struct ShiftUpActivePowerVariable <: VariableType end
