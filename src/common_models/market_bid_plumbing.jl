@@ -598,3 +598,7 @@ IOM.get_uuid(sys::PSY.System) = PSY.get_uuid(sys)
 
 # PSY cost-type dispatches for variable-cost and get_variable_cost:
 IOM.get_variable_cost(cost) = PSY.get_variable(cost)
+
+# Not really market bid related--better spot?
+IOM.component_for_hvdc_interpolation(::Nothing) = PSY.DCBus
+IOM.component_for_network_dual(::Nothing) = PSY.ACBus

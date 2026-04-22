@@ -302,6 +302,6 @@ end
         IOM.IncrementalCostAtMinParameter,
         IOM.DecrementalCostAtMinParameter,
     )
-        @test_throws AssertionError POM._get_time_series_name(P(), gen, _PP_MODEL)
+        @test_throws AssertionError POM._get_time_series_name(P, gen, _PP_MODEL)
     end
 end
