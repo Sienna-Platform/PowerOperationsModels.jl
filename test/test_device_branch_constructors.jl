@@ -897,3 +897,44 @@ end
           IOM.ModelBuildStatus.BUILT
     @test solve!(model_ac) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
 end
+
+############################################
+###### COVERAGE: BRANCH FORMULATIONS  ######
+############################################
+
+@testset "StaticBranchBounds with CopperPlatePowerModel" begin
+    system = PSB.build_system(PSITestSystems, "c_sys5")
+    template = OperationsProblemTemplate(CopperPlatePowerModel)
+    set_device_model!(template, ThermalStandard, ThermalBasicDispatch)
+    set_device_model!(template, PowerLoad, StaticPowerLoad)
+    set_device_model!(template, Line, StaticBranchBounds)
+    set_device_model!(template, Transformer2W, StaticBranchBounds)
+    set_device_model!(template, TapTransformer, StaticBranchBounds)
+    model = DecisionModel(template, system; optimizer = HiGHS_optimizer)
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+    @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+end
+
+@testset "StaticBranchUnbounded with PTDFPowerModel" begin
+    system = PSB.build_system(PSITestSystems, "c_sys5")
+    template = get_thermal_dispatch_template_network(
+        NetworkModel(PTDFPowerModel; PTDF_matrix = PTDF(system)),
+    )
+    set_device_model!(template, Line, StaticBranchUnbounded)
+    model = DecisionModel(template, system; optimizer = HiGHS_optimizer)
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+    @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+end
+
+@testset "StaticBranch with AreaBalancePowerModel" begin
+    c_sys = PSB.build_system(PSISystems, "two_area_pjm_DA")
+    transform_single_time_series!(c_sys, Hour(24), Hour(1))
+    template = get_thermal_dispatch_template_network(NetworkModel(AreaBalancePowerModel))
+    set_device_model!(template, AreaInterchange, StaticBranch)
+    model = DecisionModel(template, c_sys; resolution = Hour(1), optimizer = HiGHS_optimizer)
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+    @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+end

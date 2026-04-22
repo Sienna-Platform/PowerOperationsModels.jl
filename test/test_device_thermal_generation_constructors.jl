@@ -1501,3 +1501,90 @@ end
     @test isapprox(p_steam3[1], x_last) # max
     @test isapprox(cost_steam3[1], y_last) # last cost
 end
+
+############################################
+###### COVERAGE: THERMAL FORMULATIONS ######
+############################################
+
+@testset "ThermalStandardDispatch with ramp constraints" begin
+    c_sys5 = PSB.build_system(PSITestSystems, "c_sys5")
+    template = OperationsProblemTemplate(CopperPlatePowerModel)
+    set_device_model!(template, ThermalStandard, ThermalStandardDispatch)
+    set_device_model!(template, PowerLoad, StaticPowerLoad)
+    model = DecisionModel(template, c_sys5; optimizer = HiGHS_optimizer)
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+    @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+end
+
+@testset "ThermalCompactDispatch formulation" begin
+    c_sys5 = PSB.build_system(PSITestSystems, "c_sys5_uc")
+    template = OperationsProblemTemplate(CopperPlatePowerModel)
+    set_device_model!(template, ThermalStandard, ThermalCompactDispatch)
+    set_device_model!(template, PowerLoad, StaticPowerLoad)
+    model = DecisionModel(template, c_sys5; optimizer = HiGHS_optimizer)
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+    @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+end
+
+@testset "ThermalStandard with PTDF network" begin
+    c_sys5 = PSB.build_system(PSITestSystems, "c_sys5")
+    template = get_thermal_dispatch_template_network(
+        NetworkModel(PTDFPowerModel; PTDF_matrix = PTDF(c_sys5)),
+    )
+    set_device_model!(template, ThermalStandard, ThermalStandardDispatch)
+    model = DecisionModel(template, c_sys5; optimizer = HiGHS_optimizer)
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+    @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+end
+
+############################################
+##### COVERAGE: MARKET BID & OBJ FUNC ######
+############################################
+
+@testset "MarketBidCost with ThermalStandard Dispatch" begin
+    c_sys5 = PSB.build_system(PSITestSystems, "c_sys5")
+    add_mbc!(c_sys5, make_selector(ThermalStandard); incremental = true)
+
+    template = get_thermal_dispatch_template_network(CopperPlatePowerModel)
+    # Skip IC solve — the MBC PWL costs create an infeasible IC initialization problem
+    model = DecisionModel(
+        template, c_sys5;
+        optimizer = HiGHS_optimizer,
+        initialize_model = false,
+    )
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+end
+
+@testset "QuadraticCurve + CompactDispatch throws ConflictingInputsError" begin
+    # Use dispatch (not UC) + initialize_model=false to reach the objective function
+    # where QuadraticCurve is rejected for compact formulations.
+    # UC would fail during IC solve before ever reaching the objective.
+    c_sys5 = PSB.build_system(PSITestSystems, "c_sys5")
+    gen = first(get_components(ThermalStandard, c_sys5))
+    set_operation_cost!(
+        gen,
+        ThermalGenerationCost(
+            CostCurve(QuadraticCurve(1.0, 10.0, 5.0)),
+            0.0,
+            (hot = 0.0, warm = 0.0, cold = 0.0),
+            0.0,
+        ),
+    )
+
+    template = OperationsProblemTemplate(NetworkModel(CopperPlatePowerModel))
+    set_device_model!(template, ThermalStandard, ThermalCompactDispatch)
+    set_device_model!(template, PowerLoad, StaticPowerLoad)
+
+    model = DecisionModel(
+        template, c_sys5;
+        optimizer = HiGHS_optimizer,
+        initialize_model = false,
+    )
+    @test_throws IS.ConflictingInputsError build!(
+        model; output_dir = mktempdir(; cleanup = true),
+    )
+end

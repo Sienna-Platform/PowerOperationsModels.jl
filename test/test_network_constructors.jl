@@ -72,3 +72,42 @@ end
         @test "4-5-i_1" in axes(cons)[1]
     end
 end
+
+############################################
+######  COVERAGE: NETWORK MODELS     #######
+############################################
+
+@testset "AreaBalancePowerModel network construction" begin
+    sys = build_system(PSISystems, "two_area_pjm_DA")
+    transform_single_time_series!(sys, Hour(24), Hour(1))
+    template = get_thermal_dispatch_template_network(NetworkModel(AreaBalancePowerModel))
+    set_device_model!(template, AreaInterchange, StaticBranch)
+    model = DecisionModel(template, sys; resolution = Hour(1), optimizer = HiGHS_optimizer)
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+    @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+end
+
+@testset "AreaPTDFPowerModel network construction" begin
+    sys = build_system(PSISystems, "two_area_pjm_DA")
+    transform_single_time_series!(sys, Hour(2), Hour(2))
+    template = get_thermal_dispatch_template_network(AreaPTDFPowerModel)
+    set_device_model!(template, RenewableDispatch, RenewableFullDispatch)
+    model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+    @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+end
+
+@testset "AreaBalance with network slacks" begin
+    sys = build_system(PSISystems, "two_area_pjm_DA")
+    transform_single_time_series!(sys, Hour(24), Hour(1))
+    template = get_thermal_dispatch_template_network(
+        NetworkModel(AreaBalancePowerModel; use_slacks = true),
+    )
+    set_device_model!(template, AreaInterchange, StaticBranch)
+    model = DecisionModel(template, sys; resolution = Hour(1), optimizer = HiGHS_optimizer)
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+    @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+end

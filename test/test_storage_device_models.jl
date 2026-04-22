@@ -362,3 +362,33 @@ end
     moi_tests(model, 121, 0, 74, 72, 24, true)
 end
 =#
+
+############################################
+###### COVERAGE: STORAGE FORMULATIONS ######
+############################################
+
+# NOTE: Storage with cycling_limits = true has a pre-existing bug in
+# storage_models.jl:1428 — the constraint container is indexed by (name, time_step)
+# but created with only names. Tests omitted until fixed.
+
+@testset "Storage with Energy Target" begin
+    device_model = DeviceModel(
+        EnergyReservoirStorage,
+        StorageDispatchWithReserves;
+        attributes = Dict{String, Any}(
+            "reservation" => false,
+            "cycling_limits" => false,
+            "energy_target" => true,
+            "complete_coverage" => false,
+            "regularization" => true,
+        ),
+    )
+    c_sys5_bat = PSB.build_system(PSITestSystems, "c_sys5_bat_ems")
+    template = get_thermal_dispatch_template_network(CopperPlatePowerModel)
+    set_device_model!(template, device_model)
+
+    model = DecisionModel(template, c_sys5_bat; optimizer = HiGHS_optimizer)
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          ModelBuildStatus.BUILT
+    @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+end

@@ -33,3 +33,44 @@
     # ED should still solve with the transferred ICs
     @test solve!(ed) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
 end
+
+############################################
+##### COVERAGE: STORAGE & HYDRO IC   #######
+############################################
+
+# NOTE: StorageDispatchWithReserves + EnergyReservoirStorage hits a pre-existing
+# bug in transfer_initial_conditions!: get_variable is called with an EnergyVariable
+# *instance* instead of the *type*, causing a MethodError. Skipping this test combo.
+# The UC->ED and Hydro transfer tests below verify the transfer_initial_conditions!
+# code path for the supported formulations.
+
+@testset "transfer_initial_conditions! with HydroReservoir" begin
+    sys_uc = PSB.build_system(PSITestSystems, "c_sys5_hyd")
+    sys_ed = PSB.build_system(PSITestSystems, "c_sys5_hyd")
+
+    template_uc = get_template_standard_uc_simulation()
+    set_device_model!(
+        template_uc,
+        HydroDispatch,
+        HydroDispatchRunOfRiver,
+    )
+    template_ed = get_template_nomin_ed_simulation()
+    set_device_model!(
+        template_ed,
+        HydroDispatch,
+        HydroDispatchRunOfRiver,
+    )
+
+    uc = DecisionModel(template_uc, sys_uc; name = "UC", optimizer = HiGHS_optimizer)
+    ed = DecisionModel(template_ed, sys_ed; name = "ED", optimizer = HiGHS_optimizer)
+
+    @test build!(uc; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+    @test solve!(uc) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+
+    @test build!(ed; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+
+    POM.transfer_initial_conditions!(ed, uc)
+    @test solve!(ed) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+end
