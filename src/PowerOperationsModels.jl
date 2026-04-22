@@ -14,6 +14,7 @@ import ProgressMeter
 import PowerSystems
 import PowerSystems: get_component
 import Serialization
+import SparseArrays
 import TimerOutputs
 import InteractiveUtils: methodswith
 
