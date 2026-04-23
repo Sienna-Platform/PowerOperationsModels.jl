@@ -582,19 +582,40 @@ IOM.temp_set_units_base_system!(sys::PSY.System, base::String) =
 IOM.temp_get_forecast_initial_timestamp(sys::PSY.System) =
     PSY.get_forecast_initial_timestamp(sys)
 
-# PSY.System override for things in decision_model.jl
-# most just forward to sys.data.
+# PSY.System bridges for IOM system-query stubs (see IOM common_models/interfaces.jl).
+# These forward to PSY's public API so IOM never has to touch sys.data.
 
-#=
 IOM.stores_time_series_in_memory(sys::PSY.System) = PSY.stores_time_series_in_memory(sys)
-IOM.get_time_series_counts_by_type(sys::PSY.System) = PSY.get_time_series_counts_by_type(sys)
+IOM.get_time_series_resolutions(sys::PSY.System) = PSY.get_time_series_resolutions(sys)
 IOM.get_time_series_counts(sys::PSY.System) = PSY.get_time_series_counts(sys)
 IOM.get_forecast_interval(sys::PSY.System) = PSY.get_forecast_interval(sys)
-IOM.get_time_series_resolutions(sys::PSY.System) = PSY.get_time_series_resolutions(sys)
-IOM.get_forecast_horizon(sys::PSY.System) = PSY.get_forecast_horizon(sys)
+IOM.get_forecast_horizon(sys::PSY.System; kwargs...) =
+    PSY.get_forecast_horizon(sys; kwargs...)
+IOM.get_forecast_summary_table(sys::PSY.System) = PSY.get_forecast_summary_table(sys)
+IOM.transform_single_time_series!(
+    sys::PSY.System,
+    horizon::Dates.Period,
+    interval::Dates.Period;
+    kwargs...,
+) = PSY.transform_single_time_series!(sys, horizon, interval; kwargs...)
+# sys.data.internal UUID, not sys's wrapper UUID — IOM uses this as a filename identifier.
+IOM.get_system_uuid(sys::PSY.System) = IS.get_uuid(sys.data.internal)
+# PSY.get_components restricts T <: PSY.Component; IOM passes IS.InfrastructureSystemsComponent.
+# Bridge directly to IS.get_components to preserve the looser typing.
+IOM.get_subsystem_components(
+    ::Type{T},
+    sys::PSY.System;
+    subsystem_name = nothing,
+) where {T <: IS.InfrastructureSystemsComponent} =
+    IS.get_components(T, sys.data; subsystem_name)
 
-IOM.get_uuid(sys::PSY.System) = PSY.get_uuid(sys)
-=#
+# PSY doesn't expose get_time_series_counts_by_type publicly; reach through sys.data here.
+IOM.get_time_series_counts_by_type(sys::PSY.System) =
+    IS.get_time_series_counts_by_type(sys.data)
 
 # PSY cost-type dispatches for variable-cost and get_variable_cost:
 IOM.get_variable_cost(cost) = PSY.get_variable(cost)
+
+# Not really market bid related--better spot?
+IOM.component_for_hvdc_interpolation(::Nothing) = PSY.DCBus
+IOM.component_for_network_dual(::Nothing) = PSY.ACBus

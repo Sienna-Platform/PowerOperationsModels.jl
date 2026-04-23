@@ -349,7 +349,7 @@ _get_time_series_name(
 # have a time-varying MBC/IEC, so the `get_time_series_key` call should be valid.
 
 function _get_time_series_name(
-    ::StartupCostParameter,
+    ::Type{StartupCostParameter},
     device::PSY.Component,
     ::DeviceModel,
 )
@@ -359,7 +359,7 @@ function _get_time_series_name(
 end
 
 function _get_time_series_name(
-    ::ShutdownCostParameter,
+    ::Type{ShutdownCostParameter},
     device::PSY.Component,
     ::DeviceModel,
 )
@@ -369,7 +369,7 @@ function _get_time_series_name(
 end
 
 function _get_time_series_name(
-    ::IncrementalCostAtMinParameter,
+    ::Type{IncrementalCostAtMinParameter},
     device::PSY.Device,
     ::DeviceModel,
 )
@@ -383,7 +383,7 @@ function _get_time_series_name(
 end
 
 function _get_time_series_name(
-    ::DecrementalCostAtMinParameter,
+    ::Type{DecrementalCostAtMinParameter},
     device::PSY.Device,
     ::DeviceModel,
 )

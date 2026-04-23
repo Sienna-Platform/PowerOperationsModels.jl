@@ -4,8 +4,8 @@ using PowerOperationsModels
 using DocumenterInterLinks
 
 links = InterLinks(
-    "PowerSystems" => "https://nrel-sienna.github.io/PowerSystems.jl/stable/",
-    "PowerSimulations" => "https://nrel-sienna.github.io/PowerSimulations.jl/stable/",
+    "PowerSystems" => "https://sienna-platform.github.io/PowerSystems.jl/stable/",
+    "PowerSimulations" => "https://sienna-platform.github.io/PowerSimulations.jl/stable/",
 )
 
 include(joinpath(@__DIR__, "make_tutorials.jl"))
@@ -28,15 +28,15 @@ makedocs(
     format = Documenter.HTML(
         prettyurls = haskey(ENV, "GITHUB_ACTIONS"),
         size_threshold = nothing,),
-    sitename = "github.com/NREL-Sienna/PowerOperationsModels.jl",
-    authors = "NREL-Sienna",
+    sitename = "github.com/Sienna-Platform/PowerOperationsModels.jl",
+    authors = "Sienna-Platform",
     pages = Any[p for p in pages],
     draft = false,
     plugins = [links],
 )
 
 deploydocs(
-    repo="github.com/NREL-Sienna/PowerOperationsModels.jl",
+    repo="github.com/Sienna-Platform/PowerOperationsModels.jl",
     target="build",
     branch="gh-pages",
     devbranch="main",

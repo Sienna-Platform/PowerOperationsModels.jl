@@ -1,7 +1,7 @@
 name = "PowerOperationsModels"
 uuid = "bed98974-b02a-5e2f-9ee0-a103f5c450dd"
 version = "0.1.0"
-authors = ["NREL-Sienna"]
+authors = ["Sienna-Platform"]
 
 [deps]
 Dates = "ade2ca70-3891-5945-98fb-dc099432e06a"
@@ -29,7 +29,6 @@ PowerFlowsExt = "PowerFlows"
 [compat]
 Dates = "1"
 DocStringExtensions = "~0.8, ~0.9"
-InfrastructureOptimizationModels = "0.1"
 InfrastructureSystems = "3"
 InteractiveUtils = "1.11.0"
 JuMP = "^1.28"

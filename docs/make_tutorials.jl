@@ -59,7 +59,7 @@ end
 # This ensures that links generated in notebooks point to the correct
 # location for stable, dev, and preview builds.
 function _compute_docs_base_url()
-    base = "https://nrel-sienna.github.io/PowerOperationsModels.jl"
+    base = "https://sienna-platform.github.io/PowerOperationsModels.jl"
 
     current_version = get(ENV, "DOCUMENTER_CURRENT_VERSION", "")
 
