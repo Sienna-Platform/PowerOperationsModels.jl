@@ -581,7 +581,10 @@ IOM.temp_set_units_base_system!(sys::PSY.System, base::String) =
     PSY.set_units_base_system!(sys, base)
 IOM.temp_get_forecast_initial_timestamp(sys::PSY.System) =
     PSY.get_forecast_initial_timestamp(sys)
-IOM.temp_check_time_series_consistency(sys::PSY.System, ::Type{T}) where {T <: PSY.TimeSeriesData} =
+IOM.temp_check_time_series_consistency(
+    sys::PSY.System,
+    ::Type{T},
+) where {T <: PSY.TimeSeriesData} =
     PSY.check_time_series_consistency(sys, T)
 
 # PSY.System bridges for IOM system-query stubs (see IOM common_models/interfaces.jl).

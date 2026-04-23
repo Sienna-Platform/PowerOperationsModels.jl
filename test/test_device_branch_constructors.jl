@@ -933,7 +933,8 @@ end
     transform_single_time_series!(c_sys, Hour(24), Hour(1))
     template = get_thermal_dispatch_template_network(NetworkModel(AreaBalancePowerModel))
     set_device_model!(template, AreaInterchange, StaticBranch)
-    model = DecisionModel(template, c_sys; resolution = Hour(1), optimizer = HiGHS_optimizer)
+    model =
+        DecisionModel(template, c_sys; resolution = Hour(1), optimizer = HiGHS_optimizer)
     @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
           IOM.ModelBuildStatus.BUILT
     @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
