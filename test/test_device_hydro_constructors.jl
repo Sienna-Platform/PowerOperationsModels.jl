@@ -913,28 +913,28 @@ end
     @test solve!(model) == IS.Simulation.RunStatus.SUCCESSFULLY_FINALIZED
 end
 
-############################################
-###### COVERAGE: HYDRO FORMULATIONS  #######
-############################################
-
 @testset "HydroReservoir with Energy Target" begin
     sys = PSB.build_system(PSITestSystems, "c_sys5_hy_turbine_energy")
-    turbine_model = DeviceModel(HydroTurbine, HydroTurbineEnergyDispatch)
-    reservoir_model = DeviceModel(
-        HydroReservoir,
-        HydroEnergyModelReservoir;
-        attributes = Dict{String, Any}(
-            "energy_target" => true,
-            "hydro_budget" => false,
+    template = OperationsProblemTemplate(DCPPowerModel)
+    set_device_model!(template, ThermalStandard, ThermalBasicDispatch)
+    set_device_model!(template, PowerLoad, StaticPowerLoad)
+    set_device_model!(template, Line, StaticBranch)
+    set_device_model!(template, HydroTurbine, HydroTurbineEnergyDispatch)
+    set_device_model!(
+        template,
+        DeviceModel(
+            HydroReservoir,
+            HydroEnergyModelReservoir;
+            attributes = Dict{String, Any}(
+                "energy_target" => true,
+                "hydro_budget" => false,
+            ),
         ),
     )
-    model = DecisionModel(MockOperationProblem, DCPPowerModel, sys)
-    mock_construct_device!(model, turbine_model)
-    mock_construct_device!(model, reservoir_model)
-    # Energy target adds a constraint at the final time step
-    container = IOM.get_optimization_container(model)
-    @test IOM.ConstraintKey(EnergyTargetConstraint, HydroReservoir) in
-          keys(IOM.get_constraints(container))
+    model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          ModelBuildStatus.BUILT
+    @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
 end
 
 @testset "HydroReservoir with spillage formulation" begin

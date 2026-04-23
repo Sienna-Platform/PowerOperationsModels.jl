@@ -240,10 +240,6 @@ end
     end
 end
 
-############################################
-######  COVERAGE: AREA INTERCHANGE   #######
-############################################
-
 @testset "AreaInterchange with PTDFPowerModel" begin
     c_sys = PSB.build_system(PSISystems, "two_area_pjm_DA")
     transform_single_time_series!(c_sys, Hour(24), Hour(1))
@@ -257,6 +253,3 @@ end
           IOM.ModelBuildStatus.BUILT
     @test solve!(ps_model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
 end
-
-# NOTE: AreaInterchange with CopperPlatePowerModel is not testable — CopperPlate
-# ignores branch devices, so FlowActivePowerVariable for AreaInterchange is never created.

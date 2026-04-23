@@ -898,10 +898,6 @@ end
     @test solve!(model_ac) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
 end
 
-############################################
-###### COVERAGE: BRANCH FORMULATIONS  ######
-############################################
-
 @testset "StaticBranchBounds with CopperPlatePowerModel" begin
     system = PSB.build_system(PSITestSystems, "c_sys5")
     template = OperationsProblemTemplate(CopperPlatePowerModel)

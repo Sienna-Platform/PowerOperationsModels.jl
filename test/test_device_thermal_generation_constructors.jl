@@ -1540,10 +1540,6 @@ end
     @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
 end
 
-############################################
-##### COVERAGE: MARKET BID & OBJ FUNC ######
-############################################
-
 @testset "MarketBidCost with ThermalStandard UC" begin
     c_sys5_uc = PSB.build_system(PSITestSystems, "c_sys5_uc")
     add_mbc!(c_sys5_uc, make_selector(ThermalStandard); incremental = true)
@@ -1560,8 +1556,3 @@ end
     @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
           IOM.ModelBuildStatus.BUILT
 end
-
-# QuadraticCurve + compact formulations: not tested here.
-# The guard in src/common_models/objective_function.jl throws ConflictingInputsError,
-# but build!() catches all exceptions internally (returns FAILED status instead of
-# re-throwing), so @test_throws cannot observe the exception.

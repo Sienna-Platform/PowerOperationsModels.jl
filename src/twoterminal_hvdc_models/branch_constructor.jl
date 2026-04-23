@@ -565,7 +565,7 @@ function construct_device!(
         device_model,
         network_model,
     )
-    add_feedforward_arguments!(container, devicemodel, devices)
+    add_feedforward_arguments!(container, device_model, devices)
     return
 end
 

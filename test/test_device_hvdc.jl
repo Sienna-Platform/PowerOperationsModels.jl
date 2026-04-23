@@ -128,10 +128,6 @@ end
     @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
 end
 
-############################################
-######  COVERAGE: HVDC FORMULATIONS  #######
-############################################
-
 @testset "HVDC TwoTerminal Dispatch with PTDFPowerModel" begin
     sys = PSB.build_system(PSITestSystems, "c_sys14_dc")
     template = get_thermal_dispatch_template_network(
@@ -143,6 +139,14 @@ end
           IOM.ModelBuildStatus.BUILT
 end
 
-# NOTE: HVDCTwoTerminalUnbounded on CopperPlate has a pre-existing bug:
-# branch_constructor.jl:586 uses `devicemodel` instead of `device_model`.
-# Test omitted until the typo is fixed.
+@testset "HVDC TwoTerminal Unbounded with CopperPlatePowerModel" begin
+    sys = PSB.build_system(PSITestSystems, "c_sys14_dc")
+    template = OperationsProblemTemplate(CopperPlatePowerModel)
+    set_device_model!(template, ThermalStandard, ThermalBasicDispatch)
+    set_device_model!(template, PowerLoad, StaticPowerLoad)
+    set_device_model!(template, TwoTerminalGenericHVDCLine, HVDCTwoTerminalUnbounded)
+    model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+    @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+end

@@ -1425,7 +1425,7 @@ function add_cycling_charge_without_reserves!(
             PSY.get_conversion_factor(d)
         cycle_count = PSY.get_cycle_limits(d)
         efficiency = PSY.get_efficiency(d)
-        constraint[name, time_steps[end]] = JuMP.@constraint(
+        constraint[name] = JuMP.@constraint(
             get_jump_model(container),
             sum((
                 powerin_var[name, t] * efficiency.in * fraction_of_hour for t in time_steps
@@ -1435,7 +1435,6 @@ function add_cycling_charge_without_reserves!(
     return
 end
 
-# no test coverage
 function add_cycling_charge_with_reserves!(
     container::OptimizationContainer,
     devices::IS.FlattenIteratorWrapper{V},
@@ -1461,7 +1460,7 @@ function add_cycling_charge_with_reserves!(
             PSY.get_conversion_factor(d)
         cycle_count = PSY.get_cycle_limits(d)
         efficiency = PSY.get_efficiency(d)
-        constraint[name, time_steps[end]] = JuMP.@constraint(
+        constraint[name] = JuMP.@constraint(
             get_jump_model(container),
             sum((
                 (powerin_var[name, t] + r_dn_ch[name, t]) *
@@ -1473,7 +1472,6 @@ function add_cycling_charge_with_reserves!(
     return
 end
 
-# no test coverage
 function add_constraints!(
     container::OptimizationContainer,
     ::Type{StorageCyclingCharge},
@@ -1514,7 +1512,7 @@ function add_cycling_discharge_without_reserves!(
             PSY.get_conversion_factor(d)
         cycle_count = PSY.get_cycle_limits(d)
         efficiency = PSY.get_efficiency(d)
-        constraint[name, time_steps[end]] = JuMP.@constraint(
+        constraint[name] = JuMP.@constraint(
             get_jump_model(container),
             sum(
                 (powerout_var[name, t] / efficiency.out) * fraction_of_hour for
@@ -1525,7 +1523,6 @@ function add_cycling_discharge_without_reserves!(
     return
 end
 
-# no test coverage
 function add_cycling_discharge_with_reserves!(
     container::OptimizationContainer,
     devices::IS.FlattenIteratorWrapper{V},
@@ -1551,7 +1548,7 @@ function add_cycling_discharge_with_reserves!(
             PSY.get_conversion_factor(d)
         cycle_count = PSY.get_cycle_limits(d)
         efficiency = PSY.get_efficiency(d)
-        constraint[name, time_steps[end]] = JuMP.@constraint(
+        constraint[name] = JuMP.@constraint(
             get_jump_model(container),
             sum(
                 ((powerout_var[name, t] + r_up_ds[name, t]) / efficiency.out) *
@@ -1562,7 +1559,6 @@ function add_cycling_discharge_with_reserves!(
     return
 end
 
-# no test coverage
 function add_constraints!(
     container::OptimizationContainer,
     ::Type{StorageCyclingDischarge},

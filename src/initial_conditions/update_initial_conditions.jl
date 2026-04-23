@@ -2,18 +2,18 @@
 # IC type -> variable/aux-variable type mapping (dispatch-based)
 #################################################################################
 
-_ic_variable_type(::Type{DevicePower}) = ActivePowerVariable()
-_ic_variable_type(::Type{DeviceStatus}) = OnVariable()
-_ic_variable_type(::Type{DeviceAboveMinPower}) = PowerAboveMinimumVariable()
-_ic_variable_type(::Type{InitialTimeDurationOn}) = TimeDurationOn()
-_ic_variable_type(::Type{InitialTimeDurationOff}) = TimeDurationOff()
-_ic_variable_type(::Type{InitialEnergyLevel}) = EnergyVariable()
+_ic_variable_type(::Type{DevicePower}) = ActivePowerVariable
+_ic_variable_type(::Type{DeviceStatus}) = OnVariable
+_ic_variable_type(::Type{DeviceAboveMinPower}) = PowerAboveMinimumVariable
+_ic_variable_type(::Type{InitialTimeDurationOn}) = TimeDurationOn
+_ic_variable_type(::Type{InitialTimeDurationOff}) = TimeDurationOff
+_ic_variable_type(::Type{InitialEnergyLevel}) = EnergyVariable
 
 # Dispatch to the right container getter based on variable vs aux variable type
 # FIXME we should add something like this to the API.
-_get_from_container(source, var_type::VariableType, comp_type) =
+_get_from_container(source, var_type::Type{<:VariableType}, comp_type) =
     get_variable(source, var_type, comp_type)
-_get_from_container(source, var_type::AuxVariableType, comp_type) =
+_get_from_container(source, var_type::Type{<:AuxVariableType}, comp_type) =
     get_aux_variable(source, var_type, comp_type)
 
 #################################################################################

@@ -30,11 +30,9 @@ end
         ServiceModel(VariableReserve{ReserveUp}, RampReserve, "test_reserve"),
     )
     model = DecisionModel(template, c_sys5; optimizer = HiGHS_optimizer)
-    build_status = build!(model; output_dir = mktempdir(; cleanup = true))
-    # Build may succeed or fail depending on whether the system has the right reserve service
-    # The test validates the code path is exercised
-    @test build_status in
-          [IOM.ModelBuildStatus.BUILT, IOM.ModelBuildStatus.FAILED]
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+    @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
 end
 
 ###################################
@@ -58,11 +56,9 @@ end
     model = DecisionModel(template, c_sys5; optimizer = HiGHS_optimizer)
     @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
           IOM.ModelBuildStatus.BUILT
-    # Note: solve may fail due to write_output! MethodError for ReserveRequirementSlack.
-    # This is a pre-existing bug in the slack variable output path.
 end
 
-###########################################
+###################################
 #### NONSPINNING RESERVE TESTS ############
 ###########################################
 
@@ -136,7 +132,6 @@ end
     @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
           IOM.ModelBuildStatus.BUILT
 end
-###########################################
 
 @testset "ConstantMaxInterfaceFlow with PTDFPowerModel" begin
     c_sys5 = PSB.build_system(PSISystems, "two_area_pjm_DA")
