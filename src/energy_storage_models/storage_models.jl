@@ -1727,7 +1727,7 @@ end
 
 ########################### Objective Function and Costs ######################
 # no test coverage
-function objective_function!(
+function add_to_objective_function!(
     container::OptimizationContainer,
     devices::IS.FlattenIteratorWrapper{T},
     model::DeviceModel{T, U},
@@ -1753,7 +1753,7 @@ function objective_function!(
     return
 end
 
-function objective_function!(
+function add_to_objective_function!(
     container::OptimizationContainer,
     devices::IS.FlattenIteratorWrapper{PSY.EnergyReservoirStorage},
     model::DeviceModel{PSY.EnergyReservoirStorage, T},
@@ -1797,6 +1797,9 @@ function objective_function!(
     return
 end
 
+# Storage cycling/energy-target slack penalties are applied only at the final timestep
+# (a single horizon-end accumulator), not per-timestep — so we can't delegate to the
+# IOM default `add_proportional_cost!`, which loops over all timesteps.
 # no test coverage
 function add_proportional_cost!(
     container::OptimizationContainer,
@@ -1804,42 +1807,22 @@ function add_proportional_cost!(
     devices::IS.FlattenIteratorWrapper{U},
     ::Type{F},
 ) where {
-    T <: Union{StorageChargeCyclingSlackVariable, StorageDischargeCyclingSlackVariable},
+    T <: Union{
+        StorageChargeCyclingSlackVariable, StorageDischargeCyclingSlackVariable,
+        StorageEnergyShortageVariable, StorageEnergySurplusVariable,
+    },
     U <: PSY.EnergyReservoirStorage,
     F <: AbstractStorageFormulation,
 }
-    time_steps = get_time_steps(container)
+    t_end = last(get_time_steps(container))
     variable = get_variable(container, T, U)
     for d in devices
         name = PSY.get_name(d)
         op_cost_data = PSY.get_operation_cost(d)
         cost_term = proportional_cost(op_cost_data, T, d, F)
-        add_to_objective_invariant_expression!(
-            container,
-            variable[name, time_steps[end]] * cost_term,
-        )
-    end
-end
-
-function add_proportional_cost!(
-    container::OptimizationContainer,
-    ::Type{T},
-    devices::IS.FlattenIteratorWrapper{U},
-    ::Type{F},
-) where {
-    T <: Union{StorageEnergyShortageVariable, StorageEnergySurplusVariable},
-    U <: PSY.EnergyReservoirStorage,
-    F <: AbstractStorageFormulation,
-}
-    time_steps = get_time_steps(container)
-    variable = get_variable(container, T, U)
-    for d in devices
-        name = PSY.get_name(d)
-        op_cost_data = PSY.get_operation_cost(d)
-        cost_term = proportional_cost(op_cost_data, T, d, F)
-        add_to_objective_invariant_expression!(
-            container,
-            variable[name, time_steps[end]] * cost_term,
+        IOM.add_cost_term_invariant!(
+            container, variable[name, t_end], cost_term,
+            ProductionCostExpression, U, name, t_end,
         )
     end
 end
@@ -1860,59 +1843,5 @@ function calculate_aux_variable_value!(
             jump_value(p_variable_output[name, t]) * fraction_of_hour
     end
 
-    return
-end
-
-################## Storage Systems with Market Bid Cost ###################
-
-function _add_variable_cost_to_objective!(
-    container::OptimizationContainer,
-    ::T,
-    component::PSY.Component,
-    cost_function::MBC_TYPES,
-    ::U,
-) where {
-    T <: Union{ActivePowerOutVariable, StorageRegularizationVariableDischarge},
-    U <: AbstractStorageFormulation,
-}
-    component_name = PSY.get_name(component)
-    @debug "Market Bid" _group = LOG_GROUP_COST_FUNCTIONS component_name
-    incremental_cost_curves = PSY.get_incremental_offer_curves(cost_function)
-    if !isnothing(incremental_cost_curves)
-        add_pwl_term_delta!(
-            IncrementalOffer(),
-            container,
-            component,
-            cost_function,
-            T(),
-            U(),
-        )
-    end
-    return
-end
-
-function _add_variable_cost_to_objective!(
-    container::OptimizationContainer,
-    ::T,
-    component::PSY.Component,
-    cost_function::MBC_TYPES,
-    ::U,
-) where {
-    T <: Union{ActivePowerInVariable, StorageRegularizationVariableCharge},
-    U <: AbstractStorageFormulation,
-}
-    component_name = PSY.get_name(component)
-    @debug "Market Bid" _group = LOG_GROUP_COST_FUNCTIONS component_name
-    decremental_cost_curves = PSY.get_decremental_offer_curves(cost_function)
-    if !isnothing(decremental_cost_curves)
-        add_pwl_term_delta!(
-            DecrementalOffer(),
-            container,
-            component,
-            cost_function,
-            T(),
-            U(),
-        )
-    end
     return
 end
