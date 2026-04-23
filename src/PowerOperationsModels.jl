@@ -126,6 +126,7 @@ import InfrastructureOptimizationModels:
     add_cost_to_expression!,
     add_linear_ramp_constraints!,
     add_service_variables!,
+    add_proportional_cost_invariant!,
     requires_initialization,
     get_min_max_limits,
     start_up_cost,

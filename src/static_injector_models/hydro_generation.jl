@@ -1,52 +1,5 @@
 #! format: off
 
-# Helper for proportional cost terms in objective function
-function _add_proportional_term!(
-    container::OptimizationContainer,
-    ::Type{T},
-    component::U,
-    linear_term::Float64,
-    time_period::Int,
-) where {T <: VariableType, U <: PSY.Component}
-    component_name = PSY.get_name(component)
-    variable = get_variable(container, T, U)[component_name, time_period]
-    lin_cost = variable * linear_term
-    add_to_objective_invariant_expression!(container, lin_cost)
-    return lin_cost
-end
-
-function _add_proportional_term_variant!(
-    container::OptimizationContainer,
-    ::Type{T},
-    component::U,
-    linear_term::Float64,
-    time_period::Int,
-) where {T <: VariableType, U <: PSY.Component}
-    lin_cost = _add_proportional_term_helper(
-        container, T(), component, linear_term, time_period)
-    add_to_objective_variant_expression!(container, lin_cost)
-    return lin_cost
-end
-
-_add_proportional_term_maybe_variant!(
-    ::Val{false},
-    container::OptimizationContainer,
-    ::Type{T},
-    component::U,
-    linear_term::Float64,
-    time_period::Int,
-) where {T <: VariableType, U <: PSY.Component} =
-    _add_proportional_term!(container, T, component, linear_term, time_period)
-_add_proportional_term_maybe_variant!(
-    ::Val{true},
-    container::OptimizationContainer,
-    ::Type{T},
-    component::U,
-    linear_term::Float64,
-    time_period::Int,
-) where {T <: VariableType, U <: PSY.Component} =
-    _add_proportional_term_variant!(container, T, component, linear_term, time_period)
-
 # These methods are defined in PowerSimulations
 requires_initialization(::AbstractHydroReservoirFormulation) = false
 requires_initialization(::AbstractHydroUnitCommitment) = true
@@ -2292,29 +2245,44 @@ is_time_variant_term(
     t::Int,
 ) = false
 
+add_proportional_cost!(
+    container::OptimizationContainer,
+    ::Type{U},
+    devices::IS.FlattenIteratorWrapper{T},
+    ::Type{V},
+) where {T <: PSY.HydroGen, U <: OnVariable, V <: AbstractHydroUnitCommitment} =
+    add_proportional_cost_maybe_time_variant!(container, U, devices, V)
+
 function add_proportional_cost!(
     container::OptimizationContainer,
     ::Type{U},
     devices::IS.FlattenIteratorWrapper{T},
     ::Type{V},
-) where {T <: PSY.HydroGen, U <: OnVariable, V <: AbstractHydroUnitCommitment}
+) where {
+    T <: PSY.Component,
+    U <: Union{
+        HydroEnergySurplusVariable,
+        HydroEnergyShortageVariable,
+        WaterSpillageVariable,
+        HydroBalanceShortageVariable,
+        HydroBalanceSurplusVariable,
+        HydroWaterSurplusVariable,
+        HydroWaterShortageVariable,
+    },
+    V <: AbstractDeviceFormulation,
+}
     multiplier = objective_function_multiplier(U, V)
     for d in devices
         op_cost_data = PSY.get_operation_cost(d)
-        for t in get_time_steps(container)
-            cost_term = proportional_cost(container, op_cost_data, U, d, V, t)
-            add_as_time_variant =
-                is_time_variant_term(container, op_cost_data, U, T, V, t)
-            iszero(cost_term) && continue
-            cost_term *= multiplier
-            exp = if d isa PSY.HydroPumpTurbine && PSY.get_must_run(d)
-                cost_term  # note we do not add this to the objective function
-            else
-                _add_proportional_term_maybe_variant!(
-                    Val(add_as_time_variant), container, U, d, cost_term, t)
-            end
-            add_to_expression!(container, ProductionCostExpression, exp, d, t)
-        end
+        cost_term = proportional_cost(op_cost_data, U, d, V)
+        add_proportional_cost_invariant!(
+            container,
+            U,
+            d,
+            cost_term,
+            IS.UnitSystem.NATURAL_UNITS,
+            multiplier,
+        )
     end
     return
 end
@@ -2435,125 +2403,6 @@ function objective_function!(
 ) where {T <: PSY.HydroPumpTurbine, U <: AbstractHydroPumpFormulation}
     add_variable_cost!(container, ActivePowerVariable, devices, U)
     add_variable_cost!(container, ActivePowerPumpVariable, devices, U)
-    return
-end
-
-function add_proportional_cost!(
-    container::OptimizationContainer,
-    ::Type{U},
-    devices::IS.FlattenIteratorWrapper{T},
-    ::Type{V},
-) where {
-    T <: PSY.Component,
-    U <:
-    Union{HydroEnergySurplusVariable, HydroEnergyShortageVariable, WaterSpillageVariable},
-    V <: AbstractDeviceFormulation,
-}
-    base_p = get_model_base_power(container)
-    multiplier = objective_function_multiplier(U, V)
-    for d in devices
-        op_cost_data = PSY.get_operation_cost(d)
-        cost_term = proportional_cost(op_cost_data, U, d, V)
-        iszero(cost_term) && continue
-        for t in get_time_steps(container)
-            _add_proportional_term!(
-                container,
-                U,
-                d,
-                cost_term * multiplier * base_p,
-                t,
-            )
-        end
-    end
-    return
-end
-
-function add_proportional_cost!(
-    container::OptimizationContainer,
-    ::Type{U},
-    devices::IS.FlattenIteratorWrapper{T},
-    ::Type{V},
-) where {
-    T <: PSY.HydroReservoir,
-    U <:
-    Union{HydroEnergySurplusVariable, HydroEnergyShortageVariable, WaterSpillageVariable},
-    V <: HydroEnergyModelReservoir,
-}
-    base_p = get_model_base_power(container)
-    multiplier = objective_function_multiplier(U, V)
-    for d in devices
-        op_cost_data = PSY.get_operation_cost(d)
-        cost_term = proportional_cost(op_cost_data, U, d, V)
-        iszero(cost_term) && continue
-        for t in get_time_steps(container)
-            _add_proportional_term!(
-                container,
-                U,
-                d,
-                cost_term * multiplier * base_p,
-                t,
-            )
-        end
-    end
-    return
-end
-
-function add_proportional_cost!(
-    container::OptimizationContainer,
-    ::Type{U},
-    devices::IS.FlattenIteratorWrapper{T},
-    ::Type{V},
-) where {
-    T <: PSY.HydroReservoir,
-    U <: Union{HydroBalanceShortageVariable, HydroBalanceSurplusVariable},
-    V <: HydroEnergyModelReservoir,
-}
-    base_p = get_model_base_power(container)
-    multiplier = objective_function_multiplier(U, V)
-    for d in devices
-        op_cost_data = PSY.get_operation_cost(d)
-        cost_term = proportional_cost(op_cost_data, U, d, V)
-        iszero(cost_term) && continue
-        time_steps = get_time_steps(container)
-        for t in time_steps
-            _add_proportional_term!(
-                container,
-                U,
-                d,
-                cost_term * multiplier * base_p,
-                t,
-            )
-        end
-    end
-    return
-end
-
-function add_proportional_cost!(
-    container::OptimizationContainer,
-    ::Type{U},
-    devices::IS.FlattenIteratorWrapper{T},
-    ::Type{V},
-) where {
-    T <: PSY.HydroReservoir,
-    U <: Union{HydroWaterSurplusVariable, HydroWaterShortageVariable},
-    V <: HydroWaterModelReservoir,
-}
-    base_p = get_model_base_power(container)
-    multiplier = objective_function_multiplier(U, V)
-    for d in devices
-        op_cost_data = PSY.get_operation_cost(d)
-        cost_term = proportional_cost(op_cost_data, U, d, V)
-        iszero(cost_term) && continue
-        for t in get_time_steps(container)
-            _add_proportional_term!(
-                container,
-                U,
-                d,
-                cost_term * multiplier * base_p,
-                t,
-            )
-        end
-    end
     return
 end
 
