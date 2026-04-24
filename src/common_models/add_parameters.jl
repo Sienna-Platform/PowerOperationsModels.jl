@@ -281,7 +281,7 @@ function _add_time_series_parameters!(
     for (name, (arc, reduction)) in PNM.get_name_to_arc_map(net_reduction_data, D)
         reduction_entry = all_branch_maps_by_type[reduction][D][arc]
         device_with_time_series =
-            get_device_with_time_series(reduction_entry, ts_type, ts_name)
+            IOM.get_branch_with_time_series(reduction_entry, ts_type, ts_name)
         if device_with_time_series === nothing
             continue
         end
@@ -345,25 +345,56 @@ _get_time_series_name(
 ) where {T <: ParameterType} =
     get_time_series_names(model)[T]
 
-_get_time_series_name(::Type{StartupCostParameter}, device::PSY.Component, ::DeviceModel) =
-    IS.get_name(PSY.get_start_up(PSY.get_operation_cost(device)))
+# The fact that we're seeing these parameters means that we should
+# have a time-varying MBC/IEC, so the `get_time_series_key` call should be valid.
 
-_get_time_series_name(::Type{ShutdownCostParameter}, device::PSY.Component, ::DeviceModel) =
-    IS.get_name(PSY.get_shut_down(PSY.get_operation_cost(device)))
+function _get_time_series_name(
+    ::Type{StartupCostParameter},
+    device::PSY.Component,
+    ::DeviceModel,
+)
+    op_cost = PSY.get_operation_cost(device)
+    IS.@assert_op op_cost isa TS_OFFER_CURVE_COST_TYPES
+    return IS.get_name(IS.get_time_series_key(PSY.get_start_up(op_cost)))
+end
 
-_get_time_series_name(
+function _get_time_series_name(
+    ::Type{ShutdownCostParameter},
+    device::PSY.Component,
+    ::DeviceModel,
+)
+    op_cost = PSY.get_operation_cost(device)
+    IS.@assert_op op_cost isa TS_OFFER_CURVE_COST_TYPES
+    return IS.get_name(IS.get_time_series_key(PSY.get_shut_down(op_cost)))
+end
+
+function _get_time_series_name(
     ::Type{IncrementalCostAtMinParameter},
     device::PSY.Device,
     ::DeviceModel,
-) =
-    IS.get_name(PSY.get_incremental_initial_input(PSY.get_operation_cost(device)))
+)
+    op_cost = PSY.get_operation_cost(device)
+    IS.@assert_op op_cost isa TS_OFFER_CURVE_COST_TYPES
+    return IS.get_name(
+        IS.get_initial_input(
+            PSY.get_value_curve(PSY.get_incremental_offer_curves(op_cost)),
+        ),
+    )
+end
 
-_get_time_series_name(
+function _get_time_series_name(
     ::Type{DecrementalCostAtMinParameter},
     device::PSY.Device,
     ::DeviceModel,
-) =
-    IS.get_name(PSY.get_decremental_initial_input(PSY.get_operation_cost(device)))
+)
+    op_cost = PSY.get_operation_cost(device)
+    IS.@assert_op op_cost isa TS_OFFER_CURVE_COST_TYPES
+    return IS.get_name(
+        IS.get_initial_input(
+            PSY.get_value_curve(PSY.get_decremental_offer_curves(op_cost)),
+        ),
+    )
+end
 
 #################################################################################
 # _get_expected_time_series_eltype — for ObjectiveFunctionParameter

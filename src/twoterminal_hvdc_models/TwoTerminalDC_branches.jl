@@ -1,3 +1,27 @@
+function check_hvdc_line_limits_consistency(
+    d::Union{PSY.TwoTerminalHVDC, PSY.TModelHVDCLine},
+)
+    from_min = PSY.get_active_power_limits_from(d).min
+    to_min = PSY.get_active_power_limits_to(d).min
+    from_max = PSY.get_active_power_limits_from(d).max
+    to_max = PSY.get_active_power_limits_to(d).max
+
+    if from_max < to_min
+        throw(
+            IS.ConflictingInputsError(
+                "From Max $(from_max) can't be a smaller value than To Min $(to_min)",
+            ),
+        )
+    elseif to_max < from_min
+        throw(
+            IS.ConflictingInputsError(
+                "To Max $(to_max) can't be a smaller value than From Min $(from_min)",
+            ),
+        )
+    end
+    return
+end
+
 #################################### Branch Variables ##################################################
 #! format: off
 get_variable_binary(::Type{FlowActivePowerSlackUpperBound}, ::Type{<:PSY.TwoTerminalHVDC}, ::Type{<:AbstractTwoTerminalDCLineFormulation}) = false
