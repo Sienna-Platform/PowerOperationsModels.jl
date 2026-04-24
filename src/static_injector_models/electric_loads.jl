@@ -49,7 +49,7 @@ proportional_cost(cost::Nothing, ::Type{OnVariable}, ::PSY.ElectricLoad, ::Type{
 proportional_cost(cost::PSY.OperationalCost, ::Type{OnVariable}, ::PSY.ElectricLoad, ::Type{<:AbstractControllablePowerLoadFormulation})=PSY.get_fixed(cost)
 
 objective_function_multiplier(::Type{<:VariableType}, ::Type{<:AbstractControllablePowerLoadFormulation})=OBJECTIVE_FUNCTION_NEGATIVE
-objective_function_multiplier(::Type{ShiftUpActivePowerVariable}, ::Type{<:AbstractControllablePowerLoadFormulation})=OBJECTIVE_FUNCTION_NEGATIVE
+objective_function_multiplier(::Type{ShiftUpActivePowerVariable}, ::Type{PowerLoadShift})=OBJECTIVE_FUNCTION_NEGATIVE
 objective_function_multiplier(::Type{ShiftDownActivePowerVariable}, ::Type{PowerLoadShift})=OBJECTIVE_FUNCTION_POSITIVE
 
 #! format: on
@@ -381,7 +381,8 @@ function add_constraints!(
             start_idx:min(start_idx + interval_length - 1, length(time_steps)) for
             start_idx in 1:interval_length:length(time_steps)
         ]
-        interval_end_steps = [time_steps[last(interval_range)] for interval_range in interval_ranges]
+        interval_end_steps =
+            [time_steps[last(interval_range)] for interval_range in interval_ranges]
         constraint_aux = add_constraints_container!(
             container,
             T,
