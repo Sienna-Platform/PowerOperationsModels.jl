@@ -826,7 +826,7 @@ function add_constraints!(
         get_parameter_multiplier_array(container, InflowTimeSeriesParameter, V)
 
     for ic in initial_conditions
-        device = get_component(ic)
+        device = IOM.get_component(ic)
         name = PSY.get_name(device)
         param = get_parameter_column_values(param_container, name)
         if get_use_slacks(model)
@@ -1542,7 +1542,7 @@ function add_constraints!(
     )
 
     for ic in initial_conditions
-        d = get_component(ic)
+        d = IOM.get_component(ic)
         name = PSY.get_name(d)
         inflow = get_parameter_column_refs(param_container, name)
 
@@ -2220,67 +2220,23 @@ proportional_cost(
 ) where {U <: OnVariable, V <: AbstractHydroUnitCommitment} =
     proportional_cost(cost, U, comp, V)
 
-# copy-paste from PSI, just with types changed (HydroFoo => ThermalFoo):
-is_time_variant_term(
-    ::OptimizationContainer,
-    ::PSY.HydroGenerationCost,
-    ::Type{OnVariable},
-    ::Type{<:PSY.HydroGen},
-    ::Type{<:AbstractHydroFormulation},
-    t::Int,
-) = false
+# HydroGenerationCost uses CostCurves (no FuelCurve path), so the OnVariable
+# proportional term's rate is always static — `is_time_variant` on the variable
+# curve would be answering a broader question than this trait asks.
+IOM.is_time_variant_proportional(::PSY.HydroGenerationCost) = false
 
-function add_proportional_cost!(
+skip_proportional_cost(d::PSY.HydroPumpTurbine) = PSY.get_must_run(d)
+
+add_proportional_cost!(
     container::OptimizationContainer,
     ::Type{U},
     devices::IS.FlattenIteratorWrapper{T},
     ::Type{V},
-) where {T <: PSY.HydroGen, U <: OnVariable, V <: AbstractHydroUnitCommitment}
-    multiplier = objective_function_multiplier(U, V)
-    for d in devices
-        op_cost_data = PSY.get_operation_cost(d)
-        for t in get_time_steps(container)
-            cost_term = proportional_cost(container, op_cost_data, U, d, V, t)
-            add_as_time_variant =
-                is_time_variant_term(container, op_cost_data, U, T, V, t)
-            iszero(cost_term) && continue
-            cost_term *= multiplier
-            exp = if d isa PSY.HydroPumpTurbine && PSY.get_must_run(d)
-                cost_term  # note we do not add this to the objective function
-            else
-                _add_proportional_term_maybe_variant!(
-                    Val(add_as_time_variant), container, U, d, cost_term, t)
-            end
-            add_to_expression!(container, ProductionCostExpression, exp, d, t)
-        end
-    end
-    return
-end
+) where {U <: OnVariable, T <: PSY.HydroGen, V <: AbstractHydroUnitCommitment} =
+    add_proportional_cost_maybe_time_variant!(container, U, devices, V)
 
-proportional_cost(
-    container::OptimizationContainer,
-    cost::PSY.MarketBidCost,
-    ::Type{OnVariable},
-    comp::PSY.HydroGen,
-    ::Type{<:AbstractHydroUnitCommitment},
-    t::Int,
-) =
-    _lookup_maybe_time_variant_param(container, comp, t,
-        Val(is_time_variant(PSY.get_incremental_initial_input(cost))),
-        PSY.get_initial_input ∘ PSY.get_incremental_offer_curves ∘ PSY.get_operation_cost,
-        IncrementalCostAtMinParameter())
-
-is_time_variant_term(
-    ::OptimizationContainer,
-    cost::PSY.MarketBidCost,
-    ::Type{OnVariable},
-    ::Type{<:PSY.HydroGen},
-    ::Type{<:AbstractHydroUnitCommitment},
-    t::Int,
-) =
-    is_time_variant(PSY.get_incremental_initial_input(cost))
-
-# end copy-paste
+# MarketBidCost (static + time-series) proportional_cost/is_time_variant_proportional are generic —
+# see common_models/market_bid_overrides.jl.
 
 # These _include_{constant}_min_gen_power functions are needed for MarketBidCost.
 # Commitment has an on/off choice, so add OnVariable * breakpoint1 to power constraint.

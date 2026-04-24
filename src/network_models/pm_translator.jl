@@ -1,3 +1,20 @@
+function check_hvdc_line_limits_unidirectional(d::PSY.TwoTerminalHVDC)
+    from_min = PSY.get_active_power_limits_from(d).min
+    to_min = PSY.get_active_power_limits_to(d).min
+    from_max = PSY.get_active_power_limits_from(d).max
+    to_max = PSY.get_active_power_limits_to(d).max
+
+    if from_min < 0 || to_min < 0 || from_max < 0 || to_max < 0
+        throw(
+            IS.ConflictingInputsError(
+                "Changing flow direction on HVDC Line $(PSY.get_name(d)) is not compatible with non-linear network formulations. \
+                Bi-directional models with losses are only compatible with linear network models like DCPPowerModel.",
+            ),
+        )
+    end
+    return
+end
+
 const PM_MAP_TUPLE =
     NamedTuple{(:from_to, :to_from), Tuple{Tuple{Int, Int, Int}, Tuple{Int, Int, Int}}}
 

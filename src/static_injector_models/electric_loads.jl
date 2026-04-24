@@ -550,25 +550,11 @@ function onvar_cost(
     return _onvar_cost(container, PSY.get_variable(cost), d, t)
 end
 
-is_time_variant_term(
-    ::OptimizationContainer,
-    ::PSY.LoadCost,
-    ::Type{OnVariable},
-    ::Type{<:PSY.ControllableLoad},
-    ::Type{<:AbstractLoadFormulation},
-    ::Int,
-) = false
+# LoadCost has no FuelCurve-backed `_onvar_cost` path; the OnVariable proportional
+# term's rate (vom_constant + fixed + onvar_cost) is always static here.
+IOM.is_time_variant_proportional(::PSY.LoadCost) = false
 
-is_time_variant_term(
-    ::OptimizationContainer,
-    cost::PSY.MarketBidCost,
-    ::Type{OnVariable},
-    ::Type{<:PSY.ControllableLoad},
-    ::Type{PowerLoadInterruption},
-    ::Int,
-) =
-    is_time_variant(PSY.get_decremental_initial_input(cost))
-
+<<<<<<< ac/shift-load
 function proportional_cost(
     container::OptimizationContainer,
     cost::PSY.MarketBidCost,
@@ -616,3 +602,7 @@ function add_variable_cost!(
     end
     return
 end
+=======
+# MarketBidCost (static + time-series) proportional_cost/is_time_variant_proportional are generic —
+# see common_models/market_bid_overrides.jl.
+>>>>>>> main

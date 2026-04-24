@@ -71,9 +71,9 @@ end
     set_operation_cost!(
         iloadbus4,
         MarketBidCost(;
-            no_load_cost = 0.0,
+            no_load_cost = LinearCurve(0.0),
             start_up = (hot = 0.0, warm = 0.0, cold = 0.0),
-            shut_down = 0.0,
+            shut_down = LinearCurve(0.0),
             incremental_offer_curves = make_market_bid_curve(
                 [0.0, 100.0, 200.0, 300.0, 400.0, 500.0, 600.0],
                 [25.0, 25.5, 26.0, 27.0, 28.0, 30.0],
@@ -95,9 +95,9 @@ end
     set_operation_cost!(
         iloadbus4,
         MarketBidCost(;
-            no_load_cost = 0.0,
+            no_load_cost = LinearCurve(0.0),
             start_up = (hot = 0.0, warm = 0.0, cold = 0.0),
-            shut_down = 0.0,
+            shut_down = LinearCurve(0.0),
             decremental_offer_curves = make_market_bid_curve(
                 [0.0, 10.0, 20.0, 30.0, 40.0, 50.0, 60.0, 70.0, 80.0, 90.0, 100.0],
                 [90.0, 85.0, 75.0, 70.0, 60.0, 50.0, 45.0, 40.0, 30.0, 25.0],
