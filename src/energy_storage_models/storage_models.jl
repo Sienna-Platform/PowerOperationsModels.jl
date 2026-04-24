@@ -188,8 +188,10 @@ function add_constraints!(
     model::DeviceModel{V, W},
     ::NetworkModel{X},
 ) where {
-    T <: OutputActivePowerVariableLimitsConstraint,
-    U <: ActivePowerOutVariable,
+    T <: Union{
+        OutputActivePowerVariableLimitsConstraint, InputActivePowerVariableLimitsConstraint,
+    },
+    U <: Union{ActivePowerOutVariable, ActivePowerInVariable},
     V <: PSY.Storage,
     W <: AbstractStorageFormulation,
     X <: AbstractPowerModel,
@@ -199,160 +201,87 @@ function add_constraints!(
     else
         add_range_constraints!(container, T, U, devices, model, X)
     end
+    return
 end
 
-function add_constraints!(
+# Direction-dependent reserve-deployment expression pairs and max-limit accessors.
+# For OutputActivePower (discharge), "effective power" is `P_out + up - down`.
+# For InputActivePower (charge), it's `P_in + down - up` — reserves swap roles because
+# a charging battery's net power is increased by downward reserves.
+_deployment_increasing_expr(::Type{<:OutputActivePowerVariableLimitsConstraint}) =
+    ReserveDeploymentBalanceUpDischarge
+_deployment_decreasing_expr(::Type{<:OutputActivePowerVariableLimitsConstraint}) =
+    ReserveDeploymentBalanceDownDischarge
+_deployment_increasing_expr(::Type{<:InputActivePowerVariableLimitsConstraint}) =
+    ReserveDeploymentBalanceDownCharge
+_deployment_decreasing_expr(::Type{<:InputActivePowerVariableLimitsConstraint}) =
+    ReserveDeploymentBalanceUpCharge
+
+# Reservation-binary handling: discharge active when ss=1, charge active when ss=0.
+_reservation_factor(::Type{<:OutputActivePowerVariableLimitsConstraint}, ss, name, t) =
+    ss[name, t]
+_reservation_factor(::Type{<:InputActivePowerVariableLimitsConstraint}, ss, name, t) =
+    1.0 - ss[name, t]
+
+function _add_deployment_upper_bound!(
     container::OptimizationContainer,
     ::Type{T},
     ::Type{U},
     devices::IS.FlattenIteratorWrapper{V},
-    model::DeviceModel{V, W},
-    ::NetworkModel{X},
+    model::DeviceModel{V, W};
+    with_reservation::Bool,
 ) where {
-    T <: InputActivePowerVariableLimitsConstraint,
-    U <: ActivePowerInVariable,
+    T <: Union{
+        OutputActivePowerVariableLimitsConstraint, InputActivePowerVariableLimitsConstraint,
+    },
+    U <: Union{ActivePowerOutVariable, ActivePowerInVariable},
     V <: PSY.Storage,
     W <: AbstractStorageFormulation,
-    X <: AbstractPowerModel,
-}
-    if get_attribute(model, "reservation")
-        add_reserve_range_constraints!(container, T, U, devices, model, X)
-    else
-        add_range_constraints!(container, T, U, devices, model, X)
-    end
-end
-
-function add_reserve_range_constraint_with_deployment!(
-    container::OptimizationContainer,
-    ::Type{T},
-    ::Type{U},
-    devices::IS.FlattenIteratorWrapper{V},
-    model::DeviceModel{V, W},
-    ::NetworkModel{X},
-) where {
-    T <: OutputActivePowerVariableLimitsConstraint,
-    U <: ActivePowerOutVariable,
-    V <: PSY.Storage,
-    W <: AbstractStorageFormulation,
-    X <: AbstractPowerModel,
-}
-    time_steps = get_time_steps(container)
-    names = [PSY.get_name(x) for x in devices]
-    powerout_var = get_variable(container, U, V)
-    ss_var = get_variable(container, ReservationVariable, V)
-    r_up_ds = get_expression(container, ReserveDeploymentBalanceUpDischarge, V)
-    r_dn_ds = get_expression(container, ReserveDeploymentBalanceDownDischarge, V)
-
-    constraint = add_constraints_container!(container, T, V, names, time_steps)
-
-    for d in devices, t in time_steps
-        ci_name = PSY.get_name(d)
-        constraint[ci_name, t] = JuMP.@constraint(
-            get_jump_model(container),
-            powerout_var[ci_name, t] + r_up_ds[ci_name, t] - r_dn_ds[ci_name, t] <=
-            ss_var[ci_name, t] * PSY.get_output_active_power_limits(d).max
-        )
-    end
-end
-
-function add_reserve_range_constraint_with_deployment!(
-    container::OptimizationContainer,
-    ::Type{T},
-    ::Type{U},
-    devices::IS.FlattenIteratorWrapper{V},
-    model::DeviceModel{V, W},
-    ::NetworkModel{X},
-) where {
-    T <: InputActivePowerVariableLimitsConstraint,
-    U <: ActivePowerInVariable,
-    V <: PSY.Storage,
-    W <: AbstractStorageFormulation,
-    X <: AbstractPowerModel,
 }
     time_steps = get_time_steps(container)
     names = [PSY.get_name(x) for x in devices]
-
-    powerin_var = get_variable(container, U, V)
-    ss_var = get_variable(container, ReservationVariable, V)
-    r_up_ch = get_expression(container, ReserveDeploymentBalanceUpCharge, V)
-    r_dn_ch = get_expression(container, ReserveDeploymentBalanceDownCharge, V)
+    jump_model = get_jump_model(container)
+    power_var = get_variable(container, U, V)
+    r_inc = get_expression(container, _deployment_increasing_expr(T), V)
+    r_dec = get_expression(container, _deployment_decreasing_expr(T), V)
+    ss_var = with_reservation ? get_variable(container, ReservationVariable, V) : nothing
 
     constraint = add_constraints_container!(container, T, V, names, time_steps)
-
     for d in devices, t in time_steps
         ci_name = PSY.get_name(d)
-        constraint[ci_name, t] = JuMP.@constraint(
-            get_jump_model(container),
-            powerin_var[ci_name, t] + r_dn_ch[ci_name, t] - r_up_ch[ci_name, t] <=
-            (1.0 - ss_var[ci_name, t]) * PSY.get_input_active_power_limits(d).max
+        effective_power =
+            power_var[ci_name, t] + r_inc[ci_name, t] - r_dec[ci_name, t]
+        bound = IOM.get_bound(IOM.UpperBound(), IOM.get_min_max_limits(d, T, W))
+        bin = with_reservation ? _reservation_factor(T, ss_var, ci_name, t) : 1.0
+        IOM.add_range_bound_constraint!(
+            IOM.UpperBound(), jump_model, constraint, ci_name, t,
+            effective_power, bound, bin,
         )
     end
+    return
 end
 
-function add_reserve_range_constraint_with_deployment_no_reservation!(
+add_reserve_range_constraint_with_deployment!(
     container::OptimizationContainer,
     ::Type{T},
     ::Type{U},
-    devices::IS.FlattenIteratorWrapper{V},
-    model::DeviceModel{V, W},
-    ::NetworkModel{X},
-) where {
-    T <: OutputActivePowerVariableLimitsConstraint,
-    U <: ActivePowerOutVariable,
-    V <: PSY.Storage,
-    W <: AbstractStorageFormulation,
-    X <: AbstractPowerModel,
-}
-    time_steps = get_time_steps(container)
-    names = [PSY.get_name(x) for x in devices]
-    powerout_var = get_variable(container, U, V)
-    r_up_ds = get_expression(container, ReserveDeploymentBalanceUpDischarge, V)
-    r_dn_ds = get_expression(container, ReserveDeploymentBalanceDownDischarge, V)
+    devices,
+    model::DeviceModel,
+    ::NetworkModel,
+) where {T, U} =
+    _add_deployment_upper_bound!(
+        container, T, U, devices, model; with_reservation = true)
 
-    constraint = add_constraints_container!(container, T, V, names, time_steps)
-
-    for d in devices, t in time_steps
-        ci_name = PSY.get_name(d)
-        constraint[ci_name, t] = JuMP.@constraint(
-            get_jump_model(container),
-            powerout_var[ci_name, t] + r_up_ds[ci_name, t] - r_dn_ds[ci_name, t] <=
-            PSY.get_output_active_power_limits(d).max
-        )
-    end
-end
-
-function add_reserve_range_constraint_with_deployment_no_reservation!(
+add_reserve_range_constraint_with_deployment_no_reservation!(
     container::OptimizationContainer,
     ::Type{T},
     ::Type{U},
-    devices::IS.FlattenIteratorWrapper{V},
-    model::DeviceModel{V, W},
-    ::NetworkModel{X},
-) where {
-    T <: InputActivePowerVariableLimitsConstraint,
-    U <: ActivePowerInVariable,
-    V <: PSY.Storage,
-    W <: AbstractStorageFormulation,
-    X <: AbstractPowerModel,
-}
-    time_steps = get_time_steps(container)
-    names = [PSY.get_name(x) for x in devices]
-
-    powerin_var = get_variable(container, U, V)
-    r_up_ch = get_expression(container, ReserveDeploymentBalanceUpCharge, V)
-    r_dn_ch = get_expression(container, ReserveDeploymentBalanceDownCharge, V)
-
-    constraint = add_constraints_container!(container, T, V, names, time_steps)
-
-    for d in devices, t in time_steps
-        ci_name = PSY.get_name(d)
-        constraint[ci_name, t] = JuMP.@constraint(
-            get_jump_model(container),
-            powerin_var[ci_name, t] + r_dn_ch[ci_name, t] - r_up_ch[ci_name, t] <=
-            PSY.get_input_active_power_limits(d).max
-        )
-    end
-end
+    devices,
+    model::DeviceModel,
+    ::NetworkModel,
+) where {T, U} =
+    _add_deployment_upper_bound!(
+        container, T, U, devices, model; with_reservation = false)
 
 function add_constraints!(
     container::OptimizationContainer,
@@ -941,91 +870,59 @@ function add_energybalance_without_reserves!(
     return
 end
 
+# Reserve-assignment bounds for discharge (Up) / charge (Down):
+#   UB: power + up_assignment <= max
+#   LB: power - down_assignment >= min
+# Same shape for both directions, parametrized by the "assignment" expression pair and
+# power variable/limits; routed through `IOM.add_range_bound_constraint!`.
+_reserve_assignment_power_var(::Type{ReserveDischargeConstraint}) = ActivePowerOutVariable
+_reserve_assignment_power_var(::Type{ReserveChargeConstraint}) = ActivePowerInVariable
+_reserve_assignment_up_expr(::Type{ReserveDischargeConstraint}) =
+    ReserveAssignmentBalanceUpDischarge
+_reserve_assignment_down_expr(::Type{ReserveDischargeConstraint}) =
+    ReserveAssignmentBalanceDownDischarge
+_reserve_assignment_up_expr(::Type{ReserveChargeConstraint}) =
+    ReserveAssignmentBalanceUpCharge
+_reserve_assignment_down_expr(::Type{ReserveChargeConstraint}) =
+    ReserveAssignmentBalanceDownCharge
+_reserve_assignment_limits(::Type{ReserveDischargeConstraint}, d) =
+    PSY.get_output_active_power_limits(d)
+_reserve_assignment_limits(::Type{ReserveChargeConstraint}, d) =
+    PSY.get_input_active_power_limits(d)
+
 """
-Add Energy Balance Constraints for AbstractStorageFormulation
+Reserve-assignment range constraints for discharge (T = ReserveDischargeConstraint)
+and charge (T = ReserveChargeConstraint) under `StorageDispatchWithReserves`.
 """
 function add_constraints!(
     container::OptimizationContainer,
-    ::Type{ReserveDischargeConstraint},
+    ::Type{T},
     devices::IS.FlattenIteratorWrapper{V},
     model::DeviceModel{V, StorageDispatchWithReserves},
     network_model::NetworkModel{X},
-) where {V <: PSY.Storage, X <: AbstractPowerModel}
+) where {
+    T <: Union{ReserveDischargeConstraint, ReserveChargeConstraint},
+    V <: PSY.Storage,
+    X <: AbstractPowerModel,
+}
     names = String[PSY.get_name(x) for x in devices]
     time_steps = get_time_steps(container)
-    powerout_var = get_variable(container, ActivePowerOutVariable, V)
-    r_up_ds = get_expression(container, ReserveAssignmentBalanceUpDischarge, V)
-    r_dn_ds = get_expression(container, ReserveAssignmentBalanceDownDischarge, V)
+    jump_model = get_jump_model(container)
+    power_var = get_variable(container, _reserve_assignment_power_var(T), V)
+    r_up = get_expression(container, _reserve_assignment_up_expr(T), V)
+    r_dn = get_expression(container, _reserve_assignment_down_expr(T), V)
 
-    constraint_ds_ub = add_constraints_container!(container, ReserveDischargeConstraint,
-        V,
-        names,
-        time_steps;
-        meta = "ub",
-    )
-
-    constraint_ds_lb = add_constraints_container!(container, ReserveDischargeConstraint,
-        V,
-        names,
-        time_steps;
-        meta = "lb",
-    )
-
+    con_ub = add_constraints_container!(container, T, V, names, time_steps; meta = "ub")
+    con_lb = add_constraints_container!(container, T, V, names, time_steps; meta = "lb")
     for d in devices, t in time_steps
         name = PSY.get_name(d)
-        constraint_ds_ub[name, t] = JuMP.@constraint(
-            get_jump_model(container),
-            powerout_var[name, t] + r_up_ds[name, t] <=
-            PSY.get_output_active_power_limits(d).max
-        )
-        constraint_ds_lb[name, t] = JuMP.@constraint(
-            get_jump_model(container),
-            powerout_var[name, t] - r_dn_ds[name, t] >=
-            PSY.get_output_active_power_limits(d).min
-        )
-    end
-    return
-end
-
-function add_constraints!(
-    container::OptimizationContainer,
-    ::Type{ReserveChargeConstraint},
-    devices::IS.FlattenIteratorWrapper{V},
-    model::DeviceModel{V, StorageDispatchWithReserves},
-    network_model::NetworkModel{X},
-) where {V <: PSY.Storage, X <: AbstractPowerModel}
-    names = String[PSY.get_name(x) for x in devices]
-    time_steps = get_time_steps(container)
-    powerin_var = get_variable(container, ActivePowerInVariable, V)
-    r_up_ch = get_expression(container, ReserveAssignmentBalanceUpCharge, V)
-    r_dn_ch = get_expression(container, ReserveAssignmentBalanceDownCharge, V)
-
-    constraint_ch_ub = add_constraints_container!(container, ReserveChargeConstraint,
-        V,
-        names,
-        time_steps;
-        meta = "ub",
-    )
-
-    constraint_ch_lb = add_constraints_container!(container, ReserveChargeConstraint,
-        V,
-        names,
-        time_steps;
-        meta = "lb",
-    )
-
-    for d in devices, t in get_time_steps(container)
-        name = PSY.get_name(d)
-        constraint_ch_ub[name, t] = JuMP.@constraint(
-            get_jump_model(container),
-            powerin_var[name, t] + r_dn_ch[name, t] <=
-            PSY.get_input_active_power_limits(d).max
-        )
-        constraint_ch_lb[name, t] = JuMP.@constraint(
-            get_jump_model(container),
-            powerin_var[name, t] - r_up_ch[name, t] >=
-            PSY.get_input_active_power_limits(d).min
-        )
+        limits = _reserve_assignment_limits(T, d)
+        IOM.add_range_bound_constraint!(
+            IOM.UpperBound(), jump_model, con_ub, name, t,
+            power_var[name, t] + r_up[name, t], limits.max)
+        IOM.add_range_bound_constraint!(
+            IOM.LowerBound(), jump_model, con_lb, name, t,
+            power_var[name, t] - r_dn[name, t], limits.min)
     end
     return
 end
