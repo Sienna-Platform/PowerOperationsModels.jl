@@ -554,27 +554,8 @@ end
 # term's rate (vom_constant + fixed + onvar_cost) is always static here.
 IOM.is_time_variant_proportional(::PSY.LoadCost) = false
 
-<<<<<<< ac/shift-load
-function proportional_cost(
-    container::OptimizationContainer,
-    cost::PSY.MarketBidCost,
-    ::Type{OnVariable},
-    comp::T,
-    ::Type{PowerLoadInterruption},
-    t::Int,
-) where {T <: PSY.ControllableLoad}
-    if is_time_variant(PSY.get_decremental_initial_input(cost))
-        name = get_name(comp)
-        param_arr = get_parameter_array(container, DecrementalCostAtMinParameter, T)
-        param_mult =
-            get_parameter_multiplier_array(container, DecrementalCostAtMinParameter, T)
-        return param_arr[name, t] * param_mult[name, t]
-    else
-        return PSY.get_initial_input(
-            PSY.get_decremental_offer_curves(PSY.get_operation_cost(comp)),
-        )
-    end
-end
+# MarketBidCost (static + time-series) proportional_cost/is_time_variant_proportional are generic —
+# see common_models/market_bid_overrides.jl.
 
 ########## PowerLoadShift Formulation Costs ###############
 
@@ -602,7 +583,3 @@ function add_variable_cost!(
     end
     return
 end
-=======
-# MarketBidCost (static + time-series) proportional_cost/is_time_variant_proportional are generic —
-# see common_models/market_bid_overrides.jl.
->>>>>>> main
