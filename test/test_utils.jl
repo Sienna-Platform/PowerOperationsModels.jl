@@ -44,3 +44,13 @@ end
 
 # Note: "Test simulation output directory name" from PSI omitted because
 # _get_output_dir_name is in PSI's simulation code and hasn't been split out.
+
+@testset "generate_formulation_combinations" begin
+    combos = POM.generate_formulation_combinations()
+    @test combos isa Dict
+    @test !isempty(combos)
+    @test haskey(combos, "device_formulations")
+    @test haskey(combos, "service_formulations")
+    @test !isempty(combos["device_formulations"])
+    @test !isempty(combos["service_formulations"])
+end

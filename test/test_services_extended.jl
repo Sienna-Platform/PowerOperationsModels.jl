@@ -163,3 +163,99 @@ end
           IOM.ModelBuildStatus.BUILT
     @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
 end
+
+###########################################
+##### TRANSMISSION INTERFACE WITH SLACKS ##
+###########################################
+
+@testset "ConstantMaxInterfaceFlow with slacks" begin
+    c_sys5 = PSB.build_system(PSISystems, "two_area_pjm_DA")
+    transform_single_time_series!(c_sys5, Hour(24), Hour(1))
+    template = get_thermal_dispatch_template_network(
+        NetworkModel(PTDFPowerModel; PTDF_matrix = PTDF(c_sys5)),
+    )
+    set_device_model!(template, Line, StaticBranch)
+    set_device_model!(template, AreaInterchange, StaticBranch)
+
+    for iface in get_components(TransmissionInterface, c_sys5)
+        set_service_model!(
+            template,
+            ServiceModel(
+                TransmissionInterface,
+                ConstantMaxInterfaceFlow,
+                get_name(iface);
+                use_slacks = true,
+            ),
+        )
+    end
+
+    model = DecisionModel(
+        template,
+        c_sys5;
+        resolution = Hour(1),
+        optimizer = HiGHS_optimizer,
+    )
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+
+    @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+end
+
+###########################################
+##### CONSTANT RESERVE WITH RANGE RESERVE #
+###########################################
+
+@testset "ConstantReserve with RangeReserve formulation" begin
+    c_sys5 = PSB.build_system(PSITestSystems, "c_sys5_uc"; add_reserves = true)
+    template = OperationsProblemTemplate(CopperPlatePowerModel)
+    set_device_model!(template, ThermalStandard, ThermalBasicDispatch)
+    set_device_model!(template, PowerLoad, StaticPowerLoad)
+    set_service_model!(
+        template,
+        ServiceModel(VariableReserve{ReserveUp}, RangeReserve, "Reserve1"),
+    )
+    set_service_model!(
+        template,
+        ServiceModel(VariableReserve{ReserveDown}, RangeReserve, "Reserve2"),
+    )
+    model = DecisionModel(template, c_sys5; optimizer = HiGHS_optimizer)
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+
+    container = IOM.get_optimization_container(model)
+    # Verify requirement constraint exists
+    @test IOM.ConstraintKey(
+        POM.RequirementConstraint,
+        PSY.VariableReserve{PSY.ReserveUp},
+        "Reserve1",
+    ) in keys(IOM.get_constraints(container))
+    @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+end
+
+###########################################
+##### RESERVE WITH SOLVE VERIFICATION #####
+###########################################
+
+@testset "RampReserve with solve and constraint verification" begin
+    c_sys5 = PSB.build_system(PSITestSystems, "c_sys5_uc"; add_reserves = true)
+    template = OperationsProblemTemplate(CopperPlatePowerModel)
+    set_device_model!(template, ThermalStandard, ThermalBasicDispatch)
+    set_device_model!(template, PowerLoad, StaticPowerLoad)
+    set_service_model!(
+        template,
+        ServiceModel(VariableReserve{ReserveUp}, RampReserve, "Reserve1"),
+    )
+    model = DecisionModel(template, c_sys5; optimizer = HiGHS_optimizer)
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+
+    container = IOM.get_optimization_container(model)
+    # Verify ramp constraint was added
+    @test IOM.ConstraintKey(
+        POM.RampConstraint,
+        PSY.VariableReserve{PSY.ReserveUp},
+        "Reserve1",
+    ) in keys(IOM.get_constraints(container))
+
+    @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+end

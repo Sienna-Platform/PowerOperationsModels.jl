@@ -72,3 +72,56 @@ end
         @test "4-5-i_1" in axes(cons)[1]
     end
 end
+
+###############################################
+##### ADDITIONAL NETWORK CONSTRUCTOR TESTS ####
+###############################################
+
+@testset "CopperPlatePowerModel basic build and solve" begin
+    system = PSB.build_system(PSITestSystems, "c_sys5")
+    template = get_thermal_dispatch_template_network(CopperPlatePowerModel)
+    model = DecisionModel(template, system; optimizer = HiGHS_optimizer)
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+    @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+end
+
+@testset "PTDFPowerModel basic build and solve" begin
+    system = PSB.build_system(PSITestSystems, "c_sys5")
+    template = get_thermal_dispatch_template_network(
+        NetworkModel(PTDFPowerModel; PTDF_matrix = PTDF(system)),
+    )
+    set_device_model!(template, DeviceModel(Line, StaticBranch))
+    model = DecisionModel(template, system; optimizer = HiGHS_optimizer)
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+    @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+end
+
+@testset "PTDFPowerModel with network slacks" begin
+    system = PSB.build_system(PSITestSystems, "c_sys5")
+    template = get_thermal_dispatch_template_network(
+        NetworkModel(PTDFPowerModel; PTDF_matrix = PTDF(system), use_slacks = true),
+    )
+    set_device_model!(template, DeviceModel(Line, StaticBranch))
+    model = DecisionModel(template, system; optimizer = HiGHS_optimizer)
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+    @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+end
+
+@testset "PTDFPowerModel with duals" begin
+    system = PSB.build_system(PSITestSystems, "c_sys5")
+    template = get_thermal_dispatch_template_network(
+        NetworkModel(
+            PTDFPowerModel;
+            PTDF_matrix = PTDF(system),
+            duals = [CopperPlateBalanceConstraint],
+        ),
+    )
+    set_device_model!(template, DeviceModel(Line, StaticBranch))
+    model = DecisionModel(template, system; optimizer = HiGHS_optimizer)
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+    @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+end

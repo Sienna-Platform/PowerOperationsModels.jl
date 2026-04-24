@@ -25,3 +25,38 @@ end
           IOM.ModelBuildStatus.BUILT
     @test IOM.get_status(model) == IOM.ModelBuildStatus.BUILT
 end
+
+@testset "EmulationModel handle_initial_conditions skip" begin
+    sys = _build_emulation_system()
+    template = get_thermal_dispatch_template_network(CopperPlatePowerModel)
+    model = EmulationModel(
+        template,
+        sys;
+        optimizer = HiGHS_optimizer,
+        resolution = Hour(1),
+        initialize_model = false,
+    )
+    @test build!(model; executions = 1, output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+end
+
+@testset "EmulationModel reset" begin
+    sys = _build_emulation_system()
+    template = get_thermal_dispatch_template_network(CopperPlatePowerModel)
+    model = EmulationModel(
+        template,
+        sys;
+        optimizer = HiGHS_optimizer,
+        resolution = Hour(1),
+        initialize_model = false,
+    )
+    @test build!(model; executions = 1, output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+    # Build again to trigger reset path
+    @test build!(model; executions = 1, output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+end
+
+@testset "EmulationModel progress meter disabled in tests" begin
+    @test !POM._progress_meter_enabled()
+end

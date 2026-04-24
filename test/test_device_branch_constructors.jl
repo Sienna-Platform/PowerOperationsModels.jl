@@ -935,3 +935,47 @@ end
           IOM.ModelBuildStatus.BUILT
     @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
 end
+
+###############################################
+##### SLACK VARIABLE TESTS ####################
+###############################################
+
+@testset "StaticBranch with slacks on PTDF model" begin
+    system = PSB.build_system(PSITestSystems, "c_sys5")
+    template = get_thermal_dispatch_template_network(
+        NetworkModel(PTDFPowerModel; PTDF_matrix = PTDF(system)),
+    )
+    set_device_model!(template, DeviceModel(Line, StaticBranch; use_slacks = true))
+    model = DecisionModel(template, system; optimizer = HiGHS_optimizer)
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+
+    @test !check_variable_bounded(model, FlowActivePowerSlackUpperBound, Line)
+    @test !check_variable_bounded(model, FlowActivePowerSlackLowerBound, Line)
+
+    @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+end
+
+@testset "StaticBranchBounds with CopperPlate no-op" begin
+    system = PSB.build_system(PSITestSystems, "c_sys5")
+    template = OperationsProblemTemplate(CopperPlatePowerModel)
+    set_device_model!(template, ThermalStandard, ThermalBasicDispatch)
+    set_device_model!(template, PowerLoad, StaticPowerLoad)
+    set_device_model!(template, Line, StaticBranchBounds)
+    model = DecisionModel(template, system; optimizer = HiGHS_optimizer)
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+    @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+end
+
+@testset "StaticBranchUnbounded with CopperPlatePowerModel" begin
+    system = PSB.build_system(PSITestSystems, "c_sys5")
+    template = OperationsProblemTemplate(CopperPlatePowerModel)
+    set_device_model!(template, ThermalStandard, ThermalBasicDispatch)
+    set_device_model!(template, PowerLoad, StaticPowerLoad)
+    set_device_model!(template, Line, StaticBranchUnbounded)
+    model = DecisionModel(template, system; optimizer = HiGHS_optimizer)
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+    @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+end
