@@ -185,6 +185,7 @@ end
     end
 end
 
+# currently broken due to PSB lagging behind.
 @testset "Test Reserves from Hydro with RunOfRiver" begin
     template = OperationsProblemTemplate(CopperPlatePowerModel)
     set_device_model!(template, PowerLoad, StaticPowerLoad)

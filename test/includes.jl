@@ -54,6 +54,7 @@ include("test_utils/add_components_to_system.jl")
 include("test_utils/add_dlr_ts.jl")
 include("test_utils/add_market_bid_cost.jl")
 include("test_utils/mbc_system_utils.jl")
+include("test_utils/mbc_math_helpers.jl")
 include("test_utils/iec_test_systems.jl")
 include("test_utils/hydro_testing_utils.jl")
 

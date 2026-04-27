@@ -1,7 +1,7 @@
 name = "PowerOperationsModels"
 uuid = "bed98974-b02a-5e2f-9ee0-a103f5c450dd"
 version = "0.1.0"
-authors = ["NREL-Sienna"]
+authors = ["Sienna-Platform"]
 
 [deps]
 Dates = "ade2ca70-3891-5945-98fb-dc099432e06a"
@@ -28,6 +28,11 @@ PowerFlows = "94fada2c-0ca5-4b90-a1fb-4bc5b59ccfc7"
 
 [extensions]
 PowerFlowsExt = "PowerFlows"
+
+[sources]
+InfrastructureSystems = {url = "https://github.com/NREL-Sienna/InfrastructureSystems.jl", rev = "IS4"}
+PowerSystems = {url = "https://github.com/NREL-Sienna/PowerSystems.jl", rev = "psy6"}
+InfrastructureOptimizationModels = {url = "https://github.com/NREL-Sienna/InfrastructureOptimizationModels.jl", rev = "lk/pom-test-fixes"}
 
 [compat]
 Dates = "1"
