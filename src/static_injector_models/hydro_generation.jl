@@ -1849,12 +1849,12 @@ function add_constraints!(
             time_steps,
             flow[name, :, :],
             head,
-            [
+            repeat([
                 (
                     min = get_variable_lower_bound(HydroTurbineFlowRateVariable, d, W),
                     max = get_variable_upper_bound(HydroTurbineFlowRateVariable, d, W),
-                ) for _ in 1:length(reservoirs)
-            ],
+                )
+            ], length(reservoirs)),
             [
                 (
                     min = get_variable_lower_bound(HydroReservoirHeadVariable, res, W),
