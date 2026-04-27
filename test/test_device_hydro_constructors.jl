@@ -692,6 +692,124 @@ end
     )
 end
 
+@testset "HydroTurbineBin2BilinearDispatch: variable-bound plumbing to IOM" begin
+    # Spot-check that POM forwards PSY device data to JuMP without unit conversion.
+    # Outflow limits are m^3/s and storage_level_limits is meters (HEAD reservoir),
+    # so JuMP variables should carry those values verbatim.
+    output_dir = mktempdir(; cleanup = true)
+
+    sys = PSB.build_system(PSITestSystems, "c_sys5_hy_turbine_head")
+    template = OperationsProblemTemplate()
+    set_device_model!(template, HydroTurbine, HydroTurbineBin2BilinearDispatch)
+    set_device_model!(template, HydroReservoir, HydroWaterModelReservoir)
+    set_device_model!(template, ThermalStandard, ThermalDispatchNoMin)
+    set_device_model!(template, PowerLoad, StaticPowerLoad)
+
+    model = DecisionModel(
+        template,
+        sys;
+        optimizer = HiGHS_optimizer,
+        store_variable_names = true,
+    )
+    @test build!(model; output_dir = output_dir) == ModelBuildStatus.BUILT
+
+    container = IOM.get_optimization_container(model)
+    time_steps = IOM.get_time_steps(container)
+    flow = IOM.get_variable(container, HydroTurbineFlowRateVariable, HydroTurbine)
+    head = IOM.get_variable(container, HydroReservoirHeadVariable, HydroReservoir)
+
+    reservoirs = collect(get_components(HydroReservoir, sys))
+    @test !isempty(reservoirs)
+    for res in reservoirs
+        # HEAD reservoirs store level limits directly in meters; bounds should match.
+        @test PSY.get_level_data_type(res) == PSY.ReservoirDataType.HEAD
+        limits = PSY.get_storage_level_limits(res)
+        r_name = PSY.get_name(res)
+        for t in time_steps
+            v = head[r_name, t]
+            @test JuMP.lower_bound(v) == limits.min
+            @test JuMP.upper_bound(v) == limits.max
+        end
+    end
+
+    turbines = collect(get_components(HydroTurbine, sys))
+    @test !isempty(turbines)
+    for turbine in turbines
+        outflow = PSY.get_outflow_limits(turbine)
+        @test outflow !== nothing
+        t_name = PSY.get_name(turbine)
+        for res in reservoirs, t in time_steps
+            v = flow[t_name, PSY.get_name(res), t]
+            @test JuMP.lower_bound(v) == outflow.min
+            @test JuMP.upper_bound(v) == outflow.max
+        end
+    end
+end
+
+@testset "HydroTurbineBilinearDispatch: TurbinePowerOutputConstraint unit conversion" begin
+    # Spot-check that POM's per-unit conversion (g*ρ*conv_factor / (1e6 * base_power))
+    # lands in JuMP exactly as expected. The pure bilinear formulation produces a clean
+    # quadratic constraint whose coefficients are easy to read off.
+    output_dir = mktempdir(; cleanup = true)
+
+    sys = PSB.build_system(PSITestSystems, "c_sys5_hy_turbine_head")
+    template = OperationsProblemTemplate()
+    set_device_model!(template, HydroTurbine, HydroTurbineBilinearDispatch)
+    set_device_model!(template, HydroReservoir, HydroWaterModelReservoir)
+    set_device_model!(template, ThermalStandard, ThermalDispatchNoMin)
+    set_device_model!(template, PowerLoad, StaticPowerLoad)
+
+    model = DecisionModel(
+        template,
+        sys;
+        optimizer = ipopt_optimizer,
+        store_variable_names = true,
+    )
+    @test build!(model; output_dir = output_dir) == ModelBuildStatus.BUILT
+
+    container = IOM.get_optimization_container(model)
+    time_steps = IOM.get_time_steps(container)
+    base_power = IOM.get_model_base_power(container)
+    constraint = IOM.get_constraint(container, TurbinePowerOutputConstraint, HydroTurbine)
+    power = IOM.get_variable(container, ActivePowerVariable, HydroTurbine)
+    flow = IOM.get_variable(container, HydroTurbineFlowRateVariable, HydroTurbine)
+    head = IOM.get_variable(container, HydroReservoirHeadVariable, HydroReservoir)
+
+    for turbine in get_components(HydroTurbine, sys)
+        t_name = PSY.get_name(turbine)
+        conv = PSY.get_conversion_factor(turbine)
+        elev = PSY.get_powerhouse_elevation(turbine)
+        reservoirs =
+            filter(PSY.get_available, PSY.get_connected_head_reservoirs(sys, turbine))
+        scale = POM.GRAVITATIONAL_CONSTANT * POM.WATER_DENSITY * conv / (1e6 * base_power)
+
+        # power = scale * Σ_res (head_res * flow - elev * flow)
+        #   ⇒ rearranged: power - scale * Σ head*flow + scale*elev * Σ flow == 0
+        for t in time_steps
+            con = constraint[t_name, t]
+            con_obj = JuMP.constraint_object(con)
+            @test con_obj.set isa MOI.EqualTo{Float64}
+
+            # Linear coefficients: power has +1, each flow has +scale*elev.
+            @test JuMP.normalized_coefficient(con, power[t_name, t]) ≈ 1.0
+            for res in reservoirs
+                @test JuMP.normalized_coefficient(
+                    con,
+                    flow[t_name, PSY.get_name(res), t],
+                ) ≈ scale * elev
+
+                # Quadratic cross term head*flow has -scale.
+                quad_terms = con_obj.func.terms
+                pair = JuMP.UnorderedPair(
+                    head[PSY.get_name(res), t],
+                    flow[t_name, PSY.get_name(res), t],
+                )
+                @test get(quad_terms, pair, 0.0) ≈ -scale
+            end
+        end
+    end
+end
+
 @testset "Solve HydroWaterModelReservoir with bilinear approximations" begin
     output_dir = mktempdir(; cleanup = true)
 
