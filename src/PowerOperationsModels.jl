@@ -111,6 +111,8 @@ import InfrastructureOptimizationModels:
     add_proportional_cost!,
     add_proportional_cost_maybe_time_variant!,
     skip_proportional_cost,
+    # variable cost
+    add_variable_cost!,
     # Network model instantiation (POM extends for concrete network formulations)
     instantiate_network_model!,
     # Parameter addition (POM provides concrete implementations)
@@ -522,6 +524,10 @@ export HVDCLosses
 export ConverterDCPower
 export ConverterCurrentDirection
 
+# Load Variables
+export ShiftUpActivePowerVariable
+export ShiftDownActivePowerVariable
+
 ######## Hydro Formulations ########
 export HydroDispatchRunOfRiver
 export HydroDispatchRunOfRiverBudget
@@ -669,6 +675,11 @@ export DurationConstraint
 export CommitmentConstraint
 export StartTypeConstraint
 export StartupTimeLimitTemperatureConstraint
+export ShiftedActivePowerBalanceConstraint
+export ShiftUpActivePowerVariableLimitsConstraint
+export ShiftDownActivePowerVariableLimitsConstraint
+export RealizedShiftedLoadMinimumBoundConstraint
+export NonAnticipativityConstraint
 
 #################################################################################
 # Exports - Expression Types (defined in core/expressions.jl)
@@ -735,6 +746,7 @@ export ThermalSecurityConstrainedStandardUnitCommitment
 export StaticPowerLoad
 export PowerLoadInterruption
 export PowerLoadDispatch
+export PowerLoadShift
 
 # Renewable Formulations
 export RenewableFullDispatch
