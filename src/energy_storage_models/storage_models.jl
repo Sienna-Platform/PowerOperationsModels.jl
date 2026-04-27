@@ -1415,7 +1415,7 @@ function add_cycling_charge_without_reserves!(
     powerin_var = get_variable(container, ActivePowerInVariable, V)
     slack_var = get_variable(container, StorageChargeCyclingSlackVariable, V)
 
-    constraint = add_constraints_container!(container, StorageCyclingCharge, V, names)
+    constraint = add_constraints_container!(container, StorageCyclingCharge, V, names, time_steps[end:end])
 
     for d in devices
         name = PSY.get_name(d)
@@ -1425,7 +1425,7 @@ function add_cycling_charge_without_reserves!(
             PSY.get_conversion_factor(d)
         cycle_count = PSY.get_cycle_limits(d)
         efficiency = PSY.get_efficiency(d)
-        constraint[name] = JuMP.@constraint(
+        constraint[name, time_steps[end]] = JuMP.@constraint(
             get_jump_model(container),
             sum((
                 powerin_var[name, t] * efficiency.in * fraction_of_hour for t in time_steps
