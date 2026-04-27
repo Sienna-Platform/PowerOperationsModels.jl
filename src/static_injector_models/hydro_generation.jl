@@ -1,20 +1,5 @@
 #! format: off
 
-# Helper for proportional cost terms in objective function
-function _add_proportional_term!(
-    container::OptimizationContainer,
-    ::Type{T},
-    component::U,
-    linear_term::Float64,
-    time_period::Int,
-) where {T <: VariableType, U <: PSY.Component}
-    component_name = PSY.get_name(component)
-    variable = get_variable(container, T, U)[component_name, time_period]
-    lin_cost = variable * linear_term
-    add_to_objective_invariant_expression!(container, lin_cost)
-    return lin_cost
-end
-
 # These methods are defined in PowerSimulations
 requires_initialization(::AbstractHydroReservoirFormulation) = false
 requires_initialization(::AbstractHydroUnitCommitment) = true
@@ -286,8 +271,7 @@ objective_function_multiplier(::Type{HydroWaterShortageVariable}, ::Type{<:Abstr
 objective_function_multiplier(::Type{WaterSpillageVariable}, ::Type{<:AbstractHydroReservoirFormulation})=OBJECTIVE_FUNCTION_POSITIVE
 # objective_function_multiplier(::ActivePowerOutVariable, ::HydroWaterFactorModel)=OBJECTIVE_FUNCTION_POSITIVE
 
-sos_status(::PSY.HydroGen, ::AbstractHydroReservoirFormulation)=SOSStatusVariable.NO_VARIABLE
-sos_status(::PSY.HydroGen, ::AbstractHydroUnitCommitment)=SOSStatusVariable.VARIABLE
+IOM.uses_commitment_variables(::Type{<:PSY.HydroGen}) = true
 
 variable_cost(::Nothing, ::Type{ActivePowerVariable}, ::Type{<:PSY.HydroGen}, ::Type{<:AbstractHydroReservoirFormulation})=0.0
 variable_cost(cost::PSY.OperationalCost, ::Type{ActivePowerVariable}, ::Type{<:PSY.HydroGen}, ::Type{<:AbstractHydroFormulation})=PSY.get_variable(cost)
@@ -564,36 +548,14 @@ end
 ############################### Constraints ################################
 ############################################################################
 
-"""
-Time series constraints
-"""
-function add_constraints!(
-    container::OptimizationContainer,
-    T::Type{ActivePowerVariableLimitsConstraint},
-    U::Type{<:Union{VariableType, ExpressionType}},
-    devices::IS.FlattenIteratorWrapper{V},
-    model::DeviceModel{V, W},
-    ::NetworkModel{X},
-) where {
-    V <: PSY.HydroGen,
-    W <: Union{HydroDispatchRunOfRiver, HydroDispatchRunOfRiverBudget},
-    X <: AbstractPowerModel,
-}
-    if !has_semicontinuous_feedforward(model, U)
-        add_range_constraints!(container, T, U, devices, model, X)
-    end
-    add_parameterized_upper_bound_range_constraints(
-        container,
-        ActivePowerVariableTimeSeriesLimitsConstraint,
-        U,
-        ActivePowerTimeSeriesParameter,
-        devices,
-        model,
-        X,
-    )
-    return
-end
+# `ActivePowerVariableLimitsConstraint` is always called with one of the two
+# `ActivePowerRangeExpression{LB,UB}` expression types from the hydro constructors,
+# so the U bounds below are tightened to `RangeConstraint{LB,UB}Expressions`
+# (PSI-era signatures admitted a raw VariableType via Union; that branch is dead here).
 
+# HydroDispatchRunOfRiver[Budget]: LB is a plain range constraint; UB additionally adds
+# a parameterized upper bound from the ActivePowerTimeSeriesParameter (the run-of-river
+# profile).
 function add_constraints!(
     container::OptimizationContainer,
     T::Type{ActivePowerVariableLimitsConstraint},
@@ -612,13 +574,39 @@ function add_constraints!(
     return
 end
 
-"""
-Add semicontinuous range constraints for [`HydroCommitmentRunOfRiver`](@ref) formulation
-"""
 function add_constraints!(
     container::OptimizationContainer,
     T::Type{ActivePowerVariableLimitsConstraint},
-    U::Type{<:Union{VariableType, <:RangeConstraintLBExpressions}},
+    U::Type{<:RangeConstraintUBExpressions},
+    devices::IS.FlattenIteratorWrapper{V},
+    model::DeviceModel{V, W},
+    ::NetworkModel{X},
+) where {
+    V <: PSY.HydroGen,
+    W <: Union{HydroDispatchRunOfRiver, HydroDispatchRunOfRiverBudget},
+    X <: AbstractPowerModel,
+}
+    if !has_semicontinuous_feedforward(model, U)
+        add_range_constraints!(container, T, U, devices, model, X)
+    end
+    add_parameterized_upper_bound_range_constraints(
+        container,
+        ActivePowerVariableTimeSeriesLimitsConstraint,
+        U,
+        ActivePowerTimeSeriesParameter,
+        devices,
+        model,
+        X,
+    )
+    return
+end
+
+# HydroCommitmentRunOfRiver: semicontinuous (OnVariable-gated) range; UB additionally
+# adds the parameterized TS upper bound.
+function add_constraints!(
+    container::OptimizationContainer,
+    T::Type{ActivePowerVariableLimitsConstraint},
+    U::Type{<:RangeConstraintLBExpressions},
     devices::IS.FlattenIteratorWrapper{V},
     model::DeviceModel{V, W},
     ::NetworkModel{X},
@@ -630,7 +618,7 @@ end
 function add_constraints!(
     container::OptimizationContainer,
     T::Type{ActivePowerVariableLimitsConstraint},
-    U::Type{<:Union{VariableType, ExpressionType}},
+    U::Type{<:RangeConstraintUBExpressions},
     devices::IS.FlattenIteratorWrapper{V},
     model::DeviceModel{V, W},
     ::NetworkModel{X},
@@ -648,10 +636,11 @@ function add_constraints!(
     return
 end
 
+# HydroTurbine + HydroTurbineEnergyCommitment: plain semicontinuous range, no TS bound.
 function add_constraints!(
     container::OptimizationContainer,
     T::Type{ActivePowerVariableLimitsConstraint},
-    U::Type{<:Union{VariableType, ExpressionType}},
+    U::Type{<:Union{RangeConstraintLBExpressions, RangeConstraintUBExpressions}},
     devices::IS.FlattenIteratorWrapper{V},
     model::DeviceModel{V, W},
     ::NetworkModel{X},
@@ -2275,7 +2264,8 @@ function calculate_aux_variable_value!(
 end
 
 ##################################### Hydro generation cost ############################
-function objective_function!(
+# generic commitment
+function add_to_objective_function!(
     container::OptimizationContainer,
     devices::IS.FlattenIteratorWrapper{T},
     ::DeviceModel{T, U},
@@ -2286,36 +2276,10 @@ function objective_function!(
     return
 end
 
-# MarketBidCost proportional_cost args: (container, cost, variable, device, formulation, time)
-# HydroGenerationCost proportional_cost args: (cost, variable, device, formulation)
-# this ties the two together by ignoring the container and time args
-proportional_cost(
-    ::OptimizationContainer,
-    cost::PSY.HydroGenerationCost,
-    ::Type{U},
-    comp::PSY.HydroGen,
-    ::Type{V},
-    ::Int,
-) where {U <: OnVariable, V <: AbstractHydroUnitCommitment} =
-    proportional_cost(cost, U, comp, V)
-
-# HydroGenerationCost uses CostCurves (no FuelCurve path), so the OnVariable
-# proportional term's rate is always static — `is_time_variant` on the variable
-# curve would be answering a broader question than this trait asks.
-IOM.is_time_variant_proportional(::PSY.HydroGenerationCost) = false
-
+# HydroGenerationCost rate is always static (CostCurve only, no FuelCurve), so the
+# static 4-arg `proportional_cost` definition above + IOM's default `add_proportional_cost!`
+# handle the OnVariable term. We only need to register the must-run trait.
 skip_proportional_cost(d::PSY.HydroPumpTurbine) = PSY.get_must_run(d)
-
-add_proportional_cost!(
-    container::OptimizationContainer,
-    ::Type{U},
-    devices::IS.FlattenIteratorWrapper{T},
-    ::Type{V},
-) where {U <: OnVariable, T <: PSY.HydroGen, V <: AbstractHydroUnitCommitment} =
-    add_proportional_cost_maybe_time_variant!(container, U, devices, V)
-
-# MarketBidCost (static + time-series) proportional_cost/is_time_variant_proportional are generic —
-# see common_models/market_bid_overrides.jl.
 
 # These _include_{constant}_min_gen_power functions are needed for MarketBidCost.
 # Commitment has an on/off choice, so add OnVariable * breakpoint1 to power constraint.
@@ -2349,7 +2313,8 @@ _include_min_gen_power_in_constraint(
     ::Type{<:AbstractDeviceFormulation},
 ) = false
 
-function objective_function!(
+# generic dispatch
+function add_to_objective_function!(
     container::OptimizationContainer,
     devices::IS.FlattenIteratorWrapper{T},
     ::DeviceModel{T, U},
@@ -2359,7 +2324,8 @@ function objective_function!(
     return
 end
 
-function objective_function!(
+# RunOfRiver dispatch
+function add_to_objective_function!(
     container::OptimizationContainer,
     devices::IS.FlattenIteratorWrapper{T},
     model::DeviceModel{T, U},
@@ -2372,7 +2338,8 @@ function objective_function!(
     return
 end
 
-function objective_function!(
+# energy model reservoir
+function add_to_objective_function!(
     container::OptimizationContainer,
     devices::IS.FlattenIteratorWrapper{T},
     model::DeviceModel{T, U},
@@ -2388,7 +2355,8 @@ function objective_function!(
     return
 end
 
-function objective_function!(
+# water model reservoir
+function add_to_objective_function!(
     container::OptimizationContainer,
     devices::IS.FlattenIteratorWrapper{T},
     ::DeviceModel{T, U},
@@ -2400,7 +2368,8 @@ function objective_function!(
     return
 end
 
-function objective_function!(
+# pump turbines
+function add_to_objective_function!(
     container::OptimizationContainer,
     devices::IS.FlattenIteratorWrapper{T},
     ::DeviceModel{T, U},
@@ -2411,6 +2380,9 @@ function objective_function!(
     return
 end
 
+# Hydro slack/spillage variables are in per-unit; cost data is in $/MW(h), so multiplying
+# by `base_power` converts the product to $. Unlike thermal OnVariable (binary) where
+# `proportional_cost` is already a $-per-period rate, hydro rates need this scaling.
 function add_proportional_cost!(
     container::OptimizationContainer,
     ::Type{U},
@@ -2418,8 +2390,11 @@ function add_proportional_cost!(
     ::Type{V},
 ) where {
     T <: PSY.Component,
-    U <:
-    Union{HydroEnergySurplusVariable, HydroEnergyShortageVariable, WaterSpillageVariable},
+    U <: Union{
+        HydroEnergySurplusVariable, HydroEnergyShortageVariable, WaterSpillageVariable,
+        HydroBalanceShortageVariable, HydroBalanceSurplusVariable,
+        HydroWaterSurplusVariable, HydroWaterShortageVariable,
+    },
     V <: AbstractDeviceFormulation,
 }
     base_p = get_model_base_power(container)
@@ -2428,102 +2403,12 @@ function add_proportional_cost!(
         op_cost_data = PSY.get_operation_cost(d)
         cost_term = proportional_cost(op_cost_data, U, d, V)
         iszero(cost_term) && continue
+        rate = cost_term * multiplier * base_p
+        name = PSY.get_name(d)
         for t in get_time_steps(container)
-            _add_proportional_term!(
-                container,
-                U,
-                d,
-                cost_term * multiplier * base_p,
-                t,
-            )
-        end
-    end
-    return
-end
-
-function add_proportional_cost!(
-    container::OptimizationContainer,
-    ::Type{U},
-    devices::IS.FlattenIteratorWrapper{T},
-    ::Type{V},
-) where {
-    T <: PSY.HydroReservoir,
-    U <:
-    Union{HydroEnergySurplusVariable, HydroEnergyShortageVariable, WaterSpillageVariable},
-    V <: HydroEnergyModelReservoir,
-}
-    base_p = get_model_base_power(container)
-    multiplier = objective_function_multiplier(U, V)
-    for d in devices
-        op_cost_data = PSY.get_operation_cost(d)
-        cost_term = proportional_cost(op_cost_data, U, d, V)
-        iszero(cost_term) && continue
-        for t in get_time_steps(container)
-            _add_proportional_term!(
-                container,
-                U,
-                d,
-                cost_term * multiplier * base_p,
-                t,
-            )
-        end
-    end
-    return
-end
-
-function add_proportional_cost!(
-    container::OptimizationContainer,
-    ::Type{U},
-    devices::IS.FlattenIteratorWrapper{T},
-    ::Type{V},
-) where {
-    T <: PSY.HydroReservoir,
-    U <: Union{HydroBalanceShortageVariable, HydroBalanceSurplusVariable},
-    V <: HydroEnergyModelReservoir,
-}
-    base_p = get_model_base_power(container)
-    multiplier = objective_function_multiplier(U, V)
-    for d in devices
-        op_cost_data = PSY.get_operation_cost(d)
-        cost_term = proportional_cost(op_cost_data, U, d, V)
-        iszero(cost_term) && continue
-        time_steps = get_time_steps(container)
-        for t in time_steps
-            _add_proportional_term!(
-                container,
-                U,
-                d,
-                cost_term * multiplier * base_p,
-                t,
-            )
-        end
-    end
-    return
-end
-
-function add_proportional_cost!(
-    container::OptimizationContainer,
-    ::Type{U},
-    devices::IS.FlattenIteratorWrapper{T},
-    ::Type{V},
-) where {
-    T <: PSY.HydroReservoir,
-    U <: Union{HydroWaterSurplusVariable, HydroWaterShortageVariable},
-    V <: HydroWaterModelReservoir,
-}
-    base_p = get_model_base_power(container)
-    multiplier = objective_function_multiplier(U, V)
-    for d in devices
-        op_cost_data = PSY.get_operation_cost(d)
-        cost_term = proportional_cost(op_cost_data, U, d, V)
-        iszero(cost_term) && continue
-        for t in get_time_steps(container)
-            _add_proportional_term!(
-                container,
-                U,
-                d,
-                cost_term * multiplier * base_p,
-                t,
+            variable = get_variable(container, U, T)[name, t]
+            IOM.add_cost_term_invariant!(
+                container, variable, rate, ProductionCostExpression, T, name, t,
             )
         end
     end
@@ -2533,31 +2418,6 @@ end
 ############################################################################
 ##################### Update Initial Conditions ############################
 ############################################################################
-
-function update_initial_conditions!(
-    ics::Vector{T},
-    store::EmulationModelStore,
-    ::Dates.Millisecond,
-) where {
-    T <: Union{
-        InitialCondition{InitialReservoirVolume, Float64},
-        InitialCondition{InitialReservoirVolume, JuMP.VariableRef},
-        InitialCondition{InitialReservoirVolume, Nothing},
-    },
-}
-    for ic in ics
-        var_val = get_variable_value(
-            store,
-            HydroReservoirVolumeVariable(),
-            get_component_type(ic),
-        )
-        set_ic_quantity!(
-            ic,
-            get_last_recorded_value(var_val)[get_component_name(ic)],
-        )
-    end
-    return
-end
 
 ##### Pump Turbine Constraints #####
 
@@ -2571,33 +2431,13 @@ function add_constraints!(
     devices::IS.FlattenIteratorWrapper{V},
     model::DeviceModel{V, W},
     ::NetworkModel{X},
-) where {
-    V <: PSY.HydroPumpTurbine,
-    W <: HydroPumpEnergyDispatch,
-    X <: AbstractPowerModel,
-}
+) where {V <: PSY.HydroPumpTurbine, W <: HydroPumpEnergyDispatch, X <: AbstractPowerModel}
     if !get_attribute(model, "reservation")
         add_range_constraints!(container, T, U, devices, model, X)
     else
         array = get_expression(container, U, V)
-        reservation = get_variable(container, ReservationVariable, V)
-        time_steps = get_time_steps(container)
-        device_names = [PSY.get_name(d) for d in devices]
-        con_lb = add_constraints_container!(container, T,
-            V,
-            device_names,
-            time_steps;
-            meta = "lb",
-        )
-        for device in devices, t in time_steps
-            ci_name = PSY.get_name(device)
-            limits = get_min_max_limits(device, T, W)
-            con_lb[ci_name, t] =
-                JuMP.@constraint(
-                    get_jump_model(container),
-                    array[ci_name, t] >= limits.min * reservation[ci_name, t]
-                )
-        end
+        IOM.add_reserve_bound_range_constraints!(
+            container, T, IOM.LowerBound(), array, devices, model, false)
     end
     return
 end
@@ -2612,39 +2452,20 @@ function add_constraints!(
     devices::IS.FlattenIteratorWrapper{V},
     model::DeviceModel{V, W},
     ::NetworkModel{X},
-) where {
-    V <: PSY.HydroPumpTurbine,
-    W <: HydroPumpEnergyDispatch,
-    X <: AbstractPowerModel,
-}
+) where {V <: PSY.HydroPumpTurbine, W <: HydroPumpEnergyDispatch, X <: AbstractPowerModel}
     if !get_attribute(model, "reservation")
         add_range_constraints!(container, T, U, devices, model, X)
     else
         array = get_expression(container, U, V)
-        reservation = get_variable(container, ReservationVariable, V)
-        time_steps = get_time_steps(container)
-        device_names = [PSY.get_name(d) for d in devices]
-        con_ub = add_constraints_container!(container, T,
-            V,
-            device_names,
-            time_steps;
-            meta = "ub",
-        )
-        for device in devices, t in time_steps
-            ci_name = PSY.get_name(device)
-            limits = get_min_max_limits(device, T, W)
-            con_ub[ci_name, t] =
-                JuMP.@constraint(
-                    get_jump_model(container),
-                    array[ci_name, t] <= limits.max * reservation[ci_name, t]
-                )
-        end
+        IOM.add_reserve_bound_range_constraints!(
+            container, T, IOM.UpperBound(), array, devices, model, false)
     end
     return
 end
 
 """
-Add semicontinuous LB range constraints for [`HydroPumpEnergyCommitment`](@ref) formulation
+Add semicontinuous LB range constraints for [`HydroPumpEnergyCommitment`](@ref) formulation.
+Reservation path pairs a reservation-keyed bound ("lb") with an OnVariable-keyed bound ("lb_aux").
 """
 function add_constraints!(
     container::OptimizationContainer,
@@ -2653,51 +2474,22 @@ function add_constraints!(
     devices::IS.FlattenIteratorWrapper{V},
     model::DeviceModel{V, W},
     ::NetworkModel{X},
-) where {
-    V <: PSY.HydroPumpTurbine,
-    W <: HydroPumpEnergyCommitment,
-    X <: AbstractPowerModel,
-}
+) where {V <: PSY.HydroPumpTurbine, W <: HydroPumpEnergyCommitment, X <: AbstractPowerModel}
     if !get_attribute(model, "reservation")
         add_semicontinuous_range_constraints!(container, T, U, devices, model, X)
     else
         array = get_expression(container, U, V)
-        reservation = get_variable(container, ReservationVariable, V)
-        onvar = get_variable(container, OnVariable, V)
-        time_steps = get_time_steps(container)
-        device_names = [PSY.get_name(d) for d in devices]
-        con_lb = add_constraints_container!(container, T,
-            V,
-            device_names,
-            time_steps;
-            meta = "lb",
-        )
-        con_lb_aux = add_constraints_container!(container, T,
-            V,
-            device_names,
-            time_steps;
-            meta = "lb_aux",
-        )
-        for device in devices, t in time_steps
-            ci_name = PSY.get_name(device)
-            limits = get_min_max_limits(device, T, W)
-            con_lb[ci_name, t] =
-                JuMP.@constraint(
-                    get_jump_model(container),
-                    array[ci_name, t] >= limits.min * reservation[ci_name, t]
-                )
-            con_lb_aux[ci_name, t] =
-                JuMP.@constraint(
-                    get_jump_model(container),
-                    array[ci_name, t] >= limits.min * onvar[ci_name, t]
-                )
-        end
+        IOM.add_reserve_bound_range_constraints!(
+            container, T, IOM.LowerBound(), array, devices, model, false)
+        IOM.add_commitment_bound_range_constraints!(
+            container, T, IOM.LowerBound(), array, devices, model; meta_suffix = "_aux")
     end
     return
 end
 
 """
-Add semicontinuous UB range constraints for [`HydroPumpEnergyCommitment`](@ref) formulation
+Add semicontinuous UB range constraints for [`HydroPumpEnergyCommitment`](@ref) formulation.
+Reservation path pairs a reservation-keyed bound ("ub") with an OnVariable-keyed bound ("ub_aux").
 """
 function add_constraints!(
     container::OptimizationContainer,
@@ -2706,45 +2498,15 @@ function add_constraints!(
     devices::IS.FlattenIteratorWrapper{V},
     model::DeviceModel{V, W},
     ::NetworkModel{X},
-) where {
-    V <: PSY.HydroPumpTurbine,
-    W <: HydroPumpEnergyCommitment,
-    X <: AbstractPowerModel,
-}
+) where {V <: PSY.HydroPumpTurbine, W <: HydroPumpEnergyCommitment, X <: AbstractPowerModel}
     if !get_attribute(model, "reservation")
         add_semicontinuous_range_constraints!(container, T, U, devices, model, X)
     else
         array = get_expression(container, U, V)
-        reservation = get_variable(container, ReservationVariable, V)
-        onvar = get_variable(container, OnVariable, V)
-        time_steps = get_time_steps(container)
-        device_names = [PSY.get_name(d) for d in devices]
-        con_ub = add_constraints_container!(container, T,
-            V,
-            device_names,
-            time_steps;
-            meta = "ub",
-        )
-        con_ub_aux = add_constraints_container!(container, T,
-            V,
-            device_names,
-            time_steps;
-            meta = "ub_aux",
-        )
-        for device in devices, t in time_steps
-            ci_name = PSY.get_name(device)
-            limits = get_min_max_limits(device, T, W)
-            con_ub[ci_name, t] =
-                JuMP.@constraint(
-                    get_jump_model(container),
-                    array[ci_name, t] <= limits.max * reservation[ci_name, t]
-                )
-            con_ub_aux[ci_name, t] =
-                JuMP.@constraint(
-                    get_jump_model(container),
-                    array[ci_name, t] <= limits.max * onvar[ci_name, t]
-                )
-        end
+        IOM.add_reserve_bound_range_constraints!(
+            container, T, IOM.UpperBound(), array, devices, model, false)
+        IOM.add_commitment_bound_range_constraints!(
+            container, T, IOM.UpperBound(), array, devices, model; meta_suffix = "_aux")
     end
     return
 end
@@ -2765,13 +2527,22 @@ function add_constraints!(
     return
 end
 
+get_min_max_limits(
+    x::PSY.HydroPumpTurbine,
+    ::Type{<:ActivePowerPumpReservationConstraint},
+    ::Type{<:AbstractHydroPumpFormulation},
+) = PSY.get_active_power_limits_pump(x)
+
 """
 This function defines the constraints for the pump power
 for the [`PowerSystems.HydroPumpTurbine`](@extref).
+
+Enforces `power_pump <= pump_max * (1 - reservation)`: the pump can only draw power
+when the unit is not reserved for generation.
 """
 function add_constraints!(
     container::OptimizationContainer,
-    ::Type{ActivePowerPumpReservationConstraint},
+    T::Type{ActivePowerPumpReservationConstraint},
     devices::IS.FlattenIteratorWrapper{V},
     model::DeviceModel{V, W},
     ::NetworkModel{X},
@@ -2780,28 +2551,9 @@ function add_constraints!(
     W <: AbstractHydroPumpFormulation,
     X <: AbstractPowerModel,
 }
-    time_steps = get_time_steps(container)
-    names = PSY.get_name.(devices)
-    power_var = get_variable(container, ActivePowerPumpVariable, V)
-    reservation_var = get_variable(container, ReservationVariable, V)
-
-    constraint =
-        add_constraints_container!(container, ActivePowerPumpReservationConstraint,
-            V,
-            names,
-            time_steps,
-        )
-
-    for device in devices
-        name = PSY.get_name(device)
-        pump_max = get_variable_upper_bound(ActivePowerPumpVariable, device, W)
-        for t in time_steps
-            constraint[name, t] = JuMP.@constraint(
-                container.JuMPmodel,
-                power_var[name, t] <= pump_max * (1 - reservation_var[name, t])
-            )
-        end
-    end
+    array = get_variable(container, ActivePowerPumpVariable, V)
+    IOM.add_reserve_bound_range_constraints!(
+        container, T, IOM.UpperBound(), array, devices, model, true)
     return
 end
 
