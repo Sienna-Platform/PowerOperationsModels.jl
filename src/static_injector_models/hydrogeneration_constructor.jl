@@ -1809,11 +1809,7 @@ function construct_device!(
     network_model::NetworkModel{S},
 ) where {
     H <: PSY.HydroTurbine,
-    D <: Union{
-        HydroTurbineBilinearDispatch,
-        HydroTurbineWaterLinearDispatch,
-        HydroTurbineBin2BilinearDispatch,
-    },
+    D <: AbstractHydroTurbineDispatchFormulation,
     S <: AbstractActivePowerModel,
 }
     devices = get_available_components(model, sys)
@@ -1877,11 +1873,7 @@ function construct_device!(
     network_model::NetworkModel{S},
 ) where {
     H <: PSY.HydroTurbine,
-    D <: Union{
-        HydroTurbineBilinearDispatch,
-        HydroTurbineWaterLinearDispatch,
-        HydroTurbineBin2BilinearDispatch,
-    },
+    D <: AbstractHydroTurbineDispatchFormulation,
     S <: AbstractActivePowerModel,
 }
     devices = get_available_components(model, sys)
