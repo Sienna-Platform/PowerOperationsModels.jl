@@ -471,11 +471,7 @@ function add_variables!(
     T <: HydroTurbineFlowRateVariable,
     U <: Union{Vector{D}, IS.FlattenIteratorWrapper{D}},
     W <: Union{Vector{E}, IS.FlattenIteratorWrapper{E}},
-    X <: Union{
-        HydroTurbineBilinearDispatch,
-        HydroTurbineWaterLinearDispatch,
-        HydroTurbineBin2BilinearDispatch,
-    },
+    X <: AbstractHydroTurbineDispatchFormulation,
 } where {
     D <: PSY.HydroTurbine,
     E <: PSY.HydroReservoir,
