@@ -1804,12 +1804,12 @@ end
 _maybe_add_on_variables!(
     container::OptimizationContainer,
     devices,
-    ::Type{HydroTurbineWaterLinearCommitment}
+    ::Type{HydroTurbineWaterLinearCommitment},
 ) = add_variables!(container, OnVariable, devices, HydroTurbineWaterLinearCommitment)
 _maybe_add_on_variables!(
     ::OptimizationContainer,
     devices,
-    ::Union{Type{HydroTurbineBilinearDispatch}, Type{HydroTurbineWaterLinearDispatch}}
+    ::Union{Type{HydroTurbineBilinearDispatch}, Type{HydroTurbineWaterLinearDispatch}},
 ) = nothing
 
 function construct_device!(

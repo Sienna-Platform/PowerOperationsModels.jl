@@ -365,7 +365,7 @@ These types share constructors.
 const HydroTurbineWaterFormulation = Union{
     HydroTurbineBilinearDispatch,
     HydroTurbineWaterLinearDispatch,
-    HydroTurbineWaterLinearCommitment
+    HydroTurbineWaterLinearCommitment,
 }
 
 ############################ Storage Generation Formulations ###############################
