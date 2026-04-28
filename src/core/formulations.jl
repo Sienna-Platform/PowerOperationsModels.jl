@@ -359,7 +359,6 @@ Formulation type to add injection variables for a HydroPumpTurbine only using en
 """
 struct HydroPumpEnergyCommitment <: AbstractHydroPumpFormulation end
 
-
 ############################ Storage Generation Formulations ###############################
 abstract type AbstractStorageFormulation <: IOM.AbstractDeviceFormulation end
 
