@@ -666,7 +666,7 @@ Add semicontinuous range constraints for [`HydroTurbineWaterLinearCommitment`](@
 function add_constraints!(
     container::OptimizationContainer,
     T::Type{ActivePowerVariableLimitsConstraint},
-    U::Type{<:Union{VariableType, ExpressionType}},
+    U::Type{<:Union{RangeConstraintLBExpressions, RangeConstraintUBExpressions}},
     devices::IS.FlattenIteratorWrapper{V},
     model::DeviceModel{V, W},
     ::NetworkModel{X},
