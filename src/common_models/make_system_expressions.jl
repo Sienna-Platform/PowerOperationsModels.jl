@@ -273,8 +273,6 @@ function initialize_system_expressions!(
     return
 end
 
-# NOTE: Commented out because it references TransportHVDCNetworkModel concrete type
-# This should be defined in PowerSimulations if needed for specific network models
 function initialize_hvdc_system!(
     container::OptimizationContainer,
     network_model::NetworkModel{T},
@@ -289,8 +287,6 @@ function initialize_hvdc_system!(
     return
 end
 
-# NOTE: Commented out because it references VoltageDispatchHVDCNetworkModel concrete type
-# This should be defined in PowerSimulations if needed for specific network models
 function initialize_hvdc_system!(
     container::OptimizationContainer,
     network_model::NetworkModel{T},
@@ -302,6 +298,6 @@ function initialize_hvdc_system!(
     dc_bus_numbers = sort(PSY.get_number.(dc_buses))
     container.expressions[ExpressionKey(DCCurrentBalance, PSY.DCBus)] =
         make_container_array(dc_bus_numbers, get_time_steps(container))
-    add_variables!(container, DCVoltage, dc_buses, dc_model)
+    add_variables!(container, DCVoltage, dc_buses, U)
     return
 end

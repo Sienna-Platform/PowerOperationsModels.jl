@@ -3,7 +3,7 @@ Min and max limits for post-contingency branch flows for Abstract Branch Formula
 """
 function get_min_max_limits(
     branch::PSY.ACTransmission,
-    ::Type{<:PostContingencyEmergencyRateLimitConstrain},
+    ::Type{<:PostContingencyEmergencyRateLimitConstraint},
     ::Type{<:AbstractBranchFormulation},
     ::NetworkModel{<:AbstractPTDFModel},
 )
@@ -20,7 +20,7 @@ Add branch post-contingency rate limit constraints for ACBranch considering LODF
 """
 function add_constraints!(
     container::OptimizationContainer,
-    cons_type::Type{PostContingencyEmergencyRateLimitConstrain},
+    cons_type::Type{PostContingencyEmergencyRateLimitConstraint},
     branches::IS.FlattenIteratorWrapper{PSY.ACTransmission},
     branches_outages::Vector{T},
     device_model::DeviceModel{T, U},
@@ -35,7 +35,7 @@ function add_constraints!(
 
     con_lb = add_constraints_container!(
         container,
-        cons_type(),
+        cons_type,
         T,
         get_name.(branches_outages),
         device_names,
@@ -45,7 +45,7 @@ function add_constraints!(
 
     con_ub = add_constraints_container!(
         container,
-        cons_type(),
+        cons_type,
         T,
         get_name.(branches_outages),
         device_names,
@@ -53,7 +53,7 @@ function add_constraints!(
         meta = "ub",
     )
 
-    expressions = get_expression(container, PostContingencyBranchFlow(), T)
+    expressions = get_expression(container, PostContingencyBranchFlow, T)
 
     param_keys = get_parameter_keys(container)
 
@@ -86,7 +86,7 @@ function add_constraints!(
 
             limits = get_min_max_limits(
                 branch,
-                PostContingencyEmergencyRateLimitConstrain,
+                PostContingencyEmergencyRateLimitConstraint,
                 U,
                 network_model,
             )

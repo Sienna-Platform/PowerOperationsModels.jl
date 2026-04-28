@@ -90,13 +90,13 @@ function construct_device!(
             container,
             FlowActivePowerSlackUpperBound,
             devices,
-            StaticBranch(),
+            StaticBranch,
         )
         add_variables!(
             container,
             FlowActivePowerSlackLowerBound,
             devices,
-            StaticBranch(),
+            StaticBranch,
         )
     end
     add_feedforward_arguments!(container, device_model, devices)
@@ -136,24 +136,26 @@ function construct_device!(
             FlowActivePowerSlackUpperBound,
             network_model,
             devices,
-            StaticBranch(),
+            StaticBranch,
         )
         add_variables!(
             container,
             FlowActivePowerSlackLowerBound,
             network_model,
             devices,
-            StaticBranch(),
+            StaticBranch,
         )
     end
 
-    add_branch_parameters!(
-        container,
-        DynamicBranchRatingTimeSeriesParameter,
-        devices,
-        device_model,
-        network_model,
-    )
+    if haskey(get_time_series_names(device_model), DynamicBranchRatingTimeSeriesParameter)
+        add_branch_parameters!(
+            container,
+            DynamicBranchRatingTimeSeriesParameter,
+            devices,
+            device_model,
+            network_model,
+        )
+    end
 
     if haskey(
         get_time_series_names(device_model),
@@ -260,7 +262,7 @@ function construct_device!(
 
         add_constraints!(
             container,
-            PostContingencyEmergencyRateLimitConstrain,
+            PostContingencyEmergencyRateLimitConstraint,
             branches,
             branches_outages,
             device_model,
@@ -292,7 +294,7 @@ function construct_device!(
         FlowActivePowerVariable,
         network_model,
         devices,
-        StaticBranchBounds(),
+        StaticBranchBounds,
     )
 
     if get_use_slacks(device_model)
@@ -301,14 +303,14 @@ function construct_device!(
             FlowActivePowerSlackUpperBound,
             network_model,
             devices,
-            StaticBranch(),
+            StaticBranch,
         )
         add_variables!(
             container,
             FlowActivePowerSlackLowerBound,
             network_model,
             devices,
-            StaticBranch(),
+            StaticBranch,
         )
     end
 
@@ -391,7 +393,7 @@ function construct_device!(
             container,
             FlowActivePowerSlackUpperBound,
             devices,
-            StaticBranch(),
+            StaticBranch,
         )
     end
     add_feedforward_arguments!(container, device_model, devices)
@@ -501,7 +503,7 @@ function construct_device!(
             FlowActivePowerVariable,
             network_model,
             devices,
-            HVDCTwoTerminalLossless(),
+            HVDCTwoTerminalLossless,
         )
         add_to_expression!(
             container,
@@ -572,7 +574,7 @@ function construct_device!(
     network_model::NetworkModel{CopperPlatePowerModel},
 ) where {T <: PSY.TwoTerminalHVDC}
     devices = get_available_components(device_model, sys)
-    add_variables!(container, FlowActivePowerVariable, devices, HVDCTwoTerminalUnbounded())
+    add_variables!(container, FlowActivePowerVariable, devices, HVDCTwoTerminalUnbounded)
     add_to_expression!(
         container,
         ActivePowerBalance,
@@ -675,7 +677,7 @@ function construct_device!(
     network_model::NetworkModel{<:AbstractPTDFModel},
 ) where {T <: PSY.TwoTerminalHVDC}
     devices = get_available_components(device_model, sys)
-    add_variables!(container, FlowActivePowerVariable, devices, HVDCTwoTerminalUnbounded())
+    add_variables!(container, FlowActivePowerVariable, devices, HVDCTwoTerminalUnbounded)
     add_to_expression!(
         container,
         ActivePowerBalance,
@@ -737,7 +739,7 @@ function construct_device!(
     network_model::NetworkModel{<:AbstractPTDFModel},
 ) where {T <: PSY.TwoTerminalHVDC}
     devices = get_available_components(device_model, sys)
-    add_variables!(container, FlowActivePowerVariable, devices, HVDCTwoTerminalLossless())
+    add_variables!(container, FlowActivePowerVariable, devices, HVDCTwoTerminalLossless)
     add_to_expression!(
         container,
         ActivePowerBalance,
@@ -779,16 +781,16 @@ function construct_device!(
         container,
         FlowActivePowerToFromVariable,
         devices,
-        HVDCTwoTerminalDispatch(),
+        HVDCTwoTerminalDispatch,
     )
     add_variables!(
         container,
         FlowActivePowerFromToVariable,
         devices,
-        HVDCTwoTerminalDispatch(),
+        HVDCTwoTerminalDispatch,
     )
-    add_variables!(container, HVDCLosses, devices, HVDCTwoTerminalDispatch())
-    add_variables!(container, HVDCFlowDirectionVariable, devices, HVDCTwoTerminalDispatch())
+    add_variables!(container, HVDCLosses, devices, HVDCTwoTerminalDispatch)
+    add_variables!(container, HVDCFlowDirectionVariable, devices, HVDCTwoTerminalDispatch)
     add_to_expression!(
         container,
         ActivePowerBalance,
@@ -857,16 +859,16 @@ function construct_device!(
         container,
         FlowActivePowerToFromVariable,
         devices,
-        HVDCTwoTerminalDispatch(),
+        HVDCTwoTerminalDispatch,
     )
     add_variables!(
         container,
         FlowActivePowerFromToVariable,
         devices,
-        HVDCTwoTerminalDispatch(),
+        HVDCTwoTerminalDispatch,
     )
-    add_variables!(container, HVDCFlowDirectionVariable, devices, HVDCTwoTerminalDispatch())
-    add_variables!(container, HVDCLosses, devices, HVDCTwoTerminalDispatch())
+    add_variables!(container, HVDCFlowDirectionVariable, devices, HVDCTwoTerminalDispatch)
+    add_variables!(container, HVDCLosses, devices, HVDCTwoTerminalDispatch)
     add_to_expression!(
         container,
         ActivePowerBalance,
@@ -930,13 +932,13 @@ function construct_device!(
         container,
         HVDCActivePowerReceivedFromVariable,
         devices,
-        HVDCTwoTerminalPiecewiseLoss(),
+        HVDCTwoTerminalPiecewiseLoss,
     )
     add_variables!(
         container,
         HVDCActivePowerReceivedToVariable,
         devices,
-        HVDCTwoTerminalPiecewiseLoss(),
+        HVDCTwoTerminalPiecewiseLoss,
     )
     _add_sparse_pwl_loss_variables!(container, devices, device_model)
     add_to_expression!(
@@ -1010,15 +1012,15 @@ function construct_device!(
         container,
         FlowActivePowerToFromVariable,
         devices,
-        HVDCTwoTerminalDispatch(),
+        HVDCTwoTerminalDispatch,
     )
     add_variables!(
         container,
         FlowActivePowerFromToVariable,
         devices,
-        HVDCTwoTerminalDispatch(),
+        HVDCTwoTerminalDispatch,
     )
-    add_variables!(container, HVDCFlowDirectionVariable, devices, HVDCTwoTerminalDispatch())
+    add_variables!(container, HVDCFlowDirectionVariable, devices, HVDCTwoTerminalDispatch)
     add_to_expression!(
         container,
         ActivePowerBalance,
@@ -1100,103 +1102,103 @@ function construct_device!(
         container,
         HVDCActivePowerReceivedFromVariable,
         devices,
-        HVDCTwoTerminalLCC(),
+        HVDCTwoTerminalLCC,
     )
     add_variables!(
         container,
         HVDCActivePowerReceivedToVariable,
         devices,
-        HVDCTwoTerminalLCC(),
+        HVDCTwoTerminalLCC,
     )
     add_variables!(
         container,
         HVDCReactivePowerReceivedFromVariable,
         devices,
-        HVDCTwoTerminalLCC(),
+        HVDCTwoTerminalLCC,
     )
     add_variables!(
         container,
         HVDCReactivePowerReceivedToVariable,
         devices,
-        HVDCTwoTerminalLCC(),
+        HVDCTwoTerminalLCC,
     )
     add_variables!(
         container,
         HVDCRectifierDelayAngleVariable,
         devices,
-        HVDCTwoTerminalLCC(),
+        HVDCTwoTerminalLCC,
     )
     add_variables!(
         container,
         HVDCInverterExtinctionAngleVariable,
         devices,
-        HVDCTwoTerminalLCC(),
+        HVDCTwoTerminalLCC,
     )
     add_variables!(
         container,
         HVDCRectifierPowerFactorAngleVariable,
         devices,
-        HVDCTwoTerminalLCC(),
+        HVDCTwoTerminalLCC,
     )
     add_variables!(
         container,
         HVDCInverterPowerFactorAngleVariable,
         devices,
-        HVDCTwoTerminalLCC(),
+        HVDCTwoTerminalLCC,
     )
     add_variables!(
         container,
         HVDCRectifierOverlapAngleVariable,
         devices,
-        HVDCTwoTerminalLCC(),
+        HVDCTwoTerminalLCC,
     )
     add_variables!(
         container,
         HVDCInverterOverlapAngleVariable,
         devices,
-        HVDCTwoTerminalLCC(),
+        HVDCTwoTerminalLCC,
     )
     add_variables!(
         container,
         HVDCRectifierDCVoltageVariable,
         devices,
-        HVDCTwoTerminalLCC(),
+        HVDCTwoTerminalLCC,
     )
     add_variables!(
         container,
         HVDCInverterDCVoltageVariable,
         devices,
-        HVDCTwoTerminalLCC(),
+        HVDCTwoTerminalLCC,
     )
     add_variables!(
         container,
         HVDCRectifierACCurrentVariable,
         devices,
-        HVDCTwoTerminalLCC(),
+        HVDCTwoTerminalLCC,
     )
     add_variables!(
         container,
         HVDCInverterACCurrentVariable,
         devices,
-        HVDCTwoTerminalLCC(),
+        HVDCTwoTerminalLCC,
     )
     add_variables!(
         container,
         DCLineCurrentFlowVariable,
         devices,
-        HVDCTwoTerminalLCC(),
+        HVDCTwoTerminalLCC,
     )
     add_variables!(
         container,
         HVDCRectifierTapSettingVariable,
         devices,
-        HVDCTwoTerminalLCC(),
+        HVDCTwoTerminalLCC,
     )
     add_variables!(
         container,
         HVDCInverterTapSettingVariable,
         devices,
-        HVDCTwoTerminalLCC(),
+        HVDCTwoTerminalLCC,
     )
 
     # Expressions
@@ -1335,8 +1337,8 @@ function construct_device!(
     network_model::NetworkModel{DCPPowerModel},
 )
     devices = get_available_components(device_model, sys)
-    add_variables!(container, FlowActivePowerVariable, devices, PhaseAngleControl())
-    add_variables!(container, PhaseShifterAngle, devices, PhaseAngleControl())
+    add_variables!(container, FlowActivePowerVariable, devices, PhaseAngleControl)
+    add_variables!(container, PhaseShifterAngle, devices, PhaseAngleControl)
     add_to_expression!(
         container,
         ActivePowerBalance,
@@ -1357,8 +1359,8 @@ function construct_device!(
     network_model::NetworkModel{<:AbstractPTDFModel},
 )
     devices = get_available_components(device_model, sys)
-    add_variables!(container, FlowActivePowerVariable, devices, PhaseAngleControl())
-    add_variables!(container, PhaseShifterAngle, devices, PhaseAngleControl())
+    add_variables!(container, FlowActivePowerVariable, devices, PhaseAngleControl)
+    add_variables!(container, PhaseShifterAngle, devices, PhaseAngleControl)
     add_to_expression!(
         container,
         ActivePowerBalance,
@@ -1458,14 +1460,14 @@ function construct_device!(
             FlowActivePowerSlackUpperBound,
             network_model,
             devices,
-            T(),
+            T,
         )
         add_variables!(
             container,
             FlowActivePowerSlackLowerBound,
             network_model,
             devices,
-            T(),
+            T,
         )
     end
     if any(has_ts) && !all(has_ts)
@@ -1478,7 +1480,7 @@ function construct_device!(
         FlowActivePowerVariable,
         network_model,
         devices,
-        T(),
+        T,
     )
     add_to_expression!(
         container,

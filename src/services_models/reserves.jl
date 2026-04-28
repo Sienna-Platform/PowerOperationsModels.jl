@@ -1,46 +1,46 @@
 #! format: off
 ############################### Reserve Variables #########################################
 
-get_variable_multiplier(::VariableType, ::Type{<:PSY.Reserve}, ::AbstractReservesFormulation) = NaN
+get_variable_multiplier(::Type{<:VariableType}, ::Type{<:PSY.Reserve}, ::Type{<:AbstractReservesFormulation}) = NaN
 ############################### PostContingencyActivePowerReserveDeploymentVariable, Reserve #########################################
-get_variable_binary(::PostContingencyActivePowerReserveDeploymentVariable, ::Type{<:PSY.Reserve}, ::AbstractSecurityConstrainedReservesFormulation) = false
-function get_variable_upper_bound(::PostContingencyActivePowerReserveDeploymentVariable, r::PSY.Reserve, d::PSY.Device, ::AbstractSecurityConstrainedReservesFormulation)
+get_variable_binary(::Type{PostContingencyActivePowerReserveDeploymentVariable}, ::Type{<:PSY.Reserve}, ::Type{<:AbstractSecurityConstrainedReservesFormulation}) = false
+function get_variable_upper_bound(::Type{PostContingencyActivePowerReserveDeploymentVariable}, r::PSY.Reserve, d::PSY.Device, ::Type{<:AbstractSecurityConstrainedReservesFormulation})
     return  PSY.get_max_active_power(d)
 end
-get_variable_lower_bound(::PostContingencyActivePowerReserveDeploymentVariable, ::PSY.Reserve, ::PSY.Device, _) = 0.0
-get_variable_warm_start_value(::PostContingencyActivePowerReserveDeploymentVariable, d::PSY.Reserve, ::AbstractSecurityConstrainedReservesFormulation) = 0.0
-get_variable_multiplier(::AbstractContingencyVariableType, ::Type{<:PSY.Reserve{PSY.ReserveDown}}, ::AbstractSecurityConstrainedReservesFormulation) = -1.0
-get_variable_multiplier(::AbstractContingencyVariableType, ::Type{<:PSY.Reserve{PSY.ReserveUp}}, ::AbstractSecurityConstrainedReservesFormulation) = 1.0
-get_variable_multiplier(::VariableType, ::Type{<:PSY.Generator}, ::AbstractSecurityConstrainedReservesFormulation) = -1.0
+get_variable_lower_bound(::Type{PostContingencyActivePowerReserveDeploymentVariable}, ::PSY.Reserve, ::PSY.Device, ::Type) = 0.0
+get_variable_warm_start_value(::Type{PostContingencyActivePowerReserveDeploymentVariable}, d::PSY.Reserve, ::Type{<:AbstractSecurityConstrainedReservesFormulation}) = 0.0
+get_variable_multiplier(::Type{<:AbstractContingencyVariableType}, ::Type{<:PSY.Reserve{PSY.ReserveDown}}, ::Type{<:AbstractSecurityConstrainedReservesFormulation}) = -1.0
+get_variable_multiplier(::Type{<:AbstractContingencyVariableType}, ::Type{<:PSY.Reserve{PSY.ReserveUp}}, ::Type{<:AbstractSecurityConstrainedReservesFormulation}) = 1.0
+get_variable_multiplier(::Type{<:VariableType}, ::Type{<:PSY.Generator}, ::Type{<:AbstractSecurityConstrainedReservesFormulation}) = -1.0
 
 ############################### ActivePowerReserveVariable, Reserve #########################################
-get_variable_binary(::ActivePowerReserveVariable, ::Type{<:PSY.Reserve}, ::AbstractReservesFormulation) = false
-function get_variable_upper_bound(::ActivePowerReserveVariable, r::PSY.Reserve, d::PSY.Device, ::AbstractReservesFormulation)
+get_variable_binary(::Type{ActivePowerReserveVariable}, ::Type{<:PSY.Reserve}, ::Type{<:AbstractReservesFormulation}) = false
+function get_variable_upper_bound(::Type{ActivePowerReserveVariable}, r::PSY.Reserve, d::PSY.Device, ::Type{<:AbstractReservesFormulation})
     return PSY.get_max_output_fraction(r) * PSY.get_max_active_power(d)
 end
-get_variable_upper_bound(::ActivePowerReserveVariable, r::PSY.ReserveDemandCurve, d::PSY.Device, ::AbstractReservesFormulation) = PSY.get_max_active_power(d)
-get_variable_lower_bound(::ActivePowerReserveVariable, ::PSY.Reserve, ::PSY.Device, _) = 0.0
+get_variable_upper_bound(::Type{ActivePowerReserveVariable}, r::PSY.ReserveDemandCurve, d::PSY.Device, ::Type{<:AbstractReservesFormulation}) = PSY.get_max_active_power(d)
+get_variable_lower_bound(::Type{ActivePowerReserveVariable}, ::PSY.Reserve, ::PSY.Device, ::Type) = 0.0
 
 ############################### ActivePowerReserveVariable, ReserveNonSpinning #########################################
-get_variable_binary(::ActivePowerReserveVariable, ::Type{<:PSY.ReserveNonSpinning}, ::AbstractReservesFormulation) = false
-function get_variable_upper_bound(::ActivePowerReserveVariable, r::PSY.ReserveNonSpinning, d::PSY.Device, ::AbstractReservesFormulation)
+get_variable_binary(::Type{ActivePowerReserveVariable}, ::Type{<:PSY.ReserveNonSpinning}, ::Type{<:AbstractReservesFormulation}) = false
+function get_variable_upper_bound(::Type{ActivePowerReserveVariable}, r::PSY.ReserveNonSpinning, d::PSY.Device, ::Type{<:AbstractReservesFormulation})
     return PSY.get_max_output_fraction(r) * PSY.get_max_active_power(d)
 end
-get_variable_lower_bound(::ActivePowerReserveVariable, ::PSY.ReserveNonSpinning, ::PSY.Device, _) = 0.0
+get_variable_lower_bound(::Type{ActivePowerReserveVariable}, ::PSY.ReserveNonSpinning, ::PSY.Device, ::Type) = 0.0
 
 ############################### ServiceRequirementVariable, ReserveDemandCurve ################################
 
-get_variable_binary(::ServiceRequirementVariable, ::Type{<:PSY.ReserveDemandCurve}, ::AbstractReservesFormulation) = false
-get_variable_upper_bound(::ServiceRequirementVariable, ::PSY.ReserveDemandCurve, d::PSY.Component, ::AbstractReservesFormulation) = PSY.get_max_active_power(d)
-get_variable_lower_bound(::ServiceRequirementVariable, ::PSY.ReserveDemandCurve, ::PSY.Component, ::AbstractReservesFormulation) = 0.0
+get_variable_binary(::Type{ServiceRequirementVariable}, ::Type{<:PSY.ReserveDemandCurve}, ::Type{<:AbstractReservesFormulation}) = false
+get_variable_upper_bound(::Type{ServiceRequirementVariable}, ::PSY.ReserveDemandCurve, d::PSY.Component, ::Type{<:AbstractReservesFormulation}) = PSY.get_max_active_power(d)
+get_variable_lower_bound(::Type{ServiceRequirementVariable}, ::PSY.ReserveDemandCurve, ::PSY.Component, ::Type{<:AbstractReservesFormulation}) = 0.0
 
-get_multiplier_value(::RequirementTimeSeriesParameter, d::PSY.Reserve, ::AbstractReservesFormulation) = PSY.get_requirement(d)
-get_multiplier_value(::RequirementTimeSeriesParameter, d::PSY.ReserveNonSpinning, ::AbstractReservesFormulation) = PSY.get_requirement(d)
+get_multiplier_value(::Type{RequirementTimeSeriesParameter}, d::PSY.Reserve, ::Type{<:AbstractReservesFormulation}) = PSY.get_requirement(d)
+get_multiplier_value(::Type{RequirementTimeSeriesParameter}, d::PSY.ReserveNonSpinning, ::Type{<:AbstractReservesFormulation}) = PSY.get_requirement(d)
 
-get_parameter_multiplier(::VariableValueParameter, d::Type{<:PSY.AbstractReserve}, ::AbstractReservesFormulation) = 1.0
-get_initial_parameter_value(::VariableValueParameter, d::Type{<:PSY.AbstractReserve}, ::AbstractReservesFormulation) = 0.0
+get_parameter_multiplier(::Type{<:VariableValueParameter}, d::Type{<:PSY.AbstractReserve}, ::Type{<:AbstractReservesFormulation}) = 1.0
+get_initial_parameter_value(::Type{<:VariableValueParameter}, d::Type{<:PSY.AbstractReserve}, ::Type{<:AbstractReservesFormulation}) = 0.0
 
-objective_function_multiplier(::ServiceRequirementVariable, ::StepwiseCostReserve) = -1.0
+objective_function_multiplier(::Type{ServiceRequirementVariable}, ::Type{StepwiseCostReserve}) = -1.0
 uses_compact_power(::PSY.ReserveDemandCurve, ::StepwiseCostReserve)=false
 #! format: on
 
@@ -111,10 +111,9 @@ function add_reserve_variables!(
 }
     time_steps = get_time_steps(container)
     service_name = PSY.get_name(service)
-    variable_type = T()
     variable = add_variable_container!(
         container,
-        variable_type,
+        T,
         D,
         [service_name],
         time_steps;
@@ -130,6 +129,17 @@ function add_reserve_variables!(
     end
 
     return
+end
+
+function _sum_reserve_variables(
+    vars::AbstractArray{<:JuMP.AbstractVariableRef},
+    extra::Int,
+)
+    acc = IOM.get_hinted_aff_expr(length(vars) + extra)
+    for v in vars
+        JuMP.add_to_expression!(acc, v)
+    end
+    return acc
 end
 
 ################################## Reserve Requirement Constraint ##########################
@@ -149,47 +159,45 @@ function add_constraints!(
     time_steps = get_time_steps(container)
     service_name = PSY.get_name(service)
     # TODO: Add a method for services that handles this better
-    constraint = add_constraints_container!(
-        container,
-        T(),
+    constraint = add_constraints_container!(container, T,
         SR,
         [service_name],
         time_steps;
         meta = service_name,
     )
     reserve_variable =
-        get_variable(container, ActivePowerReserveVariable(), SR, service_name)
+        get_variable(container, ActivePowerReserveVariable, SR, service_name)
     use_slacks = get_use_slacks(model)
 
-    ts_vector = IOM.get_time_series(container, service, "requirement")
+    ts_vector = IOM.get_time_series(
+        container,
+        service,
+        "requirement";
+        interval = get_interval(get_settings(container)),
+    )
 
     use_slacks && (slack_vars = reserve_slacks!(container, service))
     requirement = PSY.get_requirement(service)
     jump_model = get_jump_model(container)
+    extra = use_slacks ? 1 : 0
     if built_for_recurrent_solves(container)
         param_container =
-            get_parameter(container, RequirementTimeSeriesParameter(), SR, service_name)
+            get_parameter(container, RequirementTimeSeriesParameter, SR, service_name)
         param = get_parameter_column_refs(param_container, service_name)
         for t in time_steps
-            if use_slacks
-                resource_expression = JuMP.@expression(
-                    jump_model, sum(@view reserve_variable[:, t]) + slack_vars[t])
-            else
-                resource_expression = JuMP.@expression(
-                    jump_model, sum(@view reserve_variable[:, t]))
-            end
+            resource_expression =
+                _sum_reserve_variables(@view(reserve_variable[:, t]), extra)
+            use_slacks &&
+                JuMP.add_to_expression!(resource_expression, slack_vars[t])
             constraint[service_name, t] =
                 JuMP.@constraint(jump_model, resource_expression >= param[t] * requirement)
         end
     else
         for t in time_steps
-            if use_slacks
-                resource_expression = JuMP.@expression(
-                    jump_model, sum(@view reserve_variable[:, t]) + slack_vars[t])
-            else
-                resource_expression = JuMP.@expression(
-                    jump_model, sum(@view reserve_variable[:, t]))
-            end
+            resource_expression =
+                _sum_reserve_variables(@view(reserve_variable[:, t]), extra)
+            use_slacks &&
+                JuMP.add_to_expression!(resource_expression, slack_vars[t])
             constraint[service_name, t] = JuMP.@constraint(
                 jump_model,
                 resource_expression >= ts_vector[t] * requirement
@@ -218,20 +226,23 @@ function add_constraints!(
 
     time_steps = get_time_steps(container)
     service_name = PSY.get_name(service)
-    cons = add_constraints_container!(
-        container,
-        T(),
+    cons = add_constraints_container!(container, T,
         SR,
         [PSY.get_name(d) for d in contributing_devices],
         time_steps;
         meta = service_name,
     )
-    var_r = get_variable(container, ActivePowerReserveVariable(), SR, service_name)
+    var_r = get_variable(container, ActivePowerReserveVariable, SR, service_name)
     jump_model = get_jump_model(container)
     requirement = PSY.get_requirement(service)
-    ts_vector = IOM.get_time_series(container, service, "requirement")
+    ts_vector = IOM.get_time_series(
+        container,
+        service,
+        "requirement";
+        interval = get_interval(get_settings(container)),
+    )
     param_container =
-        get_parameter(container, RequirementTimeSeriesParameter(), SR, service_name)
+        get_parameter(container, RequirementTimeSeriesParameter, SR, service_name)
     param = get_parameter_column_refs(param_container, service_name)
     for t in time_steps, d in contributing_devices
         name = PSY.get_name(d)
@@ -266,29 +277,24 @@ function add_constraints!(
     time_steps = get_time_steps(container)
     service_name = PSY.get_name(service)
     # TODO: The constraint addition is still not clean enough
-    constraint = add_constraints_container!(
-        container,
-        T(),
+    constraint = add_constraints_container!(container, T,
         SR,
         [service_name],
         time_steps;
         meta = service_name,
     )
     reserve_variable =
-        get_variable(container, ActivePowerReserveVariable(), SR, service_name)
+        get_variable(container, ActivePowerReserveVariable, SR, service_name)
     use_slacks = get_use_slacks(model)
     use_slacks && (slack_vars = reserve_slacks!(container, service))
 
     requirement = PSY.get_requirement(service)
     jump_model = get_jump_model(container)
+    extra = use_slacks ? 1 : 0
     for t in time_steps
-        resource_expression = JuMP.GenericAffExpr{Float64, JuMP.VariableRef}()
-        JuMP.add_to_expression!(resource_expression,
-            JuMP.@expression(jump_model, sum(@view reserve_variable[:, t])))
-        # consider a for loop
-        if use_slacks
-            JuMP.add_to_expression!(resource_expression, slack_vars[t])
-        end
+        resource_expression =
+            _sum_reserve_variables(@view(reserve_variable[:, t]), extra)
+        use_slacks && JuMP.add_to_expression!(resource_expression, slack_vars[t])
         constraint[service_name, t] =
             JuMP.@constraint(jump_model, resource_expression >= requirement)
     end
@@ -301,7 +307,7 @@ function add_to_objective_function!(
     service::SR,
     ::ServiceModel{SR, T},
 ) where {SR <: PSY.AbstractReserve, T <: AbstractReservesFormulation}
-    add_reserves_proportional_cost!(container, ActivePowerReserveVariable(), service, T())
+    add_reserves_proportional_cost!(container, ActivePowerReserveVariable, service, T)
     return
 end
 
@@ -317,18 +323,16 @@ function add_constraints!(
 } where {D <: PSY.Component}
     time_steps = get_time_steps(container)
     service_name = PSY.get_name(service)
-    constraint = add_constraints_container!(
-        container,
-        T(),
+    constraint = add_constraints_container!(container, T,
         SR,
         [service_name],
         time_steps;
         meta = service_name,
     )
     reserve_variable =
-        get_variable(container, ActivePowerReserveVariable(), SR, service_name)
+        get_variable(container, ActivePowerReserveVariable, SR, service_name)
     requirement_variable =
-        get_variable(container, ServiceRequirementVariable(), SR, service_name)
+        get_variable(container, ServiceRequirementVariable, SR, service_name)
     jump_model = get_jump_model(container)
     for t in time_steps
         constraint[service_name, t] = JuMP.@constraint(
@@ -383,11 +387,9 @@ function add_constraints!(
         jump_model = get_jump_model(container)
         time_steps = get_time_steps(container)
         time_frame = PSY.get_time_frame(service)
-        variable = get_variable(container, ActivePowerReserveVariable(), SR, service_name)
+        variable = get_variable(container, ActivePowerReserveVariable, SR, service_name)
         device_name_set = [PSY.get_name(d) for d in ramp_devices]
-        con_up = add_constraints_container!(
-            container,
-            T(),
+        con_up = add_constraints_container!(container, T,
             SR,
             device_name_set,
             time_steps;
@@ -424,11 +426,9 @@ function add_constraints!(
         jump_model = get_jump_model(container)
         time_steps = get_time_steps(container)
         time_frame = PSY.get_time_frame(service)
-        variable = get_variable(container, ActivePowerReserveVariable(), SR, service_name)
+        variable = get_variable(container, ActivePowerReserveVariable, SR, service_name)
         device_name_set = [PSY.get_name(d) for d in ramp_devices]
-        con_down = add_constraints_container!(
-            container,
-            T(),
+        con_down = add_constraints_container!(container, T,
             SR,
             device_name_set,
             time_steps;
@@ -468,21 +468,19 @@ function add_constraints!(
         minutes_per_period = Dates.value(Dates.Second(resolution)) / 60
     end
     service_name = PSY.get_name(service)
-    cons = add_constraints_container!(
-        container,
-        T(),
+    cons = add_constraints_container!(container, T,
         SR,
         [PSY.get_name(d) for d in contributing_devices],
         time_steps;
         meta = service_name,
     )
-    var_r = get_variable(container, ActivePowerReserveVariable(), SR, service_name)
+    var_r = get_variable(container, ActivePowerReserveVariable, SR, service_name)
     reserve_response_time = PSY.get_time_frame(service)
     jump_model = get_jump_model(container)
     for d in contributing_devices
         component_type = typeof(d)
         name = PSY.get_name(d)
-        varstatus = get_variable(container, OnVariable(), component_type)
+        varstatus = get_variable(container, OnVariable, component_type)
         startup_time = PSY.get_time_limits(d).up
         ramp_limits = _get_ramp_limits(d)
         if reserve_response_time > startup_time
@@ -507,26 +505,26 @@ function add_to_objective_function!(
     service::PSY.ReserveDemandCurve{T},
     ::ServiceModel{PSY.ReserveDemandCurve{T}, SR},
 ) where {T <: PSY.ReserveDirection, SR <: StepwiseCostReserve}
-    add_reserves_variable_cost!(container, ServiceRequirementVariable(), service, SR())
+    add_reserves_variable_cost!(container, ServiceRequirementVariable, service, SR)
     return
 end
 
 # originally was add_variable_cost!, but I don't see other call sites besides the above.
 function add_reserves_variable_cost!(
     container::OptimizationContainer,
-    ::U,
+    ::Type{U},
     service::T,
-    ::V,
+    ::Type{V},
 ) where {T <: PSY.ReserveDemandCurve, U <: VariableType, V <: StepwiseCostReserve}
-    _add_reserves_variable_cost_to_objective!(container, U(), service, V())
+    _add_reserves_variable_cost_to_objective!(container, U, service, V)
     return
 end
 
 function _add_reserves_variable_cost_to_objective!(
     container::OptimizationContainer,
-    ::T,
+    ::Type{T},
     component::PSY.Reserve,
-    ::U,
+    ::Type{U},
 ) where {T <: VariableType, U <: StepwiseCostReserve}
     component_name = PSY.get_name(component)
     @debug "PWL Variable Cost" _group = LOG_GROUP_COST_FUNCTIONS component_name
@@ -543,7 +541,7 @@ function _add_reserves_variable_cost_to_objective!(
     end
 
     pwl_cost_expressions =
-        add_pwl_term_delta!(container, component, variable_cost, T(), U())
+        add_pwl_term_delta!(container, component, variable_cost, T, U)
     for t in time_steps
         add_to_expression!(
             container,
@@ -559,16 +557,16 @@ end
 
 function add_reserves_proportional_cost!(
     container::OptimizationContainer,
-    ::U,
+    ::Type{U},
     service::T,
-    ::V,
+    ::Type{V},
 ) where {
     T <: Union{PSY.Reserve, PSY.ReserveNonSpinning},
     U <: ActivePowerReserveVariable,
     V <: AbstractReservesFormulation,
 }
     base_p = get_model_base_power(container)
-    reserve_variable = get_variable(container, U(), T, PSY.get_name(service))
+    reserve_variable = get_variable(container, U, T, PSY.get_name(service))
     for index in Iterators.product(axes(reserve_variable)...)
         add_to_objective_invariant_expression!(
             container,

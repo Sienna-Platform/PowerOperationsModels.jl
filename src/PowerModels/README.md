@@ -18,9 +18,9 @@ This submodule represents the evolution of the PowerModels.jl integration that w
 
 The following components from PowerModels.jl have been intentionally excluded from this submodule, as these capabilities are provided by other packages in the Sienna ecosystem:
 
-  - **Parsing code**: Data parsing and import functionality is handled by [PowerSystems.jl](https://github.com/NREL-Sienna/PowerSystems.jl)
-  - **DC power flow**: Implemented in [PowerFlows.jl](https://github.com/NREL-Sienna/PowerFlows.jl)
-  - **AC power flow (NLSolve)**: Implemented in [PowerFlows.jl](https://github.com/NREL-Sienna/PowerFlows.jl)
+  - **Parsing code**: Data parsing and import functionality is handled by [PowerSystems.jl](https://github.com/Sienna-Platform/PowerSystems.jl)
+  - **DC power flow**: Implemented in [PowerFlows.jl](https://github.com/Sienna-Platform/PowerFlows.jl)
+  - **AC power flow (NLSolve)**: Implemented in [PowerFlows.jl](https://github.com/Sienna-Platform/PowerFlows.jl)
 
 This submodule focuses exclusively on optimization-based formulations for use within the PowerOperationsModels.jl framework.
 

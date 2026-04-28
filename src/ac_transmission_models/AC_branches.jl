@@ -18,36 +18,36 @@
 # for the branch flows either in AC or DC.
 
 #! format: off
-get_variable_binary(::FlowActivePowerVariable, ::Type{<:PSY.ACTransmission}, ::AbstractBranchFormulation,) = false
-get_variable_binary(::PhaseShifterAngle, ::Type{PSY.PhaseShiftingTransformer}, ::AbstractBranchFormulation,) = false
+get_variable_binary(::Type{FlowActivePowerVariable}, ::Type{<:PSY.ACTransmission}, ::Type{<:AbstractBranchFormulation}) = false
+get_variable_binary(::Type{PhaseShifterAngle}, ::Type{PSY.PhaseShiftingTransformer}, ::Type{<:AbstractBranchFormulation}) = false
 
-get_parameter_multiplier(::FixValueParameter, ::PSY.ACTransmission, ::AbstractBranchFormulation) = 1.0
-get_parameter_multiplier(::LowerBoundValueParameter, ::PSY.ACTransmission, ::AbstractBranchFormulation) = 1.0
-get_parameter_multiplier(::UpperBoundValueParameter, ::PSY.ACTransmission, ::AbstractBranchFormulation) = 1.0
+get_parameter_multiplier(::Type{FixValueParameter}, ::PSY.ACTransmission, ::Type{<:AbstractBranchFormulation}) = 1.0
+get_parameter_multiplier(::Type{LowerBoundValueParameter}, ::PSY.ACTransmission, ::Type{<:AbstractBranchFormulation}) = 1.0
+get_parameter_multiplier(::Type{UpperBoundValueParameter}, ::PSY.ACTransmission, ::Type{<:AbstractBranchFormulation}) = 1.0
 
 # Per-device reactance multiplier (1/get_x(d)) computed inline at add_to_expression! call sites.
-get_variable_multiplier(::PhaseShifterAngle, ::Type{<:PSY.PhaseShiftingTransformer}, ::PhaseAngleControl) = 1.0
+get_variable_multiplier(::Type{PhaseShifterAngle}, ::Type{<:PSY.PhaseShiftingTransformer}, ::Type{PhaseAngleControl}) = 1.0
 
-get_multiplier_value(::AbstractDynamicBranchRatingTimeSeriesParameter, d::PSY.ACTransmission, ::StaticBranch) = PSY.get_rating(d)
-get_multiplier_value(::AbstractDynamicBranchRatingTimeSeriesParameter, d::PNM.BranchesParallel, ::StaticBranch) = PNM.get_equivalent_rating(d)
+get_multiplier_value(::Type{<:AbstractDynamicBranchRatingTimeSeriesParameter}, d::PSY.ACTransmission, ::Type{StaticBranch}) = PSY.get_rating(d)
+get_multiplier_value(::Type{<:AbstractDynamicBranchRatingTimeSeriesParameter}, d::PNM.BranchesParallel, ::Type{StaticBranch}) = PNM.get_equivalent_rating(d)
 
 
 get_initial_conditions_device_model(::OperationModel, ::DeviceModel{T, U}) where {T <: PSY.ACTransmission, U <: AbstractBranchFormulation} = DeviceModel(T, U)
 
 #### Properties of slack variables
-get_variable_binary(::FlowActivePowerSlackUpperBound, ::Type{<:PSY.ACTransmission}, ::AbstractBranchFormulation,) = false
-get_variable_binary(::FlowActivePowerSlackLowerBound, ::Type{<:PSY.ACTransmission}, ::AbstractBranchFormulation,) = false
+get_variable_binary(::Type{FlowActivePowerSlackUpperBound}, ::Type{<:PSY.ACTransmission}, ::Type{<:AbstractBranchFormulation}) = false
+get_variable_binary(::Type{FlowActivePowerSlackLowerBound}, ::Type{<:PSY.ACTransmission}, ::Type{<:AbstractBranchFormulation}) = false
 # These two methods are defined to avoid ambiguities
-get_variable_upper_bound(::FlowActivePowerSlackUpperBound, ::PSY.ACTransmission, ::AbstractBranchFormulation) = nothing
-get_variable_lower_bound(::FlowActivePowerSlackUpperBound, ::PSY.ACTransmission, ::AbstractBranchFormulation) = 0.0
-get_variable_upper_bound(::FlowActivePowerSlackLowerBound, ::PSY.ACTransmission, ::AbstractBranchFormulation) = nothing
-get_variable_lower_bound(::FlowActivePowerSlackLowerBound, ::PSY.ACTransmission, ::AbstractBranchFormulation) = 0.0
-get_variable_upper_bound(::FlowActivePowerVariable, ::PNM.BranchesSeries, ::AbstractBranchFormulation) = nothing
-get_variable_lower_bound(::FlowActivePowerVariable, ::PNM.BranchesSeries, ::AbstractBranchFormulation) = nothing
-get_variable_upper_bound(::FlowActivePowerVariable, ::PNM.BranchesParallel, ::AbstractBranchFormulation) = nothing
-get_variable_lower_bound(::FlowActivePowerVariable, ::PNM.BranchesParallel, ::AbstractBranchFormulation) = nothing
-get_variable_upper_bound(::FlowActivePowerVariable, ::PNM.ThreeWindingTransformerWinding, ::AbstractBranchFormulation) = nothing
-get_variable_lower_bound(::FlowActivePowerVariable, ::PNM.ThreeWindingTransformerWinding, ::AbstractBranchFormulation) = nothing
+get_variable_upper_bound(::Type{FlowActivePowerSlackUpperBound}, ::PSY.ACTransmission, ::Type{<:AbstractBranchFormulation}) = nothing
+get_variable_lower_bound(::Type{FlowActivePowerSlackUpperBound}, ::PSY.ACTransmission, ::Type{<:AbstractBranchFormulation}) = 0.0
+get_variable_upper_bound(::Type{FlowActivePowerSlackLowerBound}, ::PSY.ACTransmission, ::Type{<:AbstractBranchFormulation}) = nothing
+get_variable_lower_bound(::Type{FlowActivePowerSlackLowerBound}, ::PSY.ACTransmission, ::Type{<:AbstractBranchFormulation}) = 0.0
+get_variable_upper_bound(::Type{FlowActivePowerVariable}, ::PNM.BranchesSeries, ::Type{<:AbstractBranchFormulation}) = nothing
+get_variable_lower_bound(::Type{FlowActivePowerVariable}, ::PNM.BranchesSeries, ::Type{<:AbstractBranchFormulation}) = nothing
+get_variable_upper_bound(::Type{FlowActivePowerVariable}, ::PNM.BranchesParallel, ::Type{<:AbstractBranchFormulation}) = nothing
+get_variable_lower_bound(::Type{FlowActivePowerVariable}, ::PNM.BranchesParallel, ::Type{<:AbstractBranchFormulation}) = nothing
+get_variable_upper_bound(::Type{FlowActivePowerVariable}, ::PNM.ThreeWindingTransformerWinding, ::Type{<:AbstractBranchFormulation}) = nothing
+get_variable_lower_bound(::Type{FlowActivePowerVariable}, ::PNM.ThreeWindingTransformerWinding, ::Type{<:AbstractBranchFormulation}) = nothing
 
 #! format: on
 function get_default_time_series_names(
@@ -72,10 +72,11 @@ function add_variables!(
     ::Type{T},
     network_model::NetworkModel{<:AbstractPTDFModel},
     devices::IS.FlattenIteratorWrapper{U},
-    formulation::AbstractBranchFormulation,
+    ::Type{F},
 ) where {
     T <: AbstractACActivePowerFlow,
-    U <: PSY.ACTransmission}
+    U <: PSY.ACTransmission,
+    F <: AbstractBranchFormulation}
     time_steps = get_time_steps(container)
     net_reduction_data = network_model.network_reduction
     branch_names = get_branch_argument_variable_axis(net_reduction_data, devices)
@@ -84,7 +85,7 @@ function add_variables!(
 
     variable_container = add_variable_container!(
         container,
-        T(),
+        T,
         U,
         branch_names,
         time_steps,
@@ -102,8 +103,8 @@ function add_variables!(
         if has_entry
             @assert !isempty(tracker_container) name arc reduction
         end
-        ub = get_variable_upper_bound(T(), reduction_entry, formulation)
-        lb = get_variable_lower_bound(T(), reduction_entry, formulation)
+        ub = get_variable_upper_bound(T, reduction_entry, F)
+        lb = get_variable_lower_bound(T, reduction_entry, F)
         for t in time_steps
             if !has_entry
                 tracker_container[t] = JuMP.@variable(
@@ -124,7 +125,7 @@ function add_variables!(
     ::Type{T},
     network_model::NetworkModel{<:AbstractPTDFModel},
     devices::IS.FlattenIteratorWrapper{U},
-    formulation::StaticBranchUnbounded,
+    ::Type{StaticBranchUnbounded},
 ) where {
     T <: AbstractACActivePowerFlow,
     U <: PSY.ACTransmission}
@@ -178,7 +179,7 @@ function add_variables!(
     ::Type{S},
     network_model::NetworkModel{CopperPlatePowerModel},
     devices::IS.FlattenIteratorWrapper{T},
-    formulation::U,
+    ::Type{U},
 ) where {
     S <: AbstractACActivePowerFlow,
     T <: PSY.ACTransmission,
@@ -193,7 +194,7 @@ function _get_flow_variable_vector(
     ::NetworkModel{<:AbstractDCPModel},
     ::Type{B},
 ) where {B <: PSY.ACTransmission}
-    return [get_variable(container, FlowActivePowerVariable(), B)]
+    return [get_variable(container, FlowActivePowerVariable, B)]
 end
 
 function _get_flow_variable_vector(
@@ -202,8 +203,8 @@ function _get_flow_variable_vector(
     ::Type{B},
 ) where {B <: PSY.ACTransmission}
     return [
-        get_variable(container, FlowActivePowerFromToVariable(), B),
-        get_variable(container, FlowActivePowerToFromVariable(), B),
+        get_variable(container, FlowActivePowerFromToVariable, B),
+        get_variable(container, FlowActivePowerToFromVariable, B),
     ]
 end
 
@@ -375,8 +376,8 @@ function _add_flow_rate_constraint!(
     reduction_entry = branch_maps_by_type[arc]
     time_steps = get_time_steps(container)
     if use_slacks
-        slack_ub = get_variable(container, FlowActivePowerSlackUpperBound(), T)[name, :]
-        slack_lb = get_variable(container, FlowActivePowerSlackLowerBound(), T)[name, :]
+        slack_ub = get_variable(container, FlowActivePowerSlackUpperBound, T)[name, :]
+        slack_lb = get_variable(container, FlowActivePowerSlackLowerBound, T)[name, :]
     end
     limits = get_min_max_limits(reduction_entry, FlowRateConstraint, StaticBranch)
     for t in time_steps
@@ -422,7 +423,7 @@ function add_constraints!(
     con_lb =
         add_constraints_container!(
             container,
-            cons_type(),
+            cons_type,
             T,
             branch_names,
             time_steps;
@@ -431,19 +432,19 @@ function add_constraints!(
     con_ub =
         add_constraints_container!(
             container,
-            cons_type(),
+            cons_type,
             T,
             branch_names,
             time_steps;
             meta = "ub",
         )
 
-    array = get_variable(container, FlowActivePowerVariable(), T)
+    array = get_variable(container, FlowActivePowerVariable, T)
 
     use_slacks = get_use_slacks(device_model)
     if use_slacks
-        slack_ub = get_variable(container, FlowActivePowerSlackUpperBound(), T)
-        slack_lb = get_variable(container, FlowActivePowerSlackLowerBound(), T)
+        slack_ub = get_variable(container, FlowActivePowerSlackUpperBound, T)
+        slack_lb = get_variable(container, FlowActivePowerSlackLowerBound, T)
     end
     for (name, (arc, reduction)) in
         get_constraint_map_by_type(reduced_branch_tracker)[FlowRateConstraint][T]
@@ -487,7 +488,7 @@ function add_constraints!(
     con_lb =
         add_constraints_container!(
             container,
-            cons_type(),
+            cons_type,
             T,
             branch_names,
             time_steps;
@@ -496,19 +497,19 @@ function add_constraints!(
     con_ub =
         add_constraints_container!(
             container,
-            cons_type(),
+            cons_type,
             T,
             branch_names,
             time_steps;
             meta = "ub",
         )
 
-    array = get_expression(container, PTDFBranchFlow(), T)
+    array = get_expression(container, PTDFBranchFlow, T)
 
     use_slacks = get_use_slacks(device_model)
     if use_slacks
-        slack_ub = get_variable(container, FlowActivePowerSlackUpperBound(), T)
-        slack_lb = get_variable(container, FlowActivePowerSlackLowerBound(), T)
+        slack_ub = get_variable(container, FlowActivePowerSlackUpperBound, T)
+        slack_lb = get_variable(container, FlowActivePowerSlackLowerBound, T)
     end
     for (name, (arc, reduction)) in
         get_constraint_map_by_type(reduced_branch_tracker)[FlowRateConstraint][T]
@@ -541,11 +542,11 @@ function _add_flow_rate_constraint_with_parameters!(
 ) where {T <: PSY.ACTransmission}
     time_steps = get_time_steps(container)
     if use_slacks
-        slack_ub = get_variable(container, FlowActivePowerSlackUpperBound(), T)[name, :]
-        slack_lb = get_variable(container, FlowActivePowerSlackLowerBound(), T)[name, :]
+        slack_ub = get_variable(container, FlowActivePowerSlackUpperBound, T)[name, :]
+        slack_lb = get_variable(container, FlowActivePowerSlackLowerBound, T)[name, :]
     end
     param_container =
-        get_parameter(container, DynamicBranchRatingTimeSeriesParameter(), T)
+        get_parameter(container, DynamicBranchRatingTimeSeriesParameter, T)
     param = get_parameter_column_refs(param_container, name)
     mult = get_multiplier_array(param_container)[name, :]
 
@@ -593,7 +594,7 @@ function add_flow_rate_constraint_with_parameters!(
     con_lb =
         add_constraints_container!(
             container,
-            cons_type(),
+            cons_type,
             T,
             branch_names,
             time_steps;
@@ -602,14 +603,14 @@ function add_flow_rate_constraint_with_parameters!(
     con_ub =
         add_constraints_container!(
             container,
-            cons_type(),
+            cons_type,
             T,
             branch_names,
             time_steps;
             meta = "ub",
         )
 
-    var_array = get_expression(container, PTDFBranchFlow(), T)
+    var_array = get_expression(container, PTDFBranchFlow, T)
 
     ts_name = get_time_series_names(device_model)[DynamicBranchRatingTimeSeriesParameter]
     ts_type = get_default_time_series_type(container)
@@ -670,20 +671,20 @@ function add_constraints!(
         cons_type,
     )
     time_steps = get_time_steps(container)
-    var1 = get_variable(container, FlowActivePowerFromToVariable(), B)
-    var2 = get_variable(container, FlowReactivePowerFromToVariable(), B)
+    var1 = get_variable(container, FlowActivePowerFromToVariable, B)
+    var2 = get_variable(container, FlowReactivePowerFromToVariable, B)
     add_constraints_container!(
         container,
-        cons_type(),
+        cons_type,
         B,
         device_names,
         time_steps,
     )
-    constraint = get_constraint(container, cons_type(), B)
+    constraint = get_constraint(container, cons_type, B)
 
     use_slacks = get_use_slacks(device_model)
     if use_slacks
-        slack_ub = get_variable(container, FlowActivePowerSlackUpperBound(), B)
+        slack_ub = get_variable(container, FlowActivePowerSlackUpperBound, B)
     end
     for (name, (arc, reduction)) in
         get_constraint_map_by_type(reduced_branch_tracker)[FlowRateConstraintFromTo][B]
@@ -722,19 +723,19 @@ function add_constraints!(
         devices,
         cons_type,
     )
-    var1 = get_variable(container, FlowActivePowerToFromVariable(), B)
-    var2 = get_variable(container, FlowReactivePowerToFromVariable(), B)
+    var1 = get_variable(container, FlowActivePowerToFromVariable, B)
+    var2 = get_variable(container, FlowReactivePowerToFromVariable, B)
     add_constraints_container!(
         container,
-        cons_type(),
+        cons_type,
         B,
         device_names,
         time_steps,
     )
-    constraint = get_constraint(container, cons_type(), B)
+    constraint = get_constraint(container, cons_type, B)
     use_slacks = get_use_slacks(device_model)
     if use_slacks
-        slack_ub = get_variable(container, FlowActivePowerSlackUpperBound(), B)
+        slack_ub = get_variable(container, FlowActivePowerSlackUpperBound, B)
     end
     for (name, (arc, reduction)) in
         get_constraint_map_by_type(reduced_branch_tracker)[FlowRateConstraintToFrom][B]
@@ -754,26 +755,48 @@ function add_constraints!(
 end
 
 function _make_flow_expressions!(
-    jump_model::JuMP.Model,
     name::String,
     time_steps::UnitRange{Int},
-    ptdf_col::AbstractVector{Float64},
+    ptdf_col::Vector{Float64},
     nodal_balance_expressions::Matrix{JuMP.AffExpr},
 )
     @debug "Making Flow Expression on thread $(Threads.threadid()) for branch $name"
+    nz_idx = [i for i in eachindex(ptdf_col) if abs(ptdf_col[i]) > PTDF_ZERO_TOL]
+    hint = length(nz_idx)
     expressions = Vector{JuMP.AffExpr}(undef, length(time_steps))
     for t in time_steps
-        expressions[t] = JuMP.@expression(
-            jump_model,
-            sum(
-                ptdf_col[i] * nodal_balance_expressions[i, t] for
-                i in 1:length(ptdf_col)
-            )
-        )
+        acc = IOM.get_hinted_aff_expr(hint)
+        @inbounds for i in nz_idx
+            JuMP.add_to_expression!(acc, ptdf_col[i], nodal_balance_expressions[i, t])
+        end
+        expressions[t] = acc
     end
     return name, expressions
-    # change when using the not concurrent version
-    # return expressions
+end
+
+function _make_flow_expressions!(
+    name::String,
+    time_steps::UnitRange{Int},
+    ptdf_col::SparseArrays.SparseVector{Float64, Int},
+    nodal_balance_expressions::Matrix{JuMP.AffExpr},
+)
+    @debug "Making Flow Expression on thread $(Threads.threadid()) for branch $name"
+    nz_idx = SparseArrays.nonzeroinds(ptdf_col)
+    nz_val = SparseArrays.nonzeros(ptdf_col)
+    hint = length(nz_idx)
+    expressions = Vector{JuMP.AffExpr}(undef, length(time_steps))
+    for t in time_steps
+        acc = IOM.get_hinted_aff_expr(hint)
+        @inbounds for k in eachindex(nz_idx)
+            JuMP.add_to_expression!(
+                acc,
+                nz_val[k],
+                nodal_balance_expressions[nz_idx[k], t],
+            )
+        end
+        expressions[t] = acc
+    end
+    return name, expressions
 end
 
 function _add_expression_to_container!(
@@ -788,7 +811,6 @@ function _add_expression_to_container!(
     name = PSY.get_name(reduction_entry)
     if name in branches
         branch_flow_expr[name, :] .= _make_flow_expressions!(
-            jump_model,
             name,
             time_steps,
             ptdf_col,
@@ -811,7 +833,6 @@ function _add_expression_to_container!(
     for name in names
         if name in branches
             branch_flow_expr[name, :] .= _make_flow_expressions!(
-                jump_model,
                 name,
                 time_steps,
                 ptdf_col,
@@ -836,7 +857,6 @@ function _add_expression_to_container!(
     for name in names
         if name in branches
             branch_flow_expr[name, :] .= _make_flow_expressions!(
-                jump_model,
                 name,
                 time_steps,
                 ptdf_col,
@@ -862,26 +882,20 @@ function add_expressions!(
     branch_names = get_branch_argument_variable_axis(net_reduction_data, devices)
     # Needs to be a vector to use multi-threading
     name_to_arc_map = collect(PNM.get_name_to_arc_map(net_reduction_data, B))
-    nodal_balance_expressions = get_expression(
-        container,
-        ActivePowerBalance(),
+    nodal_balance_expressions = get_expression(container, ActivePowerBalance,
         PSY.ACBus,
     )
 
-    branch_flow_expr = add_expression_container!(container,
-        PTDFBranchFlow(),
+    branch_flow_expr = add_expression_container!(container, PTDFBranchFlow,
         B,
         branch_names,
         time_steps,
     )
 
-    jump_model = get_jump_model(container)
-
-    tasks = map(collect(name_to_arc_map)) do pair
+    tasks = map(name_to_arc_map) do pair
         (name, (arc, _)) = pair
         ptdf_col = ptdf[arc, :]
         Threads.@spawn _make_flow_expressions!(
-            jump_model,
             name,
             time_steps,
             ptdf_col,
@@ -925,8 +939,8 @@ function add_constraints!(
     network_model::NetworkModel{<:AbstractPTDFModel},
 ) where {T <: PSY.ACTransmission}
     time_steps = get_time_steps(container)
-    branch_flow_expr = get_expression(container, PTDFBranchFlow(), T)
-    flow_variables = get_variable(container, FlowActivePowerVariable(), T)
+    branch_flow_expr = get_expression(container, PTDFBranchFlow, T)
+    flow_variables = get_variable(container, FlowActivePowerVariable, T)
     net_reduction_data = network_model.network_reduction
     reduced_branch_tracker = get_reduced_branch_tracker(network_model)
     branches = get_branch_argument_constraint_axis(
@@ -935,9 +949,7 @@ function add_constraints!(
         devices,
         cons_type,
     )
-    branch_flow = add_constraints_container!(
-        container,
-        NetworkFlowConstraint(),
+    branch_flow = add_constraints_container!(container, NetworkFlowConstraint,
         T,
         branches,
         time_steps,
@@ -946,8 +958,8 @@ function add_constraints!(
 
     use_slacks = get_use_slacks(device_model)
     if use_slacks
-        slack_ub = get_variable(container, FlowActivePowerSlackUpperBound(), T)
-        slack_lb = get_variable(container, FlowActivePowerSlackLowerBound(), T)
+        slack_ub = get_variable(container, FlowActivePowerSlackUpperBound, T)
+        slack_lb = get_variable(container, FlowActivePowerSlackLowerBound, T)
     end
 
     for name in branches
@@ -988,16 +1000,14 @@ function add_constraints!(
     ptdf = get_PTDF_matrix(network_model)
     branches = PSY.get_name.(devices)
     time_steps = get_time_steps(container)
-    branch_flow = add_constraints_container!(
-        container,
-        NetworkFlowConstraint(),
+    branch_flow = add_constraints_container!(container, NetworkFlowConstraint,
         T,
         branches,
         time_steps,
     )
-    nodal_balance_expressions = get_expression(container, ActivePowerBalance(), PSY.ACBus)
-    flow_variables = get_variable(container, FlowActivePowerVariable(), T)
-    angle_variables = get_variable(container, PhaseShifterAngle(), T)
+    nodal_balance_expressions = get_expression(container, ActivePowerBalance, PSY.ACBus)
+    flow_variables = get_variable(container, FlowActivePowerVariable, T)
+    angle_variables = get_variable(container, PhaseShifterAngle, T)
     jump_model = get_jump_model(container)
     for br in devices
         arc = PNM.get_arc_tuple(br)
@@ -1169,13 +1179,11 @@ function add_constraints!(
     ::NetworkModel{DCPPowerModel},
 ) where {T <: PSY.PhaseShiftingTransformer}
     time_steps = get_time_steps(container)
-    flow_variables = get_variable(container, FlowActivePowerVariable(), T)
-    ps_angle_variables = get_variable(container, PhaseShifterAngle(), T)
-    bus_angle_variables = get_variable(container, VoltageAngle(), PSY.ACBus)
+    flow_variables = get_variable(container, FlowActivePowerVariable, T)
+    ps_angle_variables = get_variable(container, PhaseShifterAngle, T)
+    bus_angle_variables = get_variable(container, VoltageAngle, PSY.ACBus)
     jump_model = get_jump_model(container)
-    branch_flow = add_constraints_container!(
-        container,
-        NetworkFlowConstraint(),
+    branch_flow = add_constraints_container!(container, NetworkFlowConstraint,
         T,
         axes(flow_variables)[1],
         time_steps,
@@ -1209,7 +1217,7 @@ function add_to_objective_function!(
     ::Type{<:AbstractPowerModel},
 ) where {T <: PSY.ACTransmission}
     if get_use_slacks(device_model)
-        variable_up = get_variable(container, FlowActivePowerSlackUpperBound(), T)
+        variable_up = get_variable(container, FlowActivePowerSlackUpperBound, T)
         # Use device names because there might be a network reduction
         for name in axes(variable_up, 1)
             for t in get_time_steps(container)
@@ -1230,8 +1238,8 @@ function add_to_objective_function!(
     ::Type{<:AbstractActivePowerModel},
 ) where {T <: PSY.ACTransmission}
     if get_use_slacks(device_model)
-        variable_up = get_variable(container, FlowActivePowerSlackUpperBound(), T)
-        variable_dn = get_variable(container, FlowActivePowerSlackLowerBound(), T)
+        variable_up = get_variable(container, FlowActivePowerSlackUpperBound, T)
+        variable_dn = get_variable(container, FlowActivePowerSlackLowerBound, T)
         # Use device names because there might be a network reduction
         for name in axes(variable_up, 1)
             for t in get_time_steps(container)

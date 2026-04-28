@@ -2,7 +2,7 @@ module PowerFlowsExt
 
 using InfrastructureOptimizationModels
 using PowerFlows
-import InfrastructureOptimizationModels: IS, PNM, PSY
+import InfrastructureOptimizationModels: IS
 import InfrastructureOptimizationModels:
     OptimizationContainerKey,
     AbstractPowerFlowEvaluationData

@@ -1,3 +1,9 @@
+_to_is_interval(interval::Dates.Millisecond) =
+    interval == UNSET_INTERVAL ? nothing : interval
+
+_to_is_resolution(resolution::Dates.Millisecond) =
+    resolution == UNSET_RESOLUTION ? nothing : resolution
+
 function get_available_reservoirs(sys::PSY.System)
     return PSY.get_components(
         x -> (PSY.get_available(x)),

@@ -6,6 +6,7 @@ using InfrastructureOptimizationModels
 const IOM = InfrastructureOptimizationModels
 using PowerSystems
 const PSY = PowerSystems
+import InfrastructureSystems as IS
 using Logging
 using PowerSystemCaseBuilder
 using PowerNetworkMatrices
@@ -53,12 +54,31 @@ function set_device_models!(template::OperationsProblemTemplate, uc::Bool = true
 end
 
 try
+    # Build both systems, then merge the 5-minute SingleTimeSeries from the
+    # realization system onto the DA system so a single System carries raw
+    # 1-hour and 5-minute data that can be transformed separately per model.
     sys_rts_da = build_system(PSISystems, "modified_RTS_GMLC_DA_sys")
     sys_rts_rt = build_system(PSISystems, "modified_RTS_GMLC_RT_sys")
 
-    for sys in [sys_rts_da, sys_rts_rt]
-        g = get_component(ThermalStandard, sys, "121_NUCLEAR_1")
-        set_must_run!(g, true)
+    # Drop the transform that PSB pre-baked so we can attach new per-resolution
+    # transforms and leave both static series intact.
+    PSY.transform_single_time_series!(
+        sys_rts_da,
+        Hour(48),
+        Hour(24);
+        resolution = Hour(1),
+        delete_existing = true,
+    )
+    PSY.transform_single_time_series!(
+        sys_rts_da,
+        Hour(1),
+        Minute(15);
+        resolution = Minute(5),
+        delete_existing = false,
+    )
+
+    for g in get_components(ThermalStandard, sys_rts_da)
+        get_name(g) == "121_NUCLEAR_1" && set_must_run!(g, true)
     end
 
     for i in 1:2
@@ -66,7 +86,6 @@ try
             NetworkModel(
                 PTDFPowerModel;
                 use_slacks = true,
-                PTDF_matrix = PTDF(sys_rts_da),
                 duals = [CopperPlateBalanceConstraint],
             ),
         )
@@ -76,7 +95,6 @@ try
             NetworkModel(
                 PTDFPowerModel;
                 use_slacks = true,
-                PTDF_matrix = PTDF(sys_rts_rt),
                 duals = [CopperPlateBalanceConstraint],
             ),
         )
@@ -93,17 +111,23 @@ try
             optimizer_solve_log_print = false,
             direct_mode_optimizer = true,
             check_numerical_bounds = false,
+            horizon = Hour(48),
+            interval = Hour(24),
+            resolution = Hour(1),
         )
 
         ed = DecisionModel(
             template_ed,
-            sys_rts_rt;
+            sys_rts_da;
             name = "ED",
             optimizer = optimizer_with_attributes(HiGHS.Optimizer,
                 "mip_rel_gap" => 0.01,
                 "log_to_console" => false),
             initialize_model = true,
             check_numerical_bounds = false,
+            horizon = Hour(48),
+            interval = Hour(24),
+            resolution = Hour(1),
         )
 
         # Build

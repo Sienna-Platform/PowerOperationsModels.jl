@@ -11,6 +11,7 @@ struct ComponentReserveDownBalanceExpression <: ExpressionType end
 struct InterfaceTotalFlow <: ExpressionType end
 struct PTDFBranchFlow <: ExpressionType end
 struct PostContingencyNodalActivePowerDeployment <: PostContingencyExpressions end
+struct RealizedShiftedLoad <: ExpressionType end
 
 #################################################################################
 # Hydro Expressions
@@ -100,6 +101,7 @@ struct ReserveDeploymentBalanceDownCharge <: StorageReserveChargeExpression end
 # Method extensions for output writing
 should_write_resulting_value(::Type{InterfaceTotalFlow}) = true
 should_write_resulting_value(::Type{PTDFBranchFlow}) = true
+should_write_resulting_value(::Type{RealizedShiftedLoad}) = true
 
 should_write_resulting_value(::Type{HydroServedReserveUpExpression}) = true
 should_write_resulting_value(::Type{HydroServedReserveDownExpression}) = true
@@ -114,3 +116,4 @@ convert_output_to_natural_units(::Type{InterfaceTotalFlow}) = true
 convert_output_to_natural_units(::Type{PostContingencyBranchFlow}) = true
 convert_output_to_natural_units(::Type{PostContingencyActivePowerGeneration}) = true
 convert_output_to_natural_units(::Type{PTDFBranchFlow}) = true
+convert_output_to_natural_units(::Type{RealizedShiftedLoad}) = true
