@@ -69,8 +69,7 @@ function build!(
         file_mode,
     )
     if store_system_in_results
-        serialization_task =
-            Threads.@spawn IOM.serialize_system_to_json(model)
+        @warn "store_system_in_results for $(model) is set to true. This will do nothing unless a Simulation is being built."
     end
     try
         Logging.with_logger(logger) do
@@ -78,10 +77,6 @@ function build!(
                 IOM.set_executions!(model, executions)
                 TimerOutputs.@timeit BUILD_PROBLEMS_TIMER "Problem $(get_name(model))" begin
                     build_model!(model)
-                end
-                if store_system_in_results
-                    uuid, json_text = fetch(serialization_task)
-                    IOM.write_system_to_hdf5!(model, uuid, json_text)
                 end
                 set_status!(model, ModelBuildStatus.BUILT)
                 @info "\n$(BUILD_PROBLEMS_TIMER)\n"
@@ -202,8 +197,7 @@ function run!(
     kwargs...,
 )
     if store_system_in_results
-        serialization_task =
-            Threads.@spawn IOM.serialize_system_to_json(model)
+        @warn "store_system_in_results for $(model) is set to true. This will do nothing unless a Simulation is being built."
     end
     build_if_not_already_built!(
         model;
@@ -231,10 +225,6 @@ function run!(
                     get_optimization_container(model),
                     IOM.get_store_params(model),
                 )
-                if store_system_in_results
-                    uuid, json_text = fetch(serialization_task)
-                    IOM.write_system_to_hdf5!(model, uuid, json_text)
-                end
                 TimerOutputs.@timeit RUN_OPERATION_MODEL_TIMER "Run" begin
                     execute_emulation!(
                         model;
