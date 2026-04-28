@@ -34,6 +34,7 @@ InfrastructureOptimizationModels = {url = "https://github.com/NREL-Sienna/Infras
 [compat]
 Dates = "1"
 DocStringExtensions = "~0.8, ~0.9"
+InfrastructureOptimizationModels = "0.1"
 InfrastructureSystems = "3"
 InteractiveUtils = "1.11.0"
 JuMP = "^1.28"
