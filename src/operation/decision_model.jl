@@ -45,6 +45,7 @@ Build the Decision Model based on the specified DecisionProblem.
   - `console_level = Logging.Error`:
   - `file_level = Logging.Info`:
   - `disable_timer_outputs = false` : Enable/Disable timing outputs
+  - `store_system_in_results::Bool = true`: If true, stores the system as JSON in the results HDF5 file.
 """
 function build!(
     model::DecisionModel{<:DecisionProblem};
@@ -53,6 +54,7 @@ function build!(
     console_level = Logging.Error,
     file_level = Logging.Info,
     disable_timer_outputs = false,
+    store_system_in_results = true,
 )
     mkpath(output_dir)
     IOM.set_output_dir!(model, output_dir)
@@ -64,6 +66,9 @@ function build!(
     IOM.add_recorders!(model, recorders)
     IOM.register_recorders!(model, file_mode)
     logger = IS.configure_logging(get_internal(model), IOM.PROBLEM_LOG_FILENAME, file_mode)
+    if store_system_in_results
+        @warn "store_system_in_results for $(model) is set to true. This will do nothing unless a Simulation is being built."
+    end
     try
         Logging.with_logger(logger) do
             try
@@ -126,6 +131,7 @@ keyword arguments to that function.
   - `file_level = Logging.Info`:
   - `disable_timer_outputs = false` : Enable/Disable timing outputs
   - `export_optimization_problem::Bool = true`: If true, serialize the model to a file to allow re-execution later.
+  - `store_system_in_results::Bool = true`: If true, stores the system as JSON in the results HDF5 file.
 
 # Examples
 
@@ -141,8 +147,12 @@ function solve!(
     file_level = Logging.Info,
     disable_timer_outputs = false,
     export_optimization_problem = true,
+    store_system_in_results = true,
     kwargs...,
 )
+    if store_system_in_results
+        @warn "store_system_in_results for $(model) is set to true. This will do nothing unless a Simulation is being built."
+    end
     build_if_not_already_built!(
         model;
         console_level = console_level,
