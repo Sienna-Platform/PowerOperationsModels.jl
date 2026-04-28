@@ -359,6 +359,15 @@ Formulation type to add injection variables for a HydroPumpTurbine only using en
 """
 struct HydroPumpEnergyCommitment <: AbstractHydroPumpFormulation end
 
+"""
+These types share constructors.
+"""
+const HydroTurbineWaterFormulation = Union{
+    HydroTurbineBilinearDispatch,
+    HydroTurbineWaterLinearDispatch,
+    HydroTurbineWaterLinearCommitment
+}
+
 ############################ Storage Generation Formulations ###############################
 abstract type AbstractStorageFormulation <: IOM.AbstractDeviceFormulation end
 
