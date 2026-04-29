@@ -471,7 +471,7 @@ function add_variables!(
     T <: HydroTurbineFlowRateVariable,
     U <: Union{Vector{D}, IS.FlattenIteratorWrapper{D}},
     W <: Union{Vector{E}, IS.FlattenIteratorWrapper{E}},
-    X <: Union{HydroTurbineBilinearDispatch, HydroTurbineWaterLinearDispatch},
+    X <: AbstractHydroTurbineDispatchFormulation,
 } where {
     D <: PSY.HydroTurbine,
     E <: PSY.HydroReservoir,
@@ -1784,6 +1784,82 @@ function add_constraints!(
                         PSY.get_intake_elevation(res) -
                         powerhouse_elevation
                     ) * flow[name, PSY.get_name(res), t] for res in reservoirs
+                ) / (1e6 * base_power)
+            )
+        end
+    end
+    return
+end
+
+"""
+This function define the relationship between turbined flow and power produced with a linear approximation for the bilinear product.
+"""
+function add_constraints!(
+    container::OptimizationContainer,
+    sys::PSY.System,
+    ::Type{TurbinePowerOutputConstraint},
+    devices::IS.FlattenIteratorWrapper{V},
+    model::DeviceModel{V, W},
+    ::NetworkModel{X},
+) where {
+    V <: PSY.HydroTurbine,
+    W <: HydroTurbineBin2BilinearDispatch,
+    X <: PM.AbstractPowerModel,
+}
+    time_steps = get_time_steps(container)
+    base_power = get_model_base_power(container)
+    names = PSY.get_name.(devices)
+    constraint =
+        add_constraints_container!(
+            container,
+            TurbinePowerOutputConstraint,
+            V,
+            names,
+            time_steps,
+        )
+    power = get_variable(container, ActivePowerVariable, V)
+    flow = get_variable(container, HydroTurbineFlowRateVariable, V)
+    head = get_variable(container, HydroReservoirHeadVariable, PSY.HydroReservoir)
+    for d in devices
+        name = PSY.get_name(d)
+        conversion_factor = PSY.get_conversion_factor(d)
+        reservoirs = filter(PSY.get_available, PSY.get_connected_head_reservoirs(sys, d))
+        powerhouse_elevation = PSY.get_powerhouse_elevation(d)
+
+        fh_prod = IOM._add_bilinear_approx!(
+            IOM.Bin2Config(IOM.SolverSOS2QuadConfig(4)),
+            container,
+            V,
+            PSY.get_name.(reservoirs),
+            time_steps,
+            flow[name, :, :],
+            head,
+            repeat(
+                [
+                    (
+                    min = get_variable_lower_bound(HydroTurbineFlowRateVariable, d, W),
+                    max = get_variable_upper_bound(HydroTurbineFlowRateVariable, d, W),
+                )
+                ], length(reservoirs)),
+            [
+                (
+                    min = get_variable_lower_bound(HydroReservoirHeadVariable, res, W),
+                    max = get_variable_upper_bound(HydroReservoirHeadVariable, res, W),
+                ) for res in reservoirs
+            ],
+            "$(get_name(d))_FlowHeadProduct",
+        )
+
+        for t in time_steps
+            constraint[name, t] = JuMP.@constraint(
+                container.JuMPmodel,
+                power[name, t] ==
+                GRAVITATIONAL_CONSTANT * WATER_DENSITY * conversion_factor *
+                sum(
+                    fh_prod[PSY.get_name(res), t]
+                    -
+                    powerhouse_elevation * flow[name, PSY.get_name(res), t]
+                    for res in reservoirs
                 ) / (1e6 * base_power)
             )
         end
