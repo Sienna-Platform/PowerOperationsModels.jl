@@ -87,21 +87,21 @@ function construct_device!(
     i_var = get_variable(container, ConverterCurrent, PSY.InterconnectingConverter)
 
     v_sq_expr = IOM._add_quadratic_approx!(
-        IOM.ManualSOS2QuadConfig(IOM.DEFAULT_INTERPOLATION_LENGTH),
+        IOM.SolverSOS2QuadConfig(DEFAULT_INTERPOLATION_LENGTH),
         container, PSY.InterconnectingConverter,
         ipc_names, time_steps,
         v_expr, v_bounds,
         "v_sq",
     )
     i_sq_expr = IOM._add_quadratic_approx!(
-        IOM.ManualSOS2QuadConfig(IOM.DEFAULT_INTERPOLATION_LENGTH),
+        IOM.SolverSOS2QuadConfig(DEFAULT_INTERPOLATION_LENGTH),
         container, PSY.InterconnectingConverter,
         ipc_names, time_steps,
         i_var, i_bounds,
         "i_sq",
     )
     IOM._add_bilinear_approx!(
-        IOM.Bin2Config(IOM.ManualSOS2QuadConfig(IOM.DEFAULT_INTERPOLATION_LENGTH)),
+        IOM.Bin2Config(IOM.SolverSOS2QuadConfig(DEFAULT_INTERPOLATION_LENGTH)),
         container, PSY.InterconnectingConverter,
         ipc_names, time_steps,
         v_sq_expr, i_sq_expr,
@@ -111,13 +111,15 @@ function construct_device!(
     )
 
     add_constraints!(container, ConverterLossConstraint, devices, model, network_model)
-    add_constraints!(
-        container,
-        CurrentAbsoluteValueConstraint,
-        devices,
-        model,
-        network_model,
-    )
+    if get_attribute(model, "use_linear_loss")
+        add_constraints!(
+            container,
+            CurrentAbsoluteValueConstraint,
+            devices,
+            model,
+            network_model,
+        )
+    end
 
     add_feedforward_constraints!(container, model, devices)
     add_to_objective_function!(

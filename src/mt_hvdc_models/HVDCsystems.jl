@@ -578,6 +578,9 @@ function _converter_vi_bounds(devices)
     return v_bounds, i_bounds
 end
 
+_get_quadratic_term(loss_fn::PSY.QuadraticCurve) = PSY.get_quadratic_term(loss_fn)
+_get_quadratic_term(loss_fn) = 0.0
+
 function add_constraints!(
     container::OptimizationContainer,
     ::Type{ConverterLossConstraint},
@@ -589,27 +592,11 @@ function add_constraints!(
     V <: AbstractQuadraticLossConverter,
     X <: AbstractActivePowerModel,
 }
-    _add_converter_loss_constraint!(
-        container, devices, model;
-        use_linear_loss = get_attribute(model, "use_linear_loss"),
-    )
-    return
-end
-
-function _add_converter_loss_constraint!(
-    container::OptimizationContainer,
-    devices::IS.FlattenIteratorWrapper{U},
-    model::DeviceModel{U, V};
-    use_linear_loss::Bool,
-) where {
-    U <: PSY.InterconnectingConverter,
-    V <: AbstractQuadraticLossConverter,
-}
     time_steps = get_time_steps(container)
     P_ac_var = get_variable(container, ActivePowerVariable, U)
     vi_expr = get_expression(container, IOM.BilinearProductExpression, U, "vi")
     i_sq_expr = get_expression(container, IOM.QuadraticExpression, U, "i_sq")
-    if use_linear_loss
+    if get_attribute(model, "use_linear_loss")
         i_pos_var = get_variable(container, ConverterPositiveCurrent, U)
         i_neg_var = get_variable(container, ConverterNegativeCurrent, U)
     end
@@ -623,18 +610,12 @@ function _add_converter_loss_constraint!(
     for device in devices
         name = PSY.get_name(device)
         loss_function = PSY.get_loss_function(device)
-        if isa(loss_function, PSY.QuadraticCurve)
-            a = PSY.get_quadratic_term(loss_function)
-            b = PSY.get_proportional_term(loss_function)
-            c = PSY.get_constant_term(loss_function)
-        else
-            a = 0.0
-            b = PSY.get_proportional_term(loss_function)
-            c = PSY.get_constant_term(loss_function)
-        end
+        a = _get_quadratic_term(loss_function)
+        b = PSY.get_proportional_term(loss_function)
+        c = PSY.get_constant_term(loss_function)
         for t in time_steps
             loss = a * i_sq_expr[name, t] + c
-            if use_linear_loss
+            if get_attribute(model, "use_linear_loss")
                 loss += b * (i_pos_var[name, t] + i_neg_var[name, t])
             end
             loss_const[name, t] = JuMP.@constraint(

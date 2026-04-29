@@ -146,3 +146,40 @@ end
           IOM.ModelBuildStatus.BUILT
     @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
 end
+
+@testset "HVDC Bin2 vs NLP QuadraticLossConverter agreement" begin
+    function _build_and_solve(formulation, optimizer)
+        sys = _generate_test_hvdc_sys()
+        template = OperationsProblemTemplate()
+        set_device_model!(template, ThermalStandard, ThermalDispatchNoMin)
+        set_device_model!(template, PowerLoad, StaticPowerLoad)
+        set_device_model!(template, DeviceModel(Line, StaticBranch))
+        set_device_model!(template, TModelHVDCLine, DCLossyLine)
+        set_device_model!(
+            template,
+            DeviceModel(InterconnectingConverter, formulation);
+            attributes = Dict("use_linear_loss" => false)
+        )
+        set_hvdc_network_model!(template, VoltageDispatchHVDCNetworkModel)
+        model = DecisionModel(
+            template,
+            sys;
+            store_variable_names = true,
+            optimizer = optimizer,
+        )
+        @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+              IOM.ModelBuildStatus.BUILT
+        @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+        return model
+    end
+
+    bin2_model = _build_and_solve(Bin2QuadraticLossConverter, HiGHS_optimizer)
+    nlp_model = _build_and_solve(QuadraticLossConverter, ipopt_optimizer)
+
+    bin2_obj = IOM.get_objective_value(OptimizationProblemOutputs(bin2_model))
+    nlp_obj = IOM.get_objective_value(OptimizationProblemOutputs(nlp_model))
+
+    # Bin2 is a relaxation/PWL approximation of the exact NLP. The two objectives
+    # should agree to within a few percent on this small system.
+    @test isapprox(bin2_obj, nlp_obj; rtol = 0.05)
+end
