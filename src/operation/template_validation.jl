@@ -1,3 +1,5 @@
+const _TEMPLATE_VALIDATION_EXCLUSIONS = [PSY.Arc, PSY.Area, PSY.ACBus, PSY.LoadZone]
+
 function validate_template_impl!(model::IOM.OperationModel)
     template = get_template(model)
     settings = get_settings(model)
@@ -8,7 +10,7 @@ function validate_template_impl!(model::IOM.OperationModel)
     modeled_types = IOM.get_component_types(template)
     system_component_types = PSY.get_existing_component_types(system)
     network_model = get_network_model(template)
-    valid_device_types = union(modeled_types, IOM._TEMPLATE_VALIDATION_EXCLUSIONS)
+    valid_device_types = union(modeled_types, _TEMPLATE_VALIDATION_EXCLUSIONS)
     unmodeled_branch_types = DataType[]
 
     for m in setdiff(system_component_types, valid_device_types)
