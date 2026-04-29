@@ -505,24 +505,12 @@ export PostContingencyActivePowerReserveDeploymentVariable
 # HVDC Variables
 export DCVoltage
 export DCLineCurrent
-export ConverterPowerDirection
 export ConverterCurrent
-export SquaredConverterCurrent
-export InterpolationSquaredCurrentVariable
-export InterpolationBinarySquaredCurrentVariable
 export ConverterPositiveCurrent
 export ConverterNegativeCurrent
-export SquaredDCVoltage
-export InterpolationSquaredVoltageVariable
-export InterpolationBinarySquaredVoltageVariable
-export AuxBilinearConverterVariable
-export AuxBilinearSquaredConverterVariable
-export InterpolationSquaredBilinearVariable
-export InterpolationBinarySquaredBilinearVariable
+export ConverterCurrentDirection
 export HVDCFlowDirectionVariable
 export HVDCLosses
-export ConverterDCPower
-export ConverterCurrentDirection
 
 # Load Variables
 export ShiftUpActivePowerVariable
@@ -774,6 +762,8 @@ export HVDCTwoTerminalLCC
 # Converter Formulations
 export LosslessConverter
 export LinearLossConverter
+export AbstractQuadraticLossConverter
+export Bin2QuadraticLossConverter
 export QuadraticLossConverter
 
 # DC Line Formulations

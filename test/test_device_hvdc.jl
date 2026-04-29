@@ -97,7 +97,7 @@ end
     @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
 end
 
-@testset "HVDC System with Losses Network" begin
+@testset "HVDC System with Losses Network (Bin2QuadraticLossConverter)" begin
     sys = _generate_test_hvdc_sys()
     template = OperationsProblemTemplate()
     set_device_model!(template, ThermalStandard, ThermalDispatchNoMin)
@@ -106,13 +106,7 @@ end
     set_device_model!(template, TModelHVDCLine, DCLossyLine)
     ipc_model = DeviceModel(
         InterconnectingConverter,
-        QuadraticLossConverter;
-        attributes = Dict(
-            "voltage_segments" => 3,
-            "current_segments" => 3,
-            "bilinear_segments" => 3,
-            "use_linear_loss" => true,
-        ),
+        Bin2QuadraticLossConverter,
     )
     set_device_model!(template, ipc_model)
     set_hvdc_network_model!(template, VoltageDispatchHVDCNetworkModel)
@@ -122,6 +116,31 @@ end
             sys;
             store_variable_names = true,
             optimizer = HiGHS_optimizer,
+        )
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+    @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+end
+
+@testset "HVDC System with Losses Network (QuadraticLossConverter NLP)" begin
+    sys = _generate_test_hvdc_sys()
+    template = OperationsProblemTemplate()
+    set_device_model!(template, ThermalStandard, ThermalDispatchNoMin)
+    set_device_model!(template, PowerLoad, StaticPowerLoad)
+    set_device_model!(template, DeviceModel(Line, StaticBranch))
+    set_device_model!(template, TModelHVDCLine, DCLossyLine)
+    ipc_model = DeviceModel(
+        InterconnectingConverter,
+        QuadraticLossConverter,
+    )
+    set_device_model!(template, ipc_model)
+    set_hvdc_network_model!(template, VoltageDispatchHVDCNetworkModel)
+    model =
+        DecisionModel(
+            template,
+            sys;
+            store_variable_names = true,
+            optimizer = ipopt_optimizer,
         )
     @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
           IOM.ModelBuildStatus.BUILT

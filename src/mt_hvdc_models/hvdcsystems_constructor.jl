@@ -48,107 +48,75 @@ function construct_device!(
     container::OptimizationContainer,
     sys::PSY.System,
     ::ArgumentConstructStage,
-    model::DeviceModel{PSY.InterconnectingConverter, QuadraticLossConverter},
+    model::DeviceModel{PSY.InterconnectingConverter, T},
     network_model::NetworkModel{<:AbstractActivePowerModel},
-)
-    devices = get_available_components(
-        model,
-        sys,
-    )
-    #####################
-    ##### Variables #####
-    #####################
-
-    # Add Power Variable
-    add_variables!(container, ActivePowerVariable, devices, QuadraticLossConverter) # p_c^{ac}
-    add_variables!(container, ConverterDCPower, devices, QuadraticLossConverter) # p_c
-    # Add Current Variables: i, i+, i-
-    add_variables!(container, ConverterCurrent, devices, QuadraticLossConverter) # i
-    add_variables!(container, SquaredConverterCurrent, devices, QuadraticLossConverter) # i^sq
-    use_linear_loss = get_attribute(model, "use_linear_loss")
-    if use_linear_loss
-        add_variables!(
-            container,
-            ConverterPositiveCurrent,
-            devices,
-            QuadraticLossConverter,
-        ) # i^+
-        add_variables!(
-            container,
-            ConverterNegativeCurrent,
-            devices,
-            QuadraticLossConverter,
-        ) # i^-
-        add_variables!(
-            container,
-            ConverterCurrentDirection,
-            devices,
-            QuadraticLossConverter,
-        ) # ν
-    end
-    # Add Voltage Variables: v^sq
-    add_variables!(container, SquaredDCVoltage, devices, QuadraticLossConverter)
-    # Add Bilinear Variables: γ, γ^{sq}
-    add_variables!(
-        container,
-        AuxBilinearConverterVariable,
-        devices,
-        QuadraticLossConverter,
-    ) # γ
-    add_variables!(
-        container,
-        AuxBilinearSquaredConverterVariable,
-        devices,
-        QuadraticLossConverter,
-    ) # γ^{sq}
-
-    #### Add Interpolation Variables ####
-
-    v_segments = get_attribute(model, "voltage_segments")
-    i_segments = get_attribute(model, "current_segments")
-    γ_segments = get_attribute(model, "bilinear_segments")
-
-    vars_vector = [
-        # Voltage v #
-        (InterpolationSquaredVoltageVariable, v_segments), # δ^v
-        (InterpolationBinarySquaredVoltageVariable, v_segments), # z^v
-        # Current i #
-        (InterpolationSquaredCurrentVariable, i_segments), # δ^i
-        (InterpolationBinarySquaredCurrentVariable, i_segments), # z^i
-        # Bilinear γ #
-        (InterpolationSquaredBilinearVariable, γ_segments), # δ^γ
-        (InterpolationBinarySquaredBilinearVariable, γ_segments), # z^γ
-    ]
-
-    for (T, len_segments) in vars_vector
-        add_sparse_pwl_interpolation_variables!(container, T,
-            devices,
-            model,
-            len_segments,
-        )
+) where {T <: AbstractQuadraticLossConverter}
+    devices = get_available_components(model, sys)
+    add_variables!(container, ActivePowerVariable, devices, T)
+    add_variables!(container, ConverterCurrent, devices, T)
+    if get_attribute(model, "use_linear_loss")
+        add_variables!(container, ConverterPositiveCurrent, devices, T)
+        add_variables!(container, ConverterNegativeCurrent, devices, T)
+        add_variables!(container, ConverterCurrentDirection, devices, T)
     end
 
-    #####################
-    #### Expressions ####
-    #####################
-
     add_to_expression!(
-        container,
-        ActivePowerBalance,
-        ActivePowerVariable,
-        devices,
-        model,
-        network_model,
+        container, ActivePowerBalance, ActivePowerVariable,
+        devices, model, network_model,
     )
     add_to_expression!(
-        container,
-        DCCurrentBalance,
-        ConverterCurrent,
-        devices,
-        model,
-        network_model,
+        container, DCCurrentBalance, ConverterCurrent,
+        devices, model, network_model,
     )
     add_feedforward_arguments!(container, model, devices)
+    return
+end
+
+function construct_device!(
+    container::OptimizationContainer,
+    sys::PSY.System,
+    ::ModelConstructStage,
+    model::DeviceModel{PSY.InterconnectingConverter, Bin2QuadraticLossConverter},
+    network_model::NetworkModel{<:AbstractActivePowerModel},
+)
+    devices = get_available_components(model, sys)
+    time_steps = get_time_steps(container)
+    ipc_names = [PSY.get_name(d) for d in devices]
+    v_bounds, i_bounds = _converter_vi_bounds(devices)
+    v_expr = _voltage_expr_per_converter(container, devices, ipc_names, time_steps)
+    i_var = get_variable(container, ConverterCurrent, PSY.InterconnectingConverter)
+
+    v_sq_expr = IOM._add_quadratic_approx!(
+        IOM.ManualSOS2QuadConfig(IOM.DEFAULT_INTERPOLATION_LENGTH),
+        container, PSY.InterconnectingConverter,
+        ipc_names, time_steps,
+        v_expr, v_bounds,
+        "v_sq",
+    )
+    i_sq_expr = IOM._add_quadratic_approx!(
+        IOM.ManualSOS2QuadConfig(IOM.DEFAULT_INTERPOLATION_LENGTH),
+        container, PSY.InterconnectingConverter,
+        ipc_names, time_steps,
+        i_var, i_bounds,
+        "i_sq",
+    )
+    IOM._add_bilinear_approx!(
+        IOM.Bin2Config(IOM.ManualSOS2QuadConfig(IOM.DEFAULT_INTERPOLATION_LENGTH)),
+        container, PSY.InterconnectingConverter,
+        ipc_names, time_steps,
+        v_sq_expr, i_sq_expr,
+        v_expr, i_var,
+        v_bounds, i_bounds,
+        "vi",
+    )
+
+    add_constraints!(container, ConverterLossConstraint, devices, model, network_model)
+    add_constraints!(container, CurrentAbsoluteValueConstraint, devices, model, network_model)
+
+    add_feedforward_constraints!(container, model, devices)
+    add_to_objective_function!(
+        container, devices, model, get_network_formulation(network_model),
+    )
     return
 end
 
@@ -159,72 +127,38 @@ function construct_device!(
     model::DeviceModel{PSY.InterconnectingConverter, QuadraticLossConverter},
     network_model::NetworkModel{<:AbstractActivePowerModel},
 )
-    devices = get_available_components(
-        model,
-        sys,
+    devices = get_available_components(model, sys)
+    time_steps = get_time_steps(container)
+    ipc_names = [PSY.get_name(d) for d in devices]
+    v_bounds, i_bounds = _converter_vi_bounds(devices)
+    v_expr = _voltage_expr_per_converter(container, devices, ipc_names, time_steps)
+    i_var = get_variable(container, ConverterCurrent, PSY.InterconnectingConverter)
+
+    IOM._add_quadratic_approx!(
+        IOM.NoQuadApproxConfig(),
+        container, PSY.InterconnectingConverter,
+        ipc_names, time_steps,
+        i_var, i_bounds,
+        "i_sq",
+    )
+    IOM._add_bilinear_approx!(
+        IOM.NoBilinearApproxConfig(),
+        container, PSY.InterconnectingConverter,
+        ipc_names, time_steps,
+        v_expr, i_var,
+        v_bounds, i_bounds,
+        "vi",
     )
 
-    add_constraints!(
-        container,
-        ConverterPowerCalculationConstraint,
-        devices,
-        model,
-        network_model,
-    )
-    add_constraints!(
-        container,
-        ConverterMcCormickEnvelopes,
-        devices,
-        model,
-        network_model,
-    )
-    add_constraints!(
-        container,
-        ConverterLossConstraint,
-        devices,
-        model,
-        network_model,
-    )
-    use_linear_loss = get_attribute(model, "use_linear_loss")
-    if use_linear_loss
-        add_constraints!(
-            container,
-            CurrentAbsoluteValueConstraint,
-            devices,
-            model,
-            network_model,
-        )
+    add_constraints!(container, ConverterLossConstraint, devices, model, network_model)
+    if get_attribute(model, "use_linear_loss")
+        add_constraints!(container, CurrentAbsoluteValueConstraint, devices, model, network_model)
     end
-    add_constraints!(
-        container,
-        InterpolationVoltageConstraints,
-        devices,
-        model,
-        network_model,
-    )
-    add_constraints!(
-        container,
-        InterpolationCurrentConstraints,
-        devices,
-        model,
-        network_model,
-    )
-    add_constraints!(
-        container,
-        InterpolationBilinearConstraints,
-        devices,
-        model,
-        network_model,
-    )
 
     add_feedforward_constraints!(container, model, devices)
     add_to_objective_function!(
-        container,
-        devices,
-        model,
-        get_network_formulation(network_model),
+        container, devices, model, get_network_formulation(network_model),
     )
-    #add_constraint_dual!(container, sys, model)
     return
 end
 
