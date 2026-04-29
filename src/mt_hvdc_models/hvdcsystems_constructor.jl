@@ -111,7 +111,13 @@ function construct_device!(
     )
 
     add_constraints!(container, ConverterLossConstraint, devices, model, network_model)
-    add_constraints!(container, CurrentAbsoluteValueConstraint, devices, model, network_model)
+    add_constraints!(
+        container,
+        CurrentAbsoluteValueConstraint,
+        devices,
+        model,
+        network_model,
+    )
 
     add_feedforward_constraints!(container, model, devices)
     add_to_objective_function!(
@@ -152,7 +158,13 @@ function construct_device!(
 
     add_constraints!(container, ConverterLossConstraint, devices, model, network_model)
     if get_attribute(model, "use_linear_loss")
-        add_constraints!(container, CurrentAbsoluteValueConstraint, devices, model, network_model)
+        add_constraints!(
+            container,
+            CurrentAbsoluteValueConstraint,
+            devices,
+            model,
+            network_model,
+        )
     end
 
     add_feedforward_constraints!(container, model, devices)
