@@ -142,9 +142,7 @@ function get_default_attributes(
     ::Type{PSY.InterconnectingConverter},
     ::Type{Bin2QuadraticLossConverter},
 )
-    return Dict{String, Any}(
-        "use_linear_loss" => true
-    )
+    return Dict{String, Any}()
 end
 
 function get_default_attributes(
@@ -542,44 +540,19 @@ end
 
 ############## Converters ##################
 
-# Builds, per converter, an AffExpr container of the DC-bus voltage variable indexed
-# by converter name. IOM bilinear/quadratic approximations consume an x_var indexed by
-# component name; DCVoltage is stored per DC bus, so we wrap it for compatibility.
-function _voltage_expr_per_converter(
-    container::OptimizationContainer,
-    devices,
-    ipc_names::Vector{String},
-    time_steps,
-)
-    v_var = get_variable(container, DCVoltage, PSY.DCBus)
-    v_expr = JuMP.Containers.DenseAxisArray{JuMP.AffExpr}(undef, ipc_names, time_steps)
-    for d in devices
-        name = PSY.get_name(d)
-        dc_bus_name = PSY.get_name(PSY.get_dc_bus(d))
-        for t in time_steps
-            ae = JuMP.AffExpr(0.0)
-            add_proportional_to_jump_expression!(ae, v_var[dc_bus_name, t], 1.0)
-            v_expr[name, t] = ae
-        end
-    end
-    return v_expr
-end
-
-function _converter_vi_bounds(devices)
-    n = length(devices)
-    v_bounds = Vector{IOM.MinMax}(undef, n)
-    i_bounds = Vector{IOM.MinMax}(undef, n)
-    for (k, d) in enumerate(devices)
-        v_min, v_max = PSY.get_voltage_limits(PSY.get_dc_bus(d))
-        i_max = PSY.get_max_dc_current(d)
-        v_bounds[k] = IOM.MinMax((min = v_min, max = v_max))
-        i_bounds[k] = IOM.MinMax((min = -i_max, max = i_max))
-    end
-    return v_bounds, i_bounds
-end
-
 _get_quadratic_term(loss_fn::PSY.QuadraticCurve) = PSY.get_quadratic_term(loss_fn)
 _get_quadratic_term(loss_fn) = 0.0
+
+_use_linear_loss(::Type{Bin2QuadraticLossConverter}, _) = true
+_use_linear_loss(::Type{QuadraticLossConverter}, model) =
+    get_attribute(model, "use_linear_loss")
+
+function _devices_with_linear_loss(devices)
+    return [
+        d for d in devices if
+        !iszero(PSY.get_proportional_term(PSY.get_loss_function(d)))
+    ]
+end
 
 function add_constraints!(
     container::OptimizationContainer,
@@ -596,7 +569,9 @@ function add_constraints!(
     P_ac_var = get_variable(container, ActivePowerVariable, U)
     vi_expr = get_expression(container, IOM.BilinearProductExpression, U, "vi")
     i_sq_expr = get_expression(container, IOM.QuadraticExpression, U, "i_sq")
-    if get_attribute(model, "use_linear_loss")
+    use_linear_loss =
+        _use_linear_loss(V, model) && !isempty(_devices_with_linear_loss(devices))
+    if use_linear_loss
         i_pos_var = get_variable(container, ConverterPositiveCurrent, U)
         i_neg_var = get_variable(container, ConverterNegativeCurrent, U)
     end
@@ -615,7 +590,7 @@ function add_constraints!(
         c = PSY.get_constant_term(loss_function)
         for t in time_steps
             loss = a * i_sq_expr[name, t] + c
-            if get_attribute(model, "use_linear_loss")
+            if use_linear_loss && !iszero(b)
                 loss += b * (i_pos_var[name, t] + i_neg_var[name, t])
             end
             loss_const[name, t] = JuMP.@constraint(
@@ -630,13 +605,14 @@ end
 function add_constraints!(
     container::OptimizationContainer,
     ::Type{T},
-    devices::IS.FlattenIteratorWrapper{U},
+    devices::W,
     ::DeviceModel{U, V},
     ::NetworkModel{<:AbstractPowerModel},
 ) where {
     T <: CurrentAbsoluteValueConstraint,
     U <: PSY.InterconnectingConverter,
     V <: AbstractQuadraticLossConverter,
+    W <: Union{Vector{U}, IS.FlattenIteratorWrapper{U}},
 }
     time_steps = get_time_steps(container)
     names = [PSY.get_name(d) for d in devices]
