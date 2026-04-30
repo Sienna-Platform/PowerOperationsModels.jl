@@ -158,7 +158,7 @@ end
         set_device_model!(
             template,
             DeviceModel(InterconnectingConverter, formulation);
-            attributes = Dict("use_linear_loss" => false)
+            attributes = Dict("use_linear_loss" => false),
         )
         set_hvdc_network_model!(template, VoltageDispatchHVDCNetworkModel)
         model = DecisionModel(
