@@ -639,6 +639,55 @@ Auxiliary Variable for Storage Models that solve for total energy output
 """
 struct StorageEnergyOutput <: AuxVariableType end
 
+#################################################################################
+# Hybrid System Variables
+#################################################################################
+
+"""
+Abstract type for variables representing flows internal to a `PSY.HybridSystem`.
+"""
+abstract type HybridSubcomponentVariableType <: VariableType end
+
+"Active power dispatched by the thermal subcomponent of a hybrid system."
+struct HybridThermalActivePower <: HybridSubcomponentVariableType end
+
+"Active power dispatched by the renewable subcomponent of a hybrid system."
+struct HybridRenewableActivePower <: HybridSubcomponentVariableType end
+
+"Active power consumed by the storage subcomponent (charge) of a hybrid system."
+struct HybridStorageChargePower <: HybridSubcomponentVariableType end
+
+"Active power produced by the storage subcomponent (discharge) of a hybrid system."
+struct HybridStorageDischargePower <: HybridSubcomponentVariableType end
+
+"Binary reservation variable for the storage subcomponent of a hybrid system."
+struct HybridStorageReservation <: HybridSubcomponentVariableType end
+
+"Reserve quantity offered to the grid through the hybrid's outflow (discharge) side."
+struct HybridReserveVariableOut <: VariableType end
+
+"Reserve quantity offered to the grid through the hybrid's inflow (charge) side."
+struct HybridReserveVariableIn <: VariableType end
+
+"""
+Abstract type for per-subcomponent reserve allocation variables inside a hybrid system.
+Used to split the hybrid-boundary reserve commitment across the thermal, renewable, and
+storage subcomponents.
+"""
+abstract type HybridComponentReserveVariableType <: VariableType end
+
+"Reserve allocated to the thermal subcomponent of a hybrid system."
+struct HybridThermalReserveVariable <: HybridComponentReserveVariableType end
+
+"Reserve allocated to the renewable subcomponent of a hybrid system."
+struct HybridRenewableReserveVariable <: HybridComponentReserveVariableType end
+
+"Reserve allocated to the charging side of a hybrid system's storage subcomponent."
+struct HybridChargingReserveVariable <: HybridComponentReserveVariableType end
+
+"Reserve allocated to the discharging side of a hybrid system's storage subcomponent."
+struct HybridDischargingReserveVariable <: HybridComponentReserveVariableType end
+
 const MULTI_START_VARIABLES = (HotStartVariable, WarmStartVariable, ColdStartVariable)
 
 should_write_resulting_value(::Type{PiecewiseLinearCostVariable}) = false

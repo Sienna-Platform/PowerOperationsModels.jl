@@ -403,3 +403,45 @@ The formulation supports the following attributes when used in a [`PowerSimulati
 See the [`StorageDispatchWithReserves` Mathematical Model](@ref) for the full mathematical description.
 """
 struct StorageDispatchWithReserves <: AbstractStorageFormulation end
+
+############################ Hybrid System Formulations ###################################
+abstract type AbstractHybridFormulation <: IOM.AbstractDeviceFormulation end
+abstract type AbstractHybridFormulationWithReserves <: AbstractHybridFormulation end
+
+"""
+Formulation type for hybrid systems with internal sub-component dispatch and reserve
+participation. A `PSY.HybridSystem` may contain a thermal unit, a renewable unit, an
+electric load, and storage; each subcomponent contributes to the hybrid's PCC injection.
+
+Reserve participation is wired through the storage subcomponent using POM's existing
+`ReserveCoverageConstraint`/`ReserveDischargeConstraint`/`ReserveChargeConstraint`/
+`StorageTotalReserveConstraint` infrastructure (with hybrid-specific dispatch methods);
+the thermal and renewable subcomponents use dedicated hybrid reserve-limit constraints.
+
+# Example
+
+```julia
+DeviceModel(
+    PSY.HybridSystem,
+    HybridDispatchWithReserves;
+    attributes = Dict(
+        "reservation"  => true,
+        "energy_target" => false,
+    ),
+)
+```
+
+# Attributes
+
+  - `"reservation"`: forces the storage subcomponent to operate exclusively on charge or
+    discharge mode through the entire operation interval.
+  - `"energy_target"`: adds `StateofChargeTargetConstraint` at the storage subcomponent
+    (slack variables included if `use_slacks=true`).
+
+!!! note
+
+    Cycling limits are not exposed as a hybrid attribute in this version. If cycling
+    behavior is required for the storage subcomponent, file a follow-up to wire POM's
+    `StorageCyclingCharge`/`StorageCyclingDischarge` through the hybrid path.
+"""
+struct HybridDispatchWithReserves <: AbstractHybridFormulationWithReserves end

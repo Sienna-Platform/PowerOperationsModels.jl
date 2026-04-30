@@ -266,6 +266,10 @@ include("services_models/reserve_group.jl")
 include("services_models/transmission_interface.jl")
 include("services_models/services_constructor.jl")
 
+# Hybrid System Models (after services_models since they share reserve infrastructure)
+include("hybrid_system_models/hybrid_systems.jl")
+include("hybrid_system_models/hybridsystem_constructor.jl")
+
 # Two-Terminal HVDC Models
 # NOTE: AC_branches.jl and branch_constructor.jl in twoterminal_hvdc_models/ are
 # identical copies of the files in ac_transmission_models/ — do NOT include them.
@@ -646,6 +650,55 @@ export ReserveDeploymentBalanceDownCharge
 # parameters
 export EnergyLimitParameter
 export EnergyTargetParameter
+
+######## Hybrid System Formulations ########
+export AbstractHybridFormulation
+export AbstractHybridFormulationWithReserves
+export HybridDispatchWithReserves
+
+# variables
+export HybridChargingReserveVariable
+export HybridDischargingReserveVariable
+export HybridRenewableActivePower
+export HybridRenewableReserveVariable
+export HybridReserveVariableIn
+export HybridReserveVariableOut
+export HybridStorageChargePower
+export HybridStorageDischargePower
+export HybridStorageReservation
+export HybridThermalActivePower
+export HybridThermalReserveVariable
+
+# expressions
+export HybridServedReserveInDownExpression
+export HybridServedReserveInUpExpression
+export HybridServedReserveOutDownExpression
+export HybridServedReserveOutUpExpression
+export HybridTotalReserveInDownExpression
+export HybridTotalReserveInUpExpression
+export HybridTotalReserveOutDownExpression
+export HybridTotalReserveOutUpExpression
+
+# constraints
+export HybridEnergyAssetBalanceConstraint
+export HybridRenewableActivePowerLimitConstraint
+export HybridRenewableReserveLimitConstraint
+export HybridReserveAssignmentConstraint
+export HybridReserveBalanceConstraint
+export HybridStatusInOnConstraint
+export HybridStatusOutOnConstraint
+export HybridStorageBalanceConstraint
+export HybridStorageChargingReservePowerLimitConstraint
+export HybridStorageDischargingReservePowerLimitConstraint
+export HybridStorageStatusChargeOnConstraint
+export HybridStorageStatusDischargeOnConstraint
+export HybridThermalOnVariableLbConstraint
+export HybridThermalOnVariableUbConstraint
+export HybridThermalReserveLimitConstraint
+
+# parameters
+export HybridElectricLoadTimeSeriesParameter
+export HybridRenewableActivePowerTimeSeriesParameter
 
 #################################################################################
 # Exports - Constraint Types (defined in core/constraints.jl)
