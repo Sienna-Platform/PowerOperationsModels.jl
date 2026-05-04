@@ -765,9 +765,10 @@ function add_constraints!(
     p_re = get_variable(container, HybridRenewableActivePower, V)
 
     re_param_key = ParameterKey(HybridRenewableActivePowerTimeSeriesParameter, V)
-    re_param = haskey(IOM.get_parameters(container), re_param_key) ?
-        get_parameter_array(container, HybridRenewableActivePowerTimeSeriesParameter, V) :
-        nothing
+    re_param_container = haskey(IOM.get_parameters(container), re_param_key) ?
+        get_parameter(container, HybridRenewableActivePowerTimeSeriesParameter, V) : nothing
+    re_multiplier = re_param_container === nothing ? nothing :
+        get_multiplier_array(re_param_container)
 
     constraint = add_constraints_container!(container, HybridRenewableActivePowerLimitConstraint, V, names, time_steps)
 
@@ -775,11 +776,11 @@ function add_constraints!(
         name = PSY.get_name(d)
         renewable_unit = PSY.get_renewable_unit(d)
         renewable_unit === nothing && continue
-        if re_param !== nothing
-            mult = get_multiplier_value(HybridRenewableActivePowerTimeSeriesParameter(), d, get_formulation(model)())
+        if re_param_container !== nothing
+            re_ref = get_parameter_column_refs(re_param_container, name)[t]
             constraint[name, t] = JuMP.@constraint(
                 get_jump_model(container),
-                p_re[name, t] <= mult * re_param[name, t]
+                p_re[name, t] <= re_multiplier[name, t] * re_ref
             )
         else
             max_p = PSY.get_max_active_power(renewable_unit)
@@ -812,9 +813,10 @@ function add_constraints!(
     p_re = get_variable(container, HybridRenewableActivePower, V)
 
     re_param_key = ParameterKey(HybridRenewableActivePowerTimeSeriesParameter, V)
-    re_param = haskey(IOM.get_parameters(container), re_param_key) ?
-        get_parameter_array(container, HybridRenewableActivePowerTimeSeriesParameter, V) :
-        nothing
+    re_param_container = haskey(IOM.get_parameters(container), re_param_key) ?
+        get_parameter(container, HybridRenewableActivePowerTimeSeriesParameter, V) : nothing
+    re_multiplier = re_param_container === nothing ? nothing :
+        get_multiplier_array(re_param_container)
 
     con_ub = add_constraints_container!(container, HybridRenewableReserveLimitConstraint, V, names, time_steps; meta = "ub")
     con_lb = add_constraints_container!(container, HybridRenewableReserveLimitConstraint, V, names, time_steps; meta = "lb")
@@ -826,11 +828,11 @@ function add_constraints!(
         services = PSY.get_services(d)
         r_up = _renewable_reserve_up_expr(container, d, t, services)
         r_dn = _renewable_reserve_down_expr(container, d, t, services)
-        if re_param !== nothing
-            mult = get_multiplier_value(HybridRenewableActivePowerTimeSeriesParameter(), d, get_formulation(model)())
+        if re_param_container !== nothing
+            re_ref = get_parameter_column_refs(re_param_container, name)[t]
             con_ub[name, t] = JuMP.@constraint(
                 get_jump_model(container),
-                p_re[name, t] + r_up <= mult * re_param[name, t]
+                p_re[name, t] + r_up <= re_multiplier[name, t] * re_ref
             )
         else
             max_p = PSY.get_max_active_power(renewable_unit)
@@ -1132,7 +1134,7 @@ end
 function add_constraints!(
     container::OptimizationContainer,
     ::Type{T},
-    devices::IS.FlattenIteratorWrapper{V},
+    devices::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
     model::DeviceModel{V, HybridDispatchWithReserves},
     network_model::NetworkModel{X},
 ) where {
@@ -1374,8 +1376,6 @@ function add_constraints!(
     p_in = get_variable(container, ActivePowerInVariable, V)
     constraint = add_constraints_container!(container, HybridEnergyAssetBalanceConstraint, V, names, time_steps)
 
-    has_reserves = W <: AbstractHybridFormulationWithReserves && has_service_model(model)
-
     # Optional subcomponent variables — only present when the hybrid has them
     p_th = haskey(IOM.get_variables(container), VariableKey(HybridThermalActivePower, V)) ?
         get_variable(container, HybridThermalActivePower, V) : nothing
@@ -1386,8 +1386,12 @@ function add_constraints!(
     p_ds = haskey(IOM.get_variables(container), VariableKey(HybridStorageDischargePower, V)) ?
         get_variable(container, HybridStorageDischargePower, V) : nothing
 
-    load_param = haskey(IOM.get_parameters(container), ParameterKey(HybridElectricLoadTimeSeriesParameter, V)) ?
-        get_parameter_array(container, HybridElectricLoadTimeSeriesParameter, V) : nothing
+    load_param_container = haskey(
+        IOM.get_parameters(container),
+        ParameterKey(HybridElectricLoadTimeSeriesParameter, V),
+    ) ? get_parameter(container, HybridElectricLoadTimeSeriesParameter, V) : nothing
+    load_multiplier = load_param_container === nothing ? nothing :
+        get_multiplier_array(load_param_container)
 
     for d in devices, t in time_steps
         name = PSY.get_name(d)
@@ -1404,9 +1408,9 @@ function add_constraints!(
         if p_ch !== nothing && PSY.get_storage(d) !== nothing
             JuMP.add_to_expression!(rhs, p_ch[name, t], -1.0)
         end
-        if load_param !== nothing && PSY.get_electric_load(d) !== nothing
-            mult = get_multiplier_value(HybridElectricLoadTimeSeriesParameter(), d, get_formulation(model)())
-            JuMP.add_to_expression!(rhs, load_param[name, t], -mult)
+        if load_param_container !== nothing && PSY.get_electric_load(d) !== nothing
+            load_ref = get_parameter_column_refs(load_param_container, name)[t]
+            JuMP.add_to_expression!(rhs, -load_multiplier[name, t], load_ref)
         end
         constraint[name, t] = JuMP.@constraint(
             get_jump_model(container),
@@ -1492,7 +1496,7 @@ function add_constraints!(
                           HybridChargingReserveVariable, HybridDischargingReserveVariable)
                 key = VariableKey(var_t, V, "$(s_type)_$s_name")
                 if haskey(IOM.get_variables(container), key)
-                    var = get_variable(container, var_t, s_type, s_name)
+                    var = get_variable(container, key)
                     JuMP.add_to_expression!(rhs, var[name, t], 1.0)
                 end
             end
@@ -1538,6 +1542,37 @@ function _add_hybrid_subcomponent_variable_cost!(
     return
 end
 
+# Per-period scalar (fixed/no-load) cost on a binary/continuous hybrid variable.
+# Mirrors the thermal `add_proportional_cost!` path: extracts a Float64 from the
+# subcomponent's cost data and adds `cost * var[name, t]` to the objective.
+_hybrid_proportional_cost(cost::PSY.ThermalGenerationCost, ::Type{OnVariable}) =
+    PSY.get_fixed(cost)
+
+function _add_hybrid_subcomponent_proportional_cost!(
+    container::OptimizationContainer,
+    ::Type{V},
+    devices::Vector{D},
+    accessor::Function,
+    ::Type{W},
+) where {V <: VariableType, D <: PSY.HybridSystem, W <: AbstractHybridFormulation}
+    time_steps = get_time_steps(container)
+    variable = get_variable(container, V, D)
+    for d in devices
+        sub = accessor(d)
+        sub === nothing && continue
+        cost_term = _hybrid_proportional_cost(PSY.get_operation_cost(sub), V)
+        cost_term == 0.0 && continue
+        name = PSY.get_name(d)
+        for t in time_steps
+            add_to_objective_invariant_expression!(
+                container,
+                cost_term * variable[name, t],
+            )
+        end
+    end
+    return
+end
+
 function objective_function!(
     container::OptimizationContainer,
     devices::U,
@@ -1556,7 +1591,7 @@ function objective_function!(
     if !isempty(hybrids_with_thermal)
         _add_hybrid_subcomponent_variable_cost!(container, HybridThermalActivePower,
             hybrids_with_thermal, PSY.get_thermal_unit, W)
-        _add_hybrid_subcomponent_variable_cost!(container, OnVariable,
+        _add_hybrid_subcomponent_proportional_cost!(container, OnVariable,
             hybrids_with_thermal, PSY.get_thermal_unit, W)
     end
 
@@ -1587,13 +1622,6 @@ IOM.variable_cost(
     ::Type{<:PSY.HybridSystem},
     ::Type{<:AbstractHybridFormulation},
 ) = PSY.get_variable(cost)
-
-IOM.variable_cost(
-    cost::PSY.ThermalGenerationCost,
-    ::Type{OnVariable},
-    ::Type{<:PSY.HybridSystem},
-    ::Type{<:AbstractHybridFormulation},
-) = PSY.get_fixed(cost)
 
 # Renewable subcomponent variable cost (typically a curtailment penalty)
 IOM.variable_cost(

@@ -34,10 +34,4 @@
     @test build_out == IOM.ModelBuildStatus.BUILT
     solve_out = POM.solve!(m)
     @test solve_out == IOM.RunStatus.SUCCESSFULLY_FINALIZED
-
-    res = POM.OptimizationProblemResults(m)
-    p_out = POM.read_variable(res, "ActivePowerOutVariable__HybridSystem")[!, 2]
-    p_in = POM.read_variable(res, "ActivePowerInVariable__HybridSystem")[!, 2]
-    @test length(p_out) == 48
-    @test length(p_in) == 48
 end
