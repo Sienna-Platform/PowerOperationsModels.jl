@@ -31,8 +31,6 @@ const PM = PowerModels
 
 # Import PM types into module namespace for re-export
 using .PowerModels:
-    DCPPowerModel,
-    ACPPowerModel,
     AbstractDCPModel,
     AbstractACPModel,
     AbstractActivePowerModel,
@@ -256,6 +254,8 @@ include("network_models/copperplate_model.jl")
 include("network_models/area_balance_model.jl")
 include("network_models/powermodels_interface.jl")
 include("network_models/pm_translator.jl")
+include("network_models/dcp_model.jl")
+include("network_models/acp_model.jl")
 include("network_models/network_constructor.jl")
 
 # Services Models
@@ -669,6 +669,8 @@ export RampLimitConstraint
 export CopperPlateBalanceConstraint
 export ActiveRangeICConstraint
 export NodalBalanceActiveConstraint
+export ReferenceBusConstraint
+export AngleDifferenceConstraint
 export RequirementConstraint
 export DurationConstraint
 export CommitmentConstraint

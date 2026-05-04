@@ -50,3 +50,12 @@ ignores_branch_filtering(::Type{AreaBalancePowerModel}) = true
 requires_all_branch_models(::Type{<:AbstractPTDFModel}) = false
 requires_all_branch_models(::Type{CopperPlatePowerModel}) = false
 requires_all_branch_models(::Type{AreaBalancePowerModel}) = false
+
+# Native POM DCP — replaces the PM-bridge-routed DCPPowerModel re-export.
+# Concrete-type construct_network! dispatches in network_constructor.jl
+# beat the bridge's `where {T <: AbstractActivePowerModel}` fallback.
+struct DCPPowerModel <: AbstractDCPModel end
+
+# Native POM ACP — same dispatch trick as above against the bridge's
+# `where {T <: AbstractPowerModel}` fallback.
+struct ACPPowerModel <: AbstractACPModel end
