@@ -179,6 +179,19 @@ import InfrastructureOptimizationModels:
 
 using InfrastructureOptimizationModels # TODO: use explicit imports.
 
+# Cost expression types are imported explicitly so re-exports below are detected as
+# defined bindings in POM (Aqua.test_undefined_exports requirement).
+import InfrastructureOptimizationModels:
+    ProductionCostExpression,
+    FuelConsumptionExpression,
+    ConstituentCostExpression,
+    FuelCostExpression,
+    StartUpCostExpression,
+    ShutDownCostExpression,
+    FixedCostExpression,
+    VOMCostExpression,
+    CurtailmentCostExpression
+
 # Note: add_feedforward_arguments!, add_feedforward_constraints!,
 # get_default_on_variable, get_default_off_variable are defined in POM, not IOM
 # Note: ABSOLUTE_TOLERANCE is defined in POM's definitions.jl
@@ -209,6 +222,8 @@ include("core/initial_conditions.jl")
 include("common_models/add_expressions.jl")
 # Device-specific add_to_expression! implementations
 include("common_models/add_to_expression.jl")
+# Device-specific objective function helpers (curtailment cost, compact-form guards)
+include("common_models/objective_function.jl")
 # add_param_container.jl: moved into IOM
 include("common_models/add_parameters.jl")
 include("common_models/make_system_expressions.jl")
@@ -693,6 +708,13 @@ export EmergencyUp
 export EmergencyDown
 export RawACE
 export ProductionCostExpression
+export ConstituentCostExpression
+export FuelCostExpression
+export StartUpCostExpression
+export ShutDownCostExpression
+export FixedCostExpression
+export VOMCostExpression
+export CurtailmentCostExpression
 export FuelConsumptionExpression
 export ActivePowerRangeExpressionLB
 export ActivePowerRangeExpressionUB
