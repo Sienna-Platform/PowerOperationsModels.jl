@@ -1542,12 +1542,6 @@ function _add_hybrid_subcomponent_variable_cost!(
     return
 end
 
-# Per-period scalar (fixed/no-load) cost on a binary/continuous hybrid variable.
-# Mirrors the thermal `add_proportional_cost!` path: extracts a Float64 from the
-# subcomponent's cost data and adds `cost * var[name, t]` to the objective.
-_hybrid_proportional_cost(cost::PSY.ThermalGenerationCost, ::Type{OnVariable}) =
-    PSY.get_fixed(cost)
-
 function _add_hybrid_subcomponent_proportional_cost!(
     container::OptimizationContainer,
     ::Type{V},
@@ -1560,7 +1554,7 @@ function _add_hybrid_subcomponent_proportional_cost!(
     for d in devices
         sub = accessor(d)
         sub === nothing && continue
-        cost_term = _hybrid_proportional_cost(PSY.get_operation_cost(sub), V)
+        cost_term = PSY.get_fixed(PSY.get_operation_cost(sub))
         cost_term == 0.0 && continue
         name = PSY.get_name(d)
         for t in time_steps
