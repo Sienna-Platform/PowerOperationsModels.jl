@@ -550,7 +550,8 @@ function _add_vom_cost_to_objective_helper!(
 ) where {T <: VariableType, U <: AbstractDeviceFormulation}
     power_units = IS.get_power_units(cost_data)
     cost_term = IS.get_proportional_term(IS.get_vom_cost(cost_data))
-    IOM.add_proportional_cost_invariant!(container, T, component, cost_term, power_units)
+    IOM.add_proportional_cost_invariant!(
+        container, T, component, cost_term, power_units, 1.0, VOMCostExpression)
     return
 end
 
