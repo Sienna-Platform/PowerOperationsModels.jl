@@ -2656,10 +2656,11 @@ function _add_fuel_consumption_term!(
     quad_term_per_unit = get_quadratic_cost_per_system_unit(
         quadratic_term, power_units, base_power, device_base_power)
     for t in time_steps
-        fuel_expr = (
-            variable[name, t] .^ 2 * quad_term_per_unit +
-            variable[name, t] * prop_term_per_unit
-        ) * dt
+        fuel_expr =
+            (
+                variable[name, t] .^ 2 * quad_term_per_unit +
+                variable[name, t] * prop_term_per_unit
+            ) * dt
         JuMP.add_to_expression!(expression[name, t], fuel_expr)
     end
     return

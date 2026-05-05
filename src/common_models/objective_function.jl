@@ -34,7 +34,8 @@ function _renewable_offer_max(
     name::String,
     t::Int,
 ) where {C <: PSY.RenewableGen}
-    has_container_key(container, ActivePowerTimeSeriesParameter, C) || return PSY.get_max_active_power(component)
+    has_container_key(container, ActivePowerTimeSeriesParameter, C) ||
+        return PSY.get_max_active_power(component)
     param_container = get_parameter(container, ActivePowerTimeSeriesParameter, C)
     multiplier = get_multiplier_array(param_container)
     return get_parameter_column_refs(param_container, name)[t] * multiplier[name, t]
