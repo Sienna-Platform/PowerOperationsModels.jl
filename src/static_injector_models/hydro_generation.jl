@@ -2619,16 +2619,17 @@ function _add_parameters!(
     parameter_container =
         add_param_container!(container, T, D, key, names, [time_steps[end]])
     jump_model = get_jump_model(container)
-
-    for d in devices
-        name = PSY.get_name(d)
-        set_multiplier!(parameter_container, 1.0, name, time_steps[end])
-        set_parameter!(
-            parameter_container,
+    parent_mult = IOM.get_multiplier_array_data(parameter_container)
+    parent_param = IOM.get_parameter_array_data(parameter_container)
+    # Container was built with `[time_steps[end]]` as its time axis — a single column.
+    for (i, d) in enumerate(devices)
+        IOM._set_multiplier_at!(parent_mult, 1.0, i, 1)
+        IOM._set_parameter_at!(
+            parent_param,
             jump_model,
             mult * get_initial_parameter_value(T, d, W),
-            name,
-            time_steps[end],
+            i,
+            1,
         )
     end
     return
@@ -2709,18 +2710,14 @@ function _add_parameters!(
     parameter_container =
         add_param_container!(container, T, D, key, names, time_steps)
     jump_model = get_jump_model(container)
+    parent_mult = IOM.get_multiplier_array_data(parameter_container)
+    parent_param = IOM.get_parameter_array_data(parameter_container)
 
-    for d in devices
-        name = PSY.get_name(d)
+    for (i, d) in enumerate(devices)
+        IOM._set_multiplier_at!(parent_mult, 1.0, i)
+        ini_val = mult * get_initial_parameter_value(T, d, W)
         for t in time_steps
-            set_multiplier!(parameter_container, 1.0, name, t)
-            set_parameter!(
-                parameter_container,
-                jump_model,
-                mult * get_initial_parameter_value(T, d, W),
-                name,
-                t,
-            )
+            IOM._set_parameter_at!(parent_param, jump_model, ini_val, i, t)
         end
     end
     return
