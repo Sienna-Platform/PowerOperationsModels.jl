@@ -98,6 +98,35 @@ struct ReserveDeploymentBalanceUpCharge <: StorageReserveChargeExpression end
 struct ReserveDeploymentBalanceDownDischarge <: StorageReserveDischargeExpression end
 struct ReserveDeploymentBalanceDownCharge <: StorageReserveChargeExpression end
 
+#################################################################################
+# Hybrid System Expressions
+#################################################################################
+
+"""
+Hybrid-boundary aggregation of reserve quantities offered through the discharge (out) and
+charge (in) sides of a `PSY.HybridSystem`. These expressions accumulate the per-subcomponent
+reserve variables into the hybrid-system PCC reserve.
+"""
+abstract type HybridTotalReserveExpression <: ExpressionType end
+abstract type HybridTotalReserveUpExpression <: HybridTotalReserveExpression end
+abstract type HybridTotalReserveDownExpression <: HybridTotalReserveExpression end
+
+struct HybridTotalReserveOutUpExpression <: HybridTotalReserveUpExpression end
+struct HybridTotalReserveOutDownExpression <: HybridTotalReserveDownExpression end
+struct HybridTotalReserveInUpExpression <: HybridTotalReserveUpExpression end
+struct HybridTotalReserveInDownExpression <: HybridTotalReserveDownExpression end
+
+"""
+Served (deployed-fraction) variants of the hybrid total reserve expressions, used by the
+energy-asset-balance accounting to discount the deployed portion of held reserve.
+"""
+abstract type HybridServedReserveExpression <: ExpressionType end
+
+struct HybridServedReserveOutUpExpression <: HybridServedReserveExpression end
+struct HybridServedReserveOutDownExpression <: HybridServedReserveExpression end
+struct HybridServedReserveInUpExpression <: HybridServedReserveExpression end
+struct HybridServedReserveInDownExpression <: HybridServedReserveExpression end
+
 # Method extensions for output writing
 should_write_resulting_value(::Type{InterfaceTotalFlow}) = true
 should_write_resulting_value(::Type{PTDFBranchFlow}) = true
@@ -110,6 +139,8 @@ should_write_resulting_value(::Type{TotalHydroFlowRateTurbineOutgoing}) = true
 
 should_write_resulting_value(::Type{StorageReserveDischargeExpression}) = true
 should_write_resulting_value(::Type{StorageReserveChargeExpression}) = true
+
+should_write_resulting_value(::Type{<:HybridServedReserveExpression}) = true
 
 # Method extensions for unit conversion
 convert_output_to_natural_units(::Type{InterfaceTotalFlow}) = true

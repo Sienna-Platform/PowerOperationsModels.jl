@@ -223,6 +223,18 @@ Parameter to record that the component changed in the availability status
 struct AvailableStatusChangeCountdownParameter <: EventParameter end
 
 #################################################################################
+# Hybrid System Parameters
+#################################################################################
+
+"Time-series parameter for the maximum active power available from a hybrid system's
+renewable subcomponent, normalized by the renewable unit's `max_active_power` rating."
+struct HybridRenewableActivePowerTimeSeriesParameter <: TimeSeriesParameter end
+
+"Time-series parameter for a hybrid system's electric-load subcomponent demand,
+normalized by the load's `max_active_power`."
+struct HybridElectricLoadTimeSeriesParameter <: TimeSeriesParameter end
+
+#################################################################################
 # Method extensions for should_write_resulting_value
 #################################################################################
 
@@ -256,3 +268,6 @@ convert_output_to_natural_units(::Type{EnergyTargetTimeSeriesParameter}) = true
 convert_output_to_natural_units(::Type{EnergyBudgetTimeSeriesParameter}) = true
 convert_output_to_natural_units(::Type{InflowTimeSeriesParameter}) = false
 convert_output_to_natural_units(::Type{OutflowTimeSeriesParameter}) = false
+convert_output_to_natural_units(::Type{HybridRenewableActivePowerTimeSeriesParameter}) =
+    true
+convert_output_to_natural_units(::Type{HybridElectricLoadTimeSeriesParameter}) = true

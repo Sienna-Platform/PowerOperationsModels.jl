@@ -1100,3 +1100,62 @@ The specified constraints are formulated as:
 ```
 """
 struct ShiftDownActivePowerVariableLimitsConstraint <: PowerVariableLimitsConstraint end
+
+#################################################################################
+# Hybrid System Constraints
+#################################################################################
+
+"""
+Couples the hybrid PCC reserve variables (out + in) to the system-level
+`ActivePowerReserveVariable` of each service the hybrid participates in.
+"""
+struct HybridReserveAssignmentConstraint <: ConstraintType end
+
+"""
+Couples the hybrid PCC reserve variables (out + in) to the sum of per-subcomponent reserve
+allocations (thermal + renewable + charging + discharging).
+"""
+struct HybridReserveBalanceConstraint <: ConstraintType end
+
+"""
+Equates the hybrid's PCC active-power injection to the sum of internal subcomponent
+flows (thermal + renewable + storage discharge - storage charge - load) net of served
+reserves.
+"""
+struct HybridEnergyAssetBalanceConstraint <: ConstraintType end
+
+"Status link between the hybrid PCC `ActivePowerOutVariable` and the reservation variable."
+struct HybridStatusOutOnConstraint <: ConstraintType end
+
+"Status link between the hybrid PCC `ActivePowerInVariable` and the reservation variable."
+struct HybridStatusInOnConstraint <: ConstraintType end
+
+"Upper-bound link between thermal subcomponent power and its commitment status."
+struct HybridThermalOnVariableUbConstraint <: ConstraintType end
+
+"Lower-bound link between thermal subcomponent power and its commitment status."
+struct HybridThermalOnVariableLbConstraint <: ConstraintType end
+
+"Range constraint on thermal subcomponent power including up/down reserves."
+struct HybridThermalReserveLimitConstraint <: ConstraintType end
+
+"Upper bound on renewable subcomponent power from the time-series forecast."
+struct HybridRenewableActivePowerLimitConstraint <: ConstraintType end
+
+"Range constraint on renewable subcomponent power including up/down reserves."
+struct HybridRenewableReserveLimitConstraint <: ConstraintType end
+
+"Energy balance for the storage subcomponent of a hybrid system, including reserve deployment."
+struct HybridStorageBalanceConstraint <: ConstraintType end
+
+"Mutually-exclusive charge limit for the hybrid storage subcomponent (no reserves case)."
+struct HybridStorageStatusChargeOnConstraint <: ConstraintType end
+
+"Mutually-exclusive discharge limit for the hybrid storage subcomponent (no reserves case)."
+struct HybridStorageStatusDischargeOnConstraint <: ConstraintType end
+
+"Charge-side power limit for the hybrid storage subcomponent including reserve carve-outs."
+struct HybridStorageChargingReservePowerLimitConstraint <: ConstraintType end
+
+"Discharge-side power limit for the hybrid storage subcomponent including reserve carve-outs."
+struct HybridStorageDischargingReservePowerLimitConstraint <: ConstraintType end
