@@ -268,5 +268,6 @@ convert_output_to_natural_units(::Type{EnergyTargetTimeSeriesParameter}) = true
 convert_output_to_natural_units(::Type{EnergyBudgetTimeSeriesParameter}) = true
 convert_output_to_natural_units(::Type{InflowTimeSeriesParameter}) = false
 convert_output_to_natural_units(::Type{OutflowTimeSeriesParameter}) = false
-convert_output_to_natural_units(::Type{HybridRenewableActivePowerTimeSeriesParameter}) = true
+convert_output_to_natural_units(::Type{HybridRenewableActivePowerTimeSeriesParameter}) =
+    true
 convert_output_to_natural_units(::Type{HybridElectricLoadTimeSeriesParameter}) = true

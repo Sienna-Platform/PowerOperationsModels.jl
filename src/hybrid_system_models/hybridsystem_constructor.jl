@@ -40,21 +40,35 @@ function _add_hybrid_reserve_arguments!(
     # Allocate hybrid-boundary aggregation expression containers
     for E in (
         HybridTotalReserveOutUpExpression, HybridTotalReserveOutDownExpression,
-        HybridTotalReserveInUpExpression,  HybridTotalReserveInDownExpression,
+        HybridTotalReserveInUpExpression, HybridTotalReserveInDownExpression,
         HybridServedReserveOutUpExpression, HybridServedReserveOutDownExpression,
-        HybridServedReserveInUpExpression,  HybridServedReserveInDownExpression,
+        HybridServedReserveInUpExpression, HybridServedReserveInDownExpression,
     )
         lazy_container_addition!(container, E, T, PSY.get_name.(devices), time_steps)
     end
 
     # Accumulate Out/In reserve variables into Total* and Served* expressions
     for E in (HybridTotalReserveOutUpExpression, HybridTotalReserveOutDownExpression,
-                HybridServedReserveOutUpExpression, HybridServedReserveOutDownExpression)
-        add_to_expression!(container, E, HybridReserveVariableOut, devices, model, network_model)
+        HybridServedReserveOutUpExpression, HybridServedReserveOutDownExpression)
+        add_to_expression!(
+            container,
+            E,
+            HybridReserveVariableOut,
+            devices,
+            model,
+            network_model,
+        )
     end
     for E in (HybridTotalReserveInUpExpression, HybridTotalReserveInDownExpression,
-                HybridServedReserveInUpExpression, HybridServedReserveInDownExpression)
-        add_to_expression!(container, E, HybridReserveVariableIn, devices, model, network_model)
+        HybridServedReserveInUpExpression, HybridServedReserveInDownExpression)
+        add_to_expression!(
+            container,
+            E,
+            HybridReserveVariableIn,
+            devices,
+            model,
+            network_model,
+        )
     end
 
     # Per-subcomponent reserve variables
@@ -75,7 +89,13 @@ function _add_hybrid_reserve_arguments!(
             ReserveDeploymentBalanceUpDischarge, ReserveDeploymentBalanceUpCharge,
             ReserveDeploymentBalanceDownDischarge, ReserveDeploymentBalanceDownCharge,
         )
-            lazy_container_addition!(container, E, T, PSY.get_name.(hybrids_with_storage), time_steps)
+            lazy_container_addition!(
+                container,
+                E,
+                T,
+                PSY.get_name.(hybrids_with_storage),
+                time_steps,
+            )
         end
 
         # Wire HybridDischargingReserveVariable into Discharge expressions
@@ -83,13 +103,25 @@ function _add_hybrid_reserve_arguments!(
             ReserveAssignmentBalanceUpDischarge, ReserveAssignmentBalanceDownDischarge,
             ReserveDeploymentBalanceUpDischarge, ReserveDeploymentBalanceDownDischarge,
         )
-            add_to_expression!(container, E, HybridDischargingReserveVariable, hybrids_with_storage, model)
+            add_to_expression!(
+                container,
+                E,
+                HybridDischargingReserveVariable,
+                hybrids_with_storage,
+                model,
+            )
         end
         for E in (
             ReserveAssignmentBalanceUpCharge, ReserveAssignmentBalanceDownCharge,
             ReserveDeploymentBalanceUpCharge, ReserveDeploymentBalanceDownCharge,
         )
-            add_to_expression!(container, E, HybridChargingReserveVariable, hybrids_with_storage, model)
+            add_to_expression!(
+                container,
+                E,
+                HybridChargingReserveVariable,
+                hybrids_with_storage,
+                model,
+            )
         end
 
         # TotalReserveOffering aggregation per service, keyed by HybridSystem
@@ -103,25 +135,69 @@ function _add_hybrid_reserve_arguments!(
                 meta = "$(typeof(s))_$(PSY.get_name(s))")
         end
         for v in (HybridChargingReserveVariable, HybridDischargingReserveVariable)
-            add_to_expression!(container, TotalReserveOffering, v, hybrids_with_storage, model)
+            add_to_expression!(
+                container,
+                TotalReserveOffering,
+                v,
+                hybrids_with_storage,
+                model,
+            )
         end
     end
     return
 end
 
-_maybe_add_reactive_power_variable!(container, devices, formulation, ::Type{<:AbstractPowerModel}) =
+_maybe_add_reactive_power_variable!(
+    container,
+    devices,
+    formulation,
+    ::Type{<:AbstractPowerModel},
+) =
     add_variables!(container, ReactivePowerVariable, devices, formulation)
-_maybe_add_reactive_power_balance!(container, devices, model, network_model::NetworkModel{<:AbstractPowerModel}) =
-    add_to_expression!(container, ReactivePowerBalance, ReactivePowerVariable, devices, model, network_model)
-_maybe_add_reactive_limits!(container, devices, model, network_model::NetworkModel{<:AbstractPowerModel}) =
-    add_constraints!(container, ReactivePowerVariableLimitsConstraint, ReactivePowerVariable,
+_maybe_add_reactive_power_balance!(
+    container,
+    devices,
+    model,
+    network_model::NetworkModel{<:AbstractPowerModel},
+) =
+    add_to_expression!(
+        container,
+        ReactivePowerBalance,
+        ReactivePowerVariable,
+        devices,
+        model,
+        network_model,
+    )
+_maybe_add_reactive_limits!(
+    container,
+    devices,
+    model,
+    network_model::NetworkModel{<:AbstractPowerModel},
+) =
+    add_constraints!(container, ReactivePowerVariableLimitsConstraint,
+        ReactivePowerVariable,
         devices, model, network_model)
 
-_maybe_add_reactive_power_variable!(container, devices, formulation, ::Type{AbstractActivePowerModel}) =
+_maybe_add_reactive_power_variable!(
+    container,
+    devices,
+    formulation,
+    ::Type{AbstractActivePowerModel},
+) =
     nothing
-_maybe_add_reactive_power_balance!(container, devices, model, ::NetworkModel{<:AbstractActivePowerModel}) =
+_maybe_add_reactive_power_balance!(
+    container,
+    devices,
+    model,
+    ::NetworkModel{<:AbstractActivePowerModel},
+) =
     nothing
-_maybe_add_reactive_power_limits!(container, devices, model, ::NetworkModel{<:AbstractActivePowerModel}) =
+_maybe_add_reactive_power_limits!(
+    container,
+    devices,
+    model,
+    ::NetworkModel{<:AbstractActivePowerModel},
+) =
     nothing
 
 function construct_device!(
@@ -140,8 +216,22 @@ function construct_device!(
     _maybe_add_reactive_power_variable!(container, devices, D, S)
     add_variables!(container, ReservationVariable, devices, D)
 
-    add_to_expression!(container, ActivePowerBalance, ActivePowerInVariable, devices, model, network_model)
-    add_to_expression!(container, ActivePowerBalance, ActivePowerOutVariable, devices, model, network_model)
+    add_to_expression!(
+        container,
+        ActivePowerBalance,
+        ActivePowerInVariable,
+        devices,
+        model,
+        network_model,
+    )
+    add_to_expression!(
+        container,
+        ActivePowerBalance,
+        ActivePowerOutVariable,
+        devices,
+        model,
+        network_model,
+    )
     _maybe_add_reactive_power_balance!(container, devices, model, network_model)
 
     # Subcomponent variables
@@ -151,7 +241,12 @@ function construct_device!(
     end
     if !isempty(grouped.with_renewable)
         add_variables!(container, HybridRenewableActivePower, grouped.with_renewable, D)
-        add_parameters!(container, HybridRenewableActivePowerTimeSeriesParameter, grouped.with_renewable, model)
+        add_parameters!(
+            container,
+            HybridRenewableActivePowerTimeSeriesParameter,
+            grouped.with_renewable,
+            model,
+        )
     end
     if !isempty(grouped.with_storage)
         add_variables!(container, HybridStorageChargePower, grouped.with_storage, D)
@@ -161,7 +256,12 @@ function construct_device!(
         initial_conditions!(container, devices, D())
     end
     if !isempty(grouped.with_load)
-        add_parameters!(container, HybridElectricLoadTimeSeriesParameter, grouped.with_load, model)
+        add_parameters!(
+            container,
+            HybridElectricLoadTimeSeriesParameter,
+            grouped.with_load,
+            model,
+        )
     end
 
     if has_service_model(model)
@@ -190,48 +290,144 @@ function construct_device!(
 
     # PCC ↔ subcomponent plumbing
     add_constraints!(container, HybridStatusOutOnConstraint, devices, model, network_model)
-    add_constraints!(container, HybridStatusInOnConstraint,  devices, model, network_model)
-    add_constraints!(container, HybridEnergyAssetBalanceConstraint, devices, model, network_model)
+    add_constraints!(container, HybridStatusInOnConstraint, devices, model, network_model)
+    add_constraints!(
+        container,
+        HybridEnergyAssetBalanceConstraint,
+        devices,
+        model,
+        network_model,
+    )
 
     # Thermal subcomponent
     if !isempty(grouped.with_thermal)
         if has_service_model(model)
-            add_constraints!(container, HybridThermalReserveLimitConstraint, grouped.with_thermal, model, network_model)
+            add_constraints!(
+                container,
+                HybridThermalReserveLimitConstraint,
+                grouped.with_thermal,
+                model,
+                network_model,
+            )
         else
-            add_constraints!(container, HybridThermalOnVariableUbConstraint, grouped.with_thermal, model, network_model)
-            add_constraints!(container, HybridThermalOnVariableLbConstraint, grouped.with_thermal, model, network_model)
+            add_constraints!(
+                container,
+                HybridThermalOnVariableUbConstraint,
+                grouped.with_thermal,
+                model,
+                network_model,
+            )
+            add_constraints!(
+                container,
+                HybridThermalOnVariableLbConstraint,
+                grouped.with_thermal,
+                model,
+                network_model,
+            )
         end
     end
 
     # Renewable subcomponent
     if !isempty(grouped.with_renewable)
-        add_constraints!(container, HybridRenewableActivePowerLimitConstraint, grouped.with_renewable, model, network_model)
+        add_constraints!(
+            container,
+            HybridRenewableActivePowerLimitConstraint,
+            grouped.with_renewable,
+            model,
+            network_model,
+        )
         if has_service_model(model)
-            add_constraints!(container, HybridRenewableReserveLimitConstraint, grouped.with_renewable, model, network_model)
+            add_constraints!(
+                container,
+                HybridRenewableReserveLimitConstraint,
+                grouped.with_renewable,
+                model,
+                network_model,
+            )
         end
     end
 
     # Storage subcomponent
     if !isempty(grouped.with_storage)
-        add_constraints!(container, HybridStorageBalanceConstraint, grouped.with_storage, model, network_model)
+        add_constraints!(
+            container,
+            HybridStorageBalanceConstraint,
+            grouped.with_storage,
+            model,
+            network_model,
+        )
         if get_attribute(model, "energy_target")
-            add_constraints!(container, StateofChargeTargetConstraint, grouped.with_storage, model, network_model)
+            add_constraints!(
+                container,
+                StateofChargeTargetConstraint,
+                grouped.with_storage,
+                model,
+                network_model,
+            )
         end
         if has_service_model(model)
-            add_constraints!(container, ReserveCoverageConstraint, grouped.with_storage, model, network_model)
-            add_constraints!(container, ReserveCoverageConstraintEndOfPeriod, grouped.with_storage, model, network_model)
-            add_constraints!(container, HybridStorageChargingReservePowerLimitConstraint, grouped.with_storage, model, network_model)
-            add_constraints!(container, HybridStorageDischargingReservePowerLimitConstraint, grouped.with_storage, model, network_model)
+            add_constraints!(
+                container,
+                ReserveCoverageConstraint,
+                grouped.with_storage,
+                model,
+                network_model,
+            )
+            add_constraints!(
+                container,
+                ReserveCoverageConstraintEndOfPeriod,
+                grouped.with_storage,
+                model,
+                network_model,
+            )
+            add_constraints!(
+                container,
+                HybridStorageChargingReservePowerLimitConstraint,
+                grouped.with_storage,
+                model,
+                network_model,
+            )
+            add_constraints!(
+                container,
+                HybridStorageDischargingReservePowerLimitConstraint,
+                grouped.with_storage,
+                model,
+                network_model,
+            )
         else
-            add_constraints!(container, HybridStorageStatusChargeOnConstraint, grouped.with_storage, model, network_model)
-            add_constraints!(container, HybridStorageStatusDischargeOnConstraint, grouped.with_storage, model, network_model)
+            add_constraints!(
+                container,
+                HybridStorageStatusChargeOnConstraint,
+                grouped.with_storage,
+                model,
+                network_model,
+            )
+            add_constraints!(
+                container,
+                HybridStorageStatusDischargeOnConstraint,
+                grouped.with_storage,
+                model,
+                network_model,
+            )
         end
     end
 
     # Hybrid-boundary reserve coupling
     if has_service_model(model)
-        add_constraints!(container, HybridReserveAssignmentConstraint, devices, model, network_model)
-        add_constraints!(container, HybridReserveBalanceConstraint, devices, model, network_model)
+        add_constraints!(
+            container,
+            HybridReserveAssignmentConstraint,
+            devices,
+            model,
+            network_model,
+        )
+        add_constraints!(
+            container,
+            HybridReserveBalanceConstraint,
+            devices,
+            model,
+            network_model,
+        )
     end
 
     add_feedforward_constraints!(container, model, devices)

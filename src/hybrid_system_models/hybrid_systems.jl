@@ -306,10 +306,15 @@ function add_to_expression!(
         name = PSY.get_name(d)
         for service in PSY.get_services(d)
             isa(service, PSY.Reserve{PSY.ReserveDown}) && continue
-            variable = get_variable(container, U, V, "$(typeof(service))_$(PSY.get_name(service))")
+            variable =
+                get_variable(container, U, V, "$(typeof(service))_$(PSY.get_name(service))")
             mult = get_variable_multiplier(U, d, W(), service)
             for t in time_steps
-                add_proportional_to_jump_expression!(expression[name, t], variable[name, t], mult)
+                add_proportional_to_jump_expression!(
+                    expression[name, t],
+                    variable[name, t],
+                    mult,
+                )
             end
         end
     end
@@ -337,10 +342,15 @@ function add_to_expression!(
         name = PSY.get_name(d)
         for service in PSY.get_services(d)
             isa(service, PSY.Reserve{PSY.ReserveUp}) && continue
-            variable = get_variable(container, U, V, "$(typeof(service))_$(PSY.get_name(service))")
+            variable =
+                get_variable(container, U, V, "$(typeof(service))_$(PSY.get_name(service))")
             mult = get_variable_multiplier(U, d, W(), service)
             for t in time_steps
-                add_proportional_to_jump_expression!(expression[name, t], variable[name, t], mult)
+                add_proportional_to_jump_expression!(
+                    expression[name, t],
+                    variable[name, t],
+                    mult,
+                )
             end
         end
     end
@@ -373,11 +383,16 @@ function add_to_expression!(
         name = PSY.get_name(d)
         for service in PSY.get_services(d)
             isa(service, PSY.Reserve{PSY.ReserveDown}) && continue
-            variable = get_variable(container, U, V, "$(typeof(service))_$(PSY.get_name(service))")
+            variable =
+                get_variable(container, U, V, "$(typeof(service))_$(PSY.get_name(service))")
             fraction = PSY.get_deployed_fraction(service)
             mult = get_variable_multiplier(U, d, W(), service) * fraction
             for t in time_steps
-                add_proportional_to_jump_expression!(expression[name, t], variable[name, t], mult)
+                add_proportional_to_jump_expression!(
+                    expression[name, t],
+                    variable[name, t],
+                    mult,
+                )
             end
         end
     end
@@ -404,11 +419,16 @@ function add_to_expression!(
         name = PSY.get_name(d)
         for service in PSY.get_services(d)
             isa(service, PSY.Reserve{PSY.ReserveUp}) && continue
-            variable = get_variable(container, U, V, "$(typeof(service))_$(PSY.get_name(service))")
+            variable =
+                get_variable(container, U, V, "$(typeof(service))_$(PSY.get_name(service))")
             fraction = PSY.get_deployed_fraction(service)
             mult = get_variable_multiplier(U, d, W(), service) * fraction
             for t in time_steps
-                add_proportional_to_jump_expression!(expression[name, t], variable[name, t], mult)
+                add_proportional_to_jump_expression!(
+                    expression[name, t],
+                    variable[name, t],
+                    mult,
+                )
             end
         end
     end
@@ -442,8 +462,11 @@ function add_to_expression!(
 }
     expression = get_expression(container, T, V)
     time_steps = get_time_steps(container)
-    is_up = T <: Union{ReserveAssignmentBalanceUpDischarge, ReserveDeploymentBalanceUpDischarge}
-    is_deployment = T <: Union{ReserveDeploymentBalanceUpDischarge, ReserveDeploymentBalanceDownDischarge}
+    is_up =
+        T <: Union{ReserveAssignmentBalanceUpDischarge, ReserveDeploymentBalanceUpDischarge}
+    is_deployment =
+        T <:
+        Union{ReserveDeploymentBalanceUpDischarge, ReserveDeploymentBalanceDownDischarge}
     for d in devices
         name = PSY.get_name(d)
         for service in PSY.get_services(d)
@@ -452,13 +475,23 @@ function add_to_expression!(
             elseif !is_up && isa(service, PSY.Reserve{PSY.ReserveUp})
                 continue
             end
-            variable = get_variable(container, HybridDischargingReserveVariable, V, "$(typeof(service))_$(PSY.get_name(service))")
-            mult = get_variable_multiplier(HybridDischargingReserveVariable, d, W(), service)
+            variable = get_variable(
+                container,
+                HybridDischargingReserveVariable,
+                V,
+                "$(typeof(service))_$(PSY.get_name(service))",
+            )
+            mult =
+                get_variable_multiplier(HybridDischargingReserveVariable, d, W(), service)
             if is_deployment
                 mult *= PSY.get_deployed_fraction(service)
             end
             for t in time_steps
-                add_proportional_to_jump_expression!(expression[name, t], variable[name, t], mult)
+                add_proportional_to_jump_expression!(
+                    expression[name, t],
+                    variable[name, t],
+                    mult,
+                )
             end
         end
     end
@@ -485,7 +518,8 @@ function add_to_expression!(
     expression = get_expression(container, T, V)
     time_steps = get_time_steps(container)
     is_up = T <: Union{ReserveAssignmentBalanceUpCharge, ReserveDeploymentBalanceUpCharge}
-    is_deployment = T <: Union{ReserveDeploymentBalanceUpCharge, ReserveDeploymentBalanceDownCharge}
+    is_deployment =
+        T <: Union{ReserveDeploymentBalanceUpCharge, ReserveDeploymentBalanceDownCharge}
     for d in devices
         name = PSY.get_name(d)
         for service in PSY.get_services(d)
@@ -494,13 +528,22 @@ function add_to_expression!(
             elseif !is_up && isa(service, PSY.Reserve{PSY.ReserveUp})
                 continue
             end
-            variable = get_variable(container, HybridChargingReserveVariable, V, "$(typeof(service))_$(PSY.get_name(service))")
+            variable = get_variable(
+                container,
+                HybridChargingReserveVariable,
+                V,
+                "$(typeof(service))_$(PSY.get_name(service))",
+            )
             mult = get_variable_multiplier(HybridChargingReserveVariable, d, W(), service)
             if is_deployment
                 mult *= PSY.get_deployed_fraction(service)
             end
             for t in time_steps
-                add_proportional_to_jump_expression!(expression[name, t], variable[name, t], mult)
+                add_proportional_to_jump_expression!(
+                    expression[name, t],
+                    variable[name, t],
+                    mult,
+                )
             end
         end
     end
@@ -525,10 +568,15 @@ function add_to_expression!(
         for service in PSY.get_services(d)
             expression = get_expression(container, TotalReserveOffering, V,
                 "$(typeof(service))_$(PSY.get_name(service))")
-            variable = get_variable(container, U, V, "$(typeof(service))_$(PSY.get_name(service))")
+            variable =
+                get_variable(container, U, V, "$(typeof(service))_$(PSY.get_name(service))")
             mult = get_variable_multiplier(U, d, W(), service)
             for t in time_steps
-                add_proportional_to_jump_expression!(expression[name, t], variable[name, t], mult)
+                add_proportional_to_jump_expression!(
+                    expression[name, t],
+                    variable[name, t],
+                    mult,
+                )
             end
         end
     end
@@ -556,7 +604,11 @@ function add_to_expression!(
         expression = get_expression(container, T, UV, "$(V)_$(s_name)")
         variable = get_variable(container, U, V, s_name)
         for t in get_time_steps(container)
-            add_proportional_to_jump_expression!(expression[name, t], variable[name, t], -1.0)
+            add_proportional_to_jump_expression!(
+                expression[name, t],
+                variable[name, t],
+                -1.0,
+            )
         end
     end
     return
@@ -577,7 +629,12 @@ function _thermal_reserve_up_expr(container, d, t, services)
         s_type = typeof(service)
         key = VariableKey(HybridThermalReserveVariable, typeof(d), "$(s_type)_$s_name")
         haskey(IOM.get_variables(container), key) || continue
-        var = get_variable(container, HybridThermalReserveVariable, typeof(d), "$(s_type)_$s_name")
+        var = get_variable(
+            container,
+            HybridThermalReserveVariable,
+            typeof(d),
+            "$(s_type)_$s_name",
+        )
         JuMP.add_to_expression!(expr, var[PSY.get_name(d), t], 1.0)
     end
     return expr
@@ -591,7 +648,12 @@ function _thermal_reserve_down_expr(container, d, t, services)
         s_type = typeof(service)
         key = VariableKey(HybridThermalReserveVariable, typeof(d), "$(s_type)_$s_name")
         haskey(IOM.get_variables(container), key) || continue
-        var = get_variable(container, HybridThermalReserveVariable, typeof(d), "$(s_type)_$s_name")
+        var = get_variable(
+            container,
+            HybridThermalReserveVariable,
+            typeof(d),
+            "$(s_type)_$s_name",
+        )
         JuMP.add_to_expression!(expr, var[PSY.get_name(d), t], 1.0)
     end
     return expr
@@ -618,8 +680,22 @@ function add_constraints!(
     p_th = get_variable(container, HybridThermalActivePower, V)
     on_var = get_variable(container, OnVariable, V)
 
-    con_ub = add_constraints_container!(container, HybridThermalReserveLimitConstraint, V, names, time_steps; meta = "ub")
-    con_lb = add_constraints_container!(container, HybridThermalReserveLimitConstraint, V, names, time_steps; meta = "lb")
+    con_ub = add_constraints_container!(
+        container,
+        HybridThermalReserveLimitConstraint,
+        V,
+        names,
+        time_steps;
+        meta = "ub",
+    )
+    con_lb = add_constraints_container!(
+        container,
+        HybridThermalReserveLimitConstraint,
+        V,
+        names,
+        time_steps;
+        meta = "lb",
+    )
 
     for d in devices, t in time_steps
         name = PSY.get_name(d)
@@ -660,7 +736,13 @@ function add_constraints!(
     names = [PSY.get_name(d) for d in devices]
     p_th = get_variable(container, HybridThermalActivePower, V)
     on_var = get_variable(container, OnVariable, V)
-    constraint = add_constraints_container!(container, HybridThermalOnVariableUbConstraint, V, names, time_steps)
+    constraint = add_constraints_container!(
+        container,
+        HybridThermalOnVariableUbConstraint,
+        V,
+        names,
+        time_steps,
+    )
     for d in devices, t in time_steps
         name = PSY.get_name(d)
         thermal_unit = PSY.get_thermal_unit(d)
@@ -693,7 +775,13 @@ function add_constraints!(
     names = [PSY.get_name(d) for d in devices]
     p_th = get_variable(container, HybridThermalActivePower, V)
     on_var = get_variable(container, OnVariable, V)
-    constraint = add_constraints_container!(container, HybridThermalOnVariableLbConstraint, V, names, time_steps)
+    constraint = add_constraints_container!(
+        container,
+        HybridThermalOnVariableLbConstraint,
+        V,
+        names,
+        time_steps,
+    )
     for d in devices, t in time_steps
         name = PSY.get_name(d)
         thermal_unit = PSY.get_thermal_unit(d)
@@ -725,7 +813,12 @@ function _renewable_reserve_up_expr(container, d, t, services)
         s_type = typeof(service)
         key = VariableKey(HybridRenewableReserveVariable, typeof(d), "$(s_type)_$s_name")
         haskey(IOM.get_variables(container), key) || continue
-        var = get_variable(container, HybridRenewableReserveVariable, typeof(d), "$(s_type)_$s_name")
+        var = get_variable(
+            container,
+            HybridRenewableReserveVariable,
+            typeof(d),
+            "$(s_type)_$s_name",
+        )
         JuMP.add_to_expression!(expr, var[PSY.get_name(d), t], 1.0)
     end
     return expr
@@ -739,7 +832,12 @@ function _renewable_reserve_down_expr(container, d, t, services)
         s_type = typeof(service)
         key = VariableKey(HybridRenewableReserveVariable, typeof(d), "$(s_type)_$s_name")
         haskey(IOM.get_variables(container), key) || continue
-        var = get_variable(container, HybridRenewableReserveVariable, typeof(d), "$(s_type)_$s_name")
+        var = get_variable(
+            container,
+            HybridRenewableReserveVariable,
+            typeof(d),
+            "$(s_type)_$s_name",
+        )
         JuMP.add_to_expression!(expr, var[PSY.get_name(d), t], 1.0)
     end
     return expr
@@ -765,12 +863,22 @@ function add_constraints!(
     p_re = get_variable(container, HybridRenewableActivePower, V)
 
     re_param_key = ParameterKey(HybridRenewableActivePowerTimeSeriesParameter, V)
-    re_param_container = haskey(IOM.get_parameters(container), re_param_key) ?
-        get_parameter(container, HybridRenewableActivePowerTimeSeriesParameter, V) : nothing
-    re_multiplier = re_param_container === nothing ? nothing :
+    re_param_container = if haskey(IOM.get_parameters(container), re_param_key)
+        get_parameter(container, HybridRenewableActivePowerTimeSeriesParameter, V)
+    else
+        nothing
+    end
+    re_multiplier =
+        re_param_container === nothing ? nothing :
         get_multiplier_array(re_param_container)
 
-    constraint = add_constraints_container!(container, HybridRenewableActivePowerLimitConstraint, V, names, time_steps)
+    constraint = add_constraints_container!(
+        container,
+        HybridRenewableActivePowerLimitConstraint,
+        V,
+        names,
+        time_steps,
+    )
 
     for d in devices, t in time_steps
         name = PSY.get_name(d)
@@ -813,13 +921,31 @@ function add_constraints!(
     p_re = get_variable(container, HybridRenewableActivePower, V)
 
     re_param_key = ParameterKey(HybridRenewableActivePowerTimeSeriesParameter, V)
-    re_param_container = haskey(IOM.get_parameters(container), re_param_key) ?
-        get_parameter(container, HybridRenewableActivePowerTimeSeriesParameter, V) : nothing
-    re_multiplier = re_param_container === nothing ? nothing :
+    re_param_container = if haskey(IOM.get_parameters(container), re_param_key)
+        get_parameter(container, HybridRenewableActivePowerTimeSeriesParameter, V)
+    else
+        nothing
+    end
+    re_multiplier =
+        re_param_container === nothing ? nothing :
         get_multiplier_array(re_param_container)
 
-    con_ub = add_constraints_container!(container, HybridRenewableReserveLimitConstraint, V, names, time_steps; meta = "ub")
-    con_lb = add_constraints_container!(container, HybridRenewableReserveLimitConstraint, V, names, time_steps; meta = "lb")
+    con_ub = add_constraints_container!(
+        container,
+        HybridRenewableReserveLimitConstraint,
+        V,
+        names,
+        time_steps;
+        meta = "ub",
+    )
+    con_lb = add_constraints_container!(
+        container,
+        HybridRenewableReserveLimitConstraint,
+        V,
+        names,
+        time_steps;
+        meta = "lb",
+    )
 
     for d in devices, t in time_steps
         name = PSY.get_name(d)
@@ -1296,10 +1422,20 @@ function add_constraints!(
     names = [PSY.get_name(d) for d in devices]
     p_out = get_variable(container, ActivePowerOutVariable, V)
     reservation = get_variable(container, ReservationVariable, V)
-    constraint = add_constraints_container!(container, HybridStatusOutOnConstraint, V, names, time_steps)
+    constraint = add_constraints_container!(
+        container,
+        HybridStatusOutOnConstraint,
+        V,
+        names,
+        time_steps,
+    )
 
     has_reserves = W <: AbstractHybridFormulationWithReserves && has_service_model(model)
-    r_up = has_reserves ? get_expression(container, HybridTotalReserveOutUpExpression, V) : nothing
+    r_up = if has_reserves
+        get_expression(container, HybridTotalReserveOutUpExpression, V)
+    else
+        nothing
+    end
 
     for d in devices, t in time_steps
         name = PSY.get_name(d)
@@ -1335,10 +1471,20 @@ function add_constraints!(
     names = [PSY.get_name(d) for d in devices]
     p_in = get_variable(container, ActivePowerInVariable, V)
     reservation = get_variable(container, ReservationVariable, V)
-    constraint = add_constraints_container!(container, HybridStatusInOnConstraint, V, names, time_steps)
+    constraint = add_constraints_container!(
+        container,
+        HybridStatusInOnConstraint,
+        V,
+        names,
+        time_steps,
+    )
 
     has_reserves = W <: AbstractHybridFormulationWithReserves && has_service_model(model)
-    r_dn = has_reserves ? get_expression(container, HybridTotalReserveInDownExpression, V) : nothing
+    r_dn = if has_reserves
+        get_expression(container, HybridTotalReserveInDownExpression, V)
+    else
+        nothing
+    end
 
     for d in devices, t in time_steps
         name = PSY.get_name(d)
@@ -1374,24 +1520,52 @@ function add_constraints!(
     names = [PSY.get_name(d) for d in devices]
     p_out = get_variable(container, ActivePowerOutVariable, V)
     p_in = get_variable(container, ActivePowerInVariable, V)
-    constraint = add_constraints_container!(container, HybridEnergyAssetBalanceConstraint, V, names, time_steps)
+    constraint = add_constraints_container!(
+        container,
+        HybridEnergyAssetBalanceConstraint,
+        V,
+        names,
+        time_steps,
+    )
 
     # Optional subcomponent variables — only present when the hybrid has them
-    p_th = haskey(IOM.get_variables(container), VariableKey(HybridThermalActivePower, V)) ?
-        get_variable(container, HybridThermalActivePower, V) : nothing
-    p_re = haskey(IOM.get_variables(container), VariableKey(HybridRenewableActivePower, V)) ?
-        get_variable(container, HybridRenewableActivePower, V) : nothing
-    p_ch = haskey(IOM.get_variables(container), VariableKey(HybridStorageChargePower, V)) ?
-        get_variable(container, HybridStorageChargePower, V) : nothing
-    p_ds = haskey(IOM.get_variables(container), VariableKey(HybridStorageDischargePower, V)) ?
-        get_variable(container, HybridStorageDischargePower, V) : nothing
+    p_th = if haskey(IOM.get_variables(container), VariableKey(HybridThermalActivePower, V))
+        get_variable(container, HybridThermalActivePower, V)
+    else
+        nothing
+    end
+    p_re =
+        if haskey(IOM.get_variables(container), VariableKey(HybridRenewableActivePower, V))
+            get_variable(container, HybridRenewableActivePower, V)
+        else
+            nothing
+        end
+    p_ch = if haskey(IOM.get_variables(container), VariableKey(HybridStorageChargePower, V))
+        get_variable(container, HybridStorageChargePower, V)
+    else
+        nothing
+    end
+    p_ds =
+        if haskey(IOM.get_variables(container), VariableKey(HybridStorageDischargePower, V))
+            get_variable(container, HybridStorageDischargePower, V)
+        else
+            nothing
+        end
 
-    load_param_container = haskey(
-        IOM.get_parameters(container),
-        ParameterKey(HybridElectricLoadTimeSeriesParameter, V),
-    ) ? get_parameter(container, HybridElectricLoadTimeSeriesParameter, V) : nothing
-    load_multiplier = load_param_container === nothing ? nothing :
+    load_param_container =
+        if haskey(
+            IOM.get_parameters(container),
+            ParameterKey(HybridElectricLoadTimeSeriesParameter, V),
+        )
+            get_parameter(container, HybridElectricLoadTimeSeriesParameter, V)
+        else
+            nothing
+        end
+    load_multiplier = if load_param_container === nothing
+        nothing
+    else
         get_multiplier_array(load_param_container)
+    end
 
     for d in devices, t in time_steps
         name = PSY.get_name(d)
@@ -1431,7 +1605,11 @@ function add_constraints!(
     devices::IS.FlattenIteratorWrapper{V},
     model::DeviceModel{V, W},
     ::NetworkModel{X},
-) where {V <: PSY.HybridSystem, W <: AbstractHybridFormulationWithReserves, X <: AbstractPowerModel}
+) where {
+    V <: PSY.HybridSystem,
+    W <: AbstractHybridFormulationWithReserves,
+    X <: AbstractPowerModel,
+}
     time_steps = get_time_steps(container)
     names = [PSY.get_name(d) for d in devices]
 
@@ -1443,8 +1621,10 @@ function add_constraints!(
     for service in services
         s_name = PSY.get_name(service)
         s_type = typeof(service)
-        constraint = add_constraints_container!(container, HybridReserveAssignmentConstraint, V, names, time_steps;
-            meta = "$(s_type)_$s_name")
+        constraint =
+            add_constraints_container!(container, HybridReserveAssignmentConstraint, V,
+                names, time_steps;
+                meta = "$(s_type)_$s_name")
         # System-level reserve variable for this service
         sys_reserve = get_variable(container, ActivePowerReserveVariable, s_type, s_name)
         # Per-hybrid reserve variables for this service
@@ -1472,7 +1652,11 @@ function add_constraints!(
     devices::IS.FlattenIteratorWrapper{V},
     model::DeviceModel{V, W},
     ::NetworkModel{X},
-) where {V <: PSY.HybridSystem, W <: AbstractHybridFormulationWithReserves, X <: AbstractPowerModel}
+) where {
+    V <: PSY.HybridSystem,
+    W <: AbstractHybridFormulationWithReserves,
+    X <: AbstractPowerModel,
+}
     time_steps = get_time_steps(container)
     names = [PSY.get_name(d) for d in devices]
 
@@ -1484,8 +1668,10 @@ function add_constraints!(
     for service in services
         s_name = PSY.get_name(service)
         s_type = typeof(service)
-        constraint = add_constraints_container!(container, HybridReserveBalanceConstraint, V, names, time_steps;
-            meta = "$(s_type)_$s_name")
+        constraint =
+            add_constraints_container!(container, HybridReserveBalanceConstraint, V, names,
+                time_steps;
+                meta = "$(s_type)_$s_name")
         r_out = get_variable(container, HybridReserveVariableOut, V, "$(s_type)_$s_name")
         r_in = get_variable(container, HybridReserveVariableIn, V, "$(s_type)_$s_name")
         for d in devices, t in time_steps
@@ -1493,7 +1679,7 @@ function add_constraints!(
             (service in PSY.get_services(d)) || continue
             rhs = JuMP.AffExpr(0.0)
             for var_t in (HybridThermalReserveVariable, HybridRenewableReserveVariable,
-                          HybridChargingReserveVariable, HybridDischargingReserveVariable)
+                HybridChargingReserveVariable, HybridDischargingReserveVariable)
                 key = VariableKey(var_t, V, "$(s_type)_$s_name")
                 if haskey(IOM.get_variables(container), key)
                     var = get_variable(container, key)
@@ -1577,9 +1763,10 @@ function objective_function!(
     W <: AbstractHybridFormulation,
 } where {D <: PSY.HybridSystem}
     devices_vec = collect(devices)
-    hybrids_with_thermal   = [d for d in devices_vec if PSY.get_thermal_unit(d) !== nothing]
-    hybrids_with_renewable = [d for d in devices_vec if PSY.get_renewable_unit(d) !== nothing]
-    hybrids_with_storage   = [d for d in devices_vec if PSY.get_storage(d) !== nothing]
+    hybrids_with_thermal = [d for d in devices_vec if PSY.get_thermal_unit(d) !== nothing]
+    hybrids_with_renewable =
+        [d for d in devices_vec if PSY.get_renewable_unit(d) !== nothing]
+    hybrids_with_storage = [d for d in devices_vec if PSY.get_storage(d) !== nothing]
 
     # Thermal: variable cost on HybridThermalActivePower, fixed cost on OnVariable
     if !isempty(hybrids_with_thermal)
