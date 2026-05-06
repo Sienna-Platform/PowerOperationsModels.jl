@@ -158,5 +158,6 @@ function add_to_objective_function!(
     ::Type{<:AbstractPowerModel},
 ) where {T <: PSY.RenewableGen, U <: AbstractRenewableDispatchFormulation}
     add_variable_cost!(container, ActivePowerVariable, devices, U)
+    add_curtailment_cost!(container, ActivePowerVariable, devices, U)
     return
 end

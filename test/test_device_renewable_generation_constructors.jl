@@ -75,3 +75,36 @@ end
     mock_construct_device!(model, device_model; add_event_model = true)
     moi_tests(model, 0, 0, 0, 0, 0, false) =#
 end
+
+@testset "Test Renewable CurtailmentCostExpression nonnegativity" begin
+    c_sys5_re = PSB.build_system(PSITestSystems, "c_sys5_re")
+
+    template = OperationsProblemTemplate(NetworkModel(CopperPlatePowerModel))
+    set_device_model!(template, RenewableDispatch, RenewableFullDispatch)
+    set_device_model!(template, ThermalStandard, ThermalStandardDispatch)
+    set_device_model!(template, PowerLoad, StaticPowerLoad)
+
+    model = DecisionModel(
+        template,
+        c_sys5_re;
+        name = "RE_curtailment_cost",
+        optimizer = HiGHS_optimizer,
+        optimizer_solve_log_print = true,
+    )
+
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+    @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+
+    outputs = OptimizationProblemOutputs(model)
+    expr_curt = read_expression(
+        outputs,
+        "CurtailmentCostExpression__RenewableDispatch";
+        table_format = TableFormat.WIDE,
+    )
+
+    tol = 1e-8
+    for unit in names(expr_curt)[2:end]
+        @test all(expr_curt[!, unit] .>= -tol)
+    end
+end

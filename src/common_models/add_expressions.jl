@@ -14,6 +14,20 @@ end
 _get_variable_if_exists(::PSY.MarketBidCost) = nothing
 _get_variable_if_exists(cost::PSY.OperationalCost) = PSY.get_variable(cost)
 
+# Predicates for fuel-curve detection. Dispatch over the value returned by
+# `_get_variable_if_exists` so callers can avoid `isa` checks.
+_is_fuel_curve(::Nothing) = false
+_is_fuel_curve(::PSY.CostCurve) = false
+_is_fuel_curve(::PSY.FuelCurve) = true
+
+# Predicates for value-curve shape. Used to decide whether a FuelConsumptionExpression
+# container needs JuMP.QuadExpr storage (vs the cheaper GAE).
+_value_curve_is_quadratic(::PSY.LinearCurve) = false
+_value_curve_is_quadratic(::PSY.QuadraticCurve) = true
+_value_curve_is_quadratic(::PSY.PiecewisePointCurve) = false
+_value_curve_is_quadratic(::PSY.IncrementalCurve) = false
+_value_curve_is_quadratic(::PSY.AverageRateCurve) = false
+
 function get_reference_bus(
     model::NetworkModel{T},
     b::PSY.ACBus,
@@ -61,14 +75,12 @@ function add_expressions!(
     names = String[]
     found_quad_fuel_functions = false
     for d in devices
-        op_cost = PSY.get_operation_cost(d)
-        fuel_curve = _get_variable_if_exists(op_cost)
-        if fuel_curve isa PSY.FuelCurve
-            push!(names, PSY.get_name(d))
-            if !found_quad_fuel_functions
-                found_quad_fuel_functions =
-                    PSY.get_value_curve(fuel_curve) isa PSY.QuadraticCurve
-            end
+        fuel_curve = _get_variable_if_exists(PSY.get_operation_cost(d))
+        _is_fuel_curve(fuel_curve) || continue
+        push!(names, PSY.get_name(d))
+        if !found_quad_fuel_functions
+            found_quad_fuel_functions =
+                _value_curve_is_quadratic(PSY.get_value_curve(fuel_curve))
         end
     end
 
@@ -81,6 +93,99 @@ function add_expressions!(
             expr_type = expr_type,
         )
     end
+    return
+end
+
+#################################################################################
+# Cost expression bundles
+# add_cost_expressions! sets up the full cost-expression containers for a given
+# device type/formulation in one call. ThermalGen and RenewableGen overrides add
+# their constituent cost expressions; the default falls back to ProductionCostExpression.
+#################################################################################
+
+"""
+Default cost-expression setup: register only `ProductionCostExpression`.
+"""
+function add_cost_expressions!(
+    container::OptimizationContainer,
+    devices::U,
+    model::DeviceModel{D, W},
+) where {
+    U <: Union{Vector{D}, IS.FlattenIteratorWrapper{D}},
+    W <: AbstractDeviceFormulation,
+} where {D <: PSY.Component}
+    time_steps = get_time_steps(container)
+    names = PSY.get_name.(devices)
+    add_expression_container!(container, ProductionCostExpression, D, names, time_steps)
+    return
+end
+
+"""
+Thermal generators get the full constituent decomposition. Constituent expressions
+auto-propagate into `ProductionCostExpression` (see IOM `_propagate_to_production_cost!`),
+so we register the aggregate as well as the parts. `FuelConsumptionExpression` is added
+only when at least one device has a `FuelCurve`, mirroring the existing FuelConsumption
+specialization.
+"""
+function add_cost_expressions!(
+    container::OptimizationContainer,
+    devices::U,
+    model::DeviceModel{D, W},
+) where {
+    U <: Union{Vector{D}, IS.FlattenIteratorWrapper{D}},
+    W <: AbstractThermalFormulation,
+} where {D <: PSY.ThermalGen}
+    time_steps = get_time_steps(container)
+    n = length(devices)
+    all_names = Vector{String}(undef, n)
+    fuel_names = sizehint!(String[], n)
+    has_quad_fuel = false
+    for (i, d) in enumerate(devices)
+        name = PSY.get_name(d)
+        all_names[i] = name
+        fuel_curve = _get_variable_if_exists(PSY.get_operation_cost(d))
+        _is_fuel_curve(fuel_curve) || continue
+        push!(fuel_names, name)
+        if !has_quad_fuel
+            has_quad_fuel = _value_curve_is_quadratic(PSY.get_value_curve(fuel_curve))
+        end
+    end
+    if !isempty(fuel_names)
+        expr_type = has_quad_fuel ? JuMP.QuadExpr : GAE
+        add_expression_container!(
+            container, FuelConsumptionExpression, D, fuel_names, time_steps;
+            expr_type = expr_type,
+        )
+    end
+    add_expression_container!(container, ProductionCostExpression, D, all_names, time_steps)
+    add_expression_container!(container, FuelCostExpression, D, all_names, time_steps)
+    add_expression_container!(container, StartUpCostExpression, D, all_names, time_steps)
+    add_expression_container!(container, ShutDownCostExpression, D, all_names, time_steps)
+    add_expression_container!(container, FixedCostExpression, D, all_names, time_steps)
+    add_expression_container!(container, VOMCostExpression, D, all_names, time_steps)
+    return
+end
+
+"""
+Renewable dispatch formulations track production cost, fixed cost, VOM cost, and
+curtailment cost. `CurtailmentCostExpression` is a direct `CostExpressions` subtype
+(not a `ConstituentCostExpression`), so it does not propagate into
+`ProductionCostExpression` — curtailment is reported standalone.
+"""
+function add_cost_expressions!(
+    container::OptimizationContainer,
+    devices::U,
+    model::DeviceModel{D, W},
+) where {
+    U <: Union{Vector{D}, IS.FlattenIteratorWrapper{D}},
+    W <: AbstractRenewableDispatchFormulation,
+} where {D <: PSY.RenewableGen}
+    time_steps = get_time_steps(container)
+    names = PSY.get_name.(devices)
+    add_expression_container!(container, ProductionCostExpression, D, names, time_steps)
+    add_expression_container!(container, FixedCostExpression, D, names, time_steps)
+    add_expression_container!(container, CurtailmentCostExpression, D, names, time_steps)
+    add_expression_container!(container, VOMCostExpression, D, names, time_steps)
     return
 end
 
