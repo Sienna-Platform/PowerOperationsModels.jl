@@ -178,3 +178,219 @@ end
     re_ts_vals = [ts_values[re_name, t] for t in 1:n_time_steps]
     @test !all(isapprox.(re_ts_vals, re_ts_vals[1]; atol = 1e-10))
 end
+
+# -----------------------------------------------------------------------------
+# Baseline PFitL coverage (ported from PowerSimulations.jl test file lines 1-548).
+# These exercise the regular non-headroom paths through the migrated code:
+#   - PhaseShiftingTransformer in PFitL
+#   - Parallel-line aggregation
+#   - Breaker-switch (DiscreteControlledACBranch)
+#   - HVDCs with DC PowerFlow
+#   - Line active power loss aux variable
+# -----------------------------------------------------------------------------
+
+@testset "AC Power Flow in the loop for PhaseShiftingTransformer" begin
+    system = build_system(PSITestSystems, "c_sys5_uc")
+
+    line = get_component(Line, system, "1")
+    arc = get_arc(line)
+    remove_component!(system, line)
+
+    ps = PhaseShiftingTransformer(;
+        name = get_name(line),
+        available = true,
+        active_power_flow = 0.0,
+        reactive_power_flow = 0.0,
+        r = get_r(line),
+        x = get_x(line),
+        primary_shunt = 0.0,
+        tap = 1.0,
+        α = 0.0,
+        rating = get_rating(line),
+        arc = arc,
+        base_power = get_base_power(system),
+    )
+    add_component!(system, ps)
+
+    template = get_template_dispatch_with_network(
+        NetworkModel(
+            PTDFPowerModel;
+            PTDF_matrix = PTDF(system),
+            power_flow_evaluation = ACPowerFlow(),
+        ),
+    )
+    set_device_model!(template, DeviceModel(PhaseShiftingTransformer, PhaseAngleControl))
+    model_m = DecisionModel(template, system; optimizer = HiGHS_optimizer)
+    @test build!(model_m; output_dir = mktempdir(; cleanup = true)) ==
+          ModelBuildStatus.BUILT
+    @test solve!(model_m) == RunStatus.SUCCESSFULLY_FINALIZED
+
+    container = get_optimization_container(model_m)
+    pf_e_data = only(get_power_flow_evaluation_data(container))
+    data = get_power_flow_data(pf_e_data)
+    bus_lookup = PFS.get_bus_lookup(data)
+
+    flow_key = VariableKey(FlowActivePowerVariable, PhaseShiftingTransformer)
+    flow_values = lookup_value(container, flow_key)
+    line_name = get_name(line)
+    line_flows =
+        [JuMP.value(flow_values[line_name, t]) for t in 1:length(get_time_steps(container))]
+
+    # The PhaseShiftingTransformer flow contributes to the "to"-bus active power injection.
+    # Both sides are in per-unit; lookup_value returns raw JuMP values in the model unit
+    # system rather than the natural-unit conversion that `read_variables(...; WIDE)`
+    # performs in PSI.
+    @test isapprox(
+        data.bus_active_power_injections[bus_lookup[get_number(get_to(arc))], :],
+        line_flows;
+        atol = 1e-9,
+        rtol = 0,
+    )
+end
+
+@testset "AC Power Flow in the loop with parallel lines" begin
+    original_line_flow, parallel_line_flow = zero(ComplexF64), zero(ComplexF64)
+    for replace_line in (true, false)
+        system = build_system(PSITestSystems, "c_sys5_uc")
+        line = get_component(Line, system, "1")
+        if replace_line
+            original_impedance = get_r(line) + im * get_x(line)
+            original_shunt = get_b(line)
+            remove_component!(system, line)
+            split_impedance = original_impedance * 2
+            split_shunt = (from = 0.5 * original_shunt.from, to = 0.5 * original_shunt.to)
+            for i in 1:2
+                l = Line(;
+                    name = get_name(line) * "_$i",
+                    available = true,
+                    active_power_flow = 0.0,
+                    reactive_power_flow = 0.0,
+                    arc = get_arc(line),
+                    r = real(split_impedance),
+                    x = imag(split_impedance),
+                    b = split_shunt,
+                    angle_limits = get_angle_limits(line),
+                    rating = get_rating(line),
+                )
+                add_component!(system, l)
+            end
+        end
+
+        template = get_template_dispatch_with_network(
+            NetworkModel(
+                PTDFPowerModel;
+                PTDF_matrix = PTDF(system),
+                power_flow_evaluation = ACPowerFlow(),
+            ),
+        )
+        model_m = DecisionModel(template, system; optimizer = HiGHS_optimizer)
+        @test build!(model_m; output_dir = mktempdir(; cleanup = true)) ==
+              ModelBuildStatus.BUILT
+        @test solve!(model_m) == RunStatus.SUCCESSFULLY_FINALIZED
+
+        container = get_optimization_container(model_m)
+        ft_key = AuxVarKey(POM.PowerFlowBranchActivePowerFromTo, Line)
+        rt_key = AuxVarKey(POM.PowerFlowBranchReactivePowerFromTo, Line)
+        active_ft = lookup_value(container, ft_key)
+        reactive_ft = lookup_value(container, rt_key)
+
+        name = replace_line ? "$(get_name(line))_1" : get_name(line)
+        flow = active_ft[name, 1] + im * reactive_ft[name, 1]
+        if replace_line
+            parallel_line_flow = flow
+        else
+            original_line_flow = flow
+        end
+    end
+
+    # Two parallel lines with double the impedance each should each carry half of the
+    # original line's flow.
+    @test isapprox(2 * parallel_line_flow, original_line_flow; atol = 1e-3)
+end
+
+@testset "AC Power Flow in the loop with a breaker-switch" begin
+    system = build_system(PSITestSystems, "c_sys5_uc")
+    line = get_component(Line, system, "2")
+    remove_component!(system, line)
+    bs = PSY.DiscreteControlledACBranch(;
+        name = get_name(line),
+        available = true,
+        active_power_flow = 0.0,
+        reactive_power_flow = 0.0,
+        arc = get_arc(line),
+        r = 0.0,
+        x = 0.0,
+        rating = get_rating(line),
+        discrete_branch_type = PSY.DiscreteControlledBranchType.BREAKER,
+        branch_status = PSY.DiscreteControlledBranchStatus.CLOSED,
+    )
+    add_component!(system, bs)
+    # Set lines 3 and 6 to identical impedance so they're truly parallel
+    line3 = get_component(Line, system, "3")
+    line6 = get_component(Line, system, "6")
+    PSY.set_r!(line3, PSY.get_r(line6))
+    PSY.set_x!(line3, PSY.get_x(line6))
+
+    template = get_template_dispatch_with_network(
+        NetworkModel(
+            PTDFPowerModel;
+            PTDF_matrix = PTDF(system),
+            power_flow_evaluation = ACPowerFlow(),
+        ),
+    )
+    model_m = DecisionModel(template, system; optimizer = HiGHS_optimizer)
+    @test build!(model_m; output_dir = mktempdir(; cleanup = true)) ==
+          ModelBuildStatus.BUILT
+    @test solve!(model_m) == RunStatus.SUCCESSFULLY_FINALIZED
+end
+
+@testset "HVDCs with DC PF in the loop" begin
+    for hvdc_type in (TwoTerminalGenericHVDCLine,)
+        sys = build_system(PSISystems, "2Area 5 Bus System")
+
+        template_uc = OperationsProblemTemplate(
+            NetworkModel(PTDFPowerModel; power_flow_evaluation = DCPowerFlow()),
+        )
+        set_device_model!(template_uc, ThermalStandard, ThermalBasicUnitCommitment)
+        set_device_model!(template_uc, RenewableDispatch, RenewableFullDispatch)
+        set_device_model!(template_uc, PowerLoad, StaticPowerLoad)
+        set_device_model!(template_uc, DeviceModel(Line, StaticBranch))
+        set_device_model!(template_uc, DeviceModel(hvdc_type, HVDCTwoTerminalDispatch))
+
+        model = DecisionModel(template_uc, sys; name = "UC", optimizer = HiGHS_optimizer)
+        @test build!(model; output_dir = mktempdir()) == ModelBuildStatus.BUILT
+        @test solve!(model) == RunStatus.SUCCESSFULLY_FINALIZED
+    end
+end
+
+@testset "AC Power Flow line active power loss auxiliary variable" begin
+    system = build_system(PSITestSystems, "c_sys5_uc")
+
+    template = get_template_dispatch_with_network(
+        NetworkModel(
+            PTDFPowerModel;
+            PTDF_matrix = PTDF(system),
+            power_flow_evaluation = ACPowerFlow(),
+        ),
+    )
+    model_m = DecisionModel(template, system; optimizer = HiGHS_optimizer)
+    @test build!(model_m; output_dir = mktempdir(; cleanup = true)) ==
+          ModelBuildStatus.BUILT
+    @test solve!(model_m) == RunStatus.SUCCESSFULLY_FINALIZED
+
+    container = get_optimization_container(model_m)
+    ft_key = AuxVarKey(POM.PowerFlowBranchActivePowerFromTo, Line)
+    tf_key = AuxVarKey(POM.PowerFlowBranchActivePowerToFrom, Line)
+    loss_key = AuxVarKey(POM.PowerFlowBranchActivePowerLoss, Line)
+    active_ft = lookup_value(container, ft_key)
+    active_tf = lookup_value(container, tf_key)
+    active_loss = lookup_value(container, loss_key)
+
+    n_time_steps = length(get_time_steps(container))
+    for line_name in axes(active_loss, 1)
+        ft_vals = [active_ft[line_name, t] for t in 1:n_time_steps]
+        tf_vals = [active_tf[line_name, t] for t in 1:n_time_steps]
+        loss_vals = [active_loss[line_name, t] for t in 1:n_time_steps]
+        @test isapprox(loss_vals, ft_vals .+ tf_vals; atol = 1e-9)
+    end
+end
