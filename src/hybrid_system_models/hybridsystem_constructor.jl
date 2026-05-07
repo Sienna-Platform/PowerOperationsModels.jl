@@ -148,18 +148,25 @@ function _add_hybrid_reserve_arguments!(
 end
 
 _maybe_add_reactive_power_variable!(
-    container,
-    devices,
-    formulation,
+    container::OptimizationContainer,
+    devices::U,
+    ::Type{D},
     ::Type{<:AbstractPowerModel},
-) =
-    add_variables!(container, ReactivePowerVariable, devices, formulation)
+) where {
+    D <: AbstractHybridFormulation,
+    U <: Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
+} where {V <: PSY.HybridSystem} =
+    add_variables!(container, ReactivePowerVariable, devices, D)
+
 _maybe_add_reactive_power_balance!(
-    container,
-    devices,
-    model,
+    container::OptimizationContainer,
+    devices::U,
+    model::DeviceModel{V, D},
     network_model::NetworkModel{<:AbstractPowerModel},
-) =
+) where {
+    D <: AbstractHybridFormulation,
+    U <: Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
+} where {V <: PSY.HybridSystem} =
     add_to_expression!(
         container,
         ReactivePowerBalance,
@@ -168,37 +175,54 @@ _maybe_add_reactive_power_balance!(
         model,
         network_model,
     )
-_maybe_add_reactive_limits!(
-    container,
-    devices,
-    model,
+
+_maybe_add_reactive_power_limits!(
+    container::OptimizationContainer,
+    devices::U,
+    model::DeviceModel{V, D},
     network_model::NetworkModel{<:AbstractPowerModel},
-) =
-    add_constraints!(container, ReactivePowerVariableLimitsConstraint,
+) where {
+    D <: AbstractHybridFormulation,
+    U <: Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
+} where {V <: PSY.HybridSystem} =
+    add_constraints!(
+        container,
+        ReactivePowerVariableLimitsConstraint,
         ReactivePowerVariable,
-        devices, model, network_model)
+        devices,
+        model,
+        network_model,
+    )
 
 _maybe_add_reactive_power_variable!(
-    container,
-    devices,
-    formulation,
-    ::Type{AbstractActivePowerModel},
-) =
-    nothing
+    ::OptimizationContainer,
+    ::U,
+    ::Type{D},
+    ::Type{<:AbstractActivePowerModel},
+) where {
+    D <: AbstractHybridFormulation,
+    U <: Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
+} where {V <: PSY.HybridSystem} = nothing
+
 _maybe_add_reactive_power_balance!(
-    container,
-    devices,
-    model,
+    ::OptimizationContainer,
+    ::U,
+    ::DeviceModel{V, D},
     ::NetworkModel{<:AbstractActivePowerModel},
-) =
-    nothing
+) where {
+    D <: AbstractHybridFormulation,
+    U <: Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
+} where {V <: PSY.HybridSystem} = nothing
+
 _maybe_add_reactive_power_limits!(
-    container,
-    devices,
-    model,
+    ::OptimizationContainer,
+    ::U,
+    ::DeviceModel{V, D},
     ::NetworkModel{<:AbstractActivePowerModel},
-) =
-    nothing
+) where {
+    D <: AbstractHybridFormulation,
+    U <: Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
+} where {V <: PSY.HybridSystem} = nothing
 
 function construct_device!(
     container::OptimizationContainer,
@@ -214,7 +238,9 @@ function construct_device!(
     add_variables!(container, ActivePowerOutVariable, devices, D)
     add_variables!(container, ActivePowerInVariable, devices, D)
     _maybe_add_reactive_power_variable!(container, devices, D, S)
-    add_variables!(container, ReservationVariable, devices, D)
+    if get_attribute(model, "reservation")
+        add_variables!(container, ReservationVariable, devices, D)
+    end
 
     add_to_expression!(
         container,
@@ -252,7 +278,18 @@ function construct_device!(
         add_variables!(container, HybridStorageChargePower, grouped.with_storage, D)
         add_variables!(container, HybridStorageDischargePower, grouped.with_storage, D)
         add_variables!(container, EnergyVariable, grouped.with_storage, D)
-        add_variables!(container, HybridStorageReservation, grouped.with_storage, D)
+        if get_attribute(model, "storage_reservation")
+            add_variables!(container, HybridStorageReservation, grouped.with_storage, D)
+        end
+        if get_attribute(model, "regularization")
+            add_variables!(container, ChargeRegularizationVariable, grouped.with_storage, D)
+            add_variables!(
+                container,
+                DischargeRegularizationVariable,
+                grouped.with_storage,
+                D,
+            )
+        end
         initial_conditions!(container, devices, D())
     end
     if !isempty(grouped.with_load)
@@ -288,9 +325,41 @@ function construct_device!(
     # PCC reactive-power limits (active-power limits handled via the asset balance + status constraints)
     _maybe_add_reactive_power_limits!(container, devices, model, network_model)
 
-    # PCC ↔ subcomponent plumbing
-    add_constraints!(container, HybridStatusOutOnConstraint, devices, model, network_model)
-    add_constraints!(container, HybridStatusInOnConstraint, devices, model, network_model)
+    # PCC ↔ subcomponent plumbing. With reservation, mutual-exclusion via ReservationVariable;
+    # without, simple range constraints on the PCC variables (no binary).
+    if get_attribute(model, "reservation")
+        add_constraints!(
+            container,
+            HybridStatusOutOnConstraint,
+            devices,
+            model,
+            network_model,
+        )
+        add_constraints!(
+            container,
+            HybridStatusInOnConstraint,
+            devices,
+            model,
+            network_model,
+        )
+    else
+        add_constraints!(
+            container,
+            OutputActivePowerVariableLimitsConstraint,
+            ActivePowerOutVariable,
+            devices,
+            model,
+            network_model,
+        )
+        add_constraints!(
+            container,
+            InputActivePowerVariableLimitsConstraint,
+            ActivePowerInVariable,
+            devices,
+            model,
+            network_model,
+        )
+    end
     add_constraints!(
         container,
         HybridEnergyAssetBalanceConstraint,
@@ -394,7 +463,10 @@ function construct_device!(
                 model,
                 network_model,
             )
-        else
+        elseif get_attribute(model, "storage_reservation")
+            # No reserves attached: enforce mutual exclusion via HybridStorageReservation.
+            # When `storage_reservation` is false, charge/discharge are bounded
+            # independently by their variable upper bounds — no extra constraint needed.
             add_constraints!(
                 container,
                 HybridStorageStatusChargeOnConstraint,
@@ -405,6 +477,22 @@ function construct_device!(
             add_constraints!(
                 container,
                 HybridStorageStatusDischargeOnConstraint,
+                grouped.with_storage,
+                model,
+                network_model,
+            )
+        end
+        if get_attribute(model, "regularization")
+            add_constraints!(
+                container,
+                ChargeRegularizationConstraint,
+                grouped.with_storage,
+                model,
+                network_model,
+            )
+            add_constraints!(
+                container,
+                DischargeRegularizationConstraint,
                 grouped.with_storage,
                 model,
                 network_model,

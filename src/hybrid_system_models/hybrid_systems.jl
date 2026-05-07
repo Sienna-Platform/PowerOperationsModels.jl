@@ -1,5 +1,3 @@
-#! format: off
-
 requires_initialization(::AbstractHybridFormulation) = false
 
 #################################################################################
@@ -22,133 +20,395 @@ function get_default_attributes(
 )
     return Dict{String, Any}(
         "reservation" => true,
+        "storage_reservation" => true,
         "energy_target" => false,
+        "regularization" => false,
     )
 end
+
+# Small fixed cost rate on regularization slacks. Mirrors HSS REG_COST.
+const HYBRID_REGULARIZATION_COST = 1e-3
 
 #################################################################################
 # PCC variables — ActivePowerInVariable / ActivePowerOutVariable
 #################################################################################
 
-get_variable_binary(::Type{ActivePowerInVariable}, ::Type{PSY.HybridSystem}, ::Type{<:AbstractHybridFormulation}) = false
-get_variable_lower_bound(::Type{ActivePowerInVariable}, d::PSY.HybridSystem, ::Type{<:AbstractHybridFormulation}) = PSY.get_input_active_power_limits(d).min
-get_variable_upper_bound(::Type{ActivePowerInVariable}, d::PSY.HybridSystem, ::Type{<:AbstractHybridFormulation}) = PSY.get_input_active_power_limits(d).max
-get_variable_multiplier(::Type{ActivePowerInVariable}, ::Type{<:PSY.HybridSystem}, ::Type{<:AbstractHybridFormulation}) = -1.0
+get_variable_binary(
+    ::Type{ActivePowerInVariable},
+    ::Type{PSY.HybridSystem},
+    ::Type{<:AbstractHybridFormulation},
+) = false
+get_variable_lower_bound(
+    ::Type{ActivePowerInVariable},
+    d::PSY.HybridSystem,
+    ::Type{<:AbstractHybridFormulation},
+) = PSY.get_input_active_power_limits(d).min
+get_variable_upper_bound(
+    ::Type{ActivePowerInVariable},
+    d::PSY.HybridSystem,
+    ::Type{<:AbstractHybridFormulation},
+) = PSY.get_input_active_power_limits(d).max
+get_variable_multiplier(
+    ::Type{ActivePowerInVariable},
+    ::Type{<:PSY.HybridSystem},
+    ::Type{<:AbstractHybridFormulation},
+) = -1.0
 
-get_variable_binary(::Type{ActivePowerOutVariable}, ::Type{PSY.HybridSystem}, ::Type{<:AbstractHybridFormulation}) = false
-get_variable_lower_bound(::Type{ActivePowerOutVariable}, d::PSY.HybridSystem, ::Type{<:AbstractHybridFormulation}) = PSY.get_output_active_power_limits(d).min
-get_variable_upper_bound(::Type{ActivePowerOutVariable}, d::PSY.HybridSystem, ::Type{<:AbstractHybridFormulation}) = PSY.get_output_active_power_limits(d).max
-get_variable_multiplier(::Type{ActivePowerOutVariable}, ::Type{<:PSY.HybridSystem}, ::Type{<:AbstractHybridFormulation}) = 1.0
+get_variable_binary(
+    ::Type{ActivePowerOutVariable},
+    ::Type{PSY.HybridSystem},
+    ::Type{<:AbstractHybridFormulation},
+) = false
+get_variable_lower_bound(
+    ::Type{ActivePowerOutVariable},
+    d::PSY.HybridSystem,
+    ::Type{<:AbstractHybridFormulation},
+) = PSY.get_output_active_power_limits(d).min
+get_variable_upper_bound(
+    ::Type{ActivePowerOutVariable},
+    d::PSY.HybridSystem,
+    ::Type{<:AbstractHybridFormulation},
+) = PSY.get_output_active_power_limits(d).max
+get_variable_multiplier(
+    ::Type{ActivePowerOutVariable},
+    ::Type{<:PSY.HybridSystem},
+    ::Type{<:AbstractHybridFormulation},
+) = 1.0
 
-get_variable_binary(::Type{ReactivePowerVariable}, ::Type{PSY.HybridSystem}, ::Type{<:AbstractHybridFormulation}) = false
-function get_variable_lower_bound(::Type{ReactivePowerVariable}, d::PSY.HybridSystem, ::Type{<:AbstractHybridFormulation})
+get_variable_binary(
+    ::Type{ReactivePowerVariable},
+    ::Type{PSY.HybridSystem},
+    ::Type{<:AbstractHybridFormulation},
+) = false
+function get_variable_lower_bound(
+    ::Type{ReactivePowerVariable},
+    d::PSY.HybridSystem,
+    ::Type{<:AbstractHybridFormulation},
+)
     limits = PSY.get_reactive_power_limits(d)
     return limits === nothing ? nothing : limits.min
 end
-function get_variable_upper_bound(::Type{ReactivePowerVariable}, d::PSY.HybridSystem, ::Type{<:AbstractHybridFormulation})
+function get_variable_upper_bound(
+    ::Type{ReactivePowerVariable},
+    d::PSY.HybridSystem,
+    ::Type{<:AbstractHybridFormulation},
+)
     limits = PSY.get_reactive_power_limits(d)
     return limits === nothing ? nothing : limits.max
 end
-get_variable_multiplier(::Type{ReactivePowerVariable}, ::Type{<:PSY.HybridSystem}, ::Type{<:AbstractHybridFormulation}) = 1.0
+get_variable_multiplier(
+    ::Type{ReactivePowerVariable},
+    ::Type{<:PSY.HybridSystem},
+    ::Type{<:AbstractHybridFormulation},
+) = 1.0
 
-get_variable_binary(::Type{ReservationVariable}, ::Type{PSY.HybridSystem}, ::Type{<:AbstractHybridFormulation}) = true
+get_variable_binary(
+    ::Type{ReservationVariable},
+    ::Type{PSY.HybridSystem},
+    ::Type{<:AbstractHybridFormulation},
+) = true
 
-get_min_max_limits(d::PSY.HybridSystem, ::Type{InputActivePowerVariableLimitsConstraint}, ::Type{<:AbstractHybridFormulation}) = PSY.get_input_active_power_limits(d)
-get_min_max_limits(d::PSY.HybridSystem, ::Type{OutputActivePowerVariableLimitsConstraint}, ::Type{<:AbstractHybridFormulation}) = PSY.get_output_active_power_limits(d)
-get_min_max_limits(d::PSY.HybridSystem, ::Type{ReactivePowerVariableLimitsConstraint}, ::Type{<:AbstractHybridFormulation}) = PSY.get_reactive_power_limits(d)
+get_min_max_limits(
+    d::PSY.HybridSystem,
+    ::Type{InputActivePowerVariableLimitsConstraint},
+    ::Type{<:AbstractHybridFormulation},
+) = PSY.get_input_active_power_limits(d)
+get_min_max_limits(
+    d::PSY.HybridSystem,
+    ::Type{OutputActivePowerVariableLimitsConstraint},
+    ::Type{<:AbstractHybridFormulation},
+) = PSY.get_output_active_power_limits(d)
+get_min_max_limits(
+    d::PSY.HybridSystem,
+    ::Type{ReactivePowerVariableLimitsConstraint},
+    ::Type{<:AbstractHybridFormulation},
+) = PSY.get_reactive_power_limits(d)
 
 #################################################################################
 # Subcomponent power variables
 #################################################################################
 
-get_variable_binary(::Type{HybridThermalActivePower}, ::Type{PSY.HybridSystem}, ::Type{<:AbstractHybridFormulation}) = false
-get_variable_lower_bound(::Type{HybridThermalActivePower}, ::PSY.HybridSystem, ::Type{<:AbstractHybridFormulation}) = 0.0
-get_variable_upper_bound(::Type{HybridThermalActivePower}, d::PSY.HybridSystem, ::Type{<:AbstractHybridFormulation}) = PSY.get_active_power_limits(PSY.get_thermal_unit(d)).max
+get_variable_binary(
+    ::Type{HybridThermalActivePower},
+    ::Type{PSY.HybridSystem},
+    ::Type{<:AbstractHybridFormulation},
+) = false
+get_variable_lower_bound(
+    ::Type{HybridThermalActivePower},
+    ::PSY.HybridSystem,
+    ::Type{<:AbstractHybridFormulation},
+) = 0.0
+get_variable_upper_bound(
+    ::Type{HybridThermalActivePower},
+    d::PSY.HybridSystem,
+    ::Type{<:AbstractHybridFormulation},
+) = PSY.get_active_power_limits(PSY.get_thermal_unit(d)).max
 
-get_variable_binary(::Type{HybridRenewableActivePower}, ::Type{PSY.HybridSystem}, ::Type{<:AbstractHybridFormulation}) = false
-get_variable_lower_bound(::Type{HybridRenewableActivePower}, ::PSY.HybridSystem, ::Type{<:AbstractHybridFormulation}) = 0.0
-get_variable_upper_bound(::Type{HybridRenewableActivePower}, d::PSY.HybridSystem, ::Type{<:AbstractHybridFormulation}) = PSY.get_max_active_power(PSY.get_renewable_unit(d))
+get_variable_binary(
+    ::Type{HybridRenewableActivePower},
+    ::Type{PSY.HybridSystem},
+    ::Type{<:AbstractHybridFormulation},
+) = false
+get_variable_lower_bound(
+    ::Type{HybridRenewableActivePower},
+    ::PSY.HybridSystem,
+    ::Type{<:AbstractHybridFormulation},
+) = 0.0
+get_variable_upper_bound(
+    ::Type{HybridRenewableActivePower},
+    d::PSY.HybridSystem,
+    ::Type{<:AbstractHybridFormulation},
+) = PSY.get_max_active_power(PSY.get_renewable_unit(d))
 
-get_variable_binary(::Type{HybridStorageChargePower}, ::Type{PSY.HybridSystem}, ::Type{<:AbstractHybridFormulation}) = false
-get_variable_lower_bound(::Type{HybridStorageChargePower}, ::PSY.HybridSystem, ::Type{<:AbstractHybridFormulation}) = 0.0
-get_variable_upper_bound(::Type{HybridStorageChargePower}, d::PSY.HybridSystem, ::Type{<:AbstractHybridFormulation}) = PSY.get_input_active_power_limits(PSY.get_storage(d)).max
+get_variable_binary(
+    ::Type{HybridStorageChargePower},
+    ::Type{PSY.HybridSystem},
+    ::Type{<:AbstractHybridFormulation},
+) = false
+get_variable_lower_bound(
+    ::Type{HybridStorageChargePower},
+    ::PSY.HybridSystem,
+    ::Type{<:AbstractHybridFormulation},
+) = 0.0
+get_variable_upper_bound(
+    ::Type{HybridStorageChargePower},
+    d::PSY.HybridSystem,
+    ::Type{<:AbstractHybridFormulation},
+) = PSY.get_input_active_power_limits(PSY.get_storage(d)).max
 
-get_variable_binary(::Type{HybridStorageDischargePower}, ::Type{PSY.HybridSystem}, ::Type{<:AbstractHybridFormulation}) = false
-get_variable_lower_bound(::Type{HybridStorageDischargePower}, ::PSY.HybridSystem, ::Type{<:AbstractHybridFormulation}) = 0.0
-get_variable_upper_bound(::Type{HybridStorageDischargePower}, d::PSY.HybridSystem, ::Type{<:AbstractHybridFormulation}) = PSY.get_output_active_power_limits(PSY.get_storage(d)).max
+get_variable_binary(
+    ::Type{HybridStorageDischargePower},
+    ::Type{PSY.HybridSystem},
+    ::Type{<:AbstractHybridFormulation},
+) = false
+get_variable_lower_bound(
+    ::Type{HybridStorageDischargePower},
+    ::PSY.HybridSystem,
+    ::Type{<:AbstractHybridFormulation},
+) = 0.0
+get_variable_upper_bound(
+    ::Type{HybridStorageDischargePower},
+    d::PSY.HybridSystem,
+    ::Type{<:AbstractHybridFormulation},
+) = PSY.get_output_active_power_limits(PSY.get_storage(d)).max
 
-get_variable_binary(::Type{HybridStorageReservation}, ::Type{PSY.HybridSystem}, ::Type{<:AbstractHybridFormulation}) = true
+get_variable_binary(
+    ::Type{HybridStorageReservation},
+    ::Type{PSY.HybridSystem},
+    ::Type{<:AbstractHybridFormulation},
+) = true
+
+get_variable_binary(
+    ::Type{ChargeRegularizationVariable},
+    ::Type{PSY.HybridSystem},
+    ::Type{<:AbstractHybridFormulation},
+) = false
+get_variable_lower_bound(
+    ::Type{ChargeRegularizationVariable},
+    ::PSY.HybridSystem,
+    ::Type{<:AbstractHybridFormulation},
+) = 0.0
+
+get_variable_binary(
+    ::Type{DischargeRegularizationVariable},
+    ::Type{PSY.HybridSystem},
+    ::Type{<:AbstractHybridFormulation},
+) = false
+get_variable_lower_bound(
+    ::Type{DischargeRegularizationVariable},
+    ::PSY.HybridSystem,
+    ::Type{<:AbstractHybridFormulation},
+) = 0.0
 
 # Storage energy state on the hybrid (uses POM's standard EnergyVariable, keyed by HybridSystem)
-get_variable_binary(::Type{EnergyVariable}, ::Type{PSY.HybridSystem}, ::Type{<:AbstractHybridFormulation}) = false
-get_variable_lower_bound(::Type{EnergyVariable}, d::PSY.HybridSystem, ::Type{<:AbstractHybridFormulation}) =
+get_variable_binary(
+    ::Type{EnergyVariable},
+    ::Type{PSY.HybridSystem},
+    ::Type{<:AbstractHybridFormulation},
+) = false
+get_variable_lower_bound(
+    ::Type{EnergyVariable},
+    d::PSY.HybridSystem,
+    ::Type{<:AbstractHybridFormulation},
+) =
     PSY.get_storage_level_limits(PSY.get_storage(d)).min *
     PSY.get_storage_capacity(PSY.get_storage(d)) *
     PSY.get_conversion_factor(PSY.get_storage(d))
-get_variable_upper_bound(::Type{EnergyVariable}, d::PSY.HybridSystem, ::Type{<:AbstractHybridFormulation}) =
+get_variable_upper_bound(
+    ::Type{EnergyVariable},
+    d::PSY.HybridSystem,
+    ::Type{<:AbstractHybridFormulation},
+) =
     PSY.get_storage_level_limits(PSY.get_storage(d)).max *
     PSY.get_storage_capacity(PSY.get_storage(d)) *
     PSY.get_conversion_factor(PSY.get_storage(d))
-get_variable_warm_start_value(::Type{EnergyVariable}, d::PSY.HybridSystem, ::Type{<:AbstractHybridFormulation}) =
+get_variable_warm_start_value(
+    ::Type{EnergyVariable},
+    d::PSY.HybridSystem,
+    ::Type{<:AbstractHybridFormulation},
+) =
     PSY.get_initial_storage_capacity_level(PSY.get_storage(d)) *
     PSY.get_storage_capacity(PSY.get_storage(d)) *
     PSY.get_conversion_factor(PSY.get_storage(d))
 
 # Thermal commitment OnVariable on a hybrid (binary)
-get_variable_binary(::Type{OnVariable}, ::Type{PSY.HybridSystem}, ::Type{<:AbstractHybridFormulation}) = true
-get_variable_lower_bound(::Type{OnVariable}, ::PSY.HybridSystem, ::Type{<:AbstractHybridFormulation}) = nothing
-get_variable_upper_bound(::Type{OnVariable}, ::PSY.HybridSystem, ::Type{<:AbstractHybridFormulation}) = nothing
+get_variable_binary(
+    ::Type{OnVariable},
+    ::Type{PSY.HybridSystem},
+    ::Type{<:AbstractHybridFormulation},
+) = true
+get_variable_lower_bound(
+    ::Type{OnVariable},
+    ::PSY.HybridSystem,
+    ::Type{<:AbstractHybridFormulation},
+) = nothing
+get_variable_upper_bound(
+    ::Type{OnVariable},
+    ::PSY.HybridSystem,
+    ::Type{<:AbstractHybridFormulation},
+) = nothing
 
 #################################################################################
 # Reserve variables — bounds and binary flags
 #################################################################################
 
-get_variable_binary(::Type{<:HybridComponentReserveVariableType}, ::Type{PSY.HybridSystem}, ::Type{<:AbstractHybridFormulation}) = false
-get_variable_lower_bound(::Type{<:HybridComponentReserveVariableType}, ::PSY.HybridSystem, ::Type{<:AbstractHybridFormulation}) = 0.0
+get_variable_binary(
+    ::Type{<:HybridComponentReserveVariableType},
+    ::Type{PSY.HybridSystem},
+    ::Type{<:AbstractHybridFormulation},
+) = false
+get_variable_lower_bound(
+    ::Type{<:HybridComponentReserveVariableType},
+    ::PSY.HybridSystem,
+    ::Type{<:AbstractHybridFormulation},
+) = 0.0
 
 # Per-subcomponent reserve upper bounds: limited by the subcomponent's headroom × the service's max output fraction
-function get_variable_upper_bound(::Type{HybridThermalReserveVariable}, r::PSY.Reserve, d::PSY.HybridSystem, ::Type{<:AbstractHybridFormulation})
-    return PSY.get_max_output_fraction(r) * PSY.get_active_power_limits(PSY.get_thermal_unit(d)).max
+function get_variable_upper_bound(
+    ::Type{HybridThermalReserveVariable},
+    r::PSY.Reserve,
+    d::PSY.HybridSystem,
+    ::Type{<:AbstractHybridFormulation},
+)
+    return PSY.get_max_output_fraction(r) *
+           PSY.get_active_power_limits(PSY.get_thermal_unit(d)).max
 end
-function get_variable_upper_bound(::Type{HybridRenewableReserveVariable}, r::PSY.Reserve, d::PSY.HybridSystem, ::Type{<:AbstractHybridFormulation})
-    return PSY.get_max_output_fraction(r) * PSY.get_max_active_power(PSY.get_renewable_unit(d))
+function get_variable_upper_bound(
+    ::Type{HybridRenewableReserveVariable},
+    r::PSY.Reserve,
+    d::PSY.HybridSystem,
+    ::Type{<:AbstractHybridFormulation},
+)
+    return PSY.get_max_output_fraction(r) *
+           PSY.get_max_active_power(PSY.get_renewable_unit(d))
 end
-function get_variable_upper_bound(::Type{HybridChargingReserveVariable}, r::PSY.Reserve, d::PSY.HybridSystem, ::Type{<:AbstractHybridFormulation})
-    return PSY.get_max_output_fraction(r) * PSY.get_input_active_power_limits(PSY.get_storage(d)).max
+function get_variable_upper_bound(
+    ::Type{HybridChargingReserveVariable},
+    r::PSY.Reserve,
+    d::PSY.HybridSystem,
+    ::Type{<:AbstractHybridFormulation},
+)
+    return PSY.get_max_output_fraction(r) *
+           PSY.get_input_active_power_limits(PSY.get_storage(d)).max
 end
-function get_variable_upper_bound(::Type{HybridDischargingReserveVariable}, r::PSY.Reserve, d::PSY.HybridSystem, ::Type{<:AbstractHybridFormulation})
-    return PSY.get_max_output_fraction(r) * PSY.get_output_active_power_limits(PSY.get_storage(d)).max
+function get_variable_upper_bound(
+    ::Type{HybridDischargingReserveVariable},
+    r::PSY.Reserve,
+    d::PSY.HybridSystem,
+    ::Type{<:AbstractHybridFormulation},
+)
+    return PSY.get_max_output_fraction(r) *
+           PSY.get_output_active_power_limits(PSY.get_storage(d)).max
 end
 
 # Hybrid PCC reserve variables — limited by the hybrid's PCC limits × max_output_fraction
-get_variable_binary(::Type{HybridReserveVariableOut}, ::Type{PSY.HybridSystem}, ::Type{<:AbstractHybridFormulation}) = false
-get_variable_lower_bound(::Type{HybridReserveVariableOut}, ::PSY.HybridSystem, ::Type{<:AbstractHybridFormulation}) = 0.0
-function get_variable_upper_bound(::Type{HybridReserveVariableOut}, r::PSY.Reserve, d::PSY.HybridSystem, ::Type{<:AbstractHybridFormulation})
+get_variable_binary(
+    ::Type{HybridReserveVariableOut},
+    ::Type{PSY.HybridSystem},
+    ::Type{<:AbstractHybridFormulation},
+) = false
+get_variable_lower_bound(
+    ::Type{HybridReserveVariableOut},
+    ::PSY.HybridSystem,
+    ::Type{<:AbstractHybridFormulation},
+) = 0.0
+function get_variable_upper_bound(
+    ::Type{HybridReserveVariableOut},
+    r::PSY.Reserve,
+    d::PSY.HybridSystem,
+    ::Type{<:AbstractHybridFormulation},
+)
     return PSY.get_max_output_fraction(r) * PSY.get_output_active_power_limits(d).max
 end
 
-get_variable_binary(::Type{HybridReserveVariableIn}, ::Type{PSY.HybridSystem}, ::Type{<:AbstractHybridFormulation}) = false
-get_variable_lower_bound(::Type{HybridReserveVariableIn}, ::PSY.HybridSystem, ::Type{<:AbstractHybridFormulation}) = 0.0
-function get_variable_upper_bound(::Type{HybridReserveVariableIn}, r::PSY.Reserve, d::PSY.HybridSystem, ::Type{<:AbstractHybridFormulation})
+get_variable_binary(
+    ::Type{HybridReserveVariableIn},
+    ::Type{PSY.HybridSystem},
+    ::Type{<:AbstractHybridFormulation},
+) = false
+get_variable_lower_bound(
+    ::Type{HybridReserveVariableIn},
+    ::PSY.HybridSystem,
+    ::Type{<:AbstractHybridFormulation},
+) = 0.0
+function get_variable_upper_bound(
+    ::Type{HybridReserveVariableIn},
+    r::PSY.Reserve,
+    d::PSY.HybridSystem,
+    ::Type{<:AbstractHybridFormulation},
+)
     return PSY.get_max_output_fraction(r) * PSY.get_input_active_power_limits(d).max
 end
 
 # Multipliers used by reserve aggregations (Out side gets +1; In side handled via separate dispatch in add_to_expression)
-get_variable_multiplier(::Type{<:HybridComponentReserveVariableType}, ::PSY.HybridSystem, ::AbstractHybridFormulationWithReserves, ::PSY.Reserve) = 1.0
-get_variable_multiplier(::Type{HybridReserveVariableOut}, ::PSY.HybridSystem, ::AbstractHybridFormulationWithReserves, ::PSY.Reserve) = 1.0
-get_variable_multiplier(::Type{HybridReserveVariableIn},  ::PSY.HybridSystem, ::AbstractHybridFormulationWithReserves, ::PSY.Reserve) = 1.0
+get_variable_multiplier(
+    ::Type{<:HybridComponentReserveVariableType},
+    ::PSY.HybridSystem,
+    ::AbstractHybridFormulationWithReserves,
+    ::PSY.Reserve,
+) = 1.0
+get_variable_multiplier(
+    ::Type{HybridReserveVariableOut},
+    ::PSY.HybridSystem,
+    ::AbstractHybridFormulationWithReserves,
+    ::PSY.Reserve,
+) = 1.0
+get_variable_multiplier(
+    ::Type{HybridReserveVariableIn},
+    ::PSY.HybridSystem,
+    ::AbstractHybridFormulationWithReserves,
+    ::PSY.Reserve,
+) = 1.0
 
 # When the system-side ActivePowerReserveVariable is added by the service constructor for a HybridSystem,
 # direct it into the TotalReserveOffering channel keyed by HybridSystem (mirrors POM storage line 59).
-get_expression_type_for_reserve(::Type{ActivePowerReserveVariable}, ::Type{<:PSY.HybridSystem}, ::Type{<:PSY.Reserve}) = TotalReserveOffering
+get_expression_type_for_reserve(
+    ::Type{ActivePowerReserveVariable},
+    ::Type{<:PSY.HybridSystem},
+    ::Type{<:PSY.Reserve},
+) = TotalReserveOffering
 
-function get_variable_upper_bound(::Type{ActivePowerReserveVariable}, r::PSY.Reserve, d::PSY.HybridSystem, ::Type{<:AbstractReservesFormulation})
-    return PSY.get_max_output_fraction(r) * (PSY.get_output_active_power_limits(d).max + PSY.get_input_active_power_limits(d).max)
+function get_variable_upper_bound(
+    ::Type{ActivePowerReserveVariable},
+    r::PSY.Reserve,
+    d::PSY.HybridSystem,
+    ::Type{<:AbstractReservesFormulation},
+)
+    return PSY.get_max_output_fraction(r) * (
+        PSY.get_output_active_power_limits(d).max +
+        PSY.get_input_active_power_limits(d).max
+    )
 end
 
 # Disambiguate against the generic ReserveDemandCurve method in services_models/reserves.jl.
-function get_variable_upper_bound(::Type{ActivePowerReserveVariable}, r::PSY.ReserveDemandCurve, d::PSY.HybridSystem, ::Type{<:AbstractReservesFormulation})
-    return PSY.get_output_active_power_limits(d).max + PSY.get_input_active_power_limits(d).max
+function get_variable_upper_bound(
+    ::Type{ActivePowerReserveVariable},
+    r::PSY.ReserveDemandCurve,
+    d::PSY.HybridSystem,
+    ::Type{<:AbstractReservesFormulation},
+)
+    return PSY.get_output_active_power_limits(d).max +
+           PSY.get_input_active_power_limits(d).max
 end
 
 #################################################################################
@@ -167,8 +427,16 @@ get_multiplier_value(
     ::AbstractHybridFormulation,
 ) = PSY.get_max_active_power(PSY.get_electric_load(d))
 
-get_parameter_multiplier(::HybridRenewableActivePowerTimeSeriesParameter, ::PSY.HybridSystem, ::AbstractHybridFormulation) = 1.0
-get_parameter_multiplier(::HybridElectricLoadTimeSeriesParameter,         ::PSY.HybridSystem, ::AbstractHybridFormulation) = 1.0
+get_parameter_multiplier(
+    ::HybridRenewableActivePowerTimeSeriesParameter,
+    ::PSY.HybridSystem,
+    ::AbstractHybridFormulation,
+) = 1.0
+get_parameter_multiplier(
+    ::HybridElectricLoadTimeSeriesParameter,
+    ::PSY.HybridSystem,
+    ::AbstractHybridFormulation,
+) = 1.0
 
 #################################################################################
 # Initial conditions
@@ -201,7 +469,12 @@ function initial_conditions!(
 ) where {T <: PSY.HybridSystem}
     storage_devices = [d for d in devices if PSY.get_storage(d) !== nothing]
     if !isempty(storage_devices)
-        add_initial_condition!(container, storage_devices, formulation, InitialEnergyLevel())
+        add_initial_condition!(
+            container,
+            storage_devices,
+            formulation,
+            InitialEnergyLevel(),
+        )
     end
     return
 end
@@ -262,9 +535,9 @@ end
 # Objective-function multipliers (positive — we minimize cost)
 #################################################################################
 
-objective_function_multiplier(::Type{<:VariableType}, ::Type{<:AbstractHybridFormulation}) = OBJECTIVE_FUNCTION_POSITIVE
+objective_function_multiplier(::Type{<:VariableType}, ::Type{<:AbstractHybridFormulation}) =
+    OBJECTIVE_FUNCTION_POSITIVE
 
-#! format: on
 #################################################################################
 # PCC active-power balance: ActivePowerInVariable / ActivePowerOutVariable into
 # the network's ActivePowerBalance expression.
@@ -635,7 +908,7 @@ function _thermal_reserve_up_expr(container, d, t, services)
             typeof(d),
             "$(s_type)_$s_name",
         )
-        JuMP.add_to_expression!(expr, var[PSY.get_name(d), t], 1.0)
+        add_proportional_to_jump_expression!(expr, var[PSY.get_name(d), t], 1.0)
     end
     return expr
 end
@@ -654,7 +927,7 @@ function _thermal_reserve_down_expr(container, d, t, services)
             typeof(d),
             "$(s_type)_$s_name",
         )
-        JuMP.add_to_expression!(expr, var[PSY.get_name(d), t], 1.0)
+        add_proportional_to_jump_expression!(expr, var[PSY.get_name(d), t], 1.0)
     end
     return expr
 end
@@ -819,7 +1092,7 @@ function _renewable_reserve_up_expr(container, d, t, services)
             typeof(d),
             "$(s_type)_$s_name",
         )
-        JuMP.add_to_expression!(expr, var[PSY.get_name(d), t], 1.0)
+        add_proportional_to_jump_expression!(expr, var[PSY.get_name(d), t], 1.0)
     end
     return expr
 end
@@ -838,7 +1111,7 @@ function _renewable_reserve_down_expr(container, d, t, services)
             typeof(d),
             "$(s_type)_$s_name",
         )
-        JuMP.add_to_expression!(expr, var[PSY.get_name(d), t], 1.0)
+        add_proportional_to_jump_expression!(expr, var[PSY.get_name(d), t], 1.0)
     end
     return expr
 end
@@ -986,8 +1259,6 @@ end
 # from POM's storage versions.
 #################################################################################
 
-#! format: off
-
 # Helper accessors
 _storage_of(d::PSY.HybridSystem) = PSY.get_storage(d)
 
@@ -1028,7 +1299,13 @@ function _hybrid_storage_balance_no_reserves!(
     energy_var = get_variable(container, EnergyVariable, V)
     p_ch = get_variable(container, HybridStorageChargePower, V)
     p_ds = get_variable(container, HybridStorageDischargePower, V)
-    constraint = add_constraints_container!(container, HybridStorageBalanceConstraint, V, names, time_steps)
+    constraint = add_constraints_container!(
+        container,
+        HybridStorageBalanceConstraint,
+        V,
+        names,
+        time_steps,
+    )
 
     for ic in initial_conditions
         d = IOM.get_component(ic)
@@ -1038,13 +1315,15 @@ function _hybrid_storage_balance_no_reserves!(
         name = PSY.get_name(d)
         constraint[name, 1] = JuMP.@constraint(
             get_jump_model(container),
-            energy_var[name, 1] == get_value(ic) +
+            energy_var[name, 1] ==
+            get_value(ic) +
             (p_ch[name, 1] * eff.in - p_ds[name, 1] / eff.out) * fraction_of_hour
         )
         for t in time_steps[2:end]
             constraint[name, t] = JuMP.@constraint(
                 get_jump_model(container),
-                energy_var[name, t] == energy_var[name, t-1] +
+                energy_var[name, t] ==
+                energy_var[name, t - 1] +
                 (p_ch[name, t] * eff.in - p_ds[name, t] / eff.out) * fraction_of_hour
             )
         end
@@ -1057,7 +1336,11 @@ function _hybrid_storage_balance_with_reserves!(
     devices,
     model::DeviceModel{V, W},
     ::NetworkModel{X},
-) where {V <: PSY.HybridSystem, W <: AbstractHybridFormulationWithReserves, X <: AbstractPowerModel}
+) where {
+    V <: PSY.HybridSystem,
+    W <: AbstractHybridFormulationWithReserves,
+    X <: AbstractPowerModel,
+}
     time_steps = get_time_steps(container)
     resolution = get_resolution(container)
     fraction_of_hour = Dates.value(Dates.Minute(resolution)) / MINUTES_IN_HOUR
@@ -1070,7 +1353,13 @@ function _hybrid_storage_balance_with_reserves!(
     r_up_ch = get_expression(container, ReserveDeploymentBalanceUpCharge, V)
     r_dn_ds = get_expression(container, ReserveDeploymentBalanceDownDischarge, V)
     r_dn_ch = get_expression(container, ReserveDeploymentBalanceDownCharge, V)
-    constraint = add_constraints_container!(container, HybridStorageBalanceConstraint, V, names, time_steps)
+    constraint = add_constraints_container!(
+        container,
+        HybridStorageBalanceConstraint,
+        V,
+        names,
+        time_steps,
+    )
 
     for ic in initial_conditions
         d = IOM.get_component(ic)
@@ -1080,16 +1369,22 @@ function _hybrid_storage_balance_with_reserves!(
         name = PSY.get_name(d)
         constraint[name, 1] = JuMP.@constraint(
             get_jump_model(container),
-            energy_var[name, 1] == get_value(ic) +
-            (((p_ch[name, 1] + r_dn_ch[name, 1] - r_up_ch[name, 1]) * eff.in) -
-             ((p_ds[name, 1] + r_up_ds[name, 1] - r_dn_ds[name, 1]) / eff.out)) * fraction_of_hour
+            energy_var[name, 1] ==
+            get_value(ic) +
+            (
+                ((p_ch[name, 1] + r_dn_ch[name, 1] - r_up_ch[name, 1]) * eff.in) -
+                ((p_ds[name, 1] + r_up_ds[name, 1] - r_dn_ds[name, 1]) / eff.out)
+            ) * fraction_of_hour
         )
         for t in time_steps[2:end]
             constraint[name, t] = JuMP.@constraint(
                 get_jump_model(container),
-                energy_var[name, t] == energy_var[name, t-1] +
-                (((p_ch[name, t] + r_dn_ch[name, t] - r_up_ch[name, t]) * eff.in) -
-                 ((p_ds[name, t] + r_up_ds[name, t] - r_dn_ds[name, t]) / eff.out)) * fraction_of_hour
+                energy_var[name, t] ==
+                energy_var[name, t - 1] +
+                (
+                    ((p_ch[name, t] + r_dn_ch[name, t] - r_up_ch[name, t]) * eff.in) -
+                    ((p_ds[name, t] + r_up_ds[name, t] - r_dn_ds[name, t]) / eff.out)
+                ) * fraction_of_hour
             )
         end
     end
@@ -1117,7 +1412,13 @@ function add_constraints!(
     names = [PSY.get_name(d) for d in devices]
     p_ch = get_variable(container, HybridStorageChargePower, V)
     ss = get_variable(container, HybridStorageReservation, V)
-    constraint = add_constraints_container!(container, HybridStorageStatusChargeOnConstraint, V, names, time_steps)
+    constraint = add_constraints_container!(
+        container,
+        HybridStorageStatusChargeOnConstraint,
+        V,
+        names,
+        time_steps,
+    )
     for d in devices, t in time_steps
         storage = _storage_of(d)
         storage === nothing && continue
@@ -1146,7 +1447,13 @@ function add_constraints!(
     names = [PSY.get_name(d) for d in devices]
     p_ds = get_variable(container, HybridStorageDischargePower, V)
     ss = get_variable(container, HybridStorageReservation, V)
-    constraint = add_constraints_container!(container, HybridStorageStatusDischargeOnConstraint, V, names, time_steps)
+    constraint = add_constraints_container!(
+        container,
+        HybridStorageStatusDischargeOnConstraint,
+        V,
+        names,
+        time_steps,
+    )
     for d in devices, t in time_steps
         storage = _storage_of(d)
         storage === nothing && continue
@@ -1194,19 +1501,35 @@ function add_constraints!(
     time_steps = get_time_steps(container)
     names = [PSY.get_name(d) for d in devices]
     p_ch = get_variable(container, HybridStorageChargePower, V)
-    ss = get_variable(container, HybridStorageReservation, V)
-    con_ub = add_constraints_container!(container, HybridStorageChargingReservePowerLimitConstraint, V, names, time_steps; meta = "ub")
-    con_lb = add_constraints_container!(container, HybridStorageChargingReservePowerLimitConstraint, V, names, time_steps; meta = "lb")
+    has_ss = haskey(IOM.get_variables(container), VariableKey(HybridStorageReservation, V))
+    ss = has_ss ? get_variable(container, HybridStorageReservation, V) : nothing
+    con_ub = add_constraints_container!(
+        container,
+        HybridStorageChargingReservePowerLimitConstraint,
+        V,
+        names,
+        time_steps;
+        meta = "ub",
+    )
+    con_lb = add_constraints_container!(
+        container,
+        HybridStorageChargingReservePowerLimitConstraint,
+        V,
+        names,
+        time_steps;
+        meta = "lb",
+    )
     for d in devices, t in time_steps
         storage = _storage_of(d)
         storage === nothing && continue
         name = PSY.get_name(d)
         max_ch = PSY.get_input_active_power_limits(storage).max
         r_up, r_dn = _ch_reserve_up_dn_exprs(container, V, t, name)
-        # charge + down reserve ≤ max·(1 - ss); charge - up reserve ≥ 0
+        # charge + down reserve ≤ max·(1 - ss) when reservation; max otherwise
+        ub_rhs = has_ss ? max_ch * (1 - ss[name, t]) : max_ch
         con_ub[name, t] = JuMP.@constraint(
             get_jump_model(container),
-            p_ch[name, t] + r_dn <= max_ch * (1 - ss[name, t])
+            p_ch[name, t] + r_dn <= ub_rhs
         )
         con_lb[name, t] = JuMP.@constraint(
             get_jump_model(container),
@@ -1230,23 +1553,162 @@ function add_constraints!(
     time_steps = get_time_steps(container)
     names = [PSY.get_name(d) for d in devices]
     p_ds = get_variable(container, HybridStorageDischargePower, V)
-    ss = get_variable(container, HybridStorageReservation, V)
-    con_ub = add_constraints_container!(container, HybridStorageDischargingReservePowerLimitConstraint, V, names, time_steps; meta = "ub")
-    con_lb = add_constraints_container!(container, HybridStorageDischargingReservePowerLimitConstraint, V, names, time_steps; meta = "lb")
+    has_ss = haskey(IOM.get_variables(container), VariableKey(HybridStorageReservation, V))
+    ss = has_ss ? get_variable(container, HybridStorageReservation, V) : nothing
+    con_ub = add_constraints_container!(
+        container,
+        HybridStorageDischargingReservePowerLimitConstraint,
+        V,
+        names,
+        time_steps;
+        meta = "ub",
+    )
+    con_lb = add_constraints_container!(
+        container,
+        HybridStorageDischargingReservePowerLimitConstraint,
+        V,
+        names,
+        time_steps;
+        meta = "lb",
+    )
     for d in devices, t in time_steps
         storage = _storage_of(d)
         storage === nothing && continue
         name = PSY.get_name(d)
         max_ds = PSY.get_output_active_power_limits(storage).max
         r_up, r_dn = _ds_reserve_up_dn_exprs(container, V, t, name)
+        ub_rhs = has_ss ? max_ds * ss[name, t] : max_ds
         con_ub[name, t] = JuMP.@constraint(
             get_jump_model(container),
-            p_ds[name, t] + r_up <= max_ds * ss[name, t]
+            p_ds[name, t] + r_up <= ub_rhs
         )
         con_lb[name, t] = JuMP.@constraint(
             get_jump_model(container),
             p_ds[name, t] - r_dn >= 0.0
         )
+    end
+    return
+end
+
+#################################################################################
+# Charge/Discharge regularization constraints — penalize step changes in the
+# charge/discharge profile via a non-negative slack. Mirrors HSS
+# add_constraints.jl:1255–1424. When reserves are present, the served reserve
+# expressions enter the step-change quantity so the regularization smooths the
+# *net* injection profile, not the bare charge/discharge variable.
+#################################################################################
+
+function _hybrid_served_charge_reserve_pair(container, V, name, t)
+    if has_container_key(container, ReserveDeploymentBalanceUpCharge, V) &&
+       has_container_key(container, ReserveDeploymentBalanceDownCharge, V)
+        up = get_expression(container, ReserveDeploymentBalanceUpCharge, V)[name, t]
+        dn = get_expression(container, ReserveDeploymentBalanceDownCharge, V)[name, t]
+        return up, dn
+    end
+    return 0.0, 0.0
+end
+
+function _hybrid_served_discharge_reserve_pair(container, V, name, t)
+    if has_container_key(container, ReserveDeploymentBalanceUpDischarge, V) &&
+       has_container_key(container, ReserveDeploymentBalanceDownDischarge, V)
+        up = get_expression(container, ReserveDeploymentBalanceUpDischarge, V)[name, t]
+        dn = get_expression(container, ReserveDeploymentBalanceDownDischarge, V)[name, t]
+        return up, dn
+    end
+    return 0.0, 0.0
+end
+
+function add_constraints!(
+    container::OptimizationContainer,
+    ::Type{ChargeRegularizationConstraint},
+    devices::U,
+    model::DeviceModel{V, W},
+    ::NetworkModel{X},
+) where {
+    U <: Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
+    W <: AbstractHybridFormulation,
+    X <: AbstractPowerModel,
+} where {V <: PSY.HybridSystem}
+    time_steps = get_time_steps(container)
+    names = [PSY.get_name(d) for d in devices]
+    reg_var = get_variable(container, ChargeRegularizationVariable, V)
+    p_ch = get_variable(container, HybridStorageChargePower, V)
+    has_services =
+        W <: AbstractHybridFormulationWithReserves && has_service_model(model)
+    con_ub = add_constraints_container!(
+        container, ChargeRegularizationConstraint, V, names, time_steps; meta = "ub")
+    con_lb = add_constraints_container!(
+        container, ChargeRegularizationConstraint, V, names, time_steps; meta = "lb")
+    jm = get_jump_model(container)
+    t1 = first(time_steps)
+    for d in devices
+        PSY.get_storage(d) === nothing && continue
+        name = PSY.get_name(d)
+        # First time step: pin slack to zero (no previous step to compare against).
+        con_ub[name, t1] = JuMP.@constraint(jm, reg_var[name, t1] == 0)
+        con_lb[name, t1] = JuMP.@constraint(jm, reg_var[name, t1] == 0)
+        for t in time_steps[2:end]
+            if has_services
+                up_prev, dn_prev =
+                    _hybrid_served_charge_reserve_pair(container, V, name, t - 1)
+                up_t, dn_t = _hybrid_served_charge_reserve_pair(container, V, name, t)
+                lhs =
+                    (p_ch[name, t - 1] - up_prev + dn_prev) -
+                    (p_ch[name, t] - up_t + dn_t)
+            else
+                lhs = p_ch[name, t - 1] - p_ch[name, t]
+            end
+            con_ub[name, t] = JuMP.@constraint(jm, lhs <= reg_var[name, t])
+            con_lb[name, t] = JuMP.@constraint(jm, lhs >= -reg_var[name, t])
+        end
+    end
+    return
+end
+
+function add_constraints!(
+    container::OptimizationContainer,
+    ::Type{DischargeRegularizationConstraint},
+    devices::U,
+    model::DeviceModel{V, W},
+    ::NetworkModel{X},
+) where {
+    U <: Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
+    W <: AbstractHybridFormulation,
+    X <: AbstractPowerModel,
+} where {V <: PSY.HybridSystem}
+    time_steps = get_time_steps(container)
+    names = [PSY.get_name(d) for d in devices]
+    reg_var = get_variable(container, DischargeRegularizationVariable, V)
+    p_ds = get_variable(container, HybridStorageDischargePower, V)
+    has_services =
+        W <: AbstractHybridFormulationWithReserves && has_service_model(model)
+    con_ub = add_constraints_container!(
+        container, DischargeRegularizationConstraint, V, names, time_steps; meta = "ub",
+    )
+    con_lb = add_constraints_container!(
+        container, DischargeRegularizationConstraint, V, names, time_steps; meta = "lb",
+    )
+    jm = get_jump_model(container)
+    t1 = first(time_steps)
+    for d in devices
+        PSY.get_storage(d) === nothing && continue
+        name = PSY.get_name(d)
+        con_ub[name, t1] = JuMP.@constraint(jm, reg_var[name, t1] == 0)
+        con_lb[name, t1] = JuMP.@constraint(jm, reg_var[name, t1] == 0)
+        for t in time_steps[2:end]
+            if has_services
+                up_prev, dn_prev =
+                    _hybrid_served_discharge_reserve_pair(container, V, name, t - 1)
+                up_t, dn_t = _hybrid_served_discharge_reserve_pair(container, V, name, t)
+                lhs =
+                    (p_ds[name, t - 1] + up_prev - dn_prev) -
+                    (p_ds[name, t] + up_t - dn_t)
+            else
+                lhs = p_ds[name, t - 1] - p_ds[name, t]
+            end
+            con_ub[name, t] = JuMP.@constraint(jm, lhs <= reg_var[name, t])
+            con_lb[name, t] = JuMP.@constraint(jm, lhs >= -reg_var[name, t])
+        end
     end
     return
 end
@@ -1285,9 +1747,23 @@ function add_constraints!(
         s_name = PSY.get_name(service)
         s_type = typeof(service)
         if service isa PSY.Reserve{PSY.ReserveUp}
-            add_constraints_container!(container, T, V, names, time_steps; meta = "$(s_type)_$(s_name)_discharge")
+            add_constraints_container!(
+                container,
+                T,
+                V,
+                names,
+                time_steps;
+                meta = "$(s_type)_$(s_name)_discharge",
+            )
         elseif service isa PSY.Reserve{PSY.ReserveDown}
-            add_constraints_container!(container, T, V, names, time_steps; meta = "$(s_type)_$(s_name)_charge")
+            add_constraints_container!(
+                container,
+                T,
+                V,
+                names,
+                time_steps;
+                meta = "$(s_type)_$(s_name)_charge",
+            )
         end
     end
 
@@ -1307,49 +1783,66 @@ function add_constraints!(
             s_name = PSY.get_name(service)
             s_type = typeof(service)
             if service isa PSY.Reserve{PSY.ReserveUp}
-                reserve_var = get_variable(container, HybridDischargingReserveVariable, V, "$(s_type)_$s_name")
+                reserve_var = get_variable(
+                    container,
+                    HybridDischargingReserveVariable,
+                    V,
+                    "$(s_type)_$s_name",
+                )
                 con = get_constraint(container, T, V, "$(s_type)_$(s_name)_discharge")
                 if time_offset(T) == -1
                     con[ci_name, 1] = JuMP.@constraint(
                         get_jump_model(container),
-                        sustained_param_discharge * reserve_var[ci_name, 1] <= get_value(ic)
+                        sustained_param_discharge * reserve_var[ci_name, 1] <=
+                        get_value(ic)
                     )
                     for t in time_steps[2:end]
                         con[ci_name, t] = JuMP.@constraint(
                             get_jump_model(container),
-                            sustained_param_discharge * reserve_var[ci_name, t] <= energy_var[ci_name, t-1]
+                            sustained_param_discharge * reserve_var[ci_name, t] <=
+                            energy_var[ci_name, t - 1]
                         )
                     end
                 else  # EndOfPeriod
                     for t in time_steps
                         con[ci_name, t] = JuMP.@constraint(
                             get_jump_model(container),
-                            sustained_param_discharge * reserve_var[ci_name, t] <= energy_var[ci_name, t]
+                            sustained_param_discharge * reserve_var[ci_name, t] <=
+                            energy_var[ci_name, t]
                         )
                     end
                 end
             elseif service isa PSY.Reserve{PSY.ReserveDown}
-                reserve_var = get_variable(container, HybridChargingReserveVariable, V, "$(s_type)_$s_name")
+                reserve_var = get_variable(
+                    container,
+                    HybridChargingReserveVariable,
+                    V,
+                    "$(s_type)_$s_name",
+                )
                 con = get_constraint(container, T, V, "$(s_type)_$(s_name)_charge")
-                soc_max = PSY.get_storage_level_limits(storage).max *
-                          PSY.get_storage_capacity(storage) *
-                          PSY.get_conversion_factor(storage)
+                soc_max =
+                    PSY.get_storage_level_limits(storage).max *
+                    PSY.get_storage_capacity(storage) *
+                    PSY.get_conversion_factor(storage)
                 if time_offset(T) == -1
                     con[ci_name, 1] = JuMP.@constraint(
                         get_jump_model(container),
-                        sustained_param_charge * reserve_var[ci_name, 1] <= soc_max - get_value(ic)
+                        sustained_param_charge * reserve_var[ci_name, 1] <=
+                        soc_max - get_value(ic)
                     )
                     for t in time_steps[2:end]
                         con[ci_name, t] = JuMP.@constraint(
                             get_jump_model(container),
-                            sustained_param_charge * reserve_var[ci_name, t] <= soc_max - energy_var[ci_name, t-1]
+                            sustained_param_charge * reserve_var[ci_name, t] <=
+                            soc_max - energy_var[ci_name, t - 1]
                         )
                     end
                 else
                     for t in time_steps
                         con[ci_name, t] = JuMP.@constraint(
                             get_jump_model(container),
-                            sustained_param_charge * reserve_var[ci_name, t] <= soc_max - energy_var[ci_name, t]
+                            sustained_param_charge * reserve_var[ci_name, t] <=
+                            soc_max - energy_var[ci_name, t]
                         )
                     end
                 end
@@ -1373,14 +1866,21 @@ function add_constraints!(
     time_steps = get_time_steps(container)
     names = [PSY.get_name(d) for d in devices]
     energy_var = get_variable(container, EnergyVariable, V)
-    constraint = add_constraints_container!(container, StateofChargeTargetConstraint, V, names, [last(time_steps)])
+    constraint = add_constraints_container!(
+        container,
+        StateofChargeTargetConstraint,
+        V,
+        names,
+        [last(time_steps)],
+    )
     for d in devices
         storage = _storage_of(d)
         storage === nothing && continue
         name = PSY.get_name(d)
-        target = PSY.get_storage_target(storage) *
-                 PSY.get_storage_capacity(storage) *
-                 PSY.get_conversion_factor(storage)
+        target =
+            PSY.get_storage_target(storage) *
+            PSY.get_storage_capacity(storage) *
+            PSY.get_conversion_factor(storage)
         t_end = last(time_steps)
         constraint[name, t_end] = JuMP.@constraint(
             get_jump_model(container),
@@ -1390,7 +1890,6 @@ function add_constraints!(
     return
 end
 
-#! format: on
 #################################################################################
 # Hybrid PCC ↔ subcomponent balance and reserve plumbing.
 #
@@ -1405,6 +1904,30 @@ end
 #     variables, and the hybrid-boundary reserve variables to the system-level
 #     ActivePowerReserveVariable
 #################################################################################
+
+# Plain range constraints on the PCC variables, used when `reservation = false`.
+# When `reservation = true` the PCC mutual-exclusion is enforced by
+# `HybridStatusOutOnConstraint` / `HybridStatusInOnConstraint` instead.
+function add_constraints!(
+    container::OptimizationContainer,
+    ::Type{T},
+    ::Type{U},
+    devices::IS.FlattenIteratorWrapper{V},
+    model::DeviceModel{V, W},
+    ::NetworkModel{X},
+) where {
+    T <: Union{
+        OutputActivePowerVariableLimitsConstraint,
+        InputActivePowerVariableLimitsConstraint,
+    },
+    U <: Union{ActivePowerOutVariable, ActivePowerInVariable},
+    V <: PSY.HybridSystem,
+    W <: AbstractHybridFormulation,
+    X <: AbstractPowerModel,
+}
+    add_range_constraints!(container, T, U, devices, model, X)
+    return
+end
 
 """
 Force the hybrid PCC `ActivePowerOutVariable` to vanish whenever the reservation
@@ -1431,8 +1954,19 @@ function add_constraints!(
     )
 
     has_reserves = W <: AbstractHybridFormulationWithReserves && has_service_model(model)
-    r_up = if has_reserves
-        get_expression(container, HybridTotalReserveOutUpExpression, V)
+    r_up, r_dn = if has_reserves
+        (
+            get_expression(container, HybridTotalReserveOutUpExpression, V),
+            get_expression(container, HybridTotalReserveOutDownExpression, V),
+        )
+    else
+        (nothing, nothing)
+    end
+
+    con_lb = if has_reserves
+        add_constraints_container!(
+        container, HybridStatusOutOnConstraint, V, names, time_steps; meta = "lb",
+    )
     else
         nothing
     end
@@ -1444,6 +1978,10 @@ function add_constraints!(
             constraint[name, t] = JuMP.@constraint(
                 get_jump_model(container),
                 p_out[name, t] + r_up[name, t] <= reservation[name, t] * max_out
+            )
+            con_lb[name, t] = JuMP.@constraint(
+                get_jump_model(container),
+                p_out[name, t] - r_dn[name, t] >= 0.0
             )
         else
             constraint[name, t] = JuMP.@constraint(
@@ -1458,7 +1996,9 @@ end
 """
 Force the hybrid PCC `ActivePowerInVariable` to vanish whenever the reservation
 variable signals discharge mode (reservation = 1 → in = 0; reservation = 0 →
-in free up to its upper bound).
+in free up to its upper bound). When ancillary services are attached, the up/down
+in-side reserves carve headroom and floor the variable above zero, mirroring HSS
+`_add_constraints_statusin_withreserves!`.
 """
 function add_constraints!(
     container::OptimizationContainer,
@@ -1480,8 +2020,19 @@ function add_constraints!(
     )
 
     has_reserves = W <: AbstractHybridFormulationWithReserves && has_service_model(model)
-    r_dn = if has_reserves
-        get_expression(container, HybridTotalReserveInDownExpression, V)
+    r_up, r_dn = if has_reserves
+        (
+            get_expression(container, HybridTotalReserveInUpExpression, V),
+            get_expression(container, HybridTotalReserveInDownExpression, V),
+        )
+    else
+        (nothing, nothing)
+    end
+
+    con_lb = if has_reserves
+        add_constraints_container!(
+        container, HybridStatusInOnConstraint, V, names, time_steps; meta = "lb",
+    )
     else
         nothing
     end
@@ -1493,6 +2044,10 @@ function add_constraints!(
             constraint[name, t] = JuMP.@constraint(
                 get_jump_model(container),
                 p_in[name, t] + r_dn[name, t] <= (1 - reservation[name, t]) * max_in
+            )
+            con_lb[name, t] = JuMP.@constraint(
+                get_jump_model(container),
+                p_in[name, t] - r_up[name, t] >= 0.0
             )
         else
             constraint[name, t] = JuMP.@constraint(
@@ -1507,7 +2062,9 @@ end
 """
 Energy asset balance: the hybrid's PCC injection equals the sum of subcomponent
 injections (thermal + renewable + storage discharge - storage charge - load).
-Reserves contribute through their *served* (deployed-fraction) expressions.
+When ancillary services are attached, served (deployed-fraction) reserve expressions
+also enter the balance with sign pattern `+out_up - in_up - out_down + in_down`,
+mirroring HSS `_add_constraints_energyassetbalance_with_reserves!`.
 """
 function add_constraints!(
     container::OptimizationContainer,
@@ -1567,24 +2124,42 @@ function add_constraints!(
         get_multiplier_array(load_param_container)
     end
 
+    has_reserves = W <: AbstractHybridFormulationWithReserves && has_service_model(model)
+    serv_out_up, serv_out_dn, serv_in_up, serv_in_dn = if has_reserves
+        (
+            get_expression(container, HybridServedReserveOutUpExpression, V),
+            get_expression(container, HybridServedReserveOutDownExpression, V),
+            get_expression(container, HybridServedReserveInUpExpression, V),
+            get_expression(container, HybridServedReserveInDownExpression, V),
+        )
+    else
+        (nothing, nothing, nothing, nothing)
+    end
+
     for d in devices, t in time_steps
         name = PSY.get_name(d)
         rhs = JuMP.AffExpr(0.0)
         if p_th !== nothing && PSY.get_thermal_unit(d) !== nothing
-            JuMP.add_to_expression!(rhs, p_th[name, t], 1.0)
+            add_proportional_to_jump_expression!(rhs, p_th[name, t], 1.0)
         end
         if p_re !== nothing && PSY.get_renewable_unit(d) !== nothing
-            JuMP.add_to_expression!(rhs, p_re[name, t], 1.0)
+            add_proportional_to_jump_expression!(rhs, p_re[name, t], 1.0)
         end
         if p_ds !== nothing && PSY.get_storage(d) !== nothing
-            JuMP.add_to_expression!(rhs, p_ds[name, t], 1.0)
+            add_proportional_to_jump_expression!(rhs, p_ds[name, t], 1.0)
         end
         if p_ch !== nothing && PSY.get_storage(d) !== nothing
-            JuMP.add_to_expression!(rhs, p_ch[name, t], -1.0)
+            add_proportional_to_jump_expression!(rhs, p_ch[name, t], -1.0)
         end
         if load_param_container !== nothing && PSY.get_electric_load(d) !== nothing
             load_ref = get_parameter_column_refs(load_param_container, name)[t]
-            JuMP.add_to_expression!(rhs, -load_multiplier[name, t], load_ref)
+            add_proportional_to_jump_expression!(rhs, load_ref, -load_multiplier[name, t])
+        end
+        if has_reserves
+            add_proportional_to_jump_expression!(rhs, serv_out_up[name, t], 1.0)
+            add_proportional_to_jump_expression!(rhs, serv_in_dn[name, t], 1.0)
+            add_proportional_to_jump_expression!(rhs, serv_out_dn[name, t], -1.0)
+            add_proportional_to_jump_expression!(rhs, serv_in_up[name, t], -1.0)
         end
         constraint[name, t] = JuMP.@constraint(
             get_jump_model(container),
@@ -1683,7 +2258,7 @@ function add_constraints!(
                 key = VariableKey(var_t, V, "$(s_type)_$s_name")
                 if haskey(IOM.get_variables(container), key)
                     var = get_variable(container, key)
-                    JuMP.add_to_expression!(rhs, var[name, t], 1.0)
+                    add_proportional_to_jump_expression!(rhs, var[name, t], 1.0)
                 end
             end
             constraint[name, t] = JuMP.@constraint(
@@ -1728,26 +2303,61 @@ function _add_hybrid_subcomponent_variable_cost!(
     return
 end
 
-function _add_hybrid_subcomponent_proportional_cost!(
+# Hybrid `OnVariable` proportional cost — delegate to the standalone thermal
+# `proportional_cost` so a hybrid-embedded thermal unit and a standalone copy with the
+# same `ThermalGenerationCost` produce identical objective coefficients
+# (`onvar_cost + vom_constant + fixed`). Implemented via the same IOM cost-term
+# helpers (`add_cost_term_invariant!` / `add_cost_term_variant!`) that
+# `add_proportional_cost_maybe_time_variant!` uses, so the time-variant fuel-cost
+# branch lights up when the embedded thermal cost is backed by a time series.
+function add_proportional_cost!(
     container::OptimizationContainer,
-    ::Type{V},
+    ::Type{OnVariable},
     devices::Vector{D},
-    accessor::Function,
     ::Type{W},
-) where {V <: VariableType, D <: PSY.HybridSystem, W <: AbstractHybridFormulation}
-    time_steps = get_time_steps(container)
-    variable = get_variable(container, V, D)
+) where {D <: PSY.HybridSystem, W <: AbstractHybridFormulation}
+    multiplier = objective_function_multiplier(OnVariable, W)
+    on_var = get_variable(container, OnVariable, D)
     for d in devices
-        sub = accessor(d)
-        sub === nothing && continue
-        cost_term = PSY.get_fixed(PSY.get_operation_cost(sub))
-        cost_term == 0.0 && continue
+        thermal = PSY.get_thermal_unit(d)
+        thermal === nothing && continue
+        thermal_cost = PSY.get_operation_cost(thermal)
+        thermal_cost === nothing && continue
+        add_as_time_variant = IOM.is_time_variant_proportional(thermal_cost)
         name = PSY.get_name(d)
-        for t in time_steps
-            add_to_objective_invariant_expression!(
+        for t in get_time_steps(container)
+            cost_term = proportional_cost(
                 container,
-                cost_term * variable[name, t],
+                thermal_cost,
+                OnVariable,
+                thermal,
+                ThermalBasicUnitCommitment,
+                t,
             )
+            iszero(cost_term) && continue
+            rate = cost_term * multiplier
+            variable = on_var[name, t]
+            if add_as_time_variant
+                add_cost_term_variant!(
+                    container,
+                    variable,
+                    rate,
+                    ProductionCostExpression,
+                    D,
+                    name,
+                    t,
+                )
+            else
+                add_cost_term_invariant!(
+                    container,
+                    variable,
+                    rate,
+                    ProductionCostExpression,
+                    D,
+                    name,
+                    t,
+                )
+            end
         end
     end
     return
@@ -1768,12 +2378,13 @@ function objective_function!(
         [d for d in devices_vec if PSY.get_renewable_unit(d) !== nothing]
     hybrids_with_storage = [d for d in devices_vec if PSY.get_storage(d) !== nothing]
 
-    # Thermal: variable cost on HybridThermalActivePower, fixed cost on OnVariable
+    # Thermal: variable cost on HybridThermalActivePower; OnVariable proportional cost
+    # routed through POM's standard add_proportional_cost! pathway so hybrids match
+    # standalone thermal exactly (onvar_cost + vom_constant + fixed).
     if !isempty(hybrids_with_thermal)
         _add_hybrid_subcomponent_variable_cost!(container, HybridThermalActivePower,
             hybrids_with_thermal, PSY.get_thermal_unit, W)
-        _add_hybrid_subcomponent_proportional_cost!(container, OnVariable,
-            hybrids_with_thermal, PSY.get_thermal_unit, W)
+        add_proportional_cost!(container, OnVariable, hybrids_with_thermal, W)
     end
 
     # Renewable: variable cost on HybridRenewableActivePower (typically a curtailment cost)
@@ -1782,12 +2393,41 @@ function objective_function!(
             hybrids_with_renewable, PSY.get_renewable_unit, W)
     end
 
-    # Storage: variable costs on charge/discharge
+    # Storage: variable costs on charge/discharge, plus optional regularization penalty.
     if !isempty(hybrids_with_storage)
         _add_hybrid_subcomponent_variable_cost!(container, HybridStorageChargePower,
             hybrids_with_storage, PSY.get_storage, W)
         _add_hybrid_subcomponent_variable_cost!(container, HybridStorageDischargePower,
             hybrids_with_storage, PSY.get_storage, W)
+        if get_attribute(model, "regularization")
+            _add_hybrid_regularization_cost!(
+                container, ChargeRegularizationVariable, hybrids_with_storage, W)
+            _add_hybrid_regularization_cost!(
+                container, DischargeRegularizationVariable, hybrids_with_storage, W)
+        end
+    end
+    return
+end
+
+# Routes regularization slacks through IOM's add_cost_term_invariant! so the penalty
+# lands in both the objective and (when present) the production-cost expression.
+function _add_hybrid_regularization_cost!(
+    container::OptimizationContainer,
+    ::Type{V},
+    devices::Vector{D},
+    ::Type{W},
+) where {V <: VariableType, D <: PSY.HybridSystem, W <: AbstractHybridFormulation}
+    multiplier = objective_function_multiplier(V, W)
+    rate = HYBRID_REGULARIZATION_COST * multiplier
+    var = get_variable(container, V, D)
+    for d in devices
+        PSY.get_storage(d) === nothing && continue
+        name = PSY.get_name(d)
+        for t in get_time_steps(container)
+            add_cost_term_invariant!(
+                container, var[name, t], rate, ProductionCostExpression, D, name, t,
+            )
+        end
     end
     return
 end

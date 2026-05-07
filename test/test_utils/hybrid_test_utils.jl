@@ -52,17 +52,33 @@ Add a HybridSystem to bus "Chuhsi" of an RTS-GMLC system, composed of:
 
 Mirrors HSS test_utils/function_utils.jl:add_hybrid_to_chuhsi_bus!.
 """
-function add_hybrid_to_chuhsi_bus!(sys::PSY.System)
+function add_hybrid_to_chuhsi_bus!(
+    sys::PSY.System;
+    with_thermal::Bool = true,
+    with_renewable::Bool = true,
+    with_storage::Bool = true,
+    with_load::Bool = true,
+)
     bus = PSY.get_component(PSY.ACBus, sys, "Chuhsi")
     bus === nothing && error("add_hybrid_to_chuhsi_bus!: bus 'Chuhsi' not found in system")
-    bat = _build_hybrid_storage(bus, 4.0, 2.0, 0.93, 0.93)
+    bat = with_storage ? _build_hybrid_storage(bus, 4.0, 2.0, 0.93, 0.93) : nothing
 
     # Subcomponents borrowed from adjacent existing components in RTS-GMLC.
-    renewable = PSY.get_component(PSY.StaticInjection, sys, "317_WIND_1")
-    thermal = PSY.get_component(PSY.StaticInjection, sys, "318_CC_1")
-    load = PSY.get_component(PSY.PowerLoad, sys, "Clark")
-    for (name, cmp) in (("317_WIND_1", renewable), ("318_CC_1", thermal), ("Clark", load))
-        cmp === nothing && error("add_hybrid_to_chuhsi_bus!: component '$name' not found")
+    renewable =
+        with_renewable ?
+        PSY.get_component(PSY.StaticInjection, sys, "317_WIND_1") : nothing
+    thermal =
+        with_thermal ?
+        PSY.get_component(PSY.StaticInjection, sys, "318_CC_1") : nothing
+    load = with_load ? PSY.get_component(PSY.PowerLoad, sys, "Clark") : nothing
+    for (flag, name, cmp) in (
+        (with_renewable, "317_WIND_1", renewable),
+        (with_thermal, "318_CC_1", thermal),
+        (with_load, "Clark", load),
+    )
+        if flag && cmp === nothing
+            error("add_hybrid_to_chuhsi_bus!: component '$name' not found")
+        end
     end
 
     hybrid_name = string(PSY.get_number(bus)) * "_Hybrid"

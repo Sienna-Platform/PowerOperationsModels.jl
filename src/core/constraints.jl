@@ -1159,3 +1159,17 @@ struct HybridStorageChargingReservePowerLimitConstraint <: ConstraintType end
 
 "Discharge-side power limit for the hybrid storage subcomponent including reserve carve-outs."
 struct HybridStorageDischargingReservePowerLimitConstraint <: ConstraintType end
+
+"""
+Bounds the absolute charge-power step change between consecutive time steps by
+`ChargeRegularizationVariable`, penalizing oscillation. Active only when the hybrid
+`\"regularization\"` attribute is set.
+"""
+struct ChargeRegularizationConstraint <: ConstraintType end
+
+"""
+Bounds the absolute discharge-power step change between consecutive time steps by
+`DischargeRegularizationVariable`, penalizing oscillation. Active only when the hybrid
+`\"regularization\"` attribute is set.
+"""
+struct DischargeRegularizationConstraint <: ConstraintType end

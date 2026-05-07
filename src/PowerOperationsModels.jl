@@ -657,6 +657,8 @@ export AbstractHybridFormulationWithReserves
 export HybridDispatchWithReserves
 
 # variables
+export ChargeRegularizationVariable
+export DischargeRegularizationVariable
 export HybridChargingReserveVariable
 export HybridDischargingReserveVariable
 export HybridRenewableActivePower
@@ -680,6 +682,8 @@ export HybridTotalReserveOutDownExpression
 export HybridTotalReserveOutUpExpression
 
 # constraints
+export ChargeRegularizationConstraint
+export DischargeRegularizationConstraint
 export HybridEnergyAssetBalanceConstraint
 export HybridRenewableActivePowerLimitConstraint
 export HybridRenewableReserveLimitConstraint

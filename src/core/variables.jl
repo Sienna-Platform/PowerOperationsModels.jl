@@ -663,6 +663,20 @@ struct HybridStorageDischargePower <: HybridSubcomponentVariableType end
 "Binary reservation variable for the storage subcomponent of a hybrid system."
 struct HybridStorageReservation <: HybridSubcomponentVariableType end
 
+"""
+Non-negative slack variable bounding the absolute step change in charge power between
+consecutive time steps. Carried into the objective with a small fixed penalty when the
+hybrid `\"regularization\"` attribute is set, suppressing bang-bang dispatch.
+"""
+struct ChargeRegularizationVariable <: HybridSubcomponentVariableType end
+
+"""
+Non-negative slack variable bounding the absolute step change in discharge power
+between consecutive time steps. Carried into the objective with a small fixed penalty
+when the hybrid `\"regularization\"` attribute is set.
+"""
+struct DischargeRegularizationVariable <: HybridSubcomponentVariableType end
+
 "Reserve quantity offered to the grid through the hybrid's outflow (discharge) side."
 struct HybridReserveVariableOut <: VariableType end
 

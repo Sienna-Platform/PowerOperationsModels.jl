@@ -81,18 +81,38 @@ struct EnergyBalanceExpression <: ExpressionType end
 # Energy Storage Expressions
 #################################################################################
 
+"""
+Per-device, per-service aggregation of the reserve quantity offered by a storage device
+(or the storage subcomponent of a hybrid system). One container is created per service
+participated in, and the per-component reserve variables (charging + discharging) are
+summed into it. Consumed by [`HybridReserveBalanceConstraint`](@ref) and used as the
+right-hand side of the system-level reserve balance.
+"""
 struct TotalReserveOffering <: ExpressionType end
 
+"""
+Aggregation of reserve variables allocated to the *discharge* side of a storage device
+or hybrid storage subcomponent. Used for power-limit and SoC-coverage constraints. The
+concrete subtypes split by direction (Up/Down) and by purpose
+(`ReserveAssignmentBalance*` for power-limit constraints,
+`ReserveDeploymentBalance*` for SoC accounting).
+"""
 abstract type StorageReserveDischargeExpression <: ExpressionType end
+
+"""
+Aggregation of reserve variables allocated to the *charge* side of a storage device or
+hybrid storage subcomponent. Same role and split as
+[`StorageReserveDischargeExpression`](@ref) but for the charging direction.
+"""
 abstract type StorageReserveChargeExpression <: ExpressionType end
 
-# Used for the Power Limits constraints
+# Assignment-balance variants: enter the storage charge/discharge power-limit constraints.
 struct ReserveAssignmentBalanceUpDischarge <: StorageReserveDischargeExpression end
 struct ReserveAssignmentBalanceUpCharge <: StorageReserveChargeExpression end
 struct ReserveAssignmentBalanceDownDischarge <: StorageReserveDischargeExpression end
 struct ReserveAssignmentBalanceDownCharge <: StorageReserveChargeExpression end
 
-# Used for the SoC estimates
+# Deployment-balance variants: enter the SoC coverage constraints (track served fraction).
 struct ReserveDeploymentBalanceUpDischarge <: StorageReserveDischargeExpression end
 struct ReserveDeploymentBalanceUpCharge <: StorageReserveChargeExpression end
 struct ReserveDeploymentBalanceDownDischarge <: StorageReserveDischargeExpression end
