@@ -1965,8 +1965,8 @@ function add_constraints!(
 
     con_lb = if has_reserves
         add_constraints_container!(
-        container, HybridStatusOutOnConstraint, V, names, time_steps; meta = "lb",
-    )
+            container, HybridStatusOutOnConstraint, V, names, time_steps; meta = "lb",
+        )
     else
         nothing
     end
@@ -2031,8 +2031,8 @@ function add_constraints!(
 
     con_lb = if has_reserves
         add_constraints_container!(
-        container, HybridStatusInOnConstraint, V, names, time_steps; meta = "lb",
-    )
+            container, HybridStatusInOnConstraint, V, names, time_steps; meta = "lb",
+        )
     else
         nothing
     end
