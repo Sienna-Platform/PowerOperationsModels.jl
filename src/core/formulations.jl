@@ -559,7 +559,8 @@ p^{\\text{th}}_t + p^{\\text{re}}_t + p^{\\text{ds}}_t - p^{\\text{ch}}_t - P^{\
 ```
 
 Thermal limits when no services are attached
-([`ActivePowerVariableLimitsConstraint`](@ref)):
+([`HybridThermalOnVariableUbConstraint`](@ref),
+[`HybridThermalOnVariableLbConstraint`](@ref)):
 
 ```math
 u^{\\text{th}}_t P_{\\min,\\text{th}} \\leq p^{\\text{th}}_t \\leq u^{\\text{th}}_t P_{\\max,\\text{th}}, \\quad u^{\\text{th}}_t \\in \\{0,1\\}, \\quad \\forall t \\in \\mathcal{T}
@@ -588,8 +589,7 @@ Storage energy balance ([`HybridStorageBalanceConstraint`](@ref)):
 e^{\\text{st}}_t = e^{\\text{st}}_{t-1} + \\Delta t \\left( \\eta_{\\text{ch}} p^{\\text{ch}}_t - \\frac{p^{\\text{ds}}_t}{\\eta_{\\text{ds}}} \\right), \\quad \\forall t \\in \\mathcal{T}, \\quad e^{\\text{st}}_0 = E^{\\text{st}}_0
 ```
 
-When ancillary services are attached: [`ActivePowerVariableLimitsConstraint`](@ref)
-(thermal — with reserve allocations folded into the LHS expression),
+When ancillary services are attached: [`HybridThermalReserveLimitConstraint`](@ref),
 [`HybridRenewableReserveLimitConstraint`](@ref),
 [`HybridStorageChargingReservePowerLimitConstraint`](@ref),
 [`HybridStorageDischargingReservePowerLimitConstraint`](@ref),

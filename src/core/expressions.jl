@@ -147,15 +147,6 @@ struct HybridServedReserveOutDownExpression <: HybridServedReserveExpression end
 struct HybridServedReserveInUpExpression <: HybridServedReserveExpression end
 struct HybridServedReserveInDownExpression <: HybridServedReserveExpression end
 
-"""
-Hybrid thermal subcomponent active power with the per-service reserve allocations
-folded in, so that IOM's `add_semicontinuous_range_constraints!` emits
-`p_th + Σ r_up ≤ max·on` (UB) and `p_th − Σ r_dn ≥ min·on` (LB) over a
-HybridSystem-keyed device.
-"""
-struct HybridThermalActivePowerWithReserveUB <: RangeConstraintUBExpressions end
-struct HybridThermalActivePowerWithReserveLB <: RangeConstraintLBExpressions end
-
 # Method extensions for output writing
 should_write_resulting_value(::Type{InterfaceTotalFlow}) = true
 should_write_resulting_value(::Type{PTDFBranchFlow}) = true

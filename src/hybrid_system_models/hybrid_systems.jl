@@ -124,15 +124,6 @@ get_min_max_limits(
     ::Type{<:AbstractHybridFormulation},
 ) = PSY.get_reactive_power_limits(d)
 
-# IOM's add_semicontinuous_range_constraints! reads these for the embedded
-# thermal subcomponent — the hybrid's `OnVariable` keyed by HybridSystem gates
-# `p_th` between [min, max] of the underlying ThermalGen.
-get_min_max_limits(
-    d::PSY.HybridSystem,
-    ::Type{ActivePowerVariableLimitsConstraint},
-    ::Type{<:AbstractHybridFormulation},
-) = PSY.get_active_power_limits(PSY.get_thermal_unit(d))
-
 #################################################################################
 # Subcomponent power variables
 #################################################################################
@@ -541,68 +532,6 @@ function add_variables!(
 end
 
 #################################################################################
-# Reserve-aware thermal subcomponent power expressions: p_th + Σ r_up (UB) and
-# p_th − Σ r_dn (LB). Subtyping IOM's RangeConstraint{UB,LB}Expressions lets
-# IOM's `add_semicontinuous_range_constraints!` emit the with-reserves thermal
-# range constraint over HybridSystem-keyed devices — the hybrid layer only has
-# to populate the expressions here.
-#################################################################################
-
-# UB absorbs +up reserves (skip ReserveDown services); LB absorbs −down (skip ReserveUp).
-_thermal_reserve_excluded_kind(::Type{HybridThermalActivePowerWithReserveUB}) =
-    PSY.Reserve{PSY.ReserveDown}
-_thermal_reserve_excluded_kind(::Type{HybridThermalActivePowerWithReserveLB}) =
-    PSY.Reserve{PSY.ReserveUp}
-_thermal_reserve_sign(::Type{HybridThermalActivePowerWithReserveUB}) = +1.0
-_thermal_reserve_sign(::Type{HybridThermalActivePowerWithReserveLB}) = -1.0
-
-function add_expressions!(
-    container::OptimizationContainer,
-    ::Type{T},
-    devices::U,
-    ::DeviceModel{V, W},
-) where {
-    T <: Union{
-        HybridThermalActivePowerWithReserveUB,
-        HybridThermalActivePowerWithReserveLB,
-    },
-    U <: Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
-    W <: AbstractHybridFormulationWithReserves,
-} where {V <: PSY.HybridSystem}
-    time_steps = get_time_steps(container)
-    names = [PSY.get_name(d) for d in devices if PSY.get_thermal_unit(d) !== nothing]
-    isempty(names) && return
-    expr = add_expression_container!(container, T, V, names, time_steps)
-    p_var = get_variable(container, HybridThermalActivePower, V)
-    skip_kind = _thermal_reserve_excluded_kind(T)
-    sign = _thermal_reserve_sign(T)
-    for d in devices
-        PSY.get_thermal_unit(d) === nothing && continue
-        name = PSY.get_name(d)
-        for t in time_steps
-            add_proportional_to_jump_expression!(expr[name, t], p_var[name, t], 1.0)
-        end
-        for service in PSY.get_services(d)
-            service isa skip_kind && continue
-            s_name = PSY.get_name(service)
-            s_type = typeof(service)
-            key = VariableKey(HybridThermalReserveVariable, V, "$(s_type)_$(s_name)")
-            haskey(IOM.get_variables(container), key) || continue
-            r_var = get_variable(
-                container,
-                HybridThermalReserveVariable,
-                V,
-                "$(s_type)_$(s_name)",
-            )
-            for t in time_steps
-                add_proportional_to_jump_expression!(expr[name, t], r_var[name, t], sign)
-            end
-        end
-    end
-    return
-end
-
-#################################################################################
 # Objective-function multipliers (positive — we minimize cost)
 #################################################################################
 
@@ -816,16 +745,186 @@ function add_to_expression!(
     return
 end
 #################################################################################
-# Thermal subcomponent constraints for HybridSystem are emitted by IOM's
-# `add_semicontinuous_range_constraints!` keyed on `ActivePowerVariableLimitsConstraint`.
-# - No reserves: pass `HybridThermalActivePower` as the LHS variable directly.
-# - With reserves: pass `HybridThermalActivePowerWithReserve{UB,LB}` expressions,
-#   which fold `Σ r_up` (UB) and `Σ r_dn` (LB) into the LHS during the argument
-#   stage. Limits come from `get_min_max_limits(d, ActivePowerVariableLimitsConstraint, _)`,
-#   which reads `PSY.get_active_power_limits(PSY.get_thermal_unit(d))`. Binary
-#   gating uses `OnVariable` keyed by `PSY.HybridSystem`.
+# Thermal subcomponent constraints for HybridSystem.
+#
+# Mirrors HSS add_constraints.jl _add_thermallimit_withreserves! (lines 1477–1506)
+# for the with-reserves case, and _add_thermal_on_variable_constraints! for the
+# no-reserves case. Walks PSY.get_thermal_unit(d) for the thermal unit's limits.
 #################################################################################
 
+function _thermal_reserve_up_expr(container, d, t, services)
+    expr = JuMP.AffExpr(0.0)
+    for service in services
+        isa(service, PSY.Reserve{PSY.ReserveDown}) && continue
+        s_name = PSY.get_name(service)
+        s_type = typeof(service)
+        key = VariableKey(HybridThermalReserveVariable, typeof(d), "$(s_type)_$s_name")
+        haskey(IOM.get_variables(container), key) || continue
+        var = get_variable(
+            container,
+            HybridThermalReserveVariable,
+            typeof(d),
+            "$(s_type)_$s_name",
+        )
+        add_proportional_to_jump_expression!(expr, var[PSY.get_name(d), t], 1.0)
+    end
+    return expr
+end
+
+function _thermal_reserve_down_expr(container, d, t, services)
+    expr = JuMP.AffExpr(0.0)
+    for service in services
+        isa(service, PSY.Reserve{PSY.ReserveUp}) && continue
+        s_name = PSY.get_name(service)
+        s_type = typeof(service)
+        key = VariableKey(HybridThermalReserveVariable, typeof(d), "$(s_type)_$s_name")
+        haskey(IOM.get_variables(container), key) || continue
+        var = get_variable(
+            container,
+            HybridThermalReserveVariable,
+            typeof(d),
+            "$(s_type)_$s_name",
+        )
+        add_proportional_to_jump_expression!(expr, var[PSY.get_name(d), t], 1.0)
+    end
+    return expr
+end
+
+"""
+Range constraint on the thermal subcomponent's active power, accounting for
+up/down reserve allocations. Mirrors HSS `ThermalReserveLimit` (HSS
+add_constraints.jl:1495–1506).
+"""
+function add_constraints!(
+    container::OptimizationContainer,
+    ::Type{HybridThermalReserveLimitConstraint},
+    devices::U,
+    model::DeviceModel{V, W},
+    ::NetworkModel{X},
+) where {
+    U <: Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
+    W <: AbstractHybridFormulationWithReserves,
+    X <: AbstractPowerModel,
+} where {V <: PSY.HybridSystem}
+    time_steps = get_time_steps(container)
+    names = [PSY.get_name(d) for d in devices]
+    p_th = get_variable(container, HybridThermalActivePower, V)
+    on_var = get_variable(container, OnVariable, V)
+
+    con_ub = add_constraints_container!(
+        container,
+        HybridThermalReserveLimitConstraint,
+        V,
+        names,
+        time_steps;
+        meta = "ub",
+    )
+    con_lb = add_constraints_container!(
+        container,
+        HybridThermalReserveLimitConstraint,
+        V,
+        names,
+        time_steps;
+        meta = "lb",
+    )
+
+    for d in devices, t in time_steps
+        name = PSY.get_name(d)
+        thermal_unit = PSY.get_thermal_unit(d)
+        thermal_unit === nothing && continue
+        limits = PSY.get_active_power_limits(thermal_unit)
+        services = PSY.get_services(d)
+        r_up = _thermal_reserve_up_expr(container, d, t, services)
+        r_dn = _thermal_reserve_down_expr(container, d, t, services)
+        con_ub[name, t] = JuMP.@constraint(
+            get_jump_model(container),
+            p_th[name, t] + r_up <= limits.max * on_var[name, t]
+        )
+        con_lb[name, t] = JuMP.@constraint(
+            get_jump_model(container),
+            p_th[name, t] - r_dn >= limits.min * on_var[name, t]
+        )
+    end
+    return
+end
+
+"""
+Upper-bound link between thermal subcomponent power and its commitment status
+(no-reserves case).
+"""
+function add_constraints!(
+    container::OptimizationContainer,
+    ::Type{HybridThermalOnVariableUbConstraint},
+    devices::U,
+    model::DeviceModel{V, W},
+    ::NetworkModel{X},
+) where {
+    U <: Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
+    W <: AbstractHybridFormulation,
+    X <: AbstractPowerModel,
+} where {V <: PSY.HybridSystem}
+    time_steps = get_time_steps(container)
+    names = [PSY.get_name(d) for d in devices]
+    p_th = get_variable(container, HybridThermalActivePower, V)
+    on_var = get_variable(container, OnVariable, V)
+    constraint = add_constraints_container!(
+        container,
+        HybridThermalOnVariableUbConstraint,
+        V,
+        names,
+        time_steps,
+    )
+    for d in devices, t in time_steps
+        name = PSY.get_name(d)
+        thermal_unit = PSY.get_thermal_unit(d)
+        thermal_unit === nothing && continue
+        max_p = PSY.get_active_power_limits(thermal_unit).max
+        constraint[name, t] = JuMP.@constraint(
+            get_jump_model(container),
+            p_th[name, t] <= max_p * on_var[name, t]
+        )
+    end
+    return
+end
+
+"""
+Lower-bound link between thermal subcomponent power and its commitment status
+(no-reserves case).
+"""
+function add_constraints!(
+    container::OptimizationContainer,
+    ::Type{HybridThermalOnVariableLbConstraint},
+    devices::U,
+    model::DeviceModel{V, W},
+    ::NetworkModel{X},
+) where {
+    U <: Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
+    W <: AbstractHybridFormulation,
+    X <: AbstractPowerModel,
+} where {V <: PSY.HybridSystem}
+    time_steps = get_time_steps(container)
+    names = [PSY.get_name(d) for d in devices]
+    p_th = get_variable(container, HybridThermalActivePower, V)
+    on_var = get_variable(container, OnVariable, V)
+    constraint = add_constraints_container!(
+        container,
+        HybridThermalOnVariableLbConstraint,
+        V,
+        names,
+        time_steps,
+    )
+    for d in devices, t in time_steps
+        name = PSY.get_name(d)
+        thermal_unit = PSY.get_thermal_unit(d)
+        thermal_unit === nothing && continue
+        min_p = PSY.get_active_power_limits(thermal_unit).min
+        constraint[name, t] = JuMP.@constraint(
+            get_jump_model(container),
+            p_th[name, t] >= min_p * on_var[name, t]
+        )
+    end
+    return
+end
 #################################################################################
 # Renewable subcomponent constraints for HybridSystem.
 #
