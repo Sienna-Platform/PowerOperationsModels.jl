@@ -305,6 +305,22 @@ function construct_device!(
         _add_hybrid_reserve_arguments!(container, devices,
             grouped.with_storage, grouped.with_thermal, grouped.with_renewable,
             model, network_model)
+        # Pre-aggregate p_th ± Σ r so IOM's range helpers can emit the
+        # with-reserves thermal constraint directly in the model stage.
+        if !isempty(grouped.with_thermal)
+            add_expressions!(
+                container,
+                HybridThermalActivePowerWithReserveUB,
+                grouped.with_thermal,
+                model,
+            )
+            add_expressions!(
+                container,
+                HybridThermalActivePowerWithReserveLB,
+                grouped.with_thermal,
+                model,
+            )
+        end
     end
 
     add_feedforward_arguments!(container, model, devices)
@@ -368,30 +384,39 @@ function construct_device!(
         network_model,
     )
 
-    # Thermal subcomponent
+    # Thermal subcomponent — defer to IOM's semicontinuous range helper. The
+    # underlying constraint shape is `min·on ≤ p_th ≤ max·on`; with reserves it
+    # becomes `min·on ≤ p_th − r_dn` and `p_th + r_up ≤ max·on`, which is what
+    # the WithReserve{UB,LB} expressions encode. `OnVariable` is keyed by
+    # PSY.HybridSystem in the argument stage; `get_min_max_limits` for
+    # `(HybridSystem, ActivePowerVariableLimitsConstraint, AbstractHybridFormulation)`
+    # returns the embedded thermal unit's limits.
     if !isempty(grouped.with_thermal)
         if has_service_model(model)
-            add_constraints!(
+            add_semicontinuous_range_constraints!(
                 container,
-                HybridThermalReserveLimitConstraint,
+                ActivePowerVariableLimitsConstraint,
+                HybridThermalActivePowerWithReserveUB,
                 grouped.with_thermal,
                 model,
-                network_model,
+                S,
+            )
+            add_semicontinuous_range_constraints!(
+                container,
+                ActivePowerVariableLimitsConstraint,
+                HybridThermalActivePowerWithReserveLB,
+                grouped.with_thermal,
+                model,
+                S,
             )
         else
-            add_constraints!(
+            add_semicontinuous_range_constraints!(
                 container,
-                HybridThermalOnVariableUbConstraint,
+                ActivePowerVariableLimitsConstraint,
+                HybridThermalActivePower,
                 grouped.with_thermal,
                 model,
-                network_model,
-            )
-            add_constraints!(
-                container,
-                HybridThermalOnVariableLbConstraint,
-                grouped.with_thermal,
-                model,
-                network_model,
+                S,
             )
         end
     end

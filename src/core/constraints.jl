@@ -1130,15 +1130,6 @@ struct HybridStatusOutOnConstraint <: ConstraintType end
 "Status link between the hybrid PCC `ActivePowerInVariable` and the reservation variable."
 struct HybridStatusInOnConstraint <: ConstraintType end
 
-"Upper-bound link between thermal subcomponent power and its commitment status."
-struct HybridThermalOnVariableUbConstraint <: ConstraintType end
-
-"Lower-bound link between thermal subcomponent power and its commitment status."
-struct HybridThermalOnVariableLbConstraint <: ConstraintType end
-
-"Range constraint on thermal subcomponent power including up/down reserves."
-struct HybridThermalReserveLimitConstraint <: ConstraintType end
-
 "Upper bound on renewable subcomponent power from the time-series forecast."
 struct HybridRenewableActivePowerLimitConstraint <: ConstraintType end
 
