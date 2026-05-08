@@ -428,62 +428,62 @@ dispatch.
 
   - [`ActivePowerOutVariable`](@ref):
 
-      + Bounds: [0.0, ``P_{\\max,\\text{pcc}}``]
+      + Domain: [0.0, ``P_{\\max,\\text{pcc}}``]
       + Symbol: ``p^{\\text{out}}_t``
 
   - [`ActivePowerInVariable`](@ref):
 
-      + Bounds: [0.0, ``P_{\\max,\\text{pcc}}``]
+      + Domain: [0.0, ``P_{\\max,\\text{pcc}}``]
       + Symbol: ``p^{\\text{in}}_t``
 
   - [`ReservationVariable`](@ref) (only when `"reservation" => true`):
 
-      + Bounds: {0, 1}
+      + Domain: {0, 1}
       + Symbol: ``u^{\\text{st}}_t`` (1 = discharge mode, 0 = charge mode)
 
   - [`HybridThermalActivePower`](@ref):
 
-      + Bounds: [0.0, ``P_{\\max,\\text{th}}``] when on
+      + Domain: [0.0, ``P_{\\max,\\text{th}}``] when on
       + Symbol: ``p^{\\text{th}}_t``
 
   - [`OnVariable`](@ref):
 
-      + Bounds: {0, 1}
+      + Domain: {0, 1}
       + Symbol: ``u^{\\text{th}}_t``
 
   - [`HybridRenewableActivePower`](@ref):
 
-      + Bounds: [0.0, ``P^{*,\\text{re}}_t``]
+      + Domain: [0.0, ``P^{*,\\text{re}}_t``]
       + Symbol: ``p^{\\text{re}}_t``
 
   - [`HybridStorageChargePower`](@ref):
 
-      + Bounds: [0.0, ``P_{\\max,\\text{ch}}``]
+      + Domain: [0.0, ``P_{\\max,\\text{ch}}``]
       + Symbol: ``p^{\\text{ch}}_t``
 
   - [`HybridStorageDischargePower`](@ref):
 
-      + Bounds: [0.0, ``P_{\\max,\\text{ds}}``]
+      + Domain: [0.0, ``P_{\\max,\\text{ds}}``]
       + Symbol: ``p^{\\text{ds}}_t``
 
   - [`EnergyVariable`](@ref):
 
-      + Bounds: [0.0, ``E_{\\max,\\text{st}}``]
+      + Domain: [0.0, ``E_{\\max,\\text{st}}``]
       + Symbol: ``e^{\\text{st}}_t``
 
   - [`HybridStorageReservation`](@ref) (only when `"storage_reservation" => true`):
 
-      + Bounds: {0, 1}
+      + Domain: {0, 1}
       + Symbol: ``ss^{\\text{st}}_t`` (0 = charge, 1 = discharge)
 
   - [`HybridReserveVariableOut`](@ref) (only when services are attached):
 
-      + Bounds: [0.0, ]
+      + Domain: [0.0, ]
       + Symbol: ``sb^{\\text{out}}_t``
 
   - [`HybridReserveVariableIn`](@ref) (only when services are attached):
 
-      + Bounds: [0.0, ]
+      + Domain: [0.0, ]
       + Symbol: ``sb^{\\text{in}}_t``
 
   - [`ChargeRegularizationVariable`](@ref), [`DischargeRegularizationVariable`](@ref)
