@@ -373,24 +373,21 @@ function _add_flow_rate_constraint!(
     branch_maps_by_type::Dict,
     name::String,
 ) where {T <: PSY.ACTransmission}
-    reduction_entry = branch_maps_by_type[arc]
     time_steps = get_time_steps(container)
+    limits = get_min_max_limits(branch_maps_by_type[arc], FlowRateConstraint, StaticBranch)
+    model = get_jump_model(container)
     if use_slacks
-        slack_ub = get_variable(container, FlowActivePowerSlackUpperBound, T)[name, :]
-        slack_lb = get_variable(container, FlowActivePowerSlackLowerBound, T)[name, :]
-    end
-    limits = get_min_max_limits(reduction_entry, FlowRateConstraint, StaticBranch)
-    for t in time_steps
-        con_ub[name, t] =
-            JuMP.@constraint(
-                get_jump_model(container),
-                var[name, t] - (use_slacks ? slack_ub[t] : 0.0) <= limits.max
-            )
-        con_lb[name, t] =
-            JuMP.@constraint(
-                get_jump_model(container),
-                var[name, t] + (use_slacks ? slack_lb[t] : 0.0) >= limits.min
-            )
+        slack_ub = get_variable(container, FlowActivePowerSlackUpperBound, T)
+        slack_lb = get_variable(container, FlowActivePowerSlackLowerBound, T)
+        for t in time_steps
+            con_ub[name, t] = JuMP.@constraint(model, var[name, t] - slack_ub[name, t] <= limits.max)
+            con_lb[name, t] = JuMP.@constraint(model, var[name, t] + slack_lb[name, t] >= limits.min)
+        end
+    else
+        for t in time_steps
+            con_ub[name, t] = JuMP.@constraint(model, var[name, t] <= limits.max)
+            con_lb[name, t] = JuMP.@constraint(model, var[name, t] >= limits.min)
+        end
     end
     return
 end
