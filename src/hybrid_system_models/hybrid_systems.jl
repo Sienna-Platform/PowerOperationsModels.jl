@@ -550,91 +550,33 @@ objective_function_multiplier(::Type{<:VariableType}, ::Type{<:AbstractHybridFor
 #################################################################################
 
 #################################################################################
-# Hybrid total reserve aggregation:
-#   HybridReserveVariableOut  → HybridTotalReserveOut{Up,Down}Expression
-#   HybridReserveVariableIn   → HybridTotalReserveIn{Up,Down}Expression
+# Hybrid total + served reserve aggregation:
+#   HybridReserveVariableOut → HybridTotalReserveOut{Up,Down}Expression and
+#                              HybridServedReserveOut{Up,Down}Expression
+#   HybridReserveVariableIn  → HybridTotalReserveIn{Up,Down}Expression and
+#                              HybridServedReserveIn{Up,Down}Expression
 #
-# Each per-(hybrid, service) reserve variable is added (with multiplier) into the
-# per-hybrid total reserve expression, with services filtered by ReserveUp/ReserveDown.
+# Up-side expressions filter out ReserveDown services; Down-side filter ReserveUp.
+# Served* additionally scales by the service's deployed fraction; Total* uses the
+# raw multiplier.
 #################################################################################
 
-# Up: skip ReserveDown services
-function add_to_expression!(
-    container::OptimizationContainer,
-    ::Type{T},
-    ::Type{U},
-    devices::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
-    model::DeviceModel{V, W},
-    ::NetworkModel{X},
-) where {
-    T <: HybridTotalReserveUpExpression,
-    U <: Union{HybridReserveVariableOut, HybridReserveVariableIn},
-    V <: PSY.HybridSystem,
-    W <: AbstractHybridFormulationWithReserves,
-    X <: AbstractPowerModel,
-}
-    expression = get_expression(container, T, V)
-    time_steps = get_time_steps(container)
-    for d in devices
-        name = PSY.get_name(d)
-        for service in PSY.get_services(d)
-            isa(service, PSY.Reserve{PSY.ReserveDown}) && continue
-            variable =
-                get_variable(container, U, V, "$(typeof(service))_$(PSY.get_name(service))")
-            mult = get_variable_multiplier(U, d, W(), service)
-            for t in time_steps
-                add_proportional_to_jump_expression!(
-                    expression[name, t],
-                    variable[name, t],
-                    mult,
-                )
-            end
-        end
-    end
-    return
-end
+_excluded_reserve_kind(::Type{<:HybridTotalReserveUpExpression}) =
+    PSY.Reserve{PSY.ReserveDown}
+_excluded_reserve_kind(::Type{<:HybridTotalReserveDownExpression}) =
+    PSY.Reserve{PSY.ReserveUp}
+_excluded_reserve_kind(
+    ::Type{<:Union{HybridServedReserveOutUpExpression, HybridServedReserveInUpExpression}},
+) = PSY.Reserve{PSY.ReserveDown}
+_excluded_reserve_kind(
+    ::Type{
+        <:Union{HybridServedReserveOutDownExpression, HybridServedReserveInDownExpression},
+    },
+) = PSY.Reserve{PSY.ReserveUp}
 
-# Down: skip ReserveUp services
-function add_to_expression!(
-    container::OptimizationContainer,
-    ::Type{T},
-    ::Type{U},
-    devices::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
-    model::DeviceModel{V, W},
-    ::NetworkModel{X},
-) where {
-    T <: HybridTotalReserveDownExpression,
-    U <: Union{HybridReserveVariableOut, HybridReserveVariableIn},
-    V <: PSY.HybridSystem,
-    W <: AbstractHybridFormulationWithReserves,
-    X <: AbstractPowerModel,
-}
-    expression = get_expression(container, T, V)
-    time_steps = get_time_steps(container)
-    for d in devices
-        name = PSY.get_name(d)
-        for service in PSY.get_services(d)
-            isa(service, PSY.Reserve{PSY.ReserveUp}) && continue
-            variable =
-                get_variable(container, U, V, "$(typeof(service))_$(PSY.get_name(service))")
-            mult = get_variable_multiplier(U, d, W(), service)
-            for t in time_steps
-                add_proportional_to_jump_expression!(
-                    expression[name, t],
-                    variable[name, t],
-                    mult,
-                )
-            end
-        end
-    end
-    return
-end
-
-#################################################################################
-# Hybrid served reserve aggregation: same as Total* but multiplied by the
-# service's deployed fraction, used downstream to discount the reserve in the
-# energy-asset-balance accounting.
-#################################################################################
+_reserve_expr_scale(::Type{<:HybridTotalReserveExpression}, ::PSY.Service) = 1.0
+_reserve_expr_scale(::Type{<:HybridServedReserveExpression}, s::PSY.Service) =
+    PSY.get_deployed_fraction(s)
 
 function add_to_expression!(
     container::OptimizationContainer,
@@ -644,7 +586,7 @@ function add_to_expression!(
     model::DeviceModel{V, W},
     ::NetworkModel{X},
 ) where {
-    T <: Union{HybridServedReserveOutUpExpression, HybridServedReserveInUpExpression},
+    T <: Union{HybridTotalReserveExpression, HybridServedReserveExpression},
     U <: Union{HybridReserveVariableOut, HybridReserveVariableIn},
     V <: PSY.HybridSystem,
     W <: AbstractHybridFormulationWithReserves,
@@ -652,50 +594,16 @@ function add_to_expression!(
 }
     expression = get_expression(container, T, V)
     time_steps = get_time_steps(container)
+    skip_kind = _excluded_reserve_kind(T)
     for d in devices
         name = PSY.get_name(d)
         for service in PSY.get_services(d)
-            isa(service, PSY.Reserve{PSY.ReserveDown}) && continue
+            service isa skip_kind && continue
             variable =
                 get_variable(container, U, V, "$(typeof(service))_$(PSY.get_name(service))")
-            fraction = PSY.get_deployed_fraction(service)
-            mult = get_variable_multiplier(U, d, W(), service) * fraction
-            for t in time_steps
-                add_proportional_to_jump_expression!(
-                    expression[name, t],
-                    variable[name, t],
-                    mult,
-                )
-            end
-        end
-    end
-    return
-end
-
-function add_to_expression!(
-    container::OptimizationContainer,
-    ::Type{T},
-    ::Type{U},
-    devices::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
-    model::DeviceModel{V, W},
-    ::NetworkModel{X},
-) where {
-    T <: Union{HybridServedReserveOutDownExpression, HybridServedReserveInDownExpression},
-    U <: Union{HybridReserveVariableOut, HybridReserveVariableIn},
-    V <: PSY.HybridSystem,
-    W <: AbstractHybridFormulationWithReserves,
-    X <: AbstractPowerModel,
-}
-    expression = get_expression(container, T, V)
-    time_steps = get_time_steps(container)
-    for d in devices
-        name = PSY.get_name(d)
-        for service in PSY.get_services(d)
-            isa(service, PSY.Reserve{PSY.ReserveUp}) && continue
-            variable =
-                get_variable(container, U, V, "$(typeof(service))_$(PSY.get_name(service))")
-            fraction = PSY.get_deployed_fraction(service)
-            mult = get_variable_multiplier(U, d, W(), service) * fraction
+            mult =
+                get_variable_multiplier(U, d, W(), service) *
+                _reserve_expr_scale(T, service)
             for t in time_steps
                 add_proportional_to_jump_expression!(
                     expression[name, t],
@@ -713,33 +621,40 @@ end
 # Mirrors the storage path in src/energy_storage_models/storage_constructor.jl
 # lines 29–50, but the destination expressions are allocated keyed by
 # HybridSystem rather than by PSY.Storage, and the source variables are the
-# Hybrid{Charging,Discharging}ReserveVariable.
+# Hybrid{Charging,Discharging}ReserveVariable. Up-side T excludes ReserveDown
+# services; Deployment* T scales the multiplier by deployed_fraction. Caller
+# pairs T with the matching variable type U (Charging↔Charge, Discharging↔Discharge).
 #################################################################################
 
-# Discharge-side variable into Discharge expressions
 function add_to_expression!(
     container::OptimizationContainer,
     ::Type{T},
-    ::Type{HybridDischargingReserveVariable},
+    ::Type{U},
     devices::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
     model::DeviceModel{V, W},
 ) where {
     T <: Union{
-        ReserveAssignmentBalanceUpDischarge,
-        ReserveAssignmentBalanceDownDischarge,
-        ReserveDeploymentBalanceUpDischarge,
-        ReserveDeploymentBalanceDownDischarge,
+        ReserveAssignmentBalanceUpCharge, ReserveAssignmentBalanceDownCharge,
+        ReserveAssignmentBalanceUpDischarge, ReserveAssignmentBalanceDownDischarge,
+        ReserveDeploymentBalanceUpCharge, ReserveDeploymentBalanceDownCharge,
+        ReserveDeploymentBalanceUpDischarge, ReserveDeploymentBalanceDownDischarge,
     },
+    U <: Union{HybridChargingReserveVariable, HybridDischargingReserveVariable},
     V <: PSY.HybridSystem,
     W <: AbstractHybridFormulationWithReserves,
 }
     expression = get_expression(container, T, V)
     time_steps = get_time_steps(container)
     is_up =
-        T <: Union{ReserveAssignmentBalanceUpDischarge, ReserveDeploymentBalanceUpDischarge}
+        T <: Union{
+            ReserveAssignmentBalanceUpCharge, ReserveAssignmentBalanceUpDischarge,
+            ReserveDeploymentBalanceUpCharge, ReserveDeploymentBalanceUpDischarge,
+        }
     is_deployment =
-        T <:
-        Union{ReserveDeploymentBalanceUpDischarge, ReserveDeploymentBalanceDownDischarge}
+        T <: Union{
+            ReserveDeploymentBalanceUpCharge, ReserveDeploymentBalanceDownCharge,
+            ReserveDeploymentBalanceUpDischarge, ReserveDeploymentBalanceDownDischarge,
+        }
     for d in devices
         name = PSY.get_name(d)
         for service in PSY.get_services(d)
@@ -748,66 +663,9 @@ function add_to_expression!(
             elseif !is_up && isa(service, PSY.Reserve{PSY.ReserveUp})
                 continue
             end
-            variable = get_variable(
-                container,
-                HybridDischargingReserveVariable,
-                V,
-                "$(typeof(service))_$(PSY.get_name(service))",
-            )
-            mult =
-                get_variable_multiplier(HybridDischargingReserveVariable, d, W(), service)
-            if is_deployment
-                mult *= PSY.get_deployed_fraction(service)
-            end
-            for t in time_steps
-                add_proportional_to_jump_expression!(
-                    expression[name, t],
-                    variable[name, t],
-                    mult,
-                )
-            end
-        end
-    end
-    return
-end
-
-# Charge-side variable into Charge expressions
-function add_to_expression!(
-    container::OptimizationContainer,
-    ::Type{T},
-    ::Type{HybridChargingReserveVariable},
-    devices::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
-    model::DeviceModel{V, W},
-) where {
-    T <: Union{
-        ReserveAssignmentBalanceUpCharge,
-        ReserveAssignmentBalanceDownCharge,
-        ReserveDeploymentBalanceUpCharge,
-        ReserveDeploymentBalanceDownCharge,
-    },
-    V <: PSY.HybridSystem,
-    W <: AbstractHybridFormulationWithReserves,
-}
-    expression = get_expression(container, T, V)
-    time_steps = get_time_steps(container)
-    is_up = T <: Union{ReserveAssignmentBalanceUpCharge, ReserveDeploymentBalanceUpCharge}
-    is_deployment =
-        T <: Union{ReserveDeploymentBalanceUpCharge, ReserveDeploymentBalanceDownCharge}
-    for d in devices
-        name = PSY.get_name(d)
-        for service in PSY.get_services(d)
-            if is_up && isa(service, PSY.Reserve{PSY.ReserveDown})
-                continue
-            elseif !is_up && isa(service, PSY.Reserve{PSY.ReserveUp})
-                continue
-            end
-            variable = get_variable(
-                container,
-                HybridChargingReserveVariable,
-                V,
-                "$(typeof(service))_$(PSY.get_name(service))",
-            )
-            mult = get_variable_multiplier(HybridChargingReserveVariable, d, W(), service)
+            variable =
+                get_variable(container, U, V, "$(typeof(service))_$(PSY.get_name(service))")
+            mult = get_variable_multiplier(U, d, W(), service)
             if is_deployment
                 mult *= PSY.get_deployed_fraction(service)
             end
@@ -1397,71 +1255,57 @@ end
 # reservation variable)
 #################################################################################
 
-function add_constraints!(
-    container::OptimizationContainer,
-    ::Type{HybridStorageStatusChargeOnConstraint},
-    devices::U,
-    model::DeviceModel{V, W},
-    ::NetworkModel{X},
-) where {
-    U <: Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
-    W <: AbstractHybridFormulation,
-    X <: AbstractPowerModel,
-} where {V <: PSY.HybridSystem}
-    time_steps = get_time_steps(container)
-    names = [PSY.get_name(d) for d in devices]
-    p_ch = get_variable(container, HybridStorageChargePower, V)
-    ss = get_variable(container, HybridStorageReservation, V)
-    constraint = add_constraints_container!(
-        container,
-        HybridStorageStatusChargeOnConstraint,
-        V,
-        names,
-        time_steps,
-    )
-    for d in devices, t in time_steps
-        storage = _storage_of(d)
-        storage === nothing && continue
-        name = PSY.get_name(d)
-        max_ch = PSY.get_input_active_power_limits(storage).max
-        constraint[name, t] = JuMP.@constraint(
-            get_jump_model(container),
-            p_ch[name, t] <= max_ch * (1 - ss[name, t])
-        )
-    end
-    return
-end
+# Side-keyed traits shared by Status{Charge,Discharge}OnConstraint and
+# {Charging,Discharging}ReservePowerLimitConstraint below. Charge side: input
+# limits, ss → (1-ss). Discharge side: output limits, ss → ss.
+const _StorageChargeSide = Union{
+    HybridStorageStatusChargeOnConstraint,
+    HybridStorageChargingReservePowerLimitConstraint,
+}
+const _StorageDischargeSide = Union{
+    HybridStorageStatusDischargeOnConstraint,
+    HybridStorageDischargingReservePowerLimitConstraint,
+}
+
+_storage_side_power_var(::Type{<:_StorageChargeSide}) = HybridStorageChargePower
+_storage_side_power_var(::Type{<:_StorageDischargeSide}) = HybridStorageDischargePower
+_storage_side_max(::Type{<:_StorageChargeSide}, s) =
+    PSY.get_input_active_power_limits(s).max
+_storage_side_max(::Type{<:_StorageDischargeSide}, s) =
+    PSY.get_output_active_power_limits(s).max
+_storage_side_invert_ss(::Type{<:_StorageChargeSide}) = true
+_storage_side_invert_ss(::Type{<:_StorageDischargeSide}) = false
 
 function add_constraints!(
     container::OptimizationContainer,
-    ::Type{HybridStorageStatusDischargeOnConstraint},
+    ::Type{T},
     devices::U,
     model::DeviceModel{V, W},
     ::NetworkModel{X},
 ) where {
+    T <: Union{
+        HybridStorageStatusChargeOnConstraint,
+        HybridStorageStatusDischargeOnConstraint,
+    },
     U <: Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
     W <: AbstractHybridFormulation,
     X <: AbstractPowerModel,
 } where {V <: PSY.HybridSystem}
     time_steps = get_time_steps(container)
     names = [PSY.get_name(d) for d in devices]
-    p_ds = get_variable(container, HybridStorageDischargePower, V)
+    p_var = get_variable(container, _storage_side_power_var(T), V)
     ss = get_variable(container, HybridStorageReservation, V)
-    constraint = add_constraints_container!(
-        container,
-        HybridStorageStatusDischargeOnConstraint,
-        V,
-        names,
-        time_steps,
-    )
+    invert = _storage_side_invert_ss(T)
+    constraint = add_constraints_container!(container, T, V, names, time_steps)
     for d in devices, t in time_steps
         storage = _storage_of(d)
         storage === nothing && continue
         name = PSY.get_name(d)
-        max_ds = PSY.get_output_active_power_limits(storage).max
+        max_p = _storage_side_max(T, storage)
+        ss_factor = invert ? (1 - ss[name, t]) : ss[name, t]
         constraint[name, t] = JuMP.@constraint(
             get_jump_model(container),
-            p_ds[name, t] <= max_ds * ss[name, t]
+            p_var[name, t] <= max_p * ss_factor
         )
     end
     return
@@ -1475,116 +1319,59 @@ end
 # DischargingReservePowerLimit)
 #################################################################################
 
-function _ch_reserve_up_dn_exprs(container, V, t, name)
-    r_up = get_expression(container, ReserveAssignmentBalanceUpCharge, V)
-    r_dn = get_expression(container, ReserveAssignmentBalanceDownCharge, V)
-    return r_up[name, t], r_dn[name, t]
-end
-
-function _ds_reserve_up_dn_exprs(container, V, t, name)
-    r_up = get_expression(container, ReserveAssignmentBalanceUpDischarge, V)
-    r_dn = get_expression(container, ReserveAssignmentBalanceDownDischarge, V)
-    return r_up[name, t], r_dn[name, t]
-end
+# Reserve-assignment expressions enter the bounds of the with-reserves storage
+# power limits asymmetrically: charge UB picks up the down reserve (loading
+# margin), charge LB subtracts the up reserve (headroom); discharge UB picks up
+# the up reserve, discharge LB subtracts the down reserve.
+_storage_side_ub_reserve_expr(::Type{HybridStorageChargingReservePowerLimitConstraint}) =
+    ReserveAssignmentBalanceDownCharge
+_storage_side_ub_reserve_expr(::Type{HybridStorageDischargingReservePowerLimitConstraint}) =
+    ReserveAssignmentBalanceUpDischarge
+_storage_side_lb_reserve_expr(::Type{HybridStorageChargingReservePowerLimitConstraint}) =
+    ReserveAssignmentBalanceUpCharge
+_storage_side_lb_reserve_expr(::Type{HybridStorageDischargingReservePowerLimitConstraint}) =
+    ReserveAssignmentBalanceDownDischarge
 
 function add_constraints!(
     container::OptimizationContainer,
-    ::Type{HybridStorageChargingReservePowerLimitConstraint},
+    ::Type{T},
     devices::U,
     model::DeviceModel{V, W},
     ::NetworkModel{X},
 ) where {
+    T <: Union{
+        HybridStorageChargingReservePowerLimitConstraint,
+        HybridStorageDischargingReservePowerLimitConstraint,
+    },
     U <: Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
     W <: AbstractHybridFormulationWithReserves,
     X <: AbstractPowerModel,
 } where {V <: PSY.HybridSystem}
     time_steps = get_time_steps(container)
     names = [PSY.get_name(d) for d in devices]
-    p_ch = get_variable(container, HybridStorageChargePower, V)
+    p_var = get_variable(container, _storage_side_power_var(T), V)
     has_ss = haskey(IOM.get_variables(container), VariableKey(HybridStorageReservation, V))
     ss = has_ss ? get_variable(container, HybridStorageReservation, V) : nothing
+    invert = _storage_side_invert_ss(T)
+    r_ub = get_expression(container, _storage_side_ub_reserve_expr(T), V)
+    r_lb = get_expression(container, _storage_side_lb_reserve_expr(T), V)
     con_ub = add_constraints_container!(
-        container,
-        HybridStorageChargingReservePowerLimitConstraint,
-        V,
-        names,
-        time_steps;
-        meta = "ub",
-    )
+        container, T, V, names, time_steps; meta = "ub")
     con_lb = add_constraints_container!(
-        container,
-        HybridStorageChargingReservePowerLimitConstraint,
-        V,
-        names,
-        time_steps;
-        meta = "lb",
-    )
+        container, T, V, names, time_steps; meta = "lb")
     for d in devices, t in time_steps
         storage = _storage_of(d)
         storage === nothing && continue
         name = PSY.get_name(d)
-        max_ch = PSY.get_input_active_power_limits(storage).max
-        r_up, r_dn = _ch_reserve_up_dn_exprs(container, V, t, name)
-        # charge + down reserve ≤ max·(1 - ss) when reservation; max otherwise
-        ub_rhs = has_ss ? max_ch * (1 - ss[name, t]) : max_ch
+        max_p = _storage_side_max(T, storage)
+        ub_rhs = has_ss ? max_p * (invert ? (1 - ss[name, t]) : ss[name, t]) : max_p
         con_ub[name, t] = JuMP.@constraint(
             get_jump_model(container),
-            p_ch[name, t] + r_dn <= ub_rhs
+            p_var[name, t] + r_ub[name, t] <= ub_rhs
         )
         con_lb[name, t] = JuMP.@constraint(
             get_jump_model(container),
-            p_ch[name, t] - r_up >= 0.0
-        )
-    end
-    return
-end
-
-function add_constraints!(
-    container::OptimizationContainer,
-    ::Type{HybridStorageDischargingReservePowerLimitConstraint},
-    devices::U,
-    model::DeviceModel{V, W},
-    ::NetworkModel{X},
-) where {
-    U <: Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
-    W <: AbstractHybridFormulationWithReserves,
-    X <: AbstractPowerModel,
-} where {V <: PSY.HybridSystem}
-    time_steps = get_time_steps(container)
-    names = [PSY.get_name(d) for d in devices]
-    p_ds = get_variable(container, HybridStorageDischargePower, V)
-    has_ss = haskey(IOM.get_variables(container), VariableKey(HybridStorageReservation, V))
-    ss = has_ss ? get_variable(container, HybridStorageReservation, V) : nothing
-    con_ub = add_constraints_container!(
-        container,
-        HybridStorageDischargingReservePowerLimitConstraint,
-        V,
-        names,
-        time_steps;
-        meta = "ub",
-    )
-    con_lb = add_constraints_container!(
-        container,
-        HybridStorageDischargingReservePowerLimitConstraint,
-        V,
-        names,
-        time_steps;
-        meta = "lb",
-    )
-    for d in devices, t in time_steps
-        storage = _storage_of(d)
-        storage === nothing && continue
-        name = PSY.get_name(d)
-        max_ds = PSY.get_output_active_power_limits(storage).max
-        r_up, r_dn = _ds_reserve_up_dn_exprs(container, V, t, name)
-        ub_rhs = has_ss ? max_ds * ss[name, t] : max_ds
-        con_ub[name, t] = JuMP.@constraint(
-            get_jump_model(container),
-            p_ds[name, t] + r_up <= ub_rhs
-        )
-        con_lb[name, t] = JuMP.@constraint(
-            get_jump_model(container),
-            p_ds[name, t] - r_dn >= 0.0
+            p_var[name, t] - r_lb[name, t] >= 0.0
         )
     end
     return
@@ -1598,21 +1385,26 @@ end
 # *net* injection profile, not the bare charge/discharge variable.
 #################################################################################
 
-function _hybrid_served_charge_reserve_pair(container, V, name, t)
-    if has_container_key(container, ReserveDeploymentBalanceUpCharge, V) &&
-       has_container_key(container, ReserveDeploymentBalanceDownCharge, V)
-        up = get_expression(container, ReserveDeploymentBalanceUpCharge, V)[name, t]
-        dn = get_expression(container, ReserveDeploymentBalanceDownCharge, V)[name, t]
-        return up, dn
-    end
-    return 0.0, 0.0
-end
+# Trait stubs for the unified Charge/Discharge regularization body. Sign
+# convention for net injection: charge nets to (p − r_up + r_dn); discharge
+# nets to (p + r_up − r_dn).
+_reg_slack_var(::Type{ChargeRegularizationConstraint}) = ChargeRegularizationVariable
+_reg_slack_var(::Type{DischargeRegularizationConstraint}) = DischargeRegularizationVariable
+_reg_power_var(::Type{ChargeRegularizationConstraint}) = HybridStorageChargePower
+_reg_power_var(::Type{DischargeRegularizationConstraint}) = HybridStorageDischargePower
+_reg_reserve_exprs(::Type{ChargeRegularizationConstraint}) =
+    (ReserveDeploymentBalanceUpCharge, ReserveDeploymentBalanceDownCharge)
+_reg_reserve_exprs(::Type{DischargeRegularizationConstraint}) =
+    (ReserveDeploymentBalanceUpDischarge, ReserveDeploymentBalanceDownDischarge)
+_reg_reserve_signs(::Type{ChargeRegularizationConstraint}) = (-1, +1)
+_reg_reserve_signs(::Type{DischargeRegularizationConstraint}) = (+1, -1)
 
-function _hybrid_served_discharge_reserve_pair(container, V, name, t)
-    if has_container_key(container, ReserveDeploymentBalanceUpDischarge, V) &&
-       has_container_key(container, ReserveDeploymentBalanceDownDischarge, V)
-        up = get_expression(container, ReserveDeploymentBalanceUpDischarge, V)[name, t]
-        dn = get_expression(container, ReserveDeploymentBalanceDownDischarge, V)[name, t]
+function _hybrid_served_reserve_pair(container, ::Type{T}, V, name, t) where {T}
+    UpExpr, DnExpr = _reg_reserve_exprs(T)
+    if has_container_key(container, UpExpr, V) &&
+       has_container_key(container, DnExpr, V)
+        up = get_expression(container, UpExpr, V)[name, t]
+        dn = get_expression(container, DnExpr, V)[name, t]
         return up, dn
     end
     return 0.0, 0.0
@@ -1620,25 +1412,27 @@ end
 
 function add_constraints!(
     container::OptimizationContainer,
-    ::Type{ChargeRegularizationConstraint},
+    ::Type{T},
     devices::U,
     model::DeviceModel{V, W},
     ::NetworkModel{X},
 ) where {
+    T <: Union{ChargeRegularizationConstraint, DischargeRegularizationConstraint},
     U <: Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
     W <: AbstractHybridFormulation,
     X <: AbstractPowerModel,
 } where {V <: PSY.HybridSystem}
     time_steps = get_time_steps(container)
     names = [PSY.get_name(d) for d in devices]
-    reg_var = get_variable(container, ChargeRegularizationVariable, V)
-    p_ch = get_variable(container, HybridStorageChargePower, V)
+    reg_var = get_variable(container, _reg_slack_var(T), V)
+    p_var = get_variable(container, _reg_power_var(T), V)
     has_services =
         W <: AbstractHybridFormulationWithReserves && has_service_model(model)
+    s_up, s_dn = _reg_reserve_signs(T)
     con_ub = add_constraints_container!(
-        container, ChargeRegularizationConstraint, V, names, time_steps; meta = "ub")
+        container, T, V, names, time_steps; meta = "ub")
     con_lb = add_constraints_container!(
-        container, ChargeRegularizationConstraint, V, names, time_steps; meta = "lb")
+        container, T, V, names, time_steps; meta = "lb")
     jm = get_jump_model(container)
     t1 = first(time_steps)
     for d in devices
@@ -1650,61 +1444,13 @@ function add_constraints!(
         for t in time_steps[2:end]
             if has_services
                 up_prev, dn_prev =
-                    _hybrid_served_charge_reserve_pair(container, V, name, t - 1)
-                up_t, dn_t = _hybrid_served_charge_reserve_pair(container, V, name, t)
+                    _hybrid_served_reserve_pair(container, T, V, name, t - 1)
+                up_t, dn_t = _hybrid_served_reserve_pair(container, T, V, name, t)
                 lhs =
-                    (p_ch[name, t - 1] - up_prev + dn_prev) -
-                    (p_ch[name, t] - up_t + dn_t)
+                    (p_var[name, t - 1] + s_up * up_prev + s_dn * dn_prev) -
+                    (p_var[name, t] + s_up * up_t + s_dn * dn_t)
             else
-                lhs = p_ch[name, t - 1] - p_ch[name, t]
-            end
-            con_ub[name, t] = JuMP.@constraint(jm, lhs <= reg_var[name, t])
-            con_lb[name, t] = JuMP.@constraint(jm, lhs >= -reg_var[name, t])
-        end
-    end
-    return
-end
-
-function add_constraints!(
-    container::OptimizationContainer,
-    ::Type{DischargeRegularizationConstraint},
-    devices::U,
-    model::DeviceModel{V, W},
-    ::NetworkModel{X},
-) where {
-    U <: Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
-    W <: AbstractHybridFormulation,
-    X <: AbstractPowerModel,
-} where {V <: PSY.HybridSystem}
-    time_steps = get_time_steps(container)
-    names = [PSY.get_name(d) for d in devices]
-    reg_var = get_variable(container, DischargeRegularizationVariable, V)
-    p_ds = get_variable(container, HybridStorageDischargePower, V)
-    has_services =
-        W <: AbstractHybridFormulationWithReserves && has_service_model(model)
-    con_ub = add_constraints_container!(
-        container, DischargeRegularizationConstraint, V, names, time_steps; meta = "ub",
-    )
-    con_lb = add_constraints_container!(
-        container, DischargeRegularizationConstraint, V, names, time_steps; meta = "lb",
-    )
-    jm = get_jump_model(container)
-    t1 = first(time_steps)
-    for d in devices
-        PSY.get_storage(d) === nothing && continue
-        name = PSY.get_name(d)
-        con_ub[name, t1] = JuMP.@constraint(jm, reg_var[name, t1] == 0)
-        con_lb[name, t1] = JuMP.@constraint(jm, reg_var[name, t1] == 0)
-        for t in time_steps[2:end]
-            if has_services
-                up_prev, dn_prev =
-                    _hybrid_served_discharge_reserve_pair(container, V, name, t - 1)
-                up_t, dn_t = _hybrid_served_discharge_reserve_pair(container, V, name, t)
-                lhs =
-                    (p_ds[name, t - 1] + up_prev - dn_prev) -
-                    (p_ds[name, t] + up_t - dn_t)
-            else
-                lhs = p_ds[name, t - 1] - p_ds[name, t]
+                lhs = p_var[name, t - 1] - p_var[name, t]
             end
             con_ub[name, t] = JuMP.@constraint(jm, lhs <= reg_var[name, t])
             con_lb[name, t] = JuMP.@constraint(jm, lhs >= -reg_var[name, t])
@@ -1930,129 +1676,82 @@ function add_constraints!(
 end
 
 """
-Force the hybrid PCC `ActivePowerOutVariable` to vanish whenever the reservation
-variable signals charge mode (reservation = 0 → out = 0; reservation = 1 → out
-free up to its upper bound).
+Couple the hybrid PCC active-power variable to the reservation binary so that
+only one direction is active at a time. `HybridStatusOutOnConstraint` enforces
+`p_out ≤ reservation·max_out` (out-mode when reservation=1); `HybridStatusInOnConstraint`
+enforces `p_in ≤ (1 − reservation)·max_in` (in-mode when reservation=0). With
+ancillary services attached, the asymmetric reserve expressions enter both
+bounds — Out side picks up Out{Up,Down}; In side picks up In{Down,Up} — mirroring
+HSS `_add_constraints_status{out,in}_withreserves!`.
 """
+_pcc_power_var(::Type{HybridStatusOutOnConstraint}) = ActivePowerOutVariable
+_pcc_power_var(::Type{HybridStatusInOnConstraint}) = ActivePowerInVariable
+_pcc_max_limit(::Type{HybridStatusOutOnConstraint}, d) =
+    PSY.get_output_active_power_limits(d).max
+_pcc_max_limit(::Type{HybridStatusInOnConstraint}, d) =
+    PSY.get_input_active_power_limits(d).max
+_pcc_reserve_ub_expr(::Type{HybridStatusOutOnConstraint}) =
+    HybridTotalReserveOutUpExpression
+_pcc_reserve_ub_expr(::Type{HybridStatusInOnConstraint}) =
+    HybridTotalReserveInDownExpression
+_pcc_reserve_lb_expr(::Type{HybridStatusOutOnConstraint}) =
+    HybridTotalReserveOutDownExpression
+_pcc_reserve_lb_expr(::Type{HybridStatusInOnConstraint}) = HybridTotalReserveInUpExpression
+_pcc_invert_reservation(::Type{HybridStatusOutOnConstraint}) = false
+_pcc_invert_reservation(::Type{HybridStatusInOnConstraint}) = true
+
 function add_constraints!(
     container::OptimizationContainer,
-    ::Type{HybridStatusOutOnConstraint},
+    ::Type{T},
     devices::IS.FlattenIteratorWrapper{V},
     model::DeviceModel{V, W},
     ::NetworkModel{X},
-) where {V <: PSY.HybridSystem, W <: AbstractHybridFormulation, X <: AbstractPowerModel}
+) where {
+    T <: Union{HybridStatusOutOnConstraint, HybridStatusInOnConstraint},
+    V <: PSY.HybridSystem,
+    W <: AbstractHybridFormulation,
+    X <: AbstractPowerModel,
+}
     time_steps = get_time_steps(container)
     names = [PSY.get_name(d) for d in devices]
-    p_out = get_variable(container, ActivePowerOutVariable, V)
+    p_var = get_variable(container, _pcc_power_var(T), V)
     reservation = get_variable(container, ReservationVariable, V)
-    constraint = add_constraints_container!(
-        container,
-        HybridStatusOutOnConstraint,
-        V,
-        names,
-        time_steps,
-    )
+    invert = _pcc_invert_reservation(T)
+    constraint = add_constraints_container!(container, T, V, names, time_steps)
 
     has_reserves = W <: AbstractHybridFormulationWithReserves && has_service_model(model)
-    r_up, r_dn = if has_reserves
+    r_ub, r_lb = if has_reserves
         (
-            get_expression(container, HybridTotalReserveOutUpExpression, V),
-            get_expression(container, HybridTotalReserveOutDownExpression, V),
+            get_expression(container, _pcc_reserve_ub_expr(T), V),
+            get_expression(container, _pcc_reserve_lb_expr(T), V),
         )
     else
         (nothing, nothing)
     end
 
     con_lb = if has_reserves
-        add_constraints_container!(
-            container, HybridStatusOutOnConstraint, V, names, time_steps; meta = "lb",
-        )
+        add_constraints_container!(container, T, V, names, time_steps; meta = "lb")
     else
         nothing
     end
 
     for d in devices, t in time_steps
         name = PSY.get_name(d)
-        max_out = PSY.get_output_active_power_limits(d).max
+        max_p = _pcc_max_limit(T, d)
+        rhs_factor = invert ? (1 - reservation[name, t]) : reservation[name, t]
         if has_reserves
             constraint[name, t] = JuMP.@constraint(
                 get_jump_model(container),
-                p_out[name, t] + r_up[name, t] <= reservation[name, t] * max_out
+                p_var[name, t] + r_ub[name, t] <= rhs_factor * max_p
             )
             con_lb[name, t] = JuMP.@constraint(
                 get_jump_model(container),
-                p_out[name, t] - r_dn[name, t] >= 0.0
+                p_var[name, t] - r_lb[name, t] >= 0.0
             )
         else
             constraint[name, t] = JuMP.@constraint(
                 get_jump_model(container),
-                p_out[name, t] <= reservation[name, t] * max_out
-            )
-        end
-    end
-    return
-end
-
-"""
-Force the hybrid PCC `ActivePowerInVariable` to vanish whenever the reservation
-variable signals discharge mode (reservation = 1 → in = 0; reservation = 0 →
-in free up to its upper bound). When ancillary services are attached, the up/down
-in-side reserves carve headroom and floor the variable above zero, mirroring HSS
-`_add_constraints_statusin_withreserves!`.
-"""
-function add_constraints!(
-    container::OptimizationContainer,
-    ::Type{HybridStatusInOnConstraint},
-    devices::IS.FlattenIteratorWrapper{V},
-    model::DeviceModel{V, W},
-    ::NetworkModel{X},
-) where {V <: PSY.HybridSystem, W <: AbstractHybridFormulation, X <: AbstractPowerModel}
-    time_steps = get_time_steps(container)
-    names = [PSY.get_name(d) for d in devices]
-    p_in = get_variable(container, ActivePowerInVariable, V)
-    reservation = get_variable(container, ReservationVariable, V)
-    constraint = add_constraints_container!(
-        container,
-        HybridStatusInOnConstraint,
-        V,
-        names,
-        time_steps,
-    )
-
-    has_reserves = W <: AbstractHybridFormulationWithReserves && has_service_model(model)
-    r_up, r_dn = if has_reserves
-        (
-            get_expression(container, HybridTotalReserveInUpExpression, V),
-            get_expression(container, HybridTotalReserveInDownExpression, V),
-        )
-    else
-        (nothing, nothing)
-    end
-
-    con_lb = if has_reserves
-        add_constraints_container!(
-            container, HybridStatusInOnConstraint, V, names, time_steps; meta = "lb",
-        )
-    else
-        nothing
-    end
-
-    for d in devices, t in time_steps
-        name = PSY.get_name(d)
-        max_in = PSY.get_input_active_power_limits(d).max
-        if has_reserves
-            constraint[name, t] = JuMP.@constraint(
-                get_jump_model(container),
-                p_in[name, t] + r_dn[name, t] <= (1 - reservation[name, t]) * max_in
-            )
-            con_lb[name, t] = JuMP.@constraint(
-                get_jump_model(container),
-                p_in[name, t] - r_up[name, t] >= 0.0
-            )
-        else
-            constraint[name, t] = JuMP.@constraint(
-                get_jump_model(container),
-                p_in[name, t] <= (1 - reservation[name, t]) * max_in
+                p_var[name, t] <= rhs_factor * max_p
             )
         end
     end

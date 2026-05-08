@@ -1578,148 +1578,71 @@ function add_constraints!(
     return
 end
 
-function add_constraints!(
-    container::OptimizationContainer,
-    ::Type{StorageRegularizationConstraintCharge},
-    devices::IS.FlattenIteratorWrapper{V},
-    model::DeviceModel{V, StorageDispatchWithReserves},
-    network_model::NetworkModel{X},
-) where {V <: PSY.Storage, X <: AbstractPowerModel}
-    names = [PSY.get_name(x) for x in devices]
-    time_steps = get_time_steps(container)
-    reg_var = get_variable(container, StorageRegularizationVariableCharge, V)
-    powerin_var = get_variable(container, ActivePowerInVariable, V)
-    has_services = has_service_model(model)
-
-    if has_services
-        r_up_ch = get_expression(container, ReserveDeploymentBalanceUpCharge, V)
-        r_dn_ch = get_expression(container, ReserveDeploymentBalanceDownCharge, V)
-    end
-
-    constraint_ub =
-        add_constraints_container!(container, StorageRegularizationConstraintCharge,
-            V,
-            names,
-            time_steps;
-            meta = "ub",
-        )
-
-    constraint_lb =
-        add_constraints_container!(container, StorageRegularizationConstraintCharge,
-            V,
-            names,
-            time_steps;
-            meta = "lb",
-        )
-
-    for d in devices
-        name = PSY.get_name(d)
-        constraint_ub[name, 1] =
-            JuMP.@constraint(get_jump_model(container), reg_var[name, 1] == 0)
-        constraint_lb[name, 1] =
-            JuMP.@constraint(get_jump_model(container), reg_var[name, 1] == 0)
-
-        for t in time_steps[2:end]
-            if has_services
-                constraint_ub[name, t] = JuMP.@constraint(
-                    get_jump_model(container),
-                    (
-                        powerin_var[name, t - 1] + r_dn_ch[name, t - 1] -
-                        r_up_ch[name, t - 1]
-                    ) - (powerin_var[name, t] + r_dn_ch[name, t] - r_up_ch[name, t]) <=
-                    reg_var[name, t]
-                )
-                constraint_lb[name, t] = JuMP.@constraint(
-                    get_jump_model(container),
-                    (
-                        powerin_var[name, t - 1] + r_dn_ch[name, t - 1] -
-                        r_up_ch[name, t - 1]
-                    ) - (powerin_var[name, t] + r_dn_ch[name, t] - r_up_ch[name, t]) >=
-                    -reg_var[name, t]
-                )
-            else
-                constraint_ub[name, t] = JuMP.@constraint(
-                    get_jump_model(container),
-                    powerin_var[name, t - 1] - powerin_var[name, t] <= reg_var[name, t]
-                )
-                constraint_lb[name, t] = JuMP.@constraint(
-                    get_jump_model(container),
-                    powerin_var[name, t - 1] - powerin_var[name, t] >= -reg_var[name, t]
-                )
-            end
-        end
-    end
-
-    return
-end
+# Trait stubs for the unified Charge/Discharge regularization body. Sign
+# convention for net injection: charge nets to (p − r_up + r_dn); discharge
+# nets to (p + r_up − r_dn). Mirrors the hybrid pair in
+# src/hybrid_system_models/hybrid_systems.jl.
+_storage_reg_slack_var(::Type{StorageRegularizationConstraintCharge}) =
+    StorageRegularizationVariableCharge
+_storage_reg_slack_var(::Type{StorageRegularizationConstraintDischarge}) =
+    StorageRegularizationVariableDischarge
+_storage_reg_power_var(::Type{StorageRegularizationConstraintCharge}) =
+    ActivePowerInVariable
+_storage_reg_power_var(::Type{StorageRegularizationConstraintDischarge}) =
+    ActivePowerOutVariable
+_storage_reg_reserve_exprs(::Type{StorageRegularizationConstraintCharge}) =
+    (ReserveDeploymentBalanceUpCharge, ReserveDeploymentBalanceDownCharge)
+_storage_reg_reserve_exprs(::Type{StorageRegularizationConstraintDischarge}) =
+    (ReserveDeploymentBalanceUpDischarge, ReserveDeploymentBalanceDownDischarge)
+_storage_reg_reserve_signs(::Type{StorageRegularizationConstraintCharge}) = (-1, +1)
+_storage_reg_reserve_signs(::Type{StorageRegularizationConstraintDischarge}) = (+1, -1)
 
 function add_constraints!(
     container::OptimizationContainer,
-    ::Type{StorageRegularizationConstraintDischarge},
+    ::Type{T},
     devices::IS.FlattenIteratorWrapper{V},
     model::DeviceModel{V, StorageDispatchWithReserves},
     network_model::NetworkModel{X},
-) where {V <: PSY.Storage, X <: AbstractPowerModel}
+) where {
+    T <: Union{
+        StorageRegularizationConstraintCharge,
+        StorageRegularizationConstraintDischarge,
+    },
+    V <: PSY.Storage,
+    X <: AbstractPowerModel,
+}
     names = [PSY.get_name(x) for x in devices]
     time_steps = get_time_steps(container)
-    reg_var = get_variable(container, StorageRegularizationVariableDischarge, V)
-    powerout_var = get_variable(container, ActivePowerOutVariable, V)
+    reg_var = get_variable(container, _storage_reg_slack_var(T), V)
+    p_var = get_variable(container, _storage_reg_power_var(T), V)
     has_services = has_service_model(model)
-    if has_services
-        r_up_ds = get_expression(container, ReserveDeploymentBalanceUpDischarge, V)
-        r_dn_ds = get_expression(container, ReserveDeploymentBalanceDownDischarge, V)
-    end
+    s_up, s_dn = _storage_reg_reserve_signs(T)
+    UpExpr, DnExpr = _storage_reg_reserve_exprs(T)
+    r_up = has_services ? get_expression(container, UpExpr, V) : nothing
+    r_dn = has_services ? get_expression(container, DnExpr, V) : nothing
 
     constraint_ub =
-        add_constraints_container!(container, StorageRegularizationConstraintDischarge,
-            V,
-            names,
-            time_steps;
-            meta = "ub",
-        )
-
+        add_constraints_container!(container, T, V, names, time_steps; meta = "ub")
     constraint_lb =
-        add_constraints_container!(container, StorageRegularizationConstraintDischarge,
-            V,
-            names,
-            time_steps;
-            meta = "lb",
-        )
+        add_constraints_container!(container, T, V, names, time_steps; meta = "lb")
+    jm = get_jump_model(container)
 
     for d in devices
         name = PSY.get_name(d)
-        constraint_ub[name, 1] =
-            JuMP.@constraint(get_jump_model(container), reg_var[name, 1] == 0)
-        constraint_lb[name, 1] =
-            JuMP.@constraint(get_jump_model(container), reg_var[name, 1] == 0)
+        constraint_ub[name, 1] = JuMP.@constraint(jm, reg_var[name, 1] == 0)
+        constraint_lb[name, 1] = JuMP.@constraint(jm, reg_var[name, 1] == 0)
         for t in time_steps[2:end]
-            if has_services
-                constraint_ub[name, t] = JuMP.@constraint(
-                    get_jump_model(container),
-                    (
-                        powerout_var[name, t - 1] + r_up_ds[name, t - 1] -
-                        r_dn_ds[name, t - 1]
-                    ) - (powerout_var[name, t] + r_up_ds[name, t] - r_dn_ds[name, t]) <=
-                    reg_var[name, t]
-                )
-                constraint_lb[name, t] = JuMP.@constraint(
-                    get_jump_model(container),
-                    (
-                        powerout_var[name, t - 1] + r_up_ds[name, t - 1] -
-                        r_dn_ds[name, t - 1]
-                    ) - (powerout_var[name, t] + r_up_ds[name, t] - r_dn_ds[name, t]) >=
-                    -reg_var[name, t]
-                )
+            lhs = if has_services
+                (
+                    p_var[name, t - 1] +
+                    s_up * r_up[name, t - 1] +
+                    s_dn * r_dn[name, t - 1]
+                ) - (p_var[name, t] + s_up * r_up[name, t] + s_dn * r_dn[name, t])
             else
-                constraint_ub[name, t] = JuMP.@constraint(
-                    get_jump_model(container),
-                    powerout_var[name, t - 1] - powerout_var[name, t] <= reg_var[name, t]
-                )
-                constraint_lb[name, t] = JuMP.@constraint(
-                    get_jump_model(container),
-                    powerout_var[name, t - 1] - powerout_var[name, t] >= -reg_var[name, t]
-                )
+                p_var[name, t - 1] - p_var[name, t]
             end
+            constraint_ub[name, t] = JuMP.@constraint(jm, lhs <= reg_var[name, t])
+            constraint_lb[name, t] = JuMP.@constraint(jm, lhs >= -reg_var[name, t])
         end
     end
     return
