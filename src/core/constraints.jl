@@ -1124,17 +1124,23 @@ reserves.
 """
 struct HybridEnergyAssetBalanceConstraint <: ConstraintType end
 
-"Status link between the hybrid PCC `ActivePowerOutVariable` and the reservation variable."
-struct HybridStatusOutOnConstraint <: ConstraintType end
+"""
+Status link between a hybrid PCC active-power variable and the reservation variable.
+Parametric on [`ReserveSide`](@ref): `HybridStatusOnConstraint{DischargeSide}` is the
+historical `HybridStatusOutOnConstraint`, `{ChargeSide}` is `HybridStatusInOnConstraint`.
+"""
+struct HybridStatusOnConstraint{Sd <: ReserveSide} <: ConstraintType end
+const HybridStatusOutOnConstraint = HybridStatusOnConstraint{DischargeSide}
+const HybridStatusInOnConstraint = HybridStatusOnConstraint{ChargeSide}
 
-"Status link between the hybrid PCC `ActivePowerInVariable` and the reservation variable."
-struct HybridStatusInOnConstraint <: ConstraintType end
-
-"Upper-bound link between thermal subcomponent power and its commitment status."
-struct HybridThermalOnVariableUbConstraint <: ConstraintType end
-
-"Lower-bound link between thermal subcomponent power and its commitment status."
-struct HybridThermalOnVariableLbConstraint <: ConstraintType end
+"""
+Bound between thermal subcomponent power and its commitment status (no-reserves case).
+Parametric on [`ConstraintBound`](@ref): `HybridThermalOnVariableConstraint{UpperBound}`
+is the historical `HybridThermalOnVariableUbConstraint`.
+"""
+struct HybridThermalOnVariableConstraint{B <: ConstraintBound} <: ConstraintType end
+const HybridThermalOnVariableUbConstraint = HybridThermalOnVariableConstraint{UpperBound}
+const HybridThermalOnVariableLbConstraint = HybridThermalOnVariableConstraint{LowerBound}
 
 "Range constraint on thermal subcomponent power including up/down reserves."
 struct HybridThermalReserveLimitConstraint <: ConstraintType end
@@ -1148,28 +1154,35 @@ struct HybridRenewableReserveLimitConstraint <: ConstraintType end
 "Energy balance for the storage subcomponent of a hybrid system, including reserve deployment."
 struct HybridStorageBalanceConstraint <: ConstraintType end
 
-"Mutually-exclusive charge limit for the hybrid storage subcomponent (no reserves case)."
-struct HybridStorageStatusChargeOnConstraint <: ConstraintType end
-
-"Mutually-exclusive discharge limit for the hybrid storage subcomponent (no reserves case)."
-struct HybridStorageStatusDischargeOnConstraint <: ConstraintType end
-
-"Charge-side power limit for the hybrid storage subcomponent including reserve carve-outs."
-struct HybridStorageChargingReservePowerLimitConstraint <: ConstraintType end
-
-"Discharge-side power limit for the hybrid storage subcomponent including reserve carve-outs."
-struct HybridStorageDischargingReservePowerLimitConstraint <: ConstraintType end
+"""
+Mutually-exclusive charge/discharge limit for the hybrid storage subcomponent
+(no-reserves case). Parametric on [`ReserveSide`](@ref):
+`HybridStorageStatusOnConstraint{ChargeSide}` is the historical
+`HybridStorageStatusChargeOnConstraint`.
+"""
+struct HybridStorageStatusOnConstraint{Sd <: ReserveSide} <: ConstraintType end
+const HybridStorageStatusChargeOnConstraint = HybridStorageStatusOnConstraint{ChargeSide}
+const HybridStorageStatusDischargeOnConstraint =
+    HybridStorageStatusOnConstraint{DischargeSide}
 
 """
-Bounds the absolute charge-power step change between consecutive time steps by
-`ChargeRegularizationVariable`, penalizing oscillation. Active only when the hybrid
-`\"regularization\"` attribute is set.
+Charge- or discharge-side power limit for the hybrid storage subcomponent including
+reserve carve-outs. Parametric on [`ReserveSide`](@ref):
+`HybridStorageReservePowerLimitConstraint{ChargeSide}` is the historical
+`HybridStorageChargingReservePowerLimitConstraint`.
 """
-struct ChargeRegularizationConstraint <: ConstraintType end
+struct HybridStorageReservePowerLimitConstraint{Sd <: ReserveSide} <: ConstraintType end
+const HybridStorageChargingReservePowerLimitConstraint =
+    HybridStorageReservePowerLimitConstraint{ChargeSide}
+const HybridStorageDischargingReservePowerLimitConstraint =
+    HybridStorageReservePowerLimitConstraint{DischargeSide}
 
 """
-Bounds the absolute discharge-power step change between consecutive time steps by
-`DischargeRegularizationVariable`, penalizing oscillation. Active only when the hybrid
-`\"regularization\"` attribute is set.
+Bounds the absolute charge- or discharge-power step change between consecutive time
+steps, penalizing oscillation. Active only when the hybrid `\"regularization\"`
+attribute is set. Parametric on [`ReserveSide`](@ref):
+`RegularizationConstraint{ChargeSide}` is the historical `ChargeRegularizationConstraint`.
 """
-struct DischargeRegularizationConstraint <: ConstraintType end
+struct RegularizationConstraint{Sd <: ReserveSide} <: ConstraintType end
+const ChargeRegularizationConstraint = RegularizationConstraint{ChargeSide}
+const DischargeRegularizationConstraint = RegularizationConstraint{DischargeSide}

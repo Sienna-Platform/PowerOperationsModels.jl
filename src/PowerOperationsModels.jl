@@ -193,6 +193,7 @@ include("core/definitions.jl")
 include("core/interfaces.jl")
 include("core/default_interface_methods.jl")
 include("core/physical_constant_definitions.jl")
+include("core/reserve_traits.jl")
 include("core/variables.jl")
 include("core/expressions.jl")
 include("core/constraints.jl")
@@ -655,6 +656,14 @@ export EnergyTargetParameter
 export AbstractHybridFormulation
 export AbstractHybridFormulationWithReserves
 export HybridDispatchWithReserves
+
+# Reserve / constraint marker traits used to parametrize hybrid + storage families.
+# ConstraintBound (and UpperBound/LowerBound) come from IOM via `using InfrastructureOptimizationModels`
+# and are not re-exported here to avoid name collisions with the IOM-rooted symbols.
+export ReserveDirection, Up, Down
+export ReserveScale, UnscaledReserve, DeployedReserve
+export ReserveSide, DischargeSide, ChargeSide
+export ConstraintBound
 
 # variables
 export ChargeRegularizationVariable

@@ -641,6 +641,10 @@ struct StorageEnergyOutput <: AuxVariableType end
 
 #################################################################################
 # Hybrid System Variables
+#
+# Paired sibling variable types are parametric on `ReserveSide` (Discharge / Charge).
+# Historical names are retained as const aliases so all existing imports,
+# `get_variable(container, T, V)` lookups, and exports continue to work.
 #################################################################################
 
 """
@@ -654,53 +658,76 @@ struct HybridThermalActivePower <: HybridSubcomponentVariableType end
 "Active power dispatched by the renewable subcomponent of a hybrid system."
 struct HybridRenewableActivePower <: HybridSubcomponentVariableType end
 
-"Active power consumed by the storage subcomponent (charge) of a hybrid system."
-struct HybridStorageChargePower <: HybridSubcomponentVariableType end
-
-"Active power produced by the storage subcomponent (discharge) of a hybrid system."
-struct HybridStorageDischargePower <: HybridSubcomponentVariableType end
+"""
+Active power on the storage subcomponent of a hybrid system. Parametric on
+[`ReserveSide`](@ref): `HybridStorageSubcomponentPower{ChargeSide}` is the inflow
+(historical `HybridStorageChargePower`), `{DischargeSide}` is the outflow.
+"""
+struct HybridStorageSubcomponentPower{Sd <: ReserveSide} <:
+       HybridSubcomponentVariableType end
+const HybridStorageChargePower = HybridStorageSubcomponentPower{ChargeSide}
+const HybridStorageDischargePower = HybridStorageSubcomponentPower{DischargeSide}
 
 "Binary reservation variable for the storage subcomponent of a hybrid system."
 struct HybridStorageReservation <: HybridSubcomponentVariableType end
 
 """
-Non-negative slack variable bounding the absolute step change in charge power between
-consecutive time steps. Carried into the objective with a small fixed penalty when the
-hybrid `\"regularization\"` attribute is set, suppressing bang-bang dispatch.
+Non-negative slack variable bounding the absolute step change in charge or discharge
+power between consecutive time steps. Carried into the objective with a small fixed
+penalty when the hybrid `\"regularization\"` attribute is set.
+`RegularizationVariable{ChargeSide}` is the historical `ChargeRegularizationVariable`.
 """
-struct ChargeRegularizationVariable <: HybridSubcomponentVariableType end
+struct RegularizationVariable{Sd <: ReserveSide} <: HybridSubcomponentVariableType end
+const ChargeRegularizationVariable = RegularizationVariable{ChargeSide}
+const DischargeRegularizationVariable = RegularizationVariable{DischargeSide}
 
 """
-Non-negative slack variable bounding the absolute step change in discharge power
-between consecutive time steps. Carried into the objective with a small fixed penalty
-when the hybrid `\"regularization\"` attribute is set.
+Abstract type for hybrid reserve variables (both PCC-boundary and subcomponent).
 """
-struct DischargeRegularizationVariable <: HybridSubcomponentVariableType end
-
-"Reserve quantity offered to the grid through the hybrid's outflow (discharge) side."
-struct HybridReserveVariableOut <: VariableType end
-
-"Reserve quantity offered to the grid through the hybrid's inflow (charge) side."
-struct HybridReserveVariableIn <: VariableType end
+abstract type HybridReserveVariableType <: VariableType end
 
 """
-Abstract type for per-subcomponent reserve allocation variables inside a hybrid system.
-Used to split the hybrid-boundary reserve commitment across the thermal, renewable, and
-storage subcomponents.
+Reserve quantity offered to the grid through one side of a hybrid PCC. Parametric on
+[`ReserveSide`](@ref): `HybridPCCReserveVariable{DischargeSide}` is the historical
+`HybridReserveVariableOut`, `{ChargeSide}` is `HybridReserveVariableIn`.
 """
-abstract type HybridComponentReserveVariableType <: VariableType end
+struct HybridPCCReserveVariable{Sd <: ReserveSide} <: HybridReserveVariableType end
+const HybridReserveVariableOut = HybridPCCReserveVariable{DischargeSide}
+const HybridReserveVariableIn = HybridPCCReserveVariable{ChargeSide}
+
+"""
+Abstract type for per-subcomponent reserve allocations inside a hybrid system
+that do not have a Discharge/Charge axis (thermal and renewable subcomponents).
+"""
+abstract type HybridSubcomponentInjectorReserveVariableType <: HybridReserveVariableType end
 
 "Reserve allocated to the thermal subcomponent of a hybrid system."
-struct HybridThermalReserveVariable <: HybridComponentReserveVariableType end
+struct HybridThermalReserveVariable <: HybridSubcomponentInjectorReserveVariableType end
 
 "Reserve allocated to the renewable subcomponent of a hybrid system."
-struct HybridRenewableReserveVariable <: HybridComponentReserveVariableType end
+struct HybridRenewableReserveVariable <: HybridSubcomponentInjectorReserveVariableType end
 
-"Reserve allocated to the charging side of a hybrid system's storage subcomponent."
-struct HybridChargingReserveVariable <: HybridComponentReserveVariableType end
+"""
+Reserve allocated to one side of a hybrid system's storage subcomponent. Parametric on
+[`ReserveSide`](@ref): `HybridStorageSubcomponentReserveVariable{ChargeSide}` is the
+historical `HybridChargingReserveVariable`, `{DischargeSide}` is the discharging one.
+"""
+struct HybridStorageSubcomponentReserveVariable{Sd <: ReserveSide} <:
+       HybridReserveVariableType end
+const HybridChargingReserveVariable =
+    HybridStorageSubcomponentReserveVariable{ChargeSide}
+const HybridDischargingReserveVariable =
+    HybridStorageSubcomponentReserveVariable{DischargeSide}
 
-"Reserve allocated to the discharging side of a hybrid system's storage subcomponent."
-struct HybridDischargingReserveVariable <: HybridComponentReserveVariableType end
+"""
+Union over all hybrid per-subcomponent reserve variable types — both the injector flavors
+(thermal/renewable, no Side axis) and the storage flavors (parametric on Side). Retained
+for callers that previously matched on the abstract supertype of the same name.
+"""
+const HybridComponentReserveVariableType = Union{
+    HybridSubcomponentInjectorReserveVariableType,
+    HybridStorageSubcomponentReserveVariable,
+}
 
 const MULTI_START_VARIABLES = (HotStartVariable, WarmStartVariable, ColdStartVariable)
 
