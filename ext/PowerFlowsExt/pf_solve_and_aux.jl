@@ -1,8 +1,7 @@
 # Power flow in-the-loop: solve dispatcher and auxiliary variable readback.
-# Ported from PowerSimulations.jl/src/network_models/power_flow_evaluation.jl
-# (lines 753-874). Defines latest_solved_power_flow_evaluation_data, solve_powerflow!
-# (renamed from PSI's solve_power_flow!), calculate_aux_variable_value! overloads
-# for PowerFlowAuxVariableType, and _get_pf_result helpers.
+# Defines latest_solved_power_flow_evaluation_data, solve_power_flow!,
+# calculate_aux_variable_value! overloads for PowerFlowAuxVariableType,
+# and _get_pf_result helpers.
 
 "Fetch the most recently solved `PowerFlowEvaluationData`"
 function latest_solved_power_flow_evaluation_data(container::OptimizationContainer)
@@ -10,7 +9,7 @@ function latest_solved_power_flow_evaluation_data(container::OptimizationContain
     return datas[findlast(x -> x.is_solved, datas)]
 end
 
-function solve_powerflow!(
+function solve_power_flow!(
     pf_e_data::PowerFlowEvaluationData,
     container::OptimizationContainer,
     sys::PSY.System,
@@ -149,7 +148,9 @@ function IOM.calculate_aux_variable_value!(
     # Skip the aux vars that the current power flow isn't meant to update
     pf_e_data = latest_solved_power_flow_evaluation_data(container)
     pf_data = get_power_flow_data(pf_e_data)
-    (key in branch_aux_vars(pf_data) || key in bus_aux_vars(pf_data)) && return
+    key_type = IOM.get_entry_type(key)
+    (key_type in branch_aux_vars(pf_data) || key_type in bus_aux_vars(pf_data)) ||
+        return
     IOM.calculate_aux_variable_value!(container, key, system, pf_e_data)
     return
 end

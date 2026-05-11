@@ -2613,9 +2613,12 @@ end
 # decision of how to translate the curve into JuMP terms is a method-resolution problem
 # rather than a runtime branch.
 
-# LinearCurve fuel: linear in the dispatch variable.
+# LinearCurve fuel: linear in the dispatch variable. Routes through the IOM helper
+# so the propagation rules (FuelConsumptionExpression is non-ConstituentCost, so the
+# objective hook is skipped here) live in one place.
 function _add_fuel_consumption_term!(
-    expression,
+    container::OptimizationContainer,
+    ::Type{C},
     variable,
     name::String,
     var_cost::PSY.FuelCurve,
@@ -2624,21 +2627,26 @@ function _add_fuel_consumption_term!(
     device_base_power::Float64,
     dt::Float64,
     time_steps,
-)
+) where {C <: PSY.ThermalGen}
     power_units = PSY.get_power_units(var_cost)
     proportional_term = PSY.get_proportional_term(value_curve)
     prop_term_per_unit = get_proportional_cost_per_system_unit(
         proportional_term, power_units, base_power, device_base_power)
+    rate = prop_term_per_unit * dt
     for t in time_steps
-        JuMP.add_to_expression!(
-            expression[name, t], prop_term_per_unit * dt, variable[name, t])
+        IOM.add_cost_term_to_expression!(
+            container, variable[name, t], rate,
+            FuelConsumptionExpression, C, name, t,
+        )
     end
     return
 end
 
-# QuadraticCurve fuel: quadratic in the dispatch variable.
+# QuadraticCurve fuel: quadratic in the dispatch variable. The shape doesn't fit the
+# `quantity * rate` form, so the cost is built locally and added with `JuMP.add_to_expression!`.
 function _add_fuel_consumption_term!(
-    expression,
+    container::OptimizationContainer,
+    ::Type{C},
     variable,
     name::String,
     var_cost::PSY.FuelCurve,
@@ -2647,7 +2655,8 @@ function _add_fuel_consumption_term!(
     device_base_power::Float64,
     dt::Float64,
     time_steps,
-)
+) where {C <: PSY.ThermalGen}
+    expression = get_expression(container, FuelConsumptionExpression, C)
     power_units = PSY.get_power_units(var_cost)
     proportional_term = PSY.get_proportional_term(value_curve)
     quadratic_term = PSY.get_quadratic_term(value_curve)
@@ -2669,13 +2678,16 @@ end
 # Piecewise/incremental/average-rate value curves are populated through their own
 # objective paths; no contribution to FuelConsumptionExpression here.
 _add_fuel_consumption_term!(
-    _, _, ::String, ::PSY.FuelCurve, ::PSY.PiecewisePointCurve,
+    ::OptimizationContainer, ::Type{<:PSY.ThermalGen}, _, ::String,
+    ::PSY.FuelCurve, ::PSY.PiecewisePointCurve,
     ::Float64, ::Float64, ::Float64, _) = nothing
 _add_fuel_consumption_term!(
-    _, _, ::String, ::PSY.FuelCurve, ::PSY.IncrementalCurve,
+    ::OptimizationContainer, ::Type{<:PSY.ThermalGen}, _, ::String,
+    ::PSY.FuelCurve, ::PSY.IncrementalCurve,
     ::Float64, ::Float64, ::Float64, _) = nothing
 _add_fuel_consumption_term!(
-    _, _, ::String, ::PSY.FuelCurve, ::PSY.AverageRateCurve,
+    ::OptimizationContainer, ::Type{<:PSY.ThermalGen}, _, ::String,
+    ::PSY.FuelCurve, ::PSY.AverageRateCurve,
     ::Float64, ::Float64, ::Float64, _) = nothing
 
 function add_to_expression!(
@@ -2696,14 +2708,13 @@ function add_to_expression!(
     resolution = get_resolution(container)
     dt = Dates.value(resolution) / MILLISECONDS_IN_HOUR
     for d in devices
-        var_cost = _get_variable_if_exists(PSY.get_operation_cost(d))
+        var_cost = _get_cost_if_exists(PSY.get_operation_cost(d))
         _is_fuel_curve(var_cost) || continue
-        expression = get_expression(container, T, V)
         name = PSY.get_name(d)
         device_base_power = PSY.get_base_power(d)
         value_curve = PSY.get_value_curve(var_cost)
         _add_fuel_consumption_term!(
-            expression, variable, name, var_cost, value_curve,
+            container, V, variable, name, var_cost, value_curve,
             base_power, device_base_power, dt, time_steps,
         )
     end
@@ -2731,23 +2742,14 @@ function _add_compact_fuel_consumption_term!(
     proportional_term = PSY.get_proportional_term(value_curve)
     prop_term_per_unit = get_proportional_cost_per_system_unit(
         proportional_term, power_units, base_power, device_base_power)
+    on_var_type = typeof(get_default_on_variable(d))
     for t in time_steps
         sos_status = _get_sos_value(container, W, d)
-        if sos_status == SOSStatusVariable.NO_VARIABLE
-            JuMP.add_to_expression!(expression[name, t], P_min * prop_term_per_unit * dt)
-        elseif sos_status == SOSStatusVariable.PARAMETER
-            param = get_default_on_parameter(d)
-            bin = get_parameter(container, param, V).parameter_array[name, t]
-            JuMP.add_to_expression!(
-                expression[name, t], P_min * prop_term_per_unit * dt, bin)
-        elseif sos_status == SOSStatusVariable.VARIABLE
-            var = get_default_on_variable(d)
-            bin = get_variable(container, var, V)[name, t]
-            JuMP.add_to_expression!(
-                expression[name, t], P_min * prop_term_per_unit * dt, bin)
-        else
-            @assert false
-        end
+        bin = IOM._determine_bin_lhs(
+            container, sos_status, V, name, t; on_var_type = on_var_type,
+        )
+        JuMP.add_to_expression!(
+            expression[name, t], P_min * prop_term_per_unit * dt, bin)
         JuMP.add_to_expression!(
             expression[name, t], prop_term_per_unit * dt, variable[name, t])
     end
@@ -2793,7 +2795,7 @@ function add_to_expression!(
     resolution = get_resolution(container)
     dt = Dates.value(resolution) / MILLISECONDS_IN_HOUR
     for d in devices
-        var_cost = _get_variable_if_exists(PSY.get_operation_cost(d))
+        var_cost = _get_cost_if_exists(PSY.get_operation_cost(d))
         _is_fuel_curve(var_cost) || continue
         expression = get_expression(container, T, V)
         device_base_power = PSY.get_base_power(d)

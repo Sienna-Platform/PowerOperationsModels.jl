@@ -122,9 +122,14 @@ _size_wrapper(::Tuple) = ()
 function _add_time_series_parameters!(
     container::OptimizationContainer,
     param::Type{T},
-    devices,
+    devices::U,
     model::DeviceModel{D, W},
-) where {D <: PSY.Component, T <: TimeSeriesParameter, W <: AbstractDeviceFormulation}
+) where {
+    D <: PSY.Component,
+    T <: TimeSeriesParameter,
+    U <: Union{Vector{D}, IS.FlattenIteratorWrapper{D}},
+    W <: AbstractDeviceFormulation,
+}
     ts_type = get_default_time_series_type(container)
     if !(ts_type <: Union{PSY.AbstractDeterministic, PSY.StaticTimeSeries})
         error("add_parameters! for TimeSeriesParameter is not compatible with $ts_type")
@@ -205,8 +210,8 @@ function _add_time_series_parameters!(
     # parameter axis, so iterating `initial_values` in order matches the container's
     # first axis row-by-row.
     for (i, (ts_uuid, raw_ts_vals)) in enumerate(initial_values)
-        ts_vals = _unwrap_for_param.(Ref(param_instance), raw_ts_vals, Ref(additional_axes))
-        @assert all(_size_wrapper.(ts_vals) .== Ref(length.(additional_axes)))
+        ts_vals = _unwrap_for_param.((param_instance,), raw_ts_vals, (additional_axes,))
+        @assert all(_size_wrapper.(ts_vals) .== (length.(additional_axes),))
 
         for step in time_steps
             IOM._set_parameter_at!(parent_param, jump_model, ts_vals[step], i, step)
@@ -219,7 +224,7 @@ function _add_time_series_parameters!(
     for (i, device) in enumerate(devices_with_time_series)
         multiplier = get_multiplier_value(T, device, W)
         device_name = PSY.get_name(device)
-        IOM._set_multiplier_at!(parent_mult, Float64(multiplier), i)
+        IOM._set_multiplier_at!(parent_mult, multiplier, i)
         IOM.add_component_name!(
             IOM.get_attributes(param_container),
             device_name,
@@ -237,9 +242,14 @@ function _add_time_series_parameters!(
     container::OptimizationContainer,
     ::Type{T},
     network_model::NetworkModel{<:AbstractPTDFModel},
-    devices,
+    devices::U,
     model::DeviceModel{D, W},
-) where {D <: PSY.ACTransmission, T <: TimeSeriesParameter, W <: AbstractDeviceFormulation}
+) where {
+    D <: PSY.ACTransmission,
+    T <: TimeSeriesParameter,
+    U <: Union{Vector{D}, IS.FlattenIteratorWrapper{D}},
+    W <: AbstractDeviceFormulation,
+}
     ts_type = get_default_time_series_type(container)
     if !(ts_type <: Union{PSY.AbstractDeterministic, PSY.StaticTimeSeries})
         error("add_parameters! for TimeSeriesParameter is not compatible with $ts_type")
@@ -320,11 +330,11 @@ function _add_time_series_parameters!(
                 interval = ts_interval,
             )
             ts_vals =
-                _unwrap_for_param.(Ref(param_instance), raw_ts_vals, Ref(additional_axes))
-            @assert all(_size_wrapper.(ts_vals) .== Ref(length.(additional_axes)))
+                _unwrap_for_param.((param_instance,), raw_ts_vals, (additional_axes,))
+            @assert all(_size_wrapper.(ts_vals) .== (length.(additional_axes),))
         end
         multiplier = get_multiplier_value(T, reduction_entry, W)
-        IOM._set_multiplier_at!(parent_mult, Float64(multiplier), i_mult)
+        IOM._set_multiplier_at!(parent_mult, multiplier, i_mult)
         for t in time_steps
             if !has_entry
                 # For non-recurrent builds, store the raw float in the tracker; for
@@ -560,8 +570,8 @@ function _add_parameters!(
                 ts_name;
                 interval = ts_interval,
             )
-        ts_vals = _unwrap_for_param.(Ref(param_instance), raw_ts_vals, Ref(additional_axes))
-        @assert all(_size_wrapper.(ts_vals) .== Ref(length.(additional_axes)))
+        ts_vals = _unwrap_for_param.((param_instance,), raw_ts_vals, (additional_axes,))
+        @assert all(_size_wrapper.(ts_vals) .== (length.(additional_axes),))
         # PWL/cost-function path: parameter values from `_unwrap_for_param` are
         # tuples-of-floats, while the multiplier itself is a scalar Float64.
         IOM._set_multiplier_at!(
@@ -622,7 +632,7 @@ function _add_parameters!(
     multiplier = get_multiplier_value(T, service, V)
     parent_param = IOM.get_parameter_array_data(parameter_container)
     parent_mult = IOM.get_multiplier_array_data(parameter_container)
-    IOM._set_multiplier_at!(parent_mult, Float64(multiplier), 1)
+    IOM._set_multiplier_at!(parent_mult, multiplier, 1)
     for t in time_steps
         IOM._set_parameter_at!(parent_param, jump_model, ts_vector[t], 1, t)
     end

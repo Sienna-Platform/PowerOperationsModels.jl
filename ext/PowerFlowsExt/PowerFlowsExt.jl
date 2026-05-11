@@ -36,7 +36,7 @@ using InfrastructureOptimizationModels:
     get_power_flow_evaluation_data,
     jump_value
 
-import InfrastructureOptimizationModels: solve_powerflow!, get_power_flow_data
+import InfrastructureOptimizationModels: solve_power_flow!, get_power_flow_data
 
 """
 Mutable struct to hold power flow evaluation data.

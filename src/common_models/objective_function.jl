@@ -66,12 +66,14 @@ function _add_curtailment_cost!(
     name = PSY.get_name(component)
     dispatch_vars = get_variable(container, T, C)
 
+    rate = proportional_term_per_unit * dt
     for t in get_time_steps(container)
         offer_max = _renewable_offer_max(container, component, name, t)
         dispatch = dispatch_vars[name, t]
-        curtailment_cost = proportional_term_per_unit * dt * (offer_max - dispatch)
-        add_to_expression!(
-            container, CurtailmentCostExpression, curtailment_cost, component, t)
+        IOM.add_cost_term_invariant!(
+            container, offer_max - dispatch, rate,
+            CurtailmentCostExpression, C, name, t,
+        )
     end
     return
 end

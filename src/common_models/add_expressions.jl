@@ -11,11 +11,11 @@ function _ref_index(::NetworkModel{AreaPTDFPowerModel}, device_bus::PSY.ACBus)
     return PSY.get_name(PSY.get_area(device_bus))
 end
 
-_get_variable_if_exists(::PSY.MarketBidCost) = nothing
-_get_variable_if_exists(cost::PSY.OperationalCost) = PSY.get_variable(cost)
+_get_cost_if_exists(::PSY.MarketBidCost) = nothing
+_get_cost_if_exists(cost::PSY.OperationalCost) = PSY.get_variable(cost)
 
 # Predicates for fuel-curve detection. Dispatch over the value returned by
-# `_get_variable_if_exists` so callers can avoid `isa` checks.
+# `_get_cost_if_exists` so callers can avoid `isa` checks.
 _is_fuel_curve(::Nothing) = false
 _is_fuel_curve(::PSY.CostCurve) = false
 _is_fuel_curve(::PSY.FuelCurve) = true
@@ -75,7 +75,7 @@ function add_expressions!(
     names = String[]
     found_quad_fuel_functions = false
     for d in devices
-        fuel_curve = _get_variable_if_exists(PSY.get_operation_cost(d))
+        fuel_curve = _get_cost_if_exists(PSY.get_operation_cost(d))
         _is_fuel_curve(fuel_curve) || continue
         push!(names, PSY.get_name(d))
         if !found_quad_fuel_functions
@@ -143,7 +143,7 @@ function add_cost_expressions!(
     for (i, d) in enumerate(devices)
         name = PSY.get_name(d)
         all_names[i] = name
-        fuel_curve = _get_variable_if_exists(PSY.get_operation_cost(d))
+        fuel_curve = _get_cost_if_exists(PSY.get_operation_cost(d))
         _is_fuel_curve(fuel_curve) || continue
         push!(fuel_names, name)
         if !has_quad_fuel

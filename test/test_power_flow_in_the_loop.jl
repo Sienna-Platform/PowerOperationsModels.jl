@@ -394,3 +394,32 @@ end
         @test isapprox(loss_vals, ft_vals .+ tf_vals; atol = 1e-9)
     end
 end
+
+@testset "PowerFlowAuxVariable dispatch guards on key entry-type" begin
+    system = build_system(PSITestSystems, "c_sys5_uc")
+    template = get_template_dispatch_with_network(
+        NetworkModel(
+            PTDFPowerModel;
+            PTDF_matrix = PTDF(system),
+            power_flow_evaluation = ACPowerFlow(),
+        ),
+    )
+    model = DecisionModel(template, system; optimizer = HiGHS_optimizer)
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          ModelBuildStatus.BUILT
+    @test solve!(model) == RunStatus.SUCCESSFULLY_FINALIZED
+
+    container = get_optimization_container(model)
+
+    # IOM.get_entry_type extracts the type parameter from an AuxVarKey.
+    supported_key = AuxVarKey(POM.PowerFlowBranchActivePowerLoss, Line)
+    @test IOM.get_entry_type(supported_key) === POM.PowerFlowBranchActivePowerLoss
+
+    # Default ACPowerFlow() has `calculate_loss_factors = false`, so
+    # `PowerFlowLossFactors` is NOT in `bus_aux_vars(pf_data)`. The aux-var
+    # guard at pf_solve_and_aux.jl:152 must early-return on the entry-type
+    # mismatch rather than calling the 4-arg dispatch — which would fail
+    # because the container has no `PowerFlowLossFactors` aux var.
+    unsupported_key = AuxVarKey(POM.PowerFlowLossFactors, PSY.ACBus)
+    @test_nowarn IOM.calculate_aux_variable_value!(container, unsupported_key, system)
+end
