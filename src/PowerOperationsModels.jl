@@ -10,9 +10,10 @@ import JuMP
 import JuMP.Containers: DenseAxisArray, SparseAxisArray
 import Logging
 import PowerNetworkMatrices
-import ProgressMeter
 import PowerSystems
 import PowerSystems: get_component
+import PrettyTables
+import ProgressMeter
 import Serialization
 import SparseArrays
 import TimerOutputs
