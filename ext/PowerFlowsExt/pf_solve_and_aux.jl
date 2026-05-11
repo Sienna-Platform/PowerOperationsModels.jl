@@ -3,10 +3,16 @@
 # calculate_aux_variable_value! overloads for PowerFlowAuxVariableType,
 # and _get_pf_result helpers.
 
-"Fetch the most recently solved `PowerFlowEvaluationData`"
+"Fetch the most recently solved `PowerFlowEvaluationData`."
 function latest_solved_power_flow_evaluation_data(container::OptimizationContainer)
     datas = get_power_flow_evaluation_data(container)
-    return datas[findlast(x -> x.is_solved, datas)]
+    idx = findlast(x -> x.is_solved, datas)
+    # FIXME: AC PF convergence can fail when the optimization permits a
+    # transmission scenario infeasible for the full AC equations; full handling
+    # is pending a broader PF-failure design (kiernan, PR #112).
+    isnothing(idx) &&
+        error("No solved PowerFlowEvaluationData available; PF in the loop did not converge")
+    return datas[idx]
 end
 
 function solve_power_flow!(
