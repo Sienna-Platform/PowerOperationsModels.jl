@@ -323,7 +323,7 @@ function construct_device!(
 
     add_constraint_dual!(container, sys, model)
     add_event_constraints!(container, devices, model, network_model)
-    objective_function!(container, devices, model, S)
+    add_to_objective_function!(container, devices, model, S)
     return
 end
 
@@ -444,7 +444,7 @@ function construct_device!(
     add_feedforward_constraints!(container, model, devices)
 
     # TODO issue with time varying MBC.
-    objective_function!(container, devices, model, S)
+    add_to_objective_function!(container, devices, model, S)
     add_event_constraints!(container, devices, model, network_model)
     add_constraint_dual!(container, sys, model)
     return

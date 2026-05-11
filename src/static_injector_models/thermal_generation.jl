@@ -287,9 +287,6 @@ function get_min_max_limits(
     return PSY.get_active_power_limits(device)
 end
 
-# removed: add_constraints! for compact formulations. body was identical to 
-# the AbstractThermalDispatch version.
-
 """
 Min and max active power limits of generators for thermal dispatch compact formulations
 """
@@ -487,6 +484,7 @@ function _get_data_for_range_ic(
     return ini_conds
 end
 
+# commitment formulations: time series upper bounds.
 function add_constraints!(
     container::OptimizationContainer,
     ::Type{ActivePowerVariableTimeSeriesLimitsConstraint},
@@ -595,6 +593,7 @@ function add_constraints!(
     return
 end
 
+# multistart devices with commitment formulations: lower bound expression.
 function add_constraints!(
     container::OptimizationContainer,
     T::Type{<:ActivePowerVariableLimitsConstraint},
@@ -638,6 +637,7 @@ function add_constraints!(
     return
 end
 
+# multistart devices with commitment formulations: upper bound expression.
 function add_constraints!(
     container::OptimizationContainer,
     T::Type{<:ActivePowerVariableLimitsConstraint},
@@ -705,6 +705,7 @@ function add_constraints!(
     return
 end
 
+# compact commitment: IC constraints.
 function add_constraints!(
     container::OptimizationContainer,
     ::Type{ActiveRangeICConstraint},
@@ -768,6 +769,7 @@ function get_min_max_limits(
     return PSY.get_reactive_power_limits(device)
 end
 
+# commitment formulations: commitment constraints (on/off logic)
 function add_constraints!(
     container::OptimizationContainer,
     T::Type{CommitmentConstraint},
@@ -1029,6 +1031,7 @@ _get_initial_condition_type(
     ::Type{ThermalCompactDispatch},
 ) = DeviceAboveMinPower
 
+# plain commitment ramping limits: semicontinuous with ActivePowerVariable.
 """
 This function adds the ramping limits of generators when there are CommitmentVariables
 """
@@ -1054,6 +1057,7 @@ function add_constraints!(
     return
 end
 
+# compact commitment ramping limits: semicontinuous with PowerAboveMinimumVariable.
 function add_constraints!(
     container::OptimizationContainer,
     T::Type{RampConstraint},
@@ -1076,6 +1080,7 @@ function add_constraints!(
     return
 end
 
+# compact dispatch ramping limits: linear with PowerAboveMinimumVariable.
 function add_constraints!(
     container::OptimizationContainer,
     T::Type{RampConstraint},
@@ -1087,6 +1092,7 @@ function add_constraints!(
     return
 end
 
+# non-compact dispatch ramping limits: linear with ActivePowerVariable.
 function add_constraints!(
     container::OptimizationContainer,
     T::Type{RampConstraint},
@@ -1102,6 +1108,7 @@ function add_constraints!(
     return
 end
 
+# multi-start commitment ramping limits: linear with PowerAboveMinimumVariable.
 function add_constraints!(
     container::OptimizationContainer,
     T::Type{RampConstraint},
@@ -1372,6 +1379,7 @@ function _get_data_for_tdc(
     return ini_conds, time_params
 end
 
+# non-multistart commitment formulations: time duration constraints
 function add_constraints!(
     container::OptimizationContainer,
     ::Type{DurationConstraint},
@@ -1410,6 +1418,7 @@ function add_constraints!(
     return
 end
 
+# multi-start unit commitment: time duration constraints
 function add_constraints!(
     container::OptimizationContainer,
     ::Type{DurationConstraint},
@@ -1467,6 +1476,7 @@ add_proportional_cost!(
 ########################### Objective Function Calls#############################################
 # These functions are custom implementations of the cost data. In the file objective_functions.jl there are default implementations. Define these only if needed.
 
+# regular commitment
 function add_to_objective_function!(
     container::OptimizationContainer,
     devices::IS.FlattenIteratorWrapper{T},
@@ -1484,6 +1494,7 @@ function add_to_objective_function!(
     return
 end
 
+# compact commitment
 function add_to_objective_function!(
     container::OptimizationContainer,
     devices::IS.FlattenIteratorWrapper{T},
@@ -1501,6 +1512,7 @@ function add_to_objective_function!(
     return
 end
 
+# multi-start commitment
 function add_to_objective_function!(
     container::OptimizationContainer,
     devices::IS.FlattenIteratorWrapper{PSY.ThermalMultiStart},
@@ -1520,6 +1532,7 @@ function add_to_objective_function!(
     return
 end
 
+# regular dispatch
 function add_to_objective_function!(
     container::OptimizationContainer,
     devices::IS.FlattenIteratorWrapper{T},
@@ -1534,6 +1547,7 @@ function add_to_objective_function!(
     return
 end
 
+# compact dispatch
 function add_to_objective_function!(
     container::OptimizationContainer,
     devices::IS.FlattenIteratorWrapper{T},
@@ -1548,6 +1562,7 @@ function add_to_objective_function!(
     return
 end
 
+# can't have multi-start with ThermalDispatchNoMin.
 function add_to_objective_function!(
     ::OptimizationContainer,
     ::IS.FlattenIteratorWrapper{PSY.ThermalMultiStart},
@@ -1660,13 +1675,15 @@ function IOM._add_semicontinuous_bound_range_constraints_impl!(
     dir::IOM.BoundDirection,
     array,
     devices::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
-    ::DeviceModel{V, W},
+    ::DeviceModel{V, W};
+    meta_suffix::String = "",
 ) where {T <: ConstraintType, V <: PSY.ThermalGen, W <: AbstractDeviceFormulation}
     time_steps = IOM.get_time_steps(container)
     names = IS.get_name.(devices)
     jump_model = IOM.get_jump_model(container)
     con = IOM.add_constraints_container!(
-        container, T, V, names, time_steps; meta = IOM.constraint_meta(dir))
+        container, T, V, names, time_steps;
+        meta = IOM.constraint_meta(dir) * meta_suffix)
     varbin = IOM.get_variable(container, OnVariable, V)
 
     for device in devices

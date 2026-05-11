@@ -8,6 +8,7 @@ _ic_variable_type(::Type{DeviceAboveMinPower}) = PowerAboveMinimumVariable()
 _ic_variable_type(::Type{InitialTimeDurationOn}) = TimeDurationOn()
 _ic_variable_type(::Type{InitialTimeDurationOff}) = TimeDurationOff()
 _ic_variable_type(::Type{InitialEnergyLevel}) = EnergyVariable()
+_ic_variable_type(::Type{InitialReservoirVolume}) = HydroReservoirVolumeVariable()
 
 # Dispatch to the right container getter based on variable vs aux variable type
 # FIXME we should add something like this to the API.
