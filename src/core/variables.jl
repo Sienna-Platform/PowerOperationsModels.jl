@@ -699,13 +699,15 @@ const HybridReserveVariableIn = HybridPCCReserveVariable{ChargeSide}
 Abstract type for per-subcomponent reserve allocations inside a hybrid system
 that do not have a Discharge/Charge axis (thermal and renewable subcomponents).
 """
-abstract type AbstractHybridSubcomponentInjectorReserveVariableType <: AbstractHybridReserveVariableType end
+abstract type AbstractHybridSubcomponentInjectorReserveVariableType <:
+              AbstractHybridReserveVariableType end
 
 "Reserve allocated to the thermal subcomponent of a hybrid system."
 struct HybridThermalReserveVariable <: AbstractHybridSubcomponentInjectorReserveVariableType end
 
 "Reserve allocated to the renewable subcomponent of a hybrid system."
-struct HybridRenewableReserveVariable <: AbstractHybridSubcomponentInjectorReserveVariableType end
+struct HybridRenewableReserveVariable <:
+       AbstractHybridSubcomponentInjectorReserveVariableType end
 
 """
 Reserve allocated to one side of a hybrid system's storage subcomponent. Parametric on
