@@ -846,8 +846,22 @@ function add_constraints!(
         thermal_unit === nothing && continue
         limits = PSY.get_active_power_limits(thermal_unit)
         services = PSY.get_services(d)
-        r_up = _subcomponent_reserve_expr(Up, container, HybridThermalReserveVariable, d, t, services)
-        r_dn = _subcomponent_reserve_expr(Down, container, HybridThermalReserveVariable, d, t, services)
+        r_up = _subcomponent_reserve_expr(
+            Up,
+            container,
+            HybridThermalReserveVariable,
+            d,
+            t,
+            services,
+        )
+        r_dn = _subcomponent_reserve_expr(
+            Down,
+            container,
+            HybridThermalReserveVariable,
+            d,
+            t,
+            services,
+        )
         con_ub[name, t] = JuMP.@constraint(
             get_jump_model(container),
             p_th[name, t] + r_up <= limits.max * on_var[name, t]
@@ -1022,8 +1036,22 @@ function add_constraints!(
         renewable_unit = PSY.get_renewable_unit(d)
         renewable_unit === nothing && continue
         services = PSY.get_services(d)
-        r_up = _subcomponent_reserve_expr(Up, container, HybridRenewableReserveVariable, d, t, services)
-        r_dn = _subcomponent_reserve_expr(Down, container, HybridRenewableReserveVariable, d, t, services)
+        r_up = _subcomponent_reserve_expr(
+            Up,
+            container,
+            HybridRenewableReserveVariable,
+            d,
+            t,
+            services,
+        )
+        r_dn = _subcomponent_reserve_expr(
+            Down,
+            container,
+            HybridRenewableReserveVariable,
+            d,
+            t,
+            services,
+        )
         if re_param_container !== nothing
             re_ref = get_parameter_column_refs(re_param_container, name)[t]
             con_ub[name, t] = JuMP.@constraint(
@@ -1273,13 +1301,21 @@ end
 # power limits asymmetrically: charge UB picks up the down reserve (loading
 # margin), charge LB subtracts the up reserve (headroom); discharge UB picks up
 # the up reserve, discharge LB subtracts the down reserve.
-_storage_side_ub_reserve_expr(::Type{HybridStorageReservePowerLimitConstraint{ChargeSide}}) =
+_storage_side_ub_reserve_expr(
+    ::Type{HybridStorageReservePowerLimitConstraint{ChargeSide}},
+) =
     StorageReserveBalanceExpression{Down, UnscaledReserve, ChargeSide}
-_storage_side_ub_reserve_expr(::Type{HybridStorageReservePowerLimitConstraint{DischargeSide}}) =
+_storage_side_ub_reserve_expr(
+    ::Type{HybridStorageReservePowerLimitConstraint{DischargeSide}},
+) =
     StorageReserveBalanceExpression{Up, UnscaledReserve, DischargeSide}
-_storage_side_lb_reserve_expr(::Type{HybridStorageReservePowerLimitConstraint{ChargeSide}}) =
+_storage_side_lb_reserve_expr(
+    ::Type{HybridStorageReservePowerLimitConstraint{ChargeSide}},
+) =
     StorageReserveBalanceExpression{Up, UnscaledReserve, ChargeSide}
-_storage_side_lb_reserve_expr(::Type{HybridStorageReservePowerLimitConstraint{DischargeSide}}) =
+_storage_side_lb_reserve_expr(
+    ::Type{HybridStorageReservePowerLimitConstraint{DischargeSide}},
+) =
     StorageReserveBalanceExpression{Down, UnscaledReserve, DischargeSide}
 
 function add_constraints!(
@@ -2054,12 +2090,16 @@ function add_proportional_cost!(
         thermal_cost === nothing && continue
         # Select the variant- vs invariant-aware cost-term writer once per device, then
         # call it inside the time loop. Mirrors IOM.add_proportional_cost_maybe_time_variant!.
-        add_cost_term! = IOM.is_time_variant_proportional(thermal_cost) ?
-            add_cost_term_variant! : add_cost_term_invariant!
+        add_cost_term! = if IOM.is_time_variant_proportional(thermal_cost)
+            add_cost_term_variant!
+        else
+            add_cost_term_invariant!
+        end
         name = PSY.get_name(d)
         for t in get_time_steps(container)
             cost_term = proportional_cost(
-                container, thermal_cost, OnVariable, thermal, ThermalBasicUnitCommitment, t,
+                container, thermal_cost, OnVariable, thermal,
+                ThermalBasicUnitCommitment, t,
             )
             iszero(cost_term) && continue
             rate = cost_term * multiplier
