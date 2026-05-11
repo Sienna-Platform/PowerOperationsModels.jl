@@ -79,8 +79,6 @@ function _accumulate_headroom!(
         end
 
     for (device_name, bus_ix) in component_map
-        bus_types[bus_ix, 1] ∈ (PSY.ACBusTypes.REF, PSY.ACBusTypes.PV) || continue
-
         comp = PSY.get_component(U, sys, device_name)
         comp === nothing && continue
         PFS.contributes_active_power(comp) || continue
@@ -92,6 +90,7 @@ function _accumulate_headroom!(
         has_ts = ts_axis !== nothing && device_name ∈ ts_axis
 
         for t in 1:n_time_steps
+            bus_types[bus_ix, t] ∈ (PSY.ACBusTypes.REF, PSY.ACBusTypes.PV) || continue
             p_setpoint = jump_value(result[device_name, t])
             p_max_t = if has_ts
                 min(p_max_static, jump_value(ts_param_values[device_name, t]))
