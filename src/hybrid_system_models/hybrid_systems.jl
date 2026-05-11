@@ -493,7 +493,7 @@ function add_variables!(
     devices::U,
     ::Type{F},
 ) where {
-    T <: HybridReserveVariableType,
+    T <: AbstractHybridReserveVariableType,
     U <: Union{Vector{D}, IS.FlattenIteratorWrapper{D}},
     F <: AbstractHybridFormulation,
 } where {D <: PSY.HybridSystem}
@@ -572,7 +572,7 @@ _add_reserve_term!(
     ::Type{<:ReserveAggregationExpression{Up}},
     ::OptimizationContainer,
     _expression,
-    ::Type{<:HybridReserveVariableType},
+    ::Type{<:AbstractHybridReserveVariableType},
     ::PSY.HybridSystem,
     ::Type{<:AbstractHybridFormulationWithReserves},
     ::Int,
@@ -584,7 +584,7 @@ _add_reserve_term!(
     ::Type{<:ReserveAggregationExpression{Down}},
     ::OptimizationContainer,
     _expression,
-    ::Type{<:HybridReserveVariableType},
+    ::Type{<:AbstractHybridReserveVariableType},
     ::PSY.HybridSystem,
     ::Type{<:AbstractHybridFormulationWithReserves},
     ::Int,
@@ -603,7 +603,7 @@ function _add_reserve_term!(
     service::PSY.Service,
 ) where {
     T <: ReserveAggregationExpression,
-    U <: HybridReserveVariableType,
+    U <: AbstractHybridReserveVariableType,
     V <: PSY.HybridSystem,
     W <: AbstractHybridFormulationWithReserves,
 }
@@ -624,7 +624,7 @@ function add_to_expression!(
     ::DeviceModel{V, W},
 ) where {
     T <: ReserveAggregationExpression,
-    U <: HybridReserveVariableType,
+    U <: AbstractHybridReserveVariableType,
     V <: PSY.HybridSystem,
     W <: AbstractHybridFormulationWithReserves,
 }
@@ -645,7 +645,7 @@ function add_to_expression!(
     ::NetworkModel{X},
 ) where {
     T <: ReserveAggregationExpression,
-    U <: HybridReserveVariableType,
+    U <: AbstractHybridReserveVariableType,
     V <: PSY.HybridSystem,
     W <: AbstractHybridFormulationWithReserves,
     X <: AbstractPowerModel,
@@ -722,7 +722,7 @@ end
 #
 # A single helper covers both thermal and renewable subcomponent reserve
 # accumulation into a JuMP.AffExpr. The reserve variable type
-# (U <: HybridSubcomponentInjectorReserveVariableType) selects which
+# (U <: AbstractHybridSubcomponentInjectorReserveVariableType) selects which
 # subcomponent we're aggregating, and the direction marker (Up / Down)
 # filters out mismatched-direction services via dispatch.
 #
@@ -736,7 +736,7 @@ _subcomponent_reserve_term!(
     ::Type{Up},
     ::JuMP.AffExpr,
     ::OptimizationContainer,
-    ::Type{<:HybridSubcomponentInjectorReserveVariableType},
+    ::Type{<:AbstractHybridSubcomponentInjectorReserveVariableType},
     ::PSY.HybridSystem,
     ::Int,
     ::PSY.Reserve{PSY.ReserveDown},
@@ -747,7 +747,7 @@ _subcomponent_reserve_term!(
     ::Type{Down},
     ::JuMP.AffExpr,
     ::OptimizationContainer,
-    ::Type{<:HybridSubcomponentInjectorReserveVariableType},
+    ::Type{<:AbstractHybridSubcomponentInjectorReserveVariableType},
     ::PSY.HybridSystem,
     ::Int,
     ::PSY.Reserve{PSY.ReserveUp},
@@ -763,7 +763,7 @@ function _subcomponent_reserve_term!(
     t::Int,
     service::PSY.Service,
 ) where {
-    U <: HybridSubcomponentInjectorReserveVariableType,
+    U <: AbstractHybridSubcomponentInjectorReserveVariableType,
     V <: PSY.HybridSystem,
 }
     s_name = PSY.get_name(service)
@@ -784,7 +784,7 @@ function _subcomponent_reserve_expr(
     services,
 ) where {
     Dir <: ReserveDirection,
-    U <: HybridSubcomponentInjectorReserveVariableType,
+    U <: AbstractHybridSubcomponentInjectorReserveVariableType,
     V <: PSY.HybridSystem,
 }
     expr = JuMP.AffExpr(0.0)
