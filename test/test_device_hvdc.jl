@@ -97,7 +97,7 @@ end
     @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
 end
 
-@testset "HVDC System with Losses Network" begin
+@testset "HVDC System with Losses Network (Bin2QuadraticLossConverter)" begin
     sys = _generate_test_hvdc_sys()
     template = OperationsProblemTemplate()
     set_device_model!(template, ThermalStandard, ThermalDispatchNoMin)
@@ -106,13 +106,7 @@ end
     set_device_model!(template, TModelHVDCLine, DCLossyLine)
     ipc_model = DeviceModel(
         InterconnectingConverter,
-        QuadraticLossConverter;
-        attributes = Dict(
-            "voltage_segments" => 3,
-            "current_segments" => 3,
-            "bilinear_segments" => 3,
-            "use_linear_loss" => true,
-        ),
+        Bin2QuadraticLossConverter,
     )
     set_device_model!(template, ipc_model)
     set_hvdc_network_model!(template, VoltageDispatchHVDCNetworkModel)
@@ -126,4 +120,97 @@ end
     @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
           IOM.ModelBuildStatus.BUILT
     @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+end
+
+@testset "HVDC System with Losses Network (QuadraticLossConverter NLP)" begin
+    sys = _generate_test_hvdc_sys()
+    template = OperationsProblemTemplate()
+    set_device_model!(template, ThermalStandard, ThermalDispatchNoMin)
+    set_device_model!(template, PowerLoad, StaticPowerLoad)
+    set_device_model!(template, DeviceModel(Line, StaticBranch))
+    set_device_model!(template, TModelHVDCLine, DCLossyLine)
+    ipc_model = DeviceModel(
+        InterconnectingConverter,
+        QuadraticLossConverter,
+    )
+    set_device_model!(template, ipc_model)
+    set_hvdc_network_model!(template, VoltageDispatchHVDCNetworkModel)
+    model =
+        DecisionModel(
+            template,
+            sys;
+            store_variable_names = true,
+            optimizer = ipopt_optimizer,
+        )
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+    @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+end
+
+@testset "HVDC Bin2 vs NLP QuadraticLossConverter agreement" begin
+    function _build_and_solve(formulation, optimizer)
+        sys = _generate_test_hvdc_sys()
+        template = OperationsProblemTemplate()
+        set_device_model!(template, ThermalStandard, ThermalDispatchNoMin)
+        set_device_model!(template, PowerLoad, StaticPowerLoad)
+        set_device_model!(template, DeviceModel(Line, StaticBranch))
+        set_device_model!(template, TModelHVDCLine, DCLossyLine)
+        set_device_model!(
+            template,
+            DeviceModel(
+                InterconnectingConverter,
+                formulation;
+                attributes = Dict("use_linear_loss" => false),
+            ),
+        )
+        set_hvdc_network_model!(template, VoltageDispatchHVDCNetworkModel)
+        model = DecisionModel(
+            template,
+            sys;
+            store_variable_names = true,
+            optimizer = optimizer,
+        )
+        @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+              IOM.ModelBuildStatus.BUILT
+        @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+        return model
+    end
+
+    bin2_model = _build_and_solve(Bin2QuadraticLossConverter, HiGHS_optimizer)
+    nlp_model = _build_and_solve(QuadraticLossConverter, ipopt_optimizer)
+
+    bin2_obj = IOM.get_objective_value(OptimizationProblemOutputs(bin2_model))
+    nlp_obj = IOM.get_objective_value(OptimizationProblemOutputs(nlp_model))
+
+    # Bin2 is a relaxation/PWL approximation of the exact NLP. The two objectives
+    # should agree to within a few percent on this small system.
+    @test isapprox(bin2_obj, nlp_obj; rtol = 0.05)
+end
+
+@testset "HVDC linear-loss warning when all converters have b=0" begin
+    sys = _generate_test_hvdc_sys()
+    for ipc in get_components(InterconnectingConverter, sys)
+        set_loss_function!(ipc, QuadraticCurve(0.01, 0.0, 0.0))
+    end
+    template = OperationsProblemTemplate()
+    set_device_model!(template, ThermalStandard, ThermalDispatchNoMin)
+    set_device_model!(template, PowerLoad, StaticPowerLoad)
+    set_device_model!(template, DeviceModel(Line, StaticBranch))
+    set_device_model!(template, TModelHVDCLine, DCLossyLine)
+    set_device_model!(
+        template,
+        DeviceModel(InterconnectingConverter, Bin2QuadraticLossConverter),
+    )
+    set_hvdc_network_model!(template, VoltageDispatchHVDCNetworkModel)
+    model = DecisionModel(
+        template,
+        sys;
+        store_variable_names = true,
+        optimizer = HiGHS_optimizer,
+    )
+    @test_logs(
+        (:warn, r"every InterconnectingConverter has a zero proportional loss"),
+        match_mode = :any,
+        build!(model; output_dir = mktempdir(; cleanup = true)),
+    )
 end
