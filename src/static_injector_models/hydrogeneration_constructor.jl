@@ -1801,6 +1801,17 @@ function construct_device!(
     return
 end
 
+_maybe_add_on_variables!(
+    container::OptimizationContainer,
+    devices,
+    ::Type{HydroTurbineWaterLinearCommitment},
+) = add_variables!(container, OnVariable, devices, HydroTurbineWaterLinearCommitment)
+_maybe_add_on_variables!(
+    ::OptimizationContainer,
+    devices,
+    ::Union{Type{HydroTurbineBilinearDispatch}, Type{HydroTurbineWaterLinearDispatch}},
+) = nothing
+
 function construct_device!(
     container::OptimizationContainer,
     sys::PSY.System,
@@ -1809,7 +1820,7 @@ function construct_device!(
     network_model::NetworkModel{S},
 ) where {
     H <: PSY.HydroTurbine,
-    D <: Union{HydroTurbineBilinearDispatch, HydroTurbineWaterLinearDispatch},
+    D <: HydroTurbineWaterFormulation,
     S <: AbstractActivePowerModel,
 }
     devices = get_available_components(model, sys)
@@ -1824,6 +1835,7 @@ function construct_device!(
     )
 
     add_variables!(container, ActivePowerVariable, devices, D)
+    _maybe_add_on_variables!(container, devices, D)
 
     add_to_expression!(
         container,
@@ -1873,7 +1885,7 @@ function construct_device!(
     network_model::NetworkModel{S},
 ) where {
     H <: PSY.HydroTurbine,
-    D <: Union{HydroTurbineBilinearDispatch, HydroTurbineWaterLinearDispatch},
+    D <: HydroTurbineWaterFormulation,
     S <: AbstractActivePowerModel,
 }
     devices = get_available_components(model, sys)
