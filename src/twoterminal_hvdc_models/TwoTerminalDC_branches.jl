@@ -1444,8 +1444,7 @@ end
 get_variable_binary(::Type{DCLineCurrentFlowVariable}, ::Type{PSY.TwoTerminalVSCLine}, ::Type{<:AbstractTwoTerminalVSCFormulation}) = false
 get_variable_binary(::Type{HVDCFromDCVoltage}, ::Type{PSY.TwoTerminalVSCLine}, ::Type{<:AbstractTwoTerminalVSCFormulation}) = false
 get_variable_binary(::Type{HVDCToDCVoltage}, ::Type{PSY.TwoTerminalVSCLine}, ::Type{<:AbstractTwoTerminalVSCFormulation}) = false
-get_variable_binary(::Type{HVDCReactivePowerFromVariable}, ::Type{PSY.TwoTerminalVSCLine}, ::Type{<:AbstractTwoTerminalVSCFormulation}) = false
-get_variable_binary(::Type{HVDCReactivePowerToVariable}, ::Type{PSY.TwoTerminalVSCLine}, ::Type{<:AbstractTwoTerminalVSCFormulation}) = false
+get_variable_binary(::Type{<:HVDCReactivePowerVariable}, ::Type{PSY.TwoTerminalVSCLine}, ::Type{<:AbstractTwoTerminalVSCFormulation}) = false
 get_variable_binary(::Type{PositiveCurrent}, ::Type{PSY.TwoTerminalVSCLine}, ::Type{<:AbstractTwoTerminalVSCFormulation}) = false
 get_variable_binary(::Type{NegativeCurrent}, ::Type{PSY.TwoTerminalVSCLine}, ::Type{<:AbstractTwoTerminalVSCFormulation}) = false
 get_variable_binary(::Type{CurrentDirection}, ::Type{PSY.TwoTerminalVSCLine}, ::Type{<:AbstractTwoTerminalVSCFormulation}) = true
@@ -1500,10 +1499,18 @@ function _maybe_add_reactive_power_variables!(
     container::OptimizationContainer,
     devices,
     model::DeviceModel{PSY.TwoTerminalVSCLine, F},
-    ::NetworkModel{<:AbstractPowerModel},
+    network_model::NetworkModel{<:AbstractPowerModel},
 ) where {F <: AbstractTwoTerminalVSCFormulation}
     add_variables!(container, HVDCReactivePowerFromVariable, devices, F)
     add_variables!(container, HVDCReactivePowerToVariable, devices, F)
+    add_to_expression!(
+        container, ReactivePowerBalance, HVDCReactivePowerFromVariable,
+        devices, model, network_model,
+    )
+    add_to_expression!(
+        container, ReactivePowerBalance, HVDCReactivePowerToVariable,
+        devices, model, network_model,
+    )
     return
 end
 
@@ -1562,11 +1569,9 @@ function add_constraints!(
     for d in devices
         name = PSY.get_name(d)
         g = PSY.get_g(d)
-        # If g == 0 we treat the cable as lossless (v_f == v_t).
-        # Otherwise R = 1/g.
         for t in time_steps
             cons[name, t] = if iszero(g)
-                JuMP.@constraint(jump_model, v_f[name, t] == v_t[name, t])
+                JuMP.@constraint(jump_model, i_var[name, t] == 0)
             else
                 JuMP.@constraint(
                     jump_model,
@@ -1616,7 +1621,8 @@ function add_constraints!(
         get_expression(container, IOM.QuadraticExpression, PSY.TwoTerminalVSCLine, "i_sq")
 
     use_linear_loss =
-        _use_linear_loss(F, model) && !isempty(_devices_with_linear_loss(devices))
+        get_attribute(model, "use_linear_loss") &&
+        !isempty(_devices_with_linear_loss(devices))
     if use_linear_loss
         i_pos_var = get_variable(container, PositiveCurrent, PSY.TwoTerminalVSCLine)
         i_neg_var = get_variable(container, NegativeCurrent, PSY.TwoTerminalVSCLine)
@@ -1665,7 +1671,7 @@ function add_constraints!(
     return
 end
 
-# PQ capability:  p_k^2 + q_k^2 <= S_k^2 (NLP) or octagonal polygon (Bin2).
+# PQ capability:  p_k^2 + q_k^2 <= S_k^2 (NLP) or octagonal polygon (MIP).
 function add_constraints!(
     container::OptimizationContainer,
     ::Type{HVDCVSCReactiveCapabilityConstraint},
@@ -1712,8 +1718,6 @@ function add_constraints!(
     return
 end
 
-# Bin2 variant: inscribed octagon in the rating circle (s/sqrt(2) half-diagonal).
-# Eight linear constraints per terminal:  ±p ± q ≤ s   and   ±p ≤ s, ±q ≤ s.
 function add_constraints!(
     container::OptimizationContainer,
     ::Type{HVDCVSCReactiveCapabilityConstraint},
@@ -1721,7 +1725,7 @@ function add_constraints!(
         Vector{PSY.TwoTerminalVSCLine},
         IS.FlattenIteratorWrapper{PSY.TwoTerminalVSCLine},
     },
-    ::DeviceModel{PSY.TwoTerminalVSCLine, HVDCTwoTerminalVSCBin2},
+    ::DeviceModel{PSY.TwoTerminalVSCLine, HVDCTwoTerminalVSCMIP},
     ::NetworkModel{<:AbstractPowerModel},
 )
     time_steps = get_time_steps(container)
@@ -1733,9 +1737,12 @@ function add_constraints!(
     q_f = get_variable(container, HVDCReactivePowerFromVariable, PSY.TwoTerminalVSCLine)
     q_t = get_variable(container, HVDCReactivePowerToVariable, PSY.TwoTerminalVSCLine)
 
-    cons = Dict{String, Any}()
-    for tag in ("from_pp", "from_pn", "from_np", "from_nn",
+    diag_tags = ("from_pp", "from_pn", "from_np", "from_nn",
         "to_pp", "to_pn", "to_np", "to_nn")
+    axis_tags = ("from_p_ub", "from_p_lb", "from_q_ub", "from_q_lb",
+        "to_p_ub", "to_p_lb", "to_q_ub", "to_q_lb")
+    cons = Dict{String, Any}()
+    for tag in (diag_tags..., axis_tags...)
         cons[tag] = add_constraints_container!(
             container, HVDCVSCReactiveCapabilityConstraint, PSY.TwoTerminalVSCLine,
             names, time_steps; meta = tag,
@@ -1745,26 +1752,44 @@ function add_constraints!(
     inv_sqrt2 = 1.0 / sqrt(2.0)
     for d in devices
         name = PSY.get_name(d)
-        s_f = PSY.get_rating_from(d) * inv_sqrt2
-        s_t = PSY.get_rating_to(d) * inv_sqrt2
+        rating_f = PSY.get_rating_from(d)
+        rating_t = PSY.get_rating_to(d)
+        diag_f = rating_f * inv_sqrt2 * 2.0
+        diag_t = rating_t * inv_sqrt2 * 2.0
         for t in time_steps
-            # Octagon at the from terminal: project (p, q) onto 4 diagonal lines.
             cons["from_pp"][name, t] =
-                JuMP.@constraint(jump_model, p_ft[name, t] + q_f[name, t] <= 2.0 * s_f)
+                JuMP.@constraint(jump_model, p_ft[name, t] + q_f[name, t] <= diag_f)
             cons["from_pn"][name, t] =
-                JuMP.@constraint(jump_model, p_ft[name, t] - q_f[name, t] <= 2.0 * s_f)
+                JuMP.@constraint(jump_model, p_ft[name, t] - q_f[name, t] <= diag_f)
             cons["from_np"][name, t] =
-                JuMP.@constraint(jump_model, -p_ft[name, t] + q_f[name, t] <= 2.0 * s_f)
+                JuMP.@constraint(jump_model, -p_ft[name, t] + q_f[name, t] <= diag_f)
             cons["from_nn"][name, t] =
-                JuMP.@constraint(jump_model, -p_ft[name, t] - q_f[name, t] <= 2.0 * s_f)
+                JuMP.@constraint(jump_model, -p_ft[name, t] - q_f[name, t] <= diag_f)
             cons["to_pp"][name, t] =
-                JuMP.@constraint(jump_model, p_tf[name, t] + q_t[name, t] <= 2.0 * s_t)
+                JuMP.@constraint(jump_model, p_tf[name, t] + q_t[name, t] <= diag_t)
             cons["to_pn"][name, t] =
-                JuMP.@constraint(jump_model, p_tf[name, t] - q_t[name, t] <= 2.0 * s_t)
+                JuMP.@constraint(jump_model, p_tf[name, t] - q_t[name, t] <= diag_t)
             cons["to_np"][name, t] =
-                JuMP.@constraint(jump_model, -p_tf[name, t] + q_t[name, t] <= 2.0 * s_t)
+                JuMP.@constraint(jump_model, -p_tf[name, t] + q_t[name, t] <= diag_t)
             cons["to_nn"][name, t] =
-                JuMP.@constraint(jump_model, -p_tf[name, t] - q_t[name, t] <= 2.0 * s_t)
+                JuMP.@constraint(jump_model, -p_tf[name, t] - q_t[name, t] <= diag_t)
+
+            cons["from_p_ub"][name, t] =
+                JuMP.@constraint(jump_model, p_ft[name, t] <= rating_f)
+            cons["from_p_lb"][name, t] =
+                JuMP.@constraint(jump_model, -p_ft[name, t] <= rating_f)
+            cons["from_q_ub"][name, t] =
+                JuMP.@constraint(jump_model, q_f[name, t] <= rating_f)
+            cons["from_q_lb"][name, t] =
+                JuMP.@constraint(jump_model, -q_f[name, t] <= rating_f)
+            cons["to_p_ub"][name, t] =
+                JuMP.@constraint(jump_model, p_tf[name, t] <= rating_t)
+            cons["to_p_lb"][name, t] =
+                JuMP.@constraint(jump_model, -p_tf[name, t] <= rating_t)
+            cons["to_q_ub"][name, t] =
+                JuMP.@constraint(jump_model, q_t[name, t] <= rating_t)
+            cons["to_q_lb"][name, t] =
+                JuMP.@constraint(jump_model, -q_t[name, t] <= rating_t)
         end
     end
     return
@@ -1788,7 +1813,7 @@ end
 
 function get_default_attributes(
     ::Type{PSY.TwoTerminalVSCLine},
-    ::Type{HVDCTwoTerminalVSCBin2},
+    ::Type{HVDCTwoTerminalVSCMIP},
 )
-    return Dict{String, Any}()
+    return Dict{String, Any}("use_linear_loss" => true)
 end

@@ -202,9 +202,9 @@ struct HVDCTwoTerminalVSC <: AbstractTwoTerminalVSCFormulation end
 """
 Two-terminal VSC formulation that approximates the bilinear ``v \\cdot I`` and
 quadratic ``I^2`` terms with SOS2-based piecewise-linear envelopes (the same
-Bin2 scheme used by `Bin2QuadraticLossConverter`). Stays MILP.
+scheme used by `MIPQuadraticLossConverter`). Stays MILP.
 """
-struct HVDCTwoTerminalVSCBin2 <: AbstractTwoTerminalVSCFormulation end
+struct HVDCTwoTerminalVSCMIP <: AbstractTwoTerminalVSCFormulation end
 
 ############################### AC/DC Converter Formulations #####################################
 abstract type AbstractConverterFormulation <: AbstractDeviceFormulation end
@@ -225,10 +225,10 @@ Abstract supertype for InterconnectingConverter formulations with quadratic loss
 abstract type AbstractQuadraticLossConverter <: AbstractConverterFormulation end
 
 """
-Quadratic Loss InterconnectingConverter using the Bin2 separable bilinear approximation
-(`v·i = ½((v+i)² − v² − i²)`) with a SOS2-based PWL approximation for x².
+Quadratic Loss InterconnectingConverter using the separable bilinear approximation
+(`v·i = ½((v+i)² − v² − i²)`) with a SOS2-based PWL approximation for x². Stays MILP.
 """
-struct Bin2QuadraticLossConverter <: AbstractQuadraticLossConverter end
+struct MIPQuadraticLossConverter <: AbstractQuadraticLossConverter end
 
 """
 Quadratic Loss InterconnectingConverter using exact bilinear (v·i) and quadratic (i²)

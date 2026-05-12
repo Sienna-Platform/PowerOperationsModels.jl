@@ -54,16 +54,6 @@ function construct_device!(
     devices = get_available_components(model, sys)
     add_variables!(container, ActivePowerVariable, devices, T)
     add_variables!(container, ConverterCurrent, devices, T)
-    if _use_linear_loss(T, model)
-        ll_devices = _devices_with_linear_loss(devices)
-        if isempty(ll_devices)
-            @warn "use_linear_loss is enabled but every InterconnectingConverter has a zero proportional loss term; no linear-loss variables/constraints will be added."
-        else
-            add_variables!(container, PositiveCurrent, ll_devices, T)
-            add_variables!(container, NegativeCurrent, ll_devices, T)
-            add_variables!(container, CurrentDirection, ll_devices, T)
-        end
-    end
 
     add_to_expression!(
         container, ActivePowerBalance, ActivePowerVariable,
@@ -104,10 +94,10 @@ function _converter_vi_bounds(devices)
     return v_bounds, i_bounds
 end
 
-_quad_config(::Type{Bin2QuadraticLossConverter}) =
+_quad_config(::Type{MIPQuadraticLossConverter}) =
     IOM.SolverSOS2QuadConfig(DEFAULT_INTERPOLATION_LENGTH)
 _quad_config(::Type{QuadraticLossConverter}) = IOM.NoQuadApproxConfig()
-_bilinear_config(::Type{Bin2QuadraticLossConverter}) =
+_bilinear_config(::Type{MIPQuadraticLossConverter}) =
     IOM.Bin2Config(IOM.SolverSOS2QuadConfig(DEFAULT_INTERPOLATION_LENGTH))
 _bilinear_config(::Type{QuadraticLossConverter}) = IOM.NoBilinearApproxConfig()
 
@@ -151,17 +141,16 @@ function construct_device!(
     )
 
     add_constraints!(container, ConverterLossConstraint, devices, model, network_model)
-    if _use_linear_loss(T, model)
-        ll_devices = _devices_with_linear_loss(devices)
-        if !isempty(ll_devices)
-            add_constraints!(
-                container,
-                CurrentAbsoluteValueConstraint,
-                ll_devices,
-                model,
-                network_model,
-            )
-        end
+
+    use_ll = get_attribute(model, "use_linear_loss")
+    if T === QuadraticLossConverter && use_ll
+        @warn "use_linear_loss = true on QuadraticLossConverter introduces a binary direction variable; the model is no longer a smooth NLP and requires a MINLP-capable solver."
+    end
+    if use_ll
+        _add_abs_value_decomposition!(
+            container, devices, model, network_model,
+            ConverterCurrent, PSY.get_max_dc_current,
+        )
     end
 
     add_feedforward_constraints!(container, model, devices)

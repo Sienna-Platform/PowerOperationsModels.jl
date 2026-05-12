@@ -1678,42 +1678,28 @@ end
 # Quadratic / bilinear approximation traits — same scheme used by the MT
 # converter formulations.
 _quad_config(::Type{HVDCTwoTerminalVSC}) = IOM.NoQuadApproxConfig()
-_quad_config(::Type{HVDCTwoTerminalVSCBin2}) =
+_quad_config(::Type{HVDCTwoTerminalVSCMIP}) =
     IOM.SolverSOS2QuadConfig(DEFAULT_INTERPOLATION_LENGTH)
 _bilinear_config(::Type{HVDCTwoTerminalVSC}) = IOM.NoBilinearApproxConfig()
-_bilinear_config(::Type{HVDCTwoTerminalVSCBin2}) =
+_bilinear_config(::Type{HVDCTwoTerminalVSCMIP}) =
     IOM.Bin2Config(IOM.SolverSOS2QuadConfig(DEFAULT_INTERPOLATION_LENGTH))
 
-# IOM's quadratic/bilinear approximation helpers take per-device bounds as
-# `Vector{IOM.MinMax}` (one (min, max) pair per device, same order as `devices`).
 function _vsc_v_from_bounds(devices)
-    n = length(devices)
-    bounds = Vector{IOM.MinMax}(undef, n)
-    for (k, d) in enumerate(devices)
-        lims = PSY.get_voltage_limits_from(d)
-        bounds[k] = IOM.MinMax((min = lims.min, max = lims.max))
-    end
-    return bounds
+    return [
+        (min = PSY.get_voltage_limits_from(d).min, max = PSY.get_voltage_limits_from(d).max)
+        for d in devices
+    ]
 end
 
 function _vsc_v_to_bounds(devices)
-    n = length(devices)
-    bounds = Vector{IOM.MinMax}(undef, n)
-    for (k, d) in enumerate(devices)
-        lims = PSY.get_voltage_limits_to(d)
-        bounds[k] = IOM.MinMax((min = lims.min, max = lims.max))
-    end
-    return bounds
+    return [
+        (min = PSY.get_voltage_limits_to(d).min, max = PSY.get_voltage_limits_to(d).max)
+        for d in devices
+    ]
 end
 
 function _vsc_i_bounds(devices)
-    n = length(devices)
-    bounds = Vector{IOM.MinMax}(undef, n)
-    for (k, d) in enumerate(devices)
-        i_max = _vsc_shared_i_max(d)
-        bounds[k] = IOM.MinMax((min = -i_max, max = i_max))
-    end
-    return bounds
+    return [(min = -_vsc_shared_i_max(d), max = _vsc_shared_i_max(d)) for d in devices]
 end
 
 function construct_device!(
@@ -1732,15 +1718,6 @@ function construct_device!(
     add_variables!(container, HVDCToDCVoltage, devices, F)
 
     _maybe_add_reactive_power_variables!(container, devices, device_model, network_model)
-
-    if _use_linear_loss(F, device_model)
-        ll_devices = _devices_with_linear_loss(devices)
-        if isempty(ll_devices)
-            @warn "use_linear_loss is enabled but every TwoTerminalVSCLine has zero proportional loss terms; no linear-loss variables/constraints will be added."
-        else
-            _add_abs_value_decomposition_variables!(container, ll_devices, device_model)
-        end
-    end
 
     add_to_expression!(
         container, ActivePowerBalance, FlowActivePowerFromToVariable,
@@ -1810,14 +1787,15 @@ function construct_device!(
     )
     _maybe_add_reactive_power_constraints!(container, devices, device_model, network_model)
 
-    if _use_linear_loss(F, device_model)
-        ll_devices = _devices_with_linear_loss(devices)
-        if !isempty(ll_devices)
-            _add_abs_value_decomposition_constraints!(
-                container, ll_devices, device_model, network_model,
-                DCLineCurrentFlowVariable, _vsc_shared_i_max,
-            )
-        end
+    use_ll = get_attribute(device_model, "use_linear_loss")
+    if F === HVDCTwoTerminalVSC && use_ll
+        @warn "use_linear_loss = true on HVDCTwoTerminalVSC introduces a binary direction variable; the model is no longer a smooth NLP and requires a MINLP-capable solver."
+    end
+    if use_ll
+        _add_abs_value_decomposition!(
+            container, devices, device_model, network_model,
+            DCLineCurrentFlowVariable, _vsc_shared_i_max,
+        )
     end
 
     add_constraint_dual!(container, sys, device_model)

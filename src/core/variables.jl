@@ -401,19 +401,19 @@ Docs abbreviation: ``v_t^{dc}``
 """
 struct HVDCToDCVoltage <: VariableType end
 
-"""
-Reactive power injected at the from-terminal AC bus by a two-terminal HVDC link.
-Added only when the formulation runs on an AC network model.
-Docs abbreviation: ``q_f``
-"""
-struct HVDCReactivePowerFromVariable <: VariableType end
+abstract type From end
+abstract type To end
 
 """
-Reactive power injected at the to-terminal AC bus by a two-terminal HVDC link.
+Reactive power injected at the from- (`HVDCReactivePowerVariable{From}`) or to-
+(`HVDCReactivePowerVariable{To}`) terminal AC bus by a two-terminal HVDC link.
 Added only when the formulation runs on an AC network model.
-Docs abbreviation: ``q_t``
+Docs abbreviation: ``q_f`` / ``q_t``
 """
-struct HVDCReactivePowerToVariable <: VariableType end
+struct HVDCReactivePowerVariable{Side} <: VariableType end
+
+const HVDCReactivePowerFromVariable = HVDCReactivePowerVariable{From}
+const HVDCReactivePowerToVariable = HVDCReactivePowerVariable{To}
 
 """
 Struct to dispatch the creation of Interface Flow Slack Up variables

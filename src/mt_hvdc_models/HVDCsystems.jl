@@ -140,18 +140,16 @@ get_variable_upper_bound(::Type{NegativeCurrent}, d::PSY.InterconnectingConverte
 
 function get_default_attributes(
     ::Type{PSY.InterconnectingConverter},
-    ::Type{Bin2QuadraticLossConverter},
+    ::Type{MIPQuadraticLossConverter},
 )
-    return Dict{String, Any}()
+    return Dict{String, Any}("use_linear_loss" => true)
 end
 
 function get_default_attributes(
     ::Type{PSY.InterconnectingConverter},
     ::Type{QuadraticLossConverter},
 )
-    return Dict{String, Any}(
-        "use_linear_loss" => false,
-    )
+    return Dict{String, Any}("use_linear_loss" => false)
 end
 
 #! format: on
@@ -556,7 +554,8 @@ function add_constraints!(
     vi_expr = get_expression(container, IOM.BilinearProductExpression, U, "vi")
     i_sq_expr = get_expression(container, IOM.QuadraticExpression, U, "i_sq")
     use_linear_loss =
-        _use_linear_loss(V, model) && !isempty(_devices_with_linear_loss(devices))
+        get_attribute(model, "use_linear_loss") &&
+        !isempty(_devices_with_linear_loss(devices))
     if use_linear_loss
         i_pos_var = get_variable(container, PositiveCurrent, U)
         i_neg_var = get_variable(container, NegativeCurrent, U)
@@ -587,25 +586,6 @@ function add_constraints!(
             )
         end
     end
-    return
-end
-
-function add_constraints!(
-    container::OptimizationContainer,
-    ::Type{T},
-    devices::W,
-    model::DeviceModel{U, V},
-    network_model::NetworkModel{<:AbstractPowerModel},
-) where {
-    T <: CurrentAbsoluteValueConstraint,
-    U <: PSY.InterconnectingConverter,
-    V <: AbstractQuadraticLossConverter,
-    W <: Union{Vector{U}, IS.FlattenIteratorWrapper{U}},
-}
-    _add_abs_value_decomposition_constraints!(
-        container, devices, model, network_model,
-        ConverterCurrent, PSY.get_max_dc_current,
-    )
     return
 end
 

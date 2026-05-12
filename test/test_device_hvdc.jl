@@ -97,7 +97,7 @@ end
     @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
 end
 
-@testset "HVDC System with Losses Network (Bin2QuadraticLossConverter)" begin
+@testset "HVDC System with Losses Network (MIPQuadraticLossConverter)" begin
     sys = _generate_test_hvdc_sys()
     template = OperationsProblemTemplate()
     set_device_model!(template, ThermalStandard, ThermalDispatchNoMin)
@@ -106,7 +106,7 @@ end
     set_device_model!(template, TModelHVDCLine, DCLossyLine)
     ipc_model = DeviceModel(
         InterconnectingConverter,
-        Bin2QuadraticLossConverter,
+        MIPQuadraticLossConverter,
     )
     set_device_model!(template, ipc_model)
     set_hvdc_network_model!(template, VoltageDispatchHVDCNetworkModel)
@@ -147,7 +147,7 @@ end
     @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
 end
 
-@testset "HVDC Bin2 vs NLP QuadraticLossConverter agreement" begin
+@testset "HVDC MIP vs NLP QuadraticLossConverter agreement" begin
     function _build_and_solve(formulation, optimizer)
         sys = _generate_test_hvdc_sys()
         template = OperationsProblemTemplate()
@@ -176,45 +176,13 @@ end
         return model
     end
 
-    bin2_model = _build_and_solve(Bin2QuadraticLossConverter, HiGHS_optimizer)
+    mip_model = _build_and_solve(MIPQuadraticLossConverter, HiGHS_optimizer)
     nlp_model = _build_and_solve(QuadraticLossConverter, ipopt_optimizer)
 
-    bin2_obj = IOM.get_objective_value(OptimizationProblemOutputs(bin2_model))
+    mip_obj = IOM.get_objective_value(OptimizationProblemOutputs(mip_model))
     nlp_obj = IOM.get_objective_value(OptimizationProblemOutputs(nlp_model))
 
-    # Bin2 is a relaxation/PWL approximation of the exact NLP. The two objectives
-    # should agree to within a few percent on this small system.
-    @test isapprox(bin2_obj, nlp_obj; rtol = 0.05)
-end
-
-@testset "HVDC linear-loss warning when all converters have b=0" begin
-    sys = _generate_test_hvdc_sys()
-    for ipc in get_components(InterconnectingConverter, sys)
-        set_loss_function!(ipc, QuadraticCurve(0.01, 0.0, 0.0))
-    end
-    template = OperationsProblemTemplate()
-    set_device_model!(template, ThermalStandard, ThermalDispatchNoMin)
-    set_device_model!(template, PowerLoad, StaticPowerLoad)
-    set_device_model!(template, DeviceModel(Line, StaticBranch))
-    set_device_model!(template, TModelHVDCLine, DCLossyLine)
-    set_device_model!(
-        template,
-        DeviceModel(InterconnectingConverter, Bin2QuadraticLossConverter),
-    )
-    set_hvdc_network_model!(template, VoltageDispatchHVDCNetworkModel)
-    model = DecisionModel(
-        template,
-        sys;
-        store_variable_names = true,
-        optimizer = HiGHS_optimizer,
-    )
-    # `build!` wraps its body in `Logging.with_logger(file_logger)`, which masks
-    # any `TestLogger` set up by `@test_logs`. The warning we want lands in the
-    # per-build log file instead, so read it back from there.
-    output_dir = mktempdir(; cleanup = true)
-    @test build!(model; output_dir = output_dir) == IOM.ModelBuildStatus.BUILT
-    log_path = joinpath(output_dir, IOM.PROBLEM_LOG_FILENAME)
-    @test occursin(r"linear[_ ]loss"i, read(log_path, String))
+    @test isapprox(mip_obj, nlp_obj; rtol = 0.05)
 end
 
 ##############################################################################
@@ -284,8 +252,8 @@ function _build_vsc_model(formulation, network, optimizer; sys = _generate_test_
     )
 end
 
-@testset "HVDC Two-Terminal VSC (Bin2) on DCP" begin
-    model = _build_vsc_model(HVDCTwoTerminalVSCBin2, DCPPowerModel, HiGHS_optimizer)
+@testset "HVDC Two-Terminal VSC (MIP) on DCP" begin
+    model = _build_vsc_model(HVDCTwoTerminalVSCMIP, DCPPowerModel, HiGHS_optimizer)
     @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
           IOM.ModelBuildStatus.BUILT
     @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
@@ -305,7 +273,14 @@ end
     @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
 end
 
-@testset "HVDC VSC Bin2 vs NLP objective agreement" begin
+@testset "HVDC Two-Terminal VSC (MIP) on AC" begin
+    model = _build_vsc_model(HVDCTwoTerminalVSCMIP, ACPPowerModel, HiGHS_optimizer)
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+    @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+end
+
+@testset "HVDC VSC MIP vs NLP objective agreement" begin
     function _solve(formulation, optimizer)
         sys = _generate_test_vsc_sys()
         model = _build_vsc_model(formulation, DCPPowerModel, optimizer; sys = sys)
@@ -314,10 +289,9 @@ end
         @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
         return IOM.get_optimization_container(model).optimizer_stats.objective_value
     end
-    bin2_obj = _solve(HVDCTwoTerminalVSCBin2, HiGHS_optimizer)
+    mip_obj = _solve(HVDCTwoTerminalVSCMIP, HiGHS_optimizer)
     nlp_obj = _solve(HVDCTwoTerminalVSC, ipopt_optimizer)
-    # Bin2 PWL-approximates the same physics — objectives should agree closely.
-    @test isapprox(bin2_obj, nlp_obj; rtol = 0.05)
+    @test isapprox(mip_obj, nlp_obj; rtol = 0.05)
 end
 
 @testset "HVDC VSC: higher cable resistance increases cost" begin
@@ -325,7 +299,7 @@ end
     function _solve_with_g(g_value)
         sys = _generate_test_vsc_sys(; g = g_value)
         model = _build_vsc_model(
-            HVDCTwoTerminalVSCBin2, DCPPowerModel, HiGHS_optimizer; sys = sys,
+            HVDCTwoTerminalVSCMIP, DCPPowerModel, HiGHS_optimizer; sys = sys,
         )
         @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
               IOM.ModelBuildStatus.BUILT

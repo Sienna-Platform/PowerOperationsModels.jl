@@ -1,7 +1,7 @@
 # Shared helpers for quadratic / two-term converter losses
 #   loss(I) = a * I^2 + b * |I| + c
 # Used by multi-terminal InterconnectingConverter formulations
-# (Bin2QuadraticLossConverter, QuadraticLossConverter) and two-terminal
+# (MIPQuadraticLossConverter, QuadraticLossConverter) and two-terminal
 # HVDCTwoTerminalVSC formulations.
 
 #########################################
@@ -11,79 +11,53 @@
 _get_quadratic_term(loss_fn::PSY.QuadraticCurve) = PSY.get_quadratic_term(loss_fn)
 _get_quadratic_term(loss_fn) = 0.0
 
-# Whether the formulation wants the b*|I| linear-loss term (which requires
-# decomposing the current into positive/negative parts with a direction binary).
-_use_linear_loss(::Type{Bin2QuadraticLossConverter}, _) = true
-_use_linear_loss(::Type{QuadraticLossConverter}, model) =
-    get_attribute(model, "use_linear_loss")
-_use_linear_loss(::Type{HVDCTwoTerminalVSCBin2}, _) = true
-_use_linear_loss(::Type{HVDCTwoTerminalVSC}, model) =
-    get_attribute(model, "use_linear_loss")
-
-# Per-device test: does this device have a nonzero linear loss term anywhere?
-# Dispatched on device type because different PSY devices store loss curves on
-# different fields.
 _has_linear_loss(d::PSY.InterconnectingConverter) =
     !iszero(PSY.get_proportional_term(PSY.get_loss_function(d)))
 _has_linear_loss(d::PSY.TwoTerminalVSCLine) =
     !iszero(PSY.get_proportional_term(PSY.get_converter_loss_from(d))) ||
     !iszero(PSY.get_proportional_term(PSY.get_converter_loss_to(d)))
 
-function _devices_with_linear_loss(devices)
-    return [d for d in devices if _has_linear_loss(d)]
-end
+_devices_with_linear_loss(devices) = filter(_has_linear_loss, devices)
 
 #########################################
 ######## Loss expression builder ########
 #########################################
 
-# Returns the JuMP expression  a*i_sq + b*(i_pos + i_neg) + c
-# for a single (device, time). The b*(i_pos+i_neg) term is included only when
-# the formulation has opted into the linear-loss path AND b is nonzero for
-# this specific device.
 function _quadratic_converter_loss_expr(
-    a, b, c, i_sq_t, i_pos_t, i_neg_t; use_linear_loss::Bool,
+    a::Float64, b::Float64, c::Float64,
+    i_sq_t, i_pos_t, i_neg_t;
+    use_linear_loss::Bool,
 )
-    loss = a * i_sq_t + c
-    if use_linear_loss && !iszero(b)
-        loss += b * (i_pos_t + i_neg_t)
-    end
-    return loss
+    quad = iszero(a) ? 0 : a * i_sq_t
+    lin = (use_linear_loss && !iszero(b)) ? b * (i_pos_t + i_neg_t) : 0
+    const_term = iszero(c) ? 0 : c
+    return quad + lin + const_term
 end
 
 #########################################
 ####### Abs-value decomposition #########
 #########################################
 
-# Adds the three variables (PositiveCurrent, NegativeCurrent, CurrentDirection)
-# that decompose a signed current variable into  i = i^+ - i^-  with a binary
-# direction indicator. Called from the ArgumentConstructStage.
-function _add_abs_value_decomposition_variables!(
+function _add_abs_value_decomposition!(
     container::OptimizationContainer,
     devices,
-    ::DeviceModel{D, F},
-) where {D <: PSY.Device, F}
-    add_variables!(container, PositiveCurrent, devices, F)
-    add_variables!(container, NegativeCurrent, devices, F)
-    add_variables!(container, CurrentDirection, devices, F)
-    return
-end
-
-# Adds the three constraints implementing  i = i^+ - i^-  with the big-M
-# direction binary bounds. The CurrentAbsoluteValueConstraint container is
-# created internally with three meta-tagged sub-containers ("", "pos_ub",
-# "neg_ub"). Caller passes the parent current variable type and a function
-# `d -> i_max` so device-specific bound lookups stay device-specific.
-function _add_abs_value_decomposition_constraints!(
-    container::OptimizationContainer,
-    devices,
-    ::DeviceModel{D, F},
+    model::DeviceModel{D, F},
     ::NetworkModel{<:AbstractPowerModel},
     parent_var_type::Type{<:VariableType},
     i_max_getter::Function,
 ) where {D <: PSY.Device, F}
+    ll_devices = _devices_with_linear_loss(devices)
+    if isempty(ll_devices)
+        @warn "use_linear_loss is enabled but no $(D) has a nonzero proportional loss term; no linear-loss variables/constraints will be added."
+        return
+    end
+
+    add_variables!(container, PositiveCurrent, ll_devices, F)
+    add_variables!(container, NegativeCurrent, ll_devices, F)
+    add_variables!(container, CurrentDirection, ll_devices, F)
+
     time_steps = get_time_steps(container)
-    names = [PSY.get_name(d) for d in devices]
+    names = [PSY.get_name(d) for d in ll_devices]
     jump_model = get_jump_model(container)
     i_var = get_variable(container, parent_var_type, D)
     i_pos_var = get_variable(container, PositiveCurrent, D)
@@ -102,7 +76,7 @@ function _add_abs_value_decomposition_constraints!(
         meta = "neg_ub",
     )
 
-    for d in devices
+    for d in ll_devices
         name = PSY.get_name(d)
         i_max = i_max_getter(d)
         for t in time_steps

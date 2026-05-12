@@ -424,8 +424,8 @@ Per-terminal converter power-balance constraint for two-terminal VSC HVDC:
 
 ```math
 \\begin{aligned}
-p_{ft} &= v_f \\cdot I - (a_f I^2 + b_f |I| + c_f) \\\\
-p_{tf} &= -v_t \\cdot I - (a_t I^2 + b_t |I| + c_t)
+p_{ft} &= v_f \\cdot I + (a_f I^2 + b_f |I| + c_f) \\\\
+p_{tf} &= -v_t \\cdot I + (a_t I^2 + b_t |I| + c_t)
 \\end{aligned}
 ```
 """
@@ -448,7 +448,7 @@ on AC networks. For `HVDCTwoTerminalVSC` this is the exact circle:
 p_k^2 + q_k^2 \\le (S_k^{\\max})^2 \\quad k \\in \\{f, t\\}
 ```
 
-For `HVDCTwoTerminalVSCBin2` it is replaced by an inscribed polygon to stay MILP.
+For `HVDCTwoTerminalVSCMIP` it is replaced by an inscribed polygon to stay MILP.
 """
 struct HVDCVSCReactiveCapabilityConstraint <: ConstraintType end
 
