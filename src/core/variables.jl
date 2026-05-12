@@ -157,22 +157,25 @@ Docs abbreviation: ``i_c^{dc}``
 struct ConverterCurrent <: VariableType end
 
 """
-Struct to dispatch the creation of DC Converter Positive Term Current Variables for DC formulations
-Docs abbreviation: ``i_c^{+,dc}``
+Positive part of an absolute-value current decomposition (``i = i^+ - i^-``).
+Used by both two-terminal HVDC links (cable current) and interconnecting converters.
+Docs abbreviation: ``i^{+,dc}``
 """
-struct ConverterPositiveCurrent <: VariableType end
+struct PositiveCurrent <: VariableType end
 
 """
-Struct to dispatch the creation of DC Converter Negative Term Current Variables for DC formulations
-Docs abbreviation: ``i_c^{-,dc}``
+Negative part of an absolute-value current decomposition (``i = i^+ - i^-``).
+Used by both two-terminal HVDC links (cable current) and interconnecting converters.
+Docs abbreviation: ``i^{-,dc}``
 """
-struct ConverterNegativeCurrent <: VariableType end
+struct NegativeCurrent <: VariableType end
 
 """
-Struct to dispatch the creation of DC Converter Binary for Absolute Value Current Variables for DC formulations
-Docs abbreviation: `\\nu_c``
+Binary indicator selecting which sign the current takes in the absolute-value
+decomposition (``i^+`` active when 1, ``i^-`` active when 0).
+Docs abbreviation: ``\\nu``
 """
-struct ConverterCurrentDirection <: VariableType end
+struct CurrentDirection <: VariableType end
 
 #########################################################
 #########################################################
@@ -383,6 +386,34 @@ Struct to dispatch the creation of HVDC Piecewise Binary Loss Variables
 Docs abbreviation: ``z``
 """
 struct HVDCPiecewiseBinaryLossVariable <: SparseVariableType end
+
+"""
+DC-side voltage at the from-terminal of a two-terminal HVDC link.
+Used by `HVDCTwoTerminalVSC` formulations.
+Docs abbreviation: ``v_f^{dc}``
+"""
+struct HVDCFromDCVoltage <: VariableType end
+
+"""
+DC-side voltage at the to-terminal of a two-terminal HVDC link.
+Used by `HVDCTwoTerminalVSC` formulations.
+Docs abbreviation: ``v_t^{dc}``
+"""
+struct HVDCToDCVoltage <: VariableType end
+
+"""
+Reactive power injected at the from-terminal AC bus by a two-terminal HVDC link.
+Added only when the formulation runs on an AC network model.
+Docs abbreviation: ``q_f``
+"""
+struct HVDCReactivePowerFromVariable <: VariableType end
+
+"""
+Reactive power injected at the to-terminal AC bus by a two-terminal HVDC link.
+Added only when the formulation runs on an AC network model.
+Docs abbreviation: ``q_t``
+"""
+struct HVDCReactivePowerToVariable <: VariableType end
 
 """
 Struct to dispatch the creation of Interface Flow Slack Up variables

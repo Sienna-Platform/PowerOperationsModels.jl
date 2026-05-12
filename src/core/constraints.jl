@@ -419,6 +419,39 @@ v_d^i = v_d^r - R_d I_d
 """
 struct HVDCTransmissionDCLineConstraint <: ConstraintType end
 
+"""
+Per-terminal converter power-balance constraint for two-terminal VSC HVDC:
+
+```math
+\\begin{aligned}
+p_{ft} &= v_f \\cdot I - (a_f I^2 + b_f |I| + c_f) \\\\
+p_{tf} &= -v_t \\cdot I - (a_t I^2 + b_t |I| + c_t)
+\\end{aligned}
+```
+"""
+struct HVDCVSCConverterPowerConstraint <: ConstraintType end
+
+"""
+Cable Ohm's law for a two-terminal HVDC link with explicit DC resistance:
+
+```math
+v_f - v_t = (1/g) \\cdot I
+```
+"""
+struct HVDCCableOhmsLawConstraint <: ConstraintType end
+
+"""
+PQ capability constraint at each terminal of a two-terminal VSC HVDC, added only
+on AC networks. For `HVDCTwoTerminalVSC` this is the exact circle:
+
+```math
+p_k^2 + q_k^2 \\le (S_k^{\\max})^2 \\quad k \\in \\{f, t\\}
+```
+
+For `HVDCTwoTerminalVSCBin2` it is replaced by an inscribed polygon to stay MILP.
+"""
+struct HVDCVSCReactiveCapabilityConstraint <: ConstraintType end
+
 abstract type PowerVariableLimitsConstraint <: ConstraintType end
 """
 Struct to create the constraint to limit active power input expressions.

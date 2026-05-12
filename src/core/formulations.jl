@@ -184,8 +184,27 @@ Branch type to represent non-linear LCC (line commutated converter) model on two
 """
 struct HVDCTwoTerminalLCC <: AbstractTwoTerminalDCLineFormulation end
 
-# Not Implemented
-# struct VoltageSourceDC <: AbstractTwoTerminalDCLineFormulation end
+"""
+Abstract supertype for two-terminal voltage-source converter (VSC) HVDC formulations.
+Models per-terminal converters with quadratic / two-term losses
+(``a I^2 + b |I| + c``), a shared signed cable current, an explicit DC-side
+cable resistance (``v_f - v_t = (1/g) \\cdot I``), and (on AC networks) independent
+reactive-power control bounded by per-terminal PQ capability.
+"""
+abstract type AbstractTwoTerminalVSCFormulation <: AbstractTwoTerminalDCLineFormulation end
+
+"""
+Two-terminal VSC formulation that keeps the bilinear ``v \\cdot I`` and quadratic
+``I^2`` terms exact. Requires an NLP-capable solver (e.g. Ipopt).
+"""
+struct HVDCTwoTerminalVSC <: AbstractTwoTerminalVSCFormulation end
+
+"""
+Two-terminal VSC formulation that approximates the bilinear ``v \\cdot I`` and
+quadratic ``I^2`` terms with SOS2-based piecewise-linear envelopes (the same
+Bin2 scheme used by `Bin2QuadraticLossConverter`). Stays MILP.
+"""
+struct HVDCTwoTerminalVSCBin2 <: AbstractTwoTerminalVSCFormulation end
 
 ############################### AC/DC Converter Formulations #####################################
 abstract type AbstractConverterFormulation <: AbstractDeviceFormulation end

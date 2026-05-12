@@ -663,6 +663,27 @@ function get_branch_to_pm(
     return Dict{String, Any}()
 end
 
+function get_branch_to_pm(
+    ix::Int,
+    branch::PSY.TwoTerminalVSCLine,
+    ::Type{<:AbstractTwoTerminalVSCFormulation},
+    ::Type{<:AbstractPowerModel},
+)
+    return Dict{String, Any}()
+end
+
+# Trait: should this DeviceModel be skipped when translating two-terminal HVDC
+# branches into PowerModels? LCC and VSC formulations are handled by their own
+# constraints in POM rather than via PM's built-in DC line model, so they're
+# skipped here. Default is `false`; override per formulation via dispatch.
+_skip_pm_two_terminal_translation(::DeviceModel) = false
+_skip_pm_two_terminal_translation(
+    ::DeviceModel{PSY.TwoTerminalLCCLine, HVDCTwoTerminalLCC},
+) = true
+_skip_pm_two_terminal_translation(
+    ::DeviceModel{PSY.TwoTerminalVSCLine, <:AbstractTwoTerminalVSCFormulation},
+) = true
+
 function get_branches_to_pm(
     sys::PSY.System,
     network_model::NetworkModel{S},
@@ -720,10 +741,7 @@ function get_branches_to_pm(
     for (d, device_model) in branch_template
         comp_type = get_component_type(device_model)
         !(comp_type <: T) && continue
-        if comp_type <: PSY.TwoTerminalLCCLine &&
-           get_formulation(device_model) <: HVDCTwoTerminalLCC
-            continue
-        end
+        _skip_pm_two_terminal_translation(device_model) && continue
         start_idx += length(PM_branches)
         for (i, branch) in enumerate(get_available_components(device_model, sys))
             ix = i + start_idx

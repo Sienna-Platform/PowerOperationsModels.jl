@@ -213,6 +213,7 @@ include("common_models/add_to_expression.jl")
 include("common_models/add_parameters.jl")
 include("common_models/make_system_expressions.jl")
 include("common_models/reserve_range_constraints.jl")
+include("common_models/quadratic_converter_loss.jl")
 
 # Market bid cost plumbing (PSY orchestration moved out of IOM). Must be included
 # before device-specific files that reference MBC_TYPES / IEC_TYPES.
@@ -506,11 +507,15 @@ export PostContingencyActivePowerReserveDeploymentVariable
 export DCVoltage
 export DCLineCurrent
 export ConverterCurrent
-export ConverterPositiveCurrent
-export ConverterNegativeCurrent
-export ConverterCurrentDirection
+export PositiveCurrent
+export NegativeCurrent
+export CurrentDirection
 export HVDCFlowDirectionVariable
 export HVDCLosses
+export HVDCFromDCVoltage
+export HVDCToDCVoltage
+export HVDCReactivePowerFromVariable
+export HVDCReactivePowerToVariable
 
 # Load Variables
 export ShiftUpActivePowerVariable
@@ -758,6 +763,8 @@ export HVDCTwoTerminalLossless
 export HVDCTwoTerminalDispatch
 export HVDCTwoTerminalPiecewiseLoss
 export HVDCTwoTerminalLCC
+export HVDCTwoTerminalVSC
+export HVDCTwoTerminalVSCBin2
 
 # Converter Formulations
 export LosslessConverter

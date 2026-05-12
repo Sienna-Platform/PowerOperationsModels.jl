@@ -59,9 +59,9 @@ function construct_device!(
         if isempty(ll_devices)
             @warn "use_linear_loss is enabled but every InterconnectingConverter has a zero proportional loss term; no linear-loss variables/constraints will be added."
         else
-            add_variables!(container, ConverterPositiveCurrent, ll_devices, T)
-            add_variables!(container, ConverterNegativeCurrent, ll_devices, T)
-            add_variables!(container, ConverterCurrentDirection, ll_devices, T)
+            add_variables!(container, PositiveCurrent, ll_devices, T)
+            add_variables!(container, NegativeCurrent, ll_devices, T)
+            add_variables!(container, CurrentDirection, ll_devices, T)
         end
     end
 
@@ -77,19 +77,19 @@ function construct_device!(
     return
 end
 
- function _voltage_expr_per_converter(
-     container::OptimizationContainer,
-     devices,
-     ipc_names::Vector{String},
-     time_steps,
- )
-     v_var = get_variable(container, DCVoltage, PSY.DCBus)
-     bus_names = [PSY.get_name(PSY.get_dc_bus(d)) for d in devices]
-     return JuMP.Containers.DenseAxisArray(
-         [v_var[b, t] for b in bus_names, t in time_steps],
-         ipc_names, time_steps,
-     )
- end
+function _voltage_expr_per_converter(
+    container::OptimizationContainer,
+    devices,
+    ipc_names::Vector{String},
+    time_steps,
+)
+    v_var = get_variable(container, DCVoltage, PSY.DCBus)
+    bus_names = [PSY.get_name(PSY.get_dc_bus(d)) for d in devices]
+    return JuMP.Containers.DenseAxisArray(
+        [v_var[b, t] for b in bus_names, t in time_steps],
+        ipc_names, time_steps,
+    )
+end
 
 function _converter_vi_bounds(devices)
     n = length(devices)
@@ -104,9 +104,11 @@ function _converter_vi_bounds(devices)
     return v_bounds, i_bounds
 end
 
-_quad_config(::Type{Bin2QuadraticLossConverter}) = IOM.SolverSOS2QuadConfig(DEFAULT_INTERPOLATION_LENGTH)
+_quad_config(::Type{Bin2QuadraticLossConverter}) =
+    IOM.SolverSOS2QuadConfig(DEFAULT_INTERPOLATION_LENGTH)
 _quad_config(::Type{QuadraticLossConverter}) = IOM.NoQuadApproxConfig()
-_bilinear_config(::Type{Bin2QuadraticLossConverter}) = IOM.Bin2Config(IOM.SolverSOS2QuadConfig(DEFAULT_INTERPOLATION_LENGTH))
+_bilinear_config(::Type{Bin2QuadraticLossConverter}) =
+    IOM.Bin2Config(IOM.SolverSOS2QuadConfig(DEFAULT_INTERPOLATION_LENGTH))
 _bilinear_config(::Type{QuadraticLossConverter}) = IOM.NoBilinearApproxConfig()
 
 function construct_device!(

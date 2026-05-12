@@ -120,22 +120,22 @@ end
 
 ## Binaries ###
 get_variable_binary(::Type{ConverterCurrent}, ::Type{PSY.InterconnectingConverter}, ::Type{<:AbstractConverterFormulation}) = false
-get_variable_binary(::Type{ConverterPositiveCurrent}, ::Type{PSY.InterconnectingConverter}, ::Type{<:AbstractConverterFormulation}) = false
-get_variable_binary(::Type{ConverterNegativeCurrent}, ::Type{PSY.InterconnectingConverter}, ::Type{<:AbstractConverterFormulation}) = false
-get_variable_binary(::Type{ConverterCurrentDirection}, ::Type{PSY.InterconnectingConverter}, ::Type{<:AbstractConverterFormulation}) = true
+get_variable_binary(::Type{PositiveCurrent}, ::Type{PSY.InterconnectingConverter}, ::Type{<:AbstractConverterFormulation}) = false
+get_variable_binary(::Type{NegativeCurrent}, ::Type{PSY.InterconnectingConverter}, ::Type{<:AbstractConverterFormulation}) = false
+get_variable_binary(::Type{CurrentDirection}, ::Type{PSY.InterconnectingConverter}, ::Type{<:AbstractConverterFormulation}) = true
 
 ### Warm Start ###
 get_variable_warm_start_value(::Type{ConverterCurrent}, d::PSY.InterconnectingConverter, ::Type{<:AbstractConverterFormulation}) = PSY.get_dc_current(d)
 
 ### Lower Bounds ###
 get_variable_lower_bound(::Type{ConverterCurrent}, d::PSY.InterconnectingConverter, ::Type{<:AbstractConverterFormulation}) = -PSY.get_max_dc_current(d)
-get_variable_lower_bound(::Type{ConverterPositiveCurrent}, d::PSY.InterconnectingConverter,::Type{<:AbstractConverterFormulation}) = 0.0
-get_variable_lower_bound(::Type{ConverterNegativeCurrent}, d::PSY.InterconnectingConverter,::Type{<:AbstractConverterFormulation}) = 0.0
+get_variable_lower_bound(::Type{PositiveCurrent}, d::PSY.InterconnectingConverter,::Type{<:AbstractConverterFormulation}) = 0.0
+get_variable_lower_bound(::Type{NegativeCurrent}, d::PSY.InterconnectingConverter,::Type{<:AbstractConverterFormulation}) = 0.0
 
 ### Upper Bounds ###
 get_variable_upper_bound(::Type{ConverterCurrent}, d::PSY.InterconnectingConverter, ::Type{<:AbstractConverterFormulation}) = PSY.get_max_dc_current(d)
-get_variable_upper_bound(::Type{ConverterPositiveCurrent}, d::PSY.InterconnectingConverter,::Type{<:AbstractConverterFormulation}) = PSY.get_max_dc_current(d)
-get_variable_upper_bound(::Type{ConverterNegativeCurrent}, d::PSY.InterconnectingConverter,::Type{<:AbstractConverterFormulation}) = PSY.get_max_dc_current(d)
+get_variable_upper_bound(::Type{PositiveCurrent}, d::PSY.InterconnectingConverter,::Type{<:AbstractConverterFormulation}) = PSY.get_max_dc_current(d)
+get_variable_upper_bound(::Type{NegativeCurrent}, d::PSY.InterconnectingConverter,::Type{<:AbstractConverterFormulation}) = PSY.get_max_dc_current(d)
 
 
 function get_default_attributes(
@@ -540,20 +540,6 @@ end
 
 ############## Converters ##################
 
-_get_quadratic_term(loss_fn::PSY.QuadraticCurve) = PSY.get_quadratic_term(loss_fn)
-_get_quadratic_term(loss_fn) = 0.0
-
-_use_linear_loss(::Type{Bin2QuadraticLossConverter}, _) = true
-_use_linear_loss(::Type{QuadraticLossConverter}, model) =
-    get_attribute(model, "use_linear_loss")
-
-function _devices_with_linear_loss(devices)
-    return [
-        d for d in devices if
-        !iszero(PSY.get_proportional_term(PSY.get_loss_function(d)))
-    ]
-end
-
 function add_constraints!(
     container::OptimizationContainer,
     ::Type{ConverterLossConstraint},
@@ -572,8 +558,8 @@ function add_constraints!(
     use_linear_loss =
         _use_linear_loss(V, model) && !isempty(_devices_with_linear_loss(devices))
     if use_linear_loss
-        i_pos_var = get_variable(container, ConverterPositiveCurrent, U)
-        i_neg_var = get_variable(container, ConverterNegativeCurrent, U)
+        i_pos_var = get_variable(container, PositiveCurrent, U)
+        i_neg_var = get_variable(container, NegativeCurrent, U)
     end
 
     ipc_names = [PSY.get_name(d) for d in devices]
@@ -589,13 +575,15 @@ function add_constraints!(
         b = PSY.get_proportional_term(loss_function)
         c = PSY.get_constant_term(loss_function)
         for t in time_steps
-            loss = a * i_sq_expr[name, t] + c
-            if use_linear_loss && !iszero(b)
-                loss += b * (i_pos_var[name, t] + i_neg_var[name, t])
-            end
+            i_pos_t = use_linear_loss ? i_pos_var[name, t] : nothing
+            i_neg_t = use_linear_loss ? i_neg_var[name, t] : nothing
+            loss = _quadratic_converter_loss_expr(
+                a, b, c, i_sq_expr[name, t], i_pos_t, i_neg_t;
+                use_linear_loss = use_linear_loss,
+            )
             loss_const[name, t] = JuMP.@constraint(
                 jump_model,
-                P_ac_var[name, t] == vi_expr[name, t] - loss
+                P_ac_var[name, t] == vi_expr[name, t] - loss,
             )
         end
     end
@@ -606,52 +594,18 @@ function add_constraints!(
     container::OptimizationContainer,
     ::Type{T},
     devices::W,
-    ::DeviceModel{U, V},
-    ::NetworkModel{<:AbstractPowerModel},
+    model::DeviceModel{U, V},
+    network_model::NetworkModel{<:AbstractPowerModel},
 ) where {
     T <: CurrentAbsoluteValueConstraint,
     U <: PSY.InterconnectingConverter,
     V <: AbstractQuadraticLossConverter,
     W <: Union{Vector{U}, IS.FlattenIteratorWrapper{U}},
 }
-    time_steps = get_time_steps(container)
-    names = [PSY.get_name(d) for d in devices]
-    jump_model = get_jump_model(container)
-    i_var = get_variable(container, ConverterCurrent, U)
-    i_pos_var = get_variable(container, ConverterPositiveCurrent, U)
-    i_neg_var = get_variable(container, ConverterNegativeCurrent, U)
-    i_dir_var = get_variable(container, ConverterCurrentDirection, U)
-
-    abs_val_const = add_constraints_container!(
-        container, CurrentAbsoluteValueConstraint, U, names, time_steps,
+    _add_abs_value_decomposition_constraints!(
+        container, devices, model, network_model,
+        ConverterCurrent, PSY.get_max_dc_current,
     )
-    pos_ub_const = add_constraints_container!(
-        container, CurrentAbsoluteValueConstraint, U, names, time_steps;
-        meta = "pos_ub",
-    )
-    neg_ub_const = add_constraints_container!(
-        container, CurrentAbsoluteValueConstraint, U, names, time_steps;
-        meta = "neg_ub",
-    )
-
-    for d in devices
-        name = PSY.get_name(d)
-        i_max = PSY.get_max_dc_current(d)
-        for t in time_steps
-            abs_val_const[name, t] = JuMP.@constraint(
-                jump_model,
-                i_var[name, t] == i_pos_var[name, t] - i_neg_var[name, t]
-            )
-            pos_ub_const[name, t] = JuMP.@constraint(
-                jump_model,
-                i_pos_var[name, t] <= i_max * i_dir_var[name, t]
-            )
-            neg_ub_const[name, t] = JuMP.@constraint(
-                jump_model,
-                i_neg_var[name, t] <= i_max * (1 - i_dir_var[name, t])
-            )
-        end
-    end
     return
 end
 

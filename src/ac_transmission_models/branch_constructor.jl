@@ -1670,3 +1670,180 @@ function construct_device!(
     add_feedforward_constraints!(container, device_model, devices)
     return
 end
+
+############################################################################
+####################### Two-Terminal VSC HVDC Construct ####################
+############################################################################
+
+# Quadratic / bilinear approximation traits — same scheme used by the MT
+# converter formulations.
+_quad_config(::Type{HVDCTwoTerminalVSC}) = IOM.NoQuadApproxConfig()
+_quad_config(::Type{HVDCTwoTerminalVSCBin2}) =
+    IOM.SolverSOS2QuadConfig(DEFAULT_INTERPOLATION_LENGTH)
+_bilinear_config(::Type{HVDCTwoTerminalVSC}) = IOM.NoBilinearApproxConfig()
+_bilinear_config(::Type{HVDCTwoTerminalVSCBin2}) =
+    IOM.Bin2Config(IOM.SolverSOS2QuadConfig(DEFAULT_INTERPOLATION_LENGTH))
+
+# IOM's quadratic/bilinear approximation helpers take per-device bounds as
+# `Vector{IOM.MinMax}` (one (min, max) pair per device, same order as `devices`).
+function _vsc_v_from_bounds(devices)
+    n = length(devices)
+    bounds = Vector{IOM.MinMax}(undef, n)
+    for (k, d) in enumerate(devices)
+        lims = PSY.get_voltage_limits_from(d)
+        bounds[k] = IOM.MinMax((min = lims.min, max = lims.max))
+    end
+    return bounds
+end
+
+function _vsc_v_to_bounds(devices)
+    n = length(devices)
+    bounds = Vector{IOM.MinMax}(undef, n)
+    for (k, d) in enumerate(devices)
+        lims = PSY.get_voltage_limits_to(d)
+        bounds[k] = IOM.MinMax((min = lims.min, max = lims.max))
+    end
+    return bounds
+end
+
+function _vsc_i_bounds(devices)
+    n = length(devices)
+    bounds = Vector{IOM.MinMax}(undef, n)
+    for (k, d) in enumerate(devices)
+        i_max = _vsc_shared_i_max(d)
+        bounds[k] = IOM.MinMax((min = -i_max, max = i_max))
+    end
+    return bounds
+end
+
+function construct_device!(
+    container::OptimizationContainer,
+    sys::PSY.System,
+    ::ArgumentConstructStage,
+    device_model::DeviceModel{PSY.TwoTerminalVSCLine, F},
+    network_model::NetworkModel{<:AbstractPowerModel},
+) where {F <: AbstractTwoTerminalVSCFormulation}
+    devices = get_available_components(device_model, sys)
+
+    add_variables!(container, FlowActivePowerFromToVariable, devices, F)
+    add_variables!(container, FlowActivePowerToFromVariable, devices, F)
+    add_variables!(container, DCLineCurrentFlowVariable, devices, F)
+    add_variables!(container, HVDCFromDCVoltage, devices, F)
+    add_variables!(container, HVDCToDCVoltage, devices, F)
+
+    _maybe_add_reactive_power_variables!(container, devices, device_model, network_model)
+
+    if _use_linear_loss(F, device_model)
+        ll_devices = _devices_with_linear_loss(devices)
+        if isempty(ll_devices)
+            @warn "use_linear_loss is enabled but every TwoTerminalVSCLine has zero proportional loss terms; no linear-loss variables/constraints will be added."
+        else
+            _add_abs_value_decomposition_variables!(container, ll_devices, device_model)
+        end
+    end
+
+    add_to_expression!(
+        container, ActivePowerBalance, FlowActivePowerFromToVariable,
+        devices, device_model, network_model,
+    )
+    add_to_expression!(
+        container, ActivePowerBalance, FlowActivePowerToFromVariable,
+        devices, device_model, network_model,
+    )
+
+    add_feedforward_arguments!(container, device_model, devices)
+    return
+end
+
+function construct_device!(
+    container::OptimizationContainer,
+    sys::PSY.System,
+    ::ModelConstructStage,
+    device_model::DeviceModel{PSY.TwoTerminalVSCLine, F},
+    network_model::NetworkModel{<:AbstractPowerModel},
+) where {F <: AbstractTwoTerminalVSCFormulation}
+    devices = get_available_components(device_model, sys)
+    time_steps = get_time_steps(container)
+    line_names = [PSY.get_name(d) for d in devices]
+
+    v_f_var = get_variable(container, HVDCFromDCVoltage, PSY.TwoTerminalVSCLine)
+    v_t_var = get_variable(container, HVDCToDCVoltage, PSY.TwoTerminalVSCLine)
+    i_var = get_variable(container, DCLineCurrentFlowVariable, PSY.TwoTerminalVSCLine)
+
+    v_f_bounds = _vsc_v_from_bounds(devices)
+    v_t_bounds = _vsc_v_to_bounds(devices)
+    i_bounds = _vsc_i_bounds(devices)
+
+    quad_cfg, bilin_cfg = _quad_config(F), _bilinear_config(F)
+
+    v_f_sq_expr = IOM._add_quadratic_approx!(
+        quad_cfg, container, PSY.TwoTerminalVSCLine,
+        line_names, time_steps, v_f_var, v_f_bounds, "v_f_sq",
+    )
+    v_t_sq_expr = IOM._add_quadratic_approx!(
+        quad_cfg, container, PSY.TwoTerminalVSCLine,
+        line_names, time_steps, v_t_var, v_t_bounds, "v_t_sq",
+    )
+    i_sq_expr = IOM._add_quadratic_approx!(
+        quad_cfg, container, PSY.TwoTerminalVSCLine,
+        line_names, time_steps, i_var, i_bounds, "i_sq",
+    )
+
+    IOM._add_bilinear_approx!(
+        bilin_cfg, container, PSY.TwoTerminalVSCLine,
+        line_names, time_steps,
+        v_f_sq_expr, i_sq_expr, v_f_var, i_var,
+        v_f_bounds, i_bounds, "vi_ft",
+    )
+    IOM._add_bilinear_approx!(
+        bilin_cfg, container, PSY.TwoTerminalVSCLine,
+        line_names, time_steps,
+        v_t_sq_expr, i_sq_expr, v_t_var, i_var,
+        v_t_bounds, i_bounds, "vi_tf",
+    )
+
+    add_constraints!(
+        container, HVDCCableOhmsLawConstraint, devices, device_model, network_model,
+    )
+    add_constraints!(
+        container, HVDCVSCConverterPowerConstraint, devices, device_model, network_model,
+    )
+    _maybe_add_reactive_power_constraints!(container, devices, device_model, network_model)
+
+    if _use_linear_loss(F, device_model)
+        ll_devices = _devices_with_linear_loss(devices)
+        if !isempty(ll_devices)
+            _add_abs_value_decomposition_constraints!(
+                container, ll_devices, device_model, network_model,
+                DCLineCurrentFlowVariable, _vsc_shared_i_max,
+            )
+        end
+    end
+
+    add_constraint_dual!(container, sys, device_model)
+    add_feedforward_constraints!(container, device_model, devices)
+    return
+end
+
+# AreaBalancePowerModel warning (consistent with other two-terminal formulations).
+function construct_device!(
+    ::OptimizationContainer,
+    ::PSY.System,
+    ::ArgumentConstructStage,
+    ::DeviceModel{PSY.TwoTerminalVSCLine, <:AbstractTwoTerminalVSCFormulation},
+    ::NetworkModel{AreaBalancePowerModel},
+)
+    @warn "AreaBalancePowerModel doesn't model individual line flows for PSY.TwoTerminalVSCLine. Arguments not built"
+    return
+end
+
+function construct_device!(
+    ::OptimizationContainer,
+    ::PSY.System,
+    ::ModelConstructStage,
+    ::DeviceModel{PSY.TwoTerminalVSCLine, <:AbstractTwoTerminalVSCFormulation},
+    ::NetworkModel{AreaBalancePowerModel},
+)
+    @warn "AreaBalancePowerModel doesn't model individual line flows for PSY.TwoTerminalVSCLine. Model not built"
+    return
+end
