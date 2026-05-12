@@ -144,18 +144,21 @@ function get_multiplier_value(
 end
 
 """
-Add power flow evaluation data to the container.
+Default fallback for `add_power_flow_data!`: a no-op when no evaluators are present.
+The PowerFlows extension provides the concrete method that handles real evaluators.
+If evaluators are passed without the PowerFlows extension loaded, this errors with
+guidance to load it.
 """
 function add_power_flow_data!(
     ::IOM.OptimizationContainer,
     evaluators::Vector{<:IOM.AbstractPowerFlowEvaluationModel},
     ::IS.ComponentContainer,
 )
-    if !isempty(evaluators)
-        error(
-            "Power flow in-the-loop with the new IOM-POM-PSI split isn't working yet.",
-        )
-    end
+    isempty(evaluators) || error(
+        "PowerFlows extension not loaded; add `using PowerFlows` to enable " *
+        "power flow in-the-loop.",
+    )
+    return
 end
 
 """
