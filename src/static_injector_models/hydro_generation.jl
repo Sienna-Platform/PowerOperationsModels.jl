@@ -4,8 +4,6 @@
 requires_initialization(::AbstractHydroReservoirFormulation) = false
 requires_initialization(::AbstractHydroUnitCommitment) = true
 
-get_variable_multiplier(::Type{<:VariableType}, ::Type{<:PSY.HydroGen}, ::Type{<:AbstractHydroFormulation}) = 1.0
-get_variable_multiplier(::Type{ActivePowerPumpVariable}, ::Type{<:PSY.HydroPumpTurbine}, ::Type{<:AbstractHydroPumpFormulation}) = -1.0
 get_expression_type_for_reserve(::Type{ActivePowerReserveVariable}, ::Type{<:PSY.HydroGen}, ::Type{<:PSY.Reserve{PSY.ReserveUp}}) = ActivePowerRangeExpressionUB
 get_expression_type_for_reserve(::Type{ActivePowerReserveVariable}, ::Type{<:PSY.HydroGen}, ::Type{<:PSY.Reserve{PSY.ReserveDown}}) = ActivePowerRangeExpressionLB
 
@@ -36,13 +34,11 @@ get_variable_upper_bound(::Type{EnergyVariable}, d::PSY.HydroGen, ::Type{<:Abstr
 get_variable_binary(::Type{ActivePowerInVariable}, ::Type{<:PSY.HydroGen}, ::Type{<:AbstractHydroReservoirFormulation}) = false
 get_variable_lower_bound(::Type{ActivePowerInVariable}, d::PSY.HydroGen, ::Type{<:AbstractHydroReservoirFormulation}) = 0.0
 get_variable_upper_bound(::Type{ActivePowerInVariable}, d::PSY.HydroGen, ::Type{<:AbstractHydroReservoirFormulation}) = nothing
-get_variable_multiplier(::Type{ActivePowerInVariable}, d::Type{<:PSY.HydroGen}, ::Type{<:AbstractHydroReservoirFormulation}) = -1.0
 
 ########################### ActivePowerOutVariable, HydroGen #################################
 get_variable_binary(::Type{ActivePowerOutVariable}, ::Type{<:PSY.HydroGen}, ::Type{<:AbstractHydroReservoirFormulation}) = false
 get_variable_lower_bound(::Type{ActivePowerOutVariable}, d::PSY.HydroGen, ::Type{<:AbstractHydroReservoirFormulation}) = 0.0
 get_variable_upper_bound(::Type{ActivePowerOutVariable}, d::PSY.HydroGen, ::Type{<:AbstractHydroReservoirFormulation}) = nothing
-get_variable_multiplier(::Type{ActivePowerOutVariable}, d::Type{<:PSY.HydroGen}, ::Type{<:AbstractHydroReservoirFormulation}) = 1.0
 
 ############## OnVariable, HydroGen ####################
 # These methods are defined in PowerSimulations

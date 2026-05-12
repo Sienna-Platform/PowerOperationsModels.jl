@@ -30,9 +30,7 @@ requires_initialization(::ThermalStandardDispatch) = true
 requires_initialization(::ThermalBasicCompactUnitCommitment) = false
 requires_initialization(::ThermalBasicUnitCommitment) = false
 
-get_variable_multiplier(::Type{<:VariableType}, ::Type{<:PSY.ThermalGen}, ::Type{<:AbstractThermalFormulation}) = 1.0
 # Per-device P_min multiplier computed inline at add_to_expression! call sites.
-get_variable_multiplier(::Type{OnVariable}, ::Type{<:PSY.ThermalGen}, ::Type{<:Union{AbstractCompactUnitCommitment, ThermalCompactDispatch}}) = 1.0
 get_expression_type_for_reserve(::Type{ActivePowerReserveVariable}, ::Type{<:PSY.ThermalGen}, ::Type{<:PSY.Reserve{PSY.ReserveUp}}) = ActivePowerRangeExpressionUB
 get_expression_type_for_reserve(::Type{ActivePowerReserveVariable}, ::Type{<:PSY.ThermalGen}, ::Type{<:PSY.Reserve{PSY.ReserveDown}}) = ActivePowerRangeExpressionLB
 

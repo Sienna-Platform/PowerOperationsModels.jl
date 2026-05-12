@@ -3,7 +3,6 @@ get_variable_binary(::Type{ActivePowerVariable}, ::Type{PSY.InterconnectingConve
 get_variable_warm_start_value(::Type{ActivePowerVariable}, d::PSY.InterconnectingConverter, ::Type{<:AbstractConverterFormulation}) = PSY.get_active_power(d)
 get_variable_lower_bound(::Type{ActivePowerVariable}, d::PSY.InterconnectingConverter, ::Type{<:AbstractConverterFormulation}) = PSY.get_active_power_limits(d).min
 get_variable_upper_bound(::Type{ActivePowerVariable}, d::PSY.InterconnectingConverter, ::Type{<:AbstractConverterFormulation}) = PSY.get_active_power_limits(d).max
-get_variable_multiplier(::Type{<:VariableType}, ::Type{PSY.InterconnectingConverter}, ::Type{<:AbstractConverterFormulation}) = 1.0
 
 
 function _get_flow_bounds(d::PSY.TModelHVDCLine)
@@ -65,7 +64,6 @@ function get_variable_upper_bound(::Type{DCLineCurrent}, d::PSY.TModelHVDCLine, 
     max_v = max(PSY.get_magnitude(bus_from), PSY.get_magnitude(bus_to))
     return p_max_flow / max_v
 end
-get_variable_multiplier(::Type{<:VariableType}, ::Type{PSY.TModelHVDCLine}, ::Type{<:AbstractBranchFormulation}) = 1.0
 
 requires_initialization(::AbstractConverterFormulation) = false
 requires_initialization(::LosslessLine) = false

@@ -3,12 +3,6 @@ get_variable_binary(::Type{<:VariableType}, ::Type{PSY.TransmissionInterface}, :
 get_variable_lower_bound(::Type{InterfaceFlowSlackUp}, ::PSY.TransmissionInterface, ::Type{ConstantMaxInterfaceFlow}) = 0.0
 get_variable_lower_bound(::Type{InterfaceFlowSlackDown}, ::PSY.TransmissionInterface, ::Type{ConstantMaxInterfaceFlow}) = 0.0
 
-get_variable_multiplier(::Type{InterfaceFlowSlackUp}, ::Type{PSY.TransmissionInterface}, ::Type{ConstantMaxInterfaceFlow}) = 1.0
-get_variable_multiplier(::Type{InterfaceFlowSlackDown}, ::Type{PSY.TransmissionInterface}, ::Type{ConstantMaxInterfaceFlow}) = -1.0
-
-get_variable_multiplier(::Type{InterfaceFlowSlackUp}, ::Type{PSY.TransmissionInterface}, ::Type{VariableMaxInterfaceFlow}) = 1.0
-get_variable_multiplier(::Type{InterfaceFlowSlackDown}, ::Type{PSY.TransmissionInterface}, ::Type{VariableMaxInterfaceFlow}) = -1.0
-
 get_multiplier_value(::Type{MinInterfaceFlowLimitParameter}, d::PSY.TransmissionInterface, ::Type{VariableMaxInterfaceFlow}) = PSY.get_min_active_power_flow_limit(d)
 get_multiplier_value(::Type{MaxInterfaceFlowLimitParameter}, d::PSY.TransmissionInterface, ::Type{VariableMaxInterfaceFlow}) = PSY.get_max_active_power_flow_limit(d)
 

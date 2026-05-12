@@ -1,7 +1,6 @@
 #! format: off
 
 requires_initialization(::AbstractReactivePowerDeviceFormulation) = false
-get_variable_multiplier(::Type{<:VariableType}, ::Type{<:PSY.SynchronousCondenser}, ::Type{<:AbstractReactivePowerDeviceFormulation}) = 1.0
 
 ############## ReactivePowerVariable, SynchronousCondensers ####################
 get_variable_binary(::Type{ReactivePowerVariable}, ::Type{PSY.SynchronousCondenser}, ::Type{<:AbstractReactivePowerDeviceFormulation}) = false
