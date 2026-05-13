@@ -719,31 +719,64 @@ function add_to_expression!(
 end
 
 """
-Two-terminal VSC implementation to add ReactivePowerBalance for either side
-(From/To) of HVDCReactivePowerVariable. Dispatches on the variable's `Side`
-parameter via the `_vsc_arc_bus` helper.
+Two-terminal VSC: add `HVDCReactivePowerFromVariable` to `ReactivePowerBalance`
+at the from-terminal AC bus.
 """
 function add_to_expression!(
     container::OptimizationContainer,
     ::Type{T},
-    ::Type{HVDCReactivePowerVariable{S}},
+    ::Type{HVDCReactivePowerFromVariable},
     devices::IS.FlattenIteratorWrapper{V},
     ::DeviceModel{V, W},
     network_model::NetworkModel{X},
 ) where {
     T <: ReactivePowerBalance,
-    S <: Union{From, To},
     V <: PSY.TwoTerminalVSCLine,
     W <: AbstractTwoTerminalVSCFormulation,
     X <: ACPPowerModel,
 }
-    var = get_variable(container, HVDCReactivePowerVariable{S}, V)
+    var = get_variable(container, HVDCReactivePowerFromVariable, V)
     nodal_expr = get_expression(container, T, PSY.ACBus)
     network_reduction = get_network_reduction(network_model)
     time_steps = get_time_steps(container)
     for d in devices
         name = PSY.get_name(d)
-        bus_no = PNM.get_mapped_bus_number(network_reduction, _vsc_arc_bus(d, S))
+        bus_no = PNM.get_mapped_bus_number(network_reduction, PSY.get_arc(d).from)
+        for t in time_steps
+            add_proportional_to_jump_expression!(
+                nodal_expr[bus_no, t],
+                var[name, t],
+                -1.0,
+            )
+        end
+    end
+    return
+end
+
+"""
+Two-terminal VSC: add `HVDCReactivePowerToVariable` to `ReactivePowerBalance`
+at the to-terminal AC bus.
+"""
+function add_to_expression!(
+    container::OptimizationContainer,
+    ::Type{T},
+    ::Type{HVDCReactivePowerToVariable},
+    devices::IS.FlattenIteratorWrapper{V},
+    ::DeviceModel{V, W},
+    network_model::NetworkModel{X},
+) where {
+    T <: ReactivePowerBalance,
+    V <: PSY.TwoTerminalVSCLine,
+    W <: AbstractTwoTerminalVSCFormulation,
+    X <: ACPPowerModel,
+}
+    var = get_variable(container, HVDCReactivePowerToVariable, V)
+    nodal_expr = get_expression(container, T, PSY.ACBus)
+    network_reduction = get_network_reduction(network_model)
+    time_steps = get_time_steps(container)
+    for d in devices
+        name = PSY.get_name(d)
+        bus_no = PNM.get_mapped_bus_number(network_reduction, PSY.get_arc(d).to)
         for t in time_steps
             add_proportional_to_jump_expression!(
                 nodal_expr[bus_no, t],

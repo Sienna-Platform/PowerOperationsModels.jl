@@ -67,23 +67,37 @@ end
 ####### Abs-value decomposition #########
 #########################################
 
-function _add_abs_value_decomposition!(
+# Split into two stages so the variables are added in ArgumentConstructStage
+# and the constraints in ModelConstructStage, matching the IOM construction
+# convention. Both no-op when no device has a nonzero proportional loss term;
+# the variables-stage helper additionally emits a configuration warning.
+function _add_abs_value_decomposition_variables!(
     container::OptimizationContainer,
     devices,
-    model::DeviceModel{D, F},
+    ::DeviceModel{D, F},
     ::NetworkModel{<:AbstractPowerModel},
-    parent_var_type::Type{<:VariableType},
-    i_max_getter::Function,
 ) where {D <: PSY.Device, F}
     ll_devices = _devices_with_linear_loss(devices)
     if isempty(ll_devices)
         @warn "use_linear_loss is enabled but no $(D) has a nonzero proportional loss term; no linear-loss variables/constraints will be added."
         return
     end
-
     add_variables!(container, PositiveCurrent, ll_devices, F)
     add_variables!(container, NegativeCurrent, ll_devices, F)
     add_variables!(container, CurrentDirection, ll_devices, F)
+    return
+end
+
+function _add_abs_value_decomposition_constraints!(
+    container::OptimizationContainer,
+    devices,
+    ::DeviceModel{D, F},
+    ::NetworkModel{<:AbstractPowerModel},
+    parent_var_type::Type{<:VariableType},
+    i_max_getter::Function,
+) where {D <: PSY.Device, F}
+    ll_devices = _devices_with_linear_loss(devices)
+    isempty(ll_devices) && return
 
     time_steps = get_time_steps(container)
     names = [PSY.get_name(d) for d in ll_devices]

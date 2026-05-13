@@ -204,16 +204,16 @@ Two-terminal VSC formulation that approximates the bilinear ``v \\cdot I`` and
 quadratic ``I^2`` terms with SOS2-based piecewise-linear envelopes (the same
 scheme used by `MIPQuadraticLossConverter`). Stays MILP.
 """
-struct HVDCTwoTerminalVSCMIP <: AbstractTwoTerminalVSCFormulation end
+struct HVDCTwoTerminalVSCMILP <: AbstractTwoTerminalVSCFormulation end
 
 """
 Two-terminal VSC formulation that shares the SOS2 PWL loss model of
-`HVDCTwoTerminalVSCMIP` but enforces the per-terminal PQ capability via an
+`HVDCTwoTerminalVSCMILP` but enforces the per-terminal PQ capability via an
 octagonal linear outer-approximation of the disk ``p^2 + q^2 \\le \\text{rating}^2``
 (8 linear constraints per terminal per timestep, no extra binaries beyond
 those required by the loss model). The "LP" name refers to the PQ-capability
 constraint shape — it is strictly linear and is guaranteed to be a relaxation
-of the disk, in contrast to the SOS2 PWL approximation `HVDCTwoTerminalVSCMIP`
+of the disk, in contrast to the SOS2 PWL approximation `HVDCTwoTerminalVSCMILP`
 uses for PQ which is tighter but not strictly outer- or inner-bounding.
 """
 struct HVDCTwoTerminalVSCLP <: AbstractTwoTerminalVSCFormulation end

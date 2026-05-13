@@ -253,7 +253,7 @@ function _build_vsc_model(formulation, network, optimizer; sys = _generate_test_
 end
 
 @testset "HVDC Two-Terminal VSC (MIP) on DCP" begin
-    model = _build_vsc_model(HVDCTwoTerminalVSCMIP, DCPPowerModel, HiGHS_optimizer)
+    model = _build_vsc_model(HVDCTwoTerminalVSCMILP, DCPPowerModel, HiGHS_optimizer)
     @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
           IOM.ModelBuildStatus.BUILT
     @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
@@ -273,7 +273,7 @@ end
     @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
 end
 
-# Omitted: HVDCTwoTerminalVSCMIP on ACPPowerModel cannot be solved by HiGHS
+# Omitted: HVDCTwoTerminalVSCMILP on ACPPowerModel cannot be solved by HiGHS
 # because ACPPowerModel introduces trigonometric (cos/sin) constraints in the
 # branch ohms law that require an NLP-capable solver. The MIP loss model
 # (SOS2 PWL) is independent of the network's nonlinearity. To exercise this
@@ -298,7 +298,7 @@ end
         @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
         return IOM.get_optimization_container(model).optimizer_stats.objective_value
     end
-    mip_obj = _solve(HVDCTwoTerminalVSCMIP, HiGHS_optimizer)
+    mip_obj = _solve(HVDCTwoTerminalVSCMILP, HiGHS_optimizer)
     nlp_obj = _solve(HVDCTwoTerminalVSC, ipopt_optimizer)
     @test isapprox(mip_obj, nlp_obj; rtol = 0.05)
 end
@@ -308,7 +308,7 @@ end
     function _solve_with_g(g_value)
         sys = _generate_test_vsc_sys(; g = g_value)
         model = _build_vsc_model(
-            HVDCTwoTerminalVSCMIP, DCPPowerModel, HiGHS_optimizer; sys = sys,
+            HVDCTwoTerminalVSCMILP, DCPPowerModel, HiGHS_optimizer; sys = sys,
         )
         @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
               IOM.ModelBuildStatus.BUILT

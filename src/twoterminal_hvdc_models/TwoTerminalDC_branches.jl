@@ -1444,7 +1444,8 @@ end
 get_variable_binary(::Type{DCLineCurrentFlowVariable}, ::Type{PSY.TwoTerminalVSCLine}, ::Type{<:AbstractTwoTerminalVSCFormulation}) = false
 get_variable_binary(::Type{HVDCFromDCVoltage}, ::Type{PSY.TwoTerminalVSCLine}, ::Type{<:AbstractTwoTerminalVSCFormulation}) = false
 get_variable_binary(::Type{HVDCToDCVoltage}, ::Type{PSY.TwoTerminalVSCLine}, ::Type{<:AbstractTwoTerminalVSCFormulation}) = false
-get_variable_binary(::Type{<:HVDCReactivePowerVariable}, ::Type{PSY.TwoTerminalVSCLine}, ::Type{<:AbstractTwoTerminalVSCFormulation}) = false
+get_variable_binary(::Type{HVDCReactivePowerFromVariable}, ::Type{PSY.TwoTerminalVSCLine}, ::Type{<:AbstractTwoTerminalVSCFormulation}) = false
+get_variable_binary(::Type{HVDCReactivePowerToVariable}, ::Type{PSY.TwoTerminalVSCLine}, ::Type{<:AbstractTwoTerminalVSCFormulation}) = false
 get_variable_binary(::Type{PositiveCurrent}, ::Type{PSY.TwoTerminalVSCLine}, ::Type{<:AbstractTwoTerminalVSCFormulation}) = false
 get_variable_binary(::Type{NegativeCurrent}, ::Type{PSY.TwoTerminalVSCLine}, ::Type{<:AbstractTwoTerminalVSCFormulation}) = false
 get_variable_binary(::Type{CurrentDirection}, ::Type{PSY.TwoTerminalVSCLine}, ::Type{<:AbstractTwoTerminalVSCFormulation}) = true
@@ -1476,13 +1477,12 @@ get_variable_upper_bound(::Type{HVDCFromDCVoltage}, d::PSY.TwoTerminalVSCLine, :
 get_variable_lower_bound(::Type{HVDCToDCVoltage}, d::PSY.TwoTerminalVSCLine, ::Type{<:AbstractTwoTerminalVSCFormulation}) = PSY.get_voltage_limits_to(d).min
 get_variable_upper_bound(::Type{HVDCToDCVoltage}, d::PSY.TwoTerminalVSCLine, ::Type{<:AbstractTwoTerminalVSCFormulation}) = PSY.get_voltage_limits_to(d).max
 
-# Side-parametric accessors so per-terminal methods (From/To) can be written once.
-_vsc_arc_bus(d::PSY.TwoTerminalVSCLine, ::Type{From}) = PSY.get_arc(d).from
-_vsc_arc_bus(d::PSY.TwoTerminalVSCLine, ::Type{To})   = PSY.get_arc(d).to
-_vsc_v_limits(d::PSY.TwoTerminalVSCLine, ::Type{From}) = PSY.get_voltage_limits_from(d)
-_vsc_v_limits(d::PSY.TwoTerminalVSCLine, ::Type{To})   = PSY.get_voltage_limits_to(d)
-_vsc_rating(d::PSY.TwoTerminalVSCLine, ::Type{From}) = PSY.get_rating_from(d)
-_vsc_rating(d::PSY.TwoTerminalVSCLine, ::Type{To})   = PSY.get_rating_to(d)
+# Per-terminal accessors. Two concrete methods rather than one side-parametric
+# method to keep the public type surface narrow (no From/To tag types).
+_vsc_v_limits_from(d::PSY.TwoTerminalVSCLine) = PSY.get_voltage_limits_from(d)
+_vsc_v_limits_to(d::PSY.TwoTerminalVSCLine)   = PSY.get_voltage_limits_to(d)
+_vsc_rating_from(d::PSY.TwoTerminalVSCLine) = PSY.get_rating_from(d)
+_vsc_rating_to(d::PSY.TwoTerminalVSCLine)   = PSY.get_rating_to(d)
 
 # Shared cable current bounds — must respect BOTH terminals' I_max ratings
 _vsc_shared_i_max(d::PSY.TwoTerminalVSCLine) =
@@ -1498,56 +1498,13 @@ get_variable_upper_bound(::Type{NegativeCurrent}, d::PSY.TwoTerminalVSCLine, ::T
 
 #! format: on
 
-####################### VSC reactive-power optional path #####################
-# The reactive power and PQ capability machinery is added only when the
-# network actually models reactive power. On active-only networks these
-# helpers are no-ops.
-
-function _maybe_add_reactive_power_variables!(
-    container::OptimizationContainer,
-    devices,
-    model::DeviceModel{PSY.TwoTerminalVSCLine, F},
-    network_model::NetworkModel{<:AbstractPowerModel},
-) where {F <: AbstractTwoTerminalVSCFormulation}
-    add_variables!(container, HVDCReactivePowerFromVariable, devices, F)
-    add_variables!(container, HVDCReactivePowerToVariable, devices, F)
-    add_to_expression!(
-        container, ReactivePowerBalance, HVDCReactivePowerFromVariable,
-        devices, model, network_model,
-    )
-    add_to_expression!(
-        container, ReactivePowerBalance, HVDCReactivePowerToVariable,
-        devices, model, network_model,
-    )
-    return
-end
-
-_maybe_add_reactive_power_variables!(
-    ::OptimizationContainer,
-    _devices,
-    ::DeviceModel{PSY.TwoTerminalVSCLine, <:AbstractTwoTerminalVSCFormulation},
-    ::NetworkModel{<:AbstractActivePowerModel},
-) = nothing
-
-function _maybe_add_reactive_power_constraints!(
-    container::OptimizationContainer,
-    devices,
-    model::DeviceModel{PSY.TwoTerminalVSCLine, F},
-    network_model::NetworkModel{<:AbstractPowerModel},
-) where {F <: AbstractTwoTerminalVSCFormulation}
-    add_constraints!(
-        container, HVDCVSCReactiveCapabilityConstraint,
-        devices, model, network_model,
-    )
-    return
-end
-
-_maybe_add_reactive_power_constraints!(
-    ::OptimizationContainer,
-    _devices,
-    ::DeviceModel{PSY.TwoTerminalVSCLine, <:AbstractTwoTerminalVSCFormulation},
-    ::NetworkModel{<:AbstractActivePowerModel},
-) = nothing
+####################### VSC PQ-approx registration ###########################
+# The generic `_maybe_add_reactive_power_variables!` /
+# `_maybe_add_reactive_power_constraints!` helpers live in
+# `common_models/network_conditional.jl` and are called directly from the VSC
+# constructor. This section only defines the VSC-specific
+# `_maybe_add_pq_sq_approx!` since it registers four named expressions that
+# are specific to the VSC variables (`p_ft_sq`, `p_tf_sq`, `q_f_sq`, `q_t_sq`).
 
 # Register the four `p_*_sq` / `q_*_sq` IOM quadratic-approx expressions used
 # by the unified PQ-capability constraint (`p_sq + q_sq ≤ s²`). Only fired
@@ -1564,26 +1521,28 @@ function _maybe_add_pq_sq_approx!(
     ::NetworkModel{<:AbstractPowerModel},
 ) where {F <: AbstractTwoTerminalVSCFormulation}
     _uses_pq_sq_approx(F) || return
-    p_ft_var = get_variable(container, FlowActivePowerFromToVariable, PSY.TwoTerminalVSCLine)
-    p_tf_var = get_variable(container, FlowActivePowerToFromVariable, PSY.TwoTerminalVSCLine)
+    p_ft_var =
+        get_variable(container, FlowActivePowerFromToVariable, PSY.TwoTerminalVSCLine)
+    p_tf_var =
+        get_variable(container, FlowActivePowerToFromVariable, PSY.TwoTerminalVSCLine)
     q_f_var = get_variable(container, HVDCReactivePowerFromVariable, PSY.TwoTerminalVSCLine)
     q_t_var = get_variable(container, HVDCReactivePowerToVariable, PSY.TwoTerminalVSCLine)
 
     p_ft_bounds = [
         (min = PSY.get_active_power_limits_from(d).min,
-         max = PSY.get_active_power_limits_from(d).max) for d in devices
+            max = PSY.get_active_power_limits_from(d).max) for d in devices
     ]
     p_tf_bounds = [
         (min = PSY.get_active_power_limits_to(d).min,
-         max = PSY.get_active_power_limits_to(d).max) for d in devices
+            max = PSY.get_active_power_limits_to(d).max) for d in devices
     ]
     q_f_bounds = [
         (min = PSY.get_reactive_power_limits_from(d).min,
-         max = PSY.get_reactive_power_limits_from(d).max) for d in devices
+            max = PSY.get_reactive_power_limits_from(d).max) for d in devices
     ]
     q_t_bounds = [
         (min = PSY.get_reactive_power_limits_to(d).min,
-         max = PSY.get_reactive_power_limits_to(d).max) for d in devices
+            max = PSY.get_reactive_power_limits_to(d).max) for d in devices
     ]
 
     IOM._add_quadratic_approx!(
@@ -1746,7 +1705,7 @@ function add_constraints!(
 end
 
 # PQ capability for the exact-NLP (HVDCTwoTerminalVSC) and SOS2-PWL
-# (HVDCTwoTerminalVSCMIP) paths.
+# (HVDCTwoTerminalVSCMILP) paths.
 #
 # Constraint:  p_sq + q_sq ≤ s²  per terminal, where p_sq / q_sq are the
 # expressions produced by `IOM._add_quadratic_approx!` (registered as
@@ -1756,21 +1715,21 @@ end
 #   • HVDCTwoTerminalVSC uses `NoQuadApproxConfig`, so `p_sq[name,t]` IS the
 #     exact `p_ft[name,t]^2` (JuMP.QuadExpr). The constraint reduces to
 #     `p² + q² ≤ s²` and the model stays a smooth NLP.
-#   • HVDCTwoTerminalVSCMIP uses `SolverSOS2QuadConfig(K)`, so `p_sq[name,t]`
+#   • HVDCTwoTerminalVSCMILP uses `SolverSOS2QuadConfig(K)`, so `p_sq[name,t]`
 #     is an SOS2-based PWL approximation of `p²` (JuMP.AffExpr). Tightness
 #     grows with `K`; the approximation is not guaranteed to be a strict
 #     outer- or inner-bound of the disk — its position depends on PWL
 #     direction.
 function add_constraints!(
     container::OptimizationContainer,
-    ::Type{HVDCVSCReactiveCapabilityConstraint},
+    ::Type{HVDCVSCApparentPowerLimitConstraint},
     devices::Union{
         Vector{PSY.TwoTerminalVSCLine},
         IS.FlattenIteratorWrapper{PSY.TwoTerminalVSCLine},
     },
     ::DeviceModel{PSY.TwoTerminalVSCLine, F},
     ::NetworkModel{<:AbstractPowerModel},
-) where {F <: Union{HVDCTwoTerminalVSC, HVDCTwoTerminalVSCMIP}}
+) where {F <: Union{HVDCTwoTerminalVSC, HVDCTwoTerminalVSCMILP}}
     time_steps = get_time_steps(container)
     names = [PSY.get_name(d) for d in devices]
     jump_model = get_jump_model(container)
@@ -1789,11 +1748,11 @@ function add_constraints!(
     )
 
     cons_f = add_constraints_container!(
-        container, HVDCVSCReactiveCapabilityConstraint, PSY.TwoTerminalVSCLine,
+        container, HVDCVSCApparentPowerLimitConstraint, PSY.TwoTerminalVSCLine,
         names, time_steps; meta = "from",
     )
     cons_t = add_constraints_container!(
-        container, HVDCVSCReactiveCapabilityConstraint, PSY.TwoTerminalVSCLine,
+        container, HVDCVSCApparentPowerLimitConstraint, PSY.TwoTerminalVSCLine,
         names, time_steps; meta = "to",
     )
 
@@ -1834,14 +1793,14 @@ end
 # operating point.
 #
 # Tradeoff vs the unified PWL path used by `HVDCTwoTerminalVSC` /
-# `HVDCTwoTerminalVSCMIP` (above): the SOS2 PWL on `p²` and `q²` separately
+# `HVDCTwoTerminalVSCMILP` (above): the SOS2 PWL on `p²` and `q²` separately
 # can be made arbitrarily tight by increasing the breakpoint count, but the
 # resulting feasible region is not guaranteed to be a strict outer- or
 # inner-approximation of the disk. The octagon is the simplest always-
 # conservative linear envelope and introduces no extra variables.
 function add_constraints!(
     container::OptimizationContainer,
-    ::Type{HVDCVSCReactiveCapabilityConstraint},
+    ::Type{HVDCVSCApparentPowerLimitConstraint},
     devices::Union{
         Vector{PSY.TwoTerminalVSCLine},
         IS.FlattenIteratorWrapper{PSY.TwoTerminalVSCLine},
@@ -1865,7 +1824,7 @@ function add_constraints!(
     cons = Dict{String, Any}()
     for tag in (diag_tags..., axis_tags...)
         cons[tag] = add_constraints_container!(
-            container, HVDCVSCReactiveCapabilityConstraint, PSY.TwoTerminalVSCLine,
+            container, HVDCVSCApparentPowerLimitConstraint, PSY.TwoTerminalVSCLine,
             names, time_steps; meta = tag,
         )
     end
@@ -1873,13 +1832,13 @@ function add_constraints!(
     # Run the same octagon block twice (from/to) using a per-side spec, so
     # the eight inner constraints aren't textually duplicated.
     side_specs = (
-        (prefix = "from", p_var = p_ft, q_var = q_f, side = From),
-        (prefix = "to",   p_var = p_tf, q_var = q_t, side = To),
+        (prefix = "from", p_var = p_ft, q_var = q_f, rating_getter = _vsc_rating_from),
+        (prefix = "to", p_var = p_tf, q_var = q_t, rating_getter = _vsc_rating_to),
     )
     for d in devices
         name = PSY.get_name(d)
         for spec in side_specs
-            rating = _vsc_rating(d, spec.side)
+            rating = spec.rating_getter(d)
             diag = rating * sqrt(2.0)
             prefix = spec.prefix
             p_var, q_var = spec.p_var, spec.q_var
@@ -1925,12 +1884,12 @@ function get_default_attributes(
     return Dict{String, Any}("use_linear_loss" => false)
 end
 
-# Default `use_linear_loss = true`: HVDCTwoTerminalVSCMIP already uses SOS2 PWL
+# Default `use_linear_loss = true`: HVDCTwoTerminalVSCMILP already uses SOS2 PWL
 # (MIP), so the extra binary direction variable from the linear-loss
 # decomposition is free.
 function get_default_attributes(
     ::Type{PSY.TwoTerminalVSCLine},
-    ::Type{HVDCTwoTerminalVSCMIP},
+    ::Type{HVDCTwoTerminalVSCMILP},
 )
     return Dict{String, Any}("use_linear_loss" => true)
 end

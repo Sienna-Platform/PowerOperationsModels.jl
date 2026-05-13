@@ -55,6 +55,15 @@ function construct_device!(
     add_variables!(container, ActivePowerVariable, devices, T)
     add_variables!(container, ConverterCurrent, devices, T)
 
+    # use_linear_loss = true on QuadraticLossConverter adds a binary direction
+    # variable (CurrentDirection), making the model MINLP rather than smooth
+    # NLP. Caller is responsible for supplying a MINLP-capable solver.
+    if get_attribute(model, "use_linear_loss")
+        _add_abs_value_decomposition_variables!(
+            container, devices, model, network_model,
+        )
+    end
+
     add_to_expression!(
         container, ActivePowerBalance, ActivePowerVariable,
         devices, model, network_model,
@@ -140,16 +149,12 @@ function construct_device!(
         "vi",
     )
 
-    # The abs-value decomposition adds PositiveCurrent / NegativeCurrent
-    # variables that the ConverterLossConstraint reads, so it must run first.
-    #
-    # Note: use_linear_loss = true on QuadraticLossConverter adds a binary
-    # direction variable (CurrentDirection), making the model MINLP rather
-    # than smooth NLP. Caller is responsible for supplying a MINLP-capable
-    # solver in that case.
-    use_ll = get_attribute(model, "use_linear_loss")
-    if use_ll
-        _add_abs_value_decomposition!(
+    # PositiveCurrent / NegativeCurrent / CurrentDirection variables were added
+    # in the ArgumentConstructStage; only the decomposition constraints need
+    # the JuMP model now. ConverterLossConstraint reads these variables, so
+    # the decomposition constraints must be added first.
+    if get_attribute(model, "use_linear_loss")
+        _add_abs_value_decomposition_constraints!(
             container, devices, model, network_model,
             ConverterCurrent, PSY.get_max_dc_current,
         )

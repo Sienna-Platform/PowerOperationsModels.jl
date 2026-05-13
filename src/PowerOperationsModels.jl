@@ -214,6 +214,7 @@ include("common_models/add_parameters.jl")
 include("common_models/make_system_expressions.jl")
 include("common_models/reserve_range_constraints.jl")
 include("common_models/quadratic_converter_loss.jl")
+include("common_models/network_conditional.jl")
 
 # Market bid cost plumbing (PSY orchestration moved out of IOM). Must be included
 # before device-specific files that reference MBC_TYPES / IEC_TYPES.
@@ -764,7 +765,7 @@ export HVDCTwoTerminalDispatch
 export HVDCTwoTerminalPiecewiseLoss
 export HVDCTwoTerminalLCC
 export HVDCTwoTerminalVSC
-export HVDCTwoTerminalVSCMIP
+export HVDCTwoTerminalVSCMILP
 export HVDCTwoTerminalVSCLP
 
 # Converter Formulations

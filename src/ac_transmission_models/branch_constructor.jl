@@ -1678,12 +1678,12 @@ end
 # Quadratic / bilinear approximation traits — same scheme used by the MT
 # converter formulations.
 _quad_config(::Type{HVDCTwoTerminalVSC}) = IOM.NoQuadApproxConfig()
-_quad_config(::Type{HVDCTwoTerminalVSCMIP}) =
+_quad_config(::Type{HVDCTwoTerminalVSCMILP}) =
     IOM.SolverSOS2QuadConfig(DEFAULT_INTERPOLATION_LENGTH)
 _quad_config(::Type{HVDCTwoTerminalVSCLP}) =
     IOM.SolverSOS2QuadConfig(DEFAULT_INTERPOLATION_LENGTH)
 _bilinear_config(::Type{HVDCTwoTerminalVSC}) = IOM.NoBilinearApproxConfig()
-_bilinear_config(::Type{HVDCTwoTerminalVSCMIP}) =
+_bilinear_config(::Type{HVDCTwoTerminalVSCMILP}) =
     IOM.Bin2Config(IOM.SolverSOS2QuadConfig(DEFAULT_INTERPOLATION_LENGTH))
 _bilinear_config(::Type{HVDCTwoTerminalVSCLP}) =
     IOM.Bin2Config(IOM.SolverSOS2QuadConfig(DEFAULT_INTERPOLATION_LENGTH))
@@ -1693,12 +1693,13 @@ _bilinear_config(::Type{HVDCTwoTerminalVSCLP}) =
 # which uses an octagonal linear outer-approximation instead and therefore
 # does not need p_sq / q_sq expressions.
 _uses_pq_sq_approx(::Type{HVDCTwoTerminalVSC}) = true
-_uses_pq_sq_approx(::Type{HVDCTwoTerminalVSCMIP}) = true
+_uses_pq_sq_approx(::Type{HVDCTwoTerminalVSCMILP}) = true
 _uses_pq_sq_approx(::Type{HVDCTwoTerminalVSCLP}) = false
 
-function _vsc_v_bounds(devices, ::Type{S}) where {S <: Union{From, To}}
-    return [(min = _vsc_v_limits(d, S).min, max = _vsc_v_limits(d, S).max) for d in devices]
-end
+_vsc_v_bounds_from(devices) =
+    [(min = _vsc_v_limits_from(d).min, max = _vsc_v_limits_from(d).max) for d in devices]
+_vsc_v_bounds_to(devices) =
+    [(min = _vsc_v_limits_to(d).min, max = _vsc_v_limits_to(d).max) for d in devices]
 
 function _vsc_i_bounds(devices)
     return [(min = -_vsc_shared_i_max(d), max = _vsc_shared_i_max(d)) for d in devices]
@@ -1719,7 +1720,19 @@ function construct_device!(
     add_variables!(container, HVDCFromDCVoltage, devices, F)
     add_variables!(container, HVDCToDCVoltage, devices, F)
 
-    _maybe_add_reactive_power_variables!(container, devices, device_model, network_model)
+    _maybe_add_reactive_power_variables!(
+        container, devices, device_model, network_model,
+        (HVDCReactivePowerFromVariable, HVDCReactivePowerToVariable),
+    )
+
+    # use_linear_loss = true adds a binary direction variable (CurrentDirection),
+    # making the model MINLP rather than smooth NLP. Caller is responsible for
+    # supplying a MINLP-capable solver in that case.
+    if get_attribute(device_model, "use_linear_loss")
+        _add_abs_value_decomposition_variables!(
+            container, devices, device_model, network_model,
+        )
+    end
 
     add_to_expression!(
         container, ActivePowerBalance, FlowActivePowerFromToVariable,
@@ -1749,8 +1762,8 @@ function construct_device!(
     v_t_var = get_variable(container, HVDCToDCVoltage, PSY.TwoTerminalVSCLine)
     i_var = get_variable(container, DCLineCurrentFlowVariable, PSY.TwoTerminalVSCLine)
 
-    v_f_bounds = _vsc_v_bounds(devices, From)
-    v_t_bounds = _vsc_v_bounds(devices, To)
+    v_f_bounds = _vsc_v_bounds_from(devices)
+    v_t_bounds = _vsc_v_bounds_to(devices)
     i_bounds = _vsc_i_bounds(devices)
 
     quad_cfg, bilin_cfg = _quad_config(F), _bilinear_config(F)
@@ -1785,17 +1798,8 @@ function construct_device!(
         container, devices, line_names, time_steps, quad_cfg, F, network_model,
     )
 
-    # The abs-value decomposition adds PositiveCurrent / NegativeCurrent
-    # variables that the HVDCVSCConverterPowerConstraint reads, so it must
-    # run before that constraint is added.
-    #
-    # Note: use_linear_loss = true on HVDCTwoTerminalVSC adds a binary
-    # direction variable (CurrentDirection), making the model MINLP rather
-    # than smooth NLP. Caller is responsible for supplying a MINLP-capable
-    # solver in that case.
-    use_ll = get_attribute(device_model, "use_linear_loss")
-    if use_ll
-        _add_abs_value_decomposition!(
+    if get_attribute(device_model, "use_linear_loss")
+        _add_abs_value_decomposition_constraints!(
             container, devices, device_model, network_model,
             DCLineCurrentFlowVariable, _vsc_shared_i_max,
         )
@@ -1807,7 +1811,10 @@ function construct_device!(
     add_constraints!(
         container, HVDCVSCConverterPowerConstraint, devices, device_model, network_model,
     )
-    _maybe_add_reactive_power_constraints!(container, devices, device_model, network_model)
+    _maybe_add_reactive_power_constraints!(
+        container, devices, device_model, network_model,
+        HVDCVSCApparentPowerLimitConstraint,
+    )
 
     add_constraint_dual!(container, sys, device_model)
     add_feedforward_constraints!(container, device_model, devices)
