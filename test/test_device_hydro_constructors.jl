@@ -678,11 +678,19 @@ end
     total_outflow = sum(df_outflow[!, :value])
     total_spillage = sum(hydro_spillage_df[!, :value])
 
+    # Tolerance covers accumulated rounding in the m^3/s → km^3 unit conversion
+    # plus the MILP bilinear approximation; water-balance closure within 1e-4 km^3
+    # is well inside HiGHS' default feasibility tolerance for this problem size.
+    tol = 1e-4
     calculated_vf =
         (hydro_vol_df[1, :value]) +
-        ((total_inflow - total_outflow - total_spillage) * 3600 * 1e-9)
+        (
+            (total_inflow - total_outflow - total_spillage) *
+            POM.SECONDS_IN_HOUR *
+            POM.M3_TO_KM3
+        )
 
-    @test abs(calculated_vf - hydro_vol_df[end, :value]) <= 1e-4
+    @test isapprox(calculated_vf, hydro_vol_df[end, :value], atol = tol)
 
     psi_checksolve_test(
         model,
@@ -855,11 +863,19 @@ end
     total_outflow = sum(df_outflow[!, :value])
     total_spillage = sum(hydro_spillage_df[!, :value])
 
+    # Tolerance covers accumulated rounding in the m^3/s → km^3 unit conversion
+    # plus the MILP bilinear approximation; water-balance closure within 1e-4 km^3
+    # is well inside HiGHS' default feasibility tolerance for this problem size.
+    tol = 1e-4
     calculated_vf =
         (hydro_vol_df[1, :value]) +
-        ((total_inflow - total_outflow - total_spillage) * 3600 * 1e-9)
+        (
+            (total_inflow - total_outflow - total_spillage) *
+            POM.SECONDS_IN_HOUR *
+            POM.M3_TO_KM3
+        )
 
-    @test abs(calculated_vf - hydro_vol_df[end, :value]) <= 1e-4
+    @test isapprox(calculated_vf, hydro_vol_df[end, :value], atol = tol)
 
     psi_checksolve_test(
         model,
