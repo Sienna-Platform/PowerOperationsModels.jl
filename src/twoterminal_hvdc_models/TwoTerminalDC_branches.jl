@@ -1476,6 +1476,14 @@ get_variable_upper_bound(::Type{HVDCFromDCVoltage}, d::PSY.TwoTerminalVSCLine, :
 get_variable_lower_bound(::Type{HVDCToDCVoltage}, d::PSY.TwoTerminalVSCLine, ::Type{<:AbstractTwoTerminalVSCFormulation}) = PSY.get_voltage_limits_to(d).min
 get_variable_upper_bound(::Type{HVDCToDCVoltage}, d::PSY.TwoTerminalVSCLine, ::Type{<:AbstractTwoTerminalVSCFormulation}) = PSY.get_voltage_limits_to(d).max
 
+# Side-parametric accessors so per-terminal methods (From/To) can be written once.
+_vsc_arc_bus(d::PSY.TwoTerminalVSCLine, ::Type{From}) = PSY.get_arc(d).from
+_vsc_arc_bus(d::PSY.TwoTerminalVSCLine, ::Type{To})   = PSY.get_arc(d).to
+_vsc_v_limits(d::PSY.TwoTerminalVSCLine, ::Type{From}) = PSY.get_voltage_limits_from(d)
+_vsc_v_limits(d::PSY.TwoTerminalVSCLine, ::Type{To})   = PSY.get_voltage_limits_to(d)
+_vsc_rating(d::PSY.TwoTerminalVSCLine, ::Type{From}) = PSY.get_rating_from(d)
+_vsc_rating(d::PSY.TwoTerminalVSCLine, ::Type{To})   = PSY.get_rating_to(d)
+
 # Shared cable current bounds — must respect BOTH terminals' I_max ratings
 _vsc_shared_i_max(d::PSY.TwoTerminalVSCLine) =
     min(PSY.get_max_dc_current_from(d), PSY.get_max_dc_current_to(d))
@@ -1538,6 +1546,72 @@ _maybe_add_reactive_power_constraints!(
     ::OptimizationContainer,
     _devices,
     ::DeviceModel{PSY.TwoTerminalVSCLine, <:AbstractTwoTerminalVSCFormulation},
+    ::NetworkModel{<:AbstractActivePowerModel},
+) = nothing
+
+# Register the four `p_*_sq` / `q_*_sq` IOM quadratic-approx expressions used
+# by the unified PQ-capability constraint (`p_sq + q_sq ≤ s²`). Only fired
+# when the network actually models reactive power AND the formulation opts
+# into the IOM-PWL PQ path via `_uses_pq_sq_approx`. The LP formulation
+# (octagon) bypasses this entirely.
+function _maybe_add_pq_sq_approx!(
+    container::OptimizationContainer,
+    devices,
+    line_names,
+    time_steps,
+    quad_cfg,
+    ::Type{F},
+    ::NetworkModel{<:AbstractPowerModel},
+) where {F <: AbstractTwoTerminalVSCFormulation}
+    _uses_pq_sq_approx(F) || return
+    p_ft_var = get_variable(container, FlowActivePowerFromToVariable, PSY.TwoTerminalVSCLine)
+    p_tf_var = get_variable(container, FlowActivePowerToFromVariable, PSY.TwoTerminalVSCLine)
+    q_f_var = get_variable(container, HVDCReactivePowerFromVariable, PSY.TwoTerminalVSCLine)
+    q_t_var = get_variable(container, HVDCReactivePowerToVariable, PSY.TwoTerminalVSCLine)
+
+    p_ft_bounds = [
+        (min = PSY.get_active_power_limits_from(d).min,
+         max = PSY.get_active_power_limits_from(d).max) for d in devices
+    ]
+    p_tf_bounds = [
+        (min = PSY.get_active_power_limits_to(d).min,
+         max = PSY.get_active_power_limits_to(d).max) for d in devices
+    ]
+    q_f_bounds = [
+        (min = PSY.get_reactive_power_limits_from(d).min,
+         max = PSY.get_reactive_power_limits_from(d).max) for d in devices
+    ]
+    q_t_bounds = [
+        (min = PSY.get_reactive_power_limits_to(d).min,
+         max = PSY.get_reactive_power_limits_to(d).max) for d in devices
+    ]
+
+    IOM._add_quadratic_approx!(
+        quad_cfg, container, PSY.TwoTerminalVSCLine,
+        line_names, time_steps, p_ft_var, p_ft_bounds, "p_ft_sq",
+    )
+    IOM._add_quadratic_approx!(
+        quad_cfg, container, PSY.TwoTerminalVSCLine,
+        line_names, time_steps, p_tf_var, p_tf_bounds, "p_tf_sq",
+    )
+    IOM._add_quadratic_approx!(
+        quad_cfg, container, PSY.TwoTerminalVSCLine,
+        line_names, time_steps, q_f_var, q_f_bounds, "q_f_sq",
+    )
+    IOM._add_quadratic_approx!(
+        quad_cfg, container, PSY.TwoTerminalVSCLine,
+        line_names, time_steps, q_t_var, q_t_bounds, "q_t_sq",
+    )
+    return
+end
+
+_maybe_add_pq_sq_approx!(
+    ::OptimizationContainer,
+    _devices,
+    _line_names,
+    _time_steps,
+    _quad_cfg,
+    ::Type{<:AbstractTwoTerminalVSCFormulation},
     ::NetworkModel{<:AbstractActivePowerModel},
 ) = nothing
 
@@ -1671,7 +1745,22 @@ function add_constraints!(
     return
 end
 
-# PQ capability:  p_k^2 + q_k^2 <= S_k^2 (NLP) or octagonal polygon (MIP).
+# PQ capability for the exact-NLP (HVDCTwoTerminalVSC) and SOS2-PWL
+# (HVDCTwoTerminalVSCMIP) paths.
+#
+# Constraint:  p_sq + q_sq ≤ s²  per terminal, where p_sq / q_sq are the
+# expressions produced by `IOM._add_quadratic_approx!` (registered as
+# `IOM.QuadraticExpression` with metas `p_*_sq` / `q_*_sq` by
+# `_maybe_add_pq_sq_approx!`).
+#
+#   • HVDCTwoTerminalVSC uses `NoQuadApproxConfig`, so `p_sq[name,t]` IS the
+#     exact `p_ft[name,t]^2` (JuMP.QuadExpr). The constraint reduces to
+#     `p² + q² ≤ s²` and the model stays a smooth NLP.
+#   • HVDCTwoTerminalVSCMIP uses `SolverSOS2QuadConfig(K)`, so `p_sq[name,t]`
+#     is an SOS2-based PWL approximation of `p²` (JuMP.AffExpr). Tightness
+#     grows with `K`; the approximation is not guaranteed to be a strict
+#     outer- or inner-bound of the disk — its position depends on PWL
+#     direction.
 function add_constraints!(
     container::OptimizationContainer,
     ::Type{HVDCVSCReactiveCapabilityConstraint},
@@ -1679,17 +1768,25 @@ function add_constraints!(
         Vector{PSY.TwoTerminalVSCLine},
         IS.FlattenIteratorWrapper{PSY.TwoTerminalVSCLine},
     },
-    ::DeviceModel{PSY.TwoTerminalVSCLine, HVDCTwoTerminalVSC},
+    ::DeviceModel{PSY.TwoTerminalVSCLine, F},
     ::NetworkModel{<:AbstractPowerModel},
-)
+) where {F <: Union{HVDCTwoTerminalVSC, HVDCTwoTerminalVSCMIP}}
     time_steps = get_time_steps(container)
     names = [PSY.get_name(d) for d in devices]
     jump_model = get_jump_model(container)
 
-    p_ft = get_variable(container, FlowActivePowerFromToVariable, PSY.TwoTerminalVSCLine)
-    p_tf = get_variable(container, FlowActivePowerToFromVariable, PSY.TwoTerminalVSCLine)
-    q_f = get_variable(container, HVDCReactivePowerFromVariable, PSY.TwoTerminalVSCLine)
-    q_t = get_variable(container, HVDCReactivePowerToVariable, PSY.TwoTerminalVSCLine)
+    p_ft_sq = get_expression(
+        container, IOM.QuadraticExpression, PSY.TwoTerminalVSCLine, "p_ft_sq",
+    )
+    p_tf_sq = get_expression(
+        container, IOM.QuadraticExpression, PSY.TwoTerminalVSCLine, "p_tf_sq",
+    )
+    q_f_sq = get_expression(
+        container, IOM.QuadraticExpression, PSY.TwoTerminalVSCLine, "q_f_sq",
+    )
+    q_t_sq = get_expression(
+        container, IOM.QuadraticExpression, PSY.TwoTerminalVSCLine, "q_t_sq",
+    )
 
     cons_f = add_constraints_container!(
         container, HVDCVSCReactiveCapabilityConstraint, PSY.TwoTerminalVSCLine,
@@ -1702,22 +1799,46 @@ function add_constraints!(
 
     for d in devices
         name = PSY.get_name(d)
-        s_f = PSY.get_rating_from(d)
-        s_t = PSY.get_rating_to(d)
+        s_f2 = PSY.get_rating_from(d)^2
+        s_t2 = PSY.get_rating_to(d)^2
         for t in time_steps
             cons_f[name, t] = JuMP.@constraint(
-                jump_model,
-                p_ft[name, t]^2 + q_f[name, t]^2 <= s_f^2,
+                jump_model, p_ft_sq[name, t] + q_f_sq[name, t] <= s_f2,
             )
             cons_t[name, t] = JuMP.@constraint(
-                jump_model,
-                p_tf[name, t]^2 + q_t[name, t]^2 <= s_t^2,
+                jump_model, p_tf_sq[name, t] + q_t_sq[name, t] <= s_t2,
             )
         end
     end
     return
 end
 
+# PQ capability for the linear (HVDCTwoTerminalVSCLP) path.
+#
+# The disk `p² + q² ≤ rating²` is approximated by a regular octagon that
+# *contains* the disk: the intersection of two squares circumscribing the
+# disk, where each square is tangent to the disk at four points.
+#
+#   • Axis-aligned square:  |p| ≤ rating, |q| ≤ rating
+#                           (tangent at (±rating, 0) and (0, ±rating))
+#   • 45°-rotated square:   |p| + |q| ≤ rating·√2
+#                           (tangent at the four diagonal points)
+#
+# Their intersection is a regular octagon. Eight linear constraints per
+# terminal per timestep (four diagonal + four axis-aligned).
+#
+# Tightness: the octagon is loose by at most ≈8.2% in area (octagon-to-disk
+# area ratio = 8·tan(π/8)/π ≈ 1.082). It is *guaranteed* to be an outer
+# approximation: any solution feasible to the real disk is feasible to the
+# octagon, so the LP relaxation never blocks a physically realizable
+# operating point.
+#
+# Tradeoff vs the unified PWL path used by `HVDCTwoTerminalVSC` /
+# `HVDCTwoTerminalVSCMIP` (above): the SOS2 PWL on `p²` and `q²` separately
+# can be made arbitrarily tight by increasing the breakpoint count, but the
+# resulting feasible region is not guaranteed to be a strict outer- or
+# inner-approximation of the disk. The octagon is the simplest always-
+# conservative linear envelope and introduces no extra variables.
 function add_constraints!(
     container::OptimizationContainer,
     ::Type{HVDCVSCReactiveCapabilityConstraint},
@@ -1725,7 +1846,7 @@ function add_constraints!(
         Vector{PSY.TwoTerminalVSCLine},
         IS.FlattenIteratorWrapper{PSY.TwoTerminalVSCLine},
     },
-    ::DeviceModel{PSY.TwoTerminalVSCLine, HVDCTwoTerminalVSCMIP},
+    ::DeviceModel{PSY.TwoTerminalVSCLine, HVDCTwoTerminalVSCLP},
     ::NetworkModel{<:AbstractPowerModel},
 )
     time_steps = get_time_steps(container)
@@ -1749,47 +1870,37 @@ function add_constraints!(
         )
     end
 
-    inv_sqrt2 = 1.0 / sqrt(2.0)
+    # Run the same octagon block twice (from/to) using a per-side spec, so
+    # the eight inner constraints aren't textually duplicated.
+    side_specs = (
+        (prefix = "from", p_var = p_ft, q_var = q_f, side = From),
+        (prefix = "to",   p_var = p_tf, q_var = q_t, side = To),
+    )
     for d in devices
         name = PSY.get_name(d)
-        rating_f = PSY.get_rating_from(d)
-        rating_t = PSY.get_rating_to(d)
-        diag_f = rating_f * inv_sqrt2 * 2.0
-        diag_t = rating_t * inv_sqrt2 * 2.0
-        for t in time_steps
-            cons["from_pp"][name, t] =
-                JuMP.@constraint(jump_model, p_ft[name, t] + q_f[name, t] <= diag_f)
-            cons["from_pn"][name, t] =
-                JuMP.@constraint(jump_model, p_ft[name, t] - q_f[name, t] <= diag_f)
-            cons["from_np"][name, t] =
-                JuMP.@constraint(jump_model, -p_ft[name, t] + q_f[name, t] <= diag_f)
-            cons["from_nn"][name, t] =
-                JuMP.@constraint(jump_model, -p_ft[name, t] - q_f[name, t] <= diag_f)
-            cons["to_pp"][name, t] =
-                JuMP.@constraint(jump_model, p_tf[name, t] + q_t[name, t] <= diag_t)
-            cons["to_pn"][name, t] =
-                JuMP.@constraint(jump_model, p_tf[name, t] - q_t[name, t] <= diag_t)
-            cons["to_np"][name, t] =
-                JuMP.@constraint(jump_model, -p_tf[name, t] + q_t[name, t] <= diag_t)
-            cons["to_nn"][name, t] =
-                JuMP.@constraint(jump_model, -p_tf[name, t] - q_t[name, t] <= diag_t)
-
-            cons["from_p_ub"][name, t] =
-                JuMP.@constraint(jump_model, p_ft[name, t] <= rating_f)
-            cons["from_p_lb"][name, t] =
-                JuMP.@constraint(jump_model, -p_ft[name, t] <= rating_f)
-            cons["from_q_ub"][name, t] =
-                JuMP.@constraint(jump_model, q_f[name, t] <= rating_f)
-            cons["from_q_lb"][name, t] =
-                JuMP.@constraint(jump_model, -q_f[name, t] <= rating_f)
-            cons["to_p_ub"][name, t] =
-                JuMP.@constraint(jump_model, p_tf[name, t] <= rating_t)
-            cons["to_p_lb"][name, t] =
-                JuMP.@constraint(jump_model, -p_tf[name, t] <= rating_t)
-            cons["to_q_ub"][name, t] =
-                JuMP.@constraint(jump_model, q_t[name, t] <= rating_t)
-            cons["to_q_lb"][name, t] =
-                JuMP.@constraint(jump_model, -q_t[name, t] <= rating_t)
+        for spec in side_specs
+            rating = _vsc_rating(d, spec.side)
+            diag = rating * sqrt(2.0)
+            prefix = spec.prefix
+            p_var, q_var = spec.p_var, spec.q_var
+            for t in time_steps
+                cons[prefix * "_pp"][name, t] =
+                    JuMP.@constraint(jump_model, p_var[name, t] + q_var[name, t] <= diag)
+                cons[prefix * "_pn"][name, t] =
+                    JuMP.@constraint(jump_model, p_var[name, t] - q_var[name, t] <= diag)
+                cons[prefix * "_np"][name, t] =
+                    JuMP.@constraint(jump_model, -p_var[name, t] + q_var[name, t] <= diag)
+                cons[prefix * "_nn"][name, t] =
+                    JuMP.@constraint(jump_model, -p_var[name, t] - q_var[name, t] <= diag)
+                cons[prefix * "_p_ub"][name, t] =
+                    JuMP.@constraint(jump_model, p_var[name, t] <= rating)
+                cons[prefix * "_p_lb"][name, t] =
+                    JuMP.@constraint(jump_model, -p_var[name, t] <= rating)
+                cons[prefix * "_q_ub"][name, t] =
+                    JuMP.@constraint(jump_model, q_var[name, t] <= rating)
+                cons[prefix * "_q_lb"][name, t] =
+                    JuMP.@constraint(jump_model, -q_var[name, t] <= rating)
+            end
         end
     end
     return
@@ -1804,6 +1915,9 @@ function get_default_time_series_names(
     return Dict{Type{<:TimeSeriesParameter}, String}()
 end
 
+# Default `use_linear_loss = false`: HVDCTwoTerminalVSC is a smooth NLP solvable
+# by Ipopt; enabling the linear-loss term introduces a binary direction variable
+# that pushes the model to MINLP, which pure NLP solvers cannot handle.
 function get_default_attributes(
     ::Type{PSY.TwoTerminalVSCLine},
     ::Type{HVDCTwoTerminalVSC},
@@ -1811,9 +1925,21 @@ function get_default_attributes(
     return Dict{String, Any}("use_linear_loss" => false)
 end
 
+# Default `use_linear_loss = true`: HVDCTwoTerminalVSCMIP already uses SOS2 PWL
+# (MIP), so the extra binary direction variable from the linear-loss
+# decomposition is free.
 function get_default_attributes(
     ::Type{PSY.TwoTerminalVSCLine},
     ::Type{HVDCTwoTerminalVSCMIP},
+)
+    return Dict{String, Any}("use_linear_loss" => true)
+end
+
+# Default `use_linear_loss = true`: same MIP rationale as VSCMIP — the SOS2 PWL
+# loss model already makes the formulation MIP-compatible.
+function get_default_attributes(
+    ::Type{PSY.TwoTerminalVSCLine},
+    ::Type{HVDCTwoTerminalVSCLP},
 )
     return Dict{String, Any}("use_linear_loss" => true)
 end

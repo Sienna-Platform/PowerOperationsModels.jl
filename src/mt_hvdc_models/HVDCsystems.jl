@@ -138,6 +138,9 @@ get_variable_upper_bound(::Type{PositiveCurrent}, d::PSY.InterconnectingConverte
 get_variable_upper_bound(::Type{NegativeCurrent}, d::PSY.InterconnectingConverter,::Type{<:AbstractConverterFormulation}) = PSY.get_max_dc_current(d)
 
 
+# Default `use_linear_loss = true`: the SOS2 PWL approximations already make the
+# model MIP, so the extra binary direction variable from the linear-loss
+# decomposition is free.
 function get_default_attributes(
     ::Type{PSY.InterconnectingConverter},
     ::Type{MIPQuadraticLossConverter},
@@ -145,6 +148,9 @@ function get_default_attributes(
     return Dict{String, Any}("use_linear_loss" => true)
 end
 
+# Default `use_linear_loss = false`: the formulation is a smooth NLP solvable by
+# Ipopt; enabling the linear-loss term introduces a binary direction variable
+# that pushes the model to MINLP, which pure NLP solvers cannot handle.
 function get_default_attributes(
     ::Type{PSY.InterconnectingConverter},
     ::Type{QuadraticLossConverter},

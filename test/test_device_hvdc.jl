@@ -273,12 +273,21 @@ end
     @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
 end
 
-@testset "HVDC Two-Terminal VSC (MIP) on AC" begin
-    model = _build_vsc_model(HVDCTwoTerminalVSCMIP, ACPPowerModel, HiGHS_optimizer)
+# Omitted: HVDCTwoTerminalVSCMIP on ACPPowerModel cannot be solved by HiGHS
+# because ACPPowerModel introduces trigonometric (cos/sin) constraints in the
+# branch ohms law that require an NLP-capable solver. The MIP loss model
+# (SOS2 PWL) is independent of the network's nonlinearity. To exercise this
+# combination we'd need a MINLP solver (e.g. Gurobi).
+
+@testset "HVDC Two-Terminal VSC (LP) on DCP" begin
+    model = _build_vsc_model(HVDCTwoTerminalVSCLP, DCPPowerModel, HiGHS_optimizer)
     @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
           IOM.ModelBuildStatus.BUILT
     @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
 end
+
+# Omitted: HVDCTwoTerminalVSCLP on ACPPowerModel — same reason as VSCMIP/AC
+# above (HiGHS cannot solve the ACP network's trigonometric branch constraints).
 
 @testset "HVDC VSC MIP vs NLP objective agreement" begin
     function _solve(formulation, optimizer)

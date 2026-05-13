@@ -17,21 +17,50 @@ _has_linear_loss(d::PSY.TwoTerminalVSCLine) =
     !iszero(PSY.get_proportional_term(PSY.get_converter_loss_from(d))) ||
     !iszero(PSY.get_proportional_term(PSY.get_converter_loss_to(d)))
 
-_devices_with_linear_loss(devices) = filter(_has_linear_loss, devices)
+# `filter` has no method for FlattenIteratorWrapper, so use a comprehension
+# that works on any iterable.
+_devices_with_linear_loss(devices) = [d for d in devices if _has_linear_loss(d)]
 
 #########################################
 ######## Loss expression builder ########
 #########################################
 
+# Dispatched on the JuMP type of `i_sq_t`:
+#   - JuMP.QuadExpr: exact i^2 product (NoQuadApproxConfig / NLP path). When
+#     `a == 0` the result has no quadratic term, so we degrade to AffExpr.
+#   - JuMP.AffExpr:  PWL approximation of i^2 (SOS2QuadConfig / MIP path).
+# In both cases we accumulate with `add_to_expression!` to avoid the
+# intermediate JuMP expressions the previous `+` chain produced.
 function _quadratic_converter_loss_expr(
     a::Float64, b::Float64, c::Float64,
-    i_sq_t, i_pos_t, i_neg_t;
+    i_sq_t::JuMP.QuadExpr, i_pos_t, i_neg_t;
     use_linear_loss::Bool,
 )
-    quad = iszero(a) ? 0 : a * i_sq_t
-    lin = (use_linear_loss && !iszero(b)) ? b * (i_pos_t + i_neg_t) : 0
-    const_term = iszero(c) ? 0 : c
-    return quad + lin + const_term
+    if iszero(a)
+        expr = JuMP.AffExpr(c)
+    else
+        expr = JuMP.QuadExpr(JuMP.AffExpr(c))
+        JuMP.add_to_expression!(expr, a, i_sq_t)
+    end
+    if use_linear_loss && !iszero(b)
+        JuMP.add_to_expression!(expr, b, i_pos_t)
+        JuMP.add_to_expression!(expr, b, i_neg_t)
+    end
+    return expr
+end
+
+function _quadratic_converter_loss_expr(
+    a::Float64, b::Float64, c::Float64,
+    i_sq_t::JuMP.AffExpr, i_pos_t, i_neg_t;
+    use_linear_loss::Bool,
+)
+    expr = JuMP.AffExpr(c)
+    iszero(a) || JuMP.add_to_expression!(expr, a, i_sq_t)
+    if use_linear_loss && !iszero(b)
+        JuMP.add_to_expression!(expr, b, i_pos_t)
+        JuMP.add_to_expression!(expr, b, i_neg_t)
+    end
+    return expr
 end
 
 #########################################

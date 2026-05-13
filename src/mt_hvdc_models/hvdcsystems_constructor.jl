@@ -140,18 +140,22 @@ function construct_device!(
         "vi",
     )
 
-    add_constraints!(container, ConverterLossConstraint, devices, model, network_model)
-
+    # The abs-value decomposition adds PositiveCurrent / NegativeCurrent
+    # variables that the ConverterLossConstraint reads, so it must run first.
+    #
+    # Note: use_linear_loss = true on QuadraticLossConverter adds a binary
+    # direction variable (CurrentDirection), making the model MINLP rather
+    # than smooth NLP. Caller is responsible for supplying a MINLP-capable
+    # solver in that case.
     use_ll = get_attribute(model, "use_linear_loss")
-    if T === QuadraticLossConverter && use_ll
-        @warn "use_linear_loss = true on QuadraticLossConverter introduces a binary direction variable; the model is no longer a smooth NLP and requires a MINLP-capable solver."
-    end
     if use_ll
         _add_abs_value_decomposition!(
             container, devices, model, network_model,
             ConverterCurrent, PSY.get_max_dc_current,
         )
     end
+
+    add_constraints!(container, ConverterLossConstraint, devices, model, network_model)
 
     add_feedforward_constraints!(container, model, devices)
     add_to_objective_function!(
