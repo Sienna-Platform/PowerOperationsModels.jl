@@ -276,3 +276,62 @@ end
         10,
     )
 end
+
+# Smoke fixture for the regression tests below — minimal OPO with one variable row.
+function _make_minimal_opo()
+    base_power = 100.0
+    ts = collect(
+        StepRange(
+            DateTime("2024-01-01T00:00:00"),
+            Millisecond(3600000),
+            DateTime("2024-01-01T01:00:00"),
+        ),
+    )
+    var_key = VariableKey(MockVariable, IS.TestComponent)
+    variable_values = Dict(
+        var_key => DataFrame(
+            "time_index" => [1, 2],
+            "name" => ["c1", "c1"],
+            "value" => [1.0, 2.0],
+        ),
+    )
+    optimizer_stats = DataFrame(; objective_value = [1.0])
+    return OptimizationProblemOutputs(
+        base_power,
+        ts,
+        IS.SystemData(),
+        IS.make_uuid(),
+        Dict(),
+        variable_values,
+        Dict(),
+        Dict(),
+        Dict(),
+        optimizer_stats,
+        OptimizationContainerMetadata(),
+        "DecisionModel",
+        mktempdir(),
+        mktempdir(),
+    )
+end
+
+@testset "export_optimizer_stats JSON path" begin
+    res = _make_minimal_opo()
+    dir = mktempdir()
+    POM.export_optimizer_stats(res, dir; format = "json")
+    @test isfile(joinpath(dir, "optimizer_stats.json"))
+end
+
+@testset "set_source_data! throws InvalidValue on UUID mismatch" begin
+    res = _make_minimal_opo()
+    wrong_source = IS.TestComponent("wrong", 0)
+    @test IS.get_uuid(wrong_source) != res.source_data_uuid
+    @test_throws IS.InvalidValue POM.set_source_data!(res, wrong_source)
+end
+
+@testset "show(OptimizationProblemOutputs) does not throw" begin
+    res = _make_minimal_opo()
+    plain = sprint(show, MIME"text/plain"(), res)
+    @test occursin("Resolution", plain)
+    html = sprint(show, MIME"text/html"(), res)
+    @test occursin("Resolution", html)
+end

@@ -74,28 +74,28 @@ function update_numerical_bounds(v::NumericalBounds, value::Real, idx)
     return
 end
 
-function update_numerical_bounds(bonuds::NumericalBounds, func::JuMP.GenericAffExpr, idx)
+function update_numerical_bounds(bounds::NumericalBounds, func::JuMP.GenericAffExpr, idx)
     for coefficient in values(func.terms)
-        update_numerical_bounds(bonuds, coefficient, idx)
+        update_numerical_bounds(bounds, coefficient, idx)
     end
     return
 end
 
-function update_numerical_bounds(bonuds::NumericalBounds, func::MOI.LessThan, idx)
-    return update_numerical_bounds(bonuds, func.upper, idx)
+function update_numerical_bounds(bounds::NumericalBounds, func::MOI.LessThan, idx)
+    return update_numerical_bounds(bounds, func.upper, idx)
 end
 
-function update_numerical_bounds(bonuds::NumericalBounds, func::MOI.GreaterThan, idx)
-    return update_numerical_bounds(bonuds, func.lower, idx)
+function update_numerical_bounds(bounds::NumericalBounds, func::MOI.GreaterThan, idx)
+    return update_numerical_bounds(bounds, func.lower, idx)
 end
 
-function update_numerical_bounds(bonuds::NumericalBounds, func::MOI.EqualTo, idx)
-    return update_numerical_bounds(bonuds, func.value, idx)
+function update_numerical_bounds(bounds::NumericalBounds, func::MOI.EqualTo, idx)
+    return update_numerical_bounds(bounds, func.value, idx)
 end
 
-function update_numerical_bounds(bonuds::NumericalBounds, func::MOI.Interval, idx)
-    update_numerical_bounds(bonuds, func.upper, idx)
-    return update_numerical_bounds(bonuds, func.lower, idx)
+function update_numerical_bounds(bounds::NumericalBounds, func::MOI.Interval, idx)
+    update_numerical_bounds(bounds, func.upper, idx)
+    return update_numerical_bounds(bounds, func.lower, idx)
 end
 
 # Default fallbacks for unsupported constraints.

@@ -86,6 +86,7 @@ function write_model_dual_outputs!(
         data = jump_value.(constraint)
         write_output!(store, model_name, key, index, update_timestamp, data)
 
+        # FIXME undefined function. leftover from PSI
         if export_params !== nothing &&
            should_export_dual(export_params.exports, update_timestamp, model_name, key)
             _export_container_output!(export_params, exports_path, key, index, data)
@@ -114,6 +115,7 @@ function write_model_parameter_outputs!(
         data = calculate_parameter_values(param_container)
         write_output!(store, model_name, key, index, update_timestamp, data)
 
+        # FIXME undefined function. leftover from PSI
         if export_params !== nothing &&
            should_export_parameter(
             export_params.exports,
@@ -152,6 +154,7 @@ function write_model_variable_outputs!(
         data = jump_value.(variable)
         write_output!(store, model_name, key, index, update_timestamp, data)
 
+        # FIXME undefined function. leftover from PSI
         if export_params !== nothing &&
            should_export_variable(
             export_params.exports,
@@ -184,6 +187,7 @@ function write_model_aux_variable_outputs!(
         data = jump_value.(variable)
         write_output!(store, model_name, key, index, update_timestamp, data)
 
+        # FIXME undefined function. leftover from PSI
         if export_params !== nothing &&
            should_export_aux_variable(
             export_params.exports,
@@ -222,6 +226,7 @@ function write_model_expression_outputs!(
         data = jump_value.(expression)
         write_output!(store, model_name, key, index, update_timestamp, data)
 
+        # FIXME undefined function. leftover from PSI
         if export_params !== nothing &&
            should_export_expression(
             export_params.exports,

@@ -210,8 +210,10 @@ function DecisionModel{M}(
     jump_model::Union{Nothing, JuMP.Model} = nothing;
     kwargs...,
 ) where {M <: DefaultDecisionProblem}
-    IS.ArgumentError(
-        "DefaultDecisionProblem subtypes require a template. Use DecisionModel subtyping instead.",
+    throw(
+        IS.ArgumentError(
+            "DefaultDecisionProblem subtypes require a template. Use DecisionModel subtyping instead.",
+        ),
     )
 end
 

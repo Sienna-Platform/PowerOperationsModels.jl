@@ -29,47 +29,16 @@ end
 Empty the [`EmulationModelStore`](@ref)
 """
 function Base.empty!(store::EmulationModelStore)
-    stype = DatasetContainer
-    for (name, _) in zip(fieldnames(stype), fieldtypes(stype))
-        if name ∉ [:values, :timestamps]
-            val = get_data_field(store, name)
-            try
-                empty!(val)
-            catch
-                @error "Base.empty! must be customized for type $stype or skipped"
-                rethrow()
-            end
-        elseif name == :update_timestamp
-            store.update_timestamp = UNSET_INI_TIME
-        else
-            setfield!(
-                store.data_container,
-                name,
-                zero(fieldtype(store.data_container, name)),
-            )
-        end
+    for name in fieldnames(DatasetContainer)
+        empty!(get_data_field(store, name))
     end
     empty!(store.optimizer_stats)
     return
 end
 
 function Base.isempty(store::EmulationModelStore)
-    stype = DatasetContainer
-    for (name, type) in zip(fieldnames(stype), fieldtypes(stype))
-        if name ∉ [:values, :timestamps]
-            val = get_data_field(store, name)
-            try
-                !isempty(val) && return false
-            catch
-                @error "Base.isempty must be customized for type $stype or skipped"
-                rethrow()
-            end
-        elseif name == :update_timestamp
-            store.update_timestamp != UNSET_INI_TIME && return false
-        else
-            val = get_data_field(store, name)
-            iszero(val) && return false
-        end
+    for name in fieldnames(DatasetContainer)
+        !isempty(get_data_field(store, name)) && return false
     end
     return isempty(store.optimizer_stats)
 end

@@ -192,8 +192,12 @@ function EmulationModel{M}(
     sys::IS.InfrastructureSystemsContainer,
     jump_model::Union{Nothing, JuMP.Model} = nothing;
     kwargs...,
-) where {M <: EmulationProblem}
-    return EmulationModel{M}(template, sys, jump_model; kwargs...)
+) where {M <: DefaultEmulationProblem}
+    throw(
+        IS.ArgumentError(
+            "DefaultEmulationProblem subtypes require a template. Use EmulationModel subtyping instead.",
+        ),
+    )
 end
 
 # get_problem_type lifted to OperationModel{T} in IOM/operation_model_abstract_types.jl

@@ -340,7 +340,7 @@ function set_source_data!(
     if source_uuid != res.source_data_uuid
         throw(
             InvalidValue(
-                "System mismatch. $sys_uuid does not match the stored value of $(res.source_uuid)",
+                "System mismatch. $source_uuid does not match the stored value of $(res.source_data_uuid)",
             ),
         )
     end
@@ -1050,9 +1050,9 @@ Save the optimizer statistics to CSV or JSON
 
 # Arguments
 
-  - `res::Union{OptimizationProblemOutputs, SimulationProblmeOutputs`: Outputs
-  - `directory::AbstractString` : target directory
-  - `format = "CSV"` : can be "csv" or "json
+  - `res::OptimizationProblemOutputs`: Outputs
+  - `directory::AbstractString`: target directory
+  - `format = "CSV"`: can be `"csv"` or `"json"`
 """
 function export_optimizer_stats(
     res::Outputs,
@@ -1064,7 +1064,8 @@ function export_optimizer_stats(
     if uppercase(format) == "CSV"
         CSV.write(joinpath(directory, "optimizer_stats.csv"), data)
     elseif uppercase(format) == "JSON"
-        JSON.write(joinpath(directory, "optimizer_stats.json"), JSON.json(to_dict(data)))
+        cols = Dict(string(n) => data[!, n] for n in names(data))
+        write(joinpath(directory, "optimizer_stats.json"), JSON3.write(cols))
     else
         throw(error("writing optimizer stats only supports csv or json formats"))
     end

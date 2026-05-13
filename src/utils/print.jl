@@ -113,22 +113,21 @@ function _show_method(
     end
     return
 end
-ProblemOutputsTypes = Union{OptimizationProblemOutputs, SimulationProblemOutputs}
-function Base.show(io::IO, ::MIME"text/plain", input::ProblemOutputsTypes)
+function Base.show(io::IO, ::MIME"text/plain", input::OptimizationProblemOutputs)
     _show_method(io, input, :auto)
 end
 
-function Base.show(io::IO, ::MIME"text/html", input::ProblemOutputsTypes)
+function Base.show(io::IO, ::MIME"text/html", input::OptimizationProblemOutputs)
     # The tf_html_simple format was eliminated from PrettyTables and it was added to PowerSystems
-    _show_method(io, input, :html; stand_alone = false, table_format = tf_html_simple)
+    _show_method(io, input, :html; stand_alone = false, table_format = PSY.tf_html_simple)
 end
 
 function _show_method(
     io::IO,
-    outputs::T,
+    outputs::OptimizationProblemOutputs,
     backend::Symbol;
     kwargs...,
-) where {T <: ProblemOutputsTypes}
+)
     timestamps = get_timestamps(outputs)
 
     if backend == :html
@@ -136,12 +135,12 @@ function _show_method(
         println(io, "<p> End: $(last(timestamps))</p>")
         println(
             io,
-            "<p> Resolution: $(Dates.Minute(ISOPT.get_resolution(outputs)))</p>",
+            "<p> Resolution: $(Dates.Minute(get_resolution(outputs)))</p>",
         )
     else
         println(io, "Start: $(first(timestamps))")
         println(io, "End: $(last(timestamps))")
-        println(io, "Resolution: $(Dates.Minute(ISOPT.get_resolution(outputs)))")
+        println(io, "Resolution: $(Dates.Minute(get_resolution(outputs)))")
     end
 
     values = Dict{String, Vector{String}}(
@@ -152,11 +151,7 @@ function _show_method(
         "Parameters" => list_parameter_names(outputs),
     )
 
-    if hasfield(T, :problem)
-        name = outputs.problem
-    else
-        name = "InfrastructureOptimizationModels"
-    end
+    name = outputs.model_type
 
     for (k, val) in values
         if !isempty(val)
