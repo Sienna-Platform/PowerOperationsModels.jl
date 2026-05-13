@@ -4,8 +4,38 @@ module PowerOperationsModels
 # Package imports
 #################################################################################
 import Dates
+import DataStructures: OrderedDict
+# I/O and tabular deps used by files moved from IOM (OPO, model stores).
+import CSV
+import DataFrames
+import DataFrames: DataFrame, DataFrameRow, Not, innerjoin, select
+import DataFramesMeta: @chain, @orderby, @rename, @select, @subset, @transform
+import HDF5
+import MathOptInterface
+const MOI = MathOptInterface
+const MOIU = MathOptInterface.Utilities
+import PrettyTables
+import TimeSeries
+const TS = TimeSeries
 import InfrastructureSystems
 import InfrastructureSystems: @assert_op, TableFormat
+# Imports for symbols used unqualified by files moved from IOM (operation/ and OPO).
+import InfrastructureSystems:
+    Outputs,
+    Forecast,
+    StaticTimeSeries,
+    InfrastructureSystemsType,
+    InfrastructureSystemsComponent,
+    InfrastructureSystemsContainer,
+    TimeSeriesCacheKey,
+    InvalidValue,
+    ConflictingInputsError,
+    compute_file_hash,
+    convert_for_path,
+    strip_module_name,
+    to_namedtuple,
+    get_uuid,
+    configure_logging
 import JuMP
 import JuMP.Containers: DenseAxisArray, SparseAxisArray
 import Logging
@@ -218,6 +248,123 @@ include("common_models/reserve_range_constraints.jl")
 # before device-specific files that reference MBC_TYPES / IEC_TYPES.
 include("common_models/market_bid_plumbing.jl")
 
+# Internal IOM symbols used by files moved from IOM (operation/, OPO).
+import InfrastructureOptimizationModels:
+    OptimizationContainerMetadata,
+    AbstractDataset,
+    AbstractModelStore,
+    DatasetContainer,
+    DecisionModelIndexType,
+    EmulationModelIndexType,
+    HDF5Dataset,
+    InitialConditionKey,
+    InMemoryDataset,
+    LOG_GROUP_MODEL_STORE,
+    ModelInternal,
+    ModelStoreParams,
+    Simulation,
+    SimulationProblemOutputs,
+    SimulationOutputs,
+    SimulationSequence,
+    SimulationModels,
+    STORE_CONTAINERS,
+    auto_transform_time_series!,
+    calculate_parameter_values,
+    cost_function_unsynch,
+    deserialize_key,
+    encode_key,
+    encode_key_as_string,
+    encode_keys_as_strings,
+    get_param_eltype,
+    get_base_power,
+    get_expression_values,
+    get_horizon,
+    get_model_base_power,
+    get_parameter_values,
+    get_resolution,
+    get_timestamps,
+    get_column_names,
+    get_column_names_from_axis_array,
+    get_current_timestamp,
+    get_data_field,
+    get_execution_count,
+    get_executions,
+    get_expressions,
+    get_first_dimension_output_column_name,
+    get_forecast_horizon,
+    get_forecast_interval,
+    get_forecast_intervals,
+    get_initial_conditions_file,
+    get_last_recorded_row,
+    get_last_updated_timestamp,
+    get_metadata,
+    get_num_executions,
+    get_output_dir,
+    get_parameter_attributes,
+    get_second_dimension_output_column_name,
+    get_status,
+    get_store,
+    get_store_container_type,
+    get_store_params,
+    get_system_uuid,
+    get_time_series_cache,
+    get_time_series_counts,
+    get_time_series_counts_by_type,
+    get_time_series_resolutions,
+    get_update_timestamp,
+    is_built,
+    is_synchronized,
+    list_fields,
+    list_keys,
+    make_key,
+    to_outputs_dataframe,
+    read_duals,
+    read_expressions,
+    read_parameters,
+    serialize_metadata,
+    to_dataframe,
+    to_dict,
+    write_data,
+    CONTAINER_KEY_EMPTY_META,
+    _get_ramp_constraint_devices,
+    LOG_GROUP_OPTIMIZATION_CONTAINER,
+    set_status!,
+    set_store_params!,
+    get_problem_size
+import InfrastructureSystems.Optimization:
+    AbstractOptimizationContainer, OptimizationKeyType
+import InfrastructureSystems.Simulation: SimulationInfo, get_run_status, set_run_status!
+import InfrastructureSystems:
+    Deterministic,
+    DeterministicSingleTimeSeries,
+    FlattenIteratorWrapper,
+    SingleTimeSeries,
+    TIME_SERIES_CACHE_SIZE_BYTES,
+    check_component,
+    check_components,
+    deserialize,
+    get_available,
+    get_components,
+    get_optimizer_stats,
+    get_parameters,
+    get_source_data,
+    get_time_series_array,
+    get_time_series_values,
+    get_total_cost,
+    get_variables,
+    has_components,
+    make_time_series_cache,
+    serialize,
+    write_outputs
+
+# Operation output containers + model stores (moved from IOM). Must come before
+# update_initial_conditions.jl, decision_model.jl, and emulation_model.jl.
+include("operation/optimization_problem_outputs_export.jl")
+include("operation/optimization_problem_outputs.jl")
+include("operation/decision_model_store.jl")
+include("operation/emulation_model_store.jl")
+include("operation/store_common.jl")
+
 # Initial Conditions
 include("initial_conditions/add_initial_condition.jl")
 include("initial_conditions/device_initial_conditions.jl")
@@ -285,27 +432,24 @@ include("area_interchange.jl")
 # Operation lifecycle: build/solve/run
 include("operation/build_problem.jl")
 include("initial_conditions/initialization.jl")
-include("operation/template_validation.jl")
 include("operation/decision_model.jl")
 include("operation/emulation_model.jl")
+# template_validation must come after decision_model.jl / emulation_model.jl
+# because validate_template now dispatches on Default*Problem types defined there.
+include("operation/template_validation.jl")
+include("operation/initial_conditions_update_in_memory_store.jl")
+include("operation/problem_outputs.jl")
+include("operation/time_series_interface.jl")
+include("operation/optimization_debugging.jl")
+include("operation/model_numerical_analysis_utils.jl")
+# Methods extracted from IOM operation_model_interface.jl that compose POM-only
+# store/numerical-bounds functions. Must come after the files that define those
+# concretes (stores, model_numerical_analysis_utils, optimization_debugging,
+# instantiate_network_model) and after decision/emulation_model.jl.
+include("operation/operation_model_glue.jl")
 
 include("utils/generate_valid_formulations.jl")
 include("utils/print.jl")
-
-# Import private/internal helpers (use import to avoid undeclared warning)
-import InfrastructureOptimizationModels: _get_ramp_constraint_devices
-import InfrastructureOptimizationModels:
-    get_param_eltype,
-    CONTAINER_KEY_EMPTY_META
-
-# Import high-frequency IOM internals used throughout operation lifecycle code.
-# Note: BUILD_PROBLEMS_TIMER and RUN_OPERATION_MODEL_TIMER are defined in POM's
-# definitions.jl, so they are NOT imported from IOM.
-import InfrastructureOptimizationModels:
-    LOG_GROUP_OPTIMIZATION_CONTAINER,
-    get_store,
-    set_status!,
-    get_problem_size
 
 # Functions defined in POM (core/interfaces.jl)
 export construct_device!

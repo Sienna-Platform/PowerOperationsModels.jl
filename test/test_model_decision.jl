@@ -163,7 +163,7 @@ end
         ),
     ) ==
           "TimeDurationOff__ThermalStandard"
-    export_outputs(res)
+    POM.export_outputs(res)
     outputs_dir = joinpath(output_dir, "outputs")
     @test isfile(joinpath(outputs_dir, "optimizer_stats.csv"))
     variables_dir = joinpath(outputs_dir, "variables")
@@ -186,7 +186,7 @@ end
     end
     @test get_constraint_index(model, length(constraint_indices) + 1) === nothing
 
-    var_keys = IOM.get_all_variable_keys(model)
+    var_keys = POM.get_all_variable_keys(model)
     var_index = get_all_variable_index(model)
     for (ix, (key, index, moi_index)) in enumerate(var_keys)
         index_tuple = var_index[ix]
@@ -268,7 +268,7 @@ end
     container = IOM.get_optimization_container(model)
     constraint_key = IOM.ConstraintKey(CopperPlateBalanceConstraint, PSY.System)
     constraints = IOM.get_constraints(container)[constraint_key]
-    dual_outputs = IOM.read_duals(container)[constraint_key]
+    dual_outputs = POM.read_duals(container)[constraint_key]
     dual_outputs_read = read_dual(res, constraint_key; table_format = TableFormat.WIDE)
     realized_dual_outputs =
         read_duals(res, [constraint_key]; table_format = TableFormat.WIDE)[IOM.encode_key_as_string(
@@ -296,7 +296,7 @@ end
 
     system = IOM.get_system(model)
     parameter_key = IOM.ParameterKey(ActivePowerTimeSeriesParameter, PSY.PowerLoad)
-    param_vals = IOM.read_parameters(container)[parameter_key]
+    param_vals = POM.read_parameters(container)[parameter_key]
     for load in get_components(PowerLoad, system)
         name = get_name(load)
         vals = get_time_series_values(Deterministic, load, "max_active_power")
@@ -305,8 +305,8 @@ end
     end
 
     res = OptimizationProblemOutputs(model)
-    @test length(list_variable_names(res)) == 1
-    @test length(list_dual_names(res)) == 1
+    @test length(POM.list_variable_names(res)) == 1
+    @test length(POM.list_dual_names(res)) == 1
     @test get_model_base_power(res) == 100.0
     @test isa(get_objective_value(res), Float64)
     @test isa(res.variable_values, Dict{IOM.VariableKey, DataFrames.DataFrame})
@@ -328,7 +328,7 @@ end
     )
     @test isa(IOM.get_resolution(res), Dates.TimePeriod)
     @test isa(IOM.get_forecast_horizon(res), Int64)
-    @test isa(get_realized_timestamps(res), StepRange{DateTime})
+    @test isa(POM.get_realized_timestamps(res), StepRange{DateTime})
     @test isa(IOM.get_source_data(res), PSY.System)
     @test length(get_timestamps(res)) == 24
 
@@ -402,12 +402,12 @@ end
     # Serialize to a new directory with the exported function.
     outputs_path = joinpath(path, "outputs")
     serialize_outputs(outputs1, outputs_path)
-    @test isfile(joinpath(outputs_path, IOM._PROBLEM_OUTPUTS_FILENAME))
+    @test isfile(joinpath(outputs_path, POM._PROBLEM_OUTPUTS_FILENAME))
     outputs3 = OptimizationProblemOutputs(outputs_path)
     var3 = read_variable(outputs3, ActivePowerVariable, ThermalStandard)
     @test var1_a == var3
     @test get_source_data(outputs3) === nothing
-    set_source_data!(outputs3, get_source_data(outputs1))
+    POM.set_source_data!(outputs3, get_source_data(outputs1))
     @test get_source_data(outputs3) isa PSY.System
 
     exp_file =
@@ -416,7 +416,7 @@ end
     # Manually Multiply by the base power var1_a has natural units and export writes directly from the solver
     @test var1_a.value == var4.value .* 100.0
 
-    @test length(readdir(IOM.export_realized_outputs(outputs1))) === 7
+    @test length(readdir(POM.export_realized_outputs(outputs1))) === 7
 end
 
 @testset "Test Numerical Stability of Constraints" begin
@@ -428,10 +428,10 @@ end
     @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
           IOM.ModelBuildStatus.BUILT
 
-    bounds = IOM.get_constraint_numerical_bounds(model)
+    bounds = POM.get_constraint_numerical_bounds(model)
     _check_constraint_bounds(bounds, valid_bounds)
 
-    model_bounds = IOM.get_detailed_constraint_numerical_bounds(model)
+    model_bounds = POM.get_detailed_constraint_numerical_bounds(model)
     valid_model_bounds = Dict(
         :CopperPlateBalanceConstraint__System => (
             coefficient = (min = 1.0, max = 1.0),
@@ -458,10 +458,10 @@ end
     @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
           IOM.ModelBuildStatus.BUILT
 
-    bounds = IOM.get_variable_numerical_bounds(model)
+    bounds = POM.get_variable_numerical_bounds(model)
     _check_variable_bounds(bounds, valid_bounds)
 
-    model_bounds = IOM.get_detailed_variable_numerical_bounds(model)
+    model_bounds = POM.get_detailed_variable_numerical_bounds(model)
     valid_model_bounds = Dict(
         :StopVariable__ThermalStandard => (min = 0.0, max = 1.0),
         :StartVariable__ThermalStandard => (min = 0.0, max = 1.0),

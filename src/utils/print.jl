@@ -113,3 +113,81 @@ function _show_method(
     end
     return
 end
+ProblemOutputsTypes = Union{OptimizationProblemOutputs, SimulationProblemOutputs}
+function Base.show(io::IO, ::MIME"text/plain", input::ProblemOutputsTypes)
+    _show_method(io, input, :auto)
+end
+
+function Base.show(io::IO, ::MIME"text/html", input::ProblemOutputsTypes)
+    # The tf_html_simple format was eliminated from PrettyTables and it was added to PowerSystems
+    _show_method(io, input, :html; stand_alone = false, table_format = tf_html_simple)
+end
+
+function _show_method(
+    io::IO,
+    outputs::T,
+    backend::Symbol;
+    kwargs...,
+) where {T <: ProblemOutputsTypes}
+    timestamps = get_timestamps(outputs)
+
+    if backend == :html
+        println(io, "<p> Start: $(first(timestamps))</p>")
+        println(io, "<p> End: $(last(timestamps))</p>")
+        println(
+            io,
+            "<p> Resolution: $(Dates.Minute(ISOPT.get_resolution(outputs)))</p>",
+        )
+    else
+        println(io, "Start: $(first(timestamps))")
+        println(io, "End: $(last(timestamps))")
+        println(io, "Resolution: $(Dates.Minute(ISOPT.get_resolution(outputs)))")
+    end
+
+    values = Dict{String, Vector{String}}(
+        "Variables" => list_variable_names(outputs),
+        "Auxiliary variables" => list_aux_variable_names(outputs),
+        "Duals" => list_dual_names(outputs),
+        "Expressions" => list_expression_names(outputs),
+        "Parameters" => list_parameter_names(outputs),
+    )
+
+    if hasfield(T, :problem)
+        name = outputs.problem
+    else
+        name = "InfrastructureOptimizationModels"
+    end
+
+    for (k, val) in values
+        if !isempty(val)
+            println(io)
+            PrettyTables.pretty_table(
+                io,
+                val;
+                show_column_labels = false,
+                backend = backend,
+                title = "$name Problem $k Outputs",
+                alignment = :l,
+                kwargs...,
+            )
+        end
+    end
+end
+
+function Base.show(io::IO, ::MIME"text/plain", bounds::ConstraintBounds)
+    println(io, "ConstraintBounds:")
+    println(io, "Constraint Coefficient")
+    show(io, MIME"text/plain"(), bounds.coefficient)
+    println(io, "Constraint RHS")
+    show(io, MIME"text/plain"(), bounds.rhs)
+end
+
+function Base.show(io::IO, ::MIME"text/plain", bounds::VariableBounds)
+    println(io, "VariableBounds:")
+    show(io, MIME"text/plain"(), bounds.bounds)
+end
+
+function Base.show(io::IO, ::MIME"text/plain", bounds::NumericalBounds)
+    println(io, rpad("  Minimum", 20), "Maximum")
+    println(io, rpad("  $(bounds.min)", 20), "$(bounds.max)")
+end

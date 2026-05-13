@@ -1,3 +1,347 @@
+"""
+Abstract type for models that use default InfrastructureOptimizationModels formulations. For custom emulation problems
+    use EmulationProblem as the super type.
+"""
+abstract type DefaultEmulationProblem <: EmulationProblem end
+
+"""
+Default InfrastructureOptimizationModels Emulation Problem Type for unspecified problems
+"""
+struct GenericEmulationProblem <: DefaultEmulationProblem end
+
+"""
+    EmulationModel{M}(
+        template::AbstractProblemTemplate,
+        sys::IS.InfrastructureSystemsContainer,
+        jump_model::Union{Nothing, JuMP.Model}=nothing;
+        kwargs...) where {M<:EmulationProblem}
+
+Build the optimization problem of type M with the specific system and template.
+
+# Arguments
+
+  - `::Type{M} where M<:EmulationProblem`: The abstract Emulation model type
+  - `template::AbstractProblemTemplate`: The model reference made up of transmission, devices, branches, and services.
+  - `sys::IS.InfrastructureSystemsContainer`: the system created using Power Systems
+  - `jump_model::Union{Nothing, JuMP.Model}`: Enables passing a custom JuMP model. Use with care
+  - `name = nothing`: name of model, string or symbol; defaults to the type of template converted to a symbol.
+  - `optimizer::Union{Nothing,MOI.OptimizerWithAttributes} = nothing` : The optimizer does
+    not get serialized. Callers should pass whatever they passed to the original problem.
+  - `warm_start::Bool = true`: True will use the current operation point in the system to initialize variable values. False initializes all variables to zero. Default is true
+  - `initialize_model::Bool = true`: Option to decide to initialize the model or not.
+  - `initialization_file::String = ""`: This allows to pass pre-existing initialization values to avoid the solution of an optimization problem to find feasible initial conditions.
+  - `deserialize_initial_conditions::Bool = false`: Option to deserialize conditions
+  - `export_pwl_vars::Bool = false`: True to export all the pwl intermediate variables. It can slow down significantly the build and solve time.
+  - `allow_fails::Bool = false`: True to allow the simulation to continue even if the optimization step fails. Use with care.
+  - `calculate_conflict::Bool = false`: True to use solver to calculate conflicts for infeasible problems. Only specific solvers are able to calculate conflicts.
+  - `optimizer_solve_log_print::Bool = false`: Uses JuMP.unset_silent() to print the optimizer's log. By default all solvers are set to MOI.Silent()
+  - `detailed_optimizer_stats::Bool = false`: True to save detailed optimizer stats log.
+  - `direct_mode_optimizer::Bool = false`: True to use the solver in direct mode. Creates a [JuMP.direct_model](https://jump.dev/JuMP.jl/dev/reference/models/#JuMP.direct_model).
+  - `store_variable_names::Bool = false`: True to store variable names in optimization model.
+  - `rebuild_model::Bool = false`: It will force the rebuild of the underlying JuMP model with each call to update the model. It increases solution times, use only if the model can't be updated in memory.
+  - `initial_time::Dates.DateTime = UNSET_INI_TIME`: Initial Time for the model solve.
+  - `time_series_cache_size::Int = IS.TIME_SERIES_CACHE_SIZE_BYTES`: Size in bytes to cache for each time array. Default is 1 MiB. Set to 0 to disable.
+
+# Example
+
+```julia
+template = ProblemTemplate(CopperPlatePowerModel, devices, branches, services)
+OpModel = EmulationModel(MockEmulationProblem, template, system)
+```
+"""
+mutable struct EmulationModel{M <: EmulationProblem} <: OperationModel{M}
+    name::Symbol
+    template::AbstractProblemTemplate
+    sys::IS.InfrastructureSystemsContainer
+    internal::ModelInternal
+    simulation_info::SimulationInfo
+    store::EmulationModelStore # might be extended to other stores for simulation
+    ext::Dict{String, Any}
+
+    function EmulationModel{M}(
+        template::AbstractProblemTemplate,
+        sys::IS.InfrastructureSystemsContainer,
+        settings::Settings,
+        jump_model::Union{Nothing, JuMP.Model} = nothing;
+        name = nothing,
+    ) where {M <: EmulationProblem}
+        if name === nothing
+            name = nameof(M)
+        elseif name isa String
+            name = Symbol(name)
+        end
+        finalize_template!(template, sys)
+        internal = ModelInternal(
+            OptimizationContainer(sys, settings, jump_model, IS.SingleTimeSeries),
+        )
+        new{M}(
+            name,
+            template,
+            sys,
+            internal,
+            SimulationInfo(),
+            EmulationModelStore(),
+            Dict{String, Any}(),
+        )
+    end
+end
+
+function EmulationModel{M}(
+    template::AbstractProblemTemplate,
+    sys::IS.InfrastructureSystemsContainer,
+    jump_model::Union{Nothing, JuMP.Model} = nothing;
+    resolution = UNSET_RESOLUTION,
+    name = nothing,
+    optimizer = nothing,
+    warm_start = true,
+    initialize_model = true,
+    initialization_file = "",
+    deserialize_initial_conditions = false,
+    export_pwl_vars = false,
+    allow_fails = false,
+    calculate_conflict = false,
+    optimizer_solve_log_print = false,
+    detailed_optimizer_stats = false,
+    direct_mode_optimizer = false,
+    check_numerical_bounds = true,
+    store_variable_names = false,
+    rebuild_model = false,
+    initial_time = UNSET_INI_TIME,
+    time_series_cache_size::Int = IS.TIME_SERIES_CACHE_SIZE_BYTES,
+) where {M <: EmulationProblem}
+    settings = Settings(
+        sys;
+        initial_time = initial_time,
+        optimizer = optimizer,
+        time_series_cache_size = time_series_cache_size,
+        warm_start = warm_start,
+        initialize_model = initialize_model,
+        initialization_file = initialization_file,
+        deserialize_initial_conditions = deserialize_initial_conditions,
+        export_pwl_vars = export_pwl_vars,
+        allow_fails = allow_fails,
+        calculate_conflict = calculate_conflict,
+        optimizer_solve_log_print = optimizer_solve_log_print,
+        detailed_optimizer_stats = detailed_optimizer_stats,
+        direct_mode_optimizer = direct_mode_optimizer,
+        check_numerical_bounds = check_numerical_bounds,
+        store_variable_names = store_variable_names,
+        rebuild_model = rebuild_model,
+        horizon = resolution,
+        resolution = resolution,
+    )
+    model = EmulationModel{M}(template, sys, settings, jump_model; name = name)
+    validate_time_series!(model)
+    return model
+end
+
+"""
+Build the optimization problem of type M with the specific system and template
+
+# Arguments
+
+  - `::Type{M} where M<:EmulationProblem`: The abstract Emulation model type
+  - `template::AbstractProblemTemplate`: The model reference made up of transmission, devices,
+    branches, and services.
+  - `sys::IS.InfrastructureSystemsContainer`: the system created using Power Systems
+  - `jump_model::Union{Nothing, JuMP.Model}`: Enables passing a custom JuMP model. Use with care
+
+# Example
+
+```julia
+template = ProblemTemplate(CopperPlatePowerModel, devices, branches, services)
+problem = EmulationModel(MyEmProblemType, template, system, optimizer)
+```
+"""
+function EmulationModel(
+    ::Type{M},
+    template::AbstractProblemTemplate,
+    sys::IS.InfrastructureSystemsContainer,
+    jump_model::Union{Nothing, JuMP.Model} = nothing;
+    kwargs...,
+) where {M <: EmulationProblem}
+    return EmulationModel{M}(template, sys, jump_model; kwargs...)
+end
+
+function EmulationModel(
+    template::AbstractProblemTemplate,
+    sys::IS.InfrastructureSystemsContainer,
+    jump_model::Union{Nothing, JuMP.Model} = nothing;
+    kwargs...,
+)
+    return EmulationModel{GenericEmulationProblem}(template, sys, jump_model; kwargs...)
+end
+
+"""
+Builds an empty emulation model. This constructor is used for the implementation of custom
+emulation models that do not require a template.
+
+# Arguments
+
+  - `::Type{M} where M<:EmulationProblem`: The abstract operation model type
+  - `sys::IS.InfrastructureSystemsContainer`: the system created using Power Systems
+  - `jump_model::Union{Nothing, JuMP.Model}` = nothing: Enables passing a custom JuMP model. Use with care.
+
+# Example
+
+```julia
+problem = EmulationModel(system, optimizer)
+```
+"""
+function EmulationModel{M}(
+    sys::IS.InfrastructureSystemsContainer,
+    jump_model::Union{Nothing, JuMP.Model} = nothing;
+    kwargs...,
+) where {M <: EmulationProblem}
+    return EmulationModel{M}(template, sys, jump_model; kwargs...)
+end
+
+# get_problem_type lifted to OperationModel{T} in IOM/operation_model_abstract_types.jl
+
+function validate_time_series!(model::EmulationModel{<:DefaultEmulationProblem})
+    sys = get_system(model)
+    settings = get_settings(model)
+    available_resolutions = get_time_series_resolutions(sys)
+
+    if get_resolution(settings) == UNSET_RESOLUTION && length(available_resolutions) != 1
+        throw(
+            IS.ConflictingInputsError(
+                "Data contains multiple resolutions, the resolution keyword argument must be added to the Model. Time Series Resolutions: $(available_resolutions)",
+            ),
+        )
+    elseif get_resolution(settings) != UNSET_RESOLUTION && length(available_resolutions) > 1
+        if get_resolution(settings) ∉ available_resolutions
+            throw(
+                IS.ConflictingInputsError(
+                    "Resolution $(get_resolution(settings)) is not available in the system data. Time Series Resolutions: $(available_resolutions)",
+                ),
+            )
+        end
+    else
+        set_resolution!(settings, first(available_resolutions))
+    end
+
+    if get_horizon(settings) == UNSET_HORIZON
+        # Emulation Models Only solve one "step" so Horizon and Resolution must match
+        set_horizon!(settings, get_resolution(settings))
+    end
+
+    counts = get_time_series_counts(sys)
+    if counts.static_time_series_count < 1
+        error(
+            "The system does not contain Static Time Series data. A EmulationModel can't be built.",
+        )
+    end
+    return
+end
+
+function get_current_time(model::EmulationModel)
+    execution_count = get_execution_count(model)
+    initial_time = get_initial_time(model)
+    resolution = get_resolution(model)
+    return initial_time + resolution * execution_count
+end
+
+function init_model_store_params!(model::EmulationModel)
+    num_executions = get_executions(model)
+    system = get_system(model)
+    settings = get_settings(model)
+    horizon = interval = resolution = get_resolution(settings)
+    base_power = get_base_power(system)
+    sys_uuid = get_system_uuid(system)
+    set_store_params!(
+        get_internal(model),
+        ModelStoreParams(
+            num_executions,
+            horizon,
+            interval,
+            resolution,
+            base_power,
+            sys_uuid,
+            get_metadata(get_optimization_container(model)),
+        ),
+    )
+    return
+end
+
+function update_parameters!(
+    model::EmulationModel,
+    store::EmulationModelStore{InMemoryDataset},
+)
+    update_parameters!(model, store.data_container)
+    return
+end
+
+function update_parameters!(model::EmulationModel, data::DatasetContainer{InMemoryDataset})
+    cost_function_unsynch(get_optimization_container(model))
+    for key in keys(get_parameters(model))
+        update_parameter_values!(model, key, data)
+    end
+    if !is_synchronized(model)
+        update_objective_function!(get_optimization_container(model))
+        obj_func = get_objective_expression(get_optimization_container(model))
+        set_synchronized_status!(obj_func, true)
+    end
+    return
+end
+
+function update_model!(
+    model::EmulationModel,
+    source::EmulationModelStore{InMemoryDataset},
+    ini_cond_chronology,
+)
+    TimerOutputs.@timeit RUN_SIMULATION_TIMER "Parameter Updates" begin
+        update_parameters!(model, source)
+    end
+    TimerOutputs.@timeit RUN_SIMULATION_TIMER "Ini Cond Updates" begin
+        update_initial_conditions!(model, source, ini_cond_chronology)
+    end
+    return
+end
+
+"""
+Standalone update for EmulationModel (non-simulation context).
+Updates parameters and initial conditions from the model's own store.
+"""
+function update_model!(model::EmulationModel)
+    source = get_store(model)
+    TimerOutputs.@timeit RUN_OPERATION_MODEL_TIMER "Parameter Updates" begin
+        update_parameters!(model, source)
+    end
+    TimerOutputs.@timeit RUN_OPERATION_MODEL_TIMER "Ini Cond Updates" begin
+        for key in keys(get_initial_conditions(model))
+            update_initial_conditions!(model, key, source)
+        end
+    end
+    return
+end
+
+"""
+Update parameter function an OperationModel
+"""
+function update_parameter_values!(
+    model::EmulationModel,
+    key::ParameterKey{T, U},
+    input::DatasetContainer{InMemoryDataset},
+) where {T <: ParameterType, U <: IS.InfrastructureSystemsComponent}
+    # Enable again for detailed debugging
+    # TimerOutputs.@timeit RUN_SIMULATION_TIMER "$T $U Parameter Update" begin
+    optimization_container = get_optimization_container(model)
+    # FIXME: This parameter update logic belongs in POM or PSI, not IOM.
+    # Move this function (and the surrounding update chain) once EmulationModel
+    # lifecycle code is fully migrated.
+    update_container_parameter_values!(optimization_container, model, key, input)
+    parameter_attributes = get_parameter_attributes(optimization_container, key)
+    IS.@record :execution ParameterUpdateEvent(
+        T,
+        U,
+        "event", # parameter_attributes,
+        get_current_timestamp(model),
+        get_name(model),
+    )
+    #end
+    return
+end
 # FIXME untested. Moved to accommodate a few methods dispatching on EmulationModelStore,
 # but not run in the tests and not yet refactored for IOM-POM split.
 function build_pre_step!(model::EmulationModel)
@@ -18,7 +362,7 @@ function build_pre_step!(model::EmulationModel)
         )
 
         @info "Initializing ModelStoreParams"
-        IOM.init_model_store_params!(model)
+        init_model_store_params!(model)
         set_status!(model, ModelBuildStatus.IN_PROGRESS)
     end
     return
@@ -126,7 +470,7 @@ function execute_emulation!(
     enable_progress_bar = _progress_meter_enabled(),
     kwargs...,
 )
-    IOM._pre_solve_model_checks(model, optimizer)
+    _pre_solve_model_checks(model, optimizer)
     internal = get_internal(model)
     executions = IOM.get_executions(internal)
     # Temporary check. Needs better way to manage re-runs of the same model
@@ -144,7 +488,7 @@ function execute_emulation!(
             IOM.solve_model!(model)
             current_time = initial_time + (execution - 1) * get_resolution(model)
             write_outputs!(get_store(model), model, execution, current_time)
-            IOM.write_optimizer_stats!(
+            write_optimizer_stats!(
                 get_store(model),
                 get_optimizer_stats(model),
                 execution,
@@ -220,7 +564,7 @@ function run!(
     try
         Logging.with_logger(logger) do
             try
-                IOM.initialize_storage!(
+                initialize_storage!(
                     get_store(model),
                     get_optimization_container(model),
                     IOM.get_store_params(model),
@@ -231,7 +575,7 @@ function run!(
                         enable_progress_bar = enable_progress_bar,
                         kwargs...,
                     )
-                    IOM.set_run_status!(model, RunStatus.SUCCESSFULLY_FINALIZED)
+                    set_run_status!(model, RunStatus.SUCCESSFULLY_FINALIZED)
                 end
                 if export_optimization_model
                     TimerOutputs.@timeit RUN_OPERATION_MODEL_TIMER "Serialize" begin
@@ -246,75 +590,18 @@ function run!(
                 @info "\n$(RUN_OPERATION_MODEL_TIMER)\n"
             catch e
                 @error "Emulation Problem Run failed" exception = (e, catch_backtrace())
-                IOM.set_run_status!(model, RunStatus.FAILED)
+                set_run_status!(model, RunStatus.FAILED)
             end
         end
     finally
         IOM.unregister_recorders!(model)
         close(logger)
     end
-    return IOM.get_run_status(model)
+    return get_run_status(model)
 end
 
-function handle_initial_conditions!(model::EmulationModel{<:EmulationProblem})
-    TimerOutputs.@timeit BUILD_PROBLEMS_TIMER "Model Initialization" begin
-        if isempty(get_template(model))
-            return
-        end
-        settings = get_settings(model)
-        initialize_model = get_initialize_model(settings)
-        deserialize_initial_conditions = get_deserialize_initial_conditions(settings)
-        serialized_initial_conditions_file = IOM.get_initial_conditions_file(model)
-        custom_init_file = get_initialization_file(settings)
+# handle_initial_conditions! lifted to OperationModel in decision_model.jl
+# (identical body for both DecisionModel and EmulationModel).
 
-        if !initialize_model && deserialize_initial_conditions
-            throw(
-                IS.ConflictingInputsError(
-                    "!initialize_model && deserialize_initial_conditions",
-                ),
-            )
-        elseif !initialize_model && !isempty(custom_init_file)
-            throw(IS.ConflictingInputsError("!initialize_model && initialization_file"))
-        end
-
-        if !initialize_model
-            @info "Skip build of initial conditions"
-            return
-        end
-
-        if !isempty(custom_init_file)
-            if !isfile(custom_init_file)
-                error("initialization_file = $custom_init_file does not exist")
-            end
-            if abspath(custom_init_file) != abspath(serialized_initial_conditions_file)
-                cp(custom_init_file, serialized_initial_conditions_file; force = true)
-            end
-        end
-
-        if deserialize_initial_conditions && isfile(serialized_initial_conditions_file)
-            IOM.set_initial_conditions_data!(
-                get_optimization_container(model),
-                Serialization.deserialize(serialized_initial_conditions_file),
-            )
-            @info "Deserialized initial_conditions_data"
-        else
-            @info "Make Initial Conditions Model"
-            build_initial_conditions!(model)
-            solve_and_write_initial_conditions!(model)
-        end
-        IOM.set_initial_conditions_model_container!(
-            get_internal(model),
-            nothing,
-        )
-    end
-    return
-end
-
-function validate_template(::EmulationModel{M}) where {M <: EmulationProblem}
-    error("validate_template is not implemented for EmulationModel{$M}")
-end
-
-function validate_template(model::EmulationModel{<:DefaultEmulationProblem})
-    validate_template_impl!(model)
-    return
-end
+# Default + custom-problem validate_template dispatches are defined once on
+# OperationModel{T} in operation/template_validation.jl.

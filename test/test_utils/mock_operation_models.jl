@@ -1,12 +1,12 @@
 # NOTE: None of the models and function in this file are functional. All of these are used for testing purposes and do not represent valid examples either to develop custom
 # models. Please refer to the documentation.
 
-struct MockOperationProblem <: IOM.DefaultDecisionProblem end
-struct MockEmulationProblem <: IOM.DefaultEmulationProblem end
-struct EconomicDispatchProblem <: IOM.DefaultDecisionProblem end
-struct UnitCommitmentProblem <: IOM.DefaultDecisionProblem end
+struct MockOperationProblem <: POM.DefaultDecisionProblem end
+struct MockEmulationProblem <: POM.DefaultEmulationProblem end
+struct EconomicDispatchProblem <: POM.DefaultDecisionProblem end
+struct UnitCommitmentProblem <: POM.DefaultDecisionProblem end
 
-function IOM.DecisionModel(
+function POM.DecisionModel(
     ::Type{MockOperationProblem},
     ::Type{T},
     sys::PSY.System;
@@ -57,7 +57,7 @@ function make_mock_singletimeseries(horizon, resolution)
     return SingleTimeSeries(; name = "mock_timeseries", data = timeseries_data)
 end
 
-function IOM.DecisionModel(::Type{MockOperationProblem}; name = nothing, kwargs...)
+function POM.DecisionModel(::Type{MockOperationProblem}; name = nothing, kwargs...)
     sys = System(100.0)
     add_component!(sys, ACBus(nothing))
     l = PowerLoad(nothing)
@@ -85,7 +85,7 @@ function IOM.DecisionModel(::Type{MockOperationProblem}; name = nothing, kwargs.
     )
 end
 
-function IOM.EmulationModel(::Type{MockEmulationProblem}; name = nothing, kwargs...)
+function POM.EmulationModel(::Type{MockEmulationProblem}; name = nothing, kwargs...)
     sys = System(100.0)
     add_component!(sys, ACBus(nothing))
     l = PowerLoad(nothing)
@@ -114,7 +114,7 @@ end
 
 # Only used for testing
 function mock_construct_device!(
-    problem::IOM.DecisionModel{MockOperationProblem},
+    problem::POM.DecisionModel{MockOperationProblem},
     model;
     built_for_recurrent_solves = false,
     add_event_model = false,
@@ -127,7 +127,7 @@ function mock_construct_device!(
     set_device_model!(problem.template, model)
     template = IOM.get_template(problem)
     IOM.finalize_template!(template, IOM.get_system(problem))
-    IOM.validate_time_series!(problem)
+    POM.validate_time_series!(problem)
     IOM.init_optimization_container!(
         IOM.get_optimization_container(problem),
         IOM.get_network_model(template),
@@ -171,7 +171,7 @@ function mock_construct_device!(
     return
 end
 
-function mock_construct_network!(problem::IOM.DecisionModel{MockOperationProblem}, model)
+function mock_construct_network!(problem::POM.DecisionModel{MockOperationProblem}, model)
     IOM.set_network_model!(problem.template, model)
     IOM.construct_network!(
         IOM.get_optimization_container(problem),
@@ -229,7 +229,7 @@ function setup_ic_model_container!(model::DecisionModel)
         IOM.get_system(model),
     )
 
-    IOM.init_model_store_params!(model)
+    POM.init_model_store_params!(model)
 
     @info "Make Initial Conditions Model"
     IOM.set_output_dir!(model, mktempdir(; cleanup = true))
