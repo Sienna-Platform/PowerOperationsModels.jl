@@ -327,9 +327,38 @@ Formulation type to add injection variables for a HydroTurbine connected to rese
 struct HydroTurbineBilinearDispatch <: AbstractHydroDispatchFormulation end
 
 """
-Formulation type to add injection variables for a HydroTurbine connected to reservoirs using a bilinear model (with water flow variables) [`PowerSystems.HydroGen`](@extref). Uses a linearized approximation.
+MILP formulation for the turbined-flow × head bilinear product in the hydro
+turbine power-output constraint. Adds injection variables for a HydroTurbine
+connected to reservoirs using a linearized approximation of the bilinear model.
+
+Selects the bilinear approximation scheme via `DeviceModel` attributes (so users
+do not need to depend on `InfrastructureOptimizationModels`). All attributes
+have defaults that reproduce the prior `Bin2` + `SolverSOS2`(4) behavior.
+
+# Attributes
+- `bilinear_approximation::String` (default `"bin2"`): top-level scheme.
+  Supported: `"bin2"`, `"hybs"`, `"nmdt"`, `"dnmdt"`, `"none"`.
+- `bilinear_quadratic_method::String` (default `"solver_sos2"`): inner quadratic
+  PWL method used when `bilinear_approximation ∈ {"bin2","hybs"}`. Supported:
+  `"solver_sos2"`, `"manual_sos2"`, `"sawtooth"`, `"epigraph"`, `"nmdt"`,
+  `"dnmdt"`, `"none"`.
+- `bilinear_n_segments::Int` (default `4`): PWL segment count or NMDT depth,
+  depending on the chosen method.
+- `bilinear_add_mccormick::Union{Bool,Nothing}` (default `nothing`): when
+  `nothing`, defers to the IOM struct default (`Bin2Config` → `true`,
+  `HybSConfig` → `false`). Ignored by `nmdt`/`dnmdt`/`none`.
+- `bilinear_epigraph_depth::Union{Int,Nothing}` (default `nothing`): when
+  `nothing`, defers to the IOM struct default (`NMDTQuadConfig` /
+  `DNMDTQuadConfig` → `3*depth`). `"hybs"` has no IOM default for this field
+  and *must* override.
+
+# Sentinel convention
+`nothing` means "use the IOM constructor's default value." POM does not
+duplicate IOM struct defaults; it just passes through the user's overrides.
+
+See: [`PowerSystems.HydroGen`](@extref).
 """
-struct HydroTurbineBin2BilinearDispatch <: AbstractHydroDispatchFormulation end
+struct HydroTurbineMILPBilinearDispatch <: AbstractHydroDispatchFormulation end
 
 """
 Formulation type to add injection variables for a HydroTurbine connected to reservoirs using a linear model [`PowerSystems.HydroGen`](@extref).
@@ -369,7 +398,7 @@ These types share constructors.
 """
 const HydroTurbineWaterFormulation = Union{
     HydroTurbineBilinearDispatch,
-    HydroTurbineBin2BilinearDispatch,
+    HydroTurbineMILPBilinearDispatch,
     HydroTurbineWaterLinearDispatch,
     HydroTurbineWaterLinearCommitment,
 }

@@ -700,7 +700,7 @@ end
     )
 end
 
-@testset "HydroTurbineBin2BilinearDispatch: variable-bound plumbing to IOM" begin
+@testset "HydroTurbineMILPBilinearDispatch: variable-bound plumbing to IOM" begin
     # Spot-check that POM forwards PSY device data to JuMP without unit conversion.
     # Outflow limits are m^3/s and storage_level_limits is meters (HEAD reservoir),
     # so JuMP variables should carry those values verbatim.
@@ -708,7 +708,7 @@ end
 
     sys = PSB.build_system(PSITestSystems, "c_sys5_hy_turbine_head")
     template = OperationsProblemTemplate()
-    set_device_model!(template, HydroTurbine, HydroTurbineBin2BilinearDispatch)
+    set_device_model!(template, HydroTurbine, HydroTurbineMILPBilinearDispatch)
     set_device_model!(template, HydroReservoir, HydroWaterModelReservoir)
     set_device_model!(template, ThermalStandard, ThermalDispatchNoMin)
     set_device_model!(template, PowerLoad, StaticPowerLoad)
@@ -826,7 +826,7 @@ end
     hydro_inflow_ts = get_time_series_array(Deterministic, reservoir, "inflow")
 
     template = OperationsProblemTemplate()
-    set_device_model!(template, HydroTurbine, HydroTurbineBin2BilinearDispatch)
+    set_device_model!(template, HydroTurbine, HydroTurbineMILPBilinearDispatch)
     set_device_model!(template, HydroReservoir, HydroWaterModelReservoir)
 
     set_device_model!(template, ThermalStandard, ThermalDispatchNoMin)
