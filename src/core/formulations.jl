@@ -418,3 +418,249 @@ The formulation supports the following attributes when used in a [`PowerSimulati
 See the [`StorageDispatchWithReserves` Mathematical Model](@ref) for the full mathematical description.
 """
 struct StorageDispatchWithReserves <: AbstractStorageFormulation end
+
+############################ Hybrid System Formulations ###################################
+abstract type AbstractHybridFormulation <: IOM.AbstractDeviceFormulation end
+abstract type AbstractHybridFormulationWithReserves <: AbstractHybridFormulation end
+
+"""
+    HybridDispatchWithReserves
+
+Device formulation for a hybrid system (single point of common coupling (PCC) with
+renewable, thermal, and storage subcomponents) that participates in both energy and
+ancillary services markets. Implements a centralized production cost model where the
+hybrid plant's net power at the PCC is constrained by ``P_{\\max,\\text{pcc}}`` and
+ancillary service allocations (``sb^{\\text{out}}_{p,t}``, ``sb^{\\text{in}}_{p,t}``) are
+assigned to internal assets (thermal, renewable, charge, discharge) per the
+four-quadrant ancillary service model. Reserve participation is enabled by attaching a
+service model to the hybrid (`set_service_model!` + `add_service!`); when no service is
+attached the formulation collapses to an energy-only hybrid dispatch.
+
+Use with a hybrid system in a [`DeviceModel`](@ref) for unit commitment or economic
+dispatch.
+
+**Variables:**
+
+  - [`ActivePowerOutVariable`](@ref):
+
+      + Domain: [0.0, ``P_{\\max,\\text{pcc}}``]
+      + Symbol: ``p^{\\text{out}}_t``
+
+  - [`ActivePowerInVariable`](@ref):
+
+      + Domain: [0.0, ``P_{\\max,\\text{pcc}}``]
+      + Symbol: ``p^{\\text{in}}_t``
+
+  - [`ReservationVariable`](@ref) (only when `"reservation" => true`):
+
+      + Domain: {0, 1}
+      + Symbol: ``u^{\\text{st}}_t`` (1 = discharge mode, 0 = charge mode)
+
+  - [`HybridThermalActivePower`](@ref):
+
+      + Domain: [0.0, ``P_{\\max,\\text{th}}``] when on
+      + Symbol: ``p^{\\text{th}}_t``
+
+  - [`OnVariable`](@ref):
+
+      + Domain: {0, 1}
+      + Symbol: ``u^{\\text{th}}_t``
+
+  - [`HybridRenewableActivePower`](@ref):
+
+      + Domain: [0.0, ``P^{*,\\text{re}}_t``]
+      + Symbol: ``p^{\\text{re}}_t``
+
+  - [`HybridStorageChargePower`](@ref):
+
+      + Domain: [0.0, ``P_{\\max,\\text{ch}}``]
+      + Symbol: ``p^{\\text{ch}}_t``
+
+  - [`HybridStorageDischargePower`](@ref):
+
+      + Domain: [0.0, ``P_{\\max,\\text{ds}}``]
+      + Symbol: ``p^{\\text{ds}}_t``
+
+  - [`EnergyVariable`](@ref):
+
+      + Domain: [0.0, ``E_{\\max,\\text{st}}``]
+      + Symbol: ``e^{\\text{st}}_t``
+
+  - [`HybridStorageReservation`](@ref) (only when `"storage_reservation" => true`):
+
+      + Domain: {0, 1}
+      + Symbol: ``ss^{\\text{st}}_t`` (0 = charge, 1 = discharge)
+
+  - [`HybridReserveVariableOut`](@ref) (only when services are attached):
+
+      + Domain: [0.0, ]
+      + Symbol: ``sb^{\\text{out}}_t``
+
+  - [`HybridReserveVariableIn`](@ref) (only when services are attached):
+
+      + Domain: [0.0, ]
+      + Symbol: ``sb^{\\text{in}}_t``
+
+  - [`ChargeRegularizationVariable`](@ref), [`DischargeRegularizationVariable`](@ref)
+    (only when `"regularization" => true`): non-negative slacks bounding step changes in
+    charge/discharge between consecutive time steps.
+
+**Time Series Parameters:**
+
+| Parameter | Default Time Series Name |
+| :--- | :--- |
+| `HybridRenewableActivePowerTimeSeriesParameter` | `"RenewableDispatch__max_active_power"` |
+| `HybridElectricLoadTimeSeriesParameter` | `"PowerLoad__max_active_power"` |
+
+**Data requirements:**
+
+  - **Device:** A `PSY.HybridSystem` with at least one of: thermal unit
+    (`PSY.get_thermal_unit`), renewable unit (`PSY.get_renewable_unit`), storage
+    (`PSY.get_storage`), and optionally electric load (`PSY.get_electric_load`).
+  - **Time series:** Each renewable subcomponent and electric load must have forecast
+    time series attached with the default names above (or custom names passed when
+    adding parameters).
+
+**Static Parameters:**
+
+  - ``P_{\\max,\\text{pcc}}`` = `PSY.get_output_active_power_limits(device).max`
+  - ``P_{\\max,\\text{th}}`` = `PSY.get_active_power_limits(thermal_unit).max`
+  - ``P_{\\min,\\text{th}}`` = `PSY.get_active_power_limits(thermal_unit).min`
+  - ``P_{\\max,\\text{ch}}`` = `PSY.get_input_active_power_limits(storage).max`
+  - ``P_{\\max,\\text{ds}}`` = `PSY.get_output_active_power_limits(storage).max`
+  - ``\\eta_{\\text{ch}}`` = `PSY.get_efficiency(storage).in`
+  - ``\\eta_{\\text{ds}}`` = `PSY.get_efficiency(storage).out`
+  - ``E_{\\max,\\text{st}}`` = `PSY.get_state_of_charge_limits(storage).max`
+  - ``E^{\\text{st}}_0`` = initial storage energy
+  - ``R^{*}_{p,t}`` = ancillary service deployment forecast for service ``p`` at time ``t``
+  - ``F_p`` = fraction of ``P_{\\max,\\text{pcc}}`` allowed for service ``p``
+  - ``N_p`` = number of periods of compliance for service ``p``
+
+**Expressions:**
+
+Adds ``p^{\\text{out}}_t`` and ``p^{\\text{in}}_t`` to `ActivePowerBalance` for use in
+network balance constraints. When services are attached, also accumulates reserve
+expressions ([`HybridTotalReserveOutUpExpression`](@ref),
+[`HybridTotalReserveOutDownExpression`](@ref),
+[`HybridTotalReserveInUpExpression`](@ref),
+[`HybridTotalReserveInDownExpression`](@ref)) and served-reserve expressions
+([`HybridServedReserveOutUpExpression`](@ref),
+[`HybridServedReserveOutDownExpression`](@ref),
+[`HybridServedReserveInUpExpression`](@ref),
+[`HybridServedReserveInDownExpression`](@ref)) that track deployed reserves.
+
+**Constraints:**
+
+Let ``\\mathcal{T} = \\{1, \\dots, T\\}`` denote the set of time steps.
+
+PCC and status. When `"reservation" => true`:
+[`HybridStatusOutOnConstraint`](@ref), [`HybridStatusInOnConstraint`](@ref). When
+`"reservation" => false`: [`OutputActivePowerVariableLimitsConstraint`](@ref) and
+[`InputActivePowerVariableLimitsConstraint`](@ref) (no mutual-exclusion binary).
+
+```math
+\\begin{align*}
+&  0 \\leq p^{\\text{in}}_t \\leq P_{\\max,\\text{pcc}}, \\quad 0 \\leq p^{\\text{out}}_t \\leq P_{\\max,\\text{pcc}}, \\quad \\forall t \\in \\mathcal{T} \\\\
+&  u^{\\text{st}}_t \\in \\{0,1\\} \\quad \\text{(when reservation is enabled)}
+\\end{align*}
+```
+
+Energy asset balance ([`HybridEnergyAssetBalanceConstraint`](@ref)). When services are
+present, served-reserve expressions enter the balance with sign pattern
+``+\\bar{r}^{\\text{out,up}} - \\bar{r}^{\\text{in,up}} - \\bar{r}^{\\text{out,dn}} + \\bar{r}^{\\text{in,dn}}``.
+
+```math
+p^{\\text{th}}_t + p^{\\text{re}}_t + p^{\\text{ds}}_t - p^{\\text{ch}}_t - P^{\\text{ld}}_t = p^{\\text{out}}_t - p^{\\text{in}}_t, \\quad \\forall t \\in \\mathcal{T}
+```
+
+Thermal limits when no services are attached
+([`HybridThermalOnVariableUbConstraint`](@ref),
+[`HybridThermalOnVariableLbConstraint`](@ref)):
+
+```math
+u^{\\text{th}}_t P_{\\min,\\text{th}} \\leq p^{\\text{th}}_t \\leq u^{\\text{th}}_t P_{\\max,\\text{th}}, \\quad u^{\\text{th}}_t \\in \\{0,1\\}, \\quad \\forall t \\in \\mathcal{T}
+```
+
+Renewable limit ([`HybridRenewableActivePowerLimitConstraint`](@ref)):
+
+```math
+0 \\leq p^{\\text{re}}_t \\leq P^{*,\\text{re}}_t, \\quad \\forall t \\in \\mathcal{T}
+```
+
+Storage charge/discharge mutual exclusion when `"storage_reservation" => true`
+([`HybridStorageStatusChargeOnConstraint`](@ref),
+[`HybridStorageStatusDischargeOnConstraint`](@ref)):
+
+```math
+\\begin{align*}
+&  p^{\\text{ch}}_t \\leq (1 - ss^{\\text{st}}_t) P_{\\max,\\text{ch}}, \\quad p^{\\text{ds}}_t \\leq ss^{\\text{st}}_t P_{\\max,\\text{ds}}, \\quad \\forall t \\in \\mathcal{T} \\\\
+&  ss^{\\text{st}}_t \\in \\{0,1\\}
+\\end{align*}
+```
+
+Storage energy balance ([`HybridStorageBalanceConstraint`](@ref)):
+
+```math
+e^{\\text{st}}_t = e^{\\text{st}}_{t-1} + \\Delta t \\left( \\eta_{\\text{ch}} p^{\\text{ch}}_t - \\frac{p^{\\text{ds}}_t}{\\eta_{\\text{ds}}} \\right), \\quad \\forall t \\in \\mathcal{T}, \\quad e^{\\text{st}}_0 = E^{\\text{st}}_0
+```
+
+When ancillary services are attached: [`HybridThermalReserveLimitConstraint`](@ref),
+[`HybridRenewableReserveLimitConstraint`](@ref),
+[`HybridStorageChargingReservePowerLimitConstraint`](@ref),
+[`HybridStorageDischargingReservePowerLimitConstraint`](@ref),
+[`ReserveCoverageConstraint`](@ref), [`ReserveCoverageConstraintEndOfPeriod`](@ref),
+[`HybridReserveAssignmentConstraint`](@ref), [`HybridReserveBalanceConstraint`](@ref).
+
+End-of-horizon energy target (if `"energy_target" => true`),
+[`StateofChargeTargetConstraint`](@ref):
+
+```math
+e^{\\text{st}}_T = E^{\\text{st}}_T
+```
+
+Charge/discharge regularization (if `"regularization" => true`),
+[`ChargeRegularizationConstraint`](@ref),
+[`DischargeRegularizationConstraint`](@ref): bound ``|p^{\\text{ch}}_t -
+p^{\\text{ch}}_{t-1}|`` and ``|p^{\\text{ds}}_t - p^{\\text{ds}}_{t-1}|`` by a
+non-negative slack carried into the objective.
+
+# Example
+
+```julia
+DeviceModel(
+    PSY.HybridSystem,
+    HybridDispatchWithReserves;
+    attributes = Dict(
+        "reservation"         => true,
+        "storage_reservation" => true,
+        "energy_target"       => false,
+        "regularization"      => false,
+    ),
+)
+```
+
+# Attributes
+
+  - `"reservation"` (default `true`): if `true`, adds `ReservationVariable` and uses
+    `HybridStatus{Out,In}OnConstraint` to mutually exclude PCC charge and discharge.
+    If `false`, both PCC variables are bounded by simple range constraints.
+  - `"storage_reservation"` (default `true`): if `true`, adds `HybridStorageReservation`
+    and uses the `ss`-multiplied form of the storage power-limit constraints. If
+    `false`, charge and discharge variables are bounded independently.
+  - `"energy_target"` (default `false`): adds `StateofChargeTargetConstraint` at the
+    storage subcomponent.
+  - `"regularization"` (default `false`): adds `ChargeRegularizationVariable` and
+    `DischargeRegularizationVariable` plus the matching constraints, and a small
+    objective penalty on each, to suppress charge/discharge oscillation.
+
+**Objective:**
+
+Adds variable cost on `HybridThermalActivePower`, `HybridRenewableActivePower`,
+`HybridStorageChargePower`, and `HybridStorageDischargePower` from each subcomponent's
+`PSY.get_operation_cost`, plus the proportional `OnVariable` cost (delegated to POM's
+standard `proportional_cost` for `ThermalGenerationCost`, so a hybrid-embedded thermal
+unit and a standalone copy produce identical objective coefficients). When
+`"regularization" => true`, also adds a small per-time-step penalty on the
+regularization slacks.
+"""
+struct HybridDispatchWithReserves <: AbstractHybridFormulationWithReserves end

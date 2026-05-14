@@ -639,6 +639,98 @@ Auxiliary Variable for Storage Models that solve for total energy output
 """
 struct StorageEnergyOutput <: AuxVariableType end
 
+#################################################################################
+# Hybrid System Variables
+#
+# Paired sibling variable types are parametric on `ReserveSide` (Discharge / Charge).
+# Historical names are retained as const aliases so all existing imports,
+# `get_variable(container, T, V)` lookups, and exports continue to work.
+#################################################################################
+
+"""
+Abstract type for variables representing flows internal to a `PSY.HybridSystem`.
+"""
+abstract type AbstractHybridSubcomponentVariableType <: VariableType end
+
+"Active power dispatched by the thermal subcomponent of a hybrid system."
+struct HybridThermalActivePower <: AbstractHybridSubcomponentVariableType end
+
+"Active power dispatched by the renewable subcomponent of a hybrid system."
+struct HybridRenewableActivePower <: AbstractHybridSubcomponentVariableType end
+
+"""
+Active power on the storage subcomponent of a hybrid system. Parametric on
+[`ReserveSide`](@ref): `HybridStorageSubcomponentPower{ChargeSide}` is the inflow
+(historical `HybridStorageChargePower`), `{DischargeSide}` is the outflow.
+"""
+struct HybridStorageSubcomponentPower{Sd <: ReserveSide} <:
+       AbstractHybridSubcomponentVariableType end
+const HybridStorageChargePower = HybridStorageSubcomponentPower{ChargeSide}
+const HybridStorageDischargePower = HybridStorageSubcomponentPower{DischargeSide}
+
+"Binary reservation variable for the storage subcomponent of a hybrid system."
+struct HybridStorageReservation <: AbstractHybridSubcomponentVariableType end
+
+"""
+Non-negative slack variable bounding the absolute step change in charge or discharge
+power between consecutive time steps. Carried into the objective with a small fixed
+penalty when the hybrid `\"regularization\"` attribute is set.
+`RegularizationVariable{ChargeSide}` is the historical `ChargeRegularizationVariable`.
+"""
+struct RegularizationVariable{Sd <: ReserveSide} <: AbstractHybridSubcomponentVariableType end
+const ChargeRegularizationVariable = RegularizationVariable{ChargeSide}
+const DischargeRegularizationVariable = RegularizationVariable{DischargeSide}
+
+"""
+Abstract type for hybrid reserve variables (both PCC-boundary and subcomponent).
+"""
+abstract type AbstractHybridReserveVariableType <: VariableType end
+
+"""
+Reserve quantity offered to the grid through one side of a hybrid PCC. Parametric on
+[`ReserveSide`](@ref): `HybridPCCReserveVariable{DischargeSide}` is the historical
+`HybridReserveVariableOut`, `{ChargeSide}` is `HybridReserveVariableIn`.
+"""
+struct HybridPCCReserveVariable{Sd <: ReserveSide} <: AbstractHybridReserveVariableType end
+const HybridReserveVariableOut = HybridPCCReserveVariable{DischargeSide}
+const HybridReserveVariableIn = HybridPCCReserveVariable{ChargeSide}
+
+"""
+Abstract type for per-subcomponent reserve allocations inside a hybrid system
+that do not have a Discharge/Charge axis (thermal and renewable subcomponents).
+"""
+abstract type AbstractHybridSubcomponentInjectorReserveVariableType <:
+              AbstractHybridReserveVariableType end
+
+"Reserve allocated to the thermal subcomponent of a hybrid system."
+struct HybridThermalReserveVariable <: AbstractHybridSubcomponentInjectorReserveVariableType end
+
+"Reserve allocated to the renewable subcomponent of a hybrid system."
+struct HybridRenewableReserveVariable <:
+       AbstractHybridSubcomponentInjectorReserveVariableType end
+
+"""
+Reserve allocated to one side of a hybrid system's storage subcomponent. Parametric on
+[`ReserveSide`](@ref): `HybridStorageSubcomponentReserveVariable{ChargeSide}` is the
+historical `HybridChargingReserveVariable`, `{DischargeSide}` is the discharging one.
+"""
+struct HybridStorageSubcomponentReserveVariable{Sd <: ReserveSide} <:
+       AbstractHybridReserveVariableType end
+const HybridChargingReserveVariable =
+    HybridStorageSubcomponentReserveVariable{ChargeSide}
+const HybridDischargingReserveVariable =
+    HybridStorageSubcomponentReserveVariable{DischargeSide}
+
+"""
+Union over all hybrid per-subcomponent reserve variable types — both the injector flavors
+(thermal/renewable, no Side axis) and the storage flavors (parametric on Side). Retained
+for callers that previously matched on the abstract supertype of the same name.
+"""
+const HybridComponentReserveVariableType = Union{
+    AbstractHybridSubcomponentInjectorReserveVariableType,
+    HybridStorageSubcomponentReserveVariable,
+}
+
 const MULTI_START_VARIABLES = (HotStartVariable, WarmStartVariable, ColdStartVariable)
 
 should_write_resulting_value(::Type{PiecewiseLinearCostVariable}) = false
