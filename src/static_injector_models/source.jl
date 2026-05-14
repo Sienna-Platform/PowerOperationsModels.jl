@@ -3,9 +3,6 @@
 requires_initialization(::ImportExportSourceModel) = false
 
 
-get_variable_multiplier(::Type{ActivePowerOutVariable}, ::Type{<:PSY.Source}, ::Type{<:AbstractSourceFormulation}) = 1.0
-get_variable_multiplier(::Type{ActivePowerInVariable}, ::Type{<:PSY.Source}, ::Type{<:AbstractSourceFormulation}) = -1.0
-get_variable_multiplier(::Type{ReactivePowerVariable}, ::Type{<:PSY.Source}, ::Type{<:AbstractSourceFormulation}) = 1.0
 ############## ActivePowerVariables, Source ####################
 get_variable_binary(::Type{ActivePowerInVariable}, ::Type{<:PSY.Source}, ::Type{<:AbstractSourceFormulation}) = false
 get_variable_binary(::Type{ActivePowerOutVariable}, ::Type{<:PSY.Source}, ::Type{<:AbstractSourceFormulation}) = false

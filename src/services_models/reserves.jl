@@ -1,7 +1,7 @@
 #! format: off
 ############################### Reserve Variables #########################################
 
-get_variable_multiplier(::Type{<:VariableType}, ::Type{<:PSY.Reserve}, ::Type{<:AbstractReservesFormulation}) = NaN
+get_variable_multiplier(::Type{V}, ::Type{D}, ::Type{F}) where {V <: VariableType, D <: PSY.Reserve, F <: AbstractReservesFormulation} = _unsupported_multiplier(V, D, F)
 ############################### PostContingencyActivePowerReserveDeploymentVariable, Reserve #########################################
 get_variable_binary(::Type{PostContingencyActivePowerReserveDeploymentVariable}, ::Type{<:PSY.Reserve}, ::Type{<:AbstractSecurityConstrainedReservesFormulation}) = false
 function get_variable_upper_bound(::Type{PostContingencyActivePowerReserveDeploymentVariable}, r::PSY.Reserve, d::PSY.Device, ::Type{<:AbstractSecurityConstrainedReservesFormulation})

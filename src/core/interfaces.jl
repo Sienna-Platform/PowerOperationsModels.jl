@@ -83,13 +83,29 @@ end
 
 """
 Get the multiplier for a variable type when adding to an expression.
-Default implementation returns 1.0.
+
+Default consults [`IOM.flow_sign`](@ref) on the variable type: variables marked
+`FlowInjection` contribute `+1.0`, `FlowWithdrawal` contributes `-1.0`, and
+`FlowUndirected` falls back to `1.0`. Device-driven sign rules (e.g. anything on `PSY.ElectricLoad`)
+should be expressed as more-specific dispatches that override this default.
 """
-get_variable_multiplier(
-    ::Type{<:IS.Optimization.VariableType},
-    ::Type{<:IS.InfrastructureSystemsComponent},
-    ::Type{<:IOM.AbstractDeviceFormulation},
-) = 1.0
+function get_variable_multiplier(
+    ::Type{V},
+    # second arg is any system component, or `PSY.System` which is a ComponentContainer
+    ::Type{<:Union{IS.InfrastructureSystemsComponent, IS.ComponentContainer}},
+    ::Type,  # could be PowerModel (network) or DeviceFormulation (device)
+) where {V <: IS.Optimization.VariableType}
+    return IOM.multiplier_from_sign(IOM.flow_sign(V))
+end
+
+# Hard-error fallback for variable/device/formulation triples that intentionally
+# have no defined multiplier (must be specialized at the call site). Used by
+# devices like Storage/AGC/Reserve/TwoTerminalHVDC to fail loudly instead of
+# returning NaN, which silently poisons JuMP expressions.
+@noinline _unsupported_multiplier(V, D, F) = error(
+    "get_variable_multiplier not implemented for variable $V on $D under $F. " *
+    "This combination must be specialized.",
+)
 
 """
 Get the multiplier for an expression type based on parameter type.

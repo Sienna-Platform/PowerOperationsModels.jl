@@ -33,7 +33,7 @@ get_variable_binary(::Type{HVDCPiecewiseBinaryLossVariable}, ::Type{<:PSY.TwoTer
 get_variable_binary(::Type{<:VariableType}, ::Type{<:PSY.TwoTerminalHVDC}, ::Type{<:AbstractTwoTerminalDCLineFormulation}) = false
 get_variable_binary(::Type{FlowActivePowerVariable}, ::Type{<:PSY.TwoTerminalHVDC}, ::Type{<:AbstractTwoTerminalDCLineFormulation}) = false
 get_variable_binary(::Type{HVDCFlowDirectionVariable}, ::Type{<:PSY.TwoTerminalHVDC}, ::Type{<:AbstractTwoTerminalDCLineFormulation}) = true
-get_variable_multiplier(::Type{FlowActivePowerVariable}, ::Type{<:PSY.TwoTerminalHVDC}, ::Type{<:AbstractTwoTerminalDCLineFormulation}) = NaN
+get_variable_multiplier(::Type{V}, ::Type{D}, ::Type{F}) where {V <: FlowActivePowerVariable, D <: PSY.TwoTerminalHVDC, F <: AbstractTwoTerminalDCLineFormulation} = _unsupported_multiplier(V, D, F)
 get_parameter_multiplier(::Type{FixValueParameter}, ::PSY.TwoTerminalHVDC, ::Type{<:AbstractTwoTerminalDCLineFormulation}) = 1.0
 get_variable_multiplier(::Type{FlowActivePowerFromToVariable}, ::Type{<:PSY.TwoTerminalHVDC}, ::Type{<:AbstractTwoTerminalDCLineFormulation}) = -1.0
 get_variable_multiplier(::Type{FlowActivePowerToFromVariable}, ::Type{<:PSY.TwoTerminalHVDC}, ::Type{<:AbstractTwoTerminalDCLineFormulation}) = -1.0

@@ -101,6 +101,9 @@ Docs abbreviation: ``p^\\text{sl,dn}``
 """
 struct SystemBalanceSlackDown <: VariableType end
 
+IOM.flow_sign(::Type{SystemBalanceSlackUp}) = IOM.FlowInjection
+IOM.flow_sign(::Type{SystemBalanceSlackDown}) = IOM.FlowWithdrawal
+
 """
 Struct to dispatch the creation of Reserve requirement slack variables. Used when there is not reserves in the system to satisfy the requirement.
 
@@ -476,6 +479,9 @@ Docs abbreviation: ``f^\\text{sl,dn}``
 """
 struct InterfaceFlowSlackDown <: VariableType end
 
+IOM.flow_sign(::Type{InterfaceFlowSlackUp}) = IOM.FlowInjection
+IOM.flow_sign(::Type{InterfaceFlowSlackDown}) = IOM.FlowWithdrawal
+
 """
 Struct to dispatch the creation of Slack variables for UpperBoundFeedforward
 
@@ -561,6 +567,8 @@ struct HydroReservoirHeadVariable <: VariableType end
 Struct to dispatch the creation of a variable for pumped power in a hydro pump turbine (in MWh).
 """
 struct ActivePowerPumpVariable <: VariableType end
+
+IOM.flow_sign(::Type{ActivePowerPumpVariable}) = IOM.FlowWithdrawal
 
 """
 Auxiliary Variable for Hydro Models that solve for total energy output

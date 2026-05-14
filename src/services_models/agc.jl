@@ -1,5 +1,5 @@
 #! format: off
-get_variable_multiplier(::Type{<:VariableType}, ::Type{<:PSY.AGC}, ::Type{<:AbstractAGCFormulation}) = NaN
+get_variable_multiplier(::Type{V}, ::Type{D}, ::Type{F}) where {V <: VariableType, D <: PSY.AGC, F <: AbstractAGCFormulation} = _unsupported_multiplier(V, D, F)
 ########################## ActivePowerVariable, AGC ###########################
 
 ########################## SteadyStateFrequencyDeviation ##################################

@@ -1,7 +1,7 @@
 #! format: off
 requires_initialization(::AbstractStorageFormulation) = false
 
-get_variable_multiplier(::Type{<:VariableType}, ::Type{<:PSY.Storage}, ::Type{<:AbstractStorageFormulation}) = NaN
+get_variable_multiplier(::Type{V}, ::Type{D}, ::Type{F}) where {V <: VariableType, D <: PSY.Storage, F <: AbstractStorageFormulation} = _unsupported_multiplier(V, D, F)
 ########################### ActivePowerInVariable, Storage #################################
 get_variable_binary(::Type{ActivePowerInVariable}, ::Type{<:PSY.Storage}, ::Type{<:AbstractStorageFormulation}) = false
 get_variable_lower_bound(::Type{ActivePowerInVariable}, d::PSY.Storage, ::Type{<:AbstractStorageFormulation}) = 0.0
@@ -431,7 +431,7 @@ function add_variables!(
 end
 
 ############################# Expression Logic for Ancillary Services ######################
-get_variable_multiplier(
+get_reserve_balance_factor(
     ::Type{AncillaryServiceVariableCharge},
     ::Type{ReserveAssignmentBalanceDownCharge},
     d::PSY.Storage,
@@ -439,7 +439,7 @@ get_variable_multiplier(
     ::PSY.Reserve{PSY.ReserveUp},
 ) = 0.0
 
-get_variable_multiplier(
+get_reserve_balance_factor(
     ::Type{AncillaryServiceVariableCharge},
     ::Type{ReserveAssignmentBalanceDownCharge},
     d::PSY.Storage,
@@ -447,7 +447,7 @@ get_variable_multiplier(
     ::PSY.Reserve{PSY.ReserveDown},
 ) = 1.0
 
-get_variable_multiplier(
+get_reserve_balance_factor(
     ::Type{AncillaryServiceVariableCharge},
     ::Type{ReserveAssignmentBalanceUpCharge},
     d::PSY.Storage,
@@ -455,7 +455,7 @@ get_variable_multiplier(
     ::PSY.Reserve{PSY.ReserveUp},
 ) = 1.0
 
-get_variable_multiplier(
+get_reserve_balance_factor(
     ::Type{AncillaryServiceVariableCharge},
     ::Type{ReserveAssignmentBalanceUpCharge},
     d::PSY.Storage,
@@ -463,7 +463,7 @@ get_variable_multiplier(
     ::PSY.Reserve{PSY.ReserveDown},
 ) = 0.0
 
-get_variable_multiplier(
+get_reserve_balance_factor(
     ::Type{AncillaryServiceVariableDischarge},
     ::Type{ReserveAssignmentBalanceDownDischarge},
     d::PSY.Storage,
@@ -471,7 +471,7 @@ get_variable_multiplier(
     ::PSY.Reserve{PSY.ReserveUp},
 ) = 0.0
 
-get_variable_multiplier(
+get_reserve_balance_factor(
     ::Type{AncillaryServiceVariableDischarge},
     ::Type{ReserveAssignmentBalanceDownDischarge},
     d::PSY.Storage,
@@ -479,7 +479,7 @@ get_variable_multiplier(
     ::PSY.Reserve{PSY.ReserveDown},
 ) = 1.0
 
-get_variable_multiplier(
+get_reserve_balance_factor(
     ::Type{AncillaryServiceVariableDischarge},
     ::Type{ReserveAssignmentBalanceUpDischarge},
     d::PSY.Storage,
@@ -487,7 +487,7 @@ get_variable_multiplier(
     ::PSY.Reserve{PSY.ReserveUp},
 ) = 1.0
 
-get_variable_multiplier(
+get_reserve_balance_factor(
     ::Type{AncillaryServiceVariableDischarge},
     ::Type{ReserveAssignmentBalanceUpDischarge},
     d::PSY.Storage,
@@ -496,7 +496,7 @@ get_variable_multiplier(
 ) = 0.0
 
 ### Deployment ###
-get_variable_multiplier(
+get_reserve_balance_factor(
     ::Type{AncillaryServiceVariableCharge},
     ::Type{ReserveDeploymentBalanceDownCharge},
     d::PSY.Storage,
@@ -504,7 +504,7 @@ get_variable_multiplier(
     ::PSY.Reserve{PSY.ReserveUp},
 ) = 0.0
 
-get_variable_multiplier(
+get_reserve_balance_factor(
     ::Type{AncillaryServiceVariableCharge},
     ::Type{ReserveDeploymentBalanceDownCharge},
     d::PSY.Storage,
@@ -512,7 +512,7 @@ get_variable_multiplier(
     ::PSY.Reserve{PSY.ReserveDown},
 ) = 1.0
 
-get_variable_multiplier(
+get_reserve_balance_factor(
     ::Type{AncillaryServiceVariableCharge},
     ::Type{ReserveDeploymentBalanceUpCharge},
     d::PSY.Storage,
@@ -520,7 +520,7 @@ get_variable_multiplier(
     ::PSY.Reserve{PSY.ReserveUp},
 ) = 1.0
 
-get_variable_multiplier(
+get_reserve_balance_factor(
     ::Type{AncillaryServiceVariableCharge},
     ::Type{ReserveDeploymentBalanceUpCharge},
     d::PSY.Storage,
@@ -528,7 +528,7 @@ get_variable_multiplier(
     ::PSY.Reserve{PSY.ReserveDown},
 ) = 0.0
 
-get_variable_multiplier(
+get_reserve_balance_factor(
     ::Type{AncillaryServiceVariableDischarge},
     ::Type{ReserveDeploymentBalanceDownDischarge},
     d::PSY.Storage,
@@ -536,7 +536,7 @@ get_variable_multiplier(
     ::PSY.Reserve{PSY.ReserveUp},
 ) = 0.0
 
-get_variable_multiplier(
+get_reserve_balance_factor(
     ::Type{AncillaryServiceVariableDischarge},
     ::Type{ReserveDeploymentBalanceDownDischarge},
     d::PSY.Storage,
@@ -544,7 +544,7 @@ get_variable_multiplier(
     ::PSY.Reserve{PSY.ReserveDown},
 ) = 1.0
 
-get_variable_multiplier(
+get_reserve_balance_factor(
     ::Type{AncillaryServiceVariableDischarge},
     ::Type{ReserveDeploymentBalanceUpDischarge},
     d::PSY.Storage,
@@ -552,7 +552,7 @@ get_variable_multiplier(
     ::PSY.Reserve{PSY.ReserveUp},
 ) = 1.0
 
-get_variable_multiplier(
+get_reserve_balance_factor(
     ::Type{AncillaryServiceVariableDischarge},
     ::Type{ReserveDeploymentBalanceUpDischarge},
     d::PSY.Storage,
@@ -631,7 +631,7 @@ function add_to_expression!(
         for s in services
             s_name = PSY.get_name(s)
             variable = get_variable(container, U, V, "$(typeof(s))_$s_name")
-            mult = get_variable_multiplier(U, T, d, W, s) * get_fraction(T, s)
+            mult = get_reserve_balance_factor(U, T, d, W, s) * get_fraction(T, s)
             for t in get_time_steps(container)
                 add_proportional_to_jump_expression!(
                     expression[name, t],
@@ -663,7 +663,7 @@ function add_to_expression!(
         for s in services
             s_name = PSY.get_name(s)
             variable = get_variable(container, U, V, "$(typeof(s))_$s_name")
-            mult = get_variable_multiplier(U, T, d, W, s) * get_fraction(T, s)
+            mult = get_reserve_balance_factor(U, T, d, W, s) * get_fraction(T, s)
             for t in get_time_steps(container)
                 add_proportional_to_jump_expression!(
                     expression[name, t],

@@ -29,7 +29,7 @@ PowerFlowsExt = "PowerFlows"
 [sources]
 InfrastructureSystems = {url = "https://github.com/NREL-Sienna/InfrastructureSystems.jl", rev = "IS4"}
 PowerSystems = {url = "https://github.com/NREL-Sienna/PowerSystems.jl", rev = "psy6"}
-InfrastructureOptimizationModels = {url = "https://github.com/NREL-Sienna/InfrastructureOptimizationModels.jl", rev = "ac/psi-costexp-parambroad-pfslack"}
+InfrastructureOptimizationModels = {url = "https://github.com/Sienna-Platform/InfrastructureOptimizationModels.jl", rev = "lk/flow-sign-trait"}
 
 [compat]
 Dates = "1"
