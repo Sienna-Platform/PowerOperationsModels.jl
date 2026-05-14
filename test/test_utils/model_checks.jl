@@ -320,14 +320,14 @@ function IOM.jump_value(int::Int)
     return int
 end
 
-function _check_constraint_bounds(bounds::IOM.ConstraintBounds, valid_bounds::NamedTuple)
+function _check_constraint_bounds(bounds::POM.ConstraintBounds, valid_bounds::NamedTuple)
     @test bounds.coefficient.min == valid_bounds.coefficient.min
     @test bounds.coefficient.max == valid_bounds.coefficient.max
     @test bounds.rhs.min == valid_bounds.rhs.min
     @test bounds.rhs.max == valid_bounds.rhs.max
 end
 
-function _check_variable_bounds(bounds::IOM.VariableBounds, valid_bounds::NamedTuple)
+function _check_variable_bounds(bounds::POM.VariableBounds, valid_bounds::NamedTuple)
     @test bounds.bounds.min == valid_bounds.min
     @test bounds.bounds.max == valid_bounds.max
 end

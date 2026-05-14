@@ -1,0 +1,337 @@
+import PowerOperationsModels:
+    OptimizationContainerMetadata,
+    OptimizationProblemOutputs,
+    VariableKey,
+    ExpressionKey,
+    read_variable,
+    read_expression
+import Dates:
+    DateTime,
+    Millisecond
+import InfrastructureSystems as IS
+import InfrastructureSystems.Optimization: VariableType, ExpressionType
+
+# Minimal mock types — originally in IOM's test/test_utils/test_types.jl.
+# Kept inline here so this test stays self-contained in POM.
+struct MockVariable <: VariableType end
+struct MockVariable2 <: VariableType end
+struct MockExpression <: ExpressionType end
+struct MockExpression2 <: ExpressionType end
+# MockThermalGen is used purely as a component-type tag — TestComponent suffices.
+const MockThermalGen = IS.TestComponent
+
+# Override ISOPT's default `convert_output_to_natural_units(::Type) = false` for
+# the two "2"-suffixed mock types so the conversion logic in OPO is exercised.
+POM.convert_output_to_natural_units(::Type{MockVariable2}) = true
+POM.convert_output_to_natural_units(::Type{MockExpression2}) = true
+
+@testset "Test OptimizationProblemOutputs long format" begin
+    base_power = 10.0
+    # 2 hours timestamp range
+    timestamp_range =
+        StepRange(
+            DateTime("2024-01-01T00:00:00"),
+            Millisecond(3600000),
+            DateTime("2024-01-01T03:00:00"),
+        )
+    timestamp_vec = collect(timestamp_range)
+    data = IS.SystemData()
+    uuid = IS.make_uuid()
+    aux_variable_values = Dict()
+    @test !POM.convert_output_to_natural_units(MockVariable)
+    @test POM.convert_output_to_natural_units(MockVariable2)
+    var_key1 = VariableKey(MockVariable, IS.TestComponent)
+    var_key2 = VariableKey(MockVariable2, IS.TestComponent)
+    vals = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0]
+    variable_values = Dict(
+        var_key1 => DataFrame(
+            "time_index" => [1, 2, 3, 4, 1, 2, 3, 4],
+            "name" => ["c1", "c1", "c1", "c1", "c2", "c2", "c2", "c2"],
+            "value" => vals,
+        ),
+        var_key2 => DataFrame(
+            "time_index" => [1, 2, 3, 4, 1, 2, 3, 4],
+            "name" => ["c1", "c1", "c1", "c1", "c2", "c2", "c2", "c2"],
+            "value" => vals,
+        ),
+    )
+    dual_values = Dict()
+    parameter_values = Dict()
+    @test !POM.convert_output_to_natural_units(MockExpression)
+    @test POM.convert_output_to_natural_units(MockExpression2)
+    exp_key1 = ExpressionKey(MockExpression, IS.TestComponent)
+    exp_key2 = ExpressionKey(MockExpression2, MockThermalGen)
+    # Expression only 1 time-step
+    expression_values = Dict(
+        exp_key1 => DataFrame(
+            "time_index" => [1, 2, 3, 4, 1, 2, 3, 4],
+            "name" => ["c1", "c1", "c1", "c1", "c2", "c2", "c2", "c2"],
+            "value" => vals,
+        ),
+        exp_key2 => DataFrame(
+            "time_index" => [1, 2, 3, 4, 1, 2, 3, 4],
+            "name" => ["c1", "c1", "c1", "c1", "c2", "c2", "c2", "c2"],
+            "value" => vals,
+        ),
+    )
+    optimizer_stats = DataFrames.DataFrame()
+    metadata = OptimizationContainerMetadata()
+    # Test with StepRange
+    opt_res1 = OptimizationProblemOutputs(
+        base_power,
+        timestamp_range,
+        data,
+        uuid,
+        aux_variable_values,
+        variable_values,
+        dual_values,
+        parameter_values,
+        expression_values,
+        optimizer_stats,
+        metadata,
+        "test_model",
+        mktempdir(),
+        mktempdir(),
+    )
+    # Test with Vector{DateTime}
+    opt_res2 = OptimizationProblemOutputs(
+        base_power,
+        timestamp_vec,
+        data,
+        uuid,
+        aux_variable_values,
+        variable_values,
+        dual_values,
+        parameter_values,
+        expression_values,
+        optimizer_stats,
+        metadata,
+        "test_model",
+        mktempdir(),
+        mktempdir(),
+    )
+    opt_res3 = OptimizationProblemOutputs(
+        base_power,
+        [timestamp_vec[1]],
+        data,
+        uuid,
+        aux_variable_values,
+        variable_values,
+        dual_values,
+        parameter_values,
+        expression_values,
+        optimizer_stats,
+        metadata,
+        "test_model",
+        mktempdir(),
+        mktempdir(),
+    )
+
+    var_res = read_variable(opt_res1, var_key1)
+    @test sort!(unique(var_res.DateTime)) == timestamp_vec
+    @test @rsubset(var_res, :name == "c1")[!, :value] == [1.0, 2.0, 3.0, 4.0]
+    @test @rsubset(var_res, :name == "c2")[!, :value] == [5.0, 6.0, 7.0, 8.0]
+
+    var_res = read_variable(opt_res1, var_key2)
+    @test @rsubset(var_res, :name == "c1")[!, :value] == [10.0, 20.0, 30.0, 40.0]
+    @test @rsubset(var_res, :name == "c2")[!, :value] == [50.0, 60.0, 70.0, 80.0]
+
+    var_res2 = read_variable(
+        opt_res1,
+        var_key1;
+        start_time = DateTime("2024-01-01T01:00:00"),
+        len = 2,
+    )
+    @test @rsubset(var_res2, :name == "c1")[!, :value] == [2.0, 3.0]
+    @test @rsubset(var_res2, :name == "c2")[!, :value] == [6.0, 7.0]
+
+    var_res2 = read_variable(
+        opt_res1,
+        var_key2;
+        start_time = DateTime("2024-01-01T01:00:00"),
+        len = 2,
+    )
+    @test @rsubset(var_res2, :name == "c1")[!, :value] == [20.0, 30.0]
+    @test @rsubset(var_res2, :name == "c2")[!, :value] == [60.0, 70.0]
+
+    var_res = read_variable(opt_res1, var_key2; table_format = IS.TableFormat.WIDE)
+    @test var_res[!, :c1] == [10.0, 20.0, 30.0, 40.0]
+    @test var_res[!, :c2] == [50.0, 60.0, 70.0, 80.0]
+
+    exp_res = read_expression(opt_res2, exp_key1)
+    @test @rsubset(exp_res, :name == "c1")[!, :value] == [1.0, 2.0, 3.0, 4.0]
+    @test @rsubset(exp_res, :name == "c2")[!, :value] == [5.0, 6.0, 7.0, 8.0]
+    exp_res = read_expression(opt_res2, exp_key2)
+    @test @rsubset(exp_res, :name == "c1")[!, :value] == [10.0, 20.0, 30.0, 40.0]
+    @test @rsubset(exp_res, :name == "c2")[!, :value] == [50.0, 60.0, 70.0, 80.0]
+
+    @test POM.get_resolution(opt_res1) == Millisecond(3600000)
+    @test POM.get_resolution(opt_res2) == Millisecond(3600000)
+    @test isnothing(POM.get_resolution(opt_res3))
+end
+
+@testset "Test OptimizationProblemOutputs 3d long format" begin
+    timestamps = StepRange(
+        DateTime("2024-01-01T00:00:00"),
+        Millisecond(3600000),
+        DateTime("2024-01-01T01:00:00"),
+    )
+    data = IS.SystemData()
+    aux_variable_values = Dict()
+    var_key = VariableKey(MockVariable, IS.TestComponent)
+    vals = [1.0, 2.0, 3.0, 4.0]
+    variable_values = Dict(
+        var_key => DataFrame(
+            "time_index" => [1, 2, 1, 2],
+            "name" => ["c1", "c2", "c1", "c2"],
+            "name2" => ["c3", "c4", "c3", "c4"],
+            "value" => vals,
+        ),
+    )
+    optimizer_stats = DataFrames.DataFrame()
+    res = OptimizationProblemOutputs(
+        100.0,
+        timestamps,
+        data,
+        IS.make_uuid(),
+        Dict(),
+        variable_values,
+        Dict(),
+        Dict(),
+        Dict(),
+        optimizer_stats,
+        OptimizationContainerMetadata(),
+        "test_model",
+        mktempdir(),
+        mktempdir(),
+    )
+
+    var_res = read_variable(res, var_key)
+    @test @rsubset(var_res, :name == "c1" && :name2 == "c3")[!, :value] == [1.0, 3.0]
+    @test @rsubset(var_res, :name == "c2" && :name2 == "c4")[!, :value] == [2.0, 4.0]
+end
+
+@testset "Test OptimizationProblemOutputs _process_timestamps" begin
+    time_ids = [1, 2, 3, 4]
+    timestamps = [
+        DateTime("2024-01-01T00:00:00"),
+        DateTime("2024-01-01T01:00:00"),
+        DateTime("2024-01-01T02:00:00"),
+        DateTime("2024-01-01T03:00:00"),
+    ]
+    data = IS.SystemData()
+    var_key = VariableKey(MockVariable, IS.TestComponent)
+    vals = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0]
+    variable_values = Dict(
+        var_key => DataFrame(
+            "time_index" => [1, 2, 3, 4, 1, 2, 3, 4],
+            "name" => ["c1", "c1", "c1", "c1", "c2", "c2", "c2", "c2"],
+            "value" => vals,
+        ),
+    )
+    optimizer_stats = DataFrames.DataFrame()
+    metadata = OptimizationContainerMetadata()
+    opt_res = OptimizationProblemOutputs(
+        100.0,
+        timestamps,
+        data,
+        IS.make_uuid(),
+        Dict(),
+        variable_values,
+        Dict(),
+        Dict(),
+        Dict(),
+        optimizer_stats,
+        metadata,
+        "DecisionModel",
+        mktempdir(),
+        mktempdir(),
+    )
+    @test POM._process_timestamps(opt_res, nothing, nothing) ==
+          (time_ids, timestamps)
+    @test POM._process_timestamps(opt_res, timestamps[2], nothing) ==
+          (time_ids[2:end], timestamps[2:end])
+    @test POM._process_timestamps(opt_res, timestamps[4], nothing) ==
+          ([time_ids[4]], [timestamps[4]])
+    @test POM._process_timestamps(opt_res, nothing, 3) ==
+          (time_ids[1:3], timestamps[1:3])
+    @test POM._process_timestamps(opt_res, timestamps[2], 2) ==
+          (time_ids[2:3], timestamps[2:3])
+
+    @test_throws IS.InvalidValue POM._process_timestamps(
+        opt_res,
+        timestamps[1] - Hour(1),
+        nothing,
+    )
+    @test_throws IS.InvalidValue POM._process_timestamps(
+        opt_res,
+        timestamps[4] + Hour(1),
+        nothing,
+    )
+    @test_throws IS.InvalidValue POM._process_timestamps(opt_res, nothing, -1)
+    @test_throws IS.InvalidValue POM._process_timestamps(opt_res, nothing, 10)
+    @test_throws IS.InvalidValue POM._process_timestamps(
+        opt_res,
+        timestamps[2],
+        10,
+    )
+end
+
+# Smoke fixture for the regression tests below — minimal OPO with one variable row.
+function _make_minimal_opo()
+    base_power = 100.0
+    ts = collect(
+        StepRange(
+            DateTime("2024-01-01T00:00:00"),
+            Millisecond(3600000),
+            DateTime("2024-01-01T01:00:00"),
+        ),
+    )
+    var_key = VariableKey(MockVariable, IS.TestComponent)
+    variable_values = Dict(
+        var_key => DataFrame(
+            "time_index" => [1, 2],
+            "name" => ["c1", "c1"],
+            "value" => [1.0, 2.0],
+        ),
+    )
+    optimizer_stats = DataFrame(; objective_value = [1.0])
+    return OptimizationProblemOutputs(
+        base_power,
+        ts,
+        IS.SystemData(),
+        IS.make_uuid(),
+        Dict(),
+        variable_values,
+        Dict(),
+        Dict(),
+        Dict(),
+        optimizer_stats,
+        OptimizationContainerMetadata(),
+        "DecisionModel",
+        mktempdir(),
+        mktempdir(),
+    )
+end
+
+@testset "export_optimizer_stats JSON path" begin
+    res = _make_minimal_opo()
+    dir = mktempdir()
+    POM.export_optimizer_stats(res, dir; format = "json")
+    @test isfile(joinpath(dir, "optimizer_stats.json"))
+end
+
+@testset "set_source_data! throws InvalidValue on UUID mismatch" begin
+    res = _make_minimal_opo()
+    wrong_source = IS.TestComponent("wrong", 0)
+    @test IS.get_uuid(wrong_source) != res.source_data_uuid
+    @test_throws IS.InvalidValue POM.set_source_data!(res, wrong_source)
+end
+
+@testset "show(OptimizationProblemOutputs) does not throw" begin
+    res = _make_minimal_opo()
+    plain = sprint(show, MIME"text/plain"(), res)
+    @test occursin("Resolution", plain)
+    html = sprint(show, MIME"text/html"(), res)
+    @test occursin("Resolution", html)
+end

@@ -34,7 +34,7 @@ UUIDs = "cf7118a7-6976-5b1a-9a39-7adc72f591a4"
 [sources]
 InfrastructureSystems = {url = "https://github.com/NREL-Sienna/InfrastructureSystems.jl", rev = "IS4"}
 PowerSystems = {url = "https://github.com/NREL-Sienna/PowerSystems.jl", rev = "psy6"}
-InfrastructureOptimizationModels = {url = "https://github.com/NREL-Sienna/InfrastructureOptimizationModels.jl", rev = "lk/pom-test-fixes"}
+InfrastructureOptimizationModels = {url = "https://github.com/NREL-Sienna/InfrastructureOptimizationModels.jl", rev = "lk/move-operation-to-pom"}
 PowerSystemCaseBuilder = {url = "https://github.com/NREL-Sienna/PowerSystemCaseBuilder.jl", rev = "psy6"}
 
 [compat]

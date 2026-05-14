@@ -1,5 +1,18 @@
 const _TEMPLATE_VALIDATION_EXCLUSIONS = [PSY.Arc, PSY.Area, PSY.ACBus, PSY.LoadZone]
 
+# Default behavior: a model parameterized by a Default*Problem runs the impl.
+# Custom problems error out by default — they must override validate_template.
+function validate_template(
+    model::OperationModel{<:Union{DefaultDecisionProblem, DefaultEmulationProblem}},
+)
+    validate_template_impl!(model)
+    return
+end
+
+function validate_template(::OperationModel{M}) where {M <: OperationProblem}
+    error("validate_template is not implemented for OperationModel{$M}")
+end
+
 function validate_template_impl!(model::IOM.OperationModel)
     template = get_template(model)
     settings = get_settings(model)
