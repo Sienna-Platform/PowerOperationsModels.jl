@@ -5,71 +5,82 @@ import MathOptLazy
 import PowerNetworkMatrices as PNM
 import PowerOperationsModels as POM
 import PowerSystems as PSY
+import HiGHS
+using JuMP
 using PowerSystems
 
-sys = PSY.System(joinpath(@__DIR__, "CATS_Sienna.json"))
-PSY.transform_single_time_series!(sys, Dates.Hour(24), Dates.Hour(24))
-ptdf = POM.VirtualPTDF(
-    sys;
-    tol = 0.01,
-    network_reductions = [PNM.RadialReduction(), PNM.DegreeTwoReduction()],
-)
-network_model = POM.NetworkModel(
-    POM.PTDFPowerModel;
-    # use_slacks = true,
-    # duals = [POM.CopperPlateBalanceConstraint],
-    PTDF_matrix = ptdf,
-    reduce_radial_branches = true,
-    reduce_degree_two_branches = true,
-    # power_flow_evaluation = POM.DCPPowerModel(), # ???
-)
-template = POM.OperationsProblemTemplate(network_model);
-POM.set_device_model!(template, PSY.ThermalStandard, POM.ThermalBasicUnitCommitment)
-POM.set_device_model!(template, PSY.RenewableDispatch, POM.RenewableFullDispatch)
-POM.set_device_model!(template, PSY.HydroDispatch, POM.HydroDispatchRunOfRiver)
-POM.set_device_model!(template, PSY.PowerLoad, POM.StaticPowerLoad)
-# POM.set_device_model!(template, PSY.Line, POM.StaticBranch)
-POM.set_device_model!(
-    template,
-    POM.DeviceModel(
-        PSY.Line,
-        POM.StaticBranch;
-        use_slacks = true,
+function run_problem(optimizer)
+    sys = PSY.System(joinpath(@__DIR__, "CATS_Sienna.json"))
+    PSY.transform_single_time_series!(sys, Dates.Hour(24), Dates.Hour(24))
+    ptdf = POM.VirtualPTDF(
+        sys;
+        tol = 0.01,
+        network_reductions = [PNM.RadialReduction(), PNM.DegreeTwoReduction()],
     )
-)
-POM.set_device_model!(template, PSY.Transformer2W, POM.StaticBranch)
-import JuMP
-import HiGHS
-model = POM.DecisionModel(
-    template,
-    sys;
-    name = "CATS_UC2",
-    # optimizer = Gurobi.MOI.OptimizerWithAttributes(() -> MathOptLazy.Optimizer(Gurobi.Optimizer)),
-    # optimizer = Gurobi.Optimizer,
-    optimizer = JuMP.MOI.OptimizerWithAttributes(
-        # () -> MathOptLazy.Optimizer(HiGHS.Optimizer),
-        HiGHS.Optimizer,
-        # "mip_rel_gap" => 1e-3,
-    ),
-    direct_mode_optimizer = true,
-    optimizer_solve_log_print = true,
-);
-@time POM.build!(model; output_dir = mktempdir(; cleanup = true))
+    network_model = POM.NetworkModel(
+        POM.PTDFPowerModel;
+        PTDF_matrix = ptdf,
+        reduce_radial_branches = true,
+        reduce_degree_two_branches = true,
+    )
+    template = POM.OperationsProblemTemplate(network_model);
+    POM.set_device_model!(template, PSY.ThermalStandard, POM.ThermalBasicUnitCommitment)
+    POM.set_device_model!(template, PSY.RenewableDispatch, POM.RenewableFullDispatch)
+    POM.set_device_model!(template, PSY.HydroDispatch, POM.HydroDispatchRunOfRiver)
+    POM.set_device_model!(template, PSY.PowerLoad, POM.StaticPowerLoad)
+    POM.set_device_model!(
+        template,
+        POM.DeviceModel(PSY.Line, POM.StaticBranch; use_slacks = true)
+    )
+    POM.set_device_model!(template, PSY.Transformer2W, POM.StaticBranch)
+    model = POM.DecisionModel(
+        template,
+        sys;
+        name = "CATS_UC2",
+        optimizer,
+        direct_mode_optimizer = true,
+        optimizer_solve_log_print = true,
+    );
+    POM.build!(model; output_dir = mktempdir(; cleanup = true))
+    jmp = POM.IOM.get_optimization_container(model).JuMPmodel
+    @time JuMP.optimize!(jmp)
+    return
+end
 
-jmp = POM.IOM.get_optimization_container(model).JuMPmodel
-@time JuMP.optimize!(jmp)
+# | Solver | Lazy? | tol=1e-2 | tol=1e-3 |
+# | :----- | :---- | -------: | -------: |
+# | Gurobi | false |       55 |       57 |
+# | Gurobi | true  |       12 |       17 |
+# | HiGHS  | false |      175 |      201 |
+# | HiGHS  | true  |      173 |      670 |
+# | HiGHS  | true* |       94 |      589 |
 
-# Gurobi
-#   Default: 540 seconds
-#   Gurobi.ConstraintAttribute("Lazy")=1: 80 seconds
-#   MathOptLazy: 120 seconds
-# HiGHS
-#   mip_rel_gap = 1e-3
-#     Default: 192 seconds
-#     MathOptLazy: 160 seconds
+# run_problem(
+#     optimizer_with_attributes(
+#         Gurobi.Optimizer,
+#         MOI.RelativeGapTolerance() => 1e-3,
+#     ),
+# )
+# run_problem(
+#     optimizer_with_attributes(
+#         () -> MathOptLazy.Optimizer(Gurobi.Optimizer),
+#         MOI.RelativeGapTolerance() => 1e-3,
+#     ),
+# )
+# run_problem(
+#     optimizer_with_attributes(
+#         HiGHS.Optimizer,
+#         MOI.RelativeGapTolerance() => 1e-3,
+#     ),
+# )
+# run_problem(
+#     optimizer_with_attributes(
+#         () -> MathOptLazy.Optimizer(HiGHS.Optimizer),
+#         MOI.RelativeGapTolerance() => 1e-3,
+#     ),
+# )
 
-# With: 330 seconds.
-# Without: 776.688322 seconds
+
 # for (k, v) in model.internal.container.constraints
 #     if k isa POM.ConstraintKey{POM.FlowRateConstraint,PSY.Line}
 #         JuMP.set_attribute.(v, Gurobi.ConstraintAttribute("Lazy"), 1)
