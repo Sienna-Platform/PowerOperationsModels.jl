@@ -15,6 +15,7 @@ LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
 Logging = "56ddb016-857b-54e1-b83d-db4d58db5568"
 PowerNetworkMatrices = "bed98974-b02a-5e2f-9fe0-a103f5c450dd"
 PowerSystems = "bcd98974-b02a-5e2f-9ee0-a103f5c450dd"
+PrettyTables = "08abe8d2-0d0c-5749-adfa-8a2ac140af0d"
 ProgressMeter = "92933f4c-e287-5a05-a399-4b506db050ca"
 Serialization = "9e88b42a-f829-5b0c-bbe9-9e923198166b"
 SparseArrays = "2f01184e-e22b-5df5-ae63-d93ebab69eaf"
@@ -23,13 +24,13 @@ TimerOutputs = "a759f4b9-e2f1-59dc-863e-4aeb61b1ea8f"
 [weakdeps]
 PowerFlows = "94fada2c-0ca5-4b90-a1fb-4bc5b59ccfc7"
 
+[sources]
+InfrastructureOptimizationModels = {rev = "lk/pom-test-fixes", url = "https://github.com/NREL-Sienna/InfrastructureOptimizationModels.jl"}
+InfrastructureSystems = {rev = "IS4", url = "https://github.com/NREL-Sienna/InfrastructureSystems.jl"}
+PowerSystems = {rev = "psy6", url = "https://github.com/NREL-Sienna/PowerSystems.jl"}
+
 [extensions]
 PowerFlowsExt = "PowerFlows"
-
-[sources]
-InfrastructureSystems = {url = "https://github.com/NREL-Sienna/InfrastructureSystems.jl", rev = "IS4"}
-PowerSystems = {url = "https://github.com/NREL-Sienna/PowerSystems.jl", rev = "psy6"}
-InfrastructureOptimizationModels = {url = "https://github.com/NREL-Sienna/InfrastructureOptimizationModels.jl", rev = "lk/pom-test-fixes"}
 
 [compat]
 Dates = "1"
@@ -40,6 +41,7 @@ InteractiveUtils = "1.11.0"
 JuMP = "^1.28"
 PowerNetworkMatrices = "^0.19"
 PowerSystems = "5.3"
+PrettyTables = "3"
 ProgressMeter = "1.11.0"
 TimerOutputs = "~0.5"
 julia = "^1.11"
