@@ -1736,12 +1736,12 @@ function add_constraints!(
     use_octagon = get_attribute(model, "use_octagon")
     side_tags = if use_octagon
         ("from_p_ub", "from_p_lb", "from_q_ub", "from_q_lb",
-        "to_p_ub", "to_p_lb", "to_q_ub", "to_q_lb",
-        "from_pp", "from_pn", "from_np", "from_nn",
-        "to_pp", "to_pn", "to_np", "to_nn")
+            "to_p_ub", "to_p_lb", "to_q_ub", "to_q_lb",
+            "from_pp", "from_pn", "from_np", "from_nn",
+            "to_pp", "to_pn", "to_np", "to_nn")
     else
         ("from_p_ub", "from_p_lb", "from_q_ub", "from_q_lb",
-        "to_p_ub", "to_p_lb", "to_q_ub", "to_q_lb")
+            "to_p_ub", "to_p_lb", "to_q_ub", "to_q_lb")
     end
     cons = Dict{String, Any}()
     for tag in side_tags
