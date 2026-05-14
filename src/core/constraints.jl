@@ -442,17 +442,16 @@ struct HVDCCableOhmsLawConstraint <: ConstraintType end
 
 """
 Apparent-power limit at each terminal of a two-terminal VSC HVDC, added only on
-AC networks. Enforces ``|S_k| \\le S_k^{\\max}`` for ``k \\in \\{f, t\\}`` via
-one of three formulation-specific shapes:
+AC networks. Enforces ``|S_k| \\le S_k^{\\max}`` for ``k \\in \\{f, t\\}`` via one
+of two formulation-specific shapes:
 
 - `HVDCTwoTerminalVSC` (NLP): exact disk ``p_k^2 + q_k^2 \\le (S_k^{\\max})^2``.
-- `HVDCTwoTerminalVSCMILP` (MILP): same `p_sq + q_sq ≤ s²` constraint, but with
-  `p_sq` and `q_sq` replaced by SOS2-based piecewise-linear approximations of
-  ``p^2`` and ``q^2`` (tightness grows with breakpoint count; not guaranteed to
-  be a strict outer- or inner-approximation).
-- `HVDCTwoTerminalVSCLP` (LP): octagonal outer-approximation of the disk
-  (8 linear constraints per terminal per timestep, guaranteed outer-bound;
-  loose by at most ≈8.2% in area).
+- `HVDCTwoTerminalVSCLP` (LP): linear outer-approximation. The axis-aligned box
+  ``|p_k|, |q_k| \\le S_k^{\\max}`` is added unconditionally; the four diagonal
+  half-planes ``|p_k| \\pm q_k \\le S_k^{\\max}\\sqrt{2}`` are added when the
+  device-model attribute `use_octagon` (default `true`) is on, in which case
+  the intersection is a regular octagon circumscribing the disk
+  (loose by at most ≈8.2% in area).
 """
 struct HVDCVSCApparentPowerLimitConstraint <: ConstraintType end
 

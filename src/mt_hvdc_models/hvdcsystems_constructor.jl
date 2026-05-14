@@ -103,10 +103,10 @@ function _converter_vi_bounds(devices)
     return v_bounds, i_bounds
 end
 
-_quad_config(::Type{MIPQuadraticLossConverter}) =
+_quad_config(::Type{MILPQuadraticLossConverter}) =
     IOM.SolverSOS2QuadConfig(DEFAULT_INTERPOLATION_LENGTH)
 _quad_config(::Type{QuadraticLossConverter}) = IOM.NoQuadApproxConfig()
-_bilinear_config(::Type{MIPQuadraticLossConverter}) =
+_bilinear_config(::Type{MILPQuadraticLossConverter}) =
     IOM.Bin2Config(IOM.SolverSOS2QuadConfig(DEFAULT_INTERPOLATION_LENGTH))
 _bilinear_config(::Type{QuadraticLossConverter}) = IOM.NoBilinearApproxConfig()
 
@@ -155,8 +155,7 @@ function construct_device!(
     # the decomposition constraints must be added first.
     if get_attribute(model, "use_linear_loss")
         _add_abs_value_decomposition_constraints!(
-            container, devices, model, network_model,
-            ConverterCurrent, PSY.get_max_dc_current,
+            container, devices, model, network_model, ConverterCurrent,
         )
     end
 

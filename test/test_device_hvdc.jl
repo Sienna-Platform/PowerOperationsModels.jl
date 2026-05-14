@@ -97,7 +97,7 @@ end
     @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
 end
 
-@testset "HVDC System with Losses Network (MIPQuadraticLossConverter)" begin
+@testset "HVDC System with Losses Network (MILPQuadraticLossConverter)" begin
     sys = _generate_test_hvdc_sys()
     template = OperationsProblemTemplate()
     set_device_model!(template, ThermalStandard, ThermalDispatchNoMin)
@@ -106,7 +106,7 @@ end
     set_device_model!(template, TModelHVDCLine, DCLossyLine)
     ipc_model = DeviceModel(
         InterconnectingConverter,
-        MIPQuadraticLossConverter,
+        MILPQuadraticLossConverter,
     )
     set_device_model!(template, ipc_model)
     set_hvdc_network_model!(template, VoltageDispatchHVDCNetworkModel)
@@ -147,7 +147,7 @@ end
     @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
 end
 
-@testset "HVDC MIP vs NLP QuadraticLossConverter agreement" begin
+@testset "HVDC MILP vs NLP QuadraticLossConverter agreement" begin
     function _build_and_solve(formulation, optimizer)
         sys = _generate_test_hvdc_sys()
         template = OperationsProblemTemplate()
@@ -176,13 +176,13 @@ end
         return model
     end
 
-    mip_model = _build_and_solve(MIPQuadraticLossConverter, HiGHS_optimizer)
+    milp_model = _build_and_solve(MILPQuadraticLossConverter, HiGHS_optimizer)
     nlp_model = _build_and_solve(QuadraticLossConverter, ipopt_optimizer)
 
-    mip_obj = IOM.get_objective_value(OptimizationProblemOutputs(mip_model))
+    milp_obj = IOM.get_objective_value(OptimizationProblemOutputs(milp_model))
     nlp_obj = IOM.get_objective_value(OptimizationProblemOutputs(nlp_model))
 
-    @test isapprox(mip_obj, nlp_obj; rtol = 0.05)
+    @test isapprox(milp_obj, nlp_obj; rtol = 0.05)
 end
 
 ##############################################################################
@@ -252,13 +252,6 @@ function _build_vsc_model(formulation, network, optimizer; sys = _generate_test_
     )
 end
 
-@testset "HVDC Two-Terminal VSC (MIP) on DCP" begin
-    model = _build_vsc_model(HVDCTwoTerminalVSCMILP, DCPPowerModel, HiGHS_optimizer)
-    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
-          IOM.ModelBuildStatus.BUILT
-    @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
-end
-
 @testset "HVDC Two-Terminal VSC (NLP) on DCP" begin
     model = _build_vsc_model(HVDCTwoTerminalVSC, DCPPowerModel, ipopt_optimizer)
     @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
@@ -273,12 +266,6 @@ end
     @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
 end
 
-# Omitted: HVDCTwoTerminalVSCMILP on ACPPowerModel cannot be solved by HiGHS
-# because ACPPowerModel introduces trigonometric (cos/sin) constraints in the
-# branch ohms law that require an NLP-capable solver. The MIP loss model
-# (SOS2 PWL) is independent of the network's nonlinearity. To exercise this
-# combination we'd need a MINLP solver (e.g. Gurobi).
-
 @testset "HVDC Two-Terminal VSC (LP) on DCP" begin
     model = _build_vsc_model(HVDCTwoTerminalVSCLP, DCPPowerModel, HiGHS_optimizer)
     @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
@@ -286,10 +273,15 @@ end
     @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
 end
 
-# Omitted: HVDCTwoTerminalVSCLP on ACPPowerModel — same reason as VSCMIP/AC
-# above (HiGHS cannot solve the ACP network's trigonometric branch constraints).
+# Omitted: HVDCTwoTerminalVSCLP on ACPPowerModel — HiGHS cannot solve the
+# ACP network's trigonometric (cos/sin) branch ohms-law constraints; we'd
+# need an MINLP-capable solver (e.g. Gurobi) for that combination.
 
-@testset "HVDC VSC MIP vs NLP objective agreement" begin
+@testset "HVDC VSC LP vs NLP objective agreement" begin
+    # On a DC network the PQ disk constraint is inactive (no reactive
+    # variables exist), so the LP and NLP differ only by the i² loss model
+    # (SOS2 PWL vs exact). For a smooth convex loss curve the two should agree
+    # within a few percent.
     function _solve(formulation, optimizer)
         sys = _generate_test_vsc_sys()
         model = _build_vsc_model(formulation, DCPPowerModel, optimizer; sys = sys)
@@ -298,9 +290,42 @@ end
         @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
         return IOM.get_optimization_container(model).optimizer_stats.objective_value
     end
-    mip_obj = _solve(HVDCTwoTerminalVSCMILP, HiGHS_optimizer)
+    lp_obj = _solve(HVDCTwoTerminalVSCLP, HiGHS_optimizer)
     nlp_obj = _solve(HVDCTwoTerminalVSC, ipopt_optimizer)
-    @test isapprox(mip_obj, nlp_obj; rtol = 0.05)
+    @test isapprox(lp_obj, nlp_obj; rtol = 0.05)
+end
+
+@testset "HVDC VSC LP: octagon is at least as tight as box-only" begin
+    # With `use_octagon = true` the LP adds four diagonals on top of the box,
+    # shrinking the feasible region (or leaving it unchanged if the diagonals
+    # are non-binding). The min-cost objective should therefore be ≥ the
+    # box-only case.
+    function _solve_lp(use_octagon)
+        sys = _generate_test_vsc_sys()
+        template = OperationsProblemTemplate(NetworkModel(DCPPowerModel))
+        set_device_model!(template, ThermalStandard, ThermalDispatchNoMin)
+        set_device_model!(template, RenewableDispatch, RenewableFullDispatch)
+        set_device_model!(template, PowerLoad, StaticPowerLoad)
+        set_device_model!(template, DeviceModel(Line, StaticBranch))
+        set_device_model!(
+            template,
+            DeviceModel(
+                TwoTerminalVSCLine,
+                HVDCTwoTerminalVSCLP;
+                attributes = Dict("use_linear_loss" => true, "use_octagon" => use_octagon),
+            ),
+        )
+        model = DecisionModel(
+            template, sys; store_variable_names = true, optimizer = HiGHS_optimizer,
+        )
+        @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+              IOM.ModelBuildStatus.BUILT
+        @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+        return IOM.get_optimization_container(model).optimizer_stats.objective_value
+    end
+    box_only_obj = _solve_lp(false)
+    octagon_obj = _solve_lp(true)
+    @test octagon_obj >= box_only_obj - 1e-6
 end
 
 @testset "HVDC VSC: higher cable resistance increases cost" begin
@@ -308,7 +333,7 @@ end
     function _solve_with_g(g_value)
         sys = _generate_test_vsc_sys(; g = g_value)
         model = _build_vsc_model(
-            HVDCTwoTerminalVSCMILP, DCPPowerModel, HiGHS_optimizer; sys = sys,
+            HVDCTwoTerminalVSCLP, DCPPowerModel, HiGHS_optimizer; sys = sys,
         )
         @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
               IOM.ModelBuildStatus.BUILT

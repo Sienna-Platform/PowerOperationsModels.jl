@@ -1,7 +1,7 @@
 # Shared helpers for quadratic / two-term converter losses
 #   loss(I) = a * I^2 + b * |I| + c
 # Used by multi-terminal InterconnectingConverter formulations
-# (MIPQuadraticLossConverter, QuadraticLossConverter) and two-terminal
+# (MILPQuadraticLossConverter, QuadraticLossConverter) and two-terminal
 # HVDCTwoTerminalVSC formulations.
 
 #########################################
@@ -25,36 +25,19 @@ _devices_with_linear_loss(devices) = [d for d in devices if _has_linear_loss(d)]
 ######## Loss expression builder ########
 #########################################
 
-# Dispatched on the JuMP type of `i_sq_t`:
-#   - JuMP.QuadExpr: exact i^2 product (NoQuadApproxConfig / NLP path). When
-#     `a == 0` the result has no quadratic term, so we degrade to AffExpr.
-#   - JuMP.AffExpr:  PWL approximation of i^2 (SOS2QuadConfig / MIP path).
-# In both cases we accumulate with `add_to_expression!` to avoid the
-# intermediate JuMP expressions the previous `+` chain produced.
-function _quadratic_converter_loss_expr(
-    a::Float64, b::Float64, c::Float64,
-    i_sq_t::JuMP.QuadExpr, i_pos_t, i_neg_t;
-    use_linear_loss::Bool,
-)
-    if iszero(a)
-        expr = JuMP.AffExpr(c)
-    else
-        expr = JuMP.QuadExpr(JuMP.AffExpr(c))
-        JuMP.add_to_expression!(expr, a, i_sq_t)
-    end
-    if use_linear_loss && !iszero(b)
-        JuMP.add_to_expression!(expr, b, i_pos_t)
-        JuMP.add_to_expression!(expr, b, i_neg_t)
-    end
-    return expr
-end
+# `_loss_seed` picks the right JuMP expression flavor for the I^2 term up
+# front: QuadExpr when `i_sq_t` is the exact bilinear i*i (NLP path,
+# NoQuadApproxConfig), AffExpr when it's the SOS2 PWL surrogate (MIP path).
+# With `a == 0` the I^2 term drops, so we degrade to AffExpr in either case.
+_loss_seed(c::Float64, ::JuMP.QuadExpr) = JuMP.QuadExpr(JuMP.AffExpr(c))
+_loss_seed(c::Float64, ::JuMP.AffExpr) = JuMP.AffExpr(c)
 
 function _quadratic_converter_loss_expr(
     a::Float64, b::Float64, c::Float64,
-    i_sq_t::JuMP.AffExpr, i_pos_t, i_neg_t;
+    i_sq_t, i_pos_t, i_neg_t;
     use_linear_loss::Bool,
 )
-    expr = JuMP.AffExpr(c)
+    expr = iszero(a) ? JuMP.AffExpr(c) : _loss_seed(c, i_sq_t)
     iszero(a) || JuMP.add_to_expression!(expr, a, i_sq_t)
     if use_linear_loss && !iszero(b)
         JuMP.add_to_expression!(expr, b, i_pos_t)
@@ -88,13 +71,20 @@ function _add_abs_value_decomposition_variables!(
     return
 end
 
+# I_max comes from different PSY accessors depending on the device, so we
+# dispatch on the device type rather than asking the caller to thread a getter
+# through. Two terminals on a VSC line share the same DC current variable, so
+# we take the binding (min) rating; MT converters expose a single getter.
+_linear_loss_i_max(d::PSY.TwoTerminalVSCLine) =
+    min(PSY.get_max_dc_current_from(d), PSY.get_max_dc_current_to(d))
+_linear_loss_i_max(d::PSY.InterconnectingConverter) = PSY.get_max_dc_current(d)
+
 function _add_abs_value_decomposition_constraints!(
     container::OptimizationContainer,
     devices,
     ::DeviceModel{D, F},
     ::NetworkModel{<:AbstractPowerModel},
     parent_var_type::Type{<:VariableType},
-    i_max_getter::Function,
 ) where {D <: PSY.Device, F}
     ll_devices = _devices_with_linear_loss(devices)
     isempty(ll_devices) && return
@@ -121,7 +111,7 @@ function _add_abs_value_decomposition_constraints!(
 
     for d in ll_devices
         name = PSY.get_name(d)
-        i_max = i_max_getter(d)
+        i_max = _linear_loss_i_max(d)
         for t in time_steps
             abs_val_const[name, t] = JuMP.@constraint(
                 jump_model,

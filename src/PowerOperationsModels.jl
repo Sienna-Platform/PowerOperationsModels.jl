@@ -765,14 +765,13 @@ export HVDCTwoTerminalDispatch
 export HVDCTwoTerminalPiecewiseLoss
 export HVDCTwoTerminalLCC
 export HVDCTwoTerminalVSC
-export HVDCTwoTerminalVSCMILP
 export HVDCTwoTerminalVSCLP
 
 # Converter Formulations
 export LosslessConverter
 export LinearLossConverter
 export AbstractQuadraticLossConverter
-export MIPQuadraticLossConverter
+export MILPQuadraticLossConverter
 export QuadraticLossConverter
 
 # DC Line Formulations

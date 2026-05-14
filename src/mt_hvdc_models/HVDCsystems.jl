@@ -143,7 +143,7 @@ get_variable_upper_bound(::Type{NegativeCurrent}, d::PSY.InterconnectingConverte
 # decomposition is free.
 function get_default_attributes(
     ::Type{PSY.InterconnectingConverter},
-    ::Type{MIPQuadraticLossConverter},
+    ::Type{MILPQuadraticLossConverter},
 )
     return Dict{String, Any}("use_linear_loss" => true)
 end

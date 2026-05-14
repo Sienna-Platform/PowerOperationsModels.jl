@@ -200,21 +200,15 @@ Two-terminal VSC formulation that keeps the bilinear ``v \\cdot I`` and quadrati
 struct HVDCTwoTerminalVSC <: AbstractTwoTerminalVSCFormulation end
 
 """
-Two-terminal VSC formulation that approximates the bilinear ``v \\cdot I`` and
-quadratic ``I^2`` terms with SOS2-based piecewise-linear envelopes (the same
-scheme used by `MIPQuadraticLossConverter`). Stays MILP.
-"""
-struct HVDCTwoTerminalVSCMILP <: AbstractTwoTerminalVSCFormulation end
-
-"""
-Two-terminal VSC formulation that shares the SOS2 PWL loss model of
-`HVDCTwoTerminalVSCMILP` but enforces the per-terminal PQ capability via an
-octagonal linear outer-approximation of the disk ``p^2 + q^2 \\le \\text{rating}^2``
-(8 linear constraints per terminal per timestep, no extra binaries beyond
-those required by the loss model). The "LP" name refers to the PQ-capability
-constraint shape — it is strictly linear and is guaranteed to be a relaxation
-of the disk, in contrast to the SOS2 PWL approximation `HVDCTwoTerminalVSCMILP`
-uses for PQ which is tighter but not strictly outer- or inner-bounding.
+Two-terminal VSC formulation that uses SOS2 piecewise-linear surrogates for the
+bilinear ``v \\cdot I`` and quadratic ``I^2`` terms (so the loss model itself is
+mixed-integer linear) and enforces the per-terminal PQ capability via a linear
+outer-approximation of the disk ``p^2 + q^2 \\le \\text{rating}^2``: axis-aligned
+box constraints ``|p|, |q| \\le \\text{rating}`` always, plus four diagonal
+constraints ``|p| \\pm q \\le \\text{rating}\\sqrt{2}`` when the device-model
+attribute `use_octagon` (default `true`) is on. With the diagonals in place the
+feasible region is a regular octagon circumscribing the disk; turning them off
+leaves only the box.
 """
 struct HVDCTwoTerminalVSCLP <: AbstractTwoTerminalVSCFormulation end
 
@@ -240,7 +234,7 @@ abstract type AbstractQuadraticLossConverter <: AbstractConverterFormulation end
 Quadratic Loss InterconnectingConverter using the separable bilinear approximation
 (`v·i = ½((v+i)² − v² − i²)`) with a SOS2-based PWL approximation for x². Stays MILP.
 """
-struct MIPQuadraticLossConverter <: AbstractQuadraticLossConverter end
+struct MILPQuadraticLossConverter <: AbstractQuadraticLossConverter end
 
 """
 Quadratic Loss InterconnectingConverter using exact bilinear (v·i) and quadratic (i²)

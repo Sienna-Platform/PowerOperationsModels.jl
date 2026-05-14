@@ -1678,32 +1678,11 @@ end
 # Quadratic / bilinear approximation traits — same scheme used by the MT
 # converter formulations.
 _quad_config(::Type{HVDCTwoTerminalVSC}) = IOM.NoQuadApproxConfig()
-_quad_config(::Type{HVDCTwoTerminalVSCMILP}) =
-    IOM.SolverSOS2QuadConfig(DEFAULT_INTERPOLATION_LENGTH)
 _quad_config(::Type{HVDCTwoTerminalVSCLP}) =
     IOM.SolverSOS2QuadConfig(DEFAULT_INTERPOLATION_LENGTH)
 _bilinear_config(::Type{HVDCTwoTerminalVSC}) = IOM.NoBilinearApproxConfig()
-_bilinear_config(::Type{HVDCTwoTerminalVSCMILP}) =
-    IOM.Bin2Config(IOM.SolverSOS2QuadConfig(DEFAULT_INTERPOLATION_LENGTH))
 _bilinear_config(::Type{HVDCTwoTerminalVSCLP}) =
     IOM.Bin2Config(IOM.SolverSOS2QuadConfig(DEFAULT_INTERPOLATION_LENGTH))
-
-# True when the PQ-capability constraint is `p_sq + q_sq <= s^2` using IOM's
-# quadratic-approx machinery (NLP exact + MIP PWL). False for the LP path,
-# which uses an octagonal linear outer-approximation instead and therefore
-# does not need p_sq / q_sq expressions.
-_uses_pq_sq_approx(::Type{HVDCTwoTerminalVSC}) = true
-_uses_pq_sq_approx(::Type{HVDCTwoTerminalVSCMILP}) = true
-_uses_pq_sq_approx(::Type{HVDCTwoTerminalVSCLP}) = false
-
-_vsc_v_bounds_from(devices) =
-    [(min = _vsc_v_limits_from(d).min, max = _vsc_v_limits_from(d).max) for d in devices]
-_vsc_v_bounds_to(devices) =
-    [(min = _vsc_v_limits_to(d).min, max = _vsc_v_limits_to(d).max) for d in devices]
-
-function _vsc_i_bounds(devices)
-    return [(min = -_vsc_shared_i_max(d), max = _vsc_shared_i_max(d)) for d in devices]
-end
 
 function construct_device!(
     container::OptimizationContainer,
@@ -1762,9 +1741,11 @@ function construct_device!(
     v_t_var = get_variable(container, HVDCToDCVoltage, PSY.TwoTerminalVSCLine)
     i_var = get_variable(container, DCLineCurrentFlowVariable, PSY.TwoTerminalVSCLine)
 
-    v_f_bounds = _vsc_v_bounds_from(devices)
-    v_t_bounds = _vsc_v_bounds_to(devices)
-    i_bounds = _vsc_i_bounds(devices)
+    v_f_bounds = PSY.get_voltage_limits_from.(devices)
+    v_t_bounds = PSY.get_voltage_limits_to.(devices)
+    i_bounds = [
+        (min = -_linear_loss_i_max(d), max = _linear_loss_i_max(d)) for d in devices
+    ]
 
     quad_cfg, bilin_cfg = _quad_config(F), _bilinear_config(F)
 
@@ -1794,14 +1775,15 @@ function construct_device!(
         v_t_bounds, i_bounds, "vi_tf",
     )
 
-    _maybe_add_pq_sq_approx!(
-        container, devices, line_names, time_steps, quad_cfg, F, network_model,
+    _register_pq_sq_expressions!(
+        container, devices, line_names, time_steps, quad_cfg, device_model,
+        network_model,
     )
 
     if get_attribute(device_model, "use_linear_loss")
         _add_abs_value_decomposition_constraints!(
             container, devices, device_model, network_model,
-            DCLineCurrentFlowVariable, _vsc_shared_i_max,
+            DCLineCurrentFlowVariable,
         )
     end
 
