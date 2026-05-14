@@ -85,8 +85,8 @@ end
 Get the multiplier for a variable type when adding to an expression.
 
 Default consults [`IOM.flow_sign`](@ref) on the variable type: variables marked
-`Injection` contribute `+1.0`, `Withdrawal` contributes `-1.0`, and `Unsigned`
-falls back to `1.0`. Device-driven sign rules (e.g. anything on `PSY.ElectricLoad`)
+`FlowInjection` contribute `+1.0`, `FlowWithdrawal` contributes `-1.0`, and
+`FlowUndirected` falls back to `1.0`. Device-driven sign rules (e.g. anything on `PSY.ElectricLoad`)
 should be expressed as more-specific dispatches that override this default.
 """
 function get_variable_multiplier(
