@@ -197,7 +197,7 @@ abstract type AbstractTwoTerminalVSCFormulation <: AbstractTwoTerminalDCLineForm
 Two-terminal VSC formulation that keeps the bilinear ``v \\cdot I`` and quadratic
 ``I^2`` terms exact. Requires an NLP-capable solver (e.g. Ipopt).
 """
-struct HVDCTwoTerminalVSC <: AbstractTwoTerminalVSCFormulation end
+struct HVDCTwoTerminalVSCNLP <: AbstractTwoTerminalVSCFormulation end
 
 """
 Two-terminal VSC formulation that uses SOS2 piecewise-linear surrogates for the

@@ -445,7 +445,7 @@ Apparent-power limit at each terminal of a two-terminal VSC HVDC, added only on
 AC networks. Enforces ``|S_k| \\le S_k^{\\max}`` for ``k \\in \\{f, t\\}`` via one
 of two formulation-specific shapes:
 
-- `HVDCTwoTerminalVSC` (NLP): exact disk ``p_k^2 + q_k^2 \\le (S_k^{\\max})^2``.
+- `HVDCTwoTerminalVSCNLP` (NLP): exact disk ``p_k^2 + q_k^2 \\le (S_k^{\\max})^2``.
 - `HVDCTwoTerminalVSCLP` (LP): linear outer-approximation. The axis-aligned box
   ``|p_k|, |q_k| \\le S_k^{\\max}`` is added unconditionally; the four diagonal
   half-planes ``|p_k| \\pm q_k \\le S_k^{\\max}\\sqrt{2}`` are added when the

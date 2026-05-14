@@ -1502,10 +1502,11 @@ function _register_pq_sq_expressions!(
     devices,
     line_names,
     time_steps,
-    quad_cfg,
-    ::DeviceModel{PSY.TwoTerminalVSCLine, HVDCTwoTerminalVSC},
+    ::DeviceModel{PSY.TwoTerminalVSCLine, HVDCTwoTerminalVSCNLP},
     ::NetworkModel{<:AbstractPowerModel},
 )
+    # This dispatch is the NLP path, so the quad config is fixed.
+    quad_cfg = IOM.NoQuadApproxConfig()
     p_ft = get_variable(container, FlowActivePowerFromToVariable, PSY.TwoTerminalVSCLine)
     p_tf = get_variable(container, FlowActivePowerToFromVariable, PSY.TwoTerminalVSCLine)
     q_f = get_variable(container, HVDCReactivePowerFromVariable, PSY.TwoTerminalVSCLine)
@@ -1535,15 +1536,15 @@ end
 
 # LP path: no disk constraint, so no p_sq/q_sq are needed.
 _register_pq_sq_expressions!(
-    ::OptimizationContainer, _devices, _names, _times, _cfg,
+    ::OptimizationContainer, _devices, _names, _times,
     ::DeviceModel{PSY.TwoTerminalVSCLine, HVDCTwoTerminalVSCLP},
     ::NetworkModel,
 ) = nothing
 
 # Active-power-only networks don't carry reactive variables at all.
 _register_pq_sq_expressions!(
-    ::OptimizationContainer, _devices, _names, _times, _cfg,
-    ::DeviceModel{PSY.TwoTerminalVSCLine, HVDCTwoTerminalVSC},
+    ::OptimizationContainer, _devices, _names, _times,
+    ::DeviceModel{PSY.TwoTerminalVSCLine, HVDCTwoTerminalVSCNLP},
     ::NetworkModel{<:AbstractActivePowerModel},
 ) = nothing
 
@@ -1661,13 +1662,13 @@ end
 # PQ capability — exact disk for the NLP formulation. `p_*_sq` / `q_*_sq` are
 # the `IOM.QuadraticExpression` handles registered by
 # `_register_pq_sq_expressions!`. Under `NoQuadApproxConfig` (what
-# `HVDCTwoTerminalVSC` uses) they are exact QuadExprs, so the constraint is
+# `HVDCTwoTerminalVSCNLP` uses) they are exact QuadExprs, so the constraint is
 # the smooth `p² + q² ≤ s²` and the model stays an NLP.
 function add_constraints!(
     container::OptimizationContainer,
     ::Type{HVDCVSCApparentPowerLimitConstraint},
     devices::Union{Vector{U}, IS.FlattenIteratorWrapper{U}},
-    ::DeviceModel{U, HVDCTwoTerminalVSC},
+    ::DeviceModel{U, HVDCTwoTerminalVSCNLP},
     ::NetworkModel{<:AbstractPowerModel},
 ) where {U <: PSY.TwoTerminalVSCLine}
     time_steps = get_time_steps(container)
@@ -1808,12 +1809,12 @@ function get_default_time_series_names(
     return Dict{Type{<:TimeSeriesParameter}, String}()
 end
 
-# Default `use_linear_loss = false`: HVDCTwoTerminalVSC is a smooth NLP solvable
+# Default `use_linear_loss = false`: HVDCTwoTerminalVSCNLP is a smooth NLP solvable
 # by Ipopt; enabling the linear-loss term introduces a binary direction variable
 # that pushes the model to MINLP, which pure NLP solvers cannot handle.
 function get_default_attributes(
     ::Type{PSY.TwoTerminalVSCLine},
-    ::Type{HVDCTwoTerminalVSC},
+    ::Type{HVDCTwoTerminalVSCNLP},
 )
     return Dict{String, Any}("use_linear_loss" => false)
 end

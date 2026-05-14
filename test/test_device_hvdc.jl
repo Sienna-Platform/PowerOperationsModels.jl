@@ -253,14 +253,14 @@ function _build_vsc_model(formulation, network, optimizer; sys = _generate_test_
 end
 
 @testset "HVDC Two-Terminal VSC (NLP) on DCP" begin
-    model = _build_vsc_model(HVDCTwoTerminalVSC, DCPPowerModel, ipopt_optimizer)
+    model = _build_vsc_model(HVDCTwoTerminalVSCNLP, DCPPowerModel, ipopt_optimizer)
     @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
           IOM.ModelBuildStatus.BUILT
     @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
 end
 
 @testset "HVDC Two-Terminal VSC on AC (NLP)" begin
-    model = _build_vsc_model(HVDCTwoTerminalVSC, ACPPowerModel, ipopt_optimizer)
+    model = _build_vsc_model(HVDCTwoTerminalVSCNLP, ACPPowerModel, ipopt_optimizer)
     @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
           IOM.ModelBuildStatus.BUILT
     @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
@@ -291,7 +291,7 @@ end
         return IOM.get_optimization_container(model).optimizer_stats.objective_value
     end
     lp_obj = _solve(HVDCTwoTerminalVSCLP, HiGHS_optimizer)
-    nlp_obj = _solve(HVDCTwoTerminalVSC, ipopt_optimizer)
+    nlp_obj = _solve(HVDCTwoTerminalVSCNLP, ipopt_optimizer)
     @test isapprox(lp_obj, nlp_obj; rtol = 0.05)
 end
 
@@ -349,7 +349,7 @@ end
     function _solve_with_rating(s)
         sys = _generate_test_vsc_sys(; rating_from = s, rating_to = s)
         model = _build_vsc_model(
-            HVDCTwoTerminalVSC, ACPPowerModel, ipopt_optimizer; sys = sys,
+            HVDCTwoTerminalVSCNLP, ACPPowerModel, ipopt_optimizer; sys = sys,
         )
         @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
               IOM.ModelBuildStatus.BUILT

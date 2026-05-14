@@ -1677,10 +1677,10 @@ end
 
 # Quadratic / bilinear approximation traits — same scheme used by the MT
 # converter formulations.
-_quad_config(::Type{HVDCTwoTerminalVSC}) = IOM.NoQuadApproxConfig()
+_quad_config(::Type{HVDCTwoTerminalVSCNLP}) = IOM.NoQuadApproxConfig()
 _quad_config(::Type{HVDCTwoTerminalVSCLP}) =
     IOM.SolverSOS2QuadConfig(DEFAULT_INTERPOLATION_LENGTH)
-_bilinear_config(::Type{HVDCTwoTerminalVSC}) = IOM.NoBilinearApproxConfig()
+_bilinear_config(::Type{HVDCTwoTerminalVSCNLP}) = IOM.NoBilinearApproxConfig()
 _bilinear_config(::Type{HVDCTwoTerminalVSCLP}) =
     IOM.Bin2Config(IOM.SolverSOS2QuadConfig(DEFAULT_INTERPOLATION_LENGTH))
 
@@ -1704,9 +1704,12 @@ function construct_device!(
         (HVDCReactivePowerFromVariable, HVDCReactivePowerToVariable),
     )
 
-    # use_linear_loss = true adds a binary direction variable (CurrentDirection),
-    # making the model MINLP rather than smooth NLP. Caller is responsible for
-    # supplying a MINLP-capable solver in that case.
+    # use_linear_loss = true adds a binary direction variable (CurrentDirection).
+    # Both HVDCTwoTerminalVSCNLP and HVDCTwoTerminalVSCLP dispatch through here:
+    # on the NLP formulation this pushes the model from a smooth NLP to MINLP
+    # (caller must supply a MINLP-capable solver); on the LP formulation the
+    # SOS2 PWL approximations already make the model MILP, so the extra binary
+    # is free.
     if get_attribute(device_model, "use_linear_loss")
         _add_abs_value_decomposition_variables!(
             container, devices, device_model, network_model,
@@ -1776,7 +1779,7 @@ function construct_device!(
     )
 
     _register_pq_sq_expressions!(
-        container, devices, line_names, time_steps, quad_cfg, device_model,
+        container, devices, line_names, time_steps, device_model,
         network_model,
     )
 

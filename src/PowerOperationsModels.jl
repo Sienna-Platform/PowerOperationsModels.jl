@@ -764,7 +764,7 @@ export HVDCTwoTerminalLossless
 export HVDCTwoTerminalDispatch
 export HVDCTwoTerminalPiecewiseLoss
 export HVDCTwoTerminalLCC
-export HVDCTwoTerminalVSC
+export HVDCTwoTerminalVSCNLP
 export HVDCTwoTerminalVSCLP
 
 # Converter Formulations

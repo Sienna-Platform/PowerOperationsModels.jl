@@ -2,7 +2,7 @@
 #   loss(I) = a * I^2 + b * |I| + c
 # Used by multi-terminal InterconnectingConverter formulations
 # (MILPQuadraticLossConverter, QuadraticLossConverter) and two-terminal
-# HVDCTwoTerminalVSC formulations.
+# HVDCTwoTerminalVSCNLP formulations.
 
 #########################################
 ######## Loss-curve introspection #######

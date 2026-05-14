@@ -55,9 +55,12 @@ function construct_device!(
     add_variables!(container, ActivePowerVariable, devices, T)
     add_variables!(container, ConverterCurrent, devices, T)
 
-    # use_linear_loss = true on QuadraticLossConverter adds a binary direction
-    # variable (CurrentDirection), making the model MINLP rather than smooth
-    # NLP. Caller is responsible for supplying a MINLP-capable solver.
+    # use_linear_loss = true adds a binary direction variable (CurrentDirection).
+    # Both MILPQuadraticLossConverter and QuadraticLossConverter dispatch through
+    # here: on the NLP QuadraticLossConverter this pushes the model from a smooth
+    # NLP to MINLP (caller must supply a MINLP-capable solver); on
+    # MILPQuadraticLossConverter the SOS2 PWL approximations already make the
+    # model MILP, so the extra binary is free.
     if get_attribute(model, "use_linear_loss")
         _add_abs_value_decomposition_variables!(
             container, devices, model, network_model,
