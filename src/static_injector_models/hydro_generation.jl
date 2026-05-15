@@ -421,6 +421,41 @@ function get_default_attributes(
     return Dict{String, Any}("head_fraction_usage" => 0.0)
 end
 
+"""
+Default `DeviceModel` attributes for `HydroTurbineMILPBilinearDispatch`. The
+returned dictionary picks the bilinear approximation scheme used inside the
+turbine-power constraint; see [`HydroTurbineMILPBilinearDispatch`](@ref) for the
+full attribute reference and the `nothing` sentinel convention.
+
+The defaults reproduce the pre-rename behavior bit-for-bit:
+`IOM.Bin2Config(IOM.SolverSOS2QuadConfig(4))` with `add_mccormick = true`
+(inherited from `Bin2Config`'s one-argument constructor).
+"""
+function get_default_attributes(
+    ::Type{T},
+    ::Type{D},
+) where {T <: PSY.HydroTurbine, D <: HydroTurbineMILPBilinearDispatch}
+    return Dict{String, Any}(
+        # Top-level bilinear approximation scheme.
+        # Supported: "bin2", "hybs", "nmdt", "dnmdt", "none".
+        "bilinear_approximation" => "bin2",
+        # Inner quadratic PWL method (used when bilinear_approximation ∈ {"bin2","hybs"}).
+        # Supported: "solver_sos2", "manual_sos2", "sawtooth", "epigraph",
+        # "nmdt", "dnmdt", "none".
+        "bilinear_quadratic_method" => "solver_sos2",
+        # Segment count / discretization depth. SOS2/sawtooth/epigraph use it as
+        # n_segments; NMDT/DNMDT use it as depth.
+        "bilinear_n_segments" => 4,
+        # `nothing` ⇒ defer to IOM struct default
+        # (Bin2Config: true; HybSConfig: false; ignored otherwise).
+        "bilinear_add_mccormick" => nothing,
+        # `nothing` ⇒ defer to IOM struct default
+        # (HybSConfig has no default and must be overridden; NMDT/DNMDT
+        #  quadratic: 3*depth; ignored otherwise).
+        "bilinear_epigraph_depth" => nothing,
+    )
+end
+
 function get_default_attributes(
     ::Type{T},
     ::Type{D},
@@ -1810,6 +1845,177 @@ function add_constraints!(
                         PSY.get_intake_elevation(res) -
                         powerhouse_elevation
                     ) * flow[name, PSY.get_name(res), t] for res in reservoirs
+                ) / (1e6 * base_power)
+            )
+        end
+    end
+    return
+end
+
+"""
+Build an `IOM.QuadraticApproxConfig` from attribute values.
+
+`n` is the segment count / discretization depth (`bilinear_n_segments`).
+`epi` is either an `Int` (`bilinear_epigraph_depth` override) or `nothing`,
+in which case IOM's struct default applies — relevant only for `NMDTQuadConfig`
+and `DNMDTQuadConfig`, which use `3*depth` when called with one argument.
+
+Errors with a list of supported method strings when `method` is unrecognized.
+"""
+function _build_quadratic_config(method::String, n::Int, epi)
+    if method == "solver_sos2"
+        return IOM.SolverSOS2QuadConfig(n)
+    elseif method == "manual_sos2"
+        return IOM.ManualSOS2QuadConfig(n)
+    elseif method == "sawtooth"
+        return IOM.SawtoothQuadConfig(n)
+    elseif method == "epigraph"
+        return IOM.EpigraphQuadConfig(n)
+    elseif method == "nmdt"
+        return epi === nothing ? IOM.NMDTQuadConfig(n) : IOM.NMDTQuadConfig(n, epi)
+    elseif method == "dnmdt"
+        return epi === nothing ? IOM.DNMDTQuadConfig(n) : IOM.DNMDTQuadConfig(n, epi)
+    elseif method == "none"
+        return IOM.NoQuadApproxConfig()
+    else
+        error(
+            "Unsupported bilinear_quadratic_method \"$(method)\". " *
+            "Supported: \"solver_sos2\", \"manual_sos2\", \"sawtooth\", " *
+            "\"epigraph\", \"nmdt\", \"dnmdt\", \"none\".",
+        )
+    end
+end
+
+"""
+Build an `IOM.BilinearApproxConfig` from the `DeviceModel`'s attributes.
+
+Reads `bilinear_approximation`, `bilinear_quadratic_method`,
+`bilinear_n_segments`, `bilinear_add_mccormick`, and `bilinear_epigraph_depth`
+from `model`. Sentinel (`nothing`) attribute values mean "let the IOM
+constructor's default apply" — POM never duplicates an IOM struct default.
+
+Errors when:
+- `bilinear_approximation` is not one of `"bin2"`, `"hybs"`, `"nmdt"`,
+  `"dnmdt"`, `"none"`.
+- `bilinear_approximation == "hybs"` but `bilinear_epigraph_depth === nothing`
+  (`HybSConfig` has no IOM-side default for `epigraph_depth`).
+
+See [`HydroTurbineMILPBilinearDispatch`](@ref) for the attribute reference.
+"""
+function _build_bilinear_config(
+    model::DeviceModel{<:PSY.HydroTurbine, HydroTurbineMILPBilinearDispatch},
+)
+    method = get_attribute(model, "bilinear_approximation")
+    n_segments = get_attribute(model, "bilinear_n_segments")
+    add_mc = get_attribute(model, "bilinear_add_mccormick")
+    epi = get_attribute(model, "bilinear_epigraph_depth")
+
+    if method == "bin2"
+        quad = _build_quadratic_config(
+            get_attribute(model, "bilinear_quadratic_method"),
+            n_segments,
+            epi,
+        )
+        return add_mc === nothing ? IOM.Bin2Config(quad) : IOM.Bin2Config(quad, add_mc)
+    elseif method == "hybs"
+        epi === nothing && error(
+            "bilinear_approximation = \"hybs\" requires a non-nothing " *
+            "bilinear_epigraph_depth attribute (IOM.HybSConfig has no default).",
+        )
+        quad = _build_quadratic_config(
+            get_attribute(model, "bilinear_quadratic_method"),
+            n_segments,
+            epi,
+        )
+        return if add_mc === nothing
+            IOM.HybSConfig(quad, epi)
+        else
+            IOM.HybSConfig(quad, epi, add_mc)
+        end
+    elseif method == "nmdt"
+        return IOM.NMDTBilinearConfig(n_segments)
+    elseif method == "dnmdt"
+        return IOM.DNMDTBilinearConfig(n_segments)
+    elseif method == "none"
+        return IOM.NoBilinearApproxConfig()
+    else
+        error(
+            "Unsupported bilinear_approximation \"$(method)\" for " *
+            "HydroTurbineMILPBilinearDispatch. " *
+            "Supported: \"bin2\", \"hybs\", \"nmdt\", \"dnmdt\", \"none\".",
+        )
+    end
+end
+
+"""
+This function define the relationship between turbined flow and power produced with a linear approximation for the bilinear product.
+"""
+function add_constraints!(
+    container::OptimizationContainer,
+    sys::PSY.System,
+    ::Type{TurbinePowerOutputConstraint},
+    devices::IS.FlattenIteratorWrapper{V},
+    model::DeviceModel{V, W},
+    ::NetworkModel{X},
+) where {
+    V <: PSY.HydroTurbine,
+    W <: HydroTurbineMILPBilinearDispatch,
+    X <: PM.AbstractPowerModel,
+}
+    time_steps = get_time_steps(container)
+    base_power = get_model_base_power(container)
+    names = PSY.get_name.(devices)
+    constraint =
+        add_constraints_container!(
+            container,
+            TurbinePowerOutputConstraint,
+            V,
+            names,
+            time_steps,
+        )
+    power = get_variable(container, ActivePowerVariable, V)
+    flow = get_variable(container, HydroTurbineFlowRateVariable, V)
+    head = get_variable(container, HydroReservoirHeadVariable, PSY.HydroReservoir)
+    for d in devices
+        name = PSY.get_name(d)
+        conversion_factor = PSY.get_conversion_factor(d)
+        reservoirs = filter(PSY.get_available, PSY.get_connected_head_reservoirs(sys, d))
+        powerhouse_elevation = PSY.get_powerhouse_elevation(d)
+
+        fh_prod = IOM._add_bilinear_approx!(
+            _build_bilinear_config(model),
+            container,
+            V,
+            PSY.get_name.(reservoirs),
+            time_steps,
+            flow[name, :, :],
+            head,
+            repeat(
+                [
+                    (
+                    min = get_variable_lower_bound(HydroTurbineFlowRateVariable, d, W),
+                    max = get_variable_upper_bound(HydroTurbineFlowRateVariable, d, W),
+                )
+                ], length(reservoirs)),
+            [
+                (
+                    min = get_variable_lower_bound(HydroReservoirHeadVariable, res, W),
+                    max = get_variable_upper_bound(HydroReservoirHeadVariable, res, W),
+                ) for res in reservoirs
+            ],
+            "$(get_name(d))_FlowHeadProduct",
+        )
+
+        for t in time_steps
+            constraint[name, t] = JuMP.@constraint(
+                container.JuMPmodel,
+                power[name, t] ==
+                GRAVITATIONAL_CONSTANT * WATER_DENSITY * conversion_factor *
+                sum(
+                    fh_prod[PSY.get_name(res), t]
+                    -
+                    powerhouse_elevation * flow[name, PSY.get_name(res), t]
+                    for res in reservoirs
                 ) / (1e6 * base_power)
             )
         end
