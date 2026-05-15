@@ -392,8 +392,10 @@ function _add_flow_rate_constraint!(
         slack_ub = get_variable(container, FlowActivePowerSlackUpperBound, T)
         slack_lb = get_variable(container, FlowActivePowerSlackLowerBound, T)
         for t in time_steps
-            con_ub[name, t] = JuMP.@constraint(model, var[name, t] - slack_ub[name, t] <= limits.max, tag...)
-            con_lb[name, t] = JuMP.@constraint(model, var[name, t] + slack_lb[name, t] >= limits.min, tag...)
+            con_ub[name, t] =
+                JuMP.@constraint(model, var[name, t] - slack_ub[name, t] <= limits.max, tag...)
+            con_lb[name, t] =
+                JuMP.@constraint(model, var[name, t] + slack_lb[name, t] >= limits.min, tag...)
         end
     else
         for t in time_steps

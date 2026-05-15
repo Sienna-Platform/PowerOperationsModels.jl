@@ -23,14 +23,14 @@ function run_problem(optimizer)
         reduce_radial_branches = true,
         reduce_degree_two_branches = true,
     )
-    template = POM.OperationsProblemTemplate(network_model);
+    template = POM.OperationsProblemTemplate(network_model)
     POM.set_device_model!(template, PSY.ThermalStandard, POM.ThermalBasicUnitCommitment)
     POM.set_device_model!(template, PSY.RenewableDispatch, POM.RenewableFullDispatch)
     POM.set_device_model!(template, PSY.HydroDispatch, POM.HydroDispatchRunOfRiver)
     POM.set_device_model!(template, PSY.PowerLoad, POM.StaticPowerLoad)
     POM.set_device_model!(
         template,
-        POM.DeviceModel(PSY.Line, POM.StaticBranch; use_slacks = true)
+        POM.DeviceModel(PSY.Line, POM.StaticBranch; use_slacks = true),
     )
     POM.set_device_model!(template, PSY.Transformer2W, POM.StaticBranch)
     model = POM.DecisionModel(
@@ -40,7 +40,7 @@ function run_problem(optimizer)
         optimizer,
         direct_mode_optimizer = true,
         optimizer_solve_log_print = true,
-    );
+    )
     POM.build!(model; output_dir = mktempdir(; cleanup = true))
     @time POM.solve!(model)
     return
@@ -60,18 +60,21 @@ end
 #         MOI.RelativeGapTolerance() => 1e-3,
 #     ),
 # )
+
 run_problem(
     optimizer_with_attributes(
         () -> MathOptLazy.Optimizer(Gurobi.Optimizer),
         MOI.RelativeGapTolerance() => 1e-2,
     ),
 )
+
 # run_problem(
 #     optimizer_with_attributes(
 #         HiGHS.Optimizer,
 #         MOI.RelativeGapTolerance() => 1e-3,
 #     ),
 # )
+
 # run_problem(
 #     optimizer_with_attributes(
 #         () -> MathOptLazy.Optimizer(HiGHS.Optimizer),
@@ -79,7 +82,6 @@ run_problem(
 #         "random_seed" => 123,
 #     ),
 # )
-
 
 # for (k, v) in model.internal.container.constraints
 #     if k isa POM.ConstraintKey{POM.FlowRateConstraint,PSY.Line}
@@ -138,7 +140,6 @@ run_problem(
 # import PProf
 # POM.build!(model; output_dir = mktempdir(; cleanup = true))
 # PProf.@pprof POM.build!(model; output_dir = mktempdir(; cleanup = true))
-
 
 # using SnoopCompileCore
 # invs = @snoop_invalidations using PowerSystems, PowerOperationsModels
