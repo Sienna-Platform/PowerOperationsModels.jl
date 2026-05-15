@@ -362,15 +362,19 @@ function get_min_max_limits(
     return (min = -π / 2, max = π / 2)
 end
 
-function _get_tag(model::JuMP.GenericModel)
-    if JuMP.MOI.supports_constraint(
-        JuMP.unsafe_backend(model),
-        JuMP.MOI.ScalarAffineFunction{Float64},
-        MathOptLazy.LazyScalarSet{JuMP.MOI.GreaterThan{Float64}},
-    )
-        return (MathOptLazy.Lazy(),)
+_get_tag(model::JuMP.GenericModel) = _get_tag(JuMP.backend(model))
+
+_get_tag(::JuMP.MOI.ModelLike) = ()
+
+_get_tag(::MathOptLazy.Optimizer) = (MathOptLazy.Lazy(),)
+
+_get_tag(model::JuMP.MOI.Bridges.LazyBridgeOptimizer) = _get_tag(model.model)
+
+function _get_tag(model::JuMP.MOI.Utilities.CachingOptimizer)
+    if JuMP.MOI.Utilities.state(model) == JuMP.MOI.Utilities.NO_OPTIMIZER
+        return ()
     end
-    return ()
+    return _get_tag(model.optimizer)
 end
 
 function _add_flow_rate_constraint!(
@@ -393,9 +397,17 @@ function _add_flow_rate_constraint!(
         slack_lb = get_variable(container, FlowActivePowerSlackLowerBound, T)
         for t in time_steps
             con_ub[name, t] =
-                JuMP.@constraint(model, var[name, t] - slack_ub[name, t] <= limits.max, tag...)
+                JuMP.@constraint(
+                    model,
+                    var[name, t] - slack_ub[name, t] <= limits.max,
+                    tag...
+                )
             con_lb[name, t] =
-                JuMP.@constraint(model, var[name, t] + slack_lb[name, t] >= limits.min, tag...)
+                JuMP.@constraint(
+                    model,
+                    var[name, t] + slack_lb[name, t] >= limits.min,
+                    tag...
+                )
         end
     else
         for t in time_steps
