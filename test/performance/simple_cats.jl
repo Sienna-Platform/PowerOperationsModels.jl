@@ -42,8 +42,7 @@ function run_problem(optimizer)
         optimizer_solve_log_print = true,
     );
     POM.build!(model; output_dir = mktempdir(; cleanup = true))
-    jmp = POM.IOM.get_optimization_container(model).JuMPmodel
-    @time JuMP.optimize!(jmp)
+    @time POM.solve!(model)
     return
 end
 
@@ -53,7 +52,7 @@ end
 # | Gurobi | true  |       12 |       17 |
 # | HiGHS  | false |      175 |      201 |
 # | HiGHS  | true  |      173 |      670 |
-# | HiGHS  | true* |       94 |      589 |
+# | HiGHS  | true* |       94 |      589 182, 201, 650 |
 
 # run_problem(
 #     optimizer_with_attributes(
@@ -61,12 +60,12 @@ end
 #         MOI.RelativeGapTolerance() => 1e-3,
 #     ),
 # )
-# run_problem(
-#     optimizer_with_attributes(
-#         () -> MathOptLazy.Optimizer(Gurobi.Optimizer),
-#         MOI.RelativeGapTolerance() => 1e-3,
-#     ),
-# )
+run_problem(
+    optimizer_with_attributes(
+        () -> MathOptLazy.Optimizer(Gurobi.Optimizer),
+        MOI.RelativeGapTolerance() => 1e-2,
+    ),
+)
 # run_problem(
 #     optimizer_with_attributes(
 #         HiGHS.Optimizer,
@@ -77,6 +76,7 @@ end
 #     optimizer_with_attributes(
 #         () -> MathOptLazy.Optimizer(HiGHS.Optimizer),
 #         MOI.RelativeGapTolerance() => 1e-3,
+#         "random_seed" => 123,
 #     ),
 # )
 
