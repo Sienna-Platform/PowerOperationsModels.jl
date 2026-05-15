@@ -157,7 +157,7 @@ function expression_pg_cost(pm::AbstractPowerModel; report::Bool = true)
                 )
             else
                 error(
-                    "Only cost models of types 1 and 2 are supported at this time, given cost model type of $(model) on generator $(i)",
+                    "Only cost models of types 1 and 2 are supported at this time, given cost model type of $(gen["model"]) on generator $(i)",
                 )
             end
         end
