@@ -362,6 +362,21 @@ function get_min_max_limits(
     return (min = -π / 2, max = π / 2)
 end
 
+_get_tag(model::JuMP.GenericModel) = _get_tag(JuMP.backend(model))
+
+_get_tag(::JuMP.MOI.ModelLike) = ()
+
+_get_tag(::MathOptLazy.Optimizer) = (MathOptLazy.Lazy(),)
+
+_get_tag(model::JuMP.MOI.Bridges.LazyBridgeOptimizer) = _get_tag(model.model)
+
+function _get_tag(model::JuMP.MOI.Utilities.CachingOptimizer)
+    if JuMP.MOI.Utilities.state(model) == JuMP.MOI.Utilities.NO_OPTIMIZER
+        return ()
+    end
+    return _get_tag(model.optimizer)
+end
+
 function _add_flow_rate_constraint!(
     container::OptimizationContainer,
     ::Type{T},
@@ -373,24 +388,32 @@ function _add_flow_rate_constraint!(
     branch_maps_by_type::Dict,
     name::String,
 ) where {T <: PSY.ACTransmission}
-    reduction_entry = branch_maps_by_type[arc]
     time_steps = get_time_steps(container)
+    limits = get_min_max_limits(branch_maps_by_type[arc], FlowRateConstraint, StaticBranch)
+    model = get_jump_model(container)
+    tag = _get_tag(model)
     if use_slacks
-        slack_ub = get_variable(container, FlowActivePowerSlackUpperBound, T)[name, :]
-        slack_lb = get_variable(container, FlowActivePowerSlackLowerBound, T)[name, :]
-    end
-    limits = get_min_max_limits(reduction_entry, FlowRateConstraint, StaticBranch)
-    for t in time_steps
-        con_ub[name, t] =
-            JuMP.@constraint(
-                get_jump_model(container),
-                var[name, t] - (use_slacks ? slack_ub[t] : 0.0) <= limits.max
-            )
-        con_lb[name, t] =
-            JuMP.@constraint(
-                get_jump_model(container),
-                var[name, t] + (use_slacks ? slack_lb[t] : 0.0) >= limits.min
-            )
+        slack_ub = get_variable(container, FlowActivePowerSlackUpperBound, T)
+        slack_lb = get_variable(container, FlowActivePowerSlackLowerBound, T)
+        for t in time_steps
+            con_ub[name, t] =
+                JuMP.@constraint(
+                    model,
+                    var[name, t] - slack_ub[name, t] <= limits.max,
+                    tag...
+                )
+            con_lb[name, t] =
+                JuMP.@constraint(
+                    model,
+                    var[name, t] + slack_lb[name, t] >= limits.min,
+                    tag...
+                )
+        end
+    else
+        for t in time_steps
+            con_ub[name, t] = JuMP.@constraint(model, var[name, t] <= limits.max, tag...)
+            con_lb[name, t] = JuMP.@constraint(model, var[name, t] >= limits.min, tag...)
+        end
     end
     return
 end
