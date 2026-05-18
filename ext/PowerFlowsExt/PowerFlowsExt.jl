@@ -14,12 +14,18 @@ import TimerOutputs
 using InfrastructureOptimizationModels:
     OptimizationContainer,
     OptimizationContainerKey,
-    AbstractPowerFlowEvaluationData,
     VariableKey,
     ParameterKey,
     AuxVarKey,
     AuxVariableType,
+    EvaluationContainer,
     add_aux_variable_container!,
+    add_evaluator!,
+    add_evaluation_data!,
+    get_evaluations,
+    get_evaluators,
+    get_evaluation_data,
+    get_inner_data,
     lookup_value,
     has_container_key,
     get_time_steps,
@@ -33,17 +39,14 @@ using InfrastructureOptimizationModels:
     get_parameter,
     get_parameters,
     get_variables,
-    get_power_flow_evaluation_data,
     jump_value
-
-import InfrastructureOptimizationModels: solve_power_flow!, get_power_flow_data
 
 """
 Mutable struct to hold power flow evaluation data.
-Concrete implementation of `AbstractPowerFlowEvaluationData`.
+Concrete implementation of `IOM.AbstractEvaluationData`.
 """
 mutable struct PowerFlowEvaluationData{T <: PFS.PowerFlowContainer} <:
-               AbstractPowerFlowEvaluationData
+               IOM.AbstractEvaluationData
     power_flow_data::T
     """
     Records which keys are read as input to the power flow and how the data are mapped.
@@ -84,7 +87,9 @@ function PowerFlowEvaluationData(
     )
 end
 
-get_power_flow_data(ped::PowerFlowEvaluationData) = ped.power_flow_data
+IOM.get_inner_data(ped::PowerFlowEvaluationData) = ped.power_flow_data
+IOM.reset!(ped::PowerFlowEvaluationData) = (ped.is_solved = false; return)
+IOM.is_solved(ped::PowerFlowEvaluationData) = ped.is_solved
 get_input_key_map(ped::PowerFlowEvaluationData) = ped.input_key_map
 
 include("pf_input_mapping.jl")

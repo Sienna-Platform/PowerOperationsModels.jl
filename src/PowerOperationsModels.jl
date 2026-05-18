@@ -122,7 +122,19 @@ import InfrastructureOptimizationModels:
     get_must_run,
     # Build-pipeline extension points (IOM declares stubs, POM extends)
     calculate_aux_variable_value!,
-    is_from_power_flow,
+    is_from_evaluator,
+    # External evaluation infrastructure (PowerFlows extension consumes these)
+    EvaluationContainer,
+    add_evaluator!,
+    add_evaluation_data!,
+    get_evaluations,
+    get_evaluators,
+    get_evaluation_data,
+    get_inner_data,
+    evaluate!,
+    reset!,
+    is_solved,
+    reset_evaluations!,
     # Functions POM extends with new methods
     _onvar_cost,
     add_cost_to_expression!,
@@ -331,6 +343,7 @@ export get_variable_multiplier
 export get_expression_multiplier
 export get_multiplier_value
 export add_power_flow_data!
+export power_flow_evaluations
 export get_initial_conditions_device_model
 export add_reserve_variables!
 

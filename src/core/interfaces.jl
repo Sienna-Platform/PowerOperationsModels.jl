@@ -146,19 +146,30 @@ end
 """
 Default fallback for `add_power_flow_data!`: a no-op when no evaluators are present.
 The PowerFlows extension provides the concrete method that handles real evaluators.
-If evaluators are passed without the PowerFlows extension loaded, this errors with
-guidance to load it.
+If evaluators are registered without the PowerFlows extension loaded, this errors
+with guidance to load it.
 """
 function add_power_flow_data!(
     ::IOM.OptimizationContainer,
-    evaluators::Vector{<:IOM.AbstractPowerFlowEvaluationModel},
+    network_model::IOM.NetworkModel,
     ::IS.ComponentContainer,
 )
-    isempty(evaluators) || error(
+    isempty(IOM.get_evaluations(network_model)) || error(
         "PowerFlows extension not loaded; add `using PowerFlows` to enable " *
         "power flow in-the-loop.",
     )
     return
+end
+
+"""
+Build an `EvaluationContainer` holding a single evaluator. Convenience for the
+common single-evaluator case at call sites such as
+`NetworkModel(...; evaluations = power_flow_evaluations(ACPowerFlow()))`.
+"""
+function power_flow_evaluations(ev)
+    ec = IOM.EvaluationContainer()
+    IOM.add_evaluator!(ec, typeof(ev), ev)
+    return ec
 end
 
 """

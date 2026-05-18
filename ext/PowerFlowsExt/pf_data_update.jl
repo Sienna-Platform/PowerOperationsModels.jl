@@ -117,7 +117,7 @@ function update_pf_data!(
     pf_e_data::PowerFlowEvaluationData{<:PFS.PowerFlowData},
     container::OptimizationContainer,
 )
-    pf_data = get_power_flow_data(pf_e_data)
+    pf_data = IOM.get_inner_data(pf_e_data)
     PFS.clear_injection_data!(pf_data)
     input_map = get_input_key_map(pf_e_data)
     for (category, inputs) in input_map
@@ -188,7 +188,7 @@ function update_pf_data!(
     container::OptimizationContainer,
     time_step::Int,
 )
-    pf_data = get_power_flow_data(pf_e_data)
+    pf_data = IOM.get_inner_data(pf_e_data)
     input_map = get_input_key_map(pf_e_data)
     update_pf_system!(PFS.get_system(pf_data), container, input_map, time_step)
     if !isnothing(pf_data.step)

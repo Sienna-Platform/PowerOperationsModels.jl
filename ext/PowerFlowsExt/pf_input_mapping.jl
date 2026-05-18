@@ -130,7 +130,7 @@ function _make_pf_input_map!(
     container::OptimizationContainer,
     sys::PSY.System,
 )
-    pf_data = get_power_flow_data(pf_e_data)
+    pf_data = IOM.get_inner_data(pf_e_data)
     temp_component_map = _make_temp_component_map(pf_data, sys)
     map_type = valtype(temp_component_map)
     pf_e_data.input_key_map = Dict{Symbol, Dict{OptimizationContainerKey, map_type}}()
@@ -316,16 +316,21 @@ _with_time_steps(pf::PFS.PSSEExportPowerFlow, ::Int) = pf
 
 function POM.add_power_flow_data!(
     container::OptimizationContainer,
-    evaluators::Vector{<:PFS.PowerFlowEvaluationModel},
+    network_model::IOM.NetworkModel,
     sys::PSY.System,
 )
-    container.power_flow_evaluation_data = Vector{PowerFlowEvaluationData}()
-    sizehint!(container.power_flow_evaluation_data, length(evaluators))
+    evaluations = get_evaluations(network_model)
+    # Share the same EvaluationContainer instance between NetworkModel and
+    # OptimizationContainer so IOM.calculate_aux_variables! sees the same
+    # runtime state we register here.
+    container.evaluations = evaluations
+    isempty(evaluations) && return
+
     branch_aux_var_components =
         Dict{Type{<:AuxVariableType}, Set{Tuple{<:DataType, String}}}()
     bus_aux_var_components = Dict{Type{<:AuxVariableType}, Set{Tuple{<:DataType, <:Int}}}()
     n_time_steps = length(get_time_steps(container))
-    for evaluator in evaluators
+    for (T, evaluator) in pairs(get_evaluators(evaluations))
         evaluator = _with_time_steps(evaluator, n_time_steps)
         @info "Building PowerFlow evaluator using $(evaluator)"
         pf_data = PFS.make_power_flow_container(evaluator, sys)
@@ -349,14 +354,14 @@ function POM.add_power_flow_data!(
                 get!(bus_aux_var_components, bus_aux_var, Set{Tuple{<:DataType, <:Int}}())
             push!.(Ref(to_add_to), my_bus_components)
         end
-        push!(container.power_flow_evaluation_data, pf_e_data)
+        add_evaluation_data!(evaluations, T, pf_e_data)
     end
 
     _add_aux_variables!(container, branch_aux_var_components)
     _add_aux_variables!(container, bus_aux_var_components)
 
     # Make the input maps after adding aux vars so output of one power flow can be input of another
-    for pf_e_data in get_power_flow_evaluation_data(container)
+    for pf_e_data in values(get_evaluation_data(evaluations))
         _make_pf_input_map!(pf_e_data, container, sys)
     end
     return

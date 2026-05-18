@@ -1,11 +1,11 @@
 # Power flow in-the-loop: solve dispatcher and auxiliary variable readback.
-# Defines latest_solved_power_flow_evaluation_data, solve_power_flow!,
+# Defines latest_solved_power_flow_evaluation_data, IOM.evaluate!,
 # calculate_aux_variable_value! overloads for PowerFlowAuxVariableType,
 # and _get_pf_result helpers.
 
 "Fetch the most recently solved `PowerFlowEvaluationData`."
 function latest_solved_power_flow_evaluation_data(container::OptimizationContainer)
-    datas = get_power_flow_evaluation_data(container)
+    datas = collect(values(get_evaluation_data(get_evaluations(container))))
     idx = findlast(x -> x.is_solved, datas)
     # FIXME: AC PF convergence can fail when the optimization permits a
     # transmission scenario infeasible for the full AC equations; full handling
@@ -15,12 +15,12 @@ function latest_solved_power_flow_evaluation_data(container::OptimizationContain
     return datas[idx]
 end
 
-function solve_power_flow!(
+function IOM.evaluate!(
     pf_e_data::PowerFlowEvaluationData,
     container::OptimizationContainer,
     sys::PSY.System,
 )
-    pf_data = get_power_flow_data(pf_e_data)
+    pf_data = IOM.get_inner_data(pf_e_data)
     if PFS.supports_multi_period(pf_data)
         update_pf_data!(pf_e_data, container)
         _update_headroom_participation_factors!(
@@ -91,7 +91,7 @@ function IOM.calculate_aux_variable_value!(
     pf_e_data::PowerFlowEvaluationData{<:PFS.PowerFlowData},
 ) where {T <: POM.PowerFlowAuxVariableType}
     @debug "Updating $key from PowerFlowData"
-    pf_data = get_power_flow_data(pf_e_data)
+    pf_data = IOM.get_inner_data(pf_e_data)
     nrd = PFS.get_network_reduction_data(pf_data)
     src = _get_pf_result(T, pf_data)
     bus_lookup = PFS.get_bus_lookup(pf_data)
@@ -110,7 +110,7 @@ function IOM.calculate_aux_variable_value!(
     pf_e_data::PowerFlowEvaluationData{<:PFS.PowerFlowData},
 ) where {T <: POM.PowerFlowAuxVariableType, U <: PSY.Branch}
     @debug "Updating $key from PowerFlowData"
-    pf_data = get_power_flow_data(pf_e_data)
+    pf_data = IOM.get_inner_data(pf_e_data)
     src = _get_pf_result(T, pf_data)
     dest = get_aux_variable(container, key)
     nrd = PFS.get_network_reduction_data(pf_data)
@@ -153,7 +153,7 @@ function IOM.calculate_aux_variable_value!(
 )
     # Skip the aux vars that the current power flow isn't meant to update
     pf_e_data = latest_solved_power_flow_evaluation_data(container)
-    pf_data = get_power_flow_data(pf_e_data)
+    pf_data = IOM.get_inner_data(pf_e_data)
     key_type = IOM.get_entry_type(key)
     (key_type in branch_aux_vars(pf_data) || key_type in bus_aux_vars(pf_data)) ||
         return

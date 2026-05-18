@@ -5,9 +5,11 @@
         NetworkModel(
             PTDFPowerModel;
             PTDF_matrix = PTDF(system),
-            power_flow_evaluation = ACPowerFlow(;
-                distribute_slack_proportional_to_headroom = true,
-                correct_bustypes = true,
+            evaluations = power_flow_evaluations(
+                ACPowerFlow(;
+                    distribute_slack_proportional_to_headroom = true,
+                    correct_bustypes = true,
+                ),
             ),
         ),
     )
@@ -17,8 +19,8 @@
     @test solve!(model) == RunStatus.SUCCESSFULLY_FINALIZED
 
     container = get_optimization_container(model)
-    pf_e_data = only(get_power_flow_evaluation_data(container))
-    data = get_power_flow_data(pf_e_data)
+    pf_e_data = only(values(get_evaluation_data(get_evaluations(container))))
+    data = get_inner_data(pf_e_data)
 
     computed_gspf = PFS.get_computed_gspf(data)
     n_time_steps = length(get_time_steps(container))
@@ -87,9 +89,11 @@ end
             PTDFPowerModel;
             PTDF_matrix = PTDF(system),
             use_slacks = true,
-            power_flow_evaluation = ACPowerFlow(;
-                distribute_slack_proportional_to_headroom = true,
-                correct_bustypes = true,
+            evaluations = power_flow_evaluations(
+                ACPowerFlow(;
+                    distribute_slack_proportional_to_headroom = true,
+                    correct_bustypes = true,
+                ),
             ),
         ),
     )
@@ -101,8 +105,8 @@ end
     @test solve!(model) == RunStatus.SUCCESSFULLY_FINALIZED
 
     container = get_optimization_container(model)
-    pf_e_data = only(get_power_flow_evaluation_data(container))
-    data = get_power_flow_data(pf_e_data)
+    pf_e_data = only(values(get_evaluation_data(get_evaluations(container))))
+    data = get_inner_data(pf_e_data)
     computed_gspf = PFS.get_computed_gspf(data)
 
     # The renewable is at a PV bus but uses FixedOutput, so it must not appear in the
@@ -131,9 +135,11 @@ end
             PTDFPowerModel;
             PTDF_matrix = PTDF(system),
             use_slacks = true,
-            power_flow_evaluation = ACPowerFlow(;
-                distribute_slack_proportional_to_headroom = true,
-                correct_bustypes = true,
+            evaluations = power_flow_evaluations(
+                ACPowerFlow(;
+                    distribute_slack_proportional_to_headroom = true,
+                    correct_bustypes = true,
+                ),
             ),
         ),
     )
@@ -145,8 +151,8 @@ end
     @test solve!(model) == RunStatus.SUCCESSFULLY_FINALIZED
 
     container = get_optimization_container(model)
-    pf_e_data = only(get_power_flow_evaluation_data(container))
-    data = get_power_flow_data(pf_e_data)
+    pf_e_data = only(values(get_evaluation_data(get_evaluations(container))))
+    data = get_inner_data(pf_e_data)
     computed_gspf = PFS.get_computed_gspf(data)
     n_time_steps = length(get_time_steps(container))
 
@@ -216,7 +222,7 @@ end
         NetworkModel(
             PTDFPowerModel;
             PTDF_matrix = PTDF(system),
-            power_flow_evaluation = ACPowerFlow(),
+            evaluations = power_flow_evaluations(ACPowerFlow()),
         ),
     )
     set_device_model!(template, DeviceModel(PhaseShiftingTransformer, PhaseAngleControl))
@@ -226,8 +232,8 @@ end
     @test solve!(model_m) == RunStatus.SUCCESSFULLY_FINALIZED
 
     container = get_optimization_container(model_m)
-    pf_e_data = only(get_power_flow_evaluation_data(container))
-    data = get_power_flow_data(pf_e_data)
+    pf_e_data = only(values(get_evaluation_data(get_evaluations(container))))
+    data = get_inner_data(pf_e_data)
     bus_lookup = PFS.get_bus_lookup(data)
 
     flow_key = VariableKey(FlowActivePowerVariable, PhaseShiftingTransformer)
@@ -280,7 +286,7 @@ end
             NetworkModel(
                 PTDFPowerModel;
                 PTDF_matrix = PTDF(system),
-                power_flow_evaluation = ACPowerFlow(),
+                evaluations = power_flow_evaluations(ACPowerFlow()),
             ),
         )
         model_m = DecisionModel(template, system; optimizer = HiGHS_optimizer)
@@ -335,7 +341,7 @@ end
         NetworkModel(
             PTDFPowerModel;
             PTDF_matrix = PTDF(system),
-            power_flow_evaluation = ACPowerFlow(),
+            evaluations = power_flow_evaluations(ACPowerFlow()),
         ),
     )
     model_m = DecisionModel(template, system; optimizer = HiGHS_optimizer)
@@ -349,7 +355,10 @@ end
         sys = build_system(PSISystems, "2Area 5 Bus System")
 
         template_uc = OperationsProblemTemplate(
-            NetworkModel(PTDFPowerModel; power_flow_evaluation = DCPowerFlow()),
+            NetworkModel(
+                PTDFPowerModel;
+                evaluations = power_flow_evaluations(DCPowerFlow()),
+            ),
         )
         set_device_model!(template_uc, ThermalStandard, ThermalBasicUnitCommitment)
         set_device_model!(template_uc, RenewableDispatch, RenewableFullDispatch)
@@ -370,7 +379,7 @@ end
         NetworkModel(
             PTDFPowerModel;
             PTDF_matrix = PTDF(system),
-            power_flow_evaluation = ACPowerFlow(),
+            evaluations = power_flow_evaluations(ACPowerFlow()),
         ),
     )
     model_m = DecisionModel(template, system; optimizer = HiGHS_optimizer)
@@ -401,7 +410,7 @@ end
         NetworkModel(
             PTDFPowerModel;
             PTDF_matrix = PTDF(system),
-            power_flow_evaluation = ACPowerFlow(),
+            evaluations = power_flow_evaluations(ACPowerFlow()),
         ),
     )
     model = DecisionModel(template, system; optimizer = HiGHS_optimizer)
