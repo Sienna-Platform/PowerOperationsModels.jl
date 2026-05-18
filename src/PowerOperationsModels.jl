@@ -508,9 +508,7 @@ export PostContingencyActivePowerReserveDeploymentVariable
 export DCVoltage
 export DCLineCurrent
 export ConverterCurrent
-export PositiveCurrent
-export NegativeCurrent
-export CurrentDirection
+export AbsoluteValueCurrent
 export HVDCFlowDirectionVariable
 export HVDCLosses
 export HVDCFromDCVoltage
@@ -771,8 +769,8 @@ export HVDCTwoTerminalVSCLP
 export LosslessConverter
 export LinearLossConverter
 export AbstractQuadraticLossConverter
-export MILPQuadraticLossConverter
-export QuadraticLossConverter
+export QuadraticLossConverterMILP
+export QuadraticLossConverterNLP
 
 # DC Line Formulations
 export DCLosslessLine

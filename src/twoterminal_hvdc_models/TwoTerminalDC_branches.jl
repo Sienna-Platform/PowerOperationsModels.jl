@@ -1446,9 +1446,7 @@ get_variable_binary(::Type{HVDCFromDCVoltage}, ::Type{PSY.TwoTerminalVSCLine}, :
 get_variable_binary(::Type{HVDCToDCVoltage}, ::Type{PSY.TwoTerminalVSCLine}, ::Type{<:AbstractTwoTerminalVSCFormulation}) = false
 get_variable_binary(::Type{HVDCReactivePowerFromVariable}, ::Type{PSY.TwoTerminalVSCLine}, ::Type{<:AbstractTwoTerminalVSCFormulation}) = false
 get_variable_binary(::Type{HVDCReactivePowerToVariable}, ::Type{PSY.TwoTerminalVSCLine}, ::Type{<:AbstractTwoTerminalVSCFormulation}) = false
-get_variable_binary(::Type{PositiveCurrent}, ::Type{PSY.TwoTerminalVSCLine}, ::Type{<:AbstractTwoTerminalVSCFormulation}) = false
-get_variable_binary(::Type{NegativeCurrent}, ::Type{PSY.TwoTerminalVSCLine}, ::Type{<:AbstractTwoTerminalVSCFormulation}) = false
-get_variable_binary(::Type{CurrentDirection}, ::Type{PSY.TwoTerminalVSCLine}, ::Type{<:AbstractTwoTerminalVSCFormulation}) = true
+get_variable_binary(::Type{AbsoluteValueCurrent}, ::Type{PSY.TwoTerminalVSCLine}, ::Type{<:AbstractTwoTerminalVSCFormulation}) = false
 get_variable_binary(::Type{FlowActivePowerFromToVariable}, ::Type{PSY.TwoTerminalVSCLine}, ::Type{<:AbstractTwoTerminalVSCFormulation}) = false
 get_variable_binary(::Type{FlowActivePowerToFromVariable}, ::Type{PSY.TwoTerminalVSCLine}, ::Type{<:AbstractTwoTerminalVSCFormulation}) = false
 
@@ -1478,16 +1476,14 @@ get_variable_lower_bound(::Type{HVDCToDCVoltage}, d::PSY.TwoTerminalVSCLine, ::T
 get_variable_upper_bound(::Type{HVDCToDCVoltage}, d::PSY.TwoTerminalVSCLine, ::Type{<:AbstractTwoTerminalVSCFormulation}) = PSY.get_voltage_limits_to(d).max
 
 # Shared cable current bounds — must respect BOTH terminals' I_max ratings.
-# `_linear_loss_i_max(::PSY.TwoTerminalVSCLine)` lives in
-# common_models/quadratic_converter_loss.jl and returns the same `min(...)`.
-get_variable_lower_bound(::Type{DCLineCurrentFlowVariable}, d::PSY.TwoTerminalVSCLine, ::Type{<:AbstractTwoTerminalVSCFormulation}) = -_linear_loss_i_max(d)
-get_variable_upper_bound(::Type{DCLineCurrentFlowVariable}, d::PSY.TwoTerminalVSCLine, ::Type{<:AbstractTwoTerminalVSCFormulation}) = _linear_loss_i_max(d)
+_vsc_cable_i_max(d::PSY.TwoTerminalVSCLine) =
+    min(PSY.get_max_dc_current_from(d), PSY.get_max_dc_current_to(d))
+get_variable_lower_bound(::Type{DCLineCurrentFlowVariable}, d::PSY.TwoTerminalVSCLine, ::Type{<:AbstractTwoTerminalVSCFormulation}) = -_vsc_cable_i_max(d)
+get_variable_upper_bound(::Type{DCLineCurrentFlowVariable}, d::PSY.TwoTerminalVSCLine, ::Type{<:AbstractTwoTerminalVSCFormulation}) = _vsc_cable_i_max(d)
 
-# Positive/negative parts: each in [0, i_max]
-get_variable_lower_bound(::Type{PositiveCurrent}, d::PSY.TwoTerminalVSCLine, ::Type{<:AbstractTwoTerminalVSCFormulation}) = 0.0
-get_variable_upper_bound(::Type{PositiveCurrent}, d::PSY.TwoTerminalVSCLine, ::Type{<:AbstractTwoTerminalVSCFormulation}) = _linear_loss_i_max(d)
-get_variable_lower_bound(::Type{NegativeCurrent}, d::PSY.TwoTerminalVSCLine, ::Type{<:AbstractTwoTerminalVSCFormulation}) = 0.0
-get_variable_upper_bound(::Type{NegativeCurrent}, d::PSY.TwoTerminalVSCLine, ::Type{<:AbstractTwoTerminalVSCFormulation}) = _linear_loss_i_max(d)
+# AbsoluteValueCurrent: 0 ≤ abs_i ≤ I_max (LP surrogate for |i|)
+get_variable_lower_bound(::Type{AbsoluteValueCurrent}, d::PSY.TwoTerminalVSCLine, ::Type{<:AbstractTwoTerminalVSCFormulation}) = 0.0
+get_variable_upper_bound(::Type{AbsoluteValueCurrent}, d::PSY.TwoTerminalVSCLine, ::Type{<:AbstractTwoTerminalVSCFormulation}) = _vsc_cable_i_max(d)
 
 #! format: on
 
@@ -1610,13 +1606,7 @@ function add_constraints!(
     vi_expr_tf = get_expression(container, IOM.BilinearProductExpression, U, "vi_tf")
     i_sq_expr = get_expression(container, IOM.QuadraticExpression, U, "i_sq")
 
-    use_linear_loss =
-        get_attribute(model, "use_linear_loss") &&
-        !isempty(_devices_with_linear_loss(devices))
-    if use_linear_loss
-        i_pos_var = get_variable(container, PositiveCurrent, U)
-        i_neg_var = get_variable(container, NegativeCurrent, U)
-    end
+    abs_i_var = get_variable(container, AbsoluteValueCurrent, U)
 
     cons_ft = add_constraints_container!(
         container, HVDCVSCConverterPowerConstraint, U, names, time_steps; meta = "ft",
@@ -1636,15 +1626,12 @@ function add_constraints!(
         b_t = PSY.get_proportional_term(loss_to)
         c_t = PSY.get_constant_term(loss_to)
         for t in time_steps
-            i_pos_t = use_linear_loss ? i_pos_var[name, t] : nothing
-            i_neg_t = use_linear_loss ? i_neg_var[name, t] : nothing
+            abs_i_t = abs_i_var[name, t]
             loss_ft = _quadratic_converter_loss_expr(
-                a_f, b_f, c_f, i_sq_expr[name, t], i_pos_t, i_neg_t;
-                use_linear_loss = use_linear_loss,
+                a_f, b_f, c_f, i_sq_expr[name, t], abs_i_t,
             )
             loss_tf = _quadratic_converter_loss_expr(
-                a_t, b_t, c_t, i_sq_expr[name, t], i_pos_t, i_neg_t;
-                use_linear_loss = use_linear_loss,
+                a_t, b_t, c_t, i_sq_expr[name, t], abs_i_t,
             )
             cons_ft[name, t] = JuMP.@constraint(
                 jump_model,
@@ -1809,19 +1796,6 @@ function get_default_time_series_names(
     return Dict{Type{<:TimeSeriesParameter}, String}()
 end
 
-# Default `use_linear_loss = false`: HVDCTwoTerminalVSCNLP is a smooth NLP solvable
-# by Ipopt; enabling the linear-loss term introduces a binary direction variable
-# that pushes the model to MINLP, which pure NLP solvers cannot handle.
-function get_default_attributes(
-    ::Type{PSY.TwoTerminalVSCLine},
-    ::Type{HVDCTwoTerminalVSCNLP},
-)
-    return Dict{String, Any}("use_linear_loss" => false)
-end
-
-# `use_linear_loss = true`: the SOS2 PWL loss model already pushes the
-# formulation into MILP territory, so the extra binary direction variable from
-# the linear-loss decomposition is free.
 # `use_octagon = true`: adds the four diagonals |p| ± q ≤ rating·√2 on top of
 # the axis-aligned box |p|, |q| ≤ rating. The intersection is a regular octagon
 # circumscribing the disk p² + q² ≤ rating² and is a guaranteed outer
@@ -1831,5 +1805,5 @@ function get_default_attributes(
     ::Type{PSY.TwoTerminalVSCLine},
     ::Type{HVDCTwoTerminalVSCLP},
 )
-    return Dict{String, Any}("use_linear_loss" => true, "use_octagon" => true)
+    return Dict{String, Any}("use_octagon" => true)
 end

@@ -1704,17 +1704,7 @@ function construct_device!(
         (HVDCReactivePowerFromVariable, HVDCReactivePowerToVariable),
     )
 
-    # use_linear_loss = true adds a binary direction variable (CurrentDirection).
-    # Both HVDCTwoTerminalVSCNLP and HVDCTwoTerminalVSCLP dispatch through here:
-    # on the NLP formulation this pushes the model from a smooth NLP to MINLP
-    # (caller must supply a MINLP-capable solver); on the LP formulation the
-    # SOS2 PWL approximations already make the model MILP, so the extra binary
-    # is free.
-    if get_attribute(device_model, "use_linear_loss")
-        _add_abs_value_decomposition_variables!(
-            container, devices, device_model, network_model,
-        )
-    end
+    _add_abs_value_variables!(container, devices, device_model, network_model)
 
     add_to_expression!(
         container, ActivePowerBalance, FlowActivePowerFromToVariable,
@@ -1747,7 +1737,7 @@ function construct_device!(
     v_f_bounds = PSY.get_voltage_limits_from.(devices)
     v_t_bounds = PSY.get_voltage_limits_to.(devices)
     i_bounds = [
-        (min = -_linear_loss_i_max(d), max = _linear_loss_i_max(d)) for d in devices
+        (min = -_vsc_cable_i_max(d), max = _vsc_cable_i_max(d)) for d in devices
     ]
 
     quad_cfg, bilin_cfg = _quad_config(F), _bilinear_config(F)
@@ -1783,12 +1773,10 @@ function construct_device!(
         network_model,
     )
 
-    if get_attribute(device_model, "use_linear_loss")
-        _add_abs_value_decomposition_constraints!(
-            container, devices, device_model, network_model,
-            DCLineCurrentFlowVariable,
-        )
-    end
+    _add_abs_value_constraints!(
+        container, devices, device_model, network_model,
+        DCLineCurrentFlowVariable,
+    )
 
     add_constraints!(
         container, HVDCCableOhmsLawConstraint, devices, device_model, network_model,

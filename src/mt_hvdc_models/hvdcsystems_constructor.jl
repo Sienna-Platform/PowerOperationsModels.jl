@@ -54,18 +54,7 @@ function construct_device!(
     devices = get_available_components(model, sys)
     add_variables!(container, ActivePowerVariable, devices, T)
     add_variables!(container, ConverterCurrent, devices, T)
-
-    # use_linear_loss = true adds a binary direction variable (CurrentDirection).
-    # Both MILPQuadraticLossConverter and QuadraticLossConverter dispatch through
-    # here: on the NLP QuadraticLossConverter this pushes the model from a smooth
-    # NLP to MINLP (caller must supply a MINLP-capable solver); on
-    # MILPQuadraticLossConverter the SOS2 PWL approximations already make the
-    # model MILP, so the extra binary is free.
-    if get_attribute(model, "use_linear_loss")
-        _add_abs_value_decomposition_variables!(
-            container, devices, model, network_model,
-        )
-    end
+    _add_abs_value_variables!(container, devices, model, network_model)
 
     add_to_expression!(
         container, ActivePowerBalance, ActivePowerVariable,
@@ -106,12 +95,12 @@ function _converter_vi_bounds(devices)
     return v_bounds, i_bounds
 end
 
-_quad_config(::Type{MILPQuadraticLossConverter}) =
+_quad_config(::Type{QuadraticLossConverterMILP}) =
     IOM.SolverSOS2QuadConfig(DEFAULT_INTERPOLATION_LENGTH)
-_quad_config(::Type{QuadraticLossConverter}) = IOM.NoQuadApproxConfig()
-_bilinear_config(::Type{MILPQuadraticLossConverter}) =
+_quad_config(::Type{QuadraticLossConverterNLP}) = IOM.NoQuadApproxConfig()
+_bilinear_config(::Type{QuadraticLossConverterMILP}) =
     IOM.Bin2Config(IOM.SolverSOS2QuadConfig(DEFAULT_INTERPOLATION_LENGTH))
-_bilinear_config(::Type{QuadraticLossConverter}) = IOM.NoBilinearApproxConfig()
+_bilinear_config(::Type{QuadraticLossConverterNLP}) = IOM.NoBilinearApproxConfig()
 
 function construct_device!(
     container::OptimizationContainer,
@@ -152,15 +141,12 @@ function construct_device!(
         "vi",
     )
 
-    # PositiveCurrent / NegativeCurrent / CurrentDirection variables were added
-    # in the ArgumentConstructStage; only the decomposition constraints need
-    # the JuMP model now. ConverterLossConstraint reads these variables, so
-    # the decomposition constraints must be added first.
-    if get_attribute(model, "use_linear_loss")
-        _add_abs_value_decomposition_constraints!(
-            container, devices, model, network_model, ConverterCurrent,
-        )
-    end
+    # AbsoluteValueCurrent variable was added in the ArgumentConstructStage;
+    # only the `abs_i ≥ ±i` constraints need the JuMP model now.
+    # ConverterLossConstraint reads `abs_i`, so its constraints must come first.
+    _add_abs_value_constraints!(
+        container, devices, model, network_model, ConverterCurrent,
+    )
 
     add_constraints!(container, ConverterLossConstraint, devices, model, network_model)
 

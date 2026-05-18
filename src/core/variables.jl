@@ -157,25 +157,13 @@ Docs abbreviation: ``i_c^{dc}``
 struct ConverterCurrent <: VariableType end
 
 """
-Positive part of an absolute-value current decomposition (``i = i^+ - i^-``).
-Used by both two-terminal HVDC links (cable current) and interconnecting converters.
-Docs abbreviation: ``i^{+,dc}``
+Non-negative LP surrogate for the absolute value of a DC current variable
+(`abs_i ≥ i`, `abs_i ≥ -i`, `abs_i ≥ 0`; tight at optimum because the loss
+term `b · abs_i` is minimized via the generation-cost objective). Used by
+both two-terminal HVDC links (cable current) and interconnecting converters.
+Docs abbreviation: ``|i|^{dc}``
 """
-struct PositiveCurrent <: VariableType end
-
-"""
-Negative part of an absolute-value current decomposition (``i = i^+ - i^-``).
-Used by both two-terminal HVDC links (cable current) and interconnecting converters.
-Docs abbreviation: ``i^{-,dc}``
-"""
-struct NegativeCurrent <: VariableType end
-
-"""
-Binary indicator selecting which sign the current takes in the absolute-value
-decomposition (``i^+`` active when 1, ``i^-`` active when 0).
-Docs abbreviation: ``\\nu``
-"""
-struct CurrentDirection <: VariableType end
+struct AbsoluteValueCurrent <: VariableType end
 
 #########################################################
 #########################################################
@@ -389,14 +377,14 @@ struct HVDCPiecewiseBinaryLossVariable <: SparseVariableType end
 
 """
 DC-side voltage at the from-terminal of a two-terminal HVDC link.
-Used by `HVDCTwoTerminalVSCNLP` formulations.
+Used by both `HVDCTwoTerminalVSCNLP` and `HVDCTwoTerminalVSCLP` formulations.
 Docs abbreviation: ``v_f^{dc}``
 """
 struct HVDCFromDCVoltage <: VariableType end
 
 """
 DC-side voltage at the to-terminal of a two-terminal HVDC link.
-Used by `HVDCTwoTerminalVSCNLP` formulations.
+Used by both `HVDCTwoTerminalVSCNLP` and `HVDCTwoTerminalVSCLP` formulations.
 Docs abbreviation: ``v_t^{dc}``
 """
 struct HVDCToDCVoltage <: VariableType end

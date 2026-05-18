@@ -234,19 +234,13 @@ abstract type AbstractQuadraticLossConverter <: AbstractConverterFormulation end
 Quadratic Loss InterconnectingConverter using the separable bilinear approximation
 (`v·i = ½((v+i)² − v² − i²)`) with a SOS2-based PWL approximation for x². Stays MILP.
 """
-struct MILPQuadraticLossConverter <: AbstractQuadraticLossConverter end
+struct QuadraticLossConverterMILP <: AbstractQuadraticLossConverter end
 
 """
 Quadratic Loss InterconnectingConverter using exact bilinear (v·i) and quadratic (i²)
 products. Requires an NLP-capable solver (e.g., Ipopt).
-
-Attributes (set on `DeviceModel`):
-- `use_linear_loss`: Include the linear loss term `b·(i⁺ + i⁻)` (default false). The
-  linear term requires an absolute-value reformulation that introduces a binary
-  variable, so this is only solvable by MINLP solvers (e.g., Gurobi); pure NLP
-  solvers like Ipopt cannot solve the model with this option enabled.
 """
-struct QuadraticLossConverter <: AbstractQuadraticLossConverter end
+struct QuadraticLossConverterNLP <: AbstractQuadraticLossConverter end
 
 ############################## HVDC Lines Formulations ##################################
 abstract type AbstractDCLineFormulation <: AbstractBranchFormulation end

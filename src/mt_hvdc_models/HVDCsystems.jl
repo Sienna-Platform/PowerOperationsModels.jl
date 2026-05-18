@@ -120,43 +120,18 @@ end
 
 ## Binaries ###
 get_variable_binary(::Type{ConverterCurrent}, ::Type{PSY.InterconnectingConverter}, ::Type{<:AbstractConverterFormulation}) = false
-get_variable_binary(::Type{PositiveCurrent}, ::Type{PSY.InterconnectingConverter}, ::Type{<:AbstractConverterFormulation}) = false
-get_variable_binary(::Type{NegativeCurrent}, ::Type{PSY.InterconnectingConverter}, ::Type{<:AbstractConverterFormulation}) = false
-get_variable_binary(::Type{CurrentDirection}, ::Type{PSY.InterconnectingConverter}, ::Type{<:AbstractConverterFormulation}) = true
+get_variable_binary(::Type{AbsoluteValueCurrent}, ::Type{PSY.InterconnectingConverter}, ::Type{<:AbstractConverterFormulation}) = false
 
 ### Warm Start ###
 get_variable_warm_start_value(::Type{ConverterCurrent}, d::PSY.InterconnectingConverter, ::Type{<:AbstractConverterFormulation}) = PSY.get_dc_current(d)
 
 ### Lower Bounds ###
 get_variable_lower_bound(::Type{ConverterCurrent}, d::PSY.InterconnectingConverter, ::Type{<:AbstractConverterFormulation}) = -PSY.get_max_dc_current(d)
-get_variable_lower_bound(::Type{PositiveCurrent}, d::PSY.InterconnectingConverter,::Type{<:AbstractConverterFormulation}) = 0.0
-get_variable_lower_bound(::Type{NegativeCurrent}, d::PSY.InterconnectingConverter,::Type{<:AbstractConverterFormulation}) = 0.0
+get_variable_lower_bound(::Type{AbsoluteValueCurrent}, d::PSY.InterconnectingConverter, ::Type{<:AbstractConverterFormulation}) = 0.0
 
 ### Upper Bounds ###
 get_variable_upper_bound(::Type{ConverterCurrent}, d::PSY.InterconnectingConverter, ::Type{<:AbstractConverterFormulation}) = PSY.get_max_dc_current(d)
-get_variable_upper_bound(::Type{PositiveCurrent}, d::PSY.InterconnectingConverter,::Type{<:AbstractConverterFormulation}) = PSY.get_max_dc_current(d)
-get_variable_upper_bound(::Type{NegativeCurrent}, d::PSY.InterconnectingConverter,::Type{<:AbstractConverterFormulation}) = PSY.get_max_dc_current(d)
-
-
-# Default `use_linear_loss = true`: the SOS2 PWL approximations already make the
-# model MIP, so the extra binary direction variable from the linear-loss
-# decomposition is free.
-function get_default_attributes(
-    ::Type{PSY.InterconnectingConverter},
-    ::Type{MILPQuadraticLossConverter},
-)
-    return Dict{String, Any}("use_linear_loss" => true)
-end
-
-# Default `use_linear_loss = false`: the formulation is a smooth NLP solvable by
-# Ipopt; enabling the linear-loss term introduces a binary direction variable
-# that pushes the model to MINLP, which pure NLP solvers cannot handle.
-function get_default_attributes(
-    ::Type{PSY.InterconnectingConverter},
-    ::Type{QuadraticLossConverter},
-)
-    return Dict{String, Any}("use_linear_loss" => false)
-end
+get_variable_upper_bound(::Type{AbsoluteValueCurrent}, d::PSY.InterconnectingConverter, ::Type{<:AbstractConverterFormulation}) = PSY.get_max_dc_current(d)
 
 #! format: on
 
@@ -559,13 +534,7 @@ function add_constraints!(
     P_ac_var = get_variable(container, ActivePowerVariable, U)
     vi_expr = get_expression(container, IOM.BilinearProductExpression, U, "vi")
     i_sq_expr = get_expression(container, IOM.QuadraticExpression, U, "i_sq")
-    use_linear_loss =
-        get_attribute(model, "use_linear_loss") &&
-        !isempty(_devices_with_linear_loss(devices))
-    if use_linear_loss
-        i_pos_var = get_variable(container, PositiveCurrent, U)
-        i_neg_var = get_variable(container, NegativeCurrent, U)
-    end
+    abs_i_var = get_variable(container, AbsoluteValueCurrent, U)
 
     ipc_names = [PSY.get_name(d) for d in devices]
     loss_const = add_constraints_container!(
@@ -580,11 +549,8 @@ function add_constraints!(
         b = PSY.get_proportional_term(loss_function)
         c = PSY.get_constant_term(loss_function)
         for t in time_steps
-            i_pos_t = use_linear_loss ? i_pos_var[name, t] : nothing
-            i_neg_t = use_linear_loss ? i_neg_var[name, t] : nothing
             loss = _quadratic_converter_loss_expr(
-                a, b, c, i_sq_expr[name, t], i_pos_t, i_neg_t;
-                use_linear_loss = use_linear_loss,
+                a, b, c, i_sq_expr[name, t], abs_i_var[name, t],
             )
             loss_const[name, t] = JuMP.@constraint(
                 jump_model,
