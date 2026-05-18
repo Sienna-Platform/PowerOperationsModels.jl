@@ -54,15 +54,17 @@ function construct_device!(
     devices = get_available_components(model, sys)
     add_variables!(container, ActivePowerVariable, devices, T)
     add_variables!(container, ConverterCurrent, devices, T)
-    if _use_linear_loss(T, model)
-        ll_devices = _devices_with_linear_loss(devices)
-        if isempty(ll_devices)
-            @warn "use_linear_loss is enabled but every InterconnectingConverter has a zero proportional loss term; no linear-loss variables/constraints will be added."
-        else
-            add_variables!(container, ConverterPositiveCurrent, ll_devices, T)
-            add_variables!(container, ConverterNegativeCurrent, ll_devices, T)
-            add_variables!(container, ConverterCurrentDirection, ll_devices, T)
-        end
+
+    # use_linear_loss = true adds a binary direction variable (CurrentDirection).
+    # Both MILPQuadraticLossConverter and QuadraticLossConverter dispatch through
+    # here: on the NLP QuadraticLossConverter this pushes the model from a smooth
+    # NLP to MINLP (caller must supply a MINLP-capable solver); on
+    # MILPQuadraticLossConverter the SOS2 PWL approximations already make the
+    # model MILP, so the extra binary is free.
+    if get_attribute(model, "use_linear_loss")
+        _add_abs_value_decomposition_variables!(
+            container, devices, model, network_model,
+        )
     end
 
     add_to_expression!(
@@ -77,19 +79,19 @@ function construct_device!(
     return
 end
 
- function _voltage_expr_per_converter(
-     container::OptimizationContainer,
-     devices,
-     ipc_names::Vector{String},
-     time_steps,
- )
-     v_var = get_variable(container, DCVoltage, PSY.DCBus)
-     bus_names = [PSY.get_name(PSY.get_dc_bus(d)) for d in devices]
-     return JuMP.Containers.DenseAxisArray(
-         [v_var[b, t] for b in bus_names, t in time_steps],
-         ipc_names, time_steps,
-     )
- end
+function _voltage_expr_per_converter(
+    container::OptimizationContainer,
+    devices,
+    ipc_names::Vector{String},
+    time_steps,
+)
+    v_var = get_variable(container, DCVoltage, PSY.DCBus)
+    bus_names = [PSY.get_name(PSY.get_dc_bus(d)) for d in devices]
+    return JuMP.Containers.DenseAxisArray(
+        [v_var[b, t] for b in bus_names, t in time_steps],
+        ipc_names, time_steps,
+    )
+end
 
 function _converter_vi_bounds(devices)
     n = length(devices)
@@ -104,9 +106,11 @@ function _converter_vi_bounds(devices)
     return v_bounds, i_bounds
 end
 
-_quad_config(::Type{Bin2QuadraticLossConverter}) = IOM.SolverSOS2QuadConfig(DEFAULT_INTERPOLATION_LENGTH)
+_quad_config(::Type{MILPQuadraticLossConverter}) =
+    IOM.SolverSOS2QuadConfig(DEFAULT_INTERPOLATION_LENGTH)
 _quad_config(::Type{QuadraticLossConverter}) = IOM.NoQuadApproxConfig()
-_bilinear_config(::Type{Bin2QuadraticLossConverter}) = IOM.Bin2Config(IOM.SolverSOS2QuadConfig(DEFAULT_INTERPOLATION_LENGTH))
+_bilinear_config(::Type{MILPQuadraticLossConverter}) =
+    IOM.Bin2Config(IOM.SolverSOS2QuadConfig(DEFAULT_INTERPOLATION_LENGTH))
 _bilinear_config(::Type{QuadraticLossConverter}) = IOM.NoBilinearApproxConfig()
 
 function construct_device!(
@@ -148,19 +152,17 @@ function construct_device!(
         "vi",
     )
 
-    add_constraints!(container, ConverterLossConstraint, devices, model, network_model)
-    if _use_linear_loss(T, model)
-        ll_devices = _devices_with_linear_loss(devices)
-        if !isempty(ll_devices)
-            add_constraints!(
-                container,
-                CurrentAbsoluteValueConstraint,
-                ll_devices,
-                model,
-                network_model,
-            )
-        end
+    # PositiveCurrent / NegativeCurrent / CurrentDirection variables were added
+    # in the ArgumentConstructStage; only the decomposition constraints need
+    # the JuMP model now. ConverterLossConstraint reads these variables, so
+    # the decomposition constraints must be added first.
+    if get_attribute(model, "use_linear_loss")
+        _add_abs_value_decomposition_constraints!(
+            container, devices, model, network_model, ConverterCurrent,
+        )
     end
+
+    add_constraints!(container, ConverterLossConstraint, devices, model, network_model)
 
     add_feedforward_constraints!(container, model, devices)
     add_to_objective_function!(

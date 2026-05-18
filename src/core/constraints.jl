@@ -419,6 +419,42 @@ v_d^i = v_d^r - R_d I_d
 """
 struct HVDCTransmissionDCLineConstraint <: ConstraintType end
 
+"""
+Per-terminal converter power-balance constraint for two-terminal VSC HVDC:
+
+```math
+\\begin{aligned}
+p_{ft} &= v_f \\cdot I + (a_f I^2 + b_f |I| + c_f) \\\\
+p_{tf} &= -v_t \\cdot I + (a_t I^2 + b_t |I| + c_t)
+\\end{aligned}
+```
+"""
+struct HVDCVSCConverterPowerConstraint <: ConstraintType end
+
+"""
+Cable Ohm's law for a two-terminal HVDC link with explicit DC resistance:
+
+```math
+v_f - v_t = (1/g) \\cdot I
+```
+"""
+struct HVDCCableOhmsLawConstraint <: ConstraintType end
+
+"""
+Apparent-power limit at each terminal of a two-terminal VSC HVDC, added only on
+AC networks. Enforces ``|S_k| \\le S_k^{\\max}`` for ``k \\in \\{f, t\\}`` via one
+of two formulation-specific shapes:
+
+- `HVDCTwoTerminalVSCNLP` (NLP): exact disk ``p_k^2 + q_k^2 \\le (S_k^{\\max})^2``.
+- `HVDCTwoTerminalVSCLP` (LP): linear outer-approximation. The axis-aligned box
+  ``|p_k|, |q_k| \\le S_k^{\\max}`` is added unconditionally; the four diagonal
+  half-planes ``|p_k| \\pm q_k \\le S_k^{\\max}\\sqrt{2}`` are added when the
+  device-model attribute `use_octagon` (default `true`) is on, in which case
+  the intersection is a regular octagon circumscribing the disk
+  (loose by at most ≈8.2% in area).
+"""
+struct HVDCVSCApparentPowerLimitConstraint <: ConstraintType end
+
 abstract type PowerVariableLimitsConstraint <: ConstraintType end
 """
 Struct to create the constraint to limit active power input expressions.
