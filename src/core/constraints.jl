@@ -186,6 +186,10 @@ For more information check [Network Formulations](@ref network_formulations).
 The specified constraint depends on the network model chosen.
 """
 struct NodalBalanceReactiveConstraint <: ConstraintType end
+"""Pins the voltage angle (and, for ACP, voltage magnitude) of a subnetwork's reference (slack) bus."""
+struct ReferenceBusConstraint <: ConstraintType end
+"""Branch voltage-angle-difference limits: angmin ≤ va_fr - va_to ≤ angmax."""
+struct AngleDifferenceConstraint <: ConstraintType end
 struct ParticipationAssignmentConstraint <: ConstraintType end
 """
 Struct to create the constraint to participation assignments limits in the active power reserves.

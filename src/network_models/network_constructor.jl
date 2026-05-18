@@ -76,6 +76,58 @@ end
 function construct_network!(
     container::OptimizationContainer,
     sys::PSY.System,
+    model::NetworkModel{DCPPowerModel},
+    template::OperationsProblemTemplate,
+)
+    add_variables!(container, VoltageAngle, sys, model)
+    add_constraints!(container, ReferenceBusConstraint, sys, model)
+    add_constraints!(container, NodalBalanceActiveConstraint, sys, model)
+    if get_use_slacks(model)
+        add_variables!(container, SystemBalanceSlackUp, sys, model)
+        add_variables!(container, SystemBalanceSlackDown, sys, model)
+        add_to_expression!(container, ActivePowerBalance, SystemBalanceSlackUp, sys, model)
+        add_to_expression!(
+            container, ActivePowerBalance, SystemBalanceSlackDown, sys, model,
+        )
+        add_to_objective_function!(container, sys, model)
+    end
+    add_constraint_dual!(container, sys, model)
+    return
+end
+
+function construct_network!(
+    container::OptimizationContainer,
+    sys::PSY.System,
+    model::NetworkModel{ACPPowerModel},
+    template::OperationsProblemTemplate,
+)
+    add_variables!(container, VoltageAngle, sys, model)
+    add_variables!(container, VoltageMagnitude, sys, model)
+    add_constraints!(container, ReferenceBusConstraint, sys, model)
+    add_constraints!(container, NodalBalanceActiveConstraint, sys, model)
+    add_constraints!(container, NodalBalanceReactiveConstraint, sys, model)
+    if get_use_slacks(model)
+        add_variables!(container, SystemBalanceSlackUp, sys, model)
+        add_variables!(container, SystemBalanceSlackDown, sys, model)
+        add_to_expression!(container, ActivePowerBalance, SystemBalanceSlackUp, sys, model)
+        add_to_expression!(
+            container, ActivePowerBalance, SystemBalanceSlackDown, sys, model,
+        )
+        add_to_expression!(
+            container, ReactivePowerBalance, SystemBalanceSlackUp, sys, model,
+        )
+        add_to_expression!(
+            container, ReactivePowerBalance, SystemBalanceSlackDown, sys, model,
+        )
+        add_to_objective_function!(container, sys, model)
+    end
+    add_constraint_dual!(container, sys, model)
+    return
+end
+
+function construct_network!(
+    container::OptimizationContainer,
+    sys::PSY.System,
     model::NetworkModel{T},
     template::OperationsProblemTemplate;
 ) where {T <: AbstractActivePowerModel}
