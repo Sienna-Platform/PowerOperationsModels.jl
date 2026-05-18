@@ -1809,7 +1809,11 @@ _maybe_add_on_variables!(
 _maybe_add_on_variables!(
     ::OptimizationContainer,
     devices,
-    ::Union{Type{HydroTurbineBilinearDispatch}, Type{HydroTurbineWaterLinearDispatch}},
+    ::Union{
+        Type{HydroTurbineBilinearDispatch},
+        Type{HydroTurbineBin2BilinearDispatch},
+        Type{HydroTurbineWaterLinearDispatch},
+    },
 ) = nothing
 
 function construct_device!(
