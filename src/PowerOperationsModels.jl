@@ -508,7 +508,7 @@ export PostContingencyActivePowerReserveDeploymentVariable
 export DCVoltage
 export DCLineCurrent
 export ConverterCurrent
-export AbsoluteValueCurrent
+export CurrentAbsoluteValueVariable
 export HVDCFlowDirectionVariable
 export HVDCLosses
 export HVDCFromDCVoltage

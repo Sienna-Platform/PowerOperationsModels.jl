@@ -120,18 +120,18 @@ end
 
 ## Binaries ###
 get_variable_binary(::Type{ConverterCurrent}, ::Type{PSY.InterconnectingConverter}, ::Type{<:AbstractConverterFormulation}) = false
-get_variable_binary(::Type{AbsoluteValueCurrent}, ::Type{PSY.InterconnectingConverter}, ::Type{<:AbstractConverterFormulation}) = false
+get_variable_binary(::Type{CurrentAbsoluteValueVariable}, ::Type{PSY.InterconnectingConverter}, ::Type{<:AbstractConverterFormulation}) = false
 
 ### Warm Start ###
 get_variable_warm_start_value(::Type{ConverterCurrent}, d::PSY.InterconnectingConverter, ::Type{<:AbstractConverterFormulation}) = PSY.get_dc_current(d)
 
 ### Lower Bounds ###
 get_variable_lower_bound(::Type{ConverterCurrent}, d::PSY.InterconnectingConverter, ::Type{<:AbstractConverterFormulation}) = -PSY.get_max_dc_current(d)
-get_variable_lower_bound(::Type{AbsoluteValueCurrent}, d::PSY.InterconnectingConverter, ::Type{<:AbstractConverterFormulation}) = 0.0
+get_variable_lower_bound(::Type{CurrentAbsoluteValueVariable}, d::PSY.InterconnectingConverter, ::Type{<:AbstractConverterFormulation}) = 0.0
 
 ### Upper Bounds ###
 get_variable_upper_bound(::Type{ConverterCurrent}, d::PSY.InterconnectingConverter, ::Type{<:AbstractConverterFormulation}) = PSY.get_max_dc_current(d)
-get_variable_upper_bound(::Type{AbsoluteValueCurrent}, d::PSY.InterconnectingConverter, ::Type{<:AbstractConverterFormulation}) = PSY.get_max_dc_current(d)
+get_variable_upper_bound(::Type{CurrentAbsoluteValueVariable}, d::PSY.InterconnectingConverter, ::Type{<:AbstractConverterFormulation}) = PSY.get_max_dc_current(d)
 
 #! format: on
 
@@ -534,7 +534,7 @@ function add_constraints!(
     P_ac_var = get_variable(container, ActivePowerVariable, U)
     vi_expr = get_expression(container, IOM.BilinearProductExpression, U, "vi")
     i_sq_expr = get_expression(container, IOM.QuadraticExpression, U, "i_sq")
-    abs_i_var = get_variable(container, AbsoluteValueCurrent, U)
+    abs_i_var = get_variable(container, CurrentAbsoluteValueVariable, U)
 
     ipc_names = [PSY.get_name(d) for d in devices]
     loss_const = add_constraints_container!(

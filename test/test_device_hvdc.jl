@@ -138,7 +138,7 @@ end
     @test isapprox(milp_obj, nlp_obj; rtol = 0.05)
 end
 
-@testset "HVDC AbsoluteValueCurrent matches |ConverterCurrent| at MILP optimum" begin
+@testset "HVDC CurrentAbsoluteValueVariable matches |ConverterCurrent| at MILP optimum" begin
     # Direct evidence that the binary-free LP abs-value formulation is tight:
     # the loss objective drives abs_i down to exactly |i| at the optimum.
     sys = _generate_test_hvdc_sys()
@@ -169,7 +169,7 @@ end
         JuMP.value.(
             IOM.get_variable(
                 container,
-                AbsoluteValueCurrent,
+                CurrentAbsoluteValueVariable,
                 InterconnectingConverter,
             ).data,
         )

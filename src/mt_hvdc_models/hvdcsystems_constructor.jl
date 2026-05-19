@@ -54,7 +54,7 @@ function construct_device!(
     devices = get_available_components(model, sys)
     add_variables!(container, ActivePowerVariable, devices, T)
     add_variables!(container, ConverterCurrent, devices, T)
-    _add_abs_value_variables!(container, devices, model, network_model)
+    add_variables!(container, CurrentAbsoluteValueVariable, devices, T)
 
     add_to_expression!(
         container, ActivePowerBalance, ActivePowerVariable,
@@ -141,7 +141,7 @@ function construct_device!(
         "vi",
     )
 
-    # AbsoluteValueCurrent variable was added in the ArgumentConstructStage;
+    # CurrentAbsoluteValueVariable was added in the ArgumentConstructStage;
     # only the `abs_i ≥ ±i` constraints need the JuMP model now.
     # ConverterLossConstraint reads `abs_i`, so its constraints must come first.
     _add_abs_value_constraints!(

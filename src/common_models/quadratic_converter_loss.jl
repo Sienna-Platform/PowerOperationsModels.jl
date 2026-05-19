@@ -5,10 +5,10 @@
 # TwoTerminalVSCLine formulations (HVDCTwoTerminalVSCLP, HVDCTwoTerminalVSCNLP).
 #
 # `|I|` is represented by an LP surrogate: a single non-negative variable
-# `AbsoluteValueCurrent` bounded below by both `i` and `-i`. The optimum
-# pins it to `|i|` because the loss term `b · abs_i` is being minimized
-# via the generation-cost objective; no binary or complementarity constraint
-# is required.
+# `CurrentAbsoluteValueVariable` bounded below by both `i` and `-i`. The
+# optimum pins it to `|i|` because the loss term `b · abs_i` is being
+# minimized via the generation-cost objective; no binary or complementarity
+# constraint is required.
 
 #########################################
 ######## Loss-curve introspection #######
@@ -21,17 +21,21 @@ _get_quadratic_term(loss_fn) = 0.0
 ######## Loss expression builder ########
 #########################################
 
-# Two methods dispatched on `typeof(i_sq_t)` so each call site is fully
-# type-stable. `i_sq_t` is `AffExpr` on the MILP/PWL path (SOS2 surrogate
-# under `SolverSOS2QuadConfig`) and `QuadExpr` on the NLP/bilinear path
-# (under `NoQuadApproxConfig`). MILP returns AffExpr → HiGHS gets a linear
-# constraint; NLP returns QuadExpr → Ipopt gets the genuine quadratic
-# term in the right field.
+"""
+    _quadratic_converter_loss_expr(a, b, c, i_sq_t, abs_i_t)
 
+Build the per-timestep converter loss expression `a·I² + b·|I| + c`.
+
+The `iszero(a)` / `iszero(b)` guards skip the corresponding
+`add_to_expression!` call when the coefficient is exactly zero — this
+avoids dragging a `0·I²` or `0·|I|` term into the JuMP expression, which
+would otherwise allocate and force the wrong expression type (e.g., a
+`QuadExpr` with a zero quadratic part on the MILP path).
+"""
 function _quadratic_converter_loss_expr(
     a::Float64, b::Float64, c::Float64,
     i_sq_t::JuMP.AffExpr,
-    abs_i_t,
+    abs_i_t::JuMP.VariableRef,
 )
     expr = JuMP.AffExpr(c)
     iszero(a) || JuMP.add_to_expression!(expr, a, i_sq_t)
@@ -42,7 +46,7 @@ end
 function _quadratic_converter_loss_expr(
     a::Float64, b::Float64, c::Float64,
     i_sq_t::JuMP.QuadExpr,
-    abs_i_t,
+    abs_i_t::JuMP.VariableRef,
 )
     expr = JuMP.QuadExpr(JuMP.AffExpr(c))
     iszero(a) || JuMP.add_to_expression!(expr, a, i_sq_t)
@@ -53,16 +57,6 @@ end
 #########################################
 ######## Absolute-value surrogate #######
 #########################################
-
-function _add_abs_value_variables!(
-    container::OptimizationContainer,
-    devices,
-    ::DeviceModel{D, F},
-    ::NetworkModel{<:AbstractPowerModel},
-) where {D <: PSY.Device, F}
-    add_variables!(container, AbsoluteValueCurrent, devices, F)
-    return
-end
 
 function _add_abs_value_constraints!(
     container::OptimizationContainer,
@@ -75,7 +69,7 @@ function _add_abs_value_constraints!(
     names = [PSY.get_name(d) for d in devices]
     jump_model = get_jump_model(container)
     i_var = get_variable(container, parent_var_type, D)
-    abs_i_var = get_variable(container, AbsoluteValueCurrent, D)
+    abs_i_var = get_variable(container, CurrentAbsoluteValueVariable, D)
 
     lower_const = add_constraints_container!(
         container, CurrentAbsoluteValueConstraint, D, names, time_steps;

@@ -1446,7 +1446,7 @@ get_variable_binary(::Type{HVDCFromDCVoltage}, ::Type{PSY.TwoTerminalVSCLine}, :
 get_variable_binary(::Type{HVDCToDCVoltage}, ::Type{PSY.TwoTerminalVSCLine}, ::Type{<:AbstractTwoTerminalVSCFormulation}) = false
 get_variable_binary(::Type{HVDCReactivePowerFromVariable}, ::Type{PSY.TwoTerminalVSCLine}, ::Type{<:AbstractTwoTerminalVSCFormulation}) = false
 get_variable_binary(::Type{HVDCReactivePowerToVariable}, ::Type{PSY.TwoTerminalVSCLine}, ::Type{<:AbstractTwoTerminalVSCFormulation}) = false
-get_variable_binary(::Type{AbsoluteValueCurrent}, ::Type{PSY.TwoTerminalVSCLine}, ::Type{<:AbstractTwoTerminalVSCFormulation}) = false
+get_variable_binary(::Type{CurrentAbsoluteValueVariable}, ::Type{PSY.TwoTerminalVSCLine}, ::Type{<:AbstractTwoTerminalVSCFormulation}) = false
 get_variable_binary(::Type{FlowActivePowerFromToVariable}, ::Type{PSY.TwoTerminalVSCLine}, ::Type{<:AbstractTwoTerminalVSCFormulation}) = false
 get_variable_binary(::Type{FlowActivePowerToFromVariable}, ::Type{PSY.TwoTerminalVSCLine}, ::Type{<:AbstractTwoTerminalVSCFormulation}) = false
 
@@ -1481,9 +1481,9 @@ _vsc_cable_i_max(d::PSY.TwoTerminalVSCLine) =
 get_variable_lower_bound(::Type{DCLineCurrentFlowVariable}, d::PSY.TwoTerminalVSCLine, ::Type{<:AbstractTwoTerminalVSCFormulation}) = -_vsc_cable_i_max(d)
 get_variable_upper_bound(::Type{DCLineCurrentFlowVariable}, d::PSY.TwoTerminalVSCLine, ::Type{<:AbstractTwoTerminalVSCFormulation}) = _vsc_cable_i_max(d)
 
-# AbsoluteValueCurrent: 0 ≤ abs_i ≤ I_max (LP surrogate for |i|)
-get_variable_lower_bound(::Type{AbsoluteValueCurrent}, d::PSY.TwoTerminalVSCLine, ::Type{<:AbstractTwoTerminalVSCFormulation}) = 0.0
-get_variable_upper_bound(::Type{AbsoluteValueCurrent}, d::PSY.TwoTerminalVSCLine, ::Type{<:AbstractTwoTerminalVSCFormulation}) = _vsc_cable_i_max(d)
+# CurrentAbsoluteValueVariable: 0 ≤ abs_i ≤ I_max (LP surrogate for |i|)
+get_variable_lower_bound(::Type{CurrentAbsoluteValueVariable}, d::PSY.TwoTerminalVSCLine, ::Type{<:AbstractTwoTerminalVSCFormulation}) = 0.0
+get_variable_upper_bound(::Type{CurrentAbsoluteValueVariable}, d::PSY.TwoTerminalVSCLine, ::Type{<:AbstractTwoTerminalVSCFormulation}) = _vsc_cable_i_max(d)
 
 #! format: on
 
@@ -1606,7 +1606,7 @@ function add_constraints!(
     vi_expr_tf = get_expression(container, IOM.BilinearProductExpression, U, "vi_tf")
     i_sq_expr = get_expression(container, IOM.QuadraticExpression, U, "i_sq")
 
-    abs_i_var = get_variable(container, AbsoluteValueCurrent, U)
+    abs_i_var = get_variable(container, CurrentAbsoluteValueVariable, U)
 
     cons_ft = add_constraints_container!(
         container, HVDCVSCConverterPowerConstraint, U, names, time_steps; meta = "ft",

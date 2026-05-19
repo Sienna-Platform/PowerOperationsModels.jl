@@ -163,7 +163,7 @@ term `b · abs_i` is minimized via the generation-cost objective). Used by
 both two-terminal HVDC links (cable current) and interconnecting converters.
 Docs abbreviation: ``|i|^{dc}``
 """
-struct AbsoluteValueCurrent <: VariableType end
+struct CurrentAbsoluteValueVariable <: VariableType end
 
 #########################################################
 #########################################################

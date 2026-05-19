@@ -1704,7 +1704,7 @@ function construct_device!(
         (HVDCReactivePowerFromVariable, HVDCReactivePowerToVariable),
     )
 
-    _add_abs_value_variables!(container, devices, device_model, network_model)
+    add_variables!(container, CurrentAbsoluteValueVariable, devices, F)
 
     add_to_expression!(
         container, ActivePowerBalance, FlowActivePowerFromToVariable,
