@@ -26,11 +26,9 @@ _get_quadratic_term(loss_fn) = 0.0
 
 Build the per-timestep converter loss expression `a·I² + b·|I| + c`.
 
-The `iszero(a)` / `iszero(b)` guards skip the corresponding
-`add_to_expression!` call when the coefficient is exactly zero — this
-avoids dragging a `0·I²` or `0·|I|` term into the JuMP expression, which
-would otherwise allocate and force the wrong expression type (e.g., a
-`QuadExpr` with a zero quadratic part on the MILP path).
+In MILP formulations the i_sq_t is still an AffExpr.
+
+The `iszero` guards avoid adding 0s to the JuMP expression which might slightly hurt the solver.
 """
 function _quadratic_converter_loss_expr(
     a::Float64, b::Float64, c::Float64,
@@ -38,8 +36,8 @@ function _quadratic_converter_loss_expr(
     abs_i_t::JuMP.VariableRef,
 )
     expr = JuMP.AffExpr(c)
-    iszero(a) || JuMP.add_to_expression!(expr, a, i_sq_t)
-    iszero(b) || JuMP.add_to_expression!(expr, b, abs_i_t)
+    iszero(a) || add_proportional_to_jump_expression!(expr, i_sq_t, a)
+    iszero(b) || add_proportional_to_jump_expression!(expr, abs_i_t, b)
     return expr
 end
 
@@ -49,8 +47,8 @@ function _quadratic_converter_loss_expr(
     abs_i_t::JuMP.VariableRef,
 )
     expr = JuMP.QuadExpr(JuMP.AffExpr(c))
-    iszero(a) || JuMP.add_to_expression!(expr, a, i_sq_t)
-    iszero(b) || JuMP.add_to_expression!(expr, b, abs_i_t)
+    iszero(a) || add_proportional_to_jump_expression!(expr, i_sq_t, a)
+    iszero(b) || add_proportional_to_jump_expression!(expr, abs_i_t, b)
     return expr
 end
 
