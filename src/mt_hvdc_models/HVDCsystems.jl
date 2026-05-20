@@ -71,14 +71,14 @@ requires_initialization(::AbstractConverterFormulation) = false
 requires_initialization(::LosslessLine) = false
 
 function get_initial_conditions_device_model(
-    ::OperationModel,
+    ::AbstractOptimizationModel,
     model::DeviceModel{PSY.InterconnectingConverter, <:AbstractConverterFormulation},
 )
     return model
 end
 
 function get_initial_conditions_device_model(
-    ::OperationModel,
+    ::AbstractOptimizationModel,
     model::DeviceModel{PSY.TModelHVDCLine, D},
 ) where {D <: AbstractDCLineFormulation}
     return model

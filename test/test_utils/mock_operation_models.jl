@@ -21,7 +21,7 @@ function IOM.DecisionModel(
         error("System has multiple resolutions MockOperationProblem won't work")
     end
     return DecisionModel{MockOperationProblem}(
-        OperationsProblemTemplate(T),
+        PowerOperationsProblemTemplate(T),
         sys,
         settings,
         nothing;
@@ -77,7 +77,7 @@ function IOM.DecisionModel(::Type{MockOperationProblem}; name = nothing, kwargs.
         horizon = get(kwargs, :horizon, Hour(24)),
         resolution = get(kwargs, :resolution, Hour(1)))
     return DecisionModel{MockOperationProblem}(
-        OperationsProblemTemplate(CopperPlatePowerModel),
+        PowerOperationsProblemTemplate(CopperPlatePowerModel),
         sys,
         settings,
         nothing;
@@ -104,7 +104,7 @@ function IOM.EmulationModel(::Type{MockEmulationProblem}; name = nothing, kwargs
         horizon = get(kwargs, :resolution, Hour(1)),
         resolution = get(kwargs, :resolution, Hour(1)))
     return EmulationModel{MockEmulationProblem}(
-        OperationsProblemTemplate(CopperPlatePowerModel),
+        PowerOperationsProblemTemplate(CopperPlatePowerModel),
         sys,
         settings,
         nothing;

@@ -87,7 +87,7 @@ function get_default_attributes(
 end
 
 get_initial_conditions_device_model(
-    ::OperationModel,
+    ::AbstractOptimizationModel,
     ::DeviceModel{T, <:AbstractLoadFormulation},
 ) where {T <: PSY.ElectricLoad} = DeviceModel(T, StaticPowerLoad)
 

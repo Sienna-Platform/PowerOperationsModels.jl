@@ -327,9 +327,9 @@ export add_reserve_variables!
 #################################################################################
 export DecisionModel
 export EmulationModel
-export OperationsProblemTemplate
+export PowerOperationsProblemTemplate
 export InitialCondition
-export OperationModel
+export AbstractOptimizationModel
 
 # Network
 export NetworkModel

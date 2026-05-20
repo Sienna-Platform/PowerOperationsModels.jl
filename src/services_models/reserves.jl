@@ -45,14 +45,14 @@ uses_compact_power(::PSY.ReserveDemandCurve, ::StepwiseCostReserve)=false
 #! format: on
 
 function get_initial_conditions_service_model(
-    ::OperationModel,
+    ::AbstractOptimizationModel,
     ::ServiceModel{T, D},
 ) where {T <: PSY.Reserve, D <: AbstractReservesFormulation}
     return ServiceModel(T, D)
 end
 
 function get_initial_conditions_service_model(
-    ::OperationModel,
+    ::AbstractOptimizationModel,
     ::ServiceModel{T, D},
 ) where {T <: PSY.VariableReserveNonSpinning, D <: AbstractReservesFormulation}
     return ServiceModel(T, D)

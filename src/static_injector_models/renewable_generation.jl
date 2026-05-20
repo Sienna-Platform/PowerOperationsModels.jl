@@ -25,12 +25,12 @@ objective_function_multiplier(::Type{ActivePowerVariable}, ::Type{<:AbstractRene
 #! format: on
 
 get_initial_conditions_device_model(
-    ::OperationModel,
+    ::AbstractOptimizationModel,
     ::DeviceModel{T, <:AbstractRenewableFormulation},
 ) where {T <: PSY.RenewableGen} = DeviceModel(T, RenewableFullDispatch)
 
 get_initial_conditions_device_model(
-    ::OperationModel,
+    ::AbstractOptimizationModel,
     ::DeviceModel{T, FixedOutput},
 ) where {T <: PSY.RenewableGen} = DeviceModel(T, FixedOutput)
 

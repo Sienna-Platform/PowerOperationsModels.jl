@@ -289,7 +289,7 @@ keyword arguments to that function.
 
 # Arguments
 
-  - `model::OperationModel = model`: operation model
+  - `model::AbstractOptimizationModel = model`: operation model
   - `export_problem_outputs::Bool = false`: If true, export OptimizationProblemOutputs DataFrames to CSV files.
   - `console_level = Logging.Error`:
   - `file_level = Logging.Info`:
@@ -433,7 +433,7 @@ function handle_initial_conditions!(model::DecisionModel{<:AbstractPowerDecision
     return
 end
 
-function build_if_not_already_built!(model::OperationModel; kwargs...)
+function build_if_not_already_built!(model::AbstractOptimizationModel; kwargs...)
     status = IOM.get_status(model)
     if status == ModelBuildStatus.EMPTY
         if !haskey(kwargs, :output_dir)

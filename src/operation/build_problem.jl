@@ -30,7 +30,7 @@ end
 # Called `build_impl!(container, template, sys)` in PSI (lived in optimization_container.jl).
 function build_problem!(
     container::OptimizationContainer,
-    template::OperationsProblemTemplate,
+    template::PowerOperationsProblemTemplate,
     sys::PSY.System,
 )
     transmission = get_network_formulation(template)

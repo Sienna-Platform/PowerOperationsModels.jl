@@ -32,7 +32,7 @@ get_multiplier_value(::Type{<:AbstractDynamicBranchRatingTimeSeriesParameter}, d
 get_multiplier_value(::Type{<:AbstractDynamicBranchRatingTimeSeriesParameter}, d::PNM.BranchesParallel, ::Type{StaticBranch}) = PNM.get_equivalent_rating(d)
 
 
-get_initial_conditions_device_model(::OperationModel, ::DeviceModel{T, U}) where {T <: PSY.ACTransmission, U <: AbstractBranchFormulation} = DeviceModel(T, U)
+get_initial_conditions_device_model(::AbstractOptimizationModel, ::DeviceModel{T, U}) where {T <: PSY.ACTransmission, U <: AbstractBranchFormulation} = DeviceModel(T, U)
 
 #### Properties of slack variables
 get_variable_binary(::Type{FlowActivePowerSlackUpperBound}, ::Type{<:PSY.ACTransmission}, ::Type{<:AbstractBranchFormulation}) = false

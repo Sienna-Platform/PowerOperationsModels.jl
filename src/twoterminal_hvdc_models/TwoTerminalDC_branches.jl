@@ -130,7 +130,7 @@ function get_default_attributes(
 end
 
 get_initial_conditions_device_model(
-    ::OperationModel,
+    ::AbstractOptimizationModel,
     ::DeviceModel{T, U},
 ) where {T <: PSY.TwoTerminalHVDC, U <: AbstractTwoTerminalDCLineFormulation} =
     DeviceModel(T, U)

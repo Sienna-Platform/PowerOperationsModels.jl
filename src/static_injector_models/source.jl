@@ -201,6 +201,6 @@ function add_to_objective_function!(
 end
 
 get_initial_conditions_device_model(
-    ::OperationModel,
+    ::AbstractOptimizationModel,
     model::DeviceModel{PSY.Source, T},
 ) where {T <: AbstractSourceFormulation} = DeviceModel(PSY.Source, T)

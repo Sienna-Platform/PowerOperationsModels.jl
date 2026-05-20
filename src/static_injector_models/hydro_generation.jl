@@ -285,42 +285,42 @@ variable_cost(cost::PSY.StorageCost, ::Type{ActivePowerVariable}, ::Type{<:PSY.H
 
 # These methods are defined in PowerSimulations
 function get_initial_conditions_device_model(
-    ::OperationModel,
+    ::AbstractOptimizationModel,
     model::DeviceModel{T, <:AbstractHydroDispatchFormulation},
 ) where {T <: PSY.HydroGen}
     return model
 end
 
 function get_initial_conditions_device_model(
-    ::OperationModel,
+    ::AbstractOptimizationModel,
     model::DeviceModel{T, <:AbstractHydroReservoirFormulation},
 ) where {T <: PSY.HydroReservoir}
     return model
 end
 
 function get_initial_conditions_device_model(
-    ::OperationModel,
+    ::AbstractOptimizationModel,
     ::DeviceModel{T, U},
 ) where {T <: PSY.HydroDispatch, U <: HydroDispatchRunOfRiverBudget}
     return DeviceModel(PSY.HydroDispatch, HydroDispatchRunOfRiver)
 end
 
 function get_initial_conditions_device_model(
-    ::OperationModel,
+    ::AbstractOptimizationModel,
     ::DeviceModel{T, <:AbstractHydroReservoirFormulation},
 ) where {T <: PSY.HydroDispatch}
     return DeviceModel(PSY.HydroDispatch, HydroDispatchRunOfRiver)
 end
 
 function get_initial_conditions_device_model(
-    ::OperationModel,
+    ::AbstractOptimizationModel,
     model::DeviceModel{T, <:AbstractHydroUnitCommitment},
 ) where {T <: PSY.HydroGen}
     return model
 end
 
 function get_initial_conditions_device_model(
-    ::OperationModel,
+    ::AbstractOptimizationModel,
     model::DeviceModel{T, <:AbstractHydroPumpFormulation},
 ) where {T <: PSY.HydroPumpTurbine}
     return model

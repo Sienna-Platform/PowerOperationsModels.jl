@@ -136,7 +136,7 @@ end
 
 ######################## Make initial Conditions for a Model ####################
 get_initial_conditions_device_model(
-    ::OperationModel,
+    ::AbstractOptimizationModel,
     model::DeviceModel{T, <:AbstractStorageFormulation},
 ) where {T <: PSY.Storage} = model
 

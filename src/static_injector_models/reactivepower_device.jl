@@ -11,7 +11,7 @@ get_variable_upper_bound(::Type{ReactivePowerVariable}, d::PSY.SynchronousConden
 
 #! format: on
 function get_initial_conditions_device_model(
-    model::OperationModel,
+    model::AbstractOptimizationModel,
     ::DeviceModel{T, D},
 ) where {T <: PSY.SynchronousCondenser, D <: AbstractReactivePowerDeviceFormulation}
     return DeviceModel(T, SynchronousCondenserBasicDispatch)

@@ -7,7 +7,7 @@ get_parameter_multiplier(::Type{LowerBoundValueParameter}, ::PSY.AreaInterchange
 get_parameter_multiplier(::Type{UpperBoundValueParameter}, ::PSY.AreaInterchange, ::Type{<:AbstractBranchFormulation}) = 1.0
 
 get_initial_conditions_device_model(
-    ::OperationModel,
+    ::AbstractOptimizationModel,
     model::DeviceModel{PSY.AreaInterchange, T},
 ) where {T <: AbstractBranchFormulation} = DeviceModel(PSY.AreaInterchange, T)
 

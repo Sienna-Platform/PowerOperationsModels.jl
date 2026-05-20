@@ -68,8 +68,8 @@ here in POM without those abstractions, for testing purposes.
     pre-existing IC values on the target, or uptime/downtime duration scaling.
 """
 function transfer_initial_conditions!(
-    target::OperationModel,
-    source::OperationModel,
+    target::AbstractOptimizationModel,
+    source::AbstractOptimizationModel,
 )
     source_container = get_optimization_container(source)
     target_container = get_optimization_container(target)

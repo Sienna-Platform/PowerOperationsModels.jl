@@ -214,7 +214,7 @@ end
 
 #! format: on
 function get_initial_conditions_device_model(
-    model::OperationModel,
+    model::AbstractOptimizationModel,
     ::DeviceModel{T, D},
 ) where {T <: PSY.ThermalGen, D <: AbstractThermalDispatchFormulation}
     if supports_milp(get_optimization_container(model))
@@ -225,21 +225,21 @@ function get_initial_conditions_device_model(
 end
 
 function get_initial_conditions_device_model(
-    ::OperationModel,
+    ::AbstractOptimizationModel,
     ::DeviceModel{T, D},
 ) where {T <: PSY.ThermalGen, D <: ThermalDispatchNoMin}
     return DeviceModel(T, ThermalDispatchNoMin)
 end
 
 function get_initial_conditions_device_model(
-    ::OperationModel,
+    ::AbstractOptimizationModel,
     ::DeviceModel{T, D},
 ) where {T <: PSY.ThermalGen, D <: AbstractThermalUnitCommitment}
     return DeviceModel(T, ThermalBasicUnitCommitment)
 end
 
 function get_initial_conditions_device_model(
-    ::OperationModel,
+    ::AbstractOptimizationModel,
     ::DeviceModel{T, D},
 ) where {T <: PSY.ThermalGen, D <: AbstractCompactUnitCommitment}
     return DeviceModel(T, ThermalBasicCompactUnitCommitment)
