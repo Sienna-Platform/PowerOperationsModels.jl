@@ -6,12 +6,54 @@
     EmulationModel{M}(
         template::AbstractProblemTemplate,
         sys::IS.InfrastructureSystemsContainer,
+        settings::Settings,
+        jump_model::Union{Nothing, JuMP.Model}=nothing;
+        name = nothing) where {M<:AbstractPowerEmulationProblem}
+
+Settings-taking constructor — finalizes the template, builds the
+`OptimizationContainer` with single-time-series data, and validates time
+series. Used by the kwargs-taking constructor below and by callers that want
+full control over `Settings`.
+"""
+function IOM.EmulationModel{M}(
+    template::IOM.AbstractProblemTemplate,
+    sys::IS.InfrastructureSystemsContainer,
+    settings::IOM.Settings,
+    jump_model::Union{Nothing, JuMP.Model} = nothing;
+    name = nothing,
+) where {M <: AbstractPowerEmulationProblem}
+    if name === nothing
+        name = nameof(M)
+    elseif name isa String
+        name = Symbol(name)
+    end
+    finalize_template!(template, sys)
+    internal = IOM.ModelInternal(
+        IOM.OptimizationContainer(sys, settings, jump_model, IS.SingleTimeSeries),
+    )
+    model = IOM.EmulationModel{M}(
+        name,
+        template,
+        sys,
+        internal,
+        IOM.SimulationInfo(),
+        IOM.EmulationModelStore(),
+        Dict{String, Any}(),
+    )
+    IOM.validate_time_series!(model)
+    return model
+end
+
+"""
+    EmulationModel{M}(
+        template::AbstractProblemTemplate,
+        sys::IS.InfrastructureSystemsContainer,
         jump_model::Union{Nothing, JuMP.Model}=nothing;
         kwargs...) where {M<:AbstractPowerEmulationProblem}
 
 Kwargs constructor — builds a `Settings` (with `horizon == resolution`, since
-emulation models solve one step at a time) and delegates to the inner
-constructor in IOM.
+emulation models solve one step at a time) and delegates to the Settings-taking
+constructor above.
 """
 function IOM.EmulationModel{M}(
     template::IOM.AbstractProblemTemplate,
@@ -57,9 +99,7 @@ function IOM.EmulationModel{M}(
         horizon = resolution,
         resolution = resolution,
     )
-    model = IOM.EmulationModel{M}(template, sys, settings, jump_model; name = name)
-    IOM.validate_time_series!(model)
-    return model
+    return IOM.EmulationModel{M}(template, sys, settings, jump_model; name = name)
 end
 
 """
