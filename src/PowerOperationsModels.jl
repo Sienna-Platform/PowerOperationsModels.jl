@@ -285,6 +285,7 @@ include("network_models/hvdc_network_constructor.jl")
 include("area_interchange.jl")
 
 # Operation lifecycle: build/solve/run
+include("operation/operation_problem.jl")
 include("operation/build_problem.jl")
 include("initial_conditions/initialization.jl")
 include("operation/template_validation.jl")
@@ -423,8 +424,14 @@ export RunStatus
 export SimulationBuildStatus
 
 # Problem Types
-export DefaultDecisionProblem
-export DefaultEmulationProblem
+# Problem-type chain (defined in operation/operation_problem.jl)
+export AbstractPowerOperationProblem
+export AbstractPowerDecisionProblem
+export AbstractPowerEmulationProblem
+export DefaultPowerDecisionProblem
+export DefaultPowerEmulationProblem
+export GenericPowerDecisionProblem
+export GenericPowerEmulationProblem
 
 # Settings and Data Types
 export Settings

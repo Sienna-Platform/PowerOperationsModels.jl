@@ -1,3 +1,107 @@
+#################################################################################
+# Outer constructors (moved from IOM; dispatched on AbstractPowerEmulationProblem)
+#################################################################################
+
+"""
+    EmulationModel{M}(
+        template::AbstractProblemTemplate,
+        sys::IS.InfrastructureSystemsContainer,
+        jump_model::Union{Nothing, JuMP.Model}=nothing;
+        kwargs...) where {M<:AbstractPowerEmulationProblem}
+
+Kwargs constructor — builds a `Settings` (with `horizon == resolution`, since
+emulation models solve one step at a time) and delegates to the inner
+constructor in IOM.
+"""
+function IOM.EmulationModel{M}(
+    template::IOM.AbstractProblemTemplate,
+    sys::IS.InfrastructureSystemsContainer,
+    jump_model::Union{Nothing, JuMP.Model} = nothing;
+    resolution = IOM.UNSET_RESOLUTION,
+    name = nothing,
+    optimizer = nothing,
+    warm_start = true,
+    initialize_model = true,
+    initialization_file = "",
+    deserialize_initial_conditions = false,
+    export_pwl_vars = false,
+    allow_fails = false,
+    calculate_conflict = false,
+    optimizer_solve_log_print = false,
+    detailed_optimizer_stats = false,
+    direct_mode_optimizer = false,
+    check_numerical_bounds = true,
+    store_variable_names = false,
+    rebuild_model = false,
+    initial_time = IOM.UNSET_INI_TIME,
+    time_series_cache_size::Int = IS.TIME_SERIES_CACHE_SIZE_BYTES,
+) where {M <: AbstractPowerEmulationProblem}
+    settings = IOM.Settings(
+        sys;
+        initial_time = initial_time,
+        optimizer = optimizer,
+        time_series_cache_size = time_series_cache_size,
+        warm_start = warm_start,
+        initialize_model = initialize_model,
+        initialization_file = initialization_file,
+        deserialize_initial_conditions = deserialize_initial_conditions,
+        export_pwl_vars = export_pwl_vars,
+        allow_fails = allow_fails,
+        calculate_conflict = calculate_conflict,
+        optimizer_solve_log_print = optimizer_solve_log_print,
+        detailed_optimizer_stats = detailed_optimizer_stats,
+        direct_mode_optimizer = direct_mode_optimizer,
+        check_numerical_bounds = check_numerical_bounds,
+        store_variable_names = store_variable_names,
+        rebuild_model = rebuild_model,
+        horizon = resolution,
+        resolution = resolution,
+    )
+    model = IOM.EmulationModel{M}(template, sys, settings, jump_model; name = name)
+    IOM.validate_time_series!(model)
+    return model
+end
+
+"""
+    EmulationModel(::Type{M}, template, sys, jump_model=nothing; kwargs...)
+        where {M <: AbstractPowerEmulationProblem}
+
+Type-first dispatch variant.
+"""
+function IOM.EmulationModel(
+    ::Type{M},
+    template::IOM.AbstractProblemTemplate,
+    sys::IS.InfrastructureSystemsContainer,
+    jump_model::Union{Nothing, JuMP.Model} = nothing;
+    kwargs...,
+) where {M <: AbstractPowerEmulationProblem}
+    return IOM.EmulationModel{M}(template, sys, jump_model; kwargs...)
+end
+
+"""
+    EmulationModel(template, sys, jump_model=nothing; kwargs...)
+
+Default-tag constructor — produces an `EmulationModel{GenericPowerEmulationProblem}`
+when no specific problem type is named.
+"""
+function IOM.EmulationModel(
+    template::IOM.AbstractProblemTemplate,
+    sys::IS.InfrastructureSystemsContainer,
+    jump_model::Union{Nothing, JuMP.Model} = nothing;
+    kwargs...,
+)
+    return IOM.EmulationModel{GenericPowerEmulationProblem}(
+        template,
+        sys,
+        jump_model;
+        kwargs...,
+    )
+end
+
+#################################################################################
+# Build / run lifecycle
+#################################################################################
+
 # FIXME untested. Moved to accommodate a few methods dispatching on EmulationModelStore,
 # but not run in the tests and not yet refactored for IOM-POM split.
 function build_pre_step!(model::EmulationModel)
@@ -25,7 +129,7 @@ function build_pre_step!(model::EmulationModel)
 end
 
 # Called `build_impl!(model)` in PSI (lived in emulation_model.jl).
-function build_model!(model::EmulationModel{<:EmulationProblem})
+function build_model!(model::EmulationModel{<:AbstractPowerEmulationProblem})
     build_pre_step!(model)
     @info "Instantiating Network Model"
     IOM.instantiate_network_model!(model)
@@ -41,11 +145,12 @@ function build_model!(model::EmulationModel{<:EmulationProblem})
 end
 
 """
-Implementation of build for any EmulationProblem
+Implementation of build for any AbstractPowerEmulationProblem.
+
   - `store_system_in_results::Bool = true`: If true, stores the system as JSON in the results HDF5 file.
 """
 function build!(
-    model::EmulationModel{<:EmulationProblem};
+    model::EmulationModel{<:AbstractPowerEmulationProblem};
     executions = 1,
     output_dir::String,
     recorders = [],
@@ -93,7 +198,7 @@ function build!(
     return IOM.get_status(model)
 end
 
-function reset!(model::EmulationModel{<:EmulationProblem})
+function reset!(model::EmulationModel{<:AbstractPowerEmulationProblem})
     if built_for_recurrent_solves(model)
         IOM.set_execution_count!(model, 0)
     end
@@ -138,9 +243,7 @@ function execute_emulation!(
     for execution in 1:executions
         TimerOutputs.@timeit RUN_OPERATION_MODEL_TIMER "Run execution" begin
             # NOTE: PSI's run_impl! calls update_model!(model) here to update parameters
-            # and initial conditions between executions. That logic lives in IOM's
-            # emulation_model.jl and is invoked by PSI during simulation. Standalone
-            # emulation in POM does not update between steps.
+            # and initial conditions between executions.
             IOM.solve_model!(model)
             current_time = initial_time + (execution - 1) * get_resolution(model)
             write_outputs!(get_store(model), model, execution, current_time)
@@ -162,7 +265,7 @@ end
 
 """
 Default run method for problems that conform to the requirements of
-EmulationModel{<: EmulationProblem}
+`EmulationModel{<:AbstractPowerEmulationProblem}`.
 
 This will call `build!` on the model if it is not already built. It will forward all
 keyword arguments to that function.
@@ -186,7 +289,7 @@ status = run!(model; output_dir = ./model_output, optimizer = HiGHS.Optimizer, e
 ```
 """
 function run!(
-    model::EmulationModel{<:EmulationProblem};
+    model::EmulationModel{<:AbstractPowerEmulationProblem};
     export_problem_outputs = false,
     console_level = Logging.Error,
     file_level = Logging.Info,
@@ -256,7 +359,7 @@ function run!(
     return IOM.get_run_status(model)
 end
 
-function handle_initial_conditions!(model::EmulationModel{<:EmulationProblem})
+function handle_initial_conditions!(model::EmulationModel{<:AbstractPowerEmulationProblem})
     TimerOutputs.@timeit BUILD_PROBLEMS_TIMER "Model Initialization" begin
         if isempty(get_template(model))
             return
@@ -310,11 +413,126 @@ function handle_initial_conditions!(model::EmulationModel{<:EmulationProblem})
     return
 end
 
-function validate_template(::EmulationModel{M}) where {M <: EmulationProblem}
+function validate_template(::EmulationModel{M}) where {M <: AbstractPowerEmulationProblem}
     error("validate_template is not implemented for EmulationModel{$M}")
 end
 
-function validate_template(model::EmulationModel{<:DefaultEmulationProblem})
+function validate_template(model::EmulationModel{<:DefaultPowerEmulationProblem})
     validate_template_impl!(model)
+    return
+end
+
+function IOM.validate_time_series!(model::EmulationModel{<:DefaultPowerEmulationProblem})
+    sys = get_system(model)
+    settings = get_settings(model)
+    available_resolutions = PSY.get_time_series_resolutions(sys)
+
+    if get_resolution(settings) == IOM.UNSET_RESOLUTION &&
+       length(available_resolutions) != 1
+        throw(
+            IS.ConflictingInputsError(
+                "Data contains multiple resolutions, the resolution keyword argument must be added to the Model. Time Series Resolutions: $(available_resolutions)",
+            ),
+        )
+    elseif get_resolution(settings) != IOM.UNSET_RESOLUTION &&
+           length(available_resolutions) > 1
+        if get_resolution(settings) ∉ available_resolutions
+            throw(
+                IS.ConflictingInputsError(
+                    "Resolution $(get_resolution(settings)) is not available in the system data. Time Series Resolutions: $(available_resolutions)",
+                ),
+            )
+        end
+    else
+        IOM.set_resolution!(settings, first(available_resolutions))
+    end
+
+    if get_horizon(settings) == IOM.UNSET_HORIZON
+        # Emulation Models Only solve one "step" so Horizon and Resolution must match
+        IOM.set_horizon!(settings, IOM.get_resolution(settings))
+    end
+
+    counts = PSY.get_time_series_counts(sys)
+    if counts.static_time_series_count < 1
+        error(
+            "The system does not contain Static Time Series data. A EmulationModel can't be built.",
+        )
+    end
+    return
+end
+
+#################################################################################
+# Parameter / initial-condition update chain (moved from IOM)
+#################################################################################
+
+function IOM.update_parameters!(
+    model::EmulationModel,
+    store::IOM.EmulationModelStore{IOM.InMemoryDataset},
+)
+    IOM.update_parameters!(model, store.data_container)
+    return
+end
+
+function IOM.update_parameters!(
+    model::EmulationModel,
+    data::IOM.DatasetContainer{IOM.InMemoryDataset},
+)
+    IOM.cost_function_unsynch(get_optimization_container(model))
+    for key in keys(IOM.get_parameters(model))
+        IOM.update_parameter_values!(model, key, data)
+    end
+    if !IOM.is_synchronized(model)
+        IOM.update_objective_function!(get_optimization_container(model))
+        obj_func = IOM.get_objective_expression(get_optimization_container(model))
+        IOM.set_synchronized_status!(obj_func, true)
+    end
+    return
+end
+
+function IOM.update_model!(
+    model::EmulationModel,
+    source::IOM.EmulationModelStore{IOM.InMemoryDataset},
+    ini_cond_chronology,
+)
+    TimerOutputs.@timeit IOM.RUN_SIMULATION_TIMER "Parameter Updates" begin
+        IOM.update_parameters!(model, source)
+    end
+    TimerOutputs.@timeit IOM.RUN_SIMULATION_TIMER "Ini Cond Updates" begin
+        IOM.update_initial_conditions!(model, source, ini_cond_chronology)
+    end
+    return
+end
+
+"""
+Standalone update for `EmulationModel` (non-simulation context).
+Updates parameters and initial conditions from the model's own store.
+"""
+function IOM.update_model!(model::EmulationModel)
+    source = get_store(model)
+    TimerOutputs.@timeit RUN_OPERATION_MODEL_TIMER "Parameter Updates" begin
+        IOM.update_parameters!(model, source)
+    end
+    TimerOutputs.@timeit RUN_OPERATION_MODEL_TIMER "Ini Cond Updates" begin
+        for key in keys(IOM.get_initial_conditions(model))
+            IOM.update_initial_conditions!(model, key, source)
+        end
+    end
+    return
+end
+
+function IOM.update_parameter_values!(
+    model::EmulationModel,
+    key::IOM.ParameterKey{T, U},
+    input::IOM.DatasetContainer{IOM.InMemoryDataset},
+) where {T <: IOM.ParameterType, U <: IS.InfrastructureSystemsComponent}
+    optimization_container = get_optimization_container(model)
+    update_container_parameter_values!(optimization_container, model, key, input)
+    IS.@record :execution IOM.ParameterUpdateEvent(
+        T,
+        U,
+        "event",
+        IOM.get_current_timestamp(model),
+        get_name(model),
+    )
     return
 end

@@ -1,4 +1,168 @@
-function build_pre_step!(model::DecisionModel{<:DecisionProblem})
+#################################################################################
+# Outer constructors (moved from IOM; dispatched on AbstractPowerDecisionProblem)
+#################################################################################
+
+"""
+    DecisionModel{M}(
+        template::AbstractProblemTemplate,
+        sys::IS.InfrastructureSystemsContainer,
+        settings::Settings,
+        jump_model::Union{Nothing, JuMP.Model}=nothing;
+        name = nothing) where {M<:AbstractPowerDecisionProblem}
+
+Settings-taking constructor — builds the `OptimizationContainer`, finalizes the
+template, and validates time series. Used by the kwargs-taking constructor below
+and by callers that want full control over `Settings`.
+"""
+function IOM.DecisionModel{M}(
+    template::IOM.AbstractProblemTemplate,
+    sys::IS.InfrastructureSystemsContainer,
+    settings::IOM.Settings,
+    jump_model::Union{Nothing, JuMP.Model} = nothing;
+    name = nothing,
+) where {M <: AbstractPowerDecisionProblem}
+    if name === nothing
+        name = nameof(M)
+    elseif name isa String
+        name = Symbol(name)
+    end
+    IOM.auto_transform_time_series!(sys, settings)
+    ts_type = IOM.get_deterministic_time_series_type(sys)
+    internal = IOM.ModelInternal(
+        IOM.OptimizationContainer(sys, settings, jump_model, ts_type),
+    )
+
+    template_ = deepcopy(template)
+    finalize_template!(template_, sys)
+    model = IOM.DecisionModel{M}(
+        name,
+        template_,
+        sys,
+        internal,
+        IOM.SimulationInfo(),
+        IOM.DecisionModelStore(),
+        Dict{String, Any}(),
+    )
+    IOM.validate_time_series!(model)
+    return model
+end
+
+"""
+    DecisionModel{M}(
+        template::AbstractProblemTemplate,
+        sys::IS.InfrastructureSystemsContainer,
+        jump_model::Union{Nothing, JuMP.Model}=nothing;
+        kwargs...) where {M<:AbstractPowerDecisionProblem}
+
+Kwargs constructor — accepts horizon/resolution/interval and all the standard
+solver/model settings, builds a `Settings`, and delegates to the settings-taking
+constructor.
+"""
+function IOM.DecisionModel{M}(
+    template::IOM.AbstractProblemTemplate,
+    sys::IS.InfrastructureSystemsContainer,
+    jump_model::Union{Nothing, JuMP.Model} = nothing;
+    name = nothing,
+    optimizer = nothing,
+    horizon = IOM.UNSET_HORIZON,
+    resolution = IOM.UNSET_RESOLUTION,
+    interval = IOM.UNSET_INTERVAL,
+    warm_start = true,
+    check_components = true,
+    initialize_model = true,
+    initialization_file = "",
+    deserialize_initial_conditions = false,
+    export_pwl_vars = false,
+    allow_fails = false,
+    optimizer_solve_log_print = false,
+    detailed_optimizer_stats = false,
+    calculate_conflict = false,
+    direct_mode_optimizer = false,
+    store_variable_names = false,
+    rebuild_model = false,
+    export_optimization_model = false,
+    check_numerical_bounds = true,
+    initial_time = IOM.UNSET_INI_TIME,
+    time_series_cache_size::Int = IS.TIME_SERIES_CACHE_SIZE_BYTES,
+) where {M <: AbstractPowerDecisionProblem}
+    settings = IOM.Settings(
+        sys;
+        horizon = horizon,
+        resolution = resolution,
+        interval = interval,
+        initial_time = initial_time,
+        optimizer = optimizer,
+        time_series_cache_size = time_series_cache_size,
+        warm_start = warm_start,
+        check_components = check_components,
+        initialize_model = initialize_model,
+        initialization_file = initialization_file,
+        deserialize_initial_conditions = deserialize_initial_conditions,
+        export_pwl_vars = export_pwl_vars,
+        allow_fails = allow_fails,
+        calculate_conflict = calculate_conflict,
+        optimizer_solve_log_print = optimizer_solve_log_print,
+        detailed_optimizer_stats = detailed_optimizer_stats,
+        direct_mode_optimizer = direct_mode_optimizer,
+        check_numerical_bounds = check_numerical_bounds,
+        store_variable_names = store_variable_names,
+        rebuild_model = rebuild_model,
+        export_optimization_model = export_optimization_model,
+    )
+    return IOM.DecisionModel{M}(template, sys, settings, jump_model; name = name)
+end
+
+"""
+    DecisionModel(::Type{M}, template, sys, jump_model=nothing; kwargs...)
+        where {M <: AbstractPowerDecisionProblem}
+
+Type-first dispatch variant. Forwards to `DecisionModel{M}(template, sys, jump_model; kwargs...)`.
+"""
+function IOM.DecisionModel(
+    ::Type{M},
+    template::IOM.AbstractProblemTemplate,
+    sys::IS.InfrastructureSystemsContainer,
+    jump_model::Union{Nothing, JuMP.Model} = nothing;
+    kwargs...,
+) where {M <: AbstractPowerDecisionProblem}
+    return IOM.DecisionModel{M}(template, sys, jump_model; kwargs...)
+end
+
+"""
+    DecisionModel(template, sys, jump_model=nothing; kwargs...)
+
+Default-tag constructor — produces a `DecisionModel{GenericPowerDecisionProblem}`
+when no specific problem type is named.
+"""
+function IOM.DecisionModel(
+    template::IOM.AbstractProblemTemplate,
+    sys::IS.InfrastructureSystemsContainer,
+    jump_model::Union{Nothing, JuMP.Model} = nothing;
+    kwargs...,
+)
+    return IOM.DecisionModel{GenericPowerDecisionProblem}(
+        template,
+        sys,
+        jump_model;
+        kwargs...,
+    )
+end
+
+function IOM.DecisionModel{M}(
+    sys::IS.InfrastructureSystemsContainer,
+    jump_model::Union{Nothing, JuMP.Model} = nothing;
+    kwargs...,
+) where {M <: DefaultPowerDecisionProblem}
+    IOM.ArgumentError(
+        "DefaultPowerDecisionProblem subtypes require a template. Use DecisionModel subtyping instead.",
+    )
+end
+
+#################################################################################
+# Build / solve / run lifecycle
+#################################################################################
+
+function build_pre_step!(model::DecisionModel{<:AbstractPowerDecisionProblem})
     TimerOutputs.@timeit BUILD_PROBLEMS_TIMER "Build pre-step" begin
         validate_template(model)
         if !isempty(model)
@@ -19,7 +183,7 @@ function build_pre_step!(model::DecisionModel{<:DecisionProblem})
 end
 
 # Called `build_impl!(model)` in PSI (lived in decision_model.jl).
-function build_model!(model::DecisionModel{<:DecisionProblem})
+function build_model!(model::DecisionModel{<:AbstractPowerDecisionProblem})
     build_pre_step!(model)
     @info "Instantiating Network Model"
     IOM.instantiate_network_model!(model)
@@ -35,11 +199,11 @@ function build_model!(model::DecisionModel{<:DecisionProblem})
 end
 
 """
-Build the Decision Model based on the specified DecisionProblem.
+Build the Decision Model based on the specified AbstractPowerDecisionProblem.
 
 # Arguments
 
-  - `model::DecisionModel{<:DecisionProblem}`: DecisionModel object
+  - `model::DecisionModel{<:AbstractPowerDecisionProblem}`: DecisionModel object
   - `output_dir::String`: Output directory for outputs
   - `recorders::Vector{Symbol} = []`: recorder names to register
   - `console_level = Logging.Error`:
@@ -48,7 +212,7 @@ Build the Decision Model based on the specified DecisionProblem.
   - `store_system_in_results::Bool = true`: If true, stores the system as JSON in the results HDF5 file.
 """
 function build!(
-    model::DecisionModel{<:DecisionProblem};
+    model::DecisionModel{<:AbstractPowerDecisionProblem};
     output_dir::String,
     recorders = [],
     console_level = Logging.Error,
@@ -90,7 +254,7 @@ function build!(
     return IOM.get_status(model)
 end
 
-function reset!(model::DecisionModel{<:DefaultDecisionProblem})
+function reset!(model::DecisionModel{<:DefaultPowerDecisionProblem})
     was_built_for_recurrent_solves = built_for_recurrent_solves(model)
     if was_built_for_recurrent_solves
         IOM.set_execution_count!(model, 0)
@@ -118,7 +282,7 @@ end
 
 """
 Default solve method for models that conform to the requirements of
-DecisionModel{<: DecisionProblem}.
+`DecisionModel{<:AbstractPowerDecisionProblem}`.
 
 This will call `build!` on the model if it is not already built. It will forward all
 keyword arguments to that function.
@@ -141,7 +305,7 @@ outputs = solve!(OpModel, export_problem_outputs = true)
 ```
 """
 function solve!(
-    model::DecisionModel{<:DecisionProblem};
+    model::DecisionModel{<:AbstractPowerDecisionProblem};
     export_problem_outputs = false,
     console_level = Logging.Error,
     file_level = Logging.Info,
@@ -215,7 +379,7 @@ function solve!(
     return IOM.get_run_status(model)
 end
 
-function handle_initial_conditions!(model::DecisionModel{<:DecisionProblem})
+function handle_initial_conditions!(model::DecisionModel{<:AbstractPowerDecisionProblem})
     TimerOutputs.@timeit BUILD_PROBLEMS_TIMER "Model Initialization" begin
         if isempty(get_template(model))
             return
@@ -287,12 +451,73 @@ function build_if_not_already_built!(model::OperationModel; kwargs...)
     return
 end
 
-function validate_template(::DecisionModel{M}) where {M <: DecisionProblem}
+function validate_template(::DecisionModel{M}) where {M <: AbstractPowerDecisionProblem}
     error("validate_template is not implemented for DecisionModel{$M}")
 end
 
-function validate_template(model::DecisionModel{<:DefaultDecisionProblem})
+function validate_template(model::DecisionModel{<:DefaultPowerDecisionProblem})
     validate_template_impl!(model)
+    return
+end
+
+function IOM.validate_time_series!(model::DecisionModel{<:DefaultPowerDecisionProblem})
+    sys = get_system(model)
+    settings = get_settings(model)
+    available_resolutions = PSY.get_time_series_resolutions(sys)
+
+    if get_resolution(settings) == IOM.UNSET_RESOLUTION &&
+       length(available_resolutions) != 1
+        throw(
+            IS.ConflictingInputsError(
+                "Data contains multiple resolutions, the resolution keyword argument must be added to the Model. Time Series Resolutions: $(available_resolutions)",
+            ),
+        )
+    elseif get_resolution(settings) != IOM.UNSET_RESOLUTION &&
+           length(available_resolutions) > 1
+        if get_resolution(settings) ∉ available_resolutions
+            throw(
+                IS.ConflictingInputsError(
+                    "Resolution $(get_resolution(settings)) is not available in the system data. Time Series Resolutions: $(available_resolutions)",
+                ),
+            )
+        end
+    else
+        IOM.set_resolution!(settings, first(available_resolutions))
+    end
+
+    model_interval = get_interval(settings)
+    available_intervals = PSY.get_forecast_intervals(sys)
+    if model_interval == IOM.UNSET_INTERVAL && length(available_intervals) > 1
+        throw(
+            IS.ConflictingInputsError(
+                "The system contains multiple forecast intervals $(available_intervals). " *
+                "The `interval` keyword argument must be provided to the DecisionModel constructor " *
+                "to select which interval to use.",
+            ),
+        )
+    elseif model_interval != IOM.UNSET_INTERVAL && !isempty(available_intervals)
+        if model_interval ∉ available_intervals
+            throw(
+                IS.ConflictingInputsError(
+                    "Interval $(Dates.canonicalize(model_interval)) is not available in the system data. " *
+                    "Available forecast intervals: $(available_intervals)",
+                ),
+            )
+        end
+    end
+    if get_horizon(settings) == IOM.UNSET_HORIZON
+        IOM.set_horizon!(
+            settings,
+            PSY.get_forecast_horizon(sys; interval = IOM._to_is_interval(model_interval)),
+        )
+    end
+
+    counts = PSY.get_time_series_counts(sys)
+    if counts.forecast_count < 1
+        error(
+            "The system does not contain forecast data. A DecisionModel can't be built.",
+        )
+    end
     return
 end
 
