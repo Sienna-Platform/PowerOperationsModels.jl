@@ -1,138 +1,14 @@
 #################################################################################
-# Outer constructors (moved from IOM; dispatched on AbstractPowerDecisionProblem)
+# POM-side default-tag convenience constructor
 #################################################################################
-
-"""
-    DecisionModel{M}(
-        template::AbstractProblemTemplate,
-        sys::IS.InfrastructureSystemsContainer,
-        settings::Settings,
-        jump_model::Union{Nothing, JuMP.Model}=nothing;
-        name = nothing) where {M<:AbstractPowerDecisionProblem}
-
-Settings-taking constructor — builds the `OptimizationContainer`, finalizes the
-template, and validates time series. Used by the kwargs-taking constructor below
-and by callers that want full control over `Settings`.
-"""
-function IOM.DecisionModel{M}(
-    template::IOM.AbstractProblemTemplate,
-    sys::IS.InfrastructureSystemsContainer,
-    settings::IOM.Settings,
-    jump_model::Union{Nothing, JuMP.Model} = nothing;
-    name = nothing,
-) where {M <: AbstractPowerDecisionProblem}
-    if name === nothing
-        name = nameof(M)
-    elseif name isa String
-        name = Symbol(name)
-    end
-    IOM.auto_transform_time_series!(sys, settings)
-    ts_type = IOM.get_deterministic_time_series_type(sys)
-    internal = IOM.ModelInternal(
-        IOM.OptimizationContainer(sys, settings, jump_model, ts_type),
-    )
-
-    template_ = deepcopy(template)
-    finalize_template!(template_, sys)
-    model = IOM.DecisionModel{M}(
-        name,
-        template_,
-        sys,
-        internal,
-        IOM.SimulationInfo(),
-        IOM.DecisionModelStore(),
-        Dict{String, Any}(),
-    )
-    IOM.validate_time_series!(model)
-    return model
-end
-
-"""
-    DecisionModel{M}(
-        template::AbstractProblemTemplate,
-        sys::IS.InfrastructureSystemsContainer,
-        jump_model::Union{Nothing, JuMP.Model}=nothing;
-        kwargs...) where {M<:AbstractPowerDecisionProblem}
-
-Kwargs constructor — accepts horizon/resolution/interval and all the standard
-solver/model settings, builds a `Settings`, and delegates to the settings-taking
-constructor.
-"""
-function IOM.DecisionModel{M}(
-    template::IOM.AbstractProblemTemplate,
-    sys::IS.InfrastructureSystemsContainer,
-    jump_model::Union{Nothing, JuMP.Model} = nothing;
-    name = nothing,
-    optimizer = nothing,
-    horizon = IOM.UNSET_HORIZON,
-    resolution = IOM.UNSET_RESOLUTION,
-    interval = IOM.UNSET_INTERVAL,
-    warm_start = true,
-    check_components = true,
-    initialize_model = true,
-    initialization_file = "",
-    deserialize_initial_conditions = false,
-    export_pwl_vars = false,
-    allow_fails = false,
-    optimizer_solve_log_print = false,
-    detailed_optimizer_stats = false,
-    calculate_conflict = false,
-    direct_mode_optimizer = false,
-    store_variable_names = false,
-    rebuild_model = false,
-    export_optimization_model = false,
-    check_numerical_bounds = true,
-    initial_time = IOM.UNSET_INI_TIME,
-    time_series_cache_size::Int = IS.TIME_SERIES_CACHE_SIZE_BYTES,
-) where {M <: AbstractPowerDecisionProblem}
-    settings = IOM.Settings(
-        sys;
-        horizon = horizon,
-        resolution = resolution,
-        interval = interval,
-        initial_time = initial_time,
-        optimizer = optimizer,
-        time_series_cache_size = time_series_cache_size,
-        warm_start = warm_start,
-        check_components = check_components,
-        initialize_model = initialize_model,
-        initialization_file = initialization_file,
-        deserialize_initial_conditions = deserialize_initial_conditions,
-        export_pwl_vars = export_pwl_vars,
-        allow_fails = allow_fails,
-        calculate_conflict = calculate_conflict,
-        optimizer_solve_log_print = optimizer_solve_log_print,
-        detailed_optimizer_stats = detailed_optimizer_stats,
-        direct_mode_optimizer = direct_mode_optimizer,
-        check_numerical_bounds = check_numerical_bounds,
-        store_variable_names = store_variable_names,
-        rebuild_model = rebuild_model,
-        export_optimization_model = export_optimization_model,
-    )
-    return IOM.DecisionModel{M}(template, sys, settings, jump_model; name = name)
-end
-
-"""
-    DecisionModel(::Type{M}, template, sys, jump_model=nothing; kwargs...)
-        where {M <: AbstractPowerDecisionProblem}
-
-Type-first dispatch variant. Forwards to `DecisionModel{M}(template, sys, jump_model; kwargs...)`.
-"""
-function IOM.DecisionModel(
-    ::Type{M},
-    template::IOM.AbstractProblemTemplate,
-    sys::IS.InfrastructureSystemsContainer,
-    jump_model::Union{Nothing, JuMP.Model} = nothing;
-    kwargs...,
-) where {M <: AbstractPowerDecisionProblem}
-    return IOM.DecisionModel{M}(template, sys, jump_model; kwargs...)
-end
 
 """
     DecisionModel(template, sys, jump_model=nothing; kwargs...)
 
-Default-tag constructor — produces a `DecisionModel{GenericPowerDecisionProblem}`
-when no specific problem type is named.
+Default-tag convenience constructor — produces a
+`DecisionModel{GenericPowerDecisionProblem}` when no specific problem type
+is named. The generic Settings/kwargs/type-first constructors live in IOM
+and dispatch on `<:AbstractOptimizationProblem`.
 """
 function IOM.DecisionModel(
     template::IOM.AbstractProblemTemplate,

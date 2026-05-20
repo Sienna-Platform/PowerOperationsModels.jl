@@ -1,128 +1,14 @@
 #################################################################################
-# Outer constructors (moved from IOM; dispatched on AbstractPowerEmulationProblem)
+# POM-side default-tag convenience constructor
 #################################################################################
-
-"""
-    EmulationModel{M}(
-        template::AbstractProblemTemplate,
-        sys::IS.InfrastructureSystemsContainer,
-        settings::Settings,
-        jump_model::Union{Nothing, JuMP.Model}=nothing;
-        name = nothing) where {M<:AbstractPowerEmulationProblem}
-
-Settings-taking constructor — finalizes the template, builds the
-`OptimizationContainer` with single-time-series data, and validates time
-series. Used by the kwargs-taking constructor below and by callers that want
-full control over `Settings`.
-"""
-function IOM.EmulationModel{M}(
-    template::IOM.AbstractProblemTemplate,
-    sys::IS.InfrastructureSystemsContainer,
-    settings::IOM.Settings,
-    jump_model::Union{Nothing, JuMP.Model} = nothing;
-    name = nothing,
-) where {M <: AbstractPowerEmulationProblem}
-    if name === nothing
-        name = nameof(M)
-    elseif name isa String
-        name = Symbol(name)
-    end
-    finalize_template!(template, sys)
-    internal = IOM.ModelInternal(
-        IOM.OptimizationContainer(sys, settings, jump_model, IS.SingleTimeSeries),
-    )
-    model = IOM.EmulationModel{M}(
-        name,
-        template,
-        sys,
-        internal,
-        IOM.SimulationInfo(),
-        IOM.EmulationModelStore(),
-        Dict{String, Any}(),
-    )
-    IOM.validate_time_series!(model)
-    return model
-end
-
-"""
-    EmulationModel{M}(
-        template::AbstractProblemTemplate,
-        sys::IS.InfrastructureSystemsContainer,
-        jump_model::Union{Nothing, JuMP.Model}=nothing;
-        kwargs...) where {M<:AbstractPowerEmulationProblem}
-
-Kwargs constructor — builds a `Settings` (with `horizon == resolution`, since
-emulation models solve one step at a time) and delegates to the Settings-taking
-constructor above.
-"""
-function IOM.EmulationModel{M}(
-    template::IOM.AbstractProblemTemplate,
-    sys::IS.InfrastructureSystemsContainer,
-    jump_model::Union{Nothing, JuMP.Model} = nothing;
-    resolution = IOM.UNSET_RESOLUTION,
-    name = nothing,
-    optimizer = nothing,
-    warm_start = true,
-    initialize_model = true,
-    initialization_file = "",
-    deserialize_initial_conditions = false,
-    export_pwl_vars = false,
-    allow_fails = false,
-    calculate_conflict = false,
-    optimizer_solve_log_print = false,
-    detailed_optimizer_stats = false,
-    direct_mode_optimizer = false,
-    check_numerical_bounds = true,
-    store_variable_names = false,
-    rebuild_model = false,
-    initial_time = IOM.UNSET_INI_TIME,
-    time_series_cache_size::Int = IS.TIME_SERIES_CACHE_SIZE_BYTES,
-) where {M <: AbstractPowerEmulationProblem}
-    settings = IOM.Settings(
-        sys;
-        initial_time = initial_time,
-        optimizer = optimizer,
-        time_series_cache_size = time_series_cache_size,
-        warm_start = warm_start,
-        initialize_model = initialize_model,
-        initialization_file = initialization_file,
-        deserialize_initial_conditions = deserialize_initial_conditions,
-        export_pwl_vars = export_pwl_vars,
-        allow_fails = allow_fails,
-        calculate_conflict = calculate_conflict,
-        optimizer_solve_log_print = optimizer_solve_log_print,
-        detailed_optimizer_stats = detailed_optimizer_stats,
-        direct_mode_optimizer = direct_mode_optimizer,
-        check_numerical_bounds = check_numerical_bounds,
-        store_variable_names = store_variable_names,
-        rebuild_model = rebuild_model,
-        horizon = resolution,
-        resolution = resolution,
-    )
-    return IOM.EmulationModel{M}(template, sys, settings, jump_model; name = name)
-end
-
-"""
-    EmulationModel(::Type{M}, template, sys, jump_model=nothing; kwargs...)
-        where {M <: AbstractPowerEmulationProblem}
-
-Type-first dispatch variant.
-"""
-function IOM.EmulationModel(
-    ::Type{M},
-    template::IOM.AbstractProblemTemplate,
-    sys::IS.InfrastructureSystemsContainer,
-    jump_model::Union{Nothing, JuMP.Model} = nothing;
-    kwargs...,
-) where {M <: AbstractPowerEmulationProblem}
-    return IOM.EmulationModel{M}(template, sys, jump_model; kwargs...)
-end
 
 """
     EmulationModel(template, sys, jump_model=nothing; kwargs...)
 
-Default-tag constructor — produces an `EmulationModel{GenericPowerEmulationProblem}`
-when no specific problem type is named.
+Default-tag convenience constructor — produces an
+`EmulationModel{GenericPowerEmulationProblem}` when no specific problem type
+is named. The generic Settings/kwargs/type-first constructors live in IOM
+and dispatch on `<:AbstractOptimizationProblem`.
 """
 function IOM.EmulationModel(
     template::IOM.AbstractProblemTemplate,
