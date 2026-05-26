@@ -10,9 +10,10 @@ import JuMP
 import JuMP.Containers: DenseAxisArray, SparseAxisArray
 import Logging
 import PowerNetworkMatrices
-import ProgressMeter
 import PowerSystems
 import PowerSystems: get_component
+import PrettyTables
+import ProgressMeter
 import Serialization
 import SparseArrays
 import TimerOutputs
@@ -128,6 +129,7 @@ import InfrastructureOptimizationModels:
     add_cost_to_expression!,
     add_linear_ramp_constraints!,
     add_service_variables!,
+    add_proportional_cost_invariant!,
     requires_initialization,
     get_min_max_limits,
     start_up_cost,
@@ -528,6 +530,8 @@ export HydroWaterFactorModel
 export HydroWaterModelReservoir
 export HydroTurbineBilinearDispatch
 export HydroTurbineWaterLinearDispatch
+export HydroTurbineBin2BilinearDispatch
+export HydroTurbineWaterLinearCommitment
 export HydroEnergyModelReservoir
 export HydroTurbineEnergyDispatch
 export HydroTurbineEnergyCommitment
