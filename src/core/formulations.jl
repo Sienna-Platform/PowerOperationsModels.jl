@@ -184,8 +184,33 @@ Branch type to represent non-linear LCC (line commutated converter) model on two
 """
 struct HVDCTwoTerminalLCC <: AbstractTwoTerminalDCLineFormulation end
 
-# Not Implemented
-# struct VoltageSourceDC <: AbstractTwoTerminalDCLineFormulation end
+"""
+Abstract supertype for two-terminal voltage-source converter (VSC) HVDC formulations.
+Models per-terminal converters with quadratic / two-term losses
+(``a I^2 + b |I| + c``), a shared signed cable current, an explicit DC-side
+cable resistance (``v_f - v_t = (1/g) \\cdot I``), and (on AC networks) independent
+reactive-power control bounded by per-terminal PQ capability.
+"""
+abstract type AbstractTwoTerminalVSCFormulation <: AbstractTwoTerminalDCLineFormulation end
+
+"""
+Two-terminal VSC formulation that keeps the bilinear ``v \\cdot I`` and quadratic
+``I^2`` terms exact. Requires an NLP-capable solver (e.g. Ipopt).
+"""
+struct HVDCTwoTerminalVSCNLP <: AbstractTwoTerminalVSCFormulation end
+
+"""
+Two-terminal VSC formulation that uses SOS2 piecewise-linear surrogates for the
+bilinear ``v \\cdot I`` and quadratic ``I^2`` terms (so the loss model itself is
+mixed-integer linear) and enforces the per-terminal PQ capability via a linear
+outer-approximation of the disk ``p^2 + q^2 \\le \\text{rating}^2``: axis-aligned
+box constraints ``|p|, |q| \\le \\text{rating}`` always, plus four diagonal
+constraints ``|p| \\pm q \\le \\text{rating}\\sqrt{2}`` when the device-model
+attribute `use_octagon` (default `true`) is on. With the diagonals in place the
+feasible region is a regular octagon circumscribing the disk; turning them off
+leaves only the box.
+"""
+struct HVDCTwoTerminalVSCLP <: AbstractTwoTerminalVSCFormulation end
 
 ############################### AC/DC Converter Formulations #####################################
 abstract type AbstractConverterFormulation <: AbstractDeviceFormulation end
@@ -201,9 +226,21 @@ Linear Loss InterconnectingConverter Model
 struct LinearLossConverter <: AbstractConverterFormulation end
 
 """
-Quadratic Loss InterconnectingConverter Model
+Abstract supertype for InterconnectingConverter formulations with quadratic losses.
 """
-struct QuadraticLossConverter <: AbstractConverterFormulation end
+abstract type AbstractQuadraticLossConverter <: AbstractConverterFormulation end
+
+"""
+Quadratic Loss InterconnectingConverter using the separable bilinear approximation
+(`v·i = ½((v+i)² − v² − i²)`) with a SOS2-based PWL approximation for x². Stays MILP.
+"""
+struct QuadraticLossConverterMILP <: AbstractQuadraticLossConverter end
+
+"""
+Quadratic Loss InterconnectingConverter using exact bilinear (v·i) and quadratic (i²)
+products. Requires an NLP-capable solver (e.g., Ipopt).
+"""
+struct QuadraticLossConverterNLP <: AbstractQuadraticLossConverter end
 
 ############################## HVDC Lines Formulations ##################################
 abstract type AbstractDCLineFormulation <: AbstractBranchFormulation end

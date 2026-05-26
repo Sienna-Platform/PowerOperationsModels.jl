@@ -215,6 +215,8 @@ include("common_models/add_to_expression.jl")
 include("common_models/add_parameters.jl")
 include("common_models/make_system_expressions.jl")
 include("common_models/reserve_range_constraints.jl")
+include("common_models/quadratic_converter_loss.jl")
+include("common_models/network_conditional.jl")
 
 # Market bid cost plumbing (PSY orchestration moved out of IOM). Must be included
 # before device-specific files that reference MBC_TYPES / IEC_TYPES.
@@ -507,24 +509,14 @@ export PostContingencyActivePowerReserveDeploymentVariable
 # HVDC Variables
 export DCVoltage
 export DCLineCurrent
-export ConverterPowerDirection
 export ConverterCurrent
-export SquaredConverterCurrent
-export InterpolationSquaredCurrentVariable
-export InterpolationBinarySquaredCurrentVariable
-export ConverterPositiveCurrent
-export ConverterNegativeCurrent
-export SquaredDCVoltage
-export InterpolationSquaredVoltageVariable
-export InterpolationBinarySquaredVoltageVariable
-export AuxBilinearConverterVariable
-export AuxBilinearSquaredConverterVariable
-export InterpolationSquaredBilinearVariable
-export InterpolationBinarySquaredBilinearVariable
+export CurrentAbsoluteValueVariable
 export HVDCFlowDirectionVariable
 export HVDCLosses
-export ConverterDCPower
-export ConverterCurrentDirection
+export HVDCFromDCVoltage
+export HVDCToDCVoltage
+export HVDCReactivePowerFromVariable
+export HVDCReactivePowerToVariable
 
 # Load Variables
 export ShiftUpActivePowerVariable
@@ -774,11 +766,15 @@ export HVDCTwoTerminalLossless
 export HVDCTwoTerminalDispatch
 export HVDCTwoTerminalPiecewiseLoss
 export HVDCTwoTerminalLCC
+export HVDCTwoTerminalVSCNLP
+export HVDCTwoTerminalVSCLP
 
 # Converter Formulations
 export LosslessConverter
 export LinearLossConverter
-export QuadraticLossConverter
+export AbstractQuadraticLossConverter
+export QuadraticLossConverterMILP
+export QuadraticLossConverterNLP
 
 # DC Line Formulations
 export DCLosslessLine
