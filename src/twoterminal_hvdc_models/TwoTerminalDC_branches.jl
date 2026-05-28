@@ -1433,3 +1433,377 @@ function add_constraints!(
     end
     return
 end
+
+##############################################################################
+####################### Two-Terminal VSC Formulation #########################
+##############################################################################
+
+#! format: off
+
+# Variable trait methods for the shared cable current and DC voltages
+get_variable_binary(::Type{DCLineCurrentFlowVariable}, ::Type{PSY.TwoTerminalVSCLine}, ::Type{<:AbstractTwoTerminalVSCFormulation}) = false
+get_variable_binary(::Type{HVDCFromDCVoltage}, ::Type{PSY.TwoTerminalVSCLine}, ::Type{<:AbstractTwoTerminalVSCFormulation}) = false
+get_variable_binary(::Type{HVDCToDCVoltage}, ::Type{PSY.TwoTerminalVSCLine}, ::Type{<:AbstractTwoTerminalVSCFormulation}) = false
+get_variable_binary(::Type{HVDCReactivePowerFromVariable}, ::Type{PSY.TwoTerminalVSCLine}, ::Type{<:AbstractTwoTerminalVSCFormulation}) = false
+get_variable_binary(::Type{HVDCReactivePowerToVariable}, ::Type{PSY.TwoTerminalVSCLine}, ::Type{<:AbstractTwoTerminalVSCFormulation}) = false
+get_variable_binary(::Type{CurrentAbsoluteValueVariable}, ::Type{PSY.TwoTerminalVSCLine}, ::Type{<:AbstractTwoTerminalVSCFormulation}) = false
+get_variable_binary(::Type{FlowActivePowerFromToVariable}, ::Type{PSY.TwoTerminalVSCLine}, ::Type{<:AbstractTwoTerminalVSCFormulation}) = false
+get_variable_binary(::Type{FlowActivePowerToFromVariable}, ::Type{PSY.TwoTerminalVSCLine}, ::Type{<:AbstractTwoTerminalVSCFormulation}) = false
+
+# Warm starts
+get_variable_warm_start_value(::Type{DCLineCurrentFlowVariable}, d::PSY.TwoTerminalVSCLine, ::Type{<:AbstractTwoTerminalVSCFormulation}) = PSY.get_dc_current(d)
+get_variable_warm_start_value(::Type{HVDCReactivePowerFromVariable}, d::PSY.TwoTerminalVSCLine, ::Type{<:AbstractTwoTerminalVSCFormulation}) = PSY.get_reactive_power_from(d)
+get_variable_warm_start_value(::Type{HVDCReactivePowerToVariable}, d::PSY.TwoTerminalVSCLine, ::Type{<:AbstractTwoTerminalVSCFormulation}) = PSY.get_reactive_power_to(d)
+get_variable_warm_start_value(::Type{FlowActivePowerFromToVariable}, d::PSY.TwoTerminalVSCLine, ::Type{<:AbstractTwoTerminalVSCFormulation}) = PSY.get_active_power_flow(d)
+get_variable_warm_start_value(::Type{FlowActivePowerToFromVariable}, d::PSY.TwoTerminalVSCLine, ::Type{<:AbstractTwoTerminalVSCFormulation}) = -PSY.get_active_power_flow(d)
+
+# Active power flow bounds (per-terminal)
+get_variable_lower_bound(::Type{FlowActivePowerFromToVariable}, d::PSY.TwoTerminalVSCLine, ::Type{<:AbstractTwoTerminalVSCFormulation}) = PSY.get_active_power_limits_from(d).min
+get_variable_upper_bound(::Type{FlowActivePowerFromToVariable}, d::PSY.TwoTerminalVSCLine, ::Type{<:AbstractTwoTerminalVSCFormulation}) = PSY.get_active_power_limits_from(d).max
+get_variable_lower_bound(::Type{FlowActivePowerToFromVariable}, d::PSY.TwoTerminalVSCLine, ::Type{<:AbstractTwoTerminalVSCFormulation}) = PSY.get_active_power_limits_to(d).min
+get_variable_upper_bound(::Type{FlowActivePowerToFromVariable}, d::PSY.TwoTerminalVSCLine, ::Type{<:AbstractTwoTerminalVSCFormulation}) = PSY.get_active_power_limits_to(d).max
+
+# Reactive power bounds (per-terminal)
+get_variable_lower_bound(::Type{HVDCReactivePowerFromVariable}, d::PSY.TwoTerminalVSCLine, ::Type{<:AbstractTwoTerminalVSCFormulation}) = PSY.get_reactive_power_limits_from(d).min
+get_variable_upper_bound(::Type{HVDCReactivePowerFromVariable}, d::PSY.TwoTerminalVSCLine, ::Type{<:AbstractTwoTerminalVSCFormulation}) = PSY.get_reactive_power_limits_from(d).max
+get_variable_lower_bound(::Type{HVDCReactivePowerToVariable}, d::PSY.TwoTerminalVSCLine, ::Type{<:AbstractTwoTerminalVSCFormulation}) = PSY.get_reactive_power_limits_to(d).min
+get_variable_upper_bound(::Type{HVDCReactivePowerToVariable}, d::PSY.TwoTerminalVSCLine, ::Type{<:AbstractTwoTerminalVSCFormulation}) = PSY.get_reactive_power_limits_to(d).max
+
+# DC voltage bounds (per-terminal)
+get_variable_lower_bound(::Type{HVDCFromDCVoltage}, d::PSY.TwoTerminalVSCLine, ::Type{<:AbstractTwoTerminalVSCFormulation}) = PSY.get_voltage_limits_from(d).min
+get_variable_upper_bound(::Type{HVDCFromDCVoltage}, d::PSY.TwoTerminalVSCLine, ::Type{<:AbstractTwoTerminalVSCFormulation}) = PSY.get_voltage_limits_from(d).max
+get_variable_lower_bound(::Type{HVDCToDCVoltage}, d::PSY.TwoTerminalVSCLine, ::Type{<:AbstractTwoTerminalVSCFormulation}) = PSY.get_voltage_limits_to(d).min
+get_variable_upper_bound(::Type{HVDCToDCVoltage}, d::PSY.TwoTerminalVSCLine, ::Type{<:AbstractTwoTerminalVSCFormulation}) = PSY.get_voltage_limits_to(d).max
+
+# Shared cable current bounds — must respect BOTH terminals' I_max ratings.
+_vsc_cable_i_max(d::PSY.TwoTerminalVSCLine) =
+    min(PSY.get_max_dc_current_from(d), PSY.get_max_dc_current_to(d))
+get_variable_lower_bound(::Type{DCLineCurrentFlowVariable}, d::PSY.TwoTerminalVSCLine, ::Type{<:AbstractTwoTerminalVSCFormulation}) = -_vsc_cable_i_max(d)
+get_variable_upper_bound(::Type{DCLineCurrentFlowVariable}, d::PSY.TwoTerminalVSCLine, ::Type{<:AbstractTwoTerminalVSCFormulation}) = _vsc_cable_i_max(d)
+
+# CurrentAbsoluteValueVariable: 0 ≤ abs_i ≤ I_max (LP surrogate for |i|)
+get_variable_lower_bound(::Type{CurrentAbsoluteValueVariable}, d::PSY.TwoTerminalVSCLine, ::Type{<:AbstractTwoTerminalVSCFormulation}) = 0.0
+get_variable_upper_bound(::Type{CurrentAbsoluteValueVariable}, d::PSY.TwoTerminalVSCLine, ::Type{<:AbstractTwoTerminalVSCFormulation}) = _vsc_cable_i_max(d)
+
+#! format: on
+
+####################### VSC PQ-approx registration ###########################
+
+# Register the four IOM `QuadraticExpression` handles (`p_ft_sq`, `p_tf_sq`,
+# `q_f_sq`, `q_t_sq`) that the disk constraint reads. Only the NLP formulation
+# on an AC network actually emits the disk constraint, so only that combo
+# registers anything; the LP path and active-power-only networks no-op.
+function _register_pq_sq_expressions!(
+    container::OptimizationContainer,
+    devices,
+    line_names,
+    time_steps,
+    ::DeviceModel{PSY.TwoTerminalVSCLine, HVDCTwoTerminalVSCNLP},
+    ::NetworkModel{<:AbstractPowerModel},
+)
+    # This dispatch is the NLP path, so the quad config is fixed.
+    quad_cfg = IOM.NoQuadApproxConfig()
+    p_ft = get_variable(container, FlowActivePowerFromToVariable, PSY.TwoTerminalVSCLine)
+    p_tf = get_variable(container, FlowActivePowerToFromVariable, PSY.TwoTerminalVSCLine)
+    q_f = get_variable(container, HVDCReactivePowerFromVariable, PSY.TwoTerminalVSCLine)
+    q_t = get_variable(container, HVDCReactivePowerToVariable, PSY.TwoTerminalVSCLine)
+    p_ft_bounds = PSY.get_active_power_limits_from.(devices)
+    p_tf_bounds = PSY.get_active_power_limits_to.(devices)
+    q_f_bounds = PSY.get_reactive_power_limits_from.(devices)
+    q_t_bounds = PSY.get_reactive_power_limits_to.(devices)
+    IOM._add_quadratic_approx!(
+        quad_cfg, container, PSY.TwoTerminalVSCLine,
+        line_names, time_steps, p_ft, p_ft_bounds, "p_ft_sq",
+    )
+    IOM._add_quadratic_approx!(
+        quad_cfg, container, PSY.TwoTerminalVSCLine,
+        line_names, time_steps, p_tf, p_tf_bounds, "p_tf_sq",
+    )
+    IOM._add_quadratic_approx!(
+        quad_cfg, container, PSY.TwoTerminalVSCLine,
+        line_names, time_steps, q_f, q_f_bounds, "q_f_sq",
+    )
+    IOM._add_quadratic_approx!(
+        quad_cfg, container, PSY.TwoTerminalVSCLine,
+        line_names, time_steps, q_t, q_t_bounds, "q_t_sq",
+    )
+    return
+end
+
+# LP path: no disk constraint, so no p_sq/q_sq are needed.
+_register_pq_sq_expressions!(
+    ::OptimizationContainer, _devices, _names, _times,
+    ::DeviceModel{PSY.TwoTerminalVSCLine, HVDCTwoTerminalVSCLP},
+    ::NetworkModel,
+) = nothing
+
+# Active-power-only networks don't carry reactive variables at all.
+_register_pq_sq_expressions!(
+    ::OptimizationContainer, _devices, _names, _times,
+    ::DeviceModel{PSY.TwoTerminalVSCLine, HVDCTwoTerminalVSCNLP},
+    ::NetworkModel{<:AbstractActivePowerModel},
+) = nothing
+
+####################### VSC core constraints ################################
+
+# Cable Ohm's law:  v_f - v_t = (1/g) * I
+function add_constraints!(
+    container::OptimizationContainer,
+    ::Type{HVDCCableOhmsLawConstraint},
+    devices::Union{Vector{U}, IS.FlattenIteratorWrapper{U}},
+    ::DeviceModel{U, F},
+    ::NetworkModel{<:AbstractPowerModel},
+) where {U <: PSY.TwoTerminalVSCLine, F <: AbstractTwoTerminalVSCFormulation}
+    time_steps = get_time_steps(container)
+    names = [PSY.get_name(d) for d in devices]
+    jump_model = get_jump_model(container)
+    v_f = get_variable(container, HVDCFromDCVoltage, U)
+    v_t = get_variable(container, HVDCToDCVoltage, U)
+    i_var = get_variable(container, DCLineCurrentFlowVariable, U)
+
+    cons = add_constraints_container!(
+        container, HVDCCableOhmsLawConstraint, U, names, time_steps,
+    )
+
+    for d in devices
+        name = PSY.get_name(d)
+        g = PSY.get_g(d)
+        for t in time_steps
+            cons[name, t] = if iszero(g)
+                JuMP.@constraint(jump_model, i_var[name, t] == 0)
+            else
+                JuMP.@constraint(
+                    jump_model,
+                    v_f[name, t] - v_t[name, t] == (1.0 / g) * i_var[name, t],
+                )
+            end
+        end
+    end
+    return
+end
+
+# Per-terminal converter power balance:
+#   p_ft ==  v_f * I + (a_f * I^2 + b_f * |I| + c_f)
+#   p_tf == -v_t * I + (a_t * I^2 + b_t * |I| + c_t)
+# Active power enters `ActivePowerBalance` with a -1 multiplier (the AC bus
+# sees the converter as a load drawing p_ft / p_tf), so positive values of
+# `FlowActivePower*Variable` correspond to power flowing AC → DC at the
+# respective terminal.
+function add_constraints!(
+    container::OptimizationContainer,
+    ::Type{HVDCVSCConverterPowerConstraint},
+    devices::Union{Vector{U}, IS.FlattenIteratorWrapper{U}},
+    model::DeviceModel{U, F},
+    ::NetworkModel{<:AbstractPowerModel},
+) where {U <: PSY.TwoTerminalVSCLine, F <: AbstractTwoTerminalVSCFormulation}
+    time_steps = get_time_steps(container)
+    names = [PSY.get_name(d) for d in devices]
+    jump_model = get_jump_model(container)
+
+    p_ft = get_variable(container, FlowActivePowerFromToVariable, U)
+    p_tf = get_variable(container, FlowActivePowerToFromVariable, U)
+    vi_expr_ft = get_expression(container, IOM.BilinearProductExpression, U, "vi_ft")
+    vi_expr_tf = get_expression(container, IOM.BilinearProductExpression, U, "vi_tf")
+    i_sq_expr = get_expression(container, IOM.QuadraticExpression, U, "i_sq")
+
+    abs_i_var = get_variable(container, CurrentAbsoluteValueVariable, U)
+
+    cons_ft = add_constraints_container!(
+        container, HVDCVSCConverterPowerConstraint, U, names, time_steps; meta = "ft",
+    )
+    cons_tf = add_constraints_container!(
+        container, HVDCVSCConverterPowerConstraint, U, names, time_steps; meta = "tf",
+    )
+
+    for d in devices
+        name = PSY.get_name(d)
+        loss_from = PSY.get_converter_loss_from(d)
+        loss_to = PSY.get_converter_loss_to(d)
+        a_f = _get_quadratic_term(loss_from)
+        b_f = PSY.get_proportional_term(loss_from)
+        c_f = PSY.get_constant_term(loss_from)
+        a_t = _get_quadratic_term(loss_to)
+        b_t = PSY.get_proportional_term(loss_to)
+        c_t = PSY.get_constant_term(loss_to)
+        for t in time_steps
+            abs_i_t = abs_i_var[name, t]
+            loss_ft = _quadratic_converter_loss_expr(
+                a_f, b_f, c_f, i_sq_expr[name, t], abs_i_t,
+            )
+            loss_tf = _quadratic_converter_loss_expr(
+                a_t, b_t, c_t, i_sq_expr[name, t], abs_i_t,
+            )
+            cons_ft[name, t] = JuMP.@constraint(
+                jump_model,
+                p_ft[name, t] == vi_expr_ft[name, t] + loss_ft,
+            )
+            cons_tf[name, t] = JuMP.@constraint(
+                jump_model,
+                p_tf[name, t] == -vi_expr_tf[name, t] + loss_tf,
+            )
+        end
+    end
+    return
+end
+
+# PQ capability — exact disk for the NLP formulation. `p_*_sq` / `q_*_sq` are
+# the `IOM.QuadraticExpression` handles registered by
+# `_register_pq_sq_expressions!`. Under `NoQuadApproxConfig` (what
+# `HVDCTwoTerminalVSCNLP` uses) they are exact QuadExprs, so the constraint is
+# the smooth `p² + q² ≤ s²` and the model stays an NLP.
+function add_constraints!(
+    container::OptimizationContainer,
+    ::Type{HVDCVSCApparentPowerLimitConstraint},
+    devices::Union{Vector{U}, IS.FlattenIteratorWrapper{U}},
+    ::DeviceModel{U, HVDCTwoTerminalVSCNLP},
+    ::NetworkModel{<:AbstractPowerModel},
+) where {U <: PSY.TwoTerminalVSCLine}
+    time_steps = get_time_steps(container)
+    names = [PSY.get_name(d) for d in devices]
+    jump_model = get_jump_model(container)
+
+    p_ft_sq = get_expression(container, IOM.QuadraticExpression, U, "p_ft_sq")
+    p_tf_sq = get_expression(container, IOM.QuadraticExpression, U, "p_tf_sq")
+    q_f_sq = get_expression(container, IOM.QuadraticExpression, U, "q_f_sq")
+    q_t_sq = get_expression(container, IOM.QuadraticExpression, U, "q_t_sq")
+
+    cons_f = add_constraints_container!(
+        container, HVDCVSCApparentPowerLimitConstraint, U, names, time_steps;
+        meta = "from",
+    )
+    cons_t = add_constraints_container!(
+        container, HVDCVSCApparentPowerLimitConstraint, U, names, time_steps;
+        meta = "to",
+    )
+
+    for d in devices
+        name = PSY.get_name(d)
+        s_f2 = PSY.get_rating_from(d)^2
+        s_t2 = PSY.get_rating_to(d)^2
+        for t in time_steps
+            cons_f[name, t] = JuMP.@constraint(
+                jump_model, p_ft_sq[name, t] + q_f_sq[name, t] <= s_f2,
+            )
+            cons_t[name, t] = JuMP.@constraint(
+                jump_model, p_tf_sq[name, t] + q_t_sq[name, t] <= s_t2,
+            )
+        end
+    end
+    return
+end
+
+# PQ capability — linear outer-approximation for the LP formulation.
+#
+# We always add the axis-aligned box  |p|, |q| ≤ rating.  When the
+# device-model attribute `use_octagon` (default `true`) is on, we also add
+# the four 45°-rotated diagonals  |p| ± q ≤ rating·√2 ; their intersection
+# with the box is a regular octagon circumscribing the disk
+# p² + q² ≤ rating².
+#
+# Outer-approximation proof: for any (p, q) on the disk, p² ≤ p² + q² ≤ r²
+# gives |p|, |q| ≤ r, and Cauchy–Schwarz gives (|p|+|q|)² ≤ 2(p²+q²) ≤ 2r²
+# so |p|+|q| ≤ r√2. Both half-plane families contain the disk, and so does
+# their intersection. The octagon is loose by at most ≈8.2% in area
+# (octagon-to-disk area ratio 8·tan(π/8)/π ≈ 1.082).
+function add_constraints!(
+    container::OptimizationContainer,
+    ::Type{HVDCVSCApparentPowerLimitConstraint},
+    devices::Union{Vector{U}, IS.FlattenIteratorWrapper{U}},
+    model::DeviceModel{U, HVDCTwoTerminalVSCLP},
+    ::NetworkModel{<:AbstractPowerModel},
+) where {U <: PSY.TwoTerminalVSCLine}
+    time_steps = get_time_steps(container)
+    names = [PSY.get_name(d) for d in devices]
+    jump_model = get_jump_model(container)
+
+    p_ft = get_variable(container, FlowActivePowerFromToVariable, U)
+    p_tf = get_variable(container, FlowActivePowerToFromVariable, U)
+    q_f = get_variable(container, HVDCReactivePowerFromVariable, U)
+    q_t = get_variable(container, HVDCReactivePowerToVariable, U)
+
+    use_octagon = get_attribute(model, "use_octagon")
+    side_tags = if use_octagon
+        ("from_p_ub", "from_p_lb", "from_q_ub", "from_q_lb",
+            "to_p_ub", "to_p_lb", "to_q_ub", "to_q_lb",
+            "from_pp", "from_pn", "from_np", "from_nn",
+            "to_pp", "to_pn", "to_np", "to_nn")
+    else
+        ("from_p_ub", "from_p_lb", "from_q_ub", "from_q_lb",
+            "to_p_ub", "to_p_lb", "to_q_ub", "to_q_lb")
+    end
+    cons = Dict{String, Any}()
+    for tag in side_tags
+        cons[tag] = add_constraints_container!(
+            container, HVDCVSCApparentPowerLimitConstraint, U,
+            names, time_steps; meta = tag,
+        )
+    end
+
+    side_specs = (
+        (prefix = "from", p_var = p_ft, q_var = q_f, rating_getter = PSY.get_rating_from),
+        (prefix = "to", p_var = p_tf, q_var = q_t, rating_getter = PSY.get_rating_to),
+    )
+    for d in devices
+        name = PSY.get_name(d)
+        for spec in side_specs
+            rating = spec.rating_getter(d)
+            diag = rating * sqrt(2.0)
+            prefix = spec.prefix
+            p_var, q_var = spec.p_var, spec.q_var
+            for t in time_steps
+                cons[prefix * "_p_ub"][name, t] =
+                    JuMP.@constraint(jump_model, p_var[name, t] <= rating)
+                cons[prefix * "_p_lb"][name, t] =
+                    JuMP.@constraint(jump_model, -p_var[name, t] <= rating)
+                cons[prefix * "_q_ub"][name, t] =
+                    JuMP.@constraint(jump_model, q_var[name, t] <= rating)
+                cons[prefix * "_q_lb"][name, t] =
+                    JuMP.@constraint(jump_model, -q_var[name, t] <= rating)
+                if use_octagon
+                    cons[prefix * "_pp"][name, t] =
+                        JuMP.@constraint(
+                            jump_model,
+                            p_var[name, t] + q_var[name, t] <= diag
+                        )
+                    cons[prefix * "_pn"][name, t] =
+                        JuMP.@constraint(
+                            jump_model,
+                            p_var[name, t] - q_var[name, t] <= diag
+                        )
+                    cons[prefix * "_np"][name, t] =
+                        JuMP.@constraint(
+                            jump_model,
+                            -p_var[name, t] + q_var[name, t] <= diag
+                        )
+                    cons[prefix * "_nn"][name, t] =
+                        JuMP.@constraint(
+                            jump_model,
+                            -p_var[name, t] - q_var[name, t] <= diag
+                        )
+                end
+            end
+        end
+    end
+    return
+end
+
+####################### VSC defaults #########################################
+
+function get_default_time_series_names(
+    ::Type{PSY.TwoTerminalVSCLine},
+    ::Type{<:AbstractTwoTerminalVSCFormulation},
+)
+    return Dict{Type{<:TimeSeriesParameter}, String}()
+end
+
+# `use_octagon = true`: adds the four diagonals |p| ± q ≤ rating·√2 on top of
+# the axis-aligned box |p|, |q| ≤ rating. The intersection is a regular octagon
+# circumscribing the disk p² + q² ≤ rating² and is a guaranteed outer
+# approximation (loose by at most ≈8.2% in area). Setting it to false leaves
+# only the box, which is cheaper but a looser linear envelope of the disk.
+function get_default_attributes(
+    ::Type{PSY.TwoTerminalVSCLine},
+    ::Type{HVDCTwoTerminalVSCLP},
+)
+    return Dict{String, Any}("use_octagon" => true)
+end

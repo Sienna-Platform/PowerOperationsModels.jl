@@ -718,6 +718,45 @@ function add_to_expression!(
     return
 end
 
+# A VSC terminal can inject or consume Q freely, so the variable enters
+# `ReactivePowerBalance` as a signed injection (+1.0) rather than a load (−1.0).
+# Side selection picks the from- or to-terminal bus via dispatch on the
+# variable type, so the body is written once.
+_vsc_q_terminal_bus(d, ::Type{HVDCReactivePowerFromVariable}) = PSY.get_arc(d).from
+_vsc_q_terminal_bus(d, ::Type{HVDCReactivePowerToVariable}) = PSY.get_arc(d).to
+
+function add_to_expression!(
+    container::OptimizationContainer,
+    ::Type{T},
+    ::Type{U},
+    devices::IS.FlattenIteratorWrapper{V},
+    ::DeviceModel{V, W},
+    network_model::NetworkModel{X},
+) where {
+    T <: ReactivePowerBalance,
+    U <: Union{HVDCReactivePowerFromVariable, HVDCReactivePowerToVariable},
+    V <: PSY.TwoTerminalVSCLine,
+    W <: AbstractTwoTerminalVSCFormulation,
+    X <: ACPPowerModel,
+}
+    var = get_variable(container, U, V)
+    nodal_expr = get_expression(container, T, PSY.ACBus)
+    network_reduction = get_network_reduction(network_model)
+    time_steps = get_time_steps(container)
+    for d in devices
+        name = PSY.get_name(d)
+        bus_no = PNM.get_mapped_bus_number(
+            network_reduction, _vsc_q_terminal_bus(d, U),
+        )
+        for t in time_steps
+            add_proportional_to_jump_expression!(
+                nodal_expr[bus_no, t], var[name, t], 1.0,
+            )
+        end
+    end
+    return
+end
+
 """
 PWL implementation to add FromTo branch variables to SystemBalanceExpressions
 """

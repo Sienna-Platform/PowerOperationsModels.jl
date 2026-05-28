@@ -97,33 +97,215 @@ end
     @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
 end
 
-@testset "HVDC System with Losses Network" begin
+@testset "HVDC MILP vs NLP QuadraticLossConverter agreement" begin
+    # Build both formulations on the same system; compare objective values
+    # (Rodrigo's "same order of magnitude" ask from PR #103).
+    function _build_and_solve(sys, formulation, optimizer)
+        template = OperationsProblemTemplate()
+        set_device_model!(template, ThermalStandard, ThermalDispatchNoMin)
+        set_device_model!(template, PowerLoad, StaticPowerLoad)
+        set_device_model!(template, DeviceModel(Line, StaticBranch))
+        set_device_model!(template, TModelHVDCLine, DCLossyLine)
+        set_device_model!(
+            template,
+            DeviceModel(InterconnectingConverter, formulation),
+        )
+        set_hvdc_network_model!(template, VoltageDispatchHVDCNetworkModel)
+        model = DecisionModel(
+            template, sys;
+            store_variable_names = true, optimizer = optimizer,
+        )
+        @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+              IOM.ModelBuildStatus.BUILT
+        @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+        return model
+    end
+
+    sys = _generate_test_hvdc_sys()
+    milp_model = _build_and_solve(sys, QuadraticLossConverterMILP, HiGHS_optimizer)
+    nlp_model = _build_and_solve(sys, QuadraticLossConverterNLP, ipopt_optimizer)
+
+    # Objective is the right level of strictness for "same order of magnitude"
+    # (Rodrigo's ask on the PR #103 review). Per-converter or system-total
+    # current/power comparisons fail unpredictably on this fixture because the
+    # MT-HVDC fleet carries essentially no power either way (the loss term
+    # drives it toward zero on both sides), so the MILP's SOS2 PWL surrogate
+    # vs the NLP's exact bilinear leave residuals at very different
+    # magnitudes — both still tiny in absolute terms, just not within a
+    # rtol-comparable factor of each other.
+    milp_obj = IOM.get_objective_value(OptimizationProblemOutputs(milp_model))
+    nlp_obj = IOM.get_objective_value(OptimizationProblemOutputs(nlp_model))
+    @test isapprox(milp_obj, nlp_obj; rtol = 0.05)
+end
+
+@testset "HVDC CurrentAbsoluteValueVariable matches |ConverterCurrent| at MILP optimum" begin
+    # Direct evidence that the binary-free LP abs-value formulation is tight:
+    # the loss objective drives abs_i down to exactly |i| at the optimum.
     sys = _generate_test_hvdc_sys()
     template = OperationsProblemTemplate()
     set_device_model!(template, ThermalStandard, ThermalDispatchNoMin)
     set_device_model!(template, PowerLoad, StaticPowerLoad)
     set_device_model!(template, DeviceModel(Line, StaticBranch))
     set_device_model!(template, TModelHVDCLine, DCLossyLine)
-    ipc_model = DeviceModel(
-        InterconnectingConverter,
-        QuadraticLossConverter;
-        attributes = Dict(
-            "voltage_segments" => 3,
-            "current_segments" => 3,
-            "bilinear_segments" => 3,
-            "use_linear_loss" => true,
-        ),
+    set_device_model!(
+        template,
+        DeviceModel(InterconnectingConverter, QuadraticLossConverterMILP),
     )
-    set_device_model!(template, ipc_model)
     set_hvdc_network_model!(template, VoltageDispatchHVDCNetworkModel)
-    model =
-        DecisionModel(
-            template,
-            sys;
-            store_variable_names = true,
-            optimizer = HiGHS_optimizer,
-        )
+    model = DecisionModel(
+        template, sys;
+        store_variable_names = true, optimizer = HiGHS_optimizer,
+    )
     @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
           IOM.ModelBuildStatus.BUILT
     @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+
+    container = IOM.get_optimization_container(model)
+    i_vals =
+        JuMP.value.(
+            IOM.get_variable(container, ConverterCurrent, InterconnectingConverter).data,
+        )
+    abs_i_vals =
+        JuMP.value.(
+            IOM.get_variable(
+                container,
+                CurrentAbsoluteValueVariable,
+                InterconnectingConverter,
+            ).data,
+        )
+    @test isapprox(abs_i_vals, abs.(i_vals); atol = 1e-6)
+end
+
+##############################################################################
+################ Two-Terminal VSC HVDC tests #################################
+##############################################################################
+
+# Build a small AC test system and replace an AC line with a TwoTerminalVSCLine
+# so we have a concrete VSC device to exercise the formulation against.
+function _generate_test_vsc_sys(;
+    g = 50.0,
+    rating_from = 2.0,
+    rating_to = 2.0,
+    loss_a = 0.01,
+    loss_b = 0.0,
+    loss_c = 0.0,
+)
+    sys = build_system(PSITestSystems, "c_sys5_uc"; force_build = true)
+    line = get_component(Line, sys, "1")
+    remove_component!(sys, line)
+
+    vsc = TwoTerminalVSCLine(;
+        name = get_name(line),
+        available = true,
+        arc = get_arc(line),
+        active_power_flow = 0.0,
+        rating = max(rating_from, rating_to),
+        active_power_limits_from = (min = -rating_from, max = rating_from),
+        active_power_limits_to = (min = -rating_to, max = rating_to),
+        g = g,
+        dc_current = 0.0,
+        reactive_power_from = 0.0,
+        dc_voltage_control_from = true,
+        ac_voltage_control_from = true,
+        dc_setpoint_from = 0.0,
+        ac_setpoint_from = 1.0,
+        converter_loss_from = QuadraticCurve(loss_a, loss_b, loss_c),
+        max_dc_current_from = 5.0,
+        rating_from = rating_from,
+        reactive_power_limits_from = (min = -rating_from, max = rating_from),
+        power_factor_weighting_fraction_from = 1.0,
+        voltage_limits_from = (min = 0.95, max = 1.05),
+        reactive_power_to = 0.0,
+        dc_voltage_control_to = true,
+        ac_voltage_control_to = true,
+        dc_setpoint_to = 0.0,
+        ac_setpoint_to = 1.0,
+        converter_loss_to = QuadraticCurve(loss_a, loss_b, loss_c),
+        max_dc_current_to = 5.0,
+        rating_to = rating_to,
+        reactive_power_limits_to = (min = -rating_to, max = rating_to),
+        power_factor_weighting_fraction_to = 1.0,
+        voltage_limits_to = (min = 0.95, max = 1.05),
+    )
+    add_component!(sys, vsc)
+    return sys
+end
+
+function _build_vsc_model(formulation, network, optimizer; sys = _generate_test_vsc_sys())
+    template = OperationsProblemTemplate(NetworkModel(network))
+    set_device_model!(template, ThermalStandard, ThermalDispatchNoMin)
+    set_device_model!(template, RenewableDispatch, RenewableFullDispatch)
+    set_device_model!(template, PowerLoad, StaticPowerLoad)
+    set_device_model!(template, DeviceModel(Line, StaticBranch))
+    set_device_model!(template, DeviceModel(TwoTerminalVSCLine, formulation))
+    return DecisionModel(
+        template, sys; store_variable_names = true, optimizer = optimizer,
+    )
+end
+
+# Standalone build+solve smoke tests for each (formulation, network) combo
+# are covered by the agreement / property tests further down:
+#   - HVDCTwoTerminalVSCNLP on DCP → "HVDC VSC LP vs NLP objective agreement"
+#   - HVDCTwoTerminalVSCLP  on DCP → same agreement test + cable-resistance test
+#   - HVDCTwoTerminalVSCNLP on AC  → "HVDC VSC: tighter PQ rating raises cost on AC"
+# HVDCTwoTerminalVSCLP on ACPPowerModel is omitted: HiGHS can't solve the
+# ACP network's trig (cos/sin) branch ohms-law constraints, and no MINLP
+# solver with trigonometric support is wired into the test deps.
+#
+# TODO: Re-add an `octagon vs box-only` LP property test once an MINLP solver
+# with trig support is available. The previous version of that test ran on
+# `DCPPowerModel`, which never adds `HVDCVSCApparentPowerLimitConstraint`
+# (the constraint is gated by `_maybe_add_reactive_power_constraints!`, a
+# no-op on `AbstractActivePowerModel`), so it asserted the same model against
+# itself.
+
+@testset "HVDC VSC LP vs NLP objective agreement" begin
+    # On a DC network the PQ disk constraint is inactive (no reactive
+    # variables exist), so the LP and NLP differ only by the i² loss model
+    # (SOS2 PWL vs exact). For a smooth convex loss curve the two should agree
+    # within a few percent.
+    function _solve(formulation, optimizer)
+        sys = _generate_test_vsc_sys()
+        model = _build_vsc_model(formulation, DCPPowerModel, optimizer; sys = sys)
+        @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+              IOM.ModelBuildStatus.BUILT
+        @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+        return IOM.get_optimization_container(model).optimizer_stats.objective_value
+    end
+    lp_obj = _solve(HVDCTwoTerminalVSCLP, HiGHS_optimizer)
+    nlp_obj = _solve(HVDCTwoTerminalVSCNLP, ipopt_optimizer)
+    @test isapprox(lp_obj, nlp_obj; rtol = 0.05)
+end
+
+@testset "HVDC VSC: higher cable resistance increases cost" begin
+    # Smaller g => larger R = 1/g => more losses => optimum should not improve.
+    function _solve_with_g(g_value)
+        sys = _generate_test_vsc_sys(; g = g_value)
+        model = _build_vsc_model(
+            HVDCTwoTerminalVSCLP, DCPPowerModel, HiGHS_optimizer; sys = sys,
+        )
+        @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+              IOM.ModelBuildStatus.BUILT
+        @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+        return IOM.get_optimization_container(model).optimizer_stats.objective_value
+    end
+    low_R_obj = _solve_with_g(100.0)   # large g, small R
+    high_R_obj = _solve_with_g(20.0)   # smaller g, larger R
+    @test high_R_obj >= low_R_obj - 1e-6
+end
+
+@testset "HVDC VSC: tighter PQ rating raises cost on AC" begin
+    function _solve_with_rating(s)
+        sys = _generate_test_vsc_sys(; rating_from = s, rating_to = s)
+        model = _build_vsc_model(
+            HVDCTwoTerminalVSCNLP, ACPPowerModel, ipopt_optimizer; sys = sys,
+        )
+        @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+              IOM.ModelBuildStatus.BUILT
+        @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+        return IOM.get_optimization_container(model).optimizer_stats.objective_value
+    end
+    looser = _solve_with_rating(2.0)
+    tighter = _solve_with_rating(1.0)
+    @test tighter >= looser - 1e-6
 end
