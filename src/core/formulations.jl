@@ -332,8 +332,10 @@ turbine power-output constraint. Adds injection variables for a HydroTurbine
 connected to reservoirs using a linearized approximation of the bilinear model.
 
 Selects the bilinear approximation scheme via `DeviceModel` attributes (so users
-do not need to depend on `InfrastructureOptimizationModels`). All attributes
-have defaults that reproduce the prior `Bin2` + `SolverSOS2`(4) behavior.
+do not need to depend on `InfrastructureOptimizationModels`). Users pick the
+desired approximation gap via `bilinear_tolerance`; the constraint constructor
+combines that with the per-device flow and head bounds to size each method's
+discretization automatically (no manual segment count).
 
 # Attributes
 - `bilinear_approximation::String` (default `"bin2"`): top-level scheme.
@@ -342,8 +344,10 @@ have defaults that reproduce the prior `Bin2` + `SolverSOS2`(4) behavior.
   PWL method used when `bilinear_approximation ∈ {"bin2","hybs"}`. Supported:
   `"solver_sos2"`, `"manual_sos2"`, `"sawtooth"`, `"epigraph"`, `"nmdt"`,
   `"dnmdt"`, `"none"`.
-- `bilinear_n_segments::Int` (default `4`): PWL segment count or NMDT depth,
-  depending on the chosen method.
+- `bilinear_tolerance::Float64` (default `1e-2`): maximum approximation gap
+  for the chosen method. Each IOM tolerance constructor uses it together with
+  the per-device `max_delta` (computed at the call site from variable bounds)
+  to pick a depth via `ceil`.
 - `bilinear_add_mccormick::Union{Bool,Nothing}` (default `nothing`): when
   `nothing`, defers to the IOM struct default (`Bin2Config` → `true`,
   `HybSConfig` → `false`). Ignored by `nmdt`/`dnmdt`/`none`.
