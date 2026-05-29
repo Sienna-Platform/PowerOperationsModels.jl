@@ -343,10 +343,10 @@ end
 
     sys = PSB.build_system(PSITestSystems, "c_sys5_hy"; add_single_time_series = true)
     hy = only(get_components(HydroDispatch, sys))
-    max_power = get_max_active_power(hy)
+    max_power = get_max_active_power(hy, PSY.SU)
     resolution = Dates.Hour(1)
     tstamp = range(DateTime("2024-01-01T00:00:00"); step = resolution, length = 48)
-    data = ones(length(tstamp)) / (get_base_power(sys) * max_power)
+    data = ones(length(tstamp)) / (get_base_power(sys, PSY.NU) * max_power)
     ts = SingleTimeSeries("hydro_budget", TimeArray(tstamp, data))
     add_time_series!(sys, hy, ts)
     transform_single_time_series!(sys, Hour(24), Hour(24))
@@ -366,10 +366,10 @@ end
     eps = 1e-6
 
     hy = only(get_components(HydroDispatch, c_sys5_hy))
-    max_power = get_max_active_power(hy)
+    max_power = get_max_active_power(hy, PSY.SU)
 
     tstamp = range(DateTime("2024-01-01T00:00:00"); step = Dates.Hour(1), length = 48)
-    data = ones(length(tstamp)) / (get_base_power(c_sys5_hy) * max_power)
+    data = ones(length(tstamp)) / (get_base_power(c_sys5_hy, PSY.NU) * max_power)
     ts = SingleTimeSeries("hydro_budget", TimeArray(tstamp, data))
     add_time_series!(c_sys5_hy, first(get_components(HydroDispatch, c_sys5_hy)), ts)
     #remove_time_series!(c_sys5_hy, Deterministic)
@@ -438,9 +438,9 @@ end
         add_service!(th, reg_up, c_sys5_hy)
     end
 
-    max_power = get_max_active_power(hy)
+    max_power = get_max_active_power(hy, PSY.SU)
     tstamp = range(DateTime("2024-01-01T00:00:00"); step = Dates.Hour(1), length = 48)
-    data = ones(length(tstamp)) / (get_base_power(c_sys5_hy) * max_power)
+    data = ones(length(tstamp)) / (get_base_power(c_sys5_hy, PSY.NU) * max_power)
     ts = SingleTimeSeries("hydro_budget", TimeArray(tstamp, data))
     add_time_series!(c_sys5_hy, first(get_components(HydroDispatch, c_sys5_hy)), ts)
 
@@ -449,15 +449,15 @@ end
         name = "HydroDispatchCopy",
         available = get_available(hy),
         bus = get_bus(hy),
-        active_power = get_active_power(hy),
-        reactive_power = get_reactive_power(hy),
-        rating = get_rating(hy),
+        active_power = get_active_power(hy, PSY.SU),
+        reactive_power = get_reactive_power(hy, PSY.SU),
+        rating = get_rating(hy, PSY.SU),
         prime_mover_type = get_prime_mover_type(hy),
-        active_power_limits = get_active_power_limits(hy),
-        reactive_power_limits = get_reactive_power_limits(hy),
-        ramp_limits = get_ramp_limits(hy),
+        active_power_limits = get_active_power_limits(hy, PSY.SU),
+        reactive_power_limits = get_reactive_power_limits(hy, PSY.SU),
+        ramp_limits = get_ramp_limits(hy, PSY.SU),
         time_limits = get_time_limits(hy),
-        base_power = get_base_power(hy),
+        base_power = get_base_power(hy, PSY.NU),
     )
     add_component!(c_sys5_hy, hy_copy)
     copy_time_series!(hy_copy, hy)
@@ -992,7 +992,7 @@ end
     add_time_series!(sys, res, budget_ts)
     transform_single_time_series!(sys, Hour(24), Hour(24))
     turb = first(get_components(HydroTurbine, sys))
-    set_active_power_limits!(turb, (min = 0.1, max = 5.2))
+    set_active_power_limits!(turb, (min = 0.1 * PSY.SU, max = 5.2 * PSY.SU))
     set_operation_cost!(turb, HydroGenerationCost(
         CostCurve(LinearCurve(1.0)),
         2.0,

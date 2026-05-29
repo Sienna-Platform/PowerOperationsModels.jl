@@ -43,7 +43,7 @@ function get_default_attributes(
 end
 
 function get_initial_conditions_service_model(
-    ::OperationModel,
+    ::IOM.AbstractOptimizationModel,
     ::ServiceModel{T, D},
 ) where {T <: PSY.TransmissionInterface, D <: ConstantMaxInterfaceFlow}
     return ServiceModel(T, D)

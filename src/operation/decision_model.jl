@@ -1,3 +1,16 @@
+# Template-first constructors default the problem type to `GenericOpProblem`.
+# IOM only ships the `DecisionModel{M}` / `DecisionModel(::Type{M}, ...)` variants
+# (`M` is the domain-neutral `AbstractOptimizationProblem`); the default problem
+# type is a POM concept, so the defaulting constructors live here.
+function DecisionModel(
+    template::IOM.AbstractProblemTemplate,
+    sys::IS.InfrastructureSystemsContainer,
+    jump_model::Union{Nothing, JuMP.Model} = nothing;
+    kwargs...,
+)
+    return DecisionModel{GenericOpProblem}(template, sys, jump_model; kwargs...)
+end
+
 function build_pre_step!(model::DecisionModel{<:DecisionProblem})
     TimerOutputs.@timeit BUILD_PROBLEMS_TIMER "Build pre-step" begin
         validate_template(model)
@@ -125,7 +138,7 @@ keyword arguments to that function.
 
 # Arguments
 
-  - `model::OperationModel = model`: operation model
+  - `model::IOM.AbstractOptimizationModel = model`: operation model
   - `export_problem_outputs::Bool = false`: If true, export OptimizationProblemOutputs DataFrames to CSV files.
   - `console_level = Logging.Error`:
   - `file_level = Logging.Info`:
@@ -269,7 +282,7 @@ function handle_initial_conditions!(model::DecisionModel{<:DecisionProblem})
     return
 end
 
-function build_if_not_already_built!(model::OperationModel; kwargs...)
+function build_if_not_already_built!(model::IOM.AbstractOptimizationModel; kwargs...)
     status = IOM.get_status(model)
     if status == ModelBuildStatus.EMPTY
         if !haskey(kwargs, :output_dir)
@@ -293,6 +306,71 @@ end
 
 function validate_template(model::DecisionModel{<:DefaultDecisionProblem})
     validate_template_impl!(model)
+    return
+end
+
+# IOM declares `validate_time_series!` as a pure extension-point stub (no methods);
+# POM provides the concrete check for its template-driven problem types. It reconciles
+# the model's resolution/interval/horizon settings against the forecast data in the
+# system and errors when the system has no forecast data.
+function validate_time_series!(model::DecisionModel{<:DefaultDecisionProblem})
+    sys = get_system(model)
+    settings = get_settings(model)
+    available_resolutions = IOM.get_time_series_resolutions(sys)
+
+    if get_resolution(settings) == IOM.UNSET_RESOLUTION &&
+       length(available_resolutions) != 1
+        throw(
+            IS.ConflictingInputsError(
+                "Data contains multiple resolutions, the resolution keyword argument must be added to the Model. Time Series Resolutions: $(available_resolutions)",
+            ),
+        )
+    elseif get_resolution(settings) != IOM.UNSET_RESOLUTION &&
+           length(available_resolutions) > 1
+        if get_resolution(settings) ∉ available_resolutions
+            throw(
+                IS.ConflictingInputsError(
+                    "Resolution $(get_resolution(settings)) is not available in the system data. Time Series Resolutions: $(available_resolutions)",
+                ),
+            )
+        end
+    else
+        IOM.set_resolution!(settings, first(available_resolutions))
+    end
+
+    model_interval = IOM.get_interval(settings)
+    available_intervals = IOM.get_forecast_intervals(sys)
+    if model_interval == IOM.UNSET_INTERVAL && length(available_intervals) > 1
+        throw(
+            IS.ConflictingInputsError(
+                "The system contains multiple forecast intervals $(available_intervals). " *
+                "The `interval` keyword argument must be provided to the DecisionModel constructor " *
+                "to select which interval to use.",
+            ),
+        )
+    elseif model_interval != IOM.UNSET_INTERVAL && !isempty(available_intervals)
+        if model_interval ∉ available_intervals
+            throw(
+                IS.ConflictingInputsError(
+                    "Interval $(Dates.canonicalize(model_interval)) is not available in the system data. " *
+                    "Available forecast intervals: $(available_intervals)",
+                ),
+            )
+        end
+    end
+    if get_horizon(settings) == IOM.UNSET_HORIZON
+        IOM.set_horizon!(
+            settings,
+            IOM.get_forecast_horizon(sys; interval = IOM._to_is_interval(model_interval)),
+        )
+    end
+
+    counts = IOM.get_time_series_counts(sys)
+    if counts.forecast_count < 1
+        error(
+            "The system does not contain forecast data. A DecisionModel can't be built.",
+        )
+    end
     return
 end
 

@@ -249,12 +249,12 @@ end
         name = "shiftable_load",
         available = true,
         bus = PSY.get_bus(il_load),
-        active_power = PSY.get_active_power(il_load),
-        active_power_limits = (min = 0.0, max = PSY.get_active_power(il_load)),
-        reactive_power = PSY.get_reactive_power(il_load),
-        max_active_power = PSY.get_max_active_power(il_load),
-        max_reactive_power = PSY.get_max_reactive_power(il_load),
-        base_power = PSY.get_base_power(il_load),
+        active_power = PSY.get_active_power(il_load, PSY.SU),
+        active_power_limits = (min = 0.0, max = PSY.get_active_power(il_load, PSY.SU)),
+        reactive_power = PSY.get_reactive_power(il_load, PSY.SU),
+        max_active_power = PSY.get_max_active_power(il_load, PSY.SU),
+        max_reactive_power = PSY.get_max_reactive_power(il_load, PSY.SU),
+        base_power = PSY.get_base_power(il_load, PSY.NU),
         load_balance_time_horizon = 1,
         operation_cost = LoadCost(;
             variable = CostCurve(

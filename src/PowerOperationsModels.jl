@@ -188,6 +188,10 @@ import InfrastructureOptimizationModels:
     set_device_model!,
     set_service_model!,
     finalize_template!,
+    validate_time_series!,
+    validate_template,
+    DecisionModel,
+    EmulationModel,
     make_empty_jump_model_with_settings,
     set_model!
 
@@ -217,6 +221,7 @@ import InfrastructureOptimizationModels:
 # and extend should_write_resulting_value/convert_output_to_natural_units
 #################################################################################
 include("core/definitions.jl")
+include("core/problem_types.jl")
 include("core/interfaces.jl")
 include("core/default_interface_methods.jl")
 include("core/physical_constant_definitions.jl")
@@ -358,7 +363,11 @@ export DecisionModel
 export EmulationModel
 export OperationsProblemTemplate
 export InitialCondition
-export OperationModel
+export PowerOperationModel
+export DecisionProblem
+export EmulationProblem
+export GenericOpProblem
+export GenericEmulationProblem
 
 # Network
 export NetworkModel

@@ -35,7 +35,7 @@ function _renewable_offer_max(
     t::Int,
 ) where {C <: PSY.RenewableGen}
     has_container_key(container, ActivePowerTimeSeriesParameter, C) ||
-        return PSY.get_max_active_power(component)
+        return PSY.get_max_active_power(component, PSY.SU)
     param_container = get_parameter(container, ActivePowerTimeSeriesParameter, C)
     multiplier = get_multiplier_array(param_container)
     return get_parameter_column_refs(param_container, name)[t] * multiplier[name, t]
@@ -51,7 +51,7 @@ function _add_curtailment_cost!(
     ::Type{U},
 ) where {T <: VariableType, C <: PSY.RenewableGen, U <: AbstractDeviceFormulation}
     base_power = get_model_base_power(container)
-    device_base_power = PSY.get_base_power(component)
+    device_base_power = PSY.get_base_power(component, PSY.NU)
     value_curve = PSY.get_value_curve(cost_function)
     power_units = PSY.get_power_units(cost_function)
     cost_component = PSY.get_function_data(value_curve)

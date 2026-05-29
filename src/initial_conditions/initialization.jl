@@ -1,4 +1,4 @@
-function get_initial_conditions_template(model::OperationModel, number_of_steps::Int)
+function get_initial_conditions_template(model::IOM.AbstractOptimizationModel, number_of_steps::Int)
     # This is done to avoid passing the duals but also not re-allocating the PTDF when it
     # exists
 
@@ -59,7 +59,7 @@ function get_initial_conditions_template(model::OperationModel, number_of_steps:
     return ic_template
 end
 
-function build_initial_conditions_model!(model::T) where {T <: OperationModel}
+function build_initial_conditions_model!(model::T) where {T <: IOM.AbstractOptimizationModel}
     internal = get_internal(model)
     set_initial_conditions_model_container!(
         internal,
@@ -97,7 +97,7 @@ function build_initial_conditions_model!(model::T) where {T <: OperationModel}
     return
 end
 
-function build_initial_conditions!(model::OperationModel)
+function build_initial_conditions!(model::IOM.AbstractOptimizationModel)
     @assert get_initial_conditions_model_container(get_internal(model)) ===
             nothing
     requires_init = false
@@ -117,7 +117,7 @@ function build_initial_conditions!(model::OperationModel)
 end
 
 # Called `initialize!` in PSI (lived in operation_model_interface.jl).
-function solve_and_write_initial_conditions!(model::OperationModel)
+function solve_and_write_initial_conditions!(model::IOM.AbstractOptimizationModel)
     container = get_optimization_container(model)
     if get_initial_conditions_model_container(get_internal(model)) === nothing
         return

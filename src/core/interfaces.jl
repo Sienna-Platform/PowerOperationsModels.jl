@@ -176,12 +176,12 @@ end
 Get the device model to use for initialization.
 """
 get_initial_conditions_device_model(
-    ::IOM.OperationModel,
+    ::IOM.AbstractOptimizationModel,
     model::IOM.DeviceModel{T, IOM.FixedOutput},
 ) where {T <: PSY.Device} = model
 
 get_initial_conditions_device_model(
-    ::IOM.OperationModel,
+    ::IOM.AbstractOptimizationModel,
     ::IOM.DeviceModel{T, D},
 ) where {T <: PSY.Device, D <: IOM.AbstractDeviceFormulation} =
     error("`get_initial_conditions_device_model` must be implemented for $T and $D")

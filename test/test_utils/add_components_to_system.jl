@@ -4,17 +4,17 @@ function get_copied_line(
     copied_line = Line(;
         name = PSY.get_name(line) * "_copy",
         available = PSY.get_available(line),
-        active_power_flow = PSY.get_active_power_flow(line),
+        active_power_flow = PSY.get_active_power_flow(line, PSY.SU),
         reactive_power_flow = PSY.get_reactive_power_flow(line),
         arc = PSY.get_arc(line),
-        r = PSY.get_r(line),
-        x = PSY.get_x(line),
-        b = PSY.get_b(line),
-        rating = PSY.get_rating(line),
+        r = PSY.get_r(line, PSY.SU),
+        x = PSY.get_x(line, PSY.SU),
+        b = PSY.get_b(line, PSY.SU),
+        rating = PSY.get_rating(line, PSY.SU),
         angle_limits = PSY.get_angle_limits(line),
-        rating_b = PSY.get_rating_b(line),
+        rating_b = PSY.get_rating_b(line, PSY.SU),
         rating_c = PSY.get_rating_c(line),
-        g = PSY.get_g(line),
+        g = PSY.get_g(line, PSY.SU),
         services = PSY.get_services(line),
         ext = PSY.get_ext(line),
     )
@@ -64,28 +64,28 @@ function add_equivalent_ac_transmission_with_series_parallel_circuits!(
     set_arc!(ac_transmission, arc1)
 
     #make Parallel circuits
-    original_rating = PSY.get_rating(ac_transmission)
-    original_r = PSY.get_r(ac_transmission)
-    original_x = PSY.get_x(ac_transmission)
-    rating_new_parallel = PSY.get_rating(ac_transmission) / 2
-    new_r_parallel = PSY.get_r(ac_transmission) * 2
-    new_x_parallel = PSY.get_x(ac_transmission) * 2
+    original_rating = PSY.get_rating(ac_transmission, PSY.SU)
+    original_r = PSY.get_r(ac_transmission, PSY.SU)
+    original_x = PSY.get_x(ac_transmission, PSY.SU)
+    rating_new_parallel = PSY.get_rating(ac_transmission, PSY.SU) / 2
+    new_r_parallel = PSY.get_r(ac_transmission, PSY.SU) * 2
+    new_x_parallel = PSY.get_x(ac_transmission, PSY.SU) * 2
     ac_transmission_copy_parallel = get_copied_line(ac_transmission)
     ac_transmission_copy_series = get_copied_line(ac_transmission_copy_parallel)
 
-    set_rating!(ac_transmission, rating_new_parallel)
-    set_rating!(ac_transmission_copy_parallel, rating_new_parallel)
-    set_r!(ac_transmission, original_r)
-    set_r!(ac_transmission_copy_parallel, new_r_parallel)
-    set_x!(ac_transmission, new_x_parallel)
-    set_x!(ac_transmission_copy_parallel, new_x_parallel)
+    set_rating!(ac_transmission, rating_new_parallel * PSY.SU)
+    set_rating!(ac_transmission_copy_parallel, rating_new_parallel * PSY.SU)
+    set_r!(ac_transmission, original_r * PSY.SU)
+    set_r!(ac_transmission_copy_parallel, new_r_parallel * PSY.SU)
+    set_x!(ac_transmission, new_x_parallel * PSY.SU)
+    set_x!(ac_transmission_copy_parallel, new_x_parallel * PSY.SU)
     add_component!(sys, ac_transmission_copy_parallel)
 
     #Add new series Line with same parameters
     set_arc!(ac_transmission_copy_series, arc2)
     add_component!(sys, ac_transmission_copy_series)
-    set_x!(ac_transmission_copy_series, 1e-9)
-    set_r!(ac_transmission_copy_series, 1e-9)
+    set_x!(ac_transmission_copy_series, 1e-9 * PSY.SU)
+    set_r!(ac_transmission_copy_series, 1e-9 * PSY.SU)
 end
 
 function add_equivalent_ac_transmission_with_parallel_circuits!(
@@ -93,18 +93,18 @@ function add_equivalent_ac_transmission_with_parallel_circuits!(
     ac_transmission::PSY.Line,
     ::Type{T},
 ) where {T <: PSY.Line}
-    rating_new = PSY.get_rating(ac_transmission) / 2
-    x_new = PSY.get_x(ac_transmission) * 2
-    r_new = PSY.get_r(ac_transmission) * 2
+    rating_new = PSY.get_rating(ac_transmission, PSY.SU) / 2
+    x_new = PSY.get_x(ac_transmission, PSY.SU) * 2
+    r_new = PSY.get_r(ac_transmission, PSY.SU) * 2
     ac_transmission_copy_parallel = get_copied_line(ac_transmission)
 
     #Set ratings the half so the case remains equivalent to the original
-    set_rating!(ac_transmission, rating_new)
-    set_rating!(ac_transmission_copy_parallel, rating_new)
-    set_x!(ac_transmission, x_new)
-    set_x!(ac_transmission_copy_parallel, x_new)
-    set_r!(ac_transmission, r_new)
-    set_r!(ac_transmission_copy_parallel, r_new)
+    set_rating!(ac_transmission, rating_new * PSY.SU)
+    set_rating!(ac_transmission_copy_parallel, rating_new * PSY.SU)
+    set_x!(ac_transmission, x_new * PSY.SU)
+    set_x!(ac_transmission_copy_parallel, x_new * PSY.SU)
+    set_r!(ac_transmission, r_new * PSY.SU)
+    set_r!(ac_transmission_copy_parallel, r_new * PSY.SU)
     add_component!(sys, ac_transmission_copy_parallel)
 end
 
@@ -114,34 +114,34 @@ function add_equivalent_ac_transmission_with_parallel_circuits!(
     ::Type{T},
     ::Type{PSY.MonitoredLine},
 ) where {T <: PSY.Line}
-    rating_new = PSY.get_rating(ac_transmission) / 2
-    x_new = PSY.get_x(ac_transmission) * 2
-    r_new = PSY.get_r(ac_transmission) * 2
+    rating_new = PSY.get_rating(ac_transmission, PSY.SU) / 2
+    x_new = PSY.get_x(ac_transmission, PSY.SU) * 2
+    r_new = PSY.get_r(ac_transmission, PSY.SU) * 2
     ac_transmission_copy = MonitoredLine(;
         name = PSY.get_name(ac_transmission) * "_copy",
         available = PSY.get_available(ac_transmission),
-        active_power_flow = PSY.get_active_power_flow(ac_transmission),
+        active_power_flow = PSY.get_active_power_flow(ac_transmission, PSY.SU),
         reactive_power_flow = PSY.get_reactive_power_flow(ac_transmission),
         arc = PSY.get_arc(ac_transmission),
-        r = PSY.get_r(ac_transmission),
-        x = PSY.get_x(ac_transmission),
-        b = PSY.get_b(ac_transmission),
+        r = PSY.get_r(ac_transmission, PSY.SU),
+        x = PSY.get_x(ac_transmission, PSY.SU),
+        b = PSY.get_b(ac_transmission, PSY.SU),
         flow_limits = (
             from_to = rating_new,
             to_from = rating_new,
         ),
         rating = rating_new,
         angle_limits = PSY.get_angle_limits(ac_transmission),
-        rating_b = PSY.get_rating_b(ac_transmission),
+        rating_b = PSY.get_rating_b(ac_transmission, PSY.SU),
         rating_c = PSY.get_rating_c(ac_transmission),
-        g = PSY.get_g(ac_transmission),
+        g = PSY.get_g(ac_transmission, PSY.SU),
         services = PSY.get_services(ac_transmission),
         ext = PSY.get_ext(ac_transmission))
 
     #Set ratings the half so the case remains equivalent to the original
-    set_rating!(ac_transmission, rating_new)
-    set_x!(ac_transmission, x_new)
-    set_r!(ac_transmission, r_new)
+    set_rating!(ac_transmission, rating_new * PSY.SU)
+    set_x!(ac_transmission, x_new * PSY.SU)
+    set_r!(ac_transmission, r_new * PSY.SU)
     add_component!(sys, ac_transmission_copy)
 end
 

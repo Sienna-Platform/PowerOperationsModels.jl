@@ -95,10 +95,10 @@ function _check_dynamic_branch_rating_ts(
         return
     end
 
-    rating = PSY.get_rating(device)
+    rating = PSY.get_rating(device, PSY.SU)
     if (T <: PostContingencyDynamicBranchRatingTimeSeriesParameter)
-        if !(PSY.get_rating_b(device) === nothing)
-            rating = PSY.get_rating_b(device)
+        if !(PSY.get_rating_b(device, PSY.SU) === nothing)
+            rating = PSY.get_rating_b(device, PSY.SU)
         else
             @warn "Device $(typeof(device)) '$(PSY.get_name(device))' has Parameter $T but it has no static 'rating_b' defined."
         end

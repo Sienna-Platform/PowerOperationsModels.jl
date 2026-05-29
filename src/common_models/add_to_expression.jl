@@ -119,7 +119,7 @@ function add_to_expression!(
         for t in time_steps
             add_proportional_to_jump_expression!(
                 get_expression(container, T, PSY.ACBus)[bus_no, t],
-                PSY.get_active_power(d),
+                PSY.get_active_power(d, PSY.SU),
                 -1.0,
             )
         end
@@ -151,7 +151,7 @@ function add_to_expression!(
         for t in time_steps
             add_proportional_to_jump_expression!(
                 get_expression(container, T, PSY.Area)[area_name, t],
-                PSY.get_active_power(d),
+                PSY.get_active_power(d, PSY.SU),
                 -1.0,
             )
         end
@@ -183,7 +183,7 @@ function add_to_expression!(
         for t in time_steps
             add_proportional_to_jump_expression!(
                 get_expression(container, T, PSY.ACBus)[bus_no, t],
-                PSY.get_reactive_power(d),
+                PSY.get_reactive_power(d, PSY.SU),
                 -1.0,
             )
         end
@@ -1175,7 +1175,7 @@ function _add_to_expression!(
         bus_no_ = PSY.get_number(PSY.get_bus(d))
         bus_no = PNM.get_mapped_bus_number(network_reduction, bus_no_)
         # Per-device P_min for compact dispatch OnVariable
-        p_min = PSY.get_active_power_limits(d).min
+        p_min = PSY.get_active_power_limits(d, PSY.SU).min
         for t in time_steps
             if PSY.get_must_run(d)
                 add_proportional_to_jump_expression!(
@@ -1215,7 +1215,7 @@ function add_to_expression!(
         bus = PSY.get_bus(d)
         area_name = PSY.get_name(PSY.get_area(bus))
         # Per-device P_min for compact dispatch OnVariable
-        p_min = PSY.get_active_power_limits(d).min
+        p_min = PSY.get_active_power_limits(d, PSY.SU).min
         for t in time_steps
             if PSY.get_must_run(d)
                 add_proportional_to_jump_expression!(
@@ -1340,7 +1340,7 @@ function add_to_expression!(
         for t in time_steps
             add_proportional_to_jump_expression!(
                 expression[ref_bus, t],
-                PSY.get_active_power(d),
+                PSY.get_active_power(d, PSY.SU),
                 -1.0,
             )
         end
@@ -1435,7 +1435,7 @@ function add_to_expression!(
         device_bus = PSY.get_bus(d)
         ref_bus = get_reference_bus(network_model, device_bus)
         # Per-device P_min for compact dispatch OnVariable
-        p_min = PSY.get_active_power_limits(d).min
+        p_min = PSY.get_active_power_limits(d, PSY.SU).min
         for t in time_steps
             add_proportional_to_jump_expression!(
                 expression[ref_bus, t],
@@ -1655,12 +1655,12 @@ function add_to_expression!(
         for t in time_steps
             add_proportional_to_jump_expression!(
                 sys_expr[ref_index, t],
-                PSY.get_active_power(d),
+                PSY.get_active_power(d, PSY.SU),
                 -1.0,
             )
             add_proportional_to_jump_expression!(
                 nodal_expr[bus_no, t],
-                PSY.get_active_power(d),
+                PSY.get_active_power(d, PSY.SU),
                 -1.0,
             )
         end
@@ -1736,7 +1736,7 @@ function add_to_expression!(
         bus_no = PNM.get_mapped_bus_number(network_reduction, PSY.get_bus(d))
         ref_index = _ref_index(network_model, PSY.get_bus(d))
         # Per-device P_min for compact dispatch OnVariable
-        p_min = PSY.get_active_power_limits(d).min
+        p_min = PSY.get_active_power_limits(d, PSY.SU).min
         for t in time_steps
             add_proportional_to_jump_expression!(
                 sys_expr[ref_index, t],
@@ -1977,7 +1977,7 @@ function add_to_expression!(
             PNM.get_mapped_bus_number(network_reduction, PSY.get_arc(d).from)
         bus_no_to = PNM.get_mapped_bus_number(network_reduction, PSY.get_arc(d).to)
         # Per-device reactance multiplier for phase shifter
-        x_mult = 1.0 / PSY.get_x(d)
+        x_mult = 1.0 / PSY.get_x(d, PSY.SU)
         for t in time_steps
             flow_variable = var[name, t]
             add_proportional_to_jump_expression!(
@@ -2750,7 +2750,7 @@ function add_to_expression!(
         var_cost = _get_cost_if_exists(PSY.get_operation_cost(d))
         _is_fuel_curve(var_cost) || continue
         name = PSY.get_name(d)
-        device_base_power = PSY.get_base_power(d)
+        device_base_power = PSY.get_base_power(d, PSY.NU)
         value_curve = PSY.get_value_curve(var_cost)
         _add_fuel_consumption_term!(
             container, V, variable, name, var_cost, value_curve,
@@ -2776,7 +2776,7 @@ function _add_compact_fuel_consumption_term!(
     time_steps,
 ) where {V <: PSY.ThermalGen, W <: AbstractDeviceFormulation}
     name = PSY.get_name(d)
-    P_min = PSY.get_active_power_limits(d).min
+    P_min = PSY.get_active_power_limits(d, PSY.SU).min
     power_units = PSY.get_power_units(var_cost)
     proportional_term = PSY.get_proportional_term(value_curve)
     prop_term_per_unit = get_proportional_cost_per_system_unit(
@@ -2837,7 +2837,7 @@ function add_to_expression!(
         var_cost = _get_cost_if_exists(PSY.get_operation_cost(d))
         _is_fuel_curve(var_cost) || continue
         expression = get_expression(container, T, V)
-        device_base_power = PSY.get_base_power(d)
+        device_base_power = PSY.get_base_power(d, PSY.NU)
         value_curve = PSY.get_value_curve(var_cost)
         _add_compact_fuel_consumption_term!(
             container, W, expression, variable, d, var_cost, value_curve,

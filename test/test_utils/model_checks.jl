@@ -394,7 +394,7 @@ function check_energy_initial_conditions_values(model, ::Type{T}) where {T <: PS
         d = ic.component
         name = PSY.get_name(ic.component)
         e_value = IOM.jump_value(IOM.get_value(ic))
-        @test PSY.get_initial_storage_capacity_level(d) * PSY.get_storage_capacity(d) *
+        @test PSY.get_initial_storage_capacity_level(d) * PSY.get_storage_capacity(d, PSY.SU) *
               PSY.get_conversion_factor(d) == e_value
     end
 end

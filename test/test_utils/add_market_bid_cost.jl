@@ -118,7 +118,7 @@ function extend_mbc!(
         @assert op_cost isa MarketBidCost
         if do_override_min_x && :active_power_limits in fieldnames(typeof(comp))
             min_power = with_units_base(sys, UnitSystem.NATURAL_UNITS) do
-                get_active_power_limits(comp).min
+                get_active_power_limits(comp, PSY.SU).min
             end
         else
             min_power = nothing

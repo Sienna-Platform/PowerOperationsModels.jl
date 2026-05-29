@@ -128,7 +128,7 @@ end
     # the recomputed expected_headroom below will mismatch by 0.5×, failing the
     # assertion.
     PSY.set_units_base_system!(system, "SYSTEM_BASE")
-    PSY.set_base_power!(re_gen, get_base_power(re_gen) / 2)
+    PSY.set_base_power!(re_gen, get_base_power(re_gen, PSY.NU) / 2)
 
     template = get_template_dispatch_with_network(
         NetworkModel(
@@ -207,14 +207,14 @@ end
         available = true,
         active_power_flow = 0.0,
         reactive_power_flow = 0.0,
-        r = get_r(line),
-        x = get_x(line),
+        r = get_r(line, PSY.SU),
+        x = get_x(line, PSY.SU),
         primary_shunt = 0.0,
         tap = 1.0,
         α = 0.0,
-        rating = get_rating(line),
+        rating = get_rating(line, PSY.SU),
         arc = arc,
-        base_power = get_base_power(system),
+        base_power = get_base_power(system, PSY.NU),
     )
     add_component!(system, ps)
 
@@ -260,8 +260,8 @@ end
         system = build_system(PSITestSystems, "c_sys5_uc")
         line = get_component(Line, system, "1")
         if replace_line
-            original_impedance = get_r(line) + im * get_x(line)
-            original_shunt = get_b(line)
+            original_impedance = get_r(line, PSY.SU) + im * get_x(line, PSY.SU)
+            original_shunt = get_b(line, PSY.SU)
             remove_component!(system, line)
             split_impedance = original_impedance * 2
             split_shunt = (from = 0.5 * original_shunt.from, to = 0.5 * original_shunt.to)
@@ -276,7 +276,7 @@ end
                     x = imag(split_impedance),
                     b = split_shunt,
                     angle_limits = get_angle_limits(line),
-                    rating = get_rating(line),
+                    rating = get_rating(line, PSY.SU),
                 )
                 add_component!(system, l)
             end
@@ -326,7 +326,7 @@ end
         arc = get_arc(line),
         r = 0.0,
         x = 0.0,
-        rating = get_rating(line),
+        rating = get_rating(line, PSY.SU),
         discrete_branch_type = PSY.DiscreteControlledBranchType.BREAKER,
         branch_status = PSY.DiscreteControlledBranchStatus.CLOSED,
     )
@@ -334,8 +334,8 @@ end
     # Set lines 3 and 6 to identical impedance so they're truly parallel
     line3 = get_component(Line, system, "3")
     line6 = get_component(Line, system, "6")
-    PSY.set_r!(line3, PSY.get_r(line6))
-    PSY.set_x!(line3, PSY.get_x(line6))
+    PSY.set_r!(line3, PSY.get_r(line6, PSY.SU) * PSY.SU)
+    PSY.set_x!(line3, PSY.get_x(line6, PSY.SU) * PSY.SU)
 
     template = get_template_dispatch_with_network(
         NetworkModel(

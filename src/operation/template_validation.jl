@@ -1,6 +1,6 @@
 const _TEMPLATE_VALIDATION_EXCLUSIONS = [PSY.Arc, PSY.Area, PSY.ACBus, PSY.LoadZone]
 
-function validate_template_impl!(model::IOM.OperationModel)
+function validate_template_impl!(model::IOM.AbstractOptimizationModel)
     template = get_template(model)
     settings = get_settings(model)
     if isempty(template)

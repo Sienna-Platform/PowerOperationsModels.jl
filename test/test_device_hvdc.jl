@@ -58,7 +58,7 @@ function _generate_test_hvdc_sys()
         new_op_cost = ThermalGenerationCost(
             CostCurve(
                 new_quad_cost,
-                op_cost.variable.power_units,
+                PSY.get_power_units(op_cost.variable),
                 op_cost.variable.vom_cost,
             ),
             op_cost.fixed,

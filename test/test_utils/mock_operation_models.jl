@@ -1,10 +1,10 @@
 # NOTE: None of the models and function in this file are functional. All of these are used for testing purposes and do not represent valid examples either to develop custom
 # models. Please refer to the documentation.
 
-struct MockOperationProblem <: IOM.DefaultDecisionProblem end
-struct MockEmulationProblem <: IOM.DefaultEmulationProblem end
-struct EconomicDispatchProblem <: IOM.DefaultDecisionProblem end
-struct UnitCommitmentProblem <: IOM.DefaultDecisionProblem end
+struct MockOperationProblem <: DefaultDecisionProblem end
+struct MockEmulationProblem <: DefaultEmulationProblem end
+struct EconomicDispatchProblem <: DefaultDecisionProblem end
+struct UnitCommitmentProblem <: DefaultDecisionProblem end
 
 function IOM.DecisionModel(
     ::Type{MockOperationProblem},

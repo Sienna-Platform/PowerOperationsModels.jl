@@ -300,7 +300,7 @@ end
     for load in get_components(PowerLoad, system)
         name = get_name(load)
         vals = get_time_series_values(Deterministic, load, "max_active_power")
-        vals = vals .* get_max_active_power(load) * -1.0
+        vals = vals .* get_max_active_power(load, PSY.SU) * -1.0
         @test all(vals .== param_vals[name, :])
     end
 

@@ -1,8 +1,8 @@
 function check_hvdc_line_limits_unidirectional(d::PSY.TwoTerminalHVDC)
-    from_min = PSY.get_active_power_limits_from(d).min
-    to_min = PSY.get_active_power_limits_to(d).min
-    from_max = PSY.get_active_power_limits_from(d).max
-    to_max = PSY.get_active_power_limits_to(d).max
+    from_min = PSY.get_active_power_limits_from(d, PSY.SU).min
+    to_min = PSY.get_active_power_limits_to(d, PSY.SU).min
+    from_max = PSY.get_active_power_limits_from(d, PSY.SU).max
+    to_max = PSY.get_active_power_limits_to(d, PSY.SU).max
 
     if from_min < 0 || to_min < 0 || from_max < 0 || to_max < 0
         throw(
@@ -40,14 +40,14 @@ function get_branch_to_pm(
     ::Type{<:AbstractDCPModel},
 )
     # we allocate the transformer shunt values to primary side only
-    yt = PSY.get_primary_shunt(branch)
+    yt = PSY.get_primary_shunt(branch, PSY.SU)
     PM_branch = Dict{String, Any}(
-        "br_r" => PSY.get_r(branch),
-        "rate_a" => PSY.get_rating(branch),
+        "br_r" => PSY.get_r(branch, PSY.SU),
+        "rate_a" => PSY.get_rating(branch, PSY.SU),
         "shift" => PSY.get_α(branch),
-        "rate_b" => PSY.get_rating(branch),
-        "br_x" => PSY.get_x(branch),
-        "rate_c" => PSY.get_rating(branch),
+        "rate_b" => PSY.get_rating(branch, PSY.SU),
+        "br_x" => PSY.get_x(branch, PSY.SU),
+        "rate_c" => PSY.get_rating(branch, PSY.SU),
         "g_to" => 0.0,
         "b_to" => 0.0,
         "g_fr" => real(yt),
@@ -72,14 +72,14 @@ function get_branch_to_pm(
     ::Type{<:AbstractPowerModel},
 ) where {D <: AbstractBranchFormulation}
     # we allocate the transformer shunt values to primary side only
-    yt = PSY.get_primary_shunt(branch)
+    yt = PSY.get_primary_shunt(branch, PSY.SU)
     PM_branch = Dict{String, Any}(
-        "br_r" => PSY.get_r(branch),
-        "rate_a" => PSY.get_rating(branch),
+        "br_r" => PSY.get_r(branch, PSY.SU),
+        "rate_a" => PSY.get_rating(branch, PSY.SU),
         "shift" => PSY.get_α(branch),
-        "rate_b" => PSY.get_rating(branch),
-        "br_x" => PSY.get_x(branch),
-        "rate_c" => PSY.get_rating(branch),
+        "rate_b" => PSY.get_rating(branch, PSY.SU),
+        "br_x" => PSY.get_x(branch, PSY.SU),
+        "rate_c" => PSY.get_rating(branch, PSY.SU),
         "g_to" => 0.0,
         "b_to" => 0.0,
         "g_fr" => real(yt),
@@ -104,11 +104,11 @@ function get_branch_to_pm(
     ::Type{<:AbstractPowerModel},
 )
     # we allocate the transformer shunt values to primary side only
-    yt = PSY.get_primary_shunt(branch)
+    yt = PSY.get_primary_shunt(branch, PSY.SU)
     PM_branch = Dict{String, Any}(
-        "br_r" => PSY.get_r(branch),
+        "br_r" => PSY.get_r(branch, PSY.SU),
         "shift" => PSY.get_α(branch),
-        "br_x" => PSY.get_x(branch),
+        "br_x" => PSY.get_x(branch, PSY.SU),
         "g_to" => 0.0,
         "b_to" => 0.0,
         "g_fr" => real(yt),
@@ -133,14 +133,14 @@ function get_branch_to_pm(
     ::Type{<:AbstractPowerModel},
 )
     # we allocate the transformer shunt values to primary side only
-    yt = PSY.get_primary_shunt(branch)
+    yt = PSY.get_primary_shunt(branch, PSY.SU)
     PM_branch = Dict{String, Any}(
-        "br_r" => PSY.get_r(branch),
-        "rate_a" => PSY.get_rating(branch),
+        "br_r" => PSY.get_r(branch, PSY.SU),
+        "rate_a" => PSY.get_rating(branch, PSY.SU),
         "shift" => 0.0,
-        "rate_b" => PSY.get_rating(branch),
-        "br_x" => PSY.get_x(branch),
-        "rate_c" => PSY.get_rating(branch),
+        "rate_b" => PSY.get_rating(branch, PSY.SU),
+        "br_x" => PSY.get_x(branch, PSY.SU),
+        "rate_c" => PSY.get_rating(branch, PSY.SU),
         "g_to" => 0.0,
         "b_to" => 0.0,
         "g_fr" => real(yt),
@@ -165,11 +165,11 @@ function get_branch_to_pm(
     ::Type{<:AbstractPowerModel},
 )
     # we allocate the transformer shunt values to primary side only
-    yt = PSY.get_primary_shunt(branch)
+    yt = PSY.get_primary_shunt(branch, PSY.SU)
     PM_branch = Dict{String, Any}(
-        "br_r" => PSY.get_r(branch),
+        "br_r" => PSY.get_r(branch, PSY.SU),
         "shift" => 0.0,
-        "br_x" => PSY.get_x(branch),
+        "br_x" => PSY.get_x(branch, PSY.SU),
         "g_to" => 0.0,
         "b_to" => 0.0,
         "g_fr" => real(yt),
@@ -194,14 +194,14 @@ function get_branch_to_pm(
     ::Type{<:AbstractPowerModel},
 )
     # we allocate the transformer shunt values to primary side only
-    yt = PSY.get_primary_shunt(branch)
+    yt = PSY.get_primary_shunt(branch, PSY.SU)
     PM_branch = Dict{String, Any}(
-        "br_r" => PSY.get_r(branch),
-        "rate_a" => PSY.get_rating(branch),
+        "br_r" => PSY.get_r(branch, PSY.SU),
+        "rate_a" => PSY.get_rating(branch, PSY.SU),
         "shift" => 0.0,
-        "rate_b" => PSY.get_rating(branch),
-        "br_x" => PSY.get_x(branch),
-        "rate_c" => PSY.get_rating(branch),
+        "rate_b" => PSY.get_rating(branch, PSY.SU),
+        "br_x" => PSY.get_x(branch, PSY.SU),
+        "rate_c" => PSY.get_rating(branch, PSY.SU),
         "g_to" => 0.0,
         "b_to" => 0.0,
         "g_fr" => real(yt),
@@ -226,11 +226,11 @@ function get_branch_to_pm(
     ::Type{<:AbstractPowerModel},
 )
     # we allocate the transformer shunt values to primary side only
-    yt = PSY.get_primary_shunt(branch)
+    yt = PSY.get_primary_shunt(branch, PSY.SU)
     PM_branch = Dict{String, Any}(
-        "br_r" => PSY.get_r(branch),
+        "br_r" => PSY.get_r(branch, PSY.SU),
         "shift" => 0.0,
-        "br_x" => PSY.get_x(branch),
+        "br_x" => PSY.get_x(branch, PSY.SU),
         "g_to" => 0.0,
         "b_to" => 0.0,
         "g_fr" => real(yt),
@@ -255,19 +255,19 @@ function get_branch_to_pm(
     ::Type{<:AbstractPowerModel},
 )
     PM_branch = Dict{String, Any}(
-        "br_r" => PSY.get_r(branch),
-        "rate_a" => PSY.get_rating(branch),
+        "br_r" => PSY.get_r(branch, PSY.SU),
+        "rate_a" => PSY.get_rating(branch, PSY.SU),
         "shift" => 0.0,
-        "rate_b" => PSY.get_rating(branch),
-        "br_x" => PSY.get_x(branch),
-        "rate_c" => PSY.get_rating(branch),
+        "rate_b" => PSY.get_rating(branch, PSY.SU),
+        "br_x" => PSY.get_x(branch, PSY.SU),
+        "rate_c" => PSY.get_rating(branch, PSY.SU),
         "g_to" => 0.0,
         "g_fr" => 0.0,
-        "b_fr" => PSY.get_b(branch).from,
+        "b_fr" => PSY.get_b(branch, PSY.SU).from,
         "f_bus" => PSY.get_number(PSY.get_arc(branch).from),
         "br_status" => Float64(PSY.get_available(branch)),
         "t_bus" => PSY.get_number(PSY.get_arc(branch).to),
-        "b_to" => PSY.get_b(branch).to,
+        "b_to" => PSY.get_b(branch, PSY.SU).to,
         "index" => ix,
         "angmin" => PSY.get_angle_limits(branch).min,
         "angmax" => PSY.get_angle_limits(branch).max,
@@ -285,16 +285,16 @@ function get_branch_to_pm(
     ::Type{<:AbstractPowerModel},
 )
     PM_branch = Dict{String, Any}(
-        "br_r" => PSY.get_r(branch),
+        "br_r" => PSY.get_r(branch, PSY.SU),
         "shift" => 0.0,
-        "br_x" => PSY.get_x(branch),
+        "br_x" => PSY.get_x(branch, PSY.SU),
         "g_to" => 0.0,
         "g_fr" => 0.0,
-        "b_fr" => PSY.get_b(branch).from,
+        "b_fr" => PSY.get_b(branch, PSY.SU).from,
         "f_bus" => PSY.get_number(PSY.get_arc(branch).from),
         "br_status" => Float64(PSY.get_available(branch)),
         "t_bus" => PSY.get_number(PSY.get_arc(branch).to),
-        "b_to" => PSY.get_b(branch).to,
+        "b_to" => PSY.get_b(branch, PSY.SU).to,
         "index" => ix,
         "angmin" => PSY.get_angle_limits(branch).min,
         "angmax" => PSY.get_angle_limits(branch).max,
@@ -548,30 +548,30 @@ function get_branch_to_pm(
     check_hvdc_line_limits_unidirectional(branch)
     PM_branch = Dict{String, Any}(
         "loss1" => PSY.get_proportional_term(PSY.get_loss(branch)),
-        "mp_pmax" => PSY.get_reactive_power_limits_from(branch).max,
+        "mp_pmax" => PSY.get_reactive_power_limits_from(branch, PSY.SU).max,
         "model" => 2,
         "shutdown" => 0.0,
-        "pmaxt" => PSY.get_active_power_limits_to(branch).max,
-        "pmaxf" => PSY.get_active_power_limits_from(branch).max,
+        "pmaxt" => PSY.get_active_power_limits_to(branch, PSY.SU).max,
+        "pmaxf" => PSY.get_active_power_limits_from(branch, PSY.SU).max,
         "startup" => 0.0,
         "loss0" => PSY.get_constant_term(PSY.get_loss(branch)),
         "pt" => 0.0,
         "vt" => PSY.get_magnitude(PSY.get_arc(branch).to),
-        "qmaxf" => PSY.get_reactive_power_limits_from(branch).max,
-        "pmint" => PSY.get_active_power_limits_to(branch).min,
+        "qmaxf" => PSY.get_reactive_power_limits_from(branch, PSY.SU).max,
+        "pmint" => PSY.get_active_power_limits_to(branch, PSY.SU).min,
         "f_bus" => PSY.get_number(PSY.get_arc(branch).from),
-        "mp_pmin" => PSY.get_reactive_power_limits_from(branch).min,
+        "mp_pmin" => PSY.get_reactive_power_limits_from(branch, PSY.SU).min,
         "br_status" => Float64(PSY.get_available(branch)),
         "t_bus" => PSY.get_number(PSY.get_arc(branch).to),
         "index" => ix,
-        "qmint" => PSY.get_reactive_power_limits_to(branch).min,
+        "qmint" => PSY.get_reactive_power_limits_to(branch, PSY.SU).min,
         "qf" => 0.0,
         "cost" => 0.0,
-        "pminf" => PSY.get_active_power_limits_from(branch).min,
+        "pminf" => PSY.get_active_power_limits_from(branch, PSY.SU).min,
         "qt" => 0.0,
-        "qminf" => PSY.get_reactive_power_limits_from(branch).min,
+        "qminf" => PSY.get_reactive_power_limits_from(branch, PSY.SU).min,
         "vf" => PSY.get_magnitude(PSY.get_arc(branch).from),
-        "qmaxt" => PSY.get_reactive_power_limits_to(branch).max,
+        "qmaxt" => PSY.get_reactive_power_limits_to(branch, PSY.SU).max,
         "ncost" => 0,
         "pf" => 0.0,
     )
@@ -586,30 +586,30 @@ function get_branch_to_pm(
 )
     PM_branch = Dict{String, Any}(
         "loss1" => PSY.get_proportional_term(PSY.get_loss(branch)),
-        "mp_pmax" => PSY.get_reactive_power_limits_from(branch).max,
+        "mp_pmax" => PSY.get_reactive_power_limits_from(branch, PSY.SU).max,
         "model" => 2,
         "shutdown" => 0.0,
-        "pmaxt" => PSY.get_active_power_limits_to(branch).max,
-        "pmaxf" => PSY.get_active_power_limits_from(branch).max,
+        "pmaxt" => PSY.get_active_power_limits_to(branch, PSY.SU).max,
+        "pmaxf" => PSY.get_active_power_limits_from(branch, PSY.SU).max,
         "startup" => 0.0,
         "loss0" => PSY.get_constant_term(PSY.get_loss(branch)),
         "pt" => 0.0,
         "vt" => PSY.get_magnitude(PSY.get_arc(branch).to),
-        "qmaxf" => PSY.get_reactive_power_limits_from(branch).max,
-        "pmint" => PSY.get_active_power_limits_to(branch).min,
+        "qmaxf" => PSY.get_reactive_power_limits_from(branch, PSY.SU).max,
+        "pmint" => PSY.get_active_power_limits_to(branch, PSY.SU).min,
         "f_bus" => PSY.get_number(PSY.get_arc(branch).from),
-        "mp_pmin" => PSY.get_reactive_power_limits_from(branch).min,
+        "mp_pmin" => PSY.get_reactive_power_limits_from(branch, PSY.SU).min,
         "br_status" => Float64(PSY.get_available(branch)),
         "t_bus" => PSY.get_number(PSY.get_arc(branch).to),
         "index" => ix,
-        "qmint" => PSY.get_reactive_power_limits_to(branch).min,
+        "qmint" => PSY.get_reactive_power_limits_to(branch, PSY.SU).min,
         "qf" => 0.0,
         "cost" => 0.0,
-        "pminf" => PSY.get_active_power_limits_from(branch).min,
+        "pminf" => PSY.get_active_power_limits_from(branch, PSY.SU).min,
         "qt" => 0.0,
-        "qminf" => PSY.get_reactive_power_limits_from(branch).min,
+        "qminf" => PSY.get_reactive_power_limits_from(branch, PSY.SU).min,
         "vf" => PSY.get_magnitude(PSY.get_arc(branch).from),
-        "qmaxt" => PSY.get_reactive_power_limits_to(branch).max,
+        "qmaxt" => PSY.get_reactive_power_limits_to(branch, PSY.SU).max,
         "ncost" => 0,
         "pf" => 0.0,
     )
@@ -624,30 +624,30 @@ function get_branch_to_pm(
 )
     PM_branch = Dict{String, Any}(
         "loss1" => PSY.get_proportional_term(PSY.get_loss(branch)),
-        "mp_pmax" => PSY.get_reactive_power_limits_from(branch).max,
+        "mp_pmax" => PSY.get_reactive_power_limits_from(branch, PSY.SU).max,
         "model" => 2,
         "shutdown" => 0.0,
-        "pmaxt" => PSY.get_active_power_limits_to(branch).max,
-        "pmaxf" => PSY.get_active_power_limits_from(branch).max,
+        "pmaxt" => PSY.get_active_power_limits_to(branch, PSY.SU).max,
+        "pmaxf" => PSY.get_active_power_limits_from(branch, PSY.SU).max,
         "startup" => 0.0,
         "loss0" => PSY.get_constant_term(PSY.get_loss(branch)),
         "pt" => 0.0,
         "vt" => PSY.get_magnitude(PSY.get_arc(branch).to),
-        "qmaxf" => PSY.get_reactive_power_limits_from(branch).max,
-        "pmint" => PSY.get_active_power_limits_to(branch).min,
+        "qmaxf" => PSY.get_reactive_power_limits_from(branch, PSY.SU).max,
+        "pmint" => PSY.get_active_power_limits_to(branch, PSY.SU).min,
         "f_bus" => PSY.get_number(PSY.get_arc(branch).from),
-        "mp_pmin" => PSY.get_reactive_power_limits_from(branch).min,
+        "mp_pmin" => PSY.get_reactive_power_limits_from(branch, PSY.SU).min,
         "br_status" => 0.0,
         "t_bus" => PSY.get_number(PSY.get_arc(branch).to),
         "index" => ix,
-        "qmint" => PSY.get_reactive_power_limits_to(branch).min,
+        "qmint" => PSY.get_reactive_power_limits_to(branch, PSY.SU).min,
         "qf" => 0.0,
         "cost" => 0.0,
-        "pminf" => PSY.get_active_power_limits_from(branch).min,
+        "pminf" => PSY.get_active_power_limits_from(branch, PSY.SU).min,
         "qt" => 0.0,
-        "qminf" => PSY.get_reactive_power_limits_from(branch).min,
+        "qminf" => PSY.get_reactive_power_limits_from(branch, PSY.SU).min,
         "vf" => PSY.get_magnitude(PSY.get_arc(branch).from),
-        "qmaxt" => PSY.get_reactive_power_limits_to(branch).max,
+        "qmaxt" => PSY.get_reactive_power_limits_to(branch, PSY.SU).max,
         "ncost" => 0,
         "pf" => 0.0,
     )
@@ -807,7 +807,7 @@ function pass_to_pm(sys::PSY.System, template::OperationsProblemTemplate, time_p
     PM_translation = Dict{String, Any}(
         "bus" => pm_buses,
         "branch" => ac_lines,
-        "baseMVA" => PSY.get_base_power(sys),
+        "baseMVA" => PSY.get_base_power(sys, PSY.NU),
         "per_unit" => true,
         "storage" => Dict{String, Any}(),
         "dcline" => two_terminal_dc_lines,

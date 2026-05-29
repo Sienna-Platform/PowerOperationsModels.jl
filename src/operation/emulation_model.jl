@@ -1,3 +1,55 @@
+# Template-first constructor defaults the problem type to `GenericEmulationProblem`
+# (mirrors the DecisionModel defaulting constructor; see decision_model.jl).
+function EmulationModel(
+    template::IOM.AbstractProblemTemplate,
+    sys::IS.InfrastructureSystemsContainer,
+    jump_model::Union{Nothing, JuMP.Model} = nothing;
+    kwargs...,
+)
+    return EmulationModel{GenericEmulationProblem}(template, sys, jump_model; kwargs...)
+end
+
+# POM-side implementation of IOM's `validate_time_series!` extension point for
+# emulation problems. Emulation models solve a single step, so horizon == resolution.
+function validate_time_series!(model::EmulationModel{<:DefaultEmulationProblem})
+    sys = get_system(model)
+    settings = get_settings(model)
+    available_resolutions = IOM.get_time_series_resolutions(sys)
+
+    if get_resolution(settings) == IOM.UNSET_RESOLUTION &&
+       length(available_resolutions) != 1
+        throw(
+            IS.ConflictingInputsError(
+                "Data contains multiple resolutions, the resolution keyword argument must be added to the Model. Time Series Resolutions: $(available_resolutions)",
+            ),
+        )
+    elseif get_resolution(settings) != IOM.UNSET_RESOLUTION &&
+           length(available_resolutions) > 1
+        if get_resolution(settings) ∉ available_resolutions
+            throw(
+                IS.ConflictingInputsError(
+                    "Resolution $(get_resolution(settings)) is not available in the system data. Time Series Resolutions: $(available_resolutions)",
+                ),
+            )
+        end
+    else
+        IOM.set_resolution!(settings, first(available_resolutions))
+    end
+
+    if get_horizon(settings) == IOM.UNSET_HORIZON
+        # Emulation Models only solve one "step" so Horizon and Resolution must match
+        IOM.set_horizon!(settings, get_resolution(settings))
+    end
+
+    counts = IOM.get_time_series_counts(sys)
+    if counts.static_time_series_count < 1
+        error(
+            "The system does not contain Static Time Series data. A EmulationModel can't be built.",
+        )
+    end
+    return
+end
+
 # FIXME untested. Moved to accommodate a few methods dispatching on EmulationModelStore,
 # but not run in the tests and not yet refactored for IOM-POM split.
 function build_pre_step!(model::EmulationModel)

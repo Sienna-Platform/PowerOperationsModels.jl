@@ -1247,7 +1247,7 @@ end
         "ub",
     )
     constraint = IOM.get_constraint(IOM.get_optimization_container(model), key)
-    ub_value = get_max_active_power(solitude) * 0.8
+    ub_value = get_max_active_power(solitude, PSY.SU) * 0.8
     for ix in eachindex(constraint)
         @test JuMP.normalized_rhs(constraint[ix]) == ub_value
     end

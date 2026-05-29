@@ -341,7 +341,7 @@ function add_pwl_term_delta!(
     value_curve = PSY.get_value_curve(cost_data)
     power_units = PSY.get_power_units(cost_data)
     cost_component = PSY.get_function_data(value_curve)
-    device_base_power = PSY.get_base_power(component)
+    device_base_power = PSY.get_base_power(component, PSY.NU)
     data = get_piecewise_curve_per_system_unit(
         cost_component,
         power_units,

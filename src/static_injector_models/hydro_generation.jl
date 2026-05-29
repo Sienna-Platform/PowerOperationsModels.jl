@@ -12,25 +12,25 @@ get_expression_type_for_reserve(::Type{ActivePowerReserveVariable}, ::Type{<:PSY
 ########################### ActivePowerVariable, HydroGen #################################
 # These methods are defined in PowerSimulations
 get_variable_binary(::Type{ActivePowerVariable}, ::Type{<:PSY.HydroGen}, ::Type{<:AbstractHydroFormulation}) = false
-get_variable_warm_start_value(::Type{ActivePowerVariable}, d::PSY.HydroGen, ::Type{<:AbstractHydroReservoirFormulation}) = PSY.get_active_power(d)
-get_variable_lower_bound(::Type{ActivePowerVariable}, d::PSY.HydroGen, ::Type{<:AbstractHydroFormulation}) = PSY.get_active_power_limits(d).min
+get_variable_warm_start_value(::Type{ActivePowerVariable}, d::PSY.HydroGen, ::Type{<:AbstractHydroReservoirFormulation}) = PSY.get_active_power(d, PSY.SU)
+get_variable_lower_bound(::Type{ActivePowerVariable}, d::PSY.HydroGen, ::Type{<:AbstractHydroFormulation}) = PSY.get_active_power_limits(d, PSY.SU).min
 get_variable_lower_bound(::Type{ActivePowerVariable}, d::PSY.HydroGen, ::Type{<:AbstractHydroUnitCommitment}) = 0.0
-get_variable_upper_bound(::Type{ActivePowerVariable}, d::PSY.HydroGen, ::Type{<:AbstractHydroFormulation}) = PSY.get_active_power_limits(d).max
+get_variable_upper_bound(::Type{ActivePowerVariable}, d::PSY.HydroGen, ::Type{<:AbstractHydroFormulation}) = PSY.get_active_power_limits(d, PSY.SU).max
 
 ############## ReactivePowerVariable, HydroGen ####################
 get_variable_binary(::Type{ReactivePowerVariable}, ::Type{<:PSY.HydroGen}, ::Type{<:AbstractHydroDispatchFormulation}) = false
 get_variable_binary(::Type{ReactivePowerVariable}, ::Type{<:PSY.HydroGen}, ::Type{<:AbstractHydroReservoirFormulation}) = false
 get_variable_binary(::Type{ReactivePowerVariable}, ::Type{<:PSY.HydroGen}, ::Type{<:AbstractHydroUnitCommitment}) = false
-get_variable_warm_start_value(::Type{ReactivePowerVariable}, d::PSY.HydroGen, ::Type{<:AbstractHydroReservoirFormulation}) = PSY.get_active_power(d)
-get_variable_lower_bound(::Type{ReactivePowerVariable}, d::PSY.HydroGen, ::Type{<:AbstractHydroReservoirFormulation}) = PSY.get_active_power_limits(d).min
-get_variable_upper_bound(::Type{ReactivePowerVariable}, d::PSY.HydroGen, ::Type{<:AbstractHydroReservoirFormulation}) = PSY.get_active_power_limits(d).max
+get_variable_warm_start_value(::Type{ReactivePowerVariable}, d::PSY.HydroGen, ::Type{<:AbstractHydroReservoirFormulation}) = PSY.get_active_power(d, PSY.SU)
+get_variable_lower_bound(::Type{ReactivePowerVariable}, d::PSY.HydroGen, ::Type{<:AbstractHydroReservoirFormulation}) = PSY.get_active_power_limits(d, PSY.SU).min
+get_variable_upper_bound(::Type{ReactivePowerVariable}, d::PSY.HydroGen, ::Type{<:AbstractHydroReservoirFormulation}) = PSY.get_active_power_limits(d, PSY.SU).max
 
 ############## EnergyVariable, HydroGen ####################
 # These methods are defined in PowerSimulations
 get_variable_binary(::Type{EnergyVariable}, ::Type{<:PSY.HydroGen}, ::Type{<:AbstractHydroReservoirFormulation}) = false
 get_variable_warm_start_value(::Type{EnergyVariable}, d::PSY.HydroGen, ::Type{<:AbstractHydroReservoirFormulation}) = PSY.get_initial_storage(d)
 get_variable_lower_bound(::Type{EnergyVariable}, d::PSY.HydroGen, ::Type{<:AbstractHydroReservoirFormulation}) = 0.0
-get_variable_upper_bound(::Type{EnergyVariable}, d::PSY.HydroGen, ::Type{<:AbstractHydroReservoirFormulation}) = PSY.get_storage_capacity(d)
+get_variable_upper_bound(::Type{EnergyVariable}, d::PSY.HydroGen, ::Type{<:AbstractHydroReservoirFormulation}) = PSY.get_storage_capacity(d, PSY.SU)
 
 ########################### ActivePowerInVariable, HydroGen #################################
 get_variable_binary(::Type{ActivePowerInVariable}, ::Type{<:PSY.HydroGen}, ::Type{<:AbstractHydroReservoirFormulation}) = false
@@ -48,7 +48,7 @@ get_variable_multiplier(::Type{ActivePowerOutVariable}, d::Type{<:PSY.HydroGen},
 # These methods are defined in PowerSimulations
 get_variable_binary(::Type{OnVariable}, ::Type{<:PSY.HydroGen}, ::Type{<:AbstractHydroReservoirFormulation}) = true
 get_variable_binary(::Type{OnVariable}, ::Type{<:PSY.HydroGen}, ::Type{<:AbstractHydroUnitCommitment}) = true
-get_variable_warm_start_value(::Type{OnVariable}, d::PSY.HydroGen, ::Type{<:AbstractHydroReservoirFormulation}) = PSY.get_active_power(d) > 0 ? 1.0 : 0.0
+get_variable_warm_start_value(::Type{OnVariable}, d::PSY.HydroGen, ::Type{<:AbstractHydroReservoirFormulation}) = PSY.get_active_power(d, PSY.SU) > 0 ? 1.0 : 0.0
 
 ############## WaterSpillageVariable, HydroGen ####################
 get_variable_binary(::Type{WaterSpillageVariable}, ::Type{<:PSY.HydroGen}, ::Type{<:AbstractHydroFormulation}) = false
@@ -75,22 +75,22 @@ get_variable_binary(::Type{ReservationVariable}, ::Type{<:PSY.HydroGen}, ::Type{
 ############## EnergyShortageVariable, HydroGen ####################
 get_variable_binary(::Type{HydroEnergyShortageVariable}, ::Type{<:PSY.HydroGen}, ::Type{<:AbstractHydroFormulation}) = false
 get_variable_lower_bound(::Type{HydroEnergyShortageVariable}, d::PSY.HydroGen, ::Type{<:AbstractHydroReservoirFormulation}) = 0.0
-get_variable_upper_bound(::Type{HydroEnergyShortageVariable}, d::PSY.HydroGen, ::Type{<:AbstractHydroReservoirFormulation}) = PSY.get_storage_capacity(d)
+get_variable_upper_bound(::Type{HydroEnergyShortageVariable}, d::PSY.HydroGen, ::Type{<:AbstractHydroReservoirFormulation}) = PSY.get_storage_capacity(d, PSY.SU)
 get_variable_lower_bound(::Type{HydroEnergyShortageVariable}, d::PSY.HydroDispatch, ::Type{HydroDispatchRunOfRiverBudget}) = 0.0
 get_variable_upper_bound(::Type{HydroEnergyShortageVariable}, d::PSY.HydroDispatch, ::Type{HydroDispatchRunOfRiverBudget}) = nothing
 
 ############## HydroEnergySurplusVariable, HydroGen ####################
 get_variable_binary(::Type{HydroEnergySurplusVariable}, ::Type{<:PSY.HydroGen}, ::Type{<:AbstractHydroReservoirFormulation}) = false
 get_variable_upper_bound(::Type{HydroEnergySurplusVariable}, d::PSY.HydroGen, ::Type{<:AbstractHydroReservoirFormulation}) = 0.0
-get_variable_lower_bound(::Type{HydroEnergySurplusVariable}, d::PSY.HydroGen, ::Type{<:AbstractHydroReservoirFormulation}) = - PSY.get_storage_capacity(d)
+get_variable_lower_bound(::Type{HydroEnergySurplusVariable}, d::PSY.HydroGen, ::Type{<:AbstractHydroReservoirFormulation}) = - PSY.get_storage_capacity(d, PSY.SU)
 
 ############## HydroReservoir ####################
 
 get_variable_binary(::Type{EnergyVariable}, ::Type{<:PSY.HydroReservoir}, ::Type{<:AbstractHydroFormulation}) = false
 get_variable_binary(::Type{HydroEnergyShortageVariable}, ::Type{<:PSY.HydroReservoir}, ::Type{<:AbstractHydroFormulation}) = false
 get_variable_binary(::Type{HydroEnergySurplusVariable}, ::Type{<:PSY.HydroReservoir}, ::Type{<:AbstractHydroFormulation}) = false
-get_variable_lower_bound(::Type{EnergyVariable}, d::PSY.HydroReservoir, ::Type{HydroEnergyModelReservoir}) = PSY.get_storage_level_limits(d).min / PSY.get_system_base_power(d)
-get_variable_upper_bound(::Type{EnergyVariable}, d::PSY.HydroReservoir, ::Type{HydroEnergyModelReservoir}) = PSY.get_storage_level_limits(d).max / PSY.get_system_base_power(d)
+get_variable_lower_bound(::Type{EnergyVariable}, d::PSY.HydroReservoir, ::Type{HydroEnergyModelReservoir}) = PSY.get_storage_level_limits(d).min / PSY._get_system_base_power(d)
+get_variable_upper_bound(::Type{EnergyVariable}, d::PSY.HydroReservoir, ::Type{HydroEnergyModelReservoir}) = PSY.get_storage_level_limits(d).max / PSY._get_system_base_power(d)
 
 ############## PSY.HydroTurbine ####################
 get_variable_binary(::Type{HydroTurbineFlowRateVariable}, ::Type{<:PSY.HydroTurbine}, ::Type{<:AbstractHydroFormulation}) = false
@@ -107,18 +107,18 @@ get_variable_binary(::Type{OnVariable}, ::Type{<:PSY.HydroPumpTurbine}, ::Type{H
 
 # ActivePowerVariable
 get_variable_binary(::Type{ActivePowerVariable}, ::Type{<:PSY.HydroPumpTurbine}, ::Type{<:AbstractHydroPumpFormulation}) = false
-get_variable_lower_bound(::Type{ActivePowerVariable}, d::PSY.HydroPumpTurbine, ::Type{<:AbstractHydroPumpFormulation}) = PSY.get_active_power_limits(d).min
+get_variable_lower_bound(::Type{ActivePowerVariable}, d::PSY.HydroPumpTurbine, ::Type{<:AbstractHydroPumpFormulation}) = PSY.get_active_power_limits(d, PSY.SU).min
 get_variable_lower_bound(::Type{ActivePowerVariable}, d::PSY.HydroPumpTurbine, ::Type{HydroPumpEnergyCommitment}) = 0.0
-get_variable_upper_bound(::Type{ActivePowerVariable}, d::PSY.HydroPumpTurbine, ::Type{<:AbstractHydroPumpFormulation}) = PSY.get_active_power_limits(d).max
+get_variable_upper_bound(::Type{ActivePowerVariable}, d::PSY.HydroPumpTurbine, ::Type{<:AbstractHydroPumpFormulation}) = PSY.get_active_power_limits(d, PSY.SU).max
 # ActivePowerPumpVariable
 get_variable_binary(::Type{ActivePowerPumpVariable}, ::Type{<:PSY.HydroPumpTurbine}, ::Type{<:AbstractHydroPumpFormulation}) = false
-get_variable_lower_bound(::Type{ActivePowerPumpVariable}, d::PSY.HydroPumpTurbine, ::Type{<:AbstractHydroPumpFormulation}) = PSY.get_active_power_limits_pump(d).min
+get_variable_lower_bound(::Type{ActivePowerPumpVariable}, d::PSY.HydroPumpTurbine, ::Type{<:AbstractHydroPumpFormulation}) = PSY.get_active_power_limits_pump(d, PSY.SU).min
 get_variable_lower_bound(::Type{ActivePowerPumpVariable}, d::PSY.HydroPumpTurbine, ::Type{HydroPumpEnergyCommitment}) = 0.0
-get_variable_upper_bound(::Type{ActivePowerPumpVariable}, d::PSY.HydroPumpTurbine, ::Type{<:AbstractHydroPumpFormulation}) = PSY.get_active_power_limits_pump(d).max
+get_variable_upper_bound(::Type{ActivePowerPumpVariable}, d::PSY.HydroPumpTurbine, ::Type{<:AbstractHydroPumpFormulation}) = PSY.get_active_power_limits_pump(d, PSY.SU).max
 # ReactivePowerVariable
 get_variable_binary(::Type{ReactivePowerVariable}, ::Type{<:PSY.HydroPumpTurbine}, ::Type{<:AbstractHydroPumpFormulation}) = false
-get_variable_lower_bound(::Type{ReactivePowerVariable}, d::PSY.HydroPumpTurbine, ::Type{<:AbstractHydroPumpFormulation}) = PSY.get_reactive_power_limits(d).min
-get_variable_upper_bound(::Type{ReactivePowerVariable}, d::PSY.HydroPumpTurbine, ::Type{<:AbstractHydroPumpFormulation}) = PSY.get_reactive_power_limits(d).max
+get_variable_lower_bound(::Type{ReactivePowerVariable}, d::PSY.HydroPumpTurbine, ::Type{<:AbstractHydroPumpFormulation}) = PSY.get_reactive_power_limits(d, PSY.SU).min
+get_variable_upper_bound(::Type{ReactivePowerVariable}, d::PSY.HydroPumpTurbine, ::Type{<:AbstractHydroPumpFormulation}) = PSY.get_reactive_power_limits(d, PSY.SU).max
 
 
 ############## EnergyShortageVariable, HydroReservoir ####################
@@ -190,12 +190,12 @@ function get_variable_lower_bound(::Type{HydroReservoirVolumeVariable}, d::PSY.H
 end
 
 ########################### Parameter related set functions ################################
-get_multiplier_value(::Type{EnergyBudgetTimeSeriesParameter}, d::PSY.HydroGen, ::Type{<:AbstractHydroFormulation}) = PSY.get_max_active_power(d)
-# get_multiplier_value(::EnergyBudgetTimeSeriesParameter, d::PSY.HydroEnergyReservoir, ::AbstractHydroFormulation) = PSY.get_storage_capacity(d)
-get_multiplier_value(::Type{EnergyBudgetTimeSeriesParameter}, d::PSY.HydroReservoir, ::Type{HydroEnergyModelReservoir}) = PSY.get_storage_level_limits(d).max / PSY.get_system_base_power(d)
+get_multiplier_value(::Type{EnergyBudgetTimeSeriesParameter}, d::PSY.HydroGen, ::Type{<:AbstractHydroFormulation}) = PSY.get_max_active_power(d, PSY.SU)
+# get_multiplier_value(::EnergyBudgetTimeSeriesParameter, d::PSY.HydroEnergyReservoir, ::AbstractHydroFormulation) = PSY.get_storage_capacity(d, PSY.SU)
+get_multiplier_value(::Type{EnergyBudgetTimeSeriesParameter}, d::PSY.HydroReservoir, ::Type{HydroEnergyModelReservoir}) = PSY.get_storage_level_limits(d).max / PSY._get_system_base_power(d)
 get_multiplier_value(::Type{WaterBudgetTimeSeriesParameter}, d::PSY.HydroReservoir, ::Type{HydroWaterModelReservoir}) = 1.0 # Data already in m3/s
-get_multiplier_value(::Type{EnergyTargetTimeSeriesParameter}, d::PSY.HydroGen, ::Type{<:AbstractHydroFormulation}) = PSY.get_storage_capacity(d)
-get_multiplier_value(::Type{EnergyTargetTimeSeriesParameter}, d::PSY.HydroReservoir, ::Type{HydroEnergyModelReservoir}) = PSY.get_level_targets(d) * PSY.get_storage_level_limits(d).max / PSY.get_system_base_power(d)
+get_multiplier_value(::Type{EnergyTargetTimeSeriesParameter}, d::PSY.HydroGen, ::Type{<:AbstractHydroFormulation}) = PSY.get_storage_capacity(d, PSY.SU)
+get_multiplier_value(::Type{EnergyTargetTimeSeriesParameter}, d::PSY.HydroReservoir, ::Type{HydroEnergyModelReservoir}) = PSY.get_level_targets(d) * PSY.get_storage_level_limits(d).max / PSY._get_system_base_power(d)
 get_multiplier_value(::Type{WaterTargetTimeSeriesParameter}, d::PSY.HydroReservoir, ::Type{HydroWaterModelReservoir}) = 1.0 # Data already in head meters
 get_multiplier_value(::Type{InflowTimeSeriesParameter}, d::PSY.HydroGen, ::Type{<:AbstractHydroFormulation}) = PSY.get_inflow(d) * PSY.get_conversion_factor(d)
 get_multiplier_value(::Type{OutflowTimeSeriesParameter}, d::PSY.HydroGen, ::Type{<:AbstractHydroFormulation}) = PSY.get_outflow(d) * PSY.get_conversion_factor(d)
@@ -203,23 +203,23 @@ get_multiplier_value(::Type{InflowTimeSeriesParameter}, d::PSY.HydroReservoir, :
 get_multiplier_value(::Type{OutflowTimeSeriesParameter}, d::PSY.HydroReservoir, ::Type{<:AbstractHydroFormulation}) = 1.0 # Data already in m3/s
 get_multiplier_value(::Type{InflowTimeSeriesParameter}, d::PSY.HydroReservoir, ::Type{HydroEnergyModelReservoir}) = PSY.get_inflow(d) # Data normalized
 get_multiplier_value(::Type{InflowTimeSeriesParameter}, d::PSY.HydroReservoir, ::Type{HydroWaterFactorModel}) = PSY.get_inflow(d)
-get_multiplier_value(::Type{<:TimeSeriesParameter}, d::PSY.HydroGen, ::Type{<:AbstractHydroFormulation}) = PSY.get_max_active_power(d)
-get_multiplier_value(::Type{<:TimeSeriesParameter}, d::PSY.HydroGen, ::Type{FixedOutput}) = PSY.get_max_active_power(d)
+get_multiplier_value(::Type{<:TimeSeriesParameter}, d::PSY.HydroGen, ::Type{<:AbstractHydroFormulation}) = PSY.get_max_active_power(d, PSY.SU)
+get_multiplier_value(::Type{<:TimeSeriesParameter}, d::PSY.HydroGen, ::Type{FixedOutput}) = PSY.get_max_active_power(d, PSY.SU)
 # next 2 needed to avoid ambiguity errors
-get_multiplier_value(::Type{<:AbstractPiecewiseLinearBreakpointParameter}, d::PSY.HydroGen, ::Type{FixedOutput}) = PSY.get_max_active_power(d)
-get_multiplier_value(::Type{<:AbstractPiecewiseLinearBreakpointParameter}, d::PSY.HydroGen, ::Type{<:AbstractHydroFormulation}) = PSY.get_max_active_power(d)
+get_multiplier_value(::Type{<:AbstractPiecewiseLinearBreakpointParameter}, d::PSY.HydroGen, ::Type{FixedOutput}) = PSY.get_max_active_power(d, PSY.SU)
+get_multiplier_value(::Type{<:AbstractPiecewiseLinearBreakpointParameter}, d::PSY.HydroGen, ::Type{<:AbstractHydroFormulation}) = PSY.get_max_active_power(d, PSY.SU)
 
 get_parameter_multiplier(::Type{<:VariableValueParameter}, d::PSY.HydroGen, ::Type{<:AbstractHydroFormulation}) = 1.0
 get_initial_parameter_value(::Type{<:VariableValueParameter}, d::PSY.HydroGen, ::Type{<:AbstractHydroFormulation}) = 1.0
 get_initial_parameter_value(::Type{HydroUsageLimitParameter}, d::PSY.HydroGen, ::Type{<:AbstractHydroFormulation}) = 1e6 #unbounded
 get_initial_parameter_value(::Type{WaterLevelBudgetParameter}, d::PSY.HydroReservoir, ::Type{<:AbstractHydroFormulation}) = 1e6 #unbounded
-get_expression_multiplier(::Type{OnStatusParameter}, ::Type{ActivePowerRangeExpressionUB}, d::PSY.HydroGen, ::Type{<:AbstractHydroFormulation}) = PSY.get_active_power_limits(d).max
-get_expression_multiplier(::Type{OnStatusParameter}, ::Type{ActivePowerRangeExpressionLB}, d::PSY.HydroGen, ::Type{<:AbstractHydroFormulation}) = PSY.get_active_power_limits(d).min
+get_expression_multiplier(::Type{OnStatusParameter}, ::Type{ActivePowerRangeExpressionUB}, d::PSY.HydroGen, ::Type{<:AbstractHydroFormulation}) = PSY.get_active_power_limits(d, PSY.SU).max
+get_expression_multiplier(::Type{OnStatusParameter}, ::Type{ActivePowerRangeExpressionLB}, d::PSY.HydroGen, ::Type{<:AbstractHydroFormulation}) = PSY.get_active_power_limits(d, PSY.SU).min
 
 #################### Initial Conditions for models ###############
 initial_condition_default(::DeviceStatus, d::PSY.HydroGen, ::AbstractHydroReservoirFormulation) = PSY.get_status(d)
 initial_condition_variable(::DeviceStatus, d::PSY.HydroGen, ::AbstractHydroReservoirFormulation) = OnVariable()
-initial_condition_default(::DevicePower, d::PSY.HydroGen, ::AbstractHydroReservoirFormulation) = PSY.get_active_power(d)
+initial_condition_default(::DevicePower, d::PSY.HydroGen, ::AbstractHydroReservoirFormulation) = PSY.get_active_power(d, PSY.SU)
 initial_condition_variable(::DevicePower, d::PSY.HydroGen, ::AbstractHydroReservoirFormulation) = ActivePowerVariable()
 initial_condition_default(::InitialEnergyLevel, d::PSY.HydroGen, ::AbstractHydroReservoirFormulation) = PSY.get_initial_storage(d)
 initial_condition_variable(::InitialEnergyLevel, d::PSY.HydroGen, ::AbstractHydroReservoirFormulation) = EnergyVariable()
@@ -229,7 +229,7 @@ initial_condition_variable(::InitialTimeDurationOn, d::PSY.HydroGen, ::AbstractH
 initial_condition_default(::InitialTimeDurationOff, d::PSY.HydroGen, ::AbstractHydroReservoirFormulation) = PSY.get_status(d) ? 0.0 : PSY.get_time_at_status(d)
 initial_condition_variable(::InitialTimeDurationOff, d::PSY.HydroGen, ::AbstractHydroReservoirFormulation) = OnVariable()
 
-initial_condition_default(::InitialEnergyLevel, d::PSY.HydroReservoir, ::HydroEnergyModelReservoir) = PSY.get_initial_level(d) * PSY.get_storage_level_limits(d).max / PSY.get_system_base_power(d)
+initial_condition_default(::InitialEnergyLevel, d::PSY.HydroReservoir, ::HydroEnergyModelReservoir) = PSY.get_initial_level(d) * PSY.get_storage_level_limits(d).max / PSY._get_system_base_power(d)
 initial_condition_variable(::InitialEnergyLevel, d::PSY.HydroReservoir, ::HydroEnergyModelReservoir) = EnergyVariable()
 function initial_condition_default(
     ::InitialReservoirVolume,
@@ -285,42 +285,42 @@ variable_cost(cost::PSY.StorageCost, ::Type{ActivePowerVariable}, ::Type{<:PSY.H
 
 # These methods are defined in PowerSimulations
 function get_initial_conditions_device_model(
-    ::OperationModel,
+    ::IOM.AbstractOptimizationModel,
     model::DeviceModel{T, <:AbstractHydroDispatchFormulation},
 ) where {T <: PSY.HydroGen}
     return model
 end
 
 function get_initial_conditions_device_model(
-    ::OperationModel,
+    ::IOM.AbstractOptimizationModel,
     model::DeviceModel{T, <:AbstractHydroReservoirFormulation},
 ) where {T <: PSY.HydroReservoir}
     return model
 end
 
 function get_initial_conditions_device_model(
-    ::OperationModel,
+    ::IOM.AbstractOptimizationModel,
     ::DeviceModel{T, U},
 ) where {T <: PSY.HydroDispatch, U <: HydroDispatchRunOfRiverBudget}
     return DeviceModel(PSY.HydroDispatch, HydroDispatchRunOfRiver)
 end
 
 function get_initial_conditions_device_model(
-    ::OperationModel,
+    ::IOM.AbstractOptimizationModel,
     ::DeviceModel{T, <:AbstractHydroReservoirFormulation},
 ) where {T <: PSY.HydroDispatch}
     return DeviceModel(PSY.HydroDispatch, HydroDispatchRunOfRiver)
 end
 
 function get_initial_conditions_device_model(
-    ::OperationModel,
+    ::IOM.AbstractOptimizationModel,
     model::DeviceModel{T, <:AbstractHydroUnitCommitment},
 ) where {T <: PSY.HydroGen}
     return model
 end
 
 function get_initial_conditions_device_model(
-    ::OperationModel,
+    ::IOM.AbstractOptimizationModel,
     model::DeviceModel{T, <:AbstractHydroPumpFormulation},
 ) where {T <: PSY.HydroPumpTurbine}
     return model
@@ -683,7 +683,7 @@ function get_min_max_limits(
     ::Type{<:ReactivePowerVariableLimitsConstraint},
     ::Type{<:AbstractHydroReservoirFormulation},
 )
-    return PSY.get_reactive_power_limits(x)
+    return PSY.get_reactive_power_limits(x, PSY.SU)
 end
 
 function get_min_max_limits(
@@ -691,7 +691,7 @@ function get_min_max_limits(
     ::Type{<:ReactivePowerVariableLimitsConstraint},
     ::Type{<:AbstractHydroDispatchFormulation},
 )
-    return PSY.get_reactive_power_limits(x)
+    return PSY.get_reactive_power_limits(x, PSY.SU)
 end
 
 function get_min_max_limits(
@@ -699,7 +699,7 @@ function get_min_max_limits(
     ::Type{<:ReactivePowerVariableLimitsConstraint},
     ::Type{<:AbstractHydroUnitCommitment},
 )
-    return PSY.get_reactive_power_limits(x)
+    return PSY.get_reactive_power_limits(x, PSY.SU)
 end
 
 function get_min_max_limits(
@@ -707,7 +707,7 @@ function get_min_max_limits(
     ::Type{<:ActivePowerVariableLimitsConstraint},
     ::Type{<:AbstractHydroFormulation},
 )
-    return PSY.get_active_power_limits(x)
+    return PSY.get_active_power_limits(x, PSY.SU)
 end
 
 """
@@ -718,7 +718,7 @@ function get_min_max_limits(
     ::Type{<:ActivePowerVariableLimitsConstraint},
     ::Type{<:AbstractHydroReservoirFormulation},
 )
-    return PSY.get_active_power_limits(x)
+    return PSY.get_active_power_limits(x, PSY.SU)
 end
 
 function get_min_max_limits(
@@ -726,7 +726,7 @@ function get_min_max_limits(
     ::Type{<:ActivePowerVariableLimitsConstraint},
     ::Type{<:HydroDispatchRunOfRiver},
 )
-    return (min = 0.0, max = PSY.get_max_active_power(x))
+    return (min = 0.0, max = PSY.get_max_active_power(x, PSY.SU))
 end
 
 """
@@ -737,7 +737,7 @@ function get_min_max_limits(
     ::Type{<:ActivePowerVariableLimitsConstraint},
     ::Type{<:AbstractHydroUnitCommitment},
 )
-    return PSY.get_active_power_limits(x)
+    return PSY.get_active_power_limits(x, PSY.SU)
 end
 
 """
@@ -748,7 +748,7 @@ function get_min_max_limits(
     ::Type{<:InputActivePowerVariableLimitsConstraint},
     ::Type{<:AbstractHydroPumpFormulation},
 )
-    return PSY.get_active_power_limits_pump(x)
+    return PSY.get_active_power_limits_pump(x, PSY.SU)
 end
 
 """
@@ -759,7 +759,7 @@ function get_min_max_limits(
     ::Type{<:ActivePowerVariableLimitsConstraint},
     ::Type{<:AbstractHydroPumpFormulation},
 )
-    return PSY.get_active_power_limits(x)
+    return PSY.get_active_power_limits(x, PSY.SU)
 end
 
 """
@@ -2554,7 +2554,7 @@ get_min_max_limits(
     x::PSY.HydroPumpTurbine,
     ::Type{<:ActivePowerPumpReservationConstraint},
     ::Type{<:AbstractHydroPumpFormulation},
-) = PSY.get_active_power_limits_pump(x)
+) = PSY.get_active_power_limits_pump(x, PSY.SU)
 
 """
 This function defines the constraints for the pump power
