@@ -10,9 +10,15 @@ function get_min_max_limits(
     if PSY.get_rating_b(branch, PSY.SU) === nothing
         @warn "Branch $(get_name(branch)) has no 'rating_b' defined. Post-contingency limit is going to be set using normal-operation rating.
             \n Consider including post-contingency limits using set_rating_b!()."
-        return (min = -1 * PSY.get_rating(branch, PSY.SU), max = PSY.get_rating(branch, PSY.SU))
+        return (
+            min = -1 * PSY.get_rating(branch, PSY.SU),
+            max = PSY.get_rating(branch, PSY.SU),
+        )
     end
-    return (min = -1 * PSY.get_rating_b(branch, PSY.SU), max = PSY.get_rating_b(branch, PSY.SU))
+    return (
+        min = -1 * PSY.get_rating_b(branch, PSY.SU),
+        max = PSY.get_rating_b(branch, PSY.SU),
+    )
 end
 
 """

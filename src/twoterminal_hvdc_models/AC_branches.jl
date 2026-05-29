@@ -881,7 +881,8 @@ function get_min_max_limits(
     ::Type{<:ConstraintType},
     ::Type{<:AbstractBranchFormulation},
 )
-    if PSY.get_flow_limits(device, PSY.SU).to_from != PSY.get_flow_limits(device, PSY.SU).from_to
+    if PSY.get_flow_limits(device, PSY.SU).to_from !=
+       PSY.get_flow_limits(device, PSY.SU).from_to
         @warn(
             "Flow limits in Line $(PSY.get_name(device)) aren't equal. The minimum will be used in formulation $(T)"
         )
@@ -946,7 +947,8 @@ function get_min_max_limits(
     ::Type{FlowLimitFromToConstraint},
     ::Type{<:AbstractBranchFormulation},
 )
-    if PSY.get_flow_limits(device, PSY.SU).to_from != PSY.get_flow_limits(device, PSY.SU).from_to
+    if PSY.get_flow_limits(device, PSY.SU).to_from !=
+       PSY.get_flow_limits(device, PSY.SU).from_to
         @warn(
             "Flow limits in Line $(PSY.get_name(device)) aren't equal. The minimum will be used in formulation $(T)"
         )
@@ -965,7 +967,8 @@ function get_min_max_limits(
     ::Type{FlowLimitToFromConstraint},
     ::Type{<:AbstractBranchFormulation},
 )
-    if PSY.get_flow_limits(device, PSY.SU).to_from != PSY.get_flow_limits(device, PSY.SU).from_to
+    if PSY.get_flow_limits(device, PSY.SU).to_from !=
+       PSY.get_flow_limits(device, PSY.SU).from_to
         @warn(
             "Flow limits in Line $(PSY.get_name(device)) aren't equal. The minimum will be used in formulation $(T)"
         )

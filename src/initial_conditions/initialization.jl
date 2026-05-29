@@ -1,4 +1,7 @@
-function get_initial_conditions_template(model::IOM.AbstractOptimizationModel, number_of_steps::Int)
+function get_initial_conditions_template(
+    model::IOM.AbstractOptimizationModel,
+    number_of_steps::Int,
+)
     # This is done to avoid passing the duals but also not re-allocating the PTDF when it
     # exists
 
@@ -59,7 +62,9 @@ function get_initial_conditions_template(model::IOM.AbstractOptimizationModel, n
     return ic_template
 end
 
-function build_initial_conditions_model!(model::T) where {T <: IOM.AbstractOptimizationModel}
+function build_initial_conditions_model!(
+    model::T,
+) where {T <: IOM.AbstractOptimizationModel}
     internal = get_internal(model)
     set_initial_conditions_model_container!(
         internal,
