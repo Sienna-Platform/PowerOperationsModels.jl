@@ -1,6 +1,6 @@
 @testset "HVDC System Tests" begin
     sys_5 = build_system(PSISystems, "sys10_pjm_ac_dc")
-    template_uc = OperationsProblemTemplate(NetworkModel(
+    template_uc = PowerOperationsProblemTemplate(NetworkModel(
         DCPPowerModel,
         #use_slacks=true,
         #PTDF_matrix=PTDF(sys_5),
@@ -19,12 +19,14 @@
     moi_tests(model, 1656, 288, 1248, 528, 888, true)
     @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
 
-    template_uc = OperationsProblemTemplate(NetworkModel(
-        PTDFPowerModel;
-        #use_slacks=true,
-        PTDF_matrix = PTDF(sys_5),
-        #duals=[CopperPlateBalanceConstraint],
-    ))
+    template_uc = PowerOperationsProblemTemplate(
+        NetworkModel(
+            PTDFPowerModel;
+            #use_slacks=true,
+            PTDF_matrix = PTDF(sys_5),
+            #duals=[CopperPlateBalanceConstraint],
+        ),
+    )
 
     set_device_model!(template_uc, ThermalStandard, ThermalStandardUnitCommitment)
     set_device_model!(template_uc, RenewableDispatch, RenewableFullDispatch)
@@ -78,7 +80,7 @@ end
 
 @testset "HVDC System with Transport Network" begin
     sys = _generate_test_hvdc_sys()
-    template = OperationsProblemTemplate()
+    template = PowerOperationsProblemTemplate()
     set_device_model!(template, ThermalStandard, ThermalDispatchNoMin)
     set_device_model!(template, PowerLoad, StaticPowerLoad)
     set_device_model!(template, DeviceModel(Line, StaticBranch))
@@ -101,7 +103,7 @@ end
     # Build both formulations on the same system; compare objective values
     # (Rodrigo's "same order of magnitude" ask from PR #103).
     function _build_and_solve(sys, formulation, optimizer)
-        template = OperationsProblemTemplate()
+        template = PowerOperationsProblemTemplate()
         set_device_model!(template, ThermalStandard, ThermalDispatchNoMin)
         set_device_model!(template, PowerLoad, StaticPowerLoad)
         set_device_model!(template, DeviceModel(Line, StaticBranch))
@@ -142,7 +144,7 @@ end
     # Direct evidence that the binary-free LP abs-value formulation is tight:
     # the loss objective drives abs_i down to exactly |i| at the optimum.
     sys = _generate_test_hvdc_sys()
-    template = OperationsProblemTemplate()
+    template = PowerOperationsProblemTemplate()
     set_device_model!(template, ThermalStandard, ThermalDispatchNoMin)
     set_device_model!(template, PowerLoad, StaticPowerLoad)
     set_device_model!(template, DeviceModel(Line, StaticBranch))
@@ -232,7 +234,7 @@ function _generate_test_vsc_sys(;
 end
 
 function _build_vsc_model(formulation, network, optimizer; sys = _generate_test_vsc_sys())
-    template = OperationsProblemTemplate(NetworkModel(network))
+    template = PowerOperationsProblemTemplate(NetworkModel(network))
     set_device_model!(template, ThermalStandard, ThermalDispatchNoMin)
     set_device_model!(template, RenewableDispatch, RenewableFullDispatch)
     set_device_model!(template, PowerLoad, StaticPowerLoad)

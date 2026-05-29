@@ -29,7 +29,7 @@ function get_initial_conditions_template(
     end
     network_model.modeled_branch_types =
         get_network_model(model.template).modeled_branch_types
-    ic_template = OperationsProblemTemplate(network_model)
+    ic_template = PowerOperationsProblemTemplate(network_model)
     # Do not copy events here for initialization
     for device_model in values(get_device_models(model.template))
         base_model = get_initial_conditions_device_model(model, device_model)

@@ -1,10 +1,10 @@
 # NOTE: None of the models and function in this file are functional. All of these are used for testing purposes and do not represent valid examples either to develop custom
 # models. Please refer to the documentation.
 
-struct MockOperationProblem <: DefaultDecisionProblem end
-struct MockEmulationProblem <: DefaultEmulationProblem end
-struct EconomicDispatchProblem <: DefaultDecisionProblem end
-struct UnitCommitmentProblem <: DefaultDecisionProblem end
+struct MockOperationProblem <: DefaultPowerDecisionProblem end
+struct MockEmulationProblem <: DefaultPowerEmulationProblem end
+struct EconomicDispatchProblem <: DefaultPowerDecisionProblem end
+struct UnitCommitmentProblem <: DefaultPowerDecisionProblem end
 
 function IOM.DecisionModel(
     ::Type{MockOperationProblem},
@@ -21,7 +21,7 @@ function IOM.DecisionModel(
         error("System has multiple resolutions MockOperationProblem won't work")
     end
     return DecisionModel{MockOperationProblem}(
-        OperationsProblemTemplate(T),
+        PowerOperationsProblemTemplate(T),
         sys,
         settings,
         nothing;
@@ -77,7 +77,7 @@ function IOM.DecisionModel(::Type{MockOperationProblem}; name = nothing, kwargs.
         horizon = get(kwargs, :horizon, Hour(24)),
         resolution = get(kwargs, :resolution, Hour(1)))
     return DecisionModel{MockOperationProblem}(
-        OperationsProblemTemplate(CopperPlatePowerModel),
+        PowerOperationsProblemTemplate(CopperPlatePowerModel),
         sys,
         settings,
         nothing;
@@ -104,7 +104,7 @@ function IOM.EmulationModel(::Type{MockEmulationProblem}; name = nothing, kwargs
         horizon = get(kwargs, :resolution, Hour(1)),
         resolution = get(kwargs, :resolution, Hour(1)))
     return EmulationModel{MockEmulationProblem}(
-        OperationsProblemTemplate(CopperPlatePowerModel),
+        PowerOperationsProblemTemplate(CopperPlatePowerModel),
         sys,
         settings,
         nothing;
@@ -180,32 +180,6 @@ function mock_construct_network!(problem::IOM.DecisionModel{MockOperationProblem
         problem.template.branches,
     )
     return
-end
-
-function mock_uc_ed_simulation_problems(uc_horizon, ed_horizon)
-    return IOM.SimulationModels([
-        DecisionModel(MockOperationProblem; horizon = uc_horizon, name = "UC"),
-        DecisionModel(
-            MockOperationProblem;
-            horizon = ed_horizon,
-            resolution = Minute(5),
-            name = "ED",
-        ),
-    ])
-end
-
-function create_simulation_build_test_problems(
-    template_uc = get_template_standard_uc_simulation(),
-    template_ed = get_template_nomin_ed_simulation(),
-    sys_uc = PSB.build_system(PSITestSystems, "c_sys5_uc"),
-    sys_ed = PSB.build_system(PSITestSystems, "c_sys5_ed"),
-)
-    return IOM.SimulationModels(;
-        decision_models = [
-            DecisionModel(template_uc, sys_uc; name = "UC", optimizer = HiGHS_optimizer),
-            DecisionModel(template_ed, sys_ed; name = "ED", optimizer = HiGHS_optimizer),
-        ],
-    )
 end
 
 struct MockStagesStruct

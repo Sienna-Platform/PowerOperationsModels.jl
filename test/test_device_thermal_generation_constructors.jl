@@ -16,7 +16,7 @@ const TIME1 = DateTime("2024-01-01T00:00:00")
     for (i, cost_reference, thermal_formulation) in test_cases
         @testset "$i" begin
             sys = build_system(PSITestSystems, "c_$(i)")
-            template = OperationsProblemTemplate(NetworkModel(CopperPlatePowerModel))
+            template = PowerOperationsProblemTemplate(NetworkModel(CopperPlatePowerModel))
             set_device_model!(template, ThermalStandard, thermal_formulation)
             set_device_model!(template, PowerLoad, StaticPowerLoad)
             model = DecisionModel(
@@ -82,7 +82,7 @@ const TIME1 = DateTime("2024-01-01T00:00:00")
     end
 
     @testset "Test startup cost tracking" begin
-        template = OperationsProblemTemplate(NetworkModel(CopperPlatePowerModel))
+        template = PowerOperationsProblemTemplate(NetworkModel(CopperPlatePowerModel))
         set_device_model!(template, ThermalStandard, ThermalBasicUnitCommitment)
         set_device_model!(template, PowerLoad, StaticPowerLoad)
         unit = "Test Unit"
@@ -155,7 +155,7 @@ end
     for i in test_cases
         @testset "$i" begin
             sys = build_system(PSITestSystems, "c_$(i)")
-            template = OperationsProblemTemplate(NetworkModel(CopperPlatePowerModel))
+            template = PowerOperationsProblemTemplate(NetworkModel(CopperPlatePowerModel))
             set_device_model!(template, ThermalStandard, ThermalBasicUnitCommitment)
             #=
             model = DecisionModel(
@@ -929,11 +929,11 @@ end
 
 @testset "Solving ED with CopperPlate for testing Ramping Constraints" begin
     ramp_test_sys = PSB.build_system(PSITestSystems, "c_ramp_test")
-    template = OperationsProblemTemplate(CopperPlatePowerModel)
+    template = PowerOperationsProblemTemplate(CopperPlatePowerModel)
     set_device_model!(template, ThermalStandard, ThermalStandardDispatch)
     set_device_model!(template, PowerLoad, StaticPowerLoad)
     ED = DecisionModel(
-        DefaultDecisionProblem,
+        DefaultPowerDecisionProblem,
         template,
         ramp_test_sys;
         optimizer = HiGHS_optimizer,
@@ -948,7 +948,7 @@ end
 @testset "Solving UC with CopperPlate for testing Duration Constraints" begin
     template = get_thermal_standard_uc_template()
     UC = DecisionModel(
-        DefaultDecisionProblem,
+        DefaultPowerDecisionProblem,
         template,
         PSB.build_system(PSITestSystems, "c_duration_test");
         optimizer = HiGHS_optimizer,
@@ -1172,7 +1172,7 @@ end =#
 @testset "Test Must Run ThermalGen" begin
     sys_5 = build_system(PSITestSystems, "c_sys5_uc")
     template_uc =
-        OperationsProblemTemplate(NetworkModel(CopperPlatePowerModel))
+        PowerOperationsProblemTemplate(NetworkModel(CopperPlatePowerModel))
     set_device_model!(template_uc, ThermalStandard, ThermalStandardUnitCommitment)
     #set_device_model!(template_uc, RenewableDispatch, FixedOutput)
     set_device_model!(template_uc, PowerLoad, StaticPowerLoad)
@@ -1266,7 +1266,7 @@ end
 #= @testset "Thermal with fuel cost time series" begin
     sys = PSB.build_system(PSITestSystems, "c_sys5_re_fuel_cost")
 
-    template = OperationsProblemTemplate(
+    template = PowerOperationsProblemTemplate(
         NetworkModel(
             CopperPlatePowerModel;
             duals = [CopperPlateBalanceConstraint],
@@ -1349,7 +1349,7 @@ end =#
 @testset "Thermal with fuel cost time series with Quadratic and PWL" begin
     sys = PSB.build_system(PSITestSystems, "c_sys5_re_fuel_cost")
 
-    template = OperationsProblemTemplate(
+    template = PowerOperationsProblemTemplate(
         NetworkModel(
             CopperPlatePowerModel;
             duals = [CopperPlateBalanceConstraint],
@@ -1484,7 +1484,7 @@ end
 @testset "ThermalDispatchNoMin with PWL Costs" begin
     sys = build_system(PSISystems, "modified_RTS_GMLC_DA_sys")
 
-    template = OperationsProblemTemplate(NetworkModel(PTDFPowerModel))
+    template = PowerOperationsProblemTemplate(NetworkModel(PTDFPowerModel))
     set_device_model!(template, ThermalStandard, ThermalDispatchNoMin)
     set_device_model!(template, Line, StaticBranchBounds)
     set_device_model!(template, TapTransformer, StaticBranchBounds)

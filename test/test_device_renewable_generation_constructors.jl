@@ -79,7 +79,7 @@ end
 @testset "Test Renewable CurtailmentCostExpression nonnegativity" begin
     c_sys5_re = PSB.build_system(PSITestSystems, "c_sys5_re")
 
-    template = OperationsProblemTemplate(NetworkModel(CopperPlatePowerModel))
+    template = PowerOperationsProblemTemplate(NetworkModel(CopperPlatePowerModel))
     set_device_model!(template, RenewableDispatch, RenewableFullDispatch)
     set_device_model!(template, ThermalStandard, ThermalStandardDispatch)
     set_device_model!(template, PowerLoad, StaticPowerLoad)

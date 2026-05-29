@@ -361,13 +361,13 @@ export add_reserve_variables!
 #################################################################################
 export DecisionModel
 export EmulationModel
-export OperationsProblemTemplate
+export PowerOperationsProblemTemplate
 export InitialCondition
-export PowerOperationModel
-export DecisionProblem
-export EmulationProblem
-export GenericOpProblem
-export GenericEmulationProblem
+export AbstractPowerOperationProblem
+export AbstractPowerDecisionProblem
+export AbstractPowerEmulationProblem
+export GenericPowerDecisionProblem
+export GenericPowerEmulationProblem
 
 # Network
 export NetworkModel
@@ -462,8 +462,8 @@ export RunStatus
 export SimulationBuildStatus
 
 # Problem Types
-export DefaultDecisionProblem
-export DefaultEmulationProblem
+export DefaultPowerDecisionProblem
+export DefaultPowerEmulationProblem
 
 # Settings and Data Types
 export Settings

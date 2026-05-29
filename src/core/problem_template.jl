@@ -1,5 +1,5 @@
 """
-    OperationsProblemTemplate(::Type{T}) where {T<:AbstractPowerModel}
+    PowerOperationsProblemTemplate(::Type{T}) where {T<:AbstractPowerModel}
 
 Creates a model reference of the InfrastructureOptimizationModels Optimization Problem.
 
@@ -9,14 +9,14 @@ Creates a model reference of the InfrastructureOptimizationModels Optimization P
 
 # Example
 
-template = OperationsProblemTemplate(CopperPlatePowerModel)
+template = PowerOperationsProblemTemplate(CopperPlatePowerModel)
 """
-mutable struct OperationsProblemTemplate <: IOM.AbstractProblemTemplate
+mutable struct PowerOperationsProblemTemplate <: IOM.AbstractProblemTemplate
     network_model::NetworkModel{<:AbstractPowerModel}
     devices::DevicesModelContainer
     branches::BranchModelContainer
     services::ServicesModelContainer
-    function OperationsProblemTemplate(
+    function PowerOperationsProblemTemplate(
         network::NetworkModel{T},
     ) where {T <: AbstractPowerModel}
         new(
@@ -28,7 +28,7 @@ mutable struct OperationsProblemTemplate <: IOM.AbstractProblemTemplate
     end
 end
 
-function Base.isempty(template::OperationsProblemTemplate)
+function Base.isempty(template::PowerOperationsProblemTemplate)
     if !isempty(template.devices)
         return false
     elseif !isempty(template.branches)
@@ -40,21 +40,21 @@ function Base.isempty(template::OperationsProblemTemplate)
     end
 end
 
-OperationsProblemTemplate(::Type{T}) where {T <: AbstractPowerModel} =
-    OperationsProblemTemplate(NetworkModel(T))
+PowerOperationsProblemTemplate(::Type{T}) where {T <: AbstractPowerModel} =
+    PowerOperationsProblemTemplate(NetworkModel(T))
 
-OperationsProblemTemplate() = OperationsProblemTemplate(CopperPlatePowerModel)
+PowerOperationsProblemTemplate() = PowerOperationsProblemTemplate(CopperPlatePowerModel)
 
-get_device_models(template::OperationsProblemTemplate) = template.devices
-get_branch_models(template::OperationsProblemTemplate) = template.branches
-get_service_models(template::OperationsProblemTemplate) = template.services
-get_network_model(template::OperationsProblemTemplate) = template.network_model
-get_network_formulation(template::OperationsProblemTemplate) =
+get_device_models(template::PowerOperationsProblemTemplate) = template.devices
+get_branch_models(template::PowerOperationsProblemTemplate) = template.branches
+get_service_models(template::PowerOperationsProblemTemplate) = template.services
+get_network_model(template::PowerOperationsProblemTemplate) = template.network_model
+get_network_formulation(template::PowerOperationsProblemTemplate) =
     get_network_formulation(get_network_model(template))
-get_hvdc_network_model(template::OperationsProblemTemplate) =
+get_hvdc_network_model(template::PowerOperationsProblemTemplate) =
     template.network_model.hvdc_network_model
 
-function get_component_types(template::OperationsProblemTemplate)::Vector{DataType}
+function get_component_types(template::PowerOperationsProblemTemplate)::Vector{DataType}
     return vcat(
         get_component_type.(values(get_device_models(template))),
         get_component_type.(values(get_branch_models(template))),
@@ -62,7 +62,10 @@ function get_component_types(template::OperationsProblemTemplate)::Vector{DataTy
     )
 end
 
-function get_model(template::OperationsProblemTemplate, ::Type{T}) where {T <: PSY.Device}
+function get_model(
+    template::PowerOperationsProblemTemplate,
+    ::Type{T},
+) where {T <: PSY.Device}
     if T <: PSY.Branch
         return get(template.branches, Symbol(T), nothing)
     elseif T <: PSY.Device
@@ -73,7 +76,7 @@ function get_model(template::OperationsProblemTemplate, ::Type{T}) where {T <: P
 end
 
 function get_model(
-    template::OperationsProblemTemplate,
+    template::PowerOperationsProblemTemplate,
     ::Type{T},
     name::String = NO_SERVICE_NAME_PROVIDED,
 ) where {T <: PSY.Service}
@@ -90,7 +93,7 @@ end
 Sets the network model in a template.
 """
 function set_network_model!(
-    template::OperationsProblemTemplate,
+    template::PowerOperationsProblemTemplate,
     model::NetworkModel{<:AbstractPowerModel},
 )
     template.network_model = model
@@ -101,7 +104,7 @@ end
 Sets the network model in a template.
 """
 function set_hvdc_network_model!(
-    template::OperationsProblemTemplate,
+    template::PowerOperationsProblemTemplate,
     model::Union{Nothing, AbstractHVDCNetworkModel},
 )
     set_hvdc_network_model!(template.network_model, model)
@@ -112,7 +115,7 @@ end
 Sets the network model in a template.
 """
 function set_hvdc_network_model!(
-    template::OperationsProblemTemplate,
+    template::PowerOperationsProblemTemplate,
     model::Type{U},
 ) where {U <: AbstractHVDCNetworkModel}
     set_hvdc_network_model!(template.network_model, model())
@@ -124,7 +127,7 @@ Sets the device model in a template using the component type and formulation.
 Builds a default DeviceModel
 """
 function set_device_model!(
-    template::OperationsProblemTemplate,
+    template::PowerOperationsProblemTemplate,
     component_type::Type{<:PSY.Device},
     formulation::Type{<:AbstractDeviceFormulation},
 )
@@ -137,7 +140,7 @@ Sets the device model in a template using a DeviceModel instance.
 Routes to devices dictionary.
 """
 function set_device_model!(
-    template::OperationsProblemTemplate,
+    template::PowerOperationsProblemTemplate,
     model::DeviceModel{D},
 ) where {D <: IS.InfrastructureSystemsComponent}
     set_model!(template.devices, model)
@@ -149,7 +152,7 @@ Sets the device model in a template using a DeviceModel instance.
 Specialization for Branch types - routes to branches dictionary.
 """
 function set_device_model!(
-    template::OperationsProblemTemplate,
+    template::PowerOperationsProblemTemplate,
     model::DeviceModel{D},
 ) where {D <: PSY.Branch}
     set_model!(template.branches, model)
@@ -161,7 +164,7 @@ Sets the service model in a template using a name and the service type and formu
 Builds a default ServiceModel with use_service_name set to true.
 """
 function set_service_model!(
-    template::OperationsProblemTemplate,
+    template::PowerOperationsProblemTemplate,
     service_name::String,
     service_type::Type{<:PSY.Service},
     formulation::Type{<:AbstractServiceFormulation},
@@ -178,7 +181,7 @@ end
 Sets the service model in a template using a ServiceModel instance.
 """
 function set_service_model!(
-    template::OperationsProblemTemplate,
+    template::PowerOperationsProblemTemplate,
     service_type::Type{<:PSY.Service},
     formulation::Type{<:AbstractServiceFormulation},
 )
@@ -187,7 +190,7 @@ function set_service_model!(
 end
 
 function set_service_model!(
-    template::OperationsProblemTemplate,
+    template::PowerOperationsProblemTemplate,
     service_name::String,
     model::ServiceModel{T, <:AbstractServiceFormulation},
 ) where {T <: PSY.Service}
@@ -196,7 +199,7 @@ function set_service_model!(
 end
 
 function set_service_model!(
-    template::OperationsProblemTemplate,
+    template::PowerOperationsProblemTemplate,
     model::ServiceModel{<:PSY.Service, <:AbstractServiceFormulation},
 )
     set_model!(template.services, model)
@@ -218,7 +221,7 @@ function _add_contributing_device_by_type!(
 end
 
 function _populate_contributing_devices!(
-    template::OperationsProblemTemplate,
+    template::PowerOperationsProblemTemplate,
     sys::PSY.System,
 )
     service_models = get_service_models(template)
@@ -314,7 +317,7 @@ end
 #     return
 # end
 
-function _add_services_to_device_model!(template::OperationsProblemTemplate)
+function _add_services_to_device_model!(template::PowerOperationsProblemTemplate)
     service_models = get_service_models(template)
     devices_template = get_device_models(template)
     for (service_key, service_model) in service_models
@@ -328,7 +331,7 @@ function _add_services_to_device_model!(template::OperationsProblemTemplate)
 end
 
 function _populate_aggregated_service_model!(
-    template::OperationsProblemTemplate,
+    template::PowerOperationsProblemTemplate,
     sys::PSY.System,
 )
     services_template = get_service_models(template)
@@ -361,7 +364,7 @@ function _populate_aggregated_service_model!(
     return
 end
 
-function finalize_template!(template::OperationsProblemTemplate, sys::PSY.System)
+function finalize_template!(template::PowerOperationsProblemTemplate, sys::PSY.System)
     _populate_aggregated_service_model!(template, sys)
     _populate_contributing_devices!(template, sys)
     _add_services_to_device_model!(template)

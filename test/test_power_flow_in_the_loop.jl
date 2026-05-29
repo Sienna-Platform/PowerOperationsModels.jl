@@ -354,7 +354,7 @@ end
     for hvdc_type in (TwoTerminalGenericHVDCLine,)
         sys = build_system(PSISystems, "2Area 5 Bus System")
 
-        template_uc = OperationsProblemTemplate(
+        template_uc = PowerOperationsProblemTemplate(
             NetworkModel(
                 PTDFPowerModel;
                 evaluations = power_flow_evaluations(DCPowerFlow()),

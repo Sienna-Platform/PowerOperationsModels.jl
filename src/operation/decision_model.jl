@@ -1,4 +1,4 @@
-# Template-first constructors default the problem type to `GenericOpProblem`.
+# Template-first constructors default the problem type to `GenericPowerDecisionProblem`.
 # IOM only ships the `DecisionModel{M}` / `DecisionModel(::Type{M}, ...)` variants
 # (`M` is the domain-neutral `AbstractOptimizationProblem`); the default problem
 # type is a POM concept, so the defaulting constructors live here.
@@ -8,10 +8,21 @@ function DecisionModel(
     jump_model::Union{Nothing, JuMP.Model} = nothing;
     kwargs...,
 )
-    return DecisionModel{GenericOpProblem}(template, sys, jump_model; kwargs...)
+    return DecisionModel{GenericPowerDecisionProblem}(template, sys, jump_model; kwargs...)
 end
 
-function build_pre_step!(model::DecisionModel{<:DecisionProblem})
+# Template-driven problems require a template; the bare-system constructor is an error.
+function DecisionModel{M}(
+    sys::IS.InfrastructureSystemsContainer,
+    jump_model::Union{Nothing, JuMP.Model} = nothing;
+    kwargs...,
+) where {M <: DefaultPowerDecisionProblem}
+    IS.ArgumentError(
+        "DefaultPowerDecisionProblem subtypes require a template. Use DecisionModel subtyping instead.",
+    )
+end
+
+function build_pre_step!(model::DecisionModel{<:AbstractPowerDecisionProblem})
     TimerOutputs.@timeit BUILD_PROBLEMS_TIMER "Build pre-step" begin
         validate_template(model)
         if !isempty(model)
@@ -32,7 +43,7 @@ function build_pre_step!(model::DecisionModel{<:DecisionProblem})
 end
 
 # Called `build_impl!(model)` in PSI (lived in decision_model.jl).
-function build_model!(model::DecisionModel{<:DecisionProblem})
+function build_model!(model::DecisionModel{<:AbstractPowerDecisionProblem})
     build_pre_step!(model)
     @info "Instantiating Network Model"
     IOM.instantiate_network_model!(model)
@@ -48,11 +59,11 @@ function build_model!(model::DecisionModel{<:DecisionProblem})
 end
 
 """
-Build the Decision Model based on the specified DecisionProblem.
+Build the Decision Model based on the specified AbstractPowerDecisionProblem.
 
 # Arguments
 
-  - `model::DecisionModel{<:DecisionProblem}`: DecisionModel object
+  - `model::DecisionModel{<:AbstractPowerDecisionProblem}`: DecisionModel object
   - `output_dir::String`: Output directory for outputs
   - `recorders::Vector{Symbol} = []`: recorder names to register
   - `console_level = Logging.Error`:
@@ -61,7 +72,7 @@ Build the Decision Model based on the specified DecisionProblem.
   - `store_system_in_results::Bool = true`: If true, stores the system as JSON in the results HDF5 file.
 """
 function build!(
-    model::DecisionModel{<:DecisionProblem};
+    model::DecisionModel{<:AbstractPowerDecisionProblem};
     output_dir::String,
     recorders = [],
     console_level = Logging.Error,
@@ -103,7 +114,7 @@ function build!(
     return IOM.get_status(model)
 end
 
-function reset!(model::DecisionModel{<:DefaultDecisionProblem})
+function reset!(model::DecisionModel{<:DefaultPowerDecisionProblem})
     was_built_for_recurrent_solves = built_for_recurrent_solves(model)
     if was_built_for_recurrent_solves
         IOM.set_execution_count!(model, 0)
@@ -131,7 +142,7 @@ end
 
 """
 Default solve method for models that conform to the requirements of
-DecisionModel{<: DecisionProblem}.
+DecisionModel{<: AbstractPowerDecisionProblem}.
 
 This will call `build!` on the model if it is not already built. It will forward all
 keyword arguments to that function.
@@ -154,7 +165,7 @@ outputs = solve!(OpModel, export_problem_outputs = true)
 ```
 """
 function solve!(
-    model::DecisionModel{<:DecisionProblem};
+    model::DecisionModel{<:AbstractPowerDecisionProblem};
     export_problem_outputs = false,
     console_level = Logging.Error,
     file_level = Logging.Info,
@@ -228,7 +239,7 @@ function solve!(
     return IOM.get_run_status(model)
 end
 
-function handle_initial_conditions!(model::DecisionModel{<:DecisionProblem})
+function handle_initial_conditions!(model::DecisionModel{<:AbstractPowerDecisionProblem})
     TimerOutputs.@timeit BUILD_PROBLEMS_TIMER "Model Initialization" begin
         if isempty(get_template(model))
             return
@@ -300,11 +311,11 @@ function build_if_not_already_built!(model::IOM.AbstractOptimizationModel; kwarg
     return
 end
 
-function validate_template(::DecisionModel{M}) where {M <: DecisionProblem}
+function validate_template(::DecisionModel{M}) where {M <: AbstractPowerDecisionProblem}
     error("validate_template is not implemented for DecisionModel{$M}")
 end
 
-function validate_template(model::DecisionModel{<:DefaultDecisionProblem})
+function validate_template(model::DecisionModel{<:DefaultPowerDecisionProblem})
     validate_template_impl!(model)
     return
 end
@@ -313,7 +324,7 @@ end
 # POM provides the concrete check for its template-driven problem types. It reconciles
 # the model's resolution/interval/horizon settings against the forecast data in the
 # system and errors when the system has no forecast data.
-function validate_time_series!(model::DecisionModel{<:DefaultDecisionProblem})
+function validate_time_series!(model::DecisionModel{<:DefaultPowerDecisionProblem})
     sys = get_system(model)
     settings = get_settings(model)
     available_resolutions = IOM.get_time_series_resolutions(sys)

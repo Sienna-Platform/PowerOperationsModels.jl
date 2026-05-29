@@ -1,4 +1,4 @@
-# Template-first constructor defaults the problem type to `GenericEmulationProblem`
+# Template-first constructor defaults the problem type to `GenericPowerEmulationProblem`
 # (mirrors the DecisionModel defaulting constructor; see decision_model.jl).
 function EmulationModel(
     template::IOM.AbstractProblemTemplate,
@@ -6,12 +6,17 @@ function EmulationModel(
     jump_model::Union{Nothing, JuMP.Model} = nothing;
     kwargs...,
 )
-    return EmulationModel{GenericEmulationProblem}(template, sys, jump_model; kwargs...)
+    return EmulationModel{GenericPowerEmulationProblem}(
+        template,
+        sys,
+        jump_model;
+        kwargs...,
+    )
 end
 
 # POM-side implementation of IOM's `validate_time_series!` extension point for
 # emulation problems. Emulation models solve a single step, so horizon == resolution.
-function validate_time_series!(model::EmulationModel{<:DefaultEmulationProblem})
+function validate_time_series!(model::EmulationModel{<:DefaultPowerEmulationProblem})
     sys = get_system(model)
     settings = get_settings(model)
     available_resolutions = IOM.get_time_series_resolutions(sys)
@@ -56,7 +61,7 @@ function build_pre_step!(model::EmulationModel)
     TimerOutputs.@timeit BUILD_PROBLEMS_TIMER "Build pre-step" begin
         validate_template(model)
         if !isempty(model)
-            @info "EmulationProblem status not ModelBuildStatus.EMPTY. Resetting"
+            @info "AbstractPowerEmulationProblem status not ModelBuildStatus.EMPTY. Resetting"
             reset!(model)
         end
         container = get_optimization_container(model)
@@ -77,7 +82,7 @@ function build_pre_step!(model::EmulationModel)
 end
 
 # Called `build_impl!(model)` in PSI (lived in emulation_model.jl).
-function build_model!(model::EmulationModel{<:EmulationProblem})
+function build_model!(model::EmulationModel{<:AbstractPowerEmulationProblem})
     build_pre_step!(model)
     @info "Instantiating Network Model"
     IOM.instantiate_network_model!(model)
@@ -93,11 +98,11 @@ function build_model!(model::EmulationModel{<:EmulationProblem})
 end
 
 """
-Implementation of build for any EmulationProblem
+Implementation of build for any AbstractPowerEmulationProblem
   - `store_system_in_results::Bool = true`: If true, stores the system as JSON in the results HDF5 file.
 """
 function build!(
-    model::EmulationModel{<:EmulationProblem};
+    model::EmulationModel{<:AbstractPowerEmulationProblem};
     executions = 1,
     output_dir::String,
     recorders = [],
@@ -145,7 +150,7 @@ function build!(
     return IOM.get_status(model)
 end
 
-function reset!(model::EmulationModel{<:EmulationProblem})
+function reset!(model::EmulationModel{<:AbstractPowerEmulationProblem})
     if built_for_recurrent_solves(model)
         IOM.set_execution_count!(model, 0)
     end
@@ -214,7 +219,7 @@ end
 
 """
 Default run method for problems that conform to the requirements of
-EmulationModel{<: EmulationProblem}
+EmulationModel{<: AbstractPowerEmulationProblem}
 
 This will call `build!` on the model if it is not already built. It will forward all
 keyword arguments to that function.
@@ -238,7 +243,7 @@ status = run!(model; output_dir = ./model_output, optimizer = HiGHS.Optimizer, e
 ```
 """
 function run!(
-    model::EmulationModel{<:EmulationProblem};
+    model::EmulationModel{<:AbstractPowerEmulationProblem};
     export_problem_outputs = false,
     console_level = Logging.Error,
     file_level = Logging.Info,
@@ -308,7 +313,7 @@ function run!(
     return IOM.get_run_status(model)
 end
 
-function handle_initial_conditions!(model::EmulationModel{<:EmulationProblem})
+function handle_initial_conditions!(model::EmulationModel{<:AbstractPowerEmulationProblem})
     TimerOutputs.@timeit BUILD_PROBLEMS_TIMER "Model Initialization" begin
         if isempty(get_template(model))
             return
@@ -362,11 +367,11 @@ function handle_initial_conditions!(model::EmulationModel{<:EmulationProblem})
     return
 end
 
-function validate_template(::EmulationModel{M}) where {M <: EmulationProblem}
+function validate_template(::EmulationModel{M}) where {M <: AbstractPowerEmulationProblem}
     error("validate_template is not implemented for EmulationModel{$M}")
 end
 
-function validate_template(model::EmulationModel{<:DefaultEmulationProblem})
+function validate_template(model::EmulationModel{<:DefaultPowerEmulationProblem})
     validate_template_impl!(model)
     return
 end
