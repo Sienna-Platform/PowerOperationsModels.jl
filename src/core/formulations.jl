@@ -331,34 +331,31 @@ MILP formulation for the turbined-flow × head bilinear product in the hydro
 turbine power-output constraint. Adds injection variables for a HydroTurbine
 connected to reservoirs using a linearized approximation of the bilinear model.
 
-Selects the bilinear approximation scheme via `DeviceModel` attributes (so users
-do not need to depend on `InfrastructureOptimizationModels`). Users pick the
-desired approximation gap via `bilinear_tolerance`; the constraint constructor
-combines that with the per-device flow and head bounds to size each method's
-discretization automatically (no manual segment count).
+The bilinear approximation scheme is selected *by type* through the single
+`"bilinear_config"` `DeviceModel` attribute, whose value is an
+[`AbstractBilinearApproxConfig`](@ref): [`Bin2Config`](@ref) (default),
+[`HybSConfig`](@ref), [`NMDTConfig`](@ref), [`DNMDTConfig`](@ref), or
+[`NoBilinearApprox`](@ref). Users do not need to depend on
+`InfrastructureOptimizationModels`; POM translates the config internally.
+
+Each config carries a `tolerance` (the maximum approximation gap); the
+constraint constructor derives the discretization depth per device from that
+tolerance combined with the device's flow and head ranges (via IOM's
+`tolerance_depth` helpers), so there is no manual depth / segment-count knob. The
+[`Bin2Config`](@ref) and [`HybSConfig`](@ref) schemes additionally take a typed
+inner quadratic method (`quad`); invalid scheme/quad combinations are rejected
+when the config is constructed.
 
 # Attributes
-- `bilinear_approximation::String` (default `"bin2"`): top-level scheme.
-  Supported: `"bin2"`, `"hybs"`, `"nmdt"`, `"dnmdt"`, `"none"`.
-- `bilinear_quadratic_method::String` (default `"solver_sos2"`): inner quadratic
-  PWL method used when `bilinear_approximation ∈ {"bin2","hybs"}`. Supported:
-  `"solver_sos2"`, `"manual_sos2"`, `"sawtooth"`, `"epigraph"`, `"nmdt"`,
-  `"dnmdt"`, `"none"`.
-- `bilinear_tolerance::Float64` (default `1e-2`): maximum approximation gap
-  for the chosen method. Each IOM tolerance constructor uses it together with
-  the per-device `max_delta` (computed at the call site from variable bounds)
-  to pick a depth via `ceil`.
-- `bilinear_add_mccormick::Union{Bool,Nothing}` (default `nothing`): when
-  `nothing`, defers to the IOM struct default (`Bin2Config` → `true`,
-  `HybSConfig` → `false`). Ignored by `nmdt`/`dnmdt`/`none`.
-- `bilinear_epigraph_depth::Union{Int,Nothing}` (default `nothing`): when
-  `nothing`, defers to the IOM struct default (`NMDTQuadConfig` /
-  `DNMDTQuadConfig` → `3*depth`). `"hybs"` has no IOM default for this field
-  and *must* override.
+- `"bilinear_config"` (default [`Bin2Config`](@ref)`()`): an
+  [`AbstractBilinearApproxConfig`](@ref) selecting the scheme and its parameters.
 
-# Sentinel convention
-`nothing` means "use the IOM constructor's default value." POM does not
-duplicate IOM struct defaults; it just passes through the user's overrides.
+# Example
+```julia
+set_device_model!(template, HydroTurbine, HydroTurbineMILPBilinearDispatch)  # Bin2, tol 1e-2
+set_device_model!(template, HydroTurbine, HydroTurbineMILPBilinearDispatch;
+    attributes = Dict("bilinear_config" => NMDTConfig(tolerance = 1e-3)))
+```
 
 See: [`PowerSystems.HydroGen`](@extref).
 """

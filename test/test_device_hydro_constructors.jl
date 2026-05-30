@@ -667,20 +667,17 @@ end
     df_outflow = read_expression(outputs, "TotalHydroFlowRateTurbineOutgoing__HydroTurbine")
     hydro_vol_df =
         read_variables(outputs, [(HydroReservoirVolumeVariable, HydroReservoir)])["HydroReservoirVolumeVariable__HydroReservoir"]
-    hydro_head_df =
-        read_variables(outputs, [(HydroReservoirHeadVariable, HydroReservoir)])["HydroReservoirHeadVariable__HydroReservoir"]
     hydro_spillage_df =
         read_variables(outputs, [(WaterSpillageVariable, HydroReservoir)])["WaterSpillageVariable__HydroReservoir"]
-    hydro_inflow_df =
-        read_parameters(outputs, [(InflowTimeSeriesParameter, HydroReservoir)])["InflowTimeSeriesParameter__HydroReservoir"]
 
     total_inflow = sum(values(hydro_inflow_ts))
     total_outflow = sum(df_outflow[!, :value])
     total_spillage = sum(hydro_spillage_df[!, :value])
 
-    # Tolerance covers accumulated rounding in the m^3/s → km^3 unit conversion
-    # plus the MILP bilinear approximation; water-balance closure within 1e-4 km^3
-    # is well inside HiGHS' default feasibility tolerance for this problem size.
+    # This is the exact (Ipopt) bilinear formulation, so the only error is the
+    # accumulated rounding in the m^3/s → km^3 unit conversion. Water-balance
+    # closure within 1e-4 km^3 is well inside Ipopt's feasibility tolerance for
+    # this problem size.
     tol = 1e-4
     calculated_vf =
         (hydro_vol_df[1, :value]) +
@@ -852,12 +849,8 @@ end
     df_outflow = read_expression(outputs, "TotalHydroFlowRateTurbineOutgoing__HydroTurbine")
     hydro_vol_df =
         read_variables(outputs, [(HydroReservoirVolumeVariable, HydroReservoir)])["HydroReservoirVolumeVariable__HydroReservoir"]
-    hydro_head_df =
-        read_variables(outputs, [(HydroReservoirHeadVariable, HydroReservoir)])["HydroReservoirHeadVariable__HydroReservoir"]
     hydro_spillage_df =
         read_variables(outputs, [(WaterSpillageVariable, HydroReservoir)])["WaterSpillageVariable__HydroReservoir"]
-    hydro_inflow_df =
-        read_parameters(outputs, [(InflowTimeSeriesParameter, HydroReservoir)])["InflowTimeSeriesParameter__HydroReservoir"]
 
     total_inflow = sum(values(hydro_inflow_ts))
     total_outflow = sum(df_outflow[!, :value])
@@ -1156,4 +1149,103 @@ end
 
     @test build!(model; output_dir = mktempdir()) == ModelBuildStatus.BUILT
     @test solve!(model) == IS.Simulation.RunStatus.SUCCESSFULLY_FINALIZED
+end
+
+@testset "Bilinear config: construction-time validation of scheme/quad combos" begin
+    # Defaults construct.
+    @test Bin2Config() isa POM.AbstractBilinearApproxConfig
+    @test HybSConfig() isa POM.AbstractBilinearApproxConfig
+    @test NMDTConfig() isa POM.AbstractBilinearApproxConfig
+    @test DNMDTConfig() isa POM.AbstractBilinearApproxConfig
+    @test NoBilinearApprox() isa POM.AbstractBilinearApproxConfig
+
+    # Valid non-default inner quads for Bin2 (incl. NMDT/DNMDT inner quads).
+    @test Bin2Config(; quad = ManualSOS2()) isa Bin2Config
+    @test Bin2Config(; quad = Sawtooth()) isa Bin2Config
+    @test Bin2Config(; quad = NMDTQuad()) isa Bin2Config
+    @test Bin2Config(; quad = DNMDTQuad()) isa Bin2Config
+
+    # Valid inner quads for HybS.
+    @test HybSConfig(; quad = ManualSOS2()) isa HybSConfig
+    @test HybSConfig(; quad = Sawtooth()) isa HybSConfig
+
+    # Invalid combinations are rejected when the config is CONSTRUCTED (the
+    # `quad` field type only admits the valid markers), not at build time.
+    @test_throws Exception Bin2Config(; quad = Epigraph())
+    @test_throws Exception HybSConfig(; quad = Epigraph())
+    @test_throws Exception HybSConfig(; quad = NMDTQuad())
+    @test_throws Exception HybSConfig(; quad = DNMDTQuad())
+end
+
+@testset "Bilinear config: _iom_config translation and per-device sizing" begin
+    flow_delta = 10.0
+    head_delta = 5.0
+
+    # Each POM scheme maps to the matching IOM config type.
+    @test POM._iom_config(NoBilinearApprox(), flow_delta, head_delta) isa
+          IOM.NoBilinearApproxConfig
+    @test POM._iom_config(Bin2Config(), flow_delta, head_delta) isa IOM.Bin2Config
+    @test POM._iom_config(HybSConfig(), flow_delta, head_delta) isa IOM.HybSConfig
+    @test POM._iom_config(NMDTConfig(), flow_delta, head_delta) isa
+          IOM.NMDTBilinearConfig
+    @test POM._iom_config(DNMDTConfig(), flow_delta, head_delta) isa
+          IOM.DNMDTBilinearConfig
+
+    # Inner quad type is carried through for Bin2.
+    bin2_iom = POM._iom_config(Bin2Config(; quad = ManualSOS2()), flow_delta, head_delta)
+    @test bin2_iom.quad_config isa IOM.ManualSOS2QuadConfig
+    # add_mccormick passes through.
+    @test POM._iom_config(
+        Bin2Config(; add_mccormick = false),
+        flow_delta,
+        head_delta,
+    ).add_mccormick ==
+          false
+
+    # NMDT/DNMDT inner quads are built with epigraph tightening disabled.
+    @test POM._iom_config(
+        Bin2Config(; quad = NMDTQuad()),
+        flow_delta,
+        head_delta,
+    ).quad_config.epigraph_depth ==
+          0
+
+    # Per-device sizing: a tighter tolerance never decreases the derived depth.
+    loose = POM._iom_config(Bin2Config(; tolerance = 1e-1), flow_delta, head_delta)
+    tight = POM._iom_config(Bin2Config(; tolerance = 1e-4), flow_delta, head_delta)
+    @test tight.quad_config.depth >= loose.quad_config.depth
+end
+
+@testset "HydroTurbineMILPBilinearDispatch: non-default bilinear schemes build" begin
+    # The default Bin2 scheme is covered by the solve test above; here we just
+    # confirm the other schemes (and a non-default inner quad) build a valid MILP.
+    configs = [
+        HybSConfig(),
+        NMDTConfig(),
+        DNMDTConfig(),
+        Bin2Config(; quad = Sawtooth()),
+        NoBilinearApprox(),
+    ]
+    for cfg in configs
+        sys = PSB.build_system(PSITestSystems, "c_sys5_hy_turbine_head")
+        template = OperationsProblemTemplate()
+        set_device_model!(
+            template,
+            DeviceModel(
+                HydroTurbine,
+                HydroTurbineMILPBilinearDispatch;
+                attributes = Dict{String, Any}("bilinear_config" => cfg),
+            ),
+        )
+        set_device_model!(template, HydroReservoir, HydroWaterModelReservoir)
+        set_device_model!(template, ThermalStandard, ThermalDispatchNoMin)
+        set_device_model!(template, PowerLoad, StaticPowerLoad)
+
+        # NoBilinearApprox keeps the quadratic flow×head term, so it needs a
+        # nonlinear-capable solver; the MILP schemes use HiGHS.
+        optimizer = cfg isa NoBilinearApprox ? ipopt_optimizer : HiGHS_optimizer
+        model = DecisionModel(template, sys; optimizer = optimizer)
+        @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+              ModelBuildStatus.BUILT
+    end
 end

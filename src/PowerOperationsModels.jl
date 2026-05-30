@@ -200,6 +200,7 @@ include("core/constraints.jl")
 include("core/auxiliary_variables.jl")
 include("core/parameters.jl")
 include("core/formulations.jl")
+include("core/bilinear_configs.jl")
 include("core/network_formulations.jl")
 include("core/problem_template.jl")
 include("core/feedforward_interface.jl")
@@ -544,6 +545,20 @@ export HydroTurbineEnergyDispatch
 export HydroTurbineEnergyCommitment
 export HydroPumpEnergyDispatch
 export HydroPumpEnergyCommitment
+
+# Bilinear approximation configs for HydroTurbineMILPBilinearDispatch
+export Bin2Config
+export HybSConfig
+export NMDTConfig
+export DNMDTConfig
+export NoBilinearApprox
+# Inner quadratic-approximation method markers
+export SolverSOS2
+export ManualSOS2
+export Sawtooth
+export Epigraph
+export NMDTQuad
+export DNMDTQuad
 
 ######## Hydro Variables ########
 export WaterSpillageVariable

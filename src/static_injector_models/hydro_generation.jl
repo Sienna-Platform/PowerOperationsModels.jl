@@ -423,38 +423,21 @@ end
 
 """
 Default `DeviceModel` attributes for `HydroTurbineMILPBilinearDispatch`. The
-returned dictionary picks the bilinear approximation scheme used inside the
-turbine-power constraint; see [`HydroTurbineMILPBilinearDispatch`](@ref) for the
-full attribute reference and the `nothing` sentinel convention.
+single `"bilinear_config"` attribute holds an [`AbstractBilinearApproxConfig`](@ref)
+selecting the bilinear approximation scheme used inside the turbine-power
+constraint; see [`HydroTurbineMILPBilinearDispatch`](@ref) for the reference.
 
-The default tolerance is `1e-2` paired with `Bin2` + `SolverSOS2`. The actual
-segment count is computed per device at constraint-build time from the
-per-device flow and head ranges, so two systems with very different bounds will
-get appropriately different discretizations from the same tolerance setting.
+The default is [`Bin2Config`](@ref)`()` (Bin2 + `SolverSOS2`, tolerance `1e-2`).
+The discretization depth is computed per device at constraint-build time from the
+config's `tolerance` and the per-device flow and head ranges, so two systems with
+very different bounds get appropriately different discretizations from the same
+tolerance setting.
 """
 function get_default_attributes(
     ::Type{T},
     ::Type{D},
 ) where {T <: PSY.HydroTurbine, D <: HydroTurbineMILPBilinearDispatch}
-    return Dict{String, Any}(
-        # Top-level bilinear approximation scheme.
-        # Supported: "bin2", "hybs", "nmdt", "dnmdt", "none".
-        "bilinear_approximation" => "bin2",
-        # Inner quadratic PWL method (used when bilinear_approximation ∈ {"bin2","hybs"}).
-        # Supported: "solver_sos2", "manual_sos2", "sawtooth", "epigraph",
-        # "nmdt", "dnmdt", "none".
-        "bilinear_quadratic_method" => "solver_sos2",
-        # Maximum approximation gap. Combined with the per-device max_delta
-        # to size the discretization automatically.
-        "bilinear_tolerance" => 1e-2,
-        # `nothing` ⇒ defer to IOM struct default
-        # (Bin2Config: true; HybSConfig: false; ignored otherwise).
-        "bilinear_add_mccormick" => nothing,
-        # `nothing` ⇒ defer to IOM struct default
-        # (HybSConfig has no default and must be overridden; NMDT/DNMDT
-        #  quadratic: 3*depth; ignored otherwise).
-        "bilinear_epigraph_depth" => nothing,
-    )
+    return Dict{String, Any}("bilinear_config" => Bin2Config())
 end
 
 function get_default_attributes(
@@ -1854,134 +1837,8 @@ function add_constraints!(
 end
 
 """
-Build an `IOM.QuadraticApproxConfig` from attribute values.
-
-`tolerance` is the requested approximation gap (`bilinear_tolerance`).
-`max_delta` is the domain extent the quadratic config will be applied to
-(computed at the call site from per-device variable bounds).
-`epi` is either an `Int` (`bilinear_epigraph_depth` override) or `nothing`,
-in which case IOM's struct default applies — relevant only for `NMDTQuadConfig`
-and `DNMDTQuadConfig`, which fall back to `3*depth` when no override is given.
-
-Errors with a list of supported method strings when `method` is unrecognized.
-"""
-function _build_quadratic_config(
-    method::String,
-    tolerance::Float64,
-    max_delta::Float64,
-    epi,
-)
-    if method == "solver_sos2"
-        return IOM.SolverSOS2QuadConfig(; tolerance, max_delta)
-    elseif method == "manual_sos2"
-        return IOM.ManualSOS2QuadConfig(; tolerance, max_delta)
-    elseif method == "sawtooth"
-        return IOM.SawtoothQuadConfig(; tolerance, max_delta)
-    elseif method == "epigraph"
-        return IOM.EpigraphQuadConfig(; tolerance, max_delta)
-    elseif method == "nmdt"
-        return if epi === nothing
-            IOM.NMDTQuadConfig(; tolerance, max_delta)
-        else
-            IOM.NMDTQuadConfig(; tolerance, max_delta, epigraph_depth = epi)
-        end
-    elseif method == "dnmdt"
-        return if epi === nothing
-            IOM.DNMDTQuadConfig(; tolerance, max_delta)
-        else
-            IOM.DNMDTQuadConfig(; tolerance, max_delta, epigraph_depth = epi)
-        end
-    elseif method == "none"
-        return IOM.NoQuadApproxConfig()
-    else
-        error(
-            "Unsupported bilinear_quadratic_method \"$(method)\". " *
-            "Supported: \"solver_sos2\", \"manual_sos2\", \"sawtooth\", " *
-            "\"epigraph\", \"nmdt\", \"dnmdt\", \"none\".",
-        )
-    end
-end
-
-"""
-Build an `IOM.BilinearApproxConfig` from the `DeviceModel`'s attributes and the
-per-device flow / head domain widths.
-
-Reads `bilinear_approximation`, `bilinear_quadratic_method`,
-`bilinear_tolerance`, `bilinear_add_mccormick`, and `bilinear_epigraph_depth`
-from `model`. Sentinel (`nothing`) attribute values mean "let the IOM
-constructor's default apply" — POM never duplicates an IOM struct default.
-
-For `bin2` / `hybs`, the inner quadratic config is applied to x², y², and
-(x±y)². The widest of those is (x±y), with delta = `max_delta_x + max_delta_y`,
-so that value is passed as the inner quadratic's `max_delta`. This guarantees
-the requested tolerance for all three (the bound on x² and y² will be
-correspondingly tighter, which is fine).
-
-Errors when:
-- `bilinear_approximation` is not one of `"bin2"`, `"hybs"`, `"nmdt"`,
-  `"dnmdt"`, `"none"`.
-- `bilinear_approximation == "hybs"` but `bilinear_epigraph_depth === nothing`
-  (`HybSConfig` has no IOM-side default for `epigraph_depth`).
-
-See [`HydroTurbineMILPBilinearDispatch`](@ref) for the attribute reference.
-"""
-function _build_bilinear_config(
-    model::DeviceModel{<:PSY.HydroTurbine, HydroTurbineMILPBilinearDispatch},
-    max_delta_x::Float64,
-    max_delta_y::Float64,
-)
-    method = get_attribute(model, "bilinear_approximation")
-    tolerance = get_attribute(model, "bilinear_tolerance")
-    add_mc = get_attribute(model, "bilinear_add_mccormick")
-    epi = get_attribute(model, "bilinear_epigraph_depth")
-
-    if method == "bin2"
-        inner_delta = max_delta_x + max_delta_y
-        quad = _build_quadratic_config(
-            get_attribute(model, "bilinear_quadratic_method"),
-            tolerance,
-            inner_delta,
-            epi,
-        )
-        return if add_mc === nothing
-            IOM.Bin2Config(quad)
-        else
-            IOM.Bin2Config(quad; add_mccormick = add_mc)
-        end
-    elseif method == "hybs"
-        epi === nothing && error(
-            "bilinear_approximation = \"hybs\" requires a non-nothing " *
-            "bilinear_epigraph_depth attribute (IOM.HybSConfig has no default).",
-        )
-        inner_delta = max_delta_x + max_delta_y
-        quad = _build_quadratic_config(
-            get_attribute(model, "bilinear_quadratic_method"),
-            tolerance,
-            inner_delta,
-            epi,
-        )
-        return if add_mc === nothing
-            IOM.HybSConfig(quad; epigraph_depth = epi)
-        else
-            IOM.HybSConfig(quad; epigraph_depth = epi, add_mccormick = add_mc)
-        end
-    elseif method == "nmdt"
-        return IOM.NMDTBilinearConfig(; tolerance, max_delta_x, max_delta_y)
-    elseif method == "dnmdt"
-        return IOM.DNMDTBilinearConfig(; tolerance, max_delta_x, max_delta_y)
-    elseif method == "none"
-        return IOM.NoBilinearApproxConfig()
-    else
-        error(
-            "Unsupported bilinear_approximation \"$(method)\" for " *
-            "HydroTurbineMILPBilinearDispatch. " *
-            "Supported: \"bin2\", \"hybs\", \"nmdt\", \"dnmdt\", \"none\".",
-        )
-    end
-end
-
-"""
-This function define the relationship between turbined flow and power produced with a linear approximation for the bilinear product.
+This function defines the relationship between turbined flow and power produced
+with a linear approximation for the bilinear product.
 """
 function add_constraints!(
     container::OptimizationContainer,
@@ -2009,6 +1866,7 @@ function add_constraints!(
     power = get_variable(container, ActivePowerVariable, V)
     flow = get_variable(container, HydroTurbineFlowRateVariable, V)
     head = get_variable(container, HydroReservoirHeadVariable, PSY.HydroReservoir)
+    bilinear_config = get_attribute(model, "bilinear_config")
     for d in devices
         name = PSY.get_name(d)
         conversion_factor = PSY.get_conversion_factor(d)
@@ -2017,6 +1875,17 @@ function add_constraints!(
 
         flow_lb = get_variable_lower_bound(HydroTurbineFlowRateVariable, d, W)
         flow_ub = get_variable_upper_bound(HydroTurbineFlowRateVariable, d, W)
+        # The bilinear approximation needs finite flow / head domains to size the
+        # discretization. These bounds come back as `nothing` when the underlying
+        # data is missing (no turbine `outflow_limits`, or reservoir level data
+        # not stored as HEAD), so reject those cases with a clear error rather
+        # than letting an unclear failure surface downstream in IOM.
+        isnothing(flow_ub) && error(
+            "HydroTurbineMILPBilinearDispatch requires finite turbine outflow " *
+            "limits to size the bilinear approximation, but turbine \"$(name)\" " *
+            "has no `outflow_limits`. Set finite outflow limits or use a " *
+            "different hydro turbine formulation.",
+        )
         flow_delta = flow_ub - flow_lb
 
         head_bounds = [
@@ -2025,6 +1894,16 @@ function add_constraints!(
                 max = get_variable_upper_bound(HydroReservoirHeadVariable, res, W),
             ) for res in reservoirs
         ]
+        for (res, b) in zip(reservoirs, head_bounds)
+            isnothing(b.max) && error(
+                "HydroTurbineMILPBilinearDispatch requires finite head bounds " *
+                "to size the bilinear approximation, but reservoir " *
+                "\"$(PSY.get_name(res))\" (connected to turbine \"$(name)\") has " *
+                "no finite head upper bound (its level data is not stored as " *
+                "HEAD). Provide HEAD level limits or use a different hydro " *
+                "turbine formulation.",
+            )
+        end
         # Worst-case head range across the turbine's reservoirs — gives a
         # single config that meets the requested tolerance for every pair.
         head_delta = maximum(b.max - b.min for b in head_bounds)
@@ -2032,7 +1911,7 @@ function add_constraints!(
         flow_bounds = repeat([(min = flow_lb, max = flow_ub)], length(reservoirs))
 
         fh_prod = IOM._add_bilinear_approx!(
-            _build_bilinear_config(model, flow_delta, head_delta),
+            _iom_config(bilinear_config, flow_delta, head_delta),
             container,
             V,
             PSY.get_name.(reservoirs),
