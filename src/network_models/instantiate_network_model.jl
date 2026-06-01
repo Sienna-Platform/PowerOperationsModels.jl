@@ -75,7 +75,7 @@ function _get_irreducible_buses_due_to_dlrs(
     irreducible_buses = Set{Int64}()
     for branch_type in network_model.modeled_branch_types
         branch_type <: PSY.ACTransmission || continue
-        device_model = branch_models[Symbol(branch_type)]
+        device_model = branch_models[nameof(branch_type)]
         if !haskey(
             get_time_series_names(device_model),
             DynamicBranchRatingTimeSeriesParameter,
