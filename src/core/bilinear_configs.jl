@@ -52,15 +52,15 @@ struct Epigraph <: AbstractQuadApproxMethod end
 
 """
 NMDT (Normalized Multiparametric Disaggregation) quadratic approximation used as
-an inner quad. POM always builds it with `epigraph_depth = 0` so the inner
-result stays one-sided-over (required by the tolerance derivation). Distinct
-from the top-level [`NMDTConfig`](@ref) bilinear scheme.
+an inner quad for [`Bin2Config`](@ref). Built at the IOM default `epigraph_depth`;
+`IOM.tolerance_depth(Bin2Config{NMDTQuadConfig})` accounts for its two-sidedness.
+Distinct from the top-level [`NMDTConfig`](@ref) bilinear scheme.
 """
 struct NMDTQuad <: AbstractQuadApproxMethod end
 
 """
-DNMDT (Double NMDT) quadratic approximation used as an inner quad. Built with
-`epigraph_depth = 0` (see [`NMDTQuad`](@ref)). Distinct from the top-level
+DNMDT (Double NMDT) quadratic approximation used as an inner quad for
+[`Bin2Config`](@ref) (see [`NMDTQuad`](@ref)). Distinct from the top-level
 [`DNMDTConfig`](@ref) bilinear scheme.
 """
 struct DNMDTQuad <: AbstractQuadApproxMethod end
@@ -100,12 +100,10 @@ method `quad`.
   device's flow / head ranges via `IOM.tolerance_depth` (no manual depth knob).
 - `quad::`[`Bin2Quad`](@ref) (default [`SolverSOS2`](@ref)`()`): inner quadratic
   method. [`Epigraph`](@ref) is intentionally not assignable.
-- `add_mccormick::Bool` (default `true`): add reformulated McCormick cuts.
 """
 Base.@kwdef struct Bin2Config <: AbstractBilinearApproxConfig
     tolerance::Float64 = 1e-2
     quad::Bin2Quad = SolverSOS2()
-    add_mccormick::Bool = true
 end
 
 """
@@ -120,12 +118,10 @@ the same `tolerance`) for the cross terms.
   this tolerance via `IOM.tolerance_depth` / `IOM.tolerance_epigraph_depth`.
 - `quad::`[`HybSQuad`](@ref) (default [`SolverSOS2`](@ref)`()`): inner quadratic
   method. Only the SOS2 variants and [`Sawtooth`](@ref) are assignable.
-- `add_mccormick::Bool` (default `false`): add standard McCormick envelope cuts.
 """
 Base.@kwdef struct HybSConfig <: AbstractBilinearApproxConfig
     tolerance::Float64 = 1e-2
     quad::HybSQuad = SolverSOS2()
-    add_mccormick::Bool = false
 end
 
 """
@@ -171,87 +167,71 @@ _iom_quad_config_type(::Epigraph) = IOM.EpigraphQuadConfig
 _iom_quad_config_type(::NMDTQuad) = IOM.NMDTQuadConfig
 _iom_quad_config_type(::DNMDTQuad) = IOM.DNMDTQuadConfig
 
-"""
-Build an inner `IOM.QuadraticApproxConfig` of type `Q` at the tolerance-derived
-`depth`. For `NMDTQuadConfig` / `DNMDTQuadConfig` the epigraph tightening is
-disabled (`epigraph_depth = 0`): the bilinear tolerance derivations only hold
-when those inner quads are one-sided-over, which requires `epigraph_depth = 0`.
-"""
-function _build_inner_quad(Q::Type{<:IOM.QuadraticApproxConfig}, depth::Int)
-    if Q === IOM.NMDTQuadConfig || Q === IOM.DNMDTQuadConfig
-        return Q(; depth, epigraph_depth = 0)
-    else
-        return Q(; depth)
-    end
-end
+# TODO: McCormick cuts (`add_mccormick`) are dropped for now — we always defer to
+# the IOM config's own default. Decide when they should be enabled and surface
+# that through the `tolerance_depth` helper (so it stays a tolerance-driven
+# decision) rather than re-exposing a raw knob here.
 
 """
 Translate a POM [`AbstractBilinearApproxConfig`](@ref) into the IOM bilinear
 config consumed by `IOM._add_bilinear_approx!`, sizing the discretization from
-the config's `tolerance` and the per-device flow / head domain widths
-(`flow_delta`, `head_delta`).
+the config's `tolerance` and the per-device domain widths (`delta_x`, `delta_y`).
 
 Each IOM `tolerance_depth` / `tolerance_epigraph_depth` helper inverts its
-method's worst-case-gap bound; for `bin2` / `hybs` the bilinear-level helpers
-allocate the error budget across the inner quadratic, so POM never sizes the
-inner quad by hand. Per-scheme inner-quad validity is enforced statically by the
-`quad` field types ([`Bin2Quad`](@ref) / [`HybSQuad`](@ref)).
+method's worst-case-gap bound and allocates the error budget across the inner
+quadratic, so POM never sizes the inner quad by hand — it just builds the inner
+quad at the returned `depth` (with the IOM-default `epigraph_depth`). Per-scheme
+inner-quad validity is enforced statically by the `quad` field types
+([`Bin2Quad`](@ref) / [`HybSQuad`](@ref)).
 """
 function _iom_config end
 
 _iom_config(::NoBilinearApprox, ::Float64, ::Float64) = IOM.NoBilinearApproxConfig()
 
-function _iom_config(config::Bin2Config, flow_delta::Float64, head_delta::Float64)
+function _iom_config(config::Bin2Config, delta_x::Float64, delta_y::Float64)
     Q = _iom_quad_config_type(config.quad)
     depth = IOM.tolerance_depth(
         IOM.Bin2Config{Q};
         tolerance = config.tolerance,
-        max_delta_x = flow_delta,
-        max_delta_y = head_delta,
+        max_delta_x = delta_x,
+        max_delta_y = delta_y,
     )
-    return IOM.Bin2Config(
-        _build_inner_quad(Q, depth);
-        add_mccormick = config.add_mccormick,
-    )
+    return IOM.Bin2Config(Q(; depth))
 end
 
-function _iom_config(config::HybSConfig, flow_delta::Float64, head_delta::Float64)
+function _iom_config(config::HybSConfig, delta_x::Float64, delta_y::Float64)
     Q = _iom_quad_config_type(config.quad)
     depth = IOM.tolerance_depth(
         IOM.HybSConfig{Q};
         tolerance = config.tolerance,
-        max_delta_x = flow_delta,
-        max_delta_y = head_delta,
+        max_delta_x = delta_x,
+        max_delta_y = delta_y,
     )
     epigraph_depth = IOM.tolerance_epigraph_depth(
         IOM.HybSConfig{Q};
         tolerance = config.tolerance,
-        max_delta_x = flow_delta,
-        max_delta_y = head_delta,
+        max_delta_x = delta_x,
+        max_delta_y = delta_y,
     )
-    return IOM.HybSConfig(
-        _build_inner_quad(Q, depth);
-        epigraph_depth,
-        add_mccormick = config.add_mccormick,
-    )
+    return IOM.HybSConfig(Q(; depth); epigraph_depth)
 end
 
-function _iom_config(config::NMDTConfig, flow_delta::Float64, head_delta::Float64)
+function _iom_config(config::NMDTConfig, delta_x::Float64, delta_y::Float64)
     depth = IOM.tolerance_depth(
         IOM.NMDTBilinearConfig;
         tolerance = config.tolerance,
-        max_delta_x = flow_delta,
-        max_delta_y = head_delta,
+        max_delta_x = delta_x,
+        max_delta_y = delta_y,
     )
     return IOM.NMDTBilinearConfig(; depth)
 end
 
-function _iom_config(config::DNMDTConfig, flow_delta::Float64, head_delta::Float64)
+function _iom_config(config::DNMDTConfig, delta_x::Float64, delta_y::Float64)
     depth = IOM.tolerance_depth(
         IOM.DNMDTBilinearConfig;
         tolerance = config.tolerance,
-        max_delta_x = flow_delta,
-        max_delta_y = head_delta,
+        max_delta_x = delta_x,
+        max_delta_y = delta_y,
     )
     return IOM.DNMDTBilinearConfig(; depth)
 end
