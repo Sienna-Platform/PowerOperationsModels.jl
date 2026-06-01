@@ -54,7 +54,10 @@ get_network_formulation(template::PowerOperationsProblemTemplate) =
 get_hvdc_network_model(template::PowerOperationsProblemTemplate) =
     template.network_model.hvdc_network_model
 
-function get_component_types(template::PowerOperationsProblemTemplate)::Vector{DataType}
+# Returns `Vector{Type}`, not `Vector{DataType}`: a service component type can be a
+# UnionAll (e.g. PSY6 parameterized `ReserveDemandCurve{ReserveUp}` on a unit-system
+# type, leaving a trailing free parameter), which is not a `DataType`.
+function get_component_types(template::PowerOperationsProblemTemplate)::Vector{Type}
     return vcat(
         get_component_type.(values(get_device_models(template))),
         get_component_type.(values(get_branch_models(template))),
@@ -250,7 +253,11 @@ function _populate_contributing_devices!(
                 LOG_GROUP_SERVICE_CONSTUCTORS
             continue
         end
-        service_devices_key = (type = S, name = PSY.get_name(service))
+        # Key by the concrete service type. `S` from the model can be a UnionAll
+        # (e.g. PSY6 parameterized `ReserveDemandCurve{ReserveUp}` on a unit-system
+        # type, leaving a trailing free parameter), but `get_contributing_device_mapping`
+        # keys by `typeof(service)`, so match that to avoid a KeyError.
+        service_devices_key = (type = typeof(service), name = PSY.get_name(service))
         contributing_devices_ =
             services_mapping[service_devices_key].contributing_devices
         for d in contributing_devices_

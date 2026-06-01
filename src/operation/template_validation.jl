@@ -1,5 +1,33 @@
 const _TEMPLATE_VALIDATION_EXCLUSIONS = [PSY.Arc, PSY.Area, PSY.ACBus, PSY.LoadZone]
 
+# Reconcile the model's resolution setting against the resolutions present in the
+# system's time series: set it when unset and a single resolution exists, and error on
+# ambiguous (multiple-resolution) or unavailable resolutions. Shared by the DecisionModel
+# and EmulationModel `validate_time_series!` methods.
+function _reconcile_resolution!(settings, sys)
+    available_resolutions = IOM.get_time_series_resolutions(sys)
+    if get_resolution(settings) == IOM.UNSET_RESOLUTION &&
+       length(available_resolutions) != 1
+        throw(
+            IS.ConflictingInputsError(
+                "Data contains multiple resolutions, the resolution keyword argument must be added to the Model. Time Series Resolutions: $(available_resolutions)",
+            ),
+        )
+    elseif get_resolution(settings) != IOM.UNSET_RESOLUTION &&
+           length(available_resolutions) > 1
+        if get_resolution(settings) ∉ available_resolutions
+            throw(
+                IS.ConflictingInputsError(
+                    "Resolution $(get_resolution(settings)) is not available in the system data. Time Series Resolutions: $(available_resolutions)",
+                ),
+            )
+        end
+    else
+        IOM.set_resolution!(settings, first(available_resolutions))
+    end
+    return
+end
+
 function validate_template_impl!(model::IOM.AbstractOptimizationModel)
     template = get_template(model)
     settings = get_settings(model)

@@ -25,12 +25,10 @@ get_variable_warm_start_value(::Type{ReactivePowerVariable}, d::PSY.HydroGen, ::
 get_variable_lower_bound(::Type{ReactivePowerVariable}, d::PSY.HydroGen, ::Type{<:AbstractHydroReservoirFormulation}) = PSY.get_active_power_limits(d, PSY.SU).min
 get_variable_upper_bound(::Type{ReactivePowerVariable}, d::PSY.HydroGen, ::Type{<:AbstractHydroReservoirFormulation}) = PSY.get_active_power_limits(d, PSY.SU).max
 
-############## EnergyVariable, HydroGen ####################
-# These methods are defined in PowerSimulations
-get_variable_binary(::Type{EnergyVariable}, ::Type{<:PSY.HydroGen}, ::Type{<:AbstractHydroReservoirFormulation}) = false
-get_variable_warm_start_value(::Type{EnergyVariable}, d::PSY.HydroGen, ::Type{<:AbstractHydroReservoirFormulation}) = PSY.get_initial_storage(d)
-get_variable_lower_bound(::Type{EnergyVariable}, d::PSY.HydroGen, ::Type{<:AbstractHydroReservoirFormulation}) = 0.0
-get_variable_upper_bound(::Type{EnergyVariable}, d::PSY.HydroGen, ::Type{<:AbstractHydroReservoirFormulation}) = PSY.get_storage_capacity(d, PSY.SU)
+# EnergyVariable is no longer modeled on HydroGen: PSY6 moved reservoir/energy state
+# off the generator and onto the HydroReservoir component, so these getters
+# (get_initial_storage, get_storage_capacity on a HydroGen) no longer exist. The
+# EnergyVariable + InitialEnergyLevel methods now live on PSY.HydroReservoir below.
 
 ########################### ActivePowerInVariable, HydroGen #################################
 get_variable_binary(::Type{ActivePowerInVariable}, ::Type{<:PSY.HydroGen}, ::Type{<:AbstractHydroReservoirFormulation}) = false
@@ -74,15 +72,14 @@ get_variable_binary(::Type{ReservationVariable}, ::Type{<:PSY.HydroGen}, ::Type{
 
 ############## EnergyShortageVariable, HydroGen ####################
 get_variable_binary(::Type{HydroEnergyShortageVariable}, ::Type{<:PSY.HydroGen}, ::Type{<:AbstractHydroFormulation}) = false
-get_variable_lower_bound(::Type{HydroEnergyShortageVariable}, d::PSY.HydroGen, ::Type{<:AbstractHydroReservoirFormulation}) = 0.0
-get_variable_upper_bound(::Type{HydroEnergyShortageVariable}, d::PSY.HydroGen, ::Type{<:AbstractHydroReservoirFormulation}) = PSY.get_storage_capacity(d, PSY.SU)
+# HydroEnergyShortageVariable on a HydroGen is added only by HydroDispatchRunOfRiverBudget
+# (bounds below). The reservoir-formulation variant moved to HydroReservoir: PSY6 removed
+# the generator's reservoir state, so get_storage_capacity is no longer defined on HydroGen.
 get_variable_lower_bound(::Type{HydroEnergyShortageVariable}, d::PSY.HydroDispatch, ::Type{HydroDispatchRunOfRiverBudget}) = 0.0
 get_variable_upper_bound(::Type{HydroEnergyShortageVariable}, d::PSY.HydroDispatch, ::Type{HydroDispatchRunOfRiverBudget}) = nothing
 
-############## HydroEnergySurplusVariable, HydroGen ####################
-get_variable_binary(::Type{HydroEnergySurplusVariable}, ::Type{<:PSY.HydroGen}, ::Type{<:AbstractHydroReservoirFormulation}) = false
-get_variable_upper_bound(::Type{HydroEnergySurplusVariable}, d::PSY.HydroGen, ::Type{<:AbstractHydroReservoirFormulation}) = 0.0
-get_variable_lower_bound(::Type{HydroEnergySurplusVariable}, d::PSY.HydroGen, ::Type{<:AbstractHydroReservoirFormulation}) = - PSY.get_storage_capacity(d, PSY.SU)
+# HydroEnergySurplusVariable is modeled on HydroReservoir (below), never HydroGen:
+# same PSY6 reservoir-state move; get_storage_capacity on a HydroGen no longer exists.
 
 ############## HydroReservoir ####################
 
@@ -194,7 +191,8 @@ get_multiplier_value(::Type{EnergyBudgetTimeSeriesParameter}, d::PSY.HydroGen, :
 # get_multiplier_value(::EnergyBudgetTimeSeriesParameter, d::PSY.HydroEnergyReservoir, ::AbstractHydroFormulation) = PSY.get_storage_capacity(d, PSY.SU)
 get_multiplier_value(::Type{EnergyBudgetTimeSeriesParameter}, d::PSY.HydroReservoir, ::Type{HydroEnergyModelReservoir}) = PSY.get_storage_level_limits(d).max / PSY._get_system_base_power(d)
 get_multiplier_value(::Type{WaterBudgetTimeSeriesParameter}, d::PSY.HydroReservoir, ::Type{HydroWaterModelReservoir}) = 1.0 # Data already in m3/s
-get_multiplier_value(::Type{EnergyTargetTimeSeriesParameter}, d::PSY.HydroGen, ::Type{<:AbstractHydroFormulation}) = PSY.get_storage_capacity(d, PSY.SU)
+# EnergyTargetTimeSeriesParameter is added only for HydroReservoir (HydroEnergyModelReservoir);
+# the HydroGen variant is dead and called the now-removed get_storage_capacity on a HydroGen.
 get_multiplier_value(::Type{EnergyTargetTimeSeriesParameter}, d::PSY.HydroReservoir, ::Type{HydroEnergyModelReservoir}) = PSY.get_level_targets(d) * PSY.get_storage_level_limits(d).max / PSY._get_system_base_power(d)
 get_multiplier_value(::Type{WaterTargetTimeSeriesParameter}, d::PSY.HydroReservoir, ::Type{HydroWaterModelReservoir}) = 1.0 # Data already in head meters
 get_multiplier_value(::Type{InflowTimeSeriesParameter}, d::PSY.HydroGen, ::Type{<:AbstractHydroFormulation}) = PSY.get_inflow(d) * PSY.get_conversion_factor(d)
@@ -221,8 +219,8 @@ initial_condition_default(::DeviceStatus, d::PSY.HydroGen, ::AbstractHydroReserv
 initial_condition_variable(::DeviceStatus, d::PSY.HydroGen, ::AbstractHydroReservoirFormulation) = OnVariable()
 initial_condition_default(::DevicePower, d::PSY.HydroGen, ::AbstractHydroReservoirFormulation) = PSY.get_active_power(d, PSY.SU)
 initial_condition_variable(::DevicePower, d::PSY.HydroGen, ::AbstractHydroReservoirFormulation) = ActivePowerVariable()
-initial_condition_default(::InitialEnergyLevel, d::PSY.HydroGen, ::AbstractHydroReservoirFormulation) = PSY.get_initial_storage(d)
-initial_condition_variable(::InitialEnergyLevel, d::PSY.HydroGen, ::AbstractHydroReservoirFormulation) = EnergyVariable()
+# InitialEnergyLevel is modeled on PSY.HydroReservoir (see below), not HydroGen:
+# PSY6 moved reservoir energy state off the generator, removing get_initial_storage.
 
 initial_condition_default(::InitialTimeDurationOn, d::PSY.HydroGen, ::AbstractHydroReservoirFormulation) = PSY.get_status(d) ? PSY.get_time_at_status(d) :  0.0
 initial_condition_variable(::InitialTimeDurationOn, d::PSY.HydroGen, ::AbstractHydroReservoirFormulation) = OnVariable()

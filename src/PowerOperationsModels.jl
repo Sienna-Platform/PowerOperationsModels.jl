@@ -366,8 +366,8 @@ export InitialCondition
 export AbstractPowerOperationProblem
 export AbstractPowerDecisionProblem
 export AbstractPowerEmulationProblem
-export GenericPowerDecisionProblem
-export GenericPowerEmulationProblem
+export DefaultPowerDecisionProblem
+export DefaultPowerEmulationProblem
 
 # Network
 export NetworkModel
@@ -462,8 +462,8 @@ export RunStatus
 export SimulationBuildStatus
 
 # Problem Types
-export DefaultPowerDecisionProblem
-export DefaultPowerEmulationProblem
+export GenericPowerDecisionProblem
+export GenericPowerEmulationProblem
 
 # Settings and Data Types
 export Settings

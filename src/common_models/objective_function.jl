@@ -38,6 +38,11 @@ function _renewable_offer_max(
         return PSY.get_max_active_power(component, PSY.SU)
     param_container = get_parameter(container, ActivePowerTimeSeriesParameter, C)
     multiplier = get_multiplier_array(param_container)
+    # The container can exist for type `C` while this particular device has no
+    # time-series entry (mixed TS / no-TS devices of the same type). Fall back to
+    # the static max in that case rather than indexing into a missing row.
+    name ∈ axes(multiplier, 1) ||
+        return PSY.get_max_active_power(component, PSY.SU)
     return get_parameter_column_refs(param_container, name)[t] * multiplier[name, t]
 end
 

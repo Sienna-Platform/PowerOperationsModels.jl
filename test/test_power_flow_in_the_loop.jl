@@ -200,7 +200,6 @@ end
 
     line = get_component(Line, system, "1")
     arc = get_arc(line)
-    remove_component!(system, line)
 
     ps = PhaseShiftingTransformer(;
         name = get_name(line),
@@ -217,6 +216,7 @@ end
         base_power = get_base_power(system, PSY.NU),
     )
     add_component!(system, ps)
+    remove_component!(system, line)
 
     template = get_template_dispatch_with_network(
         NetworkModel(
@@ -262,7 +262,6 @@ end
         if replace_line
             original_impedance = get_r(line, PSY.SU) + im * get_x(line, PSY.SU)
             original_shunt = get_b(line, PSY.SU)
-            remove_component!(system, line)
             split_impedance = original_impedance * 2
             split_shunt = (from = 0.5 * original_shunt.from, to = 0.5 * original_shunt.to)
             for i in 1:2
@@ -280,6 +279,7 @@ end
                 )
                 add_component!(system, l)
             end
+            remove_component!(system, line)
         end
 
         template = get_template_dispatch_with_network(
@@ -317,7 +317,6 @@ end
 @testset "AC Power Flow in the loop with a breaker-switch" begin
     system = build_system(PSITestSystems, "c_sys5_uc")
     line = get_component(Line, system, "2")
-    remove_component!(system, line)
     bs = PSY.DiscreteControlledACBranch(;
         name = get_name(line),
         available = true,
@@ -331,6 +330,7 @@ end
         branch_status = PSY.DiscreteControlledBranchStatus.CLOSED,
     )
     add_component!(system, bs)
+    remove_component!(system, line)
     # Set lines 3 and 6 to identical impedance so they're truly parallel
     line3 = get_component(Line, system, "3")
     line6 = get_component(Line, system, "6")

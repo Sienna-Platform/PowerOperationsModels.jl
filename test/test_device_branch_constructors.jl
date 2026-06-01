@@ -536,7 +536,6 @@ end
     system = build_system(PSITestSystems, "c_sys5_uc")
 
     line = get_component(Line, system, "1")
-    remove_component!(system, line)
 
     ps = PhaseShiftingTransformer(;
         name = get_name(line),
@@ -554,6 +553,7 @@ end
     )
 
     add_component!(system, ps)
+    remove_component!(system, line)
 
     template = get_template_dispatch_with_network(
         NetworkModel(PTDFPowerModel; PTDF_matrix = PTDF(system)),
@@ -886,7 +886,7 @@ end
             FlowActivePowerVariable,
             Transformer3W,
             "Transformer3W_busD_winding_3",
-            PSY.get_rating_tertiary(transformer),
+            PSY.get_rating_tertiary(transformer, PSY.SU),
         )
     end
 

@@ -29,25 +29,25 @@ abstract type AbstractPowerEmulationProblem <: AbstractPowerOperationProblem end
 
 """
 Decision problems whose build/validate behavior is fully driven by the
-`ProblemTemplate` (the common case). `DecisionModel{<:DefaultPowerDecisionProblem}`
+`ProblemTemplate` (the common case). `DecisionModel{<:GenericPowerDecisionProblem}`
 gets the generic template-driven `build_model!`/`validate_template` methods.
 """
-abstract type DefaultPowerDecisionProblem <: AbstractPowerDecisionProblem end
+abstract type GenericPowerDecisionProblem <: AbstractPowerDecisionProblem end
 
 """
 Emulation problems whose build/validate behavior is fully driven by the
 `ProblemTemplate`.
 """
-abstract type DefaultPowerEmulationProblem <: AbstractPowerEmulationProblem end
+abstract type GenericPowerEmulationProblem <: AbstractPowerEmulationProblem end
 
 """
-Generic template-driven decision problem. Default `M` when a `DecisionModel` is
-built from a template without an explicit problem type.
-"""
-struct GenericPowerDecisionProblem <: DefaultPowerDecisionProblem end
-
-"""
-Generic template-driven emulation problem. Default `M` when an `EmulationModel`
+Default concrete template-driven decision problem. The `M` used when a `DecisionModel`
 is built from a template without an explicit problem type.
 """
-struct GenericPowerEmulationProblem <: DefaultPowerEmulationProblem end
+struct DefaultPowerDecisionProblem <: GenericPowerDecisionProblem end
+
+"""
+Default concrete template-driven emulation problem. The `M` used when an `EmulationModel`
+is built from a template without an explicit problem type.
+"""
+struct DefaultPowerEmulationProblem <: GenericPowerEmulationProblem end

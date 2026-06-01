@@ -1,4 +1,4 @@
-# Template-first constructors default the problem type to `GenericPowerDecisionProblem`.
+# Template-first constructors default the problem type to `DefaultPowerDecisionProblem`.
 # IOM only ships the `DecisionModel{M}` / `DecisionModel(::Type{M}, ...)` variants
 # (`M` is the domain-neutral `AbstractOptimizationProblem`); the default problem
 # type is a POM concept, so the defaulting constructors live here.
@@ -8,17 +8,20 @@ function DecisionModel(
     jump_model::Union{Nothing, JuMP.Model} = nothing;
     kwargs...,
 )
-    return DecisionModel{GenericPowerDecisionProblem}(template, sys, jump_model; kwargs...)
+    return DecisionModel{DefaultPowerDecisionProblem}(template, sys, jump_model; kwargs...)
 end
 
-# Template-driven problems require a template; the bare-system constructor is an error.
+# Generic (template-driven) decision problems require an AbstractProblemTemplate
+# subtype, so the bare-system constructor (no template) is an error.
 function DecisionModel{M}(
     sys::IS.InfrastructureSystemsContainer,
     jump_model::Union{Nothing, JuMP.Model} = nothing;
     kwargs...,
-) where {M <: DefaultPowerDecisionProblem}
-    IS.ArgumentError(
-        "DefaultPowerDecisionProblem subtypes require a template. Use DecisionModel subtyping instead.",
+) where {M <: GenericPowerDecisionProblem}
+    throw(
+        IS.ArgumentError(
+            "GenericPowerDecisionProblem subtypes require a template. Use DecisionModel subtyping instead.",
+        ),
     )
 end
 
@@ -114,7 +117,7 @@ function build!(
     return IOM.get_status(model)
 end
 
-function reset!(model::DecisionModel{<:DefaultPowerDecisionProblem})
+function reset!(model::DecisionModel{<:GenericPowerDecisionProblem})
     was_built_for_recurrent_solves = built_for_recurrent_solves(model)
     if was_built_for_recurrent_solves
         IOM.set_execution_count!(model, 0)
@@ -315,7 +318,7 @@ function validate_template(::DecisionModel{M}) where {M <: AbstractPowerDecision
     error("validate_template is not implemented for DecisionModel{$M}")
 end
 
-function validate_template(model::DecisionModel{<:DefaultPowerDecisionProblem})
+function validate_template(model::DecisionModel{<:GenericPowerDecisionProblem})
     validate_template_impl!(model)
     return
 end
@@ -324,30 +327,10 @@ end
 # POM provides the concrete check for its template-driven problem types. It reconciles
 # the model's resolution/interval/horizon settings against the forecast data in the
 # system and errors when the system has no forecast data.
-function validate_time_series!(model::DecisionModel{<:DefaultPowerDecisionProblem})
+function validate_time_series!(model::DecisionModel{<:GenericPowerDecisionProblem})
     sys = get_system(model)
     settings = get_settings(model)
-    available_resolutions = IOM.get_time_series_resolutions(sys)
-
-    if get_resolution(settings) == IOM.UNSET_RESOLUTION &&
-       length(available_resolutions) != 1
-        throw(
-            IS.ConflictingInputsError(
-                "Data contains multiple resolutions, the resolution keyword argument must be added to the Model. Time Series Resolutions: $(available_resolutions)",
-            ),
-        )
-    elseif get_resolution(settings) != IOM.UNSET_RESOLUTION &&
-           length(available_resolutions) > 1
-        if get_resolution(settings) ∉ available_resolutions
-            throw(
-                IS.ConflictingInputsError(
-                    "Resolution $(get_resolution(settings)) is not available in the system data. Time Series Resolutions: $(available_resolutions)",
-                ),
-            )
-        end
-    else
-        IOM.set_resolution!(settings, first(available_resolutions))
-    end
+    _reconcile_resolution!(settings, sys)
 
     model_interval = IOM.get_interval(settings)
     available_intervals = IOM.get_forecast_intervals(sys)

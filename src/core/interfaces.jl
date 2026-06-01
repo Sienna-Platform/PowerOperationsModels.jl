@@ -166,9 +166,9 @@ Build an `EvaluationContainer` holding a single evaluator. Convenience for the
 common single-evaluator case at call sites such as
 `NetworkModel(...; evaluations = power_flow_evaluations(ACPowerFlow()))`.
 """
-function power_flow_evaluations(ev)
+function power_flow_evaluations(ev::T) where {T}
     ec = IOM.EvaluationContainer()
-    IOM.add_evaluator!(ec, typeof(ev), ev)
+    IOM.add_evaluator!(ec, T, ev)
     return ec
 end
 

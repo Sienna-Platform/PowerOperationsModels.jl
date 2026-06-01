@@ -1,4 +1,4 @@
-# Template-first constructor defaults the problem type to `GenericPowerEmulationProblem`
+# Template-first constructor defaults the problem type to `DefaultPowerEmulationProblem`
 # (mirrors the DecisionModel defaulting constructor; see decision_model.jl).
 function EmulationModel(
     template::IOM.AbstractProblemTemplate,
@@ -6,7 +6,7 @@ function EmulationModel(
     jump_model::Union{Nothing, JuMP.Model} = nothing;
     kwargs...,
 )
-    return EmulationModel{GenericPowerEmulationProblem}(
+    return EmulationModel{DefaultPowerEmulationProblem}(
         template,
         sys,
         jump_model;
@@ -16,30 +16,10 @@ end
 
 # POM-side implementation of IOM's `validate_time_series!` extension point for
 # emulation problems. Emulation models solve a single step, so horizon == resolution.
-function validate_time_series!(model::EmulationModel{<:DefaultPowerEmulationProblem})
+function validate_time_series!(model::EmulationModel{<:GenericPowerEmulationProblem})
     sys = get_system(model)
     settings = get_settings(model)
-    available_resolutions = IOM.get_time_series_resolutions(sys)
-
-    if get_resolution(settings) == IOM.UNSET_RESOLUTION &&
-       length(available_resolutions) != 1
-        throw(
-            IS.ConflictingInputsError(
-                "Data contains multiple resolutions, the resolution keyword argument must be added to the Model. Time Series Resolutions: $(available_resolutions)",
-            ),
-        )
-    elseif get_resolution(settings) != IOM.UNSET_RESOLUTION &&
-           length(available_resolutions) > 1
-        if get_resolution(settings) ∉ available_resolutions
-            throw(
-                IS.ConflictingInputsError(
-                    "Resolution $(get_resolution(settings)) is not available in the system data. Time Series Resolutions: $(available_resolutions)",
-                ),
-            )
-        end
-    else
-        IOM.set_resolution!(settings, first(available_resolutions))
-    end
+    _reconcile_resolution!(settings, sys)
 
     if get_horizon(settings) == IOM.UNSET_HORIZON
         # Emulation Models only solve one "step" so Horizon and Resolution must match
@@ -371,7 +351,7 @@ function validate_template(::EmulationModel{M}) where {M <: AbstractPowerEmulati
     error("validate_template is not implemented for EmulationModel{$M}")
 end
 
-function validate_template(model::EmulationModel{<:DefaultPowerEmulationProblem})
+function validate_template(model::EmulationModel{<:GenericPowerEmulationProblem})
     validate_template_impl!(model)
     return
 end

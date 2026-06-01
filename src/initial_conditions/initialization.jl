@@ -20,7 +20,8 @@ function get_initial_conditions_template(
     network_model.network_reduction =
         deepcopy(get_network_reduction(get_network_model(model.template)))
     network_model.subnetworks = get_subnetworks(get_network_model(model.template))
-    # Initialization does not run external evaluators
+    # Initialization builds a fresh, empty EvaluationContainer: no power-flow (or other)
+    # evaluations are run during initialization.
     network_model.evaluations = IOM.EvaluationContainer()
     bus_area_map = get_bus_area_map(get_network_model(model.template))
 

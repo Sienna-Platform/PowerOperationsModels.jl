@@ -71,6 +71,11 @@ function add_equivalent_ac_transmission_with_series_parallel_circuits!(
     new_r_parallel = PSY.get_r(ac_transmission, PSY.SU) * 2
     new_x_parallel = PSY.get_x(ac_transmission, PSY.SU) * 2
     ac_transmission_copy_parallel = get_copied_line(ac_transmission)
+    # Attach the parallel copy before any system-base (PSY.SU) access on it,
+    # including copying it below (get_copied_line reads PSY.SU quantities) and the
+    # setters further down: resolving a PSY.SU quantity needs the system base
+    # power, only reachable once the component is attached to the system.
+    add_component!(sys, ac_transmission_copy_parallel)
     ac_transmission_copy_series = get_copied_line(ac_transmission_copy_parallel)
 
     set_rating!(ac_transmission, rating_new_parallel * PSY.SU)
@@ -79,7 +84,6 @@ function add_equivalent_ac_transmission_with_series_parallel_circuits!(
     set_r!(ac_transmission_copy_parallel, new_r_parallel * PSY.SU)
     set_x!(ac_transmission, new_x_parallel * PSY.SU)
     set_x!(ac_transmission_copy_parallel, new_x_parallel * PSY.SU)
-    add_component!(sys, ac_transmission_copy_parallel)
 
     #Add new series Line with same parameters
     set_arc!(ac_transmission_copy_series, arc2)
@@ -97,6 +101,10 @@ function add_equivalent_ac_transmission_with_parallel_circuits!(
     x_new = PSY.get_x(ac_transmission, PSY.SU) * 2
     r_new = PSY.get_r(ac_transmission, PSY.SU) * 2
     ac_transmission_copy_parallel = get_copied_line(ac_transmission)
+    # Attach the copy before setting system-base (PSY.SU) values: resolving a
+    # PSY.SU quantity needs the system base power, which is only reachable once
+    # the component is attached to the system.
+    add_component!(sys, ac_transmission_copy_parallel)
 
     #Set ratings the half so the case remains equivalent to the original
     set_rating!(ac_transmission, rating_new * PSY.SU)
@@ -105,7 +113,6 @@ function add_equivalent_ac_transmission_with_parallel_circuits!(
     set_x!(ac_transmission_copy_parallel, x_new * PSY.SU)
     set_r!(ac_transmission, r_new * PSY.SU)
     set_r!(ac_transmission_copy_parallel, r_new * PSY.SU)
-    add_component!(sys, ac_transmission_copy_parallel)
 end
 
 function add_equivalent_ac_transmission_with_parallel_circuits!(

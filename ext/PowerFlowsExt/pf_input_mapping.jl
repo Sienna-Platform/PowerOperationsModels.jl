@@ -320,9 +320,14 @@ function POM.add_power_flow_data!(
     sys::PSY.System,
 )
     evaluations = get_evaluations(network_model)
-    # Share the same EvaluationContainer instance between NetworkModel and
-    # OptimizationContainer so IOM.calculate_aux_variables! sees the same
-    # runtime state we register here.
+    # The user supplies the power-flow evaluators on the NetworkModel
+    # (`NetworkModel(...; evaluations = ...)`), but IOM.calculate_aux_variables! reads
+    # the evaluations off the OptimizationContainer (see IOM
+    # optimization_container.jl `calculate_aux_variables!`). Alias the container's
+    # field to the NetworkModel's EvaluationContainer so the runtime PF data we register
+    # below via `add_evaluation_data!` is the same object the aux-var calc reads later.
+    # This is a consequence of the IOM/POM split owning evaluators on the NetworkModel
+    # (user config) while the container is the runtime object — not a standalone bugfix.
     container.evaluations = evaluations
     isempty(evaluations) && return
 

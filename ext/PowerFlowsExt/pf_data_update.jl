@@ -131,14 +131,14 @@ end
 
 # PERF direct dot access + manual unit conversions for performance and convenience
 _update_component!(comp::PSY.Component, ::Val{:active_power}, value, sys_base) =
-    (comp.active_power = value * sys_base / PSY.get_base_power(comp))
+    (comp.active_power = value * sys_base / PSY.get_base_power(comp, PSY.NU))
 # Sign is flipped for loads
 _update_component!(comp::PSY.ElectricLoad, ::Val{:active_power}, value, sys_base) =
-    (comp.active_power = -value * sys_base / PSY.get_base_power(comp))
+    (comp.active_power = -value * sys_base / PSY.get_base_power(comp, PSY.NU))
 _update_component!(comp::PSY.Component, ::Val{:reactive_power}, value, sys_base) =
-    (comp.reactive_power = value * sys_base / PSY.get_base_power(comp))
+    (comp.reactive_power = value * sys_base / PSY.get_base_power(comp, PSY.NU))
 _update_component!(comp::PSY.ElectricLoad, ::Val{:reactive_power}, value, sys_base) =
-    (comp.reactive_power = -value * sys_base / PSY.get_base_power(comp))
+    (comp.reactive_power = -value * sys_base / PSY.get_base_power(comp, PSY.NU))
 _update_component!(
     comp::PSY.ACBus,
     ::Union{Val{:voltage_angle_export}, Val{:voltage_angle_opf}},

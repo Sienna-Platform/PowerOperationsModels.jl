@@ -125,15 +125,16 @@ function IOM.calculate_aux_variable_value!(
         end
     end
     for (arc, parallel_brs) in PNM.get_parallel_branch_map(nrd)
+        # Constant per parallel group: hoist out of the per-branch loop below.
+        sample_line = first(parallel_brs)
+        impedance = PSY.get_r(sample_line, PSY.SU) + im * PSY.get_x(sample_line, PSY.SU)
+        first_name = PSY.get_name(sample_line)
         for br in parallel_brs
-            sample_line = first(parallel_brs)
-            impedance = PSY.get_r(sample_line) + im * PSY.get_x(sample_line)
-            first_name = PSY.get_name(sample_line)
             if br isa U
                 name = PSY.get_name(br)
                 IS.@assert_op T <: POM.BranchFlowAuxVariableType ||
                               (T == POM.PowerFlowBranchActivePowerLoss)
-                if !isapprox(PSY.get_r(br) + im * PSY.get_x(br), impedance)
+                if !isapprox(PSY.get_r(br, PSY.SU) + im * PSY.get_x(br, PSY.SU), impedance)
                     @debug "Parallel branches with different impedances found: " *
                            "$name and $first_name. Check your data inputs."
                 end
