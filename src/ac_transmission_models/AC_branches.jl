@@ -29,7 +29,7 @@ get_parameter_multiplier(::Type{UpperBoundValueParameter}, ::PSY.ACTransmission,
 get_variable_multiplier(::Type{PhaseShifterAngle}, ::Type{<:PSY.PhaseShiftingTransformer}, ::Type{PhaseAngleControl}) = 1.0
 
 get_multiplier_value(::Type{<:AbstractDynamicBranchRatingTimeSeriesParameter}, d::PSY.ACTransmission, ::Type{StaticBranch}) = PSY.get_rating(d, PSY.SU)
-get_multiplier_value(::Type{<:AbstractDynamicBranchRatingTimeSeriesParameter}, d::PNM.BranchesParallel, ::Type{StaticBranch}) = PNM.get_equivalent_rating(d)
+get_multiplier_value(::Type{<:AbstractDynamicBranchRatingTimeSeriesParameter}, d::PNM.AbstractBranchesParallel, ::Type{StaticBranch}) = get_rating(d)
 
 
 get_initial_conditions_device_model(::IOM.AbstractOptimizationModel, ::DeviceModel{T, U}) where {T <: PSY.ACTransmission, U <: AbstractBranchFormulation} = DeviceModel(T, U)
@@ -260,7 +260,7 @@ end
 
 ################################## Rate Limits constraint_infos ############################
 
-function get_rating(double_circuit::PNM.BranchesParallel)
+function get_rating(double_circuit::PNM.AbstractBranchesParallel)
     return sum([PSY.get_rating(circuit, PSY.SU) for circuit in double_circuit])
 end
 function get_rating(series_chain::PNM.BranchesSeries)
@@ -305,18 +305,18 @@ function get_min_max_limits(
     winding_number = PNM.get_winding_number(transformer_entry)
     if winding_number == 1
         limits = (
-            min = -1 * PSY.get_rating_primary(transformer),
-            max = PSY.get_rating_primary(transformer),
+            min = -1 * PSY.get_rating_primary(transformer, PSY.SU),
+            max = PSY.get_rating_primary(transformer, PSY.SU),
         )
     elseif winding_number == 2
         limits = (
-            min = -1 * PSY.get_rating_secondary(transformer),
-            max = PSY.get_rating_secondary(transformer),
+            min = -1 * PSY.get_rating_secondary(transformer, PSY.SU),
+            max = PSY.get_rating_secondary(transformer, PSY.SU),
         )
     elseif winding_number == 3
         limits = (
-            min = -1 * PSY.get_rating_tertiary(transformer),
-            max = PSY.get_rating_tertiary(transformer),
+            min = -1 * PSY.get_rating_tertiary(transformer, PSY.SU),
+            max = PSY.get_rating_tertiary(transformer, PSY.SU),
         )
     end
     return limits
@@ -348,7 +348,7 @@ function get_min_max_limits(
     ::Type{<:ConstraintType},
     ::Type{<:AbstractBranchFormulation},
 ) #  -> Union{Nothing, NamedTuple{(:min, :max), Tuple{Float64, Float64}}}
-    return (min = -1 * PSY.get_rating(device, PSY.SU), max = PSY.get_rating(device, PSY.SU))
+    return (min = -1 * get_rating(device), max = get_rating(device))
 end
 
 """
@@ -1042,7 +1042,7 @@ function get_min_max_limits(
         )
     end
     limit = min(
-        PSY.get_rating(device, PSY.SU),
+        get_rating(device),
         PSY.get_flow_limits(device, PSY.SU).to_from,
         PSY.get_flow_limits(device, PSY.SU).from_to,
     )

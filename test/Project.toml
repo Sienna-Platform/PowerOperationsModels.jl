@@ -34,8 +34,10 @@ UUIDs = "cf7118a7-6976-5b1a-9a39-7adc72f591a4"
 [sources]
 InfrastructureSystems = {rev = "IS4", url = "https://github.com/Sienna-Platform/InfrastructureSystems.jl"}
 PowerSystems = {rev = "psy6", url = "https://github.com/Sienna-Platform/PowerSystems.jl"}
-InfrastructureOptimizationModels = {rev = "main", url = "https://github.com/Sienna-Platform/InfrastructureOptimizationModels.jl"}
+InfrastructureOptimizationModels = {path = "../InfrastructureOptimizationModels.jl"}
 PowerSystemCaseBuilder = {rev = "psy6", url = "https://github.com/Sienna-Platform/PowerSystemCaseBuilder.jl"}
+PowerNetworkMatrices = {path = "../PowerNetworkMatrices.jl"}
+PowerFlows = {path = "../PowerFlows.jl"}
 
 [compat]
 HiGHS = "1"

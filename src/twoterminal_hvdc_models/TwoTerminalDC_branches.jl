@@ -1453,7 +1453,7 @@ get_variable_binary(::Type{FlowActivePowerToFromVariable}, ::Type{PSY.TwoTermina
 # Warm starts
 get_variable_warm_start_value(::Type{DCLineCurrentFlowVariable}, d::PSY.TwoTerminalVSCLine, ::Type{<:AbstractTwoTerminalVSCFormulation}) = PSY.get_dc_current(d)
 get_variable_warm_start_value(::Type{HVDCReactivePowerFromVariable}, d::PSY.TwoTerminalVSCLine, ::Type{<:AbstractTwoTerminalVSCFormulation}) = PSY.get_reactive_power_from(d, PSY.SU)
-get_variable_warm_start_value(::Type{HVDCReactivePowerToVariable}, d::PSY.TwoTerminalVSCLine, ::Type{<:AbstractTwoTerminalVSCFormulation}) = PSY.get_reactive_power_to(d)
+get_variable_warm_start_value(::Type{HVDCReactivePowerToVariable}, d::PSY.TwoTerminalVSCLine, ::Type{<:AbstractTwoTerminalVSCFormulation}) = PSY.get_reactive_power_to(d, PSY.SU)
 get_variable_warm_start_value(::Type{FlowActivePowerFromToVariable}, d::PSY.TwoTerminalVSCLine, ::Type{<:AbstractTwoTerminalVSCFormulation}) = PSY.get_active_power_flow(d, PSY.SU)
 get_variable_warm_start_value(::Type{FlowActivePowerToFromVariable}, d::PSY.TwoTerminalVSCLine, ::Type{<:AbstractTwoTerminalVSCFormulation}) = -PSY.get_active_power_flow(d, PSY.SU)
 
@@ -1507,10 +1507,10 @@ function _register_pq_sq_expressions!(
     p_tf = get_variable(container, FlowActivePowerToFromVariable, PSY.TwoTerminalVSCLine)
     q_f = get_variable(container, HVDCReactivePowerFromVariable, PSY.TwoTerminalVSCLine)
     q_t = get_variable(container, HVDCReactivePowerToVariable, PSY.TwoTerminalVSCLine)
-    p_ft_bounds = PSY.get_active_power_limits_from.(devices)
-    p_tf_bounds = PSY.get_active_power_limits_to.(devices)
-    q_f_bounds = PSY.get_reactive_power_limits_from.(devices)
-    q_t_bounds = PSY.get_reactive_power_limits_to.(devices)
+    p_ft_bounds = PSY.get_active_power_limits_from.(devices, Ref(PSY.SU))
+    p_tf_bounds = PSY.get_active_power_limits_to.(devices, Ref(PSY.SU))
+    q_f_bounds = PSY.get_reactive_power_limits_from.(devices, Ref(PSY.SU))
+    q_t_bounds = PSY.get_reactive_power_limits_to.(devices, Ref(PSY.SU))
     IOM._add_quadratic_approx!(
         quad_cfg, container, PSY.TwoTerminalVSCLine,
         line_names, time_steps, p_ft, p_ft_bounds, "p_ft_sq",
@@ -1678,8 +1678,8 @@ function add_constraints!(
 
     for d in devices
         name = PSY.get_name(d)
-        s_f2 = PSY.get_rating_from(d)^2
-        s_t2 = PSY.get_rating_to(d)^2
+        s_f2 = PSY.get_rating_from(d, PSY.SU)^2
+        s_t2 = PSY.get_rating_to(d, PSY.SU)^2
         for t in time_steps
             cons_f[name, t] = JuMP.@constraint(
                 jump_model, p_ft_sq[name, t] + q_f_sq[name, t] <= s_f2,
@@ -1746,7 +1746,7 @@ function add_constraints!(
     for d in devices
         name = PSY.get_name(d)
         for spec in side_specs
-            rating = spec.rating_getter(d)
+            rating = spec.rating_getter(d, PSY.SU)
             diag = rating * sqrt(2.0)
             prefix = spec.prefix
             p_var, q_var = spec.p_var, spec.q_var

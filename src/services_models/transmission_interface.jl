@@ -9,8 +9,8 @@ get_variable_multiplier(::Type{InterfaceFlowSlackDown}, ::Type{PSY.TransmissionI
 get_variable_multiplier(::Type{InterfaceFlowSlackUp}, ::Type{PSY.TransmissionInterface}, ::Type{VariableMaxInterfaceFlow}) = 1.0
 get_variable_multiplier(::Type{InterfaceFlowSlackDown}, ::Type{PSY.TransmissionInterface}, ::Type{VariableMaxInterfaceFlow}) = -1.0
 
-get_multiplier_value(::Type{MinInterfaceFlowLimitParameter}, d::PSY.TransmissionInterface, ::Type{VariableMaxInterfaceFlow}) = PSY.get_min_active_power_flow_limit(d)
-get_multiplier_value(::Type{MaxInterfaceFlowLimitParameter}, d::PSY.TransmissionInterface, ::Type{VariableMaxInterfaceFlow}) = PSY.get_max_active_power_flow_limit(d)
+get_multiplier_value(::Type{MinInterfaceFlowLimitParameter}, d::PSY.TransmissionInterface, ::Type{VariableMaxInterfaceFlow}) = PSY.get_min_active_power_flow_limit(d, PSY.SU)
+get_multiplier_value(::Type{MaxInterfaceFlowLimitParameter}, d::PSY.TransmissionInterface, ::Type{VariableMaxInterfaceFlow}) = PSY.get_max_active_power_flow_limit(d, PSY.SU)
 
 #! format: On
 function get_default_time_series_names(
@@ -70,7 +70,7 @@ function add_constraints!(
         meta = "lb",
     )
     int_name = PSY.get_name(interface)
-    min_flow, max_flow = PSY.get_active_power_flow_limits(interface)
+    min_flow, max_flow = PSY.get_active_power_flow_limits(interface, PSY.SU)
     for t in time_steps
         constraint_container_ub[int_name, t] =
             JuMP.@constraint(get_jump_model(container), expr[int_name, t] <= max_flow)

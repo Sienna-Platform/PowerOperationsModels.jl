@@ -34,8 +34,14 @@ get_variable_binary(::Type{ServiceRequirementVariable}, ::Type{<:PSY.ReserveDema
 get_variable_upper_bound(::Type{ServiceRequirementVariable}, ::PSY.ReserveDemandCurve, d::PSY.Component, ::Type{<:AbstractReservesFormulation}) = PSY.get_max_active_power(d, PSY.SU)
 get_variable_lower_bound(::Type{ServiceRequirementVariable}, ::PSY.ReserveDemandCurve, ::PSY.Component, ::Type{<:AbstractReservesFormulation}) = 0.0
 
-get_multiplier_value(::Type{RequirementTimeSeriesParameter}, d::PSY.Reserve, ::Type{<:AbstractReservesFormulation}) = PSY.get_requirement(d)
-get_multiplier_value(::Type{RequirementTimeSeriesParameter}, d::PSY.ReserveNonSpinning, ::Type{<:AbstractReservesFormulation}) = PSY.get_requirement(d)
+# `VariableReserve` stores `requirement` as a dimensionless factor that scales its
+# time series, so its getter is unitless. Every other reserve type stores an MVA
+# requirement and needs an explicit unit system.
+_get_requirement(service::PSY.VariableReserve) = PSY.get_requirement(service)
+_get_requirement(service) = PSY.get_requirement(service, PSY.SU)
+
+get_multiplier_value(::Type{RequirementTimeSeriesParameter}, d::PSY.Reserve, ::Type{<:AbstractReservesFormulation}) = _get_requirement(d)
+get_multiplier_value(::Type{RequirementTimeSeriesParameter}, d::PSY.ReserveNonSpinning, ::Type{<:AbstractReservesFormulation}) = _get_requirement(d)
 
 get_parameter_multiplier(::Type{<:VariableValueParameter}, d::Type{<:PSY.AbstractReserve}, ::Type{<:AbstractReservesFormulation}) = 1.0
 get_initial_parameter_value(::Type{<:VariableValueParameter}, d::Type{<:PSY.AbstractReserve}, ::Type{<:AbstractReservesFormulation}) = 0.0
@@ -177,7 +183,7 @@ function add_constraints!(
     )
 
     use_slacks && (slack_vars = reserve_slacks!(container, service))
-    requirement = PSY.get_requirement(service)
+    requirement = _get_requirement(service)
     jump_model = get_jump_model(container)
     extra = use_slacks ? 1 : 0
     if built_for_recurrent_solves(container)
@@ -234,7 +240,7 @@ function add_constraints!(
     )
     var_r = get_variable(container, ActivePowerReserveVariable, SR, service_name)
     jump_model = get_jump_model(container)
-    requirement = PSY.get_requirement(service)
+    requirement = _get_requirement(service)
     ts_vector = IOM.get_time_series(
         container,
         service,
@@ -288,7 +294,7 @@ function add_constraints!(
     use_slacks = get_use_slacks(model)
     use_slacks && (slack_vars = reserve_slacks!(container, service))
 
-    requirement = PSY.get_requirement(service)
+    requirement = _get_requirement(service)
     jump_model = get_jump_model(container)
     extra = use_slacks ? 1 : 0
     for t in time_steps

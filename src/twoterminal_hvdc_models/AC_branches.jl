@@ -255,7 +255,7 @@ end
 
 ################################## Rate Limits constraint_infos ############################
 
-function get_rating(double_circuit::PNM.BranchesParallel)
+function get_rating(double_circuit::PNM.AbstractBranchesParallel)
     return sum([PSY.get_rating(circuit, PSY.SU) for circuit in double_circuit])
 end
 function get_rating(series_chain::PNM.BranchesSeries)
@@ -300,18 +300,18 @@ function get_min_max_limits(
     winding_number = PNM.get_winding_number(transformer_entry)
     if winding_number == 1
         limits = (
-            min = -1 * PSY.get_rating_primary(transformer),
-            max = PSY.get_rating_primary(transformer),
+            min = -1 * PSY.get_rating_primary(transformer, PSY.SU),
+            max = PSY.get_rating_primary(transformer, PSY.SU),
         )
     elseif winding_number == 2
         limits = (
-            min = -1 * PSY.get_rating_secondary(transformer),
-            max = PSY.get_rating_secondary(transformer),
+            min = -1 * PSY.get_rating_secondary(transformer, PSY.SU),
+            max = PSY.get_rating_secondary(transformer, PSY.SU),
         )
     elseif winding_number == 3
         limits = (
-            min = -1 * PSY.get_rating_tertiary(transformer),
-            max = PSY.get_rating_tertiary(transformer),
+            min = -1 * PSY.get_rating_tertiary(transformer, PSY.SU),
+            max = PSY.get_rating_tertiary(transformer, PSY.SU),
         )
     end
     return limits
