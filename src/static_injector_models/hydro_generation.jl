@@ -1871,15 +1871,14 @@ function add_constraints!(
         name = PSY.get_name(d)
         conversion_factor = PSY.get_conversion_factor(d)
         reservoirs = filter(PSY.get_available, PSY.get_connected_head_reservoirs(sys, d))
+        isempty(reservoirs) && error(
+            "HydroTurbineMILPBilinearDispatch turbine \"$(name)\" has no available " *
+            "connected head reservoirs; cannot size the bilinear approximation.",
+        )
         powerhouse_elevation = PSY.get_powerhouse_elevation(d)
 
         flow_lb = get_variable_lower_bound(HydroTurbineFlowRateVariable, d, W)
         flow_ub = get_variable_upper_bound(HydroTurbineFlowRateVariable, d, W)
-        # The bilinear approximation needs finite flow / head domains to size the
-        # discretization. These bounds come back as `nothing` when the underlying
-        # data is missing (no turbine `outflow_limits`, or reservoir level data
-        # not stored as HEAD), so reject those cases with a clear error rather
-        # than letting an unclear failure surface downstream in IOM.
         isnothing(flow_ub) && error(
             "HydroTurbineMILPBilinearDispatch requires finite turbine outflow " *
             "limits to size the bilinear approximation, but turbine \"$(name)\" " *

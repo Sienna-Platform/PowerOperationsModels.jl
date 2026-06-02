@@ -1,13 +1,11 @@
-# Bilinear-approximation configuration for `HydroTurbineMILPBilinearDispatch`.
+# Bilinear-approximation configuration.
 #
-# These POM-owned types let a user select the bilinear approximation scheme (and
-# its inner quadratic method) for the turbined-flow × head product *by type*,
-# through the single `"bilinear_config"` `DeviceModel` attribute — without
+# These POM-owned types let a caller select the bilinear approximation scheme (and
+# its inner quadratic method) for a bilinear `x × y` product *by type* — without
 # depending on `InfrastructureOptimizationModels` (IOM). The accuracy of each
-# scheme is driven by a `tolerance`; the discretization depth is derived per
-# device at constraint-build time from the tolerance and the device's flow / head
-# ranges (see `_iom_config`), so the user never sets a manual depth / segment
-# count.
+# scheme is driven by a `tolerance`; the discretization depth is derived from the
+# tolerance and the two variables' ranges at constraint-build time (see
+# `_iom_config`), so the caller never sets a manual depth / segment count.
 #
 # `_iom_config` translates these descriptors into the corresponding IOM config
 # value used by `IOM._add_bilinear_approx!`. The approximation math itself lives
@@ -18,9 +16,9 @@
 """
 Abstract supertype for the inner quadratic-approximation method used by the
 [`Bin2Config`](@ref) and [`HybSConfig`](@ref) bilinear schemes (those schemes
-approximate `f × h` via squared terms like `(f+h)²`, which each need a quadratic
+approximate `x × y` via squared terms like `(x+y)²`, which each need a quadratic
 PWL method). The marker types carry no data: the discretization depth is derived
-from the bilinear config's `tolerance` per device.
+from the bilinear config's `tolerance`.
 """
 abstract type AbstractQuadApproxMethod end
 
@@ -82,76 +80,88 @@ const HybSQuad = Union{SolverSOS2, ManualSOS2, Sawtooth}
 
 ############################ Bilinear approximation configs ################################
 
+# Reject tolerances that would produce invalid discretization sizing downstream
+# in `IOM.tolerance_depth` (e.g. domain errors on a non-positive or non-finite gap).
+function _validate_tolerance(tolerance::Float64)
+    (isfinite(tolerance) && tolerance > 0) || throw(
+        ArgumentError(
+            "bilinear approximation `tolerance` must be finite and > 0, got $tolerance",
+        ),
+    )
+    return tolerance
+end
+
 """
-Abstract supertype for the bilinear-approximation scheme selected through the
-`"bilinear_config"` attribute of a [`HydroTurbineMILPBilinearDispatch`](@ref)
-`DeviceModel`.
+Abstract supertype for the bilinear-approximation scheme selected by the caller
+(e.g. through a `DeviceModel` attribute) to linearize a bilinear `x × y` product.
 """
 abstract type AbstractBilinearApproxConfig end
 
 """
-Bin2 bilinear approximation (default scheme). Linearizes `f × h` via the identity
-`f·h = ½((f+h)² − f² − h²)`, approximating each square with the inner quadratic
+Bin2 bilinear approximation (default scheme). Linearizes `x × y` via the identity
+`x·y = ½((x+y)² − x² − y²)`, approximating each square with the inner quadratic
 method `quad`.
 
 # Fields
 - `tolerance::Float64` (default `1e-2`): maximum approximation gap. The
-  discretization depth is derived per device from this tolerance and the
-  device's flow / head ranges via `IOM.tolerance_depth` (no manual depth knob).
+  discretization depth is derived from this tolerance and the two variables'
+  ranges via `IOM.tolerance_depth` (no manual depth knob).
 - `quad::`[`Bin2Quad`](@ref) (default [`SolverSOS2`](@ref)`()`): inner quadratic
   method. [`Epigraph`](@ref) is intentionally not assignable.
 """
 Base.@kwdef struct Bin2Config <: AbstractBilinearApproxConfig
     tolerance::Float64 = 1e-2
     quad::Bin2Quad = SolverSOS2()
+    Bin2Config(tolerance, quad) = new(_validate_tolerance(tolerance), quad)
 end
 
 """
-HybS (Hybrid Separable) bilinear approximation. Sandwiches `f·h` between a Bin2
+HybS (Hybrid Separable) bilinear approximation. Sandwiches `x·y` between a Bin2
 lower bound and a Bin3 upper bound, using the inner quadratic method `quad` for
-the shared `f²`, `h²` terms and an internal epigraph approximation (sized from
+the shared `x²`, `y²` terms and an internal epigraph approximation (sized from
 the same `tolerance`) for the cross terms.
 
 # Fields
 - `tolerance::Float64` (default `1e-2`): maximum approximation gap. Both the
-  inner-quad depth and the cross-term epigraph depth are derived per device from
-  this tolerance via `IOM.tolerance_depth` / `IOM.tolerance_epigraph_depth`.
+  inner-quad depth and the cross-term epigraph depth are derived from this
+  tolerance via `IOM.tolerance_depth` / `IOM.tolerance_epigraph_depth`.
 - `quad::`[`HybSQuad`](@ref) (default [`SolverSOS2`](@ref)`()`): inner quadratic
   method. Only the SOS2 variants and [`Sawtooth`](@ref) are assignable.
 """
 Base.@kwdef struct HybSConfig <: AbstractBilinearApproxConfig
     tolerance::Float64 = 1e-2
     quad::HybSQuad = SolverSOS2()
+    HybSConfig(tolerance, quad) = new(_validate_tolerance(tolerance), quad)
 end
 
 """
 NMDT (Normalized Multiparametric Disaggregation) bilinear approximation
-(discretizes `f` only). Worst-case relaxation gap `Δf·Δh·2^{-L-2}`.
+(discretizes `x` only). Worst-case relaxation gap `Δx·Δy·2^{-L-2}`.
 
 # Fields
 - `tolerance::Float64` (default `1e-2`): maximum approximation gap; the depth `L`
-  is derived per device from it and the flow / head ranges via
-  `IOM.tolerance_depth`.
+  is derived from it and the two variables' ranges via `IOM.tolerance_depth`.
 """
 Base.@kwdef struct NMDTConfig <: AbstractBilinearApproxConfig
     tolerance::Float64 = 1e-2
+    NMDTConfig(tolerance) = new(_validate_tolerance(tolerance))
 end
 
 """
-DNMDT (Double NMDT) bilinear approximation (discretizes both `f` and `h`).
-Worst-case relaxation gap `Δf·Δh·2^{-2L-2}`.
+DNMDT (Double NMDT) bilinear approximation (discretizes both `x` and `y`).
+Worst-case relaxation gap `Δx·Δy·2^{-2L-2}`.
 
 # Fields
 - `tolerance::Float64` (default `1e-2`): maximum approximation gap; the depth `L`
-  is derived per device from it and the flow / head ranges via
-  `IOM.tolerance_depth`.
+  is derived from it and the two variables' ranges via `IOM.tolerance_depth`.
 """
 Base.@kwdef struct DNMDTConfig <: AbstractBilinearApproxConfig
     tolerance::Float64 = 1e-2
+    DNMDTConfig(tolerance) = new(_validate_tolerance(tolerance))
 end
 
 """
-Pass the quadratic `f × h` term to the solver directly, with no MILP
+Pass the quadratic `x × y` term to the solver directly, with no MILP
 linearization. Use this with a nonlinear-capable solver; the resulting model is
 not a MILP.
 """
