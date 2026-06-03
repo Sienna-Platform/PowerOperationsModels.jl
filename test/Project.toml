@@ -21,6 +21,7 @@ PowerNetworkMatrices = "bed98974-b02a-5e2f-9fe0-a103f5c450dd"
 PowerOperationsModels = "bed98974-b02a-5e2f-9ee0-a103f5c450dd"
 PowerSystemCaseBuilder = "f00506e0-b84f-492a-93c2-c0a9afc4364e"
 PowerSystems = "bcd98974-b02a-5e2f-9ee0-a103f5c450dd"
+PrettyTables = "08abe8d2-0d0c-5749-adfa-8a2ac140af0d"
 Random = "9a3f8284-a2c9-5f02-9a11-845980a1fd5c"
 Revise = "295af30f-e4ad-537b-8983-00126c2a3abe"
 SCS = "c946c3f1-0d1f-5ce8-9dea-7daa1f7e2d13"
@@ -32,10 +33,10 @@ TimerOutputs = "a759f4b9-e2f1-59dc-863e-4aeb61b1ea8f"
 UUIDs = "cf7118a7-6976-5b1a-9a39-7adc72f591a4"
 
 [sources]
-InfrastructureSystems = {url = "https://github.com/NREL-Sienna/InfrastructureSystems.jl", rev = "IS4"}
-PowerSystems = {url = "https://github.com/NREL-Sienna/PowerSystems.jl", rev = "psy6"}
-InfrastructureOptimizationModels = {url = "https://github.com/NREL-Sienna/InfrastructureOptimizationModels.jl", rev = "lk/pom-test-fixes"}
-PowerSystemCaseBuilder = {url = "https://github.com/NREL-Sienna/PowerSystemCaseBuilder.jl", rev = "psy6"}
+InfrastructureOptimizationModels = {rev = "lk/pom-test-fixes", url = "https://github.com/NREL-Sienna/InfrastructureOptimizationModels.jl"}
+InfrastructureSystems = {rev = "IS4", url = "https://github.com/NREL-Sienna/InfrastructureSystems.jl"}
+PowerSystemCaseBuilder = {rev = "psy6", url = "https://github.com/NREL-Sienna/PowerSystemCaseBuilder.jl"}
+PowerSystems = {rev = "psy6", url = "https://github.com/NREL-Sienna/PowerSystems.jl"}
 
 [compat]
 HiGHS = "1"

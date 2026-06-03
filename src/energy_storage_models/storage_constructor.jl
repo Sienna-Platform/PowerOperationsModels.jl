@@ -9,14 +9,14 @@ function _add_ancillary_services!(
     add_variables!(container, AncillaryServiceVariableCharge, devices, U)
     time_steps = get_time_steps(container)
     for exp in [
-        ReserveAssignmentBalanceUpDischarge,
-        ReserveAssignmentBalanceUpCharge,
-        ReserveAssignmentBalanceDownDischarge,
-        ReserveAssignmentBalanceDownCharge,
-        ReserveDeploymentBalanceUpDischarge,
-        ReserveDeploymentBalanceUpCharge,
-        ReserveDeploymentBalanceDownDischarge,
-        ReserveDeploymentBalanceDownCharge,
+        StorageReserveBalanceExpression{Up, UnscaledReserve, DischargeSide},
+        StorageReserveBalanceExpression{Up, UnscaledReserve, ChargeSide},
+        StorageReserveBalanceExpression{Down, UnscaledReserve, DischargeSide},
+        StorageReserveBalanceExpression{Down, UnscaledReserve, ChargeSide},
+        StorageReserveBalanceExpression{Up, DeployedReserve, DischargeSide},
+        StorageReserveBalanceExpression{Up, DeployedReserve, ChargeSide},
+        StorageReserveBalanceExpression{Down, DeployedReserve, DischargeSide},
+        StorageReserveBalanceExpression{Down, DeployedReserve, ChargeSide},
     ]
         lazy_container_addition!(
             container,
@@ -27,10 +27,10 @@ function _add_ancillary_services!(
         )
     end
     for exp in [
-        ReserveAssignmentBalanceUpDischarge,
-        ReserveAssignmentBalanceDownDischarge,
-        ReserveDeploymentBalanceUpDischarge,
-        ReserveDeploymentBalanceDownDischarge,
+        StorageReserveBalanceExpression{Up, UnscaledReserve, DischargeSide},
+        StorageReserveBalanceExpression{Down, UnscaledReserve, DischargeSide},
+        StorageReserveBalanceExpression{Up, DeployedReserve, DischargeSide},
+        StorageReserveBalanceExpression{Down, DeployedReserve, DischargeSide},
     ]
         add_to_expression!(
             container,
@@ -41,10 +41,10 @@ function _add_ancillary_services!(
         )
     end
     for exp in [
-        ReserveAssignmentBalanceUpCharge,
-        ReserveAssignmentBalanceDownCharge,
-        ReserveDeploymentBalanceUpCharge,
-        ReserveDeploymentBalanceDownCharge,
+        StorageReserveBalanceExpression{Up, UnscaledReserve, ChargeSide},
+        StorageReserveBalanceExpression{Down, UnscaledReserve, ChargeSide},
+        StorageReserveBalanceExpression{Up, DeployedReserve, ChargeSide},
+        StorageReserveBalanceExpression{Down, DeployedReserve, ChargeSide},
     ]
         add_to_expression!(container, exp, AncillaryServiceVariableCharge, devices, model)
     end

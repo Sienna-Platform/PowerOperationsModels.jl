@@ -103,9 +103,9 @@ end
     template = _build_hybrid_template(sys;
         attributes = Dict{String, Any}("regularization" => true))
     m = _build_and_solve(template, sys)
-    @test any(k -> IOM.get_entry_type(k) === POM.ChargeRegularizationVariable, _var_keys(m))
+    @test any(k -> IOM.get_entry_type(k) === POM.RegularizationVariable{ChargeSide}, _var_keys(m))
     @test any(
-        k -> IOM.get_entry_type(k) === POM.DischargeRegularizationVariable,
+        k -> IOM.get_entry_type(k) === POM.RegularizationVariable{DischargeSide},
         _var_keys(m),
     )
 end
@@ -115,8 +115,8 @@ end
     template = _build_hybrid_template(sys; with_reserves = false)
     m = _build_and_solve(template, sys)
     # When no service model is attached, hybrid reserve variables should not exist.
-    @test !any(k -> IOM.get_entry_type(k) === POM.HybridReserveVariableOut, _var_keys(m))
-    @test !any(k -> IOM.get_entry_type(k) === POM.HybridReserveVariableIn, _var_keys(m))
+    @test !any(k -> IOM.get_entry_type(k) === POM.HybridPCCReserveVariable{DischargeSide}, _var_keys(m))
+    @test !any(k -> IOM.get_entry_type(k) === POM.HybridPCCReserveVariable{ChargeSide}, _var_keys(m))
 end
 
 @testset "HybridDispatchWithReserves: hybrid with no subcomponents (build only)" begin
@@ -149,7 +149,7 @@ end
           IOM.ModelBuildStatus.BUILT
     # Subcomponent variables must be absent for a bare envelope.
     @test !any(k -> IOM.get_entry_type(k) === POM.HybridThermalActivePower, _var_keys(m))
-    @test !any(k -> IOM.get_entry_type(k) === POM.HybridStorageChargePower, _var_keys(m))
+    @test !any(k -> IOM.get_entry_type(k) === POM.HybridStorageSubcomponentPower{ChargeSide}, _var_keys(m))
 end
 
 # ---------------------------------------------------------------------------
@@ -178,7 +178,7 @@ end
     for (key, var_arr) in IOM.get_variables(container_r)
         IOM.get_component_type(key) === PSY.HybridSystem || continue
         if IOM.get_entry_type(key) in
-           (POM.HybridReserveVariableOut, POM.HybridReserveVariableIn)
+           (POM.HybridPCCReserveVariable{DischargeSide}, POM.HybridPCCReserveVariable{ChargeSide})
             total_reserve_provision += sum(JuMP.value, var_arr)
         end
     end
@@ -218,8 +218,8 @@ end
     @test isfinite(_obj(m_s)) && _obj(m_s) > 0
     @test isfinite(_obj(m_ns)) && _obj(m_ns) > 0
 
-    @test any(k -> IOM.get_entry_type(k) === POM.HybridStorageChargePower, _var_keys(m_s))
-    @test !any(k -> IOM.get_entry_type(k) === POM.HybridStorageChargePower, _var_keys(m_ns))
+    @test any(k -> IOM.get_entry_type(k) === POM.HybridStorageSubcomponentPower{ChargeSide}, _var_keys(m_s))
+    @test !any(k -> IOM.get_entry_type(k) === POM.HybridStorageSubcomponentPower{ChargeSide}, _var_keys(m_ns))
 end
 
 @testset "Comparison: regularization on vs. off" begin
@@ -250,11 +250,11 @@ end
 
     # The slack variables exist only in the on case.
     @test any(
-        k -> IOM.get_entry_type(k) === POM.ChargeRegularizationVariable,
+        k -> IOM.get_entry_type(k) === POM.RegularizationVariable{ChargeSide},
         _var_keys(m_on),
     )
     @test !any(
-        k -> IOM.get_entry_type(k) === POM.ChargeRegularizationVariable,
+        k -> IOM.get_entry_type(k) === POM.RegularizationVariable{ChargeSide},
         _var_keys(m_off),
     )
 end

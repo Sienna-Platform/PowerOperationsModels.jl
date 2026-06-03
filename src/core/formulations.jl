@@ -456,12 +456,12 @@ dispatch.
       + Domain: [0.0, ``P^{*,\\text{re}}_t``]
       + Symbol: ``p^{\\text{re}}_t``
 
-  - [`HybridStorageChargePower`](@ref):
+  - [`HybridStorageSubcomponentPower{ChargeSide}`](@ref):
 
       + Domain: [0.0, ``P_{\\max,\\text{ch}}``]
       + Symbol: ``p^{\\text{ch}}_t``
 
-  - [`HybridStorageDischargePower`](@ref):
+  - [`HybridStorageSubcomponentPower{DischargeSide}`](@ref):
 
       + Domain: [0.0, ``P_{\\max,\\text{ds}}``]
       + Symbol: ``p^{\\text{ds}}_t``
@@ -476,17 +476,17 @@ dispatch.
       + Domain: {0, 1}
       + Symbol: ``ss^{\\text{st}}_t`` (0 = charge, 1 = discharge)
 
-  - [`HybridReserveVariableOut`](@ref) (only when services are attached):
+  - [`HybridPCCReserveVariable{DischargeSide}`](@ref) (only when services are attached):
 
       + Domain: [0.0, ]
       + Symbol: ``sb^{\\text{out}}_t``
 
-  - [`HybridReserveVariableIn`](@ref) (only when services are attached):
+  - [`HybridPCCReserveVariable{ChargeSide}`](@ref) (only when services are attached):
 
       + Domain: [0.0, ]
       + Symbol: ``sb^{\\text{in}}_t``
 
-  - [`ChargeRegularizationVariable`](@ref), [`DischargeRegularizationVariable`](@ref)
+  - [`RegularizationVariable{ChargeSide}`](@ref), [`RegularizationVariable{DischargeSide}`](@ref)
     (only when `"regularization" => true`): non-negative slacks bounding step changes in
     charge/discharge between consecutive time steps.
 
@@ -525,21 +525,15 @@ dispatch.
 
 Adds ``p^{\\text{out}}_t`` and ``p^{\\text{in}}_t`` to `ActivePowerBalance` for use in
 network balance constraints. When services are attached, also accumulates reserve
-expressions ([`HybridTotalReserveOutUpExpression`](@ref),
-[`HybridTotalReserveOutDownExpression`](@ref),
-[`HybridTotalReserveInUpExpression`](@ref),
-[`HybridTotalReserveInDownExpression`](@ref)) and served-reserve expressions
-([`HybridServedReserveOutUpExpression`](@ref),
-[`HybridServedReserveOutDownExpression`](@ref),
-[`HybridServedReserveInUpExpression`](@ref),
-[`HybridServedReserveInDownExpression`](@ref)) that track deployed reserves.
+expressions (`HybridPCCReserveExpression`) with unscaled and deployed-reserve scalings
+across all four combinations of direction (up/down) and side (in/out).
 
 **Constraints:**
 
 Let ``\\mathcal{T} = \\{1, \\dots, T\\}`` denote the set of time steps.
 
 PCC and status. When `"reservation" => true`:
-[`HybridStatusOutOnConstraint`](@ref), [`HybridStatusInOnConstraint`](@ref). When
+[`HybridStatusOnConstraint{DischargeSide}`](@ref), [`HybridStatusOnConstraint{ChargeSide}`](@ref). When
 `"reservation" => false`: [`OutputActivePowerVariableLimitsConstraint`](@ref) and
 [`InputActivePowerVariableLimitsConstraint`](@ref) (no mutual-exclusion binary).
 
@@ -559,8 +553,8 @@ p^{\\text{th}}_t + p^{\\text{re}}_t + p^{\\text{ds}}_t - p^{\\text{ch}}_t - P^{\
 ```
 
 Thermal limits when no services are attached
-([`HybridThermalOnVariableUbConstraint`](@ref),
-[`HybridThermalOnVariableLbConstraint`](@ref)):
+([`HybridThermalOnVariableConstraint{UpperBound}`](@ref),
+[`HybridThermalOnVariableConstraint{LowerBound}`](@ref)):
 
 ```math
 u^{\\text{th}}_t P_{\\min,\\text{th}} \\leq p^{\\text{th}}_t \\leq u^{\\text{th}}_t P_{\\max,\\text{th}}, \\quad u^{\\text{th}}_t \\in \\{0,1\\}, \\quad \\forall t \\in \\mathcal{T}
@@ -573,8 +567,8 @@ Renewable limit ([`HybridRenewableActivePowerLimitConstraint`](@ref)):
 ```
 
 Storage charge/discharge mutual exclusion when `"storage_reservation" => true`
-([`HybridStorageStatusChargeOnConstraint`](@ref),
-[`HybridStorageStatusDischargeOnConstraint`](@ref)):
+([`HybridStorageStatusOnConstraint{ChargeSide}`](@ref),
+[`HybridStorageStatusOnConstraint{DischargeSide}`](@ref)):
 
 ```math
 \\begin{align*}
@@ -591,8 +585,8 @@ e^{\\text{st}}_t = e^{\\text{st}}_{t-1} + \\Delta t \\left( \\eta_{\\text{ch}} p
 
 When ancillary services are attached: [`HybridThermalReserveLimitConstraint`](@ref),
 [`HybridRenewableReserveLimitConstraint`](@ref),
-[`HybridStorageChargingReservePowerLimitConstraint`](@ref),
-[`HybridStorageDischargingReservePowerLimitConstraint`](@ref),
+[`HybridStorageReservePowerLimitConstraint{ChargeSide}`](@ref),
+[`HybridStorageReservePowerLimitConstraint{DischargeSide}`](@ref),
 [`ReserveCoverageConstraint`](@ref), [`ReserveCoverageConstraintEndOfPeriod`](@ref),
 [`HybridReserveAssignmentConstraint`](@ref), [`HybridReserveBalanceConstraint`](@ref).
 
@@ -634,14 +628,14 @@ DeviceModel(
     `false`, charge and discharge variables are bounded independently.
   - `"energy_target"` (default `false`): adds `StateofChargeTargetConstraint` at the
     storage subcomponent.
-  - `"regularization"` (default `false`): adds `ChargeRegularizationVariable` and
-    `DischargeRegularizationVariable` plus the matching constraints, and a small
+  - `"regularization"` (default `false`): adds `RegularizationVariable{ChargeSide}` and
+    `RegularizationVariable{DischargeSide}` plus the matching constraints, and a small
     objective penalty on each, to suppress charge/discharge oscillation.
 
 **Objective:**
 
 Adds variable cost on `HybridThermalActivePower`, `HybridRenewableActivePower`,
-`HybridStorageChargePower`, and `HybridStorageDischargePower` from each subcomponent's
+`HybridStorageSubcomponentPower{ChargeSide}`, and `HybridStorageSubcomponentPower{DischargeSide}` from each subcomponent's
 `PSY.get_operation_cost`, plus the proportional `OnVariable` cost (delegated to POM's
 standard `proportional_cost` for `ThermalGenerationCost`, so a hybrid-embedded thermal
 unit and a standalone copy produce identical objective coefficients). When

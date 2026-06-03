@@ -639,14 +639,6 @@ export ReserveChargeConstraint
 
 # expressions
 export TotalReserveOffering
-export ReserveAssignmentBalanceUpDischarge
-export ReserveAssignmentBalanceUpCharge
-export ReserveAssignmentBalanceDownDischarge
-export ReserveAssignmentBalanceDownCharge
-export ReserveDeploymentBalanceUpDischarge
-export ReserveDeploymentBalanceUpCharge
-export ReserveDeploymentBalanceDownDischarge
-export ReserveDeploymentBalanceDownCharge
 
 # parameters
 export EnergyLimitParameter
@@ -658,55 +650,26 @@ export AbstractHybridFormulationWithReserves
 export HybridDispatchWithReserves
 
 # Reserve / constraint marker traits used to parametrize hybrid + storage families.
-# ConstraintBound (and UpperBound/LowerBound) come from IOM via `using InfrastructureOptimizationModels`
-# and are not re-exported here to avoid name collisions with the IOM-rooted symbols.
 export ReserveDirection, Up, Down
 export ReserveScale, UnscaledReserve, DeployedReserve
 export ReserveSide, DischargeSide, ChargeSide
-export ConstraintBound
 
 # variables
-export ChargeRegularizationVariable
-export DischargeRegularizationVariable
-export HybridChargingReserveVariable
-export HybridDischargingReserveVariable
 export HybridRenewableActivePower
 export HybridRenewableReserveVariable
-export HybridReserveVariableIn
-export HybridReserveVariableOut
-export HybridStorageChargePower
-export HybridStorageDischargePower
 export HybridStorageReservation
 export HybridThermalActivePower
 export HybridThermalReserveVariable
 
 # expressions
-export HybridServedReserveInDownExpression
-export HybridServedReserveInUpExpression
-export HybridServedReserveOutDownExpression
-export HybridServedReserveOutUpExpression
-export HybridTotalReserveInDownExpression
-export HybridTotalReserveInUpExpression
-export HybridTotalReserveOutDownExpression
-export HybridTotalReserveOutUpExpression
 
 # constraints
-export ChargeRegularizationConstraint
-export DischargeRegularizationConstraint
 export HybridEnergyAssetBalanceConstraint
 export HybridRenewableActivePowerLimitConstraint
 export HybridRenewableReserveLimitConstraint
 export HybridReserveAssignmentConstraint
 export HybridReserveBalanceConstraint
-export HybridStatusInOnConstraint
-export HybridStatusOutOnConstraint
 export HybridStorageBalanceConstraint
-export HybridStorageChargingReservePowerLimitConstraint
-export HybridStorageDischargingReservePowerLimitConstraint
-export HybridStorageStatusChargeOnConstraint
-export HybridStorageStatusDischargeOnConstraint
-export HybridThermalOnVariableLbConstraint
-export HybridThermalOnVariableUbConstraint
 export HybridThermalReserveLimitConstraint
 
 # parameters

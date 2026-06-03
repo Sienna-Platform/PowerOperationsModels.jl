@@ -1130,17 +1130,12 @@ Parametric on [`ReserveSide`](@ref): `HybridStatusOnConstraint{DischargeSide}` i
 historical `HybridStatusOutOnConstraint`, `{ChargeSide}` is `HybridStatusInOnConstraint`.
 """
 struct HybridStatusOnConstraint{Sd <: ReserveSide} <: ConstraintType end
-const HybridStatusOutOnConstraint = HybridStatusOnConstraint{DischargeSide}
-const HybridStatusInOnConstraint = HybridStatusOnConstraint{ChargeSide}
 
 """
 Bound between thermal subcomponent power and its commitment status (no-reserves case).
-Parametric on [`ConstraintBound`](@ref): `HybridThermalOnVariableConstraint{UpperBound}`
-is the historical `HybridThermalOnVariableUbConstraint`.
+Parametric on `BoundDirection` (from IOM).
 """
-struct HybridThermalOnVariableConstraint{B <: ConstraintBound} <: ConstraintType end
-const HybridThermalOnVariableUbConstraint = HybridThermalOnVariableConstraint{UpperBound}
-const HybridThermalOnVariableLbConstraint = HybridThermalOnVariableConstraint{LowerBound}
+struct HybridThermalOnVariableConstraint{B <: IOM.BoundDirection} <: ConstraintType end
 
 "Range constraint on thermal subcomponent power including up/down reserves."
 struct HybridThermalReserveLimitConstraint <: ConstraintType end
@@ -1156,33 +1151,19 @@ struct HybridStorageBalanceConstraint <: ConstraintType end
 
 """
 Mutually-exclusive charge/discharge limit for the hybrid storage subcomponent
-(no-reserves case). Parametric on [`ReserveSide`](@ref):
-`HybridStorageStatusOnConstraint{ChargeSide}` is the historical
-`HybridStorageStatusChargeOnConstraint`.
+(no-reserves case). Parametric on [`ReserveSide`](@ref).
 """
 struct HybridStorageStatusOnConstraint{Sd <: ReserveSide} <: ConstraintType end
-const HybridStorageStatusChargeOnConstraint = HybridStorageStatusOnConstraint{ChargeSide}
-const HybridStorageStatusDischargeOnConstraint =
-    HybridStorageStatusOnConstraint{DischargeSide}
 
 """
 Charge- or discharge-side power limit for the hybrid storage subcomponent including
-reserve carve-outs. Parametric on [`ReserveSide`](@ref):
-`HybridStorageReservePowerLimitConstraint{ChargeSide}` is the historical
-`HybridStorageChargingReservePowerLimitConstraint`.
+reserve carve-outs. Parametric on [`ReserveSide`](@ref).
 """
 struct HybridStorageReservePowerLimitConstraint{Sd <: ReserveSide} <: ConstraintType end
-const HybridStorageChargingReservePowerLimitConstraint =
-    HybridStorageReservePowerLimitConstraint{ChargeSide}
-const HybridStorageDischargingReservePowerLimitConstraint =
-    HybridStorageReservePowerLimitConstraint{DischargeSide}
 
 """
 Bounds the absolute charge- or discharge-power step change between consecutive time
 steps, penalizing oscillation. Active only when the hybrid `\"regularization\"`
-attribute is set. Parametric on [`ReserveSide`](@ref):
-`RegularizationConstraint{ChargeSide}` is the historical `ChargeRegularizationConstraint`.
+attribute is set. Parametric on [`ReserveSide`](@ref).
 """
 struct RegularizationConstraint{Sd <: ReserveSide} <: ConstraintType end
-const ChargeRegularizationConstraint = RegularizationConstraint{ChargeSide}
-const DischargeRegularizationConstraint = RegularizationConstraint{DischargeSide}

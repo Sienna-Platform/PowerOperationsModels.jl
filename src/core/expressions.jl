@@ -124,52 +124,6 @@ Aggregation of reserve variables allocated to the storage subcomponent of a hybr
 struct StorageReserveBalanceExpression{D, S, Sd} <:
        ReserveAggregationExpression{D, S, Sd} end
 
-# Historical hybrid PCC names retained as const aliases.
-const HybridTotalReserveOutUpExpression =
-    HybridPCCReserveExpression{Up, UnscaledReserve, DischargeSide}
-const HybridTotalReserveOutDownExpression =
-    HybridPCCReserveExpression{Down, UnscaledReserve, DischargeSide}
-const HybridTotalReserveInUpExpression =
-    HybridPCCReserveExpression{Up, UnscaledReserve, ChargeSide}
-const HybridTotalReserveInDownExpression =
-    HybridPCCReserveExpression{Down, UnscaledReserve, ChargeSide}
-const HybridServedReserveOutUpExpression =
-    HybridPCCReserveExpression{Up, DeployedReserve, DischargeSide}
-const HybridServedReserveOutDownExpression =
-    HybridPCCReserveExpression{Down, DeployedReserve, DischargeSide}
-const HybridServedReserveInUpExpression =
-    HybridPCCReserveExpression{Up, DeployedReserve, ChargeSide}
-const HybridServedReserveInDownExpression =
-    HybridPCCReserveExpression{Down, DeployedReserve, ChargeSide}
-
-# Historical storage balance names retained as const aliases.
-const ReserveAssignmentBalanceUpDischarge =
-    StorageReserveBalanceExpression{Up, UnscaledReserve, DischargeSide}
-const ReserveAssignmentBalanceDownDischarge =
-    StorageReserveBalanceExpression{Down, UnscaledReserve, DischargeSide}
-const ReserveAssignmentBalanceUpCharge =
-    StorageReserveBalanceExpression{Up, UnscaledReserve, ChargeSide}
-const ReserveAssignmentBalanceDownCharge =
-    StorageReserveBalanceExpression{Down, UnscaledReserve, ChargeSide}
-const ReserveDeploymentBalanceUpDischarge =
-    StorageReserveBalanceExpression{Up, DeployedReserve, DischargeSide}
-const ReserveDeploymentBalanceDownDischarge =
-    StorageReserveBalanceExpression{Down, DeployedReserve, DischargeSide}
-const ReserveDeploymentBalanceUpCharge =
-    StorageReserveBalanceExpression{Up, DeployedReserve, ChargeSide}
-const ReserveDeploymentBalanceDownCharge =
-    StorageReserveBalanceExpression{Down, DeployedReserve, ChargeSide}
-
-# Role-based Union aliases retained for callers that match by scale (Total/Served)
-# or by storage side (Charge/Discharge) rather than by direction.
-const HybridTotalReserveExpression =
-    HybridPCCReserveExpression{<:ReserveDirection, UnscaledReserve, <:ReserveSide}
-const HybridServedReserveExpression =
-    HybridPCCReserveExpression{<:ReserveDirection, DeployedReserve, <:ReserveSide}
-const StorageReserveDischargeExpression =
-    StorageReserveBalanceExpression{<:ReserveDirection, <:ReserveScale, DischargeSide}
-const StorageReserveChargeExpression =
-    StorageReserveBalanceExpression{<:ReserveDirection, <:ReserveScale, ChargeSide}
 
 # Method extensions for output writing
 should_write_resulting_value(::Type{InterfaceTotalFlow}) = true
@@ -182,7 +136,7 @@ should_write_resulting_value(::Type{TotalHydroFlowRateReservoirOutgoing}) = true
 should_write_resulting_value(::Type{TotalHydroFlowRateTurbineOutgoing}) = true
 
 should_write_resulting_value(::Type{<:StorageReserveBalanceExpression}) = true
-should_write_resulting_value(::Type{<:HybridServedReserveExpression}) = true
+should_write_resulting_value(::Type{HybridPCCReserveExpression{D, DeployedReserve, Sd}}) where {D <: ReserveDirection, Sd <: ReserveSide} = true
 
 # Method extensions for unit conversion
 convert_output_to_natural_units(::Type{InterfaceTotalFlow}) = true

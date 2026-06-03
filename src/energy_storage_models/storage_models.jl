@@ -209,13 +209,13 @@ end
 # For InputActivePower (charge), it's `P_in + down - up` — reserves swap roles because
 # a charging battery's net power is increased by downward reserves.
 _deployment_increasing_expr(::Type{<:OutputActivePowerVariableLimitsConstraint}) =
-    ReserveDeploymentBalanceUpDischarge
+    StorageReserveBalanceExpression{Up, DeployedReserve, DischargeSide}
 _deployment_decreasing_expr(::Type{<:OutputActivePowerVariableLimitsConstraint}) =
-    ReserveDeploymentBalanceDownDischarge
+    StorageReserveBalanceExpression{Down, DeployedReserve, DischargeSide}
 _deployment_increasing_expr(::Type{<:InputActivePowerVariableLimitsConstraint}) =
-    ReserveDeploymentBalanceDownCharge
+    StorageReserveBalanceExpression{Down, DeployedReserve, ChargeSide}
 _deployment_decreasing_expr(::Type{<:InputActivePowerVariableLimitsConstraint}) =
-    ReserveDeploymentBalanceUpCharge
+    StorageReserveBalanceExpression{Up, DeployedReserve, ChargeSide}
 
 # Reservation-binary handling: discharge active when ss=1, charge active when ss=0.
 _reservation_factor(::Type{<:OutputActivePowerVariableLimitsConstraint}, ss, name, t) =
@@ -433,7 +433,7 @@ end
 ############################# Expression Logic for Ancillary Services ######################
 get_variable_multiplier(
     ::Type{AncillaryServiceVariableCharge},
-    ::Type{ReserveAssignmentBalanceDownCharge},
+    ::Type{StorageReserveBalanceExpression{Down, UnscaledReserve, ChargeSide}},
     d::PSY.Storage,
     ::Type{StorageDispatchWithReserves},
     ::PSY.Reserve{PSY.ReserveUp},
@@ -441,7 +441,7 @@ get_variable_multiplier(
 
 get_variable_multiplier(
     ::Type{AncillaryServiceVariableCharge},
-    ::Type{ReserveAssignmentBalanceDownCharge},
+    ::Type{StorageReserveBalanceExpression{Down, UnscaledReserve, ChargeSide}},
     d::PSY.Storage,
     ::Type{StorageDispatchWithReserves},
     ::PSY.Reserve{PSY.ReserveDown},
@@ -449,7 +449,7 @@ get_variable_multiplier(
 
 get_variable_multiplier(
     ::Type{AncillaryServiceVariableCharge},
-    ::Type{ReserveAssignmentBalanceUpCharge},
+    ::Type{StorageReserveBalanceExpression{Up, UnscaledReserve, ChargeSide}},
     d::PSY.Storage,
     ::Type{StorageDispatchWithReserves},
     ::PSY.Reserve{PSY.ReserveUp},
@@ -457,7 +457,7 @@ get_variable_multiplier(
 
 get_variable_multiplier(
     ::Type{AncillaryServiceVariableCharge},
-    ::Type{ReserveAssignmentBalanceUpCharge},
+    ::Type{StorageReserveBalanceExpression{Up, UnscaledReserve, ChargeSide}},
     d::PSY.Storage,
     ::Type{StorageDispatchWithReserves},
     ::PSY.Reserve{PSY.ReserveDown},
@@ -465,7 +465,7 @@ get_variable_multiplier(
 
 get_variable_multiplier(
     ::Type{AncillaryServiceVariableDischarge},
-    ::Type{ReserveAssignmentBalanceDownDischarge},
+    ::Type{StorageReserveBalanceExpression{Down, UnscaledReserve, DischargeSide}},
     d::PSY.Storage,
     ::Type{StorageDispatchWithReserves},
     ::PSY.Reserve{PSY.ReserveUp},
@@ -473,7 +473,7 @@ get_variable_multiplier(
 
 get_variable_multiplier(
     ::Type{AncillaryServiceVariableDischarge},
-    ::Type{ReserveAssignmentBalanceDownDischarge},
+    ::Type{StorageReserveBalanceExpression{Down, UnscaledReserve, DischargeSide}},
     d::PSY.Storage,
     ::Type{StorageDispatchWithReserves},
     ::PSY.Reserve{PSY.ReserveDown},
@@ -481,7 +481,7 @@ get_variable_multiplier(
 
 get_variable_multiplier(
     ::Type{AncillaryServiceVariableDischarge},
-    ::Type{ReserveAssignmentBalanceUpDischarge},
+    ::Type{StorageReserveBalanceExpression{Up, UnscaledReserve, DischargeSide}},
     d::PSY.Storage,
     ::Type{StorageDispatchWithReserves},
     ::PSY.Reserve{PSY.ReserveUp},
@@ -489,7 +489,7 @@ get_variable_multiplier(
 
 get_variable_multiplier(
     ::Type{AncillaryServiceVariableDischarge},
-    ::Type{ReserveAssignmentBalanceUpDischarge},
+    ::Type{StorageReserveBalanceExpression{Up, UnscaledReserve, DischargeSide}},
     d::PSY.Storage,
     ::Type{StorageDispatchWithReserves},
     ::PSY.Reserve{PSY.ReserveDown},
@@ -498,7 +498,7 @@ get_variable_multiplier(
 ### Deployment ###
 get_variable_multiplier(
     ::Type{AncillaryServiceVariableCharge},
-    ::Type{ReserveDeploymentBalanceDownCharge},
+    ::Type{StorageReserveBalanceExpression{Down, DeployedReserve, ChargeSide}},
     d::PSY.Storage,
     ::Type{StorageDispatchWithReserves},
     ::PSY.Reserve{PSY.ReserveUp},
@@ -506,7 +506,7 @@ get_variable_multiplier(
 
 get_variable_multiplier(
     ::Type{AncillaryServiceVariableCharge},
-    ::Type{ReserveDeploymentBalanceDownCharge},
+    ::Type{StorageReserveBalanceExpression{Down, DeployedReserve, ChargeSide}},
     d::PSY.Storage,
     ::Type{StorageDispatchWithReserves},
     ::PSY.Reserve{PSY.ReserveDown},
@@ -514,7 +514,7 @@ get_variable_multiplier(
 
 get_variable_multiplier(
     ::Type{AncillaryServiceVariableCharge},
-    ::Type{ReserveDeploymentBalanceUpCharge},
+    ::Type{StorageReserveBalanceExpression{Up, DeployedReserve, ChargeSide}},
     d::PSY.Storage,
     ::Type{StorageDispatchWithReserves},
     ::PSY.Reserve{PSY.ReserveUp},
@@ -522,7 +522,7 @@ get_variable_multiplier(
 
 get_variable_multiplier(
     ::Type{AncillaryServiceVariableCharge},
-    ::Type{ReserveDeploymentBalanceUpCharge},
+    ::Type{StorageReserveBalanceExpression{Up, DeployedReserve, ChargeSide}},
     d::PSY.Storage,
     ::Type{StorageDispatchWithReserves},
     ::PSY.Reserve{PSY.ReserveDown},
@@ -530,7 +530,7 @@ get_variable_multiplier(
 
 get_variable_multiplier(
     ::Type{AncillaryServiceVariableDischarge},
-    ::Type{ReserveDeploymentBalanceDownDischarge},
+    ::Type{StorageReserveBalanceExpression{Down, DeployedReserve, DischargeSide}},
     d::PSY.Storage,
     ::Type{StorageDispatchWithReserves},
     ::PSY.Reserve{PSY.ReserveUp},
@@ -538,7 +538,7 @@ get_variable_multiplier(
 
 get_variable_multiplier(
     ::Type{AncillaryServiceVariableDischarge},
-    ::Type{ReserveDeploymentBalanceDownDischarge},
+    ::Type{StorageReserveBalanceExpression{Down, DeployedReserve, DischargeSide}},
     d::PSY.Storage,
     ::Type{StorageDispatchWithReserves},
     ::PSY.Reserve{PSY.ReserveDown},
@@ -546,7 +546,7 @@ get_variable_multiplier(
 
 get_variable_multiplier(
     ::Type{AncillaryServiceVariableDischarge},
-    ::Type{ReserveDeploymentBalanceUpDischarge},
+    ::Type{StorageReserveBalanceExpression{Up, DeployedReserve, DischargeSide}},
     d::PSY.Storage,
     ::Type{StorageDispatchWithReserves},
     ::PSY.Reserve{PSY.ReserveUp},
@@ -554,7 +554,7 @@ get_variable_multiplier(
 
 get_variable_multiplier(
     ::Type{AncillaryServiceVariableDischarge},
-    ::Type{ReserveDeploymentBalanceUpDischarge},
+    ::Type{StorageReserveBalanceExpression{Up, DeployedReserve, DischargeSide}},
     d::PSY.Storage,
     ::Type{StorageDispatchWithReserves},
     ::PSY.Reserve{PSY.ReserveDown},
@@ -562,16 +562,16 @@ get_variable_multiplier(
 
 #! format: off
 # Use 1.0 because this is to allow to reuse the code below on add_to_expression
-get_fraction(::Type{ReserveAssignmentBalanceUpDischarge}, d::PSY.Reserve) = 1.0
-get_fraction(::Type{ReserveAssignmentBalanceUpCharge}, d::PSY.Reserve) = 1.0
-get_fraction(::Type{ReserveAssignmentBalanceDownDischarge}, d::PSY.Reserve) = 1.0
-get_fraction(::Type{ReserveAssignmentBalanceDownCharge}, d::PSY.Reserve) = 1.0
+get_fraction(::Type{StorageReserveBalanceExpression{Up, UnscaledReserve, DischargeSide}}, d::PSY.Reserve) = 1.0
+get_fraction(::Type{StorageReserveBalanceExpression{Up, UnscaledReserve, ChargeSide}}, d::PSY.Reserve) = 1.0
+get_fraction(::Type{StorageReserveBalanceExpression{Down, UnscaledReserve, DischargeSide}}, d::PSY.Reserve) = 1.0
+get_fraction(::Type{StorageReserveBalanceExpression{Down, UnscaledReserve, ChargeSide}}, d::PSY.Reserve) = 1.0
 
 # Needs to implement served fraction in PSY
-get_fraction(::Type{ReserveDeploymentBalanceUpDischarge}, d::PSY.Reserve) = PSY.get_deployed_fraction(d)
-get_fraction(::Type{ReserveDeploymentBalanceUpCharge}, d::PSY.Reserve) = PSY.get_deployed_fraction(d)
-get_fraction(::Type{ReserveDeploymentBalanceDownDischarge}, d::PSY.Reserve) = PSY.get_deployed_fraction(d)
-get_fraction(::Type{ReserveDeploymentBalanceDownCharge}, d::PSY.Reserve) = PSY.get_deployed_fraction(d)
+get_fraction(::Type{StorageReserveBalanceExpression{Up, DeployedReserve, DischargeSide}}, d::PSY.Reserve) = PSY.get_deployed_fraction(d)
+get_fraction(::Type{StorageReserveBalanceExpression{Up, DeployedReserve, ChargeSide}}, d::PSY.Reserve) = PSY.get_deployed_fraction(d)
+get_fraction(::Type{StorageReserveBalanceExpression{Down, DeployedReserve, DischargeSide}}, d::PSY.Reserve) = PSY.get_deployed_fraction(d)
+get_fraction(::Type{StorageReserveBalanceExpression{Down, DeployedReserve, ChargeSide}}, d::PSY.Reserve) = PSY.get_deployed_fraction(d)
 #! format: on
 
 function add_to_expression!(
@@ -619,7 +619,7 @@ function add_to_expression!(
     devices::IS.FlattenIteratorWrapper{V},
     model::DeviceModel{V, W},
 ) where {
-    T <: StorageReserveChargeExpression,
+    T <: StorageReserveBalanceExpression{<:ReserveDirection, <:ReserveScale, ChargeSide},
     U <: AncillaryServiceVariableCharge,
     V <: PSY.Storage,
     W <: StorageDispatchWithReserves,
@@ -651,7 +651,7 @@ function add_to_expression!(
     devices::IS.FlattenIteratorWrapper{V},
     model::DeviceModel{V, W},
 ) where {
-    T <: StorageReserveDischargeExpression,
+    T <: StorageReserveBalanceExpression{<:ReserveDirection, <:ReserveScale, DischargeSide},
     U <: AncillaryServiceVariableDischarge,
     V <: PSY.Storage,
     W <: StorageDispatchWithReserves,
@@ -769,10 +769,10 @@ function add_energybalance_with_reserves!(
     powerin_var = get_variable(container, ActivePowerInVariable, V)
     powerout_var = get_variable(container, ActivePowerOutVariable, V)
 
-    r_up_ds = get_expression(container, ReserveDeploymentBalanceUpDischarge, V)
-    r_up_ch = get_expression(container, ReserveDeploymentBalanceUpCharge, V)
-    r_dn_ds = get_expression(container, ReserveDeploymentBalanceDownDischarge, V)
-    r_dn_ch = get_expression(container, ReserveDeploymentBalanceDownCharge, V)
+    r_up_ds = get_expression(container, StorageReserveBalanceExpression{Up, DeployedReserve, DischargeSide}, V)
+    r_up_ch = get_expression(container, StorageReserveBalanceExpression{Up, DeployedReserve, ChargeSide}, V)
+    r_dn_ds = get_expression(container, StorageReserveBalanceExpression{Down, DeployedReserve, DischargeSide}, V)
+    r_dn_ch = get_expression(container, StorageReserveBalanceExpression{Down, DeployedReserve, ChargeSide}, V)
 
     constraint = add_constraints_container!(container, EnergyBalanceConstraint,
         V,
@@ -878,13 +878,13 @@ end
 _reserve_assignment_power_var(::Type{ReserveDischargeConstraint}) = ActivePowerOutVariable
 _reserve_assignment_power_var(::Type{ReserveChargeConstraint}) = ActivePowerInVariable
 _reserve_assignment_up_expr(::Type{ReserveDischargeConstraint}) =
-    ReserveAssignmentBalanceUpDischarge
+    StorageReserveBalanceExpression{Up, UnscaledReserve, DischargeSide}
 _reserve_assignment_down_expr(::Type{ReserveDischargeConstraint}) =
-    ReserveAssignmentBalanceDownDischarge
+    StorageReserveBalanceExpression{Down, UnscaledReserve, DischargeSide}
 _reserve_assignment_up_expr(::Type{ReserveChargeConstraint}) =
-    ReserveAssignmentBalanceUpCharge
+    StorageReserveBalanceExpression{Up, UnscaledReserve, ChargeSide}
 _reserve_assignment_down_expr(::Type{ReserveChargeConstraint}) =
-    ReserveAssignmentBalanceDownCharge
+    StorageReserveBalanceExpression{Down, UnscaledReserve, ChargeSide}
 _reserve_assignment_limits(::Type{ReserveDischargeConstraint}, d) =
     PSY.get_output_active_power_limits(d)
 _reserve_assignment_limits(::Type{ReserveChargeConstraint}, d) =
@@ -1346,7 +1346,7 @@ function add_cycling_charge_with_reserves!(
 
     powerin_var = get_variable(container, ActivePowerInVariable, V)
     slack_var = get_variable(container, StorageChargeCyclingSlackVariable, V)
-    r_dn_ch = get_expression(container, ReserveDeploymentBalanceDownCharge, V)
+    r_dn_ch = get_expression(container, StorageReserveBalanceExpression{Down, DeployedReserve, ChargeSide}, V)
 
     constraint = add_constraints_container!(container, StorageCyclingCharge, V, names)
 
@@ -1435,7 +1435,7 @@ function add_cycling_discharge_with_reserves!(
     names = [PSY.get_name(x) for x in devices]
     powerout_var = get_variable(container, ActivePowerOutVariable, V)
     slack_var = get_variable(container, StorageDischargeCyclingSlackVariable, V)
-    r_up_ds = get_expression(container, ReserveDeploymentBalanceUpDischarge, V)
+    r_up_ds = get_expression(container, StorageReserveBalanceExpression{Up, DeployedReserve, DischargeSide}, V)
 
     constraint =
         add_constraints_container!(container, StorageCyclingDischarge, V, names)
@@ -1488,9 +1488,9 @@ _storage_reg_power_var(::Type{StorageRegularizationConstraintCharge}) =
 _storage_reg_power_var(::Type{StorageRegularizationConstraintDischarge}) =
     ActivePowerOutVariable
 _storage_reg_reserve_exprs(::Type{StorageRegularizationConstraintCharge}) =
-    (ReserveDeploymentBalanceUpCharge, ReserveDeploymentBalanceDownCharge)
+    (StorageReserveBalanceExpression{Up, DeployedReserve, ChargeSide}, StorageReserveBalanceExpression{Down, DeployedReserve, ChargeSide})
 _storage_reg_reserve_exprs(::Type{StorageRegularizationConstraintDischarge}) =
-    (ReserveDeploymentBalanceUpDischarge, ReserveDeploymentBalanceDownDischarge)
+    (StorageReserveBalanceExpression{Up, DeployedReserve, DischargeSide}, StorageReserveBalanceExpression{Down, DeployedReserve, DischargeSide})
 _storage_reg_reserve_signs(::Type{StorageRegularizationConstraintCharge}) = (-1, +1)
 _storage_reg_reserve_signs(::Type{StorageRegularizationConstraintDischarge}) = (+1, -1)
 
