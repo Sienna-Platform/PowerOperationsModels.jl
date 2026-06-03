@@ -650,7 +650,6 @@ export AbstractHybridFormulationWithReserves
 export HybridDispatchWithReserves
 
 # Reserve / constraint marker traits used to parametrize hybrid + storage families.
-export ReserveDirection, Up, Down
 export ReserveScale, UnscaledReserve, DeployedReserve
 export ReserveSide, DischargeSide, ChargeSide
 

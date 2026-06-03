@@ -273,12 +273,22 @@ get_variable_upper_bound(
 #################################################################################
 
 get_variable_binary(
-    ::Type{<:Union{AbstractHybridSubcomponentInjectorReserveVariableType, HybridStorageSubcomponentReserveVariable}},
+    ::Type{
+        <:Union{
+            AbstractHybridSubcomponentInjectorReserveVariableType,
+            HybridStorageSubcomponentReserveVariable,
+        },
+    },
     ::Type{PSY.HybridSystem},
     ::Type{<:AbstractHybridFormulation},
 ) = false
 get_variable_lower_bound(
-    ::Type{<:Union{AbstractHybridSubcomponentInjectorReserveVariableType, HybridStorageSubcomponentReserveVariable}},
+    ::Type{
+        <:Union{
+            AbstractHybridSubcomponentInjectorReserveVariableType,
+            HybridStorageSubcomponentReserveVariable,
+        },
+    },
     ::PSY.HybridSystem,
     ::Type{<:AbstractHybridFormulation},
 ) = 0.0
@@ -362,7 +372,12 @@ end
 
 # Multipliers used by reserve aggregations (Out side gets +1; In side handled via separate dispatch in add_to_expression)
 get_variable_multiplier(
-    ::Type{<:Union{AbstractHybridSubcomponentInjectorReserveVariableType, HybridStorageSubcomponentReserveVariable}},
+    ::Type{
+        <:Union{
+            AbstractHybridSubcomponentInjectorReserveVariableType,
+            HybridStorageSubcomponentReserveVariable,
+        },
+    },
     ::PSY.HybridSystem,
     ::Type{<:AbstractHybridFormulationWithReserves},
     ::PSY.Reserve,
@@ -559,17 +574,17 @@ objective_function_multiplier(::Type{<:VariableType}, ::Type{<:AbstractHybridFor
 
 # Multiplier scale: UnscaledReserve → 1.0; DeployedReserve → deployed_fraction(service).
 _reserve_scale(
-    ::Type{<:ReserveAggregationExpression{<:ReserveDirection, UnscaledReserve}},
+    ::Type{<:ReserveAggregationExpression{<:PSY.ReserveDirection, UnscaledReserve}},
     ::PSY.Service,
 ) = 1.0
 _reserve_scale(
-    ::Type{<:ReserveAggregationExpression{<:ReserveDirection, DeployedReserve}},
+    ::Type{<:ReserveAggregationExpression{<:PSY.ReserveDirection, DeployedReserve}},
     s::PSY.Service,
 ) = PSY.get_deployed_fraction(s)
 
 # Up-direction expressions: ReserveDown services are a no-op (skipped via dispatch).
 _add_reserve_term!(
-    ::Type{<:ReserveAggregationExpression{Up}},
+    ::Type{<:ReserveAggregationExpression{PSY.ReserveUp}},
     ::OptimizationContainer,
     _expression,
     ::Type{<:AbstractHybridReserveVariableType},
@@ -581,7 +596,7 @@ _add_reserve_term!(
 
 # Down-direction expressions: ReserveUp services are a no-op (skipped via dispatch).
 _add_reserve_term!(
-    ::Type{<:ReserveAggregationExpression{Down}},
+    ::Type{<:ReserveAggregationExpression{PSY.ReserveDown}},
     ::OptimizationContainer,
     _expression,
     ::Type{<:AbstractHybridReserveVariableType},
@@ -727,13 +742,13 @@ end
 # filters out mismatched-direction services via dispatch.
 #
 # Callers in HybridThermalReserveLimitConstraint and HybridRenewableReserveLimit-
-# Constraint invoke _subcomponent_reserve_expr(Up | Down, container,
+# Constraint invoke _subcomponent_reserve_expr(Up | ReserveDown, container,
 # HybridThermalReserveVariable | HybridRenewableReserveVariable, d, t, services).
 #################################################################################
 
 # Up direction: ReserveDown service is a no-op.
 _subcomponent_reserve_term!(
-    ::Type{Up},
+    ::Type{PSY.ReserveUp},
     ::JuMP.AffExpr,
     ::OptimizationContainer,
     ::Type{<:AbstractHybridSubcomponentInjectorReserveVariableType},
@@ -744,7 +759,7 @@ _subcomponent_reserve_term!(
 
 # Down direction: ReserveUp service is a no-op.
 _subcomponent_reserve_term!(
-    ::Type{Down},
+    ::Type{PSY.ReserveDown},
     ::JuMP.AffExpr,
     ::OptimizationContainer,
     ::Type{<:AbstractHybridSubcomponentInjectorReserveVariableType},
@@ -755,7 +770,7 @@ _subcomponent_reserve_term!(
 
 # Fallback: accumulate the term for the correct-direction service.
 function _subcomponent_reserve_term!(
-    ::Type{<:ReserveDirection},
+    ::Type{<:PSY.ReserveDirection},
     expr::JuMP.AffExpr,
     container::OptimizationContainer,
     ::Type{U},
@@ -783,7 +798,7 @@ function _subcomponent_reserve_expr(
     t::Int,
     services,
 ) where {
-    Dir <: ReserveDirection,
+    Dir <: PSY.ReserveDirection,
     U <: AbstractHybridSubcomponentInjectorReserveVariableType,
     V <: PSY.HybridSystem,
 }
@@ -847,7 +862,7 @@ function add_constraints!(
         limits = PSY.get_active_power_limits(thermal_unit)
         services = PSY.get_services(d)
         r_up = _subcomponent_reserve_expr(
-            Up,
+            ReserveUp,
             container,
             HybridThermalReserveVariable,
             d,
@@ -855,7 +870,7 @@ function add_constraints!(
             services,
         )
         r_dn = _subcomponent_reserve_expr(
-            Down,
+            ReserveDown,
             container,
             HybridThermalReserveVariable,
             d,
@@ -1037,7 +1052,7 @@ function add_constraints!(
         renewable_unit === nothing && continue
         services = PSY.get_services(d)
         r_up = _subcomponent_reserve_expr(
-            Up,
+            ReserveUp,
             container,
             HybridRenewableReserveVariable,
             d,
@@ -1045,7 +1060,7 @@ function add_constraints!(
             services,
         )
         r_dn = _subcomponent_reserve_expr(
-            Down,
+            ReserveDown,
             container,
             HybridRenewableReserveVariable,
             d,
@@ -1191,10 +1206,26 @@ function _hybrid_storage_balance_with_reserves!(
     energy_var = get_variable(container, EnergyVariable, V)
     p_ch = get_variable(container, HybridStorageSubcomponentPower{ChargeSide}, V)
     p_ds = get_variable(container, HybridStorageSubcomponentPower{DischargeSide}, V)
-    r_up_ds = get_expression(container, StorageReserveBalanceExpression{Up, DeployedReserve, DischargeSide}, V)
-    r_up_ch = get_expression(container, StorageReserveBalanceExpression{Up, DeployedReserve, ChargeSide}, V)
-    r_dn_ds = get_expression(container, StorageReserveBalanceExpression{Down, DeployedReserve, DischargeSide}, V)
-    r_dn_ch = get_expression(container, StorageReserveBalanceExpression{Down, DeployedReserve, ChargeSide}, V)
+    r_up_ds = get_expression(
+        container,
+        StorageReserveBalanceExpression{ReserveUp, DeployedReserve, DischargeSide},
+        V,
+    )
+    r_up_ch = get_expression(
+        container,
+        StorageReserveBalanceExpression{ReserveUp, DeployedReserve, ChargeSide},
+        V,
+    )
+    r_dn_ds = get_expression(
+        container,
+        StorageReserveBalanceExpression{ReserveDown, DeployedReserve, DischargeSide},
+        V,
+    )
+    r_dn_ch = get_expression(
+        container,
+        StorageReserveBalanceExpression{ReserveDown, DeployedReserve, ChargeSide},
+        V,
+    )
     constraint = add_constraints_container!(
         container,
         HybridStorageBalanceConstraint,
@@ -1304,19 +1335,19 @@ end
 _storage_side_ub_reserve_expr(
     ::Type{HybridStorageReservePowerLimitConstraint{ChargeSide}},
 ) =
-    StorageReserveBalanceExpression{Down, UnscaledReserve, ChargeSide}
+    StorageReserveBalanceExpression{ReserveDown, UnscaledReserve, ChargeSide}
 _storage_side_ub_reserve_expr(
     ::Type{HybridStorageReservePowerLimitConstraint{DischargeSide}},
 ) =
-    StorageReserveBalanceExpression{Up, UnscaledReserve, DischargeSide}
+    StorageReserveBalanceExpression{ReserveUp, UnscaledReserve, DischargeSide}
 _storage_side_lb_reserve_expr(
     ::Type{HybridStorageReservePowerLimitConstraint{ChargeSide}},
 ) =
-    StorageReserveBalanceExpression{Up, UnscaledReserve, ChargeSide}
+    StorageReserveBalanceExpression{ReserveUp, UnscaledReserve, ChargeSide}
 _storage_side_lb_reserve_expr(
     ::Type{HybridStorageReservePowerLimitConstraint{DischargeSide}},
 ) =
-    StorageReserveBalanceExpression{Down, UnscaledReserve, DischargeSide}
+    StorageReserveBalanceExpression{ReserveDown, UnscaledReserve, DischargeSide}
 
 function add_constraints!(
     container::OptimizationContainer,
@@ -1375,8 +1406,8 @@ _reg_slack_var(::Type{RegularizationConstraint{Sd}}) where {Sd <: ReserveSide} =
 _reg_power_var(::Type{RegularizationConstraint{Sd}}) where {Sd <: ReserveSide} =
     HybridStorageSubcomponentPower{Sd}
 _reg_reserve_exprs(::Type{RegularizationConstraint{Sd}}) where {Sd <: ReserveSide} = (
-    StorageReserveBalanceExpression{Up, DeployedReserve, Sd},
-    StorageReserveBalanceExpression{Down, DeployedReserve, Sd},
+    StorageReserveBalanceExpression{ReserveUp, DeployedReserve, Sd},
+    StorageReserveBalanceExpression{ReserveDown, DeployedReserve, Sd},
 )
 _reg_reserve_signs(::Type{RegularizationConstraint{ChargeSide}}) = (-1, +1)
 _reg_reserve_signs(::Type{RegularizationConstraint{DischargeSide}}) = (+1, -1)
@@ -1387,7 +1418,7 @@ function _hybrid_served_reserve_pair(container, ::Type{T}, V, name, t) where {T}
        has_container_key(container, DnExpr, V)
         up = get_expression(container, UpExpr, V)[name, t]
         dn = get_expression(container, DnExpr, V)[name, t]
-        return up, dn
+        return ReserveUp, dn
     end
     return 0.0, 0.0
 end
@@ -1416,7 +1447,7 @@ function add_constraints!(
     reg_var = get_variable(container, _reg_slack_var(T), V)
     p_var = get_variable(container, _reg_power_var(T), V)
     has_services = _regularization_has_services(W, model)
-    s_up, s_dn = _reg_reserve_signs(T)
+    s_ReserveUp, s_dn = _reg_reserve_signs(T)
     con_ub = add_constraints_container!(
         container, T, V, names, time_steps; meta = "ub")
     con_lb = add_constraints_container!(
@@ -1520,7 +1551,12 @@ function _emit_coverage_constraint!(
     num_periods = PSY.get_sustained_time(service) / Dates.value(Dates.Second(resolution))
     sustained_param_discharge = inv_eff_out * fraction_of_hour * num_periods
     reserve_var =
-        get_variable(container, HybridStorageSubcomponentReserveVariable{DischargeSide}, V, "$(s_type)_$s_name")
+        get_variable(
+            container,
+            HybridStorageSubcomponentReserveVariable{DischargeSide},
+            V,
+            "$(s_type)_$s_name",
+        )
     con = get_constraint(container, T, V, "$(s_type)_$(s_name)_discharge")
     jm = get_jump_model(container)
     if time_offset(T) == -1
@@ -1567,7 +1603,12 @@ function _emit_coverage_constraint!(
     num_periods = PSY.get_sustained_time(service) / Dates.value(Dates.Second(resolution))
     sustained_param_charge = eff_in * fraction_of_hour * num_periods
     reserve_var =
-        get_variable(container, HybridStorageSubcomponentReserveVariable{ChargeSide}, V, "$(s_type)_$s_name")
+        get_variable(
+            container,
+            HybridStorageSubcomponentReserveVariable{ChargeSide},
+            V,
+            "$(s_type)_$s_name",
+        )
     con = get_constraint(container, T, V, "$(s_type)_$(s_name)_charge")
     soc_max =
         PSY.get_storage_level_limits(storage).max *
@@ -1743,11 +1784,11 @@ only one direction is active at a time. `HybridStatusOnConstraint{DischargeSide}
 `p_out ≤ reservation·max_out` (out-mode when reservation=1); `HybridStatusOnConstraint{ChargeSide}`
 enforces `p_in ≤ (1 − reservation)·max_in` (in-mode when reservation=0). With
 ancillary services attached, the asymmetric reserve expressions enter both
-bounds — Out side picks up Out{Up,Down}; In side picks up In{Down,Up} — mirroring
+bounds — Out side picks up Out{ReserveUp,Down}; In side picks up In{ReserveDown,Up} — mirroring
 HSS `_add_constraints_status{out,in}_withreserves!`.
 """
 # Side-keyed traits for HybridStatusOnConstraint{Sd}. The reserve-expression mapping is
-# asymmetric: DischargeSide UB picks up Out-Up, In side UB picks up In-Down (and vice-versa
+# asymmetric: DischargeSide UB picks up Out-ReserveUp, In side UB picks up In-Down (and vice-versa
 # for LB). The reservation-binary factor is `reservation` for DischargeSide, `(1-reservation)`
 # for ChargeSide (mirrors the storage Charge/Discharge ss_factor trait).
 _pcc_power_var(::Type{HybridStatusOnConstraint{DischargeSide}}) = ActivePowerOutVariable
@@ -1757,13 +1798,13 @@ _pcc_max_limit(::Type{HybridStatusOnConstraint{DischargeSide}}, d) =
 _pcc_max_limit(::Type{HybridStatusOnConstraint{ChargeSide}}, d) =
     PSY.get_input_active_power_limits(d).max
 _pcc_reserve_ub_expr(::Type{HybridStatusOnConstraint{DischargeSide}}) =
-    HybridPCCReserveExpression{Up, UnscaledReserve, DischargeSide}
+    HybridPCCReserveExpression{ReserveUp, UnscaledReserve, DischargeSide}
 _pcc_reserve_ub_expr(::Type{HybridStatusOnConstraint{ChargeSide}}) =
-    HybridPCCReserveExpression{Down, UnscaledReserve, ChargeSide}
+    HybridPCCReserveExpression{ReserveDown, UnscaledReserve, ChargeSide}
 _pcc_reserve_lb_expr(::Type{HybridStatusOnConstraint{DischargeSide}}) =
-    HybridPCCReserveExpression{Down, UnscaledReserve, DischargeSide}
+    HybridPCCReserveExpression{ReserveDown, UnscaledReserve, DischargeSide}
 _pcc_reserve_lb_expr(::Type{HybridStatusOnConstraint{ChargeSide}}) =
-    HybridPCCReserveExpression{Up, UnscaledReserve, ChargeSide}
+    HybridPCCReserveExpression{ReserveUp, UnscaledReserve, ChargeSide}
 _pcc_reservation_factor(::Type{HybridStatusOnConstraint{DischargeSide}}, r_val) = r_val
 _pcc_reservation_factor(::Type{HybridStatusOnConstraint{ChargeSide}}, r_val) = 1 - r_val
 
@@ -1862,13 +1903,20 @@ function add_constraints!(
         else
             nothing
         end
-    p_ch = if haskey(IOM.get_variables(container), VariableKey(HybridStorageSubcomponentPower{ChargeSide}, V))
-        get_variable(container, HybridStorageSubcomponentPower{ChargeSide}, V)
-    else
-        nothing
-    end
+    p_ch =
+        if haskey(
+            IOM.get_variables(container),
+            VariableKey(HybridStorageSubcomponentPower{ChargeSide}, V),
+        )
+            get_variable(container, HybridStorageSubcomponentPower{ChargeSide}, V)
+        else
+            nothing
+        end
     p_ds =
-        if haskey(IOM.get_variables(container), VariableKey(HybridStorageSubcomponentPower{DischargeSide}, V))
+        if haskey(
+            IOM.get_variables(container),
+            VariableKey(HybridStorageSubcomponentPower{DischargeSide}, V),
+        )
             get_variable(container, HybridStorageSubcomponentPower{DischargeSide}, V)
         else
             nothing
@@ -1890,12 +1938,28 @@ function add_constraints!(
     end
 
     has_reserves = W <: AbstractHybridFormulationWithReserves && has_service_model(model)
-    serv_out_up, serv_out_dn, serv_in_up, serv_in_dn = if has_reserves
+    serv_out_ReserveUp, serv_out_dn, serv_in_ReserveUp, serv_in_dn = if has_reserves
         (
-            get_expression(container, HybridPCCReserveExpression{Up, DeployedReserve, DischargeSide}, V),
-            get_expression(container, HybridPCCReserveExpression{Down, DeployedReserve, DischargeSide}, V),
-            get_expression(container, HybridPCCReserveExpression{Up, DeployedReserve, ChargeSide}, V),
-            get_expression(container, HybridPCCReserveExpression{Down, DeployedReserve, ChargeSide}, V),
+            get_expression(
+                container,
+                HybridPCCReserveExpression{ReserveUp, DeployedReserve, DischargeSide},
+                V,
+            ),
+            get_expression(
+                container,
+                HybridPCCReserveExpression{ReserveDown, DeployedReserve, DischargeSide},
+                V,
+            ),
+            get_expression(
+                container,
+                HybridPCCReserveExpression{ReserveUp, DeployedReserve, ChargeSide},
+                V,
+            ),
+            get_expression(
+                container,
+                HybridPCCReserveExpression{ReserveDown, DeployedReserve, ChargeSide},
+                V,
+            ),
         )
     else
         (nothing, nothing, nothing, nothing)
@@ -1968,8 +2032,18 @@ function add_constraints!(
         # System-level reserve variable for this service
         sys_reserve = get_variable(container, ActivePowerReserveVariable, s_type, s_name)
         # Per-hybrid reserve variables for this service
-        r_out = get_variable(container, HybridPCCReserveVariable{DischargeSide}, V, "$(s_type)_$s_name")
-        r_in = get_variable(container, HybridPCCReserveVariable{ChargeSide}, V, "$(s_type)_$s_name")
+        r_out = get_variable(
+            container,
+            HybridPCCReserveVariable{DischargeSide},
+            V,
+            "$(s_type)_$s_name",
+        )
+        r_in = get_variable(
+            container,
+            HybridPCCReserveVariable{ChargeSide},
+            V,
+            "$(s_type)_$s_name",
+        )
         for d in devices, t in time_steps
             name = PSY.get_name(d)
             (service in PSY.get_services(d)) || continue
@@ -2012,14 +2086,25 @@ function add_constraints!(
             add_constraints_container!(container, HybridReserveBalanceConstraint, V, names,
                 time_steps;
                 meta = "$(s_type)_$s_name")
-        r_out = get_variable(container, HybridPCCReserveVariable{DischargeSide}, V, "$(s_type)_$s_name")
-        r_in = get_variable(container, HybridPCCReserveVariable{ChargeSide}, V, "$(s_type)_$s_name")
+        r_out = get_variable(
+            container,
+            HybridPCCReserveVariable{DischargeSide},
+            V,
+            "$(s_type)_$s_name",
+        )
+        r_in = get_variable(
+            container,
+            HybridPCCReserveVariable{ChargeSide},
+            V,
+            "$(s_type)_$s_name",
+        )
         for d in devices, t in time_steps
             name = PSY.get_name(d)
             (service in PSY.get_services(d)) || continue
             rhs = JuMP.AffExpr(0.0)
             for var_t in (HybridThermalReserveVariable, HybridRenewableReserveVariable,
-                HybridStorageSubcomponentReserveVariable{ChargeSide}, HybridStorageSubcomponentReserveVariable{DischargeSide})
+                HybridStorageSubcomponentReserveVariable{ChargeSide},
+                HybridStorageSubcomponentReserveVariable{DischargeSide})
                 key = VariableKey(var_t, V, "$(s_type)_$s_name")
                 if haskey(IOM.get_variables(container), key)
                     var = get_variable(container, key)
@@ -2143,9 +2228,11 @@ function objective_function!(
 
     # Storage: variable costs on charge/discharge, plus optional regularization penalty.
     if !isempty(hybrids_with_storage)
-        _add_hybrid_subcomponent_variable_cost!(container, HybridStorageSubcomponentPower{ChargeSide},
+        _add_hybrid_subcomponent_variable_cost!(container,
+            HybridStorageSubcomponentPower{ChargeSide},
             hybrids_with_storage, PSY.get_storage, W)
-        _add_hybrid_subcomponent_variable_cost!(container, HybridStorageSubcomponentPower{DischargeSide},
+        _add_hybrid_subcomponent_variable_cost!(container,
+            HybridStorageSubcomponentPower{DischargeSide},
             hybrids_with_storage, PSY.get_storage, W)
         if get_attribute(model, "regularization")
             _add_hybrid_regularization_cost!(

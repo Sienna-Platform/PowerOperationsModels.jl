@@ -39,17 +39,25 @@ function _add_hybrid_reserve_arguments!(
 
     # Allocate hybrid-boundary aggregation expression containers
     for E in (
-        HybridPCCReserveExpression{Up, UnscaledReserve, DischargeSide}, HybridPCCReserveExpression{Down, UnscaledReserve, DischargeSide},
-        HybridPCCReserveExpression{Up, UnscaledReserve, ChargeSide}, HybridPCCReserveExpression{Down, UnscaledReserve, ChargeSide},
-        HybridPCCReserveExpression{Up, DeployedReserve, DischargeSide}, HybridPCCReserveExpression{Down, DeployedReserve, DischargeSide},
-        HybridPCCReserveExpression{Up, DeployedReserve, ChargeSide}, HybridPCCReserveExpression{Down, DeployedReserve, ChargeSide},
+        HybridPCCReserveExpression{PSY.ReserveUp, UnscaledReserve, DischargeSide},
+        HybridPCCReserveExpression{PSY.ReserveDown, UnscaledReserve, DischargeSide},
+        HybridPCCReserveExpression{PSY.ReserveUp, UnscaledReserve, ChargeSide},
+        HybridPCCReserveExpression{PSY.ReserveDown, UnscaledReserve, ChargeSide},
+        HybridPCCReserveExpression{PSY.ReserveUp, DeployedReserve, DischargeSide},
+        HybridPCCReserveExpression{PSY.ReserveDown, DeployedReserve, DischargeSide},
+        HybridPCCReserveExpression{PSY.ReserveUp, DeployedReserve, ChargeSide},
+        HybridPCCReserveExpression{PSY.ReserveDown, DeployedReserve, ChargeSide},
     )
         lazy_container_addition!(container, E, T, PSY.get_name.(devices), time_steps)
     end
 
     # Accumulate Out/In reserve variables into Total* and Served* expressions
-    for E in (HybridPCCReserveExpression{Up, UnscaledReserve, DischargeSide}, HybridPCCReserveExpression{Down, UnscaledReserve, DischargeSide},
-        HybridPCCReserveExpression{Up, DeployedReserve, DischargeSide}, HybridPCCReserveExpression{Down, DeployedReserve, DischargeSide})
+    for E in (
+        HybridPCCReserveExpression{PSY.ReserveUp, UnscaledReserve, DischargeSide},
+        HybridPCCReserveExpression{PSY.ReserveDown, UnscaledReserve, DischargeSide},
+        HybridPCCReserveExpression{PSY.ReserveUp, DeployedReserve, DischargeSide},
+        HybridPCCReserveExpression{PSY.ReserveDown, DeployedReserve, DischargeSide},
+    )
         add_to_expression!(
             container,
             E,
@@ -59,8 +67,12 @@ function _add_hybrid_reserve_arguments!(
             network_model,
         )
     end
-    for E in (HybridPCCReserveExpression{Up, UnscaledReserve, ChargeSide}, HybridPCCReserveExpression{Down, UnscaledReserve, ChargeSide},
-        HybridPCCReserveExpression{Up, DeployedReserve, ChargeSide}, HybridPCCReserveExpression{Down, DeployedReserve, ChargeSide})
+    for E in (
+        HybridPCCReserveExpression{PSY.ReserveUp, UnscaledReserve, ChargeSide},
+        HybridPCCReserveExpression{PSY.ReserveDown, UnscaledReserve, ChargeSide},
+        HybridPCCReserveExpression{PSY.ReserveUp, DeployedReserve, ChargeSide},
+        HybridPCCReserveExpression{PSY.ReserveDown, DeployedReserve, ChargeSide},
+    )
         add_to_expression!(
             container,
             E,
@@ -79,15 +91,29 @@ function _add_hybrid_reserve_arguments!(
         add_variables!(container, HybridRenewableReserveVariable, hybrids_with_renewable, D)
     end
     if !isempty(hybrids_with_storage)
-        add_variables!(container, HybridStorageSubcomponentReserveVariable{ChargeSide}, hybrids_with_storage, D)
-        add_variables!(container, HybridStorageSubcomponentReserveVariable{DischargeSide}, hybrids_with_storage, D)
+        add_variables!(
+            container,
+            HybridStorageSubcomponentReserveVariable{ChargeSide},
+            hybrids_with_storage,
+            D,
+        )
+        add_variables!(
+            container,
+            HybridStorageSubcomponentReserveVariable{DischargeSide},
+            hybrids_with_storage,
+            D,
+        )
 
         # Storage-side reserve expression containers, keyed by HybridSystem
         for E in (
-            StorageReserveBalanceExpression{Up, UnscaledReserve, DischargeSide}, StorageReserveBalanceExpression{Up, UnscaledReserve, ChargeSide},
-            StorageReserveBalanceExpression{Down, UnscaledReserve, DischargeSide}, StorageReserveBalanceExpression{Down, UnscaledReserve, ChargeSide},
-            StorageReserveBalanceExpression{Up, DeployedReserve, DischargeSide}, StorageReserveBalanceExpression{Up, DeployedReserve, ChargeSide},
-            StorageReserveBalanceExpression{Down, DeployedReserve, DischargeSide}, StorageReserveBalanceExpression{Down, DeployedReserve, ChargeSide},
+            StorageReserveBalanceExpression{PSY.ReserveUp, UnscaledReserve, DischargeSide},
+            StorageReserveBalanceExpression{PSY.ReserveUp, UnscaledReserve, ChargeSide},
+            StorageReserveBalanceExpression{PSY.ReserveDown, UnscaledReserve, DischargeSide},
+            StorageReserveBalanceExpression{PSY.ReserveDown, UnscaledReserve, ChargeSide},
+            StorageReserveBalanceExpression{PSY.ReserveUp, DeployedReserve, DischargeSide},
+            StorageReserveBalanceExpression{PSY.ReserveUp, DeployedReserve, ChargeSide},
+            StorageReserveBalanceExpression{PSY.ReserveDown, DeployedReserve, DischargeSide},
+            StorageReserveBalanceExpression{PSY.ReserveDown, DeployedReserve, ChargeSide},
         )
             lazy_container_addition!(
                 container,
@@ -100,8 +126,10 @@ function _add_hybrid_reserve_arguments!(
 
         # Wire HybridStorageSubcomponentReserveVariable{DischargeSide} into Discharge expressions
         for E in (
-            StorageReserveBalanceExpression{Up, UnscaledReserve, DischargeSide}, StorageReserveBalanceExpression{Down, UnscaledReserve, DischargeSide},
-            StorageReserveBalanceExpression{Up, DeployedReserve, DischargeSide}, StorageReserveBalanceExpression{Down, DeployedReserve, DischargeSide},
+            StorageReserveBalanceExpression{PSY.ReserveUp, UnscaledReserve, DischargeSide},
+            StorageReserveBalanceExpression{PSY.ReserveDown, UnscaledReserve, DischargeSide},
+            StorageReserveBalanceExpression{PSY.ReserveUp, DeployedReserve, DischargeSide},
+            StorageReserveBalanceExpression{PSY.ReserveDown, DeployedReserve, DischargeSide},
         )
             add_to_expression!(
                 container,
@@ -112,8 +140,10 @@ function _add_hybrid_reserve_arguments!(
             )
         end
         for E in (
-            StorageReserveBalanceExpression{Up, UnscaledReserve, ChargeSide}, StorageReserveBalanceExpression{Down, UnscaledReserve, ChargeSide},
-            StorageReserveBalanceExpression{Up, DeployedReserve, ChargeSide}, StorageReserveBalanceExpression{Down, DeployedReserve, ChargeSide},
+            StorageReserveBalanceExpression{PSY.ReserveUp, UnscaledReserve, ChargeSide},
+            StorageReserveBalanceExpression{PSY.ReserveDown, UnscaledReserve, ChargeSide},
+            StorageReserveBalanceExpression{PSY.ReserveUp, DeployedReserve, ChargeSide},
+            StorageReserveBalanceExpression{PSY.ReserveDown, DeployedReserve, ChargeSide},
         )
             add_to_expression!(
                 container,
@@ -134,7 +164,10 @@ function _add_hybrid_reserve_arguments!(
                 PSY.get_name.(hybrids_with_storage), time_steps;
                 meta = "$(typeof(s))_$(PSY.get_name(s))")
         end
-        for v in (HybridStorageSubcomponentReserveVariable{ChargeSide}, HybridStorageSubcomponentReserveVariable{DischargeSide})
+        for v in (
+            HybridStorageSubcomponentReserveVariable{ChargeSide},
+            HybridStorageSubcomponentReserveVariable{DischargeSide},
+        )
             add_to_expression!(
                 container,
                 TotalReserveOffering,
@@ -275,14 +308,29 @@ function construct_device!(
         )
     end
     if !isempty(grouped.with_storage)
-        add_variables!(container, HybridStorageSubcomponentPower{ChargeSide}, grouped.with_storage, D)
-        add_variables!(container, HybridStorageSubcomponentPower{DischargeSide}, grouped.with_storage, D)
+        add_variables!(
+            container,
+            HybridStorageSubcomponentPower{ChargeSide},
+            grouped.with_storage,
+            D,
+        )
+        add_variables!(
+            container,
+            HybridStorageSubcomponentPower{DischargeSide},
+            grouped.with_storage,
+            D,
+        )
         add_variables!(container, EnergyVariable, grouped.with_storage, D)
         if get_attribute(model, "storage_reservation")
             add_variables!(container, HybridStorageReservation, grouped.with_storage, D)
         end
         if get_attribute(model, "regularization")
-            add_variables!(container, RegularizationVariable{ChargeSide}, grouped.with_storage, D)
+            add_variables!(
+                container,
+                RegularizationVariable{ChargeSide},
+                grouped.with_storage,
+                D,
+            )
             add_variables!(
                 container,
                 RegularizationVariable{DischargeSide},

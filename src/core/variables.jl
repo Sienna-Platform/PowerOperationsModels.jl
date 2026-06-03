@@ -643,8 +643,6 @@ struct StorageEnergyOutput <: AuxVariableType end
 # Hybrid System Variables
 #
 # Paired sibling variable types are parametric on `ReserveSide` (Discharge / Charge).
-# Historical names are retained as const aliases so all existing imports,
-# `get_variable(container, T, V)` lookups, and exports continue to work.
 #################################################################################
 
 """
@@ -660,8 +658,7 @@ struct HybridRenewableActivePower <: AbstractHybridSubcomponentVariableType end
 
 """
 Active power on the storage subcomponent of a hybrid system. Parametric on
-[`ReserveSide`](@ref): `HybridStorageSubcomponentPower{ChargeSide}` is the inflow
-(historical `HybridStorageChargePower`), `{DischargeSide}` is the outflow.
+[`ReserveSide`](@ref).
 """
 struct HybridStorageSubcomponentPower{Sd <: ReserveSide} <:
        AbstractHybridSubcomponentVariableType end

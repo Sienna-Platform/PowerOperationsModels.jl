@@ -3,10 +3,6 @@
 # singletons across the codebase: a single parametric struct is used instead of
 # every (Charge/Discharge), (Up/Down), (Unscaled/Deployed), (UB/LB) sibling pair.
 
-abstract type ReserveDirection end
-struct Up <: ReserveDirection end
-struct Down <: ReserveDirection end
-
 abstract type ReserveScale end
 "Reserve aggregation that uses the raw multiplier (1.0). Was Total / Assignment."
 struct UnscaledReserve <: ReserveScale end

@@ -88,9 +88,6 @@ struct EnergyBalanceExpression <: ExpressionType end
 #                         | DeployedReserve (multiplier = get_deployed_fraction(s))
 #   Sd <: ReserveSide     : DischargeSide   (PCC "Out" / storage "Discharge")
 #                         | ChargeSide      (PCC "In"  / storage "Charge")
-# Each of the 16 historical singletons is retained as a const alias for an exact
-# parametrization, so all existing imports and `get_expression(container, T, V)`
-# calls continue to work unchanged.
 #################################################################################
 
 """
@@ -110,20 +107,17 @@ abstract type ReserveAggregationExpression{
 
 """
 Hybrid-boundary aggregation of reserve quantities offered through the discharge (out) and
-charge (in) sides of a `PSY.HybridSystem`. Concrete parametrizations of the three axes
-(Direction / Scale / Side) are exposed as the historical alias names below.
+charge (in) sides of a `PSY.HybridSystem`.
 """
 struct HybridPCCReserveExpression{D, S, Sd} <:
        ReserveAggregationExpression{D, S, Sd} end
 
 """
 Aggregation of reserve variables allocated to the storage subcomponent of a hybrid system
-(or a standalone storage device). Concrete parametrizations of the three axes
-(Direction / Scale / Side) are exposed as the historical alias names below.
+(or a standalone storage device).
 """
 struct StorageReserveBalanceExpression{D, S, Sd} <:
        ReserveAggregationExpression{D, S, Sd} end
-
 
 # Method extensions for output writing
 should_write_resulting_value(::Type{InterfaceTotalFlow}) = true
@@ -136,7 +130,9 @@ should_write_resulting_value(::Type{TotalHydroFlowRateReservoirOutgoing}) = true
 should_write_resulting_value(::Type{TotalHydroFlowRateTurbineOutgoing}) = true
 
 should_write_resulting_value(::Type{<:StorageReserveBalanceExpression}) = true
-should_write_resulting_value(::Type{HybridPCCReserveExpression{D, DeployedReserve, Sd}}) where {D <: ReserveDirection, Sd <: ReserveSide} = true
+should_write_resulting_value(
+    ::Type{HybridPCCReserveExpression{D, DeployedReserve, Sd}},
+) where {D <: ReserveDirection, Sd <: ReserveSide} = true
 
 # Method extensions for unit conversion
 convert_output_to_natural_units(::Type{InterfaceTotalFlow}) = true

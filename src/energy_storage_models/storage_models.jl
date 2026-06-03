@@ -619,7 +619,7 @@ function add_to_expression!(
     devices::IS.FlattenIteratorWrapper{V},
     model::DeviceModel{V, W},
 ) where {
-    T <: StorageReserveBalanceExpression{<:ReserveDirection, <:ReserveScale, ChargeSide},
+    T <: StorageReserveBalanceExpression{<:PSY.ReserveDirection, <:ReserveScale, ChargeSide},
     U <: AncillaryServiceVariableCharge,
     V <: PSY.Storage,
     W <: StorageDispatchWithReserves,
@@ -651,7 +651,7 @@ function add_to_expression!(
     devices::IS.FlattenIteratorWrapper{V},
     model::DeviceModel{V, W},
 ) where {
-    T <: StorageReserveBalanceExpression{<:ReserveDirection, <:ReserveScale, DischargeSide},
+    T <: StorageReserveBalanceExpression{<:PSY.ReserveDirection, <:ReserveScale, DischargeSide},
     U <: AncillaryServiceVariableDischarge,
     V <: PSY.Storage,
     W <: StorageDispatchWithReserves,
@@ -769,10 +769,26 @@ function add_energybalance_with_reserves!(
     powerin_var = get_variable(container, ActivePowerInVariable, V)
     powerout_var = get_variable(container, ActivePowerOutVariable, V)
 
-    r_up_ds = get_expression(container, StorageReserveBalanceExpression{Up, DeployedReserve, DischargeSide}, V)
-    r_up_ch = get_expression(container, StorageReserveBalanceExpression{Up, DeployedReserve, ChargeSide}, V)
-    r_dn_ds = get_expression(container, StorageReserveBalanceExpression{Down, DeployedReserve, DischargeSide}, V)
-    r_dn_ch = get_expression(container, StorageReserveBalanceExpression{Down, DeployedReserve, ChargeSide}, V)
+    r_up_ds = get_expression(
+        container,
+        StorageReserveBalanceExpression{Up, DeployedReserve, DischargeSide},
+        V,
+    )
+    r_up_ch = get_expression(
+        container,
+        StorageReserveBalanceExpression{Up, DeployedReserve, ChargeSide},
+        V,
+    )
+    r_dn_ds = get_expression(
+        container,
+        StorageReserveBalanceExpression{Down, DeployedReserve, DischargeSide},
+        V,
+    )
+    r_dn_ch = get_expression(
+        container,
+        StorageReserveBalanceExpression{Down, DeployedReserve, ChargeSide},
+        V,
+    )
 
     constraint = add_constraints_container!(container, EnergyBalanceConstraint,
         V,
@@ -1346,7 +1362,11 @@ function add_cycling_charge_with_reserves!(
 
     powerin_var = get_variable(container, ActivePowerInVariable, V)
     slack_var = get_variable(container, StorageChargeCyclingSlackVariable, V)
-    r_dn_ch = get_expression(container, StorageReserveBalanceExpression{Down, DeployedReserve, ChargeSide}, V)
+    r_dn_ch = get_expression(
+        container,
+        StorageReserveBalanceExpression{Down, DeployedReserve, ChargeSide},
+        V,
+    )
 
     constraint = add_constraints_container!(container, StorageCyclingCharge, V, names)
 
@@ -1435,7 +1455,11 @@ function add_cycling_discharge_with_reserves!(
     names = [PSY.get_name(x) for x in devices]
     powerout_var = get_variable(container, ActivePowerOutVariable, V)
     slack_var = get_variable(container, StorageDischargeCyclingSlackVariable, V)
-    r_up_ds = get_expression(container, StorageReserveBalanceExpression{Up, DeployedReserve, DischargeSide}, V)
+    r_up_ds = get_expression(
+        container,
+        StorageReserveBalanceExpression{Up, DeployedReserve, DischargeSide},
+        V,
+    )
 
     constraint =
         add_constraints_container!(container, StorageCyclingDischarge, V, names)
@@ -1488,9 +1512,15 @@ _storage_reg_power_var(::Type{StorageRegularizationConstraintCharge}) =
 _storage_reg_power_var(::Type{StorageRegularizationConstraintDischarge}) =
     ActivePowerOutVariable
 _storage_reg_reserve_exprs(::Type{StorageRegularizationConstraintCharge}) =
-    (StorageReserveBalanceExpression{Up, DeployedReserve, ChargeSide}, StorageReserveBalanceExpression{Down, DeployedReserve, ChargeSide})
+    (
+        StorageReserveBalanceExpression{Up, DeployedReserve, ChargeSide},
+        StorageReserveBalanceExpression{Down, DeployedReserve, ChargeSide},
+    )
 _storage_reg_reserve_exprs(::Type{StorageRegularizationConstraintDischarge}) =
-    (StorageReserveBalanceExpression{Up, DeployedReserve, DischargeSide}, StorageReserveBalanceExpression{Down, DeployedReserve, DischargeSide})
+    (
+        StorageReserveBalanceExpression{Up, DeployedReserve, DischargeSide},
+        StorageReserveBalanceExpression{Down, DeployedReserve, DischargeSide},
+    )
 _storage_reg_reserve_signs(::Type{StorageRegularizationConstraintCharge}) = (-1, +1)
 _storage_reg_reserve_signs(::Type{StorageRegularizationConstraintDischarge}) = (+1, -1)
 
