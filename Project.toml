@@ -27,8 +27,9 @@ PowerFlows = "94fada2c-fd9a-4e89-8d82-81405f5cb4f6"
 [sources]
 InfrastructureSystems = {rev = "IS4", url = "https://github.com/Sienna-Platform/InfrastructureSystems.jl"}
 PowerSystems = {rev = "psy6", url = "https://github.com/Sienna-Platform/PowerSystems.jl"}
-InfrastructureOptimizationModels = {path = "InfrastructureOptimizationModels.jl"}
-PowerNetworkMatrices = {path = "PowerNetworkMatrices.jl"}
+# TODO: move IOM back to rev = "main" once ac/canonical-key-component-type merges.
+InfrastructureOptimizationModels = {rev = "ac/canonical-key-component-type", url = "https://github.com/Sienna-Platform/InfrastructureOptimizationModels.jl"}
+PowerNetworkMatrices = {rev = "psy6", url = "https://github.com/Sienna-Platform/PowerNetworkMatrices.jl"}
 
 [extensions]
 PowerFlowsExt = "PowerFlows"

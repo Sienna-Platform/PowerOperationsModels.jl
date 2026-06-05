@@ -125,19 +125,13 @@ function IOM.calculate_aux_variable_value!(
         end
     end
     for (arc, parallel_brs) in PNM.get_parallel_branch_map(nrd)
-        # Constant per parallel group: hoist out of the per-branch loop below.
-        sample_line = first(parallel_brs)
-        impedance = PSY.get_r(sample_line, PSY.SU) + im * PSY.get_x(sample_line, PSY.SU)
-        first_name = PSY.get_name(sample_line)
+        # `PNM.compute_parallel_multiplier` susceptance-weights each branch, so parallel
+        # branches with unequal impedances are handled correctly.
         for br in parallel_brs
             if br isa U
                 name = PSY.get_name(br)
                 IS.@assert_op T <: POM.BranchFlowAuxVariableType ||
                               (T == POM.PowerFlowBranchActivePowerLoss)
-                if !isapprox(PSY.get_r(br, PSY.SU) + im * PSY.get_x(br, PSY.SU), impedance)
-                    @debug "Parallel branches with different impedances found: " *
-                           "$name and $first_name. Check your data inputs."
-                end
                 multiplier = PNM.compute_parallel_multiplier(parallel_brs, name)
                 arc_ix = arc_lookup[arc]
                 dest[name, :] = multiplier .* src[arc_ix, :]

@@ -255,20 +255,7 @@ end
 
 ################################## Rate Limits constraint_infos ############################
 
-function get_rating(double_circuit::PNM.AbstractBranchesParallel)
-    return sum([PSY.get_rating(circuit, PSY.SU) for circuit in double_circuit])
-end
-function get_rating(series_chain::PNM.BranchesSeries)
-    return minimum([get_rating(segment) for segment in series_chain])
-end
-function get_rating(device::T) where {T <: PSY.ACTransmission}
-    return PSY.get_rating(device, PSY.SU)
-end
-function get_rating(
-    device::PNM.ThreeWindingTransformerWinding{T},
-) where {T <: PSY.ThreeWindingTransformer}
-    return PNM.get_equivalent_rating(device)
-end
+# `_get_rating` is defined in src/ac_transmission_models/AC_branches.jl.
 
 """
 Min and max limits for Abstract Branch Formulation
@@ -553,7 +540,7 @@ function add_constraints!(
         # TODO: entry is not type stable here, it can return any type ACTransmission.
         # It might have performance implications. Possibly separate this into other functions
         reduction_entry = all_branch_maps_by_type[reduction][B][arc]
-        branch_rate = get_rating(reduction_entry)
+        branch_rate = _get_rating(reduction_entry)
         for t in time_steps
             constraint[name, t] = JuMP.@constraint(
                 get_jump_model(container),
@@ -604,7 +591,7 @@ function add_constraints!(
         # TODO: entry is not type stable here, it can return any type ACTransmission.
         # It might have performance implications. Possibly separate this into other functions
         reduction_entry = all_branch_maps_by_type[reduction][B][arc]
-        branch_rate = get_rating(reduction_entry)
+        branch_rate = _get_rating(reduction_entry)
         for t in time_steps
             constraint[name, t] = JuMP.@constraint(
                 get_jump_model(container),

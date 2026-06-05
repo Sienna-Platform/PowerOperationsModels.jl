@@ -260,16 +260,22 @@ end
 
 ################################## Rate Limits constraint_infos ############################
 
-function get_rating(double_circuit::PNM.AbstractBranchesParallel)
+# Internal-only (underscore-prefixed) to avoid colliding with `PSY.get_rating`: the
+# single-argument PSY form is phased out in PSY6, and an unqualified `get_rating(device)`
+# resolving here instead of PSY could silently change the unit base of the result.
+# Not replaceable by `PNM.get_sum_of_max_rating`: PNM's `get_equivalent_rating` returns
+# device-base (`PSY.DU`) ratings, while the container needs system base, and the DU->SU
+# ratio is per-component so PNM's summed aggregate cannot be converted after the fact.
+function _get_rating(double_circuit::PNM.AbstractBranchesParallel)
     return sum([PSY.get_rating(circuit, PSY.SU) for circuit in double_circuit])
 end
-function get_rating(series_chain::PNM.BranchesSeries)
-    return minimum([get_rating(segment) for segment in series_chain])
+function _get_rating(series_chain::PNM.BranchesSeries)
+    return minimum([_get_rating(segment) for segment in series_chain])
 end
-function get_rating(device::T) where {T <: PSY.ACTransmission}
+function _get_rating(device::T) where {T <: PSY.ACTransmission}
     return PSY.get_rating(device, PSY.SU)
 end
-function get_rating(
+function _get_rating(
     device::PNM.ThreeWindingTransformerWinding{T},
 ) where {T <: PSY.ThreeWindingTransformer}
     return PNM.get_equivalent_rating(device)
@@ -348,7 +354,7 @@ function get_min_max_limits(
     ::Type{<:ConstraintType},
     ::Type{<:AbstractBranchFormulation},
 ) #  -> Union{Nothing, NamedTuple{(:min, :max), Tuple{Float64, Float64}}}
-    return (min = -1 * get_rating(device), max = get_rating(device))
+    return (min = -1 * _get_rating(device), max = _get_rating(device))
 end
 
 """
@@ -691,7 +697,7 @@ function add_constraints!(
         # TODO: entry is not type stable here, it can return any type ACTransmission.
         # It might have performance implications. Possibly separate this into other functions
         reduction_entry = all_branch_maps_by_type[reduction][B][arc]
-        branch_rate = get_rating(reduction_entry)
+        branch_rate = _get_rating(reduction_entry)
         for t in time_steps
             constraint[name, t] = JuMP.@constraint(
                 get_jump_model(container),
@@ -742,7 +748,7 @@ function add_constraints!(
         # TODO: entry is not type stable here, it can return any type ACTransmission.
         # It might have performance implications. Possibly separate this into other functions
         reduction_entry = all_branch_maps_by_type[reduction][B][arc]
-        branch_rate = get_rating(reduction_entry)
+        branch_rate = _get_rating(reduction_entry)
         for t in time_steps
             constraint[name, t] = JuMP.@constraint(
                 get_jump_model(container),
@@ -1042,7 +1048,7 @@ function get_min_max_limits(
         )
     end
     limit = min(
-        get_rating(device),
+        _get_rating(device),
         PSY.get_flow_limits(device, PSY.SU).to_from,
         PSY.get_flow_limits(device, PSY.SU).from_to,
     )
