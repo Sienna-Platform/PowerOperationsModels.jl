@@ -368,30 +368,31 @@ MILP formulation for the turbined-flow × head bilinear product in the hydro
 turbine power-output constraint. Adds injection variables for a HydroTurbine
 connected to reservoirs using a linearized approximation of the bilinear model.
 
-The bilinear approximation scheme is selected *by type* through the single
-`"bilinear_config"` `DeviceModel` attribute, whose value is an
-[`AbstractBilinearApproxConfig`](@ref): [`Bin2Config`](@ref) (default),
-[`HybSConfig`](@ref), [`NMDTConfig`](@ref), [`DNMDTConfig`](@ref), or
-[`NoBilinearApprox`](@ref). Users do not need to depend on
-`InfrastructureOptimizationModels`; POM translates the config internally.
-
-Each config carries a `tolerance` (the maximum approximation gap); the
-constraint constructor derives the discretization depth per device from that
-tolerance combined with the device's flow and head ranges (via IOM's
-`tolerance_depth` helpers), so there is no manual depth / segment-count knob. The
-[`Bin2Config`](@ref) and [`HybSConfig`](@ref) schemes additionally take a typed
-inner quadratic method (`quad`); invalid scheme/quad combinations are rejected
-when the config is constructed.
+The bilinear approximation scheme is selected through `DeviceModel` attributes.
+The constraint constructor derives every discretization depth (the inner
+quadratic depth, HybS's internal epigraph depth, and the NMDT/DNMDT depth) per
+device from the `"bilinear_tolerance"` attribute combined with the device's
+flow and head ranges (via IOM's `tolerance_depth` helpers), so there is no
+manual depth / segment-count / epigraph-depth attribute. Invalid
+scheme/quadratic-method combinations are rejected at constraint-build time.
 
 # Attributes
-- `"bilinear_config"` (default [`Bin2Config`](@ref)`()`): an
-  [`AbstractBilinearApproxConfig`](@ref) selecting the scheme and its parameters.
+- `"bilinear_approximation"` (default `"bin2"`): the bilinear approximation
+  scheme. Supported: `"bin2"`, `"hybs"`, `"nmdt"`, `"dnmdt"`, `"none"`
+  (`"none"` passes the quadratic term to the solver directly — the resulting
+  model is not a MILP and needs a nonlinear-capable solver).
+- `"bilinear_quadratic_method"` (default `"solver_sos2"`): the inner quadratic
+  PWL method used by the `"bin2"` and `"hybs"` schemes (ignored otherwise).
+  Supported: `"solver_sos2"`, `"manual_sos2"`, `"sawtooth"`; `"bin2"` also
+  accepts `"nmdt"` and `"dnmdt"`.
+- `"bilinear_tolerance"` (default `1e-2`): maximum approximation gap; must be
+  finite and > 0.
 
 # Example
 ```julia
-set_device_model!(template, HydroTurbine, HydroTurbineMILPBilinearDispatch)  # Bin2, tol 1e-2
+set_device_model!(template, HydroTurbine, HydroTurbineMILPBilinearDispatch)  # bin2, tol 1e-2
 set_device_model!(template, HydroTurbine, HydroTurbineMILPBilinearDispatch;
-    attributes = Dict("bilinear_config" => NMDTConfig(tolerance = 1e-3)))
+    attributes = Dict("bilinear_approximation" => "nmdt", "bilinear_tolerance" => 1e-3))
 ```
 
 See: [`PowerSystems.HydroGen`](@extref).

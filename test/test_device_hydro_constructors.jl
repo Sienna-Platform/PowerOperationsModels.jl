@@ -697,6 +697,49 @@ end
     )
 end
 
+@testset "HydroTurbineMILPBilinearDispatch: attribute → IOM bilinear config bridge" begin
+    # Happy path per scheme: the right IOM config type comes back, with all
+    # depths derived from the tolerance and the domain widths.
+    cfg = POM._build_bilinear_config("bin2", "solver_sos2", 1e-2, 10.0, 5.0)
+    @test cfg isa IOM.Bin2Config{IOM.SolverSOS2QuadConfig}
+    cfg = POM._build_bilinear_config("bin2", "nmdt", 1e-2, 10.0, 5.0)
+    @test cfg isa IOM.Bin2Config{IOM.NMDTQuadConfig}
+    cfg = POM._build_bilinear_config("hybs", "sawtooth", 1e-2, 10.0, 5.0)
+    @test cfg isa IOM.HybSConfig{IOM.SawtoothQuadConfig}
+    @test cfg.epigraph_depth == IOM.tolerance_epigraph_depth(
+        IOM.HybSConfig{IOM.SawtoothQuadConfig};
+        tolerance = 1e-2,
+        max_delta_x = 10.0,
+        max_delta_y = 5.0,
+    )
+    @test POM._build_bilinear_config("nmdt", "solver_sos2", 1e-2, 10.0, 5.0) isa
+          IOM.NMDTBilinearConfig
+    @test POM._build_bilinear_config("dnmdt", "solver_sos2", 1e-2, 10.0, 5.0) isa
+          IOM.DNMDTBilinearConfig
+    @test POM._build_bilinear_config("none", "solver_sos2", 1e-2, 10.0, 5.0) isa
+          IOM.NoBilinearApproxConfig
+
+    # Tighter tolerance ⇒ deeper discretization.
+    loose = POM._build_bilinear_config("bin2", "solver_sos2", 1e-1, 10.0, 5.0)
+    tight = POM._build_bilinear_config("bin2", "solver_sos2", 1e-4, 10.0, 5.0)
+    @test tight.quad_config.depth > loose.quad_config.depth
+
+    # Unknown scheme / quad strings.
+    @test_throws ErrorException POM._build_bilinear_config(
+        "foo", "solver_sos2", 1e-2, 10.0, 5.0)
+    @test_throws ErrorException POM._build_bilinear_config("bin2", "foo", 1e-2, 10.0, 5.0)
+    # "epigraph" is one-sided-under: never a valid inner quad.
+    @test_throws ErrorException POM._build_bilinear_config(
+        "bin2", "epigraph", 1e-2, 10.0, 5.0)
+    # HybS requires a one-sided-over inner quad: nmdt/dnmdt rejected.
+    @test_throws ErrorException POM._build_bilinear_config("hybs", "nmdt", 1e-2, 10.0, 5.0)
+    # Tolerance must be finite and > 0.
+    @test_throws ArgumentError POM._build_bilinear_config(
+        "bin2", "solver_sos2", 0.0, 10.0, 5.0)
+    @test_throws ArgumentError POM._build_bilinear_config(
+        "bin2", "solver_sos2", Inf, 10.0, 5.0)
+end
+
 @testset "HydroTurbineMILPBilinearDispatch: variable-bound plumbing to IOM" begin
     # Spot-check that POM forwards PSY device data to JuMP without unit conversion.
     # Outflow limits are m^3/s and storage_level_limits is meters (HEAD reservoir),

@@ -423,21 +423,33 @@ end
 
 """
 Default `DeviceModel` attributes for `HydroTurbineMILPBilinearDispatch`. The
-single `"bilinear_config"` attribute holds an [`AbstractBilinearApproxConfig`](@ref)
-selecting the bilinear approximation scheme used inside the turbine-power
-constraint; see [`HydroTurbineMILPBilinearDispatch`](@ref) for the reference.
+returned dictionary picks the bilinear approximation scheme used inside the
+turbine-power constraint; see [`HydroTurbineMILPBilinearDispatch`](@ref) for the
+full attribute reference.
 
-The default is [`Bin2Config`](@ref)`()` (Bin2 + `SolverSOS2`, tolerance `1e-2`).
-The discretization depth is computed per device at constraint-build time from the
-config's `tolerance` and the per-device flow and head ranges, so two systems with
-very different bounds get appropriately different discretizations from the same
-tolerance setting.
+The default tolerance is `1e-2` paired with `"bin2"` + `"solver_sos2"`. Every
+discretization depth (including HybS's internal epigraph depth) is computed per
+device at constraint-build time from the tolerance and the per-device flow and
+head ranges, so two systems with very different bounds will get appropriately
+different discretizations from the same tolerance setting; there is no manual
+depth / segment-count attribute.
 """
 function get_default_attributes(
     ::Type{T},
     ::Type{D},
 ) where {T <: PSY.HydroTurbine, D <: HydroTurbineMILPBilinearDispatch}
-    return Dict{String, Any}("bilinear_config" => Bin2Config())
+    return Dict{String, Any}(
+        # Top-level bilinear approximation scheme.
+        # Supported: "bin2", "hybs", "nmdt", "dnmdt", "none".
+        "bilinear_approximation" => "bin2",
+        # Inner quadratic PWL method (used when bilinear_approximation ∈ {"bin2","hybs"}).
+        # Supported: "solver_sos2", "manual_sos2", "sawtooth"; "bin2" also
+        # accepts "nmdt" and "dnmdt".
+        "bilinear_quadratic_method" => "solver_sos2",
+        # Maximum approximation gap. Combined with the per-device flow and head
+        # ranges to size each method's discretization automatically.
+        "bilinear_tolerance" => 1e-2,
+    )
 end
 
 function get_default_attributes(
@@ -1866,7 +1878,9 @@ function add_constraints!(
     power = get_variable(container, ActivePowerVariable, V)
     flow = get_variable(container, HydroTurbineFlowRateVariable, V)
     head = get_variable(container, HydroReservoirHeadVariable, PSY.HydroReservoir)
-    bilinear_config = get_attribute(model, "bilinear_config")
+    bilinear_method = get_attribute(model, "bilinear_approximation")
+    quad_method = get_attribute(model, "bilinear_quadratic_method")
+    tolerance = get_attribute(model, "bilinear_tolerance")
     for d in devices
         name = PSY.get_name(d)
         conversion_factor = PSY.get_conversion_factor(d)
@@ -1910,7 +1924,13 @@ function add_constraints!(
         flow_bounds = repeat([(min = flow_lb, max = flow_ub)], length(reservoirs))
 
         fh_prod = IOM._add_bilinear_approx!(
-            _iom_config(bilinear_config, flow_delta, head_delta),
+            _build_bilinear_config(
+                bilinear_method,
+                quad_method,
+                tolerance,
+                flow_delta,
+                head_delta,
+            ),
             container,
             V,
             PSY.get_name.(reservoirs),
