@@ -255,8 +255,6 @@ end
 
 ################################## Rate Limits constraint_infos ############################
 
-# `_get_rating` is defined in src/ac_transmission_models/AC_branches.jl.
-
 """
 Min and max limits for Abstract Branch Formulation
 """

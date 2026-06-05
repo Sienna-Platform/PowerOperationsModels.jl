@@ -260,12 +260,6 @@ end
 
 ################################## Rate Limits constraint_infos ############################
 
-# Internal-only (underscore-prefixed) to avoid colliding with `PSY.get_rating`: the
-# single-argument PSY form is phased out in PSY6, and an unqualified `get_rating(device)`
-# resolving here instead of PSY could silently change the unit base of the result.
-# Not replaceable by `PNM.get_sum_of_max_rating`: PNM's `get_equivalent_rating` returns
-# device-base (`PSY.DU`) ratings, while the container needs system base, and the DU->SU
-# ratio is per-component so PNM's summed aggregate cannot be converted after the fact.
 function _get_rating(double_circuit::PNM.AbstractBranchesParallel)
     return sum([PSY.get_rating(circuit, PSY.SU) for circuit in double_circuit])
 end
