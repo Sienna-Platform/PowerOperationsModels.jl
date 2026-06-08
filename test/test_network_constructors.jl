@@ -28,7 +28,7 @@ end
     nr = NetworkReduction[RadialReduction(), DegreeTwoReduction()]
     ptdf = PTDF(sys; network_reductions = nr)
 
-    template = OperationsProblemTemplate(
+    template = PowerOperationsProblemTemplate(
         NetworkModel(PTDFPowerModel;
             PTDF_matrix = ptdf,
             duals = [CopperPlateBalanceConstraint],

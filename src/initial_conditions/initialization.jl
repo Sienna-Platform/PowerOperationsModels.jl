@@ -1,4 +1,7 @@
-function get_initial_conditions_template(model::OperationModel, number_of_steps::Int)
+function get_initial_conditions_template(
+    model::IOM.AbstractOptimizationModel,
+    number_of_steps::Int,
+)
     # This is done to avoid passing the duals but also not re-allocating the PTDF when it
     # exists
 
@@ -17,8 +20,9 @@ function get_initial_conditions_template(model::OperationModel, number_of_steps:
     network_model.network_reduction =
         deepcopy(get_network_reduction(get_network_model(model.template)))
     network_model.subnetworks = get_subnetworks(get_network_model(model.template))
-    # Initialization does not support PowerFlow evaluation - use empty vector
-    network_model.power_flow_evaluation = AbstractPowerFlowEvaluationModel[]
+    # Initialization builds a fresh, empty EvaluationContainer: no power-flow (or other)
+    # evaluations are run during initialization.
+    network_model.evaluations = IOM.EvaluationContainer()
     bus_area_map = get_bus_area_map(get_network_model(model.template))
 
     if !isempty(bus_area_map)
@@ -26,7 +30,7 @@ function get_initial_conditions_template(model::OperationModel, number_of_steps:
     end
     network_model.modeled_branch_types =
         get_network_model(model.template).modeled_branch_types
-    ic_template = OperationsProblemTemplate(network_model)
+    ic_template = PowerOperationsProblemTemplate(network_model)
     # Do not copy events here for initialization
     for device_model in values(get_device_models(model.template))
         base_model = get_initial_conditions_device_model(model, device_model)
@@ -59,7 +63,9 @@ function get_initial_conditions_template(model::OperationModel, number_of_steps:
     return ic_template
 end
 
-function build_initial_conditions_model!(model::T) where {T <: OperationModel}
+function build_initial_conditions_model!(
+    model::T,
+) where {T <: IOM.AbstractOptimizationModel}
     internal = get_internal(model)
     set_initial_conditions_model_container!(
         internal,
@@ -97,7 +103,7 @@ function build_initial_conditions_model!(model::T) where {T <: OperationModel}
     return
 end
 
-function build_initial_conditions!(model::OperationModel)
+function build_initial_conditions!(model::IOM.AbstractOptimizationModel)
     @assert get_initial_conditions_model_container(get_internal(model)) ===
             nothing
     requires_init = false
@@ -117,7 +123,7 @@ function build_initial_conditions!(model::OperationModel)
 end
 
 # Called `initialize!` in PSI (lived in operation_model_interface.jl).
-function solve_and_write_initial_conditions!(model::OperationModel)
+function solve_and_write_initial_conditions!(model::IOM.AbstractOptimizationModel)
     container = get_optimization_container(model)
     if get_initial_conditions_model_container(get_internal(model)) === nothing
         return

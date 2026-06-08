@@ -187,7 +187,7 @@ end
 
 # currently broken due to PSB lagging behind.
 @testset "Test Reserves from Hydro with RunOfRiver" begin
-    template = OperationsProblemTemplate(CopperPlatePowerModel)
+    template = PowerOperationsProblemTemplate(CopperPlatePowerModel)
     set_device_model!(template, PowerLoad, StaticPowerLoad)
     set_device_model!(template, HydroTurbine, HydroDispatchRunOfRiver)
     set_service_model!(
@@ -343,10 +343,10 @@ end
 
     sys = PSB.build_system(PSITestSystems, "c_sys5_hy"; add_single_time_series = true)
     hy = only(get_components(HydroDispatch, sys))
-    max_power = get_max_active_power(hy)
+    max_power = get_max_active_power(hy, PSY.SU)
     resolution = Dates.Hour(1)
     tstamp = range(DateTime("2024-01-01T00:00:00"); step = resolution, length = 48)
-    data = ones(length(tstamp)) / (get_base_power(sys) * max_power)
+    data = ones(length(tstamp)) / (get_base_power(sys, PSY.NU) * max_power)
     ts = SingleTimeSeries("hydro_budget", TimeArray(tstamp, data))
     add_time_series!(sys, hy, ts)
     transform_single_time_series!(sys, Hour(24), Hour(24))
@@ -366,16 +366,16 @@ end
     eps = 1e-6
 
     hy = only(get_components(HydroDispatch, c_sys5_hy))
-    max_power = get_max_active_power(hy)
+    max_power = get_max_active_power(hy, PSY.SU)
 
     tstamp = range(DateTime("2024-01-01T00:00:00"); step = Dates.Hour(1), length = 48)
-    data = ones(length(tstamp)) / (get_base_power(c_sys5_hy) * max_power)
+    data = ones(length(tstamp)) / (get_base_power(c_sys5_hy, PSY.NU) * max_power)
     ts = SingleTimeSeries("hydro_budget", TimeArray(tstamp, data))
     add_time_series!(c_sys5_hy, first(get_components(HydroDispatch, c_sys5_hy)), ts)
     #remove_time_series!(c_sys5_hy, Deterministic)
     transform_single_time_series!(c_sys5_hy, Hour(24), Hour(24))
 
-    template_uc = OperationsProblemTemplate()
+    template_uc = PowerOperationsProblemTemplate()
     set_device_model!(template_uc, ThermalStandard, ThermalBasicUnitCommitment)
     set_device_model!(template_uc, RenewableDispatch, RenewableFullDispatch)
     set_device_model!(template_uc, PowerLoad, StaticPowerLoad)
@@ -438,9 +438,9 @@ end
         add_service!(th, reg_up, c_sys5_hy)
     end
 
-    max_power = get_max_active_power(hy)
+    max_power = get_max_active_power(hy, PSY.SU)
     tstamp = range(DateTime("2024-01-01T00:00:00"); step = Dates.Hour(1), length = 48)
-    data = ones(length(tstamp)) / (get_base_power(c_sys5_hy) * max_power)
+    data = ones(length(tstamp)) / (get_base_power(c_sys5_hy, PSY.NU) * max_power)
     ts = SingleTimeSeries("hydro_budget", TimeArray(tstamp, data))
     add_time_series!(c_sys5_hy, first(get_components(HydroDispatch, c_sys5_hy)), ts)
 
@@ -449,22 +449,22 @@ end
         name = "HydroDispatchCopy",
         available = get_available(hy),
         bus = get_bus(hy),
-        active_power = get_active_power(hy),
-        reactive_power = get_reactive_power(hy),
-        rating = get_rating(hy),
+        active_power = get_active_power(hy, PSY.SU),
+        reactive_power = get_reactive_power(hy, PSY.SU),
+        rating = get_rating(hy, PSY.SU),
         prime_mover_type = get_prime_mover_type(hy),
-        active_power_limits = get_active_power_limits(hy),
-        reactive_power_limits = get_reactive_power_limits(hy),
-        ramp_limits = get_ramp_limits(hy),
+        active_power_limits = get_active_power_limits(hy, PSY.SU),
+        reactive_power_limits = get_reactive_power_limits(hy, PSY.SU),
+        ramp_limits = get_ramp_limits(hy, PSY.SU),
         time_limits = get_time_limits(hy),
-        base_power = get_base_power(hy),
+        base_power = get_base_power(hy, PSY.NU),
     )
     add_component!(c_sys5_hy, hy_copy)
     copy_time_series!(hy_copy, hy)
 
     transform_single_time_series!(c_sys5_hy, Hour(24), Hour(24))
 
-    template_uc = OperationsProblemTemplate()
+    template_uc = PowerOperationsProblemTemplate()
     set_device_model!(template_uc, ThermalStandard, ThermalBasicUnitCommitment)
     set_device_model!(template_uc, RenewableDispatch, RenewableFullDispatch)
     set_device_model!(template_uc, PowerLoad, StaticPowerLoad)
@@ -535,7 +535,7 @@ end
 
     transform_single_time_series!(c_sys5_bat, Hour(24), Hour(24))
 
-    template_uc = OperationsProblemTemplate()
+    template_uc = PowerOperationsProblemTemplate()
     set_device_model!(template_uc, ThermalStandard, ThermalBasicUnitCommitment)
     set_device_model!(template_uc, RenewableDispatch, RenewableFullDispatch)
     set_device_model!(template_uc, PowerLoad, StaticPowerLoad)
@@ -580,7 +580,7 @@ end
     set_head_to_volume_factor!(res, LinearCurve(1.0))
     set_storage_level_limits!(res, (min = 4000, max = 6000))
     set_level_targets!(res, 0.9)
-    template_ed = OperationsProblemTemplate(
+    template_ed = PowerOperationsProblemTemplate(
         NetworkModel(
             CopperPlatePowerModel;
         ),
@@ -639,7 +639,7 @@ end
     reservoir = only(get_components(HydroReservoir, c_sys5_hy))
     hydro_inflow_ts = get_time_series_array(Deterministic, reservoir, "inflow")
 
-    template = OperationsProblemTemplate()
+    template = PowerOperationsProblemTemplate()
     set_device_model!(template, HydroTurbine, HydroTurbineBilinearDispatch)
     set_device_model!(template, HydroReservoir, HydroWaterModelReservoir)
 
@@ -678,11 +678,204 @@ end
     total_outflow = sum(df_outflow[!, :value])
     total_spillage = sum(hydro_spillage_df[!, :value])
 
+    # Tolerance covers accumulated rounding in the m^3/s → km^3 unit conversion
+    # plus the MILP bilinear approximation; water-balance closure within 1e-4 km^3
+    # is well inside HiGHS' default feasibility tolerance for this problem size.
+    tol = 1e-4
     calculated_vf =
         (hydro_vol_df[1, :value]) +
-        ((total_inflow - total_outflow - total_spillage) * 3600 * 1e-9)
+        (
+            (total_inflow - total_outflow - total_spillage) *
+            POM.SECONDS_IN_HOUR *
+            POM.M3_TO_KM3
+        )
 
-    @test abs(calculated_vf - hydro_vol_df[end, :value]) <= 1e-4
+    @test isapprox(calculated_vf, hydro_vol_df[end, :value], atol = tol)
+
+    psi_checksolve_test(
+        model,
+        [MOI.OPTIMAL, MOI.ALMOST_OPTIMAL, MOI.LOCALLY_SOLVED],
+        210949.49,
+        1000,
+    )
+end
+
+@testset "HydroTurbineBin2BilinearDispatch: variable-bound plumbing to IOM" begin
+    # Spot-check that POM forwards PSY device data to JuMP without unit conversion.
+    # Outflow limits are m^3/s and storage_level_limits is meters (HEAD reservoir),
+    # so JuMP variables should carry those values verbatim.
+    output_dir = mktempdir(; cleanup = true)
+
+    sys = PSB.build_system(PSITestSystems, "c_sys5_hy_turbine_head")
+    template = PowerOperationsProblemTemplate()
+    set_device_model!(template, HydroTurbine, HydroTurbineBin2BilinearDispatch)
+    set_device_model!(template, HydroReservoir, HydroWaterModelReservoir)
+    set_device_model!(template, ThermalStandard, ThermalDispatchNoMin)
+    set_device_model!(template, PowerLoad, StaticPowerLoad)
+
+    model = DecisionModel(
+        template,
+        sys;
+        optimizer = HiGHS_optimizer,
+        store_variable_names = true,
+    )
+    @test build!(model; output_dir = output_dir) == ModelBuildStatus.BUILT
+
+    container = IOM.get_optimization_container(model)
+    time_steps = IOM.get_time_steps(container)
+    flow = IOM.get_variable(container, HydroTurbineFlowRateVariable, HydroTurbine)
+    head = IOM.get_variable(container, HydroReservoirHeadVariable, HydroReservoir)
+
+    reservoirs = collect(get_components(HydroReservoir, sys))
+    @test !isempty(reservoirs)
+    for res in reservoirs
+        # HEAD reservoirs store level limits directly in meters; bounds should match.
+        @test PSY.get_level_data_type(res) == PSY.ReservoirDataType.HEAD
+        limits = PSY.get_storage_level_limits(res)
+        r_name = PSY.get_name(res)
+        for t in time_steps
+            v = head[r_name, t]
+            @test JuMP.lower_bound(v) == limits.min
+            @test JuMP.upper_bound(v) == limits.max
+        end
+    end
+
+    turbines = collect(get_components(HydroTurbine, sys))
+    @test !isempty(turbines)
+    for turbine in turbines
+        outflow = PSY.get_outflow_limits(turbine)
+        @test outflow !== nothing
+        t_name = PSY.get_name(turbine)
+        for res in reservoirs, t in time_steps
+            v = flow[t_name, PSY.get_name(res), t]
+            @test JuMP.lower_bound(v) == outflow.min
+            @test JuMP.upper_bound(v) == outflow.max
+        end
+    end
+end
+
+@testset "HydroTurbineBilinearDispatch: TurbinePowerOutputConstraint unit conversion" begin
+    # Spot-check that POM's per-unit conversion (g*ρ*conv_factor / (1e6 * base_power))
+    # lands in JuMP exactly as expected. The pure bilinear formulation produces a clean
+    # quadratic constraint whose coefficients are easy to read off.
+    output_dir = mktempdir(; cleanup = true)
+
+    sys = PSB.build_system(PSITestSystems, "c_sys5_hy_turbine_head")
+    template = PowerOperationsProblemTemplate()
+    set_device_model!(template, HydroTurbine, HydroTurbineBilinearDispatch)
+    set_device_model!(template, HydroReservoir, HydroWaterModelReservoir)
+    set_device_model!(template, ThermalStandard, ThermalDispatchNoMin)
+    set_device_model!(template, PowerLoad, StaticPowerLoad)
+
+    model = DecisionModel(
+        template,
+        sys;
+        optimizer = ipopt_optimizer,
+        store_variable_names = true,
+    )
+    @test build!(model; output_dir = output_dir) == ModelBuildStatus.BUILT
+
+    container = IOM.get_optimization_container(model)
+    time_steps = IOM.get_time_steps(container)
+    base_power = IOM.get_model_base_power(container)
+    constraint = IOM.get_constraint(container, TurbinePowerOutputConstraint, HydroTurbine)
+    power = IOM.get_variable(container, ActivePowerVariable, HydroTurbine)
+    flow = IOM.get_variable(container, HydroTurbineFlowRateVariable, HydroTurbine)
+    head = IOM.get_variable(container, HydroReservoirHeadVariable, HydroReservoir)
+
+    for turbine in get_components(HydroTurbine, sys)
+        t_name = PSY.get_name(turbine)
+        conv = PSY.get_conversion_factor(turbine)
+        elev = PSY.get_powerhouse_elevation(turbine)
+        reservoirs =
+            filter(PSY.get_available, PSY.get_connected_head_reservoirs(sys, turbine))
+        scale = POM.GRAVITATIONAL_CONSTANT * POM.WATER_DENSITY * conv / (1e6 * base_power)
+
+        # power = scale * Σ_res (head_res * flow - elev * flow)
+        #   ⇒ rearranged: power - scale * Σ head*flow + scale*elev * Σ flow == 0
+        for t in time_steps
+            con = constraint[t_name, t]
+            con_obj = JuMP.constraint_object(con)
+            @test con_obj.set isa MOI.EqualTo{Float64}
+
+            # Linear coefficients: power has +1, each flow has +scale*elev.
+            @test JuMP.normalized_coefficient(con, power[t_name, t]) ≈ 1.0
+            for res in reservoirs
+                @test JuMP.normalized_coefficient(
+                    con,
+                    flow[t_name, PSY.get_name(res), t],
+                ) ≈ scale * elev
+
+                # Quadratic cross term head*flow has -scale.
+                quad_terms = con_obj.func.terms
+                pair = JuMP.UnorderedPair(
+                    head[PSY.get_name(res), t],
+                    flow[t_name, PSY.get_name(res), t],
+                )
+                @test get(quad_terms, pair, 0.0) ≈ -scale
+            end
+        end
+    end
+end
+
+@testset "Solve HydroWaterModelReservoir with bilinear approximations" begin
+    output_dir = mktempdir(; cleanup = true)
+
+    c_sys5_hy = PSB.build_system(PSITestSystems, "c_sys5_hy_turbine_head")
+    reservoir = only(get_components(HydroReservoir, c_sys5_hy))
+    hydro_inflow_ts = get_time_series_array(Deterministic, reservoir, "inflow")
+
+    template = PowerOperationsProblemTemplate()
+    set_device_model!(template, HydroTurbine, HydroTurbineBin2BilinearDispatch)
+    set_device_model!(template, HydroReservoir, HydroWaterModelReservoir)
+
+    set_device_model!(template, ThermalStandard, ThermalDispatchNoMin)
+    set_device_model!(template, PowerLoad, StaticPowerLoad)
+
+    model = DecisionModel(
+        template,
+        c_sys5_hy;
+        optimizer = HiGHS_optimizer,
+        store_variable_names = true,
+    )
+
+    @test build!(model; output_dir = output_dir) ==
+          ModelBuildStatus.BUILT
+
+    @test solve!(model; output_dir = output_dir) ==
+          IS.Simulation.RunStatus.SUCCESSFULLY_FINALIZED
+
+    outputs = OptimizationProblemOutputs(model)
+
+    psi_checkobjfun_test(model, AffExpr)
+
+    df_outflow = read_expression(outputs, "TotalHydroFlowRateTurbineOutgoing__HydroTurbine")
+    hydro_vol_df =
+        read_variables(outputs, [(HydroReservoirVolumeVariable, HydroReservoir)])["HydroReservoirVolumeVariable__HydroReservoir"]
+    hydro_head_df =
+        read_variables(outputs, [(HydroReservoirHeadVariable, HydroReservoir)])["HydroReservoirHeadVariable__HydroReservoir"]
+    hydro_spillage_df =
+        read_variables(outputs, [(WaterSpillageVariable, HydroReservoir)])["WaterSpillageVariable__HydroReservoir"]
+    hydro_inflow_df =
+        read_parameters(outputs, [(InflowTimeSeriesParameter, HydroReservoir)])["InflowTimeSeriesParameter__HydroReservoir"]
+
+    total_inflow = sum(values(hydro_inflow_ts))
+    total_outflow = sum(df_outflow[!, :value])
+    total_spillage = sum(hydro_spillage_df[!, :value])
+
+    # Tolerance covers accumulated rounding in the m^3/s → km^3 unit conversion
+    # plus the MILP bilinear approximation; water-balance closure within 1e-4 km^3
+    # is well inside HiGHS' default feasibility tolerance for this problem size.
+    tol = 1e-4
+    calculated_vf =
+        (hydro_vol_df[1, :value]) +
+        (
+            (total_inflow - total_outflow - total_spillage) *
+            POM.SECONDS_IN_HOUR *
+            POM.M3_TO_KM3
+        )
+
+    @test isapprox(calculated_vf, hydro_vol_df[end, :value], atol = tol)
 
     psi_checksolve_test(
         model,
@@ -708,7 +901,7 @@ end
     add_time_series!(sys, res, budget_ts)
     transform_single_time_series!(sys, Hour(24), Hour(24))
 
-    template = OperationsProblemTemplate(NetworkModel(CopperPlatePowerModel))
+    template = PowerOperationsProblemTemplate(NetworkModel(CopperPlatePowerModel))
     set_device_model!(template, ThermalStandard, ThermalDispatchNoMin)
     set_device_model!(template, PowerLoad, StaticPowerLoad)
     set_device_model!(template, HydroTurbine, HydroTurbineWaterLinearDispatch)
@@ -756,7 +949,7 @@ end
     add_time_series!(sys, res, target_ts)
     transform_single_time_series!(sys, Hour(24), Hour(24))
 
-    template = OperationsProblemTemplate(NetworkModel(CopperPlatePowerModel))
+    template = PowerOperationsProblemTemplate(NetworkModel(CopperPlatePowerModel))
     set_device_model!(template, ThermalStandard, ThermalDispatchNoMin)
     set_device_model!(template, PowerLoad, StaticPowerLoad)
     set_device_model!(template, HydroTurbine, HydroTurbineWaterLinearDispatch)
@@ -783,6 +976,58 @@ end
     @test head[24] >= 490
 end
 
+@testset "Solve HydroWaterModelReservoir with Budget and Commitment" begin
+    sys = PSB.build_system(
+        PSITestSystems,
+        "c_sys5_hy_turbine_head";
+        force_build = true,
+        add_single_time_series = true,
+    )
+    res = only(get_components(HydroReservoir, sys))
+    inflow_array = get_time_series_array(SingleTimeSeries, res, "inflow")
+    tstamp = timestamp(inflow_array)
+    vals = values(inflow_array)
+    budget_array = TimeArray(tstamp, vals .* 0.5)
+    budget_ts = SingleTimeSeries("hydro_budget", budget_array)
+    add_time_series!(sys, res, budget_ts)
+    transform_single_time_series!(sys, Hour(24), Hour(24))
+    turb = first(get_components(HydroTurbine, sys))
+    set_active_power_limits!(turb, (min = 0.1 * PSY.SU, max = 5.2 * PSY.SU))
+    set_operation_cost!(turb, HydroGenerationCost(
+        CostCurve(LinearCurve(1.0)),
+        2.0,
+    ))
+
+    template = PowerOperationsProblemTemplate(NetworkModel(CopperPlatePowerModel))
+    set_device_model!(template, ThermalStandard, ThermalDispatchNoMin)
+    set_device_model!(template, PowerLoad, StaticPowerLoad)
+    set_device_model!(template, HydroTurbine, HydroTurbineWaterLinearCommitment)
+    reservoir_model = DeviceModel(
+        HydroReservoir,
+        HydroWaterModelReservoir;
+        attributes = Dict("hydro_target" => false, "hydro_budget" => true),
+    )
+    set_device_model!(template, reservoir_model)
+
+    model = DecisionModel(
+        template,
+        sys;
+        name = "UC",
+        optimizer = HiGHS_optimizer,
+        store_variable_names = true,
+        optimizer_solve_log_print = false,
+    )
+    @test build!(model; output_dir = mktempdir()) == ModelBuildStatus.BUILT
+    @test solve!(model) == IS.Simulation.RunStatus.SUCCESSFULLY_FINALIZED
+
+    sol = OptimizationProblemOutputs(model)
+    flow = read_expression(sol, "TotalHydroFlowRateReservoirOutgoing__HydroReservoir")[
+        !,
+        "value",
+    ]
+    @test sum(flow) <= sum(vals) / 4.0
+end
+
 #####################################################
 ######## HydroWaterModelReservoir Cascading #########
 #####################################################
@@ -792,7 +1037,7 @@ end
 
     c_sys5_hy = PSB.build_system(PSITestSystems, "c_sys5_hy_cascading_turbine_head")
 
-    template = OperationsProblemTemplate()
+    template = PowerOperationsProblemTemplate()
     set_device_model!(template, HydroTurbine, HydroTurbineBilinearDispatch)
     set_device_model!(template, HydroReservoir, HydroWaterModelReservoir)
 
@@ -823,7 +1068,7 @@ end
 
     c_sys5_hy = PSB.build_system(PSITestSystems, "c_sys5_hy_cascading_turbine_head")
 
-    template = OperationsProblemTemplate()
+    template = PowerOperationsProblemTemplate()
     set_device_model!(template, HydroTurbine, HydroTurbineEnergyDispatch)
     set_device_model!(template, HydroReservoir, HydroEnergyModelReservoir)
 
@@ -855,7 +1100,7 @@ end
 
 @testset "Solve Energy model with both Turbine and Reservoir" begin
     sys = build_hydro_with_both_pump_and_turbine()
-    template = OperationsProblemTemplate()
+    template = PowerOperationsProblemTemplate()
     set_device_model!(template, HydroTurbine, HydroTurbineEnergyDispatch)
     set_device_model!(template, HydroTurbine, HydroTurbineEnergyCommitment)
     res_model = DeviceModel(

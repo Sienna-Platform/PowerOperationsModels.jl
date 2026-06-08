@@ -144,30 +144,44 @@ function get_multiplier_value(
 end
 
 """
-Add power flow evaluation data to the container.
+Default fallback for `add_power_flow_data!`: a no-op when no evaluators are present.
+The PowerFlows extension provides the concrete method that handles real evaluators.
+If evaluators are registered without the PowerFlows extension loaded, this errors
+with guidance to load it.
 """
 function add_power_flow_data!(
     ::IOM.OptimizationContainer,
-    evaluators::Vector{<:IOM.AbstractPowerFlowEvaluationModel},
+    network_model::IOM.NetworkModel,
     ::IS.ComponentContainer,
 )
-    if !isempty(evaluators)
-        error(
-            "Power flow in-the-loop with the new IOM-POM-PSI split isn't working yet.",
-        )
-    end
+    isempty(IOM.get_evaluations(network_model)) || error(
+        "PowerFlows extension not loaded; add `using PowerFlows` to enable " *
+        "power flow in-the-loop.",
+    )
+    return
+end
+
+"""
+Build an `EvaluationContainer` holding a single evaluator. Convenience for the
+common single-evaluator case at call sites such as
+`NetworkModel(...; evaluations = power_flow_evaluations(ACPowerFlow()))`.
+"""
+function power_flow_evaluations(ev::T) where {T}
+    ec = IOM.EvaluationContainer()
+    IOM.add_evaluator!(ec, T, ev)
+    return ec
 end
 
 """
 Get the device model to use for initialization.
 """
 get_initial_conditions_device_model(
-    ::IOM.OperationModel,
+    ::IOM.AbstractOptimizationModel,
     model::IOM.DeviceModel{T, IOM.FixedOutput},
 ) where {T <: PSY.Device} = model
 
 get_initial_conditions_device_model(
-    ::IOM.OperationModel,
+    ::IOM.AbstractOptimizationModel,
     ::IOM.DeviceModel{T, D},
 ) where {T <: PSY.Device, D <: IOM.AbstractDeviceFormulation} =
     error("`get_initial_conditions_device_model` must be implemented for $T and $D")

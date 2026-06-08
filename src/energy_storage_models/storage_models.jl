@@ -5,26 +5,26 @@ get_variable_multiplier(::Type{<:VariableType}, ::Type{<:PSY.Storage}, ::Type{<:
 ########################### ActivePowerInVariable, Storage #################################
 get_variable_binary(::Type{ActivePowerInVariable}, ::Type{<:PSY.Storage}, ::Type{<:AbstractStorageFormulation}) = false
 get_variable_lower_bound(::Type{ActivePowerInVariable}, d::PSY.Storage, ::Type{<:AbstractStorageFormulation}) = 0.0
-get_variable_upper_bound(::Type{ActivePowerInVariable}, d::PSY.Storage, ::Type{<:AbstractStorageFormulation}) = PSY.get_input_active_power_limits(d).max
+get_variable_upper_bound(::Type{ActivePowerInVariable}, d::PSY.Storage, ::Type{<:AbstractStorageFormulation}) = PSY.get_input_active_power_limits(d, PSY.SU).max
 get_variable_multiplier(::Type{ActivePowerInVariable}, d::Type{<:PSY.Storage}, ::Type{<:AbstractStorageFormulation}) = -1.0
 
 ########################### ActivePowerOutVariable, Storage #################################
 get_variable_binary(::Type{ActivePowerOutVariable}, ::Type{<:PSY.Storage}, ::Type{<:AbstractStorageFormulation}) = false
 get_variable_lower_bound(::Type{ActivePowerOutVariable}, d::PSY.Storage, ::Type{<:AbstractStorageFormulation}) = 0.0
-get_variable_upper_bound(::Type{ActivePowerOutVariable}, d::PSY.Storage, ::Type{<:AbstractStorageFormulation}) = PSY.get_output_active_power_limits(d).max
+get_variable_upper_bound(::Type{ActivePowerOutVariable}, d::PSY.Storage, ::Type{<:AbstractStorageFormulation}) = PSY.get_output_active_power_limits(d, PSY.SU).max
 get_variable_multiplier(::Type{ActivePowerOutVariable}, d::Type{<:PSY.Storage}, ::Type{<:AbstractStorageFormulation}) = 1.0
 
 ########################### ReactivePowerVariable, Storage #################################
 get_variable_binary(::Type{ReactivePowerVariable}, ::Type{<:PSY.Storage}, ::Type{<:AbstractStorageFormulation}) = false
-get_variable_lower_bound(::Type{ReactivePowerVariable}, d::PSY.Storage, ::Type{<:AbstractStorageFormulation}) = PSY.get_reactive_power_limits(d).min
-get_variable_upper_bound(::Type{ReactivePowerVariable}, d::PSY.Storage, ::Type{<:AbstractStorageFormulation}) = PSY.get_reactive_power_limits(d).max
+get_variable_lower_bound(::Type{ReactivePowerVariable}, d::PSY.Storage, ::Type{<:AbstractStorageFormulation}) = PSY.get_reactive_power_limits(d, PSY.SU).min
+get_variable_upper_bound(::Type{ReactivePowerVariable}, d::PSY.Storage, ::Type{<:AbstractStorageFormulation}) = PSY.get_reactive_power_limits(d, PSY.SU).max
 get_variable_multiplier(::Type{ReactivePowerVariable}, d::Type{<:PSY.Storage}, ::Type{<:AbstractStorageFormulation}) = 1.0
 
 ############## EnergyVariable, Storage ####################
 get_variable_binary(::Type{EnergyVariable}, ::Type{<:PSY.Storage}, ::Type{<:AbstractStorageFormulation}) = false
-get_variable_upper_bound(::Type{EnergyVariable}, d::PSY.Storage, ::Type{<:AbstractStorageFormulation}) = PSY.get_storage_level_limits(d).max * PSY.get_storage_capacity(d) * PSY.get_conversion_factor(d)
-get_variable_lower_bound(::Type{EnergyVariable}, d::PSY.Storage, ::Type{<:AbstractStorageFormulation}) = PSY.get_storage_level_limits(d).min * PSY.get_storage_capacity(d) * PSY.get_conversion_factor(d)
-get_variable_warm_start_value(::Type{EnergyVariable}, d::PSY.Storage, ::Type{<:AbstractStorageFormulation}) = PSY.get_initial_storage_capacity_level(d) * PSY.get_storage_capacity(d) * PSY.get_conversion_factor(d)
+get_variable_upper_bound(::Type{EnergyVariable}, d::PSY.Storage, ::Type{<:AbstractStorageFormulation}) = PSY.get_storage_level_limits(d).max * PSY.get_storage_capacity(d, PSY.SU) * PSY.get_conversion_factor(d)
+get_variable_lower_bound(::Type{EnergyVariable}, d::PSY.Storage, ::Type{<:AbstractStorageFormulation}) = PSY.get_storage_level_limits(d).min * PSY.get_storage_capacity(d, PSY.SU) * PSY.get_conversion_factor(d)
+get_variable_warm_start_value(::Type{EnergyVariable}, d::PSY.Storage, ::Type{<:AbstractStorageFormulation}) = PSY.get_initial_storage_capacity_level(d) * PSY.get_storage_capacity(d, PSY.SU) * PSY.get_conversion_factor(d)
 
 ############## ReservationVariable, Storage ####################
 get_variable_binary(::Type{ReservationVariable}, ::Type{<:PSY.Storage}, ::Type{<:AbstractStorageFormulation}) = true
@@ -34,26 +34,26 @@ get_variable_binary(::Type{AncillaryServiceVariableDischarge}, ::Type{<:PSY.Stor
 get_variable_binary(::Type{AncillaryServiceVariableCharge}, ::Type{<:PSY.Storage}, ::Type{<:AbstractStorageFormulation}) = false
 
 function get_variable_upper_bound(::Type{AncillaryServiceVariableCharge}, r::PSY.Reserve, d::PSY.Storage, ::Type{<:AbstractStorageFormulation})
-    return PSY.get_max_output_fraction(r) * PSY.get_input_active_power_limits(d).max
+    return PSY.get_max_output_fraction(r) * PSY.get_input_active_power_limits(d, PSY.SU).max
 end
 
 function get_variable_upper_bound(::Type{AncillaryServiceVariableDischarge}, r::PSY.Reserve, d::PSY.Storage, ::Type{<:AbstractStorageFormulation})
-    return PSY.get_max_output_fraction(r) * PSY.get_output_active_power_limits(d).max
+    return PSY.get_max_output_fraction(r) * PSY.get_output_active_power_limits(d, PSY.SU).max
 end
 
 function get_variable_upper_bound(::Type{AncillaryServiceVariableCharge}, r::PSY.ReserveDemandCurve, d::PSY.Storage, ::Type{<:AbstractStorageFormulation})
-    return PSY.get_input_active_power_limits(d).max
+    return PSY.get_input_active_power_limits(d, PSY.SU).max
 end
 
 function get_variable_upper_bound(::Type{AncillaryServiceVariableDischarge}, r::PSY.ReserveDemandCurve, d::PSY.Storage, ::Type{<:AbstractStorageFormulation})
-    return PSY.get_output_active_power_limits(d).max
+    return PSY.get_output_active_power_limits(d, PSY.SU).max
 end
 
 function get_variable_upper_bound(::Type{ActivePowerReserveVariable}, r::PSY.Reserve, d::PSY.Storage, ::Type{<:AbstractReservesFormulation})
-    return PSY.get_max_output_fraction(r) * (PSY.get_output_active_power_limits(d).max + PSY.get_input_active_power_limits(d).max)
+    return PSY.get_max_output_fraction(r) * (PSY.get_output_active_power_limits(d, PSY.SU).max + PSY.get_input_active_power_limits(d, PSY.SU).max)
 end
 function get_variable_upper_bound(::Type{ActivePowerReserveVariable}, r::PSY.ReserveDemandCurve, d::PSY.Storage, ::Type{<:AbstractReservesFormulation})
-    return PSY.get_max_output_fraction(r) * (PSY.get_output_active_power_limits(d).max + PSY.get_input_active_power_limits(d).max)
+    return PSY.get_max_output_fraction(r) * (PSY.get_output_active_power_limits(d, PSY.SU).max + PSY.get_input_active_power_limits(d, PSY.SU).max)
 end
 
 get_expression_type_for_reserve(::Type{ActivePowerReserveVariable}, ::Type{<:PSY.Storage}, ::Type{<:PSY.Reserve}) = TotalReserveOffering
@@ -89,7 +89,7 @@ get_parameter_multiplier(::Type{UpperBoundValueParameter}, ::PSY.Storage, ::Type
 
 ############## ReservationVariable, Storage ####################
 get_variable_binary(::Type{<:StorageRegularizationVariable}, ::Type{<:PSY.Storage}, ::Type{<:AbstractStorageFormulation}) = false
-get_variable_upper_bound(::Type{<:StorageRegularizationVariable}, d::PSY.Storage, ::Type{<:AbstractStorageFormulation}) = max(PSY.get_input_active_power_limits(d).max, PSY.get_output_active_power_limits(d).max)
+get_variable_upper_bound(::Type{<:StorageRegularizationVariable}, d::PSY.Storage, ::Type{<:AbstractStorageFormulation}) = max(PSY.get_input_active_power_limits(d, PSY.SU).max, PSY.get_output_active_power_limits(d, PSY.SU).max)
 get_variable_lower_bound(::Type{<:StorageRegularizationVariable}, d::PSY.Storage, ::Type{<:AbstractStorageFormulation}) = 0.0
 
 #! format: on
@@ -136,7 +136,7 @@ end
 
 ######################## Make initial Conditions for a Model ####################
 get_initial_conditions_device_model(
-    ::OperationModel,
+    ::IOM.AbstractOptimizationModel,
     model::DeviceModel{T, <:AbstractStorageFormulation},
 ) where {T <: PSY.Storage} = model
 
@@ -146,7 +146,7 @@ initial_condition_default(
     ::AbstractStorageFormulation,
 ) =
     PSY.get_initial_storage_capacity_level(d) *
-    PSY.get_storage_capacity(d) *
+    PSY.get_storage_capacity(d, PSY.SU) *
     PSY.get_conversion_factor(d)
 initial_condition_variable(
     ::InitialEnergyLevel,
@@ -168,17 +168,17 @@ get_min_max_limits(
     device::PSY.Storage,
     ::Type{<:ReactivePowerVariableLimitsConstraint},
     ::Type{<:AbstractStorageFormulation},
-) = PSY.get_reactive_power_limits(device)
+) = PSY.get_reactive_power_limits(device, PSY.SU)
 get_min_max_limits(
     device::PSY.Storage,
     ::Type{InputActivePowerVariableLimitsConstraint},
     ::Type{<:AbstractStorageFormulation},
-) = PSY.get_input_active_power_limits(device)
+) = PSY.get_input_active_power_limits(device, PSY.SU)
 get_min_max_limits(
     device::PSY.Storage,
     ::Type{OutputActivePowerVariableLimitsConstraint},
     ::Type{<:AbstractStorageFormulation},
-) = PSY.get_output_active_power_limits(device)
+) = PSY.get_output_active_power_limits(device, PSY.SU)
 
 function add_constraints!(
     container::OptimizationContainer,
@@ -306,10 +306,10 @@ function get_min_max_limits(
 )
     min_max_limits = (
         min = PSY.get_storage_level_limits(d).min *
-              PSY.get_storage_capacity(d) *
+              PSY.get_storage_capacity(d, PSY.SU) *
               PSY.get_conversion_factor(d),
         max = PSY.get_storage_level_limits(d).max *
-              PSY.get_storage_capacity(d) *
+              PSY.get_storage_capacity(d, PSY.SU) *
               PSY.get_conversion_factor(d),
     )
     return min_max_limits
@@ -902,9 +902,9 @@ _reserve_assignment_up_expr(::Type{ReserveChargeConstraint}) =
 _reserve_assignment_down_expr(::Type{ReserveChargeConstraint}) =
     StorageReserveBalanceExpression{Down, UnscaledReserve, ChargeSide}
 _reserve_assignment_limits(::Type{ReserveDischargeConstraint}, d) =
-    PSY.get_output_active_power_limits(d)
+    PSY.get_output_active_power_limits(d, PSY.SU)
 _reserve_assignment_limits(::Type{ReserveChargeConstraint}, d) =
-    PSY.get_input_active_power_limits(d)
+    PSY.get_input_active_power_limits(d, PSY.SU)
 
 """
 Reserve-assignment range constraints for discharge (T = ReserveDischargeConstraint)
@@ -998,10 +998,10 @@ function add_constraints!(
         eff_in = PSY.get_efficiency(storage).in
         soc_limits = (
             min = PSY.get_storage_level_limits(storage).min *
-                  PSY.get_storage_capacity(storage) *
+                  PSY.get_storage_capacity(storage, PSY.SU) *
                   PSY.get_conversion_factor(storage),
             max = PSY.get_storage_level_limits(storage).max *
-                  PSY.get_storage_capacity(storage) *
+                  PSY.get_storage_capacity(storage, PSY.SU) *
                   PSY.get_conversion_factor(storage),
         )
         for service in PSY.get_services(storage)
@@ -1140,10 +1140,10 @@ function add_constraints!(
         eff_in = PSY.get_efficiency(storage).in
         soc_limits = (
             min = PSY.get_storage_level_limits(storage).min *
-                  PSY.get_storage_capacity(storage) *
+                  PSY.get_storage_capacity(storage, PSY.SU) *
                   PSY.get_conversion_factor(storage),
             max = PSY.get_storage_level_limits(storage).max *
-                  PSY.get_storage_capacity(storage) *
+                  PSY.get_storage_capacity(storage, PSY.SU) *
                   PSY.get_conversion_factor(storage),
         )
         expr_up_discharge = Set()
@@ -1334,7 +1334,7 @@ function add_cycling_charge_without_reserves!(
         name = PSY.get_name(d)
         e_max =
             PSY.get_storage_level_limits(d).max *
-            PSY.get_storage_capacity(d) *
+            PSY.get_storage_capacity(d, PSY.SU) *
             PSY.get_conversion_factor(d)
         cycle_count = PSY.get_cycle_limits(d)
         efficiency = PSY.get_efficiency(d)
@@ -1374,7 +1374,7 @@ function add_cycling_charge_with_reserves!(
         name = PSY.get_name(d)
         e_max =
             PSY.get_storage_level_limits(d).max *
-            PSY.get_storage_capacity(d) *
+            PSY.get_storage_capacity(d, PSY.SU) *
             PSY.get_conversion_factor(d)
         cycle_count = PSY.get_cycle_limits(d)
         efficiency = PSY.get_efficiency(d)
@@ -1427,7 +1427,7 @@ function add_cycling_discharge_without_reserves!(
         name = PSY.get_name(d)
         e_max =
             PSY.get_storage_level_limits(d).max *
-            PSY.get_storage_capacity(d) *
+            PSY.get_storage_capacity(d, PSY.SU) *
             PSY.get_conversion_factor(d)
         cycle_count = PSY.get_cycle_limits(d)
         efficiency = PSY.get_efficiency(d)
@@ -1468,7 +1468,7 @@ function add_cycling_discharge_with_reserves!(
         name = PSY.get_name(d)
         e_max =
             PSY.get_storage_level_limits(d).max *
-            PSY.get_storage_capacity(d) *
+            PSY.get_storage_capacity(d, PSY.SU) *
             PSY.get_conversion_factor(d)
         cycle_count = PSY.get_cycle_limits(d)
         efficiency = PSY.get_efficiency(d)

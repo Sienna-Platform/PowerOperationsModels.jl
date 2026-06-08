@@ -6,15 +6,15 @@ function replace_with_hydro_dispatch!(
         name = "HD1",
         available = true,
         bus = get_bus(unit1),
-        active_power = get_active_power(unit1),
-        reactive_power = get_reactive_power(unit1),
-        rating = get_rating(unit1),
+        active_power = get_active_power(unit1, PSY.SU),
+        reactive_power = get_reactive_power(unit1, PSY.SU),
+        rating = get_rating(unit1, PSY.SU),
         prime_mover_type = PSY.PrimeMovers.HA,
-        active_power_limits = get_active_power_limits(unit1),
-        reactive_power_limits = get_reactive_power_limits(unit1),
+        active_power_limits = get_active_power_limits(unit1, PSY.SU),
+        reactive_power_limits = get_reactive_power_limits(unit1, PSY.SU),
         ramp_limits = nothing,
         time_limits = nothing,
-        base_power = get_base_power(unit1),
+        base_power = get_base_power(unit1, PSY.NU),
         status = true,
         operation_cost = get_operation_cost(unit1),
     )
@@ -34,7 +34,7 @@ function replace_with_hydro_dispatch!(
         step = get_interval(load_ts),
         length = total_steps,
     )
-    magnitude = get_active_power_limits(unit1).max
+    magnitude = get_active_power_limits(unit1, PSY.SU).max
     hydro_data = fill(magnitude, total_steps)
     hydro_ts = SingleTimeSeries("max_active_power", TimeArray(dates, hydro_data))
     add_time_series!(sys, hydro, hydro_ts)
@@ -108,7 +108,7 @@ function build_hydro_with_both_pump_and_turbine()
     sys = PSB.build_system(PSITestSystems, "c_sys5_hy_turbine_energy")
     head_res = get_component(HydroReservoir, sys, "HydroEnergyReservoir__reservoir")
     turbine = only(get_components(HydroTurbine, sys))
-    set_active_power_limits!(turbine, (min = 0.3, max = 7.0))
+    set_active_power_limits!(turbine, (min = 0.3 * PSY.SU, max = 7.0 * PSY.SU))
     tail_res = HydroReservoir(;
         name = "Reservoir_tail",
         available = true,
