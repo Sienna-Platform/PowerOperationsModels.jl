@@ -28,10 +28,10 @@ get_parameter_multiplier(::Type{UpperBoundValueParameter}, ::PSY.ACTransmission,
 # Per-device reactance multiplier (1/get_x(d)) computed inline at add_to_expression! call sites.
 get_variable_multiplier(::Type{PhaseShifterAngle}, ::Type{<:PSY.PhaseShiftingTransformer}, ::Type{PhaseAngleControl}) = 1.0
 
-get_multiplier_value(::Type{<:AbstractDynamicBranchRatingTimeSeriesParameter}, d::PSY.ACTransmission, ::Type{StaticBranch}) = 1.0/PSY.get_base_power(d)
+get_multiplier_value(::Type{<:AbstractDynamicBranchRatingTimeSeriesParameter}, d::PSY.ACTransmission, ::Type{StaticBranch}) = 1.0/PSY.get_base_power(d, PSY.NU)
 
 
-get_initial_conditions_device_model(::OperationModel, ::DeviceModel{T, U}) where {T <: PSY.ACTransmission, U <: AbstractBranchFormulation} = DeviceModel(T, U)
+get_initial_conditions_device_model(::IOM.AbstractOptimizationModel, ::DeviceModel{T, U}) where {T <: PSY.ACTransmission, U <: AbstractBranchFormulation} = DeviceModel(T, U)
 
 #### Properties of slack variables
 get_variable_binary(::Type{FlowActivePowerSlackUpperBound}, ::Type{<:PSY.ACTransmission}, ::Type{<:AbstractBranchFormulation}) = false
@@ -255,21 +255,6 @@ end
 
 ################################## Rate Limits constraint_infos ############################
 
-function get_rating(double_circuit::PNM.BranchesParallel)
-    return sum([PSY.get_rating(circuit) for circuit in double_circuit])
-end
-function get_rating(series_chain::PNM.BranchesSeries)
-    return minimum([get_rating(segment) for segment in series_chain])
-end
-function get_rating(device::T) where {T <: PSY.ACTransmission}
-    return PSY.get_rating(device)
-end
-function get_rating(
-    device::PNM.ThreeWindingTransformerWinding{T},
-) where {T <: PSY.ThreeWindingTransformer}
-    return PNM.get_equivalent_rating(device)
-end
-
 """
 Min and max limits for Abstract Branch Formulation
 """
@@ -300,18 +285,18 @@ function get_min_max_limits(
     winding_number = PNM.get_winding_number(transformer_entry)
     if winding_number == 1
         limits = (
-            min = -1 * PSY.get_rating_primary(transformer),
-            max = PSY.get_rating_primary(transformer),
+            min = -1 * PSY.get_rating_primary(transformer, PSY.SU),
+            max = PSY.get_rating_primary(transformer, PSY.SU),
         )
     elseif winding_number == 2
         limits = (
-            min = -1 * PSY.get_rating_secondary(transformer),
-            max = PSY.get_rating_secondary(transformer),
+            min = -1 * PSY.get_rating_secondary(transformer, PSY.SU),
+            max = PSY.get_rating_secondary(transformer, PSY.SU),
         )
     elseif winding_number == 3
         limits = (
-            min = -1 * PSY.get_rating_tertiary(transformer),
-            max = PSY.get_rating_tertiary(transformer),
+            min = -1 * PSY.get_rating_tertiary(transformer, PSY.SU),
+            max = PSY.get_rating_tertiary(transformer, PSY.SU),
         )
     end
     return limits
@@ -343,7 +328,7 @@ function get_min_max_limits(
     ::Type{<:ConstraintType},
     ::Type{<:AbstractBranchFormulation},
 ) #  -> Union{Nothing, NamedTuple{(:min, :max), Tuple{Float64, Float64}}}
-    return (min = -1 * PSY.get_rating(device), max = PSY.get_rating(device))
+    return (min = -1 * PSY.get_rating(device, PSY.SU), max = PSY.get_rating(device, PSY.SU))
 end
 
 """
@@ -553,7 +538,7 @@ function add_constraints!(
         # TODO: entry is not type stable here, it can return any type ACTransmission.
         # It might have performance implications. Possibly separate this into other functions
         reduction_entry = all_branch_maps_by_type[reduction][B][arc]
-        branch_rate = get_rating(reduction_entry)
+        branch_rate = _get_rating(reduction_entry)
         for t in time_steps
             constraint[name, t] = JuMP.@constraint(
                 get_jump_model(container),
@@ -604,7 +589,7 @@ function add_constraints!(
         # TODO: entry is not type stable here, it can return any type ACTransmission.
         # It might have performance implications. Possibly separate this into other functions
         reduction_entry = all_branch_maps_by_type[reduction][B][arc]
-        branch_rate = get_rating(reduction_entry)
+        branch_rate = _get_rating(reduction_entry)
         for t in time_steps
             constraint[name, t] = JuMP.@constraint(
                 get_jump_model(container),
@@ -859,7 +844,7 @@ function add_constraints!(
         arc = PNM.get_arc_tuple(br)
         name = PSY.get_name(br)
         ptdf_col = ptdf[arc, :]
-        inv_x = 1 / PSY.get_x(br)
+        inv_x = 1 / PSY.get_x(br, PSY.SU)
         for t in time_steps
             branch_flow[name, t] = JuMP.@constraint(
                 jump_model,
@@ -881,15 +866,16 @@ function get_min_max_limits(
     ::Type{<:ConstraintType},
     ::Type{<:AbstractBranchFormulation},
 )
-    if PSY.get_flow_limits(device).to_from != PSY.get_flow_limits(device).from_to
+    if PSY.get_flow_limits(device, PSY.SU).to_from !=
+       PSY.get_flow_limits(device, PSY.SU).from_to
         @warn(
             "Flow limits in Line $(PSY.get_name(device)) aren't equal. The minimum will be used in formulation $(T)"
         )
     end
     limit = min(
-        PSY.get_rating(device),
-        PSY.get_flow_limits(device).to_from,
-        PSY.get_flow_limits(device).from_to,
+        PSY.get_rating(device, PSY.SU),
+        PSY.get_flow_limits(device, PSY.SU).to_from,
+        PSY.get_flow_limits(device, PSY.SU).from_to,
     )
     minmax = (min = -1 * limit, max = limit)
     return minmax
@@ -946,14 +932,15 @@ function get_min_max_limits(
     ::Type{FlowLimitFromToConstraint},
     ::Type{<:AbstractBranchFormulation},
 )
-    if PSY.get_flow_limits(device).to_from != PSY.get_flow_limits(device).from_to
+    if PSY.get_flow_limits(device, PSY.SU).to_from !=
+       PSY.get_flow_limits(device, PSY.SU).from_to
         @warn(
             "Flow limits in Line $(PSY.get_name(device)) aren't equal. The minimum will be used in formulation $(T)"
         )
     end
     return (
-        min = -1 * PSY.get_flow_limits(device).from_to,
-        max = PSY.get_flow_limits(device).from_to,
+        min = -1 * PSY.get_flow_limits(device, PSY.SU).from_to,
+        max = PSY.get_flow_limits(device, PSY.SU).from_to,
     )
 end
 
@@ -965,14 +952,15 @@ function get_min_max_limits(
     ::Type{FlowLimitToFromConstraint},
     ::Type{<:AbstractBranchFormulation},
 )
-    if PSY.get_flow_limits(device).to_from != PSY.get_flow_limits(device).from_to
+    if PSY.get_flow_limits(device, PSY.SU).to_from !=
+       PSY.get_flow_limits(device, PSY.SU).from_to
         @warn(
             "Flow limits in Line $(PSY.get_name(device)) aren't equal. The minimum will be used in formulation $(T)"
         )
     end
     return (
-        min = -1 * PSY.get_flow_limits(device).to_from,
-        max = PSY.get_flow_limits(device).to_from,
+        min = -1 * PSY.get_flow_limits(device, PSY.SU).to_from,
+        max = PSY.get_flow_limits(device, PSY.SU).to_from,
     )
 end
 
@@ -1037,7 +1025,7 @@ function add_constraints!(
 
     for br in devices
         name = PSY.get_name(br)
-        inv_x = 1.0 / PSY.get_x(br)
+        inv_x = 1.0 / PSY.get_x(br, PSY.SU)
         flow_variables_ = flow_variables[name, :]
         from_bus = PSY.get_name(PSY.get_from(PSY.get_arc(br)))
         to_bus = PSY.get_name(PSY.get_to(PSY.get_arc(br)))

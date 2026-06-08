@@ -30,7 +30,7 @@ end
 # Called `build_impl!(container, template, sys)` in PSI (lived in optimization_container.jl).
 function build_problem!(
     container::OptimizationContainer,
-    template::OperationsProblemTemplate,
+    template::PowerOperationsProblemTemplate,
     sys::PSY.System,
 )
     transmission = get_network_formulation(template)
@@ -154,11 +154,7 @@ function build_problem!(
         LOG_GROUP_OPTIMIZATION_CONTAINER
 
     TimerOutputs.@timeit BUILD_PROBLEMS_TIMER "Power Flow Initialization" begin
-        add_power_flow_data!(
-            container,
-            get_power_flow_evaluation(transmission_model),
-            sys,
-        )
+        add_power_flow_data!(container, transmission_model, sys)
     end
     IOM.check_optimization_container(container)
     return

@@ -1,14 +1,14 @@
-function Base.show(io::IO, ::MIME"text/plain", input::OperationsProblemTemplate)
+function Base.show(io::IO, ::MIME"text/plain", input::PowerOperationsProblemTemplate)
     _show_method(io, input, :auto)
 end
 
-function Base.show(io::IO, ::MIME"text/html", input::OperationsProblemTemplate)
+function Base.show(io::IO, ::MIME"text/html", input::PowerOperationsProblemTemplate)
     _show_method(io, input, :html; stand_alone = false, table_format = PSY.tf_html_simple)
 end
 
 function _show_method(
     io::IO,
-    template::OperationsProblemTemplate,
+    template::PowerOperationsProblemTemplate,
     backend::Symbol;
     kwargs...,
 )

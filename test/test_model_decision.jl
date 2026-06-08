@@ -68,7 +68,7 @@ end
     @test length(read_variables(res; table_format = TableFormat.WIDE)) == 4
     @test length(read_parameters(res; table_format = TableFormat.WIDE)) == 1
     @test length(read_duals(res; table_format = TableFormat.WIDE)) == 0
-    @test length(read_expressions(res; table_format = TableFormat.WIDE)) == 2
+    @test length(read_expressions(res; table_format = TableFormat.WIDE)) == 7
     @test read_variables(
         res,
         ["StartVariable__ThermalStandard"];
@@ -300,7 +300,7 @@ end
     for load in get_components(PowerLoad, system)
         name = get_name(load)
         vals = get_time_series_values(Deterministic, load, "max_active_power")
-        vals = vals .* get_max_active_power(load) * -1.0
+        vals = vals .* get_max_active_power(load, PSY.SU) * -1.0
         @test all(vals .== param_vals[name, :])
     end
 
@@ -416,7 +416,9 @@ end
     # Manually Multiply by the base power var1_a has natural units and export writes directly from the solver
     @test var1_a.value == var4.value .* 100.0
 
-    @test length(readdir(IOM.export_realized_outputs(outputs1))) === 7
+    exported = readdir(IOM.export_realized_outputs(outputs1))
+    @test length(exported) >= 12
+    @test any(contains.(exported, "ProductionCostExpression"))
 end
 
 @testset "Test Numerical Stability of Constraints" begin
