@@ -1487,16 +1487,16 @@ get_variable_upper_bound(::Type{CurrentAbsoluteValueVariable}, d::PSY.TwoTermina
 
 #! format: on
 
-####################### VSC PQ-approx registration ###########################
+####################### VSC apparent-power-square registration ###############
 
 # Register the four IOM `QuadraticExpression` handles (`p_ft_sq`, `p_tf_sq`,
-# `q_f_sq`, `q_t_sq`) that the exact PQ disk reads. Only the exact path
+# `q_f_sq`, `q_t_sq`) that the exact apparent-power disk reads. Only the exact path
 # (`NoBilinearApproxConfig`) on an AC network emits the disk constraint, so only
 # that combo registers anything; the octagon path and active-power-only networks
 # register nothing. Dispatch is keyed on the bilinear config type (built once by
 # `_build_converter_configs`) and the network type — a two-level gate: the
 # network selects AC vs active-only, then the config selects exact vs octagon.
-_register_pq_sq_expressions!(
+_register_vsc_apparent_power_squares!(
     bilin_cfg::IOM.BilinearApproxConfig,
     container::OptimizationContainer,
     devices,
@@ -1504,20 +1504,20 @@ _register_pq_sq_expressions!(
     time_steps,
     model::DeviceModel{PSY.TwoTerminalVSCLine, HVDCTwoTerminalVSC},
     network_model::NetworkModel{<:AbstractPowerModel},
-) = _register_pq_sq!(
+) = _register_vsc_exact_apparent_power_squares!(
     bilin_cfg, container, devices, line_names, time_steps, model, network_model,
 )
 
 # Active-power-only networks don't carry reactive variables at all.
-_register_pq_sq_expressions!(
+_register_vsc_apparent_power_squares!(
     ::IOM.BilinearApproxConfig,
     ::OptimizationContainer, _devices, _names, _times,
     ::DeviceModel{PSY.TwoTerminalVSCLine, HVDCTwoTerminalVSC},
     ::NetworkModel{<:AbstractActivePowerModel},
 ) = nothing
 
-# Exact PQ disk (NLP): register the exact `p_*_sq`/`q_*_sq` QuadExprs the disk reads.
-function _register_pq_sq!(
+# Exact apparent-power disk (NLP): register the exact `p_*_sq`/`q_*_sq` QuadExprs the disk reads.
+function _register_vsc_exact_apparent_power_squares!(
     ::IOM.NoBilinearApproxConfig,
     container::OptimizationContainer,
     devices,
@@ -1526,7 +1526,6 @@ function _register_pq_sq!(
     ::DeviceModel{PSY.TwoTerminalVSCLine, HVDCTwoTerminalVSC},
     ::NetworkModel{<:AbstractPowerModel},
 )
-    # Exact path, so the quad config is the no-op (exact QuadExpr) config.
     quad_cfg = IOM.NoQuadApproxConfig()
     p_ft = get_variable(container, FlowActivePowerFromToVariable, PSY.TwoTerminalVSCLine)
     p_tf = get_variable(container, FlowActivePowerToFromVariable, PSY.TwoTerminalVSCLine)
@@ -1556,7 +1555,7 @@ function _register_pq_sq!(
 end
 
 # Octagon path: no disk constraint, so no p_sq/q_sq are needed.
-_register_pq_sq!(
+_register_vsc_exact_apparent_power_squares!(
     ::IOM.BilinearApproxConfig,
     ::OptimizationContainer, _devices, _names, _times,
     ::DeviceModel{PSY.TwoTerminalVSCLine, HVDCTwoTerminalVSC},
@@ -1665,23 +1664,23 @@ function add_constraints!(
     return
 end
 
-# PQ capability. Enforced via a two-level gate that mirrors
-# `_register_pq_sq_expressions!`: the network type selects AC vs active-only
+# Apparent-power limit p² + q² ≤ rating². Enforced via a two-level gate that mirrors
+# `_register_vsc_apparent_power_squares!`: the network type selects AC vs active-only
 # (active-only networks carry no reactive power, so nothing is added), then the
 # bilinear config type selects the exact disk (`NoBilinearApproxConfig`) vs the
 # octagon outer-approximation (any other `BilinearApproxConfig`).
-_add_vsc_pq_capability!(
+_add_vsc_apparent_power_limit!(
     bilin_cfg::IOM.BilinearApproxConfig,
     container::OptimizationContainer,
     devices::Union{Vector{U}, IS.FlattenIteratorWrapper{U}},
     model::DeviceModel{U, HVDCTwoTerminalVSC},
     network_model::NetworkModel{<:AbstractPowerModel},
 ) where {U <: PSY.TwoTerminalVSCLine} =
-    _add_vsc_pq!(bilin_cfg, container, devices, model, network_model)
+    _apply_vsc_apparent_power_limit!(bilin_cfg, container, devices, model, network_model)
 
 # Active-power-only networks don't carry reactive variables, so there is no
 # apparent-power limit to enforce.
-_add_vsc_pq_capability!(
+_add_vsc_apparent_power_limit!(
     ::IOM.BilinearApproxConfig,
     ::OptimizationContainer,
     _devices::Union{Vector{U}, IS.FlattenIteratorWrapper{U}},
@@ -1690,9 +1689,9 @@ _add_vsc_pq_capability!(
 ) where {U <: PSY.TwoTerminalVSCLine} = nothing
 
 # Exact disk (NLP). `p_*_sq` / `q_*_sq` are the `IOM.QuadraticExpression` handles
-# registered by `_register_pq_sq_expressions!` under `NoQuadApproxConfig`, so they
+# registered by `_register_vsc_apparent_power_squares!` under `NoQuadApproxConfig`, so they
 # are exact QuadExprs and the constraint is the smooth `p² + q² ≤ s²` (NLP).
-function _add_vsc_pq!(
+function _apply_vsc_apparent_power_limit!(
     ::IOM.NoBilinearApproxConfig,
     container::OptimizationContainer,
     devices::Union{Vector{U}, IS.FlattenIteratorWrapper{U}},
@@ -1746,7 +1745,7 @@ end
 # so |p|+|q| ≤ r√2. Both half-plane families contain the disk, and so does
 # their intersection. The octagon is loose by at most ≈8.2% in area
 # (octagon-to-disk area ratio 8·tan(π/8)/π ≈ 1.082).
-function _add_vsc_pq!(
+function _apply_vsc_apparent_power_limit!(
     ::IOM.BilinearApproxConfig,
     container::OptimizationContainer,
     devices::Union{Vector{U}, IS.FlattenIteratorWrapper{U}},
@@ -1837,33 +1836,17 @@ function get_default_time_series_names(
     return Dict{Type{<:TimeSeriesParameter}, String}()
 end
 
-# `use_octagon = true`: under a linearizing scheme, adds the four diagonals
-# |p| ± q ≤ rating·√2 on top of the axis-aligned box |p|, |q| ≤ rating. The
-# intersection is a regular octagon circumscribing the disk p² + q² ≤ rating²
-# and is a guaranteed outer approximation (loose by at most ≈8.2% in area).
-# Setting it to false leaves only the box, which is cheaper but a looser linear
-# envelope of the disk. It is ignored when `bilinear_approximation` is "none"
-# (the exact disk is used).
 function get_default_attributes(
     ::Type{PSY.TwoTerminalVSCLine},
     ::Type{HVDCTwoTerminalVSC},
 )
-    return Dict{String, Any}(
-        "use_octagon" => true,
-        # Bilinear approximation scheme for the per-terminal `v·I` loss terms.
-        # Supported: "none" (exact, needs a nonlinear solver), "bin2", "hybs",
-        # "nmdt", "dnmdt".
-        "bilinear_approximation" => "none",
-        # Inner quadratic PWL method (used by "bin2"/"hybs", and to size the
-        # standalone `I²` loss term for every scheme).
-        # Supported: "solver_sos2", "manual_sos2", "sawtooth"; "bin2" also
-        # accepts "nmdt" and "dnmdt".
-        "bilinear_quadratic_method" => "solver_sos2",
-        # Relative approximation gap: a fraction of the v·I (and I²) magnitude,
-        # sized against the per-device voltage and current ranges.
-        "bilinear_relative_tolerance" => 0.05,
-        # Optional absolute approximation gap. When set alongside the relative
-        # tolerance, the finer of the two binds.
-        "bilinear_absolute_tolerance" => nothing,
+    # `use_octagon = true`: under a linearizing scheme, adds the four diagonals
+    # |p| ± q ≤ rating·√2 on top of the box |p|, |q| ≤ rating, so the feasible
+    # region is a regular octagon circumscribing the disk p² + q² ≤ rating²
+    # (a guaranteed outer approximation, loose by at most ≈8.2% in area). `false`
+    # keeps only the box. Ignored when `bilinear_approximation` is "none".
+    return merge(
+        BILINEAR_APPROX_DEFAULT_ATTRIBUTES,
+        Dict{String, Any}("use_octagon" => true),
     )
 end

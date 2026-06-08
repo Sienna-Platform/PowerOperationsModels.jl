@@ -93,28 +93,6 @@ function _add_abs_value_constraints!(
     return
 end
 
-#########################################
-####### Tolerance-driven configs ########
-#########################################
-#
-# The converter-loss formulations size their `v·I` (bilinear) and `I²`
-# (quadratic) surrogates from the same `DeviceModel` attributes used by
-# `HydroTurbineBilinearDispatch` — `"bilinear_approximation"`,
-# `"bilinear_quadratic_method"`, and the `"bilinear_relative_tolerance"` /
-# `"bilinear_absolute_tolerance"` pair — bridged to IOM configs through
-# `_build_bilinear_config` (src/core/bilinear_configs.jl). A relative tolerance
-# is scaled to absolute by the term magnitude (`_resolve_tolerance`): the
-# product `max|v|·max|i|` for the bilinear, `max|i|²` for the standalone `I²`.
-# With `"bilinear_approximation" => "none"` both terms are kept exact (NLP).
-#
-# The converters reuse the standalone `I²` we build for the loss term instead of
-# letting the bilinear recompute it. That works because the squares-based schemes
-# (`bin2`, `hybs`, `none`) accept a precomputed `(xsq, ysq)`, so we pass the
-# loss's `i_sq` straight through; the discretization-based schemes (`nmdt`,
-# `dnmdt`) never build `I²` at all, so there is nothing to duplicate and we use
-# the raw `(x_var, y_var)` form. `_add_converter_bilinear!` centralizes that
-# branch.
-
 # Worst-case domain width across devices, used to size the tolerance-driven
 # discretizations. Errors if the width is non-finite (missing/infinite limits).
 function _max_delta(bounds)

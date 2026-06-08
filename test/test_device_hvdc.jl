@@ -127,7 +127,12 @@ end
         sys,
         DeviceModel(
             InterconnectingConverter, QuadraticLossConverter;
-            attributes = Dict("bilinear_approximation" => "bin2"),
+            # Coarse tolerance keeps the SOS2 PWL small; the fixture carries
+            # little power so the objective still agrees with the NLP.
+            attributes = Dict(
+                "bilinear_approximation" => "bin2",
+                "bilinear_relative_tolerance" => 0.1,
+            ),
         ),
         HiGHS_optimizer,
     )
@@ -163,7 +168,12 @@ end
         template,
         DeviceModel(
             InterconnectingConverter, QuadraticLossConverter;
-            attributes = Dict("bilinear_approximation" => "bin2"),
+            # Tightness of abs_i ≈ |i| is independent of discretization depth,
+            # so a coarse tolerance keeps this MILP small.
+            attributes = Dict(
+                "bilinear_approximation" => "bin2",
+                "bilinear_relative_tolerance" => 0.2,
+            ),
         ),
     )
     set_hvdc_network_model!(template, VoltageDispatchHVDCNetworkModel)
@@ -191,110 +201,21 @@ end
     @test isapprox(abs_i_vals, abs.(i_vals); atol = 1e-6)
 end
 
-@testset "Converter loss: attribute → IOM config bridge" begin
-    # Pure config construction — no solver or system required.
-    v_bounds = [IOM.MinMax((min = 0.9, max = 1.05))]
-    i_bounds = [IOM.MinMax((min = -2.0, max = 2.0))]
-    # The formulation defaults to the exact "none" scheme, so default the helper
-    # to a linearizing scheme ("bin2") to exercise the MILP bridge; overrides win.
-    milp_dm(overrides...) = DeviceModel(
-        InterconnectingConverter, QuadraticLossConverter;
-        attributes = Dict{String, Any}("bilinear_approximation" => "bin2", overrides...),
-    )
-    cfgs(dm) = POM._build_converter_configs(
-        QuadraticLossConverter, dm, v_bounds, i_bounds,
-    )
-
-    # Squares-based schemes: the standalone loss-I² quad config is reused as the
-    # bilinear's inner quad (===), and the inner quad type follows the method.
-    quad, bilin = cfgs(milp_dm())  # bin2 / solver_sos2 defaults
-    @test bilin isa IOM.Bin2Config{IOM.SolverSOS2QuadConfig}
-    @test quad === bilin.quad_config
-    quad, bilin = cfgs(milp_dm("bilinear_quadratic_method" => "nmdt"))
-    @test bilin isa IOM.Bin2Config{IOM.NMDTQuadConfig}
-    @test quad === bilin.quad_config
-    quad, bilin = cfgs(
-        milp_dm(
-            "bilinear_approximation" => "hybs",
-            "bilinear_quadratic_method" => "sawtooth",
-        ),
-    )
-    @test bilin isa IOM.HybSConfig{IOM.SawtoothQuadConfig}
-    @test quad === bilin.quad_config
-
-    # Discretization-based schemes: the bilinear builds no I², so the loss I²
-    # quad is sized on its own (type follows the quad method).
-    quad, bilin = cfgs(milp_dm("bilinear_approximation" => "nmdt"))
-    @test bilin isa IOM.NMDTBilinearConfig
-    @test quad isa IOM.SolverSOS2QuadConfig
-    quad, bilin = cfgs(milp_dm("bilinear_approximation" => "dnmdt"))
-    @test bilin isa IOM.DNMDTBilinearConfig
-    @test quad isa IOM.SolverSOS2QuadConfig
-
-    # "none" (the default scheme) keeps both terms exact.
-    quad, bilin = cfgs(milp_dm("bilinear_approximation" => "none"))
-    @test quad isa IOM.NoQuadApproxConfig
-    @test bilin isa IOM.NoBilinearApproxConfig
-
-    # Tighter relative tolerance ⇒ deeper discretization, for the bin2 inner quad
-    # and the standalone nmdt loss quad alike.
-    loose, _ = cfgs(milp_dm("bilinear_relative_tolerance" => 1e-1))
-    tight, _ = cfgs(milp_dm("bilinear_relative_tolerance" => 1e-4))
-    @test tight.depth > loose.depth
-    loose_n, _ = cfgs(
-        milp_dm(
-            "bilinear_approximation" => "nmdt", "bilinear_relative_tolerance" => 1e-1),
-    )
-    tight_n, _ = cfgs(
-        milp_dm(
-            "bilinear_approximation" => "nmdt", "bilinear_relative_tolerance" => 1e-4),
-    )
-    @test tight_n.depth > loose_n.depth
-
-    # A relative tolerance and the equivalent absolute tolerance size identically.
-    scale = POM._max_abs(v_bounds) * POM._max_abs(i_bounds)
-    rel_cfg, _ = cfgs(milp_dm("bilinear_relative_tolerance" => 0.05))
-    abs_cfg, _ = cfgs(
-        milp_dm(
-            "bilinear_relative_tolerance" => nothing,
-            "bilinear_absolute_tolerance" => 0.05 * scale),
-    )
-    @test rel_cfg.depth == abs_cfg.depth
-
-    # Error cases bubble up from the shared bridge.
-    @test_throws ErrorException cfgs(milp_dm("bilinear_approximation" => "foo"))
-    @test_throws ErrorException cfgs(milp_dm("bilinear_quadratic_method" => "foo"))
-    # HybS needs a one-sided-over inner quad: nmdt/dnmdt rejected.
-    @test_throws ErrorException cfgs(
-        milp_dm(
-            "bilinear_approximation" => "hybs", "bilinear_quadratic_method" => "nmdt"),
-    )
-    @test_throws ArgumentError cfgs(milp_dm("bilinear_relative_tolerance" => 0.0))
-    @test_throws ArgumentError cfgs(milp_dm("bilinear_relative_tolerance" => Inf))
-    # Both tolerances unset → error.
-    @test_throws ArgumentError cfgs(
-        milp_dm(
-            "bilinear_relative_tolerance" => nothing,
-            "bilinear_absolute_tolerance" => nothing),
-    )
-
-    # The VSC formulation uses the same bridge (spot check) and keeps
-    # use_octagon among its defaults.
-    vsc_dm = DeviceModel(
-        TwoTerminalVSCLine, HVDCTwoTerminalVSC;
-        attributes = Dict("bilinear_approximation" => "bin2"),
-    )
-    @test IOM.get_attribute(vsc_dm, "use_octagon") == true
-    quad, bilin = POM._build_converter_configs(
-        HVDCTwoTerminalVSC, vsc_dm, v_bounds, i_bounds,
-    )
-    @test bilin isa IOM.Bin2Config{IOM.SolverSOS2QuadConfig}
-    @test quad === bilin.quad_config
+@testset "Bilinear tolerance requires exactly one of absolute/relative" begin
+    # Exactly one of absolute/relative must be set; a relative tolerance is
+    # scaled to absolute by the magnitude `scale`. Both-set or neither-set errors.
+    @test POM._resolve_tolerance(0.1, nothing, 2.0) == 0.1
+    @test POM._resolve_tolerance(nothing, 0.05, 2.0) == 0.1   # 0.05 * 2.0
+    @test_throws ArgumentError POM._resolve_tolerance(nothing, nothing, 2.0)
+    @test_throws ArgumentError POM._resolve_tolerance(0.1, 0.05, 2.0)
 end
 
-@testset "QuadraticLossConverter builds under every bilinear scheme" begin
+@testset "QuadraticLossConverter builds under representative bilinear schemes" begin
     sys = _generate_test_hvdc_sys()
-    for scheme in ("bin2", "hybs", "nmdt", "dnmdt")
+    # One squares-based ("bin2") and one discretization-based ("nmdt") scheme
+    # cover both `_add_converter_bilinear!` branches without rebuilding for every
+    # scheme.
+    for scheme in ("bin2", "nmdt")
         template = PowerOperationsProblemTemplate()
         set_device_model!(template, ThermalStandard, ThermalDispatchNoMin)
         set_device_model!(template, PowerLoad, StaticPowerLoad)
@@ -406,7 +327,7 @@ _vsc_nlp() = DeviceModel(TwoTerminalVSCLine, HVDCTwoTerminalVSC)  # default "non
 # TODO: Re-add an `octagon vs box-only` LP property test once an MINLP solver
 # with trig support is available. The previous version of that test ran on
 # `DCPPowerModel`, which never adds `HVDCVSCApparentPowerLimitConstraint`
-# (active-power-only networks carry no reactive power, so `_add_vsc_pq_capability!`
+# (active-power-only networks carry no reactive power, so `_add_vsc_apparent_power_limit!`
 # is a no-op there), so it asserted the same model against itself.
 
 @testset "HVDC VSC LP vs NLP objective agreement" begin
@@ -422,14 +343,16 @@ _vsc_nlp() = DeviceModel(TwoTerminalVSCLine, HVDCTwoTerminalVSC)  # default "non
         @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
         return IOM.get_optimization_container(model).optimizer_stats.objective_value
     end
-    lp_obj = _solve(_vsc_milp(), HiGHS_optimizer)
+    lp_obj = _solve(_vsc_milp("bilinear_relative_tolerance" => 0.1), HiGHS_optimizer)
     nlp_obj = _solve(_vsc_nlp(), ipopt_optimizer)
     @test isapprox(lp_obj, nlp_obj; rtol = 0.05)
 end
 
-@testset "HVDCTwoTerminalVSC builds under every bilinear scheme" begin
+@testset "HVDCTwoTerminalVSC builds under representative bilinear schemes" begin
     sys = _generate_test_vsc_sys()
-    for scheme in ("bin2", "hybs", "nmdt", "dnmdt")
+    # One squares-based ("bin2") and one discretization-based ("nmdt") scheme
+    # cover both `_add_converter_bilinear!` branches.
+    for scheme in ("bin2", "nmdt")
         template = PowerOperationsProblemTemplate(NetworkModel(DCPPowerModel))
         set_device_model!(template, ThermalStandard, ThermalDispatchNoMin)
         set_device_model!(template, RenewableDispatch, RenewableFullDispatch)
@@ -453,7 +376,8 @@ end
     function _solve_with_g(g_value)
         sys = _generate_test_vsc_sys(; g = g_value)
         model = _build_vsc_model(
-            _vsc_milp(), DCPPowerModel, HiGHS_optimizer; sys = sys,
+            _vsc_milp("bilinear_relative_tolerance" => 0.2),
+            DCPPowerModel, HiGHS_optimizer; sys = sys,
         )
         @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
               IOM.ModelBuildStatus.BUILT

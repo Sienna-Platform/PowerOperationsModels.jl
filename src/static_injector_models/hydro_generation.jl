@@ -423,23 +423,7 @@ function get_default_attributes(
     ::Type{T},
     ::Type{D},
 ) where {T <: PSY.HydroTurbine, D <: HydroTurbineBilinearDispatch}
-    return Dict{String, Any}(
-        # Top-level bilinear approximation scheme.
-        # Supported: "none" (exact, needs a nonlinear solver), "bin2", "hybs",
-        # "nmdt", "dnmdt".
-        "bilinear_approximation" => "none",
-        # Inner quadratic PWL method (used when bilinear_approximation ∈ {"bin2","hybs"}).
-        # Supported: "solver_sos2", "manual_sos2", "sawtooth"; "bin2" also
-        # accepts "nmdt" and "dnmdt".
-        "bilinear_quadratic_method" => "solver_sos2",
-        # Relative approximation gap: a fraction of the flow×head product
-        # magnitude. Combined with the per-device flow and head ranges to size
-        # each method's discretization automatically.
-        "bilinear_relative_tolerance" => 0.05,
-        # Optional absolute approximation gap (same units as flow×head). When
-        # set alongside the relative tolerance, the finer of the two binds.
-        "bilinear_absolute_tolerance" => nothing,
-    )
+    return copy(BILINEAR_APPROX_DEFAULT_ATTRIBUTES)
 end
 
 function get_default_attributes(

@@ -1754,7 +1754,7 @@ function construct_device!(
         v_t_bounds, i_bounds, "vi_tf",
     )
 
-    _register_pq_sq_expressions!(
+    _register_vsc_apparent_power_squares!(
         bilin_cfg, container, devices, line_names, time_steps, device_model,
         network_model,
     )
@@ -1770,9 +1770,13 @@ function construct_device!(
     add_constraints!(
         container, HVDCVSCConverterPowerConstraint, devices, device_model, network_model,
     )
-    # PQ-capability: exact disk vs octagon is selected by dispatch on `bilin_cfg`
-    # (and the network type gates AC vs active-only) — see `_add_vsc_pq_capability!`.
-    _add_vsc_pq_capability!(bilin_cfg, container, devices, device_model, network_model)
+    _add_vsc_apparent_power_limit!(
+        bilin_cfg,
+        container,
+        devices,
+        device_model,
+        network_model,
+    )
 
     add_constraint_dual!(container, sys, device_model)
     add_feedforward_constraints!(container, device_model, devices)

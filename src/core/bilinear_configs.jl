@@ -1,3 +1,34 @@
+############################ Shared default attributes #####################################
+
+"""
+Default `DeviceModel` attributes shared by every formulation that bridges a
+bilinear/quadratic term to IOM's approximation API (`HydroTurbineBilinearDispatch`,
+`QuadraticLossConverter`, `HVDCTwoTerminalVSC`). This is the single source of both
+the default values and the per-attribute documentation; the formulations splice
+it into their `get_default_attributes` (adding only formulation-specific extras).
+
+- `"bilinear_approximation"` (default `"none"`): the approximation scheme for the
+  bilinear product. `"none"` keeps it exact (an NLP needing a nonlinear solver
+  such as Ipopt); `"bin2"`, `"hybs"`, `"nmdt"`, `"dnmdt"` are tolerance-driven
+  linearizations (mixed-integer linear).
+- `"bilinear_quadratic_method"` (default `"solver_sos2"`): the inner quadratic PWL
+  method used by the `"bin2"` and `"hybs"` schemes. Supported: `"solver_sos2"`,
+  `"manual_sos2"`, `"sawtooth"`; `"bin2"` also accepts `"nmdt"` and `"dnmdt"`.
+- `"bilinear_relative_tolerance"` (default `0.05`): approximation gap as a
+  fraction of the product magnitude — the default sizing knob.
+- `"bilinear_absolute_tolerance"` (default `nothing`): approximation gap in
+  absolute (product) units.
+
+Exactly one of the two tolerances must be set (see [`_resolve_tolerance`](@ref));
+the set value must be finite and `> 0`.
+"""
+const BILINEAR_APPROX_DEFAULT_ATTRIBUTES = Dict{String, Any}(
+    "bilinear_approximation" => "none",
+    "bilinear_quadratic_method" => "solver_sos2",
+    "bilinear_relative_tolerance" => 0.05,
+    "bilinear_absolute_tolerance" => nothing,
+)
+
 ############################ Validation helpers ############################################
 
 function _validate_tolerance(tolerance::Float64)
@@ -20,21 +51,27 @@ _max_abs(bounds) = maximum(max(abs(b.min), abs(b.max)) for b in bounds)
 Resolve the absolute bilinear/quadratic approximation tolerance from the
 `absolute` and `relative` attribute values. A relative tolerance is scaled to
 absolute by the characteristic product/term magnitude `scale`
-(`τ_abs = relative · scale`). Each argument is a positive number or `nothing`;
-the discretization must satisfy every tolerance that is set, so the effective
-absolute tolerance is the smallest of those provided. At least one must be set.
+(`τ_abs = relative · scale`). Exactly one of `absolute`/`relative` must be set
+(the other `nothing`); it is an error for both or neither to be set. The
+resolved tolerance must be finite and `> 0`.
 """
 function _resolve_tolerance(absolute, relative, scale::Float64)
-    tols = Float64[]
-    isnothing(absolute) || push!(tols, Float64(absolute))
-    isnothing(relative) || push!(tols, Float64(relative) * scale)
-    isempty(tols) && throw(
+    abs_set = !isnothing(absolute)
+    rel_set = !isnothing(relative)
+    (abs_set || rel_set) || throw(
         ArgumentError(
-            "at least one of `bilinear_absolute_tolerance` or " *
+            "exactly one of `bilinear_absolute_tolerance` or " *
             "`bilinear_relative_tolerance` must be set (both are unset)",
         ),
     )
-    return _validate_tolerance(minimum(tols))
+    (abs_set && rel_set) && throw(
+        ArgumentError(
+            "exactly one of `bilinear_absolute_tolerance` or " *
+            "`bilinear_relative_tolerance` must be set (both are set)",
+        ),
+    )
+    tol = abs_set ? Float64(absolute) : Float64(relative) * scale
+    return _validate_tolerance(tol)
 end
 
 function _quad_config_type(method::String)
