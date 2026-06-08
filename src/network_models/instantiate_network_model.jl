@@ -75,7 +75,7 @@ function _get_irreducible_buses_due_to_dlrs(
     irreducible_buses = Set{Int64}()
     for branch_type in network_model.modeled_branch_types
         branch_type <: PSY.ACTransmission || continue
-        device_model = branch_models[Symbol(branch_type)]
+        device_model = branch_models[nameof(branch_type)]
         if !haskey(
             get_time_series_names(device_model),
             DynamicBranchRatingTimeSeriesParameter,
@@ -153,9 +153,10 @@ function IOM.instantiate_network_model!(
         ybus = PNM.Ybus(
             sys;
             network_reductions = PNM.NetworkReduction[
-                PNM.RadialReduction(; irreducible_buses = irreducible_buses),
-                PNM.DegreeTwoReduction(; irreducible_buses = irreducible_buses),
+                PNM.RadialReduction(),
+                PNM.DegreeTwoReduction(),
             ],
+            irreducible_buses = irreducible_buses,
         )
     elseif model.reduce_radial_branches
         @info "Applying radial reduction"
@@ -165,17 +166,15 @@ function IOM.instantiate_network_model!(
         ybus =
             PNM.Ybus(
                 sys;
-                network_reductions = PNM.NetworkReduction[PNM.RadialReduction(;
-                    irreducible_buses = irreducible_buses,
-                )],
+                network_reductions = PNM.NetworkReduction[PNM.RadialReduction()],
+                irreducible_buses = irreducible_buses,
             )
     elseif model.reduce_degree_two_branches
         @info "Applying degree two reduction"
         ybus = PNM.Ybus(
             sys;
-            network_reductions = PNM.NetworkReduction[PNM.DegreeTwoReduction(;
-                irreducible_buses = irreducible_buses,
-            )],
+            network_reductions = PNM.NetworkReduction[PNM.DegreeTwoReduction()],
+            irreducible_buses = irreducible_buses,
         )
     else
         ybus = PNM.Ybus(sys)
@@ -265,11 +264,10 @@ function IOM.instantiate_network_model!(
                 sys;
                 tol = PTDF_ZERO_TOL,
                 network_reductions = PNM.NetworkReduction[
-                    PNM.RadialReduction(; irreducible_buses = irreducible_buses),
-                    PNM.DegreeTwoReduction(;
-                        irreducible_buses = irreducible_buses,
-                    ),
+                    PNM.RadialReduction(),
+                    PNM.DegreeTwoReduction(),
                 ],
+                irreducible_buses = irreducible_buses,
             )
         elseif model.reduce_radial_branches
             @info "Applying radial reduction"
@@ -279,18 +277,16 @@ function IOM.instantiate_network_model!(
             ptdf = PNM.VirtualPTDF(
                 sys;
                 tol = PTDF_ZERO_TOL,
-                network_reductions = PNM.NetworkReduction[PNM.RadialReduction(;
-                    irreducible_buses = irreducible_buses,
-                )],
+                network_reductions = PNM.NetworkReduction[PNM.RadialReduction()],
+                irreducible_buses = irreducible_buses,
             )
         elseif model.reduce_degree_two_branches
             @info "Applying degree two reduction"
             ptdf = PNM.VirtualPTDF(
                 sys;
                 tol = PTDF_ZERO_TOL,
-                network_reductions = PNM.NetworkReduction[PNM.DegreeTwoReduction(;
-                    irreducible_buses = irreducible_buses,
-                )],
+                network_reductions = PNM.NetworkReduction[PNM.DegreeTwoReduction()],
+                irreducible_buses = irreducible_buses,
             )
         else
             ptdf = PNM.VirtualPTDF(sys; tol = PTDF_ZERO_TOL)
@@ -376,9 +372,10 @@ function IOM.instantiate_network_model!(
                 sys;
                 tol = PTDF_ZERO_TOL,
                 network_reductions = PNM.NetworkReduction[
-                    PNM.RadialReduction(; irreducible_buses = irreducible_buses),
-                    PNM.DegreeTwoReduction(; irreducible_buses = irreducible_buses),
+                    PNM.RadialReduction(),
+                    PNM.DegreeTwoReduction(),
                 ],
+                irreducible_buses = irreducible_buses,
             )
         elseif model.reduce_radial_branches
             @info "Applying radial reduction"
@@ -388,18 +385,16 @@ function IOM.instantiate_network_model!(
             ptdf = PNM.VirtualPTDF(
                 sys;
                 tol = PTDF_ZERO_TOL,
-                network_reductions = PNM.NetworkReduction[PNM.RadialReduction(;
-                    irreducible_buses = irreducible_buses,
-                )],
+                network_reductions = PNM.NetworkReduction[PNM.RadialReduction()],
+                irreducible_buses = irreducible_buses,
             )
         elseif model.reduce_degree_two_branches
             @info "Applying degree two reduction"
             ptdf = PNM.VirtualPTDF(
                 sys;
                 tol = PTDF_ZERO_TOL,
-                network_reductions = PNM.NetworkReduction[PNM.DegreeTwoReduction(;
-                    irreducible_buses = irreducible_buses,
-                )],
+                network_reductions = PNM.NetworkReduction[PNM.DegreeTwoReduction()],
+                irreducible_buses = irreducible_buses,
             )
         else
             ptdf = PNM.VirtualPTDF(sys; tol = PTDF_ZERO_TOL)

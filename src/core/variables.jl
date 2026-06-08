@@ -151,107 +151,19 @@ Docs abbreviation: ``i_l^{dc}``
 struct DCLineCurrent <: VariableType end
 
 """
-Struct to dispatch the creation of Squared Voltage Variables for DC formulations
-Docs abbreviation: ``v^{sq,dc}``
-"""
-struct SquaredDCVoltage <: VariableType end
-
-"""
 Struct to dispatch the creation of DC Converter Current Variables for DC formulations
 Docs abbreviation: ``i_c^{dc}``
 """
 struct ConverterCurrent <: VariableType end
 
 """
-Struct to dispatch the creation of DC Converter Power Variables for DC formulations
-Docs abbreviation: ``p_c^{dc}``
+Non-negative LP surrogate for the absolute value of a DC current variable
+(`abs_i ≥ i`, `abs_i ≥ -i`, `abs_i ≥ 0`; tight at optimum because the loss
+term `b · abs_i` is minimized via the generation-cost objective). Used by
+both two-terminal HVDC links (cable current) and interconnecting converters.
+Docs abbreviation: ``|i|^{dc}``
 """
-struct ConverterDCPower <: VariableType end
-
-"""
-Struct to dispatch the creation of Squared DC Converter Current Variables for DC formulations
-Docs abbreviation: ``i_c^{sq,dc}``
-"""
-struct SquaredConverterCurrent <: VariableType end
-
-"""
-Struct to dispatch the creation of DC Converter Positive Term Current Variables for DC formulations
-Docs abbreviation: ``i_c^{+,dc}``
-"""
-struct ConverterPositiveCurrent <: VariableType end
-
-"""
-Struct to dispatch the creation of DC Converter Negative Term Current Variables for DC formulations
-Docs abbreviation: ``i_c^{-,dc}``
-"""
-struct ConverterNegativeCurrent <: VariableType end
-
-"""
-Struct to dispatch the creation of DC Converter Binary for Absolute Value Current Variables for DC formulations
-Docs abbreviation: `\\nu_c``
-"""
-struct ConverterCurrentDirection <: VariableType end
-
-"""
-Struct to dispatch the creation of Binary Variable for Converter Power Direction
-Docs abbreviation: ``\\kappa_c^{dc}``
-"""
-struct ConverterPowerDirection <: VariableType end
-
-"""
-Struct to dispatch the creation of Auxiliary Variable for Converter Bilinear term: v * i
-Docs abbreviation: ``\\gamma_c^{dc}``
-"""
-struct AuxBilinearConverterVariable <: VariableType end
-
-"""
-Struct to dispatch the creation of Auxiliary Variable for Squared Converter Bilinear term: v * i
-
-Docs abbreviation: ``\\gamma_c^{sq,dc}``
-"""
-struct AuxBilinearSquaredConverterVariable <: VariableType end
-
-"""
-Struct to dispatch the creation of Continuous Interpolation Variable for Squared Converter Voltage
-
-Docs abbreviation: ``\\delta_c^{v}``
-"""
-struct InterpolationSquaredVoltageVariable <: InterpolationVariableType end
-
-"""
-Struct to dispatch the creation of Binary Interpolation Variable for Squared Converter Voltage
-
-Docs abbreviation: ``z_c^{v}``
-"""
-struct InterpolationBinarySquaredVoltageVariable <: BinaryInterpolationVariableType end
-
-"""
-Struct to dispatch the creation of Continuous Interpolation Variable for Squared Converter Current
-
-Docs abbreviation: ``\\delta_c^{i}``
-"""
-struct InterpolationSquaredCurrentVariable <: InterpolationVariableType end
-
-"""
-Struct to dispatch the creation of Binary Interpolation Variable for Squared Converter Current
-
-Docs abbreviation: ``z_c^{i}``
-"""
-struct InterpolationBinarySquaredCurrentVariable <: BinaryInterpolationVariableType end
-
-"""
-Struct to dispatch the creation of Continuous Interpolation Variable for Squared Converter AuxVar
-
-Docs abbreviation: ``\\delta_c^{\\gamma}``
-"""
-struct InterpolationSquaredBilinearVariable <: InterpolationVariableType end
-
-"""
-Struct to dispatch the creation of Binary Interpolation Variable for Squared Converter AuxVar
-
-Docs abbreviation: ``z_c^{\\gamma}``
-"""
-struct InterpolationBinarySquaredBilinearVariable <: BinaryInterpolationVariableType end
+struct CurrentAbsoluteValueVariable <: VariableType end
 
 #########################################################
 #########################################################
@@ -462,6 +374,34 @@ Struct to dispatch the creation of HVDC Piecewise Binary Loss Variables
 Docs abbreviation: ``z``
 """
 struct HVDCPiecewiseBinaryLossVariable <: SparseVariableType end
+
+"""
+DC-side voltage at the from-terminal of a two-terminal HVDC link.
+Used by both `HVDCTwoTerminalVSCNLP` and `HVDCTwoTerminalVSCLP` formulations.
+Docs abbreviation: ``v_f^{dc}``
+"""
+struct HVDCFromDCVoltage <: VariableType end
+
+"""
+DC-side voltage at the to-terminal of a two-terminal HVDC link.
+Used by both `HVDCTwoTerminalVSCNLP` and `HVDCTwoTerminalVSCLP` formulations.
+Docs abbreviation: ``v_t^{dc}``
+"""
+struct HVDCToDCVoltage <: VariableType end
+
+"""
+Reactive power injected at the from-terminal AC bus by a two-terminal HVDC link.
+Added only when the formulation runs on an AC network model.
+Docs abbreviation: ``q_f``
+"""
+struct HVDCReactivePowerFromVariable <: VariableType end
+
+"""
+Reactive power injected at the to-terminal AC bus by a two-terminal HVDC link.
+Added only when the formulation runs on an AC network model.
+Docs abbreviation: ``q_t``
+"""
+struct HVDCReactivePowerToVariable <: VariableType end
 
 """
 Struct to dispatch the creation of Interface Flow Slack Up variables
