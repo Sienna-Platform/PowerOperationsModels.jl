@@ -5,16 +5,16 @@ get_expression_type_for_reserve(::Type{ActivePowerReserveVariable}, ::Type{<:PSY
 ########################### ActivePowerVariable, RenewableGen #################################
 
 get_variable_binary(::Type{ActivePowerVariable}, ::Type{<:PSY.RenewableGen}, ::Type{<:AbstractRenewableFormulation}) = false
-get_min_max_limits(d::PSY.RenewableGen, ::Type{ActivePowerVariableLimitsConstraint}, ::Type{<:AbstractRenewableFormulation}) = (min = 0.0, max = PSY.get_max_active_power(d))
+get_min_max_limits(d::PSY.RenewableGen, ::Type{ActivePowerVariableLimitsConstraint}, ::Type{<:AbstractRenewableFormulation}) = (min = 0.0, max = PSY.get_max_active_power(d, PSY.SU))
 get_variable_lower_bound(::Type{ActivePowerVariable}, d::PSY.RenewableGen, ::Type{<:AbstractRenewableFormulation}) = 0.0
-get_variable_upper_bound(::Type{ActivePowerVariable}, d::PSY.RenewableGen, ::Type{<:AbstractRenewableFormulation}) = PSY.get_max_active_power(d)
+get_variable_upper_bound(::Type{ActivePowerVariable}, d::PSY.RenewableGen, ::Type{<:AbstractRenewableFormulation}) = PSY.get_max_active_power(d, PSY.SU)
 
 ########################### ReactivePowerVariable, RenewableGen #################################
 
 get_variable_binary(::Type{ReactivePowerVariable}, ::Type{<:PSY.RenewableGen}, ::Type{<:AbstractRenewableFormulation}) = false
 
-get_multiplier_value(::Type{<:TimeSeriesParameter}, d::PSY.RenewableGen, ::Type{FixedOutput}) = PSY.get_max_active_power(d)
-get_multiplier_value(::Type{<:TimeSeriesParameter}, d::PSY.RenewableGen, ::Type{<:AbstractRenewableFormulation}) = PSY.get_max_active_power(d)
+get_multiplier_value(::Type{<:TimeSeriesParameter}, d::PSY.RenewableGen, ::Type{FixedOutput}) = PSY.get_max_active_power(d, PSY.SU)
+get_multiplier_value(::Type{<:TimeSeriesParameter}, d::PSY.RenewableGen, ::Type{<:AbstractRenewableFormulation}) = PSY.get_max_active_power(d, PSY.SU)
 
 # To avoid ambiguity with default_interface_methods.jl:
 get_multiplier_value(::Type{<:AbstractPiecewiseLinearBreakpointParameter}, ::PSY.RenewableGen, ::Type{FixedOutput}) = 1.0
@@ -25,12 +25,12 @@ objective_function_multiplier(::Type{ActivePowerVariable}, ::Type{<:AbstractRene
 #! format: on
 
 get_initial_conditions_device_model(
-    ::OperationModel,
+    ::IOM.AbstractOptimizationModel,
     ::DeviceModel{T, <:AbstractRenewableFormulation},
 ) where {T <: PSY.RenewableGen} = DeviceModel(T, RenewableFullDispatch)
 
 get_initial_conditions_device_model(
-    ::OperationModel,
+    ::IOM.AbstractOptimizationModel,
     ::DeviceModel{T, FixedOutput},
 ) where {T <: PSY.RenewableGen} = DeviceModel(T, FixedOutput)
 
@@ -39,7 +39,7 @@ function get_min_max_limits(
     ::Type{ReactivePowerVariableLimitsConstraint},
     ::Type{<:AbstractRenewableFormulation},
 )
-    return PSY.get_reactive_power_limits(device)
+    return PSY.get_reactive_power_limits(device, PSY.SU)
 end
 
 function get_default_time_series_names(
@@ -158,5 +158,6 @@ function add_to_objective_function!(
     ::Type{<:AbstractPowerModel},
 ) where {T <: PSY.RenewableGen, U <: AbstractRenewableDispatchFormulation}
     add_variable_cost!(container, ActivePowerVariable, devices, U)
+    add_curtailment_cost!(container, ActivePowerVariable, devices, U)
     return
 end

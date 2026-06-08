@@ -3,7 +3,7 @@ function construct_hvdc_network!(
     sys::PSY.System,
     transmission_model::NetworkModel{T},
     hvdc_model::Nothing,
-    ::OperationsProblemTemplate,
+    ::PowerOperationsProblemTemplate,
 ) where {T <: AbstractPowerModel}
     return
 end
@@ -13,7 +13,7 @@ function construct_hvdc_network!(
     sys::PSY.System,
     transmission_model::NetworkModel{T},
     hvdc_model::TransportHVDCNetworkModel,
-    ::OperationsProblemTemplate,
+    ::PowerOperationsProblemTemplate,
 ) where {T <: AbstractPowerModel}
     add_constraints!(
         container,
@@ -32,7 +32,7 @@ function construct_hvdc_network!(
     sys::PSY.System,
     transmission_model::NetworkModel{T},
     hvdc_model::VoltageDispatchHVDCNetworkModel,
-    ::OperationsProblemTemplate,
+    ::PowerOperationsProblemTemplate,
 ) where {T <: AbstractPowerModel}
     add_constraints!(
         container,

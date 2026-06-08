@@ -123,7 +123,19 @@ import InfrastructureOptimizationModels:
     get_must_run,
     # Build-pipeline extension points (IOM declares stubs, POM extends)
     calculate_aux_variable_value!,
-    is_from_power_flow,
+    is_from_evaluator,
+    # External evaluation infrastructure (PowerFlows extension consumes these)
+    EvaluationContainer,
+    add_evaluator!,
+    add_evaluation_data!,
+    get_evaluations,
+    get_evaluators,
+    get_evaluation_data,
+    get_inner_data,
+    evaluate!,
+    reset!,
+    is_solved,
+    reset_evaluations!,
     # Functions POM extends with new methods
     _onvar_cost,
     add_cost_to_expression!,
@@ -176,10 +188,27 @@ import InfrastructureOptimizationModels:
     set_device_model!,
     set_service_model!,
     finalize_template!,
+    validate_time_series!,
+    validate_template,
+    DecisionModel,
+    EmulationModel,
     make_empty_jump_model_with_settings,
     set_model!
 
 using InfrastructureOptimizationModels # TODO: use explicit imports.
+
+# Cost expression types are imported explicitly so re-exports below are detected as
+# defined bindings in POM (Aqua.test_undefined_exports requirement).
+import InfrastructureOptimizationModels:
+    ProductionCostExpression,
+    FuelConsumptionExpression,
+    ConstituentCostExpression,
+    FuelCostExpression,
+    StartUpCostExpression,
+    ShutDownCostExpression,
+    FixedCostExpression,
+    VOMCostExpression,
+    CurtailmentCostExpression
 
 # Note: add_feedforward_arguments!, add_feedforward_constraints!,
 # get_default_on_variable, get_default_off_variable are defined in POM, not IOM
@@ -192,6 +221,7 @@ using InfrastructureOptimizationModels # TODO: use explicit imports.
 # and extend should_write_resulting_value/convert_output_to_natural_units
 #################################################################################
 include("core/definitions.jl")
+include("core/problem_types.jl")
 include("core/interfaces.jl")
 include("core/default_interface_methods.jl")
 include("core/physical_constant_definitions.jl")
@@ -212,6 +242,8 @@ include("core/initial_conditions.jl")
 include("common_models/add_expressions.jl")
 # Device-specific add_to_expression! implementations
 include("common_models/add_to_expression.jl")
+# Device-specific objective function helpers (curtailment cost, compact-form guards)
+include("common_models/objective_function.jl")
 # add_param_container.jl: moved into IOM
 include("common_models/add_parameters.jl")
 include("common_models/make_system_expressions.jl")
@@ -321,6 +353,7 @@ export get_variable_multiplier
 export get_expression_multiplier
 export get_multiplier_value
 export add_power_flow_data!
+export power_flow_evaluations
 export get_initial_conditions_device_model
 export add_reserve_variables!
 
@@ -329,9 +362,13 @@ export add_reserve_variables!
 #################################################################################
 export DecisionModel
 export EmulationModel
-export OperationsProblemTemplate
+export PowerOperationsProblemTemplate
 export InitialCondition
-export OperationModel
+export AbstractPowerOperationProblem
+export AbstractPowerDecisionProblem
+export AbstractPowerEmulationProblem
+export DefaultPowerDecisionProblem
+export DefaultPowerEmulationProblem
 
 # Network
 export NetworkModel
@@ -426,8 +463,8 @@ export RunStatus
 export SimulationBuildStatus
 
 # Problem Types
-export DefaultDecisionProblem
-export DefaultEmulationProblem
+export GenericPowerDecisionProblem
+export GenericPowerEmulationProblem
 
 # Settings and Data Types
 export Settings
@@ -690,6 +727,13 @@ export EmergencyUp
 export EmergencyDown
 export RawACE
 export ProductionCostExpression
+export ConstituentCostExpression
+export FuelCostExpression
+export StartUpCostExpression
+export ShutDownCostExpression
+export FixedCostExpression
+export VOMCostExpression
+export CurtailmentCostExpression
 export FuelConsumptionExpression
 export ActivePowerRangeExpressionLB
 export ActivePowerRangeExpressionUB

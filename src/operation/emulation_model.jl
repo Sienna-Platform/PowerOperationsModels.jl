@@ -1,10 +1,47 @@
+# Template-first constructor defaults the problem type to `DefaultPowerEmulationProblem`
+# (mirrors the DecisionModel defaulting constructor; see decision_model.jl).
+function EmulationModel(
+    template::IOM.AbstractProblemTemplate,
+    sys::IS.InfrastructureSystemsContainer,
+    jump_model::Union{Nothing, JuMP.Model} = nothing;
+    kwargs...,
+)
+    return EmulationModel{DefaultPowerEmulationProblem}(
+        template,
+        sys,
+        jump_model;
+        kwargs...,
+    )
+end
+
+# POM-side implementation of IOM's `validate_time_series!` extension point for
+# emulation problems. Emulation models solve a single step, so horizon == resolution.
+function validate_time_series!(model::EmulationModel{<:GenericPowerEmulationProblem})
+    sys = get_system(model)
+    settings = get_settings(model)
+    _reconcile_resolution!(settings, sys)
+
+    if get_horizon(settings) == IOM.UNSET_HORIZON
+        # Emulation Models only solve one "step" so Horizon and Resolution must match
+        IOM.set_horizon!(settings, get_resolution(settings))
+    end
+
+    counts = IOM.get_time_series_counts(sys)
+    if counts.static_time_series_count < 1
+        error(
+            "The system does not contain Static Time Series data. A EmulationModel can't be built.",
+        )
+    end
+    return
+end
+
 # FIXME untested. Moved to accommodate a few methods dispatching on EmulationModelStore,
 # but not run in the tests and not yet refactored for IOM-POM split.
 function build_pre_step!(model::EmulationModel)
     TimerOutputs.@timeit BUILD_PROBLEMS_TIMER "Build pre-step" begin
         validate_template(model)
         if !isempty(model)
-            @info "EmulationProblem status not ModelBuildStatus.EMPTY. Resetting"
+            @info "AbstractPowerEmulationProblem status not ModelBuildStatus.EMPTY. Resetting"
             reset!(model)
         end
         container = get_optimization_container(model)
@@ -25,7 +62,7 @@ function build_pre_step!(model::EmulationModel)
 end
 
 # Called `build_impl!(model)` in PSI (lived in emulation_model.jl).
-function build_model!(model::EmulationModel{<:EmulationProblem})
+function build_model!(model::EmulationModel{<:AbstractPowerEmulationProblem})
     build_pre_step!(model)
     @info "Instantiating Network Model"
     IOM.instantiate_network_model!(model)
@@ -41,11 +78,11 @@ function build_model!(model::EmulationModel{<:EmulationProblem})
 end
 
 """
-Implementation of build for any EmulationProblem
+Implementation of build for any AbstractPowerEmulationProblem
   - `store_system_in_results::Bool = true`: If true, stores the system as JSON in the results HDF5 file.
 """
 function build!(
-    model::EmulationModel{<:EmulationProblem};
+    model::EmulationModel{<:AbstractPowerEmulationProblem};
     executions = 1,
     output_dir::String,
     recorders = [],
@@ -69,7 +106,7 @@ function build!(
         file_mode,
     )
     if store_system_in_results
-        @warn "store_system_in_results for $(model.name) is set to true. This will do nothing unless a Simulation is being built."
+        @warn "store_system_in_results is set to true. This will do nothing unless a Simulation is being built."
     end
     try
         Logging.with_logger(logger) do
@@ -93,7 +130,7 @@ function build!(
     return IOM.get_status(model)
 end
 
-function reset!(model::EmulationModel{<:EmulationProblem})
+function reset!(model::EmulationModel{<:AbstractPowerEmulationProblem})
     if built_for_recurrent_solves(model)
         IOM.set_execution_count!(model, 0)
     end
@@ -162,7 +199,7 @@ end
 
 """
 Default run method for problems that conform to the requirements of
-EmulationModel{<: EmulationProblem}
+EmulationModel{<: AbstractPowerEmulationProblem}
 
 This will call `build!` on the model if it is not already built. It will forward all
 keyword arguments to that function.
@@ -186,7 +223,7 @@ status = run!(model; output_dir = ./model_output, optimizer = HiGHS.Optimizer, e
 ```
 """
 function run!(
-    model::EmulationModel{<:EmulationProblem};
+    model::EmulationModel{<:AbstractPowerEmulationProblem};
     export_problem_outputs = false,
     console_level = Logging.Error,
     file_level = Logging.Info,
@@ -197,7 +234,7 @@ function run!(
     kwargs...,
 )
     if store_system_in_results
-        @warn "store_system_in_results for $(model.name) is set to true. This will do nothing unless a Simulation is being built."
+        @warn "store_system_in_results is set to true. This will do nothing unless a Simulation is being built."
     end
     build_if_not_already_built!(
         model;
@@ -256,7 +293,7 @@ function run!(
     return IOM.get_run_status(model)
 end
 
-function handle_initial_conditions!(model::EmulationModel{<:EmulationProblem})
+function handle_initial_conditions!(model::EmulationModel{<:AbstractPowerEmulationProblem})
     TimerOutputs.@timeit BUILD_PROBLEMS_TIMER "Model Initialization" begin
         if isempty(get_template(model))
             return
@@ -310,11 +347,11 @@ function handle_initial_conditions!(model::EmulationModel{<:EmulationProblem})
     return
 end
 
-function validate_template(::EmulationModel{M}) where {M <: EmulationProblem}
+function validate_template(::EmulationModel{M}) where {M <: AbstractPowerEmulationProblem}
     error("validate_template is not implemented for EmulationModel{$M}")
 end
 
-function validate_template(model::EmulationModel{<:DefaultEmulationProblem})
+function validate_template(model::EmulationModel{<:GenericPowerEmulationProblem})
     validate_template_impl!(model)
     return
 end

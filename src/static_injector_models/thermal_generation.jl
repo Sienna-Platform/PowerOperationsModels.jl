@@ -38,22 +38,22 @@ get_expression_type_for_reserve(::Type{ActivePowerReserveVariable}, ::Type{<:PSY
 
 ############## ActivePowerVariable, ThermalGen ####################
 get_variable_binary(::Type{ActivePowerVariable}, ::Type{<:PSY.ThermalGen}, ::Type{<:AbstractThermalFormulation}) = false
-get_variable_warm_start_value(::Type{ActivePowerVariable}, d::PSY.ThermalGen, ::Type{<:AbstractThermalFormulation}) = PSY.get_active_power(d)
-get_variable_lower_bound(::Type{ActivePowerVariable}, d::PSY.ThermalGen, ::Type{<:AbstractThermalFormulation}) = PSY.get_must_run(d) ? PSY.get_active_power_limits(d).min : 0.0
-get_variable_upper_bound(::Type{ActivePowerVariable}, d::PSY.ThermalGen, ::Type{<:AbstractThermalFormulation}) = PSY.get_active_power_limits(d).max
+get_variable_warm_start_value(::Type{ActivePowerVariable}, d::PSY.ThermalGen, ::Type{<:AbstractThermalFormulation}) = PSY.get_active_power(d, PSY.SU)
+get_variable_lower_bound(::Type{ActivePowerVariable}, d::PSY.ThermalGen, ::Type{<:AbstractThermalFormulation}) = PSY.get_must_run(d) ? PSY.get_active_power_limits(d, PSY.SU).min : 0.0
+get_variable_upper_bound(::Type{ActivePowerVariable}, d::PSY.ThermalGen, ::Type{<:AbstractThermalFormulation}) = PSY.get_active_power_limits(d, PSY.SU).max
 get_variable_lower_bound(::Type{ActivePowerVariable}, d::PSY.ThermalGen, ::Type{ThermalDispatchNoMin}) = 0.0
 
 ############## PowerAboveMinimumVariable, ThermalGen ####################
 get_variable_binary(::Type{PowerAboveMinimumVariable}, ::Type{<:PSY.ThermalGen}, ::Type{<:AbstractThermalFormulation}) = false
-get_variable_warm_start_value(::Type{PowerAboveMinimumVariable}, d::PSY.ThermalGen, ::Type{<:AbstractCompactUnitCommitment}) = max(0.0, PSY.get_active_power(d) - PSY.get_active_power_limits(d).min)
+get_variable_warm_start_value(::Type{PowerAboveMinimumVariable}, d::PSY.ThermalGen, ::Type{<:AbstractCompactUnitCommitment}) = max(0.0, PSY.get_active_power(d, PSY.SU) - PSY.get_active_power_limits(d, PSY.SU).min)
 get_variable_lower_bound(::Type{PowerAboveMinimumVariable}, d::PSY.ThermalGen, ::Type{<:AbstractThermalFormulation}) = 0.0
-get_variable_upper_bound(::Type{PowerAboveMinimumVariable}, d::PSY.ThermalGen, ::Type{<:AbstractThermalFormulation}) = PSY.get_active_power_limits(d).max - PSY.get_active_power_limits(d).min
+get_variable_upper_bound(::Type{PowerAboveMinimumVariable}, d::PSY.ThermalGen, ::Type{<:AbstractThermalFormulation}) = PSY.get_active_power_limits(d, PSY.SU).max - PSY.get_active_power_limits(d, PSY.SU).min
 
 ############## ReactivePowerVariable, ThermalGen ####################
 get_variable_binary(::Type{ReactivePowerVariable}, ::Type{<:PSY.ThermalGen}, ::Type{<:AbstractThermalFormulation}) = false
-get_variable_warm_start_value(::Type{ReactivePowerVariable}, d::PSY.ThermalGen, ::Type{<:AbstractThermalFormulation}) = PSY.get_reactive_power(d)
-get_variable_lower_bound(::Type{ReactivePowerVariable}, d::PSY.ThermalGen, ::Type{<:AbstractThermalFormulation}) = PSY.get_reactive_power_limits(d).min
-get_variable_upper_bound(::Type{ReactivePowerVariable}, d::PSY.ThermalGen, ::Type{<:AbstractThermalFormulation}) = PSY.get_reactive_power_limits(d).max
+get_variable_warm_start_value(::Type{ReactivePowerVariable}, d::PSY.ThermalGen, ::Type{<:AbstractThermalFormulation}) = PSY.get_reactive_power(d, PSY.SU)
+get_variable_lower_bound(::Type{ReactivePowerVariable}, d::PSY.ThermalGen, ::Type{<:AbstractThermalFormulation}) = PSY.get_reactive_power_limits(d, PSY.SU).min
+get_variable_upper_bound(::Type{ReactivePowerVariable}, d::PSY.ThermalGen, ::Type{<:AbstractThermalFormulation}) = PSY.get_reactive_power_limits(d, PSY.SU).max
 
 ############## OnVariable, ThermalGen ####################
 get_variable_binary(::Type{OnVariable}, ::Type{<:PSY.ThermalGen}, ::Type{<:AbstractThermalFormulation}) = true
@@ -88,24 +88,24 @@ get_variable_lower_bound(::Type{PostContingencyActivePowerChangeVariable}, d::PS
 get_variable_upper_bound(::Type{PostContingencyActivePowerChangeVariable}, d::PSY.ThermalGen, ::Type{<:AbstractSecurityConstrainedUnitCommitment}) = 1.0
 
 ########################### Parameter related set functions ################################
-get_multiplier_value(::Type{ActivePowerTimeSeriesParameter}, d::PSY.ThermalGen, ::Type{<:AbstractThermalFormulation}) = PSY.get_max_active_power(d)
+get_multiplier_value(::Type{ActivePowerTimeSeriesParameter}, d::PSY.ThermalGen, ::Type{<:AbstractThermalFormulation}) = PSY.get_max_active_power(d, PSY.SU)
 get_multiplier_value(::Type{FuelCostParameter}, d::PSY.ThermalGen, ::Type{<:AbstractThermalFormulation}) = 1.0
 get_parameter_multiplier(::Type{<:VariableValueParameter}, d::PSY.ThermalGen, ::Type{<:AbstractThermalFormulation}) = 1.0
 get_initial_parameter_value(::Type{<:VariableValueParameter}, d::PSY.ThermalGen, ::Type{<:AbstractThermalFormulation}) = 1.0
-get_expression_multiplier(::Type{OnStatusParameter}, ::Type{ActivePowerRangeExpressionUB}, d::PSY.ThermalGen, ::Type{<:AbstractThermalFormulation}) = PSY.get_active_power_limits(d).max
-get_expression_multiplier(::Type{OnStatusParameter}, ::Type{ActivePowerRangeExpressionLB}, d::PSY.ThermalGen, ::Type{<:AbstractThermalFormulation}) = PSY.get_active_power_limits(d).min
-get_expression_multiplier(::Type{OnStatusParameter}, ::Type{ActivePowerRangeExpressionUB}, d::PSY.ThermalGen, ::Type{<:AbstractCompactUnitCommitment}) = PSY.get_active_power_limits(d).max - PSY.get_active_power_limits(d).min
+get_expression_multiplier(::Type{OnStatusParameter}, ::Type{ActivePowerRangeExpressionUB}, d::PSY.ThermalGen, ::Type{<:AbstractThermalFormulation}) = PSY.get_active_power_limits(d, PSY.SU).max
+get_expression_multiplier(::Type{OnStatusParameter}, ::Type{ActivePowerRangeExpressionLB}, d::PSY.ThermalGen, ::Type{<:AbstractThermalFormulation}) = PSY.get_active_power_limits(d, PSY.SU).min
+get_expression_multiplier(::Type{OnStatusParameter}, ::Type{ActivePowerRangeExpressionUB}, d::PSY.ThermalGen, ::Type{<:AbstractCompactUnitCommitment}) = PSY.get_active_power_limits(d, PSY.SU).max - PSY.get_active_power_limits(d, PSY.SU).min
 get_expression_multiplier(::Type{OnStatusParameter}, ::Type{ActivePowerRangeExpressionLB}, d::PSY.ThermalGen, ::Type{<:AbstractCompactUnitCommitment}) = 0.0
-get_expression_multiplier(::Type{OnStatusParameter}, ::Type{ActivePowerRangeExpressionUB}, d::PSY.ThermalGen, ::Type{ThermalCompactDispatch}) = PSY.get_active_power_limits(d).max - PSY.get_active_power_limits(d).min
+get_expression_multiplier(::Type{OnStatusParameter}, ::Type{ActivePowerRangeExpressionUB}, d::PSY.ThermalGen, ::Type{ThermalCompactDispatch}) = PSY.get_active_power_limits(d, PSY.SU).max - PSY.get_active_power_limits(d, PSY.SU).min
 get_expression_multiplier(::Type{OnStatusParameter}, ::Type{ActivePowerRangeExpressionLB}, d::PSY.ThermalGen, ::Type{ThermalCompactDispatch}) = 0.0
-get_expression_multiplier(::Type{OnStatusParameter}, ::Type{ActivePowerBalance}, d::PSY.ThermalGen, ::Type{<:AbstractThermalFormulation}) = PSY.get_active_power_limits(d).min
+get_expression_multiplier(::Type{OnStatusParameter}, ::Type{ActivePowerBalance}, d::PSY.ThermalGen, ::Type{<:AbstractThermalFormulation}) = PSY.get_active_power_limits(d, PSY.SU).min
 
 #################### Initial Conditions for models ###############
 initial_condition_default(::DeviceStatus, d::PSY.ThermalGen, ::AbstractThermalFormulation) = PSY.get_status(d) ? 1.0 : 0.0
 initial_condition_variable(::DeviceStatus, d::PSY.ThermalGen, ::AbstractThermalFormulation) = OnVariable()
-initial_condition_default(::DevicePower, d::PSY.ThermalGen, ::AbstractThermalFormulation) = PSY.get_active_power(d)
+initial_condition_default(::DevicePower, d::PSY.ThermalGen, ::AbstractThermalFormulation) = PSY.get_active_power(d, PSY.SU)
 initial_condition_variable(::DevicePower, d::PSY.ThermalGen, ::AbstractThermalFormulation) = ActivePowerVariable()
-initial_condition_default(::DeviceAboveMinPower, d::PSY.ThermalGen, ::AbstractThermalFormulation) = max(0.0, PSY.get_active_power(d) - PSY.get_active_power_limits(d).min)
+initial_condition_default(::DeviceAboveMinPower, d::PSY.ThermalGen, ::AbstractThermalFormulation) = max(0.0, PSY.get_active_power(d, PSY.SU) - PSY.get_active_power_limits(d, PSY.SU).min)
 initial_condition_variable(::DeviceAboveMinPower, d::PSY.ThermalGen, ::AbstractCompactUnitCommitment) = PowerAboveMinimumVariable()
 initial_condition_variable(::DeviceAboveMinPower, d::PSY.ThermalGen, ::ThermalCompactDispatch) = PowerAboveMinimumVariable()
 initial_condition_default(::InitialTimeDurationOn, d::PSY.ThermalGen, ::AbstractThermalFormulation) = PSY.get_status(d) ? PSY.get_time_at_status(d) : 0.0
@@ -214,7 +214,7 @@ end
 
 #! format: on
 function get_initial_conditions_device_model(
-    model::OperationModel,
+    model::IOM.AbstractOptimizationModel,
     ::DeviceModel{T, D},
 ) where {T <: PSY.ThermalGen, D <: AbstractThermalDispatchFormulation}
     if supports_milp(get_optimization_container(model))
@@ -225,21 +225,21 @@ function get_initial_conditions_device_model(
 end
 
 function get_initial_conditions_device_model(
-    ::OperationModel,
+    ::IOM.AbstractOptimizationModel,
     ::DeviceModel{T, D},
 ) where {T <: PSY.ThermalGen, D <: ThermalDispatchNoMin}
     return DeviceModel(T, ThermalDispatchNoMin)
 end
 
 function get_initial_conditions_device_model(
-    ::OperationModel,
+    ::IOM.AbstractOptimizationModel,
     ::DeviceModel{T, D},
 ) where {T <: PSY.ThermalGen, D <: AbstractThermalUnitCommitment}
     return DeviceModel(T, ThermalBasicUnitCommitment)
 end
 
 function get_initial_conditions_device_model(
-    ::OperationModel,
+    ::IOM.AbstractOptimizationModel,
     ::DeviceModel{T, D},
 ) where {T <: PSY.ThermalGen, D <: AbstractCompactUnitCommitment}
     return DeviceModel(T, ThermalBasicCompactUnitCommitment)
@@ -272,7 +272,7 @@ function get_min_max_limits(
     ::Type{ActivePowerVariableLimitsConstraint},
     ::Type{<:AbstractThermalDispatchFormulation},
 )
-    return PSY.get_active_power_limits(device)
+    return PSY.get_active_power_limits(device, PSY.SU)
 end
 
 # active power limits of generators when there are CommitmentVariables
@@ -284,7 +284,7 @@ function get_min_max_limits(
     ::Type{ActivePowerVariableLimitsConstraint},
     ::Type{<:AbstractThermalUnitCommitment},
 )
-    return PSY.get_active_power_limits(device)
+    return PSY.get_active_power_limits(device, PSY.SU)
 end
 
 """
@@ -297,8 +297,8 @@ function get_min_max_limits(
 )
     return (
         min = 0.0,
-        max = PSY.get_active_power_limits(device).max -
-              PSY.get_active_power_limits(device).min,
+        max = PSY.get_active_power_limits(device, PSY.SU).max -
+              PSY.get_active_power_limits(device, PSY.SU).min,
     )
 end
 
@@ -310,7 +310,7 @@ function get_min_max_limits(
     ::Type{ActivePowerVariableLimitsConstraint},
     ::Type{ThermalDispatchNoMin},
 )
-    return (min = 0.0, max = PSY.get_active_power_limits(device).max)
+    return (min = 0.0, max = PSY.get_active_power_limits(device, PSY.SU).max)
 end
 
 """
@@ -344,8 +344,8 @@ function get_min_max_limits(
 ) #  -> Union{Nothing, NamedTuple{(:startup, :shutdown), Tuple{Float64, Float64}}}
     return (
         min = 0.0,
-        max = PSY.get_active_power_limits(device).max -
-              PSY.get_active_power_limits(device).min,
+        max = PSY.get_active_power_limits(device, PSY.SU).max -
+              PSY.get_active_power_limits(device, PSY.SU).min,
     )
 end
 
@@ -423,14 +423,14 @@ function get_startup_shutdown_limits(
     ::Type{ActivePowerVariableLimitsConstraint},
     ::Type{ThermalMultiStartUnitCommitment},
 )
-    startup_shutdown = PSY.get_power_trajectory(device)
+    startup_shutdown = PSY.get_power_trajectory(device, PSY.SU)
     if isnothing(startup_shutdown)
         @warn(
             "Generator $(summary(device)) has a Nothing startup_shutdown property. Using active power limits."
         )
         return (
-            startup = PSY.get_active_power_limits(device).max,
-            shutdown = PSY.get_active_power_limits(device).max,
+            startup = PSY.get_active_power_limits(device, PSY.SU).max,
+            shutdown = PSY.get_active_power_limits(device, PSY.SU).max,
         )
     end
     return startup_shutdown
@@ -446,8 +446,8 @@ function get_min_max_limits(
 ) #  -> Union{Nothing, NamedTuple{(:min, :max), Tuple{Float64, Float64}}}
     return (
         min = 0,
-        max = PSY.get_active_power_limits(device).max -
-              PSY.get_active_power_limits(device).min,
+        max = PSY.get_active_power_limits(device, PSY.SU).max -
+              PSY.get_active_power_limits(device, PSY.SU).min,
     )
 end
 
@@ -460,8 +460,8 @@ function get_startup_shutdown_limits(
     ::Type{<:AbstractCompactUnitCommitment},
 )
     return (
-        startup = PSY.get_active_power_limits(device).max,
-        shutdown = PSY.get_active_power_limits(device).max,
+        startup = PSY.get_active_power_limits(device, PSY.SU).max,
+        shutdown = PSY.get_active_power_limits(device, PSY.SU).max,
     )
 end
 
@@ -732,8 +732,8 @@ function add_constraints!(
         for (ix, ic) in enumerate(ini_conds[:, 1])
             name = IOM.get_component_name(ic)
             device = IOM.get_component(ic)
-            limits = PSY.get_active_power_limits(device)
-            lag_ramp_limits = PSY.get_power_trajectory(device)
+            limits = PSY.get_active_power_limits(device, PSY.SU)
+            lag_ramp_limits = PSY.get_power_trajectory(device, PSY.SU)
             val = max(limits.max - lag_ramp_limits.shutdown, 0)
             con[name] = JuMP.@constraint(
                 get_jump_model(container),
@@ -755,7 +755,7 @@ function get_min_max_limits(
     ::Type{ReactivePowerVariableLimitsConstraint},
     ::Type{<:AbstractThermalDispatchFormulation},
 )
-    return PSY.get_reactive_power_limits(device)
+    return PSY.get_reactive_power_limits(device, PSY.SU)
 end
 
 """
@@ -766,7 +766,7 @@ function get_min_max_limits(
     ::Type{ReactivePowerVariableLimitsConstraint},
     ::Type{<:AbstractThermalUnitCommitment},
 )
-    return PSY.get_reactive_power_limits(device)
+    return PSY.get_reactive_power_limits(device, PSY.SU)
 end
 
 # commitment formulations: commitment constraints (on/off logic)
@@ -1001,7 +1001,7 @@ function calculate_aux_variable_value!(
     for d_name in device_name
         d = PSY.get_component(T, system, d_name)
         name = PSY.get_name(d)
-        min = PSY.get_active_power_limits(d).min
+        min = PSY.get_active_power_limits(d, PSY.SU).min
         for t in time_steps
             aux_variable_container[name, t] =
                 jump_value(on_variable_output[name, t]) * min +
@@ -1595,7 +1595,7 @@ function IOM.add_pwl_term_lambda!(
     value_curve = PSY.get_value_curve(cost_function)
     cost_component = PSY.get_function_data(value_curve)
     base_power = IOM.get_model_base_power(container)
-    device_base_power = PSY.get_base_power(component)
+    device_base_power = PSY.get_base_power(component, PSY.NU)
     power_units = PSY.get_power_units(cost_function)
 
     # Normalize data

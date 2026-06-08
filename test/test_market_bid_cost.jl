@@ -13,10 +13,21 @@ numbers put on a cost curve reach the container's objective coefficients as expe
 const _LOAD_NAME = "load1"
 const _THERMAL_NAME = "thermal1"
 
-# A static MBC with a decremental offer curve only (incremental stays at the default
-# ZERO_OFFER_CURVE, which the load-side supply check treats as "absent").
+# A zero offer curve in SYSTEM_BASE. Used as the "absent" side when only one of the
+# incremental/decremental curves is meaningful: PSY requires both offer curves to share
+# a unit system, and the default `ZERO_OFFER_CURVE` is NATURAL_UNITS, so we can't leave
+# the other side defaulted when the meaningful side is SYSTEM_BASE. A zero value curve is
+# still treated as "absent" by the offer-side checks (which inspect slopes, not units).
+const _ZERO_OFFER_SB = PSY.CostCurve(
+    PSY.PiecewiseIncrementalCurve(0.0, [0.0, 0.0], [0.0]),
+    PSY.UnitSystem.SYSTEM_BASE,
+)
+
+# A static MBC with a decremental offer curve only (incremental is the zero offer curve,
+# which the load-side supply check treats as "absent").
 _decr_mbc(initial_input::Float64, xs::Vector{Float64}, slopes::Vector{Float64}) =
     PSY.MarketBidCost(;
+        incremental_offer_curves = _ZERO_OFFER_SB,
         decremental_offer_curves = PSY.CostCurve(
             PSY.PiecewiseIncrementalCurve(initial_input, xs, slopes),
             PSY.UnitSystem.SYSTEM_BASE,
@@ -189,6 +200,7 @@ end
             PSY.PiecewiseIncrementalCurve(0.0, [0.0, 1.0], [5.0]),
             PSY.UnitSystem.SYSTEM_BASE,
         ),
+        decremental_offer_curves = _ZERO_OFFER_SB,
     )
     sys = one_bus_one_interruptible_load(cost)
     load = PSY.get_component(PSY.InterruptiblePowerLoad, sys, _LOAD_NAME)
@@ -212,6 +224,7 @@ end
             PSY.PiecewiseIncrementalCurve(2.5, [0.1, 0.5, 1.0], [3.0, 7.0]),
             PSY.UnitSystem.SYSTEM_BASE,
         ),
+        decremental_offer_curves = _ZERO_OFFER_SB,
     )
     sys = one_bus_one_thermal(mbc; name = _THERMAL_NAME)
     devs = PSY.get_components(PSY.ThermalStandard, sys)

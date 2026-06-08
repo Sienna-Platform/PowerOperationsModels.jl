@@ -1,4 +1,31 @@
-function build_pre_step!(model::DecisionModel{<:DecisionProblem})
+# Template-first constructors default the problem type to `DefaultPowerDecisionProblem`.
+# IOM only ships the `DecisionModel{M}` / `DecisionModel(::Type{M}, ...)` variants
+# (`M` is the domain-neutral `AbstractOptimizationProblem`); the default problem
+# type is a POM concept, so the defaulting constructors live here.
+function DecisionModel(
+    template::IOM.AbstractProblemTemplate,
+    sys::IS.InfrastructureSystemsContainer,
+    jump_model::Union{Nothing, JuMP.Model} = nothing;
+    kwargs...,
+)
+    return DecisionModel{DefaultPowerDecisionProblem}(template, sys, jump_model; kwargs...)
+end
+
+# Generic (template-driven) decision problems require an AbstractProblemTemplate
+# subtype, so the bare-system constructor (no template) is an error.
+function DecisionModel{M}(
+    sys::IS.InfrastructureSystemsContainer,
+    jump_model::Union{Nothing, JuMP.Model} = nothing;
+    kwargs...,
+) where {M <: GenericPowerDecisionProblem}
+    throw(
+        IS.ArgumentError(
+            "GenericPowerDecisionProblem subtypes require a template. Use DecisionModel subtyping instead.",
+        ),
+    )
+end
+
+function build_pre_step!(model::DecisionModel{<:AbstractPowerDecisionProblem})
     TimerOutputs.@timeit BUILD_PROBLEMS_TIMER "Build pre-step" begin
         validate_template(model)
         if !isempty(model)
@@ -19,7 +46,7 @@ function build_pre_step!(model::DecisionModel{<:DecisionProblem})
 end
 
 # Called `build_impl!(model)` in PSI (lived in decision_model.jl).
-function build_model!(model::DecisionModel{<:DecisionProblem})
+function build_model!(model::DecisionModel{<:AbstractPowerDecisionProblem})
     build_pre_step!(model)
     @info "Instantiating Network Model"
     IOM.instantiate_network_model!(model)
@@ -35,11 +62,11 @@ function build_model!(model::DecisionModel{<:DecisionProblem})
 end
 
 """
-Build the Decision Model based on the specified DecisionProblem.
+Build the Decision Model based on the specified AbstractPowerDecisionProblem.
 
 # Arguments
 
-  - `model::DecisionModel{<:DecisionProblem}`: DecisionModel object
+  - `model::DecisionModel{<:AbstractPowerDecisionProblem}`: DecisionModel object
   - `output_dir::String`: Output directory for outputs
   - `recorders::Vector{Symbol} = []`: recorder names to register
   - `console_level = Logging.Error`:
@@ -48,7 +75,7 @@ Build the Decision Model based on the specified DecisionProblem.
   - `store_system_in_results::Bool = true`: If true, stores the system as JSON in the results HDF5 file.
 """
 function build!(
-    model::DecisionModel{<:DecisionProblem};
+    model::DecisionModel{<:AbstractPowerDecisionProblem};
     output_dir::String,
     recorders = [],
     console_level = Logging.Error,
@@ -67,7 +94,7 @@ function build!(
     IOM.register_recorders!(model, file_mode)
     logger = IS.configure_logging(get_internal(model), IOM.PROBLEM_LOG_FILENAME, file_mode)
     if store_system_in_results
-        @warn "store_system_in_results for $(model.name) is set to true. This will do nothing unless a Simulation is being built."
+        @warn "store_system_in_results is set to true. This will do nothing unless a Simulation is being built."
     end
     try
         Logging.with_logger(logger) do
@@ -90,7 +117,7 @@ function build!(
     return IOM.get_status(model)
 end
 
-function reset!(model::DecisionModel{<:DefaultDecisionProblem})
+function reset!(model::DecisionModel{<:GenericPowerDecisionProblem})
     was_built_for_recurrent_solves = built_for_recurrent_solves(model)
     if was_built_for_recurrent_solves
         IOM.set_execution_count!(model, 0)
@@ -118,14 +145,14 @@ end
 
 """
 Default solve method for models that conform to the requirements of
-DecisionModel{<: DecisionProblem}.
+DecisionModel{<: AbstractPowerDecisionProblem}.
 
 This will call `build!` on the model if it is not already built. It will forward all
 keyword arguments to that function.
 
 # Arguments
 
-  - `model::OperationModel = model`: operation model
+  - `model::IOM.AbstractOptimizationModel = model`: operation model
   - `export_problem_outputs::Bool = false`: If true, export OptimizationProblemOutputs DataFrames to CSV files.
   - `console_level = Logging.Error`:
   - `file_level = Logging.Info`:
@@ -141,7 +168,7 @@ outputs = solve!(OpModel, export_problem_outputs = true)
 ```
 """
 function solve!(
-    model::DecisionModel{<:DecisionProblem};
+    model::DecisionModel{<:AbstractPowerDecisionProblem};
     export_problem_outputs = false,
     console_level = Logging.Error,
     file_level = Logging.Info,
@@ -151,7 +178,7 @@ function solve!(
     kwargs...,
 )
     if store_system_in_results
-        @warn "store_system_in_results for $(model.name) is set to true. This will do nothing unless a Simulation is being built."
+        @warn "store_system_in_results is set to true. This will do nothing unless a Simulation is being built."
     end
     build_if_not_already_built!(
         model;
@@ -215,7 +242,7 @@ function solve!(
     return IOM.get_run_status(model)
 end
 
-function handle_initial_conditions!(model::DecisionModel{<:DecisionProblem})
+function handle_initial_conditions!(model::DecisionModel{<:AbstractPowerDecisionProblem})
     TimerOutputs.@timeit BUILD_PROBLEMS_TIMER "Model Initialization" begin
         if isempty(get_template(model))
             return
@@ -269,7 +296,7 @@ function handle_initial_conditions!(model::DecisionModel{<:DecisionProblem})
     return
 end
 
-function build_if_not_already_built!(model::OperationModel; kwargs...)
+function build_if_not_already_built!(model::IOM.AbstractOptimizationModel; kwargs...)
     status = IOM.get_status(model)
     if status == ModelBuildStatus.EMPTY
         if !haskey(kwargs, :output_dir)
@@ -287,12 +314,57 @@ function build_if_not_already_built!(model::OperationModel; kwargs...)
     return
 end
 
-function validate_template(::DecisionModel{M}) where {M <: DecisionProblem}
+function validate_template(::DecisionModel{M}) where {M <: AbstractPowerDecisionProblem}
     error("validate_template is not implemented for DecisionModel{$M}")
 end
 
-function validate_template(model::DecisionModel{<:DefaultDecisionProblem})
+function validate_template(model::DecisionModel{<:GenericPowerDecisionProblem})
     validate_template_impl!(model)
+    return
+end
+
+# IOM declares `validate_time_series!` as a pure extension-point stub (no methods);
+# POM provides the concrete check for its template-driven problem types. It reconciles
+# the model's resolution/interval/horizon settings against the forecast data in the
+# system and errors when the system has no forecast data.
+function validate_time_series!(model::DecisionModel{<:GenericPowerDecisionProblem})
+    sys = get_system(model)
+    settings = get_settings(model)
+    _reconcile_resolution!(settings, sys)
+
+    model_interval = IOM.get_interval(settings)
+    available_intervals = IOM.get_forecast_intervals(sys)
+    if model_interval == IOM.UNSET_INTERVAL && length(available_intervals) > 1
+        throw(
+            IS.ConflictingInputsError(
+                "The system contains multiple forecast intervals $(available_intervals). " *
+                "The `interval` keyword argument must be provided to the DecisionModel constructor " *
+                "to select which interval to use.",
+            ),
+        )
+    elseif model_interval != IOM.UNSET_INTERVAL && !isempty(available_intervals)
+        if model_interval ∉ available_intervals
+            throw(
+                IS.ConflictingInputsError(
+                    "Interval $(Dates.canonicalize(model_interval)) is not available in the system data. " *
+                    "Available forecast intervals: $(available_intervals)",
+                ),
+            )
+        end
+    end
+    if get_horizon(settings) == IOM.UNSET_HORIZON
+        IOM.set_horizon!(
+            settings,
+            IOM.get_forecast_horizon(sys; interval = IOM._to_is_interval(model_interval)),
+        )
+    end
+
+    counts = IOM.get_time_series_counts(sys)
+    if counts.forecast_count < 1
+        error(
+            "The system does not contain forecast data. A DecisionModel can't be built.",
+        )
+    end
     return
 end
 
