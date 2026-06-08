@@ -119,9 +119,12 @@ function get_default_attributes(
         # Supported: "solver_sos2", "manual_sos2", "sawtooth"; "bin2" also
         # accepts "nmdt" and "dnmdt".
         "bilinear_quadratic_method" => "solver_sos2",
-        # Maximum approximation gap; sized against the per-device voltage and
-        # current ranges. Must be finite and > 0.
-        "bilinear_tolerance" => 1e-2,
+        # Relative approximation gap: a fraction of the v·I (and I²) magnitude,
+        # sized against the per-device voltage and current ranges.
+        "bilinear_relative_tolerance" => 0.05,
+        # Optional absolute approximation gap. When set alongside the relative
+        # tolerance, the finer of the two binds.
+        "bilinear_absolute_tolerance" => nothing,
     )
 end
 

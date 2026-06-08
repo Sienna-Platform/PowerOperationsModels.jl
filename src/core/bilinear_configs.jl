@@ -9,6 +9,34 @@ function _validate_tolerance(tolerance::Float64)
     return tolerance
 end
 
+"""
+Characteristic magnitude of a variable over its per-device `bounds`
+(`max|x|` across all devices). Used to turn a relative tolerance into an
+absolute one — see [`_resolve_tolerance`](@ref).
+"""
+_max_abs(bounds) = maximum(max(abs(b.min), abs(b.max)) for b in bounds)
+
+"""
+Resolve the absolute bilinear/quadratic approximation tolerance from the
+`absolute` and `relative` attribute values. A relative tolerance is scaled to
+absolute by the characteristic product/term magnitude `scale`
+(`τ_abs = relative · scale`). Each argument is a positive number or `nothing`;
+the discretization must satisfy every tolerance that is set, so the effective
+absolute tolerance is the smallest of those provided. At least one must be set.
+"""
+function _resolve_tolerance(absolute, relative, scale::Float64)
+    tols = Float64[]
+    isnothing(absolute) || push!(tols, Float64(absolute))
+    isnothing(relative) || push!(tols, Float64(relative) * scale)
+    isempty(tols) && throw(
+        ArgumentError(
+            "at least one of `bilinear_absolute_tolerance` or " *
+            "`bilinear_relative_tolerance` must be set (both are unset)",
+        ),
+    )
+    return _validate_tolerance(minimum(tols))
+end
+
 function _quad_config_type(method::String)
     if method == "solver_sos2"
         return IOM.SolverSOS2QuadConfig

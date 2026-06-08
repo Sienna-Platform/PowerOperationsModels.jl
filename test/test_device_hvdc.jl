@@ -180,13 +180,14 @@ end
 
 @testset "Converter loss: attribute → IOM config bridge" begin
     # Pure config construction — no solver or system required.
-    v_delta, i_delta = 0.1, 10.0
+    v_bounds = [IOM.MinMax((min = 0.9, max = 1.05))]
+    i_bounds = [IOM.MinMax((min = -2.0, max = 2.0))]
     milp_dm(overrides...) = DeviceModel(
         InterconnectingConverter, QuadraticLossConverterMILP;
         attributes = Dict{String, Any}(overrides...),
     )
     cfgs(dm) = POM._build_converter_configs(
-        QuadraticLossConverterMILP, dm, v_delta, i_delta,
+        QuadraticLossConverterMILP, dm, v_bounds, i_bounds,
     )
 
     # Squares-based schemes: the standalone loss-I² quad config is reused as the
@@ -220,21 +221,35 @@ end
     @test quad isa IOM.NoQuadApproxConfig
     @test bilin isa IOM.NoBilinearApproxConfig
     quad, bilin = POM._build_converter_configs(
-        QuadraticLossConverterNLP, milp_dm(), v_delta, i_delta,
+        QuadraticLossConverterNLP, milp_dm(), v_bounds, i_bounds,
     )
     @test quad isa IOM.NoQuadApproxConfig
     @test bilin isa IOM.NoBilinearApproxConfig
 
-    # Tighter tolerance ⇒ deeper discretization, for the bin2 inner quad and the
-    # standalone nmdt loss quad alike.
-    loose, _ = cfgs(milp_dm("bilinear_tolerance" => 1e-1))
-    tight, _ = cfgs(milp_dm("bilinear_tolerance" => 1e-4))
+    # Tighter relative tolerance ⇒ deeper discretization, for the bin2 inner quad
+    # and the standalone nmdt loss quad alike.
+    loose, _ = cfgs(milp_dm("bilinear_relative_tolerance" => 1e-1))
+    tight, _ = cfgs(milp_dm("bilinear_relative_tolerance" => 1e-4))
     @test tight.depth > loose.depth
-    loose_n, _ = cfgs(milp_dm(
-        "bilinear_approximation" => "nmdt", "bilinear_tolerance" => 1e-1))
-    tight_n, _ = cfgs(milp_dm(
-        "bilinear_approximation" => "nmdt", "bilinear_tolerance" => 1e-4))
+    loose_n, _ = cfgs(
+        milp_dm(
+            "bilinear_approximation" => "nmdt", "bilinear_relative_tolerance" => 1e-1),
+    )
+    tight_n, _ = cfgs(
+        milp_dm(
+            "bilinear_approximation" => "nmdt", "bilinear_relative_tolerance" => 1e-4),
+    )
     @test tight_n.depth > loose_n.depth
+
+    # A relative tolerance and the equivalent absolute tolerance size identically.
+    scale = POM._max_abs(v_bounds) * POM._max_abs(i_bounds)
+    rel_cfg, _ = cfgs(milp_dm("bilinear_relative_tolerance" => 0.05))
+    abs_cfg, _ = cfgs(
+        milp_dm(
+            "bilinear_relative_tolerance" => nothing,
+            "bilinear_absolute_tolerance" => 0.05 * scale),
+    )
+    @test rel_cfg.depth == abs_cfg.depth
 
     # Error cases bubble up from the shared bridge.
     @test_throws ErrorException cfgs(milp_dm("bilinear_approximation" => "foo"))
@@ -244,15 +259,21 @@ end
         milp_dm(
             "bilinear_approximation" => "hybs", "bilinear_quadratic_method" => "nmdt"),
     )
-    @test_throws ArgumentError cfgs(milp_dm("bilinear_tolerance" => 0.0))
-    @test_throws ArgumentError cfgs(milp_dm("bilinear_tolerance" => Inf))
+    @test_throws ArgumentError cfgs(milp_dm("bilinear_relative_tolerance" => 0.0))
+    @test_throws ArgumentError cfgs(milp_dm("bilinear_relative_tolerance" => Inf))
+    # Both tolerances unset → error.
+    @test_throws ArgumentError cfgs(
+        milp_dm(
+            "bilinear_relative_tolerance" => nothing,
+            "bilinear_absolute_tolerance" => nothing),
+    )
 
     # The VSC LP formulation uses the same bridge (spot check) and keeps
     # use_octagon among its defaults.
     vsc_dm = DeviceModel(TwoTerminalVSCLine, HVDCTwoTerminalVSCLP)
     @test IOM.get_attribute(vsc_dm, "use_octagon") == true
     quad, bilin = POM._build_converter_configs(
-        HVDCTwoTerminalVSCLP, vsc_dm, v_delta, i_delta,
+        HVDCTwoTerminalVSCLP, vsc_dm, v_bounds, i_bounds,
     )
     @test bilin isa IOM.Bin2Config{IOM.SolverSOS2QuadConfig}
     @test quad === bilin.quad_config

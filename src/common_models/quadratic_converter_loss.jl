@@ -97,11 +97,14 @@ end
 #########################################
 #
 # The MILP/LP converter-loss formulations size their `v·I` (bilinear) and `I²`
-# (quadratic) surrogates from the same three `DeviceModel` attributes used by
+# (quadratic) surrogates from the same `DeviceModel` attributes used by
 # `HydroTurbineMILPBilinearDispatch` — `"bilinear_approximation"`,
-# `"bilinear_quadratic_method"`, `"bilinear_tolerance"` — bridged to IOM configs
-# through `_build_bilinear_config` (src/core/bilinear_configs.jl). The NLP
-# formulations keep both terms exact.
+# `"bilinear_quadratic_method"`, and the `"bilinear_relative_tolerance"` /
+# `"bilinear_absolute_tolerance"` pair — bridged to IOM configs through
+# `_build_bilinear_config` (src/core/bilinear_configs.jl). A relative tolerance
+# is scaled to absolute by the term magnitude (`_resolve_tolerance`): the
+# product `max|v|·max|i|` for the bilinear, `max|i|²` for the standalone `I²`.
+# The NLP formulations keep both terms exact.
 #
 # The converters reuse the standalone `I²` we build for the loss term instead of
 # letting the bilinear recompute it. That works because the squares-based schemes
@@ -123,30 +126,35 @@ function _max_delta(bounds)
     return delta
 end
 
-# Build (quad_cfg, bilin_cfg) for a converter-loss formulation. MILP/LP read the
-# attributes and size from `tolerance` and the domain widths; NLP keeps the loss
-# terms exact (no approximation).
+# Build (quad_cfg, bilin_cfg) for a converter-loss formulation from the device
+# `v_bounds`/`i_bounds`. MILP/LP read the attributes, derive the worst-case
+# domain widths and term magnitudes, and size the discretization; NLP keeps the
+# loss terms exact (no approximation).
 function _build_converter_configs(
     ::Type{F},
     model::DeviceModel,
-    v_delta::Float64,
-    i_delta::Float64,
+    v_bounds,
+    i_bounds,
 ) where {F <: Union{QuadraticLossConverterMILP, HVDCTwoTerminalVSCLP}}
     method = get_attribute(model, "bilinear_approximation")
     quad_method = get_attribute(model, "bilinear_quadratic_method")
-    tolerance = Float64(get_attribute(model, "bilinear_tolerance"))
+    abs_tol = get_attribute(model, "bilinear_absolute_tolerance")
+    rel_tol = get_attribute(model, "bilinear_relative_tolerance")
     method == "none" &&
         return (IOM.NoQuadApproxConfig(), IOM.NoBilinearApproxConfig())
-    bilin_cfg = _build_bilinear_config(method, quad_method, tolerance, v_delta, i_delta)
-    quad_cfg = _converter_quad_config(bilin_cfg, quad_method, tolerance, i_delta)
+    v_delta, i_delta = _max_delta(v_bounds), _max_delta(i_bounds)
+    # Bilinear v·i sized against the product magnitude max|v|·max|i|.
+    tol_prod = _resolve_tolerance(abs_tol, rel_tol, _max_abs(v_bounds) * _max_abs(i_bounds))
+    bilin_cfg = _build_bilinear_config(method, quad_method, tol_prod, v_delta, i_delta)
+    quad_cfg = _converter_quad_config(bilin_cfg, quad_method, abs_tol, rel_tol, i_bounds)
     return (quad_cfg, bilin_cfg)
 end
 
 function _build_converter_configs(
     ::Type{F},
     ::DeviceModel,
-    ::Float64,
-    ::Float64,
+    _v_bounds,
+    _i_bounds,
 ) where {F <: Union{QuadraticLossConverterNLP, HVDCTwoTerminalVSCNLP}}
     return (IOM.NoQuadApproxConfig(), IOM.NoBilinearApproxConfig())
 end
@@ -155,22 +163,26 @@ end
 # quad is reused — the bin2/hybs tolerance bound assumes the squares share that
 # inner quad (see bilinear_approximations/bin2.jl). For nmdt/dnmdt the bilinear
 # uses a discretization and never builds `I²`, so the loss `I²` is sized on its
-# own from the quad method and tolerance over the `I` domain.
+# own from the quad method and tolerance over the `I` domain (scaled by the `I²`
+# magnitude max|i|² when the tolerance is relative).
 _converter_quad_config(
     bilin_cfg::Union{IOM.Bin2Config, IOM.HybSConfig},
     ::String,
-    ::Float64,
-    ::Float64,
+    _abs_tol,
+    _rel_tol,
+    _i_bounds,
 ) = bilin_cfg.quad_config
 
 function _converter_quad_config(
     ::Union{IOM.NMDTBilinearConfig, IOM.DNMDTBilinearConfig},
     quad_method::String,
-    tolerance::Float64,
-    i_delta::Float64,
+    abs_tol,
+    rel_tol,
+    i_bounds,
 )
     Q = _quad_config_type(quad_method)
-    depth = IOM.tolerance_depth(Q; tolerance = tolerance, max_delta = i_delta)
+    tol_sq = _resolve_tolerance(abs_tol, rel_tol, _max_abs(i_bounds)^2)
+    depth = IOM.tolerance_depth(Q; tolerance = tol_sq, max_delta = _max_delta(i_bounds))
     return Q(; depth = depth)
 end
 

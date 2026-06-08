@@ -221,8 +221,11 @@ only the box.
   PWL method. Used by the `"bin2"` and `"hybs"` schemes, and also sizes the
   standalone `I²` loss term for *every* scheme. Supported: `"solver_sos2"`,
   `"manual_sos2"`, `"sawtooth"`; `"bin2"` also accepts `"nmdt"` and `"dnmdt"`.
-- `"bilinear_tolerance"` (default `1e-2`): maximum approximation gap; must be
-  finite and > 0.
+- `"bilinear_relative_tolerance"` (default `0.05`): approximation gap as a
+  fraction of the product magnitude — the default sizing knob.
+- `"bilinear_absolute_tolerance"` (default unset): optional absolute gap. The
+  discretization meets whichever tolerances are set; at least one must be set,
+  and each must be finite and > 0.
 """
 struct HVDCTwoTerminalVSCLP <: AbstractTwoTerminalVSCFormulation end
 
@@ -260,8 +263,11 @@ from the per-device voltage and current ranges.
   formulation — also sizes the standalone `I²` loss term for *every* scheme.
   Supported: `"solver_sos2"`, `"manual_sos2"`, `"sawtooth"`; `"bin2"` also
   accepts `"nmdt"` and `"dnmdt"`.
-- `"bilinear_tolerance"` (default `1e-2`): maximum approximation gap; must be
-  finite and > 0.
+- `"bilinear_relative_tolerance"` (default `0.05`): approximation gap as a
+  fraction of the product magnitude — the default sizing knob.
+- `"bilinear_absolute_tolerance"` (default unset): optional absolute gap. The
+  discretization meets whichever tolerances are set; at least one must be set,
+  and each must be finite and > 0.
 """
 struct QuadraticLossConverterMILP <: AbstractQuadraticLossConverter end
 
@@ -404,8 +410,11 @@ Formulation type to add injection variables for a HydroTurbine connected to rese
   PWL method used by the `"bin2"` and `"hybs"` schemes (ignored otherwise).
   Supported: `"solver_sos2"`, `"manual_sos2"`, `"sawtooth"`; `"bin2"` also
   accepts `"nmdt"` and `"dnmdt"`.
-- `"bilinear_tolerance"` (default `1e-2`): maximum approximation gap; must be
-  finite and > 0.
+- `"bilinear_relative_tolerance"` (default `0.05`): approximation gap as a
+  fraction of the product magnitude — the default sizing knob.
+- `"bilinear_absolute_tolerance"` (default unset): optional absolute gap. The
+  discretization meets whichever tolerances are set; at least one must be set,
+  and each must be finite and > 0.
 ```
 
 See: [`PowerSystems.HydroGen`](@extref).

@@ -431,9 +431,13 @@ function get_default_attributes(
         # Supported: "solver_sos2", "manual_sos2", "sawtooth"; "bin2" also
         # accepts "nmdt" and "dnmdt".
         "bilinear_quadratic_method" => "solver_sos2",
-        # Maximum approximation gap. Combined with the per-device flow and head
-        # ranges to size each method's discretization automatically.
-        "bilinear_tolerance" => 1e-2,
+        # Relative approximation gap: a fraction of the flow×head product
+        # magnitude. Combined with the per-device flow and head ranges to size
+        # each method's discretization automatically.
+        "bilinear_relative_tolerance" => 0.05,
+        # Optional absolute approximation gap (same units as flow×head). When
+        # set alongside the relative tolerance, the finer of the two binds.
+        "bilinear_absolute_tolerance" => nothing,
     )
 end
 
@@ -1865,7 +1869,8 @@ function add_constraints!(
     head = get_variable(container, HydroReservoirHeadVariable, PSY.HydroReservoir)
     bilinear_method = get_attribute(model, "bilinear_approximation")
     quad_method = get_attribute(model, "bilinear_quadratic_method")
-    tolerance = get_attribute(model, "bilinear_tolerance")
+    rel_tolerance = get_attribute(model, "bilinear_relative_tolerance")
+    abs_tolerance = get_attribute(model, "bilinear_absolute_tolerance")
     for d in devices
         name = PSY.get_name(d)
         conversion_factor = PSY.get_conversion_factor(d)
@@ -1908,6 +1913,12 @@ function add_constraints!(
 
         flow_bounds = repeat([(min = flow_lb, max = flow_ub)], length(reservoirs))
 
+        # Scale a relative tolerance by the flow×head product magnitude.
+        tolerance = _resolve_tolerance(
+            abs_tolerance,
+            rel_tolerance,
+            _max_abs(flow_bounds) * _max_abs(head_bounds),
+        )
         fh_prod = IOM._add_bilinear_approx!(
             _build_bilinear_config(
                 bilinear_method,

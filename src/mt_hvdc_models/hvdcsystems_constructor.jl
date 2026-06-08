@@ -109,8 +109,7 @@ function construct_device!(
     v_expr = _voltage_expr_per_converter(container, devices, ipc_names, time_steps)
     i_var = get_variable(container, ConverterCurrent, PSY.InterconnectingConverter)
 
-    quad_cfg, bilin_cfg =
-        _build_converter_configs(T, model, _max_delta(v_bounds), _max_delta(i_bounds))
+    quad_cfg, bilin_cfg = _build_converter_configs(T, model, v_bounds, i_bounds)
     # The loss term reads `i_sq`; build it once and reuse it for the bilinear.
     i_sq_expr = IOM._add_quadratic_approx!(
         quad_cfg,

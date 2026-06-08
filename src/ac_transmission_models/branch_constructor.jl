@@ -1731,9 +1731,8 @@ function construct_device!(
         (min = -_vsc_cable_i_max(d), max = _vsc_cable_i_max(d)) for d in devices
     ]
 
-    v_delta = max(_max_delta(v_f_bounds), _max_delta(v_t_bounds))
     quad_cfg, bilin_cfg =
-        _build_converter_configs(F, device_model, v_delta, _max_delta(i_bounds))
+        _build_converter_configs(F, device_model, vcat(v_f_bounds, v_t_bounds), i_bounds)
 
     # The converter loss terms read `i_sq`; build it once and reuse it for both
     # terminal bilinears.
