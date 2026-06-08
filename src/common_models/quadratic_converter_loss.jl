@@ -1,8 +1,9 @@
 # Shared helpers for quadratic / two-term converter losses
 #   loss(I) = a * I^2 + b * |I| + c
-# Used by multi-terminal InterconnectingConverter formulations
-# (QuadraticLossConverterMILP, QuadraticLossConverterNLP) and two-terminal
-# TwoTerminalVSCLine formulations (HVDCTwoTerminalVSCLP, HVDCTwoTerminalVSCNLP).
+# Used by the multi-terminal InterconnectingConverter formulation
+# (QuadraticLossConverter) and the two-terminal TwoTerminalVSCLine formulation
+# (HVDCTwoTerminalVSC). Both default to the exact (NLP) case and opt into MILP
+# approximations via the `"bilinear_approximation"` attribute.
 #
 # `|I|` is represented by an LP surrogate: a single non-negative variable
 # `CurrentAbsoluteValueVariable` bounded below by both `i` and `-i`. The
@@ -96,15 +97,15 @@ end
 ####### Tolerance-driven configs ########
 #########################################
 #
-# The MILP/LP converter-loss formulations size their `v·I` (bilinear) and `I²`
+# The converter-loss formulations size their `v·I` (bilinear) and `I²`
 # (quadratic) surrogates from the same `DeviceModel` attributes used by
-# `HydroTurbineMILPBilinearDispatch` — `"bilinear_approximation"`,
+# `HydroTurbineBilinearDispatch` — `"bilinear_approximation"`,
 # `"bilinear_quadratic_method"`, and the `"bilinear_relative_tolerance"` /
 # `"bilinear_absolute_tolerance"` pair — bridged to IOM configs through
 # `_build_bilinear_config` (src/core/bilinear_configs.jl). A relative tolerance
 # is scaled to absolute by the term magnitude (`_resolve_tolerance`): the
 # product `max|v|·max|i|` for the bilinear, `max|i|²` for the standalone `I²`.
-# The NLP formulations keep both terms exact.
+# With `"bilinear_approximation" => "none"` both terms are kept exact (NLP).
 #
 # The converters reuse the standalone `I²` we build for the loss term instead of
 # letting the bilinear recompute it. That works because the squares-based schemes
@@ -127,15 +128,17 @@ function _max_delta(bounds)
 end
 
 # Build (quad_cfg, bilin_cfg) for a converter-loss formulation from the device
-# `v_bounds`/`i_bounds`. MILP/LP read the attributes, derive the worst-case
-# domain widths and term magnitudes, and size the discretization; NLP keeps the
-# loss terms exact (no approximation).
+# `v_bounds`/`i_bounds`. Reads the attributes, derives the worst-case domain
+# widths and term magnitudes, and sizes the discretization. With
+# `"bilinear_approximation" => "none"` (the default) it early-returns the
+# NoApprox configs, keeping the loss terms exact (NLP) without requiring finite
+# bounds — the single string→config-type site for the converter losses.
 function _build_converter_configs(
     ::Type{F},
     model::DeviceModel,
     v_bounds,
     i_bounds,
-) where {F <: Union{QuadraticLossConverterMILP, HVDCTwoTerminalVSCLP}}
+) where {F <: Union{QuadraticLossConverter, HVDCTwoTerminalVSC}}
     method = get_attribute(model, "bilinear_approximation")
     quad_method = get_attribute(model, "bilinear_quadratic_method")
     abs_tol = get_attribute(model, "bilinear_absolute_tolerance")
@@ -148,15 +151,6 @@ function _build_converter_configs(
     bilin_cfg = _build_bilinear_config(method, quad_method, tol_prod, v_delta, i_delta)
     quad_cfg = _converter_quad_config(bilin_cfg, quad_method, abs_tol, rel_tol, i_bounds)
     return (quad_cfg, bilin_cfg)
-end
-
-function _build_converter_configs(
-    ::Type{F},
-    ::DeviceModel,
-    _v_bounds,
-    _i_bounds,
-) where {F <: Union{QuadraticLossConverterNLP, HVDCTwoTerminalVSCNLP}}
-    return (IOM.NoQuadApproxConfig(), IOM.NoBilinearApproxConfig())
 end
 
 # Quad config for the standalone loss `I²`. For bin2/hybs the bilinear's inner

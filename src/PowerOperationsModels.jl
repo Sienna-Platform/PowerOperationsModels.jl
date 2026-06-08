@@ -568,7 +568,6 @@ export HydroWaterFactorModel
 export HydroWaterModelReservoir
 export HydroTurbineBilinearDispatch
 export HydroTurbineWaterLinearDispatch
-export HydroTurbineMILPBilinearDispatch
 export HydroTurbineWaterLinearCommitment
 export HydroEnergyModelReservoir
 export HydroTurbineEnergyDispatch
@@ -811,15 +810,13 @@ export HVDCTwoTerminalLossless
 export HVDCTwoTerminalDispatch
 export HVDCTwoTerminalPiecewiseLoss
 export HVDCTwoTerminalLCC
-export HVDCTwoTerminalVSCNLP
-export HVDCTwoTerminalVSCLP
+export HVDCTwoTerminalVSC
 
 # Converter Formulations
 export LosslessConverter
 export LinearLossConverter
 export AbstractQuadraticLossConverter
-export QuadraticLossConverterMILP
-export QuadraticLossConverterNLP
+export QuadraticLossConverter
 
 # DC Line Formulations
 export DCLosslessLine

@@ -100,18 +100,17 @@ end
 end
 
 @testset "HVDC MILP vs NLP QuadraticLossConverter agreement" begin
-    # Build both formulations on the same system; compare objective values
-    # (Rodrigo's "same order of magnitude" ask from PR #103).
-    function _build_and_solve(sys, formulation, optimizer)
+    # Build the single QuadraticLossConverter both ways — MILP via a linearizing
+    # bilinear scheme and exact (NLP) via the default "none" scheme — on the same
+    # system; compare objective values (Rodrigo's "same order of magnitude" ask
+    # from PR #103).
+    function _build_and_solve(sys, converter_model, optimizer)
         template = PowerOperationsProblemTemplate()
         set_device_model!(template, ThermalStandard, ThermalDispatchNoMin)
         set_device_model!(template, PowerLoad, StaticPowerLoad)
         set_device_model!(template, DeviceModel(Line, StaticBranch))
         set_device_model!(template, TModelHVDCLine, DCLossyLine)
-        set_device_model!(
-            template,
-            DeviceModel(InterconnectingConverter, formulation),
-        )
+        set_device_model!(template, converter_model)
         set_hvdc_network_model!(template, VoltageDispatchHVDCNetworkModel)
         model = DecisionModel(
             template, sys;
@@ -124,8 +123,19 @@ end
     end
 
     sys = _generate_test_hvdc_sys()
-    milp_model = _build_and_solve(sys, QuadraticLossConverterMILP, HiGHS_optimizer)
-    nlp_model = _build_and_solve(sys, QuadraticLossConverterNLP, ipopt_optimizer)
+    milp_model = _build_and_solve(
+        sys,
+        DeviceModel(
+            InterconnectingConverter, QuadraticLossConverter;
+            attributes = Dict("bilinear_approximation" => "bin2"),
+        ),
+        HiGHS_optimizer,
+    )
+    nlp_model = _build_and_solve(
+        sys,
+        DeviceModel(InterconnectingConverter, QuadraticLossConverter),
+        ipopt_optimizer,
+    )
 
     # Objective is the right level of strictness for "same order of magnitude"
     # (Rodrigo's ask on the PR #103 review). Per-converter or system-total
@@ -151,7 +161,10 @@ end
     set_device_model!(template, TModelHVDCLine, DCLossyLine)
     set_device_model!(
         template,
-        DeviceModel(InterconnectingConverter, QuadraticLossConverterMILP),
+        DeviceModel(
+            InterconnectingConverter, QuadraticLossConverter;
+            attributes = Dict("bilinear_approximation" => "bin2"),
+        ),
     )
     set_hvdc_network_model!(template, VoltageDispatchHVDCNetworkModel)
     model = DecisionModel(
@@ -182,12 +195,14 @@ end
     # Pure config construction — no solver or system required.
     v_bounds = [IOM.MinMax((min = 0.9, max = 1.05))]
     i_bounds = [IOM.MinMax((min = -2.0, max = 2.0))]
+    # The formulation defaults to the exact "none" scheme, so default the helper
+    # to a linearizing scheme ("bin2") to exercise the MILP bridge; overrides win.
     milp_dm(overrides...) = DeviceModel(
-        InterconnectingConverter, QuadraticLossConverterMILP;
-        attributes = Dict{String, Any}(overrides...),
+        InterconnectingConverter, QuadraticLossConverter;
+        attributes = Dict{String, Any}("bilinear_approximation" => "bin2", overrides...),
     )
     cfgs(dm) = POM._build_converter_configs(
-        QuadraticLossConverterMILP, dm, v_bounds, i_bounds,
+        QuadraticLossConverter, dm, v_bounds, i_bounds,
     )
 
     # Squares-based schemes: the standalone loss-I² quad config is reused as the
@@ -216,13 +231,8 @@ end
     @test bilin isa IOM.DNMDTBilinearConfig
     @test quad isa IOM.SolverSOS2QuadConfig
 
-    # "none" and the NLP formulation are both exact.
+    # "none" (the default scheme) keeps both terms exact.
     quad, bilin = cfgs(milp_dm("bilinear_approximation" => "none"))
-    @test quad isa IOM.NoQuadApproxConfig
-    @test bilin isa IOM.NoBilinearApproxConfig
-    quad, bilin = POM._build_converter_configs(
-        QuadraticLossConverterNLP, milp_dm(), v_bounds, i_bounds,
-    )
     @test quad isa IOM.NoQuadApproxConfig
     @test bilin isa IOM.NoBilinearApproxConfig
 
@@ -268,18 +278,21 @@ end
             "bilinear_absolute_tolerance" => nothing),
     )
 
-    # The VSC LP formulation uses the same bridge (spot check) and keeps
+    # The VSC formulation uses the same bridge (spot check) and keeps
     # use_octagon among its defaults.
-    vsc_dm = DeviceModel(TwoTerminalVSCLine, HVDCTwoTerminalVSCLP)
+    vsc_dm = DeviceModel(
+        TwoTerminalVSCLine, HVDCTwoTerminalVSC;
+        attributes = Dict("bilinear_approximation" => "bin2"),
+    )
     @test IOM.get_attribute(vsc_dm, "use_octagon") == true
     quad, bilin = POM._build_converter_configs(
-        HVDCTwoTerminalVSCLP, vsc_dm, v_bounds, i_bounds,
+        HVDCTwoTerminalVSC, vsc_dm, v_bounds, i_bounds,
     )
     @test bilin isa IOM.Bin2Config{IOM.SolverSOS2QuadConfig}
     @test quad === bilin.quad_config
 end
 
-@testset "QuadraticLossConverterMILP builds under every bilinear scheme" begin
+@testset "QuadraticLossConverter builds under every bilinear scheme" begin
     sys = _generate_test_hvdc_sys()
     for scheme in ("bin2", "hybs", "nmdt", "dnmdt")
         template = PowerOperationsProblemTemplate()
@@ -290,7 +303,7 @@ end
         set_device_model!(
             template,
             DeviceModel(
-                InterconnectingConverter, QuadraticLossConverterMILP;
+                InterconnectingConverter, QuadraticLossConverter;
                 attributes = Dict{String, Any}("bilinear_approximation" => scheme),
             ),
         )
@@ -356,53 +369,65 @@ function _generate_test_vsc_sys(;
     return sys
 end
 
-function _build_vsc_model(formulation, network, optimizer; sys = _generate_test_vsc_sys())
+function _build_vsc_model(
+    converter_model::DeviceModel,
+    network,
+    optimizer;
+    sys = _generate_test_vsc_sys(),
+)
     template = PowerOperationsProblemTemplate(NetworkModel(network))
     set_device_model!(template, ThermalStandard, ThermalDispatchNoMin)
     set_device_model!(template, RenewableDispatch, RenewableFullDispatch)
     set_device_model!(template, PowerLoad, StaticPowerLoad)
     set_device_model!(template, DeviceModel(Line, StaticBranch))
-    set_device_model!(template, DeviceModel(TwoTerminalVSCLine, formulation))
+    set_device_model!(template, converter_model)
     return DecisionModel(
         template, sys; store_variable_names = true, optimizer = optimizer,
     )
 end
 
-# Standalone build+solve smoke tests for each (formulation, network) combo
-# are covered by the agreement / property tests further down:
-#   - HVDCTwoTerminalVSCNLP on DCP → "HVDC VSC LP vs NLP objective agreement"
-#   - HVDCTwoTerminalVSCLP  on DCP → same agreement test + cable-resistance test
-#   - HVDCTwoTerminalVSCNLP on AC  → "HVDC VSC: tighter PQ rating raises cost on AC"
-# HVDCTwoTerminalVSCLP on ACPPowerModel is omitted: HiGHS can't solve the
-# ACP network's trig (cos/sin) branch ohms-law constraints, and no MINLP
-# solver with trigonometric support is wired into the test deps.
+# A single HVDCTwoTerminalVSC formulation, switched between MILP and exact (NLP)
+# via the "bilinear_approximation" attribute ("bin2" vs the default "none").
+_vsc_milp(attrs...) = DeviceModel(
+    TwoTerminalVSCLine, HVDCTwoTerminalVSC;
+    attributes = Dict{String, Any}("bilinear_approximation" => "bin2", attrs...),
+)
+_vsc_nlp() = DeviceModel(TwoTerminalVSCLine, HVDCTwoTerminalVSC)  # default "none"
+
+# Standalone build+solve smoke tests for each (scheme, network) combo are
+# covered by the agreement / property tests further down:
+#   - exact (NLP) on DCP → "HVDC VSC LP vs NLP objective agreement"
+#   - MILP on DCP        → same agreement test + cable-resistance test
+#   - exact (NLP) on AC  → "HVDC VSC: tighter PQ rating raises cost on AC"
+# The MILP scheme on ACPPowerModel is omitted: HiGHS can't solve the ACP
+# network's trig (cos/sin) branch ohms-law constraints, and no MINLP solver
+# with trigonometric support is wired into the test deps.
 #
 # TODO: Re-add an `octagon vs box-only` LP property test once an MINLP solver
 # with trig support is available. The previous version of that test ran on
 # `DCPPowerModel`, which never adds `HVDCVSCApparentPowerLimitConstraint`
-# (the constraint is gated by `_maybe_add_reactive_power_constraints!`, a
-# no-op on `AbstractActivePowerModel`), so it asserted the same model against
-# itself.
+# (active-power-only networks carry no reactive power, so `_add_vsc_pq_capability!`
+# is a no-op there), so it asserted the same model against itself.
 
 @testset "HVDC VSC LP vs NLP objective agreement" begin
     # On a DC network the PQ disk constraint is inactive (no reactive
     # variables exist), so the LP and NLP differ only by the i² loss model
     # (SOS2 PWL vs exact). For a smooth convex loss curve the two should agree
     # within a few percent.
-    function _solve(formulation, optimizer)
+    function _solve(converter_model, optimizer)
         sys = _generate_test_vsc_sys()
-        model = _build_vsc_model(formulation, DCPPowerModel, optimizer; sys = sys)
+        model = _build_vsc_model(converter_model, DCPPowerModel, optimizer; sys = sys)
         @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
               IOM.ModelBuildStatus.BUILT
         @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
         return IOM.get_optimization_container(model).optimizer_stats.objective_value
     end
-    lp_obj = _solve(HVDCTwoTerminalVSCLP, HiGHS_optimizer)
-    nlp_obj = _solve(HVDCTwoTerminalVSCNLP, ipopt_optimizer)
+    lp_obj = _solve(_vsc_milp(), HiGHS_optimizer)
+    nlp_obj = _solve(_vsc_nlp(), ipopt_optimizer)
     @test isapprox(lp_obj, nlp_obj; rtol = 0.05)
 end
 
-@testset "HVDCTwoTerminalVSCLP builds under every bilinear scheme" begin
+@testset "HVDCTwoTerminalVSC builds under every bilinear scheme" begin
     sys = _generate_test_vsc_sys()
     for scheme in ("bin2", "hybs", "nmdt", "dnmdt")
         template = PowerOperationsProblemTemplate(NetworkModel(DCPPowerModel))
@@ -413,7 +438,7 @@ end
         set_device_model!(
             template,
             DeviceModel(
-                TwoTerminalVSCLine, HVDCTwoTerminalVSCLP;
+                TwoTerminalVSCLine, HVDCTwoTerminalVSC;
                 attributes = Dict{String, Any}("bilinear_approximation" => scheme),
             ),
         )
@@ -428,7 +453,7 @@ end
     function _solve_with_g(g_value)
         sys = _generate_test_vsc_sys(; g = g_value)
         model = _build_vsc_model(
-            HVDCTwoTerminalVSCLP, DCPPowerModel, HiGHS_optimizer; sys = sys,
+            _vsc_milp(), DCPPowerModel, HiGHS_optimizer; sys = sys,
         )
         @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
               IOM.ModelBuildStatus.BUILT
@@ -444,7 +469,7 @@ end
     function _solve_with_rating(s)
         sys = _generate_test_vsc_sys(; rating_from = s, rating_to = s)
         model = _build_vsc_model(
-            HVDCTwoTerminalVSCNLP, ACPPowerModel, ipopt_optimizer; sys = sys,
+            _vsc_nlp(), ACPPowerModel, ipopt_optimizer; sys = sys,
         )
         @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
               IOM.ModelBuildStatus.BUILT

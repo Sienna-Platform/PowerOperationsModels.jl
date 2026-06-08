@@ -108,12 +108,13 @@ end
 
 function get_default_attributes(
     ::Type{PSY.InterconnectingConverter},
-    ::Type{QuadraticLossConverterMILP},
+    ::Type{QuadraticLossConverter},
 )
     return Dict{String, Any}(
         # Top-level bilinear approximation scheme for the `v·I` loss term.
-        # Supported: "bin2", "hybs", "nmdt", "dnmdt", "none".
-        "bilinear_approximation" => "bin2",
+        # Supported: "none" (exact, needs a nonlinear solver), "bin2", "hybs",
+        # "nmdt", "dnmdt".
+        "bilinear_approximation" => "none",
         # Inner quadratic PWL method (used by "bin2"/"hybs", and to size the
         # standalone `I²` loss term for every scheme).
         # Supported: "solver_sos2", "manual_sos2", "sawtooth"; "bin2" also

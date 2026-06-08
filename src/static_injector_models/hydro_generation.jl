@@ -422,11 +422,12 @@ end
 function get_default_attributes(
     ::Type{T},
     ::Type{D},
-) where {T <: PSY.HydroTurbine, D <: HydroTurbineMILPBilinearDispatch}
+) where {T <: PSY.HydroTurbine, D <: HydroTurbineBilinearDispatch}
     return Dict{String, Any}(
         # Top-level bilinear approximation scheme.
-        # Supported: "bin2", "hybs", "nmdt", "dnmdt", "none".
-        "bilinear_approximation" => "bin2",
+        # Supported: "none" (exact, needs a nonlinear solver), "bin2", "hybs",
+        # "nmdt", "dnmdt".
+        "bilinear_approximation" => "none",
         # Inner quadratic PWL method (used when bilinear_approximation ∈ {"bin2","hybs"}).
         # Supported: "solver_sos2", "manual_sos2", "sawtooth"; "bin2" also
         # accepts "nmdt" and "dnmdt".
@@ -1737,54 +1738,6 @@ function add_constraints!(
 end
 
 """
-This function define the relationship between turbined flow and power produced
-"""
-function add_constraints!(
-    container::OptimizationContainer,
-    sys::PSY.System,
-    ::Type{TurbinePowerOutputConstraint},
-    devices::IS.FlattenIteratorWrapper{V},
-    model::DeviceModel{V, W},
-    ::NetworkModel{X},
-) where {
-    V <: PSY.HydroTurbine,
-    W <: AbstractHydroFormulation,
-    X <: AbstractPowerModel,
-}
-    time_steps = get_time_steps(container)
-    base_power = get_model_base_power(container)
-    names = PSY.get_name.(devices)
-    constraint =
-        add_constraints_container!(container, TurbinePowerOutputConstraint,
-            V,
-            names,
-            time_steps,
-        )
-    power = get_variable(container, ActivePowerVariable, V)
-    flow = get_variable(container, HydroTurbineFlowRateVariable, V)
-    head = get_variable(container, HydroReservoirHeadVariable, PSY.HydroReservoir)
-    for d in devices
-        name = PSY.get_name(d)
-        conversion_factor = PSY.get_conversion_factor(d)
-        reservoirs = filter(PSY.get_available, PSY.get_connected_head_reservoirs(sys, d))
-        powerhouse_elevation = PSY.get_powerhouse_elevation(d)
-        for t in time_steps
-            constraint[name, t] = JuMP.@constraint(
-                container.JuMPmodel,
-                power[name, t] ==
-                GRAVITATIONAL_CONSTANT * WATER_DENSITY * conversion_factor *
-                sum(
-                    (
-                        head[PSY.get_name(res), t] - powerhouse_elevation
-                    ) * flow[name, PSY.get_name(res), t] for res in reservoirs
-                ) / (1e6 * base_power)
-            )
-        end
-    end
-    return
-end
-
-"""
 This function define the relationship between turbined flow and power produced with constant head
 """
 function add_constraints!(
@@ -1838,8 +1791,11 @@ function add_constraints!(
 end
 
 """
-This function defines the relationship between turbined flow and power produced
-with a linear approximation for the bilinear product.
+This function defines the relationship between turbined flow and power produced.
+The flow×head bilinear product is bridged to IOM's approximation API
+(`_build_bilinear_config` / `IOM._add_bilinear_approx!`): with
+`"bilinear_approximation" => "none"` (the default) the product is exact (NLP);
+a linearizing scheme produces a tolerance-driven MILP approximation.
 """
 function add_constraints!(
     container::OptimizationContainer,
@@ -1850,7 +1806,7 @@ function add_constraints!(
     ::NetworkModel{X},
 ) where {
     V <: PSY.HydroTurbine,
-    W <: HydroTurbineMILPBilinearDispatch,
+    W <: HydroTurbineBilinearDispatch,
     X <: PM.AbstractPowerModel,
 }
     time_steps = get_time_steps(container)
@@ -1876,7 +1832,7 @@ function add_constraints!(
         conversion_factor = PSY.get_conversion_factor(d)
         reservoirs = filter(PSY.get_available, PSY.get_connected_head_reservoirs(sys, d))
         isempty(reservoirs) && error(
-            "HydroTurbineMILPBilinearDispatch turbine \"$(name)\" has no available " *
+            "HydroTurbineBilinearDispatch turbine \"$(name)\" has no available " *
             "connected head reservoirs; cannot size the bilinear approximation.",
         )
         powerhouse_elevation = PSY.get_powerhouse_elevation(d)
@@ -1884,7 +1840,7 @@ function add_constraints!(
         flow_lb = get_variable_lower_bound(HydroTurbineFlowRateVariable, d, W)
         flow_ub = get_variable_upper_bound(HydroTurbineFlowRateVariable, d, W)
         isnothing(flow_ub) && error(
-            "HydroTurbineMILPBilinearDispatch requires finite turbine outflow " *
+            "HydroTurbineBilinearDispatch requires finite turbine outflow " *
             "limits to size the bilinear approximation, but turbine \"$(name)\" " *
             "has no `outflow_limits`. Set finite outflow limits or use a " *
             "different hydro turbine formulation.",
@@ -1899,7 +1855,7 @@ function add_constraints!(
         ]
         for (res, b) in zip(reservoirs, head_bounds)
             isnothing(b.max) && error(
-                "HydroTurbineMILPBilinearDispatch requires finite head bounds " *
+                "HydroTurbineBilinearDispatch requires finite head bounds " *
                 "to size the bilinear approximation, but reservoir " *
                 "\"$(PSY.get_name(res))\" (connected to turbine \"$(name)\") has " *
                 "no finite head upper bound (its level data is not stored as " *

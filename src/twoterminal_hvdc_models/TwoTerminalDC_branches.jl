@@ -1490,18 +1490,43 @@ get_variable_upper_bound(::Type{CurrentAbsoluteValueVariable}, d::PSY.TwoTermina
 ####################### VSC PQ-approx registration ###########################
 
 # Register the four IOM `QuadraticExpression` handles (`p_ft_sq`, `p_tf_sq`,
-# `q_f_sq`, `q_t_sq`) that the disk constraint reads. Only the NLP formulation
-# on an AC network actually emits the disk constraint, so only that combo
-# registers anything; the LP path and active-power-only networks no-op.
-function _register_pq_sq_expressions!(
+# `q_f_sq`, `q_t_sq`) that the exact PQ disk reads. Only the exact path
+# (`NoBilinearApproxConfig`) on an AC network emits the disk constraint, so only
+# that combo registers anything; the octagon path and active-power-only networks
+# register nothing. Dispatch is keyed on the bilinear config type (built once by
+# `_build_converter_configs`) and the network type — a two-level gate: the
+# network selects AC vs active-only, then the config selects exact vs octagon.
+_register_pq_sq_expressions!(
+    bilin_cfg::IOM.BilinearApproxConfig,
     container::OptimizationContainer,
     devices,
     line_names,
     time_steps,
-    ::DeviceModel{PSY.TwoTerminalVSCLine, HVDCTwoTerminalVSCNLP},
+    model::DeviceModel{PSY.TwoTerminalVSCLine, HVDCTwoTerminalVSC},
+    network_model::NetworkModel{<:AbstractPowerModel},
+) = _register_pq_sq!(
+    bilin_cfg, container, devices, line_names, time_steps, model, network_model,
+)
+
+# Active-power-only networks don't carry reactive variables at all.
+_register_pq_sq_expressions!(
+    ::IOM.BilinearApproxConfig,
+    ::OptimizationContainer, _devices, _names, _times,
+    ::DeviceModel{PSY.TwoTerminalVSCLine, HVDCTwoTerminalVSC},
+    ::NetworkModel{<:AbstractActivePowerModel},
+) = nothing
+
+# Exact PQ disk (NLP): register the exact `p_*_sq`/`q_*_sq` QuadExprs the disk reads.
+function _register_pq_sq!(
+    ::IOM.NoBilinearApproxConfig,
+    container::OptimizationContainer,
+    devices,
+    line_names,
+    time_steps,
+    ::DeviceModel{PSY.TwoTerminalVSCLine, HVDCTwoTerminalVSC},
     ::NetworkModel{<:AbstractPowerModel},
 )
-    # This dispatch is the NLP path, so the quad config is fixed.
+    # Exact path, so the quad config is the no-op (exact QuadExpr) config.
     quad_cfg = IOM.NoQuadApproxConfig()
     p_ft = get_variable(container, FlowActivePowerFromToVariable, PSY.TwoTerminalVSCLine)
     p_tf = get_variable(container, FlowActivePowerToFromVariable, PSY.TwoTerminalVSCLine)
@@ -1530,18 +1555,12 @@ function _register_pq_sq_expressions!(
     return
 end
 
-# LP path: no disk constraint, so no p_sq/q_sq are needed.
-_register_pq_sq_expressions!(
+# Octagon path: no disk constraint, so no p_sq/q_sq are needed.
+_register_pq_sq!(
+    ::IOM.BilinearApproxConfig,
     ::OptimizationContainer, _devices, _names, _times,
-    ::DeviceModel{PSY.TwoTerminalVSCLine, HVDCTwoTerminalVSCLP},
-    ::NetworkModel,
-) = nothing
-
-# Active-power-only networks don't carry reactive variables at all.
-_register_pq_sq_expressions!(
-    ::OptimizationContainer, _devices, _names, _times,
-    ::DeviceModel{PSY.TwoTerminalVSCLine, HVDCTwoTerminalVSCNLP},
-    ::NetworkModel{<:AbstractActivePowerModel},
+    ::DeviceModel{PSY.TwoTerminalVSCLine, HVDCTwoTerminalVSC},
+    ::NetworkModel{<:AbstractPowerModel},
 ) = nothing
 
 ####################### VSC core constraints ################################
@@ -1646,16 +1665,38 @@ function add_constraints!(
     return
 end
 
-# PQ capability — exact disk for the NLP formulation. `p_*_sq` / `q_*_sq` are
-# the `IOM.QuadraticExpression` handles registered by
-# `_register_pq_sq_expressions!`. Under `NoQuadApproxConfig` (what
-# `HVDCTwoTerminalVSCNLP` uses) they are exact QuadExprs, so the constraint is
-# the smooth `p² + q² ≤ s²` and the model stays an NLP.
-function add_constraints!(
+# PQ capability. Enforced via a two-level gate that mirrors
+# `_register_pq_sq_expressions!`: the network type selects AC vs active-only
+# (active-only networks carry no reactive power, so nothing is added), then the
+# bilinear config type selects the exact disk (`NoBilinearApproxConfig`) vs the
+# octagon outer-approximation (any other `BilinearApproxConfig`).
+_add_vsc_pq_capability!(
+    bilin_cfg::IOM.BilinearApproxConfig,
     container::OptimizationContainer,
-    ::Type{HVDCVSCApparentPowerLimitConstraint},
     devices::Union{Vector{U}, IS.FlattenIteratorWrapper{U}},
-    ::DeviceModel{U, HVDCTwoTerminalVSCNLP},
+    model::DeviceModel{U, HVDCTwoTerminalVSC},
+    network_model::NetworkModel{<:AbstractPowerModel},
+) where {U <: PSY.TwoTerminalVSCLine} =
+    _add_vsc_pq!(bilin_cfg, container, devices, model, network_model)
+
+# Active-power-only networks don't carry reactive variables, so there is no
+# apparent-power limit to enforce.
+_add_vsc_pq_capability!(
+    ::IOM.BilinearApproxConfig,
+    ::OptimizationContainer,
+    _devices::Union{Vector{U}, IS.FlattenIteratorWrapper{U}},
+    ::DeviceModel{U, HVDCTwoTerminalVSC},
+    ::NetworkModel{<:AbstractActivePowerModel},
+) where {U <: PSY.TwoTerminalVSCLine} = nothing
+
+# Exact disk (NLP). `p_*_sq` / `q_*_sq` are the `IOM.QuadraticExpression` handles
+# registered by `_register_pq_sq_expressions!` under `NoQuadApproxConfig`, so they
+# are exact QuadExprs and the constraint is the smooth `p² + q² ≤ s²` (NLP).
+function _add_vsc_pq!(
+    ::IOM.NoBilinearApproxConfig,
+    container::OptimizationContainer,
+    devices::Union{Vector{U}, IS.FlattenIteratorWrapper{U}},
+    ::DeviceModel{U, HVDCTwoTerminalVSC},
     ::NetworkModel{<:AbstractPowerModel},
 ) where {U <: PSY.TwoTerminalVSCLine}
     time_steps = get_time_steps(container)
@@ -1692,7 +1733,7 @@ function add_constraints!(
     return
 end
 
-# PQ capability — linear outer-approximation for the LP formulation.
+# Octagon — linear outer-approximation for the linearizing schemes.
 #
 # We always add the axis-aligned box  |p|, |q| ≤ rating.  When the
 # device-model attribute `use_octagon` (default `true`) is on, we also add
@@ -1705,11 +1746,11 @@ end
 # so |p|+|q| ≤ r√2. Both half-plane families contain the disk, and so does
 # their intersection. The octagon is loose by at most ≈8.2% in area
 # (octagon-to-disk area ratio 8·tan(π/8)/π ≈ 1.082).
-function add_constraints!(
+function _add_vsc_pq!(
+    ::IOM.BilinearApproxConfig,
     container::OptimizationContainer,
-    ::Type{HVDCVSCApparentPowerLimitConstraint},
     devices::Union{Vector{U}, IS.FlattenIteratorWrapper{U}},
-    model::DeviceModel{U, HVDCTwoTerminalVSCLP},
+    model::DeviceModel{U, HVDCTwoTerminalVSC},
     ::NetworkModel{<:AbstractPowerModel},
 ) where {U <: PSY.TwoTerminalVSCLine}
     time_steps = get_time_steps(container)
@@ -1796,20 +1837,23 @@ function get_default_time_series_names(
     return Dict{Type{<:TimeSeriesParameter}, String}()
 end
 
-# `use_octagon = true`: adds the four diagonals |p| ± q ≤ rating·√2 on top of
-# the axis-aligned box |p|, |q| ≤ rating. The intersection is a regular octagon
-# circumscribing the disk p² + q² ≤ rating² and is a guaranteed outer
-# approximation (loose by at most ≈8.2% in area). Setting it to false leaves
-# only the box, which is cheaper but a looser linear envelope of the disk.
+# `use_octagon = true`: under a linearizing scheme, adds the four diagonals
+# |p| ± q ≤ rating·√2 on top of the axis-aligned box |p|, |q| ≤ rating. The
+# intersection is a regular octagon circumscribing the disk p² + q² ≤ rating²
+# and is a guaranteed outer approximation (loose by at most ≈8.2% in area).
+# Setting it to false leaves only the box, which is cheaper but a looser linear
+# envelope of the disk. It is ignored when `bilinear_approximation` is "none"
+# (the exact disk is used).
 function get_default_attributes(
     ::Type{PSY.TwoTerminalVSCLine},
-    ::Type{HVDCTwoTerminalVSCLP},
+    ::Type{HVDCTwoTerminalVSC},
 )
     return Dict{String, Any}(
         "use_octagon" => true,
         # Bilinear approximation scheme for the per-terminal `v·I` loss terms.
-        # Supported: "bin2", "hybs", "nmdt", "dnmdt", "none".
-        "bilinear_approximation" => "bin2",
+        # Supported: "none" (exact, needs a nonlinear solver), "bin2", "hybs",
+        # "nmdt", "dnmdt".
+        "bilinear_approximation" => "none",
         # Inner quadratic PWL method (used by "bin2"/"hybs", and to size the
         # standalone `I²` loss term for every scheme).
         # Supported: "solver_sos2", "manual_sos2", "sawtooth"; "bin2" also

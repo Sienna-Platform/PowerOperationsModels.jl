@@ -194,29 +194,30 @@ reactive-power control bounded by per-terminal PQ capability.
 abstract type AbstractTwoTerminalVSCFormulation <: AbstractTwoTerminalDCLineFormulation end
 
 """
-Two-terminal VSC formulation that keeps the bilinear ``v \\cdot I`` and quadratic
-``I^2`` terms exact. Requires an NLP-capable solver (e.g. Ipopt).
-"""
-struct HVDCTwoTerminalVSCNLP <: AbstractTwoTerminalVSCFormulation end
+Two-terminal VSC formulation. The per-terminal bilinear ``v \\cdot I`` and
+quadratic ``I^2`` loss terms are bridged to IOM's approximation API, and the
+per-terminal PQ capability ``p^2 + q^2 \\le \\text{rating}^2`` is enforced
+accordingly.
 
-"""
-Two-terminal VSC formulation that replaces the bilinear ``v \\cdot I`` and
-quadratic ``I^2`` loss terms with tolerance-driven approximations (so the loss
-model itself is mixed-integer linear for the linearizing schemes) and enforces
-the per-terminal PQ capability via a linear outer-approximation of the disk
-``p^2 + q^2 \\le \\text{rating}^2``: axis-aligned box constraints
-``|p|, |q| \\le \\text{rating}`` always, plus four diagonal constraints
-``|p| \\pm q \\le \\text{rating}\\sqrt{2}`` when the device-model attribute
-`use_octagon` (default `true`) is on. With the diagonals in place the feasible
-region is a regular octagon circumscribing the disk; turning them off leaves
-only the box.
+By default (`"bilinear_approximation" => "none"`) the loss terms are kept exact
+and the PQ capability is the exact disk — an NLP that needs a nonlinear-capable
+solver (e.g. Ipopt). Setting a linearizing scheme replaces the loss terms with
+tolerance-driven approximations (so the loss model is mixed-integer linear) and
+enforces the PQ capability via a linear outer-approximation of the disk:
+axis-aligned box constraints ``|p|, |q| \\le \\text{rating}`` always, plus four
+diagonal constraints ``|p| \\pm q \\le \\text{rating}\\sqrt{2}`` when the
+device-model attribute `use_octagon` (default `true`) is on. With the diagonals
+in place the feasible region is a regular octagon circumscribing the disk;
+turning them off leaves only the box.
 
 # Attributes
-- `"use_octagon"` (default `true`): see above.
-- `"bilinear_approximation"` (default `"bin2"`): the bilinear approximation
-  scheme for each terminal's `v·I` term. Supported: `"bin2"`, `"hybs"`,
-  `"nmdt"`, `"dnmdt"`, `"none"` (`"none"` keeps `v·I` and `I²` exact — needs a
-  nonlinear-capable solver, matching `HVDCTwoTerminalVSCNLP`).
+- `"use_octagon"` (default `true`): see above (only consulted under a
+  linearizing scheme; the exact disk is used when `"bilinear_approximation"` is
+  `"none"`).
+- `"bilinear_approximation"` (default `"none"`): the bilinear approximation
+  scheme for each terminal's `v·I` term. Supported: `"none"` (exact `v·I` and
+  `I²` plus exact PQ disk, needs a nonlinear solver), `"bin2"`, `"hybs"`,
+  `"nmdt"`, `"dnmdt"`.
 - `"bilinear_quadratic_method"` (default `"solver_sos2"`): the inner quadratic
   PWL method. Used by the `"bin2"` and `"hybs"` schemes, and also sizes the
   standalone `I²` loss term for *every* scheme. Supported: `"solver_sos2"`,
@@ -227,7 +228,7 @@ only the box.
   discretization meets whichever tolerances are set; at least one must be set,
   and each must be finite and > 0.
 """
-struct HVDCTwoTerminalVSCLP <: AbstractTwoTerminalVSCFormulation end
+struct HVDCTwoTerminalVSC <: AbstractTwoTerminalVSCFormulation end
 
 ############################### AC/DC Converter Formulations #####################################
 abstract type AbstractConverterFormulation <: AbstractDeviceFormulation end
@@ -248,16 +249,18 @@ Abstract supertype for InterconnectingConverter formulations with quadratic loss
 abstract type AbstractQuadraticLossConverter <: AbstractConverterFormulation end
 
 """
-Quadratic Loss InterconnectingConverter whose `v·I` and `I²` loss terms are
-replaced by tolerance-driven approximations, so the model stays mixed-integer
-linear (for the linearizing schemes). The discretization is sized automatically
-from the per-device voltage and current ranges.
+Quadratic Loss InterconnectingConverter. The `v·I` and `I²` loss terms are
+bridged to IOM's approximation API. By default
+(`"bilinear_approximation" => "none"`) both terms are kept exact and the model is
+an NLP that needs a nonlinear-capable solver (e.g. Ipopt). Setting a linearizing
+scheme replaces them with tolerance-driven approximations, so the model stays
+mixed-integer linear; the discretization is sized automatically from the
+per-device voltage and current ranges.
 
 # Attributes
-- `"bilinear_approximation"` (default `"bin2"`): the bilinear approximation
-  scheme for `v·I`. Supported: `"bin2"`, `"hybs"`, `"nmdt"`, `"dnmdt"`,
-  `"none"` (`"none"` keeps `v·I` and `I²` exact — the resulting model is not a
-  MILP and needs a nonlinear-capable solver, matching `QuadraticLossConverterNLP`).
+- `"bilinear_approximation"` (default `"none"`): the bilinear approximation
+  scheme for `v·I`. Supported: `"none"` (exact `v·I` and `I²`, needs a nonlinear
+  solver), `"bin2"`, `"hybs"`, `"nmdt"`, `"dnmdt"`.
 - `"bilinear_quadratic_method"` (default `"solver_sos2"`): the inner quadratic
   PWL method. Used by the `"bin2"` and `"hybs"` schemes, and — unlike the hydro
   formulation — also sizes the standalone `I²` loss term for *every* scheme.
@@ -269,13 +272,7 @@ from the per-device voltage and current ranges.
   discretization meets whichever tolerances are set; at least one must be set,
   and each must be finite and > 0.
 """
-struct QuadraticLossConverterMILP <: AbstractQuadraticLossConverter end
-
-"""
-Quadratic Loss InterconnectingConverter using exact bilinear (v·i) and quadratic (i²)
-products. Requires an NLP-capable solver (e.g., Ipopt).
-"""
-struct QuadraticLossConverterNLP <: AbstractQuadraticLossConverter end
+struct QuadraticLossConverter <: AbstractQuadraticLossConverter end
 
 ############################## HVDC Lines Formulations ##################################
 abstract type AbstractDCLineFormulation <: AbstractBranchFormulation end
@@ -394,18 +391,20 @@ Formulation type to add reservoir methods with hydro turbines using only energy 
 struct HydroEnergyModelReservoir <: AbstractHydroReservoirFormulation end
 
 """
-Formulation type to add injection variables for a HydroTurbine connected to reservoirs using a bilinear model (with water flow variables) [`PowerSystems.HydroGen`](@extref)
-"""
-struct HydroTurbineBilinearDispatch <: AbstractHydroDispatchFormulation end
+Formulation type to add injection variables for a HydroTurbine connected to
+reservoirs using a bilinear model (with water flow variables) for the flow×head
+product [`PowerSystems.HydroGen`](@extref).
 
-"""
-Formulation type to add injection variables for a HydroTurbine connected to reservoirs using a bilinear model (with water flow variables) [`PowerSystems.HydroGen`](@extref). Uses a linearized approximation.
+The bilinear flow×head product is bridged to IOM's approximation API. By default
+(`"bilinear_approximation" => "none"`) the product is kept exact and passed to
+the solver directly — the resulting model is not a MILP and needs a
+nonlinear-capable solver (e.g. Ipopt). Setting a linearizing scheme replaces the
+product with a tolerance-driven MILP approximation.
 
 # Attributes
-- `"bilinear_approximation"` (default `"bin2"`): the bilinear approximation
-  scheme. Supported: `"bin2"`, `"hybs"`, `"nmdt"`, `"dnmdt"`, `"none"`
-  (`"none"` passes the quadratic term to the solver directly — the resulting
-  model is not a MILP and needs a nonlinear-capable solver).
+- `"bilinear_approximation"` (default `"none"`): the bilinear approximation
+  scheme. Supported: `"none"` (exact, needs a nonlinear solver), `"bin2"`,
+  `"hybs"`, `"nmdt"`, `"dnmdt"`.
 - `"bilinear_quadratic_method"` (default `"solver_sos2"`): the inner quadratic
   PWL method used by the `"bin2"` and `"hybs"` schemes (ignored otherwise).
   Supported: `"solver_sos2"`, `"manual_sos2"`, `"sawtooth"`; `"bin2"` also
@@ -415,11 +414,10 @@ Formulation type to add injection variables for a HydroTurbine connected to rese
 - `"bilinear_absolute_tolerance"` (default unset): optional absolute gap. The
   discretization meets whichever tolerances are set; at least one must be set,
   and each must be finite and > 0.
-```
 
 See: [`PowerSystems.HydroGen`](@extref).
 """
-struct HydroTurbineMILPBilinearDispatch <: AbstractHydroDispatchFormulation end
+struct HydroTurbineBilinearDispatch <: AbstractHydroDispatchFormulation end
 
 """
 Formulation type to add injection variables for a HydroTurbine connected to reservoirs using a linear model [`PowerSystems.HydroGen`](@extref).
@@ -459,7 +457,6 @@ These types share constructors.
 """
 const HydroTurbineWaterFormulation = Union{
     HydroTurbineBilinearDispatch,
-    HydroTurbineMILPBilinearDispatch,
     HydroTurbineWaterLinearDispatch,
     HydroTurbineWaterLinearCommitment,
 }
