@@ -1823,7 +1823,7 @@ function add_constraints!(
 
         flow_lb = get_variable_lower_bound(HydroTurbineFlowRateVariable, d, W)
         flow_ub = get_variable_upper_bound(HydroTurbineFlowRateVariable, d, W)
-        isnothing(flow_ub) && error(
+        bilinear_method == "none" && isnothing(flow_ub) && error(
             "HydroTurbineBilinearDispatch requires finite turbine outflow " *
             "limits to size the bilinear approximation, but turbine \"$(name)\" " *
             "has no `outflow_limits`. Set finite outflow limits or use a " *
@@ -1838,7 +1838,7 @@ function add_constraints!(
             ) for res in reservoirs
         ]
         for (res, b) in zip(reservoirs, head_bounds)
-            isnothing(b.max) && error(
+            bilinear_method == "none" && isnothing(b.max) && error(
                 "HydroTurbineBilinearDispatch requires finite head bounds " *
                 "to size the bilinear approximation, but reservoir " *
                 "\"$(PSY.get_name(res))\" (connected to turbine \"$(name)\") has " *
