@@ -7,22 +7,22 @@ get_variable_multiplier(::Type{<:VariableType}, ::Type{<:PSY.ElectricLoad}, ::Ty
 
 get_variable_binary(::Type{ActivePowerVariable}, ::Type{<:PSY.ElectricLoad}, ::Type{<:AbstractLoadFormulation}) = false
 get_variable_lower_bound(::Type{ActivePowerVariable}, d::PSY.ElectricLoad, ::Type{<:AbstractLoadFormulation}) = 0.0
-get_variable_upper_bound(::Type{ActivePowerVariable}, d::PSY.ElectricLoad, ::Type{<:AbstractLoadFormulation}) = PSY.get_max_active_power(d)
+get_variable_upper_bound(::Type{ActivePowerVariable}, d::PSY.ElectricLoad, ::Type{<:AbstractLoadFormulation}) = PSY.get_max_active_power(d, PSY.SU)
 
 ########################### ReactivePowerVariable, ElectricLoad ####################################
 
 get_variable_binary(::Type{ReactivePowerVariable}, ::Type{<:PSY.ElectricLoad}, ::Type{<:AbstractLoadFormulation}) = false
 
 get_variable_lower_bound(::Type{ReactivePowerVariable}, d::PSY.ElectricLoad, ::Type{<:AbstractLoadFormulation}) = 0.0
-get_variable_upper_bound(::Type{ReactivePowerVariable}, d::PSY.ElectricLoad, ::Type{<:AbstractLoadFormulation}) = PSY.get_max_reactive_power(d)
+get_variable_upper_bound(::Type{ReactivePowerVariable}, d::PSY.ElectricLoad, ::Type{<:AbstractLoadFormulation}) = PSY.get_max_reactive_power(d, PSY.SU)
 
 ########################### ReactivePowerVariable, ElectricLoad ####################################
 
 get_variable_binary(::Type{OnVariable}, ::Type{<:PSY.ElectricLoad}, ::Type{<:AbstractLoadFormulation}) = true
 
-get_multiplier_value(::Type{<:TimeSeriesParameter}, d::PSY.ElectricLoad, ::Type{StaticPowerLoad}) = -1*PSY.get_max_active_power(d)
-get_multiplier_value(::Type{ReactivePowerTimeSeriesParameter}, d::PSY.ElectricLoad, ::Type{StaticPowerLoad}) = -1*PSY.get_max_reactive_power(d)
-get_multiplier_value(::Type{<:TimeSeriesParameter}, d::PSY.ElectricLoad, ::Type{<:AbstractControllablePowerLoadFormulation}) = PSY.get_max_active_power(d)
+get_multiplier_value(::Type{<:TimeSeriesParameter}, d::PSY.ElectricLoad, ::Type{StaticPowerLoad}) = -1*PSY.get_max_active_power(d, PSY.SU)
+get_multiplier_value(::Type{ReactivePowerTimeSeriesParameter}, d::PSY.ElectricLoad, ::Type{StaticPowerLoad}) = -1*PSY.get_max_reactive_power(d, PSY.SU)
+get_multiplier_value(::Type{<:TimeSeriesParameter}, d::PSY.ElectricLoad, ::Type{<:AbstractControllablePowerLoadFormulation}) = PSY.get_max_active_power(d, PSY.SU)
 
 ########################### ShiftablePowerLoad #####################################
 
@@ -87,7 +87,7 @@ function get_default_attributes(
 end
 
 get_initial_conditions_device_model(
-    ::OperationModel,
+    ::IOM.AbstractOptimizationModel,
     ::DeviceModel{T, <:AbstractLoadFormulation},
 ) where {T <: PSY.ElectricLoad} = DeviceModel(T, StaticPowerLoad)
 
@@ -236,7 +236,11 @@ function add_constraints!(
     jump_model = get_jump_model(container)
     for t in time_steps, d in devices
         name = PSY.get_name(d)
-        pf = sin(atan((PSY.get_max_reactive_power(d) / PSY.get_max_active_power(d))))
+        # Power factor sin(atan(q/p)) in closed form via the Pythagorean identity.
+        q_max = PSY.get_max_reactive_power(d, PSY.SU)
+        p_max = PSY.get_max_active_power(d, PSY.SU)
+        denom = sqrt(q_max^2 + p_max^2)
+        pf = iszero(denom) ? 0.0 : q_max / denom
         reactive = get_variable(container, U, V)[name, t]
         real = get_variable(container, ActivePowerVariable, V)[name, t]
         constraint[name, t] = JuMP.@constraint(jump_model, reactive == real * pf)
@@ -303,7 +307,7 @@ function add_constraints!(
     jump_model = get_jump_model(container)
     for t in time_steps, d in devices
         name = PSY.get_name(d)
-        pmax = PSY.get_max_active_power(d)
+        pmax = PSY.get_max_active_power(d, PSY.SU)
         constraint[name, t] =
             JuMP.@constraint(jump_model, power[name, t] <= on_variable[name, t] * pmax)
     end

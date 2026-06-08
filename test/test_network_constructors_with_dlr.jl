@@ -24,7 +24,7 @@ function check_dlr_branch_flows!(
                 branch_name
             end
 
-        static_rating = PSY.get_rating(branch) * PSY.get_base_power(sys)
+        static_rating = PSY.get_rating(branch, PSY.SU) * PSY.get_base_power(sys, PSY.NU)
         branch_type = typeof(branch)
         flow_expr = IOM.get_expression(container, PTDFBranchFlow, branch_type)
         n_dlr = length(dlr_factors)

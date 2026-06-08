@@ -392,7 +392,7 @@ function IOM._get_pwl_data(
         slope_cost_component,
         unit_system,
         get_model_base_power(container),
-        PSY.get_base_power(component),
+        PSY.get_base_power(component, PSY.NU),
     )
     return breakpoints, slopes
 end
@@ -550,7 +550,8 @@ function _add_vom_cost_to_objective_helper!(
 ) where {T <: VariableType, U <: AbstractDeviceFormulation}
     power_units = IS.get_power_units(cost_data)
     cost_term = IS.get_proportional_term(IS.get_vom_cost(cost_data))
-    IOM.add_proportional_cost_invariant!(container, T, component, cost_term, power_units)
+    IOM.add_proportional_cost_invariant!(
+        container, T, component, cost_term, power_units, 1.0, VOMCostExpression)
     return
 end
 
@@ -561,24 +562,27 @@ end
 # the corresponding PSY getters for PSY component and cost types.
 #################################################################################
 
-IOM.get_base_power(sys::PSY.System) = PSY.get_base_power(sys)
-IOM.get_base_power(c::PSY.Component) = PSY.get_base_power(c)
+# IS4 made units explicit on getters. System base power is the MVA anchor
+# (`PSY.NU`); device power/limit getters are read in system-per-unit (`PSY.SU`),
+# reproducing the SYSTEM_BASE context the build used to set statefully. The
+# one-arg component `get_base_power(c, PSY.NU)` is the device MVA base and is unchanged.
+IOM.get_base_power(sys::PSY.System) = PSY.get_base_power(sys, PSY.NU)
+IOM.get_base_power(c::PSY.Component) = PSY.get_base_power(c, PSY.NU)
 IOM.get_operation_cost(c::PSY.Component) = PSY.get_operation_cost(c)
 IOM.get_must_run(c::PSY.Component) = PSY.get_must_run(c)
-IOM.get_active_power_limits(c::PSY.Component) = PSY.get_active_power_limits(c)
-IOM.get_max_active_power(c::PSY.Component) = PSY.get_max_active_power(c)
-IOM.get_ramp_limits(c::PSY.Component) = PSY.get_ramp_limits(c)
+IOM.get_active_power_limits(c::PSY.Component) = PSY.get_active_power_limits(c, PSY.SU)
+IOM.get_max_active_power(c::PSY.Component) = PSY.get_max_active_power(c, PSY.SU)
+IOM.get_ramp_limits(c::PSY.Component) = PSY.get_ramp_limits(c, PSY.SU)
 IOM.get_start_up(op_cost) = PSY.get_start_up(op_cost)
 IOM.get_shut_down(op_cost) = PSY.get_shut_down(op_cost)
 IOM.get_dc_bus(c::PSY.Component) = PSY.get_dc_bus(c)
 IOM.get_bustype(c::PSY.ACBus) = PSY.get_bustype(c)
 IOM.has_service(c::PSY.Component, args...) = PSY.has_service(c, args...)
-IOM.set_units_base_system!(sys::PSY.System, base) = PSY.set_units_base_system!(sys, base)
 
-# PSY.System override for unit-system / forecast-initial-timestamp adapters that
-# IOM uses in init_optimization_container!
-IOM.temp_set_units_base_system!(sys::PSY.System, base::String) =
-    PSY.set_units_base_system!(sys, base)
+# PSY.System override for the forecast-initial-timestamp adapter that IOM uses in
+# init_optimization_container!. The stateful unit-system adapters were dropped: IS4
+# made units explicit on getters, so IOM no longer normalizes the system to
+# SYSTEM_BASE during the build.
 IOM.temp_get_forecast_initial_timestamp(sys::PSY.System) =
     PSY.get_forecast_initial_timestamp(sys)
 

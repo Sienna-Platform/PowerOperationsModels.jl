@@ -5,13 +5,13 @@ get_variable_multiplier(::Type{<:VariableType}, ::Type{<:PSY.SynchronousCondense
 
 ############## ReactivePowerVariable, SynchronousCondensers ####################
 get_variable_binary(::Type{ReactivePowerVariable}, ::Type{PSY.SynchronousCondenser}, ::Type{<:AbstractReactivePowerDeviceFormulation}) = false
-get_variable_warm_start_value(::Type{ReactivePowerVariable}, d::PSY.SynchronousCondenser, ::Type{<:AbstractReactivePowerDeviceFormulation}) = PSY.get_reactive_power(d)
-get_variable_lower_bound(::Type{ReactivePowerVariable}, d::PSY.SynchronousCondenser, ::Type{<:AbstractReactivePowerDeviceFormulation}) = isnothing(PSY.get_reactive_power_limits(d)) ? nothing : PSY.get_reactive_power_limits(d).min
-get_variable_upper_bound(::Type{ReactivePowerVariable}, d::PSY.SynchronousCondenser, ::Type{<:AbstractReactivePowerDeviceFormulation}) = isnothing(PSY.get_reactive_power_limits(d)) ? nothing : PSY.get_reactive_power_limits(d).max
+get_variable_warm_start_value(::Type{ReactivePowerVariable}, d::PSY.SynchronousCondenser, ::Type{<:AbstractReactivePowerDeviceFormulation}) = PSY.get_reactive_power(d, PSY.SU)
+get_variable_lower_bound(::Type{ReactivePowerVariable}, d::PSY.SynchronousCondenser, ::Type{<:AbstractReactivePowerDeviceFormulation}) = isnothing(PSY.get_reactive_power_limits(d, PSY.SU)) ? nothing : PSY.get_reactive_power_limits(d, PSY.SU).min
+get_variable_upper_bound(::Type{ReactivePowerVariable}, d::PSY.SynchronousCondenser, ::Type{<:AbstractReactivePowerDeviceFormulation}) = isnothing(PSY.get_reactive_power_limits(d, PSY.SU)) ? nothing : PSY.get_reactive_power_limits(d, PSY.SU).max
 
 #! format: on
 function get_initial_conditions_device_model(
-    model::OperationModel,
+    model::IOM.AbstractOptimizationModel,
     ::DeviceModel{T, D},
 ) where {T <: PSY.SynchronousCondenser, D <: AbstractReactivePowerDeviceFormulation}
     return DeviceModel(T, SynchronousCondenserBasicDispatch)

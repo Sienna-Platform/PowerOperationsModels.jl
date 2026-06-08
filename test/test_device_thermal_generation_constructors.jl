@@ -16,7 +16,7 @@ const TIME1 = DateTime("2024-01-01T00:00:00")
     for (i, cost_reference, thermal_formulation) in test_cases
         @testset "$i" begin
             sys = build_system(PSITestSystems, "c_$(i)")
-            template = OperationsProblemTemplate(NetworkModel(CopperPlatePowerModel))
+            template = PowerOperationsProblemTemplate(NetworkModel(CopperPlatePowerModel))
             set_device_model!(template, ThermalStandard, thermal_formulation)
             set_device_model!(template, PowerLoad, StaticPowerLoad)
             model = DecisionModel(
@@ -34,83 +34,111 @@ const TIME1 = DateTime("2024-01-01T00:00:00")
                 "ProductionCostExpression__ThermalStandard";
                 table_format = TableFormat.WIDE,
             )
-            var_unit_cost = sum(expr[!, "Test Unit"])
+            unit = "Test Unit"
+            var_unit_cost = sum(expr[!, unit])
             @test isapprox(var_unit_cost, cost_reference; atol = 1)
             if thermal_formulation == ThermalBasicUnitCommitment
                 # Tests shut down cost
-                @test expr[!, "Test Unit"][end] == 0.75
+                @test expr[!, unit][end] == 0.75
+
+                # Decomposition: production == fuel + startup + shutdown + fixed + VOM
+                expr_fuel = read_expression(
+                    outputs, "FuelCostExpression__ThermalStandard";
+                    table_format = TableFormat.WIDE,
+                )
+                expr_su = read_expression(
+                    outputs, "StartUpCostExpression__ThermalStandard";
+                    table_format = TableFormat.WIDE,
+                )
+                expr_sd = read_expression(
+                    outputs, "ShutDownCostExpression__ThermalStandard";
+                    table_format = TableFormat.WIDE,
+                )
+                expr_fixed = read_expression(
+                    outputs, "FixedCostExpression__ThermalStandard";
+                    table_format = TableFormat.WIDE,
+                )
+                expr_VOM = read_expression(
+                    outputs, "VOMCostExpression__ThermalStandard";
+                    table_format = TableFormat.WIDE,
+                )
+                decomp_vec =
+                    expr_fuel[!, unit] .+ expr_su[!, unit] .+ expr_sd[!, unit] .+
+                    expr_fixed[!, unit] .+ expr_VOM[!, unit]
+                @test all(isapprox.(decomp_vec, expr[!, unit]; atol = 1e-6))
+                @test isapprox(sum(expr[!, unit]), sum(decomp_vec); atol = 1e-6)
+
+                # Nonnegativity (tolerate tiny numerical negatives)
+                tol = 1e-8
+                @test all(expr_fuel[!, unit] .>= -tol)
+                @test all(expr_su[!, unit] .>= -tol)
+                @test all(expr_sd[!, unit] .>= -tol)
+                @test all(expr_fixed[!, unit] .>= -tol)
+                @test all(expr_VOM[!, unit] .>= -tol)
             else
-                @test expr[!, "Test Unit"][end] == 0.0
+                @test expr[!, unit][end] == 0.0
             end
         end
     end
 
-    @testset "Test startup cost tracking - compare with and without startup" begin
-        # Run 1: Normal case (units already ON, no startup)
-        sys_no_startup = build_system(PSITestSystems, "c_linear_cost_test")
-
-        template = OperationsProblemTemplate(NetworkModel(CopperPlatePowerModel))
+    @testset "Test startup cost tracking" begin
+        template = PowerOperationsProblemTemplate(NetworkModel(CopperPlatePowerModel))
         set_device_model!(template, ThermalStandard, ThermalBasicUnitCommitment)
         set_device_model!(template, PowerLoad, StaticPowerLoad)
+        unit = "Test Unit"
 
-        model_no_startup = DecisionModel(
-            template,
-            sys_no_startup;
+        # Run 1: units initially ON — no startup expected
+        sys_no_startup = build_system(PSITestSystems, "c_linear_cost_test")
+        model_no = DecisionModel(
+            template, sys_no_startup;
             name = "UC_no_startup",
             optimizer = HiGHS_optimizer,
             optimizer_solve_log_print = true,
         )
-        @test build!(model_no_startup; output_dir = test_path) == IOM.ModelBuildStatus.BUILT
-        @test solve!(model_no_startup) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
-
-        outputs_no_startup = OptimizationProblemOutputs(model_no_startup)
-        expr_no_startup = read_expression(
-            outputs_no_startup,
-            "ProductionCostExpression__ThermalStandard";
+        @test build!(model_no; output_dir = test_path) == IOM.ModelBuildStatus.BUILT
+        @test solve!(model_no) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+        out_no = OptimizationProblemOutputs(model_no)
+        prod_no = read_expression(
+            out_no, "ProductionCostExpression__ThermalStandard";
             table_format = TableFormat.WIDE,
         )
-        cost_no_startup = expr_no_startup[1, "Test Unit"]
+        cost_no_t1 = prod_no[1, unit]
 
-        # Run 2: With startup (units initially OFF)
-        sys_with_startup = build_system(PSITestSystems, "c_linear_cost_test")
-
-        # Set thermal units to initially be OFF to force a startup
-        thermal_units = collect(get_components(ThermalStandard, sys_with_startup))
-        for unit in thermal_units
-            set_status!(unit, false)  # Set unit to OFF initially
-            set_time_at_status!(unit, 10.0)  # Set time at OFF status > min down time
+        # Run 2: units initially OFF — startup forced in first timestep
+        sys_yes = build_system(PSITestSystems, "c_linear_cost_test")
+        for u in collect(get_components(ThermalStandard, sys_yes))
+            set_status!(u, false)
+            set_time_at_status!(u, 10.0)  # > min down time
         end
-
-        model_with_startup = DecisionModel(
-            template,
-            sys_with_startup;
+        model_yes = DecisionModel(
+            template, sys_yes;
             name = "UC_with_startup",
             optimizer = HiGHS_optimizer,
             optimizer_solve_log_print = true,
         )
-        @test build!(model_with_startup; output_dir = test_path) ==
-              IOM.ModelBuildStatus.BUILT
-        @test solve!(model_with_startup) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
-
-        outputs_with_startup = OptimizationProblemOutputs(model_with_startup)
-        expr_with_startup = read_expression(
-            outputs_with_startup,
-            "ProductionCostExpression__ThermalStandard";
+        @test build!(model_yes; output_dir = test_path) == IOM.ModelBuildStatus.BUILT
+        @test solve!(model_yes) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+        out_yes = OptimizationProblemOutputs(model_yes)
+        prod_yes = read_expression(
+            out_yes, "ProductionCostExpression__ThermalStandard";
             table_format = TableFormat.WIDE,
         )
-        cost_with_startup = expr_with_startup[1, "Test Unit"]
+        cost_yes_t1 = prod_yes[1, unit]
 
-        # Verify startup actually occurred
         start_vars = read_variable(
-            outputs_with_startup,
-            "StartVariable__ThermalStandard";
+            out_yes, "StartVariable__ThermalStandard";
             table_format = TableFormat.WIDE,
         )
-        @test start_vars[1, "Test Unit"] > 0.5  # Startup in first timestep
+        @test start_vars[1, unit] > 0.5
 
-        # The key test: cost with startup should be greater than without startup
-        # because it includes the startup cost in addition to generation costs
-        @test cost_with_startup > cost_no_startup
+        expr_su = read_expression(
+            out_yes, "StartUpCostExpression__ThermalStandard";
+            table_format = TableFormat.WIDE,
+        )
+        startup_cost_t1 = expr_su[1, unit]
+        @test startup_cost_t1 > 0.0
+        @test cost_yes_t1 > cost_no_t1
+        @test isapprox(cost_yes_t1 - cost_no_t1, startup_cost_t1; atol = 1e-6)
     end
 end
 
@@ -127,7 +155,7 @@ end
     for i in test_cases
         @testset "$i" begin
             sys = build_system(PSITestSystems, "c_$(i)")
-            template = OperationsProblemTemplate(NetworkModel(CopperPlatePowerModel))
+            template = PowerOperationsProblemTemplate(NetworkModel(CopperPlatePowerModel))
             set_device_model!(template, ThermalStandard, ThermalBasicUnitCommitment)
             #=
             model = DecisionModel(
@@ -901,11 +929,11 @@ end
 
 @testset "Solving ED with CopperPlate for testing Ramping Constraints" begin
     ramp_test_sys = PSB.build_system(PSITestSystems, "c_ramp_test")
-    template = OperationsProblemTemplate(CopperPlatePowerModel)
+    template = PowerOperationsProblemTemplate(CopperPlatePowerModel)
     set_device_model!(template, ThermalStandard, ThermalStandardDispatch)
     set_device_model!(template, PowerLoad, StaticPowerLoad)
     ED = DecisionModel(
-        DefaultDecisionProblem,
+        GenericPowerDecisionProblem,
         template,
         ramp_test_sys;
         optimizer = HiGHS_optimizer,
@@ -920,7 +948,7 @@ end
 @testset "Solving UC with CopperPlate for testing Duration Constraints" begin
     template = get_thermal_standard_uc_template()
     UC = DecisionModel(
-        DefaultDecisionProblem,
+        GenericPowerDecisionProblem,
         template,
         PSB.build_system(PSITestSystems, "c_duration_test");
         optimizer = HiGHS_optimizer,
@@ -1144,7 +1172,7 @@ end =#
 @testset "Test Must Run ThermalGen" begin
     sys_5 = build_system(PSITestSystems, "c_sys5_uc")
     template_uc =
-        OperationsProblemTemplate(NetworkModel(CopperPlatePowerModel))
+        PowerOperationsProblemTemplate(NetworkModel(CopperPlatePowerModel))
     set_device_model!(template_uc, ThermalStandard, ThermalStandardUnitCommitment)
     #set_device_model!(template_uc, RenewableDispatch, FixedOutput)
     set_device_model!(template_uc, PowerLoad, StaticPowerLoad)
@@ -1219,7 +1247,7 @@ end
         "ub",
     )
     constraint = IOM.get_constraint(IOM.get_optimization_container(model), key)
-    ub_value = get_max_active_power(solitude) * 0.8
+    ub_value = get_max_active_power(solitude, PSY.SU) * 0.8
     for ix in eachindex(constraint)
         @test JuMP.normalized_rhs(constraint[ix]) == ub_value
     end
@@ -1238,7 +1266,7 @@ end
 #= @testset "Thermal with fuel cost time series" begin
     sys = PSB.build_system(PSITestSystems, "c_sys5_re_fuel_cost")
 
-    template = OperationsProblemTemplate(
+    template = PowerOperationsProblemTemplate(
         NetworkModel(
             CopperPlatePowerModel;
             duals = [CopperPlateBalanceConstraint],
@@ -1321,7 +1349,7 @@ end =#
 @testset "Thermal with fuel cost time series with Quadratic and PWL" begin
     sys = PSB.build_system(PSITestSystems, "c_sys5_re_fuel_cost")
 
-    template = OperationsProblemTemplate(
+    template = PowerOperationsProblemTemplate(
         NetworkModel(
             CopperPlatePowerModel;
             duals = [CopperPlateBalanceConstraint],
@@ -1456,7 +1484,7 @@ end
 @testset "ThermalDispatchNoMin with PWL Costs" begin
     sys = build_system(PSISystems, "modified_RTS_GMLC_DA_sys")
 
-    template = OperationsProblemTemplate(NetworkModel(PTDFPowerModel))
+    template = PowerOperationsProblemTemplate(NetworkModel(PTDFPowerModel))
     set_device_model!(template, ThermalStandard, ThermalDispatchNoMin)
     set_device_model!(template, Line, StaticBranchBounds)
     set_device_model!(template, TapTransformer, StaticBranchBounds)

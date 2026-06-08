@@ -2,7 +2,11 @@ const _DESERIALIZE_MESSAGE = "Deserialized initial_conditions_data"
 const _MAKE_IC_MESSAGE = "Make Initial Conditions Model"
 const _SKIP_IC_MESSAGE = "Skip build of initial conditions"
 
-function test_ic_serialization_outputs(model::IOM.OperationModel; ic_file_exists, message)
+function test_ic_serialization_outputs(
+    model::IOM.AbstractOptimizationModel;
+    ic_file_exists,
+    message,
+)
     ic_file = IOM.get_initial_conditions_file(model)
     log_file = IOM.get_log_file(model)
 

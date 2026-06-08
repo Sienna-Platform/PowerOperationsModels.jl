@@ -42,5 +42,12 @@ end
     @test size(df) == (24, 55)
 end
 
+@testset "show" begin
+    template = get_thermal_standard_uc_template()
+    # Don't enforce any particular output. Just check that it runs without erroring.
+    @test sprint(show, MIME("text/plain"), template) isa String
+    @test sprint(show, MIME("text/html"), template) isa String
+end
+
 # Note: "Test simulation output directory name" from PSI omitted because
 # _get_output_dir_name is in PSI's simulation code and hasn't been split out.

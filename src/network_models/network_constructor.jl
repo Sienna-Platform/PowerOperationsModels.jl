@@ -2,7 +2,7 @@ function construct_network!(
     container::OptimizationContainer,
     sys::PSY.System,
     model::NetworkModel{CopperPlatePowerModel},
-    ::OperationsProblemTemplate,
+    ::PowerOperationsProblemTemplate,
 )
     if get_use_slacks(model)
         add_variables!(container, SystemBalanceSlackUp, sys, model)
@@ -28,7 +28,7 @@ function construct_network!(
     container::OptimizationContainer,
     sys::PSY.System,
     model::NetworkModel{AreaBalancePowerModel},
-    ::OperationsProblemTemplate,
+    ::PowerOperationsProblemTemplate,
 )
     if get_use_slacks(model)
         add_variables!(container, SystemBalanceSlackUp, sys, model)
@@ -53,7 +53,7 @@ function construct_network!(
     container::OptimizationContainer,
     sys::PSY.System,
     model::NetworkModel{<:AbstractPTDFModel},
-    ::OperationsProblemTemplate,
+    ::PowerOperationsProblemTemplate,
 )
     if get_use_slacks(model)
         add_variables!(container, SystemBalanceSlackUp, sys, model)
@@ -129,7 +129,7 @@ function construct_network!(
     container::OptimizationContainer,
     sys::PSY.System,
     model::NetworkModel{T},
-    template::OperationsProblemTemplate;
+    template::PowerOperationsProblemTemplate;
 ) where {T <: AbstractActivePowerModel}
     if T in UNSUPPORTED_POWERMODELS
         throw(
@@ -167,7 +167,7 @@ function construct_network!(
     container::OptimizationContainer,
     sys::PSY.System,
     model::NetworkModel{T},
-    template::OperationsProblemTemplate;
+    template::PowerOperationsProblemTemplate;
 ) where {T <: AbstractPowerModel}
     if T in UNSUPPORTED_POWERMODELS
         throw(
@@ -219,7 +219,7 @@ function construct_network!(
     container::OptimizationContainer,
     sys::PSY.System,
     model::NetworkModel{T},
-    template::OperationsProblemTemplate,
+    template::PowerOperationsProblemTemplate,
 ) where {T <: PM.AbstractBFModel}
     if T in UNSUPPORTED_POWERMODELS
         throw(
@@ -276,7 +276,7 @@ function construct_network!(
     container::OptimizationContainer,
     sys::PSY.System,
     model::NetworkModel{SecurityConstrainedPTDFPowerModel},
-    ::OperationsProblemTemplate,
+    ::PowerOperationsProblemTemplate,
 )
     if get_use_slacks(model)
         add_variables!(container, SystemBalanceSlackUp, sys, model)
@@ -303,7 +303,7 @@ function construct_network!(
     container::OptimizationContainer,
     sys::PSY.System,
     model::NetworkModel{T},
-    template::OperationsProblemTemplate;
+    template::PowerOperationsProblemTemplate;
 ) where {T <: PM.AbstractIVRModel}
     if T in UNSUPPORTED_POWERMODELS
         throw(

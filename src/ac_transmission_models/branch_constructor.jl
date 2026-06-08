@@ -2045,6 +2045,19 @@ end
 # star-arc decomposition" section.
 ################################################################################
 
+############################################################################
+####################### Two-Terminal VSC HVDC Construct ####################
+############################################################################
+
+# Quadratic / bilinear approximation traits — same scheme used by the MT
+# converter formulations.
+_quad_config(::Type{HVDCTwoTerminalVSCNLP}) = IOM.NoQuadApproxConfig()
+_quad_config(::Type{HVDCTwoTerminalVSCLP}) =
+    IOM.SolverSOS2QuadConfig(DEFAULT_INTERPOLATION_LENGTH)
+_bilinear_config(::Type{HVDCTwoTerminalVSCNLP}) = IOM.NoBilinearApproxConfig()
+_bilinear_config(::Type{HVDCTwoTerminalVSCLP}) =
+    IOM.Bin2Config(IOM.SolverSOS2QuadConfig(DEFAULT_INTERPOLATION_LENGTH))
+
 function construct_device!(
     container::OptimizationContainer,
     sys::PSY.System,
@@ -2127,5 +2140,138 @@ function construct_device!(
     add_feedforward_constraints!(container, device_model, devices)
     add_to_objective_function!(container, devices, device_model, ACPPowerModel)
     add_constraint_dual!(container, sys, device_model)
+    return
+end
+
+function construct_device!(
+    container::OptimizationContainer,
+    sys::PSY.System,
+    ::ArgumentConstructStage,
+    device_model::DeviceModel{PSY.TwoTerminalVSCLine, F},
+    network_model::NetworkModel{<:AbstractPowerModel},
+) where {F <: AbstractTwoTerminalVSCFormulation}
+    devices = get_available_components(device_model, sys)
+
+    add_variables!(container, FlowActivePowerFromToVariable, devices, F)
+    add_variables!(container, FlowActivePowerToFromVariable, devices, F)
+    add_variables!(container, DCLineCurrentFlowVariable, devices, F)
+    add_variables!(container, HVDCFromDCVoltage, devices, F)
+    add_variables!(container, HVDCToDCVoltage, devices, F)
+
+    _maybe_add_reactive_power_variables!(
+        container, devices, device_model, network_model,
+        (HVDCReactivePowerFromVariable, HVDCReactivePowerToVariable),
+    )
+
+    add_variables!(container, CurrentAbsoluteValueVariable, devices, F)
+
+    add_to_expression!(
+        container, ActivePowerBalance, FlowActivePowerFromToVariable,
+        devices, device_model, network_model,
+    )
+    add_to_expression!(
+        container, ActivePowerBalance, FlowActivePowerToFromVariable,
+        devices, device_model, network_model,
+    )
+
+    add_feedforward_arguments!(container, device_model, devices)
+    return
+end
+
+function construct_device!(
+    container::OptimizationContainer,
+    sys::PSY.System,
+    ::ModelConstructStage,
+    device_model::DeviceModel{PSY.TwoTerminalVSCLine, F},
+    network_model::NetworkModel{<:AbstractPowerModel},
+) where {F <: AbstractTwoTerminalVSCFormulation}
+    devices = get_available_components(device_model, sys)
+    time_steps = get_time_steps(container)
+    line_names = [PSY.get_name(d) for d in devices]
+
+    v_f_var = get_variable(container, HVDCFromDCVoltage, PSY.TwoTerminalVSCLine)
+    v_t_var = get_variable(container, HVDCToDCVoltage, PSY.TwoTerminalVSCLine)
+    i_var = get_variable(container, DCLineCurrentFlowVariable, PSY.TwoTerminalVSCLine)
+
+    v_f_bounds = PSY.get_voltage_limits_from.(devices)
+    v_t_bounds = PSY.get_voltage_limits_to.(devices)
+    i_bounds = [
+        (min = -_vsc_cable_i_max(d), max = _vsc_cable_i_max(d)) for d in devices
+    ]
+
+    quad_cfg, bilin_cfg = _quad_config(F), _bilinear_config(F)
+
+    v_f_sq_expr = IOM._add_quadratic_approx!(
+        quad_cfg, container, PSY.TwoTerminalVSCLine,
+        line_names, time_steps, v_f_var, v_f_bounds, "v_f_sq",
+    )
+    v_t_sq_expr = IOM._add_quadratic_approx!(
+        quad_cfg, container, PSY.TwoTerminalVSCLine,
+        line_names, time_steps, v_t_var, v_t_bounds, "v_t_sq",
+    )
+    i_sq_expr = IOM._add_quadratic_approx!(
+        quad_cfg, container, PSY.TwoTerminalVSCLine,
+        line_names, time_steps, i_var, i_bounds, "i_sq",
+    )
+
+    IOM._add_bilinear_approx!(
+        bilin_cfg, container, PSY.TwoTerminalVSCLine,
+        line_names, time_steps,
+        v_f_sq_expr, i_sq_expr, v_f_var, i_var,
+        v_f_bounds, i_bounds, "vi_ft",
+    )
+    IOM._add_bilinear_approx!(
+        bilin_cfg, container, PSY.TwoTerminalVSCLine,
+        line_names, time_steps,
+        v_t_sq_expr, i_sq_expr, v_t_var, i_var,
+        v_t_bounds, i_bounds, "vi_tf",
+    )
+
+    _register_pq_sq_expressions!(
+        container, devices, line_names, time_steps, device_model,
+        network_model,
+    )
+
+    _add_abs_value_constraints!(
+        container, devices, device_model, network_model,
+        DCLineCurrentFlowVariable,
+    )
+
+    add_constraints!(
+        container, HVDCCableOhmsLawConstraint, devices, device_model, network_model,
+    )
+    add_constraints!(
+        container, HVDCVSCConverterPowerConstraint, devices, device_model, network_model,
+    )
+    _maybe_add_reactive_power_constraints!(
+        container, devices, device_model, network_model,
+        HVDCVSCApparentPowerLimitConstraint,
+    )
+
+    add_constraint_dual!(container, sys, device_model)
+    add_feedforward_constraints!(container, device_model, devices)
+    return
+end
+
+# AreaBalancePowerModel warning (consistent with other two-terminal formulations).
+function construct_device!(
+    ::OptimizationContainer,
+    ::PSY.System,
+    ::ArgumentConstructStage,
+    ::DeviceModel{PSY.TwoTerminalVSCLine, <:AbstractTwoTerminalVSCFormulation},
+    ::NetworkModel{AreaBalancePowerModel},
+)
+    @warn "AreaBalancePowerModel doesn't model individual line flows for PSY.TwoTerminalVSCLine. Arguments not built"
+    return
+end
+
+function construct_device!(
+    ::OptimizationContainer,
+    ::PSY.System,
+    ::ModelConstructStage,
+    ::DeviceModel{PSY.TwoTerminalVSCLine, <:AbstractTwoTerminalVSCFormulation},
+    ::NetworkModel{AreaBalancePowerModel},
+)
+    @warn "AreaBalancePowerModel doesn't model individual line flows for PSY.TwoTerminalVSCLine. Model not built"
     return
 end

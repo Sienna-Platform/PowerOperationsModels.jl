@@ -5,7 +5,7 @@ get_variable_multiplier(::Type{<:VariableType}, ::Type{<:PSY.Reserve}, ::Type{<:
 ############################### PostContingencyActivePowerReserveDeploymentVariable, Reserve #########################################
 get_variable_binary(::Type{PostContingencyActivePowerReserveDeploymentVariable}, ::Type{<:PSY.Reserve}, ::Type{<:AbstractSecurityConstrainedReservesFormulation}) = false
 function get_variable_upper_bound(::Type{PostContingencyActivePowerReserveDeploymentVariable}, r::PSY.Reserve, d::PSY.Device, ::Type{<:AbstractSecurityConstrainedReservesFormulation})
-    return  PSY.get_max_active_power(d)
+    return  PSY.get_max_active_power(d, PSY.SU)
 end
 get_variable_lower_bound(::Type{PostContingencyActivePowerReserveDeploymentVariable}, ::PSY.Reserve, ::PSY.Device, ::Type) = 0.0
 get_variable_warm_start_value(::Type{PostContingencyActivePowerReserveDeploymentVariable}, d::PSY.Reserve, ::Type{<:AbstractSecurityConstrainedReservesFormulation}) = 0.0
@@ -16,26 +16,32 @@ get_variable_multiplier(::Type{<:VariableType}, ::Type{<:PSY.Generator}, ::Type{
 ############################### ActivePowerReserveVariable, Reserve #########################################
 get_variable_binary(::Type{ActivePowerReserveVariable}, ::Type{<:PSY.Reserve}, ::Type{<:AbstractReservesFormulation}) = false
 function get_variable_upper_bound(::Type{ActivePowerReserveVariable}, r::PSY.Reserve, d::PSY.Device, ::Type{<:AbstractReservesFormulation})
-    return PSY.get_max_output_fraction(r) * PSY.get_max_active_power(d)
+    return PSY.get_max_output_fraction(r) * PSY.get_max_active_power(d, PSY.SU)
 end
-get_variable_upper_bound(::Type{ActivePowerReserveVariable}, r::PSY.ReserveDemandCurve, d::PSY.Device, ::Type{<:AbstractReservesFormulation}) = PSY.get_max_active_power(d)
+get_variable_upper_bound(::Type{ActivePowerReserveVariable}, r::PSY.ReserveDemandCurve, d::PSY.Device, ::Type{<:AbstractReservesFormulation}) = PSY.get_max_active_power(d, PSY.SU)
 get_variable_lower_bound(::Type{ActivePowerReserveVariable}, ::PSY.Reserve, ::PSY.Device, ::Type) = 0.0
 
 ############################### ActivePowerReserveVariable, ReserveNonSpinning #########################################
 get_variable_binary(::Type{ActivePowerReserveVariable}, ::Type{<:PSY.ReserveNonSpinning}, ::Type{<:AbstractReservesFormulation}) = false
 function get_variable_upper_bound(::Type{ActivePowerReserveVariable}, r::PSY.ReserveNonSpinning, d::PSY.Device, ::Type{<:AbstractReservesFormulation})
-    return PSY.get_max_output_fraction(r) * PSY.get_max_active_power(d)
+    return PSY.get_max_output_fraction(r) * PSY.get_max_active_power(d, PSY.SU)
 end
 get_variable_lower_bound(::Type{ActivePowerReserveVariable}, ::PSY.ReserveNonSpinning, ::PSY.Device, ::Type) = 0.0
 
 ############################### ServiceRequirementVariable, ReserveDemandCurve ################################
 
 get_variable_binary(::Type{ServiceRequirementVariable}, ::Type{<:PSY.ReserveDemandCurve}, ::Type{<:AbstractReservesFormulation}) = false
-get_variable_upper_bound(::Type{ServiceRequirementVariable}, ::PSY.ReserveDemandCurve, d::PSY.Component, ::Type{<:AbstractReservesFormulation}) = PSY.get_max_active_power(d)
+get_variable_upper_bound(::Type{ServiceRequirementVariable}, ::PSY.ReserveDemandCurve, d::PSY.Component, ::Type{<:AbstractReservesFormulation}) = PSY.get_max_active_power(d, PSY.SU)
 get_variable_lower_bound(::Type{ServiceRequirementVariable}, ::PSY.ReserveDemandCurve, ::PSY.Component, ::Type{<:AbstractReservesFormulation}) = 0.0
 
-get_multiplier_value(::Type{RequirementTimeSeriesParameter}, d::PSY.Reserve, ::Type{<:AbstractReservesFormulation}) = PSY.get_requirement(d)
-get_multiplier_value(::Type{RequirementTimeSeriesParameter}, d::PSY.ReserveNonSpinning, ::Type{<:AbstractReservesFormulation}) = PSY.get_requirement(d)
+# `VariableReserve` stores `requirement` as a dimensionless factor that scales its
+# time series, so its getter is unitless. Every other reserve type stores an MVA
+# requirement and needs an explicit unit system.
+_get_requirement(service::PSY.VariableReserve) = PSY.get_requirement(service)
+_get_requirement(service) = PSY.get_requirement(service, PSY.SU)
+
+get_multiplier_value(::Type{RequirementTimeSeriesParameter}, d::PSY.Reserve, ::Type{<:AbstractReservesFormulation}) = _get_requirement(d)
+get_multiplier_value(::Type{RequirementTimeSeriesParameter}, d::PSY.ReserveNonSpinning, ::Type{<:AbstractReservesFormulation}) = _get_requirement(d)
 
 get_parameter_multiplier(::Type{<:VariableValueParameter}, d::Type{<:PSY.AbstractReserve}, ::Type{<:AbstractReservesFormulation}) = 1.0
 get_initial_parameter_value(::Type{<:VariableValueParameter}, d::Type{<:PSY.AbstractReserve}, ::Type{<:AbstractReservesFormulation}) = 0.0
@@ -45,14 +51,14 @@ uses_compact_power(::PSY.ReserveDemandCurve, ::StepwiseCostReserve)=false
 #! format: on
 
 function get_initial_conditions_service_model(
-    ::OperationModel,
+    ::IOM.AbstractOptimizationModel,
     ::ServiceModel{T, D},
 ) where {T <: PSY.Reserve, D <: AbstractReservesFormulation}
     return ServiceModel(T, D)
 end
 
 function get_initial_conditions_service_model(
-    ::OperationModel,
+    ::IOM.AbstractOptimizationModel,
     ::ServiceModel{T, D},
 ) where {T <: PSY.VariableReserveNonSpinning, D <: AbstractReservesFormulation}
     return ServiceModel(T, D)
@@ -177,7 +183,7 @@ function add_constraints!(
     )
 
     use_slacks && (slack_vars = reserve_slacks!(container, service))
-    requirement = PSY.get_requirement(service)
+    requirement = _get_requirement(service)
     jump_model = get_jump_model(container)
     extra = use_slacks ? 1 : 0
     if built_for_recurrent_solves(container)
@@ -234,7 +240,7 @@ function add_constraints!(
     )
     var_r = get_variable(container, ActivePowerReserveVariable, SR, service_name)
     jump_model = get_jump_model(container)
-    requirement = PSY.get_requirement(service)
+    requirement = _get_requirement(service)
     ts_vector = IOM.get_time_series(
         container,
         service,
@@ -288,7 +294,7 @@ function add_constraints!(
     use_slacks = get_use_slacks(model)
     use_slacks && (slack_vars = reserve_slacks!(container, service))
 
-    requirement = PSY.get_requirement(service)
+    requirement = _get_requirement(service)
     jump_model = get_jump_model(container)
     extra = use_slacks ? 1 : 0
     for t in time_steps
@@ -345,8 +351,8 @@ function add_constraints!(
 end
 
 _get_ramp_limits(::PSY.Component) = nothing
-_get_ramp_limits(d::PSY.ThermalGen) = PSY.get_ramp_limits(d)
-_get_ramp_limits(d::PSY.HydroGen) = PSY.get_ramp_limits(d)
+_get_ramp_limits(d::PSY.ThermalGen) = PSY.get_ramp_limits(d, PSY.SU)
+_get_ramp_limits(d::PSY.HydroGen) = PSY.get_ramp_limits(d, PSY.SU)
 
 function _get_ramp_constraint_contributing_devices(
     service::PSY.Reserve,
@@ -357,7 +363,7 @@ function _get_ramp_constraint_contributing_devices(
     for d in contributing_devices
         ramp_limits = _get_ramp_limits(d)
         if ramp_limits !== nothing
-            p_lims = PSY.get_active_power_limits(d)
+            p_lims = PSY.get_active_power_limits(d, PSY.SU)
             max_rate = abs(p_lims.min - p_lims.max) / time_frame
             if (ramp_limits.up >= max_rate) & (ramp_limits.down >= max_rate)
                 @debug "Generator $(name) has a nonbinding ramp limits. Constraints Skipped"
@@ -397,7 +403,7 @@ function add_constraints!(
         )
         for d in ramp_devices, t in time_steps
             name = PSY.get_name(d)
-            ramp_limits = PSY.get_ramp_limits(d)
+            ramp_limits = PSY.get_ramp_limits(d, PSY.SU)
             con_up[name, t] = JuMP.@constraint(
                 jump_model,
                 variable[name, t] <= ramp_limits.up * time_frame
@@ -436,7 +442,7 @@ function add_constraints!(
         )
         for d in ramp_devices, t in time_steps
             name = PSY.get_name(d)
-            ramp_limits = PSY.get_ramp_limits(d)
+            ramp_limits = PSY.get_ramp_limits(d, PSY.SU)
             con_down[name, t] = JuMP.@constraint(
                 jump_model,
                 variable[name, t] <= ramp_limits.down * time_frame
@@ -485,7 +491,7 @@ function add_constraints!(
         ramp_limits = _get_ramp_limits(d)
         if reserve_response_time > startup_time
             reserve_limit =
-                PSY.get_active_power_limits(d).min +
+                PSY.get_active_power_limits(d, PSY.SU).min +
                 (reserve_response_time - startup_time) * minutes_per_period * ramp_limits.up
         else
             reserve_limit = 0.0

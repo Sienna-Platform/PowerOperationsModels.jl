@@ -53,7 +53,7 @@ function add_constraints!(
         for r in contributing_services
     ]
 
-    requirement = PSY.get_requirement(service)
+    requirement = _get_requirement(service)
     for t in time_steps
         resource_expression = JuMP.GenericAffExpr{Float64, JuMP.VariableRef}()
         for reserve_variable in reserve_variables
