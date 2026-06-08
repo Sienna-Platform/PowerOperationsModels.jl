@@ -1489,35 +1489,9 @@ get_variable_upper_bound(::Type{CurrentAbsoluteValueVariable}, d::PSY.TwoTermina
 
 ####################### VSC apparent-power-square registration ###############
 
-# Register the four IOM `QuadraticExpression` handles (`p_ft_sq`, `p_tf_sq`,
-# `q_f_sq`, `q_t_sq`) that the exact apparent-power disk reads. Only the exact path
-# (`NoBilinearApproxConfig`) on an AC network emits the disk constraint, so only
-# that combo registers anything; the octagon path and active-power-only networks
-# register nothing. Dispatch is keyed on the bilinear config type (built once by
-# `_build_converter_configs`) and the network type — a two-level gate: the
-# network selects AC vs active-only, then the config selects exact vs octagon.
-_register_vsc_apparent_power_squares!(
-    bilin_cfg::IOM.BilinearApproxConfig,
-    container::OptimizationContainer,
-    devices,
-    line_names,
-    time_steps,
-    model::DeviceModel{PSY.TwoTerminalVSCLine, HVDCTwoTerminalVSC},
-    network_model::NetworkModel{<:AbstractPowerModel},
-) = _register_vsc_exact_apparent_power_squares!(
-    bilin_cfg, container, devices, line_names, time_steps, model, network_model,
-)
-
-# Active-power-only networks don't carry reactive variables at all.
-_register_vsc_apparent_power_squares!(
-    ::IOM.BilinearApproxConfig,
-    ::OptimizationContainer, _devices, _names, _times,
-    ::DeviceModel{PSY.TwoTerminalVSCLine, HVDCTwoTerminalVSC},
-    ::NetworkModel{<:AbstractActivePowerModel},
-) = nothing
-
-# Exact apparent-power disk (NLP): register the exact `p_*_sq`/`q_*_sq` QuadExprs the disk reads.
-function _register_vsc_exact_apparent_power_squares!(
+# Register the exact `p_*_sq`/`q_*_sq` QuadExprs the apparent-power disk reads.
+# Only the exact path on an AC network needs them.
+function _register_vsc_apparent_power_squares!(
     ::IOM.NoBilinearApproxConfig,
     container::OptimizationContainer,
     devices,
@@ -1554,12 +1528,20 @@ function _register_vsc_exact_apparent_power_squares!(
     return
 end
 
-# Octagon path: no disk constraint, so no p_sq/q_sq are needed.
-_register_vsc_exact_apparent_power_squares!(
+# Octagon path (any net): no disk, so no squares.
+_register_vsc_apparent_power_squares!(
     ::IOM.BilinearApproxConfig,
     ::OptimizationContainer, _devices, _names, _times,
     ::DeviceModel{PSY.TwoTerminalVSCLine, HVDCTwoTerminalVSC},
     ::NetworkModel{<:AbstractPowerModel},
+) = nothing
+
+# Resolves the exact/octagon ambiguity on active-power-only nets (no reactive vars).
+_register_vsc_apparent_power_squares!(
+    ::IOM.NoBilinearApproxConfig,
+    ::OptimizationContainer, _devices, _names, _times,
+    ::DeviceModel{PSY.TwoTerminalVSCLine, HVDCTwoTerminalVSC},
+    ::NetworkModel{<:AbstractActivePowerModel},
 ) = nothing
 
 ####################### VSC core constraints ################################
@@ -1664,34 +1646,11 @@ function add_constraints!(
     return
 end
 
-# Apparent-power limit p² + q² ≤ rating². Enforced via a two-level gate that mirrors
-# `_register_vsc_apparent_power_squares!`: the network type selects AC vs active-only
-# (active-only networks carry no reactive power, so nothing is added), then the
-# bilinear config type selects the exact disk (`NoBilinearApproxConfig`) vs the
-# octagon outer-approximation (any other `BilinearApproxConfig`).
-_add_vsc_apparent_power_limit!(
-    bilin_cfg::IOM.BilinearApproxConfig,
-    container::OptimizationContainer,
-    devices::Union{Vector{U}, IS.FlattenIteratorWrapper{U}},
-    model::DeviceModel{U, HVDCTwoTerminalVSC},
-    network_model::NetworkModel{<:AbstractPowerModel},
-) where {U <: PSY.TwoTerminalVSCLine} =
-    _apply_vsc_apparent_power_limit!(bilin_cfg, container, devices, model, network_model)
-
-# Active-power-only networks don't carry reactive variables, so there is no
-# apparent-power limit to enforce.
-_add_vsc_apparent_power_limit!(
-    ::IOM.BilinearApproxConfig,
-    ::OptimizationContainer,
-    _devices::Union{Vector{U}, IS.FlattenIteratorWrapper{U}},
-    ::DeviceModel{U, HVDCTwoTerminalVSC},
-    ::NetworkModel{<:AbstractActivePowerModel},
-) where {U <: PSY.TwoTerminalVSCLine} = nothing
-
-# Exact disk (NLP). `p_*_sq` / `q_*_sq` are the `IOM.QuadraticExpression` handles
-# registered by `_register_vsc_apparent_power_squares!` under `NoQuadApproxConfig`, so they
-# are exact QuadExprs and the constraint is the smooth `p² + q² ≤ s²` (NLP).
-function _apply_vsc_apparent_power_limit!(
+# Apparent-power limit p² + q² ≤ rating²: exact smooth disk (NLP) on the exact path,
+# octagon outer-approximation on the linearizing paths, nothing on active-power-only
+# networks (no reactive variables). `p_*_sq` / `q_*_sq` are the exact QuadExprs
+# registered by `_register_vsc_apparent_power_squares!`.
+function _add_vsc_apparent_power_limit!(
     ::IOM.NoBilinearApproxConfig,
     container::OptimizationContainer,
     devices::Union{Vector{U}, IS.FlattenIteratorWrapper{U}},
@@ -1745,7 +1704,7 @@ end
 # so |p|+|q| ≤ r√2. Both half-plane families contain the disk, and so does
 # their intersection. The octagon is loose by at most ≈8.2% in area
 # (octagon-to-disk area ratio 8·tan(π/8)/π ≈ 1.082).
-function _apply_vsc_apparent_power_limit!(
+function _add_vsc_apparent_power_limit!(
     ::IOM.BilinearApproxConfig,
     container::OptimizationContainer,
     devices::Union{Vector{U}, IS.FlattenIteratorWrapper{U}},
@@ -1826,6 +1785,24 @@ function _apply_vsc_apparent_power_limit!(
     end
     return
 end
+
+# Active-power-only networks carry no reactive variables, so no limit applies.
+_add_vsc_apparent_power_limit!(
+    ::IOM.BilinearApproxConfig,
+    ::OptimizationContainer,
+    ::Union{Vector{U}, IS.FlattenIteratorWrapper{U}},
+    ::DeviceModel{U, HVDCTwoTerminalVSC},
+    ::NetworkModel{<:AbstractActivePowerModel},
+) where {U <: PSY.TwoTerminalVSCLine} = nothing
+
+# Resolves the exact/octagon ambiguity on active-power-only nets.
+_add_vsc_apparent_power_limit!(
+    ::IOM.NoBilinearApproxConfig,
+    ::OptimizationContainer,
+    ::Union{Vector{U}, IS.FlattenIteratorWrapper{U}},
+    ::DeviceModel{U, HVDCTwoTerminalVSC},
+    ::NetworkModel{<:AbstractActivePowerModel},
+) where {U <: PSY.TwoTerminalVSCLine} = nothing
 
 ####################### VSC defaults #########################################
 
