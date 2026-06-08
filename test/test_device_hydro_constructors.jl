@@ -674,10 +674,6 @@ end
     total_outflow = sum(df_outflow[!, :value])
     total_spillage = sum(hydro_spillage_df[!, :value])
 
-    # This is the exact (Ipopt) bilinear formulation, so the only error is the
-    # accumulated rounding in the m^3/s → km^3 unit conversion. Water-balance
-    # closure within 1e-4 km^3 is well inside Ipopt's feasibility tolerance for
-    # this problem size.
     tol = 1e-4
     calculated_vf =
         (hydro_vol_df[1, :value]) +
@@ -698,11 +694,6 @@ end
 end
 
 @testset "HydroTurbineBilinearDispatch (MILP): variable-bound plumbing to IOM" begin
-    # Spot-check that POM forwards PSY device data to JuMP without unit conversion.
-    # Outflow limits are m^3/s and storage_level_limits is meters (HEAD reservoir),
-    # so JuMP variables should carry those values verbatim. Exercise the MILP path
-    # by selecting a linearizing bilinear scheme (the formulation defaults to the
-    # exact "none" scheme).
     output_dir = mktempdir(; cleanup = true)
 
     sys = PSB.build_system(PSITestSystems, "c_sys5_hy_turbine_head")
@@ -761,9 +752,6 @@ end
 end
 
 @testset "HydroTurbineBilinearDispatch: TurbinePowerOutputConstraint unit conversion" begin
-    # Spot-check that POM's per-unit conversion (g*ρ*conv_factor / (1e6 * base_power))
-    # lands in JuMP exactly as expected. The pure bilinear formulation produces a clean
-    # quadratic constraint whose coefficients are easy to read off.
     output_dir = mktempdir(; cleanup = true)
 
     sys = PSB.build_system(PSITestSystems, "c_sys5_hy_turbine_head")
@@ -832,8 +820,6 @@ end
     hydro_inflow_ts = get_time_series_array(Deterministic, reservoir, "inflow")
 
     template = PowerOperationsProblemTemplate()
-    # MILP path: a linearizing bilinear scheme makes the problem solvable by HiGHS
-    # (the formulation defaults to the exact "none" scheme, which needs an NLP solver).
     set_device_model!(
         template,
         DeviceModel(
@@ -874,9 +860,6 @@ end
     total_outflow = sum(df_outflow[!, :value])
     total_spillage = sum(hydro_spillage_df[!, :value])
 
-    # Tolerance covers accumulated rounding in the m^3/s → km^3 unit conversion
-    # plus the MILP bilinear approximation; water-balance closure within 1e-4 km^3
-    # is well inside HiGHS' default feasibility tolerance for this problem size.
     tol = 1e-4
     calculated_vf =
         (hydro_vol_df[1, :value]) +

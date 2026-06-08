@@ -105,12 +105,7 @@ function _max_delta(bounds)
     return delta
 end
 
-# Build (quad_cfg, bilin_cfg) for a converter-loss formulation from the device
-# `v_bounds`/`i_bounds`. Reads the attributes, derives the worst-case domain
-# widths and term magnitudes, and sizes the discretization. With
-# `"bilinear_approximation" => "none"` (the default) it early-returns the
-# NoApprox configs, keeping the loss terms exact (NLP) without requiring finite
-# bounds — the single string→config-type site for the converter losses.
+# Build (quad_cfg, bilin_cfg) for a converter-loss formulation.
 function _build_converter_configs(
     ::Type{F},
     model::DeviceModel,

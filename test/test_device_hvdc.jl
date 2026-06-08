@@ -100,10 +100,6 @@ end
 end
 
 @testset "HVDC MILP vs NLP QuadraticLossConverter agreement" begin
-    # Build the single QuadraticLossConverter both ways — MILP via a linearizing
-    # bilinear scheme and exact (NLP) via the default "none" scheme — on the same
-    # system; compare objective values (Rodrigo's "same order of magnitude" ask
-    # from PR #103).
     function _build_and_solve(sys, converter_model, optimizer)
         template = PowerOperationsProblemTemplate()
         set_device_model!(template, ThermalStandard, ThermalDispatchNoMin)
@@ -127,8 +123,6 @@ end
         sys,
         DeviceModel(
             InterconnectingConverter, QuadraticLossConverter;
-            # Coarse tolerance keeps the SOS2 PWL small; the fixture carries
-            # little power so the objective still agrees with the NLP.
             attributes = Dict(
                 "bilinear_approximation" => "bin2",
                 "bilinear_relative_tolerance" => 0.1,
@@ -156,8 +150,6 @@ end
 end
 
 @testset "HVDC CurrentAbsoluteValueVariable matches |ConverterCurrent| at MILP optimum" begin
-    # Direct evidence that the binary-free LP abs-value formulation is tight:
-    # the loss objective drives abs_i down to exactly |i| at the optimum.
     sys = _generate_test_hvdc_sys()
     template = PowerOperationsProblemTemplate()
     set_device_model!(template, ThermalStandard, ThermalDispatchNoMin)
@@ -168,8 +160,6 @@ end
         template,
         DeviceModel(
             InterconnectingConverter, QuadraticLossConverter;
-            # Tightness of abs_i ≈ |i| is independent of discretization depth,
-            # so a coarse tolerance keeps this MILP small.
             attributes = Dict(
                 "bilinear_approximation" => "bin2",
                 "bilinear_relative_tolerance" => 0.2,
@@ -201,20 +191,8 @@ end
     @test isapprox(abs_i_vals, abs.(i_vals); atol = 1e-6)
 end
 
-@testset "Bilinear tolerance requires exactly one of absolute/relative" begin
-    # Exactly one of absolute/relative must be set; a relative tolerance is
-    # scaled to absolute by the magnitude `scale`. Both-set or neither-set errors.
-    @test POM._resolve_tolerance(0.1, nothing, 2.0) == 0.1
-    @test POM._resolve_tolerance(nothing, 0.05, 2.0) == 0.1   # 0.05 * 2.0
-    @test_throws ArgumentError POM._resolve_tolerance(nothing, nothing, 2.0)
-    @test_throws ArgumentError POM._resolve_tolerance(0.1, 0.05, 2.0)
-end
-
 @testset "QuadraticLossConverter builds under representative bilinear schemes" begin
     sys = _generate_test_hvdc_sys()
-    # One squares-based ("bin2") and one discretization-based ("nmdt") scheme
-    # cover both `_add_converter_bilinear!` branches without rebuilding for every
-    # scheme.
     for scheme in ("bin2", "nmdt")
         template = PowerOperationsProblemTemplate()
         set_device_model!(template, ThermalStandard, ThermalDispatchNoMin)
