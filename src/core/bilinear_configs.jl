@@ -1,18 +1,5 @@
-# Bilinear-approximation configuration.
-#
-# This file is the bridge between string-valued `DeviceModel` attributes that
-# select the bilinear approximation scheme (and its inner quadratic method) for
-# a bilinear `x × y` product and the `InfrastructureOptimizationModels` (IOM)
-# config structs consumed by `IOM._add_bilinear_approx!`. The accuracy of each
-# scheme is driven by a tolerance attribute; the discretization depth is derived
-# from the tolerance and the two variables' ranges at constraint-build time (see
-# `_build_bilinear_config`), so the caller never sets a manual depth / segment
-# count. The approximation math itself lives entirely in IOM.
-
 ############################ Validation helpers ############################################
 
-# Reject tolerances that would produce invalid discretization sizing downstream
-# in `IOM.tolerance_depth` (e.g. domain errors on a non-positive or non-finite gap).
 function _validate_tolerance(tolerance::Float64)
     (isfinite(tolerance) && tolerance > 0) || throw(
         ArgumentError(
@@ -22,8 +9,6 @@ function _validate_tolerance(tolerance::Float64)
     return tolerance
 end
 
-# Map an inner quadratic-method string to the corresponding IOM quadratic-approx
-# config TYPE. Errors with the list of supported strings when unrecognized.
 function _quad_config_type(method::String)
     if method == "solver_sos2"
         return IOM.SolverSOS2QuadConfig
@@ -44,11 +29,6 @@ function _quad_config_type(method::String)
     end
 end
 
-# Inner quadratic methods valid per scheme. `"epigraph"` is one-sided-under and
-# breaks the Bin2/HybS tolerance derivations (IOM defines no `tolerance_depth`
-# for it), so it is never accepted. The HybS sandwich additionally requires a
-# one-sided-over inner quad, which rules out the two-sided NMDT/DNMDT inner
-# quads.
 const _BIN2_QUAD_METHODS = ("solver_sos2", "manual_sos2", "sawtooth", "nmdt", "dnmdt")
 const _HYBS_QUAD_METHODS = ("solver_sos2", "manual_sos2", "sawtooth")
 
@@ -62,11 +42,6 @@ function _validate_quad_method(method::String, scheme::String, supported)
 end
 
 ############################ Translation to IOM configs ####################################
-
-# TODO: McCormick cuts (`add_mccormick`) are dropped for now — we always defer to
-# the IOM config's own default. Decide when they should be enabled and surface
-# that through the `tolerance_depth` helper (so it stays a tolerance-driven
-# decision) rather than re-exposing a raw knob here.
 
 """
 Build the IOM bilinear config consumed by `IOM._add_bilinear_approx!` from
@@ -82,9 +57,7 @@ it is ignored by the other schemes.
 Each IOM `tolerance_depth` / `tolerance_epigraph_depth` helper inverts its
 method's worst-case-gap bound and allocates the error budget across the inner
 quadratic, so POM never sizes the inner quad by hand — it just builds the inner
-quad at the returned `depth` (with the IOM-default `epigraph_depth`). There is
-intentionally no depth / segment-count / epigraph-depth knob here: every depth
-is derived from `tolerance`.
+quad at the returned `depth` (with the IOM-default `epigraph_depth`).
 
 Errors when `method` or `quad_method` is unrecognized, when `quad_method` is
 invalid for the selected scheme, or when `tolerance` is non-finite or ≤ 0.

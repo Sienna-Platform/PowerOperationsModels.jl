@@ -419,19 +419,6 @@ function get_default_attributes(
     return Dict{String, Any}("head_fraction_usage" => 0.0)
 end
 
-"""
-Default `DeviceModel` attributes for `HydroTurbineMILPBilinearDispatch`. The
-returned dictionary picks the bilinear approximation scheme used inside the
-turbine-power constraint; see [`HydroTurbineMILPBilinearDispatch`](@ref) for the
-full attribute reference.
-
-The default tolerance is `1e-2` paired with `"bin2"` + `"solver_sos2"`. Every
-discretization depth (including HybS's internal epigraph depth) is computed per
-device at constraint-build time from the tolerance and the per-device flow and
-head ranges, so two systems with very different bounds will get appropriately
-different discretizations from the same tolerance setting; there is no manual
-depth / segment-count attribute.
-"""
 function get_default_attributes(
     ::Type{T},
     ::Type{D},

@@ -364,17 +364,7 @@ Formulation type to add injection variables for a HydroTurbine connected to rese
 struct HydroTurbineBilinearDispatch <: AbstractHydroDispatchFormulation end
 
 """
-MILP formulation for the turbined-flow × head bilinear product in the hydro
-turbine power-output constraint. Adds injection variables for a HydroTurbine
-connected to reservoirs using a linearized approximation of the bilinear model.
-
-The bilinear approximation scheme is selected through `DeviceModel` attributes.
-The constraint constructor derives every discretization depth (the inner
-quadratic depth, HybS's internal epigraph depth, and the NMDT/DNMDT depth) per
-device from the `"bilinear_tolerance"` attribute combined with the device's
-flow and head ranges (via IOM's `tolerance_depth` helpers), so there is no
-manual depth / segment-count / epigraph-depth attribute. Invalid
-scheme/quadratic-method combinations are rejected at constraint-build time.
+Formulation type to add injection variables for a HydroTurbine connected to reservoirs using a bilinear model (with water flow variables) [`PowerSystems.HydroGen`](@extref). Uses a linearized approximation.
 
 # Attributes
 - `"bilinear_approximation"` (default `"bin2"`): the bilinear approximation
@@ -387,12 +377,6 @@ scheme/quadratic-method combinations are rejected at constraint-build time.
   accepts `"nmdt"` and `"dnmdt"`.
 - `"bilinear_tolerance"` (default `1e-2`): maximum approximation gap; must be
   finite and > 0.
-
-# Example
-```julia
-set_device_model!(template, HydroTurbine, HydroTurbineMILPBilinearDispatch)  # bin2, tol 1e-2
-set_device_model!(template, HydroTurbine, HydroTurbineMILPBilinearDispatch;
-    attributes = Dict("bilinear_approximation" => "nmdt", "bilinear_tolerance" => 1e-3))
 ```
 
 See: [`PowerSystems.HydroGen`](@extref).
