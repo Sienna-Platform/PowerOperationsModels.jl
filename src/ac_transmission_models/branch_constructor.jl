@@ -1675,15 +1675,6 @@ end
 ####################### Two-Terminal VSC HVDC Construct ####################
 ############################################################################
 
-# Quadratic / bilinear approximation traits — same scheme used by the MT
-# converter formulations.
-_quad_config(::Type{HVDCTwoTerminalVSCNLP}) = IOM.NoQuadApproxConfig()
-_quad_config(::Type{HVDCTwoTerminalVSCLP}) =
-    IOM.SolverSOS2QuadConfig(DEFAULT_INTERPOLATION_LENGTH)
-_bilinear_config(::Type{HVDCTwoTerminalVSCNLP}) = IOM.NoBilinearApproxConfig()
-_bilinear_config(::Type{HVDCTwoTerminalVSCLP}) =
-    IOM.Bin2Config(IOM.SolverSOS2QuadConfig(DEFAULT_INTERPOLATION_LENGTH))
-
 function construct_device!(
     container::OptimizationContainer,
     sys::PSY.System,
@@ -1740,31 +1731,27 @@ function construct_device!(
         (min = -_vsc_cable_i_max(d), max = _vsc_cable_i_max(d)) for d in devices
     ]
 
-    quad_cfg, bilin_cfg = _quad_config(F), _bilinear_config(F)
+    v_delta = max(_max_delta(v_f_bounds), _max_delta(v_t_bounds))
+    quad_cfg, bilin_cfg =
+        _build_converter_configs(F, device_model, v_delta, _max_delta(i_bounds))
 
-    v_f_sq_expr = IOM._add_quadratic_approx!(
-        quad_cfg, container, PSY.TwoTerminalVSCLine,
-        line_names, time_steps, v_f_var, v_f_bounds, "v_f_sq",
-    )
-    v_t_sq_expr = IOM._add_quadratic_approx!(
-        quad_cfg, container, PSY.TwoTerminalVSCLine,
-        line_names, time_steps, v_t_var, v_t_bounds, "v_t_sq",
-    )
+    # The converter loss terms read `i_sq`; build it once and reuse it for both
+    # terminal bilinears.
     i_sq_expr = IOM._add_quadratic_approx!(
         quad_cfg, container, PSY.TwoTerminalVSCLine,
         line_names, time_steps, i_var, i_bounds, "i_sq",
     )
 
-    IOM._add_bilinear_approx!(
-        bilin_cfg, container, PSY.TwoTerminalVSCLine,
+    _add_converter_bilinear!(
+        bilin_cfg, quad_cfg, container, PSY.TwoTerminalVSCLine,
         line_names, time_steps,
-        v_f_sq_expr, i_sq_expr, v_f_var, i_var,
+        v_f_var, i_var, i_sq_expr,
         v_f_bounds, i_bounds, "vi_ft",
     )
-    IOM._add_bilinear_approx!(
-        bilin_cfg, container, PSY.TwoTerminalVSCLine,
+    _add_converter_bilinear!(
+        bilin_cfg, quad_cfg, container, PSY.TwoTerminalVSCLine,
         line_names, time_steps,
-        v_t_sq_expr, i_sq_expr, v_t_var, i_var,
+        v_t_var, i_var, i_sq_expr,
         v_t_bounds, i_bounds, "vi_tf",
     )
 

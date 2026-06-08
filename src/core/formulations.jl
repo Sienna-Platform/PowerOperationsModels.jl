@@ -200,15 +200,29 @@ Two-terminal VSC formulation that keeps the bilinear ``v \\cdot I`` and quadrati
 struct HVDCTwoTerminalVSCNLP <: AbstractTwoTerminalVSCFormulation end
 
 """
-Two-terminal VSC formulation that uses SOS2 piecewise-linear surrogates for the
-bilinear ``v \\cdot I`` and quadratic ``I^2`` terms (so the loss model itself is
-mixed-integer linear) and enforces the per-terminal PQ capability via a linear
-outer-approximation of the disk ``p^2 + q^2 \\le \\text{rating}^2``: axis-aligned
-box constraints ``|p|, |q| \\le \\text{rating}`` always, plus four diagonal
-constraints ``|p| \\pm q \\le \\text{rating}\\sqrt{2}`` when the device-model
-attribute `use_octagon` (default `true`) is on. With the diagonals in place the
-feasible region is a regular octagon circumscribing the disk; turning them off
-leaves only the box.
+Two-terminal VSC formulation that replaces the bilinear ``v \\cdot I`` and
+quadratic ``I^2`` loss terms with tolerance-driven approximations (so the loss
+model itself is mixed-integer linear for the linearizing schemes) and enforces
+the per-terminal PQ capability via a linear outer-approximation of the disk
+``p^2 + q^2 \\le \\text{rating}^2``: axis-aligned box constraints
+``|p|, |q| \\le \\text{rating}`` always, plus four diagonal constraints
+``|p| \\pm q \\le \\text{rating}\\sqrt{2}`` when the device-model attribute
+`use_octagon` (default `true`) is on. With the diagonals in place the feasible
+region is a regular octagon circumscribing the disk; turning them off leaves
+only the box.
+
+# Attributes
+- `"use_octagon"` (default `true`): see above.
+- `"bilinear_approximation"` (default `"bin2"`): the bilinear approximation
+  scheme for each terminal's `v·I` term. Supported: `"bin2"`, `"hybs"`,
+  `"nmdt"`, `"dnmdt"`, `"none"` (`"none"` keeps `v·I` and `I²` exact — needs a
+  nonlinear-capable solver, matching `HVDCTwoTerminalVSCNLP`).
+- `"bilinear_quadratic_method"` (default `"solver_sos2"`): the inner quadratic
+  PWL method. Used by the `"bin2"` and `"hybs"` schemes, and also sizes the
+  standalone `I²` loss term for *every* scheme. Supported: `"solver_sos2"`,
+  `"manual_sos2"`, `"sawtooth"`; `"bin2"` also accepts `"nmdt"` and `"dnmdt"`.
+- `"bilinear_tolerance"` (default `1e-2`): maximum approximation gap; must be
+  finite and > 0.
 """
 struct HVDCTwoTerminalVSCLP <: AbstractTwoTerminalVSCFormulation end
 
@@ -231,8 +245,23 @@ Abstract supertype for InterconnectingConverter formulations with quadratic loss
 abstract type AbstractQuadraticLossConverter <: AbstractConverterFormulation end
 
 """
-Quadratic Loss InterconnectingConverter using the separable bilinear approximation
-(`v·i = ½((v+i)² − v² − i²)`) with a SOS2-based PWL approximation for x². Stays MILP.
+Quadratic Loss InterconnectingConverter whose `v·I` and `I²` loss terms are
+replaced by tolerance-driven approximations, so the model stays mixed-integer
+linear (for the linearizing schemes). The discretization is sized automatically
+from the per-device voltage and current ranges.
+
+# Attributes
+- `"bilinear_approximation"` (default `"bin2"`): the bilinear approximation
+  scheme for `v·I`. Supported: `"bin2"`, `"hybs"`, `"nmdt"`, `"dnmdt"`,
+  `"none"` (`"none"` keeps `v·I` and `I²` exact — the resulting model is not a
+  MILP and needs a nonlinear-capable solver, matching `QuadraticLossConverterNLP`).
+- `"bilinear_quadratic_method"` (default `"solver_sos2"`): the inner quadratic
+  PWL method. Used by the `"bin2"` and `"hybs"` schemes, and — unlike the hydro
+  formulation — also sizes the standalone `I²` loss term for *every* scheme.
+  Supported: `"solver_sos2"`, `"manual_sos2"`, `"sawtooth"`; `"bin2"` also
+  accepts `"nmdt"` and `"dnmdt"`.
+- `"bilinear_tolerance"` (default `1e-2`): maximum approximation gap; must be
+  finite and > 0.
 """
 struct QuadraticLossConverterMILP <: AbstractQuadraticLossConverter end
 

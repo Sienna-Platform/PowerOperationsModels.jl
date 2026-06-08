@@ -95,13 +95,6 @@ function _converter_vi_bounds(devices)
     return v_bounds, i_bounds
 end
 
-_quad_config(::Type{QuadraticLossConverterMILP}) =
-    IOM.SolverSOS2QuadConfig(DEFAULT_INTERPOLATION_LENGTH)
-_quad_config(::Type{QuadraticLossConverterNLP}) = IOM.NoQuadApproxConfig()
-_bilinear_config(::Type{QuadraticLossConverterMILP}) =
-    IOM.Bin2Config(IOM.SolverSOS2QuadConfig(DEFAULT_INTERPOLATION_LENGTH))
-_bilinear_config(::Type{QuadraticLossConverterNLP}) = IOM.NoBilinearApproxConfig()
-
 function construct_device!(
     container::OptimizationContainer,
     sys::PSY.System,
@@ -116,14 +109,9 @@ function construct_device!(
     v_expr = _voltage_expr_per_converter(container, devices, ipc_names, time_steps)
     i_var = get_variable(container, ConverterCurrent, PSY.InterconnectingConverter)
 
-    quad_cfg, bilin_cfg = _quad_config(T), _bilinear_config(T)
-    v_sq_expr = IOM._add_quadratic_approx!(
-        quad_cfg,
-        container, PSY.InterconnectingConverter,
-        ipc_names, time_steps,
-        v_expr, v_bounds,
-        "v_sq",
-    )
+    quad_cfg, bilin_cfg =
+        _build_converter_configs(T, model, _max_delta(v_bounds), _max_delta(i_bounds))
+    # The loss term reads `i_sq`; build it once and reuse it for the bilinear.
     i_sq_expr = IOM._add_quadratic_approx!(
         quad_cfg,
         container, PSY.InterconnectingConverter,
@@ -131,12 +119,11 @@ function construct_device!(
         i_var, i_bounds,
         "i_sq",
     )
-    IOM._add_bilinear_approx!(
-        bilin_cfg,
+    _add_converter_bilinear!(
+        bilin_cfg, quad_cfg,
         container, PSY.InterconnectingConverter,
         ipc_names, time_steps,
-        v_sq_expr, i_sq_expr,
-        v_expr, i_var,
+        v_expr, i_var, i_sq_expr,
         v_bounds, i_bounds,
         "vi",
     )

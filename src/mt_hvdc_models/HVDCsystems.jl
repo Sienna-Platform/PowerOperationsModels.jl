@@ -107,6 +107,25 @@ function get_default_attributes(
 end
 
 function get_default_attributes(
+    ::Type{PSY.InterconnectingConverter},
+    ::Type{QuadraticLossConverterMILP},
+)
+    return Dict{String, Any}(
+        # Top-level bilinear approximation scheme for the `v·I` loss term.
+        # Supported: "bin2", "hybs", "nmdt", "dnmdt", "none".
+        "bilinear_approximation" => "bin2",
+        # Inner quadratic PWL method (used by "bin2"/"hybs", and to size the
+        # standalone `I²` loss term for every scheme).
+        # Supported: "solver_sos2", "manual_sos2", "sawtooth"; "bin2" also
+        # accepts "nmdt" and "dnmdt".
+        "bilinear_quadratic_method" => "solver_sos2",
+        # Maximum approximation gap; sized against the per-device voltage and
+        # current ranges. Must be finite and > 0.
+        "bilinear_tolerance" => 1e-2,
+    )
+end
+
+function get_default_attributes(
     ::Type{PSY.TModelHVDCLine},
     ::Type{<:AbstractBranchFormulation},
 )

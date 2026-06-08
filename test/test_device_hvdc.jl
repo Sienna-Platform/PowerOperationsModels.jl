@@ -178,6 +178,108 @@ end
     @test isapprox(abs_i_vals, abs.(i_vals); atol = 1e-6)
 end
 
+@testset "Converter loss: attribute → IOM config bridge" begin
+    # Pure config construction — no solver or system required.
+    v_delta, i_delta = 0.1, 10.0
+    milp_dm(overrides...) = DeviceModel(
+        InterconnectingConverter, QuadraticLossConverterMILP;
+        attributes = Dict{String, Any}(overrides...),
+    )
+    cfgs(dm) = POM._build_converter_configs(
+        QuadraticLossConverterMILP, dm, v_delta, i_delta,
+    )
+
+    # Squares-based schemes: the standalone loss-I² quad config is reused as the
+    # bilinear's inner quad (===), and the inner quad type follows the method.
+    quad, bilin = cfgs(milp_dm())  # bin2 / solver_sos2 defaults
+    @test bilin isa IOM.Bin2Config{IOM.SolverSOS2QuadConfig}
+    @test quad === bilin.quad_config
+    quad, bilin = cfgs(milp_dm("bilinear_quadratic_method" => "nmdt"))
+    @test bilin isa IOM.Bin2Config{IOM.NMDTQuadConfig}
+    @test quad === bilin.quad_config
+    quad, bilin = cfgs(
+        milp_dm(
+            "bilinear_approximation" => "hybs",
+            "bilinear_quadratic_method" => "sawtooth",
+        ),
+    )
+    @test bilin isa IOM.HybSConfig{IOM.SawtoothQuadConfig}
+    @test quad === bilin.quad_config
+
+    # Discretization-based schemes: the bilinear builds no I², so the loss I²
+    # quad is sized on its own (type follows the quad method).
+    quad, bilin = cfgs(milp_dm("bilinear_approximation" => "nmdt"))
+    @test bilin isa IOM.NMDTBilinearConfig
+    @test quad isa IOM.SolverSOS2QuadConfig
+    quad, bilin = cfgs(milp_dm("bilinear_approximation" => "dnmdt"))
+    @test bilin isa IOM.DNMDTBilinearConfig
+    @test quad isa IOM.SolverSOS2QuadConfig
+
+    # "none" and the NLP formulation are both exact.
+    quad, bilin = cfgs(milp_dm("bilinear_approximation" => "none"))
+    @test quad isa IOM.NoQuadApproxConfig
+    @test bilin isa IOM.NoBilinearApproxConfig
+    quad, bilin = POM._build_converter_configs(
+        QuadraticLossConverterNLP, milp_dm(), v_delta, i_delta,
+    )
+    @test quad isa IOM.NoQuadApproxConfig
+    @test bilin isa IOM.NoBilinearApproxConfig
+
+    # Tighter tolerance ⇒ deeper discretization, for the bin2 inner quad and the
+    # standalone nmdt loss quad alike.
+    loose, _ = cfgs(milp_dm("bilinear_tolerance" => 1e-1))
+    tight, _ = cfgs(milp_dm("bilinear_tolerance" => 1e-4))
+    @test tight.depth > loose.depth
+    loose_n, _ = cfgs(milp_dm(
+        "bilinear_approximation" => "nmdt", "bilinear_tolerance" => 1e-1))
+    tight_n, _ = cfgs(milp_dm(
+        "bilinear_approximation" => "nmdt", "bilinear_tolerance" => 1e-4))
+    @test tight_n.depth > loose_n.depth
+
+    # Error cases bubble up from the shared bridge.
+    @test_throws ErrorException cfgs(milp_dm("bilinear_approximation" => "foo"))
+    @test_throws ErrorException cfgs(milp_dm("bilinear_quadratic_method" => "foo"))
+    # HybS needs a one-sided-over inner quad: nmdt/dnmdt rejected.
+    @test_throws ErrorException cfgs(
+        milp_dm(
+            "bilinear_approximation" => "hybs", "bilinear_quadratic_method" => "nmdt"),
+    )
+    @test_throws ArgumentError cfgs(milp_dm("bilinear_tolerance" => 0.0))
+    @test_throws ArgumentError cfgs(milp_dm("bilinear_tolerance" => Inf))
+
+    # The VSC LP formulation uses the same bridge (spot check) and keeps
+    # use_octagon among its defaults.
+    vsc_dm = DeviceModel(TwoTerminalVSCLine, HVDCTwoTerminalVSCLP)
+    @test IOM.get_attribute(vsc_dm, "use_octagon") == true
+    quad, bilin = POM._build_converter_configs(
+        HVDCTwoTerminalVSCLP, vsc_dm, v_delta, i_delta,
+    )
+    @test bilin isa IOM.Bin2Config{IOM.SolverSOS2QuadConfig}
+    @test quad === bilin.quad_config
+end
+
+@testset "QuadraticLossConverterMILP builds under every bilinear scheme" begin
+    sys = _generate_test_hvdc_sys()
+    for scheme in ("bin2", "hybs", "nmdt", "dnmdt")
+        template = PowerOperationsProblemTemplate()
+        set_device_model!(template, ThermalStandard, ThermalDispatchNoMin)
+        set_device_model!(template, PowerLoad, StaticPowerLoad)
+        set_device_model!(template, DeviceModel(Line, StaticBranch))
+        set_device_model!(template, TModelHVDCLine, DCLossyLine)
+        set_device_model!(
+            template,
+            DeviceModel(
+                InterconnectingConverter, QuadraticLossConverterMILP;
+                attributes = Dict{String, Any}("bilinear_approximation" => scheme),
+            ),
+        )
+        set_hvdc_network_model!(template, VoltageDispatchHVDCNetworkModel)
+        model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
+        @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+              IOM.ModelBuildStatus.BUILT
+    end
+end
+
 ##############################################################################
 ################ Two-Terminal VSC HVDC tests #################################
 ##############################################################################
@@ -277,6 +379,27 @@ end
     lp_obj = _solve(HVDCTwoTerminalVSCLP, HiGHS_optimizer)
     nlp_obj = _solve(HVDCTwoTerminalVSCNLP, ipopt_optimizer)
     @test isapprox(lp_obj, nlp_obj; rtol = 0.05)
+end
+
+@testset "HVDCTwoTerminalVSCLP builds under every bilinear scheme" begin
+    sys = _generate_test_vsc_sys()
+    for scheme in ("bin2", "hybs", "nmdt", "dnmdt")
+        template = PowerOperationsProblemTemplate(NetworkModel(DCPPowerModel))
+        set_device_model!(template, ThermalStandard, ThermalDispatchNoMin)
+        set_device_model!(template, RenewableDispatch, RenewableFullDispatch)
+        set_device_model!(template, PowerLoad, StaticPowerLoad)
+        set_device_model!(template, DeviceModel(Line, StaticBranch))
+        set_device_model!(
+            template,
+            DeviceModel(
+                TwoTerminalVSCLine, HVDCTwoTerminalVSCLP;
+                attributes = Dict{String, Any}("bilinear_approximation" => scheme),
+            ),
+        )
+        model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
+        @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+              IOM.ModelBuildStatus.BUILT
+    end
 end
 
 @testset "HVDC VSC: higher cable resistance increases cost" begin
