@@ -154,23 +154,21 @@ end
     # not active power limits.
     c_sys5_re = PSB.build_system(PSITestSystems, "c_sys5_re")
 
-    formulation = RenewableFullDispatch
     quad_re = get_component(RenewableDispatch, c_sys5_re, "WindBusA")
     base_cost = get_operation_cost(quad_re)
-    # A likely bug was surfaced by writing this test: objective_function_multiplier's
-    # return value for RenewableDispatch. Rather than fixing it in this same PR,
-    # write the test so that it works either way.
-    re_mult = POM.objective_function_multiplier(ActivePowerVariable, formulation)
+    # Renewable ActivePowerVariable costs use OBJECTIVE_FUNCTION_NEGATIVE, so the negated
+    # objective term `-cost(p)` is convex (and free of the non-monotonicity warning) when
+    # the raw curve is concave, i.e. negative coefficients.
     set_operation_cost!(
         quad_re,
         RenewableGenerationCost(;
-            variable = CostCurve(QuadraticCurve(re_mult * 2.0, re_mult * 1.0, 0.0)),
+            variable = CostCurve(QuadraticCurve(-2.0, -1.0, 0.0)),
             curtailment_cost = base_cost.curtailment_cost,
             fixed = base_cost.fixed,
         ),
     )
 
-    device_model = DeviceModel(RenewableDispatch, formulation)
+    device_model = DeviceModel(RenewableDispatch, RenewableFullDispatch)
     model = DecisionModel(MockOperationProblem, DCPPowerModel, c_sys5_re)
     # Before the fix this threw `ArgumentError: get_active_power_limits not implemented
     # for RenewableDispatch`; now it constructs a quadratic objective.
