@@ -1,7 +1,7 @@
 # Marker singleton trait types used to parametrize hybrid/storage reserve variable,
 # expression, and constraint families. These eliminate the need for paired sibling
 # singletons across the codebase: a single parametric struct is used instead of
-# every (Charge/Discharge), (Up/Down), (Unscaled/Deployed), (UB/LB) sibling pair.
+# every (Charge/Discharge) and (Unscaled/Deployed) sibling pair.
 
 abstract type ReserveScale end
 "Reserve aggregation that uses the raw multiplier (1.0). Was Total / Assignment."

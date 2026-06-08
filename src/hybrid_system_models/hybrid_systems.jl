@@ -1099,9 +1099,6 @@ end
 # from POM's storage versions.
 #################################################################################
 
-# Helper accessors
-_storage_of(d::PSY.HybridSystem) = PSY.get_storage(d)
-
 #################################################################################
 # HybridStorageBalanceConstraint — energy balance with optional reserve deployment
 #################################################################################
@@ -1166,7 +1163,7 @@ function _hybrid_storage_balance_no_reserves!(
 
     for ic in initial_conditions
         d = IOM.get_component(ic)
-        storage = _storage_of(d)
+        storage = PSY.get_storage(d)
         storage === nothing && continue
         eff = PSY.get_efficiency(storage)
         name = PSY.get_name(d)
@@ -1236,7 +1233,7 @@ function _hybrid_storage_balance_with_reserves!(
 
     for ic in initial_conditions
         d = IOM.get_component(ic)
-        storage = _storage_of(d)
+        storage = PSY.get_storage(d)
         storage === nothing && continue
         eff = PSY.get_efficiency(storage)
         name = PSY.get_name(d)
@@ -1307,7 +1304,7 @@ function add_constraints!(
     ss = get_variable(container, HybridStorageReservation, V)
     constraint = add_constraints_container!(container, T, V, names, time_steps)
     for d in devices, t in time_steps
-        storage = _storage_of(d)
+        storage = PSY.get_storage(d)
         storage === nothing && continue
         name = PSY.get_name(d)
         max_p = _storage_side_max(T, storage)
@@ -1373,7 +1370,7 @@ function add_constraints!(
     con_lb = add_constraints_container!(
         container, T, V, names, time_steps; meta = "lb")
     for d in devices, t in time_steps
-        storage = _storage_of(d)
+        storage = PSY.get_storage(d)
         storage === nothing && continue
         name = PSY.get_name(d)
         max_p = _storage_side_max(T, storage)
@@ -1447,7 +1444,7 @@ function add_constraints!(
     reg_var = get_variable(container, _reg_slack_var(T), V)
     p_var = get_variable(container, _reg_power_var(T), V)
     has_services = _regularization_has_services(W, model)
-    s_ReserveUp, s_dn = _reg_reserve_signs(T)
+    s_up, s_dn = _reg_reserve_signs(T)
     con_ub = add_constraints_container!(
         container, T, V, names, time_steps; meta = "ub")
     con_lb = add_constraints_container!(
@@ -1685,7 +1682,7 @@ function add_constraints!(
 
     for ic in initial_conditions
         d = IOM.get_component(ic)
-        storage = _storage_of(d)
+        storage = PSY.get_storage(d)
         storage === nothing && continue
         ci_name = PSY.get_name(d)
         eff_in = PSY.get_efficiency(storage).in
@@ -1723,7 +1720,7 @@ function add_constraints!(
         [last(time_steps)],
     )
     for d in devices
-        storage = _storage_of(d)
+        storage = PSY.get_storage(d)
         storage === nothing && continue
         name = PSY.get_name(d)
         target =
@@ -1938,7 +1935,7 @@ function add_constraints!(
     end
 
     has_reserves = W <: AbstractHybridFormulationWithReserves && has_service_model(model)
-    serv_out_ReserveUp, serv_out_dn, serv_in_ReserveUp, serv_in_dn = if has_reserves
+    serv_out_up, serv_out_dn, serv_in_up, serv_in_dn = if has_reserves
         (
             get_expression(
                 container,
