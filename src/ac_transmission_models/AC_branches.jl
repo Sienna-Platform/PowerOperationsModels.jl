@@ -1288,8 +1288,8 @@ function branch_admittance end
 # Plain AC line and MonitoredLine: full series admittance via PSY.
 # get_series_admittance(::ACTransmission) returns 1/(R + jX).
 function branch_admittance(branch::Union{PSY.Line, PSY.MonitoredLine})
-    y = PSY.get_series_admittance(branch)
-    b_split = PSY.get_b(branch)
+    y = PSY.get_series_admittance(branch, PSY.SU)
+    b_split = PSY.get_b(branch, PSY.SU)
     return (
         g = real(y),
         b = imag(y),
@@ -1305,8 +1305,8 @@ end
 # Plain transformer: same series admittance helper as line; shunt is on primary
 # (from) side only. PSY.get_primary_shunt returns a ComplexF64 admittance.
 function branch_admittance(branch::PSY.Transformer2W)
-    y = PSY.get_series_admittance(branch)
-    yt = PSY.get_primary_shunt(branch)
+    y = PSY.get_series_admittance(branch, PSY.SU)
+    yt = PSY.get_primary_shunt(branch, PSY.SU)
     return (
         g = real(y),
         b = imag(y),
@@ -1324,8 +1324,8 @@ end
 # below already applies the tap separately as `tm`, so we compute the bare
 # series admittance from (r, x) directly to avoid double-counting.
 function branch_admittance(branch::PSY.TapTransformer)
-    y = inv(complex(PSY.get_r(branch), PSY.get_x(branch)))
-    yt = PSY.get_primary_shunt(branch)
+    y = inv(complex(PSY.get_r(branch, PSY.SU), PSY.get_x(branch, PSY.SU)))
+    yt = PSY.get_primary_shunt(branch, PSY.SU)
     return (
         g = real(y),
         b = imag(y),
@@ -1342,8 +1342,8 @@ end
 # nominal phase shift α. Constraint generation may swap the constant α for a
 # PhaseShifterAngle variable in free-control mode.
 function branch_admittance(branch::PSY.PhaseShiftingTransformer)
-    y = inv(complex(PSY.get_r(branch), PSY.get_x(branch)))
-    yt = PSY.get_primary_shunt(branch)
+    y = inv(complex(PSY.get_r(branch, PSY.SU), PSY.get_x(branch, PSY.SU)))
+    yt = PSY.get_primary_shunt(branch, PSY.SU)
     return (
         g = real(y),
         b = imag(y),
@@ -1423,7 +1423,7 @@ For symmetric branches both fields equal `PSY.get_rating(branch)`.
 function branch_flow_limits end
 
 function branch_flow_limits(b::PSY.MonitoredLine)
-    fl = PSY.get_flow_limits(b)
+    fl = PSY.get_flow_limits(b, PSY.SU)
     return (from_to = fl.from_to, to_from = fl.to_from)
 end
 
@@ -1435,7 +1435,7 @@ function branch_flow_limits(
         PSY.PhaseShiftingTransformer,
     },
 )
-    r = PSY.get_rating(b)
+    r = PSY.get_rating(b, PSY.SU)
     return (from_to = r, to_from = r)
 end
 

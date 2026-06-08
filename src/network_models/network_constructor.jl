@@ -77,7 +77,7 @@ function construct_network!(
     container::OptimizationContainer,
     sys::PSY.System,
     model::NetworkModel{DCPPowerModel},
-    template::OperationsProblemTemplate,
+    template::PowerOperationsProblemTemplate,
 )
     add_variables!(container, VoltageAngle, sys, model)
     add_constraints!(container, ReferenceBusConstraint, sys, model)
@@ -99,7 +99,7 @@ function construct_network!(
     container::OptimizationContainer,
     sys::PSY.System,
     model::NetworkModel{ACPPowerModel},
-    template::OperationsProblemTemplate,
+    template::PowerOperationsProblemTemplate,
 )
     add_variables!(container, VoltageAngle, sys, model)
     add_variables!(container, VoltageMagnitude, sys, model)
