@@ -458,7 +458,7 @@ get_parameter_multiplier(
 #################################################################################
 
 get_initial_conditions_device_model(
-    ::OperationModel,
+    ::IOM.AbstractOptimizationModel,
     model::DeviceModel{T, <:AbstractHybridFormulation},
 ) where {T <: PSY.HybridSystem} = model
 

@@ -100,7 +100,7 @@ right-hand side of the system-level reserve balance.
 struct TotalReserveOffering <: ExpressionType end
 
 abstract type ReserveAggregationExpression{
-    D <: ReserveDirection,
+    D <: PSY.ReserveDirection,
     S <: ReserveScale,
     Sd <: ReserveSide,
 } <: ExpressionType end
@@ -132,7 +132,7 @@ should_write_resulting_value(::Type{TotalHydroFlowRateTurbineOutgoing}) = true
 should_write_resulting_value(::Type{<:StorageReserveBalanceExpression}) = true
 should_write_resulting_value(
     ::Type{HybridPCCReserveExpression{D, DeployedReserve, Sd}},
-) where {D <: ReserveDirection, Sd <: ReserveSide} = true
+) where {D <: PSY.ReserveDirection, Sd <: ReserveSide} = true
 
 # Method extensions for unit conversion
 convert_output_to_natural_units(::Type{InterfaceTotalFlow}) = true
