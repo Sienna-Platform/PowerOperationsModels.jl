@@ -377,14 +377,14 @@ struct HVDCPiecewiseBinaryLossVariable <: SparseVariableType end
 
 """
 DC-side voltage at the from-terminal of a two-terminal HVDC link.
-Used by both `HVDCTwoTerminalVSCNLP` and `HVDCTwoTerminalVSCLP` formulations.
+Used by the `HVDCTwoTerminalVSC` formulation.
 Docs abbreviation: ``v_f^{dc}``
 """
 struct HVDCFromDCVoltage <: VariableType end
 
 """
 DC-side voltage at the to-terminal of a two-terminal HVDC link.
-Used by both `HVDCTwoTerminalVSCNLP` and `HVDCTwoTerminalVSCLP` formulations.
+Used by the `HVDCTwoTerminalVSC` formulation.
 Docs abbreviation: ``v_t^{dc}``
 """
 struct HVDCToDCVoltage <: VariableType end

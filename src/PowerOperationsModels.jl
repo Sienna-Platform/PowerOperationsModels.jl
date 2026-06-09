@@ -231,6 +231,7 @@ include("core/constraints.jl")
 include("core/auxiliary_variables.jl")
 include("core/parameters.jl")
 include("core/formulations.jl")
+include("core/bilinear_configs.jl")
 include("core/network_formulations.jl")
 include("core/problem_template.jl")
 include("core/feedforward_interface.jl")
@@ -567,7 +568,6 @@ export HydroWaterFactorModel
 export HydroWaterModelReservoir
 export HydroTurbineBilinearDispatch
 export HydroTurbineWaterLinearDispatch
-export HydroTurbineBin2BilinearDispatch
 export HydroTurbineWaterLinearCommitment
 export HydroEnergyModelReservoir
 export HydroTurbineEnergyDispatch
@@ -810,15 +810,13 @@ export HVDCTwoTerminalLossless
 export HVDCTwoTerminalDispatch
 export HVDCTwoTerminalPiecewiseLoss
 export HVDCTwoTerminalLCC
-export HVDCTwoTerminalVSCNLP
-export HVDCTwoTerminalVSCLP
+export HVDCTwoTerminalVSC
 
 # Converter Formulations
 export LosslessConverter
 export LinearLossConverter
 export AbstractQuadraticLossConverter
-export QuadraticLossConverterMILP
-export QuadraticLossConverterNLP
+export QuadraticLossConverter
 
 # DC Line Formulations
 export DCLosslessLine
