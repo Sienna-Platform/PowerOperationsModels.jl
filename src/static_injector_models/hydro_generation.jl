@@ -1823,12 +1823,42 @@ function add_constraints!(
 
         flow_lb = get_variable_lower_bound(HydroTurbineFlowRateVariable, d, W)
         flow_ub = get_variable_upper_bound(HydroTurbineFlowRateVariable, d, W)
+<<<<<<< HEAD
+=======
+        bilinear_method != "none" && isnothing(flow_ub) &&
+            error(
+                "HydroTurbineBilinearDispatch requires finite turbine outflow " *
+                "limits to size the bilinear approximation, but turbine \"$(name)\" " *
+                "has no `outflow_limits`. Set finite outflow limits or use a " *
+                "different hydro turbine formulation.",
+            )
+        flow_delta = flow_ub - flow_lb
+
+>>>>>>> 40a7cc2451e801d9f752ef4c1928b254fa423218
         head_bounds = [
             (
                 min = get_variable_lower_bound(HydroReservoirHeadVariable, res, W),
                 max = get_variable_upper_bound(HydroReservoirHeadVariable, res, W),
             ) for res in reservoirs
         ]
+<<<<<<< HEAD
+=======
+        for (res, b) in zip(reservoirs, head_bounds)
+            bilinear_method != "none" && isnothing(b.max) &&
+                error(
+                    "HydroTurbineBilinearDispatch requires finite head bounds " *
+                    "to size the bilinear approximation, but reservoir " *
+                    "\"$(PSY.get_name(res))\" (connected to turbine \"$(name)\") has " *
+                    "no finite head upper bound (its level data is not stored as " *
+                    "HEAD). Provide HEAD level limits or use a different hydro " *
+                    "turbine formulation.",
+                )
+        end
+        # Worst-case head range across the turbine's reservoirs — gives a
+        # single config that meets the requested tolerance for every pair.
+        head_delta = maximum(b.max - b.min for b in head_bounds)
+
+>>>>>>> 40a7cc2451e801d9f752ef4c1928b254fa423218
         flow_bounds = repeat([(min = flow_lb, max = flow_ub)], length(reservoirs))
 
         # The exact (NLP) product needs no bounds to size a discretization; only
