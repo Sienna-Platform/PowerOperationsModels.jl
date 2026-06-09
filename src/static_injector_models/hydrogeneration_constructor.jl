@@ -1811,7 +1811,6 @@ _maybe_add_on_variables!(
     devices,
     ::Union{
         Type{HydroTurbineBilinearDispatch},
-        Type{HydroTurbineBin2BilinearDispatch},
         Type{HydroTurbineWaterLinearDispatch},
     },
 ) = nothing

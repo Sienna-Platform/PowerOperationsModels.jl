@@ -194,23 +194,16 @@ reactive-power control bounded by per-terminal PQ capability.
 abstract type AbstractTwoTerminalVSCFormulation <: AbstractTwoTerminalDCLineFormulation end
 
 """
-Two-terminal VSC formulation that keeps the bilinear ``v \\cdot I`` and quadratic
-``I^2`` terms exact. Requires an NLP-capable solver (e.g. Ipopt).
+Two-terminal VSC formulation: the per-terminal ``v \\cdot I`` / ``I^2`` losses are
+bridged to IOM's approximation API and the apparent-power limit
+``p^2 + q^2 \\le \\text{rating}^2`` is enforced as the exact disk (default `"none"`,
+NLP) or, under a linearizing scheme, a linear outer-approximation — a box, plus an
+octagon when the `"use_octagon"` attribute (default `true`) is on. See
+[`BILINEAR_APPROX_DEFAULT_ATTRIBUTES`](@ref) for the approximation attributes; here
+`"bilinear_quadratic_method"` also sizes the standalone `I²` loss term for *every*
+scheme.
 """
-struct HVDCTwoTerminalVSCNLP <: AbstractTwoTerminalVSCFormulation end
-
-"""
-Two-terminal VSC formulation that uses SOS2 piecewise-linear surrogates for the
-bilinear ``v \\cdot I`` and quadratic ``I^2`` terms (so the loss model itself is
-mixed-integer linear) and enforces the per-terminal PQ capability via a linear
-outer-approximation of the disk ``p^2 + q^2 \\le \\text{rating}^2``: axis-aligned
-box constraints ``|p|, |q| \\le \\text{rating}`` always, plus four diagonal
-constraints ``|p| \\pm q \\le \\text{rating}\\sqrt{2}`` when the device-model
-attribute `use_octagon` (default `true`) is on. With the diagonals in place the
-feasible region is a regular octagon circumscribing the disk; turning them off
-leaves only the box.
-"""
-struct HVDCTwoTerminalVSCLP <: AbstractTwoTerminalVSCFormulation end
+struct HVDCTwoTerminalVSC <: AbstractTwoTerminalVSCFormulation end
 
 ############################### AC/DC Converter Formulations #####################################
 abstract type AbstractConverterFormulation <: AbstractDeviceFormulation end
@@ -231,16 +224,14 @@ Abstract supertype for InterconnectingConverter formulations with quadratic loss
 abstract type AbstractQuadraticLossConverter <: AbstractConverterFormulation end
 
 """
-Quadratic Loss InterconnectingConverter using the separable bilinear approximation
-(`v·i = ½((v+i)² − v² − i²)`) with a SOS2-based PWL approximation for x². Stays MILP.
+Quadratic Loss InterconnectingConverter: the `v·I` / `I²` loss terms are bridged
+to IOM's approximation API — exact by default (`"none"`, an NLP) or replaced with
+tolerance-driven linear surrogates under a linearizing scheme. See
+[`BILINEAR_APPROX_DEFAULT_ATTRIBUTES`](@ref) for the approximation attributes; here
+`"bilinear_quadratic_method"` also sizes the standalone `I²` loss term for *every*
+scheme.
 """
-struct QuadraticLossConverterMILP <: AbstractQuadraticLossConverter end
-
-"""
-Quadratic Loss InterconnectingConverter using exact bilinear (v·i) and quadratic (i²)
-products. Requires an NLP-capable solver (e.g., Ipopt).
-"""
-struct QuadraticLossConverterNLP <: AbstractQuadraticLossConverter end
+struct QuadraticLossConverter <: AbstractQuadraticLossConverter end
 
 ############################## HVDC Lines Formulations ##################################
 abstract type AbstractDCLineFormulation <: AbstractBranchFormulation end
@@ -359,14 +350,13 @@ Formulation type to add reservoir methods with hydro turbines using only energy 
 struct HydroEnergyModelReservoir <: AbstractHydroReservoirFormulation end
 
 """
-Formulation type to add injection variables for a HydroTurbine connected to reservoirs using a bilinear model (with water flow variables) [`PowerSystems.HydroGen`](@extref)
+Formulation type to add injection variables for a [`PowerSystems.HydroGen`](@extref)
+HydroTurbine connected to reservoirs using water flow variables, with the flow×head
+product bridged to IOM's approximation API — exact by default (`"none"`, an NLP) or
+a tolerance-driven MILP approximation under a linearizing scheme. See
+[`BILINEAR_APPROX_DEFAULT_ATTRIBUTES`](@ref) for the approximation attributes.
 """
 struct HydroTurbineBilinearDispatch <: AbstractHydroDispatchFormulation end
-
-"""
-Formulation type to add injection variables for a HydroTurbine connected to reservoirs using a bilinear model (with water flow variables) [`PowerSystems.HydroGen`](@extref). Uses a linearized approximation.
-"""
-struct HydroTurbineBin2BilinearDispatch <: AbstractHydroDispatchFormulation end
 
 """
 Formulation type to add injection variables for a HydroTurbine connected to reservoirs using a linear model [`PowerSystems.HydroGen`](@extref).
@@ -406,7 +396,6 @@ These types share constructors.
 """
 const HydroTurbineWaterFormulation = Union{
     HydroTurbineBilinearDispatch,
-    HydroTurbineBin2BilinearDispatch,
     HydroTurbineWaterLinearDispatch,
     HydroTurbineWaterLinearCommitment,
 }

@@ -106,7 +106,7 @@ function build!(
         file_mode,
     )
     if store_system_in_results
-        @warn "store_system_in_results for $(model.name) is set to true. This will do nothing unless a Simulation is being built."
+        @warn "store_system_in_results is set to true. This will do nothing unless a Simulation is being built."
     end
     try
         Logging.with_logger(logger) do
@@ -234,7 +234,7 @@ function run!(
     kwargs...,
 )
     if store_system_in_results
-        @warn "store_system_in_results for $(model.name) is set to true. This will do nothing unless a Simulation is being built."
+        @warn "store_system_in_results is set to true. This will do nothing unless a Simulation is being built."
     end
     build_if_not_already_built!(
         model;
