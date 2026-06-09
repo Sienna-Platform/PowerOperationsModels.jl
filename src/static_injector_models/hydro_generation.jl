@@ -1823,7 +1823,7 @@ function add_constraints!(
 
         flow_lb = get_variable_lower_bound(HydroTurbineFlowRateVariable, d, W)
         flow_ub = get_variable_upper_bound(HydroTurbineFlowRateVariable, d, W)
-        bilinear_method == "none" && isnothing(flow_ub) &&
+        bilinear_method != "none" && isnothing(flow_ub) &&
             error(
                 "HydroTurbineBilinearDispatch requires finite turbine outflow " *
                 "limits to size the bilinear approximation, but turbine \"$(name)\" " *
@@ -1839,7 +1839,7 @@ function add_constraints!(
             ) for res in reservoirs
         ]
         for (res, b) in zip(reservoirs, head_bounds)
-            bilinear_method == "none" && isnothing(b.max) &&
+            bilinear_method != "none" && isnothing(b.max) &&
                 error(
                     "HydroTurbineBilinearDispatch requires finite head bounds " *
                     "to size the bilinear approximation, but reservoir " *
