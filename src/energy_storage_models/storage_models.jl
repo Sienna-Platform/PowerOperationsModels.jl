@@ -465,7 +465,9 @@ get_variable_multiplier(
 
 get_variable_multiplier(
     ::Type{AncillaryServiceVariableDischarge},
-    ::Type{StorageReserveBalanceExpression{PSY.ReserveDown, UnscaledReserve, DischargeSide}},
+    ::Type{
+        StorageReserveBalanceExpression{PSY.ReserveDown, UnscaledReserve, DischargeSide},
+    },
     d::PSY.Storage,
     ::Type{StorageDispatchWithReserves},
     ::PSY.Reserve{PSY.ReserveUp},
@@ -473,7 +475,9 @@ get_variable_multiplier(
 
 get_variable_multiplier(
     ::Type{AncillaryServiceVariableDischarge},
-    ::Type{StorageReserveBalanceExpression{PSY.ReserveDown, UnscaledReserve, DischargeSide}},
+    ::Type{
+        StorageReserveBalanceExpression{PSY.ReserveDown, UnscaledReserve, DischargeSide},
+    },
     d::PSY.Storage,
     ::Type{StorageDispatchWithReserves},
     ::PSY.Reserve{PSY.ReserveDown},
@@ -530,7 +534,9 @@ get_variable_multiplier(
 
 get_variable_multiplier(
     ::Type{AncillaryServiceVariableDischarge},
-    ::Type{StorageReserveBalanceExpression{PSY.ReserveDown, DeployedReserve, DischargeSide}},
+    ::Type{
+        StorageReserveBalanceExpression{PSY.ReserveDown, DeployedReserve, DischargeSide},
+    },
     d::PSY.Storage,
     ::Type{StorageDispatchWithReserves},
     ::PSY.Reserve{PSY.ReserveUp},
@@ -538,7 +544,9 @@ get_variable_multiplier(
 
 get_variable_multiplier(
     ::Type{AncillaryServiceVariableDischarge},
-    ::Type{StorageReserveBalanceExpression{PSY.ReserveDown, DeployedReserve, DischargeSide}},
+    ::Type{
+        StorageReserveBalanceExpression{PSY.ReserveDown, DeployedReserve, DischargeSide},
+    },
     d::PSY.Storage,
     ::Type{StorageDispatchWithReserves},
     ::PSY.Reserve{PSY.ReserveDown},
@@ -619,7 +627,8 @@ function add_to_expression!(
     devices::IS.FlattenIteratorWrapper{V},
     model::DeviceModel{V, W},
 ) where {
-    T <: StorageReserveBalanceExpression{<:PSY.ReserveDirection, <:ReserveScale, ChargeSide},
+    T <:
+    StorageReserveBalanceExpression{<:PSY.ReserveDirection, <:ReserveScale, ChargeSide},
     U <: AncillaryServiceVariableCharge,
     V <: PSY.Storage,
     W <: StorageDispatchWithReserves,
@@ -651,7 +660,8 @@ function add_to_expression!(
     devices::IS.FlattenIteratorWrapper{V},
     model::DeviceModel{V, W},
 ) where {
-    T <: StorageReserveBalanceExpression{<:PSY.ReserveDirection, <:ReserveScale, DischargeSide},
+    T <:
+    StorageReserveBalanceExpression{<:PSY.ReserveDirection, <:ReserveScale, DischargeSide},
     U <: AncillaryServiceVariableDischarge,
     V <: PSY.Storage,
     W <: StorageDispatchWithReserves,

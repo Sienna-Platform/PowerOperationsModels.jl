@@ -108,11 +108,19 @@ function _add_hybrid_reserve_arguments!(
         for E in (
             StorageReserveBalanceExpression{PSY.ReserveUp, UnscaledReserve, DischargeSide},
             StorageReserveBalanceExpression{PSY.ReserveUp, UnscaledReserve, ChargeSide},
-            StorageReserveBalanceExpression{PSY.ReserveDown, UnscaledReserve, DischargeSide},
+            StorageReserveBalanceExpression{
+                PSY.ReserveDown,
+                UnscaledReserve,
+                DischargeSide,
+            },
             StorageReserveBalanceExpression{PSY.ReserveDown, UnscaledReserve, ChargeSide},
             StorageReserveBalanceExpression{PSY.ReserveUp, DeployedReserve, DischargeSide},
             StorageReserveBalanceExpression{PSY.ReserveUp, DeployedReserve, ChargeSide},
-            StorageReserveBalanceExpression{PSY.ReserveDown, DeployedReserve, DischargeSide},
+            StorageReserveBalanceExpression{
+                PSY.ReserveDown,
+                DeployedReserve,
+                DischargeSide,
+            },
             StorageReserveBalanceExpression{PSY.ReserveDown, DeployedReserve, ChargeSide},
         )
             lazy_container_addition!(
@@ -127,9 +135,17 @@ function _add_hybrid_reserve_arguments!(
         # Wire HybridStorageSubcomponentReserveVariable{DischargeSide} into Discharge expressions
         for E in (
             StorageReserveBalanceExpression{PSY.ReserveUp, UnscaledReserve, DischargeSide},
-            StorageReserveBalanceExpression{PSY.ReserveDown, UnscaledReserve, DischargeSide},
+            StorageReserveBalanceExpression{
+                PSY.ReserveDown,
+                UnscaledReserve,
+                DischargeSide,
+            },
             StorageReserveBalanceExpression{PSY.ReserveUp, DeployedReserve, DischargeSide},
-            StorageReserveBalanceExpression{PSY.ReserveDown, DeployedReserve, DischargeSide},
+            StorageReserveBalanceExpression{
+                PSY.ReserveDown,
+                DeployedReserve,
+                DischargeSide,
+            },
         )
             add_to_expression!(
                 container,
