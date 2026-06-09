@@ -169,17 +169,24 @@ function _add_hybrid_reserve_arguments!(
                 model,
             )
         end
+    end
 
-        # TotalReserveOffering aggregation per service, keyed by HybridSystem
-        services = Set{PSY.Service}()
-        for d in hybrids_with_storage
-            union!(services, PSY.get_services(d))
-        end
-        for s in services
-            lazy_container_addition!(container, TotalReserveOffering, T,
-                PSY.get_name.(hybrids_with_storage), time_steps;
-                meta = "$(typeof(s))_$(PSY.get_name(s))")
-        end
+    # TotalReserveOffering aggregation per service, keyed by HybridSystem. Created for
+    # EVERY hybrid that participates in a reserve service, storage-less hybrids included:
+    # get_expression_type_for_reserve routes all hybrids' ActivePowerReserveVariable into
+    # TotalReserveOffering, so the container must exist regardless of storage.
+    services = Set{PSY.Service}()
+    for d in devices
+        union!(services, PSY.get_services(d))
+    end
+    for s in services
+        lazy_container_addition!(container, TotalReserveOffering, T,
+            PSY.get_name.(devices), time_steps;
+            meta = "$(typeof(s))_$(PSY.get_name(s))")
+    end
+    # Only storage hybrids have subcomponent reserve variables to aggregate into the
+    # offering; storage-less hybrids feed it via the PCC reserve path instead.
+    if !isempty(hybrids_with_storage)
         for v in (
             HybridStorageSubcomponentReserveVariable{ChargeSide},
             HybridStorageSubcomponentReserveVariable{DischargeSide},
@@ -492,7 +499,7 @@ function construct_device!(
         if get_attribute(model, "energy_target")
             add_constraints!(
                 container,
-                StateofChargeTargetConstraint,
+                HybridEnergyTargetConstraint,
                 grouped.with_storage,
                 model,
                 network_model,

@@ -641,10 +641,10 @@ When ancillary services are attached: [`HybridThermalReserveLimitConstraint`](@r
 [`HybridReserveAssignmentConstraint`](@ref), [`HybridReserveBalanceConstraint`](@ref).
 
 End-of-horizon energy target (if `"energy_target" => true`),
-[`StateofChargeTargetConstraint`](@ref):
+[`HybridEnergyTargetConstraint`](@ref):
 
 ```math
-e^{\\text{st}}_T = E^{\\text{st}}_T
+e^{\\text{st}}_T \\geq E^{\\text{st}}_T
 ```
 
 Charge/discharge regularization (if `"regularization" => true`),
@@ -676,7 +676,7 @@ DeviceModel(
   - `"storage_reservation"` (default `true`): if `true`, adds `HybridStorageReservation`
     and uses the `ss`-multiplied form of the storage power-limit constraints. If
     `false`, charge and discharge variables are bounded independently.
-  - `"energy_target"` (default `false`): adds `StateofChargeTargetConstraint` at the
+  - `"energy_target"` (default `false`): adds `HybridEnergyTargetConstraint` at the
     storage subcomponent.
   - `"regularization"` (default `false`): adds `RegularizationVariable{ChargeSide}` and
     `RegularizationVariable{DischargeSide}` plus the matching constraints, and a small

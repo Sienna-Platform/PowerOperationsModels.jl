@@ -658,6 +658,7 @@ export StorageEnergyOutput
 export EnergyBalanceConstraint
 export StateofChargeLimitsConstraint
 export StateofChargeTargetConstraint
+export HybridEnergyTargetConstraint
 export StorageCyclingCharge
 export StorageCyclingDischarge
 export StorageRegularizationConstraintCharge

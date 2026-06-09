@@ -254,6 +254,31 @@ end
     )
 end
 
+@testset "Storage-less hybrid with reserves builds (C4 regression)" begin
+    # Regression: TotalReserveOffering containers used to be created only for storage
+    # hybrids, but get_expression_type_for_reserve routes *every* hybrid's
+    # ActivePowerReserveVariable into TotalReserveOffering. A storage-less hybrid with
+    # reserves attached previously hit a missing-container error during service
+    # construction; it must now build and solve.
+    sys, _ = _build_hybrid_test_system(; with_reserves = true, with_storage = false)
+    template = _build_hybrid_template(sys; with_reserves = true)
+    m = _build_and_solve(template, sys)
+    @test isfinite(_obj(m)) && _obj(m) > 0
+
+    # No storage-subcomponent reserve variables exist for a storage-less hybrid...
+    @test !any(
+        k ->
+            IOM.get_entry_type(k) ===
+            POM.HybridStorageSubcomponentReserveVariable{ChargeSide},
+        _var_keys(m),
+    )
+    # ...but the PCC reserve variables that feed TotalReserveOffering are still present.
+    @test any(
+        k -> IOM.get_entry_type(k) === POM.HybridPCCReserveVariable{DischargeSide},
+        _var_keys(m),
+    )
+end
+
 @testset "Comparison: regularization on vs. off" begin
     sys_on, _ = _build_hybrid_test_system()
     sys_off, _ = _build_hybrid_test_system()

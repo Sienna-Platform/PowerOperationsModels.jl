@@ -1700,12 +1700,13 @@ function add_constraints!(
 end
 
 #################################################################################
-# StateofChargeTargetConstraint reused on hybrids with energy_target=true.
+# HybridEnergyTargetConstraint on hybrids with energy_target=true. Distinct from the
+# storage StateofChargeTargetConstraint: a one-sided floor (e_T >= E_T) with no slacks.
 #################################################################################
 
 function add_constraints!(
     container::OptimizationContainer,
-    ::Type{StateofChargeTargetConstraint},
+    ::Type{HybridEnergyTargetConstraint},
     devices::IS.FlattenIteratorWrapper{V},
     model::DeviceModel{V, HybridDispatchWithReserves},
     ::NetworkModel{X},
@@ -1715,7 +1716,7 @@ function add_constraints!(
     energy_var = get_variable(container, EnergyVariable, V)
     constraint = add_constraints_container!(
         container,
-        StateofChargeTargetConstraint,
+        HybridEnergyTargetConstraint,
         V,
         names,
         [last(time_steps)],
