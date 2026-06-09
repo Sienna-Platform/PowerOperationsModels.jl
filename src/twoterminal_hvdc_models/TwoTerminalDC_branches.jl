@@ -1487,21 +1487,19 @@ get_variable_upper_bound(::Type{CurrentAbsoluteValueVariable}, d::PSY.TwoTermina
 
 #! format: on
 
-####################### VSC PQ-approx registration ###########################
+####################### VSC apparent-power-square registration ###############
 
-# Register the four IOM `QuadraticExpression` handles (`p_ft_sq`, `p_tf_sq`,
-# `q_f_sq`, `q_t_sq`) that the disk constraint reads. Only the NLP formulation
-# on an AC network actually emits the disk constraint, so only that combo
-# registers anything; the LP path and active-power-only networks no-op.
-function _register_pq_sq_expressions!(
+# Register the exact `p_*_sq`/`q_*_sq` QuadExprs the apparent-power disk reads.
+# Only the exact path on an AC network needs them.
+function _register_vsc_apparent_power_squares!(
+    ::IOM.NoBilinearApproxConfig,
     container::OptimizationContainer,
     devices,
     line_names,
     time_steps,
-    ::DeviceModel{PSY.TwoTerminalVSCLine, HVDCTwoTerminalVSCNLP},
+    ::DeviceModel{PSY.TwoTerminalVSCLine, HVDCTwoTerminalVSC},
     ::NetworkModel{<:AbstractPowerModel},
 )
-    # This dispatch is the NLP path, so the quad config is fixed.
     quad_cfg = IOM.NoQuadApproxConfig()
     p_ft = get_variable(container, FlowActivePowerFromToVariable, PSY.TwoTerminalVSCLine)
     p_tf = get_variable(container, FlowActivePowerToFromVariable, PSY.TwoTerminalVSCLine)
@@ -1530,17 +1528,19 @@ function _register_pq_sq_expressions!(
     return
 end
 
-# LP path: no disk constraint, so no p_sq/q_sq are needed.
-_register_pq_sq_expressions!(
+# Octagon path (any net): no disk, so no squares.
+_register_vsc_apparent_power_squares!(
+    ::IOM.BilinearApproxConfig,
     ::OptimizationContainer, _devices, _names, _times,
-    ::DeviceModel{PSY.TwoTerminalVSCLine, HVDCTwoTerminalVSCLP},
-    ::NetworkModel,
+    ::DeviceModel{PSY.TwoTerminalVSCLine, HVDCTwoTerminalVSC},
+    ::NetworkModel{<:AbstractPowerModel},
 ) = nothing
 
-# Active-power-only networks don't carry reactive variables at all.
-_register_pq_sq_expressions!(
+# Resolves the exact/octagon ambiguity on active-power-only nets (no reactive vars).
+_register_vsc_apparent_power_squares!(
+    ::IOM.NoBilinearApproxConfig,
     ::OptimizationContainer, _devices, _names, _times,
-    ::DeviceModel{PSY.TwoTerminalVSCLine, HVDCTwoTerminalVSCNLP},
+    ::DeviceModel{PSY.TwoTerminalVSCLine, HVDCTwoTerminalVSC},
     ::NetworkModel{<:AbstractActivePowerModel},
 ) = nothing
 
@@ -1646,16 +1646,15 @@ function add_constraints!(
     return
 end
 
-# PQ capability — exact disk for the NLP formulation. `p_*_sq` / `q_*_sq` are
-# the `IOM.QuadraticExpression` handles registered by
-# `_register_pq_sq_expressions!`. Under `NoQuadApproxConfig` (what
-# `HVDCTwoTerminalVSCNLP` uses) they are exact QuadExprs, so the constraint is
-# the smooth `p² + q² ≤ s²` and the model stays an NLP.
-function add_constraints!(
+# Apparent-power limit p² + q² ≤ rating²: exact smooth disk (NLP) on the exact path,
+# octagon outer-approximation on the linearizing paths, nothing on active-power-only
+# networks (no reactive variables). `p_*_sq` / `q_*_sq` are the exact QuadExprs
+# registered by `_register_vsc_apparent_power_squares!`.
+function _add_vsc_apparent_power_limit!(
+    ::IOM.NoBilinearApproxConfig,
     container::OptimizationContainer,
-    ::Type{HVDCVSCApparentPowerLimitConstraint},
     devices::Union{Vector{U}, IS.FlattenIteratorWrapper{U}},
-    ::DeviceModel{U, HVDCTwoTerminalVSCNLP},
+    ::DeviceModel{U, HVDCTwoTerminalVSC},
     ::NetworkModel{<:AbstractPowerModel},
 ) where {U <: PSY.TwoTerminalVSCLine}
     time_steps = get_time_steps(container)
@@ -1692,7 +1691,7 @@ function add_constraints!(
     return
 end
 
-# PQ capability — linear outer-approximation for the LP formulation.
+# Octagon — linear outer-approximation for the linearizing schemes.
 #
 # We always add the axis-aligned box  |p|, |q| ≤ rating.  When the
 # device-model attribute `use_octagon` (default `true`) is on, we also add
@@ -1705,11 +1704,11 @@ end
 # so |p|+|q| ≤ r√2. Both half-plane families contain the disk, and so does
 # their intersection. The octagon is loose by at most ≈8.2% in area
 # (octagon-to-disk area ratio 8·tan(π/8)/π ≈ 1.082).
-function add_constraints!(
+function _add_vsc_apparent_power_limit!(
+    ::IOM.BilinearApproxConfig,
     container::OptimizationContainer,
-    ::Type{HVDCVSCApparentPowerLimitConstraint},
     devices::Union{Vector{U}, IS.FlattenIteratorWrapper{U}},
-    model::DeviceModel{U, HVDCTwoTerminalVSCLP},
+    model::DeviceModel{U, HVDCTwoTerminalVSC},
     ::NetworkModel{<:AbstractPowerModel},
 ) where {U <: PSY.TwoTerminalVSCLine}
     time_steps = get_time_steps(container)
@@ -1787,6 +1786,24 @@ function add_constraints!(
     return
 end
 
+# Active-power-only networks carry no reactive variables, so no limit applies.
+_add_vsc_apparent_power_limit!(
+    ::IOM.BilinearApproxConfig,
+    ::OptimizationContainer,
+    ::Union{Vector{U}, IS.FlattenIteratorWrapper{U}},
+    ::DeviceModel{U, HVDCTwoTerminalVSC},
+    ::NetworkModel{<:AbstractActivePowerModel},
+) where {U <: PSY.TwoTerminalVSCLine} = nothing
+
+# Resolves the exact/octagon ambiguity on active-power-only nets.
+_add_vsc_apparent_power_limit!(
+    ::IOM.NoBilinearApproxConfig,
+    ::OptimizationContainer,
+    ::Union{Vector{U}, IS.FlattenIteratorWrapper{U}},
+    ::DeviceModel{U, HVDCTwoTerminalVSC},
+    ::NetworkModel{<:AbstractActivePowerModel},
+) where {U <: PSY.TwoTerminalVSCLine} = nothing
+
 ####################### VSC defaults #########################################
 
 function get_default_time_series_names(
@@ -1796,14 +1813,17 @@ function get_default_time_series_names(
     return Dict{Type{<:TimeSeriesParameter}, String}()
 end
 
-# `use_octagon = true`: adds the four diagonals |p| ± q ≤ rating·√2 on top of
-# the axis-aligned box |p|, |q| ≤ rating. The intersection is a regular octagon
-# circumscribing the disk p² + q² ≤ rating² and is a guaranteed outer
-# approximation (loose by at most ≈8.2% in area). Setting it to false leaves
-# only the box, which is cheaper but a looser linear envelope of the disk.
 function get_default_attributes(
     ::Type{PSY.TwoTerminalVSCLine},
-    ::Type{HVDCTwoTerminalVSCLP},
+    ::Type{HVDCTwoTerminalVSC},
 )
-    return Dict{String, Any}("use_octagon" => true)
+    # `use_octagon = true`: under a linearizing scheme, adds the four diagonals
+    # |p| ± q ≤ rating·√2 on top of the box |p|, |q| ≤ rating, so the feasible
+    # region is a regular octagon circumscribing the disk p² + q² ≤ rating²
+    # (a guaranteed outer approximation, loose by at most ≈8.2% in area). `false`
+    # keeps only the box. Ignored when `bilinear_approximation` is "none".
+    return merge(
+        BILINEAR_APPROX_DEFAULT_ATTRIBUTES,
+        Dict{String, Any}("use_octagon" => true),
+    )
 end
