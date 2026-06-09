@@ -139,7 +139,7 @@ end
             IOM.get_entry_type(k) === POM.HybridEnergyShortageVariable &&
                 IOM.get_component_type(k) === PSY.HybridSystem, _var_keys(m))
 
-    # The target is a soft EQUALITY (e_T + e^+ - e^- = E_T), not a one-sided floor (>=).
+    # The target is a soft EQUALITY (e_T - e^+ + e^- = E_T), not a one-sided floor (>=).
     container = IOM.get_optimization_container(m)
     con_key = IOM.ConstraintKey(POM.HybridEnergyTargetConstraint, PSY.HybridSystem)
     target_cons = IOM.get_constraints(container)[con_key]

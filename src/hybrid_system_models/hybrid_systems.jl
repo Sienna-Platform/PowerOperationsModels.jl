@@ -1591,16 +1591,20 @@ function _emit_coverage_constraint!(
         )
     con = get_constraint(container, T, V, "$(s_type)_$(s_name)_discharge")
     jm = get_jump_model(container)
+    soc_min =
+        PSY.get_storage_level_limits(storage).min *
+        PSY.get_storage_capacity(storage, PSY.SU) *
+        PSY.get_conversion_factor(storage)
     if time_offset(T) == -1
         con[ci_name, 1] = JuMP.@constraint(
             jm,
-            sustained_param_discharge * reserve_var[ci_name, 1] <= get_value(ic)
+            sustained_param_discharge * reserve_var[ci_name, 1] <= get_value(ic) - soc_min
         )
         for t in time_steps[2:end]
             con[ci_name, t] = JuMP.@constraint(
                 jm,
                 sustained_param_discharge * reserve_var[ci_name, t] <=
-                energy_var[ci_name, t - 1]
+                energy_var[ci_name, t - 1] - soc_min
             )
         end
     else  # EndOfPeriod
@@ -1608,9 +1612,10 @@ function _emit_coverage_constraint!(
             con[ci_name, t] = JuMP.@constraint(
                 jm,
                 sustained_param_discharge * reserve_var[ci_name, t] <=
-                energy_var[ci_name, t]
+                energy_var[ci_name, t] - soc_min
             )
         end
+    end
     end
     return
 end
@@ -1734,10 +1739,12 @@ function add_constraints!(
 end
 
 #################################################################################
+#################################################################################
 # HybridEnergyTargetConstraint on hybrids with energy_target=true. A soft equality
-# (e_T + e^+ - e^- = E_T) with non-negative surplus/shortage slacks penalized in the
+# (e_T - e^+ + e^- = E_T) with non-negative surplus/shortage slacks penalized in the
 # objective. Mirrors the storage StateofChargeTargetConstraint; the target RHS is
 # scaled to absolute energy units to match the hybrid EnergyVariable.
+#################################################################################
 #################################################################################
 
 function add_constraints!(

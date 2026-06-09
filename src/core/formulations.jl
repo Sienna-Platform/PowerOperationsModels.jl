@@ -565,7 +565,7 @@ dispatch.
   - ``P_{\\max,\\text{ds}}`` = `PSY.get_output_active_power_limits(storage).max`
   - ``\\eta_{\\text{ch}}`` = `PSY.get_efficiency(storage).in`
   - ``\\eta_{\\text{ds}}`` = `PSY.get_efficiency(storage).out`
-  - ``E_{\\max,\\text{st}}`` = `PSY.get_state_of_charge_limits(storage).max`
+  - ``E_{\\max,\\text{st}}`` = `PSY.get_storage_level_limits(storage).max * PSY.get_storage_capacity(storage, PSY.SU) * PSY.get_conversion_factor(storage)``
   - ``E^{\\text{st}}_0`` = initial storage energy
   - ``R^{*}_{p,t}`` = ancillary service deployment forecast for service ``p`` at time ``t``
   - ``F_p`` = fraction of ``P_{\\max,\\text{pcc}}`` allowed for service ``p``
@@ -644,7 +644,7 @@ End-of-horizon energy target (if `"energy_target" => true`),
 [`HybridEnergyTargetConstraint`](@ref):
 
 ```math
-e^{\\text{st}}_T \\geq E^{\\text{st}}_T
+e^{\\text{st}}_T - e^{\\text{st+}} + e^{\\text{st-}} = E^{\\text{st}}_T
 ```
 
 Charge/discharge regularization (if `"regularization" => true`),

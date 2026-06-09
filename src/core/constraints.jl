@@ -1090,7 +1090,7 @@ struct HybridEnergyAssetBalanceConstraint <: ConstraintType end
 
 """
 Status link between a hybrid PCC active-power variable and the reservation variable.
-Parametric on [`ReserveSide`](@ref).`.
+Parametric on [`ReserveSide`](@ref).
 """
 struct HybridStatusOnConstraint{Sd <: ReserveSide} <: ConstraintType end
 
