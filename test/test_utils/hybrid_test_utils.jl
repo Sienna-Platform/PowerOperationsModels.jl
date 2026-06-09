@@ -19,9 +19,18 @@ end
 """
 Build an EnergyReservoirStorage device sized for hybrid testing. PSY 5.x
 constructor; default StorageCost(nothing) is fine for our test (no storage costs
-contribute to the objective).
+contribute to the objective). Pass `storage_target` (a ratio of capacity) and a
+`storage_cost` with non-zero surplus/shortage costs to exercise the energy target.
 """
-function _build_hybrid_storage(bus::PSY.ACBus, energy_capacity, rating, eff_in, eff_out)
+function _build_hybrid_storage(
+    bus::PSY.ACBus,
+    energy_capacity,
+    rating,
+    eff_in,
+    eff_out;
+    storage_target = 0.0,
+    storage_cost = PSY.StorageCost(nothing),
+)
     name = string(PSY.get_number(bus)) * "_BATTERY"
     return PSY.EnergyReservoirStorage(;
         name = name,
@@ -40,6 +49,8 @@ function _build_hybrid_storage(bus::PSY.ACBus, energy_capacity, rating, eff_in, 
         reactive_power = 0.0,
         reactive_power_limits = nothing,
         base_power = 100.0,
+        operation_cost = storage_cost,
+        storage_target = storage_target,
     )
 end
 
@@ -58,10 +69,30 @@ function add_hybrid_to_chuhsi_bus!(
     with_renewable::Bool = true,
     with_storage::Bool = true,
     with_load::Bool = true,
+    energy_target::Bool = false,
 )
     bus = PSY.get_component(PSY.ACBus, sys, "Chuhsi")
     bus === nothing && error("add_hybrid_to_chuhsi_bus!: bus 'Chuhsi' not found in system")
-    bat = with_storage ? _build_hybrid_storage(bus, 4.0, 2.0, 0.93, 0.93) : nothing
+    # With energy_target on, set an end-of-period target (ratio of capacity) and
+    # non-zero surplus/shortage penalties on the storage subcomponent so the slacks
+    # carry a real cost in the objective.
+    storage_target = energy_target ? 0.8 : 0.0
+    storage_cost =
+        if energy_target
+            PSY.StorageCost(; energy_shortage_cost = 1000.0, energy_surplus_cost = 1000.0)
+        else
+            PSY.StorageCost(nothing)
+        end
+    bat =
+        if with_storage
+            _build_hybrid_storage(
+            bus, 4.0, 2.0, 0.93, 0.93;
+            storage_target = storage_target,
+            storage_cost = storage_cost,
+        )
+        else
+            nothing
+        end
 
     # Subcomponents borrowed from adjacent existing components in RTS-GMLC.
     renewable =

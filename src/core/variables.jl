@@ -614,6 +614,24 @@ penalty when the hybrid `\"regularization\"` attribute is set.
 struct RegularizationVariable{Sd <: ReserveSide} <: AbstractHybridSubcomponentVariableType end
 
 """
+Slack variable for the storage energy of a hybrid system being below its end-of-period
+target. Added when the hybrid `\"energy_target\"` attribute is set and penalized in the
+objective by the storage subcomponent's `energy_shortage_cost`.
+
+Docs abbreviation: ``e^{st-}``
+"""
+struct HybridEnergyShortageVariable <: VariableType end
+
+"""
+Slack variable for the storage energy of a hybrid system being above its end-of-period
+target. Added when the hybrid `\"energy_target\"` attribute is set and penalized in the
+objective by the storage subcomponent's `energy_surplus_cost`.
+
+Docs abbreviation: ``e^{st+}``
+"""
+struct HybridEnergySurplusVariable <: VariableType end
+
+"""
 Abstract type for hybrid reserve variables (both PCC-boundary and subcomponent).
 """
 abstract type AbstractHybridReserveVariableType <: VariableType end

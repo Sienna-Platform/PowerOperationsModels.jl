@@ -251,6 +251,40 @@ get_variable_warm_start_value(
     PSY.get_storage_capacity(PSY.get_storage(d), PSY.SU) *
     PSY.get_conversion_factor(PSY.get_storage(d))
 
+# End-of-period energy-target slacks (added when `energy_target = true`). Non-negative,
+# defined only at the final time step. Mirrors POM storage's slack variables at
+# energy_storage_models/storage_models.jl:376-402, keyed by HybridSystem.
+function add_variables!(
+    container::OptimizationContainer,
+    ::Type{T},
+    devices::Union{Vector{U}, IS.FlattenIteratorWrapper{U}},
+    ::Type{<:AbstractHybridFormulation},
+) where {
+    T <: Union{HybridEnergyShortageVariable, HybridEnergySurplusVariable},
+    U <: PSY.HybridSystem,
+}
+    @assert !isempty(devices)
+    time_steps = get_time_steps(container)
+    last_time_range = time_steps[end]:time_steps[end]
+    variable = add_variable_container!(
+        container,
+        T,
+        U,
+        PSY.get_name.(devices),
+        last_time_range,
+    )
+    for d in devices
+        PSY.get_storage(d) === nothing && continue
+        name = PSY.get_name(d)
+        variable[name, time_steps[end]] = JuMP.@variable(
+            get_jump_model(container),
+            base_name = "$(T)_{$(PSY.get_name(d))}",
+            lower_bound = 0.0
+        )
+    end
+    return
+end
+
 # Thermal commitment OnVariable on a hybrid (binary)
 get_variable_binary(
     ::Type{OnVariable},
@@ -1700,20 +1734,24 @@ function add_constraints!(
 end
 
 #################################################################################
-# HybridEnergyTargetConstraint on hybrids with energy_target=true. Distinct from the
-# storage StateofChargeTargetConstraint: a one-sided floor (e_T >= E_T) with no slacks.
+# HybridEnergyTargetConstraint on hybrids with energy_target=true. A soft equality
+# (e_T + e^+ - e^- = E_T) with non-negative surplus/shortage slacks penalized in the
+# objective. Mirrors the storage StateofChargeTargetConstraint; the target RHS is
+# scaled to absolute energy units to match the hybrid EnergyVariable.
 #################################################################################
 
 function add_constraints!(
     container::OptimizationContainer,
     ::Type{HybridEnergyTargetConstraint},
-    devices::IS.FlattenIteratorWrapper{V},
+    devices::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
     model::DeviceModel{V, HybridDispatchWithReserves},
     ::NetworkModel{X},
 ) where {V <: PSY.HybridSystem, X <: AbstractPowerModel}
     time_steps = get_time_steps(container)
     names = [PSY.get_name(d) for d in devices]
     energy_var = get_variable(container, EnergyVariable, V)
+    surplus_var = get_variable(container, HybridEnergySurplusVariable, V)
+    shortage_var = get_variable(container, HybridEnergyShortageVariable, V)
     constraint = add_constraints_container!(
         container,
         HybridEnergyTargetConstraint,
@@ -1732,7 +1770,8 @@ function add_constraints!(
         t_end = last(time_steps)
         constraint[name, t_end] = JuMP.@constraint(
             get_jump_model(container),
-            energy_var[name, t_end] >= target
+            energy_var[name, t_end] - surplus_var[name, t_end] +
+            shortage_var[name, t_end] == target
         )
     end
     return
@@ -2239,6 +2278,12 @@ function objective_function!(
             _add_hybrid_regularization_cost!(
                 container, RegularizationVariable{DischargeSide}, hybrids_with_storage, W)
         end
+        if get_attribute(model, "energy_target")
+            _add_hybrid_energy_target_cost!(
+                container, HybridEnergySurplusVariable, hybrids_with_storage, W)
+            _add_hybrid_energy_target_cost!(
+                container, HybridEnergyShortageVariable, hybrids_with_storage, W)
+        end
     end
     return
 end
@@ -2262,6 +2307,32 @@ function _add_hybrid_regularization_cost!(
                 container, var[name, t], rate, ProductionCostExpression, D, name, t,
             )
         end
+    end
+    return
+end
+
+# Penalizes the end-of-period energy-target slacks. The per-unit cost comes from the
+# storage subcomponent's `StorageCost` (energy_surplus_cost / energy_shortage_cost),
+# mirroring POM storage's StateofChargeTargetConstraint objective handling. Slacks live
+# only at the final time step.
+function _add_hybrid_energy_target_cost!(
+    container::OptimizationContainer,
+    ::Type{V},
+    devices::Vector{D},
+    ::Type{W},
+) where {V <: VariableType, D <: PSY.HybridSystem, W <: AbstractHybridFormulation}
+    multiplier = objective_function_multiplier(V, W)
+    var = get_variable(container, V, D)
+    t_end = last(get_time_steps(container))
+    for d in devices
+        storage = PSY.get_storage(d)
+        storage === nothing && continue
+        name = PSY.get_name(d)
+        op_cost = PSY.get_operation_cost(storage)
+        cost_term = proportional_cost(op_cost, V, d, W) * multiplier
+        add_cost_term_invariant!(
+            container, var[name, t_end], cost_term, ProductionCostExpression, D, name, t_end,
+        )
     end
     return
 end
@@ -2300,3 +2371,19 @@ IOM.variable_cost(
     ::Type{<:PSY.HybridSystem},
     ::Type{<:AbstractHybridFormulation},
 ) = PSY.get_discharge_variable_cost(cost)
+
+# End-of-period energy-target slack penalties, pulled from the storage subcomponent's
+# StorageCost. Mirrors POM storage (energy_storage_models/storage_models.jl:74-75).
+proportional_cost(
+    cost::PSY.StorageCost,
+    ::Type{HybridEnergySurplusVariable},
+    ::PSY.HybridSystem,
+    ::Type{<:AbstractHybridFormulation},
+) = PSY.get_energy_surplus_cost(cost)
+
+proportional_cost(
+    cost::PSY.StorageCost,
+    ::Type{HybridEnergyShortageVariable},
+    ::PSY.HybridSystem,
+    ::Type{<:AbstractHybridFormulation},
+) = PSY.get_energy_shortage_cost(cost)

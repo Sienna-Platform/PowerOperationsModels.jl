@@ -361,6 +361,10 @@ function construct_device!(
                 D,
             )
         end
+        if get_attribute(model, "energy_target")
+            add_variables!(container, HybridEnergySurplusVariable, grouped.with_storage, D)
+            add_variables!(container, HybridEnergyShortageVariable, grouped.with_storage, D)
+        end
         initial_conditions!(container, devices, D())
     end
     if !isempty(grouped.with_load)

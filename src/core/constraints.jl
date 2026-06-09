@@ -1135,11 +1135,13 @@ struct RegularizationConstraint{Sd <: ReserveSide} <: ConstraintType end
 End-of-period energy target for the storage subcomponent of a hybrid system.
 Used when the attribute `energy_target = true`.
 
-Unlike the storage [`StateofChargeTargetConstraint`](@ref) (an equality with
-surplus/shortfall slacks), the hybrid target is a one-sided floor with no slack:
+Like the storage [`StateofChargeTargetConstraint`](@ref), this is a soft equality with
+non-negative surplus ([`HybridEnergySurplusVariable`](@ref), energy above target) and
+shortage ([`HybridEnergyShortageVariable`](@ref), energy below target) slacks penalized
+in the objective:
 
 ```math
-e^{st}_{T} \\geq E^{st}_{T}.
+e^{st}_{T} - e^{st+} + e^{st-} = E^{st}_{T}.
 ```
 """
 struct HybridEnergyTargetConstraint <: ConstraintType end

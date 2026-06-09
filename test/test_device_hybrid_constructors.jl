@@ -16,6 +16,7 @@ function _build_hybrid_test_system(;
     with_renewable::Bool = true,
     with_storage::Bool = true,
     with_load::Bool = true,
+    energy_target::Bool = false,
 )
     sys = PSB.build_system(PSB.PSITestSystems, "test_RTS_GMLC_sys")
     modify_ren_curtailment_cost!(sys)
@@ -24,6 +25,7 @@ function _build_hybrid_test_system(;
         with_renewable = with_renewable,
         with_storage = with_storage,
         with_load = with_load,
+        energy_target = energy_target,
     )
     if with_reserves
         for s in PSY.get_components(PSY.VariableReserve, sys)
@@ -118,6 +120,41 @@ end
         k -> IOM.get_entry_type(k) === POM.RegularizationVariable{DischargeSide},
         _var_keys(m),
     )
+end
+
+@testset "HybridDispatchWithReserves: energy_target = true (soft equality + slacks)" begin
+    sys, _ = _build_hybrid_test_system(; energy_target = true)
+    template = _build_hybrid_template(sys;
+        attributes = Dict{String, Any}("energy_target" => true))
+    m = _build_and_solve(template, sys)
+
+    # Both end-of-period slack variables must be created, keyed by HybridSystem. This is
+    # the check that would have caught the original port dropping the slacks.
+    @test any(
+        k ->
+            IOM.get_entry_type(k) === POM.HybridEnergySurplusVariable &&
+                IOM.get_component_type(k) === PSY.HybridSystem, _var_keys(m))
+    @test any(
+        k ->
+            IOM.get_entry_type(k) === POM.HybridEnergyShortageVariable &&
+                IOM.get_component_type(k) === PSY.HybridSystem, _var_keys(m))
+
+    # The target is a soft EQUALITY (e_T + e^+ - e^- = E_T), not a one-sided floor (>=).
+    container = IOM.get_optimization_container(m)
+    con_key = IOM.ConstraintKey(POM.HybridEnergyTargetConstraint, PSY.HybridSystem)
+    target_cons = IOM.get_constraints(container)[con_key]
+    @test !isempty(target_cons)
+    @test all(JuMP.constraint_object(c).set isa MOI.EqualTo for c in target_cons)
+end
+
+@testset "HybridDispatchWithReserves: energy_target = false omits slacks" begin
+    sys, _ = _build_hybrid_test_system()
+    template = _build_hybrid_template(sys)
+    m = _build_and_solve(template, sys)
+    @test !any(
+        k -> IOM.get_entry_type(k) === POM.HybridEnergySurplusVariable, _var_keys(m))
+    @test !any(
+        k -> IOM.get_entry_type(k) === POM.HybridEnergyShortageVariable, _var_keys(m))
 end
 
 @testset "HybridDispatchWithReserves: no reserves attached" begin
@@ -277,6 +314,30 @@ end
         k -> IOM.get_entry_type(k) === POM.HybridPCCReserveVariable{DischargeSide},
         _var_keys(m),
     )
+end
+
+@testset "Comparison: energy_target on vs. off" begin
+    sys_on, _ = _build_hybrid_test_system(; energy_target = true)
+    sys_off, _ = _build_hybrid_test_system(; energy_target = true)
+
+    m_on = _build_and_solve(
+        _build_hybrid_template(sys_on;
+            attributes = Dict{String, Any}("energy_target" => true)),
+        sys_on,
+    )
+    m_off = _build_and_solve(
+        _build_hybrid_template(sys_off;
+            attributes = Dict{String, Any}("energy_target" => false)),
+        sys_off,
+    )
+
+    # Enabling the energy target adds the soft-equality constraint and penalizes the
+    # surplus/shortage slacks, which can only weakly raise the true objective. Confirms
+    # the penalty is wired into the objective (the original port had no penalty at all).
+    obj_on, obj_off = _obj(m_on), _obj(m_off)
+    @test isfinite(obj_on) && obj_on > 0
+    @test isfinite(obj_off) && obj_off > 0
+    @test obj_on >= obj_off * (1 - 1e-3)
 end
 
 @testset "Comparison: regularization on vs. off" begin

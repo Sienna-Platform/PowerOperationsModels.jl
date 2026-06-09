@@ -688,6 +688,8 @@ export ReserveScale, UnscaledReserve, DeployedReserve
 export ReserveSide, DischargeSide, ChargeSide
 
 # variables
+export HybridEnergyShortageVariable
+export HybridEnergySurplusVariable
 export HybridRenewableActivePower
 export HybridRenewableReserveVariable
 export HybridStorageReservation
