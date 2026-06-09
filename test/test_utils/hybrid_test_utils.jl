@@ -86,10 +86,10 @@ function add_hybrid_to_chuhsi_bus!(
     bat =
         if with_storage
             _build_hybrid_storage(
-            bus, 4.0, 2.0, 0.93, 0.93;
-            storage_target = storage_target,
-            storage_cost = storage_cost,
-        )
+                bus, 4.0, 2.0, 0.93, 0.93;
+                storage_target = storage_target,
+                storage_cost = storage_cost,
+            )
         else
             nothing
         end
