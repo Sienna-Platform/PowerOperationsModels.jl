@@ -107,6 +107,13 @@ function get_default_attributes(
 end
 
 function get_default_attributes(
+    ::Type{PSY.InterconnectingConverter},
+    ::Type{QuadraticLossConverter},
+)
+    return copy(BILINEAR_APPROX_DEFAULT_ATTRIBUTES)
+end
+
+function get_default_attributes(
     ::Type{PSY.TModelHVDCLine},
     ::Type{<:AbstractBranchFormulation},
 )

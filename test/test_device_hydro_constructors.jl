@@ -667,20 +667,13 @@ end
     df_outflow = read_expression(outputs, "TotalHydroFlowRateTurbineOutgoing__HydroTurbine")
     hydro_vol_df =
         read_variables(outputs, [(HydroReservoirVolumeVariable, HydroReservoir)])["HydroReservoirVolumeVariable__HydroReservoir"]
-    hydro_head_df =
-        read_variables(outputs, [(HydroReservoirHeadVariable, HydroReservoir)])["HydroReservoirHeadVariable__HydroReservoir"]
     hydro_spillage_df =
         read_variables(outputs, [(WaterSpillageVariable, HydroReservoir)])["WaterSpillageVariable__HydroReservoir"]
-    hydro_inflow_df =
-        read_parameters(outputs, [(InflowTimeSeriesParameter, HydroReservoir)])["InflowTimeSeriesParameter__HydroReservoir"]
 
     total_inflow = sum(values(hydro_inflow_ts))
     total_outflow = sum(df_outflow[!, :value])
     total_spillage = sum(hydro_spillage_df[!, :value])
 
-    # Tolerance covers accumulated rounding in the m^3/s → km^3 unit conversion
-    # plus the MILP bilinear approximation; water-balance closure within 1e-4 km^3
-    # is well inside HiGHS' default feasibility tolerance for this problem size.
     tol = 1e-4
     calculated_vf =
         (hydro_vol_df[1, :value]) +
@@ -700,15 +693,19 @@ end
     )
 end
 
-@testset "HydroTurbineBin2BilinearDispatch: variable-bound plumbing to IOM" begin
-    # Spot-check that POM forwards PSY device data to JuMP without unit conversion.
-    # Outflow limits are m^3/s and storage_level_limits is meters (HEAD reservoir),
-    # so JuMP variables should carry those values verbatim.
+@testset "HydroTurbineBilinearDispatch (MILP): variable-bound plumbing to IOM" begin
     output_dir = mktempdir(; cleanup = true)
 
     sys = PSB.build_system(PSITestSystems, "c_sys5_hy_turbine_head")
     template = PowerOperationsProblemTemplate()
-    set_device_model!(template, HydroTurbine, HydroTurbineBin2BilinearDispatch)
+    set_device_model!(
+        template,
+        DeviceModel(
+            HydroTurbine,
+            HydroTurbineBilinearDispatch;
+            attributes = Dict("bilinear_approximation" => "bin2"),
+        ),
+    )
     set_device_model!(template, HydroReservoir, HydroWaterModelReservoir)
     set_device_model!(template, ThermalStandard, ThermalDispatchNoMin)
     set_device_model!(template, PowerLoad, StaticPowerLoad)
@@ -755,9 +752,6 @@ end
 end
 
 @testset "HydroTurbineBilinearDispatch: TurbinePowerOutputConstraint unit conversion" begin
-    # Spot-check that POM's per-unit conversion (g*ρ*conv_factor / (1e6 * base_power))
-    # lands in JuMP exactly as expected. The pure bilinear formulation produces a clean
-    # quadratic constraint whose coefficients are easy to read off.
     output_dir = mktempdir(; cleanup = true)
 
     sys = PSB.build_system(PSITestSystems, "c_sys5_hy_turbine_head")
@@ -826,7 +820,14 @@ end
     hydro_inflow_ts = get_time_series_array(Deterministic, reservoir, "inflow")
 
     template = PowerOperationsProblemTemplate()
-    set_device_model!(template, HydroTurbine, HydroTurbineBin2BilinearDispatch)
+    set_device_model!(
+        template,
+        DeviceModel(
+            HydroTurbine,
+            HydroTurbineBilinearDispatch;
+            attributes = Dict("bilinear_approximation" => "bin2"),
+        ),
+    )
     set_device_model!(template, HydroReservoir, HydroWaterModelReservoir)
 
     set_device_model!(template, ThermalStandard, ThermalDispatchNoMin)
@@ -852,20 +853,13 @@ end
     df_outflow = read_expression(outputs, "TotalHydroFlowRateTurbineOutgoing__HydroTurbine")
     hydro_vol_df =
         read_variables(outputs, [(HydroReservoirVolumeVariable, HydroReservoir)])["HydroReservoirVolumeVariable__HydroReservoir"]
-    hydro_head_df =
-        read_variables(outputs, [(HydroReservoirHeadVariable, HydroReservoir)])["HydroReservoirHeadVariable__HydroReservoir"]
     hydro_spillage_df =
         read_variables(outputs, [(WaterSpillageVariable, HydroReservoir)])["WaterSpillageVariable__HydroReservoir"]
-    hydro_inflow_df =
-        read_parameters(outputs, [(InflowTimeSeriesParameter, HydroReservoir)])["InflowTimeSeriesParameter__HydroReservoir"]
 
     total_inflow = sum(values(hydro_inflow_ts))
     total_outflow = sum(df_outflow[!, :value])
     total_spillage = sum(hydro_spillage_df[!, :value])
 
-    # Tolerance covers accumulated rounding in the m^3/s → km^3 unit conversion
-    # plus the MILP bilinear approximation; water-balance closure within 1e-4 km^3
-    # is well inside HiGHS' default feasibility tolerance for this problem size.
     tol = 1e-4
     calculated_vf =
         (hydro_vol_df[1, :value]) +
@@ -880,7 +874,7 @@ end
     psi_checksolve_test(
         model,
         [MOI.OPTIMAL, MOI.ALMOST_OPTIMAL, MOI.LOCALLY_SOLVED],
-        210949.49,
+        213043.54,
         1000,
     )
 end
