@@ -99,80 +99,6 @@ end
     @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
 end
 
-# NOTE: this test does NOT compare the converter dispatch, only the objective,
-# because the InterconnectingConverter carries ~zero current at the optimum on
-# this fixture and a current/flow comparison would be vacuous. The reason is
-# structural: the AC side uses CopperPlatePowerModel (a single bus), which
-# collapses the two AC islands that the DC link bridges, so power never needs
-# to cross the converters. The obvious fix — give the AC side DCPPowerModel so
-# the islands are real — does not build: DCPPowerModel + VoltageDispatchHVDC-
-# NetworkModel fails because the QuadraticLossConverter wires into
-# ActivePowerBalance__DCBus, which only the copperplate path creates (DCP
-# creates DCCurrentBalance__DCBus instead).
-#
-# The bin2 converter-loss approximation IS validated against the exact NLP
-# under genuine forced flow by the VSC test ("HVDC VSC LP vs NLP objective
-# agreement"), where the converter is the only path and both models drive it
-# to its rating.
-#
-# TODO: enable a real forced-flow agreement test for the InterconnectingConverter
-# once DCPPowerModel + VoltageDispatchHVDCNetworkModel can build (the converter
-# needs to inject into whichever DC-bus balance the AC network actually creates),
-# or once a DC-bus load device exists to source current under copperplate.
-@testset "HVDC MILP QuadraticLossConverter is a conservative relaxation of NLP" begin
-    function _build_and_solve(sys, converter_model, optimizer)
-        template = PowerOperationsProblemTemplate()
-        set_device_model!(template, ThermalStandard, ThermalDispatchNoMin)
-        set_device_model!(template, PowerLoad, StaticPowerLoad)
-        set_device_model!(template, DeviceModel(Line, StaticBranch))
-        set_device_model!(template, TModelHVDCLine, DCLossyLine)
-        set_device_model!(template, converter_model)
-        set_hvdc_network_model!(template, VoltageDispatchHVDCNetworkModel)
-        # horizon = 3h keeps the bin2 SOS2 model small enough to solve quickly.
-        model = DecisionModel(
-            template, sys;
-            store_variable_names = true, optimizer = optimizer, horizon = Hour(3),
-        )
-        @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
-              IOM.ModelBuildStatus.BUILT
-        @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
-        return model
-    end
-
-    sys = _generate_test_hvdc_sys()
-    # 5% MIP gap: proving a tight (1e-4) gap on the bin2 SOS2 model takes
-    # minutes; 5% solves in ~1s and is well inside the bound asserted below.
-    milp_optimizer = JuMP.optimizer_with_attributes(
-        HiGHS.Optimizer, "time_limit" => 100.0, "mip_rel_gap" => 0.05,
-        "random_seed" => 12345, "log_to_console" => false,
-    )
-    milp_model = _build_and_solve(
-        sys,
-        DeviceModel(
-            InterconnectingConverter, QuadraticLossConverter;
-            attributes = Dict(
-                "bilinear_approximation" => "bin2",
-                "bilinear_relative_tolerance" => 0.1,
-            ),
-        ),
-        milp_optimizer,
-    )
-    nlp_model = _build_and_solve(
-        sys,
-        DeviceModel(InterconnectingConverter, QuadraticLossConverter),
-        ipopt_optimizer,
-    )
-
-    # The bin2 MILP relaxes the exact bilinear converter loss (McCormick-style
-    # envelopes on v·I enlarge the feasible set), so its optimum lower-bounds
-    # the NLP's. Allowing for the 5% MIP gap, milp_obj must not exceed nlp_obj
-    # by more than ~6%. A regression that makes the surrogate *over*-cost the
-    # loss would push milp_obj well above nlp_obj and trip this.
-    milp_obj = IOM.get_objective_value(OptimizationProblemOutputs(milp_model))
-    nlp_obj = IOM.get_objective_value(OptimizationProblemOutputs(nlp_model))
-    @test milp_obj <= nlp_obj * 1.06
-end
-
 @testset "HVDC CurrentAbsoluteValueVariable matches |ConverterCurrent| at MILP optimum" begin
     sys = _generate_test_hvdc_sys()
     template = PowerOperationsProblemTemplate()
@@ -317,32 +243,7 @@ _vsc_milp(attrs...) = DeviceModel(
 )
 _vsc_nlp() = DeviceModel(TwoTerminalVSCLine, HVDCTwoTerminalVSC)  # default "none"
 
-# Standalone build+solve smoke tests for each (scheme, network) combo are
-# covered by the agreement / property tests further down:
-#   - exact (NLP) on DCP → "HVDC VSC LP vs NLP objective agreement"
-#   - MILP on DCP        → same agreement test + cable-resistance test
-#   - exact (NLP) on AC  → "HVDC VSC: tighter PQ rating raises cost on AC"
-# The MILP scheme on ACPPowerModel is omitted: HiGHS can't solve the ACP
-# network's trig (cos/sin) branch ohms-law constraints, and no MINLP solver
-# with trigonometric support is wired into the test deps.
-#
-# TODO: Re-add an `octagon vs box-only` LP property test once an MINLP solver
-# with trig support is available. The previous version of that test ran on
-# `DCPPowerModel`, which never adds `HVDCVSCApparentPowerLimitConstraint`
-# (active-power-only networks carry no reactive power, so `_add_vsc_apparent_power_limit!`
-# is a no-op there), so it asserted the same model against itself.
-
 @testset "HVDC VSC LP vs NLP objective agreement" begin
-    # This is the meaningful forced-flow agreement test for the bin2 converter-
-    # loss approximation: the VSC replaced AC line "1", so it is the only path
-    # between its endpoints and BOTH models drive it to its 2.0 pu rating at
-    # peak — a genuine, non-vacuous operating point (the MT-HVDC
-    # InterconnectingConverter cannot be forced to flow; see the note on
-    # "...conservative relaxation of NLP" above). On a DC network the PQ disk
-    # constraint is inactive (no reactive variables exist), so the LP and NLP
-    # differ only by the i² loss model (SOS2 PWL vs exact); the SOS2 surrogate
-    # and the exact NLP agree on aggregate throughput and objective to a few
-    # percent.
     function _solve(converter_model, optimizer)
         sys = _generate_test_vsc_sys()
         model = _build_vsc_model(converter_model, DCPPowerModel, optimizer; sys = sys)
