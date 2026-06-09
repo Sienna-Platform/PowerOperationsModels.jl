@@ -549,14 +549,14 @@ function construct_device!(
         if get_attribute(model, "regularization")
             add_constraints!(
                 container,
-                ChargeRegularizationConstraint,
+                RegularizationConstraint{ChargeSide},
                 grouped.with_storage,
                 model,
                 network_model,
             )
             add_constraints!(
                 container,
-                DischargeRegularizationConstraint,
+                RegularizationConstraint{DischargeSide},
                 grouped.with_storage,
                 model,
                 network_model,

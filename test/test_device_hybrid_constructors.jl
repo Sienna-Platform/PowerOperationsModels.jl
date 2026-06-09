@@ -4,6 +4,12 @@
 
 const _NON_HYBRID_RESERVES = ("Spin_Up_R1", "Spin_Up_R2")
 
+# These tests assert structural facts (variable presence/absence) and directional
+# objective invariants, neither of which needs the full 24-hour RTS-GMLC horizon.
+# A short horizon keeps every model feasible while cutting each MILP solve from
+# ~50-80s to well under a second.
+const _HYBRID_HORIZON = Hour(3)
+
 function _build_hybrid_test_system(;
     with_reserves::Bool = true,
     with_thermal::Bool = true,
@@ -34,7 +40,7 @@ function _build_hybrid_template(
     attributes::Dict{String, Any} = Dict{String, Any}(),
     with_reserves::Bool = true,
 )
-    template = POM.OperationsProblemTemplate(POM.CopperPlatePowerModel)
+    template = PowerOperationsProblemTemplate(POM.CopperPlatePowerModel)
     POM.set_device_model!(template, PSY.ThermalStandard, POM.ThermalStandardUnitCommitment)
     POM.set_device_model!(template, PSY.RenewableDispatch, POM.RenewableFullDispatch)
     POM.set_device_model!(template, PSY.PowerLoad, POM.StaticPowerLoad)
@@ -55,7 +61,8 @@ function _build_hybrid_template(
 end
 
 function _build_and_solve(template, sys)
-    m = POM.DecisionModel(template, sys; optimizer = HiGHS_optimizer)
+    m = POM.DecisionModel(template, sys;
+        optimizer = HiGHS_optimizer, horizon = _HYBRID_HORIZON)
     @test POM.build!(m; output_dir = mktempdir(; cleanup = true)) ==
           IOM.ModelBuildStatus.BUILT
     @test POM.solve!(m) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
@@ -153,7 +160,8 @@ end
     )
     PSY.add_component!(sys, hybrid)
     template = _build_hybrid_template(sys; with_reserves = false)
-    m = POM.DecisionModel(template, sys; optimizer = HiGHS_optimizer)
+    m = POM.DecisionModel(template, sys;
+        optimizer = HiGHS_optimizer, horizon = _HYBRID_HORIZON)
     @test POM.build!(m; output_dir = mktempdir(; cleanup = true)) ==
           IOM.ModelBuildStatus.BUILT
     # Subcomponent variables must be absent for a bare envelope.
@@ -180,8 +188,11 @@ end
     obj_r = _obj(m_r)
     obj_n = _obj(m_n)
     # Reserves are extra constraints (and may carry slack penalties); the system
-    # under reserves cannot solve cheaper than the unconstrained one.
-    @test obj_r >= obj_n - 1e-6
+    # under reserves cannot solve cheaper than the unconstrained one *at the true
+    # optimum*. Both models are solved only to HiGHS's default MIP relative gap
+    # (~1e-4), so the reported objectives can flip by that much; compare with a
+    # gap-aware relative tolerance rather than an absolute one.
+    @test obj_r >= obj_n * (1 - 1e-3)
 
     # Some reserve provision must occur in the reserves case if any service has a
     # positive requirement. Sum non-zero values across all hybrid reserve variables.

@@ -549,9 +549,12 @@ dispatch.
   - **Device:** A `PSY.HybridSystem` with at least one of: thermal unit
     (`PSY.get_thermal_unit`), renewable unit (`PSY.get_renewable_unit`), storage
     (`PSY.get_storage`), and optionally electric load (`PSY.get_electric_load`).
-  - **Time series:** Each renewable subcomponent and electric load must have forecast
-    time series attached with the default names above (or custom names passed when
-    adding parameters).
+  - **Time series:** Forecast time series must be attached to the `PSY.HybridSystem`
+    itself (not its subcomponents) under the default names above (or custom names passed
+    when adding parameters). The subcomponent-namespaced default names
+    (`"RenewableDispatch__max_active_power"`, `"PowerLoad__max_active_power"`) reflect
+    which subcomponent each forecast describes; the subcomponent is consulted only for the
+    rating used to scale the parameter.
 
 **Static Parameters:**
 
@@ -645,8 +648,8 @@ e^{\\text{st}}_T = E^{\\text{st}}_T
 ```
 
 Charge/discharge regularization (if `"regularization" => true`),
-[`ChargeRegularizationConstraint`](@ref),
-[`DischargeRegularizationConstraint`](@ref): bound ``|p^{\\text{ch}}_t -
+[`RegularizationConstraint{ChargeSide}`](@ref),
+[`RegularizationConstraint{DischargeSide}`](@ref): bound ``|p^{\\text{ch}}_t -
 p^{\\text{ch}}_{t-1}|`` and ``|p^{\\text{ds}}_t - p^{\\text{ds}}_{t-1}|`` by a
 non-negative slack carried into the objective.
 
