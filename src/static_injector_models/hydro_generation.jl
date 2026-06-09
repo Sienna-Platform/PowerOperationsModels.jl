@@ -1823,7 +1823,7 @@ function add_constraints!(
 
         flow_lb = get_variable_lower_bound(HydroTurbineFlowRateVariable, d, W)
         flow_ub = get_variable_upper_bound(HydroTurbineFlowRateVariable, d, W)
-        bilinear_method == "none" && isnothing(flow_ub) &&
+        bilinear_method != "none" && isnothing(flow_ub) &&
             error(
                 "HydroTurbineBilinearDispatch requires finite turbine outflow " *
                 "limits to size the bilinear approximation, but turbine \"$(name)\" " *
@@ -1839,7 +1839,7 @@ function add_constraints!(
             ) for res in reservoirs
         ]
         for (res, b) in zip(reservoirs, head_bounds)
-            bilinear_method == "none" && isnothing(b.max) &&
+            bilinear_method != "none" && isnothing(b.max) &&
                 error(
                     "HydroTurbineBilinearDispatch requires finite head bounds " *
                     "to size the bilinear approximation, but reservoir " *
@@ -1855,20 +1855,49 @@ function add_constraints!(
 
         flow_bounds = repeat([(min = flow_lb, max = flow_ub)], length(reservoirs))
 
-        # Scale a relative tolerance by the flow×head product magnitude.
-        tolerance = _resolve_tolerance(
-            abs_tolerance,
-            rel_tolerance,
-            _max_abs(flow_bounds) * _max_abs(head_bounds),
-        )
-        fh_prod = IOM._add_bilinear_approx!(
-            _build_bilinear_config(
+        # The exact (NLP) product needs no bounds to size a discretization; only
+        # the linearizing schemes require finite bounds and a tolerance.
+        if bilinear_method == "none"
+            config = IOM.NoBilinearApproxConfig()
+        else
+            isnothing(flow_ub) &&
+                error(
+                    "HydroTurbineBilinearDispatch requires finite turbine outflow " *
+                    "limits to size the bilinear approximation, but turbine \"$(name)\" " *
+                    "has no `outflow_limits`. Set finite outflow limits or use a " *
+                    "different hydro turbine formulation.",
+                )
+            for (res, b) in zip(reservoirs, head_bounds)
+                isnothing(b.max) &&
+                    error(
+                        "HydroTurbineBilinearDispatch requires finite head bounds " *
+                        "to size the bilinear approximation, but reservoir " *
+                        "\"$(PSY.get_name(res))\" (connected to turbine \"$(name)\") has " *
+                        "no finite head upper bound (its level data is not stored as " *
+                        "HEAD). Provide HEAD level limits or use a different hydro " *
+                        "turbine formulation.",
+                    )
+            end
+            flow_delta = flow_ub - flow_lb
+            # Worst-case head range across the turbine's reservoirs — gives a
+            # single config that meets the requested tolerance for every pair.
+            head_delta = maximum(b.max - b.min for b in head_bounds)
+            # Scale a relative tolerance by the flow×head product magnitude.
+            tolerance = _resolve_tolerance(
+                abs_tolerance,
+                rel_tolerance,
+                _max_abs(flow_bounds) * _max_abs(head_bounds),
+            )
+            config = _build_bilinear_config(
                 bilinear_method,
                 quad_method,
                 tolerance,
                 flow_delta,
                 head_delta,
-            ),
+            )
+        end
+        fh_prod = IOM._add_bilinear_approx!(
+            config,
             container,
             V,
             PSY.get_name.(reservoirs),
