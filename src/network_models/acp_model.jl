@@ -53,6 +53,8 @@ function add_constraints!(
     time_steps = get_time_steps(container)
     va = get_variable(container, VoltageAngle, PSY.ACBus)
     vm = get_variable(container, VoltageMagnitude, PSY.ACBus)
+    number_to_name = _retained_number_to_name(sys, network_model)
+    bus_by_number = _bus_by_number(sys)
     subnets = network_model.subnetworks
     subnet_keys = collect(keys(subnets))
 
@@ -74,13 +76,10 @@ function add_constraints!(
     )
 
     for k in subnet_keys
-        bus_set = subnets[k]
-        ref = _find_reference_bus(sys, bus_set)
-        # Skip subnetworks without an AC reference bus (e.g. an isolated DC-side
-        # island connected through HVDC converters).
-        ref === nothing && continue
-        ref_name = ref.name
-        v_set = ref.v
+        # `k` is the reference bus number already assigned by PNM (see the note in
+        # dcp_model.jl). Pin both angle and magnitude at that bus directly.
+        ref_name = number_to_name[k]
+        v_set = PSY.get_magnitude(bus_by_number[k])
         for t in time_steps
             cons_va[k, t] =
                 JuMP.@constraint(get_jump_model(container), va[ref_name, t] == 0.0)
@@ -89,24 +88,6 @@ function add_constraints!(
         end
     end
     return
-end
-
-"""
-Returns `(name::String, v::Float64)` for the reference bus belonging to the
-given bus-number set, or `nothing` if no such bus exists. Function-barrier
-helper so the caller sees a clean union return rather than a local re-bound
-across branches.
-"""
-function _find_reference_bus(
-    sys::PSY.System,
-    bus_set,
-)::Union{Nothing, NamedTuple{(:name, :v), Tuple{String, Float64}}}
-    for b in PSY.get_components(PSY.ACBus, sys)
-        if PSY.get_number(b) in bus_set && PSY.get_bustype(b) == PSY.ACBusTypes.REF
-            return (name = PSY.get_name(b), v = PSY.get_magnitude(b))
-        end
-    end
-    return nothing
 end
 
 function add_constraints!(

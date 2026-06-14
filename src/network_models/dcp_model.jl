@@ -25,6 +25,29 @@ function _bus_name_number_pairs(
     end
 end
 
+# Cached retained-bus number→name map for this (sys, network_model). Built once
+# from _bus_name_number_pairs so per-device lookups don't rebuild Dicts (perf).
+function _retained_number_to_name(sys::PSY.System, network_model)
+    return Dict{Int, String}(
+        no => name for (name, no) in _bus_name_number_pairs(sys, network_model)
+    )
+end
+
+# Retained representative (name, number) for a raw ACBus object under the model's
+# reduction. With no reduction this is the bus's own (name, number).
+function _retained_bus(
+    number_to_name::Dict{Int, String},
+    network_model,
+    bus_obj::PSY.ACBus,
+)
+    reduction = get_network_reduction(network_model)
+    if isempty(reduction)
+        return (name = PSY.get_name(bus_obj), number = PSY.get_number(bus_obj))
+    end
+    no = PNM.get_mapped_bus_number(reduction, bus_obj)
+    return (name = number_to_name[no], number = no)
+end
+
 # Shared between DCPPowerModel and ACPPowerModel — both put VoltageAngle on every
 # bus axis with no bounds. Slack-bus pinning is applied by ReferenceBusConstraint.
 function add_variables!(
@@ -61,6 +84,7 @@ function add_constraints!(
 )
     time_steps = get_time_steps(container)
     va = get_variable(container, VoltageAngle, PSY.ACBus)
+    number_to_name = _retained_number_to_name(sys, network_model)
     subnets = network_model.subnetworks
     subnet_keys = collect(keys(subnets))
 
@@ -73,12 +97,11 @@ function add_constraints!(
     )
 
     for k in subnet_keys
-        bus_set = subnets[k]
-        ref_name = _find_reference_bus_name(sys, bus_set)
-        # Skip subnetworks without an AC reference bus (e.g. an isolated DC-side
-        # island connected through HVDC converters). Throwing here would break
-        # multi-island HVDC systems that the bridge implementation accepted.
-        ref_name === nothing && continue
+        # `k` is the reference bus number already assigned by PNM (the
+        # `subnetwork_axes` key; under network reduction PNM reassigns a retained
+        # bus as the key when the original REF is removed). Pin its angle directly
+        # so the model's slack matches PNM's subnetwork reference by construction.
+        ref_name = number_to_name[k]
         for t in time_steps
             cons[k, t] =
                 JuMP.@constraint(get_jump_model(container), va[ref_name, t] == 0.0)
@@ -87,19 +110,14 @@ function add_constraints!(
     return
 end
 
-"""
-Returns the NAME of the reference bus belonging to the given bus-number set,
-or `nothing` if no such reference bus exists in `sys`. Function-barrier helper
-so callers see a clean `Union{Nothing, String}` return type instead of a local
-variable re-bound across branches.
-"""
-function _find_reference_bus_name(sys::PSY.System, bus_set)::Union{Nothing, String}
-    for b in PSY.get_components(PSY.ACBus, sys)
-        if PSY.get_number(b) in bus_set && PSY.get_bustype(b) == PSY.ACBusTypes.REF
-            return PSY.get_name(b)
-        end
-    end
-    return nothing
+# Number→bus map built ONCE per constraint-builder call. Lets the reference-bus
+# and arbitrary-pin helpers iterate the (typically small) subnetwork bus-number
+# set instead of rescanning all `PSY.ACBus` components per subnetwork, avoiding an
+# O(buses × subnetworks) scan.
+function _bus_by_number(sys::PSY.System)
+    return Dict{Int, PSY.ACBus}(
+        PSY.get_number(b) => b for b in PSY.get_components(PSY.ACBus, sys)
+    )
 end
 
 function add_constraints!(
