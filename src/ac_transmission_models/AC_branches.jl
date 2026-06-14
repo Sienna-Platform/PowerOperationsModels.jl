@@ -1665,28 +1665,37 @@ end
 ################################## Native ACP apparent-power rate constraints ###############
 
 """
-Add from-to apparent-power rate limit constraint for ACBranch under the native ACPPowerModel.
+Shared builder for directional apparent-power rate limit constraints under the native
+ACPPowerModel.
 
-Constrains pft^2 + qft^2 ≤ rating^2.  Does not depend on PTDF / network-reduction
-infrastructure; iterates directly over devices.
+Constrains `pflow^2 + qflow^2 ≤ rating^2` for the directional active/reactive flow variable
+pair (`PVar`/`QVar`) and stores the result under the constraint key `ConsKey`. Does not
+depend on PTDF / network-reduction infrastructure; iterates directly over devices.
 """
-function add_constraints!(
+function _add_directional_flow_rate_limits!(
     container::OptimizationContainer,
-    ::Type{FlowRateConstraintFromTo},
+    ::Type{ConsKey},
+    ::Type{PVar},
+    ::Type{QVar},
     devices::IS.FlattenIteratorWrapper{T},
     device_model::DeviceModel{T, U},
-    ::NetworkModel{ACPPowerModel},
-) where {T <: PSY.ACTransmission, U <: AbstractBranchFormulation}
+) where {
+    ConsKey <: ConstraintType,
+    PVar <: VariableType,
+    QVar <: VariableType,
+    T <: PSY.ACTransmission,
+    U <: AbstractBranchFormulation,
+}
     time_steps = get_time_steps(container)
-    pft = get_variable(container, FlowActivePowerFromToVariable, T)
-    qft = get_variable(container, FlowReactivePowerFromToVariable, T)
+    pflow = get_variable(container, PVar, T)
+    qflow = get_variable(container, QVar, T)
     use_slacks = get_use_slacks(device_model)
     if use_slacks
         slack_ub = get_variable(container, FlowActivePowerSlackUpperBound, T)
     end
     branch_names = [PSY.get_name(d) for d in devices]
     cons = add_constraints_container!(
-        container, FlowRateConstraintFromTo, T, branch_names, time_steps,
+        container, ConsKey, T, branch_names, time_steps,
     )
     jump_model = get_jump_model(container)
 
@@ -1712,7 +1721,7 @@ function add_constraints!(
             for t in time_steps
                 cons[name, t] = JuMP.@constraint(
                     jump_model,
-                    pft[name, t]^2 + qft[name, t]^2 -
+                    pflow[name, t]^2 + qflow[name, t]^2 -
                     (use_slacks ? slack_ub[name, t] : 0.0) <=
                     (param[t] * mult[name, t])^2,
                 )
@@ -1723,12 +1732,36 @@ function add_constraints!(
             for t in time_steps
                 cons[name, t] = JuMP.@constraint(
                     jump_model,
-                    pft[name, t]^2 + qft[name, t]^2 -
+                    pflow[name, t]^2 + qflow[name, t]^2 -
                     (use_slacks ? slack_ub[name, t] : 0.0) <= rating^2,
                 )
             end
         end
     end
+    return
+end
+
+"""
+Add from-to apparent-power rate limit constraint for ACBranch under the native ACPPowerModel.
+
+Constrains pft^2 + qft^2 ≤ rating^2.  Does not depend on PTDF / network-reduction
+infrastructure; iterates directly over devices.
+"""
+function add_constraints!(
+    container::OptimizationContainer,
+    ::Type{FlowRateConstraintFromTo},
+    devices::IS.FlattenIteratorWrapper{T},
+    device_model::DeviceModel{T, U},
+    ::NetworkModel{ACPPowerModel},
+) where {T <: PSY.ACTransmission, U <: AbstractBranchFormulation}
+    _add_directional_flow_rate_limits!(
+        container,
+        FlowRateConstraintFromTo,
+        FlowActivePowerFromToVariable,
+        FlowReactivePowerFromToVariable,
+        devices,
+        device_model,
+    )
     return
 end
 
@@ -1745,54 +1778,14 @@ function add_constraints!(
     device_model::DeviceModel{T, U},
     ::NetworkModel{ACPPowerModel},
 ) where {T <: PSY.ACTransmission, U <: AbstractBranchFormulation}
-    time_steps = get_time_steps(container)
-    ptf = get_variable(container, FlowActivePowerToFromVariable, T)
-    qtf = get_variable(container, FlowReactivePowerToFromVariable, T)
-    use_slacks = get_use_slacks(device_model)
-    if use_slacks
-        slack_ub = get_variable(container, FlowActivePowerSlackUpperBound, T)
-    end
-    branch_names = [PSY.get_name(d) for d in devices]
-    cons = add_constraints_container!(
-        container, FlowRateConstraintToFrom, T, branch_names, time_steps,
+    _add_directional_flow_rate_limits!(
+        container,
+        FlowRateConstraintToFrom,
+        FlowActivePowerToFromVariable,
+        FlowReactivePowerToFromVariable,
+        devices,
+        device_model,
     )
-    jump_model = get_jump_model(container)
-
-    # Gate on the parameter container existing (see FromTo above). `param * mult`
-    # = rating_factor * rating (apparent power), squared to match `rating^2`.
-    ts_branch_names = String[]
-    local param_container, mult
-    if has_container_key(container, BranchRatingTimeSeriesParameter, T)
-        param_container =
-            get_parameter(container, BranchRatingTimeSeriesParameter, T)
-        mult = get_multiplier_array(param_container)
-        ts_branch_names = Set(axes(mult, 1))
-    end
-
-    for d in devices
-        name = PSY.get_name(d)
-        if name in ts_branch_names
-            param = get_parameter_column_refs(param_container, name)
-            for t in time_steps
-                cons[name, t] = JuMP.@constraint(
-                    jump_model,
-                    ptf[name, t]^2 + qtf[name, t]^2 -
-                    (use_slacks ? slack_ub[name, t] : 0.0) <=
-                    (param[t] * mult[name, t])^2,
-                )
-            end
-        else
-            # rating in system base (PSY.SU) so rating^2 matches the per-unit flow vars
-            rating = PSY.get_rating(d, PSY.SU)
-            for t in time_steps
-                cons[name, t] = JuMP.@constraint(
-                    jump_model,
-                    ptf[name, t]^2 + qtf[name, t]^2 -
-                    (use_slacks ? slack_ub[name, t] : 0.0) <= rating^2,
-                )
-            end
-        end
-    end
     return
 end
 
@@ -1920,7 +1913,8 @@ function add_constraints!(
 end
 
 """
-Add branch angle-difference limit constraints for ACBranch under the native DCPPowerModel.
+Add branch angle-difference limit constraints for ACBranch under the native DCP/ACP
+PowerModels.
 
 Only branches for which `PSY.get_angle_limits` is defined (currently `PSY.Line` and
 `PSY.MonitoredLine`) and that carry non-trivial limits (i.e. not the ±π defaults) receive
@@ -1932,7 +1926,7 @@ function add_constraints!(
     ::Type{AngleDifferenceConstraint},
     devices::IS.FlattenIteratorWrapper{T},
     ::DeviceModel{T, U},
-    network_model::NetworkModel{DCPPowerModel},
+    network_model::NetworkModel{<:Union{DCPPowerModel, ACPPowerModel}},
 ) where {T <: PSY.ACTransmission, U <: AbstractBranchFormulation}
     # Filter to devices that (a) have the angle-limits API and
     # (b) carry non-trivial limits (skip the PSY default ±π).
@@ -2092,54 +2086,6 @@ function add_constraints!(
                 -(b + b_to) * vmt^2 +
                 c_ptf_sin * vmt * vmf * cos(θ) +
                 (-c_ptf_cos) * vmt * vmf * sin(θ),
-            )
-        end
-    end
-    return
-end
-
-"""
-Add branch angle-difference limit constraints for ACBranch under the native ACPPowerModel.
-
-Only branches for which `PSY.get_angle_limits` is defined and that carry non-trivial limits
-(i.e. not the ±π defaults) receive a constraint.  Branches where the method is not defined
-are silently skipped.
-"""
-function add_constraints!(
-    container::OptimizationContainer,
-    sys::PSY.System,
-    ::Type{AngleDifferenceConstraint},
-    devices::IS.FlattenIteratorWrapper{T},
-    ::DeviceModel{T, U},
-    network_model::NetworkModel{ACPPowerModel},
-) where {T <: PSY.ACTransmission, U <: AbstractBranchFormulation}
-    # Filter to devices that (a) have the angle-limits API and
-    # (b) carry non-trivial limits (skip the PSY default ±π).
-    branches_with_limits = [
-        d for d in devices if
-        hasmethod(PSY.get_angle_limits, Tuple{typeof(d)}) && begin
-            lims = PSY.get_angle_limits(d)
-            !(lims.min ≈ -π && lims.max ≈ π)
-        end
-    ]
-    isempty(branches_with_limits) && return
-
-    time_steps = get_time_steps(container)
-    va = get_variable(container, VoltageAngle, PSY.ACBus)
-    geoms = _branch_geometries(sys, network_model, branches_with_limits)
-
-    branch_names = [g.name for g in geoms]
-    cons = add_constraints_container!(
-        container, AngleDifferenceConstraint, T, branch_names, time_steps,
-    )
-
-    for (d, g) in zip(branches_with_limits, geoms)
-        g.collapsed && continue
-        lims = PSY.get_angle_limits(d)
-        for t in time_steps
-            cons[g.name, t] = JuMP.@constraint(
-                get_jump_model(container),
-                lims.min <= va[g.from_name, t] - va[g.to_name, t] <= lims.max,
             )
         end
     end

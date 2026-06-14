@@ -222,3 +222,34 @@ import PowerNetworkMatrices as PNM
     # branch's own admittance.
     @test PowerOperationsModels._reduced_arc_admittance(nr, -1, -2) === nothing
 end
+
+@testset "Transformer3W _winding_admittance star-arc decomposition" begin
+    # Unit test the per-winding admittance helper: for a winding with series
+    # impedance R + jX the helper must return the admittance 1/(R + jX), i.e.
+    #   g =  R / (R^2 + X^2),  b = -X / (R^2 + X^2)
+    # with zero shunts, zero phase shift, and the winding's tap passed through.
+    R = 0.01
+    X = 0.1
+    w = (
+        suffix = "winding_1",
+        arc = nothing,
+        r = R,
+        x = X,
+        rating = 1.0,
+        tap = 1.0,
+    )
+    adm = PowerOperationsModels._winding_admittance(w)
+    denom = R^2 + X^2
+    @test isapprox(adm.g, R / denom; atol = 1e-12)
+    @test isapprox(adm.b, -X / denom; atol = 1e-12)
+    @test adm.g_fr == 0.0
+    @test adm.b_fr == 0.0
+    @test adm.g_to == 0.0
+    @test adm.b_to == 0.0
+    @test adm.tap == w.tap
+    @test adm.shift == 0.0
+    # Cross-check against direct complex inversion.
+    y = inv(complex(R, X))
+    @test isapprox(adm.g, real(y); atol = 1e-12)
+    @test isapprox(adm.b, imag(y); atol = 1e-12)
+end

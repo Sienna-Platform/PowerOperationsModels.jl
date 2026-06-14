@@ -205,6 +205,20 @@ Docs abbreviation: ``f^\\text{sl,lo}``
 struct FlowActivePowerSlackLowerBound <: AbstractACActivePowerFlow end
 
 """
+Struct to dispatch the creation of post-contingency active power flow upper bound slack variables. Relaxes the post-contingency (N-1) emergency-rate upper-bound constraint when `use_slacks = true`.
+
+Docs abbreviation: ``f^\\text{sl,up,N-1}``
+"""
+struct PostContingencyFlowActivePowerSlackUpperBound <: VariableType end
+
+"""
+Struct to dispatch the creation of post-contingency active power flow lower bound slack variables. Relaxes the post-contingency (N-1) emergency-rate lower-bound constraint when `use_slacks = true`.
+
+Docs abbreviation: ``f^\\text{sl,lo,N-1}``
+"""
+struct PostContingencyFlowActivePowerSlackLowerBound <: VariableType end
+
+"""
 Struct to dispatch the creation of Phase Shifters Variables
 
 Docs abbreviation: ``\\theta^\\text{shift}``

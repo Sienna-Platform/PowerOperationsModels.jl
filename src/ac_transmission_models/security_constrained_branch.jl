@@ -333,6 +333,35 @@ function _resolve_monitored_arcs(
     return resolved
 end
 
+# Create a single post-contingency relaxation slack for `(outage_id, name, t)`,
+# lower-bounded at zero, and penalize it inline at build time. This runs in the
+# ModelConstructStage AFTER the branch objective (`add_to_objective_function!`)
+# has already executed, so the penalty is registered directly on the invariant
+# objective expression here rather than deferred to `objective_function!`. The
+# slack inherits the inequality's units (per-unit on the system base).
+function _make_post_contingency_slack!(
+    container::OptimizationContainer,
+    jump_model::JuMP.Model,
+    slack_container::SparseAxisArray,
+    ::Type{S},
+    ::Type{V},
+    outage_id::String,
+    name::String,
+    t::Int,
+) where {S <: VariableType, V <: PSY.ACTransmission}
+    slack = JuMP.@variable(
+        jump_model,
+        lower_bound = 0.0,
+        base_name = "$(S)_$(V)_{$(outage_id), $(name), $(t)}",
+    )
+    slack_container[outage_id, name, t] = slack
+    add_to_objective_invariant_expression!(
+        container,
+        slack * CONSTRAINT_VIOLATION_SLACK_COST,
+    )
+    return slack
+end
+
 """
 Add branch post-contingency rate limit constraints for ACBranch considering MODF and Security Constraints
 """
@@ -357,6 +386,13 @@ function add_constraints!(
     con_lb = _add_post_contingency_sparse_constraints!(container, T, V; meta = "lb")
     con_ub = _add_post_contingency_sparse_constraints!(container, T, V; meta = "ub")
 
+    use_slacks = get_use_slacks(device_model)
+    # Local relaxation-slack containers keyed by `(outage_id, name, t)`. Built
+    # here (not via `add_variables!`) because the post-contingency axes are only
+    # known after `_resolve_monitored_arcs`; registered after the loop iff used.
+    slack_ub = SparseAxisArray(Dict{Tuple{String, String, Int}, JuMP.VariableRef}())
+    slack_lb = SparseAxisArray(Dict{Tuple{String, String, Int}, JuMP.VariableRef}())
+
     expressions = get_expression(container, PostContingencyBranchFlow, V)
     jump_model = get_jump_model(container)
 
@@ -373,6 +409,9 @@ function add_constraints!(
                     container, T, V, outage_id, name, first(time_steps),
                 )
                 if !isnothing(src_lb) && !isnothing(src_ub)
+                    # Reuse the first claimer's constraint refs verbatim; its
+                    # slacks were already created and penalized, so do NOT add
+                    # new ones here.
                     for t in time_steps
                         con_ub[outage_id, name, t] =
                             src_ub.data[(outage_id, name, t)]
@@ -387,29 +426,82 @@ function add_constraints!(
                 param, multiplier =
                     _post_contingency_rate_columns(container, entry_type, name)
                 for t in time_steps
+                    sub = if use_slacks
+                        _make_post_contingency_slack!(
+                            container, jump_model, slack_ub,
+                            PostContingencyFlowActivePowerSlackUpperBound, V,
+                            outage_id, name, t,
+                        )
+                    else
+                        0.0
+                    end
+                    slb = if use_slacks
+                        _make_post_contingency_slack!(
+                            container, jump_model, slack_lb,
+                            PostContingencyFlowActivePowerSlackLowerBound, V,
+                            outage_id, name, t,
+                        )
+                    else
+                        0.0
+                    end
                     con_ub[outage_id, name, t] = JuMP.@constraint(
                         jump_model,
-                        expressions[outage_id, name, t] <= param[t] * multiplier[t],
+                        expressions[outage_id, name, t] - sub <=
+                        param[t] * multiplier[t],
                     )
                     con_lb[outage_id, name, t] = JuMP.@constraint(
                         jump_model,
-                        expressions[outage_id, name, t] >= -1.0 * param[t] * multiplier[t],
+                        expressions[outage_id, name, t] + slb >=
+                        -1.0 * param[t] * multiplier[t],
                     )
                 end
             else
                 limits = get_emergency_min_max_limits(reduction_entry, T, U)
                 for t in time_steps
+                    sub = if use_slacks
+                        _make_post_contingency_slack!(
+                            container, jump_model, slack_ub,
+                            PostContingencyFlowActivePowerSlackUpperBound, V,
+                            outage_id, name, t,
+                        )
+                    else
+                        0.0
+                    end
+                    slb = if use_slacks
+                        _make_post_contingency_slack!(
+                            container, jump_model, slack_lb,
+                            PostContingencyFlowActivePowerSlackLowerBound, V,
+                            outage_id, name, t,
+                        )
+                    else
+                        0.0
+                    end
                     con_ub[outage_id, name, t] = JuMP.@constraint(
                         jump_model,
-                        expressions[outage_id, name, t] <= limits.max,
+                        expressions[outage_id, name, t] - sub <= limits.max,
                     )
                     con_lb[outage_id, name, t] = JuMP.@constraint(
                         jump_model,
-                        expressions[outage_id, name, t] >= limits.min,
+                        expressions[outage_id, name, t] + slb >= limits.min,
                     )
                 end
             end
         end
+    end
+
+    if !isempty(slack_ub.data)
+        IOM._assign_container!(
+            container.variables,
+            VariableKey(PostContingencyFlowActivePowerSlackUpperBound, V),
+            slack_ub,
+        )
+    end
+    if !isempty(slack_lb.data)
+        IOM._assign_container!(
+            container.variables,
+            VariableKey(PostContingencyFlowActivePowerSlackLowerBound, V),
+            slack_lb,
+        )
     end
     return
 end
@@ -622,14 +714,14 @@ function construct_device!(
             FlowActivePowerSlackUpperBound,
             network_model,
             devices,
-            F(),
+            F,
         )
         add_variables!(
             container,
             FlowActivePowerSlackLowerBound,
             network_model,
             devices,
-            F(),
+            F,
         )
     end
 
@@ -733,16 +825,14 @@ function construct_device!(
         add_variables!(
             container,
             FlowActivePowerSlackUpperBound,
-            network_model,
             devices,
-            F(),
+            F,
         )
         add_variables!(
             container,
             FlowActivePowerSlackLowerBound,
-            network_model,
             devices,
-            F(),
+            F,
         )
     end
 

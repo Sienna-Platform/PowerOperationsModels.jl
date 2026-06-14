@@ -1146,3 +1146,86 @@ _sc_retained_buses(nrd) = Set(keys(PNM.get_bus_reduction_map(nrd)))
     nodal = IOM.get_expression(container, POM.ActivePowerBalance, PSY.ACBus)
     @test size(nodal.data, 1) == length(modf_retained)
 end
+
+# Ported from PowerSimulations.jl PR #1633 ("sc slacks"): with `use_slacks=true`
+# the POST-contingency (N-1) rate constraints must receive relaxation slacks too,
+# not just the PRE-contingency flow limits. Asserts both new slack variable
+# containers exist, each post-contingency lb/ub constraint references a slack,
+# the model solves, and that with `use_slacks=false` neither container exists.
+@testset "SecurityConstrainedStaticBranch post-contingency slacks (use_slacks)" begin
+    c_sys5 = _attach_all_branch_outages!(PSB.build_system(PSITestSystems, "c_sys5"))
+
+    function _build_sc_slack_model(use_slacks)
+        template = get_thermal_dispatch_template_network(
+            NetworkModel(PTDFPowerModel; PTDF_matrix = PNM.PTDF(c_sys5)),
+        )
+        set_device_model!(
+            template,
+            DeviceModel(
+                PSY.Line,
+                POM.SecurityConstrainedStaticBranch;
+                use_slacks = use_slacks,
+            ),
+        )
+        set_device_model!(
+            template, PSY.Transformer2W, POM.SecurityConstrainedStaticBranch,
+        )
+        set_device_model!(
+            template, PSY.TapTransformer, POM.SecurityConstrainedStaticBranch,
+        )
+        ps_model = DecisionModel(template, c_sys5; optimizer = HiGHS_optimizer)
+        @test build!(ps_model; output_dir = mktempdir(; cleanup = true)) ==
+              IOM.ModelBuildStatus.BUILT
+        return ps_model
+    end
+
+    # use_slacks = true: both post-contingency slack containers must exist, and
+    # each lb/ub constraint must reference its slack (nonzero variable coeff).
+    slack_model = _build_sc_slack_model(true)
+    slack_container = IOM.get_optimization_container(slack_model)
+
+    ub_key =
+        IOM.VariableKey(POM.PostContingencyFlowActivePowerSlackUpperBound, PSY.Line)
+    lb_key =
+        IOM.VariableKey(POM.PostContingencyFlowActivePowerSlackLowerBound, PSY.Line)
+    @test IOM.has_container_key(
+        slack_container, POM.PostContingencyFlowActivePowerSlackUpperBound, PSY.Line,
+    )
+    @test IOM.has_container_key(
+        slack_container, POM.PostContingencyFlowActivePowerSlackLowerBound, PSY.Line,
+    )
+
+    slack_ub = IOM.get_variable(slack_container, ub_key)
+    slack_lb = IOM.get_variable(slack_container, lb_key)
+    @test !isempty(slack_ub.data)
+    @test !isempty(slack_lb.data)
+
+    con_ub = IOM.get_constraint(
+        slack_container,
+        IOM.ConstraintKey(POM.PostContingencyFlowRateConstraint, PSY.Line, "ub"),
+    )
+    con_lb = IOM.get_constraint(
+        slack_container,
+        IOM.ConstraintKey(POM.PostContingencyFlowRateConstraint, PSY.Line, "lb"),
+    )
+    # Each post-contingency constraint must contain its corresponding slack with a
+    # nonzero coefficient (subtracted on ub, added on lb).
+    for k in keys(slack_ub.data)
+        @test JuMP.normalized_coefficient(con_ub[k...], slack_ub[k...]) == -1.0
+    end
+    for k in keys(slack_lb.data)
+        @test JuMP.normalized_coefficient(con_lb[k...], slack_lb[k...]) == 1.0
+    end
+
+    @test solve!(slack_model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+
+    # use_slacks = false: neither post-contingency slack container exists.
+    no_slack_model = _build_sc_slack_model(false)
+    no_slack_container = IOM.get_optimization_container(no_slack_model)
+    @test !IOM.has_container_key(
+        no_slack_container, POM.PostContingencyFlowActivePowerSlackUpperBound, PSY.Line,
+    )
+    @test !IOM.has_container_key(
+        no_slack_container, POM.PostContingencyFlowActivePowerSlackLowerBound, PSY.Line,
+    )
+end
