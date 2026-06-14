@@ -28,7 +28,7 @@ get_parameter_multiplier(::Type{UpperBoundValueParameter}, ::PSY.ACTransmission,
 # Per-device reactance multiplier (1/get_x(d)) computed inline at add_to_expression! call sites.
 get_variable_multiplier(::Type{PhaseShifterAngle}, ::Type{<:PSY.PhaseShiftingTransformer}, ::Type{PhaseAngleControl}) = 1.0
 
-get_multiplier_value(::Type{<:AbstractDynamicBranchRatingTimeSeriesParameter}, d::PSY.ACTransmission, ::Type{StaticBranch}) = 1.0/PSY.get_base_power(d, PSY.NU)
+get_multiplier_value(::Type{<:AbstractBranchRatingTimeSeriesParameter}, d::PSY.ACTransmission, ::Type{StaticBranch}) = 1.0/PSY.get_base_power(d, PSY.NU)
 
 
 get_initial_conditions_device_model(::IOM.AbstractOptimizationModel, ::DeviceModel{T, U}) where {T <: PSY.ACTransmission, U <: AbstractBranchFormulation} = DeviceModel(T, U)
@@ -538,7 +538,7 @@ function add_constraints!(
         # TODO: entry is not type stable here, it can return any type ACTransmission.
         # It might have performance implications. Possibly separate this into other functions
         reduction_entry = all_branch_maps_by_type[reduction][B][arc]
-        branch_rate = _get_rating(reduction_entry)
+        branch_rate = branch_rating(reduction_entry, device_model)
         for t in time_steps
             constraint[name, t] = JuMP.@constraint(
                 get_jump_model(container),
@@ -589,7 +589,7 @@ function add_constraints!(
         # TODO: entry is not type stable here, it can return any type ACTransmission.
         # It might have performance implications. Possibly separate this into other functions
         reduction_entry = all_branch_maps_by_type[reduction][B][arc]
-        branch_rate = _get_rating(reduction_entry)
+        branch_rate = branch_rating(reduction_entry, device_model)
         for t in time_steps
             constraint[name, t] = JuMP.@constraint(
                 get_jump_model(container),

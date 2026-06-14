@@ -339,8 +339,8 @@ function add_variables!(
 ) where {T <: PSY.TwoTerminalHVDC, U <: AbstractBranchFormulation}
     inter_network_branches = T[]
     for d in devices
-        ref_bus_from = get_reference_bus(network_model, PSY.get_arc(d).from)
-        ref_bus_to = get_reference_bus(network_model, PSY.get_arc(d).to)
+        ref_bus_from = get_reference_bus(network_model, PSY.get_from(PSY.get_arc(d)))
+        ref_bus_to = get_reference_bus(network_model, PSY.get_to(PSY.get_arc(d)))
         if ref_bus_from != ref_bus_to
             push!(inter_network_branches, d)
         else
@@ -514,8 +514,8 @@ function add_constraints!(
     modeled_devices = U[]
 
     for d in devices
-        ref_bus_from = get_reference_bus(network_model, PSY.get_arc(d).from)
-        ref_bus_to = get_reference_bus(network_model, PSY.get_arc(d).to)
+        ref_bus_from = get_reference_bus(network_model, PSY.get_from(PSY.get_arc(d)))
+        ref_bus_to = get_reference_bus(network_model, PSY.get_to(PSY.get_arc(d)))
         if ref_bus_from != ref_bus_to
             push!(names, PSY.get_name(d))
             push!(modeled_devices, d)
@@ -637,8 +637,8 @@ function add_constraints!(
 }
     inter_network_branches = U[]
     for d in devices
-        ref_bus_from = get_reference_bus(network_model, PSY.get_arc(d).from)
-        ref_bus_to = get_reference_bus(network_model, PSY.get_arc(d).to)
+        ref_bus_from = get_reference_bus(network_model, PSY.get_from(PSY.get_arc(d)))
+        ref_bus_to = get_reference_bus(network_model, PSY.get_to(PSY.get_arc(d)))
         if ref_bus_from != ref_bus_to
             push!(inter_network_branches, d)
         end
@@ -690,8 +690,8 @@ function add_constraints!(
 }
     inter_network_branches = U[]
     for d in devices
-        ref_bus_from = get_reference_bus(network_model, PSY.get_arc(d).from)
-        ref_bus_to = get_reference_bus(network_model, PSY.get_arc(d).to)
+        ref_bus_from = get_reference_bus(network_model, PSY.get_from(PSY.get_arc(d)))
+        ref_bus_to = get_reference_bus(network_model, PSY.get_to(PSY.get_arc(d)))
         if ref_bus_from != ref_bus_to
             push!(inter_network_branches, d)
         end
@@ -896,7 +896,7 @@ function add_constraints!(
         rect_bridges = PSY.get_rectifier_bridges(d)
         dc_rect_com_reactance = PSY.get_rectifier_xc(d)
         rect_tap_ratio = PSY.get_rectifier_transformer_ratio(d)
-        bus_from = PSY.get_arc(d).from
+        bus_from = PSY.get_from(PSY.get_arc(d))
         bus_from_name = PSY.get_name(bus_from)
 
         for t in get_time_steps(container)
@@ -945,7 +945,7 @@ function add_constraints!(
         inv_bridges = PSY.get_inverter_bridges(d)
         dc_inv_com_reactance = PSY.get_inverter_xc(d)
         inv_tap_ratio = PSY.get_inverter_transformer_ratio(d)
-        bus_to = PSY.get_arc(d).to
+        bus_to = PSY.get_to(PSY.get_arc(d))
         bus_to_name = PSY.get_name(bus_to)
 
         for t in get_time_steps(container)
@@ -992,7 +992,7 @@ function add_constraints!(
         name = PSY.get_name(d)
         dc_rect_com_reactance = PSY.get_rectifier_xc(d)
         rect_tap_ratio = PSY.get_rectifier_transformer_ratio(d)
-        bus_from = PSY.get_arc(d).from
+        bus_from = PSY.get_from(PSY.get_arc(d))
         bus_from_name = PSY.get_name(bus_from)
 
         for t in get_time_steps(container)
@@ -1051,7 +1051,7 @@ function add_constraints!(
         name = PSY.get_name(d)
         dc_inv_com_reactance = PSY.get_inverter_xc(d)
         inv_tap_ratio = PSY.get_inverter_transformer_ratio(d)
-        bus_to = PSY.get_arc(d).to
+        bus_to = PSY.get_to(PSY.get_arc(d))
         bus_to_name = PSY.get_name(bus_to)
 
         for t in get_time_steps(container)
@@ -1309,7 +1309,7 @@ function add_constraints!(
     for d in devices
         name = PSY.get_name(d)
         rect_tap_ratio = PSY.get_rectifier_transformer_ratio(d)
-        bus_from = PSY.get_arc(d).from
+        bus_from = PSY.get_from(PSY.get_arc(d))
         bus_from_name = PSY.get_name(bus_from)
 
         for t in get_time_steps(container)
@@ -1371,7 +1371,7 @@ function add_constraints!(
     for d in devices
         name = PSY.get_name(d)
         inv_tap_ratio = PSY.get_inverter_transformer_ratio(d)
-        bus_to = PSY.get_arc(d).to
+        bus_to = PSY.get_to(PSY.get_arc(d))
         bus_to_name = PSY.get_name(bus_to)
 
         for t in get_time_steps(container)
