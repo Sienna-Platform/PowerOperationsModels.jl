@@ -51,18 +51,6 @@ The specified constraint is generally formulated as:
 struct CopperPlateBalanceConstraint <: ConstraintType end
 
 """
-Struct to create the constraint to balance active power.
-For more information check [ThermalGen Formulations](@ref ThermalGen-Formulations).
-
-The specified constraint is generally formulated as:
-
-```math
-\\sum_{g \\in \\mathcal{G}_c} p_{g,t} &= \\sum_{g \\in \\mathcal{G}} \\Delta p_{g, c, t} &\\quad \\forall c \\in \\mathcal{C} \\ \\forall t \\in \\{1, \\dots, T\\}
-```
-"""
-struct PostContingencyGenerationBalanceConstraint <: PostContingencyConstraintType end
-
-"""
 Struct to create the duration constraint for commitment formulations, i.e. min-up and min-down.
 
 For more information check [ThermalGen Formulations](@ref ThermalGen-Formulations).
@@ -231,7 +219,6 @@ r_{d,t} \\le R^\\text{th,dn} \\cdot \\text{TF}\\quad  \\forall d\\in \\mathcal{D
 ```
 """
 struct RampConstraint <: ConstraintType end
-struct PostContingencyRampConstraint <: PostContingencyConstraintType end
 struct RampLimitConstraint <: ConstraintType end
 struct RangeLimitConstraint <: ConstraintType end
 """
@@ -249,7 +236,13 @@ The specified constraint is formulated as:
 ```
 """
 struct FlowRateConstraint <: ConstraintType end
-struct PostContingencyEmergencyRateLimitConstraint <: PostContingencyConstraintType end
+"""
+Post-contingency flow-rate limit on monitored branches:
+`-R_m ≤ Σ_j MODF_post[m,c][j]·p_j ≤ R_m, ∀ t`, where `MODF_post[m,c]` is the
+PNM `VirtualMODF` column for monitored arc `m` under contingency `c` and `R_m`
+is the branch emergency rating (system base / per-unit).
+"""
+struct PostContingencyFlowRateConstraint <: PostContingencyConstraintType end
 
 """
 Struct to create the constraint for branch flow rate limits from the 'from' bus to the 'to' bus.
@@ -473,8 +466,6 @@ P^\\text{min} \\le p_t^\\text{in} \\le P^\\text{max}, \\quad \\forall t \\in \\{
 ```
 """
 
-abstract type PostContingencyVariableLimitsConstraint <: PowerVariableLimitsConstraint end
-
 """
 Struct to create the constraint to limit active power input expressions.
 For more information check [Device Formulations](@ref formulation_intro).
@@ -511,34 +502,6 @@ P^\\text{min} \\le p_t \\le P^\\text{max}, \\quad \\forall t \\in \\{1,\\dots,T\
 ```
 """
 struct ActivePowerVariableLimitsConstraint <: PowerVariableLimitsConstraint end
-
-"""
-Struct to create the constraint to limit post-contingency active power expressions.
-For more information check [Device Formulations](@ref formulation_intro).
-
-The specified constraint depends on the UpperBound and LowerBound expressions, but
-in its most basic formulation is of the form:
-
-```math
-P^\\text{min} \\le p_t + \\Delta p_{c, t}  \\le P^\\text{max}, \\quad \\forall c \\in \\mathcal{C} \\ \\forall t \\in \\{1,\\dots,T\\}
-```
-"""
-struct PostContingencyActivePowerVariableLimitsConstraint <:
-       PostContingencyVariableLimitsConstraint end
-
-"""
-Struct to create the constraint to limit post-contingency active power reserve deploymentexpressions.
-For more information check [Device Formulations](@ref formulation_intro).
-
-The specified constraint depends on the UpperBound and LowerBound expressions, but
-in its most basic formulation is of the form:
-
-```math
-\\Delta rsv_{r, c, t}  \\le rsv_{r, c, t}, \\quad \\forall r \\in \\mathcal{R} \\ \\forall c \\in \\mathcal{C} \\ \\forall t \\in \\{1,\\dots,T\\}
-```
-"""
-struct PostContingencyActivePowerReserveDeploymentVariableLimitsConstraint <:
-       PostContingencyVariableLimitsConstraint end
 
 """
 Struct to create the constraint to limit reactive power expressions.
