@@ -14,6 +14,7 @@ const LOG_FILE = "power-simulations-test.log"
 const DISABLED_TEST_FILES = [  # Can generate with ls -1 test | grep "test_.*.jl"
 # "test_device_branch_constructors.jl",
 # "test_device_hvdc.jl",
+# "test_device_hybrid_constructors.jl",
 # "test_device_hydro_constructors.jl",
 # "test_device_lcc.jl",
 # "test_device_load_constructors.jl",

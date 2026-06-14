@@ -1064,3 +1064,84 @@ The specified constraints are formulated as:
 ```
 """
 struct ShiftDownActivePowerVariableLimitsConstraint <: PowerVariableLimitsConstraint end
+
+#################################################################################
+# Hybrid System Constraints
+#################################################################################
+
+"""
+Couples the hybrid PCC reserve variables (out + in) to the system-level
+`ActivePowerReserveVariable` of each service the hybrid participates in.
+"""
+struct HybridReserveAssignmentConstraint <: ConstraintType end
+
+"""
+Couples the hybrid PCC reserve variables (out + in) to the sum of per-subcomponent reserve
+allocations (thermal + renewable + charging + discharging).
+"""
+struct HybridReserveBalanceConstraint <: ConstraintType end
+
+"""
+Equates the hybrid's PCC active-power injection to the sum of internal subcomponent
+flows (thermal + renewable + storage discharge - storage charge - load) net of served
+reserves.
+"""
+struct HybridEnergyAssetBalanceConstraint <: ConstraintType end
+
+"""
+Status link between a hybrid PCC active-power variable and the reservation variable.
+Parametric on [`ReserveSide`](@ref).
+"""
+struct HybridStatusOnConstraint{Sd <: ReserveSide} <: ConstraintType end
+
+"""
+Bound between thermal subcomponent power and its commitment status (no-reserves case).
+Parametric on `BoundDirection` (from IOM).
+"""
+struct HybridThermalOnVariableConstraint{B <: IOM.BoundDirection} <: ConstraintType end
+
+"Range constraint on thermal subcomponent power including up/down reserves."
+struct HybridThermalReserveLimitConstraint <: ConstraintType end
+
+"Upper bound on renewable subcomponent power from the time-series forecast."
+struct HybridRenewableActivePowerLimitConstraint <: ConstraintType end
+
+"Range constraint on renewable subcomponent power including up/down reserves."
+struct HybridRenewableReserveLimitConstraint <: ConstraintType end
+
+"Energy balance for the storage subcomponent of a hybrid system, including reserve deployment."
+struct HybridStorageBalanceConstraint <: ConstraintType end
+
+"""
+Mutually-exclusive charge/discharge limit for the hybrid storage subcomponent
+(no-reserves case). Parametric on [`ReserveSide`](@ref).
+"""
+struct HybridStorageStatusOnConstraint{Sd <: ReserveSide} <: ConstraintType end
+
+"""
+Charge- or discharge-side power limit for the hybrid storage subcomponent including
+reserve carve-outs. Parametric on [`ReserveSide`](@ref).
+"""
+struct HybridStorageReservePowerLimitConstraint{Sd <: ReserveSide} <: ConstraintType end
+
+"""
+Bounds the absolute charge- or discharge-power step change between consecutive time
+steps, penalizing oscillation. Active only when the hybrid `\"regularization\"`
+attribute is set. Parametric on [`ReserveSide`](@ref).
+"""
+struct RegularizationConstraint{Sd <: ReserveSide} <: ConstraintType end
+
+"""
+End-of-period energy target for the storage subcomponent of a hybrid system.
+Used when the attribute `energy_target = true`.
+
+Like the storage [`StateofChargeTargetConstraint`](@ref), this is a soft equality with
+non-negative surplus ([`HybridEnergySurplusVariable`](@ref), energy above target) and
+shortage ([`HybridEnergyShortageVariable`](@ref), energy below target) slacks penalized
+in the objective:
+
+```math
+e^{st}_{T} - e^{st+} + e^{st-} = E^{st}_{T}.
+```
+"""
+struct HybridEnergyTargetConstraint <: ConstraintType end
