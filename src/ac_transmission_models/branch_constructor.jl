@@ -166,6 +166,15 @@ function construct_device!(
         container, ReactivePowerBalance, FlowReactivePowerToFromVariable,
         devices, device_model, network_model,
     )
+    if haskey(get_time_series_names(device_model), BranchRatingTimeSeriesParameter)
+        add_branch_parameters!(
+            container,
+            BranchRatingTimeSeriesParameter,
+            devices,
+            device_model,
+            network_model,
+        )
+    end
     add_feedforward_arguments!(container, device_model, devices)
     return
 end
@@ -193,10 +202,10 @@ function construct_device!(
         container, FlowRateConstraintToFrom, devices, device_model, network_model,
     )
     add_constraints!(
-        container, NetworkFlowConstraint, devices, device_model, network_model,
+        container, sys, NetworkFlowConstraint, devices, device_model, network_model,
     )
     add_constraints!(
-        container, AngleDifferenceConstraint, devices, device_model, network_model,
+        container, sys, AngleDifferenceConstraint, devices, device_model, network_model,
     )
     add_feedforward_constraints!(container, device_model, devices)
     add_to_objective_function!(container, devices, device_model, ACPPowerModel)
@@ -274,10 +283,10 @@ function construct_device!(
         container, FlowRateConstraintToFrom, devices, device_model, network_model,
     )
     add_constraints!(
-        container, NetworkFlowConstraint, devices, device_model, network_model,
+        container, sys, NetworkFlowConstraint, devices, device_model, network_model,
     )
     add_constraints!(
-        container, AngleDifferenceConstraint, devices, device_model, network_model,
+        container, sys, AngleDifferenceConstraint, devices, device_model, network_model,
     )
     add_feedforward_constraints!(container, device_model, devices)
     add_to_objective_function!(container, devices, device_model, ACPPowerModel)
@@ -316,6 +325,15 @@ function construct_device!(
         device_model,
         network_model,
     )
+    if haskey(get_time_series_names(device_model), BranchRatingTimeSeriesParameter)
+        add_branch_parameters!(
+            container,
+            BranchRatingTimeSeriesParameter,
+            devices,
+            device_model,
+            network_model,
+        )
+    end
     add_feedforward_arguments!(container, device_model, devices)
     return
 end
@@ -337,9 +355,11 @@ function construct_device!(
         LOG_GROUP_BRANCH_CONSTRUCTIONS
     devices = get_available_components(device_model, sys)
     add_constraints!(container, FlowRateConstraint, devices, device_model, network_model)
-    add_constraints!(container, NetworkFlowConstraint, devices, device_model, network_model)
     add_constraints!(
-        container, AngleDifferenceConstraint, devices, device_model, network_model,
+        container, sys, NetworkFlowConstraint, devices, device_model, network_model,
+    )
+    add_constraints!(
+        container, sys, AngleDifferenceConstraint, devices, device_model, network_model,
     )
     add_feedforward_constraints!(container, device_model, devices)
     add_to_objective_function!(container, devices, device_model, DCPPowerModel)
@@ -404,9 +424,11 @@ function construct_device!(
         LOG_GROUP_BRANCH_CONSTRUCTIONS
     devices = get_available_components(device_model, sys)
     add_constraints!(container, FlowRateConstraint, devices, device_model, network_model)
-    add_constraints!(container, NetworkFlowConstraint, devices, device_model, network_model)
     add_constraints!(
-        container, AngleDifferenceConstraint, devices, device_model, network_model,
+        container, sys, NetworkFlowConstraint, devices, device_model, network_model,
+    )
+    add_constraints!(
+        container, sys, AngleDifferenceConstraint, devices, device_model, network_model,
     )
     add_feedforward_constraints!(container, device_model, devices)
     add_to_objective_function!(container, devices, device_model, DCPPowerModel)
@@ -440,10 +462,10 @@ function construct_device!(
         )
     end
 
-    if haskey(get_time_series_names(device_model), DynamicBranchRatingTimeSeriesParameter)
+    if haskey(get_time_series_names(device_model), BranchRatingTimeSeriesParameter)
         add_branch_parameters!(
             container,
-            DynamicBranchRatingTimeSeriesParameter,
+            BranchRatingTimeSeriesParameter,
             devices,
             device_model,
             network_model,
@@ -452,11 +474,11 @@ function construct_device!(
 
     if haskey(
         get_time_series_names(device_model),
-        PostContingencyDynamicBranchRatingTimeSeriesParameter,
+        PostContingencyBranchRatingTimeSeriesParameter,
     )
         add_branch_parameters!(
             container,
-            PostContingencyDynamicBranchRatingTimeSeriesParameter,
+            PostContingencyBranchRatingTimeSeriesParameter,
             devices,
             device_model,
             network_model,
@@ -485,7 +507,7 @@ function construct_device!(
         network_model,
     )
 
-    if haskey(get_time_series_names(device_model), DynamicBranchRatingTimeSeriesParameter)
+    if haskey(get_time_series_names(device_model), BranchRatingTimeSeriesParameter)
         add_flow_rate_constraint_with_parameters!(
             container,
             FlowRateConstraint,
@@ -504,71 +526,6 @@ function construct_device!(
     end
     add_feedforward_constraints!(container, device_model, devices)
     add_to_objective_function!(container, devices, device_model, PTDFPowerModel)
-    add_constraint_dual!(container, sys, device_model)
-    return
-end
-
-function construct_device!(
-    container::OptimizationContainer,
-    sys::PSY.System,
-    ::ModelConstructStage,
-    device_model::DeviceModel{V, StaticBranch},
-    network_model::NetworkModel{T},
-) where {V <: PSY.ACTransmission, T <: AbstractSecurityConstrainedPTDFModel}
-    devices = get_available_components(device_model, sys)
-    add_constraints!(container, NetworkFlowConstraint, devices, device_model, network_model)
-    add_constraints!(container, FlowRateConstraint, devices, device_model, network_model)
-
-    # TODO: Security constrained. Remove this line. Method not defined
-    valid_outages = _get_all_scuc_valid_outages(sys, network_model)
-
-    if isempty(valid_outages)
-        throw(
-            ArgumentError(
-                "System $(PSY.get_name(sys)) has no valid supplemental attributes associated to devices $(PSY.ACTransmission)
-                to add the LODF expressions/constraints for the requested network model: $network_model.",
-            ))
-    end
-
-    lodf = get_LODF_matrix(network_model)
-    removed_branches = PNM.get_removed_branches(lodf.network_reduction_data)
-    # TODO: Security constrained. This method might not be needed. Analyze why is here
-    branches = get_available_components(
-        b -> PSY.get_name(b) ∉ removed_branches,
-        PSY.ACTransmission,
-        sys,
-    )
-
-    #TODO Handle also N-2 cases
-    branches_outages =
-        _get_all_single_outage_branches_by_type(sys, valid_outages, branches, V)
-    if !isempty(branches_outages)
-        add_to_expression!(
-            container,
-            PostContingencyBranchFlow,
-            FlowActivePowerVariable,
-            branches,
-            branches_outages,
-            device_model,
-            network_model,
-        )
-
-        add_constraints!(
-            container,
-            PostContingencyEmergencyRateLimitConstraint,
-            branches,
-            branches_outages,
-            device_model,
-            network_model,
-        )
-    end
-    add_feedforward_constraints!(container, device_model, devices)
-    add_to_objective_function!(
-        container,
-        devices,
-        device_model,
-        SecurityConstrainedPTDFPowerModel,
-    )
     add_constraint_dual!(container, sys, device_model)
     return
 end
@@ -1752,7 +1709,9 @@ function construct_device!(
         device_model,
         network_model,
     )
-    add_constraints!(container, NetworkFlowConstraint, devices, device_model, network_model)
+    add_constraints!(
+        container, sys, NetworkFlowConstraint, devices, device_model, network_model,
+    )
     add_constraint_dual!(container, sys, device_model)
     add_feedforward_constraints!(container, device_model, devices)
     return
@@ -1932,8 +1891,8 @@ end
 
 # This method uses ACBranch to support 2T - HVDC
 function _get_area_from_to(reduction_entry::PSY.ACBranch)
-    area_from = PSY.get_area(PSY.get_arc(reduction_entry).from)
-    area_to = PSY.get_area(PSY.get_arc(reduction_entry).to)
+    area_from = PSY.get_area(PSY.get_from(PSY.get_arc(reduction_entry)))
+    area_to = PSY.get_area(PSY.get_to(PSY.get_arc(reduction_entry)))
     return area_from, area_to
 end
 
@@ -2075,7 +2034,9 @@ function construct_device!(
 )
     devices = get_available_components(device_model, sys)
     add_constraints!(container, FlowRateConstraint, devices, device_model, network_model)
-    add_constraints!(container, NetworkFlowConstraint, devices, device_model, network_model)
+    add_constraints!(
+        container, sys, NetworkFlowConstraint, devices, device_model, network_model,
+    )
     add_feedforward_constraints!(container, device_model, devices)
     add_to_objective_function!(container, devices, device_model, DCPPowerModel)
     add_constraint_dual!(container, sys, device_model)
@@ -2126,7 +2087,7 @@ function construct_device!(
         container, FlowRateConstraintToFrom, devices, device_model, network_model,
     )
     add_constraints!(
-        container, NetworkFlowConstraint, devices, device_model, network_model,
+        container, sys, NetworkFlowConstraint, devices, device_model, network_model,
     )
     add_feedforward_constraints!(container, device_model, devices)
     add_to_objective_function!(container, devices, device_model, ACPPowerModel)
