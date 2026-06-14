@@ -6,26 +6,10 @@
 #################################################################################
 
 # POM-specific abstract types (matching PSI hierarchy)
-abstract type AbstractContingencyVariableType <: VariableType end
 abstract type MultiStartVariable <: VariableType end
 abstract type AbstractACActivePowerFlow <: VariableType end
 abstract type AbstractACReactivePowerFlow <: VariableType end
 # AbstractPiecewiseLinearBlockOffer: moved into IOM
-
-"""
-Struct to dispatch the creation of Post-Contingency Active Power Change Variables.
-
-Docs abbreviation: ``\\Delta p_{g,c}``
-"""
-struct PostContingencyActivePowerChangeVariable <: AbstractContingencyVariableType end
-
-"""
-Struct to dispatch the creation of Post-Contingency Active Power Deployment Variable for mapping reserves deployment under contingencies.
-
-Docs abbreviation: ``\\Delta rsv_{r,g,c}``
-"""
-struct PostContingencyActivePowerReserveDeploymentVariable <:
-       AbstractContingencyVariableType end
 
 """
 Struct to dispatch the creation of Hot Start Variable for Thermal units with temperature considerations
@@ -591,16 +575,12 @@ should_write_resulting_value(::Type{<:BinaryInterpolationVariableType}) = false
 should_write_resulting_value(::Type{HydroTurbineFlowRateVariable}) = false
 
 convert_output_to_natural_units(::Type{ActivePowerVariable}) = true
-convert_output_to_natural_units(::Type{PostContingencyActivePowerChangeVariable}) = true
 convert_output_to_natural_units(::Type{PowerAboveMinimumVariable}) = true
 convert_output_to_natural_units(::Type{ActivePowerInVariable}) = true
 convert_output_to_natural_units(::Type{ActivePowerOutVariable}) = true
 convert_output_to_natural_units(::Type{EnergyVariable}) = true
 convert_output_to_natural_units(::Type{ReactivePowerVariable}) = true
 convert_output_to_natural_units(::Type{ActivePowerReserveVariable}) = true
-convert_output_to_natural_units(
-    ::Type{PostContingencyActivePowerReserveDeploymentVariable},
-) = true
 convert_output_to_natural_units(::Type{ServiceRequirementVariable}) = true
 convert_output_to_natural_units(::Type{RateofChangeConstraintSlackUp}) = true
 convert_output_to_natural_units(::Type{RateofChangeConstraintSlackDown}) = true

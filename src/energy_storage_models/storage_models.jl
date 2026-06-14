@@ -111,7 +111,7 @@ function IOM.variable_cost(
     ::Type{<:PSY.Storage},
     ::Type{<:AbstractStorageFormulation},
 )
-    return PSY.CostCurve(PSY.LinearCurve(STORAGE_REG_COST), PSY.UnitSystem.SYSTEM_BASE)
+    return PSY.CostCurve(PSY.LinearCurve(STORAGE_REG_COST), PSY.SU)
 end
 
 function get_default_time_series_names(
