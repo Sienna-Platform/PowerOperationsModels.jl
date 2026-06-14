@@ -3,17 +3,11 @@
 # AbstractDCPModel (e.g. _get_flow_variable_vector) catches PTDF models.
 # This can't live in IS because IS doesn't know about PM.
 abstract type AbstractPTDFModel <: AbstractDCPModel end
-abstract type AbstractSecurityConstrainedPTDFModel <: AbstractPTDFModel end
 
 """
 Linear active power approximation using the power transfer distribution factor [PTDF](https://sienna-platform.github.io/PowerNetworkMatrices.jl/stable/tutorials/tutorial_PTDF_matrix/) matrix.
 """
 struct PTDFPowerModel <: AbstractPTDFModel end
-
-"""
-Linear active power approximation using the power transfer distribution factor [PTDF](https://sienna-platform.github.io/PowerNetworkMatrices.jl/stable/tutorials/tutorial_PTDF_matrix/) matrix and line outage distribution factors [LODF](https://sienna-platform.github.io/PowerNetworkMatrices.jl/stable/tutorials/tutorial_LODF_matrix/) for branches outages. If exists, the rating b is considered as the branch power limit for post-contingency flows, otherwise the standard rating is considered.
-"""
-struct SecurityConstrainedPTDFPowerModel <: AbstractSecurityConstrainedPTDFModel end
 
 """
 Infinite capacity approximation of network flow to represent entire system with a single node.
@@ -30,11 +24,6 @@ Linear active power approximation using the power transfer distribution factor [
 """
 struct AreaPTDFPowerModel <: AbstractPTDFModel end
 
-"""
-Linear active power approximation using the power transfer distribution factor [PTDF](https://sienna-platform.github.io/PowerNetworkMatrices.jl/stable/tutorials/tutorial_PTDF_matrix/) matrix and [LODF](https://sienna-platform.github.io/PowerNetworkMatrices.jl/stable/tutorials/tutorial_LODF_matrix/) for branches outages. Balancing areas as well as synchrounous regions.
-"""
-struct SecurityConstrainedAreaPTDFPowerModel <: AbstractSecurityConstrainedPTDFModel end
-
 #################################################################################
 # Network Model Capabilities
 # These functions define capabilities for different network formulations
@@ -42,7 +31,6 @@ struct SecurityConstrainedAreaPTDFPowerModel <: AbstractSecurityConstrainedPTDFM
 
 # Defaults are in IOM; POM only provides overrides for specific formulations
 supports_branch_filtering(::Type{<:AbstractPTDFModel}) = true
-supports_branch_filtering(::Type{<:AbstractSecurityConstrainedPTDFModel}) = true
 
 ignores_branch_filtering(::Type{CopperPlatePowerModel}) = true
 ignores_branch_filtering(::Type{AreaBalancePowerModel}) = true
@@ -50,6 +38,9 @@ ignores_branch_filtering(::Type{AreaBalancePowerModel}) = true
 requires_all_branch_models(::Type{<:AbstractPTDFModel}) = false
 requires_all_branch_models(::Type{CopperPlatePowerModel}) = false
 requires_all_branch_models(::Type{AreaBalancePowerModel}) = false
+
+branches_modeled(::Type{CopperPlatePowerModel}) = false
+branches_modeled(::Type{AreaBalancePowerModel}) = false
 
 # Native POM DCP — replaces the PM-bridge-routed DCPPowerModel re-export.
 # Concrete-type construct_network! dispatches in network_constructor.jl
