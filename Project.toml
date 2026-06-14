@@ -27,7 +27,7 @@ PowerFlows = "94fada2c-fd9a-4e89-8d82-81405f5cb4f6"
 [sources]
 InfrastructureSystems = {rev = "IS4", url = "https://github.com/Sienna-Platform/InfrastructureSystems.jl"}
 PowerSystems = {rev = "psy6", url = "https://github.com/Sienna-Platform/PowerSystems.jl"}
-InfrastructureOptimizationModels = {rev = "main", url = "https://github.com/Sienna-Platform/InfrastructureOptimizationModels.jl"}
+InfrastructureOptimizationModels = {rev = "main", url = "https://github.com/NREL-Sienna/InfrastructureOptimizationModels.jl"}
 PowerNetworkMatrices = {rev = "psy6", url = "https://github.com/Sienna-Platform/PowerNetworkMatrices.jl"}
 
 [extensions]
@@ -39,7 +39,8 @@ DocStringExtensions = "~0.8, ~0.9"
 InfrastructureSystems = "3"
 InteractiveUtils = "1.11.0"
 JuMP = "^1.28"
-PowerNetworkMatrices = "^0.22"
+PowerFlows = "0.21"
+PowerNetworkMatrices = "^0.24"
 PowerSystems = "5.3"
 PrettyTables = "3"
 ProgressMeter = "1.11.0"
