@@ -4,7 +4,7 @@ function create_temporary_cost_function_in_system_per_unit(
 )
     return PSY.CostCurve(
         PSY.PiecewisePointCurve(new_data),
-        PSY.UnitSystem.SYSTEM_BASE,
+        PSY.SU,
         PSY.get_vom_cost(original_cost_function),
     )
 end
@@ -15,7 +15,7 @@ function create_temporary_cost_function_in_system_per_unit(
 )
     return PSY.FuelCurve(
         PSY.PiecewisePointCurve(new_data),
-        PSY.UnitSystem.SYSTEM_BASE,
+        PSY.SU,
         PSY.get_fuel_cost(original_cost_function),
         IS.LinearCurve(0.0),  # setting fuel offtake cost to default value of 0
         PSY.get_vom_cost(original_cost_function),
@@ -80,12 +80,6 @@ get_variable_lower_bound(::Type{RateofChangeConstraintSlackDown}, d::PSY.Thermal
 # UB Slack #
 get_variable_binary(::Type{RateofChangeConstraintSlackUp}, ::Type{<:PSY.ThermalGen}, ::Type{<:AbstractThermalFormulation}) = false
 get_variable_lower_bound(::Type{RateofChangeConstraintSlackUp}, d::PSY.ThermalGen, ::Type{<:AbstractThermalFormulation}) = 0.0
-
-############## PostContingencyActivePowerChangeVariable, ThermalGen ####################
-get_variable_binary(::Type{PostContingencyActivePowerChangeVariable}, ::Type{<:PSY.ThermalGen}, ::Type{<:AbstractSecurityConstrainedUnitCommitment}) = false
-get_variable_warm_start_value(::Type{PostContingencyActivePowerChangeVariable}, d::PSY.ThermalGen, ::Type{<:AbstractSecurityConstrainedUnitCommitment}) = 0.0
-get_variable_lower_bound(::Type{PostContingencyActivePowerChangeVariable}, d::PSY.ThermalGen, ::Type{<:AbstractSecurityConstrainedUnitCommitment}) = -1.0
-get_variable_upper_bound(::Type{PostContingencyActivePowerChangeVariable}, d::PSY.ThermalGen, ::Type{<:AbstractSecurityConstrainedUnitCommitment}) = 1.0
 
 ########################### Parameter related set functions ################################
 get_multiplier_value(::Type{ActivePowerTimeSeriesParameter}, d::PSY.ThermalGen, ::Type{<:AbstractThermalFormulation}) = PSY.get_max_active_power(d, PSY.SU)
