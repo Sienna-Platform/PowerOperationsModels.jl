@@ -308,15 +308,21 @@ _stub_forecast_key(name::String) = IS.ForecastKey(;
     features = Dict{String, Any}(),
 )
 
-"Construct a `CostCurve{TimeSeriesPiecewiseIncrementalCurve}` with stub TS keys."
+"""
+Construct a `CostCurve{TimeSeriesPiecewiseIncrementalCurve}` with stub TS keys. Pass
+`trivial = true` for the absent side of a one-sided participant (a load with no supply
+offer, or a generator with no demand offer): it carries reserved empty-name keys, which
+IOM's `is_nontrivial_offer` treats as the placeholder/absent side.
+"""
 function stub_ts_offer_curve(;
     curve_name::String = "variable_cost",
     initial_input_name::String = "initial_input",
-    power_units::PSY.UnitSystem = PSY.UnitSystem.SYSTEM_BASE,
+    power_units = PSY.SU,
+    trivial::Bool = false,
 )
     vc = IS.TimeSeriesPiecewiseIncrementalCurve(
-        _stub_forecast_key(curve_name),
-        _stub_forecast_key(initial_input_name),
+        _stub_forecast_key(trivial ? "" : curve_name),
+        _stub_forecast_key(trivial ? "" : initial_input_name),
         nothing,
     )
     return PSY.CostCurve(vc, power_units)
@@ -324,7 +330,7 @@ end
 
 "Construct a minimal `ImportExportTimeSeriesCost` backed by stub TS keys."
 function stub_ts_import_export_cost(;
-    power_units::PSY.UnitSystem = PSY.UnitSystem.SYSTEM_BASE,
+    power_units = PSY.SU,
 )
     return PSY.ImportExportTimeSeriesCost(;
         import_offer_curves = stub_ts_offer_curve(;
@@ -340,8 +346,17 @@ function stub_ts_import_export_cost(;
     )
 end
 
-"Construct a minimal `MarketBidTimeSeriesCost` backed by stub TS keys."
-function stub_ts_market_bid_cost(; power_units::PSY.UnitSystem = PSY.UnitSystem.SYSTEM_BASE)
+"""
+Construct a minimal `MarketBidTimeSeriesCost` backed by stub TS keys. By default both
+offer sides are present (a two-sided participant). For a one-sided device pass
+`incremental_trivial = true` (a load with no supply offer) or `decremental_trivial = true`
+(a generator with no demand offer) so the unused side reads as the absent placeholder.
+"""
+function stub_ts_market_bid_cost(;
+    power_units = PSY.SU,
+    incremental_trivial::Bool = false,
+    decremental_trivial::Bool = false,
+)
     return PSY.MarketBidTimeSeriesCost(;
         no_load_cost = PSY.TimeSeriesLinearCurve(_stub_forecast_key("no_load")),
         start_up = IS.TupleTimeSeries{PSY.StartUpStages}(_stub_forecast_key("start_up")),
@@ -350,11 +365,13 @@ function stub_ts_market_bid_cost(; power_units::PSY.UnitSystem = PSY.UnitSystem.
             curve_name = "variable_cost incremental",
             initial_input_name = "initial_input incremental",
             power_units = power_units,
+            trivial = incremental_trivial,
         ),
         decremental_offer_curves = stub_ts_offer_curve(;
             curve_name = "variable_cost decremental",
             initial_input_name = "initial_input decremental",
             power_units = power_units,
+            trivial = decremental_trivial,
         ),
     )
 end

@@ -751,3 +751,35 @@ end
         optimizer = HiGHS_optimizer,
     ) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
 end
+
+@testset "Optimization-model export serialization (copy/write split + lifecycle)" begin
+    c_sys5 = PSB.build_system(PSITestSystems, "c_sys5")
+    template = get_thermal_dispatch_template_network(CopperPlatePowerModel)
+    model = DecisionModel(template, c_sys5; optimizer = HiGHS_optimizer)
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+    container = IOM.get_optimization_container(model)
+    @test IOM.get_serialization_task(container) === nothing
+    dir = mktempdir(; cleanup = true)
+    for (fmt, ext) in (
+        (IOM.OptimizationModelExportFormat.MOF, "json"),
+        (IOM.OptimizationModelExportFormat.LP, "lp"),
+    )
+        path = joinpath(dir, "exported.$(ext)")
+        serialize_optimization_model(model, path, fmt)
+        IOM.wait_for_serialization!(model)
+        @test isfile(path)
+        @test filesize(path) > 0
+        @test IOM.get_serialization_task(container) === nothing
+    end
+end
+
+@testset "export_optimization_problem kwarg accepted by solve!" begin
+    c_sys5 = PSB.build_system(PSITestSystems, "c_sys5")
+    template = get_thermal_dispatch_template_network(CopperPlatePowerModel)
+    model = DecisionModel(template, c_sys5; optimizer = HiGHS_optimizer)
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+    @test solve!(model; export_optimization_problem = false) ==
+          IOM.RunStatus.SUCCESSFULLY_FINALIZED
+end

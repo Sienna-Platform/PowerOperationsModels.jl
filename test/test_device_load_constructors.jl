@@ -259,7 +259,7 @@ end
         operation_cost = LoadCost(;
             variable = CostCurve(
                 LinearCurve(0.0),
-                UnitSystem.NATURAL_UNITS,
+                PSY.NU,
                 LinearCurve(1.0),
             ),
             fixed = 0.0,

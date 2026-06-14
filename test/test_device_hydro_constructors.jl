@@ -421,8 +421,8 @@ end
     reg_dn = only(get_components(VariableReserve{ReserveDown}, c_sys5_hy))
     set_deployed_fraction!(reg_up, 0.0)
     set_deployed_fraction!(reg_dn, 0.0)
-    set_requirement!(reg_up, 0.01)
-    set_requirement!(reg_dn, 0.01)
+    set_requirement!(reg_up, 0.01 * PSY.SU)
+    set_requirement!(reg_dn, 0.01 * PSY.SU)
 
     hydro_budget = 24
     eps = 1e-6

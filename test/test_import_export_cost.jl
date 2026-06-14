@@ -15,11 +15,11 @@ const _SOURCE_NAME = "source1"
 _static_iec(import_xs, import_ys, export_xs, export_ys) = PSY.ImportExportCost(;
     import_offer_curves = PSY.CostCurve(
         PSY.PiecewiseIncrementalCurve(0.0, import_xs, import_ys),
-        PSY.UnitSystem.SYSTEM_BASE,
+        PSY.SU,
     ),
     export_offer_curves = PSY.CostCurve(
         PSY.PiecewiseIncrementalCurve(0.0, export_xs, export_ys),
-        PSY.UnitSystem.SYSTEM_BASE,
+        PSY.SU,
     ),
 )
 
@@ -65,11 +65,11 @@ end
     cost = PSY.ImportExportCost(;
         import_offer_curves = PSY.CostCurve(
             PSY.PiecewiseIncrementalCurve(0.0, [0.0, 200.0], [6.0]),
-            PSY.UnitSystem.NATURAL_UNITS,
+            PSY.NU,
         ),
         export_offer_curves = PSY.CostCurve(
             PSY.PiecewiseIncrementalCurve(0.0, [0.0, 200.0], [9.0]),
-            PSY.UnitSystem.NATURAL_UNITS,
+            PSY.NU,
         ),
     )
     sys = one_bus_one_source(cost; name = _SOURCE_NAME)
