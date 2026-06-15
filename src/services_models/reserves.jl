@@ -7,7 +7,7 @@ get_variable_binary(::Type{ActivePowerReserveVariable}, ::Type{<:PSY.Reserve}, :
 function get_variable_upper_bound(::Type{ActivePowerReserveVariable}, r::PSY.Reserve, d::PSY.Device, ::Type{<:AbstractReservesFormulation})
     return PSY.get_max_output_fraction(r) * PSY.get_max_active_power(d, PSY.SU)
 end
-get_variable_upper_bound(::Type{ActivePowerReserveVariable}, r::PSY.ReserveDemandCurve, d::PSY.Device, ::Type{<:AbstractReservesFormulation}) = PSY.get_max_active_power(d, PSY.SU)
+get_variable_upper_bound(::Type{ActivePowerReserveVariable}, r::Union{PSY.ReserveDemandCurve, PSY.ReserveDemandTimeSeriesCurve}, d::PSY.Device, ::Type{<:AbstractReservesFormulation}) = PSY.get_max_active_power(d, PSY.SU)
 get_variable_lower_bound(::Type{ActivePowerReserveVariable}, ::PSY.Reserve, ::PSY.Device, ::Type) = 0.0
 
 ############################### ActivePowerReserveVariable, ReserveNonSpinning #########################################
@@ -19,9 +19,9 @@ get_variable_lower_bound(::Type{ActivePowerReserveVariable}, ::PSY.ReserveNonSpi
 
 ############################### ServiceRequirementVariable, ReserveDemandCurve ################################
 
-get_variable_binary(::Type{ServiceRequirementVariable}, ::Type{<:PSY.ReserveDemandCurve}, ::Type{<:AbstractReservesFormulation}) = false
-get_variable_upper_bound(::Type{ServiceRequirementVariable}, ::PSY.ReserveDemandCurve, d::PSY.Component, ::Type{<:AbstractReservesFormulation}) = PSY.get_max_active_power(d, PSY.SU)
-get_variable_lower_bound(::Type{ServiceRequirementVariable}, ::PSY.ReserveDemandCurve, ::PSY.Component, ::Type{<:AbstractReservesFormulation}) = 0.0
+get_variable_binary(::Type{ServiceRequirementVariable}, ::Type{<:Union{PSY.ReserveDemandCurve, PSY.ReserveDemandTimeSeriesCurve}}, ::Type{<:AbstractReservesFormulation}) = false
+get_variable_upper_bound(::Type{ServiceRequirementVariable}, ::Union{PSY.ReserveDemandCurve, PSY.ReserveDemandTimeSeriesCurve}, d::PSY.Component, ::Type{<:AbstractReservesFormulation}) = PSY.get_max_active_power(d, PSY.SU)
+get_variable_lower_bound(::Type{ServiceRequirementVariable}, ::Union{PSY.ReserveDemandCurve, PSY.ReserveDemandTimeSeriesCurve}, ::PSY.Component, ::Type{<:AbstractReservesFormulation}) = 0.0
 
 # `VariableReserve` stores `requirement` as a dimensionless factor that scales its
 # requirement and needs an explicit unit system (PS6 made the reserve requirement
@@ -35,7 +35,9 @@ get_parameter_multiplier(::Type{<:VariableValueParameter}, d::Type{<:PSY.Abstrac
 get_initial_parameter_value(::Type{<:VariableValueParameter}, d::Type{<:PSY.AbstractReserve}, ::Type{<:AbstractReservesFormulation}) = 0.0
 
 objective_function_multiplier(::Type{ServiceRequirementVariable}, ::Type{StepwiseCostReserve}) = -1.0
-uses_compact_power(::PSY.ReserveDemandCurve, ::StepwiseCostReserve)=false
+uses_compact_power(::Union{PSY.ReserveDemandCurve, PSY.ReserveDemandTimeSeriesCurve}, ::StepwiseCostReserve)=false
+get_multiplier_value(::Type{<:AbstractPiecewiseLinearBreakpointParameter}, ::Union{PSY.ReserveDemandCurve, PSY.ReserveDemandTimeSeriesCurve}, ::Type{<:AbstractReservesFormulation}) = 1.0
+get_multiplier_value(::Type{<:AbstractPiecewiseLinearSlopeParameter}, ::Union{PSY.ReserveDemandCurve, PSY.ReserveDemandTimeSeriesCurve}, ::Type{<:AbstractReservesFormulation}) = 1.0
 #! format: on
 
 function get_initial_conditions_service_model(
@@ -101,7 +103,7 @@ function add_reserve_variables!(
     formulation,
 ) where {
     T <: ServiceRequirementVariable,
-    D <: PSY.ReserveDemandCurve,
+    D <: Union{PSY.ReserveDemandCurve, PSY.ReserveDemandTimeSeriesCurve},
 }
     time_steps = get_time_steps(container)
     service_name = PSY.get_name(service)
@@ -312,7 +314,7 @@ function add_constraints!(
     ::U,
     ::ServiceModel{SR, StepwiseCostReserve},
 ) where {
-    SR <: PSY.ReserveDemandCurve,
+    SR <: Union{PSY.ReserveDemandCurve, PSY.ReserveDemandTimeSeriesCurve},
     U <: Union{Vector{D}, IS.FlattenIteratorWrapper{D}},
 } where {D <: PSY.Component}
     time_steps = get_time_steps(container)
@@ -496,9 +498,12 @@ end
 
 function add_to_objective_function!(
     container::OptimizationContainer,
-    service::PSY.ReserveDemandCurve{T},
-    ::ServiceModel{PSY.ReserveDemandCurve{T}, SR},
-) where {T <: PSY.ReserveDirection, SR <: StepwiseCostReserve}
+    service::S,
+    ::ServiceModel{S, SR},
+) where {
+    S <: Union{PSY.ReserveDemandCurve, PSY.ReserveDemandTimeSeriesCurve},
+    SR <: StepwiseCostReserve,
+}
     add_reserves_variable_cost!(container, ServiceRequirementVariable, service, SR)
     return
 end
@@ -509,7 +514,11 @@ function add_reserves_variable_cost!(
     ::Type{U},
     service::T,
     ::Type{V},
-) where {T <: PSY.ReserveDemandCurve, U <: VariableType, V <: StepwiseCostReserve}
+) where {
+    T <: Union{PSY.ReserveDemandCurve, PSY.ReserveDemandTimeSeriesCurve},
+    U <: VariableType,
+    V <: StepwiseCostReserve,
+}
     _add_reserves_variable_cost_to_objective!(container, U, service, V)
     return
 end
@@ -528,14 +537,13 @@ function _add_reserves_variable_cost_to_objective!(
     variable_cost = PSY.get_variable(component)
     if variable_cost isa Nothing
         error("ReserveDemandCurve $(component.name) does not have cost data.")
-    elseif typeof(variable_cost) <: PSY.TimeSeriesKey
-        error(
-            "Timeseries curve for ReserveDemandCurve $(component.name) is not supported yet.",
-        )
     end
 
     pwl_cost_expressions =
         add_pwl_term_delta!(container, component, variable_cost, T, U)
+    # A time-series-backed curve changes across simulation steps, so its cost goes
+    # into the variant objective expression; a static curve into the invariant one.
+    is_t_variant = IS.is_time_series_backed(variable_cost)
     for t in time_steps
         add_to_expression!(
             container,
@@ -544,7 +552,29 @@ function _add_reserves_variable_cost_to_objective!(
             component,
             t,
         )
-        add_to_objective_invariant_expression!(container, pwl_cost_expressions[t])
+        if is_t_variant
+            IOM.add_to_objective_variant_expression!(container, pwl_cost_expressions[t])
+        else
+            add_to_objective_invariant_expression!(container, pwl_cost_expressions[t])
+        end
+    end
+    return
+end
+
+"""
+Add the decremental piecewise slope/breakpoint cost parameters for a time-varying
+ORDC (`ReserveDemandTimeSeriesCurve`) service.
+"""
+function process_stepwise_cost_reserve_parameters!(
+    container::OptimizationContainer,
+    model::ServiceModel,
+    service::D,
+) where {D <: PSY.ReserveDemandTimeSeriesCurve}
+    for param in (
+        DecrementalPiecewiseLinearBreakpointParameter,
+        DecrementalPiecewiseLinearSlopeParameter,
+    )
+        add_parameters!(container, param, service, model)
     end
     return
 end

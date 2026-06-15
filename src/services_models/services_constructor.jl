@@ -193,6 +193,15 @@ function construct_service!(
     return
 end
 
+# Add the time-varying ORDC cost parameters only when the demand curve is backed by
+# a time series (a `ReserveDemandTimeSeriesCurve`, whose `variable` is a
+# time-series-backed `CostCurve`). Static `ReserveDemandCurve` services are a no-op.
+function _maybe_process_stepwise(container, model, service)
+    IS.is_time_series_backed(PSY.get_variable(service)) &&
+        process_stepwise_cost_reserve_parameters!(container, model, service)
+    return
+end
+
 function construct_service!(
     container::OptimizationContainer,
     sys::PSY.System,
@@ -206,6 +215,7 @@ function construct_service!(
     service = PSY.get_component(SR, sys, name)
     !PSY.get_available(service) && return
     contributing_devices = get_contributing_devices(model)
+    _maybe_process_stepwise(container, model, service)
     add_reserve_variables!(
         container,
         ServiceRequirementVariable,

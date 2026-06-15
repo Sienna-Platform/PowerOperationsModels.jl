@@ -293,7 +293,9 @@ _vom_offer_direction(::Type{<:AbstractControllablePowerLoadFormulation}) =
 #################################################################################
 
 """
-PWL block offer constraints for ORDC (ReserveDemandCurve).
+PWL block offer constraints for ORDC (ReserveDemandCurve). ORDC is offered as a
+decremental block (the demand curve is a willingness-to-pay), so it uses the
+decremental block-offer variable/constraint family.
 """
 function add_pwl_constraint_delta!(
     container::OptimizationContainer,
@@ -302,12 +304,15 @@ function add_pwl_constraint_delta!(
     break_points::Vector{Float64},
     pwl_vars::Vector{JuMP.VariableRef},
     period::Int,
-) where {T <: PSY.ReserveDemandCurve, U <: ServiceRequirementVariable}
+) where {
+    T <: Union{PSY.ReserveDemandCurve, PSY.ReserveDemandTimeSeriesCurve},
+    U <: ServiceRequirementVariable,
+}
     name = PSY.get_name(component)
     variables = get_variable(container, U, T, name)
     const_container = lazy_container_addition!(
         container,
-        PiecewiseLinearBlockIncrementalOfferConstraint,
+        PiecewiseLinearBlockDecrementalOfferConstraint,
         T,
         axes(variables)...;
         meta = name,
@@ -325,38 +330,83 @@ function add_pwl_constraint_delta!(
 end
 
 """
-PWL cost terms for StepwiseCostReserve (AbstractServiceFormulation).
+Return `(breakpoints, slopes)` for an ORDC service at time step `t`. For a static
+`ReserveDemandCurve` the data is read directly from the curve; for a time-varying
+`ReserveDemandTimeSeriesCurve` it is read from the pre-allocated decremental
+slope/breakpoint parameter arrays. Mirrors IOM's device-side `_get_raw_pwl_data`.
+"""
+function _get_reserve_pwl_data(
+    container::OptimizationContainer,
+    component::T,
+    variable_cost::PSY.CostCurve,
+    t::Int,
+) where {T <: Union{PSY.ReserveDemandCurve, PSY.ReserveDemandTimeSeriesCurve}}
+    base_power = get_model_base_power(container)
+    device_base_power = PSY.get_base_power(component, PSY.NU)
+    # `get_power_units` returns the curve's `IS.AbstractUnitSystem` instance for both the
+    # static and time-series curves (the parameter arrays store data in those same units).
+    unit_system = PSY.get_power_units(variable_cost)
+
+    if !IS.is_time_series_backed(variable_cost)
+        cost_component = PSY.get_function_data(PSY.get_value_curve(variable_cost))
+        breakpoint_cost_component = IS.get_x_coords(cost_component)
+        slope_cost_component = IS.get_y_coords(cost_component)
+    else
+        name = PSY.get_name(component)
+        SlopeParam = DecrementalPiecewiseLinearSlopeParameter
+        slope_arr = get_parameter_array(container, SlopeParam, T, name)
+        slope_mult = get_parameter_multiplier_array(container, SlopeParam, T, name)
+        @assert size(slope_arr) == size(slope_mult)
+        slope_cost_component =
+            [slope_arr[name, s, t] * slope_mult[name, s, t] for s in axes(slope_arr)[2]]
+
+        BreakpointParam = DecrementalPiecewiseLinearBreakpointParameter
+        bp_arr = get_parameter_array(container, BreakpointParam, T, name)
+        bp_mult = get_parameter_multiplier_array(container, BreakpointParam, T, name)
+        @assert size(bp_arr) == size(bp_mult)
+        breakpoint_cost_component =
+            [bp_arr[name, p, t] * bp_mult[name, p, t] for p in axes(bp_arr)[2]]
+
+        @assert length(slope_cost_component) == length(breakpoint_cost_component) - 1
+    end
+
+    breakpoints, slopes = get_piecewise_curve_per_system_unit(
+        breakpoint_cost_component,
+        slope_cost_component,
+        unit_system,
+        base_power,
+        device_base_power,
+    )
+    return breakpoints, slopes
+end
+
+"""
+PWL cost terms for StepwiseCostReserve (AbstractServiceFormulation). Handles both
+static (`ReserveDemandCurve`) and time-varying (`ReserveDemandTimeSeriesCurve`)
+reserve demand curves.
 """
 function add_pwl_term_delta!(
     container::OptimizationContainer,
     component::T,
-    cost_data::PSY.CostCurve{PSY.PiecewiseIncrementalCurve},
+    cost_data::PSY.CostCurve,
     ::Type{U},
     ::Type{V},
-) where {T <: PSY.Component, U <: VariableType, V <: AbstractServiceFormulation}
+) where {
+    T <: Union{PSY.ReserveDemandCurve, PSY.ReserveDemandTimeSeriesCurve},
+    U <: VariableType,
+    V <: AbstractServiceFormulation,
+}
     multiplier = objective_function_multiplier(U, V)
     resolution = get_resolution(container)
     dt = Dates.value(Dates.Second(resolution)) / SECONDS_IN_HOUR
-    base_power = get_model_base_power(container)
-    value_curve = PSY.get_value_curve(cost_data)
-    power_units = PSY.get_power_units(cost_data)
-    cost_component = PSY.get_function_data(value_curve)
-    device_base_power = PSY.get_base_power(component, PSY.NU)
-    data = get_piecewise_curve_per_system_unit(
-        cost_component,
-        power_units,
-        base_power,
-        device_base_power,
-    )
     name = PSY.get_name(component)
     time_steps = get_time_steps(container)
     pwl_cost_expressions = Vector{JuMP.AffExpr}(undef, time_steps[end])
-    slopes = IS.get_y_coords(data)
-    break_points = PSY.get_x_coords(data)
     for t in time_steps
+        break_points, slopes = _get_reserve_pwl_data(container, component, cost_data, t)
         pwl_vars = add_pwl_variables_delta!(
             container,
-            PiecewiseLinearBlockIncrementalOffer,
+            PiecewiseLinearBlockDecrementalOffer,
             T,
             name,
             t,
