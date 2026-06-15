@@ -79,12 +79,38 @@ function _balance_expression_targets(
 end
 
 """
+Drive IOM's `add_device_terms_to_expression!` with the network-model-specific target
+resolver, leaving only the per-device term closure for callers to supply. Each device's
+contribution is `term_fn(d)`, a `t -> (value, multiplier)` closure. This is the shared
+core of every `_add_*_to_balance!` method below; they differ only in `term_fn` (and hoist
+their `get_{variable,multiplier,parameter}` lookups out of the closure so those happen
+once, not per device).
+"""
+function _add_balance_terms!(
+    container::OptimizationContainer,
+    ::Type{T},
+    network_model::NetworkModel,
+    devices::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
+    term_fn::G,
+) where {T <: ExpressionType, V <: PSY.Component, G <: Function}
+    add_device_terms_to_expression!(
+        container,
+        d -> _balance_expression_targets(container, T, network_model, d),
+        term_fn,
+        devices,
+    )
+    return
+end
+
+"""
 Add a device variable to a balance expression for any network model, delegating
 target resolution to [`_balance_expression_targets`](@ref) and the device/time loop
 to IOM's `add_device_terms_to_expression!`. The contributed term is
-`get_variable_multiplier(U, V, W) * variable[name, t]`. When `scale` is supplied, the
-multiplier is additionally scaled per device by `scale(d)` (e.g. `p_min` for compact
-unit-commitment `OnVariable`).
+`get_variable_multiplier(U, V, W) * variable[name, t]`. When `scale` is not `nothing`,
+the multiplier is additionally scaled per device by `scale(d)` (e.g. `p_min` for compact
+unit-commitment `OnVariable`). `scale` is a positional argument bound to type parameter
+`S` so the concrete closure type is known at compile time (no dynamic dispatch on
+`scale(d)`).
 """
 function _add_variable_to_balance!(
     container::OptimizationContainer,
@@ -92,20 +118,21 @@ function _add_variable_to_balance!(
     ::Type{U},
     devices::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
     network_model::NetworkModel,
-    ::DeviceModel{V, W};
-    scale::Union{Nothing, Function} = nothing,
-) where {T <: ExpressionType, U <: VariableType, V <: PSY.StaticInjection, W}
+    ::DeviceModel{V, W},
+    scale::S = nothing,
+) where {T <: ExpressionType, U <: VariableType, V <: PSY.StaticInjection, W, S}
     variable = get_variable(container, U, V)
     base_multiplier = get_variable_multiplier(U, V, W)
-    add_device_terms_to_expression!(
+    _add_balance_terms!(
         container,
-        d -> _balance_expression_targets(container, T, network_model, d),
+        T,
+        network_model,
+        devices,
         function (d)
             name = PSY.get_name(d)
             multiplier = isnothing(scale) ? base_multiplier : scale(d) * base_multiplier
             return t -> (variable[name, t], multiplier)
         end,
-        devices,
     )
     return
 end
@@ -127,9 +154,11 @@ function _add_compact_on_to_balance!(
 ) where {T <: ExpressionType, U <: OnVariable, V <: PSY.ThermalGen, W}
     variable = get_variable(container, U, V)
     base_multiplier = get_variable_multiplier(U, V, W)
-    add_device_terms_to_expression!(
+    _add_balance_terms!(
         container,
-        d -> _balance_expression_targets(container, T, network_model, d),
+        T,
+        network_model,
+        devices,
         function (d)
             name = PSY.get_name(d)
             multiplier = PSY.get_active_power_limits(d, PSY.SU).min * base_multiplier
@@ -140,7 +169,6 @@ function _add_compact_on_to_balance!(
                 return t -> (variable[name, t], multiplier)
             end
         end,
-        devices,
     )
     return
 end
@@ -160,15 +188,16 @@ function _add_ts_parameter_to_balance!(
 ) where {T <: ExpressionType, U <: TimeSeriesParameter, V <: PSY.Device, W}
     param_container = get_parameter(container, U, V)
     multiplier = get_multiplier_array(param_container)
-    add_device_terms_to_expression!(
+    _add_balance_terms!(
         container,
-        d -> _balance_expression_targets(container, T, network_model, d),
+        T,
+        network_model,
+        devices,
         function (d)
             name = PSY.get_name(d)
             refs = get_parameter_column_refs(param_container, name)
             return t -> (refs[t], multiplier[name, t])
         end,
-        devices,
     )
     return
 end
@@ -190,9 +219,11 @@ function _add_load_ts_parameter_to_balance!(
     multiplier = get_multiplier_array(param_container)
     ts_name = get_time_series_names(model)[U]
     ts_type = get_default_time_series_type(container)
-    add_device_terms_to_expression!(
+    _add_balance_terms!(
         container,
-        d -> _balance_expression_targets(container, T, network_model, d),
+        T,
+        network_model,
+        devices,
         function (d)
             name = PSY.get_name(d)
             has_ts = PSY.has_time_series(d, ts_type, ts_name)
@@ -207,7 +238,6 @@ function _add_load_ts_parameter_to_balance!(
                 return t -> (1.0, fallback_multiplier)
             end
         end,
-        devices,
     )
     return
 end
@@ -224,15 +254,10 @@ function _add_constant_power_to_balance!(
     network_model::NetworkModel,
     power_getter::F,
 ) where {T <: ExpressionType, F <: Function, V <: PSY.Component}
-    add_device_terms_to_expression!(
-        container,
-        d -> _balance_expression_targets(container, T, network_model, d),
-        function (d)
-            value = power_getter(d)
-            return t -> (value, -1.0)
-        end,
-        devices,
-    )
+    _add_balance_terms!(container, T, network_model, devices, function (d)
+        value = power_getter(d)
+        return t -> (value, -1.0)
+    end)
     return
 end
 
@@ -250,15 +275,16 @@ function _add_onstatus_parameter_to_balance!(
     ::DeviceModel{V, W},
 ) where {T <: ExpressionType, U <: OnStatusParameter, V <: PSY.ThermalGen, W}
     parameter = get_parameter_array(container, U, V)
-    add_device_terms_to_expression!(
+    _add_balance_terms!(
         container,
-        d -> _balance_expression_targets(container, T, network_model, d),
+        T,
+        network_model,
+        devices,
         function (d)
             name = PSY.get_name(d)
             multiplier = get_expression_multiplier(U, T, d, W)
             return t -> (parameter[name, t], multiplier)
         end,
-        devices,
     )
     return
 end
@@ -1414,8 +1440,8 @@ function add_to_expression!(
         U,
         devices,
         network_model,
-        device_model;
-        scale = d -> PSY.get_active_power_limits(d, PSY.SU).min,
+        device_model,
+        d -> PSY.get_active_power_limits(d, PSY.SU).min,
     )
     return
 end
@@ -1662,8 +1688,8 @@ function add_to_expression!(
         U,
         devices,
         network_model,
-        device_model;
-        scale = d -> PSY.get_active_power_limits(d, PSY.SU).min,
+        device_model,
+        d -> PSY.get_active_power_limits(d, PSY.SU).min,
     )
     return
 end
