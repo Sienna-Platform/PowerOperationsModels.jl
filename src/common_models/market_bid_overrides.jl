@@ -293,7 +293,7 @@ _vom_offer_direction(::Type{<:AbstractControllablePowerLoadFormulation}) =
 #################################################################################
 
 """
-PWL block offer constraints for ORDC (ReserveDemandCurve). ORDC is offered as a
+PWL block offer constraints for ORDC. ORDC is offered as a
 decremental block (the demand curve is a willingness-to-pay), so it uses the
 decremental block-offer variable/constraint family.
 """
@@ -343,8 +343,6 @@ function _get_reserve_pwl_data(
 ) where {T <: Union{PSY.ReserveDemandCurve, PSY.ReserveDemandTimeSeriesCurve}}
     base_power = get_model_base_power(container)
     device_base_power = PSY.get_base_power(component, PSY.NU)
-    # `get_power_units` returns the curve's `IS.AbstractUnitSystem` instance for both the
-    # static and time-series curves (the parameter arrays store data in those same units).
     unit_system = PSY.get_power_units(variable_cost)
 
     if !IS.is_time_series_backed(variable_cost)
@@ -380,11 +378,6 @@ function _get_reserve_pwl_data(
     return breakpoints, slopes
 end
 
-"""
-PWL cost terms for StepwiseCostReserve (AbstractServiceFormulation). Handles both
-static (`ReserveDemandCurve`) and time-varying (`ReserveDemandTimeSeriesCurve`)
-reserve demand curves.
-"""
 function add_pwl_term_delta!(
     container::OptimizationContainer,
     component::T,

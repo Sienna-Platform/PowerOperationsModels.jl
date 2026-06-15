@@ -536,14 +536,14 @@ function _add_reserves_variable_cost_to_objective!(
     # FIXME clashes with name of a function...ick.
     variable_cost = PSY.get_variable(component)
     if variable_cost isa Nothing
-        error("ReserveDemandCurve $(component.name) does not have cost data.")
+        error("ORDC curve $(PSY.get_name(component)) does not have cost data.")
     end
 
     pwl_cost_expressions =
         add_pwl_term_delta!(container, component, variable_cost, T, U)
     # A time-series-backed curve changes across simulation steps, so its cost goes
     # into the variant objective expression; a static curve into the invariant one.
-    is_t_variant = IS.is_time_series_backed(variable_cost)
+    is_t_variant = is_time_variant(variable_cost)
     for t in time_steps
         add_to_expression!(
             container,

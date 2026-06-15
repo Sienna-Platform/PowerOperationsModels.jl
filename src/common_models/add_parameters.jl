@@ -45,8 +45,6 @@ function add_parameters!(
     return
 end
 
-# Time-varying ORDC: piecewise slope/breakpoint cost parameters for a
-# `ReserveDemandTimeSeriesCurve` service.
 function add_parameters!(
     container::OptimizationContainer,
     ::Type{T},
@@ -229,11 +227,8 @@ function _add_time_series_parameters!(
     jump_model = get_jump_model(container)
     param_instance = T()
     parent_param = IOM.get_parameter_array_data(param_container)
-    # `collect(keys(initial_values))` was passed to `add_param_container!` above as the
-    # parameter axis, so iterating `initial_values` in order matches the container's
-    # first axis row-by-row.
     for (i, (ts_uuid, raw_ts_vals)) in enumerate(initial_values)
-        ts_vals = IOM._unwrap_for_param.((param_instance,), raw_ts_vals, (additional_axes,))
+        ts_vals = IOM.unwrap_for_param.((param_instance,), raw_ts_vals, (additional_axes,))
         @assert all(_size_wrapper.(ts_vals) .== (length.(additional_axes),))
 
         for step in time_steps
@@ -242,8 +237,6 @@ function _add_time_series_parameters!(
     end
 
     parent_mult = IOM.get_multiplier_array_data(param_container)
-    # `devices_with_time_series` was used to build `device_names`, which is the
-    # multiplier array's first axis, so enumeration index `i` lines up.
     for (i, device) in enumerate(devices_with_time_series)
         multiplier = get_multiplier_value(T, device, W)
         device_name = PSY.get_name(device)
@@ -353,7 +346,7 @@ function _add_time_series_parameters!(
                 interval = ts_interval,
             )
             ts_vals =
-                IOM._unwrap_for_param.((param_instance,), raw_ts_vals, (additional_axes,))
+                IOM.unwrap_for_param.((param_instance,), raw_ts_vals, (additional_axes,))
             @assert all(_size_wrapper.(ts_vals) .== (length.(additional_axes),))
         end
         # `_resolve_branch_multiplier` is `DeviceModel`-aware: it applies the
@@ -503,7 +496,6 @@ _param_to_vars(
     ::Type{<:AbstractDeviceFormulation},
 ) =
     (PiecewiseLinearBlockDecrementalOffer,)
-# Time-varying ORDC: the reserve demand curve is offered as a decremental block.
 _param_to_vars(
     ::Union{
         Type{DecrementalPiecewiseLinearSlopeParameter},
@@ -545,7 +537,7 @@ calc_additional_axes(
 
 function get_max_tranches(component::PSY.Component, piecewise_ts::IS.TimeSeriesKey)
     data = PSY.get_data(PSY.get_time_series(component, piecewise_ts))
-    return IOM._get_max_tranches(data)
+    return IOM.get_max_tranches(data)
 end
 
 function calc_additional_axes(
@@ -647,9 +639,9 @@ function _add_parameters!(
                 ts_name;
                 interval = ts_interval,
             )
-        ts_vals = IOM._unwrap_for_param.((param_instance,), raw_ts_vals, (additional_axes,))
+        ts_vals = IOM.unwrap_for_param.((param_instance,), raw_ts_vals, (additional_axes,))
         @assert all(_size_wrapper.(ts_vals) .== (length.(additional_axes),))
-        # PWL/cost-function path: parameter values from `_unwrap_for_param` are
+        # PWL/cost-function path: parameter values from `unwrap_for_param` are
         # tuples-of-floats, while the multiplier itself is a scalar Float64.
         IOM._set_multiplier_at!(
             parent_mult,
@@ -665,10 +657,6 @@ end
 
 #################################################################################
 # _add_parameters! for time-varying ORDC slope/breakpoint cost parameters
-#
-# Mirrors the device `ObjectiveFunctionParameter` path above but for a single
-# `ReserveDemandTimeSeriesCurve` service whose cost curve is a time series. Allocates the
-# 3-D `(name, tranche, time)` container and fills it from the curve time series.
 #################################################################################
 
 function _add_parameters!(
@@ -710,9 +698,6 @@ function _add_parameters!(
         time_steps;
         meta = name,
     )
-    # NOTE: ObjectiveFunctionParameter containers carry `CostFunctionAttributes`, which
-    # (unlike `TimeSeriesAttributes`) have no `set_subsystem!` method — mirror the device
-    # ObjectiveFunctionParameter path and skip it.
 
     jump_model = get_jump_model(container)
     param_instance = T()
@@ -724,7 +709,7 @@ function _add_parameters!(
         ts_name;
         interval = ts_interval,
     )
-    ts_vals = IOM._unwrap_for_param.((param_instance,), raw_ts_vals, (additional_axes,))
+    ts_vals = IOM.unwrap_for_param.((param_instance,), raw_ts_vals, (additional_axes,))
     @assert all(_size_wrapper.(ts_vals) .== (length.(additional_axes),))
     parent_mult = IOM.get_multiplier_array_data(param_container)
     IOM._set_multiplier_at!(parent_mult, Float64(multiplier), 1)
