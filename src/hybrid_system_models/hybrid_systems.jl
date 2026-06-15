@@ -1616,7 +1616,6 @@ function _emit_coverage_constraint!(
             )
         end
     end
-    end
     return
 end
 
