@@ -52,24 +52,19 @@ end
 
 """
 Min and max limits for Abstract Branch Formulation and Post-Contingency conditions.
-Raw `PSY.ACTransmission` device: use the emergency rating `rating_b` in system
-per-unit (`PSY.SU`), falling back to the normal-operation `rating` when
-`rating_b` is undefined — matching the per-unit MODF-derived flow expression.
+Raw `PSY.ACTransmission` device: the emergency rating is sourced from
+`PNM.get_equivalent_emergency_rating` (system per-unit), which returns `rating_b`
+and falls back to the normal-operation `rating` when `rating_b` is undefined —
+matching the three reduction-entry methods above and keeping the rating fallback
+in a single place. PNM emits an `@debug` note when the fallback is used.
 """
 function get_emergency_min_max_limits(
     device::PSY.ACTransmission,
     ::Type{<:PostContingencyConstraintType},
     ::Type{<:AbstractBranchFormulation},
 )
-    rating_b = PSY.get_rating_b(device, PSY.SU)
-    if rating_b === nothing
-        @warn "Branch $(PSY.get_name(device)) has no 'rating_b' defined. \
-               Post-contingency limit is set using the normal-operation rating. \
-               Consider including post-contingency limits using set_rating_b!()."
-        rating = PSY.get_rating(device, PSY.SU)
-        return (min = -1 * rating, max = rating)
-    end
-    return (min = -1 * rating_b, max = rating_b)
+    equivalent_rating = PNM.get_equivalent_emergency_rating(device)
+    return (min = -1 * equivalent_rating, max = equivalent_rating)
 end
 
 """
