@@ -1961,7 +1961,7 @@ function _handle_nodal_or_zonal_interfaces(
     variable::JuMPVariableArray,
     expression::DenseAxisArray, # There is no good type for a DenseAxisArray slice
 ) where {V <: PSY.ACTransmission}
-    all_branch_maps_by_type = net_reduction_data.all_branch_maps_by_type
+    all_branch_maps_by_type = PNM.get_all_branch_maps_by_type(net_reduction_data)
     for (name, (arc, reduction)) in
         PNM.get_name_to_arc_map(net_reduction_data, br_type)
         reduction_entry = all_branch_maps_by_type[reduction][br_type][arc]
@@ -2100,7 +2100,7 @@ function add_to_expression!(
 
     for (br_type, contributing_devices) in contributing_devices_map
         flow_expression = get_expression(container, PTDFBranchFlow, br_type)
-        all_branch_maps_by_type = net_reduction_data.all_branch_maps_by_type
+        all_branch_maps_by_type = PNM.get_all_branch_maps_by_type(net_reduction_data)
         for (name, (arc, reduction)) in PNM.get_name_to_arc_map(net_reduction_data, br_type)
             reduction_entry = all_branch_maps_by_type[reduction][br_type][arc]
             if _reduced_entry_in_interface(reduction_entry, contributing_devices)
@@ -2138,13 +2138,13 @@ function get_ptdf_orientation_sign(
     ::Type{T},
     name::AbstractString,
 ) where {T <: PSY.ACTransmission}
-    arc, reduction = net_reduction_data.name_to_arc_map[T][name]
+    arc, reduction = PNM.get_name_to_arc_maps(net_reduction_data)[T][name]
     if reduction == "direct_branch_map" ||
        reduction == "parallel_branch_map" ||
        reduction == "transformer3W_map"
         return 1.0
     elseif reduction == "series_branch_map"
-        series = net_reduction_data.all_branch_maps_by_type[reduction][T][arc]
+        series = PNM.get_all_branch_maps_by_type(net_reduction_data)[reduction][T][arc]
         for (i, segment) in enumerate(series)
             if PNM.get_name(segment) == name
                 return series.segment_orientations[i] == :FromTo ? 1.0 : -1.0

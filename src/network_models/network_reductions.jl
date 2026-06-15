@@ -185,10 +185,11 @@ function get_branch_argument_parameter_axes(
     is_interval = IOM._to_is_interval(interval)
     name_axis = Vector{String}()
     ts_uuid_axis = Vector{String}()
-    arc_map = get(net_reduction_data.name_to_arc_map, T, nothing)
+    arc_map = get(PNM.get_name_to_arc_maps(net_reduction_data), T, nothing)
     isnothing(arc_map) && return name_axis, ts_uuid_axis
     for (name, (arc, reduction)) in arc_map
-        reduction_entry = net_reduction_data.all_branch_maps_by_type[reduction][T][arc]
+        reduction_entry =
+            PNM.get_all_branch_maps_by_type(net_reduction_data)[reduction][T][arc]
         device_with_time_series =
             get_branch_with_time_series(reduction_entry, V, ts_name)
         if !isnothing(device_with_time_series)
@@ -220,7 +221,7 @@ function get_branch_argument_variable_axis(
     net_reduction_data::PNM.NetworkReductionData,
     ::Type{T},
 ) where {T <: IS.InfrastructureSystemsComponent}
-    name_axis = net_reduction_data.name_to_arc_map[T]
+    name_axis = PNM.get_name_to_arc_maps(net_reduction_data)[T]
     return collect(keys(name_axis))
 end
 
@@ -246,7 +247,7 @@ function get_branch_argument_constraint_axis(
 ) where {T <: IS.InfrastructureSystemsComponent, U <: ConstraintType}
     constraint_tracker = get_constraint_dict(reduced_branch_tracker)
     constraint_map_by_type = get_constraint_map_by_type(reduced_branch_tracker)
-    name_axis = net_reduction_data.name_to_arc_map[T]
+    name_axis = PNM.get_name_to_arc_maps(net_reduction_data)[T]
     arc_tuples_with_constraints =
         get!(constraint_tracker, U, Set{Tuple{Int, Int}}())
     constraint_map = get!(

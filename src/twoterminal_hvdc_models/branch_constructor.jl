@@ -1440,7 +1440,7 @@ end
 function _get_branch_map(network_model::NetworkModel)
     @assert !isempty(network_model.modeled_branch_types)
     net_reduction_data = get_network_reduction(network_model)
-    all_branch_maps_by_type = net_reduction_data.all_branch_maps_by_type
+    all_branch_maps_by_type = PNM.get_all_branch_maps_by_type(net_reduction_data)
     inter_area_branch_map =
     # This method uses ACBranch to support HVDC
         Dict{Tuple{String, String}, Dict{DataType, Vector{String}}}()

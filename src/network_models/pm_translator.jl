@@ -718,7 +718,7 @@ function get_branches_to_pm(
     PM_branches = Dict{String, Any}()
     PMmap_br = Dict{Tuple{Int, Int}, PM_MAP_TUPLE}()
     net_reduction_data = get_network_reduction(network_model)
-    all_branch_maps_by_type = net_reduction_data.all_branch_maps_by_type
+    all_branch_maps_by_type = PNM.get_all_branch_maps_by_type(net_reduction_data)
     name_to_arc_maps = PNM.get_name_to_arc_maps(net_reduction_data)
     ix = 1
     @assert !isempty(branch_template)

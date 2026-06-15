@@ -210,7 +210,7 @@ function branch_rate_bounds!(
 ) where {B <: PSY.ACTransmission, T <: AbstractBranchFormulation}
     time_steps = get_time_steps(container)
     net_reduction_data = get_network_reduction(network_model)
-    all_branch_maps_by_type = net_reduction_data.all_branch_maps_by_type
+    all_branch_maps_by_type = PNM.get_all_branch_maps_by_type(net_reduction_data)
     for var in _get_flow_variable_vector(container, network_model, B)
         for (name, (arc, reduction)) in PNM.get_name_to_arc_map(net_reduction_data, B)
             # TODO: entry is not type stable here, it can return any type ACTransmission.
@@ -510,7 +510,7 @@ function add_constraints!(
 ) where {B <: PSY.ACTransmission, T <: AbstractPowerModel}
     reduced_branch_tracker = get_reduced_branch_tracker(network_model)
     net_reduction_data = get_network_reduction(network_model)
-    all_branch_maps_by_type = net_reduction_data.all_branch_maps_by_type
+    all_branch_maps_by_type = PNM.get_all_branch_maps_by_type(net_reduction_data)
     device_names = get_branch_argument_constraint_axis(
         net_reduction_data,
         reduced_branch_tracker,
@@ -562,7 +562,7 @@ function add_constraints!(
 ) where {B <: PSY.ACTransmission, T <: AbstractPowerModel}
     reduced_branch_tracker = get_reduced_branch_tracker(network_model)
     net_reduction_data = get_network_reduction(network_model)
-    all_branch_maps_by_type = net_reduction_data.all_branch_maps_by_type
+    all_branch_maps_by_type = PNM.get_all_branch_maps_by_type(net_reduction_data)
     time_steps = get_time_steps(container)
     device_names = get_branch_argument_constraint_axis(
         net_reduction_data,
