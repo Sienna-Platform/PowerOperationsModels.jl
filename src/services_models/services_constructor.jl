@@ -193,11 +193,6 @@ function construct_service!(
     return
 end
 
-# Time-varying ORDC parameters are added only for ReserveDemandTimeSeriesCurve;
-# static ReserveDemandCurve is a no-op. Dispatch on the service type rather than
-# inspecting `get_variable(service)` so a misconfigured service surfaces in the
-# later, more specific validation in `_add_reserves_variable_cost_to_objective!`
-# instead of throwing here.
 _maybe_process_stepwise(container, model, service::PSY.ReserveDemandTimeSeriesCurve) =
     process_stepwise_cost_reserve_parameters!(container, model, service)
 _maybe_process_stepwise(container, model, service) = nothing

@@ -1415,10 +1415,7 @@ end
 # The native DCP/ACP branch builders need each branch's π-model admittance as a
 # `(g, b, g_fr, b_fr, g_to, b_to, tap, shift)` NamedTuple (PowerModels convention:
 # `g + im*b == 1/(r + im*x)` is the series admittance, `*_fr`/`*_to` are the from/to
-# shunts, `tap`/`shift` the transformer ratio/phase). These reproduce, from PSY data and
-# PNM's reduction-aware `EquivalentBranch`, exactly what `pm_translator.jl`'s
-# `get_branch_to_pm` extracts per branch type — the single source of truth for this
-# conversion. (They replace the former `PNM.branch_admittance`, which never landed in PNM.)
+# shunts, `tap`/`shift` the transformer ratio/phase).
 _branch_tap(::PSY.ACTransmission) = 1.0
 _branch_tap(b::PSY.TapTransformer) = PSY.get_tap(b)
 _branch_tap(b::PSY.PhaseShiftingTransformer) = PSY.get_tap(b)
@@ -2027,10 +2024,7 @@ end
 # Decompose a Transformer3W into its three wye-model windings via PNM's
 # `ThreeWindingTransformerWinding`, exposing the per-winding data the native 3W builders
 # need: the star-point arc (for reduction-aware bus mapping), the winding rating, and the
-# winding object (for admittance). `suffix` reproduces PNM's per-winding name component
-# (`"<transformer>_winding_<i>"`) so variable/constraint names stay stable.
-# (Replaces the former `PNM.three_winding_arcs` / `PNM.winding_admittance`, which never
-# landed in PNM; psy6 exposes the winding decomposition through this type instead.)
+# winding object (for admittance).
 function _three_winding_arcs(d::PSY.Transformer3W)
     star_arcs = (
         PSY.get_primary_star_arc(d),

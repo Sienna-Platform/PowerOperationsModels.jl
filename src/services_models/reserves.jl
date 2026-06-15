@@ -541,8 +541,6 @@ function _add_reserves_variable_cost_to_objective!(
 
     pwl_cost_expressions =
         add_pwl_term_delta!(container, component, variable_cost, T, U)
-    # A time-series-backed curve changes across simulation steps, so its cost goes
-    # into the variant objective expression; a static curve into the invariant one.
     is_t_variant = is_time_variant(variable_cost)
     for t in time_steps
         add_to_expression!(
