@@ -235,6 +235,7 @@ function solve!(
             end
         end
     finally
+        IOM.wait_for_serialization!(model)
         IOM.unregister_recorders!(model)
         close(logger)
     end

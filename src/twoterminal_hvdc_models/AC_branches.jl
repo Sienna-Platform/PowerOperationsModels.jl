@@ -28,7 +28,7 @@ get_parameter_multiplier(::Type{UpperBoundValueParameter}, ::PSY.ACTransmission,
 # Per-device reactance multiplier (1/get_x(d)) computed inline at add_to_expression! call sites.
 get_variable_multiplier(::Type{PhaseShifterAngle}, ::Type{<:PSY.PhaseShiftingTransformer}, ::Type{PhaseAngleControl}) = 1.0
 
-get_multiplier_value(::Type{<:AbstractDynamicBranchRatingTimeSeriesParameter}, d::PSY.ACTransmission, ::Type{StaticBranch}) = 1.0/PSY.get_base_power(d, PSY.NU)
+get_multiplier_value(::Type{<:AbstractBranchRatingTimeSeriesParameter}, d::PSY.ACTransmission, ::Type{StaticBranch}) = 1.0/PSY.get_base_power(d, PSY.NU)
 
 
 get_initial_conditions_device_model(::IOM.AbstractOptimizationModel, ::DeviceModel{T, U}) where {T <: PSY.ACTransmission, U <: AbstractBranchFormulation} = DeviceModel(T, U)
@@ -210,7 +210,7 @@ function branch_rate_bounds!(
 ) where {B <: PSY.ACTransmission, T <: AbstractBranchFormulation}
     time_steps = get_time_steps(container)
     net_reduction_data = get_network_reduction(network_model)
-    all_branch_maps_by_type = net_reduction_data.all_branch_maps_by_type
+    all_branch_maps_by_type = PNM.get_all_branch_maps_by_type(net_reduction_data)
     for var in _get_flow_variable_vector(container, network_model, B)
         for (name, (arc, reduction)) in PNM.get_name_to_arc_map(net_reduction_data, B)
             # TODO: entry is not type stable here, it can return any type ACTransmission.
@@ -510,7 +510,7 @@ function add_constraints!(
 ) where {B <: PSY.ACTransmission, T <: AbstractPowerModel}
     reduced_branch_tracker = get_reduced_branch_tracker(network_model)
     net_reduction_data = get_network_reduction(network_model)
-    all_branch_maps_by_type = net_reduction_data.all_branch_maps_by_type
+    all_branch_maps_by_type = PNM.get_all_branch_maps_by_type(net_reduction_data)
     device_names = get_branch_argument_constraint_axis(
         net_reduction_data,
         reduced_branch_tracker,
@@ -538,7 +538,7 @@ function add_constraints!(
         # TODO: entry is not type stable here, it can return any type ACTransmission.
         # It might have performance implications. Possibly separate this into other functions
         reduction_entry = all_branch_maps_by_type[reduction][B][arc]
-        branch_rate = _get_rating(reduction_entry)
+        branch_rate = branch_rating(reduction_entry, device_model)
         for t in time_steps
             constraint[name, t] = JuMP.@constraint(
                 get_jump_model(container),
@@ -562,7 +562,7 @@ function add_constraints!(
 ) where {B <: PSY.ACTransmission, T <: AbstractPowerModel}
     reduced_branch_tracker = get_reduced_branch_tracker(network_model)
     net_reduction_data = get_network_reduction(network_model)
-    all_branch_maps_by_type = net_reduction_data.all_branch_maps_by_type
+    all_branch_maps_by_type = PNM.get_all_branch_maps_by_type(net_reduction_data)
     time_steps = get_time_steps(container)
     device_names = get_branch_argument_constraint_axis(
         net_reduction_data,
@@ -589,7 +589,7 @@ function add_constraints!(
         # TODO: entry is not type stable here, it can return any type ACTransmission.
         # It might have performance implications. Possibly separate this into other functions
         reduction_entry = all_branch_maps_by_type[reduction][B][arc]
-        branch_rate = _get_rating(reduction_entry)
+        branch_rate = branch_rating(reduction_entry, device_model)
         for t in time_steps
             constraint[name, t] = JuMP.@constraint(
                 get_jump_model(container),

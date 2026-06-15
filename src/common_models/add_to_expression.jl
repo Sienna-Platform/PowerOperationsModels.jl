@@ -9,10 +9,8 @@
 # Network model type mappings for system-level expressions
 _system_expression_type(::Type{PTDFPowerModel}) = PSY.System
 _system_expression_type(::Type{CopperPlatePowerModel}) = PSY.System
-_system_expression_type(::Type{SecurityConstrainedPTDFPowerModel}) = PSY.System
 _system_expression_type(::Type{AreaPTDFPowerModel}) = PSY.Area
 _system_expression_type(::Type{AreaBalancePowerModel}) = PSY.Area
-_system_expression_type(::Type{SecurityConstrainedAreaPTDFPowerModel}) = PSY.Area
 
 #################################################################################
 # Balance-expression target resolution
@@ -516,15 +514,15 @@ function add_to_expression!(
     U <: HVDCLosses,
     V <: PSY.TwoTerminalHVDC,
     W <: HVDCTwoTerminalDispatch,
-    X <: Union{PTDFPowerModel, CopperPlatePowerModel, SecurityConstrainedPTDFPowerModel},
+    X <: Union{PTDFPowerModel, CopperPlatePowerModel},
 }
     variable = get_variable(container, U, V)
     expression = get_expression(container, T, PSY.System)
     time_steps = get_time_steps(container)
     for d in devices
         name = PSY.get_name(d)
-        device_bus_from = PSY.get_arc(d).from
-        device_bus_to = PSY.get_arc(d).to
+        device_bus_from = PSY.get_from(PSY.get_arc(d))
+        device_bus_to = PSY.get_to(PSY.get_arc(d))
         ref_bus_from = get_reference_bus(network_model, device_bus_from)
         ref_bus_to = get_reference_bus(network_model, device_bus_to)
         if ref_bus_from == ref_bus_to
@@ -540,7 +538,6 @@ function add_to_expression!(
     return
 end
 
-#TODO Check if for SecurityConstrainedAreaPTDFPowerModel need something else
 function add_to_expression!(
     container::OptimizationContainer,
     ::Type{T},
@@ -553,15 +550,14 @@ function add_to_expression!(
     U <: HVDCLosses,
     V <: PSY.TwoTerminalHVDC,
     W <: HVDCTwoTerminalDispatch,
-    X <:
-    Union{AreaPTDFPowerModel, AreaBalancePowerModel, SecurityConstrainedAreaPTDFPowerModel},
+    X <: Union{AreaPTDFPowerModel, AreaBalancePowerModel},
 }
     variable = get_variable(container, U, V)
     expression = get_expression(container, T, PSY.Area)
     time_steps = get_time_steps(container)
     for d in devices
         name = PSY.get_name(d)
-        device_bus_from = PSY.get_arc(d).from
+        device_bus_from = PSY.get_from(PSY.get_arc(d))
         area_name = PSY.get_name(PSY.get_area(device_bus_from))
         for t in time_steps
             add_proportional_to_jump_expression!(
@@ -583,7 +579,7 @@ function add_to_expression!(
     ::Type{U},
     devices::IS.FlattenIteratorWrapper{V},
     ::DeviceModel{V, W},
-    network_model::NetworkModel{Union{PTDFPowerModel, SecurityConstrainedPTDFPowerModel}},
+    network_model::NetworkModel{PTDFPowerModel},
 ) where {
     T <: ActivePowerBalance,
     U <: FlowActivePowerToFromVariable,
@@ -597,9 +593,9 @@ function add_to_expression!(
     time_steps = get_time_steps(container)
     for d in devices
         name = PSY.get_name(d)
-        bus_no_to = PNM.get_mapped_bus_number(network_reduction, PSY.get_arc(d).to)
-        ref_bus_from = get_reference_bus(network_model, PSY.get_arc(d).from)
-        ref_bus_to = get_reference_bus(network_model, PSY.get_arc(d).to)
+        bus_no_to = PNM.get_mapped_bus_number(network_reduction, PSY.get_to(PSY.get_arc(d)))
+        ref_bus_from = get_reference_bus(network_model, PSY.get_from(PSY.get_arc(d)))
+        ref_bus_to = get_reference_bus(network_model, PSY.get_to(PSY.get_arc(d)))
         for t in time_steps
             flow_variable = var[name, t]
             add_proportional_to_jump_expression!(
@@ -644,9 +640,9 @@ function add_to_expression!(
     for d in devices
         name = PSY.get_name(d)
         bus_no_from =
-            PNM.get_mapped_bus_number(network_reduction, PSY.get_arc(d).from)
-        ref_bus_to = get_reference_bus(network_model, PSY.get_arc(d).to)
-        ref_bus_from = get_reference_bus(network_model, PSY.get_arc(d).from)
+            PNM.get_mapped_bus_number(network_reduction, PSY.get_from(PSY.get_arc(d)))
+        ref_bus_to = get_reference_bus(network_model, PSY.get_to(PSY.get_arc(d)))
+        ref_bus_from = get_reference_bus(network_model, PSY.get_from(PSY.get_arc(d)))
         for t in time_steps
             flow_variable = var[name, t]
             add_proportional_to_jump_expression!(
@@ -691,9 +687,9 @@ function add_to_expression!(
     for d in devices
         name = PSY.get_name(d)
         bus_no_from =
-            PNM.get_mapped_bus_number(network_reduction, PSY.get_arc(d).from)
-        ref_bus_to = get_reference_bus(network_model, PSY.get_arc(d).to)
-        ref_bus_from = get_reference_bus(network_model, PSY.get_arc(d).from)
+            PNM.get_mapped_bus_number(network_reduction, PSY.get_from(PSY.get_arc(d)))
+        ref_bus_to = get_reference_bus(network_model, PSY.get_to(PSY.get_arc(d)))
+        ref_bus_from = get_reference_bus(network_model, PSY.get_from(PSY.get_arc(d)))
         for t in time_steps
             flow_variable = var[name, t]
             add_proportional_to_jump_expression!(
@@ -737,7 +733,7 @@ function add_to_expression!(
     for d in devices
         name = PSY.get_name(d)
         bus_no_from =
-            PNM.get_mapped_bus_number(network_reduction, PSY.get_arc(d).from)
+            PNM.get_mapped_bus_number(network_reduction, PSY.get_from(PSY.get_arc(d)))
         for t in time_steps
             flow_variable = var[name, t]
             add_proportional_to_jump_expression!(
@@ -774,7 +770,7 @@ function add_to_expression!(
     for d in devices
         name = PSY.get_name(d)
         bus_no_to =
-            PNM.get_mapped_bus_number(network_reduction, PSY.get_arc(d).to)
+            PNM.get_mapped_bus_number(network_reduction, PSY.get_to(PSY.get_arc(d)))
         for t in time_steps
             flow_variable = var[name, t]
             add_proportional_to_jump_expression!(
@@ -811,7 +807,7 @@ function add_to_expression!(
     for d in devices
         name = PSY.get_name(d)
         bus_no_from =
-            PNM.get_mapped_bus_number(network_reduction, PSY.get_arc(d).from)
+            PNM.get_mapped_bus_number(network_reduction, PSY.get_from(PSY.get_arc(d)))
         for t in time_steps
             flow_variable = var[name, t]
             add_proportional_to_jump_expression!(
@@ -848,7 +844,7 @@ function add_to_expression!(
     for d in devices
         name = PSY.get_name(d)
         bus_no_to =
-            PNM.get_mapped_bus_number(network_reduction, PSY.get_arc(d).to)
+            PNM.get_mapped_bus_number(network_reduction, PSY.get_to(PSY.get_arc(d)))
         for t in time_steps
             flow_variable = var[name, t]
             add_proportional_to_jump_expression!(
@@ -865,8 +861,8 @@ end
 # `ReactivePowerBalance` as a signed injection (+1.0) rather than a load (−1.0).
 # Side selection picks the from- or to-terminal bus via dispatch on the
 # variable type, so the body is written once.
-_vsc_q_terminal_bus(d, ::Type{HVDCReactivePowerFromVariable}) = PSY.get_arc(d).from
-_vsc_q_terminal_bus(d, ::Type{HVDCReactivePowerToVariable}) = PSY.get_arc(d).to
+_vsc_q_terminal_bus(d, ::Type{HVDCReactivePowerFromVariable}) = PSY.get_from(PSY.get_arc(d))
+_vsc_q_terminal_bus(d, ::Type{HVDCReactivePowerToVariable}) = PSY.get_to(PSY.get_arc(d))
 
 function add_to_expression!(
     container::OptimizationContainer,
@@ -925,9 +921,9 @@ function add_to_expression!(
     for d in devices
         name = PSY.get_name(d)
         bus_no_to =
-            PNM.get_mapped_bus_number(network_reduction, PSY.get_arc(d).to)
-        ref_bus_to = get_reference_bus(network_model, PSY.get_arc(d).to)
-        ref_bus_from = get_reference_bus(network_model, PSY.get_arc(d).from)
+            PNM.get_mapped_bus_number(network_reduction, PSY.get_to(PSY.get_arc(d)))
+        ref_bus_to = get_reference_bus(network_model, PSY.get_to(PSY.get_arc(d)))
+        ref_bus_from = get_reference_bus(network_model, PSY.get_from(PSY.get_arc(d)))
         for t in time_steps
             flow_variable = var[name, t]
             add_proportional_to_jump_expression!(
@@ -970,8 +966,8 @@ function add_to_expression!(
         time_steps = get_time_steps(container)
         for d in devices
             name = PSY.get_name(d)
-            ref_bus_from = get_reference_bus(network_model, PSY.get_arc(d).from)
-            ref_bus_to = get_reference_bus(network_model, PSY.get_arc(d).to)
+            ref_bus_from = get_reference_bus(network_model, PSY.get_from(PSY.get_arc(d)))
+            ref_bus_to = get_reference_bus(network_model, PSY.get_to(PSY.get_arc(d)))
             for t in time_steps
                 flow_variable = var[name, t]
                 if ref_bus_from != ref_bus_to
@@ -1010,8 +1006,8 @@ function add_to_expression!(
         time_steps = get_time_steps(container)
         for d in devices
             name = PSY.get_name(d)
-            ref_bus_from = get_reference_bus(network_model, PSY.get_arc(d).from)
-            ref_bus_to = get_reference_bus(network_model, PSY.get_arc(d).to)
+            ref_bus_from = get_reference_bus(network_model, PSY.get_from(PSY.get_arc(d)))
+            ref_bus_to = get_reference_bus(network_model, PSY.get_to(PSY.get_arc(d)))
             for t in time_steps
                 flow_variable = var[name, t]
                 if ref_bus_from != ref_bus_to
@@ -1050,7 +1046,7 @@ function add_to_expression!(
     time_steps = get_time_steps(container)
     for d in devices
         name = PSY.get_name(d)
-        bus_no_ = PSY.get_number(PSY.get_arc(d).from)
+        bus_no_ = PSY.get_number(PSY.get_from(PSY.get_arc(d)))
         bus_no = PNM.get_mapped_bus_number(network_reduction, bus_no_)
         for t in time_steps
             add_proportional_to_jump_expression!(
@@ -1086,7 +1082,7 @@ function add_to_expression!(
     time_steps = get_time_steps(container)
     for d in devices
         name = PSY.get_name(d)
-        bus_no_ = PSY.get_number(PSY.get_arc(d).to)
+        bus_no_ = PSY.get_number(PSY.get_to(PSY.get_arc(d)))
         bus_no = PNM.get_mapped_bus_number(network_reduction, bus_no_)
         for t in time_steps
             add_proportional_to_jump_expression!(
@@ -1123,122 +1119,6 @@ function add_to_expression!(
                 variable[name, t],
                 get_variable_multiplier(U, V, HVDCTwoTerminalDispatch),
             )
-        end
-    end
-    return
-end
-
-"""
-Default implementation to add generators Expressions for Post-Contingency Generation
-"""
-function add_to_expression!(
-    container::OptimizationContainer,
-    ::Type{T},
-    ::Type{U},
-    ::Type{D},
-    generators::IS.FlattenIteratorWrapper{V},
-    generator_outages::Vector{V},
-    ::DeviceModel{V, W},
-    network_model::NetworkModel{X},
-) where {
-    T <: PostContingencyActivePowerGeneration,
-    U <: ActivePowerVariable,
-    D <: PostContingencyActivePowerChangeVariable,
-    V <: PSY.Generator,
-    W <: AbstractSecurityConstrainedUnitCommitment,
-    X <: AbstractPTDFModel,
-}
-    time_steps = get_time_steps(container)
-
-    expressions =
-        lazy_container_addition!(container, PostContingencyActivePowerGeneration, V,
-            get_name.(generator_outages),
-            get_name.(generators),
-            time_steps)
-
-    #variable_generator_outages = get_variable(container, U, V)
-    variable_generator = get_variable(container, U, V)
-    variable_generator_change = get_variable(container, D, V)
-
-    for generator in generators
-        variable_generator = get_variable(container, U, typeof(generator))
-        generator_name = get_name(generator)
-
-        for generator_outage in generator_outages
-            #TODO HOW WE SHOULD HANDLE THE EXPRESSIONS AND CONSTRAINTS RELATED TO THE OUTAGE OF THE GENERATOR RESPECT TO ITSELF?
-            if generator_outage == generator
-                continue
-            end
-
-            generator_outage_name = get_name(generator_outage)
-
-            for t in time_steps
-                add_proportional_to_jump_expression!(
-                    expressions[generator_outage_name, generator_name, t],
-                    variable_generator[generator_name, t],
-                    1.0,
-                )
-                add_proportional_to_jump_expression!(
-                    expressions[generator_outage_name, generator_name, t],
-                    variable_generator_change[generator_outage_name, generator_name, t],
-                    1.0,
-                )
-            end
-        end
-    end
-    return
-end
-
-"""
-Default implementation to add branch Expressions for Post-Contingency Flows
-"""
-function add_to_expression!(
-    container::OptimizationContainer,
-    ::Type{T},
-    ::Type{U},
-    branches::IS.FlattenIteratorWrapper{PSY.ACTransmission},
-    branches_outages::Vector{V},
-    ::DeviceModel{V, W},
-    network_model::NetworkModel{X},
-) where {
-    T <: PostContingencyBranchFlow,
-    U <: FlowActivePowerVariable,
-    V <: PSY.ACTransmission,
-    W <: AbstractBranchFormulation,
-    X <: AbstractSecurityConstrainedPTDFModel,
-}
-    time_steps = get_time_steps(container)
-
-    expressions = lazy_container_addition!(container, PostContingencyBranchFlow, V)
-
-    lodf = get_LODF_matrix(network_model)
-
-    variable_branches_outages = get_variable(container, U, V)
-
-    for branch in branches
-        variable_branches = get_variable(container, U, typeof(branch))
-        branch_name = get_name(branch)
-
-        for branch_outage in branches_outages
-            #TODO HOW WE SHOULD HANDLE THE EXPRESSIONS AND CONSTRAINTS RELATED TO THE OUTAGE OF THE LINE RESPECT TO ITSELF?
-            if branch_outage == branch
-                continue
-            end
-
-            branch_outage_name = get_name(branch_outage)
-
-            for t in time_steps
-                add_proportional_to_jump_expression!(
-                    expressions[branch_outage_name, branch_name, t],
-                    variable_branches[branch_name, t],
-                    1.0,
-                )
-                add_proportional_to_jump_expression!(
-                    expressions[branch_outage_name, branch_name, t],
-                    variable_branches_outages[branch_outage_name, t],
-                    lodf[branch_name, branch_outage_name],
-                )
-            end
         end
     end
     return
@@ -1645,7 +1525,6 @@ function add_to_expression!(
     return
 end
 
-#TODO Check if for SecurityConstrainedAreaPTDFPowerModel need something else
 function add_to_expression!(
     container::OptimizationContainer,
     ::Type{T},
@@ -1718,8 +1597,8 @@ function add_to_expression!(
     for d in devices
         name = PSY.get_name(d)
         bus_no_from =
-            PNM.get_mapped_bus_number(network_reduction, PSY.get_arc(d).from)
-        bus_no_to = PNM.get_mapped_bus_number(network_reduction, PSY.get_arc(d).to)
+            PNM.get_mapped_bus_number(network_reduction, PSY.get_from(PSY.get_arc(d)))
+        bus_no_to = PNM.get_mapped_bus_number(network_reduction, PSY.get_to(PSY.get_arc(d)))
         for t in time_steps
             flow_variable = var[name, t]
             add_proportional_to_jump_expression!(
@@ -1801,7 +1680,7 @@ function add_to_expression!(
     U <: FlowActivePowerVariable,
     V <: PSY.TwoTerminalHVDC,
     W <: AbstractBranchFormulation,
-    X <: Union{PTDFPowerModel, SecurityConstrainedPTDFPowerModel},
+    X <: PTDFPowerModel,
 }
     var = get_variable(container, U, V)
     nodal_expr = get_expression(container, T, PSY.ACBus)
@@ -1811,10 +1690,10 @@ function add_to_expression!(
     for d in devices
         name = PSY.get_name(d)
         bus_no_from =
-            PNM.get_mapped_bus_number(network_reduction, PSY.get_arc(d).from)
-        bus_no_to = PNM.get_mapped_bus_number(network_reduction, PSY.get_arc(d).to)
-        ref_bus_from = get_reference_bus(network_model, PSY.get_arc(d).from)
-        ref_bus_to = get_reference_bus(network_model, PSY.get_arc(d).to)
+            PNM.get_mapped_bus_number(network_reduction, PSY.get_from(PSY.get_arc(d)))
+        bus_no_to = PNM.get_mapped_bus_number(network_reduction, PSY.get_to(PSY.get_arc(d)))
+        ref_bus_from = get_reference_bus(network_model, PSY.get_from(PSY.get_arc(d)))
+        ref_bus_to = get_reference_bus(network_model, PSY.get_to(PSY.get_arc(d)))
         for t in time_steps
             flow_variable = var[name, t]
             add_proportional_to_jump_expression!(
@@ -1862,8 +1741,8 @@ function add_to_expression!(
 }
     inter_network_branches = V[]
     for d in devices
-        ref_bus_from = get_reference_bus(network_model, PSY.get_arc(d).from)
-        ref_bus_to = get_reference_bus(network_model, PSY.get_arc(d).to)
+        ref_bus_from = get_reference_bus(network_model, PSY.get_from(PSY.get_arc(d)))
+        ref_bus_to = get_reference_bus(network_model, PSY.get_to(PSY.get_arc(d)))
         if ref_bus_from != ref_bus_to
             push!(inter_network_branches, d)
         end
@@ -1874,8 +1753,8 @@ function add_to_expression!(
         time_steps = get_time_steps(container)
         for d in devices
             name = PSY.get_name(d)
-            ref_bus_from = get_reference_bus(network_model, PSY.get_arc(d).from)
-            ref_bus_to = get_reference_bus(network_model, PSY.get_arc(d).to)
+            ref_bus_from = get_reference_bus(network_model, PSY.get_from(PSY.get_arc(d)))
+            ref_bus_to = get_reference_bus(network_model, PSY.get_to(PSY.get_arc(d)))
             if ref_bus_from == ref_bus_to
                 continue
             end
@@ -1915,8 +1794,8 @@ function add_to_expression!(
     for d in devices
         name = PSY.get_name(d)
         bus_no_from =
-            PNM.get_mapped_bus_number(network_reduction, PSY.get_arc(d).from)
-        bus_no_to = PNM.get_mapped_bus_number(network_reduction, PSY.get_arc(d).to)
+            PNM.get_mapped_bus_number(network_reduction, PSY.get_from(PSY.get_arc(d)))
+        bus_no_to = PNM.get_mapped_bus_number(network_reduction, PSY.get_to(PSY.get_arc(d)))
         # Per-device reactance multiplier for phase shifter
         x_mult = 1.0 / PSY.get_x(d, PSY.SU)
         for t in time_steps
@@ -2023,7 +1902,7 @@ function _handle_nodal_or_zonal_interfaces(
     variable::JuMPVariableArray,
     expression::DenseAxisArray, # There is no good type for a DenseAxisArray slice
 ) where {V <: PSY.ACTransmission}
-    all_branch_maps_by_type = net_reduction_data.all_branch_maps_by_type
+    all_branch_maps_by_type = PNM.get_all_branch_maps_by_type(net_reduction_data)
     for (name, (arc, reduction)) in
         PNM.get_name_to_arc_map(net_reduction_data, br_type)
         reduction_entry = all_branch_maps_by_type[reduction][br_type][arc]
@@ -2162,7 +2041,7 @@ function add_to_expression!(
 
     for (br_type, contributing_devices) in contributing_devices_map
         flow_expression = get_expression(container, PTDFBranchFlow, br_type)
-        all_branch_maps_by_type = net_reduction_data.all_branch_maps_by_type
+        all_branch_maps_by_type = PNM.get_all_branch_maps_by_type(net_reduction_data)
         for (name, (arc, reduction)) in PNM.get_name_to_arc_map(net_reduction_data, br_type)
             reduction_entry = all_branch_maps_by_type[reduction][br_type][arc]
             if _reduced_entry_in_interface(reduction_entry, contributing_devices)
@@ -2187,6 +2066,40 @@ function add_to_expression!(
         end
     end
     return
+end
+
+"""
+Sign relating a branch's native from→to flow to the PTDF column used for its
+`PTDFBranchFlow`. Returns `-1.0` only for a series-reduction member whose native
+orientation is `:ToFrom` relative to the merged path; `+1.0` otherwise. Errors
+on an unknown reduction kind rather than returning a silently wrong sign.
+"""
+function get_ptdf_orientation_sign(
+    net_reduction_data::PNM.NetworkReductionData,
+    ::Type{T},
+    name::AbstractString,
+) where {T <: PSY.ACTransmission}
+    arc, reduction = PNM.get_name_to_arc_maps(net_reduction_data)[T][name]
+    if reduction == "direct_branch_map" ||
+       reduction == "parallel_branch_map" ||
+       reduction == "transformer3W_map"
+        return 1.0
+    elseif reduction == "series_branch_map"
+        series = PNM.get_all_branch_maps_by_type(net_reduction_data)[reduction][T][arc]
+        for (i, segment) in enumerate(series)
+            if PNM.get_name(segment) == name
+                return series.segment_orientations[i] == :FromTo ? 1.0 : -1.0
+            end
+        end
+        error(
+            "get_ptdf_orientation_sign: segment '$name' not found in series " *
+            "reduction for arc $arc ($T)",
+        )
+    end
+    return error(
+        "get_ptdf_orientation_sign: unhandled reduction map '$reduction' for " *
+        "branch '$name' ($T); cannot determine flow orientation",
+    )
 end
 
 function _get_direction(
@@ -2427,7 +2340,7 @@ function add_to_expression!(
 ) where {
     T <: ActivePowerBalance,
     U <: Union{SystemBalanceSlackUp, SystemBalanceSlackDown},
-    W <: Union{CopperPlatePowerModel, PTDFPowerModel, SecurityConstrainedPTDFPowerModel},
+    W <: Union{CopperPlatePowerModel, PTDFPowerModel},
 }
     variable = get_variable(container, U, PSY.System)
     expression = get_expression(container, T, _system_expression_type(W))
@@ -2443,7 +2356,6 @@ function add_to_expression!(
     return
 end
 
-#TODO Check if for SecurityConstrainedAreaPTDFPowerModel need something else
 function add_to_expression!(
     container::OptimizationContainer,
     ::Type{T},
@@ -2453,7 +2365,7 @@ function add_to_expression!(
 ) where {
     T <: ActivePowerBalance,
     U <: Union{SystemBalanceSlackUp, SystemBalanceSlackDown},
-    V <: Union{AreaPTDFPowerModel, SecurityConstrainedAreaPTDFPowerModel},
+    V <: AreaPTDFPowerModel,
 }
     variable =
         get_variable(container, U, _system_expression_type(AreaPTDFPowerModel))
@@ -2909,6 +2821,227 @@ function add_to_expression!(
             device_cost_expression[component_name, time_period],
             cost_expression,
         )
+    end
+    return
+end
+
+################################################################################
+# Native ACPPowerModel branch-flow → nodal balance contributions
+#
+# Each directional flow variable is subtracted from the nodal balance at the
+# bus where it originates (power leaves that bus, so it reduces the net injection).
+#
+# Convention:  expressions[bus, t] == 0  means  Σ_injections - Σ_flows_out = 0
+#   pft  leaves from-bus  →  -1.0 at from_bus in ActivePowerBalance
+#   ptf  leaves to-bus    →  -1.0 at to_bus   in ActivePowerBalance
+#   qft  leaves from-bus  →  -1.0 at from_bus in ReactivePowerBalance
+#   qtf  leaves to-bus    →  -1.0 at to_bus   in ReactivePowerBalance
+################################################################################
+
+"""
+HVDC two-terminal lossless flow → ActivePowerBalance for native DCPPowerModel / ACPPowerModel.
+
+The PM bridge previously created the per-arc nodal injection. With native
+DCP/ACP, we wire the single FlowActivePowerVariable directly: subtract at the
+from-bus, add at the to-bus.
+"""
+function add_to_expression!(
+    container::OptimizationContainer,
+    ::Type{T},
+    ::Type{U},
+    devices::IS.FlattenIteratorWrapper{V},
+    ::DeviceModel{V, W},
+    network_model::NetworkModel{X},
+) where {
+    T <: ActivePowerBalance,
+    U <: FlowActivePowerVariable,
+    V <: PSY.TwoTerminalHVDC,
+    W <: AbstractBranchFormulation,
+    X <: Union{DCPPowerModel, ACPPowerModel},
+}
+    var = get_variable(container, U, V)
+    expression = get_expression(container, T, PSY.ACBus)
+    network_reduction = get_network_reduction(network_model)
+    time_steps = get_time_steps(container)
+    for d in devices
+        name = PSY.get_name(d)
+        bus_no_from =
+            PNM.get_mapped_bus_number(network_reduction, PSY.get_from(PSY.get_arc(d)))
+        bus_no_to = PNM.get_mapped_bus_number(network_reduction, PSY.get_to(PSY.get_arc(d)))
+        for t in time_steps
+            flow_variable = var[name, t]
+            add_proportional_to_jump_expression!(
+                expression[bus_no_from, t], flow_variable, -1.0,
+            )
+            add_proportional_to_jump_expression!(
+                expression[bus_no_to, t], flow_variable, 1.0,
+            )
+        end
+    end
+    return
+end
+
+"""
+Add FlowActivePowerFromToVariable contribution to ActivePowerBalance for ACPPowerModel.
+
+Subtracts from-to flow from the from-bus nodal balance (power leaves from-bus).
+"""
+function add_to_expression!(
+    container::OptimizationContainer,
+    ::Type{ActivePowerBalance},
+    ::Type{FlowActivePowerFromToVariable},
+    devices::IS.FlattenIteratorWrapper{T},
+    ::DeviceModel{T, U},
+    network_model::NetworkModel{ACPPowerModel},
+) where {T <: PSY.ACTransmission, U <: AbstractBranchFormulation}
+    pft = get_variable(container, FlowActivePowerFromToVariable, T)
+    expressions = get_expression(container, ActivePowerBalance, PSY.ACBus)
+    network_reduction = get_network_reduction(network_model)
+    time_steps = get_time_steps(container)
+    for d in devices
+        name = PSY.get_name(d)
+        from_bus =
+            PNM.get_mapped_bus_number(network_reduction, PSY.get_from(PSY.get_arc(d)))
+        for t in time_steps
+            JuMP.add_to_expression!(expressions[from_bus, t], -1.0, pft[name, t])
+        end
+    end
+    return
+end
+
+"""
+Add FlowActivePowerToFromVariable contribution to ActivePowerBalance for ACPPowerModel.
+
+Subtracts to-from flow from the to-bus nodal balance (power leaves to-bus).
+"""
+function add_to_expression!(
+    container::OptimizationContainer,
+    ::Type{ActivePowerBalance},
+    ::Type{FlowActivePowerToFromVariable},
+    devices::IS.FlattenIteratorWrapper{T},
+    ::DeviceModel{T, U},
+    network_model::NetworkModel{ACPPowerModel},
+) where {T <: PSY.ACTransmission, U <: AbstractBranchFormulation}
+    ptf = get_variable(container, FlowActivePowerToFromVariable, T)
+    expressions = get_expression(container, ActivePowerBalance, PSY.ACBus)
+    network_reduction = get_network_reduction(network_model)
+    time_steps = get_time_steps(container)
+    for d in devices
+        name = PSY.get_name(d)
+        to_bus = PNM.get_mapped_bus_number(network_reduction, PSY.get_to(PSY.get_arc(d)))
+        for t in time_steps
+            JuMP.add_to_expression!(expressions[to_bus, t], -1.0, ptf[name, t])
+        end
+    end
+    return
+end
+
+"""
+Add FlowReactivePowerFromToVariable contribution to ReactivePowerBalance for ACPPowerModel.
+
+Subtracts from-to reactive flow from the from-bus reactive balance.
+"""
+function add_to_expression!(
+    container::OptimizationContainer,
+    ::Type{ReactivePowerBalance},
+    ::Type{FlowReactivePowerFromToVariable},
+    devices::IS.FlattenIteratorWrapper{T},
+    ::DeviceModel{T, U},
+    network_model::NetworkModel{ACPPowerModel},
+) where {T <: PSY.ACTransmission, U <: AbstractBranchFormulation}
+    qft = get_variable(container, FlowReactivePowerFromToVariable, T)
+    expressions = get_expression(container, ReactivePowerBalance, PSY.ACBus)
+    network_reduction = get_network_reduction(network_model)
+    time_steps = get_time_steps(container)
+    for d in devices
+        name = PSY.get_name(d)
+        from_bus =
+            PNM.get_mapped_bus_number(network_reduction, PSY.get_from(PSY.get_arc(d)))
+        for t in time_steps
+            JuMP.add_to_expression!(expressions[from_bus, t], -1.0, qft[name, t])
+        end
+    end
+    return
+end
+
+"""
+Add FlowReactivePowerToFromVariable contribution to ReactivePowerBalance for ACPPowerModel.
+
+Subtracts to-from reactive flow from the to-bus reactive balance.
+"""
+function add_to_expression!(
+    container::OptimizationContainer,
+    ::Type{ReactivePowerBalance},
+    ::Type{FlowReactivePowerToFromVariable},
+    devices::IS.FlattenIteratorWrapper{T},
+    ::DeviceModel{T, U},
+    network_model::NetworkModel{ACPPowerModel},
+) where {T <: PSY.ACTransmission, U <: AbstractBranchFormulation}
+    qtf = get_variable(container, FlowReactivePowerToFromVariable, T)
+    expressions = get_expression(container, ReactivePowerBalance, PSY.ACBus)
+    network_reduction = get_network_reduction(network_model)
+    time_steps = get_time_steps(container)
+    for d in devices
+        name = PSY.get_name(d)
+        to_bus = PNM.get_mapped_bus_number(network_reduction, PSY.get_to(PSY.get_arc(d)))
+        for t in time_steps
+            JuMP.add_to_expression!(expressions[to_bus, t], -1.0, qtf[name, t])
+        end
+    end
+    return
+end
+
+"""
+HVDC two-terminal lossless reactive flow (from-to) → ReactivePowerBalance for ACPPowerModel.
+
+Mirrors the AC ACP convention: q_ft leaves from-bus, so subtract at from-bus.
+"""
+function add_to_expression!(
+    container::OptimizationContainer,
+    ::Type{ReactivePowerBalance},
+    ::Type{FlowReactivePowerFromToVariable},
+    devices::IS.FlattenIteratorWrapper{T},
+    ::DeviceModel{T, U},
+    network_model::NetworkModel{ACPPowerModel},
+) where {T <: PSY.TwoTerminalHVDC, U <: AbstractBranchFormulation}
+    qft = get_variable(container, FlowReactivePowerFromToVariable, T)
+    expressions = get_expression(container, ReactivePowerBalance, PSY.ACBus)
+    network_reduction = get_network_reduction(network_model)
+    time_steps = get_time_steps(container)
+    for d in devices
+        name = PSY.get_name(d)
+        from_bus =
+            PNM.get_mapped_bus_number(network_reduction, PSY.get_from(PSY.get_arc(d)))
+        for t in time_steps
+            JuMP.add_to_expression!(expressions[from_bus, t], -1.0, qft[name, t])
+        end
+    end
+    return
+end
+
+"""
+HVDC two-terminal lossless reactive flow (to-from) → ReactivePowerBalance for ACPPowerModel.
+
+Mirrors the AC ACP convention: q_tf leaves to-bus, so subtract at to-bus.
+"""
+function add_to_expression!(
+    container::OptimizationContainer,
+    ::Type{ReactivePowerBalance},
+    ::Type{FlowReactivePowerToFromVariable},
+    devices::IS.FlattenIteratorWrapper{T},
+    ::DeviceModel{T, U},
+    network_model::NetworkModel{ACPPowerModel},
+) where {T <: PSY.TwoTerminalHVDC, U <: AbstractBranchFormulation}
+    qtf = get_variable(container, FlowReactivePowerToFromVariable, T)
+    expressions = get_expression(container, ReactivePowerBalance, PSY.ACBus)
+    network_reduction = get_network_reduction(network_model)
+    time_steps = get_time_steps(container)
+    for d in devices
+        name = PSY.get_name(d)
+        to_bus = PNM.get_mapped_bus_number(network_reduction, PSY.get_to(PSY.get_arc(d)))
+        for t in time_steps
+            JuMP.add_to_expression!(expressions[to_bus, t], -1.0, qtf[name, t])
+        end
     end
     return
 end

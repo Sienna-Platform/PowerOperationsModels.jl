@@ -432,3 +432,88 @@ end
     unsupported_key = AuxVarKey(POM.PowerFlowLossFactors, PSY.ACBus)
     @test_nowarn IOM.calculate_aux_variable_value!(container, unsupported_key, system)
 end
+
+# Regression for issue #1623 ("PowerFlow in the loop mismatch with Sources"), ported from
+# PowerSimulations.jl PR #1631. Parameters store the ALREADY-SIGNED nodal contribution
+# (`param_array .* multiplier_array`), identical to what `add_to_expression!` adds to the
+# system balance. The PF-in-the-loop injection writer must NOT re-apply the category sign
+# (which would double-flip imports). When that happens the PF injection at the affected bus
+# is wrong, so `PowerFlowBranchActivePowerFromTo` disagrees with the optimization's
+# `PTDFBranchFlow`. These two testsets drive a `FixedOutput` device — whose
+# `ActivePowerTimeSeriesParameter` is fed into the PF data through the pre-signed
+# (`ParameterKey`) path — and assert the two branch-flow quantities agree.
+@testset "PF in the loop matches optimization with FixedOutput parameter path (DC, issue #1623)" begin
+    system = build_system(PSITestSystems, "c_sys5_uc_re")
+
+    template = get_template_dispatch_with_network(
+        NetworkModel(
+            PTDFPowerModel;
+            PTDF_matrix = PTDF(system),
+            use_slacks = true,
+            evaluations = power_flow_evaluations(DCPowerFlow()),
+        ),
+    )
+    # FixedOutput renewables emit `ActivePowerTimeSeriesParameter`, exercising the
+    # pre-signed `ParameterKey` injection path in the PF-in-the-loop writer.
+    set_device_model!(template, RenewableDispatch, FixedOutput)
+
+    model = DecisionModel(template, system; optimizer = HiGHS_optimizer)
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          ModelBuildStatus.BUILT
+    @test solve!(model) == RunStatus.SUCCESSFULLY_FINALIZED
+
+    container = get_optimization_container(model)
+    ptdf_flow = IOM.get_expression(container, POM.PTDFBranchFlow, Line)
+    ft_aux = lookup_value(container, AuxVarKey(POM.PowerFlowBranchActivePowerFromTo, Line))
+
+    n_time_steps = length(get_time_steps(container))
+    for line_name in axes(ptdf_flow, 1)
+        for t in 1:n_time_steps
+            @test isapprox(
+                JuMP.value(ptdf_flow[line_name, t]),
+                ft_aux[line_name, t];
+                atol = 1e-3,
+            )
+        end
+    end
+end
+
+@testset "PF in the loop matches optimization with FixedOutput parameter path (AC, issue #1623)" begin
+    system = build_system(PSITestSystems, "c_sys5_uc_re")
+
+    template = get_template_dispatch_with_network(
+        NetworkModel(
+            PTDFPowerModel;
+            PTDF_matrix = PTDF(system),
+            use_slacks = true,
+            evaluations = power_flow_evaluations(ACPowerFlow()),
+        ),
+    )
+    set_device_model!(template, RenewableDispatch, FixedOutput)
+
+    model = DecisionModel(template, system; optimizer = HiGHS_optimizer)
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          ModelBuildStatus.BUILT
+    @test solve!(model) == RunStatus.SUCCESSFULLY_FINALIZED
+
+    container = get_optimization_container(model)
+    ptdf_flow = IOM.get_expression(container, POM.PTDFBranchFlow, Line)
+    ft_aux = lookup_value(container, AuxVarKey(POM.PowerFlowBranchActivePowerFromTo, Line))
+
+    # The DC PTDFBranchFlow is lossless while the AC PowerFlowBranchActivePowerFromTo carries
+    # AC losses (and the optimization's slacks may be placed differently than the AC power
+    # flow redistributes them), so on this PU-scale system the two agree only to within a few
+    # MW. A double-counted parameter sign at nodeC would instead shift the affected flows by
+    # ~0.6 PU (≈60 MW) — far above this band — so an absolute tolerance of 0.05 PU confirms
+    # agreement while still catching the bug.
+    n_time_steps = length(get_time_steps(container))
+    for line_name in axes(ptdf_flow, 1)
+        for t in 1:n_time_steps
+            @test isapprox(
+                JuMP.value(ptdf_flow[line_name, t]),
+                ft_aux[line_name, t];
+                atol = 0.05,
+            )
+        end
+    end
+end

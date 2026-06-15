@@ -111,7 +111,7 @@ function IOM.variable_cost(
     ::Type{<:PSY.Storage},
     ::Type{<:AbstractStorageFormulation},
 )
-    return PSY.CostCurve(PSY.LinearCurve(STORAGE_REG_COST), PSY.UnitSystem.SYSTEM_BASE)
+    return PSY.CostCurve(PSY.LinearCurve(STORAGE_REG_COST), PSY.SU)
 end
 
 function get_default_time_series_names(
@@ -209,13 +209,13 @@ end
 # For InputActivePower (charge), it's `P_in + down - up` — reserves swap roles because
 # a charging battery's net power is increased by downward reserves.
 _deployment_increasing_expr(::Type{<:OutputActivePowerVariableLimitsConstraint}) =
-    ReserveDeploymentBalanceUpDischarge
+    StorageReserveBalanceExpression{PSY.ReserveUp, DeployedReserve, DischargeSide}
 _deployment_decreasing_expr(::Type{<:OutputActivePowerVariableLimitsConstraint}) =
-    ReserveDeploymentBalanceDownDischarge
+    StorageReserveBalanceExpression{PSY.ReserveDown, DeployedReserve, DischargeSide}
 _deployment_increasing_expr(::Type{<:InputActivePowerVariableLimitsConstraint}) =
-    ReserveDeploymentBalanceDownCharge
+    StorageReserveBalanceExpression{PSY.ReserveDown, DeployedReserve, ChargeSide}
 _deployment_decreasing_expr(::Type{<:InputActivePowerVariableLimitsConstraint}) =
-    ReserveDeploymentBalanceUpCharge
+    StorageReserveBalanceExpression{PSY.ReserveUp, DeployedReserve, ChargeSide}
 
 # Reservation-binary handling: discharge active when ss=1, charge active when ss=0.
 _reservation_factor(::Type{<:OutputActivePowerVariableLimitsConstraint}, ss, name, t) =
@@ -433,7 +433,7 @@ end
 ############################# Expression Logic for Ancillary Services ######################
 get_variable_multiplier(
     ::Type{AncillaryServiceVariableCharge},
-    ::Type{ReserveAssignmentBalanceDownCharge},
+    ::Type{StorageReserveBalanceExpression{PSY.ReserveDown, UnscaledReserve, ChargeSide}},
     d::PSY.Storage,
     ::Type{StorageDispatchWithReserves},
     ::PSY.Reserve{PSY.ReserveUp},
@@ -441,7 +441,7 @@ get_variable_multiplier(
 
 get_variable_multiplier(
     ::Type{AncillaryServiceVariableCharge},
-    ::Type{ReserveAssignmentBalanceDownCharge},
+    ::Type{StorageReserveBalanceExpression{PSY.ReserveDown, UnscaledReserve, ChargeSide}},
     d::PSY.Storage,
     ::Type{StorageDispatchWithReserves},
     ::PSY.Reserve{PSY.ReserveDown},
@@ -449,7 +449,7 @@ get_variable_multiplier(
 
 get_variable_multiplier(
     ::Type{AncillaryServiceVariableCharge},
-    ::Type{ReserveAssignmentBalanceUpCharge},
+    ::Type{StorageReserveBalanceExpression{PSY.ReserveUp, UnscaledReserve, ChargeSide}},
     d::PSY.Storage,
     ::Type{StorageDispatchWithReserves},
     ::PSY.Reserve{PSY.ReserveUp},
@@ -457,7 +457,7 @@ get_variable_multiplier(
 
 get_variable_multiplier(
     ::Type{AncillaryServiceVariableCharge},
-    ::Type{ReserveAssignmentBalanceUpCharge},
+    ::Type{StorageReserveBalanceExpression{PSY.ReserveUp, UnscaledReserve, ChargeSide}},
     d::PSY.Storage,
     ::Type{StorageDispatchWithReserves},
     ::PSY.Reserve{PSY.ReserveDown},
@@ -465,7 +465,9 @@ get_variable_multiplier(
 
 get_variable_multiplier(
     ::Type{AncillaryServiceVariableDischarge},
-    ::Type{ReserveAssignmentBalanceDownDischarge},
+    ::Type{
+        StorageReserveBalanceExpression{PSY.ReserveDown, UnscaledReserve, DischargeSide},
+    },
     d::PSY.Storage,
     ::Type{StorageDispatchWithReserves},
     ::PSY.Reserve{PSY.ReserveUp},
@@ -473,7 +475,9 @@ get_variable_multiplier(
 
 get_variable_multiplier(
     ::Type{AncillaryServiceVariableDischarge},
-    ::Type{ReserveAssignmentBalanceDownDischarge},
+    ::Type{
+        StorageReserveBalanceExpression{PSY.ReserveDown, UnscaledReserve, DischargeSide},
+    },
     d::PSY.Storage,
     ::Type{StorageDispatchWithReserves},
     ::PSY.Reserve{PSY.ReserveDown},
@@ -481,7 +485,7 @@ get_variable_multiplier(
 
 get_variable_multiplier(
     ::Type{AncillaryServiceVariableDischarge},
-    ::Type{ReserveAssignmentBalanceUpDischarge},
+    ::Type{StorageReserveBalanceExpression{PSY.ReserveUp, UnscaledReserve, DischargeSide}},
     d::PSY.Storage,
     ::Type{StorageDispatchWithReserves},
     ::PSY.Reserve{PSY.ReserveUp},
@@ -489,7 +493,7 @@ get_variable_multiplier(
 
 get_variable_multiplier(
     ::Type{AncillaryServiceVariableDischarge},
-    ::Type{ReserveAssignmentBalanceUpDischarge},
+    ::Type{StorageReserveBalanceExpression{PSY.ReserveUp, UnscaledReserve, DischargeSide}},
     d::PSY.Storage,
     ::Type{StorageDispatchWithReserves},
     ::PSY.Reserve{PSY.ReserveDown},
@@ -498,7 +502,7 @@ get_variable_multiplier(
 ### Deployment ###
 get_variable_multiplier(
     ::Type{AncillaryServiceVariableCharge},
-    ::Type{ReserveDeploymentBalanceDownCharge},
+    ::Type{StorageReserveBalanceExpression{PSY.ReserveDown, DeployedReserve, ChargeSide}},
     d::PSY.Storage,
     ::Type{StorageDispatchWithReserves},
     ::PSY.Reserve{PSY.ReserveUp},
@@ -506,7 +510,7 @@ get_variable_multiplier(
 
 get_variable_multiplier(
     ::Type{AncillaryServiceVariableCharge},
-    ::Type{ReserveDeploymentBalanceDownCharge},
+    ::Type{StorageReserveBalanceExpression{PSY.ReserveDown, DeployedReserve, ChargeSide}},
     d::PSY.Storage,
     ::Type{StorageDispatchWithReserves},
     ::PSY.Reserve{PSY.ReserveDown},
@@ -514,7 +518,7 @@ get_variable_multiplier(
 
 get_variable_multiplier(
     ::Type{AncillaryServiceVariableCharge},
-    ::Type{ReserveDeploymentBalanceUpCharge},
+    ::Type{StorageReserveBalanceExpression{PSY.ReserveUp, DeployedReserve, ChargeSide}},
     d::PSY.Storage,
     ::Type{StorageDispatchWithReserves},
     ::PSY.Reserve{PSY.ReserveUp},
@@ -522,7 +526,7 @@ get_variable_multiplier(
 
 get_variable_multiplier(
     ::Type{AncillaryServiceVariableCharge},
-    ::Type{ReserveDeploymentBalanceUpCharge},
+    ::Type{StorageReserveBalanceExpression{PSY.ReserveUp, DeployedReserve, ChargeSide}},
     d::PSY.Storage,
     ::Type{StorageDispatchWithReserves},
     ::PSY.Reserve{PSY.ReserveDown},
@@ -530,7 +534,9 @@ get_variable_multiplier(
 
 get_variable_multiplier(
     ::Type{AncillaryServiceVariableDischarge},
-    ::Type{ReserveDeploymentBalanceDownDischarge},
+    ::Type{
+        StorageReserveBalanceExpression{PSY.ReserveDown, DeployedReserve, DischargeSide},
+    },
     d::PSY.Storage,
     ::Type{StorageDispatchWithReserves},
     ::PSY.Reserve{PSY.ReserveUp},
@@ -538,7 +544,9 @@ get_variable_multiplier(
 
 get_variable_multiplier(
     ::Type{AncillaryServiceVariableDischarge},
-    ::Type{ReserveDeploymentBalanceDownDischarge},
+    ::Type{
+        StorageReserveBalanceExpression{PSY.ReserveDown, DeployedReserve, DischargeSide},
+    },
     d::PSY.Storage,
     ::Type{StorageDispatchWithReserves},
     ::PSY.Reserve{PSY.ReserveDown},
@@ -546,7 +554,7 @@ get_variable_multiplier(
 
 get_variable_multiplier(
     ::Type{AncillaryServiceVariableDischarge},
-    ::Type{ReserveDeploymentBalanceUpDischarge},
+    ::Type{StorageReserveBalanceExpression{PSY.ReserveUp, DeployedReserve, DischargeSide}},
     d::PSY.Storage,
     ::Type{StorageDispatchWithReserves},
     ::PSY.Reserve{PSY.ReserveUp},
@@ -554,7 +562,7 @@ get_variable_multiplier(
 
 get_variable_multiplier(
     ::Type{AncillaryServiceVariableDischarge},
-    ::Type{ReserveDeploymentBalanceUpDischarge},
+    ::Type{StorageReserveBalanceExpression{PSY.ReserveUp, DeployedReserve, DischargeSide}},
     d::PSY.Storage,
     ::Type{StorageDispatchWithReserves},
     ::PSY.Reserve{PSY.ReserveDown},
@@ -562,16 +570,16 @@ get_variable_multiplier(
 
 #! format: off
 # Use 1.0 because this is to allow to reuse the code below on add_to_expression
-get_fraction(::Type{ReserveAssignmentBalanceUpDischarge}, d::PSY.Reserve) = 1.0
-get_fraction(::Type{ReserveAssignmentBalanceUpCharge}, d::PSY.Reserve) = 1.0
-get_fraction(::Type{ReserveAssignmentBalanceDownDischarge}, d::PSY.Reserve) = 1.0
-get_fraction(::Type{ReserveAssignmentBalanceDownCharge}, d::PSY.Reserve) = 1.0
+get_fraction(::Type{StorageReserveBalanceExpression{PSY.ReserveUp, UnscaledReserve, DischargeSide}}, d::PSY.Reserve) = 1.0
+get_fraction(::Type{StorageReserveBalanceExpression{PSY.ReserveUp, UnscaledReserve, ChargeSide}}, d::PSY.Reserve) = 1.0
+get_fraction(::Type{StorageReserveBalanceExpression{PSY.ReserveDown, UnscaledReserve, DischargeSide}}, d::PSY.Reserve) = 1.0
+get_fraction(::Type{StorageReserveBalanceExpression{PSY.ReserveDown, UnscaledReserve, ChargeSide}}, d::PSY.Reserve) = 1.0
 
 # Needs to implement served fraction in PSY
-get_fraction(::Type{ReserveDeploymentBalanceUpDischarge}, d::PSY.Reserve) = PSY.get_deployed_fraction(d)
-get_fraction(::Type{ReserveDeploymentBalanceUpCharge}, d::PSY.Reserve) = PSY.get_deployed_fraction(d)
-get_fraction(::Type{ReserveDeploymentBalanceDownDischarge}, d::PSY.Reserve) = PSY.get_deployed_fraction(d)
-get_fraction(::Type{ReserveDeploymentBalanceDownCharge}, d::PSY.Reserve) = PSY.get_deployed_fraction(d)
+get_fraction(::Type{StorageReserveBalanceExpression{PSY.ReserveUp, DeployedReserve, DischargeSide}}, d::PSY.Reserve) = PSY.get_deployed_fraction(d)
+get_fraction(::Type{StorageReserveBalanceExpression{PSY.ReserveUp, DeployedReserve, ChargeSide}}, d::PSY.Reserve) = PSY.get_deployed_fraction(d)
+get_fraction(::Type{StorageReserveBalanceExpression{PSY.ReserveDown, DeployedReserve, DischargeSide}}, d::PSY.Reserve) = PSY.get_deployed_fraction(d)
+get_fraction(::Type{StorageReserveBalanceExpression{PSY.ReserveDown, DeployedReserve, ChargeSide}}, d::PSY.Reserve) = PSY.get_deployed_fraction(d)
 #! format: on
 
 function add_to_expression!(
@@ -619,7 +627,8 @@ function add_to_expression!(
     devices::IS.FlattenIteratorWrapper{V},
     model::DeviceModel{V, W},
 ) where {
-    T <: StorageReserveChargeExpression,
+    T <:
+    StorageReserveBalanceExpression{<:PSY.ReserveDirection, <:ReserveScale, ChargeSide},
     U <: AncillaryServiceVariableCharge,
     V <: PSY.Storage,
     W <: StorageDispatchWithReserves,
@@ -651,7 +660,8 @@ function add_to_expression!(
     devices::IS.FlattenIteratorWrapper{V},
     model::DeviceModel{V, W},
 ) where {
-    T <: StorageReserveDischargeExpression,
+    T <:
+    StorageReserveBalanceExpression{<:PSY.ReserveDirection, <:ReserveScale, DischargeSide},
     U <: AncillaryServiceVariableDischarge,
     V <: PSY.Storage,
     W <: StorageDispatchWithReserves,
@@ -769,10 +779,26 @@ function add_energybalance_with_reserves!(
     powerin_var = get_variable(container, ActivePowerInVariable, V)
     powerout_var = get_variable(container, ActivePowerOutVariable, V)
 
-    r_up_ds = get_expression(container, ReserveDeploymentBalanceUpDischarge, V)
-    r_up_ch = get_expression(container, ReserveDeploymentBalanceUpCharge, V)
-    r_dn_ds = get_expression(container, ReserveDeploymentBalanceDownDischarge, V)
-    r_dn_ch = get_expression(container, ReserveDeploymentBalanceDownCharge, V)
+    r_up_ds = get_expression(
+        container,
+        StorageReserveBalanceExpression{PSY.ReserveUp, DeployedReserve, DischargeSide},
+        V,
+    )
+    r_up_ch = get_expression(
+        container,
+        StorageReserveBalanceExpression{PSY.ReserveUp, DeployedReserve, ChargeSide},
+        V,
+    )
+    r_dn_ds = get_expression(
+        container,
+        StorageReserveBalanceExpression{PSY.ReserveDown, DeployedReserve, DischargeSide},
+        V,
+    )
+    r_dn_ch = get_expression(
+        container,
+        StorageReserveBalanceExpression{PSY.ReserveDown, DeployedReserve, ChargeSide},
+        V,
+    )
 
     constraint = add_constraints_container!(container, EnergyBalanceConstraint,
         V,
@@ -878,13 +904,13 @@ end
 _reserve_assignment_power_var(::Type{ReserveDischargeConstraint}) = ActivePowerOutVariable
 _reserve_assignment_power_var(::Type{ReserveChargeConstraint}) = ActivePowerInVariable
 _reserve_assignment_up_expr(::Type{ReserveDischargeConstraint}) =
-    ReserveAssignmentBalanceUpDischarge
+    StorageReserveBalanceExpression{PSY.ReserveUp, UnscaledReserve, DischargeSide}
 _reserve_assignment_down_expr(::Type{ReserveDischargeConstraint}) =
-    ReserveAssignmentBalanceDownDischarge
+    StorageReserveBalanceExpression{PSY.ReserveDown, UnscaledReserve, DischargeSide}
 _reserve_assignment_up_expr(::Type{ReserveChargeConstraint}) =
-    ReserveAssignmentBalanceUpCharge
+    StorageReserveBalanceExpression{PSY.ReserveUp, UnscaledReserve, ChargeSide}
 _reserve_assignment_down_expr(::Type{ReserveChargeConstraint}) =
-    ReserveAssignmentBalanceDownCharge
+    StorageReserveBalanceExpression{PSY.ReserveDown, UnscaledReserve, ChargeSide}
 _reserve_assignment_limits(::Type{ReserveDischargeConstraint}, d) =
     PSY.get_output_active_power_limits(d, PSY.SU)
 _reserve_assignment_limits(::Type{ReserveChargeConstraint}, d) =
@@ -1346,7 +1372,11 @@ function add_cycling_charge_with_reserves!(
 
     powerin_var = get_variable(container, ActivePowerInVariable, V)
     slack_var = get_variable(container, StorageChargeCyclingSlackVariable, V)
-    r_dn_ch = get_expression(container, ReserveDeploymentBalanceDownCharge, V)
+    r_dn_ch = get_expression(
+        container,
+        StorageReserveBalanceExpression{PSY.ReserveDown, DeployedReserve, ChargeSide},
+        V,
+    )
 
     constraint = add_constraints_container!(container, StorageCyclingCharge, V, names)
 
@@ -1435,7 +1465,11 @@ function add_cycling_discharge_with_reserves!(
     names = [PSY.get_name(x) for x in devices]
     powerout_var = get_variable(container, ActivePowerOutVariable, V)
     slack_var = get_variable(container, StorageDischargeCyclingSlackVariable, V)
-    r_up_ds = get_expression(container, ReserveDeploymentBalanceUpDischarge, V)
+    r_up_ds = get_expression(
+        container,
+        StorageReserveBalanceExpression{PSY.ReserveUp, DeployedReserve, DischargeSide},
+        V,
+    )
 
     constraint =
         add_constraints_container!(container, StorageCyclingDischarge, V, names)
@@ -1475,148 +1509,77 @@ function add_constraints!(
     return
 end
 
-function add_constraints!(
-    container::OptimizationContainer,
-    ::Type{StorageRegularizationConstraintCharge},
-    devices::IS.FlattenIteratorWrapper{V},
-    model::DeviceModel{V, StorageDispatchWithReserves},
-    network_model::NetworkModel{X},
-) where {V <: PSY.Storage, X <: AbstractPowerModel}
-    names = [PSY.get_name(x) for x in devices]
-    time_steps = get_time_steps(container)
-    reg_var = get_variable(container, StorageRegularizationVariableCharge, V)
-    powerin_var = get_variable(container, ActivePowerInVariable, V)
-    has_services = has_service_model(model)
-
-    if has_services
-        r_up_ch = get_expression(container, ReserveDeploymentBalanceUpCharge, V)
-        r_dn_ch = get_expression(container, ReserveDeploymentBalanceDownCharge, V)
-    end
-
-    constraint_ub =
-        add_constraints_container!(container, StorageRegularizationConstraintCharge,
-            V,
-            names,
-            time_steps;
-            meta = "ub",
-        )
-
-    constraint_lb =
-        add_constraints_container!(container, StorageRegularizationConstraintCharge,
-            V,
-            names,
-            time_steps;
-            meta = "lb",
-        )
-
-    for d in devices
-        name = PSY.get_name(d)
-        constraint_ub[name, 1] =
-            JuMP.@constraint(get_jump_model(container), reg_var[name, 1] == 0)
-        constraint_lb[name, 1] =
-            JuMP.@constraint(get_jump_model(container), reg_var[name, 1] == 0)
-
-        for t in time_steps[2:end]
-            if has_services
-                constraint_ub[name, t] = JuMP.@constraint(
-                    get_jump_model(container),
-                    (
-                        powerin_var[name, t - 1] + r_dn_ch[name, t - 1] -
-                        r_up_ch[name, t - 1]
-                    ) - (powerin_var[name, t] + r_dn_ch[name, t] - r_up_ch[name, t]) <=
-                    reg_var[name, t]
-                )
-                constraint_lb[name, t] = JuMP.@constraint(
-                    get_jump_model(container),
-                    (
-                        powerin_var[name, t - 1] + r_dn_ch[name, t - 1] -
-                        r_up_ch[name, t - 1]
-                    ) - (powerin_var[name, t] + r_dn_ch[name, t] - r_up_ch[name, t]) >=
-                    -reg_var[name, t]
-                )
-            else
-                constraint_ub[name, t] = JuMP.@constraint(
-                    get_jump_model(container),
-                    powerin_var[name, t - 1] - powerin_var[name, t] <= reg_var[name, t]
-                )
-                constraint_lb[name, t] = JuMP.@constraint(
-                    get_jump_model(container),
-                    powerin_var[name, t - 1] - powerin_var[name, t] >= -reg_var[name, t]
-                )
-            end
-        end
-    end
-
-    return
-end
+# Trait stubs for the unified Charge/Discharge regularization body. Sign
+# convention for net injection: charge nets to (p − r_up + r_dn); discharge
+# nets to (p + r_up − r_dn). Mirrors the hybrid pair in
+# src/hybrid_system_models/hybrid_systems.jl.
+_storage_reg_slack_var(::Type{StorageRegularizationConstraintCharge}) =
+    StorageRegularizationVariableCharge
+_storage_reg_slack_var(::Type{StorageRegularizationConstraintDischarge}) =
+    StorageRegularizationVariableDischarge
+_storage_reg_power_var(::Type{StorageRegularizationConstraintCharge}) =
+    ActivePowerInVariable
+_storage_reg_power_var(::Type{StorageRegularizationConstraintDischarge}) =
+    ActivePowerOutVariable
+_storage_reg_reserve_exprs(::Type{StorageRegularizationConstraintCharge}) =
+    (
+        StorageReserveBalanceExpression{PSY.ReserveUp, DeployedReserve, ChargeSide},
+        StorageReserveBalanceExpression{PSY.ReserveDown, DeployedReserve, ChargeSide},
+    )
+_storage_reg_reserve_exprs(::Type{StorageRegularizationConstraintDischarge}) =
+    (
+        StorageReserveBalanceExpression{PSY.ReserveUp, DeployedReserve, DischargeSide},
+        StorageReserveBalanceExpression{PSY.ReserveDown, DeployedReserve, DischargeSide},
+    )
+_storage_reg_reserve_signs(::Type{StorageRegularizationConstraintCharge}) = (-1, +1)
+_storage_reg_reserve_signs(::Type{StorageRegularizationConstraintDischarge}) = (+1, -1)
 
 function add_constraints!(
     container::OptimizationContainer,
-    ::Type{StorageRegularizationConstraintDischarge},
+    ::Type{T},
     devices::IS.FlattenIteratorWrapper{V},
     model::DeviceModel{V, StorageDispatchWithReserves},
     network_model::NetworkModel{X},
-) where {V <: PSY.Storage, X <: AbstractPowerModel}
+) where {
+    T <: Union{
+        StorageRegularizationConstraintCharge,
+        StorageRegularizationConstraintDischarge,
+    },
+    V <: PSY.Storage,
+    X <: AbstractPowerModel,
+}
     names = [PSY.get_name(x) for x in devices]
     time_steps = get_time_steps(container)
-    reg_var = get_variable(container, StorageRegularizationVariableDischarge, V)
-    powerout_var = get_variable(container, ActivePowerOutVariable, V)
+    reg_var = get_variable(container, _storage_reg_slack_var(T), V)
+    p_var = get_variable(container, _storage_reg_power_var(T), V)
     has_services = has_service_model(model)
-    if has_services
-        r_up_ds = get_expression(container, ReserveDeploymentBalanceUpDischarge, V)
-        r_dn_ds = get_expression(container, ReserveDeploymentBalanceDownDischarge, V)
-    end
+    s_up, s_dn = _storage_reg_reserve_signs(T)
+    UpExpr, DnExpr = _storage_reg_reserve_exprs(T)
+    r_up = has_services ? get_expression(container, UpExpr, V) : nothing
+    r_dn = has_services ? get_expression(container, DnExpr, V) : nothing
 
     constraint_ub =
-        add_constraints_container!(container, StorageRegularizationConstraintDischarge,
-            V,
-            names,
-            time_steps;
-            meta = "ub",
-        )
-
+        add_constraints_container!(container, T, V, names, time_steps; meta = "ub")
     constraint_lb =
-        add_constraints_container!(container, StorageRegularizationConstraintDischarge,
-            V,
-            names,
-            time_steps;
-            meta = "lb",
-        )
+        add_constraints_container!(container, T, V, names, time_steps; meta = "lb")
+    jm = get_jump_model(container)
 
     for d in devices
         name = PSY.get_name(d)
-        constraint_ub[name, 1] =
-            JuMP.@constraint(get_jump_model(container), reg_var[name, 1] == 0)
-        constraint_lb[name, 1] =
-            JuMP.@constraint(get_jump_model(container), reg_var[name, 1] == 0)
+        constraint_ub[name, 1] = JuMP.@constraint(jm, reg_var[name, 1] == 0)
+        constraint_lb[name, 1] = JuMP.@constraint(jm, reg_var[name, 1] == 0)
         for t in time_steps[2:end]
-            if has_services
-                constraint_ub[name, t] = JuMP.@constraint(
-                    get_jump_model(container),
-                    (
-                        powerout_var[name, t - 1] + r_up_ds[name, t - 1] -
-                        r_dn_ds[name, t - 1]
-                    ) - (powerout_var[name, t] + r_up_ds[name, t] - r_dn_ds[name, t]) <=
-                    reg_var[name, t]
-                )
-                constraint_lb[name, t] = JuMP.@constraint(
-                    get_jump_model(container),
-                    (
-                        powerout_var[name, t - 1] + r_up_ds[name, t - 1] -
-                        r_dn_ds[name, t - 1]
-                    ) - (powerout_var[name, t] + r_up_ds[name, t] - r_dn_ds[name, t]) >=
-                    -reg_var[name, t]
-                )
+            lhs = if has_services
+                (
+                    p_var[name, t - 1] +
+                    s_up * r_up[name, t - 1] +
+                    s_dn * r_dn[name, t - 1]
+                ) - (p_var[name, t] + s_up * r_up[name, t] + s_dn * r_dn[name, t])
             else
-                constraint_ub[name, t] = JuMP.@constraint(
-                    get_jump_model(container),
-                    powerout_var[name, t - 1] - powerout_var[name, t] <= reg_var[name, t]
-                )
-                constraint_lb[name, t] = JuMP.@constraint(
-                    get_jump_model(container),
-                    powerout_var[name, t - 1] - powerout_var[name, t] >= -reg_var[name, t]
-                )
+                p_var[name, t - 1] - p_var[name, t]
             end
+            constraint_ub[name, t] = JuMP.@constraint(jm, lhs <= reg_var[name, t])
+            constraint_lb[name, t] = JuMP.@constraint(jm, lhs >= -reg_var[name, t])
         end
     end
     return

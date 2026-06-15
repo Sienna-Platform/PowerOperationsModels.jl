@@ -51,18 +51,6 @@ The specified constraint is generally formulated as:
 struct CopperPlateBalanceConstraint <: ConstraintType end
 
 """
-Struct to create the constraint to balance active power.
-For more information check [ThermalGen Formulations](@ref ThermalGen-Formulations).
-
-The specified constraint is generally formulated as:
-
-```math
-\\sum_{g \\in \\mathcal{G}_c} p_{g,t} &= \\sum_{g \\in \\mathcal{G}} \\Delta p_{g, c, t} &\\quad \\forall c \\in \\mathcal{C} \\ \\forall t \\in \\{1, \\dots, T\\}
-```
-"""
-struct PostContingencyGenerationBalanceConstraint <: PostContingencyConstraintType end
-
-"""
 Struct to create the duration constraint for commitment formulations, i.e. min-up and min-down.
 
 For more information check [ThermalGen Formulations](@ref ThermalGen-Formulations).
@@ -186,6 +174,10 @@ For more information check [Network Formulations](@ref network_formulations).
 The specified constraint depends on the network model chosen.
 """
 struct NodalBalanceReactiveConstraint <: ConstraintType end
+"""Pins the voltage angle (and, for ACP, voltage magnitude) of a subnetwork's reference (slack) bus."""
+struct ReferenceBusConstraint <: ConstraintType end
+"""Branch voltage-angle-difference limits: angmin ≤ va_fr - va_to ≤ angmax."""
+struct AngleDifferenceConstraint <: ConstraintType end
 struct ParticipationAssignmentConstraint <: ConstraintType end
 """
 Struct to create the constraint to participation assignments limits in the active power reserves.
@@ -227,7 +219,6 @@ r_{d,t} \\le R^\\text{th,dn} \\cdot \\text{TF}\\quad  \\forall d\\in \\mathcal{D
 ```
 """
 struct RampConstraint <: ConstraintType end
-struct PostContingencyRampConstraint <: PostContingencyConstraintType end
 struct RampLimitConstraint <: ConstraintType end
 struct RangeLimitConstraint <: ConstraintType end
 """
@@ -245,7 +236,13 @@ The specified constraint is formulated as:
 ```
 """
 struct FlowRateConstraint <: ConstraintType end
-struct PostContingencyEmergencyRateLimitConstraint <: PostContingencyConstraintType end
+"""
+Post-contingency flow-rate limit on monitored branches:
+`-R_m ≤ Σ_j MODF_post[m,c][j]·p_j ≤ R_m, ∀ t`, where `MODF_post[m,c]` is the
+PNM `VirtualMODF` column for monitored arc `m` under contingency `c` and `R_m`
+is the branch emergency rating (system base / per-unit).
+"""
+struct PostContingencyFlowRateConstraint <: PostContingencyConstraintType end
 
 """
 Struct to create the constraint for branch flow rate limits from the 'from' bus to the 'to' bus.
@@ -469,8 +466,6 @@ P^\\text{min} \\le p_t^\\text{in} \\le P^\\text{max}, \\quad \\forall t \\in \\{
 ```
 """
 
-abstract type PostContingencyVariableLimitsConstraint <: PowerVariableLimitsConstraint end
-
 """
 Struct to create the constraint to limit active power input expressions.
 For more information check [Device Formulations](@ref formulation_intro).
@@ -507,34 +502,6 @@ P^\\text{min} \\le p_t \\le P^\\text{max}, \\quad \\forall t \\in \\{1,\\dots,T\
 ```
 """
 struct ActivePowerVariableLimitsConstraint <: PowerVariableLimitsConstraint end
-
-"""
-Struct to create the constraint to limit post-contingency active power expressions.
-For more information check [Device Formulations](@ref formulation_intro).
-
-The specified constraint depends on the UpperBound and LowerBound expressions, but
-in its most basic formulation is of the form:
-
-```math
-P^\\text{min} \\le p_t + \\Delta p_{c, t}  \\le P^\\text{max}, \\quad \\forall c \\in \\mathcal{C} \\ \\forall t \\in \\{1,\\dots,T\\}
-```
-"""
-struct PostContingencyActivePowerVariableLimitsConstraint <:
-       PostContingencyVariableLimitsConstraint end
-
-"""
-Struct to create the constraint to limit post-contingency active power reserve deploymentexpressions.
-For more information check [Device Formulations](@ref formulation_intro).
-
-The specified constraint depends on the UpperBound and LowerBound expressions, but
-in its most basic formulation is of the form:
-
-```math
-\\Delta rsv_{r, c, t}  \\le rsv_{r, c, t}, \\quad \\forall r \\in \\mathcal{R} \\ \\forall c \\in \\mathcal{C} \\ \\forall t \\in \\{1,\\dots,T\\}
-```
-"""
-struct PostContingencyActivePowerReserveDeploymentVariableLimitsConstraint <:
-       PostContingencyVariableLimitsConstraint end
 
 """
 Struct to create the constraint to limit reactive power expressions.
@@ -1064,3 +1031,84 @@ The specified constraints are formulated as:
 ```
 """
 struct ShiftDownActivePowerVariableLimitsConstraint <: PowerVariableLimitsConstraint end
+
+#################################################################################
+# Hybrid System Constraints
+#################################################################################
+
+"""
+Couples the hybrid PCC reserve variables (out + in) to the system-level
+`ActivePowerReserveVariable` of each service the hybrid participates in.
+"""
+struct HybridReserveAssignmentConstraint <: ConstraintType end
+
+"""
+Couples the hybrid PCC reserve variables (out + in) to the sum of per-subcomponent reserve
+allocations (thermal + renewable + charging + discharging).
+"""
+struct HybridReserveBalanceConstraint <: ConstraintType end
+
+"""
+Equates the hybrid's PCC active-power injection to the sum of internal subcomponent
+flows (thermal + renewable + storage discharge - storage charge - load) net of served
+reserves.
+"""
+struct HybridEnergyAssetBalanceConstraint <: ConstraintType end
+
+"""
+Status link between a hybrid PCC active-power variable and the reservation variable.
+Parametric on [`ReserveSide`](@ref).
+"""
+struct HybridStatusOnConstraint{Sd <: ReserveSide} <: ConstraintType end
+
+"""
+Bound between thermal subcomponent power and its commitment status (no-reserves case).
+Parametric on `BoundDirection` (from IOM).
+"""
+struct HybridThermalOnVariableConstraint{B <: IOM.BoundDirection} <: ConstraintType end
+
+"Range constraint on thermal subcomponent power including up/down reserves."
+struct HybridThermalReserveLimitConstraint <: ConstraintType end
+
+"Upper bound on renewable subcomponent power from the time-series forecast."
+struct HybridRenewableActivePowerLimitConstraint <: ConstraintType end
+
+"Range constraint on renewable subcomponent power including up/down reserves."
+struct HybridRenewableReserveLimitConstraint <: ConstraintType end
+
+"Energy balance for the storage subcomponent of a hybrid system, including reserve deployment."
+struct HybridStorageBalanceConstraint <: ConstraintType end
+
+"""
+Mutually-exclusive charge/discharge limit for the hybrid storage subcomponent
+(no-reserves case). Parametric on [`ReserveSide`](@ref).
+"""
+struct HybridStorageStatusOnConstraint{Sd <: ReserveSide} <: ConstraintType end
+
+"""
+Charge- or discharge-side power limit for the hybrid storage subcomponent including
+reserve carve-outs. Parametric on [`ReserveSide`](@ref).
+"""
+struct HybridStorageReservePowerLimitConstraint{Sd <: ReserveSide} <: ConstraintType end
+
+"""
+Bounds the absolute charge- or discharge-power step change between consecutive time
+steps, penalizing oscillation. Active only when the hybrid `\"regularization\"`
+attribute is set. Parametric on [`ReserveSide`](@ref).
+"""
+struct RegularizationConstraint{Sd <: ReserveSide} <: ConstraintType end
+
+"""
+End-of-period energy target for the storage subcomponent of a hybrid system.
+Used when the attribute `energy_target = true`.
+
+Like the storage [`StateofChargeTargetConstraint`](@ref), this is a soft equality with
+non-negative surplus ([`HybridEnergySurplusVariable`](@ref), energy above target) and
+shortage ([`HybridEnergyShortageVariable`](@ref), energy below target) slacks penalized
+in the objective:
+
+```math
+e^{st}_{T} - e^{st+} + e^{st-} = E^{st}_{T}.
+```
+"""
+struct HybridEnergyTargetConstraint <: ConstraintType end

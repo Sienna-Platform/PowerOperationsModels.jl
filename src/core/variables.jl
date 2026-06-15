@@ -6,26 +6,10 @@
 #################################################################################
 
 # POM-specific abstract types (matching PSI hierarchy)
-abstract type AbstractContingencyVariableType <: VariableType end
 abstract type MultiStartVariable <: VariableType end
 abstract type AbstractACActivePowerFlow <: VariableType end
 abstract type AbstractACReactivePowerFlow <: VariableType end
 # AbstractPiecewiseLinearBlockOffer: moved into IOM
-
-"""
-Struct to dispatch the creation of Post-Contingency Active Power Change Variables.
-
-Docs abbreviation: ``\\Delta p_{g,c}``
-"""
-struct PostContingencyActivePowerChangeVariable <: AbstractContingencyVariableType end
-
-"""
-Struct to dispatch the creation of Post-Contingency Active Power Deployment Variable for mapping reserves deployment under contingencies.
-
-Docs abbreviation: ``\\Delta rsv_{r,g,c}``
-"""
-struct PostContingencyActivePowerReserveDeploymentVariable <:
-       AbstractContingencyVariableType end
 
 """
 Struct to dispatch the creation of Hot Start Variable for Thermal units with temperature considerations
@@ -219,6 +203,20 @@ Struct to dispatch the creation of active power flow lower bound slack variables
 Docs abbreviation: ``f^\\text{sl,lo}``
 """
 struct FlowActivePowerSlackLowerBound <: AbstractACActivePowerFlow end
+
+"""
+Struct to dispatch the creation of post-contingency active power flow upper bound slack variables. Relaxes the post-contingency (N-1) emergency-rate upper-bound constraint when `use_slacks = true`.
+
+Docs abbreviation: ``f^\\text{sl,up,N-1}``
+"""
+struct PostContingencyFlowActivePowerSlackUpperBound <: VariableType end
+
+"""
+Struct to dispatch the creation of post-contingency active power flow lower bound slack variables. Relaxes the post-contingency (N-1) emergency-rate lower-bound constraint when `use_slacks = true`.
+
+Docs abbreviation: ``f^\\text{sl,lo,N-1}``
+"""
+struct PostContingencyFlowActivePowerSlackLowerBound <: VariableType end
 
 """
 Struct to dispatch the creation of Phase Shifters Variables
@@ -579,6 +577,90 @@ Auxiliary Variable for Storage Models that solve for total energy output
 """
 struct StorageEnergyOutput <: AuxVariableType end
 
+#################################################################################
+# Hybrid System Variables
+#
+# Paired sibling variable types are parametric on `ReserveSide` (Discharge / Charge).
+#################################################################################
+
+"""
+Abstract type for variables representing flows internal to a `PSY.HybridSystem`.
+"""
+abstract type AbstractHybridSubcomponentVariableType <: VariableType end
+
+"Active power dispatched by the thermal subcomponent of a hybrid system."
+struct HybridThermalActivePower <: AbstractHybridSubcomponentVariableType end
+
+"Active power dispatched by the renewable subcomponent of a hybrid system."
+struct HybridRenewableActivePower <: AbstractHybridSubcomponentVariableType end
+
+"""
+Active power on the storage subcomponent of a hybrid system. Parametric on
+[`ReserveSide`](@ref).
+"""
+struct HybridStorageSubcomponentPower{Sd <: ReserveSide} <:
+       AbstractHybridSubcomponentVariableType end
+
+"Binary reservation variable for the storage subcomponent of a hybrid system."
+struct HybridStorageReservation <: AbstractHybridSubcomponentVariableType end
+
+"""
+Non-negative slack variable bounding the absolute step change in charge or discharge
+power between consecutive time steps. Carried into the objective with a small fixed
+penalty when the hybrid `\"regularization\"` attribute is set.
+"""
+struct RegularizationVariable{Sd <: ReserveSide} <: AbstractHybridSubcomponentVariableType end
+
+"""
+Slack variable for the storage energy of a hybrid system being below its end-of-period
+target. Added when the hybrid `\"energy_target\"` attribute is set and penalized in the
+objective by the storage subcomponent's `energy_shortage_cost`.
+
+Docs abbreviation: ``e^{st-}``
+"""
+struct HybridEnergyShortageVariable <: VariableType end
+
+"""
+Slack variable for the storage energy of a hybrid system being above its end-of-period
+target. Added when the hybrid `\"energy_target\"` attribute is set and penalized in the
+objective by the storage subcomponent's `energy_surplus_cost`.
+
+Docs abbreviation: ``e^{st+}``
+"""
+struct HybridEnergySurplusVariable <: VariableType end
+
+"""
+Abstract type for hybrid reserve variables (both PCC-boundary and subcomponent).
+"""
+abstract type AbstractHybridReserveVariableType <: VariableType end
+
+"""
+Reserve quantity offered to the grid through one side of a hybrid PCC. Parametric on
+[`ReserveSide`](@ref).
+"""
+struct HybridPCCReserveVariable{Sd <: ReserveSide} <: AbstractHybridReserveVariableType end
+
+"""
+Abstract type for per-subcomponent reserve allocations inside a hybrid system
+that do not have a Discharge/Charge axis (thermal and renewable subcomponents).
+"""
+abstract type AbstractHybridSubcomponentInjectorReserveVariableType <:
+              AbstractHybridReserveVariableType end
+
+"Reserve allocated to the thermal subcomponent of a hybrid system."
+struct HybridThermalReserveVariable <: AbstractHybridSubcomponentInjectorReserveVariableType end
+
+"Reserve allocated to the renewable subcomponent of a hybrid system."
+struct HybridRenewableReserveVariable <:
+       AbstractHybridSubcomponentInjectorReserveVariableType end
+
+"""
+Reserve allocated to one side of a hybrid system's storage subcomponent. Parametric on
+[`ReserveSide`](@ref).
+"""
+struct HybridStorageSubcomponentReserveVariable{Sd <: ReserveSide} <:
+       AbstractHybridReserveVariableType end
+
 const MULTI_START_VARIABLES = (HotStartVariable, WarmStartVariable, ColdStartVariable)
 
 should_write_resulting_value(::Type{PiecewiseLinearCostVariable}) = false
@@ -591,16 +673,12 @@ should_write_resulting_value(::Type{<:BinaryInterpolationVariableType}) = false
 should_write_resulting_value(::Type{HydroTurbineFlowRateVariable}) = false
 
 convert_output_to_natural_units(::Type{ActivePowerVariable}) = true
-convert_output_to_natural_units(::Type{PostContingencyActivePowerChangeVariable}) = true
 convert_output_to_natural_units(::Type{PowerAboveMinimumVariable}) = true
 convert_output_to_natural_units(::Type{ActivePowerInVariable}) = true
 convert_output_to_natural_units(::Type{ActivePowerOutVariable}) = true
 convert_output_to_natural_units(::Type{EnergyVariable}) = true
 convert_output_to_natural_units(::Type{ReactivePowerVariable}) = true
 convert_output_to_natural_units(::Type{ActivePowerReserveVariable}) = true
-convert_output_to_natural_units(
-    ::Type{PostContingencyActivePowerReserveDeploymentVariable},
-) = true
 convert_output_to_natural_units(::Type{ServiceRequirementVariable}) = true
 convert_output_to_natural_units(::Type{RateofChangeConstraintSlackUp}) = true
 convert_output_to_natural_units(::Type{RateofChangeConstraintSlackDown}) = true

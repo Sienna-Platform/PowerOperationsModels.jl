@@ -180,6 +180,11 @@ function add_constraints!(
     )
 
     area_ex_var = get_variable(container, FlowActivePowerVariable, PSY.AreaInterchange)
+    net_reduction_data = network_model.network_reduction
+    # Memoize the PTDF orientation sign per (type, name): a degree-two series
+    # member whose native from→to is `:ToFrom` relative to the merged arc
+    # contributes with a flipped sign to the area sum.
+    orientation_sign_cache = Dict{Tuple{DataType, String}, Float64}()
     jm = get_jump_model(container)
     for area_interchange in devices
         inter_change_name = PSY.get_name(area_interchange)
@@ -210,7 +215,14 @@ function add_constraints!(
                 for (type, names) in inter_area_branches
                     flow_expr = get_expression(container, PTDFBranchFlow, type)
                     for name in names
-                        JuMP.add_to_expression!(sum_of_flows, flow_expr[name, t], mult)
+                        orientation_sign = get!(orientation_sign_cache, (type, name)) do
+                            get_ptdf_orientation_sign(net_reduction_data, type, name)
+                        end
+                        JuMP.add_to_expression!(
+                            sum_of_flows,
+                            flow_expr[name, t],
+                            mult * orientation_sign,
+                        )
                     end
                 end
             end

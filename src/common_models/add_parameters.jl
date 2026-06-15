@@ -50,7 +50,7 @@ function add_branch_parameters!(
     ::Type{T},
     devices::U,
     model::DeviceModel{D, W},
-    network_model::NetworkModel{<:AbstractPTDFModel},
+    network_model::NetworkModel{<:PM.AbstractPowerModel},
 ) where {
     T <: ParameterType,
     U <: Union{Vector{D}, IS.FlattenIteratorWrapper{D}},
@@ -85,18 +85,18 @@ end
 # Helpers for _add_time_series_parameters!
 #################################################################################
 
-function _check_dynamic_branch_rating_ts(
+function _check_branch_rating_ts(
     ts::AbstractArray,
     ::Type{T},
     device::PSY.Device,
     model::DeviceModel{D, W},
 ) where {D <: PSY.Component, T <: TimeSeriesParameter, W <: AbstractDeviceFormulation}
-    if !(T <: AbstractDynamicBranchRatingTimeSeriesParameter)
+    if !(T <: AbstractBranchRatingTimeSeriesParameter)
         return
     end
 
     rating = PSY.get_rating(device, PSY.SU)
-    if (T <: PostContingencyDynamicBranchRatingTimeSeriesParameter)
+    if (T <: PostContingencyBranchRatingTimeSeriesParameter)
         if !(PSY.get_rating_b(device, PSY.SU) === nothing)
             rating = PSY.get_rating_b(device, PSY.SU)
         else
@@ -178,7 +178,7 @@ function _add_time_series_parameters!(
                     interval = model_interval,
                     resolution = model_resolution,
                 )
-            _check_dynamic_branch_rating_ts(initial_values[ts_uuid], param, device, model)
+            _check_branch_rating_ts(initial_values[ts_uuid], param, device, model)
         end
     end
 
@@ -241,7 +241,7 @@ end
 function _add_time_series_parameters!(
     container::OptimizationContainer,
     ::Type{T},
-    network_model::NetworkModel{<:AbstractPTDFModel},
+    network_model::NetworkModel{<:PM.AbstractPowerModel},
     devices::U,
     model::DeviceModel{D, W},
 ) where {
@@ -305,7 +305,7 @@ function _add_time_series_parameters!(
     for (name, (arc, reduction)) in PNM.get_name_to_arc_map(net_reduction_data, D)
         reduction_entry = all_branch_maps_by_type[reduction][D][arc]
         device_with_time_series =
-            IOM.get_branch_with_time_series(reduction_entry, ts_type, ts_name)
+            get_branch_with_time_series(reduction_entry, ts_type, ts_name)
         if device_with_time_series === nothing
             continue
         end
@@ -333,7 +333,12 @@ function _add_time_series_parameters!(
                 _unwrap_for_param.((param_instance,), raw_ts_vals, (additional_axes,))
             @assert all(_size_wrapper.(ts_vals) .== (length.(additional_axes),))
         end
-        multiplier = get_multiplier_value(T, reduction_entry, W)
+        # `_resolve_branch_multiplier` is `DeviceModel`-aware: it applies the
+        # branch-rating aggregation policy (parallel groups use the summed rating;
+        # non-parallel entries use `PNM.get_equivalent_rating`). The generic
+        # `get_multiplier_value` only handles plain `PSY.ACTransmission` devices and
+        # would call `PSY.get_rating` on a `BranchesParallel` reduction wrapper.
+        multiplier = _resolve_branch_multiplier(T, reduction_entry, W, model)
         IOM._set_multiplier_at!(parent_mult, multiplier, i_mult)
         for t in time_steps
             if !has_entry
