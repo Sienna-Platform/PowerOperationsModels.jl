@@ -1411,6 +1411,57 @@ function _reverse_admittance(adm)
     )
 end
 
+# ── Native π-admittance helpers ──────────────────────────────────────────────
+# The native DCP/ACP branch builders need each branch's π-model admittance as a
+# `(g, b, g_fr, b_fr, g_to, b_to, tap, shift)` NamedTuple (PowerModels convention:
+# `g + im*b == 1/(r + im*x)` is the series admittance, `*_fr`/`*_to` are the from/to
+# shunts, `tap`/`shift` the transformer ratio/phase). These reproduce, from PSY data and
+# PNM's reduction-aware `EquivalentBranch`, exactly what `pm_translator.jl`'s
+# `get_branch_to_pm` extracts per branch type — the single source of truth for this
+# conversion. (They replace the former `PNM.branch_admittance`, which never landed in PNM.)
+_branch_tap(::PSY.ACTransmission) = 1.0
+_branch_tap(b::PSY.TapTransformer) = PSY.get_tap(b)
+_branch_tap(b::PSY.PhaseShiftingTransformer) = PSY.get_tap(b)
+_branch_shift(::PSY.ACTransmission) = 0.0
+_branch_shift(b::PSY.PhaseShiftingTransformer) = PSY.get_α(b)
+
+# Lines (and other shunt-on-both-ends branches): π-shunt split from/to.
+function _branch_admittance(b::PSY.ACTransmission)
+    ys = 1.0 / (PSY.get_r(b, PSY.SU) + PSY.get_x(b, PSY.SU) * im)
+    b_sh = PSY.get_b(b, PSY.SU)
+    return (
+        g = real(ys), b = imag(ys),
+        g_fr = 0.0, b_fr = b_sh.from, g_to = 0.0, b_to = b_sh.to,
+        tap = 1.0, shift = 0.0,
+    )
+end
+
+# Two-winding transformers: magnetizing shunt allocated to the primary (from) side only.
+function _branch_admittance(
+    b::Union{PSY.Transformer2W, PSY.TapTransformer, PSY.PhaseShiftingTransformer},
+)
+    ys = 1.0 / (PSY.get_r(b, PSY.SU) + PSY.get_x(b, PSY.SU) * im)
+    yt = PSY.get_primary_shunt(b, PSY.SU)
+    return (
+        g = real(ys), b = imag(ys),
+        g_fr = real(yt), b_fr = imag(yt), g_to = 0.0, b_to = 0.0,
+        tap = _branch_tap(b), shift = _branch_shift(b),
+    )
+end
+
+# Reduction-aggregated arc (series chain / parallel group): use PNM's reduction-aware
+# equivalent π-parameters. Series/parallel equivalents of lines carry `tap == 1`.
+function _segment_admittance(segment, nr::PNM.NetworkReductionData)
+    eb = PNM.get_equivalent_physical_branch_parameters(segment, nr)
+    ys = 1.0 / (PNM.get_equivalent_r(eb) + PNM.get_equivalent_x(eb) * im)
+    return (
+        g = real(ys), b = imag(ys),
+        g_fr = PNM.get_equivalent_g_from(eb), b_fr = PNM.get_equivalent_b_from(eb),
+        g_to = PNM.get_equivalent_g_to(eb), b_to = PNM.get_equivalent_b_to(eb),
+        tap = PNM.get_equivalent_tap(eb), shift = PNM.get_equivalent_shift(eb),
+    )
+end
+
 # Reduction-aware admittance for the retained arc (from_no -> to_no). Returns the PNM
 # series/parallel equivalent π-tuple oriented from->to when the arc was aggregated by
 # reduction, or `nothing` when the arc is direct (caller falls back to the branch's own).
@@ -1420,13 +1471,13 @@ function _reduced_arc_admittance(nr::PNM.NetworkReductionData, from_no::Int, to_
     arc = (from_no, to_no)
     rev = (to_no, from_no)
     if haskey(series_map, arc)
-        return PNM.branch_admittance(series_map[arc], nr)
+        return _segment_admittance(series_map[arc], nr)
     elseif haskey(series_map, rev)
-        return _reverse_admittance(PNM.branch_admittance(series_map[rev], nr))
+        return _reverse_admittance(_segment_admittance(series_map[rev], nr))
     elseif haskey(parallel_map, arc)
-        return PNM.branch_admittance(parallel_map[arc], nr)
+        return _segment_admittance(parallel_map[arc], nr)
     elseif haskey(parallel_map, rev)
-        return _reverse_admittance(PNM.branch_admittance(parallel_map[rev], nr))
+        return _reverse_admittance(_segment_admittance(parallel_map[rev], nr))
     end
     return nothing
 end
@@ -1436,9 +1487,9 @@ end
 # series/parallel-aggregated arc.
 function _resolve_branch_admittance(network_model, branch, from_no::Int, to_no::Int)
     nr = get_network_reduction(network_model)
-    isempty(nr) && return PNM.branch_admittance(branch)
+    isempty(nr) && return _branch_admittance(branch)
     eq = _reduced_arc_admittance(nr, from_no, to_no)
-    return eq === nothing ? PNM.branch_admittance(branch) : eq
+    return eq === nothing ? _branch_admittance(branch) : eq
 end
 
 # One-pass per-branch network geometry for the native DCP/ACP builders. Computes each
@@ -1455,7 +1506,7 @@ function _branch_geometries(sys::PSY.System, network_model, devices)
         collapsed = fr.number == to.number
         adm =
             if collapsed
-                PNM.branch_admittance(d)
+                _branch_admittance(d)
             else
                 _resolve_branch_admittance(network_model, d, fr.number, to.number)
             end
@@ -1972,12 +2023,58 @@ end
 # storage 2D (name × time) without inventing a new container shape.
 ################################################################################
 
+# ── Native three-winding helpers ─────────────────────────────────────────────
+# Decompose a Transformer3W into its three wye-model windings via PNM's
+# `ThreeWindingTransformerWinding`, exposing the per-winding data the native 3W builders
+# need: the star-point arc (for reduction-aware bus mapping), the winding rating, and the
+# winding object (for admittance). `suffix` reproduces PNM's per-winding name component
+# (`"<transformer>_winding_<i>"`) so variable/constraint names stay stable.
+# (Replaces the former `PNM.three_winding_arcs` / `PNM.winding_admittance`, which never
+# landed in PNM; psy6 exposes the winding decomposition through this type instead.)
+function _three_winding_arcs(d::PSY.Transformer3W)
+    star_arcs = (
+        PSY.get_primary_star_arc(d),
+        PSY.get_secondary_star_arc(d),
+        PSY.get_tertiary_star_arc(d),
+    )
+    out = NamedTuple[]
+    for i in 1:3
+        w = PNM.ThreeWindingTransformerWinding(d, i)
+        push!(
+            out,
+            (
+                suffix = "winding_$i",
+                arc = star_arcs[i],
+                rating = PNM.get_equivalent_rating(w),
+                winding = w,
+            ),
+        )
+    end
+    return out
+end
+
+# No phase shift for windings; only the (optional) winding tap matters for the ACP π-model.
+_winding_tap(::PNM.ThreeWindingTransformerWinding) = 1.0
+_winding_tap(w::PNM.ThreeWindingTransformerWinding{PSY.PhaseShiftingTransformer3W}) =
+    PNM.get_equivalent_tap(w)
+
+# Per-winding π-admittance NamedTuple (shunt on the primary side only, no phase shift).
+function _winding_admittance(w::PNM.ThreeWindingTransformerWinding)
+    ys = 1.0 / (PNM.get_equivalent_r(w) + PNM.get_equivalent_x(w) * im)
+    b_sh = PNM.get_equivalent_b(w)
+    return (
+        g = real(ys), b = imag(ys),
+        g_fr = 0.0, b_fr = b_sh.from, g_to = 0.0, b_to = b_sh.to,
+        tap = _winding_tap(w),
+    )
+end
+
 "Build the list of per-winding variable names for a set of Transformer3W devices."
 function _three_winding_var_names(devices)
     names = String[]
     for d in devices
         dname = PSY.get_name(d)
-        for w in PNM.three_winding_arcs(d)
+        for w in _three_winding_arcs(d)
             push!(names, dname * "_" * w.suffix)
         end
     end
@@ -2046,7 +2143,7 @@ function add_to_expression!(
     time_steps = get_time_steps(container)
     for d in devices
         dname = PSY.get_name(d)
-        for w in PNM.three_winding_arcs(d)
+        for w in _three_winding_arcs(d)
             wname = dname * "_" * w.suffix
             from_no = PNM.get_mapped_bus_number(network_reduction, PSY.get_from(w.arc))
             to_no = PNM.get_mapped_bus_number(network_reduction, PSY.get_to(w.arc))
@@ -2082,7 +2179,7 @@ for (E, V, isfrom) in (
         time_steps = get_time_steps(container)
         for d in devices
             dname = PSY.get_name(d)
-            for w in PNM.three_winding_arcs(d)
+            for w in _three_winding_arcs(d)
                 wname = dname * "_" * w.suffix
                 terminal_bus_obj = $isfrom ? PSY.get_from(w.arc) : PSY.get_to(w.arc)
                 bus_no = PNM.get_mapped_bus_number(network_reduction, terminal_bus_obj)
@@ -2116,9 +2213,9 @@ function add_constraints!(
 
     for d in devices
         dname = PSY.get_name(d)
-        for w in PNM.three_winding_arcs(d)
+        for w in _three_winding_arcs(d)
             wname = dname * "_" * w.suffix
-            adm = PNM.winding_admittance(w)
+            adm = _winding_admittance(w.winding)
             fr = _retained_bus(number_to_name, network_model, PSY.get_from(w.arc))
             to = _retained_bus(number_to_name, network_model, PSY.get_to(w.arc))
             fr.number == to.number && continue
@@ -2173,9 +2270,9 @@ function add_constraints!(
 
     for d in devices
         dname = PSY.get_name(d)
-        for w in PNM.three_winding_arcs(d)
+        for w in _three_winding_arcs(d)
             wname = dname * "_" * w.suffix
-            adm = PNM.winding_admittance(w)
+            adm = _winding_admittance(w.winding)
             g, b, g_fr, b_fr, g_to, b_to, tm =
                 adm.g, adm.b, adm.g_fr, adm.b_fr, adm.g_to, adm.b_to, adm.tap
             fr = _retained_bus(number_to_name, network_model, PSY.get_from(w.arc))
@@ -2246,7 +2343,7 @@ function add_constraints!(
     )
     for d in devices
         dname = PSY.get_name(d)
-        for w in PNM.three_winding_arcs(d)
+        for w in _three_winding_arcs(d)
             wname = dname * "_" * w.suffix
             for t in time_steps
                 cons_lb[wname, t] = JuMP.@constraint(
@@ -2278,7 +2375,7 @@ function add_constraints!(
     )
     for d in devices
         dname = PSY.get_name(d)
-        for w in PNM.three_winding_arcs(d)
+        for w in _three_winding_arcs(d)
             wname = dname * "_" * w.suffix
             r2 = w.rating^2
             for t in time_steps
@@ -2308,7 +2405,7 @@ function add_constraints!(
     )
     for d in devices
         dname = PSY.get_name(d)
-        for w in PNM.three_winding_arcs(d)
+        for w in _three_winding_arcs(d)
             wname = dname * "_" * w.suffix
             r2 = w.rating^2
             for t in time_steps
