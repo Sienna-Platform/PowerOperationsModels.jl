@@ -336,7 +336,9 @@ function POM.add_power_flow_data!(
     bus_aux_var_components = Dict{Type{<:AuxVariableType}, Set{Tuple{<:DataType, <:Int}}}()
     n_time_steps = length(get_time_steps(container))
     for (T, evaluator) in pairs(get_evaluators(evaluations))
-        evaluator = _with_time_steps(evaluator, n_time_steps)
+        # `evaluator` is a `POM.PowerFlowEvaluator` config wrapper; unwrap to the
+        # underlying PowerFlows model before building the runtime container.
+        evaluator = _with_time_steps(POM.get_power_flow_model(evaluator), n_time_steps)
         @info "Building PowerFlow evaluator using $(evaluator)"
         pf_data = PFS.make_power_flow_container(evaluator, sys)
         pf_e_data = PowerFlowEvaluationData(pf_data)

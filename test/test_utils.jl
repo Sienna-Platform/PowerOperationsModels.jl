@@ -32,7 +32,9 @@ end
 
     sparse_num =
         JuMP.Containers.@container([i = 1:10, j = (i + 1):10, t = 1:24], 0.0 + i + j + t)
-    @test_throws MethodError IOM.to_dataframe(sparse_num, mock_key)
+    # `to_dataframe` now supports integer-keyed sparse axes (one column per retained
+    # (i, j) pair, one row per `t`), so it returns a DataFrame rather than erroring.
+    @test size(IOM.to_dataframe(sparse_num, mock_key)) == (24, 45)
 
     i_num = 1:10
     j_vals = Dict("$i" => string.((i + 1):11) for i in i_num)

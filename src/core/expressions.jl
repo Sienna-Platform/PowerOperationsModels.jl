@@ -1,11 +1,7 @@
 # POM-specific expression types
 # Base expression types (SystemBalanceExpressions, CostExpressions, etc.) are imported from IOM
 
-# POM-specific abstract type for post-contingency system balance expressions
-abstract type PostContingencySystemBalanceExpressions <: SystemBalanceExpressions end
-
 # POM-specific concrete types
-struct PostContingencyActivePowerBalance <: PostContingencySystemBalanceExpressions end
 struct ComponentReserveUpBalanceExpression <: ExpressionType end
 struct ComponentReserveDownBalanceExpression <: ExpressionType end
 struct InterfaceTotalFlow <: ExpressionType end
@@ -137,6 +133,5 @@ should_write_resulting_value(
 # Method extensions for unit conversion
 convert_output_to_natural_units(::Type{InterfaceTotalFlow}) = true
 convert_output_to_natural_units(::Type{PostContingencyBranchFlow}) = true
-convert_output_to_natural_units(::Type{PostContingencyActivePowerGeneration}) = true
 convert_output_to_natural_units(::Type{PTDFBranchFlow}) = true
 convert_output_to_natural_units(::Type{RealizedShiftedLoad}) = true

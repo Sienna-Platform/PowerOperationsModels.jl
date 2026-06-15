@@ -16,7 +16,6 @@ struct MyCustomDeviceFormulation <: IOM.AbstractDeviceFormulation end
 
 abstract type AbstractStandardUnitCommitment <: AbstractThermalUnitCommitment end
 abstract type AbstractCompactUnitCommitment <: AbstractThermalUnitCommitment end
-abstract type AbstractSecurityConstrainedUnitCommitment <: AbstractThermalUnitCommitment end
 
 """
 Formulation type to enable basic unit commitment representation without any intertemporal (ramp, min on/off time) constraints
@@ -26,12 +25,6 @@ struct ThermalBasicUnitCommitment <: AbstractStandardUnitCommitment end
 Formulation type to enable standard unit commitment with intertemporal constraints and simplified startup profiles
 """
 struct ThermalStandardUnitCommitment <: AbstractStandardUnitCommitment end
-
-"""
-Formulation type to enable Security-Constrained (G-1) standard unit commitment with intertemporal constraints and simplified startup profiles
-"""
-struct ThermalSecurityConstrainedStandardUnitCommitment <:
-       AbstractSecurityConstrainedUnitCommitment end
 
 """
 Formulation type to enable basic dispatch without any intertemporal (ramp) constraints
@@ -94,19 +87,11 @@ struct DeviceLimitedRegulation <: AbstractRegulationFormulation end
 ########################### Renewable Generation Formulations ##############################
 # AbstractRenewableFormulation is imported from IS.Optimization via IOM
 abstract type AbstractRenewableDispatchFormulation <: AbstractRenewableFormulation end
-abstract type AbstractSecurityConstrainedRenewableDispatchFormulation <:
-              AbstractRenewableDispatchFormulation end
 
 """
 Formulation type to add injection variables constrained by a maximum injection time series for `RenewableGen`
 """
 struct RenewableFullDispatch <: AbstractRenewableDispatchFormulation end
-
-"""
-Formulation type to enable Renewable Security-Constrained (G-1) and add injection variables constrained by a maximum injection time series for `RenewableGen`
-"""
-struct RenewableSecurityConstrainedFullDispatch <:
-       AbstractSecurityConstrainedRenewableDispatchFormulation end
 
 """
 Formulation type to add real and reactive injection variables with constant power factor with maximum real power injections constrained by a time series for `RenewableGen`
@@ -155,6 +140,62 @@ struct StaticBranchBounds <: AbstractBranchFormulation end
 Branch type to avoid flow constraints
 """
 struct StaticBranchUnbounded <: AbstractBranchFormulation end
+
+abstract type AbstractSecurityConstrainedStaticBranch <: AbstractBranchFormulation end
+
+"""
+Security-constrained branch formulation that enforces post-contingency
+emergency flow limits as inequality constraints on ACTransmission branches
+under N-k contingency scenarios. The set of contingencies modeled is the
+union of `outages` configured on each `DeviceModel{<:ACTransmission, <:AbstractSecurityConstrainedStaticBranch}`
+in the template.
+
+Concretely, for every monitored ACTransmission branch and every claimed
+outage, this formulation adds:
+
+```
+-rate_emergency ≤ post_contingency_flow ≤ rate_emergency
+```
+
+where `post_contingency_flow` is derived from the modification factors
+(MODF) provided by `PowerNetworkMatrices` and `rate_emergency` comes from
+the branch's `rating_b` (falling back to `rating` only when `rating_b` is
+unset), and becomes time-varying when a
+`PostContingencyBranchRatingTimeSeriesParameter` is attached.
+
+Outage modeling notes:
+- An outage UUID is "claimed" by `DeviceModel{D, SC}` iff `D` is among the
+  types of the outaged (associated) components on that outage. A
+  multi-component outage is therefore claimed by every SC `DeviceModel`
+  whose component type appears in its outaged set; the post-contingency
+  build deduplicates by referencing the first claimer. The OUTAGED
+  component's type — not the monitored components — must be covered by an
+  SC `DeviceModel` for the outage to contribute any constraints.
+- The monitored set is whatever each outage explicitly lists in its
+  `monitored_components`. There is no implicit "monitor everything" default:
+  an outage with empty `monitored_components` monitors nothing (a warning is
+  emitted) and contributes no post-contingency constraints. This is
+  deliberate — defaulting to monitoring every branch under every outage would
+  silently produce an N-1-everything-by-everything problem that is
+  intractable for realistic systems; the user must opt in to each monitored
+  branch.
+- A monitored component whose type is not a modeled `PSY.ACTransmission`
+  branch type (either absent from the template, or modeled but not a branch)
+  is skipped (warned once per type at template validation; no
+  post-contingency constraints are built for it).
+- `PSY.PlannedOutage` instances are excluded by default; set
+  `attributes = Dict("include_planned_outages" => true)` on the
+  `DeviceModel` to include them.
+- Both the monitored AND the outaged component endpoints are pinned in the
+  network reduction (added to `irreducible_buses`). This prevents radial /
+  degree-two reductions from collapsing the contingency arc out of the
+  reduced topology, which would otherwise leave PNM's MODF column without a
+  matching arc to apply.
+"""
+struct SecurityConstrainedStaticBranch <: AbstractSecurityConstrainedStaticBranch end
+
+IOM.supports_outages(::Type{<:AbstractSecurityConstrainedStaticBranch}) = true
+
 """
 Branch formulation for PhaseShiftingTransformer flow control
 """
@@ -265,8 +306,6 @@ struct VoltageDispatchHVDCNetworkModel <: AbstractHVDCNetworkModel end
 ########################### Service Formulations ###########################################
 # AbstractServiceFormulation and AbstractReservesFormulation are imported from IS.Optimization via IOM
 
-abstract type AbstractSecurityConstrainedReservesFormulation <: AbstractReservesFormulation end
-
 abstract type AbstractAGCFormulation <: AbstractServiceFormulation end
 
 struct PIDSmoothACE <: AbstractAGCFormulation end
@@ -280,12 +319,6 @@ struct GroupReserve <: AbstractReservesFormulation end
 Struct for to add reserves to be larger than a specified requirement
 """
 struct RangeReserve <: AbstractReservesFormulation end
-
-"""
-Struct for to add reserves to be larger than a specified requirement and map how those should be allocated and deployed considering generators outages
-"""
-struct RangeReserveWithDeliverabilityConstraints <:
-       AbstractSecurityConstrainedReservesFormulation end
 
 """
 Struct for to add reserves to be larger than a variable requirement depending of costs

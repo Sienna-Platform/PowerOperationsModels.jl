@@ -2,17 +2,6 @@
 ############################### Reserve Variables #########################################
 
 get_variable_multiplier(::Type{<:VariableType}, ::Type{<:PSY.Reserve}, ::Type{<:AbstractReservesFormulation}) = NaN
-############################### PostContingencyActivePowerReserveDeploymentVariable, Reserve #########################################
-get_variable_binary(::Type{PostContingencyActivePowerReserveDeploymentVariable}, ::Type{<:PSY.Reserve}, ::Type{<:AbstractSecurityConstrainedReservesFormulation}) = false
-function get_variable_upper_bound(::Type{PostContingencyActivePowerReserveDeploymentVariable}, r::PSY.Reserve, d::PSY.Device, ::Type{<:AbstractSecurityConstrainedReservesFormulation})
-    return  PSY.get_max_active_power(d, PSY.SU)
-end
-get_variable_lower_bound(::Type{PostContingencyActivePowerReserveDeploymentVariable}, ::PSY.Reserve, ::PSY.Device, ::Type) = 0.0
-get_variable_warm_start_value(::Type{PostContingencyActivePowerReserveDeploymentVariable}, d::PSY.Reserve, ::Type{<:AbstractSecurityConstrainedReservesFormulation}) = 0.0
-get_variable_multiplier(::Type{<:AbstractContingencyVariableType}, ::Type{<:PSY.Reserve{PSY.ReserveDown}}, ::Type{<:AbstractSecurityConstrainedReservesFormulation}) = -1.0
-get_variable_multiplier(::Type{<:AbstractContingencyVariableType}, ::Type{<:PSY.Reserve{PSY.ReserveUp}}, ::Type{<:AbstractSecurityConstrainedReservesFormulation}) = 1.0
-get_variable_multiplier(::Type{<:VariableType}, ::Type{<:PSY.Generator}, ::Type{<:AbstractSecurityConstrainedReservesFormulation}) = -1.0
-
 ############################### ActivePowerReserveVariable, Reserve #########################################
 get_variable_binary(::Type{ActivePowerReserveVariable}, ::Type{<:PSY.Reserve}, ::Type{<:AbstractReservesFormulation}) = false
 function get_variable_upper_bound(::Type{ActivePowerReserveVariable}, r::PSY.Reserve, d::PSY.Device, ::Type{<:AbstractReservesFormulation})
@@ -35,9 +24,8 @@ get_variable_upper_bound(::Type{ServiceRequirementVariable}, ::PSY.ReserveDemand
 get_variable_lower_bound(::Type{ServiceRequirementVariable}, ::PSY.ReserveDemandCurve, ::PSY.Component, ::Type{<:AbstractReservesFormulation}) = 0.0
 
 # `VariableReserve` stores `requirement` as a dimensionless factor that scales its
-# time series, so its getter is unitless. Every other reserve type stores an MVA
-# requirement and needs an explicit unit system.
-_get_requirement(service::PSY.VariableReserve) = PSY.get_requirement(service)
+# requirement and needs an explicit unit system (PS6 made the reserve requirement
+# getter units-aware for every reserve type, including VariableReserve).
 _get_requirement(service) = PSY.get_requirement(service, PSY.SU)
 
 get_multiplier_value(::Type{RequirementTimeSeriesParameter}, d::PSY.Reserve, ::Type{<:AbstractReservesFormulation}) = _get_requirement(d)
@@ -67,7 +55,7 @@ end
 function get_default_time_series_names(
     ::Type{<:PSY.Reserve},
     ::Type{T},
-) where {T <: Union{RangeReserve, RampReserve, RangeReserveWithDeliverabilityConstraints}}
+) where {T <: Union{RangeReserve, RampReserve}}
     return Dict{Type{<:TimeSeriesParameter}, String}(
         RequirementTimeSeriesParameter => "requirement",
     )

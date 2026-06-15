@@ -147,7 +147,7 @@ function construct_device!(
     network_model::NetworkModel{<:AbstractPowerModel},
 ) where {
     T <: PSY.ThermalGen,
-    U <: Union{AbstractStandardUnitCommitment, AbstractSecurityConstrainedUnitCommitment},
+    U <: AbstractStandardUnitCommitment,
 }
     devices = get_available_components(device_model, sys)
 

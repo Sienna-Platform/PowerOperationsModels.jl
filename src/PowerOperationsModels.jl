@@ -10,6 +10,8 @@ import JuMP
 import JuMP.Containers: DenseAxisArray, SparseAxisArray
 import Logging
 import PowerNetworkMatrices
+# Brought into namespace so the `export PTDF` / `export VirtualPTDF` below resolve (re-export to POM users)
+import PowerNetworkMatrices: PTDF, VirtualPTDF
 import PowerSystems
 import PowerSystems: get_component
 import PrettyTables
@@ -32,8 +34,6 @@ const PM = PowerModels
 
 # Import PM types into module namespace for re-export
 using .PowerModels:
-    DCPPowerModel,
-    ACPPowerModel,
     AbstractDCPModel,
     AbstractACPModel,
     AbstractActivePowerModel,
@@ -66,8 +66,8 @@ import InfrastructureSystems.Optimization:
     ObjectiveFunctionParameter
 
 # Import formulation abstract types from InfrastructureSystems.Optimization
-# Note: AbstractPTDFModel and AbstractSecurityConstrainedPTDFModel are defined
-# in this package (network_formulations.jl) as subtypes of AbstractDCPModel.
+# Note: AbstractPTDFModel is defined in this package (network_formulations.jl)
+# as a subtype of AbstractDCPModel.
 import InfrastructureSystems.Optimization:
     AbstractDeviceFormulation,
     AbstractThermalFormulation,
@@ -92,7 +92,8 @@ import InfrastructureOptimizationModels:
     # Network model compatibility checks (extended in core/network_formulations.jl)
     requires_all_branch_models,
     supports_branch_filtering,
-    ignores_branch_filtering
+    ignores_branch_filtering,
+    branches_modeled
 
 # Import functions that POM extends with device-specific implementations
 import InfrastructureOptimizationModels:
@@ -285,15 +286,19 @@ include("common_models/market_bid_overrides.jl")
 
 # AC Transmission Models
 include("ac_transmission_models/AC_branches.jl")
+include("ac_transmission_models/security_constrained_branch.jl")
 include("ac_transmission_models/branch_constructor.jl")
 
 # Network Models
+include("network_models/network_reductions.jl")
 include("network_models/instantiate_network_model.jl")
 include("network_models/network_slack_variables.jl")
 include("network_models/copperplate_model.jl")
 include("network_models/area_balance_model.jl")
 include("network_models/powermodels_interface.jl")
 include("network_models/pm_translator.jl")
+include("network_models/dcp_model.jl")
+include("network_models/acp_model.jl")
 include("network_models/network_constructor.jl")
 
 # Services Models
@@ -526,6 +531,8 @@ export VoltageAngle
 export FlowActivePowerVariable
 export FlowActivePowerSlackUpperBound
 export FlowActivePowerSlackLowerBound
+export PostContingencyFlowActivePowerSlackUpperBound
+export PostContingencyFlowActivePowerSlackLowerBound
 export FlowActivePowerFromToVariable
 export FlowActivePowerToFromVariable
 export FlowReactivePowerFromToVariable
@@ -544,10 +551,6 @@ export PiecewiseLinearCostVariable
 # Rate Constraint Slack Variables
 export RateofChangeConstraintSlackUp
 export RateofChangeConstraintSlackDown
-
-# Contingency Variables
-export PostContingencyActivePowerChangeVariable
-export PostContingencyActivePowerReserveDeploymentVariable
 
 # HVDC Variables
 export DCVoltage
@@ -717,6 +720,7 @@ export HybridRenewableActivePowerTimeSeriesParameter
 export FlowRateConstraint
 export FlowRateConstraintFromTo
 export FlowRateConstraintToFrom
+export PostContingencyFlowRateConstraint
 export FlowLimitConstraint
 export FlowLimitFromToConstraint
 export FlowLimitToFromConstraint
@@ -733,6 +737,8 @@ export RampLimitConstraint
 export CopperPlateBalanceConstraint
 export ActiveRangeICConstraint
 export NodalBalanceActiveConstraint
+export ReferenceBusConstraint
+export AngleDifferenceConstraint
 export RequirementConstraint
 export DurationConstraint
 export CommitmentConstraint
@@ -768,8 +774,6 @@ export FuelConsumptionExpression
 export ActivePowerRangeExpressionLB
 export ActivePowerRangeExpressionUB
 export PostContingencyBranchFlow
-export PostContingencyActivePowerGeneration
-export PostContingencyActivePowerBalance
 export NetActivePower
 export DCCurrentBalance
 export ComponentReserveUpBalanceExpression
@@ -810,7 +814,6 @@ export ThermalMultiStartUnitCommitment
 export ThermalCompactUnitCommitment
 export ThermalBasicCompactUnitCommitment
 export ThermalCompactDispatch
-export ThermalSecurityConstrainedStandardUnitCommitment
 
 # Load Formulations
 export StaticPowerLoad
@@ -821,7 +824,6 @@ export PowerLoadShift
 # Renewable Formulations
 export RenewableFullDispatch
 export RenewableConstantPowerFactor
-export RenewableSecurityConstrainedFullDispatch
 
 # Source Formulations
 export ImportExportSourceModel
@@ -833,6 +835,7 @@ export SynchronousCondenserBasicDispatch
 export StaticBranch
 export StaticBranchBounds
 export StaticBranchUnbounded
+export SecurityConstrainedStaticBranch
 export PhaseAngleControl
 
 # DC Branch Formulations
@@ -865,7 +868,6 @@ export AbstractReservesFormulation
 export PIDSmoothACE
 export GroupReserve
 export RangeReserve
-export RangeReserveWithDeliverabilityConstraints
 export StepwiseCostReserve
 export RampReserve
 export NonSpinningReserve
@@ -903,8 +905,6 @@ export NFAPowerModel
 # PowerNetworkMatrices
 export PTDF
 export VirtualPTDF
-export LODF
-export VirtualLODF
 
 # Other utilities
 export get_name
@@ -912,6 +912,10 @@ export get_model_base_power
 export get_optimizer_stats
 export get_resolution
 
-export DynamicBranchRatingTimeSeriesParameter
+export BranchRatingTimeSeriesParameter
+export PostContingencyBranchRatingTimeSeriesParameter
+
+# Network model capability traits (IOM default + POM overrides in core/network_formulations.jl)
+export branches_modeled
 
 end

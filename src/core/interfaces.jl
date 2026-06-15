@@ -162,13 +162,31 @@ function add_power_flow_data!(
 end
 
 """
+Config-side adapter that wraps a power-flow model (e.g. a PowerFlows
+`PowerFlowEvaluationModel` such as `ACPowerFlow()`) as an `IOM.AbstractEvaluator`
+so it can be stored on a `NetworkModel`'s `EvaluationContainer`. IOM owns the
+abstract evaluator interface but carries no PowerFlows dependency, so the concrete
+adapter lives here (and is unwrapped by the PowerFlows extension's
+`add_power_flow_data!`). Kept type-generic so POM core needs no PowerFlows types.
+"""
+struct PowerFlowEvaluator{T} <: IOM.AbstractEvaluator
+    model::T
+end
+
+"Return the wrapped power-flow model from a `PowerFlowEvaluator`."
+get_power_flow_model(ev::PowerFlowEvaluator) = ev.model
+
+"""
 Build an `EvaluationContainer` holding a single evaluator. Convenience for the
 common single-evaluator case at call sites such as
 `NetworkModel(...; evaluations = power_flow_evaluations(ACPowerFlow()))`.
+
+The power-flow model is keyed by its own type and wrapped in a
+[`PowerFlowEvaluator`](@ref) to satisfy IOM's `AbstractEvaluator` interface.
 """
 function power_flow_evaluations(ev::T) where {T}
     ec = IOM.EvaluationContainer()
-    IOM.add_evaluator!(ec, T, ev)
+    IOM.add_evaluator!(ec, T, PowerFlowEvaluator(ev))
     return ec
 end
 

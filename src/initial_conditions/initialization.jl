@@ -9,6 +9,11 @@ function get_initial_conditions_template(
         get_network_formulation(model.template);
         use_slacks = get_use_slacks(get_network_model(model.template)),
         PTDF_matrix = get_PTDF_matrix(get_network_model(model.template)),
+        # Carry the MODF matrix forward so security-constrained branch models
+        # (which read the registered contingencies off the network model's MODF)
+        # can build inside the initial-conditions sub-model. Without this the IC
+        # build hits `get_registered_contingencies(nothing)`.
+        MODF_matrix = get_MODF_matrix(get_network_model(model.template)),
         reduce_radial_branches = get_reduce_radial_branches(
             get_network_model(model.template),
         ),
@@ -56,7 +61,7 @@ function get_initial_conditions_template(
         base_model.attributes = service_model.attributes
         set_service_model!(ic_template, get_service_name(service_model), base_model)
     end
-    set_number_of_steps!(network_model.reduced_branch_tracker, number_of_steps)
+    _reset_reduced_branch_tracker!(network_model, number_of_steps)
     if !isempty(get_service_models(model.template))
         _add_services_to_device_model!(ic_template)
     end

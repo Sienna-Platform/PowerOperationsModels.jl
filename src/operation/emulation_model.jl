@@ -212,7 +212,7 @@ keyword arguments to that function.
   - `export_problem_outputs::Bool`: If true, export OptimizationProblemOutputs DataFrames to CSV files.
   - `output_dir::String`: Required if the model is not already built, otherwise ignored
   - `enable_progress_bar::Bool`: Enables/Disable progress bar printing
-  - `export_optimization_model::Bool`: If true, serialize the model to a file to allow re-execution later.
+  - `export_optimization_problem::Bool`: If true, serialize the model to a file to allow re-execution later.
   - `store_system_in_results::Bool = true`: If true, stores the system as JSON in the results HDF5 file.
 
 # Examples
@@ -228,7 +228,7 @@ function run!(
     console_level = Logging.Error,
     file_level = Logging.Info,
     disable_timer_outputs = false,
-    export_optimization_model = true,
+    export_optimization_problem = true,
     enable_progress_bar = _progress_meter_enabled(),
     store_system_in_results = true,
     kwargs...,
@@ -270,7 +270,7 @@ function run!(
                     )
                     IOM.set_run_status!(model, RunStatus.SUCCESSFULLY_FINALIZED)
                 end
-                if export_optimization_model
+                if export_optimization_problem
                     TimerOutputs.@timeit RUN_OPERATION_MODEL_TIMER "Serialize" begin
                         serialize_optimization_model(model)
                     end
@@ -287,6 +287,7 @@ function run!(
             end
         end
     finally
+        IOM.wait_for_serialization!(model)
         IOM.unregister_recorders!(model)
         close(logger)
     end
