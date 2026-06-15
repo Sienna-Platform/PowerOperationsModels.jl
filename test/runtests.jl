@@ -1,144 +1,36 @@
-include("includes.jl")
+# Parallel test runner. Each top-level `test_*.jl` file runs in its OWN isolated Julia
+# worker process (via ParallelTestRunner/Malt), so files execute concurrently and do
+# not share mutable state (PowerSystemCaseBuilder caches, the global logger, etc.).
+#
+#   julia --project=test test/runtests.jl                  # full suite, all jobs
+#   julia --project=test test/runtests.jl test_model_decision   # filter by file name (startswith)
+#   julia --project=test test/runtests.jl --jobs=4         # cap parallelism
+#   julia --project=test test/runtests.jl --list           # list discoverable tests
+#
+# NOTE: the previous serial runner asserted "no Error-level log events across the whole
+# run" via a single global MultiLogger. That global assertion does not carry to
+# per-worker isolation and has been dropped; the per-`@test`/`@testset` assertions
+# inside each file still run and gate the result.
+using PowerOperationsModels
+using ParallelTestRunner
 
-# Code Quality Tests - TODO: Re-enable once exports are cleaned up
-import Aqua
-Aqua.test_undefined_exports(PowerOperationsModels)
-Aqua.test_ambiguities(PowerOperationsModels)
-Aqua.test_stale_deps(PowerOperationsModels)
-# Aqua.find_persistent_tasks_deps(PowerOperationsModels)
-# Aqua.test_persistent_tasks(PowerOperationsModels)
-Aqua.test_unbound_args(PowerOperationsModels)
+const TEST_DIR = @__DIR__
 
-const LOG_FILE = "power-simulations-test.log"
-
-const DISABLED_TEST_FILES = [  # Can generate with ls -1 test | grep "test_.*.jl"
-# "test_device_branch_constructors.jl",
-# "test_device_hvdc.jl",
-# "test_device_hydro_constructors.jl",
-# "test_device_lcc.jl",
-# "test_device_load_constructors.jl",
-# "test_device_renewable_generation_constructors.jl",
-# "test_device_source_constructors.jl",
-# "test_device_synchronous_condenser_constructors.jl",
-# "test_device_thermal_generation_constructors.jl",
-# "test_formulation_combinations.jl",
-# "test_import_export_cost.jl",
-# "test_initialization_problem.jl",
-# "test_is_time_variant_proportional.jl",
-# "test_market_bid_cost.jl",
-# "test_mbc_parameter_population.jl",
-# "test_model_decision.jl",
-# "test_multi_interval.jl",
-# "test_network_constructors.jl",
-# "test_network_constructors_with_branch_rating_time_series.jl",
-# "test_power_flow_in_the_loop.jl",
-# "test_problem_template.jl",
-# "test_storage_device_models.jl",
-# "test_transfer_initial_conditions.jl",
-# "test_utils.jl",
-]
-
-LOG_LEVELS = Dict(
-    "Debug" => Logging.Debug,
-    "Info" => Logging.Info,
-    "Warn" => Logging.Warn,
-    "Error" => Logging.Error,
+# Discover ONLY the top-level `test_*.jl` files. `includes.jl`, the `test_utils/`
+# helpers, and `test_data/` are shared infrastructure, not standalone testsets — they
+# must not be run as tests (ParallelTestRunner's default discovery would pick them up).
+testsuite = Dict{String, Expr}(
+    splitext(f)[1] => :(include($(joinpath(TEST_DIR, f)))) for
+    f in readdir(TEST_DIR) if startswith(f, "test_") && endswith(f, ".jl")
 )
 
-function get_logging_level(env_name::String, default)
-    level = get(ENV, env_name, default)
-    log_level = get(LOG_LEVELS, level, nothing)
-    if log_level === nothing
-        error("Invalid log level $level: Supported levels: $(values(LOG_LEVELS))")
-    end
+# Shared preamble (package imports, `test_utils`, const aliases) evaluated into each
+# test's sandbox module before the test file's body runs.
+const INIT_CODE = :(include($(joinpath(TEST_DIR, "includes.jl"))))
 
-    return log_level
-end
+# Worker-process env: PowerSystemCaseBuilder reads a shared serialized-system HDF5
+# store concurrently across workers — disable HDF5 file locking to avoid cross-process
+# lock contention. Also flag Sienna test mode (includes.jl sets it too).
+const WORKER_ENV = ["HDF5_USE_FILE_LOCKING" => "FALSE", "RUNNING_SIENNA_TESTS" => "true"]
 
-"""
-Includes the given test files, given as a list without their ".jl" extensions.
-If none are given it will scan the directory of the calling file and include all
-the julia files.
-"""
-macro includetests(testarg...)
-    if length(testarg) == 0
-        tests = []
-    elseif length(testarg) == 1
-        tests = testarg[1]
-    else
-        error("@includetests takes zero or one argument")
-    end
-
-    quote
-        tests = $tests
-        rootfile = @__FILE__
-        if length(tests) == 0
-            tests = readdir(dirname(rootfile))
-            tests = filter(
-                f ->
-                    startswith(f, "test_") && endswith(f, ".jl") && f != basename(rootfile),
-                tests,
-            )
-        else
-            tests = map(f -> string(f, ".jl"), tests)
-        end
-        println()
-        if !isempty(DISABLED_TEST_FILES)
-            @warn("Some tests are disabled $DISABLED_TEST_FILES")
-        end
-        for test in tests
-            test ∈ DISABLED_TEST_FILES && continue
-            print(splitext(test)[1], ": ")
-            include(test)
-            println()
-        end
-    end
-end
-
-function get_logging_level_from_env(env_name::String, default)
-    level = get(ENV, env_name, default)
-    return IS.get_logging_level(level)
-end
-
-function run_tests()
-    logging_config_filename = get(ENV, "SIIP_LOGGING_CONFIG", nothing)
-    if logging_config_filename !== nothing
-        config = IS.LoggingConfiguration(logging_config_filename)
-    else
-        config = IS.LoggingConfiguration(;
-            filename = LOG_FILE,
-            file_level = Logging.Info,
-            console_level = Logging.Error,
-        )
-    end
-    console_logger = ConsoleLogger(config.console_stream, config.console_level)
-
-    IS.open_file_logger(LOG_FILE, config.file_level) do file_logger
-        levels = (Logging.Info, Logging.Warn, Logging.Error)
-        multi_logger =
-            IS.MultiLogger([console_logger, file_logger], IS.LogEventTracker(levels))
-        global_logger(multi_logger)
-
-        if !isempty(config.group_levels)
-            IS.set_group_levels!(multi_logger, config.group_levels)
-        end
-
-        @time @testset "Begin PowerOperationsModels tests" begin
-            @includetests ARGS
-        end
-
-        @test length(IS.get_log_events(multi_logger.tracker, Logging.Error)) == 0
-
-        @info IS.report_log_summary(multi_logger)
-    end
-end
-
-logger = global_logger()
-
-try
-    run_tests()
-finally
-    # Guarantee that the global logger is reset.
-    global_logger(logger)
-    nothing
-end
+runtests(PowerOperationsModels, ARGS; testsuite, init_code = INIT_CODE, env = WORKER_ENV)

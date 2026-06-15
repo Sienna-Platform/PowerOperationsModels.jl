@@ -1229,3 +1229,19 @@ end
         no_slack_container, POM.PostContingencyFlowActivePowerSlackLowerBound, PSY.Line,
     )
 end
+
+@testset "post-contingency emergency limits: raw ACTransmission uses rating_b in system pu" begin
+    # Pins the numeric behavior of the raw-device emergency-limit method so the
+    # delegation refactor to PNM.get_equivalent_emergency_rating stays a no-op on values.
+    sys = PSB.build_system(PSITestSystems, "c_sys5")
+    line = first(PSY.get_components(PSY.Line, sys))
+    PSY.set_rating_b!(line, 0.9 * PSY.SU)
+    lim = POM.get_emergency_min_max_limits(
+        line,
+        POM.PostContingencyFlowRateConstraint,
+        POM.StaticBranch,
+    )
+    rb = PSY.get_rating_b(line, PSY.SU)
+    @test lim.max ≈ rb
+    @test lim.min ≈ -rb
+end

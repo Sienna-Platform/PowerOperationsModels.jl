@@ -152,7 +152,7 @@ end
 @testset "branch_admittance primitives" begin
     sys = PSB.build_system(PSITestSystems, "c_sys5")
     line = first(PSY.get_components(PSY.Line, sys))
-    a = PowerOperationsModels.branch_admittance(line)
+    a = PNM.branch_admittance(line)
     r, x = PSY.get_r(line, PSY.SU), PSY.get_x(line, PSY.SU)
     y = inv(complex(r, x))
     @test a.g ≈ real(y)
@@ -196,7 +196,7 @@ import PowerNetworkMatrices as PNM
     (from_no, to_no), chain = first(series_map)
     resolved = PowerOperationsModels._reduced_arc_admittance(nr, from_no, to_no)
     @test resolved !== nothing
-    expected = PowerOperationsModels.branch_admittance(chain, nr)
+    expected = PNM.branch_admittance(chain, nr)
     @test isapprox(resolved.b, expected.b; atol = 1e-9)
 
     # Non-triviality: the series equivalent is the MERGED admittance of the chain, so
@@ -205,7 +205,7 @@ import PowerNetworkMatrices as PNM
     # for the reduced arc, which is wrong.
     members = collect(chain)
     @test length(members) >= 2
-    member_b = PowerOperationsModels.branch_admittance(members[1]).b
+    member_b = PNM.branch_admittance(members[1]).b
     @test !isapprox(resolved.b, member_b; rtol = 1e-3)
 
     # Reversed-orientation arc exercises the `_reverse_admittance` path: series b is
@@ -238,7 +238,7 @@ end
         rating = 1.0,
         tap = 1.0,
     )
-    adm = PowerOperationsModels._winding_admittance(w)
+    adm = PNM.winding_admittance(w)
     denom = R^2 + X^2
     @test isapprox(adm.g, R / denom; atol = 1e-12)
     @test isapprox(adm.b, -X / denom; atol = 1e-12)
