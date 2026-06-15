@@ -577,6 +577,90 @@ Auxiliary Variable for Storage Models that solve for total energy output
 """
 struct StorageEnergyOutput <: AuxVariableType end
 
+#################################################################################
+# Hybrid System Variables
+#
+# Paired sibling variable types are parametric on `ReserveSide` (Discharge / Charge).
+#################################################################################
+
+"""
+Abstract type for variables representing flows internal to a `PSY.HybridSystem`.
+"""
+abstract type AbstractHybridSubcomponentVariableType <: VariableType end
+
+"Active power dispatched by the thermal subcomponent of a hybrid system."
+struct HybridThermalActivePower <: AbstractHybridSubcomponentVariableType end
+
+"Active power dispatched by the renewable subcomponent of a hybrid system."
+struct HybridRenewableActivePower <: AbstractHybridSubcomponentVariableType end
+
+"""
+Active power on the storage subcomponent of a hybrid system. Parametric on
+[`ReserveSide`](@ref).
+"""
+struct HybridStorageSubcomponentPower{Sd <: ReserveSide} <:
+       AbstractHybridSubcomponentVariableType end
+
+"Binary reservation variable for the storage subcomponent of a hybrid system."
+struct HybridStorageReservation <: AbstractHybridSubcomponentVariableType end
+
+"""
+Non-negative slack variable bounding the absolute step change in charge or discharge
+power between consecutive time steps. Carried into the objective with a small fixed
+penalty when the hybrid `\"regularization\"` attribute is set.
+"""
+struct RegularizationVariable{Sd <: ReserveSide} <: AbstractHybridSubcomponentVariableType end
+
+"""
+Slack variable for the storage energy of a hybrid system being below its end-of-period
+target. Added when the hybrid `\"energy_target\"` attribute is set and penalized in the
+objective by the storage subcomponent's `energy_shortage_cost`.
+
+Docs abbreviation: ``e^{st-}``
+"""
+struct HybridEnergyShortageVariable <: VariableType end
+
+"""
+Slack variable for the storage energy of a hybrid system being above its end-of-period
+target. Added when the hybrid `\"energy_target\"` attribute is set and penalized in the
+objective by the storage subcomponent's `energy_surplus_cost`.
+
+Docs abbreviation: ``e^{st+}``
+"""
+struct HybridEnergySurplusVariable <: VariableType end
+
+"""
+Abstract type for hybrid reserve variables (both PCC-boundary and subcomponent).
+"""
+abstract type AbstractHybridReserveVariableType <: VariableType end
+
+"""
+Reserve quantity offered to the grid through one side of a hybrid PCC. Parametric on
+[`ReserveSide`](@ref).
+"""
+struct HybridPCCReserveVariable{Sd <: ReserveSide} <: AbstractHybridReserveVariableType end
+
+"""
+Abstract type for per-subcomponent reserve allocations inside a hybrid system
+that do not have a Discharge/Charge axis (thermal and renewable subcomponents).
+"""
+abstract type AbstractHybridSubcomponentInjectorReserveVariableType <:
+              AbstractHybridReserveVariableType end
+
+"Reserve allocated to the thermal subcomponent of a hybrid system."
+struct HybridThermalReserveVariable <: AbstractHybridSubcomponentInjectorReserveVariableType end
+
+"Reserve allocated to the renewable subcomponent of a hybrid system."
+struct HybridRenewableReserveVariable <:
+       AbstractHybridSubcomponentInjectorReserveVariableType end
+
+"""
+Reserve allocated to one side of a hybrid system's storage subcomponent. Parametric on
+[`ReserveSide`](@ref).
+"""
+struct HybridStorageSubcomponentReserveVariable{Sd <: ReserveSide} <:
+       AbstractHybridReserveVariableType end
+
 const MULTI_START_VARIABLES = (HotStartVariable, WarmStartVariable, ColdStartVariable)
 
 should_write_resulting_value(::Type{PiecewiseLinearCostVariable}) = false

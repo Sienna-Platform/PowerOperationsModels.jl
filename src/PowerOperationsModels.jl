@@ -226,6 +226,7 @@ include("core/problem_types.jl")
 include("core/interfaces.jl")
 include("core/default_interface_methods.jl")
 include("core/physical_constant_definitions.jl")
+include("core/reserve_traits.jl")
 include("core/variables.jl")
 include("core/expressions.jl")
 include("core/constraints.jl")
@@ -307,6 +308,10 @@ include("services_models/reserve_group.jl")
 # include("services_models/agc.jl")  # TODO: needs _get_ace_error
 include("services_models/transmission_interface.jl")
 include("services_models/services_constructor.jl")
+
+# Hybrid System Models (after services_models since they share reserve infrastructure)
+include("hybrid_system_models/hybrid_systems.jl")
+include("hybrid_system_models/hybridsystem_constructor.jl")
 
 # Two-Terminal HVDC Models
 # NOTE: AC_branches.jl and branch_constructor.jl in twoterminal_hvdc_models/ are
@@ -656,6 +661,7 @@ export StorageEnergyOutput
 export EnergyBalanceConstraint
 export StateofChargeLimitsConstraint
 export StateofChargeTargetConstraint
+export HybridEnergyTargetConstraint
 export StorageCyclingCharge
 export StorageCyclingDischarge
 export StorageRegularizationConstraintCharge
@@ -670,18 +676,43 @@ export ReserveChargeConstraint
 
 # expressions
 export TotalReserveOffering
-export ReserveAssignmentBalanceUpDischarge
-export ReserveAssignmentBalanceUpCharge
-export ReserveAssignmentBalanceDownDischarge
-export ReserveAssignmentBalanceDownCharge
-export ReserveDeploymentBalanceUpDischarge
-export ReserveDeploymentBalanceUpCharge
-export ReserveDeploymentBalanceDownDischarge
-export ReserveDeploymentBalanceDownCharge
 
 # parameters
 export EnergyLimitParameter
 export EnergyTargetParameter
+
+######## Hybrid System Formulations ########
+export AbstractHybridFormulation
+export AbstractHybridFormulationWithReserves
+export HybridDispatchWithReserves
+
+# Reserve / constraint marker traits used to parametrize hybrid + storage families.
+export ReserveScale, UnscaledReserve, DeployedReserve
+export ReserveSide, DischargeSide, ChargeSide
+
+# variables
+export HybridEnergyShortageVariable
+export HybridEnergySurplusVariable
+export HybridRenewableActivePower
+export HybridRenewableReserveVariable
+export HybridStorageReservation
+export HybridThermalActivePower
+export HybridThermalReserveVariable
+
+# expressions
+
+# constraints
+export HybridEnergyAssetBalanceConstraint
+export HybridRenewableActivePowerLimitConstraint
+export HybridRenewableReserveLimitConstraint
+export HybridReserveAssignmentConstraint
+export HybridReserveBalanceConstraint
+export HybridStorageBalanceConstraint
+export HybridThermalReserveLimitConstraint
+
+# parameters
+export HybridElectricLoadTimeSeriesParameter
+export HybridRenewableActivePowerTimeSeriesParameter
 
 #################################################################################
 # Exports - Constraint Types (defined in core/constraints.jl)
