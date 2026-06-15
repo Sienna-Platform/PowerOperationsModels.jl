@@ -277,7 +277,7 @@ function branch_rate_bounds!(
 ) where {B <: PSY.ACTransmission, T <: AbstractBranchFormulation}
     time_steps = get_time_steps(container)
     net_reduction_data = get_network_reduction(network_model)
-    all_branch_maps_by_type = net_reduction_data.all_branch_maps_by_type
+    all_branch_maps_by_type = PNM.get_all_branch_maps_by_type(net_reduction_data)
     for var in _get_flow_variable_vector(container, network_model, B)
         for (name, (arc, reduction)) in PNM.get_name_to_arc_map(net_reduction_data, B)
             # TODO: entry is not type stable here, it can return any type ACTransmission.
@@ -729,7 +729,7 @@ function add_constraints!(
 ) where {B <: PSY.ACTransmission, T <: AbstractPowerModel}
     reduced_branch_tracker = get_reduced_branch_tracker(network_model)
     net_reduction_data = get_network_reduction(network_model)
-    all_branch_maps_by_type = net_reduction_data.all_branch_maps_by_type
+    all_branch_maps_by_type = PNM.get_all_branch_maps_by_type(net_reduction_data)
     device_names = get_branch_argument_constraint_axis(
         net_reduction_data,
         reduced_branch_tracker,
@@ -809,7 +809,7 @@ function add_constraints!(
 ) where {B <: PSY.ACTransmission, T <: AbstractPowerModel}
     reduced_branch_tracker = get_reduced_branch_tracker(network_model)
     net_reduction_data = get_network_reduction(network_model)
-    all_branch_maps_by_type = net_reduction_data.all_branch_maps_by_type
+    all_branch_maps_by_type = PNM.get_all_branch_maps_by_type(net_reduction_data)
     time_steps = get_time_steps(container)
     device_names = get_branch_argument_constraint_axis(
         net_reduction_data,
@@ -1393,153 +1393,6 @@ function add_to_objective_function!(
     return
 end
 
-"""
-    branch_admittance(branch) -> NamedTuple
-
-Returns the π-equivalent admittance parameters of an AC branch in per-unit:
-- `g, b`: series conductance and susceptance computed from `(r, x)`
-- `g_fr, b_fr`: from-side shunt
-- `g_to, b_to`: to-side shunt
-- `tap`: voltage-ratio magnitude (1.0 if not a tap-changing transformer)
-- `shift`: nominal phase-shift angle in radians (0.0 if not a PST; the value of α for fixed PSTs)
-
-For PNM reduction wrappers (`PNM.BranchesSeries`, `PNM.BranchesParallel`) the owning
-`PNM.NetworkReductionData` must be passed as a second argument, since PNM derives the
-equivalent π-parameters lazily from the reduced chain's Ybus.
-"""
-function branch_admittance end
-
-# Plain AC line and MonitoredLine: full series admittance via PSY.
-# get_series_admittance(::ACTransmission) returns 1/(R + jX).
-function branch_admittance(branch::Union{PSY.Line, PSY.MonitoredLine})
-    y = PSY.get_series_admittance(branch, PSY.SU)
-    b_split = PSY.get_b(branch, PSY.SU)
-    return (
-        g = real(y),
-        b = imag(y),
-        g_fr = 0.0,
-        b_fr = b_split.from,
-        g_to = 0.0,
-        b_to = b_split.to,
-        tap = 1.0,
-        shift = 0.0,
-    )
-end
-
-# Plain transformer: same series admittance helper as line; shunt is on primary
-# (from) side only. PSY.get_primary_shunt returns a ComplexF64 admittance.
-function branch_admittance(branch::PSY.Transformer2W)
-    y = PSY.get_series_admittance(branch, PSY.SU)
-    yt = PSY.get_primary_shunt(branch, PSY.SU)
-    return (
-        g = real(y),
-        b = imag(y),
-        g_fr = real(yt),
-        b_fr = imag(yt),
-        g_to = 0.0,
-        b_to = 0.0,
-        tap = 1.0,
-        shift = 0.0,
-    )
-end
-
-# TapTransformer / PhaseShiftingTransformer: PSY.get_series_admittance for
-# these types folds the tap into the admittance (Y = 1/(tap·Z)). The π-model
-# below already applies the tap separately as `tm`, so we compute the bare
-# series admittance from (r, x) directly to avoid double-counting.
-function branch_admittance(branch::PSY.TapTransformer)
-    y = inv(complex(PSY.get_r(branch, PSY.SU), PSY.get_x(branch, PSY.SU)))
-    yt = PSY.get_primary_shunt(branch, PSY.SU)
-    return (
-        g = real(y),
-        b = imag(y),
-        g_fr = real(yt),
-        b_fr = imag(yt),
-        g_to = 0.0,
-        b_to = 0.0,
-        tap = PSY.get_tap(branch),
-        shift = 0.0,
-    )
-end
-
-# PhaseShiftingTransformer: same series treatment as TapTransformer plus a
-# nominal phase shift α. Constraint generation may swap the constant α for a
-# PhaseShifterAngle variable in free-control mode.
-function branch_admittance(branch::PSY.PhaseShiftingTransformer)
-    y = inv(complex(PSY.get_r(branch, PSY.SU), PSY.get_x(branch, PSY.SU)))
-    yt = PSY.get_primary_shunt(branch, PSY.SU)
-    return (
-        g = real(y),
-        b = imag(y),
-        g_fr = real(yt),
-        b_fr = imag(yt),
-        g_to = 0.0,
-        b_to = 0.0,
-        tap = PSY.get_tap(branch),
-        shift = PSY.get_α(branch),
-    )
-end
-
-# BranchesParallel: equivalent π parameters supplied by PNM via EquivalentBranch.
-# PNM derives the equivalent lazily from the reduced chain's Ybus, so the owning
-# `NetworkReductionData` must be threaded in.
-function branch_admittance(branch::PNM.BranchesParallel, nr::PNM.NetworkReductionData)
-    eb = PNM.get_equivalent_physical_branch_parameters(branch, nr)
-    r = PNM.get_equivalent_r(eb)
-    x = PNM.get_equivalent_x(eb)
-    y = inv(complex(r, x))
-    return (
-        g = real(y),
-        b = imag(y),
-        g_fr = PNM.get_equivalent_g_from(eb),
-        b_fr = PNM.get_equivalent_b_from(eb),
-        g_to = PNM.get_equivalent_g_to(eb),
-        b_to = PNM.get_equivalent_b_to(eb),
-        tap = PNM.get_equivalent_tap(eb),
-        shift = PNM.get_equivalent_shift(eb),
-    )
-end
-
-# BranchesSeries: same accessors as parallel; PNM aggregates per its rules.
-function branch_admittance(branch::PNM.BranchesSeries, nr::PNM.NetworkReductionData)
-    eb = PNM.get_equivalent_physical_branch_parameters(branch, nr)
-    r = PNM.get_equivalent_r(eb)
-    x = PNM.get_equivalent_x(eb)
-    y = inv(complex(r, x))
-    return (
-        g = real(y),
-        b = imag(y),
-        g_fr = PNM.get_equivalent_g_from(eb),
-        b_fr = PNM.get_equivalent_b_from(eb),
-        g_to = PNM.get_equivalent_g_to(eb),
-        b_to = PNM.get_equivalent_b_to(eb),
-        tap = PNM.get_equivalent_tap(eb),
-        shift = PNM.get_equivalent_shift(eb),
-    )
-end
-
-# Single 3W winding (post-decomposition by PNM). PSY.Transformer3W itself never
-# reaches this function — the network-reduction layer expands each 3W into three
-# ThreeWindingTransformerWinding entries that flow through the device set as
-# their own type. If PSY.Transformer3W ever does reach a caller, MethodError is
-# the correct signal — do not add a placeholder method.
-function branch_admittance(winding::PNM.ThreeWindingTransformerWinding)
-    r = PNM.get_equivalent_r(winding)
-    x = PNM.get_equivalent_x(winding)
-    y = inv(complex(r, x))
-    b_split = PNM.get_equivalent_b(winding)
-    return (
-        g = real(y),
-        b = imag(y),
-        g_fr = 0.0,
-        b_fr = b_split.from,
-        g_to = 0.0,
-        b_to = b_split.to,
-        tap = 1.0,
-        shift = 0.0,
-    )
-end
-
 # Flip a π-admittance tuple to the opposite orientation (from<->to). Reduced equivalents
 # may be keyed by an arc whose orientation is reversed vs the surviving branch's retained
 # from->to; reorient so coefficients match (from_bus, to_bus). g/b are symmetric; from/to
@@ -1567,13 +1420,13 @@ function _reduced_arc_admittance(nr::PNM.NetworkReductionData, from_no::Int, to_
     arc = (from_no, to_no)
     rev = (to_no, from_no)
     if haskey(series_map, arc)
-        return branch_admittance(series_map[arc], nr)
+        return PNM.branch_admittance(series_map[arc], nr)
     elseif haskey(series_map, rev)
-        return _reverse_admittance(branch_admittance(series_map[rev], nr))
+        return _reverse_admittance(PNM.branch_admittance(series_map[rev], nr))
     elseif haskey(parallel_map, arc)
-        return branch_admittance(parallel_map[arc], nr)
+        return PNM.branch_admittance(parallel_map[arc], nr)
     elseif haskey(parallel_map, rev)
-        return _reverse_admittance(branch_admittance(parallel_map[rev], nr))
+        return _reverse_admittance(PNM.branch_admittance(parallel_map[rev], nr))
     end
     return nothing
 end
@@ -1583,9 +1436,9 @@ end
 # series/parallel-aggregated arc.
 function _resolve_branch_admittance(network_model, branch, from_no::Int, to_no::Int)
     nr = get_network_reduction(network_model)
-    isempty(nr) && return branch_admittance(branch)
+    isempty(nr) && return PNM.branch_admittance(branch)
     eq = _reduced_arc_admittance(nr, from_no, to_no)
-    return eq === nothing ? branch_admittance(branch) : eq
+    return eq === nothing ? PNM.branch_admittance(branch) : eq
 end
 
 # One-pass per-branch network geometry for the native DCP/ACP builders. Computes each
@@ -1602,7 +1455,7 @@ function _branch_geometries(sys::PSY.System, network_model, devices)
         collapsed = fr.number == to.number
         adm =
             if collapsed
-                branch_admittance(d)
+                PNM.branch_admittance(d)
             else
                 _resolve_branch_admittance(network_model, d, fr.number, to.number)
             end
@@ -1807,18 +1660,13 @@ function add_constraints!(
     time_steps = get_time_steps(container)
     flow_vars = get_variable(container, FlowActivePowerVariable, T)
     use_slacks = get_use_slacks(device_model)
-    if use_slacks
-        slack_ub = get_variable(container, FlowActivePowerSlackUpperBound, T)
-        slack_lb = get_variable(container, FlowActivePowerSlackLowerBound, T)
-    end
+    slack_ub =
+        use_slacks ? get_variable(container, FlowActivePowerSlackUpperBound, T) :
+        nothing
+    slack_lb =
+        use_slacks ? get_variable(container, FlowActivePowerSlackLowerBound, T) :
+        nothing
     jump_model = get_jump_model(container)
-    branch_names = [PSY.get_name(d) for d in devices]
-    con_lb = add_constraints_container!(
-        container, FlowRateConstraint, T, branch_names, time_steps; meta = "lb",
-    )
-    con_ub = add_constraints_container!(
-        container, FlowRateConstraint, T, branch_names, time_steps; meta = "ub",
-    )
 
     # Gate on the parameter container actually existing, not merely on the
     # time-series name being configured: when the name is set but no branch of
@@ -1828,7 +1676,7 @@ function add_constraints!(
     # via `get_parameter_column_refs(param_container, name)` (the same mapping
     # the PTDF path uses). An empty `ts_branch_names` routes every branch through
     # the static-rating path.
-    ts_branch_names = String[]
+    ts_branch_names = Set{String}()
     local param_container, mult
     if has_container_key(container, BranchRatingTimeSeriesParameter, T)
         param_container =
@@ -1837,9 +1685,35 @@ function add_constraints!(
         ts_branch_names = Set(axes(mult, 1))
     end
 
-    for d in devices
-        name = PSY.get_name(d)
-        if name in ts_branch_names
+    branch_names = [PSY.get_name(d) for d in devices]
+    static_devices = [d for d in devices if !(PSY.get_name(d) in ts_branch_names)]
+    ts_devices = [d for d in devices if PSY.get_name(d) in ts_branch_names]
+
+    # STATIC rating path: a plain `limits.min <= flow <= limits.max` (slack subtracted on
+    # UB, added on LB). Delegated to the generic slack-aware IOM range helper since it is
+    # the same lb/ub logic shared across devices. The "lb"/"ub" containers are created over
+    # ALL `branch_names` (via `constraint_names`) so the TS path below can fill its share of
+    # the same containers; only `static_devices` are constrained here.
+    add_slacked_range_constraints!(
+        container,
+        FlowRateConstraint,
+        flow_vars,
+        static_devices,
+        device_model,
+        slack_ub,
+        slack_lb;
+        constraint_names = branch_names,
+    )
+
+    # TIME-SERIES rating path: the RHS is a parameterized rating (rating_factor * rating)
+    # that varies per time step, so it is NOT covered by the generic range helper (which
+    # takes a scalar `get_min_max_limits`). This stays POM-specific. The helper above
+    # already created the "lb"/"ub" containers; index into them for the TS branches.
+    if !isempty(ts_devices)
+        con_lb = get_constraint(container, FlowRateConstraint, T, "lb")
+        con_ub = get_constraint(container, FlowRateConstraint, T, "ub")
+        for d in ts_devices
+            name = PSY.get_name(d)
             # `param * mult` is the time-varying rating (rating_factor * rating).
             param = get_parameter_column_refs(param_container, name)
             for t in time_steps
@@ -1852,20 +1726,6 @@ function add_constraints!(
                     jump_model,
                     flow_vars[name, t] + (use_slacks ? slack_lb[name, t] : 0.0) >=
                     -1.0 * param[t] * mult[name, t],
-                )
-            end
-        else
-            limits = get_min_max_limits(d, FlowRateConstraint, U)
-            for t in time_steps
-                con_ub[name, t] = JuMP.@constraint(
-                    jump_model,
-                    flow_vars[name, t] - (use_slacks ? slack_ub[name, t] : 0.0) <=
-                    limits.max,
-                )
-                con_lb[name, t] = JuMP.@constraint(
-                    jump_model,
-                    flow_vars[name, t] + (use_slacks ? slack_lb[name, t] : 0.0) >=
-                    limits.min,
                 )
             end
         end
@@ -2112,60 +1972,12 @@ end
 # storage 2D (name × time) without inventing a new container shape.
 ################################################################################
 
-"""
-Returns a tuple of 3 NamedTuples, one per winding of a Transformer3W:
-  (suffix, arc, r, x, rating, tap, base_power)
-"""
-function _three_winding_arcs(t::PSY.Transformer3W)
-    return (
-        (
-            suffix = "winding_1",
-            arc = PSY.get_primary_star_arc(t),
-            r = PSY.get_r_primary(t, PSY.SU),
-            x = PSY.get_x_primary(t, PSY.SU),
-            rating = PSY.get_rating_primary(t, PSY.SU),
-            tap = PSY.get_primary_turns_ratio(t),  # unitless; no PSY.SU overload in psy6
-        ),
-        (
-            suffix = "winding_2",
-            arc = PSY.get_secondary_star_arc(t),
-            r = PSY.get_r_secondary(t, PSY.SU),
-            x = PSY.get_x_secondary(t, PSY.SU),
-            rating = PSY.get_rating_secondary(t, PSY.SU),
-            tap = PSY.get_secondary_turns_ratio(t),  # unitless; no PSY.SU overload in psy6
-        ),
-        (
-            suffix = "winding_3",
-            arc = PSY.get_tertiary_star_arc(t),
-            r = PSY.get_r_tertiary(t, PSY.SU),
-            x = PSY.get_x_tertiary(t, PSY.SU),
-            rating = PSY.get_rating_tertiary(t, PSY.SU),
-            tap = PSY.get_tertiary_turns_ratio(t),  # unitless; no PSY.SU overload in psy6
-        ),
-    )
-end
-
-"Per-winding π-equivalent admittance (no shunts, no phase shift)."
-function _winding_admittance(w::NamedTuple)
-    y = inv(complex(w.r, w.x))
-    return (
-        g = real(y),
-        b = imag(y),
-        g_fr = 0.0,
-        b_fr = 0.0,
-        g_to = 0.0,
-        b_to = 0.0,
-        tap = w.tap,
-        shift = 0.0,
-    )
-end
-
 "Build the list of per-winding variable names for a set of Transformer3W devices."
 function _three_winding_var_names(devices)
     names = String[]
     for d in devices
         dname = PSY.get_name(d)
-        for w in _three_winding_arcs(d)
+        for w in PNM.three_winding_arcs(d)
             push!(names, dname * "_" * w.suffix)
         end
     end
@@ -2234,7 +2046,7 @@ function add_to_expression!(
     time_steps = get_time_steps(container)
     for d in devices
         dname = PSY.get_name(d)
-        for w in _three_winding_arcs(d)
+        for w in PNM.three_winding_arcs(d)
             wname = dname * "_" * w.suffix
             from_no = PNM.get_mapped_bus_number(network_reduction, PSY.get_from(w.arc))
             to_no = PNM.get_mapped_bus_number(network_reduction, PSY.get_to(w.arc))
@@ -2270,7 +2082,7 @@ for (E, V, isfrom) in (
         time_steps = get_time_steps(container)
         for d in devices
             dname = PSY.get_name(d)
-            for w in _three_winding_arcs(d)
+            for w in PNM.three_winding_arcs(d)
                 wname = dname * "_" * w.suffix
                 terminal_bus_obj = $isfrom ? PSY.get_from(w.arc) : PSY.get_to(w.arc)
                 bus_no = PNM.get_mapped_bus_number(network_reduction, terminal_bus_obj)
@@ -2304,9 +2116,9 @@ function add_constraints!(
 
     for d in devices
         dname = PSY.get_name(d)
-        for w in _three_winding_arcs(d)
+        for w in PNM.three_winding_arcs(d)
             wname = dname * "_" * w.suffix
-            adm = _winding_admittance(w)
+            adm = PNM.winding_admittance(w)
             fr = _retained_bus(number_to_name, network_model, PSY.get_from(w.arc))
             to = _retained_bus(number_to_name, network_model, PSY.get_to(w.arc))
             fr.number == to.number && continue
@@ -2361,9 +2173,9 @@ function add_constraints!(
 
     for d in devices
         dname = PSY.get_name(d)
-        for w in _three_winding_arcs(d)
+        for w in PNM.three_winding_arcs(d)
             wname = dname * "_" * w.suffix
-            adm = _winding_admittance(w)
+            adm = PNM.winding_admittance(w)
             g, b, g_fr, b_fr, g_to, b_to, tm =
                 adm.g, adm.b, adm.g_fr, adm.b_fr, adm.g_to, adm.b_to, adm.tap
             fr = _retained_bus(number_to_name, network_model, PSY.get_from(w.arc))
@@ -2434,7 +2246,7 @@ function add_constraints!(
     )
     for d in devices
         dname = PSY.get_name(d)
-        for w in _three_winding_arcs(d)
+        for w in PNM.three_winding_arcs(d)
             wname = dname * "_" * w.suffix
             for t in time_steps
                 cons_lb[wname, t] = JuMP.@constraint(
@@ -2466,7 +2278,7 @@ function add_constraints!(
     )
     for d in devices
         dname = PSY.get_name(d)
-        for w in _three_winding_arcs(d)
+        for w in PNM.three_winding_arcs(d)
             wname = dname * "_" * w.suffix
             r2 = w.rating^2
             for t in time_steps
@@ -2496,7 +2308,7 @@ function add_constraints!(
     )
     for d in devices
         dname = PSY.get_name(d)
-        for w in _three_winding_arcs(d)
+        for w in PNM.three_winding_arcs(d)
             wname = dname * "_" * w.suffix
             r2 = w.rating^2
             for t in time_steps
