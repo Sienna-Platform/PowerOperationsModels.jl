@@ -20,7 +20,7 @@ const _THERMAL_NAME = "thermal1"
 # still treated as "absent" by the offer-side checks (which inspect slopes, not units).
 const _ZERO_OFFER_SB = PSY.CostCurve(
     PSY.PiecewiseIncrementalCurve(0.0, [0.0, 0.0], [0.0]),
-    PSY.UnitSystem.SYSTEM_BASE,
+    PSY.SU,
 )
 
 # A static MBC with a decremental offer curve only (incremental is the zero offer curve,
@@ -30,7 +30,7 @@ _decr_mbc(initial_input::Float64, xs::Vector{Float64}, slopes::Vector{Float64}) 
         incremental_offer_curves = _ZERO_OFFER_SB,
         decremental_offer_curves = PSY.CostCurve(
             PSY.PiecewiseIncrementalCurve(initial_input, xs, slopes),
-            PSY.UnitSystem.SYSTEM_BASE,
+            PSY.SU,
         ),
     )
 
@@ -60,7 +60,7 @@ end
     cost = PSY.MarketBidCost(;
         decremental_offer_curves = PSY.CostCurve(
             PSY.PiecewiseIncrementalCurve(0.0, [0.0, 200.0], [3.0]),
-            PSY.UnitSystem.NATURAL_UNITS,
+            PSY.NU,
         ),
     )
     sys = one_bus_one_interruptible_load(cost; system_base_power = 100.0)
@@ -85,7 +85,8 @@ end
     # TS MBC dispatches through the parameter-container path. We skip `add_parameters!`
     # (which would require real time series on the system) and populate the Decremental
     # slope/breakpoint parameters directly with distinct-per-timestep values.
-    cost = stub_ts_market_bid_cost()
+    # A load has no supply (incremental) offer, so that side is the absent placeholder.
+    cost = stub_ts_market_bid_cost(; incremental_trivial = true)
     sys = one_bus_one_interruptible_load(cost)
     load = PSY.get_component(PSY.InterruptiblePowerLoad, sys, _LOAD_NAME)
 
@@ -150,7 +151,8 @@ end
 end
 
 @testset "InterruptiblePowerLoad + PowerLoadInterruption + TS MBC" begin
-    cost = stub_ts_market_bid_cost()
+    # A load has no supply (incremental) offer, so that side is the absent placeholder.
+    cost = stub_ts_market_bid_cost(; incremental_trivial = true)
     sys = one_bus_one_interruptible_load(cost)
     devs = PSY.get_components(PSY.InterruptiblePowerLoad, sys)
 
@@ -198,7 +200,7 @@ end
     cost = PSY.MarketBidCost(;
         incremental_offer_curves = PSY.CostCurve(
             PSY.PiecewiseIncrementalCurve(0.0, [0.0, 1.0], [5.0]),
-            PSY.UnitSystem.SYSTEM_BASE,
+            PSY.SU,
         ),
         decremental_offer_curves = _ZERO_OFFER_SB,
     )
@@ -222,7 +224,7 @@ end
         shut_down = PSY.LinearCurve(30.0),
         incremental_offer_curves = PSY.CostCurve(
             PSY.PiecewiseIncrementalCurve(2.5, [0.1, 0.5, 1.0], [3.0, 7.0]),
-            PSY.UnitSystem.SYSTEM_BASE,
+            PSY.SU,
         ),
         decremental_offer_curves = _ZERO_OFFER_SB,
     )
@@ -262,7 +264,8 @@ end
 end
 
 @testset "ThermalStandard + ThermalBasicUnitCommitment + TS MBC" begin
-    cost = stub_ts_market_bid_cost()
+    # A generator has no demand (decremental) offer, so that side is the absent placeholder.
+    cost = stub_ts_market_bid_cost(; decremental_trivial = true)
     sys = one_bus_one_thermal(cost; name = _THERMAL_NAME)
     devs = PSY.get_components(PSY.ThermalStandard, sys)
 

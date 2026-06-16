@@ -38,6 +38,7 @@ function get_branch_to_pm(
     branch::PSY.PhaseShiftingTransformer,
     ::Type{PhaseAngleControl},
     ::Type{<:AbstractDCPModel},
+    ::DeviceModel,
 )
     # we allocate the transformer shunt values to primary side only
     yt = PSY.get_primary_shunt(branch, PSY.SU)
@@ -52,9 +53,9 @@ function get_branch_to_pm(
         "b_to" => 0.0,
         "g_fr" => real(yt),
         "b_fr" => imag(yt),
-        "f_bus" => PSY.get_number(PSY.get_arc(branch).from),
+        "f_bus" => PSY.get_number(PSY.get_from(PSY.get_arc(branch))),
         "br_status" => 0.0, # Turn off the branch while keeping the function type stable
-        "t_bus" => PSY.get_number(PSY.get_arc(branch).to),
+        "t_bus" => PSY.get_number(PSY.get_to(PSY.get_arc(branch))),
         "index" => ix,
         "angmin" => -π / 2,
         "angmax" => π / 2,
@@ -70,6 +71,7 @@ function get_branch_to_pm(
     branch::PSY.PhaseShiftingTransformer,
     ::Type{D},
     ::Type{<:AbstractPowerModel},
+    ::DeviceModel,
 ) where {D <: AbstractBranchFormulation}
     # we allocate the transformer shunt values to primary side only
     yt = PSY.get_primary_shunt(branch, PSY.SU)
@@ -84,9 +86,9 @@ function get_branch_to_pm(
         "b_to" => 0.0,
         "g_fr" => real(yt),
         "b_fr" => imag(yt),
-        "f_bus" => PSY.get_number(PSY.get_arc(branch).from),
+        "f_bus" => PSY.get_number(PSY.get_from(PSY.get_arc(branch))),
         "br_status" => Float64(PSY.get_available(branch)),
-        "t_bus" => PSY.get_number(PSY.get_arc(branch).to),
+        "t_bus" => PSY.get_number(PSY.get_to(PSY.get_arc(branch))),
         "index" => ix,
         "angmin" => -π / 2,
         "angmax" => π / 2,
@@ -102,6 +104,7 @@ function get_branch_to_pm(
     branch::PSY.PhaseShiftingTransformer,
     ::Type{StaticBranchUnbounded},
     ::Type{<:AbstractPowerModel},
+    ::DeviceModel,
 )
     # we allocate the transformer shunt values to primary side only
     yt = PSY.get_primary_shunt(branch, PSY.SU)
@@ -113,9 +116,9 @@ function get_branch_to_pm(
         "b_to" => 0.0,
         "g_fr" => real(yt),
         "b_fr" => imag(yt),
-        "f_bus" => PSY.get_number(PSY.get_arc(branch).from),
+        "f_bus" => PSY.get_number(PSY.get_from(PSY.get_arc(branch))),
         "br_status" => Float64(PSY.get_available(branch)),
-        "t_bus" => PSY.get_number(PSY.get_arc(branch).to),
+        "t_bus" => PSY.get_number(PSY.get_to(PSY.get_arc(branch))),
         "index" => ix,
         "angmin" => -π / 2,
         "angmax" => π / 2,
@@ -131,6 +134,7 @@ function get_branch_to_pm(
     branch::PSY.Transformer2W,
     ::Type{<:AbstractBranchFormulation},
     ::Type{<:AbstractPowerModel},
+    ::DeviceModel,
 )
     # we allocate the transformer shunt values to primary side only
     yt = PSY.get_primary_shunt(branch, PSY.SU)
@@ -145,9 +149,9 @@ function get_branch_to_pm(
         "b_to" => 0.0,
         "g_fr" => real(yt),
         "b_fr" => imag(yt),
-        "f_bus" => PSY.get_number(PSY.get_arc(branch).from),
+        "f_bus" => PSY.get_number(PSY.get_from(PSY.get_arc(branch))),
         "br_status" => Float64(PSY.get_available(branch)),
-        "t_bus" => PSY.get_number(PSY.get_arc(branch).to),
+        "t_bus" => PSY.get_number(PSY.get_to(PSY.get_arc(branch))),
         "index" => ix,
         "angmin" => -π / 2,
         "angmax" => π / 2,
@@ -163,6 +167,7 @@ function get_branch_to_pm(
     branch::PSY.Transformer2W,
     ::Type{StaticBranchUnbounded},
     ::Type{<:AbstractPowerModel},
+    ::DeviceModel,
 )
     # we allocate the transformer shunt values to primary side only
     yt = PSY.get_primary_shunt(branch, PSY.SU)
@@ -174,9 +179,9 @@ function get_branch_to_pm(
         "b_to" => 0.0,
         "g_fr" => real(yt),
         "b_fr" => imag(yt),
-        "f_bus" => PSY.get_number(PSY.get_arc(branch).from),
+        "f_bus" => PSY.get_number(PSY.get_from(PSY.get_arc(branch))),
         "br_status" => Float64(PSY.get_available(branch)),
-        "t_bus" => PSY.get_number(PSY.get_arc(branch).to),
+        "t_bus" => PSY.get_number(PSY.get_to(PSY.get_arc(branch))),
         "index" => ix,
         "angmin" => -π / 2,
         "angmax" => π / 2,
@@ -192,6 +197,7 @@ function get_branch_to_pm(
     branch::PSY.TapTransformer,
     ::Type{<:AbstractBranchFormulation},
     ::Type{<:AbstractPowerModel},
+    ::DeviceModel,
 )
     # we allocate the transformer shunt values to primary side only
     yt = PSY.get_primary_shunt(branch, PSY.SU)
@@ -206,9 +212,9 @@ function get_branch_to_pm(
         "b_to" => 0.0,
         "g_fr" => real(yt),
         "b_fr" => imag(yt),
-        "f_bus" => PSY.get_number(PSY.get_arc(branch).from),
+        "f_bus" => PSY.get_number(PSY.get_from(PSY.get_arc(branch))),
         "br_status" => Float64(PSY.get_available(branch)),
-        "t_bus" => PSY.get_number(PSY.get_arc(branch).to),
+        "t_bus" => PSY.get_number(PSY.get_to(PSY.get_arc(branch))),
         "index" => ix,
         "angmin" => -π / 2,
         "angmax" => π / 2,
@@ -224,6 +230,7 @@ function get_branch_to_pm(
     branch::PSY.TapTransformer,
     ::Type{StaticBranchUnbounded},
     ::Type{<:AbstractPowerModel},
+    ::DeviceModel,
 )
     # we allocate the transformer shunt values to primary side only
     yt = PSY.get_primary_shunt(branch, PSY.SU)
@@ -235,9 +242,9 @@ function get_branch_to_pm(
         "b_to" => 0.0,
         "g_fr" => real(yt),
         "b_fr" => imag(yt),
-        "f_bus" => PSY.get_number(PSY.get_arc(branch).from),
+        "f_bus" => PSY.get_number(PSY.get_from(PSY.get_arc(branch))),
         "br_status" => Float64(PSY.get_available(branch)),
-        "t_bus" => PSY.get_number(PSY.get_arc(branch).to),
+        "t_bus" => PSY.get_number(PSY.get_to(PSY.get_arc(branch))),
         "index" => ix,
         "angmin" => -π / 2,
         "angmax" => π / 2,
@@ -253,6 +260,7 @@ function get_branch_to_pm(
     branch::PSY.ACTransmission,
     ::Type{<:AbstractBranchFormulation},
     ::Type{<:AbstractPowerModel},
+    ::DeviceModel,
 )
     PM_branch = Dict{String, Any}(
         "br_r" => PSY.get_r(branch, PSY.SU),
@@ -264,9 +272,9 @@ function get_branch_to_pm(
         "g_to" => 0.0,
         "g_fr" => 0.0,
         "b_fr" => PSY.get_b(branch, PSY.SU).from,
-        "f_bus" => PSY.get_number(PSY.get_arc(branch).from),
+        "f_bus" => PSY.get_number(PSY.get_from(PSY.get_arc(branch))),
         "br_status" => Float64(PSY.get_available(branch)),
-        "t_bus" => PSY.get_number(PSY.get_arc(branch).to),
+        "t_bus" => PSY.get_number(PSY.get_to(PSY.get_arc(branch))),
         "b_to" => PSY.get_b(branch, PSY.SU).to,
         "index" => ix,
         "angmin" => PSY.get_angle_limits(branch).min,
@@ -283,6 +291,7 @@ function get_branch_to_pm(
     branch::PSY.ACTransmission,
     ::Type{StaticBranchUnbounded},
     ::Type{<:AbstractPowerModel},
+    ::DeviceModel,
 )
     PM_branch = Dict{String, Any}(
         "br_r" => PSY.get_r(branch, PSY.SU),
@@ -291,9 +300,9 @@ function get_branch_to_pm(
         "g_to" => 0.0,
         "g_fr" => 0.0,
         "b_fr" => PSY.get_b(branch, PSY.SU).from,
-        "f_bus" => PSY.get_number(PSY.get_arc(branch).from),
+        "f_bus" => PSY.get_number(PSY.get_from(PSY.get_arc(branch))),
         "br_status" => Float64(PSY.get_available(branch)),
-        "t_bus" => PSY.get_number(PSY.get_arc(branch).to),
+        "t_bus" => PSY.get_number(PSY.get_to(PSY.get_arc(branch))),
         "b_to" => PSY.get_b(branch, PSY.SU).to,
         "index" => ix,
         "angmin" => PSY.get_angle_limits(branch).min,
@@ -310,6 +319,7 @@ function get_branch_to_pm(
     branch::PNM.ThreeWindingTransformerWinding{PSY.Transformer3W},
     ::Type{StaticBranchUnbounded},
     ::Type{<:AbstractPowerModel},
+    ::DeviceModel,
 )
     arc_tuple
     PM_branch = Dict{String, Any}(
@@ -338,6 +348,7 @@ function get_branch_to_pm(
     branch::PNM.ThreeWindingTransformerWinding{PSY.Transformer3W},
     ::Type{<:AbstractBranchFormulation},
     ::Type{<:AbstractPowerModel},
+    ::DeviceModel,
 )
     PM_branch = Dict{String, Any}(
         "br_r" => PNM.get_equivalent_r(branch),
@@ -368,6 +379,7 @@ function get_branch_to_pm(
     branch::PNM.ThreeWindingTransformerWinding{PSY.PhaseShiftingTransformer3W},
     ::Type{<:AbstractBranchFormulation},
     ::Type{<:AbstractPowerModel},
+    ::DeviceModel,
 )
     PM_branch = Dict{String, Any}(
         "br_r" => PNM.get_equivalent_r(branch),
@@ -398,6 +410,7 @@ function get_branch_to_pm(
     branch::PNM.ThreeWindingTransformerWinding{PSY.PhaseShiftingTransformer3W},
     ::Type{StaticBranchUnbounded},
     ::Type{<:AbstractPowerModel},
+    ::DeviceModel,
 )
     PM_branch = Dict{String, Any}(
         "br_r" => PNM.get_equivalent_r(branch),
@@ -422,17 +435,19 @@ end
 function get_branch_to_pm(
     ix::Int,
     arc_tuple::Tuple{Int, Int},
-    double_circuit::PNM.BranchesParallel,
+    double_circuit::PNM.AbstractBranchesParallel,
     T::Type{<:AbstractBranchFormulation},
     U::Type{<:AbstractPowerModel},
+    device_model::DeviceModel,
 )
     equivalent_branch = PNM.get_equivalent_physical_branch_parameters(double_circuit)
+    rating = branch_rating(double_circuit, device_model)
     PM_branch = Dict{String, Any}(
         "br_r" => PNM.get_equivalent_r(equivalent_branch),
         "shift" => 0.0,
-        "rate_a" => PNM.get_impedance_averaged_rating(double_circuit),
-        "rate_b" => PNM.get_impedance_averaged_rating(double_circuit),
-        "rate_c" => PNM.get_impedance_averaged_rating(double_circuit),
+        "rate_a" => rating,
+        "rate_b" => rating,
+        "rate_c" => rating,
         "br_x" => PNM.get_equivalent_x(equivalent_branch),
         "g_to" => 0.0,
         "g_fr" => 0.0,
@@ -454,20 +469,22 @@ end
 function get_branch_to_pm(
     ix::Int,
     arc_tuple::Tuple{Int, Int},
-    double_circuit::PNM.BranchesParallel,
+    double_circuit::PNM.AbstractBranchesParallel,
     T::Type{StaticBranchUnbounded},
     U::Type{<:AbstractPowerModel},
+    device_model::DeviceModel,
 )
     equivalent_branch = PNM.get_equivalent_physical_branch_parameters(double_circuit)
+    rating = branch_rating(double_circuit, device_model)
     PM_branch = Dict{String, Any}(
         "br_r" => PNM.get_equivalent_r(equivalent_branch),
         "shift" => 0.0,
         "br_x" => PNM.get_equivalent_x(equivalent_branch),
         "g_to" => 0.0,
         "g_fr" => 0.0,
-        "rate_a" => PNM.get_impedance_averaged_rating(double_circuit),
-        "rate_b" => PNM.get_impedance_averaged_rating(double_circuit),
-        "rate_c" => PNM.get_impedance_averaged_rating(double_circuit),
+        "rate_a" => rating,
+        "rate_b" => rating,
+        "rate_c" => rating,
         "b_fr" => PNM.get_equivalent_b_from(equivalent_branch),
         "f_bus" => arc_tuple[1],
         "br_status" => Float64(PNM.get_equivalent_available(double_circuit)),
@@ -489,6 +506,7 @@ function get_branch_to_pm(
     series_chain::PNM.BranchesSeries,
     T::Type{<:AbstractBranchFormulation},
     U::Type{<:AbstractPowerModel},
+    ::DeviceModel,
 )
     equivalent_branch = PNM.get_equivalent_physical_branch_parameters(series_chain)
     PM_branch = Dict{String, Any}(
@@ -517,6 +535,7 @@ function get_branch_to_pm(
     series_chain::PNM.BranchesSeries,
     T::Type{StaticBranchUnbounded},
     U::Type{<:AbstractPowerModel},
+    ::DeviceModel,
 )
     equivalent_branch = PNM.get_equivalent_physical_branch_parameters(series_chain)
     PM_branch = Dict{String, Any}(
@@ -544,6 +563,7 @@ function get_branch_to_pm(
     branch::PSY.TwoTerminalGenericHVDCLine,
     ::Type{HVDCTwoTerminalDispatch},
     ::Type{<:AbstractPowerModel},
+    ::DeviceModel,
 )
     check_hvdc_line_limits_unidirectional(branch)
     PM_branch = Dict{String, Any}(
@@ -556,13 +576,13 @@ function get_branch_to_pm(
         "startup" => 0.0,
         "loss0" => PSY.get_constant_term(PSY.get_loss(branch)),
         "pt" => 0.0,
-        "vt" => PSY.get_magnitude(PSY.get_arc(branch).to),
+        "vt" => PSY.get_magnitude(PSY.get_to(PSY.get_arc(branch))),
         "qmaxf" => PSY.get_reactive_power_limits_from(branch, PSY.SU).max,
         "pmint" => PSY.get_active_power_limits_to(branch, PSY.SU).min,
-        "f_bus" => PSY.get_number(PSY.get_arc(branch).from),
+        "f_bus" => PSY.get_number(PSY.get_from(PSY.get_arc(branch))),
         "mp_pmin" => PSY.get_reactive_power_limits_from(branch, PSY.SU).min,
         "br_status" => Float64(PSY.get_available(branch)),
-        "t_bus" => PSY.get_number(PSY.get_arc(branch).to),
+        "t_bus" => PSY.get_number(PSY.get_to(PSY.get_arc(branch))),
         "index" => ix,
         "qmint" => PSY.get_reactive_power_limits_to(branch, PSY.SU).min,
         "qf" => 0.0,
@@ -570,7 +590,7 @@ function get_branch_to_pm(
         "pminf" => PSY.get_active_power_limits_from(branch, PSY.SU).min,
         "qt" => 0.0,
         "qminf" => PSY.get_reactive_power_limits_from(branch, PSY.SU).min,
-        "vf" => PSY.get_magnitude(PSY.get_arc(branch).from),
+        "vf" => PSY.get_magnitude(PSY.get_from(PSY.get_arc(branch))),
         "qmaxt" => PSY.get_reactive_power_limits_to(branch, PSY.SU).max,
         "ncost" => 0,
         "pf" => 0.0,
@@ -583,6 +603,7 @@ function get_branch_to_pm(
     branch::PSY.TwoTerminalGenericHVDCLine,
     ::Type{<:AbstractTwoTerminalDCLineFormulation},
     ::Type{<:AbstractPowerModel},
+    ::DeviceModel,
 )
     PM_branch = Dict{String, Any}(
         "loss1" => PSY.get_proportional_term(PSY.get_loss(branch)),
@@ -594,13 +615,13 @@ function get_branch_to_pm(
         "startup" => 0.0,
         "loss0" => PSY.get_constant_term(PSY.get_loss(branch)),
         "pt" => 0.0,
-        "vt" => PSY.get_magnitude(PSY.get_arc(branch).to),
+        "vt" => PSY.get_magnitude(PSY.get_to(PSY.get_arc(branch))),
         "qmaxf" => PSY.get_reactive_power_limits_from(branch, PSY.SU).max,
         "pmint" => PSY.get_active_power_limits_to(branch, PSY.SU).min,
-        "f_bus" => PSY.get_number(PSY.get_arc(branch).from),
+        "f_bus" => PSY.get_number(PSY.get_from(PSY.get_arc(branch))),
         "mp_pmin" => PSY.get_reactive_power_limits_from(branch, PSY.SU).min,
         "br_status" => Float64(PSY.get_available(branch)),
-        "t_bus" => PSY.get_number(PSY.get_arc(branch).to),
+        "t_bus" => PSY.get_number(PSY.get_to(PSY.get_arc(branch))),
         "index" => ix,
         "qmint" => PSY.get_reactive_power_limits_to(branch, PSY.SU).min,
         "qf" => 0.0,
@@ -608,7 +629,7 @@ function get_branch_to_pm(
         "pminf" => PSY.get_active_power_limits_from(branch, PSY.SU).min,
         "qt" => 0.0,
         "qminf" => PSY.get_reactive_power_limits_from(branch, PSY.SU).min,
-        "vf" => PSY.get_magnitude(PSY.get_arc(branch).from),
+        "vf" => PSY.get_magnitude(PSY.get_from(PSY.get_arc(branch))),
         "qmaxt" => PSY.get_reactive_power_limits_to(branch, PSY.SU).max,
         "ncost" => 0,
         "pf" => 0.0,
@@ -621,6 +642,7 @@ function get_branch_to_pm(
     branch::PSY.TwoTerminalGenericHVDCLine,
     ::Type{HVDCTwoTerminalDispatch},
     ::Type{<:AbstractDCPModel},
+    ::DeviceModel,
 )
     PM_branch = Dict{String, Any}(
         "loss1" => PSY.get_proportional_term(PSY.get_loss(branch)),
@@ -632,13 +654,13 @@ function get_branch_to_pm(
         "startup" => 0.0,
         "loss0" => PSY.get_constant_term(PSY.get_loss(branch)),
         "pt" => 0.0,
-        "vt" => PSY.get_magnitude(PSY.get_arc(branch).to),
+        "vt" => PSY.get_magnitude(PSY.get_to(PSY.get_arc(branch))),
         "qmaxf" => PSY.get_reactive_power_limits_from(branch, PSY.SU).max,
         "pmint" => PSY.get_active_power_limits_to(branch, PSY.SU).min,
-        "f_bus" => PSY.get_number(PSY.get_arc(branch).from),
+        "f_bus" => PSY.get_number(PSY.get_from(PSY.get_arc(branch))),
         "mp_pmin" => PSY.get_reactive_power_limits_from(branch, PSY.SU).min,
         "br_status" => 0.0,
-        "t_bus" => PSY.get_number(PSY.get_arc(branch).to),
+        "t_bus" => PSY.get_number(PSY.get_to(PSY.get_arc(branch))),
         "index" => ix,
         "qmint" => PSY.get_reactive_power_limits_to(branch, PSY.SU).min,
         "qf" => 0.0,
@@ -646,7 +668,7 @@ function get_branch_to_pm(
         "pminf" => PSY.get_active_power_limits_from(branch, PSY.SU).min,
         "qt" => 0.0,
         "qminf" => PSY.get_reactive_power_limits_from(branch, PSY.SU).min,
-        "vf" => PSY.get_magnitude(PSY.get_arc(branch).from),
+        "vf" => PSY.get_magnitude(PSY.get_from(PSY.get_arc(branch))),
         "qmaxt" => PSY.get_reactive_power_limits_to(branch, PSY.SU).max,
         "ncost" => 0,
         "pf" => 0.0,
@@ -659,6 +681,7 @@ function get_branch_to_pm(
     branch::PSY.TwoTerminalLCCLine,
     ::Type{HVDCTwoTerminalLCC},
     ::Type{<:AbstractPowerModel},
+    ::DeviceModel,
 )
     return Dict{String, Any}()
 end
@@ -668,6 +691,7 @@ function get_branch_to_pm(
     branch::PSY.TwoTerminalVSCLine,
     ::Type{<:AbstractTwoTerminalVSCFormulation},
     ::Type{<:AbstractPowerModel},
+    ::DeviceModel,
 )
     return Dict{String, Any}()
 end
@@ -694,7 +718,7 @@ function get_branches_to_pm(
     PM_branches = Dict{String, Any}()
     PMmap_br = Dict{Tuple{Int, Int}, PM_MAP_TUPLE}()
     net_reduction_data = get_network_reduction(network_model)
-    all_branch_maps_by_type = net_reduction_data.all_branch_maps_by_type
+    all_branch_maps_by_type = PNM.get_all_branch_maps_by_type(net_reduction_data)
     name_to_arc_maps = PNM.get_name_to_arc_maps(net_reduction_data)
     ix = 1
     @assert !isempty(branch_template)
@@ -715,6 +739,7 @@ function get_branches_to_pm(
                 reduction_entry,
                 get_formulation(device_model),
                 S,
+                device_model,
             )
             if PM_branches["$(ix)"]["br_status"] == true
                 f = PM_branches["$(ix)"]["f_bus"]
@@ -746,7 +771,7 @@ function get_branches_to_pm(
         for (i, branch) in enumerate(get_available_components(device_model, sys))
             ix = i + start_idx
             PM_branches["$(ix)"] =
-                get_branch_to_pm(ix, branch, get_formulation(device_model), S)
+                get_branch_to_pm(ix, branch, get_formulation(device_model), S, device_model)
             if PM_branches["$(ix)"]["br_status"] == true
                 f = PM_branches["$(ix)"]["f_bus"]
                 t = PM_branches["$(ix)"]["t_bus"]

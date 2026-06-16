@@ -1,11 +1,7 @@
 # POM-specific expression types
 # Base expression types (SystemBalanceExpressions, CostExpressions, etc.) are imported from IOM
 
-# POM-specific abstract type for post-contingency system balance expressions
-abstract type PostContingencySystemBalanceExpressions <: SystemBalanceExpressions end
-
 # POM-specific concrete types
-struct PostContingencyActivePowerBalance <: PostContingencySystemBalanceExpressions end
 struct ComponentReserveUpBalanceExpression <: ExpressionType end
 struct ComponentReserveDownBalanceExpression <: ExpressionType end
 struct InterfaceTotalFlow <: ExpressionType end
@@ -78,25 +74,46 @@ of the energy balance for the system in medium term planning
 struct EnergyBalanceExpression <: ExpressionType end
 
 #################################################################################
-# Energy Storage Expressions
+# Energy Storage / Hybrid Reserve Aggregation Expressions
+#
+# A single parametric family covers both the hybrid PCC boundary aggregation
+# (HybridPCCReserveExpression) and the storage-subcomponent balance aggregation
+# (StorageReserveBalanceExpression). The three axes are:
+#   D <: ReserveDirection : Up | Down
+#   S <: ReserveScale     : UnscaledReserve (multiplier 1.0)
+#                         | DeployedReserve (multiplier = get_deployed_fraction(s))
+#   Sd <: ReserveSide     : DischargeSide   (PCC "Out" / storage "Discharge")
+#                         | ChargeSide      (PCC "In"  / storage "Charge")
 #################################################################################
 
+"""
+Per-device, per-service aggregation of the reserve quantity offered by a storage device
+(or the storage subcomponent of a hybrid system). One container is created per service
+participated in, and the per-component reserve variables (charging + discharging) are
+summed into it. Consumed by [`HybridReserveBalanceConstraint`](@ref) and used as the
+right-hand side of the system-level reserve balance.
+"""
 struct TotalReserveOffering <: ExpressionType end
 
-abstract type StorageReserveDischargeExpression <: ExpressionType end
-abstract type StorageReserveChargeExpression <: ExpressionType end
+abstract type ReserveAggregationExpression{
+    D <: PSY.ReserveDirection,
+    S <: ReserveScale,
+    Sd <: ReserveSide,
+} <: ExpressionType end
 
-# Used for the Power Limits constraints
-struct ReserveAssignmentBalanceUpDischarge <: StorageReserveDischargeExpression end
-struct ReserveAssignmentBalanceUpCharge <: StorageReserveChargeExpression end
-struct ReserveAssignmentBalanceDownDischarge <: StorageReserveDischargeExpression end
-struct ReserveAssignmentBalanceDownCharge <: StorageReserveChargeExpression end
+"""
+Hybrid-boundary aggregation of reserve quantities offered through the discharge (out) and
+charge (in) sides of a `PSY.HybridSystem`.
+"""
+struct HybridPCCReserveExpression{D, S, Sd} <:
+       ReserveAggregationExpression{D, S, Sd} end
 
-# Used for the SoC estimates
-struct ReserveDeploymentBalanceUpDischarge <: StorageReserveDischargeExpression end
-struct ReserveDeploymentBalanceUpCharge <: StorageReserveChargeExpression end
-struct ReserveDeploymentBalanceDownDischarge <: StorageReserveDischargeExpression end
-struct ReserveDeploymentBalanceDownCharge <: StorageReserveChargeExpression end
+"""
+Aggregation of reserve variables allocated to the storage subcomponent of a hybrid system
+(or a standalone storage device).
+"""
+struct StorageReserveBalanceExpression{D, S, Sd} <:
+       ReserveAggregationExpression{D, S, Sd} end
 
 # Method extensions for output writing
 should_write_resulting_value(::Type{InterfaceTotalFlow}) = true
@@ -108,12 +125,13 @@ should_write_resulting_value(::Type{HydroServedReserveDownExpression}) = true
 should_write_resulting_value(::Type{TotalHydroFlowRateReservoirOutgoing}) = true
 should_write_resulting_value(::Type{TotalHydroFlowRateTurbineOutgoing}) = true
 
-should_write_resulting_value(::Type{StorageReserveDischargeExpression}) = true
-should_write_resulting_value(::Type{StorageReserveChargeExpression}) = true
+should_write_resulting_value(::Type{<:StorageReserveBalanceExpression}) = true
+should_write_resulting_value(
+    ::Type{HybridPCCReserveExpression{D, DeployedReserve, Sd}},
+) where {D <: PSY.ReserveDirection, Sd <: ReserveSide} = true
 
 # Method extensions for unit conversion
 convert_output_to_natural_units(::Type{InterfaceTotalFlow}) = true
 convert_output_to_natural_units(::Type{PostContingencyBranchFlow}) = true
-convert_output_to_natural_units(::Type{PostContingencyActivePowerGeneration}) = true
 convert_output_to_natural_units(::Type{PTDFBranchFlow}) = true
 convert_output_to_natural_units(::Type{RealizedShiftedLoad}) = true

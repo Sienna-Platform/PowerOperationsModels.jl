@@ -70,9 +70,9 @@ function get_model(
     ::Type{T},
 ) where {T <: PSY.Device}
     if T <: PSY.Branch
-        return get(template.branches, Symbol(T), nothing)
+        return get(template.branches, nameof(T), nothing)
     elseif T <: PSY.Device
-        return get(template.devices, Symbol(T), nothing)
+        return get(template.devices, nameof(T), nothing)
     else
         error("Component $T not present in the template")
     end

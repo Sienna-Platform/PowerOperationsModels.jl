@@ -48,19 +48,19 @@ struct RequirementTimeSeriesParameter <: TimeSeriesParameter end
 """
 Abstract type for dynamic ratings of AC branches
 """
-abstract type AbstractDynamicBranchRatingTimeSeriesParameter <: TimeSeriesParameter end
+abstract type AbstractBranchRatingTimeSeriesParameter <: TimeSeriesParameter end
 
 """
 Parameter to define the dynamic rating time series of a branch
 """
-struct DynamicBranchRatingTimeSeriesParameter <:
-       AbstractDynamicBranchRatingTimeSeriesParameter end
+struct BranchRatingTimeSeriesParameter <:
+       AbstractBranchRatingTimeSeriesParameter end
 
 """
 Parameter to define the dynamic ratings time series of an AC branch for post-contingency condition
 """
-struct PostContingencyDynamicBranchRatingTimeSeriesParameter <:
-       AbstractDynamicBranchRatingTimeSeriesParameter end
+struct PostContingencyBranchRatingTimeSeriesParameter <:
+       AbstractBranchRatingTimeSeriesParameter end
 
 """
 Parameter to define Flow From_To limit time series
@@ -223,6 +223,18 @@ Parameter to record that the component changed in the availability status
 struct AvailableStatusChangeCountdownParameter <: EventParameter end
 
 #################################################################################
+# Hybrid System Parameters
+#################################################################################
+
+"Time-series parameter for the maximum active power available from a hybrid system's
+renewable subcomponent, normalized by the renewable unit's `max_active_power` rating."
+struct HybridRenewableActivePowerTimeSeriesParameter <: TimeSeriesParameter end
+
+"Time-series parameter for a hybrid system's electric-load subcomponent demand,
+normalized by the load's `max_active_power`."
+struct HybridElectricLoadTimeSeriesParameter <: TimeSeriesParameter end
+
+#################################################################################
 # Method extensions for should_write_resulting_value
 #################################################################################
 
@@ -239,9 +251,9 @@ should_write_resulting_value(::Type{<:AbstractPiecewiseLinearBreakpointParameter
 # Method extensions for convert_output_to_natural_units
 #################################################################################
 
-convert_output_to_natural_units(::Type{DynamicBranchRatingTimeSeriesParameter}) = true
+convert_output_to_natural_units(::Type{BranchRatingTimeSeriesParameter}) = true
 convert_output_to_natural_units(
-    ::Type{PostContingencyDynamicBranchRatingTimeSeriesParameter},
+    ::Type{PostContingencyBranchRatingTimeSeriesParameter},
 ) = true
 convert_output_to_natural_units(::Type{ActivePowerTimeSeriesParameter}) = true
 convert_output_to_natural_units(::Type{ReactivePowerTimeSeriesParameter}) = true
@@ -256,3 +268,6 @@ convert_output_to_natural_units(::Type{EnergyTargetTimeSeriesParameter}) = true
 convert_output_to_natural_units(::Type{EnergyBudgetTimeSeriesParameter}) = true
 convert_output_to_natural_units(::Type{InflowTimeSeriesParameter}) = false
 convert_output_to_natural_units(::Type{OutflowTimeSeriesParameter}) = false
+convert_output_to_natural_units(::Type{HybridRenewableActivePowerTimeSeriesParameter}) =
+    true
+convert_output_to_natural_units(::Type{HybridElectricLoadTimeSeriesParameter}) = true
