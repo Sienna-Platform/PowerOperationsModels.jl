@@ -536,12 +536,30 @@ function _add_reserves_variable_cost_to_objective!(
     # FIXME clashes with name of a function...ick.
     variable_cost = PSY.get_variable(component)
     if variable_cost isa Nothing
-        error("ORDC curve $(PSY.get_name(component)) does not have cost data.")
+        error("ORDC curve $(component_name) does not have cost data.")
+    elseif !(variable_cost isa PSY.CostCurve)
+        error(
+            "ORDC curve $(component_name) has cost data of type $(typeof(variable_cost)), \
+            but a `PSY.CostCurve` is required for the StepwiseCostReserve formulation.",
+        )
+    end
+
+    # A time-series-backed cost varies across simulation steps and is read from
+    # per-timestep parameter arrays, which are only populated for
+    # `ReserveDemandTimeSeriesCurve` (see `process_stepwise_cost_reserve_parameters!`).
+    # Reject a time-series-backed cost on any other reserve type up front, rather
+    # than failing later with a missing-parameter error.
+    is_t_variant = is_time_variant(variable_cost)
+    if is_t_variant && !(component isa PSY.ReserveDemandTimeSeriesCurve)
+        error(
+            "ORDC curve $(component_name) of type $(typeof(component)) has a \
+            time-series-backed cost; a `PSY.ReserveDemandTimeSeriesCurve` is required \
+            for time-varying ORDC cost.",
+        )
     end
 
     pwl_cost_expressions =
         add_pwl_term_delta!(container, component, variable_cost, T, U)
-    is_t_variant = is_time_variant(variable_cost)
     for t in time_steps
         add_to_expression!(
             container,
