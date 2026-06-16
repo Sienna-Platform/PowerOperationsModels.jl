@@ -293,95 +293,27 @@ _vom_offer_direction(::Type{<:AbstractControllablePowerLoadFormulation}) =
 #################################################################################
 
 """
-PWL block offer constraints for ORDC. ORDC is offered as a
-decremental block (the demand curve is a willingness-to-pay), so it uses the
-decremental block-offer variable/constraint family.
+Add the delta PWL objective terms for an ORDC service (`StepwiseCostReserve` over
+`ReserveDemandCurve` / `ReserveDemandTimeSeriesCurve`). The demand curve is a
+willingness-to-pay (concave) decremental offer, so the whole path routes through
+IOM's generic `OfferDirection` machinery via `_reserve_offer_direction`:
+
+* `IOM._get_pwl_data` fetches the curve (`get_offer_curves` → `PSY.get_variable`)
+  and dispatches the static vs. time-series read internally.
+* `IOM._block_offer_var` / `IOM._block_offer_constraint` pick the block-offer
+  variable/constraint family.
+* `IOM.add_pwl_constraint_delta!` builds the block-sum constraint.
+
+All containers are keyed by `meta = name` because services are built one at a
+time (one container per service, not a shared names-axis batch).
+
+`cost_data` is accepted to match the caller's signature but is re-resolved inside
+`IOM._get_pwl_data`; it is the same `PSY.get_variable(component)` curve.
 """
-function add_pwl_constraint_delta!(
-    container::OptimizationContainer,
-    component::T,
-    ::Type{U},
-    break_points::Vector{Float64},
-    pwl_vars::Vector{JuMP.VariableRef},
-    period::Int,
-) where {
-    T <: Union{PSY.ReserveDemandCurve, PSY.ReserveDemandTimeSeriesCurve},
-    U <: ServiceRequirementVariable,
-}
-    name = PSY.get_name(component)
-    variables = get_variable(container, U, T, name)
-    const_container = lazy_container_addition!(
-        container,
-        PiecewiseLinearBlockDecrementalOfferConstraint,
-        T,
-        axes(variables)...;
-        meta = name,
-    )
-    add_pwl_block_offer_constraints!(
-        get_jump_model(container),
-        const_container,
-        name,
-        period,
-        variables[name, period],
-        pwl_vars,
-        break_points,
-    )
-    return
-end
-
-"""
-Return `(breakpoints, slopes)` for an ORDC service at time step `t`. For a static
-`ReserveDemandCurve` the data is read directly from the curve; for a time-varying
-`ReserveDemandTimeSeriesCurve` it is read from the pre-allocated decremental
-slope/breakpoint parameter arrays. Mirrors IOM's device-side `_get_raw_pwl_data`.
-"""
-function _get_reserve_pwl_data(
-    container::OptimizationContainer,
-    component::T,
-    variable_cost::PSY.CostCurve,
-    t::Int,
-) where {T <: Union{PSY.ReserveDemandCurve, PSY.ReserveDemandTimeSeriesCurve}}
-    base_power = get_model_base_power(container)
-    device_base_power = PSY.get_base_power(component, PSY.NU)
-    unit_system = PSY.get_power_units(variable_cost)
-
-    if !IS.is_time_series_backed(variable_cost)
-        cost_component = PSY.get_function_data(PSY.get_value_curve(variable_cost))
-        breakpoint_cost_component = IS.get_x_coords(cost_component)
-        slope_cost_component = IS.get_y_coords(cost_component)
-    else
-        name = PSY.get_name(component)
-        SlopeParam = DecrementalPiecewiseLinearSlopeParameter
-        slope_arr = get_parameter_array(container, SlopeParam, T, name)
-        slope_mult = get_parameter_multiplier_array(container, SlopeParam, T, name)
-        @assert size(slope_arr) == size(slope_mult)
-        slope_cost_component =
-            [slope_arr[name, s, t] * slope_mult[name, s, t] for s in axes(slope_arr)[2]]
-
-        BreakpointParam = DecrementalPiecewiseLinearBreakpointParameter
-        bp_arr = get_parameter_array(container, BreakpointParam, T, name)
-        bp_mult = get_parameter_multiplier_array(container, BreakpointParam, T, name)
-        @assert size(bp_arr) == size(bp_mult)
-        breakpoint_cost_component =
-            [bp_arr[name, p, t] * bp_mult[name, p, t] for p in axes(bp_arr)[2]]
-
-        @assert length(slope_cost_component) == length(breakpoint_cost_component) - 1
-    end
-
-    breakpoints, slopes = get_piecewise_curve_per_system_unit(
-        breakpoint_cost_component,
-        slope_cost_component,
-        unit_system,
-        base_power,
-        device_base_power,
-    )
-    return breakpoints, slopes
-end
-
 function add_pwl_term_delta!(
     container::OptimizationContainer,
     component::T,
-    cost_data::PSY.CostCurve,
+    ::PSY.CostCurve,
     ::Type{U},
     ::Type{V},
 ) where {
@@ -389,6 +321,10 @@ function add_pwl_term_delta!(
     U <: VariableType,
     V <: AbstractServiceFormulation,
 }
+    dir = _reserve_offer_direction(component)
+    # objective_function_multiplier(U, V) == IOM._objective_sign(dir) for the
+    # decremental ORDC offer (OBJECTIVE_FUNCTION_NEGATIVE); kept as the service-side
+    # multiplier API.
     multiplier = objective_function_multiplier(U, V)
     resolution = get_resolution(container)
     dt = Dates.value(Dates.Second(resolution)) / SECONDS_IN_HOUR
@@ -396,17 +332,27 @@ function add_pwl_term_delta!(
     time_steps = get_time_steps(container)
     pwl_cost_expressions = Vector{JuMP.AffExpr}(undef, time_steps[end])
     for t in time_steps
-        break_points, slopes = _get_reserve_pwl_data(container, component, cost_data, t)
+        break_points, slopes = IOM._get_pwl_data(dir, container, component, t; meta = name)
         pwl_vars = add_pwl_variables_delta!(
             container,
-            PiecewiseLinearBlockDecrementalOffer,
+            IOM._block_offer_var(dir),
             T,
             name,
             t,
             length(slopes);
             upper_bound = Inf,
         )
-        add_pwl_constraint_delta!(container, component, U, break_points, pwl_vars, t)
+        add_pwl_constraint_delta!(
+            container,
+            component,
+            U,
+            V,
+            break_points,
+            pwl_vars,
+            t,
+            IOM._block_offer_constraint(dir);
+            meta = name,
+        )
         pwl_cost_expressions[t] =
             get_pwl_cost_expression_delta(pwl_vars, slopes, multiplier * dt)
     end

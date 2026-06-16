@@ -38,6 +38,11 @@ objective_function_multiplier(::Type{ServiceRequirementVariable}, ::Type{Stepwis
 uses_compact_power(::Union{PSY.ReserveDemandCurve, PSY.ReserveDemandTimeSeriesCurve}, ::StepwiseCostReserve)=false
 get_multiplier_value(::Type{<:AbstractPiecewiseLinearBreakpointParameter}, ::Union{PSY.ReserveDemandCurve, PSY.ReserveDemandTimeSeriesCurve}, ::Type{<:AbstractReservesFormulation}) = 1.0
 get_multiplier_value(::Type{<:AbstractPiecewiseLinearSlopeParameter}, ::Union{PSY.ReserveDemandCurve, PSY.ReserveDemandTimeSeriesCurve}, ::Type{<:AbstractReservesFormulation}) = 1.0
+# ORDC demand curves are willingness-to-pay (concave), i.e. a decremental offer.
+# Routes the reserve PWL cost path through IOM's OfferDirection dispatch; making
+# this incremental is a one-line change here. Mirrors `_onvar_offer_direction` /
+# `_vom_offer_direction` in market_bid_overrides.jl.
+_reserve_offer_direction(::Union{PSY.ReserveDemandCurve, PSY.ReserveDemandTimeSeriesCurve}) = IOM.DecrementalOffer()
 #! format: on
 
 function get_initial_conditions_service_model(
@@ -586,10 +591,8 @@ function process_stepwise_cost_reserve_parameters!(
     model::ServiceModel,
     service::D,
 ) where {D <: PSY.ReserveDemandTimeSeriesCurve}
-    for param in (
-        DecrementalPiecewiseLinearBreakpointParameter,
-        DecrementalPiecewiseLinearSlopeParameter,
-    )
+    dir = _reserve_offer_direction(service)
+    for param in (IOM._breakpoint_param(dir), IOM._slope_param(dir))
         add_parameters!(container, param, service, model)
     end
     return
