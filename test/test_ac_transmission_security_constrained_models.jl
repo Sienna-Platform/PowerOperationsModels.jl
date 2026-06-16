@@ -1260,3 +1260,225 @@ end
     @test lim.max ≈ rb
     @test lim.min ≈ -rb
 end
+
+# Attach a single outage (monitoring every branch) to every branch of the system,
+# so every branch is both an outaged and a monitored component.
+function _attach_all_branch_outages!(sys)
+    all_branches = collect(PSY.get_components(PSY.ACTransmission, sys))
+    for branch in all_branches
+        outage = PSY.GeometricDistributionForcedOutage(;
+            mean_time_to_recovery = 10,
+            outage_transition_probability = 0.9999,
+            monitored_components = all_branches,
+        )
+        PSY.add_supplemental_attribute!(sys, branch, outage)
+    end
+    return sys
+end
+
+# Every monitored post-contingency rate constraint references the slack
+# variable for its `(outage_id, name, t)`. A constraint without a slack term
+# means `use_slacks` was honored only for the pre-contingency flow limits.
+function _post_contingency_constraints_have_slack(container, slack_refs)
+    has_slack(ref) =
+        any(haskey(JuMP.constraint_object(ref).func.terms, v) for v in slack_refs)
+    all_have = true
+    n = 0
+    for meta in ("lb", "ub")
+        cons = IOM.get_constraints(container)[IOM.ConstraintKey(
+            POM.PostContingencyFlowRateConstraint, PSY.Line, meta,
+        )]
+        for ref in values(cons.data)
+            n += 1
+            all_have &= has_slack(ref)
+        end
+    end
+    return n, all_have
+end
+
+@testset "Security Constrained branch slacks reach post-contingency flow constraints" begin
+    c_sys5 = _attach_all_branch_outages!(PSB.build_system(PSITestSystems, "c_sys5"))
+
+    function _build_sc(use_slacks)
+        template = get_thermal_dispatch_template_network(
+            NetworkModel(PTDFPowerModel; PTDF_matrix = PNM.PTDF(c_sys5)),
+        )
+        set_device_model!(
+            template,
+            DeviceModel(
+                PSY.Line,
+                POM.SecurityConstrainedStaticBranch;
+                use_slacks = use_slacks,
+            ),
+        )
+        set_device_model!(
+            template,
+            DeviceModel(
+                PSY.Transformer2W,
+                POM.SecurityConstrainedStaticBranch;
+                use_slacks = use_slacks,
+            ),
+        )
+        set_device_model!(
+            template,
+            DeviceModel(
+                PSY.TapTransformer,
+                POM.SecurityConstrainedStaticBranch;
+                use_slacks = use_slacks,
+            ),
+        )
+        model = DecisionModel(template, c_sys5; optimizer = HiGHS_optimizer)
+        @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+              IOM.ModelBuildStatus.BUILT
+        return model
+    end
+
+    # use_slacks = true: per-contingency slack variables exist and are wired
+    # into every post-contingency rate inequality.
+    model = _build_sc(true)
+    container = IOM.get_optimization_container(model)
+    @test IOM.has_container_key(
+        container,
+        POM.PostContingencyFlowActivePowerSlackUpperBound,
+        PSY.Line,
+    )
+    @test IOM.has_container_key(
+        container,
+        POM.PostContingencyFlowActivePowerSlackLowerBound,
+        PSY.Line,
+    )
+    slack_ub =
+        IOM.get_variable(
+            container,
+            POM.PostContingencyFlowActivePowerSlackUpperBound,
+            PSY.Line,
+        )
+    slack_lb =
+        IOM.get_variable(
+            container,
+            POM.PostContingencyFlowActivePowerSlackLowerBound,
+            PSY.Line,
+        )
+    @test !isempty(slack_ub.data)
+    @test !isempty(slack_lb.data)
+    slack_refs = Set{JuMP.VariableRef}()
+    union!(slack_refs, values(slack_ub.data))
+    union!(slack_refs, values(slack_lb.data))
+    n, all_have = _post_contingency_constraints_have_slack(container, slack_refs)
+    @test n > 0
+    @test all_have
+    @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+
+    # use_slacks = false: no post-contingency slack variables, hard limits.
+    model_hard = _build_sc(false)
+    container_hard = IOM.get_optimization_container(model_hard)
+    @test !IOM.has_container_key(
+        container_hard,
+        POM.PostContingencyFlowActivePowerSlackUpperBound,
+        PSY.Line,
+    )
+    @test !IOM.has_container_key(
+        container_hard,
+        POM.PostContingencyFlowActivePowerSlackLowerBound,
+        PSY.Line,
+    )
+end
+
+# An outage attached to components of more than one branch type makes multiple SC
+# DeviceModels claim the same monitored `(outage, name, t)` constraints. The second
+# model to build reuses the first's constraint refs; the slack-container aliasing
+# registers those slacks under the reusing type too, so `has_container_key` /
+# `get_variable` stay consistent regardless of the Dict-ordered build order.
+@testset "Multi-type outage post-contingency slacks reach every reusing branch type" begin
+    c_sys14 = PSB.build_system(PSITestSystems, "c_sys14")
+    all_branches = collect(PSY.get_components(PSY.ACTransmission, c_sys14))
+    line = PSY.get_component(PSY.Line, c_sys14, "Line1")
+    transformer = first(PSY.get_components(PSY.Transformer2W, c_sys14))
+    # One outage attached to both a Line and a Transformer2W: a multi-type outage.
+    outage = PSY.GeometricDistributionForcedOutage(;
+        mean_time_to_recovery = 10,
+        outage_transition_probability = 0.9999,
+        monitored_components = all_branches,
+    )
+    PSY.add_supplemental_attribute!(c_sys14, line, outage)
+    PSY.add_supplemental_attribute!(c_sys14, transformer, outage)
+
+    template = get_thermal_dispatch_template_network(
+        NetworkModel(
+            PTDFPowerModel;
+            PTDF_matrix = PNM.VirtualPTDF(c_sys14),
+            MODF_matrix = PNM.VirtualMODF(c_sys14),
+        ),
+    )
+    set_device_model!(
+        template,
+        DeviceModel(PSY.Line, POM.SecurityConstrainedStaticBranch; use_slacks = true),
+    )
+    set_device_model!(
+        template,
+        DeviceModel(
+            PSY.Transformer2W,
+            POM.SecurityConstrainedStaticBranch;
+            use_slacks = true,
+        ),
+    )
+    set_device_model!(
+        template,
+        DeviceModel(
+            PSY.TapTransformer,
+            POM.SecurityConstrainedStaticBranch;
+            use_slacks = true,
+        ),
+    )
+    model = DecisionModel(template, c_sys14; optimizer = HiGHS_optimizer)
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+    container = IOM.get_optimization_container(model)
+
+    # Both reusing branch types own non-empty slack containers: the second to build
+    # aliases the first's refs instead of registering an empty container.
+    slack_refs = Set{JuMP.VariableRef}()
+    for V in (PSY.Line, PSY.Transformer2W),
+        S in (
+            POM.PostContingencyFlowActivePowerSlackUpperBound,
+            POM.PostContingencyFlowActivePowerSlackLowerBound,
+        )
+
+        @test IOM.has_container_key(container, S, V)
+        slacks = IOM.get_variable(container, S, V)
+        @test !isempty(slacks.data)
+        union!(slack_refs, values(slacks.data))
+    end
+
+    # The aliased slacks are shared between the two component-type containers.
+    line_ub = IOM.get_variable(
+        container,
+        POM.PostContingencyFlowActivePowerSlackUpperBound,
+        PSY.Line,
+    )
+    transformer_ub = IOM.get_variable(
+        container,
+        POM.PostContingencyFlowActivePowerSlackUpperBound,
+        PSY.Transformer2W,
+    )
+    @test !isempty(intersect(Set(values(line_ub.data)), Set(values(transformer_ub.data))))
+
+    # Every post-contingency rate constraint, including the reused ones stored under
+    # the second component type, references a registered slack.
+    has_slack(ref) =
+        any(haskey(JuMP.constraint_object(ref).func.terms, v) for v in slack_refs)
+    n = 0
+    all_have = true
+    for V in (PSY.Line, PSY.Transformer2W), meta in ("lb", "ub")
+        cons = IOM.get_constraints(container)[IOM.ConstraintKey(
+            POM.PostContingencyFlowRateConstraint, V, meta,
+        )]
+        for ref in values(cons.data)
+            n += 1
+            all_have &= has_slack(ref)
+        end
+    end
+    @test n > 0
+    @test all_have
+    @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+end
