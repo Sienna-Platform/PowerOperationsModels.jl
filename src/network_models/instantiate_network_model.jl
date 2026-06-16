@@ -235,11 +235,13 @@ function _prune_fully_reduced_branch_models!(
         push!(pruned, branch_type)
     end
     for branch_type in pruned
+        hint = branch_type === PSY.MonitoredLine ?
+             " Use the `model_all_branches` attribute on the MonitoredLine DeviceModel to retain such lines through the reduction." :
+             " Consider adjusting the network-reduction settings/tolerance to avoid merging all branches of this type."
         @warn "All components of branch type $(branch_type) were merged away by the " *
               "network reduction (e.g. a zero-impedance branch merge). The " *
               "$(branch_type) DeviceModel is dropped from the template and will not " *
-              "be modeled. Use the `model_all_branches` attribute on a MonitoredLine " *
-              "model to retain such branches through the reduction."
+              "be modeled.$hint"
         delete!(branch_models, nameof(branch_type))
         filter!(!=(branch_type), network_model.modeled_branch_types)
     end

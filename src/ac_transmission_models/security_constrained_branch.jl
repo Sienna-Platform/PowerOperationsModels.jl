@@ -438,18 +438,24 @@ function add_constraints!(
                     container, T, V, outage_id, name, first(time_steps),
                 )
                 if !isnothing(src_lb) && !isnothing(src_ub)
-                    # Reuse the shared constraint refs verbatim. The shared
-                    # constraint already references the source model's slack (if
-                    # any); alias those slack refs into this model's container so
-                    # `get_variable`/`has_container_key` for `V` stay consistent
-                    # with the constraints it reuses.
-                    src_slack_ub = nothing
-                    src_slack_lb = nothing
-                    if use_slacks
-                        src_slack_ub, src_slack_lb =
-                            _find_shared_post_contingency_slack_sources(
-                                container, V, outage_id, name, first(time_steps),
-                            )
+                    src_slack_ub, src_slack_lb =
+                        _find_shared_post_contingency_slack_sources(
+                            container, V, outage_id, name, first(time_steps),
+                        )
+                    source_has_slacks =
+                        !isnothing(src_slack_ub) || !isnothing(src_slack_lb)
+                    if source_has_slacks != use_slacks
+                        error(
+                            "Inconsistent `use_slacks` among security-constrained " *
+                            "branch models that share post-contingency constraints " *
+                            "for outage $outage_id, monitored component \"$name\": " *
+                            "the shared constraints were built " *
+                            (source_has_slacks ? "with" : "without") *
+                            " slacks, but the `$V` branch model sets " *
+                            "`use_slacks = $use_slacks`. Configure `use_slacks` " *
+                            "identically across all security-constrained branch " *
+                            "`DeviceModel`s whose outage/monitored sets overlap.",
+                        )
                     end
                     for t in time_steps
                         con_ub[outage_id, name, t] =

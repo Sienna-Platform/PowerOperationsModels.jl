@@ -1,3 +1,5 @@
+import PowerNetworkMatrices as PNM
+
 # build! routes log records emitted inside build_model! to the model's internal
 # file logger (operation_problem.log), so they are NOT visible to @test_logs at
 # the call site. To assert (or rule out) the REF-less pin warning we read it.
@@ -152,7 +154,7 @@ end
 @testset "branch_admittance primitives" begin
     sys = PSB.build_system(PSITestSystems, "c_sys5")
     line = first(PSY.get_components(PSY.Line, sys))
-    a = PowerOperationsModels._branch_admittance(line)
+    a = PNM.branch_admittance(line)
     r, x = PSY.get_r(line, PSY.SU), PSY.get_x(line, PSY.SU)
     y = inv(complex(r, x))
     @test a.g ≈ real(y)
@@ -164,13 +166,11 @@ end
 @testset "branch_flow_limits MonitoredLine" begin
     sys = PSB.build_system(PSITestSystems, "c_sys5_ml")
     ml = first(PSY.get_components(PSY.MonitoredLine, sys))
-    fl = PowerOperationsModels.branch_flow_limits(ml)
+    fl = PNM.branch_flow_limits(ml)
     psy_fl = PSY.get_flow_limits(ml, PSY.SU)
     @test fl.from_to == psy_fl.from_to
     @test fl.to_from == psy_fl.to_from
 end
-
-import PowerNetworkMatrices as PNM
 
 @testset "reduced arc admittance uses PNM series equivalent, not original branch" begin
     # `case11_network_reductions` is purpose-built to produce series arcs under the
@@ -194,9 +194,9 @@ import PowerNetworkMatrices as PNM
     @test !isempty(series_map)  # degree-2 reduction produces series arcs
 
     (from_no, to_no), chain = first(series_map)
-    resolved = PowerOperationsModels._reduced_arc_admittance(nr, from_no, to_no)
+    resolved = PNM.reduced_arc_admittance(nr, from_no, to_no)
     @test resolved !== nothing
-    expected = PowerOperationsModels._segment_admittance(chain, nr)
+    expected = PNM.branch_admittance(chain, nr)
     @test isapprox(resolved.b, expected.b; atol = 1e-9)
 
     # Non-triviality: the series equivalent is the MERGED admittance of the chain, so
@@ -205,13 +205,13 @@ import PowerNetworkMatrices as PNM
     # for the reduced arc, which is wrong.
     members = collect(chain)
     @test length(members) >= 2
-    member_b = PowerOperationsModels._branch_admittance(members[1]).b
+    member_b = PNM.branch_admittance(members[1]).b
     @test !isapprox(resolved.b, member_b; rtol = 1e-3)
 
     # Reversed-orientation arc exercises the `_reverse_admittance` path: series b is
     # symmetric, from/to shunts swap, and any phase shift negates.
     if !haskey(series_map, (to_no, from_no))
-        reversed = PowerOperationsModels._reduced_arc_admittance(nr, to_no, from_no)
+        reversed = PNM.reduced_arc_admittance(nr, to_no, from_no)
         @test reversed !== nothing
         @test isapprox(reversed.b, resolved.b; atol = 1e-9)
         @test isapprox(reversed.b_fr, resolved.b_to; atol = 1e-9)
@@ -220,7 +220,7 @@ import PowerNetworkMatrices as PNM
 
     # A direct (un-reduced) arc resolves to `nothing` — the caller falls back to the
     # branch's own admittance.
-    @test PowerOperationsModels._reduced_arc_admittance(nr, -1, -2) === nothing
+    @test PNM.reduced_arc_admittance(nr, -1, -2) === nothing
 end
 
 @testset "Transformer3W _winding_admittance star-arc decomposition" begin
@@ -306,7 +306,7 @@ end
     PSY.add_component!(sys, transformer3w)
 
     w = PNM.ThreeWindingTransformerWinding(transformer3w, 1)
-    adm = PowerOperationsModels._winding_admittance(w)
+    adm = PNM.winding_admittance(w)
 
     r = PNM.get_equivalent_r(w)
     x = PNM.get_equivalent_x(w)

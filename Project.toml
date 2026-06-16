@@ -29,7 +29,7 @@ InfrastructureSystems = {rev = "IS4", url = "https://github.com/Sienna-Platform/
 PowerSystems = {rev = "psy6", url = "https://github.com/Sienna-Platform/PowerSystems.jl"}
 # todo: repin once iom merged
 InfrastructureOptimizationModels = {rev = "ac/ordc", url = "https://github.com/Sienna-Platform/InfrastructureOptimizationModels.jl"}
-PowerNetworkMatrices = {rev = "psy6", url = "https://github.com/Sienna-Platform/PowerNetworkMatrices.jl"}
+PowerNetworkMatrices = {rev = "ac/port-branch-admittance", url = "https://github.com/Sienna-Platform/PowerNetworkMatrices.jl"}
 
 [extensions]
 PowerFlowsExt = "PowerFlows"
