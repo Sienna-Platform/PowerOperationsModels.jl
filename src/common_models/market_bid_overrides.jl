@@ -294,21 +294,7 @@ _vom_offer_direction(::Type{<:AbstractControllablePowerLoadFormulation}) =
 
 """
 Add the delta PWL objective terms for an ORDC service (`StepwiseCostReserve` over
-`ReserveDemandCurve` / `ReserveDemandTimeSeriesCurve`). The demand curve is a
-willingness-to-pay (concave) decremental offer, so the whole path routes through
-IOM's generic `OfferDirection` machinery via `_reserve_offer_direction`:
-
-* `IOM._get_pwl_data` fetches the curve (`get_offer_curves` → `PSY.get_variable`)
-  and dispatches the static vs. time-series read internally.
-* `IOM._block_offer_var` / `IOM._block_offer_constraint` pick the block-offer
-  variable/constraint family.
-* `IOM.add_pwl_constraint_delta!` builds the block-sum constraint.
-
-All containers are keyed by `meta = name` because services are built one at a
-time (one container per service, not a shared names-axis batch).
-
-`cost_data` is accepted to match the caller's signature but is re-resolved inside
-`IOM._get_pwl_data`; it is the same `PSY.get_variable(component)` curve.
+`ReserveDemandCurve` / `ReserveDemandTimeSeriesCurve`).
 """
 function add_pwl_term_delta!(
     container::OptimizationContainer,
