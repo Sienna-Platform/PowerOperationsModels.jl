@@ -1427,7 +1427,7 @@ end
 # Admittance for `branch`'s ohm's law given its retained endpoints: the branch's own
 # π-parameters (`PNM.branch_admittance`) for a direct/un-reduced arc, or PNM's
 # reduction-aware equivalent (`PNM.reduced_arc_admittance`) for a series/parallel-aggregated
-# arc. The π-admittance primitives themselves now live in PNM (`BranchAdmittance.jl`).
+# arc.
 function _resolve_branch_admittance(network_model, branch, from_no::Int, to_no::Int)
     nr = get_network_reduction(network_model)
     isempty(nr) && return PNM.branch_admittance(branch)
@@ -1468,10 +1468,6 @@ function _branch_geometries(sys::PSY.System, network_model, devices)
     end
     return geoms
 end
-
-# `branch_flow_limits(branch)` (directional per-unit MVA flow limits, including the
-# `BranchesParallel`/`BranchesSeries`/`ThreeWindingTransformerWinding` reduction wrappers)
-# now lives in PNM (`BranchAdmittance.jl`); call `PNM.branch_flow_limits`.
 
 ################################## Native ACP apparent-power rate constraints ###############
 
@@ -1929,12 +1925,6 @@ end
 # Indexing the flow containers by these unique strings keeps the variable
 # storage 2D (name × time) without inventing a new container shape.
 ################################################################################
-
-# ── Native three-winding helpers ─────────────────────────────────────────────
-# The per-winding decomposition (`PNM.three_winding_arcs`, returning a `suffix`/`arc`/
-# `rating`/`winding` NamedTuple per wye-model winding) and the per-winding π-admittance
-# (`PNM.winding_admittance`) now live in PNM (`BranchAdmittance.jl`); the native 3W builders
-# below call them directly.
 
 "Build the list of per-winding variable names for a set of Transformer3W devices."
 function _three_winding_var_names(devices)
