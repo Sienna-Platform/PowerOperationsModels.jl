@@ -104,6 +104,15 @@ get_offer_curves(::IOM.DecrementalOffer, op_cost::PSY.OfferCurveCost) =
 get_offer_curves(::IOM.IncrementalOffer, op_cost::PSY.OfferCurveCost) =
     get_output_offer_curves(op_cost)
 
+# direction and ORDC reserve service: the demand curve is carried on the service's
+# `variable` field (a CostCurve, static or time-series-backed) rather than split
+# across incremental/decremental sides. Direction is irrelevant to the lookup; the
+# service-side direction trait (`_reserve_offer_direction`) is decremental.
+get_offer_curves(
+    ::IOM.OfferDirection,
+    service::Union{PSY.ReserveDemandCurve, PSY.ReserveDemandTimeSeriesCurve},
+) = PSY.get_variable(service)
+
 #################################################################################
 # Section 3: _get_parameter_field Dispatch Table
 # Maps parameter types to PSY getter functions.
@@ -380,12 +389,13 @@ function IOM._get_pwl_data(
     dir::IOM.OfferDirection,
     container::OptimizationContainer,
     component::T,
-    time::Int,
+    time::Int;
+    meta = IOM.CONTAINER_KEY_EMPTY_META,
 ) where {T <: IS.InfrastructureSystemsComponent}
     name = IS.get_name(component)
     cost_data = get_offer_curves(dir, component)
     breakpoint_cost_component, slope_cost_component, unit_system =
-        IOM._get_raw_pwl_data(dir, container, T, name, cost_data, time)
+        IOM._get_raw_pwl_data(dir, container, T, name, cost_data, time; meta = meta)
 
     breakpoints, slopes = IOM.get_piecewise_curve_per_system_unit(
         breakpoint_cost_component,
@@ -397,14 +407,16 @@ function IOM._get_pwl_data(
     return breakpoints, slopes
 end
 
-# static curve: read directly from the cost curve
+# static curve: read directly from the cost curve. `meta` is accepted (and
+# ignored) so the kwarg threaded by `_get_pwl_data` resolves for either branch.
 function IOM._get_raw_pwl_data(
     ::IOM.OfferDirection,
     ::OptimizationContainer,
     ::Type{<:IS.InfrastructureSystemsComponent},
     ::String,
     cost_data::IS.CostCurve{IS.PiecewiseIncrementalCurve},
-    ::Int,
+    ::Int;
+    meta = IOM.CONTAINER_KEY_EMPTY_META,
 )
     cost_component = IS.get_function_data(IS.get_value_curve(cost_data))
     return IS.get_x_coords(cost_component),

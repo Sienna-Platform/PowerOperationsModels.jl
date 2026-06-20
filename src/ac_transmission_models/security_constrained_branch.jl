@@ -216,6 +216,40 @@ function _find_shared_post_contingency_constraint_sources(
 end
 
 """
+Locate the post-contingency slack variable containers that a shared constraint for
+`(outage_id, name, t)` already references, registered by the source DeviceModel under
+a component type other than `V`. Returns `(ub_source, lb_source)`; either slot is
+`nothing` when the shared constraint was built without that slack (the source model
+had `use_slacks = false`). Lets a reusing model alias those refs into its own slack
+container so `get_variable`/`has_container_key` stay consistent with the constraints
+it reuses, regardless of branch-model build order.
+"""
+function _find_shared_post_contingency_slack_sources(
+    container::OptimizationContainer,
+    ::Type{V},
+    outage_id::String,
+    name::String,
+    t::Int,
+) where {V <: PSY.ACTransmission}
+    target = (outage_id, name, t)
+    src_ub = nothing
+    src_lb = nothing
+    for (key, vc) in IOM.get_variables(container)
+        get_component_type(key) === V && continue
+        entry = get_entry_type(key)
+        if entry === PostContingencyFlowActivePowerSlackUpperBound &&
+           haskey(vc.data, target)
+            src_ub = vc
+        elseif entry === PostContingencyFlowActivePowerSlackLowerBound &&
+               haskey(vc.data, target)
+            src_lb = vc
+        end
+        !isnothing(src_ub) && !isnothing(src_lb) && break
+    end
+    return src_ub, src_lb
+end
+
+"""
 Fast-path precheck: returns `true` iff any container of entry type `T` exists
 under a component type other than `V`.
 """
@@ -404,14 +438,38 @@ function add_constraints!(
                     container, T, V, outage_id, name, first(time_steps),
                 )
                 if !isnothing(src_lb) && !isnothing(src_ub)
-                    # Reuse the first claimer's constraint refs verbatim; its
-                    # slacks were already created and penalized, so do NOT add
-                    # new ones here.
+                    src_slack_ub, src_slack_lb =
+                        _find_shared_post_contingency_slack_sources(
+                            container, V, outage_id, name, first(time_steps),
+                        )
+                    source_has_slacks =
+                        !isnothing(src_slack_ub) || !isnothing(src_slack_lb)
+                    if source_has_slacks != use_slacks
+                        error(
+                            "Inconsistent `use_slacks` among security-constrained " *
+                            "branch models that share post-contingency constraints " *
+                            "for outage $outage_id, monitored component \"$name\": " *
+                            "the shared constraints were built " *
+                            (source_has_slacks ? "with" : "without") *
+                            " slacks, but the `$V` branch model sets " *
+                            "`use_slacks = $use_slacks`. Configure `use_slacks` " *
+                            "identically across all security-constrained branch " *
+                            "`DeviceModel`s whose outage/monitored sets overlap.",
+                        )
+                    end
                     for t in time_steps
                         con_ub[outage_id, name, t] =
                             src_ub.data[(outage_id, name, t)]
                         con_lb[outage_id, name, t] =
                             src_lb.data[(outage_id, name, t)]
+                        isnothing(src_slack_ub) || (
+                            slack_ub[outage_id, name, t] =
+                                src_slack_ub.data[(outage_id, name, t)]
+                        )
+                        isnothing(src_slack_lb) || (
+                            slack_lb[outage_id, name, t] =
+                                src_slack_lb.data[(outage_id, name, t)]
+                        )
                     end
                     continue
                 end

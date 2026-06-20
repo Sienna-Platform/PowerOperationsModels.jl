@@ -52,7 +52,7 @@ end
 function get_variable_upper_bound(::Type{ActivePowerReserveVariable}, r::PSY.Reserve, d::PSY.Storage, ::Type{<:AbstractReservesFormulation})
     return PSY.get_max_output_fraction(r) * (PSY.get_output_active_power_limits(d, PSY.SU).max + PSY.get_input_active_power_limits(d, PSY.SU).max)
 end
-function get_variable_upper_bound(::Type{ActivePowerReserveVariable}, r::PSY.ReserveDemandCurve, d::PSY.Storage, ::Type{<:AbstractReservesFormulation})
+function get_variable_upper_bound(::Type{ActivePowerReserveVariable}, r::Union{PSY.ReserveDemandCurve, PSY.ReserveDemandTimeSeriesCurve}, d::PSY.Storage, ::Type{<:AbstractReservesFormulation})
     return PSY.get_max_output_fraction(r) * (PSY.get_output_active_power_limits(d, PSY.SU).max + PSY.get_input_active_power_limits(d, PSY.SU).max)
 end
 

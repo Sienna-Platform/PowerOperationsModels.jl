@@ -439,8 +439,13 @@ function get_branch_to_pm(
     T::Type{<:AbstractBranchFormulation},
     U::Type{<:AbstractPowerModel},
     device_model::DeviceModel,
+    network_reduction_data::PNM.NetworkReductionData,
 )
-    equivalent_branch = PNM.get_equivalent_physical_branch_parameters(double_circuit)
+    equivalent_branch =
+        PNM.get_equivalent_physical_branch_parameters(
+            double_circuit,
+            network_reduction_data,
+        )
     rating = branch_rating(double_circuit, device_model)
     PM_branch = Dict{String, Any}(
         "br_r" => PNM.get_equivalent_r(equivalent_branch),
@@ -473,8 +478,13 @@ function get_branch_to_pm(
     T::Type{StaticBranchUnbounded},
     U::Type{<:AbstractPowerModel},
     device_model::DeviceModel,
+    network_reduction_data::PNM.NetworkReductionData,
 )
-    equivalent_branch = PNM.get_equivalent_physical_branch_parameters(double_circuit)
+    equivalent_branch =
+        PNM.get_equivalent_physical_branch_parameters(
+            double_circuit,
+            network_reduction_data,
+        )
     rating = branch_rating(double_circuit, device_model)
     PM_branch = Dict{String, Any}(
         "br_r" => PNM.get_equivalent_r(equivalent_branch),
@@ -507,8 +517,10 @@ function get_branch_to_pm(
     T::Type{<:AbstractBranchFormulation},
     U::Type{<:AbstractPowerModel},
     ::DeviceModel,
+    network_reduction_data::PNM.NetworkReductionData,
 )
-    equivalent_branch = PNM.get_equivalent_physical_branch_parameters(series_chain)
+    equivalent_branch =
+        PNM.get_equivalent_physical_branch_parameters(series_chain, network_reduction_data)
     PM_branch = Dict{String, Any}(
         "br_r" => PNM.get_equivalent_r(equivalent_branch),
         "shift" => 0.0,
@@ -536,8 +548,10 @@ function get_branch_to_pm(
     T::Type{StaticBranchUnbounded},
     U::Type{<:AbstractPowerModel},
     ::DeviceModel,
+    network_reduction_data::PNM.NetworkReductionData,
 )
-    equivalent_branch = PNM.get_equivalent_physical_branch_parameters(series_chain)
+    equivalent_branch =
+        PNM.get_equivalent_physical_branch_parameters(series_chain, network_reduction_data)
     PM_branch = Dict{String, Any}(
         "br_r" => PNM.get_equivalent_r(equivalent_branch),
         "shift" => 0.0,
@@ -546,7 +560,7 @@ function get_branch_to_pm(
         "g_fr" => 0.0,
         "b_fr" => PNM.get_equivalent_b_from(equivalent_branch),
         "f_bus" => arc_tuple[1],
-        "br_status" => Float64(PNM.get_equivalent_available(double_circuit)),
+        "br_status" => Float64(PNM.get_equivalent_available(series_chain)),
         "t_bus" => arc_tuple[2],
         "b_to" => PNM.get_equivalent_b_to(equivalent_branch),
         "index" => ix,
@@ -556,6 +570,18 @@ function get_branch_to_pm(
         "tap" => 1.0,
     )
     return PM_branch
+end
+
+function get_branch_to_pm(
+    ix::Int,
+    arc_tuple::Tuple{Int, Int},
+    branch,
+    formulation::Type{<:AbstractBranchFormulation},
+    network::Type{<:AbstractPowerModel},
+    device_model::DeviceModel,
+    ::PNM.NetworkReductionData,
+)
+    return get_branch_to_pm(ix, arc_tuple, branch, formulation, network, device_model)
 end
 
 function get_branch_to_pm(
@@ -733,6 +759,9 @@ function get_branches_to_pm(
         for (_, (arc_tuple, reduction)) in name_to_arc_map
             arc_tuple ∈ modeled_arc_tuples && continue # This is the PowerModels equivalent of the branch and constraint tracker.
             reduction_entry = all_branch_maps_by_type[reduction][comp_type][arc_tuple]
+            # Reduction-aggregated arcs (series/parallel segments) need the reduction
+            # data to resolve their equivalent π-parameters; direct branches dispatch
+            # to a method that ignores it.
             PM_branches["$(ix)"] = get_branch_to_pm(
                 ix,
                 arc_tuple,
@@ -740,6 +769,7 @@ function get_branches_to_pm(
                 get_formulation(device_model),
                 S,
                 device_model,
+                net_reduction_data,
             )
             if PM_branches["$(ix)"]["br_status"] == true
                 f = PM_branches["$(ix)"]["f_bus"]

@@ -193,6 +193,10 @@ function construct_service!(
     return
 end
 
+_maybe_process_stepwise(container, model, service::PSY.ReserveDemandTimeSeriesCurve) =
+    process_stepwise_cost_reserve_parameters!(container, model, service)
+_maybe_process_stepwise(container, model, service) = nothing
+
 function construct_service!(
     container::OptimizationContainer,
     sys::PSY.System,
@@ -206,6 +210,7 @@ function construct_service!(
     service = PSY.get_component(SR, sys, name)
     !PSY.get_available(service) && return
     contributing_devices = get_contributing_devices(model)
+    _maybe_process_stepwise(container, model, service)
     add_reserve_variables!(
         container,
         ServiceRequirementVariable,
