@@ -1,3 +1,5 @@
+import PowerNetworkMatrices as PNM
+
 # build! routes log records emitted inside build_model! to the model's internal
 # file logger (operation_problem.log), so they are NOT visible to @test_logs at
 # the call site. To assert (or rule out) the REF-less pin warning we read it.
@@ -164,13 +166,11 @@ end
 @testset "branch_flow_limits MonitoredLine" begin
     sys = PSB.build_system(PSITestSystems, "c_sys5_ml")
     ml = first(PSY.get_components(PSY.MonitoredLine, sys))
-    fl = PowerOperationsModels.branch_flow_limits(ml)
+    fl = PNM.branch_flow_limits(ml)
     psy_fl = PSY.get_flow_limits(ml, PSY.SU)
     @test fl.from_to == psy_fl.from_to
     @test fl.to_from == psy_fl.to_from
 end
-
-import PowerNetworkMatrices as PNM
 
 @testset "reduced arc admittance uses PNM series equivalent, not original branch" begin
     # `case11_network_reductions` is purpose-built to produce series arcs under the
@@ -194,7 +194,7 @@ import PowerNetworkMatrices as PNM
     @test !isempty(series_map)  # degree-2 reduction produces series arcs
 
     (from_no, to_no), chain = first(series_map)
-    resolved = PowerOperationsModels._reduced_arc_admittance(nr, from_no, to_no)
+    resolved = PNM.reduced_arc_admittance(nr, from_no, to_no)
     @test resolved !== nothing
     expected = PNM.branch_admittance(chain, nr)
     @test isapprox(resolved.b, expected.b; atol = 1e-9)
@@ -211,7 +211,7 @@ import PowerNetworkMatrices as PNM
     # Reversed-orientation arc exercises the `_reverse_admittance` path: series b is
     # symmetric, from/to shunts swap, and any phase shift negates.
     if !haskey(series_map, (to_no, from_no))
-        reversed = PowerOperationsModels._reduced_arc_admittance(nr, to_no, from_no)
+        reversed = PNM.reduced_arc_admittance(nr, to_no, from_no)
         @test reversed !== nothing
         @test isapprox(reversed.b, resolved.b; atol = 1e-9)
         @test isapprox(reversed.b_fr, resolved.b_to; atol = 1e-9)
@@ -220,36 +220,104 @@ import PowerNetworkMatrices as PNM
 
     # A direct (un-reduced) arc resolves to `nothing` — the caller falls back to the
     # branch's own admittance.
-    @test PowerOperationsModels._reduced_arc_admittance(nr, -1, -2) === nothing
+    @test PNM.reduced_arc_admittance(nr, -1, -2) === nothing
 end
 
 @testset "Transformer3W _winding_admittance star-arc decomposition" begin
-    # Unit test the per-winding admittance helper: for a winding with series
-    # impedance R + jX the helper must return the admittance 1/(R + jX), i.e.
-    #   g =  R / (R^2 + X^2),  b = -X / (R^2 + X^2)
-    # with zero shunts, zero phase shift, and the winding's tap passed through.
-    R = 0.01
-    X = 0.1
-    w = (
-        suffix = "winding_1",
-        arc = nothing,
-        r = R,
-        x = X,
-        rating = 1.0,
-        tap = 1.0,
+    # Unit test the per-winding admittance helper against a real PNM
+    # `ThreeWindingTransformerWinding`: for a winding with series impedance R + jX the
+    # helper must return the series admittance 1/(R + jX), the winding's PNM shunt on the
+    # from/to sides, no phase shift, and (here) a unit tap. R/X are read back through PNM
+    # so the assertion is robust to per-unit base conversions.
+    sys = PSB.build_system(PSITestSystems, "c_sys5_ml")
+    busD = PSY.get_component(PSY.ACBus, sys, "nodeD")
+    star_bus = PSY.ACBus(;
+        number = 103,
+        name = "Star_Bus_T3W",
+        available = true,
+        bustype = PSY.ACBusTypes.PQ,
+        angle = 0.0,
+        magnitude = 1.0,
+        voltage_limits = (min = 0.95, max = 1.05),
+        base_voltage = 230.0,
+        area = PSY.get_area(busD),
+        load_zone = PSY.get_load_zone(busD),
     )
+    PSY.add_component!(sys, star_bus)
+    sec_bus = PSY.ACBus(;
+        number = 101,
+        name = "Bus3WT_1",
+        available = true,
+        bustype = PSY.ACBusTypes.PQ,
+        angle = 0.0,
+        magnitude = 1.0,
+        voltage_limits = (min = 0.95, max = 1.05),
+        base_voltage = 230.0,
+        area = PSY.get_area(busD),
+        load_zone = PSY.get_load_zone(busD),
+    )
+    PSY.add_component!(sys, sec_bus)
+    ter_bus = PSY.ACBus(;
+        number = 102,
+        name = "Bus3WT_2",
+        available = true,
+        bustype = PSY.ACBusTypes.PQ,
+        angle = 0.0,
+        magnitude = 1.0,
+        voltage_limits = (min = 0.95, max = 1.05),
+        base_voltage = 230.0,
+        area = PSY.get_area(busD),
+        load_zone = PSY.get_load_zone(busD),
+    )
+    PSY.add_component!(sys, ter_bus)
+    transformer3w = PSY.Transformer3W(;
+        name = "Transformer3W_busD",
+        available = true,
+        primary_star_arc = PSY.Arc(; from = busD, to = star_bus),
+        secondary_star_arc = PSY.Arc(; from = sec_bus, to = star_bus),
+        tertiary_star_arc = PSY.Arc(; from = ter_bus, to = star_bus),
+        star_bus = star_bus,
+        active_power_flow_primary = 0.0,
+        reactive_power_flow_primary = 0.0,
+        active_power_flow_secondary = 0.0,
+        reactive_power_flow_secondary = 0.0,
+        active_power_flow_tertiary = 0.0,
+        reactive_power_flow_tertiary = 0.0,
+        r_primary = 0.01,
+        x_primary = 0.1,
+        r_secondary = 0.01,
+        x_secondary = 0.1,
+        r_tertiary = 0.01,
+        x_tertiary = 0.1,
+        r_12 = 0.01,
+        x_12 = 0.1,
+        r_23 = 0.01,
+        x_23 = 0.1,
+        r_13 = 0.01,
+        x_13 = 0.1,
+        base_power_12 = 100.0,
+        base_power_23 = 100.0,
+        base_power_13 = 100.0,
+        rating = nothing,
+        rating_primary = 1.0,
+        rating_secondary = 1.0,
+        rating_tertiary = 0.5,
+    )
+    PSY.add_component!(sys, transformer3w)
+
+    w = PNM.ThreeWindingTransformerWinding(transformer3w, 1)
     adm = PNM.winding_admittance(w)
-    denom = R^2 + X^2
-    @test isapprox(adm.g, R / denom; atol = 1e-12)
-    @test isapprox(adm.b, -X / denom; atol = 1e-12)
-    @test adm.g_fr == 0.0
-    @test adm.b_fr == 0.0
-    @test adm.g_to == 0.0
-    @test adm.b_to == 0.0
-    @test adm.tap == w.tap
-    @test adm.shift == 0.0
-    # Cross-check against direct complex inversion.
-    y = inv(complex(R, X))
+
+    r = PNM.get_equivalent_r(w)
+    x = PNM.get_equivalent_x(w)
+    y = inv(complex(r, x))
     @test isapprox(adm.g, real(y); atol = 1e-12)
     @test isapprox(adm.b, imag(y); atol = 1e-12)
+
+    b_sh = PNM.get_equivalent_b(w)
+    @test adm.g_fr == 0.0
+    @test adm.b_fr == b_sh.from
+    @test adm.g_to == 0.0
+    @test adm.b_to == b_sh.to
+    @test adm.tap == 1.0
 end
