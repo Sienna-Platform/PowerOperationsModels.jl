@@ -697,3 +697,87 @@ end
         rtol = 0,
     )
 end
+
+@testset "AC Power Flow in the loop: Fast Decoupled (FDNR) matches Newton-Raphson" begin
+    pf_data_for(pf_eval) = begin
+        system = build_system(PSITestSystems, "c_sys5_uc")
+        template = get_template_dispatch_with_network(
+            NetworkModel(
+                PTDFPowerModel;
+                PTDF_matrix = PTDF(system),
+                evaluations = power_flow_evaluations(pf_eval),
+            ),
+        )
+        model_m = DecisionModel(template, system; optimizer = HiGHS_optimizer)
+        @test build!(model_m; output_dir = mktempdir(; cleanup = true)) ==
+              ModelBuildStatus.BUILT
+        @test solve!(model_m) == RunStatus.SUCCESSFULLY_FINALIZED
+        container = get_optimization_container(model_m)
+        return get_inner_data(only(values(get_evaluation_data(get_evaluations(container)))))
+    end
+
+    # Newton-Raphson reference (default `ACPolarPowerFlow` solver).
+    nr_data = pf_data_for(ACPolarPowerFlow())
+    @test all(PFS.get_converged(nr_data))
+    # The FD solver tag does not change the container type: read-back uses the identical path.
+    @test nr_data isa PFS.ACPowerFlowData
+
+    # label => evaluator. Each must converge through the loop and match the NR reference.
+    fd_evaluators = [
+        "FDNR default (FDDecoupled/XB)" =>
+            ACPolarPowerFlow{PFS.FastDecoupledACPowerFlow}(),
+        "FDDecoupled/BX scheme" =>
+            ACPolarPowerFlow{
+                PFS.FastDecoupledACPowerFlow{PFS.FDDecoupled, PFS.FDSchemeBX},
+            }(),
+        "FDFixedJacobian (polar)" =>
+            ACPolarPowerFlow{PFS.FastDecoupledFixed}(),
+        "FastDecoupledXB alias" =>
+            ACPolarPowerFlow{PFS.FastDecoupledXB}(),
+        "FDNR handoff -> NewtonRaphson" =>
+            ACPolarPowerFlow{PFS.FastDecoupledACPowerFlow}(;
+                solver_settings = Dict{Symbol, Any}(
+                    :handoff_solver => PFS.NewtonRaphsonACPowerFlow,
+                    :handoff_tol => 1e-3,
+                ),
+            ),
+    ]
+
+    for (label, pf_eval) in fd_evaluators
+        @testset "$label" begin
+            fd_data = pf_data_for(pf_eval)
+            @test all(PFS.get_converged(fd_data))
+            @test isapprox(fd_data.bus_magnitude, nr_data.bus_magnitude;
+                atol = 1e-6, rtol = 0)
+            @test isapprox(fd_data.bus_angles, nr_data.bus_angles;
+                atol = 1e-6, rtol = 0)
+            @test isapprox(
+                fd_data.bus_active_power_injections,
+                nr_data.bus_active_power_injections;
+                atol = 1e-6, rtol = 0,
+            )
+            @test isapprox(
+                fd_data.bus_reactive_power_injections,
+                nr_data.bus_reactive_power_injections;
+                atol = 1e-6, rtol = 0,
+            )
+        end
+    end
+
+    # `FDFixedJacobian` is formulation-agnostic: it must also work on the rectangular
+    # formulation and recover the same physical state as the polar Newton-Raphson reference.
+    @testset "FDFixedJacobian on rectangular formulation" begin
+        rect_fd_data = pf_data_for(ACRectangularPowerFlow{PFS.FastDecoupledFixed}())
+        @test all(PFS.get_converged(rect_fd_data))
+        @test isapprox(rect_fd_data.bus_magnitude, nr_data.bus_magnitude;
+            atol = 1e-6, rtol = 0)
+        @test isapprox(rect_fd_data.bus_angles, nr_data.bus_angles;
+            atol = 1e-6, rtol = 0)
+    end
+
+    # The classic `FDDecoupled` variant (B′/B″ half-iterations) is polar-only; PowerFlows
+    # rejects it on the rectangular formulation at construction.
+    @testset "FDDecoupled rejected on rectangular formulation" begin
+        @test_throws ArgumentError ACRectangularPowerFlow{PFS.FastDecoupledXB}()
+    end
+end
