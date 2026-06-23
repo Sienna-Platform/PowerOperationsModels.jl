@@ -12,6 +12,9 @@ function _ref_index(::NetworkModel{AreaPTDFPowerModel}, device_bus::PSY.ACBus)
 end
 
 _get_cost_if_exists(::PSY.MarketBidCost) = nothing
+# Time-varying market bids are not fuel curves either (same as the static MBC above);
+# their offer curves live in the cost's offer-curve fields, not a `variable`.
+_get_cost_if_exists(::PSY.MarketBidTimeSeriesCost) = nothing
 _get_cost_if_exists(cost::PSY.OperationalCost) = PSY.get_variable(cost)
 
 # Predicates for fuel-curve detection. Dispatch over the value returned by
