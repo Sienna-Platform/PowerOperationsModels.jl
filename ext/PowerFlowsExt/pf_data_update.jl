@@ -1,165 +1,156 @@
 # Power flow in-the-loop: data update logic.
-# Ported from PowerSimulations.jl/src/network_models/power_flow_evaluation.jl
-# (lines 385-576). Defines update_pf_data! (PowerFlowData and PSSEExporter
-# variants), _update_component!, update_pf_system!, and helpers.
+# Ported from PowerSimulations.jl/src/network_models/power_flow_evaluation.jl.
+# Defines the `PFContribution` injection-sign resolver, the PowerFlowData and System
+# writers, update_pf_data! (PowerFlowData and PSSEExporter variants), and update_pf_system!.
 
-# How to update the PowerFlowData given a component type. A bit duplicative of code in PowerFlows.jl.
-_update_pf_data_component!(
-    pf_data::PFS.PowerFlowData,
+# Injection-sign resolver: the single source of truth mapping an optimization value to its
+# power-flow contribution. `sign` equals the multiplier `add_to_expression!` applied to the bus
+# balance, so PF reproduces the OPF nodal balance. Two thin writers consume it (below).
+#   quantity : :active | :reactive | :angle | :magnitude
+#   role     : active/reactive array selector :injection | :withdrawal | :hvdc_net (:none for voltage)
+#   sign     : nodal-balance multiplier (+1 / -1)
+#   partial  : System writer only — in/out variables accumulate onto a shared active_power field
+struct PFContribution
+    quantity::Symbol
+    role::Symbol
+    sign::Float64
+    partial::Bool
+end
+
+const _PF_FLOW_ENTRY = Union{VariableType, AuxVariableType}
+const _PF_PARAM_ENTRY = ParameterType
+
+# ---- variable / aux entries: the input category carries the direction ----
+# mirrors `add_to_expression!`: StaticInjection (+1 injection), ElectricLoad (-1 withdrawal).
+pf_contribution(
     ::Val{:active_power},
+    ::Type{<:_PF_FLOW_ENTRY},
     ::Type{<:PSY.StaticInjection},
-    index::Int,
-    t::Int,
-    value::Float64,
-) = (pf_data.bus_active_power_injections[index, t] += value)
-_update_pf_data_component!(
-    pf_data::PFS.PowerFlowData,
+) = PFContribution(:active, :injection, 1.0, false)
+pf_contribution(
     ::Val{:active_power},
+    ::Type{<:_PF_FLOW_ENTRY},
     ::Type{<:PSY.ElectricLoad},
-    index::Int,
-    t::Int,
-    value::Float64,
-) = (pf_data.bus_active_power_withdrawals[index, t] -= value)
-# ActivePowerOutVariable represents power output (positive injection into the grid)
-_update_pf_data_component!(
-    pf_data::PFS.PowerFlowData,
+) = PFContribution(:active, :withdrawal, -1.0, false)
+# ActivePowerOutVariable: power output (positive injection); ActivePowerInVariable: withdrawal.
+pf_contribution(
     ::Val{:active_power_out},
+    ::Type{<:_PF_FLOW_ENTRY},
     ::Type{<:PSY.StaticInjection},
-    index::Int,
-    t::Int,
-    value::Float64,
-) = (pf_data.bus_active_power_injections[index, t] += value)
-# ActivePowerInVariable represents power input (withdrawal from the grid, e.g. storage charging)
-_update_pf_data_component!(
-    pf_data::PFS.PowerFlowData,
+) = PFContribution(:active, :injection, 1.0, true)
+pf_contribution(
     ::Val{:active_power_in},
+    ::Type{<:_PF_FLOW_ENTRY},
     ::Type{<:PSY.StaticInjection},
-    index::Int,
-    t::Int,
-    value::Float64,
-) = (pf_data.bus_active_power_injections[index, t] -= value)
-_update_pf_data_component!(
-    pf_data::PFS.PowerFlowData,
+) = PFContribution(:active, :injection, -1.0, true)
+pf_contribution(
     ::Val{:reactive_power},
+    ::Type{<:_PF_FLOW_ENTRY},
     ::Type{<:PSY.StaticInjection},
-    index::Int,
-    t::Int,
-    value::Float64,
-) = (pf_data.bus_reactive_power_injections[index, t] += value)
-_update_pf_data_component!(
-    pf_data::PFS.PowerFlowData,
+) = PFContribution(:reactive, :injection, 1.0, false)
+pf_contribution(
     ::Val{:reactive_power},
+    ::Type{<:_PF_FLOW_ENTRY},
     ::Type{<:PSY.ElectricLoad},
-    index::Int,
-    t::Int,
-    value::Float64,
-) = (pf_data.bus_reactive_power_withdrawals[index, t] -= value)
-_update_pf_data_component!(
-    pf_data::PFS.PowerFlowData,
+) = PFContribution(:reactive, :withdrawal, -1.0, false)
+pf_contribution(
     ::Union{Val{:voltage_angle_export}, Val{:voltage_angle_opf}},
+    ::Type{<:_PF_FLOW_ENTRY},
     ::Type{<:PSY.ACBus},
-    index::Int,
-    t::Int,
-    value::Float64,
-) = (pf_data.bus_angles[index, t] = value)
-_update_pf_data_component!(
-    pf_data::PFS.PowerFlowData,
+) = PFContribution(:angle, :none, 1.0, false)
+pf_contribution(
     ::Union{Val{:voltage_magnitude_export}, Val{:voltage_magnitude_opf}},
+    ::Type{<:_PF_FLOW_ENTRY},
     ::Type{<:PSY.ACBus},
-    index::Int,
-    t::Int,
-    value::Float64,
-) = (pf_data.bus_magnitude[index, t] = value)
-_update_pf_data_component!(
-    pf_data::PFS.PowerFlowData,
-    ::Val{:active_power_hvdc_pst_from_to},
-    ::Type{<:PSY.TwoTerminalHVDC},
-    index::Int,
-    t::Int,
-    value::Float64,
-) = (pf_data.bus_active_power_injections[index, t] -= value)
-# FlowActivePowerToFromVariable is signed negative when power flows from→to (since
-# `tf_var + ft_var == losses ≥ 0`), so subtracting yields the correct positive
-# injection at the receiving bus.
-_update_pf_data_component!(
-    pf_data::PFS.PowerFlowData,
-    ::Val{:active_power_hvdc_pst_to_from},
-    ::Type{<:PSY.TwoTerminalHVDC},
-    index::Int,
-    t::Int,
-    value::Float64,
-) = (pf_data.bus_active_power_injections[index, t] -= value)
-_update_pf_data_component!(
-    pf_data::PFS.PowerFlowData,
-    ::Val{:active_power_hvdc_pst_from_to},
-    ::Type{<:PSY.PhaseShiftingTransformer},
-    index::Int,
-    t::Int,
-    value::Float64,
-) = (pf_data.bus_active_power_injections[index, t] -= value)
-_update_pf_data_component!(
-    pf_data::PFS.PowerFlowData,
-    ::Val{:active_power_hvdc_pst_to_from},
-    ::Type{<:PSY.PhaseShiftingTransformer},
-    index::Int,
-    t::Int,
-    value::Float64,
-) = (pf_data.bus_active_power_injections[index, t] += value)
+) = PFContribution(:magnitude, :none, 1.0, false)
 
-# Parameters store the already-signed nodal contribution (`param_array .* multiplier_array`,
-# applied by `lookup_value`/`calculate_parameter_values`), identical to what
-# `add_to_expression!` adds to the system balance. Variables/aux-vars instead store an
-# unsigned magnitude whose direction comes from the input category. The two therefore need
-# different sign handling when written into the PowerFlowData injections.
-_pf_input_presigned(::OptimizationContainerKey) = false
-_pf_input_presigned(::ParameterKey) = true
+# ---- HVDC / PST two-terminal (variable entries) ----
+# HVDC re-targets to `:hvdc_net` (`bus_hvdc_net_power`); signs follow the injection convention.
+# from_to: -1. to_from: `FlowActivePowerToFromVariable` is -tf, signed negative for from→to flow
+# (sign -1); a single `FlowActivePowerVariable` (lossless / PowerModels `:p_dc`) is +flow (sign +1).
+pf_contribution(
+    ::Val{:active_power_hvdc_pst_from_to},
+    ::Type{<:_PF_FLOW_ENTRY},
+    ::Type{<:PSY.TwoTerminalHVDC},
+) = PFContribution(:active, :hvdc_net, -1.0, false)
+pf_contribution(
+    ::Val{:active_power_hvdc_pst_to_from},
+    ::Type{POM.FlowActivePowerToFromVariable},
+    ::Type{<:PSY.TwoTerminalHVDC},
+) = PFContribution(:active, :hvdc_net, -1.0, false)
+pf_contribution(
+    ::Val{:active_power_hvdc_pst_to_from},
+    ::Type{POM.FlowActivePowerVariable},
+    ::Type{<:PSY.TwoTerminalHVDC},
+) = PFContribution(:active, :hvdc_net, 1.0, false)
+# PhaseShiftingTransformer stays on the generic injection array: from_to -1, to_from +1.
+pf_contribution(
+    ::Val{:active_power_hvdc_pst_from_to},
+    ::Type{<:_PF_FLOW_ENTRY},
+    ::Type{<:PSY.PhaseShiftingTransformer},
+) = PFContribution(:active, :injection, -1.0, false)
+pf_contribution(
+    ::Val{:active_power_hvdc_pst_to_from},
+    ::Type{<:_PF_FLOW_ENTRY},
+    ::Type{<:PSY.PhaseShiftingTransformer},
+) = PFContribution(:active, :injection, 1.0, false)
 
-# Add a parameter's already-signed nodal contribution directly to the net bus injection.
-# A `StaticInjection` contributes to injections (`+=`); an `ElectricLoad`'s withdrawal is the
-# negated contribution (`withdrawals -= value`). No category sign is applied here — direction
-# already lives in the parameter multiplier, so re-applying it would double-count.
-_add_signed_pf_injection!(
-    pf_data::PFS.PowerFlowData,
-    ::Union{Val{:active_power}, Val{:active_power_in}, Val{:active_power_out}},
-    ::Type{<:PSY.StaticInjection},
-    index::Int,
-    t::Int,
-    value::Float64,
-) = (pf_data.bus_active_power_injections[index, t] += value)
-_add_signed_pf_injection!(
-    pf_data::PFS.PowerFlowData,
-    ::Val{:reactive_power},
-    ::Type{<:PSY.StaticInjection},
-    index::Int,
-    t::Int,
-    value::Float64,
-) = (pf_data.bus_reactive_power_injections[index, t] += value)
-_add_signed_pf_injection!(
-    pf_data::PFS.PowerFlowData,
+# ---- parameter entries: the value already stores the signed nodal contribution ----
+# `param_array .* multiplier_array` bakes the direction in, identical to what
+# `add_to_expression!` adds to the balance. So these match the variable entries EXCEPT in/out,
+# which become +1: re-applying the category sign would double-count (this is the #1631 fix).
+pf_contribution(
     ::Val{:active_power},
+    ::Type{<:_PF_PARAM_ENTRY},
+    ::Type{<:PSY.StaticInjection},
+) = PFContribution(:active, :injection, 1.0, false)
+pf_contribution(
+    ::Union{Val{:active_power_in}, Val{:active_power_out}},
+    ::Type{<:_PF_PARAM_ENTRY},
+    ::Type{<:PSY.StaticInjection},
+) = PFContribution(:active, :injection, 1.0, true)
+pf_contribution(
+    ::Val{:active_power},
+    ::Type{<:_PF_PARAM_ENTRY},
     ::Type{<:PSY.ElectricLoad},
-    index::Int,
-    t::Int,
-    value::Float64,
-) = (pf_data.bus_active_power_withdrawals[index, t] -= value)
-_add_signed_pf_injection!(
-    pf_data::PFS.PowerFlowData,
+) = PFContribution(:active, :withdrawal, -1.0, false)
+pf_contribution(
     ::Val{:reactive_power},
+    ::Type{<:_PF_PARAM_ENTRY},
+    ::Type{<:PSY.StaticInjection},
+) = PFContribution(:reactive, :injection, 1.0, false)
+pf_contribution(
+    ::Val{:reactive_power},
+    ::Type{<:_PF_PARAM_ENTRY},
     ::Type{<:PSY.ElectricLoad},
-    index::Int,
-    t::Int,
-    value::Float64,
-) = (pf_data.bus_reactive_power_withdrawals[index, t] -= value)
-# Sign-agnostic categories (voltage exports / opf) carry no direction, so delegate to the
-# shared writer. Parameters never feed these today; this keeps the dispatch total.
-_add_signed_pf_injection!(
-    pf_data::PFS.PowerFlowData,
-    category::Val,
-    comp_type::Type,
-    index::Int,
-    t::Int,
-    value::Float64,
-) = _update_pf_data_component!(pf_data, category, comp_type, index, t, value)
+) = PFContribution(:reactive, :withdrawal, -1.0, false)
+pf_contribution(
+    ::Union{Val{:voltage_angle_export}, Val{:voltage_angle_opf}},
+    ::Type{<:_PF_PARAM_ENTRY},
+    ::Type{<:PSY.ACBus},
+) = PFContribution(:angle, :none, 1.0, false)
+pf_contribution(
+    ::Union{Val{:voltage_magnitude_export}, Val{:voltage_magnitude_opf}},
+    ::Type{<:_PF_PARAM_ENTRY},
+    ::Type{<:PSY.ACBus},
+) = PFContribution(:magnitude, :none, 1.0, false)
+
+# ---- PowerFlowData writer ----
+# Active/reactive quantities accumulate into an injection array chosen by (quantity, role);
+# voltage quantities (:angle/:magnitude) are assigned to a bus-state array.
+_pf_writes_voltage(q::Symbol) = q === :angle || q === :magnitude
+
+_pf_array(pfd::PFS.PowerFlowData, ::Val{:active}, ::Val{:injection}) =
+    pfd.bus_active_power_injections
+_pf_array(pfd::PFS.PowerFlowData, ::Val{:active}, ::Val{:withdrawal}) =
+    pfd.bus_active_power_withdrawals
+_pf_array(pfd::PFS.PowerFlowData, ::Val{:active}, ::Val{:hvdc_net}) = pfd.bus_hvdc_net_power
+_pf_array(pfd::PFS.PowerFlowData, ::Val{:reactive}, ::Val{:injection}) =
+    pfd.bus_reactive_power_injections
+_pf_array(pfd::PFS.PowerFlowData, ::Val{:reactive}, ::Val{:withdrawal}) =
+    pfd.bus_reactive_power_withdrawals
+_pf_bus_state_array(pfd::PFS.PowerFlowData, ::Val{:angle}) = pfd.bus_angles
+_pf_bus_state_array(pfd::PFS.PowerFlowData, ::Val{:magnitude}) = pfd.bus_magnitude
 
 function _write_value_to_pf_data!(
     pf_data::PFS.PowerFlowData,
@@ -169,29 +160,35 @@ function _write_value_to_pf_data!(
     component_map,
 )
     result = lookup_value(container, key)
-    presigned = _pf_input_presigned(key)
+    c = pf_contribution(Val(category), get_entry_type(key), get_component_type(key))
+    # Resolve the target array once per key so the inner write loop runs on a concrete `Matrix`.
+    if _pf_writes_voltage(c.quantity)
+        _write_pf_array!(_pf_bus_state_array(pf_data, Val(c.quantity)), true, c.sign,
+            component_map, container, result)
+    else
+        _write_pf_array!(_pf_array(pf_data, Val(c.quantity), Val(c.role)), false, c.sign,
+            component_map, container, result)
+    end
+    return
+end
+
+# Function barrier: `arr` is a concrete `Matrix{Float64}`, so the per-(device, time) loop is
+# monomorphic. `assign` overwrites (voltages); otherwise contributions accumulate.
+function _write_pf_array!(
+    arr::Matrix{Float64},
+    assign::Bool,
+    value_sign::Float64,
+    component_map,
+    container::OptimizationContainer,
+    result,
+)
     for (device_name, index) in component_map
-        injection_values = result[device_name, :]
         for t in get_time_steps(container)
-            value = jump_value(injection_values[t])
-            if presigned
-                _add_signed_pf_injection!(
-                    pf_data,
-                    Val(category),
-                    get_component_type(key),
-                    index,
-                    t,
-                    value,
-                )
+            value = jump_value(result[device_name, t])
+            if assign
+                arr[index, t] = value
             else
-                _update_pf_data_component!(
-                    pf_data,
-                    Val(category),
-                    get_component_type(key),
-                    index,
-                    t,
-                    value,
-                )
+                arr[index, t] += value_sign * value
             end
         end
     end
@@ -204,6 +201,11 @@ function update_pf_data!(
 )
     pf_data = IOM.get_inner_data(pf_e_data)
     PFS.clear_injection_data!(pf_data)
+    # `clear_injection_data!` does not reset `bus_hvdc_net_power`, which PowerFlows seeds from the
+    # system at construction. Zero it before re-writing optimized HVDC flows, else the seed
+    # double-counts (AC, #1635) or shadows the optimized DC flow. Co-located with the repopulate
+    # below so they can't desync; skipped only if a `PowerFlowData` opts out of hvdc_pst.
+    isempty(pf_input_keys_hvdc_pst(pf_data)) || (pf_data.bus_hvdc_net_power .= 0.0)
     input_map = get_input_key_map(pf_e_data)
     for (category, inputs) in input_map
         @debug "Writing $category to $(nameof(typeof(pf_data)))"
@@ -214,100 +216,43 @@ function update_pf_data!(
     return
 end
 
-# PERF direct dot access + manual unit conversions for performance and convenience
-_update_component!(
-    comp::PSY.Component,
-    ::Val{:active_power},
+# ---- System writer: same `PFContribution`, sunk into component fields ----
+# PERF direct dot access + manual unit conversions for performance and convenience.
+# active/reactive convert to the component base; voltages are written raw.
+_pf_to_comp(::Union{Val{:active}, Val{:reactive}}, value::Float64, sys_base::Float64,
+    comp::PSY.Component) = value * sys_base / PSY.get_base_power(comp, PSY.NU)
+_pf_to_comp(
+    ::Union{Val{:angle}, Val{:magnitude}},
     value::Float64,
-    sys_base::Float64,
-) = (comp.active_power = value * sys_base / PSY.get_base_power(comp, PSY.NU))
-# Sign is flipped for loads
-_update_component!(
-    comp::PSY.ElectricLoad,
-    ::Val{:active_power},
-    value::Float64,
-    sys_base::Float64,
-) = (comp.active_power = -value * sys_base / PSY.get_base_power(comp, PSY.NU))
-_update_component!(
-    comp::PSY.Component,
-    ::Val{:reactive_power},
-    value::Float64,
-    sys_base::Float64,
-) = (comp.reactive_power = value * sys_base / PSY.get_base_power(comp, PSY.NU))
-_update_component!(
-    comp::PSY.ElectricLoad,
-    ::Val{:reactive_power},
-    value::Float64,
-    sys_base::Float64,
-) = (comp.reactive_power = -value * sys_base / PSY.get_base_power(comp, PSY.NU))
-# ActivePowerOutVariable represents power output (positive contribution to active_power)
-_update_component!(
-    comp::PSY.Component,
-    ::Val{:active_power_out},
-    value::Float64,
-    sys_base::Float64,
-) = (comp.active_power += value * sys_base / PSY.get_base_power(comp, PSY.NU))
-# ActivePowerInVariable represents power input / withdrawal (negative contribution to active_power)
-_update_component!(
-    comp::PSY.Component,
-    ::Val{:active_power_in},
-    value::Float64,
-    sys_base::Float64,
-) = (comp.active_power -= value * sys_base / PSY.get_base_power(comp, PSY.NU))
-_update_component!(
-    comp::PSY.ACBus,
-    ::Union{Val{:voltage_angle_export}, Val{:voltage_angle_opf}},
-    value::Float64,
-    sys_base::Float64,
-) = (comp.angle = value)
-_update_component!(
-    comp::PSY.ACBus,
-    ::Union{Val{:voltage_magnitude_export}, Val{:voltage_magnitude_opf}},
-    value::Float64,
-    sys_base::Float64,
-) = (comp.magnitude = value)
+    ::Float64,
+    ::PSY.Component,
+) = value
 
-# Parameter (pre-signed) counterparts of `_update_component!`. The signed nodal contribution
-# is written directly: separate in/out categories accumulate (`+=`) onto the active power that
-# `update_pf_system!` has already reset to zero, while a single `:active_power` assigns (`=`).
-# An `ElectricLoad`'s stored active/reactive power is the negated contribution.
-_add_signed_component_update!(
+# Set (or accumulate, for `partial` in/out contributions) the signed quantity on the component's
+# field. `StandardLoad` (ZIP) has no scalar power field, so it routes to its constant-power
+# component (`constant_active_power`/`constant_reactive_power`).
+_set_comp_quantity!(comp::PSY.Component, ::Val{:active}, v::Float64, partial::Bool) =
+    partial ? (comp.active_power += v) : (comp.active_power = v)
+_set_comp_quantity!(comp::PSY.Component, ::Val{:reactive}, v::Float64, ::Bool) =
+    (comp.reactive_power = v)
+_set_comp_quantity!(comp::PSY.StandardLoad, ::Val{:active}, v::Float64, ::Bool) =
+    (comp.constant_active_power = v)
+_set_comp_quantity!(comp::PSY.StandardLoad, ::Val{:reactive}, v::Float64, ::Bool) =
+    (comp.constant_reactive_power = v)
+_set_comp_quantity!(comp::PSY.ACBus, ::Val{:angle}, v::Float64, ::Bool) = (comp.angle = v)
+_set_comp_quantity!(comp::PSY.ACBus, ::Val{:magnitude}, v::Float64, ::Bool) =
+    (comp.magnitude = v)
+
+function _apply_component_contribution!(
     comp::PSY.Component,
-    ::Val{:active_power},
+    c::PFContribution,
     value::Float64,
     sys_base::Float64,
-) = (comp.active_power = value * sys_base / PSY.get_base_power(comp, PSY.NU))
-_add_signed_component_update!(
-    comp::PSY.Component,
-    ::Union{Val{:active_power_in}, Val{:active_power_out}},
-    value::Float64,
-    sys_base::Float64,
-) = (comp.active_power += value * sys_base / PSY.get_base_power(comp, PSY.NU))
-_add_signed_component_update!(
-    comp::PSY.Component,
-    ::Val{:reactive_power},
-    value::Float64,
-    sys_base::Float64,
-) = (comp.reactive_power = value * sys_base / PSY.get_base_power(comp, PSY.NU))
-_add_signed_component_update!(
-    comp::PSY.ElectricLoad,
-    ::Val{:active_power},
-    value::Float64,
-    sys_base::Float64,
-) = (comp.active_power = -value * sys_base / PSY.get_base_power(comp, PSY.NU))
-_add_signed_component_update!(
-    comp::PSY.ElectricLoad,
-    ::Val{:reactive_power},
-    value::Float64,
-    sys_base::Float64,
-) = (comp.reactive_power = -value * sys_base / PSY.get_base_power(comp, PSY.NU))
-# Sign-agnostic categories (voltage) delegate to the shared writer.
-_add_signed_component_update!(
-    comp::PSY.Component,
-    category::Val,
-    value::Float64,
-    sys_base::Float64,
-) = _update_component!(comp, category, value, sys_base)
+)
+    v = c.sign * _pf_to_comp(Val(c.quantity), value, sys_base, comp)
+    _set_comp_quantity!(comp, Val(c.quantity), v, c.partial)
+    return
+end
 
 function update_pf_system!(
     sys::PSY.System,
@@ -335,25 +280,16 @@ function update_pf_system!(
         @debug "Writing $category to (possibly internal) System"
         for (key, component_map) in inputs
             result = lookup_value(container, key)
-            presigned = _pf_input_presigned(key)
+            c = pf_contribution(Val(category), get_entry_type(key), get_component_type(key))
             for (device_id, device_name) in component_map
                 comp = PSY.get_component(get_component_type(key), sys, device_name)
                 val = jump_value(result[device_id, time_step])
-                if presigned
-                    _add_signed_component_update!(
-                        comp,
-                        Val(category),
-                        val,
-                        IOM.get_model_base_power(container),
-                    )
-                else
-                    _update_component!(
-                        comp,
-                        Val(category),
-                        val,
-                        IOM.get_model_base_power(container),
-                    )
-                end
+                _apply_component_contribution!(
+                    comp,
+                    c,
+                    val,
+                    IOM.get_model_base_power(container),
+                )
             end
         end
     end

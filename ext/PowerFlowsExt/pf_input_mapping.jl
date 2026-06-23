@@ -57,8 +57,10 @@ pf_input_keys(::PFS.ACPowerFlowData) =
     [:active_power, :reactive_power, :voltage_angle_opf, :voltage_magnitude_opf]
 pf_input_keys(::PFS.PSSEExporter) =
     [:active_power, :reactive_power, :voltage_angle_export, :voltage_magnitude_export]
-pf_input_keys_hvdc_pst(::PFS.PowerFlowData) = DataType[]
-pf_input_keys_hvdc_pst(::PFS.ACPowerFlowData) =
+# HVDC/PST flows feed every `PowerFlowData` solve. They route by component (see the resolver
+# in pf_data_update.jl: HVDC → `bus_hvdc_net_power`, PST → `bus_active_power_injections`);
+# `update_pf_data!` clears the HVDC channel before re-population.
+pf_input_keys_hvdc_pst(::PFS.PowerFlowData) =
     [:active_power_hvdc_pst_from_to, :active_power_hvdc_pst_to_from]
 
 _get_component_bus_for_map(component::PSY.Branch, ::Val{:from}) =
@@ -144,6 +146,7 @@ function _make_pf_input_map!(
     for category in pf_input_keys(pf_data)
         pf_data_opt_container_map = Dict{OptimizationContainerKey, map_type}()
         @info "Adding input map to send $category to $(nameof(typeof(pf_data)))"
+        @assert haskey(PF_INPUT_KEY_PRECEDENCES, category) "No source precedence defined for power-flow input category $category"
         precedence = PF_INPUT_KEY_PRECEDENCES[category]
         _add_category_to_map!(
             precedence,
@@ -223,6 +226,12 @@ function _add_two_terminal_elements_map!(
     input_key_map::Dict{Symbol, <:Dict{OptimizationContainerKey, <:Dict}},
 )
     for element_type in (PSY.TwoTerminalHVDC, PSY.PhaseShiftingTransformer)
+        # A two-terminal element whose from and to resolve to one bus would collapse its
+        # from_to/to_from injections onto the same row; guard against that here.
+        for comp in PSY.get_available_components(element_type, sys)
+            @assert PSY.get_number(PSY.get_from_bus(comp)) !=
+                    PSY.get_number(PSY.get_to_bus(comp)) "Two-terminal $(PSY.get_name(comp)) maps from and to to the same bus"
+        end
         for (category, side) in zip(
             [:active_power_hvdc_pst_from_to, :active_power_hvdc_pst_to_from],
             [Val(:from), Val(:to)],
@@ -274,7 +283,10 @@ branch_aux_vars(::PFS.vPTDFPowerFlowData) =
     [POM.PowerFlowBranchActivePowerFromTo, POM.PowerFlowBranchActivePowerToFrom]
 branch_aux_vars(::PFS.PSSEExporter) = DataType[]
 
-# Same for bus aux vars
+# Same for bus aux vars. Loss/voltage-stability factors are registered ONLY when their
+# `get_calculate_*` flag is set — the same flag under which `_get_pf_result` returns a
+# non-`nothing` matrix (`PFS.get_loss_factors` / `get_voltage_stability_factors` are `nothing`
+# otherwise). Keep these two conditions in lockstep so the read-back never indexes a `nothing`.
 function bus_aux_vars(data::PFS.ACPowerFlowData)
     vars = [POM.PowerFlowVoltageAngle, POM.PowerFlowVoltageMagnitude]
     if PFS.get_calculate_loss_factors(data)
