@@ -619,17 +619,21 @@ end
 # is sized to the batch-wide maximum number of tranches (shorter per-hour curves
 # are padded in `unwrap_for_param`). Without these, the default device method
 # returns `()` and the PWL element falls through `unwrap_for_param` to `size(...)`.
-function _device_offer_curve_ts_key(::Type{T}, device::PSY.Component) where {T <: ParameterType}
+function _device_offer_curve_ts_key(
+    ::Type{T},
+    device::PSY.Component,
+) where {T <: ParameterType}
     op_cost = PSY.get_operation_cost(device)
     IS.@assert_op op_cost isa TS_OFFER_CURVE_COST_TYPES
-    curve = if T <: Union{
-        IncrementalPiecewiseLinearSlopeParameter,
-        IncrementalPiecewiseLinearBreakpointParameter,
-    }
-        PSY.get_incremental_offer_curves(op_cost)
-    else
-        PSY.get_decremental_offer_curves(op_cost)
-    end
+    curve =
+        if T <: Union{
+            IncrementalPiecewiseLinearSlopeParameter,
+            IncrementalPiecewiseLinearBreakpointParameter,
+        }
+            PSY.get_incremental_offer_curves(op_cost)
+        else
+            PSY.get_decremental_offer_curves(op_cost)
+        end
     return IS.get_time_series_key(PSY.get_value_curve(curve))
 end
 
@@ -643,7 +647,8 @@ function calc_additional_axes(
     U <: Union{Vector{D}, IS.FlattenIteratorWrapper{D}},
     W <: AbstractDeviceFormulation,
 } where {D <: PSY.Component}
-    max_tranches = maximum(d -> get_max_tranches(d, _device_offer_curve_ts_key(T, d)), devices)
+    max_tranches =
+        maximum(d -> get_max_tranches(d, _device_offer_curve_ts_key(T, d)), devices)
     return (IOM.make_tranche_axis(max_tranches),)
 end
 
@@ -657,7 +662,8 @@ function calc_additional_axes(
     U <: Union{Vector{D}, IS.FlattenIteratorWrapper{D}},
     W <: AbstractDeviceFormulation,
 } where {D <: PSY.Component}
-    max_tranches = maximum(d -> get_max_tranches(d, _device_offer_curve_ts_key(T, d)), devices)
+    max_tranches =
+        maximum(d -> get_max_tranches(d, _device_offer_curve_ts_key(T, d)), devices)
     return (IOM.make_tranche_axis(max_tranches + 1),)  # one more breakpoint than tranches
 end
 
