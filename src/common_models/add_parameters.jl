@@ -440,7 +440,7 @@ function _get_time_series_name(
     IS.@assert_op op_cost isa TS_OFFER_CURVE_COST_TYPES
     return IS.get_name(
         IS.get_initial_input(
-            PSY.get_value_curve(PSY.get_incremental_offer_curves(op_cost)),
+            PSY.get_value_curve(get_output_offer_curves(op_cost)),
         ),
     )
 end
@@ -454,9 +454,24 @@ function _get_time_series_name(
     IS.@assert_op op_cost isa TS_OFFER_CURVE_COST_TYPES
     return IS.get_name(
         IS.get_initial_input(
-            PSY.get_value_curve(PSY.get_decremental_offer_curves(op_cost)),
+            PSY.get_value_curve(get_input_offer_curves(op_cost)),
         ),
     )
+end
+
+function _get_time_series_name(
+    ::Type{T},
+    device::PSY.Component,
+    ::DeviceModel,
+) where {
+    T <: Union{
+        IncrementalPiecewiseLinearSlopeParameter,
+        IncrementalPiecewiseLinearBreakpointParameter,
+        DecrementalPiecewiseLinearSlopeParameter,
+        DecrementalPiecewiseLinearBreakpointParameter,
+    },
+}
+    return IS.get_name(_device_offer_curve_ts_key(T, device))
 end
 
 #################################################################################
@@ -567,6 +582,66 @@ function calc_additional_axes(
 }
     ts_key = IS.get_time_series_key(PSY.get_variable(service))
     max_tranches = get_max_tranches(service, ts_key)
+    return (IOM.make_tranche_axis(max_tranches + 1),)  # one more breakpoint than tranches
+end
+
+# Axes are sized to the batch-wide maximum tranche count; shorter per-hour curves
+# are padded in `unwrap_for_param`.
+function _device_offer_curve_ts_key(
+    ::Type{
+        <:Union{
+            IncrementalPiecewiseLinearSlopeParameter,
+            IncrementalPiecewiseLinearBreakpointParameter,
+        },
+    },
+    device::PSY.Component,
+)
+    op_cost = PSY.get_operation_cost(device)
+    IS.@assert_op op_cost isa TS_OFFER_CURVE_COST_TYPES
+    return IS.get_time_series_key(PSY.get_value_curve(get_output_offer_curves(op_cost)))
+end
+
+function _device_offer_curve_ts_key(
+    ::Type{
+        <:Union{
+            DecrementalPiecewiseLinearSlopeParameter,
+            DecrementalPiecewiseLinearBreakpointParameter,
+        },
+    },
+    device::PSY.Component,
+)
+    op_cost = PSY.get_operation_cost(device)
+    IS.@assert_op op_cost isa TS_OFFER_CURVE_COST_TYPES
+    return IS.get_time_series_key(PSY.get_value_curve(get_input_offer_curves(op_cost)))
+end
+
+function calc_additional_axes(
+    ::OptimizationContainer,
+    ::Type{T},
+    devices::U,
+    ::DeviceModel{D, W},
+) where {
+    T <: AbstractPiecewiseLinearSlopeParameter,
+    U <: Union{Vector{D}, IS.FlattenIteratorWrapper{D}},
+    W <: AbstractDeviceFormulation,
+} where {D <: PSY.Component}
+    max_tranches =
+        maximum(d -> get_max_tranches(d, _device_offer_curve_ts_key(T, d)), devices)
+    return (IOM.make_tranche_axis(max_tranches),)
+end
+
+function calc_additional_axes(
+    ::OptimizationContainer,
+    ::Type{T},
+    devices::U,
+    ::DeviceModel{D, W},
+) where {
+    T <: AbstractPiecewiseLinearBreakpointParameter,
+    U <: Union{Vector{D}, IS.FlattenIteratorWrapper{D}},
+    W <: AbstractDeviceFormulation,
+} where {D <: PSY.Component}
+    max_tranches =
+        maximum(d -> get_max_tranches(d, _device_offer_curve_ts_key(T, d)), devices)
     return (IOM.make_tranche_axis(max_tranches + 1),)  # one more breakpoint than tranches
 end
 
