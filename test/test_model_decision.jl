@@ -783,3 +783,22 @@ end
     @test solve!(model; export_optimization_problem = false) ==
           IOM.RunStatus.SUCCESSFULLY_FINALIZED
 end
+
+@testset "show(::DecisionModel) renders the template" begin
+    # Regression test: show(::AbstractOptimizationModel) delegates to
+    # _show_method(io, model.template, ...). The template method lives in POM
+    # (utils/print.jl) and must extend IOM._show_method, not shadow it - otherwise
+    # printing any DecisionModel throws MethodError. See the `_show_method` import
+    # in src/PowerOperationsModels.jl.
+    c_sys5 = PSB.build_system(PSITestSystems, "c_sys5")
+    template = get_thermal_standard_uc_template()
+    model = DecisionModel(template, c_sys5; optimizer = HiGHS_optimizer)
+
+    out_plain = sprint(show, MIME("text/plain"), model)
+    @test occursin("Network Model", out_plain)
+    @test occursin("Device Models", out_plain)
+
+    # The text/html show path delegates the same way; exercise it too.
+    out_html = sprint(show, MIME("text/html"), model)
+    @test occursin("Network Model", out_html)
+end
