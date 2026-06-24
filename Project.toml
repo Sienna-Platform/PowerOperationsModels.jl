@@ -27,9 +27,8 @@ PowerFlows = "94fada2c-fd9a-4e89-8d82-81405f5cb4f6"
 [sources]
 InfrastructureSystems = {rev = "IS4", url = "https://github.com/Sienna-Platform/InfrastructureSystems.jl"}
 PowerSystems = {rev = "psy6", url = "https://github.com/Sienna-Platform/PowerSystems.jl"}
-# todo: repin once iom merged
-InfrastructureOptimizationModels = {rev = "ac/ordc", url = "https://github.com/Sienna-Platform/InfrastructureOptimizationModels.jl"}
-PowerNetworkMatrices = {rev = "ac/port-branch-admittance", url = "https://github.com/Sienna-Platform/PowerNetworkMatrices.jl"}
+InfrastructureOptimizationModels = {rev = "ac/pf-print-bugs", url = "https://github.com/Sienna-Platform/InfrastructureOptimizationModels.jl"}
+PowerNetworkMatrices = {rev = "psy6", url = "https://github.com/Sienna-Platform/PowerNetworkMatrices.jl"}
 
 [extensions]
 PowerFlowsExt = "PowerFlows"
@@ -40,7 +39,7 @@ DocStringExtensions = "~0.8, ~0.9"
 InfrastructureSystems = "3"
 InteractiveUtils = "1.11.0"
 JuMP = "^1.28"
-PowerSystems = "5.10"
+PowerSystems = "^5.10"
 PowerFlows = "0.21, 0.22"
 PowerNetworkMatrices = "^0.24"
 PrettyTables = "3"

@@ -517,3 +517,267 @@ end
         end
     end
 end
+
+# `lookup_value` returns raw JuMP values in the model (system-base, PU) unit system, and
+# `bus_hvdc_net_power` is likewise PU, so the HVDC comparisons below are PU-vs-PU (no base
+# conversion). HVDC injections live in PowerFlows' dedicated `bus_hvdc_net_power` channel,
+# not the generic `bus_active_power_injections`.
+_pf_hvdc_data(container) =
+    get_inner_data(only(values(get_evaluation_data(get_evaluations(container)))))
+function _hvdc_flow(container, V, name)
+    vals = lookup_value(container, VariableKey(V, TwoTerminalGenericHVDCLine))
+    return [JuMP.value(vals[name, t]) for t in 1:length(get_time_steps(container))]
+end
+
+@testset "DC PF in the loop uses optimized HVDC flow, not the stale system seed" begin
+    # PowerFlows seeds bus_hvdc_net_power from the stored flow and the DC solve never
+    # repopulates it, so PSI must send the optimized flow in for DC. Seed a stale flow, then
+    # assert the channel tracks the per-timestep optimized flow (from = -flow, to = +flow,
+    # lossless).
+    sys = build_system(PSISystems, "2Area 5 Bus System")
+    hvdc = only(get_components(TwoTerminalGenericHVDCLine, sys))
+    from = get_from(get_arc(hvdc))
+    to = get_to(get_arc(hvdc))
+    set_loss!(hvdc, LinearCurve(0.0))
+    set_active_power_flow!(hvdc, 0.5 * PSY.SU)   # a stale system seed the optimization won't reproduce
+
+    template = PowerOperationsProblemTemplate(
+        NetworkModel(PTDFPowerModel; evaluations = power_flow_evaluations(DCPowerFlow())),
+    )
+    set_device_model!(template, ThermalStandard, ThermalBasicUnitCommitment)
+    set_device_model!(template, RenewableDispatch, RenewableFullDispatch)
+    set_device_model!(template, PowerLoad, StaticPowerLoad)
+    set_device_model!(template, DeviceModel(Line, StaticBranch))
+    set_device_model!(
+        template,
+        DeviceModel(TwoTerminalGenericHVDCLine, HVDCTwoTerminalLossless),
+    )
+    model = DecisionModel(template, sys; name = "UC", optimizer = HiGHS_optimizer)
+    @test build!(model; output_dir = mktempdir()) == ModelBuildStatus.BUILT
+    @test solve!(model) == RunStatus.SUCCESSFULLY_FINALIZED
+
+    container = get_optimization_container(model)
+    flow = _hvdc_flow(container, FlowActivePowerVariable, get_name(hvdc))
+    data = _pf_hvdc_data(container)
+    bus_lookup = PFS.get_bus_lookup(data)
+
+    @test isapprox(
+        data.bus_hvdc_net_power[bus_lookup[get_number(to)], :],
+        flow;
+        atol = 1e-6,
+        rtol = 0,
+    )
+    @test isapprox(
+        data.bus_hvdc_net_power[bus_lookup[get_number(from)], :],
+        -1 .* flow;
+        atol = 1e-6,
+        rtol = 0,
+    )
+    # sanity: the optimized flow actually populates the channel (the fix does something)
+    @test any(abs.(flow) .> 1e-4)
+end
+
+# Shared RTS setup for the AC-PF-in-the-loop HVDC tests: isolate the HVDC line buses (remove
+# their injectors, retype the surrounding buses) and build a PTDF UC with an AC power-flow
+# evaluation. `loss`/`stored_flow`, when given, overwrite the HVDC line's loss curve / stored
+# flow. RTS is used because AC PF needs a single connected AC network containing the HVDC line
+# (the small "2Area 5 Bus System" is two AC islands joined only by the DC line).
+# TODO replace RTS with something smaller, so these test cases don't take so long.
+function _build_rts_hvdc_acpf_model(hvdc_formulation; loss = nothing, stored_flow = nothing)
+    sys = build_system(PSISystems, "RTS_GMLC_DA_sys")
+    hvdc = only(get_components(TwoTerminalGenericHVDCLine, sys))
+    from = get_from(get_arc(hvdc))
+    to = get_to(get_arc(hvdc))
+    isnothing(loss) || set_loss!(hvdc, loss)
+    isnothing(stored_flow) || set_active_power_flow!(hvdc, stored_flow * PSY.SU)
+    # remove components that impact total bus power at the HVDC line buses.
+    injectors = collect(
+        get_components(
+            x -> get_number(get_bus(x)) ∈ (get_number(from), get_number(to)),
+            StaticInjection,
+            sys,
+        ),
+    )
+    foreach(x -> remove_component!(sys, x), injectors)
+    for bus_name in ("Chifa", "Arne")
+        set_bustype!(get_component(PSY.ACBus, sys, bus_name), PSY.ACBusTypes.PQ)
+    end
+    set_bustype!(get_component(ACBus, sys, "Arthur"), ACBusTypes.REF)
+    template = PowerOperationsProblemTemplate(
+        NetworkModel(PTDFPowerModel; evaluations = power_flow_evaluations(ACPowerFlow())),
+    )
+    set_device_model!(template, ThermalStandard, ThermalBasicUnitCommitment)
+    set_device_model!(template, RenewableDispatch, RenewableFullDispatch)
+    set_device_model!(template, PowerLoad, StaticPowerLoad)
+    set_device_model!(template, DeviceModel(Line, StaticBranch))
+    set_device_model!(
+        template,
+        DeviceModel(TwoTerminalGenericHVDCLine, hvdc_formulation),
+    )
+    model = DecisionModel(template, sys; name = "UC", optimizer = HiGHS_optimizer)
+    return (; model, sys, hvdc, from, to)
+end
+
+@testset "generic HVDC with AC PF in the loop" begin
+    (; model, sys, hvdc, from, to) = _build_rts_hvdc_acpf_model(HVDCTwoTerminalDispatch)
+    @test build!(model; output_dir = mktempdir()) == ModelBuildStatus.BUILT
+    @test solve!(model) == RunStatus.SUCCESSFULLY_FINALIZED
+
+    container = get_optimization_container(model)
+    name = get_name(hvdc)
+    from_to = _hvdc_flow(container, FlowActivePowerFromToVariable, name)
+    to_from = _hvdc_flow(container, FlowActivePowerToFromVariable, name)
+    data = _pf_hvdc_data(container)
+    bus_lookup = PFS.get_bus_lookup(data)
+
+    @test isapprox(
+        data.bus_hvdc_net_power[bus_lookup[get_number(from)], :],
+        -1 .* from_to;
+        atol = 1e-9,
+        rtol = 0,
+    )
+    @test all(data.bus_active_power_injections[bus_lookup[get_number(from)], :] .== 0.0)
+    @test isapprox(
+        data.bus_hvdc_net_power[bus_lookup[get_number(to)], :],
+        -1 .* to_from;
+        atol = 1e-9,
+        rtol = 0,
+    )
+    @test all(data.bus_active_power_injections[bus_lookup[get_number(to)], :] .== 0.0)
+end
+
+@testset "lossless HVDC with AC PF in the loop" begin
+    # HVDCTwoTerminalLossless exposes a single FlowActivePowerVariable (positive from->to); the
+    # PF input-map falls back to it for both injection categories, so the to-bus must be +flow.
+    # Regression for #1631 (was -flow, the directional FlowActivePowerToFromVariable convention).
+    (; model, sys, hvdc, from, to) = _build_rts_hvdc_acpf_model(HVDCTwoTerminalLossless)
+    @test build!(model; output_dir = mktempdir()) == ModelBuildStatus.BUILT
+    @test solve!(model) == RunStatus.SUCCESSFULLY_FINALIZED
+
+    container = get_optimization_container(model)
+    flow = _hvdc_flow(container, FlowActivePowerVariable, get_name(hvdc))
+    data = _pf_hvdc_data(container)
+    bus_lookup = PFS.get_bus_lookup(data)
+
+    @test isapprox(
+        data.bus_hvdc_net_power[bus_lookup[get_number(from)], :],
+        -1 .* flow;
+        atol = 1e-9,
+        rtol = 0,
+    )
+    @test isapprox(
+        data.bus_hvdc_net_power[bus_lookup[get_number(to)], :],
+        flow;
+        atol = 1e-9,
+        rtol = 0,
+    )
+    @test all(data.bus_active_power_injections[bus_lookup[get_number(from)], :] .== 0.0)
+    @test all(data.bus_active_power_injections[bus_lookup[get_number(to)], :] .== 0.0)
+end
+
+@testset "HVDC bus_hvdc_net_power is not double-counted (issue #1635)" begin
+    # PSI must zero the construction-time HVDC seed before writing the optimized flow, else the
+    # stale value stacks on top. Set an unreproducible stored flow (a deliberately large 0.5 pu
+    # that would be obvious if it leaked), assert the channel holds only the optimized flow.
+    (; model, sys, hvdc, from, to) = _build_rts_hvdc_acpf_model(
+        HVDCTwoTerminalLossless; loss = LinearCurve(0.0), stored_flow = 0.5)
+    @test build!(model; output_dir = mktempdir()) == ModelBuildStatus.BUILT
+    @test solve!(model) == RunStatus.SUCCESSFULLY_FINALIZED
+
+    container = get_optimization_container(model)
+    flow = _hvdc_flow(container, FlowActivePowerVariable, get_name(hvdc))
+    data = _pf_hvdc_data(container)
+    bus_lookup = PFS.get_bus_lookup(data)
+
+    # bus_hvdc_net_power must equal ONLY the optimized flow (the stale seed was cleared).
+    @test isapprox(
+        data.bus_hvdc_net_power[bus_lookup[get_number(to)], :],
+        flow;
+        atol = 1e-9,
+        rtol = 0,
+    )
+end
+
+@testset "AC Power Flow in the loop: Fast Decoupled (FDNR) matches Newton-Raphson" begin
+    pf_data_for(pf_eval) = begin
+        system = build_system(PSITestSystems, "c_sys5_uc")
+        template = get_template_dispatch_with_network(
+            NetworkModel(
+                PTDFPowerModel;
+                PTDF_matrix = PTDF(system),
+                evaluations = power_flow_evaluations(pf_eval),
+            ),
+        )
+        model_m = DecisionModel(template, system; optimizer = HiGHS_optimizer)
+        @test build!(model_m; output_dir = mktempdir(; cleanup = true)) ==
+              ModelBuildStatus.BUILT
+        @test solve!(model_m) == RunStatus.SUCCESSFULLY_FINALIZED
+        container = get_optimization_container(model_m)
+        return get_inner_data(only(values(get_evaluation_data(get_evaluations(container)))))
+    end
+
+    # Newton-Raphson reference (default `ACPolarPowerFlow` solver).
+    nr_data = pf_data_for(ACPolarPowerFlow())
+    @test all(PFS.get_converged(nr_data))
+    # The FD solver tag does not change the container type: read-back uses the identical path.
+    @test nr_data isa PFS.ACPowerFlowData
+
+    # label => evaluator. Each must converge through the loop and match the NR reference.
+    fd_evaluators = [
+        "FDNR default (FDDecoupled/XB)" =>
+            ACPolarPowerFlow{PFS.FastDecoupledACPowerFlow}(),
+        "FDDecoupled/BX scheme" =>
+            ACPolarPowerFlow{
+                PFS.FastDecoupledACPowerFlow{PFS.FDDecoupled, PFS.FDSchemeBX},
+            }(),
+        "FDFixedJacobian (polar)" =>
+            ACPolarPowerFlow{PFS.FastDecoupledFixed}(),
+        "FastDecoupledXB alias" =>
+            ACPolarPowerFlow{PFS.FastDecoupledXB}(),
+        "FDNR handoff -> NewtonRaphson" =>
+            ACPolarPowerFlow{PFS.FastDecoupledACPowerFlow}(;
+                solver_settings = Dict{Symbol, Any}(
+                    :handoff_solver => PFS.NewtonRaphsonACPowerFlow,
+                    :handoff_tol => 1e-3,
+                ),
+            ),
+    ]
+
+    for (label, pf_eval) in fd_evaluators
+        @testset "$label" begin
+            fd_data = pf_data_for(pf_eval)
+            @test all(PFS.get_converged(fd_data))
+            @test isapprox(fd_data.bus_magnitude, nr_data.bus_magnitude;
+                atol = 1e-6, rtol = 0)
+            @test isapprox(fd_data.bus_angles, nr_data.bus_angles;
+                atol = 1e-6, rtol = 0)
+            @test isapprox(
+                fd_data.bus_active_power_injections,
+                nr_data.bus_active_power_injections;
+                atol = 1e-6, rtol = 0,
+            )
+            @test isapprox(
+                fd_data.bus_reactive_power_injections,
+                nr_data.bus_reactive_power_injections;
+                atol = 1e-6, rtol = 0,
+            )
+        end
+    end
+
+    # `FDFixedJacobian` is formulation-agnostic: it must also work on the rectangular
+    # formulation and recover the same physical state as the polar Newton-Raphson reference.
+    @testset "FDFixedJacobian on rectangular formulation" begin
+        rect_fd_data = pf_data_for(ACRectangularPowerFlow{PFS.FastDecoupledFixed}())
+        @test all(PFS.get_converged(rect_fd_data))
+        @test isapprox(rect_fd_data.bus_magnitude, nr_data.bus_magnitude;
+            atol = 1e-6, rtol = 0)
+        @test isapprox(rect_fd_data.bus_angles, nr_data.bus_angles;
+            atol = 1e-6, rtol = 0)
+    end
+
+    # The classic `FDDecoupled` variant (B′/B″ half-iterations) is polar-only; PowerFlows
+    # rejects it on the rectangular formulation at construction.
+    @testset "FDDecoupled rejected on rectangular formulation" begin
+        @test_throws ArgumentError ACRectangularPowerFlow{PFS.FastDecoupledXB}()
+    end
+end
