@@ -440,7 +440,7 @@ function _get_time_series_name(
     IS.@assert_op op_cost isa TS_OFFER_CURVE_COST_TYPES
     return IS.get_name(
         IS.get_initial_input(
-            PSY.get_value_curve(PSY.get_incremental_offer_curves(op_cost)),
+            PSY.get_value_curve(get_output_offer_curves(op_cost)),
         ),
     )
 end
@@ -454,52 +454,24 @@ function _get_time_series_name(
     IS.@assert_op op_cost isa TS_OFFER_CURVE_COST_TYPES
     return IS.get_name(
         IS.get_initial_input(
-            PSY.get_value_curve(PSY.get_decremental_offer_curves(op_cost)),
-        ),
-    )
-end
-
-# Time-varying device offer curves: the incremental/decremental PWL slope &
-# breakpoint parameters read from the offer-curve time series referenced by the
-# device's `MarketBidTimeSeriesCost`. The service (ORDC) analogue above reads from
-# the service's `variable`; these are the device-side counterparts, which were
-# missing (the generic `get_time_series_names(model)[T]` has no entry for them).
-function _get_time_series_name(
-    ::Type{
-        <:Union{
-            IncrementalPiecewiseLinearSlopeParameter,
-            IncrementalPiecewiseLinearBreakpointParameter,
-        },
-    },
-    device::PSY.Component,
-    ::DeviceModel,
-)
-    op_cost = PSY.get_operation_cost(device)
-    IS.@assert_op op_cost isa TS_OFFER_CURVE_COST_TYPES
-    return IS.get_name(
-        IS.get_time_series_key(
-            PSY.get_value_curve(PSY.get_incremental_offer_curves(op_cost)),
+            PSY.get_value_curve(get_input_offer_curves(op_cost)),
         ),
     )
 end
 
 function _get_time_series_name(
-    ::Type{
-        <:Union{
-            DecrementalPiecewiseLinearSlopeParameter,
-            DecrementalPiecewiseLinearBreakpointParameter,
-        },
-    },
+    ::Type{T},
     device::PSY.Component,
     ::DeviceModel,
-)
-    op_cost = PSY.get_operation_cost(device)
-    IS.@assert_op op_cost isa TS_OFFER_CURVE_COST_TYPES
-    return IS.get_name(
-        IS.get_time_series_key(
-            PSY.get_value_curve(PSY.get_decremental_offer_curves(op_cost)),
-        ),
-    )
+) where {
+    T <: Union{
+        IncrementalPiecewiseLinearSlopeParameter,
+        IncrementalPiecewiseLinearBreakpointParameter,
+        DecrementalPiecewiseLinearSlopeParameter,
+        DecrementalPiecewiseLinearBreakpointParameter,
+    },
+}
+    return IS.get_name(_device_offer_curve_ts_key(T, device))
 end
 
 #################################################################################
@@ -613,24 +585,34 @@ function calc_additional_axes(
     return (IOM.make_tranche_axis(max_tranches + 1),)  # one more breakpoint than tranches
 end
 
-# Device-side counterparts of the ORDC service methods above: the PWL slope &
-# breakpoint axes for a time-varying device offer curve come from the offer-curve
-# time series referenced by the device's `MarketBidTimeSeriesCost`. The container
-# is sized to the batch-wide maximum number of tranches (shorter per-hour curves
-# are padded in `unwrap_for_param`). Without these, the default device method
-# returns `()` and the PWL element falls through `unwrap_for_param` to `size(...)`.
-function _device_offer_curve_ts_key(::Type{T}, device::PSY.Component) where {T <: ParameterType}
+# Axes are sized to the batch-wide maximum tranche count; shorter per-hour curves
+# are padded in `unwrap_for_param`.
+function _device_offer_curve_ts_key(
+    ::Type{
+        <:Union{
+            IncrementalPiecewiseLinearSlopeParameter,
+            IncrementalPiecewiseLinearBreakpointParameter,
+        },
+    },
+    device::PSY.Component,
+)
     op_cost = PSY.get_operation_cost(device)
     IS.@assert_op op_cost isa TS_OFFER_CURVE_COST_TYPES
-    curve = if T <: Union{
-        IncrementalPiecewiseLinearSlopeParameter,
-        IncrementalPiecewiseLinearBreakpointParameter,
-    }
-        PSY.get_incremental_offer_curves(op_cost)
-    else
-        PSY.get_decremental_offer_curves(op_cost)
-    end
-    return IS.get_time_series_key(PSY.get_value_curve(curve))
+    return IS.get_time_series_key(PSY.get_value_curve(get_output_offer_curves(op_cost)))
+end
+
+function _device_offer_curve_ts_key(
+    ::Type{
+        <:Union{
+            DecrementalPiecewiseLinearSlopeParameter,
+            DecrementalPiecewiseLinearBreakpointParameter,
+        },
+    },
+    device::PSY.Component,
+)
+    op_cost = PSY.get_operation_cost(device)
+    IS.@assert_op op_cost isa TS_OFFER_CURVE_COST_TYPES
+    return IS.get_time_series_key(PSY.get_value_curve(get_input_offer_curves(op_cost)))
 end
 
 function calc_additional_axes(
@@ -643,7 +625,8 @@ function calc_additional_axes(
     U <: Union{Vector{D}, IS.FlattenIteratorWrapper{D}},
     W <: AbstractDeviceFormulation,
 } where {D <: PSY.Component}
-    max_tranches = maximum(d -> get_max_tranches(d, _device_offer_curve_ts_key(T, d)), devices)
+    max_tranches =
+        maximum(d -> get_max_tranches(d, _device_offer_curve_ts_key(T, d)), devices)
     return (IOM.make_tranche_axis(max_tranches),)
 end
 
@@ -657,7 +640,8 @@ function calc_additional_axes(
     U <: Union{Vector{D}, IS.FlattenIteratorWrapper{D}},
     W <: AbstractDeviceFormulation,
 } where {D <: PSY.Component}
-    max_tranches = maximum(d -> get_max_tranches(d, _device_offer_curve_ts_key(T, d)), devices)
+    max_tranches =
+        maximum(d -> get_max_tranches(d, _device_offer_curve_ts_key(T, d)), devices)
     return (IOM.make_tranche_axis(max_tranches + 1),)  # one more breakpoint than tranches
 end
 
