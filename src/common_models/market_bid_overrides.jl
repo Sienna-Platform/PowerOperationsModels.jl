@@ -255,6 +255,53 @@ function add_variable_cost_to_objective!(
 end
 
 #################################################################################
+# Section 6b: Storage — discharge is an incremental (supply) offer, charge is a
+# decremental (demand) offer. Certain markets resources bid both sides, so the storage
+# objective (storage_models.jl `add_to_objective_function!`) calls
+# `add_variable_cost!` for ActivePowerOutVariable AND ActivePowerInVariable.
+# Without these methods the charge side falls to the default incremental-only
+# entry point (market_bid_plumbing.jl) and throws "not allowed to participate as
+# a demand". Mirrors the Source ImportExport pair above.
+#################################################################################
+function add_variable_cost_to_objective!(
+    container::OptimizationContainer,
+    ::Type{ActivePowerOutVariable},
+    component::PSY.Storage,
+    cost_function::PSY.OfferCurveCost,
+    ::Type{U},
+) where {U <: AbstractStorageFormulation}
+    IOM.is_nontrivial_offer(get_output_offer_curves(cost_function)) || return
+    add_pwl_term_delta!(
+        IncrementalOffer(),
+        container,
+        component,
+        cost_function,
+        ActivePowerOutVariable,
+        U,
+    )
+    return
+end
+
+function add_variable_cost_to_objective!(
+    container::OptimizationContainer,
+    ::Type{ActivePowerInVariable},
+    component::PSY.Storage,
+    cost_function::PSY.OfferCurveCost,
+    ::Type{U},
+) where {U <: AbstractStorageFormulation}
+    IOM.is_nontrivial_offer(get_input_offer_curves(cost_function)) || return
+    add_pwl_term_delta!(
+        DecrementalOffer(),
+        container,
+        component,
+        cost_function,
+        ActivePowerInVariable,
+        U,
+    )
+    return
+end
+
+#################################################################################
 # Section 7: Load formulation — decremental offers only
 #################################################################################
 
