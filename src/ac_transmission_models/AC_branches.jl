@@ -103,6 +103,37 @@ function get_default_attributes(
     )
 end
 
+"""
+`MonitoredLine` DeviceModel attribute. When `true`, both endpoint buses of every
+monitored line are pinned irreducible so zero-impedance lines survive the network
+reduction. Defaults to `false` (such lines are reduced away and not modeled). For
+the "base case flowgate" use case.
+"""
+const MODEL_ALL_BRANCHES_KEY = "model_all_branches"
+
+# Specialize the generic `ACTransmission` defaults for `MonitoredLine` to add
+# `MODEL_ALL_BRANCHES_KEY` (default `false`) alongside the inherited keys.
+function get_default_attributes(
+    ::Type{PSY.MonitoredLine},
+    ::Type{V},
+) where {V <: AbstractBranchFormulation}
+    return Dict{String, Any}(
+        PARALLEL_BRANCH_MAX_RATING_KEY => "single_element_contingency",
+        MODEL_ALL_BRANCHES_KEY => false,
+    )
+end
+
+function get_default_attributes(
+    ::Type{PSY.MonitoredLine},
+    ::Type{V},
+) where {V <: AbstractSecurityConstrainedStaticBranch}
+    return Dict{String, Any}(
+        PARALLEL_BRANCH_MAX_RATING_KEY => "single_element_contingency",
+        "include_planned_outages" => false,
+        MODEL_ALL_BRANCHES_KEY => false,
+    )
+end
+
 # Resolve the per-DeviceModel attribute to one of the explicit PNM rating functions.
 # `MixedBranchesParallel` ignores the attribute and always uses the plain sum, since
 # the constituent branches may carry different DeviceModel preferences and there is
@@ -1393,59 +1424,22 @@ function add_to_objective_function!(
     return
 end
 
-# Flip a π-admittance tuple to the opposite orientation (from<->to). Reduced equivalents
-# may be keyed by an arc whose orientation is reversed vs the surviving branch's retained
-# from->to; reorient so coefficients match (from_bus, to_bus). g/b are symmetric; from/to
-# shunts swap; phase shift negates. Reduced line equivalents have tap == 1.
-function _reverse_admittance(adm)
-    @assert adm.tap == 1.0 "Cannot reorient a reduced arc with a non-unit tap ($(adm.tap))."
-    return (
-        g = adm.g,
-        b = adm.b,
-        g_fr = adm.g_to,
-        b_fr = adm.b_to,
-        g_to = adm.g_fr,
-        b_to = adm.b_fr,
-        tap = adm.tap,
-        shift = -adm.shift,
-    )
-end
-
-# Reduction-aware admittance for the retained arc (from_no -> to_no). Returns the PNM
-# series/parallel equivalent π-tuple oriented from->to when the arc was aggregated by
-# reduction, or `nothing` when the arc is direct (caller falls back to the branch's own).
-function _reduced_arc_admittance(nr::PNM.NetworkReductionData, from_no::Int, to_no::Int)
-    series_map = PNM.get_series_branch_map(nr)
-    parallel_map = PNM.get_parallel_branch_map(nr)
-    arc = (from_no, to_no)
-    rev = (to_no, from_no)
-    if haskey(series_map, arc)
-        return PNM.branch_admittance(series_map[arc], nr)
-    elseif haskey(series_map, rev)
-        return _reverse_admittance(PNM.branch_admittance(series_map[rev], nr))
-    elseif haskey(parallel_map, arc)
-        return PNM.branch_admittance(parallel_map[arc], nr)
-    elseif haskey(parallel_map, rev)
-        return _reverse_admittance(PNM.branch_admittance(parallel_map[rev], nr))
-    end
-    return nothing
-end
-
 # Admittance for `branch`'s ohm's law given its retained endpoints: the branch's own
-# π-parameters for a direct/un-reduced arc, or PNM's reduction-aware equivalent for a
-# series/parallel-aggregated arc.
+# π-parameters (`PNM.branch_admittance`) for a direct/un-reduced arc, or PNM's
+# reduction-aware equivalent (`PNM.reduced_arc_admittance`) for a series/parallel-aggregated
+# arc.
 function _resolve_branch_admittance(network_model, branch, from_no::Int, to_no::Int)
     nr = get_network_reduction(network_model)
     isempty(nr) && return PNM.branch_admittance(branch)
-    eq = _reduced_arc_admittance(nr, from_no, to_no)
+    eq = PNM.reduced_arc_admittance(nr, from_no, to_no)
     return eq === nothing ? PNM.branch_admittance(branch) : eq
 end
 
 # One-pass per-branch network geometry for the native DCP/ACP builders. Computes each
 # branch's retained endpoints and reduction-aware admittance ONCE so the ohm's-law and
 # angle-limit builders don't each rebuild `number_to_name` and re-map endpoints.
-# Each entry is a NamedTuple value-bag (same idiom as `_retained_bus` / `branch_admittance`
-# in this file); `collapsed` marks branches whose endpoints fold into one retained bus.
+# Each entry is a NamedTuple value-bag (same idiom as `_retained_bus`); `collapsed` marks
+# branches whose endpoints fold into one retained bus.
 function _branch_geometries(sys::PSY.System, network_model, devices)
     number_to_name = _retained_number_to_name(sys, network_model)
     geoms = NamedTuple[]
@@ -1473,46 +1467,6 @@ function _branch_geometries(sys::PSY.System, network_model, devices)
         )
     end
     return geoms
-end
-
-"""
-    branch_flow_limits(branch) -> NamedTuple
-
-Returns directional flow limits in per-unit MVA: `(from_to::Float64, to_from::Float64)`.
-For symmetric branches both fields equal `PSY.get_rating(branch)`.
-"""
-function branch_flow_limits end
-
-function branch_flow_limits(b::PSY.MonitoredLine)
-    fl = PSY.get_flow_limits(b, PSY.SU)
-    return (from_to = fl.from_to, to_from = fl.to_from)
-end
-
-function branch_flow_limits(
-    b::Union{
-        PSY.Line,
-        PSY.Transformer2W,
-        PSY.TapTransformer,
-        PSY.PhaseShiftingTransformer,
-    },
-)
-    r = PSY.get_rating(b, PSY.SU)
-    return (from_to = r, to_from = r)
-end
-
-function branch_flow_limits(b::PNM.BranchesParallel)
-    r = PNM.get_equivalent_rating(b)
-    return (from_to = r, to_from = r)
-end
-
-function branch_flow_limits(b::PNM.BranchesSeries)
-    r = PNM.get_equivalent_rating(b)
-    return (from_to = r, to_from = r)
-end
-
-function branch_flow_limits(w::PNM.ThreeWindingTransformerWinding)
-    r = PNM.get_equivalent_rating(w)
-    return (from_to = r, to_from = r)
 end
 
 ################################## Native ACP apparent-power rate constraints ###############
@@ -2118,7 +2072,7 @@ function add_constraints!(
         dname = PSY.get_name(d)
         for w in PNM.three_winding_arcs(d)
             wname = dname * "_" * w.suffix
-            adm = PNM.winding_admittance(w)
+            adm = PNM.winding_admittance(w.winding)
             fr = _retained_bus(number_to_name, network_model, PSY.get_from(w.arc))
             to = _retained_bus(number_to_name, network_model, PSY.get_to(w.arc))
             fr.number == to.number && continue
@@ -2175,7 +2129,7 @@ function add_constraints!(
         dname = PSY.get_name(d)
         for w in PNM.three_winding_arcs(d)
             wname = dname * "_" * w.suffix
-            adm = PNM.winding_admittance(w)
+            adm = PNM.winding_admittance(w.winding)
             g, b, g_fr, b_fr, g_to, b_to, tm =
                 adm.g, adm.b, adm.g_fr, adm.b_fr, adm.g_to, adm.b_to, adm.tap
             fr = _retained_bus(number_to_name, network_model, PSY.get_from(w.arc))

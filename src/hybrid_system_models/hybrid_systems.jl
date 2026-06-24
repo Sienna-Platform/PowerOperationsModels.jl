@@ -450,10 +450,10 @@ function get_variable_upper_bound(
     )
 end
 
-# Disambiguate against the generic ReserveDemandCurve method in services_models/reserves.jl.
+# Disambiguate against the generic ORDC method in services_models/reserves.jl.
 function get_variable_upper_bound(
     ::Type{ActivePowerReserveVariable},
-    r::PSY.ReserveDemandCurve,
+    r::Union{PSY.ReserveDemandCurve, PSY.ReserveDemandTimeSeriesCurve},
     d::PSY.HybridSystem,
     ::Type{<:AbstractReservesFormulation},
 )

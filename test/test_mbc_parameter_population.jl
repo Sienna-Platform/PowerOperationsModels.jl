@@ -174,6 +174,39 @@ end
     @test param_arr[_PP_THERMAL_NAME, 3] ≈ 10.0
 end
 
+@testset "PWL slope/breakpoint params populated from MBC offer-curve TS" begin
+    # Exercises the device-side `_get_time_series_name` / `calc_additional_axes` overloads
+    # for time-varying offer curves: incremental params read the incremental curve,
+    # decremental the decremental curve; slope params size to the tranche count and
+    # breakpoint params to tranches + 1. The helper attaches incremental [25, 30] and
+    # decremental [30, 25] slopes over breakpoints [0, 50, 100], so a swapped accessor or
+    # mis-sized axis is visible.
+    sys, _ = _build_mbtsc_thermal_system(; name = _PP_THERMAL_NAME, horizon = Hour(3))
+    devs = PSY.get_components(PSY.ThermalStandard, sys)
+
+    cases = (
+        (IOM.IncrementalPiecewiseLinearSlopeParameter,
+            ["tranche_1", "tranche_2"], [25.0, 30.0]),
+        (IOM.IncrementalPiecewiseLinearBreakpointParameter,
+            ["tranche_1", "tranche_2", "tranche_3"], [0.0, 50.0, 100.0]),
+        (IOM.DecrementalPiecewiseLinearSlopeParameter,
+            ["tranche_1", "tranche_2"], [30.0, 25.0]),
+        (IOM.DecrementalPiecewiseLinearBreakpointParameter,
+            ["tranche_1", "tranche_2", "tranche_3"], [0.0, 50.0, 100.0]),
+    )
+    for (P, tranche_axis, vals) in cases
+        container = _pp_build_container(sys, 1:3)
+        POM.add_parameters!(container, P, devs, _PP_MODEL)
+        param_arr = IOM.get_parameter_array(container, P, PSY.ThermalStandard)
+        @test axes(param_arr)[1] == [_PP_THERMAL_NAME]
+        @test axes(param_arr)[2] == tranche_axis
+        @test axes(param_arr)[3] == 1:3
+        for t in 1:3, (i, tr) in enumerate(tranche_axis)
+            @test param_arr[_PP_THERMAL_NAME, tr, t] ≈ vals[i]
+        end
+    end
+end
+
 @testset "process_market_bid_parameters! filters static-cost devices" begin
     # Two thermals on the same system: one with TS MBC (values driven by time series),
     # one with static MBC (scalar cost object). The orchestrator is expected to add
@@ -224,16 +257,12 @@ end
     end
 end
 
-@testset "IEC PWL slope population (pending PSI→POM PWL migration)" begin
-    # PWL parameter population requires the `calc_additional_axes` /
-    # `_unwrap_for_param` overloads for `AbstractPiecewiseLinear{Slope,Breakpoint}
-    # Parameter`. Those live in PSI and haven't been migrated to POM yet — see the
-    # note at `src/common_models/add_parameters.jl:407-409`. Until migrated,
-    # `add_parameters!` for slope/breakpoint params falls to defaults that mis-shape
-    # the parameter array and mis-handle `PiecewiseStepData` unwrapping.
-    #
-    # This test is expected to fail on the current tree; promote to `@test` when the
-    # PWL migration lands.
+@testset "IEC PWL slope params populated from import/export offer-curve TS" begin
+    # The device-side overloads must resolve the offer curve by direction through the
+    # unified `get_output_offer_curves` / `get_input_offer_curves` accessors: incremental
+    # reads the IMPORT curve, decremental the EXPORT curve. The MarketBid-specific
+    # `PSY.get_incremental_offer_curves` is undefined for `ImportExportTimeSeriesCost`, so
+    # before the unified-accessor fix this path raised a MethodError.
     init_time = DateTime("2020-01-01")
     horizon, interval, count, resolution = Hour(3), Hour(3), 1, Hour(1)
 
@@ -267,15 +296,29 @@ end
     )
 
     devs = PSY.get_components(PSY.Source, sys)
-    container = _pp_build_container(sys, 1:3)
     iec_model = IOM.DeviceModel(PSY.Source, POM.ImportExportSourceModel)
 
-    @test_broken try
-        POM.add_parameters!(
-            container, IOM.IncrementalPiecewiseLinearSlopeParameter, devs, iec_model)
-        true
-    catch
-        false
+    # incremental → import slopes [5, 10]
+    cont_incr = _pp_build_container(sys, 1:3)
+    POM.add_parameters!(
+        cont_incr, IOM.IncrementalPiecewiseLinearSlopeParameter, devs, iec_model)
+    incr_arr = IOM.get_parameter_array(
+        cont_incr, IOM.IncrementalPiecewiseLinearSlopeParameter, PSY.Source)
+    @test axes(incr_arr)[2] == ["tranche_1", "tranche_2"]
+    for t in 1:3
+        @test incr_arr["source1", "tranche_1", t] ≈ 5.0
+        @test incr_arr["source1", "tranche_2", t] ≈ 10.0
+    end
+
+    # decremental → export slopes [10, 5]
+    cont_decr = _pp_build_container(sys, 1:3)
+    POM.add_parameters!(
+        cont_decr, IOM.DecrementalPiecewiseLinearSlopeParameter, devs, iec_model)
+    decr_arr = IOM.get_parameter_array(
+        cont_decr, IOM.DecrementalPiecewiseLinearSlopeParameter, PSY.Source)
+    for t in 1:3
+        @test decr_arr["source1", "tranche_1", t] ≈ 10.0
+        @test decr_arr["source1", "tranche_2", t] ≈ 5.0
     end
 end
 

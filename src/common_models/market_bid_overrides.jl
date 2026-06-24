@@ -293,77 +293,52 @@ _vom_offer_direction(::Type{<:AbstractControllablePowerLoadFormulation}) =
 #################################################################################
 
 """
-PWL block offer constraints for ORDC (ReserveDemandCurve).
-"""
-function add_pwl_constraint_delta!(
-    container::OptimizationContainer,
-    component::T,
-    ::Type{U},
-    break_points::Vector{Float64},
-    pwl_vars::Vector{JuMP.VariableRef},
-    period::Int,
-) where {T <: PSY.ReserveDemandCurve, U <: ServiceRequirementVariable}
-    name = PSY.get_name(component)
-    variables = get_variable(container, U, T, name)
-    const_container = lazy_container_addition!(
-        container,
-        PiecewiseLinearBlockIncrementalOfferConstraint,
-        T,
-        axes(variables)...;
-        meta = name,
-    )
-    add_pwl_block_offer_constraints!(
-        get_jump_model(container),
-        const_container,
-        name,
-        period,
-        variables[name, period],
-        pwl_vars,
-        break_points,
-    )
-    return
-end
-
-"""
-PWL cost terms for StepwiseCostReserve (AbstractServiceFormulation).
+Add the delta PWL objective terms for an ORDC service (`StepwiseCostReserve` over
+`ReserveDemandCurve` / `ReserveDemandTimeSeriesCurve`).
 """
 function add_pwl_term_delta!(
     container::OptimizationContainer,
     component::T,
-    cost_data::PSY.CostCurve{PSY.PiecewiseIncrementalCurve},
+    ::PSY.CostCurve,
     ::Type{U},
     ::Type{V},
-) where {T <: PSY.Component, U <: VariableType, V <: AbstractServiceFormulation}
+) where {
+    T <: Union{PSY.ReserveDemandCurve, PSY.ReserveDemandTimeSeriesCurve},
+    U <: VariableType,
+    V <: AbstractServiceFormulation,
+}
+    dir = _reserve_offer_direction(component)
+    # objective_function_multiplier(U, V) == IOM._objective_sign(dir) for the
+    # decremental ORDC offer (OBJECTIVE_FUNCTION_NEGATIVE); kept as the service-side
+    # multiplier API.
     multiplier = objective_function_multiplier(U, V)
     resolution = get_resolution(container)
     dt = Dates.value(Dates.Second(resolution)) / SECONDS_IN_HOUR
-    base_power = get_model_base_power(container)
-    value_curve = PSY.get_value_curve(cost_data)
-    power_units = PSY.get_power_units(cost_data)
-    cost_component = PSY.get_function_data(value_curve)
-    device_base_power = PSY.get_base_power(component, PSY.NU)
-    data = get_piecewise_curve_per_system_unit(
-        cost_component,
-        power_units,
-        base_power,
-        device_base_power,
-    )
     name = PSY.get_name(component)
     time_steps = get_time_steps(container)
     pwl_cost_expressions = Vector{JuMP.AffExpr}(undef, time_steps[end])
-    slopes = IS.get_y_coords(data)
-    break_points = PSY.get_x_coords(data)
     for t in time_steps
+        break_points, slopes = IOM._get_pwl_data(dir, container, component, t; meta = name)
         pwl_vars = add_pwl_variables_delta!(
             container,
-            PiecewiseLinearBlockIncrementalOffer,
+            IOM._block_offer_var(dir),
             T,
             name,
             t,
             length(slopes);
             upper_bound = Inf,
         )
-        add_pwl_constraint_delta!(container, component, U, break_points, pwl_vars, t)
+        add_pwl_constraint_delta!(
+            container,
+            component,
+            U,
+            V,
+            break_points,
+            pwl_vars,
+            t,
+            IOM._block_offer_constraint(dir);
+            meta = name,
+        )
         pwl_cost_expressions[t] =
             get_pwl_cost_expression_delta(pwl_vars, slopes, multiplier * dt)
     end

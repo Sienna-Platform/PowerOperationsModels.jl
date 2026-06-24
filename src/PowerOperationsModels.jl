@@ -89,6 +89,9 @@ const IOM = InfrastructureOptimizationModels
 import InfrastructureOptimizationModels:
     should_write_resulting_value,
     convert_output_to_natural_units,
+    # Printing dispatch shared with IOM (POM adds the template method in utils/print.jl);
+    # without this import POM would shadow IOM._show_method and break show(::DecisionModel).
+    _show_method,
     # Network model compatibility checks (extended in core/network_formulations.jl)
     requires_all_branch_models,
     supports_branch_filtering,

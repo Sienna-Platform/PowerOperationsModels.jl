@@ -2500,7 +2500,10 @@ function add_cost_to_expression!(
     cost_expression::JuMP.AbstractJuMPScalar,
     component::T,
     time_period::Int,
-) where {S <: CostExpressions, T <: PSY.ReserveDemandCurve}
+) where {
+    S <: CostExpressions,
+    T <: Union{PSY.ReserveDemandCurve, PSY.ReserveDemandTimeSeriesCurve},
+}
     if has_container_key(container, S, T, PSY.get_name(component))
         device_cost_expression = get_expression(container, S, T, PSY.get_name(component))
         component_name = PSY.get_name(component)
@@ -2823,7 +2826,10 @@ function add_to_expression!(
     cost_expression::JuMP.AbstractJuMPScalar,
     component::T,
     time_period::Int,
-) where {S <: CostExpressions, T <: PSY.ReserveDemandCurve}
+) where {
+    S <: CostExpressions,
+    T <: Union{PSY.ReserveDemandCurve, PSY.ReserveDemandTimeSeriesCurve},
+}
     if has_container_key(container, S, T, PSY.get_name(component))
         device_cost_expression =
             get_expression(container, S, T, PSY.get_name(component))

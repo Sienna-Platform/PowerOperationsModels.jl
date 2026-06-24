@@ -897,3 +897,116 @@ end
           IOM.ModelBuildStatus.BUILT
     @test solve!(model_ac) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
 end
+
+# A bus is "merged away" by the reduction when it appears in a value set of the bus
+# reduction map (coalesced into a representative key). The retained representatives
+# are the keys; `get_removed_buses` is unrelated to zero-impedance coalescing here.
+_bus_merged_away(nrd, b) = any(b in s for s in values(PNM.get_bus_reduction_map(nrd)))
+
+# A zero-impedance `MonitoredLine` is merged away by the reduction. With
+# `model_all_branches = true` its buses are pinned so it survives and is modeled;
+# with the default `false` it is reduced away and its (sole-of-type) DeviceModel is
+# pruned. Both build; only the flow-rate constraint differs.
+@testset "MonitoredLine model_all_branches retains zero-impedance branch" begin
+    function _build_zib_monitored_line(model_all_branches)
+        sys = PSB.build_system(PSITestSystems, "c_sys5_ml")
+        # Force MonitoredLine "1" to be zero-impedance: r == 0 and a tiny reactance
+        # push it above the zero-impedance threshold, so the reduction merges its
+        # endpoints unless they are pinned irreducible.
+        ml = PSY.get_component(MonitoredLine, sys, "1")
+        PSY.set_r!(ml, 0.0 * PSY.SU)
+        PSY.set_x!(ml, 1e-5 * PSY.SU)
+        # No `PTDF_matrix` provided, so a VirtualPTDF is built and the reduction runs.
+        template = get_thermal_dispatch_template_network(NetworkModel(PTDFPowerModel))
+        set_device_model!(
+            template,
+            DeviceModel(
+                MonitoredLine,
+                StaticBranch;
+                attributes = Dict{String, Any}(
+                    "model_all_branches" => model_all_branches,
+                ),
+            ),
+        )
+        model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
+        status = build!(model; output_dir = mktempdir(; cleanup = true))
+        return model, ml, status
+    end
+
+    # The attribute defaults to false.
+    default_model = DeviceModel(MonitoredLine, StaticBranch)
+    @test POM.get_attribute(default_model, "model_all_branches") == false
+
+    # true: line retained, build succeeds, buses not merged, line modeled.
+    model, ml, status = _build_zib_monitored_line(true)
+    @test status == IOM.ModelBuildStatus.BUILT
+    arc = PSY.get_arc(ml)
+    from_bus = PSY.get_number(PSY.get_from(arc))
+    to_bus = PSY.get_number(PSY.get_to(arc))
+    nm = IOM.get_network_model(IOM.get_template(model))
+    nrd = IOM.get_PTDF_matrix(nm).network_reduction_data
+    @test !_bus_merged_away(nrd, from_bus)
+    @test !_bus_merged_away(nrd, to_bus)
+    @test haskey(IOM.get_branch_models(IOM.get_template(model)), :MonitoredLine)
+    container = IOM.get_optimization_container(model)
+    @test IOM.has_container_key(container, FlowRateConstraint, MonitoredLine, "ub")
+
+    # false (default): line reduced away, its sole-of-type DeviceModel pruned,
+    # build succeeds with no MonitoredLine flow-rate constraint.
+    model_default, ml_default, status_default = _build_zib_monitored_line(false)
+    @test status_default == IOM.ModelBuildStatus.BUILT
+    nm_d = IOM.get_network_model(IOM.get_template(model_default))
+    nrd_d = IOM.get_PTDF_matrix(nm_d).network_reduction_data
+    @test _bus_merged_away(nrd_d, PSY.get_number(PSY.get_to(PSY.get_arc(ml_default))))
+    @test !haskey(IOM.get_branch_models(IOM.get_template(model_default)), :MonitoredLine)
+    container_default = IOM.get_optimization_container(model_default)
+    @test !IOM.has_container_key(
+        container_default,
+        FlowRateConstraint,
+        MonitoredLine,
+        "ub",
+    )
+end
+
+# Partial reduction: with multiple monitored lines and `model_all_branches = false`,
+# a single near-zero-impedance monitored line is merged away while the type survives.
+# Whereas a fully-reduced type is pruned, here the reduced line is silently unmodeled,
+# so the build must still succeed and emit an actionable warning that names the line
+# and points the user at `model_all_branches`.
+@testset "MonitoredLine partial reduction warns and drops only the reduced line" begin
+    sys = PSB.build_system(PSITestSystems, "c_sys5_ml")
+    # MonitoredLine "1" forced near-zero impedance so the reduction merges it away.
+    ml = PSY.get_component(MonitoredLine, sys, "1")
+    PSY.set_r!(ml, 0.0 * PSY.SU)
+    PSY.set_x!(ml, 1e-5 * PSY.SU)
+    # A second MonitoredLine (converted from a healthy Line) keeps the type non-empty.
+    line = first(PSY.get_components(Line, sys))
+    survivor = PSY.get_name(line)
+    PSY.convert_component!(
+        sys,
+        line,
+        MonitoredLine;
+        flow_limits = (from_to = 1.0, to_from = 1.0),
+    )
+
+    template = get_thermal_dispatch_template_network(NetworkModel(PTDFPowerModel))
+    set_device_model!(template, DeviceModel(MonitoredLine, StaticBranch))
+    model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
+    output_dir = mktempdir(; cleanup = true)
+    @test build!(model; output_dir = output_dir) == IOM.ModelBuildStatus.BUILT
+
+    # The surviving monitored line is modeled; the merged-away one is dropped.
+    container = IOM.get_optimization_container(model)
+    constraint_names = axes(
+        IOM.get_constraints(container)[IOM.ConstraintKey(
+            FlowRateConstraint, MonitoredLine, "ub",
+        )],
+    )[1]
+    @test survivor in constraint_names
+    @test !("1" in constraint_names)
+
+    # The drop is reported with an actionable warning naming the line.
+    log_contents = read(joinpath(output_dir, "operation_problem.log"), String)
+    @test occursin("MonitoredLine(s) [\"1\"]", log_contents)
+    @test occursin("model_all_branches", log_contents)
+end
