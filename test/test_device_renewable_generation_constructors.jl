@@ -147,3 +147,35 @@ end
           IOM.ModelBuildStatus.BUILT
     @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
 end
+
+@testset "Renewable with quadratic variable cost builds objective (issue #9)" begin
+    # Regression test: a RenewableDispatch with a quadratic cost curve used to call
+    # `PSY.get_active_power_limits`, but renewables only have a max active power field,
+    # not active power limits.
+    c_sys5_re = PSB.build_system(PSITestSystems, "c_sys5_re")
+
+    quad_re = get_component(RenewableDispatch, c_sys5_re, "WindBusA")
+    base_cost = get_operation_cost(quad_re)
+    # Renewable ActivePowerVariable costs use OBJECTIVE_FUNCTION_NEGATIVE, so the negated
+    # objective term `-cost(p)` is convex (and free of the non-monotonicity warning) when
+    # the raw curve is concave, i.e. negative coefficients.
+    set_operation_cost!(
+        quad_re,
+        RenewableGenerationCost(;
+            variable = CostCurve(QuadraticCurve(-2.0, -1.0, 0.0)),
+            curtailment_cost = base_cost.curtailment_cost,
+            fixed = base_cost.fixed,
+        ),
+    )
+
+    device_model = DeviceModel(RenewableDispatch, RenewableFullDispatch)
+    model = DecisionModel(MockOperationProblem, DCPPowerModel, c_sys5_re)
+    # Before the fix this threw `ArgumentError: get_active_power_limits not implemented
+    # for RenewableDispatch`; now it constructs a quadratic objective.
+    mock_construct_device!(model, device_model)
+    psi_checkobjfun_test(model, GQEVF)
+
+    # Direct check of the bridge that the issue is about.
+    @test IOM.get_active_power_limits(quad_re) ==
+          (min = 0.0, max = PSY.get_max_active_power(quad_re, PSY.SU))
+end
