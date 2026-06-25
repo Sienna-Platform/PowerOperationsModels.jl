@@ -452,7 +452,10 @@ function _add_terminal_flow_to_ptdf_balance!(
         arc = PSY.get_arc(d)
         side_bus = _terminal_bus(U, arc)
         bus_no = PNM.get_mapped_bus_number(network_reduction, side_bus)
-        ref_bus = get_reference_bus(network_model, side_bus)
+        # System/area row key: `_ref_index` yields the reference-bus number for
+        # PTDF (System-keyed) and the area name for AreaPTDF (Area-keyed). The
+        # `ref_bus_from != ref_bus_to` crossing check uses raw reference numbers.
+        ref_index = _ref_index(network_model, side_bus)
         ref_bus_from = get_reference_bus(network_model, PSY.get_from(arc))
         ref_bus_to = get_reference_bus(network_model, PSY.get_to(arc))
         for t in time_steps
@@ -464,7 +467,7 @@ function _add_terminal_flow_to_ptdf_balance!(
             )
             if ref_bus_from != ref_bus_to
                 add_proportional_to_jump_expression!(
-                    sys_expr[ref_bus, t],
+                    sys_expr[ref_index, t],
                     flow_variable,
                     multiplier,
                 )
@@ -2133,9 +2136,9 @@ function _reduced_entry_in_interface(
 end
 
 _error_msg(::Type{PNM.BranchesParallel}) =
-    "An interface is specified with only part of a double-circuit that has been reduced. Modify the data to include all parallel segements."
+    "An interface is specified with only part of a double-circuit that has been reduced. Modify the data to include all parallel segments."
 _error_msg(::Type{PNM.BranchesSeries}) =
-    "An interface is specified with only portion of a degree two chain reduction that has been reduced. Modify the data to include all segments of the reduced chain."
+    "An interface is specified with only part of a degree two chain reduction that has been reduced. Modify the data to include all segments of the reduced chain."
 
 function _reduced_entry_in_interface(
     reduction_entry::T,
