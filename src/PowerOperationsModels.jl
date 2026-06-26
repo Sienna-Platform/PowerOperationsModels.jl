@@ -307,6 +307,7 @@ include("network_models/network_constructor.jl")
 # Services Models
 include("services_models/service_slacks.jl")
 include("services_models/reserves.jl")
+include("services_models/static_injection_security_constrained_models.jl")
 include("services_models/reserve_group.jl")
 # include("services_models/agc.jl")  # TODO: needs _get_ace_error
 include("services_models/transmission_interface.jl")
@@ -536,6 +537,8 @@ export FlowActivePowerSlackUpperBound
 export FlowActivePowerSlackLowerBound
 export PostContingencyFlowActivePowerSlackUpperBound
 export PostContingencyFlowActivePowerSlackLowerBound
+export PostContingencyActivePowerChangeVariable
+export PostContingencyActivePowerReserveDeploymentVariable
 export FlowActivePowerFromToVariable
 export FlowActivePowerToFromVariable
 export FlowReactivePowerFromToVariable
@@ -724,6 +727,11 @@ export FlowRateConstraint
 export FlowRateConstraintFromTo
 export FlowRateConstraintToFrom
 export PostContingencyFlowRateConstraint
+export PostContingencyGenerationBalanceConstraint
+export PostContingencyActivePowerGenerationLimitsConstraint
+export PostContingencyCopperPlateBalanceConstraint
+export PostContingencyActivePowerVariableLimitsConstraint
+export PostContingencyActivePowerReserveDeploymentVariableLimitsConstraint
 export FlowLimitConstraint
 export FlowLimitFromToConstraint
 export FlowLimitToFromConstraint
@@ -777,6 +785,11 @@ export FuelConsumptionExpression
 export ActivePowerRangeExpressionLB
 export ActivePowerRangeExpressionUB
 export PostContingencyBranchFlow
+export PostContingencyAreaInterchangeFlow
+export PostContingencyActivePowerGeneration
+export PostContingencyActivePowerBalance
+export PostContingencyNodalActivePowerDeployment
+export PostContingencyAreaActivePowerDeployment
 export NetActivePower
 export DCCurrentBalance
 export ComponentReserveUpBalanceExpression
@@ -874,6 +887,8 @@ export RangeReserve
 export StepwiseCostReserve
 export RampReserve
 export NonSpinningReserve
+export SecurityConstrainedContingencyReserve
+export SecurityConstrainedRampReserve
 export ConstantMaxInterfaceFlow
 export VariableMaxInterfaceFlow
 

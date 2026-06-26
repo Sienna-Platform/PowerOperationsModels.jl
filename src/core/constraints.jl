@@ -245,6 +245,46 @@ is the branch emergency rating (system base / per-unit).
 struct PostContingencyFlowRateConstraint <: PostContingencyConstraintType end
 
 """
+Constraint that closes the per-contingency post-contingency generation balance:
+the total active power shed by the outaged generators equals the total reserve
+deployment across all contributing generators.
+
+```math
+\\sum_{g \\in \\mathcal{G}_c} p_{g,t} = \\sum_{g \\in \\mathcal{G}} \\Delta rsv_{c,g,t},
+\\quad \\forall c \\in \\mathcal{C},\\ \\forall t
+```
+"""
+struct PostContingencyGenerationBalanceConstraint <: PostContingencyConstraintType end
+
+"""
+Constraint on the post-contingency active power generation expression
+(`PostContingencyActivePowerGeneration`) of each contributing generator
+under each outage. Outaged generators are pinned to zero; all other
+generators are bounded by their `active_power_limits`.
+
+```math
+P^{\\text{min}}_g \\le p_{g,t} + \\Delta rsv_{c,g,t} \\le P^{\\text{max}}_g,
+\\quad \\forall c \\in \\mathcal{C},\\ \\forall g \\notin \\mathcal{G}_c,\\ \\forall t
+```
+"""
+struct PostContingencyActivePowerGenerationLimitsConstraint <:
+       PostContingencyConstraintType end
+
+"""
+Constraint that closes the per-area post-contingency power balance for the
+`AreaBalancePowerModel` network representation, summing the
+`PostContingencyAreaActivePowerDeployment` with the pre-contingency
+`ActivePowerBalance` expression for each area.
+
+```math
+\\sum_{g \\in \\mathcal{A}}(\\Delta rsv_{c,g,t} + p_{g,t}\\mathbb{1}_{g \\in \\mathcal{G}_c}) +
+\\text{Bal}^{\\text{pre}}_{a,t} = 0,\\quad \\forall a \\in \\mathcal{A},\\ \\forall c,\\ \\forall t
+```
+"""
+struct PostContingencyCopperPlateBalanceConstraint <:
+       PostContingencyConstraintType end
+
+"""
 Struct to create the constraint for branch flow rate limits from the 'from' bus to the 'to' bus.
 For more information check [Branch Formulations](@ref PowerSystems.Branch-Formulations).
 """
@@ -454,6 +494,32 @@ S_k^{\\max}`` for ``k \\in \\{f, t\\}`` via one of two shapes, selected by the
 struct HVDCVSCApparentPowerLimitConstraint <: ConstraintType end
 
 abstract type PowerVariableLimitsConstraint <: ConstraintType end
+
+abstract type PostContingencyVariableLimitsConstraint <: PowerVariableLimitsConstraint end
+
+"""
+Struct to create the constraint to limit post-contingency active power expressions.
+
+```math
+P^\\text{min} \\le p_t + \\Delta p_{c, t} \\le P^\\text{max},
+\\quad \\forall c \\in \\mathcal{C},\\ \\forall t
+```
+"""
+struct PostContingencyActivePowerVariableLimitsConstraint <:
+       PostContingencyVariableLimitsConstraint end
+
+"""
+Struct to create the constraint to limit post-contingency active power reserve
+deployment expressions.
+
+```math
+\\Delta rsv_{r, c, t} \\le rsv_{r, c, t},
+\\quad \\forall r \\in \\mathcal{R},\\ \\forall c \\in \\mathcal{C},\\ \\forall t
+```
+"""
+struct PostContingencyActivePowerReserveDeploymentVariableLimitsConstraint <:
+       PostContingencyVariableLimitsConstraint end
+
 """
 Struct to create the constraint to limit active power input expressions.
 For more information check [Device Formulations](@ref formulation_intro).

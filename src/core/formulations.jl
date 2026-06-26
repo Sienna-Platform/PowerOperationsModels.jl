@@ -332,6 +332,31 @@ struct RampReserve <: AbstractReservesFormulation end
 Struct to add non spinning reserve requirements larger than specified requirement
 """
 struct NonSpinningReserve <: AbstractReservesFormulation end
+
+abstract type AbstractSecurityConstrainedReservesFormulation <: AbstractReservesFormulation end
+
+"""
+Security-constrained contingency reserve formulation: requires a
+`RequirementTimeSeriesParameter` and deploys reserves under each G-1 outage
+attached to a contributing generator. Post-contingency branch-flow constraints
+are added only for the monitored components listed on each outage's
+`monitored_components`.
+
+See also `SecurityConstrainedRampReserve`.
+"""
+struct SecurityConstrainedContingencyReserve <:
+       AbstractSecurityConstrainedReservesFormulation end
+
+"""
+Security-constrained ramp reserve formulation: like `RampReserve` for the
+pre-contingency requirement/ramp/participation constraints, plus the same
+G-1 post-contingency deployment + monitored-branch flow constraints as
+`SecurityConstrainedContingencyReserve`.
+
+See also `SecurityConstrainedContingencyReserve`.
+"""
+struct SecurityConstrainedRampReserve <:
+       AbstractSecurityConstrainedReservesFormulation end
 """
 Struct to add a constant maximum transmission flow for specified interface
 """
