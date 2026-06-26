@@ -9,21 +9,16 @@ function get_outage_total_power_by_step_dict(
     total_variable_dict = Dict{String, Vector{Float64}}()
     for outage in associated_outages
         outage_name = string(IS.get_uuid(outage))
-        outage_power_v = Vector{Float64}()
         devices = PSY.get_associated_components(
             sys,
             outage;
             component_type = PSY.Generator,
         )
-        for (i, device) in enumerate(devices)
-            device_name = PSY.get_name(device)
-            current_v =
-                filter(x -> x[col_name] == device_name, required_variables)[!, "value"]
-            if i == 1
-                outage_power_v = current_v
-            else
-                outage_power_v .+= current_v
-            end
+        outage_power_v = mapreduce(+, devices) do device
+            filter(
+                x -> x[col_name] == PSY.get_name(device),
+                required_variables,
+            )[!, "value"]
         end
         total_variable_dict[outage_name] = outage_power_v
     end
@@ -39,21 +34,24 @@ function get_reserve_total_power_by_step_dict(
         Vector{<:PSY.Generator},
     };
     col_name::String = "name2",
+    outage_col_name::String = "name",
 )
     required_variables = variables[var_name]
     total_variable_dict = Dict{String, Vector{Float64}}()
     for outage in associated_outages
         outage_name = string(IS.get_uuid(outage))
-        outage_power_v = Vector{Float64}()
-        for (i, device) in enumerate(contributing_devices)
+        # Scope to this outage: the deployment variable is keyed by
+        # (outage_id, device_name, t), so filtering on the device alone would
+        # mix deployments across outages.
+        outage_power_v = mapreduce(+, contributing_devices) do device
             device_name = PSY.get_name(device)
-            current_v =
-                filter(x -> x[col_name] == device_name, required_variables)[!, "value"]
-            if i == 1
-                outage_power_v = current_v
-            else
-                outage_power_v .+= current_v
-            end
+            filter(
+                x -> x[outage_col_name] == outage_name && x[col_name] == device_name,
+                required_variables,
+            )[
+                !,
+                "value",
+            ]
         end
         total_variable_dict[outage_name] = outage_power_v
     end
@@ -77,8 +75,8 @@ function compare_outage_power_and_deployed_reserves(
     variablesdict = read_variables(res)
     associated_outages =
         collect(PSY.get_supplemental_attributes(PSY.UnplannedOutage, service))
-    # Fall back: in the new G-1 pattern, outages are attached to the outaged
-    # generator, not the reserve service. Resolve from system if empty.
+    # Fall back: when no outages are attached to the reserve service, resolve
+    # from the system's outages instead.
     if isempty(associated_outages)
         all_outages = collect(PSY.get_supplemental_attributes(PSY.UnplannedOutage, sys))
         associated_outages = all_outages
@@ -105,7 +103,8 @@ function compare_outage_power_and_deployed_reserves(
         for i in 1:length(outage_dict[outage_name])
             test_reserves_deployment(
                 outage_dict[outage_name][i],
-                reserve_dict[outage_name][i],
+                reserve_dict[outage_name][i];
+                tol = tolerance,
             )
         end
     end

@@ -336,11 +336,14 @@ struct NonSpinningReserve <: AbstractReservesFormulation end
 abstract type AbstractSecurityConstrainedReservesFormulation <: AbstractReservesFormulation end
 
 """
-Security-constrained contingency reserve formulation: requires a
-`RequirementTimeSeriesParameter` and deploys reserves under each G-1 outage
-attached to a contributing generator. Post-contingency branch-flow constraints
-are added only for the monitored components listed on each outage's
-`monitored_components`.
+Security-constrained contingency reserve formulation: deploys reserves under
+each G-1 outage scoped to the reserve service (the outages attached to the
+service, falling back to the system's outages when none are attached). A
+`RequirementTimeSeriesParameter` is optional — when present the requirement /
+ramp / participation stack is built; when absent, per-generator
+`PostContingencyActivePowerGeneration` limits are applied instead.
+Post-contingency branch-flow constraints are added only for the monitored
+components listed on each outage's `monitored_components`.
 
 See also `SecurityConstrainedRampReserve`.
 """
