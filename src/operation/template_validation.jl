@@ -377,9 +377,6 @@ function _sc_reserve_service_models(template::IOM.AbstractProblemTemplate)
     ]
 end
 
-# Whether SC service model `m` should skip `outage`. Dispatched on the outage
-# subtype: planned outages are skipped unless the SC service model opts in via
-# the `"include_planned_outages"` attribute.
 _service_skips_outage(::PSY.Outage, ::ServiceModel) = false
 _service_skips_outage(::PSY.PlannedOutage, m::ServiceModel) =
     get_attribute(m, "include_planned_outages") !== true

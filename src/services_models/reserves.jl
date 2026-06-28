@@ -68,6 +68,9 @@ function get_default_time_series_names(
     )
 end
 
+# The returned name (`"requirement"`) is the exact `PSY` time-series name the
+# requirement must be stored under on the service; the requirement is optional
+# for security-constrained formulations (see `SecurityConstrainedContingencyReserve`).
 function get_default_time_series_names(
     ::Type{<:PSY.Reserve},
     ::Type{<:AbstractSecurityConstrainedReservesFormulation},

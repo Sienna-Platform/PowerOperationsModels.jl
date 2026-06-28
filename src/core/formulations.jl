@@ -337,9 +337,11 @@ abstract type AbstractSecurityConstrainedReservesFormulation <: AbstractReserves
 
 """
 Security-constrained contingency reserve formulation: deploys reserves under
-each G-1 outage scoped to the reserve service (the outages attached to the
-service, falling back to the system's outages when none are attached). A
-`RequirementTimeSeriesParameter` is optional — when present the requirement /
+each G-1 outage scoped to the reserve `PSY.Service`. The set of contingencies a
+service responds to is the `PSY.Outage` supplemental attributes attached to that
+service via `add_supplemental_attribute!(sys, service, outage)`; template
+validation mirrors those attachments into `service_model.outages`.
+A `RequirementTimeSeriesParameter` is optional: when present the requirement /
 ramp / participation stack is built; when absent, per-generator
 `PostContingencyActivePowerGeneration` limits are applied instead.
 Post-contingency branch-flow constraints are added only for the monitored
