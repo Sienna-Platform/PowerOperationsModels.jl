@@ -281,7 +281,32 @@ function add_to_expression!(
     V <: PSY.InterconnectingConverter,
     W <: AbstractConverterFormulation,
 }
-    error("AreaPTDFPowerModel doesn't support InterconnectingConverter")
+    variable = get_variable(container, U, V)
+    expression_dc = get_expression(container, T, PSY.DCBus)
+    expression_ac = get_expression(container, T, PSY.ACBus)
+    area_expr = get_expression(container, T, PSY.Area)
+    for d in devices, t in get_time_steps(container)
+        name = PSY.get_name(d)
+        device_bus = PSY.get_bus(d)
+        area_name = PSY.get_name(PSY.get_area(device_bus))
+        bus_number_dc = PSY.get_number(PSY.get_dc_bus(d))
+        bus_number_ac = PSY.get_number(device_bus)
+        add_proportional_to_jump_expression!(
+            area_expr[area_name, t],
+            variable[name, t],
+            1.0,
+        )
+        add_proportional_to_jump_expression!(
+            expression_ac[bus_number_ac, t],
+            variable[name, t],
+            1.0,
+        )
+        add_proportional_to_jump_expression!(
+            expression_dc[bus_number_dc, t],
+            variable[name, t],
+            -1.0,
+        )
+    end
     return
 end
 

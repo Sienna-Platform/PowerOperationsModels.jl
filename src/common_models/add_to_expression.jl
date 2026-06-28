@@ -965,18 +965,17 @@ function add_to_expression!(
     V <: PSY.TwoTerminalHVDC,
 }
     variable = get_variable(container, U, V)
-    expression = get_expression(container, T, PSY.ACBus)
-    radial_network_reduction = get_radial_network_reduction(network_model)
+    expression = get_expression(container, T, PSY.Area)
     time_steps = get_time_steps(container)
     for d in devices
         name = PSY.get_name(d)
-        bus_no_ = PSY.get_number(PSY.get_to(PSY.get_arc(d)))
-        bus_no = PNM.get_mapped_bus_number(network_reduction, bus_no_)
+        bus = PSY.get_to(PSY.get_arc(d))
+        area_name = PSY.get_name(PSY.get_area(bus))
         for t in time_steps
             add_proportional_to_jump_expression!(
-                expression[bus_no, t],
+                expression[area_name, t],
                 variable[name, t],
-                get_variable_multiplier(U, V, W),
+                get_variable_multiplier(U, V, HVDCTwoTerminalDispatch),
             )
         end
     end
@@ -2042,7 +2041,7 @@ function add_to_expression!(
 end
 
 function _is_interchanges_interfaces(
-    contributing_devices_map::Dict{Type{<:PSY.Component}, Vector{<:PSY.Component}},
+    contributing_devices_map::Dict,
 )
     if PSY.AreaInterchange ∈ keys(contributing_devices_map)
         @assert length(keys(contributing_devices_map)) == 1
@@ -2251,9 +2250,10 @@ function _reduced_entry_in_interface(
     ]
 
     if !allequal(in_interface)
+        branch_names = [PSY.get_name(x) for x in reduction_entry]
         throw(
             ArgumentError(
-                "An interface is specified with only part of a double-circuit that has been reduced. Modify the data to include all parallel segements.",
+                "An interface is specified with only part of a double-circuit that has been reduced. Modify the data to include all parallel segments: $(branch_names).",
             ),
         )
     end
@@ -2270,9 +2270,10 @@ function _reduced_entry_in_interface(
     ]
 
     if !allequal(in_interface)
+        branch_names = [PSY.get_name(x) for x in reduction_entry]
         throw(
             ArgumentError(
-                "An interface is specified with only portion of a degree two chain reduction that has been reduced. Modify the data to include all segments of the reduced chain",
+                "An interface is specified with only portion of a degree two chain reduction that has been reduced. Modify the data to include all segments of the reduced chain: $(branch_names).",
             ),
         )
     end

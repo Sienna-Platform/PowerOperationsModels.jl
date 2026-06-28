@@ -781,3 +781,155 @@ end
         @test_throws ArgumentError ACRectangularPowerFlow{PFS.FastDecoupledXB}()
     end
 end
+
+@testset "Power Flow in the loop with separate in/out active power variables" begin
+    # A Source under ImportExportSourceModel creates separate ActivePowerInVariable
+    # and ActivePowerOutVariable. The PF data-map must route both to the bus injection
+    # as (out − in). (PSI #1612 ported to POM.)
+    sys = make_5_bus_with_import_export(; add_single_time_series = false)
+
+    template = get_template_dispatch_with_network(
+        NetworkModel(
+            PTDFPowerModel;
+            PTDF_matrix = PTDF(sys),
+            evaluations = power_flow_evaluations(PTDFDCPowerFlow()),
+        ),
+    )
+    set_device_model!(
+        template,
+        DeviceModel(
+            Source,
+            ImportExportSourceModel;
+            attributes = Dict("reservation" => false),
+        ),
+    )
+    model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          ModelBuildStatus.BUILT
+    @test solve!(model) == RunStatus.SUCCESSFULLY_FINALIZED
+
+    container = get_optimization_container(model)
+    pf_e_data = only(values(get_evaluation_data(get_evaluations(container))))
+    input_key_map = pf_e_data.input_key_map
+
+    @test haskey(input_key_map, :active_power_in)
+    @test haskey(input_key_map, :active_power_out)
+
+    in_keys = collect(keys(input_key_map[:active_power_in]))
+    out_keys = collect(keys(input_key_map[:active_power_out]))
+    @test any(
+        k -> get_entry_type(k) == ActivePowerInVariable && get_component_type(k) == Source,
+        in_keys,
+    )
+    @test any(
+        k -> get_entry_type(k) == ActivePowerOutVariable && get_component_type(k) == Source,
+        out_keys,
+    )
+
+    # Sanity: the source actually dispatches via its In/Out variables across the horizon,
+    # confirming the in/out path is exercised (numeric routing is verified precisely by
+    # the headroom test below and by `pf_input_keys`/precedence mapping above).
+    n_time_steps = length(get_time_steps(container))
+    p_out = lookup_value(container, VariableKey(ActivePowerOutVariable, Source))
+    p_in = lookup_value(container, VariableKey(ActivePowerInVariable, Source))
+    source_net = [
+        JuMP.value(p_out["source", t]) - JuMP.value(p_in["source", t])
+        for t in 1:n_time_steps
+    ]
+    @test any(!iszero, source_net)
+end
+
+@testset "Headroom proportional slack with in/out active power variables (Source)" begin
+    # nodeC is a PV bus in c_sys5_uc, so a Source there participates in headroom slack.
+    # Validates `_accumulate_in_out_headroom!` (PSI #1612 ported to POM).
+    sys = make_5_bus_with_import_export(; add_single_time_series = false)
+
+    template = get_template_dispatch_with_network(
+        NetworkModel(
+            PTDFPowerModel;
+            PTDF_matrix = PTDF(sys),
+            evaluations = power_flow_evaluations(
+                ACPowerFlow(;
+                    distribute_slack_proportional_to_headroom = true,
+                    correct_bustypes = true,
+                ),
+            ),
+        ),
+    )
+    set_device_model!(
+        template,
+        DeviceModel(
+            Source,
+            ImportExportSourceModel;
+            attributes = Dict("reservation" => false),
+        ),
+    )
+    model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          ModelBuildStatus.BUILT
+    @test solve!(model) == RunStatus.SUCCESSFULLY_FINALIZED
+
+    container = get_optimization_container(model)
+    pf_e_data = only(values(get_evaluation_data(get_evaluations(container))))
+    data = get_inner_data(pf_e_data)
+    computed_gspf = PFS.get_computed_gspf(data)
+    n_time_steps = length(get_time_steps(container))
+
+    source = get_component(Source, sys, "source")
+    p_max_out = PSY.get_active_power_limits(source, PSY.SU).max
+
+    p_in_data = lookup_value(container, VariableKey(ActivePowerInVariable, Source))
+    p_out_data = lookup_value(container, VariableKey(ActivePowerOutVariable, Source))
+
+    # net = out − in; net < 0 (charging) gets zero headroom (omitted), else p_max_out − net.
+    for t in 1:n_time_steps
+        net = JuMP.value(p_out_data["source", t]) - JuMP.value(p_in_data["source", t])
+        if net < 0.0
+            @test !haskey(computed_gspf[t], (Source, "source"))
+        else
+            @test isapprox(
+                computed_gspf[t][(Source, "source")],
+                p_max_out - net;
+                atol = 1e-10,
+            )
+        end
+    end
+    # Guard against a regression that silently drops the in/out accumulation path.
+    @test any(haskey(d, (Source, "source")) for d in computed_gspf)
+end
+
+@testset "AC Power Flow in the loop populates reactive power on PTDFPowerModel" begin
+    # AC PF evaluator on an active-power-only network model must still route reactive
+    # power: `_add_pf_only_time_series_parameters!` adds ReactivePowerTimeSeriesParameter
+    # so `_make_pf_input_map!` has a `:reactive_power` source. (PSI #1622 ported to POM.)
+    system = build_system(PSITestSystems, "c_sys5_uc")
+    template = get_template_dispatch_with_network(
+        NetworkModel(
+            PTDFPowerModel;
+            PTDF_matrix = PTDF(system),
+            evaluations = power_flow_evaluations(ACPowerFlow()),
+        ),
+    )
+    model = DecisionModel(template, system; optimizer = HiGHS_optimizer)
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          ModelBuildStatus.BUILT
+    @test solve!(model) == RunStatus.SUCCESSFULLY_FINALIZED
+
+    container = get_optimization_container(model)
+    pf_e_data = only(values(get_evaluation_data(get_evaluations(container))))
+    input_key_map = pf_e_data.input_key_map
+
+    @test haskey(input_key_map, :reactive_power)
+    reactive_keys = collect(keys(input_key_map[:reactive_power]))
+    @test any(
+        k ->
+            get_entry_type(k) == ReactivePowerTimeSeriesParameter &&
+                get_component_type(k) == PowerLoad,
+        reactive_keys,
+    )
+
+    data = get_inner_data(pf_e_data)
+    @test any(!iszero, data.bus_reactive_power_withdrawals)
+
+    @test has_container_key(container, ReactivePowerTimeSeriesParameter, PowerLoad)
+end

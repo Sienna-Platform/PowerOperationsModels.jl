@@ -304,25 +304,21 @@ function _modify_device_model!(
     return
 end
 
-# NOTE: Commented out because it references ConstantMaxInterfaceFlow concrete formulation type
-# This should be defined in PowerSimulations if needed
-# function _modify_device_model!(
-#     ::Dict{Symbol, DeviceModel},
-#     ::ServiceModel{PSY.TransmissionInterface, ConstantMaxInterfaceFlow},
-#     ::Vector,
-# )
-#     return
-# end
+function _modify_device_model!(
+    ::Dict{Symbol, DeviceModel},
+    ::ServiceModel{PSY.TransmissionInterface, ConstantMaxInterfaceFlow},
+    ::Vector,
+)
+    return
+end
 
-# NOTE: Commented out because it references VariableMaxInterfaceFlow concrete formulation type
-# This should be defined in PowerSimulations if needed
-# function _modify_device_model!(
-#     ::Dict{Symbol, DeviceModel},
-#     ::ServiceModel{PSY.TransmissionInterface, VariableMaxInterfaceFlow},
-#     ::Vector,
-# )
-#     return
-# end
+function _modify_device_model!(
+    ::Dict{Symbol, DeviceModel},
+    ::ServiceModel{PSY.TransmissionInterface, VariableMaxInterfaceFlow},
+    ::Vector,
+)
+    return
+end
 
 function _add_services_to_device_model!(template::PowerOperationsProblemTemplate)
     service_models = get_service_models(template)

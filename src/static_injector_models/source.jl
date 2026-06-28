@@ -22,6 +22,9 @@ get_variable_upper_bound(::Type{ReactivePowerVariable}, d::PSY.Source, ::Type{<:
 get_multiplier_value(::Type{ActivePowerTimeSeriesParameter}, d::PSY.Source, ::Type{<:AbstractSourceFormulation}) = PSY.get_active_power_limits(d, PSY.SU).max
 get_multiplier_value(::Type{ActivePowerOutTimeSeriesParameter}, d::PSY.Source, ::Type{<:AbstractSourceFormulation}) = PSY.get_active_power_limits(d, PSY.SU).max
 get_multiplier_value(::Type{ActivePowerInTimeSeriesParameter}, d::PSY.Source, ::Type{<:AbstractSourceFormulation}) = PSY.get_active_power_limits(d, PSY.SU).max
+get_multiplier_value(::Type{ActivePowerTimeSeriesParameter}, d::PSY.Source, ::Type{FixedOutput}) = PSY.get_active_power_limits(d, PSY.SU).max
+get_multiplier_value(::Type{ActivePowerOutTimeSeriesParameter}, d::PSY.Source, ::Type{FixedOutput}) = PSY.get_active_power_limits(d, PSY.SU).max
+get_multiplier_value(::Type{ActivePowerInTimeSeriesParameter}, d::PSY.Source, ::Type{FixedOutput}) = PSY.get_active_power_limits(d, PSY.SU).min
 # This additional method definition is used to avoid ambiguity with the method defined in default_interface_methods.jl
 get_multiplier_value(::Type{<:AbstractPiecewiseLinearBreakpointParameter}, d::PSY.Source, ::Type{<:AbstractSourceFormulation}) = 1.0
 
@@ -33,14 +36,17 @@ get_variable_binary(::Type{ReservationVariable}, ::Type{<:PSY.Source}, ::Type{Im
 function get_default_time_series_names(
     ::Type{U},
     ::Type{V},
-) where {U <: PSY.Source, V <: AbstractSourceFormulation}
-    return Dict{Any, String}()
+) where {U <: PSY.Source, V <: Union{FixedOutput, AbstractSourceFormulation}}
+    return Dict{Type{<:TimeSeriesParameter}, String}(
+        ActivePowerOutTimeSeriesParameter => "max_active_power_out",
+        ActivePowerInTimeSeriesParameter => "max_active_power_in",
+    )
 end
 
 function get_default_attributes(
     ::Type{U},
     ::Type{V},
-) where {U <: PSY.Source, V <: AbstractSourceFormulation}
+) where {U <: PSY.Source, V <: Union{FixedOutput, AbstractSourceFormulation}}
     return Dict{String, Any}(
         "reservation" => true,
     )

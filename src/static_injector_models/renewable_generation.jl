@@ -2,6 +2,8 @@
 get_variable_multiplier(::Type{<:VariableType}, ::Type{<:PSY.RenewableGen}, ::Type{<:AbstractRenewableFormulation}) = 1.0
 get_expression_type_for_reserve(::Type{ActivePowerReserveVariable}, ::Type{<:PSY.RenewableGen}, ::Type{<:PSY.Reserve{PSY.ReserveUp}}) = ActivePowerRangeExpressionUB
 get_expression_type_for_reserve(::Type{ActivePowerReserveVariable}, ::Type{<:PSY.RenewableGen}, ::Type{<:PSY.Reserve{PSY.ReserveDown}}) = ActivePowerRangeExpressionLB
+########################### Parameter related set functions ################################
+get_parameter_multiplier(::Type{<:VariableValueParameter}, d::PSY.RenewableGen, ::Type{<:AbstractRenewableFormulation}) = 1.0
 ########################### ActivePowerVariable, RenewableGen #################################
 
 get_variable_binary(::Type{ActivePowerVariable}, ::Type{<:PSY.RenewableGen}, ::Type{<:AbstractRenewableFormulation}) = false
