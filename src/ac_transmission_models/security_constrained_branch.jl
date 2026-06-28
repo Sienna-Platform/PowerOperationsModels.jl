@@ -281,16 +281,12 @@ function _add_post_contingency_sparse_expression!(
     },
     time_steps::UnitRange{Int},
 ) where {T <: PostContingencyExpressions, V <: PSY.ACTransmission}
-    contents = Dict{Tuple{String, String, Int}, JuMP.AffExpr}()
-    for (uuid, entries) in resolved
-        outage_id = string(uuid)
-        for (_, name, _, _) in entries, t in time_steps
-            contents[(outage_id, name, t)] = zero(JuMP.AffExpr)
-        end
-    end
-    expr_container = SparseAxisArray(contents)
-    IOM._assign_container!(container.expressions, ExpressionKey(T, V), expr_container)
-    return expr_container
+    index_keys = [
+        (string(uuid), name, t)
+        for (uuid, entries) in resolved for (_, name, _, _) in entries for
+        t in time_steps
+    ]
+    return IOM.add_expression_container!(container, T, V, index_keys; sparse = true)
 end
 
 """
@@ -306,8 +302,7 @@ function _add_post_contingency_sparse_constraints!(
 ) where {T <: ConstraintType, V <: PSY.ACTransmission}
     cons_container =
         SparseAxisArray(Dict{Tuple{String, String, Int}, JuMP.ConstraintRef}())
-    IOM._assign_container!(container.constraints, ConstraintKey(T, V, meta), cons_container)
-    return cons_container
+    return IOM.add_constraints_container!(container, T, V, cons_container; meta = meta)
 end
 
 """
@@ -543,17 +538,13 @@ function add_constraints!(
     end
 
     if !isempty(slack_ub.data)
-        IOM._assign_container!(
-            container.variables,
-            VariableKey(PostContingencyFlowActivePowerSlackUpperBound, V),
-            slack_ub,
+        IOM.add_variable_container!(
+            container, PostContingencyFlowActivePowerSlackUpperBound, V, slack_ub,
         )
     end
     if !isempty(slack_lb.data)
-        IOM._assign_container!(
-            container.variables,
-            VariableKey(PostContingencyFlowActivePowerSlackLowerBound, V),
-            slack_lb,
+        IOM.add_variable_container!(
+            container, PostContingencyFlowActivePowerSlackLowerBound, V, slack_lb,
         )
     end
     return
@@ -713,11 +704,13 @@ function add_post_contingency_flow_expressions!(
     time_steps = get_time_steps(container)
     resolved = _resolve_monitored_arcs(model, network_model.network_reduction)
 
+    index_keys = [
+        (string(uuid), name, t)
+        for (uuid, entries) in resolved for (_, name, _, _) in entries for
+        t in time_steps
+    ]
     expression_container =
-        SparseAxisArray(Dict{Tuple{String, String, Int}, JuMP.AffExpr}())
-    IOM._assign_container!(
-        container.expressions, ExpressionKey(T, V), expression_container,
-    )
+        IOM.add_expression_container!(container, T, V, index_keys; sparse = true)
 
     has_other_v = _has_other_v_container(IOM.get_expressions(container), T, V)
     flow_vars_by_type = Dict{DataType, Any}()

@@ -202,13 +202,9 @@ function _add_service_post_contingency_sparse_expression!(
         for (uuid, entries) in resolved for (_, name, _, _) in entries for
         t in time_steps
     ]
-    expr_container = IOM.sparse_container_spec(JuMP.AffExpr, index_keys)
-    IOM._assign_container!(
-        container.expressions,
-        ExpressionKey(T, R, service_name),
-        expr_container,
+    return IOM.add_expression_container!(
+        container, T, R, index_keys; sparse = true, meta = service_name,
     )
-    return expr_container
 end
 
 """
@@ -225,20 +221,18 @@ function _add_service_post_contingency_sparse_constraints!(
 ) where {T <: ConstraintType, R <: PSY.AbstractReserve}
     cons_container =
         SparseAxisArray(Dict{Tuple{String, String, Int}, JuMP.ConstraintRef}())
-    IOM._assign_container!(
-        container.constraints,
-        ConstraintKey(T, R, "$(service_name)_$(meta_suffix)"),
-        cons_container,
+    return IOM.add_constraints_container!(
+        container, T, R, cons_container; meta = "$(service_name)_$(meta_suffix)",
     )
-    return cons_container
 end
 
 """
 Sparse slack variable container keyed by
 `(outage_id::String, monitored_name::String, t::Int)`. Each entry is a
 non-negative `JuMP.VariableRef` whose objective contribution is
-`POST_CONTINGENCY_CONSTRAINT_VIOLATION_SLACK_COST`. Built directly via
-`@variable`/`_assign_container!` so the axes can be sparse.
+`POST_CONTINGENCY_CONSTRAINT_VIOLATION_SLACK_COST`. The `@variable`s are built
+into a `SparseAxisArray` and registered via `add_variable_container!` so the axes
+can be sparse.
 """
 function add_post_contingency_slack_variables!(
     container::OptimizationContainer,
@@ -272,12 +266,9 @@ function add_post_contingency_slack_variables!(
         end
     end
     slack_container = SparseAxisArray(contents)
-    IOM._assign_container!(
-        container.variables,
-        VariableKey(T, R, service_name),
-        slack_container,
+    return IOM.add_variable_container!(
+        container, T, R, slack_container; meta = service_name,
     )
-    return slack_container
 end
 
 # Build the upper/lower post-contingency flow slack containers for formulation
@@ -1008,11 +999,8 @@ function add_post_contingency_flow_expressions!(
         (string(uuid), name, t)
         for (uuid, entries) in resolved for (name, _) in entries for t in time_steps
     ]
-    expression_container = IOM.sparse_container_spec(JuMP.AffExpr, index_keys)
-    IOM._assign_container!(
-        container.expressions,
-        ExpressionKey(T, R, service_name),
-        expression_container,
+    expression_container = IOM.add_expression_container!(
+        container, T, R, index_keys; sparse = true, meta = service_name,
     )
     isempty(resolved) && return expression_container
 
