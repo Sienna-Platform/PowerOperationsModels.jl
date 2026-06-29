@@ -10,7 +10,17 @@
 
 function _bus_name_number_pairs(
     sys::PSY.System,
-    network_model::NetworkModel{<:Union{DCPPowerModel, ACPPowerModel}},
+    network_model::NetworkModel{
+        <:Union{
+            DCPNetworkModel,
+            ACPNetworkModel,
+            ACRNetworkModel,
+            NFANetworkModel,
+            DCPLLNetworkModel,
+            LPACCNetworkModel,
+            IVRNetworkModel,
+        },
+    },
 )
     network_reduction = get_network_reduction(network_model)
     if isempty(network_reduction)
@@ -33,28 +43,15 @@ function _retained_number_to_name(sys::PSY.System, network_model)
     )
 end
 
-# Retained representative (name, number) for a raw ACBus object under the model's
-# reduction. With no reduction this is the bus's own (name, number).
-function _retained_bus(
-    number_to_name::Dict{Int, String},
-    network_model,
-    bus_obj::PSY.ACBus,
-)
-    reduction = get_network_reduction(network_model)
-    if isempty(reduction)
-        return (name = PSY.get_name(bus_obj), number = PSY.get_number(bus_obj))
-    end
-    no = PNM.get_mapped_bus_number(reduction, bus_obj)
-    return (name = number_to_name[no], number = no)
-end
-
-# Shared between DCPPowerModel and ACPPowerModel — both put VoltageAngle on every
+# Shared between DCPNetworkModel and ACPNetworkModel — both put VoltageAngle on every
 # bus axis with no bounds. Slack-bus pinning is applied by ReferenceBusConstraint.
 function add_variables!(
     container::OptimizationContainer,
     ::Type{VoltageAngle},
     sys::PSY.System,
-    network_model::NetworkModel{<:Union{DCPPowerModel, ACPPowerModel}},
+    network_model::NetworkModel{
+        <:Union{DCPNetworkModel, ACPNetworkModel, DCPLLNetworkModel, LPACCNetworkModel},
+    },
 )
     time_steps = get_time_steps(container)
     bus_names = [name for (name, _) in _bus_name_number_pairs(sys, network_model)]
@@ -80,7 +77,9 @@ function add_constraints!(
     container::OptimizationContainer,
     ::Type{ReferenceBusConstraint},
     sys::PSY.System,
-    network_model::NetworkModel{DCPPowerModel},
+    network_model::NetworkModel{
+        <:Union{DCPNetworkModel, DCPLLNetworkModel, LPACCNetworkModel},
+    },
 )
     time_steps = get_time_steps(container)
     va = get_variable(container, VoltageAngle, PSY.ACBus)
@@ -120,11 +119,59 @@ function _bus_by_number(sys::PSY.System)
     )
 end
 
+# Name→bus map built once per call site; complements _bus_by_number.
+function _bus_by_name(sys::PSY.System)
+    return Dict{String, PSY.ACBus}(
+        PSY.get_name(b) => b for b in PSY.get_components(PSY.ACBus, sys)
+    )
+end
+
+# Shared skeleton for a bounded per-bus voltage variable (VoltageReal / VoltageImaginary
+# / VoltageDeviation). `bounds(bus) -> (lower, upper, start)` supplies the per-bus bounds
+# and warm start; everything else (axis, container, iteration) is identical.
+function _add_bounded_bus_voltage_variable!(
+    container::OptimizationContainer,
+    ::Type{T},
+    sys::PSY.System,
+    network_model,
+    bounds,
+) where {T}
+    time_steps = get_time_steps(container)
+    bus_names = [name for (name, _) in _bus_name_number_pairs(sys, network_model)]
+    bus_by_name = _bus_by_name(sys)
+
+    var = add_variable_container!(container, T, PSY.ACBus, bus_names, time_steps)
+
+    for name in bus_names
+        lower, upper, start = bounds(bus_by_name[name])
+        for t in time_steps
+            var[name, t] = JuMP.@variable(
+                get_jump_model(container),
+                base_name = "$(nameof(T))_ACBus_{$(name), $(t)}",
+                lower_bound = lower,
+                upper_bound = upper,
+                start = start,
+            )
+        end
+    end
+    return
+end
+
 function add_constraints!(
     container::OptimizationContainer,
     ::Type{NodalBalanceActiveConstraint},
     sys::PSY.System,
-    network_model::NetworkModel{DCPPowerModel},
+    network_model::NetworkModel{
+        <:Union{
+            DCPNetworkModel,
+            ACPNetworkModel,
+            ACRNetworkModel,
+            NFANetworkModel,
+            DCPLLNetworkModel,
+            LPACCNetworkModel,
+            IVRNetworkModel,
+        },
+    },
 )
     time_steps = get_time_steps(container)
     expressions = get_expression(container, ActivePowerBalance, PSY.ACBus)
@@ -134,6 +181,36 @@ function add_constraints!(
     cons = add_constraints_container!(
         container,
         NodalBalanceActiveConstraint,
+        PSY.ACBus,
+        bus_names,
+        time_steps,
+    )
+
+    for (name, bus_no) in pairs, t in time_steps
+        cons[name, t] = JuMP.@constraint(
+            get_jump_model(container),
+            expressions[bus_no, t] == 0.0,
+        )
+    end
+    return
+end
+
+function add_constraints!(
+    container::OptimizationContainer,
+    ::Type{NodalBalanceReactiveConstraint},
+    sys::PSY.System,
+    network_model::NetworkModel{
+        <:Union{ACPNetworkModel, ACRNetworkModel, LPACCNetworkModel, IVRNetworkModel},
+    },
+)
+    time_steps = get_time_steps(container)
+    expressions = get_expression(container, ReactivePowerBalance, PSY.ACBus)
+    pairs = _bus_name_number_pairs(sys, network_model)
+    bus_names = [name for (name, _) in pairs]
+
+    cons = add_constraints_container!(
+        container,
+        NodalBalanceReactiveConstraint,
         PSY.ACBus,
         bus_names,
         time_steps,
