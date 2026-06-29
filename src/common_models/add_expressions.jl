@@ -7,7 +7,7 @@ function _ref_index(network_model::NetworkModel{<:AbstractPowerModel}, bus::PSY.
     return get_reference_bus(network_model, bus)
 end
 
-function _ref_index(::NetworkModel{AreaPTDFPowerModel}, device_bus::PSY.ACBus)
+function _ref_index(::NetworkModel{AreaPTDFNetworkModel}, device_bus::PSY.ACBus)
     return PSY.get_name(PSY.get_area(device_bus))
 end
 

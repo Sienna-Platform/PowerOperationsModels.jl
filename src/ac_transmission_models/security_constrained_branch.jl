@@ -157,7 +157,7 @@ function _add_post_contingency_branch_rating_parameter!(
     container::OptimizationContainer,
     device_model::DeviceModel{T},
     devices,
-    network_model::NetworkModel{<:PM.AbstractPowerModel},
+    network_model::NetworkModel{<:AbstractPowerModel},
 ) where {T <: PSY.ACTransmission}
     monitored = _monitored_component_names(device_model, T)
     monitored_devices = [d for d in devices if PSY.get_name(d) in monitored]
@@ -403,7 +403,7 @@ function add_constraints!(
     T <: PostContingencyFlowRateConstraint,
     V <: PSY.ACTransmission,
     U <: AbstractSecurityConstrainedStaticBranch,
-    X <: PM.AbstractPowerModel,
+    X <: AbstractPowerModel,
 }
     time_steps = get_time_steps(container)
 
@@ -590,7 +590,7 @@ function add_post_contingency_flow_expressions!(
     T <: PostContingencyBranchFlow,
     V <: PSY.ACTransmission,
     F <: AbstractSecurityConstrainedStaticBranch,
-    N <: AbstractPTDFModel,
+    N <: AbstractPTDFNetworkModel,
 }
     time_steps = get_time_steps(container)
     modf_matrix = get_MODF_matrix(network_model)
@@ -708,7 +708,7 @@ function add_post_contingency_flow_expressions!(
     T <: PostContingencyBranchFlow,
     V <: PSY.ACTransmission,
     F <: AbstractSecurityConstrainedStaticBranch,
-    N <: PM.AbstractACPModel,
+    N <: AbstractACPModel,
 }
     time_steps = get_time_steps(container)
     resolved = _resolve_monitored_arcs(model, network_model.network_reduction)
@@ -758,7 +758,7 @@ function construct_device!(
     sys::PSY.System,
     ::ArgumentConstructStage,
     device_model::DeviceModel{T, F},
-    network_model::NetworkModel{<:AbstractPTDFModel},
+    network_model::NetworkModel{<:AbstractPTDFNetworkModel},
 ) where {T <: PSY.ACTransmission, F <: AbstractSecurityConstrainedStaticBranch}
     devices = get_available_components(device_model, sys)
     if get_use_slacks(device_model)
@@ -822,7 +822,7 @@ function construct_device!(
 ) where {
     V <: PSY.ACTransmission,
     F <: AbstractSecurityConstrainedStaticBranch,
-    X <: AbstractPTDFModel,
+    X <: AbstractPTDFNetworkModel,
 }
     devices = get_available_components(device_model, sys)
 
@@ -858,7 +858,7 @@ function construct_device!(
     sys::PSY.System,
     ::ArgumentConstructStage,
     device_model::DeviceModel{T, F},
-    network_model::NetworkModel{<:PM.AbstractACPModel},
+    network_model::NetworkModel{<:AbstractACPModel},
 ) where {T <: PSY.ACTransmission, F <: AbstractSecurityConstrainedStaticBranch}
     devices = get_available_components(device_model, sys)
 
@@ -941,7 +941,7 @@ function construct_device!(
 ) where {
     V <: PSY.ACTransmission,
     F <: AbstractSecurityConstrainedStaticBranch,
-    X <: PM.AbstractACPModel,
+    X <: AbstractACPModel,
 }
     devices = get_available_components(device_model, sys)
 
@@ -983,9 +983,9 @@ function construct_device!(
     ::ArgumentConstructStage,
     ::DeviceModel{T, F},
     ::Union{
-        NetworkModel{NFAPowerModel},
-        NetworkModel{CopperPlatePowerModel},
-        NetworkModel{AreaBalancePowerModel},
+        NetworkModel{NFANetworkModel},
+        NetworkModel{CopperPlateNetworkModel},
+        NetworkModel{AreaBalanceNetworkModel},
     },
 ) where {T <: PSY.ACTransmission, F <: AbstractSecurityConstrainedStaticBranch}
     @debug "No argument construction for $F under NFA/CopperPlate/AreaBalance; \
@@ -1000,9 +1000,9 @@ function construct_device!(
     ::ModelConstructStage,
     ::DeviceModel{T, F},
     ::Union{
-        NetworkModel{NFAPowerModel},
-        NetworkModel{CopperPlatePowerModel},
-        NetworkModel{AreaBalancePowerModel},
+        NetworkModel{NFANetworkModel},
+        NetworkModel{CopperPlateNetworkModel},
+        NetworkModel{AreaBalanceNetworkModel},
     },
 ) where {T <: PSY.ACTransmission, F <: AbstractSecurityConstrainedStaticBranch}
     @debug "No model construction for $F under NFA/CopperPlate/AreaBalance; \

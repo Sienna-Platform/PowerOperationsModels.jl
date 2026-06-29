@@ -24,20 +24,16 @@ import InteractiveUtils: methodswith
 using DocStringExtensions
 using JSON3
 
-#################################################################################
-# Embedded submodules (adapted from InfrastructureModels.jl and PowerModels.jl)
-#################################################################################
-include("InfrastructureModels/InfrastructureModels.jl")
-include("PowerModels/PowerModels.jl")
-
-const PM = PowerModels
-
-# Import PM types into module namespace for re-export
-using .PowerModels:
-    AbstractDCPModel,
-    AbstractACPModel,
+# Network-formulation abstract types: the two roots are IS-owned consts; the
+# intermediates are POM-native. AbstractPowerModel is brought in via the import
+# block below.
+using InfrastructureSystems.Optimization:
     AbstractActivePowerModel,
-    NFAPowerModel
+    AbstractACPModel
+
+abstract type AbstractDCPNetworkModel <: AbstractActivePowerModel end
+abstract type AbstractNFANetworkModel <: AbstractDCPNetworkModel end
+abstract type AbstractDCPLLNetworkModel <: AbstractDCPNetworkModel end
 
 @template (FUNCTIONS, METHODS) = """
                                  $(TYPEDSIGNATURES)
@@ -66,8 +62,8 @@ import InfrastructureSystems.Optimization:
     ObjectiveFunctionParameter
 
 # Import formulation abstract types from InfrastructureSystems.Optimization
-# Note: AbstractPTDFModel is defined in this package (network_formulations.jl)
-# as a subtype of AbstractDCPModel.
+# Note: AbstractPTDFNetworkModel is defined in this package (network_formulations.jl)
+# as a subtype of AbstractDCPNetworkModel.
 import InfrastructureSystems.Optimization:
     AbstractDeviceFormulation,
     AbstractThermalFormulation,
@@ -255,6 +251,8 @@ include("common_models/make_system_expressions.jl")
 include("common_models/reserve_range_constraints.jl")
 include("common_models/quadratic_converter_loss.jl")
 include("common_models/network_conditional.jl")
+include("common_models/regulated_voltage.jl")
+include("common_models/converter_control.jl")
 
 # Market bid cost plumbing (PSY orchestration moved out of IOM). Must be included
 # before device-specific files that reference MBC_TYPES / IEC_TYPES.
@@ -276,6 +274,8 @@ include("static_injector_models/source.jl")
 include("static_injector_models/source_constructor.jl")
 include("static_injector_models/reactivepower_device.jl")
 include("static_injector_models/reactivepowerdevice_constructor.jl")
+include("static_injector_models/shunt_models.jl")
+include("static_injector_models/shunt_constructor.jl")
 include("utils/psy_utils.jl")
 include("static_injector_models/hydro_generation.jl")
 include("static_injector_models/hydrogeneration_constructor.jl")
@@ -291,6 +291,7 @@ include("common_models/market_bid_overrides.jl")
 include("ac_transmission_models/AC_branches.jl")
 include("ac_transmission_models/security_constrained_branch.jl")
 include("ac_transmission_models/branch_constructor.jl")
+include("ac_transmission_models/voltage_control_tap_models.jl")
 
 # Network Models
 include("network_models/network_reductions.jl")
@@ -298,10 +299,12 @@ include("network_models/instantiate_network_model.jl")
 include("network_models/network_slack_variables.jl")
 include("network_models/copperplate_model.jl")
 include("network_models/area_balance_model.jl")
-include("network_models/powermodels_interface.jl")
-include("network_models/pm_translator.jl")
 include("network_models/dcp_model.jl")
+include("network_models/nfa_model.jl")
+include("network_models/dcpll_model.jl")
 include("network_models/acp_model.jl")
+include("network_models/acr_model.jl")
+include("network_models/lpacc_model.jl")
 include("network_models/network_constructor.jl")
 
 # Services Models
@@ -320,10 +323,12 @@ include("hybrid_system_models/hybridsystem_constructor.jl")
 # NOTE: AC_branches.jl and branch_constructor.jl in twoterminal_hvdc_models/ are
 # identical copies of the files in ac_transmission_models/ — do NOT include them.
 include("twoterminal_hvdc_models/TwoTerminalDC_branches.jl")
+include("twoterminal_hvdc_models/voltage_control_vsc_models.jl")
 
 # Multi-Terminal HVDC Models
 include("mt_hvdc_models/HVDCsystems.jl")
 include("mt_hvdc_models/hvdcsystems_constructor.jl")
+include("mt_hvdc_models/voltage_control_converter_models.jl")
 
 # HVDC Network Models
 include("network_models/hvdc_networks.jl")
@@ -530,7 +535,18 @@ export ReserveRequirementSlack
 
 # Network Variables
 export VoltageMagnitude
+export RegulatedVoltageMagnitude
 export VoltageAngle
+export VoltageReal
+export VoltageImaginary
+export VoltageDeviation
+export CosineApproximation
+export BranchCurrentFromToReal
+export BranchCurrentFromToImaginary
+export BranchCurrentToFromReal
+export BranchCurrentToFromImaginary
+export BranchSeriesCurrentReal
+export BranchSeriesCurrentImaginary
 export FlowActivePowerVariable
 export FlowActivePowerSlackUpperBound
 export FlowActivePowerSlackLowerBound
@@ -560,6 +576,9 @@ export DCVoltage
 export DCLineCurrent
 export ConverterCurrent
 export CurrentAbsoluteValueVariable
+export ConverterACCurrentVariable
+export ConverterACCurrentFromVariable
+export ConverterACCurrentToVariable
 export HVDCFlowDirectionVariable
 export HVDCLosses
 export HVDCFromDCVoltage
@@ -741,7 +760,11 @@ export CopperPlateBalanceConstraint
 export ActiveRangeICConstraint
 export NodalBalanceActiveConstraint
 export ReferenceBusConstraint
+export VoltageMagnitudeConstraint
+export RegulatedVoltageMagnitudeConstraint
+export CurrentLimitConstraint
 export AngleDifferenceConstraint
+export CosineRelaxationConstraint
 export RequirementConstraint
 export DurationConstraint
 export CommitmentConstraint
@@ -752,6 +775,7 @@ export ShiftUpActivePowerVariableLimitsConstraint
 export ShiftDownActivePowerVariableLimitsConstraint
 export RealizedShiftedLoadMinimumBoundConstraint
 export NonAnticipativityConstraint
+export HVDCDCControlConstraint
 
 #################################################################################
 # Exports - Expression Types (defined in core/expressions.jl)
@@ -834,12 +858,21 @@ export ImportExportSourceModel
 # SynCons Formulations
 export SynchronousCondenserBasicDispatch
 
+# Shunt Formulations
+export AbstractShuntFormulation
+export ShuntSusceptanceDispatch
+export ShuntSusceptanceVariable
+export ShuntReactivePowerConstraint
+
 # Branch Formulations
 export StaticBranch
 export StaticBranchBounds
 export StaticBranchUnbounded
 export SecurityConstrainedStaticBranch
 export PhaseAngleControl
+export TapControl
+export VoltageControlTap
+export TapRatioVariable
 
 # DC Branch Formulations
 export HVDCTwoTerminalUnbounded
@@ -848,12 +881,14 @@ export HVDCTwoTerminalDispatch
 export HVDCTwoTerminalPiecewiseLoss
 export HVDCTwoTerminalLCC
 export HVDCTwoTerminalVSC
+export VoltageControlVSC
 
 # Converter Formulations
 export LosslessConverter
 export LinearLossConverter
 export AbstractQuadraticLossConverter
 export QuadraticLossConverter
+export VoltageControlConverter
 
 # DC Line Formulations
 export DCLosslessLine
@@ -888,22 +923,30 @@ export DeviceLimitedRegulation
 export AbstractPowerModel
 
 # Concrete Network Formulations
-export AbstractPTDFModel
-export PTDFPowerModel
-export CopperPlatePowerModel
-export AreaBalancePowerModel
-export AreaPTDFPowerModel
+export AbstractPTDFNetworkModel
+export PTDFNetworkModel
+export CopperPlateNetworkModel
+export AreaBalanceNetworkModel
+export AreaPTDFNetworkModel
 
 # JuMP utilities
 export optimizer_with_attributes
 
-# PowerModels types (from embedded PM submodule)
-export DCPPowerModel
-export ACPPowerModel
-export AbstractDCPModel
+# POM-native network formulation types (DCPNetworkModel/ACPNetworkModel/ACRNetworkModel/NFANetworkModel
+# defined in core/network_formulations.jl; abstract roots come from IS.Optimization or POM)
+export DCPNetworkModel
+export ACPNetworkModel
+export ACRNetworkModel
+export LPACCNetworkModel
+export IVRNetworkModel
+export AbstractDCPNetworkModel
 export AbstractACPModel
+export AbstractACRNetworkModel
+export AbstractLPACCNetworkModel
+export AbstractIVRNetworkModel
 export AbstractActivePowerModel
-export NFAPowerModel
+export NFANetworkModel
+export DCPLLNetworkModel
 
 # PowerNetworkMatrices
 export PTDF
