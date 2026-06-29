@@ -267,10 +267,12 @@ function _has_other_v_container(
 end
 
 """
-Pre-allocate a `SparseAxisArray` keyed by
-`(outage_id::String, monitored_name::String, t::Int)` holding `JuMP.AffExpr`
-zeros for every entry produced by `_resolve_monitored_arcs`. The pre-fill is
-required so the parallel PTDF expression build below cannot race on Dict resize.
+Register a `SparseAxisArray` keyed by
+`(outage_id::String, monitored_name::String, t::Int)`, prefilling one fresh
+`zero(AffExpr)` per entry produced by `_resolve_monitored_arcs`. Prefilling the
+resolved keys (like a dense container's slots) lets the build loop assign or
+accumulate into existing entries; storage stays sparse — only resolved keys
+exist, never the full outage×component×time product.
 """
 function _add_post_contingency_sparse_expression!(
     container::OptimizationContainer,
@@ -286,23 +288,25 @@ function _add_post_contingency_sparse_expression!(
         for (uuid, entries) in resolved for (_, name, _, _) in entries for
         t in time_steps
     ]
-    return IOM.add_expression_container!(container, T, V, index_keys; sparse = true)
+    return IOM.add_expression_container!(container, T, V; sparse_keys = index_keys)
 end
 
 """
-Register an empty `SparseAxisArray` keyed by
+Register a `SparseAxisArray` keyed by
 `(outage_id::String, monitored_name::String, t::Int)` for the given constraint
-type and meta tag.
+type and meta tag, prefilling `index_keys` with `nothing` placeholders for the
+build loop to assign into. An empty `index_keys` yields an empty container.
 """
 function _add_post_contingency_sparse_constraints!(
     container::OptimizationContainer,
     ::Type{T},
-    ::Type{V};
+    ::Type{V},
+    index_keys::AbstractVector{<:Tuple};
     meta::String,
 ) where {T <: ConstraintType, V <: PSY.ACTransmission}
-    cons_container =
-        SparseAxisArray(Dict{Tuple{String, String, Int}, JuMP.ConstraintRef}())
-    return IOM.add_constraints_container!(container, T, V, cons_container; meta = meta)
+    return IOM.add_constraints_container!(
+        container, T, V; sparse_keys = index_keys, meta = meta,
+    )
 end
 
 """
@@ -407,15 +411,38 @@ function add_constraints!(
 
     resolved = _resolve_monitored_arcs(device_model, net_reduction_data)
 
-    con_lb = _add_post_contingency_sparse_constraints!(container, T, V; meta = "lb")
-    con_ub = _add_post_contingency_sparse_constraints!(container, T, V; meta = "ub")
+    index_keys = [
+        (string(uuid), name, t)
+        for (uuid, entries) in resolved for (_, name, _, _) in entries for
+        t in time_steps
+    ]
+    con_lb =
+        _add_post_contingency_sparse_constraints!(container, T, V, index_keys; meta = "lb")
+    con_ub =
+        _add_post_contingency_sparse_constraints!(container, T, V, index_keys; meta = "ub")
 
     use_slacks = get_use_slacks(device_model)
-    # Local relaxation-slack containers keyed by `(outage_id, name, t)`. Built
-    # here (not via `add_variables!`) because the post-contingency axes are only
-    # known after `_resolve_monitored_arcs`; registered after the loop iff used.
-    slack_ub = SparseAxisArray(Dict{Tuple{String, String, Int}, JuMP.VariableRef}())
-    slack_lb = SparseAxisArray(Dict{Tuple{String, String, Int}, JuMP.VariableRef}())
+    # Relaxation-slack containers keyed by `(outage_id, name, t)`, registered only
+    # when slacks are enabled. Built here (not via `add_variables!`) because the
+    # post-contingency keys are only known after `_resolve_monitored_arcs`.
+    slack_ub =
+        if use_slacks
+            IOM.add_variable_container!(
+            container, PostContingencyFlowActivePowerSlackUpperBound, V;
+            sparse_keys = index_keys,
+        )
+        else
+            nothing
+        end
+    slack_lb =
+        if use_slacks
+            IOM.add_variable_container!(
+            container, PostContingencyFlowActivePowerSlackLowerBound, V;
+            sparse_keys = index_keys,
+        )
+        else
+            nothing
+        end
 
     expressions = get_expression(container, PostContingencyBranchFlow, V)
     jump_model = get_jump_model(container)
@@ -537,16 +564,6 @@ function add_constraints!(
         end
     end
 
-    if !isempty(slack_ub.data)
-        IOM.add_variable_container!(
-            container, PostContingencyFlowActivePowerSlackUpperBound, V, slack_ub,
-        )
-    end
-    if !isempty(slack_lb.data)
-        IOM.add_variable_container!(
-            container, PostContingencyFlowActivePowerSlackLowerBound, V, slack_lb,
-        )
-    end
     return
 end
 
@@ -704,13 +721,9 @@ function add_post_contingency_flow_expressions!(
     time_steps = get_time_steps(container)
     resolved = _resolve_monitored_arcs(model, network_model.network_reduction)
 
-    index_keys = [
-        (string(uuid), name, t)
-        for (uuid, entries) in resolved for (_, name, _, _) in entries for
-        t in time_steps
-    ]
-    expression_container =
-        IOM.add_expression_container!(container, T, V, index_keys; sparse = true)
+    expression_container = _add_post_contingency_sparse_expression!(
+        container, T, V, resolved, time_steps,
+    )
 
     has_other_v = _has_other_v_container(IOM.get_expressions(container), T, V)
     flow_vars_by_type = Dict{DataType, Any}()

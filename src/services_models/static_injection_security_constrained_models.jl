@@ -182,10 +182,11 @@ function _service_outages(sys::PSY.System, service_model::ServiceModel)
 end
 
 """
-Pre-allocate a `SparseAxisArray` keyed by
-`(outage_id::String, monitored_name::String, t::Int)` holding zero `AffExpr`s
-for the resolved monitored arcs. Registered on `container.expressions` under
-`ExpressionKey(T, R; meta = service_name)`.
+Register a `SparseAxisArray` keyed by
+`(outage_id::String, monitored_name::String, t::Int)`, prefilling one fresh
+`zero(AffExpr)` per resolved monitored arc. Registered on `container.expressions`
+under `ExpressionKey(T, R; meta = service_name)`. Storage stays sparse — only
+resolved keys exist, never the full outage×component×time product.
 """
 function _add_service_post_contingency_sparse_expression!(
     container::OptimizationContainer,
@@ -203,26 +204,27 @@ function _add_service_post_contingency_sparse_expression!(
         t in time_steps
     ]
     return IOM.add_expression_container!(
-        container, T, R, index_keys; sparse = true, meta = service_name,
+        container, T, R; sparse_keys = index_keys, meta = service_name,
     )
 end
 
 """
-Register an empty `SparseAxisArray` keyed by
+Register a `SparseAxisArray` keyed by
 `(outage_id::String, monitored_name::String, t::Int)` for the given
-post-contingency constraint type / meta tag.
+post-contingency constraint type / meta tag, prefilling `index_keys` with
+`nothing` placeholders for the build loop to assign into. An empty `index_keys`
+yields an empty container.
 """
 function _add_service_post_contingency_sparse_constraints!(
     container::OptimizationContainer,
     ::Type{T},
     ::Type{R},
-    service_name::String;
+    service_name::String,
+    index_keys::AbstractVector{<:Tuple};
     meta_suffix::String,
 ) where {T <: ConstraintType, R <: PSY.AbstractReserve}
-    cons_container =
-        SparseAxisArray(Dict{Tuple{String, String, Int}, JuMP.ConstraintRef}())
     return IOM.add_constraints_container!(
-        container, T, R, cons_container; meta = "$(service_name)_$(meta_suffix)",
+        container, T, R; sparse_keys = index_keys, meta = "$(service_name)_$(meta_suffix)",
     )
 end
 
@@ -230,9 +232,8 @@ end
 Sparse slack variable container keyed by
 `(outage_id::String, monitored_name::String, t::Int)`. Each entry is a
 non-negative `JuMP.VariableRef` whose objective contribution is
-`POST_CONTINGENCY_CONSTRAINT_VIOLATION_SLACK_COST`. The `@variable`s are built
-into a `SparseAxisArray` and registered via `add_variable_container!` so the axes
-can be sparse.
+`POST_CONTINGENCY_CONSTRAINT_VIOLATION_SLACK_COST`. The container is registered
+with its resolved keys prefilled, then each `@variable` is assigned into it.
 """
 function add_post_contingency_slack_variables!(
     container::OptimizationContainer,
@@ -246,7 +247,14 @@ function add_post_contingency_slack_variables!(
 ) where {T <: AbstractContingencySlackVariableType, R <: PSY.AbstractReserve}
     time_steps = get_time_steps(container)
     jump_model = get_jump_model(container)
-    contents = Dict{Tuple{String, String, Int}, JuMP.VariableRef}()
+    index_keys = [
+        (string(uuid), name, t)
+        for (uuid, entries) in resolved for (_, name, _, _) in entries for
+        t in time_steps
+    ]
+    slack_container = IOM.add_variable_container!(
+        container, T, R; sparse_keys = index_keys, meta = service_name,
+    )
     for (uuid, entries) in resolved
         outage_id = string(uuid)
         for (_, name, _, _) in entries
@@ -257,7 +265,7 @@ function add_post_contingency_slack_variables!(
                     lower_bound = 0.0,
                     start = 0.0,
                 )
-                contents[(outage_id, name, t)] = v
+                slack_container[outage_id, name, t] = v
                 add_to_objective_invariant_expression!(
                     container,
                     v * POST_CONTINGENCY_CONSTRAINT_VIOLATION_SLACK_COST,
@@ -265,10 +273,7 @@ function add_post_contingency_slack_variables!(
             end
         end
     end
-    slack_container = SparseAxisArray(contents)
-    return IOM.add_variable_container!(
-        container, T, R, slack_container; meta = service_name,
-    )
+    return slack_container
 end
 
 # Build the upper/lower post-contingency flow slack containers for formulation
@@ -893,11 +898,16 @@ function add_constraints!(
     all_branch_maps_by_type = PNM.get_all_branch_maps_by_type(net_reduction_data)
     resolved = _resolve_service_monitored_arcs(service_model, net_reduction_data)
 
+    index_keys = [
+        (string(uuid), name, t)
+        for (uuid, entries) in resolved for (_, name, _, _) in entries for
+        t in time_steps
+    ]
     con_lb = _add_service_post_contingency_sparse_constraints!(
-        container, T, R, service_name; meta_suffix = "lb",
+        container, T, R, service_name, index_keys; meta_suffix = "lb",
     )
     con_ub = _add_service_post_contingency_sparse_constraints!(
-        container, T, R, service_name; meta_suffix = "ub",
+        container, T, R, service_name, index_keys; meta_suffix = "ub",
     )
     isempty(resolved) && return
 
@@ -1000,7 +1010,7 @@ function add_post_contingency_flow_expressions!(
         for (uuid, entries) in resolved for (name, _) in entries for t in time_steps
     ]
     expression_container = IOM.add_expression_container!(
-        container, T, R, index_keys; sparse = true, meta = service_name,
+        container, T, R; sparse_keys = index_keys, meta = service_name,
     )
     isempty(resolved) && return expression_container
 
@@ -1107,11 +1117,15 @@ function add_constraints!(
     service_name = PSY.get_name(service)
     resolved = _resolve_service_monitored_area_interchanges(sys, service_model)
 
+    index_keys = [
+        (string(uuid), name, t)
+        for (uuid, entries) in resolved for (name, _) in entries for t in time_steps
+    ]
     con_lb = _add_service_post_contingency_sparse_constraints!(
-        container, T, R, service_name; meta_suffix = "lb",
+        container, T, R, service_name, index_keys; meta_suffix = "lb",
     )
     con_ub = _add_service_post_contingency_sparse_constraints!(
-        container, T, R, service_name; meta_suffix = "ub",
+        container, T, R, service_name, index_keys; meta_suffix = "ub",
     )
     isempty(resolved) && return
 
