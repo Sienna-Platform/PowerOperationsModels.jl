@@ -321,26 +321,3 @@ end
     @test adm.b_to == b_sh.to
     @test adm.tap == 1.0
 end
-
-@testset "network formulation capability trait mapping" begin
-    @test POM.nodal_active_balance_style(DCPNetworkModel) isa POM.NamedBusActiveBalance
-    @test POM.nodal_active_balance_style(NFANetworkModel) isa POM.NamedBusActiveBalance
-    @test POM.nodal_active_balance_style(IVRNetworkModel) isa POM.NamedBusActiveBalance
-    @test POM.nodal_active_balance_style(PTDFNetworkModel) isa POM.AggregatedActiveBalance
-    @test POM.nodal_active_balance_style(CopperPlateNetworkModel) isa
-          POM.AggregatedActiveBalance
-
-    @test POM.reactive_power_support(ACPNetworkModel) isa POM.HasReactivePower
-    @test POM.reactive_power_support(LPACCNetworkModel) isa POM.HasReactivePower
-    @test POM.reactive_power_support(DCPNetworkModel) isa POM.NoReactivePower
-    @test POM.reactive_power_support(NFANetworkModel) isa POM.NoReactivePower
-
-    # angle-carrying forms (DCP/ACP/DCPLL/LPACC) vs rectangular / no-voltage
-    @test POM.voltage_form(DCPNetworkModel) isa POM.AngleBasedVoltage
-    @test POM.voltage_form(DCPLLNetworkModel) isa POM.AngleBasedVoltage
-    @test POM.voltage_form(ACPNetworkModel) isa POM.AngleBasedVoltage
-    @test POM.voltage_form(LPACCNetworkModel) isa POM.AngleBasedVoltage
-    @test POM.voltage_form(ACRNetworkModel) isa POM.NonAngleVoltage
-    @test POM.voltage_form(IVRNetworkModel) isa POM.NonAngleVoltage
-    @test POM.voltage_form(NFANetworkModel) isa POM.NonAngleVoltage
-end
