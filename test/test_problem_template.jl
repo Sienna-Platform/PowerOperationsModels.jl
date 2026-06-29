@@ -7,20 +7,20 @@
     PSY.set_base_voltage!(PSY.get_to(arc), 10 * PSY.get_base_voltage(PSY.get_from(arc)))
 
     cp_model =
-        DecisionModel(get_thermal_dispatch_template_network(CopperPlatePowerModel), sys)
+        DecisionModel(get_thermal_dispatch_template_network(CopperPlateNetworkModel), sys)
     @test POM.validate_template(cp_model) === nothing
 
-    ptdf_model = DecisionModel(get_thermal_dispatch_template_network(PTDFPowerModel), sys)
+    ptdf_model = DecisionModel(get_thermal_dispatch_template_network(PTDFNetworkModel), sys)
     Logging.with_logger(Logging.NullLogger()) do
         @test_throws IS.InvalidValue POM.validate_template(ptdf_model)
     end
 
-    dcp_model = DecisionModel(get_thermal_dispatch_template_network(DCPPowerModel), sys)
+    dcp_model = DecisionModel(get_thermal_dispatch_template_network(DCPNetworkModel), sys)
     Logging.with_logger(Logging.NullLogger()) do
         @test_throws IS.InvalidValue POM.validate_template(dcp_model)
     end
 
-    ab_template = PowerOperationsProblemTemplate(AreaBalancePowerModel)
+    ab_template = PowerOperationsProblemTemplate(AreaBalanceNetworkModel)
     set_device_model!(ab_template, PSY.PowerLoad, StaticPowerLoad)
     set_device_model!(ab_template, PSY.ThermalStandard, ThermalBasicDispatch)
     ab_model = DecisionModel(ab_template, sys)
@@ -54,7 +54,7 @@ end
 end
 
 @testset "Manual Operations Template" begin
-    template = PowerOperationsProblemTemplate(CopperPlatePowerModel)
+    template = PowerOperationsProblemTemplate(CopperPlateNetworkModel)
     set_device_model!(template, PowerLoad, StaticPowerLoad)
     set_device_model!(template, ThermalStandard, ThermalStandardUnitCommitment)
     set_device_model!(template, Line, StaticBranchUnbounded)
@@ -64,7 +64,7 @@ end
 end
 
 @testset "Operations Template Overwrite" begin
-    template = PowerOperationsProblemTemplate(CopperPlatePowerModel)
+    template = PowerOperationsProblemTemplate(CopperPlateNetworkModel)
     set_device_model!(template, PowerLoad, StaticPowerLoad)
     set_device_model!(template, ThermalStandard, ThermalStandardUnitCommitment)
     @test_logs (:warn, "Overwriting ThermalStandard existing model") set_device_model!(

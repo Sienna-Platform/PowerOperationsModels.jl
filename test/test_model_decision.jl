@@ -12,7 +12,7 @@
     model = DecisionModel(
         MockOperationProblem,
         get_thermal_dispatch_template_network(
-            NetworkModel(CopperPlatePowerModel; use_slacks = true),
+            NetworkModel(CopperPlateNetworkModel; use_slacks = true),
         ),
         c_sys5_re;
         optimizer = HiGHS_optimizer,
@@ -202,7 +202,7 @@ end
 
 @testset "Decision Model Solve with Slacks" begin
     c_sys5_re = PSB.build_system(PSITestSystems, "c_sys5_re")
-    networks = [PTDFPowerModel, DCPPowerModel, ACPPowerModel]
+    networks = [PTDFNetworkModel, DCPNetworkModel, ACPNetworkModel]
     for network in networks
         template = get_thermal_dispatch_template_network(
             NetworkModel(network; use_slacks = true, PTDF_matrix = PTDF(c_sys5_re)),
@@ -214,8 +214,8 @@ end
     end
 end
 
-@testset "Test Locational Marginal Prices between DC lossless with PowerModels vs PTDFPowerModel" begin
-    networks = [DCPPowerModel, PTDFPowerModel]
+@testset "Test Locational Marginal Prices between DC lossless with PowerModels vs PTDFNetworkModel" begin
+    networks = [DCPNetworkModel, PTDFNetworkModel]
     sys = PSB.build_system(PSITestSystems, "c_sys5")
     ptdf = VirtualPTDF(sys)
     # These are the duals of interest for the test
@@ -225,7 +225,7 @@ end
         template = get_template_dispatch_with_network(
             NetworkModel(network; PTDF_matrix = ptdf, duals = dual_constraint[ix]),
         )
-        if network == PTDFPowerModel
+        if network == PTDFNetworkModel
             set_device_model!(
                 template,
                 DeviceModel(PSY.Line, StaticBranch; duals = [FlowRateConstraint]),
@@ -238,7 +238,7 @@ end
         res = OptimizationProblemOutputs(model)
 
         # These tests require results to be working
-        if network == PTDFPowerModel
+        if network == PTDFNetworkModel
             push!(LMPs, abs.(psi_ptdf_lmps(res, ptdf)))
         else
             duals = read_dual(
@@ -257,7 +257,7 @@ end
 @testset "Test OptimizationProblemOutputs interfaces" begin
     sys = PSB.build_system(PSITestSystems, "c_sys5_re")
     template = get_template_dispatch_with_network(
-        NetworkModel(CopperPlatePowerModel; duals = [CopperPlateBalanceConstraint]),
+        NetworkModel(CopperPlateNetworkModel; duals = [CopperPlateBalanceConstraint]),
     )
     model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
     @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
@@ -383,7 +383,7 @@ end
     path = mktempdir(; cleanup = true)
     sys = PSB.build_system(PSITestSystems, "c_sys5_re")
     template = get_template_dispatch_with_network(
-        NetworkModel(CopperPlatePowerModel; duals = [CopperPlateBalanceConstraint]),
+        NetworkModel(CopperPlateNetworkModel; duals = [CopperPlateBalanceConstraint]),
     )
     model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
     @test build!(model; output_dir = path) == IOM.ModelBuildStatus.BUILT
@@ -754,7 +754,7 @@ end
 
 @testset "Optimization-model export serialization (copy/write split + lifecycle)" begin
     c_sys5 = PSB.build_system(PSITestSystems, "c_sys5")
-    template = get_thermal_dispatch_template_network(CopperPlatePowerModel)
+    template = get_thermal_dispatch_template_network(CopperPlateNetworkModel)
     model = DecisionModel(template, c_sys5; optimizer = HiGHS_optimizer)
     @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
           IOM.ModelBuildStatus.BUILT
@@ -776,7 +776,7 @@ end
 
 @testset "export_optimization_problem kwarg accepted by solve!" begin
     c_sys5 = PSB.build_system(PSITestSystems, "c_sys5")
-    template = get_thermal_dispatch_template_network(CopperPlatePowerModel)
+    template = get_thermal_dispatch_template_network(CopperPlateNetworkModel)
     model = DecisionModel(template, c_sys5; optimizer = HiGHS_optimizer)
     @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
           IOM.ModelBuildStatus.BUILT

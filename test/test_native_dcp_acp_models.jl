@@ -9,9 +9,9 @@ function _build_log_contains(output_dir, needle)
     return occursin(needle, read(logf, String))
 end
 
-@testset "native DCPPowerModel builds and solves (c_sys5)" begin
+@testset "native DCPNetworkModel builds and solves (c_sys5)" begin
     sys = PSB.build_system(PSITestSystems, "c_sys5")
-    template = get_thermal_dispatch_template_network(NetworkModel(DCPPowerModel))
+    template = get_thermal_dispatch_template_network(NetworkModel(DCPNetworkModel))
     model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
     out = mktempdir(; cleanup = true)
     @test build!(model; output_dir = out) == IOM.ModelBuildStatus.BUILT
@@ -40,9 +40,9 @@ end
     @test isapprox(pflow[1, lname] / base_power, -b * (va[1, fr] - va[1, to]); atol = 1e-6)
 end
 
-@testset "native ACPPowerModel builds and solves (c_sys5)" begin
+@testset "native ACPNetworkModel builds and solves (c_sys5)" begin
     sys = PSB.build_system(PSITestSystems, "c_sys5")
-    template = get_thermal_dispatch_template_network(NetworkModel(ACPPowerModel))
+    template = get_thermal_dispatch_template_network(NetworkModel(ACPNetworkModel))
     model = DecisionModel(template, sys; optimizer = ipopt_optimizer)
     @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
           IOM.ModelBuildStatus.BUILT
@@ -61,10 +61,10 @@ end
     end
 end
 
-@testset "native DCPPowerModel solves under network reduction (c_sys14)" begin
+@testset "native DCPNetworkModel solves under network reduction (c_sys14)" begin
     sys = PSB.build_system(PSITestSystems, "c_sys14")
     net = NetworkModel(
-        DCPPowerModel;
+        DCPNetworkModel;
         reduce_radial_branches = true,
         reduce_degree_two_branches = true,
     )
@@ -75,10 +75,10 @@ end
     @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
 end
 
-@testset "native ACPPowerModel solves under network reduction (c_sys14)" begin
+@testset "native ACPNetworkModel solves under network reduction (c_sys14)" begin
     sys = PSB.build_system(PSITestSystems, "c_sys14")
     net = NetworkModel(
-        ACPPowerModel;
+        ACPNetworkModel;
         reduce_radial_branches = true,
         reduce_degree_two_branches = true,
     )
@@ -96,7 +96,7 @@ end
             PSY.set_bustype!(b, PSY.ACBusTypes.PV)
         end
     end
-    template = get_thermal_dispatch_template_network(NetworkModel(DCPPowerModel))
+    template = get_thermal_dispatch_template_network(NetworkModel(DCPNetworkModel))
     model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
     out = mktempdir(; cleanup = true)
     @test build!(model; output_dir = out) == IOM.ModelBuildStatus.BUILT
@@ -128,7 +128,7 @@ end
             PSY.set_bustype!(b, PSY.ACBusTypes.PV)
         end
     end
-    template = get_thermal_dispatch_template_network(NetworkModel(ACPPowerModel))
+    template = get_thermal_dispatch_template_network(NetworkModel(ACPNetworkModel))
     model = DecisionModel(template, sys; optimizer = ipopt_optimizer)
     out = mktempdir(; cleanup = true)
     @test build!(model; output_dir = out) == IOM.ModelBuildStatus.BUILT

@@ -46,7 +46,7 @@
 
     template = get_thermal_dispatch_template_network(
         NetworkModel(
-            ACPPowerModel;
+            ACPNetworkModel;
             use_slacks = false,
         ),
     )

@@ -53,7 +53,7 @@
     function _build_model(sys; attributes = Dict{String, Any}())
         template = get_thermal_dispatch_template_network(
             NetworkModel(
-                PTDFPowerModel;
+                PTDFNetworkModel;
                 use_slacks = false,
                 MODF_matrix = PNM.VirtualMODF(sys),
             ),

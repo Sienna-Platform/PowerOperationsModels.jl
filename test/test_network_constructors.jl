@@ -29,7 +29,7 @@ end
     ptdf = PTDF(sys; network_reductions = nr)
 
     template = PowerOperationsProblemTemplate(
-        NetworkModel(PTDFPowerModel;
+        NetworkModel(PTDFNetworkModel;
             PTDF_matrix = ptdf,
             duals = [CopperPlateBalanceConstraint],
             reduce_radial_branches = PNM.has_radial_reduction(ptdf.network_reduction_data),
