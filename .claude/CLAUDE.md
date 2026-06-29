@@ -4,7 +4,7 @@ Platform-wide Sienna conventions (performance, type stability, formatter, enviro
 
 ## Purpose & place in the stack
 
-POM is the **collection of operational optimization models for power systems**: the concrete device, service, and network formulations plus the `PowerOperationModel` problem-type chain. It builds JuMP models from PowerSystems components.
+POM is the **collection of operational optimization models for power systems**: the concrete device, service, and network formulations plus the `AbstractPowerOperationProblem` problem-type chain. It builds JuMP models from PowerSystems components.
 
 Abstraction hierarchy (low → high level of generality):
 
@@ -16,13 +16,30 @@ PSI (the old PowerSimulations.jl) ≈ POM + IOM. Many ports into POM originate f
 
 IS and IOM are **external package dependencies** (resolved via `Project.toml`/`[sources]`), not subdirectories.
 
-### The IOM/POM split (PR #104 "Redistribute operation models")
+### The IOM/POM split
 
-IOM was made domain-neutral. The power-flavoured taxonomy was **moved out of IOM into POM** (`src/core/problem_types.jl`):
+IOM is domain-neutral and owns the **operation-model lifecycle**. The power-flavoured
+problem taxonomy lives in POM (`src/core/problem_types.jl`):
 
-- POM owns `PowerOperationModel <: IOM.AbstractOptimizationProblem`, then `DecisionProblem`/`EmulationProblem`, `DefaultDecisionProblem`/`DefaultEmulationProblem`, `GenericOpProblem`/`GenericEmulationProblem`. POM dispatches on `DecisionModel{<:PowerOperationModel}` etc. The no-type-param `DecisionModel(template, sys)` default + the EmulationModel update chain live in POM (`src/operation/`).
-- IOM removed `OperationModel`, `DecisionProblem`, `EmulationProblem`, the `Generic*`/`Default*` problem types, and the `Simulation*` stubs. The old `OperationModel` abstract → `IOM.AbstractOptimizationModel`. `validate_time_series!` / `validate_template` are stubs on the neutral abstract.
-- **Gotcha:** when a symbol seems "not defined in IOM", check whether #104 moved it to POM — define/dispatch on the POM chain, do **not** re-add it to IOM.
+- POM owns a single linear chain `AbstractPowerOperationProblem <: IOM.AbstractOptimizationProblem`
+  → `GenericPowerOperationProblem` (template-driven) → `DefaultPowerOperationProblem` (the
+  default `M`). Decision↔emulation is **not** in the problem chain — it is the wrapper's job
+  (`DecisionModel` vs `EmulationModel`, both in IOM). The no-type-param
+  `DecisionModel(template, sys)` / `EmulationModel(template, sys)` defaulting constructors live
+  in POM (`src/operation/`), defaulting `M = DefaultPowerOperationProblem`.
+- **IOM owns the generic lifecycle**: `build!`/`solve!`/`run!`/`build_model!`/`build_pre_step!`/
+  `reset!`/`handle_initial_conditions!`/`execute_emulation!`/`build_if_not_already_built!` are
+  single methods on `AbstractOptimizationModel`/`DecisionModel`/`EmulationModel` in IOM. POM
+  supplies the power-specific extension points: `build_problem!` (`src/operation/build_problem.jl`),
+  `build_initial_conditions!` (`src/initial_conditions/initialization.jl`),
+  `instantiate_network_model!`, `validate_template`, `validate_time_series!`. The two DM/EM
+  lifecycle differences are IOM compile-time hooks (`_mark_recurrent_solves!`,
+  `_apply_build_executions!`, `reset_time_series_type`).
+- The operation timers (`BUILD_PROBLEMS_TIMER`, …) live in IOM; POM imports them so its
+  `build_problem!` timings aggregate into IOM's `build!` printout.
+- **Gotcha:** when a symbol seems "not defined in IOM", check whether it is a POM extension-point
+  implementation (`build_problem!`/`build_initial_conditions!`/`validate_*`) — extend the IOM
+  generic (import it), do **not** create a shadowing POM function.
 
 ## Optimization Model Construction Conventions
 
@@ -51,7 +68,7 @@ src/
   area_interchange.jl             # Area interchange balance
   core/                           # Type definitions (no heavy logic)
     definitions.jl, physical_constant_definitions.jl
-    problem_types.jl              # PowerOperationModel chain (moved from IOM, PR #104)
+    problem_types.jl              # AbstractPowerOperationProblem chain (linear; d/e is the wrapper's job)
     interfaces.jl                 # incl. PowerFlowEvaluator wrapping PF models
     variables.jl, auxiliary_variables.jl, constraints.jl, expressions.jl, parameters.jl
     formulations.jl, network_formulations.jl   # native DCP/ACP/PTDF/CopperPlate/Area structs
@@ -122,7 +139,7 @@ Solvers: `HiGHS` (LP/MILP), `Ipopt` (NLP), `SCS` (SDP) — helpers `HiGHS_optimi
 
 ## POM-specific conventions, invariants, gotchas
 
-- **Layer boundaries:** device/network formulations + `PowerOperationModel` chain live in POM; `OptimizationContainer`/`DecisionModel`/settings/generic builders in IOM; base key/TS types in IS. Don't push power-specific logic down into IOM.
+- **Layer boundaries:** device/network formulations + `AbstractPowerOperationProblem` chain live in POM; `OptimizationContainer`/`DecisionModel`/`EmulationModel`/the build/solve/run lifecycle/settings/generic builders in IOM; base key/TS types in IS. Don't push power-specific logic down into IOM.
 - **`network_reduction` must always be populated** by POM's `instantiate_network_model!` for every network model (CopperPlate/AreaBalance set an identity reduction). It is `Union{Nothing,...}` on the IOM side. Concrete `BranchReductionOptimizationTracker` + `get_constraint_map_by_type` live in POM `network_models/network_reductions.jl`; IOM keeps only the abstract `AbstractBranchReductionTracker`. IOM evaluators must be `<:IOM.AbstractEvaluator`; POM wraps PF models in `PowerFlowEvaluator` (`core/interfaces.jl`).
 - **Parallel branches** between the same `(from_bus, to_bus)` pair are reduced to one equivalent branch by PowerNetworkMatrices **before** reaching POM. Index branch-pair-keyed variables (LPAC cosine vars, voltage approximations) by branch name directly — do not add dedupe bookkeeping; it's a non-problem at this layer.
 - **Security-constrained N-1 uses MODF** (Modified Outage Distribution Factors: PNM `VirtualMODF`/`ContingencySpec`), in `ac_transmission_models/security_constrained_branch.jl`. The old LODF-based `network_models/security_constrained_models.jl` and all generator-side (G-1) SC have been **removed** — do not reintroduce LODF or gen-side MODF. `NetworkModel.MODF_matrix`, `DeviceModel.outages`, and `supports_outages` (default false; POM specializes `true` for `AbstractSecurityConstrainedStaticBranch`) live in IOM.
