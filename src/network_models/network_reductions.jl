@@ -24,6 +24,12 @@ mutable struct BranchReductionOptimizationTracker <: IOM.AbstractBranchReduction
         },
     }
     number_of_steps::Int
+    # Build-scoped memo of the retained (bus name, bus number) pairs, filled lazily by
+    # `_bus_name_number_pairs` so the per-bus name resolution (an O(n_buses) component
+    # scan) runs once per build rather than once per network variable/constraint type.
+    # Empty means "not yet computed" — a network always has ≥1 bus. Not part of
+    # `isempty`/`empty!`'s reduction semantics, but cleared on rebuild.
+    bus_name_number_pairs::Vector{Tuple{String, Int}}
 end
 
 get_variable_dict(reduction_tracker::BranchReductionOptimizationTracker) =
@@ -55,10 +61,13 @@ Base.empty!(
     empty!(reduction_tracker.parameter_dict)
     empty!(reduction_tracker.constraint_dict)
     empty!(reduction_tracker.constraint_map_by_type)
+    empty!(reduction_tracker.bus_name_number_pairs)
 end
 
 function BranchReductionOptimizationTracker()
-    return BranchReductionOptimizationTracker(Dict(), Dict(), Dict(), Dict(), 0)
+    return BranchReductionOptimizationTracker(
+        Dict(), Dict(), Dict(), Dict(), 0, Tuple{String, Int}[],
+    )
 end
 
 function _make_empty_variable_tracker_dict(

@@ -8,20 +8,35 @@
 # System-balance expressions (ActivePowerBalance) are indexed by bus NUMBER
 # (Int) per make_system_expressions.jl, so internal lookups translate names↔numbers.
 
+# Retained (bus name, bus number) pairs, memoized on the reduced-branch tracker so the
+# O(n_buses) name-resolution scan runs once per build instead of once per network
+# variable/constraint type. The tracker is POM-owned and set unconditionally by
+# instantiate_network_model! (which always runs before any add_*!), so it is present
+# here; its cache is cleared on rebuild via empty!.
+function _bus_name_number_pairs(sys::PSY.System, network_model::NetworkModel{N}) where {N}
+    return _bus_name_number_pairs(
+        nodal_active_balance_style(N),
+        sys,
+        network_model,
+    )
+end
+
 function _bus_name_number_pairs(
+    ::NamedBusActiveBalance,
     sys::PSY.System,
-    network_model::NetworkModel{
-        <:Union{
-            DCPNetworkModel,
-            ACPNetworkModel,
-            ACRNetworkModel,
-            NFANetworkModel,
-            DCPLLNetworkModel,
-            LPACCNetworkModel,
-            IVRNetworkModel,
-        },
-    },
+    network_model::NetworkModel,
 )
+    tracker = get_reduced_branch_tracker(network_model)
+    if isempty(tracker.bus_name_number_pairs)
+        append!(
+            tracker.bus_name_number_pairs,
+            _compute_bus_name_number_pairs(sys, network_model),
+        )
+    end
+    return tracker.bus_name_number_pairs
+end
+
+function _compute_bus_name_number_pairs(sys::PSY.System, network_model::NetworkModel)
     network_reduction = get_network_reduction(network_model)
     if isempty(network_reduction)
         buses = collect(get_available_components(network_model, PSY.ACBus, sys))
@@ -49,9 +64,23 @@ function add_variables!(
     container::OptimizationContainer,
     ::Type{VoltageAngle},
     sys::PSY.System,
-    network_model::NetworkModel{
-        <:Union{DCPNetworkModel, ACPNetworkModel, DCPLLNetworkModel, LPACCNetworkModel},
-    },
+    network_model::NetworkModel{N},
+) where {N}
+    return _add_voltage_angle_variables!(
+        voltage_form(N),
+        container,
+        sys,
+        network_model,
+    )
+end
+
+# Every angle-carrying form (DCP/ACP/DCPLL/LPACC) puts an unbounded VoltageAngle on
+# each bus; slack-bus pinning is applied by ReferenceBusConstraint.
+function _add_voltage_angle_variables!(
+    ::AngleBasedVoltage,
+    container::OptimizationContainer,
+    sys::PSY.System,
+    network_model::NetworkModel,
 )
     time_steps = get_time_steps(container)
     bus_names = [name for (name, _) in _bus_name_number_pairs(sys, network_model)]
@@ -161,17 +190,21 @@ function add_constraints!(
     container::OptimizationContainer,
     ::Type{NodalBalanceActiveConstraint},
     sys::PSY.System,
-    network_model::NetworkModel{
-        <:Union{
-            DCPNetworkModel,
-            ACPNetworkModel,
-            ACRNetworkModel,
-            NFANetworkModel,
-            DCPLLNetworkModel,
-            LPACCNetworkModel,
-            IVRNetworkModel,
-        },
-    },
+    network_model::NetworkModel{N},
+) where {N}
+    return _add_nodal_active_balance!(
+        nodal_active_balance_style(N),
+        container,
+        sys,
+        network_model,
+    )
+end
+
+function _add_nodal_active_balance!(
+    ::NamedBusActiveBalance,
+    container::OptimizationContainer,
+    sys::PSY.System,
+    network_model::NetworkModel,
 )
     time_steps = get_time_steps(container)
     expressions = get_expression(container, ActivePowerBalance, PSY.ACBus)
@@ -199,9 +232,21 @@ function add_constraints!(
     container::OptimizationContainer,
     ::Type{NodalBalanceReactiveConstraint},
     sys::PSY.System,
-    network_model::NetworkModel{
-        <:Union{ACPNetworkModel, ACRNetworkModel, LPACCNetworkModel, IVRNetworkModel},
-    },
+    network_model::NetworkModel{N},
+) where {N}
+    return _add_nodal_reactive_balance!(
+        reactive_power_support(N),
+        container,
+        sys,
+        network_model,
+    )
+end
+
+function _add_nodal_reactive_balance!(
+    ::HasReactivePower,
+    container::OptimizationContainer,
+    sys::PSY.System,
+    network_model::NetworkModel,
 )
     time_steps = get_time_steps(container)
     expressions = get_expression(container, ReactivePowerBalance, PSY.ACBus)

@@ -61,7 +61,7 @@ struct ACPNetworkModel <: AbstractACPModel end
 struct NFANetworkModel <: AbstractNFANetworkModel end
 
 branches_modeled(::Type{NFANetworkModel}) = true
-requires_all_branch_models(::Type{NFANetworkModel}) = false
+requires_all_branch_models(::Type{NFANetworkModel}) = true
 
 # Native POM DCPLL (DC power flow with quadratic line losses). Same angle/balance structure
 # as DCP, but branch flow is modeled with two directional active variables coupled by a
@@ -104,3 +104,57 @@ Devices inject P/Q unchanged (same as ACP/ACR); only the branch representation d
 `construct_network!` is shared with `ACRNetworkModel` via Union dispatch in `network_constructor.jl`.
 """
 struct IVRNetworkModel <: AbstractIVRNetworkModel end
+
+#################################################################################
+# Network-formulation capability traits (Holy traits)
+#
+# The network capabilities below cut across the inheritance tree: "models reactive
+# power" {ACP,ACR,LPACC,IVR} and "has a voltage angle variable" {DCP,ACP,DCPLL,LPACC}
+# overlap on {ACP,LPACC} but neither nests in the other, and `AbstractACPModel` is
+# IS-owned (ACP's parent cannot be changed here). Single inheritance cannot express
+# overlapping capability sets, so each capability is its own orthogonal trait axis.
+# `construct_*`/`add_*!` methods dispatch on the trait instead of hand-enumerated
+# Unions; the per-formulation membership lives here in one table.
+#################################################################################
+
+# --- How the active nodal power balance is indexed ---
+abstract type NodalActiveBalanceStyle end
+# Per-retained-bus balance indexed by bus name (the native nodal formulations).
+struct NamedBusActiveBalance <: NodalActiveBalanceStyle end
+# Injection-/area-aggregated balance (PTDF, CopperPlate, AreaBalance, AreaPTDF).
+struct AggregatedActiveBalance <: NodalActiveBalanceStyle end
+
+nodal_active_balance_style(::Type{<:AbstractPowerModel}) = AggregatedActiveBalance()
+nodal_active_balance_style(::Type{DCPNetworkModel}) = NamedBusActiveBalance()
+nodal_active_balance_style(::Type{NFANetworkModel}) = NamedBusActiveBalance()
+nodal_active_balance_style(::Type{DCPLLNetworkModel}) = NamedBusActiveBalance()
+nodal_active_balance_style(::Type{ACPNetworkModel}) = NamedBusActiveBalance()
+nodal_active_balance_style(::Type{ACRNetworkModel}) = NamedBusActiveBalance()
+nodal_active_balance_style(::Type{LPACCNetworkModel}) = NamedBusActiveBalance()
+nodal_active_balance_style(::Type{IVRNetworkModel}) = NamedBusActiveBalance()
+
+# --- Whether the network carries a reactive power balance ---
+abstract type ReactivePowerSupport end
+struct HasReactivePower <: ReactivePowerSupport end
+struct NoReactivePower <: ReactivePowerSupport end
+
+# Trait form of `network_has_reactive_power` (kept as a predicate for the `if`-based
+# validation call sites; this is for dispatch). Same partition: AbstractPowerModel
+# has it, AbstractActivePowerModel does not.
+reactive_power_support(::Type{<:AbstractPowerModel}) = HasReactivePower()
+reactive_power_support(::Type{<:AbstractActivePowerModel}) = NoReactivePower()
+
+# --- Whether the network carries a bus VoltageAngle variable ---
+abstract type VoltageForm end
+# DCP/ACP/DCPLL/LPACC put a VoltageAngle on every bus; ACR/IVR use rectangular
+# voltage and NFA/aggregated have none. Only this angle-vs-not split is dispatched
+# on today (the VoltageAngle adder); finer distinctions can be added if a method
+# ever needs them.
+struct AngleBasedVoltage <: VoltageForm end
+struct NonAngleVoltage <: VoltageForm end
+
+voltage_form(::Type{<:AbstractPowerModel}) = NonAngleVoltage()
+voltage_form(::Type{DCPNetworkModel}) = AngleBasedVoltage()
+voltage_form(::Type{DCPLLNetworkModel}) = AngleBasedVoltage()
+voltage_form(::Type{ACPNetworkModel}) = AngleBasedVoltage()
+voltage_form(::Type{LPACCNetworkModel}) = AngleBasedVoltage()

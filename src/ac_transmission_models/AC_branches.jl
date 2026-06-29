@@ -746,16 +746,25 @@ function add_flow_rate_constraint_with_parameters!(
     return
 end
 
-"""
-Add rate limit from to constraints for ACBranch with AbstractPowerModel
-"""
-function add_constraints!(
+# Shared apparent-power rate limit `var1^2 + var2^2 <= rating^2` for a single flow
+# direction. FromTo and ToFrom differ only in which terminal flow variables they
+# square and the constraint-map direction key (`cons_type`), so both delegate here.
+# The time-series rating RHS (rating_factor * rating, squared to match the static
+# `rating^2` apparent-power RHS) lives in one place.
+function _add_apparent_power_flow_rate_limit!(
     container::OptimizationContainer,
-    cons_type::Type{FlowRateConstraintFromTo},
+    cons_type::Type{<:ConstraintType},
+    ::Type{V1},
+    ::Type{V2},
     devices::IS.FlattenIteratorWrapper{B},
     device_model::DeviceModel{B, <:AbstractBranchFormulation},
     network_model::NetworkModel{T},
-) where {B <: PSY.ACTransmission, T <: AbstractPowerModel}
+) where {
+    V1 <: VariableType,
+    V2 <: VariableType,
+    B <: PSY.ACTransmission,
+    T <: AbstractPowerModel,
+}
     reduced_branch_tracker = get_reduced_branch_tracker(network_model)
     net_reduction_data = get_network_reduction(network_model)
     all_branch_maps_by_type = PNM.get_all_branch_maps_by_type(net_reduction_data)
@@ -766,8 +775,8 @@ function add_constraints!(
         cons_type,
     )
     time_steps = get_time_steps(container)
-    var1 = get_variable(container, FlowActivePowerFromToVariable, B)
-    var2 = get_variable(container, FlowReactivePowerFromToVariable, B)
+    var1 = get_variable(container, V1, B)
+    var2 = get_variable(container, V2, B)
     add_constraints_container!(
         container,
         cons_type,
@@ -797,7 +806,7 @@ function add_constraints!(
     end
 
     for (name, (arc, reduction)) in
-        get_constraint_map_by_type(reduced_branch_tracker)[FlowRateConstraintFromTo][B]
+        get_constraint_map_by_type(reduced_branch_tracker)[cons_type][B]
         # TODO: entry is not type stable here, it can return any type ACTransmission.
         # It might have performance implications. Possibly separate this into other functions
         reduction_entry = all_branch_maps_by_type[reduction][B][arc]
@@ -827,6 +836,28 @@ function add_constraints!(
 end
 
 """
+Add rate limit from to constraints for ACBranch with AbstractPowerModel
+"""
+function add_constraints!(
+    container::OptimizationContainer,
+    cons_type::Type{FlowRateConstraintFromTo},
+    devices::IS.FlattenIteratorWrapper{B},
+    device_model::DeviceModel{B, <:AbstractBranchFormulation},
+    network_model::NetworkModel{T},
+) where {B <: PSY.ACTransmission, T <: AbstractPowerModel}
+    _add_apparent_power_flow_rate_limit!(
+        container,
+        cons_type,
+        FlowActivePowerFromToVariable,
+        FlowReactivePowerFromToVariable,
+        devices,
+        device_model,
+        network_model,
+    )
+    return
+end
+
+"""
 Add rate limit to from constraints for ACBranch with AbstractPowerModel
 """
 function add_constraints!(
@@ -836,68 +867,15 @@ function add_constraints!(
     device_model::DeviceModel{B, <:AbstractBranchFormulation},
     network_model::NetworkModel{T},
 ) where {B <: PSY.ACTransmission, T <: AbstractPowerModel}
-    reduced_branch_tracker = get_reduced_branch_tracker(network_model)
-    net_reduction_data = get_network_reduction(network_model)
-    all_branch_maps_by_type = PNM.get_all_branch_maps_by_type(net_reduction_data)
-    time_steps = get_time_steps(container)
-    device_names = get_branch_argument_constraint_axis(
-        net_reduction_data,
-        reduced_branch_tracker,
-        devices,
-        cons_type,
-    )
-    var1 = get_variable(container, FlowActivePowerToFromVariable, B)
-    var2 = get_variable(container, FlowReactivePowerToFromVariable, B)
-    add_constraints_container!(
+    _add_apparent_power_flow_rate_limit!(
         container,
         cons_type,
-        B,
-        device_names,
-        time_steps,
+        FlowActivePowerToFromVariable,
+        FlowReactivePowerToFromVariable,
+        devices,
+        device_model,
+        network_model,
     )
-    constraint = get_constraint(container, cons_type, B)
-    use_slacks = get_use_slacks(device_model)
-    if use_slacks
-        slack_ub = get_variable(container, FlowActivePowerSlackUpperBound, B)
-    end
-
-    # Gate on the parameter container actually existing (see FromTo above).
-    ts_branch_names = String[]
-    local param, mult
-    if has_container_key(container, BranchRatingTimeSeriesParameter, B)
-        param = get_parameter_array(container, BranchRatingTimeSeriesParameter, B)
-        mult =
-            get_parameter_multiplier_array(container, BranchRatingTimeSeriesParameter, B)
-        ts_branch_names = Set(axes(param, 1))
-    end
-
-    for (name, (arc, reduction)) in
-        get_constraint_map_by_type(reduced_branch_tracker)[FlowRateConstraintToFrom][B]
-        # TODO: entry is not type stable here, it can return any type ACTransmission.
-        # It might have performance implications. Possibly separate this into other functions
-        reduction_entry = all_branch_maps_by_type[reduction][B][arc]
-        # `param * mult` = rating_factor * rating (an apparent-power value), so it
-        # is squared here to match the static `rating^2` apparent-power RHS.
-        if name in ts_branch_names
-            for t in time_steps
-                constraint[name, t] = JuMP.@constraint(
-                    get_jump_model(container),
-                    var1[name, t]^2 + var2[name, t]^2 -
-                    (use_slacks ? slack_ub[name, t] : 0.0) <=
-                    (param[name, t] * mult[name, t])^2
-                )
-            end
-        else
-            branch_rate = branch_rating(reduction_entry, device_model)
-            for t in time_steps
-                constraint[name, t] = JuMP.@constraint(
-                    get_jump_model(container),
-                    var1[name, t]^2 + var2[name, t]^2 -
-                    (use_slacks ? slack_ub[name, t] : 0.0) <= branch_rate^2
-                )
-            end
-        end
-    end
     return
 end
 

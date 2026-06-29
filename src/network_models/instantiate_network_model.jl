@@ -103,14 +103,20 @@ function _push_component_buses!(buses::Set{Int64}, bus::PSY.ACBus)
     return
 end
 
-# Unsupported monitored component types have no pinning rule. Warn and skip so this
-# PTDF-side protected set matches PNM's `VirtualMODF` collector
-# (`_accumulate_protected_buses!(::PSY.Component)`, which also warn-skips) instead of
-# MethodError-ing the build — keeping the two reductions reconcilable.
+# Fallback for monitored/outaged component types with no bus-pinning rule. Reached
+# from `_add_outage_monitored_irreducible_buses!`, which iterates the raw
+# `PSY.get_monitored_components(outage)` UUIDs (unfiltered — unlike the
+# template-validation path), so any non-{Branch, ThreeWindingTransformer,
+# StaticInjection, ACBus} monitored type lands here. Warn and skip rather than
+# MethodError so this PTDF-side protected set stays reconcilable with PNM's
+# `VirtualMODF` collector (`_accumulate_protected_buses!(::PSY.Component)`, which also
+# warn-skips). The consequence is real, hence the explicit message.
 function _push_component_buses!(::Set{Int64}, c::PSY.Component)
-    @warn "Outage-monitored component $(typeof(c)) ($(PSY.get_name(c))) has no " *
-          "reduction-protection rule; its bus will not be pinned and may be reduced away." maxlog =
-        5
+    @warn "Outage-monitored component $(typeof(c)) ($(PSY.get_name(c))) has no \
+           reduction-protection rule; its bus is not pinned and may be reduced away, \
+           so the contingency it participates in will not be enforced. This mirrors \
+           PNM's VirtualMODF _accumulate_protected_buses! warn-skip; if this type \
+           should be protected, add a _push_component_buses! method for it." maxlog = 5
     return
 end
 
