@@ -182,49 +182,43 @@ function _service_outages(sys::PSY.System, service_model::ServiceModel)
 end
 
 """
-Register a `SparseAxisArray` keyed by
-`(outage_id::String, monitored_name::String, t::Int)`, prefilling one fresh
-`zero(AffExpr)` per resolved monitored arc. Registered on `container.expressions`
-under `ExpressionKey(T, R; meta = service_name)`. Storage stays sparse — only
-resolved keys exist, never the full outage×component×time product.
+Register an empty `SparseAxisArray` keyed by
+`(outage_id::String, monitored_name::String, t::Int)` on `container.expressions`
+under `ExpressionKey(T, R; meta = service_name)`. The `String[], String[],
+time_steps` axes only fix the key tuple type; the populated set is ragged, so the
+build loop fills entries by assignment. Storage stays sparse — only assigned keys
+exist, never the full outage×component×time product.
 """
 function _add_service_post_contingency_sparse_expression!(
     container::OptimizationContainer,
     ::Type{T},
     ::Type{R},
     service_name::String,
-    resolved::Vector{
-        Pair{Base.UUID, Vector{Tuple{DataType, String, Tuple{Int, Int}, String}}},
-    },
     time_steps::UnitRange{Int},
 ) where {T <: PostContingencyExpressions, R <: PSY.AbstractReserve}
-    index_keys = [
-        (string(uuid), name, t)
-        for (uuid, entries) in resolved for (_, name, _, _) in entries for
-        t in time_steps
-    ]
     return IOM.add_expression_container!(
-        container, T, R; sparse_keys = index_keys, meta = service_name,
+        container, T, R, String[], String[], time_steps;
+        sparse = true, meta = service_name,
     )
 end
 
 """
-Register a `SparseAxisArray` keyed by
+Register an empty `SparseAxisArray` keyed by
 `(outage_id::String, monitored_name::String, t::Int)` for the given
-post-contingency constraint type / meta tag, prefilling `index_keys` with
-`nothing` placeholders for the build loop to assign into. An empty `index_keys`
-yields an empty container.
+post-contingency constraint type / meta tag. The build loop fills entries by
+assignment.
 """
 function _add_service_post_contingency_sparse_constraints!(
     container::OptimizationContainer,
     ::Type{T},
     ::Type{R},
     service_name::String,
-    index_keys::AbstractVector{<:Tuple};
+    time_steps::UnitRange{Int};
     meta_suffix::String,
 ) where {T <: ConstraintType, R <: PSY.AbstractReserve}
     return IOM.add_constraints_container!(
-        container, T, R; sparse_keys = index_keys, meta = "$(service_name)_$(meta_suffix)",
+        container, T, R, String[], String[], time_steps;
+        sparse = true, meta = "$(service_name)_$(meta_suffix)",
     )
 end
 
@@ -232,8 +226,8 @@ end
 Sparse slack variable container keyed by
 `(outage_id::String, monitored_name::String, t::Int)`. Each entry is a
 non-negative `JuMP.VariableRef` whose objective contribution is
-`POST_CONTINGENCY_CONSTRAINT_VIOLATION_SLACK_COST`. The container is registered
-with its resolved keys prefilled, then each `@variable` is assigned into it.
+`POST_CONTINGENCY_CONSTRAINT_VIOLATION_SLACK_COST`. The container starts empty —
+the axes only fix the key tuple type — and each `@variable` is assigned into it.
 """
 function add_post_contingency_slack_variables!(
     container::OptimizationContainer,
@@ -247,13 +241,9 @@ function add_post_contingency_slack_variables!(
 ) where {T <: AbstractContingencySlackVariableType, R <: PSY.AbstractReserve}
     time_steps = get_time_steps(container)
     jump_model = get_jump_model(container)
-    index_keys = [
-        (string(uuid), name, t)
-        for (uuid, entries) in resolved for (_, name, _, _) in entries for
-        t in time_steps
-    ]
     slack_container = IOM.add_variable_container!(
-        container, T, R; sparse_keys = index_keys, meta = service_name,
+        container, T, R, String[], String[], time_steps;
+        sparse = true, meta = service_name,
     )
     for (uuid, entries) in resolved
         outage_id = string(uuid)
@@ -786,7 +776,7 @@ function add_post_contingency_flow_expressions!(
     net_reduction_data = network_model.network_reduction
     resolved = _resolve_service_monitored_arcs(service_model, net_reduction_data)
     expression_container = _add_service_post_contingency_sparse_expression!(
-        container, T, R, service_name, resolved, time_steps,
+        container, T, R, service_name, time_steps,
     )
     isempty(resolved) && return expression_container
 
@@ -898,16 +888,11 @@ function add_constraints!(
     all_branch_maps_by_type = PNM.get_all_branch_maps_by_type(net_reduction_data)
     resolved = _resolve_service_monitored_arcs(service_model, net_reduction_data)
 
-    index_keys = [
-        (string(uuid), name, t)
-        for (uuid, entries) in resolved for (_, name, _, _) in entries for
-        t in time_steps
-    ]
     con_lb = _add_service_post_contingency_sparse_constraints!(
-        container, T, R, service_name, index_keys; meta_suffix = "lb",
+        container, T, R, service_name, time_steps; meta_suffix = "lb",
     )
     con_ub = _add_service_post_contingency_sparse_constraints!(
-        container, T, R, service_name, index_keys; meta_suffix = "ub",
+        container, T, R, service_name, time_steps; meta_suffix = "ub",
     )
     isempty(resolved) && return
 
@@ -1005,12 +990,9 @@ function add_post_contingency_flow_expressions!(
     service_name = PSY.get_name(service)
     resolved = _resolve_service_monitored_area_interchanges(sys, service_model)
 
-    index_keys = [
-        (string(uuid), name, t)
-        for (uuid, entries) in resolved for (name, _) in entries for t in time_steps
-    ]
     expression_container = IOM.add_expression_container!(
-        container, T, R; sparse_keys = index_keys, meta = service_name,
+        container, T, R, String[], String[], time_steps;
+        sparse = true, meta = service_name,
     )
     isempty(resolved) && return expression_container
 
@@ -1045,7 +1027,8 @@ function add_post_contingency_flow_expressions!(
             from_area = PSY.get_name(PSY.get_from_area(area_interchange))
             to_area = PSY.get_name(PSY.get_to_area(area_interchange))
             for t in time_steps
-                expr = expression_container[outage_id, name, t]
+                # Initialize the entry, then accumulate; stored by the write-back below.
+                expr = zero(JuMP.AffExpr)
                 JuMP.add_to_expression!(expr, flow_var[name, t])
                 for device in contributing_devices
                     gen_name = PSY.get_name(device)
@@ -1117,15 +1100,11 @@ function add_constraints!(
     service_name = PSY.get_name(service)
     resolved = _resolve_service_monitored_area_interchanges(sys, service_model)
 
-    index_keys = [
-        (string(uuid), name, t)
-        for (uuid, entries) in resolved for (name, _) in entries for t in time_steps
-    ]
     con_lb = _add_service_post_contingency_sparse_constraints!(
-        container, T, R, service_name, index_keys; meta_suffix = "lb",
+        container, T, R, service_name, time_steps; meta_suffix = "lb",
     )
     con_ub = _add_service_post_contingency_sparse_constraints!(
-        container, T, R, service_name, index_keys; meta_suffix = "ub",
+        container, T, R, service_name, time_steps; meta_suffix = "ub",
     )
     isempty(resolved) && return
 
