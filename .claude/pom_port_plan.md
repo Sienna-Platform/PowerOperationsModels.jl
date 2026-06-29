@@ -28,7 +28,8 @@ Status legend: ✅ done · ⏭️ already correct in POM (no change) · 🟦 des
 would double-scale; only the test is worth adding).
 
 **Workstream M features:** ✅ #1549, ✅ #1573, ✅ #1538, ✅ #1605, ✅ #1622, ✅ #1612 ·
-⏭️ #1614 & #1566 (already present). ⏳ DLR (#1559/#1561) untouched (scope separately).
+⏭️ #1614 & #1566 (already present). ⏭️ DLR (#1559/#1561) — already present in POM as
+`BranchRatingTimeSeriesParameter` (verified 2026-06-28; see DLR section below).
 
 **Workstream T tests:** ✅ new tests for #1573/#1612/#1622; ✅ `test_services_constructor` 2→16;
 ✅ `test_network_constructors` 1→11. ⏳ remaining (see Workstream T section): MBC equivalence subset +
@@ -148,12 +149,35 @@ Bugfixes and small features that landed in PSI after the fork and are not yet in
   `add_power_flow_data!` (currently `add_power_flow_data!(container, transmission_model, sys)` at
   `src/operation/build_problem.jl:157`). → `ext/PowerFlowsExt/pf_input_mapping.jl`. (Unblocks "reactive power on PTDFPowerModel" test.)
 
-**Large feature — Dynamic Line Ratings (DLR), SPLIT POM+IOM:**
-- **#1559 + #1561** — DLR entirely absent in both clones (distinct from the static
-  branch-rating-time-series feature POM already has). POM part: `DynamicBranchRatingTimeSeriesParameter`,
-  default `"dynamic_line_ratings"`, DLR network-reduction handling, `get_dynamic_branch_rating_min_max_limits`,
-  `get_equivalent_dynamic_branch_rating`. IOM part: generic param-type registration (see iom plan).
-  Substantial; scope as its own effort.
+**⏭️ Dynamic Line Ratings (DLR) — #1559 + #1561 — ALREADY PRESENT in POM (verified 2026-06-28).**
+The earlier "entirely absent" claim was stale. POM carries the full DLR feature, restructured under a
+more general name (it also serves the post-contingency case). PSI's `DynamicBranchRatingTimeSeriesParameter`
++ default TS `"dynamic_line_ratings"` map to POM's `BranchRatingTimeSeriesParameter` (opt-in, empty default).
+Verified by symbol against `origin/ac/sienna1-port` + the #1559/#1561 diffs:
+- Param types — `src/core/parameters.jl`: `AbstractBranchRatingTimeSeriesParameter`,
+  `BranchRatingTimeSeriesParameter`, `PostContingencyBranchRatingTimeSeriesParameter`.
+- Reduction-aware param sharing — `src/network_models/network_reductions.jl`: tracker `parameter_dict`,
+  `search_for_reduced_branch_parameter!`/`_argument!`, `get_branch_argument_parameter_axes`.
+- Irreducible buses — `src/network_models/instantiate_network_model.jl`:
+  `_get_irreducible_buses_due_to_monitored_components` + `irreducible_buses` threaded into
+  `PNM.Ybus`/`PNM.VirtualPTDF` (Radial/DegreeTwo reductions).
+- Param add + constraints — `src/common_models/add_parameters.jl` (`add_branch_parameters!`,
+  network-aware `_add_time_series_parameters!`) and `src/ac_transmission_models/AC_branches.jl`
+  (`_resolve_branch_multiplier`, `add_flow_rate_constraint_with_parameters!`); constructor path in
+  `src/ac_transmission_models/branch_constructor.jl`.
+- IOM: `set_parameter!(::ParameterContainer, ::JuMP.Model, ::JuMP.VariableRef, …)` overload present.
+- PNM `psy6` (resolved dep) already exposes `RadialReduction(; irreducible_buses=…)`,
+  `DegreeTwoReduction(; irreducible_buses=…)`, `get_equivalent_rating`, `get_device_with_time_series`,
+  `has_time_series` — no PNM bump needed.
+- Tests present — `test/test_network_constructors_with_branch_rating_time_series.jl` (9 testsets, a
+  superset of PSI's DLR testsets: VirtualPTDF, PTDF, `BranchesParallel` same/different types incl.
+  MonitoredLine, reductions, validation, DCP/ACP, CopperPlate no-op), `test/test_parallel_branch_parameter_multipliers.jl`,
+  helpers `test/test_utils/add_branch_rating_time_series.jl` + `add_components_to_system.jl`.
+- **Only un-ported PSI piece:** the recurrent-solve `_update_parameter_values!` reduced-ACTransmission
+  overload (PSI `update_container_parameter_values.jl`). POM doesn't implement
+  `update_container_parameter_values!` at all (IOM extension point used only by `emulation_model.jl`);
+  it serves Simulation/Emulation → **out of POM scope**. Single-shot `DecisionModel` build+solve sets
+  DLR params at build time and doesn't need it.
 
 **Verify (not symbol-pinned — diff-review before deciding):**
 - **#1509** (remove old N-1/G-1 code — arch diverged), **#1613** (network bugfixes), **#1619** (pnm/pf
@@ -213,4 +237,5 @@ is tracked in POM as the `branches_modeled` trait (already present).
 4. **Workstream G1** (#1617) — separate branch (out of scope here).
 5. 🟦 **Workstream C** — event framework descoped → IOM; `test_events.jl` blocked. MBC
    tranche/concavity already present.
-6. ⏳ **DLR (#1559/#1561)** and the **verify** items — scope separately.
+6. ⏭️ **DLR (#1559/#1561)** — already present in POM (verified 2026-06-28; see DLR section).
+   The **verify** items (#1509/#1613/#1619) — scope separately.
