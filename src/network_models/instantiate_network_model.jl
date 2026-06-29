@@ -38,7 +38,7 @@ end
 function _assign_subnetworks_to_buses(
     model::NetworkModel{T},
     sys::PSY.System,
-) where {T <: AbstractPTDFModel}
+) where {T <: AbstractPTDFNetworkModel}
     subnetworks = model.subnetworks
     temp_bus_map = Dict{Int, Int}()
     network_reduction = get_network_reduction(model)
@@ -95,6 +95,22 @@ end
 
 function _push_component_buses!(buses::Set{Int64}, device::PSY.StaticInjection)
     push!(buses, PSY.get_number(PSY.get_bus(device)))
+    return
+end
+
+function _push_component_buses!(buses::Set{Int64}, bus::PSY.ACBus)
+    PSY.get_available(bus) && push!(buses, PSY.get_number(bus))
+    return
+end
+
+# Unsupported monitored component types have no pinning rule. Warn and skip so this
+# PTDF-side protected set matches PNM's `VirtualMODF` collector
+# (`_accumulate_protected_buses!(::PSY.Component)`, which also warn-skips) instead of
+# MethodError-ing the build — keeping the two reductions reconcilable.
+function _push_component_buses!(::Set{Int64}, c::PSY.Component)
+    @warn "Outage-monitored component $(typeof(c)) ($(PSY.get_name(c))) has no " *
+          "reduction-protection rule; its bus will not be pinned and may be reduced away." maxlog =
+        5
     return
 end
 
@@ -387,11 +403,11 @@ function IOM.instantiate_network_model!(
 end
 
 #################################################################################
-# AreaBalancePowerModel
+# AreaBalanceNetworkModel
 #################################################################################
 
 function IOM.instantiate_network_model!(
-    model::NetworkModel{AreaBalancePowerModel},
+    model::NetworkModel{AreaBalanceNetworkModel},
     branch_models::BranchModelContainer,
     number_of_steps::Int,
     sys::PSY.System,
@@ -408,11 +424,11 @@ function IOM.instantiate_network_model!(
 end
 
 #################################################################################
-# CopperPlatePowerModel
+# CopperPlateNetworkModel
 #################################################################################
 
 function IOM.instantiate_network_model!(
-    model::NetworkModel{CopperPlatePowerModel},
+    model::NetworkModel{CopperPlateNetworkModel},
     branch_models::BranchModelContainer,
     number_of_steps::Int,
     sys::PSY.System,
@@ -435,11 +451,11 @@ function IOM.instantiate_network_model!(
 end
 
 #################################################################################
-# AbstractPTDFModel (PTDFPowerModel, AreaPTDFPowerModel)
+# AbstractPTDFNetworkModel (PTDFNetworkModel, AreaPTDFNetworkModel)
 #################################################################################
 
 function IOM.instantiate_network_model!(
-    model::NetworkModel{<:AbstractPTDFModel},
+    model::NetworkModel{<:AbstractPTDFNetworkModel},
     branch_models::BranchModelContainer,
     number_of_steps::Int,
     sys::PSY.System,
@@ -589,7 +605,7 @@ Returns `true` if a rebuild happened; throws if one pass fails to converge them,
 since mismatched reductions break the nodal-balance vs. MODF-column dimensions.
 """
 function _reconcile_ptdf_modf_reduction!(
-    model::NetworkModel{<:AbstractPTDFModel},
+    model::NetworkModel{<:AbstractPTDFNetworkModel},
     sys::PSY.System,
 )
     ptdf_nrd = PNM.get_network_reduction_data(model.PTDF_matrix)
@@ -637,7 +653,7 @@ end
 # Then drop outages on SC DeviceModels that PNM couldn't register on the MODF so
 # the post-contingency builder doesn't KeyError on them.
 function _maybe_build_modf_matrix!(
-    model::NetworkModel{<:AbstractPTDFModel},
+    model::NetworkModel{<:AbstractPTDFNetworkModel},
     branch_models::BranchModelContainer,
     sys::PSY.System,
     irreducible_buses::Vector{Int64},
