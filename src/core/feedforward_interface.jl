@@ -46,7 +46,10 @@ function add_feedforward_constraints!(
     return
 end
 
-# ---- Event arguments (ArgumentConstructStage) ----
+# ---- Event arguments / constraints (ArgumentConstructStage / ModelConstructStage) ----
+# Generic no-op fallbacks. Device/formulation/network combinations that model contingency
+# events override these with more-specific methods in `common_models/contingency_*.jl`;
+# devices without events fall through here (iterating `get_events` would be a no-op anyway).
 
 function add_event_arguments!(
     ::OptimizationContainer,
@@ -56,8 +59,6 @@ function add_event_arguments!(
 ) where {V <: PSY.Component}
     return
 end
-
-# ---- Event constraints (ModelConstructStage) ----
 
 function add_event_constraints!(
     ::OptimizationContainer,

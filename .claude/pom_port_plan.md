@@ -36,12 +36,23 @@ would double-scale; only the test is worth adding).
 VOM-normalization test, curtailment-incentive (#1614) test, services slack/feedforward/GroupReserve/
 AGC/hydro variants, PowerModels-nonlinear & whitebox-reduction network testsets.
 
-**Workstream C event framework:** 🟦 **descoped → IOM.** `EventModel`/`AbstractEventCondition`/
-`FixedForcedOutage`-projection/template-integration is generic lifecycle+template machinery (same
-layer as `DeviceModel`/`ServiceModel`/`ProblemTemplate`), POM already owns its share (event
-parameter/constraint types + per-formulation `add_event_*!` hooks), and it isn't on PSI `main`.
-`test_events.jl` is consequently blocked → not on this branch. Track in `iom_port_plan.md`.
+**Workstream C event framework:** ✅ **build-time framework now in POM** (decision reversed: the
+earlier "descope → IOM" was wrong — `EventModel{<:PSY.Contingency,…}`/`EventKey` are
+PowerSystems-specific, so they belong in POM). Ported `EventModel` + the 4 `AbstractEventCondition`
+types, `EventKey`, the real `add_event_arguments!`/`add_event_constraints!` builders, the
+`EventParameter` parameter path, and offset→balance `add_to_expression!`. Storage hook: a generic
+`events::Dict{AbstractEventKey,AbstractEventModel}` field + `get_events`/`set_event_model!` added to
+**IOM**'s `DeviceModel` (mirrors `feedforwards`/`outages`); `get_max_active_power` IOM stub now
+implemented in POM. New `test/test_events.jl` is **build/solve-level** (PSI's is Simulation-driven and
+does not port): thermal/renewable/load × CopperPlate/DCP/ACP, plus a behavioral `AvailableStatusParameter→0`
+forces-dispatch-to-zero test. **Simulation-time event evaluation** (`simulation_events.jl`,
+`recorder_events.jl`) and PSI's `test_events.jl` remain out of scope (no Simulation in POM).
 MBC tranche-count & concavity validation: ⏭️ already present (not blockers).
+
+> Dev note: the `DeviceModel.events` field lives in IOM branch `ac/sienna1-port` (commit `d1e189a`,
+> on top of the dual-mip-rounding commits). POM's IOM `[sources]` pin (both `Project.toml` and
+> `test/Project.toml`) is set to `rev = "ac/sienna1-port"` until that IOM change merges to `main`;
+> revert to `rev = "main"` then.
 
 **Extra src fixes (beyond the PR list) to enable TransmissionInterface test coverage:**
 - ✅ `core/problem_template.jl`: uncommented `_modify_device_model!` no-ops for
