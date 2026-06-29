@@ -18,6 +18,52 @@ Companion file: `iom_port_plan.md` (generic optimization-core changes → Infras
 
 ---
 
+## Progress — branch `ac/sienna1-port` (updated 2026-06-28)
+
+Committed (`2b74e93`, pushed): 18 files. **Full suite: 23,695 pass, exit 0** (was 19,875 pre-work).
+Status legend: ✅ done · ⏭️ already correct in POM (no change) · 🟦 descoped/routed elsewhere · ⏳ deferred.
+
+**Workstream M bugfixes:** ✅ #1519, ✅ #1527, ✅ #1587 · ⏭️ #1508 (already fixed),
+⏭️ #1535 (VOM already `dt`-scaled via `IOM.add_proportional_cost_invariant!` — porting PSI's fix
+would double-scale; only the test is worth adding).
+
+**Workstream M features:** ✅ #1549, ✅ #1573, ✅ #1538, ✅ #1605, ✅ #1622, ✅ #1612 ·
+⏭️ #1614 & #1566 (already present). ⏳ DLR (#1559/#1561) untouched (scope separately).
+
+**Workstream T tests:** ✅ new tests for #1573/#1612/#1622; ✅ `test_services_constructor` 2→16;
+✅ `test_network_constructors` 1→11. ⏳ remaining (see Workstream T section): MBC equivalence subset +
+VOM-normalization test, curtailment-incentive (#1614) test, services slack/feedforward/GroupReserve/
+AGC/hydro variants, PowerModels-nonlinear & whitebox-reduction network testsets.
+
+**Workstream C event framework:** 🟦 **descoped → IOM.** `EventModel`/`AbstractEventCondition`/
+`FixedForcedOutage`-projection/template-integration is generic lifecycle+template machinery (same
+layer as `DeviceModel`/`ServiceModel`/`ProblemTemplate`), POM already owns its share (event
+parameter/constraint types + per-formulation `add_event_*!` hooks), and it isn't on PSI `main`.
+`test_events.jl` is consequently blocked → not on this branch. Track in `iom_port_plan.md`.
+MBC tranche-count & concavity validation: ⏭️ already present (not blockers).
+
+**Extra src fixes (beyond the PR list) to enable TransmissionInterface test coverage:**
+- ✅ `core/problem_template.jl`: uncommented `_modify_device_model!` no-ops for
+  `ServiceModel{TransmissionInterface, ConstantMaxInterfaceFlow/VariableMaxInterfaceFlow}` (the
+  "define in PSI" note was stale — both are fully defined+exported in POM).
+- ✅ `common_models/add_to_expression.jl`: widened `_is_interchanges_interfaces(::Dict)` (the narrow
+  `Dict{Type{<:PSY.Component},…}` `MethodError`ed via `Dict` invariance vs the runtime
+  `IS.InfrastructureSystemsComponent`-keyed map).
+
+**Known src gaps surfaced (left for a later pass / IOM):**
+- TransmissionInterface `use_slacks=true` build FAILS: no `add_variable_container!(…,
+  InterfaceFlowSlackUp, TransmissionInterface, ::String, ::UnitRange)` method (IOM container-builder).
+- GroupReserve: `_populate_contributing_devices!` errors on `ConstantReserveGroup` (members are
+  services, not devices) — real feature gap.
+- Concrete feedforward types (`LowerBoundFeedforward`, `FixValueFeedforward`, …) absent in POM/IOM.
+
+**Test-port convention (PSI→POM):** dropped brittle exact `moi_tests` counts (PSI formulation
+fingerprints differ post-split) for build/solve/objective/constraint-size/behavioral assertions;
+`OptimizationProblemOutputs`, `IOM.ModelBuildStatus`/`RunStatus`, `evaluations =
+power_flow_evaluations(...)`, `PSY.SU` on getters.
+
+---
+
 ## Workstream G1 — in-progress generator contingency (PSI **open PR #1617**) — TIME-SENSITIVE
 PR #1617 (`sm/g-1_monitored_c`, OPEN, not draft, `mergeable_state=blocked` on review; author
 SebastianManriqueM) adds the **reserve/service-side** security-constrained contingency layer.
@@ -159,11 +205,12 @@ is tracked in POM as the `branches_modeled` trait (already present).
 
 ---
 
-## Suggested execution order
-1. **Workstream T (1a services, 1b network)** — pure test ports, existing code, biggest coverage win.
-2. **Workstream M bugfixes** (#1519, #1527, #1535, #1587, #1508) — small, unblock MBC/network tests.
-3. **Workstream M small features** (#1549, #1573, #1538, #1614, #1605, #1622, #1566, #1612) — then
-   port the PF-Source / MBC / curtailment tests they unblock.
-4. **Workstream G1** (#1617) — track upstream merge; port reserve/service SC layer + its test file.
-5. **Workstream C** — event framework → test_events.jl; MBC tranche/concavity → remaining MBC tests.
-6. **DLR (#1559/#1561)** and the **verify** items — scope separately.
+## Suggested execution order  (see Progress block at top for actual status)
+1. ✅ **Workstream M bugfixes** (#1519, #1527, #1587; #1508/#1535 already correct).
+2. ✅ **Workstream M small features** (#1549, #1573, #1538, #1605, #1622, #1612; #1614/#1566 present).
+3. ✅ **Workstream T (partial)** — services 2→16, network 1→11, + PF-source/FixedOutput tests.
+   ⏳ remaining: MBC equivalence/VOM/curtailment tests + the deferred services/network variants.
+4. **Workstream G1** (#1617) — separate branch (out of scope here).
+5. 🟦 **Workstream C** — event framework descoped → IOM; `test_events.jl` blocked. MBC
+   tranche/concavity already present.
+6. ⏳ **DLR (#1559/#1561)** and the **verify** items — scope separately.
