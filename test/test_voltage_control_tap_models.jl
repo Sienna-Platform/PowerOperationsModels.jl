@@ -315,3 +315,38 @@ end
           IOM.ModelBuildStatus.FAILED
     @test !haskey(get_branch_models(get_template(model)), :TapTransformer)
 end
+
+@testset "ACP rejects two voltage regulators on one bus" begin
+    # Two TapTransformers both set to VOLTAGE control regulating bus 9. Under ACP each
+    # pins the shared network VoltageMagnitude via JuMP.fix(force=true), so the second
+    # silently overrides the first. validate_template! must reject this. (build!
+    # swallows the throw into FAILED, so assert against validate_template directly.)
+    sys = PSB.build_system(PSITestSystems, "c_sys14")
+    for nm in ("Trans1", "Trans2")
+        tr = PSY.get_component(PSY.TapTransformer, sys, nm)
+        PSY.set_control_objective!(tr, PSY.TransformerControlObjective.VOLTAGE)
+        PSY.set_regulated_bus_number!(tr, 9)
+        PSY.set_voltage_setpoint!(tr, 1.0)
+    end
+    template = get_thermal_dispatch_template_network(NetworkModel(ACPNetworkModel))
+    set_device_model!(template, PSY.TapTransformer, VoltageControlTap)
+    model = DecisionModel(template, sys; optimizer = ipopt_optimizer)
+    @test_throws IS.ConflictingInputsError POM.validate_template(model)
+end
+
+@testset "ACR does not validation-reject two regulators on one bus" begin
+    # Under ACR each regulator owns a (component, tag) RegulatedVoltageMagnitude aux
+    # variable tied by vm_reg^2 == vr^2 + vi^2, so the conflict is solver-infeasibility,
+    # not a validation error. validate_template must NOT throw.
+    sys = PSB.build_system(PSITestSystems, "c_sys14")
+    for nm in ("Trans1", "Trans2")
+        tr = PSY.get_component(PSY.TapTransformer, sys, nm)
+        PSY.set_control_objective!(tr, PSY.TransformerControlObjective.VOLTAGE)
+        PSY.set_regulated_bus_number!(tr, 9)
+        PSY.set_voltage_setpoint!(tr, 1.0)
+    end
+    template = get_thermal_dispatch_template_network(NetworkModel(ACRNetworkModel))
+    set_device_model!(template, PSY.TapTransformer, VoltageControlTap)
+    model = DecisionModel(template, sys; optimizer = ipopt_optimizer)
+    @test POM.validate_template(model) === nothing
+end
