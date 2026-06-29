@@ -51,6 +51,23 @@ The specified constraint is generally formulated as:
 struct CopperPlateBalanceConstraint <: ConstraintType end
 
 """
+Coupling constraint linking a controllable shunt's reactive injection to its
+[`ShuntSusceptanceVariable`](@ref) and the local bus voltage. Used by
+[`ShuntSusceptanceDispatch`](@ref) under all AC network models (ACP/ACR/IVR):
+
+```math
+Q_{d,t} = b_{d,t} \\cdot V_{n(d),t}^2,
+\\quad \\forall d \\in \\mathcal{D},\\, t \\in \\{1,\\dots,T\\}
+```
+
+Under ACP, ``V^2 = v_{n(d),t}^2`` (scalar magnitude squared); under ACR/IVR,
+``V^2 = v_{r,n(d),t}^2 + v_{i,n(d),t}^2`` (rectangular components). The constraint is
+always created regardless of control mode; the voltage-control objective is applied
+separately via a `JuMP.fix` on the regulated bus magnitude.
+"""
+struct ShuntReactivePowerConstraint <: ConstraintType end
+
+"""
 Struct to create the duration constraint for commitment formulations, i.e. min-up and min-down.
 
 For more information check [ThermalGen Formulations](@ref ThermalGen-Formulations).
@@ -160,6 +177,7 @@ f_t = \\sum_{i=1}^N \\text{PTDF}_{i,b} \\cdot \\text{Bal}_{i,t}, \\quad \\forall
 ```
 """
 struct NetworkFlowConstraint <: ConstraintType end
+struct NetworkLossConstraint <: ConstraintType end
 """
 Struct to create the constraint to balance active power in nodal formulation.
 For more information check [Network Formulations](@ref network_formulations).
@@ -176,8 +194,30 @@ The specified constraint depends on the network model chosen.
 struct NodalBalanceReactiveConstraint <: ConstraintType end
 """Pins the voltage angle (and, for ACP, voltage magnitude) of a subnetwork's reference (slack) bus."""
 struct ReferenceBusConstraint <: ConstraintType end
+"""Rectangular-coordinate voltage magnitude bounds: vmin² ≤ vr² + vi² ≤ vmax²."""
+struct VoltageMagnitudeConstraint <: ConstraintType end
+"""
+Ties a component-owned [`RegulatedVoltageMagnitude`](@ref) auxiliary variable to the
+rectangular voltage components at its regulated bus under ACR/IVR formulations. One
+entry per regulating device per time step:
+
+```math
+(v^{\\text{reg}}_{d,t})^2 = v_{r,n(d),t}^2 + v_{i,n(d),t}^2,
+\\quad \\forall d \\in \\mathcal{D},\\, t \\in \\{1,\\dots,T\\}
+```
+
+Created by [`VoltageControlTap`](@ref), [`VoltageControlVSC`](@ref), and
+[`VoltageControlConverter`](@ref) (and [`ShuntSusceptanceDispatch`](@ref) for
+`FACTSControlDevice`). Under ACP the network [`VoltageMagnitude`](@ref) is a scalar
+primitive, so neither this constraint nor [`RegulatedVoltageMagnitude`](@ref) is added.
+"""
+struct RegulatedVoltageMagnitudeConstraint <: ConstraintType end
+"""IVR terminal-current apparent-power limit: cr² + ci² ≤ c_rating² where c_rating = rate_a / vmin."""
+struct CurrentLimitConstraint <: ConstraintType end
 """Branch voltage-angle-difference limits: angmin ≤ va_fr - va_to ≤ angmax."""
 struct AngleDifferenceConstraint <: ConstraintType end
+"""LPAC convex cosine relaxation: cs ≤ 1 - (1-cos(vad_max))/vad_max² · (va_fr - va_to)²."""
+struct CosineRelaxationConstraint <: ConstraintType end
 struct ParticipationAssignmentConstraint <: ConstraintType end
 """
 Struct to create the constraint to participation assignments limits in the active power reserves.
@@ -453,6 +493,32 @@ S_k^{\\max}`` for ``k \\in \\{f, t\\}`` via one of two shapes, selected by the
 """
 struct HVDCVSCApparentPowerLimitConstraint <: ConstraintType end
 
+"""
+DC-terminal active-power control constraint for [`VoltageControlVSC`](@ref) and
+[`VoltageControlConverter`](@ref) devices. Exactly one constraint entry per terminal per
+time step is always created (count-invariant across control modes); only the coefficients
+differ by mode:
+
+- `DC_VOLTAGE` (terminal DC voltage regulation):
+  ```math
+  v_{dc,t} = \\text{setpoint}
+  ```
+- `DC_POWER` (active-power setpoint):
+  ```math
+  p_t = \\text{setpoint}
+  ```
+- `DC_VOLTAGE_DROOP` (droop control):
+  ```math
+  v_{dc,t} + \\text{droop\\_gain} \\cdot p_t = \\text{setpoint}
+  ```
+
+Constraint containers use `meta = "from"` and `meta = "to"` to distinguish the two
+per-terminal entries for two-terminal links. Only valid under AC network models;
+`VoltageControlVSC` and `VoltageControlConverter` are dropped from DC templates
+automatically via `models_reactive_power`.
+"""
+struct HVDCDCControlConstraint <: ConstraintType end
+
 abstract type PowerVariableLimitsConstraint <: ConstraintType end
 """
 Struct to create the constraint to limit active power input expressions.
@@ -593,6 +659,22 @@ The specified constraints are formulated as:
 ```
 """
 struct ConverterLossConstraint <: ConstraintType end
+
+"""
+Apparent-power capability disk for an `InterconnectingConverter` under an AC network model:
+``p^2 + q^2 \\le \\text{rating}^2``, with `p` the converter `ActivePowerVariable` and `q` the
+converter `ReactivePowerVariable`. One entry per converter per time step.
+"""
+struct ConverterPowerCapabilityConstraint <: ConstraintType end
+
+"""
+Defining constraint for the AC apparent current of a converter under an AC network
+model: ``I_{ac}^2 \\, V_{ac}^2 = p^2 + q^2``, where ``V_{ac}^2`` is the AC bus
+voltage magnitude squared (``v_m^2`` under ACP, ``v_r^2 + v_i^2`` under ACR/IVR),
+`p` the terminal/converter AC active flow and `q` the reactive injection. One entry
+per terminal/converter per time step.
+"""
+struct ConverterACCurrentConstraint <: ConstraintType end
 
 """
 Struct to create the constraints that set the absolute value for the current to use in losses through a lossy Interconnecting Power Converter.
