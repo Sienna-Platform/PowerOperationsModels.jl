@@ -192,7 +192,7 @@ end
 function _onvar_cost(container::OptimizationContainer, cost_function::Union{PSY.FuelCurve{PSY.LinearCurve}, PSY.FuelCurve{PSY.QuadraticCurve}}, d::T, t::Int) where {T <: PSY.ThermalGen}
     value_curve = PSY.get_value_curve(cost_function)
     cost_component = PSY.get_function_data(value_curve)
-    # In Unit/h
+    # Cost at zero output (y-intercept), in Unit/h.
     constant_term = PSY.get_constant_term(cost_component)
     fuel_cost = PSY.get_fuel_cost(cost_function)
     if typeof(fuel_cost) <: Float64
