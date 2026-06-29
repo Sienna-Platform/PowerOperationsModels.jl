@@ -6,11 +6,11 @@ function construct_device!(
     ::ArgumentConstructStage,
     ::DeviceModel{T, StaticBranch},
     ::Union{
-        NetworkModel{CopperPlatePowerModel},
-        NetworkModel{AreaBalancePowerModel},
+        NetworkModel{CopperPlateNetworkModel},
+        NetworkModel{AreaBalanceNetworkModel},
     },
 ) where {T <: PSY.ACTransmission}
-    @debug "No argument construction needed for CopperPlatePowerModel or AreaBalancePowerModel and DeviceModel{$T, StaticBranch}" _group =
+    @debug "No argument construction needed for CopperPlateNetworkModel or AreaBalanceNetworkModel and DeviceModel{$T, StaticBranch}" _group =
         LOG_GROUP_BRANCH_CONSTRUCTIONS
     return
 end
@@ -21,11 +21,11 @@ function construct_device!(
     ::ModelConstructStage,
     ::DeviceModel{T, StaticBranch},
     ::Union{
-        NetworkModel{CopperPlatePowerModel},
-        NetworkModel{AreaBalancePowerModel},
+        NetworkModel{CopperPlateNetworkModel},
+        NetworkModel{AreaBalanceNetworkModel},
     },
 ) where {T <: PSY.ACTransmission}
-    @debug "No model construction needed for CopperPlatePowerModel or AreaBalancePowerModel and DeviceModel{$T, StaticBranch}" _group =
+    @debug "No model construction needed for CopperPlateNetworkModel or AreaBalanceNetworkModel and DeviceModel{$T, StaticBranch}" _group =
         LOG_GROUP_BRANCH_CONSTRUCTIONS
     return
 end
@@ -36,11 +36,11 @@ function construct_device!(
     ::ArgumentConstructStage,
     ::DeviceModel{T, StaticBranchBounds},
     ::Union{
-        NetworkModel{CopperPlatePowerModel},
-        NetworkModel{AreaBalancePowerModel},
+        NetworkModel{CopperPlateNetworkModel},
+        NetworkModel{AreaBalanceNetworkModel},
     },
 ) where {T <: PSY.ACTransmission}
-    @debug "No argument construction needed for CopperPlatePowerModel or AreaBalancePowerModel and DeviceModel{$T, StaticBranchBounds}" _group =
+    @debug "No argument construction needed for CopperPlateNetworkModel or AreaBalanceNetworkModel and DeviceModel{$T, StaticBranchBounds}" _group =
         LOG_GROUP_BRANCH_CONSTRUCTIONS
     return
 end
@@ -51,11 +51,11 @@ function construct_device!(
     ::ModelConstructStage,
     ::DeviceModel{T, StaticBranchBounds},
     ::Union{
-        NetworkModel{CopperPlatePowerModel},
-        NetworkModel{AreaBalancePowerModel},
+        NetworkModel{CopperPlateNetworkModel},
+        NetworkModel{AreaBalanceNetworkModel},
     },
 ) where {T <: PSY.ACTransmission}
-    @debug "No model construction needed for CopperPlatePowerModel or AreaBalancePowerModel and DeviceModel{$T, StaticBranchBounds}" _group =
+    @debug "No model construction needed for CopperPlateNetworkModel or AreaBalanceNetworkModel and DeviceModel{$T, StaticBranchBounds}" _group =
         LOG_GROUP_BRANCH_CONSTRUCTIONS
     return
 end
@@ -127,7 +127,7 @@ function construct_device!(
     sys::PSY.System,
     ::ArgumentConstructStage,
     device_model::DeviceModel{T, StaticBranch},
-    network_model::NetworkModel{<:AbstractPTDFModel},
+    network_model::NetworkModel{<:AbstractPTDFNetworkModel},
 ) where {T <: PSY.ACTransmission}
     devices = get_available_components(device_model, sys)
     if get_use_slacks(device_model)
@@ -177,7 +177,7 @@ function construct_device!(
     sys::PSY.System,
     ::ModelConstructStage,
     device_model::DeviceModel{T, StaticBranch},
-    network_model::NetworkModel{<:AbstractPTDFModel},
+    network_model::NetworkModel{<:AbstractPTDFNetworkModel},
 ) where {T <: PSY.ACTransmission}
     devices = get_available_components(device_model, sys)
 
@@ -192,7 +192,7 @@ function construct_device!(
 
     add_constraints!(container, FlowRateConstraint, devices, device_model, network_model)
     add_feedforward_constraints!(container, device_model, devices)
-    add_to_objective_function!(container, devices, device_model, PTDFPowerModel)
+    add_to_objective_function!(container, devices, device_model, PTDFNetworkModel)
     add_constraint_dual!(container, sys, device_model)
     return
 end
@@ -202,7 +202,7 @@ function construct_device!(
     sys::PSY.System,
     ::ArgumentConstructStage,
     device_model::DeviceModel{T, StaticBranchBounds},
-    network_model::NetworkModel{<:AbstractPTDFModel},
+    network_model::NetworkModel{<:AbstractPTDFNetworkModel},
 ) where {T <: PSY.ACTransmission}
     devices = get_available_components(device_model, sys)
 
@@ -240,7 +240,7 @@ function construct_device!(
     sys::PSY.System,
     ::ModelConstructStage,
     device_model::DeviceModel{T, StaticBranchBounds},
-    network_model::NetworkModel{<:AbstractPTDFModel},
+    network_model::NetworkModel{<:AbstractPTDFNetworkModel},
 ) where {T <: PSY.ACTransmission}
     devices = get_available_components(device_model, sys)
     # The order of these methods is important. The add_expressions! must be before the constraints
@@ -255,7 +255,7 @@ function construct_device!(
     branch_rate_bounds!(container, device_model, network_model)
     add_constraints!(container, NetworkFlowConstraint, devices, device_model, network_model)
     add_feedforward_constraints!(container, device_model, devices)
-    add_to_objective_function!(container, devices, device_model, PTDFPowerModel)
+    add_to_objective_function!(container, devices, device_model, PTDFNetworkModel)
     add_constraint_dual!(container, sys, device_model)
     return
 end
@@ -265,7 +265,7 @@ function construct_device!(
     sys::PSY.System,
     ::ArgumentConstructStage,
     device_model::DeviceModel{T, StaticBranchUnbounded},
-    network_model::NetworkModel{<:AbstractPTDFModel},
+    network_model::NetworkModel{<:AbstractPTDFNetworkModel},
 ) where {T <: PSY.ACTransmission}
     devices = get_available_components(device_model, sys)
     add_feedforward_arguments!(container, device_model, devices)
@@ -277,7 +277,7 @@ function construct_device!(
     sys::PSY.System,
     ::ModelConstructStage,
     device_model::DeviceModel{T, StaticBranchUnbounded},
-    network_model::NetworkModel{<:AbstractPTDFModel},
+    network_model::NetworkModel{<:AbstractPTDFNetworkModel},
 ) where {T <: PSY.ACTransmission}
     devices = get_available_components(device_model, sys)
     # The order of these methods is important. The add_expressions! must be before the constraints
@@ -411,7 +411,7 @@ function construct_device!(
     sys::PSY.System,
     ::ArgumentConstructStage,
     device_model::DeviceModel{T, HVDCTwoTerminalLossless},
-    network_model::NetworkModel{CopperPlatePowerModel},
+    network_model::NetworkModel{CopperPlateNetworkModel},
 ) where {T <: PSY.TwoTerminalHVDC}
     if has_subnetworks(network_model)
         devices = get_available_components(device_model, sys)
@@ -440,7 +440,7 @@ function construct_device!(
     sys::PSY.System,
     ::ModelConstructStage,
     device_model::DeviceModel{T, HVDCTwoTerminalLossless},
-    network_model::NetworkModel{CopperPlatePowerModel},
+    network_model::NetworkModel{CopperPlateNetworkModel},
 ) where {T <: PSY.TwoTerminalHVDC}
     if has_subnetworks(network_model)
         devices =
@@ -488,7 +488,7 @@ function construct_device!(
     sys::PSY.System,
     ::ArgumentConstructStage,
     device_model::DeviceModel{T, HVDCTwoTerminalUnbounded},
-    network_model::NetworkModel{CopperPlatePowerModel},
+    network_model::NetworkModel{CopperPlateNetworkModel},
 ) where {T <: PSY.TwoTerminalHVDC}
     devices = get_available_components(device_model, sys)
     add_variables!(container, FlowActivePowerVariable, devices, HVDCTwoTerminalUnbounded)
@@ -509,7 +509,7 @@ function construct_device!(
     sys::PSY.System,
     ::ModelConstructStage,
     device_model::DeviceModel{<:PSY.TwoTerminalHVDC, HVDCTwoTerminalUnbounded},
-    ::NetworkModel{CopperPlatePowerModel},
+    ::NetworkModel{CopperPlateNetworkModel},
 )
     devices = get_available_components(device_model, sys)
     add_constraint_dual!(container, sys, device_model)
@@ -522,9 +522,9 @@ function construct_device!(
     sys::PSY.System,
     ::ArgumentConstructStage,
     device_model::DeviceModel{T, HVDCTwoTerminalDispatch},
-    ::NetworkModel{AreaBalancePowerModel},
+    ::NetworkModel{AreaBalanceNetworkModel},
 ) where {T <: PSY.TwoTerminalHVDC}
-    @warn "AreaBalancePowerModel doesn't model individual line flows for $T. Arguments not built"
+    @warn "AreaBalanceNetworkModel doesn't model individual line flows for $T. Arguments not built"
     return
 end
 
@@ -533,9 +533,9 @@ function construct_device!(
     sys::PSY.System,
     ::ModelConstructStage,
     device_model::DeviceModel{T, HVDCTwoTerminalDispatch},
-    ::NetworkModel{AreaBalancePowerModel},
+    ::NetworkModel{AreaBalanceNetworkModel},
 ) where {T <: PSY.TwoTerminalHVDC}
-    @warn "AreaBalancePowerModel doesn't model individual line flows for $T. Model not built"
+    @warn "AreaBalanceNetworkModel doesn't model individual line flows for $T. Model not built"
     return
 end
 
@@ -545,9 +545,9 @@ function construct_device!(
     sys::PSY.System,
     ::ArgumentConstructStage,
     device_model::DeviceModel{T, HVDCTwoTerminalUnbounded},
-    ::NetworkModel{AreaBalancePowerModel},
+    ::NetworkModel{AreaBalanceNetworkModel},
 ) where {T <: PSY.TwoTerminalHVDC}
-    @warn "AreaBalancePowerModel doesn't model individual line flows for $T. Arguments not built"
+    @warn "AreaBalanceNetworkModel doesn't model individual line flows for $T. Arguments not built"
     return
 end
 
@@ -556,9 +556,9 @@ function construct_device!(
     sys::PSY.System,
     ::ModelConstructStage,
     device_model::DeviceModel{T, HVDCTwoTerminalUnbounded},
-    ::NetworkModel{AreaBalancePowerModel},
+    ::NetworkModel{AreaBalanceNetworkModel},
 ) where {T <: PSY.TwoTerminalHVDC}
-    @warn "AreaBalancePowerModel doesn't model individual line flows for $T. Model not built"
+    @warn "AreaBalanceNetworkModel doesn't model individual line flows for $T. Model not built"
     return
 end
 
@@ -568,9 +568,9 @@ function construct_device!(
     sys::PSY.System,
     ::ArgumentConstructStage,
     device_model::DeviceModel{T, HVDCTwoTerminalLossless},
-    ::NetworkModel{AreaBalancePowerModel},
+    ::NetworkModel{AreaBalanceNetworkModel},
 ) where {T <: PSY.TwoTerminalHVDC}
-    @warn "AreaBalancePowerModel doesn't model individual line flows for $T. Arguments not built"
+    @warn "AreaBalanceNetworkModel doesn't model individual line flows for $T. Arguments not built"
     return
 end
 
@@ -579,9 +579,9 @@ function construct_device!(
     sys::PSY.System,
     ::ModelConstructStage,
     device_model::DeviceModel{T, HVDCTwoTerminalLossless},
-    ::NetworkModel{AreaBalancePowerModel},
+    ::NetworkModel{AreaBalanceNetworkModel},
 ) where {T <: PSY.TwoTerminalHVDC}
-    @warn "AreaBalancePowerModel doesn't model individual line flows for $T. Model not built"
+    @warn "AreaBalanceNetworkModel doesn't model individual line flows for $T. Model not built"
     return
 end
 
@@ -591,7 +591,7 @@ function construct_device!(
     sys::PSY.System,
     ::ArgumentConstructStage,
     device_model::DeviceModel{T, HVDCTwoTerminalUnbounded},
-    network_model::NetworkModel{<:AbstractPTDFModel},
+    network_model::NetworkModel{<:AbstractPTDFNetworkModel},
 ) where {T <: PSY.TwoTerminalHVDC}
     devices = get_available_components(device_model, sys)
     add_variables!(container, FlowActivePowerVariable, devices, HVDCTwoTerminalUnbounded)
@@ -613,7 +613,7 @@ function construct_device!(
     sys::PSY.System,
     ::ModelConstructStage,
     device_model::DeviceModel{<:PSY.TwoTerminalHVDC, HVDCTwoTerminalUnbounded},
-    network_model::NetworkModel{<:AbstractPTDFModel},
+    network_model::NetworkModel{<:AbstractPTDFNetworkModel},
 )
     devices = get_available_components(device_model, sys)
     add_constraint_dual!(container, sys, device_model)
@@ -653,7 +653,7 @@ function construct_device!(
     sys::PSY.System,
     ::ArgumentConstructStage,
     device_model::DeviceModel{T, HVDCTwoTerminalLossless},
-    network_model::NetworkModel{<:AbstractPTDFModel},
+    network_model::NetworkModel{<:AbstractPTDFNetworkModel},
 ) where {T <: PSY.TwoTerminalHVDC}
     devices = get_available_components(device_model, sys)
     add_variables!(container, FlowActivePowerVariable, devices, HVDCTwoTerminalLossless)
@@ -675,7 +675,7 @@ function construct_device!(
     sys::PSY.System,
     ::ModelConstructStage,
     device_model::DeviceModel{T, HVDCTwoTerminalLossless},
-    network_model::NetworkModel{PTDFPowerModel},
+    network_model::NetworkModel{PTDFNetworkModel},
 ) where {
     T <: PSY.TwoTerminalHVDC,
 }
@@ -691,7 +691,7 @@ function construct_device!(
     sys::PSY.System,
     ::ArgumentConstructStage,
     device_model::DeviceModel{T, HVDCTwoTerminalDispatch},
-    network_model::NetworkModel{<:AbstractPTDFModel},
+    network_model::NetworkModel{<:AbstractPTDFNetworkModel},
 ) where {T <: PSY.TwoTerminalHVDC}
     devices = get_available_components(device_model, sys)
     add_variables!(
@@ -741,7 +741,7 @@ function construct_device!(
     sys::PSY.System,
     ::ModelConstructStage,
     device_model::DeviceModel{T, HVDCTwoTerminalDispatch},
-    network_model::NetworkModel{<:AbstractPTDFModel},
+    network_model::NetworkModel{<:AbstractPTDFNetworkModel},
 ) where {T <: PSY.TwoTerminalHVDC}
     devices = get_available_components(device_model, sys)
     add_constraints!(
@@ -811,10 +811,10 @@ function construct_device!(
     sys::PSY.System,
     ::ModelConstructStage,
     device_model::DeviceModel{T, HVDCTwoTerminalDispatch},
-    network_model::NetworkModel{CopperPlatePowerModel},
+    network_model::NetworkModel{CopperPlateNetworkModel},
 ) where {T <: PSY.TwoTerminalHVDC}
     devices = get_available_components(device_model, sys)
-    @warn "CopperPlatePowerModel models with HVDC ignores inter-area losses"
+    @warn "CopperPlateNetworkModel models with HVDC ignores inter-area losses"
     add_constraints!(
         container,
         FlowRateConstraintFromTo,
@@ -839,7 +839,7 @@ function construct_device!(
     sys::PSY.System,
     ::ArgumentConstructStage,
     device_model::DeviceModel{T, U},
-    network_model::NetworkModel{<:AbstractPTDFModel},
+    network_model::NetworkModel{<:AbstractPTDFNetworkModel},
 ) where {
     T <: PSY.TwoTerminalHVDC,
     U <: HVDCTwoTerminalPiecewiseLoss,
@@ -883,7 +883,7 @@ function construct_device!(
     sys::PSY.System,
     ::ModelConstructStage,
     device_model::DeviceModel{T, U},
-    network_model::NetworkModel{<:AbstractPTDFModel},
+    network_model::NetworkModel{<:AbstractPTDFNetworkModel},
 ) where {
     T <: PSY.TwoTerminalHVDC,
     U <: HVDCTwoTerminalPiecewiseLoss,
@@ -963,11 +963,11 @@ function construct_device!(
     sys::PSY.System,
     ::ModelConstructStage,
     model::DeviceModel{T, HVDCTwoTerminalPiecewiseLoss},
-    network_model::NetworkModel{CopperPlatePowerModel},
+    network_model::NetworkModel{CopperPlateNetworkModel},
 ) where {T <: PSY.TwoTerminalHVDC}
     devices =
         get_available_components(model, sys)
-    @warn "CopperPlatePowerModel models with HVDC ignores inter-area losses"
+    @warn "CopperPlateNetworkModel models with HVDC ignores inter-area losses"
     add_constraints!(container, FlowRateConstraintFromTo, devices, model, network_model)
     add_constraints!(container, FlowRateConstraintToFrom, devices, model, network_model)
     add_constraint_dual!(container, sys, model)
@@ -1010,7 +1010,7 @@ function construct_device!(
     sys::PSY.System,
     ::ArgumentConstructStage,
     device_model::DeviceModel{T, HVDCTwoTerminalLCC},
-    network_model::NetworkModel{<:ACPPowerModel},
+    network_model::NetworkModel{<:ACPNetworkModel},
 ) where {T <: PSY.TwoTerminalLCCLine}
     devices = get_available_components(device_model, sys)
 
@@ -1161,7 +1161,7 @@ function construct_device!(
     sys::PSY.System,
     ::ModelConstructStage,
     device_model::DeviceModel{T, HVDCTwoTerminalLCC},
-    network_model::NetworkModel{<:ACPPowerModel},
+    network_model::NetworkModel{<:ACPNetworkModel},
 ) where {T <: PSY.TwoTerminalLCCLine}
     devices = get_available_components(device_model, sys)
     add_constraints!(
@@ -1251,7 +1251,7 @@ function construct_device!(
     sys::PSY.System,
     ::ArgumentConstructStage,
     device_model::DeviceModel{PSY.PhaseShiftingTransformer, PhaseAngleControl},
-    network_model::NetworkModel{DCPPowerModel},
+    network_model::NetworkModel{DCPNetworkModel},
 )
     devices = get_available_components(device_model, sys)
     add_variables!(container, FlowActivePowerVariable, devices, PhaseAngleControl)
@@ -1273,7 +1273,7 @@ function construct_device!(
     sys::PSY.System,
     ::ArgumentConstructStage,
     device_model::DeviceModel{PSY.PhaseShiftingTransformer, PhaseAngleControl},
-    network_model::NetworkModel{<:AbstractPTDFModel},
+    network_model::NetworkModel{<:AbstractPTDFNetworkModel},
 )
     devices = get_available_components(device_model, sys)
     add_variables!(container, FlowActivePowerVariable, devices, PhaseAngleControl)
@@ -1295,7 +1295,7 @@ function construct_device!(
     sys::PSY.System,
     ::ModelConstructStage,
     device_model::DeviceModel{PSY.PhaseShiftingTransformer, PhaseAngleControl},
-    network_model::NetworkModel{DCPPowerModel},
+    network_model::NetworkModel{DCPNetworkModel},
 )
     devices = get_available_components(device_model, sys)
     add_constraints!(container, FlowLimitConstraint, devices, device_model, network_model)
@@ -1317,7 +1317,7 @@ function construct_device!(
     sys::PSY.System,
     ::ModelConstructStage,
     device_model::DeviceModel{PSY.PhaseShiftingTransformer, PhaseAngleControl},
-    network_model::NetworkModel{<:AbstractPTDFModel},
+    network_model::NetworkModel{<:AbstractPTDFNetworkModel},
 )
     devices = get_available_components(device_model, sys)
     add_constraints!(container, FlowLimitConstraint, devices, device_model, network_model)
@@ -1340,7 +1340,7 @@ function construct_device!(
     sys::PSY.System,
     ::ArgumentConstructStage,
     device_model::DeviceModel{PSY.AreaInterchange, U},
-    network_model::NetworkModel{CopperPlatePowerModel},
+    network_model::NetworkModel{CopperPlateNetworkModel},
 ) where {U <: Union{StaticBranchUnbounded, StaticBranch}}
     devices = get_available_components(device_model, sys)
     add_feedforward_arguments!(container, device_model, devices)
@@ -1531,7 +1531,7 @@ function construct_device!(
     ::ModelConstructStage,
     device_model::DeviceModel{PSY.AreaInterchange, StaticBranch},
     network_model::NetworkModel{T},
-) where {T <: AbstractPTDFModel}
+) where {T <: AbstractPTDFNetworkModel}
     devices = get_available_components(device_model, sys)
     add_constraints!(container, FlowLimitConstraint, devices, device_model, network_model)
     # Not ideal to do this here, but it is a not terrible workaround
@@ -1556,7 +1556,7 @@ function construct_device!(
     sys::PSY.System,
     ::ModelConstructStage,
     device_model::DeviceModel{PSY.AreaInterchange, StaticBranchUnbounded},
-    network_model::NetworkModel{AreaBalancePowerModel},
+    network_model::NetworkModel{AreaBalanceNetworkModel},
 )
     devices = get_available_components(device_model, sys)
     add_feedforward_constraints!(container, device_model, devices)
@@ -1569,7 +1569,7 @@ function construct_device!(
     sys::PSY.System,
     ::ModelConstructStage,
     device_model::DeviceModel{PSY.AreaInterchange, StaticBranchUnbounded},
-    network_model::NetworkModel{AreaPTDFPowerModel},
+    network_model::NetworkModel{AreaPTDFNetworkModel},
 )
     devices = get_available_components(device_model, sys)
     inter_area_branch_map = _get_branch_map(network_model)
