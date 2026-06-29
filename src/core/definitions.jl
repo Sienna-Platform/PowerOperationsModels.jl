@@ -63,6 +63,10 @@ const ABSOLUTE_TOLERANCE = 1.0e-3
 const BALANCE_SLACK_COST = 1e6
 const CONSTRAINT_VIOLATION_SLACK_COST = 2e5
 const POST_CONTINGENCY_CONSTRAINT_VIOLATION_SLACK_COST = 1e5
+# Meta tags distinguishing the lower/upper post-contingency flow-rate constraint
+# containers; shared so registration and the reuse-lookup never drift.
+const POST_CONTINGENCY_LB_META = "lb"
+const POST_CONTINGENCY_UB_META = "ub"
 const SERVICES_SLACK_COST = 1e5
 const COST_EPSILON = 1e-3
 const PTDF_ZERO_TOL = 1e-9

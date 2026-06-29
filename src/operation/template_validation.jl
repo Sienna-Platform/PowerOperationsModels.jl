@@ -318,9 +318,8 @@ function _build_service_model_outages!(
     template_sc_service_keys = Set{Tuple{DataType, String}}(
         (get_component_type(m), get_service_name(m)) for m in sc_service_models
     )
-    # Run the orphan-attachment check unconditionally so users still get
-    # feedback when they attached outages to a service whose SC `ServiceModel`
-    # was never registered.
+    # Unconditional (before the early return below) so orphan attachments are
+    # still reported when no SC service models are registered.
     _warn_outages_attached_to_unmodeled_services(sys, template_sc_service_keys)
 
     isempty(sc_service_models) && return

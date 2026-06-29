@@ -14,7 +14,7 @@ function get_outage_total_power_by_step_dict(
             outage;
             component_type = PSY.Generator,
         )
-        outage_power_v = mapreduce(+, devices) do device
+        outage_power_v = sum(devices) do device
             filter(
                 x -> x[col_name] == PSY.get_name(device),
                 required_variables,
@@ -43,7 +43,7 @@ function get_reserve_total_power_by_step_dict(
         # Scope to this outage: the deployment variable is keyed by
         # (outage_id, device_name, t), so filtering on the device alone would
         # mix deployments across outages.
-        outage_power_v = mapreduce(+, contributing_devices) do device
+        outage_power_v = sum(contributing_devices) do device
             device_name = PSY.get_name(device)
             filter(
                 x -> x[outage_col_name] == outage_name && x[col_name] == device_name,

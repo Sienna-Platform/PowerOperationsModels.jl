@@ -206,14 +206,14 @@ Docs abbreviation: ``f^\\text{sl,lo}``
 struct FlowActivePowerSlackLowerBound <: AbstractACActivePowerFlow end
 
 """
-Struct to dispatch the creation of Post-Contingency Active Power Change Variables.
+Post-contingency active power change of a generator under a contingency.
 
 Docs abbreviation: ``\\Delta p_{g,c}``
 """
 struct PostContingencyActivePowerChangeVariable <: AbstractContingencyVariableType end
 
 """
-Struct to dispatch the creation of Post-Contingency Active Power Deployment Variable for mapping reserves deployment under contingencies.
+Reserve deployed by a generator under a contingency.
 
 Docs abbreviation: ``\\Delta rsv_{r,g,c}``
 """
@@ -228,7 +228,8 @@ reserve formulations.
 abstract type AbstractContingencySlackVariableType <: VariableType end
 
 """
-Struct to dispatch the creation of post-contingency active power flow upper bound slack variables. Relaxes the post-contingency (N-1) emergency-rate upper-bound constraint when `use_slacks = true`.
+Non-negative slack relaxing the post-contingency (N-1) emergency-rate upper-bound
+constraint when `use_slacks = true`.
 
 Docs abbreviation: ``f^\\text{sl,up,N-1}``
 """
@@ -236,7 +237,8 @@ struct PostContingencyFlowActivePowerSlackUpperBound <:
        AbstractContingencySlackVariableType end
 
 """
-Struct to dispatch the creation of post-contingency active power flow lower bound slack variables. Relaxes the post-contingency (N-1) emergency-rate lower-bound constraint when `use_slacks = true`.
+Non-negative slack relaxing the post-contingency (N-1) emergency-rate lower-bound
+constraint when `use_slacks = true`.
 
 Docs abbreviation: ``f^\\text{sl,lo,N-1}``
 """

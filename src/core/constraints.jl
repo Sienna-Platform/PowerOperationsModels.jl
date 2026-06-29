@@ -498,7 +498,7 @@ abstract type PowerVariableLimitsConstraint <: ConstraintType end
 abstract type PostContingencyVariableLimitsConstraint <: PowerVariableLimitsConstraint end
 
 """
-Struct to create the constraint to limit post-contingency active power expressions.
+Limits each generator's post-contingency active power to its range.
 
 ```math
 P^\\text{min} \\le p_t + \\Delta p_{c, t} \\le P^\\text{max},
@@ -509,8 +509,7 @@ struct PostContingencyActivePowerVariableLimitsConstraint <:
        PostContingencyVariableLimitsConstraint end
 
 """
-Struct to create the constraint to limit post-contingency active power reserve
-deployment expressions.
+Caps reserve deployed under a contingency by the reserve procured pre-contingency.
 
 ```math
 \\Delta rsv_{r, c, t} \\le rsv_{r, c, t},
