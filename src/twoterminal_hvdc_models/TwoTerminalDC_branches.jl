@@ -333,7 +333,7 @@ end
 function add_variables!(
     container::OptimizationContainer,
     ::Type{FlowActivePowerVariable},
-    network_model::NetworkModel{CopperPlatePowerModel},
+    network_model::NetworkModel{CopperPlateNetworkModel},
     devices::IS.FlattenIteratorWrapper{T},
     ::Type{U},
 ) where {T <: PSY.TwoTerminalHVDC, U <: AbstractBranchFormulation}
@@ -507,7 +507,7 @@ function add_constraints!(
     ::Type{T},
     devices::Union{Vector{U}, IS.FlattenIteratorWrapper{U}},
     ::DeviceModel{U, HVDCTwoTerminalLossless},
-    network_model::NetworkModel{CopperPlatePowerModel},
+    network_model::NetworkModel{CopperPlateNetworkModel},
 ) where {T <: FlowRateConstraint, U <: PSY.TwoTerminalHVDC}
     time_steps = get_time_steps(container)
     names = String[]
@@ -630,7 +630,7 @@ function add_constraints!(
     ::Type{T},
     devices::IS.FlattenIteratorWrapper{U},
     model::DeviceModel{U, HVDCTwoTerminalDispatch},
-    network_model::NetworkModel{CopperPlatePowerModel},
+    network_model::NetworkModel{CopperPlateNetworkModel},
 ) where {
     T <: Union{FlowRateConstraintFromTo, FlowRateConstraintToFrom},
     U <: PSY.TwoTerminalHVDC,
@@ -654,7 +654,7 @@ function add_constraints!(
     ::Type{T},
     devices::IS.FlattenIteratorWrapper{U},
     ::DeviceModel{U, HVDCTwoTerminalDispatch},
-    ::NetworkModel{<:AbstractDCPModel},
+    ::NetworkModel{<:AbstractDCPNetworkModel},
 ) where {
     T <: Union{FlowRateConstraintToFrom, FlowRateConstraintFromTo},
     U <: PSY.TwoTerminalHVDC,
@@ -668,7 +668,7 @@ function add_constraints!(
     ::Type{T},
     devices::IS.FlattenIteratorWrapper{U},
     ::DeviceModel{U, HVDCTwoTerminalDispatch},
-    ::NetworkModel{<:AbstractPTDFModel},
+    ::NetworkModel{<:AbstractPTDFNetworkModel},
 ) where {
     T <: Union{FlowRateConstraintToFrom, FlowRateConstraintFromTo},
     U <: PSY.TwoTerminalHVDC,
@@ -682,7 +682,7 @@ function add_constraints!(
     ::Type{T},
     devices::IS.FlattenIteratorWrapper{U},
     model::DeviceModel{U, V},
-    network_model::NetworkModel{CopperPlatePowerModel},
+    network_model::NetworkModel{CopperPlateNetworkModel},
 ) where {
     T <: Union{FlowRateConstraintFromTo, FlowRateConstraintToFrom},
     U <: PSY.TwoTerminalHVDC,
@@ -721,7 +721,7 @@ function add_constraints!(
     ::Type{T},
     devices::IS.FlattenIteratorWrapper{U},
     ::DeviceModel{U, V},
-    ::NetworkModel{<:AbstractPTDFModel},
+    ::NetworkModel{<:AbstractPTDFNetworkModel},
 ) where {
     T <: Union{FlowRateConstraintFromTo, FlowRateConstraintToFrom},
     U <: PSY.TwoTerminalHVDC,
@@ -750,7 +750,7 @@ function add_constraints!(
     ::Type{HVDCPowerBalance},
     devices::IS.FlattenIteratorWrapper{T},
     ::DeviceModel{T, <:AbstractTwoTerminalDCLineFormulation},
-    ::NetworkModel{<:AbstractDCPModel},
+    ::NetworkModel{<:AbstractDCPNetworkModel},
 ) where {T <: PSY.TwoTerminalHVDC}
     time_steps = get_time_steps(container)
     names = PSY.get_name.(devices)
@@ -874,7 +874,7 @@ function add_constraints!(
     ::Type{HVDCRectifierDCLineVoltageConstraint},
     devices::IS.FlattenIteratorWrapper{T},
     ::DeviceModel{T, <:HVDCTwoTerminalLCC},
-    ::NetworkModel{ACPPowerModel},
+    ::NetworkModel{ACPNetworkModel},
 ) where {T <: PSY.TwoTerminalLCCLine}
     time_steps = get_time_steps(container)
     names = PSY.get_name.(devices)
@@ -922,7 +922,7 @@ function add_constraints!(
     ::Type{HVDCInverterDCLineVoltageConstraint},
     devices::IS.FlattenIteratorWrapper{T},
     ::DeviceModel{T, <:HVDCTwoTerminalLCC},
-    ::NetworkModel{ACPPowerModel},
+    ::NetworkModel{ACPNetworkModel},
 ) where {T <: PSY.TwoTerminalLCCLine}
     time_steps = get_time_steps(container)
     names = PSY.get_name.(devices)
@@ -971,7 +971,7 @@ function add_constraints!(
     ::Type{HVDCRectifierOverlapAngleConstraint},
     devices::IS.FlattenIteratorWrapper{T},
     ::DeviceModel{T, <:HVDCTwoTerminalLCC},
-    ::NetworkModel{ACPPowerModel},
+    ::NetworkModel{ACPNetworkModel},
 ) where {T <: PSY.TwoTerminalLCCLine}
     time_steps = get_time_steps(container)
     names = PSY.get_name.(devices)
@@ -1029,7 +1029,7 @@ function add_constraints!(
     ::Type{HVDCInverterOverlapAngleConstraint},
     devices::IS.FlattenIteratorWrapper{T},
     ::DeviceModel{T, <:HVDCTwoTerminalLCC},
-    ::NetworkModel{ACPPowerModel},
+    ::NetworkModel{ACPNetworkModel},
 ) where {T <: PSY.TwoTerminalLCCLine}
     time_steps = get_time_steps(container)
     names = PSY.get_name.(devices)
@@ -1088,7 +1088,7 @@ function add_constraints!(
     ::Type{HVDCRectifierPowerFactorAngleConstraint},
     devices::IS.FlattenIteratorWrapper{T},
     ::DeviceModel{T, <:HVDCTwoTerminalLCC},
-    ::NetworkModel{ACPPowerModel},
+    ::NetworkModel{ACPNetworkModel},
 ) where {T <: PSY.TwoTerminalLCCLine}
     time_steps = get_time_steps(container)
     names = PSY.get_name.(devices)
@@ -1149,7 +1149,7 @@ function add_constraints!(
     ::Type{HVDCInverterPowerFactorAngleConstraint},
     devices::IS.FlattenIteratorWrapper{T},
     ::DeviceModel{T, <:HVDCTwoTerminalLCC},
-    ::NetworkModel{ACPPowerModel},
+    ::NetworkModel{ACPNetworkModel},
 ) where {T <: PSY.TwoTerminalLCCLine}
     time_steps = get_time_steps(container)
     names = PSY.get_name.(devices)
@@ -1211,7 +1211,7 @@ function add_constraints!(
     ::Type{HVDCRectifierACCurrentFlowConstraint},
     devices::IS.FlattenIteratorWrapper{T},
     ::DeviceModel{T, <:HVDCTwoTerminalLCC},
-    ::NetworkModel{ACPPowerModel},
+    ::NetworkModel{ACPNetworkModel},
 ) where {T <: PSY.TwoTerminalLCCLine}
     time_steps = get_time_steps(container)
     names = PSY.get_name.(devices)
@@ -1245,7 +1245,7 @@ function add_constraints!(
     ::Type{HVDCInverterACCurrentFlowConstraint},
     devices::IS.FlattenIteratorWrapper{T},
     ::DeviceModel{T, <:HVDCTwoTerminalLCC},
-    ::NetworkModel{ACPPowerModel},
+    ::NetworkModel{ACPNetworkModel},
 ) where {T <: PSY.TwoTerminalLCCLine}
     time_steps = get_time_steps(container)
     names = PSY.get_name.(devices)
@@ -1279,7 +1279,7 @@ function add_constraints!(
     ::Type{HVDCRectifierPowerCalculationConstraint},
     devices::IS.FlattenIteratorWrapper{T},
     ::DeviceModel{T, <:HVDCTwoTerminalLCC},
-    ::NetworkModel{ACPPowerModel},
+    ::NetworkModel{ACPNetworkModel},
 ) where {T <: PSY.TwoTerminalLCCLine}
     time_steps = get_time_steps(container)
     names = PSY.get_name.(devices)
@@ -1341,7 +1341,7 @@ function add_constraints!(
     ::Type{HVDCInverterPowerCalculationConstraint},
     devices::IS.FlattenIteratorWrapper{T},
     ::DeviceModel{T, <:HVDCTwoTerminalLCC},
-    ::NetworkModel{ACPPowerModel},
+    ::NetworkModel{ACPNetworkModel},
 ) where {T <: PSY.TwoTerminalLCCLine}
     time_steps = get_time_steps(container)
     names = PSY.get_name.(devices)
@@ -1403,7 +1403,7 @@ function add_constraints!(
     ::Type{HVDCTransmissionDCLineConstraint},
     devices::IS.FlattenIteratorWrapper{T},
     ::DeviceModel{T, <:HVDCTwoTerminalLCC},
-    ::NetworkModel{ACPPowerModel},
+    ::NetworkModel{ACPNetworkModel},
 ) where {T <: PSY.TwoTerminalLCCLine}
     time_steps = get_time_steps(container)
     names = PSY.get_name.(devices)
@@ -1485,6 +1485,18 @@ get_variable_upper_bound(::Type{DCLineCurrentFlowVariable}, d::PSY.TwoTerminalVS
 get_variable_lower_bound(::Type{CurrentAbsoluteValueVariable}, d::PSY.TwoTerminalVSCLine, ::Type{<:AbstractTwoTerminalVSCFormulation}) = 0.0
 get_variable_upper_bound(::Type{CurrentAbsoluteValueVariable}, d::PSY.TwoTerminalVSCLine, ::Type{<:AbstractTwoTerminalVSCFormulation}) = _vsc_cable_i_max(d)
 
+# AC apparent-current variables (AC networks only): 0 ≤ I_ac ≤ S_max/vmin per terminal.
+get_variable_binary(::Type{ConverterACCurrentFromVariable}, ::Type{PSY.TwoTerminalVSCLine}, ::Type{<:AbstractTwoTerminalVSCFormulation}) = false
+get_variable_binary(::Type{ConverterACCurrentToVariable}, ::Type{PSY.TwoTerminalVSCLine}, ::Type{<:AbstractTwoTerminalVSCFormulation}) = false
+get_variable_lower_bound(::Type{ConverterACCurrentFromVariable}, d::PSY.TwoTerminalVSCLine, ::Type{<:AbstractTwoTerminalVSCFormulation}) = CONVERTER_AC_CURRENT_FLOOR
+get_variable_lower_bound(::Type{ConverterACCurrentToVariable}, d::PSY.TwoTerminalVSCLine, ::Type{<:AbstractTwoTerminalVSCFormulation}) = CONVERTER_AC_CURRENT_FLOOR
+get_variable_upper_bound(::Type{ConverterACCurrentFromVariable}, d::PSY.TwoTerminalVSCLine, ::Type{<:AbstractTwoTerminalVSCFormulation}) = _converter_ac_current_max(PSY.get_rating_from(d, PSY.SU), PSY.get_voltage_limits(PSY.get_from(PSY.get_arc(d))).min, PSY.get_name(d))
+get_variable_upper_bound(::Type{ConverterACCurrentToVariable}, d::PSY.TwoTerminalVSCLine, ::Type{<:AbstractTwoTerminalVSCFormulation}) = _converter_ac_current_max(PSY.get_rating_to(d, PSY.SU), PSY.get_voltage_limits(PSY.get_to(PSY.get_arc(d))).min, PSY.get_name(d))
+# Warm-started at the rated apparent current (pu, strictly interior to (ε, S_max/vmin)
+# and away from the degenerate I_ac = 0); see CONVERTER_AC_CURRENT_FLOOR.
+get_variable_warm_start_value(::Type{ConverterACCurrentFromVariable}, d::PSY.TwoTerminalVSCLine, ::Type{<:AbstractTwoTerminalVSCFormulation}) = PSY.get_rating_from(d, PSY.SU)
+get_variable_warm_start_value(::Type{ConverterACCurrentToVariable}, d::PSY.TwoTerminalVSCLine, ::Type{<:AbstractTwoTerminalVSCFormulation}) = PSY.get_rating_to(d, PSY.SU)
+
 #! format: on
 
 ####################### VSC apparent-power-square registration ###############
@@ -1497,7 +1509,7 @@ function _register_vsc_apparent_power_squares!(
     devices,
     line_names,
     time_steps,
-    ::DeviceModel{PSY.TwoTerminalVSCLine, HVDCTwoTerminalVSC},
+    ::DeviceModel{PSY.TwoTerminalVSCLine, <:AbstractTwoTerminalVSCFormulation},
     ::NetworkModel{<:AbstractPowerModel},
 )
     quad_cfg = IOM.NoQuadApproxConfig()
@@ -1532,7 +1544,7 @@ end
 _register_vsc_apparent_power_squares!(
     ::IOM.BilinearApproxConfig,
     ::OptimizationContainer, _devices, _names, _times,
-    ::DeviceModel{PSY.TwoTerminalVSCLine, HVDCTwoTerminalVSC},
+    ::DeviceModel{PSY.TwoTerminalVSCLine, <:AbstractTwoTerminalVSCFormulation},
     ::NetworkModel{<:AbstractPowerModel},
 ) = nothing
 
@@ -1540,9 +1552,57 @@ _register_vsc_apparent_power_squares!(
 _register_vsc_apparent_power_squares!(
     ::IOM.NoBilinearApproxConfig,
     ::OptimizationContainer, _devices, _names, _times,
-    ::DeviceModel{PSY.TwoTerminalVSCLine, HVDCTwoTerminalVSC},
+    ::DeviceModel{PSY.TwoTerminalVSCLine, <:AbstractTwoTerminalVSCFormulation},
     ::NetworkModel{<:AbstractActivePowerModel},
 ) = nothing
+
+####################### VSC loss-current dispatch ###########################
+
+# AC networks (ACP/ACR/IVR): per-terminal AC apparent-current variables; the loss
+# is parameterized on I_ac so reactive loading incurs loss.
+function _add_vsc_loss_current_variables!(
+    container::OptimizationContainer,
+    devices,
+    ::DeviceModel{PSY.TwoTerminalVSCLine, F},
+    ::NetworkModel{<:_ConverterACVoltageNetwork},
+) where {F <: AbstractTwoTerminalVSCFormulation}
+    add_variables!(container, ConverterACCurrentFromVariable, devices, F)
+    add_variables!(container, ConverterACCurrentToVariable, devices, F)
+    return
+end
+
+# Active-power-only / LPAC networks: |I_dc| LP surrogate for the DC-current loss.
+function _add_vsc_loss_current_variables!(
+    container::OptimizationContainer,
+    devices,
+    ::DeviceModel{PSY.TwoTerminalVSCLine, F},
+    ::NetworkModel{<:AbstractPowerModel},
+) where {F <: AbstractTwoTerminalVSCFormulation}
+    add_variables!(container, CurrentAbsoluteValueVariable, devices, F)
+    return
+end
+
+# AC networks: the I_ac defining constraints are built inside the
+# HVDCVSCConverterPowerConstraint method, so nothing extra here.
+_add_vsc_loss_current_constraints!(
+    ::OptimizationContainer,
+    _devices,
+    ::DeviceModel{PSY.TwoTerminalVSCLine, <:AbstractTwoTerminalVSCFormulation},
+    ::NetworkModel{<:_ConverterACVoltageNetwork},
+) = nothing
+
+# Active-power-only / LPAC networks: the |I_dc| surrogate constraints feed the loss.
+function _add_vsc_loss_current_constraints!(
+    container::OptimizationContainer,
+    devices,
+    model::DeviceModel{PSY.TwoTerminalVSCLine, <:AbstractTwoTerminalVSCFormulation},
+    network_model::NetworkModel{<:AbstractPowerModel},
+)
+    _add_abs_value_constraints!(
+        container, devices, model, network_model, DCLineCurrentFlowVariable,
+    )
+    return
+end
 
 ####################### VSC core constraints ################################
 
@@ -1646,6 +1706,84 @@ function add_constraints!(
     return
 end
 
+# AC-network per-terminal converter power balance with the loss parameterized on the
+# AC apparent current I_ac = sqrt(p^2 + q^2)/|V_ac| (Beerten/MATACDC VSC loss) so that
+# reactive loading incurs loss:
+#   p_ft ==  v_f * I_dc + (a_f * I_ac_f^2 + b_f * I_ac_f + c_f)
+#   p_tf == -v_t * I_dc + (a_t * I_ac_t^2 + b_t * I_ac_t + c_t)
+# with the exact NLP defining relation  I_ac_*^2 * V_ac_*^2 == p_*^2 + q_*^2.
+# The DC-side coupling (v_f*I_dc via the bilinear expression and the cable Ohm's law)
+# is unchanged. No integer/binary variables are introduced (continuous NLP, Ipopt).
+function add_constraints!(
+    container::OptimizationContainer,
+    ::Type{HVDCVSCConverterPowerConstraint},
+    devices::Union{Vector{U}, IS.FlattenIteratorWrapper{U}},
+    model::DeviceModel{U, F},
+    network_model::NetworkModel{<:_ConverterACVoltageNetwork},
+) where {U <: PSY.TwoTerminalVSCLine, F <: AbstractTwoTerminalVSCFormulation}
+    time_steps = get_time_steps(container)
+    names = [PSY.get_name(d) for d in devices]
+    jump_model = get_jump_model(container)
+
+    p_ft = get_variable(container, FlowActivePowerFromToVariable, U)
+    p_tf = get_variable(container, FlowActivePowerToFromVariable, U)
+    q_f = get_variable(container, HVDCReactivePowerFromVariable, U)
+    q_t = get_variable(container, HVDCReactivePowerToVariable, U)
+    vi_expr_ft = get_expression(container, IOM.BilinearProductExpression, U, "vi_ft")
+    vi_expr_tf = get_expression(container, IOM.BilinearProductExpression, U, "vi_tf")
+    i_ac_f = get_variable(container, ConverterACCurrentFromVariable, U)
+    i_ac_t = get_variable(container, ConverterACCurrentToVariable, U)
+    v_arrays = _fetch_voltage_arrays(container, network_model)
+
+    cons_ft = add_constraints_container!(
+        container, HVDCVSCConverterPowerConstraint, U, names, time_steps; meta = "ft",
+    )
+    cons_tf = add_constraints_container!(
+        container, HVDCVSCConverterPowerConstraint, U, names, time_steps; meta = "tf",
+    )
+    defn_ft = add_constraints_container!(
+        container, ConverterACCurrentConstraint, U, names, time_steps; meta = "ft",
+    )
+    defn_tf = add_constraints_container!(
+        container, ConverterACCurrentConstraint, U, names, time_steps; meta = "tf",
+    )
+
+    for d in devices
+        name = PSY.get_name(d)
+        from_bus = PSY.get_name(PSY.get_from(PSY.get_arc(d)))
+        to_bus = PSY.get_name(PSY.get_to(PSY.get_arc(d)))
+        loss_from = PSY.get_converter_loss_from(d)
+        loss_to = PSY.get_converter_loss_to(d)
+        a_f = _get_quadratic_term(loss_from)
+        b_f = PSY.get_proportional_term(loss_from)
+        c_f = PSY.get_constant_term(loss_from)
+        a_t = _get_quadratic_term(loss_to)
+        b_t = PSY.get_proportional_term(loss_to)
+        c_t = PSY.get_constant_term(loss_to)
+        for t in time_steps
+            iaf = i_ac_f[name, t]
+            iat = i_ac_t[name, t]
+            defn_ft[name, t] = _converter_ac_current_definition(
+                jump_model, iaf, p_ft[name, t], q_f[name, t], v_arrays, from_bus, t,
+            )
+            defn_tf[name, t] = _converter_ac_current_definition(
+                jump_model, iat, p_tf[name, t], q_t[name, t], v_arrays, to_bus, t,
+            )
+            loss_ft = _quadratic_converter_loss_expr(a_f, b_f, c_f, iaf^2, iaf)
+            loss_tf = _quadratic_converter_loss_expr(a_t, b_t, c_t, iat^2, iat)
+            cons_ft[name, t] = JuMP.@constraint(
+                jump_model,
+                p_ft[name, t] == vi_expr_ft[name, t] + loss_ft,
+            )
+            cons_tf[name, t] = JuMP.@constraint(
+                jump_model,
+                p_tf[name, t] == -vi_expr_tf[name, t] + loss_tf,
+            )
+        end
+    end
+    return
+end
+
 # Apparent-power limit p² + q² ≤ rating²: exact smooth disk (NLP) on the exact path,
 # octagon outer-approximation on the linearizing paths, nothing on active-power-only
 # networks (no reactive variables). `p_*_sq` / `q_*_sq` are the exact QuadExprs
@@ -1654,7 +1792,7 @@ function _add_vsc_apparent_power_limit!(
     ::IOM.NoBilinearApproxConfig,
     container::OptimizationContainer,
     devices::Union{Vector{U}, IS.FlattenIteratorWrapper{U}},
-    ::DeviceModel{U, HVDCTwoTerminalVSC},
+    ::DeviceModel{U, <:AbstractTwoTerminalVSCFormulation},
     ::NetworkModel{<:AbstractPowerModel},
 ) where {U <: PSY.TwoTerminalVSCLine}
     time_steps = get_time_steps(container)
@@ -1708,7 +1846,7 @@ function _add_vsc_apparent_power_limit!(
     ::IOM.BilinearApproxConfig,
     container::OptimizationContainer,
     devices::Union{Vector{U}, IS.FlattenIteratorWrapper{U}},
-    model::DeviceModel{U, HVDCTwoTerminalVSC},
+    model::DeviceModel{U, <:AbstractTwoTerminalVSCFormulation},
     ::NetworkModel{<:AbstractPowerModel},
 ) where {U <: PSY.TwoTerminalVSCLine}
     time_steps = get_time_steps(container)
@@ -1791,7 +1929,7 @@ _add_vsc_apparent_power_limit!(
     ::IOM.BilinearApproxConfig,
     ::OptimizationContainer,
     ::Union{Vector{U}, IS.FlattenIteratorWrapper{U}},
-    ::DeviceModel{U, HVDCTwoTerminalVSC},
+    ::DeviceModel{U, <:AbstractTwoTerminalVSCFormulation},
     ::NetworkModel{<:AbstractActivePowerModel},
 ) where {U <: PSY.TwoTerminalVSCLine} = nothing
 
@@ -1800,7 +1938,7 @@ _add_vsc_apparent_power_limit!(
     ::IOM.NoBilinearApproxConfig,
     ::OptimizationContainer,
     ::Union{Vector{U}, IS.FlattenIteratorWrapper{U}},
-    ::DeviceModel{U, HVDCTwoTerminalVSC},
+    ::DeviceModel{U, <:AbstractTwoTerminalVSCFormulation},
     ::NetworkModel{<:AbstractActivePowerModel},
 ) where {U <: PSY.TwoTerminalVSCLine} = nothing
 
@@ -1815,7 +1953,7 @@ end
 
 function get_default_attributes(
     ::Type{PSY.TwoTerminalVSCLine},
-    ::Type{HVDCTwoTerminalVSC},
+    ::Type{<:AbstractTwoTerminalVSCFormulation},
 )
     # `use_octagon = true`: under a linearizing scheme, adds the four diagonals
     # |p| ± q ≤ rating·√2 on top of the box |p|, |q| ≤ rating, so the feasible

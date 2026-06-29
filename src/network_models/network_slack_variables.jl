@@ -12,7 +12,7 @@ function add_variables!(
     network_model::NetworkModel{U},
 ) where {
     T <: Union{SystemBalanceSlackUp, SystemBalanceSlackDown},
-    U <: Union{CopperPlatePowerModel, PTDFPowerModel},
+    U <: Union{CopperPlateNetworkModel, PTDFNetworkModel},
 }
     time_steps = get_time_steps(container)
     reference_buses = get_reference_buses(network_model)
@@ -36,7 +36,7 @@ function add_variables!(
     network_model::NetworkModel{U},
 ) where {
     T <: Union{SystemBalanceSlackUp, SystemBalanceSlackDown},
-    U <: Union{AreaBalancePowerModel, AreaPTDFPowerModel},
+    U <: Union{AreaBalanceNetworkModel, AreaPTDFNetworkModel},
 }
     time_steps = get_time_steps(container)
     areas = get_name.(get_available_components(network_model, PSY.Area, sys))
@@ -124,7 +124,7 @@ function add_to_objective_function!(
     container::OptimizationContainer,
     sys::PSY.System,
     network_model::NetworkModel{T},
-) where {T <: Union{CopperPlatePowerModel, PTDFPowerModel}}
+) where {T <: Union{CopperPlateNetworkModel, PTDFNetworkModel}}
     variable_up = get_variable(container, SystemBalanceSlackUp, PSY.System)
     variable_dn = get_variable(container, SystemBalanceSlackDown, PSY.System)
     reference_buses = get_reference_buses(network_model)
@@ -142,7 +142,7 @@ function add_to_objective_function!(
     container::OptimizationContainer,
     sys::PSY.System,
     network_model::NetworkModel{T},
-) where {T <: Union{AreaBalancePowerModel, AreaPTDFPowerModel}}
+) where {T <: Union{AreaBalanceNetworkModel, AreaPTDFNetworkModel}}
     variable_up = get_variable(container, SystemBalanceSlackUp, PSY.Area)
     variable_dn = get_variable(container, SystemBalanceSlackDown, PSY.Area)
     areas = PSY.get_name.(get_available_components(network_model, PSY.Area, sys))

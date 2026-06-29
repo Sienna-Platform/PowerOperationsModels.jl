@@ -588,7 +588,7 @@ function add_to_expression!(
     ::Type{U},
     devices::IS.FlattenIteratorWrapper{V},
     device_model::DeviceModel{V, W},
-    network_model::NetworkModel{AreaPTDFPowerModel},
+    network_model::NetworkModel{AreaPTDFNetworkModel},
 ) where {
     T <: ActivePowerBalance,
     U <: Union{ActivePowerOutVariable, ActivePowerInVariable},
