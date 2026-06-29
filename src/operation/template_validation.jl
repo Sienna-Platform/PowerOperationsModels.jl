@@ -50,10 +50,16 @@ function validate_template_impl!(model::IOM.AbstractOptimizationModel)
     end
 
     device_keys_to_delete = Symbol[]
+    network_formulation = get_network_formulation(network_model)
     for (k, device_model) in template.devices
         make_device_cache!(device_model, system, get_check_components(settings))
         if isempty(get_device_cache(device_model))
             @info "The system data doesn't include devices of type $(k), consider changing the models in the template" _group =
+                IOM.LOG_GROUP_MODELS_VALIDATION
+            push!(device_keys_to_delete, k)
+        elseif models_reactive_power(get_formulation(device_model)) &&
+               !network_has_reactive_power(network_formulation)
+            @info "Device model $(k) models reactive power but network model $(network_formulation) has no reactive power; dropping it from the template" _group =
                 IOM.LOG_GROUP_MODELS_VALIDATION
             push!(device_keys_to_delete, k)
         end
@@ -73,6 +79,12 @@ function validate_template_impl!(model::IOM.AbstractOptimizationModel)
             @info "The system data doesn't include Branches of type $(k), consider changing the models in the template" _group =
                 IOM.LOG_GROUP_MODELS_VALIDATION
             push!(branch_keys_to_delete, k)
+        elseif models_reactive_power(get_formulation(device_model)) &&
+               !network_has_reactive_power(network_formulation)
+            @info "Branch model $(k) models reactive power but network model $(network_formulation) has no reactive power; dropping it from the template" _group =
+                IOM.LOG_GROUP_MODELS_VALIDATION
+            push!(branch_keys_to_delete, k)
+            push!(unmodeled_branch_types, get_component_type(device_model))
         else
             push!(network_model.modeled_branch_types, get_component_type(device_model))
         end
@@ -183,11 +195,11 @@ end
 # NFA/CopperPlate/AreaBalance are intentional no-ops. The fallback returns
 # `false` so unsupported networks fail fast at validation instead of hitting a
 # `MethodError` during build.
-_sc_branch_network_supported(::NetworkModel{<:AbstractPTDFModel}) = true
-_sc_branch_network_supported(::NetworkModel{<:PM.AbstractACPModel}) = true
-_sc_branch_network_supported(::NetworkModel{NFAPowerModel}) = true
-_sc_branch_network_supported(::NetworkModel{CopperPlatePowerModel}) = true
-_sc_branch_network_supported(::NetworkModel{AreaBalancePowerModel}) = true
+_sc_branch_network_supported(::NetworkModel{<:AbstractPTDFNetworkModel}) = true
+_sc_branch_network_supported(::NetworkModel{<:AbstractACPModel}) = true
+_sc_branch_network_supported(::NetworkModel{NFANetworkModel}) = true
+_sc_branch_network_supported(::NetworkModel{CopperPlateNetworkModel}) = true
+_sc_branch_network_supported(::NetworkModel{AreaBalanceNetworkModel}) = true
 _sc_branch_network_supported(::NetworkModel) = false
 
 function _check_security_constrained_network!(
@@ -202,7 +214,7 @@ function _check_security_constrained_network!(
                 IS.ConflictingInputsError(
                     "$(B) is not supported with network model \
                     $(get_network_formulation(network_model)). Use a PTDF \
-                    (AbstractPTDFModel) or ACP network model. DCP support \
+                    (AbstractPTDFNetworkModel) or ACP network model. DCP support \
                     (angle-based post-contingency) is pending; NFA, \
                     CopperPlate and AreaBalance are inert for \
                     security-constrained branches.",
