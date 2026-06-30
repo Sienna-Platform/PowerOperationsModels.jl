@@ -746,11 +746,9 @@ function add_flow_rate_constraint_with_parameters!(
     return
 end
 
-# Shared apparent-power rate limit `var1^2 + var2^2 <= rating^2` for a single flow
-# direction. FromTo and ToFrom differ only in which terminal flow variables they
-# square and the constraint-map direction key (`cons_type`), so both delegate here.
-# The time-series rating RHS (rating_factor * rating, squared to match the static
-# `rating^2` apparent-power RHS) lives in one place.
+# Shared apparent-power rate limit `var1^2 + var2^2 <= rating^2`. FromTo and ToFrom
+# differ only in which terminal flow variables they square and the constraint-map
+# direction key (`cons_type`), so both delegate here.
 function _add_apparent_power_flow_rate_limit!(
     container::OptimizationContainer,
     cons_type::Type{<:ConstraintType},
@@ -1410,9 +1408,8 @@ function _resolve_branch_admittance(network_model, branch, from_no::Int, to_no::
     return eq === nothing ? PNM.branch_admittance(branch) : eq
 end
 
-# Returns geometry for a single branch in the un-reduced case: uses the branch's own
-# arc endpoints and PNM.branch_admittance. Fix C: split into per-branch helpers so the
-# outer comprehension yields a concretely-typed vector.
+# Per-branch geometry, un-reduced case (branch's own arc endpoints + PNM.branch_admittance).
+# Split per-branch so the caller's comprehension yields a concretely-typed vector.
 function _branch_geometry(d)
     arc = PSY.get_arc(d)
     from_bus = PSY.get_from(arc)
@@ -1430,9 +1427,8 @@ function _branch_geometry(d)
     )
 end
 
-# Returns geometry for a single branch in the reduced case. Arc endpoints (from_no, to_no)
-# come from PNM's precomputed name_to_arc_map (Fix A: eliminates per-endpoint _retained_bus
-# re-derivation). Bus names are resolved from the caller-supplied number_to_name map.
+# Per-branch geometry, reduced case. Arc endpoints come from PNM's precomputed
+# name_to_arc_map; bus names from the caller-supplied number_to_name map.
 function _branch_geometry(arc_map, number_to_name::Dict{Int, String}, network_model, d)
     name = PSY.get_name(d)
     (arc_tuple, _) = arc_map[name]
@@ -1455,12 +1451,8 @@ function _branch_geometry(arc_map, number_to_name::Dict{Int, String}, network_mo
     )
 end
 
-# Build per-branch geometry via comprehension so the element type is concrete (Fix C).
-# The caller supplies number_to_name (built once) and T for the PNM arc-map lookup;
-# T is always concrete at call sites (it comes from the enclosing dispatch parameter).
-# Un-reduced: each branch's own arc endpoints + PNM.branch_admittance.
-# Reduced: PNM's precomputed name_to_arc_map for (from_no, to_no), mirroring the
-#   pattern in network_reductions.jl:224 (PNM.get_name_to_arc_maps(nr)[T]).
+# Per-branch geometry via comprehension so the element type stays concrete. Reduced
+# branches resolve endpoints from PNM's precomputed name_to_arc_map.
 function _branch_geometries(
     number_to_name::Dict{Int, String},
     network_model,
@@ -1515,12 +1507,9 @@ function _add_directional_flow_rate_limits!(
     )
     jump_model = get_jump_model(container)
 
-    # Gate on the parameter container existing. The parameter array is keyed by
-    # time-series UUID while the multiplier array is keyed by branch name, so the
-    # per-branch parameter column is resolved via `get_parameter_column_refs`.
-    # An empty `ts_branch_names` routes every branch through the static path.
-    # `param * mult` = rating_factor * rating (an apparent-power value), squared
-    # here to match the static `rating^2` apparent-power RHS.
+    # Parameter array is keyed by time-series UUID, multiplier array by branch name,
+    # so the per-branch column is resolved via `get_parameter_column_refs`. Empty
+    # `ts_branch_names` routes every branch through the static path.
     ts_branch_names = String[]
     local param_container, mult
     if has_container_key(container, BranchRatingTimeSeriesParameter, T)

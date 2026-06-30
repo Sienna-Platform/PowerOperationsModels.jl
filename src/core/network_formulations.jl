@@ -108,20 +108,15 @@ struct IVRNetworkModel <: AbstractIVRNetworkModel end
 #################################################################################
 # Network-formulation capability traits (Holy traits)
 #
-# The network capabilities below cut across the inheritance tree: "models reactive
-# power" {ACP,ACR,LPACC,IVR} and "has a voltage angle variable" {DCP,ACP,DCPLL,LPACC}
-# overlap on {ACP,LPACC} but neither nests in the other, and `AbstractACPModel` is
-# IS-owned (ACP's parent cannot be changed here). Single inheritance cannot express
-# overlapping capability sets, so each capability is its own orthogonal trait axis.
-# `construct_*`/`add_*!` methods dispatch on the trait instead of hand-enumerated
-# Unions; the per-formulation membership lives here in one table.
+# Capabilities overlap without nesting (e.g. reactive-power and angle-variable sets
+# share {ACP,LPACC} but neither contains the other) and `AbstractACPModel` is
+# IS-owned, so single inheritance can't express them — each is its own trait axis,
+# dispatched on in place of hand-enumerated Unions.
 #################################################################################
 
 # --- How the active nodal power balance is indexed ---
 abstract type NodalActiveBalanceStyle end
-# Per-retained-bus balance indexed by bus name (the native nodal formulations).
 struct NamedBusActiveBalance <: NodalActiveBalanceStyle end
-# Injection-/area-aggregated balance (PTDF, CopperPlate, AreaBalance, AreaPTDF).
 struct AggregatedActiveBalance <: NodalActiveBalanceStyle end
 
 nodal_active_balance_style(::Type{<:AbstractPowerModel}) = AggregatedActiveBalance()
@@ -146,10 +141,6 @@ reactive_power_support(::Type{<:AbstractActivePowerModel}) = NoReactivePower()
 
 # --- Whether the network carries a bus VoltageAngle variable ---
 abstract type VoltageForm end
-# DCP/ACP/DCPLL/LPACC put a VoltageAngle on every bus; ACR/IVR use rectangular
-# voltage and NFA/aggregated have none. Only this angle-vs-not split is dispatched
-# on today (the VoltageAngle adder); finer distinctions can be added if a method
-# ever needs them.
 struct AngleBasedVoltage <: VoltageForm end
 struct NonAngleVoltage <: VoltageForm end
 

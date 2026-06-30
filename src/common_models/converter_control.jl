@@ -1,21 +1,6 @@
-#################################################################################
-# Shared AC/DC converter control primitives.
-#
-# `TwoTerminalVSCLine` (2-terminal) and `InterconnectingConverter` (multi-terminal)
-# share the same converter control math. These primitives operate on plain JuMP
-# variable arrays + scalars, so both formulations reuse them: the 2-terminal VSC
-# applies them once per terminal (from/to); the multi-terminal converter applies
-# them once per converter.
-#
-# DC control modes (droop form):
-#   DC_VOLTAGE:       vdc[t]            == setpoint
-#   DC_POWER:         p[t]              == setpoint
-#   DC_VOLTAGE_DROOP: vdc[t] + k * p[t] == setpoint
-#
-# AC control modes:
-#   AC_VOLTAGE:        fix the regulated bus VoltageMagnitude at the setpoint
-#   AC_REACTIVE_POWER: fix the converter/terminal reactive injection at the setpoint
-#################################################################################
+# Shared AC/DC converter control primitives. They operate on plain JuMP variable
+# arrays + scalars so both TwoTerminalVSCLine (once per from/to terminal) and
+# InterconnectingConverter (once per converter) reuse them.
 
 # Pin a converter/terminal reactive injection at its setpoint. Shared by both AC
 # control primitives so the AC_REACTIVE_POWER enforcement lives in one place.
