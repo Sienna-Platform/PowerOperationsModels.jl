@@ -120,9 +120,7 @@ function mock_construct_device!(
     add_event_model = false,
 )
     if add_event_model
-        error(
-            "Event models are not supported in InfrastructureOptimizationModels. Use PowerSimulations for event modeling.",
-        )
+        set_event_model!(model, EventModel(PSY.FixedForcedOutage, ContinuousCondition()))
     end
     set_device_model!(problem.template, model)
     template = IOM.get_template(problem)

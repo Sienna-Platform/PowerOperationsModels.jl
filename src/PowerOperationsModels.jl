@@ -151,7 +151,16 @@ import InfrastructureOptimizationModels:
     start_up_cost,
     _get_initial_condition_type,
     set_ic_quantity!,
-    update_container_parameter_values!
+    update_container_parameter_values!,
+    # Event/contingency model storage (POM adds the convenience method that derives the key)
+    set_event_model!,
+    get_events,
+    # Outage-constraint RHS bound (IOM declares the stub, POM supplies the value)
+    get_max_active_power,
+    # Key/condition accessors POM extends for EventKey / EventModel conditions
+    get_entry_type,
+    get_component_type,
+    get_value
 
 # Market bid cost: import IOM functions that POM extends with device-specific methods
 import InfrastructureOptimizationModels:
@@ -235,6 +244,8 @@ include("core/expressions.jl")
 include("core/constraints.jl")
 include("core/auxiliary_variables.jl")
 include("core/parameters.jl")
+include("core/event_keys.jl")
+include("core/event_model.jl")
 include("core/formulations.jl")
 include("core/bilinear_configs.jl")
 include("core/network_formulations.jl")
@@ -251,6 +262,10 @@ include("common_models/add_to_expression.jl")
 include("common_models/objective_function.jl")
 # add_param_container.jl: moved into IOM
 include("common_models/add_parameters.jl")
+# Contingency-event builders (override the no-op event stubs in feedforward_interface.jl)
+include("common_models/contingency.jl")
+include("common_models/contingency_arguments.jl")
+include("common_models/contingency_constraints.jl")
 include("common_models/make_system_expressions.jl")
 include("common_models/reserve_range_constraints.jl")
 include("common_models/quadratic_converter_loss.jl")
@@ -390,6 +405,26 @@ export NetworkModel
 export DeviceModel
 export ServiceModel
 export OptimizationContainer
+
+# Event / contingency models
+export EventModel
+export EventKey
+export AbstractEventCondition
+export ContinuousCondition
+export PresetTimeCondition
+export StateVariableValueCondition
+export DiscreteEventCondition
+export set_event_model!
+export get_events
+# Event parameters
+export AvailableStatusParameter
+export AvailableStatusChangeCountdownParameter
+export ActivePowerOffsetParameter
+export ReactivePowerOffsetParameter
+# Event constraints
+export ActivePowerOutageConstraint
+export ReactivePowerOutageConstraint
+export ActivePowerPumpOutageConstraint
 
 # Initial Conditions Quantities
 export DevicePower
