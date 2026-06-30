@@ -4,7 +4,7 @@
 end
 
 @testset "Test ProgressMeter" begin
-    @test !POM._progress_meter_enabled()
+    @test !IOM._progress_meter_enabled()
 end
 
 @testset "Axis Array to DataFrame" begin

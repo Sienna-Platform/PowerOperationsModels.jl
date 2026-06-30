@@ -197,7 +197,14 @@ import InfrastructureOptimizationModels:
     DecisionModel,
     EmulationModel,
     make_empty_jump_model_with_settings,
-    set_model!
+    set_model!,
+    # Operation-model lifecycle: build!/solve!/run! live in IOM (re-exported below);
+    # build_problem!/build_initial_conditions! are IOM extension points POM implements.
+    build!,
+    solve!,
+    run!,
+    build_problem!,
+    build_initial_conditions!
 
 using InfrastructureOptimizationModels # TODO: use explicit imports.
 
@@ -349,9 +356,10 @@ import InfrastructureOptimizationModels:
     CONTAINER_KEY_EMPTY_META
 
 # Import high-frequency IOM internals used throughout operation lifecycle code.
-# Note: BUILD_PROBLEMS_TIMER and RUN_OPERATION_MODEL_TIMER are defined in POM's
-# definitions.jl, so they are NOT imported from IOM.
+# `BUILD_PROBLEMS_TIMER` is shared with IOM so POM's `build_problem!` timings aggregate
+# into the same timer printout produced by IOM's `build!`/`solve!`.
 import InfrastructureOptimizationModels:
+    BUILD_PROBLEMS_TIMER,
     LOG_GROUP_OPTIMIZATION_CONTAINER,
     get_store,
     set_status!,
@@ -378,10 +386,7 @@ export EmulationModel
 export PowerOperationsProblemTemplate
 export InitialCondition
 export AbstractPowerOperationProblem
-export AbstractPowerDecisionProblem
-export AbstractPowerEmulationProblem
-export DefaultPowerDecisionProblem
-export DefaultPowerEmulationProblem
+export DefaultPowerOperationProblem
 
 # Network
 export NetworkModel
@@ -476,8 +481,7 @@ export RunStatus
 export SimulationBuildStatus
 
 # Problem Types
-export GenericPowerDecisionProblem
-export GenericPowerEmulationProblem
+export GenericPowerOperationProblem
 
 # Settings and Data Types
 export Settings
