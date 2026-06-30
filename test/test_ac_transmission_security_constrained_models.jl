@@ -42,7 +42,7 @@ end
 
     template = get_thermal_dispatch_template_network(
         NetworkModel(
-            PTDFPowerModel;
+            PTDFNetworkModel;
             PTDF_matrix = PNM.VirtualPTDF(c_sys5),
         ),
     )
@@ -165,7 +165,7 @@ end
     end
     template = get_thermal_dispatch_template_network(
         NetworkModel(
-            PTDFPowerModel;
+            PTDFNetworkModel;
             PTDF_matrix = PNM.VirtualPTDF(c_sys5),
             # MODF_matrix intentionally omitted — exercises auto-construction
         ),
@@ -195,7 +195,7 @@ end
     c_sys14 = PSB.build_system(PSB.PSITestSystems, "c_sys14")
 
     template = get_thermal_dispatch_template_network(
-        NetworkModel(PTDFPowerModel; PTDF_matrix = PNM.VirtualPTDF(c_sys14)),
+        NetworkModel(PTDFNetworkModel; PTDF_matrix = PNM.VirtualPTDF(c_sys14)),
     )
     set_device_model!(template, PSY.Line, POM.StaticBranch)
     set_device_model!(template, PSY.Transformer2W, POM.StaticBranch)
@@ -282,7 +282,7 @@ end
 
     template = get_thermal_dispatch_template_network(
         NetworkModel(
-            PTDFPowerModel;
+            PTDFNetworkModel;
             PTDF_matrix = PNM.VirtualPTDF(c_sys14),
             MODF_matrix = PNM.VirtualMODF(c_sys14),
         ),
@@ -369,7 +369,7 @@ end
 
     auto_template = get_thermal_dispatch_template_network(
         NetworkModel(
-            PTDFPowerModel;
+            PTDFNetworkModel;
             PTDF_matrix = PNM.PTDF(c_sys5),
             MODF_matrix = PNM.VirtualMODF(c_sys5),
         ),
@@ -436,7 +436,7 @@ end
     outage_uuid_str = string(outage_uuid)
 
     template = get_thermal_dispatch_template_network(
-        NetworkModel(PTDFPowerModel; MODF_matrix = PNM.VirtualMODF(sys)),
+        NetworkModel(PTDFNetworkModel; MODF_matrix = PNM.VirtualMODF(sys)),
     )
     set_device_model!(template, PSY.Line, POM.SecurityConstrainedStaticBranch)
     set_device_model!(template, PSY.Transformer2W, POM.SecurityConstrainedStaticBranch)
@@ -516,7 +516,7 @@ end
     outage_uuid = string(IS.get_uuid(outage))
 
     template = get_thermal_dispatch_template_network(
-        NetworkModel(PTDFPowerModel; MODF_matrix = PNM.VirtualMODF(sys)),
+        NetworkModel(PTDFNetworkModel; MODF_matrix = PNM.VirtualMODF(sys)),
     )
     set_device_model!(template, PSY.Line, POM.SecurityConstrainedStaticBranch)
     ps_model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
@@ -585,9 +585,9 @@ end
     # post-contingency expression builder reads it); that flow-variable gap is now
     # fixed in `src/ac_transmission_models/security_constrained_branch.jl`.
     for (label, NetFormulation, optimizer) in [
-        ("PTDFPowerModel", PTDFPowerModel, HiGHS_optimizer),
-        ("AreaPTDFPowerModel", POM.AreaPTDFPowerModel, HiGHS_optimizer),
-        ("ACPPowerModel", POM.ACPPowerModel, ipopt_optimizer),
+        ("PTDFNetworkModel", PTDFNetworkModel, HiGHS_optimizer),
+        ("AreaPTDFNetworkModel", POM.AreaPTDFNetworkModel, HiGHS_optimizer),
+        ("ACPNetworkModel", POM.ACPNetworkModel, ipopt_optimizer),
     ]
         @testset "$label" begin
             template = get_thermal_dispatch_template_network(
@@ -673,7 +673,7 @@ end
         end
         template = get_thermal_dispatch_template_network(
             NetworkModel(
-                PTDFPowerModel;
+                PTDFNetworkModel;
                 PTDF_matrix = PNM.PTDF(sys),
                 MODF_matrix = PNM.VirtualMODF(sys),
             ),
@@ -744,7 +744,7 @@ end
         end
         template = get_thermal_dispatch_template_network(
             NetworkModel(
-                PTDFPowerModel;
+                PTDFNetworkModel;
                 PTDF_matrix = PNM.PTDF(sys),
                 MODF_matrix = PNM.VirtualMODF(sys),
             ),
@@ -816,7 +816,7 @@ end
         modf = PNM.VirtualMODF(sys; network_reductions = nr)
         template = get_thermal_dispatch_template_network(
             NetworkModel(
-                PTDFPowerModel;
+                PTDFNetworkModel;
                 PTDF_matrix = ptdf,
                 MODF_matrix = modf,
                 reduce_degree_two_branches = PNM.has_degree_two_reduction(
@@ -929,7 +929,7 @@ end
         modf = PNM.VirtualMODF(sys; network_reductions = nr)
         template = get_thermal_dispatch_template_network(
             NetworkModel(
-                PTDFPowerModel;
+                PTDFNetworkModel;
                 PTDF_matrix = ptdf,
                 MODF_matrix = modf,
                 reduce_degree_two_branches = PNM.has_degree_two_reduction(
@@ -1048,7 +1048,7 @@ end
     # HiGHS returns the dual values directly.
     c_sys5 = _attach_all_branch_outages!(PSB.build_system(PSITestSystems, "c_sys5"))
     template = get_thermal_dispatch_template_network(
-        NetworkModel(PTDFPowerModel; PTDF_matrix = PNM.PTDF(c_sys5)),
+        NetworkModel(PTDFNetworkModel; PTDF_matrix = PNM.PTDF(c_sys5)),
     )
     set_device_model!(
         template,
@@ -1076,7 +1076,7 @@ end
     c_sys5 = _attach_all_branch_outages!(PSB.build_system(PSITestSystems, "c_sys5"))
     template =
         PowerOperationsProblemTemplate(
-            NetworkModel(PTDFPowerModel; PTDF_matrix = PNM.PTDF(c_sys5)),
+            NetworkModel(PTDFNetworkModel; PTDF_matrix = PNM.PTDF(c_sys5)),
         )
     set_device_model!(template, PSY.PowerLoad, StaticPowerLoad)
     set_device_model!(template, PSY.ThermalStandard, ThermalStandardUnitCommitment)
@@ -1132,7 +1132,7 @@ _sc_retained_buses(nrd) = Set(keys(PNM.get_bus_reduction_map(nrd)))
     modf = PNM.VirtualMODF(sys; network_reductions = nr)
     template = get_thermal_dispatch_template_network(
         NetworkModel(
-            PTDFPowerModel;
+            PTDFNetworkModel;
             PTDF_matrix = ptdf,
             MODF_matrix = modf,
             reduce_radial_branches = true,
@@ -1172,7 +1172,7 @@ end
 
     function _build_sc_slack_model(use_slacks)
         template = get_thermal_dispatch_template_network(
-            NetworkModel(PTDFPowerModel; PTDF_matrix = PNM.PTDF(c_sys5)),
+            NetworkModel(PTDFNetworkModel; PTDF_matrix = PNM.PTDF(c_sys5)),
         )
         set_device_model!(
             template,
@@ -1301,7 +1301,7 @@ end
 
     function _build_sc(use_slacks)
         template = get_thermal_dispatch_template_network(
-            NetworkModel(PTDFPowerModel; PTDF_matrix = PNM.PTDF(c_sys5)),
+            NetworkModel(PTDFNetworkModel; PTDF_matrix = PNM.PTDF(c_sys5)),
         )
         set_device_model!(
             template,
@@ -1405,7 +1405,7 @@ end
 
     template = get_thermal_dispatch_template_network(
         NetworkModel(
-            PTDFPowerModel;
+            PTDFNetworkModel;
             PTDF_matrix = PNM.VirtualPTDF(c_sys14),
             MODF_matrix = PNM.VirtualMODF(c_sys14),
         ),

@@ -9,7 +9,7 @@ Creates a model reference of the InfrastructureOptimizationModels Optimization P
 
 # Example
 
-template = PowerOperationsProblemTemplate(CopperPlatePowerModel)
+template = PowerOperationsProblemTemplate(CopperPlateNetworkModel)
 """
 mutable struct PowerOperationsProblemTemplate <: IOM.AbstractProblemTemplate
     network_model::NetworkModel{<:AbstractPowerModel}
@@ -43,7 +43,7 @@ end
 PowerOperationsProblemTemplate(::Type{T}) where {T <: AbstractPowerModel} =
     PowerOperationsProblemTemplate(NetworkModel(T))
 
-PowerOperationsProblemTemplate() = PowerOperationsProblemTemplate(CopperPlatePowerModel)
+PowerOperationsProblemTemplate() = PowerOperationsProblemTemplate(CopperPlateNetworkModel)
 
 get_device_models(template::PowerOperationsProblemTemplate) = template.devices
 get_branch_models(template::PowerOperationsProblemTemplate) = template.branches

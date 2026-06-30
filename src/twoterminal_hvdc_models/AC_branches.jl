@@ -5,7 +5,7 @@
 #     ::OptimizationContainer,
 #     ::PSY.System,
 #     ::DeviceModel{<:PSY.ACTransmission, MyNewFormulation},
-#     ::Union{Type{CopperPlatePowerModel}, Type{AreaBalancePowerModel}},
+#     ::Union{Type{CopperPlateNetworkModel}, Type{AreaBalanceNetworkModel}},
 # ) = nothing
 
 #
@@ -67,7 +67,7 @@ end
 function add_variables!(
     container::OptimizationContainer,
     ::Type{T},
-    network_model::NetworkModel{<:AbstractPTDFModel},
+    network_model::NetworkModel{<:AbstractPTDFNetworkModel},
     devices::IS.FlattenIteratorWrapper{U},
     ::Type{F},
 ) where {
@@ -118,7 +118,7 @@ end
 function add_variables!(
     ::OptimizationContainer,
     ::Type{T},
-    network_model::NetworkModel{<:AbstractPTDFModel},
+    network_model::NetworkModel{<:AbstractPTDFNetworkModel},
     devices::IS.FlattenIteratorWrapper{U},
     ::Type{StaticBranchUnbounded},
 ) where {
@@ -172,7 +172,7 @@ end
 function add_variables!(
     container::OptimizationContainer,
     ::Type{S},
-    network_model::NetworkModel{CopperPlatePowerModel},
+    network_model::NetworkModel{CopperPlateNetworkModel},
     devices::IS.FlattenIteratorWrapper{T},
     ::Type{U},
 ) where {
@@ -180,13 +180,13 @@ function add_variables!(
     T <: PSY.ACTransmission,
     U <: AbstractBranchFormulation,
 }
-    @debug "AC Branches of type $(T) do not require flow variables $S in CopperPlatePowerModel."
+    @debug "AC Branches of type $(T) do not require flow variables $S in CopperPlateNetworkModel."
     return
 end
 
 function _get_flow_variable_vector(
     container::OptimizationContainer,
-    ::NetworkModel{<:AbstractDCPModel},
+    ::NetworkModel{<:AbstractDCPNetworkModel},
     ::Type{B},
 ) where {B <: PSY.ACTransmission}
     return [get_variable(container, FlowActivePowerVariable, B)]
@@ -437,7 +437,7 @@ function add_constraints!(
 ) where {
     T <: PSY.ACTransmission,
     U <: AbstractBranchFormulation,
-    V <: AbstractPTDFModel,
+    V <: AbstractPTDFNetworkModel,
 }
     time_steps = get_time_steps(container)
     net_reduction_data = network_model.network_reduction
@@ -701,7 +701,7 @@ function add_expressions!(
     ::Type{PTDFBranchFlow},
     devices::IS.FlattenIteratorWrapper{B},
     model::DeviceModel{B, <:AbstractBranchFormulation},
-    network_model::NetworkModel{<:AbstractPTDFModel},
+    network_model::NetworkModel{<:AbstractPTDFNetworkModel},
 ) where {B <: PSY.ACTransmission}
     time_steps = get_time_steps(container)
     ptdf = get_PTDF_matrix(network_model)
@@ -760,14 +760,14 @@ function add_expressions!(
 end
 
 """
-Add network flow constraints for ACBranch and NetworkModel with <: AbstractPTDFModel
+Add network flow constraints for ACBranch and NetworkModel with <: AbstractPTDFNetworkModel
 """
 function add_constraints!(
     container::OptimizationContainer,
     cons_type::Type{NetworkFlowConstraint},
     devices::IS.FlattenIteratorWrapper{T},
     device_model::DeviceModel{T, StaticBranchBounds},
-    network_model::NetworkModel{<:AbstractPTDFModel},
+    network_model::NetworkModel{<:AbstractPTDFNetworkModel},
 ) where {T <: PSY.ACTransmission}
     time_steps = get_time_steps(container)
     branch_flow_expr = get_expression(container, PTDFBranchFlow, T)
@@ -812,21 +812,21 @@ function add_constraints!(
     cons_type::Type{NetworkFlowConstraint},
     ::IS.FlattenIteratorWrapper{B},
     ::DeviceModel{B, T},
-    ::NetworkModel{<:AbstractPTDFModel},
+    ::NetworkModel{<:AbstractPTDFNetworkModel},
 ) where {B <: PSY.ACTransmission, T <: Union{StaticBranchUnbounded, StaticBranch}}
     @debug "PTDF Branch Flows with $T do not require network flow constraints $cons_type. Flow values are given by PTDFBranchFlow."
     return
 end
 
 """
-Add network flow constraints for PhaseShiftingTransformer and NetworkModel with <: AbstractPTDFModel
+Add network flow constraints for PhaseShiftingTransformer and NetworkModel with <: AbstractPTDFNetworkModel
 """
 function add_constraints!(
     container::OptimizationContainer,
     ::Type{NetworkFlowConstraint},
     devices::IS.FlattenIteratorWrapper{T},
     model::DeviceModel{T, PhaseAngleControl},
-    network_model::NetworkModel{<:AbstractPTDFModel},
+    network_model::NetworkModel{<:AbstractPTDFNetworkModel},
 ) where {T <: PSY.PhaseShiftingTransformer}
     ptdf = get_PTDF_matrix(network_model)
     branches = PSY.get_name.(devices)
@@ -894,7 +894,7 @@ function add_constraints!(
 ) where {
     T <: Union{PSY.PhaseShiftingTransformer, PSY.MonitoredLine},
     U <: AbstractBranchFormulation,
-    V <: AbstractDCPModel,
+    V <: AbstractDCPNetworkModel,
 }
     add_range_constraints!(
         container,
@@ -1003,14 +1003,14 @@ function add_constraints!(
 end
 
 """
-Add network flow constraints for PhaseShiftingTransformer and NetworkModel with DCPPowerModel
+Add network flow constraints for PhaseShiftingTransformer and NetworkModel with DCPNetworkModel
 """
 function add_constraints!(
     container::OptimizationContainer,
     ::Type{NetworkFlowConstraint},
     devices::IS.FlattenIteratorWrapper{T},
     model::DeviceModel{T, PhaseAngleControl},
-    ::NetworkModel{DCPPowerModel},
+    ::NetworkModel{DCPNetworkModel},
 ) where {T <: PSY.PhaseShiftingTransformer}
     time_steps = get_time_steps(container)
     flow_variables = get_variable(container, FlowActivePowerVariable, T)

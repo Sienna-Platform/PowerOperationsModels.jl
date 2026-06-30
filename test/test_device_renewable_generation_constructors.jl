@@ -1,12 +1,12 @@
 @testset "Renewable DCPLossless FullDispatch" begin
     device_model = DeviceModel(RenewableDispatch, RenewableFullDispatch)
     c_sys5_re = PSB.build_system(PSITestSystems, "c_sys5_re")
-    model = DecisionModel(MockOperationProblem, DCPPowerModel, c_sys5_re)
+    model = DecisionModel(MockOperationProblem, DCPNetworkModel, c_sys5_re)
     mock_construct_device!(model, device_model)
     moi_tests(model, 72, 0, 72, 0, 0, false)
     psi_checkobjfun_test(model, GAEVF)
     # TODO: Event model tests will move to PSI
-    #= model = DecisionModel(MockOperationProblem, DCPPowerModel, c_sys5_re)
+    #= model = DecisionModel(MockOperationProblem, DCPNetworkModel, c_sys5_re)
     mock_construct_device!(model, device_model; add_event_model = true)
     moi_tests(model, 72, 0, 96, 0, 0, false) =#
 end
@@ -14,12 +14,12 @@ end
 @testset "Renewable ACPPower Full Dispatch" begin
     device_model = DeviceModel(RenewableDispatch, RenewableFullDispatch)
     c_sys5_re = PSB.build_system(PSITestSystems, "c_sys5_re")
-    model = DecisionModel(MockOperationProblem, ACPPowerModel, c_sys5_re;)
+    model = DecisionModel(MockOperationProblem, ACPNetworkModel, c_sys5_re;)
     mock_construct_device!(model, device_model)
     moi_tests(model, 144, 0, 144, 72, 0, false)
     psi_checkobjfun_test(model, GAEVF)
     # TODO: Event model tests will move to PSI
-    #= model = DecisionModel(MockOperationProblem, ACPPowerModel, c_sys5_re;)
+    #= model = DecisionModel(MockOperationProblem, ACPNetworkModel, c_sys5_re;)
     mock_construct_device!(model, device_model; add_event_model = true)
     moi_tests(model, 144, 0, 168, 72, 0, false, 24) =#
 end
@@ -27,12 +27,12 @@ end
 @testset "Renewable DCPLossless Constantpower_factor" begin
     device_model = DeviceModel(RenewableDispatch, RenewableConstantPowerFactor)
     c_sys5_re = PSB.build_system(PSITestSystems, "c_sys5_re")
-    model = DecisionModel(MockOperationProblem, DCPPowerModel, c_sys5_re)
+    model = DecisionModel(MockOperationProblem, DCPNetworkModel, c_sys5_re)
     mock_construct_device!(model, device_model)
     moi_tests(model, 72, 0, 72, 0, 0, false)
     psi_checkobjfun_test(model, GAEVF)
     # TODO: Event model tests will move to PSI
-    #= model = DecisionModel(MockOperationProblem, DCPPowerModel, c_sys5_re)
+    #= model = DecisionModel(MockOperationProblem, DCPNetworkModel, c_sys5_re)
     mock_construct_device!(model, device_model; add_event_model = true)
     moi_tests(model, 72, 0, 96, 0, 0, false) =#
 end
@@ -40,12 +40,12 @@ end
 @testset "Renewable ACPPower Constantpower_factor" begin
     device_model = DeviceModel(RenewableDispatch, RenewableConstantPowerFactor)
     c_sys5_re = PSB.build_system(PSITestSystems, "c_sys5_re")
-    model = DecisionModel(MockOperationProblem, ACPPowerModel, c_sys5_re;)
+    model = DecisionModel(MockOperationProblem, ACPNetworkModel, c_sys5_re;)
     mock_construct_device!(model, device_model)
     moi_tests(model, 144, 0, 72, 0, 72, false)
     psi_checkobjfun_test(model, GAEVF)
     # TODO: Event model tests will move to PSI
-    #= model = DecisionModel(MockOperationProblem, ACPPowerModel, c_sys5_re;)
+    #= model = DecisionModel(MockOperationProblem, ACPNetworkModel, c_sys5_re;)
     mock_construct_device!(model, device_model; add_event_model = true)
     moi_tests(model, 144, 0, 96, 0, 72, false, 24) =#
 end
@@ -53,25 +53,25 @@ end
 @testset "Renewable DCPLossless FixedOutput" begin
     device_model = DeviceModel(RenewableDispatch, FixedOutput)
     c_sys5_re = PSB.build_system(PSITestSystems, "c_sys5_re")
-    model = DecisionModel(MockOperationProblem, DCPPowerModel, c_sys5_re;)
+    model = DecisionModel(MockOperationProblem, DCPNetworkModel, c_sys5_re;)
     mock_construct_device!(model, device_model)
     moi_tests(model, 0, 0, 0, 0, 0, false)
     psi_checkobjfun_test(model, GAEVF)
     # TODO: Event model tests will move to PSI
-    #= model = DecisionModel(MockOperationProblem, DCPPowerModel, c_sys5_re;)
+    #= model = DecisionModel(MockOperationProblem, DCPNetworkModel, c_sys5_re;)
     mock_construct_device!(model, device_model; add_event_model = true)
     moi_tests(model, 0, 0, 0, 0, 0, false) =#
 end
 
-@testset "Renewable ACPPowerModel FixedOutput" begin
+@testset "Renewable ACPNetworkModel FixedOutput" begin
     device_model = DeviceModel(RenewableDispatch, FixedOutput)
     c_sys5_re = PSB.build_system(PSITestSystems, "c_sys5_re")
-    model = DecisionModel(MockOperationProblem, ACPPowerModel, c_sys5_re;)
+    model = DecisionModel(MockOperationProblem, ACPNetworkModel, c_sys5_re;)
     mock_construct_device!(model, device_model)
     moi_tests(model, 0, 0, 0, 0, 0, false)
     psi_checkobjfun_test(model, GAEVF)
     # TODO: Event model tests will move to PSI
-    #= model = DecisionModel(MockOperationProblem, ACPPowerModel, c_sys5_re;)
+    #= model = DecisionModel(MockOperationProblem, ACPNetworkModel, c_sys5_re;)
     mock_construct_device!(model, device_model; add_event_model = true)
     moi_tests(model, 0, 0, 0, 0, 0, false) =#
 end
@@ -79,7 +79,7 @@ end
 @testset "Test Renewable CurtailmentCostExpression nonnegativity" begin
     c_sys5_re = PSB.build_system(PSITestSystems, "c_sys5_re")
 
-    template = PowerOperationsProblemTemplate(NetworkModel(CopperPlatePowerModel))
+    template = PowerOperationsProblemTemplate(NetworkModel(CopperPlateNetworkModel))
     set_device_model!(template, RenewableDispatch, RenewableFullDispatch)
     set_device_model!(template, ThermalStandard, ThermalStandardDispatch)
     set_device_model!(template, PowerLoad, StaticPowerLoad)
@@ -131,7 +131,7 @@ end
     # absent from it.
     remove_time_series!(c_sys5_re, Deterministic, no_ts_re, "max_active_power")
 
-    template = PowerOperationsProblemTemplate(NetworkModel(CopperPlatePowerModel))
+    template = PowerOperationsProblemTemplate(NetworkModel(CopperPlateNetworkModel))
     set_device_model!(template, RenewableDispatch, RenewableFullDispatch)
     set_device_model!(template, ThermalStandard, ThermalStandardDispatch)
     set_device_model!(template, PowerLoad, StaticPowerLoad)
@@ -169,7 +169,7 @@ end
     )
 
     device_model = DeviceModel(RenewableDispatch, RenewableFullDispatch)
-    model = DecisionModel(MockOperationProblem, DCPPowerModel, c_sys5_re)
+    model = DecisionModel(MockOperationProblem, DCPNetworkModel, c_sys5_re)
     # Before the fix this threw `ArgumentError: get_active_power_limits not implemented
     # for RenewableDispatch`; now it constructs a quadratic objective.
     mock_construct_device!(model, device_model)

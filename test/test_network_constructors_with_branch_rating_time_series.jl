@@ -101,7 +101,7 @@ end
         )
         template = get_thermal_dispatch_template_network(
             NetworkModel(
-                PTDFPowerModel;
+                PTDFNetworkModel;
                 PTDF_matrix = PTDF_ref[sys],
             ),
         )
@@ -191,7 +191,7 @@ end
 
             template = get_thermal_dispatch_template_network(
                 NetworkModel(
-                    PTDFPowerModel;
+                    PTDFNetworkModel;
                     PTDF_matrix = PTDF(sys),
                 ),
             )
@@ -278,7 +278,7 @@ end
 
             template = get_thermal_dispatch_template_network(
                 NetworkModel(
-                    PTDFPowerModel;
+                    PTDFNetworkModel;
                     PTDF_matrix = PTDF(sys),
                 ),
             )
@@ -364,7 +364,7 @@ end
 
             template = get_thermal_dispatch_template_network(
                 NetworkModel(
-                    PTDFPowerModel;
+                    PTDFNetworkModel;
                     PTDF_matrix = PTDF(sys),
                 ),
             )
@@ -457,7 +457,7 @@ end
             ptdf = PTDF(sys; network_reductions = nr)
             template = get_thermal_dispatch_template_network(
                 NetworkModel(
-                    PTDFPowerModel;
+                    PTDFNetworkModel;
                     #PTDF_matrix = ptdf,
                     reduce_degree_two_branches = PNM.has_degree_two_reduction(
                         ptdf.network_reduction_data,
@@ -496,10 +496,10 @@ end
 
 # ---------------------------------------------------------------------------
 # Formulation-validation and network-formulation coverage ported from
-# PowerSimulations.jl PR #1579 (Task 6.3). These exercise the Phase-4
-# `add_parameters` widening to `PM.AbstractPowerModel`: the
+# PowerSimulations.jl PR #1579 (Task 6.3). These exercise the
+# `add_parameters` dispatch on `AbstractPowerModel`: the
 # `BranchRatingTimeSeriesParameter` container must be added under full-AC
-# (`ACPPowerModel`) and DC-OPF (`DCPPowerModel`) networks, and incompatible
+# (`ACPNetworkModel`) and DC-OPF (`DCPNetworkModel`) networks, and incompatible
 # branch formulations must be rejected at template validation.
 # ---------------------------------------------------------------------------
 
@@ -521,7 +521,7 @@ end
         rating_factors;
         initial_date = "2024-01-01",
     )
-    template_bounds = get_thermal_dispatch_template_network(NetworkModel(DCPPowerModel))
+    template_bounds = get_thermal_dispatch_template_network(NetworkModel(DCPNetworkModel))
     set_device_model!(
         template_bounds,
         DeviceModel(
@@ -548,7 +548,7 @@ end
         initial_date = "2024-01-01",
     )
     template_unbounded =
-        get_thermal_dispatch_template_network(NetworkModel(DCPPowerModel))
+        get_thermal_dispatch_template_network(NetworkModel(DCPNetworkModel))
     set_device_model!(
         template_unbounded,
         DeviceModel(
@@ -566,8 +566,8 @@ end
           IOM.ModelBuildStatus.BUILT
 end
 
-@testset "Branch rating time series with DC OPF (DCPPowerModel) network" begin
-    # Under the native DCPPowerModel the BranchRatingTimeSeriesParameter
+@testset "Branch rating time series with DC OPF (DCPNetworkModel) network" begin
+    # Under the native DCPNetworkModel the BranchRatingTimeSeriesParameter
     # container must be created and the FlowRate constraint RHS must vary across
     # time steps (the time-varying rating), not collapse to the static rating.
     branches_with_rating_ts = ["1", "2", "6"]
@@ -583,7 +583,7 @@ end
         initial_date = "2024-01-01",
     )
 
-    template = get_thermal_dispatch_template_network(NetworkModel(DCPPowerModel))
+    template = get_thermal_dispatch_template_network(NetworkModel(DCPNetworkModel))
     set_device_model!(
         template,
         DeviceModel(
@@ -646,8 +646,8 @@ end
     end
 end
 
-@testset "Branch rating time series with full AC (ACPPowerModel) network" begin
-    # Under the native ACPPowerModel the BranchRatingTimeSeriesParameter
+@testset "Branch rating time series with full AC (ACPNetworkModel) network" begin
+    # Under the native ACPNetworkModel the BranchRatingTimeSeriesParameter
     # container must be created and the apparent-power FlowRate constraint RHS
     # must track the time-varying rating across time steps.
     branches_with_rating_ts = ["1", "2", "6"]
@@ -663,7 +663,7 @@ end
         initial_date = "2024-01-01",
     )
 
-    template = get_thermal_dispatch_template_network(NetworkModel(ACPPowerModel))
+    template = get_thermal_dispatch_template_network(NetworkModel(ACPNetworkModel))
     set_device_model!(
         template,
         DeviceModel(
@@ -722,7 +722,7 @@ end
     # must NOT carry the parameter (the branch flows are not represented, so
     # there is nothing to rate-limit).
     #
-    # NOTE: `AreaBalancePowerModel` is intentionally NOT exercised here because a
+    # NOTE: `AreaBalanceNetworkModel` is intentionally NOT exercised here because a
     # thermal-dispatch template with a StaticBranch Line model fails to build
     # under AreaBalance in PS6 (unrelated to branch ratings). The CopperPlate
     # no-op path is the representable guard for the dispatch widening.
@@ -739,7 +739,7 @@ end
         initial_date = "2024-01-01",
     )
 
-    template = get_thermal_dispatch_template_network(NetworkModel(CopperPlatePowerModel))
+    template = get_thermal_dispatch_template_network(NetworkModel(CopperPlateNetworkModel))
     set_device_model!(
         template,
         DeviceModel(

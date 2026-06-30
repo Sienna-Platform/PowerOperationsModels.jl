@@ -674,7 +674,7 @@ function add_constraints!(
 ) where {
     V <: PSY.HydroTurbine,
     W <: HydroTurbineWaterLinearCommitment,
-    X <: PM.AbstractPowerModel,
+    X <: AbstractPowerModel,
 }
     add_semicontinuous_range_constraints!(container, T, U, devices, model, X)
     return
@@ -1791,7 +1791,7 @@ function add_constraints!(
 ) where {
     V <: PSY.HydroTurbine,
     W <: HydroTurbineBilinearDispatch,
-    X <: PM.AbstractPowerModel,
+    X <: AbstractPowerModel,
 }
     time_steps = get_time_steps(container)
     base_power = get_model_base_power(container)

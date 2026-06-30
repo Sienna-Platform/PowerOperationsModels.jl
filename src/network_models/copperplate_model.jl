@@ -6,7 +6,7 @@ function add_constraints!(
 ) where {
     T <: CopperPlateBalanceConstraint,
     U <: PSY.System,
-    V <: Union{CopperPlatePowerModel, PTDFPowerModel},
+    V <: Union{CopperPlateNetworkModel, PTDFNetworkModel},
 }
     time_steps = get_time_steps(container)
     expressions = get_expression(container, ActivePowerBalance, U)
@@ -28,7 +28,7 @@ function add_constraint_dual!(
     container::OptimizationContainer,
     sys::PSY.System,
     model::NetworkModel{T},
-) where {T <: Union{CopperPlatePowerModel, AbstractPTDFModel}}
+) where {T <: Union{CopperPlateNetworkModel, AbstractPTDFNetworkModel}}
     if !isempty(get_duals(model))
         for constraint_type in get_duals(model)
             assign_dual_variable!(container, constraint_type, sys, model)
@@ -73,7 +73,7 @@ function add_constraints!(
 ) where {
     T <: CopperPlateBalanceConstraint,
     U <: PSY.System,
-    V <: AreaPTDFPowerModel,
+    V <: AreaPTDFNetworkModel,
 }
     time_steps = get_time_steps(container)
     expressions = get_expression(container, ActivePowerBalance, PSY.Area)

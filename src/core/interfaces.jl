@@ -52,7 +52,7 @@ function add_to_objective_function!(
 ) where {
     U <: IS.InfrastructureSystemsComponent,
     F <: IOM.AbstractDeviceFormulation,
-    S <: PM.AbstractPowerModel,
+    S <: AbstractPowerModel,
 }
     error(
         "add_to_objective_function! not implemented for device type $U with formulation $F and power model $S.",

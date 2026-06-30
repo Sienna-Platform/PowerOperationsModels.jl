@@ -20,7 +20,7 @@ const TS_SOURCE_CONSTRAINT_KEYS = [
 @testset "ImportExportSource Source With CopperPlate" begin
     sys = make_5_bus_with_import_export(; add_single_time_series = false)
 
-    model = DecisionModel(MockOperationProblem, CopperPlatePowerModel, sys)
+    model = DecisionModel(MockOperationProblem, CopperPlateNetworkModel, sys)
     device_model = DeviceModel(
         Source,
         ImportExportSourceModel;
@@ -31,7 +31,7 @@ const TS_SOURCE_CONSTRAINT_KEYS = [
     psi_constraint_test(model, BASIC_SOURCE_CONSTRAINT_KEYS)
     psi_checkobjfun_test(model, GAEVF)
 
-    model = DecisionModel(MockOperationProblem, CopperPlatePowerModel, sys)
+    model = DecisionModel(MockOperationProblem, CopperPlateNetworkModel, sys)
     device_model = DeviceModel(
         Source,
         ImportExportSourceModel;
@@ -43,10 +43,10 @@ const TS_SOURCE_CONSTRAINT_KEYS = [
     psi_checkobjfun_test(model, GAEVF)
 end
 
-@testset "ImportExportSource Source With ACPPowerModel" begin
+@testset "ImportExportSource Source With ACPNetworkModel" begin
     sys = make_5_bus_with_import_export(; add_single_time_series = false)
 
-    model = DecisionModel(MockOperationProblem, ACPPowerModel, sys)
+    model = DecisionModel(MockOperationProblem, ACPNetworkModel, sys)
     device_model = DeviceModel(
         Source,
         ImportExportSourceModel;
@@ -57,7 +57,7 @@ end
     psi_constraint_test(model, BASIC_SOURCE_CONSTRAINT_KEYS)
     psi_checkobjfun_test(model, GAEVF)
 
-    model = DecisionModel(MockOperationProblem, ACPPowerModel, sys)
+    model = DecisionModel(MockOperationProblem, ACPNetworkModel, sys)
     device_model = DeviceModel(
         Source,
         ImportExportSourceModel;
@@ -101,7 +101,7 @@ end
     add_time_series!(sys, source, ts_in)
     transform_single_time_series!(sys, Hour(24), Hour(24))
 
-    template = PowerOperationsProblemTemplate(NetworkModel(CopperPlatePowerModel))
+    template = PowerOperationsProblemTemplate(NetworkModel(CopperPlateNetworkModel))
     set_device_model!(template, ThermalStandard, ThermalStandardUnitCommitment)
     set_device_model!(template, PowerLoad, StaticPowerLoad)
     set_device_model!(template, DeviceModel(Line, StaticBranch))
@@ -182,7 +182,7 @@ end
     add_time_series!(sys, source, ts_in)
     transform_single_time_series!(sys, Hour(24), Hour(24))
 
-    model = DecisionModel(MockOperationProblem, ACPPowerModel, sys)
+    model = DecisionModel(MockOperationProblem, ACPNetworkModel, sys)
     device_model = DeviceModel(
         Source,
         ImportExportSourceModel;
@@ -197,7 +197,7 @@ end
     psi_constraint_test(model, TS_SOURCE_CONSTRAINT_KEYS)
     psi_checkobjfun_test(model, GAEVF)
 
-    model = DecisionModel(MockOperationProblem, ACPPowerModel, sys)
+    model = DecisionModel(MockOperationProblem, ACPNetworkModel, sys)
     device_model = DeviceModel(
         Source,
         ImportExportSourceModel;

@@ -13,11 +13,11 @@
         ),
     )
     c_sys5_bat = PSB.build_system(PSITestSystems, "c_sys5_bat")
-    model = DecisionModel(MockOperationProblem, DCPPowerModel, c_sys5_bat)
+    model = DecisionModel(MockOperationProblem, DCPNetworkModel, c_sys5_bat)
     mock_construct_device!(model, device_model)
     moi_tests(model, 72, 0, 72, 72, 24, false)
     psi_checkobjfun_test(model, GAEVF)
-    model = DecisionModel(MockOperationProblem, DCPPowerModel, c_sys5_bat)
+    model = DecisionModel(MockOperationProblem, DCPNetworkModel, c_sys5_bat)
     mock_construct_device!(model, device_model; add_event_model = true)
     moi_tests(model, 72, 0, 120, 72, 24, false)
 end
@@ -35,11 +35,11 @@ end
         ),
     )
     c_sys5_bat = PSB.build_system(PSITestSystems, "c_sys5_bat")
-    model = DecisionModel(MockOperationProblem, ACPPowerModel, c_sys5_bat)
+    model = DecisionModel(MockOperationProblem, ACPNetworkModel, c_sys5_bat)
     mock_construct_device!(model, device_model)
     moi_tests(model, 96, 0, 96, 96, 24, false)
     psi_checkobjfun_test(model, GAEVF)
-    model = DecisionModel(MockOperationProblem, ACPPowerModel, c_sys5_bat)
+    model = DecisionModel(MockOperationProblem, ACPNetworkModel, c_sys5_bat)
     mock_construct_device!(model, device_model; add_event_model = true)
     moi_tests(model, 96, 0, 144, 96, 24, false)
     # Outage constraint for reactive power is quadratic:
@@ -50,11 +50,11 @@ end
 @testset "Storage with Reservation  & DC - PF" begin
     device_model = DeviceModel(EnergyReservoirStorage, StorageDispatchWithReserves)
     c_sys5_bat = PSB.build_system(PSITestSystems, "c_sys5_bat")
-    model = DecisionModel(MockOperationProblem, DCPPowerModel, c_sys5_bat)
+    model = DecisionModel(MockOperationProblem, DCPNetworkModel, c_sys5_bat)
     mock_construct_device!(model, device_model)
     moi_tests(model, 96, 0, 72, 72, 24, true)
     psi_checkobjfun_test(model, GAEVF)
-    model = DecisionModel(MockOperationProblem, DCPPowerModel, c_sys5_bat)
+    model = DecisionModel(MockOperationProblem, DCPNetworkModel, c_sys5_bat)
     mock_construct_device!(model, device_model; add_event_model = true)
     moi_tests(model, 96, 0, 120, 72, 24, true)
 end
@@ -62,11 +62,11 @@ end
 @testset "Storage with Reservation  & AC - PF" begin
     device_model = DeviceModel(EnergyReservoirStorage, StorageDispatchWithReserves)
     c_sys5_bat = PSB.build_system(PSITestSystems, "c_sys5_bat")
-    model = DecisionModel(MockOperationProblem, ACPPowerModel, c_sys5_bat)
+    model = DecisionModel(MockOperationProblem, ACPNetworkModel, c_sys5_bat)
     mock_construct_device!(model, device_model)
     moi_tests(model, 120, 0, 96, 96, 24, true)
     psi_checkobjfun_test(model, GAEVF)
-    model = DecisionModel(MockOperationProblem, ACPPowerModel, c_sys5_bat)
+    model = DecisionModel(MockOperationProblem, ACPNetworkModel, c_sys5_bat)
     mock_construct_device!(model, device_model; add_event_model = true)
     moi_tests(model, 120, 0, 144, 96, 24, true)
     # Outage constraint for reactive power is quadratic:
@@ -87,11 +87,11 @@ end
         ),
     )
     c_sys5_bat = PSB.build_system(PSITestSystems, "c_sys5_bat_ems")
-    model = DecisionModel(MockOperationProblem, DCPPowerModel, c_sys5_bat)
+    model = DecisionModel(MockOperationProblem, DCPNetworkModel, c_sys5_bat)
     mock_construct_device!(model, device_model)
     moi_tests(model, 98, 0, 72, 72, 25, true)
     psi_checkobjfun_test(model, GAEVF)
-    model = DecisionModel(MockOperationProblem, DCPPowerModel, c_sys5_bat)
+    model = DecisionModel(MockOperationProblem, DCPNetworkModel, c_sys5_bat)
     mock_construct_device!(model, device_model; add_event_model = true)
     moi_tests(model, 98, 0, 120, 72, 25, true)
 
@@ -106,11 +106,11 @@ end
             "regularization" => false,
         ),
     )
-    model = DecisionModel(MockOperationProblem, DCPPowerModel, c_sys5_bat)
+    model = DecisionModel(MockOperationProblem, DCPNetworkModel, c_sys5_bat)
     mock_construct_device!(model, device_model)
     moi_tests(model, 74, 0, 72, 72, 25, false)
     psi_checkobjfun_test(model, GAEVF)
-    model = DecisionModel(MockOperationProblem, DCPPowerModel, c_sys5_bat)
+    model = DecisionModel(MockOperationProblem, DCPNetworkModel, c_sys5_bat)
     mock_construct_device!(model, device_model; add_event_model = true)
     moi_tests(model, 74, 0, 120, 72, 25, false)
 end
@@ -128,11 +128,11 @@ end
         ),
     )
     c_sys5_bat = PSB.build_system(PSITestSystems, "c_sys5_bat_ems")
-    model = DecisionModel(MockOperationProblem, ACPPowerModel, c_sys5_bat)
+    model = DecisionModel(MockOperationProblem, ACPNetworkModel, c_sys5_bat)
     mock_construct_device!(model, device_model)
     moi_tests(model, 122, 0, 96, 96, 25, true)
     psi_checkobjfun_test(model, GAEVF)
-    model = DecisionModel(MockOperationProblem, ACPPowerModel, c_sys5_bat)
+    model = DecisionModel(MockOperationProblem, ACPNetworkModel, c_sys5_bat)
     mock_construct_device!(model, device_model; add_event_model = true)
     moi_tests(model, 122, 0, 144, 96, 25, true)
 
@@ -148,11 +148,11 @@ end
         ),
     )
     c_sys5_bat = PSB.build_system(PSITestSystems, "c_sys5_bat_ems")
-    model = DecisionModel(MockOperationProblem, ACPPowerModel, c_sys5_bat)
+    model = DecisionModel(MockOperationProblem, ACPNetworkModel, c_sys5_bat)
     mock_construct_device!(model, device_model)
     moi_tests(model, 98, 0, 96, 96, 25, false)
     psi_checkobjfun_test(model, GAEVF)
-    model = DecisionModel(MockOperationProblem, ACPPowerModel, c_sys5_bat)
+    model = DecisionModel(MockOperationProblem, ACPNetworkModel, c_sys5_bat)
     mock_construct_device!(model, device_model; add_event_model = true)
     moi_tests(model, 98, 0, 144, 96, 25, false)
     # Outage constraint for reactive power is quadratic:
@@ -186,10 +186,10 @@ end
 
     attach_feedforward!(device_model, ff_et)
     sys = PSB.build_system(PSITestSystems, "c_sys5_bat")
-    model = DecisionModel(MockOperationProblem, DCPPowerModel, sys)
+    model = DecisionModel(MockOperationProblem, DCPNetworkModel, sys)
     mock_construct_device!(model, device_model; built_for_recurrent_solves = true)
     moi_tests(model, 122, 0, 72, 73, 24, true)
-    model = DecisionModel(MockOperationProblem, DCPPowerModel, sys)
+    model = DecisionModel(MockOperationProblem, DCPNetworkModel, sys)
     mock_construct_device!(
         model,
         device_model;
@@ -222,10 +222,10 @@ end
 
     attach_feedforward!(device_model, ff_et)
     sys = PSB.build_system(PSITestSystems, "c_sys5_bat_ems")
-    model = DecisionModel(MockOperationProblem, DCPPowerModel, sys)
+    model = DecisionModel(MockOperationProblem, DCPNetworkModel, sys)
     mock_construct_device!(model, device_model; built_for_recurrent_solves = true)
     moi_tests(model, 122, 0, 72, 73, 24, true)
-    model = DecisionModel(MockOperationProblem, DCPPowerModel, sys)
+    model = DecisionModel(MockOperationProblem, DCPNetworkModel, sys)
     mock_construct_device!(
         model,
         device_model;
@@ -236,7 +236,7 @@ end
 end =#
 
 @testset "Test Reserves from Storage" begin
-    template = get_thermal_dispatch_template_network(CopperPlatePowerModel)
+    template = get_thermal_dispatch_template_network(CopperPlateNetworkModel)
     device_model = DeviceModel(
         EnergyReservoirStorage,
         StorageDispatchWithReserves;
@@ -306,7 +306,7 @@ end
     )
     add_component!(sys, bat)
 
-    template = get_thermal_dispatch_template_network(AreaPTDFPowerModel)
+    template = get_thermal_dispatch_template_network(AreaPTDFNetworkModel)
     device_model = DeviceModel(
         EnergyReservoirStorage,
         StorageDispatchWithReserves;
@@ -340,7 +340,7 @@ end
 
     attach_feedforward!(device_model, ff_il)
     sys = PSB.build_system(PSITestSystems, "c_sys5_bat")
-    model = DecisionModel(MockOperationProblem, DCPPowerModel, sys)
+    model = DecisionModel(MockOperationProblem, DCPNetworkModel, sys)
     mock_construct_device!(model, device_model; built_for_recurrent_solves=true)
     moi_tests(model, 121, 0, 74, 72, 24, true)
 end
@@ -357,7 +357,7 @@ end
 
     attach_feedforward!(device_model, ff_il)
     sys = PSB.build_system(PSITestSystems, "c_sys5_bat")
-    model = DecisionModel(MockOperationProblem, DCPPowerModel, sys)
+    model = DecisionModel(MockOperationProblem, DCPNetworkModel, sys)
     mock_construct_device!(model, device_model; built_for_recurrent_solves=true)
     moi_tests(model, 121, 0, 74, 72, 24, true)
 end

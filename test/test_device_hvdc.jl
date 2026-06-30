@@ -1,7 +1,7 @@
 @testset "HVDC System Tests" begin
     sys_5 = build_system(PSISystems, "sys10_pjm_ac_dc")
     template_uc = PowerOperationsProblemTemplate(NetworkModel(
-        DCPPowerModel,
+        DCPNetworkModel,
         #use_slacks=true,
         #PTDF_matrix=PTDF(sys_5),
         #duals=[CopperPlateBalanceConstraint],
@@ -21,7 +21,7 @@
 
     template_uc = PowerOperationsProblemTemplate(
         NetworkModel(
-            PTDFPowerModel;
+            PTDFNetworkModel;
             #use_slacks=true,
             PTDF_matrix = PTDF(sys_5),
             #duals=[CopperPlateBalanceConstraint],
@@ -192,9 +192,9 @@ function _generate_test_vsc_sys(;
         g = g,
         dc_current = 0.0,
         reactive_power_from = 0.0,
-        dc_voltage_control_from = true,
-        ac_voltage_control_from = true,
-        dc_setpoint_from = 0.0,
+        dc_control_from = VSCDCControlModes.DC_VOLTAGE,
+        ac_control_from = VSCACControlModes.AC_VOLTAGE,
+        dc_setpoint_from = 1.0,
         ac_setpoint_from = 1.0,
         converter_loss_from = QuadraticCurve(loss_a, loss_b, loss_c),
         max_dc_current_from = 5.0,
@@ -202,17 +202,19 @@ function _generate_test_vsc_sys(;
         reactive_power_limits_from = (min = -rating_from, max = rating_from),
         power_factor_weighting_fraction_from = 1.0,
         voltage_limits_from = (min = 0.95, max = 1.05),
+        dc_voltage_droop_from = 0.0,
         reactive_power_to = 0.0,
-        dc_voltage_control_to = true,
-        ac_voltage_control_to = true,
+        dc_control_to = VSCDCControlModes.DC_POWER,
+        ac_control_to = VSCACControlModes.AC_REACTIVE_POWER,
         dc_setpoint_to = 0.0,
-        ac_setpoint_to = 1.0,
+        ac_setpoint_to = 0.0,
         converter_loss_to = QuadraticCurve(loss_a, loss_b, loss_c),
         max_dc_current_to = 5.0,
         rating_to = rating_to,
         reactive_power_limits_to = (min = -rating_to, max = rating_to),
         power_factor_weighting_fraction_to = 1.0,
         voltage_limits_to = (min = 0.95, max = 1.05),
+        dc_voltage_droop_to = 0.0,
     )
     add_component!(sys, vsc)
     return sys
@@ -246,7 +248,7 @@ _vsc_nlp() = DeviceModel(TwoTerminalVSCLine, HVDCTwoTerminalVSC)  # default "non
 @testset "HVDC VSC LP vs NLP objective agreement" begin
     function _solve(converter_model, optimizer)
         sys = _generate_test_vsc_sys()
-        model = _build_vsc_model(converter_model, DCPPowerModel, optimizer; sys = sys)
+        model = _build_vsc_model(converter_model, DCPNetworkModel, optimizer; sys = sys)
         @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
               IOM.ModelBuildStatus.BUILT
         @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
@@ -273,7 +275,7 @@ end
     # One squares-based ("bin2") and one discretization-based ("nmdt") scheme
     # cover both `_add_converter_bilinear!` branches.
     for scheme in ("bin2", "nmdt")
-        template = PowerOperationsProblemTemplate(NetworkModel(DCPPowerModel))
+        template = PowerOperationsProblemTemplate(NetworkModel(DCPNetworkModel))
         set_device_model!(template, ThermalStandard, ThermalDispatchNoMin)
         set_device_model!(template, RenewableDispatch, RenewableFullDispatch)
         set_device_model!(template, PowerLoad, StaticPowerLoad)
@@ -297,7 +299,7 @@ end
         sys = _generate_test_vsc_sys(; g = g_value)
         model = _build_vsc_model(
             _vsc_milp("bilinear_relative_tolerance" => 0.2),
-            DCPPowerModel, HiGHS_optimizer; sys = sys,
+            DCPNetworkModel, HiGHS_optimizer; sys = sys,
         )
         @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
               IOM.ModelBuildStatus.BUILT
@@ -313,7 +315,7 @@ end
     function _solve_with_rating(s)
         sys = _generate_test_vsc_sys(; rating_from = s, rating_to = s)
         model = _build_vsc_model(
-            _vsc_nlp(), ACPPowerModel, ipopt_optimizer; sys = sys,
+            _vsc_nlp(), ACPNetworkModel, ipopt_optimizer; sys = sys,
         )
         @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
               IOM.ModelBuildStatus.BUILT
