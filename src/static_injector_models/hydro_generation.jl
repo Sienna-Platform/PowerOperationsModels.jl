@@ -1277,45 +1277,53 @@ function add_constraints!(
 }
     time_steps = get_time_steps(container)
     set_name = [PSY.get_name(d) for d in devices]
-    constraint =
-        add_constraints_container!(container, EnergyBudgetConstraint, V, set_name)
     variable_out = get_variable(container, ActivePowerVariable, V)
     param_container = get_parameter(container, EnergyBudgetTimeSeriesParameter, V)
     multiplier = get_multiplier_array(param_container)
-    for d in devices
-        name = PSY.get_name(d)
-        if get_use_slacks(model)
-            slack_var =
-                sum(get_variable(container, HydroEnergyShortageVariable, V)[name, :])
-        else
-            slack_var = 0.0
-        end
-        param = get_parameter_column_values(param_container, name)
-        constraint[name] = JuMP.@constraint(
-            container.JuMPmodel,
-            sum([variable_out[name, t] for t in time_steps]) <=
-            sum([multiplier[name, t] * param[t] for t in time_steps]) + slack_var
-        )
+    jump_model = get_jump_model(container)
+
+    slacks = if get_use_slacks(model)
+        get_variable(container, HydroEnergyShortageVariable, V)
+    else
+        nothing
     end
+    slack_term(name, window) =
+        isnothing(slacks) ? 0.0 : sum(slacks[name, t] for t in window)
+
     hydro_budget_interval = get_attribute(model, "hydro_budget_interval")
-    if !isnothing(hydro_budget_interval)
-        constraint_aux = add_constraints_container!(container, EnergyBudgetConstraint,
-            V,
-            set_name;
-            meta = "interval",
-        )
+    if isnothing(hydro_budget_interval)
+        constraint =
+            add_constraints_container!(container, EnergyBudgetConstraint, V, set_name)
+        for d in devices
+            name = PSY.get_name(d)
+            param = get_parameter_column_values(param_container, name)
+            constraint[name] = JuMP.@constraint(
+                jump_model,
+                sum(variable_out[name, t] for t in time_steps) <=
+                sum(multiplier[name, t] * param[t] for t in time_steps) +
+                slack_term(name, time_steps)
+            )
+        end
+    else
         resolution = get_resolution(container)
         interval_length =
             Dates.Millisecond(hydro_budget_interval).value ÷
             Dates.Millisecond(resolution).value
+        windows = collect(Iterators.partition(time_steps, interval_length))
+        constraint = add_constraints_container!(
+            container, EnergyBudgetConstraint, V, set_name, eachindex(windows),
+        )
         for d in devices
             name = PSY.get_name(d)
             param = get_parameter_column_values(param_container, name)
-            constraint_aux[name] = JuMP.@constraint(
-                container.JuMPmodel,
-                sum([variable_out[name, t] for t in 1:interval_length]) <=
-                sum([multiplier[name, t] * param[t] for t in 1:interval_length])
-            )
+            for (w, window) in enumerate(windows)
+                constraint[name, w] = JuMP.@constraint(
+                    jump_model,
+                    sum(variable_out[name, t] for t in window) <=
+                    sum(multiplier[name, t] * param[t] for t in window) +
+                    slack_term(name, window)
+                )
+            end
         end
     end
     return
