@@ -234,7 +234,7 @@ function _validate_occ_subtype(
         ),
     )
     fd = IS.get_function_data(IS.get_value_curve(curve))
-    if !iszero(first(IS.get_x_coords(fd)))
+    if !iszero(first(IS.get_domain(fd)))
         throw(
             ArgumentError(
                 "For ImportExportCost, the first breakpoint must be zero.",
