@@ -2110,10 +2110,10 @@ function construct_device!(
     add_variables!(container, HVDCFromDCVoltage, devices, F)
     add_variables!(container, HVDCToDCVoltage, devices, F)
 
-    _maybe_add_reactive_power_variables!(
-        container, devices, device_model, network_model,
-        (HVDCReactivePowerFromVariable, HVDCReactivePowerToVariable),
-    )
+    on_reactive_power(network_model) do
+        add_variables!(container, HVDCReactivePowerFromVariable, devices, F)
+        add_variables!(container, HVDCReactivePowerToVariable, devices, F)
+    end
 
     add_variables!(container, CurrentAbsoluteValueVariable, devices, F)
 
@@ -2125,6 +2125,17 @@ function construct_device!(
         container, ActivePowerBalance, FlowActivePowerToFromVariable,
         devices, device_model, network_model,
     )
+
+    on_reactive_power(network_model) do
+        add_to_expression!(
+            container, ReactivePowerBalance, HVDCReactivePowerFromVariable,
+            devices, device_model, network_model,
+        )
+        add_to_expression!(
+            container, ReactivePowerBalance, HVDCReactivePowerToVariable,
+            devices, device_model, network_model,
+        )
+    end
 
     add_feedforward_arguments!(container, device_model, devices)
     return

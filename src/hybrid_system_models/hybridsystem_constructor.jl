@@ -203,83 +203,6 @@ function _add_hybrid_reserve_arguments!(
     return
 end
 
-_maybe_add_reactive_power_variable!(
-    container::OptimizationContainer,
-    devices::U,
-    ::Type{D},
-    ::Type{<:AbstractPowerModel},
-) where {
-    D <: AbstractHybridFormulation,
-    U <: Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
-} where {V <: PSY.HybridSystem} =
-    add_variables!(container, ReactivePowerVariable, devices, D)
-
-_maybe_add_reactive_power_balance!(
-    container::OptimizationContainer,
-    devices::U,
-    model::DeviceModel{V, D},
-    network_model::NetworkModel{<:AbstractPowerModel},
-) where {
-    D <: AbstractHybridFormulation,
-    U <: Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
-} where {V <: PSY.HybridSystem} =
-    add_to_expression!(
-        container,
-        ReactivePowerBalance,
-        ReactivePowerVariable,
-        devices,
-        model,
-        network_model,
-    )
-
-_maybe_add_reactive_power_limits!(
-    container::OptimizationContainer,
-    devices::U,
-    model::DeviceModel{V, D},
-    network_model::NetworkModel{<:AbstractPowerModel},
-) where {
-    D <: AbstractHybridFormulation,
-    U <: Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
-} where {V <: PSY.HybridSystem} =
-    add_constraints!(
-        container,
-        ReactivePowerVariableLimitsConstraint,
-        ReactivePowerVariable,
-        devices,
-        model,
-        network_model,
-    )
-
-_maybe_add_reactive_power_variable!(
-    ::OptimizationContainer,
-    ::U,
-    ::Type{D},
-    ::Type{<:AbstractActivePowerModel},
-) where {
-    D <: AbstractHybridFormulation,
-    U <: Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
-} where {V <: PSY.HybridSystem} = nothing
-
-_maybe_add_reactive_power_balance!(
-    ::OptimizationContainer,
-    ::U,
-    ::DeviceModel{V, D},
-    ::NetworkModel{<:AbstractActivePowerModel},
-) where {
-    D <: AbstractHybridFormulation,
-    U <: Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
-} where {V <: PSY.HybridSystem} = nothing
-
-_maybe_add_reactive_power_limits!(
-    ::OptimizationContainer,
-    ::U,
-    ::DeviceModel{V, D},
-    ::NetworkModel{<:AbstractActivePowerModel},
-) where {
-    D <: AbstractHybridFormulation,
-    U <: Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
-} where {V <: PSY.HybridSystem} = nothing
-
 function construct_device!(
     container::OptimizationContainer,
     sys::PSY.System,
@@ -293,7 +216,11 @@ function construct_device!(
     # PCC variables
     add_variables!(container, ActivePowerOutVariable, devices, D)
     add_variables!(container, ActivePowerInVariable, devices, D)
-    _maybe_add_reactive_power_variable!(container, devices, D, S)
+
+    on_reactive_power(network_model) do
+        add_variables!(container, ReactivePowerVariable, devices, D)
+    end
+
     if get_attribute(model, "reservation")
         add_variables!(container, ReservationVariable, devices, D)
     end
@@ -314,7 +241,13 @@ function construct_device!(
         model,
         network_model,
     )
-    _maybe_add_reactive_power_balance!(container, devices, model, network_model)
+
+    on_reactive_power(network_model) do
+        add_to_expression!(
+            container, ReactivePowerBalance, ReactivePowerVariable, devices,
+            model, network_model,
+        )
+    end
 
     # Subcomponent variables
     if !isempty(grouped.with_thermal)
@@ -398,7 +331,12 @@ function construct_device!(
     grouped = _filter_hybrids(devices)
 
     # PCC reactive-power limits (active-power limits handled via the asset balance + status constraints)
-    _maybe_add_reactive_power_limits!(container, devices, model, network_model)
+    on_reactive_power(network_model) do
+        add_constraints!(
+            container, ReactivePowerVariableLimitsConstraint, ReactivePowerVariable,
+            devices, model, network_model,
+        )
+    end
 
     # PCC ↔ subcomponent plumbing. With reservation, mutual-exclusion via ReservationVariable;
     # without, simple range constraints on the PCC variables (no binary).
