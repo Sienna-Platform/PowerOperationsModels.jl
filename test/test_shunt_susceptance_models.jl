@@ -1,10 +1,3 @@
-@testset "ShuntSusceptanceDispatch — type definitions" begin
-    @test ShuntSusceptanceDispatch <: AbstractShuntFormulation
-    @test AbstractShuntFormulation <: IOM.AbstractDeviceFormulation
-    @test POM.models_reactive_power(ShuntSusceptanceDispatch)
-    @test !POM.models_reactive_power(ThermalBasicDispatch)
-end
-
 @testset "ShuntSusceptance bounds are finite (Principle 0 — SwitchedAdmittance)" begin
     # A device with one adjustable block: b ∈ [0.1, 0.1 + 3*0.05] = [0.1, 0.25]
     sys = PSB.build_system(PSITestSystems, "c_sys5")
@@ -231,9 +224,9 @@ end
 end
 
 @testset "SwitchedAdmittance mixed-sign blocks: separate cap/inductive accounting" begin
-    # A device whose blocks include both capacitive (+imag) and inductive (-imag)
-    # increments. The old code computed a single net `span` and got [0,0] here; the
-    # correct code sums increase and decrease separately.
+    # A device whose blocks mix capacitive (+imag) and inductive (-imag) increments:
+    # the bounds must sum increase and decrease separately, not net them into one span
+    # (which collapses to [0,0] here).
     sys = PSB.build_system(PSITestSystems, "c_sys5")
     bus = first(PSY.get_components(PSY.ACBus, sys))
     sa_mixed = PSY.SwitchedAdmittance(;

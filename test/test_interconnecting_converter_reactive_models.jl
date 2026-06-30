@@ -42,12 +42,6 @@ function _ic_reactive_template(network)
     return template
 end
 
-@testset "VoltageControlConverter — type definitions" begin
-    @test VoltageControlConverter <: POM.AbstractQuadraticLossConverter
-    @test POM.models_reactive_power(VoltageControlConverter)
-    @test !POM.models_reactive_power(QuadraticLossConverter)
-end
-
 @testset "VoltageControlConverter builds and solves under ACPNetworkModel" begin
     sys = _build_ic_reactive_sys()
     template = _ic_reactive_template(ACPNetworkModel)

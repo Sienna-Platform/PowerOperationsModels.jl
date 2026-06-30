@@ -45,7 +45,7 @@ end
 @testset "IVRNetworkModel objective ≈ ACPNetworkModel objective (c_sys5)" begin
     # IVR and ACP are the same nonlinear AC optimal power flow (exact AC physics,
     # different variable space); on the same system they must converge to the same
-    # optimal value. See design brief (design a).
+    # optimal value.
     sys = PSB.build_system(PSITestSystems, "c_sys5")
 
     template_acp = get_thermal_dispatch_template_network(NetworkModel(ACPNetworkModel))

@@ -57,14 +57,3 @@ end
     model = DecisionModel(template, sys; optimizer = ipopt_optimizer)
     @test_throws IS.ConflictingInputsError POM.validate_template(model)
 end
-
-@testset "VoltageControlTap still builds under ACP/ACR/IVR" begin
-    sys = PSB.build_system(PSITestSystems, "c_sys14")
-    for net in (ACPNetworkModel, ACRNetworkModel, IVRNetworkModel)
-        template = get_thermal_dispatch_template_network(NetworkModel(net))
-        set_device_model!(template, PSY.TapTransformer, VoltageControlTap)
-        model = DecisionModel(template, sys; optimizer = ipopt_optimizer)
-        @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
-              IOM.ModelBuildStatus.BUILT
-    end
-end

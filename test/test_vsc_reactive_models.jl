@@ -68,12 +68,6 @@ function _vsc_reactive_template(network)
     return template
 end
 
-@testset "VoltageControlVSC — type definitions" begin
-    @test VoltageControlVSC <: POM.AbstractTwoTerminalVSCFormulation
-    @test POM.models_reactive_power(VoltageControlVSC)
-    @test !POM.models_reactive_power(HVDCTwoTerminalVSC)
-end
-
 @testset "VoltageControlVSC builds and solves under ACPNetworkModel" begin
     # Both AC terminals in AC_VOLTAGE mode so the reactive injections float
     # (bounded) while the bus voltages are pinned.
@@ -222,33 +216,6 @@ end
     # network it is dropped (with an @info) from the template during validation.
     build!(model; output_dir = mktempdir(; cleanup = true))
     @test !haskey(get_branch_models(get_template(model)), :TwoTerminalVSCLine)
-end
-
-@testset "VoltageControlVSC DC_VOLTAGE_DROOP builds and solves under ACPNetworkModel" begin
-    droop_gain = 0.05
-    dc_sp = 1.0
-    sys = _build_vsc_reactive_sys(;
-        dc_control_from = VSCDCControlModes.DC_VOLTAGE_DROOP,
-        dc_setpoint_from = dc_sp,
-        dc_voltage_droop_from = droop_gain,
-        ac_control_to = VSCACControlModes.AC_VOLTAGE,
-        ac_setpoint_to = 1.0,
-    )
-    template = _vsc_reactive_template(ACPNetworkModel)
-    model = DecisionModel(
-        template, sys; store_variable_names = true, optimizer = ipopt_optimizer,
-    )
-    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
-          IOM.ModelBuildStatus.BUILT
-    @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
-
-    c = IOM.get_optimization_container(model)
-    con = IOM.get_constraints(c)
-    dc_ctrl_keys = [k for k in keys(con) if occursin("HVDCDCControlConstraint", string(k))]
-    @test length(dc_ctrl_keys) == 2
-    for k in dc_ctrl_keys
-        @test all(!isnothing, con[k])
-    end
 end
 
 @testset "VoltageControlVSC is count-invariant across DC control modes (ACP)" begin

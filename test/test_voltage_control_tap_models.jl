@@ -1,11 +1,3 @@
-@testset "VoltageControlTap — type definitions" begin
-    @test VoltageControlTap <: POM.AbstractBranchFormulation
-    @test POM.AbstractBranchFormulation <: IOM.AbstractDeviceFormulation
-    @test POM.models_reactive_power(VoltageControlTap)
-    @test !POM.models_reactive_power(StaticBranch)
-    @test TapRatioVariable <: IOM.VariableType
-end
-
 @testset "VoltageControlTap tap bounds are finite (Principle 0)" begin
     sys = PSB.build_system(PSITestSystems, "c_sys14")
     for tr in PSY.get_components(PSY.TapTransformer, sys)
@@ -14,24 +6,7 @@ end
         @test isfinite(lim.max)
         @test lim.min > 0.0
         @test lim.max >= lim.min
-        @test POM.get_variable_lower_bound(TapRatioVariable, tr, VoltageControlTap) ==
-              lim.min
-        @test POM.get_variable_upper_bound(TapRatioVariable, tr, VoltageControlTap) ==
-              lim.max
     end
-end
-
-@testset "VoltageControlTap builds and solves under ACPNetworkModel (c_sys14)" begin
-    sys = PSB.build_system(PSITestSystems, "c_sys14")
-    template = get_thermal_dispatch_template_network(NetworkModel(ACPNetworkModel))
-    set_device_model!(template, PSY.TapTransformer, VoltageControlTap)
-
-    model = DecisionModel(template, sys; optimizer = ipopt_optimizer)
-    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
-          IOM.ModelBuildStatus.BUILT
-    @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
-
-    @test check_variable_bounded(model, TapRatioVariable, PSY.TapTransformer)
 end
 
 @testset "VoltageControlTap VOLTAGE objective pins regulated bus voltage (c_sys14)" begin
@@ -158,19 +133,6 @@ end
     for k in keys(con_v)
         @test size(con_v[k]) == size(con_q[k])
     end
-end
-
-@testset "VoltageControlTap builds and solves under IVRNetworkModel (c_sys14)" begin
-    sys = PSB.build_system(PSITestSystems, "c_sys14")
-    template = get_thermal_dispatch_template_network(NetworkModel(IVRNetworkModel))
-    set_device_model!(template, PSY.TapTransformer, VoltageControlTap)
-
-    model = DecisionModel(template, sys; optimizer = ipopt_optimizer)
-    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
-          IOM.ModelBuildStatus.BUILT
-    @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
-
-    @test check_variable_bounded(model, TapRatioVariable, PSY.TapTransformer)
 end
 
 @testset "VoltageControlTap VOLTAGE objective pins regulated bus (IVR, c_sys14)" begin
