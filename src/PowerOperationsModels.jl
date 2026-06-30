@@ -269,7 +269,6 @@ include("common_models/contingency_constraints.jl")
 include("common_models/make_system_expressions.jl")
 include("common_models/reserve_range_constraints.jl")
 include("common_models/quadratic_converter_loss.jl")
-include("common_models/network_conditional.jl")
 
 # Market bid cost plumbing (PSY orchestration moved out of IOM). Must be included
 # before device-specific files that reference MBC_TYPES / IEC_TYPES.

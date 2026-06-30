@@ -118,14 +118,16 @@ function construct_device!(
         model,
         network_model,
     )
-    add_constraints!(
-        container,
-        ReactivePowerVariableLimitsConstraint,
-        ReactivePowerVariable,
-        devices,
-        model,
-        network_model,
-    )
+    on_reactive_power(network_model) do
+        add_constraints!(
+            container,
+            ReactivePowerVariableLimitsConstraint,
+            ReactivePowerVariable,
+            devices,
+            model,
+            network_model,
+        )
+    end
     add_constraints!(container, ImportExportBudgetConstraint, devices, model, network_model)
 
     if haskey(get_time_series_names(model), ActivePowerOutTimeSeriesParameter)
@@ -245,81 +247,6 @@ function construct_device!(
     )
 
     add_feedforward_arguments!(container, model, devices)
-    return
-end
-
-"""
-This function creates the constraints for the model for an import/export formulation for Source devices
-"""
-function construct_device!(
-    container::OptimizationContainer,
-    sys::PSY.System,
-    ::ModelConstructStage,
-    model::DeviceModel{T, D},
-    network_model::NetworkModel{<:AbstractActivePowerModel},
-) where {
-    T <: PSY.Source,
-    D <: ImportExportSourceModel,
-}
-    devices = get_available_components(model, sys)
-
-    add_constraints!(
-        container,
-        ActivePowerVariableLimitsConstraint,
-        ActivePowerRangeExpressionLB,
-        devices,
-        model,
-        network_model,
-    )
-    add_constraints!(
-        container,
-        ActivePowerVariableLimitsConstraint,
-        ActivePowerRangeExpressionUB,
-        devices,
-        model,
-        network_model,
-    )
-    add_constraints!(
-        container,
-        InputActivePowerVariableLimitsConstraint,
-        ActivePowerInVariable,
-        devices,
-        model,
-        network_model,
-    )
-
-    add_constraints!(container, ImportExportBudgetConstraint, devices, model, network_model)
-
-    if haskey(get_time_series_names(model), ActivePowerOutTimeSeriesParameter)
-        add_constraints!(
-            container,
-            ActivePowerOutVariableTimeSeriesLimitsConstraint,
-            ActivePowerRangeExpressionUB,
-            devices,
-            model,
-            network_model,
-        )
-    end
-    if haskey(get_time_series_names(model), ActivePowerInTimeSeriesParameter)
-        add_constraints!(
-            container,
-            ActivePowerInVariableTimeSeriesLimitsConstraint,
-            ActivePowerInVariable,
-            devices,
-            model,
-            network_model,
-        )
-    end
-
-    add_feedforward_constraints!(container, model, devices)
-
-    add_to_objective_function!(
-        container,
-        devices,
-        model,
-        get_network_formulation(network_model),
-    )
-    add_constraint_dual!(container, sys, model)
     return
 end
 

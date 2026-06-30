@@ -9,16 +9,19 @@ function construct_device!(
     D <: AbstractReactivePowerDeviceFormulation,
 }
     devices = get_available_components(model, sys)
-    add_variables!(container, ReactivePowerVariable, devices, D)
-    add_to_expression!(
-        container,
-        ReactivePowerBalance,
-        ReactivePowerVariable,
-        devices,
-        model,
-        network_model,
-    )
-    add_feedforward_arguments!(container, model, devices)
+    on_reactive_power(network_model) do
+        add_variables!(container, ReactivePowerVariable, devices, D)
+        add_to_expression!(
+            container,
+            ReactivePowerBalance,
+            ReactivePowerVariable,
+            devices,
+            model,
+            network_model,
+        )
+        add_feedforward_arguments!(container, model, devices)
+    end
+    return
 end
 
 function construct_device!(
@@ -36,19 +39,5 @@ function construct_device!(
     # Add FFs
     add_feedforward_constraints!(container, model, devices)
     # No objective function
-    return
-end
-
-function construct_device!(
-    container::OptimizationContainer,
-    sys::PSY.System,
-    ::ArgumentConstructStage,
-    model::DeviceModel{R, D},
-    network_model::NetworkModel{<:AbstractActivePowerModel},
-) where {
-    R <: PSY.SynchronousCondenser,
-    D <: AbstractReactivePowerDeviceFormulation,
-}
-    # Do Nothing in Active Power Only Models
     return
 end

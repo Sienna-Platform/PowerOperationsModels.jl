@@ -705,34 +705,22 @@ function construct_device!(
 ) where {T <: PSY.ACTransmission}
     devices = get_available_components(device_model, sys)
     branch_rate_bounds!(container, device_model, network_model)
-    add_constraints!(
-        container,
-        FlowRateConstraintFromTo,
-        devices,
-        device_model,
-        network_model,
-    )
-    add_constraints!(
-        container,
-        FlowRateConstraintToFrom,
-        devices,
-        device_model,
-        network_model,
-    )
-    add_constraint_dual!(container, sys, device_model)
-    add_feedforward_constraints!(container, device_model, devices)
-    return
-end
-
-function construct_device!(
-    container::OptimizationContainer,
-    sys::PSY.System,
-    ::ModelConstructStage,
-    device_model::DeviceModel{T, StaticBranchBounds},
-    network_model::NetworkModel{<:AbstractActivePowerModel},
-) where {T <: PSY.ACTransmission}
-    devices = get_available_components(device_model, sys)
-    branch_rate_bounds!(container, device_model, network_model)
+    on_reactive_power(network_model) do
+        add_constraints!(
+            container,
+            FlowRateConstraintFromTo,
+            devices,
+            device_model,
+            network_model,
+        )
+        add_constraints!(
+            container,
+            FlowRateConstraintToFrom,
+            devices,
+            device_model,
+            network_model,
+        )
+    end
     add_constraint_dual!(container, sys, device_model)
     add_feedforward_constraints!(container, device_model, devices)
     return

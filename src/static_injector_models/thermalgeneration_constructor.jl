@@ -69,7 +69,9 @@ function construct_device!(
     devices = get_available_components(device_model, sys)
 
     add_variables!(container, ActivePowerVariable, devices, D)
-    add_variables!(container, ReactivePowerVariable, devices, D)
+    on_reactive_power(network_model) do
+        add_variables!(container, ReactivePowerVariable, devices, D)
+    end
     add_variables!(container, OnVariable, devices, D)
     add_variables!(container, StartVariable, devices, D)
     add_variables!(container, StopVariable, devices, D)
@@ -93,14 +95,16 @@ function construct_device!(
         device_model,
         network_model,
     )
-    add_to_expression!(
-        container,
-        ReactivePowerBalance,
-        ReactivePowerVariable,
-        devices,
-        device_model,
-        network_model,
-    )
+    on_reactive_power(network_model) do
+        add_to_expression!(
+            container,
+            ReactivePowerBalance,
+            ReactivePowerVariable,
+            devices,
+            device_model,
+            network_model,
+        )
+    end
 
     add_cost_expressions!(container, devices, device_model)
 
@@ -216,78 +220,6 @@ function construct_device!(
 end
 
 """
-This function creates the arguments model for a full thermal dispatch formulation depending on combination of devices, device_formulation and system_formulation
-"""
-function construct_device!(
-    container::OptimizationContainer,
-    sys::PSY.System,
-    ::ArgumentConstructStage,
-    device_model::DeviceModel{T, D},
-    network_model::NetworkModel{<:AbstractActivePowerModel},
-) where {T <: PSY.ThermalGen, D <: AbstractStandardUnitCommitment}
-    devices = get_available_components(device_model, sys)
-
-    add_variables!(container, ActivePowerVariable, devices, D)
-    add_variables!(container, OnVariable, devices, D)
-    add_variables!(container, StartVariable, devices, D)
-    add_variables!(container, StopVariable, devices, D)
-
-    add_variables!(container, TimeDurationOn, devices, D)
-    add_variables!(container, TimeDurationOff, devices, D)
-
-    initial_conditions!(container, devices, D())
-
-    if haskey(get_time_series_names(device_model), ActivePowerTimeSeriesParameter)
-        add_parameters!(container, ActivePowerTimeSeriesParameter, devices, device_model)
-    end
-
-    _handle_common_thermal_parameters!(container, devices, device_model)
-
-    add_to_expression!(
-        container,
-        ActivePowerBalance,
-        ActivePowerVariable,
-        devices,
-        device_model,
-        network_model,
-    )
-
-    add_cost_expressions!(container, devices, device_model)
-
-    add_to_expression!(
-        container,
-        ActivePowerRangeExpressionLB,
-        ActivePowerVariable,
-        devices,
-        device_model,
-        network_model,
-    )
-    add_to_expression!(
-        container,
-        ActivePowerRangeExpressionUB,
-        ActivePowerVariable,
-        devices,
-        device_model,
-        network_model,
-    )
-    add_to_expression!(
-        container,
-        FuelConsumptionExpression,
-        ActivePowerVariable,
-        devices,
-        device_model,
-    )
-    if get_use_slacks(device_model)
-        add_variables!(container, RateofChangeConstraintSlackUp, devices, D)
-        add_variables!(container, RateofChangeConstraintSlackDown, devices, D)
-    end
-
-    add_feedforward_arguments!(container, device_model, devices)
-    add_event_arguments!(container, devices, device_model, network_model)
-    return
-end
-
-"""
 This function creates the constraints for the model for a full thermal dispatch formulation depending on combination of devices, device_formulation and system_formulation
 """
 function construct_device!(
@@ -355,7 +287,14 @@ function construct_device!(
     devices = get_available_components(device_model, sys)
 
     add_variables!(container, ActivePowerVariable, devices, ThermalBasicUnitCommitment)
-    add_variables!(container, ReactivePowerVariable, devices, ThermalBasicUnitCommitment)
+    on_reactive_power(network_model) do
+        add_variables!(
+            container,
+            ReactivePowerVariable,
+            devices,
+            ThermalBasicUnitCommitment,
+        )
+    end
     add_variables!(container, OnVariable, devices, ThermalBasicUnitCommitment)
     add_variables!(container, StartVariable, devices, ThermalBasicUnitCommitment)
     add_variables!(container, StopVariable, devices, ThermalBasicUnitCommitment)
@@ -378,14 +317,16 @@ function construct_device!(
         device_model,
         network_model,
     )
-    add_to_expression!(
-        container,
-        ReactivePowerBalance,
-        ReactivePowerVariable,
-        devices,
-        device_model,
-        network_model,
-    )
+    on_reactive_power(network_model) do
+        add_to_expression!(
+            container,
+            ReactivePowerBalance,
+            ReactivePowerVariable,
+            devices,
+            device_model,
+            network_model,
+        )
+    end
 
     add_cost_expressions!(container, devices, device_model)
 
@@ -461,151 +402,18 @@ function construct_device!(
         network_model,
     )
 
-    add_constraints!(
-        container,
-        ReactivePowerVariableLimitsConstraint,
-        ReactivePowerVariable,
-        devices,
-        device_model,
-        network_model,
-    )
-    add_constraints!(container, CommitmentConstraint, devices, device_model, network_model)
-
-    if haskey(get_time_series_names(device_model), ActivePowerTimeSeriesParameter)
+    on_reactive_power(network_model) do
         add_constraints!(
             container,
-            ActivePowerVariableTimeSeriesLimitsConstraint,
-            ActivePowerRangeExpressionUB,
+            ReactivePowerVariableLimitsConstraint,
+            ReactivePowerVariable,
             devices,
             device_model,
             network_model,
         )
     end
-
-    add_feedforward_constraints!(container, device_model, devices)
-
-    add_to_objective_function!(
-        container,
-        devices,
-        device_model,
-        get_network_formulation(network_model),
-    )
-    add_event_constraints!(container, devices, device_model, network_model)
-    add_constraint_dual!(container, sys, device_model)
-    return
-end
-
-"""
-This function creates the arguments for the model for a full thermal dispatch formulation depending on combination of devices, device_formulation and system_formulation
-"""
-function construct_device!(
-    container::OptimizationContainer,
-    sys::PSY.System,
-    ::ArgumentConstructStage,
-    device_model::DeviceModel{T, ThermalBasicUnitCommitment},
-    network_model::NetworkModel{<:AbstractActivePowerModel},
-) where {T <: PSY.ThermalGen}
-    devices = get_available_components(device_model, sys)
-
-    add_variables!(container, ActivePowerVariable, devices, ThermalBasicUnitCommitment)
-    add_variables!(container, OnVariable, devices, ThermalBasicUnitCommitment)
-    add_variables!(container, StartVariable, devices, ThermalBasicUnitCommitment)
-    add_variables!(container, StopVariable, devices, ThermalBasicUnitCommitment)
-
-    add_variables!(container, TimeDurationOn, devices, ThermalBasicUnitCommitment)
-    add_variables!(container, TimeDurationOff, devices, ThermalBasicUnitCommitment)
-    initial_conditions!(container, devices, ThermalBasicUnitCommitment())
-
-    if haskey(get_time_series_names(device_model), ActivePowerTimeSeriesParameter)
-        add_parameters!(container, ActivePowerTimeSeriesParameter, devices, device_model)
-    end
-
-    _handle_common_thermal_parameters!(container, devices, device_model)
-
-    add_to_expression!(
-        container,
-        ActivePowerBalance,
-        ActivePowerVariable,
-        devices,
-        device_model,
-        network_model,
-    )
-
-    add_cost_expressions!(container, devices, device_model)
-
-    add_to_expression!(
-        container,
-        ActivePowerRangeExpressionLB,
-        ActivePowerVariable,
-        devices,
-        device_model,
-        network_model,
-    )
-    add_to_expression!(
-        container,
-        ActivePowerRangeExpressionUB,
-        ActivePowerVariable,
-        devices,
-        device_model,
-        network_model,
-    )
-    add_to_expression!(
-        container,
-        FuelConsumptionExpression,
-        ActivePowerVariable,
-        devices,
-        device_model,
-    )
-    if get_use_slacks(device_model)
-        add_variables!(
-            container,
-            RateofChangeConstraintSlackUp,
-            devices,
-            ThermalBasicUnitCommitment,
-        )
-        add_variables!(
-            container,
-            RateofChangeConstraintSlackDown,
-            devices,
-            ThermalBasicUnitCommitment,
-        )
-    end
-
-    add_feedforward_arguments!(container, device_model, devices)
-    add_event_arguments!(container, devices, device_model, network_model)
-    return
-end
-
-"""
-This function creates the constraints for the model for a full thermal dispatch formulation depending on combination of devices, device_formulation and system_formulation
-"""
-function construct_device!(
-    container::OptimizationContainer,
-    sys::PSY.System,
-    ::ModelConstructStage,
-    device_model::DeviceModel{T, ThermalBasicUnitCommitment},
-    network_model::NetworkModel{<:AbstractActivePowerModel},
-) where {T <: PSY.ThermalGen}
-    devices = get_available_components(device_model, sys)
-
-    add_constraints!(
-        container,
-        ActivePowerVariableLimitsConstraint,
-        ActivePowerRangeExpressionLB,
-        devices,
-        device_model,
-        network_model,
-    )
-    add_constraints!(
-        container,
-        ActivePowerVariableLimitsConstraint,
-        ActivePowerRangeExpressionUB,
-        devices,
-        device_model,
-        network_model,
-    )
-
     add_constraints!(container, CommitmentConstraint, devices, device_model, network_model)
+
     if haskey(get_time_series_names(device_model), ActivePowerTimeSeriesParameter)
         add_constraints!(
             container,
@@ -643,7 +451,9 @@ function construct_device!(
     devices = get_available_components(device_model, sys)
 
     add_variables!(container, ActivePowerVariable, devices, ThermalStandardDispatch)
-    add_variables!(container, ReactivePowerVariable, devices, ThermalStandardDispatch)
+    on_reactive_power(network_model) do
+        add_variables!(container, ReactivePowerVariable, devices, ThermalStandardDispatch)
+    end
 
     initial_conditions!(container, devices, ThermalStandardDispatch())
 
@@ -657,14 +467,16 @@ function construct_device!(
         device_model,
         network_model,
     )
-    add_to_expression!(
-        container,
-        ReactivePowerBalance,
-        ReactivePowerVariable,
-        devices,
-        device_model,
-        network_model,
-    )
+    on_reactive_power(network_model) do
+        add_to_expression!(
+            container,
+            ReactivePowerBalance,
+            ReactivePowerVariable,
+            devices,
+            device_model,
+            network_model,
+        )
+    end
 
     add_cost_expressions!(container, devices, device_model)
 
@@ -740,130 +552,16 @@ function construct_device!(
         network_model,
     )
 
-    add_constraints!(
-        container,
-        ReactivePowerVariableLimitsConstraint,
-        ReactivePowerVariable,
-        devices,
-        device_model,
-        network_model,
-    )
-    add_constraints!(container, RampConstraint, devices, device_model, network_model)
-
-    add_feedforward_constraints!(container, device_model, devices)
-
-    add_to_objective_function!(
-        container,
-        devices,
-        device_model,
-        get_network_formulation(network_model),
-    )
-    add_event_constraints!(container, devices, device_model, network_model)
-    add_constraint_dual!(container, sys, device_model)
-    return
-end
-
-"""
-This function creates the arguments for the model for a full thermal dispatch formulation depending on combination of devices, device_formulation and system_formulation
-"""
-function construct_device!(
-    container::OptimizationContainer,
-    sys::PSY.System,
-    ::ArgumentConstructStage,
-    device_model::DeviceModel{T, ThermalStandardDispatch},
-    network_model::NetworkModel{<:AbstractActivePowerModel},
-) where {T <: PSY.ThermalGen}
-    devices = get_available_components(device_model, sys)
-
-    add_variables!(container, ActivePowerVariable, devices, ThermalStandardDispatch)
-
-    initial_conditions!(container, devices, ThermalStandardDispatch())
-
-    _handle_common_thermal_parameters!(container, devices, device_model)
-
-    add_to_expression!(
-        container,
-        ActivePowerBalance,
-        ActivePowerVariable,
-        devices,
-        device_model,
-        network_model,
-    )
-
-    add_cost_expressions!(container, devices, device_model)
-
-    add_to_expression!(
-        container,
-        ActivePowerRangeExpressionLB,
-        ActivePowerVariable,
-        devices,
-        device_model,
-        network_model,
-    )
-    add_to_expression!(
-        container,
-        ActivePowerRangeExpressionUB,
-        ActivePowerVariable,
-        devices,
-        device_model,
-        network_model,
-    )
-    add_to_expression!(
-        container,
-        FuelConsumptionExpression,
-        ActivePowerVariable,
-        devices,
-        device_model,
-    )
-    if get_use_slacks(device_model)
-        add_variables!(
+    on_reactive_power(network_model) do
+        add_constraints!(
             container,
-            RateofChangeConstraintSlackUp,
+            ReactivePowerVariableLimitsConstraint,
+            ReactivePowerVariable,
             devices,
-            ThermalStandardDispatch,
-        )
-        add_variables!(
-            container,
-            RateofChangeConstraintSlackDown,
-            devices,
-            ThermalStandardDispatch,
+            device_model,
+            network_model,
         )
     end
-
-    add_feedforward_arguments!(container, device_model, devices)
-    add_event_arguments!(container, devices, device_model, network_model)
-    return
-end
-
-"""
-This function creates the constraints for the model for a full thermal dispatch formulation depending on combination of devices, device_formulation and system_formulation
-"""
-function construct_device!(
-    container::OptimizationContainer,
-    sys::PSY.System,
-    ::ModelConstructStage,
-    device_model::DeviceModel{T, ThermalStandardDispatch},
-    network_model::NetworkModel{<:AbstractActivePowerModel},
-) where {T <: PSY.ThermalGen}
-    devices = get_available_components(device_model, sys)
-
-    add_constraints!(
-        container,
-        ActivePowerVariableLimitsConstraint,
-        ActivePowerRangeExpressionLB,
-        devices,
-        device_model,
-        network_model,
-    )
-    add_constraints!(
-        container,
-        ActivePowerVariableLimitsConstraint,
-        ActivePowerRangeExpressionUB,
-        devices,
-        device_model,
-        network_model,
-    )
-
     add_constraints!(container, RampConstraint, devices, device_model, network_model)
 
     add_feedforward_constraints!(container, device_model, devices)
@@ -892,7 +590,9 @@ function construct_device!(
     devices = get_available_components(device_model, sys)
 
     add_variables!(container, ActivePowerVariable, devices, D)
-    add_variables!(container, ReactivePowerVariable, devices, D)
+    on_reactive_power(network_model) do
+        add_variables!(container, ReactivePowerVariable, devices, D)
+    end
 
     _handle_common_thermal_parameters!(container, devices, device_model)
 
@@ -904,14 +604,16 @@ function construct_device!(
         device_model,
         network_model,
     )
-    add_to_expression!(
-        container,
-        ReactivePowerBalance,
-        ReactivePowerVariable,
-        devices,
-        device_model,
-        network_model,
-    )
+    on_reactive_power(network_model) do
+        add_to_expression!(
+            container,
+            ReactivePowerBalance,
+            ReactivePowerVariable,
+            devices,
+            device_model,
+            network_model,
+        )
+    end
 
     add_cost_expressions!(container, devices, device_model)
 
@@ -993,66 +695,6 @@ function construct_device!(
     )
     add_event_constraints!(container, devices, device_model, network_model)
     add_constraint_dual!(container, sys, device_model)
-    return
-end
-
-function construct_device!(
-    container::OptimizationContainer,
-    sys::PSY.System,
-    ::ArgumentConstructStage,
-    device_model::DeviceModel{T, D},
-    network_model::NetworkModel{<:AbstractActivePowerModel},
-) where {
-    T <: PSY.ThermalGen,
-    D <: AbstractThermalDispatchFormulation,
-}
-    devices = get_available_components(device_model, sys)
-
-    add_variables!(container, ActivePowerVariable, devices, D)
-
-    _handle_common_thermal_parameters!(container, devices, device_model)
-
-    add_to_expression!(
-        container,
-        ActivePowerBalance,
-        ActivePowerVariable,
-        devices,
-        device_model,
-        network_model,
-    )
-
-    add_cost_expressions!(container, devices, device_model)
-
-    add_to_expression!(
-        container,
-        ActivePowerRangeExpressionLB,
-        ActivePowerVariable,
-        devices,
-        device_model,
-        network_model,
-    )
-    add_to_expression!(
-        container,
-        ActivePowerRangeExpressionUB,
-        ActivePowerVariable,
-        devices,
-        device_model,
-        network_model,
-    )
-    add_to_expression!(
-        container,
-        FuelConsumptionExpression,
-        ActivePowerVariable,
-        devices,
-        device_model,
-    )
-    if get_use_slacks(device_model)
-        add_variables!(container, RateofChangeConstraintSlackUp, devices, D)
-        add_variables!(container, RateofChangeConstraintSlackDown, devices, D)
-    end
-
-    add_feedforward_arguments!(container, device_model, devices)
-    add_event_arguments!(container, devices, device_model, network_model)
     return
 end
 
@@ -1477,12 +1119,14 @@ function construct_device!(
         devices,
         ThermalCompactUnitCommitment,
     )
-    add_variables!(
-        container,
-        ReactivePowerVariable,
-        devices,
-        ThermalCompactUnitCommitment,
-    )
+    on_reactive_power(network_model) do
+        add_variables!(
+            container,
+            ReactivePowerVariable,
+            devices,
+            ThermalCompactUnitCommitment,
+        )
+    end
     add_variables!(container, OnVariable, devices, ThermalCompactUnitCommitment)
     add_variables!(container, StartVariable, devices, ThermalCompactUnitCommitment)
     add_variables!(container, StopVariable, devices, ThermalCompactUnitCommitment)
@@ -1587,160 +1231,16 @@ function construct_device!(
         network_model,
     )
 
-    add_constraints!(
-        container,
-        ReactivePowerVariableLimitsConstraint,
-        ReactivePowerVariable,
-        devices,
-        device_model,
-        network_model,
-    )
-    add_constraints!(container, CommitmentConstraint, devices, device_model, network_model)
-    add_constraints!(container, RampConstraint, devices, device_model, network_model)
-    add_constraints!(container, DurationConstraint, devices, device_model, network_model)
-    if haskey(get_time_series_names(device_model), ActivePowerTimeSeriesParameter)
+    on_reactive_power(network_model) do
         add_constraints!(
             container,
-            ActivePowerVariableTimeSeriesLimitsConstraint,
-            ActivePowerRangeExpressionUB,
+            ReactivePowerVariableLimitsConstraint,
+            ReactivePowerVariable,
             devices,
             device_model,
             network_model,
         )
     end
-
-    add_feedforward_constraints!(container, device_model, devices)
-
-    add_to_objective_function!(
-        container,
-        devices,
-        device_model,
-        get_network_formulation(network_model),
-    )
-    add_event_constraints!(container, devices, device_model, network_model)
-    add_constraint_dual!(container, sys, device_model)
-    return
-end
-
-function construct_device!(
-    container::OptimizationContainer,
-    sys::PSY.System,
-    ::ArgumentConstructStage,
-    device_model::DeviceModel{T, ThermalCompactUnitCommitment},
-    network_model::NetworkModel{<:AbstractActivePowerModel},
-) where {T <: PSY.ThermalGen}
-    devices = get_available_components(device_model, sys)
-
-    add_variables!(
-        container,
-        PowerAboveMinimumVariable,
-        devices,
-        ThermalCompactUnitCommitment,
-    )
-    add_variables!(container, OnVariable, devices, ThermalCompactUnitCommitment)
-    add_variables!(container, StartVariable, devices, ThermalCompactUnitCommitment)
-    add_variables!(container, StopVariable, devices, ThermalCompactUnitCommitment)
-
-    add_variables!(container, TimeDurationOn, devices, ThermalCompactUnitCommitment)
-    add_variables!(container, TimeDurationOff, devices, ThermalCompactUnitCommitment)
-    add_variables!(container, PowerOutput, devices, ThermalCompactUnitCommitment)
-
-    initial_conditions!(container, devices, ThermalCompactUnitCommitment())
-
-    if haskey(get_time_series_names(device_model), ActivePowerTimeSeriesParameter)
-        add_parameters!(container, ActivePowerTimeSeriesParameter, devices, device_model)
-    end
-
-    _handle_common_thermal_parameters!(container, devices, device_model)
-
-    add_to_expression!(
-        container,
-        ActivePowerBalance,
-        PowerAboveMinimumVariable,
-        devices,
-        device_model,
-        network_model,
-    )
-    add_to_expression!(
-        container,
-        ActivePowerBalance,
-        OnVariable,
-        devices,
-        device_model,
-        network_model,
-    )
-
-    add_cost_expressions!(container, devices, device_model)
-
-    add_to_expression!(
-        container,
-        ActivePowerRangeExpressionLB,
-        PowerAboveMinimumVariable,
-        devices,
-        device_model,
-        network_model,
-    )
-    add_to_expression!(
-        container,
-        ActivePowerRangeExpressionUB,
-        PowerAboveMinimumVariable,
-        devices,
-        device_model,
-        network_model,
-    )
-    add_to_expression!(
-        container,
-        FuelConsumptionExpression,
-        PowerAboveMinimumVariable,
-        devices,
-        device_model,
-    )
-    if get_use_slacks(device_model)
-        add_variables!(
-            container,
-            RateofChangeConstraintSlackUp,
-            devices,
-            ThermalCompactUnitCommitment,
-        )
-        add_variables!(
-            container,
-            RateofChangeConstraintSlackDown,
-            devices,
-            ThermalCompactUnitCommitment,
-        )
-    end
-
-    add_feedforward_arguments!(container, device_model, devices)
-    add_event_arguments!(container, devices, device_model, network_model)
-    return
-end
-
-function construct_device!(
-    container::OptimizationContainer,
-    sys::PSY.System,
-    ::ModelConstructStage,
-    device_model::DeviceModel{T, ThermalCompactUnitCommitment},
-    network_model::NetworkModel{<:AbstractActivePowerModel},
-) where {T <: PSY.ThermalGen}
-    devices = get_available_components(device_model, sys)
-
-    add_constraints!(
-        container,
-        ActivePowerVariableLimitsConstraint,
-        ActivePowerRangeExpressionLB,
-        devices,
-        device_model,
-        network_model,
-    )
-    add_constraints!(
-        container,
-        ActivePowerVariableLimitsConstraint,
-        ActivePowerRangeExpressionUB,
-        devices,
-        device_model,
-        network_model,
-    )
-
     add_constraints!(container, CommitmentConstraint, devices, device_model, network_model)
     add_constraints!(container, RampConstraint, devices, device_model, network_model)
     add_constraints!(container, DurationConstraint, devices, device_model, network_model)
@@ -1783,12 +1283,14 @@ function construct_device!(
         devices,
         ThermalBasicCompactUnitCommitment,
     )
-    add_variables!(
-        container,
-        ReactivePowerVariable,
-        devices,
-        ThermalBasicCompactUnitCommitment,
-    )
+    on_reactive_power(network_model) do
+        add_variables!(
+            container,
+            ReactivePowerVariable,
+            devices,
+            ThermalBasicCompactUnitCommitment,
+        )
+    end
     add_variables!(container, OnVariable, devices, ThermalBasicCompactUnitCommitment)
     add_variables!(container, StartVariable, devices, ThermalBasicCompactUnitCommitment)
     add_variables!(container, StopVariable, devices, ThermalBasicCompactUnitCommitment)
@@ -1893,156 +1395,16 @@ function construct_device!(
         network_model,
     )
 
-    add_constraints!(
-        container,
-        ReactivePowerVariableLimitsConstraint,
-        ReactivePowerVariable,
-        devices,
-        device_model,
-        network_model,
-    )
-    add_constraints!(container, CommitmentConstraint, devices, device_model, network_model)
-    if haskey(get_time_series_names(device_model), ActivePowerTimeSeriesParameter)
+    on_reactive_power(network_model) do
         add_constraints!(
             container,
-            ActivePowerVariableTimeSeriesLimitsConstraint,
-            ActivePowerRangeExpressionUB,
+            ReactivePowerVariableLimitsConstraint,
+            ReactivePowerVariable,
             devices,
             device_model,
             network_model,
         )
     end
-
-    add_feedforward_constraints!(container, device_model, devices)
-
-    add_to_objective_function!(
-        container,
-        devices,
-        device_model,
-        get_network_formulation(network_model),
-    )
-    add_event_constraints!(container, devices, device_model, network_model)
-    add_constraint_dual!(container, sys, device_model)
-    return
-end
-
-function construct_device!(
-    container::OptimizationContainer,
-    sys::PSY.System,
-    ::ArgumentConstructStage,
-    device_model::DeviceModel{T, ThermalBasicCompactUnitCommitment},
-    network_model::NetworkModel{<:AbstractActivePowerModel},
-) where {T <: PSY.ThermalGen}
-    devices = get_available_components(device_model, sys)
-
-    add_variables!(
-        container,
-        PowerAboveMinimumVariable,
-        devices,
-        ThermalBasicCompactUnitCommitment,
-    )
-    add_variables!(container, OnVariable, devices, ThermalBasicCompactUnitCommitment)
-    add_variables!(container, StartVariable, devices, ThermalBasicCompactUnitCommitment)
-    add_variables!(container, StopVariable, devices, ThermalBasicCompactUnitCommitment)
-
-    add_variables!(container, PowerOutput, devices, ThermalBasicCompactUnitCommitment)
-    add_variables!(container, TimeDurationOn, devices, ThermalBasicCompactUnitCommitment)
-    add_variables!(container, TimeDurationOff, devices, ThermalBasicCompactUnitCommitment)
-    initial_conditions!(container, devices, ThermalBasicCompactUnitCommitment())
-
-    if haskey(get_time_series_names(device_model), ActivePowerTimeSeriesParameter)
-        add_parameters!(container, ActivePowerTimeSeriesParameter, devices, device_model)
-    end
-
-    _handle_common_thermal_parameters!(container, devices, device_model)
-
-    add_to_expression!(
-        container,
-        ActivePowerBalance,
-        PowerAboveMinimumVariable,
-        devices,
-        device_model,
-        network_model,
-    )
-    add_to_expression!(
-        container,
-        ActivePowerBalance,
-        OnVariable,
-        devices,
-        device_model,
-        network_model,
-    )
-
-    add_cost_expressions!(container, devices, device_model)
-
-    add_to_expression!(
-        container,
-        ActivePowerRangeExpressionLB,
-        PowerAboveMinimumVariable,
-        devices,
-        device_model,
-        network_model,
-    )
-    add_to_expression!(
-        container,
-        ActivePowerRangeExpressionUB,
-        PowerAboveMinimumVariable,
-        devices,
-        device_model,
-        network_model,
-    )
-    add_to_expression!(
-        container,
-        FuelConsumptionExpression,
-        PowerAboveMinimumVariable,
-        devices,
-        device_model,
-    )
-    if get_use_slacks(device_model)
-        add_variables!(
-            container,
-            RateofChangeConstraintSlackUp,
-            devices,
-            ThermalBasicCompactUnitCommitment,
-        )
-        add_variables!(
-            container,
-            RateofChangeConstraintSlackDown,
-            devices,
-            ThermalBasicCompactUnitCommitment,
-        )
-    end
-    add_feedforward_arguments!(container, device_model, devices)
-    add_event_arguments!(container, devices, device_model, network_model)
-    return
-end
-
-function construct_device!(
-    container::OptimizationContainer,
-    sys::PSY.System,
-    ::ModelConstructStage,
-    device_model::DeviceModel{T, ThermalBasicCompactUnitCommitment},
-    network_model::NetworkModel{<:AbstractActivePowerModel},
-) where {T <: PSY.ThermalGen}
-    devices = get_available_components(device_model, sys)
-
-    add_constraints!(
-        container,
-        ActivePowerVariableLimitsConstraint,
-        ActivePowerRangeExpressionLB,
-        devices,
-        device_model,
-        network_model,
-    )
-    add_constraints!(
-        container,
-        ActivePowerVariableLimitsConstraint,
-        ActivePowerRangeExpressionUB,
-        devices,
-        device_model,
-        network_model,
-    )
-
     add_constraints!(container, CommitmentConstraint, devices, device_model, network_model)
     if haskey(get_time_series_names(device_model), ActivePowerTimeSeriesParameter)
         add_constraints!(
@@ -2078,7 +1440,9 @@ function construct_device!(
     devices = get_available_components(device_model, sys)
 
     add_variables!(container, PowerAboveMinimumVariable, devices, ThermalCompactDispatch)
-    add_variables!(container, ReactivePowerVariable, devices, ThermalCompactDispatch)
+    on_reactive_power(network_model) do
+        add_variables!(container, ReactivePowerVariable, devices, ThermalCompactDispatch)
+    end
 
     add_variables!(container, PowerOutput, devices, ThermalCompactDispatch)
 
@@ -2101,14 +1465,16 @@ function construct_device!(
 
     add_cost_expressions!(container, devices, device_model)
 
-    add_to_expression!(
-        container,
-        ReactivePowerBalance,
-        ReactivePowerVariable,
-        devices,
-        device_model,
-        network_model,
-    )
+    on_reactive_power(network_model) do
+        add_to_expression!(
+            container,
+            ReactivePowerBalance,
+            ReactivePowerVariable,
+            devices,
+            device_model,
+            network_model,
+        )
+    end
     add_to_expression!(
         container,
         ActivePowerBalance,
@@ -2184,137 +1550,16 @@ function construct_device!(
         network_model,
     )
 
-    add_constraints!(
-        container,
-        ReactivePowerVariableLimitsConstraint,
-        ReactivePowerVariable,
-        devices,
-        device_model,
-        network_model,
-    )
-    add_constraints!(container, RampConstraint, devices, device_model, network_model)
-
-    add_feedforward_constraints!(container, device_model, devices)
-
-    add_to_objective_function!(
-        container,
-        devices,
-        device_model,
-        get_network_formulation(network_model),
-    )
-    add_event_constraints!(container, devices, device_model, network_model)
-    add_constraint_dual!(container, sys, device_model)
-    return
-end
-
-function construct_device!(
-    container::OptimizationContainer,
-    sys::PSY.System,
-    ::ArgumentConstructStage,
-    device_model::DeviceModel{T, ThermalCompactDispatch},
-    network_model::NetworkModel{<:AbstractActivePowerModel},
-) where {T <: PSY.ThermalGen}
-    devices = get_available_components(device_model, sys)
-
-    add_variables!(container, PowerAboveMinimumVariable, devices, ThermalCompactDispatch)
-
-    add_variables!(container, PowerOutput, devices, ThermalCompactDispatch)
-
-    add_parameters!(container, OnStatusParameter, devices, device_model)
-
-    _handle_common_thermal_parameters!(container, devices, device_model)
-
-    add_feedforward_arguments!(container, device_model, devices)
-
-    add_to_expression!(
-        container,
-        ActivePowerBalance,
-        PowerAboveMinimumVariable,
-        devices,
-        device_model,
-        network_model,
-    )
-
-    add_to_expression!(
-        container,
-        ActivePowerBalance,
-        OnStatusParameter,
-        devices,
-        device_model,
-        network_model,
-    )
-
-    initial_conditions!(container, devices, ThermalCompactDispatch())
-
-    add_cost_expressions!(container, devices, device_model)
-
-    add_to_expression!(
-        container,
-        ActivePowerRangeExpressionLB,
-        PowerAboveMinimumVariable,
-        devices,
-        device_model,
-        network_model,
-    )
-    add_to_expression!(
-        container,
-        ActivePowerRangeExpressionUB,
-        PowerAboveMinimumVariable,
-        devices,
-        device_model,
-        network_model,
-    )
-    add_to_expression!(
-        container,
-        FuelConsumptionExpression,
-        PowerAboveMinimumVariable,
-        devices,
-        device_model,
-    )
-    if get_use_slacks(device_model)
-        add_variables!(
+    on_reactive_power(network_model) do
+        add_constraints!(
             container,
-            RateofChangeConstraintSlackUp,
+            ReactivePowerVariableLimitsConstraint,
+            ReactivePowerVariable,
             devices,
-            ThermalCompactDispatch,
-        )
-        add_variables!(
-            container,
-            RateofChangeConstraintSlackDown,
-            devices,
-            ThermalCompactDispatch,
+            device_model,
+            network_model,
         )
     end
-    add_event_arguments!(container, devices, device_model, network_model)
-    return
-end
-
-function construct_device!(
-    container::OptimizationContainer,
-    sys::PSY.System,
-    ::ModelConstructStage,
-    device_model::DeviceModel{T, ThermalCompactDispatch},
-    network_model::NetworkModel{<:AbstractActivePowerModel},
-) where {T <: PSY.ThermalGen}
-    devices = get_available_components(device_model, sys)
-
-    add_constraints!(
-        container,
-        ActivePowerVariableLimitsConstraint,
-        ActivePowerRangeExpressionLB,
-        devices,
-        device_model,
-        network_model,
-    )
-    add_constraints!(
-        container,
-        ActivePowerVariableLimitsConstraint,
-        ActivePowerRangeExpressionUB,
-        devices,
-        device_model,
-        network_model,
-    )
-
     add_constraints!(container, RampConstraint, devices, device_model, network_model)
 
     add_feedforward_constraints!(container, device_model, devices)
@@ -2325,7 +1570,6 @@ function construct_device!(
         device_model,
         get_network_formulation(network_model),
     )
-
     add_event_constraints!(container, devices, device_model, network_model)
     add_constraint_dual!(container, sys, device_model)
     return
