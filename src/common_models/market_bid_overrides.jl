@@ -256,12 +256,10 @@ end
 
 #################################################################################
 # Section 6b: Storage — discharge is an incremental (supply) offer, charge is a
-# decremental (demand) offer. Certain markets resources bid both sides, so the storage
+# decremental (demand) offer. Certain market resources bid both sides, so the storage
 # objective (storage_models.jl `add_to_objective_function!`) calls
 # `add_variable_cost!` for ActivePowerOutVariable AND ActivePowerInVariable.
-# Without these methods the charge side falls to the default incremental-only
-# entry point (market_bid_plumbing.jl) and throws "not allowed to participate as
-# a demand". Mirrors the Source ImportExport pair above.
+# Mirrors the Source ImportExport pair above.
 #################################################################################
 function add_variable_cost_to_objective!(
     container::OptimizationContainer,
