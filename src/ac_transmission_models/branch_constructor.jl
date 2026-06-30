@@ -85,20 +85,21 @@ function construct_device!(
     network_model::NetworkModel{<:AbstractActivePowerModel},
 ) where {T <: PSY.ACTransmission}
     devices = get_available_components(device_model, sys)
-    if get_use_slacks(device_model)
-        add_variables!(
-            container,
-            FlowActivePowerSlackUpperBound,
-            devices,
-            StaticBranch,
-        )
-        add_variables!(
-            container,
-            FlowActivePowerSlackLowerBound,
-            devices,
-            StaticBranch,
-        )
-    end
+    slack = get_slack_usage(device_model)
+    add_slack_variables!(
+        slack,
+        container,
+        FlowActivePowerSlackUpperBound,
+        devices,
+        StaticBranch,
+    )
+    add_slack_variables!(
+        slack,
+        container,
+        FlowActivePowerSlackLowerBound,
+        devices,
+        StaticBranch,
+    )
     add_feedforward_arguments!(container, device_model, devices)
     return
 end
@@ -145,10 +146,11 @@ function construct_device!(
     add_variables!(container, FlowActivePowerToFromVariable, devices, StaticBranch)
     add_variables!(container, FlowReactivePowerFromToVariable, devices, StaticBranch)
     add_variables!(container, FlowReactivePowerToFromVariable, devices, StaticBranch)
-    if get_use_slacks(device_model)
-        # Only one slack is needed for apparent-power formulations in AC
-        add_variables!(container, FlowActivePowerSlackUpperBound, devices, StaticBranch)
-    end
+    # Only one slack is needed for apparent-power formulations in AC
+    add_slack_variables!(
+        get_slack_usage(device_model),
+        container, FlowActivePowerSlackUpperBound, devices, StaticBranch,
+    )
     # Wire flow variables to nodal balance expressions
     add_to_expression!(
         container, ActivePowerBalance, FlowActivePowerFromToVariable,
@@ -228,13 +230,10 @@ function construct_device!(
 ) where {T <: PSY.ACTransmission}
     @debug "construct_device ACP StaticBranchBounds (ArgumentConstructStage)" _group =
         LOG_GROUP_BRANCH_CONSTRUCTIONS
-    if get_use_slacks(device_model)
-        throw(
-            ArgumentError(
-                "StaticBranchBounds formulation and ACPPowerModel is not compatible with the use of slacks",
-            ),
-        )
-    end
+    _assert_no_slacks(
+        get_slack_usage(device_model),
+        "StaticBranchBounds formulation and ACPPowerModel is not compatible with the use of slacks",
+    )
     devices = get_available_components(device_model, sys)
     add_variables!(container, FlowActivePowerFromToVariable, devices, StaticBranchBounds)
     add_variables!(container, FlowActivePowerToFromVariable, devices, StaticBranchBounds)
@@ -313,10 +312,21 @@ function construct_device!(
         LOG_GROUP_BRANCH_CONSTRUCTIONS
     devices = get_available_components(device_model, sys)
     add_variables!(container, FlowActivePowerVariable, devices, StaticBranch)
-    if get_use_slacks(device_model)
-        add_variables!(container, FlowActivePowerSlackUpperBound, devices, StaticBranch)
-        add_variables!(container, FlowActivePowerSlackLowerBound, devices, StaticBranch)
-    end
+    slack = get_slack_usage(device_model)
+    add_slack_variables!(
+        slack,
+        container,
+        FlowActivePowerSlackUpperBound,
+        devices,
+        StaticBranch,
+    )
+    add_slack_variables!(
+        slack,
+        container,
+        FlowActivePowerSlackLowerBound,
+        devices,
+        StaticBranch,
+    )
     add_to_expression!(
         container,
         ActivePowerBalance,
@@ -384,20 +394,13 @@ function construct_device!(
         LOG_GROUP_BRANCH_CONSTRUCTIONS
     devices = get_available_components(device_model, sys)
     add_variables!(container, FlowActivePowerVariable, devices, StaticBranchBounds)
-    if get_use_slacks(device_model)
-        add_variables!(
-            container,
-            FlowActivePowerSlackUpperBound,
-            devices,
-            StaticBranchBounds,
-        )
-        add_variables!(
-            container,
-            FlowActivePowerSlackLowerBound,
-            devices,
-            StaticBranchBounds,
-        )
-    end
+    slack = get_slack_usage(device_model)
+    add_slack_variables!(
+        slack, container, FlowActivePowerSlackUpperBound, devices, StaticBranchBounds,
+    )
+    add_slack_variables!(
+        slack, container, FlowActivePowerSlackLowerBound, devices, StaticBranchBounds,
+    )
     add_to_expression!(
         container,
         ActivePowerBalance,
@@ -445,22 +448,15 @@ function construct_device!(
     network_model::NetworkModel{<:AbstractPTDFModel},
 ) where {T <: PSY.ACTransmission}
     devices = get_available_components(device_model, sys)
-    if get_use_slacks(device_model)
-        add_variables!(
-            container,
-            FlowActivePowerSlackUpperBound,
-            network_model,
-            devices,
-            StaticBranch,
-        )
-        add_variables!(
-            container,
-            FlowActivePowerSlackLowerBound,
-            network_model,
-            devices,
-            StaticBranch,
-        )
-    end
+    slack = get_slack_usage(device_model)
+    add_slack_variables!(
+        slack, container, FlowActivePowerSlackUpperBound, network_model, devices,
+        StaticBranch,
+    )
+    add_slack_variables!(
+        slack, container, FlowActivePowerSlackLowerBound, network_model, devices,
+        StaticBranch,
+    )
 
     if haskey(get_time_series_names(device_model), BranchRatingTimeSeriesParameter)
         add_branch_parameters!(
@@ -547,22 +543,15 @@ function construct_device!(
         StaticBranchBounds,
     )
 
-    if get_use_slacks(device_model)
-        add_variables!(
-            container,
-            FlowActivePowerSlackUpperBound,
-            network_model,
-            devices,
-            StaticBranch,
-        )
-        add_variables!(
-            container,
-            FlowActivePowerSlackLowerBound,
-            network_model,
-            devices,
-            StaticBranch,
-        )
-    end
+    slack = get_slack_usage(device_model)
+    add_slack_variables!(
+        slack, container, FlowActivePowerSlackUpperBound, network_model, devices,
+        StaticBranch,
+    )
+    add_slack_variables!(
+        slack, container, FlowActivePowerSlackLowerBound, network_model, devices,
+        StaticBranch,
+    )
 
     add_feedforward_arguments!(container, device_model, devices)
     return
@@ -637,15 +626,11 @@ function construct_device!(
 ) where {T <: PSY.ACTransmission}
     devices = get_available_components(device_model, sys)
 
-    if get_use_slacks(device_model)
-        # Only one slack is needed for this formulations in AC
-        add_variables!(
-            container,
-            FlowActivePowerSlackUpperBound,
-            devices,
-            StaticBranch,
-        )
-    end
+    # Only one slack is needed for this formulations in AC
+    add_slack_variables!(
+        get_slack_usage(device_model),
+        container, FlowActivePowerSlackUpperBound, devices, StaticBranch,
+    )
     add_feedforward_arguments!(container, device_model, devices)
     return
 end
@@ -684,13 +669,10 @@ function construct_device!(
     device_model::DeviceModel{T, StaticBranchBounds},
     ::NetworkModel{U},
 ) where {T <: PSY.ACTransmission, U <: AbstractPowerModel}
-    if get_use_slacks(device_model)
-        throw(
-            ArgumentError(
-                "StaticBranchBounds formulation and $U is not compatible with the use of slacks",
-            ),
-        )
-    end
+    _assert_no_slacks(
+        get_slack_usage(device_model),
+        "StaticBranchBounds formulation and $U is not compatible with the use of slacks",
+    )
     devices = get_available_components(device_model, sys)
     add_feedforward_arguments!(container, device_model, devices)
     return
@@ -1776,22 +1758,13 @@ function construct_device!(
 }
     devices = get_available_components(device_model, sys)
     has_ts = PSY.has_time_series.(devices)
-    if get_use_slacks(device_model)
-        add_variables!(
-            container,
-            FlowActivePowerSlackUpperBound,
-            network_model,
-            devices,
-            T,
-        )
-        add_variables!(
-            container,
-            FlowActivePowerSlackLowerBound,
-            network_model,
-            devices,
-            T,
-        )
-    end
+    slack = get_slack_usage(device_model)
+    add_slack_variables!(
+        slack, container, FlowActivePowerSlackUpperBound, network_model, devices, T,
+    )
+    add_slack_variables!(
+        slack, container, FlowActivePowerSlackLowerBound, network_model, devices, T,
+    )
     if any(has_ts) && !all(has_ts)
         error(
             "Not all AreaInterchange devices have time series. Check data to complete (or remove) time series.",

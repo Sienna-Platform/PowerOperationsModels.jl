@@ -1,3 +1,27 @@
+_add_interface_flow_slacks!(::NoSlacks, ::OptimizationContainer, interface) = nothing
+function _add_interface_flow_slacks!(
+    ::UseSlacks,
+    container::OptimizationContainer,
+    interface,
+)
+    @assert PSY.get_available(interface)
+    transmission_interface_slacks!(container, interface)
+    return
+end
+
+_add_interface_slack_expressions!(::NoSlacks, args...) = nothing
+function _add_interface_slack_expressions!(::UseSlacks, container, service, model)
+    add_to_expression!(container, InterfaceTotalFlow, InterfaceFlowSlackUp, service, model)
+    add_to_expression!(
+        container,
+        InterfaceTotalFlow,
+        InterfaceFlowSlackDown,
+        service,
+        model,
+    )
+    return
+end
+
 function construct_services!(
     container::OptimizationContainer,
     sys::PSY.System,
@@ -531,11 +555,7 @@ function construct_service!(
 ) where {T <: PSY.TransmissionInterface}
     interfaces = get_available_components(model, sys)
     interface = PSY.get_component(T, sys, get_service_name(model))
-    if get_use_slacks(model)
-        # Adding the slacks can be done in a cleaner fashion
-        @assert PSY.get_available(interface)
-        transmission_interface_slacks!(container, interface)
-    end
+    _add_interface_flow_slacks!(get_slack_usage(model), container, interface)
     # Lazy container addition for the expressions.
     lazy_container_addition!(container, InterfaceTotalFlow,
         T,
@@ -558,11 +578,7 @@ function construct_service!(
 )
     interfaces = get_available_components(model, sys)
     interface = PSY.get_component(PSY.TransmissionInterface, sys, get_service_name(model))
-    if get_use_slacks(model)
-        # Adding the slacks can be done in a cleaner fashion
-        @assert PSY.get_available(interface)
-        transmission_interface_slacks!(container, interface)
-    end
+    _add_interface_flow_slacks!(get_slack_usage(model), container, interface)
     # Lazy container addition for the expressions.
     lazy_container_addition!(container, InterfaceTotalFlow,
         PSY.TransmissionInterface,
@@ -596,22 +612,7 @@ function construct_service!(
         network_model,
     )
 
-    if get_use_slacks(model)
-        add_to_expression!(
-            container,
-            InterfaceTotalFlow,
-            InterfaceFlowSlackUp,
-            service,
-            model,
-        )
-        add_to_expression!(
-            container,
-            InterfaceTotalFlow,
-            InterfaceFlowSlackDown,
-            service,
-            model,
-        )
-    end
+    _add_interface_slack_expressions!(get_slack_usage(model), container, service, model)
 
     add_constraints!(container, InterfaceFlowLimit, service, model)
     add_feedforward_constraints!(container, model, service)
@@ -642,22 +643,7 @@ function construct_service!(
         network_model,
     )
 
-    if get_use_slacks(model)
-        add_to_expression!(
-            container,
-            InterfaceTotalFlow,
-            InterfaceFlowSlackUp,
-            service,
-            model,
-        )
-        add_to_expression!(
-            container,
-            InterfaceTotalFlow,
-            InterfaceFlowSlackDown,
-            service,
-            model,
-        )
-    end
+    _add_interface_slack_expressions!(get_slack_usage(model), container, service, model)
 
     add_constraints!(container, InterfaceFlowLimit, service, model)
     add_feedforward_constraints!(container, model, service)
@@ -699,22 +685,7 @@ function construct_service!(
         network_model,
     )
 
-    if get_use_slacks(model)
-        add_to_expression!(
-            container,
-            InterfaceTotalFlow,
-            InterfaceFlowSlackUp,
-            service,
-            model,
-        )
-        add_to_expression!(
-            container,
-            InterfaceTotalFlow,
-            InterfaceFlowSlackDown,
-            service,
-            model,
-        )
-    end
+    _add_interface_slack_expressions!(get_slack_usage(model), container, service, model)
 
     add_constraints!(container, InterfaceFlowLimit, service, model)
     add_feedforward_constraints!(container, model, service)
@@ -746,22 +717,7 @@ function construct_service!(
         network_model,
     )
 
-    if get_use_slacks(model)
-        add_to_expression!(
-            container,
-            InterfaceTotalFlow,
-            InterfaceFlowSlackUp,
-            service,
-            model,
-        )
-        add_to_expression!(
-            container,
-            InterfaceTotalFlow,
-            InterfaceFlowSlackDown,
-            service,
-            model,
-        )
-    end
+    _add_interface_slack_expressions!(get_slack_usage(model), container, service, model)
 
     add_constraints!(container, InterfaceFlowLimit, service, model)
     add_feedforward_constraints!(container, model, service)
@@ -796,13 +752,8 @@ function construct_service!(
     network_model::NetworkModel{<:AbstractPowerModel},
 )
     interfaces = get_available_components(model, sys)
-    if get_use_slacks(model)
-        # Adding the slacks can be done in a cleaner fashion
-        interface =
-            PSY.get_component(PSY.TransmissionInterface, sys, get_service_name(model))
-        @assert PSY.get_available(interface)
-        transmission_interface_slacks!(container, interface)
-    end
+    interface = PSY.get_component(PSY.TransmissionInterface, sys, get_service_name(model))
+    _add_interface_flow_slacks!(get_slack_usage(model), container, interface)
     # Lazy container addition for the expressions.
     lazy_container_addition!(container, InterfaceTotalFlow,
         PSY.TransmissionInterface,
@@ -855,22 +806,7 @@ function construct_service!(
         network_model,
     )
 
-    if get_use_slacks(model)
-        add_to_expression!(
-            container,
-            InterfaceTotalFlow,
-            InterfaceFlowSlackUp,
-            service,
-            model,
-        )
-        add_to_expression!(
-            container,
-            InterfaceTotalFlow,
-            InterfaceFlowSlackDown,
-            service,
-            model,
-        )
-    end
+    _add_interface_slack_expressions!(get_slack_usage(model), container, service, model)
 
     add_constraints!(container, InterfaceFlowLimit, service, model)
     add_feedforward_constraints!(container, model, service)

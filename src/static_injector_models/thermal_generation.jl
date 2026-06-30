@@ -1470,6 +1470,18 @@ add_proportional_cost!(
 ########################### Objective Function Calls#############################################
 # These functions are custom implementations of the cost data. In the file objective_functions.jl there are default implementations. Define these only if needed.
 
+_add_ramp_slack_cost!(::NoSlacks, ::OptimizationContainer, devices, ::Type) = nothing
+function _add_ramp_slack_cost!(
+    ::UseSlacks,
+    container::OptimizationContainer,
+    devices,
+    ::Type{U},
+) where {U}
+    add_proportional_cost!(container, RateofChangeConstraintSlackUp, devices, U)
+    add_proportional_cost!(container, RateofChangeConstraintSlackDown, devices, U)
+    return
+end
+
 # regular commitment
 function add_to_objective_function!(
     container::OptimizationContainer,
@@ -1481,10 +1493,7 @@ function add_to_objective_function!(
     add_start_up_cost!(container, StartVariable, devices, U)
     add_shut_down_cost!(container, StopVariable, devices, U)
     add_proportional_cost!(container, OnVariable, devices, U)
-    if get_use_slacks(device_model)
-        add_proportional_cost!(container, RateofChangeConstraintSlackUp, devices, U)
-        add_proportional_cost!(container, RateofChangeConstraintSlackDown, devices, U)
-    end
+    _add_ramp_slack_cost!(get_slack_usage(device_model), container, devices, U)
     return
 end
 
@@ -1499,10 +1508,7 @@ function add_to_objective_function!(
     add_start_up_cost!(container, StartVariable, devices, U)
     add_shut_down_cost!(container, StopVariable, devices, U)
     add_proportional_cost!(container, OnVariable, devices, U)
-    if get_use_slacks(device_model)
-        add_proportional_cost!(container, RateofChangeConstraintSlackUp, devices, U)
-        add_proportional_cost!(container, RateofChangeConstraintSlackDown, devices, U)
-    end
+    _add_ramp_slack_cost!(get_slack_usage(device_model), container, devices, U)
     return
 end
 
@@ -1519,10 +1525,7 @@ function add_to_objective_function!(
     end
     add_shut_down_cost!(container, StopVariable, devices, U)
     add_proportional_cost!(container, OnVariable, devices, U)
-    if get_use_slacks(device_model)
-        add_proportional_cost!(container, RateofChangeConstraintSlackUp, devices, U)
-        add_proportional_cost!(container, RateofChangeConstraintSlackDown, devices, U)
-    end
+    _add_ramp_slack_cost!(get_slack_usage(device_model), container, devices, U)
     return
 end
 
@@ -1534,10 +1537,7 @@ function add_to_objective_function!(
     ::Type{<:AbstractPowerModel},
 ) where {T <: PSY.ThermalGen, U <: AbstractThermalDispatchFormulation}
     add_variable_cost!(container, ActivePowerVariable, devices, U)
-    if get_use_slacks(device_model)
-        add_proportional_cost!(container, RateofChangeConstraintSlackUp, devices, U)
-        add_proportional_cost!(container, RateofChangeConstraintSlackDown, devices, U)
-    end
+    _add_ramp_slack_cost!(get_slack_usage(device_model), container, devices, U)
     return
 end
 
@@ -1549,10 +1549,7 @@ function add_to_objective_function!(
     ::Type{<:AbstractPowerModel},
 ) where {T <: PSY.ThermalGen, U <: ThermalCompactDispatch}
     add_variable_cost!(container, PowerAboveMinimumVariable, devices, U)
-    if get_use_slacks(device_model)
-        add_proportional_cost!(container, RateofChangeConstraintSlackUp, devices, U)
-        add_proportional_cost!(container, RateofChangeConstraintSlackDown, devices, U)
-    end
+    _add_ramp_slack_cost!(get_slack_usage(device_model), container, devices, U)
     return
 end
 

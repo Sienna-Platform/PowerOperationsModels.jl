@@ -845,19 +845,15 @@ function add_constraints!(
     multiplier =
         get_parameter_multiplier_array(container, InflowTimeSeriesParameter, V)
 
+    slack = get_slack_usage(model)
     for ic in initial_conditions
         device = IOM.get_component(ic)
         name = PSY.get_name(device)
         param = get_parameter_column_values(param_container, name)
-        if get_use_slacks(model)
-            surplus_var =
-                get_variable(container, HydroBalanceSurplusVariable, V)[name, 1]
-            shortage_var =
-                get_variable(container, HydroBalanceShortageVariable, V)[name, 1]
-        else
-            surplus_var = 0.0
-            shortage_var = 0.0
-        end
+        surplus_var =
+            slack_contribution(slack, container, HydroBalanceSurplusVariable, V, name, 1)
+        shortage_var =
+            slack_contribution(slack, container, HydroBalanceShortageVariable, V, name, 1)
         constraint[name, 1] = JuMP.@constraint(
             container.JuMPmodel,
             energy_var[name, 1] ==
@@ -881,21 +877,24 @@ function add_constraints!(
                     fraction_of_hour
                 )
             else
-                if get_use_slacks(model)
-                    surplus_var =
-                        get_variable(container, HydroBalanceSurplusVariable, V)[
-                            name,
-                            t,
-                        ]
-                    shortage_var =
-                        get_variable(container, HydroBalanceShortageVariable, V)[
-                            name,
-                            t,
-                        ]
-                else
-                    surplus_var = 0.0
-                    shortage_var = 0.0
-                end
+                surplus_var =
+                    slack_contribution(
+                        slack,
+                        container,
+                        HydroBalanceSurplusVariable,
+                        V,
+                        name,
+                        t,
+                    )
+                shortage_var =
+                    slack_contribution(
+                        slack,
+                        container,
+                        HydroBalanceShortageVariable,
+                        V,
+                        name,
+                        t,
+                    )
                 constraint[name, t] = JuMP.@constraint(
                     container.JuMPmodel,
                     energy_var[name, t] ==
@@ -1313,12 +1312,14 @@ function add_constraints!(
     multiplier = get_multiplier_array(param_container)
     for d in devices
         name = PSY.get_name(d)
-        if get_use_slacks(model)
-            slack_var =
-                sum(get_variable(container, HydroEnergyShortageVariable, V)[name, :])
-        else
-            slack_var = 0.0
-        end
+        slack_var =
+            slack_row_sum(
+                get_slack_usage(model),
+                container,
+                HydroEnergyShortageVariable,
+                V,
+                name,
+            )
         param = get_parameter_column_values(param_container, name)
         constraint[name] = JuMP.@constraint(
             container.JuMPmodel,
@@ -1378,12 +1379,14 @@ function add_constraints!(
 
     for d in devices
         name = PSY.get_name(d)
-        if get_use_slacks(model)
-            slack_var =
-                sum(get_variable(container, HydroEnergyShortageVariable, V)[name, :])
-        else
-            slack_var = 0.0
-        end
+        slack_var =
+            slack_row_sum(
+                get_slack_usage(model),
+                container,
+                HydroEnergyShortageVariable,
+                V,
+                name,
+            )
         param = get_parameter_column_values(param_container, name)
         constraint[name] = JuMP.@constraint(
             container.JuMPmodel,
@@ -2388,9 +2391,9 @@ function add_to_objective_function!(
     ::Type{<:AbstractPowerModel},
 ) where {T <: PSY.HydroGen, U <: HydroDispatchRunOfRiverBudget}
     add_variable_cost!(container, ActivePowerVariable, devices, U)
-    if get_use_slacks(model)
-        add_proportional_cost!(container, HydroEnergyShortageVariable, devices, U)
-    end
+    add_slack_proportional_cost!(
+        get_slack_usage(model), container, HydroEnergyShortageVariable, devices, U,
+    )
     return
 end
 
@@ -2404,10 +2407,9 @@ function add_to_objective_function!(
     add_proportional_cost!(container, HydroEnergySurplusVariable, devices, U)
     add_proportional_cost!(container, HydroEnergyShortageVariable, devices, U)
     add_proportional_cost!(container, WaterSpillageVariable, devices, U)
-    if get_use_slacks(model)
-        add_proportional_cost!(container, HydroBalanceShortageVariable, devices, U)
-        add_proportional_cost!(container, HydroBalanceSurplusVariable, devices, U)
-    end
+    slack = get_slack_usage(model)
+    add_slack_proportional_cost!(slack, container, HydroBalanceShortageVariable, devices, U)
+    add_slack_proportional_cost!(slack, container, HydroBalanceSurplusVariable, devices, U)
     return
 end
 

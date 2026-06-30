@@ -1,22 +1,49 @@
+_add_system_balance_slacks!(
+    ::NoSlacks,
+    ::OptimizationContainer,
+    ::PSY.System,
+    ::NetworkModel;
+    reactive::Bool = false,
+) = nothing
+
+function _add_system_balance_slacks!(
+    ::UseSlacks,
+    container::OptimizationContainer,
+    sys::PSY.System,
+    model::NetworkModel;
+    reactive::Bool = false,
+)
+    add_variables!(container, SystemBalanceSlackUp, sys, model)
+    add_variables!(container, SystemBalanceSlackDown, sys, model)
+    add_to_expression!(container, ActivePowerBalance, SystemBalanceSlackUp, sys, model)
+    add_to_expression!(container, ActivePowerBalance, SystemBalanceSlackDown, sys, model)
+    if reactive
+        add_to_expression!(
+            container,
+            ReactivePowerBalance,
+            SystemBalanceSlackUp,
+            sys,
+            model,
+        )
+        add_to_expression!(
+            container,
+            ReactivePowerBalance,
+            SystemBalanceSlackDown,
+            sys,
+            model,
+        )
+    end
+    add_to_objective_function!(container, sys, model)
+    return
+end
+
 function construct_network!(
     container::OptimizationContainer,
     sys::PSY.System,
     model::NetworkModel{CopperPlatePowerModel},
     ::PowerOperationsProblemTemplate,
 )
-    if get_use_slacks(model)
-        add_variables!(container, SystemBalanceSlackUp, sys, model)
-        add_variables!(container, SystemBalanceSlackDown, sys, model)
-        add_to_expression!(container, ActivePowerBalance, SystemBalanceSlackUp, sys, model)
-        add_to_expression!(
-            container,
-            ActivePowerBalance,
-            SystemBalanceSlackDown,
-            sys,
-            model,
-        )
-        add_to_objective_function!(container, sys, model)
-    end
+    _add_system_balance_slacks!(get_slack_usage(model), container, sys, model)
 
     add_constraints!(container, CopperPlateBalanceConstraint, sys, model)
 
@@ -30,19 +57,7 @@ function construct_network!(
     model::NetworkModel{AreaBalancePowerModel},
     ::PowerOperationsProblemTemplate,
 )
-    if get_use_slacks(model)
-        add_variables!(container, SystemBalanceSlackUp, sys, model)
-        add_variables!(container, SystemBalanceSlackDown, sys, model)
-        add_to_expression!(container, ActivePowerBalance, SystemBalanceSlackUp, sys, model)
-        add_to_expression!(
-            container,
-            ActivePowerBalance,
-            SystemBalanceSlackDown,
-            sys,
-            model,
-        )
-        add_to_objective_function!(container, sys, model)
-    end
+    _add_system_balance_slacks!(get_slack_usage(model), container, sys, model)
 
     add_constraints!(container, CopperPlateBalanceConstraint, sys, model)
     add_constraint_dual!(container, sys, model)
@@ -55,19 +70,7 @@ function construct_network!(
     model::NetworkModel{<:AbstractPTDFModel},
     ::PowerOperationsProblemTemplate,
 )
-    if get_use_slacks(model)
-        add_variables!(container, SystemBalanceSlackUp, sys, model)
-        add_variables!(container, SystemBalanceSlackDown, sys, model)
-        add_to_expression!(container, ActivePowerBalance, SystemBalanceSlackUp, sys, model)
-        add_to_expression!(
-            container,
-            ActivePowerBalance,
-            SystemBalanceSlackDown,
-            sys,
-            model,
-        )
-        add_to_objective_function!(container, sys, model)
-    end
+    _add_system_balance_slacks!(get_slack_usage(model), container, sys, model)
     add_constraints!(container, CopperPlateBalanceConstraint, sys, model)
     add_constraint_dual!(container, sys, model)
     return
@@ -94,23 +97,9 @@ function _construct_voltage_network!(
     # constraints snapshot them; otherwise the in-place add_to_expression! mutation
     # never reaches the already-built MOI constraints and use_slacks is a no-op
     # (matches the CopperPlate/PTDF ordering above).
-    if get_use_slacks(model)
-        add_variables!(container, SystemBalanceSlackUp, sys, model)
-        add_variables!(container, SystemBalanceSlackDown, sys, model)
-        add_to_expression!(container, ActivePowerBalance, SystemBalanceSlackUp, sys, model)
-        add_to_expression!(
-            container, ActivePowerBalance, SystemBalanceSlackDown, sys, model,
-        )
-        if reactive
-            add_to_expression!(
-                container, ReactivePowerBalance, SystemBalanceSlackUp, sys, model,
-            )
-            add_to_expression!(
-                container, ReactivePowerBalance, SystemBalanceSlackDown, sys, model,
-            )
-        end
-        add_to_objective_function!(container, sys, model)
-    end
+    _add_system_balance_slacks!(
+        get_slack_usage(model), container, sys, model; reactive = reactive,
+    )
     add_constraints!(container, ReferenceBusConstraint, sys, model)
     add_constraints!(container, NodalBalanceActiveConstraint, sys, model)
     if reactive
@@ -154,19 +143,7 @@ function construct_network!(
         )
     end
 
-    if get_use_slacks(model)
-        add_variables!(container, SystemBalanceSlackUp, sys, model)
-        add_variables!(container, SystemBalanceSlackDown, sys, model)
-        add_to_expression!(container, ActivePowerBalance, SystemBalanceSlackUp, sys, model)
-        add_to_expression!(
-            container,
-            ActivePowerBalance,
-            SystemBalanceSlackDown,
-            sys,
-            model,
-        )
-        add_to_objective_function!(container, sys, model)
-    end
+    _add_system_balance_slacks!(get_slack_usage(model), container, sys, model)
 
     @debug "Building the $T network with instantiate_nip_expr_model method" _group =
         LOG_GROUP_NETWORK_CONSTRUCTION
@@ -192,33 +169,9 @@ function construct_network!(
         )
     end
 
-    if get_use_slacks(model)
-        add_variables!(container, SystemBalanceSlackUp, sys, model)
-        add_variables!(container, SystemBalanceSlackDown, sys, model)
-        add_to_expression!(container, ActivePowerBalance, SystemBalanceSlackUp, sys, model)
-        add_to_expression!(
-            container,
-            ActivePowerBalance,
-            SystemBalanceSlackDown,
-            sys,
-            model,
-        )
-        add_to_expression!(
-            container,
-            ReactivePowerBalance,
-            SystemBalanceSlackUp,
-            sys,
-            model,
-        )
-        add_to_expression!(
-            container,
-            ReactivePowerBalance,
-            SystemBalanceSlackDown,
-            sys,
-            model,
-        )
-        add_to_objective_function!(container, sys, model)
-    end
+    _add_system_balance_slacks!(
+        get_slack_usage(model), container, sys, model; reactive = true,
+    )
 
     @debug "Building the $T network with instantiate_nip_expr_model method" _group =
         LOG_GROUP_NETWORK_CONSTRUCTION
@@ -244,39 +197,9 @@ function construct_network!(
         )
     end
 
-    if get_use_slacks(model)
-        add_variables!(container, SystemBalanceSlackUp, sys, model)
-        add_variables!(container, SystemBalanceSlackDown, sys, model)
-        add_to_expression!(
-            container,
-            ActivePowerBalance,
-            SystemBalanceSlackUp,
-            sys,
-            model,
-        )
-        add_to_expression!(
-            container,
-            ActivePowerBalance,
-            SystemBalanceSlackDown,
-            sys,
-            model,
-        )
-        add_to_expression!(
-            container,
-            ReactivePowerBalance,
-            SystemBalanceSlackUp,
-            sys,
-            model,
-        )
-        add_to_expression!(
-            container,
-            ReactivePowerBalance,
-            SystemBalanceSlackDown,
-            sys,
-            model,
-        )
-        add_to_objective_function!(container, sys, model)
-    end
+    _add_system_balance_slacks!(
+        get_slack_usage(model), container, sys, model; reactive = true,
+    )
 
     @debug "Building the $T network with instantiate_bfp_expr_model method" _group =
         LOG_GROUP_NETWORK_CONSTRUCTION

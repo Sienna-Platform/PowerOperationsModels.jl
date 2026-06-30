@@ -243,6 +243,8 @@ include("core/feedforward_interface.jl")
 include("core/initial_conditions.jl")
 
 # Common models - expression infrastructure
+# Slack primitives dispatched on the SlackUsage trait
+include("common_models/slacks.jl")
 # Expression container creation (add_expressions!) and helpers
 include("common_models/add_expressions.jl")
 # Device-specific add_to_expression! implementations

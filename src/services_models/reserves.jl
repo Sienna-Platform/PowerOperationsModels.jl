@@ -143,6 +143,16 @@ function _sum_reserve_variables(
     return acc
 end
 
+_reserve_slack_vars(::NoSlacks, container, service) = nothing
+_reserve_slack_vars(::UseSlacks, container, service) = reserve_slacks!(container, service)
+
+_reserve_slack_extra(::NoSlacks) = 0
+_reserve_slack_extra(::UseSlacks) = 1
+
+_add_reserve_slack!(::NoSlacks, resource_expression, slack_vars, t) = nothing
+_add_reserve_slack!(::UseSlacks, resource_expression, slack_vars, t) =
+    JuMP.add_to_expression!(resource_expression, slack_vars[t])
+
 ################################## Reserve Requirement Constraint ##########################
 function add_constraints!(
     container::OptimizationContainer,
@@ -168,7 +178,7 @@ function add_constraints!(
     )
     reserve_variable =
         get_variable(container, ActivePowerReserveVariable, SR, service_name)
-    use_slacks = get_use_slacks(model)
+    slack = get_slack_usage(model)
 
     ts_vector = IOM.get_time_series(
         container,
@@ -177,10 +187,10 @@ function add_constraints!(
         interval = get_interval(get_settings(container)),
     )
 
-    use_slacks && (slack_vars = reserve_slacks!(container, service))
+    slack_vars = _reserve_slack_vars(slack, container, service)
     requirement = _get_requirement(service)
     jump_model = get_jump_model(container)
-    extra = use_slacks ? 1 : 0
+    extra = _reserve_slack_extra(slack)
     if built_for_recurrent_solves(container)
         param_container =
             get_parameter(container, RequirementTimeSeriesParameter, SR, service_name)
@@ -188,8 +198,7 @@ function add_constraints!(
         for t in time_steps
             resource_expression =
                 _sum_reserve_variables(@view(reserve_variable[:, t]), extra)
-            use_slacks &&
-                JuMP.add_to_expression!(resource_expression, slack_vars[t])
+            _add_reserve_slack!(slack, resource_expression, slack_vars, t)
             constraint[service_name, t] =
                 JuMP.@constraint(jump_model, resource_expression >= param[t] * requirement)
         end
@@ -197,8 +206,7 @@ function add_constraints!(
         for t in time_steps
             resource_expression =
                 _sum_reserve_variables(@view(reserve_variable[:, t]), extra)
-            use_slacks &&
-                JuMP.add_to_expression!(resource_expression, slack_vars[t])
+            _add_reserve_slack!(slack, resource_expression, slack_vars, t)
             constraint[service_name, t] = JuMP.@constraint(
                 jump_model,
                 resource_expression >= ts_vector[t] * requirement
@@ -286,16 +294,16 @@ function add_constraints!(
     )
     reserve_variable =
         get_variable(container, ActivePowerReserveVariable, SR, service_name)
-    use_slacks = get_use_slacks(model)
-    use_slacks && (slack_vars = reserve_slacks!(container, service))
+    slack = get_slack_usage(model)
+    slack_vars = _reserve_slack_vars(slack, container, service)
 
     requirement = _get_requirement(service)
     jump_model = get_jump_model(container)
-    extra = use_slacks ? 1 : 0
+    extra = _reserve_slack_extra(slack)
     for t in time_steps
         resource_expression =
             _sum_reserve_variables(@view(reserve_variable[:, t]), extra)
-        use_slacks && JuMP.add_to_expression!(resource_expression, slack_vars[t])
+        _add_reserve_slack!(slack, resource_expression, slack_vars, t)
         constraint[service_name, t] =
             JuMP.@constraint(jump_model, resource_expression >= requirement)
     end

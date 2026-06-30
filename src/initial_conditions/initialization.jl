@@ -38,25 +38,37 @@ function get_initial_conditions_template(
     ic_template = PowerOperationsProblemTemplate(network_model)
     # Do not copy events here for initialization
     for device_model in values(get_device_models(model.template))
-        base_model = get_initial_conditions_device_model(model, device_model)
-        base_model.use_slacks = device_model.use_slacks
+        ic_model = get_initial_conditions_device_model(model, device_model)
+        base_model = DeviceModel(
+            get_component_type(ic_model),
+            get_formulation(ic_model);
+            use_slacks = get_use_slacks(device_model),
+        )
         base_model.time_series_names = device_model.time_series_names
         base_model.attributes = device_model.attributes
         set_device_model!(ic_template, base_model)
     end
     for device_model in values(get_branch_models(model.template))
-        base_model = get_initial_conditions_device_model(model, device_model)
-        base_model.use_slacks = device_model.use_slacks
+        ic_model = get_initial_conditions_device_model(model, device_model)
+        base_model = DeviceModel(
+            get_component_type(ic_model),
+            get_formulation(ic_model);
+            use_slacks = get_use_slacks(device_model),
+        )
         base_model.time_series_names = device_model.time_series_names
         base_model.attributes = device_model.attributes
         set_device_model!(ic_template, base_model)
     end
 
     for service_model in values(get_service_models(model.template))
-        base_model = get_initial_conditions_service_model(model, service_model)
-        base_model.service_name = service_model.service_name
+        ic_model = get_initial_conditions_service_model(model, service_model)
+        base_model = ServiceModel(
+            get_component_type(ic_model),
+            get_formulation(ic_model),
+            get_service_name(service_model);
+            use_slacks = get_use_slacks(service_model),
+        )
         base_model.contributing_devices_map = service_model.contributing_devices_map
-        base_model.use_slacks = service_model.use_slacks
         base_model.time_series_names = service_model.time_series_names
         base_model.attributes = service_model.attributes
         set_service_model!(ic_template, get_service_name(service_model), base_model)

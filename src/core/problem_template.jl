@@ -344,7 +344,7 @@ function _populate_aggregated_service_model!(
     services_template = get_service_models(template)
     for (key, service_model) in services_template
         attributes = get_attributes(service_model)
-        use_slacks = service_model.use_slacks
+        use_slacks = get_use_slacks(service_model)
         duals = service_model.duals
         if pop!(attributes, "aggregated_service_model", false)
             delete!(services_template, key)

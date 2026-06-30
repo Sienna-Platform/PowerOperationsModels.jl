@@ -460,7 +460,7 @@ end
 function _add_flow_rate_constraint!(
     container::OptimizationContainer,
     arc::Tuple{Int, Int},
-    use_slacks::Bool,
+    slack::SlackUsage,
     con_lb::DenseAxisArray,
     con_ub::DenseAxisArray,
     var::DenseAxisArray,
@@ -470,21 +470,35 @@ function _add_flow_rate_constraint!(
 ) where {T <: PSY.ACTransmission}
     reduction_entry = branch_maps_by_type[arc]
     time_steps = get_time_steps(container)
-    if use_slacks
-        slack_ub = get_variable(container, FlowActivePowerSlackUpperBound, T)[name, :]
-        slack_lb = get_variable(container, FlowActivePowerSlackLowerBound, T)[name, :]
-    end
     limits = min_max_flow_limits(reduction_entry, device_model)
     for t in time_steps
         con_ub[name, t] =
             JuMP.@constraint(
                 get_jump_model(container),
-                var[name, t] - (use_slacks ? slack_ub[t] : 0.0) <= limits.max
+                var[name, t] -
+                slack_contribution(
+                    slack,
+                    container,
+                    FlowActivePowerSlackUpperBound,
+                    T,
+                    name,
+                    t,
+                ) <=
+                limits.max
             )
         con_lb[name, t] =
             JuMP.@constraint(
                 get_jump_model(container),
-                var[name, t] + (use_slacks ? slack_lb[t] : 0.0) >= limits.min
+                var[name, t] +
+                slack_contribution(
+                    slack,
+                    container,
+                    FlowActivePowerSlackLowerBound,
+                    T,
+                    name,
+                    t,
+                ) >=
+                limits.min
             )
     end
     return
@@ -536,17 +550,13 @@ function add_constraints!(
 
     array = get_variable(container, FlowActivePowerVariable, T)
 
-    use_slacks = get_use_slacks(device_model)
-    if use_slacks
-        slack_ub = get_variable(container, FlowActivePowerSlackUpperBound, T)
-        slack_lb = get_variable(container, FlowActivePowerSlackLowerBound, T)
-    end
+    slack = get_slack_usage(device_model)
     for (name, (arc, reduction)) in
         get_constraint_map_by_type(reduced_branch_tracker)[FlowRateConstraint][T]
         _add_flow_rate_constraint!(
             container,
             arc,
-            use_slacks,
+            slack,
             con_lb,
             con_ub,
             array,
@@ -601,17 +611,13 @@ function add_constraints!(
 
     array = get_expression(container, PTDFBranchFlow, T)
 
-    use_slacks = get_use_slacks(device_model)
-    if use_slacks
-        slack_ub = get_variable(container, FlowActivePowerSlackUpperBound, T)
-        slack_lb = get_variable(container, FlowActivePowerSlackLowerBound, T)
-    end
+    slack = get_slack_usage(device_model)
     for (name, (arc, reduction)) in
         get_constraint_map_by_type(reduced_branch_tracker)[FlowRateConstraint][T]
         _add_flow_rate_constraint!(
             container,
             arc,
-            use_slacks,
+            slack,
             con_lb,
             con_ub,
             array,
@@ -627,7 +633,7 @@ function _add_flow_rate_constraint_with_parameters!(
     container::OptimizationContainer,
     ::Type{T},
     arc::Tuple{Int, Int},
-    use_slacks::Bool,
+    slack::SlackUsage,
     con_lb::DenseAxisArray,
     con_ub::DenseAxisArray,
     var::DenseAxisArray,
@@ -636,10 +642,6 @@ function _add_flow_rate_constraint_with_parameters!(
     ts_name::String,
 ) where {T <: PSY.ACTransmission}
     time_steps = get_time_steps(container)
-    if use_slacks
-        slack_ub = get_variable(container, FlowActivePowerSlackUpperBound, T)[name, :]
-        slack_lb = get_variable(container, FlowActivePowerSlackLowerBound, T)[name, :]
-    end
     param_container =
         get_parameter(container, BranchRatingTimeSeriesParameter, T)
     param = get_parameter_column_refs(param_container, name)
@@ -650,12 +652,29 @@ function _add_flow_rate_constraint_with_parameters!(
         con_ub[name, t] =
             JuMP.@constraint(
                 get_jump_model(container),
-                var[name, t] - (use_slacks ? slack_ub[t] : 0.0) <= param[t] * mult[t]
+                var[name, t] -
+                slack_contribution(
+                    slack,
+                    container,
+                    FlowActivePowerSlackUpperBound,
+                    T,
+                    name,
+                    t,
+                ) <=
+                param[t] * mult[t]
             )
         con_lb[name, t] =
             JuMP.@constraint(
                 get_jump_model(container),
-                var[name, t] + (use_slacks ? slack_lb[t] : 0.0) >=
+                var[name, t] +
+                slack_contribution(
+                    slack,
+                    container,
+                    FlowActivePowerSlackLowerBound,
+                    T,
+                    name,
+                    t,
+                ) >=
                 -1.0 * param[t] * mult[t]
             )
     end
@@ -714,7 +733,7 @@ function add_flow_rate_constraint_with_parameters!(
 
     ts_name = get_time_series_names(device_model)[BranchRatingTimeSeriesParameter]
     ts_type = get_default_time_series_type(container)
-    use_slacks = get_use_slacks(device_model)
+    slack = get_slack_usage(device_model)
     for (name, (arc, reduction)) in
         get_constraint_map_by_type(reduced_branch_tracker)[FlowRateConstraint][T]
         branch_map_T = all_branch_maps_by_type[reduction][T]
@@ -723,7 +742,7 @@ function add_flow_rate_constraint_with_parameters!(
                 container,
                 T,
                 arc,
-                use_slacks,
+                slack,
                 con_lb,
                 con_ub,
                 var_array,
@@ -735,7 +754,7 @@ function add_flow_rate_constraint_with_parameters!(
             _add_flow_rate_constraint!(
                 container,
                 arc,
-                use_slacks,
+                slack,
                 con_lb,
                 con_ub,
                 var_array,
@@ -779,10 +798,7 @@ function add_constraints!(
     )
     constraint = get_constraint(container, cons_type, B)
 
-    use_slacks = get_use_slacks(device_model)
-    if use_slacks
-        slack_ub = get_variable(container, FlowActivePowerSlackUpperBound, B)
-    end
+    slack = get_slack_usage(device_model)
 
     # Gate on the parameter container actually existing, not merely on the
     # time-series name being configured: when the name is set but no branch of
@@ -810,7 +826,9 @@ function add_constraints!(
                 constraint[name, t] = JuMP.@constraint(
                     get_jump_model(container),
                     var1[name, t]^2 + var2[name, t]^2 -
-                    (use_slacks ? slack_ub[name, t] : 0.0) <=
+                    slack_contribution(
+                        slack, container, FlowActivePowerSlackUpperBound, B, name, t,
+                    ) <=
                     (param[name, t] * mult[name, t])^2
                 )
             end
@@ -820,7 +838,9 @@ function add_constraints!(
                 constraint[name, t] = JuMP.@constraint(
                     get_jump_model(container),
                     var1[name, t]^2 + var2[name, t]^2 -
-                    (use_slacks ? slack_ub[name, t] : 0.0) <= branch_rate^2
+                    slack_contribution(
+                        slack, container, FlowActivePowerSlackUpperBound, B, name, t,
+                    ) <= branch_rate^2
                 )
             end
         end
@@ -858,10 +878,7 @@ function add_constraints!(
         time_steps,
     )
     constraint = get_constraint(container, cons_type, B)
-    use_slacks = get_use_slacks(device_model)
-    if use_slacks
-        slack_ub = get_variable(container, FlowActivePowerSlackUpperBound, B)
-    end
+    slack = get_slack_usage(device_model)
 
     # Gate on the parameter container actually existing (see FromTo above).
     ts_branch_names = String[]
@@ -885,7 +902,9 @@ function add_constraints!(
                 constraint[name, t] = JuMP.@constraint(
                     get_jump_model(container),
                     var1[name, t]^2 + var2[name, t]^2 -
-                    (use_slacks ? slack_ub[name, t] : 0.0) <=
+                    slack_contribution(
+                        slack, container, FlowActivePowerSlackUpperBound, B, name, t,
+                    ) <=
                     (param[name, t] * mult[name, t])^2
                 )
             end
@@ -895,7 +914,9 @@ function add_constraints!(
                 constraint[name, t] = JuMP.@constraint(
                     get_jump_model(container),
                     var1[name, t]^2 + var2[name, t]^2 -
-                    (use_slacks ? slack_ub[name, t] : 0.0) <= branch_rate^2
+                    slack_contribution(
+                        slack, container, FlowActivePowerSlackUpperBound, B, name, t,
+                    ) <= branch_rate^2
                 )
             end
         end
@@ -1120,11 +1141,7 @@ function add_constraints!(
     )
     jump_model = get_jump_model(container)
 
-    use_slacks = get_use_slacks(device_model)
-    if use_slacks
-        slack_ub = get_variable(container, FlowActivePowerSlackUpperBound, T)
-        slack_lb = get_variable(container, FlowActivePowerSlackLowerBound, T)
-    end
+    slack = get_slack_usage(device_model)
 
     for name in branches
         for t in time_steps
@@ -1133,7 +1150,22 @@ function add_constraints!(
                 branch_flow_expr[name, t] -
                 flow_variables[name, t]
                 ==
-                (use_slacks ? slack_ub[name, t] - slack_lb[name, t] : 0.0)
+                slack_contribution(
+                    slack,
+                    container,
+                    FlowActivePowerSlackUpperBound,
+                    T,
+                    name,
+                    t,
+                ) -
+                slack_contribution(
+                    slack,
+                    container,
+                    FlowActivePowerSlackLowerBound,
+                    T,
+                    name,
+                    t,
+                )
             )
         end
     end
@@ -1380,22 +1412,41 @@ function add_constraints!(
     return
 end
 
-function add_to_objective_function!(
+_add_branch_upper_slack_cost!(::NoSlacks, ::OptimizationContainer, ::Type) = nothing
+function _add_branch_upper_slack_cost!(
+    ::UseSlacks,
     container::OptimizationContainer,
-    ::IS.FlattenIteratorWrapper{T},
-    device_model::DeviceModel{T, <:AbstractBranchFormulation},
-    ::Type{<:AbstractPowerModel},
+    ::Type{T},
 ) where {T <: PSY.ACTransmission}
-    if get_use_slacks(device_model)
-        variable_up = get_variable(container, FlowActivePowerSlackUpperBound, T)
-        # Use device names because there might be a network reduction
-        for name in axes(variable_up, 1)
-            for t in get_time_steps(container)
-                add_to_objective_invariant_expression!(
-                    container,
-                    variable_up[name, t] * CONSTRAINT_VIOLATION_SLACK_COST,
-                )
-            end
+    variable_up = get_variable(container, FlowActivePowerSlackUpperBound, T)
+    # Use device names because there might be a network reduction
+    for name in axes(variable_up, 1)
+        for t in get_time_steps(container)
+            add_to_objective_invariant_expression!(
+                container,
+                variable_up[name, t] * CONSTRAINT_VIOLATION_SLACK_COST,
+            )
+        end
+    end
+    return
+end
+
+_add_branch_updown_slack_cost!(::NoSlacks, ::OptimizationContainer, ::Type) = nothing
+function _add_branch_updown_slack_cost!(
+    ::UseSlacks,
+    container::OptimizationContainer,
+    ::Type{T},
+) where {T <: PSY.ACTransmission}
+    variable_up = get_variable(container, FlowActivePowerSlackUpperBound, T)
+    variable_dn = get_variable(container, FlowActivePowerSlackLowerBound, T)
+    # Use device names because there might be a network reduction
+    for name in axes(variable_up, 1)
+        for t in get_time_steps(container)
+            add_to_objective_invariant_expression!(
+                container,
+                (variable_dn[name, t] + variable_up[name, t]) *
+                CONSTRAINT_VIOLATION_SLACK_COST,
+            )
         end
     end
     return
@@ -1405,22 +1456,19 @@ function add_to_objective_function!(
     container::OptimizationContainer,
     ::IS.FlattenIteratorWrapper{T},
     device_model::DeviceModel{T, <:AbstractBranchFormulation},
+    ::Type{<:AbstractPowerModel},
+) where {T <: PSY.ACTransmission}
+    _add_branch_upper_slack_cost!(get_slack_usage(device_model), container, T)
+    return
+end
+
+function add_to_objective_function!(
+    container::OptimizationContainer,
+    ::IS.FlattenIteratorWrapper{T},
+    device_model::DeviceModel{T, <:AbstractBranchFormulation},
     ::Type{<:AbstractActivePowerModel},
 ) where {T <: PSY.ACTransmission}
-    if get_use_slacks(device_model)
-        variable_up = get_variable(container, FlowActivePowerSlackUpperBound, T)
-        variable_dn = get_variable(container, FlowActivePowerSlackLowerBound, T)
-        # Use device names because there might be a network reduction
-        for name in axes(variable_up, 1)
-            for t in get_time_steps(container)
-                add_to_objective_invariant_expression!(
-                    container,
-                    (variable_dn[name, t] + variable_up[name, t]) *
-                    CONSTRAINT_VIOLATION_SLACK_COST,
-                )
-            end
-        end
-    end
+    _add_branch_updown_slack_cost!(get_slack_usage(device_model), container, T)
     return
 end
 
@@ -1496,10 +1544,7 @@ function _add_directional_flow_rate_limits!(
     time_steps = get_time_steps(container)
     pflow = get_variable(container, PVar, T)
     qflow = get_variable(container, QVar, T)
-    use_slacks = get_use_slacks(device_model)
-    if use_slacks
-        slack_ub = get_variable(container, FlowActivePowerSlackUpperBound, T)
-    end
+    slack = get_slack_usage(device_model)
     branch_names = [PSY.get_name(d) for d in devices]
     cons = add_constraints_container!(
         container, ConsKey, T, branch_names, time_steps,
@@ -1529,7 +1574,9 @@ function _add_directional_flow_rate_limits!(
                 cons[name, t] = JuMP.@constraint(
                     jump_model,
                     pflow[name, t]^2 + qflow[name, t]^2 -
-                    (use_slacks ? slack_ub[name, t] : 0.0) <=
+                    slack_contribution(
+                        slack, container, FlowActivePowerSlackUpperBound, T, name, t,
+                    ) <=
                     (param[t] * mult[name, t])^2,
                 )
             end
@@ -1540,7 +1587,9 @@ function _add_directional_flow_rate_limits!(
                 cons[name, t] = JuMP.@constraint(
                     jump_model,
                     pflow[name, t]^2 + qflow[name, t]^2 -
-                    (use_slacks ? slack_ub[name, t] : 0.0) <= rating^2,
+                    slack_contribution(
+                        slack, container, FlowActivePowerSlackUpperBound, T, name, t,
+                    ) <= rating^2,
                 )
             end
         end
@@ -1613,13 +1662,9 @@ function add_constraints!(
 ) where {T <: PSY.ACTransmission, U <: AbstractBranchFormulation}
     time_steps = get_time_steps(container)
     flow_vars = get_variable(container, FlowActivePowerVariable, T)
-    use_slacks = get_use_slacks(device_model)
-    slack_ub =
-        use_slacks ? get_variable(container, FlowActivePowerSlackUpperBound, T) :
-        nothing
-    slack_lb =
-        use_slacks ? get_variable(container, FlowActivePowerSlackLowerBound, T) :
-        nothing
+    slack = get_slack_usage(device_model)
+    slack_ub = maybe_slack_variable(slack, container, FlowActivePowerSlackUpperBound, T)
+    slack_lb = maybe_slack_variable(slack, container, FlowActivePowerSlackLowerBound, T)
     jump_model = get_jump_model(container)
 
     # Gate on the parameter container actually existing, not merely on the
@@ -1673,12 +1718,18 @@ function add_constraints!(
             for t in time_steps
                 con_ub[name, t] = JuMP.@constraint(
                     jump_model,
-                    flow_vars[name, t] - (use_slacks ? slack_ub[name, t] : 0.0) <=
+                    flow_vars[name, t] -
+                    slack_contribution(
+                        slack, container, FlowActivePowerSlackUpperBound, T, name, t,
+                    ) <=
                     param[t] * mult[name, t],
                 )
                 con_lb[name, t] = JuMP.@constraint(
                     jump_model,
-                    flow_vars[name, t] + (use_slacks ? slack_lb[name, t] : 0.0) >=
+                    flow_vars[name, t] +
+                    slack_contribution(
+                        slack, container, FlowActivePowerSlackLowerBound, T, name, t,
+                    ) >=
                     -1.0 * param[t] * mult[name, t],
                 )
             end

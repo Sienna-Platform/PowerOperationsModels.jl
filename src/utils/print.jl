@@ -39,7 +39,7 @@ function _show_method(
     for (ix, model) in enumerate(values(devices))
         table[ix, 1] = string(get_component_type(model))
         table[ix, 2] = string(get_formulation(model))
-        table[ix, 3] = string(model.use_slacks)
+        table[ix, 3] = string(get_use_slacks(model))
     end
 
     PrettyTables.pretty_table(
@@ -60,7 +60,7 @@ function _show_method(
         for (ix, model) in enumerate(values(branches))
             table[ix, 1] = string(get_component_type(model))
             table[ix, 2] = string(get_formulation(model))
-            table[ix, 3] = string(model.use_slacks)
+            table[ix, 3] = string(get_use_slacks(model))
         end
 
         PrettyTables.pretty_table(
@@ -88,14 +88,14 @@ function _show_method(
             if isempty(key[1])
                 table[ix, 1] = string(get_component_type(model))
                 table[ix, 2] = string(get_formulation(model))
-                table[ix, 3] = string(model.use_slacks)
+                table[ix, 3] = string(get_use_slacks(model))
                 table[ix, 4] =
                     string(get(model.attributes, "aggregated_service_model", "false"))
             else
                 table[ix, 1] = key[1]
                 table[ix, 2] = string(get_component_type(model))
                 table[ix, 3] = string(get_formulation(model))
-                table[ix, 4] = string(model.use_slacks)
+                table[ix, 4] = string(get_use_slacks(model))
                 table[ix, 5] =
                     string(get(model.attributes, "aggregated_service_model", "false"))
             end

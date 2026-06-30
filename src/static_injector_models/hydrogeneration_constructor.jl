@@ -372,14 +372,9 @@ function construct_device!(
 
     add_parameters!(container, ActivePowerTimeSeriesParameter, devices, model)
     add_parameters!(container, EnergyBudgetTimeSeriesParameter, devices, model)
-    if get_use_slacks(model)
-        add_variables!(
-            container,
-            HydroEnergyShortageVariable,
-            devices,
-            D,
-        )
-    end
+    add_slack_variables!(
+        get_slack_usage(model), container, HydroEnergyShortageVariable, devices, D,
+    )
     process_market_bid_parameters!(container, devices, model)
 
     add_to_expression!(
@@ -506,14 +501,9 @@ function construct_device!(
 
     add_parameters!(container, ActivePowerTimeSeriesParameter, devices, model)
     add_parameters!(container, EnergyBudgetTimeSeriesParameter, devices, model)
-    if get_use_slacks(model)
-        add_variables!(
-            container,
-            HydroEnergyShortageVariable,
-            devices,
-            D,
-        )
-    end
+    add_slack_variables!(
+        get_slack_usage(model), container, HydroEnergyShortageVariable, devices, D,
+    )
     process_market_bid_parameters!(container, devices, model)
 
     add_to_expression!(
@@ -840,20 +830,9 @@ function construct_device!(
         add_parameters!(container, EnergyBudgetTimeSeriesParameter, devices, model)
     end
 
-    if get_use_slacks(model)
-        add_variables!(
-            container,
-            HydroBalanceSurplusVariable,
-            devices,
-            T,
-        )
-        add_variables!(
-            container,
-            HydroBalanceShortageVariable,
-            devices,
-            T,
-        )
-    end
+    slack = get_slack_usage(model)
+    add_slack_variables!(slack, container, HydroBalanceSurplusVariable, devices, T)
+    add_slack_variables!(slack, container, HydroBalanceShortageVariable, devices, T)
 
     add_feedforward_arguments!(container, model, devices)
     return

@@ -127,10 +127,9 @@ function construct_device!(
         devices,
         device_model,
     )
-    if get_use_slacks(device_model)
-        add_variables!(container, RateofChangeConstraintSlackUp, devices, D)
-        add_variables!(container, RateofChangeConstraintSlackDown, devices, D)
-    end
+    slack = get_slack_usage(device_model)
+    add_slack_variables!(slack, container, RateofChangeConstraintSlackUp, devices, D)
+    add_slack_variables!(slack, container, RateofChangeConstraintSlackDown, devices, D)
     add_feedforward_arguments!(container, device_model, devices)
     add_event_arguments!(container, devices, device_model, network_model)
     return
@@ -277,10 +276,9 @@ function construct_device!(
         devices,
         device_model,
     )
-    if get_use_slacks(device_model)
-        add_variables!(container, RateofChangeConstraintSlackUp, devices, D)
-        add_variables!(container, RateofChangeConstraintSlackDown, devices, D)
-    end
+    slack = get_slack_usage(device_model)
+    add_slack_variables!(slack, container, RateofChangeConstraintSlackUp, devices, D)
+    add_slack_variables!(slack, container, RateofChangeConstraintSlackDown, devices, D)
 
     add_feedforward_arguments!(container, device_model, devices)
     add_event_arguments!(container, devices, device_model, network_model)
@@ -412,20 +410,15 @@ function construct_device!(
         devices,
         device_model,
     )
-    if get_use_slacks(device_model)
-        add_variables!(
-            container,
-            RateofChangeConstraintSlackUp,
-            devices,
-            ThermalBasicUnitCommitment,
-        )
-        add_variables!(
-            container,
-            RateofChangeConstraintSlackDown,
-            devices,
-            ThermalBasicUnitCommitment,
-        )
-    end
+    slack = get_slack_usage(device_model)
+    add_slack_variables!(
+        slack, container, RateofChangeConstraintSlackUp, devices,
+        ThermalBasicUnitCommitment,
+    )
+    add_slack_variables!(
+        slack, container, RateofChangeConstraintSlackDown, devices,
+        ThermalBasicUnitCommitment,
+    )
 
     add_feedforward_arguments!(container, device_model, devices)
     add_event_arguments!(container, devices, device_model, network_model)
@@ -556,20 +549,15 @@ function construct_device!(
         devices,
         device_model,
     )
-    if get_use_slacks(device_model)
-        add_variables!(
-            container,
-            RateofChangeConstraintSlackUp,
-            devices,
-            ThermalBasicUnitCommitment,
-        )
-        add_variables!(
-            container,
-            RateofChangeConstraintSlackDown,
-            devices,
-            ThermalBasicUnitCommitment,
-        )
-    end
+    slack = get_slack_usage(device_model)
+    add_slack_variables!(
+        slack, container, RateofChangeConstraintSlackUp, devices,
+        ThermalBasicUnitCommitment,
+    )
+    add_slack_variables!(
+        slack, container, RateofChangeConstraintSlackDown, devices,
+        ThermalBasicUnitCommitment,
+    )
 
     add_feedforward_arguments!(container, device_model, devices)
     add_event_arguments!(container, devices, device_model, network_model)
@@ -691,20 +679,15 @@ function construct_device!(
         devices,
         device_model,
     )
-    if get_use_slacks(device_model)
-        add_variables!(
-            container,
-            RateofChangeConstraintSlackUp,
-            devices,
-            ThermalStandardDispatch,
-        )
-        add_variables!(
-            container,
-            RateofChangeConstraintSlackDown,
-            devices,
-            ThermalStandardDispatch,
-        )
-    end
+    slack = get_slack_usage(device_model)
+    add_slack_variables!(
+        slack, container, RateofChangeConstraintSlackUp, devices,
+        ThermalStandardDispatch,
+    )
+    add_slack_variables!(
+        slack, container, RateofChangeConstraintSlackDown, devices,
+        ThermalStandardDispatch,
+    )
 
     add_feedforward_arguments!(container, device_model, devices)
     add_event_arguments!(container, devices, device_model, network_model)
@@ -815,20 +798,15 @@ function construct_device!(
         devices,
         device_model,
     )
-    if get_use_slacks(device_model)
-        add_variables!(
-            container,
-            RateofChangeConstraintSlackUp,
-            devices,
-            ThermalStandardDispatch,
-        )
-        add_variables!(
-            container,
-            RateofChangeConstraintSlackDown,
-            devices,
-            ThermalStandardDispatch,
-        )
-    end
+    slack = get_slack_usage(device_model)
+    add_slack_variables!(
+        slack, container, RateofChangeConstraintSlackUp, devices,
+        ThermalStandardDispatch,
+    )
+    add_slack_variables!(
+        slack, container, RateofChangeConstraintSlackDown, devices,
+        ThermalStandardDispatch,
+    )
 
     add_feedforward_arguments!(container, device_model, devices)
     add_event_arguments!(container, devices, device_model, network_model)
@@ -938,10 +916,9 @@ function construct_device!(
         devices,
         device_model,
     )
-    if get_use_slacks(device_model)
-        add_variables!(container, RateofChangeConstraintSlackUp, devices, D)
-        add_variables!(container, RateofChangeConstraintSlackDown, devices, D)
-    end
+    slack = get_slack_usage(device_model)
+    add_slack_variables!(slack, container, RateofChangeConstraintSlackUp, devices, D)
+    add_slack_variables!(slack, container, RateofChangeConstraintSlackDown, devices, D)
 
     add_feedforward_arguments!(container, device_model, devices)
     add_event_arguments!(container, devices, device_model, network_model)
@@ -1046,10 +1023,9 @@ function construct_device!(
         devices,
         device_model,
     )
-    if get_use_slacks(device_model)
-        add_variables!(container, RateofChangeConstraintSlackUp, devices, D)
-        add_variables!(container, RateofChangeConstraintSlackDown, devices, D)
-    end
+    slack = get_slack_usage(device_model)
+    add_slack_variables!(slack, container, RateofChangeConstraintSlackUp, devices, D)
+    add_slack_variables!(slack, container, RateofChangeConstraintSlackDown, devices, D)
 
     add_feedforward_arguments!(container, device_model, devices)
     add_event_arguments!(container, devices, device_model, network_model)
@@ -1185,20 +1161,15 @@ function construct_device!(
         devices,
         device_model,
     )
-    if get_use_slacks(device_model)
-        add_variables!(
-            container,
-            RateofChangeConstraintSlackUp,
-            devices,
-            ThermalMultiStartUnitCommitment,
-        )
-        add_variables!(
-            container,
-            RateofChangeConstraintSlackDown,
-            devices,
-            ThermalMultiStartUnitCommitment,
-        )
-    end
+    slack = get_slack_usage(device_model)
+    add_slack_variables!(
+        slack, container, RateofChangeConstraintSlackUp, devices,
+        ThermalMultiStartUnitCommitment,
+    )
+    add_slack_variables!(
+        slack, container, RateofChangeConstraintSlackDown, devices,
+        ThermalMultiStartUnitCommitment,
+    )
 
     add_feedforward_arguments!(container, device_model, devices)
     add_event_arguments!(container, devices, device_model, network_model)
@@ -1364,20 +1335,15 @@ function construct_device!(
         devices,
         device_model,
     )
-    if get_use_slacks(device_model)
-        add_variables!(
-            container,
-            RateofChangeConstraintSlackUp,
-            devices,
-            ThermalMultiStartUnitCommitment,
-        )
-        add_variables!(
-            container,
-            RateofChangeConstraintSlackDown,
-            devices,
-            ThermalMultiStartUnitCommitment,
-        )
-    end
+    slack = get_slack_usage(device_model)
+    add_slack_variables!(
+        slack, container, RateofChangeConstraintSlackUp, devices,
+        ThermalMultiStartUnitCommitment,
+    )
+    add_slack_variables!(
+        slack, container, RateofChangeConstraintSlackDown, devices,
+        ThermalMultiStartUnitCommitment,
+    )
 
     add_feedforward_arguments!(container, device_model, devices)
     add_event_arguments!(container, devices, device_model, network_model)
@@ -1541,20 +1507,15 @@ function construct_device!(
         devices,
         device_model,
     )
-    if get_use_slacks(device_model)
-        add_variables!(
-            container,
-            RateofChangeConstraintSlackUp,
-            devices,
-            ThermalCompactUnitCommitment,
-        )
-        add_variables!(
-            container,
-            RateofChangeConstraintSlackDown,
-            devices,
-            ThermalCompactUnitCommitment,
-        )
-    end
+    slack = get_slack_usage(device_model)
+    add_slack_variables!(
+        slack, container, RateofChangeConstraintSlackUp, devices,
+        ThermalCompactUnitCommitment,
+    )
+    add_slack_variables!(
+        slack, container, RateofChangeConstraintSlackDown, devices,
+        ThermalCompactUnitCommitment,
+    )
 
     add_feedforward_arguments!(container, device_model, devices)
     add_event_arguments!(container, devices, device_model, network_model)
@@ -1695,20 +1656,15 @@ function construct_device!(
         devices,
         device_model,
     )
-    if get_use_slacks(device_model)
-        add_variables!(
-            container,
-            RateofChangeConstraintSlackUp,
-            devices,
-            ThermalCompactUnitCommitment,
-        )
-        add_variables!(
-            container,
-            RateofChangeConstraintSlackDown,
-            devices,
-            ThermalCompactUnitCommitment,
-        )
-    end
+    slack = get_slack_usage(device_model)
+    add_slack_variables!(
+        slack, container, RateofChangeConstraintSlackUp, devices,
+        ThermalCompactUnitCommitment,
+    )
+    add_slack_variables!(
+        slack, container, RateofChangeConstraintSlackDown, devices,
+        ThermalCompactUnitCommitment,
+    )
 
     add_feedforward_arguments!(container, device_model, devices)
     add_event_arguments!(container, devices, device_model, network_model)
@@ -1847,20 +1803,15 @@ function construct_device!(
         devices,
         device_model,
     )
-    if get_use_slacks(device_model)
-        add_variables!(
-            container,
-            RateofChangeConstraintSlackUp,
-            devices,
-            ThermalBasicCompactUnitCommitment,
-        )
-        add_variables!(
-            container,
-            RateofChangeConstraintSlackDown,
-            devices,
-            ThermalBasicCompactUnitCommitment,
-        )
-    end
+    slack = get_slack_usage(device_model)
+    add_slack_variables!(
+        slack, container, RateofChangeConstraintSlackUp, devices,
+        ThermalBasicCompactUnitCommitment,
+    )
+    add_slack_variables!(
+        slack, container, RateofChangeConstraintSlackDown, devices,
+        ThermalBasicCompactUnitCommitment,
+    )
 
     add_feedforward_arguments!(container, device_model, devices)
     add_event_arguments!(container, devices, device_model, network_model)
@@ -1998,20 +1949,15 @@ function construct_device!(
         devices,
         device_model,
     )
-    if get_use_slacks(device_model)
-        add_variables!(
-            container,
-            RateofChangeConstraintSlackUp,
-            devices,
-            ThermalBasicCompactUnitCommitment,
-        )
-        add_variables!(
-            container,
-            RateofChangeConstraintSlackDown,
-            devices,
-            ThermalBasicCompactUnitCommitment,
-        )
-    end
+    slack = get_slack_usage(device_model)
+    add_slack_variables!(
+        slack, container, RateofChangeConstraintSlackUp, devices,
+        ThermalBasicCompactUnitCommitment,
+    )
+    add_slack_variables!(
+        slack, container, RateofChangeConstraintSlackDown, devices,
+        ThermalBasicCompactUnitCommitment,
+    )
     add_feedforward_arguments!(container, device_model, devices)
     add_event_arguments!(container, devices, device_model, network_model)
     return
@@ -2140,20 +2086,15 @@ function construct_device!(
         devices,
         device_model,
     )
-    if get_use_slacks(device_model)
-        add_variables!(
-            container,
-            RateofChangeConstraintSlackUp,
-            devices,
-            ThermalCompactDispatch,
-        )
-        add_variables!(
-            container,
-            RateofChangeConstraintSlackDown,
-            devices,
-            ThermalCompactDispatch,
-        )
-    end
+    slack = get_slack_usage(device_model)
+    add_slack_variables!(
+        slack, container, RateofChangeConstraintSlackUp, devices,
+        ThermalCompactDispatch,
+    )
+    add_slack_variables!(
+        slack, container, RateofChangeConstraintSlackDown, devices,
+        ThermalCompactDispatch,
+    )
     add_event_arguments!(container, devices, device_model, network_model)
     return
 end
@@ -2271,20 +2212,15 @@ function construct_device!(
         devices,
         device_model,
     )
-    if get_use_slacks(device_model)
-        add_variables!(
-            container,
-            RateofChangeConstraintSlackUp,
-            devices,
-            ThermalCompactDispatch,
-        )
-        add_variables!(
-            container,
-            RateofChangeConstraintSlackDown,
-            devices,
-            ThermalCompactDispatch,
-        )
-    end
+    slack = get_slack_usage(device_model)
+    add_slack_variables!(
+        slack, container, RateofChangeConstraintSlackUp, devices,
+        ThermalCompactDispatch,
+    )
+    add_slack_variables!(
+        slack, container, RateofChangeConstraintSlackDown, devices,
+        ThermalCompactDispatch,
+    )
     add_event_arguments!(container, devices, device_model, network_model)
     return
 end
