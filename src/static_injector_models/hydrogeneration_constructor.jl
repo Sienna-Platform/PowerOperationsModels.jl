@@ -117,6 +117,12 @@ function construct_device!(
     )
 
     add_parameters!(container, ActivePowerTimeSeriesParameter, devices, model)
+    if get_attribute(model, "hydro_budget") === true
+        add_parameters!(container, EnergyBudgetTimeSeriesParameter, devices, model)
+        if get_use_slacks(model)
+            add_variables!(container, HydroEnergyShortageVariable, devices, D)
+        end
+    end
     process_market_bid_parameters!(container, devices, model)
 
     add_expressions!(container, ProductionCostExpression, devices, model)
@@ -205,6 +211,9 @@ function construct_device!(
         model,
         network_model,
     )
+    if get_attribute(model, "hydro_budget") === true
+        add_constraints!(container, EnergyBudgetConstraint, devices, model, network_model)
+    end
     add_feedforward_constraints!(container, model, devices)
 
     add_to_objective_function!(container, devices, model, S)
@@ -243,6 +252,12 @@ function construct_device!(
     )
 
     add_parameters!(container, ActivePowerTimeSeriesParameter, devices, model)
+    if get_attribute(model, "hydro_budget") === true
+        add_parameters!(container, EnergyBudgetTimeSeriesParameter, devices, model)
+        if get_use_slacks(model)
+            add_variables!(container, HydroEnergyShortageVariable, devices, D)
+        end
+    end
     process_market_bid_parameters!(container, devices, model)
 
     add_to_expression!(
@@ -321,278 +336,9 @@ function construct_device!(
         model,
         network_model,
     )
-
-    add_feedforward_constraints!(container, model, devices)
-
-    add_to_objective_function!(container, devices, model, S)
-    add_event_constraints!(container, devices, model, network_model)
-    add_constraint_dual!(container, sys, model)
-    return
-end
-
-####################################################################################################
-############################ HydroDispatchRunOfRiverBudget #########################################
-####################################################################################################
-
-"""
-Construct model for [`PowerSystems.HydroGen`](@extref) with [`HydroDispatchRunOfRiverBudget`](@ref) Formulation
-"""
-function construct_device!(
-    container::OptimizationContainer,
-    sys::PSY.System,
-    ::ArgumentConstructStage,
-    model::DeviceModel{H, D},
-    network_model::NetworkModel{S},
-) where {
-    H <: PSY.HydroGen,
-    D <: HydroDispatchRunOfRiverBudget,
-    S <: AbstractPowerModel,
-}
-    devices = get_available_components(model, sys)
-
-    add_variables!(container, ActivePowerVariable, devices, D)
-    add_variables!(container, ReactivePowerVariable, devices, D)
-    add_variables!(container, HydroEnergyOutput, devices, D)
-    add_to_expression!(
-        container,
-        ActivePowerBalance,
-        ActivePowerVariable,
-        devices,
-        model,
-        network_model,
-    )
-    add_to_expression!(
-        container,
-        ReactivePowerBalance,
-        ReactivePowerVariable,
-        devices,
-        model,
-        network_model,
-    )
-
-    add_parameters!(container, ActivePowerTimeSeriesParameter, devices, model)
-    add_parameters!(container, EnergyBudgetTimeSeriesParameter, devices, model)
-    if get_use_slacks(model)
-        add_variables!(
-            container,
-            HydroEnergyShortageVariable,
-            devices,
-            D,
-        )
+    if get_attribute(model, "hydro_budget") === true
+        add_constraints!(container, EnergyBudgetConstraint, devices, model, network_model)
     end
-    process_market_bid_parameters!(container, devices, model)
-
-    add_to_expression!(
-        container,
-        ActivePowerRangeExpressionLB,
-        ActivePowerVariable,
-        devices,
-        model,
-        network_model,
-    )
-    add_to_expression!(
-        container,
-        ActivePowerRangeExpressionUB,
-        ActivePowerVariable,
-        devices,
-        model,
-        network_model,
-    )
-
-    add_expressions!(container, ProductionCostExpression, devices, model)
-    if has_service_model(model)
-        add_expressions!(container, HydroServedReserveUpExpression, devices, model)
-        add_expressions!(container, HydroServedReserveDownExpression, devices, model)
-    end
-
-    add_feedforward_arguments!(container, model, devices)
-    add_event_arguments!(container, devices, model, network_model)
-    return
-end
-
-function construct_device!(
-    container::OptimizationContainer,
-    sys::PSY.System,
-    ::ModelConstructStage,
-    model::DeviceModel{H, D},
-    network_model::NetworkModel{S},
-) where {
-    H <: PSY.HydroGen,
-    D <: HydroDispatchRunOfRiverBudget,
-    S <: AbstractPowerModel,
-}
-    devices = get_available_components(model, sys)
-
-    if has_service_model(model)
-        add_to_expression!(
-            container,
-            HydroServedReserveUpExpression,
-            ActivePowerReserveVariable,
-            devices,
-            model,
-            network_model,
-        )
-        add_to_expression!(
-            container,
-            HydroServedReserveDownExpression,
-            ActivePowerReserveVariable,
-            devices,
-            model,
-            network_model,
-        )
-    end
-
-    add_constraints!(
-        container,
-        ActivePowerVariableLimitsConstraint,
-        ActivePowerRangeExpressionLB,
-        devices,
-        model,
-        network_model,
-    )
-    add_constraints!(
-        container,
-        ActivePowerVariableLimitsConstraint,
-        ActivePowerRangeExpressionUB,
-        devices,
-        model,
-        network_model,
-    )
-    add_constraints!(
-        container,
-        ReactivePowerVariableLimitsConstraint,
-        ReactivePowerVariable,
-        devices,
-        model,
-        network_model,
-    )
-    add_constraints!(container, EnergyBudgetConstraint, devices, model, network_model)
-
-    add_feedforward_constraints!(container, model, devices)
-
-    add_to_objective_function!(container, devices, model, S)
-    add_event_constraints!(container, devices, model, network_model)
-    add_constraint_dual!(container, sys, model)
-    return
-end
-
-"""
-Construct model for [`PowerSystems.HydroGen`](@extref) with [`HydroDispatchRunOfRiverBudget`](@ref) Formulation
-with only Active Power.
-"""
-function construct_device!(
-    container::OptimizationContainer,
-    sys::PSY.System,
-    ::ArgumentConstructStage,
-    model::DeviceModel{H, D},
-    network_model::NetworkModel{S},
-) where {
-    H <: PSY.HydroGen,
-    D <: HydroDispatchRunOfRiverBudget,
-    S <: AbstractActivePowerModel,
-}
-    devices = get_available_components(model, sys)
-
-    add_variables!(container, ActivePowerVariable, devices, D)
-    add_variables!(container, HydroEnergyOutput, devices, D)
-    add_to_expression!(
-        container,
-        ActivePowerBalance,
-        ActivePowerVariable,
-        devices,
-        model,
-        network_model,
-    )
-
-    add_parameters!(container, ActivePowerTimeSeriesParameter, devices, model)
-    add_parameters!(container, EnergyBudgetTimeSeriesParameter, devices, model)
-    if get_use_slacks(model)
-        add_variables!(
-            container,
-            HydroEnergyShortageVariable,
-            devices,
-            D,
-        )
-    end
-    process_market_bid_parameters!(container, devices, model)
-
-    add_to_expression!(
-        container,
-        ActivePowerRangeExpressionLB,
-        ActivePowerVariable,
-        devices,
-        model,
-        network_model,
-    )
-    add_to_expression!(
-        container,
-        ActivePowerRangeExpressionUB,
-        ActivePowerVariable,
-        devices,
-        model,
-        network_model,
-    )
-
-    add_expressions!(container, ProductionCostExpression, devices, model)
-    if has_service_model(model)
-        add_expressions!(container, HydroServedReserveUpExpression, devices, model)
-        add_expressions!(container, HydroServedReserveDownExpression, devices, model)
-    end
-
-    add_feedforward_arguments!(container, model, devices)
-    add_event_arguments!(container, devices, model, network_model)
-    return
-end
-
-function construct_device!(
-    container::OptimizationContainer,
-    sys::PSY.System,
-    ::ModelConstructStage,
-    model::DeviceModel{H, D},
-    network_model::NetworkModel{S},
-) where {
-    H <: PSY.HydroGen,
-    D <: HydroDispatchRunOfRiverBudget,
-    S <: AbstractActivePowerModel,
-}
-    devices = get_available_components(model, sys)
-
-    if has_service_model(model)
-        add_to_expression!(
-            container,
-            HydroServedReserveUpExpression,
-            ActivePowerReserveVariable,
-            devices,
-            model,
-            network_model,
-        )
-        add_to_expression!(
-            container,
-            HydroServedReserveDownExpression,
-            ActivePowerReserveVariable,
-            devices,
-            model,
-            network_model,
-        )
-    end
-
-    add_constraints!(
-        container,
-        ActivePowerVariableLimitsConstraint,
-        ActivePowerRangeExpressionLB,
-        devices,
-        model,
-        network_model,
-    )
-    add_constraints!(
-        container,
-        ActivePowerVariableLimitsConstraint,
-        ActivePowerRangeExpressionUB,
-        devices,
-        model,
-        network_model,
-    )
-    add_constraints!(container, EnergyBudgetConstraint, devices, model, network_model)
 
     add_feedforward_constraints!(container, model, devices)
 

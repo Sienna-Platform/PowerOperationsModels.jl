@@ -338,8 +338,9 @@ end
 ####### Hydro DISPATCH RUN OF RIVER BUDGET TEST ########
 ########################################################
 @testset "Test Hydro Dispatch Run Of River Formulations " begin
-    device_model = DeviceModel(HydroDispatch, HydroDispatchRunOfRiverBudget;
-        use_slacks = true, attributes = Dict("hydro_budget_interval" => Hour(24)))
+    device_model = DeviceModel(HydroDispatch, HydroDispatchRunOfRiver;
+        use_slacks = true,
+        attributes = Dict("hydro_budget" => true, "hydro_budget_interval" => Hour(24)))
 
     sys = PSB.build_system(PSITestSystems, "c_sys5_hy"; add_single_time_series = true)
     hy = only(get_components(HydroDispatch, sys))
@@ -355,6 +356,26 @@ end
     mock_construct_device!(model, device_model)
     moi_tests(model, 48, 0, 50, 24, 0, false)
     psi_checkobjfun_test(model, GAEVF)
+end
+
+@testset "Hydro Dispatch Run Of River without budget omits budget constraint" begin
+    device_model = DeviceModel(HydroDispatch, HydroDispatchRunOfRiver; use_slacks = true)
+
+    sys = PSB.build_system(PSITestSystems, "c_sys5_hy"; add_single_time_series = true)
+    transform_single_time_series!(sys, Hour(24), Hour(24))
+
+    model = DecisionModel(MockOperationProblem, CopperPlatePowerModel, sys)
+    mock_construct_device!(model, device_model)
+
+    container = IOM.get_optimization_container(model)
+    @test !haskey(
+        IOM.get_constraints(container),
+        IOM.ConstraintKey(EnergyBudgetConstraint, HydroDispatch),
+    )
+    @test !haskey(
+        IOM.get_variables(container),
+        IOM.VariableKey(HydroEnergyShortageVariable, HydroDispatch),
+    )
 end
 
 @testset "Solve Hydro Dispatch Run Of River" begin
@@ -382,8 +403,9 @@ end
     set_device_model!(template_uc, RenewableNonDispatch, FixedOutput)
     set_device_model!(
         template_uc,
-        DeviceModel(HydroDispatch, HydroDispatchRunOfRiverBudget;
-            attributes = Dict("hydro_budget_interval" => Hour(hydro_budget))),
+        DeviceModel(HydroDispatch, HydroDispatchRunOfRiver;
+            attributes = Dict("hydro_budget" => true,
+                "hydro_budget_interval" => Hour(hydro_budget))),
     )
     model = DecisionModel(
         template_uc,
@@ -471,8 +493,9 @@ end
     set_device_model!(template_uc, RenewableNonDispatch, FixedOutput)
     set_device_model!(
         template_uc,
-        DeviceModel(HydroDispatch, HydroDispatchRunOfRiverBudget;
-            attributes = Dict("hydro_budget_interval" => Hour(hydro_budget))),
+        DeviceModel(HydroDispatch, HydroDispatchRunOfRiver;
+            attributes = Dict("hydro_budget" => true,
+                "hydro_budget_interval" => Hour(hydro_budget))),
     )
     set_service_model!(template_uc, VariableReserve{ReserveUp}, RangeReserve)
     set_service_model!(template_uc, VariableReserve{ReserveDown}, RangeReserve)

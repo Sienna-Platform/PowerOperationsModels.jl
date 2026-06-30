@@ -573,7 +573,6 @@ export ShiftDownActivePowerVariable
 
 ######## Hydro Formulations ########
 export HydroDispatchRunOfRiver
-export HydroDispatchRunOfRiverBudget
 export HydroCommitmentRunOfRiver
 export HydroWaterFactorModel
 export HydroWaterModelReservoir
