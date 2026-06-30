@@ -88,6 +88,7 @@ function validate_template_impl!(model::IOM.AbstractOptimizationModel)
     _check_branch_rating_time_series_formulation!(template.branches, system)
     validate_network_model(network_model, unmodeled_branch_types, model_has_branch_filters)
     _build_device_model_outages!(template, system)
+    _build_service_model_outages!(template, system)
     return
 end
 
@@ -294,6 +295,112 @@ function _sc_branch_models(template::IOM.AbstractProblemTemplate)
     ]
 end
 
+"""
+Populate `service_model.outages` for every security-constrained (SC) reserve
+`ServiceModel` in the template, in a single pass over each SC service model.
+
+The user opts a service into responding to a given contingency by attaching
+the outage supplemental attribute to the `PSY.Service` instance directly
+(`add_supplemental_attribute!(sys, service, outage)`). That attachment is the
+sole selection mechanism: a service claims exactly the outages attached to it,
+regardless of whether the outaged component is among the service's contributing
+devices.
+
+`PlannedOutage`s attached to the service are still gated by the
+`"include_planned_outages"` attribute on the SC `ServiceModel` (default
+`false`); other `Outage` subtypes are always claimed.
+"""
+function _build_service_model_outages!(
+    template::IOM.AbstractProblemTemplate,
+    sys::PSY.System,
+)
+    sc_service_models = _sc_reserve_service_models(template)
+    template_sc_service_keys = Set{Tuple{DataType, String}}(
+        (get_component_type(m), get_service_name(m)) for m in sc_service_models
+    )
+    # Unconditional (before the early return below) so orphan attachments are
+    # still reported when no SC service models are registered.
+    _warn_outages_attached_to_unmodeled_services(sys, template_sc_service_keys)
+
+    isempty(sc_service_models) && return
+
+    modeled_types = Set{DataType}(get_component_types(template))
+    uncovered_types = Dict{DataType, Set{Base.UUID}}()
+
+    for m in sc_service_models
+        empty!(get_outages(m))
+        D = get_component_type(m)
+        service_name = get_service_name(m)
+        service = PSY.get_component(D, sys, service_name)
+        if service === nothing
+            @warn "ServiceModel{$D, $(get_formulation(m))} (service_name=\
+                   $(service_name)) is in the template but no matching service \
+                   exists in the system; it will not contribute any \
+                   post-contingency constraints." _group =
+                IOM.LOG_GROUP_MODELS_VALIDATION
+            continue
+        end
+
+        for outage in PSY.get_supplemental_attributes(PSY.Outage, service)
+            outage_uuid = IS.get_uuid(outage)
+            if isempty(PSY.get_monitored_components(outage))
+                @warn "Outage $(outage_uuid) ($(typeof(outage))) attached to \
+                       service $(service_name) has empty monitored_components; \
+                       no post-contingency variables or constraints will be \
+                       created for this outage." _group =
+                    IOM.LOG_GROUP_MODELS_VALIDATION
+                continue
+            end
+            _service_skips_outage(outage, m) && continue
+
+            per_type, uncovered = _monitored_components_by_modeled_type(
+                outage, outage_uuid, sys, modeled_types,
+            )
+            for comp_type in uncovered
+                push!(get!(uncovered_types, comp_type, Set{Base.UUID}()), outage_uuid)
+            end
+            isempty(per_type) && continue
+            get_outages(m)[outage_uuid] = per_type
+        end
+    end
+
+    _warn_uncovered_monitored_types(uncovered_types)
+    return
+end
+
+# SC reserve service models in the template.
+function _sc_reserve_service_models(template::IOM.AbstractProblemTemplate)
+    return ServiceModel[
+        m for m in values(get_service_models(template)) if
+        get_formulation(m) <: AbstractSecurityConstrainedReservesFormulation
+    ]
+end
+
+_service_skips_outage(::PSY.Outage, ::ServiceModel) = false
+_service_skips_outage(::PSY.PlannedOutage, m::ServiceModel) =
+    get_attribute(m, "include_planned_outages") !== true
+
+function _warn_outages_attached_to_unmodeled_services(
+    sys::PSY.System,
+    template_sc_service_keys::Set{Tuple{DataType, String}},
+)
+    for service in PSY.get_components(PSY.Service, sys)
+        attached_outages = PSY.get_supplemental_attributes(PSY.Outage, service)
+        isempty(attached_outages) && continue
+        key = (typeof(service), PSY.get_name(service))
+        key in template_sc_service_keys && continue
+        for outage in attached_outages
+            @warn "Outage $(IS.get_uuid(outage)) is attached to service \
+                   $(PSY.get_name(service)) ($(typeof(service))) but the \
+                   template does not include a security-constrained \
+                   ServiceModel for it; the outage will not contribute any \
+                   post-contingency reserve constraints." _group =
+                IOM.LOG_GROUP_MODELS_VALIDATION
+        end
+    end
+    return
+end
+
 # Per SC-model component type, the user's explicit outage-UUID allow-list from
 # the constructor kwarg: a non-empty set restricts auto-discovery to those
 # UUIDs; an empty set means auto-discover all. Clears `m.outages` so the main
@@ -327,7 +434,11 @@ function _monitored_components_by_modeled_type(
             continue
         end
         comp_type = typeof(component)
-        if comp_type <: PSY.ACTransmission && comp_type in modeled_types
+        # `PSY.AreaInterchange` is admitted alongside `PSY.ACTransmission` so the
+        # AreaBalance service-side builder can pick it up; anything else is routed
+        # to the skip path (it would `KeyError` in the arc-resolution maps).
+        admissible = (comp_type <: PSY.ACTransmission || comp_type <: PSY.AreaInterchange)
+        if admissible && comp_type in modeled_types
             push!(get!(per_type, comp_type, Set{String}()), PSY.get_name(component))
         else
             push!(uncovered, comp_type)

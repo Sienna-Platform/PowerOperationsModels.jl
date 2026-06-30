@@ -332,6 +332,36 @@ struct RampReserve <: AbstractReservesFormulation end
 Struct to add non spinning reserve requirements larger than specified requirement
 """
 struct NonSpinningReserve <: AbstractReservesFormulation end
+
+abstract type AbstractSecurityConstrainedReservesFormulation <: AbstractReservesFormulation end
+
+"""
+Security-constrained contingency reserve formulation: deploys reserves under
+each G-1 outage scoped to the reserve `PSY.Service`. The set of contingencies a
+service responds to is the `PSY.Outage` supplemental attributes attached to that
+service via `add_supplemental_attribute!(sys, service, outage)`; template
+validation mirrors those attachments into `service_model.outages`.
+A `RequirementTimeSeriesParameter` is optional: when present the requirement /
+ramp / participation stack is built; when absent, per-generator
+`PostContingencyActivePowerGeneration` limits are applied instead.
+Post-contingency branch-flow constraints are added only for the monitored
+components listed on each outage's `monitored_components`.
+
+See also `SecurityConstrainedRampReserve`.
+"""
+struct SecurityConstrainedContingencyReserve <:
+       AbstractSecurityConstrainedReservesFormulation end
+
+"""
+Security-constrained ramp reserve formulation: like `RampReserve` for the
+pre-contingency requirement/ramp/participation constraints, plus the same
+G-1 post-contingency deployment + monitored-branch flow constraints as
+`SecurityConstrainedContingencyReserve`.
+
+See also `SecurityConstrainedContingencyReserve`.
+"""
+struct SecurityConstrainedRampReserve <:
+       AbstractSecurityConstrainedReservesFormulation end
 """
 Struct to add a constant maximum transmission flow for specified interface
 """

@@ -6,7 +6,11 @@ struct ComponentReserveUpBalanceExpression <: ExpressionType end
 struct ComponentReserveDownBalanceExpression <: ExpressionType end
 struct InterfaceTotalFlow <: ExpressionType end
 struct PTDFBranchFlow <: ExpressionType end
+abstract type PostContingencySystemBalanceExpressions <: SystemBalanceExpressions end
+struct PostContingencyActivePowerBalance <: PostContingencySystemBalanceExpressions end
+struct PostContingencyAreaInterchangeFlow <: PostContingencyExpressions end
 struct PostContingencyNodalActivePowerDeployment <: PostContingencyExpressions end
+struct PostContingencyAreaActivePowerDeployment <: PostContingencyExpressions end
 struct RealizedShiftedLoad <: ExpressionType end
 
 #################################################################################
@@ -118,6 +122,7 @@ struct StorageReserveBalanceExpression{D, S, Sd} <:
 # Method extensions for output writing
 should_write_resulting_value(::Type{InterfaceTotalFlow}) = true
 should_write_resulting_value(::Type{PTDFBranchFlow}) = true
+should_write_resulting_value(::Type{PostContingencyAreaInterchangeFlow}) = true
 should_write_resulting_value(::Type{RealizedShiftedLoad}) = true
 
 should_write_resulting_value(::Type{HydroServedReserveUpExpression}) = true
@@ -133,5 +138,7 @@ should_write_resulting_value(
 # Method extensions for unit conversion
 convert_output_to_natural_units(::Type{InterfaceTotalFlow}) = true
 convert_output_to_natural_units(::Type{PostContingencyBranchFlow}) = true
+convert_output_to_natural_units(::Type{PostContingencyAreaInterchangeFlow}) = true
+convert_output_to_natural_units(::Type{PostContingencyActivePowerGeneration}) = true
 convert_output_to_natural_units(::Type{PTDFBranchFlow}) = true
 convert_output_to_natural_units(::Type{RealizedShiftedLoad}) = true

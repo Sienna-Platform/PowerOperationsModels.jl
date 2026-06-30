@@ -9,6 +9,7 @@
 abstract type MultiStartVariable <: VariableType end
 abstract type AbstractACActivePowerFlow <: VariableType end
 abstract type AbstractACReactivePowerFlow <: VariableType end
+abstract type AbstractContingencyVariableType <: VariableType end
 # AbstractPiecewiseLinearBlockOffer: moved into IOM
 
 """
@@ -205,18 +206,44 @@ Docs abbreviation: ``f^\\text{sl,lo}``
 struct FlowActivePowerSlackLowerBound <: AbstractACActivePowerFlow end
 
 """
-Struct to dispatch the creation of post-contingency active power flow upper bound slack variables. Relaxes the post-contingency (N-1) emergency-rate upper-bound constraint when `use_slacks = true`.
+Post-contingency active power change of a generator under a contingency.
+
+Docs abbreviation: ``\\Delta p_{g,c}``
+"""
+struct PostContingencyActivePowerChangeVariable <: AbstractContingencyVariableType end
+
+"""
+Reserve deployed by a generator under a contingency.
+
+Docs abbreviation: ``\\Delta rsv_{r,g,c}``
+"""
+struct PostContingencyActivePowerReserveDeploymentVariable <:
+       AbstractContingencyVariableType end
+
+"""
+Abstract supertype for non-negative slack variables that absorb infeasibility
+in post-contingency branch-flow inequalities of the security-constrained
+reserve formulations.
+"""
+abstract type AbstractContingencySlackVariableType <: VariableType end
+
+"""
+Non-negative slack relaxing the post-contingency (N-1) emergency-rate upper-bound
+constraint when `use_slacks = true`.
 
 Docs abbreviation: ``f^\\text{sl,up,N-1}``
 """
-struct PostContingencyFlowActivePowerSlackUpperBound <: VariableType end
+struct PostContingencyFlowActivePowerSlackUpperBound <:
+       AbstractContingencySlackVariableType end
 
 """
-Struct to dispatch the creation of post-contingency active power flow lower bound slack variables. Relaxes the post-contingency (N-1) emergency-rate lower-bound constraint when `use_slacks = true`.
+Non-negative slack relaxing the post-contingency (N-1) emergency-rate lower-bound
+constraint when `use_slacks = true`.
 
 Docs abbreviation: ``f^\\text{sl,lo,N-1}``
 """
-struct PostContingencyFlowActivePowerSlackLowerBound <: VariableType end
+struct PostContingencyFlowActivePowerSlackLowerBound <:
+       AbstractContingencySlackVariableType end
 
 """
 Struct to dispatch the creation of Phase Shifters Variables
@@ -679,6 +706,11 @@ convert_output_to_natural_units(::Type{ActivePowerOutVariable}) = true
 convert_output_to_natural_units(::Type{EnergyVariable}) = true
 convert_output_to_natural_units(::Type{ReactivePowerVariable}) = true
 convert_output_to_natural_units(::Type{ActivePowerReserveVariable}) = true
+convert_output_to_natural_units(::Type{PostContingencyActivePowerChangeVariable}) = true
+convert_output_to_natural_units(
+    ::Type{PostContingencyActivePowerReserveDeploymentVariable},
+) =
+    true
 convert_output_to_natural_units(::Type{ServiceRequirementVariable}) = true
 convert_output_to_natural_units(::Type{RateofChangeConstraintSlackUp}) = true
 convert_output_to_natural_units(::Type{RateofChangeConstraintSlackDown}) = true
