@@ -103,27 +103,36 @@ end
 # ----------------------------------------------------------------------------
 
 """
+One resolved monitored component: `(monitored_type, container_name, arc,
+reduction_kind)`. See [`_resolve_service_monitored_arcs`](@ref).
+"""
+const MonitoredArcEntry = Tuple{DataType, String, Tuple{Int, Int}, String}
+
+"""
+Per-outage resolution of monitored components, sorted by outage UUID for
+deterministic axes. See [`_resolve_service_monitored_arcs`](@ref).
+"""
+const ResolvedMonitoredArcs = Vector{Pair{Base.UUID, Vector{MonitoredArcEntry}}}
+
+"""
 Resolve every monitored component in `service_model.outages` to a container
 name and arc tuple in the active network reduction. Mirrors the device-side
 `_resolve_monitored_arcs` but operates on a `ServiceModel`. Outages whose
 monitored component types are not modeled in the network are skipped.
 
-Returns
-`Vector{Pair{UUID, Vector{Tuple{DataType, String, Tuple{Int,Int}, String}}}}`
-where each inner tuple is `(monitored_type, container_name, arc,
-reduction_kind)`. Outages are sorted by UUID for deterministic axes.
+Returns a [`ResolvedMonitoredArcs`](@ref); each [`MonitoredArcEntry`](@ref) is
+`(monitored_type, container_name, arc, reduction_kind)`.
 """
 function _resolve_service_monitored_arcs(
     service_model::ServiceModel,
     net_reduction_data::PNM.NetworkReductionData,
-)
+)::ResolvedMonitoredArcs
     name_to_arc_maps = PNM.get_name_to_arc_maps(net_reduction_data)
     component_to_reduction_maps =
         PNM.get_component_to_reduction_name_map(net_reduction_data)
-    resolved =
-        Pair{Base.UUID, Vector{Tuple{DataType, String, Tuple{Int, Int}, String}}}[]
+    resolved = ResolvedMonitoredArcs()
     for (uuid, per_type) in get_outages(service_model)
-        kept = Tuple{DataType, String, Tuple{Int, Int}, String}[]
+        kept = MonitoredArcEntry[]
         for (T, names) in per_type
             haskey(name_to_arc_maps, T) || continue
             name_to_arc = name_to_arc_maps[T]
@@ -191,9 +200,7 @@ function add_post_contingency_slack_variables!(
     ::Type{T},
     service::R,
     service_name::String,
-    resolved::Vector{
-        Pair{Base.UUID, Vector{Tuple{DataType, String, Tuple{Int, Int}, String}}},
-    },
+    resolved::ResolvedMonitoredArcs,
     ::Type{<:AbstractSecurityConstrainedReservesFormulation},
 ) where {T <: AbstractContingencySlackVariableType, R <: PSY.AbstractReserve}
     time_steps = get_time_steps(container)
@@ -230,9 +237,7 @@ function _make_post_contingency_slacks(
     container::OptimizationContainer,
     service::R,
     service_name::String,
-    resolved::Vector{
-        Pair{Base.UUID, Vector{Tuple{DataType, String, Tuple{Int, Int}, String}}},
-    },
+    resolved::ResolvedMonitoredArcs,
     ::Type{F},
     use_slacks::Bool,
 ) where {R <: PSY.AbstractReserve, F <: AbstractSecurityConstrainedReservesFormulation}
@@ -471,15 +476,33 @@ function add_to_expression!(
         outage in associated_outages || continue
         outage_id = string(IS.get_uuid(outage))
         name = PSY.get_name(d)
+        # `d`'s concrete type is only known at runtime (heterogeneous
+        # outage-generator map), so `get_variable` dispatches dynamically here.
+        # The lookup below is a function barrier: it isolates that one dynamic
+        # dispatch, letting the per-`t` loop inside run fully type-specialized.
         variable = get_variable(container, U, typeof(d))
         mult = get_variable_multiplier(U, typeof(d), F)
-        for t in time_steps
-            add_proportional_to_jump_expression!(
-                expression[outage_id, t],
-                variable[name, t],
-                mult,
-            )
-        end
+        _add_pre_contingency_terms_over_time!(
+            expression, variable, mult, outage_id, name, time_steps,
+        )
+    end
+    return
+end
+
+function _add_pre_contingency_terms_over_time!(
+    expression,
+    variable,
+    mult,
+    outage_id::String,
+    name::String,
+    time_steps,
+)
+    for t in time_steps
+        add_proportional_to_jump_expression!(
+            expression[outage_id, t],
+            variable[name, t],
+            mult,
+        )
     end
     return
 end
@@ -578,16 +601,33 @@ function add_to_expression!(
         outage in associated_outages || continue
         outage_id = string(IS.get_uuid(outage))
         name = PSY.get_name(device)
+        # See the function-barrier note in the analogous per-outage power-balance
+        # method above: `typeof(device)` is a runtime-only type here.
         variable = get_variable(container, U, typeof(device))
         mult = get_variable_multiplier(U, typeof(device), F)
         bus_number = PNM.get_mapped_bus_number(network_reduction, PSY.get_bus(device))
-        for t in time_steps
-            add_proportional_to_jump_expression!(
-                expression[outage_id, bus_number, t],
-                variable[name, t],
-                mult,
-            )
-        end
+        _add_pre_contingency_nodal_terms_over_time!(
+            expression, variable, mult, outage_id, bus_number, name, time_steps,
+        )
+    end
+    return
+end
+
+function _add_pre_contingency_nodal_terms_over_time!(
+    expression,
+    variable,
+    mult,
+    outage_id::String,
+    bus_number,
+    name::String,
+    time_steps,
+)
+    for t in time_steps
+        add_proportional_to_jump_expression!(
+            expression[outage_id, bus_number, t],
+            variable[name, t],
+            mult,
+        )
     end
     return
 end
@@ -680,16 +720,33 @@ function add_to_expression!(
         outage in associated_outages || continue
         outage_id = string(IS.get_uuid(outage))
         name = PSY.get_name(device)
+        # See the function-barrier note in the analogous per-outage power-balance
+        # method above: `typeof(device)` is a runtime-only type here.
         variable = get_variable(container, U, typeof(device))
         mult = get_variable_multiplier(U, typeof(device), F)
         area_name = PSY.get_name(PSY.get_area(PSY.get_bus(device)))
-        for t in time_steps
-            add_proportional_to_jump_expression!(
-                expression[outage_id, area_name, t],
-                variable[name, t],
-                mult,
-            )
-        end
+        _add_pre_contingency_area_terms_over_time!(
+            expression, variable, mult, outage_id, area_name, name, time_steps,
+        )
+    end
+    return
+end
+
+function _add_pre_contingency_area_terms_over_time!(
+    expression,
+    variable,
+    mult,
+    outage_id::String,
+    area_name::String,
+    name::String,
+    time_steps,
+)
+    for t in time_steps
+        add_proportional_to_jump_expression!(
+            expression[outage_id, area_name, t],
+            variable[name, t],
+            mult,
+        )
     end
     return
 end
@@ -734,27 +791,56 @@ function add_to_expression!(
             service_name,
         )
     for device in contributing_devices
+        # `contributing_devices` is flattened across every device type the
+        # service applies to (`IOM.get_contributing_devices`), so `device`'s
+        # concrete type is runtime-only here and `typeof(device)` dispatches
+        # dynamically. Hand the resulting `gen_var` to a function barrier so the
+        # `(outage, t)` loop below runs fully specialized instead of paying a
+        # dynamic dispatch on every iteration.
         gen_var = get_variable(container, ActivePowerVariable, typeof(device))
         gen_name = PSY.get_name(device)
-        for outage in associated_outages
-            associated_devices = PSY.get_associated_components(
-                sys, outage; component_type = PSY.Generator,
+        _add_post_contingency_generation_terms!(
+            expression,
+            reserve_deployment_variable,
+            gen_var,
+            sys,
+            device,
+            associated_outages,
+            gen_name,
+            time_steps,
+        )
+    end
+    return
+end
+
+function _add_post_contingency_generation_terms!(
+    expression,
+    reserve_deployment_variable,
+    gen_var,
+    sys::PSY.System,
+    device,
+    associated_outages,
+    gen_name::String,
+    time_steps,
+)
+    for outage in associated_outages
+        associated_devices = PSY.get_associated_components(
+            sys, outage; component_type = PSY.Generator,
+        )
+        outage_id = string(IS.get_uuid(outage))
+        gen_outaged = device in associated_devices
+        for t in time_steps
+            add_proportional_to_jump_expression!(
+                expression[outage_id, gen_name, t],
+                reserve_deployment_variable[outage_id, gen_name, t],
+                1.0,
             )
-            outage_id = string(IS.get_uuid(outage))
-            gen_outaged = device in associated_devices
-            for t in time_steps
-                add_proportional_to_jump_expression!(
-                    expression[outage_id, gen_name, t],
-                    reserve_deployment_variable[outage_id, gen_name, t],
-                    1.0,
-                )
-                gen_outaged && continue
-                add_proportional_to_jump_expression!(
-                    expression[outage_id, gen_name, t],
-                    gen_var[gen_name, t],
-                    1.0,
-                )
-            end
+            gen_outaged && continue
+            add_proportional_to_jump_expression!(
+                expression[outage_id, gen_name, t],
+                gen_var[gen_name, t],
+                1.0,
+            )
         end
     end
     return
@@ -879,8 +965,9 @@ function add_constraints!(
     jump_model = get_jump_model(container)
     for outage in associated_outages, t in time_steps
         outage_id = string(IS.get_uuid(outage))
-        constraint[outage_id, t] =
-            JuMP.@constraint(jump_model, expressions[outage_id, t] == 0)
+        IOM.add_range_equality_constraint!(
+            jump_model, constraint, outage_id, t, expressions[outage_id, t], 0.0,
+        )
     end
     return
 end
@@ -1048,6 +1135,13 @@ function add_post_contingency_flow_expressions!(
         outaged_gens = PSY.get_associated_components(
             sys, outage; component_type = PSY.Generator,
         )
+        # `outaged_gens` is heterogeneous (multiple concrete `PSY.Generator`
+        # subtypes may be outaged together), so `typeof(outaged_gen)` dispatches
+        # dynamically. That lookup does not depend on `t` or on the monitored
+        # `AreaInterchange`, so precompute it once per outage instead of once
+        # per `(entries, t)` pair — this removes the redundant dynamic
+        # dispatches rather than just isolating them.
+        outaged_gen_terms = _outaged_generator_terms(container, outaged_gens)
         for (name, area_interchange) in entries
             from_area = PSY.get_name(PSY.get_from_area(area_interchange))
             to_area = PSY.get_name(PSY.get_to_area(area_interchange))
@@ -1075,29 +1169,56 @@ function add_post_contingency_flow_expressions!(
                 # Subtract the outaged generation contribution on the
                 # outaged side: +pre-contingency power if in from-area,
                 # -pre-contingency power if in to-area.
-                for outaged_gen in outaged_gens
-                    outaged_area =
-                        PSY.get_name(PSY.get_area(PSY.get_bus(outaged_gen)))
-                    coef = if outaged_area == from_area
-                        -1.0
-                    elseif outaged_area == to_area
-                        1.0
-                    else
-                        0.0
-                    end
-                    coef == 0.0 && continue
-                    gen_var =
-                        get_variable(container, ActivePowerVariable, typeof(outaged_gen)
-                        )
-                    add_proportional_to_jump_expression!(
-                        expr, gen_var[PSY.get_name(outaged_gen), t], coef,
-                    )
-                end
+                _add_outaged_generation_terms!(
+                    expr,
+                    outaged_gen_terms,
+                    from_area,
+                    to_area,
+                    t,
+                )
                 expression_container[outage_id, name, t] = expr
             end
         end
     end
     return expression_container
+end
+
+"""
+Per-outage, once: resolve each outaged generator's area name and its
+`ActivePowerVariable` container. Isolated in its own function so the dynamic
+dispatch of `get_variable(container, ActivePowerVariable, typeof(g))` (`g`'s
+concrete type is runtime-only) happens a bounded number of times — once per
+outaged generator — rather than once per `(entries, t)` pair.
+"""
+function _outaged_generator_terms(container::OptimizationContainer, outaged_gens)
+    return [
+        (
+            gen_name = PSY.get_name(g),
+            area = PSY.get_name(PSY.get_area(PSY.get_bus(g))),
+            gen_var = get_variable(container, ActivePowerVariable, typeof(g)),
+        ) for g in outaged_gens
+    ]
+end
+
+function _add_outaged_generation_terms!(
+    expr,
+    outaged_gen_terms,
+    from_area::String,
+    to_area::String,
+    t::Int,
+)
+    for term in outaged_gen_terms
+        coef = if term.area == from_area
+            -1.0
+        elseif term.area == to_area
+            1.0
+        else
+            0.0
+        end
+        coef == 0.0 && continue
+        add_proportional_to_jump_expression!(expr, term.gen_var[term.gen_name, t], coef)
+    end
+    return
 end
 
 """
@@ -1142,12 +1263,11 @@ function add_constraints!(
     # `(type, name, arc, reduction_kind)`; build an equivalent shape with
     # placeholder arc/reduction values so the slack containers are keyed by the
     # same `(outage_id, name, t)`.
-    slack_resolved =
-        Pair{Base.UUID, Vector{Tuple{DataType, String, Tuple{Int, Int}, String}}}[
-            uuid => Tuple{DataType, String, Tuple{Int, Int}, String}[
-                (PSY.AreaInterchange, name, (0, 0), "") for (name, _) in entries
-            ] for (uuid, entries) in resolved
-        ]
+    slack_resolved = Pair{Base.UUID, Vector{MonitoredArcEntry}}[
+        uuid => MonitoredArcEntry[
+            (PSY.AreaInterchange, name, (0, 0), "") for (name, _) in entries
+        ] for (uuid, entries) in resolved
+    ]
     slack_ub, slack_lb = _make_post_contingency_slacks(
         container, service, service_name, slack_resolved, F,
         get_use_slacks(service_model),
