@@ -390,10 +390,8 @@ end
 #
 # The three expression types below (system-wide balance, PTDF nodal
 # deployment, AreaBalance area deployment) differ only in the extra index
-# component between `outage_id` and `t` — resolved per *expression type*
-# `T` by `_post_contingency_target_axes`/`_post_contingency_target_index`
-# — so one generic method per dispatch pair covers all three instead of
-# one copy each.
+# component between `outage_id` and `t`, resolved per *expression type* `T`
+# by `_post_contingency_target_axes`/`_post_contingency_target_index`.
 #
 # Dispatch is keyed on `T`, not on `network_model`'s runtime type:
 # `PostContingencyActivePowerBalance` is built unconditionally under every
@@ -625,12 +623,9 @@ function add_to_expression!(
             service_name,
         )
     for device in contributing_devices
-        # `contributing_devices` is flattened across every device type the
-        # service applies to (`IOM.get_contributing_devices`), so `device`'s
-        # concrete type is runtime-only here and `typeof(device)` dispatches
-        # dynamically. Hand the resulting `gen_var` to a function barrier so the
-        # `(outage, t)` loop below runs fully specialized instead of paying a
-        # dynamic dispatch on every iteration.
+        # PERF: type unstable. `contributing_devices` is heterogenous.
+        # _add_post_contingency_generation_terms! is function barrier
+        # to minimize impact: one dynamic dispatch per device, not per iteration.
         gen_var = get_variable(container, ActivePowerVariable, typeof(device))
         gen_name = PSY.get_name(device)
         _add_post_contingency_generation_terms!(
@@ -969,12 +964,7 @@ function add_post_contingency_flow_expressions!(
         outaged_gens = PSY.get_associated_components(
             sys, outage; component_type = PSY.Generator,
         )
-        # `outaged_gens` is heterogeneous (multiple concrete `PSY.Generator`
-        # subtypes may be outaged together), so `typeof(outaged_gen)` dispatches
-        # dynamically. That lookup does not depend on `t` or on the monitored
-        # `AreaInterchange`, so precompute it once per outage instead of once
-        # per `(entries, t)` pair — this removes the redundant dynamic
-        # dispatches rather than just isolating them.
+        # PERF: type unstable. `outaged_gens` and `outaged_gen_terms` are heterogeneous.
         outaged_gen_terms = _outaged_generator_terms(container, outaged_gens)
         for (name, area_interchange) in entries
             from_area = PSY.get_name(PSY.get_from_area(area_interchange))

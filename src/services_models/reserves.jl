@@ -211,9 +211,9 @@ function add_constraints!(
                 _sum_reserve_variables(@view(reserve_variable[:, t]), extra)
             use_slacks &&
                 JuMP.add_to_expression!(resource_expression, slack_vars[t])
-            IOM.add_range_bound_constraint!(
-                IOM.LowerBound(), jump_model, constraint, service_name, t,
-                resource_expression, ts_vector[t] * requirement,
+            constraint[service_name, t] = JuMP.@constraint(
+                jump_model,
+                resource_expression >= ts_vector[t] * requirement
             )
         end
     end
@@ -266,9 +266,9 @@ function add_constraints!(
                     var_r[name, t] <= (requirement * max_participation_factor) * param[t]
                 )
         else
-            IOM.add_range_bound_constraint!(
-                IOM.UpperBound(), jump_model, cons, name, t, var_r[name, t],
-                (requirement * max_participation_factor) * ts_vector[t],
+            cons[name, t] = JuMP.@constraint(
+                jump_model,
+                var_r[name, t] <= (requirement * max_participation_factor) * ts_vector[t]
             )
         end
     end
@@ -308,10 +308,8 @@ function add_constraints!(
         resource_expression =
             _sum_reserve_variables(@view(reserve_variable[:, t]), extra)
         use_slacks && JuMP.add_to_expression!(resource_expression, slack_vars[t])
-        IOM.add_range_bound_constraint!(
-            IOM.LowerBound(), jump_model, constraint, service_name, t,
-            resource_expression, requirement,
-        )
+        constraint[service_name, t] =
+            JuMP.@constraint(jump_model, resource_expression >= requirement)
     end
 
     return
@@ -413,9 +411,9 @@ function add_constraints!(
         for d in ramp_devices, t in time_steps
             name = PSY.get_name(d)
             ramp_limits = PSY.get_ramp_limits(d, PSY.SU)
-            IOM.add_range_bound_constraint!(
-                IOM.UpperBound(), jump_model, con_up, name, t, variable[name, t],
-                ramp_limits.up * time_frame,
+            con_up[name, t] = JuMP.@constraint(
+                jump_model,
+                variable[name, t] <= ramp_limits.up * time_frame
             )
         end
     else
@@ -452,9 +450,9 @@ function add_constraints!(
         for d in ramp_devices, t in time_steps
             name = PSY.get_name(d)
             ramp_limits = PSY.get_ramp_limits(d, PSY.SU)
-            IOM.add_range_bound_constraint!(
-                IOM.UpperBound(), jump_model, con_down, name, t, variable[name, t],
-                ramp_limits.down * time_frame,
+            con_down[name, t] = JuMP.@constraint(
+                jump_model,
+                variable[name, t] <= ramp_limits.down * time_frame
             )
         end
     else
