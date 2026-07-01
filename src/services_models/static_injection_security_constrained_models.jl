@@ -387,15 +387,87 @@ end
 # Post-contingency power-balance, nodal-deployment, area-deployment
 # expressions. Reserve-deployment contributions and generator-outage
 # contributions are added in separate dispatches to avoid `isa` checks.
+#
+# The three expression types below (system-wide balance, PTDF nodal
+# deployment, AreaBalance area deployment) differ only in the extra index
+# component between `outage_id` and `t` — resolved per *expression type*
+# `T` by `_post_contingency_target_axes`/`_post_contingency_target_index`
+# — so one generic method per dispatch pair covers all three instead of
+# one copy each.
+#
+# Dispatch is keyed on `T`, not on `network_model`'s runtime type:
+# `PostContingencyActivePowerBalance` is built unconditionally under every
+# network model (the outer system-wide check, from
+# `_construct_service_post_contingency_balance!`), so it must always be
+# axis-less regardless of what `network_model` happens to be. Only
+# `PostContingencyNodalActivePowerDeployment`/`PostContingencyAreaActivePowerDeployment`
+# are network-model-specific, and their callers (`_add_post_contingency_network_terms!`)
+# already guarantee the matching `network_model` type before invoking them.
 # ----------------------------------------------------------------------------
 
 """
-Add the healthy generators' reserve **deployments** to the per-outage system
-power-balance expression: `+Σ_g mult·Δrsv[c, g, t]`. Paired with the
-pre-contingency method below (which subtracts the lost unit's `p[g_outaged, t]`),
-the `PostContingencyGenerationBalanceConstraint` then forces the deployed reserve
-to exactly replace the outaged generation. The outaged generator deploys nothing,
-so it is skipped rather than added with a zero coefficient.
+Extra container axis (besides the outage-UUID axis and `time_steps`) for a
+post-contingency balance/deployment expression container, resolved per
+expression type `T`: none for the system-wide balance
+(`PostContingencyActivePowerBalance`), the PTDF bus axis for the nodal path
+(`PostContingencyNodalActivePowerDeployment`), or the system's area names
+for the area path (`PostContingencyAreaActivePowerDeployment`). Mirrors
+[`_post_contingency_target_index`](@ref), which resolves the same axis for
+a single device.
+"""
+_post_contingency_target_axes(
+    ::Type{PostContingencyActivePowerBalance},
+    ::NetworkModel,
+    ::PSY.System,
+) = ()
+_post_contingency_target_axes(
+    ::Type{PostContingencyNodalActivePowerDeployment},
+    network_model::NetworkModel,
+    ::PSY.System,
+) = (PNM.get_bus_axis(get_PTDF_matrix(network_model)),)
+_post_contingency_target_axes(
+    ::Type{PostContingencyAreaActivePowerDeployment},
+    ::NetworkModel,
+    sys::PSY.System,
+) = (PSY.get_name.(PSY.get_components(PSY.Area, sys)),)
+
+"""
+Per-device extra index component (besides `outage_id`/`t`) into a
+post-contingency balance/deployment expression, resolved per expression type
+`T`: the mapped bus number for the nodal (PTDF) path, the device's area name
+for the area path, or nothing for the system-wide case.
+"""
+_post_contingency_target_index(
+    ::Type{PostContingencyActivePowerBalance},
+    ::NetworkModel,
+    ::PSY.Generator,
+) = ()
+_post_contingency_target_index(
+    ::Type{PostContingencyNodalActivePowerDeployment},
+    network_model::NetworkModel,
+    d::PSY.Generator,
+) = (PNM.get_mapped_bus_number(get_network_reduction(network_model), PSY.get_bus(d)),)
+_post_contingency_target_index(
+    ::Type{PostContingencyAreaActivePowerDeployment},
+    ::NetworkModel,
+    d::PSY.Generator,
+) = (PSY.get_name(PSY.get_area(PSY.get_bus(d))),)
+
+const _PostContingencyBalanceExpression = Union{
+    PostContingencyActivePowerBalance,
+    PostContingencyNodalActivePowerDeployment,
+    PostContingencyAreaActivePowerDeployment,
+}
+
+"""
+Add the healthy contributing devices' reserve **deployments** to the outage's
+post-contingency balance/deployment expression: `+Σ_g mult·Δrsv[c, g, t]`.
+Paired with the pre-contingency method below (which subtracts the lost
+unit's `p[g_outaged, t]`), the corresponding balance constraint then forces
+the deployed reserve to exactly replace the outaged generation. The extra
+index component (bus/area/none) is resolved per expression type by
+[`_post_contingency_target_index`](@ref). The outaged generator deploys
+nothing, so it is skipped rather than added with a zero coefficient.
 """
 function add_to_expression!(
     container::OptimizationContainer,
@@ -405,9 +477,9 @@ function add_to_expression!(
     contributing_devices::Union{IS.FlattenIteratorWrapper{V}, Vector{V}},
     service::R,
     service_model::ServiceModel{R, F},
-    ::NetworkModel{<:PM.AbstractPowerModel},
+    network_model::NetworkModel,
 ) where {
-    T <: PostContingencyActivePowerBalance,
+    T <: _PostContingencyBalanceExpression,
     U <: AbstractContingencyVariableType,
     V <: PSY.Generator,
     R <: PSY.AbstractReserve,
@@ -419,6 +491,7 @@ function add_to_expression!(
     expression = lazy_container_addition!(container, T,
         R,
         string.(IS.get_uuid.(associated_outages)),
+        _post_contingency_target_axes(T, network_model, sys)...,
         time_steps;
         meta = service_name,
     )
@@ -431,9 +504,10 @@ function add_to_expression!(
         for device in contributing_devices
             device in associated_devices && continue
             name = PSY.get_name(device)
+            idx = _post_contingency_target_index(T, network_model, device)
             for t in time_steps
                 add_proportional_to_jump_expression!(
-                    expression[outage_id, t],
+                    expression[outage_id, idx..., t],
                     reserve_deployment_variable[outage_id, name, t],
                     mult_default,
                 )
@@ -444,11 +518,13 @@ function add_to_expression!(
 end
 
 """
-Add the outaged generators' **pre-contingency** output to the per-outage system
-power-balance expression: `−p[g_outaged, t]` (the `Generator` multiplier is
-`-1.0`). This is the generation that the healthy units' deployments (above) must
-make up. Iterates the system's `(generator, outage)` attribute pairs, keeping only
-those whose outage this service responds to.
+Add the outaged generators' **pre-contingency** output to the per-outage
+post-contingency balance/deployment expression: `−p[g_outaged, t]` (the
+`Generator` multiplier is `-1.0`). This is the generation that the healthy
+units' deployments (above) must make up. Iterates the system's
+`(generator, outage)` attribute pairs, keeping only those whose outage this
+service responds to; extra index component resolved the same way as the
+healthy-deployment method above.
 """
 function add_to_expression!(
     container::OptimizationContainer,
@@ -460,9 +536,9 @@ function add_to_expression!(
     },
     service::R,
     service_model::ServiceModel{R, F},
-    ::NetworkModel{<:PM.AbstractPowerModel},
+    network_model::NetworkModel,
 ) where {
-    T <: PostContingencyActivePowerBalance,
+    T <: _PostContingencyBalanceExpression,
     U <: VariableType,
     V <: PSY.Generator,
     R <: PSY.AbstractReserve,
@@ -482,8 +558,9 @@ function add_to_expression!(
         # dispatch, letting the per-`t` loop inside run fully type-specialized.
         variable = get_variable(container, U, typeof(d))
         mult = get_variable_multiplier(U, typeof(d), F)
+        idx = _post_contingency_target_index(T, network_model, d)
         _add_pre_contingency_terms_over_time!(
-            expression, variable, mult, outage_id, name, time_steps,
+            expression, variable, mult, outage_id, idx, name, time_steps,
         )
     end
     return
@@ -494,256 +571,13 @@ function _add_pre_contingency_terms_over_time!(
     variable,
     mult,
     outage_id::String,
+    idx::Tuple,
     name::String,
     time_steps,
 )
     for t in time_steps
         add_proportional_to_jump_expression!(
-            expression[outage_id, t],
-            variable[name, t],
-            mult,
-        )
-    end
-    return
-end
-
-"""
-PTDF path: place the healthy generators' reserve **deployments** at their buses,
-building the per-outage nodal net-injection change `Δinj[c, b, t]`. This nodal
-deployment vector is what the monitored-branch flow expressions multiply by the
-PTDF rows to check post-contingency line loading. The outaged generator deploys
-nothing, so it is skipped.
-"""
-function add_to_expression!(
-    container::OptimizationContainer,
-    sys::PSY.System,
-    ::Type{T},
-    ::Type{U},
-    contributing_devices::Union{IS.FlattenIteratorWrapper{V}, Vector{V}},
-    service::R,
-    service_model::ServiceModel{R, F},
-    network_model::NetworkModel{N},
-) where {
-    T <: PostContingencyNodalActivePowerDeployment,
-    U <: AbstractContingencyVariableType,
-    V <: PSY.Generator,
-    R <: PSY.AbstractReserve,
-    F <: AbstractSecurityConstrainedReservesFormulation,
-    N <: AbstractPTDFModel,
-}
-    time_steps = get_time_steps(container)
-    service_name = PSY.get_name(service)
-    associated_outages = _service_outages(sys, service_model)
-    ptdf = get_PTDF_matrix(network_model)
-    bus_numbers = PNM.get_bus_axis(ptdf)
-    expression = lazy_container_addition!(container, T,
-        R,
-        string.(IS.get_uuid.(associated_outages)),
-        bus_numbers,
-        time_steps;
-        meta = service_name,
-    )
-    reserve_deployment_variable = get_variable(container, U, R, service_name)
-    mult_default = get_variable_multiplier(U, R, F)
-    network_reduction = get_network_reduction(network_model)
-    for outage in associated_outages
-        associated_devices =
-            PSY.get_associated_components(sys, outage; component_type = PSY.Generator)
-        outage_id = string(IS.get_uuid(outage))
-        for device in contributing_devices
-            device in associated_devices && continue
-            name = PSY.get_name(device)
-            bus_number =
-                PNM.get_mapped_bus_number(network_reduction, PSY.get_bus(device))
-            for t in time_steps
-                add_proportional_to_jump_expression!(
-                    expression[outage_id, bus_number, t],
-                    reserve_deployment_variable[outage_id, name, t],
-                    mult_default,
-                )
-            end
-        end
-    end
-    return
-end
-
-"""
-PTDF path: place the outaged generators' lost **pre-contingency** output
-`−p[g_outaged, t]` at their buses, completing the per-outage nodal net-injection
-change. Iterates the system's `(generator, outage)` attribute pairs, keeping only
-the outages this service responds to.
-"""
-function add_to_expression!(
-    container::OptimizationContainer,
-    sys::PSY.System,
-    ::Type{T},
-    ::Type{U},
-    attribute_device_map::Vector{
-        NamedTuple{(:component, :supplemental_attribute), Tuple{V, PSY.Outage}},
-    },
-    service::R,
-    service_model::ServiceModel{R, F},
-    network_model::NetworkModel{N},
-) where {
-    T <: PostContingencyNodalActivePowerDeployment,
-    U <: VariableType,
-    V <: PSY.Generator,
-    R <: PSY.AbstractReserve,
-    F <: AbstractSecurityConstrainedReservesFormulation,
-    N <: AbstractPTDFModel,
-}
-    time_steps = get_time_steps(container)
-    service_name = PSY.get_name(service)
-    associated_outages = Set(_service_outages(sys, service_model))
-    expression = get_expression(container, T, R, service_name)
-    network_reduction = get_network_reduction(network_model)
-    for (device, outage) in attribute_device_map
-        outage in associated_outages || continue
-        outage_id = string(IS.get_uuid(outage))
-        name = PSY.get_name(device)
-        # See the function-barrier note in the analogous per-outage power-balance
-        # method above: `typeof(device)` is a runtime-only type here.
-        variable = get_variable(container, U, typeof(device))
-        mult = get_variable_multiplier(U, typeof(device), F)
-        bus_number = PNM.get_mapped_bus_number(network_reduction, PSY.get_bus(device))
-        _add_pre_contingency_nodal_terms_over_time!(
-            expression, variable, mult, outage_id, bus_number, name, time_steps,
-        )
-    end
-    return
-end
-
-function _add_pre_contingency_nodal_terms_over_time!(
-    expression,
-    variable,
-    mult,
-    outage_id::String,
-    bus_number,
-    name::String,
-    time_steps,
-)
-    for t in time_steps
-        add_proportional_to_jump_expression!(
-            expression[outage_id, bus_number, t],
-            variable[name, t],
-            mult,
-        )
-    end
-    return
-end
-
-"""
-AreaBalance path: aggregate the healthy generators' reserve **deployments** into
-their areas, building the per-outage area net-injection change. Paired with the
-pre-contingency method below, this feeds the `PostContingencyCopperPlateBalance`
-constraint per area. The outaged generator deploys nothing, so it is skipped.
-"""
-function add_to_expression!(
-    container::OptimizationContainer,
-    sys::PSY.System,
-    ::Type{T},
-    ::Type{U},
-    contributing_devices::Union{IS.FlattenIteratorWrapper{V}, Vector{V}},
-    service::R,
-    service_model::ServiceModel{R, F},
-    ::NetworkModel{<:AreaBalancePowerModel},
-) where {
-    T <: PostContingencyAreaActivePowerDeployment,
-    U <: AbstractContingencyVariableType,
-    V <: PSY.Generator,
-    R <: PSY.AbstractReserve,
-    F <: AbstractSecurityConstrainedReservesFormulation,
-}
-    time_steps = get_time_steps(container)
-    service_name = PSY.get_name(service)
-    associated_outages = _service_outages(sys, service_model)
-    area_names = PSY.get_name.(PSY.get_components(PSY.Area, sys))
-    expression = lazy_container_addition!(container, T,
-        R,
-        string.(IS.get_uuid.(associated_outages)),
-        area_names,
-        time_steps;
-        meta = service_name,
-    )
-    reserve_deployment_variable = get_variable(container, U, R, service_name)
-    mult_default = get_variable_multiplier(U, R, F)
-    for outage in associated_outages
-        associated_devices =
-            PSY.get_associated_components(sys, outage; component_type = PSY.Generator)
-        outage_id = string(IS.get_uuid(outage))
-        for device in contributing_devices
-            device in associated_devices && continue
-            name = PSY.get_name(device)
-            area_name = PSY.get_name(PSY.get_area(PSY.get_bus(device)))
-            for t in time_steps
-                add_proportional_to_jump_expression!(
-                    expression[outage_id, area_name, t],
-                    reserve_deployment_variable[outage_id, name, t],
-                    mult_default,
-                )
-            end
-        end
-    end
-    return
-end
-
-"""
-AreaBalance path: aggregate the outaged generators' lost **pre-contingency**
-output `−p[g_outaged, t]` into their areas, completing the per-outage area
-net-injection change. Iterates the system's `(generator, outage)` attribute pairs,
-keeping only the outages this service responds to.
-"""
-function add_to_expression!(
-    container::OptimizationContainer,
-    sys::PSY.System,
-    ::Type{T},
-    ::Type{U},
-    service::R,
-    service_model::ServiceModel{R, F},
-    ::NetworkModel{<:AreaBalancePowerModel},
-) where {
-    T <: PostContingencyAreaActivePowerDeployment,
-    U <: VariableType,
-    R <: PSY.AbstractReserve,
-    F <: AbstractSecurityConstrainedReservesFormulation,
-}
-    attribute_device_map = PSY.get_component_supplemental_attribute_pairs(
-        PSY.Generator,
-        PSY.Outage,
-        sys,
-    )
-    time_steps = get_time_steps(container)
-    service_name = PSY.get_name(service)
-    associated_outages = Set(_service_outages(sys, service_model))
-    expression = get_expression(container, T, R, service_name)
-    for (device, outage) in attribute_device_map
-        outage in associated_outages || continue
-        outage_id = string(IS.get_uuid(outage))
-        name = PSY.get_name(device)
-        # See the function-barrier note in the analogous per-outage power-balance
-        # method above: `typeof(device)` is a runtime-only type here.
-        variable = get_variable(container, U, typeof(device))
-        mult = get_variable_multiplier(U, typeof(device), F)
-        area_name = PSY.get_name(PSY.get_area(PSY.get_bus(device)))
-        _add_pre_contingency_area_terms_over_time!(
-            expression, variable, mult, outage_id, area_name, name, time_steps,
-        )
-    end
-    return
-end
-
-function _add_pre_contingency_area_terms_over_time!(
-    expression,
-    variable,
-    mult,
-    outage_id::String,
-    area_name::String,
-    name::String,
-    time_steps,
-)
-    for t in time_steps
-        add_proportional_to_jump_expression!(
-            expression[outage_id, area_name, t],
+            expression[outage_id, idx..., t],
             variable[name, t],
             mult,
         )
@@ -1742,7 +1576,7 @@ function _add_post_contingency_network_terms!(
     )
     add_to_expression!(
         container, sys, PostContingencyAreaActivePowerDeployment, ActivePowerVariable,
-        service, model, network_model,
+        attribute_device_map, service, model, network_model,
     )
     add_constraints!(
         container, sys, PostContingencyCopperPlateBalanceConstraint,
