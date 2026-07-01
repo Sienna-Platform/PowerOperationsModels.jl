@@ -419,8 +419,7 @@ _post_contingency_target_axes(
     ::Type{PostContingencyActivePowerBalance},
     ::NetworkModel,
     ::PSY.System,
-) =
-    ()
+) = ()
 _post_contingency_target_axes(
     ::Type{PostContingencyNodalActivePowerDeployment},
     network_model::NetworkModel,
