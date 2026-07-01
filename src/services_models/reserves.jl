@@ -491,6 +491,11 @@ function add_constraints!(
     reserve_response_time = PSY.get_time_frame(service)
     jump_model = get_jump_model(container)
     for d in contributing_devices
+        # `contributing_devices` is flattened across every device type the
+        # service applies to, so `typeof(d)` is runtime-only and this
+        # `get_variable` dispatches dynamically. Hand the resulting `varstatus`
+        # to a function barrier so the `t` loop runs fully specialized instead
+        # of paying a dynamic dispatch on every iteration.
         component_type = typeof(d)
         name = PSY.get_name(d)
         varstatus = get_variable(container, OnVariable, component_type)
@@ -503,12 +508,27 @@ function add_constraints!(
         else
             reserve_limit = 0.0
         end
-        for t in time_steps
-            cons[name, t] = JuMP.@constraint(
-                jump_model,
-                var_r[name, t] <= (1 - varstatus[name, t]) * reserve_limit
-            )
-        end
+        _add_reserve_power_constraint_over_time!(
+            cons, jump_model, var_r, varstatus, name, reserve_limit, time_steps,
+        )
+    end
+    return
+end
+
+function _add_reserve_power_constraint_over_time!(
+    cons,
+    jump_model,
+    var_r,
+    varstatus,
+    name::String,
+    reserve_limit,
+    time_steps,
+)
+    for t in time_steps
+        cons[name, t] = JuMP.@constraint(
+            jump_model,
+            var_r[name, t] <= (1 - varstatus[name, t]) * reserve_limit
+        )
     end
     return
 end
