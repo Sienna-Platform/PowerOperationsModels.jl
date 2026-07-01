@@ -1300,8 +1300,8 @@ function add_constraints!(
     ::Type{T},
     ::Type{X},
     ::Type{U},
-    contributing_devices::Union{IS.FlattenIteratorWrapper{V}, Vector{V}},
     service::R,
+    contributing_devices::Union{IS.FlattenIteratorWrapper{V}, Vector{V}},
     service_model::ServiceModel{R, F},
     ::NetworkModel{<:PM.AbstractPowerModel},
 ) where {
@@ -1358,8 +1358,8 @@ function add_constraints!(
     container::OptimizationContainer,
     sys::PSY.System,
     ::Type{T},
-    contributing_devices::Union{IS.FlattenIteratorWrapper{V}, Vector{V}},
     service::R,
+    contributing_devices::Union{IS.FlattenIteratorWrapper{V}, Vector{V}},
     service_model::ServiceModel{R, F},
     ::NetworkModel{<:PM.AbstractActivePowerModel},
 ) where {
@@ -1652,7 +1652,7 @@ function construct_service!(
             PostContingencyActivePowerReserveDeploymentVariableLimitsConstraint,
             ActivePowerReserveVariable,
             PostContingencyActivePowerReserveDeploymentVariable,
-            contributing_devices, service, model, network_model,
+            service, contributing_devices, model, network_model,
         )
     else
         add_to_expression!(
@@ -1661,7 +1661,7 @@ function construct_service!(
         )
         add_constraints!(
             container, sys, PostContingencyActivePowerGenerationLimitsConstraint,
-            contributing_devices, service, model, network_model,
+            service, contributing_devices, model, network_model,
         )
     end
     return
