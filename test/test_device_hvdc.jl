@@ -112,14 +112,14 @@ end
             InterconnectingConverter, QuadraticLossConverter;
             attributes = Dict(
                 "bilinear_approximation" => "bin2",
-                "bilinear_relative_tolerance" => 0.2,
+                "bilinear_relative_tolerance" => 0.35,
             ),
         ),
     )
     set_hvdc_network_model!(template, VoltageDispatchHVDCNetworkModel)
     model = DecisionModel(
         template, sys;
-        store_variable_names = true, optimizer = HiGHS_optimizer,
+        store_variable_names = true, optimizer = HiGHS_optimizer_single_threaded,
     )
     @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
           IOM.ModelBuildStatus.BUILT
@@ -192,8 +192,8 @@ function _generate_test_vsc_sys(;
         g = g,
         dc_current = 0.0,
         reactive_power_from = 0.0,
-        dc_voltage_control_from = true,
-        ac_voltage_control_from = true,
+        dc_control_from = PSY.VSCDCControlModes.DC_VOLTAGE,
+        ac_control_from = PSY.VSCACControlModes.AC_VOLTAGE,
         dc_setpoint_from = 0.0,
         ac_setpoint_from = 1.0,
         converter_loss_from = QuadraticCurve(loss_a, loss_b, loss_c),
@@ -203,8 +203,8 @@ function _generate_test_vsc_sys(;
         power_factor_weighting_fraction_from = 1.0,
         voltage_limits_from = (min = 0.95, max = 1.05),
         reactive_power_to = 0.0,
-        dc_voltage_control_to = true,
-        ac_voltage_control_to = true,
+        dc_control_to = PSY.VSCDCControlModes.DC_VOLTAGE,
+        ac_control_to = PSY.VSCACControlModes.AC_VOLTAGE,
         dc_setpoint_to = 0.0,
         ac_setpoint_to = 1.0,
         converter_loss_to = QuadraticCurve(loss_a, loss_b, loss_c),
