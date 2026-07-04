@@ -113,6 +113,30 @@ end
 # so `A/t`, `gg/t²` reduce to the StaticBranch coefficients when `t == tm`.
 #################################################################################
 
+# Pure, tap-free π-model coefficients shared by the polar (ACP) and rectangular (ACR)
+# variable-tap Ohm's law. `cs`/`sn` are the phase-shift trig; `gg_*`/`bb_*` fold the
+# shunt half-charging into the series admittance; `a_cos`/`a_sin`/`c_cos`/`d_sin` are
+# the tm-free coupling coefficients (each divided by the live tap at the constraint
+# site). ACR uses `e_sin = -d_sin` (opposite sinprod sign convention). IVR shares only
+# the `cs`/`sn` trig and is intentionally not routed through this block (its series
+# impedance form has no a/c coupling coefficients).
+function _tap_flow_coefficients(g, b, g_fr, b_fr, g_to, b_to, shift)
+    cs = cos(shift)
+    sn = sin(shift)
+    return (
+        cs = cs,
+        sn = sn,
+        gg_fr = g + g_fr,
+        bb_fr = b + b_fr,
+        gg_to = g + g_to,
+        bb_to = b + b_to,
+        a_cos = -g * cs + b * sn,
+        a_sin = -b * cs - g * sn,
+        c_cos = -g * cs - b * sn,
+        d_sin = b * cs - g * sn,
+    )
+end
+
 # ACP (polar) variable-tap Ohm's law.
 function add_constraints!(
     container::OptimizationContainer,
@@ -143,26 +167,19 @@ function add_constraints!(
     for g_geom in geoms
         name = g_geom.name
         adm = g_geom.adm
-        g = adm.g
-        b = adm.b
-        g_fr = adm.g_fr
-        b_fr = adm.b_fr
-        g_to = adm.g_to
-        b_to = adm.b_to
-        shift = adm.shift
         from_bus = g_geom.from_name
         to_bus = g_geom.to_name
-        cs = cos(shift)
-        sn = sin(shift)
-        gg_fr = g + g_fr
-        bb_fr = b + b_fr
-        gg_to = g + g_to
-        bb_to = b + b_to
-        # tm-free coupling coefficients (constant); divided by the variable tap below.
-        a_cos = -g * cs + b * sn
-        a_sin = -b * cs - g * sn
-        c_cos = -g * cs - b * sn
-        d_sin = b * cs - g * sn
+        coef = _tap_flow_coefficients(
+            adm.g, adm.b, adm.g_fr, adm.b_fr, adm.g_to, adm.b_to, adm.shift,
+        )
+        gg_fr = coef.gg_fr
+        bb_fr = coef.bb_fr
+        gg_to = coef.gg_to
+        bb_to = coef.bb_to
+        a_cos = coef.a_cos
+        a_sin = coef.a_sin
+        c_cos = coef.c_cos
+        d_sin = coef.d_sin
 
         for t in time_steps
             θ = va[from_bus, t] - va[to_bus, t]
@@ -233,26 +250,20 @@ function add_constraints!(
     for g_geom in geoms
         name = g_geom.name
         adm = g_geom.adm
-        g = adm.g
-        b = adm.b
-        g_fr = adm.g_fr
-        b_fr = adm.b_fr
-        g_to = adm.g_to
-        b_to = adm.b_to
-        shift = adm.shift
         from_bus = g_geom.from_name
         to_bus = g_geom.to_name
-        cs = cos(shift)
-        sn = sin(shift)
-        gg_fr = g + g_fr
-        bb_fr = b + b_fr
-        gg_to = g + g_to
-        bb_to = b + b_to
-        # tm-free coupling coefficients (constant); divided by the variable tap below.
-        a_cos = -g * cs + b * sn
-        a_sin = -b * cs - g * sn
-        c_cos = -g * cs - b * sn
-        e_sin = -b * cs + g * sn
+        coef = _tap_flow_coefficients(
+            adm.g, adm.b, adm.g_fr, adm.b_fr, adm.g_to, adm.b_to, adm.shift,
+        )
+        gg_fr = coef.gg_fr
+        bb_fr = coef.bb_fr
+        gg_to = coef.gg_to
+        bb_to = coef.bb_to
+        a_cos = coef.a_cos
+        a_sin = coef.a_sin
+        c_cos = coef.c_cos
+        # Rectangular sinprod carries the opposite sign convention of the polar sin term.
+        e_sin = -coef.d_sin
 
         for t in time_steps
             vr_fr = vr[from_bus, t]
@@ -523,13 +534,32 @@ end
 _regulated_buses(d::PSY.TapTransformer, bus_by_number) =
     [("1", _tap_regulated_bus(d, bus_by_number))]
 
-# ACP: VOLTAGE pins the regulated-bus VoltageMagnitude; REACTIVE/ACTIVE_POWER_FLOW
-# pin the from-to terminal flow. Other objectives (UNDEFINED / disabled) free-float.
+# Dispatch entry: the VOLTAGE objective is pinned differently depending on how the
+# network expresses a regulated bus voltage magnitude (polar scalar vs rectangular aux).
 function _apply_tap_control_objective!(
     container::OptimizationContainer,
     sys::PSY.System,
     devices::IS.FlattenIteratorWrapper{T},
-    network_model::NetworkModel{ACPNetworkModel},
+    network_model::NetworkModel{N},
+) where {T <: PSY.TapTransformer, N}
+    return _apply_tap_control_objective!(
+        regulated_voltage_form(N),
+        container,
+        sys,
+        devices,
+        network_model,
+    )
+end
+
+# Polar (ACP): VOLTAGE pins the regulated-bus VoltageMagnitude directly;
+# REACTIVE/ACTIVE_POWER_FLOW pin the from-to terminal flow. Other objectives
+# (UNDEFINED / disabled) free-float.
+function _apply_tap_control_objective!(
+    ::PolarRegulatedVoltage,
+    container::OptimizationContainer,
+    sys::PSY.System,
+    devices::IS.FlattenIteratorWrapper{T},
+    network_model::NetworkModel,
 ) where {T <: PSY.TapTransformer}
     time_steps = get_time_steps(container)
     vm = get_variable(container, VoltageMagnitude, PSY.ACBus)
@@ -555,19 +585,19 @@ function _apply_tap_control_objective!(
     return
 end
 
-# ACR/IVR: VOLTAGE pins the regulated-bus magnitude via the component-owned
+# Rectangular (ACR/IVR): VOLTAGE pins the regulated-bus magnitude via the component-owned
 # (component, "1") RegulatedVoltageMagnitude aux variable (see fix_regulated_voltage!);
 # reactive/active-flow objectives pin the from-to terminal flow. The aux variable/
 # constraint are added unconditionally in the construction stages, so only the fix is
 # objective-conditional (count-invariance). Under IVR the from-to power variables
 # (pft/qft) are bilinear-linked to the branch currents in the IVR Ohm's law, so the
-# flow objectives are well-defined in current space — the control logic is identical
-# to ACR, hence the shared Union dispatch.
+# flow objectives are well-defined in current space — identical control logic to ACR.
 function _apply_tap_control_objective!(
+    ::RectangularRegulatedVoltage,
     container::OptimizationContainer,
     sys::PSY.System,
     devices::IS.FlattenIteratorWrapper{T},
-    network_model::NetworkModel{<:Union{ACRNetworkModel, IVRNetworkModel}},
+    network_model::NetworkModel,
 ) where {T <: PSY.TapTransformer}
     time_steps = get_time_steps(container)
     qft = get_variable(container, FlowReactivePowerFromToVariable, T)
@@ -589,15 +619,59 @@ function _apply_tap_control_objective!(
 end
 
 #################################################################################
-# construct_device! — two-stage, mirrors StaticBranch under ACP/ACR.
+# construct_device! — two-stage. ACP/ACR build the branch in power only;
+# IVR adds explicit branch current variables and a CurrentLimitConstraint. The
+# `tap_branch_current_form` trait selects between the two construction paths.
 #################################################################################
 
 function construct_device!(
     container::OptimizationContainer,
     sys::PSY.System,
+    stage::ArgumentConstructStage,
+    device_model::DeviceModel{T, VoltageControlTap},
+    network_model::NetworkModel{N},
+) where {
+    T <: PSY.TapTransformer,
+    N <: Union{ACPNetworkModel, ACRNetworkModel, IVRNetworkModel},
+}
+    return construct_device!(
+        tap_branch_current_form(N),
+        container,
+        sys,
+        stage,
+        device_model,
+        network_model,
+    )
+end
+
+function construct_device!(
+    container::OptimizationContainer,
+    sys::PSY.System,
+    stage::ModelConstructStage,
+    device_model::DeviceModel{T, VoltageControlTap},
+    network_model::NetworkModel{N},
+) where {
+    T <: PSY.TapTransformer,
+    N <: Union{ACPNetworkModel, ACRNetworkModel, IVRNetworkModel},
+}
+    return construct_device!(
+        tap_branch_current_form(N),
+        container,
+        sys,
+        stage,
+        device_model,
+        network_model,
+    )
+end
+
+# Power-only branch construction (ACP/ACR), mirrors StaticBranch.
+function construct_device!(
+    ::PowerOnlyTapBranch,
+    container::OptimizationContainer,
+    sys::PSY.System,
     ::ArgumentConstructStage,
     device_model::DeviceModel{T, VoltageControlTap},
-    network_model::NetworkModel{<:Union{ACPNetworkModel, ACRNetworkModel}},
+    network_model::NetworkModel,
 ) where {T <: PSY.TapTransformer}
     @debug "construct_device VoltageControlTap (ArgumentConstructStage)" _group =
         LOG_GROUP_BRANCH_CONSTRUCTIONS
@@ -632,12 +706,13 @@ function construct_device!(
 end
 
 function construct_device!(
+    ::PowerOnlyTapBranch,
     container::OptimizationContainer,
     sys::PSY.System,
     ::ModelConstructStage,
     device_model::DeviceModel{T, VoltageControlTap},
-    network_model::NetworkModel{U},
-) where {T <: PSY.TapTransformer, U <: Union{ACPNetworkModel, ACRNetworkModel}}
+    network_model::NetworkModel{N},
+) where {T <: PSY.TapTransformer, N}
     @debug "construct_device VoltageControlTap (ModelConstructStage)" _group =
         LOG_GROUP_BRANCH_CONSTRUCTIONS
     devices = get_available_components(device_model, sys)
@@ -658,7 +733,7 @@ function construct_device!(
     )
     _apply_tap_control_objective!(container, sys, devices, network_model)
     add_feedforward_constraints!(container, device_model, devices)
-    add_to_objective_function!(container, devices, device_model, U)
+    add_to_objective_function!(container, devices, device_model, N)
     add_constraint_dual!(container, sys, device_model)
     return
 end
@@ -670,11 +745,12 @@ end
 #################################################################################
 
 function construct_device!(
+    ::CurrentInjectionTapBranch,
     container::OptimizationContainer,
     sys::PSY.System,
     ::ArgumentConstructStage,
     device_model::DeviceModel{T, VoltageControlTap},
-    network_model::NetworkModel{IVRNetworkModel},
+    network_model::NetworkModel,
 ) where {T <: PSY.TapTransformer}
     @debug "construct_device IVR VoltageControlTap (ArgumentConstructStage)" _group =
         LOG_GROUP_BRANCH_CONSTRUCTIONS
@@ -733,12 +809,13 @@ function construct_device!(
 end
 
 function construct_device!(
+    ::CurrentInjectionTapBranch,
     container::OptimizationContainer,
     sys::PSY.System,
     ::ModelConstructStage,
     device_model::DeviceModel{T, VoltageControlTap},
-    network_model::NetworkModel{IVRNetworkModel},
-) where {T <: PSY.TapTransformer}
+    network_model::NetworkModel{N},
+) where {T <: PSY.TapTransformer, N}
     @debug "construct_device IVR VoltageControlTap (ModelConstructStage)" _group =
         LOG_GROUP_BRANCH_CONSTRUCTIONS
     devices = get_available_components(device_model, sys)
@@ -762,7 +839,7 @@ function construct_device!(
     )
     _apply_tap_control_objective!(container, sys, devices, network_model)
     add_feedforward_constraints!(container, device_model, devices)
-    add_to_objective_function!(container, devices, device_model, IVRNetworkModel)
+    add_to_objective_function!(container, devices, device_model, N)
     add_constraint_dual!(container, sys, device_model)
     return
 end

@@ -312,3 +312,100 @@ end
     model = DecisionModel(template, sys; optimizer = ipopt_optimizer)
     @test POM.validate_template(model) === nothing
 end
+
+@testset "_tap_flow_coefficients ground truth (hand-computed)" begin
+    # No shift: cs=1, sn=0. Hand-computed shunt sums and coupling coefficients.
+    c0 = POM._tap_flow_coefficients(1.0, -2.0, 0.1, 0.3, 0.2, 0.4, 0.0)
+    @test c0.cs == 1.0
+    @test c0.sn == 0.0
+    @test c0.gg_fr == 1.1
+    @test c0.bb_fr == -1.7
+    @test c0.gg_to == 1.2
+    @test c0.bb_to == -1.6
+    @test c0.a_cos == -1.0   # -g*cs + b*sn
+    @test c0.a_sin == 2.0    # -b*cs - g*sn
+    @test c0.c_cos == -1.0   # -g*cs - b*sn
+    @test c0.d_sin == -2.0   # b*cs - g*sn
+
+    # Nonzero shift = π/6: cs=√3/2, sn=1/2 exercises the trig.
+    cs = cos(pi / 6)
+    sn = sin(pi / 6)
+    cS = POM._tap_flow_coefficients(1.0, -2.0, 0.1, 0.3, 0.2, 0.4, pi / 6)
+    @test cS.cs ≈ cs
+    @test cS.sn ≈ sn
+    @test cS.gg_fr == 1.1
+    @test cS.bb_fr == -1.7
+    @test cS.gg_to == 1.2
+    @test cS.bb_to == -1.6
+    @test cS.a_cos ≈ -1.0 * cs + (-2.0) * sn
+    @test cS.a_sin ≈ -(-2.0) * cs - 1.0 * sn
+    @test cS.c_cos ≈ -1.0 * cs - (-2.0) * sn
+    @test cS.d_sin ≈ (-2.0) * cs - 1.0 * sn
+    # ACR's e_sin sign relationship the constraint body relies on.
+    @test -cS.d_sin ≈ -(-2.0) * cs + 1.0 * sn
+end
+
+@testset "ACR NetworkFlowConstraint coefficients equal _tap_flow_coefficients" begin
+    # Ground-truth: the built ACR to-from flow constraint (ptf/qtf) must use exactly the
+    # pure-function coefficients. Evaluate constraint_object(con).func at chosen variable
+    # values and compare to the hand RHS assembled from _tap_flow_coefficients.
+    sys = PSB.build_system(PSITestSystems, "c_sys14")
+    template = get_thermal_dispatch_template_network(NetworkModel(ACRNetworkModel))
+    set_device_model!(template, PSY.TapTransformer, VoltageControlTap)
+    model = DecisionModel(template, sys; optimizer = ipopt_optimizer)
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+
+    container = IOM.get_optimization_container(model)
+    ptf = IOM.get_variable(container, FlowActivePowerToFromVariable, PSY.TapTransformer)
+    qft = IOM.get_variable(container, FlowReactivePowerFromToVariable, PSY.TapTransformer)
+    vr = IOM.get_variable(container, VoltageReal, PSY.ACBus)
+    vi = IOM.get_variable(container, VoltageImaginary, PSY.ACBus)
+    tap = IOM.get_variable(container, TapRatioVariable, PSY.TapTransformer)
+    con_ptf =
+        IOM.get_constraint(container, POM.NetworkFlowConstraint, PSY.TapTransformer, "p_tf")
+    con_qft =
+        IOM.get_constraint(container, POM.NetworkFlowConstraint, PSY.TapTransformer, "q_ft")
+
+    t = 1
+    for d in Iterators.take(PSY.get_components(PSY.TapTransformer, sys), 3)
+        name = PSY.get_name(d)
+        geom = POM._branch_geometry(d)
+        adm = geom.adm
+        coef = POM._tap_flow_coefficients(
+            adm.g, adm.b, adm.g_fr, adm.b_fr, adm.g_to, adm.b_to, adm.shift,
+        )
+        e_sin = -coef.d_sin
+        fr = geom.from_name
+        to = geom.to_name
+
+        # Arbitrary evaluation point for the (nonlinear) constraint functions.
+        vals = Dict{JuMP.VariableRef, Float64}(
+            vr[fr, t] => 1.02, vi[fr, t] => 0.05,
+            vr[to, t] => 0.98, vi[to, t] => -0.03,
+            tap[name, t] => 1.05,
+            ptf[name, t] => 0.7, qft[name, t] => -0.2,
+        )
+        lookup = z -> vals[z]
+
+        vv_to = vals[vr[to, t]]^2 + vals[vi[to, t]]^2
+        cosprod = vals[vr[fr, t]] * vals[vr[to, t]] + vals[vi[fr, t]] * vals[vi[to, t]]
+        sinprod = vals[vi[fr, t]] * vals[vr[to, t]] - vals[vr[fr, t]] * vals[vi[to, t]]
+        tt = vals[tap[name, t]]
+
+        # func is stored as (lhs - rhs); assert it matches the hand-assembled (lhs - rhs).
+        rhs_ptf =
+            coef.gg_to * vv_to + coef.c_cos / tt * cosprod + e_sin / tt * (-sinprod)
+        want_ptf = vals[ptf[name, t]] - rhs_ptf
+        got_ptf = JuMP.value(lookup, JuMP.constraint_object(con_ptf[name, t]).func)
+        @test isapprox(got_ptf, want_ptf; atol = 1e-10)
+
+        vv_fr = vals[vr[fr, t]]^2 + vals[vi[fr, t]]^2
+        rhs_qft =
+            -coef.bb_fr / tt^2 * vv_fr + (-coef.a_sin) / tt * cosprod +
+            coef.a_cos / tt * sinprod
+        want_qft = vals[qft[name, t]] - rhs_qft
+        got_qft = JuMP.value(lookup, JuMP.constraint_object(con_qft[name, t]).func)
+        @test isapprox(got_qft, want_qft; atol = 1e-10)
+    end
+end

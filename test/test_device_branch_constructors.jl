@@ -1021,3 +1021,83 @@ end
         end
     end
 end
+
+# Ground-truth for the extracted apparent-power rate-limit RHS math
+# (`POM._rate_rhs_squared`). This is the shipped-bug guard: an apparent-power
+# constraint `p² + q² ≤ RHS` needs `RHS = rating²`, not a bare `rating`. Locking the
+# pure math plus a built-model sample (static and time-series paths) ties every routed
+# `@constraint` site to the same hand-checked exponent.
+@testset "Apparent-power rate-limit RHS builder (_rate_rhs_squared)" begin
+    # --- Pure math: hand-computed ---
+    @test POM._rate_rhs_squared(2.0) == 4.0
+    @test POM._rate_rhs_squared(0.0) == 0.0
+    @test POM._rate_rhs_squared(1.5) == 2.25
+    # Time-series path RHS = (param_value * multiplier)²; a product squared.
+    param_value = 1.2
+    mult = 0.9
+    @test POM._rate_rhs_squared(param_value * mult) == (param_value * mult)^2
+    @test POM._rate_rhs_squared(param_value * mult) ≈ 1.1664
+
+    # --- Built model, STATIC path: sampled FromTo/ToFrom RHS == builder output ---
+    sys = PSB.build_system(PSITestSystems, "c_sys5")
+    template = get_thermal_dispatch_template_network(NetworkModel(ACPNetworkModel))
+    model = DecisionModel(template, sys; optimizer = ipopt_optimizer)
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+    container = IOM.get_optimization_container(model)
+    ac_ft = IOM.get_constraint(container, IOM.ConstraintKey(FlowRateConstraintFromTo, Line))
+    ac_tf = IOM.get_constraint(container, IOM.ConstraintKey(FlowRateConstraintToFrom, Line))
+    for name in axes(ac_ft, 1)
+        line = get_component(Line, sys, name)
+        expected = POM._rate_rhs_squared(PSY.get_rating(line, PSY.SU))
+        for t in axes(ac_ft, 2)
+            @test isapprox(JuMP.normalized_rhs(ac_ft[name, t]), expected; rtol = 1e-8)
+            @test isapprox(JuMP.normalized_rhs(ac_tf[name, t]), expected; rtol = 1e-8)
+        end
+    end
+
+    # --- Built model, TIME-SERIES path: sampled RHS == builder(param * mult) ---
+    sys_ts = PSB.build_system(PSITestSystems, "c_sys5")
+    branches_with_rating_ts = ["1", "2", "6"]
+    rating_factors = vcat([fill(x, 6) for x in [0.99, 0.98, 1.0, 0.95]]...)
+    add_branch_rating_time_series_to_system!(
+        sys_ts,
+        branches_with_rating_ts,
+        2,
+        rating_factors;
+        initial_date = "2024-01-01",
+    )
+    template_ts = get_thermal_dispatch_template_network(NetworkModel(ACPNetworkModel))
+    set_device_model!(
+        template_ts,
+        DeviceModel(
+            Line,
+            StaticBranch;
+            time_series_names = Dict(BranchRatingTimeSeriesParameter => "branch_rating"),
+        ),
+    )
+    model_ts = DecisionModel(template_ts, sys_ts; optimizer = ipopt_optimizer)
+    @test build!(model_ts; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+    container_ts = IOM.get_optimization_container(model_ts)
+    @test IOM.has_container_key(container_ts, BranchRatingTimeSeriesParameter, Line)
+    ac_ft_ts =
+        IOM.get_constraint(container_ts, IOM.ConstraintKey(FlowRateConstraintFromTo, Line))
+    # TS RHS = builder(rating * rating_factor[t]); `param * mult` = static_rating *
+    # rating_factor, so the builder output must equal the sampled squared RHS.
+    n_rating = length(rating_factors)
+    for name in branches_with_rating_ts
+        static_rating = PSY.get_rating(get_component(Line, sys_ts, name), PSY.SU)
+        for (i, t) in enumerate(axes(ac_ft_ts, 2))
+            rating_t = static_rating * rating_factors[mod1(i, n_rating)]
+            expected = POM._rate_rhs_squared(rating_t)
+            @test isapprox(JuMP.normalized_rhs(ac_ft_ts[name, t]), expected; rtol = 1e-6)
+        end
+    end
+    # RHS must actually vary with the time series (factors cross a boundary at t=7).
+    @test !isapprox(
+        JuMP.normalized_rhs(ac_ft_ts[first(branches_with_rating_ts), 1]),
+        JuMP.normalized_rhs(ac_ft_ts[first(branches_with_rating_ts), 7]);
+        atol = 1e-6,
+    )
+end

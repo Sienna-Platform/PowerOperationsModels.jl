@@ -1,5 +1,8 @@
 ################################# Generic AC Branch  Models ################################
-# These 3 methods are defined on concrete formulations of the branches to avoid ambiguity
+# Kept as concrete-formulation no-op pairs (StaticBranch, StaticBranchBounds) rather than one
+# {<:AbstractBranchFormulation} method: widening to that bound is ambiguous with the real
+# StaticBranchUnbounded (NetworkModel{<:AbstractPowerModel}), VoltageControlTap and
+# AbstractSecurityConstrainedStaticBranch methods that also match CopperPlate/AreaBalance.
 function construct_device!(
     ::OptimizationContainer,
     ::PSY.System,

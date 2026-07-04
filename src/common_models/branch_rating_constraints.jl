@@ -1,4 +1,21 @@
 """
+Squared apparent-power rate-limit RHS: `rating^2`.
+
+The single source of truth for the right-hand side of `p² + q² ≤ rating²`
+apparent-power constraints (and `cr² + ci² ≤ c_rating²` current-magnitude limits).
+Callers pass the already-resolved rating value:
+
+  - static path: a `Float64` rating (e.g. from `branch_rating`) → hand-check `2.0 → 4.0`.
+  - time-series path: the `param * mult` product (rating_factor · rating), an
+    apparent-power value that must be squared to match the static `rating²` RHS.
+
+Squaring here — rather than at each `@constraint` site — is the point: the historical
+shipped-bug class is a bare `rating` (not `rating²`) on an apparent-power constraint.
+Keeping the exponent in one function makes every rate limit route through the same math.
+"""
+_rate_rhs_squared(rating) = rating^2
+
+"""
 Fill a symmetric, time-varying rating bound into pre-created `lb`/`ub` constraint
 containers, for a single branch `name`:
 

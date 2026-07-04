@@ -875,7 +875,7 @@ function _add_apparent_power_flow_rate_limit!(
                 end
                 constraint[name, t] = JuMP.@constraint(
                     get_jump_model(container),
-                    lhs <= (param[name, t] * mult[name, t])^2
+                    lhs <= _rate_rhs_squared(param[name, t] * mult[name, t])
                 )
             end
         else
@@ -888,7 +888,7 @@ function _add_apparent_power_flow_rate_limit!(
                 end
                 constraint[name, t] = JuMP.@constraint(
                     get_jump_model(container),
-                    lhs <= branch_rate^2
+                    lhs <= _rate_rhs_squared(branch_rate)
                 )
             end
         end
@@ -1689,7 +1689,7 @@ function _add_directional_flow_rate_limits!(
                 end
                 cons[name, t] = JuMP.@constraint(
                     jump_model,
-                    lhs <= (param[t] * mult[name, t])^2,
+                    lhs <= _rate_rhs_squared(param[t] * mult[name, t]),
                 )
             end
         else
@@ -1702,7 +1702,7 @@ function _add_directional_flow_rate_limits!(
                 end
                 cons[name, t] = JuMP.@constraint(
                     jump_model,
-                    lhs <= rating^2,
+                    lhs <= _rate_rhs_squared(rating),
                 )
             end
         end
@@ -2457,7 +2457,7 @@ function add_constraints!(
     jump_model = get_jump_model(container)
 
     for (name, entry) in entries
-        c_rating2 = _ivr_current_rating(entry, device_model, name)^2
+        c_rating2 = _rate_rhs_squared(_ivr_current_rating(entry, device_model, name))
         for t in time_steps
             cons_from[name, t] = JuMP.@constraint(
                 jump_model,
@@ -3262,7 +3262,7 @@ function add_constraints!(
         dname = PSY.get_name(d)
         for w in PNM.three_winding_arcs(d)
             wname = dname * "_" * w.suffix
-            r2 = w.rating^2
+            r2 = _rate_rhs_squared(w.rating)
             for t in time_steps
                 cons[wname, t] = JuMP.@constraint(
                     get_jump_model(container),
@@ -3292,7 +3292,7 @@ function add_constraints!(
         dname = PSY.get_name(d)
         for w in PNM.three_winding_arcs(d)
             wname = dname * "_" * w.suffix
-            r2 = w.rating^2
+            r2 = _rate_rhs_squared(w.rating)
             for t in time_steps
                 cons[wname, t] = JuMP.@constraint(
                     get_jump_model(container),
