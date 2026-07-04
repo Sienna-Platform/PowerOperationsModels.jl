@@ -300,3 +300,20 @@ end
     @test adm.b_to == b_sh.to
     @test adm.tap == 1.0
 end
+
+@testset "native AC rate limits reject a zero-rating branch at build" begin
+    # MATPOWER's rateA = 0 means "unlimited"; p² + q² ≤ 0 would silently pin the branch
+    # to zero flow (deleting it from the network). Reject it loudly, matching the IVR
+    # current-rating behavior.
+    for network_formulation in (ACPNetworkModel, ACRNetworkModel, LPACCNetworkModel)
+        sys = PSB.build_system(PSITestSystems, "c_sys5")
+        PSY.set_rating!(PSY.get_component(Line, sys, "1"), 0.0 * PSY.SU)
+        template = get_thermal_dispatch_template_network(NetworkModel(network_formulation))
+        model = DecisionModel(template, sys; optimizer = ipopt_optimizer)
+        out = mktempdir(; cleanup = true)
+        @test build!(model; output_dir = out, console_level = Logging.Error) ==
+              IOM.ModelBuildStatus.FAILED
+        log = read(joinpath(out, "operation_problem.log"), String)
+        @test occursin("zero rating", log)
+    end
+end
