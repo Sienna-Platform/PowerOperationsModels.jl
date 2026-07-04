@@ -26,8 +26,10 @@
 # Under ACP every helper here is a no-op (ACP regulates the network
 # `VoltageMagnitude`), which keeps the existing ACP count-invariance unchanged.
 #
-# Callers supply `reg_buses_of(d) -> Vector{Tuple{String, PSY.ACBus}}` returning
-# (tag, bus) pairs. Single-bus devices return a one-element vector.
+# Each regulating device type defines a `_regulated_buses(d, bus_by_number) ->
+# Vector{Tuple{String, PSY.ACBus}}` method returning (tag, bus) pairs. Single-bus
+# devices return a one-element vector; the `bus_by_number` map (built here from the
+# system) is only consulted by devices that regulate a remote bus by number (taps).
 # All components in the iterator must return the same tag set.
 #################################################################################
 
@@ -46,15 +48,16 @@ end
 function add_regulated_voltage_magnitude!(
     container::OptimizationContainer,
     components::IS.FlattenIteratorWrapper{T},
-    reg_buses_of,
+    sys::PSY.System,
     ::NetworkModel{<:Union{ACRNetworkModel, IVRNetworkModel}},
 ) where {T <: PSY.Component}
     time_steps = get_time_steps(container)
     names = [PSY.get_name(d) for d in components]
     jm = get_jump_model(container)
+    bus_by_number = _bus_by_number(sys)
     # Collect (name, tag_buses) once; all components share the same tag set
     # (count-invariant formulation guarantee).
-    rows = [(PSY.get_name(d), reg_buses_of(d)) for d in components]
+    rows = [(PSY.get_name(d), _regulated_buses(d, bus_by_number)) for d in components]
     for (tag, _) in rows[1][2]
         var = add_variable_container!(
             container, RegulatedVoltageMagnitude, T, names, time_steps; meta = tag,
@@ -88,7 +91,7 @@ end
 function add_regulated_voltage_magnitude!(
     ::OptimizationContainer,
     ::IS.FlattenIteratorWrapper,
-    reg_buses_of,
+    ::PSY.System,
     ::NetworkModel{<:AbstractPowerModel},
 )
     return
@@ -99,7 +102,7 @@ end
 function add_regulated_voltage_magnitude_constraints!(
     container::OptimizationContainer,
     components::IS.FlattenIteratorWrapper{T},
-    reg_buses_of,
+    sys::PSY.System,
     ::NetworkModel{<:Union{ACRNetworkModel, IVRNetworkModel}},
 ) where {T <: PSY.Component}
     time_steps = get_time_steps(container)
@@ -107,7 +110,8 @@ function add_regulated_voltage_magnitude_constraints!(
     vi = get_variable(container, VoltageImaginary, PSY.ACBus)
     names = [PSY.get_name(d) for d in components]
     jm = get_jump_model(container)
-    rows = [(PSY.get_name(d), reg_buses_of(d)) for d in components]
+    bus_by_number = _bus_by_number(sys)
+    rows = [(PSY.get_name(d), _regulated_buses(d, bus_by_number)) for d in components]
     for (tag, _) in rows[1][2]
         vm_reg = get_variable(container, RegulatedVoltageMagnitude, T, tag)
         cons = add_constraints_container!(
@@ -116,6 +120,7 @@ function add_regulated_voltage_magnitude_constraints!(
         )
         for (name, tag_buses) in rows
             bus_name = PSY.get_name(_reg_bus_for_tag(tag_buses, tag))
+            _assert_bus_has_voltage_variables(vr, bus_name, "regulated bus of $(name)")
             for t in time_steps
                 cons[name, t] = JuMP.@constraint(
                     jm,
@@ -130,7 +135,7 @@ end
 function add_regulated_voltage_magnitude_constraints!(
     ::OptimizationContainer,
     ::IS.FlattenIteratorWrapper,
-    reg_buses_of,
+    ::PSY.System,
     ::NetworkModel{<:AbstractPowerModel},
 )
     return
@@ -139,9 +144,27 @@ end
 # --- Pin the regulated magnitude to its setpoint (VOLTAGE objective only) ---
 
 # ACP: pin the network VoltageMagnitude at the regulated bus. The tag is unused.
+# Guard for indexing the retained-bus voltage containers by bus name: a bus absorbed by
+# a network reduction has no voltage variables, so a device that controls or measures
+# voltage there is a modeling conflict the user must resolve — not a silent remap.
+function _assert_bus_has_voltage_variables(
+    voltage_container,
+    bus_name::String,
+    context::String,
+)
+    if !(bus_name in axes(voltage_container)[1])
+        error(
+            "Bus $(bus_name), the $(context), has no voltage variables — it was \
+             absorbed by a network reduction. Exclude the bus from the reduction with \
+             a PNM reduction filter or remove the voltage-coupled model.",
+        )
+    end
+    return
+end
+
 function fix_regulated_voltage!(
     container::OptimizationContainer,
-    ::T,
+    component::T,
     ::String,
     reg_bus::PSY.ACBus,
     setpoint::Float64,
@@ -150,6 +173,9 @@ function fix_regulated_voltage!(
     time_steps = get_time_steps(container)
     vm = get_variable(container, VoltageMagnitude, PSY.ACBus)
     bus_name = PSY.get_name(reg_bus)
+    _assert_bus_has_voltage_variables(
+        vm, bus_name, "regulated bus of $(PSY.get_name(component))",
+    )
     for t in time_steps
         JuMP.fix(vm[bus_name, t], setpoint; force = true)
     end

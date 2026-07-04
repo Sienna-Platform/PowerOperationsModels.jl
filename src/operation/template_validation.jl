@@ -65,7 +65,7 @@ function validate_template_impl!(model::IOM.AbstractOptimizationModel)
         elseif !_formulation_supports_network(get_formulation(device_model), network_model)
             throw(
                 IS.ConflictingInputsError(
-                    "Device model $(k) with formulation $(get_formulation(device_model)) has no construct path for network model $(network_formulation); it builds only under ACP/ACR/IVR. Use one of those network models or remove the device from the template.",
+                    "Device model $(k) with formulation $(get_formulation(device_model)) has no construct path for network model $(network_formulation). Use a network model this formulation supports, change the formulation, or remove the device from the template.",
                 ),
             )
         end
@@ -94,7 +94,7 @@ function validate_template_impl!(model::IOM.AbstractOptimizationModel)
         elseif !_formulation_supports_network(get_formulation(device_model), network_model)
             throw(
                 IS.ConflictingInputsError(
-                    "Branch model $(k) with formulation $(get_formulation(device_model)) has no construct path for network model $(network_formulation); it builds only under ACP/ACR/IVR. Use one of those network models or remove the branch from the template.",
+                    "Branch model $(k) with formulation $(get_formulation(device_model)) has no construct path for network model $(network_formulation). Use a network model this formulation supports, change the formulation, or remove the branch from the template.",
                 ),
             )
         else
@@ -238,7 +238,6 @@ _formulation_supports_network(
     ::NetworkModel{LPACCNetworkModel},
 ) =
     false
-
 function _check_security_constrained_network!(
     branch_models::IOM.BranchModelContainer,
     network_model::NetworkModel,

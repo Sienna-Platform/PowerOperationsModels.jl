@@ -354,6 +354,18 @@ _terminal_bus(
     arc,
 ) = PSY.get_to(arc)
 
+# Reduced-arc twins of `_terminal_bus`: a reduction entry's terminal is an end of its
+# `(from_no, to_no)` arc tuple (already retained bus numbers), not a PSY bus object.
+_terminal_arc_end(
+    ::Type{<:Union{FlowActivePowerFromToVariable, FlowReactivePowerFromToVariable}},
+    arc_tuple::Tuple{Int, Int},
+) = arc_tuple[1]
+
+_terminal_arc_end(
+    ::Type{<:Union{FlowActivePowerToFromVariable, FlowReactivePowerToFromVariable}},
+    arc_tuple::Tuple{Int, Int},
+) = arc_tuple[2]
+
 """
 Add a single directional branch/HVDC terminal flow variable to a nodal balance
 expression. The terminal bus is fixed by the variable type `U` via
@@ -361,6 +373,58 @@ expression. The terminal bus is fixed by the variable type `U` via
 by the native ACP branch-flow methods and the HVDC LCC/VSC terminal methods.
 """
 function _add_terminal_flow_to_nodal!(
+    container::OptimizationContainer,
+    ::Type{T},
+    ::Type{U},
+    devices::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
+    network_model::NetworkModel,
+    multiplier::Float64,
+) where {T <: ExpressionType, U <: VariableType, V <: PSY.Component}
+    _add_terminal_flow_to_nodal_by_device!(
+        container, T, U, devices, network_model, multiplier,
+    )
+    return
+end
+
+# AC transmission under an active network reduction: variables are keyed by reduction-entry
+# name and shared per reduced arc (across entries and branch types), so each arc's variable
+# enters the balance exactly once, at its reduced-arc terminal (a retained bus number).
+function _add_terminal_flow_to_nodal!(
+    container::OptimizationContainer,
+    ::Type{T},
+    ::Type{U},
+    devices::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
+    network_model::NetworkModel,
+    multiplier::Float64,
+) where {T <: ExpressionType, U <: VariableType, V <: PSY.ACTransmission}
+    network_reduction = get_network_reduction(network_model)
+    if isempty(network_reduction)
+        _add_terminal_flow_to_nodal_by_device!(
+            container, T, U, devices, network_model, multiplier,
+        )
+        return
+    end
+    var = get_variable(container, U, V)
+    nodal_expr = get_expression(container, T, PSY.ACBus)
+    tracker = get_reduced_branch_tracker(network_model)
+    time_steps = get_time_steps(container)
+    for (name, (arc_tuple, _)) in get_name_to_arc_map_entries(network_reduction, V)
+        if search_for_reduced_branch_expression!(tracker, arc_tuple, T, U)
+            continue
+        end
+        bus_no = _terminal_arc_end(U, arc_tuple)
+        for t in time_steps
+            add_proportional_to_jump_expression!(
+                nodal_expr[bus_no, t],
+                var[name, t],
+                multiplier,
+            )
+        end
+    end
+    return
+end
+
+function _add_terminal_flow_to_nodal_by_device!(
     container::OptimizationContainer,
     ::Type{T},
     ::Type{U},
@@ -392,6 +456,57 @@ Add a lossless branch/HVDC flow variable to both terminal nodal balances:
 `-1.0` at the from-bus (power leaves) and `+1.0` at the to-bus.
 """
 function _add_both_terminals_to_nodal!(
+    container::OptimizationContainer,
+    ::Type{T},
+    ::Type{U},
+    devices::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
+    network_model::NetworkModel,
+) where {T <: ExpressionType, U <: VariableType, V <: PSY.Component}
+    _add_both_terminals_to_nodal_by_device!(container, T, U, devices, network_model)
+    return
+end
+
+# AC transmission under an active network reduction: variables are keyed by reduction-entry
+# name and shared per reduced arc (across entries and branch types), so each arc's variable
+# enters the balances exactly once, at the reduced arc's retained endpoints.
+function _add_both_terminals_to_nodal!(
+    container::OptimizationContainer,
+    ::Type{T},
+    ::Type{U},
+    devices::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
+    network_model::NetworkModel,
+) where {T <: ExpressionType, U <: VariableType, V <: PSY.ACTransmission}
+    network_reduction = get_network_reduction(network_model)
+    if isempty(network_reduction)
+        _add_both_terminals_to_nodal_by_device!(container, T, U, devices, network_model)
+        return
+    end
+    var = get_variable(container, U, V)
+    expression = get_expression(container, T, PSY.ACBus)
+    tracker = get_reduced_branch_tracker(network_model)
+    time_steps = get_time_steps(container)
+    for (name, (arc_tuple, _)) in get_name_to_arc_map_entries(network_reduction, V)
+        if search_for_reduced_branch_expression!(tracker, arc_tuple, T, U)
+            continue
+        end
+        for t in time_steps
+            flow_variable = var[name, t]
+            add_proportional_to_jump_expression!(
+                expression[arc_tuple[1], t],
+                flow_variable,
+                -1.0,
+            )
+            add_proportional_to_jump_expression!(
+                expression[arc_tuple[2], t],
+                flow_variable,
+                1.0,
+            )
+        end
+    end
+    return
+end
+
+function _add_both_terminals_to_nodal_by_device!(
     container::OptimizationContainer,
     ::Type{T},
     ::Type{U},
@@ -879,7 +994,7 @@ function add_to_expression!(
     U <: HVDCActivePowerReceivedFromVariable,       # variable
     V <: PSY.TwoTerminalHVDC,                      # power system type
     W <: HVDCTwoTerminalLCC,                        # formulation
-    X <: ACPNetworkModel,                             # network model
+    X <: LCCSupportedNetworkModel,                  # network model
 }
     _add_terminal_flow_to_nodal!(
         container, T, U, devices, network_model, -1.0,
@@ -902,7 +1017,7 @@ function add_to_expression!(
     U <: HVDCActivePowerReceivedToVariable,
     V <: PSY.TwoTerminalHVDC,
     W <: HVDCTwoTerminalLCC,
-    X <: ACPNetworkModel,
+    X <: LCCSupportedNetworkModel,
 }
     _add_terminal_flow_to_nodal!(
         container, T, U, devices, network_model, 1.0,
@@ -926,7 +1041,7 @@ function add_to_expression!(
     U <: Union{HVDCReactivePowerReceivedFromVariable, HVDCReactivePowerReceivedToVariable},
     V <: PSY.TwoTerminalHVDC,
     W <: HVDCTwoTerminalLCC,
-    X <: ACPNetworkModel,
+    X <: LCCSupportedNetworkModel,
 }
     _add_terminal_flow_to_nodal!(
         container, T, U, devices, network_model, -1.0,
@@ -2780,7 +2895,7 @@ end
 HVDC two-terminal lossless active-power flow contribution to `ActivePowerBalance`.
 
 Wires the single `FlowActivePowerVariable` directly: subtracts at the from-bus,
-adds at the to-bus. Used by DCP, ACP, ACR, LPACC, IVR, and DCPLL formulations.
+adds at the to-bus. Used by every native nodal network model.
 """
 function add_to_expression!(
     container::OptimizationContainer,
@@ -2794,15 +2909,38 @@ function add_to_expression!(
     U <: FlowActivePowerVariable,
     V <: PSY.TwoTerminalHVDC,
     W <: AbstractBranchFormulation,
-    X <: Union{
-        DCPNetworkModel,
-        ACPNetworkModel,
-        ACRNetworkModel,
-        LPACCNetworkModel,
-        IVRNetworkModel,
-    },
+    X <: NativeNodalNetworkModel,
 }
     _add_both_terminals_to_nodal!(container, T, U, devices, network_model)
+    return
+end
+
+# The HVDC directional active flows (FromTo/ToFrom) reach the nodal balances of the
+# native nodal networks through the generic `PSY.Branch`/`PSY.ACBranch` directional-flow
+# methods above (−1.0 at the variable's own terminal); no HVDC-specific method is
+# needed. Under the AC natives the link is an active-power-only injector: nothing
+# enters `ReactivePowerBalance`.
+
+"""
+PWL received HVDC active power contribution to the nodal `ActivePowerBalance` for the
+native AC network models. Both received terminals contribute +1.0 at their own bus,
+mirroring the PTDF PWL wiring; the link offers no reactive power.
+"""
+function add_to_expression!(
+    container::OptimizationContainer,
+    ::Type{T},
+    ::Type{U},
+    devices::IS.FlattenIteratorWrapper{V},
+    ::DeviceModel{V, W},
+    network_model::NetworkModel{X},
+) where {
+    T <: ActivePowerBalance,
+    U <: Union{HVDCActivePowerReceivedFromVariable, HVDCActivePowerReceivedToVariable},
+    V <: PSY.TwoTerminalHVDC,
+    W <: HVDCTwoTerminalPiecewiseLoss,
+    X <: NativeACNetworkModel,
+}
+    _add_terminal_flow_to_nodal!(container, T, U, devices, network_model, 1.0)
     return
 end
 

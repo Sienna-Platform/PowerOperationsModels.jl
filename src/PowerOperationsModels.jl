@@ -249,6 +249,7 @@ include("common_models/objective_function.jl")
 include("common_models/add_parameters.jl")
 include("common_models/make_system_expressions.jl")
 include("common_models/reserve_range_constraints.jl")
+include("common_models/branch_rating_constraints.jl")
 include("common_models/quadratic_converter_loss.jl")
 include("common_models/network_conditional.jl")
 include("common_models/regulated_voltage.jl")
@@ -319,8 +320,6 @@ include("hybrid_system_models/hybrid_systems.jl")
 include("hybrid_system_models/hybridsystem_constructor.jl")
 
 # Two-Terminal HVDC Models
-# NOTE: AC_branches.jl and branch_constructor.jl in twoterminal_hvdc_models/ are
-# identical copies of the files in ac_transmission_models/ — do NOT include them.
 include("twoterminal_hvdc_models/TwoTerminalDC_branches.jl")
 include("twoterminal_hvdc_models/voltage_control_vsc_models.jl")
 

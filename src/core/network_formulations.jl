@@ -105,6 +105,36 @@ Devices inject P/Q unchanged (same as ACP/ACR); only the branch representation d
 """
 struct IVRNetworkModel <: AbstractIVRNetworkModel end
 
+# Native nodal formulations that build per-branch flow variables wired into the per-bus
+# balance expressions. Under an active network reduction these share one set of branch
+# variables/constraints per reduced arc (see network_models/network_reductions.jl).
+const NativeNodalNetworkModel = Union{
+    DCPNetworkModel,
+    DCPLLNetworkModel,
+    NFANetworkModel,
+    ACPNetworkModel,
+    ACRNetworkModel,
+    LPACCNetworkModel,
+    IVRNetworkModel,
+}
+
+# The subset of native nodal formulations that carry a reactive-power balance.
+const NativeACNetworkModel = Union{
+    ACPNetworkModel,
+    ACRNetworkModel,
+    LPACCNetworkModel,
+    IVRNetworkModel,
+}
+
+# Networks the LCC converter model supports: it needs an AC voltage-magnitude term
+# (directly under ACP, via the RegulatedVoltageMagnitude aux under ACR/IVR); LPACC's
+# linearized voltage has no compatible magnitude primitive.
+const LCCSupportedNetworkModel = Union{
+    ACPNetworkModel,
+    ACRNetworkModel,
+    IVRNetworkModel,
+}
+
 #################################################################################
 # Network-formulation capability traits (Holy traits)
 #

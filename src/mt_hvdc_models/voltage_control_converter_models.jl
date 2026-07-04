@@ -29,7 +29,7 @@ const _VoltageControlConverterACNetwork =
     Union{ACPNetworkModel, ACRNetworkModel, IVRNetworkModel}
 
 # The converter regulates its AC bus (get_bus), not its DC bus.
-_ic_regulated_buses(d::PSY.InterconnectingConverter) = [("1", PSY.get_bus(d))]
+_regulated_buses(d::PSY.InterconnectingConverter, bus_by_number) = [("1", PSY.get_bus(d))]
 
 # Apparent-power capability disk p² + q² ≤ rating² (one entry per converter per
 # time step). rating is a required InterconnectingConverter field, so always finite.
@@ -165,7 +165,7 @@ function construct_device!(
     # Component-owned aux magnitude var for ACR/IVR voltage regulation (no-op under
     # ACP); created regardless of ac_control mode for count-invariance.
     add_regulated_voltage_magnitude!(
-        container, devices, _ic_regulated_buses, network_model,
+        container, devices, sys, network_model,
     )
     add_feedforward_arguments!(container, model, devices)
     return
@@ -181,7 +181,7 @@ function construct_device!(
     devices = get_available_components(model, sys)
     _add_converter_dc_model!(container, devices, model, network_model)
     add_regulated_voltage_magnitude_constraints!(
-        container, devices, _ic_regulated_buses, network_model,
+        container, devices, sys, network_model,
     )
     _add_ic_apparent_power_limit!(container, devices, model, network_model)
     _apply_ic_control_objective!(container, devices, model, network_model)

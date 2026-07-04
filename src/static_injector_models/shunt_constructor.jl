@@ -54,7 +54,7 @@ function construct_device!(
     devices = get_available_components(model, sys)
     add_variables!(container, ShuntSusceptanceVariable, devices, ShuntSusceptanceDispatch)
     add_variables!(container, ReactivePowerVariable, devices, ShuntSusceptanceDispatch)
-    _add_shunt_regulated_voltage!(container, devices, network_model)
+    _add_shunt_regulated_voltage!(container, devices, sys, network_model)
     add_to_expression!(
         container,
         ReactivePowerBalance,
@@ -100,7 +100,7 @@ function construct_device!(
         model,
         network_model,
     )
-    _add_shunt_regulated_voltage_constraints!(container, devices, network_model)
+    _add_shunt_regulated_voltage_constraints!(container, devices, sys, network_model)
     _apply_shunt_control_objective!(container, devices, network_model)
     add_feedforward_constraints!(container, model, devices)
     return
@@ -143,6 +143,9 @@ function add_constraints!(
     v_arrays = _fetch_voltage_arrays(container, network_model)
     for (name, d) in zip(names, devices)
         bus_name = PSY.get_name(PSY.get_bus(d))
+        _assert_bus_has_voltage_variables(
+            v_arrays[1], bus_name, "connection bus of shunt $(name)",
+        )
         for t in time_steps
             v2 = _bus_voltage_squared(v_arrays, bus_name, t)
             cons[name, t] = JuMP.@constraint(jm, q[name, t] == b[name, t] * v2)
@@ -161,15 +164,16 @@ end
 # ACP and for SwitchedAdmittance these wrappers fall through to the shared no-op.
 #################################################################################
 
-_shunt_regulated_buses(d::PSY.FACTSControlDevice) = [("1", PSY.get_bus(d))]
+_regulated_buses(d::PSY.FACTSControlDevice, bus_by_number) = [("1", PSY.get_bus(d))]
 
 function _add_shunt_regulated_voltage!(
     container::OptimizationContainer,
     devices::IS.FlattenIteratorWrapper{PSY.FACTSControlDevice},
+    sys::PSY.System,
     network_model::NetworkModel{<:AbstractPowerModel},
 )
     add_regulated_voltage_magnitude!(
-        container, devices, _shunt_regulated_buses, network_model,
+        container, devices, sys, network_model,
     )
     return
 end
@@ -177,10 +181,11 @@ end
 function _add_shunt_regulated_voltage_constraints!(
     container::OptimizationContainer,
     devices::IS.FlattenIteratorWrapper{PSY.FACTSControlDevice},
+    sys::PSY.System,
     network_model::NetworkModel{<:AbstractPowerModel},
 )
     add_regulated_voltage_magnitude_constraints!(
-        container, devices, _shunt_regulated_buses, network_model,
+        container, devices, sys, network_model,
     )
     return
 end
@@ -190,6 +195,7 @@ end
 function _add_shunt_regulated_voltage!(
     ::OptimizationContainer,
     ::IS.FlattenIteratorWrapper,
+    ::PSY.System,
     ::NetworkModel{<:AbstractPowerModel},
 )
     return
@@ -198,6 +204,7 @@ end
 function _add_shunt_regulated_voltage_constraints!(
     ::OptimizationContainer,
     ::IS.FlattenIteratorWrapper,
+    ::PSY.System,
     ::NetworkModel{<:AbstractPowerModel},
 )
     return

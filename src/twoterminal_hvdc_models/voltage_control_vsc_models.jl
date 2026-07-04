@@ -9,7 +9,8 @@
 # HVDCDCControlConstraint per terminal per time step (always present regardless
 # of DC control mode), plus per-mode handling for AC control.
 #
-# DC control modes:
+# DC control modes (setpoints are per unit; positive power = withdrawn from the
+# AC network at the terminal, matching the flow variables' sign):
 #   DC_VOLTAGE:       vdc[t] == dc_setpoint
 #   DC_POWER:         p[t]   == dc_setpoint
 #   DC_VOLTAGE_DROOP: vdc[t] + droop_gain * p[t] == dc_setpoint
@@ -28,11 +29,12 @@
 function _add_vsc_regulated_voltage!(
     container::OptimizationContainer,
     devices::IS.FlattenIteratorWrapper{U},
+    sys::PSY.System,
     ::DeviceModel{U, VoltageControlVSC},
     network_model::NetworkModel{<:AbstractPowerModel},
 ) where {U <: PSY.TwoTerminalVSCLine}
     add_regulated_voltage_magnitude!(
-        container, devices, _vsc_regulated_buses, network_model,
+        container, devices, sys, network_model,
     )
     return
 end
@@ -40,6 +42,7 @@ end
 function _add_vsc_regulated_voltage!(
     ::OptimizationContainer,
     ::IS.FlattenIteratorWrapper{U},
+    ::PSY.System,
     ::DeviceModel{U, <:AbstractTwoTerminalVSCFormulation},
     ::NetworkModel{<:AbstractPowerModel},
 ) where {U <: PSY.TwoTerminalVSCLine}
@@ -50,11 +53,12 @@ end
 function _add_vsc_regulated_voltage_constraints!(
     container::OptimizationContainer,
     devices::IS.FlattenIteratorWrapper{U},
+    sys::PSY.System,
     ::DeviceModel{U, VoltageControlVSC},
     network_model::NetworkModel{<:AbstractPowerModel},
 ) where {U <: PSY.TwoTerminalVSCLine}
     add_regulated_voltage_magnitude_constraints!(
-        container, devices, _vsc_regulated_buses, network_model,
+        container, devices, sys, network_model,
     )
     return
 end
@@ -62,6 +66,7 @@ end
 function _add_vsc_regulated_voltage_constraints!(
     ::OptimizationContainer,
     ::IS.FlattenIteratorWrapper{U},
+    ::PSY.System,
     ::DeviceModel{U, <:AbstractTwoTerminalVSCFormulation},
     ::NetworkModel{<:AbstractPowerModel},
 ) where {U <: PSY.TwoTerminalVSCLine}
@@ -142,7 +147,7 @@ end
 
 # Both AC terminals are always declared as regulatable; tags "from" and "to" key
 # the per-terminal RegulatedVoltageMagnitude aux variables under ACR/IVR.
-function _vsc_regulated_buses(d::PSY.TwoTerminalVSCLine)
+function _regulated_buses(d::PSY.TwoTerminalVSCLine, bus_by_number)
     arc = PSY.get_arc(d)
     return [("from", PSY.get_from(arc)), ("to", PSY.get_to(arc))]
 end

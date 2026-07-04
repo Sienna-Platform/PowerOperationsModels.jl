@@ -23,6 +23,9 @@ function _fix_converter_ac_control!(
     time_steps,
 )
     if mode == PSY.VSCACControlModes.AC_VOLTAGE
+        _assert_bus_has_voltage_variables(
+            vm, bus_name, "AC-voltage-controlled terminal of converter $(name)",
+        )
         for t in time_steps
             JuMP.fix(vm[bus_name, t], setpoint; force = true)
         end

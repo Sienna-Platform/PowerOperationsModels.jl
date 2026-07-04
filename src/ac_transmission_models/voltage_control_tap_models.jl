@@ -133,24 +133,14 @@ function add_constraints!(
     qtf = get_variable(container, FlowReactivePowerToFromVariable, T)
 
     number_to_name = _retained_number_to_name(sys, network_model)
-    geoms = _branch_geometries(number_to_name, network_model, devices, T)
+    geoms =
+        _branch_geometries(number_to_name, network_model, devices, T, NetworkFlowConstraint)
     branch_names = [g.name for g in geoms]
-    cons_pft = add_constraints_container!(
-        container, NetworkFlowConstraint, T, branch_names, time_steps; meta = "p_ft",
-    )
-    cons_qft = add_constraints_container!(
-        container, NetworkFlowConstraint, T, branch_names, time_steps; meta = "q_ft",
-    )
-    cons_ptf = add_constraints_container!(
-        container, NetworkFlowConstraint, T, branch_names, time_steps; meta = "p_tf",
-    )
-    cons_qtf = add_constraints_container!(
-        container, NetworkFlowConstraint, T, branch_names, time_steps; meta = "q_tf",
-    )
+    cons_pft, cons_qft, cons_ptf, cons_qtf =
+        _add_flow_constraint_containers!(container, T, branch_names)
     jump_model = get_jump_model(container)
 
     for g_geom in geoms
-        g_geom.collapsed && continue
         name = g_geom.name
         adm = g_geom.adm
         g = adm.g
@@ -233,24 +223,14 @@ function add_constraints!(
     qtf = get_variable(container, FlowReactivePowerToFromVariable, T)
 
     number_to_name = _retained_number_to_name(sys, network_model)
-    geoms = _branch_geometries(number_to_name, network_model, devices, T)
+    geoms =
+        _branch_geometries(number_to_name, network_model, devices, T, NetworkFlowConstraint)
     branch_names = [g.name for g in geoms]
-    cons_pft = add_constraints_container!(
-        container, NetworkFlowConstraint, T, branch_names, time_steps; meta = "p_ft",
-    )
-    cons_qft = add_constraints_container!(
-        container, NetworkFlowConstraint, T, branch_names, time_steps; meta = "q_ft",
-    )
-    cons_ptf = add_constraints_container!(
-        container, NetworkFlowConstraint, T, branch_names, time_steps; meta = "p_tf",
-    )
-    cons_qtf = add_constraints_container!(
-        container, NetworkFlowConstraint, T, branch_names, time_steps; meta = "q_tf",
-    )
+    cons_pft, cons_qft, cons_ptf, cons_qtf =
+        _add_flow_constraint_containers!(container, T, branch_names)
     jump_model = get_jump_model(container)
 
     for g_geom in geoms
-        g_geom.collapsed && continue
         name = g_geom.name
         adm = g_geom.adm
         g = adm.g
@@ -356,7 +336,8 @@ function add_constraints!(
     csi = get_variable(container, BranchSeriesCurrentImaginary, T)
 
     number_to_name = _retained_number_to_name(sys, network_model)
-    geoms = _branch_geometries(number_to_name, network_model, devices, T)
+    geoms =
+        _branch_geometries(number_to_name, network_model, devices, T, NetworkFlowConstraint)
     branch_names = [g.name for g in geoms]
 
     cons_pft = add_constraints_container!(
@@ -392,7 +373,6 @@ function add_constraints!(
 
     jump_model = get_jump_model(container)
     for g_geom in geoms
-        g_geom.collapsed && continue
         name = g_geom.name
         adm = g_geom.adm
         g = adm.g
@@ -512,6 +492,14 @@ function _tap_regulated_bus_name(d::PSY.TapTransformer, geom, number_to_name)
     if iszero(reg)
         return geom.to_name
     end
+    if !haskey(number_to_name, reg)
+        error(
+            "TapTransformer $(PSY.get_name(d)) regulates bus number $(reg), which is \
+             not a retained bus — it does not exist or was absorbed by a network \
+             reduction. Fix the regulated_bus_number or exclude the bus from the \
+             reduction with a PNM reduction filter.",
+        )
+    end
     return number_to_name[reg]
 end
 
@@ -523,8 +511,17 @@ function _tap_regulated_bus(d::PSY.TapTransformer, bus_by_number)
     if iszero(reg)
         return PSY.get_to(PSY.get_arc(d))
     end
+    if !haskey(bus_by_number, reg)
+        error(
+            "TapTransformer $(PSY.get_name(d)) regulates bus number $(reg), which does \
+             not exist in the system. Fix the regulated_bus_number.",
+        )
+    end
     return bus_by_number[reg]
 end
+
+_regulated_buses(d::PSY.TapTransformer, bus_by_number) =
+    [("1", _tap_regulated_bus(d, bus_by_number))]
 
 # ACP: VOLTAGE pins the regulated-bus VoltageMagnitude; REACTIVE/ACTIVE_POWER_FLOW
 # pin the from-to terminal flow. Other objectives (UNDEFINED / disabled) free-float.
@@ -539,8 +536,10 @@ function _apply_tap_control_objective!(
     qft = get_variable(container, FlowReactivePowerFromToVariable, T)
     pft = get_variable(container, FlowActivePowerFromToVariable, T)
     number_to_name = _retained_number_to_name(sys, network_model)
-    geoms = _branch_geometries(number_to_name, network_model, devices, T)
-    for (d, geom) in zip(devices, geoms)
+    # Control objectives act on the device's own terminals; the reduction guard in the
+    # ArgumentConstructStage ensures every device here is a direct (un-aggregated) entry.
+    for d in devices
+        geom = _branch_geometry(d)
         name = geom.name
         objective = PSY.get_control_objective(d)
         if objective == PSY.TransformerControlObjective.VOLTAGE
@@ -603,16 +602,14 @@ function construct_device!(
     @debug "construct_device VoltageControlTap (ArgumentConstructStage)" _group =
         LOG_GROUP_BRANCH_CONSTRUCTIONS
     devices = get_available_components(device_model, sys)
+    _validate_controlled_branch_not_reduced(network_model, devices, "VoltageControlTap")
     add_variables!(container, TapRatioVariable, devices, VoltageControlTap)
     add_variables!(container, FlowActivePowerFromToVariable, devices, VoltageControlTap)
     add_variables!(container, FlowActivePowerToFromVariable, devices, VoltageControlTap)
     add_variables!(container, FlowReactivePowerFromToVariable, devices, VoltageControlTap)
     add_variables!(container, FlowReactivePowerToFromVariable, devices, VoltageControlTap)
-    bus_by_number = _bus_by_number(sys)
     add_regulated_voltage_magnitude!(
-        container, devices,
-        d -> [("1", _tap_regulated_bus(d, bus_by_number))],
-        network_model,
+        container, devices, sys, network_model,
     )
     add_to_expression!(
         container, ActivePowerBalance, FlowActivePowerFromToVariable,
@@ -656,11 +653,8 @@ function construct_device!(
     add_constraints!(
         container, sys, AngleDifferenceConstraint, devices, device_model, network_model,
     )
-    bus_by_number = _bus_by_number(sys)
     add_regulated_voltage_magnitude_constraints!(
-        container, devices,
-        d -> [("1", _tap_regulated_bus(d, bus_by_number))],
-        network_model,
+        container, devices, sys, network_model,
     )
     _apply_tap_control_objective!(container, sys, devices, network_model)
     add_feedforward_constraints!(container, device_model, devices)
@@ -685,22 +679,38 @@ function construct_device!(
     @debug "construct_device IVR VoltageControlTap (ArgumentConstructStage)" _group =
         LOG_GROUP_BRANCH_CONSTRUCTIONS
     devices = get_available_components(device_model, sys)
+    _validate_controlled_branch_not_reduced(network_model, devices, "VoltageControlTap")
     add_variables!(container, TapRatioVariable, devices, VoltageControlTap)
     add_variables!(container, FlowActivePowerFromToVariable, devices, VoltageControlTap)
     add_variables!(container, FlowActivePowerToFromVariable, devices, VoltageControlTap)
     add_variables!(container, FlowReactivePowerFromToVariable, devices, VoltageControlTap)
     add_variables!(container, FlowReactivePowerToFromVariable, devices, VoltageControlTap)
-    add_variables!(container, BranchCurrentFromToReal, devices, network_model)
-    add_variables!(container, BranchCurrentFromToImaginary, devices, network_model)
-    add_variables!(container, BranchCurrentToFromReal, devices, network_model)
-    add_variables!(container, BranchCurrentToFromImaginary, devices, network_model)
-    add_variables!(container, BranchSeriesCurrentReal, devices, network_model)
-    add_variables!(container, BranchSeriesCurrentImaginary, devices, network_model)
-    bus_by_number = _bus_by_number(sys)
-    add_regulated_voltage_magnitude!(
-        container, devices,
-        d -> [("1", _tap_regulated_bus(d, bus_by_number))],
+    add_variables!(container, BranchCurrentFromToReal, devices, device_model, network_model)
+    add_variables!(
+        container,
+        BranchCurrentFromToImaginary,
+        devices,
+        device_model,
         network_model,
+    )
+    add_variables!(container, BranchCurrentToFromReal, devices, device_model, network_model)
+    add_variables!(
+        container,
+        BranchCurrentToFromImaginary,
+        devices,
+        device_model,
+        network_model,
+    )
+    add_variables!(container, BranchSeriesCurrentReal, devices, device_model, network_model)
+    add_variables!(
+        container,
+        BranchSeriesCurrentImaginary,
+        devices,
+        device_model,
+        network_model,
+    )
+    add_regulated_voltage_magnitude!(
+        container, devices, sys, network_model,
     )
     add_to_expression!(
         container, ActivePowerBalance, FlowActivePowerFromToVariable,
@@ -747,11 +757,8 @@ function construct_device!(
     add_constraints!(
         container, sys, AngleDifferenceConstraint, devices, device_model, network_model,
     )
-    bus_by_number = _bus_by_number(sys)
     add_regulated_voltage_magnitude_constraints!(
-        container, devices,
-        d -> [("1", _tap_regulated_bus(d, bus_by_number))],
-        network_model,
+        container, devices, sys, network_model,
     )
     _apply_tap_control_objective!(container, sys, devices, network_model)
     add_feedforward_constraints!(container, device_model, devices)

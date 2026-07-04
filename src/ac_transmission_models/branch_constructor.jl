@@ -89,12 +89,14 @@ function construct_device!(
         add_variables!(
             container,
             FlowActivePowerSlackUpperBound,
+            network_model,
             devices,
             StaticBranch,
         )
         add_variables!(
             container,
             FlowActivePowerSlackLowerBound,
+            network_model,
             devices,
             StaticBranch,
         )
@@ -141,13 +143,43 @@ function construct_device!(
         LOG_GROUP_BRANCH_CONSTRUCTIONS
     devices = get_available_components(device_model, sys)
     # Create the four directional flow variables
-    add_variables!(container, FlowActivePowerFromToVariable, devices, StaticBranch)
-    add_variables!(container, FlowActivePowerToFromVariable, devices, StaticBranch)
-    add_variables!(container, FlowReactivePowerFromToVariable, devices, StaticBranch)
-    add_variables!(container, FlowReactivePowerToFromVariable, devices, StaticBranch)
+    add_variables!(
+        container,
+        FlowActivePowerFromToVariable,
+        network_model,
+        devices,
+        StaticBranch,
+    )
+    add_variables!(
+        container,
+        FlowActivePowerToFromVariable,
+        network_model,
+        devices,
+        StaticBranch,
+    )
+    add_variables!(
+        container,
+        FlowReactivePowerFromToVariable,
+        network_model,
+        devices,
+        StaticBranch,
+    )
+    add_variables!(
+        container,
+        FlowReactivePowerToFromVariable,
+        network_model,
+        devices,
+        StaticBranch,
+    )
     if get_use_slacks(device_model)
         # Only one slack is needed for apparent-power formulations in AC
-        add_variables!(container, FlowActivePowerSlackUpperBound, devices, StaticBranch)
+        add_variables!(
+            container,
+            FlowActivePowerSlackUpperBound,
+            network_model,
+            devices,
+            StaticBranch,
+        )
     end
     # Wire flow variables to nodal balance expressions
     add_to_expression!(
@@ -236,10 +268,34 @@ function construct_device!(
         )
     end
     devices = get_available_components(device_model, sys)
-    add_variables!(container, FlowActivePowerFromToVariable, devices, StaticBranchBounds)
-    add_variables!(container, FlowActivePowerToFromVariable, devices, StaticBranchBounds)
-    add_variables!(container, FlowReactivePowerFromToVariable, devices, StaticBranchBounds)
-    add_variables!(container, FlowReactivePowerToFromVariable, devices, StaticBranchBounds)
+    add_variables!(
+        container,
+        FlowActivePowerFromToVariable,
+        network_model,
+        devices,
+        StaticBranchBounds,
+    )
+    add_variables!(
+        container,
+        FlowActivePowerToFromVariable,
+        network_model,
+        devices,
+        StaticBranchBounds,
+    )
+    add_variables!(
+        container,
+        FlowReactivePowerFromToVariable,
+        network_model,
+        devices,
+        StaticBranchBounds,
+    )
+    add_variables!(
+        container,
+        FlowReactivePowerToFromVariable,
+        network_model,
+        devices,
+        StaticBranchBounds,
+    )
     add_to_expression!(
         container, ActivePowerBalance, FlowActivePowerFromToVariable,
         devices, device_model, network_model,
@@ -313,12 +369,42 @@ function construct_device!(
     @debug "construct_device ACR StaticBranch (ArgumentConstructStage)" _group =
         LOG_GROUP_BRANCH_CONSTRUCTIONS
     devices = get_available_components(device_model, sys)
-    add_variables!(container, FlowActivePowerFromToVariable, devices, StaticBranch)
-    add_variables!(container, FlowActivePowerToFromVariable, devices, StaticBranch)
-    add_variables!(container, FlowReactivePowerFromToVariable, devices, StaticBranch)
-    add_variables!(container, FlowReactivePowerToFromVariable, devices, StaticBranch)
+    add_variables!(
+        container,
+        FlowActivePowerFromToVariable,
+        network_model,
+        devices,
+        StaticBranch,
+    )
+    add_variables!(
+        container,
+        FlowActivePowerToFromVariable,
+        network_model,
+        devices,
+        StaticBranch,
+    )
+    add_variables!(
+        container,
+        FlowReactivePowerFromToVariable,
+        network_model,
+        devices,
+        StaticBranch,
+    )
+    add_variables!(
+        container,
+        FlowReactivePowerToFromVariable,
+        network_model,
+        devices,
+        StaticBranch,
+    )
     if get_use_slacks(device_model)
-        add_variables!(container, FlowActivePowerSlackUpperBound, devices, StaticBranch)
+        add_variables!(
+            container,
+            FlowActivePowerSlackUpperBound,
+            network_model,
+            devices,
+            StaticBranch,
+        )
     end
     add_to_expression!(
         container, ActivePowerBalance, FlowActivePowerFromToVariable,
@@ -450,13 +536,43 @@ function construct_device!(
     @debug "construct_device LPACC StaticBranch (ArgumentConstructStage)" _group =
         LOG_GROUP_BRANCH_CONSTRUCTIONS
     devices = get_available_components(device_model, sys)
-    add_variables!(container, FlowActivePowerFromToVariable, devices, StaticBranch)
-    add_variables!(container, FlowActivePowerToFromVariable, devices, StaticBranch)
-    add_variables!(container, FlowReactivePowerFromToVariable, devices, StaticBranch)
-    add_variables!(container, FlowReactivePowerToFromVariable, devices, StaticBranch)
+    add_variables!(
+        container,
+        FlowActivePowerFromToVariable,
+        network_model,
+        devices,
+        StaticBranch,
+    )
+    add_variables!(
+        container,
+        FlowActivePowerToFromVariable,
+        network_model,
+        devices,
+        StaticBranch,
+    )
+    add_variables!(
+        container,
+        FlowReactivePowerFromToVariable,
+        network_model,
+        devices,
+        StaticBranch,
+    )
+    add_variables!(
+        container,
+        FlowReactivePowerToFromVariable,
+        network_model,
+        devices,
+        StaticBranch,
+    )
     add_variables!(container, CosineApproximation, devices, network_model)
     if get_use_slacks(device_model)
-        add_variables!(container, FlowActivePowerSlackUpperBound, devices, StaticBranch)
+        add_variables!(
+            container,
+            FlowActivePowerSlackUpperBound,
+            network_model,
+            devices,
+            StaticBranch,
+        )
     end
     add_to_expression!(
         container, ActivePowerBalance, FlowActivePowerFromToVariable,
@@ -543,18 +659,66 @@ function construct_device!(
     @debug "construct_device IVR StaticBranch (ArgumentConstructStage)" _group =
         LOG_GROUP_BRANCH_CONSTRUCTIONS
     devices = get_available_components(device_model, sys)
-    add_variables!(container, FlowActivePowerFromToVariable, devices, StaticBranch)
-    add_variables!(container, FlowActivePowerToFromVariable, devices, StaticBranch)
-    add_variables!(container, FlowReactivePowerFromToVariable, devices, StaticBranch)
-    add_variables!(container, FlowReactivePowerToFromVariable, devices, StaticBranch)
-    add_variables!(container, BranchCurrentFromToReal, devices, network_model)
-    add_variables!(container, BranchCurrentFromToImaginary, devices, network_model)
-    add_variables!(container, BranchCurrentToFromReal, devices, network_model)
-    add_variables!(container, BranchCurrentToFromImaginary, devices, network_model)
-    add_variables!(container, BranchSeriesCurrentReal, devices, network_model)
-    add_variables!(container, BranchSeriesCurrentImaginary, devices, network_model)
+    add_variables!(
+        container,
+        FlowActivePowerFromToVariable,
+        network_model,
+        devices,
+        StaticBranch,
+    )
+    add_variables!(
+        container,
+        FlowActivePowerToFromVariable,
+        network_model,
+        devices,
+        StaticBranch,
+    )
+    add_variables!(
+        container,
+        FlowReactivePowerFromToVariable,
+        network_model,
+        devices,
+        StaticBranch,
+    )
+    add_variables!(
+        container,
+        FlowReactivePowerToFromVariable,
+        network_model,
+        devices,
+        StaticBranch,
+    )
+    add_variables!(container, BranchCurrentFromToReal, devices, device_model, network_model)
+    add_variables!(
+        container,
+        BranchCurrentFromToImaginary,
+        devices,
+        device_model,
+        network_model,
+    )
+    add_variables!(container, BranchCurrentToFromReal, devices, device_model, network_model)
+    add_variables!(
+        container,
+        BranchCurrentToFromImaginary,
+        devices,
+        device_model,
+        network_model,
+    )
+    add_variables!(container, BranchSeriesCurrentReal, devices, device_model, network_model)
+    add_variables!(
+        container,
+        BranchSeriesCurrentImaginary,
+        devices,
+        device_model,
+        network_model,
+    )
     if get_use_slacks(device_model)
-        add_variables!(container, FlowActivePowerSlackUpperBound, devices, StaticBranch)
+        add_variables!(
+            container,
+            FlowActivePowerSlackUpperBound,
+            network_model,
+            devices,
+            StaticBranch,
+        )
     end
     add_to_expression!(
         container, ActivePowerBalance, FlowActivePowerFromToVariable,
@@ -659,12 +823,30 @@ function construct_device!(
     add_variables!(
         container, FlowReactivePowerToFromVariable, devices, StaticBranchBounds,
     )
-    add_variables!(container, BranchCurrentFromToReal, devices, network_model)
-    add_variables!(container, BranchCurrentFromToImaginary, devices, network_model)
-    add_variables!(container, BranchCurrentToFromReal, devices, network_model)
-    add_variables!(container, BranchCurrentToFromImaginary, devices, network_model)
-    add_variables!(container, BranchSeriesCurrentReal, devices, network_model)
-    add_variables!(container, BranchSeriesCurrentImaginary, devices, network_model)
+    add_variables!(container, BranchCurrentFromToReal, devices, device_model, network_model)
+    add_variables!(
+        container,
+        BranchCurrentFromToImaginary,
+        devices,
+        device_model,
+        network_model,
+    )
+    add_variables!(container, BranchCurrentToFromReal, devices, device_model, network_model)
+    add_variables!(
+        container,
+        BranchCurrentToFromImaginary,
+        devices,
+        device_model,
+        network_model,
+    )
+    add_variables!(container, BranchSeriesCurrentReal, devices, device_model, network_model)
+    add_variables!(
+        container,
+        BranchSeriesCurrentImaginary,
+        devices,
+        device_model,
+        network_model,
+    )
     add_to_expression!(
         container, ActivePowerBalance, FlowActivePowerFromToVariable,
         devices, device_model, network_model,
@@ -734,10 +916,22 @@ function construct_device!(
     @debug "construct_device DCP (ArgumentConstructStage)" _group =
         LOG_GROUP_BRANCH_CONSTRUCTIONS
     devices = get_available_components(device_model, sys)
-    add_variables!(container, FlowActivePowerVariable, devices, StaticBranch)
+    add_variables!(container, FlowActivePowerVariable, network_model, devices, StaticBranch)
     if get_use_slacks(device_model)
-        add_variables!(container, FlowActivePowerSlackUpperBound, devices, StaticBranch)
-        add_variables!(container, FlowActivePowerSlackLowerBound, devices, StaticBranch)
+        add_variables!(
+            container,
+            FlowActivePowerSlackUpperBound,
+            network_model,
+            devices,
+            StaticBranch,
+        )
+        add_variables!(
+            container,
+            FlowActivePowerSlackLowerBound,
+            network_model,
+            devices,
+            StaticBranch,
+        )
     end
     add_to_expression!(
         container,
@@ -807,10 +1001,22 @@ function construct_device!(
     @debug "construct_device TapControl DCP (ArgumentConstructStage)" _group =
         LOG_GROUP_BRANCH_CONSTRUCTIONS
     devices = get_available_components(device_model, sys)
-    add_variables!(container, FlowActivePowerVariable, devices, TapControl)
+    add_variables!(container, FlowActivePowerVariable, network_model, devices, TapControl)
     if get_use_slacks(device_model)
-        add_variables!(container, FlowActivePowerSlackUpperBound, devices, TapControl)
-        add_variables!(container, FlowActivePowerSlackLowerBound, devices, TapControl)
+        add_variables!(
+            container,
+            FlowActivePowerSlackUpperBound,
+            network_model,
+            devices,
+            TapControl,
+        )
+        add_variables!(
+            container,
+            FlowActivePowerSlackLowerBound,
+            network_model,
+            devices,
+            TapControl,
+        )
     end
     add_to_expression!(
         container,
@@ -881,10 +1087,22 @@ function construct_device!(
     @debug "construct_device NFA (ArgumentConstructStage)" _group =
         LOG_GROUP_BRANCH_CONSTRUCTIONS
     devices = get_available_components(device_model, sys)
-    add_variables!(container, FlowActivePowerVariable, devices, StaticBranch)
+    add_variables!(container, FlowActivePowerVariable, network_model, devices, StaticBranch)
     if get_use_slacks(device_model)
-        add_variables!(container, FlowActivePowerSlackUpperBound, devices, StaticBranch)
-        add_variables!(container, FlowActivePowerSlackLowerBound, devices, StaticBranch)
+        add_variables!(
+            container,
+            FlowActivePowerSlackUpperBound,
+            network_model,
+            devices,
+            StaticBranch,
+        )
+        add_variables!(
+            container,
+            FlowActivePowerSlackLowerBound,
+            network_model,
+            devices,
+            StaticBranch,
+        )
     end
     add_to_expression!(
         container,
@@ -949,9 +1167,41 @@ function construct_device!(
     @debug "construct_device DCPLL (ArgumentConstructStage)" _group =
         LOG_GROUP_BRANCH_CONSTRUCTIONS
     devices = get_available_components(device_model, sys)
-    add_variables!(container, FlowActivePowerFromToVariable, devices, StaticBranch)
-    add_variables!(container, FlowActivePowerToFromVariable, devices, StaticBranch)
-    _set_dcpll_flow_bounds!(container, sys, devices, network_model)
+    add_variables!(
+        container,
+        FlowActivePowerFromToVariable,
+        network_model,
+        devices,
+        StaticBranch,
+    )
+    add_variables!(
+        container,
+        FlowActivePowerToFromVariable,
+        network_model,
+        devices,
+        StaticBranch,
+    )
+    # Slacks turn the rating into a soft limit, so the two enforcement styles are
+    # mutually exclusive: hard variable bounds without slacks (tighter QCP), slacked
+    # FlowRateConstraint pairs (ModelConstructStage) with them.
+    if get_use_slacks(device_model)
+        add_variables!(
+            container,
+            FlowActivePowerSlackUpperBound,
+            network_model,
+            devices,
+            StaticBranch,
+        )
+        add_variables!(
+            container,
+            FlowActivePowerSlackLowerBound,
+            network_model,
+            devices,
+            StaticBranch,
+        )
+    else
+        _set_dcpll_flow_bounds!(container, sys, devices, device_model, network_model)
+    end
     add_to_expression!(
         container, ActivePowerBalance, FlowActivePowerFromToVariable,
         devices, device_model, network_model,
@@ -980,6 +1230,7 @@ function construct_device!(
     @debug "construct_device DCPLL (ModelConstructStage)" _group =
         LOG_GROUP_BRANCH_CONSTRUCTIONS
     devices = get_available_components(device_model, sys)
+    add_constraints!(container, FlowRateConstraint, devices, device_model, network_model)
     add_constraints!(
         container, sys, NetworkFlowConstraint, devices, device_model, network_model,
     )
@@ -1011,17 +1262,25 @@ function construct_device!(
     @debug "construct_device DCP StaticBranchBounds (ArgumentConstructStage)" _group =
         LOG_GROUP_BRANCH_CONSTRUCTIONS
     devices = get_available_components(device_model, sys)
-    add_variables!(container, FlowActivePowerVariable, devices, StaticBranchBounds)
+    add_variables!(
+        container,
+        FlowActivePowerVariable,
+        network_model,
+        devices,
+        StaticBranchBounds,
+    )
     if get_use_slacks(device_model)
         add_variables!(
             container,
             FlowActivePowerSlackUpperBound,
+            network_model,
             devices,
             StaticBranchBounds,
         )
         add_variables!(
             container,
             FlowActivePowerSlackLowerBound,
+            network_model,
             devices,
             StaticBranchBounds,
         )
@@ -1419,14 +1678,120 @@ function construct_device!(
     return
 end
 
+# DCP/NFA/DCPLL HVDC ArgumentConstructStage: unbounded active scalar wired into
+# ActivePowerBalance at both terminals. Mirrors HVDCTwoTerminalLossless; the difference
+# is the ModelConstructStage, which adds no FlowRateConstraint.
 function construct_device!(
     container::OptimizationContainer,
     sys::PSY.System,
     ::ArgumentConstructStage,
     device_model::DeviceModel{T, HVDCTwoTerminalUnbounded},
-    ::NetworkModel{<:AbstractPowerModel},
+    network_model::NetworkModel{
+        <:Union{DCPNetworkModel, NFANetworkModel, DCPLLNetworkModel},
+    },
 ) where {T <: PSY.TwoTerminalHVDC}
     devices = get_available_components(device_model, sys)
+    add_variables!(container, FlowActivePowerVariable, devices, HVDCTwoTerminalUnbounded)
+    add_to_expression!(
+        container,
+        ActivePowerBalance,
+        FlowActivePowerVariable,
+        devices,
+        device_model,
+        network_model,
+    )
+    add_feedforward_arguments!(container, device_model, devices)
+    return
+end
+
+# ACPNetworkModel HVDC ArgumentConstructStage: unbounded active scalar plus directional
+# reactive flow variables, wired into ActivePowerBalance and ReactivePowerBalance.
+# Mirrors HVDCTwoTerminalLossless; only the (absent) rate constraints differ.
+function construct_device!(
+    container::OptimizationContainer,
+    sys::PSY.System,
+    ::ArgumentConstructStage,
+    device_model::DeviceModel{T, HVDCTwoTerminalUnbounded},
+    network_model::NetworkModel{ACPNetworkModel},
+) where {T <: PSY.TwoTerminalHVDC}
+    devices = get_available_components(device_model, sys)
+    add_variables!(container, FlowActivePowerVariable, devices, HVDCTwoTerminalUnbounded)
+    add_variables!(
+        container, FlowReactivePowerFromToVariable, devices, HVDCTwoTerminalUnbounded,
+    )
+    add_variables!(
+        container, FlowReactivePowerToFromVariable, devices, HVDCTwoTerminalUnbounded,
+    )
+    add_to_expression!(
+        container,
+        ActivePowerBalance,
+        FlowActivePowerVariable,
+        devices,
+        device_model,
+        network_model,
+    )
+    add_to_expression!(
+        container,
+        ReactivePowerBalance,
+        FlowReactivePowerFromToVariable,
+        devices,
+        device_model,
+        network_model,
+    )
+    add_to_expression!(
+        container,
+        ReactivePowerBalance,
+        FlowReactivePowerToFromVariable,
+        devices,
+        device_model,
+        network_model,
+    )
+    add_feedforward_arguments!(container, device_model, devices)
+    return
+end
+
+# ACR/LPACC/IVR HVDC ArgumentConstructStage: same variable set and wiring as ACP.
+function construct_device!(
+    container::OptimizationContainer,
+    sys::PSY.System,
+    ::ArgumentConstructStage,
+    device_model::DeviceModel{T, HVDCTwoTerminalUnbounded},
+    network_model::NetworkModel{
+        <:Union{ACRNetworkModel, LPACCNetworkModel, IVRNetworkModel},
+    },
+) where {T <: PSY.TwoTerminalHVDC}
+    devices = get_available_components(device_model, sys)
+    add_variables!(container, FlowActivePowerVariable, devices, HVDCTwoTerminalUnbounded)
+    add_variables!(
+        container, FlowReactivePowerFromToVariable, devices, HVDCTwoTerminalUnbounded,
+    )
+    add_variables!(
+        container, FlowReactivePowerToFromVariable, devices, HVDCTwoTerminalUnbounded,
+    )
+    add_to_expression!(
+        container,
+        ActivePowerBalance,
+        FlowActivePowerVariable,
+        devices,
+        device_model,
+        network_model,
+    )
+    add_to_expression!(
+        container,
+        ReactivePowerBalance,
+        FlowReactivePowerFromToVariable,
+        devices,
+        device_model,
+        network_model,
+    )
+    add_to_expression!(
+        container,
+        ReactivePowerBalance,
+        FlowReactivePowerToFromVariable,
+        devices,
+        device_model,
+        network_model,
+    )
     add_feedforward_arguments!(container, device_model, devices)
     return
 end
@@ -1579,18 +1944,6 @@ function construct_device!(
     devices = get_available_components(device_model, sys)
     add_constraint_dual!(container, sys, device_model)
     add_feedforward_constraints!(container, device_model, devices)
-    return
-end
-
-function construct_device!(
-    container::OptimizationContainer,
-    sys::PSY.System,
-    ::ArgumentConstructStage,
-    device_model::DeviceModel{T, HVDCTwoTerminalLossless},
-    ::NetworkModel{<:AbstractPowerModel},
-) where {T <: PSY.TwoTerminalHVDC}
-    devices = get_available_components(device_model, sys)
-    add_feedforward_arguments!(container, device_model, devices)
     return
 end
 
@@ -1796,12 +2149,15 @@ function construct_device!(
     return
 end
 
+# The AC natives take the same path as the DC natives: the HVDC link is an
+# active-power-only injector (no reactive offer), so only the directional active
+# flow variables are created and wired.
 function construct_device!(
     container::OptimizationContainer,
     sys::PSY.System,
     ::ArgumentConstructStage,
     device_model::DeviceModel{T, HVDCTwoTerminalDispatch},
-    network_model::NetworkModel{<:AbstractActivePowerModel},
+    network_model::NetworkModel{<:Union{AbstractActivePowerModel, NativeACNetworkModel}},
 ) where {T <: PSY.TwoTerminalHVDC}
     devices = get_available_components(device_model, sys)
     add_variables!(
@@ -1946,47 +2302,50 @@ function construct_device!(
     return
 end
 
-# TODO: Other models besides PTDF
-#=
+# The AC natives model the PWL-loss HVDC link as an active-power-only injector: the
+# received-power variables and PWL loss segments are identical to the PTDF path, wired
+# into the nodal ActivePowerBalance only (no reactive offer).
 function construct_device!(
     container::OptimizationContainer,
     sys::PSY.System,
     ::ArgumentConstructStage,
-    model::DeviceModel{T, HVDCTwoTerminalPiecewiseLoss},
-    network_model::NetworkModel{<:AbstractActivePowerModel},
-) where {T <: PSY.TwoTerminalHVDC}
-    devices =
-        get_available_components(model, sys)
+    device_model::DeviceModel{T, U},
+    network_model::NetworkModel{<:NativeACNetworkModel},
+) where {
+    T <: PSY.TwoTerminalHVDC,
+    U <: HVDCTwoTerminalPiecewiseLoss,
+}
+    devices = get_available_components(device_model, sys)
     add_variables!(
         container,
-        FlowActivePowerToFromVariable,
+        HVDCActivePowerReceivedFromVariable,
         devices,
-        HVDCTwoTerminalDispatch,
+        HVDCTwoTerminalPiecewiseLoss,
     )
     add_variables!(
         container,
-        FlowActivePowerFromToVariable,
+        HVDCActivePowerReceivedToVariable,
         devices,
-        HVDCTwoTerminalDispatch,
+        HVDCTwoTerminalPiecewiseLoss,
     )
-    add_variables!(container, HVDCFlowDirectionVariable, devices, HVDCTwoTerminalDispatch)
+    _add_sparse_pwl_loss_variables!(container, devices, device_model)
     add_to_expression!(
         container,
         ActivePowerBalance,
-        FlowActivePowerToFromVariable,
+        HVDCActivePowerReceivedFromVariable,
         devices,
-        model,
+        device_model,
         network_model,
     )
     add_to_expression!(
         container,
         ActivePowerBalance,
-        FlowActivePowerFromToVariable,
+        HVDCActivePowerReceivedToVariable,
         devices,
-        model,
+        device_model,
         network_model,
     )
-    add_feedforward_arguments!(container, model, devices)
+    add_feedforward_arguments!(container, device_model, devices)
     return
 end
 
@@ -1994,25 +2353,44 @@ function construct_device!(
     container::OptimizationContainer,
     sys::PSY.System,
     ::ModelConstructStage,
-    model::DeviceModel{T, HVDCTwoTerminalPiecewiseLoss},
-    network_model::NetworkModel{CopperPlateNetworkModel},
-) where {T <: PSY.TwoTerminalHVDC}
-    devices =
-        get_available_components(model, sys)
-    @warn "CopperPlateNetworkModel models with HVDC ignores inter-area losses"
-    add_constraints!(container, FlowRateConstraintFromTo, devices, model, network_model)
-    add_constraints!(container, FlowRateConstraintToFrom, devices, model, network_model)
-    add_constraint_dual!(container, sys, model)
+    device_model::DeviceModel{T, U},
+    network_model::NetworkModel{<:NativeACNetworkModel},
+) where {
+    T <: PSY.TwoTerminalHVDC,
+    U <: HVDCTwoTerminalPiecewiseLoss,
+}
+    devices = get_available_components(device_model, sys)
+    add_constraints!(
+        container,
+        FlowRateConstraintFromTo,
+        devices,
+        device_model,
+        network_model,
+    )
+    add_constraints!(
+        container,
+        FlowRateConstraintToFrom,
+        devices,
+        device_model,
+        network_model,
+    )
+    add_constraints!(
+        container,
+        HVDCFlowCalculationConstraint,
+        devices,
+        device_model,
+        network_model,
+    )
+    add_feedforward_constraints!(container, device_model, devices)
     return
 end
-=#
 
 function construct_device!(
     container::OptimizationContainer,
     sys::PSY.System,
     ::ModelConstructStage,
     device_model::DeviceModel{T, HVDCTwoTerminalDispatch},
-    network_model::NetworkModel{<:AbstractActivePowerModel},
+    network_model::NetworkModel{<:Union{AbstractActivePowerModel, NativeACNetworkModel}},
 ) where {T <: PSY.TwoTerminalHVDC}
     devices = get_available_components(device_model, sys)
     add_constraints!(
@@ -2042,9 +2420,12 @@ function construct_device!(
     sys::PSY.System,
     ::ArgumentConstructStage,
     device_model::DeviceModel{T, HVDCTwoTerminalLCC},
-    network_model::NetworkModel{<:ACPNetworkModel},
+    network_model::NetworkModel{<:LCCSupportedNetworkModel},
 ) where {T <: PSY.TwoTerminalLCCLine}
     devices = get_available_components(device_model, sys)
+    # Per-terminal voltage-magnitude aux for the converter equations under ACR/IVR
+    # (tags "from"/"to"); no-op under ACP, where the network VoltageMagnitude is used.
+    add_regulated_voltage_magnitude!(container, devices, sys, network_model)
 
     # Variables
     add_variables!(
@@ -2193,9 +2574,10 @@ function construct_device!(
     sys::PSY.System,
     ::ModelConstructStage,
     device_model::DeviceModel{T, HVDCTwoTerminalLCC},
-    network_model::NetworkModel{<:ACPNetworkModel},
+    network_model::NetworkModel{<:LCCSupportedNetworkModel},
 ) where {T <: PSY.TwoTerminalLCCLine}
     devices = get_available_components(device_model, sys)
+    add_regulated_voltage_magnitude_constraints!(container, devices, sys, network_model)
     add_constraints!(
         container,
         HVDCRectifierDCLineVoltageConstraint,
@@ -2286,6 +2668,7 @@ function construct_device!(
     network_model::NetworkModel{DCPNetworkModel},
 )
     devices = get_available_components(device_model, sys)
+    _validate_controlled_branch_not_reduced(network_model, devices, "PhaseAngleControl")
     add_variables!(container, FlowActivePowerVariable, devices, PhaseAngleControl)
     add_variables!(container, PhaseShifterAngle, devices, PhaseAngleControl)
     add_to_expression!(
@@ -2744,7 +3127,7 @@ function construct_device!(
         (HVDCReactivePowerFromVariable, HVDCReactivePowerToVariable),
     )
 
-    _add_vsc_regulated_voltage!(container, devices, device_model, network_model)
+    _add_vsc_regulated_voltage!(container, devices, sys, device_model, network_model)
 
     _add_vsc_loss_current_variables!(container, devices, device_model, network_model)
 
@@ -2829,7 +3212,7 @@ function construct_device!(
     )
 
     _add_vsc_regulated_voltage_constraints!(
-        container, devices, device_model, network_model,
+        container, devices, sys, device_model, network_model,
     )
     _apply_vsc_control_objective!(container, devices, device_model, network_model)
 
