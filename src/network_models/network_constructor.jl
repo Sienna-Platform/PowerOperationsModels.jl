@@ -91,7 +91,7 @@ end
 function construct_network!(
     container::OptimizationContainer,
     sys::PSY.System,
-    model::NetworkModel{<:AbstractPowerModel},
+    model::NetworkModel{<:AbstractNetworkModel},
     ::PowerOperationsProblemTemplate,
     ::ArgumentConstructStage,
 )
@@ -251,7 +251,7 @@ function construct_network!(
     ::NetworkModel{T},
     ::PowerOperationsProblemTemplate,
     ::ModelConstructStage,
-) where {T <: AbstractPowerModel}
+) where {T <: AbstractNetworkModel}
     error(
         "Network formulation $(T) is not supported. Supported native formulations: \
         CopperPlateNetworkModel, AreaBalanceNetworkModel, PTDFNetworkModel, AreaPTDFNetworkModel, \

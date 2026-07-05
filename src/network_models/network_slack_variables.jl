@@ -1,8 +1,8 @@
 #! format: off
 get_variable_multiplier(::Type{SystemBalanceSlackUp}, ::Type{<: Union{PSY.ACBus, PSY.Area, PSY.System}}, ::Type{<:AbstractDeviceFormulation}) = 1.0
 get_variable_multiplier(::Type{SystemBalanceSlackDown}, ::Type{<: Union{PSY.ACBus, PSY.Area, PSY.System}}, ::Type{<:AbstractDeviceFormulation}) = -1.0
-get_variable_multiplier(::Type{SystemBalanceSlackUp}, ::Type{<: Union{PSY.ACBus, PSY.Area, PSY.System}}, ::Type{<:AbstractPowerModel}) = 1.0
-get_variable_multiplier(::Type{SystemBalanceSlackDown}, ::Type{<: Union{PSY.ACBus, PSY.Area, PSY.System}}, ::Type{<:AbstractPowerModel}) = -1.0
+get_variable_multiplier(::Type{SystemBalanceSlackUp}, ::Type{<: Union{PSY.ACBus, PSY.Area, PSY.System}}, ::Type{<:AbstractNetworkModel}) = 1.0
+get_variable_multiplier(::Type{SystemBalanceSlackDown}, ::Type{<: Union{PSY.ACBus, PSY.Area, PSY.System}}, ::Type{<:AbstractNetworkModel}) = -1.0
 #! format: on
 
 function add_variables!(
@@ -90,7 +90,7 @@ function add_variables!(
     network_model::NetworkModel{U},
 ) where {
     T <: Union{SystemBalanceSlackUp, SystemBalanceSlackDown},
-    U <: AbstractPowerModel,
+    U <: AbstractNetworkModel,
 }
     time_steps = get_time_steps(container)
     network_reduction = get_network_reduction(network_model)
@@ -178,7 +178,7 @@ function add_to_objective_function!(
     container::OptimizationContainer,
     sys::PSY.System,
     network_model::NetworkModel{T},
-) where {T <: AbstractPowerModel}
+) where {T <: AbstractNetworkModel}
     variable_p_up = get_variable(container, SystemBalanceSlackUp, PSY.ACBus, "P")
     variable_p_dn = get_variable(container, SystemBalanceSlackDown, PSY.ACBus, "P")
     variable_q_up = get_variable(container, SystemBalanceSlackUp, PSY.ACBus, "Q")

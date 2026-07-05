@@ -21,7 +21,7 @@ _system_expression_type(::Type{AreaBalanceNetworkModel}) = PSY.Area
 # methods below differ; the `_add_*_to_balance!` helpers pair this resolver with a
 # per-device term and share `_apply_term_to_targets!` for the inner write, keeping the
 # device/time loop short. Dispatch is on disjoint network-model subtrees, so no ambiguity:
-#   - <:AbstractPowerModel        -> nodal bus only      (default AC models; also the
+#   - <:AbstractNetworkModel        -> nodal bus only      (default AC models; also the
 #                                                         security-constrained PTDF
 #                                                         variants, matching prior
 #                                                         variable-method behavior)
@@ -33,7 +33,7 @@ _system_expression_type(::Type{AreaBalanceNetworkModel}) = PSY.Area
 function _balance_expression_targets(
     container::OptimizationContainer,
     ::Type{T},
-    network_model::NetworkModel{<:AbstractPowerModel},
+    network_model::NetworkModel{<:AbstractNetworkModel},
     d::PSY.Component,
 ) where {T <: ExpressionType}
     bus_no =
@@ -642,7 +642,7 @@ function add_to_expression!(
     U <: TimeSeriesParameter,
     V <: PSY.Device,
     W <: AbstractDeviceFormulation,
-    X <: AbstractPowerModel,
+    X <: AbstractNetworkModel,
 }
     _add_ts_parameter_to_balance!(container, T, U, devices, network_model, model)
     return
@@ -663,7 +663,7 @@ function add_to_expression!(
     U <: TimeSeriesParameter,
     V <: PSY.ElectricLoad,
     W <: AbstractLoadFormulation,
-    X <: AbstractPowerModel,
+    X <: AbstractNetworkModel,
 }
     _add_load_ts_parameter_to_balance!(container, T, U, devices, network_model, model)
     return
@@ -684,7 +684,7 @@ function add_to_expression!(
     U <: ActivePowerTimeSeriesParameter,
     V <: PSY.MotorLoad,
     W <: StaticPowerLoad,
-    X <: AbstractPowerModel,
+    X <: AbstractNetworkModel,
 }
     _add_constant_power_to_balance!(
         container,
@@ -792,7 +792,7 @@ function add_to_expression!(
     U <: OnStatusParameter,
     V <: PSY.ThermalGen,
     W <: AbstractDeviceFormulation,
-    X <: AbstractPowerModel,
+    X <: AbstractNetworkModel,
 }
     _add_onstatus_parameter_to_balance!(container, T, U, devices, network_model, model)
     return
@@ -813,7 +813,7 @@ function add_to_expression!(
     U <: VariableType,
     V <: PSY.StaticInjection,
     W <: AbstractDeviceFormulation,
-    X <: AbstractPowerModel,
+    X <: AbstractNetworkModel,
 }
     _add_variable_to_balance!(container, T, U, devices, network_model, model)
     return
@@ -1127,7 +1127,7 @@ function add_to_expression!(
     U <: FlowActivePowerFromToVariable,
     V <: PSY.Branch,
     W <: AbstractDeviceFormulation,
-    X <: AbstractPowerModel,
+    X <: AbstractNetworkModel,
 }
     variable = get_variable(container, U, V)
     expression = get_expression(container, T, PSY.ACBus)
@@ -1163,7 +1163,7 @@ function add_to_expression!(
     U <: FlowActivePowerToFromVariable,
     V <: PSY.ACBranch,
     W <: AbstractDeviceFormulation,
-    X <: AbstractPowerModel,
+    X <: AbstractNetworkModel,
 }
     variable = get_variable(container, U, V)
     expression = get_expression(container, T, PSY.ACBus)
@@ -1249,7 +1249,7 @@ function add_to_expression!(
     U <: OnVariable,
     V <: PSY.ThermalGen,
     W <: AbstractCompactUnitCommitment,
-    X <: AbstractPowerModel,
+    X <: AbstractNetworkModel,
 }
     _add_compact_on_to_balance!(
         container,
@@ -1891,7 +1891,7 @@ function add_to_expression!(
     U <: VariableType,
     V <: PSY.Device,
     W <: AbstractDeviceFormulation,
-    X <: AbstractPowerModel,
+    X <: AbstractNetworkModel,
 }
     variable = get_variable(container, U, V)
     if !has_container_key(container, T, V)
@@ -2489,7 +2489,7 @@ function add_to_expression!(
 ) where {
     T <: ActivePowerBalance,
     U <: Union{SystemBalanceSlackUp, SystemBalanceSlackDown},
-    W <: AbstractPowerModel,
+    W <: AbstractNetworkModel,
 }
     variable = get_variable(container, U, PSY.ACBus, "P")
     expression = get_expression(container, T, PSY.ACBus)
@@ -2514,7 +2514,7 @@ function add_to_expression!(
 ) where {
     T <: ReactivePowerBalance,
     U <: Union{SystemBalanceSlackUp, SystemBalanceSlackDown},
-    W <: AbstractPowerModel,
+    W <: AbstractNetworkModel,
 }
     variable = get_variable(container, U, PSY.ACBus, "Q")
     expression = get_expression(container, T, PSY.ACBus)

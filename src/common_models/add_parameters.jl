@@ -71,7 +71,7 @@ function add_branch_parameters!(
     ::Type{T},
     devices::U,
     model::DeviceModel{D, W},
-    network_model::NetworkModel{<:AbstractPowerModel},
+    network_model::NetworkModel{<:AbstractNetworkModel},
 ) where {
     T <: ParameterType,
     U <: Union{Vector{D}, IS.FlattenIteratorWrapper{D}},
@@ -257,7 +257,7 @@ end
 function _add_time_series_parameters!(
     container::OptimizationContainer,
     ::Type{T},
-    network_model::NetworkModel{<:AbstractPowerModel},
+    network_model::NetworkModel{<:AbstractNetworkModel},
     devices::U,
     model::DeviceModel{D, W},
 ) where {

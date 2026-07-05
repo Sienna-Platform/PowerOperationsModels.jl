@@ -44,7 +44,7 @@ branches_modeled(::Type{AreaBalanceNetworkModel}) = false
 
 # AC network models allocate a ReactivePowerBalance expression; active-power-only models do not
 # (see common_models/make_system_expressions.jl). Used to drop reactive-only device models.
-network_has_reactive_power(::Type{<:AbstractPowerModel}) = true
+network_has_reactive_power(::Type{<:AbstractNetworkModel}) = true
 network_has_reactive_power(::Type{<:AbstractActivePowerModel}) = false
 
 # Native POM DCP — concrete construct_network! in network_constructor.jl.
@@ -71,7 +71,7 @@ struct DCPLLNetworkModel <: AbstractDCPLLNetworkModel end
 branches_modeled(::Type{DCPLLNetworkModel}) = true
 requires_all_branch_models(::Type{DCPLLNetworkModel}) = false
 
-abstract type AbstractACRNetworkModel <: AbstractPowerModel end
+abstract type AbstractACRNetworkModel <: AbstractNetworkModel end
 
 """
 Full AC power flow in rectangular voltage coordinates (vr, vi). Physics-equivalent to
@@ -80,7 +80,7 @@ reach the same optimal objective value.
 """
 struct ACRNetworkModel <: AbstractACRNetworkModel end
 
-abstract type AbstractLPACCNetworkModel <: AbstractPowerModel end
+abstract type AbstractLPACCNetworkModel <: AbstractNetworkModel end
 
 """
 Linear-programming AC, cold-start (LPAC) convex approximation of the full AC power flow.
@@ -91,7 +91,7 @@ power.
 """
 struct LPACCNetworkModel <: AbstractLPACCNetworkModel end
 
-abstract type AbstractIVRNetworkModel <: AbstractPowerModel end
+abstract type AbstractIVRNetworkModel <: AbstractNetworkModel end
 
 """
 Full AC power flow in current-voltage rectangular (IVR) coordinates. Uses branch current
@@ -149,7 +149,7 @@ abstract type NodalActiveBalanceStyle end
 struct NamedBusActiveBalance <: NodalActiveBalanceStyle end
 struct AggregatedActiveBalance <: NodalActiveBalanceStyle end
 
-nodal_active_balance_style(::Type{<:AbstractPowerModel}) = AggregatedActiveBalance()
+nodal_active_balance_style(::Type{<:AbstractNetworkModel}) = AggregatedActiveBalance()
 nodal_active_balance_style(::Type{DCPNetworkModel}) = NamedBusActiveBalance()
 nodal_active_balance_style(::Type{NFANetworkModel}) = NamedBusActiveBalance()
 nodal_active_balance_style(::Type{DCPLLNetworkModel}) = NamedBusActiveBalance()
@@ -164,9 +164,9 @@ struct HasReactivePower <: ReactivePowerSupport end
 struct NoReactivePower <: ReactivePowerSupport end
 
 # Trait form of `network_has_reactive_power` (kept as a predicate for the `if`-based
-# validation call sites; this is for dispatch). Same partition: AbstractPowerModel
+# validation call sites; this is for dispatch). Same partition: AbstractNetworkModel
 # has it, AbstractActivePowerModel does not.
-reactive_power_support(::Type{<:AbstractPowerModel}) = HasReactivePower()
+reactive_power_support(::Type{<:AbstractNetworkModel}) = HasReactivePower()
 reactive_power_support(::Type{<:AbstractActivePowerModel}) = NoReactivePower()
 
 # --- Whether the network carries a bus VoltageAngle variable ---
@@ -174,7 +174,7 @@ abstract type VoltageForm end
 struct AngleBasedVoltage <: VoltageForm end
 struct NonAngleVoltage <: VoltageForm end
 
-voltage_form(::Type{<:AbstractPowerModel}) = NonAngleVoltage()
+voltage_form(::Type{<:AbstractNetworkModel}) = NonAngleVoltage()
 voltage_form(::Type{DCPNetworkModel}) = AngleBasedVoltage()
 voltage_form(::Type{DCPLLNetworkModel}) = AngleBasedVoltage()
 voltage_form(::Type{ACPNetworkModel}) = AngleBasedVoltage()
@@ -189,7 +189,7 @@ abstract type RegulatedVoltageForm end
 struct PolarRegulatedVoltage <: RegulatedVoltageForm end
 struct RectangularRegulatedVoltage <: RegulatedVoltageForm end
 
-regulated_voltage_form(::Type{<:AbstractPowerModel}) = RectangularRegulatedVoltage()
+regulated_voltage_form(::Type{<:AbstractNetworkModel}) = RectangularRegulatedVoltage()
 regulated_voltage_form(::Type{ACPNetworkModel}) = PolarRegulatedVoltage()
 
 # --- Whether a tap branch is built with explicit current variables ---

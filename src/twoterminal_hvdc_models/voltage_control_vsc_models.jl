@@ -31,7 +31,7 @@ function _add_vsc_regulated_voltage!(
     devices::IS.FlattenIteratorWrapper{U},
     sys::PSY.System,
     ::DeviceModel{U, VoltageControlVSC},
-    network_model::NetworkModel{<:AbstractPowerModel},
+    network_model::NetworkModel{<:AbstractNetworkModel},
 ) where {U <: PSY.TwoTerminalVSCLine}
     add_regulated_voltage_magnitude!(
         container, devices, sys, network_model,
@@ -44,7 +44,7 @@ function _add_vsc_regulated_voltage!(
     ::IS.FlattenIteratorWrapper{U},
     ::PSY.System,
     ::DeviceModel{U, <:AbstractTwoTerminalVSCFormulation},
-    ::NetworkModel{<:AbstractPowerModel},
+    ::NetworkModel{<:AbstractNetworkModel},
 ) where {U <: PSY.TwoTerminalVSCLine}
     return
 end
@@ -55,7 +55,7 @@ function _add_vsc_regulated_voltage_constraints!(
     devices::IS.FlattenIteratorWrapper{U},
     sys::PSY.System,
     ::DeviceModel{U, VoltageControlVSC},
-    network_model::NetworkModel{<:AbstractPowerModel},
+    network_model::NetworkModel{<:AbstractNetworkModel},
 ) where {U <: PSY.TwoTerminalVSCLine}
     add_regulated_voltage_magnitude_constraints!(
         container, devices, sys, network_model,
@@ -68,7 +68,7 @@ function _add_vsc_regulated_voltage_constraints!(
     ::IS.FlattenIteratorWrapper{U},
     ::PSY.System,
     ::DeviceModel{U, <:AbstractTwoTerminalVSCFormulation},
-    ::NetworkModel{<:AbstractPowerModel},
+    ::NetworkModel{<:AbstractNetworkModel},
 ) where {U <: PSY.TwoTerminalVSCLine}
     return
 end
@@ -82,7 +82,7 @@ function _apply_vsc_control_objective!(
     ::OptimizationContainer,
     ::IS.FlattenIteratorWrapper{U},
     ::DeviceModel{U, <:AbstractTwoTerminalVSCFormulation},
-    ::NetworkModel{<:AbstractPowerModel},
+    ::NetworkModel{<:AbstractNetworkModel},
 ) where {U <: PSY.TwoTerminalVSCLine}
     return
 end

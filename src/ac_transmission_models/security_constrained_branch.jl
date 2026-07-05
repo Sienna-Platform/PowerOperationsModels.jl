@@ -157,7 +157,7 @@ function _add_post_contingency_branch_rating_parameter!(
     container::OptimizationContainer,
     device_model::DeviceModel{T},
     devices,
-    network_model::NetworkModel{<:AbstractPowerModel},
+    network_model::NetworkModel{<:AbstractNetworkModel},
 ) where {T <: PSY.ACTransmission}
     monitored = _monitored_component_names(device_model, T)
     monitored_devices = [d for d in devices if PSY.get_name(d) in monitored]
@@ -403,7 +403,7 @@ function add_constraints!(
     T <: PostContingencyFlowRateConstraint,
     V <: PSY.ACTransmission,
     U <: AbstractSecurityConstrainedStaticBranch,
-    X <: AbstractPowerModel,
+    X <: AbstractNetworkModel,
 }
     time_steps = get_time_steps(container)
 
@@ -593,7 +593,7 @@ function add_post_contingency_flow_expressions!(
     N <: AbstractPTDFNetworkModel,
 }
     time_steps = get_time_steps(container)
-    modf_matrix = get_MODF_matrix(network_model)
+    modf_matrix = get_contingency_matrix(network_model)
     registered_contingencies = PNM.get_registered_contingencies(modf_matrix)
 
     net_reduction_data = network_model.network_reduction

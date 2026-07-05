@@ -30,7 +30,7 @@ end
 
     template = PowerOperationsProblemTemplate(
         NetworkModel(PTDFNetworkModel;
-            PTDF_matrix = ptdf,
+            network_matrix = ptdf,
             duals = [CopperPlateBalanceConstraint],
             reduce_radial_branches = PNM.has_radial_reduction(ptdf.network_reduction_data),
             reduce_degree_two_branches = PNM.has_degree_two_reduction(

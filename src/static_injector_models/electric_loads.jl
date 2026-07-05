@@ -225,7 +225,7 @@ function add_constraints!(
 ) where {
     V <: PSY.ElectricLoad,
     W <: AbstractControllablePowerLoadFormulation,
-    X <: AbstractPowerModel,
+    X <: AbstractNetworkModel,
 }
     time_steps = get_time_steps(container)
     constraint = add_constraints_container!(container, T,
@@ -254,7 +254,7 @@ function add_constraints!(
     devices::IS.FlattenIteratorWrapper{V},
     model::DeviceModel{V, W},
     ::NetworkModel{X},
-) where {V <: PSY.ControllableLoad, W <: PowerLoadDispatch, X <: AbstractPowerModel}
+) where {V <: PSY.ControllableLoad, W <: PowerLoadDispatch, X <: AbstractNetworkModel}
     add_parameterized_upper_bound_range_constraints(
         container,
         ActivePowerVariableTimeSeriesLimitsConstraint,
@@ -274,7 +274,7 @@ function add_constraints!(
     devices::IS.FlattenIteratorWrapper{V},
     model::DeviceModel{V, W},
     ::NetworkModel{X},
-) where {V <: PSY.ControllableLoad, W <: PowerLoadInterruption, X <: AbstractPowerModel}
+) where {V <: PSY.ControllableLoad, W <: PowerLoadInterruption, X <: AbstractNetworkModel}
     add_parameterized_upper_bound_range_constraints(
         container,
         ActivePowerVariableTimeSeriesLimitsConstraint,
@@ -294,7 +294,7 @@ function add_constraints!(
     devices::IS.FlattenIteratorWrapper{V},
     model::DeviceModel{V, W},
     ::NetworkModel{X},
-) where {V <: PSY.ControllableLoad, W <: PowerLoadInterruption, X <: AbstractPowerModel}
+) where {V <: PSY.ControllableLoad, W <: PowerLoadInterruption, X <: AbstractNetworkModel}
     time_steps = get_time_steps(container)
     constraint = add_constraints_container!(container, T,
         V,
@@ -320,7 +320,7 @@ function add_constraints!(
     devices::IS.FlattenIteratorWrapper{V},
     model::DeviceModel{V, W},
     ::NetworkModel{X},
-) where {V <: PSY.ShiftablePowerLoad, W <: PowerLoadShift, X <: AbstractPowerModel}
+) where {V <: PSY.ShiftablePowerLoad, W <: PowerLoadShift, X <: AbstractNetworkModel}
     time_steps = get_time_steps(container)
     time_steps_end = time_steps[end]
     # Keep this container 2D (name, terminal-time marker) to match standard indexing patterns.
@@ -419,7 +419,7 @@ function add_constraints!(
     devices::IS.FlattenIteratorWrapper{V},
     ::DeviceModel{V, W},
     ::NetworkModel{X},
-) where {V <: PSY.ShiftablePowerLoad, W <: PowerLoadShift, X <: AbstractPowerModel}
+) where {V <: PSY.ShiftablePowerLoad, W <: PowerLoadShift, X <: AbstractNetworkModel}
     time_steps = get_time_steps(container)
     constraint = add_constraints_container!(
         container,
@@ -443,7 +443,7 @@ function add_constraints!(
     devices::IS.FlattenIteratorWrapper{V},
     ::DeviceModel{V, W},
     ::NetworkModel{X},
-) where {V <: PSY.ShiftablePowerLoad, W <: PowerLoadShift, X <: AbstractPowerModel}
+) where {V <: PSY.ShiftablePowerLoad, W <: PowerLoadShift, X <: AbstractNetworkModel}
     time_steps = get_time_steps(container)
     constraint = add_constraints_container!(
         container,
@@ -474,7 +474,7 @@ function add_constraints!(
     devices::IS.FlattenIteratorWrapper{V},
     model::DeviceModel{V, W},
     ::NetworkModel{X},
-) where {V <: PSY.ShiftablePowerLoad, W <: PowerLoadShift, X <: AbstractPowerModel}
+) where {V <: PSY.ShiftablePowerLoad, W <: PowerLoadShift, X <: AbstractNetworkModel}
     add_parameterized_upper_bound_range_constraints(
         container,
         ShiftUpActivePowerVariableLimitsConstraint,
@@ -494,7 +494,7 @@ function add_constraints!(
     devices::IS.FlattenIteratorWrapper{V},
     model::DeviceModel{V, W},
     ::NetworkModel{X},
-) where {V <: PSY.ShiftablePowerLoad, W <: PowerLoadShift, X <: AbstractPowerModel}
+) where {V <: PSY.ShiftablePowerLoad, W <: PowerLoadShift, X <: AbstractNetworkModel}
     add_parameterized_upper_bound_range_constraints(
         container,
         ShiftDownActivePowerVariableLimitsConstraint,
@@ -512,7 +512,7 @@ function add_to_objective_function!(
     container::OptimizationContainer,
     devices::IS.FlattenIteratorWrapper{T},
     ::DeviceModel{T, U},
-    ::Type{<:AbstractPowerModel},
+    ::Type{<:AbstractNetworkModel},
 ) where {T <: PSY.ControllableLoad, U <: PowerLoadDispatch}
     add_variable_cost!(container, ActivePowerVariable, devices, U)
     return
@@ -522,7 +522,7 @@ function add_to_objective_function!(
     container::OptimizationContainer,
     devices::IS.FlattenIteratorWrapper{T},
     ::DeviceModel{T, U},
-    ::Type{<:AbstractPowerModel},
+    ::Type{<:AbstractNetworkModel},
 ) where {T <: PSY.ControllableLoad, U <: PowerLoadInterruption}
     add_variable_cost!(container, ActivePowerVariable, devices, U)
     add_proportional_cost!(container, OnVariable, devices, U)
@@ -568,7 +568,7 @@ function objective_function!(
     container::OptimizationContainer,
     devices::IS.FlattenIteratorWrapper{T},
     ::DeviceModel{T, U},
-    ::Type{<:AbstractPowerModel},
+    ::Type{<:AbstractNetworkModel},
 ) where {T <: PSY.ShiftablePowerLoad, U <: PowerLoadShift}
     add_variable_cost!(container, ShiftUpActivePowerVariable, devices, U)
     add_variable_cost!(container, ShiftDownActivePowerVariable, devices, U)

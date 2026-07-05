@@ -49,7 +49,7 @@ function construct_device!(
     sys::PSY.System,
     ::ArgumentConstructStage,
     model::DeviceModel{R, ShuntSusceptanceDispatch},
-    network_model::NetworkModel{<:AbstractPowerModel},
+    network_model::NetworkModel{<:AbstractNetworkModel},
 ) where {R <: PSY.StaticInjection}
     devices = get_available_components(model, sys)
     add_variables!(container, ShuntSusceptanceVariable, devices, ShuntSusceptanceDispatch)
@@ -89,7 +89,7 @@ function construct_device!(
     sys::PSY.System,
     ::ModelConstructStage,
     model::DeviceModel{R, ShuntSusceptanceDispatch},
-    network_model::NetworkModel{<:AbstractPowerModel},
+    network_model::NetworkModel{<:AbstractNetworkModel},
 ) where {R <: PSY.StaticInjection}
     devices = get_available_components(model, sys)
     add_constraints!(
@@ -126,7 +126,7 @@ function add_constraints!(
     ::PSY.System,
     devices::IS.FlattenIteratorWrapper{R},
     model::DeviceModel{R, ShuntSusceptanceDispatch},
-    network_model::NetworkModel{<:AbstractPowerModel},
+    network_model::NetworkModel{<:AbstractNetworkModel},
 ) where {R <: PSY.StaticInjection}
     time_steps = get_time_steps(container)
     b = get_variable(container, ShuntSusceptanceVariable, R)
@@ -170,7 +170,7 @@ function _add_shunt_regulated_voltage!(
     container::OptimizationContainer,
     devices::IS.FlattenIteratorWrapper{PSY.FACTSControlDevice},
     sys::PSY.System,
-    network_model::NetworkModel{<:AbstractPowerModel},
+    network_model::NetworkModel{<:AbstractNetworkModel},
 )
     add_regulated_voltage_magnitude!(
         container, devices, sys, network_model,
@@ -182,7 +182,7 @@ function _add_shunt_regulated_voltage_constraints!(
     container::OptimizationContainer,
     devices::IS.FlattenIteratorWrapper{PSY.FACTSControlDevice},
     sys::PSY.System,
-    network_model::NetworkModel{<:AbstractPowerModel},
+    network_model::NetworkModel{<:AbstractNetworkModel},
 )
     add_regulated_voltage_magnitude_constraints!(
         container, devices, sys, network_model,
@@ -196,7 +196,7 @@ function _add_shunt_regulated_voltage!(
     ::OptimizationContainer,
     ::IS.FlattenIteratorWrapper,
     ::PSY.System,
-    ::NetworkModel{<:AbstractPowerModel},
+    ::NetworkModel{<:AbstractNetworkModel},
 )
     return
 end
@@ -205,7 +205,7 @@ function _add_shunt_regulated_voltage_constraints!(
     ::OptimizationContainer,
     ::IS.FlattenIteratorWrapper,
     ::PSY.System,
-    ::NetworkModel{<:AbstractPowerModel},
+    ::NetworkModel{<:AbstractNetworkModel},
 )
     return
 end
@@ -219,7 +219,7 @@ end
 function _apply_shunt_control_objective!(
     ::OptimizationContainer,
     ::IS.FlattenIteratorWrapper{PSY.SwitchedAdmittance},
-    ::NetworkModel{<:AbstractPowerModel},
+    ::NetworkModel{<:AbstractNetworkModel},
 )
     return
 end
@@ -254,7 +254,7 @@ end
 function _apply_shunt_control_objective!(
     ::OptimizationContainer,
     ::IS.FlattenIteratorWrapper{PSY.FACTSControlDevice},
-    ::NetworkModel{<:AbstractPowerModel},
+    ::NetworkModel{<:AbstractNetworkModel},
 )
     return
 end

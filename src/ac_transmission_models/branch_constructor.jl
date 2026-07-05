@@ -1,7 +1,7 @@
 ################################# Generic AC Branch  Models ################################
 # Kept as concrete-formulation no-op pairs (StaticBranch, StaticBranchBounds) rather than one
 # {<:AbstractBranchFormulation} method: widening to that bound is ambiguous with the real
-# StaticBranchUnbounded (NetworkModel{<:AbstractPowerModel}), VoltageControlTap and
+# StaticBranchUnbounded (NetworkModel{<:AbstractNetworkModel}), VoltageControlTap and
 # AbstractSecurityConstrainedStaticBranch methods that also match CopperPlate/AreaBalance.
 function construct_device!(
     ::OptimizationContainer,
@@ -68,7 +68,7 @@ construct_device!(
     ::PSY.System,
     ::ArgumentConstructStage,
     ::DeviceModel{<:PSY.ACTransmission, StaticBranchUnbounded},
-    ::NetworkModel{<:AbstractPowerModel},
+    ::NetworkModel{<:AbstractNetworkModel},
 ) = nothing
 
 construct_device!(
@@ -76,7 +76,7 @@ construct_device!(
     ::PSY.System,
     ::ModelConstructStage,
     ::DeviceModel{<:PSY.ACTransmission, StaticBranchUnbounded},
-    ::NetworkModel{<:AbstractPowerModel},
+    ::NetworkModel{<:AbstractNetworkModel},
 ) = nothing
 
 # For DC Power only. Implements constraints
@@ -1523,7 +1523,7 @@ function construct_device!(
     sys::PSY.System,
     ::ArgumentConstructStage,
     device_model::DeviceModel{T, StaticBranch},
-    network_model::NetworkModel{<:AbstractPowerModel},
+    network_model::NetworkModel{<:AbstractNetworkModel},
 ) where {T <: PSY.ACTransmission}
     devices = get_available_components(device_model, sys)
 
@@ -1545,7 +1545,7 @@ function construct_device!(
     sys::PSY.System,
     ::ModelConstructStage,
     device_model::DeviceModel{T, StaticBranch},
-    network_model::NetworkModel{<:AbstractPowerModel},
+    network_model::NetworkModel{<:AbstractNetworkModel},
 ) where {T <: PSY.ACTransmission}
     devices = get_available_components(device_model, sys)
     add_feedforward_constraints!(container, device_model, devices)
@@ -1573,7 +1573,7 @@ function construct_device!(
     ::ArgumentConstructStage,
     device_model::DeviceModel{T, StaticBranchBounds},
     ::NetworkModel{U},
-) where {T <: PSY.ACTransmission, U <: AbstractPowerModel}
+) where {T <: PSY.ACTransmission, U <: AbstractNetworkModel}
     if get_use_slacks(device_model)
         throw(
             ArgumentError(
@@ -1591,7 +1591,7 @@ function construct_device!(
     sys::PSY.System,
     ::ModelConstructStage,
     device_model::DeviceModel{T, StaticBranchBounds},
-    network_model::NetworkModel{<:AbstractPowerModel},
+    network_model::NetworkModel{<:AbstractNetworkModel},
 ) where {T <: PSY.ACTransmission}
     devices = get_available_components(device_model, sys)
     branch_rate_bounds!(container, device_model, network_model)
@@ -1804,7 +1804,7 @@ function construct_device!(
     sys::PSY.System,
     ::ModelConstructStage,
     device_model::DeviceModel{<:PSY.TwoTerminalHVDC, HVDCTwoTerminalUnbounded},
-    ::NetworkModel{<:AbstractPowerModel},
+    ::NetworkModel{<:AbstractNetworkModel},
 )
     devices = get_available_components(device_model, sys)
     add_constraint_dual!(container, sys, device_model)
@@ -1955,7 +1955,7 @@ function construct_device!(
     sys::PSY.System,
     ::ModelConstructStage,
     device_model::DeviceModel{T, HVDCTwoTerminalLossless},
-    network_model::NetworkModel{<:AbstractPowerModel},
+    network_model::NetworkModel{<:AbstractNetworkModel},
 ) where {T <: PSY.TwoTerminalHVDC}
     devices = get_available_components(device_model, sys)
     add_constraints!(container, FlowRateConstraint, devices, device_model, network_model)
@@ -3115,7 +3115,7 @@ function construct_device!(
     sys::PSY.System,
     ::ArgumentConstructStage,
     device_model::DeviceModel{PSY.TwoTerminalVSCLine, F},
-    network_model::NetworkModel{<:AbstractPowerModel},
+    network_model::NetworkModel{<:AbstractNetworkModel},
 ) where {F <: AbstractTwoTerminalVSCFormulation}
     devices = get_available_components(device_model, sys)
 
@@ -3152,7 +3152,7 @@ function construct_device!(
     sys::PSY.System,
     ::ModelConstructStage,
     device_model::DeviceModel{PSY.TwoTerminalVSCLine, F},
-    network_model::NetworkModel{<:AbstractPowerModel},
+    network_model::NetworkModel{<:AbstractNetworkModel},
 ) where {F <: AbstractTwoTerminalVSCFormulation}
     devices = get_available_components(device_model, sys)
     time_steps = get_time_steps(container)

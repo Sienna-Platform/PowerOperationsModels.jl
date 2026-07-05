@@ -12,7 +12,7 @@ function IOM.DecisionModel(
     sys::PSY.System;
     name = nothing,
     kwargs...,
-) where {T <: AbstractPowerModel}
+) where {T <: AbstractNetworkModel}
     settings = IOM.Settings(sys; kwargs...)
     available_resolutions = PSY.get_time_series_resolutions(sys)
     if length(available_resolutions) == 1

@@ -4,7 +4,7 @@ function initialize_system_expressions!(
     subnetworks::Dict{Int, Set{Int}},
     system::PSY.System,
     bus_reduction_map::Dict{Int64, Set{Int64}},
-) where {T <: AbstractPowerModel}
+) where {T <: AbstractNetworkModel}
     dc_bus_numbers = [
         PSY.get_number(b) for
         b in get_available_components(network_model, PSY.DCBus, system)
@@ -18,7 +18,7 @@ function initialize_hvdc_system!(
     network_model::NetworkModel{T},
     ::Nothing,
     system::PSY.System,
-) where {T <: AbstractPowerModel}
+) where {T <: AbstractNetworkModel}
     dc_buses = get_available_components(network_model, PSY.DCBus, system)
     if !isempty(dc_buses)
         @warn "HVDC Network Model is set to 'Nothing' but DC Buses are present in the system. \

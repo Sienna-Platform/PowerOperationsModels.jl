@@ -698,7 +698,7 @@ function add_to_expression!(
     U <: AbstractHybridReserveVariableType,
     V <: PSY.HybridSystem,
     W <: AbstractHybridFormulationWithReserves,
-    X <: AbstractPowerModel,
+    X <: AbstractNetworkModel,
 }
     add_to_expression!(container, T, U, devices, model)
     return
@@ -866,7 +866,7 @@ function add_constraints!(
 ) where {
     U <: Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
     W <: AbstractHybridFormulationWithReserves,
-    X <: AbstractPowerModel,
+    X <: AbstractNetworkModel,
 } where {V <: PSY.HybridSystem}
     time_steps = get_time_steps(container)
     names = [PSY.get_name(d) for d in devices]
@@ -947,7 +947,7 @@ function add_constraints!(
     T <: HybridThermalOnVariableConstraint,
     U <: Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
     W <: AbstractHybridFormulation,
-    X <: AbstractPowerModel,
+    X <: AbstractNetworkModel,
 } where {V <: PSY.HybridSystem}
     time_steps = get_time_steps(container)
     names = [PSY.get_name(d) for d in devices]
@@ -990,7 +990,7 @@ function add_constraints!(
 ) where {
     U <: Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
     W <: AbstractHybridFormulation,
-    X <: AbstractPowerModel,
+    X <: AbstractNetworkModel,
 } where {V <: PSY.HybridSystem}
     time_steps = get_time_steps(container)
     names = [PSY.get_name(d) for d in devices]
@@ -1048,7 +1048,7 @@ function add_constraints!(
 ) where {
     U <: Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
     W <: AbstractHybridFormulationWithReserves,
-    X <: AbstractPowerModel,
+    X <: AbstractNetworkModel,
 } where {V <: PSY.HybridSystem}
     time_steps = get_time_steps(container)
     names = [PSY.get_name(d) for d in devices]
@@ -1148,7 +1148,7 @@ function add_constraints!(
 ) where {
     U <: Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
     W <: AbstractHybridFormulationWithReserves,
-    X <: AbstractPowerModel,
+    X <: AbstractNetworkModel,
 } where {V <: PSY.HybridSystem}
     if has_service_model(model)
         _hybrid_storage_balance_with_reserves!(container, devices, model, network_model)
@@ -1168,7 +1168,7 @@ function add_constraints!(
 ) where {
     U <: Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
     W <: AbstractHybridFormulation,
-    X <: AbstractPowerModel,
+    X <: AbstractNetworkModel,
 } where {V <: PSY.HybridSystem}
     _hybrid_storage_balance_no_reserves!(container, devices, model, network_model)
     return
@@ -1179,7 +1179,7 @@ function _hybrid_storage_balance_no_reserves!(
     devices,
     model::DeviceModel{V, W},
     ::NetworkModel{X},
-) where {V <: PSY.HybridSystem, W <: AbstractHybridFormulation, X <: AbstractPowerModel}
+) where {V <: PSY.HybridSystem, W <: AbstractHybridFormulation, X <: AbstractNetworkModel}
     time_steps = get_time_steps(container)
     resolution = get_resolution(container)
     fraction_of_hour = Dates.value(Dates.Minute(resolution)) / MINUTES_IN_HOUR
@@ -1228,7 +1228,7 @@ function _hybrid_storage_balance_with_reserves!(
 ) where {
     V <: PSY.HybridSystem,
     W <: AbstractHybridFormulationWithReserves,
-    X <: AbstractPowerModel,
+    X <: AbstractNetworkModel,
 }
     time_steps = get_time_steps(container)
     resolution = get_resolution(container)
@@ -1331,7 +1331,7 @@ function add_constraints!(
     T <: HybridStorageStatusOnConstraint,
     U <: Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
     W <: AbstractHybridFormulation,
-    X <: AbstractPowerModel,
+    X <: AbstractNetworkModel,
 } where {V <: PSY.HybridSystem}
     time_steps = get_time_steps(container)
     names = [PSY.get_name(d) for d in devices]
@@ -1391,7 +1391,7 @@ function add_constraints!(
     T <: HybridStorageReservePowerLimitConstraint,
     U <: Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
     W <: AbstractHybridFormulationWithReserves,
-    X <: AbstractPowerModel,
+    X <: AbstractNetworkModel,
 } where {V <: PSY.HybridSystem}
     time_steps = get_time_steps(container)
     names = [PSY.get_name(d) for d in devices]
@@ -1472,7 +1472,7 @@ function add_constraints!(
     T <: RegularizationConstraint,
     U <: Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
     W <: AbstractHybridFormulation,
-    X <: AbstractPowerModel,
+    X <: AbstractNetworkModel,
 } where {V <: PSY.HybridSystem}
     time_steps = get_time_steps(container)
     names = [PSY.get_name(d) for d in devices]
@@ -1700,7 +1700,7 @@ function add_constraints!(
 ) where {
     T <: _ReserveCoverageT,
     V <: PSY.HybridSystem,
-    X <: AbstractPowerModel,
+    X <: AbstractNetworkModel,
 }
     time_steps = get_time_steps(container)
     resolution = get_resolution(container)
@@ -1752,7 +1752,7 @@ function add_constraints!(
     devices::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
     model::DeviceModel{V, HybridDispatchWithReserves},
     ::NetworkModel{X},
-) where {V <: PSY.HybridSystem, X <: AbstractPowerModel}
+) where {V <: PSY.HybridSystem, X <: AbstractNetworkModel}
     time_steps = get_time_steps(container)
     names = [PSY.get_name(d) for d in devices]
     energy_var = get_variable(container, EnergyVariable, V)
@@ -1816,7 +1816,7 @@ function add_constraints!(
     U <: Union{ActivePowerOutVariable, ActivePowerInVariable},
     V <: PSY.HybridSystem,
     W <: AbstractHybridFormulation,
-    X <: AbstractPowerModel,
+    X <: AbstractNetworkModel,
 }
     add_range_constraints!(container, T, U, devices, model, X)
     return
@@ -1867,7 +1867,7 @@ function add_constraints!(
     T <: HybridStatusOnConstraint,
     V <: PSY.HybridSystem,
     W <: AbstractHybridFormulation,
-    X <: AbstractPowerModel,
+    X <: AbstractNetworkModel,
 }
     time_steps = get_time_steps(container)
     names = [PSY.get_name(d) for d in devices]
@@ -1922,7 +1922,7 @@ function add_constraints!(
     devices::IS.FlattenIteratorWrapper{V},
     model::DeviceModel{V, W},
     ::NetworkModel{X},
-) where {V <: PSY.HybridSystem, W <: AbstractHybridFormulation, X <: AbstractPowerModel}
+) where {V <: PSY.HybridSystem, W <: AbstractHybridFormulation, X <: AbstractNetworkModel}
     time_steps = get_time_steps(container)
     names = [PSY.get_name(d) for d in devices]
     p_out = get_variable(container, ActivePowerOutVariable, V)
@@ -2056,7 +2056,7 @@ function add_constraints!(
 ) where {
     V <: PSY.HybridSystem,
     W <: AbstractHybridFormulationWithReserves,
-    X <: AbstractPowerModel,
+    X <: AbstractNetworkModel,
 }
     time_steps = get_time_steps(container)
     names = [PSY.get_name(d) for d in devices]
@@ -2113,7 +2113,7 @@ function add_constraints!(
 ) where {
     V <: PSY.HybridSystem,
     W <: AbstractHybridFormulationWithReserves,
-    X <: AbstractPowerModel,
+    X <: AbstractNetworkModel,
 }
     time_steps = get_time_steps(container)
     names = [PSY.get_name(d) for d in devices]
@@ -2244,7 +2244,7 @@ function objective_function!(
     container::OptimizationContainer,
     devices::U,
     model::DeviceModel{D, W},
-    ::Type{<:AbstractPowerModel},
+    ::Type{<:AbstractNetworkModel},
 ) where {
     U <: Union{Vector{D}, IS.FlattenIteratorWrapper{D}},
     W <: AbstractHybridFormulation,

@@ -117,7 +117,7 @@ function _add_abs_value_constraints!(
     container::OptimizationContainer,
     devices,
     ::DeviceModel{D, F},
-    ::NetworkModel{<:AbstractPowerModel},
+    ::NetworkModel{<:AbstractNetworkModel},
     parent_var_type::Type{<:VariableType},
 ) where {D <: PSY.Device, F}
     time_steps = get_time_steps(container)

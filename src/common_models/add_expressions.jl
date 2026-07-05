@@ -3,7 +3,7 @@
 # These create expression containers for devices and services
 #################################################################################
 
-function _ref_index(network_model::NetworkModel{<:AbstractPowerModel}, bus::PSY.ACBus)
+function _ref_index(network_model::NetworkModel{<:AbstractNetworkModel}, bus::PSY.ACBus)
     return get_reference_bus(network_model, bus)
 end
 
@@ -34,7 +34,7 @@ _value_curve_is_quadratic(::PSY.AverageRateCurve) = false
 function get_reference_bus(
     model::NetworkModel{T},
     b::PSY.ACBus,
-)::Int where {T <: AbstractPowerModel}
+)::Int where {T <: AbstractNetworkModel}
     if isempty(model.bus_area_map)
         return first(keys(model.subnetworks))
     else

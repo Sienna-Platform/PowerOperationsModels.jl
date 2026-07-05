@@ -11,7 +11,7 @@ function make_system_expressions!(
     container::OptimizationContainer,
     subnetworks::Dict{Int, Set{Int}},
     ::Vector{Int},
-    ::Type{<:AbstractPowerModel},
+    ::Type{<:AbstractNetworkModel},
     bus_reduction_map::Dict{Int64, Set{Int64}},
 )
     time_steps = get_time_steps(container)
@@ -243,7 +243,7 @@ function initialize_hvdc_system!(
     network_model::NetworkModel{T},
     dc_model::U,
     system::PSY.System,
-) where {T <: AbstractPowerModel, U <: TransportHVDCNetworkModel}
+) where {T <: AbstractNetworkModel, U <: TransportHVDCNetworkModel}
     dc_buses = get_available_components(network_model, PSY.DCBus, system)
     @assert !isempty(dc_buses) "No DC buses found in the system. Consider adding DC Buses or removing HVDC network model."
     dc_bus_numbers = sort(PSY.get_number.(dc_buses))
@@ -257,7 +257,7 @@ function initialize_hvdc_system!(
     network_model::NetworkModel{T},
     dc_model::U,
     system::PSY.System,
-) where {T <: AbstractPowerModel, U <: VoltageDispatchHVDCNetworkModel}
+) where {T <: AbstractNetworkModel, U <: VoltageDispatchHVDCNetworkModel}
     dc_buses = get_available_components(network_model, PSY.DCBus, system)
     @assert !isempty(dc_buses) "No DC buses found in the system. Consider adding DC Buses or removing HVDC network model."
     dc_bus_numbers = sort(PSY.get_number.(dc_buses))

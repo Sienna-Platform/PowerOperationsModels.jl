@@ -4,7 +4,7 @@
     template = get_template_dispatch_with_network(
         NetworkModel(
             PTDFNetworkModel;
-            PTDF_matrix = PTDF(system),
+            network_matrix = PTDF(system),
             evaluations = power_flow_evaluations(
                 ACPowerFlow(;
                     distribute_slack_proportional_to_headroom = true,
@@ -87,7 +87,7 @@ end
     template = get_template_dispatch_with_network(
         NetworkModel(
             PTDFNetworkModel;
-            PTDF_matrix = PTDF(system),
+            network_matrix = PTDF(system),
             use_slacks = true,
             evaluations = power_flow_evaluations(
                 ACPowerFlow(;
@@ -133,7 +133,7 @@ end
     template = get_template_dispatch_with_network(
         NetworkModel(
             PTDFNetworkModel;
-            PTDF_matrix = PTDF(system),
+            network_matrix = PTDF(system),
             use_slacks = true,
             evaluations = power_flow_evaluations(
                 ACPowerFlow(;
@@ -221,7 +221,7 @@ end
     template = get_template_dispatch_with_network(
         NetworkModel(
             PTDFNetworkModel;
-            PTDF_matrix = PTDF(system),
+            network_matrix = PTDF(system),
             evaluations = power_flow_evaluations(ACPowerFlow()),
         ),
     )
@@ -285,7 +285,7 @@ end
         template = get_template_dispatch_with_network(
             NetworkModel(
                 PTDFNetworkModel;
-                PTDF_matrix = PTDF(system),
+                network_matrix = PTDF(system),
                 evaluations = power_flow_evaluations(ACPowerFlow()),
             ),
         )
@@ -340,7 +340,7 @@ end
     template = get_template_dispatch_with_network(
         NetworkModel(
             PTDFNetworkModel;
-            PTDF_matrix = PTDF(system),
+            network_matrix = PTDF(system),
             evaluations = power_flow_evaluations(ACPowerFlow()),
         ),
     )
@@ -378,7 +378,7 @@ end
     template = get_template_dispatch_with_network(
         NetworkModel(
             PTDFNetworkModel;
-            PTDF_matrix = PTDF(system),
+            network_matrix = PTDF(system),
             evaluations = power_flow_evaluations(ACPowerFlow()),
         ),
     )
@@ -409,7 +409,7 @@ end
     template = get_template_dispatch_with_network(
         NetworkModel(
             PTDFNetworkModel;
-            PTDF_matrix = PTDF(system),
+            network_matrix = PTDF(system),
             evaluations = power_flow_evaluations(ACPowerFlow()),
         ),
     )
@@ -448,7 +448,7 @@ end
     template = get_template_dispatch_with_network(
         NetworkModel(
             PTDFNetworkModel;
-            PTDF_matrix = PTDF(system),
+            network_matrix = PTDF(system),
             use_slacks = true,
             evaluations = power_flow_evaluations(DCPowerFlow()),
         ),
@@ -484,7 +484,7 @@ end
     template = get_template_dispatch_with_network(
         NetworkModel(
             PTDFNetworkModel;
-            PTDF_matrix = PTDF(system),
+            network_matrix = PTDF(system),
             use_slacks = true,
             evaluations = power_flow_evaluations(ACPowerFlow()),
         ),
@@ -704,7 +704,7 @@ end
         template = get_template_dispatch_with_network(
             NetworkModel(
                 PTDFNetworkModel;
-                PTDF_matrix = PTDF(system),
+                network_matrix = PTDF(system),
                 evaluations = power_flow_evaluations(pf_eval),
             ),
         )

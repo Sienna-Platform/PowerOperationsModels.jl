@@ -7,7 +7,7 @@ const DC_NETWORK_MODELS_FOR_TESTING = [PTDFNetworkModel]
     limits = PSY.get_flow_limits(PSY.get_component(MonitoredLine, system, "1"), PSY.SU)
     for model in DC_NETWORK_MODELS_FOR_TESTING
         template = get_thermal_dispatch_template_network(
-            NetworkModel(model; PTDF_matrix = PTDF(system)),
+            NetworkModel(model; network_matrix = PTDF(system)),
         )
         model_m = DecisionModel(template, system; optimizer = HiGHS_optimizer)
         @test build!(model_m; output_dir = mktempdir(; cleanup = true)) ==
@@ -53,7 +53,7 @@ end
     set_rating!(PSY.get_component(Line, system, "2"), 1.5 * PSY.SU)
     for model in DC_NETWORK_MODELS_FOR_TESTING
         template = get_thermal_dispatch_template_network(
-            NetworkModel(model; PTDF_matrix = PTDF(system)),
+            NetworkModel(model; network_matrix = PTDF(system)),
         )
         set_device_model!(template, DeviceModel(Line, StaticBranch))
         set_device_model!(template, DeviceModel(MonitoredLine, StaticBranchUnbounded))
@@ -183,7 +183,7 @@ end
 
     for model in DC_NETWORK_MODELS_FOR_TESTING
         template = get_template_dispatch_with_network(
-            NetworkModel(model; PTDF_matrix = PTDF(system)),
+            NetworkModel(model; network_matrix = PTDF(system)),
         )
         set_device_model!(
             template,
@@ -556,7 +556,7 @@ end
     remove_component!(system, line)
 
     template = get_template_dispatch_with_network(
-        NetworkModel(PTDFNetworkModel; PTDF_matrix = PTDF(system)),
+        NetworkModel(PTDFNetworkModel; network_matrix = PTDF(system)),
     )
     set_device_model!(template, DeviceModel(PhaseShiftingTransformer, PhaseAngleControl))
     model_m = DecisionModel(template, system; optimizer = HiGHS_optimizer)
@@ -863,7 +863,7 @@ end
     # Test with DC Power Flow Model
     for net_model in DC_NETWORK_MODELS_FOR_TESTING
         template = get_template_dispatch_with_network(
-            NetworkModel(net_model; PTDF_matrix = PTDF(system)),
+            NetworkModel(net_model; network_matrix = PTDF(system)),
         )
         # Set device model for Transformer3W
         set_device_model!(template, DeviceModel(Transformer3W, StaticBranch))
@@ -912,7 +912,7 @@ _bus_merged_away(nrd, b) = any(b in s for s in values(PNM.get_bus_reduction_map(
         ml = PSY.get_component(MonitoredLine, sys, "1")
         PSY.set_r!(ml, 0.0 * PSY.SU)
         PSY.set_x!(ml, 1e-5 * PSY.SU)
-        # No `PTDF_matrix` provided, so a VirtualPTDF is built and the reduction runs.
+        # No `network_matrix` provided, so a VirtualPTDF is built and the reduction runs.
         template = get_thermal_dispatch_template_network(NetworkModel(PTDFNetworkModel))
         set_device_model!(
             template,
@@ -940,7 +940,7 @@ _bus_merged_away(nrd, b) = any(b in s for s in values(PNM.get_bus_reduction_map(
     from_bus = PSY.get_number(PSY.get_from(arc))
     to_bus = PSY.get_number(PSY.get_to(arc))
     nm = IOM.get_network_model(IOM.get_template(model))
-    nrd = IOM.get_PTDF_matrix(nm).network_reduction_data
+    nrd = IOM.get_network_matrix(nm).network_reduction_data
     @test !_bus_merged_away(nrd, from_bus)
     @test !_bus_merged_away(nrd, to_bus)
     @test haskey(IOM.get_branch_models(IOM.get_template(model)), :MonitoredLine)
@@ -952,7 +952,7 @@ _bus_merged_away(nrd, b) = any(b in s for s in values(PNM.get_bus_reduction_map(
     model_default, ml_default, status_default = _build_zib_monitored_line(false)
     @test status_default == IOM.ModelBuildStatus.BUILT
     nm_d = IOM.get_network_model(IOM.get_template(model_default))
-    nrd_d = IOM.get_PTDF_matrix(nm_d).network_reduction_data
+    nrd_d = IOM.get_network_matrix(nm_d).network_reduction_data
     @test _bus_merged_away(nrd_d, PSY.get_number(PSY.get_to(PSY.get_arc(ml_default))))
     @test !haskey(IOM.get_branch_models(IOM.get_template(model_default)), :MonitoredLine)
     container_default = IOM.get_optimization_container(model_default)
