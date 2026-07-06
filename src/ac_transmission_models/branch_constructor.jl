@@ -128,24 +128,13 @@ end
 
 ################################## Native ACPNetworkModel branch constructors #################
 
-"""
-ArgumentConstructStage for StaticBranch under the native ACPNetworkModel.
-
-Creates the four directional flow variables (active and reactive, from-to and to-from),
-optional slack variables, and registers each flow variable's contribution to the
-per-bus ActivePowerBalance and ReactivePowerBalance expressions.
-"""
-function construct_device!(
+# Shared StaticBranch ArgumentConstructStage steps for the native AC network models
+# (ACP/ACR/LPACC). LPACC inserts its CosineApproximation variable between the two calls.
+function _add_static_branch_flow_variables!(
     container::OptimizationContainer,
-    sys::PSY.System,
-    ::ArgumentConstructStage,
-    device_model::DeviceModel{T, StaticBranch},
-    network_model::NetworkModel{ACPNetworkModel},
-) where {T <: PSY.ACTransmission}
-    @debug "construct_device ACP StaticBranch (ArgumentConstructStage)" _group =
-        LOG_GROUP_BRANCH_CONSTRUCTIONS
-    devices = get_available_components(device_model, sys)
-    # Create the four directional flow variables
+    devices,
+    network_model::NetworkModel,
+)
     add_variables!(
         container,
         FlowActivePowerFromToVariable,
@@ -174,17 +163,20 @@ function construct_device!(
         devices,
         StaticBranch,
     )
+    return
+end
+
+function _add_static_branch_balance_arguments!(
+    container::OptimizationContainer,
+    device_model::DeviceModel{T, StaticBranch},
+    devices,
+    network_model::NetworkModel,
+) where {T <: PSY.ACTransmission}
     if get_use_slacks(device_model)
-        # Only one slack is needed for apparent-power formulations in AC
         add_variables!(
-            container,
-            FlowActivePowerSlackUpperBound,
-            network_model,
-            devices,
-            StaticBranch,
+            container, FlowActivePowerSlackUpperBound, network_model, devices, StaticBranch,
         )
     end
-    # Wire flow variables to nodal balance expressions
     add_to_expression!(
         container, ActivePowerBalance, FlowActivePowerFromToVariable,
         devices, device_model, network_model,
@@ -203,14 +195,32 @@ function construct_device!(
     )
     if haskey(get_time_series_names(device_model), BranchRatingTimeSeriesParameter)
         add_branch_parameters!(
-            container,
-            BranchRatingTimeSeriesParameter,
-            devices,
-            device_model,
-            network_model,
+            container, BranchRatingTimeSeriesParameter, devices, device_model, network_model,
         )
     end
     add_feedforward_arguments!(container, device_model, devices)
+    return
+end
+
+"""
+ArgumentConstructStage for StaticBranch under the native ACPNetworkModel.
+
+Creates the four directional flow variables (active and reactive, from-to and to-from),
+optional slack variables, and registers each flow variable's contribution to the
+per-bus ActivePowerBalance and ReactivePowerBalance expressions.
+"""
+function construct_device!(
+    container::OptimizationContainer,
+    sys::PSY.System,
+    ::ArgumentConstructStage,
+    device_model::DeviceModel{T, StaticBranch},
+    network_model::NetworkModel{ACPNetworkModel},
+) where {T <: PSY.ACTransmission}
+    @debug "construct_device ACP StaticBranch (ArgumentConstructStage)" _group =
+        LOG_GROUP_BRANCH_CONSTRUCTIONS
+    devices = get_available_components(device_model, sys)
+    _add_static_branch_flow_variables!(container, devices, network_model)
+    _add_static_branch_balance_arguments!(container, device_model, devices, network_model)
     return
 end
 
@@ -372,69 +382,8 @@ function construct_device!(
     @debug "construct_device ACR StaticBranch (ArgumentConstructStage)" _group =
         LOG_GROUP_BRANCH_CONSTRUCTIONS
     devices = get_available_components(device_model, sys)
-    add_variables!(
-        container,
-        FlowActivePowerFromToVariable,
-        network_model,
-        devices,
-        StaticBranch,
-    )
-    add_variables!(
-        container,
-        FlowActivePowerToFromVariable,
-        network_model,
-        devices,
-        StaticBranch,
-    )
-    add_variables!(
-        container,
-        FlowReactivePowerFromToVariable,
-        network_model,
-        devices,
-        StaticBranch,
-    )
-    add_variables!(
-        container,
-        FlowReactivePowerToFromVariable,
-        network_model,
-        devices,
-        StaticBranch,
-    )
-    if get_use_slacks(device_model)
-        add_variables!(
-            container,
-            FlowActivePowerSlackUpperBound,
-            network_model,
-            devices,
-            StaticBranch,
-        )
-    end
-    add_to_expression!(
-        container, ActivePowerBalance, FlowActivePowerFromToVariable,
-        devices, device_model, network_model,
-    )
-    add_to_expression!(
-        container, ActivePowerBalance, FlowActivePowerToFromVariable,
-        devices, device_model, network_model,
-    )
-    add_to_expression!(
-        container, ReactivePowerBalance, FlowReactivePowerFromToVariable,
-        devices, device_model, network_model,
-    )
-    add_to_expression!(
-        container, ReactivePowerBalance, FlowReactivePowerToFromVariable,
-        devices, device_model, network_model,
-    )
-    if haskey(get_time_series_names(device_model), BranchRatingTimeSeriesParameter)
-        add_branch_parameters!(
-            container,
-            BranchRatingTimeSeriesParameter,
-            devices,
-            device_model,
-            network_model,
-        )
-    end
-    add_feedforward_arguments!(container, device_model, devices)
+    _add_static_branch_flow_variables!(container, devices, network_model)
+    _add_static_branch_balance_arguments!(container, device_model, devices, network_model)
     return
 end
 
@@ -539,70 +488,9 @@ function construct_device!(
     @debug "construct_device LPACC StaticBranch (ArgumentConstructStage)" _group =
         LOG_GROUP_BRANCH_CONSTRUCTIONS
     devices = get_available_components(device_model, sys)
-    add_variables!(
-        container,
-        FlowActivePowerFromToVariable,
-        network_model,
-        devices,
-        StaticBranch,
-    )
-    add_variables!(
-        container,
-        FlowActivePowerToFromVariable,
-        network_model,
-        devices,
-        StaticBranch,
-    )
-    add_variables!(
-        container,
-        FlowReactivePowerFromToVariable,
-        network_model,
-        devices,
-        StaticBranch,
-    )
-    add_variables!(
-        container,
-        FlowReactivePowerToFromVariable,
-        network_model,
-        devices,
-        StaticBranch,
-    )
+    _add_static_branch_flow_variables!(container, devices, network_model)
     add_variables!(container, CosineApproximation, devices, network_model)
-    if get_use_slacks(device_model)
-        add_variables!(
-            container,
-            FlowActivePowerSlackUpperBound,
-            network_model,
-            devices,
-            StaticBranch,
-        )
-    end
-    add_to_expression!(
-        container, ActivePowerBalance, FlowActivePowerFromToVariable,
-        devices, device_model, network_model,
-    )
-    add_to_expression!(
-        container, ActivePowerBalance, FlowActivePowerToFromVariable,
-        devices, device_model, network_model,
-    )
-    add_to_expression!(
-        container, ReactivePowerBalance, FlowReactivePowerFromToVariable,
-        devices, device_model, network_model,
-    )
-    add_to_expression!(
-        container, ReactivePowerBalance, FlowReactivePowerToFromVariable,
-        devices, device_model, network_model,
-    )
-    if haskey(get_time_series_names(device_model), BranchRatingTimeSeriesParameter)
-        add_branch_parameters!(
-            container,
-            BranchRatingTimeSeriesParameter,
-            devices,
-            device_model,
-            network_model,
-        )
-    end
-    add_feedforward_arguments!(container, device_model, devices)
+    _add_static_branch_balance_arguments!(container, device_model, devices, network_model)
     return
 end
 
