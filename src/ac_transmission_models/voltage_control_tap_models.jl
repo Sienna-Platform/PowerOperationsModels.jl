@@ -106,36 +106,12 @@ end
 #################################################################################
 # Variable-tap AC π-model Ohm's law constraints.
 #
-# Mirrors the fixed-tap NetworkFlowConstraint in AC_branches.jl exactly, with the
-# constant tap `tm` replaced by the variable `t = TapRatioVariable[name, ts]`. The
-# tm-free constant coefficients A/B/C/D below satisfy (for constant tap):
-#   c_*_cos·tm = A or C,   c_*_sin·tm = B or D
-# so `A/t`, `gg/t²` reduce to the StaticBranch coefficients when `t == tm`.
+# The ACP/ACR variable-tap Ohm's law shares its π-model coefficients and constraint
+# builders with the fixed-tap StaticBranch path in AC_branches.jl
+# (`_tap_flow_coefficients`, `_add_tap_acp_flow!`, `_add_tap_acr_flow!`), passing
+# `TapRatioVariable[name, t]` as the tap in place of the constant `tm`, so each constraint
+# reduces to its StaticBranch counterpart when `t == tm`. IVR keeps its own form below.
 #################################################################################
-
-# Pure, tap-free π-model coefficients shared by the polar (ACP) and rectangular (ACR)
-# variable-tap Ohm's law. `cs`/`sn` are the phase-shift trig; `gg_*`/`bb_*` fold the
-# shunt half-charging into the series admittance; `a_cos`/`a_sin`/`c_cos`/`d_sin` are
-# the tm-free coupling coefficients (each divided by the live tap at the constraint
-# site). ACR uses `e_sin = -d_sin` (opposite sinprod sign convention). IVR shares only
-# the `cs`/`sn` trig and is intentionally not routed through this block (its series
-# impedance form has no a/c coupling coefficients).
-function _tap_flow_coefficients(g, b, g_fr, b_fr, g_to, b_to, shift)
-    cs = cos(shift)
-    sn = sin(shift)
-    return (
-        cs = cs,
-        sn = sn,
-        gg_fr = g + g_fr,
-        bb_fr = b + b_fr,
-        gg_to = g + g_to,
-        bb_to = b + b_to,
-        a_cos = -g * cs + b * sn,
-        a_sin = -b * cs - g * sn,
-        c_cos = -g * cs - b * sn,
-        d_sin = b * cs - g * sn,
-    )
-end
 
 # ACP (polar) variable-tap Ohm's law.
 function add_constraints!(
@@ -172,48 +148,13 @@ function add_constraints!(
         coef = _tap_flow_coefficients(
             adm.g, adm.b, adm.g_fr, adm.b_fr, adm.g_to, adm.b_to, adm.shift,
         )
-        gg_fr = coef.gg_fr
-        bb_fr = coef.bb_fr
-        gg_to = coef.gg_to
-        bb_to = coef.bb_to
-        a_cos = coef.a_cos
-        a_sin = coef.a_sin
-        c_cos = coef.c_cos
-        d_sin = coef.d_sin
-
         for t in time_steps
             θ = va[from_bus, t] - va[to_bus, t]
             vmf = vm[from_bus, t]
             vmt = vm[to_bus, t]
-            tt = tap[name, t]
-
-            cons_pft[name, t] = JuMP.@constraint(
-                jump_model,
-                pft[name, t] ==
-                gg_fr / tt^2 * vmf^2 +
-                a_cos / tt * vmf * vmt * cos(θ) +
-                a_sin / tt * vmf * vmt * sin(θ),
-            )
-            cons_qft[name, t] = JuMP.@constraint(
-                jump_model,
-                qft[name, t] ==
-                -bb_fr / tt^2 * vmf^2 +
-                (-a_sin) / tt * vmf * vmt * cos(θ) +
-                a_cos / tt * vmf * vmt * sin(θ),
-            )
-            cons_ptf[name, t] = JuMP.@constraint(
-                jump_model,
-                ptf[name, t] ==
-                gg_to * vmt^2 +
-                c_cos / tt * vmt * vmf * cos(θ) +
-                d_sin / tt * vmt * vmf * sin(θ),
-            )
-            cons_qtf[name, t] = JuMP.@constraint(
-                jump_model,
-                qtf[name, t] ==
-                -bb_to * vmt^2 +
-                d_sin / tt * vmt * vmf * cos(θ) +
-                (-c_cos) / tt * vmt * vmf * sin(θ),
+            _add_tap_acp_flow!(
+                jump_model, cons_pft, cons_qft, cons_ptf, cons_qtf, pft, qft, ptf, qtf,
+                name, t, vmf, vmt, θ, coef, tap[name, t],
             )
         end
     end
@@ -255,54 +196,18 @@ function add_constraints!(
         coef = _tap_flow_coefficients(
             adm.g, adm.b, adm.g_fr, adm.b_fr, adm.g_to, adm.b_to, adm.shift,
         )
-        gg_fr = coef.gg_fr
-        bb_fr = coef.bb_fr
-        gg_to = coef.gg_to
-        bb_to = coef.bb_to
-        a_cos = coef.a_cos
-        a_sin = coef.a_sin
-        c_cos = coef.c_cos
-        # Rectangular sinprod carries the opposite sign convention of the polar sin term.
-        e_sin = -coef.d_sin
-
         for t in time_steps
             vr_fr = vr[from_bus, t]
             vr_to = vr[to_bus, t]
             vi_fr = vi[from_bus, t]
             vi_to = vi[to_bus, t]
-            tt = tap[name, t]
             vv_fr = vr_fr^2 + vi_fr^2
             vv_to = vr_to^2 + vi_to^2
             cosprod = vr_fr * vr_to + vi_fr * vi_to
             sinprod = vi_fr * vr_to - vr_fr * vi_to
-
-            cons_pft[name, t] = JuMP.@constraint(
-                jump_model,
-                pft[name, t] ==
-                gg_fr / tt^2 * vv_fr +
-                a_cos / tt * cosprod +
-                a_sin / tt * sinprod,
-            )
-            cons_qft[name, t] = JuMP.@constraint(
-                jump_model,
-                qft[name, t] ==
-                -bb_fr / tt^2 * vv_fr +
-                (-a_sin) / tt * cosprod +
-                a_cos / tt * sinprod,
-            )
-            cons_ptf[name, t] = JuMP.@constraint(
-                jump_model,
-                ptf[name, t] ==
-                gg_to * vv_to +
-                c_cos / tt * cosprod +
-                e_sin / tt * (-sinprod),
-            )
-            cons_qtf[name, t] = JuMP.@constraint(
-                jump_model,
-                qtf[name, t] ==
-                -bb_to * vv_to +
-                (-e_sin) / tt * cosprod +
-                c_cos / tt * (-sinprod),
+            _add_tap_acr_flow!(
+                jump_model, cons_pft, cons_qft, cons_ptf, cons_qtf, pft, qft, ptf, qtf,
+                name, t, vv_fr, vv_to, cosprod, sinprod, coef, tap[name, t],
             )
         end
     end
