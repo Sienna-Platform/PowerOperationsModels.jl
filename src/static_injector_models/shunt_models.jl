@@ -107,6 +107,7 @@ get_variable_multiplier(
 
 function _reactive_power_bounds(d::PSY.StaticInjection)
     b = _shunt_susceptance_limits(d)
+    # bus voltage limits are already per-unit
     vlims = PSY.get_voltage_limits(PSY.get_bus(d))
     vmin = vlims.min
     vmax = vlims.max

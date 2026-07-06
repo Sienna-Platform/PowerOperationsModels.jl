@@ -321,38 +321,22 @@ end
 # for both flow directions (the copperplate subnetwork balance requires the to-side
 # reference bus regardless of variable direction). The sign is physics, not naming
 # (e.g. LCC converters consume reactive at both ends), so `multiplier` stays explicit.
-# `U` is concrete at every call, so the `Union` dispatch is resolved at compile
-# time with no runtime cost. (Longer term, a PSY branch-directionality type could
-# replace these `_terminal_bus` selectors.)
+# (Longer term, a PSY branch-directionality type could replace these `_terminal_bus`
+# selectors.)
 #################################################################################
 
-# from-side variables -> from-bus of the arc
-_terminal_bus(
-    ::Type{
-        <:Union{
-            FlowActivePowerFromToVariable,
-            FlowReactivePowerFromToVariable,
-            HVDCActivePowerReceivedFromVariable,
-            HVDCReactivePowerReceivedFromVariable,
-            HVDCReactivePowerFromVariable,
-        },
-    },
-    arc,
-) = PSY.get_from(arc)
-
-# to-side variables -> to-bus of the arc
-_terminal_bus(
-    ::Type{
-        <:Union{
-            FlowActivePowerToFromVariable,
-            FlowReactivePowerToFromVariable,
-            HVDCActivePowerReceivedToVariable,
-            HVDCReactivePowerReceivedToVariable,
-            HVDCReactivePowerToVariable,
-        },
-    },
-    arc,
-) = PSY.get_to(arc)
+# from-side / to-side variables -> from-bus / to-bus of the arc. One method per variable
+# type (rather than a 5-member `Union` per side, which exceeds the union-splitting threshold).
+_terminal_bus(::Type{FlowActivePowerFromToVariable}, arc) = PSY.get_from(arc)
+_terminal_bus(::Type{FlowReactivePowerFromToVariable}, arc) = PSY.get_from(arc)
+_terminal_bus(::Type{HVDCActivePowerReceivedFromVariable}, arc) = PSY.get_from(arc)
+_terminal_bus(::Type{HVDCReactivePowerReceivedFromVariable}, arc) = PSY.get_from(arc)
+_terminal_bus(::Type{HVDCReactivePowerFromVariable}, arc) = PSY.get_from(arc)
+_terminal_bus(::Type{FlowActivePowerToFromVariable}, arc) = PSY.get_to(arc)
+_terminal_bus(::Type{FlowReactivePowerToFromVariable}, arc) = PSY.get_to(arc)
+_terminal_bus(::Type{HVDCActivePowerReceivedToVariable}, arc) = PSY.get_to(arc)
+_terminal_bus(::Type{HVDCReactivePowerReceivedToVariable}, arc) = PSY.get_to(arc)
+_terminal_bus(::Type{HVDCReactivePowerToVariable}, arc) = PSY.get_to(arc)
 
 # Reduced-arc twins of `_terminal_bus`: a reduction entry's terminal is an end of its
 # `(from_no, to_no)` arc tuple (already retained bus numbers), not a PSY bus object.

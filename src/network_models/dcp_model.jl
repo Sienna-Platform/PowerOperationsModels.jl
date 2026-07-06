@@ -155,6 +155,24 @@ function _bus_by_name(sys::PSY.System)
     )
 end
 
+# Reference buses pin the voltage magnitude to the bus setpoint (`magnitude`). If that
+# setpoint lies outside the bus voltage limits, the pin is infeasible against the bounded
+# voltage variable (ACP) or the magnitude constraint (ACR/IVR) — a silent infeasibility.
+# Fail loudly with context instead.
+function _assert_reference_voltage_within_limits(bus::PSY.ACBus)
+    v_set = PSY.get_magnitude(bus)
+    # bus voltage limits are already per-unit
+    vlim = PSY.get_voltage_limits(bus)
+    if !(vlim.min <= v_set <= vlim.max)
+        error(
+            "Reference bus $(PSY.get_name(bus)) voltage setpoint $(v_set) pu is outside its ",
+            "voltage limits ($(vlim.min), $(vlim.max)); the reference-bus pin would be ",
+            "infeasible.",
+        )
+    end
+    return
+end
+
 # Shared skeleton for a bounded per-bus voltage variable (VoltageReal / VoltageImaginary
 # / VoltageDeviation). `bounds(bus) -> (lower, upper, start)` supplies the per-bus bounds
 # and warm start; everything else (axis, container, iteration) is identical.

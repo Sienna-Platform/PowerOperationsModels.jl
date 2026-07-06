@@ -196,7 +196,7 @@ function add_to_expression!(
     U <: Union{FlowActivePowerVariable, DCLineCurrent},
     V <: PSY.TModelHVDCLine,
     W <: AbstractDCLineFormulation,
-    X <: AbstractPowerModel,
+    X <: AbstractNetworkModel,
 }
     variable = get_variable(container, U, V)
     expression = get_expression(container, T, PSY.DCBus)
@@ -258,7 +258,7 @@ function add_to_expression!(
     U <: ActivePowerVariable,
     V <: PSY.InterconnectingConverter,
     W <: AbstractConverterFormulation,
-    X <: AbstractPowerModel,
+    X <: AbstractNetworkModel,
 }
     _add_to_expression!(
         container,
@@ -283,7 +283,7 @@ function _add_to_expression!(
     U <: ActivePowerVariable,
     V <: PSY.InterconnectingConverter,
     W <: AbstractConverterFormulation,
-    X <: AbstractPowerModel,
+    X <: AbstractNetworkModel,
 }
     variable = get_variable(container, U, V)
     expression_dc = get_expression(container, T, PSY.DCBus)
@@ -599,7 +599,7 @@ function add_constraints!(
     devices::IS.FlattenIteratorWrapper{T},
     model::DeviceModel{T, U},
     network_model::NetworkModel{V},
-) where {T <: PSY.TModelHVDCLine, U <: DCLossyLine, V <: AbstractPowerModel}
+) where {T <: PSY.TModelHVDCLine, U <: DCLossyLine, V <: AbstractNetworkModel}
     variable = get_variable(container, DCLineCurrent, T)
     dc_voltage = get_variable(container, DCVoltage, PSY.DCBus)
     time_steps = get_time_steps(container)
@@ -614,6 +614,7 @@ function add_constraints!(
         from_bus_name = PSY.get_name(arc.from)
         to_bus_name = PSY.get_name(arc.to)
         name = PSY.get_name(d)
+        # get_r on TModelHVDCLine is already pu (SYSTEM_BASE); single-arg getter, no unit marker — no PSY.SU conversion applies
         r = PSY.get_r(d)
         if iszero(r)
             for t in time_steps
@@ -646,7 +647,7 @@ function add_constraints!(
 ) where {
     U <: PSY.InterconnectingConverter,
     V <: AbstractQuadraticLossConverter,
-    X <: AbstractPowerModel,
+    X <: AbstractNetworkModel,
 }
     time_steps = get_time_steps(container)
     P_ac_var = get_variable(container, ActivePowerVariable, U)
@@ -738,7 +739,7 @@ function add_to_objective_function!(
     ::OptimizationContainer,
     ::IS.FlattenIteratorWrapper{PSY.InterconnectingConverter},
     ::DeviceModel{PSY.InterconnectingConverter, D},
-    ::Type{<:AbstractPowerModel},
+    ::Type{<:AbstractNetworkModel},
 ) where {D <: AbstractConverterFormulation}
     return
 end

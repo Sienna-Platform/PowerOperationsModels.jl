@@ -21,6 +21,7 @@ function add_variables!(
     _add_bounded_bus_voltage_variable!(
         container, VoltageDeviation, sys, network_model,
         bus -> begin
+            # bus voltage limits are already per-unit
             vlim = PSY.get_voltage_limits(bus)
             return (vlim.min - 1.0, vlim.max - 1.0, 0.0)
         end,

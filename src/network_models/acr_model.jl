@@ -18,6 +18,7 @@ function add_variables!(
     _add_bounded_bus_voltage_variable!(
         container, VoltageReal, sys, network_model,
         bus -> begin
+            # bus voltage limits are already per-unit
             vlim = PSY.get_voltage_limits(bus)
             return (-vlim.max, vlim.max, PSY.get_magnitude(bus))
         end,
@@ -34,6 +35,7 @@ function add_variables!(
     _add_bounded_bus_voltage_variable!(
         container, VoltageImaginary, sys, network_model,
         bus -> begin
+            # bus voltage limits are already per-unit
             vlim = PSY.get_voltage_limits(bus)
             return (-vlim.max, vlim.max, 0.0)
         end,
@@ -51,7 +53,6 @@ function add_constraints!(
     vi = get_variable(container, VoltageImaginary, PSY.ACBus)
     vr = get_variable(container, VoltageReal, PSY.ACBus)
     number_to_name = _retained_number_to_name(sys, network_model)
-    bus_by_number = _bus_by_number(sys)
     subnets = network_model.subnetworks
     subnet_keys = collect(keys(subnets))
 
@@ -75,8 +76,12 @@ function add_constraints!(
     for k in subnet_keys
         # `k` is the reference bus number assigned by PNM. Pin vi = 0 (angle = 0)
         # and vr = v_set (magnitude setpoint). With vi = 0, vr = sqrt(vr^2) = vm.
+        # Only the reference buses are resolved (O(#subnets) name lookups), not a
+        # whole-system number→bus map.
         ref_name = number_to_name[k]
-        v_set = PSY.get_magnitude(bus_by_number[k])
+        ref_bus = PSY.get_component(PSY.ACBus, sys, ref_name)
+        _assert_reference_voltage_within_limits(ref_bus)
+        v_set = PSY.get_magnitude(ref_bus)
         for t in time_steps
             cons_vi[k, t] =
                 JuMP.@constraint(get_jump_model(container), vi[ref_name, t] == 0.0)
@@ -110,6 +115,7 @@ function add_constraints!(
 
     for name in bus_names
         bus = bus_by_name[name]
+        # bus voltage limits are already per-unit
         vlim = PSY.get_voltage_limits(bus)
         for t in time_steps
             cons[name, t] = JuMP.@constraint(

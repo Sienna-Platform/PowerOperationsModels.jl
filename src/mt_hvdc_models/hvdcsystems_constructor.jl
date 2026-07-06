@@ -181,6 +181,7 @@ function _converter_vi_bounds(devices)
     v_bounds = Vector{IOM.MinMax}(undef, n)
     i_bounds = Vector{IOM.MinMax}(undef, n)
     for (k, d) in enumerate(devices)
+        # bus voltage limits are already per-unit
         v_min, v_max = PSY.get_voltage_limits(PSY.get_dc_bus(d))
         i_max = PSY.get_max_dc_current(d)
         v_bounds[k] = IOM.MinMax((min = v_min, max = v_max))
@@ -243,7 +244,7 @@ function construct_device!(
     sys::PSY.System,
     ::ArgumentConstructStage,
     model::DeviceModel{PSY.TModelHVDCLine, DCLossyLine},
-    network_model::NetworkModel{<:AbstractPowerModel},
+    network_model::NetworkModel{<:AbstractNetworkModel},
 )
     devices = get_available_components(
         model,
@@ -268,7 +269,7 @@ function construct_device!(
     sys::PSY.System,
     ::ModelConstructStage,
     model::DeviceModel{PSY.TModelHVDCLine, DCLossyLine},
-    network_model::NetworkModel{<:AbstractPowerModel},
+    network_model::NetworkModel{<:AbstractNetworkModel},
 )
     devices = get_available_components(
         model,

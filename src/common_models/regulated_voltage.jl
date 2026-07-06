@@ -58,12 +58,18 @@ function add_regulated_voltage_magnitude!(
     # Collect (name, tag_buses) once; all components share the same tag set
     # (count-invariant formulation guarantee).
     rows = [(PSY.get_name(d), _regulated_buses(d, bus_by_number)) for d in components]
+    # No available devices of this type: nothing to build (the tag set is read from
+    # rows[1], so an empty list would otherwise BoundsError).
+    if isempty(rows)
+        return
+    end
     for (tag, _) in rows[1][2]
         var = add_variable_container!(
             container, RegulatedVoltageMagnitude, T, names, time_steps; meta = tag,
         )
         for (name, tag_buses) in rows
             bus = _reg_bus_for_tag(tag_buses, tag)
+            # bus voltage limits are already per-unit
             vlim = PSY.get_voltage_limits(bus)
             lo = vlim.min
             hi = vlim.max
@@ -92,7 +98,7 @@ function add_regulated_voltage_magnitude!(
     ::OptimizationContainer,
     ::IS.FlattenIteratorWrapper,
     ::PSY.System,
-    ::NetworkModel{<:AbstractPowerModel},
+    ::NetworkModel{<:AbstractNetworkModel},
 )
     return
 end
@@ -112,6 +118,11 @@ function add_regulated_voltage_magnitude_constraints!(
     jm = get_jump_model(container)
     bus_by_number = _bus_by_number(sys)
     rows = [(PSY.get_name(d), _regulated_buses(d, bus_by_number)) for d in components]
+    # No available devices of this type: nothing to build (the tag set is read from
+    # rows[1], so an empty list would otherwise BoundsError).
+    if isempty(rows)
+        return
+    end
     for (tag, _) in rows[1][2]
         vm_reg = get_variable(container, RegulatedVoltageMagnitude, T, tag)
         cons = add_constraints_container!(
@@ -136,7 +147,7 @@ function add_regulated_voltage_magnitude_constraints!(
     ::OptimizationContainer,
     ::IS.FlattenIteratorWrapper,
     ::PSY.System,
-    ::NetworkModel{<:AbstractPowerModel},
+    ::NetworkModel{<:AbstractNetworkModel},
 )
     return
 end

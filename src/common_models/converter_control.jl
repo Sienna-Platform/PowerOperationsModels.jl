@@ -4,6 +4,10 @@
 
 # Pin a converter/terminal reactive injection at its setpoint. Shared by both AC
 # control primitives so the AC_REACTIVE_POWER enforcement lives in one place.
+# `setpoint` is interpreted as system-base reactive power (pu MVAr) and is fixed
+# directly onto the reactive-injection variable — NOT a power factor. The PSY
+# `ac_setpoint` field comment is ambiguous (documents the AC_VOLTAGE meaning and a
+# "power factor" alternative); POM's contract here is reactive power in pu.
 function _pin_converter_reactive!(q_var, name::String, setpoint::Float64, time_steps)
     for t in time_steps
         JuMP.fix(q_var[name, t], setpoint; force = true)
