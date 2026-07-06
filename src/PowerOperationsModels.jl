@@ -25,12 +25,13 @@ using DocStringExtensions
 using JSON3
 
 # Network-formulation abstract types: the two roots are IS-owned consts; the
-# intermediates are POM-native. AbstractPowerModel is brought in via the import
+# intermediates are POM-native. AbstractNetworkModel is brought in via the import
 # block below.
-using InfrastructureSystems.Optimization:
-    AbstractActivePowerModel,
-    AbstractACPModel
+import InfrastructureOptimizationModels: AbstractNetworkModel
 
+# POM owns the network-formulation taxonomy; it roots at IOM's neutral AbstractNetworkModel.
+abstract type AbstractActivePowerModel <: AbstractNetworkModel end
+abstract type AbstractACPModel <: AbstractNetworkModel end
 abstract type AbstractDCPNetworkModel <: AbstractActivePowerModel end
 abstract type AbstractNFANetworkModel <: AbstractDCPNetworkModel end
 abstract type AbstractDCPLLNetworkModel <: AbstractDCPNetworkModel end
@@ -71,7 +72,6 @@ import InfrastructureSystems.Optimization:
     AbstractRenewableFormulation,
     AbstractServiceFormulation,
     AbstractReservesFormulation,
-    AbstractPowerModel,
     AbstractHVDCNetworkModel
 
 #################################################################################
@@ -918,7 +918,7 @@ export DeviceLimitedRegulation
 # Exports - Network Formulation Types (defined in core/network_formulations.jl)
 #################################################################################
 # Power Model Abstract Type (from IS.Optimization)
-export AbstractPowerModel
+export AbstractNetworkModel
 
 # Concrete Network Formulations
 export AbstractPTDFNetworkModel
