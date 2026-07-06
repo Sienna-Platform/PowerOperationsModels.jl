@@ -68,6 +68,7 @@ function get_variable_upper_bound(
     d::PSY.TwoTerminalHVDC,
     ::Type{HVDCTwoTerminalDispatch},
 )
+    # get_loss returns a LinearCurve or PiecewiseIncrementalCurve struct — not a unit-bearing scalar; no PSY.SU conversion applies
     loss = PSY.get_loss(d)
     if !isa(loss, PSY.LinearCurve)
         error(
@@ -163,6 +164,7 @@ function _add_dense_pwl_loss_variables!(
     formulation = HVDCTwoTerminalPiecewiseLoss
     T = HVDCPiecewiseLossVariable
     binary = get_variable_binary(T, D, formulation)
+    # get_loss returns a LinearCurve or PiecewiseIncrementalCurve struct — not a unit-bearing scalar; no PSY.SU conversion applies
     first_loss = PSY.get_loss(first(devices))
     if isa(first_loss, PSY.LinearCurve)
         len_segments = 4 # 2*1 + 2
@@ -218,6 +220,7 @@ function _add_sparse_pwl_loss_variables!(
     binary_T = get_variable_binary(T, D, formulation)
     U = HVDCPiecewiseBinaryLossVariable
     binary_U = get_variable_binary(U, D, formulation)
+    # get_loss returns a LinearCurve or PiecewiseIncrementalCurve struct — not a unit-bearing scalar; no PSY.SU conversion applies
     first_loss = PSY.get_loss(first(devices))
     if isa(first_loss, PSY.LinearCurve)
         len_segments = 3 # 2*1 + 1
@@ -360,7 +363,7 @@ function add_constraints!(
     ::Type{T},
     devices::Union{Vector{U}, IS.FlattenIteratorWrapper{U}},
     ::DeviceModel{U, HVDCTwoTerminalPiecewiseLoss},
-    ::NetworkModel{<:AbstractPowerModel},
+    ::NetworkModel{<:AbstractNetworkModel},
 ) where {T <: HVDCFlowCalculationConstraint, U <: PSY.TwoTerminalHVDC}
     var_pwl = get_variable(container, HVDCPiecewiseLossVariable, U)
     var_pwl_bin = get_variable(container, HVDCPiecewiseBinaryLossVariable, U)
@@ -377,6 +380,7 @@ function add_constraints!(
         add_constraints_container!(container, T, U, names, time_steps; meta = "bin")
     for d in devices
         name = PSY.get_name(d)
+        # get_loss returns a LinearCurve or PiecewiseIncrementalCurve struct — not a unit-bearing scalar; no PSY.SU conversion applies
         loss = PSY.get_loss(d)
         from_to_params, to_from_params = _get_pwl_loss_params(d, loss)
         range_segments = 1:(length(from_to_params) - 1) # 1:(2S+1)
@@ -460,7 +464,7 @@ add_constraints!(
     ::Type{<:Union{FlowRateConstraintFromTo, FlowRateConstraintToFrom}},
     ::IS.FlattenIteratorWrapper{T},
     ::DeviceModel{T, HVDCTwoTerminalUnbounded},
-    ::NetworkModel{<:AbstractPowerModel},
+    ::NetworkModel{<:AbstractNetworkModel},
 ) where {T <: PSY.TwoTerminalHVDC} = nothing
 
 add_constraints!(
@@ -468,7 +472,7 @@ add_constraints!(
     ::Type{FlowRateConstraint},
     ::IS.FlattenIteratorWrapper{T},
     ::DeviceModel{T, HVDCTwoTerminalUnbounded},
-    ::NetworkModel{<:AbstractPowerModel},
+    ::NetworkModel{<:AbstractNetworkModel},
 ) where {T <: PSY.TwoTerminalHVDC} = nothing
 
 function add_constraints!(
@@ -476,7 +480,7 @@ function add_constraints!(
     ::Type{T},
     devices::Union{Vector{U}, IS.FlattenIteratorWrapper{U}},
     ::DeviceModel{U, HVDCTwoTerminalLossless},
-    ::NetworkModel{<:AbstractPowerModel},
+    ::NetworkModel{<:AbstractNetworkModel},
 ) where {T <: FlowRateConstraint, U <: PSY.TwoTerminalHVDC}
     time_steps = get_time_steps(container)
     names = PSY.get_name.(devices)
@@ -815,6 +819,7 @@ function add_constraints!(
     )
     for d in devices
         name = PSY.get_name(d)
+        # get_loss returns a LinearCurve or PiecewiseIncrementalCurve struct — not a unit-bearing scalar; no PSY.SU conversion applies
         loss = PSY.get_loss(d)
         if !isa(loss, PSY.LinearCurve)
             error(
@@ -1443,6 +1448,7 @@ function add_constraints!(
 
     for d in devices
         name = PSY.get_name(d)
+        # get_r on TwoTerminalLCCLine is already pu (SYSTEM_BASE); single-arg getter, no unit marker — no PSY.SU conversion applies
         dc_line_resistance = PSY.get_r(d)
 
         for t in get_time_steps(container)
@@ -1533,7 +1539,7 @@ function _register_vsc_apparent_power_squares!(
     line_names,
     time_steps,
     ::DeviceModel{PSY.TwoTerminalVSCLine, <:AbstractTwoTerminalVSCFormulation},
-    ::NetworkModel{<:AbstractPowerModel},
+    ::NetworkModel{<:AbstractNetworkModel},
 )
     quad_cfg = IOM.NoQuadApproxConfig()
     p_ft = get_variable(container, FlowActivePowerFromToVariable, PSY.TwoTerminalVSCLine)
@@ -1568,7 +1574,7 @@ _register_vsc_apparent_power_squares!(
     ::IOM.BilinearApproxConfig,
     ::OptimizationContainer, _devices, _names, _times,
     ::DeviceModel{PSY.TwoTerminalVSCLine, <:AbstractTwoTerminalVSCFormulation},
-    ::NetworkModel{<:AbstractPowerModel},
+    ::NetworkModel{<:AbstractNetworkModel},
 ) = nothing
 
 # Resolves the exact/octagon ambiguity on active-power-only nets (no reactive vars).
@@ -1599,7 +1605,7 @@ function _add_vsc_loss_current_variables!(
     container::OptimizationContainer,
     devices,
     ::DeviceModel{PSY.TwoTerminalVSCLine, F},
-    ::NetworkModel{<:AbstractPowerModel},
+    ::NetworkModel{<:AbstractNetworkModel},
 ) where {F <: AbstractTwoTerminalVSCFormulation}
     add_variables!(container, CurrentAbsoluteValueVariable, devices, F)
     return
@@ -1619,7 +1625,7 @@ function _add_vsc_loss_current_constraints!(
     container::OptimizationContainer,
     devices,
     model::DeviceModel{PSY.TwoTerminalVSCLine, <:AbstractTwoTerminalVSCFormulation},
-    network_model::NetworkModel{<:AbstractPowerModel},
+    network_model::NetworkModel{<:AbstractNetworkModel},
 )
     _add_abs_value_constraints!(
         container, devices, model, network_model, DCLineCurrentFlowVariable,
@@ -1635,7 +1641,7 @@ function add_constraints!(
     ::Type{HVDCCableOhmsLawConstraint},
     devices::Union{Vector{U}, IS.FlattenIteratorWrapper{U}},
     ::DeviceModel{U, F},
-    ::NetworkModel{<:AbstractPowerModel},
+    ::NetworkModel{<:AbstractNetworkModel},
 ) where {U <: PSY.TwoTerminalVSCLine, F <: AbstractTwoTerminalVSCFormulation}
     time_steps = get_time_steps(container)
     names = [PSY.get_name(d) for d in devices]
@@ -1650,6 +1656,7 @@ function add_constraints!(
 
     for d in devices
         name = PSY.get_name(d)
+        # get_g on TwoTerminalVSCLine is already pu (SYSTEM_BASE); single-arg getter, no unit marker — no PSY.SU conversion applies
         g = PSY.get_g(d)
         for t in time_steps
             cons[name, t] = if iszero(g)
@@ -1677,7 +1684,7 @@ function add_constraints!(
     ::Type{HVDCVSCConverterPowerConstraint},
     devices::Union{Vector{U}, IS.FlattenIteratorWrapper{U}},
     model::DeviceModel{U, F},
-    ::NetworkModel{<:AbstractPowerModel},
+    ::NetworkModel{<:AbstractNetworkModel},
 ) where {U <: PSY.TwoTerminalVSCLine, F <: AbstractTwoTerminalVSCFormulation}
     time_steps = get_time_steps(container)
     names = [PSY.get_name(d) for d in devices]
@@ -1816,7 +1823,7 @@ function _add_vsc_apparent_power_limit!(
     container::OptimizationContainer,
     devices::Union{Vector{U}, IS.FlattenIteratorWrapper{U}},
     ::DeviceModel{U, <:AbstractTwoTerminalVSCFormulation},
-    ::NetworkModel{<:AbstractPowerModel},
+    ::NetworkModel{<:AbstractNetworkModel},
 ) where {U <: PSY.TwoTerminalVSCLine}
     time_steps = get_time_steps(container)
     names = [PSY.get_name(d) for d in devices]
@@ -1870,7 +1877,7 @@ function _add_vsc_apparent_power_limit!(
     container::OptimizationContainer,
     devices::Union{Vector{U}, IS.FlattenIteratorWrapper{U}},
     model::DeviceModel{U, <:AbstractTwoTerminalVSCFormulation},
-    ::NetworkModel{<:AbstractPowerModel},
+    ::NetworkModel{<:AbstractNetworkModel},
 ) where {U <: PSY.TwoTerminalVSCLine}
     time_steps = get_time_steps(container)
     names = [PSY.get_name(d) for d in devices]

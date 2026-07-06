@@ -577,7 +577,7 @@ end
     sys = PSB.build_system(PSITestSystems, "c_sys5_hy_turbine_energy")
     res = first(PSY.get_components(HydroReservoir, sys))
 
-    set_head_to_volume_factor!(res, LinearCurve(1.0))
+    set_head_to_volume_factor!(res, LinearFunctionData(1.0))
     set_storage_level_limits!(res, (min = 4000, max = 6000))
     set_level_targets!(res, 0.9)
     template_ed = PowerOperationsProblemTemplate(
