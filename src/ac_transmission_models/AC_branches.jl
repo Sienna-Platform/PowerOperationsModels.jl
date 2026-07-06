@@ -354,7 +354,7 @@ end
 
 function _get_flow_variable_vector(
     container::OptimizationContainer,
-    ::NetworkModel{<:AbstractPowerModel},
+    ::NetworkModel{<:AbstractNetworkModel},
     ::Type{B},
 ) where {B <: PSY.ACTransmission}
     return [
@@ -366,7 +366,7 @@ end
 function branch_rate_bounds!(
     container::OptimizationContainer,
     device_model::DeviceModel{B, T},
-    network_model::NetworkModel{<:AbstractPowerModel},
+    network_model::NetworkModel{<:AbstractNetworkModel},
 ) where {B <: PSY.ACTransmission, T <: AbstractBranchFormulation}
     time_steps = get_time_steps(container)
     net_reduction_data = get_network_reduction(network_model)
@@ -391,6 +391,7 @@ end
 ################################## PWL Loss Variables ##################################
 
 function _check_pwl_loss_model(devices)
+    # get_loss returns a LinearCurve or PiecewiseIncrementalCurve struct — not a unit-bearing scalar; no PSY.SU conversion applies
     first_loss = PSY.get_loss(first(devices))
     first_loss_type = typeof(first_loss)
     for d in devices
@@ -817,7 +818,7 @@ function _add_apparent_power_flow_rate_limit!(
     V1 <: VariableType,
     V2 <: VariableType,
     B <: PSY.ACTransmission,
-    T <: AbstractPowerModel,
+    T <: AbstractNetworkModel,
 }
     reduced_branch_tracker = get_reduced_branch_tracker(network_model)
     net_reduction_data = get_network_reduction(network_model)
@@ -897,7 +898,7 @@ function _add_apparent_power_flow_rate_limit!(
 end
 
 """
-Add rate limit from to constraints for ACBranch with AbstractPowerModel
+Add rate limit from to constraints for ACBranch with AbstractNetworkModel
 """
 function add_constraints!(
     container::OptimizationContainer,
@@ -905,7 +906,7 @@ function add_constraints!(
     devices::IS.FlattenIteratorWrapper{B},
     device_model::DeviceModel{B, <:AbstractBranchFormulation},
     network_model::NetworkModel{T},
-) where {B <: PSY.ACTransmission, T <: AbstractPowerModel}
+) where {B <: PSY.ACTransmission, T <: AbstractNetworkModel}
     _add_apparent_power_flow_rate_limit!(
         container,
         cons_type,
@@ -919,7 +920,7 @@ function add_constraints!(
 end
 
 """
-Add rate limit to from constraints for ACBranch with AbstractPowerModel
+Add rate limit to from constraints for ACBranch with AbstractNetworkModel
 """
 function add_constraints!(
     container::OptimizationContainer,
@@ -927,7 +928,7 @@ function add_constraints!(
     devices::IS.FlattenIteratorWrapper{B},
     device_model::DeviceModel{B, <:AbstractBranchFormulation},
     network_model::NetworkModel{T},
-) where {B <: PSY.ACTransmission, T <: AbstractPowerModel}
+) where {B <: PSY.ACTransmission, T <: AbstractNetworkModel}
     _add_apparent_power_flow_rate_limit!(
         container,
         cons_type,
@@ -1086,7 +1087,7 @@ function add_expressions!(
     network_model::NetworkModel{<:AbstractPTDFNetworkModel},
 ) where {B <: PSY.ACTransmission}
     time_steps = get_time_steps(container)
-    ptdf = get_PTDF_matrix(network_model)
+    ptdf = get_network_matrix(network_model)
     net_reduction_data = network_model.network_reduction
     branch_names = get_branch_argument_variable_axis(net_reduction_data, devices)
     # `collect` to a Vector so the spawn loop below can index it for multi-threading.
@@ -1200,7 +1201,7 @@ function add_constraints!(
     model::DeviceModel{T, PhaseAngleControl},
     network_model::NetworkModel{<:AbstractPTDFNetworkModel},
 ) where {T <: PSY.PhaseShiftingTransformer}
-    ptdf = get_PTDF_matrix(network_model)
+    ptdf = get_network_matrix(network_model)
     branches = PSY.get_name.(devices)
     time_steps = get_time_steps(container)
     branch_flow = add_constraints_container!(container, NetworkFlowConstraint,
@@ -1422,7 +1423,7 @@ function add_to_objective_function!(
     container::OptimizationContainer,
     ::IS.FlattenIteratorWrapper{T},
     device_model::DeviceModel{T, <:AbstractBranchFormulation},
-    ::Type{<:AbstractPowerModel},
+    ::Type{<:AbstractNetworkModel},
 ) where {T <: PSY.ACTransmission}
     if get_use_slacks(device_model)
         variable_up = get_variable(container, FlowActivePowerSlackUpperBound, T)
@@ -1821,6 +1822,107 @@ function _add_flow_constraint_containers!(
     return cons_pft, cons_qft, cons_ptf, cons_qtf
 end
 
+# Pure, tap-free π-model coefficients shared by the polar (ACP) and rectangular (ACR)
+# Ohm's law, for both the fixed-tap StaticBranch path and the variable-tap VoltageControlTap
+# path. `cs`/`sn` are the phase-shift trig; `gg_*`/`bb_*` fold the shunt half-charging into
+# the series admittance; `a_cos`/`a_sin`/`c_cos`/`d_sin` are the tm-free coupling
+# coefficients (each divided by the live tap at the constraint site — `tm` for fixed tap,
+# `TapRatioVariable[name, t]` for variable tap). ACR uses `e_sin = -d_sin`.
+function _tap_flow_coefficients(g, b, g_fr, b_fr, g_to, b_to, shift)
+    cs = cos(shift)
+    sn = sin(shift)
+    return (
+        cs = cs,
+        sn = sn,
+        gg_fr = g + g_fr,
+        bb_fr = b + b_fr,
+        gg_to = g + g_to,
+        bb_to = b + b_to,
+        a_cos = -g * cs + b * sn,
+        a_sin = -b * cs - g * sn,
+        c_cos = -g * cs - b * sn,
+        d_sin = b * cs - g * sn,
+    )
+end
+
+# Polar (ACP) π-model Ohm's law for one branch, one time step. `coef` from
+# `_tap_flow_coefficients`; `tap` is the constant `tm` (fixed tap) or the
+# `TapRatioVariable` (variable tap). The constraints reduce term-for-term to the
+# fixed-tap StaticBranch form when `tap == tm`.
+function _add_tap_acp_flow!(
+    jump_model, cons_pft, cons_qft, cons_ptf, cons_qtf, pft, qft, ptf, qtf,
+    name, t, vmf, vmt, θ, coef, tap,
+)
+    cons_pft[name, t] = JuMP.@constraint(
+        jump_model,
+        pft[name, t] ==
+        coef.gg_fr / tap^2 * vmf^2 +
+        coef.a_cos / tap * vmf * vmt * cos(θ) +
+        coef.a_sin / tap * vmf * vmt * sin(θ),
+    )
+    cons_qft[name, t] = JuMP.@constraint(
+        jump_model,
+        qft[name, t] ==
+        -coef.bb_fr / tap^2 * vmf^2 +
+        (-coef.a_sin) / tap * vmf * vmt * cos(θ) +
+        coef.a_cos / tap * vmf * vmt * sin(θ),
+    )
+    cons_ptf[name, t] = JuMP.@constraint(
+        jump_model,
+        ptf[name, t] ==
+        coef.gg_to * vmt^2 +
+        coef.c_cos / tap * vmt * vmf * cos(θ) +
+        coef.d_sin / tap * vmt * vmf * sin(θ),
+    )
+    cons_qtf[name, t] = JuMP.@constraint(
+        jump_model,
+        qtf[name, t] ==
+        -coef.bb_to * vmt^2 +
+        coef.d_sin / tap * vmt * vmf * cos(θ) +
+        (-coef.c_cos) / tap * vmt * vmf * sin(θ),
+    )
+    return
+end
+
+# Rectangular (ACR) π-model Ohm's law for one branch, one time step. Same coefficients as
+# ACP; the rectangular substitution replaces vmf²/vmf·vmt·cos/vmf·vmt·sin with the
+# pre-built bilinears `vsq_fr`/`vv_cos`/`vv_sin`. `e_sin = -d_sin` (rectangular sin sign).
+function _add_tap_acr_flow!(
+    jump_model, cons_pft, cons_qft, cons_ptf, cons_qtf, pft, qft, ptf, qtf,
+    name, t, vsq_fr, vsq_to, vv_cos, vv_sin, coef, tap,
+)
+    e_sin = -coef.d_sin
+    cons_pft[name, t] = JuMP.@constraint(
+        jump_model,
+        pft[name, t] ==
+        coef.gg_fr / tap^2 * vsq_fr +
+        coef.a_cos / tap * vv_cos +
+        coef.a_sin / tap * vv_sin,
+    )
+    cons_qft[name, t] = JuMP.@constraint(
+        jump_model,
+        qft[name, t] ==
+        -coef.bb_fr / tap^2 * vsq_fr +
+        (-coef.a_sin) / tap * vv_cos +
+        coef.a_cos / tap * vv_sin,
+    )
+    cons_ptf[name, t] = JuMP.@constraint(
+        jump_model,
+        ptf[name, t] ==
+        coef.gg_to * vsq_to +
+        coef.c_cos / tap * vv_cos -
+        e_sin / tap * vv_sin,
+    )
+    cons_qtf[name, t] = JuMP.@constraint(
+        jump_model,
+        qtf[name, t] ==
+        -coef.bb_to * vsq_to -
+        e_sin / tap * vv_cos -
+        coef.c_cos / tap * vv_sin,
+    )
+    return
+end
+
 """
 Add full π-model rectangular AC Ohm's law constraints for ACBranch under the native ACRNetworkModel.
 
@@ -1859,63 +1961,25 @@ function add_constraints!(
     for g_geom in geoms
         name = g_geom.name
         adm = g_geom.adm
-        g = adm.g
-        b = adm.b
-        g_fr = adm.g_fr
-        b_fr = adm.b_fr
-        g_to = adm.g_to
-        b_to = adm.b_to
         tm = adm.tap
-        nominal_shift = adm.shift
         from_bus = g_geom.from_name
         to_bus = g_geom.to_name
-        # Pre-compute constant coefficients from tap + shift.
-        # Convention matches ACP (same coefficients; coordinate system differs):
-        #   tr = tm * cos(shift),  ti = tm * sin(shift)
-        tr = tm * cos(nominal_shift)
-        ti = tm * sin(nominal_shift)
-        # Diagonal (self) admittance terms
-        g_sh_fr = (g + g_fr) / tm^2
-        b_sh_fr = (b + b_fr) / tm^2
-        # Off-diagonal coupling coefficients (identical to ACP; rectangular substitution
-        # replaces vmf*vmt*{cos,sin}(θ) with the bilinear products below).
-        c_pft_cos = (-g * tr + b * ti) / tm^2
-        c_pft_sin = (-b * tr - g * ti) / tm^2
-        c_ptf_cos = (-g * tr - b * ti) / tm^2
-        c_ptf_sin = (-b * tr + g * ti) / tm^2
+        coef = _tap_flow_coefficients(
+            adm.g, adm.b, adm.g_fr, adm.b_fr, adm.g_to, adm.b_to, adm.shift,
+        )
 
         for t in time_steps
             vr_fr = vr[from_bus, t]
             vr_to = vr[to_bus, t]
             vi_fr = vi[from_bus, t]
             vi_to = vi[to_bus, t]
-
-            # Shared bilinears, built once and reused across the four flow
-            # constraints (rebuilding each quadratic expression per constraint is
-            # the dominant build cost here):
-            #   vsq_* = |V|²,  vv_cos = vmf·vmt·cos(θ),  vv_sin = vmf·vmt·sin(θ)
             vsq_fr = vr_fr^2 + vi_fr^2
             vsq_to = vr_to^2 + vi_to^2
             vv_cos = vr_fr * vr_to + vi_fr * vi_to
             vv_sin = vi_fr * vr_to - vr_fr * vi_to
-
-            cons_pft[name, t] = JuMP.@constraint(
-                jump_model,
-                pft[name, t] == g_sh_fr * vsq_fr + c_pft_cos * vv_cos + c_pft_sin * vv_sin,
-            )
-            cons_qft[name, t] = JuMP.@constraint(
-                jump_model,
-                qft[name, t] == -b_sh_fr * vsq_fr - c_pft_sin * vv_cos + c_pft_cos * vv_sin,
-            )
-            cons_ptf[name, t] = JuMP.@constraint(
-                jump_model,
-                ptf[name, t] ==
-                (g + g_to) * vsq_to + c_ptf_cos * vv_cos - c_ptf_sin * vv_sin,
-            )
-            cons_qtf[name, t] = JuMP.@constraint(
-                jump_model,
-                qtf[name, t] ==
-                -(b + b_to) * vsq_to - c_ptf_sin * vv_cos - c_ptf_cos * vv_sin,
+            _add_tap_acr_flow!(
+                jump_model, cons_pft, cons_qft, cons_ptf, cons_qtf, pft, qft, ptf, qtf,
+                name, t, vsq_fr, vsq_to, vv_cos, vv_sin, coef, tm,
             )
         end
     end
@@ -1927,6 +1991,7 @@ end
 # Branch voltage-angle-difference bounds (angmin, angmax). Only Line / MonitoredLine
 # carry angle-limit data; other branch types get a finite ±π/2 default so the LPAC
 # cosine variable and its relaxation stay bounded (Principle 0).
+# angle limits are in radians — no per-unit conversion
 _lpacc_branch_angle_limits(d::PSY.Line) = PSY.get_angle_limits(d)
 _lpacc_branch_angle_limits(d::PSY.MonitoredLine) = PSY.get_angle_limits(d)
 _lpacc_branch_angle_limits(::PSY.ACTransmission) = (min = -π / 2, max = π / 2)
@@ -2202,6 +2267,7 @@ end
 
 function _min_endpoint_voltage_limit(branch::PSY.ACTransmission)
     arc = PSY.get_arc(branch)
+    # bus voltage limits are already per-unit
     vmin_fr = PSY.get_voltage_limits(PSY.get_from(arc)).min
     vmin_to = PSY.get_voltage_limits(PSY.get_to(arc)).min
     return min(vmin_fr, vmin_to)
@@ -2224,6 +2290,8 @@ function add_variables!(
     time_steps = get_time_steps(container)
     jump_model = get_jump_model(container)
     network_reduction = get_network_reduction(network_model)
+    # base-name prefix built once (unqualified via nameof) instead of per (name, t)
+    var_prefix = "$(nameof(V))_$(nameof(T))"
     if isempty(network_reduction)
         names = [PSY.get_name(d) for d in devices]
         var = add_variable_container!(container, V, T, names, time_steps)
@@ -2233,7 +2301,7 @@ function add_variables!(
             for t in time_steps
                 var[name, t] = JuMP.@variable(
                     jump_model,
-                    base_name = "$(nameof(V))_$(T)_{$(name), $(t)}",
+                    base_name = "$(var_prefix)_{$(name), $(t)}",
                     lower_bound = -c_rating,
                     upper_bound = c_rating,
                 )
@@ -2256,7 +2324,7 @@ function add_variables!(
             if !has_entry
                 tracker_container[t] = JuMP.@variable(
                     jump_model,
-                    base_name = "$(nameof(V))_$(T)_$(reduction)_{$(name), $(t)}",
+                    base_name = "$(var_prefix)_$(reduction)_{$(name), $(t)}",
                     lower_bound = -c_rating,
                     upper_bound = c_rating,
                 )
@@ -2274,9 +2342,11 @@ Ten constraints per branch per time step:
   (1-4)  Bilinear power-current linking:
            pft = vr_fr·cr_fr + vi_fr·ci_fr,  qft = vi_fr·cr_fr - vr_fr·ci_fr
            ptf = vr_to·cr_to + vi_to·ci_to,  qtf = vi_to·cr_to - vr_to·ci_to
-  (5-6)  KCL at from terminal (linear in cr_fr, ci_fr, csr, csi, vr_fr, vi_fr):
-           cr_fr·tm² = tr·csr - ti·csi + g_fr·vr_fr·tm² - b_fr·vi_fr·tm²
-           ci_fr·tm² = tr·csi + ti·csr + g_fr·vi_fr·tm² + b_fr·vr_fr·tm²
+  (5-6)  KCL at from terminal (linear in cr_fr, ci_fr, csr, csi, vr_fr, vi_fr).
+         The from-side shunt terms carry no tm² (PowerModels constraint_current_from
+         multiplied through by tm²; only the series/tap terms scale with tm²):
+           cr_fr·tm² = tr·csr - ti·csi + g_fr·vr_fr - b_fr·vi_fr
+           ci_fr·tm² = tr·csi + ti·csr + g_fr·vi_fr + b_fr·vr_fr
   (7-8)  KCL at to terminal (linear):
            cr_to = -csr + g_to·vr_to - b_to·vi_to
            ci_to = -csi + g_to·vi_to + b_to·vr_to
@@ -2440,32 +2510,47 @@ function add_constraints!(
     device_model::DeviceModel{T, U},
     network_model::NetworkModel{IVRNetworkModel},
 ) where {T <: PSY.ACTransmission, U <: AbstractBranchFormulation}
-    time_steps = get_time_steps(container)
-    cr_fr_var = get_variable(container, BranchCurrentFromToReal, T)
-    ci_fr_var = get_variable(container, BranchCurrentFromToImaginary, T)
-    cr_to_var = get_variable(container, BranchCurrentToFromReal, T)
-    ci_to_var = get_variable(container, BranchCurrentToFromImaginary, T)
     entries = _branch_rating_entries(network_model, devices, T, CurrentLimitConstraint)
-    names = [name for (name, _) in entries]
+    rating2 = [
+        name => _rate_rhs_squared(_ivr_current_rating(entry, device_model, name)) for
+        (name, entry) in entries
+    ]
+    _add_current_magnitude_limits!(
+        container, T, rating2, "from",
+        get_variable(container, BranchCurrentFromToReal, T),
+        get_variable(container, BranchCurrentFromToImaginary, T),
+    )
+    _add_current_magnitude_limits!(
+        container, T, rating2, "to",
+        get_variable(container, BranchCurrentToFromReal, T),
+        get_variable(container, BranchCurrentToFromImaginary, T),
+    )
+    return
+end
 
-    cons_from = add_constraints_container!(
-        container, CurrentLimitConstraint, T, names, time_steps; meta = "from",
-    )
-    cons_to = add_constraints_container!(
-        container, CurrentLimitConstraint, T, names, time_steps; meta = "to",
-    )
+"""
+Add the `real² + imag² ≤ rating²` current-magnitude limit for one terminal (`meta`),
+one constraint per `(name, t)`. `rating2` pairs each branch name to its squared rating.
+"""
+function _add_current_magnitude_limits!(
+    container::OptimizationContainer,
+    ::Type{T},
+    rating2::AbstractVector,
+    meta::String,
+    real_var,
+    imag_var,
+) where {T <: PSY.ACTransmission}
+    time_steps = get_time_steps(container)
     jump_model = get_jump_model(container)
-
-    for (name, entry) in entries
-        c_rating2 = _rate_rhs_squared(_ivr_current_rating(entry, device_model, name))
+    names = first.(rating2)
+    cons = add_constraints_container!(
+        container, CurrentLimitConstraint, T, names, time_steps; meta = meta,
+    )
+    for (name, r2) in rating2
         for t in time_steps
-            cons_from[name, t] = JuMP.@constraint(
+            cons[name, t] = JuMP.@constraint(
                 jump_model,
-                cr_fr_var[name, t]^2 + ci_fr_var[name, t]^2 <= c_rating2,
-            )
-            cons_to[name, t] = JuMP.@constraint(
-                jump_model,
-                cr_to_var[name, t]^2 + ci_to_var[name, t]^2 <= c_rating2,
+                real_var[name, t]^2 + imag_var[name, t]^2 <= r2,
             )
         end
     end
@@ -2700,6 +2785,7 @@ end
 # A branch constrains the angle difference when it carries angle-limit data (only
 # Line / MonitoredLine do) narrower than the PSY default ±π window.
 _constrains_angle_difference(::PSY.ACTransmission) = false
+# angle limits are in radians — no per-unit conversion
 _constrains_angle_difference(d::PSY.Line) =
     _is_binding_angle_window(PSY.get_angle_limits(d))
 _constrains_angle_difference(d::PSY.MonitoredLine) =
@@ -2744,6 +2830,7 @@ function add_constraints!(
     )
 
     for g in constrained
+        # angle limits are in radians — no per-unit conversion
         lims = PSY.get_angle_limits(limited_by_name[g.name])
         for t in time_steps
             cons[g.name, t] = JuMP.@constraint(
@@ -2801,6 +2888,7 @@ function add_constraints!(
 
     jump_model = get_jump_model(container)
     for g in constrained
+        # angle limits are in radians — no per-unit conversion
         lims = PSY.get_angle_limits(limited_by_name[g.name])
         fr = g.from_name
         to = g.to_name
@@ -2847,89 +2935,21 @@ function add_constraints!(
     for g_geom in geoms
         name = g_geom.name
         adm = g_geom.adm
-        g = adm.g
-        b = adm.b
-        g_fr = adm.g_fr
-        b_fr = adm.b_fr
-        g_to = adm.g_to
-        b_to = adm.b_to
         tm = adm.tap
-        nominal_shift = adm.shift
         from_bus = g_geom.from_name
         to_bus = g_geom.to_name
-        # Pre-compute constant coefficients from tap + shift.
-        # Convention (same as PowerModels.jl ACP):
-        #   tr = tm * cos(shift),  ti = tm * sin(shift)
-        #   angle variable θ = va_fr - va_to  (shift already folded into tr/ti)
-        tr = tm * cos(nominal_shift)
-        ti = tm * sin(nominal_shift)
-        # Diagonal (self) admittance terms
-        g_sh_fr = (g + g_fr) / tm^2
-        b_sh_fr = (b + b_fr) / tm^2
-        # Off-diagonal coupling coefficients — from→to direction
-        #   p_ft cos-term: (-g*tr + b*ti)/tm^2
-        #   p_ft sin-term: (-b*tr - g*ti)/tm^2
-        #   q_ft cos-term: -p_ft_sin = (b*tr + g*ti)/tm^2
-        #   q_ft sin-term:  p_ft cos = (-g*tr + b*ti)/tm^2
-        c_pft_cos = (-g * tr + b * ti) / tm^2
-        c_pft_sin = (-b * tr - g * ti) / tm^2
-        # Off-diagonal coupling coefficients — to→from direction
-        # Use θ_tf = va_to - va_fr = -θ; cos(-θ)=cos(θ), sin(-θ)=-sin(θ)
-        #   p_tf cos-term: (-g*tr - b*ti)/tm^2
-        #   p_tf sin-term: (b*tr - g*ti)/tm^2   [negative because sin flips]
-        #   q_tf cos-term: (b*tr - g*ti)/tm^2
-        #   q_tf sin-term: (-g*tr - b*ti)/tm^2  [negative]
-        c_ptf_cos = (-g * tr - b * ti) / tm^2
-        c_ptf_sin = (b * tr - g * ti) / tm^2
+        coef = _tap_flow_coefficients(
+            adm.g, adm.b, adm.g_fr, adm.b_fr, adm.g_to, adm.b_to, adm.shift,
+        )
 
         for t in time_steps
             θ = va[from_bus, t] - va[to_bus, t]
             vmf = vm[from_bus, t]
             vmt = vm[to_bus, t]
             jump_model = get_jump_model(container)
-
-            # p_ft = (g + g_fr)/tm^2 * vmf^2
-            #      + [(-g*tr + b*ti)/tm^2] * vmf*vmt*cos(θ)
-            #      + [(-b*tr - g*ti)/tm^2] * vmf*vmt*sin(θ)
-            cons_pft[name, t] = JuMP.@constraint(
-                jump_model,
-                pft[name, t] ==
-                g_sh_fr * vmf^2 +
-                c_pft_cos * vmf * vmt * cos(θ) +
-                c_pft_sin * vmf * vmt * sin(θ),
-            )
-
-            # q_ft = -(b + b_fr)/tm^2 * vmf^2
-            #      + [(b*tr + g*ti)/tm^2] * vmf*vmt*cos(θ)
-            #      + [(-g*tr + b*ti)/tm^2] * vmf*vmt*sin(θ)
-            cons_qft[name, t] = JuMP.@constraint(
-                jump_model,
-                qft[name, t] ==
-                -b_sh_fr * vmf^2 +
-                (-c_pft_sin) * vmf * vmt * cos(θ) +
-                c_pft_cos * vmf * vmt * sin(θ),
-            )
-
-            # p_tf = (g + g_to) * vmt^2
-            #      + [(-g*tr - b*ti)/tm^2] * vmt*vmf*cos(θ)  [cos(-θ)=cos(θ)]
-            #      + [(b*tr - g*ti)/tm^2]  * vmt*vmf*sin(θ)  [sin(-θ)=-sin(θ), so +sin(θ)]
-            cons_ptf[name, t] = JuMP.@constraint(
-                jump_model,
-                ptf[name, t] ==
-                (g + g_to) * vmt^2 +
-                c_ptf_cos * vmt * vmf * cos(θ) +
-                c_ptf_sin * vmt * vmf * sin(θ),
-            )
-
-            # q_tf = -(b + b_to) * vmt^2
-            #      + [(b*tr - g*ti)/tm^2]  * vmt*vmf*cos(θ)  [= c_ptf_sin]
-            #      + [(g*tr + b*ti)/tm^2]  * vmt*vmf*sin(θ)  [= -c_ptf_cos]
-            cons_qtf[name, t] = JuMP.@constraint(
-                jump_model,
-                qtf[name, t] ==
-                -(b + b_to) * vmt^2 +
-                c_ptf_sin * vmt * vmf * cos(θ) +
-                (-c_ptf_cos) * vmt * vmf * sin(θ),
+            _add_tap_acp_flow!(
+                jump_model, cons_pft, cons_qft, cons_ptf, cons_qtf, pft, qft, ptf, qtf,
+                name, t, vmf, vmt, θ, coef, tm,
             )
         end
     end
