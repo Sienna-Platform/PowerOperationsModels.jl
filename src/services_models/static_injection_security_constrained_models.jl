@@ -550,10 +550,8 @@ function add_to_expression!(
         outage in associated_outages || continue
         outage_id = string(IS.get_uuid(outage))
         name = PSY.get_name(d)
-        # `d`'s concrete type is only known at runtime (heterogeneous
-        # outage-generator map), so `get_variable` dispatches dynamically here.
-        # The lookup below is a function barrier: it isolates that one dynamic
-        # dispatch, letting the per-`t` loop inside run fully type-specialized.
+        # PERF: type unstable. `_add_pre_contingency_terms_over_time!` function barrier
+        # limits the impact, but a systematic fix would be better.
         variable = get_variable(container, U, typeof(d))
         mult = get_variable_multiplier(U, typeof(d), F)
         idx = _post_contingency_target_index(T, network_model, d)

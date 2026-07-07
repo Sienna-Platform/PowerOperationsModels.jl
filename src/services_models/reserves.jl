@@ -491,11 +491,8 @@ function add_constraints!(
     reserve_response_time = PSY.get_time_frame(service)
     jump_model = get_jump_model(container)
     for d in contributing_devices
-        # `contributing_devices` is flattened across every device type the
-        # service applies to, so `typeof(d)` is runtime-only and this
-        # `get_variable` dispatches dynamically. Hand the resulting `varstatus`
-        # to a function barrier so the `t` loop runs fully specialized instead
-        # of paying a dynamic dispatch on every iteration.
+        # PERF: type unstable. _add_reserve_power_constraint_over_time! function barrier
+        # limits the impact, but a systematic fix would be better.
         component_type = typeof(d)
         name = PSY.get_name(d)
         varstatus = get_variable(container, OnVariable, component_type)
