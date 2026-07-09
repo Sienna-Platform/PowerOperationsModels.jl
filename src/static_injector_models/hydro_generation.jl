@@ -15,6 +15,12 @@ get_variable_binary(::Type{ActivePowerVariable}, ::Type{<:PSY.HydroGen}, ::Type{
 get_variable_warm_start_value(::Type{ActivePowerVariable}, d::PSY.HydroGen, ::Type{<:AbstractHydroReservoirFormulation}) = PSY.get_active_power(d, PSY.SU)
 get_variable_lower_bound(::Type{ActivePowerVariable}, d::PSY.HydroGen, ::Type{<:AbstractHydroFormulation}) = PSY.get_active_power_limits(d, PSY.SU).min
 get_variable_lower_bound(::Type{ActivePowerVariable}, d::PSY.HydroGen, ::Type{<:AbstractHydroUnitCommitment}) = 0.0
+# HydroDispatchRunOfRiver's own get_min_max_limits range is (min = 0.0, ...): the
+# formulation is always-on (no OnVariable gate) and ERCOT's no-carry-forward convention
+# makes a no-offer hour an inert ~0 curve. A hard variable bound at the static min
+# (above) contradicts that range and makes any such hour infeasible, so this
+# most-specific method overrides it to 0.0 for run-of-river dispatch.
+get_variable_lower_bound(::Type{ActivePowerVariable}, d::PSY.HydroDispatch, ::Type{HydroDispatchRunOfRiver}) = 0.0
 get_variable_upper_bound(::Type{ActivePowerVariable}, d::PSY.HydroGen, ::Type{<:AbstractHydroFormulation}) = PSY.get_active_power_limits(d, PSY.SU).max
 
 ############## ReactivePowerVariable, HydroGen ####################
@@ -204,8 +210,12 @@ get_multiplier_value(::Type{InflowTimeSeriesParameter}, d::PSY.HydroReservoir, :
 get_multiplier_value(::Type{<:TimeSeriesParameter}, d::PSY.HydroGen, ::Type{<:AbstractHydroFormulation}) = PSY.get_max_active_power(d, PSY.SU)
 get_multiplier_value(::Type{<:TimeSeriesParameter}, d::PSY.HydroGen, ::Type{FixedOutput}) = PSY.get_max_active_power(d, PSY.SU)
 # next 2 needed to avoid ambiguity errors
-get_multiplier_value(::Type{<:AbstractPiecewiseLinearBreakpointParameter}, d::PSY.HydroGen, ::Type{FixedOutput}) = PSY.get_max_active_power(d, PSY.SU)
-get_multiplier_value(::Type{<:AbstractPiecewiseLinearBreakpointParameter}, d::PSY.HydroGen, ::Type{<:AbstractHydroFormulation}) = PSY.get_max_active_power(d, PSY.SU)
+# Market-bid PWL breakpoints are already expressed in system units (like every other
+# device type: PSY.Device's default and the explicit RenewableGen/ElectricLoad/Source
+# overrides are all 1.0). HydroGen was the only device type multiplying breakpoints by
+# max_active_power(SU), shrinking every hydro offer curve by that factor.
+get_multiplier_value(::Type{<:AbstractPiecewiseLinearBreakpointParameter}, d::PSY.HydroGen, ::Type{FixedOutput}) = 1.0
+get_multiplier_value(::Type{<:AbstractPiecewiseLinearBreakpointParameter}, d::PSY.HydroGen, ::Type{<:AbstractHydroFormulation}) = 1.0
 
 get_parameter_multiplier(::Type{<:VariableValueParameter}, d::PSY.HydroGen, ::Type{<:AbstractHydroFormulation}) = 1.0
 get_initial_parameter_value(::Type{<:VariableValueParameter}, d::PSY.HydroGen, ::Type{<:AbstractHydroFormulation}) = 1.0
