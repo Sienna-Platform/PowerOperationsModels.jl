@@ -9,10 +9,10 @@ function get_initial_conditions_template(
         get_network_formulation(model.template);
         use_slacks = get_use_slacks(get_network_model(model.template)),
         network_matrix = get_network_matrix(get_network_model(model.template)),
-        # Carry the MODF matrix forward so security-constrained branch models
-        # (which read the registered contingencies off the network model's MODF)
-        # can build inside the initial-conditions sub-model. Without this the IC
-        # build hits `get_registered_contingencies(nothing)`.
+        # Carry the contingency matrix forward so security-constrained branch models
+        # (which read the registered contingencies off the network model's
+        # contingency matrix) can build inside the initial-conditions sub-model.
+        # Without this the IC build hits `get_registered_contingencies(nothing)`.
         contingency_matrix = get_contingency_matrix(get_network_model(model.template)),
         reduce_radial_branches = get_reduce_radial_branches(
             get_network_model(model.template),
