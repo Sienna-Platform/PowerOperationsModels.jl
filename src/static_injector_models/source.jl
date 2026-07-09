@@ -113,12 +113,14 @@ function add_constraints!(
     constraint_export =
         add_constraints_container!(container, ImportExportBudgetConstraint,
             U,
-            names;
+            names,
+            ["horizon"];
             meta = "export",
         )
     constraint_import = add_constraints_container!(container, ImportExportBudgetConstraint,
         U,
-        names;
+        names,
+        ["horizon"];
         meta = "import",
     )
 
@@ -127,12 +129,12 @@ function add_constraints!(
         op_cost = PSY.get_operation_cost(d)
         week_import_limit = PSY.get_energy_import_weekly_limit(op_cost)
         week_export_limit = PSY.get_energy_export_weekly_limit(op_cost)
-        constraint_import[name] = JuMP.@constraint(
+        constraint_import[name, "horizon"] = JuMP.@constraint(
             get_jump_model(container),
             resolution_in_hours * sum(p_out[name, t] for t in time_steps) <=
             week_import_limit * (hours_in_horizon / HOURS_IN_WEEK)
         )
-        constraint_export[name] = JuMP.@constraint(
+        constraint_export[name, "horizon"] = JuMP.@constraint(
             get_jump_model(container),
             resolution_in_hours * sum(p_in[name, t] for t in time_steps) <=
             week_export_limit * (hours_in_horizon / HOURS_IN_WEEK)

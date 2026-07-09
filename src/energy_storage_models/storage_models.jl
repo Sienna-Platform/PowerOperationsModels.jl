@@ -1308,12 +1308,13 @@ function add_constraints!(
         add_constraints_container!(container, StateofChargeTargetConstraint,
             V,
             device_names,
+            [time_steps[end]],
         )
 
     for d in devices
         name = PSY.get_name(d)
         target = PSY.get_storage_target(d)
-        constraint_container[name] = JuMP.@constraint(
+        constraint_container[name, time_steps[end]] = JuMP.@constraint(
             get_jump_model(container),
             energy_var[name, time_steps[end]] - surplus_var[name, time_steps[end]] +
             shortfall_var[name, time_steps[end]] == target
@@ -1338,7 +1339,8 @@ function add_cycling_charge_without_reserves!(
     powerin_var = get_variable(container, ActivePowerInVariable, V)
     slack_var = get_variable(container, StorageChargeCyclingSlackVariable, V)
 
-    constraint = add_constraints_container!(container, StorageCyclingCharge, V, names)
+    constraint = add_constraints_container!(
+        container, StorageCyclingCharge, V, names, [time_steps[end]])
 
     for d in devices
         name = PSY.get_name(d)
@@ -1378,7 +1380,8 @@ function add_cycling_charge_with_reserves!(
         V,
     )
 
-    constraint = add_constraints_container!(container, StorageCyclingCharge, V, names)
+    constraint = add_constraints_container!(
+        container, StorageCyclingCharge, V, names, [time_steps[end]])
 
     for d in devices
         name = PSY.get_name(d)
@@ -1431,7 +1434,8 @@ function add_cycling_discharge_without_reserves!(
     slack_var = get_variable(container, StorageDischargeCyclingSlackVariable, V)
 
     constraint =
-        add_constraints_container!(container, StorageCyclingDischarge, V, names)
+        add_constraints_container!(
+            container, StorageCyclingDischarge, V, names, [time_steps[end]])
 
     for d in devices
         name = PSY.get_name(d)
@@ -1472,7 +1476,8 @@ function add_cycling_discharge_with_reserves!(
     )
 
     constraint =
-        add_constraints_container!(container, StorageCyclingDischarge, V, names)
+        add_constraints_container!(
+            container, StorageCyclingDischarge, V, names, [time_steps[end]])
 
     for d in devices
         name = PSY.get_name(d)
