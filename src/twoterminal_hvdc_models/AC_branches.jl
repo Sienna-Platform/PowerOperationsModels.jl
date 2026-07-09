@@ -704,7 +704,7 @@ function add_expressions!(
     network_model::NetworkModel{<:AbstractPTDFModel},
 ) where {B <: PSY.ACTransmission}
     time_steps = get_time_steps(container)
-    ptdf = get_PTDF_matrix(network_model)
+    ptdf = get_network_matrix(network_model)
     net_reduction_data = network_model.network_reduction
     # This might need to be changed to something else
     branch_names = get_branch_argument_variable_axis(net_reduction_data, devices)
@@ -828,7 +828,7 @@ function add_constraints!(
     model::DeviceModel{T, PhaseAngleControl},
     network_model::NetworkModel{<:AbstractPTDFModel},
 ) where {T <: PSY.PhaseShiftingTransformer}
-    ptdf = get_PTDF_matrix(network_model)
+    ptdf = get_network_matrix(network_model)
     branches = PSY.get_name.(devices)
     time_steps = get_time_steps(container)
     branch_flow = add_constraints_container!(container, NetworkFlowConstraint,

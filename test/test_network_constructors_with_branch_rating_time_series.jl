@@ -102,7 +102,7 @@ end
         template = get_thermal_dispatch_template_network(
             NetworkModel(
                 PTDFPowerModel;
-                PTDF_matrix = PTDF_ref[sys],
+                network_matrix = PTDF_ref[sys],
             ),
         )
 
@@ -192,7 +192,7 @@ end
             template = get_thermal_dispatch_template_network(
                 NetworkModel(
                     PTDFPowerModel;
-                    PTDF_matrix = PTDF(sys),
+                    network_matrix = PTDF(sys),
                 ),
             )
             set_device_model!(template, line_device_model)
@@ -279,7 +279,7 @@ end
             template = get_thermal_dispatch_template_network(
                 NetworkModel(
                     PTDFPowerModel;
-                    PTDF_matrix = PTDF(sys),
+                    network_matrix = PTDF(sys),
                 ),
             )
             set_device_model!(template, line_device_model)
@@ -365,7 +365,7 @@ end
             template = get_thermal_dispatch_template_network(
                 NetworkModel(
                     PTDFPowerModel;
-                    PTDF_matrix = PTDF(sys),
+                    network_matrix = PTDF(sys),
                 ),
             )
             set_device_model!(template, line_device_model)
@@ -458,7 +458,7 @@ end
             template = get_thermal_dispatch_template_network(
                 NetworkModel(
                     PTDFPowerModel;
-                    #PTDF_matrix = ptdf,
+                    #network_matrix = ptdf,
                     reduce_degree_two_branches = PNM.has_degree_two_reduction(
                         ptdf.network_reduction_data,
                     ),

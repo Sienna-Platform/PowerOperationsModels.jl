@@ -34,6 +34,7 @@ const PM = PowerModels
 
 # Import PM types into module namespace for re-export
 using .PowerModels:
+    AbstractPowerModel,
     AbstractDCPModel,
     AbstractACPModel,
     AbstractActivePowerModel,
@@ -67,7 +68,9 @@ import InfrastructureSystems.Optimization:
 
 # Import formulation abstract types from InfrastructureSystems.Optimization
 # Note: AbstractPTDFModel is defined in this package (network_formulations.jl)
-# as a subtype of AbstractDCPModel.
+# as a subtype of AbstractDCPModel. AbstractPowerModel itself is imported from the
+# embedded PowerModels submodule above, rooted on IOM.AbstractNetworkModel rather than
+# IS.Optimization.AbstractPowerModel (see IOM ADR 0001).
 import InfrastructureSystems.Optimization:
     AbstractDeviceFormulation,
     AbstractThermalFormulation,
@@ -75,7 +78,6 @@ import InfrastructureSystems.Optimization:
     AbstractRenewableFormulation,
     AbstractServiceFormulation,
     AbstractReservesFormulation,
-    AbstractPowerModel,
     AbstractHVDCNetworkModel
 
 #################################################################################

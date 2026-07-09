@@ -3,15 +3,18 @@ module PowerModels
 import ..InfrastructureModels as _IM
 import ..InfrastructureModels: @im_fields, nw_id_default
 import InfrastructureSystems
+import InfrastructureOptimizationModels
 import JuMP
 import LinearAlgebra
 import Logging
 import SparseArrays
 
-# Shared types — const aliases so PM.Foo === IS.Optimization.Foo
-const AbstractPowerModel = InfrastructureSystems.Optimization.AbstractPowerModel
-const AbstractActivePowerModel = InfrastructureSystems.Optimization.AbstractActivePowerModel
-const AbstractACPModel = InfrastructureSystems.Optimization.AbstractACPModel
+# Formulation-marker hierarchy, rooted on IOM's neutral network-model anchor rather than
+# IS.Optimization.AbstractPowerModel (no longer the NetworkModel{T} bound — see IOM ADR
+# 0001, "IOM network vocabulary neutralization").
+abstract type AbstractPowerModel <: InfrastructureOptimizationModels.AbstractNetworkModel end
+abstract type AbstractActivePowerModel <: AbstractPowerModel end
+abstract type AbstractACPModel <: AbstractPowerModel end
 
 const _pm_global_keys = Set(["time_series", "per_unit"])
 const pm_it_name = "pm"

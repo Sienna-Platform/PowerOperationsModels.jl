@@ -3,7 +3,7 @@
     template_uc = PowerOperationsProblemTemplate(NetworkModel(
         DCPPowerModel,
         #use_slacks=true,
-        #PTDF_matrix=PTDF(sys_5),
+        #network_matrix =PTDF(sys_5),
         #duals=[CopperPlateBalanceConstraint],
     ))
 
@@ -23,7 +23,7 @@
         NetworkModel(
             PTDFPowerModel;
             #use_slacks=true,
-            PTDF_matrix = PTDF(sys_5),
+            network_matrix = PTDF(sys_5),
             #duals=[CopperPlateBalanceConstraint],
         ),
     )

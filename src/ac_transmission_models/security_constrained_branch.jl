@@ -593,7 +593,7 @@ function add_post_contingency_flow_expressions!(
     N <: AbstractPTDFModel,
 }
     time_steps = get_time_steps(container)
-    modf_matrix = get_MODF_matrix(network_model)
+    modf_matrix = get_contingency_matrix(network_model)
     registered_contingencies = PNM.get_registered_contingencies(modf_matrix)
 
     net_reduction_data = network_model.network_reduction

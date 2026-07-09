@@ -55,7 +55,7 @@
             NetworkModel(
                 PTDFPowerModel;
                 use_slacks = false,
-                MODF_matrix = PNM.VirtualMODF(sys),
+                contingency_matrix = PNM.VirtualMODF(sys),
             ),
         )
         set_device_model!(
