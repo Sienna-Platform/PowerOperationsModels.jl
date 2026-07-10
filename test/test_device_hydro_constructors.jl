@@ -1151,3 +1151,40 @@ end
     @test build!(model; output_dir = mktempdir()) == ModelBuildStatus.BUILT
     @test solve!(model) == IS.Simulation.RunStatus.SUCCESSFULLY_FINALIZED
 end
+
+@testset "Hydro breakpoint multiplier and run-of-river lower bound getters" begin
+    # Regression for the hydro market-bid breakpoint mis-scaling + run-of-river lb bug
+    # (2026-07 backcast diagnosis); breakpoints are system-units so the multiplier must be
+    # 1.0 like every other device type.
+    demo_hydro = PSY.HydroDispatch(nothing)
+
+    # Test breakpoint multiplier methods return 1.0 for FixedOutput and AbstractHydroFormulation
+    @test POM.get_multiplier_value(
+        POM.AbstractPiecewiseLinearBreakpointParameter,
+        demo_hydro,
+        POM.FixedOutput,
+    ) == 1.0
+
+    @test POM.get_multiplier_value(
+        POM.AbstractPiecewiseLinearBreakpointParameter,
+        demo_hydro,
+        POM.HydroDispatchRunOfRiver,
+    ) == 1.0
+
+    # Test run-of-river dispatch lower bound is 0.0 (overrides default bounds check)
+    ror_lb = POM.get_variable_lower_bound(
+        POM.ActivePowerVariable,
+        demo_hydro,
+        POM.HydroDispatchRunOfRiver,
+    )
+    @test ror_lb == 0.0
+
+    # Test that unit commitment formulation overrides with 0.0 as well (different reason:
+    # units can be off), ensuring both commit and dispatch have explicit bounds
+    uc_lb = POM.get_variable_lower_bound(
+        POM.ActivePowerVariable,
+        demo_hydro,
+        POM.HydroCommitmentRunOfRiver,
+    )
+    @test uc_lb == 0.0
+end
