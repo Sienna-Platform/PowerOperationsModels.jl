@@ -1171,20 +1171,39 @@ end
         POM.HydroDispatchRunOfRiver,
     ) == 1.0
 
-    # Test run-of-river dispatch lower bound is 0.0 (overrides default bounds check)
-    ror_lb = POM.get_variable_lower_bound(
+    # Lower-bound checks need a NONZERO static min: the demo device's default limits are
+    # (min = 0, max = 0), under which the general fallback also returns 0.0 and the
+    # run-of-river assertion would pass even without the specific override. SU units
+    # require system attachment, so attach the demo to a throwaway System first.
+    lb_sys = PSY.System(100.0)
+    lb_bus = PSY.ACBus(; number = 1, name = "LB_B1", available = true,
+        bustype = PSY.ACBusTypes.REF, angle = 0.0, magnitude = 1.0,
+        voltage_limits = (min = 0.9, max = 1.1), base_voltage = 345.0)
+    PSY.add_component!(lb_sys, lb_bus)
+    demo_hydro.bus = lb_bus
+    PSY.add_component!(lb_sys, demo_hydro)
+    PSY.set_active_power_limits!(demo_hydro, (min = 0.17 * PSY.SU, max = 0.21 * PSY.SU))
+
+    # Run-of-river dispatch lower bound must be 0.0 despite the nonzero static min
+    # (the specific method overrides the static-min fallback)
+    @test POM.get_variable_lower_bound(
         POM.ActivePowerVariable,
         demo_hydro,
         POM.HydroDispatchRunOfRiver,
-    )
-    @test ror_lb == 0.0
+    ) == 0.0
 
-    # Test that unit commitment formulation overrides with 0.0 as well (different reason:
-    # units can be off), ensuring both commit and dispatch have explicit bounds
-    uc_lb = POM.get_variable_lower_bound(
+    # Unit commitment formulations also override with 0.0 (units can be off)
+    @test POM.get_variable_lower_bound(
         POM.ActivePowerVariable,
         demo_hydro,
         POM.HydroCommitmentRunOfRiver,
-    )
-    @test uc_lb == 0.0
+    ) == 0.0
+
+    # Pin the untouched general fallback: a non-run-of-river, non-UC hydro formulation
+    # still uses the static device min limit
+    @test POM.get_variable_lower_bound(
+        POM.ActivePowerVariable,
+        demo_hydro,
+        POM.HydroWaterFactorModel,
+    ) == 0.17
 end
