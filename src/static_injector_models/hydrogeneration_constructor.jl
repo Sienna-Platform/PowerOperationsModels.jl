@@ -780,7 +780,6 @@ function construct_device!(
 
     add_feedforward_constraints!(container, model, devices)
 
-    # this is erroring when there's a market bid cost.
     add_to_objective_function!(container, devices, model, S)
     add_event_constraints!(container, devices, model, network_model)
     add_constraint_dual!(container, sys, model)

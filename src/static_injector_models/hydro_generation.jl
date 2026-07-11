@@ -3,6 +3,12 @@
 # These methods are defined in PowerSimulations
 requires_initialization(::AbstractHydroReservoirFormulation) = false
 requires_initialization(::AbstractHydroUnitCommitment) = true
+# Like ThermalBasicUnitCommitment: HydroCommitmentRunOfRiver has no min up/down-time or
+# ramp constraints and its constructors never call `initial_conditions!`, so no
+# initialization sub-model is needed. Inheriting `true` from AbstractHydroUnitCommitment
+# forced a pointless IC solve whose template may not even be feasible/constructible for
+# the other devices in the system (IC swaps dispatch loads to StaticPowerLoad).
+requires_initialization(::HydroCommitmentRunOfRiver) = false
 
 get_variable_multiplier(::Type{<:VariableType}, ::Type{<:PSY.HydroGen}, ::Type{<:AbstractHydroFormulation}) = 1.0
 get_variable_multiplier(::Type{ActivePowerPumpVariable}, ::Type{<:PSY.HydroPumpTurbine}, ::Type{<:AbstractHydroPumpFormulation}) = -1.0
@@ -204,8 +210,12 @@ get_multiplier_value(::Type{InflowTimeSeriesParameter}, d::PSY.HydroReservoir, :
 get_multiplier_value(::Type{<:TimeSeriesParameter}, d::PSY.HydroGen, ::Type{<:AbstractHydroFormulation}) = PSY.get_max_active_power(d, PSY.SU)
 get_multiplier_value(::Type{<:TimeSeriesParameter}, d::PSY.HydroGen, ::Type{FixedOutput}) = PSY.get_max_active_power(d, PSY.SU)
 # next 2 needed to avoid ambiguity errors
-get_multiplier_value(::Type{<:AbstractPiecewiseLinearBreakpointParameter}, d::PSY.HydroGen, ::Type{FixedOutput}) = PSY.get_max_active_power(d, PSY.SU)
-get_multiplier_value(::Type{<:AbstractPiecewiseLinearBreakpointParameter}, d::PSY.HydroGen, ::Type{<:AbstractHydroFormulation}) = PSY.get_max_active_power(d, PSY.SU)
+# Market-bid PWL breakpoints are already expressed in system units (like every other
+# device type: PSY.Device's default and the explicit RenewableGen/ElectricLoad/Source
+# overrides are all 1.0). HydroGen was the only device type multiplying breakpoints by
+# max_active_power(SU), shrinking every hydro offer curve by that factor.
+get_multiplier_value(::Type{<:AbstractPiecewiseLinearBreakpointParameter}, d::PSY.HydroGen, ::Type{FixedOutput}) = 1.0
+get_multiplier_value(::Type{<:AbstractPiecewiseLinearBreakpointParameter}, d::PSY.HydroGen, ::Type{<:AbstractHydroFormulation}) = 1.0
 
 get_parameter_multiplier(::Type{<:VariableValueParameter}, d::PSY.HydroGen, ::Type{<:AbstractHydroFormulation}) = 1.0
 get_initial_parameter_value(::Type{<:VariableValueParameter}, d::PSY.HydroGen, ::Type{<:AbstractHydroFormulation}) = 1.0
@@ -2332,10 +2342,42 @@ function add_to_objective_function!(
     return
 end
 
-# HydroGenerationCost rate is always static (CostCurve only, no FuelCurve), so the
-# static 4-arg `proportional_cost` definition above + IOM's default `add_proportional_cost!`
-# handle the OnVariable term. We only need to register the must-run trait.
 skip_proportional_cost(d::PSY.HydroPumpTurbine) = PSY.get_must_run(d)
+
+# IOM's default `add_proportional_cost!` only ever calls the static 4-arg
+# `proportional_cost` (line 257 above), which for `PSY.OperationalCost` blindly forwards
+# to `PSY.get_fixed(cost)`. That method doesn't exist for `MarketBidCost`/
+# `MarketBidTimeSeriesCost` (get_fixed is only defined for the *GenerationCost/LoadCost
+# static-cost types), so committing a hydro unit with a market-bid cost errored here
+# (2026-07 diagnosis: "erroring when there's a market bid cost" in
+# hydrogeneration_constructor.jl). Route through the time-variant-capable path instead,
+# exactly like ThermalGen (thermal_generation.jl) and ControllableLoad
+# (electric_loads.jl): it dispatches MBC/MarketBidTimeSeriesCost to the generic OnVariable
+# methods in common_models/market_bid_overrides.jl (Section 1b), and static
+# HydroGenerationCost to the 5-arg method just below.
+add_proportional_cost!(
+    container::OptimizationContainer,
+    ::Type{U},
+    devices::IS.FlattenIteratorWrapper{T},
+    ::Type{V},
+) where {U <: OnVariable, T <: PSY.HydroGen, V <: AbstractHydroFormulation} =
+    add_proportional_cost_maybe_time_variant!(container, U, devices, V)
+
+# Non-MBC path: HydroGenerationCost's OnVariable rate is always static (no FuelCurve-onvar
+# term is modeled for hydro, unlike thermal) - just the fixed cost, matching the old 4-arg
+# behavior above but through the 5-arg signature `add_proportional_cost_maybe_time_variant!`
+# requires.
+function proportional_cost(
+    ::OptimizationContainer,
+    cost::PSY.HydroGenerationCost,
+    ::Type{OnVariable},
+    ::PSY.HydroGen,
+    ::Type{<:AbstractHydroFormulation},
+    ::Int,
+)
+    return PSY.get_fixed(cost)
+end
+IOM.is_time_variant_proportional(::PSY.HydroGenerationCost) = false
 
 # These _include_{constant}_min_gen_power functions are needed for MarketBidCost.
 # Commitment has an on/off choice, so add OnVariable * breakpoint1 to power constraint.
