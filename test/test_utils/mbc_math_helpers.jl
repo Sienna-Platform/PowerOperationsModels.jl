@@ -190,6 +190,50 @@ function one_bus_one_thermal_multistart(
     return sys
 end
 
+function _add_simple_storage!(
+    sys::PSY.System,
+    bus::PSY.ACBus,
+    cost::PSY.OperationalCost;
+    name::String = "storage1",
+    input_active_power_limits = (min = 0.0, max = 1.0),
+    output_active_power_limits = (min = 0.0, max = 1.0),
+    base_power::Float64 = 100.0,
+)
+    storage = PSY.EnergyReservoirStorage(;
+        name = name,
+        available = true,
+        bus = bus,
+        prime_mover_type = PSY.PrimeMovers.BA,
+        storage_technology_type = PSY.StorageTech.LIB,
+        storage_capacity = 4.0,
+        storage_level_limits = (min = 0.0, max = 1.0),
+        initial_storage_capacity_level = 0.5,
+        rating = 1.0,
+        active_power = 0.0,
+        input_active_power_limits = input_active_power_limits,
+        output_active_power_limits = output_active_power_limits,
+        efficiency = (in = 0.92, out = 0.92),
+        reactive_power = 0.0,
+        reactive_power_limits = nothing,
+        operation_cost = cost,
+        base_power = base_power,
+    )
+    PSY.add_component!(sys, storage)
+    return storage
+end
+
+"""One-bus system with a single `EnergyReservoirStorage` carrying `cost`."""
+function one_bus_one_storage(
+    cost::PSY.OperationalCost;
+    system_base_power::Float64 = 100.0,
+    kwargs...,
+)
+    sys = PSY.System(system_base_power)
+    bus = _add_simple_bus!(sys)
+    _add_simple_storage!(sys, bus, cost; kwargs...)
+    return sys
+end
+
 """Build an `OptimizationContainer` wrapping `sys` with the given `time_steps`."""
 function build_test_container(
     sys::PSY.System,
