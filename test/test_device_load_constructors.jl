@@ -1,9 +1,9 @@
 test_path = mktempdir()
 
-@testset "MotorLoad AreaBalancePowerModel" begin
+@testset "MotorLoad AreaBalanceNetworkModel" begin
     c_sys = PSB.build_system(PSISystems, "two_area_pjm_DA")
     transform_single_time_series!(c_sys, Hour(24), Hour(1))
-    template = get_thermal_dispatch_template_network(NetworkModel(AreaBalancePowerModel))
+    template = get_thermal_dispatch_template_network(NetworkModel(AreaBalanceNetworkModel))
     set_device_model!(template, AreaInterchange, StaticBranch)
     ps_model =
         DecisionModel(template, c_sys; resolution = Hour(1), optimizer = HiGHS_optimizer)
@@ -16,7 +16,7 @@ end
 @testset "StaticPowerLoad" begin
     models = [StaticPowerLoad, PowerLoadDispatch, PowerLoadInterruption]
     c_sys5_il = PSB.build_system(PSITestSystems, "c_sys5_il")
-    networks = [DCPPowerModel, ACPPowerModel]
+    networks = [DCPNetworkModel, ACPNetworkModel]
     for m in models, n in networks
         device_model = DeviceModel(PowerLoad, m)
         model = DecisionModel(MockOperationProblem, n, c_sys5_il)
@@ -33,7 +33,7 @@ end
 @testset "PowerLoadDispatch DC- PF" begin
     models = [PowerLoadDispatch]
     c_sys5_il = PSB.build_system(PSITestSystems, "c_sys5_il")
-    networks = [DCPPowerModel]
+    networks = [DCPNetworkModel]
     for m in models, n in networks
         device_model = DeviceModel(InterruptiblePowerLoad, m)
         model = DecisionModel(MockOperationProblem, n, c_sys5_il)
@@ -50,7 +50,7 @@ end
 @testset "PowerLoadDispatch AC- PF" begin
     models = [PowerLoadDispatch]
     c_sys5_il = PSB.build_system(PSITestSystems, "c_sys5_il")
-    networks = [ACPPowerModel]
+    networks = [ACPNetworkModel]
     for m in models, n in networks
         device_model = DeviceModel(InterruptiblePowerLoad, m)
         model = DecisionModel(MockOperationProblem, n, c_sys5_il)
@@ -81,7 +81,7 @@ end
             ),
         ),
     )
-    networks = [ACPPowerModel]
+    networks = [ACPNetworkModel]
     for m in models, n in networks
         device_model = DeviceModel(InterruptiblePowerLoad, m)
         model = DecisionModel(MockOperationProblem, n, c_sys5_il)
@@ -105,7 +105,7 @@ end
             ),
         ),
     )
-    template = PowerOperationsProblemTemplate(NetworkModel(CopperPlatePowerModel))
+    template = PowerOperationsProblemTemplate(NetworkModel(CopperPlateNetworkModel))
     set_device_model!(template, ThermalStandard, ThermalBasicUnitCommitment)
     set_device_model!(template, InterruptiblePowerLoad, PowerLoadDispatch)
     model = DecisionModel(template,
@@ -134,7 +134,7 @@ end
 @testset "PowerLoadInterruption DC- PF" begin
     models = [PowerLoadInterruption]
     c_sys5_il = PSB.build_system(PSITestSystems, "c_sys5_il")
-    networks = [DCPPowerModel]
+    networks = [DCPNetworkModel]
     for m in models, n in networks
         device_model = DeviceModel(InterruptiblePowerLoad, m)
         model = DecisionModel(MockOperationProblem, n, c_sys5_il)
@@ -151,7 +151,7 @@ end
 @testset "PowerLoadInterruption AC- PF" begin
     models = [PowerLoadInterruption]
     c_sys5_il = PSB.build_system(PSITestSystems, "c_sys5_il")
-    networks = [ACPPowerModel]
+    networks = [ACPNetworkModel]
     for m in models, n in networks
         device_model = DeviceModel(InterruptiblePowerLoad, m)
         model = DecisionModel(MockOperationProblem, n, c_sys5_il)
@@ -170,7 +170,7 @@ end
     load = get_component(PowerLoad, sys, "Bus2")
     remove_time_series!(sys, Deterministic, load, "max_active_power")
 
-    networks = [CopperPlatePowerModel, PTDFPowerModel, DCPPowerModel, ACPPowerModel]
+    networks = [CopperPlateNetworkModel, PTDFNetworkModel, DCPNetworkModel, ACPNetworkModel]
     solvers = [HiGHS_optimizer, HiGHS_optimizer, HiGHS_optimizer, ipopt_optimizer]
     for (ix, net) in enumerate(networks)
         template = PowerOperationsProblemTemplate(
@@ -213,7 +213,7 @@ end
     )
     add_component!(sys, mload)
 
-    networks = [CopperPlatePowerModel, PTDFPowerModel, DCPPowerModel, ACPPowerModel]
+    networks = [CopperPlateNetworkModel, PTDFNetworkModel, DCPNetworkModel, ACPNetworkModel]
     solvers = [HiGHS_optimizer, HiGHS_optimizer, HiGHS_optimizer, ipopt_optimizer]
     for (ix, net) in enumerate(networks)
         template = PowerOperationsProblemTemplate(
@@ -299,7 +299,7 @@ end
 
     template = PowerOperationsProblemTemplate(
         NetworkModel(
-            CopperPlatePowerModel;
+            CopperPlateNetworkModel;
             duals = [CopperPlateBalanceConstraint],
         ),
     )

@@ -19,6 +19,62 @@ _get_quadratic_term(loss_fn::PSY.QuadraticCurve) = PSY.get_quadratic_term(loss_f
 _get_quadratic_term(loss_fn) = 0.0
 
 #########################################
+######## AC apparent-current loss #######
+#########################################
+
+# AC network models with bus voltage magnitudes available (vm under ACP, vr/vi
+# under ACR/IVR). Under these, converter losses are parameterized on the AC
+# apparent current I_ac = sqrt(p^2 + q^2)/|V_ac| (Beerten/MATACDC VSC loss) so that
+# reactive loading incurs loss. Active-power-only networks keep the DC-current loss.
+const _ConverterACVoltageNetwork =
+    Union{ACPNetworkModel, ACRNetworkModel, IVRNetworkModel}
+
+# Finite upper bound S_max / vmin for the AC apparent-current variable
+# (I_ac = sqrt(p^2+q^2)/|V_ac| <= S_max/vmin). Errors on a non-finite bound
+# (missing rating or zero/missing AC bus minimum voltage) — Principle 0.
+function _converter_ac_current_max(rating::Float64, vmin::Float64, name::AbstractString)
+    bound = rating / vmin
+    isfinite(bound) || error(
+        "Converter $(name) AC apparent-current bound S_max/vmin is non-finite " *
+        "(rating=$(rating), vmin=$(vmin)). Check the converter rating and the AC " *
+        "bus minimum voltage limit.",
+    )
+    return bound
+end
+
+# Small positive floor on the AC apparent-current variable. Keeps I_ac strictly off
+# zero so the defining relation's gradient d(I_ac^2·V^2)/dI_ac = 2·I_ac·V^2 never
+# vanishes (a zero-loaded converter would otherwise sit at I_ac = 0, a degenerate
+# point where the Jacobian row vanishes and Ipopt cannot certify KKT). At this floor
+# the relation is slack (inactive) and the converter sees only a negligible no-load
+# loss b·ε; loaded converters are unaffected (the loss pins I_ac to its tight value
+# sqrt(p^2+q^2)/|V_ac| > ε). Far above the solver tolerance (1e-6).
+const CONVERTER_AC_CURRENT_FLOOR = 1e-3
+
+# Defining relation for the AC apparent current: I_ac^2 * V_ac^2 >= p^2 + q^2 with
+# I_ac >= ε (exact NLP, Beerten/MATACDC). The loss term a·I_ac^2 + b·I_ac (a, b >= 0)
+# is minimized through the generation-cost objective, so for a loaded converter I_ac
+# is pinned down to its tight value sqrt(p^2+q^2)/|V_ac| and the relation holds with
+# equality; an idle converter rests at the floor ε with the relation inactive (see
+# CONVERTER_AC_CURRENT_FLOOR). The voltage variable refs are inlined into the macro
+# (ACP: vm; ACR/IVR: vr, vi) so JuMP builds the nonlinear expression syntactically —
+# V_ac^2 is `_bus_voltage_squared`.
+function _converter_ac_current_definition(
+    jm, i_ac, p, q, vars::Tuple{V}, bus_name::String, t::Int,
+) where {V}
+    vm = vars[1][bus_name, t]
+    return JuMP.@constraint(jm, i_ac^2 * vm^2 >= p^2 + q^2)
+end
+
+function _converter_ac_current_definition(
+    jm, i_ac, p, q, vars::Tuple{V, W}, bus_name::String, t::Int,
+) where {V, W}
+    vr = vars[1][bus_name, t]
+    vi = vars[2][bus_name, t]
+    return JuMP.@constraint(jm, i_ac^2 * (vr^2 + vi^2) >= p^2 + q^2)
+end
+
+#########################################
 ######## Loss expression builder ########
 #########################################
 
@@ -61,7 +117,7 @@ function _add_abs_value_constraints!(
     container::OptimizationContainer,
     devices,
     ::DeviceModel{D, F},
-    ::NetworkModel{<:AbstractPowerModel},
+    ::NetworkModel{<:AbstractNetworkModel},
     parent_var_type::Type{<:VariableType},
 ) where {D <: PSY.Device, F}
     time_steps = get_time_steps(container)
@@ -111,7 +167,7 @@ function _build_converter_configs(
     model::DeviceModel,
     v_bounds,
     i_bounds,
-) where {F <: Union{QuadraticLossConverter, HVDCTwoTerminalVSC}}
+) where {F <: Union{AbstractQuadraticLossConverter, AbstractTwoTerminalVSCFormulation}}
     method = get_attribute(model, "bilinear_approximation")
     quad_method = get_attribute(model, "bilinear_quadratic_method")
     abs_tol = get_attribute(model, "bilinear_absolute_tolerance")

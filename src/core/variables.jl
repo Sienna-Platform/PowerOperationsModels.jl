@@ -48,6 +48,31 @@ Docs abbreviation: ``q``
 """
 struct ReactivePowerVariable <: VariableType end
 
+"""
+Continuous shunt susceptance ``b`` (pu on system MVA base) dispatched by
+[`ShuntSusceptanceDispatch`](@ref) for `PSY.SwitchedAdmittance` and
+`PSY.FACTSControlDevice`. Bounded by the device susceptance range: for
+`SwitchedAdmittance`, the base susceptance plus the achievable block increment span
+(continuous relaxation of discrete steps); for `FACTSControlDevice`, the per-unit
+conversion of `max_shunt_current`. Enters [`ShuntReactivePowerConstraint`](@ref) as
+``Q = b \\cdot V^2``. Only valid under AC network models.
+
+Docs abbreviation: ``b``
+"""
+struct ShuntSusceptanceVariable <: VariableType end
+
+"""
+Continuous off-nominal turns ratio ``t \\in [t_{\\min}, t_{\\max}]`` (pu) for a
+[`VoltageControlTap`](@ref) `PSY.TapTransformer`. The variable enters the AC π-model
+Ohm's law nonlinearly: self terms scale as ``1/t^2``, coupling terms scale as ``1/t``,
+so the formulation reduces to `StaticBranch` when ``t = t_m`` (the nominal tap).
+Warm-started at the transformer's current tap position. Both bounds must be finite and
+positive (validated at construction time). Only valid under AC network models.
+
+Docs abbreviation: ``t``
+"""
+struct TapRatioVariable <: VariableType end
+
 # ReservationVariable: moved to IOM (used in range_constraint.jl)
 
 """
@@ -108,6 +133,104 @@ Docs abbreviation: ``\\theta``
 """
 struct VoltageAngle <: VariableType end
 
+"""
+Component-owned auxiliary voltage-magnitude variable used to regulate a bus voltage
+under rectangular AC formulations (ACR/IVR), which expose no scalar magnitude primitive.
+Keyed by the regulating component name and scoped to that component's regulated bus, it is
+bounded by the regulated bus's voltage limits and tied to the bus by
+`RegulatedVoltageMagnitudeConstraint` (`vm_reg² == vr² + vi²`). Only created under ACR/IVR;
+under ACP the network `VoltageMagnitude` is regulated directly.
+
+Docs abbreviation: ``v^\\text{reg}``
+"""
+struct RegulatedVoltageMagnitude <: VariableType end
+
+"""
+Struct to dispatch the creation of Voltage Real-Component Variables for rectangular-coordinate AC formulations
+
+Docs abbreviation: ``v_r``
+"""
+struct VoltageReal <: VariableType end
+
+"""
+Struct to dispatch the creation of Voltage Imaginary-Component Variables for rectangular-coordinate AC formulations
+
+Docs abbreviation: ``v_i``
+"""
+struct VoltageImaginary <: VariableType end
+
+"""
+Struct to dispatch the creation of Voltage-Magnitude Deviation Variables (`phi = |V| - 1`)
+for the LPAC formulation, indexed by bus.
+
+Docs abbreviation: ``\\phi``
+"""
+struct VoltageDeviation <: VariableType end
+
+"""
+Struct to dispatch the creation of bus-pair Cosine Approximation Variables (`cs`) for the
+LPAC formulation, indexed by branch.
+
+Docs abbreviation: ``cs``
+"""
+struct CosineApproximation <: VariableType end
+
+#########################################
+####### IVR Branch Current Variables ####
+#########################################
+
+# Abstract parent for all six IVR branch current variable types; enables a single
+# parametric add_variables! dispatch instead of six @eval-generated copies.
+abstract type AbstractBranchCurrentVariable <: VariableType end
+
+"""
+Real component of the from-terminal branch current in the IVR formulation,
+indexed by (branch_name, t). Bounded ±(rate_a / vmin).
+
+Docs abbreviation: ``c_r^{fr}``
+"""
+struct BranchCurrentFromToReal <: AbstractBranchCurrentVariable end
+
+"""
+Imaginary component of the from-terminal branch current in the IVR formulation,
+indexed by (branch_name, t). Bounded ±(rate_a / vmin).
+
+Docs abbreviation: ``c_i^{fr}``
+"""
+struct BranchCurrentFromToImaginary <: AbstractBranchCurrentVariable end
+
+"""
+Real component of the to-terminal branch current in the IVR formulation,
+indexed by (branch_name, t). Bounded ±(rate_a / vmin).
+
+Docs abbreviation: ``c_r^{to}``
+"""
+struct BranchCurrentToFromReal <: AbstractBranchCurrentVariable end
+
+"""
+Imaginary component of the to-terminal branch current in the IVR formulation,
+indexed by (branch_name, t). Bounded ±(rate_a / vmin).
+
+Docs abbreviation: ``c_i^{to}``
+"""
+struct BranchCurrentToFromImaginary <: AbstractBranchCurrentVariable end
+
+"""
+Real component of the series (through-impedance) branch current in the IVR formulation,
+indexed by (branch_name, t). Bounded ±(rate_a / vmin).
+
+Docs abbreviation: ``c_{sr}``
+"""
+struct BranchSeriesCurrentReal <: AbstractBranchCurrentVariable end
+
+"""
+Imaginary component of the series (through-impedance) branch current in the IVR formulation,
+indexed by (branch_name, t). Bounded ±(rate_a / vmin).
+
+Docs abbreviation: ``c_{si}``
+"""
+struct BranchSeriesCurrentImaginary <: AbstractBranchCurrentVariable end
+
 #########################################
 ###### Power Load Shift Variables #######
 #########################################
@@ -148,6 +271,29 @@ both two-terminal HVDC links (cable current) and interconnecting converters.
 Docs abbreviation: ``|i|^{dc}``
 """
 struct CurrentAbsoluteValueVariable <: VariableType end
+
+"""
+Non-negative AC apparent current ``I_{ac} = \\sqrt{p^2 + q^2}/|V_{ac}|`` at the AC
+terminal of an `InterconnectingConverter` under an AC network model. The converter
+loss is parameterized on this current (instead of the DC cable current) so reactive
+loading incurs loss. Defined by ``I_{ac}^2 \\, V_{ac}^2 = p^2 + q^2``.
+Docs abbreviation: ``i_c^{ac}``
+"""
+struct ConverterACCurrentVariable <: VariableType end
+
+"""
+Non-negative AC apparent current at the from-terminal of a `TwoTerminalVSCLine`
+under an AC network model: ``I_{ac,f}^2 \\, V_{ac,f}^2 = p_{ft}^2 + q_f^2``.
+Docs abbreviation: ``i_f^{ac}``
+"""
+struct ConverterACCurrentFromVariable <: VariableType end
+
+"""
+Non-negative AC apparent current at the to-terminal of a `TwoTerminalVSCLine`
+under an AC network model: ``I_{ac,t}^2 \\, V_{ac,t}^2 = p_{tf}^2 + q_t^2``.
+Docs abbreviation: ``i_t^{ac}``
+"""
+struct ConverterACCurrentToVariable <: VariableType end
 
 #########################################################
 #########################################################

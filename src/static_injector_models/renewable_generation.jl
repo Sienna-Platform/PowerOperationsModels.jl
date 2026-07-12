@@ -68,7 +68,7 @@ function add_constraints!(
     devices::IS.FlattenIteratorWrapper{V},
     model::DeviceModel{V, W},
     ::NetworkModel{X},
-) where {V <: PSY.RenewableGen, W <: AbstractDeviceFormulation, X <: AbstractPowerModel}
+) where {V <: PSY.RenewableGen, W <: AbstractDeviceFormulation, X <: AbstractNetworkModel}
     add_range_constraints!(container, T, U, devices, model, X)
     return
 end
@@ -86,7 +86,7 @@ function add_constraints!(
 ) where {
     V <: PSY.RenewableGen,
     W <: RenewableConstantPowerFactor,
-    X <: AbstractPowerModel,
+    X <: AbstractNetworkModel,
 }
     names = PSY.get_name.(devices)
     time_steps = get_time_steps(container)
@@ -113,7 +113,7 @@ function add_constraints!(
 ) where {
     V <: PSY.RenewableGen,
     W <: AbstractRenewableDispatchFormulation,
-    X <: AbstractPowerModel,
+    X <: AbstractNetworkModel,
 }
     add_parameterized_upper_bound_range_constraints(
         container,
@@ -137,7 +137,7 @@ function add_constraints!(
 ) where {
     V <: PSY.RenewableGen,
     W <: AbstractRenewableDispatchFormulation,
-    X <: AbstractPowerModel,
+    X <: AbstractNetworkModel,
 }
     add_range_constraints!(
         container,
@@ -155,7 +155,7 @@ function add_to_objective_function!(
     container::OptimizationContainer,
     devices::IS.FlattenIteratorWrapper{T},
     ::DeviceModel{T, U},
-    ::Type{<:AbstractPowerModel},
+    ::Type{<:AbstractNetworkModel},
 ) where {T <: PSY.RenewableGen, U <: AbstractRenewableDispatchFormulation}
     add_variable_cost!(container, ActivePowerVariable, devices, U)
     add_curtailment_cost!(container, ActivePowerVariable, devices, U)

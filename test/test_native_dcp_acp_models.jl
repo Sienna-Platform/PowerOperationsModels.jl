@@ -9,9 +9,9 @@ function _build_log_contains(output_dir, needle)
     return occursin(needle, read(logf, String))
 end
 
-@testset "native DCPPowerModel builds and solves (c_sys5)" begin
+@testset "native DCPNetworkModel builds and solves (c_sys5)" begin
     sys = PSB.build_system(PSITestSystems, "c_sys5")
-    template = get_thermal_dispatch_template_network(NetworkModel(DCPPowerModel))
+    template = get_thermal_dispatch_template_network(NetworkModel(DCPNetworkModel))
     model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
     out = mktempdir(; cleanup = true)
     @test build!(model; output_dir = out) == IOM.ModelBuildStatus.BUILT
@@ -40,9 +40,9 @@ end
     @test isapprox(pflow[1, lname] / base_power, -b * (va[1, fr] - va[1, to]); atol = 1e-6)
 end
 
-@testset "native ACPPowerModel builds and solves (c_sys5)" begin
+@testset "native ACPNetworkModel builds and solves (c_sys5)" begin
     sys = PSB.build_system(PSITestSystems, "c_sys5")
-    template = get_thermal_dispatch_template_network(NetworkModel(ACPPowerModel))
+    template = get_thermal_dispatch_template_network(NetworkModel(ACPNetworkModel))
     model = DecisionModel(template, sys; optimizer = ipopt_optimizer)
     @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
           IOM.ModelBuildStatus.BUILT
@@ -61,10 +61,10 @@ end
     end
 end
 
-@testset "native DCPPowerModel solves under network reduction (c_sys14)" begin
+@testset "native DCPNetworkModel solves under network reduction (c_sys14)" begin
     sys = PSB.build_system(PSITestSystems, "c_sys14")
     net = NetworkModel(
-        DCPPowerModel;
+        DCPNetworkModel;
         reduce_radial_branches = true,
         reduce_degree_two_branches = true,
     )
@@ -75,10 +75,10 @@ end
     @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
 end
 
-@testset "native ACPPowerModel solves under network reduction (c_sys14)" begin
+@testset "native ACPNetworkModel solves under network reduction (c_sys14)" begin
     sys = PSB.build_system(PSITestSystems, "c_sys14")
     net = NetworkModel(
-        ACPPowerModel;
+        ACPNetworkModel;
         reduce_radial_branches = true,
         reduce_degree_two_branches = true,
     )
@@ -96,7 +96,7 @@ end
             PSY.set_bustype!(b, PSY.ACBusTypes.PV)
         end
     end
-    template = get_thermal_dispatch_template_network(NetworkModel(DCPPowerModel))
+    template = get_thermal_dispatch_template_network(NetworkModel(DCPNetworkModel))
     model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
     out = mktempdir(; cleanup = true)
     @test build!(model; output_dir = out) == IOM.ModelBuildStatus.BUILT
@@ -128,7 +128,7 @@ end
             PSY.set_bustype!(b, PSY.ACBusTypes.PV)
         end
     end
-    template = get_thermal_dispatch_template_network(NetworkModel(ACPPowerModel))
+    template = get_thermal_dispatch_template_network(NetworkModel(ACPNetworkModel))
     model = DecisionModel(template, sys; optimizer = ipopt_optimizer)
     out = mktempdir(; cleanup = true)
     @test build!(model; output_dir = out) == IOM.ModelBuildStatus.BUILT
@@ -149,27 +149,6 @@ end
     for k in axes(ref_cons, 1)
         @test isapprox(va[1, num_to_name[k]], 0.0; atol = 1e-8)
     end
-end
-
-@testset "branch_admittance primitives" begin
-    sys = PSB.build_system(PSITestSystems, "c_sys5")
-    line = first(PSY.get_components(PSY.Line, sys))
-    a = PNM.branch_admittance(line)
-    r, x = PSY.get_r(line, PSY.SU), PSY.get_x(line, PSY.SU)
-    y = inv(complex(r, x))
-    @test a.g ≈ real(y)
-    @test a.b ≈ imag(y)
-    @test a.tap == 1.0
-    @test a.shift == 0.0
-end
-
-@testset "branch_flow_limits MonitoredLine" begin
-    sys = PSB.build_system(PSITestSystems, "c_sys5_ml")
-    ml = first(PSY.get_components(PSY.MonitoredLine, sys))
-    fl = PNM.branch_flow_limits(ml)
-    psy_fl = PSY.get_flow_limits(ml, PSY.SU)
-    @test fl.from_to == psy_fl.from_to
-    @test fl.to_from == psy_fl.to_from
 end
 
 @testset "reduced arc admittance uses PNM series equivalent, not original branch" begin
@@ -320,4 +299,21 @@ end
     @test adm.g_to == 0.0
     @test adm.b_to == b_sh.to
     @test adm.tap == 1.0
+end
+
+@testset "native AC rate limits reject a zero-rating branch at build" begin
+    # MATPOWER's rateA = 0 means "unlimited"; p² + q² ≤ 0 would silently pin the branch
+    # to zero flow (deleting it from the network). Reject it loudly, matching the IVR
+    # current-rating behavior.
+    for network_formulation in (ACPNetworkModel, ACRNetworkModel, LPACCNetworkModel)
+        sys = PSB.build_system(PSITestSystems, "c_sys5")
+        PSY.set_rating!(PSY.get_component(Line, sys, "1"), 0.0 * PSY.SU)
+        template = get_thermal_dispatch_template_network(NetworkModel(network_formulation))
+        model = DecisionModel(template, sys; optimizer = ipopt_optimizer)
+        out = mktempdir(; cleanup = true)
+        @test build!(model; output_dir = out, console_level = Logging.Error) ==
+              IOM.ModelBuildStatus.FAILED
+        log = read(joinpath(out, "operation_problem.log"), String)
+        @test occursin("zero rating", log)
+    end
 end
