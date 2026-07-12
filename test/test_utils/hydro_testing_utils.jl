@@ -119,7 +119,7 @@ function build_hydro_with_both_pump_and_turbine()
         outflow = 0.0,
         level_targets = 0.0,
         intake_elevation = 0.0,
-        head_to_volume_factor = LinearCurve(0.0),
+        head_to_volume_factor = LinearFunctionData(0.0),
     )
     add_component!(sys, tail_res)
     copy_time_series!(tail_res, head_res)

@@ -2,7 +2,7 @@ function add_constraints!(
     container::OptimizationContainer,
     ::Type{CopperPlateBalanceConstraint},
     sys::PSY.System,
-    model::NetworkModel{AreaBalancePowerModel},
+    model::NetworkModel{AreaBalanceNetworkModel},
 )
     expressions = get_expression(container, ActivePowerBalance, PSY.Area)
     area_names, time_steps = axes(expressions)

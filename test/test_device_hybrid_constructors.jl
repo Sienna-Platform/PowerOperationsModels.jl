@@ -42,7 +42,7 @@ function _build_hybrid_template(
     attributes::Dict{String, Any} = Dict{String, Any}(),
     with_reserves::Bool = true,
 )
-    template = PowerOperationsProblemTemplate(POM.CopperPlatePowerModel)
+    template = PowerOperationsProblemTemplate(POM.CopperPlateNetworkModel)
     POM.set_device_model!(template, PSY.ThermalStandard, POM.ThermalStandardUnitCommitment)
     POM.set_device_model!(template, PSY.RenewableDispatch, POM.RenewableFullDispatch)
     POM.set_device_model!(template, PSY.PowerLoad, POM.StaticPowerLoad)

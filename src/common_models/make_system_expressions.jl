@@ -11,7 +11,7 @@ function make_system_expressions!(
     container::OptimizationContainer,
     subnetworks::Dict{Int, Set{Int}},
     ::Vector{Int},
-    ::Type{<:AbstractPowerModel},
+    ::Type{<:AbstractNetworkModel},
     bus_reduction_map::Dict{Int64, Set{Int64}},
 )
     time_steps = get_time_steps(container)
@@ -57,7 +57,7 @@ function make_system_expressions!(
     container::OptimizationContainer,
     subnetworks::Dict{Int, Set{Int}},
     ::Vector{Int},
-    ::Type{CopperPlatePowerModel},
+    ::Type{CopperPlateNetworkModel},
     bus_reduction_map::Dict{Int64, Set{Int64}},
 )
     time_steps = get_time_steps(container)
@@ -75,7 +75,7 @@ function make_system_expressions!(
     ::Vector{Int},
     ::Type{T},
     bus_reduction_map::Dict{Int64, Set{Int64}},
-) where {T <: PTDFPowerModel}
+) where {T <: PTDFNetworkModel}
     time_steps = get_time_steps(container)
     if isempty(bus_reduction_map)
         ac_bus_numbers = collect(Iterators.flatten(values(subnetworks)))
@@ -97,7 +97,7 @@ end
 function make_system_expressions!(
     container::OptimizationContainer,
     ::Dict{Int, Set{Int}},
-    ::Type{AreaBalancePowerModel},
+    ::Type{AreaBalanceNetworkModel},
     areas::IS.FlattenIteratorWrapper{PSY.Area},
 )
     time_steps = get_time_steps(container)
@@ -112,7 +112,7 @@ function make_system_expressions!(
     container::OptimizationContainer,
     subnetworks::Dict{Int, Set{Int}},
     ::Vector{Int},
-    ::Type{AreaPTDFPowerModel},
+    ::Type{AreaPTDFNetworkModel},
     areas::IS.FlattenIteratorWrapper{PSY.Area},
     bus_reduction_map::Dict{Int64, Set{Int64}},
 )
@@ -133,7 +133,7 @@ function make_system_expressions!(
 
     if length(subnetworks) > 1
         @warn "The system contains $(length(subnetworks)) synchronous regions. \
-               When combined with AreaPTDFPowerModel, the model can be infeasible if the data doesn't \
+               When combined with AreaPTDFNetworkModel, the model can be infeasible if the data doesn't \
                have a well defined topology"
         subnetworks_ref_buses = collect(keys(subnetworks))
         container.expressions[ExpressionKey(ActivePowerBalance, PSY.System)] =
@@ -153,7 +153,7 @@ function _verify_area_subnetwork_topology(sys::PSY.System, subnetworks::Dict{Int
         return
     end
 
-    @warn "More than one subnetwork detected in AreaBalancePowerModel. Topology consistency checks must be conducted."
+    @warn "More than one subnetwork detected in AreaBalanceNetworkModel. Topology consistency checks must be conducted."
 
     area_map = PSY.get_aggregation_topology_mapping(PSY.Area, sys)
     for (area, buses) in area_map
@@ -172,7 +172,7 @@ function _verify_area_subnetwork_topology(sys::PSY.System, subnetworks::Dict{Int
             @error "Area $(PSY.get_name(area)) is connected to multiple subnetworks $(subnets)."
             throw(
                 IS.ConflictingInputsError(
-                    "AreaBalancePowerModel doesn't support systems with Areas distributed across multiple asynchronous areas",
+                    "AreaBalanceNetworkModel doesn't support systems with Areas distributed across multiple asynchronous areas",
                 ))
         end
     end
@@ -181,7 +181,7 @@ end
 
 function initialize_system_expressions!(
     container::OptimizationContainer,
-    network_model::NetworkModel{AreaBalancePowerModel},
+    network_model::NetworkModel{AreaBalanceNetworkModel},
     subnetworks::Dict{Int, Set{Int}},
     system::PSY.System,
     ::Dict{Int64, Set{Int64}},
@@ -190,7 +190,7 @@ function initialize_system_expressions!(
     if isempty(areas)
         throw(
             IS.ConflictingInputsError(
-                "AreaBalancePowerModel doesn't support systems with no defined Areas",
+                "AreaBalanceNetworkModel doesn't support systems with no defined Areas",
             ),
         )
     end
@@ -204,7 +204,7 @@ function initialize_system_expressions!(
         @warn "AreaInterchanges are not included in the model template. The model won't have any power flowing between the areas."
     end
     _verify_area_subnetwork_topology(system, subnetworks)
-    make_system_expressions!(container, subnetworks, AreaBalancePowerModel, areas)
+    make_system_expressions!(container, subnetworks, AreaBalanceNetworkModel, areas)
     return
 end
 
@@ -214,12 +214,12 @@ function initialize_system_expressions!(
     subnetworks::Dict{Int, Set{Int}},
     system::PSY.System,
     bus_reduction_map::Dict{Int64, Set{Int64}},
-) where {T <: AreaPTDFPowerModel}
+) where {T <: AreaPTDFNetworkModel}
     areas = get_available_components(network_model, PSY.Area, system)
     if isempty(areas)
         throw(
             IS.ConflictingInputsError(
-                "AreaPTDFPowerModel doesn't support systems with no Areas",
+                "AreaPTDFNetworkModel doesn't support systems with no Areas",
             ),
         )
     end
@@ -243,7 +243,7 @@ function initialize_hvdc_system!(
     network_model::NetworkModel{T},
     dc_model::U,
     system::PSY.System,
-) where {T <: AbstractPowerModel, U <: TransportHVDCNetworkModel}
+) where {T <: AbstractNetworkModel, U <: TransportHVDCNetworkModel}
     dc_buses = get_available_components(network_model, PSY.DCBus, system)
     @assert !isempty(dc_buses) "No DC buses found in the system. Consider adding DC Buses or removing HVDC network model."
     dc_bus_numbers = sort(PSY.get_number.(dc_buses))
@@ -257,7 +257,7 @@ function initialize_hvdc_system!(
     network_model::NetworkModel{T},
     dc_model::U,
     system::PSY.System,
-) where {T <: AbstractPowerModel, U <: VoltageDispatchHVDCNetworkModel}
+) where {T <: AbstractNetworkModel, U <: VoltageDispatchHVDCNetworkModel}
     dc_buses = get_available_components(network_model, PSY.DCBus, system)
     @assert !isempty(dc_buses) "No DC buses found in the system. Consider adding DC Buses or removing HVDC network model."
     dc_bus_numbers = sort(PSY.get_number.(dc_buses))

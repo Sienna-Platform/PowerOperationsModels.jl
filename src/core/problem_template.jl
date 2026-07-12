@@ -1,24 +1,24 @@
 """
-    PowerOperationsProblemTemplate(::Type{T}) where {T<:AbstractPowerModel}
+    PowerOperationsProblemTemplate(::Type{T}) where {T<:AbstractNetworkModel}
 
 Creates a model reference of the InfrastructureOptimizationModels Optimization Problem.
 
 # Arguments
 
-  - `model::Type{T<:AbstractPowerModel}`:
+  - `model::Type{T<:AbstractNetworkModel}`:
 
 # Example
 
-template = PowerOperationsProblemTemplate(CopperPlatePowerModel)
+template = PowerOperationsProblemTemplate(CopperPlateNetworkModel)
 """
 mutable struct PowerOperationsProblemTemplate <: IOM.AbstractProblemTemplate
-    network_model::NetworkModel{<:AbstractPowerModel}
+    network_model::NetworkModel{<:AbstractNetworkModel}
     devices::DevicesModelContainer
     branches::BranchModelContainer
     services::ServicesModelContainer
     function PowerOperationsProblemTemplate(
         network::NetworkModel{T},
-    ) where {T <: AbstractPowerModel}
+    ) where {T <: AbstractNetworkModel}
         new(
             network,
             DevicesModelContainer(),
@@ -40,10 +40,10 @@ function Base.isempty(template::PowerOperationsProblemTemplate)
     end
 end
 
-PowerOperationsProblemTemplate(::Type{T}) where {T <: AbstractPowerModel} =
+PowerOperationsProblemTemplate(::Type{T}) where {T <: AbstractNetworkModel} =
     PowerOperationsProblemTemplate(NetworkModel(T))
 
-PowerOperationsProblemTemplate() = PowerOperationsProblemTemplate(CopperPlatePowerModel)
+PowerOperationsProblemTemplate() = PowerOperationsProblemTemplate(CopperPlateNetworkModel)
 
 get_device_models(template::PowerOperationsProblemTemplate) = template.devices
 get_branch_models(template::PowerOperationsProblemTemplate) = template.branches
@@ -97,7 +97,7 @@ Sets the network model in a template.
 """
 function set_network_model!(
     template::PowerOperationsProblemTemplate,
-    model::NetworkModel{<:AbstractPowerModel},
+    model::NetworkModel{<:AbstractNetworkModel},
 )
     template.network_model = model
     return

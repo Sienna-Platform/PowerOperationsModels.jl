@@ -11,7 +11,7 @@ function construct_device!(
     ::ArgumentConstructStage,
     model::DeviceModel{H, FixedOutput},
     network_model::NetworkModel{S},
-) where {H <: PSY.HydroGen, S <: AbstractPowerModel}
+) where {H <: PSY.HydroGen, S <: AbstractNetworkModel}
     devices = get_available_components(model, sys)
 
     add_parameters!(container, ActivePowerTimeSeriesParameter, devices, model)
@@ -45,9 +45,9 @@ function construct_device!(
     ::ModelConstructStage,
     ::DeviceModel{H, FixedOutput},
     ::NetworkModel{S},
-) where {H <: PSY.HydroGen, S <: AbstractPowerModel}
+) where {H <: PSY.HydroGen, S <: AbstractNetworkModel}
     # FixedOutput doesn't add any constraints to the model. This function covers
-    # AbstractPowerModel and AbstractActivePowerModel
+    # AbstractNetworkModel and AbstractActivePowerModel
     return
 end
 
@@ -92,7 +92,7 @@ function construct_device!(
 ) where {
     H <: PSY.HydroGen,
     D <: AbstractHydroDispatchFormulation,
-    S <: AbstractPowerModel,
+    S <: AbstractNetworkModel,
 }
     devices = get_available_components(model, sys)
 
@@ -157,7 +157,7 @@ function construct_device!(
 ) where {
     H <: PSY.HydroGen,
     D <: AbstractHydroDispatchFormulation,
-    S <: AbstractPowerModel,
+    S <: AbstractNetworkModel,
 }
     devices = get_available_components(model, sys)
 
@@ -346,7 +346,7 @@ function construct_device!(
 ) where {
     H <: PSY.HydroGen,
     D <: HydroDispatchRunOfRiverBudget,
-    S <: AbstractPowerModel,
+    S <: AbstractNetworkModel,
 }
     devices = get_available_components(model, sys)
 
@@ -419,7 +419,7 @@ function construct_device!(
 ) where {
     H <: PSY.HydroGen,
     D <: HydroDispatchRunOfRiverBudget,
-    S <: AbstractPowerModel,
+    S <: AbstractNetworkModel,
 }
     devices = get_available_components(model, sys)
 
@@ -615,7 +615,7 @@ function construct_device!(
     ::ArgumentConstructStage,
     model::DeviceModel{H, D},
     network_model::NetworkModel{S},
-) where {H <: PSY.HydroGen, D <: HydroCommitmentRunOfRiver, S <: AbstractPowerModel}
+) where {H <: PSY.HydroGen, D <: HydroCommitmentRunOfRiver, S <: AbstractNetworkModel}
     devices = get_available_components(model, sys)
 
     add_variables!(container, ActivePowerVariable, devices, D)
@@ -803,7 +803,7 @@ function construct_device!(
 ) where {
     H <: PSY.HydroReservoir,
     D <: HydroEnergyModelReservoir,
-    S <: AbstractPowerModel,
+    S <: AbstractNetworkModel,
 }
     devices = get_available_reservoirs(sys)
     T = HydroEnergyModelReservoir
@@ -868,7 +868,7 @@ function construct_device!(
 ) where {
     H <: PSY.HydroReservoir,
     D <: HydroEnergyModelReservoir,
-    S <: AbstractPowerModel,
+    S <: AbstractNetworkModel,
 }
     devices = get_available_reservoirs(sys)
 
@@ -953,7 +953,7 @@ function construct_device!(
 ) where {
     H <: PSY.HydroTurbine,
     D <: HydroTurbineEnergyDispatch,
-    S <: AbstractPowerModel,
+    S <: AbstractNetworkModel,
 }
     # why is there no add_parameters here?
     devices = get_available_components(model, sys)
@@ -1017,7 +1017,7 @@ function construct_device!(
 ) where {
     H <: PSY.HydroTurbine,
     D <: HydroTurbineEnergyDispatch,
-    S <: AbstractPowerModel,
+    S <: AbstractNetworkModel,
 }
     devices = get_available_components(model, sys)
 
@@ -1205,7 +1205,7 @@ function construct_device!(
 ) where {
     H <: PSY.HydroTurbine,
     D <: HydroTurbineEnergyCommitment,
-    S <: AbstractPowerModel,
+    S <: AbstractNetworkModel,
 }
     devices = get_available_components(model, sys)
 
@@ -1269,7 +1269,7 @@ function construct_device!(
 ) where {
     H <: PSY.HydroTurbine,
     D <: HydroTurbineEnergyCommitment,
-    S <: AbstractPowerModel,
+    S <: AbstractNetworkModel,
 }
     devices = get_available_components(model, sys)
 
@@ -1456,7 +1456,7 @@ function construct_device!(
     ::ArgumentConstructStage,
     model::DeviceModel{H, HydroWaterFactorModel},
     network_model::NetworkModel{S},
-) where {H <: PSY.HydroReservoir, S <: AbstractPowerModel}
+) where {H <: PSY.HydroReservoir, S <: AbstractNetworkModel}
     devices = get_available_reservoirs(sys)
 
     add_variables!(
@@ -1483,7 +1483,7 @@ function construct_device!(
     ::ModelConstructStage,
     model::DeviceModel{H, HydroWaterFactorModel},
     network_model::NetworkModel{S},
-) where {H <: PSY.HydroReservoir, S <: AbstractPowerModel}
+) where {H <: PSY.HydroReservoir, S <: AbstractNetworkModel}
     devices = get_available_reservoirs(sys)
 
     add_initial_condition!(
@@ -1654,7 +1654,7 @@ function construct_device!(
     ::ArgumentConstructStage,
     model::DeviceModel{H, R},
     network_model::NetworkModel{S},
-) where {H <: PSY.HydroReservoir, R <: HydroWaterModelReservoir, S <: AbstractPowerModel}
+) where {H <: PSY.HydroReservoir, R <: HydroWaterModelReservoir, S <: AbstractNetworkModel}
     devices = get_available_reservoirs(sys)
 
     add_variables!(
@@ -1706,7 +1706,7 @@ function construct_device!(
     ::ModelConstructStage,
     model::DeviceModel{H, R},
     network_model::NetworkModel{S},
-) where {H <: PSY.HydroReservoir, R <: HydroWaterModelReservoir, S <: AbstractPowerModel}
+) where {H <: PSY.HydroReservoir, R <: HydroWaterModelReservoir, S <: AbstractNetworkModel}
     devices = get_available_reservoirs(sys)
 
     add_expressions!(
@@ -1968,7 +1968,7 @@ function construct_device!(
 ) where {
     H <: PSY.HydroPumpTurbine,
     D <: HydroPumpEnergyDispatch,
-    S <: AbstractPowerModel,
+    S <: AbstractNetworkModel,
 }
     devices = get_available_components(model, sys)
     add_variables!(container, ActivePowerVariable, devices, D)
@@ -2147,7 +2147,7 @@ function construct_device!(
 ) where {
     H <: PSY.HydroPumpTurbine,
     D <: HydroPumpEnergyCommitment,
-    S <: AbstractPowerModel,
+    S <: AbstractNetworkModel,
 }
     devices = get_available_components(model, sys)
     add_variables!(container, ActivePowerVariable, devices, D)

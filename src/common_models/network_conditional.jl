@@ -16,7 +16,7 @@ function _maybe_add_reactive_power_variables!(
     container::OptimizationContainer,
     devices,
     model::DeviceModel{D, F},
-    network_model::NetworkModel{<:AbstractPowerModel},
+    network_model::NetworkModel{<:AbstractNetworkModel},
     var_types,
 ) where {D <: PSY.Device, F}
     for V in var_types
@@ -43,7 +43,7 @@ function _maybe_add_reactive_power_constraints!(
     container::OptimizationContainer,
     devices,
     model::DeviceModel{D, F},
-    network_model::NetworkModel{<:AbstractPowerModel},
+    network_model::NetworkModel{<:AbstractNetworkModel},
     constraint_type::Type{<:ConstraintType},
 ) where {D <: PSY.Device, F}
     add_constraints!(container, constraint_type, devices, model, network_model)

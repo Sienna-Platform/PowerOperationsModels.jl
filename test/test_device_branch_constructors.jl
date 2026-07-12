@@ -1,13 +1,13 @@
-# TODO: Re-enable DCPPowerModel tests when PowerModels is integrated
-# DCPPowerModel requires PowerModels.jl extension
-const DC_NETWORK_MODELS_FOR_TESTING = [PTDFPowerModel]
+# TODO: Re-enable DCPNetworkModel tests when PowerModels is integrated
+# DCPNetworkModel requires PowerModels.jl extension
+const DC_NETWORK_MODELS_FOR_TESTING = [PTDFNetworkModel]
 
 @testset "DC Power Flow Models Monitored Line Flow Constraints and Static Unbounded" begin
     system = PSB.build_system(PSITestSystems, "c_sys5_ml")
     limits = PSY.get_flow_limits(PSY.get_component(MonitoredLine, system, "1"), PSY.SU)
     for model in DC_NETWORK_MODELS_FOR_TESTING
         template = get_thermal_dispatch_template_network(
-            NetworkModel(model; PTDF_matrix = PTDF(system)),
+            NetworkModel(model; network_matrix = PTDF(system)),
         )
         model_m = DecisionModel(template, system; optimizer = HiGHS_optimizer)
         @test build!(model_m; output_dir = mktempdir(; cleanup = true)) ==
@@ -28,7 +28,7 @@ end
 @testset "AC Power Flow Monitored Line Flow Constraints" begin
     system = PSB.build_system(PSITestSystems, "c_sys5_ml")
     limits = PSY.get_flow_limits(PSY.get_component(MonitoredLine, system, "1"), PSY.SU)
-    template = get_thermal_dispatch_template_network(ACPPowerModel)
+    template = get_thermal_dispatch_template_network(ACPNetworkModel)
     model_m = DecisionModel(template, system; optimizer = ipopt_optimizer)
     @test build!(model_m; output_dir = mktempdir(; cleanup = true)) ==
           IOM.ModelBuildStatus.BUILT
@@ -53,7 +53,7 @@ end
     set_rating!(PSY.get_component(Line, system, "2"), 1.5 * PSY.SU)
     for model in DC_NETWORK_MODELS_FOR_TESTING
         template = get_thermal_dispatch_template_network(
-            NetworkModel(model; PTDF_matrix = PTDF(system)),
+            NetworkModel(model; network_matrix = PTDF(system)),
         )
         set_device_model!(template, DeviceModel(Line, StaticBranch))
         set_device_model!(template, DeviceModel(MonitoredLine, StaticBranchUnbounded))
@@ -84,7 +84,7 @@ end
     end
 
     # Test the addition of slacks
-    template = get_thermal_dispatch_template_network(NetworkModel(PTDFPowerModel))
+    template = get_thermal_dispatch_template_network(NetworkModel(PTDFNetworkModel))
     set_device_model!(template, DeviceModel(Line, StaticBranchBounds; use_slacks = true))
     set_device_model!(
         template,
@@ -183,7 +183,7 @@ end
 
     for model in DC_NETWORK_MODELS_FOR_TESTING
         template = get_template_dispatch_with_network(
-            NetworkModel(model; PTDF_matrix = PTDF(system)),
+            NetworkModel(model; network_matrix = PTDF(system)),
         )
         set_device_model!(
             template,
@@ -255,7 +255,7 @@ end
     add_component!(sys_5, hvdc)
 
     template_uc = PowerOperationsProblemTemplate(
-        NetworkModel(PTDFPowerModel),
+        NetworkModel(PTDFNetworkModel),
     )
 
     set_device_model!(template_uc, ThermalStandard, ThermalStandardUnitCommitment)
@@ -282,7 +282,7 @@ end
     ptdf_values = ptdf_vars["FlowActivePowerVariable__TwoTerminalGenericHVDCLine"]
     ptdf_objective = IOM.get_optimization_container(model).optimizer_stats.objective_value
 
-    set_network_model!(template_uc, NetworkModel(DCPPowerModel))
+    set_network_model!(template_uc, NetworkModel(DCPNetworkModel))
     model = DecisionModel(
         template_uc,
         sys_5;
@@ -493,7 +493,7 @@ end
     rate_limit2w = PSY.get_rating(tap_transformer, PSY.SU)
 
     template = get_template_dispatch_with_network(
-        NetworkModel(PTDFPowerModel),
+        NetworkModel(PTDFNetworkModel),
     )
     set_device_model!(template, DeviceModel(TapTransformer, StaticBranch))
     set_device_model!(template, DeviceModel(Transformer2W, StaticBranch))
@@ -556,7 +556,7 @@ end
     remove_component!(system, line)
 
     template = get_template_dispatch_with_network(
-        NetworkModel(PTDFPowerModel; PTDF_matrix = PTDF(system)),
+        NetworkModel(PTDFNetworkModel; network_matrix = PTDF(system)),
     )
     set_device_model!(template, DeviceModel(PhaseShiftingTransformer, PhaseAngleControl))
     model_m = DecisionModel(template, system; optimizer = HiGHS_optimizer)
@@ -613,7 +613,7 @@ end
     transformer = PSY.get_component(Transformer2W, system, "Trans4")
     rate_limit2w = PSY.get_rating(tap_transformer, PSY.SU)
 
-    template = get_template_dispatch_with_network(ACPPowerModel)
+    template = get_template_dispatch_with_network(ACPNetworkModel)
     set_device_model!(template, TapTransformer, StaticBranchBounds)
     set_device_model!(template, Transformer2W, StaticBranchBounds)
     set_device_model!(
@@ -664,11 +664,7 @@ end
     set_rating!(PSY.get_component(Line, system, "2"), 0.247479 * PSY.SU)
     for (model, optimizer) in NETWORKS_FOR_TESTING
         # CopperPlate no-ops branch construction, so slack variables won't exist
-        model == CopperPlatePowerModel && continue
-        if model ∈ [PM.SDPWRMPowerModel, PM.SOCWRConicPowerModel]
-            # Skip because the data is too in the feasibility margins for these models
-            continue
-        end
+        model == CopperPlateNetworkModel && continue
         template = get_thermal_dispatch_template_network(
             NetworkModel(model; use_slacks = true),
         )
@@ -692,7 +688,7 @@ end
     end
 
     template = get_thermal_dispatch_template_network(
-        NetworkModel(PTDFPowerModel; use_slacks = true),
+        NetworkModel(PTDFNetworkModel; use_slacks = true),
     )
     set_device_model!(template, DeviceModel(Line, StaticBranchBounds; use_slacks = true))
     set_device_model!(
@@ -717,7 +713,7 @@ end
     @test sum(vars[!, "2"]) >= -1e-6
 
     template = get_thermal_dispatch_template_network(
-        NetworkModel(PTDFPowerModel; use_slacks = true),
+        NetworkModel(PTDFNetworkModel; use_slacks = true),
     )
     set_device_model!(template, DeviceModel(Line, StaticBranch; use_slacks = true))
     set_device_model!(
@@ -867,7 +863,7 @@ end
     # Test with DC Power Flow Model
     for net_model in DC_NETWORK_MODELS_FOR_TESTING
         template = get_template_dispatch_with_network(
-            NetworkModel(net_model; PTDF_matrix = PTDF(system)),
+            NetworkModel(net_model; network_matrix = PTDF(system)),
         )
         # Set device model for Transformer3W
         set_device_model!(template, DeviceModel(Transformer3W, StaticBranch))
@@ -890,7 +886,7 @@ end
         )
     end
 
-    template_ac = get_thermal_dispatch_template_network(ACPPowerModel)
+    template_ac = get_thermal_dispatch_template_network(ACPNetworkModel)
     set_device_model!(template_ac, DeviceModel(Transformer3W, StaticBranch))
     model_ac = DecisionModel(template_ac, system; optimizer = ipopt_optimizer)
     @test build!(model_ac; output_dir = mktempdir(; cleanup = true)) ==
@@ -916,8 +912,8 @@ _bus_merged_away(nrd, b) = any(b in s for s in values(PNM.get_bus_reduction_map(
         ml = PSY.get_component(MonitoredLine, sys, "1")
         PSY.set_r!(ml, 0.0 * PSY.SU)
         PSY.set_x!(ml, 1e-5 * PSY.SU)
-        # No `PTDF_matrix` provided, so a VirtualPTDF is built and the reduction runs.
-        template = get_thermal_dispatch_template_network(NetworkModel(PTDFPowerModel))
+        # No `network_matrix` provided, so a VirtualPTDF is built and the reduction runs.
+        template = get_thermal_dispatch_template_network(NetworkModel(PTDFNetworkModel))
         set_device_model!(
             template,
             DeviceModel(
@@ -944,7 +940,7 @@ _bus_merged_away(nrd, b) = any(b in s for s in values(PNM.get_bus_reduction_map(
     from_bus = PSY.get_number(PSY.get_from(arc))
     to_bus = PSY.get_number(PSY.get_to(arc))
     nm = IOM.get_network_model(IOM.get_template(model))
-    nrd = IOM.get_PTDF_matrix(nm).network_reduction_data
+    nrd = IOM.get_network_matrix(nm).network_reduction_data
     @test !_bus_merged_away(nrd, from_bus)
     @test !_bus_merged_away(nrd, to_bus)
     @test haskey(IOM.get_branch_models(IOM.get_template(model)), :MonitoredLine)
@@ -956,7 +952,7 @@ _bus_merged_away(nrd, b) = any(b in s for s in values(PNM.get_bus_reduction_map(
     model_default, ml_default, status_default = _build_zib_monitored_line(false)
     @test status_default == IOM.ModelBuildStatus.BUILT
     nm_d = IOM.get_network_model(IOM.get_template(model_default))
-    nrd_d = IOM.get_PTDF_matrix(nm_d).network_reduction_data
+    nrd_d = IOM.get_network_matrix(nm_d).network_reduction_data
     @test _bus_merged_away(nrd_d, PSY.get_number(PSY.get_to(PSY.get_arc(ml_default))))
     @test !haskey(IOM.get_branch_models(IOM.get_template(model_default)), :MonitoredLine)
     container_default = IOM.get_optimization_container(model_default)
@@ -989,7 +985,7 @@ end
         flow_limits = (from_to = 1.0, to_from = 1.0),
     )
 
-    template = get_thermal_dispatch_template_network(NetworkModel(PTDFPowerModel))
+    template = get_thermal_dispatch_template_network(NetworkModel(PTDFNetworkModel))
     set_device_model!(template, DeviceModel(MonitoredLine, StaticBranch))
     model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
     output_dir = mktempdir(; cleanup = true)
@@ -1009,4 +1005,99 @@ end
     log_contents = read(joinpath(output_dir, "operation_problem.log"), String)
     @test occursin("MonitoredLine(s) [\"1\"]", log_contents)
     @test occursin("model_all_branches", log_contents)
+end
+
+# Guards the system-base assumption behind `branch_rating`/`min_max_flow_limits`
+# (AC_branches.jl): POM consumes the PNM rating aggregators as system-base values, while
+# `PNM.get_equivalent_rating` reads the device-base (`PSY.DU`) rating leaf. For AC branches
+# device base equals system base, so the two agree; this locks that invariant so a future
+# PSY change introducing a per-branch base surfaces here instead of silently mis-bounding
+# branch flows against the system-base `FlowActivePowerVariable` bounds.
+@testset "PNM rating aggregators are system base (branch_rating invariant)" begin
+    for sysname in ("c_sys5", "c_sys14")
+        system = PSB.build_system(PSITestSystems, sysname)
+        for branch in PSY.get_components(PSY.ACTransmission, system)
+            @test PNM.get_equivalent_rating(branch) == PSY.get_rating(branch, PSY.SU)
+        end
+    end
+end
+
+# Ground-truth for the extracted apparent-power rate-limit RHS math
+# (`POM._rate_rhs_squared`). This is the shipped-bug guard: an apparent-power
+# constraint `p² + q² ≤ RHS` needs `RHS = rating²`, not a bare `rating`. Locking the
+# pure math plus a built-model sample (static and time-series paths) ties every routed
+# `@constraint` site to the same hand-checked exponent.
+@testset "Apparent-power rate-limit RHS builder (_rate_rhs_squared)" begin
+    # --- Pure math: hand-computed ---
+    @test POM._rate_rhs_squared(2.0) == 4.0
+    @test POM._rate_rhs_squared(0.0) == 0.0
+    @test POM._rate_rhs_squared(1.5) == 2.25
+    # Time-series path RHS = (param_value * multiplier)²; a product squared.
+    param_value = 1.2
+    mult = 0.9
+    @test POM._rate_rhs_squared(param_value * mult) == (param_value * mult)^2
+    @test POM._rate_rhs_squared(param_value * mult) ≈ 1.1664
+
+    # --- Built model, STATIC path: sampled FromTo/ToFrom RHS == builder output ---
+    sys = PSB.build_system(PSITestSystems, "c_sys5")
+    template = get_thermal_dispatch_template_network(NetworkModel(ACPNetworkModel))
+    model = DecisionModel(template, sys; optimizer = ipopt_optimizer)
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+    container = IOM.get_optimization_container(model)
+    ac_ft = IOM.get_constraint(container, IOM.ConstraintKey(FlowRateConstraintFromTo, Line))
+    ac_tf = IOM.get_constraint(container, IOM.ConstraintKey(FlowRateConstraintToFrom, Line))
+    for name in axes(ac_ft, 1)
+        line = get_component(Line, sys, name)
+        expected = POM._rate_rhs_squared(PSY.get_rating(line, PSY.SU))
+        for t in axes(ac_ft, 2)
+            @test isapprox(JuMP.normalized_rhs(ac_ft[name, t]), expected; rtol = 1e-8)
+            @test isapprox(JuMP.normalized_rhs(ac_tf[name, t]), expected; rtol = 1e-8)
+        end
+    end
+
+    # --- Built model, TIME-SERIES path: sampled RHS == builder(param * mult) ---
+    sys_ts = PSB.build_system(PSITestSystems, "c_sys5")
+    branches_with_rating_ts = ["1", "2", "6"]
+    rating_factors = vcat([fill(x, 6) for x in [0.99, 0.98, 1.0, 0.95]]...)
+    add_branch_rating_time_series_to_system!(
+        sys_ts,
+        branches_with_rating_ts,
+        2,
+        rating_factors;
+        initial_date = "2024-01-01",
+    )
+    template_ts = get_thermal_dispatch_template_network(NetworkModel(ACPNetworkModel))
+    set_device_model!(
+        template_ts,
+        DeviceModel(
+            Line,
+            StaticBranch;
+            time_series_names = Dict(BranchRatingTimeSeriesParameter => "branch_rating"),
+        ),
+    )
+    model_ts = DecisionModel(template_ts, sys_ts; optimizer = ipopt_optimizer)
+    @test build!(model_ts; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+    container_ts = IOM.get_optimization_container(model_ts)
+    @test IOM.has_container_key(container_ts, BranchRatingTimeSeriesParameter, Line)
+    ac_ft_ts =
+        IOM.get_constraint(container_ts, IOM.ConstraintKey(FlowRateConstraintFromTo, Line))
+    # TS RHS = builder(rating * rating_factor[t]); `param * mult` = static_rating *
+    # rating_factor, so the builder output must equal the sampled squared RHS.
+    n_rating = length(rating_factors)
+    for name in branches_with_rating_ts
+        static_rating = PSY.get_rating(get_component(Line, sys_ts, name), PSY.SU)
+        for (i, t) in enumerate(axes(ac_ft_ts, 2))
+            rating_t = static_rating * rating_factors[mod1(i, n_rating)]
+            expected = POM._rate_rhs_squared(rating_t)
+            @test isapprox(JuMP.normalized_rhs(ac_ft_ts[name, t]), expected; rtol = 1e-6)
+        end
+    end
+    # RHS must actually vary with the time series (factors cross a boundary at t=7).
+    @test !isapprox(
+        JuMP.normalized_rhs(ac_ft_ts[first(branches_with_rating_ts), 1]),
+        JuMP.normalized_rhs(ac_ft_ts[first(branches_with_rating_ts), 7]);
+        atol = 1e-6,
+    )
 end

@@ -120,6 +120,15 @@ Solvers: `HiGHS` (LP/MILP), `Ipopt` (NLP), `SCS` (SDP) — helpers `HiGHS_optimi
 - The old serial runner's global "no Error-level log events" `MultiLogger` assertion was **dropped** — it doesn't carry to per-worker isolation. Per-`@test`/`@testset` assertions still gate results.
 - Warnings inside `build!` go to the build's `operation_problem.log` (wrapped in `with_logger`) — `@test_logs` at the call site can't see them; assert by reading the log file.
 
+## Recipe: add a device formulation (end-to-end)
+
+1. Define the formulation type under the right abstract in `src/core/formulations.jl`-equivalent for its family; define any new variable/constraint/parameter types in `core/` (check for dead/duplicate types first).
+2. Implement both `construct_device!` stages in the family's `*_constructor.jl`; add the `add_variables!`/`add_constraints!`/`add_to_expression!`/objective methods in the family model file. Mirror the closest existing formulation's structure — divergence should be the point, not an accident.
+3. Every PSY getter on a convertible field passes `PSY.SU`; index by component name; respect network reduction (branch-pair-keyed vars index by branch name).
+4. Check device×network compatibility against existing signatures; run `Test.detect_ambiguities`.
+5. Test: build + solve on a PSB fixture, then coefficient-level asserts against an independent reference (MODF-suite pattern); remember build warnings land in `operation_problem.log`.
+6. Formatter; full suite (`--jobs=8`); **docs must build** (new exported types need docstrings + API-page registration).
+
 ## POM-specific conventions, invariants, gotchas
 
 - **Layer boundaries:** device/network formulations + `PowerOperationModel` chain live in POM; `OptimizationContainer`/`DecisionModel`/settings/generic builders in IOM; base key/TS types in IS. Don't push power-specific logic down into IOM.
@@ -139,10 +148,17 @@ Solvers: `HiGHS` (LP/MILP), `Ipopt` (NLP), `SCS` (SDP) — helpers `HiGHS_optimi
 - Template helper `get_thermal_dispatch_template_network(NetworkModel(<Formulation>))` and reduction kwargs `NetworkModel(DCPPowerModel; reduce_radial_branches=true, reduce_degree_two_branches=true)` come from `test/test_utils/`.
 - Reduction test systems: `c_sys5`/`c_sys14` reduce nothing (assert build+solve only). Use `case11_network_reductions` (purpose-built ~4 series arcs) or matpower cases for real reductions — but those lack forecast data, so a full `DecisionModel` `build!` errors; for white-box reduction tests build `NetworkReductionData` directly via `PNM.Ybus(sys; network_reductions=[...])` + `deepcopy(PNM.get_network_reduction_data(ybus))`.
 
+## Known open debt & active work (2026-07 snapshot)
+
+- **~30 bare-unit PSY getters remain in build code** (the units rule above is stated but not fully enforced yet): known sites include `get_angle_limits` in `AC_branches.jl` (~1750, 1767) and `pm_translator.jl` (~280), and `get_loss` across `TwoTerminalDC_branches.jl` (71, 166, 221, 380, 818, and more). Angle limits are radians — no base conversion; loss terms are convertible. When touching one of these files, fix the bare getters in it. This POM/PNM/PF consumer sweep is the open remainder of the units-ecosystem closure effort.
+- **Silent TS-missing device skip** (`common_models/add_parameters.jl:~175`): a device whose time series is missing gets `@debug` + skip — it silently drops out of the model. Named silent-failure pattern; never extend it, and prefer converting it to a loud error when the opportunity arises.
+- **PSI port backlog** lives in `.claude/pom_port_plan.md`: fork baseline ≈ PSI #1503, PSI swept through #1640. Highlights: no `core/event_model.jl` yet (no `EventModel`/`FixedForcedOutage` machinery — Tier-0 blocker); service-side G-1 (PSI #1617) pending; a list of symbol-verified absent bugfixes/features (#1519, #1527, #1535, #1587, #1508, #1614, #1622, …). Porting rule: formulation-specific → POM, generic optimization core → IOM; adapt to POM's type-based dispatch, don't copy PSI code verbatim. Simulation orchestration is out of scope — never port it.
+- **Direct-write hot spots to not extend:** `instantiate_network_model!` is a ~15-step mutation cascade with direct `model.field =` writes and no rollback; some `.data` writes into IOM containers exist (`thermal_generation.jl`). Prefer setters; don't add new direct reaches.
+
 ## Cross-package coupling (summary)
 
 - **PowerSystems (PSY):** data structures (devices/services/networks) consumed by every formulation. psy6/IS4 units rework is in flight — see the units gotcha above.
-- **InfrastructureOptimizationModels (IOM):** `OptimizationContainer`, `DecisionModel`/`EmulationModel`, settings, generic `add_*!`/store/objective infra. POM dispatches its problem-type chain on IOM abstracts. Watch for symbols moved POM-side by PR #104 / PNM-decoupling.
+- **InfrastructureOptimizationModels (IOM):** `OptimizationContainer`, `DecisionModel`/`EmulationModel`, settings, generic `add_*!`/store/objective infra. POM dispatches its problem-type chain on IOM abstracts. Watch for symbols moved POM-side by PR #104 / PNM-decoupling. **POM currently calls ~56 non-exported `IOM._*` helpers** — that surface is load-bearing but informal; do not add new `_*` reaches (formalizing the contract is the top audit action), and expect breakage there when IOM refactors.
 - **PowerNetworkMatrices (PNM):** PTDF/LODF/MODF, branch reductions, rating aggregators (system base). Reduction happens before POM sees branches.
 - **InfrastructureSystems (IS):** key types, time series, units engine (`ISOPT` = `InfrastructureSystems.Optimization`). IS4 made units domain-agnostic (`relative_units`, `IS.convert_cost_coefficient`, `_unitful` getters).
 - **PowerFlows (PFS):** optional weakdep, wired through `ext/PowerFlowsExt/` (power-flow-in-the-loop, headroom, signed-injection PF data update). Code must work when PF is not loaded.
