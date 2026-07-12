@@ -1,10 +1,10 @@
-# AbstractPowerModel + ControllableLoad device model
+# AbstractNetworkModel + ControllableLoad device model
 function construct_device!(
     container::OptimizationContainer,
     sys::PSY.System,
     ::ArgumentConstructStage,
     model::DeviceModel{L, D},
-    network_model::NetworkModel{<:AbstractPowerModel},
+    network_model::NetworkModel{<:AbstractNetworkModel},
 ) where {
     L <: PSY.ControllableLoad,
     D <: AbstractControllablePowerLoadFormulation,
@@ -52,7 +52,7 @@ function construct_device!(
     sys::PSY.System,
     ::ModelConstructStage,
     model::DeviceModel{L, <:AbstractControllablePowerLoadFormulation},
-    network_model::NetworkModel{<:AbstractPowerModel},
+    network_model::NetworkModel{<:AbstractNetworkModel},
 ) where {L <: PSY.ControllableLoad}
     devices =
         get_available_components(model,
@@ -160,13 +160,13 @@ function construct_device!(
     return
 end
 
-# AbstractPowerModel + PowerLoadInterruption device model
+# AbstractNetworkModel + PowerLoadInterruption device model
 function construct_device!(
     container::OptimizationContainer,
     sys::PSY.System,
     ::ArgumentConstructStage,
     model::DeviceModel{L, PowerLoadInterruption},
-    network_model::NetworkModel{<:AbstractPowerModel},
+    network_model::NetworkModel{<:AbstractNetworkModel},
 ) where {L <: PSY.ControllableLoad}
     devices =
         get_available_components(model,
@@ -212,7 +212,7 @@ function construct_device!(
     sys::PSY.System,
     ::ModelConstructStage,
     model::DeviceModel{L, PowerLoadInterruption},
-    network_model::NetworkModel{<:AbstractPowerModel},
+    network_model::NetworkModel{<:AbstractNetworkModel},
 ) where {L <: PSY.ControllableLoad}
     devices =
         get_available_components(model,
@@ -333,13 +333,13 @@ function construct_device!(
     return
 end
 
-# AbstractPowerModel + StaticPowerLoad device model
+# AbstractNetworkModel + StaticPowerLoad device model
 function construct_device!(
     container::OptimizationContainer,
     sys::PSY.System,
     ::ArgumentConstructStage,
     model::DeviceModel{L, StaticPowerLoad},
-    network_model::NetworkModel{<:AbstractPowerModel},
+    network_model::NetworkModel{<:AbstractNetworkModel},
 ) where {L <: PSY.ElectricLoad}
     devices =
         get_available_components(model,
@@ -409,20 +409,20 @@ function construct_device!(
     sys::PSY.System,
     ::ModelConstructStage,
     model::DeviceModel{<:PSY.ElectricLoad, StaticPowerLoad},
-    network_model::NetworkModel{<:AbstractPowerModel},
+    network_model::NetworkModel{<:AbstractNetworkModel},
 )
     # Static PowerLoad doesn't add any constraints to the model. This function covers
-    # AbstractPowerModel and AbtractActivePowerModel
+    # AbstractNetworkModel and AbtractActivePowerModel
     return
 end
 
-# AbstractPowerModel + StaticLoad, but with non-StaticPowerLoad device models
+# AbstractNetworkModel + StaticLoad, but with non-StaticPowerLoad device models
 function construct_device!(
     container::OptimizationContainer,
     sys::PSY.System,
     ::ArgumentConstructStage,
     model::DeviceModel{L, <:AbstractControllablePowerLoadFormulation},
-    network_model::NetworkModel{<:AbstractPowerModel},
+    network_model::NetworkModel{<:AbstractNetworkModel},
 ) where {L <: PSY.StaticLoad}
     devices =
         get_available_components(model,
@@ -492,7 +492,7 @@ function construct_device!(
     sys::PSY.System,
     ccs::ModelConstructStage,
     model::DeviceModel{L, D},
-    network_model::NetworkModel{<:AbstractPowerModel},
+    network_model::NetworkModel{<:AbstractNetworkModel},
 ) where {
     L <: PSY.StaticLoad,
     D <: AbstractControllablePowerLoadFormulation,
@@ -521,7 +521,7 @@ function construct_device!(
     sys::PSY.System,
     ::ArgumentConstructStage,
     model::DeviceModel{PSY.ShiftablePowerLoad, PowerLoadShift},
-    network_model::NetworkModel{<:PM.AbstractPowerModel},
+    network_model::NetworkModel{<:AbstractNetworkModel},
 )
     devices = get_available_components(model, sys)
 
@@ -572,7 +572,7 @@ function construct_device!(
     sys::PSY.System,
     ::ModelConstructStage,
     model::DeviceModel{PSY.ShiftablePowerLoad, PowerLoadShift},
-    network_model::NetworkModel{<:PM.AbstractPowerModel},
+    network_model::NetworkModel{<:AbstractNetworkModel},
 )
     devices =
         get_available_components(model,
@@ -640,7 +640,7 @@ function construct_device!(
     sys::PSY.System,
     ::ArgumentConstructStage,
     model::DeviceModel{PSY.ShiftablePowerLoad, PowerLoadShift},
-    network_model::NetworkModel{<:PM.AbstractActivePowerModel},
+    network_model::NetworkModel{<:AbstractActivePowerModel},
 )
     devices = get_available_components(model, sys)
 
@@ -682,7 +682,7 @@ function construct_device!(
     sys::PSY.System,
     ::ModelConstructStage,
     model::DeviceModel{PSY.ShiftablePowerLoad, PowerLoadShift},
-    network_model::NetworkModel{<:PM.AbstractActivePowerModel},
+    network_model::NetworkModel{<:AbstractActivePowerModel},
 )
     devices =
         get_available_components(model,

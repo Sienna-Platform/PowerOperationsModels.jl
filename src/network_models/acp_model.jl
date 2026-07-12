@@ -4,14 +4,14 @@
 # by the branch device construction path (Phase F).
 #
 # Convention: variables/constraints indexed by ACBus use bus NAME (String) — see dcp_model.jl.
-# add_variables!(VoltageAngle, ...) for ACPPowerModel is defined in dcp_model.jl
-# via a Union dispatch shared with DCPPowerModel (identical implementation).
+# add_variables!(VoltageAngle, ...) for ACPNetworkModel is defined in dcp_model.jl
+# via a Union dispatch shared with DCPNetworkModel (identical implementation).
 
 function add_variables!(
     container::OptimizationContainer,
     ::Type{VoltageMagnitude},
     sys::PSY.System,
-    network_model::NetworkModel{ACPPowerModel},
+    network_model::NetworkModel{ACPNetworkModel},
 )
     time_steps = get_time_steps(container)
     bus_names = [name for (name, _) in _bus_name_number_pairs(sys, network_model)]
@@ -29,6 +29,7 @@ function add_variables!(
 
     for name in bus_names
         bus = bus_by_name[name]
+        # bus voltage limits are already per-unit
         vlim = PSY.get_voltage_limits(bus)
         v0 = PSY.get_magnitude(bus)
         for t in time_steps
@@ -48,13 +49,12 @@ function add_constraints!(
     container::OptimizationContainer,
     ::Type{ReferenceBusConstraint},
     sys::PSY.System,
-    network_model::NetworkModel{ACPPowerModel},
+    network_model::NetworkModel{ACPNetworkModel},
 )
     time_steps = get_time_steps(container)
     va = get_variable(container, VoltageAngle, PSY.ACBus)
     vm = get_variable(container, VoltageMagnitude, PSY.ACBus)
     number_to_name = _retained_number_to_name(sys, network_model)
-    bus_by_number = _bus_by_number(sys)
     subnets = network_model.subnetworks
     subnet_keys = collect(keys(subnets))
 
@@ -77,71 +77,19 @@ function add_constraints!(
 
     for k in subnet_keys
         # `k` is the reference bus number already assigned by PNM (see the note in
-        # dcp_model.jl). Pin both angle and magnitude at that bus directly.
+        # dcp_model.jl). Pin both angle and magnitude at that bus directly. Only the
+        # handful of reference buses are resolved (O(#subnets) name lookups), not a
+        # whole-system number→bus map.
         ref_name = number_to_name[k]
-        v_set = PSY.get_magnitude(bus_by_number[k])
+        ref_bus = PSY.get_component(PSY.ACBus, sys, ref_name)
+        _assert_reference_voltage_within_limits(ref_bus)
+        v_set = PSY.get_magnitude(ref_bus)
         for t in time_steps
             cons_va[k, t] =
                 JuMP.@constraint(get_jump_model(container), va[ref_name, t] == 0.0)
             cons_vm[k, t] =
                 JuMP.@constraint(get_jump_model(container), vm[ref_name, t] == v_set)
         end
-    end
-    return
-end
-
-function add_constraints!(
-    container::OptimizationContainer,
-    ::Type{NodalBalanceActiveConstraint},
-    sys::PSY.System,
-    network_model::NetworkModel{ACPPowerModel},
-)
-    time_steps = get_time_steps(container)
-    expressions = get_expression(container, ActivePowerBalance, PSY.ACBus)
-    pairs = _bus_name_number_pairs(sys, network_model)
-    bus_names = [name for (name, _) in pairs]
-
-    cons = add_constraints_container!(
-        container,
-        NodalBalanceActiveConstraint,
-        PSY.ACBus,
-        bus_names,
-        time_steps,
-    )
-
-    for (name, bus_no) in pairs, t in time_steps
-        cons[name, t] = JuMP.@constraint(
-            get_jump_model(container),
-            expressions[bus_no, t] == 0.0,
-        )
-    end
-    return
-end
-
-function add_constraints!(
-    container::OptimizationContainer,
-    ::Type{NodalBalanceReactiveConstraint},
-    sys::PSY.System,
-    network_model::NetworkModel{ACPPowerModel},
-)
-    time_steps = get_time_steps(container)
-    expressions = get_expression(container, ReactivePowerBalance, PSY.ACBus)
-    pairs = _bus_name_number_pairs(sys, network_model)
-    bus_names = [name for (name, _) in pairs]
-
-    cons = add_constraints_container!(
-        container,
-        NodalBalanceReactiveConstraint,
-        PSY.ACBus,
-        bus_names,
-        time_steps,
-    )
-
-    for (name, bus_no) in pairs, t in time_steps
-        cons[name, t] = JuMP.@constraint(
-            get_jump_model(container),
-            expressions[bus_no, t] == 0.0,
-        )
     end
     return
 end

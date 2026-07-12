@@ -1,4 +1,4 @@
-@testset "LCC HVDC System Tests" begin
+function _sys5_with_lcc()
     sys5 = build_system(PSISystems, "2Area 5 Bus System")
     hvdc = first(get_components(TwoTerminalGenericHVDCLine, sys5))
     lcc = TwoTerminalLCCLine(;
@@ -43,24 +43,46 @@
 
     add_component!(sys5, lcc)
     remove_component!(sys5, hvdc)
+    return sys5
+end
 
+function _solve_lcc_model(network_formulation)
+    sys5 = _sys5_with_lcc()
     template = get_thermal_dispatch_template_network(
         NetworkModel(
-            ACPPowerModel;
+            network_formulation;
             use_slacks = false,
         ),
     )
-
     set_device_model!(template, TwoTerminalLCCLine, HVDCTwoTerminalLCC)
     set_device_model!(template, ThermalStandard, ThermalDispatchNoMin)
-
     model = DecisionModel(
         template,
         sys5;
         optimizer = optimizer_with_attributes(Ipopt.Optimizer),
         horizon = Hour(2),
     )
-    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
-          IOM.ModelBuildStatus.BUILT
-    @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+    build_status = build!(model; output_dir = mktempdir(; cleanup = true))
+    return model, build_status
+end
+
+# LCC needs an AC voltage-magnitude term: the bus VoltageMagnitude under ACP, the
+# per-terminal RegulatedVoltageMagnitude aux under ACR/IVR. All three are exact AC
+# formulations, so their optima must agree.
+@testset "LCC HVDC System Tests" begin
+    objectives = Dict{Any, Float64}()
+    for network_formulation in (ACPNetworkModel, ACRNetworkModel, IVRNetworkModel)
+        model, build_status = _solve_lcc_model(network_formulation)
+        @test build_status == IOM.ModelBuildStatus.BUILT
+        @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+        container = IOM.get_optimization_container(model)
+        objectives[network_formulation] =
+            JuMP.objective_value(IOM.get_jump_model(container))
+    end
+    @test isapprox(
+        objectives[ACRNetworkModel], objectives[ACPNetworkModel]; rtol = 1e-6,
+    )
+    @test isapprox(
+        objectives[IVRNetworkModel], objectives[ACPNetworkModel]; rtol = 1e-6,
+    )
 end

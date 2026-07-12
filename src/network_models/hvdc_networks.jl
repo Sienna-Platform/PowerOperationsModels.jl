@@ -10,6 +10,7 @@ get_variable_warm_start_value(
     ::Type{<:AbstractHVDCNetworkModel},
 ) =
     nothing
+# bus voltage limits are already per-unit
 get_variable_lower_bound(
     ::Type{DCVoltage},
     d::PSY.DCBus,
@@ -29,7 +30,7 @@ function add_constraints!(
     sys::PSY.System,
     model::NetworkModel{V},
     hvdc_model::W,
-) where {V <: AbstractPowerModel, W <: TransportHVDCNetworkModel}
+) where {V <: AbstractNetworkModel, W <: TransportHVDCNetworkModel}
     dc_buses = PSY.get_components(PSY.DCBus, sys)
     if isempty(dc_buses)
         return
@@ -59,7 +60,7 @@ function add_constraints!(
     sys::PSY.System,
     model::NetworkModel{V},
     hvdc_model::W,
-) where {V <: AbstractPowerModel, W <: VoltageDispatchHVDCNetworkModel}
+) where {V <: AbstractNetworkModel, W <: VoltageDispatchHVDCNetworkModel}
     dc_buses = PSY.get_components(PSY.DCBus, sys)
     if isempty(dc_buses)
         return

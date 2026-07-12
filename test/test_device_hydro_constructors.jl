@@ -15,14 +15,14 @@
     c_sys5_hyd = PSB.build_system(PSITestSystems, "c_sys5_hy_turbine_energy")
 
     # No Parameters Testing
-    model = DecisionModel(MockOperationProblem, DCPPowerModel, c_sys5_hyd)
+    model = DecisionModel(MockOperationProblem, DCPNetworkModel, c_sys5_hyd)
     mock_construct_device!(model, turbine_model)
     mock_construct_device!(model, reservoir_model)
     moi_tests(model, 120, 0, 25, 24, 24, false)
     psi_checkobjfun_test(model, GAEVF)
 end
 
-@testset "Hydro ACPPowerModel with HydroTurbineEnergyDispatch and HydroEnergyModelReservoir (with budget) Formulations" begin
+@testset "Hydro ACPNetworkModel with HydroTurbineEnergyDispatch and HydroEnergyModelReservoir (with budget) Formulations" begin
     turbine_model = DeviceModel(HydroTurbine, HydroTurbineEnergyDispatch)
     reservoir_model = DeviceModel(
         HydroReservoir,
@@ -37,7 +37,7 @@ end
     c_sys5_hyd = PSB.build_system(PSITestSystems, "c_sys5_hy_turbine_energy")
 
     # No Parameters Testing
-    model = DecisionModel(MockOperationProblem, ACPPowerModel, c_sys5_hyd)
+    model = DecisionModel(MockOperationProblem, ACPNetworkModel, c_sys5_hyd)
     mock_construct_device!(model, turbine_model)
     mock_construct_device!(model, reservoir_model)
     moi_tests(model, 192, 0, 49, 48, 24, false)
@@ -62,14 +62,14 @@ end
     c_sys5_hyd = PSB.build_system(PSITestSystems, "c_sys5_hy_turbine_energy")
 
     # No Parameters Testing
-    model = DecisionModel(MockOperationProblem, DCPPowerModel, c_sys5_hyd)
+    model = DecisionModel(MockOperationProblem, DCPNetworkModel, c_sys5_hyd)
     mock_construct_device!(model, turbine_model)
     mock_construct_device!(model, reservoir_model)
     moi_tests(model, 144, 0, 25, 24, 24, true)
     psi_checkobjfun_test(model, GAEVF)
 end
 
-@testset "Hydro ACPPowerModel with HydroTurbineEnergyCommitment and HydroEnergyModelReservoir (with budget) Formulations" begin
+@testset "Hydro ACPNetworkModel with HydroTurbineEnergyCommitment and HydroEnergyModelReservoir (with budget) Formulations" begin
     turbine_model = DeviceModel(HydroTurbine, HydroTurbineEnergyCommitment)
     reservoir_model = DeviceModel(
         HydroReservoir,
@@ -83,7 +83,7 @@ end
     c_sys5_hyd = PSB.build_system(PSITestSystems, "c_sys5_hy_turbine_energy")
 
     # No Parameters Testing
-    model = DecisionModel(MockOperationProblem, ACPPowerModel, c_sys5_hyd)
+    model = DecisionModel(MockOperationProblem, ACPNetworkModel, c_sys5_hyd)
     mock_construct_device!(model, turbine_model)
     mock_construct_device!(model, reservoir_model)
     moi_tests(model, 168, 0, 49, 48, 24, true)
@@ -108,14 +108,14 @@ end
     c_sys5_hyd = PSB.build_system(PSITestSystems, "c_sys5_hy_turbine_energy")
 
     # No Parameters Testing
-    model = DecisionModel(MockOperationProblem, DCPPowerModel, c_sys5_hyd)
+    model = DecisionModel(MockOperationProblem, DCPNetworkModel, c_sys5_hyd)
     mock_construct_device!(model, turbine_model)
     mock_construct_device!(model, reservoir_model)
     moi_tests(model, 120, 0, 24, 24, 25, false)
     psi_checkobjfun_test(model, GAEVF)
 end
 
-@testset "Hydro ACPPowerModel with HydroTurbineEnergyDispatch and HydroEnergyModelReservoir (with target) Formulations" begin
+@testset "Hydro ACPNetworkModel with HydroTurbineEnergyDispatch and HydroEnergyModelReservoir (with target) Formulations" begin
     turbine_model = DeviceModel(HydroTurbine, HydroTurbineEnergyDispatch)
     reservoir_model = DeviceModel(
         HydroReservoir,
@@ -129,7 +129,7 @@ end
     c_sys5_hyd = PSB.build_system(PSITestSystems, "c_sys5_hy_turbine_energy")
 
     # No Parameters Testing
-    model = DecisionModel(MockOperationProblem, ACPPowerModel, c_sys5_hyd)
+    model = DecisionModel(MockOperationProblem, ACPNetworkModel, c_sys5_hyd)
     mock_construct_device!(model, turbine_model)
     mock_construct_device!(model, reservoir_model)
     moi_tests(model, 144, 0, 48, 48, 25, false)
@@ -142,10 +142,10 @@ end
 
 @testset "Solving ED Hydro System using Dispatch Run of River" begin
     sys = PSB.build_system(PSITestSystems, "c_sys5_hy")
-    networks = [ACPPowerModel, DCPPowerModel]
+    networks = [ACPNetworkModel, DCPNetworkModel]
 
     test_outputs =
-        Dict{Any, Float64}(ACPPowerModel => 136581.41, DCPPowerModel => 135382.37)
+        Dict{Any, Float64}(ACPNetworkModel => 136581.41, DCPNetworkModel => 135382.37)
 
     for net in networks
         @testset "HydroRoR ED model $(net)" begin
@@ -171,7 +171,7 @@ end
 
 @testset "Solving ED Hydro System using Commitment Run of River" begin
     sys = PSB.build_system(PSITestSystems, "c_sys5_hy")
-    net = CopperPlatePowerModel
+    net = CopperPlateNetworkModel
 
     template = get_thermal_dispatch_template_network(net)
     set_device_model!(template, HydroDispatch, HydroCommitmentRunOfRiver)
@@ -187,7 +187,7 @@ end
 
 # currently broken due to PSB lagging behind.
 @testset "Test Reserves from Hydro with RunOfRiver" begin
-    template = PowerOperationsProblemTemplate(CopperPlatePowerModel)
+    template = PowerOperationsProblemTemplate(CopperPlateNetworkModel)
     set_device_model!(template, PowerLoad, StaticPowerLoad)
     set_device_model!(template, HydroTurbine, HydroDispatchRunOfRiver)
     set_service_model!(
@@ -222,7 +222,7 @@ end
 
 @testset "Solving ED Hydro System using Dispatch with Reservoir" begin
     sys = PSB.build_system(PSITestSystems, "c_sys5_hy_turbine_energy")
-    networks = [ACPPowerModel, DCPPowerModel]
+    networks = [ACPNetworkModel, DCPNetworkModel]
     turbine_model = DeviceModel(HydroTurbine, HydroTurbineEnergyDispatch)
     models = [
         DeviceModel(
@@ -243,10 +243,10 @@ end
         ),
     ]
     test_outputs = Dict{Any, Float64}(
-        (ACPPowerModel, HydroEnergyModelReservoir, true) => 136296.0,
-        (DCPPowerModel, HydroEnergyModelReservoir, true) => 135404.0,
-        (ACPPowerModel, HydroEnergyModelReservoir, false) => 131305.0,
-        (DCPPowerModel, HydroEnergyModelReservoir, false) => 130479.0,
+        (ACPNetworkModel, HydroEnergyModelReservoir, true) => 136296.0,
+        (DCPNetworkModel, HydroEnergyModelReservoir, true) => 135404.0,
+        (ACPNetworkModel, HydroEnergyModelReservoir, false) => 131305.0,
+        (DCPNetworkModel, HydroEnergyModelReservoir, false) => 130479.0,
     )
 
     for net in networks
@@ -281,7 +281,7 @@ end
 
 @testset "Solving ED Hydro System using Commitment with Reservoir" begin
     sys = PSB.build_system(PSITestSystems, "c_sys5_hy_turbine_energy")
-    net = DCPPowerModel
+    net = DCPNetworkModel
     turbine_model = DeviceModel(HydroTurbine, HydroTurbineEnergyCommitment)
     models = [
         DeviceModel(
@@ -302,8 +302,8 @@ end
         ),
     ]
     test_outputs = Dict{Any, Float64}(
-        (DCPPowerModel, HydroEnergyModelReservoir, true) => 141061.0,
-        (DCPPowerModel, HydroEnergyModelReservoir, false) => 144109.0,
+        (DCPNetworkModel, HydroEnergyModelReservoir, true) => 141061.0,
+        (DCPNetworkModel, HydroEnergyModelReservoir, false) => 144109.0,
     )
 
     for reservoir_model in models
@@ -352,7 +352,7 @@ end
     add_time_series!(sys, hy, ts)
     transform_single_time_series!(sys, Hour(24), Hour(24))
 
-    model = DecisionModel(MockOperationProblem, CopperPlatePowerModel, sys)
+    model = DecisionModel(MockOperationProblem, CopperPlateNetworkModel, sys)
     mock_construct_device!(model, device_model)
     moi_tests(model, 48, 0, 49, 24, 0, false)
     psi_checkobjfun_test(model, GAEVF)
@@ -537,7 +537,7 @@ end
     hy_pump = first(PSY.get_components(HydroPumpTurbine, c_sys5_bat))
     transform_single_time_series!(c_sys5_bat, Hour(24), Hour(24))
 
-    model = DecisionModel(MockOperationProblem, CopperPlatePowerModel, c_sys5_bat)
+    model = DecisionModel(MockOperationProblem, CopperPlateNetworkModel, c_sys5_bat)
     mock_construct_device!(model, device_model)
     moi_tests(model, 72, 0, 48, 24, 0, true)
     psi_checkobjfun_test(model, GAEVF)
@@ -600,12 +600,12 @@ end
     sys = PSB.build_system(PSITestSystems, "c_sys5_hy_turbine_energy")
     res = first(PSY.get_components(HydroReservoir, sys))
 
-    set_head_to_volume_factor!(res, LinearCurve(1.0))
+    set_head_to_volume_factor!(res, LinearFunctionData(1.0))
     set_storage_level_limits!(res, (min = 4000, max = 6000))
     set_level_targets!(res, 0.9)
     template_ed = PowerOperationsProblemTemplate(
         NetworkModel(
-            CopperPlatePowerModel;
+            CopperPlateNetworkModel;
         ),
     )
 
@@ -918,7 +918,7 @@ end
     add_time_series!(sys, res, budget_ts)
     transform_single_time_series!(sys, Hour(24), Hour(24))
 
-    template = PowerOperationsProblemTemplate(NetworkModel(CopperPlatePowerModel))
+    template = PowerOperationsProblemTemplate(NetworkModel(CopperPlateNetworkModel))
     set_device_model!(template, ThermalStandard, ThermalDispatchNoMin)
     set_device_model!(template, PowerLoad, StaticPowerLoad)
     set_device_model!(template, HydroTurbine, HydroTurbineWaterLinearDispatch)
@@ -966,7 +966,7 @@ end
     add_time_series!(sys, res, target_ts)
     transform_single_time_series!(sys, Hour(24), Hour(24))
 
-    template = PowerOperationsProblemTemplate(NetworkModel(CopperPlatePowerModel))
+    template = PowerOperationsProblemTemplate(NetworkModel(CopperPlateNetworkModel))
     set_device_model!(template, ThermalStandard, ThermalDispatchNoMin)
     set_device_model!(template, PowerLoad, StaticPowerLoad)
     set_device_model!(template, HydroTurbine, HydroTurbineWaterLinearDispatch)
@@ -1015,7 +1015,7 @@ end
         2.0,
     ))
 
-    template = PowerOperationsProblemTemplate(NetworkModel(CopperPlatePowerModel))
+    template = PowerOperationsProblemTemplate(NetworkModel(CopperPlateNetworkModel))
     set_device_model!(template, ThermalStandard, ThermalDispatchNoMin)
     set_device_model!(template, PowerLoad, StaticPowerLoad)
     set_device_model!(template, HydroTurbine, HydroTurbineWaterLinearCommitment)

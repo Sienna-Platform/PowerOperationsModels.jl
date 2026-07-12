@@ -26,7 +26,7 @@ try
 
     for i in 1:2
         template = PowerOperationsProblemTemplate(
-            NetworkModel(PTDFPowerModel;
+            NetworkModel(PTDFNetworkModel;
                 use_slacks = true,
                 duals = [CopperPlateBalanceConstraint],
             ),

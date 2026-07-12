@@ -207,7 +207,7 @@ function check_flow_variable_values(
     dev_formulation = IOM.get_formulation(device_model)
     net_formulation = IOM.get_network_formulation(template)
     if dev_formulation <: Union{StaticBranch, StaticBranchUnbounded} &&
-       net_formulation <: PTDFPowerModel
+       net_formulation <: PTDFNetworkModel
         variable = IOM.get_expression(psi_cont, PTDFBranchFlow, U)
     else
         variable = IOM.get_variable(psi_cont, T, U)
@@ -254,7 +254,7 @@ function check_flow_variable_values(
     dev_formulation = IOM.get_formulation(device_model)
     net_formulation = IOM.get_network_formulation(template)
     if dev_formulation <: Union{StaticBranch, StaticBranchUnbounded} &&
-       net_formulation <: PTDFPowerModel
+       net_formulation <: PTDFNetworkModel
         variable = IOM.get_expression(psi_cont, PTDFBranchFlow, U)
     else
         variable = IOM.get_variable(psi_cont, T, U)

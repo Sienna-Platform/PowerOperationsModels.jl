@@ -50,12 +50,24 @@ function validate_template_impl!(model::IOM.AbstractOptimizationModel)
     end
 
     device_keys_to_delete = Symbol[]
+    network_formulation = get_network_formulation(network_model)
     for (k, device_model) in template.devices
         make_device_cache!(device_model, system, get_check_components(settings))
         if isempty(get_device_cache(device_model))
             @info "The system data doesn't include devices of type $(k), consider changing the models in the template" _group =
                 IOM.LOG_GROUP_MODELS_VALIDATION
             push!(device_keys_to_delete, k)
+        elseif models_reactive_power(get_formulation(device_model)) &&
+               !network_has_reactive_power(network_formulation)
+            @info "Device model $(k) models reactive power but network model $(network_formulation) has no reactive power; dropping it from the template" _group =
+                IOM.LOG_GROUP_MODELS_VALIDATION
+            push!(device_keys_to_delete, k)
+        elseif !_formulation_supports_network(get_formulation(device_model), network_model)
+            throw(
+                IS.ConflictingInputsError(
+                    "Device model $(k) with formulation $(get_formulation(device_model)) has no construct path for network model $(network_formulation). Use a network model this formulation supports, change the formulation, or remove the device from the template.",
+                ),
+            )
         end
     end
     for k in device_keys_to_delete
@@ -73,6 +85,18 @@ function validate_template_impl!(model::IOM.AbstractOptimizationModel)
             @info "The system data doesn't include Branches of type $(k), consider changing the models in the template" _group =
                 IOM.LOG_GROUP_MODELS_VALIDATION
             push!(branch_keys_to_delete, k)
+        elseif models_reactive_power(get_formulation(device_model)) &&
+               !network_has_reactive_power(network_formulation)
+            @info "Branch model $(k) models reactive power but network model $(network_formulation) has no reactive power; dropping it from the template" _group =
+                IOM.LOG_GROUP_MODELS_VALIDATION
+            push!(branch_keys_to_delete, k)
+            push!(unmodeled_branch_types, get_component_type(device_model))
+        elseif !_formulation_supports_network(get_formulation(device_model), network_model)
+            throw(
+                IS.ConflictingInputsError(
+                    "Branch model $(k) with formulation $(get_formulation(device_model)) has no construct path for network model $(network_formulation). Use a network model this formulation supports, change the formulation, or remove the branch from the template.",
+                ),
+            )
         else
             push!(network_model.modeled_branch_types, get_component_type(device_model))
         end
@@ -85,6 +109,7 @@ function validate_template_impl!(model::IOM.AbstractOptimizationModel)
     end
     _check_security_constrained_three_winding_transformer!(template.branches)
     _check_security_constrained_network!(template.branches, network_model)
+    _check_voltage_regulation_conflicts!(template, system, network_model)
     _check_branch_rating_time_series_formulation!(template.branches, system)
     validate_network_model(network_model, unmodeled_branch_types, model_has_branch_filters)
     _build_device_model_outages!(template, system)
@@ -183,13 +208,36 @@ end
 # NFA/CopperPlate/AreaBalance are intentional no-ops. The fallback returns
 # `false` so unsupported networks fail fast at validation instead of hitting a
 # `MethodError` during build.
-_sc_branch_network_supported(::NetworkModel{<:AbstractPTDFModel}) = true
-_sc_branch_network_supported(::NetworkModel{<:PM.AbstractACPModel}) = true
-_sc_branch_network_supported(::NetworkModel{NFAPowerModel}) = true
-_sc_branch_network_supported(::NetworkModel{CopperPlatePowerModel}) = true
-_sc_branch_network_supported(::NetworkModel{AreaBalancePowerModel}) = true
+_sc_branch_network_supported(::NetworkModel{<:AbstractPTDFNetworkModel}) = true
+_sc_branch_network_supported(::NetworkModel{<:AbstractACPModel}) = true
+_sc_branch_network_supported(::NetworkModel{NFANetworkModel}) = true
+_sc_branch_network_supported(::NetworkModel{CopperPlateNetworkModel}) = true
+_sc_branch_network_supported(::NetworkModel{AreaBalanceNetworkModel}) = true
 _sc_branch_network_supported(::NetworkModel) = false
 
+# Whether a device/branch formulation has a `construct_device!` path for this network
+# model. Default true; false for the reactive control formulations that build only
+# under ACP/ACR/IVR. LPACC is reactive-capable at the network level
+# (`network_has_reactive_power` is true), so the coarse reactive-power gate admits
+# these devices; without this check they fail later with a generic
+# "construct_device! not implemented" error that `build!` swallows into a FAILED
+# status. Mirrors the `_sc_branch_network_supported` predicate-with-false-fallback.
+_formulation_supports_network(::Type{<:AbstractDeviceFormulation}, ::NetworkModel) = true
+_formulation_supports_network(
+    ::Type{ShuntSusceptanceDispatch},
+    ::NetworkModel{LPACCNetworkModel},
+) =
+    false
+_formulation_supports_network(
+    ::Type{VoltageControlTap},
+    ::NetworkModel{LPACCNetworkModel},
+) =
+    false
+_formulation_supports_network(
+    ::Type{VoltageControlConverter},
+    ::NetworkModel{LPACCNetworkModel},
+) =
+    false
 function _check_security_constrained_network!(
     branch_models::IOM.BranchModelContainer,
     network_model::NetworkModel,
@@ -202,10 +250,108 @@ function _check_security_constrained_network!(
                 IS.ConflictingInputsError(
                     "$(B) is not supported with network model \
                     $(get_network_formulation(network_model)). Use a PTDF \
-                    (AbstractPTDFModel) or ACP network model. DCP support \
+                    (AbstractPTDFNetworkModel) or ACP network model. DCP support \
                     (angle-based post-contingency) is pending; NFA, \
                     CopperPlate and AreaBalance are inert for \
                     security-constrained branches.",
+                ),
+            )
+        end
+    end
+    return
+end
+
+# Under ACP a VOLTAGE-control device pins the shared network VoltageMagnitude at its
+# regulated bus via JuMP.fix(force=true); two devices on one bus silently override
+# each other (last write wins). Detect that at validation. Under ACR/IVR each device
+# owns a (component, tag) RegulatedVoltageMagnitude aux variable, so the same clash is
+# solver-infeasibility, not a silent override — so only ACP needs the check.
+_voltage_regulation_can_collide(::NetworkModel) = false
+_voltage_regulation_can_collide(::NetworkModel{ACPNetworkModel}) = true
+
+# (device name, regulated ACBus) for the components this model puts in a voltage-
+# control mode. Default: nothing regulates voltage (DeviceModelForBranches is a
+# DeviceModel alias, so this one default covers both device and branch models). One
+# specialization per regulating formulation, reusing each family's regulated-bus
+# resolver.
+_voltage_regulated_buses(::IOM.DeviceModel, ::PSY.System) = Tuple{String, PSY.ACBus}[]
+
+function _voltage_regulated_buses(
+    device_model::IOM.DeviceModelForBranches{T, VoltageControlTap},
+    sys::PSY.System,
+) where {T <: PSY.TapTransformer}
+    bus_by_number = _bus_by_number(sys)
+    pairs = Tuple{String, PSY.ACBus}[]
+    for d in get_available_components(device_model, sys)
+        if PSY.get_control_objective(d) == PSY.TransformerControlObjective.VOLTAGE
+            push!(pairs, (PSY.get_name(d), _tap_regulated_bus(d, bus_by_number)))
+        end
+    end
+    return pairs
+end
+
+function _voltage_regulated_buses(
+    device_model::IOM.DeviceModel{T, ShuntSusceptanceDispatch},
+    sys::PSY.System,
+) where {T <: PSY.FACTSControlDevice}
+    pairs = Tuple{String, PSY.ACBus}[]
+    for d in get_available_components(device_model, sys)
+        if PSY.get_control_mode(d) == PSY.FACTSOperationModes.NML
+            push!(pairs, (PSY.get_name(d), PSY.get_bus(d)))
+        end
+    end
+    return pairs
+end
+
+function _voltage_regulated_buses(
+    device_model::IOM.DeviceModel{T, VoltageControlConverter},
+    sys::PSY.System,
+) where {T <: PSY.InterconnectingConverter}
+    pairs = Tuple{String, PSY.ACBus}[]
+    for d in get_available_components(device_model, sys)
+        if PSY.get_ac_control(d) == PSY.VSCACControlModes.AC_VOLTAGE
+            push!(pairs, (PSY.get_name(d), PSY.get_bus(d)))
+        end
+    end
+    return pairs
+end
+
+function _voltage_regulated_buses(
+    device_model::IOM.DeviceModelForBranches{T, VoltageControlVSC},
+    sys::PSY.System,
+) where {T <: PSY.TwoTerminalVSCLine}
+    pairs = Tuple{String, PSY.ACBus}[]
+    for d in get_available_components(device_model, sys)
+        arc = PSY.get_arc(d)
+        if PSY.get_ac_control_from(d) == PSY.VSCACControlModes.AC_VOLTAGE
+            push!(pairs, ("$(PSY.get_name(d))_from", PSY.get_from(arc)))
+        end
+        if PSY.get_ac_control_to(d) == PSY.VSCACControlModes.AC_VOLTAGE
+            push!(pairs, ("$(PSY.get_name(d))_to", PSY.get_to(arc)))
+        end
+    end
+    return pairs
+end
+
+# Reject templates where two voltage regulators target the same bus under ACP.
+function _check_voltage_regulation_conflicts!(
+    template::IOM.AbstractProblemTemplate,
+    sys::PSY.System,
+    network_model::NetworkModel,
+)
+    _voltage_regulation_can_collide(network_model) || return
+    bus_regulators = Dict{Int, Vector{String}}()
+    for device_model in
+        Iterators.flatten((values(template.devices), values(template.branches)))
+        for (dev_name, bus) in _voltage_regulated_buses(device_model, sys)
+            push!(get!(bus_regulators, PSY.get_number(bus), String[]), dev_name)
+        end
+    end
+    for (bus_no, regulators) in bus_regulators
+        if length(regulators) > 1
+            throw(
+                IS.ConflictingInputsError(
+                    "Bus $(bus_no) is voltage-regulated by multiple devices ($(regulators)) under an ACP network; their setpoints would silently override each other (JuMP.fix). Keep at most one voltage regulator per bus.",
                 ),
             )
         end

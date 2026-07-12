@@ -95,7 +95,7 @@ end
     PSY.transform_single_time_series!(sys_rts, Hour(24), Hour(12); delete_existing = false)
 
     template = get_template_standard_uc_simulation()
-    set_network_model!(template, NetworkModel(CopperPlatePowerModel))
+    set_network_model!(template, NetworkModel(CopperPlateNetworkModel))
 
     model_24h = DecisionModel(
         template,

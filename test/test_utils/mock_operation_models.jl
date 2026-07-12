@@ -12,7 +12,7 @@ function IOM.DecisionModel(
     sys::PSY.System;
     name = nothing,
     kwargs...,
-) where {T <: AbstractPowerModel}
+) where {T <: AbstractNetworkModel}
     settings = IOM.Settings(sys; kwargs...)
     available_resolutions = PSY.get_time_series_resolutions(sys)
     if length(available_resolutions) == 1
@@ -77,7 +77,7 @@ function IOM.DecisionModel(::Type{MockOperationProblem}; name = nothing, kwargs.
         horizon = get(kwargs, :horizon, Hour(24)),
         resolution = get(kwargs, :resolution, Hour(1)))
     return DecisionModel{MockOperationProblem}(
-        PowerOperationsProblemTemplate(CopperPlatePowerModel),
+        PowerOperationsProblemTemplate(CopperPlateNetworkModel),
         sys,
         settings,
         nothing;
@@ -104,7 +104,7 @@ function IOM.EmulationModel(::Type{MockEmulationProblem}; name = nothing, kwargs
         horizon = get(kwargs, :resolution, Hour(1)),
         resolution = get(kwargs, :resolution, Hour(1)))
     return EmulationModel{MockEmulationProblem}(
-        PowerOperationsProblemTemplate(CopperPlatePowerModel),
+        PowerOperationsProblemTemplate(CopperPlateNetworkModel),
         sys,
         settings,
         nothing;

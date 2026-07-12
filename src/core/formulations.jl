@@ -106,6 +106,10 @@ Formulation type to add import and export model for `Source`
 """
 struct ImportExportSourceModel <: AbstractSourceFormulation end
 
+# Does this device formulation contribute to ReactivePowerBalance? Reactive-only
+# formulations are dropped from a template under an active-power-only network (no Q balance).
+models_reactive_power(::Type{<:AbstractDeviceFormulation}) = false
+
 ########################### Reactive Power Device Formulations ##############################
 abstract type AbstractReactivePowerDeviceFormulation <: AbstractDeviceFormulation end
 
@@ -113,6 +117,27 @@ abstract type AbstractReactivePowerDeviceFormulation <: AbstractDeviceFormulatio
 Formulation type to add reactive power dispatch variables for `SynchronousCondenser`
 """
 struct SynchronousCondenserBasicDispatch <: AbstractReactivePowerDeviceFormulation end
+
+########################### Controllable Shunt Formulations ################################
+"""
+Abstract supertype for controllable shunt formulations. All subtypes model reactive
+compensation devices (`PSY.SwitchedAdmittance`, `PSY.FACTSControlDevice`) that dispatch
+a continuous susceptance ``b \\in [b_{\\min}, b_{\\max}]`` and inject
+``Q = b \\cdot V^2`` into the reactive nodal balance. Only valid under AC network models;
+dropped from DC templates automatically via `models_reactive_power`.
+"""
+abstract type AbstractShuntFormulation <: AbstractDeviceFormulation end
+
+"""
+Continuous controllable shunt susceptance `b ∈ [b_min, b_max]` injecting `Q = b·V²` into
+the reactive nodal balance, for `SwitchedAdmittance` (continuous relaxation of the switched
+blocks) and `FACTSControlDevice` (SVC/STATCOM). Under a voltage control objective the
+regulated bus voltage is fixed to its setpoint. Only valid under AC network models; dropped
+from DC templates automatically via `models_reactive_power`.
+"""
+struct ShuntSusceptanceDispatch <: AbstractShuntFormulation end
+
+models_reactive_power(::Type{<:AbstractShuntFormulation}) = true
 
 """
 Abstract type for Branch Formulations (a.k.a Models)
@@ -132,6 +157,30 @@ abstract type AbstractBranchFormulation <: AbstractDeviceFormulation end
 Branch type to add unbounded flow variables and use flow constraints
 """
 struct StaticBranch <: AbstractBranchFormulation end
+
+"""
+Branch formulation for transformers that models the off-nominal tap ratio in the DC
+power-flow Ohm's law. Use as `DeviceModel(TapTransformer, TapControl)` under an
+active-power DC network (e.g. DCPNetworkModel). Reduces to `StaticBranch` when tap == 1.
+"""
+struct TapControl <: AbstractBranchFormulation end
+
+"""
+Branch formulation for voltage-controlling tap transformers under an AC network model. The
+off-nominal tap ratio is a bounded continuous decision variable `t ∈ [t_min, t_max]`
+(`TapRatioVariable`, continuous relaxation of `number_of_tap_positions`) that enters the AC
+π-model Ohm's law nonlinearly. Under a `TransformerControlObjective.VOLTAGE` objective the
+regulated bus voltage is fixed to `voltage_setpoint`; under `REACTIVE_POWER_FLOW` /
+`ACTIVE_POWER_FLOW` the corresponding terminal flow is fixed to its target (the model is
+otherwise identical across modes — count-invariant `JuMP.fix`). Use as
+`DeviceModel(TapTransformer, VoltageControlTap)` under an AC network (e.g. ACPNetworkModel).
+Only valid under AC network models; dropped from DC templates automatically via
+`models_reactive_power`.
+"""
+struct VoltageControlTap <: AbstractBranchFormulation end
+
+models_reactive_power(::Type{VoltageControlTap}) = true
+
 """
 Branch type to add bounded flow variables and use flow constraints
 """
@@ -246,6 +295,25 @@ scheme.
 """
 struct HVDCTwoTerminalVSC <: AbstractTwoTerminalVSCFormulation end
 
+"""
+Two-terminal VSC formulation with reactive / voltage control (Family C). Builds the exact same
+NLP physics as [`HVDCTwoTerminalVSC`](@ref) — per-terminal converter losses, a shared signed
+cable current, the DC cable Ohm's law, bounded per-terminal reactive injection into
+`ReactivePowerBalance`, and the apparent-power capability disk ``p^2 + q^2 \\le \\text{rating}^2``
+— and adds a count-invariant control layer driven by the converter's `ac_control_*` /
+`dc_control_*` modes. The control objective pins one already-created variable per terminal with a
+single `JuMP.fix` (`force = true`): `AC_VOLTAGE` → the regulated AC-bus `VoltageMagnitude`,
+`AC_REACTIVE_POWER` → the terminal reactive injection, `DC_VOLTAGE` → the terminal DC voltage,
+`DC_POWER` → the terminal active flow. No per-mode constraint is ever added, so the
+variable/constraint containers are identical across all control modes. Only valid under AC
+network models; dropped from DC templates automatically via `models_reactive_power`.
+Voltage-objective regulation is ACP-only in v1 (no scalar magnitude primitive under ACR/IVR);
+`DC_VOLTAGE_DROOP` free-floats with a warning in v1.
+"""
+struct VoltageControlVSC <: AbstractTwoTerminalVSCFormulation end
+
+models_reactive_power(::Type{VoltageControlVSC}) = true
+
 ############################### AC/DC Converter Formulations #####################################
 abstract type AbstractConverterFormulation <: AbstractDeviceFormulation end
 
@@ -273,6 +341,31 @@ tolerance-driven linear surrogates under a linearizing scheme. See
 scheme.
 """
 struct QuadraticLossConverter <: AbstractQuadraticLossConverter end
+
+"""
+AC/DC `InterconnectingConverter` formulation for AC network models (ACP/ACR/IVR). Builds the
+same DC-side physics as [`QuadraticLossConverter`](@ref) — the `ActivePowerVariable`,
+`ConverterCurrent`/`CurrentAbsoluteValueVariable`, the per-`DCBus` `DCVoltage`, the
+`DCCurrentBalance` wiring and the quadratic `ConverterLossConstraint` — and adds the AC-side
+representation: a bounded `ReactivePowerVariable` injected into `ReactivePowerBalance` at the
+converter's AC bus, the apparent-power capability disk ``p^2 + q^2 \\le \\text{rating}^2``, and a
+count-invariant control layer driven by the converter's `ac_control` / `dc_control` modes.
+
+AC control: `AC_VOLTAGE` regulates the AC bus voltage to `ac_setpoint` (under ACP by fixing the
+network `VoltageMagnitude`; under ACR/IVR via a component-owned `RegulatedVoltageMagnitude` aux
+variable); `AC_REACTIVE_POWER` fixes the reactive injection to `ac_setpoint`. DC control adds one
+always-present `HVDCDCControlConstraint` per converter per time step: `DC_VOLTAGE` →
+`vdc = dc_setpoint`, `DC_POWER` → `p = dc_setpoint`, `DC_VOLTAGE_DROOP` →
+`vdc + dc_voltage_droop * p = dc_setpoint`. The aux voltage variable + its constraint and the
+`HVDCDCControlConstraint` are created regardless of mode, so variable/constraint containers are
+identical across all control modes (only per-mode coefficients / `JuMP.fix` differ). Only valid
+under AC network models; dropped from DC templates automatically via `models_reactive_power`.
+Requires a `VoltageDispatchHVDCNetworkModel` HVDC network model (for the `DCVoltage` /
+`DCCurrentBalance` DC-side) and finite `reactive_power_limits` on each converter.
+"""
+struct VoltageControlConverter <: AbstractQuadraticLossConverter end
+
+models_reactive_power(::Type{VoltageControlConverter}) = true
 
 ############################## HVDC Lines Formulations ##################################
 abstract type AbstractDCLineFormulation <: AbstractBranchFormulation end
