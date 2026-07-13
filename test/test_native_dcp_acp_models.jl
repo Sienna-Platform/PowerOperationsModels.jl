@@ -327,3 +327,160 @@ end
         @test T <: POM.AbstractNetworkModel
     end
 end
+
+# The NetworkFlowConstraint containers each network model must build for StaticBranchBounds.
+# The AC laws are split by meta (one container per directional flow); the DC laws are a
+# single unmetaed container. NFA is the flow approximation: it has no Ohm's law at all.
+_ohms_law_metas(::Type{<:Union{ACPNetworkModel, ACRNetworkModel, LPACCNetworkModel}}) =
+    ["p_ft", "q_ft", "p_tf", "q_tf"]
+_ohms_law_metas(::Type{IVRNetworkModel}) =
+    ["p_ft", "q_ft", "p_tf", "q_tf", "cr_fr", "ci_fr", "cr_to", "ci_to", "vr_to", "vi_to"]
+_ohms_law_metas(::Type{<:Union{DCPNetworkModel, DCPLLNetworkModel, PTDFNetworkModel}}) =
+    [IOM.CONTAINER_KEY_EMPTY_META]
+_ohms_law_metas(::Type{NFANetworkModel}) = String[]
+
+@testset "StaticBranchBounds builds and solves on every native network model" begin
+    for (network_formulation, optimizer) in (
+        (DCPNetworkModel, HiGHS_optimizer),
+        (NFANetworkModel, HiGHS_optimizer),
+        (PTDFNetworkModel, HiGHS_optimizer),
+        (DCPLLNetworkModel, ipopt_optimizer),
+        (ACPNetworkModel, ipopt_optimizer),
+        (ACRNetworkModel, ipopt_optimizer),
+        (LPACCNetworkModel, ipopt_optimizer),
+        (IVRNetworkModel, ipopt_optimizer),
+    )
+        @testset "$network_formulation" begin
+            sys = PSB.build_system(PSITestSystems, "c_sys5")
+            template =
+                get_thermal_dispatch_template_network(NetworkModel(network_formulation))
+            set_device_model!(template, DeviceModel(PSY.Line, StaticBranchBounds))
+            model = DecisionModel(template, sys; optimizer = optimizer)
+            @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+                  IOM.ModelBuildStatus.BUILT
+            @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+
+            # Bounding the flow variables is not the model: without the Ohm's law tying the
+            # flows to the bus voltages (or, on PTDF, to PTDFBranchFlow), the build and the
+            # solve both still succeed on a strict relaxation.
+            container = IOM.get_optimization_container(model)
+            for meta in _ohms_law_metas(network_formulation)
+                @test IOM.has_container_key(
+                    container, POM.NetworkFlowConstraint, PSY.Line, meta,
+                )
+                @test !isempty(
+                    IOM.get_constraint(
+                        container, POM.NetworkFlowConstraint, PSY.Line, meta,
+                    ),
+                )
+            end
+        end
+    end
+end
+
+@testset "NFANetworkModel + StaticBranchBounds has no Ohm's law" begin
+    sys = PSB.build_system(PSITestSystems, "c_sys5")
+    template = get_thermal_dispatch_template_network(NetworkModel(NFANetworkModel))
+    set_device_model!(template, DeviceModel(PSY.Line, StaticBranchBounds))
+    model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+    container = IOM.get_optimization_container(model)
+    @test !IOM.has_container_key(container, POM.NetworkFlowConstraint, PSY.Line)
+end
+
+@testset "StaticBranchBounds creates its network model's flow variables" begin
+    function _line_variable_keys(network_formulation, optimizer)
+        sys = PSB.build_system(PSITestSystems, "c_sys5")
+        template = get_thermal_dispatch_template_network(NetworkModel(network_formulation))
+        set_device_model!(template, DeviceModel(PSY.Line, StaticBranchBounds))
+        model = DecisionModel(template, sys; optimizer = optimizer)
+        @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+              IOM.ModelBuildStatus.BUILT
+        return keys(IOM.get_variables(IOM.get_optimization_container(model)))
+    end
+
+    directional_ac = [
+        FlowActivePowerFromToVariable,
+        FlowActivePowerToFromVariable,
+        FlowReactivePowerFromToVariable,
+        FlowReactivePowerToFromVariable,
+    ]
+    for network_formulation in (ACRNetworkModel, LPACCNetworkModel)
+        @testset "$network_formulation" begin
+            var_keys = _line_variable_keys(network_formulation, ipopt_optimizer)
+            for variable_type in directional_ac
+                @test IOM.VariableKey(variable_type, PSY.Line) in var_keys
+            end
+        end
+    end
+
+    @testset "DCPLLNetworkModel" begin
+        var_keys = _line_variable_keys(DCPLLNetworkModel, ipopt_optimizer)
+        @test IOM.VariableKey(FlowActivePowerFromToVariable, PSY.Line) in var_keys
+        @test IOM.VariableKey(FlowActivePowerToFromVariable, PSY.Line) in var_keys
+        # DCPLL rates the directional pair; a scalar FlowActivePowerVariable is never created.
+        @test !(IOM.VariableKey(FlowActivePowerVariable, PSY.Line) in var_keys)
+    end
+
+    @testset "NFANetworkModel" begin
+        var_keys = _line_variable_keys(NFANetworkModel, HiGHS_optimizer)
+        @test IOM.VariableKey(FlowActivePowerVariable, PSY.Line) in var_keys
+    end
+end
+
+@testset "DCPLLNetworkModel + StaticBranchBounds enforces the rating as hard flow bounds" begin
+    # Without slacks, DCPLLNetworkModel's FlowRateConstraint builder is a no-op (see
+    # add_constraints! for FlowRateConstraint under NetworkModel{DCPLLNetworkModel}), so
+    # _set_dcpll_flow_bounds! setting the JuMP variable bounds is the only rating
+    # enforcement on this path.
+    sys = PSB.build_system(PSITestSystems, "c_sys5")
+    template = get_thermal_dispatch_template_network(NetworkModel(DCPLLNetworkModel))
+    set_device_model!(template, DeviceModel(PSY.Line, StaticBranchBounds))
+    model = DecisionModel(template, sys; optimizer = ipopt_optimizer)
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+
+    container = IOM.get_optimization_container(model)
+    pft = IOM.get_variable(container, FlowActivePowerFromToVariable, PSY.Line)
+    ptf = IOM.get_variable(container, FlowActivePowerToFromVariable, PSY.Line)
+    time_steps = IOM.get_time_steps(container)
+    for line in PSY.get_components(PSY.Line, sys)
+        name = PSY.get_name(line)
+        rate = PSY.get_rating(line, PSY.SU)
+        for t in time_steps
+            @test JuMP.has_lower_bound(pft[name, t])
+            @test JuMP.has_upper_bound(pft[name, t])
+            @test JuMP.lower_bound(pft[name, t]) == -rate
+            @test JuMP.upper_bound(pft[name, t]) == rate
+            @test JuMP.has_lower_bound(ptf[name, t])
+            @test JuMP.has_upper_bound(ptf[name, t])
+            @test JuMP.lower_bound(ptf[name, t]) == -rate
+            @test JuMP.upper_bound(ptf[name, t]) == rate
+        end
+    end
+end
+
+@testset "NFANetworkModel + StaticBranchBounds rejects use_slacks" begin
+    sys = PSB.build_system(PSITestSystems, "c_sys5")
+    model = DecisionModel(MockOperationProblem, NFANetworkModel, sys)
+    device_model = DeviceModel(PSY.Line, StaticBranchBounds; use_slacks = true)
+    @test_throws ArgumentError mock_construct_device!(model, device_model)
+end
+
+@testset "DCPLLNetworkModel + StaticBranchBounds with use_slacks builds and solves" begin
+    sys = PSB.build_system(PSITestSystems, "c_sys5")
+    template = get_thermal_dispatch_template_network(NetworkModel(DCPLLNetworkModel))
+    set_device_model!(
+        template,
+        DeviceModel(PSY.Line, StaticBranchBounds; use_slacks = true),
+    )
+    model = DecisionModel(template, sys; optimizer = ipopt_optimizer)
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+    @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+
+    container = IOM.get_optimization_container(model)
+    @test !isempty(IOM.get_variable(container, FlowActivePowerSlackUpperBound, PSY.Line))
+    @test !isempty(IOM.get_variable(container, FlowActivePowerSlackLowerBound, PSY.Line))
+end
