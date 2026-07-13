@@ -195,3 +195,46 @@ end
         @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
     end
 end
+
+# DCPLL's PWL loss segments plus quadratic branch losses make the combined problem an
+# MINLP, out of test scope: build+wiring only there, solve under DCP/NFA (both MILP).
+@testset "HVDCTwoTerminalPiecewiseLoss wired into the DC-native nodal balances" begin
+    for (network_formulation, optimizer, run_solve) in (
+        (DCPNetworkModel, HiGHS_optimizer, true),
+        (NFANetworkModel, HiGHS_optimizer, true),
+        (DCPLLNetworkModel, ipopt_optimizer, false),
+    )
+        model, build_status, from_no, to_no = _build_hvdc_model(
+            network_formulation, HVDCTwoTerminalPiecewiseLoss, optimizer,
+        )
+        @test build_status == IOM.ModelBuildStatus.BUILT
+        container = IOM.get_optimization_container(model)
+        prf = IOM.get_variable(
+            container,
+            POM.HVDCActivePowerReceivedFromVariable,
+            TwoTerminalGenericHVDCLine,
+        )
+        prt = IOM.get_variable(
+            container,
+            POM.HVDCActivePowerReceivedToVariable,
+            TwoTerminalGenericHVDCLine,
+        )
+        t1 = first(IOM.get_time_steps(container))
+        balance = IOM.get_expression(container, POM.ActivePowerBalance, PSY.ACBus)
+        @test JuMP.coefficient(balance[from_no, t1], prf["hvdc_tie", t1]) == 1.0
+        @test JuMP.coefficient(balance[to_no, t1], prt["hvdc_tie", t1]) == 1.0
+        if run_solve
+            @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+        end
+    end
+end
+
+@testset "HVDCTwoTerminalUnbounded builds under CopperPlateNetworkModel" begin
+    model, build_status, _, _ =
+        _build_hvdc_model(
+            CopperPlateNetworkModel,
+            HVDCTwoTerminalUnbounded,
+            HiGHS_optimizer,
+        )
+    @test build_status == IOM.ModelBuildStatus.BUILT
+end

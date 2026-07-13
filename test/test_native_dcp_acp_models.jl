@@ -317,3 +317,13 @@ end
         @test occursin("zero rating", log)
     end
 end
+
+@testset "native network formulations root at IOM.AbstractNetworkModel" begin
+    for T in (
+        DCPNetworkModel, NFANetworkModel, DCPLLNetworkModel, PTDFNetworkModel,
+        AreaPTDFNetworkModel, CopperPlateNetworkModel, AreaBalanceNetworkModel,
+        ACPNetworkModel, ACRNetworkModel, LPACCNetworkModel, IVRNetworkModel,
+    )
+        @test T <: POM.AbstractNetworkModel
+    end
+end
