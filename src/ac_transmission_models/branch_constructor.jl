@@ -399,6 +399,7 @@ function construct_device!(
     },
 ) where {T <: PSY.TwoTerminalHVDC}
     devices = get_available_components(device_model, sys)
+    _warn_no_hvdc_reactive_capability(devices)
     add_variables!(container, FlowActivePowerVariable, devices, HVDCTwoTerminalLossless)
     add_variables!(
         container, FlowReactivePowerFromToVariable, devices, HVDCTwoTerminalLossless,
@@ -1882,6 +1883,7 @@ function construct_device!(
     network_model::NetworkModel{ACPNetworkModel},
 ) where {T <: PSY.TwoTerminalHVDC}
     devices = get_available_components(device_model, sys)
+    _warn_no_hvdc_reactive_capability(devices)
     add_variables!(container, FlowActivePowerVariable, devices, HVDCTwoTerminalLossless)
     add_variables!(
         container, FlowReactivePowerFromToVariable, devices, HVDCTwoTerminalLossless,

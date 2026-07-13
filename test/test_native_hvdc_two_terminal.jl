@@ -29,8 +29,75 @@ function _c_sys5_with_hvdc_tie()
     return sys, from_no, to_no
 end
 
-function _build_hvdc_model(network_formulation, hvdc_formulation, optimizer)
-    sys, from_no, to_no = _c_sys5_with_hvdc_tie()
+# Asymmetric from/to and min/max limits: a from<->to (or min<->max) getter swap in
+# get_variable_lower_bound/get_variable_upper_bound would fail these bounds checks, unlike
+# with the symmetric limits in _c_sys5_with_hvdc_tie().
+function _c_sys5_with_asymmetric_hvdc_tie()
+    sys = PSB.build_system(PSITestSystems, "c_sys5")
+    line = PSY.get_component(Line, sys, "1")
+    arc = PSY.get_arc(line)
+    PSY.remove_component!(sys, line)
+    hvdc = TwoTerminalGenericHVDCLine(;
+        name = "hvdc_tie",
+        available = true,
+        active_power_flow = 0.0,
+        active_power_limits_from = (min = -2.0, max = 2.0),
+        active_power_limits_to = (min = -2.0, max = 2.0),
+        reactive_power_limits_from = (min = -0.4, max = 0.9),
+        reactive_power_limits_to = (min = -0.7, max = 0.3),
+        arc = arc,
+        loss = LinearCurve(0.0),
+    )
+    PSY.add_component!(sys, hvdc)
+    from_no = PSY.get_number(PSY.get_from(arc))
+    to_no = PSY.get_number(PSY.get_to(arc))
+    return sys, from_no, to_no
+end
+
+# Neither constructor sets reactive_power_limits_from/to: both default to (min = 0.0, max = 0.0).
+function _no_reactive_hvdc(::Type{TwoTerminalVSCLine}, arc)
+    return TwoTerminalVSCLine(;
+        name = "hvdc_no_q",
+        available = true,
+        arc = arc,
+        active_power_flow = 0.0,
+        rating = 2.0,
+        active_power_limits_from = (min = -2.0, max = 2.0),
+        active_power_limits_to = (min = -2.0, max = 2.0),
+    )
+end
+
+function _no_reactive_hvdc(::Type{TwoTerminalLCCLine}, arc)
+    return TwoTerminalLCCLine(;
+        name = "hvdc_no_q",
+        available = true,
+        arc = arc,
+        active_power_flow = 0.0,
+        r = 0.01,
+        transfer_setpoint = 1.0,
+        scheduled_dc_voltage = 500.0,
+        rectifier_bridges = 1,
+        rectifier_delay_angle_limits = (min = 0.0, max = 1.5),
+        rectifier_rc = 0.01,
+        rectifier_xc = 0.01,
+        rectifier_base_voltage = 500.0,
+        inverter_bridges = 1,
+        inverter_extinction_angle_limits = (min = 0.0, max = 1.5),
+        inverter_rc = 0.01,
+        inverter_xc = 0.01,
+        inverter_base_voltage = 500.0,
+        active_power_limits_from = (min = -2.0, max = 2.0),
+        active_power_limits_to = (min = -2.0, max = 2.0),
+    )
+end
+
+function _build_hvdc_model(
+    network_formulation,
+    hvdc_formulation,
+    optimizer;
+    sys_builder = _c_sys5_with_hvdc_tie,
+)
+    sys, from_no, to_no = sys_builder()
     template = get_thermal_dispatch_template_network(NetworkModel(network_formulation))
     set_device_model!(
         template, DeviceModel(TwoTerminalGenericHVDCLine, hvdc_formulation),
@@ -91,6 +158,103 @@ end
         reactive = IOM.get_expression(container, POM.ReactivePowerBalance, PSY.ACBus)
         @test JuMP.coefficient(reactive[from_no, t1], qft["hvdc_tie", t1]) == -1.0
         @test JuMP.coefficient(reactive[to_no, t1], qtf["hvdc_tie", t1]) == -1.0
+
+        # HVDCTwoTerminalUnbounded means "no flow constraints": its reactive flows stay free,
+        # matching its free FlowActivePowerVariable.
+        v_qft = qft["hvdc_tie", t1]
+        v_qtf = qtf["hvdc_tie", t1]
+        @test !JuMP.has_lower_bound(v_qft)
+        @test !JuMP.has_upper_bound(v_qft)
+        @test !JuMP.has_lower_bound(v_qtf)
+        @test !JuMP.has_upper_bound(v_qtf)
+    end
+end
+
+@testset "HVDCTwoTerminalLossless reactive bounds respect from/to and min/max wiring" begin
+    model, build_status, _, _ = _build_hvdc_model(
+        ACPNetworkModel,
+        HVDCTwoTerminalLossless,
+        ipopt_optimizer;
+        sys_builder = _c_sys5_with_asymmetric_hvdc_tie,
+    )
+    @test build_status == IOM.ModelBuildStatus.BUILT
+    container = IOM.get_optimization_container(model)
+    qft = IOM.get_variable(
+        container, FlowReactivePowerFromToVariable, TwoTerminalGenericHVDCLine,
+    )
+    qtf = IOM.get_variable(
+        container, FlowReactivePowerToFromVariable, TwoTerminalGenericHVDCLine,
+    )
+    t1 = first(IOM.get_time_steps(container))
+    v_qft = qft["hvdc_tie", t1]
+    v_qtf = qtf["hvdc_tie", t1]
+    @test JuMP.lower_bound(v_qft) == -0.4
+    @test JuMP.upper_bound(v_qft) == 0.9
+    @test JuMP.lower_bound(v_qtf) == -0.7
+    @test JuMP.upper_bound(v_qtf) == 0.3
+end
+
+@testset "HVDCTwoTerminalLossless reactive power is bounded under native AC formulations" begin
+    for network_formulation in
+        (ACPNetworkModel, ACRNetworkModel, IVRNetworkModel, LPACCNetworkModel)
+        model, build_status, _, _ = _build_hvdc_model(
+            network_formulation, HVDCTwoTerminalLossless, ipopt_optimizer,
+        )
+        @test build_status == IOM.ModelBuildStatus.BUILT
+        container = IOM.get_optimization_container(model)
+        qft = IOM.get_variable(
+            container, FlowReactivePowerFromToVariable, TwoTerminalGenericHVDCLine,
+        )
+        qtf = IOM.get_variable(
+            container, FlowReactivePowerToFromVariable, TwoTerminalGenericHVDCLine,
+        )
+        t1 = first(IOM.get_time_steps(container))
+        v_qft = qft["hvdc_tie", t1]
+        v_qtf = qtf["hvdc_tie", t1]
+        @test JuMP.has_lower_bound(v_qft)
+        @test JuMP.has_upper_bound(v_qft)
+        @test JuMP.has_lower_bound(v_qtf)
+        @test JuMP.has_upper_bound(v_qtf)
+        @test JuMP.lower_bound(v_qft) == -1.0
+        @test JuMP.upper_bound(v_qft) == 1.0
+        @test JuMP.lower_bound(v_qtf) == -1.0
+        @test JuMP.upper_bound(v_qtf) == 1.0
+        @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+    end
+end
+
+# PSY.TwoTerminalVSCLine and PSY.TwoTerminalLCCLine default both reactive limit pairs to
+# (min = 0.0, max = 0.0), and HVDCTwoTerminalLossless bounds the reactive flow variables by
+# those limits: the terminals are pinned to zero reactive power, which can silently turn a
+# previously feasible AC model infeasible. The build must name the device in a warning.
+@testset "HVDCTwoTerminalLossless warns on degenerate HVDC reactive limits" begin
+    for hvdc_type in (TwoTerminalVSCLine, TwoTerminalLCCLine)
+        sys = PSB.build_system(PSITestSystems, "c_sys5")
+        line = PSY.get_component(Line, sys, "1")
+        arc = PSY.get_arc(line)
+        PSY.remove_component!(sys, line)
+        hvdc = _no_reactive_hvdc(hvdc_type, arc)
+        PSY.add_component!(sys, hvdc)
+
+        template = get_thermal_dispatch_template_network(NetworkModel(ACPNetworkModel))
+        set_device_model!(template, DeviceModel(hvdc_type, HVDCTwoTerminalLossless))
+        model = DecisionModel(template, sys; optimizer = ipopt_optimizer)
+        output_dir = mktempdir(; cleanup = true)
+        @test build!(model; output_dir = output_dir, console_level = Logging.Error) ==
+              IOM.ModelBuildStatus.BUILT
+
+        log_contents = read(joinpath(output_dir, "operation_problem.log"), String)
+        @test occursin("$hvdc_type \"hvdc_no_q\"", log_contents)
+        @test occursin("(min = 0.0, max = 0.0)", log_contents)
+        @test occursin("neither inject nor absorb reactive power", log_contents)
+        @test occursin("infeasible", log_contents)
+
+        # The zero limits really are the bounds the warning is about.
+        container = IOM.get_optimization_container(model)
+        qft = IOM.get_variable(container, FlowReactivePowerFromToVariable, hvdc_type)
+        t1 = first(IOM.get_time_steps(container))
+        @test JuMP.lower_bound(qft["hvdc_no_q", t1]) == 0.0
+        @test JuMP.upper_bound(qft["hvdc_no_q", t1]) == 0.0
     end
 end
 
