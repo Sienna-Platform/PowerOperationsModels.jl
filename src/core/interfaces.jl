@@ -153,6 +153,7 @@ function add_power_flow_data!(
     ::IOM.OptimizationContainer,
     network_model::IOM.NetworkModel,
     ::IS.ComponentContainer,
+    ::Union{IOM.AbstractProblemTemplate, Nothing} = nothing,
 )
     isempty(IOM.get_evaluations(network_model)) || error(
         "PowerFlows extension not loaded; add `using PowerFlows` to enable " *
