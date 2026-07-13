@@ -2324,28 +2324,16 @@ end
 
 skip_proportional_cost(d::PSY.HydroPumpTurbine) = PSY.get_must_run(d)
 
-# IOM's default `add_proportional_cost!` only ever calls the static 4-arg
-# `proportional_cost` (line 257 above), which for `PSY.OperationalCost` blindly forwards
-# to `PSY.get_fixed(cost)`. That method doesn't exist for `MarketBidCost`/
-# `MarketBidTimeSeriesCost` (get_fixed is only defined for the *GenerationCost/LoadCost
-# static-cost types), so committing a hydro unit with a market-bid cost errored here
-# (2026-07 diagnosis: "erroring when there's a market bid cost" in
-# hydrogeneration_constructor.jl). Route through the time-variant-capable path instead,
-# exactly like ThermalGen (thermal_generation.jl) and ControllableLoad
-# (electric_loads.jl): it dispatches MBC/MarketBidTimeSeriesCost to the generic OnVariable
-# methods in common_models/market_bid_overrides.jl (Section 1b), and static
-# HydroGenerationCost to the 5-arg method just below.
-add_proportional_cost!(
-    container::OptimizationContainer,
-    ::Type{U},
-    devices::IS.FlattenIteratorWrapper{T},
-    ::Type{V},
-) where {U <: OnVariable, T <: PSY.HydroGen, V <: AbstractHydroFormulation} =
-    add_proportional_cost_maybe_time_variant!(container, U, devices, V)
-
+# The OnVariable `add_proportional_cost!` forwarder (thermal + hydro) lives in
+# common_models/objective_function.jl: it routes through
+# `add_proportional_cost_maybe_time_variant!`, which dispatches MBC/
+# MarketBidTimeSeriesCost to the generic OnVariable methods in
+# common_models/market_bid_overrides.jl (Section 1b), and static HydroGenerationCost
+# to the 6-arg method just below.
+#
 # Non-MBC path: HydroGenerationCost's OnVariable rate is always static (no FuelCurve-onvar
-# term is modeled for hydro, unlike thermal) - just the fixed cost, matching the old 4-arg
-# behavior above but through the 5-arg signature `add_proportional_cost_maybe_time_variant!`
+# term is modeled for hydro, unlike thermal) - just the fixed cost, matching the static
+# 4-arg behavior but through the 6-arg signature `add_proportional_cost_maybe_time_variant!`
 # requires.
 function proportional_cost(
     ::OptimizationContainer,
