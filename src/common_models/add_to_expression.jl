@@ -2331,7 +2331,8 @@ function _reduced_entry_in_interface(
     ]
 
     if !allequal(in_interface)
-        throw(ArgumentError(_error_msg(T)))
+        branch_names = [PSY.get_name(x) for x in reduction_entry]
+        throw(ArgumentError(_error_msg(T) * " Offending branches: $(branch_names)."))
     end
     return first(in_interface)
 end
