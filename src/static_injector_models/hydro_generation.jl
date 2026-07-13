@@ -72,11 +72,8 @@ get_variable_binary(::Type{ReservationVariable}, ::Type{<:PSY.HydroGen}, ::Type{
 
 ############## EnergyShortageVariable, HydroGen ####################
 get_variable_binary(::Type{HydroEnergyShortageVariable}, ::Type{<:PSY.HydroGen}, ::Type{<:AbstractHydroFormulation}) = false
-# HydroEnergyShortageVariable on a HydroGen is added only by HydroDispatchRunOfRiverBudget
-# (bounds below). The reservoir-formulation variant moved to HydroReservoir: PSY6 removed
-# the generator's reservoir state, so get_storage_capacity is no longer defined on HydroGen.
-get_variable_lower_bound(::Type{HydroEnergyShortageVariable}, d::PSY.HydroDispatch, ::Type{HydroDispatchRunOfRiverBudget}) = 0.0
-get_variable_upper_bound(::Type{HydroEnergyShortageVariable}, d::PSY.HydroDispatch, ::Type{HydroDispatchRunOfRiverBudget}) = nothing
+get_variable_lower_bound(::Type{HydroEnergyShortageVariable}, d::PSY.HydroDispatch, ::Type{HydroDispatchRunOfRiver}) = 0.0
+get_variable_upper_bound(::Type{HydroEnergyShortageVariable}, d::PSY.HydroDispatch, ::Type{HydroDispatchRunOfRiver}) = nothing
 
 # HydroEnergySurplusVariable is modeled on HydroReservoir (below), never HydroGen:
 # same PSY6 reservoir-state move; get_storage_capacity on a HydroGen no longer exists.
@@ -220,8 +217,6 @@ initial_condition_default(::DeviceStatus, d::PSY.HydroGen, ::AbstractHydroReserv
 initial_condition_variable(::DeviceStatus, d::PSY.HydroGen, ::AbstractHydroReservoirFormulation) = OnVariable()
 initial_condition_default(::DevicePower, d::PSY.HydroGen, ::AbstractHydroReservoirFormulation) = PSY.get_active_power(d, PSY.SU)
 initial_condition_variable(::DevicePower, d::PSY.HydroGen, ::AbstractHydroReservoirFormulation) = ActivePowerVariable()
-# InitialEnergyLevel is modeled on PSY.HydroReservoir (see below), not HydroGen:
-# PSY6 moved reservoir energy state off the generator, removing get_initial_storage.
 
 initial_condition_default(::InitialTimeDurationOn, d::PSY.HydroGen, ::AbstractHydroReservoirFormulation) = PSY.get_status(d) ? PSY.get_time_at_status(d) :  0.0
 initial_condition_variable(::InitialTimeDurationOn, d::PSY.HydroGen, ::AbstractHydroReservoirFormulation) = OnVariable()
@@ -248,7 +243,7 @@ proportional_cost(cost::Nothing, ::Type{ActivePowerVariable}, ::PSY.HydroGen, ::
 proportional_cost(cost::PSY.OperationalCost, ::Type{OnVariable}, ::PSY.HydroGen, ::Type{<:AbstractHydroFormulation})=PSY.get_fixed(cost)
 proportional_cost(cost::PSY.OperationalCost, ::Type{HydroEnergySurplusVariable}, ::PSY.HydroGen, ::Type{<:AbstractHydroReservoirFormulation})=0.0
 proportional_cost(cost::PSY.OperationalCost, ::Type{HydroEnergyShortageVariable}, ::PSY.HydroGen, ::Type{<:AbstractHydroReservoirFormulation})=0.0
-proportional_cost(cost::PSY.OperationalCost, ::Type{HydroEnergyShortageVariable}, ::PSY.HydroGen, ::Type{HydroDispatchRunOfRiverBudget})=CONSTRAINT_VIOLATION_SLACK_COST
+proportional_cost(cost::PSY.OperationalCost, ::Type{HydroEnergyShortageVariable}, ::PSY.HydroGen, ::Type{HydroDispatchRunOfRiver})=CONSTRAINT_VIOLATION_SLACK_COST
 proportional_cost(cost::PSY.HydroReservoirCost, ::Type{HydroEnergySurplusVariable}, ::PSY.HydroReservoir, ::Type{<:AbstractHydroReservoirFormulation})=PSY.get_level_surplus_cost(cost)
 proportional_cost(cost::PSY.HydroReservoirCost, ::Type{HydroEnergyShortageVariable}, ::PSY.HydroReservoir, ::Type{<:AbstractHydroReservoirFormulation})=PSY.get_level_shortage_cost(cost)
 proportional_cost(cost::PSY.HydroReservoirCost, ::Type{HydroWaterSurplusVariable}, ::PSY.HydroReservoir, ::Type{<:AbstractHydroReservoirFormulation})=PSY.get_level_surplus_cost(cost)
@@ -299,9 +294,10 @@ end
 
 function get_initial_conditions_device_model(
     ::IOM.AbstractOptimizationModel,
-    ::DeviceModel{T, U},
-) where {T <: PSY.HydroDispatch, U <: HydroDispatchRunOfRiverBudget}
-    return DeviceModel(PSY.HydroDispatch, HydroDispatchRunOfRiver)
+    model::DeviceModel{T, HydroDispatchRunOfRiver},
+) where {T <: PSY.HydroGen}
+    get_attribute(model, "hydro_budget") === true || return model
+    return DeviceModel(T, HydroDispatchRunOfRiver)
 end
 
 function get_initial_conditions_device_model(
@@ -343,7 +339,7 @@ end
 
 function get_default_time_series_names(
     ::Type{<:PSY.HydroGen},
-    ::Type{<:HydroDispatchRunOfRiverBudget},
+    ::Type{HydroDispatchRunOfRiver},
 )
     return Dict{Type{<:TimeSeriesParameter}, String}(
         ActivePowerTimeSeriesParameter => "max_active_power",
@@ -397,6 +393,13 @@ function get_default_attributes(
     ::Type{D},
 ) where {T <: PSY.HydroGen, D <: Union{FixedOutput, AbstractHydroFormulation}}
     return Dict{String, Any}("reservation" => false)
+end
+
+function get_default_attributes(
+    ::Type{T},
+    ::Type{HydroDispatchRunOfRiver},
+) where {T <: PSY.HydroGen}
+    return Dict{String, Any}("reservation" => false, "hydro_budget" => false)
 end
 
 function get_default_attributes(
@@ -574,7 +577,7 @@ function add_constraints!(
     ::NetworkModel{X},
 ) where {
     V <: PSY.HydroGen,
-    W <: Union{HydroDispatchRunOfRiver, HydroDispatchRunOfRiverBudget},
+    W <: HydroDispatchRunOfRiver,
     X <: AbstractNetworkModel,
 }
     if !has_semicontinuous_feedforward(model, U)
@@ -592,7 +595,7 @@ function add_constraints!(
     ::NetworkModel{X},
 ) where {
     V <: PSY.HydroGen,
-    W <: Union{HydroDispatchRunOfRiver, HydroDispatchRunOfRiverBudget},
+    W <: HydroDispatchRunOfRiver,
     X <: AbstractNetworkModel,
 }
     if !has_semicontinuous_feedforward(model, U)
@@ -1270,82 +1273,58 @@ function add_constraints!(
     ::NetworkModel{X},
 ) where {
     V <: PSY.HydroGen,
-    W <: AbstractHydroDispatchFormulation,
+    W <: HydroDispatchRunOfRiver,
     X <: AbstractNetworkModel,
 }
     time_steps = get_time_steps(container)
     set_name = [PSY.get_name(d) for d in devices]
-    constraint =
-        add_constraints_container!(container, EnergyBudgetConstraint, V, set_name)
-
     variable_out = get_variable(container, ActivePowerVariable, V)
     param_container = get_parameter(container, EnergyBudgetTimeSeriesParameter, V)
     multiplier = get_multiplier_array(param_container)
+    jump_model = get_jump_model(container)
 
-    for d in devices
-        name = PSY.get_name(d)
-        param = get_parameter_column_values(param_container, name)
-        constraint[name] = JuMP.@constraint(
-            container.JuMPmodel,
-            sum([variable_out[name, t] for t in time_steps]) <=
-            sum([multiplier[name, t] * param[t] for t in time_steps])
-        )
+    slacks = if get_use_slacks(model)
+        get_variable(container, HydroEnergyShortageVariable, V)
+    else
+        nothing
     end
-    return
-end
+    slack_term(name, window) =
+        isnothing(slacks) ? 0.0 : sum(slacks[name, t] for t in window)
 
-function add_constraints!(
-    container::OptimizationContainer,
-    ::Type{EnergyBudgetConstraint},
-    devices::IS.FlattenIteratorWrapper{V},
-    model::DeviceModel{V, W},
-    ::NetworkModel{X},
-) where {
-    V <: PSY.HydroGen,
-    W <: HydroDispatchRunOfRiverBudget,
-    X <: AbstractNetworkModel,
-}
-    time_steps = get_time_steps(container)
-    set_name = [PSY.get_name(d) for d in devices]
-    constraint =
-        add_constraints_container!(container, EnergyBudgetConstraint, V, set_name)
-    variable_out = get_variable(container, ActivePowerVariable, V)
-    param_container = get_parameter(container, EnergyBudgetTimeSeriesParameter, V)
-    multiplier = get_multiplier_array(param_container)
-    for d in devices
-        name = PSY.get_name(d)
-        if get_use_slacks(model)
-            slack_var =
-                sum(get_variable(container, HydroEnergyShortageVariable, V)[name, :])
-        else
-            slack_var = 0.0
-        end
-        param = get_parameter_column_values(param_container, name)
-        constraint[name] = JuMP.@constraint(
-            container.JuMPmodel,
-            sum([variable_out[name, t] for t in time_steps]) <=
-            sum([multiplier[name, t] * param[t] for t in time_steps]) + slack_var
-        )
-    end
     hydro_budget_interval = get_attribute(model, "hydro_budget_interval")
-    if !isnothing(hydro_budget_interval)
-        constraint_aux = add_constraints_container!(container, EnergyBudgetConstraint,
-            V,
-            set_name;
-            meta = "interval",
-        )
+    if isnothing(hydro_budget_interval)
+        constraint =
+            add_constraints_container!(container, EnergyBudgetConstraint, V, set_name)
+        for d in devices
+            name = PSY.get_name(d)
+            param = get_parameter_column_values(param_container, name)
+            constraint[name] = JuMP.@constraint(
+                jump_model,
+                sum(variable_out[name, t] for t in time_steps) <=
+                sum(multiplier[name, t] * param[t] for t in time_steps) +
+                slack_term(name, time_steps)
+            )
+        end
+    else
         resolution = get_resolution(container)
         interval_length =
             Dates.Millisecond(hydro_budget_interval).value ÷
             Dates.Millisecond(resolution).value
+        windows = collect(Iterators.partition(time_steps, interval_length))
+        constraint = add_constraints_container!(
+            container, EnergyBudgetConstraint, V, set_name, eachindex(windows),
+        )
         for d in devices
             name = PSY.get_name(d)
             param = get_parameter_column_values(param_container, name)
-            constraint_aux[name] = JuMP.@constraint(
-                container.JuMPmodel,
-                sum([variable_out[name, t] for t in 1:interval_length]) <=
-                sum([multiplier[name, t] * param[t] for t in 1:interval_length])
-            )
+            for (w, window) in enumerate(windows)
+                constraint[name, w] = JuMP.@constraint(
+                    jump_model,
+                    sum(variable_out[name, t] for t in window) <=
+                    sum(multiplier[name, t] * param[t] for t in window) +
+                    slack_term(name, window)
+                )
+            end
         end
     end
     return
@@ -2370,26 +2349,14 @@ _include_min_gen_power_in_constraint(
     ::Type{<:AbstractDeviceFormulation},
 ) = false
 
-# generic dispatch
-function add_to_objective_function!(
-    container::OptimizationContainer,
-    devices::IS.FlattenIteratorWrapper{T},
-    ::DeviceModel{T, U},
-    ::Type{<:AbstractNetworkModel},
-) where {T <: PSY.HydroGen, U <: AbstractHydroDispatchFormulation}
-    add_variable_cost!(container, ActivePowerVariable, devices, U)
-    return
-end
-
-# RunOfRiver dispatch
 function add_to_objective_function!(
     container::OptimizationContainer,
     devices::IS.FlattenIteratorWrapper{T},
     model::DeviceModel{T, U},
     ::Type{<:AbstractNetworkModel},
-) where {T <: PSY.HydroGen, U <: HydroDispatchRunOfRiverBudget}
+) where {T <: PSY.HydroGen, U <: AbstractHydroDispatchFormulation}
     add_variable_cost!(container, ActivePowerVariable, devices, U)
-    if get_use_slacks(model)
+    if get_attribute(model, "hydro_budget") === true && get_use_slacks(model)
         add_proportional_cost!(container, HydroEnergyShortageVariable, devices, U)
     end
     return
