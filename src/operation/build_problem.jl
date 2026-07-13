@@ -4,7 +4,7 @@ function initialize_system_expressions!(
     subnetworks::Dict{Int, Set{Int}},
     system::PSY.System,
     bus_reduction_map::Dict{Int64, Set{Int64}},
-) where {T <: AbstractPowerModel}
+) where {T <: AbstractNetworkModel}
     dc_bus_numbers = [
         PSY.get_number(b) for
         b in get_available_components(network_model, PSY.DCBus, system)
@@ -18,7 +18,7 @@ function initialize_hvdc_system!(
     network_model::NetworkModel{T},
     ::Nothing,
     system::PSY.System,
-) where {T <: AbstractPowerModel}
+) where {T <: AbstractNetworkModel}
     dc_buses = get_available_components(network_model, PSY.DCBus, system)
     if !isempty(dc_buses)
         @warn "HVDC Network Model is set to 'Nothing' but DC Buses are present in the system. \
@@ -94,6 +94,20 @@ function build_problem!(
                 LOG_GROUP_OPTIMIZATION_CONTAINER
         end
     end
+    # Voltage variables must exist before device ModelConstructStage so that
+    # voltage-coupled devices (e.g. ShuntSusceptanceDispatch) can reference them.
+    TimerOutputs.@timeit BUILD_PROBLEMS_TIMER "$(transmission)" begin
+        @debug "Building $(transmission) network voltage variables" _group =
+            LOG_GROUP_OPTIMIZATION_CONTAINER
+        construct_network!(
+            container,
+            sys,
+            transmission_model,
+            template,
+            ArgumentConstructStage(),
+        )
+    end
+
     for device_model in values(template.devices)
         @debug "Building Model for $(get_component_type(device_model)) with $(get_formulation(device_model)) formulation" _group =
             LOG_GROUP_OPTIMIZATION_CONTAINER
@@ -110,11 +124,18 @@ function build_problem!(
         end
     end
 
-    # This function should be called after construct_device ModelConstructStage
+    # Balance/reference constraints close after device ModelConstructStage so that
+    # device injection expressions are fully populated before the nodal balance.
     TimerOutputs.@timeit BUILD_PROBLEMS_TIMER "$(transmission)" begin
         @debug "Building $(transmission) network formulation" _group =
             LOG_GROUP_OPTIMIZATION_CONTAINER
-        construct_network!(container, sys, transmission_model, template)
+        construct_network!(
+            container,
+            sys,
+            transmission_model,
+            template,
+            ModelConstructStage(),
+        )
         construct_hvdc_network!(container, sys, transmission_model, hvdc_model, template)
         @debug "Problem size:" get_problem_size(container) _group =
             LOG_GROUP_OPTIMIZATION_CONTAINER

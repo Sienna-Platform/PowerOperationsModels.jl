@@ -7,7 +7,7 @@
 #                 dual recording.
 #
 # Mirrors energy_storage_models/storage_constructor.jl in structure. We provide
-# both AbstractPowerModel (with reactive power) and AbstractActivePowerModel
+# both AbstractNetworkModel (with reactive power) and AbstractActivePowerModel
 # (without) variants.
 #################################################################################
 
@@ -30,7 +30,7 @@ function _add_hybrid_reserve_arguments!(
     hybrids_with_renewable,
     model::DeviceModel{T, D},
     network_model::NetworkModel{S},
-) where {T <: PSY.HybridSystem, D <: HybridDispatchWithReserves, S <: AbstractPowerModel}
+) where {T <: PSY.HybridSystem, D <: HybridDispatchWithReserves, S <: AbstractNetworkModel}
     time_steps = get_time_steps(container)
 
     # Hybrid PCC reserve variables
@@ -207,7 +207,7 @@ _maybe_add_reactive_power_variable!(
     container::OptimizationContainer,
     devices::U,
     ::Type{D},
-    ::Type{<:AbstractPowerModel},
+    ::Type{<:AbstractNetworkModel},
 ) where {
     D <: AbstractHybridFormulation,
     U <: Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
@@ -218,7 +218,7 @@ _maybe_add_reactive_power_balance!(
     container::OptimizationContainer,
     devices::U,
     model::DeviceModel{V, D},
-    network_model::NetworkModel{<:AbstractPowerModel},
+    network_model::NetworkModel{<:AbstractNetworkModel},
 ) where {
     D <: AbstractHybridFormulation,
     U <: Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
@@ -236,7 +236,7 @@ _maybe_add_reactive_power_limits!(
     container::OptimizationContainer,
     devices::U,
     model::DeviceModel{V, D},
-    network_model::NetworkModel{<:AbstractPowerModel},
+    network_model::NetworkModel{<:AbstractNetworkModel},
 ) where {
     D <: AbstractHybridFormulation,
     U <: Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
@@ -286,7 +286,7 @@ function construct_device!(
     ::ArgumentConstructStage,
     model::DeviceModel{T, D},
     network_model::NetworkModel{S},
-) where {T <: PSY.HybridSystem, D <: HybridDispatchWithReserves, S <: AbstractPowerModel}
+) where {T <: PSY.HybridSystem, D <: HybridDispatchWithReserves, S <: AbstractNetworkModel}
     devices = get_available_components(model, sys)
     grouped = _filter_hybrids(devices)
 
@@ -393,7 +393,7 @@ function construct_device!(
     ::ModelConstructStage,
     model::DeviceModel{T, D},
     network_model::NetworkModel{S},
-) where {T <: PSY.HybridSystem, D <: HybridDispatchWithReserves, S <: AbstractPowerModel}
+) where {T <: PSY.HybridSystem, D <: HybridDispatchWithReserves, S <: AbstractNetworkModel}
     devices = get_available_components(model, sys)
     grouped = _filter_hybrids(devices)
 

@@ -84,7 +84,7 @@ try
     for i in 1:2
         template_uc = PowerOperationsProblemTemplate(
             NetworkModel(
-                PTDFPowerModel;
+                PTDFNetworkModel;
                 use_slacks = true,
                 duals = [CopperPlateBalanceConstraint],
             ),
@@ -93,7 +93,7 @@ try
 
         template_ed = PowerOperationsProblemTemplate(
             NetworkModel(
-                PTDFPowerModel;
+                PTDFNetworkModel;
                 use_slacks = true,
                 duals = [CopperPlateBalanceConstraint],
             ),

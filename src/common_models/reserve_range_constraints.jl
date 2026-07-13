@@ -28,7 +28,7 @@ function add_reserve_range_constraints!(
     U <: VariableType,
     V <: PSY.Component,
     W <: AbstractDeviceFormulation,
-    X <: AbstractPowerModel,
+    X <: AbstractNetworkModel,
 }
     array = get_variable(container, U, V)
     add_reserve_bound_range_constraints!(
@@ -50,7 +50,7 @@ function add_reserve_range_constraints!(
     U <: ExpressionType,
     V <: PSY.Component,
     W <: AbstractDeviceFormulation,
-    X <: AbstractPowerModel,
+    X <: AbstractNetworkModel,
 }
     array = get_expression(container, U, W)
     add_reserve_bound_range_constraints!(
@@ -90,7 +90,7 @@ function add_reserve_range_constraints!(
     U <: VariableType,
     W <: PSY.Component,
     X <: AbstractDeviceFormulation,
-    Y <: AbstractPowerModel,
+    Y <: AbstractNetworkModel,
 }
     array = get_variable(container, U, W)
     add_reserve_bound_range_constraints!(
@@ -132,7 +132,7 @@ function add_reserve_range_constraints!(
     U <: ExpressionType,
     W <: PSY.Component,
     X <: AbstractDeviceFormulation,
-    Y <: AbstractPowerModel,
+    Y <: AbstractNetworkModel,
 }
     array = get_expression(container, U, W)
     add_reserve_bound_range_constraints!(

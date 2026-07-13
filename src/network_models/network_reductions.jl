@@ -16,6 +16,10 @@ mutable struct BranchReductionOptimizationTracker <: IOM.AbstractBranchReduction
         Dict{Tuple{Int, Int}, Vector{Union{Float64, JuMP.VariableRef}}},
     }
     constraint_dict::Dict{Type{<:ConstraintType}, Set{Tuple{Int, Int}}}
+    # Arcs already wired into a balance expression, keyed by (expression type, variable
+    # type): reduced-arc variables are shared across every member entry (and across
+    # branch types), so each arc's variable must enter a given balance exactly once.
+    expression_dict::Dict{Tuple{DataType, DataType}, Set{Tuple{Int, Int}}}
     constraint_map_by_type::Dict{
         Type{<:ConstraintType},
         Dict{
@@ -24,6 +28,12 @@ mutable struct BranchReductionOptimizationTracker <: IOM.AbstractBranchReduction
         },
     }
     number_of_steps::Int
+    # Build-scoped memo of the retained (bus name, bus number) pairs, filled lazily by
+    # `_bus_name_number_pairs` so the per-bus name resolution (an O(n_buses) component
+    # scan) runs once per build rather than once per network variable/constraint type.
+    # Empty means "not yet computed" — a network always has ≥1 bus. Not part of
+    # `isempty`/`empty!`'s reduction semantics, but cleared on rebuild.
+    bus_name_number_pairs::Vector{Tuple{String, Int}}
 end
 
 get_variable_dict(reduction_tracker::BranchReductionOptimizationTracker) =
@@ -32,6 +42,8 @@ get_parameter_dict(reduction_tracker::BranchReductionOptimizationTracker) =
     reduction_tracker.parameter_dict
 get_constraint_dict(reduction_tracker::BranchReductionOptimizationTracker) =
     reduction_tracker.constraint_dict
+get_expression_dict(reduction_tracker::BranchReductionOptimizationTracker) =
+    reduction_tracker.expression_dict
 get_constraint_map_by_type(reduction_tracker::BranchReductionOptimizationTracker) =
     reduction_tracker.constraint_map_by_type
 
@@ -46,7 +58,8 @@ Base.isempty(
     isempty(reduction_tracker.variable_dict) &&
     isempty(reduction_tracker.parameter_dict) &&
     isempty(reduction_tracker.constraint_dict) &&
-    isempty(reduction_tracker.constraint_map_by_type)
+    isempty(reduction_tracker.constraint_map_by_type) &&
+    isempty(reduction_tracker.expression_dict)
 
 Base.empty!(
     reduction_tracker::BranchReductionOptimizationTracker,
@@ -54,11 +67,15 @@ Base.empty!(
     empty!(reduction_tracker.variable_dict)
     empty!(reduction_tracker.parameter_dict)
     empty!(reduction_tracker.constraint_dict)
+    empty!(reduction_tracker.expression_dict)
     empty!(reduction_tracker.constraint_map_by_type)
+    empty!(reduction_tracker.bus_name_number_pairs)
 end
 
 function BranchReductionOptimizationTracker()
-    return BranchReductionOptimizationTracker(Dict(), Dict(), Dict(), Dict(), 0)
+    return BranchReductionOptimizationTracker(
+        Dict(), Dict(), Dict(), Dict(), Dict(), 0, Tuple{String, Int}[],
+    )
 end
 
 function _make_empty_variable_tracker_dict(
@@ -127,6 +144,24 @@ function search_for_reduced_branch_parameter!(
             return (false, parameter_dict[T][arc_tuple])
         end
     end
+end
+
+"""Register the wiring of `arc_tuple`'s shared variable of type `U` into the balance
+expression of type `T`. Returns `true` when the arc was already wired by a previous
+entry (same or different branch type) — the caller must skip it to avoid double-counting
+the shared variable in the balance."""
+function search_for_reduced_branch_expression!(
+    tracker::BranchReductionOptimizationTracker,
+    arc_tuple::Tuple{Int, Int},
+    ::Type{T},
+    ::Type{U},
+) where {T <: ExpressionType, U <: VariableType}
+    wired_arcs = get!(tracker.expression_dict, (T, U), Set{Tuple{Int, Int}}())
+    already_wired = arc_tuple in wired_arcs
+    if !already_wired
+        push!(wired_arcs, arc_tuple)
+    end
+    return already_wired
 end
 
 # Backwards-compatible dispatcher: routes to the correctly typed dict based on T.
@@ -221,8 +256,25 @@ function get_branch_argument_variable_axis(
     net_reduction_data::PNM.NetworkReductionData,
     ::Type{T},
 ) where {T <: IS.InfrastructureSystemsComponent}
-    name_axis = PNM.get_name_to_arc_maps(net_reduction_data)[T]
+    name_axis = get_name_to_arc_map_entries(net_reduction_data, T)
     return collect(keys(name_axis))
+end
+
+"""
+Reduction entries (`entry name => ((from_no, to_no), reduction map name)`) for branch type
+`T`. Unlike `PNM.get_name_to_arc_map`, absence of `T` yields an empty map instead of a
+`KeyError`: a type can be missing from the maps when every branch of that type was
+absorbed by a radial reduction (absorbed branches carry no reduction entry at all).
+"""
+function get_name_to_arc_map_entries(
+    net_reduction_data::PNM.NetworkReductionData,
+    ::Type{T},
+) where {T <: IS.InfrastructureSystemsComponent}
+    maps = PNM.get_name_to_arc_maps(net_reduction_data)
+    if haskey(maps, T)
+        return maps[T]
+    end
+    return IOM.SortedDict{String, Tuple{Tuple{Int, Int}, String}}()
 end
 
 function get_branch_argument_constraint_axis(
@@ -247,7 +299,7 @@ function get_branch_argument_constraint_axis(
 ) where {T <: IS.InfrastructureSystemsComponent, U <: ConstraintType}
     constraint_tracker = get_constraint_dict(reduced_branch_tracker)
     constraint_map_by_type = get_constraint_map_by_type(reduced_branch_tracker)
-    name_axis = PNM.get_name_to_arc_maps(net_reduction_data)[T]
+    name_axis = get_name_to_arc_map_entries(net_reduction_data, T)
     arc_tuples_with_constraints =
         get!(constraint_tracker, U, Set{Tuple{Int, Int}}())
     constraint_map = get!(

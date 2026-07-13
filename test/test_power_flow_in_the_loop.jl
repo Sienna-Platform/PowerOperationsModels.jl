@@ -3,8 +3,8 @@
 
     template = get_template_dispatch_with_network(
         NetworkModel(
-            PTDFPowerModel;
-            PTDF_matrix = PTDF(system),
+            PTDFNetworkModel;
+            network_matrix = PTDF(system),
             evaluations = power_flow_evaluations(
                 ACPowerFlow(;
                     distribute_slack_proportional_to_headroom = true,
@@ -86,8 +86,8 @@ end
 
     template = get_template_dispatch_with_network(
         NetworkModel(
-            PTDFPowerModel;
-            PTDF_matrix = PTDF(system),
+            PTDFNetworkModel;
+            network_matrix = PTDF(system),
             use_slacks = true,
             evaluations = power_flow_evaluations(
                 ACPowerFlow(;
@@ -132,8 +132,8 @@ end
 
     template = get_template_dispatch_with_network(
         NetworkModel(
-            PTDFPowerModel;
-            PTDF_matrix = PTDF(system),
+            PTDFNetworkModel;
+            network_matrix = PTDF(system),
             use_slacks = true,
             evaluations = power_flow_evaluations(
                 ACPowerFlow(;
@@ -220,8 +220,8 @@ end
 
     template = get_template_dispatch_with_network(
         NetworkModel(
-            PTDFPowerModel;
-            PTDF_matrix = PTDF(system),
+            PTDFNetworkModel;
+            network_matrix = PTDF(system),
             evaluations = power_flow_evaluations(ACPowerFlow()),
         ),
     )
@@ -284,8 +284,8 @@ end
 
         template = get_template_dispatch_with_network(
             NetworkModel(
-                PTDFPowerModel;
-                PTDF_matrix = PTDF(system),
+                PTDFNetworkModel;
+                network_matrix = PTDF(system),
                 evaluations = power_flow_evaluations(ACPowerFlow()),
             ),
         )
@@ -339,8 +339,8 @@ end
 
     template = get_template_dispatch_with_network(
         NetworkModel(
-            PTDFPowerModel;
-            PTDF_matrix = PTDF(system),
+            PTDFNetworkModel;
+            network_matrix = PTDF(system),
             evaluations = power_flow_evaluations(ACPowerFlow()),
         ),
     )
@@ -356,7 +356,7 @@ end
 
         template_uc = PowerOperationsProblemTemplate(
             NetworkModel(
-                PTDFPowerModel;
+                PTDFNetworkModel;
                 evaluations = power_flow_evaluations(DCPowerFlow()),
             ),
         )
@@ -377,8 +377,8 @@ end
 
     template = get_template_dispatch_with_network(
         NetworkModel(
-            PTDFPowerModel;
-            PTDF_matrix = PTDF(system),
+            PTDFNetworkModel;
+            network_matrix = PTDF(system),
             evaluations = power_flow_evaluations(ACPowerFlow()),
         ),
     )
@@ -408,8 +408,8 @@ end
     system = build_system(PSITestSystems, "c_sys5_uc")
     template = get_template_dispatch_with_network(
         NetworkModel(
-            PTDFPowerModel;
-            PTDF_matrix = PTDF(system),
+            PTDFNetworkModel;
+            network_matrix = PTDF(system),
             evaluations = power_flow_evaluations(ACPowerFlow()),
         ),
     )
@@ -447,8 +447,8 @@ end
 
     template = get_template_dispatch_with_network(
         NetworkModel(
-            PTDFPowerModel;
-            PTDF_matrix = PTDF(system),
+            PTDFNetworkModel;
+            network_matrix = PTDF(system),
             use_slacks = true,
             evaluations = power_flow_evaluations(DCPowerFlow()),
         ),
@@ -483,8 +483,8 @@ end
 
     template = get_template_dispatch_with_network(
         NetworkModel(
-            PTDFPowerModel;
-            PTDF_matrix = PTDF(system),
+            PTDFNetworkModel;
+            network_matrix = PTDF(system),
             use_slacks = true,
             evaluations = power_flow_evaluations(ACPowerFlow()),
         ),
@@ -542,7 +542,7 @@ end
     set_active_power_flow!(hvdc, 0.5 * PSY.SU)   # a stale system seed the optimization won't reproduce
 
     template = PowerOperationsProblemTemplate(
-        NetworkModel(PTDFPowerModel; evaluations = power_flow_evaluations(DCPowerFlow())),
+        NetworkModel(PTDFNetworkModel; evaluations = power_flow_evaluations(DCPowerFlow())),
     )
     set_device_model!(template, ThermalStandard, ThermalBasicUnitCommitment)
     set_device_model!(template, RenewableDispatch, RenewableFullDispatch)
@@ -604,7 +604,7 @@ function _build_rts_hvdc_acpf_model(hvdc_formulation; loss = nothing, stored_flo
     end
     set_bustype!(get_component(ACBus, sys, "Arthur"), ACBusTypes.REF)
     template = PowerOperationsProblemTemplate(
-        NetworkModel(PTDFPowerModel; evaluations = power_flow_evaluations(ACPowerFlow())),
+        NetworkModel(PTDFNetworkModel; evaluations = power_flow_evaluations(ACPowerFlow())),
     )
     set_device_model!(template, ThermalStandard, ThermalBasicUnitCommitment)
     set_device_model!(template, RenewableDispatch, RenewableFullDispatch)
@@ -703,8 +703,8 @@ end
         system = build_system(PSITestSystems, "c_sys5_uc")
         template = get_template_dispatch_with_network(
             NetworkModel(
-                PTDFPowerModel;
-                PTDF_matrix = PTDF(system),
+                PTDFNetworkModel;
+                network_matrix = PTDF(system),
                 evaluations = power_flow_evaluations(pf_eval),
             ),
         )

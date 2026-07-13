@@ -114,6 +114,13 @@ function get_default_attributes(
 end
 
 function get_default_attributes(
+    ::Type{PSY.InterconnectingConverter},
+    ::Type{VoltageControlConverter},
+)
+    return copy(BILINEAR_APPROX_DEFAULT_ATTRIBUTES)
+end
+
+function get_default_attributes(
     ::Type{PSY.TModelHVDCLine},
     ::Type{<:AbstractBranchFormulation},
 )
@@ -140,6 +147,37 @@ get_variable_lower_bound(::Type{CurrentAbsoluteValueVariable}, d::PSY.Interconne
 get_variable_upper_bound(::Type{ConverterCurrent}, d::PSY.InterconnectingConverter, ::Type{<:AbstractConverterFormulation}) = PSY.get_max_dc_current(d)
 get_variable_upper_bound(::Type{CurrentAbsoluteValueVariable}, d::PSY.InterconnectingConverter, ::Type{<:AbstractConverterFormulation}) = PSY.get_max_dc_current(d)
 
+# AC apparent-current variable (AC networks only): 0 ≤ I_ac ≤ S_max/vmin.
+# Warm-started at the rated apparent current S_max (pu, at nominal voltage), which is
+# strictly interior to (0, S_max/vmin). Seeding away from 0 is essential: at I_ac = 0
+# the defining-relation gradient d(I_ac^2·V^2)/dI_ac = 2·I_ac·V^2 vanishes, so a
+# zero start (which |P0| would give for an idle converter) is a degenerate point that
+# traps Ipopt at a locally-infeasible restoration.
+get_variable_binary(::Type{ConverterACCurrentVariable}, ::Type{PSY.InterconnectingConverter}, ::Type{<:AbstractConverterFormulation}) = false
+get_variable_lower_bound(::Type{ConverterACCurrentVariable}, d::PSY.InterconnectingConverter, ::Type{<:AbstractConverterFormulation}) = CONVERTER_AC_CURRENT_FLOOR
+get_variable_upper_bound(::Type{ConverterACCurrentVariable}, d::PSY.InterconnectingConverter, ::Type{<:AbstractConverterFormulation}) = _converter_ac_current_max(PSY.get_rating(d, PSY.SU), PSY.get_voltage_limits(PSY.get_bus(d)).min, PSY.get_name(d))
+get_variable_warm_start_value(::Type{ConverterACCurrentVariable}, d::PSY.InterconnectingConverter, ::Type{<:AbstractConverterFormulation}) = PSY.get_rating(d, PSY.SU)
+
+#! format: on
+
+##### AC-side reactive power (VoltageControlConverter) #####
+
+# Dispatch-based finite-limit guard: a missing `reactive_power_limits` is a
+# malformed-data error for an AC-side converter, surfaced here rather than as a
+# downstream non-finite bound.
+_require_reactive_limits(limits::NamedTuple, ::PSY.InterconnectingConverter) = limits
+function _require_reactive_limits(::Nothing, d::PSY.InterconnectingConverter)
+    return error(
+        "InterconnectingConverter $(PSY.get_name(d)) has no reactive_power_limits; ",
+        "VoltageControlConverter requires finite reactive_power_limits.",
+    )
+end
+
+#! format: off
+get_variable_binary(::Type{ReactivePowerVariable}, ::Type{PSY.InterconnectingConverter}, ::Type{<:AbstractConverterFormulation}) = false
+get_variable_warm_start_value(::Type{ReactivePowerVariable}, ::PSY.InterconnectingConverter, ::Type{<:AbstractConverterFormulation}) = 0.0
+get_variable_lower_bound(::Type{ReactivePowerVariable}, d::PSY.InterconnectingConverter, ::Type{<:AbstractConverterFormulation}) = _require_reactive_limits(PSY.get_reactive_power_limits(d, PSY.SU), d).min
+get_variable_upper_bound(::Type{ReactivePowerVariable}, d::PSY.InterconnectingConverter, ::Type{<:AbstractConverterFormulation}) = _require_reactive_limits(PSY.get_reactive_power_limits(d, PSY.SU), d).max
 #! format: on
 
 ############################################
@@ -158,7 +196,7 @@ function add_to_expression!(
     U <: Union{FlowActivePowerVariable, DCLineCurrent},
     V <: PSY.TModelHVDCLine,
     W <: AbstractDCLineFormulation,
-    X <: AbstractPowerModel,
+    X <: AbstractNetworkModel,
 }
     variable = get_variable(container, U, V)
     expression = get_expression(container, T, PSY.DCBus)
@@ -195,7 +233,7 @@ function add_to_expression!(
     U <: ActivePowerVariable,
     V <: PSY.InterconnectingConverter,
     W <: AbstractConverterFormulation,
-    X <: AreaPTDFPowerModel,
+    X <: AreaPTDFNetworkModel,
 }
     _add_to_expression!(
         container,
@@ -220,7 +258,7 @@ function add_to_expression!(
     U <: ActivePowerVariable,
     V <: PSY.InterconnectingConverter,
     W <: AbstractConverterFormulation,
-    X <: AbstractPowerModel,
+    X <: AbstractNetworkModel,
 }
     _add_to_expression!(
         container,
@@ -245,7 +283,7 @@ function _add_to_expression!(
     U <: ActivePowerVariable,
     V <: PSY.InterconnectingConverter,
     W <: AbstractConverterFormulation,
-    X <: AbstractPowerModel,
+    X <: AbstractNetworkModel,
 }
     variable = get_variable(container, U, V)
     expression_dc = get_expression(container, T, PSY.DCBus)
@@ -274,14 +312,14 @@ function add_to_expression!(
     ::Type{U},
     devices::IS.FlattenIteratorWrapper{V},
     ::DeviceModel{V, W},
-    network_model::NetworkModel{AreaPTDFPowerModel},
+    network_model::NetworkModel{AreaPTDFNetworkModel},
 ) where {
     T <: ActivePowerBalance,
     U <: ActivePowerVariable,
     V <: PSY.InterconnectingConverter,
     W <: AbstractConverterFormulation,
 }
-    error("AreaPTDFPowerModel doesn't support InterconnectingConverter")
+    error("AreaPTDFNetworkModel doesn't support InterconnectingConverter")
     return
 end
 
@@ -291,7 +329,7 @@ function add_to_expression!(
     ::Type{U},
     devices::IS.FlattenIteratorWrapper{V},
     ::DeviceModel{V, W},
-    network_model::NetworkModel{PTDFPowerModel},
+    network_model::NetworkModel{PTDFNetworkModel},
 ) where {
     T <: ActivePowerBalance,
     U <: ActivePowerVariable,
@@ -325,7 +363,7 @@ function add_to_expression!(
     ::Type{U},
     devices::IS.FlattenIteratorWrapper{V},
     ::DeviceModel{V, W},
-    network_model::NetworkModel{AreaBalancePowerModel},
+    network_model::NetworkModel{AreaBalanceNetworkModel},
 ) where {
     T <: ActivePowerBalance,
     U <: ActivePowerVariable,
@@ -341,7 +379,7 @@ function add_to_expression!(
     ::Type{U},
     devices::IS.FlattenIteratorWrapper{V},
     model::DeviceModel{V, W},
-    network_model::NetworkModel{CopperPlatePowerModel},
+    network_model::NetworkModel{CopperPlateNetworkModel},
 ) where {
     T <: ActivePowerBalance,
     U <: ActivePowerVariable,
@@ -378,7 +416,7 @@ function add_to_expression!(
     ::Type{U},
     devices::IS.FlattenIteratorWrapper{V},
     model::DeviceModel{V, W},
-    network_model::NetworkModel{CopperPlatePowerModel},
+    network_model::NetworkModel{CopperPlateNetworkModel},
 ) where {
     T <: ActivePowerBalance,
     U <: ActivePowerVariable,
@@ -408,7 +446,7 @@ function add_to_expression!(
     ::Type{U},
     devices::IS.FlattenIteratorWrapper{V},
     model::DeviceModel{V, W},
-    network_model::NetworkModel{CopperPlatePowerModel},
+    network_model::NetworkModel{CopperPlateNetworkModel},
 ) where {
     T <: DCCurrentBalance,
     U <: ConverterCurrent,
@@ -431,6 +469,79 @@ function add_to_expression!(
     return
 end
 
+# AC networks: the converter current pulls from its DC bus's DCCurrentBalance,
+# identical to the CopperPlate body (the term touches only the DC bus).
+function add_to_expression!(
+    container::OptimizationContainer,
+    ::Type{T},
+    ::Type{U},
+    devices::IS.FlattenIteratorWrapper{V},
+    ::DeviceModel{V, W},
+    ::NetworkModel{X},
+) where {
+    T <: DCCurrentBalance,
+    U <: ConverterCurrent,
+    V <: PSY.InterconnectingConverter,
+    W <: AbstractQuadraticLossConverter,
+    X <: Union{ACPNetworkModel, ACRNetworkModel, IVRNetworkModel},
+}
+    variable = get_variable(container, U, V)
+    expression_dc = get_expression(container, T, PSY.DCBus)
+    for d in devices
+        name = PSY.get_name(d)
+        bus_number_dc = PSY.get_number(PSY.get_dc_bus(d))
+        for t in get_time_steps(container)
+            add_proportional_to_jump_expression!(
+                expression_dc[bus_number_dc, t],
+                variable[name, t],
+                -1.0,
+            )
+        end
+    end
+    return
+end
+
+# AC networks: the converter active power injects into its AC bus's
+# ActivePowerBalance only; the DC-side coupling is via ConverterCurrent ->
+# DCCurrentBalance (VoltageDispatchHVDCNetworkModel has no DCBus ActivePowerBalance).
+function add_to_expression!(
+    container::OptimizationContainer,
+    ::Type{T},
+    ::Type{U},
+    devices::IS.FlattenIteratorWrapper{V},
+    device_model::DeviceModel{V, W},
+    network_model::NetworkModel{X},
+) where {
+    T <: ActivePowerBalance,
+    U <: ActivePowerVariable,
+    V <: PSY.InterconnectingConverter,
+    W <: AbstractQuadraticLossConverter,
+    X <: Union{ACPNetworkModel, ACRNetworkModel, IVRNetworkModel},
+}
+    _add_variable_to_balance!(container, T, U, devices, network_model, device_model)
+    return
+end
+
+# AC networks: the converter reactive injection enters ReactivePowerBalance at the
+# converter's AC bus (+1.0 signed injection, via get_variable_multiplier == 1.0).
+function add_to_expression!(
+    container::OptimizationContainer,
+    ::Type{T},
+    ::Type{U},
+    devices::IS.FlattenIteratorWrapper{V},
+    device_model::DeviceModel{V, W},
+    network_model::NetworkModel{X},
+) where {
+    T <: ReactivePowerBalance,
+    U <: ReactivePowerVariable,
+    V <: PSY.InterconnectingConverter,
+    W <: AbstractConverterFormulation,
+    X <: Union{ACPNetworkModel, ACRNetworkModel, IVRNetworkModel},
+}
+    _add_variable_to_balance!(container, T, U, devices, network_model, device_model)
+    return
+end
+
 function add_to_expression!(
     container::OptimizationContainer,
     ::Type{T},
@@ -443,7 +554,7 @@ function add_to_expression!(
     U <: ActivePowerVariable,
     V <: PSY.InterconnectingConverter,
     W <: AbstractConverterFormulation,
-    X <: PTDFPowerModel,
+    X <: PTDFNetworkModel,
 }
     variable = get_variable(container, U, V)
     expression_dc = get_expression(container, T, PSY.DCBus)
@@ -488,7 +599,7 @@ function add_constraints!(
     devices::IS.FlattenIteratorWrapper{T},
     model::DeviceModel{T, U},
     network_model::NetworkModel{V},
-) where {T <: PSY.TModelHVDCLine, U <: DCLossyLine, V <: AbstractPowerModel}
+) where {T <: PSY.TModelHVDCLine, U <: DCLossyLine, V <: AbstractNetworkModel}
     variable = get_variable(container, DCLineCurrent, T)
     dc_voltage = get_variable(container, DCVoltage, PSY.DCBus)
     time_steps = get_time_steps(container)
@@ -503,6 +614,7 @@ function add_constraints!(
         from_bus_name = PSY.get_name(arc.from)
         to_bus_name = PSY.get_name(arc.to)
         name = PSY.get_name(d)
+        # get_r on TModelHVDCLine is already pu (SYSTEM_BASE); single-arg getter, no unit marker — no PSY.SU conversion applies
         r = PSY.get_r(d)
         if iszero(r)
             for t in time_steps
@@ -535,7 +647,7 @@ function add_constraints!(
 ) where {
     U <: PSY.InterconnectingConverter,
     V <: AbstractQuadraticLossConverter,
-    X <: AbstractActivePowerModel,
+    X <: AbstractNetworkModel,
 }
     time_steps = get_time_steps(container)
     P_ac_var = get_variable(container, ActivePowerVariable, U)
@@ -568,6 +680,57 @@ function add_constraints!(
     return
 end
 
+# AC-network converter loss parameterized on the AC apparent current
+# I_ac = sqrt(P_ac^2 + Q^2)/|V_ac| (Beerten/MATACDC VSC loss) so reactive loading
+# incurs loss. The DC-side coupling P_ac == v*I_dc - loss is unchanged in structure;
+# only the loss argument changes from I_dc to I_ac. The exact NLP defining relation
+# I_ac^2 * V_ac^2 == P_ac^2 + Q^2 is built here. No integer/binary variables (Ipopt).
+function add_constraints!(
+    container::OptimizationContainer,
+    ::Type{ConverterLossConstraint},
+    devices::IS.FlattenIteratorWrapper{U},
+    model::DeviceModel{U, V},
+    network_model::NetworkModel{<:_ConverterACVoltageNetwork},
+) where {U <: PSY.InterconnectingConverter, V <: AbstractQuadraticLossConverter}
+    time_steps = get_time_steps(container)
+    P_ac_var = get_variable(container, ActivePowerVariable, U)
+    Q_var = get_variable(container, ReactivePowerVariable, U)
+    vi_expr = get_expression(container, IOM.BilinearProductExpression, U, "vi")
+    i_ac_var = get_variable(container, ConverterACCurrentVariable, U)
+    v_arrays = _fetch_voltage_arrays(container, network_model)
+
+    ipc_names = [PSY.get_name(d) for d in devices]
+    loss_const = add_constraints_container!(
+        container, ConverterLossConstraint, U, ipc_names, time_steps,
+    )
+    defn_const = add_constraints_container!(
+        container, ConverterACCurrentConstraint, U, ipc_names, time_steps,
+    )
+
+    jump_model = get_jump_model(container)
+    for device in devices
+        name = PSY.get_name(device)
+        bus_name = PSY.get_name(PSY.get_bus(device))
+        loss_function = PSY.get_loss_function(device)
+        a = _get_quadratic_term(loss_function)
+        b = PSY.get_proportional_term(loss_function)
+        c = PSY.get_constant_term(loss_function)
+        for t in time_steps
+            iac = i_ac_var[name, t]
+            defn_const[name, t] = _converter_ac_current_definition(
+                jump_model, iac, P_ac_var[name, t], Q_var[name, t], v_arrays, bus_name,
+                t,
+            )
+            loss = _quadratic_converter_loss_expr(a, b, c, iac^2, iac)
+            loss_const[name, t] = JuMP.@constraint(
+                jump_model,
+                P_ac_var[name, t] == vi_expr[name, t] - loss,
+            )
+        end
+    end
+    return
+end
+
 ############################################
 ########### Objective Function #############
 ############################################
@@ -576,7 +739,7 @@ function add_to_objective_function!(
     ::OptimizationContainer,
     ::IS.FlattenIteratorWrapper{PSY.InterconnectingConverter},
     ::DeviceModel{PSY.InterconnectingConverter, D},
-    ::Type{<:AbstractPowerModel},
+    ::Type{<:AbstractNetworkModel},
 ) where {D <: AbstractConverterFormulation}
     return
 end

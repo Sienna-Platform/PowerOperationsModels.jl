@@ -103,7 +103,7 @@ end
     )
 
     template = PowerOperationsProblemTemplate(
-        NetworkModel(CopperPlatePowerModel; use_slacks = true),
+        NetworkModel(CopperPlateNetworkModel; use_slacks = true),
     )
     set_device_model!(template, ThermalStandard, ThermalDispatchNoMin)
     set_device_model!(template, PowerLoad, StaticPowerLoad)

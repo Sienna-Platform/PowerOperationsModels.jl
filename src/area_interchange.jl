@@ -36,7 +36,7 @@ function add_variables!(
     model::NetworkModel{T},
     devices::IS.FlattenIteratorWrapper{PSY.AreaInterchange},
     ::Type{<:AbstractBranchFormulation},
-) where {T <: AbstractPowerModel}
+) where {T <: AbstractNetworkModel}
     time_steps = get_time_steps(container)
 
     variable = add_variable_container!(container, FlowActivePowerVariable,
@@ -58,12 +58,12 @@ end
 function add_variables!(
     container::OptimizationContainer,
     ::Type{FlowActivePowerVariable},
-    model::NetworkModel{CopperPlatePowerModel},
+    model::NetworkModel{CopperPlateNetworkModel},
     devices::IS.FlattenIteratorWrapper{PSY.AreaInterchange},
     ::Type{<:AbstractBranchFormulation},
 )
     @warn(
-        "CopperPlatePowerModel ignores AreaInterchanges. Instead use AreaBalancePowerModel."
+        "CopperPlateNetworkModel ignores AreaInterchanges. Instead use AreaBalanceNetworkModel."
     )
     return
 end
@@ -159,7 +159,7 @@ function add_constraints!(
         Tuple{String, String},
         Dict{DataType, Vector{String}},
     },
-) where {T <: AbstractPTDFModel}
+) where {T <: AbstractPTDFNetworkModel}
     @assert !isempty(inter_area_branch_map)
 
     time_steps = get_time_steps(container)
