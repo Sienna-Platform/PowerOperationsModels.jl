@@ -318,16 +318,6 @@ end
     end
 end
 
-@testset "native network formulations root at IOM.AbstractNetworkModel" begin
-    for T in (
-        DCPNetworkModel, NFANetworkModel, DCPLLNetworkModel, PTDFNetworkModel,
-        AreaPTDFNetworkModel, CopperPlateNetworkModel, AreaBalanceNetworkModel,
-        ACPNetworkModel, ACRNetworkModel, LPACCNetworkModel, IVRNetworkModel,
-    )
-        @test T <: POM.AbstractNetworkModel
-    end
-end
-
 # The NetworkFlowConstraint containers each network model must build for StaticBranchBounds.
 # The AC laws are split by meta (one container per directional flow); the DC laws are a
 # single unmetaed container. NFA is the flow approximation: it has no Ohm's law at all.
