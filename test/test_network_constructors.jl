@@ -72,3 +72,45 @@ end
         @test "4-5-i_1" in axes(cons)[1]
     end
 end
+
+# Regression test for AreaPTDFNetworkModel + InterconnectingConverter support
+# (Sienna-Platform/PowerSimulations.jl#1605). No PSB system ships with both areas
+# and converters, so the two 5-bus sides of sys10_pjm_ac_dc are split into two
+# areas bridged by the DC links. Before the fix in
+# src/mt_hvdc_models/HVDCsystems.jl the AreaPTDF converter method errored; it now
+# injects each converter into the Area, AC-bus, and DC-bus balance expressions.
+@testset "AreaPTDFNetworkModel with InterconnectingConverter" begin
+    sys = PSB.build_system(PSISystems, "sys10_pjm_ac_dc"; force_build = true)
+    areas = [PSY.Area("Area_1", 0, 0, 0), PSY.Area("Area_2", 0, 0, 0)]
+    for a in areas
+        add_component!(sys, a)
+    end
+    for b in get_components(PSY.ACBus, sys)
+        set_area!(b, PSY.get_number(b) <= 5 ? areas[1] : areas[2])
+    end
+
+    template = get_thermal_dispatch_template_network(NetworkModel(AreaPTDFNetworkModel))
+    set_device_model!(template, RenewableDispatch, RenewableFullDispatch)
+    set_device_model!(template, DeviceModel(InterconnectingConverter, LosslessConverter))
+    set_device_model!(template, DeviceModel(TModelHVDCLine, LosslessLine))
+    set_hvdc_network_model!(template, TransportHVDCNetworkModel)
+
+    ps_model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
+    @test build!(ps_model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+    @test solve!(ps_model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+
+    container = IOM.get_optimization_container(ps_model)
+    # The patched AreaPTDF method injects each converter into all three balance
+    # expressions; assert every container it writes into is present and sized.
+    area_expr = IOM.get_expression(container, ActivePowerBalance, PSY.Area)
+    @test axes(area_expr)[1] == ["Area_1", "Area_2"]
+    ac_expr = IOM.get_expression(container, ActivePowerBalance, PSY.ACBus)
+    @test length(axes(ac_expr)[1]) == 10
+    dc_expr = IOM.get_expression(container, ActivePowerBalance, PSY.DCBus)
+    @test length(axes(dc_expr)[1]) == 4
+    conv =
+        IOM.get_variable(container, ActivePowerVariable, PSY.InterconnectingConverter)
+    @test Set(axes(conv)[1]) ==
+          Set(PSY.get_name.(get_components(PSY.InterconnectingConverter, sys)))
+end
