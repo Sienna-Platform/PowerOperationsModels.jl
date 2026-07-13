@@ -1202,7 +1202,7 @@ end
         bustype = PSY.ACBusTypes.REF, angle = 0.0, magnitude = 1.0,
         voltage_limits = (min = 0.9, max = 1.1), base_voltage = 345.0)
     PSY.add_component!(lb_sys, lb_bus)
-    demo_hydro.bus = lb_bus
+    PSY.set_bus!(demo_hydro, lb_bus)
     PSY.add_component!(lb_sys, demo_hydro)
     PSY.set_active_power_limits!(demo_hydro, (min = 0.17 * PSY.SU, max = 0.21 * PSY.SU))
 
