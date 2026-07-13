@@ -1,4 +1,4 @@
-# Native DCP network formulation. Provides bus voltage angle variables,
+# DCP network formulation. Provides bus voltage angle variables,
 # slack-bus pinning, and active-power nodal balance. Branch flow variables,
 # rate limits, and ohms are added by the branch device construction path
 # (see ac_transmission_models/AC_branches.jl and branch_constructor.jl).

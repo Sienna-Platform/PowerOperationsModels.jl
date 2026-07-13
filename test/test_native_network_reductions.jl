@@ -24,17 +24,19 @@ function _case11_with_forecast()
     return sys
 end
 
-function _solve_case11_native(network_formulation, optimizer; reduce::Bool)
+function _solve_case11_native(
+    network_formulation,
+    optimizer;
+    reduce::Bool = false,
+    reduce_radial_branches::Bool = reduce,
+    reduce_degree_two_branches::Bool = reduce,
+)
     sys = _case11_with_forecast()
-    if reduce
-        net = NetworkModel(
-            network_formulation;
-            reduce_radial_branches = true,
-            reduce_degree_two_branches = true,
-        )
-    else
-        net = NetworkModel(network_formulation)
-    end
+    net = NetworkModel(
+        network_formulation;
+        reduce_radial_branches = reduce_radial_branches,
+        reduce_degree_two_branches = reduce_degree_two_branches,
+    )
     template = get_thermal_dispatch_template_network(net)
     model = DecisionModel(template, sys; optimizer = optimizer)
     build_status = build!(
@@ -118,6 +120,65 @@ end
     @test isapprox(pf_red[1, "4-5-i_1"], pf_full[1, "4-5-i_1"]; atol = 1e-4)
 end
 
+@testset "native DCP reduction: radial-only and degree-two-only isolated" begin
+    # Each reduction kind alone must change the branch-variable topology in its own way:
+    # radial reduction absorbs the radial leaf but leaves the degree-two series chain as
+    # distinct variables, and degree-two reduction does the opposite. These structural
+    # checks discriminate a broken single-kind reduction; the objective-parity assertions
+    # below are exact (DC flow is invariant under either kind) but not discriminating on
+    # this system, so they are a secondary guard.
+    model_both, status_both =
+        _solve_case11_native(DCPNetworkModel, HiGHS_optimizer; reduce = true)
+    @test status_both == IOM.ModelBuildStatus.BUILT
+    @test solve!(model_both) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+    obj_both = IOM.get_objective_value(IOM.OptimizationProblemOutputs(model_both))
+
+    model_none, status_none =
+        _solve_case11_native(DCPNetworkModel, HiGHS_optimizer; reduce = false)
+    @test status_none == IOM.ModelBuildStatus.BUILT
+    @test solve!(model_none) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+    obj_none = IOM.get_objective_value(IOM.OptimizationProblemOutputs(model_none))
+
+    # Radial-only: the radial leaf "1-8-i_1" is absorbed, but with degree-two reduction
+    # OFF the (1,2) series-chain segments stay three DISTINCT flow variables.
+    model_rad, status_rad = _solve_case11_native(
+        DCPNetworkModel, HiGHS_optimizer;
+        reduce_radial_branches = true, reduce_degree_two_branches = false,
+    )
+    @test status_rad == IOM.ModelBuildStatus.BUILT
+    @test solve!(model_rad) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+    container_rad = IOM.get_optimization_container(model_rad)
+    pvar_rad = IOM.get_variable(container_rad, FlowActivePowerVariable, Line)
+    t1_rad = first(IOM.get_time_steps(container_rad))
+    @test !("1-8-i_1" in axes(pvar_rad)[1])
+    @test "1-6-i_1" in axes(pvar_rad)[1]
+    @test "6-7-i_1" in axes(pvar_rad)[1]
+    @test "7-2-i_1" in axes(pvar_rad)[1]
+    @test pvar_rad["1-6-i_1", t1_rad] !== pvar_rad["6-7-i_1", t1_rad]
+    @test pvar_rad["6-7-i_1", t1_rad] !== pvar_rad["7-2-i_1", t1_rad]
+    obj_rad = IOM.get_objective_value(IOM.OptimizationProblemOutputs(model_rad))
+    @test isapprox(obj_rad, obj_both; rtol = 1e-6)
+    @test isapprox(obj_rad, obj_none; rtol = 1e-6)
+
+    # Degree-two-only: with radial reduction OFF the radial leaf "1-8-i_1" is STILL
+    # present, and the series chain IS aliased to a single flow variable.
+    model_deg, status_deg = _solve_case11_native(
+        DCPNetworkModel, HiGHS_optimizer;
+        reduce_radial_branches = false, reduce_degree_two_branches = true,
+    )
+    @test status_deg == IOM.ModelBuildStatus.BUILT
+    @test solve!(model_deg) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+    container_deg = IOM.get_optimization_container(model_deg)
+    pvar_deg = IOM.get_variable(container_deg, FlowActivePowerVariable, Line)
+    t1_deg = first(IOM.get_time_steps(container_deg))
+    @test "1-8-i_1" in axes(pvar_deg)[1]
+    @test pvar_deg["1-6-i_1", t1_deg] === pvar_deg["6-7-i_1", t1_deg]
+    @test pvar_deg["6-7-i_1", t1_deg] === pvar_deg["7-2-i_1", t1_deg]
+    obj_deg = IOM.get_objective_value(IOM.OptimizationProblemOutputs(model_deg))
+    @test isapprox(obj_deg, obj_both; rtol = 1e-6)
+    @test isapprox(obj_deg, obj_none; rtol = 1e-6)
+end
+
 @testset "native ACP reduction: one corridor per reduced arc, exact parity" begin
     model_red, status_red =
         _solve_case11_native(ACPNetworkModel, ipopt_optimizer; reduce = true)
@@ -199,6 +260,98 @@ end
     @test isapprox(lpacc_red_obj, lpacc_full_obj; rtol = 2e-2)
 end
 
+@testset "native NFA reduction: one corridor per reduced arc, build and solve" begin
+    # NFA has no Ohm's law, only rating-bounded FlowActivePowerVariable and nodal
+    # balance, so the flow-rate constraint (not NetworkFlowConstraint) is the corridor
+    # to check: one lb/ub pair per reduced arc, shared across both branch types.
+    model_red, status_red =
+        _solve_case11_native(NFANetworkModel, HiGHS_optimizer; reduce = true)
+    @test status_red == IOM.ModelBuildStatus.BUILT
+    @test solve!(model_red) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+
+    container = IOM.get_optimization_container(model_red)
+    n_lb =
+        length(
+            _assigned_flow_constraint_axis(
+                container, IOM.ConstraintKey(POM.FlowRateConstraint, Line, "lb"),
+            ),
+        ) + length(
+            _assigned_flow_constraint_axis(
+                container, IOM.ConstraintKey(POM.FlowRateConstraint, Transformer2W, "lb"),
+            ),
+        )
+    @test n_lb == CASE11_DISTINCT_REDUCED_ARCS
+
+    pvar_line = IOM.get_variable(container, FlowActivePowerVariable, Line)
+    @test !("1-8-i_1" in axes(pvar_line)[1])
+    t1 = first(IOM.get_time_steps(container))
+    @test pvar_line["1-6-i_1", t1] === pvar_line["6-7-i_1", t1]
+    @test pvar_line["6-7-i_1", t1] === pvar_line["7-2-i_1", t1]
+    @test "1-4-i_double_circuit" in axes(pvar_line)[1]
+
+    model_full, status_full =
+        _solve_case11_native(NFANetworkModel, HiGHS_optimizer; reduce = false)
+    @test status_full == IOM.ModelBuildStatus.BUILT
+    @test solve!(model_full) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+    obj_red = IOM.get_objective_value(IOM.OptimizationProblemOutputs(model_red))
+    obj_full = IOM.get_objective_value(IOM.OptimizationProblemOutputs(model_full))
+    @test isapprox(obj_red, obj_full; rtol = 1e-6)
+end
+
+@testset "native DCPLL reduction: one corridor per reduced arc, build and solve" begin
+    # DCPLL keeps DCP's Ohm's law on p_fr (NetworkFlowConstraint) plus a quadratic
+    # loss-coupling constraint (NetworkLossConstraint); both must appear exactly once
+    # per reduced arc.
+    model_red, status_red =
+        _solve_case11_native(DCPLLNetworkModel, ipopt_optimizer; reduce = true)
+    @test status_red == IOM.ModelBuildStatus.BUILT
+    @test solve!(model_red) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+
+    container = IOM.get_optimization_container(model_red)
+    n_flow =
+        length(
+            _assigned_flow_constraint_axis(
+                container, IOM.ConstraintKey(POM.NetworkFlowConstraint, Line),
+            ),
+        ) + length(
+            _assigned_flow_constraint_axis(
+                container, IOM.ConstraintKey(POM.NetworkFlowConstraint, Transformer2W),
+            ),
+        )
+    @test n_flow == CASE11_DISTINCT_REDUCED_ARCS
+    n_loss =
+        length(
+            _assigned_flow_constraint_axis(
+                container, IOM.ConstraintKey(POM.NetworkLossConstraint, Line),
+            ),
+        ) + length(
+            _assigned_flow_constraint_axis(
+                container, IOM.ConstraintKey(POM.NetworkLossConstraint, Transformer2W),
+            ),
+        )
+    @test n_loss == CASE11_DISTINCT_REDUCED_ARCS
+
+    pft_line = IOM.get_variable(container, FlowActivePowerFromToVariable, Line)
+    @test !("1-8-i_1" in axes(pft_line)[1])
+    t1 = first(IOM.get_time_steps(container))
+    @test pft_line["1-6-i_1", t1] === pft_line["6-7-i_1", t1]
+    @test pft_line["6-7-i_1", t1] === pft_line["7-2-i_1", t1]
+    @test "1-4-i_double_circuit" in axes(pft_line)[1]
+    pft_xfmr = IOM.get_variable(container, FlowActivePowerFromToVariable, Transformer2W)
+    @test pft_line["1-9-i_1", t1] === pft_xfmr["9-5-i_1", t1]
+
+    # DCPLL's quadratic loss term makes reduction only approximately loss-preserving
+    # (the reduced and unreduced corridors integrate the loss differently), so the two
+    # objectives agree only to a loose tolerance, both being near-zero on this system.
+    model_full, status_full =
+        _solve_case11_native(DCPLLNetworkModel, ipopt_optimizer; reduce = false)
+    @test status_full == IOM.ModelBuildStatus.BUILT
+    @test solve!(model_full) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+    obj_red = IOM.get_objective_value(IOM.OptimizationProblemOutputs(model_red))
+    obj_full = IOM.get_objective_value(IOM.OptimizationProblemOutputs(model_full))
+    @test isapprox(obj_red, obj_full; atol = 1e-4)
+end
+
 @testset "voltage-coupled device at a reduction-absorbed bus fails with a clear error" begin
     # PNM absorbs bus 8 (radial) even with a shunt attached; the shunt's q == b·v²
     # constraint needs the local voltage, which has no variables after the reduction.
@@ -223,6 +376,48 @@ end
         template, DeviceModel(PSY.SwitchedAdmittance, ShuntSusceptanceDispatch),
     )
     model = DecisionModel(template, sys; optimizer = ipopt_optimizer)
+    out = mktempdir(; cleanup = true)
+    @test build!(model; output_dir = out, console_level = Logging.Error) ==
+          IOM.ModelBuildStatus.FAILED
+    log = read(joinpath(out, "operation_problem.log"), String)
+    @test occursin("absorbed by a network reduction", log)
+end
+
+@testset "PhaseAngleControl branch absorbed by a network reduction fails with a clear error" begin
+    # "1-6-i_1" is one segment of the (1,2) series chain, so under reduction it has no
+    # direct-branch entry of its own — the same _validate_controlled_branch_not_reduced
+    # gate exercised above for VoltageControlTap also covers PhaseAngleControl.
+    sys = _case11_with_forecast()
+    line = PSY.get_component(Line, sys, "1-6-i_1")
+    arc = PSY.get_arc(line)
+    ps = PSY.PhaseShiftingTransformer(;
+        name = PSY.get_name(line),
+        available = true,
+        active_power_flow = 0.0,
+        reactive_power_flow = 0.0,
+        r = PSY.get_r(line, PSY.SU),
+        x = PSY.get_x(line, PSY.SU),
+        primary_shunt = 0.0,
+        tap = 1.0,
+        α = 0.0,
+        phase_angle_limits = (min = -1.5, max = 1.5),
+        rating = PSY.get_rating(line, PSY.SU),
+        arc = arc,
+        base_power = PSY.get_base_power(sys, PSY.NU),
+    )
+    PSY.add_component!(sys, ps)
+    PSY.remove_component!(sys, line)
+
+    net = NetworkModel(
+        DCPNetworkModel;
+        reduce_radial_branches = true,
+        reduce_degree_two_branches = true,
+    )
+    template = get_thermal_dispatch_template_network(net)
+    set_device_model!(
+        template, DeviceModel(PSY.PhaseShiftingTransformer, PhaseAngleControl),
+    )
+    model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
     out = mktempdir(; cleanup = true)
     @test build!(model; output_dir = out, console_level = Logging.Error) ==
           IOM.ModelBuildStatus.FAILED

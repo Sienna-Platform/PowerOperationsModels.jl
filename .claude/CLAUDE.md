@@ -70,13 +70,11 @@ src/
   mt_hvdc_models/                 # HVDCsystems.jl (multi-terminal) + constructor
   services_models/                # reserves, reserve_group, transmission_interface, service_slacks; agc.jl is
                                   #   currently NOT included (TODO: needs _get_ace_error)
-  network_models/                 # network_reductions, instantiate_network_model, copperplate, area_balance,
-                                  #   powermodels_interface, pm_translator, dcp_model, acp_model, hvdc_networks,
-                                  #   network_slack_variables, network_constructor
+  network_models/                 # network_reductions, instantiate_network_model, copperplate_model, area_balance_model,
+                                  #   dcp_model, acp_model, acr_model, lpacc_model, dcpll_model, hvdc_networks,
+                                  #   hvdc_network_constructor, network_slack_variables, network_constructor
   operation/                      # build_problem, decision_model, emulation_model, template_validation
   utils/                          # psy_utils, generate_valid_formulations, print
-  InfrastructureModels/           # Embedded submodule adapted from InfrastructureModels.jl (core/)
-  PowerModels/                    # Embedded submodule adapted from PowerModels.jl (core/ form/ prob/ util/)
 ext/PowerFlowsExt/                # PowerFlows.jl weakdep extension: PowerFlowsExt.jl, pf_data_update.jl,
                                   #   pf_headroom.jl, pf_input_mapping.jl, pf_solve_and_aux.jl
 test/                            # ParallelTestRunner; test_*.jl auto-discovered; test_utils/ shared helpers
@@ -84,11 +82,11 @@ scripts/formatter/               # formatter_code.jl + Project.toml
 docs/                            # make.jl, make_tutorials.jl, src/
 ```
 
-The embedded `PowerModels/` submodule provides AC (ACP/ACR/ACT), DC (DCP), LPAC, SDP (WR/WRM), and branch-flow (BF/IV) formulations without an external PowerModels.jl dependency. `InfrastructureModels/` provides the generic optimization base it builds on.
+Native network formulations are `*NetworkModel` structs in `core/network_formulations.jl` (`DCPNetworkModel`, `ACPNetworkModel`, `ACRNetworkModel`, `IVRNetworkModel`, `LPACCNetworkModel`, `NFANetworkModel`, `DCPLLNetworkModel`, plus `CopperPlateNetworkModel`/`AreaBalanceNetworkModel`/`PTDFNetworkModel`), built directly against JuMP with no PowerModels.jl dependency.
 
 ## Imports / aliases
 
-POM uses `import X as Y` and `const Y = X` aliases declared **in the main module** — do not introduce per-file aliases. Canonical: `PM = PowerModels`, `IS = InfrastructureSystems`, `ISOPT = InfrastructureSystems.Optimization`, `PSY = PowerSystems`, `PNM = PowerNetworkMatrices`, `IOM = InfrastructureOptimizationModels`. In the extension: `IOM`, `PFS = PowerFlows`. POM re-exports `PTDF`/`VirtualPTDF` from PNM. Native `DCPPowerModel`/`ACPPowerModel` are **POM structs** in `core/network_formulations.jl`, not PowerModels re-exports.
+POM uses `import X as Y` and `const Y = X` aliases declared **in the main module** — do not introduce per-file aliases. Canonical: `IS = InfrastructureSystems`, `ISOPT = InfrastructureSystems.Optimization`, `PSY = PowerSystems`, `PNM = PowerNetworkMatrices`, `IOM = InfrastructureOptimizationModels`. In the extension: `IOM`, `PFS = PowerFlows`. POM re-exports `PTDF`/`VirtualPTDF` from PNM. Native `DCPNetworkModel`/`ACPNetworkModel` are **POM structs** in `core/network_formulations.jl`, not PowerModels re-exports.
 
 ## Commands (verified)
 
@@ -134,7 +132,7 @@ Solvers: `HiGHS` (LP/MILP), `Ipopt` (NLP), `SCS` (SDP) — helpers `HiGHS_optimi
 - **Layer boundaries:** device/network formulations + `PowerOperationModel` chain live in POM; `OptimizationContainer`/`DecisionModel`/settings/generic builders in IOM; base key/TS types in IS. Don't push power-specific logic down into IOM.
 - **`network_reduction` must always be populated** by POM's `instantiate_network_model!` for every network model (CopperPlate/AreaBalance set an identity reduction). It is `Union{Nothing,...}` on the IOM side. Concrete `BranchReductionOptimizationTracker` + `get_constraint_map_by_type` live in POM `network_models/network_reductions.jl`; IOM keeps only the abstract `AbstractBranchReductionTracker`. IOM evaluators must be `<:IOM.AbstractEvaluator`; POM wraps PF models in `PowerFlowEvaluator` (`core/interfaces.jl`).
 - **Parallel branches** between the same `(from_bus, to_bus)` pair are reduced to one equivalent branch by PowerNetworkMatrices **before** reaching POM. Index branch-pair-keyed variables (LPAC cosine vars, voltage approximations) by branch name directly — do not add dedupe bookkeeping; it's a non-problem at this layer.
-- **Security-constrained N-1 uses MODF** (Modified Outage Distribution Factors: PNM `VirtualMODF`/`ContingencySpec`), in `ac_transmission_models/security_constrained_branch.jl`. The old LODF-based `network_models/security_constrained_models.jl` and all generator-side (G-1) SC have been **removed** — do not reintroduce LODF or gen-side MODF. `NetworkModel.MODF_matrix`, `DeviceModel.outages`, and `supports_outages` (default false; POM specializes `true` for `AbstractSecurityConstrainedStaticBranch`) live in IOM.
+- **Security-constrained N-1 uses MODF** (Modified Outage Distribution Factors: PNM `VirtualMODF`/`ContingencySpec`), in `ac_transmission_models/security_constrained_branch.jl`. The old LODF-based `network_models/security_constrained_models.jl` and all generator-side (G-1) SC have been **removed** — do not reintroduce LODF or gen-side MODF. `NetworkModel.contingency_matrix`, `DeviceModel.outages`, and `supports_outages` (default false; POM specializes `true` for `AbstractSecurityConstrainedStaticBranch`) live in IOM.
 - **Units (IS4/psy6 rework) — the highest-risk silent-failure class.** The stateful `SYSTEM_BASE` normalization is gone (`temp_set_units_base_system!` is removed/commented out upstream). Every `PSY` getter read during model build must pass the intended unit system **explicitly**: optimization models are all system base, so use `PSY.SU`. PNM aggregators already return system base (no `PSY.SU` needed). If objective/limit/rating values come out wrong post-refactor, suspect units first. Known traps: AC apparent-power rating RHS must be squared `(rating·factor)^2`; PSY setters reject bare `Float64` under psy6 (`set_rating_b!(line, 0.9*PSY.SU)`).
 - **psy6 is a planned breaking release:** no compat shims, no deprecation framing, no serialization aliases for renamed enums — fix callers instead. Old serialized systems are expected to be regenerated. Never touch changelogs (unmaintained since 1.0).
 - **No mid-project Project.toml version/compat bumps.** `[sources]` currently pin git branches: IS→`IS4`, PSY/PNM→`psy6`, IOM→`main`. Do the version/compat pass once at release time, not during cross-repo co-dev. Do not copy PSI Project.toml version bumps when porting PRs.
@@ -145,7 +143,7 @@ Solvers: `HiGHS` (LP/MILP), `Ipopt` (NLP), `SCS` (SDP) — helpers `HiGHS_optimi
 - Status: `IOM.ModelBuildStatus.BUILT`, `IOM.RunStatus.SUCCESSFULLY_FINALIZED` (not `_FINISHED`).
 - Results: `res = IOM.OptimizationProblemOutputs(model)` (not `OptimizationProblemResults`); `read_variable(res, "VarType__DeviceType"; table_format = TableFormat.WIDE)`. Keys use `"__"` delimiter (e.g. `"FlowActivePowerVariable__Line"`, `"VoltageAngle__ACBus"`). Base power: `IOM.get_model_base_power(res)`.
 - Units gotcha: `FlowActivePowerVariable` output is MW (natural units, `convert_output_to_natural_units=true`); `VoltageAngle` is unitless. Native DC ohm law (pu): `p_pu == -imag(get_series_admittance(line, PSY.SU)) * (va_from - va_to - shift)`.
-- Template helper `get_thermal_dispatch_template_network(NetworkModel(<Formulation>))` and reduction kwargs `NetworkModel(DCPPowerModel; reduce_radial_branches=true, reduce_degree_two_branches=true)` come from `test/test_utils/`.
+- Template helper `get_thermal_dispatch_template_network(NetworkModel(<Formulation>))` and reduction kwargs `NetworkModel(DCPNetworkModel; reduce_radial_branches=true, reduce_degree_two_branches=true)` come from `test/test_utils/`.
 - Reduction test systems: `c_sys5`/`c_sys14` reduce nothing (assert build+solve only). Use `case11_network_reductions` (purpose-built ~4 series arcs) or matpower cases for real reductions — but those lack forecast data, so a full `DecisionModel` `build!` errors; for white-box reduction tests build `NetworkReductionData` directly via `PNM.Ybus(sys; network_reductions=[...])` + `deepcopy(PNM.get_network_reduction_data(ybus))`.
 
 ## Known open debt & active work (2026-07 snapshot)
@@ -160,7 +158,7 @@ Solvers: `HiGHS` (LP/MILP), `Ipopt` (NLP), `SCS` (SDP) — helpers `HiGHS_optimi
 - **PowerSystems (PSY):** data structures (devices/services/networks) consumed by every formulation. psy6/IS4 units rework is in flight — see the units gotcha above.
 - **InfrastructureOptimizationModels (IOM):** `OptimizationContainer`, `DecisionModel`/`EmulationModel`, settings, generic `add_*!`/store/objective infra. POM dispatches its problem-type chain on IOM abstracts. Watch for symbols moved POM-side by PR #104 / PNM-decoupling. **POM currently calls ~56 non-exported `IOM._*` helpers** — that surface is load-bearing but informal; do not add new `_*` reaches (formalizing the contract is the top audit action), and expect breakage there when IOM refactors.
 - **PowerNetworkMatrices (PNM):** PTDF/LODF/MODF, branch reductions, rating aggregators (system base). Reduction happens before POM sees branches.
-- **InfrastructureSystems (IS):** key types, time series, units engine (`ISOPT` = `InfrastructureSystems.Optimization`). IS4 made units domain-agnostic (`relative_units`, `IS.convert_cost_coefficient`, `_unitful` getters).
+- **InfrastructureSystems (IS):** base optimization + time-series key types, time series, units engine (`ISOPT` = `InfrastructureSystems.Optimization`). IS4 made units domain-agnostic (`relative_units`, `IS.convert_cost_coefficient`, `_unitful` getters).
 - **PowerFlows (PFS):** optional weakdep, wired through `ext/PowerFlowsExt/` (power-flow-in-the-loop, headroom, signed-injection PF data update). Code must work when PF is not loaded.
 
 ## Debugging

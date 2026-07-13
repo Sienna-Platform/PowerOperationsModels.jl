@@ -1,4 +1,4 @@
-# Native ACP network formulation. Provides bus voltage magnitude + angle
+# ACP network formulation. Provides bus voltage magnitude + angle
 # variables, slack-bus pinning (vm + va), and active+reactive nodal balance.
 # Branch flow variables, rate limits, and AC power flow constraints are added
 # by the branch device construction path (Phase F).
