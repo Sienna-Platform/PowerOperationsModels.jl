@@ -863,7 +863,7 @@ function construct_device!(
     devices = get_available_components(device_model, sys)
 
     # The ACP post-contingency expression builder reads
-    # `FlowActivePowerFromToVariable` for the monitored branches. The native ACP
+    # `FlowActivePowerFromToVariable` for the monitored branches. The ACP
     # `StaticBranch` ArgumentConstructStage is what normally creates the four
     # directional flow variables and wires them to the nodal balance; the SC
     # formulation must do the same so the monitored branches carry their AC flow

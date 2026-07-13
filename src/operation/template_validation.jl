@@ -140,7 +140,7 @@ end
 
 # Both `BranchRatingTimeSeriesParameter` and
 # `PostContingencyBranchRatingTimeSeriesParameter` are only honored by the
-# `StaticBranch` (pre-contingency PTDF / native DCP / native ACP) and
+# `StaticBranch` (pre-contingency PTDF / DCP / ACP) and
 # `AbstractSecurityConstrainedStaticBranch` constructors. Any other
 # formulation that carries either series passes validation but never builds a
 # usable parameter container, so the series would be silently ignored —
