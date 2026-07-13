@@ -57,6 +57,7 @@ function construct_device!(
             network_model,
         )
     end
+    add_feedforward_arguments!(container, model, devices)
     add_event_arguments!(container, devices, model, network_model)
 end
 
@@ -168,6 +169,7 @@ function construct_device!(
             network_model,
         )
     end
+    add_feedforward_arguments!(container, model, devices)
     add_event_arguments!(container, devices, model, network_model)
 end
 
