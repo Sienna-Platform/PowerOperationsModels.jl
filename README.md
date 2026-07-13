@@ -12,7 +12,7 @@
 
 - Device-specific optimization models (thermal generators, renewables, storage, HVDC, loads, etc.)
 - Integration with PowerSystems.jl for power system data structures
-- Support for various network formulations via an embedded PowerModels submodule (code adapted from PowerModels.jl).
+- Native network formulations (DCP, ACP, ACR, IVR, LPACC, NFA, DCPLL) implemented directly in POM.
 - Designed to work with InfrastructureOptimizationModels.jl infrastructure
 
 ## Development

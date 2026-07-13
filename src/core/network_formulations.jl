@@ -47,14 +47,14 @@ branches_modeled(::Type{AreaBalanceNetworkModel}) = false
 network_has_reactive_power(::Type{<:AbstractNetworkModel}) = true
 network_has_reactive_power(::Type{<:AbstractActivePowerModel}) = false
 
-# Native POM DCP — concrete construct_network! in network_constructor.jl.
+# POM DCP — concrete construct_network! in network_constructor.jl.
 # IS doesn't know about power-system network formulations; POM owns all dispatch.
 struct DCPNetworkModel <: AbstractDCPNetworkModel end
 
-# Native POM ACP — concrete construct_network! in network_constructor.jl.
+# POM ACP — concrete construct_network! in network_constructor.jl.
 struct ACPNetworkModel <: AbstractACPModel end
 
-# Native POM NFA (network-flow / transportation approximation). No voltage angle
+# POM NFA (network-flow / transportation approximation). No voltage angle
 # variables, no reference bus, no Ohm's law — only rating-bounded branch flows and
 # nodal active-power balance. Concrete-type construct_network! beats the bridge
 # fallback, same as DCP/ACP.
@@ -63,7 +63,7 @@ struct NFANetworkModel <: AbstractNFANetworkModel end
 branches_modeled(::Type{NFANetworkModel}) = true
 requires_all_branch_models(::Type{NFANetworkModel}) = true
 
-# Native POM DCPLL (DC power flow with quadratic line losses). Same angle/balance structure
+# POM DCPLL (DC power flow with quadratic line losses). Same angle/balance structure
 # as DCP, but branch flow is modeled with two directional active variables coupled by a
 # quadratic loss constraint, making the problem a convex QCP (Ipopt).
 struct DCPLLNetworkModel <: AbstractDCPLLNetworkModel end
@@ -105,7 +105,7 @@ Devices inject P/Q unchanged (same as ACP/ACR); only the branch representation d
 """
 struct IVRNetworkModel <: AbstractIVRNetworkModel end
 
-# Native nodal formulations that build per-branch flow variables wired into the per-bus
+# Nodal formulations that build per-branch flow variables wired into the per-bus
 # balance expressions. Under an active network reduction these share one set of branch
 # variables/constraints per reduced arc (see network_models/network_reductions.jl).
 const NativeNodalNetworkModel = Union{
@@ -124,6 +124,13 @@ const NativeACNetworkModel = Union{
     ACRNetworkModel,
     LPACCNetworkModel,
     IVRNetworkModel,
+}
+
+# The subset of native nodal formulations with an active-power-only balance.
+const NativeDCNetworkModel = Union{
+    DCPNetworkModel,
+    DCPLLNetworkModel,
+    NFANetworkModel,
 }
 
 # Networks the LCC converter model supports: it needs an AC voltage-magnitude term

@@ -929,7 +929,7 @@ export AreaPTDFNetworkModel
 # JuMP utilities
 export optimizer_with_attributes
 
-# POM-native network formulation types (DCPNetworkModel/ACPNetworkModel/ACRNetworkModel/NFANetworkModel
+# Network formulation types (DCPNetworkModel/ACPNetworkModel/ACRNetworkModel/NFANetworkModel
 # defined in core/network_formulations.jl; abstract roots come from IS.Optimization or POM)
 export DCPNetworkModel
 export ACPNetworkModel

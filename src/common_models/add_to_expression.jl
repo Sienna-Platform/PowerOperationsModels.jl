@@ -354,7 +354,7 @@ _terminal_arc_end(
 Add a single directional branch/HVDC terminal flow variable to a nodal balance
 expression. The terminal bus is fixed by the variable type `U` via
 [`_terminal_bus`](@ref) and `multiplier` is the signed nodal contribution. Shared
-by the native ACP branch-flow methods and the HVDC LCC/VSC terminal methods.
+by the ACP branch-flow methods and the HVDC LCC/VSC terminal methods.
 """
 function _add_terminal_flow_to_nodal!(
     container::OptimizationContainer,
@@ -2863,7 +2863,7 @@ function add_to_expression!(
 end
 
 ################################################################################
-# Native ACPNetworkModel branch-flow → nodal balance contributions
+# ACPNetworkModel branch-flow → nodal balance contributions
 #
 # Each directional flow variable is subtracted from the nodal balance at the
 # bus where it originates (power leaves that bus, so it reduces the net injection).
@@ -2907,8 +2907,9 @@ end
 
 """
 PWL received HVDC active power contribution to the nodal `ActivePowerBalance` for the
-native AC network models. Both received terminals contribute +1.0 at their own bus,
-mirroring the PTDF PWL wiring; the link offers no reactive power.
+native nodal network models (AC and DC). Both received terminals contribute +1.0 at
+their own bus, mirroring the PTDF PWL wiring; under the AC natives the link offers no
+reactive power.
 """
 function add_to_expression!(
     container::OptimizationContainer,
@@ -2922,7 +2923,7 @@ function add_to_expression!(
     U <: Union{HVDCActivePowerReceivedFromVariable, HVDCActivePowerReceivedToVariable},
     V <: PSY.TwoTerminalHVDC,
     W <: HVDCTwoTerminalPiecewiseLoss,
-    X <: NativeACNetworkModel,
+    X <: NativeNodalNetworkModel,
 }
     _add_terminal_flow_to_nodal!(container, T, U, devices, network_model, 1.0)
     return

@@ -253,7 +253,7 @@ function construct_network!(
     ::ModelConstructStage,
 ) where {T <: AbstractNetworkModel}
     error(
-        "Network formulation $(T) is not supported. Supported native formulations: \
+        "Network formulation $(T) is not supported. Supported formulations: \
         CopperPlateNetworkModel, AreaBalanceNetworkModel, PTDFNetworkModel, AreaPTDFNetworkModel, \
         DCPNetworkModel, NFANetworkModel, DCPLLNetworkModel, ACPNetworkModel, ACRNetworkModel, \
         LPACCNetworkModel, IVRNetworkModel.",
