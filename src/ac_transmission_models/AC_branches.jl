@@ -12,7 +12,7 @@
 
 #################################### Branch Variables ##################################################
 # Branch flow variables are created by POM's per-formulation `construct_device!` methods.
-# The native AC formulations (ACP/ACR/LPACC/IVR) each add directional from-to and to-from
+# The AC formulations (ACP/ACR/LPACC/IVR) each add directional from-to and to-from
 # variables; DC formulations (DCP/NFA/DCPLL) add a single active-power scalar per branch.
 
 #! format: off
@@ -50,7 +50,7 @@ get_variable_lower_bound(::Type{FlowActivePowerVariable}, ::PNM.BranchesParallel
 get_variable_upper_bound(::Type{FlowActivePowerVariable}, ::PNM.ThreeWindingTransformerWinding, ::Type{<:AbstractBranchFormulation}) = nothing
 get_variable_lower_bound(::Type{FlowActivePowerVariable}, ::PNM.ThreeWindingTransformerWinding, ::Type{<:AbstractBranchFormulation}) = nothing
 
-# Active-flow variable bounds for native ACPNetworkModel: matches the bridge convention so
+# Active-flow variable bounds for ACPNetworkModel: matches the bridge convention so
 # `check_variable_bounded(...)` in test_device_branch_constructors.jl finds box bounds on
 # directional flow variables. Reactive-flow variables stay unbounded (default `nothing`).
 get_variable_upper_bound(::Type{FlowActivePowerFromToVariable}, d::PSY.MonitoredLine, ::Type{<:AbstractBranchFormulation}) = PSY.get_flow_limits(d, PSY.SU).from_to
@@ -498,7 +498,7 @@ function _resolve_branch_multiplier(
 end
 
 # Formulation-typed adapter used by the range-constraint framework (e.g.
-# `PhaseShiftingTransformer` under `FlowLimitConstraint`) and the native
+# `PhaseShiftingTransformer` under `FlowLimitConstraint`) and the
 # DCP rate-limit path. `MonitoredLine` overrides this below.
 function get_min_max_limits(
     device::PSY.ACTransmission,
@@ -1627,10 +1627,10 @@ function _branch_geometries(
     return geoms
 end
 
-################################## Native ACP apparent-power rate constraints ###############
+################################## ACP apparent-power rate constraints ######################
 
 """
-Shared builder for directional apparent-power rate limit constraints under the native
+Shared builder for directional apparent-power rate limit constraints under
 ACPNetworkModel.
 
 Constrains `pflow^2 + qflow^2 ≤ rating^2` for the directional active/reactive flow variable
@@ -1924,7 +1924,7 @@ function _add_tap_acr_flow!(
 end
 
 """
-Add full π-model rectangular AC Ohm's law constraints for ACBranch under the native ACRNetworkModel.
+Add full π-model rectangular AC Ohm's law constraints for ACBranch under ACRNetworkModel.
 
 Four constraints per branch per time step (p_ft, q_ft, p_tf, q_tf) relate the four
 directional flow variables to rectangular voltage components (vr, vi) via the
@@ -1986,7 +1986,7 @@ function add_constraints!(
     return
 end
 
-################################## Native LPACCNetworkModel branch constraints ###############
+################################## LPACCNetworkModel branch constraints ###############
 
 # Branch voltage-angle-difference bounds (angmin, angmax). Only Line / MonitoredLine
 # carry angle-limit data; other branch types get a finite ±π/2 default so the LPAC
@@ -2012,7 +2012,7 @@ function _lpacc_cosine_bounds(d::PSY.ACTransmission)
 end
 
 """
-Create the bus-pair cosine variable (`cs`) for ACBranch under the native LPACCNetworkModel,
+Create the bus-pair cosine variable (`cs`) for ACBranch under LPACCNetworkModel,
 indexed by branch name. Bounded by the cosine of the branch angle limits (Principle 0),
 start 1.0.
 """
@@ -2073,7 +2073,7 @@ function add_variables!(
 end
 
 """
-Add the LPAC convex cosine relaxation for ACBranch under the native LPACCNetworkModel:
+Add the LPAC convex cosine relaxation for ACBranch under LPACCNetworkModel:
 
     cs ≤ 1 - (1 - cos(vad_max))/vad_max² · (va_fr - va_to)²
 
@@ -2133,7 +2133,7 @@ function _entry_angle_limits(geometry, device_by_name::Dict{String, <:PSY.ACTran
 end
 
 """
-Add the LPAC-linearized π-model AC Ohm's law constraints for ACBranch under the native
+Add the LPAC-linearized π-model AC Ohm's law constraints for ACBranch under
 LPACCNetworkModel.
 
 Four constraints per branch per time step (p_ft, q_ft, p_tf, q_tf) relate the directional
@@ -2226,7 +2226,7 @@ function add_constraints!(
     return
 end
 
-################################## Native IVRNetworkModel branch constraints ##################
+################################## IVRNetworkModel branch constraints ##################
 
 # Compute the per-unit current rating bound for an IVR branch variable.
 # c_rating_a = rate_a / vmin  (system-base power / per-unit voltage → per-unit current).
@@ -2336,7 +2336,7 @@ function add_variables!(
 end
 
 """
-Add IVR branch constraints for ACBranch under the native IVRNetworkModel.
+Add IVR branch constraints for ACBranch under IVRNetworkModel.
 
 Ten constraints per branch per time step:
   (1-4)  Bilinear power-current linking:
@@ -2497,7 +2497,7 @@ function add_constraints!(
 end
 
 """
-Add terminal current-magnitude limit for ACBranch under the native IVRNetworkModel.
+Add terminal current-magnitude limit for ACBranch under IVRNetworkModel.
 
 Constrains cr² + ci² ≤ c_rating² for both from- and to-terminal currents, where
 c_rating = rate_a / vmin (Principle 0: always finite).
@@ -2557,10 +2557,10 @@ function _add_current_magnitude_limits!(
     return
 end
 
-################################## Native DCP branch constraints ############################
+################################## DCP branch constraints ###################################
 
 """
-Add branch flow rate (rating) constraints for ACBranch under the native DCPNetworkModel.
+Add branch flow rate (rating) constraints for ACBranch under DCPNetworkModel.
 
 This is a simple lb/ub pair on the FlowActivePowerVariable that does not depend on the
 PTDF / network-reduction infrastructure used by the AbstractActivePowerModel dispatch.
@@ -2699,7 +2699,7 @@ function add_constraints!(
 end
 
 """
-Add branch Ohm's law (DC power flow) constraint for ACBranch under the native DCPNetworkModel:
+Add branch Ohm's law (DC power flow) constraint for ACBranch under DCPNetworkModel:
 
     p_fr == -b * (va_fr - va_to - shift)
 
@@ -2793,8 +2793,8 @@ _constrains_angle_difference(d::PSY.MonitoredLine) =
 _is_binding_angle_window(lims) = !(lims.min ≈ -π && lims.max ≈ π)
 
 """
-Add branch angle-difference limit constraints for ACBranch under the native DCP/ACP
-PowerModels.
+Add branch angle-difference limit constraints for ACBranch under DCP/ACP/DCPLL/LPACC
+network models.
 
 Only branches for which `PSY.get_angle_limits` is defined (currently `PSY.Line` and
 `PSY.MonitoredLine`) and that carry non-trivial limits (i.e. not the ±π defaults) receive
@@ -2843,7 +2843,7 @@ function add_constraints!(
 end
 
 """
-Add branch angle-difference limit constraints for ACBranch under the native ACR/IVR
+Add branch angle-difference limit constraints for ACBranch under the ACR/IVR
 rectangular coordinate formulations.
 
 Uses the cross-product form: for each limited branch with angle limits (angmin, angmax),
@@ -2903,7 +2903,7 @@ function add_constraints!(
 end
 
 """
-Add full π-model AC Ohm's law constraints for ACBranch under the native ACPNetworkModel.
+Add full π-model AC Ohm's law constraints for ACBranch under ACPNetworkModel.
 
 Four constraints per branch per time step (p_ft, q_ft, p_tf, q_tf) relate the four
 directional flow variables to voltage magnitudes and angles via the π-equivalent circuit.
@@ -2957,12 +2957,12 @@ function add_constraints!(
 end
 
 ################################################################################
-# Transformer3W explicit star-arc decomposition for native DCP / ACP
+# Transformer3W explicit star-arc decomposition for DCP / ACP
 #
 # A PSY.Transformer3W is the Y-equivalent of three two-winding transformers
 # meeting at an internal star bus (modeled in PSY as a real ACBus). The PNM
 # reduction layer expands this into ThreeWindingTransformerWinding entries that
-# native code consumes through the generic branch path. Without reduction (the
+# are consumed through the generic branch path. Without reduction (the
 # bare DCP/ACP path) the Transformer3W reaches the loops directly, and the
 # generic single-arc helpers (branch_admittance, branch_flow_limits, get_arc)
 # do not apply. The methods below decompose the device on the fly: one virtual
@@ -3324,7 +3324,7 @@ function add_constraints!(
     return
 end
 
-################################## Native DCPLLNetworkModel branch constraints #################
+################################## DCPLLNetworkModel branch constraints #################
 
 # Tighten a flow variable to ±rate without loosening any bound it already carries (a
 # MonitoredLine's directional flow vars keep their tighter flow_limits).

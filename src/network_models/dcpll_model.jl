@@ -1,4 +1,4 @@
-# Native DCPLL network formulation. Same bus/balance structure as DCP (voltage angles,
+# DCPLL network formulation. Same bus/balance structure as DCP (voltage angles,
 # reference-bus pinning, active nodal balance). Branch losses are handled by directional
 # flow variables + a quadratic loss constraint in the branch construction path.
 # VoltageAngle is added in the ArgumentConstructStage (network_constructor.jl generic

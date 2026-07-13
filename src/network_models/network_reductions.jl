@@ -322,8 +322,8 @@ function get_branch_argument_constraint_axis(
     return collect(keys(constraint_submap))
 end
 
-# Verify a user-provided MODF Matrix was built with the same network reduction
-# as the active reduction (derived from the PTDF Matrix). Equality of the bus
+# Verify a user-provided contingency matrix was built with the same network reduction
+# as the active reduction (derived from the network matrix). Equality of the bus
 # reduction map is the decisive check: it fixes the reduced bus/arc numbering
 # the post-contingency builder uses to index `modf_matrix[arc, outage_spec]`.
 function _validate_provided_modf_reduction!(
@@ -334,9 +334,9 @@ function _validate_provided_modf_reduction!(
        PNM.get_bus_reduction_map(network_reduction)
         throw(
             IS.ConflictingInputsError(
-                "The provided MODF Matrix was built with a different network \
-                reduction than the active reduction derived from the PTDF \
-                Matrix. Rebuild the MODF with a consistent network reduction, \
+                "The provided contingency matrix was built with a different network \
+                reduction than the active reduction derived from the network \
+                matrix. Rebuild the MODF with a consistent network reduction, \
                 or omit it so it is recalculated automatically.",
             ),
         )

@@ -531,7 +531,7 @@ function IOM.instantiate_network_model!(
     )
         throw(
             IS.ConflictingInputsError(
-                "The provided PTDF Matrix has reduced radial branches and mismatches the network \
+                "The provided network matrix has reduced radial branches and mismatches the network \
                 model specification reduce_radial_branches = false. Set the keyword argument \
                 reduce_radial_branches = true in your network model"),
         )
@@ -541,7 +541,7 @@ function IOM.instantiate_network_model!(
     )
         throw(
             IS.ConflictingInputsError(
-                "The provided PTDF Matrix has reduced degree two branches and mismatches the network \
+                "The provided network matrix has reduced degree two branches and mismatches the network \
                 model specification reduce_degree_two_branches = false. Set the keyword argument \
                 reduce_degree_two_branches = true in your network model"),
         )
@@ -552,9 +552,9 @@ function IOM.instantiate_network_model!(
     )
         throw(
             IS.ConflictingInputsError(
-                "The provided PTDF Matrix has  a ward reduction specified and the keyword argument \
+                "The provided network matrix has  a ward reduction specified and the keyword argument \
                 reduce_radial_branches = true. Set the keyword argument reduce_radial_branches = false \
-                or provide a modified PTDF Matrix without the Ward reduction."),
+                or provide a modified network matrix without the Ward reduction."),
         )
     end
 
@@ -654,7 +654,7 @@ function _reconcile_ptdf_modf_reduction!(
     return true
 end
 
-# Build the post-contingency MODF matrix when the template uses an outage-aware
+# Populate the contingency matrix when the template uses an outage-aware
 # (security-constrained) branch formulation and one was not provided explicitly.
 # The MODF reproduces the PTDF's network reduction (same reductions + irreducible
 # buses) so the nodal-balance rows and the post-contingency MODF columns align.

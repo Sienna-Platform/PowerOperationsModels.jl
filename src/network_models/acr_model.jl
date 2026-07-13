@@ -1,4 +1,4 @@
-# Native ACR network formulation. Provides bus voltage real (vr) and imaginary (vi)
+# ACR network formulation. Provides bus voltage real (vr) and imaginary (vi)
 # variables, slack-bus pinning (vi_ref == 0, vr_ref == vm_set), rectangular voltage-
 # magnitude bounds, and active+reactive nodal balance.
 #

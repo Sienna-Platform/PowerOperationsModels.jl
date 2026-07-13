@@ -1,4 +1,4 @@
-# Native LPACC (linear-programming AC, cold-start) network formulation. Provides bus
+# LPACC (linear-programming AC, cold-start) network formulation. Provides bus
 # voltage-angle (va) and voltage-magnitude-deviation (phi = |V| - 1) variables, slack-bus
 # angle pinning (va_ref == 0), voltage-deviation bounds, and active+reactive nodal balance.
 #

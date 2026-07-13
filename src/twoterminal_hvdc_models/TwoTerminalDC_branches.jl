@@ -725,7 +725,7 @@ function add_constraints!(
     ::Type{T},
     devices::IS.FlattenIteratorWrapper{U},
     ::DeviceModel{U, V},
-    ::NetworkModel{<:Union{AbstractPTDFNetworkModel, NativeACNetworkModel}},
+    ::NetworkModel{<:Union{AbstractPTDFNetworkModel, NativeNodalNetworkModel}},
 ) where {
     T <: Union{FlowRateConstraintFromTo, FlowRateConstraintToFrom},
     U <: PSY.TwoTerminalHVDC,
