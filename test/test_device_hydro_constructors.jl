@@ -364,7 +364,7 @@ end
     sys = PSB.build_system(PSITestSystems, "c_sys5_hy"; add_single_time_series = true)
     transform_single_time_series!(sys, Hour(24), Hour(24))
 
-    model = DecisionModel(MockOperationProblem, CopperPlatePowerModel, sys)
+    model = DecisionModel(MockOperationProblem, CopperPlateNetworkModel, sys)
     mock_construct_device!(model, device_model)
 
     container = IOM.get_optimization_container(model)
