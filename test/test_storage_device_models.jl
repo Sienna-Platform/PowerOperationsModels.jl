@@ -283,6 +283,74 @@ end =#
     moi_tests(model, 434, 0, 574, 286, 125, false)
 end
 
+@testset "Test Storage Cycling Limits without Reserves" begin
+    template = get_thermal_dispatch_template_network(CopperPlateNetworkModel)
+    device_model = DeviceModel(
+        EnergyReservoirStorage,
+        StorageDispatchWithReserves;
+        attributes = Dict{String, Any}(
+            "reservation" => false,
+            "cycling_limits" => true,
+            "energy_target" => false,
+            "complete_coverage" => false,
+            "regularization" => false,
+        ),
+    )
+    set_device_model!(template, device_model)
+    set_device_model!(template, RenewableDispatch, FixedOutput)
+
+    c_sys5_bat = PSB.build_system(PSITestSystems, "c_sys5_bat")
+    model = DecisionModel(template, c_sys5_bat)
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          ModelBuildStatus.BUILT
+
+    container = get_optimization_container(model)
+    charge_con = get_constraint(container, StorageCyclingCharge, EnergyReservoirStorage)
+    discharge_con =
+        get_constraint(container, StorageCyclingDischarge, EnergyReservoirStorage)
+    # Whole-horizon budget constraints: 1D over device name only, one constraint per
+    # device rather than per (device, time). See POM issue #178.
+    @test axes(charge_con) == (["Bat"],)
+    @test axes(discharge_con) == (["Bat"],)
+end
+
+@testset "Test Storage Cycling Limits with Reserves" begin
+    template = get_thermal_dispatch_template_network(CopperPlateNetworkModel)
+    device_model = DeviceModel(
+        EnergyReservoirStorage,
+        StorageDispatchWithReserves;
+        attributes = Dict{String, Any}(
+            "reservation" => false,
+            "cycling_limits" => true,
+            "energy_target" => false,
+            "complete_coverage" => false,
+            "regularization" => false,
+        ),
+    )
+    set_device_model!(template, device_model)
+    set_device_model!(template, RenewableDispatch, FixedOutput)
+    set_service_model!(
+        template,
+        ServiceModel(VariableReserve{ReserveUp}, RangeReserve, "Reserve3"),
+    )
+    set_service_model!(
+        template,
+        ServiceModel(VariableReserve{ReserveDown}, RangeReserve, "Reserve4"),
+    )
+
+    c_sys5_bat = PSB.build_system(PSITestSystems, "c_sys5_bat"; add_reserves = true)
+    model = DecisionModel(template, c_sys5_bat)
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          ModelBuildStatus.BUILT
+
+    container = get_optimization_container(model)
+    charge_con = get_constraint(container, StorageCyclingCharge, EnergyReservoirStorage)
+    discharge_con =
+        get_constraint(container, StorageCyclingDischarge, EnergyReservoirStorage)
+    @test axes(charge_con) == (["Bat"],)
+    @test axes(discharge_con) == (["Bat"],)
+end
+
 @testset "Test AreaPTDF System Balance" begin
     sys = build_system(PSISystems, "two_area_pjm_DA")
     transform_single_time_series!(sys, Hour(2), Hour(2))
