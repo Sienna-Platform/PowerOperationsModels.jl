@@ -10,3 +10,6 @@ documentation in detail:
 Pull requests are always welcome to fix bugs or add additional modeling capabilities.
 
 **All the code contributions need to include tests with a minimum coverage of 70%**
+
+For the conventions governing how optimization variable/constraint/expression/parameter
+containers are shaped and indexed, see [Optimization Container Axes](@ref).
