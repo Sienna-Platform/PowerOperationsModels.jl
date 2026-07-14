@@ -353,6 +353,41 @@ function IOM.instantiate_network_model!(
         model,
         branch_models,
     )
+    _instantiate_ybus_network_reduction!(model, sys, irreducible_buses)
+    _finalize_network_reduction!(model, branch_models, number_of_steps)
+    return
+end
+
+# DCP additionally supports MODF security-constrained branches: build/reconcile
+# the contingency matrix between the Ybus reduction and the finalize step, since
+# reconciliation can replace `network_reduction` before the branch maps are
+# populated.
+function IOM.instantiate_network_model!(
+    model::NetworkModel{DCPNetworkModel},
+    branch_models::BranchModelContainer,
+    number_of_steps::Int,
+    sys::PSY.System,
+)
+    _validate_network_and_branches(model, branch_models, sys)
+    irreducible_buses = _get_irreducible_buses_due_to_monitored_components(
+        sys,
+        model,
+        branch_models,
+    )
+    _instantiate_ybus_network_reduction!(model, sys, irreducible_buses)
+    _maybe_build_dcp_modf_matrix!(model, branch_models, sys, irreducible_buses)
+    _finalize_network_reduction!(model, branch_models, number_of_steps)
+    return
+end
+
+# Ybus-derived reduction shared by every Ybus-based network model (ACP, ACR,
+# DCP, NFA, ...): build the (possibly reduced) Ybus, derive the subnetworks, and
+# install the reduction data on the model.
+function _instantiate_ybus_network_reduction!(
+    model::NetworkModel,
+    sys::PSY.System,
+    irreducible_buses::Vector{Int64},
+)
     if model.reduce_radial_branches && model.reduce_degree_two_branches
         @info "Applying both radial and degree two reductions"
         ybus = PNM.Ybus(
@@ -395,6 +430,14 @@ function IOM.instantiate_network_model!(
     # reductions that are incompatible right now.
     # check_network_reduction_compatibility(T)
     #end
+    return
+end
+
+function _finalize_network_reduction!(
+    model::NetworkModel,
+    branch_models::BranchModelContainer,
+    number_of_steps::Int,
+)
     PNM.populate_branch_maps_by_type!(
         model.network_reduction,
         IOM._get_filters(branch_models),
@@ -699,4 +742,83 @@ function _maybe_build_modf_matrix!(
         IOM.get_contingency_matrix(model),
     )
     return
+end
+
+# DCP counterpart of `_maybe_build_modf_matrix!`: populate the contingency
+# matrix when the template uses an outage-aware (security-constrained) branch
+# formulation, reconcile its reduction against the Ybus-derived one, and drop
+# outages PNM could not register. Must run before
+# `_finalize_network_reduction!` because reconciliation can replace
+# `model.network_reduction`.
+function _maybe_build_dcp_modf_matrix!(
+    model::NetworkModel{DCPNetworkModel},
+    branch_models::BranchModelContainer,
+    sys::PSY.System,
+    irreducible_buses::Vector{Int64},
+)
+    IOM._template_has_outage_aware_branch(branch_models) || return
+    if IOM.get_contingency_matrix(model) === nothing
+        @info "MODF Matrix not provided. Calculating using PowerNetworkMatrices.VirtualMODF"
+        model.contingency_matrix = PNM.VirtualMODF(
+            sys;
+            tol = PTDF_ZERO_TOL,
+            network_reductions = _model_network_reductions(model),
+            irreducible_buses = irreducible_buses,
+        )
+    end
+    _reconcile_ybus_modf_reduction!(model, sys)
+    _consolidate_device_model_outages_with_modf!(
+        branch_models,
+        IOM.get_contingency_matrix(model),
+    )
+    return
+end
+
+"""
+Rebuild the Ybus reduction and the MODF onto the union of their retained buses
+when they diverge (the DCP analogue of `_reconcile_ptdf_modf_reduction!`).
+Returns `true` if a rebuild happened; throws if one pass fails to converge them,
+since mismatched reductions break the nodal-balance vs. MODF-column dimensions.
+"""
+function _reconcile_ybus_modf_reduction!(
+    model::NetworkModel{DCPNetworkModel},
+    sys::PSY.System,
+)
+    modf_nrd = PNM.get_network_reduction_data(IOM.get_contingency_matrix(model))
+    retained_ybus = _retained_buses(model.network_reduction)
+    retained_modf = _retained_buses(modf_nrd)
+    retained_ybus == retained_modf && return false
+
+    @warn "Ybus and MODF reduced to different bus sets \
+           (|Ybus retained|=$(length(retained_ybus)), \
+           |MODF retained|=$(length(retained_modf))). Reconciling both onto \
+           the cohesive union of retained buses so the nodal-balance and \
+           post-contingency dimensions agree."
+    cohesive = collect(union(retained_ybus, retained_modf))
+    reductions = _model_network_reductions(model)
+    ybus = PNM.Ybus(
+        sys;
+        network_reductions = reductions,
+        irreducible_buses = cohesive,
+    )
+    model.contingency_matrix = PNM.VirtualMODF(
+        sys;
+        tol = PTDF_ZERO_TOL,
+        network_reductions = reductions,
+        irreducible_buses = cohesive,
+    )
+    model.network_reduction = deepcopy(PNM.get_network_reduction_data(ybus))
+    model.subnetworks = _make_subnetworks_from_subnetwork_axes(ybus)
+
+    if _retained_buses(model.network_reduction) != _retained_buses(
+        PNM.get_network_reduction_data(IOM.get_contingency_matrix(model)),
+    )
+        throw(
+            IS.ConflictingInputsError(
+                "Ybus and MODF reductions remain dimensionally inconsistent \
+                after one reconciliation pass; aborting build.",
+            ),
+        )
+    end
+    return true
 end

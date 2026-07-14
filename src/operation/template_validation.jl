@@ -210,7 +210,7 @@ end
 # returns `false` so the AC and lossy networks fail fast at validation instead
 # of hitting a `MethodError` during build.
 _sc_branch_network_supported(::NetworkModel{<:AbstractPTDFNetworkModel}) = true
-_sc_branch_network_supported(::NetworkModel{<:AbstractACPModel}) = true
+_sc_branch_network_supported(::NetworkModel{DCPNetworkModel}) = true
 _sc_branch_network_supported(::NetworkModel{NFANetworkModel}) = true
 _sc_branch_network_supported(::NetworkModel{CopperPlateNetworkModel}) = true
 _sc_branch_network_supported(::NetworkModel{AreaBalanceNetworkModel}) = true
@@ -272,9 +272,11 @@ function _check_security_constrained_network!(
             throw(
                 IS.ConflictingInputsError(
                     "$(B) is not supported with network model \
-                    $(get_network_formulation(network_model)). Use a PTDF \
-                    (AbstractPTDFNetworkModel) or ACP network model. DCP support \
-                    (angle-based post-contingency) is pending; NFA, \
+                    $(get_network_formulation(network_model)). Supported network \
+                    models are PTDF, AreaPTDF and DCP. Security-constrained \
+                    branches are not available on AC or lossy network models \
+                    (ACP/ACR/IVR/LPACC/DCPLL) because the MODF post-contingency \
+                    formulation is a lossless linear DC construct. NFA, \
                     CopperPlate and AreaBalance are inert for \
                     security-constrained branches.",
                 ),
