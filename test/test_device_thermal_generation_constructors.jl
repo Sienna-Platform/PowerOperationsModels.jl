@@ -1529,3 +1529,59 @@ end
     @test isapprox(p_steam3[1], x_last) # max
     @test isapprox(cost_steam3[1], y_last) # last cost
 end
+
+@testset "Compact unit commitment wires reactive power into ReactivePowerBalance" begin
+    for formulation in (ThermalCompactUnitCommitment, ThermalBasicCompactUnitCommitment)
+        device_model = DeviceModel(PSY.ThermalStandard, formulation)
+        c_sys5 = PSB.build_system(PSITestSystems, "c_sys5")
+        model = DecisionModel(MockOperationProblem, ACPNetworkModel, c_sys5)
+        mock_construct_device!(model, device_model)
+
+        container = IOM.get_optimization_container(model)
+        q = IOM.get_variable(container, ReactivePowerVariable, PSY.ThermalStandard)
+        balance = IOM.get_expression(container, POM.ReactivePowerBalance, PSY.ACBus)
+        t1 = first(IOM.get_time_steps(container))
+
+        # every compact unit must contribute its reactive output to the balance at its bus
+        for device in PSY.get_components(PSY.ThermalStandard, c_sys5)
+            name = PSY.get_name(device)
+            bus_no = PSY.get_number(PSY.get_bus(device))
+            @test JuMP.coefficient(balance[bus_no, t1], q[name, t1]) == 1.0
+        end
+    end
+end
+
+@testset "ThermalGen FixedOutput builds on active-power and AC networks" begin
+    for network_formulation in (DCPNetworkModel, ACPNetworkModel)
+        c_sys5_uc = PSB.build_system(PSITestSystems, "c_sys5_uc")
+        # thermal units carry no time series; FixedOutput is driven by max_active_power
+        forecast = PSY.get_time_series(
+            Deterministic,
+            first(PSY.get_components(PSY.PowerLoad, c_sys5_uc)),
+            "max_active_power",
+        )
+        for device in PSY.get_components(PSY.ThermalStandard, c_sys5_uc)
+            PSY.add_time_series!(c_sys5_uc, device, forecast)
+        end
+
+        template = PowerOperationsProblemTemplate(
+            NetworkModel(network_formulation; use_slacks = true),
+        )
+        set_device_model!(template, DeviceModel(PSY.ThermalStandard, FixedOutput))
+        set_device_model!(template, PowerLoad, StaticPowerLoad)
+        set_device_model!(template, Line, StaticBranch)
+
+        model = DecisionModel(template, c_sys5_uc; optimizer = ipopt_optimizer)
+        @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+              ModelBuildStatus.BUILT
+        @test solve!(model) == RunStatus.SUCCESSFULLY_FINALIZED
+
+        # FixedOutput has no dispatch decision, so no active power variable is created
+        container = IOM.get_optimization_container(model)
+        @test !IOM.has_container_key(
+            container,
+            ActivePowerVariable,
+            PSY.ThermalStandard,
+        )
+    end
+end
