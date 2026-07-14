@@ -1935,7 +1935,7 @@ function add_to_expression!(
     for t in time_steps
         add_proportional_to_jump_expression!(
             expression[service_name, t],
-            variable[t],
+            variable[service_name, t],
             get_variable_multiplier(T, S, U),
         )
     end
@@ -2813,7 +2813,7 @@ function add_to_expression!(
         bias_mult = -10 * PSY.get_bias(s)
         add_proportional_to_jump_expression!(
             expression[name, t],
-            variable[t],
+            variable["System", t],
             bias_mult * get_variable_multiplier(U, V, W),
         )
     end

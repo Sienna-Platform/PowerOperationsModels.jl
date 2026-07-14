@@ -1294,11 +1294,12 @@ function add_constraints!(
     hydro_budget_interval = get_attribute(model, "hydro_budget_interval")
     if isnothing(hydro_budget_interval)
         constraint =
-            add_constraints_container!(container, EnergyBudgetConstraint, V, set_name)
+            add_constraints_container!(
+                container, EnergyBudgetConstraint, V, set_name, ["horizon"])
         for d in devices
             name = PSY.get_name(d)
             param = get_parameter_column_values(param_container, name)
-            constraint[name] = JuMP.@constraint(
+            constraint[name, "horizon"] = JuMP.@constraint(
                 jump_model,
                 sum(variable_out[name, t] for t in time_steps) <=
                 sum(multiplier[name, t] * param[t] for t in time_steps) +
@@ -1350,7 +1351,8 @@ function add_constraints!(
     time_steps = get_time_steps(container)
     set_name = [PSY.get_name(d) for d in devices]
     constraint =
-        add_constraints_container!(container, EnergyBudgetConstraint, V, set_name)
+        add_constraints_container!(
+            container, EnergyBudgetConstraint, V, set_name, ["horizon"])
 
     total_power_out = get_expression(container, TotalHydroPowerReservoirOutgoing, V)
     param_container = get_parameter(container, EnergyBudgetTimeSeriesParameter, V)
@@ -1365,7 +1367,7 @@ function add_constraints!(
             slack_var = 0.0
         end
         param = get_parameter_column_values(param_container, name)
-        constraint[name] = JuMP.@constraint(
+        constraint[name, "horizon"] = JuMP.@constraint(
             container.JuMPmodel,
             sum([total_power_out[name, t] for t in time_steps]) <=
             sum([multiplier[name, t] * param[t] for t in time_steps]) + slack_var
@@ -1394,7 +1396,8 @@ function add_constraints!(
     time_steps = get_time_steps(container)
     set_name = [PSY.get_name(d) for d in devices]
     constraint =
-        add_constraints_container!(container, WaterBudgetConstraint, V, set_name)
+        add_constraints_container!(
+            container, WaterBudgetConstraint, V, set_name, ["horizon"])
 
     total_flow_out = get_expression(container, TotalHydroFlowRateReservoirOutgoing, V)
     param_container = get_parameter(container, WaterBudgetTimeSeriesParameter, V)
@@ -1403,7 +1406,7 @@ function add_constraints!(
     for d in devices
         name = PSY.get_name(d)
         param = get_parameter_column_values(param_container, name)
-        constraint[name] = JuMP.@constraint(
+        constraint[name, "horizon"] = JuMP.@constraint(
             container.JuMPmodel,
             sum([total_flow_out[name, t] for t in time_steps]) <=
             sum([multiplier[name, t] * param[t] for t in time_steps])
@@ -1595,6 +1598,7 @@ function add_constraints!(
         add_constraints_container!(container, ReservoirLevelTargetConstraint,
             V,
             names,
+            [time_steps[end]],
         )
 
     for d in devices
@@ -1607,7 +1611,7 @@ function add_constraints!(
             var = get_variable(container, HydroReservoirHeadVariable, V)
         end
 
-        constraint[name] = JuMP.@constraint(
+        constraint[name, time_steps[end]] = JuMP.@constraint(
             container.JuMPmodel,
             var[name, time_steps[end]] >= level_targets
         )
@@ -1635,6 +1639,7 @@ function add_constraints!(
         add_constraints_container!(container, ReservoirLevelTargetConstraint,
             V,
             names,
+            [time_steps[end]],
         )
 
     for d in devices
@@ -1654,7 +1659,7 @@ function add_constraints!(
                 get_variable(container, HydroReservoirVolumeVariable, V) / h2v_factor
         end
 
-        constraint[name] = JuMP.@constraint(
+        constraint[name, time_steps[end]] = JuMP.@constraint(
             container.JuMPmodel,
             level_targets <= var[name, time_steps[end]] <=
             PSY.get_storage_level_limits(d).max
