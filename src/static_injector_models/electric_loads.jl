@@ -71,7 +71,7 @@ add_proportional_cost!(
 
 function get_default_time_series_names(
     ::Type{<:PSY.ElectricLoad},
-    ::Type{<:Union{FixedOutput, AbstractLoadFormulation}},
+    ::Type{<:AbstractLoadFormulation},
 )
     return Dict{Type{<:TimeSeriesParameter}, String}(
         ActivePowerTimeSeriesParameter => "max_active_power",
@@ -82,7 +82,7 @@ end
 function get_default_attributes(
     ::Type{U},
     ::Type{V},
-) where {U <: PSY.ElectricLoad, V <: Union{FixedOutput, AbstractLoadFormulation}}
+) where {U <: PSY.ElectricLoad, V <: AbstractLoadFormulation}
     return Dict{String, Any}()
 end
 
@@ -93,7 +93,7 @@ get_initial_conditions_device_model(
 
 function get_default_time_series_names(
     ::Type{<:PSY.MotorLoad},
-    ::Type{<:Union{FixedOutput, AbstractLoadFormulation}},
+    ::Type{<:AbstractLoadFormulation},
 )
     return Dict{Type{<:TimeSeriesParameter}, String}()
 end
