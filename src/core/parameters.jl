@@ -256,6 +256,8 @@ convert_output_to_natural_units(
     ::Type{PostContingencyBranchRatingTimeSeriesParameter},
 ) = true
 convert_output_to_natural_units(::Type{ActivePowerTimeSeriesParameter}) = true
+convert_output_to_natural_units(::Type{ActivePowerOutTimeSeriesParameter}) = true
+convert_output_to_natural_units(::Type{ActivePowerInTimeSeriesParameter}) = true
 convert_output_to_natural_units(::Type{ReactivePowerTimeSeriesParameter}) = true
 convert_output_to_natural_units(::Type{RequirementTimeSeriesParameter}) = true
 convert_output_to_natural_units(::Type{UpperBoundValueParameter}) = true
