@@ -1946,7 +1946,7 @@ function add_to_expression!(
     for t in time_steps
         add_proportional_to_jump_expression!(
             expression[service_name, t],
-            variable[t],
+            variable[service_name, t],
             get_variable_multiplier(T, S, U),
         )
     end
@@ -2042,7 +2042,7 @@ function add_to_expression!(
 end
 
 function _is_interchanges_interfaces(
-    contributing_devices_map::Dict{Type{<:PSY.Component}, Vector{<:PSY.Component}},
+    contributing_devices_map::Dict,
 )
     if PSY.AreaInterchange ∈ keys(contributing_devices_map)
         @assert length(keys(contributing_devices_map)) == 1
@@ -2824,7 +2824,7 @@ function add_to_expression!(
         bias_mult = -10 * PSY.get_bias(s)
         add_proportional_to_jump_expression!(
             expression[name, t],
-            variable[t],
+            variable["System", t],
             bias_mult * get_variable_multiplier(U, V, W),
         )
     end

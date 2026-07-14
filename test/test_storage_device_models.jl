@@ -283,6 +283,115 @@ end =#
     moi_tests(model, 434, 0, 574, 286, 125, false)
 end
 
+@testset "Test Storage Energy Target Constraint" begin
+    template = get_thermal_dispatch_template_network(CopperPlateNetworkModel)
+    device_model = DeviceModel(
+        EnergyReservoirStorage,
+        StorageDispatchWithReserves;
+        attributes = Dict{String, Any}(
+            "reservation" => false,
+            "cycling_limits" => false,
+            "energy_target" => true,
+            "complete_coverage" => false,
+            "regularization" => false,
+        ),
+    )
+    set_device_model!(template, device_model)
+    set_device_model!(template, RenewableDispatch, FixedOutput)
+
+    c_sys5_bat_ems = PSB.build_system(PSITestSystems, "c_sys5_bat_ems")
+    model = DecisionModel(template, c_sys5_bat_ems)
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          ModelBuildStatus.BUILT
+
+    container = get_optimization_container(model)
+    target_con =
+        get_constraint(container, StateofChargeTargetConstraint, EnergyReservoirStorage)
+    time_steps = get_time_steps(container)
+    @test axes(target_con) == (["Bat2"], [time_steps[end]])
+
+    d = only(get_components(EnergyReservoirStorage, c_sys5_bat_ems))
+    target = PSY.get_storage_target(d)
+    con = target_con["Bat2", time_steps[end]]
+    @test JuMP.normalized_rhs(con) == target
+    energy_var = IOM.get_variable(container, EnergyVariable, EnergyReservoirStorage)
+    surplus_var =
+        IOM.get_variable(container, StorageEnergySurplusVariable, EnergyReservoirStorage)
+    shortfall_var =
+        IOM.get_variable(container, StorageEnergyShortageVariable, EnergyReservoirStorage)
+    @test JuMP.normalized_coefficient(con, energy_var["Bat2", time_steps[end]]) == 1.0
+    @test JuMP.normalized_coefficient(con, surplus_var["Bat2", time_steps[end]]) == -1.0
+    @test JuMP.normalized_coefficient(con, shortfall_var["Bat2", time_steps[end]]) == 1.0
+end
+
+@testset "Test Storage Cycling Limits without Reserves" begin
+    template = get_thermal_dispatch_template_network(CopperPlateNetworkModel)
+    device_model = DeviceModel(
+        EnergyReservoirStorage,
+        StorageDispatchWithReserves;
+        attributes = Dict{String, Any}(
+            "reservation" => false,
+            "cycling_limits" => true,
+            "energy_target" => false,
+            "complete_coverage" => false,
+            "regularization" => false,
+        ),
+    )
+    set_device_model!(template, device_model)
+    set_device_model!(template, RenewableDispatch, FixedOutput)
+
+    c_sys5_bat = PSB.build_system(PSITestSystems, "c_sys5_bat")
+    model = DecisionModel(template, c_sys5_bat)
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          ModelBuildStatus.BUILT
+
+    container = get_optimization_container(model)
+    charge_con = get_constraint(container, StorageCyclingCharge, EnergyReservoirStorage)
+    discharge_con =
+        get_constraint(container, StorageCyclingDischarge, EnergyReservoirStorage)
+    time_steps = get_time_steps(container)
+    @test axes(charge_con) == (["Bat"], [time_steps[end]])
+    @test axes(discharge_con) == (["Bat"], [time_steps[end]])
+end
+
+@testset "Test Storage Cycling Limits with Reserves" begin
+    template = get_thermal_dispatch_template_network(CopperPlateNetworkModel)
+    device_model = DeviceModel(
+        EnergyReservoirStorage,
+        StorageDispatchWithReserves;
+        attributes = Dict{String, Any}(
+            "reservation" => false,
+            "cycling_limits" => true,
+            "energy_target" => false,
+            "complete_coverage" => false,
+            "regularization" => false,
+        ),
+    )
+    set_device_model!(template, device_model)
+    set_device_model!(template, RenewableDispatch, FixedOutput)
+    set_service_model!(
+        template,
+        ServiceModel(VariableReserve{ReserveUp}, RangeReserve, "Reserve3"),
+    )
+    set_service_model!(
+        template,
+        ServiceModel(VariableReserve{ReserveDown}, RangeReserve, "Reserve4"),
+    )
+
+    c_sys5_bat = PSB.build_system(PSITestSystems, "c_sys5_bat"; add_reserves = true)
+    model = DecisionModel(template, c_sys5_bat)
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          ModelBuildStatus.BUILT
+
+    container = get_optimization_container(model)
+    charge_con = get_constraint(container, StorageCyclingCharge, EnergyReservoirStorage)
+    discharge_con =
+        get_constraint(container, StorageCyclingDischarge, EnergyReservoirStorage)
+    time_steps = get_time_steps(container)
+    @test axes(charge_con) == (["Bat"], [time_steps[end]])
+    @test axes(discharge_con) == (["Bat"], [time_steps[end]])
+end
+
 @testset "Storage with regularization and ACPNetworkModel" begin
     template = get_thermal_dispatch_template_network(ACPNetworkModel)
     device_model = DeviceModel(

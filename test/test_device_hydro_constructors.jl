@@ -338,8 +338,9 @@ end
 ####### Hydro DISPATCH RUN OF RIVER BUDGET TEST ########
 ########################################################
 @testset "Test Hydro Dispatch Run Of River Formulations " begin
-    device_model = DeviceModel(HydroDispatch, HydroDispatchRunOfRiverBudget;
-        use_slacks = true, attributes = Dict("hydro_budget_interval" => Hour(24)))
+    device_model = DeviceModel(HydroDispatch, HydroDispatchRunOfRiver;
+        use_slacks = true,
+        attributes = Dict("hydro_budget" => true, "hydro_budget_interval" => Hour(24)))
 
     sys = PSB.build_system(PSITestSystems, "c_sys5_hy"; add_single_time_series = true)
     hy = only(get_components(HydroDispatch, sys))
@@ -353,8 +354,28 @@ end
 
     model = DecisionModel(MockOperationProblem, CopperPlateNetworkModel, sys)
     mock_construct_device!(model, device_model)
-    moi_tests(model, 48, 0, 50, 24, 0, false)
+    moi_tests(model, 48, 0, 49, 24, 0, false)
     psi_checkobjfun_test(model, GAEVF)
+end
+
+@testset "Hydro Dispatch Run Of River without budget omits budget constraint" begin
+    device_model = DeviceModel(HydroDispatch, HydroDispatchRunOfRiver; use_slacks = true)
+
+    sys = PSB.build_system(PSITestSystems, "c_sys5_hy"; add_single_time_series = true)
+    transform_single_time_series!(sys, Hour(24), Hour(24))
+
+    model = DecisionModel(MockOperationProblem, CopperPlateNetworkModel, sys)
+    mock_construct_device!(model, device_model)
+
+    container = IOM.get_optimization_container(model)
+    @test !haskey(
+        IOM.get_constraints(container),
+        IOM.ConstraintKey(EnergyBudgetConstraint, HydroDispatch),
+    )
+    @test !haskey(
+        IOM.get_variables(container),
+        IOM.VariableKey(HydroEnergyShortageVariable, HydroDispatch),
+    )
 end
 
 @testset "Solve Hydro Dispatch Run Of River" begin
@@ -382,8 +403,9 @@ end
     set_device_model!(template_uc, RenewableNonDispatch, FixedOutput)
     set_device_model!(
         template_uc,
-        DeviceModel(HydroDispatch, HydroDispatchRunOfRiverBudget;
-            attributes = Dict("hydro_budget_interval" => Hour(hydro_budget))),
+        DeviceModel(HydroDispatch, HydroDispatchRunOfRiver;
+            attributes = Dict("hydro_budget" => true,
+                "hydro_budget_interval" => Hour(hydro_budget))),
     )
     model = DecisionModel(
         template_uc,
@@ -471,8 +493,9 @@ end
     set_device_model!(template_uc, RenewableNonDispatch, FixedOutput)
     set_device_model!(
         template_uc,
-        DeviceModel(HydroDispatch, HydroDispatchRunOfRiverBudget;
-            attributes = Dict("hydro_budget_interval" => Hour(hydro_budget))),
+        DeviceModel(HydroDispatch, HydroDispatchRunOfRiver;
+            attributes = Dict("hydro_budget" => true,
+                "hydro_budget_interval" => Hour(hydro_budget))),
     )
     set_service_model!(template_uc, VariableReserve{ReserveUp}, RangeReserve)
     set_service_model!(template_uc, VariableReserve{ReserveDown}, RangeReserve)
@@ -1150,4 +1173,107 @@ end
 
     @test build!(model; output_dir = mktempdir()) == ModelBuildStatus.BUILT
     @test solve!(model) == IS.Simulation.RunStatus.SUCCESSFULLY_FINALIZED
+end
+
+@testset "Hydro breakpoint multiplier and market-bid commitment traits" begin
+    # Regression for the hydro market-bid breakpoint mis-scaling bug (2026-07
+    # diagnosis); breakpoints are system-units so the multiplier must be 1.0 like every
+    # other device type.
+    demo_hydro = PSY.HydroDispatch(nothing)
+
+    # Test breakpoint multiplier methods return 1.0 for FixedOutput and AbstractHydroFormulation
+    @test POM.get_multiplier_value(
+        POM.AbstractPiecewiseLinearBreakpointParameter,
+        demo_hydro,
+        POM.FixedOutput,
+    ) == 1.0
+
+    @test POM.get_multiplier_value(
+        POM.AbstractPiecewiseLinearBreakpointParameter,
+        demo_hydro,
+        POM.HydroDispatchRunOfRiver,
+    ) == 1.0
+
+    # Lower-bound checks need a NONZERO static min: the demo device's default limits are
+    # (min = 0, max = 0), under which every path returns 0.0. SU units require system
+    # attachment, so attach the demo to a throwaway System first.
+    lb_sys = PSY.System(100.0)
+    lb_bus = PSY.ACBus(; number = 1, name = "LB_B1", available = true,
+        bustype = PSY.ACBusTypes.REF, angle = 0.0, magnitude = 1.0,
+        voltage_limits = (min = 0.9, max = 1.1), base_voltage = 345.0)
+    PSY.add_component!(lb_sys, lb_bus)
+    PSY.set_bus!(demo_hydro, lb_bus)
+    PSY.add_component!(lb_sys, demo_hydro)
+    PSY.set_active_power_limits!(demo_hydro, (min = 0.17 * PSY.SU, max = 0.21 * PSY.SU))
+
+    # Dispatch formulations keep the hard variable bound at the static min: a real
+    # min-gen under an always-on formulation is intended behavior. A unit whose min must
+    # be escapable (e.g. inert market-bid hours) belongs under HydroCommitmentRunOfRiver,
+    # where the min is On-gated, not hard-coded to 0 at the dispatch bound.
+    @test POM.get_variable_lower_bound(
+        POM.ActivePowerVariable,
+        demo_hydro,
+        POM.HydroDispatchRunOfRiver,
+    ) == 0.17
+    @test POM.get_variable_lower_bound(
+        POM.ActivePowerVariable,
+        demo_hydro,
+        POM.HydroWaterFactorModel,
+    ) == 0.17
+
+    # Unit commitment: variable lb is 0.0 (the min moves into the semicontinuous
+    # p >= min * On range constraint, so an OFF unit can sit at 0)
+    @test POM.get_variable_lower_bound(
+        POM.ActivePowerVariable,
+        demo_hydro,
+        POM.HydroCommitmentRunOfRiver,
+    ) == 0.0
+
+    # Market-bid PWL offset gating: commitment adds breakpoint1 * OnVariable to the block
+    # offer constraint (escapable when OFF); dispatch adds it as a constant (always on).
+    @test POM._include_min_gen_power_in_constraint(
+        PSY.HydroDispatch,
+        POM.ActivePowerVariable,
+        POM.HydroCommitmentRunOfRiver,
+    )
+    @test !POM._include_min_gen_power_in_constraint(
+        PSY.HydroDispatch,
+        POM.ActivePowerVariable,
+        POM.HydroDispatchRunOfRiver,
+    )
+    @test POM._include_constant_min_gen_power_in_constraint(
+        PSY.HydroDispatch,
+        POM.ActivePowerVariable,
+        POM.HydroDispatchRunOfRiver,
+    )
+
+    # HydroCommitmentRunOfRiver has no duration/ramp constraints and never consumes
+    # initial conditions, so it must not force an initialization sub-model (mirrors
+    # ThermalBasicUnitCommitment).
+    @test !POM.requires_initialization(POM.HydroCommitmentRunOfRiver())
+
+    # The hydro OnVariable proportional cost must route through the market-bid-aware
+    # maybe-time-variant path (like thermal UC), not IOM's static path whose
+    # `PSY.get_fixed(cost)` does not exist for market bid costs and used to error the
+    # HydroCommitmentRunOfRiver + market-bid objective build.
+    @test hasmethod(
+        POM.add_proportional_cost!,
+        Tuple{
+            POM.OptimizationContainer,
+            Type{POM.OnVariable},
+            IS.FlattenIteratorWrapper{PSY.HydroDispatch},
+            Type{POM.HydroCommitmentRunOfRiver},
+        },
+    )
+    @test hasmethod(
+        POM.proportional_cost,
+        Tuple{
+            POM.OptimizationContainer,
+            PSY.MarketBidCost,
+            Type{POM.OnVariable},
+            PSY.HydroDispatch,
+            Type{POM.HydroCommitmentRunOfRiver},
+            Int,
+        },
+    )
 end

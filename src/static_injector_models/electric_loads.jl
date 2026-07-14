@@ -55,7 +55,7 @@ objective_function_multiplier(::Type{ShiftDownActivePowerVariable}, ::Type{Power
 #! format: on
 
 # proportional cost: connects to common implementation in IOM
-# see also the definition in thermal_generation.jl
+# see also the thermal + hydro forwarder in common_models/objective_function.jl
 add_proportional_cost!(
     container::OptimizationContainer,
     ::Type{U},
