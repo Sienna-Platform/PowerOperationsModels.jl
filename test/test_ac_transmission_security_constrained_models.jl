@@ -579,15 +579,14 @@ end
         IOM.ConstraintKey(POM.PostContingencyFlowRateConstraint, PSY.Line, "ub"),
     ]
     # Every NetworkModel formulation with a construct_device! dispatch for
-    # SecurityConstrainedStaticBranch must build to completion. The ACP case used
-    # to be `@test_broken` because the ACP SC ArgumentConstructStage never added
-    # `FlowActivePowerFromToVariable` for the monitored branches (the ACP
-    # post-contingency expression builder reads it); that flow-variable gap is now
-    # fixed in `src/ac_transmission_models/security_constrained_branch.jl`.
+    # SecurityConstrainedStaticBranch must build to completion. These are the
+    # lossless linear networks: PTDF, AreaPTDF, and DCP. AC and lossy networks
+    # (ACP/ACR/IVR/LPACC/DCPLL) are rejected at template validation — see the
+    # "blocked on AC and lossy network models" testset.
     for (label, NetFormulation, optimizer) in [
         ("PTDFNetworkModel", PTDFNetworkModel, HiGHS_optimizer),
         ("AreaPTDFNetworkModel", POM.AreaPTDFNetworkModel, HiGHS_optimizer),
-        ("ACPNetworkModel", POM.ACPNetworkModel, ipopt_optimizer),
+        ("DCPNetworkModel", POM.DCPNetworkModel, HiGHS_optimizer),
     ]
         @testset "$label" begin
             template = get_thermal_dispatch_template_network(
@@ -610,6 +609,255 @@ end
                   IOM.ModelBuildStatus.BUILT
             psi_constraint_test(ps_model, constraint_keys)
         end
+    end
+end
+
+@testset "DCP post-contingency expressions differ per outage" begin
+    # The single highest-value N-1 check: for one monitored branch, the
+    # post-contingency flow expression must depend on WHICH branch is out (the
+    # MODF row differs per outage). A formulation that reuses the branch's own
+    # base-case flow for every outage produces byte-identical expressions and
+    # models zero contingency response — this testset exists to reject that.
+    c_sys5 = PSB.build_system(PSITestSystems, "c_sys5")
+    monitored = get_component(PSY.ACTransmission, c_sys5, "3")
+    for line_name in ["1", "2"]
+        outaged = get_component(PSY.ACTransmission, c_sys5, line_name)
+        PSY.add_supplemental_attribute!(
+            c_sys5,
+            outaged,
+            PSY.GeometricDistributionForcedOutage(;
+                mean_time_to_recovery = 10,
+                outage_transition_probability = 0.9999,
+                monitored_components = [monitored],
+            ),
+        )
+    end
+
+    template = get_thermal_dispatch_template_network(NetworkModel(POM.DCPNetworkModel))
+    set_device_model!(template, PSY.Line, POM.SecurityConstrainedStaticBranch)
+
+    ps_model = DecisionModel(template, c_sys5; optimizer = HiGHS_optimizer)
+    @test build!(ps_model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+
+    container = IOM.get_optimization_container(ps_model)
+    pcbf = IOM.get_expression(container, POM.PostContingencyBranchFlow, PSY.Line)
+    outage_ids = sort!(unique(k[1] for k in keys(pcbf.data)))
+    @test length(outage_ids) == 2
+
+    for t in IOM.get_time_steps(container)
+        expr_outage_1 = pcbf[outage_ids[1], "3", t]
+        expr_outage_2 = pcbf[outage_ids[2], "3", t]
+        # A genuine MODF-weighted expression spans the network's flow variables,
+        # not just the monitored branch's own flow.
+        @test length(expr_outage_1.terms) > 1
+        @test length(expr_outage_2.terms) > 1
+        # Different outage => different MODF row => different coefficients.
+        @test !_affexpr_approx_equal(expr_outage_1, expr_outage_2)
+    end
+end
+
+@testset "DCP post-contingency expressions match MODF x injection ground truth" begin
+    # Coefficient-level check against an independent oracle. The oracle derives
+    # the nodal injection expressions straight from the SYSTEM TOPOLOGY (KCL at
+    # each bus: injection = sum of flows leaving - sum of flows arriving, from
+    # the PSY arcs) and a freshly-built VirtualMODF — it does NOT go through the
+    # production balance-filtering path, so a sign or ordering error there
+    # cannot cancel out here.
+    c_sys5 = PSB.build_system(PSITestSystems, "c_sys5")
+    all_branches = collect(get_components(PSY.ACTransmission, c_sys5))
+    for line_name in ["1", "2", "3"]
+        line = get_component(PSY.ACTransmission, c_sys5, line_name)
+        PSY.add_supplemental_attribute!(
+            c_sys5,
+            line,
+            PSY.GeometricDistributionForcedOutage(;
+                mean_time_to_recovery = 10,
+                outage_transition_probability = 0.9999,
+                monitored_components = all_branches,
+            ),
+        )
+    end
+
+    template = get_thermal_dispatch_template_network(NetworkModel(POM.DCPNetworkModel))
+    set_device_model!(template, PSY.Line, POM.SecurityConstrainedStaticBranch)
+
+    ps_model = DecisionModel(template, c_sys5; optimizer = HiGHS_optimizer)
+    @test build!(ps_model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+
+    container = IOM.get_optimization_container(ps_model)
+    network_model = IOM.get_network_model(IOM.get_template(ps_model))
+    @test !isnothing(IOM.get_contingency_matrix(network_model))
+    time_steps = IOM.get_time_steps(container)
+
+    # Base-case DCP structure is intact: flow limits and the DC Ohm's law exist
+    # for the security-constrained branches.
+    @test !isempty(
+        IOM.get_constraints(container)[IOM.ConstraintKey(
+            FlowRateConstraint, PSY.Line, "ub",
+        )],
+    )
+    @test !isempty(
+        IOM.get_constraint(
+            container, IOM.ConstraintKey(POM.NetworkFlowConstraint, PSY.Line),
+        ),
+    )
+
+    # Independent oracle, part 1: nodal injection expressions from KCL over the
+    # raw PSY arcs. Flow f_b (from -> to) leaves the from-bus and arrives at the
+    # to-bus, so injection[from] += f_b and injection[to] -= f_b.
+    ground_truth_modf = PNM.VirtualMODF(c_sys5)
+    ground_truth_registered = PNM.get_registered_contingencies(ground_truth_modf)
+    @test !isempty(ground_truth_registered)
+    bus_axis = PNM.get_bus_axis(ground_truth_modf)
+    flow_vars = IOM.get_variable(container, POM.FlowActivePowerVariable, PSY.Line)
+    injection_oracle = Dict{Tuple{Int, Int}, JuMP.AffExpr}(
+        (bus_no, t) => zero(JuMP.AffExpr) for bus_no in bus_axis, t in time_steps
+    )
+    for line in get_components(PSY.Line, c_sys5)
+        arc = PSY.get_arc(line)
+        from_no = PSY.get_number(PSY.get_from(arc))
+        to_no = PSY.get_number(PSY.get_to(arc))
+        for t in time_steps
+            flow = flow_vars[PSY.get_name(line), t]
+            JuMP.add_to_expression!(injection_oracle[(from_no, t)], 1.0, flow)
+            JuMP.add_to_expression!(injection_oracle[(to_no, t)], -1.0, flow)
+        end
+    end
+
+    # Independent oracle, part 2: expected expression = MODF row . injections.
+    pcbf = IOM.get_expression(container, POM.PostContingencyBranchFlow, PSY.Line)
+    @test !isempty(pcbf.data)
+    con_ub = IOM.get_constraints(container)[IOM.ConstraintKey(
+        POM.PostContingencyFlowRateConstraint, PSY.Line, "ub",
+    )]
+    con_lb = IOM.get_constraints(container)[IOM.ConstraintKey(
+        POM.PostContingencyFlowRateConstraint, PSY.Line, "lb",
+    )]
+    @test !isempty(con_ub.data)
+    @test !isempty(con_lb.data)
+
+    net_reduction_data = network_model.network_reduction
+    name_to_arc_map = PNM.get_name_to_arc_maps(net_reduction_data)[PSY.Line]
+    all_branch_maps_by_type = PNM.get_all_branch_maps_by_type(net_reduction_data)
+
+    n_checked = 0
+    for (outage_id_str, name, t) in keys(pcbf.data)
+        uuid = Base.UUID(outage_id_str)
+        ctg = ground_truth_registered[uuid]
+        arc, reduction_kind = name_to_arc_map[name]
+
+        modf_col = ground_truth_modf[arc, ctg]
+        expected = zero(JuMP.AffExpr)
+        for i in eachindex(modf_col)
+            abs(modf_col[i]) > POM.PTDF_ZERO_TOL || continue
+            JuMP.add_to_expression!(
+                expected,
+                modf_col[i],
+                injection_oracle[(bus_axis[i], t)],
+            )
+        end
+        actual = pcbf[outage_id_str, name, t]
+        @test _affexpr_approx_equal(actual, expected)
+
+        # RHS = +/- emergency rating in system per-unit.
+        reduction_entry = all_branch_maps_by_type[reduction_kind][PSY.Line][arc]
+        limits = POM.get_emergency_min_max_limits(
+            reduction_entry,
+            POM.PostContingencyFlowRateConstraint,
+            POM.SecurityConstrainedStaticBranch,
+        )
+        expr_const = JuMP.constant(actual)
+        @test JuMP.normalized_rhs(con_ub[outage_id_str, name, t]) + expr_const ≈
+              limits.max
+        @test JuMP.normalized_rhs(con_lb[outage_id_str, name, t]) + expr_const ≈
+              limits.min
+        n_checked += 1
+    end
+    @test n_checked >= 1
+
+    psi_checksolve_test(ps_model, [MOI.OPTIMAL, MOI.ALMOST_OPTIMAL])
+end
+
+@testset "Security-constrained branches are blocked on AC and lossy network models" begin
+    # The MODF post-contingency formulation is a lossless linear DC construct;
+    # the AC and lossy networks are rejected at template validation. `build!`
+    # swallows the throw into a FAILED status, so assert against
+    # `validate_template` directly.
+    c_sys5 = PSB.build_system(PSITestSystems, "c_sys5")
+    all_branches = collect(get_components(PSY.ACTransmission, c_sys5))
+    line = get_component(PSY.ACTransmission, c_sys5, "1")
+    PSY.add_supplemental_attribute!(
+        c_sys5,
+        line,
+        PSY.GeometricDistributionForcedOutage(;
+            mean_time_to_recovery = 10,
+            outage_transition_probability = 0.9999,
+            monitored_components = all_branches,
+        ),
+    )
+
+    for NetFormulation in (
+        POM.ACPNetworkModel,
+        POM.ACRNetworkModel,
+        POM.IVRNetworkModel,
+        POM.LPACCNetworkModel,
+        POM.DCPLLNetworkModel,
+    )
+        template = get_thermal_dispatch_template_network(NetworkModel(NetFormulation))
+        set_device_model!(template, PSY.Line, POM.SecurityConstrainedStaticBranch)
+        model = DecisionModel(template, c_sys5; optimizer = ipopt_optimizer)
+        @test_throws IS.ConflictingInputsError POM.validate_template(model)
+    end
+end
+
+@testset "Security-constrained branches are inert no-ops on NFA/CopperPlate/AreaBalance" begin
+    # These networks carry no branch-flow representation for the MODF machinery:
+    # the model builds, no post-contingency containers are created, and a @warn
+    # tells the user that the security limits are inert (the warning lands in
+    # the build's operation_problem.log, not the console).
+    two_area = PSB.build_system(PSB.PSISystems, "two_area_pjm_DA")
+    transform_single_time_series!(two_area, Hour(24), Hour(1))
+    c_sys5_nfa = PSB.build_system(PSITestSystems, "c_sys5")
+    c_sys5_cp = PSB.build_system(PSITestSystems, "c_sys5")
+    for sys in (c_sys5_nfa, c_sys5_cp, two_area)
+        all_branches = collect(get_components(PSY.ACTransmission, sys))
+        line = first(get_components(PSY.Line, sys))
+        PSY.add_supplemental_attribute!(
+            sys,
+            line,
+            PSY.GeometricDistributionForcedOutage(;
+                mean_time_to_recovery = 10,
+                outage_transition_probability = 0.9999,
+                monitored_components = all_branches,
+            ),
+        )
+    end
+
+    for (NetFormulation, sys) in (
+        (POM.NFANetworkModel, c_sys5_nfa),
+        (POM.CopperPlateNetworkModel, c_sys5_cp),
+        (POM.AreaBalanceNetworkModel, two_area),
+    )
+        template = get_thermal_dispatch_template_network(NetworkModel(NetFormulation))
+        set_device_model!(template, PSY.Line, POM.SecurityConstrainedStaticBranch)
+        ps_model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
+        output_dir = mktempdir(; cleanup = true)
+        @test build!(ps_model; output_dir = output_dir) == IOM.ModelBuildStatus.BUILT
+
+        container = IOM.get_optimization_container(ps_model)
+        @test !any(
+            k -> IOM.get_entry_type(k) === POM.PostContingencyFlowRateConstraint,
+            keys(IOM.get_constraints(container)),
+        )
+        @test !any(
+            k -> IOM.get_entry_type(k) === POM.PostContingencyBranchFlow,
+            keys(IOM.get_expressions(container)),
+        )
+
+        log_contents = read(joinpath(output_dir, "operation_problem.log"), String)
+        @test occursin("security-constrained branch limits are inert", log_contents)
     end
 end
 

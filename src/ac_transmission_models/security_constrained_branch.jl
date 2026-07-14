@@ -581,16 +581,28 @@ function _build_post_contingency_flow_expressions_for_outage(
     return results
 end
 
-function add_post_contingency_flow_expressions!(
+"""
+Shared MODF post-contingency expression builder: for every monitored arc `m`
+and registered outage `k`,
+
+    expr[m, k, t] = Σ_bus MODF[m, k][bus] * nodal_injection_expressions[bus, t]
+
+`nodal_injection_expressions` must hold the per-bus ACTIVE-POWER INJECTIONS in
+the same bus order as the MODF columns. On PTDF networks the `ActivePowerBalance`
+expression IS the injection vector (flows are not variables there); on DCP it is
+recovered from the balance's branch-flow terms (see
+[`_dcp_nodal_injection_expressions`](@ref)).
+"""
+function _add_modf_post_contingency_flow_expressions!(
     container::OptimizationContainer,
     ::Type{T},
     model::DeviceModel{V, F},
-    network_model::NetworkModel{N},
+    network_model::NetworkModel,
+    nodal_injection_expressions::Matrix{JuMP.AffExpr},
 ) where {
     T <: PostContingencyBranchFlow,
     V <: PSY.ACTransmission,
     F <: AbstractSecurityConstrainedStaticBranch,
-    N <: AbstractPTDFNetworkModel,
 }
     time_steps = get_time_steps(container)
     modf_matrix = get_contingency_matrix(network_model)
@@ -607,9 +619,6 @@ function add_post_contingency_flow_expressions!(
         container, T, V, expression_container, resolved, time_steps,
     )
     isempty(fresh_resolved) && return
-
-    nodal_balance_expressions =
-        get_expression(container, ActivePowerBalance, PSY.ACBus).data
 
     # Serial libklu pass: concurrent libklu calls are unsafe (PNM `_LIBKLU_LOCK`).
     # Each (outage, arc) pair is solved at most once.
@@ -633,7 +642,7 @@ function add_post_contingency_flow_expressions!(
                 time_steps,
                 outage_id,
                 modf_cols,
-                nodal_balance_expressions,
+                nodal_injection_expressions,
                 entries,
             )
         catch e
@@ -652,6 +661,143 @@ function add_post_contingency_flow_expressions!(
         end
     end
     return
+end
+
+# On a PTDF network the nodal balance expression holds injections and nothing
+# else (branch flows are not variables), so it feeds the MODF product directly.
+function add_post_contingency_flow_expressions!(
+    container::OptimizationContainer,
+    ::Type{T},
+    model::DeviceModel{V, F},
+    network_model::NetworkModel{N},
+) where {
+    T <: PostContingencyBranchFlow,
+    V <: PSY.ACTransmission,
+    F <: AbstractSecurityConstrainedStaticBranch,
+    N <: AbstractPTDFNetworkModel,
+}
+    nodal_injection_expressions =
+        get_expression(container, ActivePowerBalance, PSY.ACBus).data
+    _add_modf_post_contingency_flow_expressions!(
+        container, T, model, network_model, nodal_injection_expressions,
+    )
+    return
+end
+
+# On DCP the balance also contains the branch-flow variables and is constrained
+# to zero, so `MODF ⋅ balance ≡ 0` — the injections must be recovered instead.
+function add_post_contingency_flow_expressions!(
+    container::OptimizationContainer,
+    ::Type{T},
+    model::DeviceModel{V, F},
+    network_model::NetworkModel{DCPNetworkModel},
+) where {
+    T <: PostContingencyBranchFlow,
+    V <: PSY.ACTransmission,
+    F <: AbstractSecurityConstrainedStaticBranch,
+}
+    modf_matrix = get_contingency_matrix(network_model)
+    nodal_injection_expressions =
+        _dcp_nodal_injection_expressions(container, PNM.get_bus_axis(modf_matrix))
+    _add_modf_post_contingency_flow_expressions!(
+        container, T, model, network_model, nodal_injection_expressions,
+    )
+    return
+end
+
+# Every JuMP variable of every `FlowActivePowerVariable` container registered
+# for an AC transmission type. These are exactly the branch-flow terms of the
+# DCP nodal balance; every other balance term (device variables, parameters,
+# constants, HVDC flows, system slacks) is a nodal injection.
+function _collect_ac_branch_flow_variables!(
+    ::Set{JuMP.VariableRef},
+    ::OptimizationContainerKey,
+    ::Any,
+)
+    return
+end
+
+function _collect_ac_branch_flow_variables!(
+    flow_variables::Set{JuMP.VariableRef},
+    ::VariableKey{FlowActivePowerVariable, <:PSY.ACTransmission},
+    variable_container,
+)
+    for variable in variable_container
+        push!(flow_variables, variable)
+    end
+    return
+end
+
+function _ac_branch_flow_variables(container::OptimizationContainer)
+    flow_variables = Set{JuMP.VariableRef}()
+    for (key, variable_container) in IOM.get_variables(container)
+        _collect_ac_branch_flow_variables!(flow_variables, key, variable_container)
+    end
+    return flow_variables
+end
+
+# The branch-flow terms of one balance expression, negated. Exact by KCL: the
+# DCP balance is `injections[bus] + flow_terms[bus] == 0` with each flow
+# variable entering at `-1` on its from-bus and `+1` on its to-bus, so
+# `injections[bus] = -flow_terms[bus] = Σ f_out - Σ f_in`.
+function _negated_flow_terms(
+    balance_expression::JuMP.AffExpr,
+    flow_variables::Set{JuMP.VariableRef},
+)
+    injection = zero(JuMP.AffExpr)
+    for (coefficient, variable) in JuMP.linear_terms(balance_expression)
+        variable in flow_variables || continue
+        JuMP.add_to_expression!(injection, -coefficient, variable)
+    end
+    return injection
+end
+
+"""
+Nodal active-power injection expressions on a DCP network, with rows ordered by
+`bus_axis` (the MODF bus axis) so that row `i` multiplies MODF column entry `i`.
+
+The DCP `ActivePowerBalance` cannot be used directly in the MODF product: it
+holds the injections PLUS the branch-flow variables and is constrained to zero,
+so its MODF-weighted sum is identically vacuous. The nodal balance constraint
+enforces `injections[bus] = -flow_terms[bus]` exactly, so the injection is
+recovered by keeping only the balance terms whose variables are AC branch
+`FlowActivePowerVariable`s and negating them.
+
+The DCP balance bus axis comes from Dict-ordered reduction-map keys, so rows are
+resolved through the container's axis lookup by bus number instead of assuming
+positional agreement with the MODF axis.
+"""
+function _dcp_nodal_injection_expressions(
+    container::OptimizationContainer,
+    bus_axis::Vector{Int},
+)
+    balance = get_expression(container, ActivePowerBalance, PSY.ACBus)
+    n_balance_buses = size(balance.data, 1)
+    if length(bus_axis) != n_balance_buses
+        error(
+            "MODF bus axis has $(length(bus_axis)) buses but the nodal balance " *
+            "expression has $(n_balance_buses). The contingency matrix and the " *
+            "optimization container were built with different network reductions.",
+        )
+    end
+    flow_variables = _ac_branch_flow_variables(container)
+    if isempty(flow_variables)
+        error(
+            "No `FlowActivePowerVariable` container exists for any AC " *
+            "transmission type; the DCP nodal injections cannot be recovered " *
+            "from the balance expression. The security-constrained branch " *
+            "ArgumentConstructStage must create the flow variables before the " *
+            "post-contingency expressions are built.",
+        )
+    end
+    time_steps = get_time_steps(container)
+    injections = Matrix{JuMP.AffExpr}(undef, length(bus_axis), length(time_steps))
+    for (i, bus_no) in enumerate(bus_axis)
+        for t in time_steps
+            injections[i, t] = _negated_flow_terms(balance[bus_no, t], flow_variables)
+        end
+    end
+    return injections
 end
 
 """
@@ -693,59 +839,6 @@ function _copy_existing_post_contingency_expressions!(
         isempty(unresolved) || push!(fresh, uuid => unresolved)
     end
     return fresh
-end
-
-# Lossy AC post-contingency flow expression. Preventive formulation:
-# `PostContingencyBranchFlow[outage, name, t]` is the from-to flow variable
-# itself, so the per-outage emergency-rate constraint bounds the same variable
-# for every outage by the emergency rating.
-function add_post_contingency_flow_expressions!(
-    container::OptimizationContainer,
-    ::Type{T},
-    model::DeviceModel{V, F},
-    network_model::NetworkModel{N},
-) where {
-    T <: PostContingencyBranchFlow,
-    V <: PSY.ACTransmission,
-    F <: AbstractSecurityConstrainedStaticBranch,
-    N <: AbstractACPModel,
-}
-    time_steps = get_time_steps(container)
-    resolved = _resolve_monitored_arcs(model, network_model.network_reduction)
-
-    expression_container =
-        SparseAxisArray(Dict{Tuple{String, String, Int}, JuMP.AffExpr}())
-    IOM._assign_container!(
-        container.expressions, ExpressionKey(T, V), expression_container,
-    )
-
-    has_other_v = _has_other_v_container(IOM.get_expressions(container), T, V)
-    flow_vars_by_type = Dict{DataType, Any}()
-    for (uuid, entries) in resolved
-        outage_id = string(uuid)
-        for (entry_type, name, _, _) in entries
-            if has_other_v
-                src_ec = _find_shared_post_contingency_expression_source(
-                    container, T, V, outage_id, name, first(time_steps),
-                )
-                if !isnothing(src_ec)
-                    for t in time_steps
-                        expression_container[outage_id, name, t] =
-                            src_ec.data[(outage_id, name, t)]
-                    end
-                    continue
-                end
-            end
-            flow_vars = get!(flow_vars_by_type, entry_type) do
-                get_variable(container, FlowActivePowerFromToVariable, entry_type)
-            end
-            for t in time_steps
-                expression_container[outage_id, name, t] =
-                    1.0 * flow_vars[name, t]
-            end
-        end
-    end
-    return
 end
 
 # -----------------------------------------------------
@@ -851,59 +944,42 @@ function construct_device!(
     return
 end
 
-# PTDF needs a PTDFBranchFlow expression here; the lossy AC path doesn't —
-# its post-contingency expression is the FromTo flow variable directly.
+# DCP mirrors the StaticBranch DCP ArgumentConstructStage (flow variable wired to
+# the nodal balance, rating parameters) plus the post-contingency rating
+# parameter. No PTDFBranchFlow expression: on DCP the base-case flow is the
+# variable itself.
 function construct_device!(
     container::OptimizationContainer,
     sys::PSY.System,
     ::ArgumentConstructStage,
     device_model::DeviceModel{T, F},
-    network_model::NetworkModel{<:AbstractACPModel},
+    network_model::NetworkModel{DCPNetworkModel},
 ) where {T <: PSY.ACTransmission, F <: AbstractSecurityConstrainedStaticBranch}
     devices = get_available_components(device_model, sys)
-
-    # The ACP post-contingency expression builder reads
-    # `FlowActivePowerFromToVariable` for the monitored branches. The ACP
-    # `StaticBranch` ArgumentConstructStage is what normally creates the four
-    # directional flow variables and wires them to the nodal balance; the SC
-    # formulation must do the same so the monitored branches carry their AC flow
-    # variables (and contribute to the network balance) in addition to the
-    # post-contingency machinery.
-    add_variables!(container, FlowActivePowerFromToVariable, devices, F)
-    add_variables!(container, FlowActivePowerToFromVariable, devices, F)
-    add_variables!(container, FlowReactivePowerFromToVariable, devices, F)
-    add_variables!(container, FlowReactivePowerToFromVariable, devices, F)
-
+    add_variables!(container, FlowActivePowerVariable, network_model, devices, F)
     if get_use_slacks(device_model)
         add_variables!(
             container,
             FlowActivePowerSlackUpperBound,
+            network_model,
             devices,
             F,
         )
         add_variables!(
             container,
             FlowActivePowerSlackLowerBound,
+            network_model,
             devices,
             F,
         )
     end
-
     add_to_expression!(
-        container, ActivePowerBalance, FlowActivePowerFromToVariable,
-        devices, device_model, network_model,
-    )
-    add_to_expression!(
-        container, ActivePowerBalance, FlowActivePowerToFromVariable,
-        devices, device_model, network_model,
-    )
-    add_to_expression!(
-        container, ReactivePowerBalance, FlowReactivePowerFromToVariable,
-        devices, device_model, network_model,
-    )
-    add_to_expression!(
-        container, ReactivePowerBalance, FlowReactivePowerToFromVariable,
-        devices, device_model, network_model,
+        container,
+        ActivePowerBalance,
+        FlowActivePowerVariable,
+        devices,
+        device_model,
+        network_model,
     )
 
     if haskey(get_time_series_names(device_model), BranchRatingTimeSeriesParameter)
@@ -932,27 +1008,26 @@ function construct_device!(
     return
 end
 
+# DCP mirrors the StaticBranch DCP ModelConstructStage (flow limits, DC Ohm's
+# law, angle-difference limits) plus the MODF post-contingency machinery.
 function construct_device!(
     container::OptimizationContainer,
     sys::PSY.System,
     ::ModelConstructStage,
     device_model::DeviceModel{V, F},
-    network_model::NetworkModel{X},
-) where {
-    V <: PSY.ACTransmission,
-    F <: AbstractSecurityConstrainedStaticBranch,
-    X <: AbstractACPModel,
-}
+    network_model::NetworkModel{DCPNetworkModel},
+) where {V <: PSY.ACTransmission, F <: AbstractSecurityConstrainedStaticBranch}
     devices = get_available_components(device_model, sys)
 
+    add_constraints!(container, FlowRateConstraint, devices, device_model, network_model)
     add_constraints!(
-        container, FlowRateConstraintFromTo, devices, device_model, network_model,
+        container, sys, NetworkFlowConstraint, devices, device_model, network_model,
     )
     add_constraints!(
-        container, FlowRateConstraintToFrom, devices, device_model, network_model,
+        container, sys, AngleDifferenceConstraint, devices, device_model, network_model,
     )
     add_feedforward_constraints!(container, device_model, devices)
-    add_to_objective_function!(container, devices, device_model, X)
+    add_to_objective_function!(container, devices, device_model, DCPNetworkModel)
 
     add_post_contingency_flow_expressions!(
         container,
@@ -968,6 +1043,8 @@ function construct_device!(
         network_model,
     )
 
+    # Must run after the post-contingency constraints are built so their
+    # SparseAxisArray dual containers are registered alongside FlowRateConstraint.
     add_constraint_dual!(container, sys, device_model)
 
     return
@@ -976,7 +1053,9 @@ end
 # `SecurityConstrainedStaticBranch` is intentionally inert under network models
 # that carry no branch-flow representation: NFA, CopperPlate and AreaBalance
 # build nothing rather than erroring (mirrors the StaticBranch no-ops). Defined
-# on concrete network types to avoid ambiguity with the PTDF/ACP methods.
+# on concrete network types to avoid ambiguity with the PTDF/DCP methods.
+# `@warn`, not `@debug`: the user asked for N-1 limits and is silently getting
+# none — no post-contingency variables or constraints exist on these networks.
 function construct_device!(
     ::OptimizationContainer,
     ::PSY.System,
@@ -988,9 +1067,11 @@ function construct_device!(
         NetworkModel{AreaBalanceNetworkModel},
     },
 ) where {T <: PSY.ACTransmission, F <: AbstractSecurityConstrainedStaticBranch}
-    @debug "No argument construction for $F under NFA/CopperPlate/AreaBalance; \
-            security-constrained branch limits are inert for these network \
-            models." _group = LOG_GROUP_BRANCH_CONSTRUCTIONS
+    @warn "No argument construction for $F under NFA/CopperPlate/AreaBalance; \
+           security-constrained branch limits are inert for these network \
+           models and NO post-contingency constraints will be created. Use a \
+           PTDF, AreaPTDF or DCP network model to enforce N-1 limits." _group =
+        LOG_GROUP_BRANCH_CONSTRUCTIONS
     return
 end
 
@@ -1005,8 +1086,10 @@ function construct_device!(
         NetworkModel{AreaBalanceNetworkModel},
     },
 ) where {T <: PSY.ACTransmission, F <: AbstractSecurityConstrainedStaticBranch}
-    @debug "No model construction for $F under NFA/CopperPlate/AreaBalance; \
-            security-constrained branch limits are inert for these network \
-            models." _group = LOG_GROUP_BRANCH_CONSTRUCTIONS
+    @warn "No model construction for $F under NFA/CopperPlate/AreaBalance; \
+           security-constrained branch limits are inert for these network \
+           models and NO post-contingency constraints will be created. Use a \
+           PTDF, AreaPTDF or DCP network model to enforce N-1 limits." _group =
+        LOG_GROUP_BRANCH_CONSTRUCTIONS
     return
 end
