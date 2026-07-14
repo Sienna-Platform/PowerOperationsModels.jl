@@ -138,38 +138,13 @@ function add_expressions!(
     return
 end
 
-function add_to_expression!(
-    container::OptimizationContainer,
-    ::Type{T},
-    ::Type{U},
-    devices::IS.FlattenIteratorWrapper{V},
-    device_model::DeviceModel{V, W},
-    network_model::NetworkModel{CopperPlateNetworkModel},
-) where {
-    T <: ActivePowerBalance,
-    U <: RealizedShiftedLoad,
-    V <: PSY.StaticInjection,
-    W <: AbstractDeviceFormulation,
-}
-    realized_load = get_expression(container, U, V)
-    expression = get_expression(container, T, PSY.System)
-    for d in devices
-        device_bus = PSY.get_bus(d)
-        ref_bus = get_reference_bus(network_model, device_bus)
-        name = PSY.get_name(d)
-        for t in get_time_steps(container)
-            JuMP.add_to_expression!(
-                expression[ref_bus, t],
-                -1.0, # Realized load enter negative to the balance
-                realized_load[name, t],
-            )
-        end
-    end
-    return
-end
-
 """
-Electric Load implementation to add parameters to PTDF ActivePowerBalance expressions
+Electric Load implementation to add the realized shifted load to `ActivePowerBalance`
+expressions for any network model. Targets come from
+[`_balance_expression_targets`](@ref) (nodal bus, system, area, or PTDF/AreaPTDF
+system+bus pair), matching how every other injection enters the balance; the multiplier
+`-1.0` matches `get_variable_multiplier(::Type{<:VariableType}, ::Type{<:PSY.ElectricLoad},
+::Type{<:AbstractLoadFormulation})`, the sign convention shared by every load formulation.
 """
 function add_to_expression!(
     container::OptimizationContainer,
@@ -183,35 +158,32 @@ function add_to_expression!(
     U <: RealizedShiftedLoad,
     V <: PSY.ShiftablePowerLoad,
     W <: PowerLoadShift,
-    X <: AbstractPTDFNetworkModel,
+    X <: AbstractNetworkModel,
 }
     realized_load = get_expression(container, U, V)
-    sys_expr = get_expression(container, T, _system_expression_type(X))
-    nodal_expr = get_expression(container, T, PSY.ACBus)
-    network_reduction = get_network_reduction(network_model)
+    time_steps = get_time_steps(container)
     for d in devices
+        targets = _balance_expression_targets(container, T, network_model, d)
         name = PSY.get_name(d)
-        device_bus = PSY.get_bus(d)
-        bus_no_ = PSY.get_number(device_bus)
-        bus_no = PNM.get_mapped_bus_number(network_reduction, bus_no_)
-        ref_index = _ref_index(network_model, device_bus)
-        for t in get_time_steps(container)
-            JuMP.add_to_expression!(
-                sys_expr[ref_index, t],
-                -1.0, # Realized load enter negative to the balance
-                realized_load[name, t],
-            )
-            JuMP.add_to_expression!(
-                nodal_expr[bus_no, t],
-                -1.0, # Realized load enter negative to the balance
-                realized_load[name, t],
-            )
+        for t in time_steps
+            _apply_term_to_targets!(targets, realized_load[name, t], -1.0, t)
         end
     end
     return
 end
 
 ####################################### Reactive Power Constraints #########################
+# Power factor sin(atan(q/p)) in closed form via the Pythagorean identity.
+function _controllable_load_power_factor(d::PSY.ElectricLoad)
+    q_max = PSY.get_max_reactive_power(d, PSY.SU)
+    p_max = PSY.get_max_active_power(d, PSY.SU)
+    denom = sqrt(q_max^2 + p_max^2)
+    if iszero(denom)
+        return 0.0
+    end
+    return q_max / denom
+end
+
 """
 Reactive Power Constraints on Controllable Loads Assume Constant power_factor
 """
@@ -236,15 +208,50 @@ function add_constraints!(
     jump_model = get_jump_model(container)
     for t in time_steps, d in devices
         name = PSY.get_name(d)
-        # Power factor sin(atan(q/p)) in closed form via the Pythagorean identity.
-        q_max = PSY.get_max_reactive_power(d, PSY.SU)
-        p_max = PSY.get_max_active_power(d, PSY.SU)
-        denom = sqrt(q_max^2 + p_max^2)
-        pf = iszero(denom) ? 0.0 : q_max / denom
+        pf = _controllable_load_power_factor(d)
         reactive = get_variable(container, U, V)[name, t]
         real = get_variable(container, ActivePowerVariable, V)[name, t]
         constraint[name, t] = JuMP.@constraint(jump_model, reactive == real * pf)
     end
+    return
+end
+
+"""
+Reactive power for `PowerLoadShift` referenced against the `RealizedShiftedLoad`
+expression: this formulation never creates an `ActivePowerVariable`, so the generic
+`AbstractControllablePowerLoadFormulation` method above (which reads `ActivePowerVariable`)
+does not apply.
+"""
+function add_constraints!(
+    container::OptimizationContainer,
+    T::Type{<:ReactivePowerVariableLimitsConstraint},
+    U::Type{<:ReactivePowerVariable},
+    devices::IS.FlattenIteratorWrapper{V},
+    ::DeviceModel{V, W},
+    ::NetworkModel{X},
+) where {
+    V <: PSY.ShiftablePowerLoad,
+    W <: PowerLoadShift,
+    X <: AbstractNetworkModel,
+}
+    time_steps = get_time_steps(container)
+    constraint = add_constraints_container!(container, T,
+        V,
+        PSY.get_name.(devices),
+        time_steps,
+    )
+    jump_model = get_jump_model(container)
+    reactive = get_variable(container, U, V)
+    realized_load = get_expression(container, RealizedShiftedLoad, V)
+    for t in time_steps, d in devices
+        name = PSY.get_name(d)
+        pf = _controllable_load_power_factor(d)
+        constraint[name, t] = JuMP.@constraint(
+            jump_model,
+            reactive[name, t] == realized_load[name, t] * pf
+        )
+    end
+    return
 end
 
 function add_constraints!(

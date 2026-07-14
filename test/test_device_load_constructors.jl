@@ -345,3 +345,130 @@ end
         cumsum(dn[!, "shiftable_load"] .- up[!, "shiftable_load"]) .>= -1e-6,
     )
 end
+
+function _build_shiftable_load_system()
+    c_sys5_il =
+        PSB.build_system(PSITestSystems, "c_sys5_il"; add_single_time_series = true)
+
+    # AreaBalanceNetworkModel/AreaPTDFNetworkModel require at least one Area; c_sys5_il
+    # ships with none.
+    area = PSY.Area(; name = "area1")
+    PSY.add_component!(c_sys5_il, area)
+    for bus in PSY.get_components(PSY.ACBus, c_sys5_il)
+        PSY.set_area!(bus, area)
+    end
+
+    il_load = first(PSY.get_components(InterruptiblePowerLoad, c_sys5_il))
+
+    shiftable_load = ShiftablePowerLoad(;
+        name = "shiftable_load",
+        available = true,
+        bus = PSY.get_bus(il_load),
+        active_power = PSY.get_active_power(il_load, PSY.SU),
+        active_power_limits = (min = 0.0, max = PSY.get_active_power(il_load, PSY.SU)),
+        reactive_power = PSY.get_reactive_power(il_load, PSY.SU),
+        max_active_power = PSY.get_max_active_power(il_load, PSY.SU),
+        max_reactive_power = PSY.get_max_reactive_power(il_load, PSY.SU),
+        base_power = PSY.get_base_power(il_load, PSY.NU),
+        load_balance_time_horizon = 1,
+        operation_cost = LoadCost(;
+            variable = CostCurve(
+                LinearCurve(0.0),
+                PSY.NU,
+                LinearCurve(1.0),
+            ),
+            fixed = 0.0,
+        ),
+    )
+    PSY.add_component!(c_sys5_il, shiftable_load)
+    PSY.set_available!(il_load, false)
+    PSY.copy_time_series!(shiftable_load, il_load)
+
+    tstamps = TimeSeries.timestamp(
+        PSY.get_time_series_array(SingleTimeSeries, shiftable_load, "max_active_power"),
+    )
+    n = length(tstamps)
+    PSY.add_time_series!(
+        c_sys5_il,
+        shiftable_load,
+        SingleTimeSeries(
+            "shift_up_max_active_power",
+            TimeArray(tstamps, ones(n));
+            scaling_factor_multiplier = PSY.get_max_active_power,
+        ),
+    )
+    PSY.add_time_series!(
+        c_sys5_il,
+        shiftable_load,
+        SingleTimeSeries(
+            "shift_down_max_active_power",
+            TimeArray(tstamps, ones(n));
+            scaling_factor_multiplier = PSY.get_max_active_power,
+        ),
+    )
+    PSY.transform_single_time_series!(c_sys5_il, Hour(24), Hour(24))
+    return c_sys5_il, shiftable_load
+end
+
+# Mirrors _balance_expression_targets: CopperPlate keys ActivePowerBalance by the system
+# reference bus, AreaBalance by area name, and every other network model (PTDF/AreaPTDF
+# included, which also carry a nodal ACBus entry) by the device's bus number.
+_shiftable_load_balance_row(
+    network_model::NetworkModel{CopperPlateNetworkModel},
+    container,
+    bus,
+) = (
+    IOM.get_expression(container, ActivePowerBalance, PSY.System),
+    POM.get_reference_bus(network_model, bus),
+)
+_shiftable_load_balance_row(
+    ::NetworkModel{AreaBalanceNetworkModel},
+    container,
+    bus,
+) = (
+    IOM.get_expression(container, ActivePowerBalance, PSY.Area),
+    PSY.get_name(PSY.get_area(bus)),
+)
+_shiftable_load_balance_row(::NetworkModel, container, bus) =
+    (IOM.get_expression(container, ActivePowerBalance, PSY.ACBus), PSY.get_number(bus))
+
+@testset "PowerLoadShift wires RealizedShiftedLoad into ActivePowerBalance on every network model" begin
+    networks = [
+        (CopperPlateNetworkModel, HiGHS_optimizer),
+        (PTDFNetworkModel, HiGHS_optimizer),
+        (AreaPTDFNetworkModel, HiGHS_optimizer),
+        (AreaBalanceNetworkModel, HiGHS_optimizer),
+        (NFANetworkModel, HiGHS_optimizer),
+        (DCPNetworkModel, HiGHS_optimizer),
+        (DCPLLNetworkModel, ipopt_optimizer),
+        (ACPNetworkModel, ipopt_optimizer),
+        (ACRNetworkModel, ipopt_optimizer),
+        (IVRNetworkModel, ipopt_optimizer),
+        (LPACCNetworkModel, ipopt_optimizer),
+    ]
+
+    for (network_formulation, optimizer) in networks
+        sys, shiftable_load = _build_shiftable_load_system()
+        template =
+            get_thermal_dispatch_template_network(NetworkModel(network_formulation))
+        set_device_model!(template, ShiftablePowerLoad, PowerLoadShift)
+
+        model = DecisionModel(template, sys; optimizer = optimizer)
+        @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+              IOM.ModelBuildStatus.BUILT
+
+        container = IOM.get_optimization_container(model)
+        network_model = IOM.get_network_model(IOM.get_template(model))
+        bus = PSY.get_bus(shiftable_load)
+        balance, row = _shiftable_load_balance_row(network_model, container, bus)
+        t1 = first(IOM.get_time_steps(container))
+        up_var = IOM.get_variable(container, ShiftUpActivePowerVariable, ShiftablePowerLoad)
+        dn_var =
+            IOM.get_variable(container, ShiftDownActivePowerVariable, ShiftablePowerLoad)
+
+        @test JuMP.coefficient(balance[row, t1], up_var["shiftable_load", t1]) == -1.0
+        @test JuMP.coefficient(balance[row, t1], dn_var["shiftable_load", t1]) == 1.0
+
+        @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+    end
+end
