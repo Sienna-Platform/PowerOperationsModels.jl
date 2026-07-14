@@ -176,6 +176,72 @@ function mock_construct_device!(
     return
 end
 
+# Only used for testing. Unlike `mock_construct_device!`, this runs `ArgumentConstructStage`
+# for every device model before any `ModelConstructStage`, matching how a real
+# `build_problem!` sequences a template. Needed whenever two device models have a
+# cross-reference (e.g. a turbine's constraint reads a reservoir's variable and
+# vice versa): running each device's Argument+Model pair back to back, one device at a
+# time, cannot satisfy that circular ordering.
+function mock_construct_devices!(
+    problem::IOM.DecisionModel{MockOperationProblem},
+    models;
+    built_for_recurrent_solves = false,
+)
+    for model in models
+        set_device_model!(problem.template, model)
+    end
+    template = IOM.get_template(problem)
+    IOM.finalize_template!(template, IOM.get_system(problem))
+    IOM.validate_time_series!(problem)
+    IOM.init_optimization_container!(
+        IOM.get_optimization_container(problem),
+        IOM.get_network_model(template),
+        IOM.get_system(problem),
+    )
+    IOM.get_network_model(template).subnetworks =
+        PNM.find_subnetworks(IOM.get_system(problem))
+    IOM.get_network_model(template).network_reduction =
+        PNM.get_network_reduction_data(PNM.Ybus(IOM.get_system(problem)))
+    IOM.get_optimization_container(problem).built_for_recurrent_solves =
+        built_for_recurrent_solves
+    POM.initialize_system_expressions!(
+        IOM.get_optimization_container(problem),
+        IOM.get_network_model(template),
+        IOM.get_network_model(template).subnetworks,
+        IOM.get_system(problem),
+        Dict{Int64, Set{Int64}}(),
+    )
+    for model in models
+        construct_device!(
+            IOM.get_optimization_container(problem),
+            IOM.get_system(problem),
+            IOM.ArgumentConstructStage(),
+            model,
+            IOM.get_network_model(template),
+        )
+    end
+    for model in models
+        construct_device!(
+            IOM.get_optimization_container(problem),
+            IOM.get_system(problem),
+            IOM.ModelConstructStage(),
+            model,
+            IOM.get_network_model(template),
+        )
+    end
+
+    IOM.check_optimization_container(IOM.get_optimization_container(problem))
+
+    JuMP.@objective(
+        IOM.get_jump_model(problem),
+        MOI.MIN_SENSE,
+        IOM.get_objective_expression(
+            IOM.get_optimization_container(problem).objective_function,
+        )
+    )
+    return
+end
+
 function mock_construct_network!(problem::IOM.DecisionModel{MockOperationProblem}, model)
     IOM.set_network_model!(problem.template, model)
     IOM.construct_network!(
