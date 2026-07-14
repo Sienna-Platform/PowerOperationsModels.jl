@@ -2031,7 +2031,7 @@ function add_to_expression!(
 end
 
 function _is_interchanges_interfaces(
-    contributing_devices_map::Dict{Type{<:PSY.Component}, Vector{<:PSY.Component}},
+    contributing_devices_map::Dict,
 )
     if PSY.AreaInterchange ∈ keys(contributing_devices_map)
         @assert length(keys(contributing_devices_map)) == 1
