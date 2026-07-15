@@ -4,9 +4,9 @@
 # Two-stage construction:
 #   ArgumentConstructStage — ShuntSusceptanceVariable + ReactivePowerVariable
 #                            (both bounded per Principle 0); Q wired into balance.
-#   ModelConstructStage    — Q = b·V² constraint (always); control-objective
-#                            JuMP.fix (ACP voltage control for FACTSControlDevice
-#                            in NML mode).
+#   ModelConstructStage    — Q = b·V² constraint (always; LPACC linearizes V² to
+#                            1 + 2φ); control-objective JuMP.fix (voltage control
+#                            for FACTSControlDevice in NML mode).
 #
 # Active-power-only network no-ops are defensive; reactive formulations under DC
 # templates are dropped by template_validation.jl before construction begins.
@@ -27,17 +27,38 @@ function _fetch_voltage_arrays(
     )
 end
 
+function _fetch_voltage_arrays(container, ::NetworkModel{LPACCNetworkModel})
+    return (get_variable(container, VoltageDeviation, PSY.ACBus),)
+end
+
 # Compute V² from pre-fetched variable array(s) — no container lookup in hot loop.
-function _bus_voltage_squared(vars::Tuple{V}, bus_name::String, t::Int) where {V}
+function _bus_voltage_squared(
+    ::NetworkModel{ACPNetworkModel},
+    vars,
+    bus_name::String,
+    t::Int,
+)
     return vars[1][bus_name, t]^2
 end
 
 function _bus_voltage_squared(
-    vars::Tuple{V, W},
+    ::NetworkModel{<:Union{ACRNetworkModel, IVRNetworkModel}},
+    vars,
     bus_name::String,
     t::Int,
-) where {V, W}
+)
     return vars[1][bus_name, t]^2 + vars[2][bus_name, t]^2
+end
+
+# LPACC linearization of V² = (1 + φ)² around φ ≈ 0, consistent with the 1 + 2φ
+# self terms of the LPAC Ohm's law.
+function _bus_voltage_squared(
+    ::NetworkModel{LPACCNetworkModel},
+    vars,
+    bus_name::String,
+    t::Int,
+)
+    return 1.0 + 2.0 * vars[1][bus_name, t]
 end
 
 #################################################################################
@@ -50,7 +71,7 @@ function construct_device!(
     ::ArgumentConstructStage,
     model::DeviceModel{R, ShuntSusceptanceDispatch},
     network_model::NetworkModel{<:AbstractNetworkModel},
-) where {R <: PSY.StaticInjection}
+) where {R <: Union{PSY.SwitchedAdmittance, PSY.FACTSControlDevice}}
     devices = get_available_components(model, sys)
     add_variables!(container, ShuntSusceptanceVariable, devices, ShuntSusceptanceDispatch)
     add_variables!(container, ReactivePowerVariable, devices, ShuntSusceptanceDispatch)
@@ -76,7 +97,7 @@ function construct_device!(
     ::ArgumentConstructStage,
     ::DeviceModel{R, ShuntSusceptanceDispatch},
     ::NetworkModel{<:AbstractActivePowerModel},
-) where {R <: PSY.StaticInjection}
+) where {R <: Union{PSY.SwitchedAdmittance, PSY.FACTSControlDevice}}
     return
 end
 
@@ -90,7 +111,7 @@ function construct_device!(
     ::ModelConstructStage,
     model::DeviceModel{R, ShuntSusceptanceDispatch},
     network_model::NetworkModel{<:AbstractNetworkModel},
-) where {R <: PSY.StaticInjection}
+) where {R <: Union{PSY.SwitchedAdmittance, PSY.FACTSControlDevice}}
     devices = get_available_components(model, sys)
     add_constraints!(
         container,
@@ -112,7 +133,7 @@ function construct_device!(
     ::ModelConstructStage,
     ::DeviceModel{R, ShuntSusceptanceDispatch},
     ::NetworkModel{<:AbstractActivePowerModel},
-) where {R <: PSY.StaticInjection}
+) where {R <: Union{PSY.SwitchedAdmittance, PSY.FACTSControlDevice}}
     return
 end
 
@@ -127,7 +148,7 @@ function add_constraints!(
     devices::IS.FlattenIteratorWrapper{R},
     model::DeviceModel{R, ShuntSusceptanceDispatch},
     network_model::NetworkModel{<:AbstractNetworkModel},
-) where {R <: PSY.StaticInjection}
+) where {R <: Union{PSY.SwitchedAdmittance, PSY.FACTSControlDevice}}
     time_steps = get_time_steps(container)
     b = get_variable(container, ShuntSusceptanceVariable, R)
     q = get_variable(container, ReactivePowerVariable, R)
@@ -147,7 +168,7 @@ function add_constraints!(
             v_arrays[1], bus_name, "connection bus of shunt $(name)",
         )
         for t in time_steps
-            v2 = _bus_voltage_squared(v_arrays, bus_name, t)
+            v2 = _bus_voltage_squared(network_model, v_arrays, bus_name, t)
             cons[name, t] = JuMP.@constraint(jm, q[name, t] == b[name, t] * v2)
         end
     end
@@ -224,9 +245,10 @@ function _apply_shunt_control_objective!(
     return
 end
 
-# FACTSControlDevice under ACP/ACR/IVR: voltage-control (NML) mode pins the
-# regulated bus magnitude — directly on the network VoltageMagnitude under ACP, or
-# on the component-owned RegulatedVoltageMagnitude aux variable under ACR/IVR (see
+# FACTSControlDevice under ACP/ACR/IVR/LPACC: voltage-control (NML) mode pins the
+# regulated bus magnitude — directly on the network VoltageMagnitude under ACP, on
+# the component-owned RegulatedVoltageMagnitude aux variable under ACR/IVR, or on
+# the bus VoltageDeviation (at setpoint - 1) under LPACC (see
 # fix_regulated_voltage!). All other modes free-optimize (Q adjusts to network
 # needs). The aux variable/constraint are always present under ACR/IVR, so only the
 # fix is mode-conditional (count-invariance).
@@ -234,7 +256,7 @@ function _apply_shunt_control_objective!(
     container::OptimizationContainer,
     devices::IS.FlattenIteratorWrapper{PSY.FACTSControlDevice},
     network_model::NetworkModel{
-        <:Union{ACPNetworkModel, ACRNetworkModel, IVRNetworkModel},
+        <:Union{ACPNetworkModel, ACRNetworkModel, IVRNetworkModel, LPACCNetworkModel},
     },
 )
     for d in devices

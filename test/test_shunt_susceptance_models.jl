@@ -261,6 +261,128 @@ end
     end
 end
 
+@testset "ShuntSusceptanceDispatch construct_device! resolves only for shunt devices" begin
+    for stage in (IOM.ArgumentConstructStage, IOM.ModelConstructStage)
+        for D in (PSY.SwitchedAdmittance, PSY.FACTSControlDevice)
+            m = which(
+                POM.construct_device!,
+                Tuple{
+                    IOM.OptimizationContainer,
+                    PSY.System,
+                    stage,
+                    IOM.DeviceModel{D, ShuntSusceptanceDispatch},
+                    IOM.NetworkModel{ACPNetworkModel},
+                },
+            )
+            @test basename(string(m.file)) == "shunt_constructor.jl"
+        end
+        # Non-shunt devices must fall through to the error fallback in
+        # core/interfaces.jl — susceptance dispatch is meaningless for them.
+        for D in (PSY.FixedAdmittance, PSY.ThermalStandard, PSY.PowerLoad)
+            m = which(
+                POM.construct_device!,
+                Tuple{
+                    IOM.OptimizationContainer,
+                    PSY.System,
+                    stage,
+                    IOM.DeviceModel{D, ShuntSusceptanceDispatch},
+                    IOM.NetworkModel{ACPNetworkModel},
+                },
+            )
+            @test basename(string(m.file)) == "interfaces.jl"
+        end
+    end
+end
+
+@testset "ShuntSusceptanceDispatch builds the linearized Q-V layer on LPACC (SwitchedAdmittance)" begin
+    sys = PSB.build_system(PSITestSystems, "c_sys5")
+    bus = PSY.get_component(PSY.ACBus, sys, "nodeA")
+    sa = PSY.SwitchedAdmittance(;
+        name = "shunt_lpacc",
+        available = true,
+        bus = bus,
+        Y = 0.0 + 0.1im,
+        number_of_steps = [2],
+        Y_increase = [0.0 + 0.1im],
+    )
+    PSY.add_component!(sys, sa)
+
+    template = get_thermal_dispatch_template_network(NetworkModel(LPACCNetworkModel))
+    set_device_model!(template, PSY.SwitchedAdmittance, ShuntSusceptanceDispatch)
+
+    model = DecisionModel(
+        template, sys; optimizer = ipopt_optimizer, store_variable_names = true,
+    )
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+
+    container = IOM.get_optimization_container(model)
+    q = IOM.get_variable(container, ReactivePowerVariable, PSY.SwitchedAdmittance)
+    b = IOM.get_variable(container, ShuntSusceptanceVariable, PSY.SwitchedAdmittance)
+    phi = IOM.get_variable(container, POM.VoltageDeviation, PSY.ACBus)
+    q_expr = IOM.get_expression(container, POM.ReactivePowerBalance, PSY.ACBus)
+    cons = IOM.get_constraint(
+        container, POM.ShuntReactivePowerConstraint, PSY.SwitchedAdmittance,
+    )
+    @test length(cons) > 0
+    bus_no = PSY.get_number(bus)
+    bus_name = PSY.get_name(bus)
+    for t in IOM.get_time_steps(container)
+        # The shunt reactive injection enters the bus reactive balance with +1.
+        @test JuMP.coefficient(q_expr[bus_no, t], q["shunt_lpacc", t]) == 1.0
+        # q == b·(1 + 2φ) canonicalizes to q - b - 2·b·φ == 0.
+        f = JuMP.constraint_object(cons["shunt_lpacc", t]).func
+        @test JuMP.coefficient(f, q["shunt_lpacc", t]) == 1.0
+        @test JuMP.coefficient(f, b["shunt_lpacc", t]) == -1.0
+        @test JuMP.coefficient(f, b["shunt_lpacc", t], phi[bus_name, t]) == -2.0
+    end
+
+    @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+end
+
+@testset "ShuntSusceptanceDispatch NML pins VoltageDeviation on LPACC (FACTS)" begin
+    sys = PSB.build_system(PSITestSystems, "c_sys5")
+    bus = PSY.get_component(PSY.ACBus, sys, "nodeA")
+    facts = PSY.FACTSControlDevice(;
+        name = "facts_lpacc_test",
+        available = true,
+        bus = bus,
+        control_mode = PSY.FACTSOperationModes.NML,
+        voltage_setpoint = 1.0,
+        max_shunt_current = 100.0,
+    )
+    PSY.add_component!(sys, facts)
+    bus_name = PSY.get_name(bus)
+    setpoint = PSY.get_voltage_setpoint(facts)
+
+    template = get_thermal_dispatch_template_network(NetworkModel(LPACCNetworkModel))
+    set_device_model!(template, PSY.FACTSControlDevice, ShuntSusceptanceDispatch)
+
+    model = DecisionModel(template, sys; optimizer = ipopt_optimizer)
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+
+    container = IOM.get_optimization_container(model)
+    cons = IOM.get_constraint(
+        container, POM.ShuntReactivePowerConstraint, PSY.FACTSControlDevice,
+    )
+    @test length(cons) > 0
+    phi = IOM.get_variable(container, POM.VoltageDeviation, PSY.ACBus)
+    for t in IOM.get_time_steps(container)
+        v = phi[bus_name, t]
+        @test JuMP.is_fixed(v)
+        @test isapprox(JuMP.fix_value(v), setpoint - 1.0; atol = 1e-10)
+    end
+
+    @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+    res = IOM.OptimizationProblemOutputs(model)
+    phi_sol =
+        read_variable(res, "VoltageDeviation__ACBus"; table_format = TableFormat.WIDE)
+    for r in 1:nrow(phi_sol)
+        @test isapprox(phi_sol[r, bus_name], setpoint - 1.0; atol = 1e-6)
+    end
+end
+
 @testset "ShuntSusceptanceDispatch @info-drop under DCPNetworkModel" begin
     sys = PSB.build_system(PSITestSystems, "c_sys5")
 

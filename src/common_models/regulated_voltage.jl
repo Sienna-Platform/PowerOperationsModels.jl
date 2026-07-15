@@ -193,6 +193,29 @@ function fix_regulated_voltage!(
     return
 end
 
+# LPACC: pin the shared bus VoltageDeviation phi = |V| - 1 at the regulated bus to
+# setpoint - 1. Like ACP, the network carries a scalar per-bus voltage primitive, so
+# no aux variable is involved and the tag is unused.
+function fix_regulated_voltage!(
+    container::OptimizationContainer,
+    component::T,
+    ::String,
+    reg_bus::PSY.ACBus,
+    setpoint::Float64,
+    ::NetworkModel{LPACCNetworkModel},
+) where {T <: PSY.Component}
+    time_steps = get_time_steps(container)
+    phi = get_variable(container, VoltageDeviation, PSY.ACBus)
+    bus_name = PSY.get_name(reg_bus)
+    _assert_bus_has_voltage_variables(
+        phi, bus_name, "regulated bus of $(PSY.get_name(component))",
+    )
+    for t in time_steps
+        JuMP.fix(phi[bus_name, t], setpoint - 1.0; force = true)
+    end
+    return
+end
+
 # ACR/IVR: pin the (component, tag)-owned RegulatedVoltageMagnitude aux variable.
 # The defining constraint then forces vr² + vi² == setpoint² at the regulated bus.
 function fix_regulated_voltage!(

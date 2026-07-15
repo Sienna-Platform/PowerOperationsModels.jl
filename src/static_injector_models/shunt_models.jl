@@ -5,7 +5,7 @@
 #   - SwitchedAdmittance (<: ElectricLoad <: StaticInjection)
 #   - FACTSControlDevice (<: StaticInjection)
 #
-# Both satisfy the R <: PSY.StaticInjection bound used in the constructor.
+# The constructor's device slot is bound to exactly these two types.
 #################################################################################
 
 # Susceptance limits (pu, system base) for the continuous shunt control variable `b`.

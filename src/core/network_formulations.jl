@@ -181,22 +181,26 @@ voltage_form(::Type{LPACCNetworkModel}) = AngleBasedVoltage()
 # --- How a regulated bus voltage magnitude is pinned by a controlling device ---
 # Polar networks carry a scalar VoltageMagnitude that is fixed directly; rectangular
 # networks (vr, vi) have no magnitude primitive, so a per-device RegulatedVoltageMagnitude
-# aux variable is tied to the components and fixed instead. Selects the objective-
+# aux variable is tied to the components and fixed instead; LPACC carries the magnitude
+# deviation phi = |V| - 1, which is fixed directly at setpoint - 1. Selects the objective-
 # application path for the voltage-controlling tap (and any future voltage regulator).
 abstract type RegulatedVoltageForm end
 struct PolarRegulatedVoltage <: RegulatedVoltageForm end
 struct RectangularRegulatedVoltage <: RegulatedVoltageForm end
+struct DeviationRegulatedVoltage <: RegulatedVoltageForm end
 
 regulated_voltage_form(::Type{<:AbstractNetworkModel}) = RectangularRegulatedVoltage()
 regulated_voltage_form(::Type{ACPNetworkModel}) = PolarRegulatedVoltage()
+regulated_voltage_form(::Type{LPACCNetworkModel}) = DeviationRegulatedVoltage()
 
 # --- Whether a tap branch is built with explicit current variables ---
 # IVR carries branch terminal/series current variables (and a CurrentLimitConstraint);
-# ACP/ACR model the branch in power only. Selects the tap-branch construction path.
+# ACP/ACR/LPACC model the branch in power only. Selects the tap-branch construction path.
 abstract type TapBranchCurrentForm end
 struct PowerOnlyTapBranch <: TapBranchCurrentForm end
 struct CurrentInjectionTapBranch <: TapBranchCurrentForm end
 
 tap_branch_current_form(::Type{ACPNetworkModel}) = PowerOnlyTapBranch()
 tap_branch_current_form(::Type{ACRNetworkModel}) = PowerOnlyTapBranch()
+tap_branch_current_form(::Type{LPACCNetworkModel}) = PowerOnlyTapBranch()
 tap_branch_current_form(::Type{IVRNetworkModel}) = CurrentInjectionTapBranch()

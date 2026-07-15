@@ -262,6 +262,157 @@ end
     end
 end
 
+@testset "VoltageControlTap VOLTAGE objective pins regulated bus (LPACC, c_sys14)" begin
+    sys = PSB.build_system(PSITestSystems, "c_sys14")
+    tr = PSY.get_component(PSY.TapTransformer, sys, "Trans1")
+    PSY.set_control_objective!(tr, PSY.TransformerControlObjective.VOLTAGE)
+    PSY.set_regulated_bus_number!(tr, 0)
+    PSY.set_voltage_setpoint!(tr, 1.0)
+    regulated_bus = PSY.get_name(PSY.get_to(PSY.get_arc(tr)))
+    setpoint = PSY.get_voltage_setpoint(tr)
+
+    template = get_thermal_dispatch_template_network(NetworkModel(LPACCNetworkModel))
+    set_device_model!(template, PSY.TapTransformer, VoltageControlTap)
+
+    model = DecisionModel(template, sys; optimizer = ipopt_optimizer)
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+
+    container = IOM.get_optimization_container(model)
+    # The tap-bearing Ohm's law and the cosine relaxation must exist and be non-empty —
+    # a build with empty containers would model nothing.
+    con_pft =
+        IOM.get_constraint(container, POM.NetworkFlowConstraint, PSY.TapTransformer, "p_ft")
+    @test length(con_pft) > 0
+    con_cs = IOM.get_constraint(
+        container, POM.CosineRelaxationConstraint, PSY.TapTransformer,
+    )
+    @test length(con_cs) > 0
+    # LPACC pins the VoltageDeviation phi = |V| - 1 at the regulated bus.
+    phi = IOM.get_variable(container, POM.VoltageDeviation, PSY.ACBus)
+    for t in IOM.get_time_steps(container)
+        v = phi[regulated_bus, t]
+        @test JuMP.is_fixed(v)
+        @test isapprox(JuMP.fix_value(v), setpoint - 1.0; atol = 1e-10)
+    end
+
+    @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+    res = IOM.OptimizationProblemOutputs(model)
+    phi_sol =
+        read_variable(res, "VoltageDeviation__ACBus"; table_format = TableFormat.WIDE)
+    for r in 1:nrow(phi_sol)
+        @test isapprox(phi_sol[r, regulated_bus], setpoint - 1.0; atol = 1e-6)
+    end
+    @test check_variable_bounded(model, TapRatioVariable, PSY.TapTransformer)
+end
+
+@testset "VoltageControlTap is count-invariant across control objectives (LPACC, c_sys14)" begin
+    function _lpacc_container_for_objective(objective)
+        sys = PSB.build_system(PSITestSystems, "c_sys14")
+        tr = PSY.get_component(PSY.TapTransformer, sys, "Trans1")
+        PSY.set_control_objective!(tr, objective)
+        PSY.set_regulated_bus_number!(tr, 0)
+        PSY.set_voltage_setpoint!(tr, 1.0)
+        template = get_thermal_dispatch_template_network(NetworkModel(LPACCNetworkModel))
+        set_device_model!(template, PSY.TapTransformer, VoltageControlTap)
+        model = DecisionModel(template, sys; optimizer = ipopt_optimizer)
+        @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+              IOM.ModelBuildStatus.BUILT
+        return IOM.get_optimization_container(model)
+    end
+
+    cv = _lpacc_container_for_objective(PSY.TransformerControlObjective.VOLTAGE)
+    cq = _lpacc_container_for_objective(PSY.TransformerControlObjective.REACTIVE_POWER_FLOW)
+
+    var_v = IOM.get_variables(cv)
+    var_q = IOM.get_variables(cq)
+    @test Set(keys(var_v)) == Set(keys(var_q))
+    for k in keys(var_v)
+        @test size(var_v[k]) == size(var_q[k])
+    end
+
+    con_v = IOM.get_constraints(cv)
+    con_q = IOM.get_constraints(cq)
+    @test Set(keys(con_v)) == Set(keys(con_q))
+    for k in keys(con_v)
+        @test size(con_v[k]) == size(con_q[k])
+    end
+end
+
+@testset "LPACC NetworkFlowConstraint carries the live tap in the LPAC Ohm's law" begin
+    # Ground-truth: the built LPACC variable-tap flow constraints must equal the LPAC
+    # substitution of the ACR builder — vsq_fr → 1+2φ_fr, vsq_to → 1+2φ_to,
+    # vv_cos → cs + φ_fr + φ_to, vv_sin → va_fr - va_to — with the live TapRatioVariable
+    # in place of the fixed tap. Evaluate constraint_object(con).func at chosen values
+    # and compare to the hand-assembled RHS (same idiom as the ACR test above).
+    sys = PSB.build_system(PSITestSystems, "c_sys14")
+    template = get_thermal_dispatch_template_network(NetworkModel(LPACCNetworkModel))
+    set_device_model!(template, PSY.TapTransformer, VoltageControlTap)
+    model = DecisionModel(template, sys; optimizer = ipopt_optimizer)
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+
+    container = IOM.get_optimization_container(model)
+    pft = IOM.get_variable(container, FlowActivePowerFromToVariable, PSY.TapTransformer)
+    qtf = IOM.get_variable(container, FlowReactivePowerToFromVariable, PSY.TapTransformer)
+    va = IOM.get_variable(container, VoltageAngle, PSY.ACBus)
+    phi = IOM.get_variable(container, POM.VoltageDeviation, PSY.ACBus)
+    cs = IOM.get_variable(container, POM.CosineApproximation, PSY.TapTransformer)
+    tap = IOM.get_variable(container, TapRatioVariable, PSY.TapTransformer)
+    con_pft =
+        IOM.get_constraint(container, POM.NetworkFlowConstraint, PSY.TapTransformer, "p_ft")
+    con_qtf =
+        IOM.get_constraint(container, POM.NetworkFlowConstraint, PSY.TapTransformer, "q_tf")
+    @test length(con_pft) > 0
+
+    t = 1
+    for d in Iterators.take(PSY.get_components(PSY.TapTransformer, sys), 3)
+        name = PSY.get_name(d)
+        geom = POM._branch_geometry(d)
+        adm = geom.adm
+        coef = POM._tap_flow_coefficients(
+            adm.g, adm.b, adm.g_fr, adm.b_fr, adm.g_to, adm.b_to, adm.shift,
+        )
+        e_sin = -coef.d_sin
+        fr = geom.from_name
+        to = geom.to_name
+
+        vals = Dict{JuMP.VariableRef, Float64}(
+            va[fr, t] => 0.11, va[to, t] => -0.07,
+            phi[fr, t] => 0.03, phi[to, t] => -0.02,
+            cs[name, t] => 0.97,
+            tap[name, t] => 1.05,
+            pft[name, t] => 0.6, qtf[name, t] => -0.15,
+        )
+        lookup = z -> vals[z]
+
+        dev_fr = 1.0 + 2.0 * vals[phi[fr, t]]
+        dev_to = 1.0 + 2.0 * vals[phi[to, t]]
+        cs_sum = vals[cs[name, t]] + vals[phi[fr, t]] + vals[phi[to, t]]
+        vad = vals[va[fr, t]] - vals[va[to, t]]
+        tt = vals[tap[name, t]]
+
+        rhs_pft =
+            coef.gg_fr / tt^2 * dev_fr + coef.a_cos / tt * cs_sum +
+            coef.a_sin / tt * vad
+        want_pft = vals[pft[name, t]] - rhs_pft
+        got_pft = JuMP.value(lookup, JuMP.constraint_object(con_pft[name, t]).func)
+        @test isapprox(got_pft, want_pft; atol = 1e-10)
+
+        rhs_qtf =
+            -coef.bb_to * dev_to - e_sin / tt * cs_sum - coef.c_cos / tt * vad
+        want_qtf = vals[qtf[name, t]] - rhs_qtf
+        got_qtf = JuMP.value(lookup, JuMP.constraint_object(con_qtf[name, t]).func)
+        @test isapprox(got_qtf, want_qtf; atol = 1e-10)
+
+        # The tap actually enters the constraint: a different tap value changes it.
+        vals[tap[name, t]] = 1.20
+        moved = JuMP.value(lookup, JuMP.constraint_object(con_pft[name, t]).func)
+        @test !isapprox(moved, got_pft; atol = 1e-8)
+        vals[tap[name, t]] = 1.05
+    end
+end
+
 @testset "VoltageControlTap @info-drop under DCPNetworkModel (c_sys14)" begin
     sys = PSB.build_system(PSITestSystems, "c_sys14")
     template = get_thermal_dispatch_template_network(NetworkModel(DCPNetworkModel))
