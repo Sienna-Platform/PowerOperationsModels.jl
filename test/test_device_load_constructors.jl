@@ -34,6 +34,212 @@ end
           IOM.ModelBuildStatus.BUILT
 end
 
+function _two_area_ac_interchange_system(; include_reverse_tie = true)
+    sys = PSB.build_system(PSISystems, "two_area_pjm_DA")
+    transform_single_time_series!(sys, Hour(24), Hour(1))
+    # Retire mid-cost capacity in Area2 so the optimum imports over the ties and the
+    # inter-area lines carry enough flow for their losses to be visible.
+    set_available!(get_component(ThermalStandard, sys, "Solitude_2"), false)
+    if include_reverse_tie
+        # A second tie oriented Area2 -> Area1 exercises the reversed map key: its
+        # from-area boundary is the branch's to terminal.
+        bus_d2 = get_component(ACBus, sys, "Bus_nodeD_2")
+        bus_d1 = get_component(ACBus, sys, "Bus_nodeD_1")
+        arc = Arc(; from = bus_d2, to = bus_d1)
+        add_component!(sys, arc)
+        line = Line(;
+            name = "reverse_tie",
+            available = true,
+            active_power_flow = 0.0,
+            reactive_power_flow = 0.0,
+            arc = arc,
+            r = 0.003,
+            x = 0.03,
+            b = (from = 0.0, to = 0.0),
+            rating = 10.0,
+            angle_limits = (min = -1.57, max = 1.57),
+        )
+        add_component!(sys, line)
+    end
+    return sys
+end
+
+function _add_inter_area_hvdc_tie!(sys)
+    bus_from = get_component(ACBus, sys, "Bus_nodeC_1")
+    bus_to = get_component(ACBus, sys, "Bus_nodeC_2")
+    arc = first(
+        PSY.get_components(
+            x -> PSY.get_from(x) == bus_from && PSY.get_to(x) == bus_to, Arc, sys,
+        ),
+    )
+    hvdc = TwoTerminalGenericHVDCLine(;
+        name = "hvdc_tie",
+        available = true,
+        active_power_flow = 0.0,
+        active_power_limits_from = (min = -2.0, max = 2.0),
+        active_power_limits_to = (min = -2.0, max = 2.0),
+        reactive_power_limits_from = (min = -1.0, max = 1.0),
+        reactive_power_limits_to = (min = -1.0, max = 1.0),
+        arc = arc,
+        loss = LinearCurve(0.05, 0.01),
+    )
+    add_component!(sys, hvdc)
+    return
+end
+
+@testset "AreaInterchange StaticBranch measures the from-area boundary flow on AC networks" begin
+    for (net, run_solve) in (
+        (ACPNetworkModel, true),
+        (ACRNetworkModel, false),
+        (IVRNetworkModel, false),
+        (LPACCNetworkModel, false),
+    )
+        sys = _two_area_ac_interchange_system()
+        template = get_thermal_dispatch_template_network(NetworkModel(net))
+        set_device_model!(template, AreaInterchange, StaticBranch)
+        model = DecisionModel(
+            template,
+            sys;
+            optimizer = ipopt_optimizer,
+            store_variable_names = true,
+        )
+        @test build!(
+            model;
+            output_dir = mktempdir(; cleanup = true),
+            console_level = Logging.Error,
+        ) == IOM.ModelBuildStatus.BUILT
+        container = IOM.get_optimization_container(model)
+        t1 = first(IOM.get_time_steps(container))
+        ex = IOM.get_variable(container, FlowActivePowerVariable, AreaInterchange)
+        pft_ml = IOM.get_variable(container, FlowActivePowerFromToVariable, MonitoredLine)
+        ptf_ml = IOM.get_variable(container, FlowActivePowerToFromVariable, MonitoredLine)
+        pft_l = IOM.get_variable(container, FlowActivePowerFromToVariable, Line)
+        ptf_l = IOM.get_variable(container, FlowActivePowerToFromVariable, Line)
+        con_ub =
+            IOM.get_constraint(
+                container,
+                POM.LineFlowBoundConstraint,
+                AreaInterchange,
+                "ub",
+            )
+        con_lb =
+            IOM.get_constraint(
+                container,
+                POM.LineFlowBoundConstraint,
+                AreaInterchange,
+                "lb",
+            )
+        for con in (con_ub["1_2", t1], con_lb["1_2", t1])
+            # inter_area_line is oriented Area1 -> Area2: metered at its from terminal
+            @test JuMP.normalized_coefficient(con, pft_ml["inter_area_line", t1]) == 1.0
+            @test JuMP.normalized_coefficient(con, ptf_ml["inter_area_line", t1]) == 0.0
+            # reverse_tie is oriented Area2 -> Area1: metered at its to terminal
+            @test JuMP.normalized_coefficient(con, ptf_l["reverse_tie", t1]) == 1.0
+            @test JuMP.normalized_coefficient(con, pft_l["reverse_tie", t1]) == 0.0
+            @test JuMP.normalized_coefficient(con, ex["1_2", t1]) == -1.0
+        end
+        if run_solve
+            @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+            time_steps = IOM.get_time_steps(container)
+            t_star = argmax([abs(JuMP.value(ex["1_2", t])) for t in time_steps])
+            @test abs(JuMP.value(ex["1_2", t_star])) > 0.1
+            ft_ia = JuMP.value(pft_ml["inter_area_line", t_star])
+            tf_ia = JuMP.value(ptf_ml["inter_area_line", t_star])
+            ft_rev = JuMP.value(pft_l["reverse_tie", t_star])
+            tf_rev = JuMP.value(ptf_l["reverse_tie", t_star])
+            # AC ties are lossy: the two directional flows are not mirror images
+            loss_ia = ft_ia + tf_ia
+            loss_rev = ft_rev + tf_rev
+            @test loss_ia > 1e-6
+            @test loss_rev > 1e-6
+            measured_export = ft_ia + tf_rev
+            far_end_arrival = -(tf_ia + ft_rev)
+            # The exchange variable reads the sending-side (lossy) measurement, so it
+            # equals the from-area export and is strictly greater than what arrives at
+            # the far end — by the tie-line losses. Both are independent solved values.
+            @test isapprox(JuMP.value(ex["1_2", t_star]), measured_export; atol = 1e-6)
+            @test !isapprox(JuMP.value(ex["1_2", t_star]), far_end_arrival; atol = 1e-4)
+            @test JuMP.value(ex["1_2", t_star]) - far_end_arrival > 1e-6
+        end
+    end
+end
+
+@testset "AreaInterchange StaticBranch includes HVDC tie lines on AC networks" begin
+    # Directional-flow HVDC formulation: the tie is metered like the AC lines, at the
+    # terminal on the interchange's from-area side. Binaries preclude an Ipopt solve,
+    # so assert at the coefficient level.
+    sys = _two_area_ac_interchange_system(; include_reverse_tie = false)
+    _add_inter_area_hvdc_tie!(sys)
+    template = get_thermal_dispatch_template_network(NetworkModel(ACPNetworkModel))
+    set_device_model!(template, AreaInterchange, StaticBranch)
+    set_device_model!(template, TwoTerminalGenericHVDCLine, HVDCTwoTerminalDispatch)
+    model = DecisionModel(
+        template,
+        sys;
+        optimizer = ipopt_optimizer,
+        store_variable_names = true,
+    )
+    @test build!(
+        model;
+        output_dir = mktempdir(; cleanup = true),
+        console_level = Logging.Error,
+    ) == IOM.ModelBuildStatus.BUILT
+    container = IOM.get_optimization_container(model)
+    t1 = first(IOM.get_time_steps(container))
+    pft_dc = IOM.get_variable(
+        container, FlowActivePowerFromToVariable, TwoTerminalGenericHVDCLine,
+    )
+    ptf_dc = IOM.get_variable(
+        container, FlowActivePowerToFromVariable, TwoTerminalGenericHVDCLine,
+    )
+    con_ub =
+        IOM.get_constraint(container, POM.LineFlowBoundConstraint, AreaInterchange, "ub")
+    c = con_ub["1_2", t1]
+    @test JuMP.normalized_coefficient(c, pft_dc["hvdc_tie", t1]) == 1.0
+    @test JuMP.normalized_coefficient(c, ptf_dc["hvdc_tie", t1]) == 0.0
+
+    # Single-signed-flow HVDC formulation (lossless): the flow variable is positive
+    # from -> to, so it enters with the interchange direction multiplier.
+    sys_ll = _two_area_ac_interchange_system(; include_reverse_tie = false)
+    _add_inter_area_hvdc_tie!(sys_ll)
+    template_ll = get_thermal_dispatch_template_network(NetworkModel(ACPNetworkModel))
+    set_device_model!(template_ll, AreaInterchange, StaticBranch)
+    model_ll = DecisionModel(
+        template_ll,
+        sys_ll;
+        optimizer = ipopt_optimizer,
+        store_variable_names = true,
+    )
+    @test build!(
+        model_ll;
+        output_dir = mktempdir(; cleanup = true),
+        console_level = Logging.Error,
+    ) == IOM.ModelBuildStatus.BUILT
+    container_ll = IOM.get_optimization_container(model_ll)
+    flow_dc = IOM.get_variable(
+        container_ll, FlowActivePowerVariable, TwoTerminalGenericHVDCLine,
+    )
+    ex_ll = IOM.get_variable(container_ll, FlowActivePowerVariable, AreaInterchange)
+    pft_ml_ll =
+        IOM.get_variable(container_ll, FlowActivePowerFromToVariable, MonitoredLine)
+    con_ub_ll = IOM.get_constraint(
+        container_ll, POM.LineFlowBoundConstraint, AreaInterchange, "ub",
+    )
+    c_ll = con_ub_ll["1_2", t1]
+    @test JuMP.normalized_coefficient(c_ll, flow_dc["hvdc_tie", t1]) == 1.0
+    @test JuMP.normalized_coefficient(c_ll, ex_ll["1_2", t1]) == -1.0
+    @test solve!(model_ll) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+    time_steps_ll = IOM.get_time_steps(container_ll)
+    t_star = argmax([abs(JuMP.value(ex_ll["1_2", t])) for t in time_steps_ll])
+    @test abs(JuMP.value(ex_ll["1_2", t_star])) > 0.1
+    @test isapprox(
+        JuMP.value(ex_ll["1_2", t_star]),
+        JuMP.value(pft_ml_ll["inter_area_line", t_star]) +
+        JuMP.value(flow_dc["hvdc_tie", t_star]);
+        atol = 1e-6,
+    )
+end
+
 @testset "StaticPowerLoad" begin
     models = [StaticPowerLoad, PowerLoadDispatch, PowerLoadInterruption]
     c_sys5_il = PSB.build_system(PSITestSystems, "c_sys5_il")

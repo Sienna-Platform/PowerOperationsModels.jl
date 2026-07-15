@@ -1790,7 +1790,7 @@ function add_to_expression!(
     network_model::NetworkModel{U},
 ) where {
     W <: AbstractBranchFormulation,
-    U <: AbstractActivePowerModel,
+    U <: Union{AbstractActivePowerModel, AbstractReactivePowerNetworkModel},
 }
     @debug "AreaInterchanges do not contribute to ActivePowerBalance expressions in non-area models."
     return

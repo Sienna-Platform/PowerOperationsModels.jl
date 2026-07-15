@@ -2662,7 +2662,7 @@ function construct_device!(
     network_model::NetworkModel{U},
 ) where {
     T <: Union{StaticBranchUnbounded, StaticBranch},
-    U <: AbstractActivePowerModel,
+    U <: Union{AbstractActivePowerModel, AbstractReactivePowerNetworkModel},
 }
     devices = get_available_components(device_model, sys)
     has_ts = PSY.has_time_series.(devices)
@@ -2830,6 +2830,92 @@ function construct_device!(
         inter_area_branch_map,
     )
     add_feedforward_constraints!(container, device_model, devices)
+    return
+end
+
+function construct_device!(
+    container::OptimizationContainer,
+    sys::PSY.System,
+    ::ModelConstructStage,
+    device_model::DeviceModel{PSY.AreaInterchange, StaticBranch},
+    network_model::NetworkModel{T},
+) where {T <: AbstractReactivePowerNetworkModel}
+    devices = get_available_components(device_model, sys)
+    add_constraints!(container, FlowLimitConstraint, devices, device_model, network_model)
+    inter_area_branch_map = _get_branch_map(network_model)
+    _add_hvdc_inter_area_branches!(inter_area_branch_map, sys, network_model)
+    add_constraints!(
+        container,
+        LineFlowBoundConstraint,
+        devices,
+        device_model,
+        network_model,
+        inter_area_branch_map,
+    )
+    add_feedforward_constraints!(container, device_model, devices)
+    return
+end
+
+function construct_device!(
+    container::OptimizationContainer,
+    sys::PSY.System,
+    ::ModelConstructStage,
+    device_model::DeviceModel{PSY.AreaInterchange, StaticBranchUnbounded},
+    network_model::NetworkModel{T},
+) where {T <: AbstractReactivePowerNetworkModel}
+    devices = get_available_components(device_model, sys)
+    inter_area_branch_map = _get_branch_map(network_model)
+    _add_hvdc_inter_area_branches!(inter_area_branch_map, sys, network_model)
+    add_constraints!(
+        container,
+        LineFlowBoundConstraint,
+        devices,
+        device_model,
+        network_model,
+        inter_area_branch_map,
+    )
+    add_feedforward_constraints!(container, device_model, devices)
+    return
+end
+
+# PNM's reduction maps cover only PSY.ACTransmission, so _get_branch_map never sees the
+# HVDC tie lines; they are also never reduced, so collecting them from the system
+# directly is safe.
+function _add_hvdc_inter_area_branches!(
+    inter_area_branch_map::Dict{Tuple{String, String}, Dict{DataType, Vector{String}}},
+    sys::PSY.System,
+    network_model::NetworkModel,
+)
+    for br_type in network_model.modeled_branch_types
+        _add_hvdc_inter_area_branches_of_type!(inter_area_branch_map, br_type, sys)
+    end
+    return
+end
+
+function _add_hvdc_inter_area_branches_of_type!(
+    ::Dict{Tuple{String, String}, Dict{DataType, Vector{String}}},
+    ::Type{<:PSY.Branch},
+    ::PSY.System,
+)
+    return
+end
+
+function _add_hvdc_inter_area_branches_of_type!(
+    inter_area_branch_map::Dict{Tuple{String, String}, Dict{DataType, Vector{String}}},
+    ::Type{T},
+    sys::PSY.System,
+) where {T <: PSY.TwoTerminalHVDC}
+    for device in PSY.get_available_components(T, sys)
+        area_from, area_to = _get_area_from_to(device)
+        if area_from != area_to
+            branch_typed_dict = get!(
+                inter_area_branch_map,
+                (PSY.get_name(area_from), PSY.get_name(area_to)),
+                Dict{DataType, Vector{String}}(),
+            )
+            _add_to_branch_map!(branch_typed_dict, device, PSY.get_name(device))
+        end
+    end
     return
 end
 
