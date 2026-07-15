@@ -277,6 +277,16 @@ function get_name_to_arc_map_entries(
     return IOM.SortedDict{String, Tuple{Tuple{Int, Int}, String}}()
 end
 
+"""
+Representative branch-name axis for a constraint family `U` over components of type `T`
+under an active network reduction.
+
+Every member of a reduced arc (series segments, parallel groups, across branch types)
+shares one set of flow variables, so the arc's physics must be constrained exactly once.
+This returns one branch name per reduced arc of `T` not already claimed for `U`, recording
+the claim in `reduced_branch_tracker` so the guarantee holds across separate
+`construct_device!` calls. Constraint containers must be sized with the returned names.
+"""
 function get_branch_argument_constraint_axis(
     net_reduction_data::PNM.NetworkReductionData,
     reduced_branch_tracker::BranchReductionOptimizationTracker,

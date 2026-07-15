@@ -53,6 +53,10 @@ get_variable_lower_bound(::Type{FlowActivePowerVariable}, d::PSY.TwoTerminalHVDC
 get_variable_upper_bound(::Type{FlowActivePowerVariable}, d::PSY.TwoTerminalHVDC, ::Type{HVDCTwoTerminalUnbounded}) = nothing
 get_variable_lower_bound(::Type{FlowActivePowerVariable}, d::PSY.TwoTerminalHVDC, ::Type{<:AbstractTwoTerminalDCLineFormulation}) = nothing
 get_variable_upper_bound(::Type{FlowActivePowerVariable}, d::PSY.TwoTerminalHVDC, ::Type{<:AbstractTwoTerminalDCLineFormulation}) = nothing
+get_variable_lower_bound(::Type{FlowReactivePowerFromToVariable}, d::PSY.TwoTerminalHVDC, ::Type{HVDCTwoTerminalLossless}) = PSY.get_reactive_power_limits_from(d, PSY.SU).min
+get_variable_upper_bound(::Type{FlowReactivePowerFromToVariable}, d::PSY.TwoTerminalHVDC, ::Type{HVDCTwoTerminalLossless}) = PSY.get_reactive_power_limits_from(d, PSY.SU).max
+get_variable_lower_bound(::Type{FlowReactivePowerToFromVariable}, d::PSY.TwoTerminalHVDC, ::Type{HVDCTwoTerminalLossless}) = PSY.get_reactive_power_limits_to(d, PSY.SU).min
+get_variable_upper_bound(::Type{FlowReactivePowerToFromVariable}, d::PSY.TwoTerminalHVDC, ::Type{HVDCTwoTerminalLossless}) = PSY.get_reactive_power_limits_to(d, PSY.SU).max
 get_variable_lower_bound(::Type{HVDCLosses}, d::PSY.TwoTerminalHVDC, ::Type{HVDCTwoTerminalDispatch}) = 0.0
 get_variable_upper_bound(::Type{FlowActivePowerFromToVariable}, d::PSY.TwoTerminalHVDC, ::Type{HVDCTwoTerminalDispatch}) = PSY.get_active_power_limits_from(d, PSY.SU).max
 get_variable_lower_bound(::Type{FlowActivePowerFromToVariable}, d::PSY.TwoTerminalHVDC, ::Type{HVDCTwoTerminalDispatch}) = PSY.get_active_power_limits_from(d, PSY.SU).min
@@ -62,6 +66,36 @@ get_variable_upper_bound(::Type{HVDCActivePowerReceivedFromVariable}, d::PSY.Two
 get_variable_lower_bound(::Type{HVDCActivePowerReceivedFromVariable}, d::PSY.TwoTerminalHVDC, ::Type{<:AbstractTwoTerminalDCLineFormulation}) = PSY.get_active_power_limits_from(d, PSY.SU).min
 get_variable_upper_bound(::Type{HVDCActivePowerReceivedToVariable}, d::PSY.TwoTerminalHVDC, ::Type{<:AbstractTwoTerminalDCLineFormulation}) = PSY.get_active_power_limits_to(d, PSY.SU).max
 get_variable_lower_bound(::Type{HVDCActivePowerReceivedToVariable}, d::PSY.TwoTerminalHVDC, ::Type{<:AbstractTwoTerminalDCLineFormulation}) = PSY.get_active_power_limits_to(d, PSY.SU).min
+
+_degenerate_reactive_limits(limits) = iszero(limits.min) && iszero(limits.max)
+
+"""
+Warn when a two-terminal HVDC whose reactive flows are wired into the nodal
+`ReactivePowerBalance` cannot carry any reactive power. `HVDCTwoTerminalLossless` bounds
+`FlowReactivePower{FromTo,ToFrom}Variable` by the device's reactive power limits, and
+`PSY.TwoTerminalVSCLine`/`PSY.TwoTerminalLCCLine` default both limit pairs to
+`(min = 0.0, max = 0.0)`, which pins the terminal's reactive flow to zero. That is valid
+data (the converter offers no reactive support), so this is a warning and not an error,
+but it can silently make an AC model infeasible.
+"""
+function _warn_no_hvdc_reactive_capability(devices)
+    for d in devices
+        terminals = String[]
+        if _degenerate_reactive_limits(PSY.get_reactive_power_limits_from(d, PSY.SU))
+            push!(terminals, "from")
+        end
+        if _degenerate_reactive_limits(PSY.get_reactive_power_limits_to(d, PSY.SU))
+            push!(terminals, "to")
+        end
+        if isempty(terminals)
+            continue
+        end
+        @warn "$(typeof(d)) \"$(PSY.get_name(d))\": reactive power limits are (min = 0.0, max = 0.0) at the $(join(terminals, " and ")) terminal(s). \
+               Under HVDCTwoTerminalLossless the reactive flow variables are bounded by those limits, so the terminal(s) can neither inject nor absorb reactive power. \
+               This can render an AC network model infeasible. Set reactive_power_limits_from / reactive_power_limits_to if the converter provides reactive support."
+    end
+    return
+end
 
 function get_variable_upper_bound(
     ::Type{HVDCLosses},

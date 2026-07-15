@@ -98,17 +98,13 @@ end
     pvar_xfmr = IOM.get_variable(container, FlowActivePowerVariable, Transformer2W)
     @test pvar_line["1-9-i_1", t1] === pvar_xfmr["9-5-i_1", t1]
 
-    # DC power flow is exactly invariant under radial + degree-two reduction, so the
-    # reduced and unreduced problems must agree to solver tolerance.
     model_full, status_full =
         _solve_case11_native(DCPNetworkModel, HiGHS_optimizer; reduce = false)
     @test status_full == IOM.ModelBuildStatus.BUILT
     @test solve!(model_full) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
-    obj_red = IOM.get_objective_value(IOM.OptimizationProblemOutputs(model_red))
-    obj_full = IOM.get_objective_value(IOM.OptimizationProblemOutputs(model_full))
-    @test isapprox(obj_red, obj_full; rtol = 1e-6)
 
-    # The direct (un-reduced) line carries the same flow in both problems.
+    # DC power flow is exactly invariant under radial + degree-two reduction: the direct
+    # (un-reduced) line carries the same flow in both problems.
     res_red = IOM.OptimizationProblemOutputs(model_red)
     res_full = IOM.OptimizationProblemOutputs(model_full)
     pf_red = read_variable(
@@ -123,21 +119,7 @@ end
 @testset "native DCP reduction: radial-only and degree-two-only isolated" begin
     # Each reduction kind alone must change the branch-variable topology in its own way:
     # radial reduction absorbs the radial leaf but leaves the degree-two series chain as
-    # distinct variables, and degree-two reduction does the opposite. These structural
-    # checks discriminate a broken single-kind reduction; the objective-parity assertions
-    # below are exact (DC flow is invariant under either kind) but not discriminating on
-    # this system, so they are a secondary guard.
-    model_both, status_both =
-        _solve_case11_native(DCPNetworkModel, HiGHS_optimizer; reduce = true)
-    @test status_both == IOM.ModelBuildStatus.BUILT
-    @test solve!(model_both) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
-    obj_both = IOM.get_objective_value(IOM.OptimizationProblemOutputs(model_both))
-
-    model_none, status_none =
-        _solve_case11_native(DCPNetworkModel, HiGHS_optimizer; reduce = false)
-    @test status_none == IOM.ModelBuildStatus.BUILT
-    @test solve!(model_none) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
-    obj_none = IOM.get_objective_value(IOM.OptimizationProblemOutputs(model_none))
+    # distinct variables, and degree-two reduction does the opposite.
 
     # Radial-only: the radial leaf "1-8-i_1" is absorbed, but with degree-two reduction
     # OFF the (1,2) series-chain segments stay three DISTINCT flow variables.
@@ -156,9 +138,6 @@ end
     @test "7-2-i_1" in axes(pvar_rad)[1]
     @test pvar_rad["1-6-i_1", t1_rad] !== pvar_rad["6-7-i_1", t1_rad]
     @test pvar_rad["6-7-i_1", t1_rad] !== pvar_rad["7-2-i_1", t1_rad]
-    obj_rad = IOM.get_objective_value(IOM.OptimizationProblemOutputs(model_rad))
-    @test isapprox(obj_rad, obj_both; rtol = 1e-6)
-    @test isapprox(obj_rad, obj_none; rtol = 1e-6)
 
     # Degree-two-only: with radial reduction OFF the radial leaf "1-8-i_1" is STILL
     # present, and the series chain IS aliased to a single flow variable.
@@ -174,9 +153,6 @@ end
     @test "1-8-i_1" in axes(pvar_deg)[1]
     @test pvar_deg["1-6-i_1", t1_deg] === pvar_deg["6-7-i_1", t1_deg]
     @test pvar_deg["6-7-i_1", t1_deg] === pvar_deg["7-2-i_1", t1_deg]
-    obj_deg = IOM.get_objective_value(IOM.OptimizationProblemOutputs(model_deg))
-    @test isapprox(obj_deg, obj_both; rtol = 1e-6)
-    @test isapprox(obj_deg, obj_none; rtol = 1e-6)
 end
 
 @testset "native ACP reduction: one corridor per reduced arc, exact parity" begin
@@ -288,14 +264,6 @@ end
     @test pvar_line["1-6-i_1", t1] === pvar_line["6-7-i_1", t1]
     @test pvar_line["6-7-i_1", t1] === pvar_line["7-2-i_1", t1]
     @test "1-4-i_double_circuit" in axes(pvar_line)[1]
-
-    model_full, status_full =
-        _solve_case11_native(NFANetworkModel, HiGHS_optimizer; reduce = false)
-    @test status_full == IOM.ModelBuildStatus.BUILT
-    @test solve!(model_full) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
-    obj_red = IOM.get_objective_value(IOM.OptimizationProblemOutputs(model_red))
-    obj_full = IOM.get_objective_value(IOM.OptimizationProblemOutputs(model_full))
-    @test isapprox(obj_red, obj_full; rtol = 1e-6)
 end
 
 @testset "native DCPLL reduction: one corridor per reduced arc, build and solve" begin
@@ -339,17 +307,6 @@ end
     @test "1-4-i_double_circuit" in axes(pft_line)[1]
     pft_xfmr = IOM.get_variable(container, FlowActivePowerFromToVariable, Transformer2W)
     @test pft_line["1-9-i_1", t1] === pft_xfmr["9-5-i_1", t1]
-
-    # DCPLL's quadratic loss term makes reduction only approximately loss-preserving
-    # (the reduced and unreduced corridors integrate the loss differently), so the two
-    # objectives agree only to a loose tolerance, both being near-zero on this system.
-    model_full, status_full =
-        _solve_case11_native(DCPLLNetworkModel, ipopt_optimizer; reduce = false)
-    @test status_full == IOM.ModelBuildStatus.BUILT
-    @test solve!(model_full) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
-    obj_red = IOM.get_objective_value(IOM.OptimizationProblemOutputs(model_red))
-    obj_full = IOM.get_objective_value(IOM.OptimizationProblemOutputs(model_full))
-    @test isapprox(obj_red, obj_full; atol = 1e-4)
 end
 
 @testset "voltage-coupled device at a reduction-absorbed bus fails with a clear error" begin

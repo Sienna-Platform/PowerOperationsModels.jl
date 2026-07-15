@@ -392,6 +392,95 @@ end
     @test axes(discharge_con) == (["Bat"], [time_steps[end]])
 end
 
+@testset "Storage with regularization and ACPNetworkModel" begin
+    template = get_thermal_dispatch_template_network(ACPNetworkModel)
+    device_model = DeviceModel(
+        EnergyReservoirStorage,
+        StorageDispatchWithReserves;
+        attributes = Dict{String, Any}(
+            "reservation" => false,
+            "cycling_limits" => false,
+            "energy_target" => false,
+            "complete_coverage" => false,
+            "regularization" => true,
+        ),
+    )
+    set_device_model!(template, device_model)
+    c_sys5_bat = PSB.build_system(PSITestSystems, "c_sys5_bat")
+    model = DecisionModel(template, c_sys5_bat; optimizer = ipopt_optimizer)
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          ModelBuildStatus.BUILT
+
+    container = IOM.get_optimization_container(model)
+    constraint_types = IOM.get_entry_type.(IOM.get_constraint_keys(container))
+    @test StorageRegularizationConstraintCharge in constraint_types
+    @test StorageRegularizationConstraintDischarge in constraint_types
+end
+
+@testset "Storage with service model and ACPNetworkModel" begin
+    template = get_thermal_dispatch_template_network(ACPNetworkModel)
+    device_model = DeviceModel(
+        EnergyReservoirStorage,
+        StorageDispatchWithReserves;
+        attributes = Dict{String, Any}(
+            "reservation" => true,
+            "cycling_limits" => false,
+            "energy_target" => false,
+            "complete_coverage" => false,
+            "regularization" => false,
+        ),
+    )
+    set_device_model!(template, device_model)
+    set_device_model!(template, RenewableDispatch, FixedOutput)
+    set_service_model!(
+        template,
+        ServiceModel(VariableReserve{ReserveUp}, RangeReserve, "Reserve3"),
+    )
+    set_service_model!(
+        template,
+        ServiceModel(VariableReserve{ReserveDown}, RangeReserve, "Reserve4"),
+    )
+
+    c_sys5_bat = PSB.build_system(PSITestSystems, "c_sys5_bat"; add_reserves = true)
+    model = DecisionModel(template, c_sys5_bat; optimizer = ipopt_optimizer)
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          ModelBuildStatus.BUILT
+end
+
+@testset "Storage with complete coverage, service model and ACPNetworkModel" begin
+    template = get_thermal_dispatch_template_network(ACPNetworkModel)
+    device_model = DeviceModel(
+        EnergyReservoirStorage,
+        StorageDispatchWithReserves;
+        attributes = Dict{String, Any}(
+            "reservation" => true,
+            "cycling_limits" => false,
+            "energy_target" => false,
+            "complete_coverage" => true,
+            "regularization" => false,
+        ),
+    )
+    set_device_model!(template, device_model)
+    set_device_model!(template, RenewableDispatch, FixedOutput)
+    set_service_model!(
+        template,
+        ServiceModel(VariableReserve{ReserveUp}, RangeReserve, "Reserve3"),
+    )
+    set_service_model!(
+        template,
+        ServiceModel(VariableReserve{ReserveDown}, RangeReserve, "Reserve4"),
+    )
+
+    c_sys5_bat = PSB.build_system(PSITestSystems, "c_sys5_bat"; add_reserves = true)
+    model = DecisionModel(template, c_sys5_bat; optimizer = ipopt_optimizer)
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          ModelBuildStatus.BUILT
+
+    container = IOM.get_optimization_container(model)
+    constraint_types = IOM.get_entry_type.(IOM.get_constraint_keys(container))
+    @test ReserveCompleteCoverageConstraint in constraint_types
+end
+
 @testset "Test AreaPTDF System Balance" begin
     sys = build_system(PSISystems, "two_area_pjm_DA")
     transform_single_time_series!(sys, Hour(2), Hour(2))
