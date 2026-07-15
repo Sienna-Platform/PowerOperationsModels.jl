@@ -213,17 +213,16 @@ function add_constraints!(
             sum_of_flows = JuMP.AffExpr()
             for (mult, inter_area_branches) in direction_branch_map
                 for (type, names) in inter_area_branches
-                    flow_expr = get_expression(container, PTDFBranchFlow, type)
-                    for name in names
-                        orientation_sign = get!(orientation_sign_cache, (type, name)) do
-                            get_ptdf_orientation_sign(net_reduction_data, type, name)
-                        end
-                        JuMP.add_to_expression!(
-                            sum_of_flows,
-                            flow_expr[name, t],
-                            mult * orientation_sign,
-                        )
-                    end
+                    _add_ptdf_area_tie_flows!(
+                        sum_of_flows,
+                        container,
+                        type,
+                        names,
+                        mult,
+                        net_reduction_data,
+                        orientation_sign_cache,
+                        t,
+                    )
                 end
             end
             con_ub[inter_change_name, t] =
@@ -232,6 +231,61 @@ function add_constraints!(
                 JuMP.@constraint(jm, sum_of_flows >= area_ex_var[inter_change_name, t])
         end
     end
+    return
+end
+
+function _add_ptdf_area_tie_flows!(
+    sum_of_flows::JuMP.AffExpr,
+    container::OptimizationContainer,
+    ::Type{V},
+    names::Vector{String},
+    mult::Float64,
+    net_reduction_data::PNM.NetworkReductionData,
+    orientation_sign_cache::Dict{Tuple{DataType, String}, Float64},
+    t::Int,
+) where {V <: PSY.ACTransmission}
+    flow_expr = get_expression(container, PTDFBranchFlow, V)
+    for name in names
+        orientation_sign = get!(orientation_sign_cache, (V, name)) do
+            get_ptdf_orientation_sign(net_reduction_data, V, name)
+        end
+        JuMP.add_to_expression!(
+            sum_of_flows,
+            flow_expr[name, t],
+            mult * orientation_sign,
+        )
+    end
+    return
+end
+
+# HVDC tie lines carry flow variables, not a PTDFBranchFlow expression. They are metered
+# like the AC-network interchange path: at the terminal on the interchange's from-area
+# side, so a lossy directional tie contributes its exporting-end flow.
+function _add_ptdf_area_tie_flows!(
+    sum_of_flows::JuMP.AffExpr,
+    container::OptimizationContainer,
+    ::Type{V},
+    names::Vector{String},
+    mult::Float64,
+    net_reduction_data::PNM.NetworkReductionData,
+    orientation_sign_cache::Dict{Tuple{DataType, String}, Float64},
+    t::Int,
+) where {V <: PSY.TwoTerminalHVDC}
+    if mult > 0.0
+        measured_variable_type = FlowActivePowerFromToVariable
+    else
+        measured_variable_type = FlowActivePowerToFromVariable
+    end
+    _add_measured_tie_line_flows!(
+        sum_of_flows,
+        container,
+        measured_variable_type,
+        V,
+        names,
+        net_reduction_data,
+        orientation_sign_cache,
+        t,
+    )
     return
 end
 
