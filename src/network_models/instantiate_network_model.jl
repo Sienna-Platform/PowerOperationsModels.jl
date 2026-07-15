@@ -103,6 +103,15 @@ function _push_component_buses!(buses::Set{Int64}, bus::PSY.ACBus)
     return
 end
 
+# AreaInterchange <: PSY.Branch but connects two Areas, not two buses; it has no
+# arc, so the PSY.Branch method above would error on PSY.get_arc. Not reachable
+# today (modeled_branch_types entries are filtered to <: PSY.ACTransmission
+# before reaching _push_component_buses!, and AreaInterchange isn't one), but
+# guard it explicitly so a future caller can't hit that MethodError.
+function _push_component_buses!(::Set{Int64}, ::PSY.AreaInterchange)
+    return
+end
+
 # Fallback for monitored/outaged component types with no bus-pinning rule. Reached
 # from `_add_outage_monitored_irreducible_buses!`, which iterates the raw
 # `PSY.get_monitored_components(outage)` UUIDs (unfiltered — unlike the
