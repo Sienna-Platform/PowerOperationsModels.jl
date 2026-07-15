@@ -260,24 +260,25 @@ function construct_device!(
 end
 
 """
-ArgumentConstructStage for StaticBranchBounds under ACPNetworkModel.
+ArgumentConstructStage for StaticBranchBounds under ACPNetworkModel and ACRNetworkModel.
 
-Creates the four directional flow variables with variable-level apparent-power bounds
-and registers flow contributions to the per-bus balance expressions.
+Creates the four directional flow variables and registers their contributions to the
+per-bus balance expressions. Both network models take the same argument-stage variable
+set; only their NetworkFlowConstraint builders differ.
 """
 function construct_device!(
     container::OptimizationContainer,
     sys::PSY.System,
     ::ArgumentConstructStage,
     device_model::DeviceModel{T, StaticBranchBounds},
-    network_model::NetworkModel{ACPNetworkModel},
-) where {T <: PSY.ACTransmission}
-    @debug "construct_device ACP StaticBranchBounds (ArgumentConstructStage)" _group =
+    network_model::NetworkModel{U},
+) where {T <: PSY.ACTransmission, U <: Union{ACPNetworkModel, ACRNetworkModel}}
+    @debug "construct_device $U StaticBranchBounds (ArgumentConstructStage)" _group =
         LOG_GROUP_BRANCH_CONSTRUCTIONS
     if get_use_slacks(device_model)
         throw(
             ArgumentError(
-                "StaticBranchBounds formulation and ACPNetworkModel is not compatible with the use of slacks",
+                "StaticBranchBounds formulation and $U is not compatible with the use of slacks",
             ),
         )
     end
@@ -294,19 +295,19 @@ function construct_device!(
 end
 
 """
-ModelConstructStage for StaticBranchBounds under ACPNetworkModel.
+ModelConstructStage for StaticBranchBounds under ACPNetworkModel and ACRNetworkModel.
 
-Applies the π-model AC Ohm's law constraints and sets variable-level bounds on the
-apparent-power flows.
+Applies the apparent-power rate limits (from-to and to-from), the π-model AC Ohm's law
+constraints, and (when applicable) the branch angle-difference limits.
 """
 function construct_device!(
     container::OptimizationContainer,
     sys::PSY.System,
     ::ModelConstructStage,
     device_model::DeviceModel{T, StaticBranchBounds},
-    network_model::NetworkModel{ACPNetworkModel},
-) where {T <: PSY.ACTransmission}
-    @debug "construct_device ACP StaticBranchBounds (ModelConstructStage)" _group =
+    network_model::NetworkModel{U},
+) where {T <: PSY.ACTransmission, U <: Union{ACPNetworkModel, ACRNetworkModel}}
+    @debug "construct_device $U StaticBranchBounds (ModelConstructStage)" _group =
         LOG_GROUP_BRANCH_CONSTRUCTIONS
     devices = get_available_components(device_model, sys)
     add_constraints!(
@@ -322,7 +323,7 @@ function construct_device!(
         container, sys, AngleDifferenceConstraint, devices, device_model, network_model,
     )
     add_feedforward_constraints!(container, device_model, devices)
-    add_to_objective_function!(container, devices, device_model, ACPNetworkModel)
+    add_to_objective_function!(container, devices, device_model, U)
     add_constraint_dual!(container, sys, device_model)
     return
 end
@@ -398,6 +399,7 @@ function construct_device!(
     },
 ) where {T <: PSY.TwoTerminalHVDC}
     devices = get_available_components(device_model, sys)
+    _warn_no_hvdc_reactive_capability(devices)
     add_variables!(container, FlowActivePowerVariable, devices, HVDCTwoTerminalLossless)
     add_variables!(
         container, FlowReactivePowerFromToVariable, devices, HVDCTwoTerminalLossless,
@@ -472,6 +474,78 @@ function construct_device!(
     network_model::NetworkModel{LPACCNetworkModel},
 ) where {T <: PSY.ACTransmission}
     @debug "construct_device LPACC StaticBranch (ModelConstructStage)" _group =
+        LOG_GROUP_BRANCH_CONSTRUCTIONS
+    devices = get_available_components(device_model, sys)
+    add_constraints!(
+        container, FlowRateConstraintFromTo, devices, device_model, network_model,
+    )
+    add_constraints!(
+        container, FlowRateConstraintToFrom, devices, device_model, network_model,
+    )
+    add_constraints!(
+        container, sys, NetworkFlowConstraint, devices, device_model, network_model,
+    )
+    add_constraints!(
+        container, sys, CosineRelaxationConstraint, devices, device_model, network_model,
+    )
+    add_constraints!(
+        container, sys, AngleDifferenceConstraint, devices, device_model, network_model,
+    )
+    add_feedforward_constraints!(container, device_model, devices)
+    add_to_objective_function!(container, devices, device_model, LPACCNetworkModel)
+    add_constraint_dual!(container, sys, device_model)
+    return
+end
+
+"""
+ArgumentConstructStage for StaticBranchBounds under LPACCNetworkModel.
+
+Creates the four directional flow variables and the bus-pair cosine variable, and registers
+each flow's contribution to the per-bus ActivePowerBalance and ReactivePowerBalance.
+"""
+function construct_device!(
+    container::OptimizationContainer,
+    sys::PSY.System,
+    ::ArgumentConstructStage,
+    device_model::DeviceModel{T, StaticBranchBounds},
+    network_model::NetworkModel{LPACCNetworkModel},
+) where {T <: PSY.ACTransmission}
+    @debug "construct_device LPACC StaticBranchBounds (ArgumentConstructStage)" _group =
+        LOG_GROUP_BRANCH_CONSTRUCTIONS
+    if get_use_slacks(device_model)
+        throw(
+            ArgumentError(
+                "StaticBranchBounds formulation and LPACCNetworkModel is not compatible with the use of slacks",
+            ),
+        )
+    end
+    devices = get_available_components(device_model, sys)
+    _add_static_branch_flow_variables!(
+        container,
+        devices,
+        network_model,
+        StaticBranchBounds,
+    )
+    add_variables!(container, CosineApproximation, devices, network_model)
+    _wire_static_branch_flow_to_balance!(container, devices, device_model, network_model)
+    add_feedforward_arguments!(container, device_model, devices)
+    return
+end
+
+"""
+ModelConstructStage for StaticBranchBounds under LPACCNetworkModel.
+
+Applies the apparent-power rate limits, the LPAC-linearized AC Ohm's law constraints, the
+convex cosine relaxation, and (when applicable) the branch angle-difference limits.
+"""
+function construct_device!(
+    container::OptimizationContainer,
+    sys::PSY.System,
+    ::ModelConstructStage,
+    device_model::DeviceModel{T, StaticBranchBounds},
+    network_model::NetworkModel{LPACCNetworkModel},
+) where {T <: PSY.ACTransmission}
+    @debug "construct_device LPACC StaticBranchBounds (ModelConstructStage)" _group =
         LOG_GROUP_BRANCH_CONSTRUCTIONS
     devices = get_available_components(device_model, sys)
     add_constraints!(
@@ -907,6 +981,49 @@ function construct_device!(
     return
 end
 
+"""
+ArgumentConstructStage for StaticBranchBounds under NFANetworkModel.
+
+Creates the FlowActivePowerVariable and registers its contribution to the per-bus
+ActivePowerBalance expression. The rating is enforced as variable bounds by the
+`AbstractActivePowerModel` ModelConstructStage, so slacks cannot be priced and are rejected.
+"""
+function construct_device!(
+    container::OptimizationContainer,
+    sys::PSY.System,
+    ::ArgumentConstructStage,
+    device_model::DeviceModel{T, StaticBranchBounds},
+    network_model::NetworkModel{NFANetworkModel},
+) where {T <: PSY.ACTransmission}
+    @debug "construct_device NFA StaticBranchBounds (ArgumentConstructStage)" _group =
+        LOG_GROUP_BRANCH_CONSTRUCTIONS
+    if get_use_slacks(device_model)
+        throw(
+            ArgumentError(
+                "StaticBranchBounds formulation and NFANetworkModel is not compatible with the use of slacks",
+            ),
+        )
+    end
+    devices = get_available_components(device_model, sys)
+    add_variables!(
+        container,
+        FlowActivePowerVariable,
+        network_model,
+        devices,
+        StaticBranchBounds,
+    )
+    add_to_expression!(
+        container,
+        ActivePowerBalance,
+        FlowActivePowerVariable,
+        devices,
+        device_model,
+        network_model,
+    )
+    add_feedforward_arguments!(container, device_model, devices)
+    return
+end
+
 ################################## DCPLLNetworkModel branch constructors ##############
 
 """
@@ -974,6 +1091,87 @@ function construct_device!(
     network_model::NetworkModel{DCPLLNetworkModel},
 ) where {T <: PSY.ACTransmission}
     @debug "construct_device DCPLL (ModelConstructStage)" _group =
+        LOG_GROUP_BRANCH_CONSTRUCTIONS
+    devices = get_available_components(device_model, sys)
+    add_constraints!(container, FlowRateConstraint, devices, device_model, network_model)
+    add_constraints!(
+        container, sys, NetworkFlowConstraint, devices, device_model, network_model,
+    )
+    add_constraints!(
+        container, sys, NetworkLossConstraint, devices, device_model, network_model,
+    )
+    add_constraints!(
+        container, sys, AngleDifferenceConstraint, devices, device_model, network_model,
+    )
+    add_feedforward_constraints!(container, device_model, devices)
+    add_to_objective_function!(container, devices, device_model, DCPLLNetworkModel)
+    add_constraint_dual!(container, sys, device_model)
+    return
+end
+
+"""
+ArgumentConstructStage for StaticBranchBounds under DCPLLNetworkModel.
+
+Creates the two directional flow variables and applies the rating as variable bounds. As
+with StaticBranch, slacks and hard bounds are mutually exclusive enforcement styles.
+"""
+function construct_device!(
+    container::OptimizationContainer,
+    sys::PSY.System,
+    ::ArgumentConstructStage,
+    device_model::DeviceModel{T, StaticBranchBounds},
+    network_model::NetworkModel{DCPLLNetworkModel},
+) where {T <: PSY.ACTransmission}
+    @debug "construct_device DCPLL StaticBranchBounds (ArgumentConstructStage)" _group =
+        LOG_GROUP_BRANCH_CONSTRUCTIONS
+    devices = get_available_components(device_model, sys)
+    add_variables!(
+        container,
+        FlowActivePowerFromToVariable,
+        network_model,
+        devices,
+        StaticBranchBounds,
+    )
+    add_variables!(
+        container,
+        FlowActivePowerToFromVariable,
+        network_model,
+        devices,
+        StaticBranchBounds,
+    )
+    if get_use_slacks(device_model)
+        _add_flow_slacks!(container, devices, network_model, StaticBranchBounds)
+    else
+        _set_dcpll_flow_bounds!(container, sys, devices, device_model, network_model)
+    end
+    add_to_expression!(
+        container, ActivePowerBalance, FlowActivePowerFromToVariable,
+        devices, device_model, network_model,
+    )
+    add_to_expression!(
+        container, ActivePowerBalance, FlowActivePowerToFromVariable,
+        devices, device_model, network_model,
+    )
+    add_feedforward_arguments!(container, device_model, devices)
+    return
+end
+
+"""
+ModelConstructStage for StaticBranchBounds under DCPLLNetworkModel.
+
+Applies the DC Ohm's law on p_fr (NetworkFlowConstraint), the quadratic line-loss
+coupling (NetworkLossConstraint), and angle-difference limits. A DCPLL-specific method is
+required: the AbstractActivePowerModel fallback bounds a FlowActivePowerVariable that DCPLL
+never creates.
+"""
+function construct_device!(
+    container::OptimizationContainer,
+    sys::PSY.System,
+    ::ModelConstructStage,
+    device_model::DeviceModel{T, StaticBranchBounds},
+    network_model::NetworkModel{DCPLLNetworkModel},
+) where {T <: PSY.ACTransmission}
+    @debug "construct_device DCPLL StaticBranchBounds (ModelConstructStage)" _group =
         LOG_GROUP_BRANCH_CONSTRUCTIONS
     devices = get_available_components(device_model, sys)
     add_constraints!(container, FlowRateConstraint, devices, device_model, network_model)
@@ -1268,53 +1466,6 @@ function construct_device!(
         network_model,
     )
     add_constraint_dual!(container, sys, device_model)
-    return
-end
-
-function construct_device!(
-    container::OptimizationContainer,
-    sys::PSY.System,
-    ::ArgumentConstructStage,
-    device_model::DeviceModel{T, StaticBranchBounds},
-    ::NetworkModel{U},
-) where {T <: PSY.ACTransmission, U <: AbstractNetworkModel}
-    if get_use_slacks(device_model)
-        throw(
-            ArgumentError(
-                "StaticBranchBounds formulation and $U is not compatible with the use of slacks",
-            ),
-        )
-    end
-    devices = get_available_components(device_model, sys)
-    add_feedforward_arguments!(container, device_model, devices)
-    return
-end
-
-function construct_device!(
-    container::OptimizationContainer,
-    sys::PSY.System,
-    ::ModelConstructStage,
-    device_model::DeviceModel{T, StaticBranchBounds},
-    network_model::NetworkModel{<:AbstractNetworkModel},
-) where {T <: PSY.ACTransmission}
-    devices = get_available_components(device_model, sys)
-    branch_rate_bounds!(container, device_model, network_model)
-    add_constraints!(
-        container,
-        FlowRateConstraintFromTo,
-        devices,
-        device_model,
-        network_model,
-    )
-    add_constraints!(
-        container,
-        FlowRateConstraintToFrom,
-        devices,
-        device_model,
-        network_model,
-    )
-    add_constraint_dual!(container, sys, device_model)
-    add_feedforward_constraints!(container, device_model, devices)
     return
 end
 
@@ -1732,6 +1883,7 @@ function construct_device!(
     network_model::NetworkModel{ACPNetworkModel},
 ) where {T <: PSY.TwoTerminalHVDC}
     devices = get_available_components(device_model, sys)
+    _warn_no_hvdc_reactive_capability(devices)
     add_variables!(container, FlowActivePowerVariable, devices, HVDCTwoTerminalLossless)
     add_variables!(
         container, FlowReactivePowerFromToVariable, devices, HVDCTwoTerminalLossless,

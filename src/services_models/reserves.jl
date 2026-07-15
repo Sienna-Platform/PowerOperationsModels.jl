@@ -189,7 +189,7 @@ function add_constraints!(
             resource_expression =
                 _sum_reserve_variables(@view(reserve_variable[:, t]), extra)
             use_slacks &&
-                JuMP.add_to_expression!(resource_expression, slack_vars[t])
+                JuMP.add_to_expression!(resource_expression, slack_vars[service_name, t])
             constraint[service_name, t] =
                 JuMP.@constraint(jump_model, resource_expression >= param[t] * requirement)
         end
@@ -198,7 +198,7 @@ function add_constraints!(
             resource_expression =
                 _sum_reserve_variables(@view(reserve_variable[:, t]), extra)
             use_slacks &&
-                JuMP.add_to_expression!(resource_expression, slack_vars[t])
+                JuMP.add_to_expression!(resource_expression, slack_vars[service_name, t])
             constraint[service_name, t] = JuMP.@constraint(
                 jump_model,
                 resource_expression >= ts_vector[t] * requirement
@@ -295,7 +295,8 @@ function add_constraints!(
     for t in time_steps
         resource_expression =
             _sum_reserve_variables(@view(reserve_variable[:, t]), extra)
-        use_slacks && JuMP.add_to_expression!(resource_expression, slack_vars[t])
+        use_slacks &&
+            JuMP.add_to_expression!(resource_expression, slack_vars[service_name, t])
         constraint[service_name, t] =
             JuMP.@constraint(jump_model, resource_expression >= requirement)
     end

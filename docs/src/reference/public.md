@@ -3,4 +3,5 @@
 ```@autodocs
 Modules = [PowerOperationsModels]
 Public = true
+Private = false
 ```

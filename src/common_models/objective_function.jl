@@ -89,6 +89,27 @@ _add_curtailment_cost!(
     ::OptimizationContainer, ::Type{<:VariableType}, ::PSY.RenewableGen,
     ::PSY.OperationalCost, ::Type{<:AbstractDeviceFormulation}) = nothing
 
+#################################################################################
+# Unit-commitment OnVariable proportional cost
+#################################################################################
+
+# Covers thermal + hydro UC OnVariable costs: route through the time-variant-capable
+# path so MarketBidCost/MarketBidTimeSeriesCost dispatch to the generic OnVariable
+# methods in common_models/market_bid_overrides.jl, while static *GenerationCost types
+# resolve to the 6-arg `proportional_cost` methods in the device files.
+# ControllableLoad/PowerLoadInterruption has its own forwarder in
+# static_injector_models/electric_loads.jl.
+add_proportional_cost!(
+    container::OptimizationContainer,
+    ::Type{U},
+    devices::IS.FlattenIteratorWrapper{T},
+    ::Type{V},
+) where {
+    U <: OnVariable,
+    T <: Union{PSY.ThermalGen, PSY.HydroGen},
+    V <: Union{AbstractThermalFormulation, AbstractHydroFormulation},
+} = add_proportional_cost_maybe_time_variant!(container, U, devices, V)
+
 """
 Iterate the device set and route each renewable's `curtailment_cost` into
 `CurtailmentCostExpression`. Devices whose operation cost has no `curtailment_cost`

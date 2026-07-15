@@ -150,6 +150,88 @@ end
     @test p_in[6] == 0.0
 end
 
+@testset "FixedOutput Source With CopperPlate and TimeSeries" begin
+    # FixedOutput Source adds ActivePowerIn/OutTimeSeriesParameter and no variables
+    # (PSI #1573 ported to POM). The parameter values follow the in/out time series.
+    sys = make_5_bus_with_import_export(; add_single_time_series = true)
+    source = get_component(Source, sys, "source")
+
+    load = first(get_components(PowerLoad, sys))
+    tstamp =
+        TimeSeries.timestamp(
+            get_time_series_array(SingleTimeSeries, load, "max_active_power"),
+        )
+
+    day_data = [
+        0.9, 0.85, 0.95, 0.2, 0.0, 0.0,
+        0.9, 0.85, 0.95, 0.2, 0.0, 0.0,
+        0.9, 0.85, 0.95, 0.2, 0.0, 0.0,
+        0.9, 0.85, 0.95, 0.2, 0.0, 0.0,
+    ]
+    ts_data = repeat(day_data, 2)
+    ts_out = SingleTimeSeries(
+        "max_active_power_out",
+        TimeArray(tstamp, ts_data);
+        scaling_factor_multiplier = get_max_active_power,
+    )
+    ts_in = SingleTimeSeries(
+        "max_active_power_in",
+        TimeArray(tstamp, ts_data);
+        scaling_factor_multiplier = get_max_active_power,
+    )
+    add_time_series!(sys, source, ts_out)
+    add_time_series!(sys, source, ts_in)
+    transform_single_time_series!(sys, Hour(24), Hour(24))
+
+    template = PowerOperationsProblemTemplate(NetworkModel(CopperPlateNetworkModel))
+    set_device_model!(template, ThermalStandard, ThermalStandardUnitCommitment)
+    set_device_model!(template, PowerLoad, StaticPowerLoad)
+    set_device_model!(template, DeviceModel(Line, StaticBranch))
+    set_device_model!(template, DeviceModel(Source, FixedOutput))
+
+    model = DecisionModel(
+        template,
+        sys;
+        name = "UC",
+        optimizer = HiGHS_optimizer,
+        store_variable_names = true,
+        optimizer_solve_log_print = false,
+    )
+
+    @test build!(model; output_dir = mktempdir()) == ModelBuildStatus.BUILT
+    @test solve!(model) == RunStatus.SUCCESSFULLY_FINALIZED
+
+    res = OptimizationProblemOutputs(model)
+    p_out = read_parameter(
+        res,
+        "ActivePowerOutTimeSeriesParameter__Source";
+        table_format = TableFormat.WIDE,
+    )[
+        !,
+        2,
+    ]
+    p_in = read_parameter(
+        res,
+        "ActivePowerInTimeSeriesParameter__Source";
+        table_format = TableFormat.WIDE,
+    )[
+        !,
+        2,
+    ]
+
+    # FixedOutput adds no In/Out variables
+    @test !has_container_key(
+        get_optimization_container(model),
+        ActivePowerOutVariable,
+        Source,
+    )
+    # Parameter is zero where the time series is zero
+    @test p_out[5] == 0.0
+    @test p_in[5] == 0.0
+    @test p_out[6] == 0.0
+    @test p_in[6] == 0.0
+end
+
 @testset "ImportExportSource Source With CopperPlate and TimeSeries" begin
     sys = make_5_bus_with_import_export(; add_single_time_series = true)
     source = get_component(Source, sys, "source")

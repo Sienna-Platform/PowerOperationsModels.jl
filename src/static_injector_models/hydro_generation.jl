@@ -3,6 +3,12 @@
 # These methods are defined in PowerSimulations
 requires_initialization(::AbstractHydroReservoirFormulation) = false
 requires_initialization(::AbstractHydroUnitCommitment) = true
+# Like ThermalBasicUnitCommitment: HydroCommitmentRunOfRiver has no min up/down-time or
+# ramp constraints and its constructors never call `initial_conditions!`, so no
+# initialization sub-model is needed. Inheriting `true` from AbstractHydroUnitCommitment
+# forced a pointless IC solve whose template may not even be feasible/constructible for
+# the other devices in the system (IC swaps dispatch loads to StaticPowerLoad).
+requires_initialization(::HydroCommitmentRunOfRiver) = false
 
 get_variable_multiplier(::Type{<:VariableType}, ::Type{<:PSY.HydroGen}, ::Type{<:AbstractHydroFormulation}) = 1.0
 get_variable_multiplier(::Type{ActivePowerPumpVariable}, ::Type{<:PSY.HydroPumpTurbine}, ::Type{<:AbstractHydroPumpFormulation}) = -1.0
@@ -202,8 +208,12 @@ get_multiplier_value(::Type{InflowTimeSeriesParameter}, d::PSY.HydroReservoir, :
 get_multiplier_value(::Type{<:TimeSeriesParameter}, d::PSY.HydroGen, ::Type{<:AbstractHydroFormulation}) = PSY.get_max_active_power(d, PSY.SU)
 get_multiplier_value(::Type{<:TimeSeriesParameter}, d::PSY.HydroGen, ::Type{FixedOutput}) = PSY.get_max_active_power(d, PSY.SU)
 # next 2 needed to avoid ambiguity errors
-get_multiplier_value(::Type{<:AbstractPiecewiseLinearBreakpointParameter}, d::PSY.HydroGen, ::Type{FixedOutput}) = PSY.get_max_active_power(d, PSY.SU)
-get_multiplier_value(::Type{<:AbstractPiecewiseLinearBreakpointParameter}, d::PSY.HydroGen, ::Type{<:AbstractHydroFormulation}) = PSY.get_max_active_power(d, PSY.SU)
+# Market-bid PWL breakpoints are already expressed in system units (like every other
+# device type: PSY.Device's default and the explicit RenewableGen/ElectricLoad/Source
+# overrides are all 1.0). HydroGen was the only device type multiplying breakpoints by
+# max_active_power(SU), shrinking every hydro offer curve by that factor.
+get_multiplier_value(::Type{<:AbstractPiecewiseLinearBreakpointParameter}, d::PSY.HydroGen, ::Type{FixedOutput}) = 1.0
+get_multiplier_value(::Type{<:AbstractPiecewiseLinearBreakpointParameter}, d::PSY.HydroGen, ::Type{<:AbstractHydroFormulation}) = 1.0
 
 get_parameter_multiplier(::Type{<:VariableValueParameter}, d::PSY.HydroGen, ::Type{<:AbstractHydroFormulation}) = 1.0
 get_initial_parameter_value(::Type{<:VariableValueParameter}, d::PSY.HydroGen, ::Type{<:AbstractHydroFormulation}) = 1.0
@@ -1294,11 +1304,12 @@ function add_constraints!(
     hydro_budget_interval = get_attribute(model, "hydro_budget_interval")
     if isnothing(hydro_budget_interval)
         constraint =
-            add_constraints_container!(container, EnergyBudgetConstraint, V, set_name)
+            add_constraints_container!(
+                container, EnergyBudgetConstraint, V, set_name, ["horizon"])
         for d in devices
             name = PSY.get_name(d)
             param = get_parameter_column_values(param_container, name)
-            constraint[name] = JuMP.@constraint(
+            constraint[name, "horizon"] = JuMP.@constraint(
                 jump_model,
                 sum(variable_out[name, t] for t in time_steps) <=
                 sum(multiplier[name, t] * param[t] for t in time_steps) +
@@ -1350,7 +1361,8 @@ function add_constraints!(
     time_steps = get_time_steps(container)
     set_name = [PSY.get_name(d) for d in devices]
     constraint =
-        add_constraints_container!(container, EnergyBudgetConstraint, V, set_name)
+        add_constraints_container!(
+            container, EnergyBudgetConstraint, V, set_name, ["horizon"])
 
     total_power_out = get_expression(container, TotalHydroPowerReservoirOutgoing, V)
     param_container = get_parameter(container, EnergyBudgetTimeSeriesParameter, V)
@@ -1365,7 +1377,7 @@ function add_constraints!(
             slack_var = 0.0
         end
         param = get_parameter_column_values(param_container, name)
-        constraint[name] = JuMP.@constraint(
+        constraint[name, "horizon"] = JuMP.@constraint(
             container.JuMPmodel,
             sum([total_power_out[name, t] for t in time_steps]) <=
             sum([multiplier[name, t] * param[t] for t in time_steps]) + slack_var
@@ -1394,7 +1406,8 @@ function add_constraints!(
     time_steps = get_time_steps(container)
     set_name = [PSY.get_name(d) for d in devices]
     constraint =
-        add_constraints_container!(container, WaterBudgetConstraint, V, set_name)
+        add_constraints_container!(
+            container, WaterBudgetConstraint, V, set_name, ["horizon"])
 
     total_flow_out = get_expression(container, TotalHydroFlowRateReservoirOutgoing, V)
     param_container = get_parameter(container, WaterBudgetTimeSeriesParameter, V)
@@ -1403,7 +1416,7 @@ function add_constraints!(
     for d in devices
         name = PSY.get_name(d)
         param = get_parameter_column_values(param_container, name)
-        constraint[name] = JuMP.@constraint(
+        constraint[name, "horizon"] = JuMP.@constraint(
             container.JuMPmodel,
             sum([total_flow_out[name, t] for t in time_steps]) <=
             sum([multiplier[name, t] * param[t] for t in time_steps])
@@ -1595,6 +1608,7 @@ function add_constraints!(
         add_constraints_container!(container, ReservoirLevelTargetConstraint,
             V,
             names,
+            [time_steps[end]],
         )
 
     for d in devices
@@ -1607,7 +1621,7 @@ function add_constraints!(
             var = get_variable(container, HydroReservoirHeadVariable, V)
         end
 
-        constraint[name] = JuMP.@constraint(
+        constraint[name, time_steps[end]] = JuMP.@constraint(
             container.JuMPmodel,
             var[name, time_steps[end]] >= level_targets
         )
@@ -1635,6 +1649,7 @@ function add_constraints!(
         add_constraints_container!(container, ReservoirLevelTargetConstraint,
             V,
             names,
+            [time_steps[end]],
         )
 
     for d in devices
@@ -1654,7 +1669,7 @@ function add_constraints!(
                 get_variable(container, HydroReservoirVolumeVariable, V) / h2v_factor
         end
 
-        constraint[name] = JuMP.@constraint(
+        constraint[name, time_steps[end]] = JuMP.@constraint(
             container.JuMPmodel,
             level_targets <= var[name, time_steps[end]] <=
             PSY.get_storage_level_limits(d).max
@@ -2312,10 +2327,30 @@ function add_to_objective_function!(
     return
 end
 
-# HydroGenerationCost rate is always static (CostCurve only, no FuelCurve), so the
-# static 4-arg `proportional_cost` definition above + IOM's default `add_proportional_cost!`
-# handle the OnVariable term. We only need to register the must-run trait.
 skip_proportional_cost(d::PSY.HydroPumpTurbine) = PSY.get_must_run(d)
+
+# The OnVariable `add_proportional_cost!` forwarder (thermal + hydro) lives in
+# common_models/objective_function.jl: it routes through
+# `add_proportional_cost_maybe_time_variant!`, which dispatches MBC/
+# MarketBidTimeSeriesCost to the generic OnVariable methods in
+# common_models/market_bid_overrides.jl (Section 1b), and static HydroGenerationCost
+# to the 6-arg method just below.
+#
+# Non-MBC path: HydroGenerationCost's OnVariable rate is always static (no FuelCurve-onvar
+# term is modeled for hydro, unlike thermal) - just the fixed cost, matching the static
+# 4-arg behavior but through the 6-arg signature `add_proportional_cost_maybe_time_variant!`
+# requires.
+function proportional_cost(
+    ::OptimizationContainer,
+    cost::PSY.HydroGenerationCost,
+    ::Type{OnVariable},
+    ::PSY.HydroGen,
+    ::Type{<:AbstractHydroFormulation},
+    ::Int,
+)
+    return PSY.get_fixed(cost)
+end
+IOM.is_time_variant_proportional(::PSY.HydroGenerationCost) = false
 
 # These _include_{constant}_min_gen_power functions are needed for MarketBidCost.
 # Commitment has an on/off choice, so add OnVariable * breakpoint1 to power constraint.

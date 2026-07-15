@@ -264,114 +264,14 @@ function construct_device!(
     return
 end
 
-function construct_device!(
+function _energy_constraints_and_objective!(
     container::OptimizationContainer,
     sys::PSY.System,
-    ::ModelConstructStage,
-    model::DeviceModel{St, D},
-    network_model::NetworkModel{S},
-) where {St <: PSY.Storage, D <: StorageDispatchWithReserves, S <: AbstractNetworkModel}
-    devices = get_available_components(model, sys)
-    _active_power_and_energy_bounds(container, devices, model, network_model)
-
-    add_constraints!(
-        container,
-        ReactivePowerVariableLimitsConstraint,
-        ReactivePowerVariable,
-        devices,
-        model,
-        network_model,
-    )
-
-    # Energy Balance limits
-    add_constraints!(
-        container,
-        EnergyBalanceConstraint,
-        devices,
-        model,
-        network_model,
-    )
-
-    if has_service_model(model)
-        _add_ancillary_services!(container, devices, stage, model, network_model)
-    end
-
-    if get_attribute(model, "energy_target")
-        add_constraints!(
-            container,
-            StateofChargeTargetConstraint,
-            devices,
-            model,
-            network_model,
-        )
-    end
-
-    if get_attribute(model, "cycling_limits")
-        add_constraints!(container, StorageCyclingCharge, devices, model, network_model)
-        add_constraints!(
-            container,
-            StorageCyclingDischarge,
-            devices,
-            model,
-            network_model,
-        )
-    end
-
-    if get_attribute(model, "regularization")
-        add_constraints!(container, StorageRegularizationConstraints, devices, D())
-    end
-
-    add_constraint_dual!(container, sys, model)
-    add_event_constraints!(container, devices, model, network_model)
-    add_to_objective_function!(container, devices, model, S)
-    return
-end
-
-function construct_device!(
-    container::OptimizationContainer,
-    sys::PSY.System,
-    stage::ArgumentConstructStage,
-    model::DeviceModel{St, D},
-    network_model::NetworkModel{S},
-) where {
-    St <: PSY.Storage,
-    D <: StorageDispatchWithReserves,
-    S <: AbstractActivePowerModel,
-}
-    devices = get_available_components(model, sys)
-    _active_power_variables_and_expressions(container, devices, model, network_model)
-
-    if get_attribute(model, "regularization")
-        add_variables!(container, StorageRegularizationVariableCharge, devices, D)
-        add_variables!(container, StorageRegularizationVariableDischarge, devices, D)
-    end
-
-    if has_service_model(model)
-        _add_ancillary_services!(container, devices, stage, model, network_model)
-    end
-
-    process_market_bid_parameters!(container, devices, model, true, true)
-
-    add_feedforward_arguments!(container, model, devices)
-    add_event_arguments!(container, devices, model, network_model)
-    return
-end
-
-function construct_device!(
-    container::OptimizationContainer,
-    sys::PSY.System,
+    devices::IS.FlattenIteratorWrapper{T},
     stage::ModelConstructStage,
-    model::DeviceModel{St, D},
+    model::DeviceModel{T, U},
     network_model::NetworkModel{S},
-) where {
-    St <: PSY.Storage,
-    D <: StorageDispatchWithReserves,
-    S <: AbstractActivePowerModel,
-}
-    devices = get_available_components(model, sys)
-    _active_power_and_energy_bounds(container, devices, model, network_model)
-
-    # Energy Balanace limits
+) where {T <: PSY.Storage, U <: StorageDispatchWithReserves, S <: AbstractNetworkModel}
     add_constraints!(
         container,
         EnergyBalanceConstraint,
@@ -447,5 +347,89 @@ function construct_device!(
     add_to_objective_function!(container, devices, model, S)
     add_event_constraints!(container, devices, model, network_model)
     add_constraint_dual!(container, sys, model)
+    return
+end
+
+function construct_device!(
+    container::OptimizationContainer,
+    sys::PSY.System,
+    stage::ModelConstructStage,
+    model::DeviceModel{St, D},
+    network_model::NetworkModel{S},
+) where {St <: PSY.Storage, D <: StorageDispatchWithReserves, S <: AbstractNetworkModel}
+    devices = get_available_components(model, sys)
+    _active_power_and_energy_bounds(container, devices, model, network_model)
+
+    add_constraints!(
+        container,
+        ReactivePowerVariableLimitsConstraint,
+        ReactivePowerVariable,
+        devices,
+        model,
+        network_model,
+    )
+
+    _energy_constraints_and_objective!(
+        container,
+        sys,
+        devices,
+        stage,
+        model,
+        network_model,
+    )
+    return
+end
+
+function construct_device!(
+    container::OptimizationContainer,
+    sys::PSY.System,
+    stage::ArgumentConstructStage,
+    model::DeviceModel{St, D},
+    network_model::NetworkModel{S},
+) where {
+    St <: PSY.Storage,
+    D <: StorageDispatchWithReserves,
+    S <: AbstractActivePowerModel,
+}
+    devices = get_available_components(model, sys)
+    _active_power_variables_and_expressions(container, devices, model, network_model)
+
+    if get_attribute(model, "regularization")
+        add_variables!(container, StorageRegularizationVariableCharge, devices, D)
+        add_variables!(container, StorageRegularizationVariableDischarge, devices, D)
+    end
+
+    if has_service_model(model)
+        _add_ancillary_services!(container, devices, stage, model, network_model)
+    end
+
+    process_market_bid_parameters!(container, devices, model, true, true)
+
+    add_feedforward_arguments!(container, model, devices)
+    add_event_arguments!(container, devices, model, network_model)
+    return
+end
+
+function construct_device!(
+    container::OptimizationContainer,
+    sys::PSY.System,
+    stage::ModelConstructStage,
+    model::DeviceModel{St, D},
+    network_model::NetworkModel{S},
+) where {
+    St <: PSY.Storage,
+    D <: StorageDispatchWithReserves,
+    S <: AbstractActivePowerModel,
+}
+    devices = get_available_components(model, sys)
+    _active_power_and_energy_bounds(container, devices, model, network_model)
+    _energy_constraints_and_objective!(
+        container,
+        sys,
+        devices,
+        stage,
+        model,
+        network_model,
+    )
     return
 end

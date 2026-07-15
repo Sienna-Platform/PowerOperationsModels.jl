@@ -564,11 +564,11 @@ The formulation supports the following attributes when used in a [`PowerSimulati
 
 !!! danger
 
-    Setting the energy target attribute in combination with [`EnergyTargetFeedforward`](@ref)
-    or [`EnergyLimitFeedforward`](@ref) is not permitted and `StorageSystemsSimulations.jl`
+    Setting the energy target attribute in combination with `EnergyTargetFeedforward`
+    or `EnergyLimitFeedforward` is not permitted and `StorageSystemsSimulations.jl`
     will throw an exception.
 
-See the [`StorageDispatchWithReserves` Mathematical Model](@ref) for the full mathematical description.
+See the [Formulation Library](@ref storage_math_model) for the full mathematical description.
 """
 struct StorageDispatchWithReserves <: AbstractStorageFormulation end
 
@@ -589,22 +589,22 @@ four-quadrant ancillary service model. Reserve participation is enabled by attac
 service model to the hybrid (`set_service_model!` + `add_service!`); when no service is
 attached the formulation collapses to an energy-only hybrid dispatch.
 
-Use with a hybrid system in a [`DeviceModel`](@ref) for unit commitment or economic
+Use with a hybrid system in a `DeviceModel` for unit commitment or economic
 dispatch.
 
 **Variables:**
 
-  - [`ActivePowerOutVariable`](@ref):
+  - `ActivePowerOutVariable`:
 
       + Domain: [0.0, ``P_{\\max,\\text{pcc}}``]
       + Symbol: ``p^{\\text{out}}_t``
 
-  - [`ActivePowerInVariable`](@ref):
+  - `ActivePowerInVariable`:
 
       + Domain: [0.0, ``P_{\\max,\\text{pcc}}``]
       + Symbol: ``p^{\\text{in}}_t``
 
-  - [`ReservationVariable`](@ref) (only when `"reservation" => true`):
+  - `ReservationVariable` (only when `"reservation" => true`):
 
       + Domain: {0, 1}
       + Symbol: ``u^{\\text{st}}_t`` (1 = discharge mode, 0 = charge mode)
@@ -614,7 +614,7 @@ dispatch.
       + Domain: [0.0, ``P_{\\max,\\text{th}}``] when on
       + Symbol: ``p^{\\text{th}}_t``
 
-  - [`OnVariable`](@ref):
+  - `OnVariable`:
 
       + Domain: {0, 1}
       + Symbol: ``u^{\\text{th}}_t``

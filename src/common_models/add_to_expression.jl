@@ -12,24 +12,21 @@ _system_expression_type(::Type{CopperPlateNetworkModel}) = PSY.System
 _system_expression_type(::Type{AreaPTDFNetworkModel}) = PSY.Area
 _system_expression_type(::Type{AreaBalanceNetworkModel}) = PSY.Area
 
-#################################################################################
-# Balance-expression target resolution
-#
-# These resolve, for a device under a given network model, the set of
-# `(expression_matrix, row_index)` entries that the device's injection contributes
-# to. This is the *only* axis on which the many device-injection `add_to_expression!`
-# methods below differ; the `_add_*_to_balance!` helpers pair this resolver with a
-# per-device term and share `_apply_term_to_targets!` for the inner write, keeping the
-# device/time loop short. Dispatch is on disjoint network-model subtrees, so no ambiguity:
-#   - <:AbstractNetworkModel        -> nodal bus only      (default AC models; also the
-#                                                         security-constrained PTDF
-#                                                         variants, matching prior
-#                                                         variable-method behavior)
-#   - CopperPlateNetworkModel       -> system reference bus only
-#   - AreaBalanceNetworkModel       -> area only
-#   - PTDFNetworkModel/AreaPTDF...  -> system/area + nodal bus
-#################################################################################
+"""
+Resolve, for a device under a given network model, the set of `(expression_matrix,
+row_index)` entries that the device's injection contributes to.
 
+This is the *only* axis on which the many device-injection `add_to_expression!` methods
+differ; the `_add_*_to_balance!` helpers pair this resolver with a per-device term and
+share [`_apply_term_to_targets!`](@ref) for the inner write, keeping the device/time loop
+short. Dispatch is on disjoint network-model subtrees, so no ambiguity:
+
+  - `<:AbstractNetworkModel` — nodal bus only (default AC models; also the
+    security-constrained PTDF variants, matching prior variable-method behavior)
+  - `CopperPlateNetworkModel` — system reference bus only
+  - `AreaBalanceNetworkModel` — area only
+  - `PTDFNetworkModel` / `AreaPTDFNetworkModel` — system/area entry plus nodal bus
+"""
 function _balance_expression_targets(
     container::OptimizationContainer,
     ::Type{T},
@@ -76,12 +73,17 @@ function _balance_expression_targets(
     )
 end
 
-# Apply a `value * multiplier` term to each `(expression_matrix, row_index)` target a
-# device contributes to: one target for single-bus/area/system network models, two for
-# PTDF/AreaPTDF (a nodal entry plus a system/area entry). Tail recursion keeps the
-# heterogeneous length-1/length-2 tuples type stable; the compiler unrolls it.
 const _BalanceTermValue = Union{Float64, JuMP.AbstractJuMPScalar}
 
+"""
+Apply a `value * multiplier` term to each `(expression_matrix, row_index)` target a device
+contributes to, as resolved by [`_balance_expression_targets`](@ref): one target for
+single-bus/area/system network models, two for PTDF/AreaPTDF (a nodal entry plus a
+system/area entry).
+
+Tail recursion keeps the heterogeneous length-1/length-2 tuples type stable; the compiler
+unrolls it.
+"""
 _apply_term_to_targets!(::Tuple{}, ::_BalanceTermValue, ::Float64, ::Int) = nothing
 
 function _apply_term_to_targets!(
@@ -95,9 +97,11 @@ function _apply_term_to_targets!(
     return _apply_term_to_targets!(Base.tail(targets), value, multiplier, t)
 end
 
-# Constant device power for a `StaticPowerLoad`-style injection. Active vs reactive is
-# already encoded in the balance-expression type `T`, so dispatch on it rather than
-# passing a getter.
+"""
+Constant device power for a `StaticPowerLoad`-style injection. Active vs reactive is
+already encoded in the balance-expression type, so it is resolved by dispatch rather than
+by passing a getter.
+"""
 _constant_power(::Type{<:ActivePowerBalance}, d) = PSY.get_active_power(d, PSY.SU)
 _constant_power(::Type{<:ReactivePowerBalance}, d) = PSY.get_reactive_power(d, PSY.SU)
 
@@ -325,8 +329,15 @@ end
 # selectors.)
 #################################################################################
 
-# from-side / to-side variables -> from-bus / to-bus of the arc. One method per variable
-# type (rather than a 5-member `Union` per side, which exceeds the union-splitting threshold).
+"""
+Select the bus of `arc` that a directional flow variable lands on: from-side variables
+(`FromTo` / `ReceivedFrom` / VSC `From`) resolve to the from-bus, to-side variables
+(`ToFrom` / `ReceivedTo` / VSC `To`) to the to-bus.
+
+The terminal is fixed by the variable type, so it is resolved by dispatch rather than
+passed as an argument. One method per variable type (rather than a 5-member `Union` per
+side, which exceeds the union-splitting threshold).
+"""
 _terminal_bus(::Type{FlowActivePowerFromToVariable}, arc) = PSY.get_from(arc)
 _terminal_bus(::Type{FlowReactivePowerFromToVariable}, arc) = PSY.get_from(arc)
 _terminal_bus(::Type{HVDCActivePowerReceivedFromVariable}, arc) = PSY.get_from(arc)
@@ -1935,7 +1946,7 @@ function add_to_expression!(
     for t in time_steps
         add_proportional_to_jump_expression!(
             expression[service_name, t],
-            variable[t],
+            variable[service_name, t],
             get_variable_multiplier(T, S, U),
         )
     end
@@ -2031,7 +2042,7 @@ function add_to_expression!(
 end
 
 function _is_interchanges_interfaces(
-    contributing_devices_map::Dict{Type{<:PSY.Component}, Vector{<:PSY.Component}},
+    contributing_devices_map::Dict,
 )
     if PSY.AreaInterchange ∈ keys(contributing_devices_map)
         @assert length(keys(contributing_devices_map)) == 1
@@ -2813,7 +2824,7 @@ function add_to_expression!(
         bias_mult = -10 * PSY.get_bias(s)
         add_proportional_to_jump_expression!(
             expression[name, t],
-            variable[t],
+            variable["System", t],
             bias_mult * get_variable_multiplier(U, V, W),
         )
     end
