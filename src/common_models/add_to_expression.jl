@@ -975,6 +975,78 @@ function add_to_expression!(
 end
 
 """
+PWL received HVDC contribution to the CopperPlate system balance. Each received
+terminal contributes +1.0 at its own terminal's reference-bus row, so a line whose
+terminals share one subnetwork nets out to -(losses) and a line crossing subnetworks
+transfers the sent/received power between the rows with the loss included.
+"""
+function add_to_expression!(
+    container::OptimizationContainer,
+    ::Type{T},
+    ::Type{U},
+    devices::IS.FlattenIteratorWrapper{V},
+    ::DeviceModel{V, W},
+    network_model::NetworkModel{CopperPlateNetworkModel},
+) where {
+    T <: ActivePowerBalance,
+    U <: Union{HVDCActivePowerReceivedFromVariable, HVDCActivePowerReceivedToVariable},
+    V <: PSY.TwoTerminalHVDC,
+    W <: HVDCTwoTerminalPiecewiseLoss,
+}
+    variable = get_variable(container, U, V)
+    expression = get_expression(container, T, PSY.System)
+    time_steps = get_time_steps(container)
+    for d in devices
+        name = PSY.get_name(d)
+        ref_bus = get_reference_bus(network_model, _terminal_bus(U, PSY.get_arc(d)))
+        for t in time_steps
+            add_proportional_to_jump_expression!(
+                expression[ref_bus, t],
+                variable[name, t],
+                1.0,
+            )
+        end
+    end
+    return
+end
+
+"""
+PWL received HVDC contribution to the AreaBalance area balances. Each received terminal
+contributes +1.0 at its own terminal's area row: a line crossing areas is a genuine
+inter-area interchange (with the loss included), and a line internal to one area nets
+out to -(losses).
+"""
+function add_to_expression!(
+    container::OptimizationContainer,
+    ::Type{T},
+    ::Type{U},
+    devices::IS.FlattenIteratorWrapper{V},
+    ::DeviceModel{V, W},
+    network_model::NetworkModel{AreaBalanceNetworkModel},
+) where {
+    T <: ActivePowerBalance,
+    U <: Union{HVDCActivePowerReceivedFromVariable, HVDCActivePowerReceivedToVariable},
+    V <: PSY.TwoTerminalHVDC,
+    W <: HVDCTwoTerminalPiecewiseLoss,
+}
+    variable = get_variable(container, U, V)
+    expression = get_expression(container, T, PSY.Area)
+    time_steps = get_time_steps(container)
+    for d in devices
+        name = PSY.get_name(d)
+        area_name = PSY.get_name(PSY.get_area(_terminal_bus(U, PSY.get_arc(d))))
+        for t in time_steps
+            add_proportional_to_jump_expression!(
+                expression[area_name, t],
+                variable[name, t],
+                1.0,
+            )
+        end
+    end
+    return
+end
+
+"""
 HVDC LCC implementation to add ActivePowerBalance expression for HVDCActivePowerReceivedFromVariable variable
 """
 function add_to_expression!(
@@ -989,7 +1061,7 @@ function add_to_expression!(
     U <: HVDCActivePowerReceivedFromVariable,       # variable
     V <: PSY.TwoTerminalHVDC,                      # power system type
     W <: HVDCTwoTerminalLCC,                        # formulation
-    X <: LCCSupportedNetworkModel,                  # network model
+    X <: AbstractReactivePowerNetworkModel,                  # network model
 }
     _add_terminal_flow_to_nodal!(
         container, T, U, devices, network_model, -1.0,
@@ -1012,7 +1084,7 @@ function add_to_expression!(
     U <: HVDCActivePowerReceivedToVariable,
     V <: PSY.TwoTerminalHVDC,
     W <: HVDCTwoTerminalLCC,
-    X <: LCCSupportedNetworkModel,
+    X <: AbstractReactivePowerNetworkModel,
 }
     _add_terminal_flow_to_nodal!(
         container, T, U, devices, network_model, 1.0,
@@ -1036,7 +1108,7 @@ function add_to_expression!(
     U <: Union{HVDCReactivePowerReceivedFromVariable, HVDCReactivePowerReceivedToVariable},
     V <: PSY.TwoTerminalHVDC,
     W <: HVDCTwoTerminalLCC,
-    X <: LCCSupportedNetworkModel,
+    X <: AbstractReactivePowerNetworkModel,
 }
     _add_terminal_flow_to_nodal!(
         container, T, U, devices, network_model, -1.0,
@@ -1059,7 +1131,7 @@ function add_to_expression!(
     U <: Union{HVDCReactivePowerFromVariable, HVDCReactivePowerToVariable},
     V <: PSY.TwoTerminalVSCLine,
     W <: AbstractTwoTerminalVSCFormulation,
-    X <: Union{ACPNetworkModel, ACRNetworkModel, IVRNetworkModel},
+    X <: NativeACNetworkModel,
 }
     _add_terminal_flow_to_nodal!(container, T, U, devices, network_model, 1.0)
     return

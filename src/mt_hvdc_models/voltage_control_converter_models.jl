@@ -12,11 +12,15 @@
 #   - a bounded ReactivePowerVariable injected into ReactivePowerBalance at the
 #     converter's AC bus (via `_maybe_add_reactive_power_variables!`),
 #   - a component-owned RegulatedVoltageMagnitude aux variable for ACR/IVR voltage
-#     regulation (no-op under ACP, which regulates the network VoltageMagnitude),
+#     regulation (no-op under ACP, which regulates the network VoltageMagnitude,
+#     and under LPACC, which regulates the VoltageDeviation phi = |V| - 1),
 #   - the apparent-power capability disk p² + q² ≤ rating²,
 #   - one always-present HVDCDCControlConstraint per converter per time step
 #     (DC_VOLTAGE / DC_POWER / DC_VOLTAGE_DROOP), and per-mode AC control
 #     (AC_VOLTAGE pins the regulated voltage, AC_REACTIVE_POWER pins Q).
+#
+# Under LPACC the DC-side loss keeps the |I_dc| surrogate (the linearized voltage
+# has no magnitude primitive compatible with the AC apparent-current relation).
 #
 # Count-invariance: the aux voltage variable + its constraint and the
 # HVDCDCControlConstraint container are created regardless of control mode; only
@@ -25,19 +29,17 @@
 # variable/constraint containers.
 #################################################################################
 
-const _VoltageControlConverterACNetwork =
-    Union{ACPNetworkModel, ACRNetworkModel, IVRNetworkModel}
-
 # The converter regulates its AC bus (get_bus), not its DC bus.
 _regulated_buses(d::PSY.InterconnectingConverter, bus_by_number) = [("1", PSY.get_bus(d))]
 
 # Apparent-power capability disk p² + q² ≤ rating² (one entry per converter per
 # time step). rating is a required InterconnectingConverter field, so always finite.
+# Shared by every converter formulation with an AC reactive terminal.
 function _add_ic_apparent_power_limit!(
     container::OptimizationContainer,
     devices,
-    ::DeviceModel{PSY.InterconnectingConverter, VoltageControlConverter},
-    ::NetworkModel{<:_VoltageControlConverterACNetwork},
+    ::DeviceModel{PSY.InterconnectingConverter, <:AbstractConverterFormulation},
+    ::NetworkModel{<:NativeACNetworkModel},
 )
     time_steps = get_time_steps(container)
     names = [PSY.get_name(d) for d in devices]
@@ -146,6 +148,43 @@ function _apply_ic_control_objective!(
     return
 end
 
+# LPACC: pin the AC-controlled quantity via JuMP.fix on the linearized
+# voltage-magnitude deviation (phi = |V| - 1, so AC_VOLTAGE pins phi to
+# setpoint - 1) / the reactive injection; one HVDCDCControlConstraint per
+# converter per time step, identical to the other AC networks.
+function _apply_ic_control_objective!(
+    container::OptimizationContainer,
+    devices,
+    ::DeviceModel{PSY.InterconnectingConverter, VoltageControlConverter},
+    ::NetworkModel{LPACCNetworkModel},
+)
+    time_steps = get_time_steps(container)
+    phi = get_variable(container, VoltageDeviation, PSY.ACBus)
+    q_var = get_variable(container, ReactivePowerVariable, PSY.InterconnectingConverter)
+    p_var = get_variable(container, ActivePowerVariable, PSY.InterconnectingConverter)
+    names = [PSY.get_name(d) for d in devices]
+    vdc = _vdc_by_converter_name(container, devices, names, time_steps)
+    jump_model = get_jump_model(container)
+    con = add_constraints_container!(
+        container, HVDCDCControlConstraint, PSY.InterconnectingConverter,
+        names, time_steps,
+    )
+    for d in devices
+        name = PSY.get_name(d)
+        bus_name = PSY.get_name(PSY.get_bus(d))
+        _fix_converter_ac_control_lpacc!(
+            PSY.get_ac_control(d), PSY.get_ac_setpoint(d),
+            phi, bus_name, q_var, name, time_steps,
+        )
+        _fill_converter_dc_control!(
+            jump_model, con,
+            PSY.get_dc_control(d), PSY.get_dc_setpoint(d), PSY.get_dc_voltage_droop(d),
+            vdc, p_var, name, time_steps,
+        )
+    end
+    return
+end
+
 ############################################
 ########## AC-network construct ############
 ############################################
@@ -155,7 +194,7 @@ function construct_device!(
     sys::PSY.System,
     ::ArgumentConstructStage,
     model::DeviceModel{PSY.InterconnectingConverter, VoltageControlConverter},
-    network_model::NetworkModel{<:_VoltageControlConverterACNetwork},
+    network_model::NetworkModel{<:NativeACNetworkModel},
 )
     devices = get_available_components(model, sys)
     _add_converter_dc_arguments!(container, devices, model, network_model)
@@ -176,7 +215,7 @@ function construct_device!(
     sys::PSY.System,
     ::ModelConstructStage,
     model::DeviceModel{PSY.InterconnectingConverter, VoltageControlConverter},
-    network_model::NetworkModel{<:_VoltageControlConverterACNetwork},
+    network_model::NetworkModel{<:NativeACNetworkModel},
 )
     devices = get_available_components(model, sys)
     _add_converter_dc_model!(container, devices, model, network_model)

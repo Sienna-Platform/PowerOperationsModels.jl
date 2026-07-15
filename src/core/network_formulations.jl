@@ -71,7 +71,7 @@ struct DCPLLNetworkModel <: AbstractDCPLLNetworkModel end
 branches_modeled(::Type{DCPLLNetworkModel}) = true
 requires_all_branch_models(::Type{DCPLLNetworkModel}) = false
 
-abstract type AbstractACRNetworkModel <: AbstractNetworkModel end
+abstract type AbstractACRNetworkModel <: AbstractReactivePowerNetworkModel end
 
 """
 Full AC power flow in rectangular voltage coordinates (vr, vi). Physics-equivalent to
@@ -80,7 +80,7 @@ reach the same optimal objective value.
 """
 struct ACRNetworkModel <: AbstractACRNetworkModel end
 
-abstract type AbstractLPACCNetworkModel <: AbstractNetworkModel end
+abstract type AbstractLPACCNetworkModel <: AbstractReactivePowerNetworkModel end
 
 """
 Linear-programming AC, cold-start (LPAC) convex approximation of the full AC power flow.
@@ -91,7 +91,7 @@ power.
 """
 struct LPACCNetworkModel <: AbstractLPACCNetworkModel end
 
-abstract type AbstractIVRNetworkModel <: AbstractNetworkModel end
+abstract type AbstractIVRNetworkModel <: AbstractReactivePowerNetworkModel end
 
 """
 Full AC power flow in current-voltage rectangular (IVR) coordinates. Uses branch current
@@ -131,15 +131,6 @@ const NativeDCNetworkModel = Union{
     DCPNetworkModel,
     DCPLLNetworkModel,
     NFANetworkModel,
-}
-
-# Networks the LCC converter model supports: it needs an AC voltage-magnitude term
-# (directly under ACP, via the RegulatedVoltageMagnitude aux under ACR/IVR); LPACC's
-# linearized voltage has no compatible magnitude primitive.
-const LCCSupportedNetworkModel = Union{
-    ACPNetworkModel,
-    ACRNetworkModel,
-    IVRNetworkModel,
 }
 
 #################################################################################

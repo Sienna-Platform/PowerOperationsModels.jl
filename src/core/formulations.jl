@@ -301,14 +301,14 @@ NLP physics as [`HVDCTwoTerminalVSC`](@ref) — per-terminal converter losses, a
 cable current, the DC cable Ohm's law, bounded per-terminal reactive injection into
 `ReactivePowerBalance`, and the apparent-power capability disk ``p^2 + q^2 \\le \\text{rating}^2``
 — and adds a count-invariant control layer driven by the converter's `ac_control_*` /
-`dc_control_*` modes. The control objective pins one already-created variable per terminal with a
-single `JuMP.fix` (`force = true`): `AC_VOLTAGE` → the regulated AC-bus `VoltageMagnitude`,
-`AC_REACTIVE_POWER` → the terminal reactive injection, `DC_VOLTAGE` → the terminal DC voltage,
-`DC_POWER` → the terminal active flow. No per-mode constraint is ever added, so the
-variable/constraint containers are identical across all control modes. Only valid under AC
-network models; dropped from DC templates automatically via `models_reactive_power`.
-Voltage-objective regulation is ACP-only in v1 (no scalar magnitude primitive under ACR/IVR);
-`DC_VOLTAGE_DROOP` free-floats with a warning in v1.
+`dc_control_*` modes. AC control pins one already-created variable per terminal with a single
+`JuMP.fix` (`force = true`): `AC_VOLTAGE` → the regulated AC-bus voltage (the `VoltageMagnitude`
+under ACP, the `VoltageDeviation` `phi = |V| - 1` under LPACC, a per-terminal
+`RegulatedVoltageMagnitude` aux variable under ACR/IVR), `AC_REACTIVE_POWER` → the terminal
+reactive injection. DC control adds one always-present `HVDCDCControlConstraint` per terminal
+per time step (`DC_VOLTAGE` / `DC_POWER` / `DC_VOLTAGE_DROOP`), so the variable/constraint
+containers are identical across all control modes. Only valid under AC network models
+(ACP/ACR/IVR/LPACC); dropped from DC templates automatically via `models_reactive_power`.
 """
 struct VoltageControlVSC <: AbstractTwoTerminalVSCFormulation end
 
@@ -323,7 +323,18 @@ Lossless InterconnectingConverter Model
 struct LosslessConverter <: AbstractConverterFormulation end
 
 """
-Linear Loss InterconnectingConverter Model
+Linear-loss `InterconnectingConverter` formulation. Same transport-style AC/DC
+transfer as [`LosslessConverter`](@ref) (the `ActivePowerVariable` enters the AC-bus
+`ActivePowerBalance` with `+1` and the DC-bus `ActivePowerBalance` with `-1`, so it
+requires a `TransportHVDCNetworkModel`), plus a linear loss `b·|I| + c` withdrawn at
+the DC bus, where `b`/`c` are the proportional/constant terms of the converter's
+`loss_function` and `|I|` is approximated by `|P|` at nominal DC voltage (1 pu) via a
+non-negative `CurrentAbsoluteValueVariable` surrogate bounded below by `±P` and pinned
+to `|P|` by cost minimization. A `loss_function` with a non-zero quadratic term is
+rejected — use [`QuadraticLossConverter`](@ref) for current-dependent quadratic losses.
+On AC network models the converter also gets a bounded `ReactivePowerVariable` injected
+into `ReactivePowerBalance` and the apparent-power capability disk
+``p^2 + q^2 \\le \\text{rating}^2``.
 """
 struct LinearLossConverter <: AbstractConverterFormulation end
 
@@ -343,8 +354,8 @@ scheme.
 struct QuadraticLossConverter <: AbstractQuadraticLossConverter end
 
 """
-AC/DC `InterconnectingConverter` formulation for AC network models (ACP/ACR/IVR). Builds the
-same DC-side physics as [`QuadraticLossConverter`](@ref) — the `ActivePowerVariable`,
+AC/DC `InterconnectingConverter` formulation for AC network models (ACP/ACR/IVR/LPACC).
+Builds the same DC-side physics as [`QuadraticLossConverter`](@ref) — the `ActivePowerVariable`,
 `ConverterCurrent`/`CurrentAbsoluteValueVariable`, the per-`DCBus` `DCVoltage`, the
 `DCCurrentBalance` wiring and the quadratic `ConverterLossConstraint` — and adds the AC-side
 representation: a bounded `ReactivePowerVariable` injected into `ReactivePowerBalance` at the
@@ -352,7 +363,8 @@ converter's AC bus, the apparent-power capability disk ``p^2 + q^2 \\le \\text{r
 count-invariant control layer driven by the converter's `ac_control` / `dc_control` modes.
 
 AC control: `AC_VOLTAGE` regulates the AC bus voltage to `ac_setpoint` (under ACP by fixing the
-network `VoltageMagnitude`; under ACR/IVR via a component-owned `RegulatedVoltageMagnitude` aux
+network `VoltageMagnitude`; under LPACC by fixing the `VoltageDeviation` `phi = |V| - 1` to
+`ac_setpoint - 1`; under ACR/IVR via a component-owned `RegulatedVoltageMagnitude` aux
 variable); `AC_REACTIVE_POWER` fixes the reactive injection to `ac_setpoint`. DC control adds one
 always-present `HVDCDCControlConstraint` per converter per time step: `DC_VOLTAGE` →
 `vdc = dc_setpoint`, `DC_POWER` → `p = dc_setpoint`, `DC_VOLTAGE_DROOP` →
@@ -369,11 +381,6 @@ models_reactive_power(::Type{VoltageControlConverter}) = true
 
 ############################## HVDC Lines Formulations ##################################
 abstract type AbstractDCLineFormulation <: AbstractBranchFormulation end
-
-"""
-Lossless Line Abstract Model
-"""
-struct DCLosslessLine <: AbstractDCLineFormulation end
 
 """
 Lossy Line Abstract Model

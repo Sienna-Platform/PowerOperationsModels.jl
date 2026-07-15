@@ -2087,15 +2087,25 @@ function construct_device!(
     return
 end
 
-# Shared by the PTDF path and every native nodal network model (AC and DC): the
-# received-power variables and PWL loss segments are identical across all of them.
-# Under the AC/DC natives the link is an active-power-only injector (no reactive offer).
+# Shared by the PTDF path, every native nodal network model (AC and DC), and the
+# aggregated CopperPlate/AreaBalance balances: the received-power variables and PWL loss
+# segments are identical across all of them; only the add_to_expression! wiring differs
+# by network. Under the AC/DC natives the link is an active-power-only injector (no
+# reactive offer). On CopperPlate both terminals share one balance row, so the line's
+# net contribution is -(losses); on AreaBalance each terminal enters its own area row.
 function construct_device!(
     container::OptimizationContainer,
     sys::PSY.System,
     ::ArgumentConstructStage,
     device_model::DeviceModel{T, U},
-    network_model::NetworkModel{<:Union{AbstractPTDFNetworkModel, NativeNodalNetworkModel}},
+    network_model::NetworkModel{
+        <:Union{
+            AbstractPTDFNetworkModel,
+            NativeNodalNetworkModel,
+            CopperPlateNetworkModel,
+            AreaBalanceNetworkModel,
+        },
+    },
 ) where {
     T <: PSY.TwoTerminalHVDC,
     U <: HVDCTwoTerminalPiecewiseLoss,
@@ -2139,7 +2149,14 @@ function construct_device!(
     sys::PSY.System,
     ::ModelConstructStage,
     device_model::DeviceModel{T, U},
-    network_model::NetworkModel{<:Union{AbstractPTDFNetworkModel, NativeNodalNetworkModel}},
+    network_model::NetworkModel{
+        <:Union{
+            AbstractPTDFNetworkModel,
+            NativeNodalNetworkModel,
+            CopperPlateNetworkModel,
+            AreaBalanceNetworkModel,
+        },
+    },
 ) where {
     T <: PSY.TwoTerminalHVDC,
     U <: HVDCTwoTerminalPiecewiseLoss,
@@ -2200,16 +2217,35 @@ end
 
 ############################# NEW LCC HVDC NON-LINEAR MODEL #############################
 
+# LPACC twin of the `_lcc_terminal_voltage` methods in TwoTerminalDC_branches.jl:
+# the LPACC voltage magnitude is 1 + phi with phi the bus VoltageDeviation.
+function _lcc_terminal_voltage(
+    container::OptimizationContainer,
+    d::T,
+    tag::String,
+    ::NetworkModel{LPACCNetworkModel},
+) where {T <: PSY.TwoTerminalLCCLine}
+    phi = get_variable(container, VoltageDeviation, PSY.ACBus)
+    arc = PSY.get_arc(d)
+    if tag == "from"
+        bus_name = PSY.get_name(PSY.get_from(arc))
+    else
+        bus_name = PSY.get_name(PSY.get_to(arc))
+    end
+    return [1.0 + phi[bus_name, t] for t in get_time_steps(container)]
+end
+
 function construct_device!(
     container::OptimizationContainer,
     sys::PSY.System,
     ::ArgumentConstructStage,
     device_model::DeviceModel{T, HVDCTwoTerminalLCC},
-    network_model::NetworkModel{<:LCCSupportedNetworkModel},
+    network_model::NetworkModel{<:AbstractReactivePowerNetworkModel},
 ) where {T <: PSY.TwoTerminalLCCLine}
     devices = get_available_components(device_model, sys)
     # Per-terminal voltage-magnitude aux for the converter equations under ACR/IVR
-    # (tags "from"/"to"); no-op under ACP, where the network VoltageMagnitude is used.
+    # (tags "from"/"to"); no-op under ACP and LPACC, where the network voltage
+    # variables are used directly.
     add_regulated_voltage_magnitude!(container, devices, sys, network_model)
 
     # Variables
@@ -2359,7 +2395,7 @@ function construct_device!(
     sys::PSY.System,
     ::ModelConstructStage,
     device_model::DeviceModel{T, HVDCTwoTerminalLCC},
-    network_model::NetworkModel{<:LCCSupportedNetworkModel},
+    network_model::NetworkModel{<:AbstractReactivePowerNetworkModel},
 ) where {T <: PSY.TwoTerminalLCCLine}
     devices = get_available_components(device_model, sys)
     add_regulated_voltage_magnitude_constraints!(container, devices, sys, network_model)

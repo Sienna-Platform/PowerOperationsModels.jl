@@ -17,9 +17,10 @@
 # Constraint containers (meta = "from" / "to") are allocated once before the
 # device loop, so variable + constraint counts are identical across all modes.
 #
-# AC voltage control is supported under ACP, ACR, and IVR. Under ACR/IVR, each
-# terminal owns a RegulatedVoltageMagnitude aux variable (meta = "from" or "to")
-# so both terminals can hold AC_VOLTAGE simultaneously (each pins its own bus).
+# AC voltage control is supported under ACP, ACR, IVR, and LPACC. Under ACR/IVR,
+# each terminal owns a RegulatedVoltageMagnitude aux variable (meta = "from" or
+# "to") so both terminals can hold AC_VOLTAGE simultaneously (each pins its own
+# bus). Under LPACC the pinned quantity is the VoltageDeviation phi = |V| - 1.
 # HVDCTwoTerminalVSC keeps its control-free behavior (the no-ops below).
 #################################################################################
 
@@ -77,7 +78,7 @@ end
 # and AC reactive control (_fix_converter_ac_reactive!) are the shared primitives in
 # common_models/converter_control.jl, applied here once per terminal (from/to).
 
-# Default: no control layer (covers HVDCTwoTerminalVSC and any non-ACP network).
+# Default: no control layer (covers HVDCTwoTerminalVSC on every network).
 function _apply_vsc_control_objective!(
     ::OptimizationContainer,
     ::IS.FlattenIteratorWrapper{U},
@@ -132,6 +133,65 @@ function _apply_vsc_control_objective!(
         _fix_converter_ac_control!(
             PSY.get_ac_control_to(d), PSY.get_ac_setpoint_to(d),
             vm, to_bus, q_t, name, time_steps,
+        )
+        _fill_converter_dc_control!(
+            jump_model,
+            con_to,
+            PSY.get_dc_control_to(d),
+            PSY.get_dc_setpoint_to(d),
+            PSY.get_dc_voltage_droop_to(d),
+            v_t, p_tf, name, time_steps,
+        )
+    end
+    return
+end
+
+# VoltageControlVSC under LPACC: same structure as ACP, but the AC-controlled
+# voltage quantity is the linearized magnitude deviation phi = |V| - 1
+# (AC_VOLTAGE pins phi to setpoint - 1 via `_fix_converter_ac_control_lpacc!`);
+# one HVDCDCControlConstraint per terminal per time step, mode-invariant.
+function _apply_vsc_control_objective!(
+    container::OptimizationContainer,
+    devices::IS.FlattenIteratorWrapper{U},
+    ::DeviceModel{U, VoltageControlVSC},
+    ::NetworkModel{LPACCNetworkModel},
+) where {U <: PSY.TwoTerminalVSCLine}
+    time_steps = get_time_steps(container)
+    phi = get_variable(container, VoltageDeviation, PSY.ACBus)
+    q_f = get_variable(container, HVDCReactivePowerFromVariable, U)
+    q_t = get_variable(container, HVDCReactivePowerToVariable, U)
+    p_ft = get_variable(container, FlowActivePowerFromToVariable, U)
+    p_tf = get_variable(container, FlowActivePowerToFromVariable, U)
+    v_f = get_variable(container, HVDCFromDCVoltage, U)
+    v_t = get_variable(container, HVDCToDCVoltage, U)
+    names = [PSY.get_name(d) for d in devices]
+    jump_model = get_jump_model(container)
+    con_from = add_constraints_container!(
+        container, HVDCDCControlConstraint, U, names, time_steps; meta = "from",
+    )
+    con_to = add_constraints_container!(
+        container, HVDCDCControlConstraint, U, names, time_steps; meta = "to",
+    )
+    for d in devices
+        name = PSY.get_name(d)
+        arc = PSY.get_arc(d)
+        from_bus = PSY.get_name(PSY.get_from(arc))
+        to_bus = PSY.get_name(PSY.get_to(arc))
+        _fix_converter_ac_control_lpacc!(
+            PSY.get_ac_control_from(d), PSY.get_ac_setpoint_from(d),
+            phi, from_bus, q_f, name, time_steps,
+        )
+        _fill_converter_dc_control!(
+            jump_model,
+            con_from,
+            PSY.get_dc_control_from(d),
+            PSY.get_dc_setpoint_from(d),
+            PSY.get_dc_voltage_droop_from(d),
+            v_f, p_ft, name, time_steps,
+        )
+        _fix_converter_ac_control_lpacc!(
+            PSY.get_ac_control_to(d), PSY.get_ac_setpoint_to(d),
+            phi, to_bus, q_t, name, time_steps,
         )
         _fill_converter_dc_control!(
             jump_model,
