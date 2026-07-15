@@ -244,7 +244,7 @@ function get_default_time_series_names(
     ::Type{U},
     ::Type{V},
 ) where {U <: PSY.ThermalGen, V <: Union{FixedOutput, AbstractThermalFormulation}}
-    return Dict{Any, String}(
+    return Dict{Type{<:ParameterType}, String}(
         FuelCostParameter => "fuel_cost",
     )
 end
@@ -255,7 +255,7 @@ function get_default_time_series_names(
     ::Type{<:PSY.ThermalGen},
     ::Type{FixedOutput},
 )
-    return Dict{Any, String}(
+    return Dict{Type{<:TimeSeriesParameter}, String}(
         ActivePowerTimeSeriesParameter => "max_active_power",
         ReactivePowerTimeSeriesParameter => "max_active_power",
     )

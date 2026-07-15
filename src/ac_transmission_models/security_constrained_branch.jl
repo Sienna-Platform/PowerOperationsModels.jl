@@ -684,8 +684,8 @@ function add_post_contingency_flow_expressions!(
     return
 end
 
-# On DCP the balance also contains the branch-flow variables and is constrained
-# to zero, so `MODF ⋅ balance ≡ 0` — the injections must be recovered instead.
+# On DCP the balance also carries the branch-flow variables, so the injections
+# must be recovered (see `_dcp_nodal_injection_expressions`).
 function add_post_contingency_flow_expressions!(
     container::OptimizationContainer,
     ::Type{T},
@@ -736,10 +736,7 @@ function _ac_branch_flow_variables(container::OptimizationContainer)
     return flow_variables
 end
 
-# The branch-flow terms of one balance expression, negated. Exact by KCL: the
-# DCP balance is `injections[bus] + flow_terms[bus] == 0` with each flow
-# variable entering at `-1` on its from-bus and `+1` on its to-bus, so
-# `injections[bus] = -flow_terms[bus] = Σ f_out - Σ f_in`.
+# The branch-flow terms of one balance expression, negated.
 function _negated_flow_terms(
     balance_expression::JuMP.AffExpr,
     flow_variables::Set{JuMP.VariableRef},
@@ -1054,8 +1051,8 @@ end
 # that carry no branch-flow representation: NFA, CopperPlate and AreaBalance
 # build nothing rather than erroring (mirrors the StaticBranch no-ops). Defined
 # on concrete network types to avoid ambiguity with the PTDF/DCP methods.
-# `@warn`, not `@debug`: the user asked for N-1 limits and is silently getting
-# none — no post-contingency variables or constraints exist on these networks.
+# The warning must be user-visible: the user asked for N-1 limits and is
+# silently getting none.
 function construct_device!(
     ::OptimizationContainer,
     ::PSY.System,

@@ -447,8 +447,8 @@ _shiftable_load_balance_row(::NetworkModel, container, bus) =
         (LPACCNetworkModel, ipopt_optimizer),
     ]
 
+    sys, shiftable_load = _build_shiftable_load_system()
     for (network_formulation, optimizer) in networks
-        sys, shiftable_load = _build_shiftable_load_system()
         template =
             get_thermal_dispatch_template_network(NetworkModel(network_formulation))
         set_device_model!(template, ShiftablePowerLoad, PowerLoadShift)

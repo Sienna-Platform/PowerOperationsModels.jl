@@ -1281,12 +1281,9 @@ end
 ####################################################
 #### AC NETWORK COVERAGE FOR HYDRO WATER MODELS ####
 ####################################################
-# The turbine water formulations are the dangerous case: HydroTurbine <: PSY.HydroGen, so
-# a missing AC construct path used to fall through to the generic HydroGen dispatch pair
-# and silently build a run-of-river model with no water flow variables. These tests build
-# the real water model on every AC network and assert, at the coefficient level, both that
-# reactive power is wired correctly and that the water-side containers are non-empty (the
-# assertion that would have caught the original silent substitution).
+# HydroTurbine <: PSY.HydroGen: a missing AC construct path silently falls through to
+# the generic run-of-river dispatch with no water-flow variables. Each testset asserts
+# the water-side containers are non-empty to catch that regression.
 @testset "Hydro turbine water dispatch formulations build the real water model on AC networks" begin
     c_sys5_hy = PSB.build_system(PSITestSystems, "c_sys5_hy_turbine_head")
     ac_networks = (ACPNetworkModel, ACRNetworkModel, IVRNetworkModel, LPACCNetworkModel)
@@ -1311,8 +1308,6 @@ end
 
             container = IOM.get_optimization_container(model)
 
-            # The water model is real: turbine flow-rate variables and the turbine power
-            # output constraint (absent from the generic run-of-river fallback) exist.
             flow = IOM.get_variable(container, HydroTurbineFlowRateVariable, HydroTurbine)
             @test !isempty(flow)
             turbine_power_constraint =
@@ -1351,9 +1346,6 @@ end
 
         container = IOM.get_optimization_container(model)
 
-        # The commitment water model is real: turbine flow-rate variables, OnVariable, and
-        # the turbine power output constraint (absent from the generic run-of-river
-        # fallback) all exist.
         flow = IOM.get_variable(container, HydroTurbineFlowRateVariable, HydroTurbine)
         @test !isempty(flow)
         on_var = IOM.get_variable(container, OnVariable, HydroTurbine)
@@ -1377,14 +1369,13 @@ end
 
 @testset "HydroWaterFactorModel builds the real water model on AC networks" begin
     ac_networks = (ACPNetworkModel, ACRNetworkModel, IVRNetworkModel, LPACCNetworkModel)
+    sys = PSB.build_system(PSITestSystems, "c_sys5_hy_turbine_energy")
+    res = first(PSY.get_components(HydroReservoir, sys))
+    set_head_to_volume_factor!(res, LinearFunctionData(1.0))
+    set_storage_level_limits!(res, (min = 4000, max = 6000))
+    set_level_targets!(res, 0.9)
 
     for network_formulation in (ac_networks..., DCPNetworkModel)
-        sys = PSB.build_system(PSITestSystems, "c_sys5_hy_turbine_energy")
-        res = first(PSY.get_components(HydroReservoir, sys))
-        set_head_to_volume_factor!(res, LinearFunctionData(1.0))
-        set_storage_level_limits!(res, (min = 4000, max = 6000))
-        set_level_targets!(res, 0.9)
-
         template = PowerOperationsProblemTemplate(NetworkModel(network_formulation))
         set_device_model!(template, ThermalStandard, ThermalBasicDispatch)
         set_device_model!(template, PowerLoad, StaticPowerLoad)
@@ -1404,8 +1395,6 @@ end
 
         container = IOM.get_optimization_container(model)
 
-        # The water model is real: turbine flow-rate variables and the hydro power
-        # constraint (absent from the generic run-of-river fallback) exist.
         flow = IOM.get_variable(container, HydroTurbineFlowRateVariable, HydroTurbine)
         @test !isempty(flow)
         hydro_power_constraint =
@@ -1442,8 +1431,6 @@ end
 
         container = IOM.get_optimization_container(model)
 
-        # The commitment model is real: OnVariable (absent from a dispatch-only fallback)
-        # exists alongside the active power variable.
         on_var = IOM.get_variable(container, OnVariable, HydroDispatch)
         @test !isempty(on_var)
 
@@ -1486,9 +1473,6 @@ end
 
             container = IOM.get_optimization_container(model)
 
-            # The real formulation-specific model is built: the pump variable exists
-            # alongside the generation variable, and (for the commitment formulation) so
-            # does OnVariable.
             pump_var =
                 IOM.get_variable(container, ActivePowerPumpVariable, HydroPumpTurbine)
             @test !isempty(pump_var)

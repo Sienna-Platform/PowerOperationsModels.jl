@@ -1305,10 +1305,6 @@ function construct_device!(
     return
 end
 
-"""
-Construct model for [`PowerSystems.HydroTurbine`](@extref) with [`HydroWaterFactorModel`](@ref) Formulation
-with only Active Power.
-"""
 function _add_hydro_water_factor_model_turbine_arguments!(
     container::OptimizationContainer,
     model::DeviceModel{H, D},
@@ -1362,6 +1358,10 @@ function _add_hydro_water_factor_model_turbine_arguments!(
     return
 end
 
+"""
+Construct model for [`PowerSystems.HydroTurbine`](@extref) with [`HydroWaterFactorModel`](@ref) Formulation
+with only Active Power.
+"""
 function construct_device!(
     container::OptimizationContainer,
     sys::PSY.System,
@@ -1383,6 +1383,9 @@ function construct_device!(
     return
 end
 
+"""
+Construct model for [`PowerSystems.HydroTurbine`](@extref) with [`HydroWaterFactorModel`](@ref) Formulation
+"""
 function construct_device!(
     container::OptimizationContainer,
     sys::PSY.System,

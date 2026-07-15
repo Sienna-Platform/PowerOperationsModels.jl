@@ -124,54 +124,10 @@ function mock_construct_device!(
             "Event models are not supported in InfrastructureOptimizationModels. Use PowerSimulations for event modeling.",
         )
     end
-    set_device_model!(problem.template, model)
-    template = IOM.get_template(problem)
-    IOM.finalize_template!(template, IOM.get_system(problem))
-    IOM.validate_time_series!(problem)
-    IOM.init_optimization_container!(
-        IOM.get_optimization_container(problem),
-        IOM.get_network_model(template),
-        IOM.get_system(problem),
-    )
-    IOM.get_network_model(template).subnetworks =
-        PNM.find_subnetworks(IOM.get_system(problem))
-    # Mirror the real build (`build_problem!`): device `add_to_expression!` maps every
-    # bus through `get_mapped_bus_number(network_reduction, ...)`, so the network model
-    # must carry a reduction. The mock applies none, so use the identity reduction.
-    IOM.get_network_model(template).network_reduction =
-        PNM.get_network_reduction_data(PNM.Ybus(IOM.get_system(problem)))
-    IOM.get_optimization_container(problem).built_for_recurrent_solves =
-        built_for_recurrent_solves
-    POM.initialize_system_expressions!(
-        IOM.get_optimization_container(problem),
-        IOM.get_network_model(template),
-        IOM.get_network_model(template).subnetworks,
-        IOM.get_system(problem),
-        Dict{Int64, Set{Int64}}(),
-    )
-    construct_device!(
-        IOM.get_optimization_container(problem),
-        IOM.get_system(problem),
-        IOM.ArgumentConstructStage(),
-        model,
-        IOM.get_network_model(template),
-    )
-    construct_device!(
-        IOM.get_optimization_container(problem),
-        IOM.get_system(problem),
-        IOM.ModelConstructStage(),
-        model,
-        IOM.get_network_model(template),
-    )
-
-    IOM.check_optimization_container(IOM.get_optimization_container(problem))
-
-    JuMP.@objective(
-        IOM.get_jump_model(problem),
-        MOI.MIN_SENSE,
-        IOM.get_objective_expression(
-            IOM.get_optimization_container(problem).objective_function,
-        )
+    mock_construct_devices!(
+        problem,
+        (model,);
+        built_for_recurrent_solves = built_for_recurrent_solves,
     )
     return
 end
@@ -200,6 +156,9 @@ function mock_construct_devices!(
     )
     IOM.get_network_model(template).subnetworks =
         PNM.find_subnetworks(IOM.get_system(problem))
+    # Mirror the real build (`build_problem!`): device `add_to_expression!` maps every
+    # bus through `get_mapped_bus_number(network_reduction, ...)`, so the network model
+    # must carry a reduction. The mock applies none, so use the identity reduction.
     IOM.get_network_model(template).network_reduction =
         PNM.get_network_reduction_data(PNM.Ybus(IOM.get_system(problem)))
     IOM.get_optimization_container(problem).built_for_recurrent_solves =

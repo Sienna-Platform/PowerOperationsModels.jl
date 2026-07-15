@@ -226,7 +226,10 @@ same way, which a `Union` alias could not allow.
 abstract type NetworkSupport end
 "Formulation builds under every network model. Default."
 struct AllNetworks <: NetworkSupport end
-"Formulation needs a full AC network; LPACC's linearized reactive layer cannot build it."
+"""
+Formulation needs a full AC network; the linear-programming AC cold-start approximation
+(LPACC, [`LPACCNetworkModel`](@ref)) linearizes the reactive layer and cannot build it.
+"""
 struct AllNetworksExceptLPACC <: NetworkSupport end
 
 """

@@ -206,12 +206,15 @@ function add_constraints!(
         time_steps,
     )
     jump_model = get_jump_model(container)
-    for t in time_steps, d in devices
+    reactive = get_variable(container, U, V)
+    real = get_variable(container, ActivePowerVariable, V)
+    for d in devices
         name = PSY.get_name(d)
         pf = _controllable_load_power_factor(d)
-        reactive = get_variable(container, U, V)[name, t]
-        real = get_variable(container, ActivePowerVariable, V)[name, t]
-        constraint[name, t] = JuMP.@constraint(jump_model, reactive == real * pf)
+        for t in time_steps
+            constraint[name, t] =
+                JuMP.@constraint(jump_model, reactive[name, t] == real[name, t] * pf)
+        end
     end
     return
 end
@@ -243,13 +246,15 @@ function add_constraints!(
     jump_model = get_jump_model(container)
     reactive = get_variable(container, U, V)
     realized_load = get_expression(container, RealizedShiftedLoad, V)
-    for t in time_steps, d in devices
+    for d in devices
         name = PSY.get_name(d)
         pf = _controllable_load_power_factor(d)
-        constraint[name, t] = JuMP.@constraint(
-            jump_model,
-            reactive[name, t] == realized_load[name, t] * pf
-        )
+        for t in time_steps
+            constraint[name, t] = JuMP.@constraint(
+                jump_model,
+                reactive[name, t] == realized_load[name, t] * pf
+            )
+        end
     end
     return
 end
