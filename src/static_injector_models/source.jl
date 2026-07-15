@@ -33,14 +33,24 @@ get_variable_binary(::Type{ReservationVariable}, ::Type{<:PSY.Source}, ::Type{Im
 
 
 #! format: on
+# FixedOutput is entirely time-series driven, so it defaults to the in/out series.
+# Every other source formulation treats time series as opt-in: a default here flips
+# the constructors' `haskey` gates on and hard-errors any system without the series.
 function get_default_time_series_names(
     ::Type{U},
-    ::Type{V},
-) where {U <: PSY.Source, V <: Union{FixedOutput, AbstractSourceFormulation}}
+    ::Type{FixedOutput},
+) where {U <: PSY.Source}
     return Dict{Type{<:TimeSeriesParameter}, String}(
         ActivePowerOutTimeSeriesParameter => "max_active_power_out",
         ActivePowerInTimeSeriesParameter => "max_active_power_in",
     )
+end
+
+function get_default_time_series_names(
+    ::Type{U},
+    ::Type{V},
+) where {U <: PSY.Source, V <: AbstractSourceFormulation}
+    return Dict{Type{<:TimeSeriesParameter}, String}()
 end
 
 function get_default_attributes(
