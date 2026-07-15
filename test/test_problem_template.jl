@@ -63,6 +63,19 @@ end
     @test isempty(template.services)
 end
 
+@testset "validate_available_devices" begin
+    sys = PSB.build_system(PSITestSystems, "c_sys5_il")
+    @test isempty(PSY.get_components(PSY.HydroDispatch, sys))
+    @test POM.validate_available_devices(
+        DeviceModel(PSY.ThermalStandard, ThermalBasicDispatch),
+        sys,
+    )
+    @test !POM.validate_available_devices(
+        DeviceModel(PSY.HydroDispatch, HydroDispatchRunOfRiver),
+        sys,
+    )
+end
+
 @testset "Operations Template Overwrite" begin
     template = PowerOperationsProblemTemplate(CopperPlateNetworkModel)
     set_device_model!(template, PowerLoad, StaticPowerLoad)
