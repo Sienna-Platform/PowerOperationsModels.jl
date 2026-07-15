@@ -16,8 +16,9 @@
 # Voltage-objective regulation: under ACP, the scalar VoltageMagnitude is pinned
 # directly; under ACR/IVR, a per-device RegulatedVoltageMagnitude aux variable is
 # tied to the rectangular components via RegulatedVoltageMagnitudeConstraint and then
-# fixed. Reactive/active-flow objectives share a common path across ACP and ACR.
-# The formulation is dropped from DC templates via `models_reactive_power`.
+# fixed; under LPACC, the bus VoltageDeviation phi = |V| - 1 is pinned to
+# setpoint - 1. Reactive/active-flow objectives share a common path across the AC
+# networks. The formulation is dropped from DC templates via `models_reactive_power`.
 #################################################################################
 
 # Finite tap-ratio bounds (pu turns ratio) for the control variable `t`. A
@@ -208,6 +209,62 @@ function add_constraints!(
             _add_tap_acr_flow!(
                 jump_model, cons_pft, cons_qft, cons_ptf, cons_qtf, pft, qft, ptf, qtf,
                 name, t, vv_fr, vv_to, cosprod, sinprod, coef, tap[name, t],
+            )
+        end
+    end
+    return
+end
+
+# LPACC (linear-AC) variable-tap Ohm's law. The LPAC substitution replaces the ACR
+# voltage bilinears with their linearized surrogates — vsq_fr → 1 + 2φ_fr,
+# vsq_to → 1 + 2φ_to, vv_cos → cs + φ_fr + φ_to, vv_sin → va_fr - va_to — so the
+# shared `_add_tap_acr_flow!` builder emits constraints that reduce term-for-term to
+# the fixed-tap LPACC StaticBranch form (AC_branches.jl) when `t == tm`.
+function add_constraints!(
+    container::OptimizationContainer,
+    sys::PSY.System,
+    ::Type{NetworkFlowConstraint},
+    devices::IS.FlattenIteratorWrapper{T},
+    device_model::DeviceModel{T, VoltageControlTap},
+    network_model::NetworkModel{LPACCNetworkModel},
+) where {T <: PSY.TapTransformer}
+    time_steps = get_time_steps(container)
+
+    va = get_variable(container, VoltageAngle, PSY.ACBus)
+    phi = get_variable(container, VoltageDeviation, PSY.ACBus)
+    cs = get_variable(container, CosineApproximation, T)
+    tap = get_variable(container, TapRatioVariable, T)
+    pft = get_variable(container, FlowActivePowerFromToVariable, T)
+    ptf = get_variable(container, FlowActivePowerToFromVariable, T)
+    qft = get_variable(container, FlowReactivePowerFromToVariable, T)
+    qtf = get_variable(container, FlowReactivePowerToFromVariable, T)
+
+    number_to_name = _retained_number_to_name(sys, network_model)
+    geoms =
+        _branch_geometries(number_to_name, network_model, devices, T, NetworkFlowConstraint)
+    branch_names = [g.name for g in geoms]
+    cons_pft, cons_qft, cons_ptf, cons_qtf =
+        _add_flow_constraint_containers!(container, T, branch_names)
+    jump_model = get_jump_model(container)
+
+    for g_geom in geoms
+        name = g_geom.name
+        adm = g_geom.adm
+        from_bus = g_geom.from_name
+        to_bus = g_geom.to_name
+        coef = _tap_flow_coefficients(
+            adm.g, adm.b, adm.g_fr, adm.b_fr, adm.g_to, adm.b_to, adm.shift,
+        )
+        for t in time_steps
+            phi_fr = phi[from_bus, t]
+            phi_to = phi[to_bus, t]
+            vad = va[from_bus, t] - va[to_bus, t]
+            cs_sum = cs[name, t] + phi_fr + phi_to
+            dev_fr = 1.0 + 2.0 * phi_fr
+            dev_to = 1.0 + 2.0 * phi_to
+            _add_tap_acr_flow!(
+                jump_model, cons_pft, cons_qft, cons_ptf, cons_qtf, pft, qft, ptf, qtf,
+                name, t, dev_fr, dev_to, cs_sum, vad, coef, tap[name, t],
             )
         end
     end
@@ -490,15 +547,17 @@ function _apply_tap_control_objective!(
     return
 end
 
-# Rectangular (ACR/IVR): VOLTAGE pins the regulated-bus magnitude via the component-owned
-# (component, "1") RegulatedVoltageMagnitude aux variable (see fix_regulated_voltage!);
-# reactive/active-flow objectives pin the from-to terminal flow. The aux variable/
-# constraint are added unconditionally in the construction stages, so only the fix is
-# objective-conditional (count-invariance). Under IVR the from-to power variables
-# (pft/qft) are bilinear-linked to the branch currents in the IVR Ohm's law, so the
-# flow objectives are well-defined in current space — identical control logic to ACR.
+# Rectangular (ACR/IVR) and deviation (LPACC): VOLTAGE pins the regulated-bus magnitude
+# via fix_regulated_voltage! — the component-owned (component, "1")
+# RegulatedVoltageMagnitude aux variable under ACR/IVR, the shared bus VoltageDeviation
+# (at setpoint - 1) under LPACC; reactive/active-flow objectives pin the from-to terminal
+# flow. The ACR/IVR aux variable/constraint are added unconditionally in the construction
+# stages, so only the fix is objective-conditional (count-invariance). Under IVR the
+# from-to power variables (pft/qft) are bilinear-linked to the branch currents in the IVR
+# Ohm's law, so the flow objectives are well-defined in current space — identical control
+# logic to ACR.
 function _apply_tap_control_objective!(
-    ::RectangularRegulatedVoltage,
+    ::Union{RectangularRegulatedVoltage, DeviationRegulatedVoltage},
     container::OptimizationContainer,
     sys::PSY.System,
     devices::IS.FlattenIteratorWrapper{T},
@@ -537,7 +596,7 @@ function construct_device!(
     network_model::NetworkModel{N},
 ) where {
     T <: PSY.TapTransformer,
-    N <: Union{ACPNetworkModel, ACRNetworkModel, IVRNetworkModel},
+    N <: Union{ACPNetworkModel, ACRNetworkModel, IVRNetworkModel, LPACCNetworkModel},
 }
     return construct_device!(
         tap_branch_current_form(N),
@@ -557,7 +616,7 @@ function construct_device!(
     network_model::NetworkModel{N},
 ) where {
     T <: PSY.TapTransformer,
-    N <: Union{ACPNetworkModel, ACRNetworkModel, IVRNetworkModel},
+    N <: Union{ACPNetworkModel, ACRNetworkModel, IVRNetworkModel, LPACCNetworkModel},
 }
     return construct_device!(
         tap_branch_current_form(N),
@@ -569,7 +628,49 @@ function construct_device!(
     )
 end
 
-# Power-only branch construction (ACP/ACR), mirrors StaticBranch.
+# LPACC carries a bus-pair cosine variable per branch and its convex relaxation;
+# the other power-only networks (ACP/ACR) do not.
+function _add_tap_cosine_arguments!(
+    container::OptimizationContainer,
+    devices,
+    network_model::NetworkModel{LPACCNetworkModel},
+)
+    add_variables!(container, CosineApproximation, devices, network_model)
+    return
+end
+
+function _add_tap_cosine_arguments!(
+    ::OptimizationContainer,
+    devices,
+    ::NetworkModel,
+)
+    return
+end
+
+function _add_tap_cosine_constraints!(
+    container::OptimizationContainer,
+    sys::PSY.System,
+    devices,
+    device_model::DeviceModel{T, VoltageControlTap},
+    network_model::NetworkModel{LPACCNetworkModel},
+) where {T <: PSY.TapTransformer}
+    add_constraints!(
+        container, sys, CosineRelaxationConstraint, devices, device_model, network_model,
+    )
+    return
+end
+
+function _add_tap_cosine_constraints!(
+    ::OptimizationContainer,
+    ::PSY.System,
+    devices,
+    ::DeviceModel{T, VoltageControlTap},
+    ::NetworkModel,
+) where {T <: PSY.TapTransformer}
+    return
+end
+
+# Power-only branch construction (ACP/ACR/LPACC), mirrors StaticBranch.
 function construct_device!(
     ::PowerOnlyTapBranch,
     container::OptimizationContainer,
@@ -583,6 +684,7 @@ function construct_device!(
     devices = get_available_components(device_model, sys)
     _validate_controlled_branch_not_reduced(network_model, devices, "VoltageControlTap")
     add_variables!(container, TapRatioVariable, devices, VoltageControlTap)
+    _add_tap_cosine_arguments!(container, devices, network_model)
     add_variables!(container, FlowActivePowerFromToVariable, devices, VoltageControlTap)
     add_variables!(container, FlowActivePowerToFromVariable, devices, VoltageControlTap)
     add_variables!(container, FlowReactivePowerFromToVariable, devices, VoltageControlTap)
@@ -630,6 +732,7 @@ function construct_device!(
     add_constraints!(
         container, sys, NetworkFlowConstraint, devices, device_model, network_model,
     )
+    _add_tap_cosine_constraints!(container, sys, devices, device_model, network_model)
     add_constraints!(
         container, sys, AngleDifferenceConstraint, devices, device_model, network_model,
     )

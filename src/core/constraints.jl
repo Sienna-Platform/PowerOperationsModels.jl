@@ -53,7 +53,7 @@ struct CopperPlateBalanceConstraint <: ConstraintType end
 """
 Coupling constraint linking a controllable shunt's reactive injection to its
 [`ShuntSusceptanceVariable`](@ref) and the local bus voltage. Used by
-[`ShuntSusceptanceDispatch`](@ref) under all AC network models (ACP/ACR/IVR):
+[`ShuntSusceptanceDispatch`](@ref) under all AC network models (ACP/ACR/IVR/LPACC):
 
 ```math
 Q_{d,t} = b_{d,t} \\cdot V_{n(d),t}^2,
@@ -61,9 +61,11 @@ Q_{d,t} = b_{d,t} \\cdot V_{n(d),t}^2,
 ```
 
 Under ACP, ``V^2 = v_{n(d),t}^2`` (scalar magnitude squared); under ACR/IVR,
-``V^2 = v_{r,n(d),t}^2 + v_{i,n(d),t}^2`` (rectangular components). The constraint is
-always created regardless of control mode; the voltage-control objective is applied
-separately via a `JuMP.fix` on the regulated bus magnitude.
+``V^2 = v_{r,n(d),t}^2 + v_{i,n(d),t}^2`` (rectangular components); under LPACC,
+``V^2`` is linearized to ``1 + 2\\phi_{n(d),t}`` consistent with the LPAC Ohm's law
+self terms. The constraint is always created regardless of control mode; the
+voltage-control objective is applied separately via a `JuMP.fix` on the regulated bus
+magnitude (the `VoltageDeviation` under LPACC).
 """
 struct ShuntReactivePowerConstraint <: ConstraintType end
 
