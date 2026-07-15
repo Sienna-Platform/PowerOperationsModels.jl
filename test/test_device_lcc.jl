@@ -86,3 +86,73 @@ end
         objectives[IVRNetworkModel], objectives[ACPNetworkModel]; rtol = 1e-6,
     )
 end
+
+# LPACC carries the voltage magnitude as 1 + VoltageDeviation, so the LCC converter
+# equations build against it. The reactive consumption is the point of the formulation:
+# assert at the coefficient level that both terminal reactive variables enter
+# ReactivePowerBalance as loads and both active variables enter ActivePowerBalance.
+@testset "LCC HVDC on LPACC" begin
+    model, build_status = _solve_lcc_model(LPACCNetworkModel)
+    @test build_status == IOM.ModelBuildStatus.BUILT
+    container = IOM.get_optimization_container(model)
+    sys = IOM.get_system(model)
+    lcc = first(get_components(TwoTerminalLCCLine, sys))
+    name = get_name(lcc)
+    arc = get_arc(lcc)
+    from_no = get_number(get_from(arc))
+    to_no = get_number(get_to(arc))
+
+    p_from = IOM.get_variable(
+        container, POM.HVDCActivePowerReceivedFromVariable, TwoTerminalLCCLine,
+    )
+    p_to = IOM.get_variable(
+        container, POM.HVDCActivePowerReceivedToVariable, TwoTerminalLCCLine,
+    )
+    q_from = IOM.get_variable(
+        container, POM.HVDCReactivePowerReceivedFromVariable, TwoTerminalLCCLine,
+    )
+    q_to = IOM.get_variable(
+        container, POM.HVDCReactivePowerReceivedToVariable, TwoTerminalLCCLine,
+    )
+    p_expr = IOM.get_expression(container, ActivePowerBalance, ACBus)
+    q_expr = IOM.get_expression(container, ReactivePowerBalance, ACBus)
+    for t in IOM.get_time_steps(container)
+        @test JuMP.coefficient(p_expr[from_no, t], p_from[name, t]) == -1.0
+        @test JuMP.coefficient(p_expr[to_no, t], p_to[name, t]) == 1.0
+        @test JuMP.coefficient(q_expr[from_no, t], q_from[name, t]) == -1.0
+        @test JuMP.coefficient(q_expr[to_no, t], q_to[name, t]) == -1.0
+    end
+
+    # The LCC's free optimum on this system is zero DC current (no economic driver),
+    # so the reactive variables would sit at zero and prove nothing. Force the line to
+    # carry current: the converter power-calculation constraints then make both
+    # terminals draw strictly positive reactive power, confirming the reactive term is
+    # physically coupled and not a dangling free variable.
+    idc = IOM.get_variable(
+        container, POM.DCLineCurrentFlowVariable, TwoTerminalLCCLine,
+    )
+    for t in IOM.get_time_steps(container)
+        JuMP.fix(idc[name, t], 0.5; force = true)
+    end
+    @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+    for t in IOM.get_time_steps(container)
+        @test JuMP.value(q_from[name, t]) > 1e-3
+        @test JuMP.value(q_to[name, t]) > 1e-3
+    end
+end
+
+# An LCC's defining feature is reactive consumption; networks without a reactive
+# balance must be rejected at template validation rather than failing deep in build!.
+@testset "LCC HVDC gated on reactive-less networks" begin
+    sys5 = _sys5_with_lcc()
+    for network_formulation in
+        (CopperPlateNetworkModel, PTDFNetworkModel, DCPNetworkModel, NFANetworkModel)
+        template = get_thermal_dispatch_template_network(
+            NetworkModel(network_formulation),
+        )
+        set_device_model!(template, TwoTerminalLCCLine, HVDCTwoTerminalLCC)
+        set_device_model!(template, ThermalStandard, ThermalDispatchNoMin)
+        model = DecisionModel(template, sys5; optimizer = HiGHS_optimizer)
+        @test_throws IS.ConflictingInputsError POM.validate_template(model)
+    end
+end

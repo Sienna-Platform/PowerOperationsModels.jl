@@ -69,6 +69,18 @@ function _add_converter_loss_current_var!(
     return
 end
 
+# LPACC: the linearized voltage has no magnitude primitive compatible with the AC
+# apparent-current relation, so keep the DC-current loss with the |I_dc| surrogate.
+function _add_converter_loss_current_var!(
+    container::OptimizationContainer,
+    devices,
+    ::DeviceModel{PSY.InterconnectingConverter, F},
+    ::NetworkModel{LPACCNetworkModel},
+) where {F <: AbstractQuadraticLossConverter}
+    add_variables!(container, CurrentAbsoluteValueVariable, devices, F)
+    return
+end
+
 # AC networks: the I_ac defining constraints are built inside the ConverterLossConstraint
 # method, so nothing extra here.
 _add_converter_loss_current_constraints!(
@@ -84,6 +96,19 @@ function _add_converter_loss_current_constraints!(
     devices,
     model::DeviceModel{PSY.InterconnectingConverter, <:AbstractQuadraticLossConverter},
     network_model::NetworkModel{<:AbstractActivePowerModel},
+)
+    _add_abs_value_constraints!(
+        container, devices, model, network_model, ConverterCurrent,
+    )
+    return
+end
+
+# LPACC keeps the DC-current loss, so it needs the same |I_dc| surrogate constraints.
+function _add_converter_loss_current_constraints!(
+    container::OptimizationContainer,
+    devices,
+    model::DeviceModel{PSY.InterconnectingConverter, <:AbstractQuadraticLossConverter},
+    network_model::NetworkModel{LPACCNetworkModel},
 )
     _add_abs_value_constraints!(
         container, devices, model, network_model, ConverterCurrent,
@@ -206,12 +231,194 @@ function construct_device!(
     return
 end
 
+# AC networks (ACP/ACR/IVR/LPACC): same DC-side physics as the active-power-network
+# construct plus the AC terminal layer — a bounded ReactivePowerVariable injected
+# into ReactivePowerBalance and the apparent-power capability disk. The
+# VoltageControlConverter construct (voltage_control_converter_models.jl) is more
+# specific and adds the control layer on top of the same pieces.
+function construct_device!(
+    container::OptimizationContainer,
+    sys::PSY.System,
+    ::ArgumentConstructStage,
+    model::DeviceModel{PSY.InterconnectingConverter, T},
+    network_model::NetworkModel{<:NativeACNetworkModel},
+) where {T <: AbstractQuadraticLossConverter}
+    devices = get_available_components(model, sys)
+    _add_converter_dc_arguments!(container, devices, model, network_model)
+    _maybe_add_reactive_power_variables!(
+        container, devices, model, network_model, (ReactivePowerVariable,),
+    )
+    add_feedforward_arguments!(container, model, devices)
+    return
+end
+
+function construct_device!(
+    container::OptimizationContainer,
+    sys::PSY.System,
+    ::ModelConstructStage,
+    model::DeviceModel{PSY.InterconnectingConverter, T},
+    network_model::NetworkModel{<:NativeACNetworkModel},
+) where {T <: AbstractQuadraticLossConverter}
+    devices = get_available_components(model, sys)
+    _add_converter_dc_model!(container, devices, model, network_model)
+    _add_ic_apparent_power_limit!(container, devices, model, network_model)
+    add_feedforward_constraints!(container, model, devices)
+    add_to_objective_function!(
+        container, devices, model, get_network_formulation(network_model),
+    )
+    add_constraint_dual!(container, sys, model)
+    return
+end
+
+function construct_device!(
+    container::OptimizationContainer,
+    sys::PSY.System,
+    ::ArgumentConstructStage,
+    model::DeviceModel{PSY.InterconnectingConverter, LosslessConverter},
+    network_model::NetworkModel{<:NativeACNetworkModel},
+)
+    devices = get_available_components(model, sys)
+    add_variables!(container, ActivePowerVariable, devices, LosslessConverter)
+    add_to_expression!(
+        container,
+        ActivePowerBalance,
+        ActivePowerVariable,
+        devices,
+        model,
+        network_model,
+    )
+    _maybe_add_reactive_power_variables!(
+        container, devices, model, network_model, (ReactivePowerVariable,),
+    )
+    add_feedforward_arguments!(container, model, devices)
+    return
+end
+
+function construct_device!(
+    container::OptimizationContainer,
+    sys::PSY.System,
+    ::ModelConstructStage,
+    model::DeviceModel{PSY.InterconnectingConverter, LosslessConverter},
+    network_model::NetworkModel{<:NativeACNetworkModel},
+)
+    devices = get_available_components(model, sys)
+    _add_ic_apparent_power_limit!(container, devices, model, network_model)
+    add_feedforward_constraints!(container, model, devices)
+    add_to_objective_function!(
+        container,
+        devices,
+        model,
+        get_network_formulation(network_model),
+    )
+    add_constraint_dual!(container, sys, model)
+    return
+end
+
+# LinearLossConverter: lossless transport-style AC/DC transfer (±P wiring shared
+# with LosslessConverter) plus a linear loss draw `b·|I| + c` at the DC bus, with
+# `CurrentAbsoluteValueVariable` as the nominal-voltage `|I| ≈ |P|` surrogate.
+function construct_device!(
+    container::OptimizationContainer,
+    sys::PSY.System,
+    ::ArgumentConstructStage,
+    model::DeviceModel{PSY.InterconnectingConverter, LinearLossConverter},
+    network_model::NetworkModel{<:AbstractActivePowerModel},
+)
+    devices = get_available_components(model, sys)
+    add_variables!(container, ActivePowerVariable, devices, LinearLossConverter)
+    add_variables!(container, CurrentAbsoluteValueVariable, devices, LinearLossConverter)
+    add_to_expression!(
+        container,
+        ActivePowerBalance,
+        ActivePowerVariable,
+        devices,
+        model,
+        network_model,
+    )
+    _add_linear_converter_loss_to_dc_balance!(container, devices, network_model)
+    add_feedforward_arguments!(container, model, devices)
+    return
+end
+
+function construct_device!(
+    container::OptimizationContainer,
+    sys::PSY.System,
+    ::ModelConstructStage,
+    model::DeviceModel{PSY.InterconnectingConverter, LinearLossConverter},
+    network_model::NetworkModel{<:AbstractActivePowerModel},
+)
+    devices = get_available_components(model, sys)
+    _add_abs_value_constraints!(
+        container, devices, model, network_model, ActivePowerVariable,
+    )
+    add_feedforward_constraints!(container, model, devices)
+    add_to_objective_function!(
+        container,
+        devices,
+        model,
+        get_network_formulation(network_model),
+    )
+    add_constraint_dual!(container, sys, model)
+    return
+end
+
+function construct_device!(
+    container::OptimizationContainer,
+    sys::PSY.System,
+    ::ArgumentConstructStage,
+    model::DeviceModel{PSY.InterconnectingConverter, LinearLossConverter},
+    network_model::NetworkModel{<:NativeACNetworkModel},
+)
+    devices = get_available_components(model, sys)
+    add_variables!(container, ActivePowerVariable, devices, LinearLossConverter)
+    add_variables!(container, CurrentAbsoluteValueVariable, devices, LinearLossConverter)
+    add_to_expression!(
+        container,
+        ActivePowerBalance,
+        ActivePowerVariable,
+        devices,
+        model,
+        network_model,
+    )
+    _add_linear_converter_loss_to_dc_balance!(container, devices, network_model)
+    _maybe_add_reactive_power_variables!(
+        container, devices, model, network_model, (ReactivePowerVariable,),
+    )
+    add_feedforward_arguments!(container, model, devices)
+    return
+end
+
+function construct_device!(
+    container::OptimizationContainer,
+    sys::PSY.System,
+    ::ModelConstructStage,
+    model::DeviceModel{PSY.InterconnectingConverter, LinearLossConverter},
+    network_model::NetworkModel{<:NativeACNetworkModel},
+)
+    devices = get_available_components(model, sys)
+    _add_abs_value_constraints!(
+        container, devices, model, network_model, ActivePowerVariable,
+    )
+    _add_ic_apparent_power_limit!(container, devices, model, network_model)
+    add_feedforward_constraints!(container, model, devices)
+    add_to_objective_function!(
+        container,
+        devices,
+        model,
+        get_network_formulation(network_model),
+    )
+    add_constraint_dual!(container, sys, model)
+    return
+end
+
+# The transport line touches only the DC-bus ActivePowerBalance, so the AC-side
+# network model is irrelevant: valid on every network model.
 function construct_device!(
     container::OptimizationContainer,
     sys::PSY.System,
     ::ArgumentConstructStage,
     model::DeviceModel{PSY.TModelHVDCLine, LosslessLine},
-    network_model::NetworkModel{<:AbstractActivePowerModel},
+    network_model::NetworkModel{<:AbstractNetworkModel},
 )
     devices = get_available_components(
         model,
@@ -235,7 +442,7 @@ function construct_device!(
     sys::PSY.System,
     ::ModelConstructStage,
     model::DeviceModel{PSY.TModelHVDCLine, LosslessLine},
-    ::NetworkModel{<:AbstractActivePowerModel},
+    ::NetworkModel{<:AbstractNetworkModel},
 )
 end
 

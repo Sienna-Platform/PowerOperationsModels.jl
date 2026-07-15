@@ -39,6 +39,31 @@ function _fix_converter_ac_control!(
     return
 end
 
+# LPACC twin of `_fix_converter_ac_control!`: the network voltage variable is the
+# magnitude deviation phi = |V| - 1, so AC_VOLTAGE pins phi to setpoint - 1.
+# AC_REACTIVE_POWER pins the reactive injection to its setpoint, unshifted.
+function _fix_converter_ac_control_lpacc!(
+    mode::PSY.VSCACControlModes,
+    setpoint::Float64,
+    phi,
+    bus_name::String,
+    q_var,
+    name::String,
+    time_steps,
+)
+    if mode == PSY.VSCACControlModes.AC_VOLTAGE
+        _assert_bus_has_voltage_variables(
+            phi, bus_name, "AC-voltage-controlled terminal of converter $(name)",
+        )
+        for t in time_steps
+            JuMP.fix(phi[bus_name, t], setpoint - 1.0; force = true)
+        end
+    elseif mode == PSY.VSCACControlModes.AC_REACTIVE_POWER
+        _pin_converter_reactive!(q_var, name, setpoint, time_steps)
+    end
+    return
+end
+
 # Fill one terminal/converter's HVDCDCControlConstraint row for all time steps.
 # Always written (count-invariant across DC control modes). `vdc_var` is indexed by
 # the same `name` key as `p_var` and `con`.

@@ -232,6 +232,13 @@ Formulation needs a full AC network; the linear-programming AC cold-start approx
 (LPACC, [`LPACCNetworkModel`](@ref)) linearizes the reactive layer and cannot build it.
 """
 struct AllNetworksExceptLPACC <: NetworkSupport end
+"""
+Formulation whose defining feature is its reactive-power behavior; only the networks
+with a reactive-power balance (ACP/ACR/IVR/LPACC) build it. Building it on an
+active-power-only network would silently discard that feature, so those networks are
+rejected instead of dropped.
+"""
+struct ReactiveNetworksOnly <: NetworkSupport end
 
 """
     network_support(::Type{<:AbstractDeviceFormulation}) -> NetworkSupport
@@ -248,7 +255,10 @@ network_support(::Type{<:AbstractDeviceFormulation}) = AllNetworks()
 # LPACC construct path.
 network_support(::Type{ShuntSusceptanceDispatch}) = AllNetworksExceptLPACC()
 network_support(::Type{VoltageControlTap}) = AllNetworksExceptLPACC()
-network_support(::Type{VoltageControlConverter}) = AllNetworksExceptLPACC()
+
+# An LCC's reactive consumption is the reason to model it as HVDCTwoTerminalLCC; on a
+# network without a reactive balance use HVDCTwoTerminalDispatch/Lossless instead.
+network_support(::Type{HVDCTwoTerminalLCC}) = ReactiveNetworksOnly()
 
 # Whether a device/branch formulation has a `construct_device!` path for this network model.
 # Without this check an unsupported pair fails later with a generic "construct_device! not
@@ -264,6 +274,12 @@ _supports_network(::AllNetworks, ::NetworkModel) = true
 
 _supports_network(::AllNetworksExceptLPACC, ::NetworkModel) = true
 _supports_network(::AllNetworksExceptLPACC, ::NetworkModel{LPACCNetworkModel}) = false
+
+_supports_network(::ReactiveNetworksOnly, ::NetworkModel) = false
+_supports_network(::ReactiveNetworksOnly, ::NetworkModel{ACPNetworkModel}) = true
+_supports_network(::ReactiveNetworksOnly, ::NetworkModel{ACRNetworkModel}) = true
+_supports_network(::ReactiveNetworksOnly, ::NetworkModel{IVRNetworkModel}) = true
+_supports_network(::ReactiveNetworksOnly, ::NetworkModel{LPACCNetworkModel}) = true
 
 # Validation-time counterpart of the `supports_flow_slacks` gate (see
 # core/branch_slack_specs.jl): a use_slacks request on a pair whose `slack_spec` declares
@@ -338,11 +354,13 @@ end
 
 # Under ACP a VOLTAGE-control device pins the shared network VoltageMagnitude at its
 # regulated bus via JuMP.fix(force=true); two devices on one bus silently override
-# each other (last write wins). Detect that at validation. Under ACR/IVR each device
-# owns a (component, tag) RegulatedVoltageMagnitude aux variable, so the same clash is
-# solver-infeasibility, not a silent override — so only ACP needs the check.
+# each other (last write wins). Detect that at validation. LPACC has the same shape
+# (the shared VoltageDeviation is pinned directly). Under ACR/IVR each device owns a
+# (component, tag) RegulatedVoltageMagnitude aux variable, so the same clash is
+# solver-infeasibility, not a silent override — those networks skip the check.
 _voltage_regulation_can_collide(::NetworkModel) = false
 _voltage_regulation_can_collide(::NetworkModel{ACPNetworkModel}) = true
+_voltage_regulation_can_collide(::NetworkModel{LPACCNetworkModel}) = true
 
 # (device name, regulated ACBus) for the components this model puts in a voltage-
 # control mode. Default: nothing regulates voltage (DeviceModelForBranches is a
@@ -426,7 +444,7 @@ function _check_voltage_regulation_conflicts!(
         if length(regulators) > 1
             throw(
                 IS.ConflictingInputsError(
-                    "Bus $(bus_no) is voltage-regulated by multiple devices ($(regulators)) under an ACP network; their setpoints would silently override each other (JuMP.fix). Keep at most one voltage regulator per bus.",
+                    "Bus $(bus_no) is voltage-regulated by multiple devices ($(regulators)) under a network with a shared per-bus voltage variable (ACP/LPACC); their setpoints would silently override each other (JuMP.fix). Keep at most one voltage regulator per bus.",
                 ),
             )
         end
