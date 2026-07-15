@@ -240,6 +240,182 @@ end
     )
 end
 
+function _add_intra_area_hvdc_line!(sys)
+    bus_from = get_component(ACBus, sys, "Bus_nodeA_1")
+    bus_to = get_component(ACBus, sys, "Bus_nodeB_1")
+    arc = first(
+        PSY.get_components(
+            x -> PSY.get_from(x) == bus_from && PSY.get_to(x) == bus_to, Arc, sys,
+        ),
+    )
+    hvdc = TwoTerminalGenericHVDCLine(;
+        name = "hvdc_intra",
+        available = true,
+        active_power_flow = 0.0,
+        active_power_limits_from = (min = -2.0, max = 2.0),
+        active_power_limits_to = (min = -2.0, max = 2.0),
+        reactive_power_limits_from = (min = -1.0, max = 1.0),
+        reactive_power_limits_to = (min = -1.0, max = 1.0),
+        arc = arc,
+        loss = LinearCurve(0.05, 0.01),
+    )
+    add_component!(sys, hvdc)
+    return
+end
+
+@testset "AreaInterchange StaticBranch includes HVDC tie lines on PTDF networks" begin
+    # On PTDF every HVDC flow variable already appears in the interchange constraint
+    # indirectly, through the AC tie's PTDFBranchFlow expression (its nodal injections
+    # times the tie's PTDF row). The interchange metering must add exactly +1.0 on top
+    # of that network response for the inter-area tie's measured variable — matching
+    # the AC-network convention — and add nothing for any other HVDC variable.
+    _direct_metering(con, expr, v) =
+        JuMP.normalized_coefficient(con, v) - JuMP.coefficient(expr, v)
+
+    # Directional-flow HVDC formulation: the tie is metered at the terminal on the
+    # interchange's from-area side, matching the AC-network path.
+    sys = _two_area_ac_interchange_system(; include_reverse_tie = false)
+    _add_inter_area_hvdc_tie!(sys)
+    _add_intra_area_hvdc_line!(sys)
+    template = get_thermal_dispatch_template_network(NetworkModel(PTDFNetworkModel))
+    set_device_model!(template, AreaInterchange, StaticBranch)
+    set_device_model!(template, TwoTerminalGenericHVDCLine, HVDCTwoTerminalDispatch)
+    model = DecisionModel(
+        template,
+        sys;
+        optimizer = HiGHS_optimizer,
+        store_variable_names = true,
+    )
+    @test build!(
+        model;
+        output_dir = mktempdir(; cleanup = true),
+        console_level = Logging.Error,
+    ) == IOM.ModelBuildStatus.BUILT
+    container = IOM.get_optimization_container(model)
+    t1 = first(IOM.get_time_steps(container))
+    ex = IOM.get_variable(container, FlowActivePowerVariable, AreaInterchange)
+    pft_dc = IOM.get_variable(
+        container, FlowActivePowerFromToVariable, TwoTerminalGenericHVDCLine,
+    )
+    ptf_dc = IOM.get_variable(
+        container, FlowActivePowerToFromVariable, TwoTerminalGenericHVDCLine,
+    )
+    ptdf_ml = IOM.get_expression(container, POM.PTDFBranchFlow, MonitoredLine)
+    ac_tie = ptdf_ml["inter_area_line", t1]
+    con_ub =
+        IOM.get_constraint(container, POM.LineFlowBoundConstraint, AreaInterchange, "ub")
+    con_lb =
+        IOM.get_constraint(container, POM.LineFlowBoundConstraint, AreaInterchange, "lb")
+    for con in (con_ub["1_2", t1], con_lb["1_2", t1])
+        # hvdc_tie is oriented Area1 -> Area2: same +1.0 from-terminal metering the AC
+        # networks give it
+        @test isapprox(
+            _direct_metering(con, ac_tie, pft_dc["hvdc_tie", t1]), 1.0; atol = 1e-9,
+        )
+        @test isapprox(
+            _direct_metering(con, ac_tie, ptf_dc["hvdc_tie", t1]), 0.0; atol = 1e-9,
+        )
+        # hvdc_intra stays inside Area1 and must not be metered
+        @test isapprox(
+            _direct_metering(con, ac_tie, pft_dc["hvdc_intra", t1]), 0.0; atol = 1e-9,
+        )
+        @test isapprox(
+            _direct_metering(con, ac_tie, ptf_dc["hvdc_intra", t1]), 0.0; atol = 1e-9,
+        )
+        @test JuMP.normalized_coefficient(con, ex["1_2", t1]) == -1.0
+    end
+
+    # Single-signed-flow HVDC formulation (lossless): the flow variable is positive
+    # from -> to, so it enters with the interchange direction multiplier.
+    sys_ll = _two_area_ac_interchange_system(; include_reverse_tie = false)
+    _add_inter_area_hvdc_tie!(sys_ll)
+    _add_intra_area_hvdc_line!(sys_ll)
+    template_ll = get_thermal_dispatch_template_network(NetworkModel(PTDFNetworkModel))
+    set_device_model!(template_ll, AreaInterchange, StaticBranch)
+    model_ll = DecisionModel(
+        template_ll,
+        sys_ll;
+        optimizer = HiGHS_optimizer,
+        store_variable_names = true,
+    )
+    @test build!(
+        model_ll;
+        output_dir = mktempdir(; cleanup = true),
+        console_level = Logging.Error,
+    ) == IOM.ModelBuildStatus.BUILT
+    container_ll = IOM.get_optimization_container(model_ll)
+    t1_ll = first(IOM.get_time_steps(container_ll))
+    flow_dc = IOM.get_variable(
+        container_ll, FlowActivePowerVariable, TwoTerminalGenericHVDCLine,
+    )
+    ex_ll = IOM.get_variable(container_ll, FlowActivePowerVariable, AreaInterchange)
+    ptdf_flow_ml = IOM.get_expression(container_ll, POM.PTDFBranchFlow, MonitoredLine)
+    ac_tie_ll = ptdf_flow_ml["inter_area_line", t1_ll]
+    con_ub_ll = IOM.get_constraint(
+        container_ll, POM.LineFlowBoundConstraint, AreaInterchange, "ub",
+    )
+    c_ll = con_ub_ll["1_2", t1_ll]
+    @test isapprox(
+        _direct_metering(c_ll, ac_tie_ll, flow_dc["hvdc_tie", t1_ll]), 1.0; atol = 1e-9,
+    )
+    @test isapprox(
+        _direct_metering(c_ll, ac_tie_ll, flow_dc["hvdc_intra", t1_ll]), 0.0;
+        atol = 1e-9,
+    )
+    @test JuMP.normalized_coefficient(c_ll, ex_ll["1_2", t1_ll]) == -1.0
+    @test solve!(model_ll) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+    time_steps_ll = IOM.get_time_steps(container_ll)
+    t_star = argmax([abs(JuMP.value(ex_ll["1_2", t])) for t in time_steps_ll])
+    @test abs(JuMP.value(ex_ll["1_2", t_star])) > 0.1
+    # The interchange variable is bound by the AC tie's PTDF flow plus the HVDC tie flow
+    @test isapprox(
+        JuMP.value(ex_ll["1_2", t_star]),
+        JuMP.value(ptdf_flow_ml["inter_area_line", t_star]) +
+        JuMP.value(flow_dc["hvdc_tie", t_star]);
+        atol = 1e-6,
+    )
+
+    # AreaPTDF exercises the StaticBranchUnbounded interchange stage
+    sys_ap = _two_area_ac_interchange_system(; include_reverse_tie = false)
+    _add_inter_area_hvdc_tie!(sys_ap)
+    _add_intra_area_hvdc_line!(sys_ap)
+    template_ap =
+        get_thermal_dispatch_template_network(NetworkModel(AreaPTDFNetworkModel))
+    set_device_model!(template_ap, AreaInterchange, StaticBranchUnbounded)
+    model_ap = DecisionModel(
+        template_ap,
+        sys_ap;
+        optimizer = HiGHS_optimizer,
+        store_variable_names = true,
+    )
+    @test build!(
+        model_ap;
+        output_dir = mktempdir(; cleanup = true),
+        console_level = Logging.Error,
+    ) == IOM.ModelBuildStatus.BUILT
+    container_ap = IOM.get_optimization_container(model_ap)
+    t1_ap = first(IOM.get_time_steps(container_ap))
+    flow_dc_ap = IOM.get_variable(
+        container_ap, FlowActivePowerVariable, TwoTerminalGenericHVDCLine,
+    )
+    ex_ap = IOM.get_variable(container_ap, FlowActivePowerVariable, AreaInterchange)
+    ptdf_ml_ap = IOM.get_expression(container_ap, POM.PTDFBranchFlow, MonitoredLine)
+    ac_tie_ap = ptdf_ml_ap["inter_area_line", t1_ap]
+    con_ub_ap = IOM.get_constraint(
+        container_ap, POM.LineFlowBoundConstraint, AreaInterchange, "ub",
+    )
+    c_ap = con_ub_ap["1_2", t1_ap]
+    @test isapprox(
+        _direct_metering(c_ap, ac_tie_ap, flow_dc_ap["hvdc_tie", t1_ap]), 1.0;
+        atol = 1e-9,
+    )
+    @test isapprox(
+        _direct_metering(c_ap, ac_tie_ap, flow_dc_ap["hvdc_intra", t1_ap]), 0.0;
+        atol = 1e-9,
+    )
+    @test JuMP.normalized_coefficient(c_ap, ex_ap["1_2", t1_ap]) == -1.0
+end
+
 @testset "StaticPowerLoad" begin
     models = [StaticPowerLoad, PowerLoadDispatch, PowerLoadInterruption]
     c_sys5_il = PSB.build_system(PSITestSystems, "c_sys5_il")

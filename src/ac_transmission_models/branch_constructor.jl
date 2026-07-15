@@ -2763,7 +2763,7 @@ function construct_device!(
     # The area interchanges are like a services/device mix.
     # Doesn't include the possibility of Multi-terminal HVDC
     inter_area_branch_map = _get_branch_map(network_model)
-
+    _add_hvdc_inter_area_branches!(inter_area_branch_map, sys, network_model)
     add_constraints!(
         container,
         LineFlowBoundConstraint,
@@ -2884,6 +2884,7 @@ function construct_device!(
 )
     devices = get_available_components(device_model, sys)
     inter_area_branch_map = _get_branch_map(network_model)
+    _add_hvdc_inter_area_branches!(inter_area_branch_map, sys, network_model)
     # Not ideal to do this here, but it is a not terrible workaround
     # The area interchanges are like a services/device mix.
     # Doesn't include the possibility of Multi-terminal HVDC
