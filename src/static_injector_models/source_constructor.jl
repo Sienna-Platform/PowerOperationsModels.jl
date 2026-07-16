@@ -56,6 +56,21 @@ function construct_device!(
         network_model,
     )
 
+    add_to_expression!(
+        container,
+        NetActivePower,
+        ActivePowerInVariable(),
+        devices,
+        model,
+    )
+    add_to_expression!(
+        container,
+        NetActivePower,
+        ActivePowerOutVariable(),
+        devices,
+        model,
+    )
+
     add_cost_expressions!(container, devices, model)
 
     add_to_expression!(
