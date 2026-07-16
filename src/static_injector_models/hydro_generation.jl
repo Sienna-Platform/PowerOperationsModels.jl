@@ -463,7 +463,7 @@ end
 
 function get_default_attributes(
     ::Type{PSY.HydroPumpTurbine},
-    ::Type{AbstractHydroPumpFormulation},
+    ::Type{<:AbstractHydroPumpFormulation},
 )
     return Dict{String, Any}(
         "reservation" => false,
