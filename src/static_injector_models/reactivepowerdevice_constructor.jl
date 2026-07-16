@@ -38,17 +38,3 @@ function construct_device!(
     # No objective function
     return
 end
-
-function construct_device!(
-    container::OptimizationContainer,
-    sys::PSY.System,
-    ::ArgumentConstructStage,
-    model::DeviceModel{R, D},
-    network_model::NetworkModel{<:AbstractActivePowerModel},
-) where {
-    R <: PSY.SynchronousCondenser,
-    D <: AbstractReactivePowerDeviceFormulation,
-}
-    # Do Nothing in Active Power Only Models
-    return
-end
