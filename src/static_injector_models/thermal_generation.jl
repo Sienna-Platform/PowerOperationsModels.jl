@@ -734,6 +734,7 @@ function add_constraints!(
         con = add_constraints_container!(container, ActiveRangeICConstraint,
             T,
             device_name_set,
+            [1],
         )
 
         for (ix, ic) in enumerate(ini_conds[:, 1])
@@ -742,7 +743,7 @@ function add_constraints!(
             limits = PSY.get_active_power_limits(device, PSY.SU)
             lag_ramp_limits = PSY.get_power_trajectory(device, PSY.SU)
             val = max(limits.max - lag_ramp_limits.shutdown, 0)
-            con[name] = JuMP.@constraint(
+            con[name, 1] = JuMP.@constraint(
                 get_jump_model(container),
                 val * varstop[name, 1] <=
                 ini_conds[ix, 2].value * (limits.max - limits.min) - get_value(ic)

@@ -80,6 +80,53 @@ end
           IOM.ModelBuildStatus.BUILT
 end
 
+@testset "Test Reserve Requirement Slack Variables" begin
+    # `use_slacks = true` on a reserve ServiceModel triggers `reserve_slacks!`
+    # (services_models/service_slacks.jl), which builds ReserveRequirementSlack as a 2D
+    # container over a singleton service-name axis and the time-step axis (rather than a
+    # bare 1D time-step axis with the service name consumed as `meta`). This path
+    # previously had zero test coverage in the whole suite. See POM issue #178 /
+    # developer guidelines.
+    c_sys5_uc = PSB.build_system(PSITestSystems, "c_sys5_uc"; add_reserves = true)
+    template = get_thermal_standard_uc_template()
+    set_service_model!(
+        template,
+        ServiceModel(
+            VariableReserve{ReserveUp},
+            RangeReserve,
+            "Reserve1";
+            use_slacks = true,
+        ),
+    )
+    model = DecisionModel(
+        template,
+        c_sys5_uc;
+        store_variable_names = true,
+        optimizer = HiGHS_optimizer,
+    )
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+
+    container = get_optimization_container(model)
+    slack_var = IOM.get_variable(
+        container,
+        ReserveRequirementSlack,
+        VariableReserve{ReserveUp},
+        "Reserve1",
+    )
+    time_steps = get_time_steps(container)
+    @test axes(slack_var) == (["Reserve1"], time_steps)
+    @test all(JuMP.lower_bound(slack_var["Reserve1", t]) == 0.0 for t in time_steps)
+
+    # Confirm the slack is actually wired into the requirement constraint (not just
+    # created and left dangling): its objective coefficient should be the penalty cost.
+    obj = JuMP.objective_function(get_jump_model(model))
+    @test all(
+        JuMP.coefficient(obj, slack_var["Reserve1", t]) == POM.SERVICES_SLACK_COST for
+        t in time_steps
+    )
+end
+
 @testset "Test ORDC time series (build & solve)" begin
     c_sys5_uc = PSB.build_system(PSITestSystems, "c_sys5_uc"; add_reserves = true)
     static_ordc = first(get_components(PSY.ReserveDemandCurve, c_sys5_uc))

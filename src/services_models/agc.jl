@@ -68,9 +68,10 @@ function add_agc_variables!(
     ::Type{T},
 ) where {T <: SteadyStateFrequencyDeviation}
     time_steps = get_time_steps(container)
-    variable = add_variable_container!(container, T, PSY.AGC, time_steps)
+    variable = add_variable_container!(container, T, PSY.AGC, ["System"], time_steps)
     for t in time_steps
-        variable[t] = JuMP.@variable(container.JuMPmodel, base_name = "ΔF_{$(t)}")
+        variable["System", t] =
+            JuMP.@variable(container.JuMPmodel, base_name = "ΔF_{$(t)}")
     end
 end
 
@@ -152,7 +153,8 @@ function add_constraints!(
     R_dn_emergency =
         get_variable(container, AdditionalDeltaActivePowerUpVariable, PSY.Area)
 
-    const_container = add_constraints_container!(container, T, PSY.System, time_steps)
+    const_container =
+        add_constraints_container!(container, T, PSY.System, ["System"], time_steps)
 
     for t in time_steps
         system_balance = sum(area_balance.data[:, t])
@@ -164,9 +166,9 @@ function add_constraints!(
             JuMP.add_to_expression!(system_balance, R_up_emergency[area_name, t])
             JuMP.add_to_expression!(system_balance, -1.0, R_dn_emergency[area_name, t])
         end
-        const_container[t] = JuMP.@constraint(
+        const_container["System", t] = JuMP.@constraint(
             container.JuMPmodel,
-            frequency[t] == -inv_frequency_response * system_balance
+            frequency["System", t] == -inv_frequency_response * system_balance
         )
     end
     return

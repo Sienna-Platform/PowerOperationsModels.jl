@@ -18,8 +18,11 @@ pages = OrderedDict(
     # "Explanation" => Any["stub" => "explanation/stub.md"],
     "Reference" => Any[
         "Formulation Library" => "reference/formulation_library.md",
-        "Developers" => ["Developer Guidelines" => "reference/developer_guidelines.md",
-        "Internals" => "reference/internal.md"],
+        "Developers" => [
+            "Developer Guidelines" => "reference/developer_guidelines.md",
+            "Optimization Container Axes" => "reference/optimization_container_axes.md",
+            "Internals" => "reference/internal.md",
+        ],
         "Public API" => "reference/public.md",
     ],
 )
