@@ -392,3 +392,185 @@ end
     bus_by_number = Dict(1 => PSY.get_from(PSY.get_arc(tr)))
     @test_throws ErrorException POM._tap_regulated_bus(tr, bus_by_number)
 end
+
+@testset "ACP + StaticBranchBounds use_slacks wires flow-definition slacks per reduced arc" begin
+    # The c_sys5 coefficient tests exercise only the identity reduction; here the arcs
+    # genuinely merge, so the flow-definition slack machinery is checked against the
+    # reduced-arc representative names and the PNM equivalent ratings.
+    sys = _case11_with_forecast()
+    # Lower one NON-representative member of the (1,2) series chain so the arc's PNM
+    # series-equivalent rating (the min over the chain) drops strictly below the
+    # representative segment's own rating — the box bound must then follow the reduction
+    # entry, not the raw representative device.
+    tightened_member = "7-2-i_1"
+    tightened_rating = 1.5
+    PSY.set_rating!(
+        PSY.get_component(PSY.Line, sys, tightened_member),
+        tightened_rating * PSY.SU,
+    )
+
+    net = NetworkModel(
+        ACPNetworkModel;
+        reduce_radial_branches = true,
+        reduce_degree_two_branches = true,
+    )
+    template = get_thermal_dispatch_template_network(net)
+    set_device_model!(
+        template,
+        DeviceModel(PSY.Line, StaticBranchBounds; use_slacks = true),
+    )
+    model = DecisionModel(template, sys; optimizer = ipopt_optimizer)
+    @test build!(
+        model;
+        output_dir = mktempdir(; cleanup = true),
+        console_level = Logging.Error,
+    ) == IOM.ModelBuildStatus.BUILT
+
+    container = IOM.get_optimization_container(model)
+    network_model = get_network_model(get_template(model))
+    nr = get_network_reduction(network_model)
+
+    # Guard: a genuine (non-identity) reduction. An identity reduction would silently make
+    # this a duplicate of the c_sys5 coefficient tests.
+    @test !isempty(nr)
+    line_entries = POM.get_name_to_arc_map_entries(nr, PSY.Line)
+    reduced_names = collect(keys(line_entries))
+    n_raw_lines = length(collect(PSY.get_components(PSY.Line, sys)))
+    @test length(reduced_names) < n_raw_lines       # series/parallel arcs merged
+    @test !("1-8-i_1" in reduced_names)             # radial leaf absorbed, no arc entry
+
+    metas = POM.FLOW_DEFINITION_SLACK_METAS
+    pft = IOM.get_variable(container, FlowActivePowerFromToVariable, PSY.Line)
+    ptf = IOM.get_variable(container, FlowActivePowerToFromVariable, PSY.Line)
+    qft = IOM.get_variable(container, FlowReactivePowerFromToVariable, PSY.Line)
+    qtf = IOM.get_variable(container, FlowReactivePowerToFromVariable, PSY.Line)
+    slack_up = Dict(
+        m => IOM.get_variable(container, FlowActivePowerSlackUpperBound, PSY.Line, m)
+        for m in metas
+    )
+    slack_lo = Dict(
+        m => IOM.get_variable(container, FlowActivePowerSlackLowerBound, PSY.Line, m)
+        for m in metas
+    )
+
+    # The four directional flow variables alias the shared per-arc refs, so they span the
+    # full variable axis (every reduced-arc member name).
+    variable_set = Set(reduced_names)
+    for var in (pft, ptf, qft, qtf)
+        @test Set(axes(var)[1]) == variable_set
+    end
+
+    cons = Dict(
+        m => IOM.get_constraint(container, POM.NetworkFlowConstraint, PSY.Line, m)
+        for m in metas
+    )
+    con_rate_ft = IOM.get_constraint(container, FlowRateConstraintFromTo, PSY.Line)
+    con_rate_tf = IOM.get_constraint(container, FlowRateConstraintToFrom, PSY.Line)
+    objective = JuMP.objective_function(IOM.get_jump_model(container))
+    time_steps = IOM.get_time_steps(container)
+
+    # The Ohm's-law equality is written once per reduced arc under its representative name;
+    # the constraint axis is the per-arc claim set — a strict subset of the variable axis,
+    # which lists every arc member. The flow-definition slacks must be keyed on exactly that
+    # constraint axis, so no slack is created (and priced) without entering a row.
+    constraint_names = collect(axes(cons["p_ft"])[1])
+    constraint_set = Set(constraint_names)
+    @test !isempty(constraint_names)
+    @test issubset(constraint_set, variable_set)
+    non_representative = setdiff(variable_set, constraint_set)
+    @test !isempty(non_representative)   # the reduction genuinely merges arc members
+    for m in metas
+        @test Set(axes(slack_up[m])[1]) == constraint_set
+        @test Set(axes(slack_lo[m])[1]) == constraint_set
+        # No slack container entry exists for a non-representative arc member.
+        for name in non_representative
+            @test !(name in axes(slack_up[m])[1])
+            @test !(name in axes(slack_lo[m])[1])
+        end
+    end
+
+    for name in constraint_names
+        for t in time_steps
+            # `flow == physics + s⁺ − s⁻` ⇒ residual −1 on s⁺, +1 on s⁻, but ONLY in the
+            # pair's own directional row; the other three rows carry 0. The cross-row zero
+            # asserts guard against a shared self-cancelling pair leaking across the
+            # anti-symmetric p_ft/p_tf rows.
+            for own in metas
+                for row in metas
+                    up_coef = slack_residual_coefficient(
+                        cons[row][name, t],
+                        slack_up[own][name, t],
+                    )
+                    lo_coef = slack_residual_coefficient(
+                        cons[row][name, t],
+                        slack_lo[own][name, t],
+                    )
+                    if row == own
+                        @test up_coef == -1.0
+                        @test lo_coef == 1.0
+                    else
+                        @test up_coef == 0.0
+                        @test lo_coef == 0.0
+                    end
+                end
+            end
+
+            # The exact apparent-power limits carry none of the slacks.
+            for con in (con_rate_ft, con_rate_tf)
+                for m in metas
+                    @test slack_residual_coefficient(
+                        con[name, t],
+                        slack_up[m][name, t],
+                    ) == 0.0
+                    @test slack_residual_coefficient(
+                        con[name, t],
+                        slack_lo[m][name, t],
+                    ) == 0.0
+                end
+            end
+        end
+    end
+
+    # Directional flow variables carry hard ±(equivalent rating) box bounds, and every
+    # slack column is priced. The equivalent rating is read from the reduction entry (the
+    # PNM series/parallel aggregate reached exactly as `branch_rate_bounds!` does).
+    all_maps = PNM.get_all_branch_maps_by_type(nr)
+    device_model = get_model(get_template(model), PSY.Line)
+    for (name, (arc, reduction)) in line_entries
+        entry = all_maps[reduction][PSY.Line][arc]
+        rating = POM.branch_rating(entry, device_model)
+        for t in time_steps
+            for var in (pft, ptf, qft, qtf)
+                @test JuMP.has_upper_bound(var[name, t])
+                @test JuMP.has_lower_bound(var[name, t])
+                @test JuMP.upper_bound(var[name, t]) == rating
+                @test JuMP.lower_bound(var[name, t]) == -rating
+            end
+        end
+    end
+
+    # Every slack column that exists (one per reduced arc, on the constraint axis) is priced
+    # at the violation cost — there are no unpriced or priced-but-unconstrained columns.
+    for name in constraint_names
+        for t in time_steps
+            for m in metas
+                @test JuMP.coefficient(objective, slack_up[m][name, t]) ==
+                      POM.CONSTRAINT_VIOLATION_SLACK_COST
+                @test JuMP.coefficient(objective, slack_lo[m][name, t]) ==
+                      POM.CONSTRAINT_VIOLATION_SLACK_COST
+            end
+        end
+    end
+
+    # Non-triviality: the tightened member sits inside the (1,2) series chain whose
+    # representative row is "1-6-i_1". The bound on that representative equals the chain's
+    # equivalent rating (the min = the tightened value), strictly below the representative
+    # segment's own raw rating — so the bound is driven by the PNM reduction entry.
+    (arc_12, red_12) = line_entries["1-6-i_1"]
+    entry_12 = all_maps[red_12][PSY.Line][arc_12]
+    @test PNM.get_equivalent_rating(entry_12) == tightened_rating
+    representative_raw =
+        PSY.get_rating(PSY.get_component(PSY.Line, sys, "1-6-i_1"), PSY.SU)
+    @test tightened_rating < representative_raw
+    @test JuMP.upper_bound(pft["1-6-i_1", first(time_steps)]) == tightened_rating
+end

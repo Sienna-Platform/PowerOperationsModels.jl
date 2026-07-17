@@ -458,6 +458,184 @@ end
     @test_throws ArgumentError mock_construct_device!(model, device_model)
 end
 
+@testset "NFANetworkModel + StaticBranchBounds + use_slacks fails template validation" begin
+    sys = PSB.build_system(PSITestSystems, "c_sys5")
+    template = get_thermal_dispatch_template_network(NetworkModel(NFANetworkModel))
+    set_device_model!(
+        template,
+        DeviceModel(PSY.Line, StaticBranchBounds; use_slacks = true),
+    )
+    model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
+    @test_throws IS.ConflictingInputsError POM.validate_template(model)
+end
+
+@testset "use_slacks on a no-machinery formulation fails template validation" begin
+    # slack_spec defaults to NoBranchSlacks, so every pair whose constructors build no
+    # slack containers now rejects the request instead of silently ignoring it.
+    # StaticBranchUnbounded builds nothing at all; VoltageControlTap never creates slacks.
+    sys = PSB.build_system(PSITestSystems, "c_sys5")
+    for network_formulation in (DCPNetworkModel, ACPNetworkModel)
+        template =
+            get_thermal_dispatch_template_network(NetworkModel(network_formulation))
+        set_device_model!(
+            template,
+            DeviceModel(PSY.Line, StaticBranchUnbounded; use_slacks = true),
+        )
+        model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
+        @test_throws IS.ConflictingInputsError POM.validate_template(model)
+    end
+
+    sys14 = PSB.build_system(PSITestSystems, "c_sys14")
+    template = get_thermal_dispatch_template_network(NetworkModel(ACPNetworkModel))
+    set_device_model!(
+        template,
+        DeviceModel(PSY.TapTransformer, VoltageControlTap; use_slacks = true),
+    )
+    model = DecisionModel(template, sys14; optimizer = ipopt_optimizer)
+    @test_throws IS.ConflictingInputsError POM.validate_template(model)
+end
+
+@testset "CopperPlateNetworkModel accepts use_slacks as inert with a validation warning" begin
+    # The aggregated networks build no branch containers at all, so the request cannot be
+    # honored but erroring would break template reuse; validation warns and the build
+    # proceeds as the usual no-op.
+    sys = PSB.build_system(PSITestSystems, "c_sys5")
+    template =
+        get_thermal_dispatch_template_network(NetworkModel(CopperPlateNetworkModel))
+    set_device_model!(template, DeviceModel(PSY.Line, StaticBranch; use_slacks = true))
+    model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
+    @test_logs (:warn, r"use_slacks = true on branch model .* has no effect") match_mode =
+        :any POM.validate_template(
+        model,
+    )
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+end
+
+@testset "ACP/ACR/LPACC/IVR + StaticBranchBounds with use_slacks wires the flow-definition slacks" begin
+    # On the AC networks NetworkFlowConstraint is the Ohm's-law equality `flow == physics`.
+    # With slacks it becomes `flow == physics + s⁺ − s⁻`, and each of the four directional rows
+    # (p_ft, p_tf, q_ft, q_tf) carries its OWN slack pair so the anti-symmetric p_ft/p_tf rows
+    # do not self-cancel. Each pair appears in EXACTLY its own row (coefficient −1 on s⁺, +1 on
+    # s⁻) and with coefficient 0 in the other three — the cross-row zero asserts are the
+    # regression guard against a shared self-cancelling pair. The variable box bounds stay hard
+    # (the relaxation is on the equality, not the bound), and the apparent-power
+    # FlowRateConstraint stays exact.
+    for network_formulation in
+        (ACPNetworkModel, ACRNetworkModel, LPACCNetworkModel, IVRNetworkModel)
+        @testset "$network_formulation" begin
+            sys = PSB.build_system(PSITestSystems, "c_sys5")
+            template =
+                get_thermal_dispatch_template_network(NetworkModel(network_formulation))
+            set_device_model!(
+                template,
+                DeviceModel(PSY.Line, StaticBranchBounds; use_slacks = true),
+            )
+            model = DecisionModel(template, sys; optimizer = ipopt_optimizer)
+            @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+                  IOM.ModelBuildStatus.BUILT
+
+            container = IOM.get_optimization_container(model)
+            pft = IOM.get_variable(container, FlowActivePowerFromToVariable, PSY.Line)
+            ptf = IOM.get_variable(container, FlowActivePowerToFromVariable, PSY.Line)
+            qft = IOM.get_variable(container, FlowReactivePowerFromToVariable, PSY.Line)
+            qtf = IOM.get_variable(container, FlowReactivePowerToFromVariable, PSY.Line)
+            # One slack pair and one Ohm's-law row per direction; the pair's own row is where
+            # its coefficient is ±1, every other row 0.
+            metas = ("p_ft", "p_tf", "q_ft", "q_tf")
+            slack_up = Dict(
+                m => IOM.get_variable(
+                    container,
+                    FlowActivePowerSlackUpperBound,
+                    PSY.Line,
+                    m,
+                )
+                for m in metas
+            )
+            slack_lo = Dict(
+                m => IOM.get_variable(
+                    container,
+                    FlowActivePowerSlackLowerBound,
+                    PSY.Line,
+                    m,
+                )
+                for m in metas
+            )
+            cons = Dict(
+                m => IOM.get_constraint(container, POM.NetworkFlowConstraint, PSY.Line, m)
+                for m in metas
+            )
+            con_rate_ft =
+                IOM.get_constraint(container, FlowRateConstraintFromTo, PSY.Line)
+            con_rate_tf =
+                IOM.get_constraint(container, FlowRateConstraintToFrom, PSY.Line)
+            objective = JuMP.objective_function(IOM.get_jump_model(container))
+            time_steps = IOM.get_time_steps(container)
+            for line in PSY.get_components(PSY.Line, sys)
+                name = PSY.get_name(line)
+                rate = PSY.get_rating(line, PSY.SU)
+                for t in time_steps
+                    # Directional flow variables keep hard ±rating box bounds.
+                    for var in (pft, ptf, qft, qtf)
+                        @test JuMP.has_upper_bound(var[name, t])
+                        @test JuMP.has_lower_bound(var[name, t])
+                        @test JuMP.upper_bound(var[name, t]) == rate
+                        @test JuMP.lower_bound(var[name, t]) == -rate
+                    end
+
+                    # `flow == physics + s⁺ − s⁻` ⇒ residual coefficient −1 on s⁺, +1 on s⁻,
+                    # but ONLY in the pair's own directional row; the other three rows carry 0.
+                    for own in metas
+                        for row in metas
+                            up_coef =
+                                slack_residual_coefficient(
+                                    cons[row][name, t],
+                                    slack_up[own][name, t],
+                                )
+                            lo_coef =
+                                slack_residual_coefficient(
+                                    cons[row][name, t],
+                                    slack_lo[own][name, t],
+                                )
+                            if row == own
+                                @test up_coef == -1.0
+                                @test lo_coef == 1.0
+                            else
+                                @test up_coef == 0.0
+                                @test lo_coef == 0.0
+                            end
+                        end
+                    end
+
+                    # The exact apparent-power limit carries none of the slacks.
+                    for con in (con_rate_ft, con_rate_tf)
+                        for m in metas
+                            @test slack_residual_coefficient(
+                                con[name, t],
+                                slack_up[m][name, t],
+                            ) ==
+                                  0.0
+                            @test slack_residual_coefficient(
+                                con[name, t],
+                                slack_lo[m][name, t],
+                            ) ==
+                                  0.0
+                        end
+                    end
+
+                    # All eight slack columns are priced.
+                    for m in metas
+                        @test JuMP.coefficient(objective, slack_up[m][name, t]) ==
+                              POM.CONSTRAINT_VIOLATION_SLACK_COST
+                        @test JuMP.coefficient(objective, slack_lo[m][name, t]) ==
+                              POM.CONSTRAINT_VIOLATION_SLACK_COST
+                    end
+                end
+            end
+        end
+    end
+end
+
 @testset "DCPLLNetworkModel + StaticBranchBounds with use_slacks builds and solves" begin
     sys = PSB.build_system(PSITestSystems, "c_sys5")
     template = get_thermal_dispatch_template_network(NetworkModel(DCPLLNetworkModel))
@@ -473,4 +651,714 @@ end
     container = IOM.get_optimization_container(model)
     @test !isempty(IOM.get_variable(container, FlowActivePowerSlackUpperBound, PSY.Line))
     @test !isempty(IOM.get_variable(container, FlowActivePowerSlackLowerBound, PSY.Line))
+end
+
+@testset "DCPNetworkModel + StaticBranchBounds with use_slacks wires the rating slacks" begin
+    # The slack pair must genuinely relax the rating, not sit dead: the ub row is
+    # `flow - slack_ub <= rating`, the lb row `flow + slack_lb >= -rating`, the
+    # FlowActivePowerVariable carries no hard bound that would cap it at the rating and
+    # neuter the slack, and both slacks are priced in the objective.
+    sys = PSB.build_system(PSITestSystems, "c_sys5")
+    template = get_thermal_dispatch_template_network(NetworkModel(DCPNetworkModel))
+    set_device_model!(
+        template,
+        DeviceModel(PSY.Line, StaticBranchBounds; use_slacks = true),
+    )
+    model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+
+    container = IOM.get_optimization_container(model)
+    flow = IOM.get_variable(container, FlowActivePowerVariable, PSY.Line)
+    slack_ub = IOM.get_variable(container, FlowActivePowerSlackUpperBound, PSY.Line)
+    slack_lb = IOM.get_variable(container, FlowActivePowerSlackLowerBound, PSY.Line)
+    con_ub = IOM.get_constraint(container, FlowRateConstraint, PSY.Line, "ub")
+    con_lb = IOM.get_constraint(container, FlowRateConstraint, PSY.Line, "lb")
+    objective = JuMP.objective_function(IOM.get_jump_model(container))
+    time_steps = IOM.get_time_steps(container)
+    for line in PSY.get_components(PSY.Line, sys)
+        name = PSY.get_name(line)
+        rate = PSY.get_rating(line, PSY.SU)
+        for t in time_steps
+            # A hard variable bound would cap flow at the rating and make the slack dead.
+            @test !JuMP.has_upper_bound(flow[name, t])
+            @test !JuMP.has_lower_bound(flow[name, t])
+            @test JuMP.normalized_coefficient(con_ub[name, t], flow[name, t]) == 1.0
+            @test JuMP.normalized_coefficient(con_ub[name, t], slack_ub[name, t]) == -1.0
+            @test JuMP.normalized_rhs(con_ub[name, t]) == rate
+            @test JuMP.normalized_coefficient(con_lb[name, t], flow[name, t]) == 1.0
+            @test JuMP.normalized_coefficient(con_lb[name, t], slack_lb[name, t]) == 1.0
+            @test JuMP.normalized_rhs(con_lb[name, t]) == -rate
+            @test JuMP.coefficient(objective, slack_ub[name, t]) ==
+                  POM.CONSTRAINT_VIOLATION_SLACK_COST
+            @test JuMP.coefficient(objective, slack_lb[name, t]) ==
+                  POM.CONSTRAINT_VIOLATION_SLACK_COST
+        end
+    end
+end
+
+@testset "PTDFNetworkModel/AreaPTDFNetworkModel + StaticBranchBounds with use_slacks wires the flow-definition slacks" begin
+    # On PTDF-family networks NetworkFlowConstraint is not a rating constraint but the
+    # flow-definition equality `PTDFBranchFlow - flow == slack_ub - slack_lb` (rhs 0.0
+    # without slacks). The slack pair relaxes that equality, not the physical bound:
+    # FlowActivePowerVariable still carries its hard ±rating bound from
+    # `branch_rate_bounds!` regardless of use_slacks.
+    sys_ptdf = PSB.build_system(PSITestSystems, "c_sys5")
+    sys_area_ptdf = PSB.build_system(PSB.PSISystems, "two_area_pjm_DA")
+    transform_single_time_series!(sys_area_ptdf, Hour(24), Hour(1))
+    build_cases = (
+        (network_model = PTDFNetworkModel, sys = sys_ptdf),
+        (network_model = AreaPTDFNetworkModel, sys = sys_area_ptdf),
+    )
+    for case in build_cases
+        @testset "$(case.network_model)" begin
+            sys = case.sys
+            template =
+                get_thermal_dispatch_template_network(NetworkModel(case.network_model))
+            set_device_model!(
+                template,
+                DeviceModel(PSY.Line, StaticBranchBounds; use_slacks = true),
+            )
+            model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
+            @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+                  IOM.ModelBuildStatus.BUILT
+
+            container = IOM.get_optimization_container(model)
+            flow = IOM.get_variable(container, FlowActivePowerVariable, PSY.Line)
+            slack_ub =
+                IOM.get_variable(container, FlowActivePowerSlackUpperBound, PSY.Line)
+            slack_lb =
+                IOM.get_variable(container, FlowActivePowerSlackLowerBound, PSY.Line)
+            net_flow_con =
+                IOM.get_constraint(container, POM.NetworkFlowConstraint, PSY.Line)
+            objective = JuMP.objective_function(IOM.get_jump_model(container))
+            time_steps = IOM.get_time_steps(container)
+            for line in PSY.get_components(PSY.Line, sys)
+                name = PSY.get_name(line)
+                rate = PSY.get_rating(line, PSY.SU)
+                for t in time_steps
+                    @test JuMP.has_upper_bound(flow[name, t])
+                    @test JuMP.has_lower_bound(flow[name, t])
+                    @test JuMP.upper_bound(flow[name, t]) == rate
+                    @test JuMP.lower_bound(flow[name, t]) == -rate
+                    @test JuMP.normalized_coefficient(
+                        net_flow_con[name, t],
+                        flow[name, t],
+                    ) == -1.0
+                    @test JuMP.normalized_coefficient(
+                        net_flow_con[name, t],
+                        slack_ub[name, t],
+                    ) == -1.0
+                    @test JuMP.normalized_coefficient(
+                        net_flow_con[name, t],
+                        slack_lb[name, t],
+                    ) == 1.0
+                    @test JuMP.coefficient(objective, slack_ub[name, t]) ==
+                          POM.CONSTRAINT_VIOLATION_SLACK_COST
+                    @test JuMP.coefficient(objective, slack_lb[name, t]) ==
+                          POM.CONSTRAINT_VIOLATION_SLACK_COST
+                end
+            end
+        end
+    end
+end
+
+@testset "DCPLLNetworkModel + StaticBranchBounds with use_slacks wires the rating slacks" begin
+    # With slacks the directional bounds (`_set_dcpll_flow_bounds!`) are skipped, so the
+    # slacked FlowRateConstraint is the only rating enforcement and can actually relax:
+    # `p - slack_ub <= rating`, `p + slack_lb >= -rating` for both directions, which share
+    # the branch's single slack pair. Both slacks are priced in the objective.
+    sys = PSB.build_system(PSITestSystems, "c_sys5")
+    template = get_thermal_dispatch_template_network(NetworkModel(DCPLLNetworkModel))
+    set_device_model!(
+        template,
+        DeviceModel(PSY.Line, StaticBranchBounds; use_slacks = true),
+    )
+    model = DecisionModel(template, sys; optimizer = ipopt_optimizer)
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+
+    container = IOM.get_optimization_container(model)
+    pft = IOM.get_variable(container, FlowActivePowerFromToVariable, PSY.Line)
+    ptf = IOM.get_variable(container, FlowActivePowerToFromVariable, PSY.Line)
+    slack_ub = IOM.get_variable(container, FlowActivePowerSlackUpperBound, PSY.Line)
+    slack_lb = IOM.get_variable(container, FlowActivePowerSlackLowerBound, PSY.Line)
+    con_ft_ub = IOM.get_constraint(container, FlowRateConstraint, PSY.Line, "ft_ub")
+    con_ft_lb = IOM.get_constraint(container, FlowRateConstraint, PSY.Line, "ft_lb")
+    con_tf_ub = IOM.get_constraint(container, FlowRateConstraint, PSY.Line, "tf_ub")
+    con_tf_lb = IOM.get_constraint(container, FlowRateConstraint, PSY.Line, "tf_lb")
+    objective = JuMP.objective_function(IOM.get_jump_model(container))
+    time_steps = IOM.get_time_steps(container)
+    for line in PSY.get_components(PSY.Line, sys)
+        name = PSY.get_name(line)
+        rate = PSY.get_rating(line, PSY.SU)
+        for t in time_steps
+            # The slack path must leave the directional flows unbounded so the slack can relax.
+            @test !JuMP.has_upper_bound(pft[name, t])
+            @test !JuMP.has_lower_bound(pft[name, t])
+            @test !JuMP.has_upper_bound(ptf[name, t])
+            @test !JuMP.has_lower_bound(ptf[name, t])
+            @test JuMP.normalized_coefficient(con_ft_ub[name, t], pft[name, t]) == 1.0
+            @test JuMP.normalized_coefficient(con_ft_ub[name, t], slack_ub[name, t]) == -1.0
+            @test JuMP.normalized_rhs(con_ft_ub[name, t]) == rate
+            @test JuMP.normalized_coefficient(con_ft_lb[name, t], pft[name, t]) == 1.0
+            @test JuMP.normalized_coefficient(con_ft_lb[name, t], slack_lb[name, t]) == 1.0
+            @test JuMP.normalized_rhs(con_ft_lb[name, t]) == -rate
+            @test JuMP.normalized_coefficient(con_tf_ub[name, t], ptf[name, t]) == 1.0
+            @test JuMP.normalized_coefficient(con_tf_ub[name, t], slack_ub[name, t]) == -1.0
+            @test JuMP.normalized_rhs(con_tf_ub[name, t]) == rate
+            @test JuMP.normalized_coefficient(con_tf_lb[name, t], ptf[name, t]) == 1.0
+            @test JuMP.normalized_coefficient(con_tf_lb[name, t], slack_lb[name, t]) == 1.0
+            @test JuMP.normalized_rhs(con_tf_lb[name, t]) == -rate
+            @test JuMP.coefficient(objective, slack_ub[name, t]) ==
+                  POM.CONSTRAINT_VIOLATION_SLACK_COST
+            @test JuMP.coefficient(objective, slack_lb[name, t]) ==
+                  POM.CONSTRAINT_VIOLATION_SLACK_COST
+        end
+    end
+end
+
+@testset "DCPNetworkModel + StaticBranchBounds without slacks enforces the rating via FlowRateConstraint" begin
+    # No hard bound on FlowActivePowerVariable itself (see the wired-slacks testset above);
+    # the "lb"/"ub" FlowRateConstraint rows are the only rating enforcement here.
+    sys = PSB.build_system(PSITestSystems, "c_sys5")
+    template = get_thermal_dispatch_template_network(NetworkModel(DCPNetworkModel))
+    set_device_model!(template, DeviceModel(PSY.Line, StaticBranchBounds))
+    model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+
+    container = IOM.get_optimization_container(model)
+    flow = IOM.get_variable(container, FlowActivePowerVariable, PSY.Line)
+    con_lb = IOM.get_constraint(container, FlowRateConstraint, PSY.Line, "lb")
+    con_ub = IOM.get_constraint(container, FlowRateConstraint, PSY.Line, "ub")
+    time_steps = IOM.get_time_steps(container)
+    for line in PSY.get_components(PSY.Line, sys)
+        name = PSY.get_name(line)
+        rate = PSY.get_rating(line, PSY.SU)
+        for t in time_steps
+            @test !JuMP.has_upper_bound(flow[name, t])
+            @test !JuMP.has_lower_bound(flow[name, t])
+            @test JuMP.normalized_coefficient(con_ub[name, t], flow[name, t]) == 1.0
+            @test JuMP.normalized_rhs(con_ub[name, t]) == rate
+            @test JuMP.normalized_coefficient(con_lb[name, t], flow[name, t]) == 1.0
+            @test JuMP.normalized_rhs(con_lb[name, t]) == -rate
+        end
+    end
+end
+
+@testset "NFANetworkModel + StaticBranchBounds enforces the rating as hard flow bounds" begin
+    # NFA has no ModelConstructStage override for StaticBranchBounds, so it falls to the
+    # generic `NetworkModel{<:AbstractActivePowerModel}` fallback, which calls
+    # `branch_rate_bounds!` and sets ±rate directly on FlowActivePowerVariable.
+    sys = PSB.build_system(PSITestSystems, "c_sys5")
+    template = get_thermal_dispatch_template_network(NetworkModel(NFANetworkModel))
+    set_device_model!(template, DeviceModel(PSY.Line, StaticBranchBounds))
+    model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+
+    container = IOM.get_optimization_container(model)
+    flow = IOM.get_variable(container, FlowActivePowerVariable, PSY.Line)
+    time_steps = IOM.get_time_steps(container)
+    for line in PSY.get_components(PSY.Line, sys)
+        name = PSY.get_name(line)
+        rate = PSY.get_rating(line, PSY.SU)
+        for t in time_steps
+            @test JuMP.has_upper_bound(flow[name, t])
+            @test JuMP.has_lower_bound(flow[name, t])
+            @test JuMP.upper_bound(flow[name, t]) == rate
+            @test JuMP.lower_bound(flow[name, t]) == -rate
+        end
+    end
+end
+
+@testset "PTDFNetworkModel + StaticBranchBounds enforces the rating as hard flow bounds and ties flow to PTDFBranchFlow" begin
+    sys = PSB.build_system(PSITestSystems, "c_sys5")
+    template = get_thermal_dispatch_template_network(NetworkModel(PTDFNetworkModel))
+    set_device_model!(template, DeviceModel(PSY.Line, StaticBranchBounds))
+    model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+
+    container = IOM.get_optimization_container(model)
+    flow = IOM.get_variable(container, FlowActivePowerVariable, PSY.Line)
+    net_flow_con = IOM.get_constraint(container, POM.NetworkFlowConstraint, PSY.Line)
+    time_steps = IOM.get_time_steps(container)
+    for line in PSY.get_components(PSY.Line, sys)
+        name = PSY.get_name(line)
+        rate = PSY.get_rating(line, PSY.SU)
+        for t in time_steps
+            @test JuMP.has_upper_bound(flow[name, t])
+            @test JuMP.has_lower_bound(flow[name, t])
+            @test JuMP.upper_bound(flow[name, t]) == rate
+            @test JuMP.lower_bound(flow[name, t]) == -rate
+            # The branch's own flow variable enters its NetworkFlowConstraint row with
+            # coefficient -1.0 (flow == PTDFBranchFlow expression, moved to one side).
+            @test JuMP.normalized_coefficient(net_flow_con[name, t], flow[name, t]) == -1.0
+        end
+    end
+end
+
+@testset "AreaPTDFNetworkModel + StaticBranchBounds enforces the rating as hard flow bounds (two_area_pjm_DA)" begin
+    sys = PSB.build_system(PSB.PSISystems, "two_area_pjm_DA")
+    transform_single_time_series!(sys, Hour(24), Hour(1))
+    template = get_thermal_dispatch_template_network(NetworkModel(AreaPTDFNetworkModel))
+    set_device_model!(template, DeviceModel(PSY.Line, StaticBranchBounds))
+    model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+
+    container = IOM.get_optimization_container(model)
+    flow = IOM.get_variable(container, FlowActivePowerVariable, PSY.Line)
+    net_flow_con = IOM.get_constraint(container, POM.NetworkFlowConstraint, PSY.Line)
+    time_steps = IOM.get_time_steps(container)
+    for line in PSY.get_components(PSY.Line, sys)
+        name = PSY.get_name(line)
+        rate = PSY.get_rating(line, PSY.SU)
+        for t in time_steps
+            @test JuMP.has_upper_bound(flow[name, t])
+            @test JuMP.has_lower_bound(flow[name, t])
+            @test JuMP.upper_bound(flow[name, t]) == rate
+            @test JuMP.lower_bound(flow[name, t]) == -rate
+            @test JuMP.normalized_coefficient(net_flow_con[name, t], flow[name, t]) == -1.0
+        end
+    end
+end
+
+@testset "ACPNetworkModel/ACRNetworkModel/LPACCNetworkModel/IVRNetworkModel + StaticBranchBounds set hard rating bounds on the flow variables AND keep the quadratic FlowRateConstraint" begin
+    # StaticBranchBounds adds explicit ±rating box bounds on all four directional flow
+    # variables (PM parity: q shares p's ±rating), a solver-facing implementation
+    # difference from StaticBranch. The quadratic apparent-power FlowRateConstraintFromTo/
+    # ToFrom (p^2 + q^2 <= rate^2) is mathematically equivalent and is still built — both
+    # mechanisms are present.
+    for network_formulation in
+        (ACPNetworkModel, ACRNetworkModel, LPACCNetworkModel, IVRNetworkModel)
+        @testset "$network_formulation" begin
+            sys = PSB.build_system(PSITestSystems, "c_sys5")
+            template =
+                get_thermal_dispatch_template_network(NetworkModel(network_formulation))
+            set_device_model!(template, DeviceModel(PSY.Line, StaticBranchBounds))
+            model = DecisionModel(template, sys; optimizer = ipopt_optimizer)
+            @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+                  IOM.ModelBuildStatus.BUILT
+
+            container = IOM.get_optimization_container(model)
+            pft = IOM.get_variable(container, FlowActivePowerFromToVariable, PSY.Line)
+            qft = IOM.get_variable(container, FlowReactivePowerFromToVariable, PSY.Line)
+            ptf = IOM.get_variable(container, FlowActivePowerToFromVariable, PSY.Line)
+            qtf = IOM.get_variable(container, FlowReactivePowerToFromVariable, PSY.Line)
+            con_ft = IOM.get_constraint(container, FlowRateConstraintFromTo, PSY.Line)
+            con_tf = IOM.get_constraint(container, FlowRateConstraintToFrom, PSY.Line)
+            time_steps = IOM.get_time_steps(container)
+            for line in PSY.get_components(PSY.Line, sys)
+                name = PSY.get_name(line)
+                rate = PSY.get_rating(line, PSY.SU)
+                for t in time_steps
+                    @test JuMP.upper_bound(pft[name, t]) == rate
+                    @test JuMP.lower_bound(pft[name, t]) == -rate
+                    @test JuMP.upper_bound(qft[name, t]) == rate
+                    @test JuMP.lower_bound(qft[name, t]) == -rate
+                    @test JuMP.upper_bound(ptf[name, t]) == rate
+                    @test JuMP.lower_bound(ptf[name, t]) == -rate
+                    @test JuMP.upper_bound(qtf[name, t]) == rate
+                    @test JuMP.lower_bound(qtf[name, t]) == -rate
+
+                    co_ft = JuMP.constraint_object(con_ft[name, t])
+                    co_tf = JuMP.constraint_object(con_tf[name, t])
+                    @test co_ft.set == MOI.LessThan(rate^2)
+                    @test JuMP.coefficient(co_ft.func, pft[name, t], pft[name, t]) == 1.0
+                    @test JuMP.coefficient(co_ft.func, qft[name, t], qft[name, t]) == 1.0
+                    @test co_tf.set == MOI.LessThan(rate^2)
+                    @test JuMP.coefficient(co_tf.func, ptf[name, t], ptf[name, t]) == 1.0
+                    @test JuMP.coefficient(co_tf.func, qtf[name, t], qtf[name, t]) == 1.0
+                end
+            end
+        end
+    end
+end
+
+@testset "StaticBranchBounds on a MonitoredLine bounds active by monitoring limits, reactive by rating" begin
+    # `min_max_flow_limits(::PSY.MonitoredLine, ...)` (AC_branches.jl) collapses the (possibly
+    # asymmetric) `PSY.get_flow_limits` into an ACTIVE-flow monitoring limit. That limit bounds
+    # only the active directional variables; the reactive variables are bounded by the
+    # symmetric thermal `branch_rating` (PM parity — q is bounded by the rating, not by an
+    # active monitoring limit — and it keeps StaticBranchBounds ≡ StaticBranch, whose quadratic
+    # apparent-power limit bounds |q| by the rating alone). Force asymmetric limits below the
+    # rating so the test cannot pass by accident on a symmetric fixture.
+    sys = PSB.build_system(PSITestSystems, "c_sys5_ml")
+    ml = first(PSY.get_components(PSY.MonitoredLine, sys))
+    PSY.set_flow_limits!(ml, (from_to = 2.0 * PSY.MW, to_from = 4.0 * PSY.MW))
+    limits = PSY.get_flow_limits(ml, PSY.SU)
+    rate = PSY.get_rating(ml, PSY.SU)
+    @test limits.from_to != limits.to_from
+    @test limits.from_to != rate
+    @test limits.to_from != rate
+    # Guard: the reactive bound (rating) must be strictly wider than the collapsed active
+    # monitoring limit, otherwise the reactive assertions would pass vacuously.
+    @test rate > min(rate, limits.from_to, limits.to_from)
+
+    template = get_thermal_dispatch_template_network(NetworkModel(ACPNetworkModel))
+    set_device_model!(template, DeviceModel(PSY.MonitoredLine, StaticBranchBounds))
+    model = DecisionModel(template, sys; optimizer = ipopt_optimizer)
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+
+    container = IOM.get_optimization_container(model)
+    pft = IOM.get_variable(container, FlowActivePowerFromToVariable, PSY.MonitoredLine)
+    ptf = IOM.get_variable(container, FlowActivePowerToFromVariable, PSY.MonitoredLine)
+    qft = IOM.get_variable(container, FlowReactivePowerFromToVariable, PSY.MonitoredLine)
+    qtf = IOM.get_variable(container, FlowReactivePowerToFromVariable, PSY.MonitoredLine)
+    name = PSY.get_name(ml)
+    time_steps = IOM.get_time_steps(container)
+    for t in time_steps
+        # Active variables keep the (asymmetric) monitoring limits.
+        @test JuMP.upper_bound(pft[name, t]) == limits.from_to
+        @test JuMP.lower_bound(pft[name, t]) == -limits.from_to
+        @test JuMP.upper_bound(ptf[name, t]) == limits.to_from
+        @test JuMP.lower_bound(ptf[name, t]) == -limits.to_from
+        # Reactive variables widen to the symmetric thermal rating.
+        @test JuMP.upper_bound(qft[name, t]) == rate
+        @test JuMP.lower_bound(qft[name, t]) == -rate
+        @test JuMP.upper_bound(qtf[name, t]) == rate
+        @test JuMP.lower_bound(qtf[name, t]) == -rate
+    end
+end
+
+@testset "PTDFNetworkModel + StaticBranchBounds pins MonitoredLine flow bounds via min_max_flow_limits, not the symmetric rating" begin
+    # `min_max_flow_limits(::PSY.MonitoredLine, ::DeviceModel)` (AC_branches.jl:445-447)
+    # defers to `get_min_max_limits(device, FlowRateConstraint, AbstractBranchFormulation)`,
+    # which collapses the (possibly asymmetric) `flow_limits` and the rating into a single
+    # symmetric `min(rating, to_from, from_to)` bound on the PTDF network's scalar
+    # `FlowActivePowerVariable` (`branch_rate_bounds!`, AC_branches.jl:366-389). This is a
+    # different code path from the directional ACP bounds exercised above.
+    sys = PSB.build_system(PSITestSystems, "c_sys5_ml")
+    ml = first(PSY.get_components(PSY.MonitoredLine, sys))
+    PSY.set_flow_limits!(ml, (from_to = 2.0 * PSY.MW, to_from = 4.0 * PSY.MW))
+    limits = PSY.get_flow_limits(ml, PSY.SU)
+    rate = PSY.get_rating(ml, PSY.SU)
+    @test limits.from_to != limits.to_from
+    @test limits.from_to != rate
+    @test limits.to_from != rate
+    # Guard: the collapsed PTDF bound must actually be tighter than the symmetric rating,
+    # otherwise this testset would pass vacuously even if flow_limits were ignored entirely.
+    @test min(rate, limits.from_to, limits.to_from) != rate
+
+    template = get_thermal_dispatch_template_network(
+        NetworkModel(PTDFNetworkModel; network_matrix = PTDF(sys)),
+    )
+    set_device_model!(template, DeviceModel(PSY.MonitoredLine, StaticBranchBounds))
+    model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+
+    container = IOM.get_optimization_container(model)
+    flow = IOM.get_variable(container, FlowActivePowerVariable, PSY.MonitoredLine)
+    time_steps = IOM.get_time_steps(container)
+    for line in PSY.get_components(PSY.MonitoredLine, sys)
+        name = PSY.get_name(line)
+        dev_limits = PSY.get_flow_limits(line, PSY.SU)
+        dev_rate = PSY.get_rating(line, PSY.SU)
+        expected_limit = min(dev_rate, dev_limits.from_to, dev_limits.to_from)
+        for t in time_steps
+            @test JuMP.has_upper_bound(flow[name, t])
+            @test JuMP.has_lower_bound(flow[name, t])
+            @test JuMP.upper_bound(flow[name, t]) == expected_limit
+            @test JuMP.lower_bound(flow[name, t]) == -expected_limit
+        end
+    end
+end
+
+@testset "ACP + StaticBranchBounds use_slacks relaxes an otherwise-infeasible over-tight rating" begin
+    # Line "1" (nodeA-nodeB) carries ~3.26 pu in an unconstrained ACP solve; cutting its
+    # rating to 0.5 pu makes the directional ±rating box bounds too tight for any voltage
+    # profile to satisfy Ohm's law at the peak-load hours, so the no-slack problem is
+    # infeasible. The flow-definition slacks relax the Ohm's-law equalities: the flow the
+    # voltages imply may exceed the box the variable is pinned to, changing the feasible set.
+    cut = 0.5
+    sys = PSB.build_system(PSITestSystems, "c_sys5")
+    line = PSY.get_component(PSY.Line, sys, "1")
+    PSY.set_rating!(line, cut * PSY.SU)
+
+    template = get_thermal_dispatch_template_network(NetworkModel(ACPNetworkModel))
+    set_device_model!(
+        template,
+        DeviceModel(PSY.Line, StaticBranchBounds; use_slacks = true),
+    )
+    model = DecisionModel(template, sys; optimizer = ipopt_optimizer)
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+    @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+    slack_objective = IOM.get_objective_value(IOM.OptimizationProblemOutputs(model))
+
+    container = IOM.get_optimization_container(model)
+    pft = IOM.get_variable(container, FlowActivePowerFromToVariable, PSY.Line)
+    ptf = IOM.get_variable(container, FlowActivePowerToFromVariable, PSY.Line)
+    qft = IOM.get_variable(container, FlowReactivePowerFromToVariable, PSY.Line)
+    qtf = IOM.get_variable(container, FlowReactivePowerToFromVariable, PSY.Line)
+    p_ft_up = IOM.get_variable(container, FlowActivePowerSlackUpperBound, PSY.Line, "p_ft")
+    p_ft_lo = IOM.get_variable(container, FlowActivePowerSlackLowerBound, PSY.Line, "p_ft")
+    p_tf_up = IOM.get_variable(container, FlowActivePowerSlackUpperBound, PSY.Line, "p_tf")
+    p_tf_lo = IOM.get_variable(container, FlowActivePowerSlackLowerBound, PSY.Line, "p_tf")
+    time_steps = IOM.get_time_steps(container)
+
+    # Every directional flow variable respects its hard ±rating box bound: the relaxation is
+    # on the Ohm's-law equality, never on the box.
+    for component in PSY.get_components(PSY.Line, sys)
+        component_name = PSY.get_name(component)
+        rate = PSY.get_rating(component, PSY.SU)
+        for t in time_steps
+            for variable in (pft, ptf, qft, qtf)
+                @test abs(JuMP.value(variable[component_name, t])) <= rate + 1e-6
+            end
+        end
+    end
+
+    # The relaxation is genuinely exercised: some flow-definition slack is active.
+    total_slack = 0.0
+    for meta in ("p_ft", "p_tf", "q_ft", "q_tf")
+        for V in (FlowActivePowerSlackUpperBound, FlowActivePowerSlackLowerBound)
+            total_slack +=
+                sum(
+                    max(JuMP.value(s), 0.0) for
+                    s in IOM.get_variable(container, V, PSY.Line, meta)
+                )
+        end
+    end
+    @test total_slack > 1e-4
+
+    # On the cut line itself, at the peak hours its own p_ft slack is active, so the
+    # voltage-implied physical flow `pft - s⁺ + s⁻` exceeds the tightened rating even though
+    # the flow variable is pinned inside it.
+    line_name = PSY.get_name(line)
+    peak = time_steps[argmax([
+        JuMP.value(p_ft_up[line_name, t]) + JuMP.value(p_ft_lo[line_name, t]) for
+        t in time_steps
+    ])]
+    line_slack = JuMP.value(p_ft_up[line_name, peak]) + JuMP.value(p_ft_lo[line_name, peak])
+    @test line_slack > 1e-6
+    # Reconstruct both directional physical (voltage-implied) active flows from `flow == physics
+    # + s⁺ − s⁻`. Their sum is the line's active loss L ≥ 0.
+    physics_ft =
+        JuMP.value(pft[line_name, peak]) - JuMP.value(p_ft_up[line_name, peak]) +
+        JuMP.value(p_ft_lo[line_name, peak])
+    physics_tf =
+        JuMP.value(ptf[line_name, peak]) - JuMP.value(p_tf_up[line_name, peak]) +
+        JuMP.value(p_tf_lo[line_name, peak])
+    line_loss = physics_ft + physics_tf
+    @test abs(JuMP.value(pft[line_name, peak])) <= cut + 1e-6
+    @test abs(physics_ft) > cut
+    # Regression guard for the self-cancelling shared-pair bug: with one pair shared between
+    # p_ft and p_tf the anti-symmetric rows cap the physical escape at L/2 (exactly zero on a
+    # lossless line). Per-direction pairs let the physical flow exceed the rating by far more.
+    @test abs(physics_ft) - cut > line_loss / 2 + 1e-6
+
+    # The slack changed the feasible set: the same over-tight rating without slacks is
+    # infeasible (Ipopt returns a locally-infeasible status). If a future Ipopt instead
+    # converges, the no-slack objective must be strictly higher than the slacked one.
+    sys_no_slack = PSB.build_system(PSITestSystems, "c_sys5")
+    PSY.set_rating!(PSY.get_component(PSY.Line, sys_no_slack, "1"), cut * PSY.SU)
+    template_no_slack = get_thermal_dispatch_template_network(NetworkModel(ACPNetworkModel))
+    set_device_model!(template_no_slack, DeviceModel(PSY.Line, StaticBranchBounds))
+    model_no_slack =
+        DecisionModel(template_no_slack, sys_no_slack; optimizer = ipopt_optimizer)
+    @test build!(model_no_slack; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+    status_no_slack = solve!(model_no_slack)
+    if status_no_slack == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+        @test IOM.get_objective_value(IOM.OptimizationProblemOutputs(model_no_slack)) >
+              slack_objective + 1e-3
+    else
+        @test status_no_slack != IOM.RunStatus.SUCCESSFULLY_FINALIZED
+    end
+end
+
+@testset "StaticBranch and StaticBranchBounds reach the same ACP optimum at a binding rating (c_sys5)" begin
+    # The mathematical-equivalence contract: box bounds plus the quadratic apparent-power
+    # limit describe the same feasible set as the quadratic limit alone. Proving it on an
+    # interior optimum says nothing about the rating machinery, so line "1" (which carries
+    # ~3.29 pu apparent power otherwise) gets its rating cut to 2.0 pu — feasible without
+    # slacks (0.5 pu is not, see the over-tight-rating testset) but BINDING at the optimum
+    # in both formulations.
+    cut = 2.0
+    function _acp_binding_solve(formulation)
+        sys = PSB.build_system(PSITestSystems, "c_sys5")
+        PSY.set_rating!(PSY.get_component(PSY.Line, sys, "1"), cut * PSY.SU)
+        template = get_thermal_dispatch_template_network(NetworkModel(ACPNetworkModel))
+        set_device_model!(template, DeviceModel(PSY.Line, formulation))
+        model = DecisionModel(template, sys; optimizer = ipopt_optimizer)
+        @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+              IOM.ModelBuildStatus.BUILT
+        @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+        container = IOM.get_optimization_container(model)
+        pft = IOM.get_variable(container, FlowActivePowerFromToVariable, PSY.Line)
+        qft = IOM.get_variable(container, FlowReactivePowerFromToVariable, PSY.Line)
+        smax_ft = maximum(
+            sqrt(JuMP.value(pft["1", t])^2 + JuMP.value(qft["1", t])^2) for
+            t in IOM.get_time_steps(container)
+        )
+        objective = IOM.get_objective_value(IOM.OptimizationProblemOutputs(model))
+        return objective, smax_ft
+    end
+    objective_sb, smax_sb = _acp_binding_solve(StaticBranch)
+    objective_sbb, smax_sbb = _acp_binding_solve(StaticBranchBounds)
+    # The from-to apparent power sits ON the tightened rating at the peak hour: the
+    # quadratic limit (StaticBranch) / box-plus-quadratic (StaticBranchBounds) is active,
+    # not slack — a solution strictly inside the limit would fail these.
+    @test isapprox(smax_sb, cut; atol = 1e-4)
+    @test isapprox(smax_sbb, cut; atol = 1e-4)
+    @test isapprox(objective_sb, objective_sbb; rtol = 1e-4)
+end
+
+@testset "StaticBranch and StaticBranchBounds reach the same DCP optimum at a binding rating (c_sys5)" begin
+    # DCP enforces the rating as FlowRateConstraint lb/ub rows on FlowActivePowerVariable
+    # for both formulations; the equivalence must hold with the ub row active. 2.0 pu on
+    # line "1" is feasible (1.0 pu is infeasible on this system) and binds at the peak
+    # hours. HiGHS is deterministic, so the objectives must agree tightly.
+    cut = 2.0
+    function _dcp_binding_solve(formulation)
+        sys = PSB.build_system(PSITestSystems, "c_sys5")
+        PSY.set_rating!(PSY.get_component(PSY.Line, sys, "1"), cut * PSY.SU)
+        template = get_thermal_dispatch_template_network(NetworkModel(DCPNetworkModel))
+        set_device_model!(template, DeviceModel(PSY.Line, formulation))
+        model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
+        @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+              IOM.ModelBuildStatus.BUILT
+        @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+        container = IOM.get_optimization_container(model)
+        flow = IOM.get_variable(container, FlowActivePowerVariable, PSY.Line)
+        fmax = maximum(
+            abs(JuMP.value(flow["1", t])) for t in IOM.get_time_steps(container)
+        )
+        objective = IOM.get_objective_value(IOM.OptimizationProblemOutputs(model))
+        return objective, fmax
+    end
+    objective_sb, fmax_sb = _dcp_binding_solve(StaticBranch)
+    objective_sbb, fmax_sbb = _dcp_binding_solve(StaticBranchBounds)
+    @test isapprox(fmax_sb, cut; atol = 1e-4)
+    @test isapprox(fmax_sbb, cut; atol = 1e-4)
+    @test isapprox(objective_sb, objective_sbb; rtol = 1e-4)
+end
+
+@testset "ACP StaticBranch + use_slacks wires the squared-domain slack into the apparent-power limit" begin
+    # StaticBranch relaxes the quadratic rows: `p² + q² - slack_ub <= rate²`, so the
+    # meta-less squared-domain slack enters both FlowRateConstraintFromTo and
+    # FlowRateConstraintToFrom with an affine coefficient of -1.
+    sys = PSB.build_system(PSITestSystems, "c_sys5")
+    template = get_thermal_dispatch_template_network(NetworkModel(ACPNetworkModel))
+    set_device_model!(template, DeviceModel(PSY.Line, StaticBranch; use_slacks = true))
+    model = DecisionModel(template, sys; optimizer = ipopt_optimizer)
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+
+    container = IOM.get_optimization_container(model)
+    slack_ub = IOM.get_variable(container, FlowActivePowerSlackUpperBound, PSY.Line)
+    con_ft = IOM.get_constraint(container, FlowRateConstraintFromTo, PSY.Line)
+    con_tf = IOM.get_constraint(container, FlowRateConstraintToFrom, PSY.Line)
+    for line in PSY.get_components(PSY.Line, sys)
+        name = PSY.get_name(line)
+        for t in IOM.get_time_steps(container)
+            @test JuMP.normalized_coefficient(con_ft[name, t], slack_ub[name, t]) == -1.0
+            @test JuMP.normalized_coefficient(con_tf[name, t], slack_ub[name, t]) == -1.0
+        end
+    end
+end
+
+# The constraint container each per-network StaticBranchBounds wiring testset above names,
+# plus the metas of the slack that relaxes it. Mirrors `_ohms_law_metas`: one method per
+# network, no `Union` alias driving dispatch beyond the ACP/ACR/LPACC trio that already
+# shares an Ohm's-law shape.
+_sbb_slack_probe(::Type{DCPNetworkModel}) =
+    (FlowRateConstraint, "ub", IOM.CONTAINER_KEY_EMPTY_META)
+_sbb_slack_probe(::Type{PTDFNetworkModel}) =
+    (POM.NetworkFlowConstraint, IOM.CONTAINER_KEY_EMPTY_META, IOM.CONTAINER_KEY_EMPTY_META)
+_sbb_slack_probe(::Type{AreaPTDFNetworkModel}) =
+    (POM.NetworkFlowConstraint, IOM.CONTAINER_KEY_EMPTY_META, IOM.CONTAINER_KEY_EMPTY_META)
+_sbb_slack_probe(::Type{DCPLLNetworkModel}) =
+    (FlowRateConstraint, "ft_ub", IOM.CONTAINER_KEY_EMPTY_META)
+_sbb_slack_probe(::Type{<:Union{ACPNetworkModel, ACRNetworkModel, LPACCNetworkModel}}) =
+    (POM.NetworkFlowConstraint, "p_ft", "p_ft")
+_sbb_slack_probe(::Type{IVRNetworkModel}) = (POM.NetworkFlowConstraint, "cr_fr", "cr_fr")
+
+# Constraint-row wiring probe per formulation: StaticBranchBounds asserts its slack enters
+# the row `_sbb_slack_probe` promises; StaticBranch's row wiring is pinned by the dedicated
+# per-network wiring testsets above, so only the container/pricing contract is checked.
+function _assert_slack_row_wiring(
+    container,
+    ::Type{StaticBranch},
+    ::Type{<:AbstractNetworkModel},
+)
+    return
+end
+
+function _assert_slack_row_wiring(
+    container,
+    ::Type{StaticBranchBounds},
+    ::Type{N},
+) where {N <: AbstractNetworkModel}
+    (constraint_type, constraint_meta, slack_meta) = _sbb_slack_probe(N)
+    con = IOM.get_constraint(container, constraint_type, PSY.Line, constraint_meta)
+    slack =
+        IOM.get_variable(container, FlowActivePowerSlackUpperBound, PSY.Line, slack_meta)
+    name = first(axes(con, 1))
+    t = first(axes(con, 2))
+    @test !iszero(slack_residual_coefficient(con[name, t], slack[name, t]))
+    return
+end
+
+@testset "slack_spec names exactly the slack containers a slacked build creates and prices" begin
+    # Trait-vs-reality guard: for every (formulation, network) pair whose slack_spec
+    # declares machinery, a slacked build must create every (variable type, meta) container
+    # the spec names and price each one at the violation cost; StaticBranchBounds must
+    # additionally wire its slack into the constraint row the design promises.
+    sys_default = PSB.build_system(PSITestSystems, "c_sys5")
+    sys_area = PSB.build_system(PSB.PSISystems, "two_area_pjm_DA")
+    transform_single_time_series!(sys_area, Hour(24), Hour(1))
+    all_formulations = (StaticBranch, StaticBranchBounds)
+    for (network_formulation, optimizer, sys, formulations) in (
+        (DCPNetworkModel, HiGHS_optimizer, sys_default, all_formulations),
+        (PTDFNetworkModel, HiGHS_optimizer, sys_default, all_formulations),
+        (AreaPTDFNetworkModel, HiGHS_optimizer, sys_area, all_formulations),
+        (DCPLLNetworkModel, ipopt_optimizer, sys_default, all_formulations),
+        # NFA has no rating/equality row for StaticBranchBounds to relax (see
+        # branch_slack_specs.jl), so that pair is the rejected combo and stays excluded.
+        (NFANetworkModel, HiGHS_optimizer, sys_default, (StaticBranch,)),
+        (ACPNetworkModel, ipopt_optimizer, sys_default, all_formulations),
+        (ACRNetworkModel, ipopt_optimizer, sys_default, all_formulations),
+        (LPACCNetworkModel, ipopt_optimizer, sys_default, all_formulations),
+        (IVRNetworkModel, ipopt_optimizer, sys_default, all_formulations),
+    )
+        for formulation in formulations
+            @testset "$network_formulation $formulation" begin
+                spec = POM.slack_spec(formulation, network_formulation)
+                entries = POM.slack_variable_entries(spec)
+                @test POM.supports_flow_slacks(formulation, network_formulation)
+                @test !isempty(entries)
+                template =
+                    get_thermal_dispatch_template_network(
+                        NetworkModel(network_formulation),
+                    )
+                set_device_model!(
+                    template,
+                    DeviceModel(PSY.Line, formulation; use_slacks = true),
+                )
+                model = DecisionModel(template, sys; optimizer = optimizer)
+                @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+                      IOM.ModelBuildStatus.BUILT
+
+                container = IOM.get_optimization_container(model)
+                objective = JuMP.objective_function(IOM.get_jump_model(container))
+                for (variable_type, slack_meta) in entries
+                    slack =
+                        IOM.get_variable(container, variable_type, PSY.Line, slack_meta)
+                    @test !isempty(slack)
+                    name = first(axes(slack, 1))
+                    t = first(axes(slack, 2))
+                    @test JuMP.coefficient(objective, slack[name, t]) ==
+                          POM.CONSTRAINT_VIOLATION_SLACK_COST
+                end
+                _assert_slack_row_wiring(container, formulation, network_formulation)
+            end
+        end
+    end
 end
