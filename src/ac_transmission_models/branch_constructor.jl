@@ -2662,7 +2662,7 @@ function construct_device!(
     network_model::NetworkModel{U},
 ) where {
     T <: Union{StaticBranchUnbounded, StaticBranch},
-    U <: Union{AbstractActivePowerModel, AbstractReactivePowerNetworkModel},
+    U <: AbstractNetworkModel,
 }
     devices = get_available_components(device_model, sys)
     has_ts = PSY.has_time_series.(devices)
@@ -2816,18 +2816,8 @@ function construct_device!(
 ) where {T <: AbstractPTDFNetworkModel}
     devices = get_available_components(device_model, sys)
     add_constraints!(container, FlowLimitConstraint, devices, device_model, network_model)
-    # Not ideal to do this here, but it is a not terrible workaround
-    # The area interchanges are like a services/device mix.
-    # Doesn't include the possibility of Multi-terminal HVDC
-    inter_area_branch_map = _get_branch_map(network_model)
-    _add_hvdc_inter_area_branches!(inter_area_branch_map, sys, network_model)
-    add_constraints!(
-        container,
-        LineFlowBoundConstraint,
-        devices,
-        device_model,
-        network_model,
-        inter_area_branch_map,
+    _add_inter_area_flow_bound_constraints!(
+        container, sys, devices, device_model, network_model,
     )
     add_feedforward_constraints!(container, device_model, devices)
     return
@@ -2842,15 +2832,8 @@ function construct_device!(
 ) where {T <: AbstractReactivePowerNetworkModel}
     devices = get_available_components(device_model, sys)
     add_constraints!(container, FlowLimitConstraint, devices, device_model, network_model)
-    inter_area_branch_map = _get_branch_map(network_model)
-    _add_hvdc_inter_area_branches!(inter_area_branch_map, sys, network_model)
-    add_constraints!(
-        container,
-        LineFlowBoundConstraint,
-        devices,
-        device_model,
-        network_model,
-        inter_area_branch_map,
+    _add_inter_area_flow_bound_constraints!(
+        container, sys, devices, device_model, network_model,
     )
     add_feedforward_constraints!(container, device_model, devices)
     return
@@ -2864,15 +2847,8 @@ function construct_device!(
     network_model::NetworkModel{T},
 ) where {T <: AbstractReactivePowerNetworkModel}
     devices = get_available_components(device_model, sys)
-    inter_area_branch_map = _get_branch_map(network_model)
-    _add_hvdc_inter_area_branches!(inter_area_branch_map, sys, network_model)
-    add_constraints!(
-        container,
-        LineFlowBoundConstraint,
-        devices,
-        device_model,
-        network_model,
-        inter_area_branch_map,
+    _add_inter_area_flow_bound_constraints!(
+        container, sys, devices, device_model, network_model,
     )
     add_feedforward_constraints!(container, device_model, devices)
     return
@@ -2919,6 +2895,29 @@ function _add_hvdc_inter_area_branches_of_type!(
     return
 end
 
+# Not ideal to do this here, but it is a not terrible workaround
+# The area interchanges are like a services/device mix.
+# Doesn't include the possibility of Multi-terminal HVDC
+function _add_inter_area_flow_bound_constraints!(
+    container::OptimizationContainer,
+    sys::PSY.System,
+    devices::IS.FlattenIteratorWrapper{PSY.AreaInterchange},
+    device_model::DeviceModel{PSY.AreaInterchange, <:AbstractBranchFormulation},
+    network_model::NetworkModel,
+)
+    inter_area_branch_map = _get_branch_map(network_model)
+    _add_hvdc_inter_area_branches!(inter_area_branch_map, sys, network_model)
+    add_constraints!(
+        container,
+        LineFlowBoundConstraint,
+        devices,
+        device_model,
+        network_model,
+        inter_area_branch_map,
+    )
+    return
+end
+
 function construct_device!(
     container::OptimizationContainer,
     sys::PSY.System,
@@ -2940,18 +2939,8 @@ function construct_device!(
     network_model::NetworkModel{AreaPTDFNetworkModel},
 )
     devices = get_available_components(device_model, sys)
-    inter_area_branch_map = _get_branch_map(network_model)
-    _add_hvdc_inter_area_branches!(inter_area_branch_map, sys, network_model)
-    # Not ideal to do this here, but it is a not terrible workaround
-    # The area interchanges are like a services/device mix.
-    # Doesn't include the possibility of Multi-terminal HVDC
-    add_constraints!(
-        container,
-        LineFlowBoundConstraint,
-        devices,
-        device_model,
-        network_model,
-        inter_area_branch_map,
+    _add_inter_area_flow_bound_constraints!(
+        container, sys, devices, device_model, network_model,
     )
     add_feedforward_constraints!(container, device_model, devices)
     return

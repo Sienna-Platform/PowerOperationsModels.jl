@@ -77,7 +77,7 @@ function add_constraints!(
     devices::IS.FlattenIteratorWrapper{PSY.AreaInterchange},
     model::DeviceModel{PSY.AreaInterchange, StaticBranch},
     ::NetworkModel{T},
-) where {T <: Union{AbstractActivePowerModel, AbstractReactivePowerNetworkModel}}
+) where {T <: AbstractNetworkModel}
     time_steps = get_time_steps(container)
     device_names = PSY.get_name.(devices)
 
