@@ -98,6 +98,7 @@ function validate_template_impl!(model::IOM.AbstractOptimizationModel)
                 ),
             )
         else
+            _validate_branch_slack_request(k, device_model, network_formulation)
             push!(network_model.modeled_branch_types, get_component_type(device_model))
         end
         if get_attribute(device_model, "filter_function") !== nothing
@@ -263,6 +264,52 @@ _supports_network(::AllNetworks, ::NetworkModel) = true
 
 _supports_network(::AllNetworksExceptLPACC, ::NetworkModel) = true
 _supports_network(::AllNetworksExceptLPACC, ::NetworkModel{LPACCNetworkModel}) = false
+
+# Validation-time counterpart of the `supports_flow_slacks` gate (see
+# core/branch_slack_specs.jl): a use_slacks request on a pair whose `slack_spec` declares
+# no machinery is a hard conflict on branch-modeling networks. CopperPlate/AreaBalance
+# build no branch containers at all, so the request is inert there — warn instead of
+# erroring to keep templates reusable on aggregated networks.
+function _validate_branch_slack_request(
+    key::Symbol,
+    device_model::IOM.DeviceModel,
+    ::Type{N},
+) where {N <: AbstractNetworkModel}
+    get_use_slacks(device_model) || return
+    F = get_formulation(device_model)
+    supports_flow_slacks(F, N) && return
+    if branches_modeled(N)
+        throw(
+            IS.ConflictingInputsError(
+                "Branch model $(key) with formulation $(F) has use_slacks = true, but " *
+                "$(N) builds no flow-definition equality, rating constraint row or " *
+                "quadratic limit for this formulation, so there is nothing for the " *
+                "slack to relax. Remove use_slacks, change the formulation, or use a " *
+                "different network model.",
+            ),
+        )
+    end
+    @warn "use_slacks = true on branch model $(key) has no effect: $(N) does not model " *
+          "individual branch flows." _group = IOM.LOG_GROUP_MODELS_VALIDATION
+    return
+end
+
+# Construct-time backstop (NFA StaticBranchBounds ArgumentConstructStage), so mock/direct
+# construct paths that bypass template validation stay protected.
+function _check_flow_slack_support(
+    device_model::IOM.DeviceModel,
+    network_model::NetworkModel,
+)
+    get_use_slacks(device_model) || return
+    F = get_formulation(device_model)
+    N = get_network_formulation(network_model)
+    supports_flow_slacks(F, N) && return
+    throw(
+        ArgumentError(
+            "$(F) formulation and $(N) is not compatible with the use of slacks",
+        ),
+    )
+end
 
 function _check_security_constrained_network!(
     branch_models::IOM.BranchModelContainer,

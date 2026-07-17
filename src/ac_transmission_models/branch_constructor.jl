@@ -182,6 +182,72 @@ function _add_flow_slacks!(
     return
 end
 
+# Metaed upper/lower flow-definition slack pairs, one pair per meta. StaticBranchBounds
+# on the AC networks creates the "p_ft"/"p_tf"/"q_ft"/"q_tf" pairs that relax the Ohm's-law
+# equalities (one pair per row so the anti-symmetric p_ft/p_tf rows do not self-cancel);
+# IVR adds the terminal current-definition pairs. No-op unless slacks are requested.
+function _add_flow_definition_slacks!(
+    container::OptimizationContainer,
+    device_model::DeviceModel{U, <:AbstractBranchFormulation},
+    devices::IS.FlattenIteratorWrapper{U},
+    network_model::NetworkModel,
+    metas,
+) where {U <: PSY.ACTransmission}
+    if !get_use_slacks(device_model)
+        return
+    end
+    time_steps = get_time_steps(container)
+    # Key on the constraint axis (one representative per reduced arc), not the variable
+    # axis (all reduced-arc member names): the NetworkFlowConstraint equalities that
+    # consume these slacks are written once per arc, so a slack on a non-representative
+    # member would be priced but never enter a row.
+    branch_names = get_branch_argument_constraint_axis(
+        get_network_reduction(network_model),
+        get_reduced_branch_tracker(network_model),
+        devices,
+        NetworkFlowConstraint,
+    )
+    jump_model = get_jump_model(container)
+    for meta in metas
+        _add_meta_flow_slack!(
+            container, FlowActivePowerSlackUpperBound, U, meta,
+            branch_names, time_steps, jump_model,
+        )
+        _add_meta_flow_slack!(
+            container, FlowActivePowerSlackLowerBound, U, meta,
+            branch_names, time_steps, jump_model,
+        )
+    end
+    return
+end
+
+# One-sided metaed terminal current-magnitude slacks for StaticBranch under IVR
+# ("c_from"/"c_to"); each relaxes the CurrentLimitConstraint quadratic at one terminal.
+function _add_current_magnitude_slacks!(
+    container::OptimizationContainer,
+    devices::IS.FlattenIteratorWrapper{U},
+    network_model::NetworkModel,
+) where {U <: PSY.ACTransmission}
+    time_steps = get_time_steps(container)
+    # Constraint axis (one representative per reduced arc): these one-sided slacks relax the
+    # per-arc CurrentLimitConstraint rows, so a slack on a non-representative member name
+    # would be priced but never enter a constraint.
+    branch_names = get_branch_argument_constraint_axis(
+        get_network_reduction(network_model),
+        get_reduced_branch_tracker(network_model),
+        devices,
+        CurrentLimitConstraint,
+    )
+    jump_model = get_jump_model(container)
+    for meta in ("c_from", "c_to")
+        _add_meta_flow_slack!(
+            container, FlowActivePowerSlackUpperBound, U, meta,
+            branch_names, time_steps, jump_model,
+        )
+    end
+    return
+end
+
 function _add_static_branch_balance_arguments!(
     container::OptimizationContainer,
     device_model::DeviceModel{T, StaticBranch},
@@ -275,19 +341,16 @@ function construct_device!(
 ) where {T <: PSY.ACTransmission, U <: Union{ACPNetworkModel, ACRNetworkModel}}
     @debug "construct_device $U StaticBranchBounds (ArgumentConstructStage)" _group =
         LOG_GROUP_BRANCH_CONSTRUCTIONS
-    if get_use_slacks(device_model)
-        throw(
-            ArgumentError(
-                "StaticBranchBounds formulation and $U is not compatible with the use of slacks",
-            ),
-        )
-    end
     devices = get_available_components(device_model, sys)
     _add_static_branch_flow_variables!(
         container,
         devices,
         network_model,
         StaticBranchBounds,
+    )
+    _add_flow_definition_slacks!(
+        container, device_model, devices, network_model,
+        get_pair_metas(slack_spec(StaticBranchBounds, U)),
     )
     _wire_static_branch_flow_to_balance!(container, devices, device_model, network_model)
     add_feedforward_arguments!(container, device_model, devices)
@@ -310,6 +373,7 @@ function construct_device!(
     @debug "construct_device $U StaticBranchBounds (ModelConstructStage)" _group =
         LOG_GROUP_BRANCH_CONSTRUCTIONS
     devices = get_available_components(device_model, sys)
+    branch_rate_bounds!(container, device_model, network_model)
     add_constraints!(
         container, FlowRateConstraintFromTo, devices, device_model, network_model,
     )
@@ -512,19 +576,16 @@ function construct_device!(
 ) where {T <: PSY.ACTransmission}
     @debug "construct_device LPACC StaticBranchBounds (ArgumentConstructStage)" _group =
         LOG_GROUP_BRANCH_CONSTRUCTIONS
-    if get_use_slacks(device_model)
-        throw(
-            ArgumentError(
-                "StaticBranchBounds formulation and LPACCNetworkModel is not compatible with the use of slacks",
-            ),
-        )
-    end
     devices = get_available_components(device_model, sys)
     _add_static_branch_flow_variables!(
         container,
         devices,
         network_model,
         StaticBranchBounds,
+    )
+    _add_flow_definition_slacks!(
+        container, device_model, devices, network_model,
+        get_pair_metas(slack_spec(StaticBranchBounds, LPACCNetworkModel)),
     )
     add_variables!(container, CosineApproximation, devices, network_model)
     _wire_static_branch_flow_to_balance!(container, devices, device_model, network_model)
@@ -548,6 +609,7 @@ function construct_device!(
     @debug "construct_device LPACC StaticBranchBounds (ModelConstructStage)" _group =
         LOG_GROUP_BRANCH_CONSTRUCTIONS
     devices = get_available_components(device_model, sys)
+    branch_rate_bounds!(container, device_model, network_model)
     add_constraints!(
         container, FlowRateConstraintFromTo, devices, device_model, network_model,
     )
@@ -621,6 +683,7 @@ function construct_device!(
             devices,
             StaticBranch,
         )
+        _add_current_magnitude_slacks!(container, devices, network_model)
     end
     _wire_static_branch_flow_to_balance!(container, devices, device_model, network_model)
     if haskey(get_time_series_names(device_model), BranchRatingTimeSeriesParameter)
@@ -679,7 +742,8 @@ end
 ArgumentConstructStage for StaticBranchBounds under IVRNetworkModel.
 
 Identical to StaticBranch but uses the StaticBranchBounds formulation tag (variable-level
-bounds on the power flows). No slack variables allowed for StaticBranchBounds.
+bounds on the power flows). With `use_slacks`, adds the metaed "p"/"q" flow-definition
+slack pairs that relax the bilinear power-current equalities.
 """
 function construct_device!(
     container::OptimizationContainer,
@@ -690,13 +754,6 @@ function construct_device!(
 ) where {T <: PSY.ACTransmission}
     @debug "construct_device IVR StaticBranchBounds (ArgumentConstructStage)" _group =
         LOG_GROUP_BRANCH_CONSTRUCTIONS
-    if get_use_slacks(device_model)
-        throw(
-            ArgumentError(
-                "StaticBranchBounds formulation and IVRNetworkModel is not compatible with the use of slacks",
-            ),
-        )
-    end
     devices = get_available_components(device_model, sys)
     add_variables!(
         container, FlowActivePowerFromToVariable, devices, StaticBranchBounds,
@@ -709,6 +766,10 @@ function construct_device!(
     )
     add_variables!(
         container, FlowReactivePowerToFromVariable, devices, StaticBranchBounds,
+    )
+    _add_flow_definition_slacks!(
+        container, device_model, devices, network_model,
+        get_pair_metas(slack_spec(StaticBranchBounds, IVRNetworkModel)),
     )
     add_variables!(container, BranchCurrentFromToReal, devices, device_model, network_model)
     add_variables!(
@@ -752,6 +813,7 @@ function construct_device!(
     @debug "construct_device IVR StaticBranchBounds (ModelConstructStage)" _group =
         LOG_GROUP_BRANCH_CONSTRUCTIONS
     devices = get_available_components(device_model, sys)
+    branch_rate_bounds!(container, device_model, network_model)
     add_constraints!(
         container, FlowRateConstraintFromTo, devices, device_model, network_model,
     )
@@ -920,8 +982,9 @@ end
 """
 ArgumentConstructStage for StaticBranch under NFANetworkModel.
 
-Creates the rating-bounded FlowActivePowerVariable (and optional slacks) and registers
-its contribution to the per-bus ActivePowerBalance expression. No Ohm's law / angles.
+Creates the FlowActivePowerVariable (unbounded; the rating is enforced by the
+FlowRateConstraint rows) and optional slacks, and registers its contribution to the
+per-bus ActivePowerBalance expression. No Ohm's law / angles.
 """
 function construct_device!(
     container::OptimizationContainer,
@@ -997,13 +1060,7 @@ function construct_device!(
 ) where {T <: PSY.ACTransmission}
     @debug "construct_device NFA StaticBranchBounds (ArgumentConstructStage)" _group =
         LOG_GROUP_BRANCH_CONSTRUCTIONS
-    if get_use_slacks(device_model)
-        throw(
-            ArgumentError(
-                "StaticBranchBounds formulation and NFANetworkModel is not compatible with the use of slacks",
-            ),
-        )
-    end
+    _check_flow_slack_support(device_model, network_model)
     devices = get_available_components(device_model, sys)
     add_variables!(
         container,
@@ -1353,7 +1410,7 @@ function construct_device!(
     )
 
     if get_use_slacks(device_model)
-        _add_flow_slacks!(container, devices, network_model, StaticBranch)
+        _add_flow_slacks!(container, devices, network_model, StaticBranchBounds)
     end
 
     add_feedforward_arguments!(container, device_model, devices)

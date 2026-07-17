@@ -50,9 +50,10 @@ get_variable_lower_bound(::Type{FlowActivePowerVariable}, ::PNM.BranchesParallel
 get_variable_upper_bound(::Type{FlowActivePowerVariable}, ::PNM.ThreeWindingTransformerWinding, ::Type{<:AbstractBranchFormulation}) = nothing
 get_variable_lower_bound(::Type{FlowActivePowerVariable}, ::PNM.ThreeWindingTransformerWinding, ::Type{<:AbstractBranchFormulation}) = nothing
 
-# Active-flow variable bounds for ACPNetworkModel: matches the bridge convention so
+# Active-flow variable creation bounds: matches the bridge convention so
 # `check_variable_bounded(...)` in test_device_branch_constructors.jl finds box bounds on
-# directional flow variables. Reactive-flow variables stay unbounded (default `nothing`).
+# directional flow variables. Reactive-flow variables have no creation default; under
+# StaticBranchBounds they are bounded later by `branch_rate_bounds!`.
 get_variable_upper_bound(::Type{FlowActivePowerFromToVariable}, d::PSY.MonitoredLine, ::Type{<:AbstractBranchFormulation}) = PSY.get_flow_limits(d, PSY.SU).from_to
 get_variable_lower_bound(::Type{FlowActivePowerFromToVariable}, d::PSY.MonitoredLine, ::Type{<:AbstractBranchFormulation}) = -1 * PSY.get_flow_limits(d, PSY.SU).from_to
 get_variable_upper_bound(::Type{FlowActivePowerToFromVariable}, d::PSY.MonitoredLine, ::Type{<:AbstractBranchFormulation}) = PSY.get_flow_limits(d, PSY.SU).to_from
@@ -288,6 +289,32 @@ function add_variables!(
     return
 end
 
+# Non-negative flow-definition slack container carrying a container META. StaticBranchBounds
+# distinguishes its per-direction slack pairs ("p_ft"/"p_tf"/"q_ft"/"q_tf") by meta on the
+# shared FlowActivePowerSlack{Upper,Lower}Bound types; `add_variables!` threads no meta, so
+# build the container directly. One slack per representative arc — the equality is written
+# once per arc. Axes are precomputed by the caller (shared across all metas of one device
+# model).
+function _add_meta_flow_slack!(
+    container::OptimizationContainer,
+    ::Type{T},
+    ::Type{U},
+    meta::String,
+    branch_names,
+    time_steps,
+    jump_model,
+) where {T <: AbstractACActivePowerFlow, U <: PSY.ACTransmission}
+    variable = add_variable_container!(container, T, U, meta, branch_names, time_steps)
+    for name in branch_names, t in time_steps
+        variable[name, t] = JuMP.@variable(
+            jump_model,
+            base_name = "$(T)_$(U)_$(meta)_{$(name), $(t)}",
+            lower_bound = 0.0,
+        )
+    end
+    return
+end
+
 function _add_variable_to_container!(
     variable_container::JuMPVariableArray,
     variable::JuMP.VariableRef,
@@ -344,23 +371,40 @@ function add_variables!(
     return
 end
 
-function _get_flow_variable_vector(
-    container::OptimizationContainer,
-    ::NetworkModel{<:AbstractDCPNetworkModel},
-    ::Type{B},
-) where {B <: PSY.ACTransmission}
-    return [get_variable(container, FlowActivePowerVariable, B)]
+# Directional flow variable types bounded by `branch_rate_bounds!`. DC/PTDF networks carry a
+# single scalar active variable; the AC networks (ACP/ACR/LPACC/IVR) carry the four
+# directional from/to variables.
+_flow_variable_types(::NetworkModel{<:AbstractDCPNetworkModel}) = (FlowActivePowerVariable,)
+_flow_variable_types(::NetworkModel{<:AbstractNetworkModel}) = (
+    FlowActivePowerFromToVariable,
+    FlowActivePowerToFromVariable,
+    FlowReactivePowerFromToVariable,
+    FlowReactivePowerToFromVariable,
+)
+
+# Bound family for each directional flow variable, selected from the two per-branch limit
+# families precomputed in `branch_rate_bounds!`. Active variables use the (possibly
+# asymmetric, monitoring-based) `min_max_flow_limits`; reactive variables use the symmetric
+# thermal rating. For a `MonitoredLine`, `min_max_flow_limits` collapses to an active-flow
+# monitoring limit tighter than the rating, which must not clamp reactive flow — PM parity
+# bounds q by the thermal rating, and it keeps StaticBranchBounds ≡ StaticBranch (whose
+# quadratic apparent-power limit bounds |q| by the rating alone). For a plain `Line` the two
+# families coincide, so only `MonitoredLine` reactive widens. An unclassified variable type
+# fails with a loud MethodError instead of inheriting the active collapse.
+function _directional_flow_limits(
+    ::Type{<:AbstractACActivePowerFlow},
+    flow_limits::MinMax,
+    ::MinMax,
+)
+    return flow_limits
 end
 
-function _get_flow_variable_vector(
-    container::OptimizationContainer,
-    ::NetworkModel{<:AbstractNetworkModel},
-    ::Type{B},
-) where {B <: PSY.ACTransmission}
-    return [
-        get_variable(container, FlowActivePowerFromToVariable, B),
-        get_variable(container, FlowActivePowerToFromVariable, B),
-    ]
+function _directional_flow_limits(
+    ::Type{<:AbstractACReactivePowerFlow},
+    ::MinMax,
+    rating_limits::MinMax,
+)
+    return rating_limits
 end
 
 function branch_rate_bounds!(
@@ -371,17 +415,28 @@ function branch_rate_bounds!(
     time_steps = get_time_steps(container)
     net_reduction_data = get_network_reduction(network_model)
     all_branch_maps_by_type = PNM.get_all_branch_maps_by_type(net_reduction_data)
-    for var in _get_flow_variable_vector(container, network_model, B)
-        for (name, (arc, reduction)) in PNM.get_name_to_arc_map(net_reduction_data, B)
-            # TODO: entry is not type stable here, it can return any type ACTransmission.
-            # It might have performance implications. Possibly separate this into other functions
-            reduction_entry = all_branch_maps_by_type[reduction][B][arc]
-            # Use the same limit values as FlowRateConstraint for consistency.
-            limits = min_max_flow_limits(reduction_entry, device_model)
+    variable_types = _flow_variable_types(network_model)
+    variables = map(V -> get_variable(container, V, B), variable_types)
+    for (name, (arc, reduction)) in PNM.get_name_to_arc_map(net_reduction_data, B)
+        # TODO: entry is not type stable here, it can return any type ACTransmission.
+        # It might have performance implications. Possibly separate this into other functions
+        reduction_entry = all_branch_maps_by_type[reduction][B][arc]
+        flow_limits = min_max_flow_limits(reduction_entry, device_model)
+        rating = branch_rating(reduction_entry, device_model)
+        rating_limits = (min = -rating, max = rating)
+        for (V, var) in zip(variable_types, variables)
+            limits = _directional_flow_limits(V, flow_limits, rating_limits)
+            @assert limits.min <= limits.max "Infeasible rate limits for branch $(name)"
             for t in time_steps
-                @assert limits.min <= limits.max "Infeasible rate limits for branch $(name)"
-                JuMP.set_upper_bound(var[name, t], limits.max)
-                JuMP.set_lower_bound(var[name, t], limits.min)
+                # Variable-creation defaults (MonitoredLine asymmetric limits,
+                # TapTransformer/Transformer2W ratings) are authoritative — never clobber
+                # an existing bound.
+                if !JuMP.has_upper_bound(var[name, t])
+                    JuMP.set_upper_bound(var[name, t], limits.max)
+                end
+                if !JuMP.has_lower_bound(var[name, t])
+                    JuMP.set_lower_bound(var[name, t], limits.min)
+                end
             end
         end
     end
@@ -601,10 +656,6 @@ function add_constraints!(
     array = get_variable(container, FlowActivePowerVariable, T)
 
     use_slacks = get_use_slacks(device_model)
-    if use_slacks
-        slack_ub = get_variable(container, FlowActivePowerSlackUpperBound, T)
-        slack_lb = get_variable(container, FlowActivePowerSlackLowerBound, T)
-    end
     for (name, (arc, reduction)) in
         get_constraint_map_by_type(reduced_branch_tracker)[FlowRateConstraint][T]
         _add_flow_rate_constraint!(
@@ -666,10 +717,6 @@ function add_constraints!(
     array = get_expression(container, PTDFBranchFlow, T)
 
     use_slacks = get_use_slacks(device_model)
-    if use_slacks
-        slack_ub = get_variable(container, FlowActivePowerSlackUpperBound, T)
-        slack_lb = get_variable(container, FlowActivePowerSlackLowerBound, T)
-    end
     for (name, (arc, reduction)) in
         get_constraint_map_by_type(reduced_branch_tracker)[FlowRateConstraint][T]
         _add_flow_rate_constraint!(
@@ -1419,45 +1466,89 @@ function add_constraints!(
     return
 end
 
+# Branch slack pricing derives from the pair's `slack_spec` declaration
+# (core/branch_slack_specs.jl): every slack container the spec names is priced at the
+# violation cost, so pricing cannot drift from what the constructors build. There is
+# deliberately no `NoBranchSlacks` method — validation and the construct-time backstop
+# reject slacked no-machinery pairs, so reaching pricing with one is a bug that must
+# surface as a MethodError.
 function add_to_objective_function!(
     container::OptimizationContainer,
     ::IS.FlattenIteratorWrapper{T},
-    device_model::DeviceModel{T, <:AbstractBranchFormulation},
-    ::Type{<:AbstractNetworkModel},
-) where {T <: PSY.ACTransmission}
+    device_model::DeviceModel{T, F},
+    ::Type{N},
+) where {T <: PSY.ACTransmission, F <: AbstractBranchFormulation, N <: AbstractNetworkModel}
     if get_use_slacks(device_model)
-        variable_up = get_variable(container, FlowActivePowerSlackUpperBound, T)
-        # Use device names because there might be a network reduction
-        for name in axes(variable_up, 1)
-            for t in get_time_steps(container)
-                add_to_objective_invariant_expression!(
-                    container,
-                    variable_up[name, t] * CONSTRAINT_VIOLATION_SLACK_COST,
-                )
-            end
+        _price_slack_spec!(container, T, slack_spec(F, N))
+    end
+    return
+end
+
+function _price_slack_spec!(
+    container::OptimizationContainer,
+    ::Type{T},
+    ::RowPairSlacks,
+) where {T <: PSY.ACTransmission}
+    _price_slack_pair!(container, T)
+    return
+end
+
+function _price_slack_spec!(
+    container::OptimizationContainer,
+    ::Type{T},
+    spec::EqualityPairSlacks,
+) where {T <: PSY.ACTransmission}
+    for meta in get_pair_metas(spec)
+        _price_slack_pair!(container, T, meta)
+    end
+    return
+end
+
+function _price_slack_spec!(
+    container::OptimizationContainer,
+    ::Type{T},
+    spec::QuadraticUpperSlacks,
+) where {T <: PSY.ACTransmission}
+    for meta in get_upper_metas(spec)
+        _price_slack_upper!(container, T, meta)
+    end
+    return
+end
+
+# Price an upper/lower slack pair (equality relaxation) at the violation cost. Iterates
+# container names because there might be a network reduction.
+function _price_slack_pair!(
+    container::OptimizationContainer,
+    ::Type{T},
+    meta::String = IOM.CONTAINER_KEY_EMPTY_META,
+) where {T <: PSY.ACTransmission}
+    variable_up = get_variable(container, FlowActivePowerSlackUpperBound, T, meta)
+    variable_dn = get_variable(container, FlowActivePowerSlackLowerBound, T, meta)
+    for name in axes(variable_up, 1)
+        for t in get_time_steps(container)
+            add_to_objective_invariant_expression!(
+                container,
+                (variable_dn[name, t] + variable_up[name, t]) *
+                CONSTRAINT_VIOLATION_SLACK_COST,
+            )
         end
     end
     return
 end
 
-function add_to_objective_function!(
+# Price a one-sided upper slack (quadratic-limit relaxation) at the violation cost.
+function _price_slack_upper!(
     container::OptimizationContainer,
-    ::IS.FlattenIteratorWrapper{T},
-    device_model::DeviceModel{T, <:AbstractBranchFormulation},
-    ::Type{<:AbstractActivePowerModel},
+    ::Type{T},
+    meta::String = IOM.CONTAINER_KEY_EMPTY_META,
 ) where {T <: PSY.ACTransmission}
-    if get_use_slacks(device_model)
-        variable_up = get_variable(container, FlowActivePowerSlackUpperBound, T)
-        variable_dn = get_variable(container, FlowActivePowerSlackLowerBound, T)
-        # Use device names because there might be a network reduction
-        for name in axes(variable_up, 1)
-            for t in get_time_steps(container)
-                add_to_objective_invariant_expression!(
-                    container,
-                    (variable_dn[name, t] + variable_up[name, t]) *
-                    CONSTRAINT_VIOLATION_SLACK_COST,
-                )
-            end
+    variable_up = get_variable(container, FlowActivePowerSlackUpperBound, T, meta)
+    for name in axes(variable_up, 1)
+        for t in get_time_steps(container)
+            add_to_objective_invariant_expression!(
+                container,
+                variable_up[name, t] * CONSTRAINT_VIOLATION_SLACK_COST,
+            )
         end
     end
     return
@@ -1656,10 +1747,7 @@ function _add_directional_flow_rate_limits!(
     time_steps = get_time_steps(container)
     pflow = get_variable(container, PVar, T)
     qflow = get_variable(container, QVar, T)
-    use_slacks = get_use_slacks(device_model)
-    if use_slacks
-        slack_ub = get_variable(container, FlowActivePowerSlackUpperBound, T)
-    end
+    quad_slacks = _quadratic_rate_slacks(container, device_model, T)
     entries = _branch_rating_entries(network_model, devices, T, ConsKey)
     branch_names = [name for (name, _) in entries]
     cons = add_constraints_container!(
@@ -1683,11 +1771,9 @@ function _add_directional_flow_rate_limits!(
         if name in ts_branch_names
             param = get_parameter_column_refs(param_container, name)
             for t in time_steps
-                if use_slacks
-                    lhs = pflow[name, t]^2 + qflow[name, t]^2 - slack_ub[name, t]
-                else
-                    lhs = pflow[name, t]^2 + qflow[name, t]^2
-                end
+                lhs =
+                    pflow[name, t]^2 + qflow[name, t]^2 -
+                    _upper_slack_term(quad_slacks, name, t)
                 cons[name, t] = JuMP.@constraint(
                     jump_model,
                     lhs <= _rate_rhs_squared(param[t] * mult[name, t]),
@@ -1696,11 +1782,9 @@ function _add_directional_flow_rate_limits!(
         else
             rating = _directional_flow_rating(entry, device_model)
             for t in time_steps
-                if use_slacks
-                    lhs = pflow[name, t]^2 + qflow[name, t]^2 - slack_ub[name, t]
-                else
-                    lhs = pflow[name, t]^2 + qflow[name, t]^2
-                end
+                lhs =
+                    pflow[name, t]^2 + qflow[name, t]^2 -
+                    _upper_slack_term(quad_slacks, name, t)
                 cons[name, t] = JuMP.@constraint(
                     jump_model,
                     lhs <= _rate_rhs_squared(rating),
@@ -1845,41 +1929,182 @@ function _tap_flow_coefficients(g, b, g_fr, b_fr, g_to, b_to, shift)
     )
 end
 
+# Slack holders for the equality/limit rows. `_SlackPair` carries a metaed upper/lower pair
+# (equality relaxation, term `up - lo`); `_UpperSlack` carries a one-sided upper slack
+# (quadratic-limit relaxation, term `up`). The no-slack twins contribute a constant 0.0 so
+# constraint builders stay branch-free.
+struct _NoSlackPair end
+
+struct _SlackPair{A}
+    up::A
+    lo::A
+end
+
+_slack_term(::_NoSlackPair, ::String, ::Int) = 0.0
+_slack_term(s::_SlackPair, name::String, t::Int) = s.up[name, t] - s.lo[name, t]
+
+struct _NoUpperSlack end
+
+struct _UpperSlack{A}
+    up::A
+end
+
+_upper_slack_term(::_NoUpperSlack, ::String, ::Int) = 0.0
+_upper_slack_term(s::_UpperSlack, name::String, t::Int) = s.up[name, t]
+
+function _slack_pair(
+    container::OptimizationContainer,
+    ::Type{T},
+    meta::String,
+) where {T <: PSY.ACTransmission}
+    return _SlackPair(
+        get_variable(container, FlowActivePowerSlackUpperBound, T, meta),
+        get_variable(container, FlowActivePowerSlackLowerBound, T, meta),
+    )
+end
+
+# NamedTuple keys derived from the meta consts so container metas and holder fields
+# cannot drift apart.
+const _FLOW_SLACK_KEYS = Symbol.(FLOW_DEFINITION_SLACK_METAS)
+const _CURRENT_SLACK_KEYS = Symbol.(CURRENT_DEFINITION_SLACK_METAS)
+
+# StaticBranchBounds relaxes each of the four flow-definition equalities with its OWN metaed
+# slack pair ("p_ft"/"p_tf"/"q_ft"/"q_tf"). A single pair shared between p_ft and p_tf would
+# self-cancel: the two Ohm's-law expressions are anti-symmetric (`f_tf ≈ -f_ft + losses`), so
+# a shared term drops out of their difference and caps the physical relaxation at losses/2 —
+# exactly zero on a lossless line. Per-direction metas keep each balance row independently
+# relaxable, mirroring the IVR current layer's per-terminal metas. Every other formulation
+# keeps its equalities exact and carries `_NoSlackPair`s.
+function _flow_equality_slacks(
+    ::OptimizationContainer,
+    ::DeviceModel{T, F},
+    ::Type{T},
+) where {T <: PSY.ACTransmission, F <: AbstractBranchFormulation}
+    return NamedTuple{_FLOW_SLACK_KEYS}(map(_ -> _NoSlackPair(), _FLOW_SLACK_KEYS))
+end
+
+function _flow_equality_slacks(
+    container::OptimizationContainer,
+    device_model::DeviceModel{T, StaticBranchBounds},
+    ::Type{T},
+) where {T <: PSY.ACTransmission}
+    if !get_use_slacks(device_model)
+        return NamedTuple{_FLOW_SLACK_KEYS}(map(_ -> _NoSlackPair(), _FLOW_SLACK_KEYS))
+    end
+    return NamedTuple{_FLOW_SLACK_KEYS}(
+        map(meta -> _slack_pair(container, T, meta), FLOW_DEFINITION_SLACK_METAS),
+    )
+end
+
+# Quadratic apparent-power-limit slack. Only StaticBranch subtracts a slack from `p²+q²`
+# (its meta-less FlowActivePowerSlackUpperBound); StaticBranchBounds relaxes at the
+# flow-definition equalities instead, so its quadratic stays exact.
+function _quadratic_rate_slacks(
+    ::OptimizationContainer,
+    ::DeviceModel{T, F},
+    ::Type{T},
+) where {T <: PSY.ACTransmission, F <: AbstractBranchFormulation}
+    return _NoUpperSlack()
+end
+
+function _quadratic_rate_slacks(
+    container::OptimizationContainer,
+    device_model::DeviceModel{T, StaticBranch},
+    ::Type{T},
+) where {T <: PSY.ACTransmission}
+    if !get_use_slacks(device_model)
+        return _NoUpperSlack()
+    end
+    return _UpperSlack(get_variable(container, FlowActivePowerSlackUpperBound, T))
+end
+
+# IVR terminal-current defining equalities relaxed by StaticBranchBounds: each of the four
+# KCL current definitions (cr_fr, ci_fr, cr_to, ci_to) carries its own metaed slack pair.
+# The from-terminal rows scale the current by tm² on the LHS while the to-terminal rows do
+# not, so a shared cr/ci pair would relax the two ends unequally under off-nominal taps;
+# per-terminal metas keep each definition row independently relaxable.
+function _current_equality_slacks(
+    ::OptimizationContainer,
+    ::DeviceModel{T, F},
+    ::Type{T},
+) where {T <: PSY.ACTransmission, F <: AbstractBranchFormulation}
+    return NamedTuple{_CURRENT_SLACK_KEYS}(map(_ -> _NoSlackPair(), _CURRENT_SLACK_KEYS))
+end
+
+function _current_equality_slacks(
+    container::OptimizationContainer,
+    device_model::DeviceModel{T, StaticBranchBounds},
+    ::Type{T},
+) where {T <: PSY.ACTransmission}
+    if !get_use_slacks(device_model)
+        return NamedTuple{_CURRENT_SLACK_KEYS}(
+            map(_ -> _NoSlackPair(), _CURRENT_SLACK_KEYS),
+        )
+    end
+    return NamedTuple{_CURRENT_SLACK_KEYS}(
+        map(meta -> _slack_pair(container, T, meta), CURRENT_DEFINITION_SLACK_METAS),
+    )
+end
+
+# One-sided current-magnitude limit slack. Only StaticBranch relaxes cr²+ci² ≤ c_rating² to
+# cr²+ci² − s_c ≤ c_rating² per terminal (metas "c_from"/"c_to"); every other formulation
+# keeps the terminal current limit hard.
+function _current_magnitude_slacks(
+    ::OptimizationContainer,
+    ::DeviceModel{T, F},
+    ::Type{T},
+    ::String,
+) where {T <: PSY.ACTransmission, F <: AbstractBranchFormulation}
+    return _NoUpperSlack()
+end
+
+function _current_magnitude_slacks(
+    container::OptimizationContainer,
+    device_model::DeviceModel{T, StaticBranch},
+    ::Type{T},
+    meta::String,
+) where {T <: PSY.ACTransmission}
+    if !get_use_slacks(device_model)
+        return _NoUpperSlack()
+    end
+    return _UpperSlack(get_variable(container, FlowActivePowerSlackUpperBound, T, meta))
+end
+
 # Polar (ACP) π-model Ohm's law for one branch, one time step. `coef` from
 # `_tap_flow_coefficients`; `tap` is the constant `tm` (fixed tap) or the
 # `TapRatioVariable` (variable tap). The constraints reduce term-for-term to the
 # fixed-tap StaticBranch form when `tap == tm`.
 function _add_tap_acp_flow!(
     jump_model, cons_pft, cons_qft, cons_ptf, cons_qtf, pft, qft, ptf, qtf,
-    name, t, vmf, vmt, θ, coef, tap,
+    name, t, vmf, vmt, θ, coef, tap, p_ft_slack, q_ft_slack, p_tf_slack, q_tf_slack,
 )
     cons_pft[name, t] = JuMP.@constraint(
         jump_model,
         pft[name, t] ==
         coef.gg_fr / tap^2 * vmf^2 +
         coef.a_cos / tap * vmf * vmt * cos(θ) +
-        coef.a_sin / tap * vmf * vmt * sin(θ),
+        coef.a_sin / tap * vmf * vmt * sin(θ) + p_ft_slack,
     )
     cons_qft[name, t] = JuMP.@constraint(
         jump_model,
         qft[name, t] ==
         -coef.bb_fr / tap^2 * vmf^2 +
         (-coef.a_sin) / tap * vmf * vmt * cos(θ) +
-        coef.a_cos / tap * vmf * vmt * sin(θ),
+        coef.a_cos / tap * vmf * vmt * sin(θ) + q_ft_slack,
     )
     cons_ptf[name, t] = JuMP.@constraint(
         jump_model,
         ptf[name, t] ==
         coef.gg_to * vmt^2 +
         coef.c_cos / tap * vmt * vmf * cos(θ) +
-        coef.d_sin / tap * vmt * vmf * sin(θ),
+        coef.d_sin / tap * vmt * vmf * sin(θ) + p_tf_slack,
     )
     cons_qtf[name, t] = JuMP.@constraint(
         jump_model,
         qtf[name, t] ==
         -coef.bb_to * vmt^2 +
         coef.d_sin / tap * vmt * vmf * cos(θ) +
-        (-coef.c_cos) / tap * vmt * vmf * sin(θ),
+        (-coef.c_cos) / tap * vmt * vmf * sin(θ) + q_tf_slack,
     )
     return
 end
@@ -1890,6 +2115,7 @@ end
 function _add_tap_acr_flow!(
     jump_model, cons_pft, cons_qft, cons_ptf, cons_qtf, pft, qft, ptf, qtf,
     name, t, vsq_fr, vsq_to, vv_cos, vv_sin, coef, tap,
+    p_ft_slack, q_ft_slack, p_tf_slack, q_tf_slack,
 )
     e_sin = -coef.d_sin
     cons_pft[name, t] = JuMP.@constraint(
@@ -1897,28 +2123,28 @@ function _add_tap_acr_flow!(
         pft[name, t] ==
         coef.gg_fr / tap^2 * vsq_fr +
         coef.a_cos / tap * vv_cos +
-        coef.a_sin / tap * vv_sin,
+        coef.a_sin / tap * vv_sin + p_ft_slack,
     )
     cons_qft[name, t] = JuMP.@constraint(
         jump_model,
         qft[name, t] ==
         -coef.bb_fr / tap^2 * vsq_fr +
         (-coef.a_sin) / tap * vv_cos +
-        coef.a_cos / tap * vv_sin,
+        coef.a_cos / tap * vv_sin + q_ft_slack,
     )
     cons_ptf[name, t] = JuMP.@constraint(
         jump_model,
         ptf[name, t] ==
         coef.gg_to * vsq_to +
         coef.c_cos / tap * vv_cos -
-        e_sin / tap * vv_sin,
+        e_sin / tap * vv_sin + p_tf_slack,
     )
     cons_qtf[name, t] = JuMP.@constraint(
         jump_model,
         qtf[name, t] ==
         -coef.bb_to * vsq_to -
         e_sin / tap * vv_cos -
-        coef.c_cos / tap * vv_sin,
+        coef.c_cos / tap * vv_sin + q_tf_slack,
     )
     return
 end
@@ -1957,6 +2183,7 @@ function add_constraints!(
     cons_pft, cons_qft, cons_ptf, cons_qtf =
         _add_flow_constraint_containers!(container, T, branch_names)
     jump_model = get_jump_model(container)
+    slacks = _flow_equality_slacks(container, device_model, T)
 
     for g_geom in geoms
         name = g_geom.name
@@ -1980,6 +2207,10 @@ function add_constraints!(
             _add_tap_acr_flow!(
                 jump_model, cons_pft, cons_qft, cons_ptf, cons_qtf, pft, qft, ptf, qtf,
                 name, t, vsq_fr, vsq_to, vv_cos, vv_sin, coef, tm,
+                _slack_term(slacks.p_ft, name, t),
+                _slack_term(slacks.q_ft, name, t),
+                _slack_term(slacks.p_tf, name, t),
+                _slack_term(slacks.q_tf, name, t),
             )
         end
     end
@@ -2168,6 +2399,7 @@ function add_constraints!(
         _add_flow_constraint_containers!(container, T, branch_names)
 
     jump_model = get_jump_model(container)
+    slacks = _flow_equality_slacks(container, device_model, T)
     for g_geom in geoms
         name = g_geom.name
         adm = g_geom.adm
@@ -2204,22 +2436,26 @@ function add_constraints!(
             cons_pft[name, t] = JuMP.@constraint(
                 jump_model,
                 pft[name, t] ==
-                (g + g_fr) / tm^2 * dev_fr + c_cos_fr * cs_sum + c_sin_fr * vad,
+                (g + g_fr) / tm^2 * dev_fr + c_cos_fr * cs_sum + c_sin_fr * vad +
+                _slack_term(slacks.p_ft, name, t),
             )
             cons_qft[name, t] = JuMP.@constraint(
                 jump_model,
                 qft[name, t] ==
-                -(b + b_fr) / tm^2 * dev_fr - c_sin_fr * cs_sum + c_cos_fr * vad,
+                -(b + b_fr) / tm^2 * dev_fr - c_sin_fr * cs_sum + c_cos_fr * vad +
+                _slack_term(slacks.q_ft, name, t),
             )
             cons_ptf[name, t] = JuMP.@constraint(
                 jump_model,
                 ptf[name, t] ==
-                (g + g_to) * dev_to + c_cos_to * cs_sum + c_sin_to * (-vad),
+                (g + g_to) * dev_to + c_cos_to * cs_sum + c_sin_to * (-vad) +
+                _slack_term(slacks.p_tf, name, t),
             )
             cons_qtf[name, t] = JuMP.@constraint(
                 jump_model,
                 qtf[name, t] ==
-                -(b + b_to) * dev_to - c_sin_to * cs_sum + c_cos_to * (-vad),
+                -(b + b_to) * dev_to - c_sin_to * cs_sum + c_cos_to * (-vad) +
+                _slack_term(slacks.q_tf, name, t),
             )
         end
     end
@@ -2414,6 +2650,8 @@ function add_constraints!(
     )
 
     jump_model = get_jump_model(container)
+    slacks = _flow_equality_slacks(container, device_model, T)
+    cslacks = _current_equality_slacks(container, device_model, T)
     for g_geom in geoms
         name = g_geom.name
         adm = g_geom.adm
@@ -2450,34 +2688,53 @@ function add_constraints!(
 
             # Bilinear power-current linking
             cons_pft[name, t] = JuMP.@constraint(
-                jump_model, pft[name, t] == vr_f * cr_f + vi_f * ci_f,
+                jump_model,
+                pft[name, t] ==
+                vr_f * cr_f + vi_f * ci_f + _slack_term(slacks.p_ft, name, t),
             )
             cons_qft[name, t] = JuMP.@constraint(
-                jump_model, qft[name, t] == vi_f * cr_f - vr_f * ci_f,
+                jump_model,
+                qft[name, t] ==
+                vi_f * cr_f - vr_f * ci_f + _slack_term(slacks.q_ft, name, t),
             )
             cons_ptf[name, t] = JuMP.@constraint(
-                jump_model, ptf[name, t] == vr_t * cr_t + vi_t * ci_t,
+                jump_model,
+                ptf[name, t] ==
+                vr_t * cr_t + vi_t * ci_t + _slack_term(slacks.p_tf, name, t),
             )
             cons_qtf[name, t] = JuMP.@constraint(
-                jump_model, qtf[name, t] == vi_t * cr_t - vr_t * ci_t,
+                jump_model,
+                qtf[name, t] ==
+                vi_t * cr_t - vr_t * ci_t + _slack_term(slacks.q_tf, name, t),
             )
 
-            # KCL at from terminal
+            # KCL at from terminal (StaticBranchBounds relaxes each definition with its own
+            # metaed ± slack; every other formulation carries a zero term)
             cons_cr_fr[name, t] = JuMP.@constraint(
                 jump_model,
-                cr_f * tm2 == tr * csr_b - ti * csi_b + g_fr * vr_f - b_fr * vi_f,
+                cr_f * tm2 ==
+                tr * csr_b - ti * csi_b + g_fr * vr_f - b_fr * vi_f +
+                _slack_term(cslacks.cr_fr, name, t),
             )
             cons_ci_fr[name, t] = JuMP.@constraint(
                 jump_model,
-                ci_f * tm2 == tr * csi_b + ti * csr_b + g_fr * vi_f + b_fr * vr_f,
+                ci_f * tm2 ==
+                tr * csi_b + ti * csr_b + g_fr * vi_f + b_fr * vr_f +
+                _slack_term(cslacks.ci_fr, name, t),
             )
 
             # KCL at to terminal
             cons_cr_to[name, t] = JuMP.@constraint(
-                jump_model, cr_t == -csr_b + g_to * vr_t - b_to * vi_t,
+                jump_model,
+                cr_t ==
+                -csr_b + g_to * vr_t - b_to * vi_t +
+                _slack_term(cslacks.cr_to, name, t),
             )
             cons_ci_to[name, t] = JuMP.@constraint(
-                jump_model, ci_t == -csi_b + g_to * vi_t + b_to * vr_t,
+                jump_model,
+                ci_t ==
+                -csi_b + g_to * vi_t + b_to * vr_t +
+                _slack_term(cslacks.ci_to, name, t),
             )
 
             # Ohm's law across series impedance
@@ -2519,11 +2776,13 @@ function add_constraints!(
         container, T, rating2, "from",
         get_variable(container, BranchCurrentFromToReal, T),
         get_variable(container, BranchCurrentFromToImaginary, T),
+        _current_magnitude_slacks(container, device_model, T, "c_from"),
     )
     _add_current_magnitude_limits!(
         container, T, rating2, "to",
         get_variable(container, BranchCurrentToFromReal, T),
         get_variable(container, BranchCurrentToFromImaginary, T),
+        _current_magnitude_slacks(container, device_model, T, "c_to"),
     )
     return
 end
@@ -2539,6 +2798,7 @@ function _add_current_magnitude_limits!(
     meta::String,
     real_var,
     imag_var,
+    slack,
 ) where {T <: PSY.ACTransmission}
     time_steps = get_time_steps(container)
     jump_model = get_jump_model(container)
@@ -2550,7 +2810,8 @@ function _add_current_magnitude_limits!(
         for t in time_steps
             cons[name, t] = JuMP.@constraint(
                 jump_model,
-                real_var[name, t]^2 + imag_var[name, t]^2 <= r2,
+                real_var[name, t]^2 + imag_var[name, t]^2 -
+                _upper_slack_term(slack, name, t) <= r2,
             )
         end
     end
@@ -2931,6 +3192,7 @@ function add_constraints!(
     branch_names = [g.name for g in geoms]
     cons_pft, cons_qft, cons_ptf, cons_qtf =
         _add_flow_constraint_containers!(container, T, branch_names)
+    slacks = _flow_equality_slacks(container, device_model, T)
 
     for g_geom in geoms
         name = g_geom.name
@@ -2950,6 +3212,10 @@ function add_constraints!(
             _add_tap_acp_flow!(
                 jump_model, cons_pft, cons_qft, cons_ptf, cons_qtf, pft, qft, ptf, qtf,
                 name, t, vmf, vmt, θ, coef, tm,
+                _slack_term(slacks.p_ft, name, t),
+                _slack_term(slacks.q_ft, name, t),
+                _slack_term(slacks.p_tf, name, t),
+                _slack_term(slacks.q_tf, name, t),
             )
         end
     end
