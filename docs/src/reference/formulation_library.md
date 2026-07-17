@@ -170,19 +170,75 @@ returns without emitting anything and the rating lives entirely in the variable 
 
 #### `StaticBranchBounds`
 
-| Network model                                           | Behaviour                                                                                                                                                                                                                                                                                                                                                             |
-|:------------------------------------------------------- |:--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `DCPNetworkModel`                                       | Supported, and permits `use_slacks`. Rating is enforced with `"lb"`/`"ub"` **constraints**, not variable bounds                                                                                                                                                                                                                                                       |
-| `PTDFNetworkModel`, `AreaPTDFNetworkModel`              | Supported (both share the `AbstractPTDFNetworkModel` methods), and permit `use_slacks`. Rating really is enforced with JuMP variable bounds; adds `NetworkFlowConstraint` tying `PTDFBranchFlow` to `FlowActivePowerVariable`                                                                                                                                         |
-| `ACPNetworkModel`, `ACRNetworkModel`, `IVRNetworkModel` | Supported, but **reject `use_slacks`** with an `ArgumentError`. ACR is served by the same method as ACP, widened to a `Union{ACPNetworkModel, ACRNetworkModel}` network bound                                                                                                                                                                                         |
-| `LPACCNetworkModel`                                     | Supported, but **rejects `use_slacks`** with an `ArgumentError`. Adds the four directional flow variables plus `CosineApproximation` in the argument stage, and `CosineRelaxationConstraint` in the model stage, on top of the shared rate and Ohm's-law constraints                                                                                                  |
-| `NFANetworkModel`                                       | Supported, but **rejects `use_slacks`** with an `ArgumentError`: the rating is a hard bound on `FlowActivePowerVariable` and the model stage never reads slacks, so a requested slack would be unused and unpriced                                                                                                                                                    |
-| `DCPLLNetworkModel`                                     | Supported, on `FlowActivePowerFromToVariable`/`FlowActivePowerToFromVariable` (not `FlowActivePowerVariable`), and **permits `use_slacks`**: with slacks the argument stage adds slack pairs; without them it calls `_set_dcpll_flow_bounds!` to set hard variable bounds directly, because DCPLL's `FlowRateConstraint` builder is a no-op when `use_slacks = false` |
-| `CopperPlateNetworkModel`, `AreaBalanceNetworkModel`    | no-op                                                                                                                                                                                                                                                                                                                                                                 |
+!!! note "`StaticBranchBounds` ≡ `StaticBranch` on the AC networks"
+    
+    On `ACPNetworkModel`, `ACRNetworkModel`, `LPACCNetworkModel` and `IVRNetworkModel` the two
+    formulations build the *same* apparent-power quadratic
+    (`FlowRateConstraintFromTo`/`FlowRateConstraintToFrom`, `pft² + qft² ≤ rating²`) — the
+    generic `add_constraints!` method is written for `U <: AbstractBranchFormulation` and
+    dispatches identically for both. That quadratic already implies a box on ``(p, q)``, so
+    `StaticBranchBounds` is not adding a mathematically new limit; it additionally calls
+    `branch_rate_bounds!` to set an explicit JuMP variable bound (`min_max_flow_limits`) on
+    the directional flow variables. The two formulations are mathematically equivalent
+    relaxations on AC — the difference is solver-facing: `StaticBranchBounds` gives the solver
+    an explicit box the presolve/branch-and-bound can exploit directly, `StaticBranch` leaves
+    the box implicit in the quadratic row.
 
-`StaticBranchBounds` rejects `use_slacks` on `ACPNetworkModel`, `ACRNetworkModel`,
-`IVRNetworkModel`, `LPACCNetworkModel` and `NFANetworkModel`; only `DCPNetworkModel`,
-`DCPLLNetworkModel` and the PTDF models accept it.
+Rating enforcement per network model, `StaticBranch` vs `StaticBranchBounds` side by side:
+
+| Network model                                                                | `StaticBranch`                                                                                              | `StaticBranchBounds`                                                                                                                                                                                                                                                        |
+|:---------------------------------------------------------------------------- |:----------------------------------------------------------------------------------------------------------- |:--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ACPNetworkModel`, `ACRNetworkModel`, `LPACCNetworkModel`, `IVRNetworkModel` | `pft² + qft² ≤ rating²` quadratic row only (no variable bounds)                                             | Same quadratic row **plus** explicit JuMP bounds on the four directional flow variables (`branch_rate_bounds!`)                                                                                                                                                             |
+| `PTDFNetworkModel`, `AreaPTDFNetworkModel`                                   | `FlowRateConstraint` (`"lb"`/`"ub"`) rows on `PTDFBranchFlow`, no variable bounds                           | Explicit JuMP bounds on `FlowActivePowerVariable`, plus a `NetworkFlowConstraint` **equality** tying `PTDFBranchFlow` to `FlowActivePowerVariable` — with `use_slacks` that tie becomes `PTDFBranchFlow - FlowActivePowerVariable == slack_up - slack_lo` instead of `== 0` |
+| `DCPNetworkModel`                                                            | `FlowRateConstraint` (`"lb"`/`"ub"`) rows on `FlowActivePowerVariable`                                      | Same constraint-row style — `"lb"`/`"ub"` **constraints**, not variable bounds                                                                                                                                                                                              |
+| `DCPLLNetworkModel`                                                          | Slacked `FlowRateConstraint` rows *or* hard directional-variable bounds, mutually exclusive on `use_slacks` | Same mutually-exclusive choice: slacks add row constraints, no slacks fall back to `_set_dcpll_flow_bounds!`                                                                                                                                                                |
+| `NFANetworkModel`                                                            | `FlowRateConstraint` (`"lb"`/`"ub"`) rows on `FlowActivePowerVariable`                                      | Hard JuMP bounds only (`branch_rate_bounds!`); no constraint row exists to relax                                                                                                                                                                                            |
+| `CopperPlateNetworkModel`, `AreaBalanceNetworkModel`                         | no-op                                                                                                       | no-op                                                                                                                                                                                                                                                                       |
+
+`StaticBranchBounds` supports `use_slacks` on every network model **except**
+`NFANetworkModel` — the NFA rating has no equality or constraint row for a slack to relax.
+Which pairs have slack machinery is declared once, per (formulation, network) pair, by the
+`slack_spec` trait (`core/branch_slack_specs.jl`); the `supports_flow_slacks` gate derives
+from it, so any pair whose constructors build no slack containers (`StaticBranchBounds` ×
+NFA, `StaticBranchUnbounded` × anything, the control formulations such as
+`VoltageControlTap`) is rejected at template validation with `IS.ConflictingInputsError`
+rather than left to silently ignore the request; a construct-time backstop
+(`_check_flow_slack_support`) throws `ArgumentError` for any direct-construct path that
+bypasses template validation. On `CopperPlateNetworkModel`/`AreaBalanceNetworkModel` the
+branch model is a no-op, so `use_slacks` is accepted but inert — validation emits a warning
+instead of erroring so templates stay reusable on aggregated networks.
+
+##### Slack mechanisms
+
+`StaticBranch` and `StaticBranchBounds` relax the rating through structurally different
+mechanisms, following directly from where each formulation puts its rating:
+
+| Formulation          | What the slack relaxes                                                                                                                                                                                                                                                                                                                                                                                             |
+|:-------------------- |:------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `StaticBranch`       | The rating **row** itself: a slacked `FlowRateConstraint`/`FlowRateConstraintFromTo`/`FlowRateConstraintToFrom` on the linear DC networks (`_add_flow_slacks!` adds upper **and** lower), or a one-sided subtraction from the AC quadratic (`pft² + qft² - s ≤ rating²`, meta-less `FlowActivePowerSlackUpperBound`, upper only)                                                                                   |
+| `StaticBranchBounds` | The **flow-definition equality**, not the rating row: on the AC natives this is the Ohm's-law `NetworkFlowConstraint`, with one slack pair per directional row (metas `"p_ft"`/`"q_ft"`/`"p_tf"`/`"q_tf"`); on PTDF/AreaPTDF it's the `PTDFBranchFlow == FlowActivePowerVariable` tie; on DCP/DCPLL there is no separate flow-definition equality, so the slack falls back to the same row style as `StaticBranch` |
+
+On `IVRNetworkModel` both mechanisms are present at once, on different equations:
+
+  - `StaticBranch` relaxes the terminal `CurrentLimitConstraint` quadratic
+    (`cr² + ci² ≤ c_rating²`) with one-sided metaed slacks `"c_from"`/`"c_to"`.
+  - `StaticBranchBounds` leaves `CurrentLimitConstraint` hard and instead relaxes the four
+    terminal KCL current-defining equalities with their own metaed pairs — `"cr_fr"`,
+    `"ci_fr"`, `"cr_to"`, `"ci_to"` — one pair per definition because the from-side row scales
+    the current by `tm²` while the to-side row does not, so a shared pair would relax the two
+    ends unequally under off-nominal taps.
+
+!!! note "Pricing asymmetry between the two slack domains"
+    
+    Every slack container above is priced identically at `CONSTRAINT_VIOLATION_SLACK_COST` in
+    the objective, but the *domain* being relaxed differs. `StaticBranchBounds`'s
+    `"p_ft"`/`"p_tf"`/`"q_ft"`/`"q_tf"`/`"cr_*"`/`"ci_*"` pairs are flow-domain (MW / per-unit current); `StaticBranch`'s
+    meta-less and `"c_from"`/`"c_to"` slacks relax a **squared** domain (MVA² / A²) because they
+    are subtracted directly from a quadratic left-hand side. The same price per unit therefore
+    represents a different marginal relaxation depending on which formulation is active — a
+    one-unit squared-domain slack does not correspond to a one-unit flow violation, so shadow
+    costs and slack magnitudes are not directly comparable between `StaticBranch` and
+    `StaticBranchBounds`.
 
 #### `StaticBranchUnbounded`
 
