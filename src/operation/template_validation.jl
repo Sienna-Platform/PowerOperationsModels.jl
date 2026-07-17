@@ -276,10 +276,10 @@ _supports_network(::AllNetworksExceptLPACC, ::NetworkModel) = true
 _supports_network(::AllNetworksExceptLPACC, ::NetworkModel{LPACCNetworkModel}) = false
 
 _supports_network(::ReactiveNetworksOnly, ::NetworkModel) = false
-_supports_network(::ReactiveNetworksOnly, ::NetworkModel{ACPNetworkModel}) = true
-_supports_network(::ReactiveNetworksOnly, ::NetworkModel{ACRNetworkModel}) = true
-_supports_network(::ReactiveNetworksOnly, ::NetworkModel{IVRNetworkModel}) = true
-_supports_network(::ReactiveNetworksOnly, ::NetworkModel{LPACCNetworkModel}) = true
+_supports_network(
+    ::ReactiveNetworksOnly,
+    ::NetworkModel{<:AbstractReactivePowerNetworkModel},
+) = true
 
 # Validation-time counterpart of the `supports_flow_slacks` gate (see
 # core/branch_slack_specs.jl): a use_slacks request on a pair whose `slack_spec` declares
