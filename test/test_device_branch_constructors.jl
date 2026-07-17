@@ -34,7 +34,7 @@ end
           IOM.ModelBuildStatus.BUILT
 
     @test check_variable_bounded(model_m, FlowActivePowerFromToVariable, MonitoredLine)
-    @test check_variable_unbounded(model_m, FlowReactivePowerFromToVariable, MonitoredLine)
+    @test check_variable_bounded(model_m, FlowReactivePowerFromToVariable, MonitoredLine)
 
     @test solve!(model_m) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
     @test check_flow_variable_values(
@@ -624,9 +624,9 @@ end
     @test build!(model_m; output_dir = mktempdir(; cleanup = true)) ==
           IOM.ModelBuildStatus.BUILT
     @test check_variable_bounded(model_m, FlowActivePowerFromToVariable, TapTransformer)
-    @test check_variable_unbounded(model_m, FlowReactivePowerFromToVariable, TapTransformer)
+    @test check_variable_bounded(model_m, FlowReactivePowerFromToVariable, TapTransformer)
     @test check_variable_bounded(model_m, FlowActivePowerToFromVariable, Transformer2W)
-    @test check_variable_unbounded(model_m, FlowReactivePowerToFromVariable, Transformer2W)
+    @test check_variable_bounded(model_m, FlowReactivePowerToFromVariable, Transformer2W)
 
     psi_constraint_test(model_m, ratelimit_constraint_keys)
 

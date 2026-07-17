@@ -124,7 +124,28 @@ function mock_construct_device!(
             "Event models are not supported in InfrastructureOptimizationModels. Use PowerSimulations for event modeling.",
         )
     end
-    set_device_model!(problem.template, model)
+    mock_construct_devices!(
+        problem,
+        (model,);
+        built_for_recurrent_solves = built_for_recurrent_solves,
+    )
+    return
+end
+
+# Only used for testing. Unlike `mock_construct_device!`, this runs `ArgumentConstructStage`
+# for every device model before any `ModelConstructStage`, matching how a real
+# `build_problem!` sequences a template. Needed whenever two device models have a
+# cross-reference (e.g. a turbine's constraint reads a reservoir's variable and
+# vice versa): running each device's Argument+Model pair back to back, one device at a
+# time, cannot satisfy that circular ordering.
+function mock_construct_devices!(
+    problem::IOM.DecisionModel{MockOperationProblem},
+    models;
+    built_for_recurrent_solves = false,
+)
+    for model in models
+        set_device_model!(problem.template, model)
+    end
     template = IOM.get_template(problem)
     IOM.finalize_template!(template, IOM.get_system(problem))
     IOM.validate_time_series!(problem)
@@ -149,20 +170,24 @@ function mock_construct_device!(
         IOM.get_system(problem),
         Dict{Int64, Set{Int64}}(),
     )
-    construct_device!(
-        IOM.get_optimization_container(problem),
-        IOM.get_system(problem),
-        IOM.ArgumentConstructStage(),
-        model,
-        IOM.get_network_model(template),
-    )
-    construct_device!(
-        IOM.get_optimization_container(problem),
-        IOM.get_system(problem),
-        IOM.ModelConstructStage(),
-        model,
-        IOM.get_network_model(template),
-    )
+    for model in models
+        construct_device!(
+            IOM.get_optimization_container(problem),
+            IOM.get_system(problem),
+            IOM.ArgumentConstructStage(),
+            model,
+            IOM.get_network_model(template),
+        )
+    end
+    for model in models
+        construct_device!(
+            IOM.get_optimization_container(problem),
+            IOM.get_system(problem),
+            IOM.ModelConstructStage(),
+            model,
+            IOM.get_network_model(template),
+        )
+    end
 
     IOM.check_optimization_container(IOM.get_optimization_container(problem))
 

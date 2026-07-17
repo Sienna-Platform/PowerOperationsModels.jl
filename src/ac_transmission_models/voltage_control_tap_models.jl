@@ -139,6 +139,7 @@ function add_constraints!(
     cons_pft, cons_qft, cons_ptf, cons_qtf =
         _add_flow_constraint_containers!(container, T, branch_names)
     jump_model = get_jump_model(container)
+    slacks = _flow_equality_slacks(container, device_model, T)
 
     for g_geom in geoms
         name = g_geom.name
@@ -155,6 +156,10 @@ function add_constraints!(
             _add_tap_acp_flow!(
                 jump_model, cons_pft, cons_qft, cons_ptf, cons_qtf, pft, qft, ptf, qtf,
                 name, t, vmf, vmt, θ, coef, tap[name, t],
+                _slack_term(slacks.p_ft, name, t),
+                _slack_term(slacks.q_ft, name, t),
+                _slack_term(slacks.p_tf, name, t),
+                _slack_term(slacks.q_tf, name, t),
             )
         end
     end
@@ -187,6 +192,7 @@ function add_constraints!(
     cons_pft, cons_qft, cons_ptf, cons_qtf =
         _add_flow_constraint_containers!(container, T, branch_names)
     jump_model = get_jump_model(container)
+    slacks = _flow_equality_slacks(container, device_model, T)
 
     for g_geom in geoms
         name = g_geom.name
@@ -208,6 +214,10 @@ function add_constraints!(
             _add_tap_acr_flow!(
                 jump_model, cons_pft, cons_qft, cons_ptf, cons_qtf, pft, qft, ptf, qtf,
                 name, t, vv_fr, vv_to, cosprod, sinprod, coef, tap[name, t],
+                _slack_term(slacks.p_ft, name, t),
+                _slack_term(slacks.q_ft, name, t),
+                _slack_term(slacks.p_tf, name, t),
+                _slack_term(slacks.q_tf, name, t),
             )
         end
     end

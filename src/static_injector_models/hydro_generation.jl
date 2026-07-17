@@ -2601,6 +2601,31 @@ get_min_max_limits(
 ) = PSY.get_active_power_limits_pump(x, PSY.SU)
 
 """
+Min and max reactive Power Variable limits for hydro pump/turbine formulations.
+"""
+get_min_max_limits(
+    x::PSY.HydroPumpTurbine,
+    ::Type{<:ReactivePowerVariableLimitsConstraint},
+    ::Type{<:AbstractHydroPumpFormulation},
+) = PSY.get_reactive_power_limits(x, PSY.SU)
+
+function add_constraints!(
+    container::OptimizationContainer,
+    T::Type{ReactivePowerVariableLimitsConstraint},
+    U::Type{ReactivePowerVariable},
+    devices::IS.FlattenIteratorWrapper{V},
+    model::DeviceModel{V, W},
+    ::NetworkModel{X},
+) where {
+    V <: PSY.HydroPumpTurbine,
+    W <: AbstractHydroPumpFormulation,
+    X <: AbstractNetworkModel,
+}
+    add_range_constraints!(container, T, U, devices, model, X)
+    return
+end
+
+"""
 This function defines the constraints for the pump power
 for the [`PowerSystems.HydroPumpTurbine`](@extref).
 

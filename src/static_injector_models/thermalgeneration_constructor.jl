@@ -42,6 +42,36 @@ function construct_device!(
 end
 
 function construct_device!(
+    container::OptimizationContainer,
+    sys::PSY.System,
+    ::ArgumentConstructStage,
+    device_model::DeviceModel{T, FixedOutput},
+    network_model::NetworkModel{<:AbstractNetworkModel},
+) where {T <: PSY.ThermalGen}
+    devices = get_available_components(device_model, sys)
+    add_parameters!(container, ActivePowerTimeSeriesParameter, devices, device_model)
+    add_parameters!(container, ReactivePowerTimeSeriesParameter, devices, device_model)
+    add_to_expression!(
+        container,
+        ActivePowerBalance,
+        ActivePowerTimeSeriesParameter,
+        devices,
+        device_model,
+        network_model,
+    )
+    add_to_expression!(
+        container,
+        ReactivePowerBalance,
+        ReactivePowerTimeSeriesParameter,
+        devices,
+        device_model,
+        network_model,
+    )
+    add_event_arguments!(container, devices, device_model, network_model)
+    return
+end
+
+function construct_device!(
     ::OptimizationContainer,
     ::PSY.System,
     ::ModelConstructStage,
@@ -1515,6 +1545,14 @@ function construct_device!(
         device_model,
         network_model,
     )
+    add_to_expression!(
+        container,
+        ReactivePowerBalance,
+        ReactivePowerVariable,
+        devices,
+        device_model,
+        network_model,
+    )
 
     add_cost_expressions!(container, devices, device_model)
 
@@ -1817,6 +1855,14 @@ function construct_device!(
         container,
         ActivePowerBalance,
         OnVariable,
+        devices,
+        device_model,
+        network_model,
+    )
+    add_to_expression!(
+        container,
+        ReactivePowerBalance,
+        ReactivePowerVariable,
         devices,
         device_model,
         network_model,

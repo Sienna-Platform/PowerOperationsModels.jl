@@ -98,6 +98,7 @@ function validate_template_impl!(model::IOM.AbstractOptimizationModel)
                 ),
             )
         else
+            _validate_branch_slack_request(k, device_model, network_formulation)
             push!(network_model.modeled_branch_types, get_component_type(device_model))
         end
         if get_attribute(device_model, "filter_function") !== nothing
@@ -204,40 +205,112 @@ function _check_security_constrained_three_winding_transformer!(
 end
 
 # Whether an `AbstractSecurityConstrainedStaticBranch` has a `construct_device!`
-# path for this network model. PTDF and ACP build full post-contingency limits;
-# NFA/CopperPlate/AreaBalance are intentional no-ops. The fallback returns
-# `false` so unsupported networks fail fast at validation instead of hitting a
-# `MethodError` during build.
+# path for this network model. The MODF post-contingency flow is a lossless
+# linear DC construct, so only PTDF/AreaPTDF/DCP build full post-contingency
+# limits; NFA/CopperPlate/AreaBalance are intentional no-ops. The fallback
+# returns `false` so the AC and lossy networks fail fast at validation instead
+# of hitting a `MethodError` during build.
 _sc_branch_network_supported(::NetworkModel{<:AbstractPTDFNetworkModel}) = true
-_sc_branch_network_supported(::NetworkModel{<:AbstractACPModel}) = true
+_sc_branch_network_supported(::NetworkModel{DCPNetworkModel}) = true
 _sc_branch_network_supported(::NetworkModel{NFANetworkModel}) = true
 _sc_branch_network_supported(::NetworkModel{CopperPlateNetworkModel}) = true
 _sc_branch_network_supported(::NetworkModel{AreaBalanceNetworkModel}) = true
 _sc_branch_network_supported(::NetworkModel) = false
 
-# Whether a device/branch formulation has a `construct_device!` path for this network
-# model. Default true; false for the reactive control formulations that build only
-# under ACP/ACR/IVR. LPACC is reactive-capable at the network level
-# (`network_has_reactive_power` is true), so the coarse reactive-power gate admits
-# these devices; without this check they fail later with a generic
-# "construct_device! not implemented" error that `build!` swallows into a FAILED
-# status. Mirrors the `_sc_branch_network_supported` predicate-with-false-fallback.
-_formulation_supports_network(::Type{<:AbstractDeviceFormulation}, ::NetworkModel) = true
-_formulation_supports_network(
-    ::Type{ShuntSusceptanceDispatch},
-    ::NetworkModel{LPACCNetworkModel},
-) =
-    false
-_formulation_supports_network(
-    ::Type{VoltageControlTap},
-    ::NetworkModel{LPACCNetworkModel},
-) =
-    false
-_formulation_supports_network(
-    ::Type{VoltageControlConverter},
-    ::NetworkModel{LPACCNetworkModel},
-) =
-    false
+"""
+Trait axis describing which network models a device formulation has a `construct_device!`
+path for. The set of network models a formulation builds under cuts across the formulation
+type hierarchy, so it cannot be expressed as a supertype. Declare one
+[`network_support`](@ref) method per formulation; downstream packages extend the gate the
+same way, which a `Union` alias could not allow.
+"""
+abstract type NetworkSupport end
+"Formulation builds under every network model. Default."
+struct AllNetworks <: NetworkSupport end
+"""
+Formulation needs a full AC network; the linear-programming AC cold-start approximation
+(LPACC, [`LPACCNetworkModel`](@ref)) linearizes the reactive layer and cannot build it.
+"""
+struct AllNetworksExceptLPACC <: NetworkSupport end
+
+"""
+    network_support(::Type{<:AbstractDeviceFormulation}) -> NetworkSupport
+
+Which network models a device formulation can be constructed under. Defaults to
+[`AllNetworks`](@ref); a formulation whose `construct_device!` is bound to a narrower
+network type must declare it here or it fails deep inside `build!` instead of at template
+validation.
+"""
+network_support(::Type{<:AbstractDeviceFormulation}) = AllNetworks()
+
+# LPACC is reactive-capable at the network level (`network_has_reactive_power` is true), so
+# the coarse reactive-power gate admits these devices even though their control layer has no
+# LPACC construct path.
+network_support(::Type{ShuntSusceptanceDispatch}) = AllNetworksExceptLPACC()
+network_support(::Type{VoltageControlTap}) = AllNetworksExceptLPACC()
+network_support(::Type{VoltageControlConverter}) = AllNetworksExceptLPACC()
+
+# Whether a device/branch formulation has a `construct_device!` path for this network model.
+# Without this check an unsupported pair fails later with a generic "construct_device! not
+# implemented" error that `build!` swallows into a FAILED status.
+function _formulation_supports_network(
+    ::Type{F},
+    network_model::NetworkModel,
+) where {F <: AbstractDeviceFormulation}
+    return _supports_network(network_support(F), network_model)
+end
+
+_supports_network(::AllNetworks, ::NetworkModel) = true
+
+_supports_network(::AllNetworksExceptLPACC, ::NetworkModel) = true
+_supports_network(::AllNetworksExceptLPACC, ::NetworkModel{LPACCNetworkModel}) = false
+
+# Validation-time counterpart of the `supports_flow_slacks` gate (see
+# core/branch_slack_specs.jl): a use_slacks request on a pair whose `slack_spec` declares
+# no machinery is a hard conflict on branch-modeling networks. CopperPlate/AreaBalance
+# build no branch containers at all, so the request is inert there — warn instead of
+# erroring to keep templates reusable on aggregated networks.
+function _validate_branch_slack_request(
+    key::Symbol,
+    device_model::IOM.DeviceModel,
+    ::Type{N},
+) where {N <: AbstractNetworkModel}
+    get_use_slacks(device_model) || return
+    F = get_formulation(device_model)
+    supports_flow_slacks(F, N) && return
+    if branches_modeled(N)
+        throw(
+            IS.ConflictingInputsError(
+                "Branch model $(key) with formulation $(F) has use_slacks = true, but " *
+                "$(N) builds no flow-definition equality, rating constraint row or " *
+                "quadratic limit for this formulation, so there is nothing for the " *
+                "slack to relax. Remove use_slacks, change the formulation, or use a " *
+                "different network model.",
+            ),
+        )
+    end
+    @warn "use_slacks = true on branch model $(key) has no effect: $(N) does not model " *
+          "individual branch flows." _group = IOM.LOG_GROUP_MODELS_VALIDATION
+    return
+end
+
+# Construct-time backstop (NFA StaticBranchBounds ArgumentConstructStage), so mock/direct
+# construct paths that bypass template validation stay protected.
+function _check_flow_slack_support(
+    device_model::IOM.DeviceModel,
+    network_model::NetworkModel,
+)
+    get_use_slacks(device_model) || return
+    F = get_formulation(device_model)
+    N = get_network_formulation(network_model)
+    supports_flow_slacks(F, N) && return
+    throw(
+        ArgumentError(
+            "$(F) formulation and $(N) is not compatible with the use of slacks",
+        ),
+    )
+end
+
 function _check_security_constrained_network!(
     branch_models::IOM.BranchModelContainer,
     network_model::NetworkModel,
@@ -249,9 +322,11 @@ function _check_security_constrained_network!(
             throw(
                 IS.ConflictingInputsError(
                     "$(B) is not supported with network model \
-                    $(get_network_formulation(network_model)). Use a PTDF \
-                    (AbstractPTDFNetworkModel) or ACP network model. DCP support \
-                    (angle-based post-contingency) is pending; NFA, \
+                    $(get_network_formulation(network_model)). Supported network \
+                    models are PTDF, AreaPTDF and DCP. Security-constrained \
+                    branches are not available on AC or lossy network models \
+                    (ACP/ACR/IVR/LPACC/DCPLL) because the MODF post-contingency \
+                    formulation is a lossless linear DC construct. NFA, \
                     CopperPlate and AreaBalance are inert for \
                     security-constrained branches.",
                 ),

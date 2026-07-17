@@ -1277,3 +1277,221 @@ end
         },
     )
 end
+
+####################################################
+#### AC NETWORK COVERAGE FOR HYDRO WATER MODELS ####
+####################################################
+# HydroTurbine <: PSY.HydroGen: a missing AC construct path silently falls through to
+# the generic run-of-river dispatch with no water-flow variables. Each testset asserts
+# the water-side containers are non-empty to catch that regression.
+@testset "Hydro turbine water dispatch formulations build the real water model on AC networks" begin
+    c_sys5_hy = PSB.build_system(PSITestSystems, "c_sys5_hy_turbine_head")
+    ac_networks = (ACPNetworkModel, ACRNetworkModel, IVRNetworkModel, LPACCNetworkModel)
+
+    for formulation in (HydroTurbineBilinearDispatch, HydroTurbineWaterLinearDispatch)
+        for network_formulation in (ac_networks..., DCPNetworkModel)
+            template = PowerOperationsProblemTemplate(NetworkModel(network_formulation))
+            set_device_model!(template, HydroTurbine, formulation)
+            set_device_model!(template, HydroReservoir, HydroWaterModelReservoir)
+            set_device_model!(template, ThermalStandard, ThermalDispatchNoMin)
+            set_device_model!(template, PowerLoad, StaticPowerLoad)
+            set_device_model!(template, Line, StaticBranch)
+
+            model = DecisionModel(
+                template,
+                c_sys5_hy;
+                optimizer = ipopt_optimizer,
+                store_variable_names = true,
+            )
+            @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+                  ModelBuildStatus.BUILT
+
+            container = IOM.get_optimization_container(model)
+
+            flow = IOM.get_variable(container, HydroTurbineFlowRateVariable, HydroTurbine)
+            @test !isempty(flow)
+            turbine_power_constraint =
+                IOM.get_constraint(container, TurbinePowerOutputConstraint, HydroTurbine)
+            @test !isempty(turbine_power_constraint)
+
+            if network_formulation in ac_networks
+                q = IOM.get_variable(container, ReactivePowerVariable, HydroTurbine)
+                balance = IOM.get_expression(container, POM.ReactivePowerBalance, PSY.ACBus)
+                t1 = first(IOM.get_time_steps(container))
+                for device in PSY.get_components(HydroTurbine, c_sys5_hy)
+                    name = PSY.get_name(device)
+                    bus_no = PSY.get_number(PSY.get_bus(device))
+                    @test JuMP.coefficient(balance[bus_no, t1], q[name, t1]) == 1.0
+                end
+            end
+        end
+    end
+end
+
+@testset "HydroTurbineWaterLinearCommitment builds the real water model on AC networks" begin
+    # HydroTurbineWaterLinearCommitment adds OnVariable (binary). Combined with an AC
+    # network's inherently nonlinear power flow, no attached solver in this suite supports
+    # both a MILP and a nonlinear network simultaneously, so this uses the mock container
+    # idiom (no solver attached) instead of build!()/solve!(). The turbine and reservoir
+    # formulations cross-reference each other's variables, so both device models must have
+    # their ArgumentConstructStage run before either's ModelConstructStage.
+    c_sys5_hy = PSB.build_system(PSITestSystems, "c_sys5_hy_turbine_head")
+    reservoir_model = DeviceModel(HydroReservoir, HydroWaterModelReservoir)
+    turbine_model = DeviceModel(HydroTurbine, HydroTurbineWaterLinearCommitment)
+    ac_networks = (ACPNetworkModel, ACRNetworkModel, IVRNetworkModel, LPACCNetworkModel)
+
+    for network_formulation in (ac_networks..., DCPNetworkModel)
+        model = DecisionModel(MockOperationProblem, network_formulation, c_sys5_hy)
+        mock_construct_devices!(model, (reservoir_model, turbine_model))
+
+        container = IOM.get_optimization_container(model)
+
+        flow = IOM.get_variable(container, HydroTurbineFlowRateVariable, HydroTurbine)
+        @test !isempty(flow)
+        on_var = IOM.get_variable(container, OnVariable, HydroTurbine)
+        @test !isempty(on_var)
+        turbine_power_constraint =
+            IOM.get_constraint(container, TurbinePowerOutputConstraint, HydroTurbine)
+        @test !isempty(turbine_power_constraint)
+
+        if network_formulation in ac_networks
+            q = IOM.get_variable(container, ReactivePowerVariable, HydroTurbine)
+            balance = IOM.get_expression(container, POM.ReactivePowerBalance, PSY.ACBus)
+            t1 = first(IOM.get_time_steps(container))
+            for device in PSY.get_components(HydroTurbine, c_sys5_hy)
+                name = PSY.get_name(device)
+                bus_no = PSY.get_number(PSY.get_bus(device))
+                @test JuMP.coefficient(balance[bus_no, t1], q[name, t1]) == 1.0
+            end
+        end
+    end
+end
+
+@testset "HydroWaterFactorModel builds the real water model on AC networks" begin
+    ac_networks = (ACPNetworkModel, ACRNetworkModel, IVRNetworkModel, LPACCNetworkModel)
+    sys = PSB.build_system(PSITestSystems, "c_sys5_hy_turbine_energy")
+    res = first(PSY.get_components(HydroReservoir, sys))
+    set_head_to_volume_factor!(res, LinearFunctionData(1.0))
+    set_storage_level_limits!(res, (min = 4000, max = 6000))
+    set_level_targets!(res, 0.9)
+
+    for network_formulation in (ac_networks..., DCPNetworkModel)
+        template = PowerOperationsProblemTemplate(NetworkModel(network_formulation))
+        set_device_model!(template, ThermalStandard, ThermalBasicDispatch)
+        set_device_model!(template, PowerLoad, StaticPowerLoad)
+        set_device_model!(template, HydroReservoir, HydroWaterFactorModel)
+        set_device_model!(template, HydroTurbine, HydroWaterFactorModel)
+        set_device_model!(template, Line, StaticBranch)
+
+        model = DecisionModel(
+            template,
+            sys;
+            optimizer = ipopt_optimizer,
+            store_variable_names = true,
+            horizon = Hour(24),
+        )
+        @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+              ModelBuildStatus.BUILT
+
+        container = IOM.get_optimization_container(model)
+
+        flow = IOM.get_variable(container, HydroTurbineFlowRateVariable, HydroTurbine)
+        @test !isempty(flow)
+        hydro_power_constraint =
+            IOM.get_constraint(container, POM.HydroPowerConstraint, HydroTurbine)
+        @test !isempty(hydro_power_constraint)
+
+        if network_formulation in ac_networks
+            q = IOM.get_variable(container, ReactivePowerVariable, HydroTurbine)
+            balance = IOM.get_expression(container, POM.ReactivePowerBalance, PSY.ACBus)
+            t1 = first(IOM.get_time_steps(container))
+            for device in PSY.get_components(HydroTurbine, sys)
+                name = PSY.get_name(device)
+                bus_no = PSY.get_number(PSY.get_bus(device))
+                @test JuMP.coefficient(balance[bus_no, t1], q[name, t1]) == 1.0
+            end
+        end
+    end
+end
+
+@testset "HydroCommitmentRunOfRiver builds the real model with reactive power on AC networks" begin
+    c_sys5_hy = PSB.build_system(PSITestSystems, "c_sys5_hy")
+    device_model = DeviceModel(HydroDispatch, HydroCommitmentRunOfRiver)
+
+    for network_formulation in
+        (
+        ACPNetworkModel,
+        ACRNetworkModel,
+        IVRNetworkModel,
+        LPACCNetworkModel,
+        DCPNetworkModel,
+    )
+        model = DecisionModel(MockOperationProblem, network_formulation, c_sys5_hy)
+        mock_construct_device!(model, device_model)
+
+        container = IOM.get_optimization_container(model)
+
+        on_var = IOM.get_variable(container, OnVariable, HydroDispatch)
+        @test !isempty(on_var)
+
+        if network_formulation != DCPNetworkModel
+            q = IOM.get_variable(container, ReactivePowerVariable, HydroDispatch)
+            balance = IOM.get_expression(container, POM.ReactivePowerBalance, PSY.ACBus)
+            t1 = first(IOM.get_time_steps(container))
+            for device in PSY.get_components(HydroDispatch, c_sys5_hy)
+                name = PSY.get_name(device)
+                bus_no = PSY.get_number(PSY.get_bus(device))
+                @test JuMP.coefficient(balance[bus_no, t1], q[name, t1]) == 1.0
+            end
+        end
+    end
+end
+
+@testset "Hydro pump energy formulations build the real model with reactive power on AC networks" begin
+    c_sys5_pump = PSB.build_system(
+        PSITestSystems,
+        "c_sys5_hydro_pump_energy";
+        add_single_time_series = true,
+    )
+    transform_single_time_series!(c_sys5_pump, Hour(24), Hour(24))
+
+    for formulation in (HydroPumpEnergyDispatch, HydroPumpEnergyCommitment)
+        device_model = DeviceModel(
+            HydroPumpTurbine,
+            formulation;
+            attributes = Dict{String, Any}("reservation" => true),
+        )
+        for network_formulation in (
+            ACPNetworkModel,
+            ACRNetworkModel,
+            IVRNetworkModel,
+            LPACCNetworkModel,
+            DCPNetworkModel,
+        )
+            model = DecisionModel(MockOperationProblem, network_formulation, c_sys5_pump)
+            mock_construct_device!(model, device_model)
+
+            container = IOM.get_optimization_container(model)
+
+            pump_var =
+                IOM.get_variable(container, ActivePowerPumpVariable, HydroPumpTurbine)
+            @test !isempty(pump_var)
+            if formulation == HydroPumpEnergyCommitment
+                on_var = IOM.get_variable(container, OnVariable, HydroPumpTurbine)
+                @test !isempty(on_var)
+            end
+
+            if network_formulation != DCPNetworkModel
+                q = IOM.get_variable(container, ReactivePowerVariable, HydroPumpTurbine)
+                balance =
+                    IOM.get_expression(container, POM.ReactivePowerBalance, PSY.ACBus)
+                t1 = first(IOM.get_time_steps(container))
+                for device in PSY.get_components(HydroPumpTurbine, c_sys5_pump)
+                    name = PSY.get_name(device)
+                    bus_no = PSY.get_number(PSY.get_bus(device))
+                    @test JuMP.coefficient(balance[bus_no, t1], q[name, t1]) == 1.0
+                end
+            end
+        end
+    end
+end

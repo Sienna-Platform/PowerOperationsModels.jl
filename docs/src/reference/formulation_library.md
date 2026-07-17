@@ -2,11 +2,13 @@
 
 ## [Introduction](@id formulation_intro)
 
-A `PowerOperationsModels` problem is assembled from three independent choices:
+A `PowerOperationsModels` problem is assembled from three kinds of formulation choices:
 
-  - a **network formulation** (`NetworkModel{N}`) — how the transmission system is represented,
-  - a **device formulation** (`DeviceModel{D, F}`) — how each component type is modelled,
-  - a **service formulation** (`ServiceModel{S, F}`) — how each service is modelled.
+  - one **network formulation** (`NetworkModel{N}`) for the whole problem — how the transmission
+    system is represented,
+  - a **device formulation** (`DeviceModel{D, F}`) *per device type* — how each component type is
+    modelled,
+  - a **service formulation** (`ServiceModel{S, F}`) *per service* — how each service is modelled.
 
 Every formulation implements `construct_device!` (or `construct_service!` / `construct_network!`)
 for **two dispatch stages**, and the split matters when reading the tables below:
@@ -62,6 +64,16 @@ IOM.AbstractNetworkModel
 Note that `AbstractPTDFNetworkModel <: AbstractDCPNetworkModel`, so any method bound to
 `<:AbstractDCPNetworkModel` also matches the PTDF models. `CopperPlateNetworkModel` and
 `AreaBalanceNetworkModel` are *not* DCP subtypes.
+
+The shorthands used throughout these tables:
+
+  - **`ACP`** — AC power flow in **polar** coordinates (voltage magnitude and angle),
+  - **`ACR`** — AC power flow in **rectangular** coordinates (voltage real and imaginary),
+  - **`IVR`** — AC current-voltage rectangular formulation,
+  - **`LPACC`** — linear-programming AC approximation (cold-start),
+  - **`DCP`** — DC power flow; **`DCPLL`** — DC power flow with line losses,
+  - **`NFA`** — network flow approximation (no voltage angles),
+  - **`PTDF`** / **`AreaPTDF`** — power-transfer-distribution-factor transport, nodal / area-keyed.
 
 ### What each network model adds
 
@@ -181,12 +193,12 @@ A no-op on every network model except PTDF, where the model stage still builds t
 
 N-1 security constraints are built with Modified Outage Distribution Factors (PNM `VirtualMODF`).
 
-| Network model                                                                                     | Behaviour                                                                                                                                                                                  |
-|:------------------------------------------------------------------------------------------------- |:------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `PTDFNetworkModel`, `AreaPTDFNetworkModel`                                                        | Full support: `PTDFBranchFlow` and `PostContingencyBranchFlow` expressions, `FlowRateConstraint` and `PostContingencyFlowRateConstraint` (`"lb"`/`"ub"`), optional post-contingency slacks |
-| `ACPNetworkModel`                                                                                 | Full support, with the four directional flow variables and both upper *and* lower slacks                                                                                                   |
-| `NFANetworkModel`, `CopperPlateNetworkModel`, `AreaBalanceNetworkModel`                           | Deliberate no-op                                                                                                                                                                           |
-| `DCPNetworkModel`, `DCPLLNetworkModel`, `ACRNetworkModel`, `IVRNetworkModel`, `LPACCNetworkModel` | **Unsupported** — template validation throws `ConflictingInputsError`                                                                                                                      |
+| Network model                                                                                     | Behaviour                                                                                                                                                                                                                                                                                                                               |
+|:------------------------------------------------------------------------------------------------- |:--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `PTDFNetworkModel`, `AreaPTDFNetworkModel`                                                        | Full support: `PTDFBranchFlow` and `PostContingencyBranchFlow` expressions, `FlowRateConstraint` and `PostContingencyFlowRateConstraint` (`"lb"`/`"ub"`), optional post-contingency slacks. The post-contingency flow is the MODF-redistributed expression `MODF ⋅ nodal balance` (on these networks the balance holds only injections) |
+| `DCPNetworkModel`                                                                                 | Full support: replicates the DCP `StaticBranch` construction (`FlowActivePowerVariable`, DC Ohm's law, angle-difference and rate limits) and builds the genuine MODF post-contingency flow `MODF ⋅ nodal injections`, with the injections recovered exactly (by KCL) from the branch-flow terms of the zero-constrained nodal balance   |
+| `ACPNetworkModel`, `ACRNetworkModel`, `IVRNetworkModel`, `LPACCNetworkModel`, `DCPLLNetworkModel` | **Blocked** at template validation with an `IS.ConflictingInputsError`: the MODF post-contingency formulation is a lossless linear DC construct and is not available on AC or lossy network models                                                                                                                                      |
+| `NFANetworkModel`, `CopperPlateNetworkModel`, `AreaBalanceNetworkModel`                           | Deliberate no-op — a `@warn` states the security constraints are inert                                                                                                                                                                                                                                                                  |
 
 #### Tap and phase-angle control
 

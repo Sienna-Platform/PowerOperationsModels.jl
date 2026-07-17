@@ -596,3 +596,23 @@ Return a DataFrame from a CSV file.
 function read_dataframe(filename::AbstractString)
     return CSV.read(filename, DataFrames.DataFrame)
 end
+
+function _slack_indicator_value(v, var)
+    if v === var
+        return 1.0
+    else
+        return 0.0
+    end
+end
+
+"""
+Residual coefficient of `var` in constraint `con`. Quadratic and nonlinear rows cannot be
+read with `JuMP.normalized_coefficient`, but a slack enters every row linearly, so its
+coefficient is `value(slack=1, rest=0) − value(rest=0)`, which reads uniformly across
+affine, quadratic and nonlinear rows.
+"""
+function slack_residual_coefficient(con, var)
+    f = JuMP.constraint_object(con).func
+    base = JuMP.value(v -> 0.0, f)
+    return JuMP.value(v -> _slack_indicator_value(v, var), f) - base
+end
