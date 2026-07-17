@@ -233,31 +233,6 @@ function add_to_expression!(
     U <: ActivePowerVariable,
     V <: PSY.InterconnectingConverter,
     W <: AbstractConverterFormulation,
-    X <: AreaPTDFNetworkModel,
-}
-    _add_to_expression!(
-        container,
-        T,
-        U,
-        devices,
-        device_model,
-        network_model,
-    )
-    return
-end
-
-function add_to_expression!(
-    container::OptimizationContainer,
-    ::Type{T},
-    ::Type{U},
-    devices::IS.FlattenIteratorWrapper{V},
-    device_model::DeviceModel{V, W},
-    network_model::NetworkModel{X},
-) where {
-    T <: ActivePowerBalance,
-    U <: ActivePowerVariable,
-    V <: PSY.InterconnectingConverter,
-    W <: AbstractConverterFormulation,
     X <: AbstractNetworkModel,
 }
     _add_to_expression!(
@@ -288,10 +263,11 @@ function _add_to_expression!(
     variable = get_variable(container, U, V)
     expression_dc = get_expression(container, T, PSY.DCBus)
     expression_ac = get_expression(container, T, PSY.ACBus)
+    network_reduction = get_network_reduction(network_model)
     for d in devices, t in get_time_steps(container)
         name = PSY.get_name(d)
         bus_number_dc = PSY.get_number(PSY.get_dc_bus(d))
-        bus_number_ac = PSY.get_number(PSY.get_bus(d))
+        bus_number_ac = PNM.get_mapped_bus_number(network_reduction, PSY.get_bus(d))
         add_proportional_to_jump_expression!(
             expression_ac[bus_number_ac, t],
             variable[name, t],
@@ -312,47 +288,43 @@ function add_to_expression!(
     ::Type{U},
     devices::IS.FlattenIteratorWrapper{V},
     ::DeviceModel{V, W},
-    network_model::NetworkModel{AreaPTDFNetworkModel},
+    network_model::NetworkModel{X},
 ) where {
     T <: ActivePowerBalance,
     U <: ActivePowerVariable,
     V <: PSY.InterconnectingConverter,
     W <: AbstractConverterFormulation,
-}
-    error("AreaPTDFNetworkModel doesn't support InterconnectingConverter")
-    return
-end
-
-function add_to_expression!(
-    container::OptimizationContainer,
-    ::Type{T},
-    ::Type{U},
-    devices::IS.FlattenIteratorWrapper{V},
-    ::DeviceModel{V, W},
-    network_model::NetworkModel{PTDFNetworkModel},
-) where {
-    T <: ActivePowerBalance,
-    U <: ActivePowerVariable,
-    V <: PSY.InterconnectingConverter,
-    W <: AbstractConverterFormulation,
+    X <: AreaPTDFNetworkModel,
 }
     variable = get_variable(container, U, V)
     expression_dc = get_expression(container, T, PSY.DCBus)
     expression_ac = get_expression(container, T, PSY.ACBus)
-    for d in devices, t in get_time_steps(container)
+    area_expr = get_expression(container, T, PSY.Area)
+    network_reduction = get_network_reduction(network_model)
+    multiplier = get_variable_multiplier(U, V, W)
+    for d in devices
         name = PSY.get_name(d)
+        device_bus = PSY.get_bus(d)
+        area_name = PSY.get_name(PSY.get_area(device_bus))
         bus_number_dc = PSY.get_number(PSY.get_dc_bus(d))
-        bus_number_ac = PSY.get_number(PSY.get_bus(d))
-        add_proportional_to_jump_expression!(
-            expression_ac[bus_number_ac, t],
-            variable[name, t],
-            1.0,
-        )
-        add_proportional_to_jump_expression!(
-            expression_dc[bus_number_dc, t],
-            variable[name, t],
-            -1.0,
-        )
+        bus_number_ac = PNM.get_mapped_bus_number(network_reduction, device_bus)
+        for t in get_time_steps(container)
+            add_proportional_to_jump_expression!(
+                area_expr[area_name, t],
+                variable[name, t],
+                multiplier,
+            )
+            add_proportional_to_jump_expression!(
+                expression_ac[bus_number_ac, t],
+                variable[name, t],
+                multiplier,
+            )
+            add_proportional_to_jump_expression!(
+                expression_dc[bus_number_dc, t],
+                variable[name, t],
+                -1.0,
+            )
+        end
     end
     return
 end
@@ -483,7 +455,7 @@ function add_to_expression!(
     U <: ConverterCurrent,
     V <: PSY.InterconnectingConverter,
     W <: AbstractQuadraticLossConverter,
-    X <: Union{ACPNetworkModel, ACRNetworkModel, IVRNetworkModel},
+    X <: NativeACNetworkModel,
 }
     variable = get_variable(container, U, V)
     expression_dc = get_expression(container, T, PSY.DCBus)
@@ -516,7 +488,7 @@ function add_to_expression!(
     U <: ActivePowerVariable,
     V <: PSY.InterconnectingConverter,
     W <: AbstractQuadraticLossConverter,
-    X <: Union{ACPNetworkModel, ACRNetworkModel, IVRNetworkModel},
+    X <: NativeACNetworkModel,
 }
     _add_variable_to_balance!(container, T, U, devices, network_model, device_model)
     return
@@ -536,7 +508,7 @@ function add_to_expression!(
     U <: ReactivePowerVariable,
     V <: PSY.InterconnectingConverter,
     W <: AbstractConverterFormulation,
-    X <: Union{ACPNetworkModel, ACRNetworkModel, IVRNetworkModel},
+    X <: NativeACNetworkModel,
 }
     _add_variable_to_balance!(container, T, U, devices, network_model, device_model)
     return
@@ -560,10 +532,11 @@ function add_to_expression!(
     expression_dc = get_expression(container, T, PSY.DCBus)
     expression_ac = get_expression(container, T, PSY.ACBus)
     sys_expr = get_expression(container, T, PSY.System)
+    network_reduction = get_network_reduction(network_model)
     for d in devices
         name = PSY.get_name(d)
         device_bus = PSY.get_bus(d)
-        bus_number_ac = PSY.get_number(device_bus)
+        bus_number_ac = PNM.get_mapped_bus_number(network_reduction, device_bus)
         ref_bus = get_reference_bus(network_model, device_bus)
         bus_number_dc = PSY.get_number(PSY.get_dc_bus(d))
         for t in get_time_steps(container)
@@ -585,6 +558,66 @@ function add_to_expression!(
         end
     end
 
+    return
+end
+
+# LinearLossConverter: a loss function with a quadratic term cannot be represented;
+# refuse it instead of silently dropping the `a·I²` term.
+function _check_linear_converter_loss(d::PSY.InterconnectingConverter)
+    loss_function = PSY.get_loss_function(d)
+    a = _get_quadratic_term(loss_function)
+    if !iszero(a)
+        error(
+            "InterconnectingConverter $(PSY.get_name(d)) has a loss function with a ",
+            "non-zero quadratic term ($(a)); LinearLossConverter models only the ",
+            "proportional and constant loss terms. Use QuadraticLossConverter or set ",
+            "the quadratic term to zero.",
+        )
+    end
+    return
+end
+
+# LinearLossConverter loss draw on the DC-side `ActivePowerBalance`: the AC/DC
+# transfer keeps the lossless ±P wiring (shared `AbstractConverterFormulation`
+# methods) and the loss `b·|I| + c` is an additional withdrawal at the DC bus.
+# `CurrentAbsoluteValueVariable` is the nominal-voltage surrogate for `|I|`
+# (`I ≈ P` at `v = 1` pu), pinned to `|P|` by cost minimization since the loss
+# increases the required generation.
+function _add_linear_converter_loss_to_dc_balance!(
+    container::OptimizationContainer,
+    devices::IS.FlattenIteratorWrapper{PSY.InterconnectingConverter},
+    ::NetworkModel{<:AbstractNetworkModel},
+)
+    expression_dc = get_expression(container, ActivePowerBalance, PSY.DCBus)
+    abs_var =
+        get_variable(container, CurrentAbsoluteValueVariable, PSY.InterconnectingConverter)
+    for d in devices
+        _check_linear_converter_loss(d)
+        name = PSY.get_name(d)
+        loss_function = PSY.get_loss_function(d)
+        b = PSY.get_proportional_term(loss_function)
+        c = PSY.get_constant_term(loss_function)
+        bus_number_dc = PSY.get_number(PSY.get_dc_bus(d))
+        for t in get_time_steps(container)
+            iszero(b) || add_proportional_to_jump_expression!(
+                expression_dc[bus_number_dc, t],
+                abs_var[name, t],
+                -b,
+            )
+            iszero(c) ||
+                JuMP.add_to_expression!(expression_dc[bus_number_dc, t], -c)
+        end
+    end
+    return
+end
+
+# AreaBalanceNetworkModel: converters contribute nothing to any balance (matching
+# the `AbstractConverterFormulation` no-op above), so no loss draw either.
+function _add_linear_converter_loss_to_dc_balance!(
+    ::OptimizationContainer,
+    ::IS.FlattenIteratorWrapper{PSY.InterconnectingConverter},
+    ::NetworkModel{AreaBalanceNetworkModel},
+)
     return
 end
 

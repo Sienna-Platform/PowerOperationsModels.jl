@@ -27,6 +27,24 @@ function initialize_hvdc_system!(
     return
 end
 
+# Guards each construct_device! call site below: under a subsystem-partitioned
+# network model, the same template's DeviceModels are reused across builds
+# scoped to different subsystems, and a DeviceModel whose component type has no
+# available components in the current subsystem/system must be skipped rather
+# than constructed.
+function validate_available_devices(
+    model::DeviceModel{T, <:AbstractDeviceFormulation},
+    system::PSY.System,
+) where {T <: PSY.Device}
+    devices = get_available_components(model, system)
+    if isempty(devices)
+        @debug "No available components of type $(T); skipping construction of its $(get_formulation(model)) DeviceModel" _group =
+            LOG_GROUP_OPTIMIZATION_CONTAINER
+        return false
+    end
+    return true
+end
+
 # Called `build_impl!(container, template, sys)` in PSI (lived in optimization_container.jl).
 function build_problem!(
     container::OptimizationContainer,
@@ -56,13 +74,15 @@ function build_problem!(
         @debug "Building Arguments for $(get_component_type(device_model)) with $(get_formulation(device_model)) formulation" _group =
             LOG_GROUP_OPTIMIZATION_CONTAINER
         TimerOutputs.@timeit BUILD_PROBLEMS_TIMER "$(get_component_type(device_model))" begin
-            construct_device!(
-                container,
-                sys,
-                ArgumentConstructStage(),
-                device_model,
-                transmission_model,
-            )
+            if validate_available_devices(device_model, sys)
+                construct_device!(
+                    container,
+                    sys,
+                    ArgumentConstructStage(),
+                    device_model,
+                    transmission_model,
+                )
+            end
             @debug "Problem size:" get_problem_size(container) _group =
                 LOG_GROUP_OPTIMIZATION_CONTAINER
         end
@@ -83,13 +103,15 @@ function build_problem!(
         @debug "Building Arguments for $(get_component_type(branch_model)) with $(get_formulation(branch_model)) formulation" _group =
             LOG_GROUP_OPTIMIZATION_CONTAINER
         TimerOutputs.@timeit BUILD_PROBLEMS_TIMER "$(get_component_type(branch_model))" begin
-            construct_device!(
-                container,
-                sys,
-                ArgumentConstructStage(),
-                branch_model,
-                transmission_model,
-            )
+            if validate_available_devices(branch_model, sys)
+                construct_device!(
+                    container,
+                    sys,
+                    ArgumentConstructStage(),
+                    branch_model,
+                    transmission_model,
+                )
+            end
             @debug "Problem size:" get_problem_size(container) _group =
                 LOG_GROUP_OPTIMIZATION_CONTAINER
         end
@@ -112,13 +134,15 @@ function build_problem!(
         @debug "Building Model for $(get_component_type(device_model)) with $(get_formulation(device_model)) formulation" _group =
             LOG_GROUP_OPTIMIZATION_CONTAINER
         TimerOutputs.@timeit BUILD_PROBLEMS_TIMER "$(get_component_type(device_model))" begin
-            construct_device!(
-                container,
-                sys,
-                ModelConstructStage(),
-                device_model,
-                transmission_model,
-            )
+            if validate_available_devices(device_model, sys)
+                construct_device!(
+                    container,
+                    sys,
+                    ModelConstructStage(),
+                    device_model,
+                    transmission_model,
+                )
+            end
             @debug "Problem size:" get_problem_size(container) _group =
                 LOG_GROUP_OPTIMIZATION_CONTAINER
         end
@@ -144,13 +168,15 @@ function build_problem!(
         @debug "Building Model for $(get_component_type(branch_model)) with $(get_formulation(branch_model)) formulation" _group =
             LOG_GROUP_OPTIMIZATION_CONTAINER
         TimerOutputs.@timeit BUILD_PROBLEMS_TIMER "$(get_component_type(branch_model))" begin
-            construct_device!(
-                container,
-                sys,
-                ModelConstructStage(),
-                branch_model,
-                transmission_model,
-            )
+            if validate_available_devices(branch_model, sys)
+                construct_device!(
+                    container,
+                    sys,
+                    ModelConstructStage(),
+                    branch_model,
+                    transmission_model,
+                )
+            end
             @debug "Problem size:" get_problem_size(container) _group =
                 LOG_GROUP_OPTIMIZATION_CONTAINER
         end

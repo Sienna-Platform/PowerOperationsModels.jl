@@ -55,10 +55,11 @@ IOM.AbstractNetworkModel
 │   │   └── AbstractDCPLLNetworkModel → DCPLLNetworkModel
 │   ├── CopperPlateNetworkModel
 │   └── AreaBalanceNetworkModel
-├── AbstractACPModel          → ACPNetworkModel
-├── AbstractACRNetworkModel   → ACRNetworkModel
-├── AbstractLPACCNetworkModel → LPACCNetworkModel
-└── AbstractIVRNetworkModel   → IVRNetworkModel
+└── AbstractReactivePowerNetworkModel
+    ├── AbstractACPModel          → ACPNetworkModel
+    ├── AbstractACRNetworkModel   → ACRNetworkModel
+    ├── AbstractLPACCNetworkModel → LPACCNetworkModel
+    └── AbstractIVRNetworkModel   → IVRNetworkModel
 ```
 
 Note that `AbstractPTDFNetworkModel <: AbstractDCPNetworkModel`, so any method bound to
@@ -273,22 +274,27 @@ Under `ACRNetworkModel` and `IVRNetworkModel`, `VoltageControlTap` additionally 
 
 #### Two-terminal HVDC
 
-| Formulation                    | Supported networks                                                                                 | Key variables                                                                                                     | Key constraints                                                                                                        |
-|:------------------------------ |:-------------------------------------------------------------------------------------------------- |:----------------------------------------------------------------------------------------------------------------- |:---------------------------------------------------------------------------------------------------------------------- |
-| `HVDCTwoTerminalUnbounded`     | all except `AreaBalanceNetworkModel`                                                               | `FlowActivePowerVariable` (+ reactive from/to on AC networks, all unbounded)                                      | none — active and reactive flows are unconstrained                                                                     |
-| `HVDCTwoTerminalLossless`      | all except `AreaBalanceNetworkModel`                                                               | `FlowActivePowerVariable` (+ reactive from/to on ACP/ACR/IVR/LPACC, bounded by `reactive_power_limits_from`/`to`) | `FlowRateConstraint` (`"ub"`/`"lb"`)                                                                                   |
-| `HVDCTwoTerminalDispatch`      | PTDF, and all active-power + AC-native models                                                      | `FlowActivePower{FromTo,ToFrom}Variable`, `HVDCLosses`, `HVDCFlowDirectionVariable`                               | `FlowRateConstraint{FromTo,ToFrom}`, `HVDCPowerBalance` (nine metas)                                                   |
-| `HVDCTwoTerminalPiecewiseLoss` | PTDF and every native nodal model                                                                  | `HVDCActivePowerReceived{From,To}Variable`, `HVDCPiecewiseLossVariable`, `HVDCPiecewiseBinaryLossVariable`        | `FlowRateConstraint{FromTo,ToFrom}`, `HVDCFlowCalculationConstraint` (`"ft"`, `"tf"`, `"bin"`)                         |
-| `HVDCTwoTerminalLCC`           | `ACPNetworkModel`, `ACRNetworkModel`, `IVRNetworkModel` only                                       | 17 variables (rectifier/inverter angles, DC voltages, AC currents, taps)                                          | 11 constraints (DC line voltage, overlap angle, power-factor angle, AC current, power calculation)                     |
-| `HVDCTwoTerminalVSC`           | all except `AreaBalanceNetworkModel`                                                               | `FlowActivePower{FromTo,ToFrom}Variable`, `DCLineCurrentFlowVariable`, `HVDC{From,To}DCVoltage`                   | `HVDCCableOhmsLawConstraint`, `HVDCVSCConverterPowerConstraint` (`"ft"`/`"tf"`), `HVDCVSCApparentPowerLimitConstraint` |
-| `VoltageControlVSC`            | `ACPNetworkModel`, `ACRNetworkModel`, `IVRNetworkModel` (auto-dropped from active-power templates) | as `HVDCTwoTerminalVSC`, plus `RegulatedVoltageMagnitude` (`"from"`/`"to"`) on ACR/IVR                            | as above, plus `HVDCDCControlConstraint` (`"from"`/`"to"`)                                                             |
+| Formulation                    | Supported networks                                                                                                       | Key variables                                                                                                     | Key constraints                                                                                                        |
+|:------------------------------ |:------------------------------------------------------------------------------------------------------------------------ |:----------------------------------------------------------------------------------------------------------------- |:---------------------------------------------------------------------------------------------------------------------- |
+| `HVDCTwoTerminalUnbounded`     | all except `AreaBalanceNetworkModel`                                                                                     | `FlowActivePowerVariable` (+ reactive from/to on AC networks, all unbounded)                                      | none — active and reactive flows are unconstrained                                                                     |
+| `HVDCTwoTerminalLossless`      | all except `AreaBalanceNetworkModel`                                                                                     | `FlowActivePowerVariable` (+ reactive from/to on ACP/ACR/IVR/LPACC, bounded by `reactive_power_limits_from`/`to`) | `FlowRateConstraint` (`"ub"`/`"lb"`)                                                                                   |
+| `HVDCTwoTerminalDispatch`      | PTDF, and all active-power + AC-native models                                                                            | `FlowActivePower{FromTo,ToFrom}Variable`, `HVDCLosses`, `HVDCFlowDirectionVariable`                               | `FlowRateConstraint{FromTo,ToFrom}`, `HVDCPowerBalance` (nine metas)                                                   |
+| `HVDCTwoTerminalPiecewiseLoss` | all                                                                                                                      | `HVDCActivePowerReceived{From,To}Variable`, `HVDCPiecewiseLossVariable`, `HVDCPiecewiseBinaryLossVariable`        | `FlowRateConstraint{FromTo,ToFrom}`, `HVDCFlowCalculationConstraint` (`"ft"`, `"tf"`, `"bin"`)                         |
+| `HVDCTwoTerminalLCC`           | `ACPNetworkModel`, `ACRNetworkModel`, `IVRNetworkModel`, `LPACCNetworkModel` (rejected at template validation elsewhere) | 17 variables (rectifier/inverter angles, DC voltages, AC currents, taps)                                          | 11 constraints (DC line voltage, overlap angle, power-factor angle, AC current, power calculation)                     |
+| `HVDCTwoTerminalVSC`           | all except `AreaBalanceNetworkModel`                                                                                     | `FlowActivePower{FromTo,ToFrom}Variable`, `DCLineCurrentFlowVariable`, `HVDC{From,To}DCVoltage`                   | `HVDCCableOhmsLawConstraint`, `HVDCVSCConverterPowerConstraint` (`"ft"`/`"tf"`), `HVDCVSCApparentPowerLimitConstraint` |
+| `VoltageControlVSC`            | `ACPNetworkModel`, `ACRNetworkModel`, `IVRNetworkModel`, `LPACCNetworkModel` (auto-dropped from active-power templates)  | as `HVDCTwoTerminalVSC`, plus `RegulatedVoltageMagnitude` (`"from"`/`"to"`) on ACR/IVR                            | as above, plus `HVDCDCControlConstraint` (`"from"`/`"to"`)                                                             |
 
 !!! warning "HVDCTwoTerminalDispatch loses its losses on CopperPlate"
     
-    On `CopperPlateNetworkModel` the constructor warns, then skips `HVDCPowerBalance` entirely.
-    `HVDCLosses` and `HVDCFlowDirectionVariable` are created but left unconstrained and unwired.
-    On every non-PTDF network, `HVDCLosses` is created but never added to any balance expression —
-    only the PTDF path wires it in.
+    On `CopperPlateNetworkModel` the constructor warns, then skips `HVDCPowerBalance` entirely:
+    `HVDCLosses` and `HVDCFlowDirectionVariable` are created but left unconstrained and unwired,
+    so the line's losses vanish from the single system balance. Use
+    `HVDCTwoTerminalPiecewiseLoss` on CopperPlate when the losses matter. On every other
+    supported network the losses are accounted for: the nodal models
+    (NFA/DCP/DCPLL/ACP/ACR/IVR/LPACC) carry them implicitly through the `HVDCPowerBalance`
+    coupling `ft + tf == losses` with both directional flows entering their terminal balances,
+    while the PTDF/AreaPTDF paths add `HVDCLosses` to the aggregated system/area row explicitly.
+    On `AreaBalanceNetworkModel` the Dispatch formulation is not built at all (warn no-op).
 
 !!! warning "HVDCTwoTerminalLossless pins reactive flow to zero on default VSC/LCC data"
     
@@ -306,22 +312,24 @@ linearizing scheme it becomes a box of eight half-planes, plus eight more octago
 
 #### Multi-terminal HVDC (`PSY.InterconnectingConverter`, `PSY.TModelHVDCLine`)
 
-| Formulation               | Supported networks                                      | Key variables                                                                                    | Key constraints                                                                                                            |
-|:------------------------- |:------------------------------------------------------- |:------------------------------------------------------------------------------------------------ |:-------------------------------------------------------------------------------------------------------------------------- |
-| `LosslessConverter`       | active-power models only                                | `ActivePowerVariable`                                                                            | none                                                                                                                       |
-| `QuadraticLossConverter`  | active-power models only                                | `ActivePowerVariable`, `ConverterCurrent`, `CurrentAbsoluteValueVariable`                        | `ConverterLossConstraint`, `CurrentAbsoluteValueConstraint` (`"ge_pos"`/`"ge_neg"`)                                        |
-| `VoltageControlConverter` | `ACPNetworkModel`, `ACRNetworkModel`, `IVRNetworkModel` | `ActivePowerVariable`, `ReactivePowerVariable`, `ConverterCurrent`, `ConverterACCurrentVariable` | `ConverterLossConstraint`, `ConverterACCurrentConstraint`, `ConverterPowerCapabilityConstraint`, `HVDCDCControlConstraint` |
-| `LosslessLine`            | active-power models                                     | `FlowActivePowerVariable`                                                                        | none                                                                                                                       |
-| `DCLossyLine`             | all                                                     | `DCLineCurrent`                                                                                  | `DCLineCurrentConstraint`                                                                                                  |
+| Formulation               | Supported networks                                                           | Key variables                                                                                                                                                             | Key constraints                                                                                                                                                             |
+|:------------------------- |:---------------------------------------------------------------------------- |:------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |:--------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `LosslessConverter`       | all                                                                          | `ActivePowerVariable` (+ `ReactivePowerVariable` on AC networks)                                                                                                          | `ConverterPowerCapabilityConstraint` on AC networks                                                                                                                         |
+| `LinearLossConverter`     | all                                                                          | `ActivePowerVariable`, `CurrentAbsoluteValueVariable` (+ `ReactivePowerVariable` on AC networks)                                                                          | `CurrentAbsoluteValueConstraint` (`"ge_pos"`/`"ge_neg"`); `ConverterPowerCapabilityConstraint` on AC networks                                                               |
+| `QuadraticLossConverter`  | all                                                                          | `ActivePowerVariable`, `ConverterCurrent`, `CurrentAbsoluteValueVariable` (`ConverterACCurrentVariable` instead on ACP/ACR/IVR; + `ReactivePowerVariable` on AC networks) | `ConverterLossConstraint`, `CurrentAbsoluteValueConstraint` (`"ge_pos"`/`"ge_neg"`); `ConverterACCurrentConstraint` and `ConverterPowerCapabilityConstraint` on AC networks |
+| `VoltageControlConverter` | `ACPNetworkModel`, `ACRNetworkModel`, `IVRNetworkModel`, `LPACCNetworkModel` | `ActivePowerVariable`, `ReactivePowerVariable`, `ConverterCurrent`, `ConverterACCurrentVariable` (ACP/ACR/IVR) or `CurrentAbsoluteValueVariable` (LPACC)                  | `ConverterLossConstraint`, `ConverterPowerCapabilityConstraint`, `HVDCDCControlConstraint`; `ConverterACCurrentConstraint` on ACP/ACR/IVR                                   |
+| `LosslessLine`            | all                                                                          | `FlowActivePowerVariable`                                                                                                                                                 | none                                                                                                                                                                        |
+| `DCLossyLine`             | all                                                                          | `DCLineCurrent`                                                                                                                                                           | `DCLineCurrentConstraint`                                                                                                                                                   |
 
-`LinearLossConverter` and `DCLosslessLine` are declared and exported but have **no
-`construct_device!` method** — they cannot be used.
+`LinearLossConverter` models the loss `b·|I| + c` from the converter `loss_function`
+proportional/constant terms, approximating `|I|` by `|P|` at nominal DC voltage; a
+non-zero quadratic term is rejected at build.
 
 The HVDC network model is a separate template slot from the AC network model:
 
 | HVDC network model                | Adds                                                             | Required by                                                        |
 |:--------------------------------- |:---------------------------------------------------------------- |:------------------------------------------------------------------ |
-| `TransportHVDCNetworkModel`       | `NodalBalanceActiveConstraint` on each DC bus                    | `LosslessConverter`, `LosslessLine`                                |
+| `TransportHVDCNetworkModel`       | `NodalBalanceActiveConstraint` on each DC bus                    | `LosslessConverter`, `LinearLossConverter`, `LosslessLine`         |
 | `VoltageDispatchHVDCNetworkModel` | `DCVoltage` variable per DC bus; `NodalBalanceCurrentConstraint` | `QuadraticLossConverter`, `VoltageControlConverter`, `DCLossyLine` |
 
 ## [ThermalGen Formulations](@id ThermalGen-Formulations)

@@ -402,3 +402,273 @@ end
         )
     @test build_status == IOM.ModelBuildStatus.BUILT
 end
+
+# Same tie as _c_sys5_with_hvdc_tie but with a real loss model, so the loss-modeling
+# formulations have nonzero coefficients to pin down.
+function _c_sys5_with_lossy_hvdc_tie()
+    sys = PSB.build_system(PSITestSystems, "c_sys5")
+    line = PSY.get_component(Line, sys, "1")
+    arc = PSY.get_arc(line)
+    PSY.remove_component!(sys, line)
+    hvdc = TwoTerminalGenericHVDCLine(;
+        name = "hvdc_tie",
+        available = true,
+        active_power_flow = 0.0,
+        active_power_limits_from = (min = -2.0, max = 2.0),
+        active_power_limits_to = (min = -2.0, max = 2.0),
+        reactive_power_limits_from = (min = -1.0, max = 1.0),
+        reactive_power_limits_to = (min = -1.0, max = 1.0),
+        arc = arc,
+        loss = LinearCurve(0.05, 0.01),
+    )
+    PSY.add_component!(sys, hvdc)
+    from_no = PSY.get_number(PSY.get_from(arc))
+    to_no = PSY.get_number(PSY.get_to(arc))
+    return sys, from_no, to_no
+end
+
+# Hand-derived sparse PWL breakpoint parameters for loss = LinearCurve(0.05, 0.01)
+# with symmetric +/-2.0 limits: P_max = 2.0, l1 = 0.05, l0 = 0.01.
+# ft: [-P_max - l0, -l0, 0.0, P_max * (1 - l1)]; tf is the reverse-direction mirror.
+const _HVDC_PWL_FT_PARAMS = [-2.01, -0.01, 0.0, 1.9]
+const _HVDC_PWL_TF_PARAMS = [1.9, 0.0, -0.01, -2.01]
+
+# The HVDCFlowCalculationConstraint containers ("ft"/"tf"/"bin") must exist, be
+# populated, and carry the hand-derived PWL coefficients. Dropping this constraint is a
+# pure relaxation (the model still builds and solves), so container existence alone is
+# not enough: pin the coefficients.
+function _assert_hvdc_flow_calculation_constraints(container)
+    t1 = first(IOM.get_time_steps(container))
+    prf = IOM.get_variable(
+        container, POM.HVDCActivePowerReceivedFromVariable, TwoTerminalGenericHVDCLine,
+    )
+    prt = IOM.get_variable(
+        container, POM.HVDCActivePowerReceivedToVariable, TwoTerminalGenericHVDCLine,
+    )
+    pwl = IOM.get_variable(
+        container, POM.HVDCPiecewiseLossVariable, TwoTerminalGenericHVDCLine,
+    )
+    bin = IOM.get_variable(
+        container, POM.HVDCPiecewiseBinaryLossVariable, TwoTerminalGenericHVDCLine,
+    )
+    for (meta, received, params) in (
+        ("ft", prf, _HVDC_PWL_FT_PARAMS),
+        ("tf", prt, _HVDC_PWL_TF_PARAMS),
+    )
+        con = IOM.get_constraint(
+            container, POM.HVDCFlowCalculationConstraint, TwoTerminalGenericHVDCLine,
+            meta,
+        )
+        @test !isempty(con)
+        c = con["hvdc_tie", t1]
+        @test JuMP.normalized_coefficient(c, received["hvdc_tie", t1]) == 1.0
+        for ix in 1:3
+            @test JuMP.normalized_coefficient(c, bin["hvdc_tie", ix, t1]) ≈ -params[ix]
+            @test JuMP.normalized_coefficient(c, pwl["hvdc_tie", ix, t1]) ≈
+                  -(params[ix + 1] - params[ix])
+        end
+    end
+    bin_con = IOM.get_constraint(
+        container, POM.HVDCFlowCalculationConstraint, TwoTerminalGenericHVDCLine, "bin",
+    )
+    @test !isempty(bin_con)
+    bc = bin_con["hvdc_tie", t1]
+    for ix in 1:3
+        @test JuMP.normalized_coefficient(bc, bin["hvdc_tie", ix, t1]) == 1.0
+    end
+    @test JuMP.normalized_rhs(bc) == 1.0
+    @test JuMP.is_fixed(pwl["hvdc_tie", 2, t1])
+    return
+end
+
+# Net received power prf + prt equals -(loss); any feasible PWL point burns between the
+# constant loss (l0 = 0.01) and the max-transfer loss (l0 + l1 * P_max = 0.11).
+function _hvdc_net_received(container)
+    t1 = first(IOM.get_time_steps(container))
+    prf = IOM.get_variable(
+        container, POM.HVDCActivePowerReceivedFromVariable, TwoTerminalGenericHVDCLine,
+    )
+    prt = IOM.get_variable(
+        container, POM.HVDCActivePowerReceivedToVariable, TwoTerminalGenericHVDCLine,
+    )
+    return JuMP.value(prf["hvdc_tie", t1]) + JuMP.value(prt["hvdc_tie", t1])
+end
+
+@testset "HVDCFlowCalculationConstraint ties received HVDC flows to the PWL loss segments" begin
+    for network_formulation in (PTDFNetworkModel, DCPNetworkModel, NFANetworkModel)
+        model, build_status, _, _ = _build_hvdc_model(
+            network_formulation,
+            HVDCTwoTerminalPiecewiseLoss,
+            HiGHS_optimizer;
+            sys_builder = _c_sys5_with_lossy_hvdc_tie,
+        )
+        @test build_status == IOM.ModelBuildStatus.BUILT
+        container = IOM.get_optimization_container(model)
+        _assert_hvdc_flow_calculation_constraints(container)
+        @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+        net = _hvdc_net_received(container)
+        @test -0.11 - 1e-6 <= net <= -0.01 + 1e-6
+    end
+end
+
+@testset "HVDCTwoTerminalPiecewiseLoss builds, wires losses, and solves under CopperPlateNetworkModel" begin
+    model, build_status, from_no, to_no = _build_hvdc_model(
+        CopperPlateNetworkModel,
+        HVDCTwoTerminalPiecewiseLoss,
+        HiGHS_optimizer;
+        sys_builder = _c_sys5_with_lossy_hvdc_tie,
+    )
+    @test build_status == IOM.ModelBuildStatus.BUILT
+    container = IOM.get_optimization_container(model)
+    network_model = IOM.get_network_model(IOM.get_template(model))
+    sys = IOM.get_system(model)
+    bus_from = first(
+        PSY.get_components(b -> PSY.get_number(b) == from_no, PSY.ACBus, sys),
+    )
+    bus_to = first(PSY.get_components(b -> PSY.get_number(b) == to_no, PSY.ACBus, sys))
+    ref = POM.get_reference_bus(network_model, bus_from)
+    @test POM.get_reference_bus(network_model, bus_to) == ref
+
+    # Both terminals sit in the single system balance, so each received variable enters
+    # the same row with +1.0 and the line's net contribution is -(losses).
+    t1 = first(IOM.get_time_steps(container))
+    prf = IOM.get_variable(
+        container, POM.HVDCActivePowerReceivedFromVariable, TwoTerminalGenericHVDCLine,
+    )
+    prt = IOM.get_variable(
+        container, POM.HVDCActivePowerReceivedToVariable, TwoTerminalGenericHVDCLine,
+    )
+    sys_balance = IOM.get_expression(container, POM.ActivePowerBalance, PSY.System)
+    @test JuMP.coefficient(sys_balance[ref, t1], prf["hvdc_tie", t1]) == 1.0
+    @test JuMP.coefficient(sys_balance[ref, t1], prt["hvdc_tie", t1]) == 1.0
+
+    _assert_hvdc_flow_calculation_constraints(container)
+
+    # Transfers relieve nothing inside one copper plate, so the optimum idles the line
+    # at the zero-transfer breakpoint and burns exactly the constant loss.
+    @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+    @test isapprox(_hvdc_net_received(container), -0.01; atol = 1e-6)
+end
+
+function _two_area_sys_with_lossy_hvdc_tie()
+    sys = PSB.build_system(PSB.PSISystems, "two_area_pjm_DA")
+    transform_single_time_series!(sys, Hour(24), Hour(1))
+    bus_from = PSY.get_component(PSY.ACBus, sys, "Bus_nodeC_1")
+    bus_to = PSY.get_component(PSY.ACBus, sys, "Bus_nodeC_2")
+    existing_arcs = PSY.get_components(
+        x -> PSY.get_from(x) == bus_from && PSY.get_to(x) == bus_to, PSY.Arc, sys,
+    )
+    if isempty(existing_arcs)
+        arc = PSY.Arc(; from = bus_from, to = bus_to)
+        PSY.add_component!(sys, arc)
+    else
+        arc = first(existing_arcs)
+    end
+    hvdc = TwoTerminalGenericHVDCLine(;
+        name = "hvdc_tie",
+        available = true,
+        active_power_flow = 0.0,
+        active_power_limits_from = (min = -2.0, max = 2.0),
+        active_power_limits_to = (min = -2.0, max = 2.0),
+        reactive_power_limits_from = (min = -1.0, max = 1.0),
+        reactive_power_limits_to = (min = -1.0, max = 1.0),
+        arc = arc,
+        loss = LinearCurve(0.05, 0.01),
+    )
+    PSY.add_component!(sys, hvdc)
+    return sys
+end
+
+@testset "HVDCTwoTerminalPiecewiseLoss is a genuine inter-area interchange under AreaBalanceNetworkModel" begin
+    sys = _two_area_sys_with_lossy_hvdc_tie()
+    template = get_thermal_dispatch_template_network(NetworkModel(AreaBalanceNetworkModel))
+    set_device_model!(
+        template, DeviceModel(TwoTerminalGenericHVDCLine, HVDCTwoTerminalPiecewiseLoss),
+    )
+    model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
+    @test build!(
+        model;
+        output_dir = mktempdir(; cleanup = true),
+        console_level = Logging.Error,
+    ) == IOM.ModelBuildStatus.BUILT
+    container = IOM.get_optimization_container(model)
+
+    # Each received terminal enters its own area's balance with +1.0 and must not leak
+    # into the other area's row.
+    t1 = first(IOM.get_time_steps(container))
+    prf = IOM.get_variable(
+        container, POM.HVDCActivePowerReceivedFromVariable, TwoTerminalGenericHVDCLine,
+    )
+    prt = IOM.get_variable(
+        container, POM.HVDCActivePowerReceivedToVariable, TwoTerminalGenericHVDCLine,
+    )
+    area_balance = IOM.get_expression(container, POM.ActivePowerBalance, PSY.Area)
+    @test JuMP.coefficient(area_balance["Area1", t1], prf["hvdc_tie", t1]) == 1.0
+    @test JuMP.coefficient(area_balance["Area2", t1], prt["hvdc_tie", t1]) == 1.0
+    @test JuMP.coefficient(area_balance["Area1", t1], prt["hvdc_tie", t1]) == 0.0
+    @test JuMP.coefficient(area_balance["Area2", t1], prf["hvdc_tie", t1]) == 0.0
+
+    _assert_hvdc_flow_calculation_constraints(container)
+
+    @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+    net = _hvdc_net_received(container)
+    @test -0.11 - 1e-6 <= net <= -0.01 + 1e-6
+end
+
+# HVDCTwoTerminalDispatch on the nodal networks carries losses through the
+# HVDCPowerBalance coupling (ft + tf == losses) with both directional flows entering
+# their own terminal balances. The HVDCLosses variable itself must NOT enter the nodal
+# balance: that direct route exists only on the aggregated CopperPlate/PTDF/Area
+# balances, where the terminal flows cannot carry the loss.
+@testset "HVDCTwoTerminalDispatch losses enter the nodal balances through the flow coupling" begin
+    for (network_formulation, optimizer, run_solve) in (
+        (DCPNetworkModel, HiGHS_optimizer, true),
+        (ACPNetworkModel, ipopt_optimizer, false),
+    )
+        model, build_status, from_no, to_no = _build_hvdc_model(
+            network_formulation,
+            HVDCTwoTerminalDispatch,
+            optimizer;
+            sys_builder = _c_sys5_with_lossy_hvdc_tie,
+        )
+        @test build_status == IOM.ModelBuildStatus.BUILT
+        container = IOM.get_optimization_container(model)
+        t1 = first(IOM.get_time_steps(container))
+        pft = IOM.get_variable(
+            container, FlowActivePowerFromToVariable, TwoTerminalGenericHVDCLine,
+        )
+        ptf = IOM.get_variable(
+            container, FlowActivePowerToFromVariable, TwoTerminalGenericHVDCLine,
+        )
+        losses = IOM.get_variable(container, POM.HVDCLosses, TwoTerminalGenericHVDCLine)
+        balance = IOM.get_expression(container, POM.ActivePowerBalance, PSY.ACBus)
+        @test JuMP.coefficient(balance[from_no, t1], pft["hvdc_tie", t1]) == -1.0
+        @test JuMP.coefficient(balance[to_no, t1], ptf["hvdc_tie", t1]) == -1.0
+        @test JuMP.coefficient(balance[from_no, t1], losses["hvdc_tie", t1]) == 0.0
+        @test JuMP.coefficient(balance[to_no, t1], losses["hvdc_tie", t1]) == 0.0
+
+        loss_con = IOM.get_constraint(
+            container, POM.HVDCPowerBalance, TwoTerminalGenericHVDCLine, "loss",
+        )
+        @test !isempty(loss_con)
+        c = loss_con["hvdc_tie", t1]
+        @test JuMP.normalized_coefficient(c, pft["hvdc_tie", t1]) == 1.0
+        @test JuMP.normalized_coefficient(c, ptf["hvdc_tie", t1]) == 1.0
+        @test JuMP.normalized_coefficient(c, losses["hvdc_tie", t1]) == -1.0
+        @test JuMP.normalized_rhs(c) == 0.0
+        for meta in ("loss_aux1", "loss_aux2", "loss_aux3", "loss_aux4")
+            @test IOM.has_container_key(
+                container, POM.HVDCPowerBalance, TwoTerminalGenericHVDCLine, meta,
+            )
+        end
+
+        if run_solve
+            @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+            vft = JuMP.value(pft["hvdc_tie", t1])
+            vtf = JuMP.value(ptf["hvdc_tie", t1])
+            vloss = JuMP.value(losses["hvdc_tie", t1])
+            @test isapprox(vft + vtf, vloss; atol = 1e-8)
+            @test isapprox(vloss, 0.01 + 0.05 * max(vft, vtf); atol = 1e-6)
+        end
+    end
+end

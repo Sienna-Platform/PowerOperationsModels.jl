@@ -45,9 +45,9 @@ end
 
 @testset "LPACCNetworkModel rejects reactive control devices at validation" begin
     # LPACC is reactive-capable at the network level (network_has_reactive_power is
-    # true), but VoltageControlTap/ShuntSusceptanceDispatch/VoltageControlConverter
-    # have no LPACC construct path. The validation gate must reject the pairing with
-    # a ConflictingInputsError. (build! swallows build/validation exceptions into a
+    # true), but VoltageControlTap/ShuntSusceptanceDispatch have no LPACC construct
+    # path. The validation gate must reject the pairing with a
+    # ConflictingInputsError. (build! swallows build/validation exceptions into a
     # FAILED status, so assert against validate_template directly — same pattern as
     # test_network_constructors_with_branch_rating_time_series.jl.)
     sys = PSB.build_system(PSITestSystems, "c_sys14")

@@ -13,6 +13,27 @@ test_path = mktempdir()
     @test solve!(ps_model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
 end
 
+@testset "AreaInterchange with a network model that reduces branches" begin
+    # AreaInterchange <: PSY.Branch but connects Areas, not buses; it has no
+    # arc. Building this with a network model that actually performs radial and
+    # degree-two reduction exercises the bus-protection loops in
+    # instantiate_network_model.jl that call _push_component_buses!.
+    c_sys = PSB.build_system(PSISystems, "two_area_pjm_DA")
+    transform_single_time_series!(c_sys, Hour(24), Hour(1))
+    network = NetworkModel(
+        DCPNetworkModel;
+        reduce_radial_branches = true,
+        reduce_degree_two_branches = true,
+    )
+    template = get_thermal_dispatch_template_network(network)
+    set_device_model!(template, AreaInterchange, StaticBranch)
+    ps_model =
+        DecisionModel(template, c_sys; resolution = Hour(1), optimizer = HiGHS_optimizer)
+
+    @test build!(ps_model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+end
+
 @testset "StaticPowerLoad" begin
     models = [StaticPowerLoad, PowerLoadDispatch, PowerLoadInterruption]
     c_sys5_il = PSB.build_system(PSITestSystems, "c_sys5_il")
