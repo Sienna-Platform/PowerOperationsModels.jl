@@ -55,10 +55,11 @@ IOM.AbstractNetworkModel
 │   │   └── AbstractDCPLLNetworkModel → DCPLLNetworkModel
 │   ├── CopperPlateNetworkModel
 │   └── AreaBalanceNetworkModel
-├── AbstractACPModel          → ACPNetworkModel
-├── AbstractACRNetworkModel   → ACRNetworkModel
-├── AbstractLPACCNetworkModel → LPACCNetworkModel
-└── AbstractIVRNetworkModel   → IVRNetworkModel
+└── AbstractReactivePowerNetworkModel
+    ├── AbstractACPModel          → ACPNetworkModel
+    ├── AbstractACRNetworkModel   → ACRNetworkModel
+    ├── AbstractLPACCNetworkModel → LPACCNetworkModel
+    └── AbstractIVRNetworkModel   → IVRNetworkModel
 ```
 
 Note that `AbstractPTDFNetworkModel <: AbstractDCPNetworkModel`, so any method bound to

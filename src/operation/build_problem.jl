@@ -37,7 +37,12 @@ function validate_available_devices(
     system::PSY.System,
 ) where {T <: PSY.Device}
     devices = get_available_components(model, system)
-    return !isempty(devices)
+    if isempty(devices)
+        @debug "No available components of type $(T); skipping construction of its $(get_formulation(model)) DeviceModel" _group =
+            LOG_GROUP_OPTIMIZATION_CONTAINER
+        return false
+    end
+    return true
 end
 
 # Called `build_impl!(container, template, sys)` in PSI (lived in optimization_container.jl).

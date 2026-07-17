@@ -31,10 +31,13 @@ import InfrastructureOptimizationModels: AbstractNetworkModel
 
 # POM owns the network-formulation taxonomy; it roots at IOM's neutral AbstractNetworkModel.
 abstract type AbstractActivePowerModel <: AbstractNetworkModel end
-# Networks that carry a reactive power balance and an AC voltage representation: ACP, ACR,
-# IVR and LPACC. This is the exact complement of AbstractActivePowerModel among the network
-# models, and it is the set of networks the LCC converter and other reactive-aware branch
-# formulations require. Dispatch on it instead of enumerating the concrete networks.
+"""
+Networks that carry a reactive power balance and an AC voltage representation: ACP, ACR,
+IVR and LPACC. This is the exact complement of `AbstractActivePowerModel` among the
+network models, and it is the set of networks the LCC converter and other reactive-aware
+branch formulations require. Dispatch on it instead of enumerating the concrete networks;
+a new reactive-capable network formulation should subtype it to inherit those methods.
+"""
 abstract type AbstractReactivePowerNetworkModel <: AbstractNetworkModel end
 abstract type AbstractACPModel <: AbstractReactivePowerNetworkModel end
 abstract type AbstractDCPNetworkModel <: AbstractActivePowerModel end
@@ -947,6 +950,7 @@ export AbstractACRNetworkModel
 export AbstractLPACCNetworkModel
 export AbstractIVRNetworkModel
 export AbstractActivePowerModel
+export AbstractReactivePowerNetworkModel
 export NFANetworkModel
 export DCPLLNetworkModel
 
