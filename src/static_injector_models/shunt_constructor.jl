@@ -4,9 +4,9 @@
 # Two-stage construction:
 #   ArgumentConstructStage — ShuntSusceptanceVariable + ReactivePowerVariable
 #                            (both bounded per Principle 0); Q wired into balance.
-#   ModelConstructStage    — Q = b·V² constraint (always; LPACC linearizes V² to
-#                            1 + 2φ); control-objective JuMP.fix (voltage control
-#                            for FACTSControlDevice in NML mode).
+#   ModelConstructStage    — Q = b·V² constraint (always); control-objective
+#                            JuMP.fix (voltage control for FACTSControlDevice
+#                            in NML mode).
 #
 # Active-power-only network no-ops are defensive; reactive formulations under DC
 # templates are dropped by template_validation.jl before construction begins.
@@ -27,10 +27,6 @@ function _fetch_voltage_arrays(
     )
 end
 
-function _fetch_voltage_arrays(container, ::NetworkModel{LPACCNetworkModel})
-    return (get_variable(container, VoltageDeviation, PSY.ACBus),)
-end
-
 # Compute V² from pre-fetched variable array(s) — no container lookup in hot loop.
 function _bus_voltage_squared(
     ::NetworkModel{ACPNetworkModel},
@@ -48,17 +44,6 @@ function _bus_voltage_squared(
     t::Int,
 )
     return vars[1][bus_name, t]^2 + vars[2][bus_name, t]^2
-end
-
-# LPACC linearization of V² = (1 + φ)² around φ ≈ 0, consistent with the 1 + 2φ
-# self terms of the LPAC Ohm's law.
-function _bus_voltage_squared(
-    ::NetworkModel{LPACCNetworkModel},
-    vars,
-    bus_name::String,
-    t::Int,
-)
-    return 1.0 + 2.0 * vars[1][bus_name, t]
 end
 
 #################################################################################
@@ -245,10 +230,9 @@ function _apply_shunt_control_objective!(
     return
 end
 
-# FACTSControlDevice under ACP/ACR/IVR/LPACC: voltage-control (NML) mode pins the
-# regulated bus magnitude — directly on the network VoltageMagnitude under ACP, on
-# the component-owned RegulatedVoltageMagnitude aux variable under ACR/IVR, or on
-# the bus VoltageDeviation (at setpoint - 1) under LPACC (see
+# FACTSControlDevice under ACP/ACR/IVR: voltage-control (NML) mode pins the
+# regulated bus magnitude — directly on the network VoltageMagnitude under ACP, or
+# on the component-owned RegulatedVoltageMagnitude aux variable under ACR/IVR (see
 # fix_regulated_voltage!). All other modes free-optimize (Q adjusts to network
 # needs). The aux variable/constraint are always present under ACR/IVR, so only the
 # fix is mode-conditional (count-invariance).
@@ -256,7 +240,7 @@ function _apply_shunt_control_objective!(
     container::OptimizationContainer,
     devices::IS.FlattenIteratorWrapper{PSY.FACTSControlDevice},
     network_model::NetworkModel{
-        <:Union{ACPNetworkModel, ACRNetworkModel, IVRNetworkModel, LPACCNetworkModel},
+        <:Union{ACPNetworkModel, ACRNetworkModel, IVRNetworkModel},
     },
 )
     for d in devices

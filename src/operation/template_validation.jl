@@ -228,6 +228,11 @@ abstract type NetworkSupport end
 "Formulation builds under every network model. Default."
 struct AllNetworks <: NetworkSupport end
 """
+Formulation needs a full AC network; the linear-programming AC cold-start approximation
+(LPACC, [`LPACCNetworkModel`](@ref)) linearizes the reactive layer and cannot build it.
+"""
+struct AllNetworksExceptLPACC <: NetworkSupport end
+"""
 Formulation whose defining feature is its reactive-power behavior; only the networks
 with a reactive-power balance (ACP/ACR/IVR/LPACC) build it. Building it on an
 active-power-only network would silently discard that feature, so those networks are
@@ -245,6 +250,12 @@ validation.
 """
 network_support(::Type{<:AbstractDeviceFormulation}) = AllNetworks()
 
+# LPACC is reactive-capable at the network level (`network_has_reactive_power` is true), so
+# the coarse reactive-power gate admits these devices even though their control layer has no
+# LPACC construct path.
+network_support(::Type{ShuntSusceptanceDispatch}) = AllNetworksExceptLPACC()
+network_support(::Type{VoltageControlTap}) = AllNetworksExceptLPACC()
+
 # An LCC's reactive consumption is the reason to model it as HVDCTwoTerminalLCC; on a
 # network without a reactive balance use HVDCTwoTerminalDispatch/Lossless instead.
 network_support(::Type{HVDCTwoTerminalLCC}) = ReactiveNetworksOnly()
@@ -260,6 +271,9 @@ function _formulation_supports_network(
 end
 
 _supports_network(::AllNetworks, ::NetworkModel) = true
+
+_supports_network(::AllNetworksExceptLPACC, ::NetworkModel) = true
+_supports_network(::AllNetworksExceptLPACC, ::NetworkModel{LPACCNetworkModel}) = false
 
 _supports_network(::ReactiveNetworksOnly, ::NetworkModel) = false
 _supports_network(
