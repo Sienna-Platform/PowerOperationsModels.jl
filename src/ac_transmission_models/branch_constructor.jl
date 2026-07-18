@@ -2155,14 +2155,7 @@ function construct_device!(
     sys::PSY.System,
     ::ArgumentConstructStage,
     device_model::DeviceModel{T, U},
-    network_model::NetworkModel{
-        <:Union{
-            AbstractPTDFNetworkModel,
-            NativeNodalNetworkModel,
-            CopperPlateNetworkModel,
-            AreaBalanceNetworkModel,
-        },
-    },
+    network_model::NetworkModel{<:AbstractNetworkModel},
 ) where {
     T <: PSY.TwoTerminalHVDC,
     U <: HVDCTwoTerminalPiecewiseLoss,
@@ -2206,14 +2199,7 @@ function construct_device!(
     sys::PSY.System,
     ::ModelConstructStage,
     device_model::DeviceModel{T, U},
-    network_model::NetworkModel{
-        <:Union{
-            AbstractPTDFNetworkModel,
-            NativeNodalNetworkModel,
-            CopperPlateNetworkModel,
-            AreaBalanceNetworkModel,
-        },
-    },
+    network_model::NetworkModel{<:AbstractNetworkModel},
 ) where {
     T <: PSY.TwoTerminalHVDC,
     U <: HVDCTwoTerminalPiecewiseLoss,

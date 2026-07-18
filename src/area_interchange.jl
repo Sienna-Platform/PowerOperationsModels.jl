@@ -295,8 +295,7 @@ end
 # variable metered at its terminal inside the interchange's from-area, so the measured
 # export includes the tie-line loss. A branch keyed (from_area, to_area) is metered at
 # its own from terminal (FlowActivePowerFromToVariable); a branch keyed
-# (to_area, from_area) at its own to terminal (FlowActivePowerToFromVariable). Swap the
-# two selections below to measure at the importing boundary instead.
+# (to_area, from_area) at its own to terminal (FlowActivePowerToFromVariable).
 function add_constraints!(
     container::OptimizationContainer,
     ::Type{LineFlowBoundConstraint},
