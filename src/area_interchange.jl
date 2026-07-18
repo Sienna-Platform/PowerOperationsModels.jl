@@ -390,15 +390,7 @@ function _add_measured_tie_line_flows!(
     U <: Union{FlowActivePowerFromToVariable, FlowActivePowerToFromVariable},
     V <: PSY.ACBranch,
 }
-    if has_container_key(container, U, V)
-        flow_variable = get_variable(container, U, V)
-        measured_direction_mult = 1.0
-    else
-        # Lossless formulations carry one signed flow variable (positive from -> to):
-        # the measurement end is immaterial and only the interchange direction matters.
-        flow_variable = get_variable(container, FlowActivePowerVariable, V)
-        measured_direction_mult = _measured_direction_mult(U)
-    end
+    flow_variable, measured_direction_mult = _resolve_measured_flow(container, U, V)
     for name in names
         orientation_sign = get!(orientation_sign_cache, (V, name)) do
             _tie_line_orientation_sign(net_reduction_data, V, name)
@@ -411,6 +403,56 @@ function _add_measured_tie_line_flows!(
     end
     return
 end
+
+# Resolve the container variable that carries the measured-terminal export and its
+# sign. First match wins; a device type builds exactly one formulation per template,
+# so at most one family is present. Multipliers convert each family's convention to
+# "export at the measured terminal": the directional pair and the LCC rectifier are
+# already exports (+1); the LCC inverter and the PWL received variables are
+# injections at their terminal (-1); the lossless fallback is signed from -> to.
+function _resolve_measured_flow(
+    container::OptimizationContainer,
+    ::Type{U},
+    ::Type{V},
+) where {
+    U <: Union{FlowActivePowerFromToVariable, FlowActivePowerToFromVariable},
+    V <: PSY.ACBranch,
+}
+    if has_container_key(container, U, V)
+        return get_variable(container, U, V), 1.0
+    end
+    lcc_variable = _measured_lcc_variable(U)
+    if has_container_key(container, lcc_variable, V)
+        return get_variable(container, lcc_variable, V),
+        _measured_lcc_mult(U)
+    end
+    received_variable = _measured_received_variable(U)
+    if has_container_key(container, received_variable, V)
+        return get_variable(container, received_variable, V), -1.0
+    end
+    if has_container_key(container, FlowActivePowerVariable, V)
+        return get_variable(container, FlowActivePowerVariable, V),
+        _measured_direction_mult(U)
+    end
+    error(
+        "AreaInterchange cannot meter tie lines of type $V: the container has none of ",
+        "the flow variables ($U, $(_measured_lcc_variable(U)), ",
+        "$(_measured_received_variable(U)), FlowActivePowerVariable). ",
+        "Add a DeviceModel for $V to the template or remove the tie from the interchange.",
+    )
+end
+
+_measured_lcc_variable(::Type{FlowActivePowerFromToVariable}) =
+    HVDCRectifierActivePowerVariable
+_measured_lcc_variable(::Type{FlowActivePowerToFromVariable}) =
+    HVDCInverterActivePowerVariable
+_measured_lcc_mult(::Type{FlowActivePowerFromToVariable}) = 1.0
+_measured_lcc_mult(::Type{FlowActivePowerToFromVariable}) = -1.0
+
+_measured_received_variable(::Type{FlowActivePowerFromToVariable}) =
+    HVDCActivePowerReceivedFromVariable
+_measured_received_variable(::Type{FlowActivePowerToFromVariable}) =
+    HVDCActivePowerReceivedToVariable
 
 _measured_direction_mult(::Type{FlowActivePowerFromToVariable}) = 1.0
 _measured_direction_mult(::Type{FlowActivePowerToFromVariable}) = -1.0

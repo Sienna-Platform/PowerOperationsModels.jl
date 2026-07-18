@@ -2308,25 +2308,25 @@ function construct_device!(
     # Variables
     add_variables!(
         container,
-        HVDCActivePowerReceivedFromVariable,
+        HVDCRectifierActivePowerVariable,
         devices,
         HVDCTwoTerminalLCC,
     )
     add_variables!(
         container,
-        HVDCActivePowerReceivedToVariable,
+        HVDCInverterActivePowerVariable,
         devices,
         HVDCTwoTerminalLCC,
     )
     add_variables!(
         container,
-        HVDCReactivePowerReceivedFromVariable,
+        HVDCRectifierReactivePowerVariable,
         devices,
         HVDCTwoTerminalLCC,
     )
     add_variables!(
         container,
-        HVDCReactivePowerReceivedToVariable,
+        HVDCInverterReactivePowerVariable,
         devices,
         HVDCTwoTerminalLCC,
     )
@@ -2413,7 +2413,7 @@ function construct_device!(
     add_to_expression!(
         container,
         ActivePowerBalance,
-        HVDCActivePowerReceivedFromVariable,
+        HVDCRectifierActivePowerVariable,
         devices,
         device_model,
         network_model,
@@ -2421,7 +2421,7 @@ function construct_device!(
     add_to_expression!(
         container,
         ActivePowerBalance,
-        HVDCActivePowerReceivedToVariable,
+        HVDCInverterActivePowerVariable,
         devices,
         device_model,
         network_model,
@@ -2429,7 +2429,7 @@ function construct_device!(
     add_to_expression!(
         container,
         ReactivePowerBalance,
-        HVDCReactivePowerReceivedFromVariable,
+        HVDCRectifierReactivePowerVariable,
         devices,
         device_model,
         network_model,
@@ -2437,7 +2437,7 @@ function construct_device!(
     add_to_expression!(
         container,
         ReactivePowerBalance,
-        HVDCReactivePowerReceivedToVariable,
+        HVDCInverterReactivePowerVariable,
         devices,
         device_model,
         network_model,

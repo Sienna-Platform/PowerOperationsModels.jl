@@ -240,6 +240,40 @@ end
     )
 end
 
+@testset "AreaInterchange StaticBranch includes a PWL-loss HVDC tie on AC networks" begin
+    # Piecewise-loss formulation: each terminal is its own injection variable
+    # (`HVDCActivePowerReceived{From,To}Variable`), both metered with coefficient -1.0
+    # (injection convention). hvdc_tie sits on the same Bus_nodeC_1 -> Bus_nodeC_2 arc as
+    # the directional-flow testset above, which established that arc matches the
+    # interchange's own (Area1 -> Area2) orientation, so metering picks the from-terminal
+    # received variable.
+    sys = _two_area_ac_interchange_system(; include_reverse_tie = false)
+    _add_inter_area_hvdc_tie!(sys)
+    template = get_thermal_dispatch_template_network(NetworkModel(ACPNetworkModel))
+    set_device_model!(template, AreaInterchange, StaticBranch)
+    set_device_model!(template, TwoTerminalGenericHVDCLine, HVDCTwoTerminalPiecewiseLoss)
+    model = DecisionModel(
+        template,
+        sys;
+        optimizer = ipopt_optimizer,
+        store_variable_names = true,
+    )
+    @test build!(
+        model;
+        output_dir = mktempdir(; cleanup = true),
+        console_level = Logging.Error,
+    ) == IOM.ModelBuildStatus.BUILT
+    container = IOM.get_optimization_container(model)
+    t1 = first(IOM.get_time_steps(container))
+    received_from = IOM.get_variable(
+        container, POM.HVDCActivePowerReceivedFromVariable, TwoTerminalGenericHVDCLine,
+    )
+    con_ub =
+        IOM.get_constraint(container, POM.LineFlowBoundConstraint, AreaInterchange, "ub")
+    c = con_ub["1_2", t1]
+    @test JuMP.normalized_coefficient(c, received_from["hvdc_tie", t1]) == -1.0
+end
+
 function _add_intra_area_hvdc_line!(sys)
     bus_from = get_component(ACBus, sys, "Bus_nodeA_1")
     bus_to = get_component(ACBus, sys, "Bus_nodeB_1")
@@ -414,6 +448,50 @@ end
         atol = 1e-9,
     )
     @test JuMP.normalized_coefficient(c_ap, ex_ap["1_2", t1_ap]) == -1.0
+end
+
+@testset "AreaInterchange StaticBranchUnbounded includes a PWL-loss HVDC tie on AreaPTDF networks" begin
+    # Piecewise-loss formulation: each terminal is its own injection variable
+    # (`HVDCActivePowerReceived{From,To}Variable`), metered like every other HVDC
+    # family on the PTDF path - directly, on top of whatever coefficient the tie's
+    # nodal injection already contributes to the monitored AC tie's own PTDFBranchFlow
+    # expression. hvdc_tie sits on the same Bus_nodeC_1 -> Bus_nodeC_2 arc as the
+    # directional-flow, lossless, and AreaPTDF testsets above, all keyed with the
+    # interchange's own (Area1 -> Area2) orientation, so metering picks the
+    # from-terminal received variable at coefficient -1.0 (injection convention).
+    _direct_metering(con, expr, v) =
+        JuMP.normalized_coefficient(con, v) - JuMP.coefficient(expr, v)
+
+    sys = _two_area_ac_interchange_system(; include_reverse_tie = false)
+    _add_inter_area_hvdc_tie!(sys)
+    template = get_thermal_dispatch_template_network(NetworkModel(AreaPTDFNetworkModel))
+    set_device_model!(template, AreaInterchange, StaticBranchUnbounded)
+    set_device_model!(template, TwoTerminalGenericHVDCLine, HVDCTwoTerminalPiecewiseLoss)
+    model = DecisionModel(
+        template,
+        sys;
+        optimizer = HiGHS_optimizer,
+        store_variable_names = true,
+    )
+    @test build!(
+        model;
+        output_dir = mktempdir(; cleanup = true),
+        console_level = Logging.Error,
+    ) == IOM.ModelBuildStatus.BUILT
+    container = IOM.get_optimization_container(model)
+    received_from = IOM.get_variable(
+        container, POM.HVDCActivePowerReceivedFromVariable, TwoTerminalGenericHVDCLine,
+    )
+    ptdf_ml = IOM.get_expression(container, POM.PTDFBranchFlow, MonitoredLine)
+    con_ub =
+        IOM.get_constraint(container, POM.LineFlowBoundConstraint, AreaInterchange, "ub")
+    for t in IOM.get_time_steps(container)
+        ac_tie = ptdf_ml["inter_area_line", t]
+        c = con_ub["1_2", t]
+        @test isapprox(
+            _direct_metering(c, ac_tie, received_from["hvdc_tie", t]), -1.0; atol = 1e-9,
+        )
+    end
 end
 
 @testset "StaticPowerLoad" begin
