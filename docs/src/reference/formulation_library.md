@@ -259,11 +259,11 @@ N-1 security constraints are built with Modified Outage Distribution Factors (PN
 
 #### Tap and phase-angle control
 
-| Formulation         | Supported on                                                                                                                                                          |
-|:------------------- |:--------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `VoltageControlTap` | `ACPNetworkModel`, `ACRNetworkModel`, `IVRNetworkModel`. A silent no-op on the active-power models; explicitly rejected on `LPACCNetworkModel` by template validation |
-| `TapControl`        | `DCPNetworkModel` only                                                                                                                                                |
-| `PhaseAngleControl` | `DCPNetworkModel` and the PTDF models only                                                                                                                            |
+| Formulation         | Supported on                                                                                                                                                                                                                                                    |
+|:------------------- |:--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `VoltageControlTap` | `ACPNetworkModel`, `ACRNetworkModel`, `IVRNetworkModel`. Gated by `models_reactive_power`, so it is dropped from active-power (DC) templates with an `@info` message rather than being built; explicitly rejected on `LPACCNetworkModel` by template validation |
+| `TapControl`        | `DCPNetworkModel` only                                                                                                                                                                                                                                          |
+| `PhaseAngleControl` | `DCPNetworkModel` and the PTDF models only                                                                                                                                                                                                                      |
 
 Under `ACRNetworkModel` and `IVRNetworkModel`, `VoltageControlTap` additionally creates a
 `RegulatedVoltageMagnitude` variable and a `RegulatedVoltageMagnitudeConstraint` (both with
@@ -384,17 +384,9 @@ Metas on thermal keys: `"lb"`/`"ub"` (range limits), `"up"`/`"dn"` (ramp and dur
 (the `CommitmentConstraint` start+stop ≤ 1 container), `"hot"`/`"warm"` (startup temperature), and
 `"ubon"`/`"uboff"` on the MultiStart range limits.
 
-!!! warning "Compact UC does not wire reactive power into the balance"
-    
-    `ThermalCompactUnitCommitment` and `ThermalBasicCompactUnitCommitment` create a
-    `ReactivePowerVariable` and constrain it, but never add it to `ReactivePowerBalance`. Under an
-    AC network their reactive variable is therefore free and contributes nothing to the nodal
-    reactive balance.
-
-!!! warning "FixedOutput has no AC argument stage"
-    
-    For thermal devices, `FixedOutput` implements `ArgumentConstructStage` only for
-    `<:AbstractActivePowerModel`. Pairing it with an AC network raises a `MethodError`.
+`FixedOutput` supports AC networks: for thermal devices its `ArgumentConstructStage` wires
+both `ActivePowerTimeSeriesParameter` and `ReactivePowerTimeSeriesParameter` into their
+respective balances under any `<:AbstractNetworkModel`.
 
 ## [RenewableGen Formulations](@id PowerSystems.RenewableGen-Formulations)
 
@@ -445,16 +437,13 @@ Hydro is the largest family. It splits by *which PSY device* the formulation att
 withdrawal. The three water-flow turbine formulations are collected by the union alias
 `HydroTurbineWaterFormulation`.
 
-!!! warning "Several hydro formulations are active-power-only"
-    
-    `HydroCommitmentRunOfRiver`, `HydroPumpEnergyDispatch` and `HydroPumpEnergyCommitment` implement
-    `ModelConstructStage` only for `<:AbstractActivePowerModel`; under an AC network the model stage
-    hits the "not implemented" fallback error. The turbine water-flow formulations
-    (`HydroTurbineBilinearDispatch`, `HydroTurbineWaterLinearDispatch`, and `HydroWaterFactorModel`
-    on a turbine) are worse: because `HydroTurbine <: HydroGen`, an AC template **silently falls
-    through** to the generic `HydroDispatchRunOfRiver` methods and builds a run-of-river model with
-    no flow variables and no turbine power constraint. Template validation does not gate any of
-    these.
+All hydro constructors are bound `<:AbstractNetworkModel` as well as `<:AbstractActivePowerModel`,
+so every formulation in this section supports AC networks: `HydroCommitmentRunOfRiver`,
+`HydroPumpEnergyDispatch`, and `HydroPumpEnergyCommitment` add the reactive-power variable and
+constraint on their `<:AbstractNetworkModel` path, and the turbine water-flow formulations
+(`HydroTurbineBilinearDispatch`, `HydroTurbineWaterLinearDispatch`, and `HydroWaterFactorModel` on
+a turbine) have their own `HydroTurbine`-specific methods for both stages, so they no longer fall
+through to the generic `HydroDispatchRunOfRiver` methods under an AC template.
 
 ## Storage and Hybrid Formulations
 
@@ -511,14 +500,13 @@ consumption is *increased* by downward reserve.
 `IVRNetworkModel` only: it is dropped from active-power templates by the `models_reactive_power`
 gate and rejected on `LPACCNetworkModel` by template validation.
 
-!!! warning "PowerLoadShift only works on CopperPlate and PTDF"
-    
-    The `ActivePowerBalance ← RealizedShiftedLoad` wiring is implemented only for
-    `CopperPlateNetworkModel` and the PTDF models. On any other network `PowerLoadShift` raises a
-    `MethodError`, and template validation does not gate it.
+The `ActivePowerBalance ← RealizedShiftedLoad` wiring for `PowerLoadShift` is implemented for any
+`<:AbstractNetworkModel`, via the same `_balance_expression_targets` dispatch every other
+injection uses to reach its nodal, area, or system target.
 
-`SynchronousCondenserBasicDispatch` is *not* gated by `models_reactive_power`, so on an
-active-power network it is silently a no-op rather than being dropped.
+`SynchronousCondenserBasicDispatch` is gated by `models_reactive_power`, so on an active-power
+network it is dropped from the template (with an `@info` message) rather than being built as a
+no-op.
 
 ## [Service Formulations](@id service_formulations)
 

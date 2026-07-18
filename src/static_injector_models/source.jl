@@ -140,6 +140,9 @@ function add_constraints!(
         meta = "import",
     )
 
+    # Limits are named from the system's perspective: importing means the source injects
+    # into the system (ActivePowerOutVariable); exporting means it absorbs
+    # (ActivePowerInVariable).
     for d in devices
         name = PSY.get_name(d)
         op_cost = PSY.get_operation_cost(d)
