@@ -1495,3 +1495,16 @@ end
         end
     end
 end
+
+@testset "Concrete pump formulations receive the pump default attributes" begin
+    for formulation in (HydroPumpEnergyDispatch, HydroPumpEnergyCommitment)
+        attributes = POM.get_default_attributes(PSY.HydroPumpTurbine, formulation)
+        @test attributes["reservation"] == false
+
+        m = which(
+            POM.get_default_attributes,
+            Tuple{Type{PSY.HydroPumpTurbine}, Type{formulation}},
+        )
+        @test occursin("AbstractHydroPumpFormulation", string(m.sig))
+    end
+end
