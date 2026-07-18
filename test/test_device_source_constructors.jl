@@ -294,3 +294,29 @@ end
     psi_constraint_test(model, TS_SOURCE_CONSTRAINT_KEYS)
     psi_checkobjfun_test(model, GAEVF)
 end
+
+@testset "ImportExportSource populates NetActivePower on every network" begin
+    for network_formulation in (CopperPlateNetworkModel, ACPNetworkModel)
+        sys = make_5_bus_with_import_export(; add_single_time_series = false)
+        model = DecisionModel(MockOperationProblem, network_formulation, sys)
+        device_model = DeviceModel(
+            Source,
+            ImportExportSourceModel;
+            attributes = Dict("reservation" => false),
+        )
+        mock_construct_device!(model, device_model)
+
+        container = IOM.get_optimization_container(model)
+        p_out = IOM.get_variable(container, ActivePowerOutVariable, PSY.Source)
+        p_in = IOM.get_variable(container, ActivePowerInVariable, PSY.Source)
+        net = IOM.get_expression(container, POM.NetActivePower, PSY.Source)
+        t1 = first(IOM.get_time_steps(container))
+
+        # net injection = out - in for every source, on AC networks too
+        for source in PSY.get_components(PSY.Source, sys)
+            name = PSY.get_name(source)
+            @test JuMP.coefficient(net[name, t1], p_out[name, t1]) == 1.0
+            @test JuMP.coefficient(net[name, t1], p_in[name, t1]) == -1.0
+        end
+    end
+end
