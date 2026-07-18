@@ -113,8 +113,15 @@ models_reactive_power(::Type{<:AbstractDeviceFormulation}) = false
 ########################### Reactive Power Device Formulations ##############################
 abstract type AbstractReactivePowerDeviceFormulation <: AbstractDeviceFormulation end
 
+# The whole family is reactive-only by definition; declaring the trait on the abstract
+# keeps future subtypes gated (matches the AbstractShuntFormulation declaration below).
+models_reactive_power(::Type{<:AbstractReactivePowerDeviceFormulation}) = true
+
 """
-Formulation type to add reactive power dispatch variables for `SynchronousCondenser`
+Formulation type to add reactive power dispatch variables for `SynchronousCondenser`.
+A condenser supplies only reactive power, so it is only meaningful under network models
+with a reactive power balance; dropped from DC templates automatically via
+`models_reactive_power`.
 """
 struct SynchronousCondenserBasicDispatch <: AbstractReactivePowerDeviceFormulation end
 

@@ -56,3 +56,32 @@
           IOM.ModelBuildStatus.BUILT
     @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
 end
+
+@testset "SynchronousCondenserBasicDispatch drops under active-power-only networks" begin
+    sys = build_system(PSITestSystems, "c_sys5_uc"; add_single_time_series = true)
+
+    syncon = SynchronousCondenser(;
+        name = "syncon_test",
+        available = true,
+        bus = get_component(ACBus, sys, "nodeB"),
+        reactive_power = 0.0,
+        rating = 2.0,
+        reactive_power_limits = (min = -2.0, max = 2.0),
+        base_power = 100.0,
+    )
+    add_component!(sys, syncon)
+    transform_single_time_series!(sys, Hour(24), Hour(24))
+
+    template = PowerOperationsProblemTemplate(PTDFNetworkModel)
+    set_device_model!(template, ThermalStandard, ThermalDispatchNoMin)
+    set_device_model!(template, PowerLoad, StaticPowerLoad)
+    set_device_model!(template, Line, StaticBranch)
+    set_device_model!(template, SynchronousCondenser, SynchronousCondenserBasicDispatch)
+
+    model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+    # A condenser supplies only reactive power; on a network with no reactive power the
+    # device model must be dropped from the template, never kept as a silent no-op.
+    @test !haskey(get_device_models(get_template(model)), :SynchronousCondenser)
+end
