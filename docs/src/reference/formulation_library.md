@@ -495,10 +495,14 @@ consumption is *increased* by downward reserve.
 | `ImportExportSourceModel`           | `PSY.Source`                               | `ActivePowerIn`/`OutVariable`, `ReactivePowerVariable`, optional `ReservationVariable` | range limits + `ImportExportBudgetConstraint` (`"export"`/`"import"`)                                                                                          |
 | `SynchronousCondenserBasicDispatch` | `PSY.SynchronousCondenser`                 | `ReactivePowerVariable`                                                                | none                                                                                                                                                           |
 | `ShuntSusceptanceDispatch`          | `SwitchedAdmittance`, `FACTSControlDevice` | `ShuntSusceptanceVariable`, `ReactivePowerVariable`                                    | `ShuntReactivePowerConstraint` (``q = b V^2``)                                                                                                                 |
+| `FixedShuntAdmittance`              | `SwitchedAdmittance`, `FACTSControlDevice` | `ReactivePowerVariable`                                                                | `ShuntReactivePowerConstraint` (``q = b_\text{nominal} V^2``, fixed ``b``)                                                                                     |
 
 `ShuntSusceptanceDispatch` is supported on `ACPNetworkModel`, `ACRNetworkModel` and
 `IVRNetworkModel` only: it is dropped from active-power templates by the `models_reactive_power`
-gate and rejected on `LPACCNetworkModel` by template validation.
+gate and rejected on `LPACCNetworkModel` by template validation. `FixedShuntAdmittance` injects a
+non-dispatched ``q = b_\text{nominal} V^2`` (`SwitchedAdmittance`: ``\operatorname{imag}(Y)``;
+`FACTSControlDevice`: the reactive-power setpoint) and builds on all four reactive networks — it is
+the only shunt formulation available under `LPACCNetworkModel`.
 
 The `ActivePowerBalance ← RealizedShiftedLoad` wiring for `PowerLoadShift` is implemented for any
 `<:AbstractNetworkModel`, via the same `_balance_expression_targets` dispatch every other

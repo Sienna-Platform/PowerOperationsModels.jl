@@ -319,3 +319,132 @@ end
     # DCPNetworkModel has no reactive power balance.
     @test !haskey(get_device_models(get_template(model)), :SwitchedAdmittance)
 end
+
+@testset "FixedShuntAdmittance builds the fixed Q-V layer on LPACC (SwitchedAdmittance)" begin
+    sys = PSB.build_system(PSITestSystems, "c_sys5")
+    bus = PSY.get_component(PSY.ACBus, sys, "nodeA")
+    sa = PSY.SwitchedAdmittance(;
+        name = "shunt_lpacc", available = true, bus = bus, Y = 0.0 + 0.1im,
+        number_of_steps = [2], Y_increase = [0.0 + 0.1im],
+    )
+    PSY.add_component!(sys, sa)
+    b_nominal = imag(PSY.get_Y(sa))
+
+    template = get_thermal_dispatch_template_network(NetworkModel(LPACCNetworkModel))
+    set_device_model!(template, PSY.SwitchedAdmittance, FixedShuntAdmittance)
+    model = DecisionModel(
+        template, sys; optimizer = ipopt_optimizer, store_variable_names = true,
+    )
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+
+    container = IOM.get_optimization_container(model)
+    q = IOM.get_variable(container, ReactivePowerVariable, PSY.SwitchedAdmittance)
+    phi = IOM.get_variable(container, POM.VoltageDeviation, PSY.ACBus)
+    q_expr = IOM.get_expression(container, POM.ReactivePowerBalance, PSY.ACBus)
+    cons = IOM.get_constraint(
+        container, POM.ShuntReactivePowerConstraint, PSY.SwitchedAdmittance,
+    )
+    @test length(cons) > 0
+    bus_no = PSY.get_number(bus)
+    bus_name = PSY.get_name(bus)
+    for t in IOM.get_time_steps(container)
+        # The shunt reactive injection enters the bus reactive balance with +1.
+        @test JuMP.coefficient(q_expr[bus_no, t], q["shunt_lpacc", t]) == 1.0
+        # q == b_nominal*(1 + 2phi) canonicalizes to q - 2*b_nominal*phi == b_nominal, with
+        # b_nominal a constant (no susceptance variable, so phi is linear not bilinear).
+        f = JuMP.constraint_object(cons["shunt_lpacc", t]).func
+        @test JuMP.coefficient(f, q["shunt_lpacc", t]) == 1.0
+        @test isapprox(
+            JuMP.coefficient(f, phi[bus_name, t]),
+            -2.0 * b_nominal;
+            atol = 1e-12,
+        )
+        @test isapprox(JuMP.normalized_rhs(cons["shunt_lpacc", t]), b_nominal; atol = 1e-12)
+    end
+
+    @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+end
+
+@testset "FixedShuntAdmittance builds+solves on LPACC (FACTS)" begin
+    sys = PSB.build_system(PSITestSystems, "c_sys5")
+    bus = PSY.get_component(PSY.ACBus, sys, "nodeA")
+    facts = PSY.FACTSControlDevice(;
+        name = "facts_lpacc_fixed", available = true, bus = bus,
+        control_mode = PSY.FACTSOperationModes.NML, voltage_setpoint = 1.0,
+        max_shunt_current = 100.0,
+    )
+    PSY.set_reactive_power_required!(facts, 10.0)
+    PSY.add_component!(sys, facts)
+    b_nominal = PSY.get_reactive_power_required(facts) / PSY.get_base_power(facts)
+
+    template = get_thermal_dispatch_template_network(NetworkModel(LPACCNetworkModel))
+    set_device_model!(template, PSY.FACTSControlDevice, FixedShuntAdmittance)
+    model = DecisionModel(
+        template, sys; optimizer = ipopt_optimizer, store_variable_names = true,
+    )
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+
+    container = IOM.get_optimization_container(model)
+    q = IOM.get_variable(container, ReactivePowerVariable, PSY.FACTSControlDevice)
+    phi = IOM.get_variable(container, POM.VoltageDeviation, PSY.ACBus)
+    cons = IOM.get_constraint(
+        container, POM.ShuntReactivePowerConstraint, PSY.FACTSControlDevice,
+    )
+    @test length(cons) > 0
+    bus_name = PSY.get_name(bus)
+    for t in IOM.get_time_steps(container)
+        f = JuMP.constraint_object(cons["facts_lpacc_fixed", t]).func
+        @test JuMP.coefficient(f, q["facts_lpacc_fixed", t]) == 1.0
+        @test isapprox(
+            JuMP.coefficient(f, phi[bus_name, t]),
+            -2.0 * b_nominal;
+            atol = 1e-12,
+        )
+        @test isapprox(
+            JuMP.normalized_rhs(cons["facts_lpacc_fixed", t]),
+            b_nominal;
+            atol = 1e-12,
+        )
+    end
+
+    @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+end
+
+@testset "FixedShuntAdmittance builds+solves on ACPNetworkModel (SwitchedAdmittance)" begin
+    sys = PSB.build_system(PSITestSystems, "c_sys5")
+    bus = PSY.get_component(PSY.ACBus, sys, "nodeA")
+    sa = PSY.SwitchedAdmittance(;
+        name = "shunt_acp_fixed", available = true, bus = bus, Y = 0.0 + 0.1im,
+        number_of_steps = [2], Y_increase = [0.0 + 0.1im],
+    )
+    PSY.add_component!(sys, sa)
+    b_nominal = imag(PSY.get_Y(sa))
+
+    template = get_thermal_dispatch_template_network(NetworkModel(ACPNetworkModel))
+    set_device_model!(template, PSY.SwitchedAdmittance, FixedShuntAdmittance)
+    model = DecisionModel(
+        template, sys; optimizer = ipopt_optimizer, store_variable_names = true,
+    )
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+
+    container = IOM.get_optimization_container(model)
+    q = IOM.get_variable(container, ReactivePowerVariable, PSY.SwitchedAdmittance)
+    vm = IOM.get_variable(container, VoltageMagnitude, PSY.ACBus)
+    cons = IOM.get_constraint(
+        container, POM.ShuntReactivePowerConstraint, PSY.SwitchedAdmittance,
+    )
+    @test length(cons) > 0
+    bus_name = PSY.get_name(bus)
+    for t in IOM.get_time_steps(container)
+        # q == b_nominal*vm^2: the quadratic voltage term carries -b_nominal.
+        f = JuMP.constraint_object(cons["shunt_acp_fixed", t]).func
+        @test JuMP.coefficient(f, q["shunt_acp_fixed", t]) == 1.0
+        @test isapprox(
+            JuMP.coefficient(f, vm[bus_name, t], vm[bus_name, t]), -b_nominal; atol = 1e-12,
+        )
+    end
+    @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+end

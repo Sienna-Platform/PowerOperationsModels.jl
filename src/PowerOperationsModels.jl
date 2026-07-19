@@ -867,6 +867,7 @@ export SynchronousCondenserBasicDispatch
 # Shunt Formulations
 export AbstractShuntFormulation
 export ShuntSusceptanceDispatch
+export FixedShuntAdmittance
 export ShuntSusceptanceVariable
 export ShuntReactivePowerConstraint
 

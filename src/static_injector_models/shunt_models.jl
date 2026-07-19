@@ -52,6 +52,30 @@ function _shunt_susceptance_limits(d::PSY.FACTSControlDevice)
     return (min = -b_max, max = b_max)
 end
 
+# Non-dispatched susceptance (pu, system base) for FixedShuntAdmittance.
+# SwitchedAdmittance: the base admittance imag(Y). FACTSControlDevice: the reactive-power
+# setpoint at unity voltage (Q = b·V² = b at V = 1 pu), converted to system base like the
+# max_shunt_current band.
+_fixed_shunt_susceptance(d::PSY.SwitchedAdmittance) = imag(PSY.get_Y(d))
+
+function _fixed_shunt_susceptance(d::PSY.FACTSControlDevice)
+    s_base = PSY.get_base_power(d)
+    if !isfinite(s_base) || iszero(s_base)
+        error(
+            "FACTSControlDevice $(PSY.get_name(d)) has zero/invalid system base power; ",
+            "cannot convert the reactive-power setpoint to per unit",
+        )
+    end
+    b = PSY.get_reactive_power_required(d) / s_base
+    if !isfinite(b)
+        error(
+            "FACTSControlDevice $(PSY.get_name(d)) has a non-finite reactive-power ",
+            "setpoint; cannot fix its susceptance",
+        )
+    end
+    return b
+end
+
 #################################################################################
 # ShuntSusceptanceVariable traits
 #################################################################################
@@ -139,6 +163,57 @@ function get_variable_upper_bound(
 end
 
 #################################################################################
+# ReactivePowerVariable traits for FixedShuntAdmittance
+#
+# Q = b_nominal * V² with b_nominal fixed, so the Q range is b_nominal over
+# {v_min², v_max²}, ordered because b_nominal may be negative (capacitive).
+#################################################################################
+
+get_variable_binary(
+    ::Type{ReactivePowerVariable},
+    ::Type{<:PSY.StaticInjection},
+    ::Type{FixedShuntAdmittance},
+) = false
+
+get_variable_multiplier(
+    ::Type{ReactivePowerVariable},
+    ::Type{<:PSY.StaticInjection},
+    ::Type{FixedShuntAdmittance},
+) = 1.0
+
+function _fixed_reactive_power_bounds(d::PSY.StaticInjection)
+    b = _fixed_shunt_susceptance(d)
+    vlims = PSY.get_voltage_limits(PSY.get_bus(d))
+    vmin = vlims.min
+    vmax = vlims.max
+    if !isfinite(vmin) || !isfinite(vmax) || vmin <= 0.0
+        error(
+            "Device $(PSY.get_name(d)) bus has non-finite or non-positive voltage limits; ",
+            "cannot bound ReactivePowerVariable",
+        )
+    end
+    lo = min(b * vmin^2, b * vmax^2)
+    hi = max(b * vmin^2, b * vmax^2)
+    return (min = lo, max = hi)
+end
+
+function get_variable_lower_bound(
+    ::Type{ReactivePowerVariable},
+    d::PSY.StaticInjection,
+    ::Type{FixedShuntAdmittance},
+)
+    return _fixed_reactive_power_bounds(d).min
+end
+
+function get_variable_upper_bound(
+    ::Type{ReactivePowerVariable},
+    d::PSY.StaticInjection,
+    ::Type{FixedShuntAdmittance},
+)
+    return _fixed_reactive_power_bounds(d).max
+end
+
+#################################################################################
 # Formulation metadata
 #################################################################################
 
@@ -146,14 +221,14 @@ requires_initialization(::AbstractShuntFormulation) = false
 
 function get_default_attributes(
     ::Type{<:PSY.StaticInjection},
-    ::Type{ShuntSusceptanceDispatch},
+    ::Type{<:AbstractShuntFormulation},
 )
     return Dict{String, Any}()
 end
 
 function get_default_time_series_names(
     ::Type{<:PSY.StaticInjection},
-    ::Type{ShuntSusceptanceDispatch},
+    ::Type{<:AbstractShuntFormulation},
 )
     return Dict{Type{<:TimeSeriesParameter}, String}()
 end
