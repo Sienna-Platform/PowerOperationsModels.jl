@@ -113,8 +113,15 @@ models_reactive_power(::Type{<:AbstractDeviceFormulation}) = false
 ########################### Reactive Power Device Formulations ##############################
 abstract type AbstractReactivePowerDeviceFormulation <: AbstractDeviceFormulation end
 
+# The whole family is reactive-only by definition; declaring the trait on the abstract
+# keeps future subtypes gated (matches the AbstractShuntFormulation declaration below).
+models_reactive_power(::Type{<:AbstractReactivePowerDeviceFormulation}) = true
+
 """
-Formulation type to add reactive power dispatch variables for `SynchronousCondenser`
+Formulation type to add reactive power dispatch variables for `SynchronousCondenser`.
+A condenser supplies only reactive power, so it is only meaningful under network models
+with a reactive power balance; dropped from DC templates automatically via
+`models_reactive_power`.
 """
 struct SynchronousCondenserBasicDispatch <: AbstractReactivePowerDeviceFormulation end
 
@@ -136,6 +143,16 @@ regulated bus voltage is fixed to its setpoint. Only valid under AC network mode
 from DC templates automatically via `models_reactive_power`.
 """
 struct ShuntSusceptanceDispatch <: AbstractShuntFormulation end
+
+"""
+Fixed-susceptance shunt injecting `Q = b_nominal·V²` into the reactive nodal balance with a
+non-dispatched `b_nominal` (`SwitchedAdmittance`: `imag(get_Y)`; `FACTSControlDevice`: the
+reactive-power setpoint on system base). The susceptance is not a decision variable and
+there is no voltage-control objective. This is the only shunt formulation valid under
+`LPACCNetworkModel`, where `V²` linearizes to `1 + 2φ`; it also builds on ACP/ACR/IVR.
+Dropped from DC templates automatically via `models_reactive_power`.
+"""
+struct FixedShuntAdmittance <: AbstractShuntFormulation end
 
 models_reactive_power(::Type{<:AbstractShuntFormulation}) = true
 

@@ -1,10 +1,8 @@
-function _sys5_with_lcc()
-    sys5 = build_system(PSISystems, "2Area 5 Bus System")
-    hvdc = first(get_components(TwoTerminalGenericHVDCLine, sys5))
-    lcc = TwoTerminalLCCLine(;
-        name = "lcc",
+function _make_lcc_line(arc; name = "lcc")
+    return TwoTerminalLCCLine(;
+        name = name,
         available = true,
-        arc = hvdc.arc,
+        arc = arc,
         active_power_flow = 0.1,
         r = 0.000189,
         transfer_setpoint = -100.0,
@@ -40,6 +38,12 @@ function _sys5_with_lcc()
         reactive_power_limits_from = (min = -3.0, max = 3.0),
         reactive_power_limits_to = (min = -3.0, max = 3.0),
     )
+end
+
+function _sys5_with_lcc()
+    sys5 = build_system(PSISystems, "2Area 5 Bus System")
+    hvdc = first(get_components(TwoTerminalGenericHVDCLine, sys5))
+    lcc = _make_lcc_line(hvdc.arc)
 
     add_component!(sys5, lcc)
     remove_component!(sys5, hvdc)
@@ -103,16 +107,16 @@ end
     to_no = get_number(get_to(arc))
 
     p_from = IOM.get_variable(
-        container, POM.HVDCActivePowerReceivedFromVariable, TwoTerminalLCCLine,
+        container, POM.HVDCRectifierActivePowerVariable, TwoTerminalLCCLine,
     )
     p_to = IOM.get_variable(
-        container, POM.HVDCActivePowerReceivedToVariable, TwoTerminalLCCLine,
+        container, POM.HVDCInverterActivePowerVariable, TwoTerminalLCCLine,
     )
     q_from = IOM.get_variable(
-        container, POM.HVDCReactivePowerReceivedFromVariable, TwoTerminalLCCLine,
+        container, POM.HVDCRectifierReactivePowerVariable, TwoTerminalLCCLine,
     )
     q_to = IOM.get_variable(
-        container, POM.HVDCReactivePowerReceivedToVariable, TwoTerminalLCCLine,
+        container, POM.HVDCInverterReactivePowerVariable, TwoTerminalLCCLine,
     )
     p_expr = IOM.get_expression(container, ActivePowerBalance, ACBus)
     q_expr = IOM.get_expression(container, ReactivePowerBalance, ACBus)
@@ -154,5 +158,113 @@ end
         set_device_model!(template, ThermalStandard, ThermalDispatchNoMin)
         model = DecisionModel(template, sys5; optimizer = HiGHS_optimizer)
         @test_throws IS.ConflictingInputsError POM.validate_template(model)
+    end
+end
+
+# `2Area 5 Bus System` (the base of `_sys5_with_lcc`) ships zero `Area` components, so it
+# cannot host an inter-area AreaInterchange (verified directly: `get_components(PSY.Area,
+# sys)` is empty and its bus `get_area` is `nothing`). Fall back to `two_area_pjm_DA`,
+# which ships Area1/Area2 and an AreaInterchange ("1_2") already spanning them, and add
+# the LCC onto its existing `Bus_nodeC_1 -> Bus_nodeC_2` arc (an inter-area tie between
+# Area1 and Area2). The LCC parameter block is shared via `_make_lcc_line`.
+function _two_area_sys_with_lcc_tie()
+    sys = build_system(PSISystems, "two_area_pjm_DA")
+    transform_single_time_series!(sys, Hour(24), Hour(1))
+    bus_from = PSY.get_component(PSY.ACBus, sys, "Bus_nodeC_1")
+    bus_to = PSY.get_component(PSY.ACBus, sys, "Bus_nodeC_2")
+    existing_arcs = PSY.get_components(
+        x -> PSY.get_from(x) == bus_from && PSY.get_to(x) == bus_to, PSY.Arc, sys,
+    )
+    if isempty(existing_arcs)
+        arc = PSY.Arc(; from = bus_from, to = bus_to)
+        PSY.add_component!(sys, arc)
+    else
+        arc = first(existing_arcs)
+    end
+    lcc = _make_lcc_line(arc)
+    PSY.add_component!(sys, lcc)
+    return sys
+end
+
+# Reproduces the bug fixed by earlier tasks in this plan: `_add_measured_tie_line_flows!`
+# (src/area_interchange.jl) previously did not know the LCC's variable set, so metering
+# an LCC tie inside an AreaInterchange's LineFlowBoundConstraint died deep in build!.
+#
+# Orientation check (verified directly against the fixture): the shipped interchange
+# "1_2" is keyed (from_area = Area1, to_area = Area2); `Bus_nodeC_1` is in Area1 and
+# `Bus_nodeC_2` is in Area2, so the LCC's `Bus_nodeC_1 -> Bus_nodeC_2` arc matches the
+# interchange orientation directly (same conclusion the existing directional-HVDC
+# testset in `test_device_load_constructors.jl` draws for the same arc). The tie is
+# therefore measured at its own from terminal - the rectifier - with coefficient +1.0
+# (export = +rectifier draw).
+@testset "AreaInterchange meters an LCC tie at the rectifier terminal (ACP)" begin
+    sys = _two_area_sys_with_lcc_tie()
+    template = get_thermal_dispatch_template_network(NetworkModel(ACPNetworkModel))
+    set_device_model!(template, TwoTerminalLCCLine, HVDCTwoTerminalLCC)
+    set_device_model!(template, AreaInterchange, StaticBranch)
+
+    model = DecisionModel(template, sys; optimizer = ipopt_optimizer)
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+
+    interchange_name =
+        PSY.get_name(first(PSY.get_components(PSY.AreaInterchange, sys)))
+    container = IOM.get_optimization_container(model)
+    con_ub = IOM.get_constraint(
+        container, POM.LineFlowBoundConstraint, PSY.AreaInterchange, "ub",
+    )
+    rect = IOM.get_variable(
+        container, POM.HVDCRectifierActivePowerVariable, TwoTerminalLCCLine,
+    )
+    lcc_name = PSY.get_name(first(get_components(TwoTerminalLCCLine, sys)))
+    for t in IOM.get_time_steps(container)
+        f = JuMP.constraint_object(con_ub[interchange_name, t]).func
+        # Interchange keyed (from_area, to_area) == the LCC arc orientation:
+        # measured at the rectifier terminal, export = +rectifier draw.
+        @test JuMP.coefficient(f, rect[lcc_name, t]) == 1.0
+    end
+    @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+end
+
+# Mirrors the `reverse_tie` idiom in `test_device_load_constructors.jl`: an arc oriented
+# opposite the interchange (Area2 -> Area1, via `Bus_nodeD_2 -> Bus_nodeD_1` - verified:
+# `Bus_nodeD_2` is in Area2, `Bus_nodeD_1` is in Area1). The LCC is then measured at its
+# own to terminal - the inverter - so the interchange export equals minus the inverter's
+# injection.
+function _two_area_sys_with_reversed_lcc_tie()
+    sys = build_system(PSISystems, "two_area_pjm_DA")
+    transform_single_time_series!(sys, Hour(24), Hour(1))
+    bus_from = PSY.get_component(PSY.ACBus, sys, "Bus_nodeD_2")
+    bus_to = PSY.get_component(PSY.ACBus, sys, "Bus_nodeD_1")
+    arc = PSY.Arc(; from = bus_from, to = bus_to)
+    PSY.add_component!(sys, arc)
+    lcc = _make_lcc_line(arc)
+    PSY.add_component!(sys, lcc)
+    return sys
+end
+
+@testset "AreaInterchange meters an LCC tie at the inverter terminal (reversed orientation, ACP)" begin
+    sys = _two_area_sys_with_reversed_lcc_tie()
+    template = get_thermal_dispatch_template_network(NetworkModel(ACPNetworkModel))
+    set_device_model!(template, TwoTerminalLCCLine, HVDCTwoTerminalLCC)
+    set_device_model!(template, AreaInterchange, StaticBranch)
+
+    model = DecisionModel(template, sys; optimizer = ipopt_optimizer)
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+
+    interchange_name =
+        PSY.get_name(first(PSY.get_components(PSY.AreaInterchange, sys)))
+    container = IOM.get_optimization_container(model)
+    con_ub = IOM.get_constraint(
+        container, POM.LineFlowBoundConstraint, PSY.AreaInterchange, "ub",
+    )
+    inv = IOM.get_variable(
+        container, POM.HVDCInverterActivePowerVariable, TwoTerminalLCCLine,
+    )
+    lcc_name = PSY.get_name(first(get_components(TwoTerminalLCCLine, sys)))
+    for t in IOM.get_time_steps(container)
+        f = JuMP.constraint_object(con_ub[interchange_name, t]).func
+        @test JuMP.coefficient(f, inv[lcc_name, t]) == -1.0
     end
 end

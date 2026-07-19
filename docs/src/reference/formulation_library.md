@@ -259,11 +259,11 @@ N-1 security constraints are built with Modified Outage Distribution Factors (PN
 
 #### Tap and phase-angle control
 
-| Formulation         | Supported on                                                                                                                                                          |
-|:------------------- |:--------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `VoltageControlTap` | `ACPNetworkModel`, `ACRNetworkModel`, `IVRNetworkModel`. A silent no-op on the active-power models; explicitly rejected on `LPACCNetworkModel` by template validation |
-| `TapControl`        | `DCPNetworkModel` only                                                                                                                                                |
-| `PhaseAngleControl` | `DCPNetworkModel` and the PTDF models only                                                                                                                            |
+| Formulation         | Supported on                                                                                                                                                                                                                                                    |
+|:------------------- |:--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `VoltageControlTap` | `ACPNetworkModel`, `ACRNetworkModel`, `IVRNetworkModel`. Gated by `models_reactive_power`, so it is dropped from active-power (DC) templates with an `@info` message rather than being built; explicitly rejected on `LPACCNetworkModel` by template validation |
+| `TapControl`        | `DCPNetworkModel` only                                                                                                                                                                                                                                          |
+| `PhaseAngleControl` | `DCPNetworkModel` and the PTDF models only                                                                                                                                                                                                                      |
 
 Under `ACRNetworkModel` and `IVRNetworkModel`, `VoltageControlTap` additionally creates a
 `RegulatedVoltageMagnitude` variable and a `RegulatedVoltageMagnitudeConstraint` (both with
@@ -274,15 +274,15 @@ Under `ACRNetworkModel` and `IVRNetworkModel`, `VoltageControlTap` additionally 
 
 #### Two-terminal HVDC
 
-| Formulation                    | Supported networks                                                                                                       | Key variables                                                                                                     | Key constraints                                                                                                        |
-|:------------------------------ |:------------------------------------------------------------------------------------------------------------------------ |:----------------------------------------------------------------------------------------------------------------- |:---------------------------------------------------------------------------------------------------------------------- |
-| `HVDCTwoTerminalUnbounded`     | all except `AreaBalanceNetworkModel`                                                                                     | `FlowActivePowerVariable` (+ reactive from/to on AC networks, all unbounded)                                      | none — active and reactive flows are unconstrained                                                                     |
-| `HVDCTwoTerminalLossless`      | all except `AreaBalanceNetworkModel`                                                                                     | `FlowActivePowerVariable` (+ reactive from/to on ACP/ACR/IVR/LPACC, bounded by `reactive_power_limits_from`/`to`) | `FlowRateConstraint` (`"ub"`/`"lb"`)                                                                                   |
-| `HVDCTwoTerminalDispatch`      | PTDF, and all active-power + AC-native models                                                                            | `FlowActivePower{FromTo,ToFrom}Variable`, `HVDCLosses`, `HVDCFlowDirectionVariable`                               | `FlowRateConstraint{FromTo,ToFrom}`, `HVDCPowerBalance` (nine metas)                                                   |
-| `HVDCTwoTerminalPiecewiseLoss` | all                                                                                                                      | `HVDCActivePowerReceived{From,To}Variable`, `HVDCPiecewiseLossVariable`, `HVDCPiecewiseBinaryLossVariable`        | `FlowRateConstraint{FromTo,ToFrom}`, `HVDCFlowCalculationConstraint` (`"ft"`, `"tf"`, `"bin"`)                         |
-| `HVDCTwoTerminalLCC`           | `ACPNetworkModel`, `ACRNetworkModel`, `IVRNetworkModel`, `LPACCNetworkModel` (rejected at template validation elsewhere) | 17 variables (rectifier/inverter angles, DC voltages, AC currents, taps)                                          | 11 constraints (DC line voltage, overlap angle, power-factor angle, AC current, power calculation)                     |
-| `HVDCTwoTerminalVSC`           | all except `AreaBalanceNetworkModel`                                                                                     | `FlowActivePower{FromTo,ToFrom}Variable`, `DCLineCurrentFlowVariable`, `HVDC{From,To}DCVoltage`                   | `HVDCCableOhmsLawConstraint`, `HVDCVSCConverterPowerConstraint` (`"ft"`/`"tf"`), `HVDCVSCApparentPowerLimitConstraint` |
-| `VoltageControlVSC`            | `ACPNetworkModel`, `ACRNetworkModel`, `IVRNetworkModel`, `LPACCNetworkModel` (auto-dropped from active-power templates)  | as `HVDCTwoTerminalVSC`, plus `RegulatedVoltageMagnitude` (`"from"`/`"to"`) on ACR/IVR                            | as above, plus `HVDCDCControlConstraint` (`"from"`/`"to"`)                                                             |
+| Formulation                    | Supported networks                                                                                                       | Key variables                                                                                                                                                                            | Key constraints                                                                                                        |
+|:------------------------------ |:------------------------------------------------------------------------------------------------------------------------ |:---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |:---------------------------------------------------------------------------------------------------------------------- |
+| `HVDCTwoTerminalUnbounded`     | all except `AreaBalanceNetworkModel`                                                                                     | `FlowActivePowerVariable` (+ reactive from/to on AC networks, all unbounded)                                                                                                             | none — active and reactive flows are unconstrained                                                                     |
+| `HVDCTwoTerminalLossless`      | all except `AreaBalanceNetworkModel`                                                                                     | `FlowActivePowerVariable` (+ reactive from/to on ACP/ACR/IVR/LPACC, bounded by `reactive_power_limits_from`/`to`)                                                                        | `FlowRateConstraint` (`"ub"`/`"lb"`)                                                                                   |
+| `HVDCTwoTerminalDispatch`      | PTDF, and all active-power + AC-native models                                                                            | `FlowActivePower{FromTo,ToFrom}Variable`, `HVDCLosses`, `HVDCFlowDirectionVariable`                                                                                                      | `FlowRateConstraint{FromTo,ToFrom}`, `HVDCPowerBalance` (nine metas)                                                   |
+| `HVDCTwoTerminalPiecewiseLoss` | all                                                                                                                      | `HVDCActivePowerReceived{From,To}Variable`, `HVDCPiecewiseLossVariable`, `HVDCPiecewiseBinaryLossVariable`                                                                               | `FlowRateConstraint{FromTo,ToFrom}`, `HVDCFlowCalculationConstraint` (`"ft"`, `"tf"`, `"bin"`)                         |
+| `HVDCTwoTerminalLCC`           | `ACPNetworkModel`, `ACRNetworkModel`, `IVRNetworkModel`, `LPACCNetworkModel` (rejected at template validation elsewhere) | 17 variables, including `HVDCRectifierActivePowerVariable`/`HVDCInverterActivePowerVariable` and their reactive counterparts (rectifier/inverter angles, DC voltages, AC currents, taps) | 11 constraints (DC line voltage, overlap angle, power-factor angle, AC current, power calculation)                     |
+| `HVDCTwoTerminalVSC`           | all except `AreaBalanceNetworkModel`                                                                                     | `FlowActivePower{FromTo,ToFrom}Variable`, `DCLineCurrentFlowVariable`, `HVDC{From,To}DCVoltage`                                                                                          | `HVDCCableOhmsLawConstraint`, `HVDCVSCConverterPowerConstraint` (`"ft"`/`"tf"`), `HVDCVSCApparentPowerLimitConstraint` |
+| `VoltageControlVSC`            | `ACPNetworkModel`, `ACRNetworkModel`, `IVRNetworkModel`, `LPACCNetworkModel` (auto-dropped from active-power templates)  | as `HVDCTwoTerminalVSC`, plus `RegulatedVoltageMagnitude` (`"from"`/`"to"`) on ACR/IVR                                                                                                   | as above, plus `HVDCDCControlConstraint` (`"from"`/`"to"`)                                                             |
 
 !!! warning "HVDCTwoTerminalDispatch loses its losses on CopperPlate"
     
@@ -309,6 +309,24 @@ The apparent-power limit on the VSC formulations depends on the `"bilinear_appro
 attribute. With the default `"none"` it is an exact quadratic disk (`"from"`/`"to"`); with a
 linearizing scheme it becomes a box of eight half-planes, plus eight more octagon cuts when
 `"use_octagon"` is true (the default).
+
+#### AreaInterchange tie-line metering
+
+`AreaInterchange` (`StaticBranch`/`StaticBranchUnbounded`) builds one `LineFlowBoundConstraint` per
+interchange, summing the measured export of every tie crossing its area boundary at the terminal on
+the interchange's `from_area` side. Each tie formulation resolves to a different container variable
+and sign, converted to a common "export at the measured terminal" convention:
+
+| Tie formulation                                       | Measured variable                                                                                                               | Sign convention                                                                      |
+|:----------------------------------------------------- |:------------------------------------------------------------------------------------------------------------------------------- |:------------------------------------------------------------------------------------ |
+| AC lines/monitored lines, `HVDCTwoTerminalDispatch`   | `FlowActivePower{FromTo,ToFrom}Variable` on the terminal matching the interchange's `from_area`                                 | Already an export: coefficient `+1.0`                                                |
+| `HVDCTwoTerminalLossless`, `HVDCTwoTerminalUnbounded` | `FlowActivePowerVariable`                                                                                                       | Signed from -> to: `+1.0` if the arc runs `from_area -> to_area`, `-1.0` if reversed |
+| `HVDCTwoTerminalPiecewiseLoss`                        | `HVDCActivePowerReceived{From,To}Variable` on the matching terminal                                                             | Injection, not export: coefficient `-1.0`                                            |
+| `HVDCTwoTerminalLCC`                                  | `HVDCRectifierActivePowerVariable` (arc's `from_area` terminal) or `HVDCInverterActivePowerVariable` (arc's `to_area` terminal) | Rectifier is already an export (`+1.0`); inverter is an injection (`-1.0`)           |
+
+On PTDF/AreaPTDF networks the same table applies on top of each tie's own `PTDFBranchFlow`
+nodal-injection response, so the metering coefficient surfaces as the *difference* between the
+constraint's coefficient on a tie variable and that tie's own PTDF row.
 
 #### Multi-terminal HVDC (`PSY.InterconnectingConverter`, `PSY.TModelHVDCLine`)
 
@@ -366,17 +384,9 @@ Metas on thermal keys: `"lb"`/`"ub"` (range limits), `"up"`/`"dn"` (ramp and dur
 (the `CommitmentConstraint` start+stop ≤ 1 container), `"hot"`/`"warm"` (startup temperature), and
 `"ubon"`/`"uboff"` on the MultiStart range limits.
 
-!!! warning "Compact UC does not wire reactive power into the balance"
-    
-    `ThermalCompactUnitCommitment` and `ThermalBasicCompactUnitCommitment` create a
-    `ReactivePowerVariable` and constrain it, but never add it to `ReactivePowerBalance`. Under an
-    AC network their reactive variable is therefore free and contributes nothing to the nodal
-    reactive balance.
-
-!!! warning "FixedOutput has no AC argument stage"
-    
-    For thermal devices, `FixedOutput` implements `ArgumentConstructStage` only for
-    `<:AbstractActivePowerModel`. Pairing it with an AC network raises a `MethodError`.
+`FixedOutput` supports AC networks: for thermal devices its `ArgumentConstructStage` wires
+both `ActivePowerTimeSeriesParameter` and `ReactivePowerTimeSeriesParameter` into their
+respective balances under any `<:AbstractNetworkModel`.
 
 ## [RenewableGen Formulations](@id PowerSystems.RenewableGen-Formulations)
 
@@ -427,16 +437,13 @@ Hydro is the largest family. It splits by *which PSY device* the formulation att
 withdrawal. The three water-flow turbine formulations are collected by the union alias
 `HydroTurbineWaterFormulation`.
 
-!!! warning "Several hydro formulations are active-power-only"
-    
-    `HydroCommitmentRunOfRiver`, `HydroPumpEnergyDispatch` and `HydroPumpEnergyCommitment` implement
-    `ModelConstructStage` only for `<:AbstractActivePowerModel`; under an AC network the model stage
-    hits the "not implemented" fallback error. The turbine water-flow formulations
-    (`HydroTurbineBilinearDispatch`, `HydroTurbineWaterLinearDispatch`, and `HydroWaterFactorModel`
-    on a turbine) are worse: because `HydroTurbine <: HydroGen`, an AC template **silently falls
-    through** to the generic `HydroDispatchRunOfRiver` methods and builds a run-of-river model with
-    no flow variables and no turbine power constraint. Template validation does not gate any of
-    these.
+All hydro constructors are bound `<:AbstractNetworkModel` as well as `<:AbstractActivePowerModel`,
+so every formulation in this section supports AC networks: `HydroCommitmentRunOfRiver`,
+`HydroPumpEnergyDispatch`, and `HydroPumpEnergyCommitment` add the reactive-power variable and
+constraint on their `<:AbstractNetworkModel` path, and the turbine water-flow formulations
+(`HydroTurbineBilinearDispatch`, `HydroTurbineWaterLinearDispatch`, and `HydroWaterFactorModel` on
+a turbine) have their own `HydroTurbine`-specific methods for both stages, so they no longer fall
+through to the generic `HydroDispatchRunOfRiver` methods under an AC template.
 
 ## Storage and Hybrid Formulations
 
@@ -488,19 +495,22 @@ consumption is *increased* by downward reserve.
 | `ImportExportSourceModel`           | `PSY.Source`                               | `ActivePowerIn`/`OutVariable`, `ReactivePowerVariable`, optional `ReservationVariable` | range limits + `ImportExportBudgetConstraint` (`"export"`/`"import"`)                                                                                          |
 | `SynchronousCondenserBasicDispatch` | `PSY.SynchronousCondenser`                 | `ReactivePowerVariable`                                                                | none                                                                                                                                                           |
 | `ShuntSusceptanceDispatch`          | `SwitchedAdmittance`, `FACTSControlDevice` | `ShuntSusceptanceVariable`, `ReactivePowerVariable`                                    | `ShuntReactivePowerConstraint` (``q = b V^2``)                                                                                                                 |
+| `FixedShuntAdmittance`              | `SwitchedAdmittance`, `FACTSControlDevice` | `ReactivePowerVariable`                                                                | `ShuntReactivePowerConstraint` (``q = b_\text{nominal} V^2``, fixed ``b``)                                                                                     |
 
 `ShuntSusceptanceDispatch` is supported on `ACPNetworkModel`, `ACRNetworkModel` and
 `IVRNetworkModel` only: it is dropped from active-power templates by the `models_reactive_power`
-gate and rejected on `LPACCNetworkModel` by template validation.
+gate and rejected on `LPACCNetworkModel` by template validation. `FixedShuntAdmittance` injects a
+non-dispatched ``q = b_\text{nominal} V^2`` (`SwitchedAdmittance`: ``\operatorname{imag}(Y)``;
+`FACTSControlDevice`: the reactive-power setpoint) and builds on all four reactive networks — it is
+the only shunt formulation available under `LPACCNetworkModel`.
 
-!!! warning "PowerLoadShift only works on CopperPlate and PTDF"
-    
-    The `ActivePowerBalance ← RealizedShiftedLoad` wiring is implemented only for
-    `CopperPlateNetworkModel` and the PTDF models. On any other network `PowerLoadShift` raises a
-    `MethodError`, and template validation does not gate it.
+The `ActivePowerBalance ← RealizedShiftedLoad` wiring for `PowerLoadShift` is implemented for any
+`<:AbstractNetworkModel`, via the same `_balance_expression_targets` dispatch every other
+injection uses to reach its nodal, area, or system target.
 
-`SynchronousCondenserBasicDispatch` is *not* gated by `models_reactive_power`, so on an
-active-power network it is silently a no-op rather than being dropped.
+`SynchronousCondenserBasicDispatch` is gated by `models_reactive_power`, so on an active-power
+network it is dropped from the template (with an `@info` message) rather than being built as a
+no-op.
 
 ## [Service Formulations](@id service_formulations)
 

@@ -5,7 +5,7 @@
 #   ArgumentConstructStage — ShuntSusceptanceVariable + ReactivePowerVariable
 #                            (both bounded per Principle 0); Q wired into balance.
 #   ModelConstructStage    — Q = b·V² constraint (always); control-objective
-#                            JuMP.fix (ACP voltage control for FACTSControlDevice
+#                            JuMP.fix (voltage control for FACTSControlDevice
 #                            in NML mode).
 #
 # Active-power-only network no-ops are defensive; reactive formulations under DC
@@ -27,17 +27,38 @@ function _fetch_voltage_arrays(
     )
 end
 
+function _fetch_voltage_arrays(container, ::NetworkModel{LPACCNetworkModel})
+    return (get_variable(container, VoltageDeviation, PSY.ACBus),)
+end
+
 # Compute V² from pre-fetched variable array(s) — no container lookup in hot loop.
-function _bus_voltage_squared(vars::Tuple{V}, bus_name::String, t::Int) where {V}
+function _bus_voltage_squared(
+    ::NetworkModel{ACPNetworkModel},
+    vars,
+    bus_name::String,
+    t::Int,
+)
     return vars[1][bus_name, t]^2
 end
 
 function _bus_voltage_squared(
-    vars::Tuple{V, W},
+    ::NetworkModel{<:Union{ACRNetworkModel, IVRNetworkModel}},
+    vars,
     bus_name::String,
     t::Int,
-) where {V, W}
+)
     return vars[1][bus_name, t]^2 + vars[2][bus_name, t]^2
+end
+
+# LPACC linearization of V² = (1 + φ)² around φ ≈ 0, consistent with the 1 + 2φ
+# self terms of the LPAC Ohm's law.
+function _bus_voltage_squared(
+    ::NetworkModel{LPACCNetworkModel},
+    vars,
+    bus_name::String,
+    t::Int,
+)
+    return 1.0 + 2.0 * vars[1][bus_name, t]
 end
 
 #################################################################################
@@ -50,7 +71,7 @@ function construct_device!(
     ::ArgumentConstructStage,
     model::DeviceModel{R, ShuntSusceptanceDispatch},
     network_model::NetworkModel{<:AbstractNetworkModel},
-) where {R <: PSY.StaticInjection}
+) where {R <: Union{PSY.SwitchedAdmittance, PSY.FACTSControlDevice}}
     devices = get_available_components(model, sys)
     add_variables!(container, ShuntSusceptanceVariable, devices, ShuntSusceptanceDispatch)
     add_variables!(container, ReactivePowerVariable, devices, ShuntSusceptanceDispatch)
@@ -76,7 +97,7 @@ function construct_device!(
     ::ArgumentConstructStage,
     ::DeviceModel{R, ShuntSusceptanceDispatch},
     ::NetworkModel{<:AbstractActivePowerModel},
-) where {R <: PSY.StaticInjection}
+) where {R <: Union{PSY.SwitchedAdmittance, PSY.FACTSControlDevice}}
     return
 end
 
@@ -90,7 +111,7 @@ function construct_device!(
     ::ModelConstructStage,
     model::DeviceModel{R, ShuntSusceptanceDispatch},
     network_model::NetworkModel{<:AbstractNetworkModel},
-) where {R <: PSY.StaticInjection}
+) where {R <: Union{PSY.SwitchedAdmittance, PSY.FACTSControlDevice}}
     devices = get_available_components(model, sys)
     add_constraints!(
         container,
@@ -112,7 +133,7 @@ function construct_device!(
     ::ModelConstructStage,
     ::DeviceModel{R, ShuntSusceptanceDispatch},
     ::NetworkModel{<:AbstractActivePowerModel},
-) where {R <: PSY.StaticInjection}
+) where {R <: Union{PSY.SwitchedAdmittance, PSY.FACTSControlDevice}}
     return
 end
 
@@ -127,7 +148,7 @@ function add_constraints!(
     devices::IS.FlattenIteratorWrapper{R},
     model::DeviceModel{R, ShuntSusceptanceDispatch},
     network_model::NetworkModel{<:AbstractNetworkModel},
-) where {R <: PSY.StaticInjection}
+) where {R <: Union{PSY.SwitchedAdmittance, PSY.FACTSControlDevice}}
     time_steps = get_time_steps(container)
     b = get_variable(container, ShuntSusceptanceVariable, R)
     q = get_variable(container, ReactivePowerVariable, R)
@@ -147,8 +168,112 @@ function add_constraints!(
             v_arrays[1], bus_name, "connection bus of shunt $(name)",
         )
         for t in time_steps
-            v2 = _bus_voltage_squared(v_arrays, bus_name, t)
+            v2 = _bus_voltage_squared(network_model, v_arrays, bus_name, t)
             cons[name, t] = JuMP.@constraint(jm, q[name, t] == b[name, t] * v2)
+        end
+    end
+    return
+end
+
+#################################################################################
+# construct_device! for FixedShuntAdmittance
+#
+# Non-dispatched shunt: Q = b_nominal·V² with b_nominal fixed (no susceptance
+# variable, no regulated voltage, no control objective). The only shunt formulation
+# valid under LPACC. Active-power-only networks drop it via models_reactive_power.
+#################################################################################
+
+function construct_device!(
+    container::OptimizationContainer,
+    sys::PSY.System,
+    ::ArgumentConstructStage,
+    model::DeviceModel{R, FixedShuntAdmittance},
+    network_model::NetworkModel{<:AbstractNetworkModel},
+) where {R <: Union{PSY.SwitchedAdmittance, PSY.FACTSControlDevice}}
+    devices = get_available_components(model, sys)
+    add_variables!(container, ReactivePowerVariable, devices, FixedShuntAdmittance)
+    add_to_expression!(
+        container,
+        ReactivePowerBalance,
+        ReactivePowerVariable,
+        devices,
+        model,
+        network_model,
+    )
+    add_feedforward_arguments!(container, model, devices)
+    return
+end
+
+function construct_device!(
+    ::OptimizationContainer,
+    ::PSY.System,
+    ::ArgumentConstructStage,
+    ::DeviceModel{R, FixedShuntAdmittance},
+    ::NetworkModel{<:AbstractActivePowerModel},
+) where {R <: Union{PSY.SwitchedAdmittance, PSY.FACTSControlDevice}}
+    return
+end
+
+function construct_device!(
+    container::OptimizationContainer,
+    sys::PSY.System,
+    ::ModelConstructStage,
+    model::DeviceModel{R, FixedShuntAdmittance},
+    network_model::NetworkModel{<:AbstractNetworkModel},
+) where {R <: Union{PSY.SwitchedAdmittance, PSY.FACTSControlDevice}}
+    devices = get_available_components(model, sys)
+    add_constraints!(
+        container,
+        ShuntReactivePowerConstraint,
+        sys,
+        devices,
+        model,
+        network_model,
+    )
+    add_feedforward_constraints!(container, model, devices)
+    return
+end
+
+function construct_device!(
+    ::OptimizationContainer,
+    ::PSY.System,
+    ::ModelConstructStage,
+    ::DeviceModel{R, FixedShuntAdmittance},
+    ::NetworkModel{<:AbstractActivePowerModel},
+) where {R <: Union{PSY.SwitchedAdmittance, PSY.FACTSControlDevice}}
+    return
+end
+
+# Q = b_nominal·V² with a fixed nominal susceptance (LPACC linearizes V² to 1 + 2φ).
+function add_constraints!(
+    container::OptimizationContainer,
+    ::Type{ShuntReactivePowerConstraint},
+    ::PSY.System,
+    devices::IS.FlattenIteratorWrapper{R},
+    model::DeviceModel{R, FixedShuntAdmittance},
+    network_model::NetworkModel{<:AbstractNetworkModel},
+) where {R <: Union{PSY.SwitchedAdmittance, PSY.FACTSControlDevice}}
+    time_steps = get_time_steps(container)
+    q = get_variable(container, ReactivePowerVariable, R)
+    names = [PSY.get_name(d) for d in devices]
+    cons = add_constraints_container!(
+        container,
+        ShuntReactivePowerConstraint,
+        R,
+        names,
+        time_steps,
+    )
+    jm = get_jump_model(container)
+    v_arrays = _fetch_voltage_arrays(container, network_model)
+    for (name, d) in zip(names, devices)
+        bus_name = PSY.get_name(PSY.get_bus(d))
+        _assert_bus_has_voltage_variables(
+            v_arrays[1], bus_name, "connection bus of shunt $(name)",
+        )
+        b_nominal = _fixed_shunt_susceptance(d)
+        for t in time_steps
+            v2 = _bus_voltage_squared(network_model, v_arrays, bus_name, t)
+            cons[name, t] = JuMP.@constraint(jm, q[name, t] == b_nominal * v2)
         end
     end
     return

@@ -66,6 +66,10 @@ get_variable_upper_bound(::Type{HVDCActivePowerReceivedFromVariable}, d::PSY.Two
 get_variable_lower_bound(::Type{HVDCActivePowerReceivedFromVariable}, d::PSY.TwoTerminalHVDC, ::Type{<:AbstractTwoTerminalDCLineFormulation}) = PSY.get_active_power_limits_from(d, PSY.SU).min
 get_variable_upper_bound(::Type{HVDCActivePowerReceivedToVariable}, d::PSY.TwoTerminalHVDC, ::Type{<:AbstractTwoTerminalDCLineFormulation}) = PSY.get_active_power_limits_to(d, PSY.SU).max
 get_variable_lower_bound(::Type{HVDCActivePowerReceivedToVariable}, d::PSY.TwoTerminalHVDC, ::Type{<:AbstractTwoTerminalDCLineFormulation}) = PSY.get_active_power_limits_to(d, PSY.SU).min
+get_variable_upper_bound(::Type{HVDCRectifierActivePowerVariable}, d::PSY.TwoTerminalHVDC, ::Type{<:AbstractTwoTerminalDCLineFormulation}) = PSY.get_active_power_limits_from(d, PSY.SU).max
+get_variable_lower_bound(::Type{HVDCRectifierActivePowerVariable}, d::PSY.TwoTerminalHVDC, ::Type{<:AbstractTwoTerminalDCLineFormulation}) = PSY.get_active_power_limits_from(d, PSY.SU).min
+get_variable_upper_bound(::Type{HVDCInverterActivePowerVariable}, d::PSY.TwoTerminalHVDC, ::Type{<:AbstractTwoTerminalDCLineFormulation}) = PSY.get_active_power_limits_to(d, PSY.SU).max
+get_variable_lower_bound(::Type{HVDCInverterActivePowerVariable}, d::PSY.TwoTerminalHVDC, ::Type{<:AbstractTwoTerminalDCLineFormulation}) = PSY.get_active_power_limits_to(d, PSY.SU).min
 
 _degenerate_reactive_limits(limits) = iszero(limits.min) && iszero(limits.max)
 
@@ -123,10 +127,10 @@ get_variable_lower_bound(::Type{HVDCPiecewiseLossVariable}, d::PSY.TwoTerminalHV
 
 #################################### LCC ##################################################
 # FIXME consolidate to one definition on supertype.
-get_variable_binary(::Type{HVDCActivePowerReceivedFromVariable}, ::Type{PSY.TwoTerminalLCCLine}, ::Type{HVDCTwoTerminalLCC}) = false
-get_variable_binary(::Type{HVDCActivePowerReceivedToVariable}, ::Type{PSY.TwoTerminalLCCLine}, ::Type{HVDCTwoTerminalLCC}) = false
-get_variable_binary(::Type{HVDCReactivePowerReceivedFromVariable}, ::Type{PSY.TwoTerminalLCCLine}, ::Type{HVDCTwoTerminalLCC}) = false
-get_variable_binary(::Type{HVDCReactivePowerReceivedToVariable}, ::Type{PSY.TwoTerminalLCCLine}, ::Type{HVDCTwoTerminalLCC}) = false
+get_variable_binary(::Type{HVDCRectifierActivePowerVariable}, ::Type{PSY.TwoTerminalLCCLine}, ::Type{HVDCTwoTerminalLCC}) = false
+get_variable_binary(::Type{HVDCInverterActivePowerVariable}, ::Type{PSY.TwoTerminalLCCLine}, ::Type{HVDCTwoTerminalLCC}) = false
+get_variable_binary(::Type{HVDCRectifierReactivePowerVariable}, ::Type{PSY.TwoTerminalLCCLine}, ::Type{HVDCTwoTerminalLCC}) = false
+get_variable_binary(::Type{HVDCInverterReactivePowerVariable}, ::Type{PSY.TwoTerminalLCCLine}, ::Type{HVDCTwoTerminalLCC}) = false
 get_variable_binary(::Type{HVDCRectifierDelayAngleVariable}, ::Type{PSY.TwoTerminalLCCLine}, ::Type{HVDCTwoTerminalLCC}) = false
 get_variable_binary(::Type{HVDCInverterExtinctionAngleVariable}, ::Type{PSY.TwoTerminalLCCLine}, ::Type{HVDCTwoTerminalLCC}) = false
 get_variable_binary(::Type{HVDCRectifierPowerFactorAngleVariable}, ::Type{PSY.TwoTerminalLCCLine}, ::Type{HVDCTwoTerminalLCC}) = false
@@ -1355,8 +1359,8 @@ function add_constraints!(
 ) where {T <: PSY.TwoTerminalLCCLine}
     time_steps = get_time_steps(container)
     names = PSY.get_name.(devices)
-    rect_ac_ppower_var = get_variable(container, HVDCActivePowerReceivedFromVariable, T)
-    rect_ac_qpower_var = get_variable(container, HVDCReactivePowerReceivedFromVariable, T)
+    rect_ac_ppower_var = get_variable(container, HVDCRectifierActivePowerVariable, T)
+    rect_ac_qpower_var = get_variable(container, HVDCRectifierReactivePowerVariable, T)
     rect_ac_current_var = get_variable(container, HVDCRectifierACCurrentVariable, T)
     rect_power_factor_var =
         get_variable(container, HVDCRectifierPowerFactorAngleVariable, T)
@@ -1415,8 +1419,8 @@ function add_constraints!(
 ) where {T <: PSY.TwoTerminalLCCLine}
     time_steps = get_time_steps(container)
     names = PSY.get_name.(devices)
-    inv_ac_ppower_var = get_variable(container, HVDCActivePowerReceivedToVariable, T)
-    inv_ac_qpower_var = get_variable(container, HVDCReactivePowerReceivedToVariable, T)
+    inv_ac_ppower_var = get_variable(container, HVDCInverterActivePowerVariable, T)
+    inv_ac_qpower_var = get_variable(container, HVDCInverterReactivePowerVariable, T)
     inv_ac_current_var = get_variable(container, HVDCInverterACCurrentVariable, T)
     inv_power_factor_var =
         get_variable(container, HVDCInverterPowerFactorAngleVariable, T)

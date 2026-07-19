@@ -387,32 +387,52 @@ Docs abbreviation: ``u^\\text{dir}``
 struct HVDCFlowDirectionVariable <: VariableType end
 
 """
-Struct to dispatch the creation of HVDC Received Flow at From Bus Variables for PWL formulations
+Struct to dispatch the creation of HVDC Received Flow at From Bus Variables for
+[`HVDCTwoTerminalPiecewiseLoss`](@ref). Injection convention: enters the
+from-bus `ActivePowerBalance` with +1.0 (an injection at its own terminal).
 
 Docs abbreviation: ``x``
 """
 struct HVDCActivePowerReceivedFromVariable <: VariableType end
 
 """
-Struct to dispatch the creation of HVDC Received Flow at To Bus Variables for PWL formulations
+Struct to dispatch the creation of HVDC Received Flow at To Bus Variables for
+[`HVDCTwoTerminalPiecewiseLoss`](@ref). Injection convention: enters the
+to-bus `ActivePowerBalance` with +1.0 (an injection at its own terminal).
 
 Docs abbreviation: ``y``
 """
 struct HVDCActivePowerReceivedToVariable <: VariableType end
 
 """
-Struct to dispatch the creation of HVDC Received Reactive Flow From Bus Variables
-
-Docs abbreviation: ``x^r``
+Rectifier AC-side active power draw of a `TwoTerminalLCCLine` under
+[`HVDCTwoTerminalLCC`](@ref), in p.u. (system base). Positive when the line
+transfers power from -> to; enters the from-bus `ActivePowerBalance` with -1.0
+(a withdrawal).
 """
-struct HVDCReactivePowerReceivedFromVariable <: VariableType end
+struct HVDCRectifierActivePowerVariable <: VariableType end
 
 """
-Struct to dispatch the creation of HVDC Received Reactive Flow To Bus Variables
-
-Docs abbreviation: ``y^i``
+Inverter AC-side active power delivery of a `TwoTerminalLCCLine` under
+[`HVDCTwoTerminalLCC`](@ref), in p.u. (system base). Positive when the line
+transfers power from -> to; enters the to-bus `ActivePowerBalance` with +1.0
+(an injection).
 """
-struct HVDCReactivePowerReceivedToVariable <: VariableType end
+struct HVDCInverterActivePowerVariable <: VariableType end
+
+"""
+Rectifier AC-side reactive power consumption of a `TwoTerminalLCCLine` under
+[`HVDCTwoTerminalLCC`](@ref), in p.u. (system base). Consumed at the from bus
+(-1.0 in `ReactivePowerBalance`).
+"""
+struct HVDCRectifierReactivePowerVariable <: VariableType end
+
+"""
+Inverter AC-side reactive power consumption of a `TwoTerminalLCCLine` under
+[`HVDCTwoTerminalLCC`](@ref), in p.u. (system base). Consumed at the to bus
+(-1.0 in `ReactivePowerBalance`).
+"""
+struct HVDCInverterReactivePowerVariable <: VariableType end
 
 """
 Struct to define the creation of HVDC Rectifier Delay Angle Variable

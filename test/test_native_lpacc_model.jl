@@ -56,4 +56,24 @@ end
 
     model = DecisionModel(template, sys; optimizer = ipopt_optimizer)
     @test_throws IS.ConflictingInputsError POM.validate_template(model)
+
+    # Same gate for the shunt controller.
+    sys_shunt = PSB.build_system(PSITestSystems, "c_sys5")
+    bus = PSY.get_component(PSY.ACBus, sys_shunt, "nodeA")
+    PSY.add_component!(
+        sys_shunt,
+        PSY.SwitchedAdmittance(;
+            name = "shunt_lpacc_gate",
+            available = true,
+            bus = bus,
+            Y = 0.0 + 0.1im,
+            number_of_steps = [2],
+            Y_increase = [0.0 + 0.1im],
+        ),
+    )
+    template_shunt =
+        get_thermal_dispatch_template_network(NetworkModel(LPACCNetworkModel))
+    set_device_model!(template_shunt, PSY.SwitchedAdmittance, ShuntSusceptanceDispatch)
+    model_shunt = DecisionModel(template_shunt, sys_shunt; optimizer = ipopt_optimizer)
+    @test_throws IS.ConflictingInputsError POM.validate_template(model_shunt)
 end

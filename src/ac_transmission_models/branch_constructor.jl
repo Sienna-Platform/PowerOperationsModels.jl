@@ -2155,14 +2155,7 @@ function construct_device!(
     sys::PSY.System,
     ::ArgumentConstructStage,
     device_model::DeviceModel{T, U},
-    network_model::NetworkModel{
-        <:Union{
-            AbstractPTDFNetworkModel,
-            NativeNodalNetworkModel,
-            CopperPlateNetworkModel,
-            AreaBalanceNetworkModel,
-        },
-    },
+    network_model::NetworkModel{<:AbstractNetworkModel},
 ) where {
     T <: PSY.TwoTerminalHVDC,
     U <: HVDCTwoTerminalPiecewiseLoss,
@@ -2206,14 +2199,7 @@ function construct_device!(
     sys::PSY.System,
     ::ModelConstructStage,
     device_model::DeviceModel{T, U},
-    network_model::NetworkModel{
-        <:Union{
-            AbstractPTDFNetworkModel,
-            NativeNodalNetworkModel,
-            CopperPlateNetworkModel,
-            AreaBalanceNetworkModel,
-        },
-    },
+    network_model::NetworkModel{<:AbstractNetworkModel},
 ) where {
     T <: PSY.TwoTerminalHVDC,
     U <: HVDCTwoTerminalPiecewiseLoss,
@@ -2308,25 +2294,25 @@ function construct_device!(
     # Variables
     add_variables!(
         container,
-        HVDCActivePowerReceivedFromVariable,
+        HVDCRectifierActivePowerVariable,
         devices,
         HVDCTwoTerminalLCC,
     )
     add_variables!(
         container,
-        HVDCActivePowerReceivedToVariable,
+        HVDCInverterActivePowerVariable,
         devices,
         HVDCTwoTerminalLCC,
     )
     add_variables!(
         container,
-        HVDCReactivePowerReceivedFromVariable,
+        HVDCRectifierReactivePowerVariable,
         devices,
         HVDCTwoTerminalLCC,
     )
     add_variables!(
         container,
-        HVDCReactivePowerReceivedToVariable,
+        HVDCInverterReactivePowerVariable,
         devices,
         HVDCTwoTerminalLCC,
     )
@@ -2413,7 +2399,7 @@ function construct_device!(
     add_to_expression!(
         container,
         ActivePowerBalance,
-        HVDCActivePowerReceivedFromVariable,
+        HVDCRectifierActivePowerVariable,
         devices,
         device_model,
         network_model,
@@ -2421,7 +2407,7 @@ function construct_device!(
     add_to_expression!(
         container,
         ActivePowerBalance,
-        HVDCActivePowerReceivedToVariable,
+        HVDCInverterActivePowerVariable,
         devices,
         device_model,
         network_model,
@@ -2429,7 +2415,7 @@ function construct_device!(
     add_to_expression!(
         container,
         ReactivePowerBalance,
-        HVDCReactivePowerReceivedFromVariable,
+        HVDCRectifierReactivePowerVariable,
         devices,
         device_model,
         network_model,
@@ -2437,7 +2423,7 @@ function construct_device!(
     add_to_expression!(
         container,
         ReactivePowerBalance,
-        HVDCReactivePowerReceivedToVariable,
+        HVDCInverterReactivePowerVariable,
         devices,
         device_model,
         network_model,
@@ -2662,7 +2648,7 @@ function construct_device!(
     network_model::NetworkModel{U},
 ) where {
     T <: Union{StaticBranchUnbounded, StaticBranch},
-    U <: AbstractActivePowerModel,
+    U <: AbstractNetworkModel,
 }
     devices = get_available_components(device_model, sys)
     has_ts = PSY.has_time_series.(devices)
@@ -2816,11 +2802,97 @@ function construct_device!(
 ) where {T <: AbstractPTDFNetworkModel}
     devices = get_available_components(device_model, sys)
     add_constraints!(container, FlowLimitConstraint, devices, device_model, network_model)
-    # Not ideal to do this here, but it is a not terrible workaround
-    # The area interchanges are like a services/device mix.
-    # Doesn't include the possibility of Multi-terminal HVDC
-    inter_area_branch_map = _get_branch_map(network_model)
+    _add_inter_area_flow_bound_constraints!(
+        container, sys, devices, device_model, network_model,
+    )
+    add_feedforward_constraints!(container, device_model, devices)
+    return
+end
 
+function construct_device!(
+    container::OptimizationContainer,
+    sys::PSY.System,
+    ::ModelConstructStage,
+    device_model::DeviceModel{PSY.AreaInterchange, StaticBranch},
+    network_model::NetworkModel{T},
+) where {T <: AbstractReactivePowerNetworkModel}
+    devices = get_available_components(device_model, sys)
+    add_constraints!(container, FlowLimitConstraint, devices, device_model, network_model)
+    _add_inter_area_flow_bound_constraints!(
+        container, sys, devices, device_model, network_model,
+    )
+    add_feedforward_constraints!(container, device_model, devices)
+    return
+end
+
+function construct_device!(
+    container::OptimizationContainer,
+    sys::PSY.System,
+    ::ModelConstructStage,
+    device_model::DeviceModel{PSY.AreaInterchange, StaticBranchUnbounded},
+    network_model::NetworkModel{T},
+) where {T <: AbstractReactivePowerNetworkModel}
+    devices = get_available_components(device_model, sys)
+    _add_inter_area_flow_bound_constraints!(
+        container, sys, devices, device_model, network_model,
+    )
+    add_feedforward_constraints!(container, device_model, devices)
+    return
+end
+
+# PNM's reduction maps cover only PSY.ACTransmission, so _get_branch_map never sees the
+# HVDC tie lines; they are also never reduced, so collecting them from the system
+# directly is safe.
+function _add_hvdc_inter_area_branches!(
+    inter_area_branch_map::Dict{Tuple{String, String}, Dict{DataType, Vector{String}}},
+    sys::PSY.System,
+    network_model::NetworkModel,
+)
+    for br_type in network_model.modeled_branch_types
+        _add_hvdc_inter_area_branches_of_type!(inter_area_branch_map, br_type, sys)
+    end
+    return
+end
+
+function _add_hvdc_inter_area_branches_of_type!(
+    ::Dict{Tuple{String, String}, Dict{DataType, Vector{String}}},
+    ::Type{<:PSY.Branch},
+    ::PSY.System,
+)
+    return
+end
+
+function _add_hvdc_inter_area_branches_of_type!(
+    inter_area_branch_map::Dict{Tuple{String, String}, Dict{DataType, Vector{String}}},
+    ::Type{T},
+    sys::PSY.System,
+) where {T <: PSY.TwoTerminalHVDC}
+    for device in PSY.get_available_components(T, sys)
+        area_from, area_to = _get_area_from_to(device)
+        if area_from != area_to
+            branch_typed_dict = get!(
+                inter_area_branch_map,
+                (PSY.get_name(area_from), PSY.get_name(area_to)),
+                Dict{DataType, Vector{String}}(),
+            )
+            _add_to_branch_map!(branch_typed_dict, device, PSY.get_name(device))
+        end
+    end
+    return
+end
+
+# Not ideal to do this here, but it is a not terrible workaround
+# The area interchanges are like a services/device mix.
+# Doesn't include the possibility of Multi-terminal HVDC
+function _add_inter_area_flow_bound_constraints!(
+    container::OptimizationContainer,
+    sys::PSY.System,
+    devices::IS.FlattenIteratorWrapper{PSY.AreaInterchange},
+    device_model::DeviceModel{PSY.AreaInterchange, <:AbstractBranchFormulation},
+    network_model::NetworkModel,
+)
+    inter_area_branch_map = _get_branch_map(network_model)
+    _add_hvdc_inter_area_branches!(inter_area_branch_map, sys, network_model)
     add_constraints!(
         container,
         LineFlowBoundConstraint,
@@ -2829,7 +2901,6 @@ function construct_device!(
         network_model,
         inter_area_branch_map,
     )
-    add_feedforward_constraints!(container, device_model, devices)
     return
 end
 
@@ -2854,17 +2925,8 @@ function construct_device!(
     network_model::NetworkModel{AreaPTDFNetworkModel},
 )
     devices = get_available_components(device_model, sys)
-    inter_area_branch_map = _get_branch_map(network_model)
-    # Not ideal to do this here, but it is a not terrible workaround
-    # The area interchanges are like a services/device mix.
-    # Doesn't include the possibility of Multi-terminal HVDC
-    add_constraints!(
-        container,
-        LineFlowBoundConstraint,
-        devices,
-        device_model,
-        network_model,
-        inter_area_branch_map,
+    _add_inter_area_flow_bound_constraints!(
+        container, sys, devices, device_model, network_model,
     )
     add_feedforward_constraints!(container, device_model, devices)
     return

@@ -57,3 +57,31 @@ _maybe_add_reactive_power_constraints!(
     ::NetworkModel{<:AbstractActivePowerModel},
     ::Type{<:ConstraintType},
 ) where {D <: PSY.Device, F} = nothing
+
+"""
+Variable-typed form: adds a reactive-power constraint built from a specific
+variable (the 6-arg `add_constraints!` form) on AC networks; no-op on
+active-power-only networks.
+"""
+function _maybe_add_reactive_power_constraints!(
+    container::OptimizationContainer,
+    devices,
+    model::DeviceModel{D, F},
+    network_model::NetworkModel{<:AbstractNetworkModel},
+    constraint_type::Type{<:ConstraintType},
+    variable_type::Type{<:VariableType},
+) where {D <: PSY.Device, F}
+    add_constraints!(
+        container, constraint_type, variable_type, devices, model, network_model,
+    )
+    return
+end
+
+_maybe_add_reactive_power_constraints!(
+    ::OptimizationContainer,
+    _devices,
+    ::DeviceModel{D, F},
+    ::NetworkModel{<:AbstractActivePowerModel},
+    ::Type{<:ConstraintType},
+    ::Type{<:VariableType},
+) where {D <: PSY.Device, F} = nothing

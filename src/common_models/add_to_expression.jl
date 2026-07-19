@@ -341,12 +341,14 @@ side, which exceeds the union-splitting threshold).
 _terminal_bus(::Type{FlowActivePowerFromToVariable}, arc) = PSY.get_from(arc)
 _terminal_bus(::Type{FlowReactivePowerFromToVariable}, arc) = PSY.get_from(arc)
 _terminal_bus(::Type{HVDCActivePowerReceivedFromVariable}, arc) = PSY.get_from(arc)
-_terminal_bus(::Type{HVDCReactivePowerReceivedFromVariable}, arc) = PSY.get_from(arc)
+_terminal_bus(::Type{HVDCRectifierActivePowerVariable}, arc) = PSY.get_from(arc)
+_terminal_bus(::Type{HVDCRectifierReactivePowerVariable}, arc) = PSY.get_from(arc)
 _terminal_bus(::Type{HVDCReactivePowerFromVariable}, arc) = PSY.get_from(arc)
 _terminal_bus(::Type{FlowActivePowerToFromVariable}, arc) = PSY.get_to(arc)
 _terminal_bus(::Type{FlowReactivePowerToFromVariable}, arc) = PSY.get_to(arc)
 _terminal_bus(::Type{HVDCActivePowerReceivedToVariable}, arc) = PSY.get_to(arc)
-_terminal_bus(::Type{HVDCReactivePowerReceivedToVariable}, arc) = PSY.get_to(arc)
+_terminal_bus(::Type{HVDCInverterActivePowerVariable}, arc) = PSY.get_to(arc)
+_terminal_bus(::Type{HVDCInverterReactivePowerVariable}, arc) = PSY.get_to(arc)
 _terminal_bus(::Type{HVDCReactivePowerToVariable}, arc) = PSY.get_to(arc)
 
 # Reduced-arc twins of `_terminal_bus`: a reduction entry's terminal is an end of its
@@ -1047,7 +1049,7 @@ function add_to_expression!(
 end
 
 """
-HVDC LCC implementation to add ActivePowerBalance expression for HVDCActivePowerReceivedFromVariable variable
+HVDC LCC implementation to add ActivePowerBalance expression for HVDCRectifierActivePowerVariable variable
 """
 function add_to_expression!(
     container::OptimizationContainer,
@@ -1058,7 +1060,7 @@ function add_to_expression!(
     network_model::NetworkModel{X},
 ) where {
     T <: ActivePowerBalance,                        # expression
-    U <: HVDCActivePowerReceivedFromVariable,       # variable
+    U <: HVDCRectifierActivePowerVariable,          # variable
     V <: PSY.TwoTerminalHVDC,                      # power system type
     W <: HVDCTwoTerminalLCC,                        # formulation
     X <: AbstractReactivePowerNetworkModel,                  # network model
@@ -1070,7 +1072,7 @@ function add_to_expression!(
 end
 
 """
-HVDC LCC implementation to add ActivePowerBalance expression for HVDCActivePowerReceivedToVariable variable
+HVDC LCC implementation to add ActivePowerBalance expression for HVDCInverterActivePowerVariable variable
 """
 function add_to_expression!(
     container::OptimizationContainer,
@@ -1081,7 +1083,7 @@ function add_to_expression!(
     network_model::NetworkModel{X},
 ) where {
     T <: ActivePowerBalance,
-    U <: HVDCActivePowerReceivedToVariable,
+    U <: HVDCInverterActivePowerVariable,
     V <: PSY.TwoTerminalHVDC,
     W <: HVDCTwoTerminalLCC,
     X <: AbstractReactivePowerNetworkModel,
@@ -1093,8 +1095,8 @@ function add_to_expression!(
 end
 
 """
-HVDC LCC: both received reactive terminals are consumed at their own bus (-1.0)
-in ReactivePowerBalance. The from/to terminal is resolved from the variable type.
+HVDC LCC: both terminals' reactive power consumption is consumed at their own bus (-1.0)
+in ReactivePowerBalance. The rectifier/inverter terminal is resolved from the variable type.
 """
 function add_to_expression!(
     container::OptimizationContainer,
@@ -1105,7 +1107,7 @@ function add_to_expression!(
     network_model::NetworkModel{X},
 ) where {
     T <: ReactivePowerBalance,
-    U <: Union{HVDCReactivePowerReceivedFromVariable, HVDCReactivePowerReceivedToVariable},
+    U <: Union{HVDCRectifierReactivePowerVariable, HVDCInverterReactivePowerVariable},
     V <: PSY.TwoTerminalHVDC,
     W <: HVDCTwoTerminalLCC,
     X <: AbstractReactivePowerNetworkModel,
@@ -1790,7 +1792,7 @@ function add_to_expression!(
     network_model::NetworkModel{U},
 ) where {
     W <: AbstractBranchFormulation,
-    U <: AbstractActivePowerModel,
+    U <: AbstractNetworkModel,
 }
     @debug "AreaInterchanges do not contribute to ActivePowerBalance expressions in non-area models."
     return

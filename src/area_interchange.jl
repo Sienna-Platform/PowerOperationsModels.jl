@@ -77,7 +77,7 @@ function add_constraints!(
     devices::IS.FlattenIteratorWrapper{PSY.AreaInterchange},
     model::DeviceModel{PSY.AreaInterchange, StaticBranch},
     ::NetworkModel{T},
-) where {T <: AbstractActivePowerModel}
+) where {T <: AbstractNetworkModel}
     time_steps = get_time_steps(container)
     device_names = PSY.get_name.(devices)
 
@@ -213,17 +213,16 @@ function add_constraints!(
             sum_of_flows = JuMP.AffExpr()
             for (mult, inter_area_branches) in direction_branch_map
                 for (type, names) in inter_area_branches
-                    flow_expr = get_expression(container, PTDFBranchFlow, type)
-                    for name in names
-                        orientation_sign = get!(orientation_sign_cache, (type, name)) do
-                            get_ptdf_orientation_sign(net_reduction_data, type, name)
-                        end
-                        JuMP.add_to_expression!(
-                            sum_of_flows,
-                            flow_expr[name, t],
-                            mult * orientation_sign,
-                        )
-                    end
+                    _add_ptdf_area_tie_flows!(
+                        sum_of_flows,
+                        container,
+                        type,
+                        names,
+                        mult,
+                        net_reduction_data,
+                        orientation_sign_cache,
+                        t,
+                    )
                 end
             end
             con_ub[inter_change_name, t] =
@@ -233,4 +232,243 @@ function add_constraints!(
         end
     end
     return
+end
+
+function _add_ptdf_area_tie_flows!(
+    sum_of_flows::JuMP.AffExpr,
+    container::OptimizationContainer,
+    ::Type{V},
+    names::Vector{String},
+    mult::Float64,
+    net_reduction_data::PNM.NetworkReductionData,
+    orientation_sign_cache::Dict{Tuple{DataType, String}, Float64},
+    t::Int,
+) where {V <: PSY.ACTransmission}
+    flow_expr = get_expression(container, PTDFBranchFlow, V)
+    for name in names
+        orientation_sign = get!(orientation_sign_cache, (V, name)) do
+            get_ptdf_orientation_sign(net_reduction_data, V, name)
+        end
+        JuMP.add_to_expression!(
+            sum_of_flows,
+            flow_expr[name, t],
+            mult * orientation_sign,
+        )
+    end
+    return
+end
+
+# HVDC tie lines carry flow variables, not a PTDFBranchFlow expression. They are metered
+# like the AC-network interchange path: at the terminal on the interchange's from-area
+# side, so a lossy directional tie contributes its exporting-end flow.
+function _add_ptdf_area_tie_flows!(
+    sum_of_flows::JuMP.AffExpr,
+    container::OptimizationContainer,
+    ::Type{V},
+    names::Vector{String},
+    mult::Float64,
+    net_reduction_data::PNM.NetworkReductionData,
+    orientation_sign_cache::Dict{Tuple{DataType, String}, Float64},
+    t::Int,
+) where {V <: PSY.TwoTerminalHVDC}
+    if mult > 0.0
+        measured_variable_type = FlowActivePowerFromToVariable
+    else
+        measured_variable_type = FlowActivePowerToFromVariable
+    end
+    _add_measured_tie_line_flows!(
+        sum_of_flows,
+        container,
+        measured_variable_type,
+        V,
+        names,
+        net_reduction_data,
+        orientation_sign_cache,
+        t,
+    )
+    return
+end
+
+# On the AC networks a tie line is lossy, so its two directional active-flow variables
+# differ by the line loss and the interchange must fix a measurement end. It is measured
+# at the exporting (from-area) boundary: each tie line contributes the directional flow
+# variable metered at its terminal inside the interchange's from-area, so the measured
+# export includes the tie-line loss. A branch keyed (from_area, to_area) is metered at
+# its own from terminal (FlowActivePowerFromToVariable); a branch keyed
+# (to_area, from_area) at its own to terminal (FlowActivePowerToFromVariable).
+function add_constraints!(
+    container::OptimizationContainer,
+    ::Type{LineFlowBoundConstraint},
+    devices::IS.FlattenIteratorWrapper{PSY.AreaInterchange},
+    model::DeviceModel{PSY.AreaInterchange, <:AbstractBranchFormulation},
+    network_model::NetworkModel{T},
+    inter_area_branch_map::Dict{
+        Tuple{String, String},
+        Dict{DataType, Vector{String}},
+    },
+) where {T <: AbstractReactivePowerNetworkModel}
+    @assert !isempty(inter_area_branch_map)
+
+    time_steps = get_time_steps(container)
+    device_names = PSY.get_name.(devices)
+
+    con_ub = add_constraints_container!(container, LineFlowBoundConstraint,
+        PSY.AreaInterchange,
+        device_names,
+        time_steps;
+        meta = "ub",
+    )
+
+    con_lb = add_constraints_container!(container, LineFlowBoundConstraint,
+        PSY.AreaInterchange,
+        device_names,
+        time_steps;
+        meta = "lb",
+    )
+
+    area_ex_var = get_variable(container, FlowActivePowerVariable, PSY.AreaInterchange)
+    net_reduction_data = get_network_reduction(network_model)
+    orientation_sign_cache = Dict{Tuple{DataType, String}, Float64}()
+    jm = get_jump_model(container)
+    for area_interchange in devices
+        inter_change_name = PSY.get_name(area_interchange)
+        area_from_name = PSY.get_name(PSY.get_from_area(area_interchange))
+        area_to_name = PSY.get_name(PSY.get_to_area(area_interchange))
+        measured_branch_map = Dict{DataType, Dict{DataType, Vector{String}}}()
+        if haskey(inter_area_branch_map, (area_from_name, area_to_name))
+            measured_branch_map[FlowActivePowerFromToVariable] =
+                inter_area_branch_map[(area_from_name, area_to_name)]
+        end
+        if haskey(inter_area_branch_map, (area_to_name, area_from_name))
+            measured_branch_map[FlowActivePowerToFromVariable] =
+                inter_area_branch_map[(area_to_name, area_from_name)]
+        end
+        if isempty(measured_branch_map)
+            @warn(
+                "There are no branches modeled in Area InterChange $(summary(area_interchange)) \
+          LineFlowBoundConstraint not created"
+            )
+            continue
+        end
+
+        for t in time_steps
+            sum_of_flows = JuMP.AffExpr()
+            for (measured_variable_type, inter_area_branches) in measured_branch_map
+                for (type, names) in inter_area_branches
+                    _add_measured_tie_line_flows!(
+                        sum_of_flows,
+                        container,
+                        measured_variable_type,
+                        type,
+                        names,
+                        net_reduction_data,
+                        orientation_sign_cache,
+                        t,
+                    )
+                end
+            end
+            con_ub[inter_change_name, t] =
+                JuMP.@constraint(jm, sum_of_flows <= area_ex_var[inter_change_name, t])
+            con_lb[inter_change_name, t] =
+                JuMP.@constraint(jm, sum_of_flows >= area_ex_var[inter_change_name, t])
+        end
+    end
+    return
+end
+
+function _add_measured_tie_line_flows!(
+    sum_of_flows::JuMP.AffExpr,
+    container::OptimizationContainer,
+    ::Type{U},
+    ::Type{V},
+    names::Vector{String},
+    net_reduction_data::PNM.NetworkReductionData,
+    orientation_sign_cache::Dict{Tuple{DataType, String}, Float64},
+    t::Int,
+) where {
+    U <: Union{FlowActivePowerFromToVariable, FlowActivePowerToFromVariable},
+    V <: PSY.ACBranch,
+}
+    flow_variable, measured_direction_mult = _resolve_measured_flow(container, U, V)
+    for name in names
+        orientation_sign = get!(orientation_sign_cache, (V, name)) do
+            _tie_line_orientation_sign(net_reduction_data, V, name)
+        end
+        JuMP.add_to_expression!(
+            sum_of_flows,
+            flow_variable[name, t],
+            measured_direction_mult * orientation_sign,
+        )
+    end
+    return
+end
+
+# Resolve the container variable that carries the measured-terminal export and its
+# sign. First match wins; a device type builds exactly one formulation per template,
+# so at most one family is present. Multipliers convert each family's convention to
+# "export at the measured terminal": the directional pair and the LCC rectifier are
+# already exports (+1); the LCC inverter and the PWL received variables are
+# injections at their terminal (-1); the lossless fallback is signed from -> to.
+function _resolve_measured_flow(
+    container::OptimizationContainer,
+    ::Type{U},
+    ::Type{V},
+) where {
+    U <: Union{FlowActivePowerFromToVariable, FlowActivePowerToFromVariable},
+    V <: PSY.ACBranch,
+}
+    if has_container_key(container, U, V)
+        return get_variable(container, U, V), 1.0
+    end
+    lcc_variable = _measured_lcc_variable(U)
+    if has_container_key(container, lcc_variable, V)
+        return get_variable(container, lcc_variable, V),
+        _measured_lcc_mult(U)
+    end
+    received_variable = _measured_received_variable(U)
+    if has_container_key(container, received_variable, V)
+        return get_variable(container, received_variable, V), -1.0
+    end
+    if has_container_key(container, FlowActivePowerVariable, V)
+        return get_variable(container, FlowActivePowerVariable, V),
+        _measured_direction_mult(U)
+    end
+    error(
+        "AreaInterchange cannot meter tie lines of type $V: the container has none of ",
+        "the flow variables ($U, $(_measured_lcc_variable(U)), ",
+        "$(_measured_received_variable(U)), FlowActivePowerVariable). ",
+        "Add a DeviceModel for $V to the template or remove the tie from the interchange.",
+    )
+end
+
+_measured_lcc_variable(::Type{FlowActivePowerFromToVariable}) =
+    HVDCRectifierActivePowerVariable
+_measured_lcc_variable(::Type{FlowActivePowerToFromVariable}) =
+    HVDCInverterActivePowerVariable
+_measured_lcc_mult(::Type{FlowActivePowerFromToVariable}) = 1.0
+_measured_lcc_mult(::Type{FlowActivePowerToFromVariable}) = -1.0
+
+_measured_received_variable(::Type{FlowActivePowerFromToVariable}) =
+    HVDCActivePowerReceivedFromVariable
+_measured_received_variable(::Type{FlowActivePowerToFromVariable}) =
+    HVDCActivePowerReceivedToVariable
+
+_measured_direction_mult(::Type{FlowActivePowerFromToVariable}) = 1.0
+_measured_direction_mult(::Type{FlowActivePowerToFromVariable}) = -1.0
+
+function _tie_line_orientation_sign(
+    net_reduction_data::PNM.NetworkReductionData,
+    ::Type{T},
+    name::AbstractString,
+) where {T <: PSY.ACTransmission}
+    return get_ptdf_orientation_sign(net_reduction_data, T, name)
+end
+
+# HVDC tie lines are never network-reduced, so their native orientation always matches.
+function _tie_line_orientation_sign(
+    ::PNM.NetworkReductionData,
+    ::Type{T},
+    ::AbstractString,
+) where {T <: PSY.TwoTerminalHVDC}
+    return 1.0
 end
