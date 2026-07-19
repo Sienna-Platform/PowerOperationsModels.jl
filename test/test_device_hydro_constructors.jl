@@ -1447,6 +1447,21 @@ end
     end
 end
 
+@testset "HydroCommitmentRunOfRiver container schema is stable across network families" begin
+    for (net, expected_reactive) in ((DCPNetworkModel, false), (ACPNetworkModel, true))
+        c_sys5_hy = PSB.build_system(PSITestSystems, "c_sys5_hy")
+        device_model = DeviceModel(HydroDispatch, HydroCommitmentRunOfRiver)
+
+        model = DecisionModel(MockOperationProblem, net, c_sys5_hy)
+        mock_construct_device!(model, device_model)
+
+        container = IOM.get_optimization_container(model)
+        con_keys = Set(string.(keys(IOM.get_constraints(container))))
+        @test any(occursin("ReactivePowerVariableLimitsConstraint", k) for k in con_keys) ==
+              expected_reactive
+    end
+end
+
 @testset "Hydro pump energy formulations build the real model with reactive power on AC networks" begin
     c_sys5_pump = PSB.build_system(
         PSITestSystems,

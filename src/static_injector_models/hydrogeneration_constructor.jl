@@ -203,13 +203,13 @@ function construct_device!(
         network_model,
     )
 
-    add_constraints!(
+    _maybe_add_reactive_power_constraints!(
         container,
-        ReactivePowerVariableLimitsConstraint,
-        ReactivePowerVariable,
         devices,
         model,
         network_model,
+        ReactivePowerVariableLimitsConstraint,
+        ReactivePowerVariable,
     )
     if get_attribute(model, "hydro_budget") === true
         add_constraints!(container, EnergyBudgetConstraint, devices, model, network_model)
@@ -285,66 +285,6 @@ function construct_device!(
 
     add_feedforward_arguments!(container, model, devices)
     add_event_arguments!(container, devices, model, network_model)
-    return
-end
-
-function construct_device!(
-    container::OptimizationContainer,
-    sys::PSY.System,
-    ::ModelConstructStage,
-    model::DeviceModel{H, D},
-    network_model::NetworkModel{S},
-) where {
-    H <: PSY.HydroGen,
-    D <: AbstractHydroDispatchFormulation,
-    S <: AbstractActivePowerModel,
-}
-    devices = get_available_components(model, sys)
-
-    if has_service_model(model)
-        add_to_expression!(
-            container,
-            HydroServedReserveUpExpression,
-            ActivePowerReserveVariable,
-            devices,
-            model,
-            network_model,
-        )
-        add_to_expression!(
-            container,
-            HydroServedReserveDownExpression,
-            ActivePowerReserveVariable,
-            devices,
-            model,
-            network_model,
-        )
-    end
-
-    add_constraints!(
-        container,
-        ActivePowerVariableLimitsConstraint,
-        ActivePowerRangeExpressionLB,
-        devices,
-        model,
-        network_model,
-    )
-    add_constraints!(
-        container,
-        ActivePowerVariableLimitsConstraint,
-        ActivePowerRangeExpressionUB,
-        devices,
-        model,
-        network_model,
-    )
-    if get_attribute(model, "hydro_budget") === true
-        add_constraints!(container, EnergyBudgetConstraint, devices, model, network_model)
-    end
-
-    add_feedforward_constraints!(container, model, devices)
-
-    add_to_objective_function!(container, devices, model, S)
-    add_event_constraints!(container, devices, model, network_model)
-    add_constraint_dual!(container, sys, model)
     return
 end
 
@@ -535,38 +475,16 @@ function construct_device!(
 ) where {
     H <: PSY.HydroGen,
     D <: HydroCommitmentRunOfRiver,
-    S <: AbstractActivePowerModel,
-}
-    devices = get_available_components(model, sys)
-    _add_hydro_commitment_run_of_river_constraints!(
-        container,
-        sys,
-        model,
-        network_model,
-        devices,
-    )
-    return
-end
-
-function construct_device!(
-    container::OptimizationContainer,
-    sys::PSY.System,
-    ::ModelConstructStage,
-    model::DeviceModel{H, D},
-    network_model::NetworkModel{S},
-) where {
-    H <: PSY.HydroGen,
-    D <: HydroCommitmentRunOfRiver,
     S <: AbstractNetworkModel,
 }
     devices = get_available_components(model, sys)
-    add_constraints!(
+    _maybe_add_reactive_power_constraints!(
         container,
-        ReactivePowerVariableLimitsConstraint,
-        ReactivePowerVariable,
         devices,
         model,
         network_model,
+        ReactivePowerVariableLimitsConstraint,
+        ReactivePowerVariable,
     )
     _add_hydro_commitment_run_of_river_constraints!(
         container,
@@ -848,13 +766,13 @@ function construct_device!(
         network_model,
     )
 
-    add_constraints!(
+    _maybe_add_reactive_power_constraints!(
         container,
-        ReactivePowerVariableLimitsConstraint,
-        ReactivePowerVariable,
         devices,
         model,
         network_model,
+        ReactivePowerVariableLimitsConstraint,
+        ReactivePowerVariable,
     )
     add_feedforward_constraints!(container, model, devices)
 
@@ -919,64 +837,6 @@ function construct_device!(
 
     add_feedforward_arguments!(container, model, devices)
     add_event_arguments!(container, devices, model, network_model)
-    return
-end
-
-function construct_device!(
-    container::OptimizationContainer,
-    sys::PSY.System,
-    ::ModelConstructStage,
-    model::DeviceModel{H, D},
-    network_model::NetworkModel{S},
-) where {
-    H <: PSY.HydroTurbine,
-    D <: HydroTurbineEnergyDispatch,
-    S <: AbstractActivePowerModel,
-}
-    devices = get_available_components(model, sys)
-
-    if has_service_model(model)
-        add_to_expression!(
-            container,
-            HydroServedReserveUpExpression,
-            ActivePowerReserveVariable,
-            devices,
-            model,
-            network_model,
-        )
-        add_to_expression!(
-            container,
-            HydroServedReserveDownExpression,
-            ActivePowerReserveVariable,
-            devices,
-            model,
-            network_model,
-        )
-    end
-
-    add_constraints!(
-        container,
-        ActivePowerVariableLimitsConstraint,
-        ActivePowerRangeExpressionLB,
-        devices,
-        model,
-        network_model,
-    )
-    add_constraints!(
-        container,
-        ActivePowerVariableLimitsConstraint,
-        ActivePowerRangeExpressionUB,
-        devices,
-        model,
-        network_model,
-    )
-
-    add_feedforward_constraints!(container, model, devices)
-
-    add_to_objective_function!(container, devices, model, S)
-    add_event_constraints!(container, devices, model, network_model)
-    add_constraint_dual!(container, sys, model)
-
     return
 end
 
@@ -1100,13 +960,13 @@ function construct_device!(
         network_model,
     )
 
-    add_constraints!(
+    _maybe_add_reactive_power_constraints!(
         container,
-        ReactivePowerVariableLimitsConstraint,
-        ReactivePowerVariable,
         devices,
         model,
         network_model,
+        ReactivePowerVariableLimitsConstraint,
+        ReactivePowerVariable,
     )
     add_feedforward_constraints!(container, model, devices)
 
@@ -1172,64 +1032,6 @@ function construct_device!(
 
     add_feedforward_arguments!(container, model, devices)
     add_event_arguments!(container, devices, model, network_model)
-    return
-end
-
-function construct_device!(
-    container::OptimizationContainer,
-    sys::PSY.System,
-    ::ModelConstructStage,
-    model::DeviceModel{H, D},
-    network_model::NetworkModel{S},
-) where {
-    H <: PSY.HydroTurbine,
-    D <: HydroTurbineEnergyCommitment,
-    S <: AbstractActivePowerModel,
-}
-    devices = get_available_components(model, sys)
-
-    if has_service_model(model)
-        add_to_expression!(
-            container,
-            HydroServedReserveUpExpression,
-            ActivePowerReserveVariable,
-            devices,
-            model,
-            network_model,
-        )
-        add_to_expression!(
-            container,
-            HydroServedReserveDownExpression,
-            ActivePowerReserveVariable,
-            devices,
-            model,
-            network_model,
-        )
-    end
-
-    add_constraints!(
-        container,
-        ActivePowerVariableLimitsConstraint,
-        ActivePowerRangeExpressionLB,
-        devices,
-        model,
-        network_model,
-    )
-    add_constraints!(
-        container,
-        ActivePowerVariableLimitsConstraint,
-        ActivePowerRangeExpressionUB,
-        devices,
-        model,
-        network_model,
-    )
-
-    add_feedforward_constraints!(container, model, devices)
-
-    add_to_objective_function!(container, devices, model, S)
-    add_event_constraints!(container, devices, model, network_model)
-    add_constraint_dual!(container, sys, model)
-
     return
 end
 
@@ -1485,38 +1287,16 @@ function construct_device!(
 ) where {
     H <: PSY.HydroTurbine,
     D <: HydroWaterFactorModel,
-    S <: AbstractActivePowerModel,
-}
-    devices = get_available_components(model, sys)
-    _add_hydro_water_factor_model_turbine_constraints!(
-        container,
-        sys,
-        model,
-        network_model,
-        devices,
-    )
-    return
-end
-
-function construct_device!(
-    container::OptimizationContainer,
-    sys::PSY.System,
-    ::ModelConstructStage,
-    model::DeviceModel{H, D},
-    network_model::NetworkModel{S},
-) where {
-    H <: PSY.HydroTurbine,
-    D <: HydroWaterFactorModel,
     S <: AbstractNetworkModel,
 }
     devices = get_available_components(model, sys)
-    add_constraints!(
+    _maybe_add_reactive_power_constraints!(
         container,
-        ReactivePowerVariableLimitsConstraint,
-        ReactivePowerVariable,
         devices,
         model,
         network_model,
+        ReactivePowerVariableLimitsConstraint,
+        ReactivePowerVariable,
     )
     _add_hydro_water_factor_model_turbine_constraints!(
         container,
@@ -1898,32 +1678,16 @@ function construct_device!(
 ) where {
     H <: PSY.HydroTurbine,
     D <: HydroTurbineWaterFormulation,
-    S <: AbstractActivePowerModel,
-}
-    devices = get_available_components(model, sys)
-    _add_hydro_turbine_water_constraints!(container, sys, model, network_model, devices)
-    return
-end
-
-function construct_device!(
-    container::OptimizationContainer,
-    sys::PSY.System,
-    ::ModelConstructStage,
-    model::DeviceModel{H, D},
-    network_model::NetworkModel{S},
-) where {
-    H <: PSY.HydroTurbine,
-    D <: HydroTurbineWaterFormulation,
     S <: AbstractNetworkModel,
 }
     devices = get_available_components(model, sys)
-    add_constraints!(
+    _maybe_add_reactive_power_constraints!(
         container,
-        ReactivePowerVariableLimitsConstraint,
-        ReactivePowerVariable,
         devices,
         model,
         network_model,
+        ReactivePowerVariableLimitsConstraint,
+        ReactivePowerVariable,
     )
     _add_hydro_turbine_water_constraints!(container, sys, model, network_model, devices)
     return
@@ -2112,38 +1876,16 @@ function construct_device!(
 ) where {
     H <: PSY.HydroPumpTurbine,
     D <: HydroPumpEnergyDispatch,
-    S <: AbstractActivePowerModel,
-}
-    devices = get_available_components(model, sys)
-    _add_hydro_pump_energy_dispatch_constraints!(
-        container,
-        sys,
-        model,
-        network_model,
-        devices,
-    )
-    return
-end
-
-function construct_device!(
-    container::OptimizationContainer,
-    sys::PSY.System,
-    ::ModelConstructStage,
-    model::DeviceModel{H, D},
-    network_model::NetworkModel{S},
-) where {
-    H <: PSY.HydroPumpTurbine,
-    D <: HydroPumpEnergyDispatch,
     S <: AbstractNetworkModel,
 }
     devices = get_available_components(model, sys)
-    add_constraints!(
+    _maybe_add_reactive_power_constraints!(
         container,
-        ReactivePowerVariableLimitsConstraint,
-        ReactivePowerVariable,
         devices,
         model,
         network_model,
+        ReactivePowerVariableLimitsConstraint,
+        ReactivePowerVariable,
     )
     _add_hydro_pump_energy_dispatch_constraints!(
         container,
@@ -2352,38 +2094,16 @@ function construct_device!(
 ) where {
     H <: PSY.HydroPumpTurbine,
     D <: HydroPumpEnergyCommitment,
-    S <: AbstractActivePowerModel,
-}
-    devices = get_available_components(model, sys)
-    _add_hydro_pump_energy_commitment_constraints!(
-        container,
-        sys,
-        model,
-        network_model,
-        devices,
-    )
-    return
-end
-
-function construct_device!(
-    container::OptimizationContainer,
-    sys::PSY.System,
-    ::ModelConstructStage,
-    model::DeviceModel{H, D},
-    network_model::NetworkModel{S},
-) where {
-    H <: PSY.HydroPumpTurbine,
-    D <: HydroPumpEnergyCommitment,
     S <: AbstractNetworkModel,
 }
     devices = get_available_components(model, sys)
-    add_constraints!(
+    _maybe_add_reactive_power_constraints!(
         container,
-        ReactivePowerVariableLimitsConstraint,
-        ReactivePowerVariable,
         devices,
         model,
         network_model,
+        ReactivePowerVariableLimitsConstraint,
+        ReactivePowerVariable,
     )
     _add_hydro_pump_energy_commitment_constraints!(
         container,
