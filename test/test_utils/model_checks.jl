@@ -194,6 +194,13 @@ function check_flow_variable_values(
     return true
 end
 
+# StaticBranch under DCPNetworkModel carries its flow as the BThetaBranchFlow expression
+# for every ACTransmission component EXCEPT Transformer3W, which keeps its own explicit
+# star-arc decomposition (FlowActivePowerVariable per winding + the variable-based Ohm's
+# law equality) — see network_models/network_constructor.jl.
+_dcp_static_branch_uses_expression(::Type{<:PSY.ACTransmission}) = true
+_dcp_static_branch_uses_expression(::Type{PSY.Transformer3W}) = false
+
 function check_flow_variable_values(
     model::DecisionModel,
     ::Type{T},
@@ -209,6 +216,9 @@ function check_flow_variable_values(
     if dev_formulation <: Union{StaticBranch, StaticBranchUnbounded} &&
        net_formulation <: PTDFNetworkModel
         variable = IOM.get_expression(psi_cont, PTDFBranchFlow, U)
+    elseif dev_formulation <: StaticBranch && net_formulation <: DCPNetworkModel &&
+           _dcp_static_branch_uses_expression(U)
+        variable = IOM.get_expression(psi_cont, BThetaBranchFlow, U)
     else
         variable = IOM.get_variable(psi_cont, T, U)
     end
@@ -256,6 +266,9 @@ function check_flow_variable_values(
     if dev_formulation <: Union{StaticBranch, StaticBranchUnbounded} &&
        net_formulation <: PTDFNetworkModel
         variable = IOM.get_expression(psi_cont, PTDFBranchFlow, U)
+    elseif dev_formulation <: StaticBranch && net_formulation <: DCPNetworkModel &&
+           _dcp_static_branch_uses_expression(U)
+        variable = IOM.get_expression(psi_cont, BThetaBranchFlow, U)
     else
         variable = IOM.get_variable(psi_cont, T, U)
     end

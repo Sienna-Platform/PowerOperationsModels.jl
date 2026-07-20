@@ -63,40 +63,41 @@ function _assigned_flow_constraint_axis(container, key)
 end
 
 @testset "native DCP reduction: one corridor per reduced arc, exact parity" begin
+    # StaticBranch under DCP carries its flow as the BThetaBranchFlow expression, built
+    # against the same NetworkFlowConstraint-family dedup axis the (now unused, for
+    # StaticBranch) variable-based Ohm's-law builder used — one representative name per
+    # reduced arc, NOT every member device name (unlike the old FlowActivePowerVariable
+    # container, which exposed every member name aliased to the same JuMP variable).
     model_red, status_red =
         _solve_case11_native(DCPNetworkModel, HiGHS_optimizer; reduce = true)
     @test status_red == IOM.ModelBuildStatus.BUILT
     @test solve!(model_red) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
 
     container = IOM.get_optimization_container(model_red)
+    bfe_line = IOM.get_expression(container, BThetaBranchFlow, Line)
+    bfe_xfmr = IOM.get_expression(container, BThetaBranchFlow, Transformer2W)
 
-    # Ohm's law built exactly once per reduced arc, across both branch types.
-    n_flow_cons =
-        length(
-            _assigned_flow_constraint_axis(
-                container, IOM.ConstraintKey(POM.NetworkFlowConstraint, Line),
-            ),
-        ) + length(
-            _assigned_flow_constraint_axis(
-                container, IOM.ConstraintKey(POM.NetworkFlowConstraint, Transformer2W),
-            ),
-        )
-    @test n_flow_cons == CASE11_DISTINCT_REDUCED_ARCS
+    # BThetaBranchFlow built exactly once per reduced arc, across both branch types.
+    n_flow_expr = length(axes(bfe_line)[1]) + length(axes(bfe_xfmr)[1])
+    @test n_flow_expr == CASE11_DISTINCT_REDUCED_ARCS
 
     # The radially-absorbed branch must not appear anywhere.
-    pvar_line = IOM.get_variable(container, FlowActivePowerVariable, Line)
-    @test !("1-8-i_1" in axes(pvar_line)[1])
+    @test !("1-8-i_1" in axes(bfe_line)[1])
 
-    # Members of one reduced arc share the same underlying JuMP variable.
+    # The series chain (1,2) and the parallel group (1,4) collapse to ONE representative
+    # name each — only one of the chain's three member names is a valid axis key.
     t1 = first(IOM.get_time_steps(container))
-    @test pvar_line["1-6-i_1", t1] === pvar_line["6-7-i_1", t1]
-    @test pvar_line["6-7-i_1", t1] === pvar_line["7-2-i_1", t1]
-    # Parallel members enter under the equivalent entry name.
-    @test "1-4-i_double_circuit" in axes(pvar_line)[1]
-    @test !("1-4-i_1" in axes(pvar_line)[1])
-    # Cross-type chain: the Line segment and the Transformer2W segment alias one variable.
-    pvar_xfmr = IOM.get_variable(container, FlowActivePowerVariable, Transformer2W)
-    @test pvar_line["1-9-i_1", t1] === pvar_xfmr["9-5-i_1", t1]
+    chain_names_present =
+        count(in(axes(bfe_line)[1]), ("1-6-i_1", "6-7-i_1", "7-2-i_1"))
+    @test chain_names_present == 1
+    @test "1-4-i_double_circuit" in axes(bfe_line)[1]
+    @test !("1-4-i_1" in axes(bfe_line)[1])
+    # Cross-type chain (1,5): the arc is claimed by exactly one branch type, so its name
+    # appears in exactly one of the two containers, never both.
+    cross_type_owners =
+        count(in(axes(bfe_line)[1]), ("1-9-i_1",)) +
+        count(in(axes(bfe_xfmr)[1]), ("9-5-i_1",))
+    @test cross_type_owners == 1
 
     model_full, status_full =
         _solve_case11_native(DCPNetworkModel, HiGHS_optimizer; reduce = false)
@@ -107,22 +108,22 @@ end
     # (un-reduced) line carries the same flow in both problems.
     res_red = IOM.OptimizationProblemOutputs(model_red)
     res_full = IOM.OptimizationProblemOutputs(model_full)
-    pf_red = read_variable(
-        res_red, "FlowActivePowerVariable__Line"; table_format = TableFormat.WIDE,
+    pf_red = read_expression(
+        res_red, "BThetaBranchFlow__Line"; table_format = TableFormat.WIDE,
     )
-    pf_full = read_variable(
-        res_full, "FlowActivePowerVariable__Line"; table_format = TableFormat.WIDE,
+    pf_full = read_expression(
+        res_full, "BThetaBranchFlow__Line"; table_format = TableFormat.WIDE,
     )
     @test isapprox(pf_red[1, "4-5-i_1"], pf_full[1, "4-5-i_1"]; atol = 1e-4)
 end
 
 @testset "native DCP reduction: radial-only and degree-two-only isolated" begin
-    # Each reduction kind alone must change the branch-variable topology in its own way:
+    # Each reduction kind alone must change the branch-expression topology in its own way:
     # radial reduction absorbs the radial leaf but leaves the degree-two series chain as
-    # distinct variables, and degree-two reduction does the opposite.
+    # distinct entries, and degree-two reduction does the opposite.
 
     # Radial-only: the radial leaf "1-8-i_1" is absorbed, but with degree-two reduction
-    # OFF the (1,2) series-chain segments stay three DISTINCT flow variables.
+    # OFF the (1,2) series-chain segments stay three DISTINCT entries.
     model_rad, status_rad = _solve_case11_native(
         DCPNetworkModel, HiGHS_optimizer;
         reduce_radial_branches = true, reduce_degree_two_branches = false,
@@ -130,17 +131,14 @@ end
     @test status_rad == IOM.ModelBuildStatus.BUILT
     @test solve!(model_rad) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
     container_rad = IOM.get_optimization_container(model_rad)
-    pvar_rad = IOM.get_variable(container_rad, FlowActivePowerVariable, Line)
-    t1_rad = first(IOM.get_time_steps(container_rad))
-    @test !("1-8-i_1" in axes(pvar_rad)[1])
-    @test "1-6-i_1" in axes(pvar_rad)[1]
-    @test "6-7-i_1" in axes(pvar_rad)[1]
-    @test "7-2-i_1" in axes(pvar_rad)[1]
-    @test pvar_rad["1-6-i_1", t1_rad] !== pvar_rad["6-7-i_1", t1_rad]
-    @test pvar_rad["6-7-i_1", t1_rad] !== pvar_rad["7-2-i_1", t1_rad]
+    bfe_rad = IOM.get_expression(container_rad, BThetaBranchFlow, Line)
+    @test !("1-8-i_1" in axes(bfe_rad)[1])
+    @test "1-6-i_1" in axes(bfe_rad)[1]
+    @test "6-7-i_1" in axes(bfe_rad)[1]
+    @test "7-2-i_1" in axes(bfe_rad)[1]
 
     # Degree-two-only: with radial reduction OFF the radial leaf "1-8-i_1" is STILL
-    # present, and the series chain IS aliased to a single flow variable.
+    # present, and the series chain IS collapsed to a single representative entry.
     model_deg, status_deg = _solve_case11_native(
         DCPNetworkModel, HiGHS_optimizer;
         reduce_radial_branches = false, reduce_degree_two_branches = true,
@@ -148,11 +146,11 @@ end
     @test status_deg == IOM.ModelBuildStatus.BUILT
     @test solve!(model_deg) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
     container_deg = IOM.get_optimization_container(model_deg)
-    pvar_deg = IOM.get_variable(container_deg, FlowActivePowerVariable, Line)
-    t1_deg = first(IOM.get_time_steps(container_deg))
-    @test "1-8-i_1" in axes(pvar_deg)[1]
-    @test pvar_deg["1-6-i_1", t1_deg] === pvar_deg["6-7-i_1", t1_deg]
-    @test pvar_deg["6-7-i_1", t1_deg] === pvar_deg["7-2-i_1", t1_deg]
+    bfe_deg = IOM.get_expression(container_deg, BThetaBranchFlow, Line)
+    @test "1-8-i_1" in axes(bfe_deg)[1]
+    chain_names_present_deg =
+        count(in(axes(bfe_deg)[1]), ("1-6-i_1", "6-7-i_1", "7-2-i_1"))
+    @test chain_names_present_deg == 1
 end
 
 @testset "native ACP reduction: one corridor per reduced arc, exact parity" begin

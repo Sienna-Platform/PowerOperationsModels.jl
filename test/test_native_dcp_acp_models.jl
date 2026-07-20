@@ -20,15 +20,17 @@ end
     @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
 
     # --- DC ohm-law physics check ---
-    # The native DCP NetworkFlowConstraint enforces (in per-unit):
+    # StaticBranch under DCP carries the flow as the BThetaBranchFlow expression (in
+    # per-unit):
     #   p_pu == -b * (va_from - va_to)
-    # where b = imag(get_series_admittance(line, PSY.SU)).
-    # read_variable returns FlowActivePowerVariable in natural units (MW);
+    # where b = imag(get_series_admittance(line, PSY.SU)) — there is no
+    # FlowActivePowerVariable/defining equality on this path.
+    # read_expression returns BThetaBranchFlow in natural units (MW);
     # VoltageAngle is unitless (radians, no conversion). Divide flow by base_power.
     res = IOM.OptimizationProblemOutputs(model)
     base_power = IOM.get_model_base_power(res)
     pflow =
-        read_variable(res, "FlowActivePowerVariable__Line"; table_format = TableFormat.WIDE)
+        read_expression(res, "BThetaBranchFlow__Line"; table_format = TableFormat.WIDE)
     va = read_variable(res, "VoltageAngle__ACBus"; table_format = TableFormat.WIDE)
     line = first(PSY.get_components(PSY.Line, sys))
     b = imag(PSY.get_series_admittance(line, PSY.SU))
@@ -653,11 +655,13 @@ end
     @test !isempty(IOM.get_variable(container, FlowActivePowerSlackLowerBound, PSY.Line))
 end
 
-@testset "DCPNetworkModel + StaticBranchBounds with use_slacks wires the rating slacks" begin
-    # The slack pair must genuinely relax the rating, not sit dead: the ub row is
-    # `flow - slack_ub <= rating`, the lb row `flow + slack_lb >= -rating`, the
-    # FlowActivePowerVariable carries no hard bound that would cap it at the rating and
-    # neuter the slack, and both slacks are priced in the objective.
+@testset "DCPNetworkModel + StaticBranchBounds with use_slacks slacks the Ohm's-law equality" begin
+    # SBB rates the flow with hard variable bounds (±rating) and relaxes via the
+    # flow-definition equality, NOT rate-inequality rows: the decision flow stays within
+    # rating while the physical angle-implied flow may deviate by the signed slack. So the
+    # NetworkFlowConstraint equality `p == -b*(θ_f - θ_t - shift) + slack_ub - slack_lb`
+    # carries the slacks (coefficients -1 / +1 after normalization), there are no
+    # FlowRateConstraint rows, and both slacks are priced.
     sys = PSB.build_system(PSITestSystems, "c_sys5")
     template = get_thermal_dispatch_template_network(NetworkModel(DCPNetworkModel))
     set_device_model!(
@@ -672,23 +676,20 @@ end
     flow = IOM.get_variable(container, FlowActivePowerVariable, PSY.Line)
     slack_ub = IOM.get_variable(container, FlowActivePowerSlackUpperBound, PSY.Line)
     slack_lb = IOM.get_variable(container, FlowActivePowerSlackLowerBound, PSY.Line)
-    con_ub = IOM.get_constraint(container, FlowRateConstraint, PSY.Line, "ub")
-    con_lb = IOM.get_constraint(container, FlowRateConstraint, PSY.Line, "lb")
+    ohm = IOM.get_constraint(container, POM.NetworkFlowConstraint, PSY.Line)
     objective = JuMP.objective_function(IOM.get_jump_model(container))
     time_steps = IOM.get_time_steps(container)
+    @test !has_container_key(container, FlowRateConstraint, PSY.Line)
     for line in PSY.get_components(PSY.Line, sys)
         name = PSY.get_name(line)
         rate = PSY.get_rating(line, PSY.SU)
         for t in time_steps
-            # A hard variable bound would cap flow at the rating and make the slack dead.
-            @test !JuMP.has_upper_bound(flow[name, t])
-            @test !JuMP.has_lower_bound(flow[name, t])
-            @test JuMP.normalized_coefficient(con_ub[name, t], flow[name, t]) == 1.0
-            @test JuMP.normalized_coefficient(con_ub[name, t], slack_ub[name, t]) == -1.0
-            @test JuMP.normalized_rhs(con_ub[name, t]) == rate
-            @test JuMP.normalized_coefficient(con_lb[name, t], flow[name, t]) == 1.0
-            @test JuMP.normalized_coefficient(con_lb[name, t], slack_lb[name, t]) == 1.0
-            @test JuMP.normalized_rhs(con_lb[name, t]) == -rate
+            @test JuMP.has_upper_bound(flow[name, t])
+            @test JuMP.has_lower_bound(flow[name, t])
+            @test JuMP.upper_bound(flow[name, t]) == rate
+            @test JuMP.lower_bound(flow[name, t]) == -rate
+            @test JuMP.normalized_coefficient(ohm[name, t], slack_ub[name, t]) == -1.0
+            @test JuMP.normalized_coefficient(ohm[name, t], slack_lb[name, t]) == 1.0
             @test JuMP.coefficient(objective, slack_ub[name, t]) ==
                   POM.CONSTRAINT_VIOLATION_SLACK_COST
             @test JuMP.coefficient(objective, slack_lb[name, t]) ==
@@ -818,9 +819,10 @@ end
     end
 end
 
-@testset "DCPNetworkModel + StaticBranchBounds without slacks enforces the rating via FlowRateConstraint" begin
-    # No hard bound on FlowActivePowerVariable itself (see the wired-slacks testset above);
-    # the "lb"/"ub" FlowRateConstraint rows are the only rating enforcement here.
+@testset "DCPNetworkModel + StaticBranchBounds without slacks bounds the flow variable" begin
+    # StaticBranchBounds rates the flow purely with variable bounds at ±rating
+    # (branch_rate_bounds!); it adds NO FlowRateConstraint inequality rows (those are only
+    # for a time-varying DLR rating that a static bound cannot express).
     sys = PSB.build_system(PSITestSystems, "c_sys5")
     template = get_thermal_dispatch_template_network(NetworkModel(DCPNetworkModel))
     set_device_model!(template, DeviceModel(PSY.Line, StaticBranchBounds))
@@ -830,19 +832,16 @@ end
 
     container = IOM.get_optimization_container(model)
     flow = IOM.get_variable(container, FlowActivePowerVariable, PSY.Line)
-    con_lb = IOM.get_constraint(container, FlowRateConstraint, PSY.Line, "lb")
-    con_ub = IOM.get_constraint(container, FlowRateConstraint, PSY.Line, "ub")
     time_steps = IOM.get_time_steps(container)
+    @test !has_container_key(container, FlowRateConstraint, PSY.Line)
     for line in PSY.get_components(PSY.Line, sys)
         name = PSY.get_name(line)
         rate = PSY.get_rating(line, PSY.SU)
         for t in time_steps
-            @test !JuMP.has_upper_bound(flow[name, t])
-            @test !JuMP.has_lower_bound(flow[name, t])
-            @test JuMP.normalized_coefficient(con_ub[name, t], flow[name, t]) == 1.0
-            @test JuMP.normalized_rhs(con_ub[name, t]) == rate
-            @test JuMP.normalized_coefficient(con_lb[name, t], flow[name, t]) == 1.0
-            @test JuMP.normalized_rhs(con_lb[name, t]) == -rate
+            @test JuMP.has_upper_bound(flow[name, t])
+            @test JuMP.has_lower_bound(flow[name, t])
+            @test JuMP.upper_bound(flow[name, t]) == rate
+            @test JuMP.lower_bound(flow[name, t]) == -rate
         end
     end
 end
@@ -1211,11 +1210,18 @@ end
 end
 
 @testset "StaticBranch and StaticBranchBounds reach the same DCP optimum at a binding rating (c_sys5)" begin
-    # DCP enforces the rating as FlowRateConstraint lb/ub rows on FlowActivePowerVariable
-    # for both formulations; the equivalence must hold with the ub row active. 2.0 pu on
-    # line "1" is feasible (1.0 pu is infeasible on this system) and binds at the peak
-    # hours. HiGHS is deterministic, so the objectives must agree tightly.
+    # DCP enforces the rating as FlowRateConstraint lb/ub rows for both formulations; the
+    # equivalence must hold with the ub row active. StaticBranch carries the flow as the
+    # BThetaBranchFlow expression (angles are the only decision variables); StaticBranchBounds
+    # keeps the FlowActivePowerVariable + defining equality. This is the correctness gate for
+    # the expression-based refactor: both must reach the SAME physics/objective.
+    # 2.0 pu on line "1" is feasible (1.0 pu is infeasible on this system) and binds at the
+    # peak hours. HiGHS is deterministic, so the objectives must agree tightly.
     cut = 2.0
+    _dcp_binding_flow(container, ::Type{StaticBranch}) =
+        IOM.get_expression(container, BThetaBranchFlow, PSY.Line)
+    _dcp_binding_flow(container, ::Type{StaticBranchBounds}) =
+        IOM.get_variable(container, FlowActivePowerVariable, PSY.Line)
     function _dcp_binding_solve(formulation)
         sys = PSB.build_system(PSITestSystems, "c_sys5")
         PSY.set_rating!(PSY.get_component(PSY.Line, sys, "1"), cut * PSY.SU)
@@ -1226,7 +1232,7 @@ end
               IOM.ModelBuildStatus.BUILT
         @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
         container = IOM.get_optimization_container(model)
-        flow = IOM.get_variable(container, FlowActivePowerVariable, PSY.Line)
+        flow = _dcp_binding_flow(container, formulation)
         fmax = maximum(
             abs(JuMP.value(flow["1", t])) for t in IOM.get_time_steps(container)
         )
@@ -1269,7 +1275,7 @@ end
 # network, no `Union` alias driving dispatch beyond the ACP/ACR/LPACC trio that already
 # shares an Ohm's-law shape.
 _sbb_slack_probe(::Type{DCPNetworkModel}) =
-    (FlowRateConstraint, "ub", IOM.CONTAINER_KEY_EMPTY_META)
+    (POM.NetworkFlowConstraint, IOM.CONTAINER_KEY_EMPTY_META, IOM.CONTAINER_KEY_EMPTY_META)
 _sbb_slack_probe(::Type{PTDFNetworkModel}) =
     (POM.NetworkFlowConstraint, IOM.CONTAINER_KEY_EMPTY_META, IOM.CONTAINER_KEY_EMPTY_META)
 _sbb_slack_probe(::Type{AreaPTDFNetworkModel}) =
