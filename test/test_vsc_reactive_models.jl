@@ -390,3 +390,154 @@ end
         @test size(con_vv[k]) == size(con_qq[k])
     end
 end
+
+# HVDCTwoTerminalVSC under a linearizing bilinear scheme on a reactive-carrying network:
+# the combination that reaches the box/octagon apparent-power limit. No optimizer is
+# attached — bin2 adds SOS2 constraints and ACP is nonlinear, so the model is a MINLP no
+# configured solver supports, but build! still succeeds and the coefficients are inspectable.
+function _vsc_octagon_model(sys; use_octagon)
+    template = PowerOperationsProblemTemplate(NetworkModel(ACPNetworkModel))
+    set_device_model!(template, ThermalStandard, ThermalDispatchNoMin)
+    set_device_model!(template, RenewableDispatch, RenewableFullDispatch)
+    set_device_model!(template, PowerLoad, StaticPowerLoad)
+    set_device_model!(template, DeviceModel(Line, StaticBranch))
+    set_device_model!(
+        template,
+        DeviceModel(
+            TwoTerminalVSCLine, HVDCTwoTerminalVSC;
+            attributes = Dict{String, Any}(
+                "bilinear_approximation" => "bin2",
+                "use_octagon" => use_octagon,
+            ),
+        ),
+    )
+    return DecisionModel(template, sys; store_variable_names = true)
+end
+
+# Apparent-power-limit rows are keyed by a per-face tag; wrap the repeated lookup.
+function _vsc_apparent_power_constraint(container, tag)
+    return IOM.get_constraint(
+        container,
+        POM.HVDCVSCApparentPowerLimitConstraint,
+        TwoTerminalVSCLine,
+        tag,
+    )
+end
+
+const _VSC_OCTAGON_BOX_TAGS = (
+    "from_p_ub", "from_p_lb", "from_q_ub", "from_q_lb",
+    "to_p_ub", "to_p_lb", "to_q_ub", "to_q_lb",
+)
+const _VSC_OCTAGON_DIAG_TAGS = (
+    "from_pp", "from_pn", "from_np", "from_nn",
+    "to_pp", "to_pn", "to_np", "to_nn",
+)
+
+@testset "VSC apparent power box pins per-terminal rating on all four faces" begin
+    rating = 2.0
+    sys = _build_vsc_reactive_sys(; rating = rating)
+    model = _vsc_octagon_model(sys; use_octagon = false)
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+
+    container = IOM.get_optimization_container(model)
+    t1 = first(IOM.get_time_steps(container))
+    p_ft = IOM.get_variable(container, FlowActivePowerFromToVariable, TwoTerminalVSCLine)
+    q_f = IOM.get_variable(container, HVDCReactivePowerFromVariable, TwoTerminalVSCLine)
+
+    # Box rows: coefficient +/-1 on exactly one variable, RHS = rating.
+    for (tag, var, coeff) in (
+        ("from_p_ub", p_ft, 1.0), ("from_p_lb", p_ft, -1.0),
+        ("from_q_ub", q_f, 1.0), ("from_q_lb", q_f, -1.0),
+    )
+        con = _vsc_apparent_power_constraint(container, tag)
+        @test !isempty(con)
+        c = con["1", t1]
+        @test JuMP.normalized_coefficient(c, var["1", t1]) == coeff
+        @test JuMP.normalized_rhs(c) ≈ rating
+    end
+
+    # With use_octagon = false the diagonals must not exist at all.
+    for tag in _VSC_OCTAGON_DIAG_TAGS
+        @test_throws Exception _vsc_apparent_power_constraint(container, tag)
+    end
+end
+
+@testset "VSC octagon diagonals carry the rating*sqrt(2) outer approximation" begin
+    rating = 2.0
+    diag = rating * sqrt(2.0)
+    sys = _build_vsc_reactive_sys(; rating = rating)
+    model = _vsc_octagon_model(sys; use_octagon = true)
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+
+    container = IOM.get_optimization_container(model)
+    t1 = first(IOM.get_time_steps(container))
+    p_ft = IOM.get_variable(container, FlowActivePowerFromToVariable, TwoTerminalVSCLine)
+    q_f = IOM.get_variable(container, HVDCReactivePowerFromVariable, TwoTerminalVSCLine)
+
+    # All four sign combinations on the "from" terminal, hand-derived from
+    # |p| +/- q <= rating*sqrt(2). A pn/np transposition fails here and nowhere else.
+    for (tag, p_coeff, q_coeff) in (
+        ("from_pp", 1.0, 1.0),
+        ("from_pn", 1.0, -1.0),
+        ("from_np", -1.0, 1.0),
+        ("from_nn", -1.0, -1.0),
+    )
+        con = _vsc_apparent_power_constraint(container, tag)
+        @test !isempty(con)
+        c = con["1", t1]
+        @test JuMP.normalized_coefficient(c, p_ft["1", t1]) == p_coeff
+        @test JuMP.normalized_coefficient(c, q_f["1", t1]) == q_coeff
+        @test JuMP.normalized_rhs(c) ≈ diag
+    end
+
+    # Both terminals get the full tag set.
+    for tag in (_VSC_OCTAGON_BOX_TAGS..., _VSC_OCTAGON_DIAG_TAGS...)
+        @test !isempty(_vsc_apparent_power_constraint(container, tag))
+    end
+end
+
+@testset "VSC octagon is a tightening of the box, and both contain the rating disk" begin
+    rating = 2.0
+    diag = rating * sqrt(2.0)
+
+    function _built_container(use_octagon)
+        sys = _build_vsc_reactive_sys(; rating = rating)
+        model = _vsc_octagon_model(sys; use_octagon = use_octagon)
+        @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+              IOM.ModelBuildStatus.BUILT
+        return IOM.get_optimization_container(model)
+    end
+
+    boxed = _built_container(false)
+    octagon = _built_container(true)
+    t1 = first(IOM.get_time_steps(octagon))
+
+    # The octagon adds the four 45-degree diagonals on top of the axis-aligned box,
+    # so its feasible region is a subset of the box's: every box tag is present in
+    # both models, and the diagonals exist only with use_octagon = true.
+    for tag in _VSC_OCTAGON_BOX_TAGS
+        @test !isempty(_vsc_apparent_power_constraint(boxed, tag))
+        @test !isempty(_vsc_apparent_power_constraint(octagon, tag))
+    end
+    for tag in _VSC_OCTAGON_DIAG_TAGS
+        @test_throws Exception _vsc_apparent_power_constraint(boxed, tag)
+        @test !isempty(_vsc_apparent_power_constraint(octagon, tag))
+    end
+
+    # Both regions contain the rating disk p^2 + q^2 <= rating^2. The box |p|,|q| <= rating
+    # circumscribes it directly; the diagonals |p| +/- q <= rating*sqrt(2) circumscribe it
+    # by Cauchy-Schwarz, (|p|+|q|)^2 <= 2*(p^2+q^2) <= 2*rating^2. The diagonal RHS is
+    # strictly larger than the box RHS, so the octagon tightens only the box corners and
+    # never cuts into the disk.
+    for tag in _VSC_OCTAGON_DIAG_TAGS
+        c = _vsc_apparent_power_constraint(octagon, tag)["1", t1]
+        @test JuMP.normalized_rhs(c) ≈ diag
+        @test JuMP.normalized_rhs(c) > rating
+    end
+    for tag in _VSC_OCTAGON_BOX_TAGS
+        c = _vsc_apparent_power_constraint(octagon, tag)["1", t1]
+        @test JuMP.normalized_rhs(c) ≈ rating
+    end
+end
