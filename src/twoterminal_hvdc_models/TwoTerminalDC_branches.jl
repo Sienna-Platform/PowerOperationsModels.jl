@@ -188,68 +188,12 @@ function _get_range_segments(
     return 1:(2 * length(loss_factors) + 2)
 end
 
-function _add_dense_pwl_loss_variables!(
-    container::OptimizationContainer,
-    devices,
-    model::DeviceModel{D, HVDCTwoTerminalPiecewiseLoss},
-) where {D <: PSY.TwoTerminalHVDC}
-    # Check if type and length of PWL loss model are the same for all devices
-    _check_pwl_loss_model(devices)
-
-    # Create Variables
-    time_steps = get_time_steps(container)
-    settings = get_settings(container)
-    formulation = HVDCTwoTerminalPiecewiseLoss
-    T = HVDCPiecewiseLossVariable
-    binary = get_variable_binary(T, D, formulation)
-    # get_loss returns a LinearCurve or PiecewiseIncrementalCurve struct — not a unit-bearing scalar; no PSY.SU conversion applies
-    first_loss = PSY.get_loss(first(devices))
-    if isa(first_loss, PSY.LinearCurve)
-        len_segments = 4 # 2*1 + 2
-    elseif isa(first_loss, PSY.PiecewiseIncrementalCurve)
-        len_segments = 2 * length(PSY.get_slopes(first_loss)) + 2
-    else
-        error("Should not be here")
-    end
-
-    segments = ["pwl_$i" for i in 1:len_segments]
-    T = HVDCPiecewiseLossVariable
-    variable = add_variable_container!(container, T,
-        D,
-        PSY.get_name.(devices),
-        segments,
-        time_steps,
-    )
-
-    for t in time_steps, s in segments, d in devices
-        name = PSY.get_name(d)
-        variable[name, s, t] = JuMP.@variable(
-            get_jump_model(container),
-            base_name = "$(T)_$(D)_{$(name), $(s), $(t)}",
-            binary = binary
-        )
-        ub = get_variable_upper_bound(T, d, formulation)
-        ub !== nothing && JuMP.set_upper_bound(variable[name, s, t], ub)
-
-        lb = get_variable_lower_bound(T, d, formulation)
-        lb !== nothing && JuMP.set_lower_bound(variable[name, s, t], lb)
-
-        if get_warm_start(settings)
-            init = get_variable_warm_start_value(T, d, formulation)
-            init !== nothing && JuMP.set_start_value(variable[name, s, t], init)
-        end
-    end
-end
-
 # Full Binary
 function _add_sparse_pwl_loss_variables!(
     container::OptimizationContainer,
     devices,
     ::DeviceModel{D, HVDCTwoTerminalPiecewiseLoss},
 ) where {D <: PSY.TwoTerminalHVDC}
-    # Check if type and length of PWL loss model are the same for all devices
-    #_check_pwl_loss_model(devices)
-
     # Create Variables
     time_steps = get_time_steps(container)
     settings = get_settings(container)
