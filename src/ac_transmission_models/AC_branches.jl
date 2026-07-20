@@ -21,14 +21,9 @@ get_variable_binary(::Type{FlowActivePowerFromToVariable}, ::Type{<:PSY.ACTransm
 get_variable_binary(::Type{FlowActivePowerToFromVariable}, ::Type{<:PSY.ACTransmission}, ::Type{<:AbstractBranchFormulation}) = false
 get_variable_binary(::Type{FlowReactivePowerFromToVariable}, ::Type{<:PSY.ACTransmission}, ::Type{<:AbstractBranchFormulation}) = false
 get_variable_binary(::Type{FlowReactivePowerToFromVariable}, ::Type{<:PSY.ACTransmission}, ::Type{<:AbstractBranchFormulation}) = false
-get_variable_binary(::Type{PhaseShifterAngle}, ::Type{PSY.PhaseShiftingTransformer}, ::Type{<:AbstractBranchFormulation}) = false
-
 get_parameter_multiplier(::Type{FixValueParameter}, ::PSY.ACTransmission, ::Type{<:AbstractBranchFormulation}) = 1.0
 get_parameter_multiplier(::Type{LowerBoundValueParameter}, ::PSY.ACTransmission, ::Type{<:AbstractBranchFormulation}) = 1.0
 get_parameter_multiplier(::Type{UpperBoundValueParameter}, ::PSY.ACTransmission, ::Type{<:AbstractBranchFormulation}) = 1.0
-
-# Per-device reactance multiplier (1/get_x(d)) computed inline at add_to_expression! call sites.
-get_variable_multiplier(::Type{PhaseShifterAngle}, ::Type{<:PSY.PhaseShiftingTransformer}, ::Type{PhaseAngleControl}) = 1.0
 
 get_multiplier_value(::Type{<:AbstractBranchRatingTimeSeriesParameter}, d::PSY.ACTransmission, ::Type{StaticBranch}) = PSY.get_rating(d, PSY.SU)
 
@@ -562,17 +557,6 @@ function get_min_max_limits(
 ) #  -> Union{Nothing, NamedTuple{(:min, :max), Tuple{Float64, Float64}}}
     rating = PNM.get_equivalent_rating(device)
     return (min = -rating, max = rating)
-end
-
-"""
-Min and max limits for Abstract Branch Formulation
-"""
-function get_min_max_limits(
-    ::PSY.PhaseShiftingTransformer,
-    ::Type{PhaseAngleControlLimit},
-    ::Type{PhaseAngleControl},
-) #  -> Union{Nothing, NamedTuple{(:min, :max), Tuple{Float64, Float64}}}
-    return (min = -π / 2, max = π / 2)
 end
 
 function _add_flow_rate_constraint!(
@@ -1238,46 +1222,6 @@ function add_constraints!(
     return
 end
 
-"""
-Add network flow constraints for PhaseShiftingTransformer and NetworkModel with <: AbstractPTDFNetworkModel
-"""
-function add_constraints!(
-    container::OptimizationContainer,
-    ::Type{NetworkFlowConstraint},
-    devices::IS.FlattenIteratorWrapper{T},
-    model::DeviceModel{T, PhaseAngleControl},
-    network_model::NetworkModel{<:AbstractPTDFNetworkModel},
-) where {T <: PSY.PhaseShiftingTransformer}
-    ptdf = get_network_matrix(network_model)
-    branches = PSY.get_name.(devices)
-    time_steps = get_time_steps(container)
-    branch_flow = add_constraints_container!(container, NetworkFlowConstraint,
-        T,
-        branches,
-        time_steps,
-    )
-    nodal_balance_expressions = get_expression(container, ActivePowerBalance, PSY.ACBus)
-    flow_variables = get_variable(container, FlowActivePowerVariable, T)
-    angle_variables = get_variable(container, PhaseShifterAngle, T)
-    jump_model = get_jump_model(container)
-    for br in devices
-        arc = PNM.get_arc_tuple(br)
-        name = PSY.get_name(br)
-        ptdf_col = ptdf[arc, :]
-        inv_x = 1 / PSY.get_x(br, PSY.SU)
-        for t in time_steps
-            branch_flow[name, t] = JuMP.@constraint(
-                jump_model,
-                sum(
-                    ptdf_col[i] * nodal_balance_expressions.data[i, t] for
-                    i in 1:length(ptdf_col)
-                ) + inv_x * angle_variables[name, t] - flow_variables[name, t] == 0.0
-            )
-        end
-    end
-    return
-end
-
 # `MonitoredLine.flow_limits` may be asymmetric; the symmetric/min-based
 # `get_min_max_limits` methods below collapse it to one value and warn once.
 # The device, not a formulation type, is passed in (the old `$T` interpolation
@@ -1396,73 +1340,6 @@ function add_constraints!(
     U <: StaticBranchUnbounded,
     V <: AbstractActivePowerModel,
 }
-    return
-end
-
-"""
-Add phase angle limits for phase shifters
-"""
-function add_constraints!(
-    container::OptimizationContainer,
-    ::Type{PhaseAngleControlLimit},
-    devices::IS.FlattenIteratorWrapper{T},
-    model::DeviceModel{T, PhaseAngleControl},
-    ::NetworkModel{U},
-) where {T <: PSY.PhaseShiftingTransformer, U <: AbstractActivePowerModel}
-    add_range_constraints!(
-        container,
-        PhaseAngleControlLimit,
-        PhaseShifterAngle,
-        devices,
-        model,
-        U,
-    )
-    return
-end
-
-"""
-Add network flow constraints for PhaseShiftingTransformer and NetworkModel with DCPNetworkModel
-"""
-function add_constraints!(
-    container::OptimizationContainer,
-    sys::PSY.System,
-    ::Type{NetworkFlowConstraint},
-    devices::IS.FlattenIteratorWrapper{T},
-    model::DeviceModel{T, PhaseAngleControl},
-    network_model::NetworkModel{DCPNetworkModel},
-) where {T <: PSY.PhaseShiftingTransformer}
-    time_steps = get_time_steps(container)
-    number_to_name = _retained_number_to_name(sys, network_model)
-    flow_variables = get_variable(container, FlowActivePowerVariable, T)
-    ps_angle_variables = get_variable(container, PhaseShifterAngle, T)
-    bus_angle_variables = get_variable(container, VoltageAngle, PSY.ACBus)
-    jump_model = get_jump_model(container)
-    branch_flow = add_constraints_container!(container, NetworkFlowConstraint,
-        T,
-        axes(flow_variables)[1],
-        time_steps,
-    )
-
-    for br in devices
-        name = PSY.get_name(br)
-        inv_x = 1.0 / PSY.get_x(br, PSY.SU)
-        flow_variables_ = flow_variables[name, :]
-        from_no, to_no = PNM.get_arc_tuple(br, get_network_reduction(network_model))
-        from_no == to_no && continue
-        from_bus = number_to_name[from_no]
-        to_bus = number_to_name[to_no]
-        angle_variables_ = ps_angle_variables[name, :]
-        bus_angle_from = bus_angle_variables[from_bus, :]
-        bus_angle_to = bus_angle_variables[to_bus, :]
-        @assert inv_x > 0.0
-        for t in time_steps
-            branch_flow[name, t] = JuMP.@constraint(
-                jump_model,
-                flow_variables_[t] ==
-                inv_x * (bus_angle_from[t] - bus_angle_to[t] + angle_variables_[t])
-            )
-        end
-    end
     return
 end
 
