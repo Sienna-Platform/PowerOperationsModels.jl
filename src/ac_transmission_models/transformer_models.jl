@@ -264,3 +264,120 @@ function construct_device!(
     add_feedforward_constraints!(container, device_model, devices)
     return
 end
+
+############################## Fixed-tap transformer ###########################
+
+"""
+Add the tap-aware DC Ohm's law for a transformer under the `TapControl` formulation and an
+active-power DC network (DCPNetworkModel):
+
+    p == (va_fr - va_to - shift) / (x * tap)
+
+`x = -b/(g^2 + b^2)` is the series reactance and `tap` the transformer tap ratio, both from
+`branch_admittance` (system base). Reduces to the StaticBranch DC law when tap == 1 and
+g == 0. Dispatched on the device formulation `TapControl`, not on the network model — tap is
+a component property in Sienna.
+"""
+function add_constraints!(
+    container::OptimizationContainer,
+    sys::PSY.System,
+    ::Type{NetworkFlowConstraint},
+    devices::IS.FlattenIteratorWrapper{T},
+    device_model::DeviceModel{T, TapControl},
+    network_model::NetworkModel{DCPNetworkModel},
+) where {T <: PSY.TapTransformer}
+    time_steps = get_time_steps(container)
+    va = get_variable(container, VoltageAngle, PSY.ACBus)
+    p = get_variable(container, FlowActivePowerVariable, T)
+
+    number_to_name = _retained_number_to_name(sys, network_model)
+    geoms =
+        _branch_geometries(number_to_name, network_model, devices, T, NetworkFlowConstraint)
+    branch_names = [g.name for g in geoms]
+    cons = add_constraints_container!(
+        container, NetworkFlowConstraint, T, branch_names, time_steps,
+    )
+
+    for g in geoms
+        x = -g.adm.b / (g.adm.g^2 + g.adm.b^2)
+        for t in time_steps
+            cons[g.name, t] = JuMP.@constraint(
+                get_jump_model(container),
+                p[g.name, t] ==
+                (va[g.from_name, t] - va[g.to_name, t] - g.adm.shift) / (x * g.adm.tap),
+            )
+        end
+    end
+    return
+end
+
+"""
+ArgumentConstructStage for TapControl under DCPNetworkModel.
+
+Creates the FlowActivePowerVariable (and optional slack variables) and registers the
+branch flow contribution to the per-bus ActivePowerBalance expression.
+"""
+function construct_device!(
+    container::OptimizationContainer,
+    sys::PSY.System,
+    ::ArgumentConstructStage,
+    device_model::DeviceModel{T, TapControl},
+    network_model::NetworkModel{DCPNetworkModel},
+) where {T <: PSY.TapTransformer}
+    @debug "construct_device TapControl DCP (ArgumentConstructStage)" _group =
+        LOG_GROUP_BRANCH_CONSTRUCTIONS
+    devices = get_available_components(device_model, sys)
+    add_variables!(container, FlowActivePowerVariable, network_model, devices, TapControl)
+    if get_use_slacks(device_model)
+        _add_flow_slacks!(container, devices, network_model, TapControl)
+    end
+    add_to_expression!(
+        container,
+        ActivePowerBalance,
+        FlowActivePowerVariable,
+        devices,
+        device_model,
+        network_model,
+    )
+    if haskey(get_time_series_names(device_model), BranchRatingTimeSeriesParameter)
+        add_branch_parameters!(
+            container,
+            BranchRatingTimeSeriesParameter,
+            devices,
+            device_model,
+            network_model,
+        )
+    end
+    add_feedforward_arguments!(container, device_model, devices)
+    return
+end
+
+"""
+ModelConstructStage for TapControl under DCPNetworkModel.
+
+Applies the branch flow rate limits, the tap-aware DC Ohm's law constraint
+`p = (va_fr - va_to - shift) / (x * tap)`, and (when applicable) the branch
+angle-difference limits.
+"""
+function construct_device!(
+    container::OptimizationContainer,
+    sys::PSY.System,
+    ::ModelConstructStage,
+    device_model::DeviceModel{T, TapControl},
+    network_model::NetworkModel{DCPNetworkModel},
+) where {T <: PSY.TapTransformer}
+    @debug "construct_device TapControl DCP (ModelConstructStage)" _group =
+        LOG_GROUP_BRANCH_CONSTRUCTIONS
+    devices = get_available_components(device_model, sys)
+    add_constraints!(container, FlowRateConstraint, devices, device_model, network_model)
+    add_constraints!(
+        container, sys, NetworkFlowConstraint, devices, device_model, network_model,
+    )
+    add_constraints!(
+        container, sys, AngleDifferenceConstraint, devices, device_model, network_model,
+    )
+    add_feedforward_constraints!(container, device_model, devices)
+    add_to_objective_function!(container, devices, device_model, DCPNetworkModel)
+    add_constraint_dual!(container, sys, device_model)
+    return
+end
