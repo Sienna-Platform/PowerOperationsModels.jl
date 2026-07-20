@@ -126,24 +126,6 @@ get_variable_upper_bound(::Type{HVDCPiecewiseLossVariable}, d::PSY.TwoTerminalHV
 get_variable_lower_bound(::Type{HVDCPiecewiseLossVariable}, d::PSY.TwoTerminalHVDC, ::Type{<:Union{HVDCTwoTerminalDispatch, HVDCTwoTerminalPiecewiseLoss}}) = 0.0
 
 #################################### LCC ##################################################
-# FIXME consolidate to one definition on supertype.
-get_variable_binary(::Type{HVDCRectifierActivePowerVariable}, ::Type{PSY.TwoTerminalLCCLine}, ::Type{HVDCTwoTerminalLCC}) = false
-get_variable_binary(::Type{HVDCInverterActivePowerVariable}, ::Type{PSY.TwoTerminalLCCLine}, ::Type{HVDCTwoTerminalLCC}) = false
-get_variable_binary(::Type{HVDCRectifierReactivePowerVariable}, ::Type{PSY.TwoTerminalLCCLine}, ::Type{HVDCTwoTerminalLCC}) = false
-get_variable_binary(::Type{HVDCInverterReactivePowerVariable}, ::Type{PSY.TwoTerminalLCCLine}, ::Type{HVDCTwoTerminalLCC}) = false
-get_variable_binary(::Type{HVDCRectifierDelayAngleVariable}, ::Type{PSY.TwoTerminalLCCLine}, ::Type{HVDCTwoTerminalLCC}) = false
-get_variable_binary(::Type{HVDCInverterExtinctionAngleVariable}, ::Type{PSY.TwoTerminalLCCLine}, ::Type{HVDCTwoTerminalLCC}) = false
-get_variable_binary(::Type{HVDCRectifierPowerFactorAngleVariable}, ::Type{PSY.TwoTerminalLCCLine}, ::Type{HVDCTwoTerminalLCC}) = false
-get_variable_binary(::Type{HVDCInverterPowerFactorAngleVariable}, ::Type{PSY.TwoTerminalLCCLine}, ::Type{HVDCTwoTerminalLCC}) = false
-get_variable_binary(::Type{HVDCRectifierOverlapAngleVariable}, ::Type{PSY.TwoTerminalLCCLine}, ::Type{HVDCTwoTerminalLCC}) = false
-get_variable_binary(::Type{HVDCInverterOverlapAngleVariable}, ::Type{PSY.TwoTerminalLCCLine}, ::Type{HVDCTwoTerminalLCC}) = false
-get_variable_binary(::Type{HVDCRectifierDCVoltageVariable}, ::Type{PSY.TwoTerminalLCCLine}, ::Type{HVDCTwoTerminalLCC}) = false
-get_variable_binary(::Type{HVDCInverterDCVoltageVariable}, ::Type{PSY.TwoTerminalLCCLine}, ::Type{HVDCTwoTerminalLCC}) = false
-get_variable_binary(::Type{HVDCRectifierACCurrentVariable}, ::Type{PSY.TwoTerminalLCCLine}, ::Type{HVDCTwoTerminalLCC}) = false
-get_variable_binary(::Type{HVDCInverterACCurrentVariable}, ::Type{PSY.TwoTerminalLCCLine}, ::Type{HVDCTwoTerminalLCC}) = false
-get_variable_binary(::Type{DCLineCurrentFlowVariable}, ::Type{PSY.TwoTerminalLCCLine}, ::Type{HVDCTwoTerminalLCC}) = false
-get_variable_binary(::Type{HVDCRectifierTapSettingVariable}, ::Type{PSY.TwoTerminalLCCLine}, ::Type{HVDCTwoTerminalLCC}) = false
-get_variable_binary(::Type{HVDCInverterTapSettingVariable}, ::Type{PSY.TwoTerminalLCCLine}, ::Type{HVDCTwoTerminalLCC}) = false
 get_variable_upper_bound(::Type{HVDCRectifierDelayAngleVariable}, d::PSY.TwoTerminalLCCLine, ::Type{HVDCTwoTerminalLCC}) = PSY.get_rectifier_delay_angle_limits(d).max
 get_variable_lower_bound(::Type{HVDCRectifierDelayAngleVariable}, d::PSY.TwoTerminalLCCLine, ::Type{HVDCTwoTerminalLCC}) = PSY.get_rectifier_delay_angle_limits(d).min
 get_variable_upper_bound(::Type{HVDCInverterExtinctionAngleVariable}, d::PSY.TwoTerminalLCCLine, ::Type{HVDCTwoTerminalLCC}) = PSY.get_inverter_extinction_angle_limits(d).max
@@ -175,18 +157,6 @@ get_initial_conditions_device_model(
     DeviceModel(T, U)
 
 ####################################### PWL Constraints #######################################################
-
-function _get_range_segments(::PSY.TwoTerminalHVDC, loss::PSY.LinearCurve)
-    return 1:4
-end
-
-function _get_range_segments(
-    ::PSY.TwoTerminalHVDC,
-    loss::PSY.PiecewiseIncrementalCurve,
-)
-    loss_factors = PSY.get_slopes(loss)
-    return 1:(2 * length(loss_factors) + 2)
-end
 
 # Full Binary
 function _add_sparse_pwl_loss_variables!(

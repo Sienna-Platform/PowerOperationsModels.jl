@@ -672,3 +672,263 @@ end
         end
     end
 end
+
+# A probe device attached to a real system so PSY unit settings resolve for the
+# PSY.SU getters that _get_flow_bounds reads.
+function _hvdc_probe(sys, arc, name; from_limits, to_limits, loss = LinearCurve(0.0))
+    hvdc = TwoTerminalGenericHVDCLine(;
+        name = name,
+        available = true,
+        active_power_flow = 0.0,
+        active_power_limits_from = from_limits,
+        active_power_limits_to = to_limits,
+        reactive_power_limits_from = (min = -1.0, max = 1.0),
+        reactive_power_limits_to = (min = -1.0, max = 1.0),
+        arc = arc,
+        loss = loss,
+    )
+    PSY.add_component!(sys, hvdc)
+    return hvdc
+end
+
+@testset "HVDC flow bounds select the correct terminal per sign combination" begin
+    sys = PSB.build_system(PSITestSystems, "c_sys5")
+    arc = PSY.get_arc(PSY.get_component(Line, sys, "1"))
+
+    # (from_limits, to_limits, expected_min_rate, expected_max_rate), hand-derived:
+    #   both mins >= 0        -> min_rate = min(from_min, to_min)
+    #   from_min <= 0 <= to_min -> min_rate = from_min
+    #   to_min <= 0 <= from_min -> min_rate = to_min
+    #   both maxes >= 0       -> max_rate = min(from_max, to_max)
+    cases = (
+        (name = "probe_pos_mins",
+            from = (min = 0.5, max = 2.0), to = (min = 1.0, max = 1.5),
+            min_rate = 0.5, max_rate = 1.5),
+        (name = "probe_from_neg_min",
+            from = (min = -2.0, max = 2.0), to = (min = 0.5, max = 1.5),
+            min_rate = -2.0, max_rate = 1.5),
+        (name = "probe_to_neg_min",
+            from = (min = 0.5, max = 2.0), to = (min = -1.0, max = 1.5),
+            min_rate = -1.0, max_rate = 1.5),
+        (name = "probe_both_neg_mins",
+            from = (min = -2.0, max = 2.0), to = (min = -1.0, max = 1.5),
+            min_rate = -1.0, max_rate = 1.5),
+    )
+    for c in cases
+        d = _hvdc_probe(sys, arc, c.name; from_limits = c.from, to_limits = c.to)
+        min_rate, max_rate = POM._get_flow_bounds(d)
+        @test min_rate == c.min_rate
+        @test max_rate == c.max_rate
+    end
+end
+
+@testset "HVDC limit consistency rejects non-overlapping from/to ranges" begin
+    sys = PSB.build_system(PSITestSystems, "c_sys5")
+    arc = PSY.get_arc(PSY.get_component(Line, sys, "1"))
+
+    # from_max (0.5) < to_min (1.0)
+    d_ft = _hvdc_probe(sys, arc, "probe_from_max_lt_to_min";
+        from_limits = (min = -2.0, max = 0.5), to_limits = (min = 1.0, max = 2.0))
+    @test_throws IS.ConflictingInputsError POM.check_hvdc_line_limits_consistency(d_ft)
+
+    # to_max (0.5) < from_min (1.0)
+    d_tf = _hvdc_probe(sys, arc, "probe_to_max_lt_from_min";
+        from_limits = (min = 1.0, max = 2.0), to_limits = (min = -2.0, max = 0.5))
+    @test_throws IS.ConflictingInputsError POM.check_hvdc_line_limits_consistency(d_tf)
+end
+
+@testset "HVDCTwoTerminalDispatch loss bound rejects non-linear loss curves" begin
+    sys = PSB.build_system(PSITestSystems, "c_sys5")
+    arc = PSY.get_arc(PSY.get_component(Line, sys, "1"))
+
+    # A zero LinearCurve pins HVDCLosses to 0.0; a nonzero one leaves it unbounded above.
+    d_zero = _hvdc_probe(sys, arc, "probe_zero_loss";
+        from_limits = (min = -2.0, max = 2.0), to_limits = (min = -2.0, max = 2.0),
+        loss = LinearCurve(0.0, 0.0))
+    @test POM.get_variable_upper_bound(
+        POM.HVDCLosses, d_zero, POM.HVDCTwoTerminalDispatch) == 0.0
+
+    d_lossy = _hvdc_probe(sys, arc, "probe_lossy";
+        from_limits = (min = -2.0, max = 2.0), to_limits = (min = -2.0, max = 2.0),
+        loss = LinearCurve(0.05, 0.01))
+    @test POM.get_variable_upper_bound(
+        POM.HVDCLosses, d_lossy, POM.HVDCTwoTerminalDispatch) === nothing
+
+    d_pwl = _hvdc_probe(sys, arc, "probe_pwl_loss";
+        from_limits = (min = -2.0, max = 2.0), to_limits = (min = -2.0, max = 2.0),
+        loss = PSY.PiecewiseIncrementalCurve(0.0, [0.0, 1.0, 2.0], [0.02, 0.05]))
+    @test_throws ErrorException POM.get_variable_upper_bound(
+        POM.HVDCLosses, d_pwl, POM.HVDCTwoTerminalDispatch)
+end
+
+@testset "PWL loss params reject non-symmetrical from/to power limits" begin
+    sys = PSB.build_system(PSITestSystems, "c_sys5")
+    arc = PSY.get_arc(PSY.get_component(Line, sys, "1"))
+    d = _hvdc_probe(sys, arc, "probe_asymmetric_pwl";
+        from_limits = (min = -2.0, max = 2.0), to_limits = (min = -1.5, max = 1.5),
+        loss = LinearCurve(0.05, 0.01))
+    @test_throws ErrorException POM._get_pwl_loss_params(d, PSY.get_loss(d))
+end
+
+# A 2-segment incremental loss curve, so _get_pwl_loss_params takes the multi-segment
+# path (6 params) rather than the 4-param LinearCurve path.
+const _HVDC_INCREMENTAL_LOSS =
+    PSY.PiecewiseIncrementalCurve(0.0, [0.0, 1.0, 2.0], [0.02, 0.05])
+
+# Hand-derived from the breakpoint formulae in _get_pwl_loss_params.
+const _HVDC_PWL_INCR_FT_PARAMS = [-2.0, -1.0, 0.0, 0.0, 0.98, 1.9]
+const _HVDC_PWL_INCR_TF_PARAMS = [1.9, 0.98, 0.0, 0.0, -1.0, -2.0]
+
+function _c_sys5_with_incremental_loss_hvdc_tie()
+    sys = PSB.build_system(PSITestSystems, "c_sys5")
+    line = PSY.get_component(Line, sys, "1")
+    arc = PSY.get_arc(line)
+    PSY.remove_component!(sys, line)
+    hvdc = TwoTerminalGenericHVDCLine(;
+        name = "hvdc_tie",
+        available = true,
+        active_power_flow = 0.0,
+        active_power_limits_from = (min = -2.0, max = 2.0),
+        active_power_limits_to = (min = -2.0, max = 2.0),
+        reactive_power_limits_from = (min = -1.0, max = 1.0),
+        reactive_power_limits_to = (min = -1.0, max = 1.0),
+        arc = arc,
+        loss = _HVDC_INCREMENTAL_LOSS,
+    )
+    PSY.add_component!(sys, hvdc)
+    from_no = PSY.get_number(PSY.get_from(arc))
+    to_no = PSY.get_number(PSY.get_to(arc))
+    return sys, from_no, to_no
+end
+
+@testset "Incremental-curve PWL loss params match the hand-derived breakpoints" begin
+    sys, _, _ = _c_sys5_with_incremental_loss_hvdc_tie()
+    d = PSY.get_component(TwoTerminalGenericHVDCLine, sys, "hvdc_tie")
+    ft, tf = POM._get_pwl_loss_params(d, PSY.get_loss(d))
+    @test length(ft) == 6
+    @test length(tf) == 6
+    @test ft ≈ _HVDC_PWL_INCR_FT_PARAMS
+    @test tf ≈ _HVDC_PWL_INCR_TF_PARAMS
+end
+
+@testset "Incremental-curve PWL loss builds and wires the segment coefficients" begin
+    model, build_status, _, _ = _build_hvdc_model(
+        DCPNetworkModel,
+        HVDCTwoTerminalPiecewiseLoss,
+        HiGHS_optimizer;
+        sys_builder = _c_sys5_with_incremental_loss_hvdc_tie,
+    )
+    @test build_status == IOM.ModelBuildStatus.BUILT
+
+    container = IOM.get_optimization_container(model)
+    t1 = first(IOM.get_time_steps(container))
+    pwl = IOM.get_variable(
+        container, POM.HVDCPiecewiseLossVariable, TwoTerminalGenericHVDCLine)
+    bin = IOM.get_variable(
+        container, POM.HVDCPiecewiseBinaryLossVariable, TwoTerminalGenericHVDCLine)
+
+    # 2*len_segments + 1 = 5 sparse segments, one more than the 3 of the LinearCurve case.
+    for (meta, received_type, params) in (
+        ("ft", POM.HVDCActivePowerReceivedFromVariable, _HVDC_PWL_INCR_FT_PARAMS),
+        ("tf", POM.HVDCActivePowerReceivedToVariable, _HVDC_PWL_INCR_TF_PARAMS),
+    )
+        received = IOM.get_variable(container, received_type, TwoTerminalGenericHVDCLine)
+        con = IOM.get_constraint(
+            container, POM.HVDCFlowCalculationConstraint,
+            TwoTerminalGenericHVDCLine, meta,
+        )
+        @test !isempty(con)
+        c = con["hvdc_tie", t1]
+        @test JuMP.normalized_coefficient(c, received["hvdc_tie", t1]) == 1.0
+        for ix in 1:5
+            @test JuMP.normalized_coefficient(c, bin["hvdc_tie", ix, t1]) ≈ -params[ix]
+            @test JuMP.normalized_coefficient(c, pwl["hvdc_tie", ix, t1]) ≈
+                  -(params[ix + 1] - params[ix])
+        end
+    end
+
+    @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+end
+
+# Splits c_sys5 into islands {1,2} and {3,4,5}, joined only by an HVDC tie, plus a
+# second HVDC line wholly inside island {3,4,5}. Under CopperPlate the tie is
+# inter-subnetwork and the second line is intra-subnetwork.
+function _c_sys5_two_islands_with_hvdc()
+    sys = PSB.build_system(PSITestSystems, "c_sys5")
+    tie_arc = PSY.get_arc(PSY.get_component(Line, sys, "4"))  # 2 -> 3
+    for line_name in ("2", "3", "4")
+        PSY.remove_component!(sys, PSY.get_component(Line, sys, line_name))
+    end
+
+    tie = TwoTerminalGenericHVDCLine(;
+        name = "hvdc_tie",
+        available = true,
+        active_power_flow = 0.0,
+        active_power_limits_from = (min = -2.0, max = 2.0),
+        active_power_limits_to = (min = -2.0, max = 2.0),
+        reactive_power_limits_from = (min = -1.0, max = 1.0),
+        reactive_power_limits_to = (min = -1.0, max = 1.0),
+        arc = tie_arc,
+        loss = LinearCurve(0.05, 0.01),
+    )
+    PSY.add_component!(sys, tie)
+
+    # Bus 3 -> bus 5: both inside island {3,4,5}, and no AC line exists on this pair,
+    # so PNM's parallel-branch reduction does not merge it with anything.
+    bus3 = PSY.get_component(ACBus, sys, "nodeC")
+    bus5 = PSY.get_component(ACBus, sys, "nodeE")
+    intra_arc = Arc(; from = bus3, to = bus5)
+    PSY.add_component!(sys, intra_arc)
+    intra = TwoTerminalGenericHVDCLine(;
+        name = "hvdc_intra",
+        available = true,
+        active_power_flow = 0.0,
+        active_power_limits_from = (min = -2.0, max = 2.0),
+        active_power_limits_to = (min = -2.0, max = 2.0),
+        reactive_power_limits_from = (min = -1.0, max = 1.0),
+        reactive_power_limits_to = (min = -1.0, max = 1.0),
+        arc = intra_arc,
+        loss = LinearCurve(0.05, 0.01),
+    )
+    PSY.add_component!(sys, intra)
+    return sys, "hvdc_tie", "hvdc_intra"
+end
+
+# Characterization of the CopperPlate HVDC subnetwork filter: records which flow-rate
+# constraints each formulation emits and whether the intra-subnetwork line leaks in.
+# The @info observations are read from CI output before tightening into assertions.
+@testset "CopperPlate HVDC subnetwork filtering behavior" begin
+    for formulation in (
+        HVDCTwoTerminalLossless,
+        HVDCTwoTerminalDispatch,
+        HVDCTwoTerminalPiecewiseLoss,
+    )
+        sys, tie_name, intra_name = _c_sys5_two_islands_with_hvdc()
+        template = get_thermal_dispatch_template_network(
+            NetworkModel(CopperPlateNetworkModel))
+        set_device_model!(
+            template, DeviceModel(TwoTerminalGenericHVDCLine, formulation))
+        model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
+        outdir = mktempdir(; cleanup = true)
+        status = build!(model; output_dir = outdir, console_level = Logging.Error)
+        @test status == IOM.ModelBuildStatus.BUILT
+
+        container = IOM.get_optimization_container(model)
+        @info "CopperPlate characterization" formulation status
+        for con_type in (POM.FlowRateConstraint,
+            POM.FlowRateConstraintFromTo, POM.FlowRateConstraintToFrom)
+            for meta in ("ub", "lb")
+                key_exists = try
+                    con = IOM.get_constraint(
+                        container, con_type, TwoTerminalGenericHVDCLine, meta)
+                    names = string.(axes(con, 1))
+                    @info "  constraint present" con_type meta names
+                    true
+                catch
+                    false
+                end
+                key_exists || @info "  constraint absent" con_type meta
+            end
+        end
+    end
+end
