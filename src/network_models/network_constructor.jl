@@ -77,12 +77,68 @@ end
 function construct_network!(
     container::OptimizationContainer,
     sys::PSY.System,
-    model::NetworkModel{<:Union{DCPNetworkModel, DCPLLNetworkModel}},
+    model::NetworkModel{DCPLLNetworkModel},
     ::PowerOperationsProblemTemplate,
     ::ArgumentConstructStage,
 )
     add_variables!(container, VoltageAngle, sys, model)
     _add_balance_slack_variables!(container, sys, model; reactive = false)
+    return
+end
+
+# No-op fallback: only a StaticBranch-formulated ACTransmission branch model builds the
+# BThetaBranchFlow expression here (see the specific method below). Every other branch
+# formulation (StaticBranchBounds, StaticBranchUnbounded, HVDC, ...) is unaffected.
+_add_static_branch_btheta_expression!(
+    ::OptimizationContainer,
+    ::PSY.System,
+    ::DeviceModel,
+    ::NetworkModel{DCPNetworkModel},
+) = nothing
+
+# StaticBranch under DCP carries its flow as the BThetaBranchFlow expression
+# (`-b * (va_fr - va_to - shift)`), so it must be built here — in the network's own
+# ArgumentConstructStage, right after `VoltageAngle` is created — rather than from the
+# branch's own ArgumentConstructStage, which build_problem.jl runs BEFORE this one (branch
+# arguments, then network arguments, then device Model stage, then network Model stage
+# that closes the nodal balance). This is the only point in the build order where
+# `VoltageAngle` exists AND the nodal balance is still open for writes.
+function _add_static_branch_btheta_expression!(
+    container::OptimizationContainer,
+    sys::PSY.System,
+    device_model::DeviceModel{T, StaticBranch},
+    network_model::NetworkModel{DCPNetworkModel},
+) where {T <: PSY.ACTransmission}
+    devices = get_available_components(device_model, sys)
+    isempty(devices) && return
+    add_expressions!(container, BThetaBranchFlow, sys, devices, device_model, network_model)
+    return
+end
+
+# Transformer3W keeps its own explicit star-arc decomposition (FlowActivePowerVariable
+# per winding + the variable-based Ohm's-law equality, `branch_constructor.jl`'s dedicated
+# `DeviceModel{PSY.Transformer3W, StaticBranch}` methods) — it has three arcs per device
+# (primary/secondary/tertiary star arcs), so it cannot go through the single-arc
+# `_branch_geometries` walk the generic method above uses. Untouched by this refactor.
+_add_static_branch_btheta_expression!(
+    ::OptimizationContainer,
+    ::PSY.System,
+    ::DeviceModel{PSY.Transformer3W, StaticBranch},
+    ::NetworkModel{DCPNetworkModel},
+) = nothing
+
+function construct_network!(
+    container::OptimizationContainer,
+    sys::PSY.System,
+    model::NetworkModel{DCPNetworkModel},
+    template::PowerOperationsProblemTemplate,
+    ::ArgumentConstructStage,
+)
+    add_variables!(container, VoltageAngle, sys, model)
+    _add_balance_slack_variables!(container, sys, model; reactive = false)
+    for branch_model in values(get_branch_models(template))
+        _add_static_branch_btheta_expression!(container, sys, branch_model, model)
+    end
     return
 end
 

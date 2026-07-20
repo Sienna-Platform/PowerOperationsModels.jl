@@ -837,8 +837,15 @@ end
 """
 ArgumentConstructStage for StaticBranch under DCPNetworkModel.
 
-Creates the FlowActivePowerVariable (and optional slack variables) and registers the
-branch flow contribution to the per-bus ActivePowerBalance expression.
+The `BThetaBranchFlow` expression itself (`-b * (va_fr - va_to - shift)`) and its wiring
+into the per-bus ActivePowerBalance expression are built earlier, from
+`construct_network!` for `NetworkModel{DCPNetworkModel}` (`network_models/network_constructor.jl`)
+— NOT here. Branch ArgumentConstructStage runs BEFORE the network creates `VoltageAngle`
+(see `build_problem.jl`'s ordering: branch arguments, then network arguments, then device
+Model stage, then network Model stage that closes the nodal balance), so the expression
+cannot be built at this point. Angles are the only decision variables for StaticBranch
+under DCP: there is no `FlowActivePowerVariable` and no defining Ohm's-law equality on
+this path (contrast StaticBranchBounds, which keeps the variable + equality).
 """
 function construct_device!(
     container::OptimizationContainer,
@@ -850,18 +857,9 @@ function construct_device!(
     @debug "construct_device DCP (ArgumentConstructStage)" _group =
         LOG_GROUP_BRANCH_CONSTRUCTIONS
     devices = get_available_components(device_model, sys)
-    add_variables!(container, FlowActivePowerVariable, network_model, devices, StaticBranch)
     if get_use_slacks(device_model)
         _add_flow_slacks!(container, devices, network_model, StaticBranch)
     end
-    add_to_expression!(
-        container,
-        ActivePowerBalance,
-        FlowActivePowerVariable,
-        devices,
-        device_model,
-        network_model,
-    )
     if haskey(get_time_series_names(device_model), BranchRatingTimeSeriesParameter)
         add_branch_parameters!(
             container,
@@ -878,8 +876,10 @@ end
 """
 ModelConstructStage for StaticBranch under DCPNetworkModel.
 
-Applies the branch flow rate limits, the DC Ohm's law constraint, and (when applicable)
-the branch angle-difference limits.
+Applies the branch flow rate limits directly on `BThetaBranchFlow` (no variable to
+bound instead) and, when applicable, the branch angle-difference limits. There is no
+separate Ohm's-law equality to add — the expression already carries the DC power-flow
+value.
 """
 function construct_device!(
     container::OptimizationContainer,
@@ -892,9 +892,6 @@ function construct_device!(
         LOG_GROUP_BRANCH_CONSTRUCTIONS
     devices = get_available_components(device_model, sys)
     add_constraints!(container, FlowRateConstraint, devices, device_model, network_model)
-    add_constraints!(
-        container, sys, NetworkFlowConstraint, devices, device_model, network_model,
-    )
     add_constraints!(
         container, sys, AngleDifferenceConstraint, devices, device_model, network_model,
     )
@@ -1225,7 +1222,22 @@ function construct_device!(
     @debug "construct_device DCP StaticBranchBounds (ModelConstructStage)" _group =
         LOG_GROUP_BRANCH_CONSTRUCTIONS
     devices = get_available_components(device_model, sys)
-    add_constraints!(container, FlowRateConstraint, devices, device_model, network_model)
+    # SBB rates the flow with variable bounds, not inequality rows. A time-varying (DLR)
+    # rating cannot be a static bound, so only that case adds FlowRateConstraint rows.
+    if has_container_key(container, BranchRatingTimeSeriesParameter, T)
+        add_constraints!(
+            container,
+            FlowRateConstraint,
+            devices,
+            device_model,
+            network_model,
+        )
+    else
+        branch_rate_bounds!(container, device_model, network_model)
+    end
+    # The Ohm's-law equality defines the flow and carries the slack relaxation (when
+    # requested): the bounded decision flow stays within rating while the physical
+    # angle-implied flow may exceed it by the slack.
     add_constraints!(
         container, sys, NetworkFlowConstraint, devices, device_model, network_model,
     )

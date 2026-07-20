@@ -814,6 +814,7 @@ export ComponentReserveUpBalanceExpression
 export ComponentReserveDownBalanceExpression
 export InterfaceTotalFlow
 export PTDFBranchFlow
+export BThetaBranchFlow
 
 #################################################################################
 # Exports - Parameter Types (defined in core/parameters.jl)

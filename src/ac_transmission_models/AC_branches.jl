@@ -2515,13 +2515,152 @@ function add_constraints!(
         container, NetworkFlowConstraint, T, branch_names, time_steps,
     )
 
+    # StaticBranchBounds relaxes the rating by slacking this defining equality: the bounded
+    # decision flow `p` stays within rating while the physical angle-implied flow may deviate
+    # by the signed slack. StaticBranch never reaches this method (it carries flow as the
+    # BThetaBranchFlow expression); only SBB does, so the slacks exist iff use_slacks.
+    use_slacks = get_use_slacks(device_model)
+    if use_slacks
+        slack_ub = get_variable(container, FlowActivePowerSlackUpperBound, T)
+        slack_lb = get_variable(container, FlowActivePowerSlackLowerBound, T)
+    end
+
     for g in geoms
         shift = g.adm.shift
         for t in time_steps
-            cons[g.name, t] = JuMP.@constraint(
-                get_jump_model(container),
-                p[g.name, t] == -g.adm.b * (va[g.from_name, t] - va[g.to_name, t] - shift),
+            rhs = -g.adm.b * (va[g.from_name, t] - va[g.to_name, t] - shift)
+            if use_slacks
+                rhs += slack_ub[g.name, t] - slack_lb[g.name, t]
+            end
+            cons[g.name, t] =
+                JuMP.@constraint(get_jump_model(container), p[g.name, t] == rhs)
+        end
+    end
+    return
+end
+
+"""
+Add the B-θ branch-flow expression for ACBranch StaticBranch under DCPNetworkModel:
+
+    BThetaBranchFlow = -b * (va_fr - va_to - shift)
+
+Angles are the only decision variables for StaticBranch under DCP — there is no
+`FlowActivePowerVariable` and no defining Ohm's-law equality; the flow is carried
+directly as this expression. Uses the same `geoms = _branch_geometries(...)` walk
+(one geometry per reduced arc, claimed against the `NetworkFlowConstraint` family so
+it interoperates with other branch types/formulations sharing an arc) as the
+variable-based Ohm's-law builder above. Also wires the expression into the two
+terminal `ActivePowerBalance` entries (-1.0 from, +1.0 to), matching the sign
+convention `_add_both_terminals_to_nodal!` uses for the flow variable.
+"""
+function add_expressions!(
+    container::OptimizationContainer,
+    ::Type{BThetaBranchFlow},
+    sys::PSY.System,
+    devices::IS.FlattenIteratorWrapper{T},
+    ::DeviceModel{T, StaticBranch},
+    network_model::NetworkModel{DCPNetworkModel},
+) where {T <: PSY.ACTransmission}
+    time_steps = get_time_steps(container)
+    va = get_variable(container, VoltageAngle, PSY.ACBus)
+
+    number_to_name = _retained_number_to_name(sys, network_model)
+    geoms =
+        _branch_geometries(number_to_name, network_model, devices, T, NetworkFlowConstraint)
+    branch_names = [g.name for g in geoms]
+
+    bfe =
+        add_expression_container!(container, BThetaBranchFlow, T, branch_names, time_steps)
+    nodal_expr = get_expression(container, ActivePowerBalance, PSY.ACBus)
+    jump_model = get_jump_model(container)
+
+    for g in geoms
+        b = g.adm.b
+        shift = g.adm.shift
+        from_name = g.from_name
+        to_name = g.to_name
+        from_no = g.from_number
+        to_no = g.to_number
+        for t in time_steps
+            flow = JuMP.@expression(
+                jump_model,
+                -b * (va[from_name, t] - va[to_name, t] - shift)
             )
+            bfe[g.name, t] = flow
+            add_proportional_to_jump_expression!(nodal_expr[from_no, t], flow, -1.0)
+            add_proportional_to_jump_expression!(nodal_expr[to_no, t], flow, 1.0)
+        end
+    end
+    return
+end
+
+"""
+Add branch flow rate (rating) inequalities for ACBranch StaticBranch under
+DCPNetworkModel, directly on the `BThetaBranchFlow` expression (no defining
+equality/variable to bound instead). Unifies the reduced/unreduced axis via
+`_branch_rating_entries` (one entry per device when unreduced, one per not-yet-claimed
+reduced arc otherwise) and reuses the shared static/parameterized-rating row builders,
+mirroring the variable-based `FlowRateConstraint` DCP builder above but targeting the
+expression container.
+"""
+function add_constraints!(
+    container::OptimizationContainer,
+    ::Type{FlowRateConstraint},
+    devices::IS.FlattenIteratorWrapper{T},
+    device_model::DeviceModel{T, StaticBranch},
+    network_model::NetworkModel{DCPNetworkModel},
+) where {T <: PSY.ACTransmission}
+    time_steps = get_time_steps(container)
+    bfe = get_expression(container, BThetaBranchFlow, T)
+    use_slacks = get_use_slacks(device_model)
+    if use_slacks
+        slack_ub = get_variable(container, FlowActivePowerSlackUpperBound, T)
+        slack_lb = get_variable(container, FlowActivePowerSlackLowerBound, T)
+    end
+    jump_model = get_jump_model(container)
+
+    ts_branch_names = Set{String}()
+    local param_container, mult
+    if has_container_key(container, BranchRatingTimeSeriesParameter, T)
+        param_container = get_parameter(container, BranchRatingTimeSeriesParameter, T)
+        mult = get_multiplier_array(param_container)
+        ts_branch_names = Set(axes(mult, 1))
+    end
+
+    entries = _branch_rating_entries(network_model, devices, T, FlowRateConstraint)
+    branch_names = [name for (name, _) in entries]
+    con_lb = add_constraints_container!(
+        container, FlowRateConstraint, T, branch_names, time_steps; meta = "lb",
+    )
+    con_ub = add_constraints_container!(
+        container, FlowRateConstraint, T, branch_names, time_steps; meta = "ub",
+    )
+
+    for (name, entry) in entries
+        if name in ts_branch_names
+            param = get_parameter_column_refs(param_container, name)
+            if use_slacks
+                add_parameterized_rating_constraints!(
+                    container, con_ub, con_lb, bfe, name, param, mult, slack_ub, slack_lb,
+                )
+            else
+                add_parameterized_rating_constraints!(
+                    container, con_ub, con_lb, bfe, name, param, mult,
+                )
+            end
+        else
+            limits = min_max_flow_limits(entry, device_model)
+            for t in time_steps
+                if use_slacks
+                    ub_lhs = bfe[name, t] - slack_ub[name, t]
+                    lb_lhs = bfe[name, t] + slack_lb[name, t]
+                else
+                    ub_lhs = bfe[name, t]
+                    lb_lhs = bfe[name, t]
+                end
+                con_ub[name, t] = JuMP.@constraint(jump_model, ub_lhs <= limits.max)
+                con_lb[name, t] = JuMP.@constraint(jump_model, lb_lhs >= limits.min)
+            end
         end
     end
     return
@@ -2978,13 +3117,15 @@ function add_constraints!(
 end
 
 #### Rate limits: DCP version — box bounds per winding using winding rating.
-function add_constraints!(
+# Extracted from the loop body so both the generic-formulation method below and the
+# StaticBranch-specific disambiguator (needed because the generic
+# `DeviceModel{T, StaticBranch} where T <: PSY.ACTransmission` FlowRateConstraint method
+# for BThetaBranchFlow also matches `T = Transformer3W`, creating an ambiguity) can share
+# it without duplicating the winding loop.
+function _add_transformer3w_dcp_flow_rate_constraints!(
     container::OptimizationContainer,
-    ::Type{FlowRateConstraint},
     devices::IS.FlattenIteratorWrapper{PSY.Transformer3W},
-    ::DeviceModel{PSY.Transformer3W, U},
-    network_model::NetworkModel{DCPNetworkModel},
-) where {U <: AbstractBranchFormulation}
+)
     time_steps = get_time_steps(container)
     p = get_variable(container, FlowActivePowerVariable, PSY.Transformer3W)
     names = _three_winding_var_names(devices)
@@ -3010,6 +3151,33 @@ function add_constraints!(
             end
         end
     end
+    return
+end
+
+function add_constraints!(
+    container::OptimizationContainer,
+    ::Type{FlowRateConstraint},
+    devices::IS.FlattenIteratorWrapper{PSY.Transformer3W},
+    ::DeviceModel{PSY.Transformer3W, U},
+    network_model::NetworkModel{DCPNetworkModel},
+) where {U <: AbstractBranchFormulation}
+    _add_transformer3w_dcp_flow_rate_constraints!(container, devices)
+    return
+end
+
+# Disambiguates against the generic `DeviceModel{T, StaticBranch} where T <: PSY.ACTransmission`
+# BThetaBranchFlow-rate method (AC_branches.jl, DCP StaticBranch section): Transformer3W
+# keeps its own explicit per-winding FlowActivePowerVariable rate limits, unrelated to
+# BThetaBranchFlow (Transformer3W has three arcs per device, not one, and is excluded from
+# the BThetaBranchFlow expression build itself — see network_models/network_constructor.jl).
+function add_constraints!(
+    container::OptimizationContainer,
+    ::Type{FlowRateConstraint},
+    devices::IS.FlattenIteratorWrapper{PSY.Transformer3W},
+    ::DeviceModel{PSY.Transformer3W, StaticBranch},
+    network_model::NetworkModel{DCPNetworkModel},
+)
+    _add_transformer3w_dcp_flow_rate_constraints!(container, devices)
     return
 end
 

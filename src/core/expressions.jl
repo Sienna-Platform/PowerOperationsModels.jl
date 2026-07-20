@@ -6,6 +6,14 @@ struct ComponentReserveUpBalanceExpression <: ExpressionType end
 struct ComponentReserveDownBalanceExpression <: ExpressionType end
 struct InterfaceTotalFlow <: ExpressionType end
 struct PTDFBranchFlow <: ExpressionType end
+
+"""
+Branch active-power flow expression for the B-θ (DC) network model: `-b·(θ_from - θ_to - shift)`.
+Under `DCPNetworkModel` with `StaticBranch` the flow is this expression (not a decision
+variable); `FlowRateConstraint` rows are written directly on it. Reportable as an output,
+mirroring `PTDFBranchFlow`.
+"""
+struct BThetaBranchFlow <: ExpressionType end
 struct PostContingencyNodalActivePowerDeployment <: PostContingencyExpressions end
 struct RealizedShiftedLoad <: ExpressionType end
 
@@ -118,6 +126,7 @@ struct StorageReserveBalanceExpression{D, S, Sd} <:
 # Method extensions for output writing
 should_write_resulting_value(::Type{InterfaceTotalFlow}) = true
 should_write_resulting_value(::Type{PTDFBranchFlow}) = true
+should_write_resulting_value(::Type{BThetaBranchFlow}) = true
 should_write_resulting_value(::Type{RealizedShiftedLoad}) = true
 
 should_write_resulting_value(::Type{HydroServedReserveUpExpression}) = true
@@ -134,4 +143,5 @@ should_write_resulting_value(
 convert_output_to_natural_units(::Type{InterfaceTotalFlow}) = true
 convert_output_to_natural_units(::Type{PostContingencyBranchFlow}) = true
 convert_output_to_natural_units(::Type{PTDFBranchFlow}) = true
+convert_output_to_natural_units(::Type{BThetaBranchFlow}) = true
 convert_output_to_natural_units(::Type{RealizedShiftedLoad}) = true
