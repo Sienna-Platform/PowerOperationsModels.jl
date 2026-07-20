@@ -302,6 +302,7 @@ include("ac_transmission_models/AC_branches.jl")
 include("ac_transmission_models/security_constrained_branch.jl")
 include("ac_transmission_models/branch_constructor.jl")
 include("ac_transmission_models/voltage_control_tap_models.jl")
+include("ac_transmission_models/transformer_models.jl")
 
 # Network Models
 include("network_models/network_reductions.jl")
