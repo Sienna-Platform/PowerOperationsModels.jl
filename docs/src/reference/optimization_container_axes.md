@@ -83,21 +83,18 @@ by `Tuple{String, Int, Int}`, constructed as empty and populated per-`(name, t)`
 
 ### Merged service (reserve) containers, keyed by service type
 
-Service models are registered **per type** — `set_service_model!(template,
-ServiceModel(VariableReserve{ReserveUp}, RangeReserve))`, no service name, exactly like
+Service models are registered **per type** — `set_service_model!(template, ServiceModel(VariableReserve{ReserveUp}, RangeReserve))`, no service name, exactly like
 `set_device_model!`. `construct_service!` runs once per type: it iterates the type's
 services (`get_available_components(model, sys)`) and reads each service's contributing
 devices from the model's per-service `contributing_devices_map`. Reserve entries no longer
-disambiguate services with `meta = service_name`; all services of a given `(entry type,
-service type)` share one container, with the service name as an axis value. Density follows
+disambiguate services with `meta = service_name`; all services of a given `(entry type, service type)` share one container, with the service name as an axis value. Density follows
 whether the entry depends on the contributing-device axis:
 
   - **Device-indexed entries** (depend on contributing devices) — `ActivePowerReserveVariable`,
     `ParticipationFractionConstraint`, `RampConstraint`, `ReservePowerConstraint` — are one
     `SparseAxisArray` keyed `(service_name, device_name, time_step)` (empty `meta`). Sparse
     because each service's contributing-device set is ragged. Filled per service via
-    `lazy_container_addition!(...; sparse = true)`; indexed `container[(service_name,
-    device_name, t)]`.
+    `lazy_container_addition!(...; sparse = true)`; indexed `container[(service_name, device_name, t)]`.
   - **Service-indexed entries** (no dependence on contributing devices) —
     `RequirementConstraint`, `ReserveRequirementSlack`, `ServiceRequirementVariable`, and the
     `RequirementTimeSeriesParameter` — are one **dense** container per service type keyed
