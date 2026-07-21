@@ -214,6 +214,24 @@ Net: no grouping - the per-type model *is* the group. The device dimension is ha
 strictly per service (no `Vector{Vector{device}}`, no `convert` copy); the service-indexed
 containers are dense and built once per type through the reused device infrastructure.
 
+## Deferred follow-ups tied to the transmission-interface migration (Q5)
+
+The transmission-interface containers are still `meta`-keyed and built per interface (their
+container merge is deferred). When interfaces migrate to per-type merged containers like
+reserves did, also do the following cleanup:
+
+- **Retire the single-service `TimeSeriesParameter` `_add_parameters!`** (POM
+  `common_models/add_parameters.jl`, the `service::U` method ~line 825). Its only live
+  caller today is interface construction — `add_parameters!(container,
+  Min/MaxInterfaceFlowLimitParameter, interface, model)` per interface
+  (`services_constructor.jl:885-886`; both params are `<: TimeSeriesParameter`). It is NOT
+  tied to ORDC (ORDC uses the `AbstractPiecewiseLinear*` path), so removing ORDC does not
+  retire it. Once interfaces build their flow-limit params over the type's interfaces in one
+  shot, switch those calls to the **vector** `_add_parameters!` (~line 875, currently used
+  only by the merged reserve `RequirementTimeSeriesParameter`) and delete the single-service
+  method — assuming no other per-service `TimeSeriesParameter` caller remains (grep to
+  confirm before removing).
+
 ## Failure-mode analysis
 
 | # | Codepath | Realistic failure | Covered? | Gap |
