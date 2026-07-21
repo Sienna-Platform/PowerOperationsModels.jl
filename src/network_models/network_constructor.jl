@@ -115,11 +115,9 @@ function _add_static_branch_btheta_expression!(
     return
 end
 
-# Transformer3W keeps its own explicit star-arc decomposition (FlowActivePowerVariable
-# per winding + the variable-based Ohm's-law equality, `branch_constructor.jl`'s dedicated
-# `DeviceModel{PSY.Transformer3W, StaticBranch}` methods) — it has three arcs per device
-# (primary/secondary/tertiary star arcs), so it cannot go through the single-arc
-# `_branch_geometries` walk the generic method above uses. Untouched by this refactor.
+# Transformer3W has three star arcs per device, so it can't use the single-arc expression
+# above; it keeps its own FlowActivePowerVariable-per-winding decomposition in
+# branch_constructor.jl (`DeviceModel{PSY.Transformer3W, StaticBranch}`).
 _add_static_branch_btheta_expression!(
     ::OptimizationContainer,
     ::PSY.System,

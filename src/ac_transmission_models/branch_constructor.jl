@@ -834,19 +834,9 @@ end
 
 ################################## DCPNetworkModel branch constructors #################
 
-"""
-ArgumentConstructStage for StaticBranch under DCPNetworkModel.
+# StaticBranch under DCP has no FlowActivePowerVariable: its flow is the BThetaBranchFlow
+# expression, built in `construct_network!` (network_constructor.jl) once VoltageAngle exists.
 
-The `BThetaBranchFlow` expression itself (`-b * (va_fr - va_to - shift)`) and its wiring
-into the per-bus ActivePowerBalance expression are built earlier, from
-`construct_network!` for `NetworkModel{DCPNetworkModel}` (`network_models/network_constructor.jl`)
-— NOT here. Branch ArgumentConstructStage runs BEFORE the network creates `VoltageAngle`
-(see `build_problem.jl`'s ordering: branch arguments, then network arguments, then device
-Model stage, then network Model stage that closes the nodal balance), so the expression
-cannot be built at this point. Angles are the only decision variables for StaticBranch
-under DCP: there is no `FlowActivePowerVariable` and no defining Ohm's-law equality on
-this path (contrast StaticBranchBounds, which keeps the variable + equality).
-"""
 function construct_device!(
     container::OptimizationContainer,
     sys::PSY.System,
@@ -1235,9 +1225,8 @@ function construct_device!(
     else
         branch_rate_bounds!(container, device_model, network_model)
     end
-    # The Ohm's-law equality defines the flow and carries the slack relaxation (when
-    # requested): the bounded decision flow stays within rating while the physical
-    # angle-implied flow may exceed it by the slack.
+    # The Ohm's-law equality defines the flow, and any slack enters here: the flow
+    # variable is bounded to the rating, so the slack lets the angle-implied flow exceed it.
     add_constraints!(
         container, sys, NetworkFlowConstraint, devices, device_model, network_model,
     )

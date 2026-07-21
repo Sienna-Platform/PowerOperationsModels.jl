@@ -596,10 +596,9 @@ function _add_linear_converter_loss_to_dc_balance!(
         _check_linear_converter_loss(d)
         name = PSY.get_name(d)
         loss_function = PSY.get_loss_function(d)
-        # `|I|` is the system-base surrogate for `|P|`, so the proportional loss term `b`
-        # is a base-invariant fraction. The constant term `c` comes from the loss curve
-        # (not a unit-aware PSY getter), so rescale it from the converter base to the
-        # system base. The current limit is already system base via the `PSY.SU` getter.
+        # Assumes the loss curve is authored in the converter device base (see PSY #1728,
+        # unresolved): then `b` is base-invariant and only the constant `c` rescales to
+        # system base. `|I|` is the system-base surrogate for `|P|`.
         base_factor = PSY.get_base_power(d, PSY.NU) / system_base
         b = PSY.get_proportional_term(loss_function)
         c = PSY.get_constant_term(loss_function) * base_factor
