@@ -124,7 +124,7 @@ end
     # `(service, device, time)` ActivePowerReserveVariable container. Verify (a) each
     # service's requirement constraint sums only its own device variables (no
     # cross-service leakage) and (b) the proportional reserve cost prices each variable
-    # exactly once (no double counting from the grouped objective pass).
+    # exactly once (no double counting across the per-type objective pass).
     c_sys5_uc = PSB.build_system(PSITestSystems, "c_sys5_uc"; add_reserves = true)
     template = get_thermal_dispatch_template_network(CopperPlateNetworkModel)
     # One per-type model covers both VariableReserve{ReserveUp} services.

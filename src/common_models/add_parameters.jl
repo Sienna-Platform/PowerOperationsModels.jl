@@ -45,8 +45,8 @@ function add_parameters!(
     return
 end
 
-# Grouped service time-series parameter: all services of a type share one merged
-# container keyed `(ParameterType, ServiceType)` with empty meta, axed by service name.
+# Per-type service time-series parameter: all services of the type share one container
+# keyed `(ParameterType, ServiceType)` with empty meta, axed by service name.
 function add_parameters!(
     container::OptimizationContainer,
     ::Type{T},
