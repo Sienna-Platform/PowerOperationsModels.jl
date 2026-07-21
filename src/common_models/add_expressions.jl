@@ -221,6 +221,12 @@ end
 Per-service cost expression container (e.g. `ProductionCostExpression` for ORDC reserves).
 One container per service, `meta`-keyed by the service name, matching the reads in
 `add_to_expression!(container, ::CostExpressions, cost, ::ReserveDemand*, t)`.
+
+TODO(services PWL cost): this per-service `meta` keying is temporary. It will be
+removed/folded to a per-type dense `(service, time)` container (like the device
+`ProductionCostExpression`) once the 3D/4D PWL cost containers for services land. Kept on
+`meta` with the rest of the ORDC cost path (slope/breakpoint params, delta-PWL machinery)
+until that migration.
 """
 function add_expressions!(
     container::OptimizationContainer,

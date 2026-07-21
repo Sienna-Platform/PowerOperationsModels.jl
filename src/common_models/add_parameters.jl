@@ -787,10 +787,16 @@ end
 #################################################################################
 # _add_parameters! for time-varying ORDC slope/breakpoint cost parameters
 #
-# Same cost-parameter machinery as the device path, but per-service: pass the
-# single service as a 1-element collection and key the container by `meta = name`
-# (services are constructed one ServiceModel at a time, so they can't share a
-# names-axis batch the way devices do).
+# Same cost-parameter machinery as the device path, keyed per service by `meta = name`.
+#
+# TODO(services PWL cost): this per-service `meta` keying is temporary. It will be removed
+# or folded once the 3D/4D PWL cost containers for services (StepwiseCostReserve/ORDC and
+# the AS offers) land. The whole ORDC cost path -- these slope/breakpoint params, the
+# per-service `ProductionCostExpression` (add_expressions.jl), and the delta-PWL
+# block-offer machinery -- is intentionally kept on `meta` for now so it stays coherent
+# until that migration. (Contrast `RequirementTimeSeriesParameter`, already merged per
+# type; these ORDC params can be merged the same way, just not before their delta-PWL
+# siblings that PR2 reworks.)
 #################################################################################
 
 function _add_parameters!(

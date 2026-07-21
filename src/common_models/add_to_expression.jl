@@ -2973,6 +2973,10 @@ function add_to_expression!(
     return
 end
 
+# TODO(services PWL cost): reads the per-service `meta = service_name` ORDC cost-expression
+# container. Update to the per-type folded container when the 3D/4D PWL cost containers for
+# services land (see the create site in add_expressions.jl and the ORDC slope/breakpoint
+# params in add_parameters.jl -- all kept on `meta` together until that migration).
 function add_to_expression!(
     container::OptimizationContainer,
     ::Type{S},
