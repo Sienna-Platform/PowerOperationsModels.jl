@@ -81,29 +81,35 @@ Time-varying offer-curve costs (`MarketBidCost`, `ImportExportCost`, and the
 `Vararg` axes mechanism documented above. It's a `SparseAxisArray{JuMP.VariableRef}` keyed
 by `Tuple{String, Int, Int}`, constructed as empty and populated per-`(name, t)` by IOM.
 
-### Merged service (reserve) containers: sparse 3D and dense 2D by service type
+### Merged service (reserve) containers, keyed by service type
 
-Reserve service formulations no longer build one container per service disambiguated by
-`meta = service_name`. Instead, all services of a given `(entry type, service type)` share a
-single container, and the service name becomes an axis value:
+Service models are registered **per type** — `set_service_model!(template,
+ServiceModel(VariableReserve{ReserveUp}, RangeReserve))`, no service name, exactly like
+`set_device_model!`. `construct_service!` runs once per type: it iterates the type's
+services (`get_available_components(model, sys)`) and reads each service's contributing
+devices from the model's per-service `contributing_devices_map`. Reserve entries no longer
+disambiguate services with `meta = service_name`; all services of a given `(entry type,
+service type)` share one container, with the service name as an axis value. Density follows
+whether the entry depends on the contributing-device axis:
 
-  - **Device-indexed entries** — `ActivePowerReserveVariable`, `ParticipationFractionConstraint`,
-    `RampConstraint`, `ReservePowerConstraint` — are one `SparseAxisArray` keyed
-    `(service_name, device_name, time_step)` (empty `meta`). Sparse because each service's
-    contributing-device set is ragged. Indexed `container[(service_name, device_name, t)]`.
-  - **Requirement-side entries** — `RequirementConstraint`, `ReserveRequirementSlack`,
-    `ServiceRequirementVariable`, and the `RequirementTimeSeriesParameter` — are one container
-    per service type keyed by `(service_name, time_step)` (empty `meta`). `ServiceRequirementVariable`
-    stays dense (the ORDC delta-PWL constraint path reads its `axes`); the others are sparse.
-    Indexed `container[(service_name, t)]` (sparse) or `container[service_name, t]` (dense).
+  - **Device-indexed entries** (depend on contributing devices) — `ActivePowerReserveVariable`,
+    `ParticipationFractionConstraint`, `RampConstraint`, `ReservePowerConstraint` — are one
+    `SparseAxisArray` keyed `(service_name, device_name, time_step)` (empty `meta`). Sparse
+    because each service's contributing-device set is ragged. Filled per service via
+    `lazy_container_addition!(...; sparse = true)`; indexed `container[(service_name,
+    device_name, t)]`.
+  - **Service-indexed entries** (no dependence on contributing devices) —
+    `RequirementConstraint`, `ReserveRequirementSlack`, `ServiceRequirementVariable`, and the
+    `RequirementTimeSeriesParameter` — are one **dense** container per service type keyed
+    `(service_name, time_step)` (empty `meta`), built once over all the type's services
+    (reusing the same dense component builders devices use) and filled per service; indexed
+    `container[service_name, t]`. `use_slacks` is per type: `ReserveRequirementSlack` is built
+    over all the type's services when the type uses slacks, and omitted otherwise.
 
-Services of the same type are constructed as a group (`construct_services!` groups by
-`(service type, formulation)` and calls `construct_service!` once per group), so the merged
-containers are created once and every member fills its own `service_name` slice. The service
-duals mirror the merged constraint containers.
-
-Results flatten the leading dimensions to encoded columns, e.g.
-`ActivePowerReserveVariable__<ServiceType>` with `"service_name__device_name"` columns
-(WIDE) — mirroring the PWL block-offer flattening above. Storage/hybrid reserve
-sub-containers and the transmission-interface containers are **not** migrated yet and still
-use `meta`.
+The service duals mirror the merged constraint containers. Results flatten leading
+dimensions to encoded columns, e.g. `ActivePowerReserveVariable__<ServiceType>` with
+`"service_name__device_name"` columns (WIDE) — mirroring the PWL block-offer flattening
+above. Storage/hybrid reserve sub-containers, the transmission-interface containers, and the
+ORDC (`StepwiseCostReserve`) piecewise cost parameters are **not** migrated yet and still use
+`meta`; interface *construction* is per-type (iterates interfaces, reads the per-service map)
+but its containers stay `meta`-keyed.

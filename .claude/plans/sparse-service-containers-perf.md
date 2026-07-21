@@ -1,7 +1,14 @@
 # Service container construction by density - implementation plan
 
-Status: planned (no code written for this revision).
-Date: 2026-07-20.
+Status: IMPLEMENTED (2026-07-21) via subagent-driven development. Per-type service API
+(one `ServiceModel` per type, no name), per-type construction (no grouping), dense
+service-indexed containers via reused device builders, sparse device-indexed per service,
+per-service contributing devices from the nested `contributing_devices_map`, `use_slacks`
+per type. Commits: IOM `4e1fefd` (rh/dev_service_refactor); POM `bd42c0c` (per-type API +
+construction), `5fe3f17` (dense flips), `50eda7f` (regression tests) on
+rh/dev_refactor_services. Deferred (still `meta`): storage/hybrid reserve sub-containers,
+transmission-interface containers, ORDC piecewise cost params.
+Date: 2026-07-20 (plan); 2026-07-21 (implemented).
 Supersedes the "Option A / Option B" sketch previously in this file and the grouped
 `Vector{Vector{PSY.Device}}` construction shipped in PR1
 (`.claude/plans/sparse-service-containers.md`).
