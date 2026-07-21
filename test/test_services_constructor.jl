@@ -164,6 +164,106 @@ end
     end
 end
 
+@testset "Test use_slacks is per type" begin
+    # `use_slacks` is set on the per-type `ServiceModel`, not per-service. Confirm both
+    # directions: when true, the dense ReserveRequirementSlack container spans ALL
+    # services of the type (Reserve1 and Reserve11), each wired to the penalty cost; when
+    # false (or omitted), no ReserveRequirementSlack container exists for the type at all.
+    c_sys5_uc = PSB.build_system(PSITestSystems, "c_sys5_uc"; add_reserves = true)
+    template = get_thermal_dispatch_template_network(CopperPlateNetworkModel)
+    set_service_model!(
+        template,
+        ServiceModel(
+            VariableReserve{ReserveUp},
+            RangeReserve;
+            use_slacks = true,
+        ),
+    )
+    model = DecisionModel(
+        template,
+        c_sys5_uc;
+        store_variable_names = true,
+        optimizer = HiGHS_optimizer,
+    )
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+
+    container = get_optimization_container(model)
+    slack_var = IOM.get_variable(
+        container,
+        ReserveRequirementSlack,
+        VariableReserve{ReserveUp},
+    )
+    time_steps = get_time_steps(container)
+    reserve_names = ["Reserve1", "Reserve11"]
+    @test Set(axes(slack_var, 1)) == Set(reserve_names)
+
+    obj = JuMP.objective_function(get_jump_model(model))
+    for name in reserve_names
+        @test all(JuMP.lower_bound(slack_var[name, t]) == 0.0 for t in time_steps)
+        @test all(
+            JuMP.coefficient(obj, slack_var[name, t]) == POM.SERVICES_SLACK_COST for
+            t in time_steps
+        )
+    end
+
+    c_sys5_uc_noslack = PSB.build_system(PSITestSystems, "c_sys5_uc"; add_reserves = true)
+    template_noslack = get_thermal_dispatch_template_network(CopperPlateNetworkModel)
+    set_service_model!(
+        template_noslack,
+        ServiceModel(VariableReserve{ReserveUp}, RangeReserve),
+    )
+    model_noslack =
+        DecisionModel(template_noslack, c_sys5_uc_noslack; optimizer = HiGHS_optimizer)
+    @test build!(model_noslack; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+
+    container_noslack = get_optimization_container(model_noslack)
+    @test !IOM.has_container_key(
+        container_noslack,
+        ReserveRequirementSlack,
+        VariableReserve{ReserveUp},
+    )
+end
+
+@testset "Merged reserve container isolates services with mixed device counts (solve)" begin
+    # Extends "Merged reserve container isolates services of the same type" (build-only,
+    # isolation at t=1) to a full solve, and checks isolation at every requirement row, not
+    # just Reserve1's. NOTE: in this fixture, Reserve1 and Reserve11 both contribute from
+    # all five thermal units (Alta, Brighton, Park City, Solitude, Sundance) - there is no
+    # differing-device-count case here - so this also stands as the regression case for
+    # same-device-set same-type services solving correctly end-to-end.
+    c_sys5_uc = PSB.build_system(PSITestSystems, "c_sys5_uc"; add_reserves = true)
+    template = get_thermal_dispatch_template_network(CopperPlateNetworkModel)
+    set_service_model!(
+        template,
+        ServiceModel(VariableReserve{ReserveUp}, RangeReserve),
+    )
+    model = DecisionModel(template, c_sys5_uc; optimizer = HiGHS_optimizer)
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+    @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+
+    container = get_optimization_container(model)
+    rv = IOM.get_variable(container, ActivePowerReserveVariable, VariableReserve{ReserveUp})
+    con = IOM.get_constraint(
+        container,
+        RequirementConstraint,
+        VariableReserve{ReserveUp},
+    )
+    reserve_names = ["Reserve1", "Reserve11"]
+    @test Set(k[1] for k in keys(rv.data)) >= Set(reserve_names)
+
+    for name in reserve_names
+        c = con[name, 1]
+        for (key, var) in rv.data
+            key[3] == 1 || continue
+            expected = key[1] == name ? 1.0 : 0.0
+            @test JuMP.normalized_coefficient(c, var) == expected
+        end
+    end
+end
+
 @testset "Test ORDC time series (build & solve)" begin
     c_sys5_uc = PSB.build_system(PSITestSystems, "c_sys5_uc"; add_reserves = true)
     static_ordc = first(get_components(PSY.ReserveDemandCurve, c_sys5_uc))
