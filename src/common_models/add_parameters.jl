@@ -1151,6 +1151,14 @@ function _add_parameters!(
     W <: AbstractReservesFormulation,
 } where {D <: PSY.Component}
     @debug "adding" T D U _group = IOM.LOG_GROUP_OPTIMIZATION_CONTAINER
+    # TODO: per-service keying when service feedforwards are ported. This path is currently
+    # unreachable (service feedforwards are no-op stubs in POM; the real machinery is still
+    # in PSI). Under the per-type ServiceModel, `get_contributing_devices(model)` flattens
+    # across ALL services of the type, so this builds a device-name-keyed parameter with no
+    # service axis — inconsistent with the merged `(service, device, time)` reserve
+    # variables it must feed forward against. Rebuild it per service (key by
+    # `(service, device)`, reading `get_contributing_devices(model, service_name)`) aligned
+    # with the merged reserve container before wiring service feedforwards.
     contributing_devices = IOM.get_contributing_devices(model)
     names = [PSY.get_name(device) for device in contributing_devices]
     time_steps = get_time_steps(container)
