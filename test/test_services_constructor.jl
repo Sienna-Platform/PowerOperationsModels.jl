@@ -264,6 +264,42 @@ end
     end
 end
 
+@testset "RequirementConstraint dual is assigned and readable per service" begin
+    # The service dual path mirrors the merged (dense) RequirementConstraint container: one
+    # dual per service type keyed `(service_name, time)`, populated after solve. Uses an LP
+    # dispatch template (no binaries) so the solver returns duals.
+    c_sys5_uc = PSB.build_system(PSITestSystems, "c_sys5_uc"; add_reserves = true)
+    template = get_thermal_dispatch_template_network(CopperPlateNetworkModel)
+    set_service_model!(
+        template,
+        ServiceModel(
+            VariableReserve{ReserveUp},
+            RangeReserve;
+            duals = [RequirementConstraint],
+        ),
+    )
+    model = DecisionModel(template, c_sys5_uc; optimizer = HiGHS_optimizer)
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+    @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+
+    container = get_optimization_container(model)
+    dual_key = IOM.ConstraintKey(RequirementConstraint, VariableReserve{ReserveUp})
+    # One merged dual container per service type, dense (mirrors the merged constraint).
+    @test dual_key in keys(IOM.get_duals(container))
+    @test IOM.get_duals(container)[dual_key] isa
+          JuMP.Containers.DenseAxisArray{Float64, 2}
+
+    res = OptimizationProblemOutputs(model)
+    df = read_dual(res, "RequirementConstraint__VariableReserve__ReserveUp")
+    # LONG format `(DateTime, name, value)`; the name column covers ALL services of the type.
+    @test Set(df.name) == Set(["Reserve1", "Reserve11"])
+    # Reserve is priced only at DEFAULT_RESERVE_COST and the requirement binds, so the
+    # shadow price equals DEFAULT_RESERVE_COST / base_power for every service/time.
+    expected_price = POM.DEFAULT_RESERVE_COST / get_model_base_power(container)
+    @test all(isapprox(v, expected_price; atol = 1e-6) for v in df.value)
+end
+
 @testset "Test ORDC time series (build & solve)" begin
     c_sys5_uc = PSB.build_system(PSITestSystems, "c_sys5_uc"; add_reserves = true)
     static_ordc = first(get_components(PSY.ReserveDemandCurve, c_sys5_uc))
