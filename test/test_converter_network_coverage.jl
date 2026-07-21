@@ -584,6 +584,44 @@ end
     end
 end
 
+@testset "LinearLossConverter scales loss constant and current limit by converter base" begin
+    # Converter base_power (50) != system base (100): the DC-side loss constant and the
+    # DC-current limit are on the converter's own base and must be rescaled by
+    # base_power/system_base = 0.5 into the system-base DC balance. The proportional loss
+    # term is a base-invariant fraction and must not change.
+    b_term = 0.05
+    c_term = 0.01
+    i_max = 2.0
+    sys = _build_converter_sys(; loss = QuadraticCurve(0.0, b_term, c_term))
+    system_base = get_base_power(sys)
+    converter_base = 50.0
+    for ic in get_components(InterconnectingConverter, sys)
+        set_base_power!(ic, converter_base)
+    end
+    factor = converter_base / system_base
+
+    template = _converter_template(
+        DCPNetworkModel, DeviceModel(InterconnectingConverter, LinearLossConverter),
+    )
+    model, status = _build_converter_model(template, sys, HiGHS_optimizer)
+    @test status == IOM.ModelBuildStatus.BUILT
+
+    container = IOM.get_optimization_container(model)
+    p = IOM.get_variable(container, ActivePowerVariable, InterconnectingConverter)
+    abs_v =
+        IOM.get_variable(container, CurrentAbsoluteValueVariable, InterconnectingConverter)
+    dc_expr = IOM.get_expression(container, ActivePowerBalance, DCBus)
+    for ic in get_components(InterconnectingConverter, sys)
+        name = get_name(ic)
+        dc_no = get_number(get_dc_bus(ic))
+        @test JuMP.upper_bound(abs_v[name, 1]) == i_max * factor
+        for t in (1, size(p)[2])
+            @test JuMP.coefficient(dc_expr[dc_no, t], abs_v[name, t]) == -b_term
+            @test JuMP.constant(dc_expr[dc_no, t]) == -c_term * factor
+        end
+    end
+end
+
 @testset "DCLosslessLine is removed" begin
     @test !isdefined(POM, :DCLosslessLine)
 end
