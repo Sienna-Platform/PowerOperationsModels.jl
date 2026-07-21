@@ -75,10 +75,9 @@ end
 end
 
 @testset "Test Reserve Requirement Slack Variables" begin
-    # `use_slacks = true` on a reserve ServiceModel triggers `reserve_slacks!`
-    # (services_models/service_slacks.jl), which builds ReserveRequirementSlack as a 2D
-    # container over a singleton service-name axis and the time-step axis (rather than a
-    # bare 1D time-step axis with the service name consumed as `meta`). This path
+    # `use_slacks = true` on a reserve ServiceModel triggers `add_reserve_slacks!`
+    # (services_models/service_slacks.jl), which builds ReserveRequirementSlack as a dense
+    # 2D container over the type's service-name axis and the time-step axis. This path
     # previously had zero test coverage in the whole suite. See POM issue #178 /
     # developer guidelines.
     c_sys5_uc = PSB.build_system(PSITestSystems, "c_sys5_uc"; add_reserves = true)
@@ -101,21 +100,21 @@ end
           IOM.ModelBuildStatus.BUILT
 
     container = get_optimization_container(model)
-    # ReserveRequirementSlack is now one merged sparse container per service type keyed
-    # `(service_name, time)` (empty meta), rather than a per-service 2D container.
+    # ReserveRequirementSlack is now one dense container per service type keyed
+    # `[service_name, time]` (empty meta), built once over all the type's services.
     slack_var = IOM.get_variable(
         container,
         ReserveRequirementSlack,
         VariableReserve{ReserveUp},
     )
     time_steps = get_time_steps(container)
-    @test all(JuMP.lower_bound(slack_var[("Reserve1", t)]) == 0.0 for t in time_steps)
+    @test all(JuMP.lower_bound(slack_var["Reserve1", t]) == 0.0 for t in time_steps)
 
     # Confirm the slack is actually wired into the requirement constraint (not just
     # created and left dangling): its objective coefficient should be the penalty cost.
     obj = JuMP.objective_function(get_jump_model(model))
     @test all(
-        JuMP.coefficient(obj, slack_var[("Reserve1", t)]) == POM.SERVICES_SLACK_COST for
+        JuMP.coefficient(obj, slack_var["Reserve1", t]) == POM.SERVICES_SLACK_COST for
         t in time_steps
     )
 end
@@ -149,7 +148,7 @@ end
 
     # (a) Reserve1's requirement constraint at t=1 has coefficient 1 for Reserve1's
     # variables and 0 for Reserve11's.
-    c1 = con[("Reserve1", 1)]
+    c1 = con["Reserve1", 1]
     for (key, var) in rv.data
         key[3] == 1 || continue
         expected = key[1] == "Reserve1" ? 1.0 : 0.0

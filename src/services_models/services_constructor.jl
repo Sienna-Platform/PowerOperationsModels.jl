@@ -177,6 +177,16 @@ function construct_service!(
 ) where {SR <: PSY.AbstractReserve}
     services = _services_with_contributors(model, sys)
     isempty(services) && return
+    service_names = PSY.get_name.(services)
+    # Dense service-indexed containers are built once per type, then filled per service.
+    add_constraints_container!(
+        container,
+        RequirementConstraint,
+        SR,
+        service_names,
+        get_time_steps(container),
+    )
+    get_use_slacks(model) && add_reserve_slacks!(container, SR, service_names)
     for service in services
         contributing_devices = get_contributing_devices(model, PSY.get_name(service))
         add_constraints!(
@@ -254,6 +264,14 @@ function construct_service!(
 ) where {SR <: PSY.Reserve}
     services = _services_with_contributors(model, sys)
     isempty(services) && return
+    # Dense service-indexed requirement container, built once per type, filled per service.
+    add_constraints_container!(
+        container,
+        RequirementConstraint,
+        SR,
+        PSY.get_name.(services),
+        get_time_steps(container),
+    )
     for service in services
         contributing_devices = get_contributing_devices(model, PSY.get_name(service))
         add_constraints!(
@@ -394,7 +412,16 @@ function construct_service!(
     ::Set{<:DataType},
     ::NetworkModel{<:AbstractNetworkModel},
 ) where {SR <: PSY.ConstantReserveGroup}
-    for service in get_available_components(model, sys)
+    groups = collect(get_available_components(model, sys))
+    # Dense group-indexed requirement container, built once over all groups of the type.
+    add_constraints_container!(
+        container,
+        RequirementConstraint,
+        SR,
+        PSY.get_name.(groups),
+        get_time_steps(container),
+    )
+    for service in groups
         contributing_services = PSY.get_contributing_services(service)
         add_constraints!(
             container,
@@ -452,6 +479,16 @@ function construct_service!(
 ) where {SR <: PSY.Reserve}
     services = _services_with_contributors(model, sys)
     isempty(services) && return
+    service_names = PSY.get_name.(services)
+    # Dense service-indexed containers are built once per type, then filled per service.
+    add_constraints_container!(
+        container,
+        RequirementConstraint,
+        SR,
+        service_names,
+        get_time_steps(container),
+    )
+    get_use_slacks(model) && add_reserve_slacks!(container, SR, service_names)
     for service in services
         contributing_devices = get_contributing_devices(model, PSY.get_name(service))
         add_constraints!(
@@ -513,6 +550,16 @@ function construct_service!(
 ) where {SR <: PSY.ReserveNonSpinning}
     services = _services_with_contributors(model, sys)
     isempty(services) && return
+    service_names = PSY.get_name.(services)
+    # Dense service-indexed containers are built once per type, then filled per service.
+    add_constraints_container!(
+        container,
+        RequirementConstraint,
+        SR,
+        service_names,
+        get_time_steps(container),
+    )
+    get_use_slacks(model) && add_reserve_slacks!(container, SR, service_names)
     for service in services
         contributing_devices = get_contributing_devices(model, PSY.get_name(service))
         add_constraints!(

@@ -163,9 +163,9 @@ function add_constraints!(
 } where {D <: PSY.Component}
     time_steps = get_time_steps(container)
     service_name = PSY.get_name(service)
-    # Merged 2D sparse constraint container keyed `(service_name, time)`.
-    constraint = lazy_container_addition!(container, T, SR, [service_name], time_steps;
-        sparse = true)
+    # Dense 2D constraint container keyed `[service_name, time]`, created once per type in
+    # `construct_service!`; fill this service's row.
+    constraint = get_constraint(container, T, SR)
     reserve_variable = get_variable(container, ActivePowerReserveVariable, SR)
     use_slacks = get_use_slacks(model)
 
@@ -176,7 +176,7 @@ function add_constraints!(
         interval = get_interval(get_settings(container)),
     )
 
-    use_slacks && (slack_vars = reserve_slacks!(container, service))
+    use_slacks && (slack_vars = get_variable(container, ReserveRequirementSlack, SR))
     requirement = _get_requirement(service)
     jump_model = get_jump_model(container)
     extra = use_slacks ? 1 : 0
@@ -189,8 +189,8 @@ function add_constraints!(
                 _sum_service_reserves(reserve_variable, service_name, contributing_devices,
                     t, extra)
             use_slacks &&
-                JuMP.add_to_expression!(resource_expression, slack_vars[(service_name, t)])
-            constraint[(service_name, t)] =
+                JuMP.add_to_expression!(resource_expression, slack_vars[service_name, t])
+            constraint[service_name, t] =
                 JuMP.@constraint(jump_model, resource_expression >= param[t] * requirement)
         end
     else
@@ -199,8 +199,8 @@ function add_constraints!(
                 _sum_service_reserves(reserve_variable, service_name, contributing_devices,
                     t, extra)
             use_slacks &&
-                JuMP.add_to_expression!(resource_expression, slack_vars[(service_name, t)])
-            constraint[(service_name, t)] = JuMP.@constraint(
+                JuMP.add_to_expression!(resource_expression, slack_vars[service_name, t])
+            constraint[service_name, t] = JuMP.@constraint(
                 jump_model,
                 resource_expression >= ts_vector[t] * requirement
             )
@@ -281,11 +281,12 @@ function add_constraints!(
 } where {D <: PSY.Component}
     time_steps = get_time_steps(container)
     service_name = PSY.get_name(service)
-    constraint = lazy_container_addition!(container, T, SR, [service_name], time_steps;
-        sparse = true)
+    # Dense 2D constraint container keyed `[service_name, time]`, created once per type in
+    # `construct_service!`; fill this service's row.
+    constraint = get_constraint(container, T, SR)
     reserve_variable = get_variable(container, ActivePowerReserveVariable, SR)
     use_slacks = get_use_slacks(model)
-    use_slacks && (slack_vars = reserve_slacks!(container, service))
+    use_slacks && (slack_vars = get_variable(container, ReserveRequirementSlack, SR))
 
     requirement = _get_requirement(service)
     jump_model = get_jump_model(container)
@@ -295,8 +296,8 @@ function add_constraints!(
             _sum_service_reserves(reserve_variable, service_name, contributing_devices, t,
                 extra)
         use_slacks &&
-            JuMP.add_to_expression!(resource_expression, slack_vars[(service_name, t)])
-        constraint[(service_name, t)] =
+            JuMP.add_to_expression!(resource_expression, slack_vars[service_name, t])
+        constraint[service_name, t] =
             JuMP.@constraint(jump_model, resource_expression >= requirement)
     end
 
@@ -324,8 +325,9 @@ function add_constraints!(
 } where {D <: PSY.Component}
     time_steps = get_time_steps(container)
     service_name = PSY.get_name(service)
-    constraint = lazy_container_addition!(container, T, SR, [service_name], time_steps;
-        sparse = true)
+    # Dense 2D constraint container keyed `[service_name, time]`, created once per type in
+    # `construct_service!`; fill this service's row.
+    constraint = get_constraint(container, T, SR)
     reserve_variable = get_variable(container, ActivePowerReserveVariable, SR)
     requirement_variable =
         get_variable(container, ServiceRequirementVariable, SR)
@@ -339,7 +341,7 @@ function add_constraints!(
                 t,
                 0,
             )
-        constraint[(service_name, t)] = JuMP.@constraint(
+        constraint[service_name, t] = JuMP.@constraint(
             jump_model,
             resource_expression >= requirement_variable[service_name, t]
         )

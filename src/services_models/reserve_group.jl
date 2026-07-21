@@ -45,12 +45,9 @@ function add_constraints!(
 ) where {SR <: PSY.ConstantReserveGroup}
     time_steps = get_time_steps(container)
     service_name = PSY.get_name(service)
-    # Merged 2D sparse group-requirement container keyed `(group_name, time)`.
-    constraint = lazy_container_addition!(container, RequirementConstraint, SR,
-        [service_name],
-        time_steps;
-        sparse = true,
-    )
+    # Dense 2D group-requirement container keyed `[group_name, time]`, created once per type
+    # in `construct_service!`; fill this group's row.
+    constraint = get_constraint(container, RequirementConstraint, SR)
     # Each contributing reserve's provision comes from its type's merged
     # `(service_name, device_name, time)` container; sum the contributing service's slice.
     contributing = [
@@ -68,7 +65,7 @@ function add_constraints!(
                 JuMP.add_to_expression!(resource_expression, var)
             end
         end
-        constraint[(service_name, t)] =
+        constraint[service_name, t] =
             JuMP.@constraint(container.JuMPmodel, resource_expression >= requirement)
     end
 
