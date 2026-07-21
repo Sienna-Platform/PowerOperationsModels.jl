@@ -2032,7 +2032,9 @@ function _handle_nodal_or_zonal_interfaces(
     net_reduction_data::PNM.NetworkReductionData,
     direction_map::Dict{String, Int},
     contributing_devices::Vector{V},
-    variable::JuMPVariableArray,
+    # A `JuMPVariableArray` (StaticBranchBounds) or an `AffExpr` container (DCP StaticBranch's
+    # BThetaBranchFlow); `add_proportional_to_jump_expression!` handles either scalar.
+    variable::DenseAxisArray,
     expression::DenseAxisArray, # There is no good type for a DenseAxisArray slice
 ) where {V <: PSY.ACTransmission}
     all_branch_maps_by_type = PNM.get_all_branch_maps_by_type(net_reduction_data)
@@ -2109,6 +2111,40 @@ function add_to_expression!(
             direction_map,
             contributing_devices,
             variable,
+            expression[service_name, :],
+        )
+    end
+    return
+end
+
+# Under DCP a StaticBranch carries flow as the BThetaBranchFlow expression (no
+# FlowActivePowerVariable); StaticBranchBounds still carries a variable. Read whichever
+# each contributing branch type built and sum it into the interface.
+function add_to_expression!(
+    container::OptimizationContainer,
+    ::Type{InterfaceTotalFlow},
+    ::Type{FlowActivePowerVariable},
+    service::PSY.TransmissionInterface,
+    model::ServiceModel{PSY.TransmissionInterface, V},
+    network_model::NetworkModel{DCPNetworkModel},
+) where {V <: Union{ConstantMaxInterfaceFlow, VariableMaxInterfaceFlow}}
+    net_reduction_data = get_network_reduction(network_model)
+    expression = get_expression(container, InterfaceTotalFlow, PSY.TransmissionInterface)
+    service_name = get_service_name(model)
+    direction_map = PSY.get_direction_mapping(service)
+    contributing_devices_map = get_contributing_devices_map(model)
+    for (br_type, contributing_devices) in contributing_devices_map
+        if has_container_key(container, BThetaBranchFlow, br_type)
+            flow = get_expression(container, BThetaBranchFlow, br_type)
+        else
+            flow = get_variable(container, FlowActivePowerVariable, br_type)
+        end
+        _handle_nodal_or_zonal_interfaces(
+            br_type,
+            net_reduction_data,
+            direction_map,
+            contributing_devices,
+            flow,
             expression[service_name, :],
         )
     end

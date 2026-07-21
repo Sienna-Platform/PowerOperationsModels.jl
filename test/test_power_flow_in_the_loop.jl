@@ -127,7 +127,6 @@ end
     # headroom ever silently re-introduces a `* device_base / system_base` factor,
     # the recomputed expected_headroom below will mismatch by 0.5×, failing the
     # assertion.
-    PSY.set_units_base_system!(system, "SYSTEM_BASE")
     PSY.set_base_power!(re_gen, get_base_power(re_gen, PSY.NU) / 2)
 
     template = get_template_dispatch_with_network(

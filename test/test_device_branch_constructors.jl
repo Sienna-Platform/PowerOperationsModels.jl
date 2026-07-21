@@ -1,6 +1,4 @@
-# TODO: Re-enable DCPNetworkModel tests when PowerModels is integrated
-# DCPNetworkModel requires PowerModels.jl extension
-const DC_NETWORK_MODELS_FOR_TESTING = [PTDFNetworkModel]
+const DC_NETWORK_MODELS_FOR_TESTING = [PTDFNetworkModel, DCPNetworkModel]
 
 @testset "DC Power Flow Models Monitored Line Flow Constraints and Static Unbounded" begin
     system = PSB.build_system(PSITestSystems, "c_sys5_ml")

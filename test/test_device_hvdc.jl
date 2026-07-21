@@ -16,7 +16,9 @@
     set_hvdc_network_model!(template_uc, TransportHVDCNetworkModel)
     model = DecisionModel(template_uc, sys_5; name = "UC", optimizer = HiGHS_optimizer)
     @test build!(model; output_dir = mktempdir()) == IOM.ModelBuildStatus.BUILT
-    moi_tests(model, 1656, 288, 1248, 528, 912, true)
+    # StaticBranch under DCP carries flow as the BThetaBranchFlow expression (no
+    # FlowActivePowerVariable, no Ohm's-law equality): -288 variables and -288 equalities.
+    moi_tests(model, 1368, 288, 1248, 528, 624, true)
     @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
 
     template_uc = PowerOperationsProblemTemplate(

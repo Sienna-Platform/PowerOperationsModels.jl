@@ -21,14 +21,9 @@ get_variable_binary(::Type{FlowActivePowerFromToVariable}, ::Type{<:PSY.ACTransm
 get_variable_binary(::Type{FlowActivePowerToFromVariable}, ::Type{<:PSY.ACTransmission}, ::Type{<:AbstractBranchFormulation}) = false
 get_variable_binary(::Type{FlowReactivePowerFromToVariable}, ::Type{<:PSY.ACTransmission}, ::Type{<:AbstractBranchFormulation}) = false
 get_variable_binary(::Type{FlowReactivePowerToFromVariable}, ::Type{<:PSY.ACTransmission}, ::Type{<:AbstractBranchFormulation}) = false
-get_variable_binary(::Type{PhaseShifterAngle}, ::Type{PSY.PhaseShiftingTransformer}, ::Type{<:AbstractBranchFormulation}) = false
-
 get_parameter_multiplier(::Type{FixValueParameter}, ::PSY.ACTransmission, ::Type{<:AbstractBranchFormulation}) = 1.0
 get_parameter_multiplier(::Type{LowerBoundValueParameter}, ::PSY.ACTransmission, ::Type{<:AbstractBranchFormulation}) = 1.0
 get_parameter_multiplier(::Type{UpperBoundValueParameter}, ::PSY.ACTransmission, ::Type{<:AbstractBranchFormulation}) = 1.0
-
-# Per-device reactance multiplier (1/get_x(d)) computed inline at add_to_expression! call sites.
-get_variable_multiplier(::Type{PhaseShifterAngle}, ::Type{<:PSY.PhaseShiftingTransformer}, ::Type{PhaseAngleControl}) = 1.0
 
 get_multiplier_value(::Type{<:AbstractBranchRatingTimeSeriesParameter}, d::PSY.ACTransmission, ::Type{StaticBranch}) = PSY.get_rating(d, PSY.SU)
 
@@ -212,19 +207,6 @@ function add_variables!(
     return
 end
 
-function add_variables!(
-    ::OptimizationContainer,
-    ::Type{T},
-    network_model::NetworkModel{<:AbstractPTDFNetworkModel},
-    devices::IS.FlattenIteratorWrapper{U},
-    ::Type{StaticBranchUnbounded},
-) where {
-    T <: AbstractACActivePowerFlow,
-    U <: PSY.ACTransmission}
-    @debug "PTDF Branch Flows with StaticBranchUnbounded do not require flow variables $T. Flow values are given by PTDFBranchFlow expression."
-    return
-end
-
 """
 Branch flow (and flow-slack) variables for the native nodal network models.
 
@@ -315,62 +297,6 @@ function _add_meta_flow_slack!(
     return
 end
 
-function _add_variable_to_container!(
-    variable_container::JuMPVariableArray,
-    variable::JuMP.VariableRef,
-    entry::T,
-    ::Type{U},
-    t,
-) where {T <: PSY.ACTransmission, U <: PSY.ACTransmission}
-    if isa(entry, U)
-        name = PSY.get_name(entry)
-        variable_container[name, t] = variable
-    end
-end
-
-function _add_variable_to_container!(
-    variable_container::JuMPVariableArray,
-    variable::JuMP.VariableRef,
-    double_circuit::Set{T},
-    ::Type{T},
-    t,
-) where {T <: PSY.ACTransmission}
-    for circuit in double_circuit
-        if isa(circuit, T)
-            name = PSY.get_name(circuit) * "_double_circuit"
-            variable_container[name, t] = variable
-        end
-    end
-    return
-end
-
-function _add_variable_to_container!(
-    variable_container::JuMPVariableArray,
-    variable::JuMP.VariableRef,
-    series_chain::Vector{Any},
-    type::Type{T},
-    t,
-) where {T <: PSY.ACTransmission}
-    for segment in series_chain
-        _add_variable_to_container!(variable_container, variable, segment, type, t)
-    end
-end
-
-function add_variables!(
-    container::OptimizationContainer,
-    ::Type{S},
-    network_model::NetworkModel{CopperPlateNetworkModel},
-    devices::IS.FlattenIteratorWrapper{T},
-    ::Type{U},
-) where {
-    S <: AbstractACActivePowerFlow,
-    T <: PSY.ACTransmission,
-    U <: AbstractBranchFormulation,
-}
-    @debug "AC Branches of type $(T) do not require flow variables $S in CopperPlateNetworkModel."
-    return
-end
-
 # Directional flow variable types bounded by `branch_rate_bounds!`. DC/PTDF networks carry a
 # single scalar active variable; the AC networks (ACP/ACR/LPACC/IVR) carry the four
 # directional from/to variables.
@@ -437,32 +363,6 @@ function branch_rate_bounds!(
                 if !JuMP.has_lower_bound(var[name, t])
                     JuMP.set_lower_bound(var[name, t], limits.min)
                 end
-            end
-        end
-    end
-    return
-end
-
-################################## PWL Loss Variables ##################################
-
-function _check_pwl_loss_model(devices)
-    # get_loss returns a LinearCurve or PiecewiseIncrementalCurve struct — not a unit-bearing scalar; no PSY.SU conversion applies
-    first_loss = PSY.get_loss(first(devices))
-    first_loss_type = typeof(first_loss)
-    for d in devices
-        loss = PSY.get_loss(d)
-        if !isa(loss, first_loss_type)
-            error(
-                "Not all TwoTerminal HVDC lines have the same loss model data. Check that all loss models are LinearCurve or PiecewiseIncrementalCurve",
-            )
-        end
-        if isa(first_loss, PSY.PiecewiseIncrementalCurve)
-            len_first_loss = length(PSY.get_slopes(first_loss))
-            len_loss = length(PSY.get_slopes(loss))
-            if len_first_loss != len_loss
-                error(
-                    "Different length of PWL segments for TwoTerminal HVDC losses are not supported. Check that all HVDC data have the same amount of PWL segments.",
-                )
             end
         end
     end
@@ -562,17 +462,6 @@ function get_min_max_limits(
 ) #  -> Union{Nothing, NamedTuple{(:min, :max), Tuple{Float64, Float64}}}
     rating = PNM.get_equivalent_rating(device)
     return (min = -rating, max = rating)
-end
-
-"""
-Min and max limits for Abstract Branch Formulation
-"""
-function get_min_max_limits(
-    ::PSY.PhaseShiftingTransformer,
-    ::Type{PhaseAngleControlLimit},
-    ::Type{PhaseAngleControl},
-) #  -> Union{Nothing, NamedTuple{(:min, :max), Tuple{Float64, Float64}}}
-    return (min = -π / 2, max = π / 2)
 end
 
 function _add_flow_rate_constraint!(
@@ -850,144 +739,6 @@ function add_flow_rate_constraint_with_parameters!(
     return
 end
 
-# Shared apparent-power rate limit `var1^2 + var2^2 <= rating^2`. FromTo and ToFrom
-# differ only in which terminal flow variables they square and the constraint-map
-# direction key (`cons_type`), so both delegate here.
-function _add_apparent_power_flow_rate_limit!(
-    container::OptimizationContainer,
-    cons_type::Type{<:ConstraintType},
-    ::Type{V1},
-    ::Type{V2},
-    devices::IS.FlattenIteratorWrapper{B},
-    device_model::DeviceModel{B, <:AbstractBranchFormulation},
-    network_model::NetworkModel{T},
-) where {
-    V1 <: VariableType,
-    V2 <: VariableType,
-    B <: PSY.ACTransmission,
-    T <: AbstractNetworkModel,
-}
-    reduced_branch_tracker = get_reduced_branch_tracker(network_model)
-    net_reduction_data = get_network_reduction(network_model)
-    all_branch_maps_by_type = PNM.get_all_branch_maps_by_type(net_reduction_data)
-    device_names = get_branch_argument_constraint_axis(
-        net_reduction_data,
-        reduced_branch_tracker,
-        devices,
-        cons_type,
-    )
-    time_steps = get_time_steps(container)
-    var1 = get_variable(container, V1, B)
-    var2 = get_variable(container, V2, B)
-    add_constraints_container!(
-        container,
-        cons_type,
-        B,
-        device_names,
-        time_steps,
-    )
-    constraint = get_constraint(container, cons_type, B)
-
-    use_slacks = get_use_slacks(device_model)
-    if use_slacks
-        slack_ub = get_variable(container, FlowActivePowerSlackUpperBound, B)
-    end
-
-    # Gate on the parameter container actually existing, not merely on the
-    # time-series name being configured: when the name is set but no branch of
-    # this type carries the series, the parameter container is not created and
-    # `get_parameter_array` would throw. An empty `ts_branch_names` routes every
-    # arc through the static-rating path, which is the intended fallback.
-    ts_branch_names = String[]
-    local param, mult
-    if has_container_key(container, BranchRatingTimeSeriesParameter, B)
-        param = get_parameter_array(container, BranchRatingTimeSeriesParameter, B)
-        mult =
-            get_parameter_multiplier_array(container, BranchRatingTimeSeriesParameter, B)
-        ts_branch_names = Set(axes(param, 1))
-    end
-
-    for (name, (arc, reduction)) in
-        get_constraint_map_by_type(reduced_branch_tracker)[cons_type][B]
-        # TODO: entry is not type stable here, it can return any type ACTransmission.
-        # It might have performance implications. Possibly separate this into other functions
-        reduction_entry = all_branch_maps_by_type[reduction][B][arc]
-        # `param * mult` = rating_factor * rating (an apparent-power value), so it
-        # is squared here to match the static `rating^2` apparent-power RHS.
-        if name in ts_branch_names
-            for t in time_steps
-                if use_slacks
-                    lhs = var1[name, t]^2 + var2[name, t]^2 - slack_ub[name, t]
-                else
-                    lhs = var1[name, t]^2 + var2[name, t]^2
-                end
-                constraint[name, t] = JuMP.@constraint(
-                    get_jump_model(container),
-                    lhs <= _rate_rhs_squared(param[name, t] * mult[name, t])
-                )
-            end
-        else
-            branch_rate = branch_rating(reduction_entry, device_model)
-            for t in time_steps
-                if use_slacks
-                    lhs = var1[name, t]^2 + var2[name, t]^2 - slack_ub[name, t]
-                else
-                    lhs = var1[name, t]^2 + var2[name, t]^2
-                end
-                constraint[name, t] = JuMP.@constraint(
-                    get_jump_model(container),
-                    lhs <= _rate_rhs_squared(branch_rate)
-                )
-            end
-        end
-    end
-    return
-end
-
-"""
-Add rate limit from to constraints for ACBranch with AbstractNetworkModel
-"""
-function add_constraints!(
-    container::OptimizationContainer,
-    cons_type::Type{FlowRateConstraintFromTo},
-    devices::IS.FlattenIteratorWrapper{B},
-    device_model::DeviceModel{B, <:AbstractBranchFormulation},
-    network_model::NetworkModel{T},
-) where {B <: PSY.ACTransmission, T <: AbstractNetworkModel}
-    _add_apparent_power_flow_rate_limit!(
-        container,
-        cons_type,
-        FlowActivePowerFromToVariable,
-        FlowReactivePowerFromToVariable,
-        devices,
-        device_model,
-        network_model,
-    )
-    return
-end
-
-"""
-Add rate limit to from constraints for ACBranch with AbstractNetworkModel
-"""
-function add_constraints!(
-    container::OptimizationContainer,
-    cons_type::Type{FlowRateConstraintToFrom},
-    devices::IS.FlattenIteratorWrapper{B},
-    device_model::DeviceModel{B, <:AbstractBranchFormulation},
-    network_model::NetworkModel{T},
-) where {B <: PSY.ACTransmission, T <: AbstractNetworkModel}
-    _add_apparent_power_flow_rate_limit!(
-        container,
-        cons_type,
-        FlowActivePowerToFromVariable,
-        FlowReactivePowerToFromVariable,
-        devices,
-        device_model,
-        network_model,
-    )
-    return
-end
-
 """
 Error if a PTDF/MODF column length differs from the nodal-balance bus
 dimension. Prevents a downstream `@inbounds` out-of-bounds read; a mismatch
@@ -1055,75 +806,6 @@ function _make_flow_expressions!(
         expressions[t] = acc
     end
     return name, expressions
-end
-
-function _add_expression_to_container!(
-    branch_flow_expr::JuMPAffineExpressionDArrayStringInt,
-    jump_model::JuMP.Model,
-    time_steps::UnitRange{Int},
-    ptdf_col::AbstractVector{Float64},
-    nodal_balance_expressions::JuMPAffineExpressionDArrayIntInt,
-    reduction_entry::T,
-    branches::Vector{String},
-) where {T <: PSY.ACTransmission}
-    name = PSY.get_name(reduction_entry)
-    if name in branches
-        branch_flow_expr[name, :] .= _make_flow_expressions!(
-            name,
-            time_steps,
-            ptdf_col,
-            nodal_balance_expressions.data,
-        )
-    end
-    return
-end
-
-function _add_expression_to_container!(
-    branch_flow_expr::JuMPAffineExpressionDArrayStringInt,
-    jump_model::JuMP.Model,
-    time_steps::UnitRange{Int},
-    ptdf_col::AbstractVector{Float64},
-    nodal_balance_expressions::JuMPAffineExpressionDArrayIntInt,
-    reduction_entry::Vector{Any},
-    branches::Vector{String},
-)
-    names = _get_branch_names(reduction_entry)
-    for name in names
-        if name in branches
-            branch_flow_expr[name, :] .= _make_flow_expressions!(
-                name,
-                time_steps,
-                ptdf_col,
-                nodal_balance_expressions.data,
-            )
-            #Only one constraint added per arc; once it is found can return
-            return
-        end
-    end
-end
-
-function _add_expression_to_container!(
-    branch_flow_expr::JuMPAffineExpressionDArrayStringInt,
-    jump_model::JuMP.Model,
-    time_steps::UnitRange{Int},
-    ptdf_col::AbstractVector{Float64},
-    nodal_balance_expressions::JuMPAffineExpressionDArrayIntInt,
-    reduction_entry::Set{PSY.ACTransmission},
-    branches::Vector{String},
-)
-    names = _get_branch_names(reduction_entry)
-    for name in names
-        if name in branches
-            branch_flow_expr[name, :] .= _make_flow_expressions!(
-                name,
-                time_steps,
-                ptdf_col,
-                nodal_balance_expressions.data,
-            )
-            #Only one constraint added per arc; once it is found can return
-            return
-        end
-    end
 end
 
 function add_expressions!(
@@ -1238,46 +920,6 @@ function add_constraints!(
     return
 end
 
-"""
-Add network flow constraints for PhaseShiftingTransformer and NetworkModel with <: AbstractPTDFNetworkModel
-"""
-function add_constraints!(
-    container::OptimizationContainer,
-    ::Type{NetworkFlowConstraint},
-    devices::IS.FlattenIteratorWrapper{T},
-    model::DeviceModel{T, PhaseAngleControl},
-    network_model::NetworkModel{<:AbstractPTDFNetworkModel},
-) where {T <: PSY.PhaseShiftingTransformer}
-    ptdf = get_network_matrix(network_model)
-    branches = PSY.get_name.(devices)
-    time_steps = get_time_steps(container)
-    branch_flow = add_constraints_container!(container, NetworkFlowConstraint,
-        T,
-        branches,
-        time_steps,
-    )
-    nodal_balance_expressions = get_expression(container, ActivePowerBalance, PSY.ACBus)
-    flow_variables = get_variable(container, FlowActivePowerVariable, T)
-    angle_variables = get_variable(container, PhaseShifterAngle, T)
-    jump_model = get_jump_model(container)
-    for br in devices
-        arc = PNM.get_arc_tuple(br)
-        name = PSY.get_name(br)
-        ptdf_col = ptdf[arc, :]
-        inv_x = 1 / PSY.get_x(br, PSY.SU)
-        for t in time_steps
-            branch_flow[name, t] = JuMP.@constraint(
-                jump_model,
-                sum(
-                    ptdf_col[i] * nodal_balance_expressions.data[i, t] for
-                    i in 1:length(ptdf_col)
-                ) + inv_x * angle_variables[name, t] - flow_variables[name, t] == 0.0
-            )
-        end
-    end
-    return
-end
-
 # `MonitoredLine.flow_limits` may be asymmetric; the symmetric/min-based
 # `get_min_max_limits` methods below collapse it to one value and warn once.
 # The device, not a formulation type, is passed in (the old `$T` interpolation
@@ -1349,120 +991,6 @@ function add_constraints!(
     U <: StaticBranchUnbounded,
     V <: AbstractActivePowerModel,
 }
-    return
-end
-
-"""
-Min and max limits for flow limit from-to constraint
-"""
-function get_min_max_limits(
-    device::PSY.MonitoredLine,
-    ::Type{FlowLimitFromToConstraint},
-    ::Type{<:AbstractBranchFormulation},
-)
-    _warn_unequal_monitored_flow_limits(device)
-    return (
-        min = -1 * PSY.get_flow_limits(device, PSY.SU).from_to,
-        max = PSY.get_flow_limits(device, PSY.SU).from_to,
-    )
-end
-
-"""
-Min and max limits for flow limit to-from constraint
-"""
-function get_min_max_limits(
-    device::PSY.MonitoredLine,
-    ::Type{FlowLimitToFromConstraint},
-    ::Type{<:AbstractBranchFormulation},
-)
-    _warn_unequal_monitored_flow_limits(device)
-    return (
-        min = -1 * PSY.get_flow_limits(device, PSY.SU).to_from,
-        max = PSY.get_flow_limits(device, PSY.SU).to_from,
-    )
-end
-
-"""
-Don't add branch flow constraints for monitored lines if formulation is StaticBranchUnbounded
-"""
-function add_constraints!(
-    ::OptimizationContainer,
-    ::Type{FlowLimitToFromConstraint},
-    devices::IS.FlattenIteratorWrapper{T},
-    model::DeviceModel{T, U},
-    ::NetworkModel{V},
-) where {
-    T <: PSY.MonitoredLine,
-    U <: StaticBranchUnbounded,
-    V <: AbstractActivePowerModel,
-}
-    return
-end
-
-"""
-Add phase angle limits for phase shifters
-"""
-function add_constraints!(
-    container::OptimizationContainer,
-    ::Type{PhaseAngleControlLimit},
-    devices::IS.FlattenIteratorWrapper{T},
-    model::DeviceModel{T, PhaseAngleControl},
-    ::NetworkModel{U},
-) where {T <: PSY.PhaseShiftingTransformer, U <: AbstractActivePowerModel}
-    add_range_constraints!(
-        container,
-        PhaseAngleControlLimit,
-        PhaseShifterAngle,
-        devices,
-        model,
-        U,
-    )
-    return
-end
-
-"""
-Add network flow constraints for PhaseShiftingTransformer and NetworkModel with DCPNetworkModel
-"""
-function add_constraints!(
-    container::OptimizationContainer,
-    sys::PSY.System,
-    ::Type{NetworkFlowConstraint},
-    devices::IS.FlattenIteratorWrapper{T},
-    model::DeviceModel{T, PhaseAngleControl},
-    network_model::NetworkModel{DCPNetworkModel},
-) where {T <: PSY.PhaseShiftingTransformer}
-    time_steps = get_time_steps(container)
-    number_to_name = _retained_number_to_name(sys, network_model)
-    flow_variables = get_variable(container, FlowActivePowerVariable, T)
-    ps_angle_variables = get_variable(container, PhaseShifterAngle, T)
-    bus_angle_variables = get_variable(container, VoltageAngle, PSY.ACBus)
-    jump_model = get_jump_model(container)
-    branch_flow = add_constraints_container!(container, NetworkFlowConstraint,
-        T,
-        axes(flow_variables)[1],
-        time_steps,
-    )
-
-    for br in devices
-        name = PSY.get_name(br)
-        inv_x = 1.0 / PSY.get_x(br, PSY.SU)
-        flow_variables_ = flow_variables[name, :]
-        from_no, to_no = PNM.get_arc_tuple(br, get_network_reduction(network_model))
-        from_no == to_no && continue
-        from_bus = number_to_name[from_no]
-        to_bus = number_to_name[to_no]
-        angle_variables_ = ps_angle_variables[name, :]
-        bus_angle_from = bus_angle_variables[from_bus, :]
-        bus_angle_to = bus_angle_variables[to_bus, :]
-        @assert inv_x > 0.0
-        for t in time_steps
-            branch_flow[name, t] = JuMP.@constraint(
-                jump_model,
-                flow_variables_[t] ==
-                inv_x * (bus_angle_from[t] - bus_angle_to[t] + angle_variables_[t])
-            )
-        end
-    end
     return
 end
 
@@ -2987,57 +2515,152 @@ function add_constraints!(
         container, NetworkFlowConstraint, T, branch_names, time_steps,
     )
 
+    # StaticBranchBounds relaxes the rating by slacking this defining equality: the bounded
+    # decision flow `p` stays within rating while the physical angle-implied flow may deviate
+    # by the signed slack. StaticBranch never reaches this method (it carries flow as the
+    # BThetaBranchFlow expression); only SBB does, so the slacks exist iff use_slacks.
+    use_slacks = get_use_slacks(device_model)
+    if use_slacks
+        slack_ub = get_variable(container, FlowActivePowerSlackUpperBound, T)
+        slack_lb = get_variable(container, FlowActivePowerSlackLowerBound, T)
+    end
+
     for g in geoms
         shift = g.adm.shift
         for t in time_steps
-            cons[g.name, t] = JuMP.@constraint(
-                get_jump_model(container),
-                p[g.name, t] == -g.adm.b * (va[g.from_name, t] - va[g.to_name, t] - shift),
-            )
+            rhs = -g.adm.b * (va[g.from_name, t] - va[g.to_name, t] - shift)
+            if use_slacks
+                rhs += slack_ub[g.name, t] - slack_lb[g.name, t]
+            end
+            cons[g.name, t] =
+                JuMP.@constraint(get_jump_model(container), p[g.name, t] == rhs)
         end
     end
     return
 end
 
 """
-Add the tap-aware DC Ohm's law for a transformer under the `TapControl` formulation and an
-active-power DC network (DCPNetworkModel):
+Add the B-θ branch-flow expression for ACBranch StaticBranch under DCPNetworkModel:
 
-    p == (va_fr - va_to - shift) / (x * tap)
+    BThetaBranchFlow = -b * (va_fr - va_to - shift)
 
-`x = -b/(g^2 + b^2)` is the series reactance and `tap` the transformer tap ratio, both from
-`branch_admittance` (system base). Reduces to the StaticBranch DC law when tap == 1 and
-g == 0. Dispatched on the device formulation `TapControl`, not on the network model — tap is
-a component property in Sienna.
+Angles are the only decision variables for StaticBranch under DCP — there is no
+`FlowActivePowerVariable` and no defining Ohm's-law equality; the flow is carried
+directly as this expression. Uses the same `geoms = _branch_geometries(...)` walk
+(one geometry per reduced arc, claimed against the `NetworkFlowConstraint` family so
+it interoperates with other branch types/formulations sharing an arc) as the
+variable-based Ohm's-law builder above. Also wires the expression into the two
+terminal `ActivePowerBalance` entries (-1.0 from, +1.0 to), matching the sign
+convention `_add_both_terminals_to_nodal!` uses for the flow variable.
 """
-function add_constraints!(
+function add_expressions!(
     container::OptimizationContainer,
+    ::Type{BThetaBranchFlow},
     sys::PSY.System,
-    ::Type{NetworkFlowConstraint},
     devices::IS.FlattenIteratorWrapper{T},
-    device_model::DeviceModel{T, TapControl},
+    ::DeviceModel{T, StaticBranch},
     network_model::NetworkModel{DCPNetworkModel},
-) where {T <: PSY.TapTransformer}
+) where {T <: PSY.ACTransmission}
     time_steps = get_time_steps(container)
     va = get_variable(container, VoltageAngle, PSY.ACBus)
-    p = get_variable(container, FlowActivePowerVariable, T)
 
     number_to_name = _retained_number_to_name(sys, network_model)
     geoms =
         _branch_geometries(number_to_name, network_model, devices, T, NetworkFlowConstraint)
     branch_names = [g.name for g in geoms]
-    cons = add_constraints_container!(
-        container, NetworkFlowConstraint, T, branch_names, time_steps,
-    )
+
+    bfe =
+        add_expression_container!(container, BThetaBranchFlow, T, branch_names, time_steps)
+    nodal_expr = get_expression(container, ActivePowerBalance, PSY.ACBus)
+    jump_model = get_jump_model(container)
 
     for g in geoms
-        x = -g.adm.b / (g.adm.g^2 + g.adm.b^2)
+        b = g.adm.b
+        shift = g.adm.shift
+        from_name = g.from_name
+        to_name = g.to_name
+        from_no = g.from_number
+        to_no = g.to_number
         for t in time_steps
-            cons[g.name, t] = JuMP.@constraint(
-                get_jump_model(container),
-                p[g.name, t] ==
-                (va[g.from_name, t] - va[g.to_name, t] - g.adm.shift) / (x * g.adm.tap),
+            flow = JuMP.@expression(
+                jump_model,
+                -b * (va[from_name, t] - va[to_name, t] - shift)
             )
+            bfe[g.name, t] = flow
+            add_proportional_to_jump_expression!(nodal_expr[from_no, t], flow, -1.0)
+            add_proportional_to_jump_expression!(nodal_expr[to_no, t], flow, 1.0)
+        end
+    end
+    return
+end
+
+"""
+Add branch flow rate (rating) inequalities for ACBranch StaticBranch under
+DCPNetworkModel, directly on the `BThetaBranchFlow` expression (no defining
+equality/variable to bound instead). Unifies the reduced/unreduced axis via
+`_branch_rating_entries` (one entry per device when unreduced, one per not-yet-claimed
+reduced arc otherwise) and reuses the shared static/parameterized-rating row builders,
+mirroring the variable-based `FlowRateConstraint` DCP builder above but targeting the
+expression container.
+"""
+function add_constraints!(
+    container::OptimizationContainer,
+    ::Type{FlowRateConstraint},
+    devices::IS.FlattenIteratorWrapper{T},
+    device_model::DeviceModel{T, StaticBranch},
+    network_model::NetworkModel{DCPNetworkModel},
+) where {T <: PSY.ACTransmission}
+    time_steps = get_time_steps(container)
+    bfe = get_expression(container, BThetaBranchFlow, T)
+    use_slacks = get_use_slacks(device_model)
+    if use_slacks
+        slack_ub = get_variable(container, FlowActivePowerSlackUpperBound, T)
+        slack_lb = get_variable(container, FlowActivePowerSlackLowerBound, T)
+    end
+    jump_model = get_jump_model(container)
+
+    ts_branch_names = Set{String}()
+    local param_container, mult
+    if has_container_key(container, BranchRatingTimeSeriesParameter, T)
+        param_container = get_parameter(container, BranchRatingTimeSeriesParameter, T)
+        mult = get_multiplier_array(param_container)
+        ts_branch_names = Set(axes(mult, 1))
+    end
+
+    entries = _branch_rating_entries(network_model, devices, T, FlowRateConstraint)
+    branch_names = [name for (name, _) in entries]
+    con_lb = add_constraints_container!(
+        container, FlowRateConstraint, T, branch_names, time_steps; meta = "lb",
+    )
+    con_ub = add_constraints_container!(
+        container, FlowRateConstraint, T, branch_names, time_steps; meta = "ub",
+    )
+
+    for (name, entry) in entries
+        if name in ts_branch_names
+            param = get_parameter_column_refs(param_container, name)
+            if use_slacks
+                add_parameterized_rating_constraints!(
+                    container, con_ub, con_lb, bfe, name, param, mult, slack_ub, slack_lb,
+                )
+            else
+                add_parameterized_rating_constraints!(
+                    container, con_ub, con_lb, bfe, name, param, mult,
+                )
+            end
+        else
+            limits = min_max_flow_limits(entry, device_model)
+            for t in time_steps
+                if use_slacks
+                    ub_lhs = bfe[name, t] - slack_ub[name, t]
+                    lb_lhs = bfe[name, t] + slack_lb[name, t]
+                else
+                    ub_lhs = bfe[name, t]
+                    lb_lhs = bfe[name, t]
+                end
+                con_ub[name, t] = JuMP.@constraint(jump_model, ub_lhs <= limits.max)
+                con_lb[name, t] = JuMP.@constraint(jump_model, lb_lhs >= limits.min)
+            end
         end
     end
     return
@@ -3494,13 +3117,15 @@ function add_constraints!(
 end
 
 #### Rate limits: DCP version — box bounds per winding using winding rating.
-function add_constraints!(
+# Extracted from the loop body so both the generic-formulation method below and the
+# StaticBranch-specific disambiguator (needed because the generic
+# `DeviceModel{T, StaticBranch} where T <: PSY.ACTransmission` FlowRateConstraint method
+# for BThetaBranchFlow also matches `T = Transformer3W`, creating an ambiguity) can share
+# it without duplicating the winding loop.
+function _add_transformer3w_dcp_flow_rate_constraints!(
     container::OptimizationContainer,
-    ::Type{FlowRateConstraint},
     devices::IS.FlattenIteratorWrapper{PSY.Transformer3W},
-    ::DeviceModel{PSY.Transformer3W, U},
-    network_model::NetworkModel{DCPNetworkModel},
-) where {U <: AbstractBranchFormulation}
+)
     time_steps = get_time_steps(container)
     p = get_variable(container, FlowActivePowerVariable, PSY.Transformer3W)
     names = _three_winding_var_names(devices)
@@ -3526,6 +3151,33 @@ function add_constraints!(
             end
         end
     end
+    return
+end
+
+function add_constraints!(
+    container::OptimizationContainer,
+    ::Type{FlowRateConstraint},
+    devices::IS.FlattenIteratorWrapper{PSY.Transformer3W},
+    ::DeviceModel{PSY.Transformer3W, U},
+    network_model::NetworkModel{DCPNetworkModel},
+) where {U <: AbstractBranchFormulation}
+    _add_transformer3w_dcp_flow_rate_constraints!(container, devices)
+    return
+end
+
+# Disambiguates against the generic `DeviceModel{T, StaticBranch} where T <: PSY.ACTransmission`
+# BThetaBranchFlow-rate method (AC_branches.jl, DCP StaticBranch section): Transformer3W
+# keeps its own explicit per-winding FlowActivePowerVariable rate limits, unrelated to
+# BThetaBranchFlow (Transformer3W has three arcs per device, not one, and is excluded from
+# the BThetaBranchFlow expression build itself — see network_models/network_constructor.jl).
+function add_constraints!(
+    container::OptimizationContainer,
+    ::Type{FlowRateConstraint},
+    devices::IS.FlattenIteratorWrapper{PSY.Transformer3W},
+    ::DeviceModel{PSY.Transformer3W, StaticBranch},
+    network_model::NetworkModel{DCPNetworkModel},
+)
+    _add_transformer3w_dcp_flow_rate_constraints!(container, devices)
     return
 end
 

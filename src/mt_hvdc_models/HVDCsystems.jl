@@ -137,15 +137,15 @@ get_variable_binary(::Type{ConverterCurrent}, ::Type{PSY.InterconnectingConverte
 get_variable_binary(::Type{CurrentAbsoluteValueVariable}, ::Type{PSY.InterconnectingConverter}, ::Type{<:AbstractConverterFormulation}) = false
 
 ### Warm Start ###
-get_variable_warm_start_value(::Type{ConverterCurrent}, d::PSY.InterconnectingConverter, ::Type{<:AbstractConverterFormulation}) = PSY.get_dc_current(d)
+get_variable_warm_start_value(::Type{ConverterCurrent}, d::PSY.InterconnectingConverter, ::Type{<:AbstractConverterFormulation}) = PSY.get_dc_current(d, PSY.SU)
 
 ### Lower Bounds ###
-get_variable_lower_bound(::Type{ConverterCurrent}, d::PSY.InterconnectingConverter, ::Type{<:AbstractConverterFormulation}) = -PSY.get_max_dc_current(d)
+get_variable_lower_bound(::Type{ConverterCurrent}, d::PSY.InterconnectingConverter, ::Type{<:AbstractConverterFormulation}) = -PSY.get_max_dc_current(d, PSY.SU)
 get_variable_lower_bound(::Type{CurrentAbsoluteValueVariable}, d::PSY.InterconnectingConverter, ::Type{<:AbstractConverterFormulation}) = 0.0
 
 ### Upper Bounds ###
-get_variable_upper_bound(::Type{ConverterCurrent}, d::PSY.InterconnectingConverter, ::Type{<:AbstractConverterFormulation}) = PSY.get_max_dc_current(d)
-get_variable_upper_bound(::Type{CurrentAbsoluteValueVariable}, d::PSY.InterconnectingConverter, ::Type{<:AbstractConverterFormulation}) = PSY.get_max_dc_current(d)
+get_variable_upper_bound(::Type{ConverterCurrent}, d::PSY.InterconnectingConverter, ::Type{<:AbstractConverterFormulation}) = PSY.get_max_dc_current(d, PSY.SU)
+get_variable_upper_bound(::Type{CurrentAbsoluteValueVariable}, d::PSY.InterconnectingConverter, ::Type{<:AbstractConverterFormulation}) = PSY.get_max_dc_current(d, PSY.SU)
 
 # AC apparent-current variable (AC networks only): 0 ≤ I_ac ≤ S_max/vmin.
 # Warm-started at the rated apparent current S_max (pu, at nominal voltage), which is
@@ -591,12 +591,17 @@ function _add_linear_converter_loss_to_dc_balance!(
     expression_dc = get_expression(container, ActivePowerBalance, PSY.DCBus)
     abs_var =
         get_variable(container, CurrentAbsoluteValueVariable, PSY.InterconnectingConverter)
+    system_base = get_model_base_power(container)
     for d in devices
         _check_linear_converter_loss(d)
         name = PSY.get_name(d)
         loss_function = PSY.get_loss_function(d)
+        # Assumes the loss curve is authored in the converter device base (see PSY #1728,
+        # unresolved): then `b` is base-invariant and only the constant `c` rescales to
+        # system base. `|I|` is the system-base surrogate for `|P|`.
+        base_factor = PSY.get_base_power(d, PSY.NU) / system_base
         b = PSY.get_proportional_term(loss_function)
-        c = PSY.get_constant_term(loss_function)
+        c = PSY.get_constant_term(loss_function) * base_factor
         bus_number_dc = PSY.get_number(PSY.get_dc_bus(d))
         for t in get_time_steps(container)
             iszero(b) || add_proportional_to_jump_expression!(

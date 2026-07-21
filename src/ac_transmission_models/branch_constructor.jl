@@ -834,12 +834,9 @@ end
 
 ################################## DCPNetworkModel branch constructors #################
 
-"""
-ArgumentConstructStage for StaticBranch under DCPNetworkModel.
+# StaticBranch under DCP has no FlowActivePowerVariable: its flow is the BThetaBranchFlow
+# expression, built in `construct_network!` (network_constructor.jl) once VoltageAngle exists.
 
-Creates the FlowActivePowerVariable (and optional slack variables) and registers the
-branch flow contribution to the per-bus ActivePowerBalance expression.
-"""
 function construct_device!(
     container::OptimizationContainer,
     sys::PSY.System,
@@ -850,18 +847,9 @@ function construct_device!(
     @debug "construct_device DCP (ArgumentConstructStage)" _group =
         LOG_GROUP_BRANCH_CONSTRUCTIONS
     devices = get_available_components(device_model, sys)
-    add_variables!(container, FlowActivePowerVariable, network_model, devices, StaticBranch)
     if get_use_slacks(device_model)
         _add_flow_slacks!(container, devices, network_model, StaticBranch)
     end
-    add_to_expression!(
-        container,
-        ActivePowerBalance,
-        FlowActivePowerVariable,
-        devices,
-        device_model,
-        network_model,
-    )
     if haskey(get_time_series_names(device_model), BranchRatingTimeSeriesParameter)
         add_branch_parameters!(
             container,
@@ -878,8 +866,10 @@ end
 """
 ModelConstructStage for StaticBranch under DCPNetworkModel.
 
-Applies the branch flow rate limits, the DC Ohm's law constraint, and (when applicable)
-the branch angle-difference limits.
+Applies the branch flow rate limits directly on `BThetaBranchFlow` (no variable to
+bound instead) and, when applicable, the branch angle-difference limits. There is no
+separate Ohm's-law equality to add — the expression already carries the DC power-flow
+value.
 """
 function construct_device!(
     container::OptimizationContainer,
@@ -892,82 +882,6 @@ function construct_device!(
         LOG_GROUP_BRANCH_CONSTRUCTIONS
     devices = get_available_components(device_model, sys)
     add_constraints!(container, FlowRateConstraint, devices, device_model, network_model)
-    add_constraints!(
-        container, sys, NetworkFlowConstraint, devices, device_model, network_model,
-    )
-    add_constraints!(
-        container, sys, AngleDifferenceConstraint, devices, device_model, network_model,
-    )
-    add_feedforward_constraints!(container, device_model, devices)
-    add_to_objective_function!(container, devices, device_model, DCPNetworkModel)
-    add_constraint_dual!(container, sys, device_model)
-    return
-end
-
-################################## DCPNetworkModel TapControl constructors #############
-
-"""
-ArgumentConstructStage for TapControl under DCPNetworkModel.
-
-Creates the FlowActivePowerVariable (and optional slack variables) and registers the
-branch flow contribution to the per-bus ActivePowerBalance expression.
-"""
-function construct_device!(
-    container::OptimizationContainer,
-    sys::PSY.System,
-    ::ArgumentConstructStage,
-    device_model::DeviceModel{T, TapControl},
-    network_model::NetworkModel{DCPNetworkModel},
-) where {T <: PSY.TapTransformer}
-    @debug "construct_device TapControl DCP (ArgumentConstructStage)" _group =
-        LOG_GROUP_BRANCH_CONSTRUCTIONS
-    devices = get_available_components(device_model, sys)
-    add_variables!(container, FlowActivePowerVariable, network_model, devices, TapControl)
-    if get_use_slacks(device_model)
-        _add_flow_slacks!(container, devices, network_model, TapControl)
-    end
-    add_to_expression!(
-        container,
-        ActivePowerBalance,
-        FlowActivePowerVariable,
-        devices,
-        device_model,
-        network_model,
-    )
-    if haskey(get_time_series_names(device_model), BranchRatingTimeSeriesParameter)
-        add_branch_parameters!(
-            container,
-            BranchRatingTimeSeriesParameter,
-            devices,
-            device_model,
-            network_model,
-        )
-    end
-    add_feedforward_arguments!(container, device_model, devices)
-    return
-end
-
-"""
-ModelConstructStage for TapControl under DCPNetworkModel.
-
-Applies the branch flow rate limits, the tap-aware DC Ohm's law constraint
-`p = (va_fr - va_to - shift) / (x * tap)`, and (when applicable) the branch
-angle-difference limits.
-"""
-function construct_device!(
-    container::OptimizationContainer,
-    sys::PSY.System,
-    ::ModelConstructStage,
-    device_model::DeviceModel{T, TapControl},
-    network_model::NetworkModel{DCPNetworkModel},
-) where {T <: PSY.TapTransformer}
-    @debug "construct_device TapControl DCP (ModelConstructStage)" _group =
-        LOG_GROUP_BRANCH_CONSTRUCTIONS
-    devices = get_available_components(device_model, sys)
-    add_constraints!(container, FlowRateConstraint, devices, device_model, network_model)
-    add_constraints!(
-        container, sys, NetworkFlowConstraint, devices, device_model, network_model,
-    )
     add_constraints!(
         container, sys, AngleDifferenceConstraint, devices, device_model, network_model,
     )
@@ -1298,7 +1212,21 @@ function construct_device!(
     @debug "construct_device DCP StaticBranchBounds (ModelConstructStage)" _group =
         LOG_GROUP_BRANCH_CONSTRUCTIONS
     devices = get_available_components(device_model, sys)
-    add_constraints!(container, FlowRateConstraint, devices, device_model, network_model)
+    # SBB rates the flow with variable bounds, not inequality rows. A time-varying (DLR)
+    # rating cannot be a static bound, so only that case adds FlowRateConstraint rows.
+    if has_container_key(container, BranchRatingTimeSeriesParameter, T)
+        add_constraints!(
+            container,
+            FlowRateConstraint,
+            devices,
+            device_model,
+            network_model,
+        )
+    else
+        branch_rate_bounds!(container, device_model, network_model)
+    end
+    # The Ohm's-law equality defines the flow, and any slack enters here: the flow
+    # variable is bounded to the rating, so the slack lets the angle-implied flow exceed it.
     add_constraints!(
         container, sys, NetworkFlowConstraint, devices, device_model, network_model,
     )
@@ -2519,99 +2447,6 @@ function construct_device!(
         device_model,
         network_model,
     )
-    return
-end
-
-############################# Phase Shifter Transformer Models #############################
-
-function construct_device!(
-    container::OptimizationContainer,
-    sys::PSY.System,
-    ::ArgumentConstructStage,
-    device_model::DeviceModel{PSY.PhaseShiftingTransformer, PhaseAngleControl},
-    network_model::NetworkModel{DCPNetworkModel},
-)
-    devices = get_available_components(device_model, sys)
-    _validate_controlled_branch_not_reduced(network_model, devices, "PhaseAngleControl")
-    add_variables!(container, FlowActivePowerVariable, devices, PhaseAngleControl)
-    add_variables!(container, PhaseShifterAngle, devices, PhaseAngleControl)
-    add_to_expression!(
-        container,
-        ActivePowerBalance,
-        FlowActivePowerVariable,
-        devices,
-        device_model,
-        network_model,
-    )
-    add_feedforward_arguments!(container, device_model, devices)
-    return
-end
-
-function construct_device!(
-    container::OptimizationContainer,
-    sys::PSY.System,
-    ::ArgumentConstructStage,
-    device_model::DeviceModel{PSY.PhaseShiftingTransformer, PhaseAngleControl},
-    network_model::NetworkModel{<:AbstractPTDFNetworkModel},
-)
-    devices = get_available_components(device_model, sys)
-    add_variables!(container, FlowActivePowerVariable, devices, PhaseAngleControl)
-    add_variables!(container, PhaseShifterAngle, devices, PhaseAngleControl)
-    add_to_expression!(
-        container,
-        ActivePowerBalance,
-        PhaseShifterAngle,
-        devices,
-        device_model,
-        network_model,
-    )
-    add_feedforward_arguments!(container, device_model, devices)
-    return
-end
-
-function construct_device!(
-    container::OptimizationContainer,
-    sys::PSY.System,
-    ::ModelConstructStage,
-    device_model::DeviceModel{PSY.PhaseShiftingTransformer, PhaseAngleControl},
-    network_model::NetworkModel{DCPNetworkModel},
-)
-    devices = get_available_components(device_model, sys)
-    add_constraints!(container, FlowLimitConstraint, devices, device_model, network_model)
-    add_constraints!(
-        container,
-        PhaseAngleControlLimit,
-        devices,
-        device_model,
-        network_model,
-    )
-    add_constraints!(
-        container, sys, NetworkFlowConstraint, devices, device_model, network_model,
-    )
-    add_constraint_dual!(container, sys, device_model)
-    add_feedforward_constraints!(container, device_model, devices)
-    return
-end
-
-function construct_device!(
-    container::OptimizationContainer,
-    sys::PSY.System,
-    ::ModelConstructStage,
-    device_model::DeviceModel{PSY.PhaseShiftingTransformer, PhaseAngleControl},
-    network_model::NetworkModel{<:AbstractPTDFNetworkModel},
-)
-    devices = get_available_components(device_model, sys)
-    add_constraints!(container, FlowLimitConstraint, devices, device_model, network_model)
-    add_constraints!(
-        container,
-        PhaseAngleControlLimit,
-        devices,
-        device_model,
-        network_model,
-    )
-    add_constraints!(container, NetworkFlowConstraint, devices, device_model, network_model)
-    add_constraint_dual!(container, sys, device_model)
-    add_feedforward_constraints!(container, device_model, devices)
     return
 end
 
