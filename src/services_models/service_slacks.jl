@@ -4,22 +4,20 @@ function reserve_slacks!(
 ) where {T <: Union{PSY.Reserve, PSY.ReserveNonSpinning}}
     time_steps = get_time_steps(container)
     service_name = PSY.get_name(service)
-    variable = add_variable_container!(container, ReserveRequirementSlack,
-        T,
-        [service_name],
-        time_steps;
-        meta = service_name,
-    )
+    # Merged 2D sparse container keyed `(service_name, time)`, shared by all services of
+    # the type; lazily created and filled per service.
+    variable = lazy_container_addition!(container, ReserveRequirementSlack, T,
+        [service_name], time_steps; sparse = true)
 
     for t in time_steps
-        variable[service_name, t] = JuMP.@variable(
+        variable[(service_name, t)] = JuMP.@variable(
             get_jump_model(container),
             base_name = "slack_{$(service_name), $(t)}",
             lower_bound = 0.0
         )
         add_to_objective_invariant_expression!(
             container,
-            variable[service_name, t] * SERVICES_SLACK_COST,
+            variable[(service_name, t)] * SERVICES_SLACK_COST,
         )
     end
     return variable

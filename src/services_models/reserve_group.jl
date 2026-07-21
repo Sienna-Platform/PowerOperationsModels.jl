@@ -19,9 +19,14 @@ function check_activeservice_variables(
     contributing_services::Vector{T},
 ) where {T <: PSY.Service}
     for service in contributing_services
-        get_variable(container, ActivePowerReserveVariable,
-            typeof(service),
-            PSY.get_name(service),
+        service_name = PSY.get_name(service)
+        variable = get_variable(container, ActivePowerReserveVariable, typeof(service))
+        # Merged container is keyed `(service_name, device_name, time)`; confirm this
+        # contributing service actually has entries rather than just that the container
+        # for the type exists.
+        any(k -> k[1] == service_name, keys(variable.data)) || error(
+            "The contributing service $service_name has no ActivePowerReserveVariable \
+             entries; it must be modeled before the group reserve that references it.",
         )
     end
     return
@@ -40,29 +45,30 @@ function add_constraints!(
 ) where {SR <: PSY.ConstantReserveGroup}
     time_steps = get_time_steps(container)
     service_name = PSY.get_name(service)
-    add_constraints_container!(container, RequirementConstraint,
-        SR,
+    # Merged 2D sparse group-requirement container keyed `(group_name, time)`.
+    constraint = lazy_container_addition!(container, RequirementConstraint, SR,
         [service_name],
         time_steps;
-        meta = service_name,
+        sparse = true,
     )
-    constraint = get_constraint(container, RequirementConstraint, SR, service_name)
-    use_slacks = get_use_slacks(model)
-    reserve_variables = [
-        get_variable(container, ActivePowerReserveVariable, typeof(r), PSY.get_name(r))
+    # Each contributing reserve's provision comes from its type's merged
+    # `(service_name, device_name, time)` container; sum the contributing service's slice.
+    contributing = [
+        (r, PSY.get_name(r),
+            get_variable(container, ActivePowerReserveVariable, typeof(r)))
         for r in contributing_services
     ]
 
     requirement = _get_requirement(service)
     for t in time_steps
         resource_expression = JuMP.GenericAffExpr{Float64, JuMP.VariableRef}()
-        for reserve_variable in reserve_variables
-            JuMP.add_to_expression!(resource_expression, sum(@view reserve_variable[:, t]))
+        for (r, r_name, reserve_variable) in contributing
+            for (key, var) in reserve_variable.data
+                key[1] == r_name && key[3] == t || continue
+                JuMP.add_to_expression!(resource_expression, var)
+            end
         end
-        if use_slacks
-            resource_expression += slack_vars[t]
-        end
-        constraint[service_name, t] =
+        constraint[(service_name, t)] =
             JuMP.@constraint(container.JuMPmodel, resource_expression >= requirement)
     end
 

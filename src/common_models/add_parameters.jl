@@ -45,6 +45,21 @@ function add_parameters!(
     return
 end
 
+# Grouped service time-series parameter: all services of a type share one merged
+# container keyed `(ParameterType, ServiceType)` with empty meta, axed by service name.
+function add_parameters!(
+    container::OptimizationContainer,
+    ::Type{T},
+    services::Vector{U},
+    model::ServiceModel{U, V},
+) where {T <: TimeSeriesParameter, U <: PSY.Service, V <: AbstractServiceFormulation}
+    if get_rebuild_model(get_settings(container)) && has_container_key(container, T, U)
+        return
+    end
+    _add_parameters!(container, T, services, model)
+    return
+end
+
 function add_parameters!(
     container::OptimizationContainer,
     ::Type{T},
@@ -851,6 +866,59 @@ function _add_parameters!(
     return
 end
 
+function _add_parameters!(
+    container::OptimizationContainer,
+    ::Type{T},
+    services::Vector{U},
+    model::ServiceModel{U, V},
+) where {T <: TimeSeriesParameter, U <: PSY.Service, V <: AbstractServiceFormulation}
+    ts_type = get_default_time_series_type(container)
+    if !(ts_type <: Union{PSY.AbstractDeterministic, PSY.StaticTimeSeries})
+        error("add_parameters! for TimeSeriesParameter is not compatible with $ts_type")
+    end
+    ts_name = get_time_series_names(model)[T]
+    time_steps = get_time_steps(container)
+    model_interval = get_interval(get_settings(container))
+    ts_interval = model_interval
+    names = [PSY.get_name(s) for s in services]
+    ts_uuids = [
+        string(
+            IS.get_time_series_uuid(
+                ts_type,
+                s,
+                ts_name;
+                interval = _to_is_interval(ts_interval),
+            ),
+        ) for s in services
+    ]
+    additional_axes = calc_additional_axes(container, T, services, model)
+    parameter_container = add_param_container!(container, T,
+        U,
+        ts_type,
+        ts_name,
+        ts_uuids,
+        names,
+        additional_axes,
+        time_steps,
+    )
+    IOM.set_subsystem!(IOM.get_attributes(parameter_container), IOM.get_subsystem(model))
+    jump_model = get_jump_model(container)
+    attributes = IOM.get_attributes(parameter_container)
+    parent_param = IOM.get_parameter_array_data(parameter_container)
+    parent_mult = IOM.get_multiplier_array_data(parameter_container)
+    for (i, service) in enumerate(services)
+        name = names[i]
+        ts_vector = IOM.get_time_series(container, service, ts_name; interval = ts_interval)
+        multiplier = get_multiplier_value(T, service, V)
+        IOM._set_multiplier_at!(parent_mult, multiplier, i)
+        for t in time_steps
+            IOM._set_parameter_at!(parent_param, jump_model, ts_vector[t], i, t)
+        end
+        IOM.add_component_name!(attributes, name, ts_uuids[i])
+    end
+    return
+end
+
 #################################################################################
 # _add_parameters! for VariableValueParameter
 #################################################################################
@@ -1090,8 +1158,7 @@ function _add_parameters!(
         S,
         key,
         names,
-        time_steps;
-        meta = get_service_name(model),
+        time_steps,
     )
     jump_model = get_jump_model(container)
     parent_mult = IOM.get_multiplier_array_data(parameter_container)

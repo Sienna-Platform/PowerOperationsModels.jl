@@ -207,12 +207,36 @@ function add_expressions!(
     W <: AbstractReservesFormulation,
 } where {D <: PSY.Component}
     time_steps = get_time_steps(container)
-    @assert length(devices) == 1
+    # One shared expression container per device type; every service of the type folds its
+    # reserve variable into it (reads use the default empty meta), so no per-service meta.
     add_expression_container!(container, T,
         D,
         PSY.get_name.(devices),
-        time_steps;
-        meta = get_service_name(model),
+        time_steps,
     )
+    return
+end
+
+"""
+Per-service cost expression container (e.g. `ProductionCostExpression` for ORDC reserves).
+One container per service, `meta`-keyed by the service name, matching the reads in
+`add_to_expression!(container, ::CostExpressions, cost, ::ReserveDemand*, t)`.
+"""
+function add_expressions!(
+    container::OptimizationContainer,
+    ::Type{T},
+    services::U,
+    model::ServiceModel{V, W},
+) where {
+    T <: CostExpressions,
+    U <: Union{Vector{D}, IS.FlattenIteratorWrapper{D}},
+    V <: PSY.Reserve,
+    W <: AbstractReservesFormulation,
+} where {D <: PSY.Component}
+    time_steps = get_time_steps(container)
+    for service in services
+        name = PSY.get_name(service)
+        add_expression_container!(container, T, D, [name], time_steps; meta = name)
+    end
     return
 end

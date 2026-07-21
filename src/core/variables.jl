@@ -829,9 +829,11 @@ struct HybridStorageSubcomponentReserveVariable{Sd <: ReserveSide} <:
 
 const MULTI_START_VARIABLES = (HotStartVariable, WarmStartVariable, ColdStartVariable)
 
-should_write_resulting_value(::Type{PiecewiseLinearCostVariable}) = false
-should_write_resulting_value(::Type{PiecewiseLinearBlockIncrementalOffer}) = false
-should_write_resulting_value(::Type{PiecewiseLinearBlockDecrementalOffer}) = false
+# PWL cost/offer segment variables are exported: the store flattens the sparse
+# (name, segment, time) container to "name__segment" columns.
+should_write_resulting_value(::Type{PiecewiseLinearCostVariable}) = true
+should_write_resulting_value(::Type{PiecewiseLinearBlockIncrementalOffer}) = true
+should_write_resulting_value(::Type{PiecewiseLinearBlockDecrementalOffer}) = true
 should_write_resulting_value(::Type{HVDCPiecewiseLossVariable}) = false
 should_write_resulting_value(::Type{HVDCPiecewiseBinaryLossVariable}) = false
 should_write_resulting_value(::Type{<:InterpolationVariableType}) = false

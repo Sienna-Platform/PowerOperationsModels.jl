@@ -1,3 +1,22 @@
+# One `ServiceModel` per service TYPE (like `DeviceModel`). `construct_service!` runs once
+# per type: it gets all services of the type via `get_available_components(model, sys)`,
+# reads each service's contributing devices from the nested per-service map
+# (`get_contributing_devices(model, service_name)`), and builds. The reserve variable /
+# constraint containers are merged per `(entry type, service type)`; each service fills its
+# own slice. `GroupReserve` is deferred to last.
+
+# Collect the type's available services that have at least one modeled contributing device.
+# The concrete element type keeps `add_parameters!` / `add_service_variables!` dispatch happy.
+function _services_with_contributors(
+    model::ServiceModel,
+    sys::PSY.System,
+)
+    return [
+        s for s in get_available_components(model, sys) if
+        !isempty(get_contributing_devices(model, PSY.get_name(s)))
+    ]
+end
+
 function construct_services!(
     container::OptimizationContainer,
     sys::PSY.System,
@@ -10,9 +29,8 @@ function construct_services!(
     incompatible_device_types = get_incompatible_devices(devices_template)
 
     groupservice = nothing
-
     for (key, service_model) in services_template
-        if get_formulation(service_model) === GroupReserve  # group service needs to be constructed last
+        if get_formulation(service_model) === GroupReserve  # constructed last
             groupservice = key
             continue
         end
@@ -52,11 +70,11 @@ function construct_services!(
 
     groupservice = nothing
     for (key, service_model) in services_template
-        if get_formulation(service_model) === GroupReserve  # group service needs to be constructed last
+        if get_formulation(service_model) === GroupReserve  # constructed last
             groupservice = key
             continue
         end
-        isempty(get_contributing_devices_map(service_model)) && continue
+        isempty(get_contributing_devices(service_model)) && continue
         construct_service!(
             container,
             sys,
@@ -88,55 +106,32 @@ function construct_service!(
     incompatible_device_types::Set{<:DataType},
     ::NetworkModel{<:AbstractNetworkModel},
 ) where {SR <: PSY.Reserve}
-    name = get_service_name(model)
-    service = PSY.get_component(SR, sys, name)
-    !PSY.get_available(service) && return
-    add_parameters!(container, RequirementTimeSeriesParameter, service, model)
-    contributing_devices = get_contributing_devices(model)
-
-    add_service_variables!(
-        container,
-        ActivePowerReserveVariable,
-        service,
-        contributing_devices,
-        RangeReserve,
-    )
-    add_to_expression!(container, ActivePowerReserveVariable, model, devices_template)
-    add_feedforward_arguments!(container, model, service)
+    services = _services_with_contributors(model, sys)
+    isempty(services) && return
+    add_parameters!(container, RequirementTimeSeriesParameter, services, model)
+    for service in services
+        contributing_devices = get_contributing_devices(model, PSY.get_name(service))
+        add_service_variables!(
+            container,
+            ActivePowerReserveVariable,
+            service,
+            contributing_devices,
+            RangeReserve,
+        )
+        add_to_expression!(
+            container,
+            ActivePowerReserveVariable,
+            service,
+            model,
+            devices_template,
+        )
+        add_feedforward_arguments!(container, model, service)
+    end
     return
 end
 
-function construct_service!(
-    container::OptimizationContainer,
-    sys::PSY.System,
-    ::ModelConstructStage,
-    model::ServiceModel{SR, RangeReserve},
-    devices_template::Dict{Symbol, DeviceModel},
-    incompatible_device_types::Set{<:DataType},
-    ::NetworkModel{<:AbstractNetworkModel},
-) where {SR <: PSY.Reserve}
-    name = get_service_name(model)
-    service = PSY.get_component(SR, sys, name)
-    !PSY.get_available(service) && return
-    contributing_devices = get_contributing_devices(model)
-
-    add_constraints!(container, RequirementConstraint, service, contributing_devices, model)
-    add_constraints!(
-        container,
-        ParticipationFractionConstraint,
-        service,
-        contributing_devices,
-        model,
-    )
-    add_to_objective_function!(container, service, model)
-
-    add_feedforward_constraints!(container, model, service)
-
-    add_constraint_dual!(container, sys, model)
-
-    return
-end
-
+# ConstantReserve has no requirement time series, so its argument stage skips the
+# parameter add. The model stage is the shared `SR <: PSY.AbstractReserve` method below.
 function construct_service!(
     container::OptimizationContainer,
     sys::PSY.System,
@@ -146,23 +141,31 @@ function construct_service!(
     incompatible_device_types::Set{<:DataType},
     ::NetworkModel{<:AbstractNetworkModel},
 ) where {SR <: PSY.ConstantReserve}
-    name = get_service_name(model)
-    service = PSY.get_component(SR, sys, name)
-    !PSY.get_available(service) && return
-    contributing_devices = get_contributing_devices(model)
-
-    add_service_variables!(
-        container,
-        ActivePowerReserveVariable,
-        service,
-        contributing_devices,
-        RangeReserve,
-    )
-    add_to_expression!(container, ActivePowerReserveVariable, model, devices_template)
-    add_feedforward_arguments!(container, model, service)
+    services = _services_with_contributors(model, sys)
+    isempty(services) && return
+    for service in services
+        contributing_devices = get_contributing_devices(model, PSY.get_name(service))
+        add_service_variables!(
+            container,
+            ActivePowerReserveVariable,
+            service,
+            contributing_devices,
+            RangeReserve,
+        )
+        add_to_expression!(
+            container,
+            ActivePowerReserveVariable,
+            service,
+            model,
+            devices_template,
+        )
+        add_feedforward_arguments!(container, model, service)
+    end
     return
 end
 
+# Shared RangeReserve model stage for both `PSY.Reserve` and `PSY.ConstantReserve`;
+# the inner `add_constraints!` calls resolve per service type.
 function construct_service!(
     container::OptimizationContainer,
     sys::PSY.System,
@@ -171,24 +174,28 @@ function construct_service!(
     devices_template::Dict{Symbol, DeviceModel},
     incompatible_device_types::Set{<:DataType},
     ::NetworkModel{<:AbstractNetworkModel},
-) where {SR <: PSY.ConstantReserve}
-    name = get_service_name(model)
-    service = PSY.get_component(SR, sys, name)
-    !PSY.get_available(service) && return
-    contributing_devices = get_contributing_devices(model)
-
-    add_constraints!(container, RequirementConstraint, service, contributing_devices, model)
-    add_constraints!(
-        container,
-        ParticipationFractionConstraint,
-        service,
-        contributing_devices,
-        model,
-    )
-    add_to_objective_function!(container, service, model)
-
-    add_feedforward_constraints!(container, model, service)
-
+) where {SR <: PSY.AbstractReserve}
+    services = _services_with_contributors(model, sys)
+    isempty(services) && return
+    for service in services
+        contributing_devices = get_contributing_devices(model, PSY.get_name(service))
+        add_constraints!(
+            container,
+            RequirementConstraint,
+            service,
+            contributing_devices,
+            model,
+        )
+        add_constraints!(
+            container,
+            ParticipationFractionConstraint,
+            service,
+            contributing_devices,
+            model,
+        )
+        add_to_objective_function!(container, service, model)
+        add_feedforward_constraints!(container, model, service)
+    end
     add_constraint_dual!(container, sys, model)
     return
 end
@@ -206,26 +213,33 @@ function construct_service!(
     incompatible_device_types::Set{<:DataType},
     ::NetworkModel{<:AbstractNetworkModel},
 ) where {SR <: PSY.Reserve}
-    name = get_service_name(model)
-    service = PSY.get_component(SR, sys, name)
-    !PSY.get_available(service) && return
-    contributing_devices = get_contributing_devices(model)
-    _maybe_process_stepwise(container, model, service)
+    services = _services_with_contributors(model, sys)
+    isempty(services) && return
     add_reserve_variables!(
         container,
         ServiceRequirementVariable,
-        service,
+        services,
         StepwiseCostReserve(),
     )
-    add_service_variables!(
-        container,
-        ActivePowerReserveVariable,
-        service,
-        contributing_devices,
-        StepwiseCostReserve,
-    )
-    add_to_expression!(container, ActivePowerReserveVariable, model, devices_template)
-    add_expressions!(container, ProductionCostExpression, [service], model)
+    for service in services
+        contributing_devices = get_contributing_devices(model, PSY.get_name(service))
+        add_service_variables!(
+            container,
+            ActivePowerReserveVariable,
+            service,
+            contributing_devices,
+            StepwiseCostReserve,
+        )
+        _maybe_process_stepwise(container, model, service)
+        add_to_expression!(
+            container,
+            ActivePowerReserveVariable,
+            service,
+            model,
+            devices_template,
+        )
+        add_expressions!(container, ProductionCostExpression, [service], model)
+    end
     return
 end
 
@@ -238,17 +252,20 @@ function construct_service!(
     incompatible_device_types::Set{<:DataType},
     ::NetworkModel{<:AbstractNetworkModel},
 ) where {SR <: PSY.Reserve}
-    name = get_service_name(model)
-    service = PSY.get_component(SR, sys, name)
-    !PSY.get_available(service) && return
-    contributing_devices = get_contributing_devices(model)
-
-    add_constraints!(container, RequirementConstraint, service, contributing_devices, model)
-
-    add_to_objective_function!(container, service, model)
-
-    add_feedforward_constraints!(container, model, service)
-
+    services = _services_with_contributors(model, sys)
+    isempty(services) && return
+    for service in services
+        contributing_devices = get_contributing_devices(model, PSY.get_name(service))
+        add_constraints!(
+            container,
+            RequirementConstraint,
+            service,
+            contributing_devices,
+            model,
+        )
+        add_to_objective_function!(container, service, model)
+        add_feedforward_constraints!(container, model, service)
+    end
     add_constraint_dual!(container, sys, model)
     return
 end
@@ -360,13 +377,11 @@ function construct_service!(
     ::Set{<:DataType},
     ::NetworkModel{<:AbstractNetworkModel},
 ) where {SR <: PSY.ConstantReserveGroup}
-    name = get_service_name(model)
-    service = PSY.get_component(SR, sys, name)
-    !PSY.get_available(service) && return
-    contributing_services = PSY.get_contributing_services(service)
-    # check if variables exist
-    check_activeservice_variables(container, contributing_services)
-
+    for service in get_available_components(model, sys)
+        contributing_services = PSY.get_contributing_services(service)
+        # check if variables exist
+        check_activeservice_variables(container, contributing_services)
+    end
     return
 end
 
@@ -379,19 +394,16 @@ function construct_service!(
     ::Set{<:DataType},
     ::NetworkModel{<:AbstractNetworkModel},
 ) where {SR <: PSY.ConstantReserveGroup}
-    name = get_service_name(model)
-    service = PSY.get_component(SR, sys, name)
-    !PSY.get_available(service) && return
-    contributing_services = PSY.get_contributing_services(service)
-
-    add_constraints!(
-        container,
-        RequirementConstraint,
-        service,
-        contributing_services,
-        model,
-    )
-
+    for service in get_available_components(model, sys)
+        contributing_services = PSY.get_contributing_services(service)
+        add_constraints!(
+            container,
+            RequirementConstraint,
+            service,
+            contributing_services,
+            model,
+        )
+    end
     add_constraint_dual!(container, sys, model)
     return
 end
@@ -405,21 +417,27 @@ function construct_service!(
     incompatible_device_types::Set{<:DataType},
     ::NetworkModel{<:AbstractNetworkModel},
 ) where {SR <: PSY.Reserve}
-    name = get_service_name(model)
-    service = PSY.get_component(SR, sys, name)
-    !PSY.get_available(service) && return
-    contributing_devices = get_contributing_devices(model)
-    add_parameters!(container, RequirementTimeSeriesParameter, service, model)
-
-    add_service_variables!(
-        container,
-        ActivePowerReserveVariable,
-        service,
-        contributing_devices,
-        RampReserve,
-    )
-    add_to_expression!(container, ActivePowerReserveVariable, model, devices_template)
-    add_feedforward_arguments!(container, model, service)
+    services = _services_with_contributors(model, sys)
+    isempty(services) && return
+    add_parameters!(container, RequirementTimeSeriesParameter, services, model)
+    for service in services
+        contributing_devices = get_contributing_devices(model, PSY.get_name(service))
+        add_service_variables!(
+            container,
+            ActivePowerReserveVariable,
+            service,
+            contributing_devices,
+            RampReserve,
+        )
+        add_to_expression!(
+            container,
+            ActivePowerReserveVariable,
+            service,
+            model,
+            devices_template,
+        )
+        add_feedforward_arguments!(container, model, service)
+    end
     return
 end
 
@@ -432,25 +450,28 @@ function construct_service!(
     incompatible_device_types::Set{<:DataType},
     ::NetworkModel{<:AbstractNetworkModel},
 ) where {SR <: PSY.Reserve}
-    name = get_service_name(model)
-    service = PSY.get_component(SR, sys, name)
-    !PSY.get_available(service) && return
-    contributing_devices = get_contributing_devices(model)
-
-    add_constraints!(container, RequirementConstraint, service, contributing_devices, model)
-    add_constraints!(container, RampConstraint, service, contributing_devices, model)
-    add_constraints!(
-        container,
-        ParticipationFractionConstraint,
-        service,
-        contributing_devices,
-        model,
-    )
-
-    add_to_objective_function!(container, service, model)
-
-    add_feedforward_constraints!(container, model, service)
-
+    services = _services_with_contributors(model, sys)
+    isempty(services) && return
+    for service in services
+        contributing_devices = get_contributing_devices(model, PSY.get_name(service))
+        add_constraints!(
+            container,
+            RequirementConstraint,
+            service,
+            contributing_devices,
+            model,
+        )
+        add_constraints!(container, RampConstraint, service, contributing_devices, model)
+        add_constraints!(
+            container,
+            ParticipationFractionConstraint,
+            service,
+            contributing_devices,
+            model,
+        )
+        add_to_objective_function!(container, service, model)
+        add_feedforward_constraints!(container, model, service)
+    end
     add_constraint_dual!(container, sys, model)
     return
 end
@@ -464,20 +485,20 @@ function construct_service!(
     incompatible_device_types::Set{<:DataType},
     ::NetworkModel{<:AbstractNetworkModel},
 ) where {SR <: PSY.ReserveNonSpinning}
-    name = get_service_name(model)
-    service = PSY.get_component(SR, sys, name)
-    !PSY.get_available(service) && return
-    contributing_devices = get_contributing_devices(model)
-    add_parameters!(container, RequirementTimeSeriesParameter, service, model)
-
-    add_service_variables!(
-        container,
-        ActivePowerReserveVariable,
-        service,
-        contributing_devices,
-        NonSpinningReserve,
-    )
-    add_feedforward_arguments!(container, model, service)
+    services = _services_with_contributors(model, sys)
+    isempty(services) && return
+    add_parameters!(container, RequirementTimeSeriesParameter, services, model)
+    for service in services
+        contributing_devices = get_contributing_devices(model, PSY.get_name(service))
+        add_service_variables!(
+            container,
+            ActivePowerReserveVariable,
+            service,
+            contributing_devices,
+            NonSpinningReserve,
+        )
+        add_feedforward_arguments!(container, model, service)
+    end
     return
 end
 
@@ -490,32 +511,34 @@ function construct_service!(
     incompatible_device_types::Set{<:DataType},
     ::NetworkModel{<:AbstractNetworkModel},
 ) where {SR <: PSY.ReserveNonSpinning}
-    name = get_service_name(model)
-    service = PSY.get_component(SR, sys, name)
-    !PSY.get_available(service) && return
-    contributing_devices = get_contributing_devices(model)
-
-    add_constraints!(container, RequirementConstraint, service, contributing_devices, model)
-    add_constraints!(
-        container,
-        ReservePowerConstraint,
-        service,
-        contributing_devices,
-        model,
-    )
-
-    add_constraints!(
-        container,
-        ParticipationFractionConstraint,
-        service,
-        contributing_devices,
-        model,
-    )
-
-    add_to_objective_function!(container, service, model)
-
-    add_feedforward_constraints!(container, model, service)
-
+    services = _services_with_contributors(model, sys)
+    isempty(services) && return
+    for service in services
+        contributing_devices = get_contributing_devices(model, PSY.get_name(service))
+        add_constraints!(
+            container,
+            RequirementConstraint,
+            service,
+            contributing_devices,
+            model,
+        )
+        add_constraints!(
+            container,
+            ReservePowerConstraint,
+            service,
+            contributing_devices,
+            model,
+        )
+        add_constraints!(
+            container,
+            ParticipationFractionConstraint,
+            service,
+            contributing_devices,
+            model,
+        )
+        add_to_objective_function!(container, service, model)
+        add_feedforward_constraints!(container, model, service)
+    end
     add_constraint_dual!(container, sys, model)
     return
 end
@@ -530,20 +553,19 @@ function construct_service!(
     network_model::NetworkModel{<:AbstractNetworkModel},
 ) where {T <: PSY.TransmissionInterface}
     interfaces = get_available_components(model, sys)
-    interface = PSY.get_component(T, sys, get_service_name(model))
-    if get_use_slacks(model)
-        # Adding the slacks can be done in a cleaner fashion
-        @assert PSY.get_available(interface)
-        transmission_interface_slacks!(container, interface)
-    end
     # Lazy container addition for the expressions.
     lazy_container_addition!(container, InterfaceTotalFlow,
         T,
         PSY.get_name.(interfaces),
         get_time_steps(container),
     )
-
-    add_feedforward_arguments!(container, model, interface)
+    for interface in interfaces
+        if get_use_slacks(model)
+            # Adding the slacks can be done in a cleaner fashion
+            transmission_interface_slacks!(container, interface)
+        end
+        add_feedforward_arguments!(container, model, interface)
+    end
     return
 end
 
@@ -557,12 +579,6 @@ function construct_service!(
     network_model::NetworkModel{AreaBalanceNetworkModel},
 )
     interfaces = get_available_components(model, sys)
-    interface = PSY.get_component(PSY.TransmissionInterface, sys, get_service_name(model))
-    if get_use_slacks(model)
-        # Adding the slacks can be done in a cleaner fashion
-        @assert PSY.get_available(interface)
-        transmission_interface_slacks!(container, interface)
-    end
     # Lazy container addition for the expressions.
     lazy_container_addition!(container, InterfaceTotalFlow,
         PSY.TransmissionInterface,
@@ -570,7 +586,13 @@ function construct_service!(
         get_time_steps(container),
     )
     @warn "AreaBalanceNetworkModel doesn't model individual line flows and it ignores the flows on AC Transmission Devices"
-    add_feedforward_arguments!(container, model, interface)
+    for interface in interfaces
+        if get_use_slacks(model)
+            # Adding the slacks can be done in a cleaner fashion
+            transmission_interface_slacks!(container, interface)
+        end
+        add_feedforward_arguments!(container, model, interface)
+    end
     return
 end
 
@@ -583,40 +605,38 @@ function construct_service!(
     incompatible_device_types::Set{<:DataType},
     network_model::NetworkModel{<:AbstractActivePowerModel},
 )
-    name = get_service_name(model)
-    service = PSY.get_component(PSY.TransmissionInterface, sys, name)
-    !PSY.get_available(service) && return
-
-    add_to_expression!(
-        container,
-        InterfaceTotalFlow,
-        FlowActivePowerVariable,
-        service,
-        model,
-        network_model,
-    )
-
-    if get_use_slacks(model)
+    for service in get_available_components(model, sys)
         add_to_expression!(
             container,
             InterfaceTotalFlow,
-            InterfaceFlowSlackUp,
+            FlowActivePowerVariable,
             service,
             model,
+            network_model,
         )
-        add_to_expression!(
-            container,
-            InterfaceTotalFlow,
-            InterfaceFlowSlackDown,
-            service,
-            model,
-        )
+
+        if get_use_slacks(model)
+            add_to_expression!(
+                container,
+                InterfaceTotalFlow,
+                InterfaceFlowSlackUp,
+                service,
+                model,
+            )
+            add_to_expression!(
+                container,
+                InterfaceTotalFlow,
+                InterfaceFlowSlackDown,
+                service,
+                model,
+            )
+        end
+
+        add_constraints!(container, InterfaceFlowLimit, service, model)
+        add_feedforward_constraints!(container, model, service)
+        add_to_objective_function!(container, service, model)
     end
-
-    add_constraints!(container, InterfaceFlowLimit, service, model)
-    add_feedforward_constraints!(container, model, service)
     add_constraint_dual!(container, sys, model)
-    add_to_objective_function!(container, service, model)
     return
 end
 
@@ -629,40 +649,38 @@ function construct_service!(
     incompatible_device_types::Set{<:DataType},
     network_model::NetworkModel{PTDFNetworkModel},
 )
-    name = get_service_name(model)
-    service = PSY.get_component(PSY.TransmissionInterface, sys, name)
-    !PSY.get_available(service) && return
-
-    add_to_expression!(
-        container,
-        InterfaceTotalFlow,
-        PTDFBranchFlow,
-        service,
-        model,
-        network_model,
-    )
-
-    if get_use_slacks(model)
+    for service in get_available_components(model, sys)
         add_to_expression!(
             container,
             InterfaceTotalFlow,
-            InterfaceFlowSlackUp,
+            PTDFBranchFlow,
             service,
             model,
+            network_model,
         )
-        add_to_expression!(
-            container,
-            InterfaceTotalFlow,
-            InterfaceFlowSlackDown,
-            service,
-            model,
-        )
+
+        if get_use_slacks(model)
+            add_to_expression!(
+                container,
+                InterfaceTotalFlow,
+                InterfaceFlowSlackUp,
+                service,
+                model,
+            )
+            add_to_expression!(
+                container,
+                InterfaceTotalFlow,
+                InterfaceFlowSlackDown,
+                service,
+                model,
+            )
+        end
+
+        add_constraints!(container, InterfaceFlowLimit, service, model)
+        add_feedforward_constraints!(container, model, service)
+        add_to_objective_function!(container, service, model)
     end
-
-    add_constraints!(container, InterfaceFlowLimit, service, model)
-    add_feedforward_constraints!(container, model, service)
     add_constraint_dual!(container, sys, model)
-    add_to_objective_function!(container, service, model)
     return
 end
 
@@ -675,51 +693,49 @@ function construct_service!(
     incompatible_device_types::Set{<:DataType},
     network_model::NetworkModel{AreaPTDFNetworkModel},
 )
-    name = get_service_name(model)
-    service = PSY.get_component(PSY.TransmissionInterface, sys, name)
-    !PSY.get_available(service) && return
-
-    # This function makes interfaces for the AC Branches
-    add_to_expression!(
-        container,
-        InterfaceTotalFlow,
-        PTDFBranchFlow,
-        service,
-        model,
-        network_model,
-    )
-
-    # This function makes interfaces for the interchanges
-    add_to_expression!(
-        container,
-        InterfaceTotalFlow,
-        FlowActivePowerVariable,
-        service,
-        model,
-        network_model,
-    )
-
-    if get_use_slacks(model)
+    for service in get_available_components(model, sys)
+        # This function makes interfaces for the AC Branches
         add_to_expression!(
             container,
             InterfaceTotalFlow,
-            InterfaceFlowSlackUp,
+            PTDFBranchFlow,
             service,
             model,
+            network_model,
         )
+
+        # This function makes interfaces for the interchanges
         add_to_expression!(
             container,
             InterfaceTotalFlow,
-            InterfaceFlowSlackDown,
+            FlowActivePowerVariable,
             service,
             model,
+            network_model,
         )
+
+        if get_use_slacks(model)
+            add_to_expression!(
+                container,
+                InterfaceTotalFlow,
+                InterfaceFlowSlackUp,
+                service,
+                model,
+            )
+            add_to_expression!(
+                container,
+                InterfaceTotalFlow,
+                InterfaceFlowSlackDown,
+                service,
+                model,
+            )
+        end
+
+        add_constraints!(container, InterfaceFlowLimit, service, model)
+        add_feedforward_constraints!(container, model, service)
+        add_to_objective_function!(container, service, model)
     end
-
-    add_constraints!(container, InterfaceFlowLimit, service, model)
-    add_feedforward_constraints!(container, model, service)
     add_constraint_dual!(container, sys, model)
-    add_to_objective_function!(container, service, model)
     return
 end
 
@@ -732,41 +748,39 @@ function construct_service!(
     incompatible_device_types::Set{<:DataType},
     network_model::NetworkModel{<:AbstractPTDFNetworkModel},
 )
-    name = get_service_name(model)
-    service = PSY.get_component(PSY.TransmissionInterface, sys, name)
-    !PSY.get_available(service) && return
-
-    # This function makes interfaces for the AC Branches
-    add_to_expression!(
-        container,
-        InterfaceTotalFlow,
-        PTDFBranchFlow,
-        service,
-        model,
-        network_model,
-    )
-
-    if get_use_slacks(model)
+    for service in get_available_components(model, sys)
+        # This function makes interfaces for the AC Branches
         add_to_expression!(
             container,
             InterfaceTotalFlow,
-            InterfaceFlowSlackUp,
+            PTDFBranchFlow,
             service,
             model,
+            network_model,
         )
-        add_to_expression!(
-            container,
-            InterfaceTotalFlow,
-            InterfaceFlowSlackDown,
-            service,
-            model,
-        )
+
+        if get_use_slacks(model)
+            add_to_expression!(
+                container,
+                InterfaceTotalFlow,
+                InterfaceFlowSlackUp,
+                service,
+                model,
+            )
+            add_to_expression!(
+                container,
+                InterfaceTotalFlow,
+                InterfaceFlowSlackDown,
+                service,
+                model,
+            )
+        end
+
+        add_constraints!(container, InterfaceFlowLimit, service, model)
+        add_feedforward_constraints!(container, model, service)
+        add_to_objective_function!(container, service, model)
     end
-
-    add_constraints!(container, InterfaceFlowLimit, service, model)
-    add_feedforward_constraints!(container, model, service)
     add_constraint_dual!(container, sys, model)
-    add_to_objective_function!(container, service, model)
     return
 end
 
@@ -796,13 +810,6 @@ function construct_service!(
     network_model::NetworkModel{<:AbstractNetworkModel},
 )
     interfaces = get_available_components(model, sys)
-    if get_use_slacks(model)
-        # Adding the slacks can be done in a cleaner fashion
-        interface =
-            PSY.get_component(PSY.TransmissionInterface, sys, get_service_name(model))
-        @assert PSY.get_available(interface)
-        transmission_interface_slacks!(container, interface)
-    end
     # Lazy container addition for the expressions.
     lazy_container_addition!(container, InterfaceTotalFlow,
         PSY.TransmissionInterface,
@@ -815,21 +822,24 @@ function construct_service!(
             "Not all TransmissionInterfaces devices have time series. Check data to complete (or remove) time series.",
         )
     end
-    if all(has_ts)
-        for device in interfaces
-            name = PSY.get_name(device)
-            num_ts = length(unique(PSY.get_name.(PSY.get_time_series_keys(device))))
+    for interface in interfaces
+        if get_use_slacks(model)
+            # Adding the slacks can be done in a cleaner fashion
+            transmission_interface_slacks!(container, interface)
+        end
+        if all(has_ts)
+            name = PSY.get_name(interface)
+            num_ts = length(unique(PSY.get_name.(PSY.get_time_series_keys(interface))))
             if num_ts < 2
                 error(
                     "TransmissionInterface $name has less than two time series. It is required to add both min_flow and max_flow time series.",
                 )
             end
-            add_parameters!(container, MinInterfaceFlowLimitParameter, device, model)
-            add_parameters!(container, MaxInterfaceFlowLimitParameter, device, model)
+            add_parameters!(container, MinInterfaceFlowLimitParameter, interface, model)
+            add_parameters!(container, MaxInterfaceFlowLimitParameter, interface, model)
         end
+        add_feedforward_arguments!(container, model, interface)
     end
-    interface = PSY.get_component(PSY.TransmissionInterface, sys, get_service_name(model))
-    add_feedforward_arguments!(container, model, interface)
     return
 end
 
@@ -842,39 +852,37 @@ function construct_service!(
     incompatible_device_types::Set{<:DataType},
     network_model::NetworkModel{<:AbstractActivePowerModel},
 ) where {U <: Union{ConstantMaxInterfaceFlow, VariableMaxInterfaceFlow}}
-    name = get_service_name(model)
-    service = PSY.get_component(PSY.TransmissionInterface, sys, name)
-    !PSY.get_available(service) && return
-
-    add_to_expression!(
-        container,
-        InterfaceTotalFlow,
-        FlowActivePowerVariable,
-        service,
-        model,
-        network_model,
-    )
-
-    if get_use_slacks(model)
+    for service in get_available_components(model, sys)
         add_to_expression!(
             container,
             InterfaceTotalFlow,
-            InterfaceFlowSlackUp,
+            FlowActivePowerVariable,
             service,
             model,
+            network_model,
         )
-        add_to_expression!(
-            container,
-            InterfaceTotalFlow,
-            InterfaceFlowSlackDown,
-            service,
-            model,
-        )
+
+        if get_use_slacks(model)
+            add_to_expression!(
+                container,
+                InterfaceTotalFlow,
+                InterfaceFlowSlackUp,
+                service,
+                model,
+            )
+            add_to_expression!(
+                container,
+                InterfaceTotalFlow,
+                InterfaceFlowSlackDown,
+                service,
+                model,
+            )
+        end
+
+        add_constraints!(container, InterfaceFlowLimit, service, model)
+        add_feedforward_constraints!(container, model, service)
+        add_to_objective_function!(container, service, model)
     end
-
-    add_constraints!(container, InterfaceFlowLimit, service, model)
-    add_feedforward_constraints!(container, model, service)
     add_constraint_dual!(container, sys, model)
-    add_to_objective_function!(container, service, model)
     return
 end
