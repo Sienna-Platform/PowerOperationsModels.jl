@@ -151,7 +151,9 @@ end
                 InterconnectingConverter,
             ).data,
         )
-    @test isapprox(abs_i_vals, abs.(i_vals); atol = 1e-6)
+    # atol must stay above the solver's relaxed mip_feasibility_tolerance (1e-5):
+    # the abs-value linking constraints are only satisfied to that tolerance.
+    @test isapprox(abs_i_vals, abs.(i_vals); atol = 1e-4)
 end
 
 @testset "QuadraticLossConverter builds under representative bilinear schemes" begin
