@@ -232,6 +232,38 @@ reserves did, also do the following cleanup:
   method — assuming no other per-service `TimeSeriesParameter` caller remains (grep to
   confirm before removing).
 
+## Deferred: type-stability follow-ups (luke-kiernan PR #141 review)
+
+Two build-time type-instability spots luke flagged. The low-risk parts are done; the
+function-barrier / structural parts are deferred to revisit once the refactor settles.
+
+- **Dual loop** (`add_constraint_dual.jl` service method). DONE: use `constraint_type`
+  directly instead of the redundant `get_entry_type(key)` (IOM `4a11ebd`). DEFERRED: genuine
+  stability is NOT reachable with a function barrier here — verified `@code_warntype` red on
+  `key::ConstraintKey`, `existing::Any`, `dual_key::Any` even inside a concrete-typed barrier.
+  Roots are structural: `OptimizationContainer.constraints::OrderedDict{ConstraintKey,
+  JuMPArray}` has abstract key/value types, the `ConstraintKey` constructor doesn't infer
+  concretely, and `duals::Vector{DataType}`. A real fix means concrete-parameterizing the
+  container's dict key/value types (and the `duals` field) across DeviceModel/NetworkModel/
+  ServiceModel — a broad IOM change touching a surface CLAUDE.md warns against churning, and
+  this runs once per build over a handful of keys. Track as a separate structural issue if
+  ever justified; the Dense-vs-Sparse dispatch that matters is already a multiple-dispatch
+  barrier via `_assign_dual_from_existing!`. REJECTED: meta-registry (removes no dispatch;
+  adds container bookkeeping).
+- **Contributing-device flatten** (`get_contributing_devices`, `service_model.jl`). DONE:
+  the model-skip guard no longer flattens (`isempty(get_contributing_devices_map(m))`, POM
+  `ddbed2b`). DEFERRED: the per-type-group function barrier — iterate the map's
+  `Dict{DataType, Vector}` groups (each runtime-concrete) and call the existing barriers
+  (`add_service_variables!`, `_sum_service_reserves`, participation/ramp/reserve-power) once
+  per homogeneous group, recovering stability for multi-type reserves. It's the correct
+  shape (mirrors the fold at `add_to_expression.jl:2453`) but: (a) only helps mixed-type
+  reserves — single-type is already stable and `add_service_variables!` is already a barrier;
+  (b) build-time only, dispatch ~1.6% of per-device cost (JuMP `@variable` dominates ~60x);
+  (c) changes the `lazy_container_addition!` merge cadence (one slice per service -> per
+  group), needing test re-verification. Low priority; revisit when the refactor is ready.
+  REJECTED: IS #505 typed-heterogeneous container + `@generated` (heavy, unjustified for a
+  build-time path when the per-group barrier reuses existing machinery).
+
 ## Failure-mode analysis
 
 | # | Codepath | Realistic failure | Covered? | Gap |
