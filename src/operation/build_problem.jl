@@ -27,6 +27,40 @@ function initialize_hvdc_system!(
     return
 end
 
+_is_solver_sos_set(::Type{<:JuMP.MOI.AbstractSet}) = false
+_is_solver_sos_set(::Type{<:JuMP.MOI.SOS1}) = true
+_is_solver_sos_set(::Type{<:JuMP.MOI.SOS2}) = true
+
+# Duals on a model with explicit solver SOS1/SOS2 constraints silently come back NaN:
+# the MILP dual path (JuMP.fix_discrete_variables) relaxes only binary/integer
+# variables, never SOS sets, so the re-solved model has no duals to read.
+function _validate_dual_sos_compatibility(container::OptimizationContainer)
+    duals = get_duals(container)
+    isempty(duals) && return
+    jump_model = get_jump_model(container)
+    sos_constraint_count = 0
+    for (F, S) in JuMP.list_of_constraint_types(jump_model)
+        _is_solver_sos_set(S) || continue
+        sos_constraint_count += JuMP.num_constraints(jump_model, F, S)
+    end
+    if sos_constraint_count > 0
+        dual_key_names = join(IOM.encode_key_as_string.(keys(duals)), ", ")
+        throw(
+            IS.ConflictingInputsError(
+                "Duals were requested for [$dual_key_names] but the model contains " *
+                "$sos_constraint_count solver SOS1/SOS2 constraint(s). MILP dual " *
+                "computation (JuMP.fix_discrete_variables) relaxes only binary/integer " *
+                "variables, not SOS constraints, so the resulting dual values would be " *
+                "NaN. Remove `duals = ...` from the affected DeviceModel/NetworkModel, " *
+                "use a convex cost representation to avoid the solver-native SOS2 " *
+                "piecewise-linear path, or configure a manual binary-based SOS2 " *
+                "approximation (e.g. `ManualSOS2QuadConfig`) instead.",
+            ),
+        )
+    end
+    return
+end
+
 # Guards each construct_device! call site below: under a subsystem-partitioned
 # network model, the same template's DeviceModels are reused across builds
 # scoped to different subsystems, and a DeviceModel whose component type has no
@@ -204,5 +238,6 @@ function build_problem!(
         add_power_flow_data!(container, transmission_model, sys)
     end
     IOM.check_optimization_container(container)
+    _validate_dual_sos_compatibility(container)
     return
 end
