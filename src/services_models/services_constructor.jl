@@ -13,7 +13,7 @@ function _services_with_contributors(
 )
     return [
         s for s in get_available_components(model, sys) if
-        !isempty(get_contributing_devices(model, PSY.get_name(s)))
+        !isempty(get_contributing_devices_map(model, PSY.get_name(s)))
     ]
 end
 
