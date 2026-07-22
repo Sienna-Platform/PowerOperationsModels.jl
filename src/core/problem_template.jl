@@ -257,6 +257,10 @@ function _populate_contributing_devices!(
                     )
                 end
             end
+            # TODO(transmission interface, Q5): the check is reserve-scoped, so a
+            # TransmissionInterface with no contributing branches (or all-unavailable
+            # branches) still populates silently. Extend an equivalent loud error to the
+            # interface path when the interface migration lands.
             if service_type <: PSY.Reserve &&
                isempty(get_contributing_devices_map(service_model, service_name))
                 error(
