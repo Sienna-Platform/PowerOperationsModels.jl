@@ -137,7 +137,7 @@ end
     set_hvdc_network_model!(template, VoltageDispatchHVDCNetworkModel)
     model = DecisionModel(
         template, sys;
-        store_variable_names = true, optimizer = HiGHS_optimizer_single_threaded,
+        store_variable_names = true, optimizer = HiGHS_optimizer,
         horizon = _HVDC_TEST_HORIZON,
     )
     @test build!(model; output_dir = mktempdir(; cleanup = true)) ==

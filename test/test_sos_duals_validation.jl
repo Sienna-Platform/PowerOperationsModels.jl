@@ -78,7 +78,7 @@ end
     model = DecisionModel(
         template,
         sys;
-        optimizer = HiGHS_optimizer_single_threaded,
+        optimizer = HiGHS_optimizer,
         horizon = Hour(2),
     )
     @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
@@ -88,8 +88,10 @@ end
     @test JuMP.num_constraints(jump_model, JuMP.VariableRef, JuMP.MOI.ZeroOne) > 0
     sos2_constraint_count = 0
     for (F, S) in JuMP.list_of_constraint_types(jump_model)
-        POM._is_solver_sos_set(S) || continue
+        @show ("b", F, S)
+        POM._is_solver_sos_set(S) || println("b Not SOS") === nothing && continue
         sos2_constraint_count += JuMP.num_constraints(jump_model, F, S)
+        @show ("b", sos2_constraint_count)
     end
     @test sos2_constraint_count == 0
 
