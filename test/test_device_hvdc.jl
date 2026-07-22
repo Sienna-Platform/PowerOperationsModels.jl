@@ -1,3 +1,6 @@
+# Short horizon keeps every MILP small; moi_tests counts below assume this horizon.
+const _HVDC_TEST_HORIZON = Hour(2)
+
 @testset "HVDC System Tests" begin
     sys_5 = build_system(PSISystems, "sys10_pjm_ac_dc")
     template_uc = PowerOperationsProblemTemplate(NetworkModel(
@@ -16,12 +19,11 @@
     set_hvdc_network_model!(template_uc, TransportHVDCNetworkModel)
     model = DecisionModel(
         template_uc, sys_5;
-        name = "UC", optimizer = HiGHS_optimizer, horizon = Hour(2),
+        name = "UC", optimizer = HiGHS_optimizer, horizon = _HVDC_TEST_HORIZON,
     )
     @test build!(model; output_dir = mktempdir()) == IOM.ModelBuildStatus.BUILT
     # StaticBranch under DCP carries flow as the BThetaBranchFlow expression (no
     # FlowActivePowerVariable, no Ohm's-law equality): -24 variables and -24 equalities.
-    # Counts are for a 2-step horizon (per-step scaling confirmed against 24-step baseline).
     moi_tests(model, 114, 24, 104, 44, 52, true)
     @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
 
@@ -43,7 +45,7 @@
     set_hvdc_network_model!(template_uc, TransportHVDCNetworkModel)
     model = DecisionModel(
         template_uc, sys_5;
-        name = "UC", optimizer = HiGHS_optimizer, horizon = Hour(2),
+        name = "UC", optimizer = HiGHS_optimizer, horizon = _HVDC_TEST_HORIZON,
     )
     @test build!(model; output_dir = mktempdir()) == IOM.ModelBuildStatus.BUILT
     moi_tests(model, 94, 0, 104, 44, 32, true)
@@ -102,7 +104,7 @@ end
             sys;
             store_variable_names = true,
             optimizer = HiGHS_optimizer,
-            horizon = Hour(2),
+            horizon = _HVDC_TEST_HORIZON,
         )
     @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
           IOM.ModelBuildStatus.BUILT
@@ -130,7 +132,7 @@ end
     model = DecisionModel(
         template, sys;
         store_variable_names = true, optimizer = HiGHS_optimizer_single_threaded,
-        horizon = Hour(2),
+        horizon = _HVDC_TEST_HORIZON,
     )
     @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
           IOM.ModelBuildStatus.BUILT
@@ -168,7 +170,12 @@ end
             ),
         )
         set_hvdc_network_model!(template, VoltageDispatchHVDCNetworkModel)
-        model = DecisionModel(template, sys; optimizer = HiGHS_optimizer, horizon = Hour(2))
+        model = DecisionModel(
+            template,
+            sys;
+            optimizer = HiGHS_optimizer,
+            horizon = _HVDC_TEST_HORIZON,
+        )
         @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
               IOM.ModelBuildStatus.BUILT
     end
@@ -245,7 +252,7 @@ function _build_vsc_model(
     set_device_model!(template, converter_model)
     return DecisionModel(
         template, sys;
-        store_variable_names = true, optimizer = optimizer, horizon = Hour(2),
+        store_variable_names = true, optimizer = optimizer, horizon = _HVDC_TEST_HORIZON,
     )
 end
 
@@ -299,7 +306,12 @@ end
                 attributes = Dict{String, Any}("bilinear_approximation" => scheme),
             ),
         )
-        model = DecisionModel(template, sys; optimizer = HiGHS_optimizer, horizon = Hour(2))
+        model = DecisionModel(
+            template,
+            sys;
+            optimizer = HiGHS_optimizer,
+            horizon = _HVDC_TEST_HORIZON,
+        )
         @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
               IOM.ModelBuildStatus.BUILT
     end
