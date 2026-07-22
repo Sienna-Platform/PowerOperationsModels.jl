@@ -34,7 +34,7 @@ function construct_services!(
             groupservice = key
             continue
         end
-        isempty(get_contributing_devices(service_model)) && continue
+        isempty(get_contributing_devices_map(service_model)) && continue
         construct_service!(
             container,
             sys,
@@ -74,7 +74,7 @@ function construct_services!(
             groupservice = key
             continue
         end
-        isempty(get_contributing_devices(service_model)) && continue
+        isempty(get_contributing_devices_map(service_model)) && continue
         construct_service!(
             container,
             sys,
