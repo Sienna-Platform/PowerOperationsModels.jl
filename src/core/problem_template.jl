@@ -227,28 +227,40 @@ function _populate_contributing_devices!(
         empty!(service_models)
         return
     end
-    # One model per service type; fill the per-service nested map for every service of
-    # each type. A service whose contributing set is empty is simply left out of the map;
-    # a type may legitimately have some services with no modeled contributors.
+    # One model per service type; fill the per-service nested map for every available
+    # service of each type. `get_available_components` already restricts this loop to
+    # available services, and `_add_contributing_device_by_type!` records only available,
+    # modeled, compatible devices (PSY's mapping includes unavailable ones). After
+    # populating each reserve we require at least one such device: a modeled reserve with no
+    # available provider can never meet its requirement - it would silently force slacks or
+    # make the model infeasible - so error loudly and name it rather than dropping it.
+    # Non-reserve services (ConstantReserveGroup, TransmissionInterface, AGC) draw on other
+    # services or branches, not provider devices, so they are exempt from the check.
     for (service_key, service_model) in service_models
         @debug "Populating service model $(service_key)"
         empty!(get_contributing_devices_map(service_model))
+        service_type = get_component_type(service_model)
         for service in get_available_components(service_model, sys)
             service_name = PSY.get_name(service)
             # Key by the concrete service type. The model type can be a UnionAll
             # (e.g. PSY6 parameterized `ReserveDemandCurve{ReserveUp}` on a unit-system
             # type), but `get_contributing_device_mapping` keys by `typeof(service)`.
             service_devices_key = (type = typeof(service), name = service_name)
-            haskey(services_mapping, service_devices_key) || continue
-            contributing_devices_ =
-                services_mapping[service_devices_key].contributing_devices
-            for d in contributing_devices_
-                _add_contributing_device_by_type!(
-                    service_model,
-                    service_name,
-                    d,
-                    incompatible_device_types,
-                    modeled_devices,
+            if haskey(services_mapping, service_devices_key)
+                for d in services_mapping[service_devices_key].contributing_devices
+                    _add_contributing_device_by_type!(
+                        service_model,
+                        service_name,
+                        d,
+                        incompatible_device_types,
+                        modeled_devices,
+                    )
+                end
+            end
+            if service_type <: PSY.Reserve &&
+               isempty(get_contributing_devices_map(service_model, service_name))
+                error(
+                    "Reserve service \"$(service_name)\" of type $(typeof(service)) has no available contributing devices. Assign available contributing devices to it in the system data, or remove its service model from the template.",
                 )
             end
         end

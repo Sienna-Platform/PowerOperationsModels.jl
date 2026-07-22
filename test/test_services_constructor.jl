@@ -165,6 +165,54 @@ end
     end
 end
 
+@testset "Per-type populate errors when one service of the type has no contributing devices" begin
+    # Under the per-type ServiceModel, one model covers every VariableReserve{ReserveUp}
+    # service. A modeled reserve with no available contributing device can never meet its
+    # requirement, so `_populate_contributing_devices!` (run in the DecisionModel
+    # constructor) must error and name the offending service - not silently drop it.
+    # `deepcopy` so the added service does not leak into the PSB-cached system.
+    sys = deepcopy(PSB.build_system(PSITestSystems, "c_sys5_uc"; add_reserves = true))
+    # A second service of the same type, added with no contributing devices.
+    empty_reserve = VariableReserve{ReserveUp}("ReserveNoDevices", true, 5.0, 0.1)
+    PSY.add_service!(sys, empty_reserve, PSY.Device[])
+
+    template = get_thermal_dispatch_template_network(CopperPlateNetworkModel)
+    set_service_model!(template, ServiceModel(VariableReserve{ReserveUp}, RangeReserve))
+    @test_throws "ReserveNoDevices" DecisionModel(
+        template,
+        sys;
+        optimizer = HiGHS_optimizer,
+    )
+end
+
+@testset "Per-type populate errors when all contributing devices are unavailable" begin
+    # A reserve can have contributing devices assigned in the data yet still have none
+    # *available*. `_add_contributing_device_by_type!` records only available devices, so
+    # the per-service map ends up empty and the constructor must error - the reserve has no
+    # usable provider. `deepcopy` so the availability edits do not leak into the cache.
+    sys = deepcopy(PSB.build_system(PSITestSystems, "c_sys5_uc"; add_reserves = true))
+    reserve = PSY.get_component(VariableReserve{ReserveUp}, sys, "Reserve1")
+    n_disabled = 0
+    for d in PSY.get_components(PSY.Device, sys)
+        PSY.supports_services(d) || continue
+        if any(s -> s === reserve, PSY.get_services(d))
+            PSY.set_available!(d, false)
+            n_disabled += 1
+        end
+    end
+    # Premise check: the reserve really did have contributing devices before we disabled
+    # them, so this exercises the all-unavailable path, not the no-devices-assigned path.
+    @test n_disabled > 0
+
+    template = get_thermal_dispatch_template_network(CopperPlateNetworkModel)
+    set_service_model!(template, ServiceModel(VariableReserve{ReserveUp}, RangeReserve))
+    @test_throws "no available contributing devices" DecisionModel(
+        template,
+        sys;
+        optimizer = HiGHS_optimizer,
+    )
+end
+
 @testset "Test use_slacks is per type" begin
     # `use_slacks` is set on the per-type `ServiceModel`, not per-service. Confirm both
     # directions: when true, the dense ReserveRequirementSlack container spans ALL
