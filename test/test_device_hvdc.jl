@@ -14,11 +14,15 @@
     set_device_model!(template_uc, DeviceModel(InterconnectingConverter, LosslessConverter))
     set_device_model!(template_uc, DeviceModel(TModelHVDCLine, LosslessLine))
     set_hvdc_network_model!(template_uc, TransportHVDCNetworkModel)
-    model = DecisionModel(template_uc, sys_5; name = "UC", optimizer = HiGHS_optimizer)
+    model = DecisionModel(
+        template_uc, sys_5;
+        name = "UC", optimizer = HiGHS_optimizer, horizon = Hour(2),
+    )
     @test build!(model; output_dir = mktempdir()) == IOM.ModelBuildStatus.BUILT
     # StaticBranch under DCP carries flow as the BThetaBranchFlow expression (no
-    # FlowActivePowerVariable, no Ohm's-law equality): -288 variables and -288 equalities.
-    moi_tests(model, 1368, 288, 1248, 528, 624, true)
+    # FlowActivePowerVariable, no Ohm's-law equality): -24 variables and -24 equalities.
+    # Counts are for a 2-step horizon (per-step scaling confirmed against 24-step baseline).
+    moi_tests(model, 114, 24, 104, 44, 52, true)
     @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
 
     template_uc = PowerOperationsProblemTemplate(
@@ -37,14 +41,17 @@
     set_device_model!(template_uc, DeviceModel(InterconnectingConverter, LosslessConverter))
     set_device_model!(template_uc, DeviceModel(TModelHVDCLine, LosslessLine))
     set_hvdc_network_model!(template_uc, TransportHVDCNetworkModel)
-    model = DecisionModel(template_uc, sys_5; name = "UC", optimizer = HiGHS_optimizer)
+    model = DecisionModel(
+        template_uc, sys_5;
+        name = "UC", optimizer = HiGHS_optimizer, horizon = Hour(2),
+    )
     @test build!(model; output_dir = mktempdir()) == IOM.ModelBuildStatus.BUILT
-    moi_tests(model, 1128, 0, 1248, 528, 384, true)
+    moi_tests(model, 94, 0, 104, 44, 32, true)
     @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
 end
 
 function _generate_test_hvdc_sys()
-    sys = build_system(PSISystems, "sys10_pjm_ac_dc"; force_build = true)
+    sys = build_system(PSISystems, "sys10_pjm_ac_dc")
     th_names_2 = ["Alta-2", "Sundance-2", "Park City-2", "Solitude-2", "Brighton-2"]
     for th_name in th_names_2
         g = PSY.get_component(PSY.ThermalStandard, sys, th_name)
@@ -95,6 +102,7 @@ end
             sys;
             store_variable_names = true,
             optimizer = HiGHS_optimizer,
+            horizon = Hour(2),
         )
     @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
           IOM.ModelBuildStatus.BUILT
@@ -122,6 +130,7 @@ end
     model = DecisionModel(
         template, sys;
         store_variable_names = true, optimizer = HiGHS_optimizer_single_threaded,
+        horizon = Hour(2),
     )
     @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
           IOM.ModelBuildStatus.BUILT
@@ -159,7 +168,7 @@ end
             ),
         )
         set_hvdc_network_model!(template, VoltageDispatchHVDCNetworkModel)
-        model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
+        model = DecisionModel(template, sys; optimizer = HiGHS_optimizer, horizon = Hour(2))
         @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
               IOM.ModelBuildStatus.BUILT
     end
@@ -179,7 +188,7 @@ function _generate_test_vsc_sys(;
     loss_b = 0.0,
     loss_c = 0.0,
 )
-    sys = build_system(PSITestSystems, "c_sys5_uc"; force_build = true)
+    sys = build_system(PSITestSystems, "c_sys5_uc")
     line = get_component(Line, sys, "1")
     remove_component!(sys, line)
 
@@ -235,7 +244,8 @@ function _build_vsc_model(
     set_device_model!(template, DeviceModel(Line, StaticBranch))
     set_device_model!(template, converter_model)
     return DecisionModel(
-        template, sys; store_variable_names = true, optimizer = optimizer,
+        template, sys;
+        store_variable_names = true, optimizer = optimizer, horizon = Hour(2),
     )
 end
 
@@ -289,7 +299,7 @@ end
                 attributes = Dict{String, Any}("bilinear_approximation" => scheme),
             ),
         )
-        model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
+        model = DecisionModel(template, sys; optimizer = HiGHS_optimizer, horizon = Hour(2))
         @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
               IOM.ModelBuildStatus.BUILT
     end

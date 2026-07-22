@@ -12,6 +12,22 @@ function add_dummy_time_series_data!(sys)
     return sys
 end
 
+function add_load_time_series_data!(sys)
+    # Fractions of each load's max_active_power, not absolute power, so total
+    # demand stays under generation capacity across every timestep.
+    profile = Dict(
+        DateTime("2020-01-01T08:00:00") => [0.5, 0.6, 0.7, 0.7, 0.7],
+        DateTime("2020-01-01T08:30:00") => [0.9, 0.9, 0.9, 0.9, 0.8],
+        DateTime("2020-01-01T09:00:00") => [0.6, 0.6, 0.5, 0.5, 0.4],
+    )
+    resolution = Dates.Minute(5)
+    for load in get_components(StandardLoad, sys)
+        forecast = Deterministic("max_active_power", profile, resolution)
+        add_time_series!(sys, load, forecast)
+    end
+    return sys
+end
+
 # Regression test for https://github.com/Sienna-Platform/PowerSimulations.jl/issues/1594
 # Combines a NetworkModel with radial + degree-two reductions, a Line DeviceModel
 # with a filter_function, and a request for FlowRateConstraint duals. Before the
@@ -70,6 +86,69 @@ end
         @test length(axes(cons)[1]) <
               length(collect(get_components(Line, sys)))
         @test "4-5-i_1" in axes(cons)[1]
+    end
+end
+
+# Companion to the build-only test above: the same reduced-PTDF setup, but
+# solved end-to-end so the process_duals broadcast actually runs, not just the
+# build-time axis check.
+@testset "FlowRateConstraint duals with network reductions solved end-to-end" begin
+    sys = build_system(PSITestSystems, "case11_network_reductions")
+    add_load_time_series_data!(sys)
+    nr = NetworkReduction[RadialReduction(), DegreeTwoReduction()]
+    ptdf = PTDF(sys; network_reductions = nr)
+
+    template = PowerOperationsProblemTemplate(
+        NetworkModel(PTDFNetworkModel;
+            network_matrix = ptdf,
+            duals = [CopperPlateBalanceConstraint],
+            reduce_radial_branches = PNM.has_radial_reduction(ptdf.network_reduction_data),
+            reduce_degree_two_branches = PNM.has_degree_two_reduction(
+                ptdf.network_reduction_data,
+            ),
+            use_slacks = false),
+    )
+    set_device_model!(
+        template,
+        DeviceModel(
+            Line,
+            StaticBranch;
+            duals = [FlowRateConstraint],
+            attributes = Dict(
+                "filter_function" =>
+                    x -> PSY.get_base_voltage(PSY.get_from(PSY.get_arc(x))) >= 230.0,
+            ),
+        ),
+    )
+    set_device_model!(template, Transformer2W, StaticBranch)
+    set_device_model!(template, ThermalStandard, ThermalDispatchNoMin)
+    set_device_model!(template, StandardLoad, StaticPowerLoad)
+
+    ps_model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
+    @test build!(ps_model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+    @test solve!(ps_model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+
+    container = get_optimization_container(ps_model)
+    line_names = collect(get_name.(get_components(Line, sys)))
+    for meta in ("lb", "ub")
+        cons_key = ConstraintKey(FlowRateConstraint, Line, meta)
+        cons = get_constraint(container, cons_key)
+        dual = get_duals(container)[cons_key]
+        @test axes(dual)[1] == axes(cons)[1]
+        @test length(axes(cons)[1]) < length(line_names)
+    end
+
+    res = IOM.OptimizationProblemOutputs(ps_model)
+    for meta in ("lb", "ub")
+        cons_key = ConstraintKey(FlowRateConstraint, Line, meta)
+        cons_axis = axes(get_constraint(container, cons_key))[1]
+        duals_df = read_dual(res, cons_key; table_format = TableFormat.WIDE)
+        dual_names = String.([c for c in propertynames(duals_df) if c != :DateTime])
+        @test Set(dual_names) == Set(cons_axis)
+        @test length(dual_names) < length(line_names)
+        dual_values = Matrix(duals_df[:, propertynames(duals_df) .!= :DateTime])
+        @test all(isfinite, dual_values)
     end
 end
 
