@@ -100,6 +100,7 @@ end
           IOM.ModelBuildStatus.BUILT
 
     container = get_optimization_container(model)
+    # DELETE-AFTER-REVIEW: reviewer context on the container change; remove once the PR is approved.
     # ReserveRequirementSlack is now one dense container per service type keyed
     # `[service_name, time]` (empty meta), built once over all the type's services.
     slack_var = IOM.get_variable(

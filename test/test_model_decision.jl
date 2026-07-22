@@ -371,6 +371,7 @@ end
     # This test needs to be reviewed
     # @test isapprox(get_objective_value(res), 256937.0; atol = 10000.0)
     vars = res.variable_values
+    # DELETE-AFTER-REVIEW: reviewer context on the container change; remove once the PR is approved.
     # Reserve variables of a type now share one merged container (empty meta) keyed
     # `(service_name, device_name, time)` rather than one container per service name.
     service_key = IOM.VariableKey(
