@@ -75,7 +75,7 @@ function _generate_test_hvdc_sys()
     for ipc in get_components(InterconnectingConverter, sys)
         new_dc_loss = QuadraticCurve(0.01, 0.01, 0.0)
         set_loss_function!(ipc, new_dc_loss)
-        set_max_dc_current!(ipc, 2.0)
+        set_max_dc_current!(ipc, 2.0 * PSY.SU)
     end
     return sys
 end

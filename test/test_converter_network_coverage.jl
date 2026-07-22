@@ -42,7 +42,7 @@ function _build_converter_sys(;
     end
     for ic in get_components(InterconnectingConverter, sys)
         set_loss_function!(ic, loss)
-        set_max_dc_current!(ic, 2.0)
+        set_max_dc_current!(ic, 2.0 * PSY.SU)
         set_reactive_power_limits!(
             ic, (min = -reactive_limit * PSY.SU, max = reactive_limit * PSY.SU),
         )

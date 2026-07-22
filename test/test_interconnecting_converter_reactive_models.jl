@@ -15,7 +15,7 @@ function _build_ic_reactive_sys(;
     sys = build_system(PSISystems, "sys10_pjm_ac_dc"; force_build = true)
     for ic in get_components(InterconnectingConverter, sys)
         set_loss_function!(ic, QuadraticCurve(0.01, 0.01, 0.0))
-        set_max_dc_current!(ic, 2.0)
+        set_max_dc_current!(ic, 2.0 * PSY.SU)
         set_reactive_power_limits!(
             ic, (min = -reactive_limit * PSY.SU, max = reactive_limit * PSY.SU),
         )
