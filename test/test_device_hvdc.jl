@@ -124,6 +124,12 @@ end
             InterconnectingConverter, QuadraticLossConverter;
             attributes = Dict(
                 "bilinear_approximation" => "bin2",
+                # The solver_sos2 default cannot be solve-tested on CI: the free
+                # solvers' SOS2 handling is unreliable on this instance (no
+                # incumbent or rejected incumbent). Binary adjacency keeps the
+                # MILP on ordinary branch-and-bound; solver_sos2 stays
+                # build-tested in the bilinear-schemes testset below.
+                "bilinear_quadratic_method" => "manual_sos2",
                 "bilinear_relative_tolerance" => 0.35,
             ),
         ),
