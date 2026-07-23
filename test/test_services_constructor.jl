@@ -50,25 +50,19 @@ end
     _add_ts_ordc!(c_sys5_uc, "ORDC_TS", static_ordc)
 
     template = get_thermal_standard_uc_template()
+    # One per-type model now covers both VariableReserve{ReserveUp} services
+    # (Reserve1 and Reserve11).
     set_service_model!(
         template,
-        ServiceModel(VariableReserve{ReserveUp}, RangeReserve, "Reserve1"),
+        ServiceModel(VariableReserve{ReserveUp}, RangeReserve),
     )
     set_service_model!(
         template,
-        ServiceModel(VariableReserve{ReserveUp}, RangeReserve, "Reserve11"),
+        ServiceModel(VariableReserve{ReserveDown}, RangeReserve),
     )
     set_service_model!(
         template,
-        ServiceModel(VariableReserve{ReserveDown}, RangeReserve, "Reserve2"),
-    )
-    set_service_model!(
-        template,
-        ServiceModel(
-            ReserveDemandTimeSeriesCurve{ReserveUp},
-            StepwiseCostReserve,
-            "ORDC_TS",
-        ),
+        ServiceModel(ReserveDemandTimeSeriesCurve{ReserveUp}, StepwiseCostReserve),
     )
     model = DecisionModel(
         template,
@@ -81,10 +75,9 @@ end
 end
 
 @testset "Test Reserve Requirement Slack Variables" begin
-    # `use_slacks = true` on a reserve ServiceModel triggers `reserve_slacks!`
-    # (services_models/service_slacks.jl), which builds ReserveRequirementSlack as a 2D
-    # container over a singleton service-name axis and the time-step axis (rather than a
-    # bare 1D time-step axis with the service name consumed as `meta`). This path
+    # `use_slacks = true` on a reserve ServiceModel triggers `add_reserve_slacks!`
+    # (services_models/service_slacks.jl), which builds ReserveRequirementSlack as a dense
+    # 2D container over the type's service-name axis and the time-step axis. This path
     # previously had zero test coverage in the whole suite. See POM issue #178 /
     # developer guidelines.
     c_sys5_uc = PSB.build_system(PSITestSystems, "c_sys5_uc"; add_reserves = true)
@@ -93,8 +86,145 @@ end
         template,
         ServiceModel(
             VariableReserve{ReserveUp},
-            RangeReserve,
-            "Reserve1";
+            RangeReserve;
+            use_slacks = true,
+        ),
+    )
+    model = DecisionModel(
+        template,
+        c_sys5_uc;
+        store_variable_names = true,
+        optimizer = HiGHS_optimizer,
+    )
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+
+    container = get_optimization_container(model)
+    # DELETE-AFTER-REVIEW: reviewer context on the container change; remove once the PR is approved.
+    # ReserveRequirementSlack is now one dense container per service type keyed
+    # `[service_name, time]` (empty meta), built once over all the type's services.
+    slack_var = IOM.get_variable(
+        container,
+        ReserveRequirementSlack,
+        VariableReserve{ReserveUp},
+    )
+    time_steps = get_time_steps(container)
+    @test all(JuMP.lower_bound(slack_var["Reserve1", t]) == 0.0 for t in time_steps)
+
+    # Confirm the slack is actually wired into the requirement constraint (not just
+    # created and left dangling): its objective coefficient should be the penalty cost.
+    obj = JuMP.objective_function(get_jump_model(model))
+    @test all(
+        JuMP.coefficient(obj, slack_var["Reserve1", t]) == POM.SERVICES_SLACK_COST for
+        t in time_steps
+    )
+end
+
+@testset "Merged reserve container isolates services of the same type" begin
+    # Two VariableReserve{ReserveUp} services share one merged
+    # `(service, device, time)` ActivePowerReserveVariable container. Verify (a) each
+    # service's requirement constraint sums only its own device variables (no
+    # cross-service leakage) and (b) the proportional reserve cost prices each variable
+    # exactly once (no double counting across the per-type objective pass).
+    c_sys5_uc = PSB.build_system(PSITestSystems, "c_sys5_uc"; add_reserves = true)
+    template = get_thermal_dispatch_template_network(CopperPlateNetworkModel)
+    # One per-type model covers both VariableReserve{ReserveUp} services.
+    set_service_model!(
+        template,
+        ServiceModel(VariableReserve{ReserveUp}, RangeReserve),
+    )
+    model = DecisionModel(template, c_sys5_uc; optimizer = HiGHS_optimizer)
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+
+    container = get_optimization_container(model)
+    rv = IOM.get_variable(container, ActivePowerReserveVariable, VariableReserve{ReserveUp})
+    con = IOM.get_constraint(
+        container,
+        RequirementConstraint,
+        VariableReserve{ReserveUp},
+    )
+    # Exactly one merged container spans both services.
+    @test Set(k[1] for k in keys(rv.data)) == Set(["Reserve1", "Reserve11"])
+
+    # (a) Reserve1's requirement constraint at t=1 has coefficient 1 for Reserve1's
+    # variables and 0 for Reserve11's.
+    c1 = con["Reserve1", 1]
+    for (key, var) in rv.data
+        key[3] == 1 || continue
+        expected = key[1] == "Reserve1" ? 1.0 : 0.0
+        @test JuMP.normalized_coefficient(c1, var) == expected
+    end
+
+    # (b) Each reserve variable is priced exactly once at DEFAULT_RESERVE_COST / base.
+    obj = JuMP.objective_function(get_jump_model(model))
+    base_p = get_model_base_power(container)
+    expected_cost = POM.DEFAULT_RESERVE_COST / base_p
+    for (_, var) in rv.data
+        @test JuMP.coefficient(obj, var) == expected_cost
+    end
+end
+
+@testset "Per-type populate errors when one service of the type has no contributing devices" begin
+    # Under the per-type ServiceModel, one model covers every VariableReserve{ReserveUp}
+    # service. A modeled reserve with no available contributing device can never meet its
+    # requirement, so `_populate_contributing_devices!` (run in the DecisionModel
+    # constructor) must error and name the offending service - not silently drop it.
+    # `deepcopy` so the added service does not leak into the PSB-cached system.
+    sys = deepcopy(PSB.build_system(PSITestSystems, "c_sys5_uc"; add_reserves = true))
+    # A second service of the same type, added with no contributing devices.
+    empty_reserve = VariableReserve{ReserveUp}("ReserveNoDevices", true, 5.0, 0.1)
+    PSY.add_service!(sys, empty_reserve, PSY.Device[])
+
+    template = get_thermal_dispatch_template_network(CopperPlateNetworkModel)
+    set_service_model!(template, ServiceModel(VariableReserve{ReserveUp}, RangeReserve))
+    @test_throws "ReserveNoDevices" DecisionModel(
+        template,
+        sys;
+        optimizer = HiGHS_optimizer,
+    )
+end
+
+@testset "Per-type populate errors when all contributing devices are unavailable" begin
+    # A reserve can have contributing devices assigned in the data yet still have none
+    # *available*. `_add_contributing_device_by_type!` records only available devices, so
+    # the per-service map ends up empty and the constructor must error - the reserve has no
+    # usable provider. `deepcopy` so the availability edits do not leak into the cache.
+    sys = deepcopy(PSB.build_system(PSITestSystems, "c_sys5_uc"; add_reserves = true))
+    reserve = PSY.get_component(VariableReserve{ReserveUp}, sys, "Reserve1")
+    n_disabled = 0
+    for d in PSY.get_components(PSY.Device, sys)
+        PSY.supports_services(d) || continue
+        if any(s -> s === reserve, PSY.get_services(d))
+            PSY.set_available!(d, false)
+            n_disabled += 1
+        end
+    end
+    # Premise check: the reserve really did have contributing devices before we disabled
+    # them, so this exercises the all-unavailable path, not the no-devices-assigned path.
+    @test n_disabled > 0
+
+    template = get_thermal_dispatch_template_network(CopperPlateNetworkModel)
+    set_service_model!(template, ServiceModel(VariableReserve{ReserveUp}, RangeReserve))
+    @test_throws "no available contributing devices" DecisionModel(
+        template,
+        sys;
+        optimizer = HiGHS_optimizer,
+    )
+end
+
+@testset "Test use_slacks is per type" begin
+    # `use_slacks` is set on the per-type `ServiceModel`, not per-service. Confirm both
+    # directions: when true, the dense ReserveRequirementSlack container spans ALL
+    # services of the type (Reserve1 and Reserve11), each wired to the penalty cost; when
+    # false (or omitted), no ReserveRequirementSlack container exists for the type at all.
+    c_sys5_uc = PSB.build_system(PSITestSystems, "c_sys5_uc"; add_reserves = true)
+    template = get_thermal_dispatch_template_network(CopperPlateNetworkModel)
+    set_service_model!(
+        template,
+        ServiceModel(
+            VariableReserve{ReserveUp},
+            RangeReserve;
             use_slacks = true,
         ),
     )
@@ -112,19 +242,111 @@ end
         container,
         ReserveRequirementSlack,
         VariableReserve{ReserveUp},
-        "Reserve1",
     )
     time_steps = get_time_steps(container)
-    @test axes(slack_var) == (["Reserve1"], time_steps)
-    @test all(JuMP.lower_bound(slack_var["Reserve1", t]) == 0.0 for t in time_steps)
+    reserve_names = ["Reserve1", "Reserve11"]
+    @test Set(axes(slack_var, 1)) == Set(reserve_names)
 
-    # Confirm the slack is actually wired into the requirement constraint (not just
-    # created and left dangling): its objective coefficient should be the penalty cost.
     obj = JuMP.objective_function(get_jump_model(model))
-    @test all(
-        JuMP.coefficient(obj, slack_var["Reserve1", t]) == POM.SERVICES_SLACK_COST for
-        t in time_steps
+    for name in reserve_names
+        @test all(JuMP.lower_bound(slack_var[name, t]) == 0.0 for t in time_steps)
+        @test all(
+            JuMP.coefficient(obj, slack_var[name, t]) == POM.SERVICES_SLACK_COST for
+            t in time_steps
+        )
+    end
+
+    c_sys5_uc_noslack = PSB.build_system(PSITestSystems, "c_sys5_uc"; add_reserves = true)
+    template_noslack = get_thermal_dispatch_template_network(CopperPlateNetworkModel)
+    set_service_model!(
+        template_noslack,
+        ServiceModel(VariableReserve{ReserveUp}, RangeReserve),
     )
+    model_noslack =
+        DecisionModel(template_noslack, c_sys5_uc_noslack; optimizer = HiGHS_optimizer)
+    @test build!(model_noslack; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+
+    container_noslack = get_optimization_container(model_noslack)
+    @test !IOM.has_container_key(
+        container_noslack,
+        ReserveRequirementSlack,
+        VariableReserve{ReserveUp},
+    )
+end
+
+@testset "Merged reserve container isolates services with mixed device counts (solve)" begin
+    # Extends "Merged reserve container isolates services of the same type" (build-only,
+    # isolation at t=1) to a full solve, and checks isolation at every requirement row, not
+    # just Reserve1's. NOTE: in this fixture, Reserve1 and Reserve11 both contribute from
+    # all five thermal units (Alta, Brighton, Park City, Solitude, Sundance) - there is no
+    # differing-device-count case here - so this also stands as the regression case for
+    # same-device-set same-type services solving correctly end-to-end.
+    c_sys5_uc = PSB.build_system(PSITestSystems, "c_sys5_uc"; add_reserves = true)
+    template = get_thermal_dispatch_template_network(CopperPlateNetworkModel)
+    set_service_model!(
+        template,
+        ServiceModel(VariableReserve{ReserveUp}, RangeReserve),
+    )
+    model = DecisionModel(template, c_sys5_uc; optimizer = HiGHS_optimizer)
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+    @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+
+    container = get_optimization_container(model)
+    rv = IOM.get_variable(container, ActivePowerReserveVariable, VariableReserve{ReserveUp})
+    con = IOM.get_constraint(
+        container,
+        RequirementConstraint,
+        VariableReserve{ReserveUp},
+    )
+    reserve_names = ["Reserve1", "Reserve11"]
+    @test Set(k[1] for k in keys(rv.data)) >= Set(reserve_names)
+
+    for name in reserve_names
+        c = con[name, 1]
+        for (key, var) in rv.data
+            key[3] == 1 || continue
+            expected = key[1] == name ? 1.0 : 0.0
+            @test JuMP.normalized_coefficient(c, var) == expected
+        end
+    end
+end
+
+@testset "RequirementConstraint dual is assigned and readable per service" begin
+    # The service dual path mirrors the merged (dense) RequirementConstraint container: one
+    # dual per service type keyed `(service_name, time)`, populated after solve. Uses an LP
+    # dispatch template (no binaries) so the solver returns duals.
+    c_sys5_uc = PSB.build_system(PSITestSystems, "c_sys5_uc"; add_reserves = true)
+    template = get_thermal_dispatch_template_network(CopperPlateNetworkModel)
+    set_service_model!(
+        template,
+        ServiceModel(
+            VariableReserve{ReserveUp},
+            RangeReserve;
+            duals = [RequirementConstraint],
+        ),
+    )
+    model = DecisionModel(template, c_sys5_uc; optimizer = HiGHS_optimizer)
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+    @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+
+    container = get_optimization_container(model)
+    dual_key = IOM.ConstraintKey(RequirementConstraint, VariableReserve{ReserveUp})
+    # One merged dual container per service type, dense (mirrors the merged constraint).
+    @test dual_key in keys(IOM.get_duals(container))
+    @test IOM.get_duals(container)[dual_key] isa
+          JuMP.Containers.DenseAxisArray{Float64, 2}
+
+    res = OptimizationProblemOutputs(model)
+    df = read_dual(res, "RequirementConstraint__VariableReserve__ReserveUp")
+    # LONG format `(DateTime, name, value)`; the name column covers ALL services of the type.
+    @test Set(df.name) == Set(["Reserve1", "Reserve11"])
+    # Reserve is priced only at DEFAULT_RESERVE_COST and the requirement binds, so the
+    # shadow price equals DEFAULT_RESERVE_COST / base_power for every service/time.
+    expected_price = POM.DEFAULT_RESERVE_COST / get_model_base_power(container)
+    @test all(isapprox(v, expected_price; atol = 1e-6) for v in df.value)
 end
 
 @testset "Test ORDC time series (build & solve)" begin
@@ -156,27 +378,16 @@ end
     set_device_model!(template, PowerLoad, StaticPowerLoad)
     set_service_model!(
         template,
-        ServiceModel(VariableReserve{ReserveUp}, RangeReserve, "Reserve1"),
+        ServiceModel(VariableReserve{ReserveUp}, RangeReserve),
     )
     set_service_model!(
         template,
-        ServiceModel(VariableReserve{ReserveDown}, RangeReserve, "Reserve2"),
+        ServiceModel(VariableReserve{ReserveDown}, RangeReserve),
     )
+    # One per-type model covers both time-varying ORDCs (ORDC_TS1 and ORDC_TS2).
     set_service_model!(
         template,
-        ServiceModel(
-            ReserveDemandTimeSeriesCurve{ReserveUp},
-            StepwiseCostReserve,
-            "ORDC_TS1",
-        ),
-    )
-    set_service_model!(
-        template,
-        ServiceModel(
-            ReserveDemandTimeSeriesCurve{ReserveUp},
-            StepwiseCostReserve,
-            "ORDC_TS2",
-        ),
+        ServiceModel(ReserveDemandTimeSeriesCurve{ReserveUp}, StepwiseCostReserve),
     )
     model = DecisionModel(
         template,
@@ -213,41 +424,15 @@ end
     template = get_thermal_dispatch_template_network(CopperPlateNetworkModel)
     set_service_model!(
         template,
-        ServiceModel(VariableReserve{ReserveUp}, RangeReserve, "Reserve1"),
+        ServiceModel(VariableReserve{ReserveUp}, RangeReserve),
     )
     set_service_model!(
         template,
-        ServiceModel(VariableReserve{ReserveUp}, RangeReserve, "Reserve11"),
+        ServiceModel(VariableReserve{ReserveDown}, RangeReserve),
     )
     set_service_model!(
         template,
-        ServiceModel(VariableReserve{ReserveDown}, RangeReserve, "Reserve2"),
-    )
-    set_service_model!(
-        template,
-        ServiceModel(ReserveDemandCurve{ReserveUp}, StepwiseCostReserve, "ORDC1"),
-    )
-
-    c_sys5_uc = PSB.build_system(PSITestSystems, "c_sys5_uc"; add_reserves = true)
-    model = DecisionModel(template, c_sys5_uc; optimizer = HiGHS_optimizer)
-    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
-          IOM.ModelBuildStatus.BUILT
-    @test _count_reserve_var_containers(model) == 4
-end
-
-@testset "Test Ramp Reserves from Thermal Dispatch" begin
-    template = get_thermal_dispatch_template_network(CopperPlateNetworkModel)
-    set_service_model!(
-        template,
-        ServiceModel(VariableReserve{ReserveUp}, RampReserve, "Reserve1"),
-    )
-    set_service_model!(
-        template,
-        ServiceModel(VariableReserve{ReserveUp}, RampReserve, "Reserve11"),
-    )
-    set_service_model!(
-        template,
-        ServiceModel(VariableReserve{ReserveDown}, RampReserve, "Reserve2"),
+        ServiceModel(ReserveDemandCurve{ReserveUp}, StepwiseCostReserve),
     )
 
     c_sys5_uc = PSB.build_system(PSITestSystems, "c_sys5_uc"; add_reserves = true)
@@ -257,23 +442,37 @@ end
     @test _count_reserve_var_containers(model) == 3
 end
 
+@testset "Test Ramp Reserves from Thermal Dispatch" begin
+    template = get_thermal_dispatch_template_network(CopperPlateNetworkModel)
+    set_service_model!(
+        template,
+        ServiceModel(VariableReserve{ReserveUp}, RampReserve),
+    )
+    set_service_model!(
+        template,
+        ServiceModel(VariableReserve{ReserveDown}, RampReserve),
+    )
+
+    c_sys5_uc = PSB.build_system(PSITestSystems, "c_sys5_uc"; add_reserves = true)
+    model = DecisionModel(template, c_sys5_uc; optimizer = HiGHS_optimizer)
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+    @test _count_reserve_var_containers(model) == 2
+end
+
 @testset "Test Reserves from Thermal Standard UC" begin
     template = get_thermal_standard_uc_template()
     set_service_model!(
         template,
-        ServiceModel(VariableReserve{ReserveUp}, RangeReserve, "Reserve1"),
+        ServiceModel(VariableReserve{ReserveUp}, RangeReserve),
     )
     set_service_model!(
         template,
-        ServiceModel(VariableReserve{ReserveUp}, RangeReserve, "Reserve11"),
+        ServiceModel(VariableReserve{ReserveDown}, RangeReserve),
     )
     set_service_model!(
         template,
-        ServiceModel(VariableReserve{ReserveDown}, RangeReserve, "Reserve2"),
-    )
-    set_service_model!(
-        template,
-        ServiceModel(ReserveDemandCurve{ReserveUp}, StepwiseCostReserve, "ORDC1"),
+        ServiceModel(ReserveDemandCurve{ReserveUp}, StepwiseCostReserve),
     )
     c_sys5_uc = PSB.build_system(PSITestSystems, "c_sys5_uc"; add_reserves = true)
     model = DecisionModel(
@@ -284,7 +483,7 @@ end
     )
     @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
           IOM.ModelBuildStatus.BUILT
-    @test _count_reserve_var_containers(model) == 4
+    @test _count_reserve_var_containers(model) == 3
 end
 
 @testset "Test Reserves from Thermal Standard UC with NonSpinningReserve" begin
@@ -295,7 +494,7 @@ end
     )
     set_service_model!(
         template,
-        ServiceModel(VariableReserveNonSpinning, NonSpinningReserve, "NonSpinningReserve"),
+        ServiceModel(VariableReserveNonSpinning, NonSpinningReserve),
     )
 
     c_sys5_uc = PSB.build_system(PSITestSystems, "c_sys5_uc_non_spin"; add_reserves = true)
@@ -310,11 +509,11 @@ end
     set_device_model!(template, RenewableDispatch, RenewableFullDispatch)
     set_service_model!(
         template,
-        ServiceModel(VariableReserve{ReserveUp}, RangeReserve, "Reserve3"),
+        ServiceModel(VariableReserve{ReserveUp}, RangeReserve),
     )
     set_service_model!(
         template,
-        ServiceModel(ReserveDemandCurve{ReserveUp}, StepwiseCostReserve, "ORDC1"),
+        ServiceModel(ReserveDemandCurve{ReserveUp}, StepwiseCostReserve),
     )
 
     c_sys5_re = PSB.build_system(PSITestSystems, "c_sys5_re"; add_reserves = true)
@@ -332,17 +531,7 @@ end
         template,
         ServiceModel(
             VariableReserve{ReserveUp},
-            RangeReserve,
-            "Reserve1";
-            use_slacks = true,
-        ),
-    )
-    set_service_model!(
-        template,
-        ServiceModel(
-            VariableReserve{ReserveUp},
-            RangeReserve,
-            "Reserve11";
+            RangeReserve;
             use_slacks = true,
         ),
     )
@@ -350,8 +539,7 @@ end
         template,
         ServiceModel(
             VariableReserve{ReserveDown},
-            RangeReserve,
-            "Reserve2";
+            RangeReserve;
             use_slacks = true,
         ),
     )
@@ -360,14 +548,14 @@ end
     model = DecisionModel(template, c_sys5_uc; optimizer = HiGHS_optimizer)
     @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
           IOM.ModelBuildStatus.BUILT
-    @test _count_reserve_var_containers(model) == 3
+    @test _count_reserve_var_containers(model) == 2
 end
 
 @testset "Test ConstantReserve" begin
     template = get_thermal_dispatch_template_network()
     set_service_model!(
         template,
-        ServiceModel(ConstantReserve{ReserveUp}, RangeReserve, "Reserve3"),
+        ServiceModel(ConstantReserve{ReserveUp}, RangeReserve),
     )
 
     c_sys5_uc = PSB.build_system(PSITestSystems, "c_sys5_uc")
@@ -393,25 +581,21 @@ end
     template = get_thermal_dispatch_template_network(CopperPlateNetworkModel)
     set_service_model!(
         template,
-        ServiceModel(VariableReserve{ReserveUp}, RangeReserve, "Reserve1"),
+        ServiceModel(VariableReserve{ReserveUp}, RangeReserve),
     )
     set_service_model!(
         template,
-        ServiceModel(VariableReserve{ReserveUp}, RangeReserve, "Reserve11"),
+        ServiceModel(VariableReserve{ReserveDown}, RangeReserve),
     )
     set_service_model!(
         template,
-        ServiceModel(VariableReserve{ReserveDown}, RangeReserve, "Reserve2"),
-    )
-    set_service_model!(
-        template,
-        ServiceModel(ReserveDemandCurve{ReserveUp}, StepwiseCostReserve, "ORDC1"),
+        ServiceModel(ReserveDemandCurve{ReserveUp}, StepwiseCostReserve),
     )
 
     model = DecisionModel(template, c_sys5_uc; optimizer = HiGHS_optimizer)
     @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
           IOM.ModelBuildStatus.BUILT
-    @test _count_reserve_var_containers(model) == 4
+    @test _count_reserve_var_containers(model) == 3
 
     found_constraints = 0
     for (k, _) in IOM.get_optimization_container(model).constraints
@@ -870,11 +1054,64 @@ end
     ) == IOM.ModelBuildStatus.FAILED
 end
 
+@testset "GroupReserve requirement sums only its contributing services" begin
+    # A ConstantReserveGroup's RequirementConstraint must sum the ActivePowerReserveVariable of
+    # every contributing service (and only those) across the merged (service, device, time)
+    # container. Exercises reserve_group.jl `add_constraints!` and its `_accumulate_group_reserve!`
+    # function barrier. This path was previously unbuildable (the old
+    # `_populate_contributing_devices!` errored on a ConstantReserveGroup); it is now reachable
+    # because the no-contributing-devices error is scoped to `PSY.Reserve` only.
+    # `deepcopy` so the added group does not leak into the PSB-cached system.
+    sys = deepcopy(PSB.build_system(PSITestSystems, "c_sys5_uc"; add_reserves = true))
+    r1 = PSY.get_component(VariableReserve{ReserveUp}, sys, "Reserve1")
+    # Group contains ONLY Reserve1, so the constraint must include Reserve1's device variables and
+    # exclude Reserve11's — verifying the barrier's per-service `key[1] == r_name` filtering.
+    group = ConstantReserveGroup{ReserveUp}(;
+        name = "group_up",
+        available = true,
+        requirement = 0.0,
+    )
+    add_service!(sys, group, Service[r1])
+
+    template = get_thermal_dispatch_template_network(CopperPlateNetworkModel)
+    set_service_model!(template, ServiceModel(VariableReserve{ReserveUp}, RangeReserve))
+    set_service_model!(
+        template,
+        ServiceModel(ConstantReserveGroup{ReserveUp}, GroupReserve),
+    )
+    model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+
+    container = get_optimization_container(model)
+    rv = IOM.get_variable(container, ActivePowerReserveVariable, VariableReserve{ReserveUp})
+    con = IOM.get_constraint(
+        container,
+        RequirementConstraint,
+        ConstantReserveGroup{ReserveUp},
+    )
+
+    # Dense group-indexed requirement container keyed [group_name, time].
+    @test "group_up" in axes(con)[1]
+
+    # At t=1 every Reserve1 device variable appears with coefficient 1; every Reserve11 device
+    # variable has coefficient 0 (Reserve11 is not in the group). Confirms the group sums exactly
+    # its contributing service's slice.
+    c1 = con["group_up", 1]
+    checked_reserve1 = 0
+    for (key, var) in rv.data
+        key[3] == 1 || continue
+        expected = key[1] == "Reserve1" ? 1.0 : 0.0
+        @test JuMP.normalized_coefficient(c1, var) == expected
+        key[1] == "Reserve1" && (checked_reserve1 += 1)
+    end
+    @test checked_reserve1 > 0   # Reserve1 actually contributed variables
+
+    @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+end
+
 # NOT PORTED — blocked by POM source gaps (these PSI testsets need src changes, out of
 # scope for a test-only port):
-#  - "Test GroupReserve from Thermal Dispatch" / "Test GroupReserve Errors":
-#    `_populate_contributing_devices!` errors on a `ConstantReserveGroup` whose
-#    contributing entries are services, not devices (group contributing-device handling).
 #  - "Test Reserves with Feedforwards": the concrete feedforward types
 #    (`LowerBoundFeedforward`, `FixValueFeedforward`, …) are not defined in POM or IOM —
 #    only the feedforward constraint types and the abstract construct hooks exist.

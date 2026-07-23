@@ -1,28 +1,27 @@
-function reserve_slacks!(
+function add_reserve_slacks!(
     container::OptimizationContainer,
-    service::T,
+    ::Type{T},
+    service_names::Vector{String},
 ) where {T <: Union{PSY.Reserve, PSY.ReserveNonSpinning}}
     time_steps = get_time_steps(container)
-    service_name = PSY.get_name(service)
-    variable = add_variable_container!(container, ReserveRequirementSlack,
-        T,
-        [service_name],
-        time_steps;
-        meta = service_name,
-    )
+    # Dense 2D container keyed `[service_name, time]`, built once per service type over all
+    # the type's services (`use_slacks` is per type). Lower bound 0, penalty in objective.
+    variable = add_variable_container!(container, ReserveRequirementSlack, T,
+        service_names, time_steps)
 
-    for t in time_steps
-        variable[service_name, t] = JuMP.@variable(
-            get_jump_model(container),
-            base_name = "slack_{$(service_name), $(t)}",
+    jump_model = get_jump_model(container)
+    for name in service_names, t in time_steps
+        variable[name, t] = JuMP.@variable(
+            jump_model,
+            base_name = "slack_{$(name), $(t)}",
             lower_bound = 0.0
         )
         add_to_objective_invariant_expression!(
             container,
-            variable[service_name, t] * SERVICES_SLACK_COST,
+            variable[name, t] * SERVICES_SLACK_COST,
         )
     end
-    return variable
+    return
 end
 
 function transmission_interface_slacks!(

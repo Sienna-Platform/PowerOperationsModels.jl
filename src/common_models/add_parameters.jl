@@ -45,6 +45,21 @@ function add_parameters!(
     return
 end
 
+# Per-type service time-series parameter: all services of the type share one container
+# keyed `(ParameterType, ServiceType)` with empty meta, axed by service name.
+function add_parameters!(
+    container::OptimizationContainer,
+    ::Type{T},
+    services::Vector{U},
+    model::ServiceModel{U, V},
+) where {T <: TimeSeriesParameter, U <: PSY.Service, V <: AbstractServiceFormulation}
+    if get_rebuild_model(get_settings(container)) && has_container_key(container, T, U)
+        return
+    end
+    _add_parameters!(container, T, services, model)
+    return
+end
+
 function add_parameters!(
     container::OptimizationContainer,
     ::Type{T},
@@ -772,10 +787,16 @@ end
 #################################################################################
 # _add_parameters! for time-varying ORDC slope/breakpoint cost parameters
 #
-# Same cost-parameter machinery as the device path, but per-service: pass the
-# single service as a 1-element collection and key the container by `meta = name`
-# (services are constructed one ServiceModel at a time, so they can't share a
-# names-axis batch the way devices do).
+# Same cost-parameter machinery as the device path, keyed per service by `meta = name`.
+#
+# TODO(services PWL cost): this per-service `meta` keying is temporary. It will be removed
+# or folded once the 3D/4D PWL cost containers for services (StepwiseCostReserve/ORDC and
+# the AS offers) land. The whole ORDC cost path -- these slope/breakpoint params, the
+# per-service `ProductionCostExpression` (add_expressions.jl), and the delta-PWL
+# block-offer machinery -- is intentionally kept on `meta` for now so it stays coherent
+# until that migration. (Contrast `RequirementTimeSeriesParameter`, already merged per
+# type; these ORDC params can be merged the same way, just not before their delta-PWL
+# siblings that PR2 reworks.)
 #################################################################################
 
 function _add_parameters!(
@@ -848,6 +869,59 @@ function _add_parameters!(
         IOM._set_parameter_at!(parent_param, jump_model, ts_vector[t], 1, t)
     end
     IOM.add_component_name!(IOM.get_attributes(parameter_container), name, ts_uuid)
+    return
+end
+
+function _add_parameters!(
+    container::OptimizationContainer,
+    ::Type{T},
+    services::Vector{U},
+    model::ServiceModel{U, V},
+) where {T <: TimeSeriesParameter, U <: PSY.Service, V <: AbstractServiceFormulation}
+    ts_type = get_default_time_series_type(container)
+    if !(ts_type <: Union{PSY.AbstractDeterministic, PSY.StaticTimeSeries})
+        error("add_parameters! for TimeSeriesParameter is not compatible with $ts_type")
+    end
+    ts_name = get_time_series_names(model)[T]
+    time_steps = get_time_steps(container)
+    model_interval = get_interval(get_settings(container))
+    ts_interval = model_interval
+    names = [PSY.get_name(s) for s in services]
+    ts_uuids = [
+        string(
+            IS.get_time_series_uuid(
+                ts_type,
+                s,
+                ts_name;
+                interval = _to_is_interval(ts_interval),
+            ),
+        ) for s in services
+    ]
+    additional_axes = calc_additional_axes(container, T, services, model)
+    parameter_container = add_param_container!(container, T,
+        U,
+        ts_type,
+        ts_name,
+        ts_uuids,
+        names,
+        additional_axes,
+        time_steps,
+    )
+    IOM.set_subsystem!(IOM.get_attributes(parameter_container), IOM.get_subsystem(model))
+    jump_model = get_jump_model(container)
+    attributes = IOM.get_attributes(parameter_container)
+    parent_param = IOM.get_parameter_array_data(parameter_container)
+    parent_mult = IOM.get_multiplier_array_data(parameter_container)
+    for (i, service) in enumerate(services)
+        name = names[i]
+        ts_vector = IOM.get_time_series(container, service, ts_name; interval = ts_interval)
+        multiplier = get_multiplier_value(T, service, V)
+        IOM._set_multiplier_at!(parent_mult, multiplier, i)
+        for t in time_steps
+            IOM._set_parameter_at!(parent_param, jump_model, ts_vector[t], i, t)
+        end
+        IOM.add_component_name!(attributes, name, ts_uuids[i])
+    end
     return
 end
 
@@ -1083,6 +1157,14 @@ function _add_parameters!(
     W <: AbstractReservesFormulation,
 } where {D <: PSY.Component}
     @debug "adding" T D U _group = IOM.LOG_GROUP_OPTIMIZATION_CONTAINER
+    # TODO: per-service keying when service feedforwards are ported. This path is currently
+    # unreachable (service feedforwards are no-op stubs in POM; the real machinery is still
+    # in PSI). Under the per-type ServiceModel, `get_contributing_devices(model)` flattens
+    # across ALL services of the type, so this builds a device-name-keyed parameter with no
+    # service axis — inconsistent with the merged `(service, device, time)` reserve
+    # variables it must feed forward against. Rebuild it per service (key by
+    # `(service, device)`, reading `get_contributing_devices(model, service_name)`) aligned
+    # with the merged reserve container before wiring service feedforwards.
     contributing_devices = IOM.get_contributing_devices(model)
     names = [PSY.get_name(device) for device in contributing_devices]
     time_steps = get_time_steps(container)
@@ -1090,8 +1172,7 @@ function _add_parameters!(
         S,
         key,
         names,
-        time_steps;
-        meta = get_service_name(model),
+        time_steps,
     )
     jump_model = get_jump_model(container)
     parent_mult = IOM.get_multiplier_array_data(parameter_container)

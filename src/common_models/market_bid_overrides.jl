@@ -373,6 +373,10 @@ function add_pwl_term_delta!(
             length(slopes);
             upper_bound = Inf,
         )
+        # DELETE-AFTER-REVIEW: reviewer context on the container change; remove once the PR is approved.
+        # ServiceRequirementVariable is now a merged dense container keyed
+        # `(service_name, time)` with empty meta, so the linking constraint reads it
+        # without a per-service meta and indexes by the service name.
         add_pwl_constraint_delta!(
             container,
             component,
@@ -381,8 +385,7 @@ function add_pwl_term_delta!(
             break_points,
             pwl_vars,
             t,
-            IOM._block_offer_constraint(dir);
-            meta = name,
+            IOM._block_offer_constraint(dir),
         )
         pwl_cost_expressions[t] =
             get_pwl_cost_expression_delta(pwl_vars, slopes, multiplier * dt)
