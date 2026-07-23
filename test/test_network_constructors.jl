@@ -48,16 +48,7 @@ function _reduced_ptdf_duals_template()
     return sys, template
 end
 
-# Regression test for https://github.com/Sienna-Platform/PowerSimulations.jl/issues/1594
-# Combines a NetworkModel with radial + degree-two reductions, a Line DeviceModel
-# with a filter_function, and a request for FlowRateConstraint duals. Before the
-# fix in src/devices_models/devices/common/add_constraint_dual.jl, the dual
-# container was sized along PSY.get_name.(devices) — every device passing the
-# filter — while the FlowRateConstraint container was sized along the
-# post-reduction axis from get_branch_argument_constraint_axis. The resulting
-# axis mismatch raised DimensionMismatch in process_duals during dual
-# extraction. Building a model is enough to detect the regression: after the
-# fix, axes(dual)[1] must equal axes(constraint)[1] for every meta.
+# Regression test for PSI #1594
 @testset "FlowRateConstraint duals with branch filter and network reductions" begin
     sys, template = _reduced_ptdf_duals_template()
     ps_model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)

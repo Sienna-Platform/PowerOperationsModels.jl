@@ -1,6 +1,3 @@
-# Short horizon keeps every MILP small; moi_tests counts below assume this horizon.
-const _HVDC_TEST_HORIZON = Hour(2)
-
 @testset "HVDC System Tests" begin
     sys_5 = build_system(PSISystems, "sys10_pjm_ac_dc")
     template_uc = PowerOperationsProblemTemplate(NetworkModel(
@@ -19,7 +16,7 @@ const _HVDC_TEST_HORIZON = Hour(2)
     set_hvdc_network_model!(template_uc, TransportHVDCNetworkModel)
     model = DecisionModel(
         template_uc, sys_5;
-        name = "UC", optimizer = HiGHS_optimizer, horizon = _HVDC_TEST_HORIZON,
+        name = "UC", optimizer = HiGHS_optimizer, horizon = _SHORT_HORIZON,
     )
     @test build!(model; output_dir = mktempdir()) == IOM.ModelBuildStatus.BUILT
     # StaticBranch under DCP carries flow as the BThetaBranchFlow expression (no
@@ -45,7 +42,7 @@ const _HVDC_TEST_HORIZON = Hour(2)
     set_hvdc_network_model!(template_uc, TransportHVDCNetworkModel)
     model = DecisionModel(
         template_uc, sys_5;
-        name = "UC", optimizer = HiGHS_optimizer, horizon = _HVDC_TEST_HORIZON,
+        name = "UC", optimizer = HiGHS_optimizer, horizon = _SHORT_HORIZON,
     )
     @test build!(model; output_dir = mktempdir()) == IOM.ModelBuildStatus.BUILT
     moi_tests(model, 94, 0, 104, 44, 32, true)
@@ -104,7 +101,7 @@ end
             sys;
             store_variable_names = true,
             optimizer = HiGHS_optimizer,
-            horizon = _HVDC_TEST_HORIZON,
+            horizon = _SHORT_HORIZON,
         )
     @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
           IOM.ModelBuildStatus.BUILT
@@ -139,12 +136,6 @@ end
             InterconnectingConverter, QuadraticLossConverter;
             attributes = Dict(
                 "bilinear_approximation" => "bin2",
-                # The solver_sos2 default cannot be solve-tested on CI: the free
-                # solvers' SOS2 handling is unreliable on this instance (no
-                # incumbent or rejected incumbent). Binary adjacency keeps the
-                # MILP on ordinary branch-and-bound; solver_sos2 stays
-                # build-tested in the bilinear-schemes testset below.
-                "bilinear_quadratic_method" => "manual_sos2",
                 "bilinear_relative_tolerance" => 0.35,
             ),
         ),
@@ -153,7 +144,7 @@ end
     model = DecisionModel(
         template, sys;
         store_variable_names = true, optimizer = HiGHS_optimizer,
-        horizon = _HVDC_TEST_HORIZON,
+        horizon = _SHORT_HORIZON,
     )
     @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
           IOM.ModelBuildStatus.BUILT
@@ -172,11 +163,8 @@ end
                 InterconnectingConverter,
             ).data,
         )
-    # Non-vacuity: the deficit forces real DC transfer, so |I| is well off zero — a
-    # regression to the idle-converter optimum would make the |I| check below trivial.
+    # Making sure we avoided I = 0
     @test maximum(abs.(i_vals)) > 0.5
-    # atol must stay above the solver's relaxed mip_feasibility_tolerance (1e-5):
-    # the abs-value linking constraints are only satisfied to that tolerance.
     @test isapprox(abs_i_vals, abs.(i_vals); atol = 1e-4)
 end
 
@@ -202,7 +190,7 @@ end
             template,
             sys;
             optimizer = HiGHS_optimizer,
-            horizon = _HVDC_TEST_HORIZON,
+            horizon = _SHORT_HORIZON,
         )
         @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
               IOM.ModelBuildStatus.BUILT
@@ -280,7 +268,7 @@ function _build_vsc_model(
     set_device_model!(template, converter_model)
     return DecisionModel(
         template, sys;
-        store_variable_names = true, optimizer = optimizer, horizon = _HVDC_TEST_HORIZON,
+        store_variable_names = true, optimizer = optimizer, horizon = _SHORT_HORIZON,
     )
 end
 
@@ -338,7 +326,7 @@ end
             template,
             sys;
             optimizer = HiGHS_optimizer,
-            horizon = _HVDC_TEST_HORIZON,
+            horizon = _SHORT_HORIZON,
         )
         @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
               IOM.ModelBuildStatus.BUILT

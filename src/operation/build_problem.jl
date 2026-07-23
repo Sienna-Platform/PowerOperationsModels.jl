@@ -27,28 +27,21 @@ function initialize_hvdc_system!(
     return
 end
 
+_is_solver_sos_set(fs::Tuple) = _is_solver_sos_set(fs[2])
 _is_solver_sos_set(::Type{<:JuMP.MOI.AbstractSet}) = false
 _is_solver_sos_set(::Type{<:JuMP.MOI.SOS1}) = true
 _is_solver_sos_set(::Type{<:JuMP.MOI.SOS2}) = true
 
-# Duals on a model with explicit solver SOS1/SOS2 constraints silently come back NaN:
-# the MILP dual path (JuMP.fix_discrete_variables) relaxes only binary/integer
-# variables, never SOS sets, so the re-solved model has no duals to read.
 function _validate_dual_sos_compatibility(container::OptimizationContainer)
     duals = get_duals(container)
     isempty(duals) && return
     jump_model = get_jump_model(container)
-    sos_constraint_count = 0
-    for (F, S) in JuMP.list_of_constraint_types(jump_model)
-        _is_solver_sos_set(S) || continue
-        sos_constraint_count += JuMP.num_constraints(jump_model, F, S)
-    end
-    if sos_constraint_count > 0
+    if any(_is_solver_sos_set, JuMP.list_of_constraint_types(jump_model))
         dual_key_names = join(IOM.encode_key_as_string.(keys(duals)), ", ")
         throw(
             IS.ConflictingInputsError(
                 "Duals were requested for [$dual_key_names] but the model contains " *
-                "$sos_constraint_count solver SOS1/SOS2 constraint(s). MILP dual " *
+                "solver SOS1/SOS2 constraint(s). MILP dual " *
                 "computation (JuMP.fix_discrete_variables) relaxes only binary/integer " *
                 "variables, not SOS constraints, so the resulting dual values would be " *
                 "NaN. Remove `duals = ...` from the affected DeviceModel/NetworkModel, " *

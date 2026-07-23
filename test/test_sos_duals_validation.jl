@@ -43,7 +43,7 @@ end
         template,
         sys;
         optimizer = HiGHS_optimizer,
-        horizon = Hour(2),
+        horizon = _SHORT_HORIZON,
     )
     @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
           IOM.ModelBuildStatus.BUILT
@@ -83,7 +83,7 @@ end
         template,
         sys;
         optimizer = HiGHS_optimizer,
-        horizon = Hour(2),
+        horizon = _SHORT_HORIZON,
     )
     @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
           IOM.ModelBuildStatus.BUILT
