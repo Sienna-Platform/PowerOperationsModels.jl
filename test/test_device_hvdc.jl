@@ -91,7 +91,7 @@ end
 
 @testset "HVDC System with Transport Network" begin
     sys = _generate_test_hvdc_sys()
-    template = PowerOperationsProblemTemplate()
+    template = PowerOperationsProblemTemplate(NetworkModel(DCPNetworkModel))
     set_device_model!(template, ThermalStandard, ThermalDispatchNoMin)
     set_device_model!(template, PowerLoad, StaticPowerLoad)
     set_device_model!(template, DeviceModel(Line, StaticBranch))
@@ -183,7 +183,9 @@ end
 @testset "QuadraticLossConverter builds under representative bilinear schemes" begin
     sys = _generate_test_hvdc_sys()
     for scheme in ("bin2", "nmdt")
-        template = PowerOperationsProblemTemplate()
+        template = PowerOperationsProblemTemplate(
+            NetworkModel(PTDFNetworkModel; network_matrix = PTDF(sys)),
+        )
         set_device_model!(template, ThermalStandard, ThermalDispatchNoMin)
         set_device_model!(template, PowerLoad, StaticPowerLoad)
         set_device_model!(template, DeviceModel(Line, StaticBranch))

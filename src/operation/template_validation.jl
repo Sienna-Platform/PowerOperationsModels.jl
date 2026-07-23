@@ -57,10 +57,6 @@ function validate_template_impl!(model::IOM.AbstractOptimizationModel)
             @info "The system data doesn't include devices of type $(k), consider changing the models in the template" _group =
                 IOM.LOG_GROUP_MODELS_VALIDATION
             push!(device_keys_to_delete, k)
-        elseif _ignored_under_network(get_formulation(device_model), network_model)
-            @info "Device model $(k) ($(get_formulation(device_model))) has no effect under $(network_formulation): the HVDC links are ignored on a copper-plate network. Dropping it from the template" _group =
-                IOM.LOG_GROUP_MODELS_VALIDATION
-            push!(device_keys_to_delete, k)
         elseif models_reactive_power(get_formulation(device_model)) &&
                !network_has_reactive_power(network_formulation)
             @info "Device model $(k) models reactive power but network model $(network_formulation) has no reactive power; dropping it from the template" _group =
@@ -87,10 +83,6 @@ function validate_template_impl!(model::IOM.AbstractOptimizationModel)
         make_device_cache!(device_model, system, validate_branches)
         if isempty(get_device_cache(device_model))
             @info "The system data doesn't include Branches of type $(k), consider changing the models in the template" _group =
-                IOM.LOG_GROUP_MODELS_VALIDATION
-            push!(branch_keys_to_delete, k)
-        elseif _ignored_under_network(get_formulation(device_model), network_model)
-            @info "Branch model $(k) ($(get_formulation(device_model))) has no effect under $(network_formulation): the HVDC links are ignored on a copper-plate network. Dropping it from the template" _group =
                 IOM.LOG_GROUP_MODELS_VALIDATION
             push!(branch_keys_to_delete, k)
         elseif models_reactive_power(get_formulation(device_model)) &&
@@ -287,16 +279,6 @@ _supports_network(::ReactiveNetworksOnly, ::NetworkModel) = false
 _supports_network(
     ::ReactiveNetworksOnly,
     ::NetworkModel{<:AbstractReactivePowerNetworkModel},
-) = true
-
-# Converters have no effect under CopperPlate: the network abstracts the AC topology
-# into per-subnetwork copper plates and ignores the HVDC links, so a converter and its
-# DC-side coupling do nothing. Drop them at validation rather than construct idle,
-# meaningless variables. Networks that model the DC links (PTDF/DCP/AC) keep them.
-_ignored_under_network(::Type{<:AbstractDeviceFormulation}, ::NetworkModel) = false
-_ignored_under_network(
-    ::Type{<:AbstractConverterFormulation},
-    ::NetworkModel{CopperPlateNetworkModel},
 ) = true
 
 # Validation-time counterpart of the `supports_flow_slacks` gate (see

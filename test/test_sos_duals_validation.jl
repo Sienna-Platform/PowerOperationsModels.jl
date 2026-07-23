@@ -57,7 +57,11 @@ end
     end
 
     template = PowerOperationsProblemTemplate(
-        NetworkModel(CopperPlateNetworkModel; duals = [CopperPlateBalanceConstraint]),
+        NetworkModel(
+            PTDFNetworkModel;
+            network_matrix = PTDF(sys),
+            duals = [CopperPlateBalanceConstraint],
+        ),
     )
     set_device_model!(template, ThermalStandard, ThermalDispatchNoMin)
     set_device_model!(template, PowerLoad, StaticPowerLoad)
@@ -88,10 +92,8 @@ end
     @test JuMP.num_constraints(jump_model, JuMP.VariableRef, JuMP.MOI.ZeroOne) > 0
     sos2_constraint_count = 0
     for (F, S) in JuMP.list_of_constraint_types(jump_model)
-        @show ("b", F, S)
-        POM._is_solver_sos_set(S) || println("b Not SOS") === nothing && continue
+        POM._is_solver_sos_set(S) || continue
         sos2_constraint_count += JuMP.num_constraints(jump_model, F, S)
-        @show ("b", sos2_constraint_count)
     end
     @test sos2_constraint_count == 0
 

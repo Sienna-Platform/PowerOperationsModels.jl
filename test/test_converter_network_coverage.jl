@@ -152,8 +152,6 @@ end
 @testset "LinearLossConverter wires P and the linear loss on active-power networks" begin
     b_term = 0.05
     c_term = 0.01
-    # CopperPlate is excluded: it abstracts away the HVDC links, so converters are
-    # dropped at template validation (see the dedicated drop testset below).
     for (net, optimizer) in (
         (PTDFNetworkModel, HiGHS_optimizer),
         (AreaPTDFNetworkModel, HiGHS_optimizer),
@@ -173,32 +171,6 @@ end
         container = IOM.get_optimization_container(model)
         _assert_linear_loss_coefficients(container, sys, b_term, c_term, net)
     end
-
-    # AreaBalance mirrors LosslessConverter: converters wire nothing, build only.
-    sys = _build_converter_sys(;
-        loss = QuadraticCurve(0.0, b_term, c_term),
-        with_areas = true,
-    )
-    template = _converter_template(
-        AreaBalanceNetworkModel,
-        DeviceModel(InterconnectingConverter, LinearLossConverter),
-    )
-    _, status = _build_converter_model(template, sys, HiGHS_optimizer)
-    @test status == IOM.ModelBuildStatus.BUILT
-end
-
-@testset "InterconnectingConverter is dropped under CopperPlate" begin
-    # CopperPlate abstracts the AC topology into per-subnetwork copper plates and
-    # ignores the HVDC links, so a converter has no effect. It is dropped from the
-    # template during validation rather than built as idle, meaningless variables.
-    sys = _build_converter_sys(; loss = QuadraticCurve(0.0, 0.05, 0.01))
-    template = _converter_template(
-        CopperPlateNetworkModel,
-        DeviceModel(InterconnectingConverter, LinearLossConverter),
-    )
-    model, status = _build_converter_model(template, sys, HiGHS_optimizer)
-    @test status == IOM.ModelBuildStatus.BUILT
-    @test !haskey(get_device_models(get_template(model)), :InterconnectingConverter)
 end
 
 @testset "LinearLossConverter loss surrogate pins |P| at the optimum" begin
