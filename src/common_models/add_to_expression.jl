@@ -2135,9 +2135,9 @@ function add_to_expression!(
 ) where {V <: Union{ConstantMaxInterfaceFlow, VariableMaxInterfaceFlow}}
     net_reduction_data = get_network_reduction(network_model)
     expression = get_expression(container, InterfaceTotalFlow, PSY.TransmissionInterface)
-    service_name = get_service_name(model)
+    service_name = PSY.get_name(service)
     direction_map = PSY.get_direction_mapping(service)
-    contributing_devices_map = get_contributing_devices_map(model)
+    contributing_devices_map = get_contributing_devices_map(model, service_name)
     for (br_type, contributing_devices) in contributing_devices_map
         if has_container_key(container, BThetaBranchFlow, br_type)
             flow = get_expression(container, BThetaBranchFlow, br_type)
