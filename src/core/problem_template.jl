@@ -203,6 +203,11 @@ function _add_contributing_device_by_type!(
         get_contributing_devices_map(service_model),
         service_name,
     )
+    # TODO(services stability, deferred B2): the map value is typed
+    # `Vector{<:IS.InfrastructureSystemsComponent}` (abstract element) in the IOM
+    # `contributing_devices_map` field, so this `push!` dynamic-dispatches. The `() -> T[]` default
+    # does build a concrete `Vector{T}` at runtime, but the declared field type widens what the
+    # compiler sees. Rooted in the IOM struct (Comment A); build-time-only.
     push!(get!(() -> T[], inner, T), contributing_device)
     return
 end
@@ -283,7 +288,11 @@ function _modify_device_model!(
             # add message here when it exists
             get_component_type(device_model) != dt && continue
             service_model in device_model.services && continue
-            # type instability: pushing to vector of abstract type
+            # TODO(services stability, deferred B2): `device_model.services` is
+            # `Vector{ServiceModel}` (abstract element), so this `push!` and any later iteration of
+            # it dynamic-dispatch. The root is the IOM `DeviceModel.services` field type (the POM
+            # twin of IOM review Comment A); it cannot be fixed here and needs an IOM struct-typing
+            # pass. Build-time-only. See .claude/plans/service-refactor-stability.md.
             push!(device_model.services, service_model)
         end
     end

@@ -366,7 +366,7 @@ function _get_ramp_constraint_contributing_devices(
             p_lims = PSY.get_active_power_limits(d, PSY.SU)
             max_rate = abs(p_lims.min - p_lims.max) / time_frame
             if (ramp_limits.up >= max_rate) & (ramp_limits.down >= max_rate)
-                @debug "Generator $(name) has a nonbinding ramp limits. Constraints Skipped"
+                @debug "Generator $(PSY.get_name(d)) has a nonbinding ramp limits. Constraints Skipped"
                 continue
             else
                 push!(filtered_device, d)
@@ -487,24 +487,52 @@ function add_constraints!(
     reserve_response_time = PSY.get_time_frame(service)
     jump_model = get_jump_model(container)
     for d in contributing_devices
-        component_type = typeof(d)
-        name = PSY.get_name(d)
-        varstatus = get_variable(container, OnVariable, component_type)
-        startup_time = PSY.get_time_limits(d).up
-        ramp_limits = _get_ramp_limits(d)
-        if reserve_response_time > startup_time
-            reserve_limit =
-                PSY.get_active_power_limits(d, PSY.SU).min +
-                (reserve_response_time - startup_time) * minutes_per_period * ramp_limits.up
-        else
-            reserve_limit = 0.0
-        end
-        for t in time_steps
-            cons[(service_name, name, t)] = JuMP.@constraint(
-                jump_model,
-                var_r[(service_name, name, t)] <= (1 - varstatus[name, t]) * reserve_limit
-            )
-        end
+        # Function barrier: `contributing_devices` may have an abstract element type, so passing
+        # `d`, `varstatus`, `var_r` and `cons` into the callee lets Julia specialize it on their
+        # concrete runtime types. Inside the barrier `varstatus[name, t]` / `var_r[...]` are then
+        # statically dispatched (one dynamic dispatch per device at the call, not per timestep).
+        varstatus = get_variable(container, OnVariable, typeof(d))
+        _add_reserve_power_constraint_device!(
+            cons,
+            var_r,
+            varstatus,
+            d,
+            service_name,
+            reserve_response_time,
+            minutes_per_period,
+            jump_model,
+            time_steps,
+        )
+    end
+    return
+end
+
+function _add_reserve_power_constraint_device!(
+    cons,
+    var_r,
+    varstatus,
+    d::D,
+    service_name::String,
+    reserve_response_time,
+    minutes_per_period,
+    jump_model,
+    time_steps,
+) where {D <: PSY.Component}
+    name = PSY.get_name(d)
+    startup_time = PSY.get_time_limits(d).up
+    ramp_limits = _get_ramp_limits(d)
+    if reserve_response_time > startup_time
+        reserve_limit =
+            PSY.get_active_power_limits(d, PSY.SU).min +
+            (reserve_response_time - startup_time) * minutes_per_period * ramp_limits.up
+    else
+        reserve_limit = 0.0
+    end
+    for t in time_steps
+        cons[(service_name, name, t)] = JuMP.@constraint(
+            jump_model,
+            var_r[(service_name, name, t)] <= (1 - varstatus[name, t]) * reserve_limit
+        )
     end
     return
 end
@@ -621,6 +649,10 @@ function add_reserves_proportional_cost!(
     reserve_variable = get_variable(container, U, T)
     # Iterate only this service's slice of the merged `(service, device, time)` container
     # so each service's reserve provision is priced exactly once.
+    # TODO(services efficiency, deferred B4): this scans the whole merged container per service
+    # (O(entries) x #services). When the service's contributing device names are on hand, replace
+    # the `.data` scan with a keyed slice. Build-time-only; typing here is fine (U, T concrete).
+    # See .claude/plans/service-refactor-stability.md.
     for (key, var) in reserve_variable.data
         key[1] == service_name || continue
         add_to_objective_invariant_expression!(
