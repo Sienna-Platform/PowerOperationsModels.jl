@@ -104,16 +104,6 @@ function _assert_converter_ac_side(container, ic, v, t, ::Type{<:AbstractNetwork
     return
 end
 
-# CopperPlate keys the System expression by per-subnetwork reference bus; the
-# converter must land in exactly one row with +1.0.
-function _assert_converter_ac_side(container, ic, v, t, ::Type{CopperPlateNetworkModel})
-    expr = IOM.get_expression(container, ActivePowerBalance, PSY.System)
-    coefficients = [JuMP.coefficient(expr[r, t], v) for r in axes(expr)[1]]
-    @test count(==(1.0), coefficients) == 1
-    @test count(iszero, coefficients) == length(coefficients) - 1
-    return
-end
-
 function _assert_converter_ac_side(container, ic, v, t, ::Type{PTDFNetworkModel})
     sys_expr = IOM.get_expression(container, ActivePowerBalance, PSY.System)
     coefficients = [JuMP.coefficient(sys_expr[r, t], v) for r in axes(sys_expr)[1]]
@@ -162,8 +152,9 @@ end
 @testset "LinearLossConverter wires P and the linear loss on active-power networks" begin
     b_term = 0.05
     c_term = 0.01
+    # CopperPlate is excluded: it abstracts away the HVDC links, so converters are
+    # dropped at template validation (see the dedicated drop testset below).
     for (net, optimizer) in (
-        (CopperPlateNetworkModel, HiGHS_optimizer),
         (PTDFNetworkModel, HiGHS_optimizer),
         (AreaPTDFNetworkModel, HiGHS_optimizer),
         (NFANetworkModel, HiGHS_optimizer),
@@ -194,6 +185,20 @@ end
     )
     _, status = _build_converter_model(template, sys, HiGHS_optimizer)
     @test status == IOM.ModelBuildStatus.BUILT
+end
+
+@testset "InterconnectingConverter is dropped under CopperPlate" begin
+    # CopperPlate abstracts the AC topology into per-subnetwork copper plates and
+    # ignores the HVDC links, so a converter has no effect. It is dropped from the
+    # template during validation rather than built as idle, meaningless variables.
+    sys = _build_converter_sys(; loss = QuadraticCurve(0.0, 0.05, 0.01))
+    template = _converter_template(
+        CopperPlateNetworkModel,
+        DeviceModel(InterconnectingConverter, LinearLossConverter),
+    )
+    model, status = _build_converter_model(template, sys, HiGHS_optimizer)
+    @test status == IOM.ModelBuildStatus.BUILT
+    @test !haskey(get_device_models(get_template(model)), :InterconnectingConverter)
 end
 
 @testset "LinearLossConverter loss surrogate pins |P| at the optimum" begin

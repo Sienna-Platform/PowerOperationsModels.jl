@@ -561,6 +561,82 @@ function add_to_expression!(
     return
 end
 
+# QuadraticLossConverter under PTDF: the converter active power injects into the AC
+# side only (System reference bus + ACBus). The DC-side coupling is ConverterCurrent ->
+# DCCurrentBalance; VoltageDispatchHVDCNetworkModel builds no DCBus ActivePowerBalance,
+# so — unlike the shared AbstractConverterFormulation method above — this must not touch
+# it. Mirrors the CopperPlate AbstractQuadraticLossConverter method.
+function add_to_expression!(
+    container::OptimizationContainer,
+    ::Type{T},
+    ::Type{U},
+    devices::IS.FlattenIteratorWrapper{V},
+    ::DeviceModel{V, W},
+    network_model::NetworkModel{X},
+) where {
+    T <: ActivePowerBalance,
+    U <: ActivePowerVariable,
+    V <: PSY.InterconnectingConverter,
+    W <: AbstractQuadraticLossConverter,
+    X <: PTDFNetworkModel,
+}
+    variable = get_variable(container, U, V)
+    expression_ac = get_expression(container, T, PSY.ACBus)
+    sys_expr = get_expression(container, T, PSY.System)
+    network_reduction = get_network_reduction(network_model)
+    for d in devices
+        name = PSY.get_name(d)
+        device_bus = PSY.get_bus(d)
+        bus_number_ac = PNM.get_mapped_bus_number(network_reduction, device_bus)
+        ref_bus = get_reference_bus(network_model, device_bus)
+        for t in get_time_steps(container)
+            add_proportional_to_jump_expression!(
+                sys_expr[ref_bus, t],
+                variable[name, t],
+                get_variable_multiplier(U, V, W),
+            )
+            add_proportional_to_jump_expression!(
+                expression_ac[bus_number_ac, t],
+                variable[name, t],
+                get_variable_multiplier(U, V, W),
+            )
+        end
+    end
+    return
+end
+
+# QuadraticLossConverter under PTDF: converter current pulls from its DC bus's
+# DCCurrentBalance (identical body to the CopperPlate and AC-network methods).
+function add_to_expression!(
+    container::OptimizationContainer,
+    ::Type{T},
+    ::Type{U},
+    devices::IS.FlattenIteratorWrapper{V},
+    ::DeviceModel{V, W},
+    ::NetworkModel{X},
+) where {
+    T <: DCCurrentBalance,
+    U <: ConverterCurrent,
+    V <: PSY.InterconnectingConverter,
+    W <: AbstractQuadraticLossConverter,
+    X <: PTDFNetworkModel,
+}
+    variable = get_variable(container, U, V)
+    expression_dc = get_expression(container, T, PSY.DCBus)
+    for d in devices
+        name = PSY.get_name(d)
+        bus_number_dc = PSY.get_number(PSY.get_dc_bus(d))
+        for t in get_time_steps(container)
+            add_proportional_to_jump_expression!(
+                expression_dc[bus_number_dc, t],
+                variable[name, t],
+                -1.0,
+            )
+        end
+    end
+    return
+end
+
 # LinearLossConverter: a loss function with a quadratic term cannot be represented;
 # refuse it instead of silently dropping the `a·I²` term.
 function _check_linear_converter_loss(d::PSY.InterconnectingConverter)

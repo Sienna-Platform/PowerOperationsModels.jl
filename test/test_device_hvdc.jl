@@ -112,8 +112,23 @@ end
 end
 
 @testset "HVDC CurrentAbsoluteValueVariable matches |ConverterCurrent| at MILP optimum" begin
-    sys = _generate_test_hvdc_sys()
-    template = PowerOperationsProblemTemplate()
+    # Force a ~2 pu side-2 generation deficit (within the 2 converters × 2.0 pu DC
+    # import capacity) so side-2 must import over the DC ties. Under CopperPlate the
+    # HVDC links are ignored and the converters idle at I = 0 — a degenerate optimum
+    # sitting on the bin2 |I| PWL breakpoint (the vacuous, x86_64-HiGHS-fragile solve).
+    # PTDF keeps the two AC islands separate, so the deficit drives real converter
+    # current and the |I| check below is non-vacuous and off the breakpoint. deepcopy
+    # isolates the limit change from the PSB-cached system shared by the other testsets.
+    sys = deepcopy(_generate_test_hvdc_sys())
+    for (name, cap) in (("Brighton-2", 2.0), ("Solitude-2", 2.0))
+        PSY.set_active_power_limits!(
+            get_component(ThermalStandard, sys, name),
+            (min = 0.0 * PSY.SU, max = cap * PSY.SU),
+        )
+    end
+    template = PowerOperationsProblemTemplate(
+        NetworkModel(PTDFNetworkModel; network_matrix = PTDF(sys)),
+    )
     set_device_model!(template, ThermalStandard, ThermalDispatchNoMin)
     set_device_model!(template, PowerLoad, StaticPowerLoad)
     set_device_model!(template, DeviceModel(Line, StaticBranch))
@@ -157,6 +172,9 @@ end
                 InterconnectingConverter,
             ).data,
         )
+    # Non-vacuity: the deficit forces real DC transfer, so |I| is well off zero — a
+    # regression to the idle-converter optimum would make the |I| check below trivial.
+    @test maximum(abs.(i_vals)) > 0.5
     # atol must stay above the solver's relaxed mip_feasibility_tolerance (1e-5):
     # the abs-value linking constraints are only satisfied to that tolerance.
     @test isapprox(abs_i_vals, abs.(i_vals); atol = 1e-4)
