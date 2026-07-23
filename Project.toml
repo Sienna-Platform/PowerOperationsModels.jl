@@ -15,6 +15,7 @@ LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
 Logging = "56ddb016-857b-54e1-b83d-db4d58db5568"
 PowerNetworkMatrices = "bed98974-b02a-5e2f-9fe0-a103f5c450dd"
 PowerSystems = "bcd98974-b02a-5e2f-9ee0-a103f5c450dd"
+PrecompileTools = "aea7be01-6a6a-4083-8856-8a6e6704d82a"
 PrettyTables = "08abe8d2-0d0c-5749-adfa-8a2ac140af0d"
 ProgressMeter = "92933f4c-e287-5a05-a399-4b506db050ca"
 Serialization = "9e88b42a-f829-5b0c-bbe9-9e923198166b"
@@ -25,10 +26,10 @@ TimerOutputs = "a759f4b9-e2f1-59dc-863e-4aeb61b1ea8f"
 PowerFlows = "94fada2c-fd9a-4e89-8d82-81405f5cb4f6"
 
 [sources]
-InfrastructureSystems = {rev = "IS4", url = "https://github.com/Sienna-Platform/InfrastructureSystems.jl"}
-PowerSystems = {rev = "jd/converter-dc-current-base", url = "https://github.com/Sienna-Platform/PowerSystems.jl"}
 InfrastructureOptimizationModels = {rev = "main", url = "https://github.com/Sienna-Platform/InfrastructureOptimizationModels.jl"}
+InfrastructureSystems = {rev = "IS4", url = "https://github.com/Sienna-Platform/InfrastructureSystems.jl"}
 PowerNetworkMatrices = {rev = "psy6", url = "https://github.com/Sienna-Platform/PowerNetworkMatrices.jl"}
+PowerSystems = {rev = "jd/converter-dc-current-base", url = "https://github.com/Sienna-Platform/PowerSystems.jl"}
 
 [extensions]
 PowerFlowsExt = "PowerFlows"
@@ -39,9 +40,10 @@ DocStringExtensions = "~0.8, ~0.9"
 InfrastructureSystems = "3"
 InteractiveUtils = "1.11.0"
 JuMP = "^1.28"
-PowerSystems = "^5.10"
 PowerFlows = "0.21, 0.22"
 PowerNetworkMatrices = "^0.24"
+PowerSystems = "^5.10"
+PrecompileTools = "1"
 PrettyTables = "3"
 ProgressMeter = "1.11.0"
 TimerOutputs = "~0.5"
