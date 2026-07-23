@@ -1054,11 +1054,64 @@ end
     ) == IOM.ModelBuildStatus.FAILED
 end
 
+@testset "GroupReserve requirement sums only its contributing services" begin
+    # A ConstantReserveGroup's RequirementConstraint must sum the ActivePowerReserveVariable of
+    # every contributing service (and only those) across the merged (service, device, time)
+    # container. Exercises reserve_group.jl `add_constraints!` and its `_accumulate_group_reserve!`
+    # function barrier. This path was previously unbuildable (the old
+    # `_populate_contributing_devices!` errored on a ConstantReserveGroup); it is now reachable
+    # because the no-contributing-devices error is scoped to `PSY.Reserve` only.
+    # `deepcopy` so the added group does not leak into the PSB-cached system.
+    sys = deepcopy(PSB.build_system(PSITestSystems, "c_sys5_uc"; add_reserves = true))
+    r1 = PSY.get_component(VariableReserve{ReserveUp}, sys, "Reserve1")
+    # Group contains ONLY Reserve1, so the constraint must include Reserve1's device variables and
+    # exclude Reserve11's — verifying the barrier's per-service `key[1] == r_name` filtering.
+    group = ConstantReserveGroup{ReserveUp}(;
+        name = "group_up",
+        available = true,
+        requirement = 0.0,
+    )
+    add_service!(sys, group, Service[r1])
+
+    template = get_thermal_dispatch_template_network(CopperPlateNetworkModel)
+    set_service_model!(template, ServiceModel(VariableReserve{ReserveUp}, RangeReserve))
+    set_service_model!(
+        template,
+        ServiceModel(ConstantReserveGroup{ReserveUp}, GroupReserve),
+    )
+    model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+
+    container = get_optimization_container(model)
+    rv = IOM.get_variable(container, ActivePowerReserveVariable, VariableReserve{ReserveUp})
+    con = IOM.get_constraint(
+        container,
+        RequirementConstraint,
+        ConstantReserveGroup{ReserveUp},
+    )
+
+    # Dense group-indexed requirement container keyed [group_name, time].
+    @test "group_up" in axes(con)[1]
+
+    # At t=1 every Reserve1 device variable appears with coefficient 1; every Reserve11 device
+    # variable has coefficient 0 (Reserve11 is not in the group). Confirms the group sums exactly
+    # its contributing service's slice.
+    c1 = con["group_up", 1]
+    checked_reserve1 = 0
+    for (key, var) in rv.data
+        key[3] == 1 || continue
+        expected = key[1] == "Reserve1" ? 1.0 : 0.0
+        @test JuMP.normalized_coefficient(c1, var) == expected
+        key[1] == "Reserve1" && (checked_reserve1 += 1)
+    end
+    @test checked_reserve1 > 0   # Reserve1 actually contributed variables
+
+    @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+end
+
 # NOT PORTED — blocked by POM source gaps (these PSI testsets need src changes, out of
 # scope for a test-only port):
-#  - "Test GroupReserve from Thermal Dispatch" / "Test GroupReserve Errors":
-#    `_populate_contributing_devices!` errors on a `ConstantReserveGroup` whose
-#    contributing entries are services, not devices (group contributing-device handling).
 #  - "Test Reserves with Feedforwards": the concrete feedforward types
 #    (`LowerBoundFeedforward`, `FixValueFeedforward`, …) are not defined in POM or IOM —
 #    only the feedforward constraint types and the abstract construct hooks exist.
