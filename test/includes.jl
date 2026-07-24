@@ -58,3 +58,5 @@ include("test_utils/hybrid_test_utils.jl")
 
 ENV["RUNNING_SIENNA_TESTS"] = "true"
 ENV["SIENNA_RANDOM_SEED"] = 1234  # Set a fixed seed for reproducibility in tests
+
+const _SHORT_HORIZON = Hour(2)
