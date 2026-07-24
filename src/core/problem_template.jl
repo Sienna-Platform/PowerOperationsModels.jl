@@ -239,8 +239,8 @@ function _populate_contributing_devices!(
     # populating each reserve we require at least one such device: a modeled reserve with no
     # available provider can never meet its requirement - it would silently force slacks or
     # make the model infeasible - so error loudly and name it rather than dropping it.
-    # Non-reserve services (ConstantReserveGroup, TransmissionInterface, AGC) draw on other
-    # services or branches, not provider devices, so they are exempt from the check.
+    # A modeled TransmissionInterface likewise needs at least one available contributing branch,
+    # or its flow limit is meaningless. ConstantReserveGroup is exempt (see the check below).
     for (service_key, service_model) in service_models
         @debug "Populating service model $(service_key)"
         empty!(get_contributing_devices_map(service_model))
@@ -262,14 +262,15 @@ function _populate_contributing_devices!(
                     )
                 end
             end
-            # TODO(transmission interface, Q5): the check is reserve-scoped, so a
-            # TransmissionInterface with no contributing branches (or all-unavailable
-            # branches) still populates silently. Extend an equivalent loud error to the
-            # interface path when the interface migration lands.
-            if service_type <: PSY.Reserve &&
+            # Exempt ConstantReserveGroup: a GroupReserve aggregates other services, so its
+            # contributing-device map is empty by design; without this the error would fire on
+            # every group reserve (the bug that previously made ConstantReserveGroup unbuildable).
+            # Reserves and transmission interfaces DO draw on devices/branches, so an empty map
+            # there is a real misconfiguration. AGC is not modeled in POM, so it never reaches here.
+            if !(service_type <: PSY.ConstantReserveGroup) &&
                isempty(get_contributing_devices_map(service_model, service_name))
                 error(
-                    "Reserve service \"$(service_name)\" of type $(typeof(service)) has no available contributing devices. Assign available contributing devices to it in the system data, or remove its service model from the template.",
+                    "Service \"$(service_name)\" of type $(typeof(service)) has no available contributing devices/branches. Assign available contributing devices/branches to it in the system data, or remove its service model from the template.",
                 )
             end
         end
