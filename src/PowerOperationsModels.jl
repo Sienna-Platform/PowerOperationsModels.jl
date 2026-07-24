@@ -973,4 +973,6 @@ export PostContingencyBranchRatingTimeSeriesParameter
 # Network model capability traits (IOM default + POM overrides in core/network_formulations.jl)
 export branches_modeled
 
+include("precompile_tools.jl")
+
 end
