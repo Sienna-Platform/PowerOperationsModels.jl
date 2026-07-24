@@ -14,6 +14,7 @@ import PowerNetworkMatrices
 import PowerNetworkMatrices: PTDF, VirtualPTDF
 import PowerSystems
 import PowerSystems: get_component
+import PrecompileTools
 import PrettyTables
 import ProgressMeter
 import Serialization
@@ -972,5 +973,9 @@ export PostContingencyBranchRatingTimeSeriesParameter
 
 # Network model capability traits (IOM default + POM overrides in core/network_formulations.jl)
 export branches_modeled
+
+# Must be the last include: it runs build!/solve! at precompile time and
+# needs the post-include IOM imports (set_status! etc.) already evaluated.
+include("precompile_workload.jl")
 
 end
