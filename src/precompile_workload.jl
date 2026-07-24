@@ -48,7 +48,7 @@ function _build_precompile_system()
         angle_limits = (min = -1.57, max = 1.57),
     )
     PSY.add_component!(sys, line)
-    thermal1 = PSY.ThermalStandard(;
+    thermal1 = PSY.ThermalMultiStart(;
         name = "thermal1",
         available = true,
         status = true,
@@ -56,22 +56,27 @@ function _build_precompile_system()
         active_power = 0.5,
         reactive_power = 0.0,
         rating = 1.0,
+        prime_mover_type = PSY.PrimeMovers.CC,
+        fuel = PSY.ThermalFuels.NATURAL_GAS,
         active_power_limits = (min = 0.2, max = 1.0),
         reactive_power_limits = nothing,
         # Must stay below |max - min| / 60 (pu/min at hourly resolution) or
         # _get_ramp_constraint_devices drops the device and no RampConstraint
         # is compiled. Same logic for thermal2.
         ramp_limits = (up = 0.005, down = 0.005),
+        power_trajectory = (startup = 0.25, shutdown = 0.25),
+        time_limits = (up = 2.0, down = 2.0),
+        start_time_limits = (hot = 2.0, warm = 4.0, cold = 12.0),
+        start_types = 3,
         operation_cost = PSY.ThermalGenerationCost(;
             variable = PSY.CostCurve(PSY.LinearCurve(20.0)),
             fixed = 1.0,
-            start_up = 100.0,
+            start_up = (hot = 100.0, warm = 250.0, cold = 500.0),
             shut_down = 50.0,
         ),
         base_power = 100.0,
-        time_limits = (up = 2.0, down = 2.0),
     )
-    thermal2 = PSY.ThermalStandard(;
+    thermal2 = PSY.ThermalMultiStart(;
         name = "thermal2",
         available = true,
         status = true,
@@ -79,20 +84,46 @@ function _build_precompile_system()
         active_power = 0.5,
         reactive_power = 0.0,
         rating = 1.0,
+        prime_mover_type = PSY.PrimeMovers.ST,
+        fuel = PSY.ThermalFuels.COAL,
         active_power_limits = (min = 0.1, max = 0.8),
         reactive_power_limits = nothing,
         ramp_limits = (up = 0.006, down = 0.006),
+        power_trajectory = (startup = 0.15, shutdown = 0.15),
+        time_limits = (up = 2.0, down = 2.0),
+        start_time_limits = (hot = 1.5, warm = 3.0, cold = 8.0),
+        start_types = 3,
         operation_cost = PSY.ThermalGenerationCost(;
             variable = PSY.CostCurve(PSY.QuadraticCurve(5.0, 15.0, 0.0)),
             fixed = 0.5,
-            start_up = 80.0,
+            start_up = (hot = 80.0, warm = 160.0, cold = 320.0),
             shut_down = 40.0,
+        ),
+        base_power = 100.0,
+    )
+    PSY.add_component!(sys, thermal1)
+    PSY.add_component!(sys, thermal2)
+    thermal3 = PSY.ThermalStandard(;
+        name = "thermal3",
+        available = true,
+        status = true,
+        bus = bus1,
+        active_power = 0.4,
+        reactive_power = 0.0,
+        rating = 0.9,
+        active_power_limits = (min = 0.15, max = 0.9),
+        reactive_power_limits = nothing,
+        ramp_limits = (up = 0.005, down = 0.005),
+        operation_cost = PSY.ThermalGenerationCost(;
+            variable = PSY.CostCurve(PSY.LinearCurve(25.0)),
+            fixed = 0.8,
+            start_up = 90.0,
+            shut_down = 45.0,
         ),
         base_power = 100.0,
         time_limits = (up = 2.0, down = 2.0),
     )
-    PSY.add_component!(sys, thermal1)
-    PSY.add_component!(sys, thermal2)
+    PSY.add_component!(sys, thermal3)
     renewable = PSY.RenewableDispatch(;
         name = "renewable1",
         available = true,
@@ -152,6 +183,7 @@ end
 
 function _precompile_uc_template()
     template = PowerOperationsProblemTemplate(CopperPlateNetworkModel)
+    set_device_model!(template, PSY.ThermalMultiStart, ThermalMultiStartUnitCommitment)
     set_device_model!(template, PSY.ThermalStandard, ThermalStandardUnitCommitment)
     set_device_model!(template, PSY.RenewableDispatch, RenewableFullDispatch)
     set_device_model!(template, PSY.PowerLoad, StaticPowerLoad)
@@ -215,6 +247,7 @@ function _run_precompile_workload(sys, output_dir)
         end
 
         template_ed_ptdf = PowerOperationsProblemTemplate(PTDFNetworkModel)
+        set_device_model!(template_ed_ptdf, PSY.ThermalMultiStart, ThermalStandardDispatch)
         set_device_model!(template_ed_ptdf, PSY.ThermalStandard, ThermalStandardDispatch)
         set_device_model!(template_ed_ptdf, PSY.RenewableDispatch, RenewableFullDispatch)
         set_device_model!(template_ed_ptdf, PSY.PowerLoad, StaticPowerLoad)
@@ -226,6 +259,11 @@ function _run_precompile_workload(sys, output_dir)
         )
 
         template_uc_dcp = PowerOperationsProblemTemplate(DCPNetworkModel)
+        set_device_model!(
+            template_uc_dcp,
+            PSY.ThermalMultiStart,
+            ThermalMultiStartUnitCommitment,
+        )
         set_device_model!(
             template_uc_dcp,
             PSY.ThermalStandard,
@@ -241,6 +279,11 @@ function _run_precompile_workload(sys, output_dir)
         )
 
         template_ed_areaptdf = PowerOperationsProblemTemplate(AreaPTDFNetworkModel)
+        set_device_model!(
+            template_ed_areaptdf,
+            PSY.ThermalMultiStart,
+            ThermalStandardDispatch,
+        )
         set_device_model!(
             template_ed_areaptdf,
             PSY.ThermalStandard,
