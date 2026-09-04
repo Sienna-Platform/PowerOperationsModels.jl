@@ -34,8 +34,15 @@ get_variable_binary(::Type{ShiftDownActivePowerVariable}, ::Type{<:PSY.ElectricL
 get_variable_lower_bound(::Type{ShiftDownActivePowerVariable}, d::PSY.ElectricLoad, ::Type{PowerLoadShift}) = 0.0
 get_variable_upper_bound(::Type{ShiftDownActivePowerVariable}, d::PSY.ElectricLoad, ::Type{PowerLoadShift}) = nothing # Unbounded above by default, but can be limited by time series parameters
 
-variable_cost(cost::PSY.OperationalCost, ::Type{ShiftUpActivePowerVariable}, ::PSY.ElectricLoad, ::Type{<:AbstractControllablePowerLoadFormulation})=PSY.get_variable(cost)
-variable_cost(cost::PSY.OperationalCost, ::Type{ShiftDownActivePowerVariable}, ::PSY.ElectricLoad, ::Type{<:AbstractControllablePowerLoadFormulation})=PSY.get_variable(cost)
+variable_cost(cost::PSY.OperationalCost, ::Type{ShiftUpActivePowerVariable}, ::PSY.ElectricLoad, ::Type{<:AbstractControllablePowerLoadFormulation})=PSY.get_variable_operation_cost(cost)
+variable_cost(cost::PSY.OperationalCost, ::Type{ShiftDownActivePowerVariable}, ::PSY.ElectricLoad, ::Type{<:AbstractControllablePowerLoadFormulation})=PSY.get_variable_operation_cost(cost)
+
+########################### Reserve provision, ElectricLoad ################################
+# The inverse of a generator: up reserve is shed (P - r_up >= 0), down reserve is extra
+# consumption (P + r_down <= forecast). OfflineReserve (non-spin) is upward-only, so a
+# load provides it as committed shed like any up reserve.
+get_expression_type_for_reserve(::Type{ActivePowerReserveVariable}, ::Type{<:PSY.ElectricLoad}, ::Type{<:UP_RESERVE}) = ActivePowerRangeExpressionLB
+get_expression_type_for_reserve(::Type{ActivePowerReserveVariable}, ::Type{<:PSY.ElectricLoad}, ::Type{<:PSY.Reserve{PSY.ReserveDown}}) = ActivePowerRangeExpressionUB
 
 ######################################################
 
@@ -259,10 +266,12 @@ function add_constraints!(
     return
 end
 
+# Upper bound is the load's forecast; with reserves, `ActivePowerRangeExpressionUB`
+# (= P + Σ r_down) rides the same bound, capping down awards by the forecast headroom.
 function add_constraints!(
     container::OptimizationContainer,
     ::Type{ActivePowerVariableLimitsConstraint},
-    U::Type{<:VariableType},
+    U::Type{<:Union{VariableType, ActivePowerRangeExpressionUB}},
     devices::IS.FlattenIteratorWrapper{V},
     model::DeviceModel{V, W},
     ::NetworkModel{X},
@@ -278,6 +287,27 @@ function add_constraints!(
     )
     return
 end
+
+# `ActivePowerRangeExpressionLB` (= P - Σ r_up) >= 0: an up award cannot exceed the
+# load's consumption. Reached only when the load carries a reserve service.
+function add_constraints!(
+    container::OptimizationContainer,
+    T::Type{ActivePowerVariableLimitsConstraint},
+    U::Type{ActivePowerRangeExpressionLB},
+    devices::IS.FlattenIteratorWrapper{V},
+    model::DeviceModel{V, W},
+    ::NetworkModel{X},
+) where {V <: PSY.ControllableLoad, W <: PowerLoadDispatch, X <: AbstractNetworkModel}
+    add_range_constraints!(container, T, U, devices, model, X)
+    return
+end
+
+# Only `min` is consumed (shed floor); the upper bound rides the forecast parameter.
+get_min_max_limits(
+    d::PSY.ControllableLoad,
+    ::Type{ActivePowerVariableLimitsConstraint},
+    ::Type{PowerLoadDispatch},
+) = (min = 0.0, max = PSY.get_max_active_power(d, PSY.SU))
 
 function add_constraints!(
     container::OptimizationContainer,
@@ -519,13 +549,40 @@ function add_constraints!(
     return
 end
 
+# Is this cost curve zero-valued, i.e. it puts no price on the device's dispatch?
+_is_costless_offer(cost::PSY.LoadCost) =
+    PSY.get_variable_operation_cost(cost) == zero(PSY.CostCurve)
+_is_costless_offer(cost::PSY.MarketBidCost) =
+    !IOM.is_nontrivial_offer(get_input_offer_curves(cost))
+# A real (non-placeholder) time-series key means a genuine decremental offer is attached;
+# whether its resolved values are all zero is unknowable before the series is read.
+_is_costless_offer(cost::PSY.MarketBidTimeSeriesCost) =
+    !IOM.is_nontrivial_offer(get_input_offer_curves(cost))
+_is_costless_offer(::PSY.OperationalCost) = false
+
 ############################## FormulationControllable Load Cost ###########################
 function add_to_objective_function!(
     container::OptimizationContainer,
     devices::IS.FlattenIteratorWrapper{T},
-    ::DeviceModel{T, U},
+    model::DeviceModel{T, U},
     ::Type{<:AbstractNetworkModel},
 ) where {T <: PSY.ControllableLoad, U <: PowerLoadDispatch}
+    # A costless load selling reserves has nothing pinning its consumption: fail loudly.
+    if has_service_model(model)
+        for d in devices
+            cost = PSY.get_operation_cost(d)
+            if _is_costless_offer(cost)
+                throw(
+                    IS.ConflictingInputsError(
+                        "PowerLoadDispatch load '$(PSY.get_name(d))' provides a reserve \
+                        service but its cost curve is zero; attach an energy/VOLL value \
+                        (e.g. set_operation_cost! with a priced LoadCost, or a nonzero \
+                        MarketBidCost decremental offer) so its dispatch is pinned.",
+                    ),
+                )
+            end
+        end
+    end
     add_variable_cost!(container, ActivePowerVariable, devices, U)
     return
 end
@@ -552,7 +609,7 @@ function proportional_cost(
     t::Int,
 )
     return onvar_cost(container, cost, S, T, U, t) +
-           PSY.get_constant_term(PSY.get_vom_cost(PSY.get_variable(cost))) +
+           PSY.get_constant_term(PSY.get_vom_cost(PSY.get_variable_operation_cost(cost))) +
            PSY.get_fixed(cost)
 end
 
@@ -564,7 +621,7 @@ function onvar_cost(
     ::Type{PowerLoadInterruption},
     t::Int,
 )
-    return _onvar_cost(container, PSY.get_variable(cost), d, t)
+    return _onvar_cost(container, PSY.get_variable_operation_cost(cost), d, t)
 end
 
 # LoadCost has no FuelCurve-backed `_onvar_cost` path; the OnVariable proportional

@@ -279,6 +279,19 @@ function run!(
                     outputs = OptimizationProblemOutputs(model)
                     serialize_outputs(outputs, IOM.get_output_dir(model))
                     export_problem_outputs && export_outputs(outputs)
+                    if IOM.get_system_to_file(IOM.get_settings(model))
+                        sys = IOM.get_system(model)
+                        sys_dir = joinpath(
+                            IOM.get_output_dir(model),
+                            IOM.make_system_dirname(sys),
+                        )
+                        # Re-solving into an existing directory must not rewrite the system and its time series.
+                        # `power_units = :component_base` is what PSY stores internally, so the
+                        # write needs no unit conversion and no round-trip ledger — a model's
+                        # system carries one only when it was built from a document.
+                        !ispath(sys_dir) &&
+                            PSY.to_file(sys, sys_dir; power_units = :component_base)
+                    end
                 end
                 @info "\n$(RUN_OPERATION_MODEL_TIMER)\n"
             catch e

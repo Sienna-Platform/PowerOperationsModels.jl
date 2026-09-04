@@ -108,12 +108,16 @@ function validate_template_impl!(model::IOM.AbstractOptimizationModel)
     for k in branch_keys_to_delete
         delete!(template.branches, k)
     end
-    _check_security_constrained_three_winding_transformer!(template.branches)
-    _check_security_constrained_network!(template.branches, network_model)
+    _check_security_constrained_three_winding_transformer(template.branches)
+    _check_security_constrained_network(template.branches, network_model)
+    _check_security_constrained_phase_control(template.branches, network_model)
     _check_voltage_regulation_conflicts!(template, system, network_model)
     _check_branch_rating_time_series_formulation!(template.branches, system)
     validate_network_model(network_model, unmodeled_branch_types, model_has_branch_filters)
     _build_device_model_outages!(template, system)
+    # Must follow `_build_device_model_outages!`: that call is what fills the per-type
+    # monitored-name maps this check reads.
+    _check_monitored_components(template.branches, system)
     _build_device_model_events!(template, system)
     return
 end
@@ -184,23 +188,27 @@ function _check_branch_rating_time_series_formulation!(
     return
 end
 
-function _check_security_constrained_three_winding_transformer!(
+function _check_security_constrained_three_winding_transformer(
+    branch_model::DeviceModel{
+        PSY.ThreeWindingTransformer,
+        <:AbstractSecurityConstrainedStaticBranch,
+    },
+)
+    throw(
+        IS.ConflictingInputsError(
+            "Security-constrained branch formulations are not implemented \
+            yet for ThreeWindingTransformers.",
+        ),
+    )
+end
+
+_check_security_constrained_three_winding_transformer(::DeviceModel) = nothing
+
+function _check_security_constrained_three_winding_transformer(
     branch_models::IOM.BranchModelContainer,
 )
-    for (_, device_model) in branch_models
-        D = get_component_type(device_model)
-        B = get_formulation(device_model)
-        if D <: PSY.ThreeWindingTransformer &&
-           B <: AbstractSecurityConstrainedStaticBranch
-            throw(
-                IS.ConflictingInputsError(
-                    "Security-constrained branch formulations are not implemented \
-                    yet for $(D), but it was configured with $(B). Use a non \
-                    security-constrained formulation (e.g. StaticBranch) for \
-                    $(D), or remove it from the template.",
-                ),
-            )
-        end
+    for device_model in values(branch_models)
+        _check_security_constrained_three_winding_transformer(device_model)
     end
     return
 end
@@ -255,8 +263,6 @@ network_support(::Type{<:AbstractDeviceFormulation}) = AllNetworks()
 # the coarse reactive-power gate admits these devices even though their control layer has no
 # LPACC construct path.
 network_support(::Type{ShuntSusceptanceDispatch}) = AllNetworksExceptLPACC()
-# psy6: disabled pending transformer refactor
-# network_support(::Type{VoltageControlTap}) = AllNetworksExceptLPACC()
 
 # An LCC's reactive consumption is the reason to model it as HVDCTwoTerminalLCC; on a
 # network without a reactive balance use HVDCTwoTerminalDispatch/Lossless instead.
@@ -329,26 +335,109 @@ function _check_flow_slack_support(
     )
 end
 
-function _check_security_constrained_network!(
+_is_security_constrained(
+    ::DeviceModel{<:PSY.ACTransmission, <:AbstractSecurityConstrainedStaticBranch},
+) = true
+_is_security_constrained(::DeviceModel) = false
+
+_has_unsupported_phase(t::_TRANSFORMERS, m::DeviceModel{<:_TRANSFORMERS}) = any(
+    _control_objective(c, m) in _PHASE_CONTROLS || !iszero(PSY.get_α(c)) for
+    c in PSY.get_circuits(t)
+)
+_has_unsupported_phase(_, ::DeviceModel) = false
+# A transformer carrying an outage need not have a `DeviceModel` in the template. Its
+# control objective is then inert, but a nonzero fixed shift still corrupts the MODF
+# columns of every monitored arc, so the static angle alone is disqualifying.
+_has_unsupported_phase(t::_TRANSFORMERS, ::Nothing) =
+    any(!iszero(PSY.get_α(c)) for c in PSY.get_circuits(t))
+_has_unsupported_phase(_, ::Nothing) = false
+
+_has_unsupported_phase(m::DeviceModel{<:_TRANSFORMERS}) =
+    any(_has_unsupported_phase(t, m) for t in get_device_cache(m))
+_has_unsupported_phase(::DeviceModel) = false
+
+function _check_security_constrained_phase_control(
+    branch_models::IOM.BranchModelContainer,
+    network_model::NetworkModel{<:Union{DCPNetworkModel, AbstractDCPLLNetworkModel}},
+)
+    any(_is_security_constrained(m) for m in values(branch_models)) || return
+    any(_has_unsupported_phase(m) for m in values(branch_models)) && throw(
+        IS.ConflictingInputsError(
+            "N-1 DCP/DCPLL networks do not support any transformers with phase-control or nonzero phase.",
+        ),
+    )
+    return
+end
+
+_check_security_constrained_phase_control(::IOM.BranchModelContainer, ::NetworkModel) =
+    nothing
+
+function _check_security_constrained_network(
+    branch_model::DeviceModel{<:PSY.ACTransmission, B},
+    network_model::NetworkModel,
+) where {B <: AbstractSecurityConstrainedStaticBranch}
+    _sc_branch_network_supported(network_model) || throw(
+        IS.ConflictingInputsError(
+            "$(B) is not supported with network model \
+            $(get_network_formulation(network_model)). Supported network \
+            models are PTDF, AreaPTDF and DCP. Security-constrained \
+            branches are not available on AC or lossy network models \
+            (ACP/ACR/IVR/LPACC/DCPLL) because the MODF post-contingency \
+            formulation is a lossless linear DC construct. NFA, \
+            CopperPlate and AreaBalance are inert for \
+            security-constrained branches.",
+        ),
+    )
+    return
+end
+
+_check_security_constrained_network(::DeviceModel, ::NetworkModel) = nothing
+
+function _check_security_constrained_network(
     branch_models::IOM.BranchModelContainer,
     network_model::NetworkModel,
 )
-    _sc_branch_network_supported(network_model) && return
-    for (_, device_model) in branch_models
-        B = get_formulation(device_model)
-        if B <: AbstractSecurityConstrainedStaticBranch
-            throw(
-                IS.ConflictingInputsError(
-                    "$(B) is not supported with network model \
-                    $(get_network_formulation(network_model)). Supported network \
-                    models are PTDF, AreaPTDF and DCP. Security-constrained \
-                    branches are not available on AC or lossy network models \
-                    (ACP/ACR/IVR/LPACC/DCPLL) because the MODF post-contingency \
-                    formulation is a lossless linear DC construct. NFA, \
-                    CopperPlate and AreaBalance are inert for \
-                    security-constrained branches.",
-                ),
-            )
+    for device_model in values(branch_models)
+        _check_security_constrained_network(device_model, network_model)
+    end
+    return
+end
+
+function _assert_transformer_outages(
+    transformer::T,
+    branch_models::IOM.BranchModelContainer,
+) where {T <: _TRANSFORMERS}
+    model = get(branch_models, nameof(T), nothing)
+    _has_unsupported_phase(transformer, model) && throw(
+        IS.ConflictingInputsError(
+            "Phase-shifting transformers and transformers with non-zero angle may not be outages.",
+        ),
+    )
+    return
+end
+
+_assert_transformer_outages(::PSY.Device, ::IOM.BranchModelContainer) =
+    nothing
+
+# Monitored components exist; no controlled transformer outages
+function _check_monitored_components(
+    branch_models::IOM.BranchModelContainer,
+    sys::PSY.System,
+)
+    for branch_model in values(branch_models)
+        IOM.supports_outages(IOM.get_formulation(branch_model)) || continue
+        for outage_id in keys(get_outages(branch_model))
+            outage = PSY.get_supplemental_attribute(sys, outage_id)
+            for uuid in PSY.get_monitored_components(outage)
+                isnothing(IS.get_component(sys, uuid)) && throw(
+                    IS.ConflictingInputsError(
+                        "Monitored component with UUID $uuid on outage $outage_id is not found in the system.",
+                    ),
+                )
+            end
+            for component in PSY.get_associated_components(sys, outage)
+                _assert_transformer_outages(component, branch_models)
+            end
         end
     end
     return
@@ -369,26 +458,38 @@ _voltage_regulation_can_collide(::NetworkModel{LPACCNetworkModel}) = true
 # DeviceModel alias, so this one default covers both device and branch models). One
 # specialization per regulating formulation, reusing each family's regulated-bus
 # resolver.
-_voltage_regulated_buses(::IOM.DeviceModel, ::PSY.System) = Tuple{String, PSY.ACBus}[]
+_voltage_regulated_buses(::IOM.DeviceModel, ::PSY.System, ::NetworkModel) =
+    Tuple{String, PSY.ACBus}[]
 
-# psy6: disabled pending transformer refactor
-# function _voltage_regulated_buses(
-#     device_model::IOM.DeviceModelForBranches{T, VoltageControlTap},
-#     sys::PSY.System,
-# ) where {T <: PSY.TapTransformer}
-#     bus_by_number = _bus_by_number(sys)
-#     pairs = Tuple{String, PSY.ACBus}[]
-#     for d in get_available_components(device_model, sys)
-#         if PSY.get_control_objective(d) == PSY.TransformerControlObjective.VOLTAGE
-#             push!(pairs, (PSY.get_name(d), _tap_regulated_bus(d, bus_by_number)))
-#         end
-#     end
-#     return pairs
-# end
+# Regulated buses from VOLTAGE-controlled transformers on AC networks
+function _voltage_regulated_buses(
+    device_model::DeviceModel{<:_TRANSFORMERS, F},
+    sys::PSY.System,
+    network_model::NetworkModel,
+) where {F <: AbstractBranchFormulation}
+    pairs = Tuple{String, PSY.ACBus}[]
+    _control_enabled(device_model) || return pairs
+    for d in get_available_components(device_model, sys)
+        for (i, circuit) in enumerate(PSY.get_circuits(d))
+            PSY.get_control_objective(circuit) === _VOLTAGE_CONTROL || continue
+            _supports_tap_control(network_model) || continue
+            bus = PSY.get_bus(sys, PSY.get_regulated_bus_number(circuit))
+            name = "$(PSY.get_name(d))_winding_$i"
+            if isnothing(bus)
+                error(
+                    "The regulated bus number for circuit $name is not a valid bus number: it must correspond to a valid bus number in the network.",
+                )
+            end
+            push!(pairs, (name, bus))
+        end
+    end
+    return pairs
+end
 
 function _voltage_regulated_buses(
     device_model::IOM.DeviceModel{T, ShuntSusceptanceDispatch},
     sys::PSY.System,
+    ::NetworkModel,
 ) where {T <: PSY.FACTSControlDevice}
     pairs = Tuple{String, PSY.ACBus}[]
     for d in get_available_components(device_model, sys)
@@ -402,6 +503,7 @@ end
 function _voltage_regulated_buses(
     device_model::IOM.DeviceModel{T, VoltageControlConverter},
     sys::PSY.System,
+    ::NetworkModel,
 ) where {T <: PSY.InterconnectingConverter}
     pairs = Tuple{String, PSY.ACBus}[]
     for d in get_available_components(device_model, sys)
@@ -415,6 +517,7 @@ end
 function _voltage_regulated_buses(
     device_model::IOM.DeviceModelForBranches{T, VoltageControlVSC},
     sys::PSY.System,
+    ::NetworkModel,
 ) where {T <: PSY.TwoTerminalVSCLine}
     pairs = Tuple{String, PSY.ACBus}[]
     for d in get_available_components(device_model, sys)
@@ -439,8 +542,8 @@ function _check_voltage_regulation_conflicts!(
     bus_regulators = Dict{Int, Vector{String}}()
     for device_model in
         Iterators.flatten((values(template.devices), values(template.branches)))
-        for (dev_name, bus) in _voltage_regulated_buses(device_model, sys)
-            push!(get!(bus_regulators, PSY.get_number(bus), String[]), dev_name)
+        for (dev_name, bus) in _voltage_regulated_buses(device_model, sys, network_model)
+            push!(get!(Vector{String}, bus_regulators, PSY.get_number(bus)), dev_name)
         end
     end
     for (bus_no, regulators) in bus_regulators
@@ -485,12 +588,12 @@ function _build_device_model_outages!(
 
     modeled_types = Set{DataType}(get_component_types(template))
     selection = _take_outage_selection!(sc_models)
-    uncovered_types = Dict{DataType, Set{Base.UUID}}()
+    uncovered_types = Dict{DataType, Set{Int}}()
 
     for outage in PSY.get_supplemental_attributes(PSY.Outage, sys)
-        outage_uuid = IS.get_uuid(outage)
+        outage_id = IS.get_id(outage)
         if isempty(PSY.get_monitored_components(outage))
-            @warn "Outage $(outage_uuid) ($(typeof(outage))) has empty \
+            @warn "Outage $(outage_id) ($(typeof(outage))) has empty \
                    monitored_components; no post-contingency variables or \
                    constraints will be created for this outage." _group =
                 IOM.LOG_GROUP_MODELS_VALIDATION
@@ -498,9 +601,9 @@ function _build_device_model_outages!(
         end
 
         per_type, uncovered =
-            _monitored_components_by_modeled_type(outage, outage_uuid, sys, modeled_types)
+            _monitored_components_by_modeled_type(outage, outage_id, sys, modeled_types)
         for comp_type in uncovered
-            push!(get!(uncovered_types, comp_type, Set{Base.UUID}()), outage_uuid)
+            push!(get!(Set{Int}, uncovered_types, comp_type), outage_id)
         end
         isempty(per_type) && continue
 
@@ -509,12 +612,12 @@ function _build_device_model_outages!(
             sc_models,
             selection,
             outage,
-            outage_uuid,
+            outage_id,
             per_type,
             attached_types,
         )
         if !covered
-            @warn "Outage $(outage_uuid) is attached to component(s) of \
+            @warn "Outage $(outage_id) is attached to component(s) of \
                    type $(collect(attached_types)), but no DeviceModel with \
                    an AbstractSecurityConstrainedStaticBranch formulation \
                    covers those types; it will not contribute any \
@@ -541,9 +644,9 @@ end
 # UUIDs; an empty set means auto-discover all. Clears `m.outages` so the main
 # pass can repopulate it; the cleared UUIDs survive in the returned map.
 function _take_outage_selection!(sc_models::Vector{<:IOM.DeviceModelForBranches})
-    selection = Dict{Symbol, Set{Base.UUID}}()
+    selection = Dict{Symbol, Set{Int}}()
     for m in sc_models
-        selection[nameof(get_component_type(m))] = Set{Base.UUID}(keys(get_outages(m)))
+        selection[nameof(get_component_type(m))] = Set{Int}(keys(get_outages(m)))
         empty!(get_outages(m))
     end
     return selection
@@ -554,7 +657,7 @@ end
 # types the template does not model.
 function _monitored_components_by_modeled_type(
     outage::PSY.Outage,
-    outage_uuid::Base.UUID,
+    outage_id::Int,
     sys::PSY.System,
     modeled_types::Set{DataType},
 )
@@ -562,15 +665,15 @@ function _monitored_components_by_modeled_type(
     uncovered = Set{DataType}()
     for uuid in PSY.get_monitored_components(outage)
         component = IS.get_component(sys, uuid)
-        if isnothing(component)
-            @warn "Outage $(outage_uuid) references monitored component \
-                   UUID $(uuid) that is not present in the system; \
-                   skipping." _group = IOM.LOG_GROUP_MODELS_VALIDATION
-            continue
-        end
+        isnothing(component) && throw(
+            IS.ConflictingInputsError(
+                "Outage $(outage_id) references monitored component UUID $(uuid) that is \
+                 not present in the system.",
+            ),
+        )
         comp_type = typeof(component)
         if comp_type <: PSY.ACTransmission && comp_type in modeled_types
-            push!(get!(per_type, comp_type, Set{String}()), PSY.get_name(component))
+            push!(get!(Set{String}, per_type, comp_type), PSY.get_name(component))
         else
             push!(uncovered, comp_type)
         end
@@ -591,10 +694,10 @@ end
 function _sc_model_claims_outage(
     m::IOM.DeviceModelForBranches,
     outage::PSY.Outage,
-    outage_uuid::Base.UUID,
-    sel::Set{Base.UUID},
+    outage_id::Int,
+    sel::Set{Int},
 )
-    isempty(sel) || return outage_uuid in sel
+    isempty(sel) || return outage_id in sel
     if outage isa PSY.PlannedOutage
         return get_attribute(m, "include_planned_outages") === true
     end
@@ -606,9 +709,9 @@ end
 # covered an attached type.
 function _assign_outage_to_sc_models!(
     sc_models::Vector{<:IOM.DeviceModelForBranches},
-    selection::Dict{Symbol, Set{Base.UUID}},
+    selection::Dict{Symbol, Set{Int}},
     outage::PSY.Outage,
-    outage_uuid::Base.UUID,
+    outage_id::Int,
     per_type::Dict{DataType, Set{String}},
     attached_types::Set{DataType},
 )
@@ -617,15 +720,15 @@ function _assign_outage_to_sc_models!(
         D = get_component_type(m)
         D in attached_types || continue
         covered = true
-        if _sc_model_claims_outage(m, outage, outage_uuid, selection[nameof(D)])
-            get_outages(m)[outage_uuid] = per_type
+        if _sc_model_claims_outage(m, outage, outage_id, selection[nameof(D)])
+            get_outages(m)[outage_id] = per_type
         end
     end
     return covered
 end
 
 function _warn_uncovered_monitored_types(
-    uncovered_types::Dict{DataType, Set{Base.UUID}},
+    uncovered_types::Dict{DataType, Set{Int}},
 )
     for (comp_type, offending) in uncovered_types
         @warn "Monitored components of type $(comp_type) appear in outages \
@@ -638,7 +741,7 @@ end
 
 function _warn_unmatched_user_outages(
     sc_models::Vector{<:IOM.DeviceModelForBranches},
-    selection::Dict{Symbol, Set{Base.UUID}},
+    selection::Dict{Symbol, Set{Int}},
 )
     for m in sc_models
         D = get_component_type(m)

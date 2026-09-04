@@ -15,7 +15,7 @@ _get_cost_if_exists(::PSY.MarketBidCost) = nothing
 # Time-varying market bids are not fuel curves either (same as the static MBC above);
 # their offer curves live in the cost's offer-curve fields, not a `variable`.
 _get_cost_if_exists(::PSY.MarketBidTimeSeriesCost) = nothing
-_get_cost_if_exists(cost::PSY.OperationalCost) = PSY.get_variable(cost)
+_get_cost_if_exists(cost::PSY.OperationalCost) = PSY.get_variable_operation_cost(cost)
 
 # Predicates for fuel-curve detection. Dispatch over the value returned by
 # `_get_cost_if_exists` so callers can avoid `isa` checks.
@@ -203,16 +203,44 @@ function add_expressions!(
 ) where {
     T <: ExpressionType,
     U <: Union{Vector{D}, IS.FlattenIteratorWrapper{D}},
-    V <: PSY.Reserve,
+    V <: PSY.AbstractReserve,
     W <: AbstractReservesFormulation,
 } where {D <: PSY.Component}
     time_steps = get_time_steps(container)
-    @assert length(devices) == 1
+    # One shared expression container per device type; every service of the type folds its
+    # reserve variable into it.
     add_expression_container!(container, T,
         D,
         PSY.get_name.(devices),
-        time_steps;
-        meta = get_service_name(model),
+        time_steps,
+    )
+    return
+end
+
+"""
+Cost-expression container for reserve services, e.g. `ProductionCostExpression` for an
+operating reserve demand curve: one dense `(service_name, time)` container per service type,
+the same shape as the device `ProductionCostExpression`. Read and written by
+`add_to_expression!(container, ::CostExpressions, cost, ::AbstractReserve, t)`.
+"""
+function add_expressions!(
+    container::OptimizationContainer,
+    ::Type{T},
+    services::U,
+    model::ServiceModel{V, W},
+) where {
+    T <: CostExpressions,
+    U <: Union{Vector{D}, IS.FlattenIteratorWrapper{D}},
+    V <: PSY.AbstractReserve,
+    W <: AbstractReservesFormulation,
+} where {D <: PSY.Component}
+    time_steps = get_time_steps(container)
+    add_expression_container!(
+        container,
+        T,
+        D,
+        [PSY.get_name(s) for s in services],
+        time_steps,
     )
     return
 end

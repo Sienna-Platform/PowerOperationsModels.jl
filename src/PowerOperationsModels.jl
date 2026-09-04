@@ -12,6 +12,10 @@ import Logging
 import PowerNetworkMatrices
 # Brought into namespace so the `export PTDF` / `export VirtualPTDF` below resolve (re-export to POM users)
 import PowerNetworkMatrices: PTDF, VirtualPTDF
+# Brought into namespace so `NetworkReductionSpec(RadialReduction())` resolves unqualified
+# after `using PowerOperationsModels` (re-export to POM users)
+import PowerNetworkMatrices:
+    RadialReduction, DegreeTwoReduction, WardReduction, ZeroImpedanceBranchReduction
 import PowerSystems
 import PowerSystems: get_component
 import PrettyTables
@@ -19,7 +23,7 @@ import ProgressMeter
 import Serialization
 import SparseArrays
 import TimerOutputs
-import InteractiveUtils: methodswith
+import InteractiveUtils: methodswith, subtypes
 
 using DocStringExtensions
 using JSON3
@@ -155,7 +159,12 @@ import InfrastructureOptimizationModels:
     start_up_cost,
     _get_initial_condition_type,
     set_ic_quantity!,
-    update_container_parameter_values!
+    update_container_parameter_values!,
+    # Feedforwards machinery
+    AbstractAffectFeedforward,
+    get_feedforwards,
+    get_optimization_container_key,
+    get_component_type
 
 # Market bid cost: import IOM functions that POM extends with device-specific methods
 import InfrastructureOptimizationModels:
@@ -245,6 +254,7 @@ include("core/network_formulations.jl")
 include("core/branch_slack_specs.jl")
 include("core/problem_template.jl")
 include("core/feedforward_interface.jl")
+include("feedforward/feedforwards.jl")
 include("core/initial_conditions.jl")
 
 include("event_models/event_model.jl")
@@ -259,6 +269,8 @@ include("common_models/add_to_expression.jl")
 include("common_models/objective_function.jl")
 # add_param_container.jl: moved into IOM
 include("common_models/add_parameters.jl")
+include("feedforward/feedforward_arguments.jl")
+include("feedforward/feedforward_constraints.jl")
 include("common_models/make_system_expressions.jl")
 include("common_models/reserve_range_constraints.jl")
 include("common_models/branch_rating_constraints.jl")
@@ -304,15 +316,16 @@ include("energy_storage_models/storage_constructor.jl")
 include("common_models/market_bid_overrides.jl")
 
 # AC Transmission Models
+include("ac_transmission_models/RepresentativeBranch.jl")
 include("ac_transmission_models/AC_branches.jl")
 include("ac_transmission_models/security_constrained_branch.jl")
 include("ac_transmission_models/branch_constructor.jl")
-# psy6: disabled pending transformer refactor
-# include("ac_transmission_models/voltage_control_tap_models.jl")
-# include("ac_transmission_models/transformer_models.jl")
 
 # Network Models
 include("network_models/network_reductions.jl")
+include("network_models/reduction_exceptions.jl")
+include("network_models/network_sources.jl")
+include("network_models/network_data.jl")
 include("network_models/instantiate_network_model.jl")
 include("network_models/network_slack_variables.jl")
 include("network_models/copperplate_model.jl")
@@ -327,6 +340,7 @@ include("network_models/network_constructor.jl")
 # Services Models
 include("services_models/service_slacks.jl")
 include("services_models/reserves.jl")
+include("services_models/reserve_offers.jl")
 include("services_models/reserve_group.jl")
 # include("services_models/agc.jl")  # TODO: needs _get_ace_error
 include("services_models/transmission_interface.jl")
@@ -597,6 +611,21 @@ export FlowReactivePowerFromToVariable
 export FlowReactivePowerToFromVariable
 export PhaseShifterAngle
 
+# Feedforwards
+export UpperBoundFeedforward
+export LowerBoundFeedforward
+export SemiContinuousFeedforward
+export FixValueFeedforward
+export WaterLevelBudgetFeedforward
+export ReservoirTargetFeedforward
+export ReservoirLimitFeedforward
+export HydroUsageLimitFeedforward
+export attach_feedforward!
+export FeedforwardUpperBoundConstraint
+export FeedforwardLowerBoundConstraint
+export FeedforwardSemiContinuousConstraint
+export FeedforwardFixValueConstraint
+
 # Feedforward Slack Variables
 export UpperBoundFeedForwardSlack
 export LowerBoundFeedForwardSlack
@@ -689,6 +718,9 @@ export TurbinePowerOutputConstraint
 export ReservoirHeadToVolumeConstraint
 export ReservoirInventoryConstraint
 export FeedForwardWaterLevelBudgetConstraint
+export FeedforwardEnergyTargetConstraint
+export FeedforwardIntegralLimitConstraint
+export FeedForwardHydroUsageLimitConstraint
 
 ####### Hydro Expressions ########
 export HydroServedReserveUpExpression
@@ -799,6 +831,9 @@ export ActiveRangeICConstraint
 export NodalBalanceActiveConstraint
 export ReferenceBusConstraint
 export VoltageMagnitudeConstraint
+export ReactivePowerFlowControlConstraint
+export VoltageControlConstraint
+export ActivePowerFlowControlConstraint
 export RegulatedVoltageMagnitudeConstraint
 export CurrentLimitConstraint
 export AngleDifferenceConstraint
@@ -911,8 +946,6 @@ export StaticBranchUnbounded
 export SecurityConstrainedStaticBranch
 # psy6: disabled pending transformer refactor
 # export PhaseAngleControl
-# export TapControl
-# export VoltageControlTap
 export TapRatioVariable
 
 # DC Branch Formulations
@@ -944,7 +977,8 @@ export VoltageDispatchHVDCNetworkModel
 export AbstractServiceFormulation
 export AbstractReservesFormulation
 export PIDSmoothACE
-export GroupReserve
+export GroupRangeReserve
+export GroupStepwiseCostReserve
 export RangeReserve
 export StepwiseCostReserve
 export RampReserve
@@ -989,9 +1023,19 @@ export AbstractReactivePowerNetworkModel
 export NFANetworkModel
 export DCPLLNetworkModel
 
+# Network source declarations (network_models/network_sources.jl); the derived
+# network-data containers stay unexported — they are build outputs, not user inputs.
+export NetworkReductionSpec
+export PrebuiltMatrixSource
+export PrebuiltCoreSource
+
 # PowerNetworkMatrices
 export PTDF
 export VirtualPTDF
+export RadialReduction
+export DegreeTwoReduction
+export WardReduction
+export ZeroImpedanceBranchReduction
 
 # Other utilities
 export get_name

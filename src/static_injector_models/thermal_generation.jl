@@ -13,12 +13,15 @@ function create_temporary_cost_function_in_system_per_unit(
     original_cost_function::PSY.FuelCurve,
     new_data::PSY.PiecewiseLinearData,
 )
-    return PSY.FuelCurve(
-        PSY.PiecewisePointCurve(new_data),
-        PSY.SU,
-        PSY.get_fuel_cost(original_cost_function),
-        IS.LinearCurve(0.0),  # setting fuel offtake cost to default value of 0
-        PSY.get_vom_cost(original_cost_function),
+    # Keyword form: the fixed and time-series fuel cost are separate, mutually
+    # exclusive fields, so carry both through unchanged.
+    return PSY.FuelCurve(;
+        value_curve = PSY.PiecewisePointCurve(new_data),
+        power_units = PSY.SU,
+        fuel_cost = PSY.get_fuel_cost(original_cost_function),
+        fuel_cost_time_series = IS.get_fuel_cost_time_series(original_cost_function),
+        startup_fuel_offtake = IS.LinearCurve(0.0),  # default of 0
+        vom_cost = PSY.get_vom_cost(original_cost_function),
     )
 end
 
@@ -35,6 +38,11 @@ get_variable_multiplier(::Type{<:VariableType}, ::Type{<:PSY.ThermalGen}, ::Type
 get_variable_multiplier(::Type{OnVariable}, ::Type{<:PSY.ThermalGen}, ::Type{<:Union{AbstractCompactUnitCommitment, ThermalCompactDispatch}}) = 1.0
 get_expression_type_for_reserve(::Type{ActivePowerReserveVariable}, ::Type{<:PSY.ThermalGen}, ::Type{<:PSY.Reserve{PSY.ReserveUp}}) = ActivePowerRangeExpressionUB
 get_expression_type_for_reserve(::Type{ActivePowerReserveVariable}, ::Type{<:PSY.ThermalGen}, ::Type{<:PSY.Reserve{PSY.ReserveDown}}) = ActivePowerRangeExpressionLB
+# OfflineReserve (non-spin) is upward-only, so it reduces upward headroom like a ReserveUp product.
+get_expression_type_for_reserve(::Type{ActivePowerReserveVariable}, ::Type{<:PSY.ThermalGen}, ::Type{<:PSY.OfflineReserve}) = ActivePowerRangeExpressionUB
+# Thermal UC formulations keep their UB expression gated on commitment only: offline awards
+# enter through the static OfflineReserveBandConstraint instead of consuming that headroom.
+offline_reserve_in_range_ub(::Type{<:AbstractThermalUnitCommitment}) = false
 
 ############## ActivePowerVariable, ThermalGen ####################
 get_variable_binary(::Type{ActivePowerVariable}, ::Type{<:PSY.ThermalGen}, ::Type{<:AbstractThermalFormulation}) = false
@@ -111,7 +119,7 @@ initial_condition_variable(::InitialTimeDurationOff, d::PSY.ThermalGen, ::Abstra
 ########################Objective Function##################################################
 # TODO: Decide what is the cost for OnVariable, if fixed or constant term in variable
 function proportional_cost(container::OptimizationContainer, cost::PSY.ThermalGenerationCost, S::Type{OnVariable}, T::PSY.ThermalGen, U::Type{<:AbstractThermalFormulation}, t::Int)
-    return onvar_cost(container, cost, S, T, U, t) + PSY.get_constant_term(PSY.get_vom_cost(PSY.get_variable(cost))) + PSY.get_fixed(cost)
+    return onvar_cost(container, cost, S, T, U, t) + PSY.get_constant_term(PSY.get_vom_cost(PSY.get_variable_operation_cost(cost))) + PSY.get_fixed(cost)
 end
 # Is the OnVariable proportional term's *rate* time-varying? For ThermalGenerationCost
 # that rate is `onvar_cost + vom_constant + fixed`; only `onvar_cost` can vary, and
@@ -119,7 +127,7 @@ end
 # `constant_term * fuel_cost_at_t`. PWL FuelCurves have `onvar_cost ≡ 0`, and
 # CostCurves have no `_onvar_cost` overload — both statically invariant here.
 IOM.is_time_variant_proportional(cost::PSY.ThermalGenerationCost) =
-    _onvar_is_time_variant(PSY.get_variable(cost))
+    _onvar_is_time_variant(PSY.get_variable_operation_cost(cost))
 
 _onvar_is_time_variant(::PSY.ProductionVariableCostCurve) = false
 _onvar_is_time_variant(
@@ -175,7 +183,7 @@ uses_compact_power(::PSY.ThermalGen, ::ThermalCompactDispatch)=true
 Theoretical Cost at power output zero. Mathematically is the intercept with the y-axis
 """
 function onvar_cost(container::OptimizationContainer, cost::PSY.ThermalGenerationCost, ::Type{OnVariable}, d::PSY.ThermalGen, ::Type{<:AbstractThermalFormulation}, t::Int)
-    return _onvar_cost(container, PSY.get_variable(cost), d, t)
+    return _onvar_cost(container, PSY.get_variable_operation_cost(cost), d, t)
 end
 
 function _onvar_cost(::OptimizationContainer, cost_function::PSY.FuelCurve{PSY.PiecewisePointCurve}, d::PSY.ThermalGen, ::Int)
@@ -195,15 +203,14 @@ function _onvar_cost(container::OptimizationContainer, cost_function::Union{PSY.
     cost_component = PSY.get_function_data(value_curve)
     # In Unit/h
     constant_term = PSY.get_constant_term(cost_component)
-    fuel_cost = PSY.get_fuel_cost(cost_function)
-    if typeof(fuel_cost) <: Float64
-        return constant_term * fuel_cost
-    else
+    if IS.is_time_series_backed(cost_function)
         parameter_array = get_parameter_array(container, FuelCostParameter, T)
         parameter_multiplier =
             get_parameter_multiplier_array(container, FuelCostParameter, T)
         name = PSY.get_name(d)
         return constant_term * parameter_array[name, t] * parameter_multiplier[name, t]
+    else
+        return constant_term * PSY.get_fuel_cost(cost_function)
     end
 end
 
@@ -321,6 +328,15 @@ function get_min_max_limits(
 end
 
 """
+Compact formulations schedule `PowerAboveMinimumVariable` rather than
+`ActivePowerVariable`, so `has_semicontinuous_feedforward` must check a `SemiContinuousFeedforward`
+against that variable instead of the default.
+"""
+_scheduled_power_variable(::Type{<:ThermalCompactDispatch}) = PowerAboveMinimumVariable
+_scheduled_power_variable(::Type{<:AbstractCompactUnitCommitment}) =
+    PowerAboveMinimumVariable
+
+"""
 Semicontinuous range constraints for thermal dispatch formulations
 """
 function add_constraints!(
@@ -395,7 +411,7 @@ function add_variables!(
             )
             if get_warm_start(settings)
                 init = get_variable_warm_start_value(T, d, F)
-                init !== nothing && JuMP.set_start_value(variable[name, t], init)
+                !isnothing(init) && JuMP.set_start_value(variable[name, t], init)
             end
         end
     end
@@ -418,7 +434,9 @@ function add_constraints!(
     W <: AbstractThermalUnitCommitment,
     X <: AbstractNetworkModel,
 }
-    add_semicontinuous_range_constraints!(container, T, U, devices, model, X)
+    if !has_semicontinuous_feedforward(model, U)
+        add_semicontinuous_range_constraints!(container, T, U, devices, model, X)
+    end
     return
 end
 
@@ -688,6 +706,27 @@ function add_constraints!(
         limits = get_min_max_limits(device, T, W) # depends on constraint type and formulation type
         startup_shutdown_limits = get_startup_shutdown_limits(device, T, W)
         @assert !isnothing(startup_shutdown_limits) "$(name)"
+        # A must-run unit is in none of the On/Start/Stop containers: On is identically 1
+        # and Start and Stop identically 0, so both start-up and shut-down ramp terms drop
+        # out and the ceiling is the plain range.
+        if PSY.get_must_run(device)
+            for t in time_steps
+                if JuMP.has_lower_bound(varp[name, t])
+                    JuMP.set_lower_bound(varp[name, t], 0.0)
+                end
+                con_on[name, t] = JuMP.@constraint(
+                    get_jump_model(container),
+                    expression_products[name, t] <= limits.max - limits.min
+                )
+                if t != length(time_steps)
+                    con_off[name, t] = JuMP.@constraint(
+                        get_jump_model(container),
+                        expression_products[name, t] <= limits.max - limits.min
+                    )
+                end
+            end
+            continue
+        end
         for t in time_steps
             if JuMP.has_lower_bound(varp[name, t])
                 JuMP.set_lower_bound(varp[name, t], 0.0)
@@ -1010,10 +1049,20 @@ function calculate_aux_variable_value!(
         d = PSY.get_component(T, system, d_name)
         name = PSY.get_name(d)
         min = PSY.get_active_power_limits(d, PSY.SU).min
-        for t in time_steps
-            aux_variable_container[name, t] =
-                jump_value(on_variable_output[name, t]) * min +
-                jump_value(p_variable_output[name, t])
+        # A must-run unit appears in neither the OnVariable container nor the
+        # OnStatusParameter array — both are built from the non-must-run devices — while
+        # the power axis above carries every device. Its commitment is fixed at 1.
+        if PSY.get_must_run(d)
+            for t in time_steps
+                aux_variable_container[name, t] =
+                    min + jump_value(p_variable_output[name, t])
+            end
+        else
+            for t in time_steps
+                aux_variable_container[name, t] =
+                    jump_value(on_variable_output[name, t]) * min +
+                    jump_value(p_variable_output[name, t])
+            end
         end
     end
 
@@ -1208,7 +1257,7 @@ function add_constraints!(
     end
     for c in con
         # Workaround to remove invalid key combinations
-        filter!(x -> x.second !== nothing, c.data)
+        filter!(x -> !isnothing(x.second), c.data)
     end
     return
 end
@@ -1338,7 +1387,7 @@ function add_constraints!(
     end
     for c in [con_ub, con_lb]
         # Workaround to remove invalid key combinations
-        filter!(x -> x.second !== nothing, c.data)
+        filter!(x -> !isnothing(x.second), c.data)
     end
     return
 end
@@ -1366,7 +1415,14 @@ function _get_data_for_tdc(
         IS.@assert_op g == IOM.get_component(initial_conditions_off[ix])
         time_limits = PSY.get_time_limits(g)
         name = PSY.get_name(g)
-        if time_limits !== nothing
+        # A must-run unit never starts or stops, so its up/down durations are vacuous —
+        # and it is in none of the On/Start/Stop containers the duration constraints
+        # index, so including it here is a KeyError, not a redundant constraint.
+        if PSY.get_must_run(g)
+            @debug "Generator $(name) is must-run. Duration constraints skipped"
+            continue
+        end
+        if !isnothing(time_limits)
             if (time_limits.up <= fraction_of_hour) & (time_limits.down <= fraction_of_hour)
                 @debug "Generator $(name) has a nonbinding time limits. Constraints Skipped"
                 continue
@@ -1690,6 +1746,84 @@ function IOM._add_semicontinuous_bound_range_constraints_impl!(
             IOM.add_range_bound_constraint!(
                 dir, jump_model, con, ci_name, t,
                 array[ci_name, t], IOM.get_bound(dir, limits), bin)
+        end
+    end
+    return
+end
+
+"""
+Offline-capability band row for thermal-UC devices contributing to an `OfflineReserve`.
+The commitment-gated UB expression excludes the offline awards
+([`offline_reserve_in_range_ub`](@ref)); this row adds them back against the
+formulation's gated capacity when committed, or the static `q_limit = pmax` when not:
+
+`p + online + offline <= q_limit - (q_limit - gated) * u`
+
+where `gated = get_min_max_limits(d, ActivePowerVariableLimitsConstraint, W).max` is the
+same headroom the semicontinuous range row gates on: `pmax` for standard UC (the reduction
+term vanishes, leaving `pmax`) and `pmax - pmin` for compact UC (giving `pmax - pmin * u`).
+A must-run device is always committed, so its band is `gated` outright.
+
+Committed: offline competes with the online products for the gated band. Off: the
+semi-continuous UB row zeroes `p` and the online awards, leaving `offline <= pmax`.
+Devices contributing to no offline service get no row.
+"""
+function add_constraints!(
+    container::OptimizationContainer,
+    T::Type{OfflineReserveBandConstraint},
+    devices::IS.FlattenIteratorWrapper{V},
+    model::DeviceModel{V, W},
+    ::NetworkModel{X},
+) where {
+    V <: PSY.ThermalGen,
+    W <: AbstractThermalUnitCommitment,
+    X <: AbstractNetworkModel,
+}
+    # (service name, award variable, contributing member names) per offline service attached
+    # to the device model; the ServiceModel's contributing map carries both.
+    offline = Tuple{String, IOM.JuMPArray, Set{String}}[]
+    for sm in get_services(model)
+        _is_offline_reserve(get_component_type(sm)) || continue
+        variable =
+            get_variable(container, ActivePowerReserveVariable, get_component_type(sm))
+        for (service_name, dev_map) in get_contributing_devices_map(sm)
+            members = get(dev_map, V, nothing)
+            isnothing(members) && continue
+            push!(offline, (service_name, variable, Set(PSY.get_name.(members))))
+        end
+    end
+    isempty(offline) && return
+    time_steps = get_time_steps(container)
+    expression = get_expression(container, ActivePowerRangeExpressionUB, V)
+    jump_model = get_jump_model(container)
+    varbin = get_variable(container, OnVariable, V)
+    names = [PSY.get_name(d) for d in devices]
+    constraint =
+        add_constraints_container!(container, T, V, names, time_steps; sparse = true)
+    for d in devices
+        name = PSY.get_name(d)
+        awards = [(sname, v) for (sname, v, members) in offline if name in members]
+        isempty(awards) && continue
+        q_limit = PSY.get_active_power_limits(d, PSY.SU).max
+        gated = IOM.get_min_max_limits(d, ActivePowerVariableLimitsConstraint, W).max
+        if PSY.get_must_run(d)
+            for t in time_steps
+                constraint[(name, t)] = JuMP.@constraint(
+                    jump_model,
+                    expression[name, t] +
+                    sum(v[(sname, name, t)] for (sname, v) in awards) <= gated
+                )
+            end
+        else
+            for t in time_steps
+                u = varbin[name, t]
+                constraint[(name, t)] = JuMP.@constraint(
+                    jump_model,
+                    expression[name, t] +
+                    sum(v[(sname, name, t)] for (sname, v) in awards) <=
+                    q_limit - (q_limit - gated) * u
+                )
+            end
         end
     end
     return

@@ -43,12 +43,20 @@ end
     template = get_thermal_dispatch_template_network(
         NetworkModel(
             PTDFNetworkModel;
-            network_matrix = PNM.VirtualPTDF(c_sys5),
+            network_source = PrebuiltMatrixSource(PNM.VirtualPTDF(c_sys5)),
         ),
     )
     set_device_model!(template, PSY.Line, POM.SecurityConstrainedStaticBranch)
-    set_device_model!(template, PSY.Transformer2W, POM.SecurityConstrainedStaticBranch)
-    set_device_model!(template, PSY.TapTransformer, POM.SecurityConstrainedStaticBranch)
+    set_device_model!(
+        template,
+        PSY.TwoWindingTransformer,
+        POM.SecurityConstrainedStaticBranch,
+    )
+    set_device_model!(
+        template,
+        PSY.TwoWindingTransformer,
+        POM.SecurityConstrainedStaticBranch,
+    )
 
     ps_model = DecisionModel(template, c_sys5; optimizer = HiGHS_optimizer)
     @test build!(ps_model; output_dir = mktempdir(; cleanup = true)) ==
@@ -70,13 +78,12 @@ end
         IOM.get_expression(container, POM.ActivePowerBalance, PSY.ACBus).data
     time_steps = IOM.get_time_steps(container)
 
-    net_reduction_data = network_model.network_reduction
+    net_reduction_data = POM.get_branch_catalog(network_model)
     name_to_arc_maps = PNM.get_name_to_arc_maps(net_reduction_data)
-    all_branch_maps_by_type = PNM.get_all_branch_maps_by_type(net_reduction_data)
 
     n_checked = 0
     n_constraints_checked = 0
-    for V in (PSY.Line, PSY.Transformer2W, PSY.TapTransformer)
+    for V in (PSY.Line, PSY.TwoWindingTransformer, PSY.TwoWindingTransformer)
         IOM.has_container_key(container, POM.PostContingencyBranchFlow, V) || continue
         pcbf = IOM.get_expression(container, POM.PostContingencyBranchFlow, V)
         n_checked += 1
@@ -89,18 +96,14 @@ end
         )]
 
         for (outage_id_str, name, t) in keys(pcbf.data)
-            uuid = Base.UUID(outage_id_str)
-            ctg = ground_truth_registered[uuid]
+            outage_id = parse(Int, outage_id_str)
+            ctg = ground_truth_registered[outage_id]
 
-            # Resolve the monitored name to its arc and reduction kind.
+            # Resolve the monitored name to its arc.
             arc = nothing
-            reduction_kind = nothing
-            entry_type = nothing
             for (T, n2a) in name_to_arc_maps
                 if haskey(n2a, name)
-                    arc = n2a[name][1]
-                    reduction_kind = n2a[name][2]
-                    entry_type = T
+                    arc = n2a[name]
                     break
                 end
             end
@@ -126,13 +129,8 @@ end
             # to the RHS, so `normalized_rhs == limit - constant(expr)`. Adding
             # the constant back recovers the raw emergency-rating limit and
             # makes this a pure per-unit (system-base) units check.
-            reduction_entry =
-                all_branch_maps_by_type[reduction_kind][entry_type][arc]
-            limits = POM.get_emergency_min_max_limits(
-                reduction_entry,
-                POM.PostContingencyFlowRateConstraint,
-                POM.SecurityConstrainedStaticBranch,
-            )
+            reduction_entry = PNM.get_reduction_entry(net_reduction_data, arc)
+            limits = POM._emergency_flow_limits(reduction_entry)
             expr_const = JuMP.constant(actual)
             @test JuMP.normalized_rhs(con_ub[outage_id_str, name, t]) + expr_const ≈
                   limits.max
@@ -150,8 +148,8 @@ end
 # MOI-count / objective-value magic numbers, which differ under POM/PS6.
 
 @testset "Security Constrained branch formulation Network DC-PF with VirtualPTDF + auto-MODF" begin
-    # Exercises the VirtualPTDF + auto-constructed MODF code path: contingency_matrix
-    # is intentionally omitted so it must be auto-built during instantiate.
+    # Exercises the prebuilt-VirtualPTDF code path with a derived MODF: the contingency
+    # matrix is always derived from the source's factorization core during instantiate.
     c_sys5 = PSB.build_system(PSITestSystems, "c_sys5")
     all_branches = collect(get_components(PSY.ACTransmission, c_sys5))
     for line_name in ["1", "2", "3"]
@@ -166,19 +164,26 @@ end
     template = get_thermal_dispatch_template_network(
         NetworkModel(
             PTDFNetworkModel;
-            network_matrix = PNM.VirtualPTDF(c_sys5),
-            # contingency_matrix intentionally omitted — exercises auto-construction
+            network_source = PrebuiltMatrixSource(PNM.VirtualPTDF(c_sys5)),
         ),
     )
     set_device_model!(template, PSY.Line, POM.SecurityConstrainedStaticBranch)
-    set_device_model!(template, PSY.Transformer2W, POM.SecurityConstrainedStaticBranch)
-    set_device_model!(template, PSY.TapTransformer, POM.SecurityConstrainedStaticBranch)
+    set_device_model!(
+        template,
+        PSY.TwoWindingTransformer,
+        POM.SecurityConstrainedStaticBranch,
+    )
+    set_device_model!(
+        template,
+        PSY.TwoWindingTransformer,
+        POM.SecurityConstrainedStaticBranch,
+    )
 
     ps_model = DecisionModel(template, c_sys5; optimizer = HiGHS_optimizer)
     @test build!(ps_model; output_dir = mktempdir(; cleanup = true)) ==
           IOM.ModelBuildStatus.BUILT
 
-    # MODF should have been auto-populated during build
+    # MODF should have been derived during build
     nm = IOM.get_network_model(IOM.get_template(ps_model))
     @test !isnothing(IOM.get_contingency_matrix(nm))
 
@@ -195,11 +200,14 @@ end
     c_sys14 = PSB.build_system(PSB.PSITestSystems, "c_sys14")
 
     template = get_thermal_dispatch_template_network(
-        NetworkModel(PTDFNetworkModel; network_matrix = PNM.VirtualPTDF(c_sys14)),
+        NetworkModel(
+            PTDFNetworkModel;
+            network_source = PrebuiltMatrixSource(PNM.VirtualPTDF(c_sys14)),
+        ),
     )
     set_device_model!(template, PSY.Line, POM.StaticBranch)
-    set_device_model!(template, PSY.Transformer2W, POM.StaticBranch)
-    set_device_model!(template, PSY.TapTransformer, POM.StaticBranch)
+    set_device_model!(template, PSY.TwoWindingTransformer, POM.StaticBranch)
+    set_device_model!(template, PSY.TwoWindingTransformer, POM.StaticBranch)
 
     ps_model = DecisionModel(template, c_sys14; optimizer = HiGHS_optimizer)
     @test build!(ps_model; output_dir = mktempdir(; cleanup = true)) ==
@@ -215,7 +223,7 @@ end
         IOM.get_expression(container, POM.ActivePowerBalance, PSY.ACBus).data
     time_steps = IOM.get_time_steps(container)
 
-    net_reduction_data = network_model.network_reduction
+    net_reduction_data = POM.get_branch_catalog(network_model)
     modeled_branch_types = network_model.modeled_branch_types
 
     n_checked = 0
@@ -225,7 +233,7 @@ end
         name_to_arc_map = collect(PNM.get_name_to_arc_map(net_reduction_data, V))
         isempty(name_to_arc_map) && continue
         n_checked += 1
-        for (name, (arc, _)) in name_to_arc_map
+        for (name, arc) in name_to_arc_map
             ptdf_col = ground_truth_ptdf[arc, :]
             nz_idx = [
                 i for i in eachindex(ptdf_col) if abs(ptdf_col[i]) > POM.PTDF_ZERO_TOL
@@ -235,7 +243,10 @@ end
                 for i in nz_idx
                     JuMP.add_to_expression!(expected, ptdf_col[i], nodal_balance[i, t])
                 end
-                actual = pbf[name, t]
+                actual =
+                    pbf[name, t] +
+                    PNM.arc_dc_shift_injection(
+                        PNM.get_network_reduction_data(net_reduction_data), arc)
                 @test _affexpr_approx_equal(actual, expected)
             end
         end
@@ -247,19 +258,20 @@ end
     # SC branch formulations are not implemented for ThreeWindingTransformer.
     # Configuring one must raise at template validation.
     branch_models = IOM.BranchModelContainer()
-    branch_models[nameof(PSY.Transformer3W)] =
-        DeviceModel(PSY.Transformer3W, POM.SecurityConstrainedStaticBranch)
-    @test_throws IS.ConflictingInputsError POM._check_security_constrained_three_winding_transformer!(
+    branch_models[nameof(PSY.ThreeWindingTransformer)] =
+        DeviceModel(PSY.ThreeWindingTransformer, POM.SecurityConstrainedStaticBranch)
+    @test_throws IS.ConflictingInputsError POM._check_security_constrained_three_winding_transformer(
         branch_models,
     )
 
     # Allowed combinations must pass.
     ok_models = IOM.BranchModelContainer()
-    ok_models[nameof(PSY.Transformer3W)] = DeviceModel(PSY.Transformer3W, POM.StaticBranch)
+    ok_models[nameof(PSY.ThreeWindingTransformer)] =
+        DeviceModel(PSY.ThreeWindingTransformer, POM.StaticBranch)
     ok_models[nameof(PSY.Line)] =
         DeviceModel(PSY.Line, POM.SecurityConstrainedStaticBranch)
     @test isnothing(
-        POM._check_security_constrained_three_winding_transformer!(ok_models),
+        POM._check_security_constrained_three_winding_transformer(ok_models),
     )
 end
 
@@ -283,13 +295,20 @@ end
     template = get_thermal_dispatch_template_network(
         NetworkModel(
             PTDFNetworkModel;
-            network_matrix = PNM.VirtualPTDF(c_sys14),
-            contingency_matrix = PNM.VirtualMODF(c_sys14),
+            network_source = PrebuiltMatrixSource(PNM.VirtualPTDF(c_sys14)),
         ),
     )
     set_device_model!(template, PSY.Line, POM.SecurityConstrainedStaticBranch)
-    set_device_model!(template, PSY.Transformer2W, POM.SecurityConstrainedStaticBranch)
-    set_device_model!(template, PSY.TapTransformer, POM.SecurityConstrainedStaticBranch)
+    set_device_model!(
+        template,
+        PSY.TwoWindingTransformer,
+        POM.SecurityConstrainedStaticBranch,
+    )
+    set_device_model!(
+        template,
+        PSY.TwoWindingTransformer,
+        POM.SecurityConstrainedStaticBranch,
+    )
 
     ps_model = DecisionModel(template, c_sys14; optimizer = HiGHS_optimizer)
     @test build!(ps_model; output_dir = mktempdir(; cleanup = true)) ==
@@ -306,7 +325,7 @@ end
     nodal_balance =
         IOM.get_expression(container, POM.ActivePowerBalance, PSY.ACBus).data
 
-    net_reduction_data = network_model.network_reduction
+    net_reduction_data = POM.get_branch_catalog(network_model)
     modeled_branch_types = network_model.modeled_branch_types
     name_to_arc_maps = PNM.get_name_to_arc_maps(net_reduction_data)
     n_checked = 0
@@ -315,12 +334,12 @@ end
         pcbf = IOM.get_expression(container, POM.PostContingencyBranchFlow, V)
         n_checked += 1
         for (outage_id_str, name, t) in keys(pcbf.data)
-            uuid = Base.UUID(outage_id_str)
-            ctg = ground_truth_registered[uuid]
+            outage_id = parse(Int, outage_id_str)
+            ctg = ground_truth_registered[outage_id]
             arc = nothing
             for n2a in values(name_to_arc_maps)
                 if haskey(n2a, name)
-                    arc = n2a[name][1]
+                    arc = n2a[name]
                     break
                 end
             end
@@ -355,7 +374,7 @@ end
     c_sys5 = PSB.build_system(PSITestSystems, "c_sys5")
     all_branches = collect(get_components(PSY.ACTransmission, c_sys5))
     outage_components = ["1", "2", "3"]
-    outage_uuids = Base.UUID[]
+    outage_ids = Int[]
     for line_name in outage_components
         component = get_component(PSY.ACTransmission, c_sys5, line_name)
         transition_data = PSY.GeometricDistributionForcedOutage(;
@@ -364,21 +383,21 @@ end
             monitored_components = all_branches,
         )
         PSY.add_supplemental_attribute!(c_sys5, component, transition_data)
-        push!(outage_uuids, IS.get_uuid(transition_data))
+        push!(outage_ids, IS.get_id(transition_data))
     end
 
     auto_template = get_thermal_dispatch_template_network(
-        NetworkModel(
-            PTDFNetworkModel;
-            network_matrix = PNM.PTDF(c_sys5),
-            contingency_matrix = PNM.VirtualMODF(c_sys5),
-        ),
+        NetworkModel(PTDFNetworkModel),
     )
     set_device_model!(auto_template, PSY.Line, POM.SecurityConstrainedStaticBranch)
-    set_device_model!(auto_template, PSY.Transformer2W, POM.SecurityConstrainedStaticBranch)
     set_device_model!(
         auto_template,
-        PSY.TapTransformer,
+        PSY.TwoWindingTransformer,
+        POM.SecurityConstrainedStaticBranch,
+    )
+    set_device_model!(
+        auto_template,
+        PSY.TwoWindingTransformer,
         POM.SecurityConstrainedStaticBranch,
     )
     auto_model = DecisionModel(auto_template, c_sys5; optimizer = HiGHS_optimizer)
@@ -386,7 +405,7 @@ end
           IOM.ModelBuildStatus.BUILT
     auto_line_outages =
         IOM.get_outages(IOM.get_model(IOM.get_template(auto_model), PSY.Line))
-    @test Set(keys(auto_line_outages)) == Set(outage_uuids)
+    @test Set(keys(auto_line_outages)) == Set(outage_ids)
 
     container = IOM.get_optimization_container(auto_model)
     con_ub = IOM.get_constraint(
@@ -394,7 +413,7 @@ end
         IOM.ConstraintKey(POM.PostContingencyFlowRateConstraint, PSY.Line, "ub"),
     )
     ub_outages = Set(k[1] for k in keys(con_ub.data))
-    @test ub_outages == Set(string(u) for u in outage_uuids)
+    @test ub_outages == Set(string(u) for u in outage_ids)
 end
 
 @testset "DeviceModel.outages kwarg is dropped with a warning for non-SC formulations" begin
@@ -404,7 +423,7 @@ end
     # construction. The warn-and-drop branch in `_add_device_model_outages`
     # triggers on *any* non-empty `InfrastructureSystemsComponent` vector when
     # the formulation is not security-constrained, so we exercise it with a real
-    # `PSY.Line` component (only `IS.get_uuid` is called on each entry). The
+    # `PSY.Line` component (only `IS.get_id` is called on each entry). The
     # warning is emitted by the `DeviceModel` constructor itself (before any
     # `build!`/`with_logger` wrapping), so `@test_logs` captures it directly.
     c_sys5 = PSB.build_system(PSITestSystems, "c_sys5")
@@ -416,12 +435,12 @@ end
 end
 
 @testset "Multi-component outage: dual-claim + dedup at build" begin
-    # An outage attached to BOTH a Line and a Transformer2W is owned by both
+    # An outage attached to BOTH a Line and a TwoWindingTransformer is owned by both
     # SC DeviceModels. The build dedups: the second DeviceModel's expression and
     # constraint containers reference the first claimer's objects.
     sys = PSB.build_system(PSITestSystems, "c_sys14")
     line = first(get_components(PSY.Line, sys))
-    transformer = first(get_components(PSY.Transformer2W, sys))
+    transformer = first(get_components(PSY.TwoWindingTransformer, sys))
     @test !isnothing(line)
     @test !isnothing(transformer)
 
@@ -432,21 +451,25 @@ end
     )
     PSY.add_supplemental_attribute!(sys, line, outage)
     PSY.add_supplemental_attribute!(sys, transformer, outage)
-    outage_uuid = IS.get_uuid(outage)
+    outage_uuid = IS.get_id(outage)
     outage_uuid_str = string(outage_uuid)
 
     template = get_thermal_dispatch_template_network(
-        NetworkModel(PTDFNetworkModel; contingency_matrix = PNM.VirtualMODF(sys)),
+        NetworkModel(PTDFNetworkModel),
     )
     set_device_model!(template, PSY.Line, POM.SecurityConstrainedStaticBranch)
-    set_device_model!(template, PSY.Transformer2W, POM.SecurityConstrainedStaticBranch)
+    set_device_model!(
+        template,
+        PSY.TwoWindingTransformer,
+        POM.SecurityConstrainedStaticBranch,
+    )
     ps_model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
     @test build!(ps_model; output_dir = mktempdir(; cleanup = true)) ==
           IOM.ModelBuildStatus.BUILT
 
     template_under_test = IOM.get_template(ps_model)
     line_dm = IOM.get_model(template_under_test, PSY.Line)
-    transformer_dm = IOM.get_model(template_under_test, PSY.Transformer2W)
+    transformer_dm = IOM.get_model(template_under_test, PSY.TwoWindingTransformer)
 
     @test haskey(IOM.get_outages(line_dm), outage_uuid)
     @test haskey(IOM.get_outages(transformer_dm), outage_uuid)
@@ -454,7 +477,11 @@ end
     container = IOM.get_optimization_container(ps_model)
     line_pcbf = IOM.get_expression(container, POM.PostContingencyBranchFlow, PSY.Line)
     transformer_pcbf =
-        IOM.get_expression(container, POM.PostContingencyBranchFlow, PSY.Transformer2W)
+        IOM.get_expression(
+            container,
+            POM.PostContingencyBranchFlow,
+            PSY.TwoWindingTransformer,
+        )
 
     line_name = PSY.get_name(line)
     transformer_name = PSY.get_name(transformer)
@@ -478,7 +505,7 @@ end
             container,
             IOM.ConstraintKey(
                 POM.PostContingencyFlowRateConstraint,
-                PSY.Transformer2W,
+                PSY.TwoWindingTransformer,
                 meta,
             ),
         )
@@ -513,10 +540,10 @@ end
         monitored_components = [parallel_line],
     )
     PSY.add_supplemental_attribute!(sys, parallel_line, outage)
-    outage_uuid = string(IS.get_uuid(outage))
+    outage_uuid = string(IS.get_id(outage))
 
     template = get_thermal_dispatch_template_network(
-        NetworkModel(PTDFNetworkModel; contingency_matrix = PNM.VirtualMODF(sys)),
+        NetworkModel(PTDFNetworkModel),
     )
     set_device_model!(template, PSY.Line, POM.SecurityConstrainedStaticBranch)
     ps_model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
@@ -526,10 +553,10 @@ end
     container = IOM.get_optimization_container(ps_model)
     network_model = IOM.get_network_model(IOM.get_template(ps_model))
     tracker = IOM.get_reduced_branch_tracker(network_model)
-    net_reduction_data = IOM.get_network_reduction(network_model)
+    net_reduction_data = POM.get_branch_catalog(network_model)
 
-    # Derive the representative name from the reduction map (PNM names it, e.g.
-    # "<name>double_circuit"; not hard-coded so the test tracks PNM naming).
+    # Derive the representative name from the reduction map (PNM names it after the arc,
+    # e.g. "<from>_<to>_double_circuit"; not hard-coded so the test tracks PNM naming).
     c2r = PNM.get_component_to_reduction_name_map(net_reduction_data)
     @test haskey(c2r, PSY.Line)
     representative_name = c2r[PSY.Line][parallel_line_name]
@@ -590,17 +617,17 @@ end
     ]
         @testset "$label" begin
             template = get_thermal_dispatch_template_network(
-                NetworkModel(NetFormulation; contingency_matrix = PNM.VirtualMODF(sys)),
+                NetworkModel(NetFormulation),
             )
             set_device_model!(template, PSY.Line, POM.SecurityConstrainedStaticBranch)
             set_device_model!(
                 template,
-                PSY.Transformer2W,
+                PSY.TwoWindingTransformer,
                 POM.SecurityConstrainedStaticBranch,
             )
             set_device_model!(
                 template,
-                PSY.TapTransformer,
+                PSY.TwoWindingTransformer,
                 POM.SecurityConstrainedStaticBranch,
             )
 
@@ -738,15 +765,14 @@ end
     @test !isempty(con_ub.data)
     @test !isempty(con_lb.data)
 
-    net_reduction_data = network_model.network_reduction
+    net_reduction_data = POM.get_branch_catalog(network_model)
     name_to_arc_map = PNM.get_name_to_arc_maps(net_reduction_data)[PSY.Line]
-    all_branch_maps_by_type = PNM.get_all_branch_maps_by_type(net_reduction_data)
 
     n_checked = 0
     for (outage_id_str, name, t) in keys(pcbf.data)
-        uuid = Base.UUID(outage_id_str)
-        ctg = ground_truth_registered[uuid]
-        arc, reduction_kind = name_to_arc_map[name]
+        outage_id = parse(Int, outage_id_str)
+        ctg = ground_truth_registered[outage_id]
+        arc = name_to_arc_map[name]
 
         modf_col = ground_truth_modf[arc, ctg]
         expected = zero(JuMP.AffExpr)
@@ -762,12 +788,8 @@ end
         @test _affexpr_approx_equal(actual, expected)
 
         # RHS = +/- emergency rating in system per-unit.
-        reduction_entry = all_branch_maps_by_type[reduction_kind][PSY.Line][arc]
-        limits = POM.get_emergency_min_max_limits(
-            reduction_entry,
-            POM.PostContingencyFlowRateConstraint,
-            POM.SecurityConstrainedStaticBranch,
-        )
+        reduction_entry = PNM.get_reduction_entry(net_reduction_data, arc)
+        limits = POM._emergency_flow_limits(reduction_entry)
         expr_const = JuMP.constant(actual)
         @test JuMP.normalized_rhs(con_ub[outage_id_str, name, t]) + expr_const ≈
               limits.max
@@ -920,15 +942,19 @@ end
             PSY.add_supplemental_attribute!(sys, component, transition_data)
         end
         template = get_thermal_dispatch_template_network(
-            NetworkModel(
-                PTDFNetworkModel;
-                network_matrix = PNM.PTDF(sys),
-                contingency_matrix = PNM.VirtualMODF(sys),
-            ),
+            NetworkModel(PTDFNetworkModel),
         )
         set_device_model!(template, PSY.Line, POM.SecurityConstrainedStaticBranch)
-        set_device_model!(template, PSY.Transformer2W, POM.SecurityConstrainedStaticBranch)
-        set_device_model!(template, PSY.TapTransformer, POM.SecurityConstrainedStaticBranch)
+        set_device_model!(
+            template,
+            PSY.TwoWindingTransformer,
+            POM.SecurityConstrainedStaticBranch,
+        )
+        set_device_model!(
+            template,
+            PSY.TwoWindingTransformer,
+            POM.SecurityConstrainedStaticBranch,
+        )
 
         ps_model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
         @test build!(ps_model; output_dir = mktempdir(; cleanup = true)) ==
@@ -991,15 +1017,19 @@ end
             PSY.add_supplemental_attribute!(sys, component_parallel, transition_data)
         end
         template = get_thermal_dispatch_template_network(
-            NetworkModel(
-                PTDFNetworkModel;
-                network_matrix = PNM.PTDF(sys),
-                contingency_matrix = PNM.VirtualMODF(sys),
-            ),
+            NetworkModel(PTDFNetworkModel),
         )
         set_device_model!(template, PSY.Line, POM.SecurityConstrainedStaticBranch)
-        set_device_model!(template, PSY.Transformer2W, POM.SecurityConstrainedStaticBranch)
-        set_device_model!(template, PSY.TapTransformer, POM.SecurityConstrainedStaticBranch)
+        set_device_model!(
+            template,
+            PSY.TwoWindingTransformer,
+            POM.SecurityConstrainedStaticBranch,
+        )
+        set_device_model!(
+            template,
+            PSY.TwoWindingTransformer,
+            POM.SecurityConstrainedStaticBranch,
+        )
 
         ps_model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
         @test build!(ps_model; output_dir = mktempdir(; cleanup = true)) ==
@@ -1060,21 +1090,23 @@ end
             PSY.add_supplemental_attribute!(sys, component, transition_data)
         end
         nr = NetworkReduction[DegreeTwoReduction()]
-        ptdf = PNM.PTDF(sys; network_reductions = nr)
-        modf = PNM.VirtualMODF(sys; network_reductions = nr)
         template = get_thermal_dispatch_template_network(
             NetworkModel(
                 PTDFNetworkModel;
-                network_matrix = ptdf,
-                contingency_matrix = modf,
-                reduce_degree_two_branches = PNM.has_degree_two_reduction(
-                    ptdf.network_reduction_data,
-                ),
+                network_source = NetworkReductionSpec(nr),
             ),
         )
         set_device_model!(template, PSY.Line, POM.SecurityConstrainedStaticBranch)
-        set_device_model!(template, PSY.Transformer2W, POM.SecurityConstrainedStaticBranch)
-        set_device_model!(template, PSY.TapTransformer, POM.SecurityConstrainedStaticBranch)
+        set_device_model!(
+            template,
+            PSY.TwoWindingTransformer,
+            POM.SecurityConstrainedStaticBranch,
+        )
+        set_device_model!(
+            template,
+            PSY.TwoWindingTransformer,
+            POM.SecurityConstrainedStaticBranch,
+        )
 
         ps_model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
         @test build!(ps_model; output_dir = mktempdir(; cleanup = true)) ==
@@ -1173,21 +1205,23 @@ end
             PSY.add_supplemental_attribute!(sys, outaged_component, transition_data)
         end
         nr = NetworkReduction[DegreeTwoReduction()]
-        ptdf = PNM.PTDF(sys; network_reductions = nr)
-        modf = PNM.VirtualMODF(sys; network_reductions = nr)
         template = get_thermal_dispatch_template_network(
             NetworkModel(
                 PTDFNetworkModel;
-                network_matrix = ptdf,
-                contingency_matrix = modf,
-                reduce_degree_two_branches = PNM.has_degree_two_reduction(
-                    ptdf.network_reduction_data,
-                ),
+                network_source = NetworkReductionSpec(nr),
             ),
         )
         set_device_model!(template, PSY.Line, POM.SecurityConstrainedStaticBranch)
-        set_device_model!(template, PSY.Transformer2W, POM.SecurityConstrainedStaticBranch)
-        set_device_model!(template, PSY.TapTransformer, POM.SecurityConstrainedStaticBranch)
+        set_device_model!(
+            template,
+            PSY.TwoWindingTransformer,
+            POM.SecurityConstrainedStaticBranch,
+        )
+        set_device_model!(
+            template,
+            PSY.TwoWindingTransformer,
+            POM.SecurityConstrainedStaticBranch,
+        )
 
         ps_model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
         @test build!(ps_model; output_dir = mktempdir(; cleanup = true)) ==
@@ -1296,7 +1330,7 @@ end
     # HiGHS returns the dual values directly.
     c_sys5 = _attach_all_branch_outages!(PSB.build_system(PSITestSystems, "c_sys5"))
     template = get_thermal_dispatch_template_network(
-        NetworkModel(PTDFNetworkModel; network_matrix = PNM.PTDF(c_sys5)),
+        NetworkModel(PTDFNetworkModel),
     )
     set_device_model!(
         template,
@@ -1306,8 +1340,16 @@ end
             duals = [POM.PostContingencyFlowRateConstraint],
         ),
     )
-    set_device_model!(template, PSY.Transformer2W, POM.SecurityConstrainedStaticBranch)
-    set_device_model!(template, PSY.TapTransformer, POM.SecurityConstrainedStaticBranch)
+    set_device_model!(
+        template,
+        PSY.TwoWindingTransformer,
+        POM.SecurityConstrainedStaticBranch,
+    )
+    set_device_model!(
+        template,
+        PSY.TwoWindingTransformer,
+        POM.SecurityConstrainedStaticBranch,
+    )
 
     ps_model = DecisionModel(template, c_sys5; optimizer = HiGHS_optimizer)
     @test build!(ps_model; output_dir = mktempdir(; cleanup = true)) ==
@@ -1324,7 +1366,7 @@ end
     c_sys5 = _attach_all_branch_outages!(PSB.build_system(PSITestSystems, "c_sys5"))
     template =
         PowerOperationsProblemTemplate(
-            NetworkModel(PTDFNetworkModel; network_matrix = PNM.PTDF(c_sys5)),
+            NetworkModel(PTDFNetworkModel),
         )
     set_device_model!(template, PSY.PowerLoad, StaticPowerLoad)
     set_device_model!(template, PSY.ThermalStandard, ThermalStandardUnitCommitment)
@@ -1336,8 +1378,16 @@ end
             duals = [POM.PostContingencyFlowRateConstraint],
         ),
     )
-    set_device_model!(template, PSY.Transformer2W, POM.SecurityConstrainedStaticBranch)
-    set_device_model!(template, PSY.TapTransformer, POM.SecurityConstrainedStaticBranch)
+    set_device_model!(
+        template,
+        PSY.TwoWindingTransformer,
+        POM.SecurityConstrainedStaticBranch,
+    )
+    set_device_model!(
+        template,
+        PSY.TwoWindingTransformer,
+        POM.SecurityConstrainedStaticBranch,
+    )
 
     ps_model = DecisionModel(template, c_sys5; optimizer = HiGHS_optimizer)
     @test build!(ps_model; output_dir = mktempdir(; cleanup = true)) ==
@@ -1348,16 +1398,15 @@ end
     _test_post_contingency_line_duals(IOM.get_optimization_container(ps_model))
 end
 
-# Local re-implementation of PSI's internal `_retained_buses(nrd)` helper, which
-# POM does not export. Definition matches PSI exactly:
-#   _retained_buses(nrd) = Set(keys(PNM.get_bus_reduction_map(nrd)))
+# The buses a reduction retained: the representatives, i.e. the keys of its bus
+# reduction map.
 _sc_retained_buses(nrd) = Set(keys(PNM.get_bus_reduction_map(nrd)))
 
-@testset "SC PTDF/MODF reductions are reconciled to a cohesive bus set" begin
-    # Regression: PTDF/MODF supplied with only [Radial, DegreeTwo] (no pre-baked
-    # irreducible buses) plus many monitored components can reduce to different
-    # bus sets. POM must reconcile them onto one cohesive reduction so `build!`
-    # succeeds without the caller replicating the irreducible-bus computation.
+@testset "SC PTDF and MODF reduce to one bus set" begin
+    # Regression: a [Radial, DegreeTwo] reduction plus many monitored components used
+    # to be able to reduce the PTDF and the MODF onto different bus sets. Both now wrap
+    # one factorization core built from one Ybus, so they cannot diverge and the caller
+    # never replicates the irreducible-bus computation.
     sys = PSB.build_system(PSB.PSITestSystems, "test_RTS_GMLC_sys")
     all_lines = collect(get_components(PSY.Line, sys))
     @test length(all_lines) > 1
@@ -1375,16 +1424,10 @@ _sc_retained_buses(nrd) = Set(keys(PNM.get_bus_reduction_map(nrd)))
     end
 
     nr = NetworkReduction[RadialReduction(), DegreeTwoReduction()]
-    # Caller provides matrices WITHOUT pre-baking irreducible buses.
-    ptdf = PNM.PTDF(sys; network_reductions = nr)
-    modf = PNM.VirtualMODF(sys; network_reductions = nr)
     template = get_thermal_dispatch_template_network(
         NetworkModel(
             PTDFNetworkModel;
-            network_matrix = ptdf,
-            contingency_matrix = modf,
-            reduce_radial_branches = true,
-            reduce_degree_two_branches = true,
+            network_source = NetworkReductionSpec(nr),
         ),
     )
     set_device_model!(template, PSY.Line, POM.SecurityConstrainedStaticBranch)
@@ -1420,7 +1463,7 @@ end
 
     function _build_sc_slack_model(use_slacks)
         template = get_thermal_dispatch_template_network(
-            NetworkModel(PTDFNetworkModel; network_matrix = PNM.PTDF(c_sys5)),
+            NetworkModel(PTDFNetworkModel),
         )
         set_device_model!(
             template,
@@ -1431,10 +1474,10 @@ end
             ),
         )
         set_device_model!(
-            template, PSY.Transformer2W, POM.SecurityConstrainedStaticBranch,
+            template, PSY.TwoWindingTransformer, POM.SecurityConstrainedStaticBranch,
         )
         set_device_model!(
-            template, PSY.TapTransformer, POM.SecurityConstrainedStaticBranch,
+            template, PSY.TwoWindingTransformer, POM.SecurityConstrainedStaticBranch,
         )
         ps_model = DecisionModel(template, c_sys5; optimizer = HiGHS_optimizer)
         @test build!(ps_model; output_dir = mktempdir(; cleanup = true)) ==
@@ -1499,11 +1542,7 @@ end
     sys = PSB.build_system(PSITestSystems, "c_sys5")
     line = first(PSY.get_components(PSY.Line, sys))
     PSY.set_rating_b!(line, 0.9 * PSY.SU)
-    lim = POM.get_emergency_min_max_limits(
-        line,
-        POM.PostContingencyFlowRateConstraint,
-        POM.StaticBranch,
-    )
+    lim = POM._emergency_flow_limits(line)
     rb = PSY.get_rating_b(line, PSY.SU)
     @test lim.max ≈ rb
     @test lim.min ≈ -rb
@@ -1549,7 +1588,7 @@ end
 
     function _build_sc(use_slacks)
         template = get_thermal_dispatch_template_network(
-            NetworkModel(PTDFNetworkModel; network_matrix = PNM.PTDF(c_sys5)),
+            NetworkModel(PTDFNetworkModel),
         )
         set_device_model!(
             template,
@@ -1562,7 +1601,7 @@ end
         set_device_model!(
             template,
             DeviceModel(
-                PSY.Transformer2W,
+                PSY.TwoWindingTransformer,
                 POM.SecurityConstrainedStaticBranch;
                 use_slacks = use_slacks,
             ),
@@ -1570,7 +1609,7 @@ end
         set_device_model!(
             template,
             DeviceModel(
-                PSY.TapTransformer,
+                PSY.TwoWindingTransformer,
                 POM.SecurityConstrainedStaticBranch;
                 use_slacks = use_slacks,
             ),
@@ -1641,8 +1680,8 @@ end
     c_sys14 = PSB.build_system(PSITestSystems, "c_sys14")
     all_branches = collect(PSY.get_components(PSY.ACTransmission, c_sys14))
     line = PSY.get_component(PSY.Line, c_sys14, "Line1")
-    transformer = first(PSY.get_components(PSY.Transformer2W, c_sys14))
-    # One outage attached to both a Line and a Transformer2W: a multi-type outage.
+    transformer = first(PSY.get_components(PSY.TwoWindingTransformer, c_sys14))
+    # One outage attached to both a Line and a TwoWindingTransformer: a multi-type outage.
     outage = PSY.GeometricDistributionForcedOutage(;
         mean_time_to_recovery = 10,
         outage_transition_probability = 0.9999,
@@ -1654,8 +1693,7 @@ end
     template = get_thermal_dispatch_template_network(
         NetworkModel(
             PTDFNetworkModel;
-            network_matrix = PNM.VirtualPTDF(c_sys14),
-            contingency_matrix = PNM.VirtualMODF(c_sys14),
+            network_source = PrebuiltMatrixSource(PNM.VirtualPTDF(c_sys14)),
         ),
     )
     set_device_model!(
@@ -1665,7 +1703,7 @@ end
     set_device_model!(
         template,
         DeviceModel(
-            PSY.Transformer2W,
+            PSY.TwoWindingTransformer,
             POM.SecurityConstrainedStaticBranch;
             use_slacks = true,
         ),
@@ -1673,7 +1711,7 @@ end
     set_device_model!(
         template,
         DeviceModel(
-            PSY.TapTransformer,
+            PSY.TwoWindingTransformer,
             POM.SecurityConstrainedStaticBranch;
             use_slacks = true,
         ),
@@ -1686,7 +1724,7 @@ end
     # Both reusing branch types own non-empty slack containers: the second to build
     # aliases the first's refs instead of registering an empty container.
     slack_refs = Set{JuMP.VariableRef}()
-    for V in (PSY.Line, PSY.Transformer2W),
+    for V in (PSY.Line, PSY.TwoWindingTransformer),
         S in (
             POM.PostContingencyFlowActivePowerSlackUpperBound,
             POM.PostContingencyFlowActivePowerSlackLowerBound,
@@ -1707,7 +1745,7 @@ end
     transformer_ub = IOM.get_variable(
         container,
         POM.PostContingencyFlowActivePowerSlackUpperBound,
-        PSY.Transformer2W,
+        PSY.TwoWindingTransformer,
     )
     @test !isempty(intersect(Set(values(line_ub.data)), Set(values(transformer_ub.data))))
 
@@ -1717,7 +1755,7 @@ end
         any(haskey(JuMP.constraint_object(ref).func.terms, v) for v in slack_refs)
     n = 0
     all_have = true
-    for V in (PSY.Line, PSY.Transformer2W), meta in ("lb", "ub")
+    for V in (PSY.Line, PSY.TwoWindingTransformer), meta in ("lb", "ub")
         cons = IOM.get_constraints(container)[IOM.ConstraintKey(
             POM.PostContingencyFlowRateConstraint, V, meta,
         )]
@@ -1729,4 +1767,120 @@ end
     @test n > 0
     @test all_have
     @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+end
+
+const _PC_RATING_TS_NAME = "pc_branch_rating"
+const _PC_RATING_FACTORS = vcat([fill(x, 6) for x in [0.99, 0.98, 1.0, 0.95]]...)
+
+# `c_sys5` with `rating_b = 1.2 * rating` and a post-contingency rating forecast
+# on `lines_with_ts`, every branch outaged and monitored.
+function _pc_rating_ts_system(lines_with_ts::Vector{String})
+    sys = PSB.build_system(PSITestSystems, "c_sys5")
+    for name in lines_with_ts
+        line = PSY.get_component(PSY.Line, sys, name)
+        PSY.set_rating_b!(line, (1.2 * PSY.get_rating(line, PSY.SU)) * PSY.SU)
+    end
+    add_branch_rating_time_series_to_system!(
+        sys, lines_with_ts, 2, _PC_RATING_FACTORS;
+        initial_date = "2024-01-01", ts_name = _PC_RATING_TS_NAME,
+    )
+    _attach_all_branch_outages!(sys)
+    return sys
+end
+
+function _build_pc_rating_ts_model(sys)
+    template = get_thermal_dispatch_template_network(
+        NetworkModel(
+            PTDFNetworkModel;
+            network_source = PrebuiltMatrixSource(PNM.VirtualPTDF(sys)),
+        ),
+    )
+    set_device_model!(
+        template,
+        DeviceModel(
+            PSY.Line,
+            POM.SecurityConstrainedStaticBranch;
+            time_series_names = Dict(
+                POM.PostContingencyBranchRatingTimeSeriesParameter =>
+                    _PC_RATING_TS_NAME,
+            ),
+        ),
+    )
+    model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
+    status = build!(model; output_dir = mktempdir(; cleanup = true))
+    return model, status
+end
+
+@testset "post-contingency rate limit follows the post-contingency rating time series" begin
+    lines_with_ts = ["1", "2", "6"]
+    sys = _pc_rating_ts_system(lines_with_ts)
+    model, status = _build_pc_rating_ts_model(sys)
+    @test status == IOM.ModelBuildStatus.BUILT
+
+    container = IOM.get_optimization_container(model)
+    @test IOM.has_container_key(
+        container, POM.PostContingencyBranchRatingTimeSeriesParameter, PSY.Line,
+    )
+
+    pcbf = IOM.get_expression(container, POM.PostContingencyBranchFlow, PSY.Line)
+    con_ub = IOM.get_constraints(container)[IOM.ConstraintKey(
+        POM.PostContingencyFlowRateConstraint, PSY.Line, "ub",
+    )]
+    con_lb = IOM.get_constraints(container)[IOM.ConstraintKey(
+        POM.PostContingencyFlowRateConstraint, PSY.Line, "lb",
+    )]
+
+    # Non-degeneracy: `rating_b` must differ from `rating` and the forecast must
+    # actually vary, else the assertions below could not tell the parameterized
+    # RHS apart from the static one.
+    for name in lines_with_ts
+        line = PSY.get_component(PSY.Line, sys, name)
+        @test PSY.get_rating_b(line, PSY.SU) > PSY.get_rating(line, PSY.SU)
+    end
+    @test length(unique(_PC_RATING_FACTORS)) > 1
+
+    n_factors = length(_PC_RATING_FACTORS)
+    n_checked = 0
+    seen_rhs = Set{Float64}()
+    for (outage_id, name, t) in keys(pcbf.data)
+        name in lines_with_ts || continue
+        rating_b = PSY.get_rating_b(PSY.get_component(PSY.Line, sys, name), PSY.SU)
+        expected = rating_b * _PC_RATING_FACTORS[mod1(t, n_factors)]
+        push!(seen_rhs, expected)
+        # JuMP migrates the expression's affine constant to the RHS; add it back
+        # to recover the raw limit.
+        expr_const = JuMP.constant(pcbf[outage_id, name, t])
+        @test JuMP.normalized_rhs(con_ub[outage_id, name, t]) + expr_const ≈ expected
+        @test JuMP.normalized_rhs(con_lb[outage_id, name, t]) + expr_const ≈ -expected
+        n_checked += 1
+    end
+    @test n_checked > 0
+    # The RHS tracks the forecast, so it takes more than one distinct value —
+    # this is what separates the parameterized limit from the static one.
+    @test length(seen_rhs) > 1
+end
+
+@testset "a branch without a post-contingency rating forecast keeps the static limit" begin
+    lines_with_ts = ["1", "2", "6"]
+    sys = _pc_rating_ts_system(lines_with_ts)
+    model, status = _build_pc_rating_ts_model(sys)
+    @test status == IOM.ModelBuildStatus.BUILT
+
+    container = IOM.get_optimization_container(model)
+    pcbf = IOM.get_expression(container, POM.PostContingencyBranchFlow, PSY.Line)
+    con_ub = IOM.get_constraints(container)[IOM.ConstraintKey(
+        POM.PostContingencyFlowRateConstraint, PSY.Line, "ub",
+    )]
+
+    n_checked = 0
+    for (outage_id, name, t) in keys(pcbf.data)
+        name in lines_with_ts && continue
+        line = PSY.get_component(PSY.Line, sys, name)
+        isnothing(line) && continue
+        expected = POM._emergency_flow_limits(line).max
+        expr_const = JuMP.constant(pcbf[outage_id, name, t])
+        @test JuMP.normalized_rhs(con_ub[outage_id, name, t]) + expr_const ≈ expected
+        n_checked += 1
+    end
+    @test n_checked > 0
 end

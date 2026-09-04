@@ -104,13 +104,13 @@ get_offer_curves(::IOM.DecrementalOffer, op_cost::PSY.OfferCurveCost) =
 get_offer_curves(::IOM.IncrementalOffer, op_cost::PSY.OfferCurveCost) =
     get_output_offer_curves(op_cost)
 
-# direction and ORDC reserve service: the demand curve is carried on the service's
+# direction and operating reserve demand curve (ORDC) reserve service: the curve is on the
 # `variable` field (a CostCurve, static or time-series-backed) rather than split
 # across incremental/decremental sides. Direction is irrelevant to the lookup; the
 # service-side direction trait (`_reserve_offer_direction`) is decremental.
 get_offer_curves(
     ::IOM.OfferDirection,
-    service::Union{PSY.ReserveDemandCurve, PSY.ReserveDemandTimeSeriesCurve},
+    service::PSY.AbstractReserve,
 ) = PSY.get_variable(service)
 
 #################################################################################
@@ -212,7 +212,7 @@ end
 
 # TS-backed: validated at parameter population time, not here
 _validate_occ_curves(::PSY.StaticInjection, ::IOM.OfferDirection,
-    ::IS.CostCurve{IS.TimeSeriesPiecewiseIncrementalCurve}) = nothing
+    ::IS.CostCurve{<:IS.TimeSeriesPiecewiseIncrementalCurve}) = nothing
 
 _validate_occ_subtype(::PSY.MarketBidCost, ::IOM.OfferDirection, ::IS.CostCurve, args...) =
     nothing
@@ -617,8 +617,8 @@ IOM.transform_single_time_series!(
     interval::Dates.Period;
     kwargs...,
 ) = PSY.transform_single_time_series!(sys, horizon, interval; kwargs...)
-# sys.data.internal UUID, not sys's wrapper UUID — IOM uses this as a filename identifier.
-IOM.get_system_uuid(sys::PSY.System) = IS.get_uuid(sys.data.internal)
+# The system's own UUID (`System.metadata.uuid`) — IOM uses this as a filename identifier.
+IOM.get_system_uuid(sys::PSY.System) = PSY.get_system_uuid(sys)
 # PSY.get_components restricts T <: PSY.Component; IOM passes IS.InfrastructureSystemsComponent.
 # Bridge directly to IS.get_components to preserve the looser typing.
 IOM.get_subsystem_components(
@@ -633,7 +633,7 @@ IOM.get_time_series_counts_by_type(sys::PSY.System) =
     IS.get_time_series_counts_by_type(sys.data)
 
 # PSY cost-type dispatches for variable-cost and get_variable_cost:
-IOM.get_variable_cost(cost) = PSY.get_variable(cost)
+IOM.get_variable_cost(cost) = PSY.get_variable_operation_cost(cost)
 
 # Not really market bid related--better spot?
 IOM.component_for_hvdc_interpolation(::Nothing) = PSY.DCBus

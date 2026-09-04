@@ -14,6 +14,8 @@ get_variable_multiplier(::Type{<:VariableType}, ::Type{<:PSY.HydroGen}, ::Type{<
 get_variable_multiplier(::Type{ActivePowerPumpVariable}, ::Type{<:PSY.HydroPumpTurbine}, ::Type{<:AbstractHydroPumpFormulation}) = -1.0
 get_expression_type_for_reserve(::Type{ActivePowerReserveVariable}, ::Type{<:PSY.HydroGen}, ::Type{<:PSY.Reserve{PSY.ReserveUp}}) = ActivePowerRangeExpressionUB
 get_expression_type_for_reserve(::Type{ActivePowerReserveVariable}, ::Type{<:PSY.HydroGen}, ::Type{<:PSY.Reserve{PSY.ReserveDown}}) = ActivePowerRangeExpressionLB
+# OfflineReserve (non-spin) is upward-only, so it reduces upward headroom like a ReserveUp product.
+get_expression_type_for_reserve(::Type{ActivePowerReserveVariable}, ::Type{<:PSY.HydroGen}, ::Type{<:PSY.OfflineReserve}) = ActivePowerRangeExpressionUB
 
 ########################### ActivePowerVariable, HydroGen #################################
 # These methods are defined in PowerSimulations
@@ -128,6 +130,10 @@ get_variable_upper_bound(::Type{HydroEnergyShortageVariable}, d::PSY.HydroReserv
 get_variable_binary(::Type{HydroWaterShortageVariable}, ::Type{<:PSY.HydroReservoir}, ::Type{HydroWaterModelReservoir}) = false
 get_variable_lower_bound(::Type{HydroWaterShortageVariable}, d::PSY.HydroReservoir, ::Type{HydroWaterModelReservoir}) = 0.0
 get_variable_upper_bound(::Type{HydroWaterShortageVariable}, d::PSY.HydroReservoir, ::Type{HydroWaterModelReservoir}) = PSY.get_storage_level_limits(d).max
+# `ReservoirTargetFeedforward` adds this slack for `HydroWaterModelReservoir` too (it is not
+# formulation-specific like `HydroWaterShortageVariable`); bounds mirror that variable's.
+get_variable_lower_bound(::Type{HydroEnergyShortageVariable}, d::PSY.HydroReservoir, ::Type{HydroWaterModelReservoir}) = 0.0
+get_variable_upper_bound(::Type{HydroEnergyShortageVariable}, d::PSY.HydroReservoir, ::Type{HydroWaterModelReservoir}) = PSY.get_storage_level_limits(d).max
 
 ############## HydroEnergySurplusVariable, HydroReservoir ####################
 get_variable_binary(::Type{HydroEnergySurplusVariable}, ::Type{<:PSY.HydroReservoir}, ::Type{HydroEnergyModelReservoir}) = false
@@ -216,6 +222,10 @@ get_multiplier_value(::Type{<:AbstractPiecewiseLinearBreakpointParameter}, d::PS
 get_multiplier_value(::Type{<:AbstractPiecewiseLinearBreakpointParameter}, d::PSY.HydroGen, ::Type{<:AbstractHydroFormulation}) = 1.0
 
 get_parameter_multiplier(::Type{<:VariableValueParameter}, d::PSY.HydroGen, ::Type{<:AbstractHydroFormulation}) = 1.0
+# `ReservoirTargetFeedforward`/`ReservoirLimitFeedforward` build `ReservoirTargetParameter`/
+# `ReservoirLimitParameter` (both `VariableValueParameter`) against `HydroReservoir` through
+# the generic feedforward path in `common_models/add_parameters.jl`, which reads this.
+get_parameter_multiplier(::Type{<:VariableValueParameter}, d::PSY.HydroReservoir, ::Type{<:AbstractHydroFormulation}) = 1.0
 get_initial_parameter_value(::Type{<:VariableValueParameter}, d::PSY.HydroGen, ::Type{<:AbstractHydroFormulation}) = 1.0
 get_initial_parameter_value(::Type{HydroUsageLimitParameter}, d::PSY.HydroGen, ::Type{<:AbstractHydroFormulation}) = 1e6 #unbounded
 get_initial_parameter_value(::Type{WaterLevelBudgetParameter}, d::PSY.HydroReservoir, ::Type{<:AbstractHydroFormulation}) = 1e6 #unbounded
@@ -278,10 +288,10 @@ objective_function_multiplier(::Type{WaterSpillageVariable}, ::Type{<:AbstractHy
 IOM.uses_commitment_variables(::Type{<:PSY.HydroGen}) = true
 
 variable_cost(::Nothing, ::Type{ActivePowerVariable}, ::Type{<:PSY.HydroGen}, ::Type{<:AbstractHydroReservoirFormulation})=0.0
-variable_cost(cost::PSY.OperationalCost, ::Type{ActivePowerVariable}, ::Type{<:PSY.HydroGen}, ::Type{<:AbstractHydroFormulation})=PSY.get_variable(cost)
-variable_cost(cost::PSY.OperationalCost, ::Type{ActivePowerPumpVariable}, ::Type{<:PSY.HydroGen}, ::Type{<:AbstractHydroFormulation})=PSY.get_variable(cost)
+variable_cost(cost::PSY.OperationalCost, ::Type{ActivePowerVariable}, ::Type{<:PSY.HydroGen}, ::Type{<:AbstractHydroFormulation})=PSY.get_variable_operation_cost(cost)
+variable_cost(cost::PSY.OperationalCost, ::Type{ActivePowerPumpVariable}, ::Type{<:PSY.HydroGen}, ::Type{<:AbstractHydroFormulation})=PSY.get_variable_operation_cost(cost)
 
-# variable_cost(cost::PSY.OperationalCost, ::ActivePowerOutVariable, ::PSY.HydroTurbine, ::AbstractHydroFormulation)=PSY.get_variable(cost)
+# variable_cost(cost::PSY.OperationalCost, ::ActivePowerOutVariable, ::PSY.HydroTurbine, ::AbstractHydroFormulation)=PSY.get_variable_operation_cost(cost)
 
 variable_cost(cost::PSY.StorageCost, ::Type{ActivePowerVariable}, ::Type{<:PSY.HydroGen}, ::Type{<:AbstractHydroFormulation})=PSY.get_discharge_variable_cost(cost)
 
@@ -633,7 +643,9 @@ function add_constraints!(
     model::DeviceModel{V, W},
     ::NetworkModel{X},
 ) where {V <: PSY.HydroGen, W <: HydroCommitmentRunOfRiver, X <: AbstractNetworkModel}
-    add_semicontinuous_range_constraints!(container, T, U, devices, model, X)
+    if !has_semicontinuous_feedforward(model, U)
+        add_semicontinuous_range_constraints!(container, T, U, devices, model, X)
+    end
     return
 end
 
@@ -645,7 +657,9 @@ function add_constraints!(
     model::DeviceModel{V, W},
     ::NetworkModel{X},
 ) where {V <: PSY.HydroGen, W <: HydroCommitmentRunOfRiver, X <: AbstractNetworkModel}
-    add_semicontinuous_range_constraints!(container, T, U, devices, model, X)
+    if !has_semicontinuous_feedforward(model, U)
+        add_semicontinuous_range_constraints!(container, T, U, devices, model, X)
+    end
     add_parameterized_upper_bound_range_constraints(
         container,
         ActivePowerVariableTimeSeriesLimitsConstraint,
@@ -671,7 +685,9 @@ function add_constraints!(
     W <: HydroTurbineEnergyCommitment,
     X <: AbstractNetworkModel,
 }
-    add_semicontinuous_range_constraints!(container, T, U, devices, model, X)
+    if !has_semicontinuous_feedforward(model, U)
+        add_semicontinuous_range_constraints!(container, T, U, devices, model, X)
+    end
     return
 end
 
@@ -690,7 +706,9 @@ function add_constraints!(
     W <: HydroTurbineWaterLinearCommitment,
     X <: AbstractNetworkModel,
 }
-    add_semicontinuous_range_constraints!(container, T, U, devices, model, X)
+    if !has_semicontinuous_feedforward(model, U)
+        add_semicontinuous_range_constraints!(container, T, U, devices, model, X)
+    end
     return
 end
 
@@ -792,7 +810,9 @@ function add_constraints!(
     model::DeviceModel{V, W},
     ::NetworkModel{X},
 ) where {V <: PSY.HydroGen, W <: AbstractHydroUnitCommitment, X <: AbstractNetworkModel}
-    add_semicontinuous_range_constraints!(container, T, U, devices, model, X)
+    if !has_semicontinuous_feedforward(model, U)
+        add_semicontinuous_range_constraints!(container, T, U, devices, model, X)
+    end
     return
 end
 
@@ -841,7 +861,6 @@ function add_constraints!(
     names = [PSY.get_name(x) for x in devices]
     initial_conditions = get_initial_condition(container, InitialEnergyLevel(), V)
     energy_var = get_variable(container, EnergyVariable, V)
-    power_var = get_variable(container, ActivePowerVariable, PSY.HydroTurbine)
     spillage_var = get_variable(container, WaterSpillageVariable, V)
     power_in_from_turbines =
         get_expression(container, TotalHydroPowerReservoirIncoming, V)
@@ -1942,11 +1961,10 @@ function add_expressions!(
         time_steps,
     )
 
-    variable = get_variable(container, HydroTurbineFlowRateVariable, PSY.HydroTurbine)
-
     for d in devices
         turbines = get_available_turbines(d, U)
         isempty(turbines) && continue
+        variable = get_variable(container, HydroTurbineFlowRateVariable, PSY.HydroTurbine)
         turbine_names = PSY.get_name.(turbines)
         reservoir_name = PSY.get_name(d)
         for t in time_steps
@@ -2284,29 +2302,29 @@ function calculate_aux_variable_value!(
         d = PSY.get_component(T, system, name)
         for t in time_steps
             if has_container_key(container, HydroServedReserveUpExpression, typeof(d))
-                served_regup = jump_value(
+                served_reserve_up = jump_value(
                     get_expression(container, HydroServedReserveUpExpression, T)[
                         name,
                         t,
                     ],
                 )
             else
-                served_regup = 0.0
+                served_reserve_up = 0.0
             end
-            if has_container_key(container, HydroServedReserveUpExpression, typeof(d))
-                served_regdn = jump_value(
+            if has_container_key(container, HydroServedReserveDownExpression, typeof(d))
+                served_reserve_down = jump_value(
                     get_expression(container, HydroServedReserveDownExpression, T)[
                         name,
                         t,
                     ],
                 )
             else
-                served_regdn = 0.0
+                served_reserve_down = 0.0
             end
             aux_variable_container[name, t] =
                 (
                     jump_value(p_variable_output[name, t]) +
-                    served_regup - served_regdn
+                    served_reserve_up - served_reserve_down
                 ) * fraction_of_hour
         end
     end
@@ -2691,26 +2709,21 @@ function add_to_expression!(
     expression = get_expression(container, T, V)
     for d in devices
         name = PSY.get_name(d)
-        service_models = get_services(model)
-        for service_model in service_models
-            service_name = get_service_name(service_model)
-            services = PSY.get_services(d)
-            service_ix = findfirst(x -> PSY.get_name(x) == service_name, services)
-            if isnothing(service_ix)
-                #Device does not participate in this service but others might. Skipping.
-                continue
-            end
-            service = services[service_ix]
-            if isa(service, PSY.Reserve{PSY.ReserveUp})
+        # One `ServiceModel` per reserve type. Iterate the device's own services and
+        # match those whose type is modeled (a service model of that type is attached),
+        # using each matching service's own name for the reserve-variable index.
+        for service_model in get_services(model)
+            S = get_component_type(service_model)
+            for service in PSY.get_services(d)
+                typeof(service) <: S || continue
+                isa(service, PSY.Reserve{PSY.ReserveUp}) || continue
+                service_name = PSY.get_name(service)
                 deployed_fraction = PSY.get_deployed_fraction(service)
-                variable = get_variable(container, U,
-                    typeof(service),
-                    service_name,
-                )
+                variable = get_variable(container, U, typeof(service))
                 for t in get_time_steps(container)
                     add_proportional_to_jump_expression!(
                         expression[name, t],
-                        variable[name, t],
+                        variable[(service_name, name, t)],
                         deployed_fraction,
                     )
                 end
@@ -2736,27 +2749,20 @@ function add_to_expression!(
     expression = get_expression(container, T, V)
     for d in devices
         name = PSY.get_name(d)
-        service_models = get_services(model)
-        for service_model in service_models
-            service_name = get_service_name(service_model)
-            # Find service with the same name of the service_model, that should exist in the device
-            services = PSY.get_services(d)
-            service_ix = findfirst(x -> PSY.get_name(x) == service_name, services)
-            if isnothing(service_ix)
-                #Device does not participate in this service but others might. Skipping.
-                continue
-            end
-            service = services[service_ix]
-            if isa(service, PSY.Reserve{PSY.ReserveDown})
+        # One `ServiceModel` per reserve type. Iterate the device's own services and
+        # match those whose type is modeled, using each matching service's own name.
+        for service_model in get_services(model)
+            S = get_component_type(service_model)
+            for service in PSY.get_services(d)
+                typeof(service) <: S || continue
+                isa(service, PSY.Reserve{PSY.ReserveDown}) || continue
+                service_name = PSY.get_name(service)
                 deployed_fraction = PSY.get_deployed_fraction(service)
-                variable = get_variable(container, U,
-                    typeof(service),
-                    service_name,
-                )
+                variable = get_variable(container, U, typeof(service))
                 for t in get_time_steps(container)
                     add_proportional_to_jump_expression!(
                         expression[name, t],
-                        variable[name, t],
+                        variable[(service_name, name, t)],
                         deployed_fraction,
                     )
                 end
@@ -2810,6 +2816,7 @@ function add_to_expression!(
     container::OptimizationContainer,
     ::Type{T},
     ::Type{U},
+    service::X,
     devices::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
     model::ServiceModel{X, W},
 ) where {
@@ -2819,15 +2826,19 @@ function add_to_expression!(
     X <: PSY.Reserve{PSY.ReserveUp},
     W <: AbstractReservesFormulation,
 }
-    service_name = get_service_name(model)
-    variable = get_variable(container, U, X, service_name)
+    service_name = PSY.get_name(service)
+    variable = get_variable(container, U, X)
     if !has_container_key(container, T, V)
         add_expressions!(container, T, devices, model)
     end
     expression = get_expression(container, T, V)
     for d in devices, t in get_time_steps(container)
         name = PSY.get_name(d)
-        add_proportional_to_jump_expression!(expression[name, t], variable[name, t], 1.0)
+        add_proportional_to_jump_expression!(
+            expression[name, t],
+            variable[(service_name, name, t)],
+            1.0,
+        )
     end
     return
 end
@@ -2836,6 +2847,7 @@ function add_to_expression!(
     container::OptimizationContainer,
     ::Type{T},
     ::Type{U},
+    service::X,
     devices::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
     model::ServiceModel{X, W},
 ) where {
@@ -2845,15 +2857,19 @@ function add_to_expression!(
     X <: PSY.Reserve{PSY.ReserveDown},
     W <: AbstractReservesFormulation,
 }
-    service_name = get_service_name(model)
-    variable = get_variable(container, U, X, service_name)
+    service_name = PSY.get_name(service)
+    variable = get_variable(container, U, X)
     if !has_container_key(container, T, V)
         add_expressions!(container, T, devices, model)
     end
     expression = get_expression(container, T, V)
     for d in devices, t in get_time_steps(container)
         name = PSY.get_name(d)
-        add_proportional_to_jump_expression!(expression[name, t], variable[name, t], -1.0)
+        add_proportional_to_jump_expression!(
+            expression[name, t],
+            variable[(service_name, name, t)],
+            -1.0,
+        )
     end
     return
 end

@@ -3,7 +3,7 @@
     template_uc = PowerOperationsProblemTemplate(NetworkModel(
         DCPNetworkModel,
         #use_slacks=true,
-        #network_matrix =PTDF(sys_5),
+        #network_source = PrebuiltMatrixSource(VirtualPTDF(sys_5)),
         #duals=[CopperPlateBalanceConstraint],
     ))
 
@@ -28,7 +28,6 @@
         NetworkModel(
             PTDFNetworkModel;
             #use_slacks=true,
-            network_matrix = PTDF(sys_5),
             #duals=[CopperPlateBalanceConstraint],
         ),
     )
@@ -55,7 +54,7 @@ function _generate_test_hvdc_sys()
     for th_name in th_names_2
         g = PSY.get_component(PSY.ThermalStandard, sys, th_name)
         op_cost = g.operation_cost
-        val_curve = op_cost.variable.value_curve
+        val_curve = op_cost.variable_operation_cost.value_curve
         new_prop_term = get_proportional_term(val_curve) * 2.0
         if g.name == "Park City-2"
             new_prop_term = new_prop_term + 5.0
@@ -68,8 +67,8 @@ function _generate_test_hvdc_sys()
         new_op_cost = ThermalGenerationCost(
             CostCurve(
                 new_quad_cost,
-                PSY.get_power_units(op_cost.variable),
-                op_cost.variable.vom_cost,
+                PSY.get_power_units(op_cost.variable_operation_cost),
+                op_cost.variable_operation_cost.vom_cost,
             ),
             op_cost.fixed,
             op_cost.start_up,
@@ -124,7 +123,7 @@ end
         )
     end
     template = PowerOperationsProblemTemplate(
-        NetworkModel(PTDFNetworkModel; network_matrix = PTDF(sys)),
+        NetworkModel(PTDFNetworkModel),
     )
     set_device_model!(template, ThermalStandard, ThermalDispatchNoMin)
     set_device_model!(template, PowerLoad, StaticPowerLoad)
@@ -172,7 +171,7 @@ end
     sys = _generate_test_hvdc_sys()
     for scheme in ("bin2", "nmdt")
         template = PowerOperationsProblemTemplate(
-            NetworkModel(PTDFNetworkModel; network_matrix = PTDF(sys)),
+            NetworkModel(PTDFNetworkModel),
         )
         set_device_model!(template, ThermalStandard, ThermalDispatchNoMin)
         set_device_model!(template, PowerLoad, StaticPowerLoad)

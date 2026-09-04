@@ -25,6 +25,9 @@ The specified constraint is generally formulated as:
 """
 struct AreaParticipationAssignmentConstraint <: ConstraintType end
 struct BalanceAuxConstraint <: ConstraintType end
+# Links a device's per-service reserve OFFER blocks to its reserve award:
+# `Σ_k δ[(service, device, k, t)] == ActivePowerReserveVariable[(service, device, t)]`.
+struct ReserveOfferLinkingConstraint <: ConstraintType end
 """
 Struct to create the commitment constraint between the on, start, and stop variables.
 For more information check [ThermalGen Formulations](@ref ThermalGen-Formulations).
@@ -91,16 +94,24 @@ struct EqualityConstraint <: ConstraintType end
 """
 Struct to create the constraint for semicontinuous feedforward limits.
 
+The commitment status is an `OnStatusParameter` read from the system state, not a commitment
+variable this model solves for. It enters the range expressions scaled by the device's limits,
+which is why the formulation's own range constraints are suppressed rather than added
+alongside these.
+
 For more information check [Feedforward Formulations](@ref ff_formulations).
 
 The specified constraint is formulated as:
 
 ```math
 \\begin{align*}
-&  \\text{ActivePowerRangeExpressionUB}_t := p_t^\\text{th} - \\text{on}_t^\\text{th}P^\\text{th,max} \\le 0, \\quad  \\forall t\\in \\{1, \\dots, T\\}  \\\\
-&  \\text{ActivePowerRangeExpressionLB}_t := p_t^\\text{th} - \\text{on}_t^\\text{th}P^\\text{th,min} \\ge 0, \\quad  \\forall t\\in \\{1, \\dots, T\\}
+&  \\text{ActivePowerRangeExpressionUB}_t := p_t^\\text{th} - \\text{OnStatusParameter}_t P^\\text{th,max} \\le 0, \\quad  \\forall t\\in \\{1, \\dots, T\\}  \\\\
+&  \\text{ActivePowerRangeExpressionLB}_t := p_t^\\text{th} - \\text{OnStatusParameter}_t P^\\text{th,min} \\ge 0, \\quad  \\forall t\\in \\{1, \\dots, T\\}
 \\end{align*}
 ```
+
+Compact formulations schedule ``p_t^\\text{th}`` above the minimum, so their multipliers are
+``P^\\text{th,max} - P^\\text{th,min}`` and ``0`` instead.
 """
 struct FeedforwardSemiContinuousConstraint <: ConstraintType end
 struct FeedforwardIntegralLimitConstraint <: ConstraintType end
@@ -113,9 +124,11 @@ The specified constraint is formulated as:
 
 ```math
 \\begin{align*}
-&  \\text{AffectedVariable}_t - p_t^\\text{ff,ubsl} \\le \\text{SourceVariableParameter}_t, \\quad \\forall t \\in \\{1,\\dots, T\\}
+&  \\text{AffectedVariable}_t - p_t^\\text{ff,ubsl} \\le \\text{SourceVariableParameter}_t \\cdot \\text{multiplier}_t, \\quad \\forall t \\in \\{1,\\dots, T\\}
 \\end{align*}
 ```
+
+The slack term is present only when the feedforward is built with `add_slacks = true`.
 """
 struct FeedforwardUpperBoundConstraint <: ConstraintType end
 """
@@ -127,12 +140,29 @@ The specified constraint is formulated as:
 
 ```math
 \\begin{align*}
-&  \\text{AffectedVariable}_t + p_t^\\text{ff,lbsl} \\ge \\text{SourceVariableParameter}_t, \\quad \\forall t \\in \\{1,\\dots, T\\}
+&  \\text{AffectedVariable}_t + p_t^\\text{ff,lbsl} \\ge \\text{SourceVariableParameter}_t \\cdot \\text{multiplier}_t, \\quad \\forall t \\in \\{1,\\dots, T\\}
 \\end{align*}
 ```
+
+The slack term is present only when the feedforward is built with `add_slacks = true`.
 """
 struct FeedforwardLowerBoundConstraint <: ConstraintType end
 struct FeedforwardEnergyTargetConstraint <: ConstraintType end
+"""
+Struct to create the equality constraint that pins a variable to a quantity read from the
+system state.
+
+For more information check [Feedforward Formulations](@ref ff_formulations).
+
+The specified constraint is formulated as:
+
+```math
+\\begin{align*}
+&  \\text{AffectedVariable}_t = \\text{SourceVariableParameter}_t \\cdot \\text{multiplier}_t, \\quad \\forall t \\in \\{1,\\dots, T\\}
+\\end{align*}
+```
+"""
+struct FeedforwardFixValueConstraint <: ConstraintType end
 """
 Struct to create the constraint that set the flow limits through a PhaseShiftingTransformer.
 
@@ -167,7 +197,9 @@ The specified constraints are formulated as:
 struct HVDCPowerBalance <: ConstraintType end
 struct FrequencyResponseConstraint <: ConstraintType end
 """
-Struct to create the constraint the AC branch flows depending on the network model.
+Equality-constrains a branch's flow according to its network model. Under `StaticBranchBounds`
+flow is stored as a variable, for use in feed-forwards; under `StaticBranch` it is an expression
+(`BThetaBranchFlow` on DCP, `PTDFBranchFlow` on PTDF) and no such variable is created.
 For more information check [Branch Formulations](@ref PowerSystems.Branch-Formulations).
 
 The specified constraint depends on the network model chosen. The most common application is the StaticBranch in a PTDF Network Model:
@@ -196,6 +228,26 @@ struct NodalBalanceReactiveConstraint <: ConstraintType end
 struct ReferenceBusConstraint <: ConstraintType end
 """Rectangular-coordinate voltage magnitude bounds: vmin² ≤ vr² + vi² ≤ vmax²."""
 struct VoltageMagnitudeConstraint <: ConstraintType end
+"""
+Supertype for the constraints a controlled transformer circuit imposes, one per
+`PSY.TransformerControlObjective` that POM models.
+"""
+abstract type TransformerControlConstraint <: ConstraintType end
+"""
+Imposed by transformer circuits with VOLTAGE control on a branch formulation
+with controls enabled.
+"""
+struct VoltageControlConstraint <: TransformerControlConstraint end
+"""
+Imposed by transformer circuits with REACTIVE_POWER_FLOW control on a branch
+formulation with controls enabled.
+"""
+struct ReactivePowerFlowControlConstraint <: TransformerControlConstraint end
+"""
+Imposed by transformer circuits with ACTIVE_POWER_FLOW control on a branch
+formulation with controls enabled.
+"""
+struct ActivePowerFlowControlConstraint <: TransformerControlConstraint end
 """
 Ties a component-owned [`RegulatedVoltageMagnitude`](@ref) auxiliary variable to the
 rectangular voltage components at its regulated bus under ACR/IVR formulations. One
@@ -226,8 +278,8 @@ For more information check [Service Formulations](@ref service_formulations).
 The constraint is as follows:
 
 ```math
-r_{d,t} \\le \\text{Req} \\cdot \\text{PF} ,\\quad \\forall d\\in \\mathcal{D}_s, \\forall t\\in \\{1,\\dots, T\\} \\quad \\text{(for a ConstantReserve)} \\\\
-r_{d,t} \\le \\text{RequirementTimeSeriesParameter}_{t} \\cdot \\text{PF}\\quad  \\forall d\\in \\mathcal{D}_s, \\forall t\\in \\{1,\\dots, T\\}, \\quad \\text{(for a VariableReserve)}
+r_{d,t} \\le \\text{Req} \\cdot \\text{PF} ,\\quad \\forall d\\in \\mathcal{D}_s, \\forall t\\in \\{1,\\dots, T\\} \\quad \\text{(static requirement)} \\\\
+r_{d,t} \\le \\text{RequirementTimeSeriesParameter}_{t} \\cdot \\text{PF}\\quad  \\forall d\\in \\mathcal{D}_s, \\forall t\\in \\{1,\\dots, T\\}, \\quad \\text{(time-varying requirement)}
 ```
 """
 struct ParticipationFractionConstraint <: ConstraintType end
@@ -262,7 +314,7 @@ struct RampConstraint <: ConstraintType end
 struct RampLimitConstraint <: ConstraintType end
 struct RangeLimitConstraint <: ConstraintType end
 """
-Struct to create the constraint that set the AC flow limits through AC branches and HVDC two-terminal branches.
+Constrains the upper and lower bounds of a branch's flow, which is equality-constrained by NetworkFlowConstraints.
 
 For more information check [Branch Formulations](@ref PowerSystems.Branch-Formulations).
 
@@ -304,8 +356,8 @@ For more information check [Service Formulations](@ref service_formulations).
 The constraint is as follows:
 
 ```math
-\\sum_{d\\in\\mathcal{D}_s} r_{d,t} + r_t^\\text{sl} \\ge \\text{Req},\\quad \\forall t\\in \\{1,\\dots, T\\} \\quad \\text{(for a ConstantReserve)} \\\\
-\\sum_{d\\in\\mathcal{D}_s} r_{d,t} + r_t^\\text{sl} \\ge \\text{RequirementTimeSeriesParameter}_{t},\\quad \\forall t\\in \\{1,\\dots, T\\} \\quad \\text{(for a VariableReserve)}
+\\sum_{d\\in\\mathcal{D}_s} r_{d,t} + r_t^\\text{sl} \\ge \\text{Req},\\quad \\forall t\\in \\{1,\\dots, T\\} \\quad \\text{(static requirement)} \\\\
+\\sum_{d\\in\\mathcal{D}_s} r_{d,t} + r_t^\\text{sl} \\ge \\text{RequirementTimeSeriesParameter}_{t},\\quad \\forall t\\in \\{1,\\dots, T\\} \\quad \\text{(time-varying requirement)}
 ```
 """
 struct RequirementConstraint <: ConstraintType end
@@ -889,7 +941,8 @@ v_{t} = h_{t} \\text{head_to_volume},
 struct ReservoirHeadToVolumeConstraint <: ConstraintType end
 
 """
-Feedforward constraint to limit the water level budget for reservoir formulations.
+Constraint limiting the water level budget of a reservoir to a budget read from the system
+state.
 """
 struct FeedForwardWaterLevelBudgetConstraint <: ConstraintType end
 
@@ -948,7 +1001,7 @@ The specified constraint is formulated as:
 """
 struct StorageCyclingDischarge <: ConstraintType end
 
-## AS Provision Energy Constraints
+## Ancillary Service Provision Energy Constraints
 """
 Struct to specify the lower and upper bounds of the discharge variable considering reserves.
 
@@ -1212,3 +1265,24 @@ e^{st}_{T} - e^{st+} + e^{st-} = E^{st}_{T}.
 ```
 """
 struct HybridEnergyTargetConstraint <: ConstraintType end
+
+"""
+Offline-capability band row for commitment formulations whose
+[`offline_reserve_in_range_ub`](@ref) trait is `false`: their commitment-gated range
+expression stays `p + online`, and this row adds the offline awards back against the
+formulation's gated capacity when committed, or the static capability (`q_limit = pmax`)
+when not:
+
+`p + online + offline <= gated * u + q_limit * (1 - u)`
+
+`gated` is the formulation's own commitment-gated max (the same value the semicontinuous
+range row uses): for standard UC, `gated = pmax`, so the RHS collapses to `pmax`
+regardless of `u`; for compact UC, `gated = pmax - pmin`, so the RHS becomes
+`pmax - pmin * u`.
+
+Committed: offline competes with the online products for the gated band. Off: the
+semi-continuous range row zeroes `p` and the online awards, leaving `offline <= q_limit`.
+Single award variable per (device, service): the device's merged offer curve prices both
+provision states (documented approximation).
+"""
+struct OfflineReserveBandConstraint <: ConstraintType end

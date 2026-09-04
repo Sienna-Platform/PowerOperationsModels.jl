@@ -97,12 +97,13 @@ _add_static_branch_btheta_expression!(
 ) = nothing
 
 # StaticBranch under DCP carries its flow as the BThetaBranchFlow expression
-# (`-b * (va_fr - va_to - shift)`), so it must be built here — in the network's own
+# (`b * (va_fr - va_to - shift)`), so it must be built here — in the network's own
 # ArgumentConstructStage, right after `VoltageAngle` is created — rather than from the
 # branch's own ArgumentConstructStage, which build_problem.jl runs BEFORE this one (branch
 # arguments, then network arguments, then device Model stage, then network Model stage
 # that closes the nodal balance). This is the only point in the build order where
 # `VoltageAngle` exists AND the nodal balance is still open for writes.
+# TODO: Maybe we build all argument stages first, including networks?
 function _add_static_branch_btheta_expression!(
     container::OptimizationContainer,
     sys::PSY.System,
@@ -114,17 +115,6 @@ function _add_static_branch_btheta_expression!(
     add_expressions!(container, BThetaBranchFlow, sys, devices, device_model, network_model)
     return
 end
-
-# psy6: disabled pending transformer refactor
-# Transformer3W has three star arcs per device, so it can't use the single-arc expression
-# above; it keeps its own FlowActivePowerVariable-per-winding decomposition in
-# branch_constructor.jl (`DeviceModel{PSY.Transformer3W, StaticBranch}`).
-# _add_static_branch_btheta_expression!(
-#     ::OptimizationContainer,
-#     ::PSY.System,
-#     ::DeviceModel{PSY.Transformer3W, StaticBranch},
-#     ::NetworkModel{DCPNetworkModel},
-# ) = nothing
 
 function construct_network!(
     container::OptimizationContainer,
@@ -141,8 +131,8 @@ function construct_network!(
     return
 end
 
-# Generic active-power-only Argument stage: CopperPlate, AreaBalance, PTDF, AreaPTDF,
-# NFA. No voltage variables; only the (active) balance slacks.
+# Generic active-power-only Argument stage: CopperPlate, AreaBalance, NFA
+# No voltage variables; only the (active) balance slacks.
 function construct_network!(
     container::OptimizationContainer,
     sys::PSY.System,
@@ -151,6 +141,88 @@ function construct_network!(
     ::ArgumentConstructStage,
 )
     _add_balance_slack_variables!(container, sys, model; reactive = false)
+    return
+end
+
+# Arcs whose DC shift comes from a `PhaseShifterAngle` variable instead of the stored
+# constant. `_branches_for_var` rejects a controlled circuit that a reduction merged into a
+# composite entry, so a controlled arc carries exactly one circuit and the variable term
+# replaces that arc's whole injection.
+function _add_controlled_shift_injections!(
+    container::OptimizationContainer,
+    network_model::NetworkModel{<:AbstractPTDFNetworkModel},
+    branch_model::DeviceModel{T},
+    controlled_arcs::Set{Tuple{Int, Int}},
+) where {T <: PSY.ACTransmission}
+    has_container_key(container, PhaseShifterAngle, T) || return
+    phase_var = get_variable(container, PhaseShifterAngle, T)
+    nodal_expr = get_expression(container, ActivePowerBalance, PSY.ACBus)
+    time_steps = get_time_steps(container)
+    _foreach_branch(_all_branches(network_model, T)) do rep
+        _phase_controlled(rep, branch_model, network_model) || return
+        push!(controlled_arcs, rep.arc)
+        b = _dc_susceptance(rep)
+        from_no, to_no = rep.arc
+        for t in time_steps
+            angle = phase_var[rep.name, t]
+            JuMP.add_to_expression!(nodal_expr[from_no, t], b, angle)
+            JuMP.add_to_expression!(nodal_expr[to_no, t], -b, angle)
+        end
+    end
+    return
+end
+
+# no-op on HVDC and any other non-AC branch model
+_add_controlled_shift_injections!(
+    ::OptimizationContainer,
+    ::NetworkModel,
+    ::DeviceModel,
+    ::Set{Tuple{Int, Int}},
+) = nothing
+
+function _add_shift_injections!(
+    container::OptimizationContainer,
+    network_model::NetworkModel{<:AbstractPTDFNetworkModel},
+    template::PowerOperationsProblemTemplate,
+)
+    controlled_arcs = Set{Tuple{Int, Int}}()
+    for branch_model in values(get_branch_models(template))
+        _add_controlled_shift_injections!(
+            container,
+            network_model,
+            branch_model,
+            controlled_arcs,
+        )
+    end
+    # Every other arc keeps its stored constant. This sweeps the reduced arc axis rather
+    # than the template's branch models because `requires_all_branch_models` is false for
+    # PTDF networks: a shifted arc whose branch type has no DeviceModel is still in the
+    # PTDF, so iterating only modeled types would silently drop its injection.
+    nodal_expr = get_expression(container, ActivePowerBalance, PSY.ACBus)
+    time_steps = get_time_steps(container)
+    network_reduction = get_network_reduction(network_model)
+    for arc in PNM.get_arc_axis(network_reduction)
+        arc in controlled_arcs && continue
+        injection = PNM.arc_dc_shift_injection(network_reduction, arc)
+        iszero(injection) && continue
+        from_no, to_no = arc
+        for t in time_steps
+            JuMP.add_to_expression!(nodal_expr[from_no, t], injection)
+            JuMP.add_to_expression!(nodal_expr[to_no, t], -injection)
+        end
+    end
+    return
+end
+
+function construct_network!(
+    container::OptimizationContainer,
+    sys::PSY.System,
+    model::NetworkModel{<:AbstractPTDFNetworkModel},
+    template::PowerOperationsProblemTemplate,
+    ::ArgumentConstructStage,
+)
+    _add_balance_slack_variables!(container, sys, model; reactive = false)
+    _add_shift_injections!(container, model, template)
     return
 end
 

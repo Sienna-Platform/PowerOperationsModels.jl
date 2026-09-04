@@ -201,8 +201,8 @@ Rating enforcement per network model, `StaticBranch` vs `StaticBranchBounds` sid
 Which pairs have slack machinery is declared once, per (formulation, network) pair, by the
 `slack_spec` trait (`core/branch_slack_specs.jl`); the `supports_flow_slacks` gate derives
 from it, so any pair whose constructors build no slack containers (`StaticBranchBounds` ×
-NFA, `StaticBranchUnbounded` × anything, the control formulations such as
-`VoltageControlTap`) is rejected at template validation with `IS.ConflictingInputsError`
+NFA, `StaticBranchUnbounded` × anything) is rejected at template validation with
+`IS.ConflictingInputsError`
 rather than left to silently ignore the request; a construct-time backstop
 (`_check_flow_slack_support`) throws `ArgumentError` for any direct-construct path that
 bypasses template validation. On `CopperPlateNetworkModel`/`AreaBalanceNetworkModel` the
@@ -257,18 +257,47 @@ N-1 security constraints are built with Modified Outage Distribution Factors (PN
 | `ACPNetworkModel`, `ACRNetworkModel`, `IVRNetworkModel`, `LPACCNetworkModel`, `DCPLLNetworkModel` | **Blocked** at template validation with an `IS.ConflictingInputsError`: the MODF post-contingency formulation is a lossless linear DC construct and is not available on AC or lossy network models                                                                                                                                      |
 | `NFANetworkModel`, `CopperPlateNetworkModel`, `AreaBalanceNetworkModel`                           | Deliberate no-op — a `@warn` states the security constraints are inert                                                                                                                                                                                                                                                                  |
 
-#### Tap and phase-angle control
+#### Transformer tap control
 
-| Formulation         | Supported on                                                                                                                                                                                                                                                    |
-|:------------------- |:--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `VoltageControlTap` | `ACPNetworkModel`, `ACRNetworkModel`, `IVRNetworkModel`. Gated by `models_reactive_power`, so it is dropped from active-power (DC) templates with an `@info` message rather than being built; explicitly rejected on `LPACCNetworkModel` by template validation |
-| `TapControl`        | `DCPNetworkModel` only                                                                                                                                                                                                                                          |
-| `PhaseAngleControl` | `DCPNetworkModel` and the PTDF models only                                                                                                                                                                                                                      |
+Tap control is **not** a separate formulation. It is an opt-in attribute on the ordinary
+`StaticBranch` / `StaticBranchBounds` transformer models, driven by the component data:
 
-Under `ACRNetworkModel` and `IVRNetworkModel`, `VoltageControlTap` additionally creates a
-`RegulatedVoltageMagnitude` variable and a `RegulatedVoltageMagnitudeConstraint` (both with
-`meta = "1"`), because those formulations have no scalar voltage-magnitude primitive to fix. Under
-`ACPNetworkModel` the network's own `VoltageMagnitude` variable is fixed directly instead.
+```julia
+DeviceModel(
+    PSY.TwoWindingTransformer,
+    StaticBranch;
+    attributes = Dict(POM.ENABLE_CONTROLS_KEY => true),   # "enable_controls"
+)
+```
+
+With the attribute set, each `PSY.TransformerCircuit` whose `control_objective` POM models
+gets a continuous [`TapRatioVariable`](@ref) bounded by the circuit's `control_limits`,
+which enters the AC flow equations in place of the fixed `tap`. Control is per circuit, so
+each winding of a `ThreeWindingTransformer` is controlled independently.
+
+| `control_objective`   | Constraint added                             | Regulated quantity                                                                                         |
+|:--------------------- |:-------------------------------------------- |:---------------------------------------------------------------------------------------------------------- |
+| `VOLTAGE`             | [`VoltageControlConstraint`](@ref)           | voltage magnitude at `regulated_bus_number`, banded by `controlled_quantity_limits`                        |
+| `REACTIVE_POWER_FLOW` | [`ReactivePowerFlowControlConstraint`](@ref) | `FlowReactivePowerFromToVariable` at the circuit's winding-one bus, banded by `controlled_quantity_limits` |
+
+Every other `TransformerControlObjective` is inert. `UNDEFINED` (the field default),
+`FIXED` and the `*_DISABLED` codes are treated as "no control block" and pass silently; the
+positive objectives POM does not yet model (`ACTIVE_POWER_FLOW`, `CONTROL_OF_DC_LINE`,
+`ASYMMETRIC_ACTIVE_POWER_FLOW`) emit a `@warn` and are ignored.
+
+`regulated_bus_number` must name a bus that exists in the system; a VOLTAGE-controlled
+circuit whose regulated bus cannot be resolved is rejected at template validation.
+
+| Network                                                 | Support                                                                                                                      |
+|:------------------------------------------------------- |:---------------------------------------------------------------------------------------------------------------------------- |
+| `ACPNetworkModel`, `ACRNetworkModel`, `IVRNetworkModel` | Full support on both `StaticBranch` and `StaticBranchBounds`                                                                 |
+| `LPACCNetworkModel`                                     | Supported, but a variable tap makes the model non-convex — a `@warn` says so; use a nonlinear solver                         |
+| `DCPNetworkModel`, `DCPLLNetworkModel`                  | Both objectives are AC quantities, so no tap variable or constraint is built; a `@warn` states the control is ignored        |
+| all others                                              | The attribute is not offered (`get_default_attributes` adds it only for the two control formulations) and is inert if forced |
+
+A controlled circuit and its regulated bus are pinned irreducible, so a network reduction
+cannot absorb them. A controlled circuit that would be merged into a parallel-branch
+equivalent is a hard error rather than a silent demotion.
 
 ### HVDC formulations
 
@@ -451,8 +480,12 @@ There is exactly one concrete storage formulation and one concrete hybrid formul
 
 ### [`StorageDispatchWithReserves`](@id storage_math_model)
 
-Attributes: `"reservation"` (default `true`), `"cycling_limits"`, `"energy_target"`,
-`"complete_coverage"`, `"regularization"` (all default `false`).
+Attributes: `"reservation"`, `"reserve_coverage"` (default `true`; `reserve_coverage = false`
+DECOUPLES energy and AS for day-ahead-style clearing: no SOC deployment-coverage constraints,
+reserve bands bounded by capability instead of the reservation binary's dispatch side, and
+`complete_coverage` ignored with a warning - the binary still governs energy exclusivity),
+`"cycling_limits"`, `"energy_target"`, `"complete_coverage"`, `"regularization"`
+(all default `false`).
 
 | Stage    | Emits                                                                                                                                                                                                                                                                                                                                               |
 |:-------- |:--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -540,31 +573,35 @@ package.
 
 ## [Service Formulations](@id service_formulations)
 
-| Formulation                  | Service type                | Argument stage                                                                                 | Model stage                                                |
-|:---------------------------- |:--------------------------- |:---------------------------------------------------------------------------------------------- |:---------------------------------------------------------- |
-| `RangeReserve`               | `PSY.Reserve`               | `RequirementTimeSeriesParameter` (omitted for `ConstantReserve`), `ActivePowerReserveVariable` | `RequirementConstraint`, `ParticipationFractionConstraint` |
-| `RampReserve`                | `PSY.Reserve`               | as above                                                                                       | as above **+ `RampConstraint`**                            |
-| `NonSpinningReserve`         | `PSY.ReserveNonSpinning`    | as above, but **no** device-range expression wiring                                            | as above **+ `ReservePowerConstraint`**                    |
-| `StepwiseCostReserve` (ORDC) | `PSY.Reserve`               | `ServiceRequirementVariable` + ORDC slope/breakpoint parameters                                | `RequirementConstraint` only — no participation constraint |
-| `GroupReserve`               | `PSY.ConstantReserveGroup`  | no variables                                                                                   | `RequirementConstraint` across contributing services       |
-| `ConstantMaxInterfaceFlow`   | `PSY.TransmissionInterface` | optional slacks, `InterfaceTotalFlow` expression                                               | `InterfaceFlowLimit` (`"ub"`/`"lb"`)                       |
-| `VariableMaxInterfaceFlow`   | `PSY.TransmissionInterface` | as above **+ min/max flow-limit parameters**                                                   | as above, with parameterized limits                        |
+| Formulation                                            | Service type                | Argument stage                                                                                           | Model stage                                                |
+|:------------------------------------------------------ |:--------------------------- |:-------------------------------------------------------------------------------------------------------- |:---------------------------------------------------------- |
+| `RangeReserve`                                         | `PSY.Reserve`               | `RequirementTimeSeriesParameter` (omitted for static-requirement reserves), `ActivePowerReserveVariable` | `RequirementConstraint`, `ParticipationFractionConstraint` |
+| `RampReserve`                                          | `PSY.Reserve`               | as above                                                                                                 | as above **+ `RampConstraint`**                            |
+| `NonSpinningReserve`                                   | `PSY.OfflineReserve`        | as above, but **no** device-range expression wiring                                                      | as above **+ `ReservePowerConstraint`**                    |
+| `StepwiseCostReserve` (operating reserve demand curve) | `PSY.Reserve`               | `ServiceRequirementVariable` + demand-curve slope/breakpoint parameters                                  | `RequirementConstraint` only — no participation constraint |
+| `GroupRangeReserve`                                    | `PSY.GroupReserve`          | no variables                                                                                             | `RequirementConstraint` across contributing services       |
+| `GroupStepwiseCostReserve` (elastic group)             | `PSY.GroupReserve`          | `ServiceRequirementVariable` + group demand-curve slope/breakpoint parameters                            | `RequirementConstraint`: member awards ≥ the group demand  |
+| `ConstantMaxInterfaceFlow`                             | `PSY.TransmissionInterface` | optional slacks, `InterfaceTotalFlow` expression                                                         | `InterfaceFlowLimit` (`"ub"`/`"lb"`)                       |
+| `VariableMaxInterfaceFlow`                             | `PSY.TransmissionInterface` | as above **+ min/max flow-limit parameters**                                                             | as above, with parameterized limits                        |
 
-`GroupReserve` is deliberately constructed **last** in both stages, because it aggregates the other
-services' variables.
+The group formulations are deliberately constructed **last** in both stages, because they aggregate
+the other services' award variables. A `PSY.GroupReserve` accepts only the group formulations (and
+vice versa); a mis-paired `ServiceModel` fails at declaration. A service whose demand driver is
+degenerate (zero requirement under the requirement formulations, no demand curve under the stepwise
+ones) is skipped as demand and built as supply only, so it can serve a group.
 
-!!! warning "GroupReserve does not support slacks"
+!!! warning "Group formulations do not support slacks"
     
-    `GroupReserve`'s requirement-constraint builder reads a `slack_vars` binding that is never
-    created, so a `ServiceModel` with `use_slacks = true` raises `UndefVarError`. A group reserve
-    also cannot currently be built end to end: a `ConstantReserveGroup` aggregates services rather
-    than devices, so its contributing-device list is empty and construction errors out before the
-    requirement constraint is reached.
+    `use_slacks = true` on a group `ServiceModel` is ignored: reserve slacks attach to the
+    requirement rows of the device-backed formulations, and no slack is added to a group's
+    clearing constraint.
 
 Reserve contributions reach a device through `get_expression_type_for_reserve`: for thermal,
 renewable and hydro an up-reserve enters `ActivePowerRangeExpressionUB` (+1) and a down-reserve
-`ActivePowerRangeExpressionLB` (−1); storage and hybrid instead route everything into
-`TotalReserveOffering`. Any other device type hits an error — loads, sources, condensers and shunts
+`ActivePowerRangeExpressionLB` (−1); a controllable load is the inverse (an up-reserve is committed
+shed, entering `ActivePowerRangeExpressionLB` with −1, and a down-reserve is committed extra
+consumption, entering `ActivePowerRangeExpressionUB` with +1); storage and hybrid instead route
+everything into `TotalReserveOffering`. Any other device type hits an error — sources, condensers and shunts
 cannot contribute to a reserve.
 
 Service `meta` strings are **per-instance**, not a fixed vocabulary: every reserve container is
@@ -579,18 +616,57 @@ keyed by the service's own name (`meta = get_service_name(model)`). The only fix
 
 ## [Feedforward Formulations](@id ff_formulations)
 
-!!! warning "Feedforwards are not implemented in PowerOperationsModels"
+A feedforward binds a model's variables to a quantity recorded in the system state — it is a
+model-to-state relationship, not a link between two models.
+See [Feedforwards](@ref feedforwards_explanation) for what the system state is, how the
+semicontinuous substitution works, and when to use each type.
+
+POM builds them in two stages: `add_feedforward_arguments!` (ArgumentConstructStage) allocates the
+`VariableValueParameter` container that carries the state quantity plus any slack variables,
+and `add_feedforward_constraints!` (ModelConstructStage) builds the constraints that read it.
+Populating those parameters between executions is PowerSimulations' job — it needs simulation
+state, which POM does not have.
+
+Attach one to a device model with `attach_feedforward!`:
+
+```julia
+device_model = DeviceModel(ThermalStandard, ThermalStandardDispatch)
+attach_feedforward!(
+    device_model,
+    SemiContinuousFeedforward(;
+        component_type = ThermalStandard,
+        source = OnVariable,
+        affected_values = [ActivePowerVariable],
+    ),
+)
+```
+
+| Feedforward                 | Parameter                  | Constraint                            | Effect                                                            |
+|:--------------------------- |:-------------------------- |:------------------------------------- |:----------------------------------------------------------------- |
+| `UpperBoundFeedforward`     | `UpperBoundValueParameter` | `FeedforwardUpperBoundConstraint`     | ``x_t \le \text{param}_t \cdot \text{mult}_t``                    |
+| `LowerBoundFeedforward`     | `LowerBoundValueParameter` | `FeedforwardLowerBoundConstraint`     | ``x_t \ge \text{param}_t \cdot \text{mult}_t``                    |
+| `SemiContinuousFeedforward` | `OnStatusParameter`        | `FeedforwardSemiContinuousConstraint` | commitment status from the state bounds ``x_t`` to 0 or its range |
+| `FixValueFeedforward`       | `FixValueParameter`        | `FeedforwardFixValueConstraint`       | ``x_t = \text{param}_t \cdot \text{mult}_t``                      |
+
+`UpperBoundFeedforward` and `LowerBoundFeedforward` accept `add_slacks = true`, which relaxes the
+bound with a non-negative `UpperBoundFeedForwardSlack` / `LowerBoundFeedForwardSlack` penalized at
+`BALANCE_SLACK_COST`.
+
+`SemiContinuousFeedforward` suppresses the affected formulation's own range constraints —
+`has_semicontinuous_feedforward` gates them — because the commitment status arrives as a parameter
+in the `ActivePowerRangeExpressionUB` / `…LB` expressions instead. Must-run thermal units are
+excluded throughout: they are never turned off, so they carry no `OnStatusParameter` entry and get
+no semicontinuous constraints.
+
+!!! warning "Service feedforwards are not implemented"
     
-    POM defines **no concrete feedforward types**. `AbstractAffectFeedforward` is an IOM abstract
-    used as the type of the `DeviceModel.feedforwards` field, and the concrete feedforwards
-    (`UpperBoundFeedforward`, `SemiContinuousFeedforward`, `FixValueFeedforward`, and so on) live in
-    PowerSimulations.jl and have not yet been migrated.
-    
-    Every `add_feedforward_arguments!` / `add_feedforward_constraints!` call site in POM's
-    constructors resolves to a **stub that returns without emitting anything**, and
-    `has_semicontinuous_feedforward` always returns `false`. The `UpperBoundFeedForwardSlack` /
-    `LowerBoundFeedForwardSlack` variable types and the `FixValueParameter` plumbing exist, but
-    nothing in POM constructs them — the plumbing is present, the driver is absent.
+    Feedforwards can only be attached to a `DeviceModel`. `attach_feedforward!` on a `ServiceModel`
+    throws, and so does `set_service_model!` when a `ServiceModel` is constructed with a non-empty
+    `feedforwards` kwarg — IOM's `ServiceModel` constructor still accepts it, so POM rejects it at
+    template definition instead of letting it reach `build!`. Per-type service models key their
+    reserve variables by `(service_name, device_name, time)`, while the feedforward parameter path
+    is keyed `(device_name, time)`; the two are dimensionally inconsistent until the service
+    `VariableValueParameter` path is re-keyed by `(service, device)`.
 
 ## [Piecewise-linear cost](@id pwl_cost)
 
@@ -612,8 +688,8 @@ commitment.
 
 Offer *direction* selects the delta family: generation is an `IncrementalOffer`; the charging side
 of storage, the import side of a `Source`, and controllable loads are `DecrementalOffer` (negative
-objective sign). ORDC reserve demand curves are also decremental, because a willingness-to-pay
-curve is concave.
+objective sign). Operating reserve demand curves are also decremental, because a
+willingness-to-pay curve is concave.
 
 ## [When to use `meta` versus a new key type](@id meta_vs_key_type)
 

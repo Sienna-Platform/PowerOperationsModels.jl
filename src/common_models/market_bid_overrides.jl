@@ -80,8 +80,11 @@ function IOM.validate_occ_component(
     device::PSY.ThermalMultiStart,
 )
     startup = PSY.get_start_up(PSY.get_operation_cost(device))
-    # TupleTimeSeries{PSY.StartUpStages} guarantees NTuple{3, Float64} values at construction
-    startup isa IS.TupleTimeSeries && return
+    # A TS-backed startup is a bare time-series key referencing NTuple{3, Float64}
+    # stages. Keys carry no element type (`eltype(typeof(key))` is `Any` for every key
+    # type, so any check against it is unsatisfiable); the referenced series' element
+    # type is validated when the parameter is populated (IOM `time_series_utils`).
+    startup isa IS.TimeSeriesKey && return
     _validate_eltype(
         Union{Float64, NTuple{3, Float64}, PSY.StartUpStages},
         device,
@@ -99,7 +102,8 @@ function IOM.validate_occ_component(
     startup = PSY.get_start_up(PSY.get_operation_cost(device))
     apply_maybe_across_time_series(device, startup) do x
         # x may be Float64 (TGC), PSY.StartUpStages (static MBC), or NTuple{3, Float64}
-        # (TupleTimeSeries elements). `values` normalizes both NamedTuple and Tuple.
+        # (elements of a TS-backed startup key). `values` normalizes both NamedTuple
+        # and Tuple.
         if any(!iszero, x isa Number ? (x,) : values(x))
             @warn "Nonzero startup cost detected for renewable generation or storage device $(get_name(device))."
         end
@@ -128,9 +132,9 @@ function IOM.validate_occ_component(
     ::Type{IncrementalCostAtMinParameter},
     device::Union{PSY.RenewableDispatch, PSY.Storage},
 )
-    x = _scalar_if_static(PSY.get_no_load_cost(PSY.get_operation_cost(device)))
+    x = _scalar_if_static(PSY.get_minimum_energy_offer(PSY.get_operation_cost(device)))
     if !isnothing(x) && x != 0.0
-        @warn "Nonzero no-load cost detected for renewable generation or storage device $(get_name(device))."
+        @warn "Nonzero minimum-energy offer detected for renewable generation or storage device $(get_name(device))."
     end
 end
 
@@ -138,9 +142,9 @@ function IOM.validate_occ_component(
     ::Type{DecrementalCostAtMinParameter},
     device::PSY.Storage,
 )
-    x = _scalar_if_static(PSY.get_no_load_cost(PSY.get_operation_cost(device)))
+    x = _scalar_if_static(PSY.get_minimum_energy_offer(PSY.get_operation_cost(device)))
     if !isnothing(x) && x != 0.0
-        @warn "Nonzero no-load cost detected for storage device $(get_name(device))."
+        @warn "Nonzero minimum-energy offer detected for storage device $(get_name(device))."
     end
 end
 
@@ -211,11 +215,6 @@ _include_constant_min_gen_power_in_constraint(
 # Section 6: Source ImportExport — both incremental and decremental offers
 #################################################################################
 
-# FIXME behavior change: we now always add PWL terms for both import and export. The
-# previous `isnothing(...)` guard is dead in the new PSY (offer curves default to
-# `ZERO_OFFER_CURVE`, not nothing), and we don't yet have a way to introspect TS-backed
-# curves to decide "trivially empty". Skipping when the curve is trivial (one-directional
-# source) would be the better behavior — revisit once we have a cheap emptiness check.
 function add_variable_cost_to_objective!(
     container::OptimizationContainer,
     ::Type{ActivePowerOutVariable},
@@ -223,7 +222,7 @@ function add_variable_cost_to_objective!(
     cost_function::IEC_TYPES,
     ::Type{ImportExportSourceModel},
 )
-    isnothing(get_output_offer_curves(cost_function)) && return
+    IOM.is_nontrivial_offer(get_output_offer_curves(cost_function)) || return
     add_pwl_term_delta!(
         IncrementalOffer(),
         container,
@@ -242,7 +241,7 @@ function add_variable_cost_to_objective!(
     cost_function::IEC_TYPES,
     ::Type{ImportExportSourceModel},
 )
-    isnothing(get_input_offer_curves(cost_function)) && return
+    IOM.is_nontrivial_offer(get_input_offer_curves(cost_function)) || return
     add_pwl_term_delta!(
         DecrementalOffer(),
         container,
@@ -334,12 +333,12 @@ _vom_offer_direction(::Type{<:AbstractControllablePowerLoadFormulation}) =
     DecrementalOffer()
 
 #################################################################################
-# Section 7: Service-specific PWL (ReserveDemandCurve, StepwiseCostReserve)
+# Section 7: Service-specific PWL (ORDC on a reserve, StepwiseCostReserve)
 #################################################################################
 
 """
-Add the delta PWL objective terms for an ORDC service (`StepwiseCostReserve` over
-`ReserveDemandCurve` / `ReserveDemandTimeSeriesCurve`).
+Add the delta PWL objective terms for an operating reserve demand curve (ORDC) service
+(`StepwiseCostReserve` over an `OnlineReserve`/`OfflineReserve` carrying a demand curve).
 """
 function add_pwl_term_delta!(
     container::OptimizationContainer,
@@ -348,7 +347,7 @@ function add_pwl_term_delta!(
     ::Type{U},
     ::Type{V},
 ) where {
-    T <: Union{PSY.ReserveDemandCurve, PSY.ReserveDemandTimeSeriesCurve},
+    T <: PSY.AbstractReserve,
     U <: VariableType,
     V <: AbstractServiceFormulation,
 }
@@ -363,7 +362,8 @@ function add_pwl_term_delta!(
     time_steps = get_time_steps(container)
     pwl_cost_expressions = Vector{JuMP.AffExpr}(undef, time_steps[end])
     for t in time_steps
-        break_points, slopes = IOM._get_pwl_data(dir, container, component, t; meta = name)
+        # Name-keyed slope/breakpoint params, same as the device offer path.
+        break_points, slopes = IOM._get_pwl_data(dir, container, component, t)
         pwl_vars = add_pwl_variables_delta!(
             container,
             IOM._block_offer_var(dir),
@@ -381,8 +381,7 @@ function add_pwl_term_delta!(
             break_points,
             pwl_vars,
             t,
-            IOM._block_offer_constraint(dir);
-            meta = name,
+            IOM._block_offer_constraint(dir),
         )
         pwl_cost_expressions[t] =
             get_pwl_cost_expression_delta(pwl_vars, slopes, multiplier * dt)

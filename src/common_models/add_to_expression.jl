@@ -133,8 +133,9 @@ function _add_variable_to_balance!(
 end
 
 """
-Add a compact unit-commitment `OnVariable` scaled by per-device `p_min`, with no must-run
-branch (matches PSI; the `On` variable carries the `p_min` scale). Used by the CopperPlate
+Add a compact unit-commitment `OnVariable` scaled by per-device `p_min`. Must-run units
+have `On ≡ 1` and are left out of the `OnVariable` container entirely, so their `p_min`
+contribution enters as a constant; all others scale the variable. Used by the CopperPlate
 and PTDF compact-UC methods.
 """
 function _add_pmin_scaled_on_to_balance!(
@@ -152,8 +153,15 @@ function _add_pmin_scaled_on_to_balance!(
         targets = _balance_expression_targets(container, T, network_model, d)
         name = PSY.get_name(d)
         multiplier = PSY.get_active_power_limits(d, PSY.SU).min * base_multiplier
-        for t in time_steps
-            _apply_term_to_targets!(targets, variable[name, t], multiplier, t)
+        if PSY.get_must_run(d)
+            # On ≡ 1 for must-run units, so the term is the constant p_min * mult.
+            for t in time_steps
+                _apply_term_to_targets!(targets, 1.0, multiplier, t)
+            end
+        else
+            for t in time_steps
+                _apply_term_to_targets!(targets, variable[name, t], multiplier, t)
+            end
         end
     end
     return
@@ -299,8 +307,18 @@ function _add_onstatus_parameter_to_balance!(
     time_steps = get_time_steps(container)
     for d in devices
         targets = _balance_expression_targets(container, T, network_model, d)
-        name = PSY.get_name(d)
         multiplier = get_expression_multiplier(U, T, d, W)
+        # A must-run unit is absent from the feedforward-built parameter container -- it
+        # keeps its native bounds and its commitment is fixed at 1. The minimum-power term
+        # still belongs in the balance, so it enters as that constant instead of as a
+        # parameter lookup that would throw a KeyError.
+        if _is_must_run(d)
+            for t in time_steps
+                _apply_term_to_targets!(targets, 1.0, multiplier, t)
+            end
+            continue
+        end
+        name = PSY.get_name(d)
         for t in time_steps
             _apply_term_to_targets!(targets, parameter[name, t], multiplier, t)
         end
@@ -405,7 +423,8 @@ function _add_terminal_flow_to_nodal!(
     nodal_expr = get_expression(container, T, PSY.ACBus)
     tracker = get_reduced_branch_tracker(network_model)
     time_steps = get_time_steps(container)
-    for (name, (arc_tuple, _)) in get_name_to_arc_map_entries(network_reduction, V)
+    for (name, arc_tuple) in
+        PNM.get_name_to_arc_map(get_branch_catalog(network_model), V)
         if search_for_reduced_branch_expression!(tracker, arc_tuple, T, U)
             continue
         end
@@ -482,7 +501,8 @@ function _add_both_terminals_to_nodal!(
     expression = get_expression(container, T, PSY.ACBus)
     tracker = get_reduced_branch_tracker(network_model)
     time_steps = get_time_steps(container)
-    for (name, (arc_tuple, _)) in get_name_to_arc_map_entries(network_reduction, V)
+    for (name, arc_tuple) in
+        PNM.get_name_to_arc_map(get_branch_catalog(network_model), V)
         if search_for_reduced_branch_expression!(tracker, arc_tuple, T, U)
             continue
         end
@@ -1980,17 +2000,18 @@ function add_to_expression!(
     container::OptimizationContainer,
     ::Type{T},
     ::Type{U},
+    service::X,
     devices::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
     model::ServiceModel{X, W},
 ) where {
     T <: ActivePowerRangeExpressionUB,
     U <: VariableType,
     V <: PSY.Component,
-    X <: PSY.Reserve{PSY.ReserveUp},
+    X <: UP_RESERVE,
     W <: AbstractReservesFormulation,
 }
-    service_name = get_service_name(model)
-    variable = get_variable(container, U, X, service_name)
+    service_name = PSY.get_name(service)
+    variable = get_variable(container, U, X)
     if !has_container_key(container, T, V)
         add_expressions!(container, T, devices, model)
     end
@@ -1998,7 +2019,11 @@ function add_to_expression!(
     time_steps = get_time_steps(container)
     for d in devices, t in time_steps
         name = PSY.get_name(d)
-        add_proportional_to_jump_expression!(expression[name, t], variable[name, t], 1.0)
+        add_proportional_to_jump_expression!(
+            expression[name, t],
+            variable[(service_name, name, t)],
+            1.0,
+        )
     end
     return
 end
@@ -2016,7 +2041,7 @@ function add_to_expression!(
 }
     expression = get_expression(container, InterfaceTotalFlow, PSY.TransmissionInterface)
     service_name = PSY.get_name(service)
-    variable = get_variable(container, T, PSY.TransmissionInterface, service_name)
+    variable = get_variable(container, T, PSY.TransmissionInterface)
     time_steps = get_time_steps(container)
     for t in time_steps
         add_proportional_to_jump_expression!(
@@ -2030,7 +2055,7 @@ end
 
 function _handle_nodal_or_zonal_interfaces(
     br_type::Type{V},
-    net_reduction_data::PNM.NetworkReductionData,
+    branch_catalog::PNM.BranchCatalog,
     direction_map::Dict{String, Int},
     contributing_devices::Vector{V},
     # A `JuMPVariableArray` (StaticBranchBounds) or an `AffExpr` container (DCP StaticBranch's
@@ -2038,10 +2063,9 @@ function _handle_nodal_or_zonal_interfaces(
     variable::DenseAxisArray,
     expression::DenseAxisArray, # There is no good type for a DenseAxisArray slice
 ) where {V <: PSY.ACTransmission}
-    all_branch_maps_by_type = PNM.get_all_branch_maps_by_type(net_reduction_data)
-    for (name, (arc, reduction)) in
-        PNM.get_name_to_arc_map(net_reduction_data, br_type)
-        reduction_entry = all_branch_maps_by_type[reduction][br_type][arc]
+    net_reduction_data = PNM.get_network_reduction_data(branch_catalog)
+    for (name, arc) in PNM.get_name_to_arc_map(branch_catalog, br_type)
+        reduction_entry = PNM.get_reduction_entry(branch_catalog, arc)
         if _reduced_entry_in_interface(reduction_entry, contributing_devices)
             if isempty(direction_map)
                 direction = 1.0
@@ -2067,7 +2091,7 @@ end
 
 function _handle_nodal_or_zonal_interfaces(
     ::Type{PSY.AreaInterchange},
-    net_reduction_data::PNM.NetworkReductionData,
+    branch_catalog::PNM.BranchCatalog,
     direction_map::Dict{String, Int},
     contributing_devices::Vector{PSY.AreaInterchange},
     variable::JuMPVariableArray,
@@ -2101,14 +2125,14 @@ function add_to_expression!(
 ) where {V <: Union{ConstantMaxInterfaceFlow, VariableMaxInterfaceFlow}}
     net_reduction_data = get_network_reduction(network_model)
     expression = get_expression(container, InterfaceTotalFlow, PSY.TransmissionInterface)
-    service_name = get_service_name(model)
+    service_name = PSY.get_name(service)
     direction_map = PSY.get_direction_mapping(service)
-    contributing_devices_map = get_contributing_devices_map(model)
+    contributing_devices_map = get_contributing_devices_map(model, service_name)
     for (br_type, contributing_devices) in contributing_devices_map
         variable = get_variable(container, FlowActivePowerVariable, br_type)
         _handle_nodal_or_zonal_interfaces(
             br_type,
-            net_reduction_data,
+            get_branch_catalog(network_model),
             direction_map,
             contributing_devices,
             variable,
@@ -2131,9 +2155,9 @@ function add_to_expression!(
 ) where {V <: Union{ConstantMaxInterfaceFlow, VariableMaxInterfaceFlow}}
     net_reduction_data = get_network_reduction(network_model)
     expression = get_expression(container, InterfaceTotalFlow, PSY.TransmissionInterface)
-    service_name = get_service_name(model)
+    service_name = PSY.get_name(service)
     direction_map = PSY.get_direction_mapping(service)
-    contributing_devices_map = get_contributing_devices_map(model)
+    contributing_devices_map = get_contributing_devices_map(model, service_name)
     for (br_type, contributing_devices) in contributing_devices_map
         if has_container_key(container, BThetaBranchFlow, br_type)
             flow = get_expression(container, BThetaBranchFlow, br_type)
@@ -2142,7 +2166,7 @@ function add_to_expression!(
         end
         _handle_nodal_or_zonal_interfaces(
             br_type,
-            net_reduction_data,
+            get_branch_catalog(network_model),
             direction_map,
             contributing_devices,
             flow,
@@ -2172,9 +2196,9 @@ function add_to_expression!(
 ) where {V <: Union{ConstantMaxInterfaceFlow, VariableMaxInterfaceFlow}}
     net_reduction_data = get_network_reduction(network_model)
     expression = get_expression(container, InterfaceTotalFlow, PSY.TransmissionInterface)
-    service_name = get_service_name(model)
+    service_name = PSY.get_name(service)
     direction_map = PSY.get_direction_mapping(service)
-    contributing_devices_map = get_contributing_devices_map(model)
+    contributing_devices_map = get_contributing_devices_map(model, service_name)
     # Ignore interfaces over lines for AreaPTDFModel
     if !_is_interchanges_interfaces(contributing_devices_map)
         return
@@ -2182,7 +2206,7 @@ function add_to_expression!(
     variable = get_variable(container, FlowActivePowerVariable, PSY.AreaInterchange)
     _handle_nodal_or_zonal_interfaces(
         PSY.AreaInterchange,
-        net_reduction_data,
+        get_branch_catalog(network_model),
         direction_map,
         contributing_devices_map[PSY.AreaInterchange],
         variable,
@@ -2201,9 +2225,9 @@ function add_to_expression!(
 ) where {V <: Union{ConstantMaxInterfaceFlow, VariableMaxInterfaceFlow}}
     net_reduction_data = get_network_reduction(network_model)
     expression = get_expression(container, InterfaceTotalFlow, PSY.TransmissionInterface)
-    service_name = get_service_name(model)
+    service_name = PSY.get_name(service)
     direction_map = PSY.get_direction_mapping(service)
-    contributing_devices_map = get_contributing_devices_map(model)
+    contributing_devices_map = get_contributing_devices_map(model, service_name)
     # Interfaces over interchanges
     if _is_interchanges_interfaces(contributing_devices_map)
         return
@@ -2213,9 +2237,9 @@ function add_to_expression!(
         flow_expression = get_expression(container, PTDFBranchFlow, br_type)
         # nearly identical to _handle_nodal_or_zonal_interfaces: differences are
         # expression[service_name, t] vs expression[t], flow_expression[name, t] vs variable[name, t]
-        all_branch_maps_by_type = PNM.get_all_branch_maps_by_type(net_reduction_data)
-        for (name, (arc, reduction)) in PNM.get_name_to_arc_map(net_reduction_data, br_type)
-            reduction_entry = all_branch_maps_by_type[reduction][br_type][arc]
+        catalog = get_branch_catalog(network_model)
+        for (name, arc) in PNM.get_name_to_arc_map(catalog, br_type)
+            reduction_entry = PNM.get_reduction_entry(catalog, arc)
             if _reduced_entry_in_interface(reduction_entry, contributing_devices)
                 if isempty(direction_map)
                     direction = 1.0
@@ -2240,38 +2264,61 @@ function add_to_expression!(
     return
 end
 
+# A reduced arc's own entry is defined in the arc frame, so its flow needs no sign; only a
+# series member can run against the merged path. Dispatched on provenance rather than
+# branched on it, so an unhandled kind is a MethodError at the call, not a silent +1.0.
+_ptdf_orientation_sign(
+    ::Union{PNM.DirectArc, PNM.ParallelArc, PNM.SyntheticArc},
+    ::Any,
+    ::Tuple{Int, Int},
+    ::AbstractString,
+) = 1.0
+
+function _ptdf_orientation_sign(
+    ::PNM.SeriesArc,
+    entry,
+    arc::Tuple{Int, Int},
+    name::AbstractString,
+)
+    PNM.get_name(entry) == name && return 1.0
+    orientations = PNM.get_segment_orientations(entry, arc)
+    for (i, segment) in enumerate(entry)
+        if PNM.get_name(segment) == name
+            return orientations[i] == :FromTo ? 1.0 : -1.0
+        end
+    end
+    return error(
+        "get_ptdf_orientation_sign: segment '$name' not found in series " *
+        "reduction for arc $arc",
+    )
+end
+
 """
 Sign relating a branch's native from→to flow to the PTDF column used for its
 `PTDFBranchFlow`. Returns `-1.0` only for a series-reduction member whose native
-orientation is `:ToFrom` relative to the merged path; `+1.0` otherwise. Errors
-on an unknown reduction kind rather than returning a silently wrong sign.
+orientation is `:ToFrom` relative to the merged path; `+1.0` otherwise. `name` may be a
+reduced-arc entry name or the name of a component absorbed into one.
 """
 function get_ptdf_orientation_sign(
-    net_reduction_data::PNM.NetworkReductionData,
+    branch_catalog::PNM.BranchCatalog,
     ::Type{T},
     name::AbstractString,
 ) where {T <: PSY.ACTransmission}
-    arc, reduction = PNM.get_name_to_arc_maps(net_reduction_data)[T][name]
-    if reduction == "direct_branch_map" ||
-       reduction == "parallel_branch_map" ||
-       reduction == "transformer3W_map"
-        return 1.0
-    elseif reduction == "series_branch_map"
-        series = PNM.get_all_branch_maps_by_type(net_reduction_data)[reduction][T][arc]
-        for (i, segment) in enumerate(series)
-            if PNM.get_name(segment) == name
-                return series.segment_orientations[i] == :FromTo ? 1.0 : -1.0
-            end
-        end
+    arc_map = PNM.get_name_to_arc_map(branch_catalog, T)
+    entry_name = get(
+        PNM.get_component_to_reduction_name_map(branch_catalog, T),
+        name,
+        name,
+    )
+    if !haskey(arc_map, entry_name)
         error(
-            "get_ptdf_orientation_sign: segment '$name' not found in series " *
-            "reduction for arc $arc ($T)",
+            "get_ptdf_orientation_sign: branch '$name' ($T) belongs to no reduced arc; " *
+            "cannot determine flow orientation",
         )
     end
-    return error(
-        "get_ptdf_orientation_sign: unhandled reduction map '$reduction' for " *
-        "branch '$name' ($T); cannot determine flow orientation",
-    )
+    arc = arc_map[entry_name]
+    entry = PNM.get_reduction_entry(branch_catalog, arc)
+    return _ptdf_orientation_sign(PNM.arc_provenance(entry), entry, arc, name)
 end
 
 function _get_direction(
@@ -2321,9 +2368,10 @@ function _get_direction(
         _get_direction(arc_tuple, x, direction_map, net_reduction_data) for
         x in reduction_entry
     ]
-    # direction of segments relative to the reduced degree two chain:
-    _, segment_orientations =
-        PNM._get_chain_data(arc_tuple, reduction_entry, net_reduction_data)
+    # direction of segments relative to the reduced degree two chain. The arc is passed so PNM
+    # can reject a chain whose recorded frame is not this arc's; a chain reached through a
+    # parallel group keeps its own key, which need not match the group's.
+    segment_orientations = PNM.get_segment_orientations(reduction_entry, arc_tuple)
     segment_directions = [x == :FromTo ? 1.0 : -1.0 for x in segment_orientations]
     net_directions = mapping_directions .* segment_directions
     if allequal(net_directions)
@@ -2378,6 +2426,7 @@ function add_to_expression!(
     container::OptimizationContainer,
     ::Type{T},
     ::Type{U},
+    service::X,
     devices::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
     model::ServiceModel{X, W},
 ) where {
@@ -2387,8 +2436,8 @@ function add_to_expression!(
     X <: PSY.Reserve{PSY.ReserveDown},
     W <: AbstractReservesFormulation,
 }
-    service_name = get_service_name(model)
-    variable = get_variable(container, U, X, service_name)
+    service_name = PSY.get_name(service)
+    variable = get_variable(container, U, X)
     if !has_container_key(container, T, V)
         add_expressions!(container, T, devices, model)
     end
@@ -2396,7 +2445,79 @@ function add_to_expression!(
     time_steps = get_time_steps(container)
     for d in devices, t in time_steps
         name = PSY.get_name(d)
-        add_proportional_to_jump_expression!(expression[name, t], variable[name, t], -1.0)
+        add_proportional_to_jump_expression!(
+            expression[name, t],
+            variable[(service_name, name, t)],
+            -1.0,
+        )
+    end
+    return
+end
+
+# Load up-reserve is committed shed: LB = P - Σ r_up, constrained >= 0. Generators route
+# ReserveUp to the UB expression, so `V <: PSY.ElectricLoad` cannot shadow them.
+function add_to_expression!(
+    container::OptimizationContainer,
+    ::Type{T},
+    ::Type{U},
+    service::X,
+    devices::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
+    model::ServiceModel{X, W},
+) where {
+    T <: ActivePowerRangeExpressionLB,
+    U <: VariableType,
+    V <: PSY.ElectricLoad,
+    X <: UP_RESERVE,
+    W <: AbstractReservesFormulation,
+}
+    service_name = PSY.get_name(service)
+    variable = get_variable(container, U, X)
+    if !has_container_key(container, T, V)
+        add_expressions!(container, T, devices, model)
+    end
+    expression = get_expression(container, T, V)
+    time_steps = get_time_steps(container)
+    for d in devices, t in time_steps
+        name = PSY.get_name(d)
+        add_proportional_to_jump_expression!(
+            expression[name, t],
+            variable[(service_name, name, t)],
+            -1.0,
+        )
+    end
+    return
+end
+
+# Load down-reserve is committed extra consumption: UB = P + Σ r_down, constrained by the
+# load's forecast.
+function add_to_expression!(
+    container::OptimizationContainer,
+    ::Type{T},
+    ::Type{U},
+    service::X,
+    devices::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
+    model::ServiceModel{X, W},
+) where {
+    T <: ActivePowerRangeExpressionUB,
+    U <: VariableType,
+    V <: PSY.ElectricLoad,
+    X <: PSY.Reserve{PSY.ReserveDown},
+    W <: AbstractReservesFormulation,
+}
+    service_name = PSY.get_name(service)
+    variable = get_variable(container, U, X)
+    if !has_container_key(container, T, V)
+        add_expressions!(container, T, devices, model)
+    end
+    expression = get_expression(container, T, V)
+    time_steps = get_time_steps(container)
+    for d in devices, t in time_steps
+        name = PSY.get_name(d)
+        add_proportional_to_jump_expression!(
+            expression[name, t],
+            variable[(service_name, name, t)],
+            1.0,
+        )
     end
     return
 end
@@ -2427,7 +2548,6 @@ function add_to_expression!(
                 expression[name, t],
                 parameter_array[name, t],
                 -mult,
-                mult,
             )
         end
     end
@@ -2472,15 +2592,25 @@ end
 function add_to_expression!(
     container::OptimizationContainer,
     ::Type{U},
+    service::V,
     model::ServiceModel{V, W},
     devices_template::Dict{Symbol, DeviceModel},
-) where {U <: VariableType, V <: PSY.Reserve, W <: AbstractReservesFormulation}
-    contributing_devices_map = get_contributing_devices_map(model)
+) where {U <: VariableType, V <: PSY.AbstractReserve, W <: AbstractReservesFormulation}
+    contributing_devices_map = get_contributing_devices_map(model, PSY.get_name(service))
     for (device_type, devices) in contributing_devices_map
-        device_model = get(devices_template, Symbol(device_type), nothing)
-        device_model === nothing && continue
+        # Template keys are `nameof(D)` (IOM `set_model!`). `Symbol(T)` would qualify the
+        # name whenever the type is not visible from Main (every parallel test worker),
+        # silently skipping the whole service-device wiring on a key miss.
+        device_model = get(devices_template, nameof(device_type), nothing)
+        isnothing(device_model) && continue
+        # Offline awards stay out of the commitment-gated range expression for formulations
+        # providing offline capability through OfflineReserveBandConstraint.
+        if _is_offline_reserve(V) &&
+           !offline_reserve_in_range_ub(get_formulation(device_model))
+            continue
+        end
         expression_type = get_expression_type_for_reserve(U, device_type, V)
-        add_to_expression!(container, expression_type, U, devices, model)
+        add_to_expression!(container, expression_type, U, service, devices, model)
     end
     return
 end
@@ -2645,7 +2775,7 @@ function add_cost_to_expression!(
     time_period::Int,
 ) where {
     S <: CostExpressions,
-    T <: Union{PSY.ReserveDemandCurve, PSY.ReserveDemandTimeSeriesCurve},
+    T <: PSY.AbstractReserve,
 }
     if has_container_key(container, S, T, PSY.get_name(component))
         device_cost_expression = get_expression(container, S, T, PSY.get_name(component))
@@ -2963,6 +3093,9 @@ function add_to_expression!(
     return
 end
 
+# Add a reserve service's demand-curve cost term into the dense `(service_name, time)`
+# cost-expression container at this service/time slot (a no-op if the container was not built).
+# Same shape as the device `ProductionCostExpression` path above.
 function add_to_expression!(
     container::OptimizationContainer,
     ::Type{S},
@@ -2971,11 +3104,10 @@ function add_to_expression!(
     time_period::Int,
 ) where {
     S <: CostExpressions,
-    T <: Union{PSY.ReserveDemandCurve, PSY.ReserveDemandTimeSeriesCurve},
+    T <: PSY.AbstractReserve,
 }
-    if has_container_key(container, S, T, PSY.get_name(component))
-        device_cost_expression =
-            get_expression(container, S, T, PSY.get_name(component))
+    if has_container_key(container, S, T)
+        device_cost_expression = get_expression(container, S, T)
         component_name = PSY.get_name(component)
         JuMP.add_to_expression!(
             device_cost_expression[component_name, time_period],

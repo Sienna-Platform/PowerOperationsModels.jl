@@ -13,6 +13,36 @@ test_path = mktempdir()
     @test solve!(ps_model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
 end
 
+@testset "AreaBalance subnetwork topology check fires only above one subnetwork" begin
+    c_sys = PSB.build_system(PSISystems, "two_area_pjm_DA")
+    area_map = PSY.get_aggregation_topology_mapping(PSY.Area, c_sys)
+    buses = [
+        PSY.get_number(b) for b in first(values(area_map)) if
+        PSY.get_bustype(b) != PSY.ACBusTypes.ISOLATED
+    ]
+    @test length(buses) > 1
+
+    # A single subnetwork is the normal case for AreaBalance and must not warn: the
+    # network model now always populates at least one, where it used to be empty.
+    single = Dict(first(buses) => Set(buses))
+    @test_logs min_level = Logging.Warn POM._verify_area_subnetwork_topology(
+        c_sys,
+        single,
+    )
+
+    # Two subnetworks with one Area straddling both is the condition the check exists
+    # to reject, and it still throws.
+    split_at = length(buses) ÷ 2
+    straddling = Dict(
+        buses[1] => Set(buses[1:split_at]),
+        buses[split_at + 1] => Set(buses[(split_at + 1):end]),
+    )
+    @test_throws IS.ConflictingInputsError POM._verify_area_subnetwork_topology(
+        c_sys,
+        straddling,
+    )
+end
+
 @testset "AreaInterchange with a network model that reduces branches" begin
     # AreaInterchange <: PSY.Branch but connects Areas, not buses; it has no
     # arc. Building this with a network model that actually performs radial and
@@ -22,8 +52,10 @@ end
     transform_single_time_series!(c_sys, Hour(24), Hour(1))
     network = NetworkModel(
         DCPNetworkModel;
-        reduce_radial_branches = true,
-        reduce_degree_two_branches = true,
+        network_source = NetworkReductionSpec(
+            PNM.RadialReduction(),
+            PNM.DegreeTwoReduction(),
+        ),
     )
     template = get_thermal_dispatch_template_network(network)
     set_device_model!(template, AreaInterchange, StaticBranch)
@@ -552,7 +584,7 @@ end
     set_operation_cost!(
         iloadbus4,
         MarketBidCost(;
-            no_load_cost = LinearCurve(0.0),
+            minimum_energy_offer = LinearCurve(0.0),
             start_up = (hot = 0.0, warm = 0.0, cold = 0.0),
             shut_down = LinearCurve(0.0),
             incremental_offer_curves = make_market_bid_curve(
@@ -576,7 +608,7 @@ end
     set_operation_cost!(
         iloadbus4,
         MarketBidCost(;
-            no_load_cost = LinearCurve(0.0),
+            minimum_energy_offer = LinearCurve(0.0),
             start_up = (hot = 0.0, warm = 0.0, cold = 0.0),
             shut_down = LinearCurve(0.0),
             decremental_offer_curves = make_market_bid_curve(
@@ -738,7 +770,7 @@ end
         base_power = PSY.get_base_power(il_load, PSY.NU),
         load_balance_time_horizon = 1,
         operation_cost = LoadCost(;
-            variable = CostCurve(
+            variable_operation_cost = CostCurve(
                 LinearCurve(0.0),
                 PSY.NU,
                 LinearCurve(1.0),
@@ -762,8 +794,7 @@ end
         shiftable_load,
         SingleTimeSeries(
             "shift_up_max_active_power",
-            TimeArray(tstamps, up_vals);
-            scaling_factor_multiplier = PSY.get_max_active_power,
+            TimeArray(tstamps, up_vals),
         ),
     )
     PSY.add_time_series!(
@@ -771,8 +802,7 @@ end
         shiftable_load,
         SingleTimeSeries(
             "shift_down_max_active_power",
-            TimeArray(tstamps, down_vals);
-            scaling_factor_multiplier = PSY.get_max_active_power,
+            TimeArray(tstamps, down_vals),
         ),
     )
 
@@ -853,7 +883,7 @@ function _build_shiftable_load_system()
         base_power = PSY.get_base_power(il_load, PSY.NU),
         load_balance_time_horizon = 1,
         operation_cost = LoadCost(;
-            variable = CostCurve(
+            variable_operation_cost = CostCurve(
                 LinearCurve(0.0),
                 PSY.NU,
                 LinearCurve(1.0),
@@ -874,8 +904,7 @@ function _build_shiftable_load_system()
         shiftable_load,
         SingleTimeSeries(
             "shift_up_max_active_power",
-            TimeArray(tstamps, ones(n));
-            scaling_factor_multiplier = PSY.get_max_active_power,
+            TimeArray(tstamps, ones(n)),
         ),
     )
     PSY.add_time_series!(
@@ -883,8 +912,7 @@ function _build_shiftable_load_system()
         shiftable_load,
         SingleTimeSeries(
             "shift_down_max_active_power",
-            TimeArray(tstamps, ones(n));
-            scaling_factor_multiplier = PSY.get_max_active_power,
+            TimeArray(tstamps, ones(n)),
         ),
     )
     PSY.transform_single_time_series!(c_sys5_il, Hour(24), Hour(24))

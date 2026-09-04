@@ -16,16 +16,11 @@ function _reduced_ptdf_duals_template()
     sys = build_system(PSITestSystems, "case11_network_reductions")
     add_load_time_series_data!(sys)
     nr = NetworkReduction[RadialReduction(), DegreeTwoReduction()]
-    ptdf = PTDF(sys; network_reductions = nr)
 
     template = PowerOperationsProblemTemplate(
         NetworkModel(PTDFNetworkModel;
-            network_matrix = ptdf,
+            network_source = NetworkReductionSpec(nr),
             duals = [CopperPlateBalanceConstraint],
-            reduce_radial_branches = PNM.has_radial_reduction(ptdf.network_reduction_data),
-            reduce_degree_two_branches = PNM.has_degree_two_reduction(
-                ptdf.network_reduction_data,
-            ),
             use_slacks = false),
     )
     # Mirror the filter shape from issue #1594: a voltage threshold that selects
@@ -116,7 +111,7 @@ end
     for g in get_components(ThermalStandard, sys)
         endswith(get_name(g), "-2") || continue
         op_cost = get_operation_cost(g)
-        val_curve = get_value_curve(PSY.get_variable(op_cost))
+        val_curve = get_value_curve(PSY.get_variable_operation_cost(op_cost))
         new_op_cost = ThermalGenerationCost(
             CostCurve(
                 QuadraticCurve(
@@ -124,8 +119,8 @@ end
                     2.0 * get_proportional_term(val_curve),
                     get_constant_term(val_curve),
                 ),
-                get_power_units(PSY.get_variable(op_cost)),
-                get_vom_cost(PSY.get_variable(op_cost)),
+                get_power_units(PSY.get_variable_operation_cost(op_cost)),
+                get_vom_cost(PSY.get_variable_operation_cost(op_cost)),
             ),
             get_fixed(op_cost),
             get_start_up(op_cost),

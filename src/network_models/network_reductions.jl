@@ -24,7 +24,7 @@ mutable struct BranchReductionOptimizationTracker <: IOM.AbstractBranchReduction
         Type{<:ConstraintType},
         Dict{
             Type{<:IS.InfrastructureSystemsComponent},
-            IOM.SortedDict{String, Tuple{Tuple{Int, Int}, String}},
+            IOM.SortedDict{String, Tuple{Int, Int}},
         },
     }
     number_of_steps::Int
@@ -156,7 +156,7 @@ function search_for_reduced_branch_expression!(
     ::Type{T},
     ::Type{U},
 ) where {T <: ExpressionType, U <: VariableType}
-    wired_arcs = get!(tracker.expression_dict, (T, U), Set{Tuple{Int, Int}}())
+    wired_arcs = get!(Set{Tuple{Int, Int}}, tracker.expression_dict, (T, U))
     already_wired = arc_tuple in wired_arcs
     if !already_wired
         push!(wired_arcs, arc_tuple)
@@ -182,18 +182,20 @@ function search_for_reduced_branch_argument!(
 end
 
 function get_branch_argument_parameter_axes(
-    net_reduction_data::PNM.NetworkReductionData,
-    ::IS.FlattenIteratorWrapper{T},
+    branch_catalog::PNM.BranchCatalog,
+    ::Union{Vector{T}, IS.FlattenIteratorWrapper{T}},
     ::Type{V},
     ts_name::String;
     interval::Dates.Millisecond = IOM.UNSET_INTERVAL,
+    resolution::Dates.Millisecond = IOM.UNSET_RESOLUTION,
 ) where {T <: IS.InfrastructureSystemsComponent, V <: IS.TimeSeriesData}
     return get_branch_argument_parameter_axes(
-        net_reduction_data,
+        branch_catalog,
         T,
         V,
         ts_name;
         interval = interval,
+        resolution = resolution,
     )
 end
 
@@ -211,70 +213,59 @@ function get_branch_with_time_series(
 end
 
 function get_branch_argument_parameter_axes(
-    net_reduction_data::PNM.NetworkReductionData,
+    branch_catalog::PNM.BranchCatalog,
     ::Type{T},
     ::Type{V},
     ts_name::String;
     interval::Dates.Millisecond = IOM.UNSET_INTERVAL,
+    resolution::Dates.Millisecond = IOM.UNSET_RESOLUTION,
 ) where {T <: IS.InfrastructureSystemsComponent, V <: IS.TimeSeriesData}
     is_interval = IOM._to_is_interval(interval)
+    is_resolution = IOM._to_is_resolution(resolution)
     name_axis = Vector{String}()
-    ts_uuid_axis = Vector{String}()
-    arc_map = get(PNM.get_name_to_arc_maps(net_reduction_data), T, nothing)
-    isnothing(arc_map) && return name_axis, ts_uuid_axis
-    for (name, (arc, reduction)) in arc_map
-        reduction_entry =
-            PNM.get_all_branch_maps_by_type(net_reduction_data)[reduction][T][arc]
+    ts_hash_axis = Vector{String}()
+    arc_map = get(PNM.get_name_to_arc_maps(branch_catalog), T, nothing)
+    isnothing(arc_map) && return name_axis, ts_hash_axis
+    devices_with_time_series = IS.InfrastructureSystemsComponent[]
+    for (name, arc) in arc_map
+        reduction_entry = PNM.get_reduction_entry(branch_catalog, arc)
         device_with_time_series =
             get_branch_with_time_series(reduction_entry, V, ts_name)
         if !isnothing(device_with_time_series)
             push!(name_axis, name)
-            push!(
-                ts_uuid_axis,
-                string(
-                    IS.get_time_series_uuid(
-                        V,
-                        device_with_time_series,
-                        ts_name;
-                        interval = is_interval,
-                    ),
-                ),
-            )
+            push!(devices_with_time_series, device_with_time_series)
         end
     end
-    return name_axis, ts_uuid_axis
+    # One catalog query resolves the content hash of every branch's stored array;
+    # branches sharing an array share a hash, which is what keys the parameter rows.
+    hashes = IS.get_time_series_hashes(devices_with_time_series, V, ts_name;
+        interval = is_interval, resolution = is_resolution)
+    for (name, device) in zip(name_axis, devices_with_time_series)
+        ts_hash = get(hashes, IS.get_id(device), nothing)
+        if ts_hash === nothing
+            error(
+                "Time series $V:$ts_name for branch $name does not match " *
+                "interval=$interval, resolution=$resolution.",
+            )
+        end
+        push!(ts_hash_axis, ts_hash)
+    end
+    return name_axis, ts_hash_axis
 end
 
 function get_branch_argument_variable_axis(
-    net_reduction_data::PNM.NetworkReductionData,
+    branch_catalog::PNM.BranchCatalog,
     ::IS.FlattenIteratorWrapper{T},
 ) where {T <: IS.InfrastructureSystemsComponent}
-    return get_branch_argument_variable_axis(net_reduction_data, T)
+    return get_branch_argument_variable_axis(branch_catalog, T)
 end
 
 function get_branch_argument_variable_axis(
-    net_reduction_data::PNM.NetworkReductionData,
+    branch_catalog::PNM.BranchCatalog,
     ::Type{T},
 ) where {T <: IS.InfrastructureSystemsComponent}
-    name_axis = get_name_to_arc_map_entries(net_reduction_data, T)
+    name_axis = PNM.get_name_to_arc_map(branch_catalog, T)
     return collect(keys(name_axis))
-end
-
-"""
-Reduction entries (`entry name => ((from_no, to_no), reduction map name)`) for branch type
-`T`. Unlike `PNM.get_name_to_arc_map`, absence of `T` yields an empty map instead of a
-`KeyError`: a type can be missing from the maps when every branch of that type was
-absorbed by a radial reduction (absorbed branches carry no reduction entry at all).
-"""
-function get_name_to_arc_map_entries(
-    net_reduction_data::PNM.NetworkReductionData,
-    ::Type{T},
-) where {T <: IS.InfrastructureSystemsComponent}
-    maps = PNM.get_name_to_arc_maps(net_reduction_data)
-    if haskey(maps, T)
-        return maps[T]
-    end
-    return IOM.SortedDict{String, Tuple{Tuple{Int, Int}, String}}()
 end
 
 """
@@ -288,13 +279,13 @@ the claim in `reduced_branch_tracker` so the guarantee holds across separate
 `construct_device!` calls. Constraint containers must be sized with the returned names.
 """
 function get_branch_argument_constraint_axis(
-    net_reduction_data::PNM.NetworkReductionData,
+    branch_catalog::PNM.BranchCatalog,
     reduced_branch_tracker::BranchReductionOptimizationTracker,
     ::IS.FlattenIteratorWrapper{T},
     ::Type{U},
 ) where {T <: IS.InfrastructureSystemsComponent, U <: ConstraintType}
     return get_branch_argument_constraint_axis(
-        net_reduction_data,
+        branch_catalog,
         reduced_branch_tracker,
         T,
         U,
@@ -302,56 +293,33 @@ function get_branch_argument_constraint_axis(
 end
 
 function get_branch_argument_constraint_axis(
-    net_reduction_data::PNM.NetworkReductionData,
+    branch_catalog::PNM.BranchCatalog,
     reduced_branch_tracker::BranchReductionOptimizationTracker,
     ::Type{T},
     ::Type{U},
 ) where {T <: IS.InfrastructureSystemsComponent, U <: ConstraintType}
     constraint_tracker = get_constraint_dict(reduced_branch_tracker)
     constraint_map_by_type = get_constraint_map_by_type(reduced_branch_tracker)
-    name_axis = get_name_to_arc_map_entries(net_reduction_data, T)
+    name_axis = PNM.get_name_to_arc_map(branch_catalog, T)
     arc_tuples_with_constraints =
-        get!(constraint_tracker, U, Set{Tuple{Int, Int}}())
+        get!(Set{Tuple{Int, Int}}, constraint_tracker, U)
     constraint_map = get!(
-        constraint_map_by_type,
-        U,
         Dict{
             Type{<:IS.InfrastructureSystemsComponent},
-            IOM.SortedDict{String, Tuple{Tuple{Int, Int}, String}},
-        }(),
+            IOM.SortedDict{String, Tuple{Int, Int}},
+        },
+        constraint_map_by_type,
+        U,
     )
     constraint_submap =
-        get!(constraint_map, T, IOM.SortedDict{String, Tuple{Tuple{Int, Int}, String}}())
-    for (branch_name, name_axis_tuple) in name_axis
-        arc_tuple = name_axis_tuple[1]
+        get!(IOM.SortedDict{String, Tuple{Int, Int}}, constraint_map, T)
+    for (branch_name, arc_tuple) in name_axis
         if !(arc_tuple in arc_tuples_with_constraints)
-            constraint_submap[branch_name] = name_axis_tuple
+            constraint_submap[branch_name] = arc_tuple
             push!(arc_tuples_with_constraints, arc_tuple)
         end
     end
     return collect(keys(constraint_submap))
-end
-
-# Verify a user-provided contingency matrix was built with the same network reduction
-# as the active reduction (derived from the network matrix). Equality of the bus
-# reduction map is the decisive check: it fixes the reduced bus/arc numbering
-# the post-contingency builder uses to index `modf_matrix[arc, outage_spec]`.
-function _validate_provided_modf_reduction!(
-    modf::PNM.VirtualMODF,
-    network_reduction::PNM.NetworkReductionData,
-)
-    if PNM.get_bus_reduction_map(modf.network_reduction_data) !=
-       PNM.get_bus_reduction_map(network_reduction)
-        throw(
-            IS.ConflictingInputsError(
-                "The provided contingency matrix was built with a different network \
-                reduction than the active reduction derived from the network \
-                matrix. Rebuild the MODF with a consistent network reduction, \
-                or omit it so it is recalculated automatically.",
-            ),
-        )
-    end
-    return
 end
 
 """
