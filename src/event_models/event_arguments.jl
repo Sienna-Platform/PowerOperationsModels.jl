@@ -110,12 +110,7 @@ function add_event_arguments!(
     T <: Union{Vector{U}, IS.FlattenIteratorWrapper{U}},
     V <: AbstractDeviceFormulation,
 } where {U <: PSY.StaticInjection}
-    for (key, event_model) in get_events(device_model)
-        event_type = get_entry_type(key)
-        devices_with_attributes =
-            [d for d in devices if PSY.has_supplemental_attributes(d, event_type)]
-        isempty(devices_with_attributes) &&
-            error("no devices found with a supplemental attribute for event $event_type")
+    _for_each_event_devices(devices, device_model) do devices_with_attributes, event_model
         for p_type in [AvailableStatusChangeCountdownParameter, AvailableStatusParameter]
             add_parameters!(
                 container,
@@ -136,8 +131,10 @@ end
 # a device's contribution without touching its dispatch variables.
 #################################################################################
 
-const _EventLoadFormulations =
-    Union{StaticPowerLoad, PowerLoadDispatch, PowerLoadInterruption}
+supports_event_offset(::Type{<:AbstractLoadFormulation}) = false
+supports_event_offset(::Type{StaticPowerLoad}) = true
+supports_event_offset(::Type{PowerLoadDispatch}) = true
+supports_event_offset(::Type{PowerLoadInterruption}) = true
 
 function _add_event_offset_arguments!(
     container::OptimizationContainer,
@@ -198,14 +195,10 @@ function add_event_arguments!(
     network_model::NetworkModel{<:AbstractActivePowerModel},
 ) where {
     T <: Union{Vector{U}, IS.FlattenIteratorWrapper{U}},
-    V <: _EventLoadFormulations,
+    V <: AbstractLoadFormulation,
 } where {U <: PSY.PowerLoad}
-    for (key, event_model) in get_events(device_model)
-        event_type = get_entry_type(key)
-        devices_with_attributes =
-            [d for d in devices if PSY.has_supplemental_attributes(d, event_type)]
-        isempty(devices_with_attributes) &&
-            error("no devices found with a supplemental attribute for event $event_type")
+    supports_event_offset(V) || return
+    _for_each_event_devices(devices, device_model) do devices_with_attributes, event_model
         _add_event_offset_arguments!(
             container,
             devices_with_attributes,
@@ -225,14 +218,10 @@ function add_event_arguments!(
     network_model::NetworkModel{<:AbstractReactivePowerNetworkModel},
 ) where {
     T <: Union{Vector{U}, IS.FlattenIteratorWrapper{U}},
-    V <: _EventLoadFormulations,
+    V <: AbstractLoadFormulation,
 } where {U <: PSY.PowerLoad}
-    for (key, event_model) in get_events(device_model)
-        event_type = get_entry_type(key)
-        devices_with_attributes =
-            [d for d in devices if PSY.has_supplemental_attributes(d, event_type)]
-        isempty(devices_with_attributes) &&
-            error("no devices found with a supplemental attribute for event $event_type")
+    supports_event_offset(V) || return
+    _for_each_event_devices(devices, device_model) do devices_with_attributes, event_model
         _add_event_offset_arguments!(
             container,
             devices_with_attributes,
@@ -253,12 +242,7 @@ function add_event_arguments!(
 ) where {
     T <: Union{Vector{U}, IS.FlattenIteratorWrapper{U}},
 } where {U <: PSY.StaticInjection}
-    for (key, event_model) in get_events(device_model)
-        event_type = get_entry_type(key)
-        devices_with_attributes =
-            [d for d in devices if PSY.has_supplemental_attributes(d, event_type)]
-        isempty(devices_with_attributes) &&
-            error("no devices found with a supplemental attribute for event $event_type")
+    _for_each_event_devices(devices, device_model) do devices_with_attributes, event_model
         _add_event_offset_arguments!(
             container,
             devices_with_attributes,
@@ -279,12 +263,7 @@ function add_event_arguments!(
 ) where {
     T <: Union{Vector{U}, IS.FlattenIteratorWrapper{U}},
 } where {U <: PSY.StaticInjection}
-    for (key, event_model) in get_events(device_model)
-        event_type = get_entry_type(key)
-        devices_with_attributes =
-            [d for d in devices if PSY.has_supplemental_attributes(d, event_type)]
-        isempty(devices_with_attributes) &&
-            error("no devices found with a supplemental attribute for event $event_type")
+    _for_each_event_devices(devices, device_model) do devices_with_attributes, event_model
         _add_event_offset_arguments!(
             container,
             devices_with_attributes,

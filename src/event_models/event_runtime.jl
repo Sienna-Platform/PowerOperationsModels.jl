@@ -57,9 +57,15 @@ end
 # Occurrence and duration: the only per-contingency-type behavior
 #################################################################################
 
-function _timeseries_name(event_model::EventModel, key::Symbol)
+function _has_timeseries_name(event_model::EventModel, key::Symbol)
     mapping = event_model.timeseries_mapping
-    return haskey(mapping, key) ? mapping[key] : nothing
+    # A key may be present with a `nothing` value: the default mappings register
+    # every key a contingency type accepts, unmapped ones included.
+    return haskey(mapping, key) && !isnothing(mapping[key])
+end
+
+function _timeseries_name(event_model::EventModel, key::Symbol)
+    return event_model.timeseries_mapping[key]
 end
 
 """
@@ -84,10 +90,10 @@ function outage_occurred(
     current_time::Dates.DateTime;
     rng::Union{Nothing, Random.AbstractRNG} = nothing,
 )
-    name = _timeseries_name(event_model, :outage_status)
-    isnothing(name) && error(
+    _has_timeseries_name(event_model, :outage_status) || error(
         "The event model for $(typeof(event)) has no :outage_status time series mapping",
     )
+    name = _timeseries_name(event_model, :outage_status)
     values = IS.get_time_series_values(
         IS.SingleTimeSeries,
         event,
@@ -96,7 +102,7 @@ function outage_occurred(
         len = 2,
     )
     length(values) < 2 && return false
-    return values[2] != 0.0
+    return !iszero(values[2])
 end
 
 function outage_occurred(
@@ -107,10 +113,8 @@ function outage_occurred(
 )
     isnothing(rng) &&
         error("$(typeof(event)) is stochastic: pass the simulation's rng")
-    name = _timeseries_name(event_model, :outage_transition_probability)
-    λ = if isnothing(name)
-        PSY.get_outage_transition_probability(event)
-    else
+    λ = if _has_timeseries_name(event_model, :outage_transition_probability)
+        name = _timeseries_name(event_model, :outage_transition_probability)
         only(
             IS.get_time_series_values(
                 IS.SingleTimeSeries,
@@ -120,6 +124,8 @@ function outage_occurred(
                 len = 1,
             ),
         )
+    else
+        PSY.get_outage_transition_probability(event)
     end
     return rand(rng) < λ
 end
@@ -162,7 +168,11 @@ function time_to_recover(
     # length; the series is the only evidence available, so the answer is truncated to
     # it. (PSI returns `length(values)` there, one step more than the profile shows.)
     available = findfirst(isequal(0.0), @view values[3:end])
-    steps = isnothing(available) ? max(length(values) - 1, 0) : available
+    steps = if isnothing(available)
+        max(length(values) - 1, 0)
+    else
+        available
+    end
     return resolution * steps
 end
 
@@ -172,10 +182,8 @@ function time_to_recover(
     current_time::Dates.DateTime;
     mttr_units = Dates.Minute,
 )
-    name = _timeseries_name(event_model, :mean_time_to_recovery)
-    mttr = if isnothing(name)
-        PSY.get_mean_time_to_recovery(event)
-    else
+    mttr = if _has_timeseries_name(event_model, :mean_time_to_recovery)
+        name = _timeseries_name(event_model, :mean_time_to_recovery)
         only(
             IS.get_time_series_values(
                 IS.SingleTimeSeries,
@@ -185,6 +193,8 @@ function time_to_recover(
                 len = 1,
             ),
         )
+    else
+        PSY.get_mean_time_to_recovery(event)
     end
     return mttr_units(round(Int, mttr))
 end
@@ -227,7 +237,10 @@ an available device can transition.
 """
 function advance_countdown(previous::Real, occurred::Bool, duration_steps::Int)
     previous > 0 && return max(previous - 1, 0)
-    return occurred ? Float64(duration_steps) : 0.0
+    if occurred
+        return Float64(duration_steps)
+    end
+    return 0.0
 end
 
 """
@@ -248,7 +261,12 @@ Availability implied by a countdown: 0 while the outage still has steps to run, 
 otherwise. Availability is always derived, never stored independently, so the two can
 never disagree.
 """
-availability_from_countdown(countdown::Real) = countdown > 0 ? 0.0 : 1.0
+function availability_from_countdown(countdown::Real)
+    if countdown > 0
+        return 0.0
+    end
+    return 1.0
+end
 
 """
     availability_trajectory(remaining, n_steps)
@@ -276,7 +294,11 @@ so the same function serves the active and reactive offsets.
 # simulation before PSI is rewired to this.
 """
 outage_power_offset(countdown::Real, injection::Real) =
-    countdown > 0 ? -Float64(injection) : 0.0
+    if countdown > 0
+        -Float64(injection)
+    else
+        0.0
+    end
 
 """
     event_step_values(event, event_model, current_time, previous_countdown; kwargs...)

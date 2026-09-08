@@ -151,3 +151,15 @@ Return `e`'s outage attribute id → device type → device names map, populated
 build-time discovery.
 """
 get_attribute_device_map(e::EventModel) = e.attribute_device_map
+
+function _for_each_event_devices(f::Function, devices, device_model::DeviceModel)
+    for (key, event_model) in get_events(device_model)
+        event_type = get_entry_type(key)
+        devices_with_attributes =
+            [d for d in devices if PSY.has_supplemental_attributes(d, event_type)]
+        isempty(devices_with_attributes) &&
+            error("no devices found with a supplemental attribute for event $event_type")
+        f(devices_with_attributes, event_model)
+    end
+    return
+end

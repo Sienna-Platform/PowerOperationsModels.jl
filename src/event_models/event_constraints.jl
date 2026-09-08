@@ -12,13 +12,8 @@ function add_event_constraints!(
     T <: Union{Vector{U}, IS.FlattenIteratorWrapper{U}},
     V <: AbstractDeviceFormulation,
     W <: AbstractActivePowerModel,
-} where {U <: PSY.ThermalGen}
-    for (key, event_model) in get_events(device_model)
-        event_type = get_entry_type(key)
-        devices_with_attributes =
-            [d for d in devices if PSY.has_supplemental_attributes(d, event_type)]
-        isempty(devices_with_attributes) &&
-            error("no devices found with a supplemental attribute for event $event_type")
+} where {U <: Union{PSY.ThermalGen, PSY.HydroGen}}
+    _for_each_event_devices(devices, device_model) do devices_with_attributes, _
         add_parameterized_upper_bound_range_constraints(
             container,
             ActivePowerOutageConstraint,
@@ -41,13 +36,8 @@ function add_event_constraints!(
     T <: Union{Vector{U}, IS.FlattenIteratorWrapper{U}},
     V <: AbstractDeviceFormulation,
     W <: AbstractReactivePowerNetworkModel,
-} where {U <: PSY.ThermalGen}
-    for (key, event_model) in get_events(device_model)
-        event_type = get_entry_type(key)
-        devices_with_attributes =
-            [d for d in devices if PSY.has_supplemental_attributes(d, event_type)]
-        isempty(devices_with_attributes) &&
-            error("no devices found with a supplemental attribute for event $event_type")
+} where {U <: Union{PSY.ThermalGen, PSY.HydroGen}}
+    _for_each_event_devices(devices, device_model) do devices_with_attributes, _
         add_parameterized_upper_bound_range_constraints(
             container,
             ActivePowerOutageConstraint,
@@ -80,12 +70,7 @@ function add_event_constraints!(
     V <: AbstractDeviceFormulation,
     W <: AbstractActivePowerModel,
 } where {U <: PSY.RenewableGen}
-    for (key, event_model) in get_events(device_model)
-        event_type = get_entry_type(key)
-        devices_with_attributes =
-            [d for d in devices if PSY.has_supplemental_attributes(d, event_type)]
-        isempty(devices_with_attributes) &&
-            error("no devices found with a supplemental attribute for event $event_type")
+    _for_each_event_devices(devices, device_model) do devices_with_attributes, _
         lhs_type =
             if has_service_model(device_model)
                 ActivePowerRangeExpressionUB
@@ -115,12 +100,7 @@ function add_event_constraints!(
     V <: AbstractDeviceFormulation,
     W <: AbstractReactivePowerNetworkModel,
 } where {U <: PSY.RenewableGen}
-    for (key, event_model) in get_events(device_model)
-        event_type = get_entry_type(key)
-        devices_with_attributes =
-            [d for d in devices if PSY.has_supplemental_attributes(d, event_type)]
-        isempty(devices_with_attributes) &&
-            error("no devices found with a supplemental attribute for event $event_type")
+    _for_each_event_devices(devices, device_model) do devices_with_attributes, _
         lhs_type =
             if has_service_model(device_model)
                 ActivePowerRangeExpressionUB
@@ -159,12 +139,7 @@ function add_event_constraints!(
     V <: AbstractDeviceFormulation,
     W <: AbstractActivePowerModel,
 } where {U <: PSY.ElectricLoad}
-    for (key, event_model) in get_events(device_model)
-        event_type = get_entry_type(key)
-        devices_with_attributes =
-            [d for d in devices if PSY.has_supplemental_attributes(d, event_type)]
-        isempty(devices_with_attributes) &&
-            error("no devices found with a supplemental attribute for event $event_type")
+    _for_each_event_devices(devices, device_model) do devices_with_attributes, _
         add_parameterized_upper_bound_range_constraints(
             container,
             ActivePowerOutageConstraint,
@@ -188,12 +163,7 @@ function add_event_constraints!(
     V <: AbstractDeviceFormulation,
     W <: AbstractReactivePowerNetworkModel,
 } where {U <: PSY.ElectricLoad}
-    for (key, event_model) in get_events(device_model)
-        event_type = get_entry_type(key)
-        devices_with_attributes =
-            [d for d in devices if PSY.has_supplemental_attributes(d, event_type)]
-        isempty(devices_with_attributes) &&
-            error("no devices found with a supplemental attribute for event $event_type")
+    _for_each_event_devices(devices, device_model) do devices_with_attributes, _
         add_parameterized_upper_bound_range_constraints(
             container,
             ActivePowerOutageConstraint,
@@ -300,80 +270,8 @@ function add_event_constraints!(
     T <: Union{Vector{U}, IS.FlattenIteratorWrapper{U}},
     V <: AbstractDeviceFormulation,
     W <: AbstractActivePowerModel,
-} where {U <: PSY.HydroGen}
-    for (key, event_model) in get_events(device_model)
-        event_type = get_entry_type(key)
-        devices_with_attributes =
-            [d for d in devices if PSY.has_supplemental_attributes(d, event_type)]
-        isempty(devices_with_attributes) &&
-            error("no devices found with a supplemental attribute for event $event_type")
-        add_parameterized_upper_bound_range_constraints(
-            container,
-            ActivePowerOutageConstraint,
-            ActivePowerRangeExpressionUB,
-            AvailableStatusParameter,
-            devices_with_attributes,
-            device_model,
-            W,
-        )
-    end
-    return
-end
-
-function add_event_constraints!(
-    container::OptimizationContainer,
-    devices::T,
-    device_model::DeviceModel{U, V},
-    network_model::NetworkModel{W},
-) where {
-    T <: Union{Vector{U}, IS.FlattenIteratorWrapper{U}},
-    V <: AbstractDeviceFormulation,
-    W <: AbstractReactivePowerNetworkModel,
-} where {U <: PSY.HydroGen}
-    for (key, event_model) in get_events(device_model)
-        event_type = get_entry_type(key)
-        devices_with_attributes =
-            [d for d in devices if PSY.has_supplemental_attributes(d, event_type)]
-        isempty(devices_with_attributes) &&
-            error("no devices found with a supplemental attribute for event $event_type")
-        add_parameterized_upper_bound_range_constraints(
-            container,
-            ActivePowerOutageConstraint,
-            ActivePowerRangeExpressionUB,
-            AvailableStatusParameter,
-            devices_with_attributes,
-            device_model,
-            W,
-        )
-        add_reactive_power_contingency_constraint(
-            container,
-            ReactivePowerOutageConstraint,
-            ReactivePowerVariable,
-            AvailableStatusParameter,
-            devices_with_attributes,
-            device_model,
-            W,
-        )
-    end
-    return
-end
-
-function add_event_constraints!(
-    container::OptimizationContainer,
-    devices::T,
-    device_model::DeviceModel{U, V},
-    network_model::NetworkModel{W},
-) where {
-    T <: Union{Vector{U}, IS.FlattenIteratorWrapper{U}},
-    V <: AbstractDeviceFormulation,
-    W <: AbstractActivePowerModel,
 } where {U <: PSY.HydroPumpTurbine}
-    for (key, event_model) in get_events(device_model)
-        event_type = get_entry_type(key)
-        devices_with_attributes =
-            [d for d in devices if PSY.has_supplemental_attributes(d, event_type)]
-        isempty(devices_with_attributes) &&
-            error("no devices found with a supplemental attribute for event $event_type")
+    _for_each_event_devices(devices, device_model) do devices_with_attributes, _
         add_pump_turbine_active_power_contingency_constraints!(
             container,
             devices_with_attributes,
@@ -393,12 +291,7 @@ function add_event_constraints!(
     V <: AbstractDeviceFormulation,
     W <: AbstractReactivePowerNetworkModel,
 } where {U <: PSY.HydroPumpTurbine}
-    for (key, event_model) in get_events(device_model)
-        event_type = get_entry_type(key)
-        devices_with_attributes =
-            [d for d in devices if PSY.has_supplemental_attributes(d, event_type)]
-        isempty(devices_with_attributes) &&
-            error("no devices found with a supplemental attribute for event $event_type")
+    _for_each_event_devices(devices, device_model) do devices_with_attributes, _
         add_pump_turbine_active_power_contingency_constraints!(
             container,
             devices_with_attributes,
@@ -476,12 +369,7 @@ function add_event_constraints!(
     V <: AbstractDeviceFormulation,
     W <: AbstractActivePowerModel,
 } where {U <: PSY.EnergyReservoirStorage}
-    for (key, event_model) in get_events(device_model)
-        event_type = get_entry_type(key)
-        devices_with_attributes =
-            [d for d in devices if PSY.has_supplemental_attributes(d, event_type)]
-        isempty(devices_with_attributes) &&
-            error("no devices found with a supplemental attribute for event $event_type")
+    _for_each_event_devices(devices, device_model) do devices_with_attributes, _
         add_input_output_active_power_contingency_constraints!(
             container,
             devices_with_attributes,
@@ -501,12 +389,7 @@ function add_event_constraints!(
     V <: AbstractDeviceFormulation,
     W <: AbstractReactivePowerNetworkModel,
 } where {U <: PSY.EnergyReservoirStorage}
-    for (key, event_model) in get_events(device_model)
-        event_type = get_entry_type(key)
-        devices_with_attributes =
-            [d for d in devices if PSY.has_supplemental_attributes(d, event_type)]
-        isempty(devices_with_attributes) &&
-            error("no devices found with a supplemental attribute for event $event_type")
+    _for_each_event_devices(devices, device_model) do devices_with_attributes, _
         add_input_output_active_power_contingency_constraints!(
             container,
             devices_with_attributes,

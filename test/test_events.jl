@@ -303,74 +303,6 @@ end
     @test c1.set.upper ≈ PSY.get_max_active_power(outaged_device, PSY.SU)
 end
 
-@testset "Event constraints - renewable counts on ActivePowerVariable" begin
-    device_model = DeviceModel(PSY.RenewableDispatch, RenewableFullDispatch)
-    sys = PSB.build_system(PSITestSystems, "c_sys5_re")
-    container, _ = mock_event_container(
-        device_model,
-        DCPNetworkModel;
-        sys = sys,
-    )
-    # No service model attached -> lhs_type falls back to ActivePowerVariable.
-    cons = IOM.get_constraint(
-        container,
-        ActivePowerOutageConstraint(),
-        PSY.RenewableDispatch,
-        "ub",
-    )
-    n_renewable_with_event = 1  # mock attaches the outage to exactly one device
-    time_steps = IOM.get_time_steps(container)
-    @test size(cons)[1] == n_renewable_with_event
-    @test size(cons)[2] == length(time_steps)
-    c1 = JuMP.constraint_object(cons[axes(cons)[1][1], 1])
-    @test c1.set isa MOI.LessThan{Float64}
-end
-
-@testset "Event constraints - load counts on ActivePowerVariable" begin
-    # PowerLoadDispatch is a controllable-load formulation: applying it to a plain
-    # PSY.PowerLoad silently swaps to StaticPowerLoad (no ActivePowerVariable), so
-    # use InterruptiblePowerLoad + c_sys5_il, matching the constructor test fixture.
-    device_model = DeviceModel(PSY.InterruptiblePowerLoad, PowerLoadDispatch)
-    sys = PSB.build_system(PSITestSystems, "c_sys5_il")
-    container, _ = mock_event_container(
-        device_model,
-        DCPNetworkModel;
-        sys = sys,
-    )
-    cons = IOM.get_constraint(
-        container,
-        ActivePowerOutageConstraint(),
-        PSY.InterruptiblePowerLoad,
-        "ub",
-    )
-    n_load_with_event = 1  # mock attaches the outage to exactly one device
-    time_steps = IOM.get_time_steps(container)
-    @test size(cons)[1] == n_load_with_event
-    @test size(cons)[2] == length(time_steps)
-    c1 = JuMP.constraint_object(cons[axes(cons)[1][1], 1])
-    @test c1.set isa MOI.LessThan{Float64}
-end
-
-@testset "Event constraints - hydro" begin
-    device_model = DeviceModel(PSY.HydroDispatch, HydroDispatchRunOfRiver)
-    sys = PSB.build_system(PSITestSystems, "c_sys5_hy")
-    container, _ = mock_event_container(
-        device_model,
-        DCPNetworkModel;
-        sys = sys,
-    )
-    # add_parameterized_upper_bound_range_constraints stores its constraint under
-    # meta = "ub" (constraint_meta(UpperBound())), matching the thermal/renewable pattern.
-    @test !isnothing(
-        IOM.get_constraint(
-            container,
-            ActivePowerOutageConstraint(),
-            PSY.HydroDispatch,
-            "ub",
-        ),
-    )
-end
-
 @testset "Event constraints - storage" begin
     device_model = DeviceModel(EnergyReservoirStorage, StorageDispatchWithReserves)
     sys = PSB.build_system(PSITestSystems, "c_sys5_bat")
@@ -577,6 +509,9 @@ end
 #     (reactive, hydro pump, storage input/output),
 #   - that an outage actually forces output to zero, which is the intended
 #     behavior rather than a restatement of the builder.
+#   - for RenewableDispatch, with no service model attached, lhs_type falls
+#     back to ActivePowerVariable, which is what the coefficient check below
+#     targets for that row.
 #################################################################################
 
 @testset "Outage constraint bounds the intended variable - $(dtype)" for (
@@ -591,10 +526,14 @@ end
 )
     # A wrong LHS array passes every count and set-type assertion. For thermal and
     # hydro the LHS is an expression wrapping the active power variable, which
-    # carries the same coefficient, so one assertion covers both shapes.
+    # carries the same coefficient, so one assertion covers both shapes. No service
+    # model is attached here, so renewable's lhs_type falls back to ActivePowerVariable.
     container, _ =
         mock_event_container(DeviceModel(dtype, formulation), DCPNetworkModel, sysname)
     cons = IOM.get_constraint(container, ActivePowerOutageConstraint(), dtype, "ub")
+    # only devices carrying the outage attribute get a constraint
+    @test size(cons)[1] == 1
+    @test size(cons)[2] == length(IOM.get_time_steps(container))
     var = IOM.get_variable(container, ActivePowerVariable, dtype)
     name = outaged_name(container, dtype)
     t = first(IOM.get_time_steps(container))
