@@ -788,6 +788,11 @@ end
 # the user's explicit outage allow-list: non-empty restricts to those UUIDs;
 # empty means auto-discover (claim all, skipping `PlannedOutage`s unless the
 # model opts in via the `"include_planned_outages"` attribute).
+# Planned outages are scheduled maintenance rather than contingencies, so a model
+# claims them only by opting in.
+_needs_planned_outage_optin(::PSY.Outage) = false
+_needs_planned_outage_optin(::PSY.PlannedOutage) = true
+
 function _sc_model_claims_outage(
     m::IOM.DeviceModelForBranches,
     outage::PSY.Outage,
@@ -795,7 +800,7 @@ function _sc_model_claims_outage(
     sel::Set{Int},
 )
     isempty(sel) || return outage_id in sel
-    if outage isa PSY.PlannedOutage
+    if _needs_planned_outage_optin(outage)
         return get_attribute(m, "include_planned_outages") === true
     end
     return true
@@ -963,20 +968,12 @@ function _validate_event_timeseries_data(
     event_model::EventModel,
 )
     for (k, v) in event_model.timeseries_mapping
-        if !isnothing(v)
-            try
-                PSY.get_time_series(IS.SingleTimeSeries, event, v)
-            catch e
-                # A missing series surfaces as ArgumentError; anything else is a real
-                # failure that must not be masked as missing data.
-                e isa ArgumentError || rethrow()
-                device_names =
-                    PSY.get_name.(PSY.get_associated_components(sys, event))
-                error(
-                    "Event $event belonging to devices $device_names is missing a \
-                     time series with name $v",
-                )
-            end
+        if !isnothing(v) && !PSY.has_time_series(event, IS.SingleTimeSeries, v)
+            device_names = PSY.get_name.(PSY.get_associated_components(sys, event))
+            error(
+                "Event $event belonging to devices $device_names is missing a \
+                 time series with name $v",
+            )
         end
         if !haskey(get_empty_timeseries_mapping(typeof(event)), k)
             error(
