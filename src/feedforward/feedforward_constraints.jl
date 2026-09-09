@@ -427,19 +427,16 @@ function add_feedforward_constraints!(
     return
 end
 
-@doc raw"""
-Constructs a constraint holding a reservoir variable to a minimum target read from the
-system state at `target_period`, relaxed by a `HydroEnergyShortageVariable` slack penalized
-in the objective at `penalty_cost`.
-
-``` variable[name, target_period] + slack[name, target_period] >= param[name, target_period] * multiplier[name, target_period] ```
-"""
-function add_feedforward_constraints!(
+# Shared by the reservoir and storage energy-target feedforwards, which differ only in
+# the component family and the slack that relaxes the target.
+# A single value per device, at `target_period`; `["horizon"]` is the same degenerate
+# second axis `WaterBudgetConstraint` uses, since IOM rejects 1D constraint containers.
+function _add_energy_target_constraints!(
     container::OptimizationContainer,
-    ::DeviceModel{T, U},
     devices::Union{Vector{T}, IS.FlattenIteratorWrapper{T}},
-    ff::ReservoirTargetFeedforward,
-) where {T <: PSY.HydroReservoir, U <: AbstractDeviceFormulation}
+    ff::AbstractAffectFeedforward,
+    ::Type{S},
+) where {T <: PSY.Component, S <: VariableType}
     time_steps = get_time_steps(container)
     parameter_type = get_default_parameter_type(ff, T)
     param = get_parameter_array(container, parameter_type, T)
@@ -448,14 +445,11 @@ function add_feedforward_constraints!(
     penalty_cost = get_penalty_cost(ff)
     jump_model = get_jump_model(container)
     devices_names = PSY.get_name.(devices)
-    slack_var = get_variable(container, HydroEnergyShortageVariable, T)
+    slack_var = get_variable(container, S, T)
     for var in get_affected_values(ff)
         variable = get_variable(container, var)
         device_name_set = _check_device_time_axes(variable, devices_names, time_steps)
-
         var_type = get_entry_type(var)
-        # A single value per device, at `target_period`; `["horizon"]` is the same degenerate
-        # second axis `WaterBudgetConstraint` uses, since IOM rejects 1D constraint containers.
         con = add_constraints_container!(
             container,
             FeedforwardEnergyTargetConstraint,
@@ -476,6 +470,50 @@ function add_feedforward_constraints!(
             )
         end
     end
+    return
+end
+
+@doc raw"""
+Constructs a constraint holding a reservoir variable to a minimum target read from the
+system state at `target_period`, relaxed by a `HydroEnergyShortageVariable` slack penalized
+in the objective at `penalty_cost`.
+
+``` variable[name, target_period] + slack[name, target_period] >= param[name, target_period] * multiplier[name, target_period] ```
+"""
+function add_feedforward_constraints!(
+    container::OptimizationContainer,
+    ::DeviceModel{T, U},
+    devices::Union{Vector{T}, IS.FlattenIteratorWrapper{T}},
+    ff::ReservoirTargetFeedforward,
+) where {T <: PSY.HydroReservoir, U <: AbstractDeviceFormulation}
+    _add_energy_target_constraints!(container, devices, ff, HydroEnergyShortageVariable)
+    return
+end
+
+@doc raw"""
+Constructs a constraint holding a storage energy variable to a minimum target read from the
+system state at `target_period`, relaxed by a `StorageEnergyShortageVariable` slack penalized
+in the objective at `penalty_cost`. The slack exists only at the last time step, so
+`target_period` must be the horizon end.
+
+``` variable[name, target_period] + slack[name, target_period] >= param[name, target_period] * multiplier[name, target_period] ```
+"""
+function add_feedforward_constraints!(
+    container::OptimizationContainer,
+    ::DeviceModel{T, U},
+    devices::Union{Vector{T}, IS.FlattenIteratorWrapper{T}},
+    ff::EnergyTargetFeedforward,
+) where {T <: PSY.Storage, U <: AbstractStorageFormulation}
+    time_steps = get_time_steps(container)
+    target_period = get_target_period(ff)
+    if target_period != last(time_steps)
+        error(
+            "EnergyTargetFeedforward on $T has target_period = $target_period, but the \
+             storage shortage slack exists only at the last time step \
+             ($(last(time_steps))). Set target_period to the horizon end.",
+        )
+    end
+    _add_energy_target_constraints!(container, devices, ff, StorageEnergyShortageVariable)
     return
 end
 

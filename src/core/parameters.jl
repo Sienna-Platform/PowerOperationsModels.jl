@@ -155,8 +155,6 @@ struct LevelTargetParameter <: VariableValueParameter end
 Parameter to define energy limit
 """
 struct EnergyLimitParameter <: VariableValueParameter end
-# TODO: Check if EnergyTargetParameter and EnergyLimitParameter should be removed
-# This affects feedforwards that can break if not defined
 struct EnergyTargetParameter <: VariableValueParameter end
 
 convert_output_to_natural_units(::Type{EnergyLimitParameter}) = true

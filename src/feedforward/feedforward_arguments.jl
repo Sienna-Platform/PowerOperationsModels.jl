@@ -148,6 +148,20 @@ function _add_feedforward_arguments!(
     return
 end
 
+# `EnergyTargetFeedforward` needs the shortage slack that `energy_target = false` models
+# do not otherwise build; it relaxes the target constraint in `feedforward_constraints.jl`.
+function _add_feedforward_arguments!(
+    container::OptimizationContainer,
+    model::DeviceModel{T, U},
+    devices::Union{Vector{T}, IS.FlattenIteratorWrapper{T}},
+    ff::EnergyTargetFeedforward,
+) where {T <: PSY.Storage, U <: AbstractStorageFormulation}
+    parameter_type = get_default_parameter_type(ff, T)
+    add_parameters!(container, parameter_type, ff, model, devices)
+    add_variables!(container, StorageEnergyShortageVariable, devices, U)
+    return
+end
+
 # `HydroUsageLimitParameter`'s own `_add_parameters!` (hydro_generation.jl) derives the limit
 # from `get_initial_parameter_value` rather than the feedforward's source, the same shape as
 # `WaterLevelBudgetParameter` above, so this calls the plain, non-feedforward

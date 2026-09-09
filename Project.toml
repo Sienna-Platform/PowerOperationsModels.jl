@@ -24,6 +24,7 @@ PowerOpenAPIModels = "0730f07c-cff6-4c3b-a9df-c546153be50a"
 PowerOperationsOpenAPIModels = "a372b6d7-45a2-44c2-8199-6a724b72e8ff"
 PowerSystems = "bcd98974-b02a-5e2f-9ee0-a103f5c450dd"
 PrettyTables = "08abe8d2-0d0c-5749-adfa-8a2ac140af0d"
+Random = "9a3f8284-a2c9-5f02-9a11-845980a1fd5c"
 ProgressMeter = "92933f4c-e287-5a05-a399-4b506db050ca"
 Serialization = "9e88b42a-f829-5b0c-bbe9-9e923198166b"
 SparseArrays = "2f01184e-e22b-5df5-ae63-d93ebab69eaf"
@@ -37,13 +38,13 @@ PowerFlows = "94fada2c-fd9a-4e89-8d82-81405f5cb4f6"
 # than PSY's local checkout expects (TimeSeriesKey UnionAll mismatch on load).
 # Revert to the git rev pin once PSY's local changes land on IS4.
 InfrastructureSystems = {rev = "IS4", url = "https://github.com/Sienna-Platform/InfrastructureSystems.jl"}
-InfrastructureOptimizationModels = {rev = "main", url = "https://github.com/Sienna-Platform/InfrastructureOptimizationModels.jl"}
+# TEMPORARY: pinned to the share_template_references! hook (IOM jd/share-template-references)
+# until it merges to main. Revert to `rev = "main"` once it lands.
+InfrastructureOptimizationModels = {rev = "jd/share-template-references", url = "https://github.com/Sienna-Platform/InfrastructureOptimizationModels.jl"}
 # LOCAL PATH CO-DEV PIN (temporary): the variable -> variable_operation_cost cost-field
 # rename on PSY's generated cost types is uncommitted on disk, not on the psy6 branch yet.
 # Revert to the git rev pin once pushed/merged.
 PowerSystems = {rev = "psy6", url = "https://github.com/Sienna-Platform/PowerSystems.jl"}
-# TEMPORARY: pinned to the arc-keyed-catalog branch (PNM #356 + #357) until they merge to
-# psy6. Revert to `rev = "psy6"` once they land.
 PowerNetworkMatrices = {rev = "psy6", url = "https://github.com/Sienna-Platform/PowerNetworkMatrices.jl"}
 # PSY psy6 depends on these unregistered packages; [sources] of non-root projects are
 # ignored by Pkg, so every environment resolving PSY must pin them itself (same rev as
@@ -71,6 +72,7 @@ PowerFlows = "^0.24"
 PowerNetworkMatrices = "^0.24"
 PowerSystems = "^5.10"
 PrettyTables = "3"
+Random = "1"
 ProgressMeter = "1.11.0"
 TimerOutputs = "1"
 julia = "^1.11"

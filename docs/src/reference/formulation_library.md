@@ -545,6 +545,32 @@ injection uses to reach its nodal, area, or system target.
 network it is dropped from the template (with an `@info` message) rather than being built as a
 no-op.
 
+## Outage events
+
+Attaching an `EventModel` for a `PSY.Contingency` supplemental attribute (e.g.
+`FixedForcedOutage`) to a `DeviceModel` in the template adds availability parameters and outage
+constraints to every device of that type carrying the attribute, on top of whatever variables and
+constraints its device formulation already contributes.
+
+Parameters (per device and time step): [`AvailableStatusParameter`](@ref) (1 = available,
+initialized to 1) and [`AvailableStatusChangeCountdownParameter`](@ref); loads and `FixedOutput`
+devices also get the balance offsets [`ActivePowerOffsetParameter`](@ref) /
+[`ReactivePowerOffsetParameter`](@ref).
+
+[`ActivePowerOutageConstraint`](@ref) bounds active power by available capacity,
+``p_t \le P^\text{max} \cdot \text{status}_t``, with the left-hand side depending on the device
+family: the range-expression upper bound for thermal and hydro generators, the active-power
+variable for loads and for renewables without a service model, the charge and discharge variables
+together for `PSY.EnergyReservoirStorage`, and, for `PSY.HydroPumpTurbine`, both the generation
+variable ([`ActivePowerOutageConstraint`](@ref)) and the pump variable
+([`ActivePowerPumpOutageConstraint`](@ref)). Under reactive-power-capable networks,
+[`ReactivePowerOutageConstraint`](@ref) additionally bounds
+``q_t^2 \le \max\left((Q^\text{max})^2, (Q^\text{min})^2\right) \cdot \text{status}_t``.
+
+The parameter values are constant within a single build; updating them across solves (outage
+sampling, countdown projection) is simulation-runtime functionality that lives outside this
+package.
+
 ## [Service Formulations](@id service_formulations)
 
 | Formulation                                            | Service type                | Argument stage                                                                                           | Model stage                                                |
@@ -615,12 +641,13 @@ attach_feedforward!(
 )
 ```
 
-| Feedforward                 | Parameter                  | Constraint                            | Effect                                                            |
-|:--------------------------- |:-------------------------- |:------------------------------------- |:----------------------------------------------------------------- |
-| `UpperBoundFeedforward`     | `UpperBoundValueParameter` | `FeedforwardUpperBoundConstraint`     | ``x_t \le \text{param}_t \cdot \text{mult}_t``                    |
-| `LowerBoundFeedforward`     | `LowerBoundValueParameter` | `FeedforwardLowerBoundConstraint`     | ``x_t \ge \text{param}_t \cdot \text{mult}_t``                    |
-| `SemiContinuousFeedforward` | `OnStatusParameter`        | `FeedforwardSemiContinuousConstraint` | commitment status from the state bounds ``x_t`` to 0 or its range |
-| `FixValueFeedforward`       | `FixValueParameter`        | `FeedforwardFixValueConstraint`       | ``x_t = \text{param}_t \cdot \text{mult}_t``                      |
+| Feedforward                 | Parameter                  | Constraint                            | Effect                                                                                                                                                                             |
+|:--------------------------- |:-------------------------- |:------------------------------------- |:---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `UpperBoundFeedforward`     | `UpperBoundValueParameter` | `FeedforwardUpperBoundConstraint`     | ``x_t \le \text{param}_t \cdot \text{mult}_t``                                                                                                                                     |
+| `LowerBoundFeedforward`     | `LowerBoundValueParameter` | `FeedforwardLowerBoundConstraint`     | ``x_t \ge \text{param}_t \cdot \text{mult}_t``                                                                                                                                     |
+| `SemiContinuousFeedforward` | `OnStatusParameter`        | `FeedforwardSemiContinuousConstraint` | commitment status from the state bounds ``x_t`` to 0 or its range                                                                                                                  |
+| `FixValueFeedforward`       | `FixValueParameter`        | `FeedforwardFixValueConstraint`       | ``x_t = \text{param}_t \cdot \text{mult}_t``                                                                                                                                       |
+| `EnergyTargetFeedforward`   | `EnergyTargetParameter`    | `FeedforwardEnergyTargetConstraint`   | ``E_T + s_T \ge \text{param}_T \cdot \text{mult}_T`` at the horizon end ``T``, with the `StorageEnergyShortageVariable` slack ``s_T`` penalized in the objective at `penalty_cost` |
 
 `UpperBoundFeedforward` and `LowerBoundFeedforward` accept `add_slacks = true`, which relaxes the
 bound with a non-negative `UpperBoundFeedForwardSlack` / `LowerBoundFeedForwardSlack` penalized at

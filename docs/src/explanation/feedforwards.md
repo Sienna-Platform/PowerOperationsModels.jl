@@ -110,7 +110,7 @@ Three arguments define every feedforward:
 `meta` disambiguates the source key when the same quantity is recorded under different
 labels, and `add_slacks` is available on the two bound feedforwards.
 
-The four available types, their parameters, constraints, and exact constraint expressions
+The available types, their parameters, constraints, and exact constraint expressions
 are tabulated in [Feedforward Formulations](@ref ff_formulations). The guidance for choosing
 between them:
 
@@ -125,10 +125,13 @@ between them:
   - **`FixValueFeedforward`** — pin a variable to an exact value. Use it when the state
     records a set point rather than a limit — an HVDC flow or an interchange schedule that
     this model is not free to re-optimize.
+  - **`EnergyTargetFeedforward`** — hold a storage device's end-of-horizon energy to the
+    level a longer-horizon model decided, relaxed by a penalized shortage slack. The storage
+    twin of `ReservoirTargetFeedforward`; `target_period` must be the last step.
 
 ## The semicontinuous feedforward substitutes; it does not stack
 
-The other three feedforwards add constraints alongside whatever the device formulation
+The other feedforwards add constraints alongside whatever the device formulation
 already builds. `SemiContinuousFeedforward` is different, and understanding why prevents a
 class of silent modeling errors.
 
