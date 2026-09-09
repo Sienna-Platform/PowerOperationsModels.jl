@@ -155,12 +155,7 @@ function time_to_recover(
 )
     name = _timeseries_name(event_model, :outage_status)
     ts = PSY.get_time_series(IS.SingleTimeSeries, event, name; start_time = current_time)
-    values = IS.get_time_series_values(
-        IS.SingleTimeSeries,
-        event,
-        name;
-        start_time = current_time,
-    )
+    values = IS.get_time_series_values(event, ts; start_time = current_time)
     resolution = IS.get_resolution(ts)
     # `values[1]` is the step at `current_time` and `values[2]` is where the outage
     # begins, so a first available step at `values[2 + j]` means the outage ran for `j`
@@ -251,8 +246,10 @@ what carries an in-progress outage into the horizon of the next decision model: 
 model is built once, so the whole trajectory has to be written up front rather than
 discovered step by step.
 """
+_countdown_at_step(remaining::Real, i::Int) = max(Float64(remaining) - (i - 1), 0.0)
+
 countdown_trajectory(remaining::Real, n_steps::Int) =
-    [max(Float64(remaining) - (i - 1), 0.0) for i in 1:n_steps]
+    [_countdown_at_step(remaining, i) for i in 1:n_steps]
 
 """
     availability_from_countdown(countdown)
@@ -274,7 +271,7 @@ end
 `availability_from_countdown` applied to [`countdown_trajectory`](@ref).
 """
 availability_trajectory(remaining::Real, n_steps::Int) =
-    availability_from_countdown.(countdown_trajectory(remaining, n_steps))
+    [availability_from_countdown(_countdown_at_step(remaining, i)) for i in 1:n_steps]
 
 """
     outage_power_offset(countdown, injection)
@@ -378,19 +375,18 @@ POM declares what is needed; the runtime resolves it.
 abstract type AbstractConditionInput end
 
 """
-    StateValueInput(variable_type, device_type, device_name)
+    StateValueInput(target::VariableTarget)
 
 Request for the runtime's current value of one optimization variable, for one device.
 """
 struct StateValueInput <: AbstractConditionInput
-    variable_type::VariableType
-    device_type::Type{<:PSY.Device}
-    device_name::String
+    target::VariableTarget
 end
 
-get_variable_type(i::StateValueInput) = i.variable_type
-get_device_type(i::StateValueInput) = i.device_type
-get_device_name(i::StateValueInput) = i.device_name
+get_target(i::StateValueInput) = i.target
+get_variable_type(i::StateValueInput) = get_variable_type(i.target)
+get_device_type(i::StateValueInput) = get_device_type(i.target)
+get_device_name(i::StateValueInput) = get_device_name(i.target)
 
 """
     RuntimeStateInput()
@@ -410,8 +406,7 @@ Empty for conditions that depend on nothing but the clock, which is passed to
 """
 required_inputs(::AbstractEventCondition) = ()
 
-required_inputs(c::StateVariableValueCondition) =
-    (StateValueInput(get_variable_type(c), get_device_type(c), get_device_name(c)),)
+required_inputs(c::StateVariableValueCondition) = (StateValueInput(get_target(c)),)
 
 required_inputs(::DiscreteEventCondition) = (RuntimeStateInput(),)
 

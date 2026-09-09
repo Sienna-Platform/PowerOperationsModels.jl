@@ -4,7 +4,7 @@
 Key identifying an event of contingency type `T` applied to devices of concrete type `U`.
 Used as the key of the `DeviceModel.events` dict. Errors if `U` is abstract.
 """
-struct EventKey{T <: PSY.Contingency, U <: Union{PSY.Component, PSY.System}} <:
+struct EventKey{T <: PSY.Contingency, U <: PSY.Component} <:
        IOM.AbstractEventKey
     meta::String
 end
@@ -12,7 +12,7 @@ end
 function EventKey(
     ::Type{T},
     ::Type{U},
-) where {T <: PSY.Contingency, U <: Union{PSY.Component, PSY.System}}
+) where {T <: PSY.Contingency, U <: PSY.Component}
     if isabstracttype(U)
         error("Type $U can't be abstract")
     end
@@ -21,10 +21,10 @@ end
 
 IOM.get_entry_type(
     ::EventKey{T, U},
-) where {T <: PSY.Contingency, U <: Union{PSY.Component, PSY.System}} = T
+) where {T <: PSY.Contingency, U <: PSY.Component} = T
 IOM.get_component_type(
     ::EventKey{T, U},
-) where {T <: PSY.Contingency, U <: Union{PSY.Component, PSY.System}} = U
+) where {T <: PSY.Contingency, U <: PSY.Component} = U
 
 """
 Abstract type for the condition that triggers an event. POM stores conditions as data;
@@ -54,20 +54,47 @@ Return the time stamps at which `c` is triggered.
 get_time_stamps(c::PresetTimeCondition) = c.time_stamps
 
 """
+    VariableTarget(variable_type, device_type, device_name)
+
+One device's optimization variable: what a state-dependent condition reads, and what a
+runtime is asked to resolve for it.
+"""
+struct VariableTarget
+    variable_type::VariableType
+    device_type::Type{<:PSY.Device}
+    device_name::String
+end
+
+get_variable_type(t::VariableTarget) = t.variable_type
+get_device_type(t::VariableTarget) = t.device_type
+get_device_name(t::VariableTarget) = t.device_name
+
+"""
     StateVariableValueCondition(variable_type, device_type, device_name, value)
 
 Event condition triggered when the monitored variable equals `value` (p.u.).
 """
 struct StateVariableValueCondition <: AbstractEventCondition
-    variable_type::VariableType
-    device_type::Type{<:PSY.Device}
-    device_name::String
+    target::VariableTarget
     value::Float64
 end
 
-get_variable_type(c::StateVariableValueCondition) = c.variable_type
-get_device_type(c::StateVariableValueCondition) = c.device_type
-get_device_name(c::StateVariableValueCondition) = c.device_name
+function StateVariableValueCondition(
+    variable_type::VariableType,
+    device_type::Type{<:PSY.Device},
+    device_name::String,
+    value::Real,
+)
+    return StateVariableValueCondition(
+        VariableTarget(variable_type, device_type, device_name),
+        value,
+    )
+end
+
+get_target(c::StateVariableValueCondition) = c.target
+get_variable_type(c::StateVariableValueCondition) = get_variable_type(c.target)
+get_device_type(c::StateVariableValueCondition) = get_device_type(c.target)
+get_device_name(c::StateVariableValueCondition) = get_device_name(c.target)
 # Qualified: `get_value` is IOM's generic (`get_value(::InitialCondition)`); a bare
 # definition here would silently create a separate local `get_value` in POM's namespace
 # (since it was only ever `using`'d, not `import`ed) and shadow IOM's method for every
@@ -152,13 +179,21 @@ build-time discovery.
 """
 get_attribute_device_map(e::EventModel) = e.attribute_device_map
 
+# Devices come from the map template validation populated (`_build_device_model_events!`)
+# rather than from re-probing every device's supplemental attributes at build time.
 function _for_each_event_devices(f::Function, devices, device_model::DeviceModel)
     for (key, event_model) in get_events(device_model)
-        event_type = get_entry_type(key)
-        devices_with_attributes =
-            [d for d in devices if PSY.has_supplemental_attributes(d, event_type)]
-        isempty(devices_with_attributes) &&
-            error("no devices found with a supplemental attribute for event $event_type")
+        device_type = get_component_type(key)
+        names = Set{String}()
+        for per_type in values(get_attribute_device_map(event_model))
+            if haskey(per_type, device_type)
+                union!(names, per_type[device_type])
+            end
+        end
+        devices_with_attributes = [d for d in devices if PSY.get_name(d) in names]
+        isempty(devices_with_attributes) && error(
+            "no devices found with a supplemental attribute for event $(get_entry_type(key))",
+        )
         f(devices_with_attributes, event_model)
     end
     return

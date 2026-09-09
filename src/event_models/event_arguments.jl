@@ -101,6 +101,26 @@ end
 # for the injector families. No-ops when the DeviceModel has no events attached.
 #################################################################################
 
+# The status and countdown parameters every event-capable device gets, whatever else
+# its formulation adds on top.
+function _add_status_event_arguments!(
+    container::OptimizationContainer,
+    devices_with_attributes::Vector{U},
+    device_model::DeviceModel,
+    event_model::EventModel,
+) where {U <: PSY.StaticInjection}
+    for p_type in (AvailableStatusChangeCountdownParameter, AvailableStatusParameter)
+        add_parameters!(
+            container,
+            p_type,
+            devices_with_attributes,
+            device_model,
+            event_model,
+        )
+    end
+    return
+end
+
 function add_event_arguments!(
     container::OptimizationContainer,
     devices::T,
@@ -111,15 +131,12 @@ function add_event_arguments!(
     V <: AbstractDeviceFormulation,
 } where {U <: PSY.StaticInjection}
     _for_each_event_devices(devices, device_model) do devices_with_attributes, event_model
-        for p_type in [AvailableStatusChangeCountdownParameter, AvailableStatusParameter]
-            add_parameters!(
-                container,
-                p_type,
-                devices_with_attributes,
-                device_model,
-                event_model,
-            )
-        end
+        _add_status_event_arguments!(
+            container,
+            devices_with_attributes,
+            device_model,
+            event_model,
+        )
     end
     return
 end
@@ -131,12 +148,37 @@ end
 # a device's contribution without touching its dispatch variables.
 #################################################################################
 
-supports_event_offset(::Type{<:AbstractLoadFormulation}) = false
-supports_event_offset(::Type{StaticPowerLoad}) = true
-supports_event_offset(::Type{PowerLoadDispatch}) = true
-supports_event_offset(::Type{PowerLoadInterruption}) = true
+# Which formulations inject an outage offset into the balance. PowerLoadShift shares
+# AbstractControllablePowerLoadFormulation with the two controllable loads below but
+# keeps only the generic status and countdown parameters.
+struct EventOffsetSupported end
+struct EventOffsetUnsupported end
+event_offset_support(::Type{<:AbstractLoadFormulation}) = EventOffsetUnsupported()
+event_offset_support(::Type{StaticPowerLoad}) = EventOffsetSupported()
+event_offset_support(::Type{PowerLoadDispatch}) = EventOffsetSupported()
+event_offset_support(::Type{PowerLoadInterruption}) = EventOffsetSupported()
+event_offset_support(::Type{FixedOutput}) = EventOffsetSupported()
 
 function _add_event_offset_arguments!(
+    ::EventOffsetUnsupported,
+    container::OptimizationContainer,
+    devices_with_attributes::Vector{U},
+    device_model::DeviceModel,
+    ::NetworkModel,
+    event_model::EventModel,
+    ::Bool,
+) where {U <: PSY.StaticInjection}
+    _add_status_event_arguments!(
+        container,
+        devices_with_attributes,
+        device_model,
+        event_model,
+    )
+    return
+end
+
+function _add_event_offset_arguments!(
+    ::EventOffsetSupported,
     container::OptimizationContainer,
     devices_with_attributes::Vector{U},
     device_model::DeviceModel,
@@ -144,15 +186,12 @@ function _add_event_offset_arguments!(
     event_model::EventModel,
     with_reactive::Bool,
 ) where {U <: PSY.StaticInjection}
-    for p_type in [AvailableStatusChangeCountdownParameter, AvailableStatusParameter]
-        add_parameters!(
-            container,
-            p_type,
-            devices_with_attributes,
-            device_model,
-            event_model,
-        )
-    end
+    _add_status_event_arguments!(
+        container,
+        devices_with_attributes,
+        device_model,
+        event_model,
+    )
     add_parameters!(
         container,
         ActivePowerOffsetParameter,
@@ -197,9 +236,9 @@ function add_event_arguments!(
     T <: Union{Vector{U}, IS.FlattenIteratorWrapper{U}},
     V <: AbstractLoadFormulation,
 } where {U <: PSY.PowerLoad}
-    supports_event_offset(V) || return
     _for_each_event_devices(devices, device_model) do devices_with_attributes, event_model
         _add_event_offset_arguments!(
+            event_offset_support(V),
             container,
             devices_with_attributes,
             device_model,
@@ -220,9 +259,9 @@ function add_event_arguments!(
     T <: Union{Vector{U}, IS.FlattenIteratorWrapper{U}},
     V <: AbstractLoadFormulation,
 } where {U <: PSY.PowerLoad}
-    supports_event_offset(V) || return
     _for_each_event_devices(devices, device_model) do devices_with_attributes, event_model
         _add_event_offset_arguments!(
+            event_offset_support(V),
             container,
             devices_with_attributes,
             device_model,
@@ -244,6 +283,7 @@ function add_event_arguments!(
 } where {U <: PSY.StaticInjection}
     _for_each_event_devices(devices, device_model) do devices_with_attributes, event_model
         _add_event_offset_arguments!(
+            event_offset_support(FixedOutput),
             container,
             devices_with_attributes,
             device_model,
@@ -265,6 +305,7 @@ function add_event_arguments!(
 } where {U <: PSY.StaticInjection}
     _for_each_event_devices(devices, device_model) do devices_with_attributes, event_model
         _add_event_offset_arguments!(
+            event_offset_support(FixedOutput),
             container,
             devices_with_attributes,
             device_model,

@@ -88,20 +88,27 @@ end
 end
 
 @testset "Event validation errors" begin
-    sys_clean = PSB.build_system(PSB.PSITestSystems, "c_sys5_uc")
-    template = get_thermal_dispatch_template_network(NetworkModel(CopperPlateNetworkModel))
-    em = fixed_outage_event()
-    set_event_model!(template, em)
-    model = DecisionModel(template, sys_clean; optimizer = HiGHS_optimizer)
+    # Build a c_sys5_uc copperplate model carrying `event_models` and return its status.
+    function build_status_with_events(event_models...; attach_outage = true)
+        sys = PSB.build_system(PSB.PSITestSystems, "c_sys5_uc")
+        if attach_outage
+            thermal = first(PSY.get_components(PSY.ThermalStandard, sys))
+            attach_fixed_forced_outage!(sys, thermal)
+        end
+        template =
+            get_thermal_dispatch_template_network(NetworkModel(CopperPlateNetworkModel))
+        for em in event_models
+            set_event_model!(template, em)
+        end
+        model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
+        return build!(model; output_dir = mktempdir(; cleanup = true))
+    end
+
     # No supplemental attributes in the system -> loud build failure
-    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+    @test build_status_with_events(fixed_outage_event(); attach_outage = false) ==
           IOM.ModelBuildStatus.FAILED
 
     # Unknown mapping key rejected
-    sys2 = PSB.build_system(PSB.PSITestSystems, "c_sys5_uc")
-    thermal2 = first(PSY.get_components(PSY.ThermalStandard, sys2))
-    attach_fixed_forced_outage!(sys2, thermal2)
-    template2 = get_thermal_dispatch_template_network(NetworkModel(CopperPlateNetworkModel))
     em_bad = EventModel(
         PSY.FixedForcedOutage,
         ContinuousCondition();
@@ -109,35 +116,16 @@ end
             :not_a_parameter => "outage_profile",
         ),
     )
-    set_event_model!(template2, em_bad)
-    model2 = DecisionModel(template2, sys2; optimizer = HiGHS_optimizer)
-    @test build!(model2; output_dir = mktempdir(; cleanup = true)) ==
-          IOM.ModelBuildStatus.FAILED
+    @test build_status_with_events(em_bad) == IOM.ModelBuildStatus.FAILED
 
     # FixedForcedOutage requires :outage_status mapping
-    sys3 = PSB.build_system(PSB.PSITestSystems, "c_sys5_uc")
-    thermal3 = first(PSY.get_components(PSY.ThermalStandard, sys3))
-    attach_fixed_forced_outage!(sys3, thermal3)
-    template3 = get_thermal_dispatch_template_network(NetworkModel(CopperPlateNetworkModel))
     em_nomapping = EventModel(PSY.FixedForcedOutage, ContinuousCondition())
-    set_event_model!(template3, em_nomapping)
-    model3 = DecisionModel(template3, sys3; optimizer = HiGHS_optimizer)
-    @test build!(model3; output_dir = mktempdir(; cleanup = true)) ==
-          IOM.ModelBuildStatus.FAILED
+    @test build_status_with_events(em_nomapping) == IOM.ModelBuildStatus.FAILED
 
     # Two distinct event models of the same contingency type both discovering the same
     # device type is a conflict: a DeviceModel has one events slot per (contingency
     # type, device type) key, so the second registration can't be silently dropped.
-    sys4 = PSB.build_system(PSB.PSITestSystems, "c_sys5_uc")
-    thermal4 = first(PSY.get_components(PSY.ThermalStandard, sys4))
-    attach_fixed_forced_outage!(sys4, thermal4)
-    template4 = get_thermal_dispatch_template_network(NetworkModel(CopperPlateNetworkModel))
-    em4a = fixed_outage_event()
-    em4b = fixed_outage_event()
-    set_event_model!(template4, em4a)
-    set_event_model!(template4, em4b)
-    model4 = DecisionModel(template4, sys4; optimizer = HiGHS_optimizer)
-    @test build!(model4; output_dir = mktempdir(; cleanup = true)) ==
+    @test build_status_with_events(fixed_outage_event(), fixed_outage_event()) ==
           IOM.ModelBuildStatus.FAILED
 end
 

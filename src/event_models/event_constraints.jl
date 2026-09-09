@@ -3,6 +3,36 @@
 # core/feedforward_interface.jl for the supported injector families.
 #################################################################################
 
+# What the active-power outage bound applies to: the range expression when the
+# formulation routes power through one, else the variable itself.
+_active_power_outage_lhs(::DeviceModel{<:Union{PSY.ThermalGen, PSY.HydroGen}}) =
+    ActivePowerRangeExpressionUB
+_active_power_outage_lhs(::DeviceModel{<:PSY.ElectricLoad}) = ActivePowerVariable
+function _active_power_outage_lhs(device_model::DeviceModel{<:PSY.RenewableGen})
+    if has_service_model(device_model)
+        return ActivePowerRangeExpressionUB
+    end
+    return ActivePowerVariable
+end
+
+function _add_active_power_outage_constraint!(
+    container::OptimizationContainer,
+    devices_with_attributes::Vector{U},
+    device_model::DeviceModel,
+    ::Type{W},
+) where {U <: PSY.StaticInjection, W}
+    add_parameterized_upper_bound_range_constraints(
+        container,
+        ActivePowerOutageConstraint,
+        _active_power_outage_lhs(device_model),
+        AvailableStatusParameter,
+        devices_with_attributes,
+        device_model,
+        W,
+    )
+    return
+end
+
 function add_event_constraints!(
     container::OptimizationContainer,
     devices::T,
@@ -14,11 +44,8 @@ function add_event_constraints!(
     W <: AbstractActivePowerModel,
 } where {U <: Union{PSY.ThermalGen, PSY.HydroGen}}
     _for_each_event_devices(devices, device_model) do devices_with_attributes, _
-        add_parameterized_upper_bound_range_constraints(
+        _add_active_power_outage_constraint!(
             container,
-            ActivePowerOutageConstraint,
-            ActivePowerRangeExpressionUB,
-            AvailableStatusParameter,
             devices_with_attributes,
             device_model,
             W,
@@ -38,11 +65,8 @@ function add_event_constraints!(
     W <: AbstractReactivePowerNetworkModel,
 } where {U <: Union{PSY.ThermalGen, PSY.HydroGen}}
     _for_each_event_devices(devices, device_model) do devices_with_attributes, _
-        add_parameterized_upper_bound_range_constraints(
+        _add_active_power_outage_constraint!(
             container,
-            ActivePowerOutageConstraint,
-            ActivePowerRangeExpressionUB,
-            AvailableStatusParameter,
             devices_with_attributes,
             device_model,
             W,
@@ -71,17 +95,8 @@ function add_event_constraints!(
     W <: AbstractActivePowerModel,
 } where {U <: PSY.RenewableGen}
     _for_each_event_devices(devices, device_model) do devices_with_attributes, _
-        lhs_type =
-            if has_service_model(device_model)
-                ActivePowerRangeExpressionUB
-            else
-                ActivePowerVariable
-            end
-        add_parameterized_upper_bound_range_constraints(
+        _add_active_power_outage_constraint!(
             container,
-            ActivePowerOutageConstraint,
-            lhs_type,
-            AvailableStatusParameter,
             devices_with_attributes,
             device_model,
             W,
@@ -101,17 +116,8 @@ function add_event_constraints!(
     W <: AbstractReactivePowerNetworkModel,
 } where {U <: PSY.RenewableGen}
     _for_each_event_devices(devices, device_model) do devices_with_attributes, _
-        lhs_type =
-            if has_service_model(device_model)
-                ActivePowerRangeExpressionUB
-            else
-                ActivePowerVariable
-            end
-        add_parameterized_upper_bound_range_constraints(
+        _add_active_power_outage_constraint!(
             container,
-            ActivePowerOutageConstraint,
-            lhs_type,
-            AvailableStatusParameter,
             devices_with_attributes,
             device_model,
             W,
@@ -140,11 +146,8 @@ function add_event_constraints!(
     W <: AbstractActivePowerModel,
 } where {U <: PSY.ElectricLoad}
     _for_each_event_devices(devices, device_model) do devices_with_attributes, _
-        add_parameterized_upper_bound_range_constraints(
+        _add_active_power_outage_constraint!(
             container,
-            ActivePowerOutageConstraint,
-            ActivePowerVariable,
-            AvailableStatusParameter,
             devices_with_attributes,
             device_model,
             W,
@@ -164,11 +167,8 @@ function add_event_constraints!(
     W <: AbstractReactivePowerNetworkModel,
 } where {U <: PSY.ElectricLoad}
     _for_each_event_devices(devices, device_model) do devices_with_attributes, _
-        add_parameterized_upper_bound_range_constraints(
+        _add_active_power_outage_constraint!(
             container,
-            ActivePowerOutageConstraint,
-            ActivePowerVariable,
-            AvailableStatusParameter,
             devices_with_attributes,
             device_model,
             W,
@@ -238,13 +238,15 @@ function _add_reactive_power_contingency_constraint_impl!(
     )
     param_array = get_parameter_array(container, param, V)
     jump_model = get_jump_model(container)
-    for device in devices, t in time_steps
+    for device in devices
         name = PSY.get_name(device)
         ub = _get_reactive_power_upper_bound(device)
-        constraint_container[name, t] = JuMP.@constraint(
-            jump_model,
-            (array_reactive[name, t])^2 <= (ub * param_array[name, t])
-        )
+        for t in time_steps
+            constraint_container[name, t] = JuMP.@constraint(
+                jump_model,
+                (array_reactive[name, t])^2 <= (ub * param_array[name, t])
+            )
+        end
     end
     return
 end
@@ -338,19 +340,21 @@ function add_pump_turbine_active_power_contingency_constraints!(
     )
     param_array = get_parameter_array(container, AvailableStatusParameter(), U)
     jump_model = get_jump_model(container)
-    for device in devices, t in time_steps
+    for device in devices
         name = PSY.get_name(device)
         ub_active_power = PSY.get_active_power_limits(device, PSY.SU).max
-        constraint_active_power[name, t] = JuMP.@constraint(
-            jump_model,
-            array_active_power[name, t] <= ub_active_power * param_array[name, t]
-        )
         ub_active_power_pump = PSY.get_active_power_limits_pump(device, PSY.SU).max
-        constraint_active_power_pump[name, t] = JuMP.@constraint(
-            jump_model,
-            array_active_power_pump[name, t] <=
-            ub_active_power_pump * param_array[name, t]
-        )
+        for t in time_steps
+            constraint_active_power[name, t] = JuMP.@constraint(
+                jump_model,
+                array_active_power[name, t] <= ub_active_power * param_array[name, t]
+            )
+            constraint_active_power_pump[name, t] = JuMP.@constraint(
+                jump_model,
+                array_active_power_pump[name, t] <=
+                ub_active_power_pump * param_array[name, t]
+            )
+        end
     end
     return
 end
@@ -438,18 +442,20 @@ function add_input_output_active_power_contingency_constraints!(
     )
     param_array = get_parameter_array(container, AvailableStatusParameter(), U)
     jump_model = get_jump_model(container)
-    for device in devices, t in time_steps
+    for device in devices
         name = PSY.get_name(device)
         ub_input = PSY.get_input_active_power_limits(device, PSY.SU).max
-        constraint_input[name, t] = JuMP.@constraint(
-            jump_model,
-            array_in[name, t] <= ub_input * param_array[name, t]
-        )
         ub_output = PSY.get_output_active_power_limits(device, PSY.SU).max
-        constraint_output[name, t] = JuMP.@constraint(
-            jump_model,
-            array_out[name, t] <= ub_output * param_array[name, t]
-        )
+        for t in time_steps
+            constraint_input[name, t] = JuMP.@constraint(
+                jump_model,
+                array_in[name, t] <= ub_input * param_array[name, t]
+            )
+            constraint_output[name, t] = JuMP.@constraint(
+                jump_model,
+                array_out[name, t] <= ub_output * param_array[name, t]
+            )
+        end
     end
     return
 end

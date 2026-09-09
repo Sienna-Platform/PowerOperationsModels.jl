@@ -128,6 +128,9 @@ function mock_construct_device!(
         mock_event_key = EventKey(PSY.FixedForcedOutage, device_type)
         mock_event_model = EventModel(PSY.FixedForcedOutage, ContinuousCondition())
         set_event_model!(model, mock_event_key, mock_event_model)
+        # Construction reads the discovery map that template validation would have filled.
+        get_attribute_device_map(mock_event_model)[IS.get_id(transition_data)] =
+            Dict{DataType, Set{String}}(device_type => Set([PSY.get_name(event_device)]))
     end
     mock_construct_devices!(
         problem,
