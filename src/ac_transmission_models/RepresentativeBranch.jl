@@ -167,7 +167,7 @@ _dc_shift(rep::RepresentativeBranch) = _dc_shift(rep.branch, rep.nr)
 
 # DC susceptance `1/(tap*x)` — tap-divided, not the r-inclusive π-model susceptance.
 _dc_susceptance(rep::RepresentativeBranch) =
-    PNM.get_series_susceptance(rep.branch, PSY.SU)
+    PNM.get_effective_series_susceptance(rep.branch, rep.nr)
 _dc_resistance(rep::RepresentativeBranch) = PNM.arc_dc_resistance(rep.nr, rep.arc)
 _dc_shift_injection(rep::RepresentativeBranch) =
     PNM.arc_dc_shift_injection(rep.nr, rep.arc)
