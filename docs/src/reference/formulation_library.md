@@ -641,12 +641,13 @@ attach_feedforward!(
 )
 ```
 
-| Feedforward                 | Parameter                  | Constraint                            | Effect                                                            |
-|:--------------------------- |:-------------------------- |:------------------------------------- |:----------------------------------------------------------------- |
-| `UpperBoundFeedforward`     | `UpperBoundValueParameter` | `FeedforwardUpperBoundConstraint`     | ``x_t \le \text{param}_t \cdot \text{mult}_t``                    |
-| `LowerBoundFeedforward`     | `LowerBoundValueParameter` | `FeedforwardLowerBoundConstraint`     | ``x_t \ge \text{param}_t \cdot \text{mult}_t``                    |
-| `SemiContinuousFeedforward` | `OnStatusParameter`        | `FeedforwardSemiContinuousConstraint` | commitment status from the state bounds ``x_t`` to 0 or its range |
-| `FixValueFeedforward`       | `FixValueParameter`        | `FeedforwardFixValueConstraint`       | ``x_t = \text{param}_t \cdot \text{mult}_t``                      |
+| Feedforward                 | Parameter                  | Constraint                            | Effect                                                                                                                                                                             |
+|:--------------------------- |:-------------------------- |:------------------------------------- |:---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `UpperBoundFeedforward`     | `UpperBoundValueParameter` | `FeedforwardUpperBoundConstraint`     | ``x_t \le \text{param}_t \cdot \text{mult}_t``                                                                                                                                     |
+| `LowerBoundFeedforward`     | `LowerBoundValueParameter` | `FeedforwardLowerBoundConstraint`     | ``x_t \ge \text{param}_t \cdot \text{mult}_t``                                                                                                                                     |
+| `SemiContinuousFeedforward` | `OnStatusParameter`        | `FeedforwardSemiContinuousConstraint` | commitment status from the state bounds ``x_t`` to 0 or its range                                                                                                                  |
+| `FixValueFeedforward`       | `FixValueParameter`        | `FeedforwardFixValueConstraint`       | ``x_t = \text{param}_t \cdot \text{mult}_t``                                                                                                                                       |
+| `EnergyTargetFeedforward`   | `EnergyTargetParameter`    | `FeedforwardEnergyTargetConstraint`   | ``E_T + s_T \ge \text{param}_T \cdot \text{mult}_T`` at the horizon end ``T``, with the `StorageEnergyShortageVariable` slack ``s_T`` penalized in the objective at `penalty_cost` |
 
 `UpperBoundFeedforward` and `LowerBoundFeedforward` accept `add_slacks = true`, which relaxes the
 bound with a non-negative `UpperBoundFeedForwardSlack` / `LowerBoundFeedForwardSlack` penalized at

@@ -118,7 +118,7 @@ function attach_feedforward!(
         _duplicate_feedforward(attached, ff) && return
         _check_semicontinuous_conflict(attached, ff)
         _check_bound_conflict(attached, ff)
-        _check_hydro_feedforward_source_conflict(attached, ff)
+        _check_target_feedforward_source_conflict(attached, ff)
     end
     push!(model.feedforwards, ff)
     return
@@ -183,9 +183,10 @@ function _check_bound_conflict(
 end
 
 # Forward-declared for the same reason as `_check_bound_conflict` above:
-# `ReservoirTargetFeedforward`/`ReservoirLimitFeedforward`/`HydroUsageLimitFeedforward` aren't
-# defined until further down this file. The concrete-type method is added next to them.
-function _check_hydro_feedforward_source_conflict(
+# `ReservoirTargetFeedforward`/`ReservoirLimitFeedforward`/`HydroUsageLimitFeedforward`/
+# `EnergyTargetFeedforward` aren't defined until further down this file. The concrete-type
+# method is added next to them.
+function _check_target_feedforward_source_conflict(
     ::AbstractAffectFeedforward,
     ::AbstractAffectFeedforward,
 )
@@ -581,6 +582,56 @@ get_target_period(ff::ReservoirTargetFeedforward) = ff.target_period
 get_penalty_cost(ff::ReservoirTargetFeedforward) = ff.penalty_cost
 
 """
+    EnergyTargetFeedforward(
+        component_type::Type{<:PSY.Component},
+        source::Type{T},
+        affected_values::Vector{DataType},
+        target_period::Int,
+        penalty_cost::Float64,
+        meta = CONTAINER_KEY_EMPTY_META
+    ) where {T}
+
+Holds a storage energy variable to a minimum target read from the system state at
+`target_period`, relaxed by a shortage slack penalized in the objective. `target_period`
+must be the last step of the horizon: the storage shortage slack is only defined there.
+
+# Arguments:
+
+  - `component_type::Type{<:PSY.Component}` : Specify the type of component on which the Feedforward will be applied
+  - `source::Type{T}` : The VariableType, ParameterType, or AuxVariableType naming the quantity in the system state that the Feedforward reads
+  - `affected_values::Vector{DataType}` : Specify the variable the energy target will be applied to
+  - `target_period::Int` : The time step at which the target is enforced; must be the last step of the horizon.
+  - `penalty_cost::Float64` : The objective penalty applied to the shortage slack
+"""
+struct EnergyTargetFeedforward <: AbstractAffectFeedforward
+    optimization_container_key::OptimizationContainerKey
+    affected_values::Vector{<:OptimizationContainerKey}
+    target_period::Int
+    penalty_cost::Float64
+    function EnergyTargetFeedforward(;
+        component_type::Type{<:PSY.Component},
+        source::Type{T},
+        affected_values::Vector{DataType},
+        target_period::Int,
+        penalty_cost::Float64,
+        meta = IOM.CONTAINER_KEY_EMPTY_META,
+    ) where {T}
+        key, values_vector = _feedforward_key_and_values(
+            EnergyTargetFeedforward,
+            T,
+            component_type,
+            affected_values,
+            meta,
+        )
+        new(key, values_vector, target_period, penalty_cost)
+    end
+end
+
+get_default_parameter_type(::EnergyTargetFeedforward, _) = EnergyTargetParameter
+get_target_period(ff::EnergyTargetFeedforward) = ff.target_period
+get_penalty_cost(ff::EnergyTargetFeedforward) = ff.penalty_cost
+
+"""
     ReservoirLimitFeedforward(
         component_type::Type{<:PSY.Component},
         source::Type{T},
@@ -670,14 +721,14 @@ _valid_affected_type(::Type{HydroUsageLimitFeedforward}, ::Type{<:VariableType})
 _valid_affected_type(::Type{HydroUsageLimitFeedforward}, ::Type{<:ParameterType}) = true
 _affected_type_description(::Type{HydroUsageLimitFeedforward}) = "ParameterType"
 
-# `ReservoirTargetParameter`, `ReservoirLimitParameter`, and `HydroUsageLimitParameter`
-# containers are keyed only by parameter type and component type (the generic
-# `VariableValueParameter` feedforward path in `common_models/add_parameters.jl`), not by
-# source, so two differing-source feedforwards of the same concrete type would collide on one
-# container deep inside argument construction -- the same failure class `_check_bound_conflict`
-# guards against for the bound feedforwards. An identical second attachment is caught by
-# `_duplicate_feedforward` before this ever runs.
-function _check_hydro_feedforward_source_conflict(
+# `ReservoirTargetParameter`, `ReservoirLimitParameter`, `HydroUsageLimitParameter`, and
+# `EnergyTargetParameter` containers are keyed only by parameter type and component type (the
+# generic `VariableValueParameter` feedforward path in `common_models/add_parameters.jl`), not
+# by source, so two differing-source feedforwards of the same concrete type would collide on
+# one container deep inside argument construction -- the same failure class
+# `_check_bound_conflict` guards against for the bound feedforwards. An identical second
+# attachment is caught by `_duplicate_feedforward` before this ever runs.
+function _check_target_feedforward_source_conflict(
     a::T,
     b::T,
 ) where {
@@ -685,6 +736,7 @@ function _check_hydro_feedforward_source_conflict(
         ReservoirTargetFeedforward,
         ReservoirLimitFeedforward,
         HydroUsageLimitFeedforward,
+        EnergyTargetFeedforward,
     },
 }
     throw(

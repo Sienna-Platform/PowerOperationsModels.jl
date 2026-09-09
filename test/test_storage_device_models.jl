@@ -170,10 +170,6 @@ end
 end
 
 ### Feedforward Test ###
-# TODO: blocked on the StorageSystemsSimulations feedforward port, not on events:
-# `EnergyTargetFeedforward` does not exist in POM yet. The event assertions inside are
-# ported from SSS and should be re-enabled with the rest of the block.
-#=
 @testset "Test EnergyTargetFeedforward to EnergyReservoirStorage with StorageDispatch model" begin
     device_model = DeviceModel(
         EnergyReservoirStorage,
@@ -210,7 +206,7 @@ end
     moi_tests(model, 170, 0, 120, 73, 24, true)
 end
 
-@testset "Test EnergyTargetFeedforward to EnergyReservoirStorage with StorageDispatch model" begin
+@testset "Test EnergyTargetFeedforward to EnergyReservoirStorage with StorageDispatch model - c_sys5_bat_ems" begin
     device_model = DeviceModel(
         EnergyReservoirStorage,
         StorageDispatchWithReserves;
@@ -245,7 +241,6 @@ end
     )
     moi_tests(model, 170, 0, 120, 73, 24, true)
 end
-=#
 
 @testset "Test Reserves from Storage" begin
     template = get_thermal_dispatch_template_network(CopperPlateNetworkModel)

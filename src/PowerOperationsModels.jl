@@ -636,6 +636,7 @@ export SemiContinuousFeedforward
 export FixValueFeedforward
 export WaterLevelBudgetFeedforward
 export ReservoirTargetFeedforward
+export EnergyTargetFeedforward
 export ReservoirLimitFeedforward
 export HydroUsageLimitFeedforward
 export attach_feedforward!

@@ -576,9 +576,9 @@ The formulation supports the following attributes when used in a [`PowerSimulati
 
 !!! danger
 
-    Setting the energy target attribute in combination with `EnergyTargetFeedforward`
-    or `EnergyLimitFeedforward` is not permitted and `StorageSystemsSimulations.jl`
-    will throw an exception.
+    The `energy_target` attribute and `EnergyTargetFeedforward` both build the
+    `StorageEnergyShortageVariable`, so combining them fails at construction with
+    an `IS.InvalidValue` duplicate-container error. Use one or the other.
 
 See the [Formulation Library](@ref storage_math_model) for the full mathematical description.
 """

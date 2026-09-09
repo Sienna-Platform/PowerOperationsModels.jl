@@ -1086,6 +1086,26 @@ end
     @test length(IOM.get_feedforwards(reservoir_model)) == 1
 end
 
+@testset "attach_feedforward! rejects a second differing EnergyTargetFeedforward" begin
+    device_model = DeviceModel(EnergyReservoirStorage, StorageDispatchWithReserves)
+    ff1 = EnergyTargetFeedforward(;
+        component_type = EnergyReservoirStorage,
+        source = EnergyVariable,
+        affected_values = [EnergyVariable],
+        target_period = 24,
+        penalty_cost = 1e5,
+    )
+    ff2 = EnergyTargetFeedforward(;
+        component_type = EnergyReservoirStorage,
+        source = ActivePowerOutVariable,
+        affected_values = [EnergyVariable],
+        target_period = 24,
+        penalty_cost = 1e5,
+    )
+    attach_feedforward!(device_model, ff1)
+    @test_throws ArgumentError attach_feedforward!(device_model, ff2)
+end
+
 @testset "ReservoirTargetFeedforward builds the target constraint and penalizes the shortage slack" begin
     c_sys5_hy = PSB.build_system(PSITestSystems, "c_sys5_hy_turbine_head")
     reservoir_model = DeviceModel(HydroReservoir, HydroWaterModelReservoir)
@@ -1136,6 +1156,117 @@ end
         # An unpenalized slack would make the target vacuous.
         @test get(obj.terms, slack[name, 1], 0.0) == penalty_cost
     end
+end
+
+@testset "EnergyTargetFeedforward bounds EnergyVariable at the horizon end" begin
+    device_model = DeviceModel(
+        EnergyReservoirStorage,
+        StorageDispatchWithReserves;
+        attributes = Dict{String, Any}(
+            "reservation" => true,
+            "cycling_limits" => false,
+            "energy_target" => false,
+            "complete_coverage" => false,
+            "regularization" => false,
+        ),
+    )
+    penalty = 1e5
+    ff = EnergyTargetFeedforward(;
+        component_type = EnergyReservoirStorage,
+        source = EnergyVariable,
+        affected_values = [EnergyVariable],
+        target_period = 24,
+        penalty_cost = penalty,
+    )
+    attach_feedforward!(device_model, ff)
+    sys = PSB.build_system(PSITestSystems, "c_sys5_bat")
+    model = DecisionModel(MockOperationProblem, DCPNetworkModel, sys)
+    mock_construct_device!(model, device_model; built_for_recurrent_solves = true)
+    container = IOM.get_optimization_container(model)
+
+    cons = IOM.get_constraint(
+        container,
+        FeedforwardEnergyTargetConstraint(),
+        EnergyReservoirStorage,
+        "$(EnergyVariable)target",
+    )
+    energy = IOM.get_variable(container, EnergyVariable, EnergyReservoirStorage)
+    slack =
+        IOM.get_variable(container, StorageEnergyShortageVariable, EnergyReservoirStorage)
+    param =
+        IOM.get_parameter_array(container, EnergyTargetParameter, EnergyReservoirStorage)
+    obj = IOM.get_objective_expression(container)
+    for name in axes(cons)[1]
+        c = JuMP.constraint_object(cons[name, "horizon"])
+        # energy[name, 24] + slack[name, 24] - param[name, 24] >= 0
+        @test c.set == MOI.GreaterThan(0.0)
+        @test JuMP.coefficient(c.func, energy[name, 24]) ≈ 1.0
+        @test JuMP.coefficient(c.func, slack[name, 24]) ≈ 1.0
+        @test JuMP.normalized_coefficient(cons[name, "horizon"], param[name, 24]) ≈ -1.0
+        # an unpenalized slack would make the target vacuous
+        @test JuMP.coefficient(IOM.get_invariant_terms(obj), slack[name, 24]) ≈ penalty
+    end
+end
+
+@testset "EnergyTargetFeedforward rejects a mid-horizon target_period" begin
+    device_model = DeviceModel(
+        EnergyReservoirStorage,
+        StorageDispatchWithReserves;
+        attributes = Dict{String, Any}(
+            "reservation" => true,
+            "cycling_limits" => false,
+            "energy_target" => false,
+            "complete_coverage" => false,
+            "regularization" => false,
+        ),
+    )
+    ff = EnergyTargetFeedforward(;
+        component_type = EnergyReservoirStorage,
+        source = EnergyVariable,
+        affected_values = [EnergyVariable],
+        target_period = 12,
+        penalty_cost = 1e5,
+    )
+    attach_feedforward!(device_model, ff)
+    sys = PSB.build_system(PSITestSystems, "c_sys5_bat")
+    model = DecisionModel(MockOperationProblem, DCPNetworkModel, sys)
+    @test_throws ErrorException mock_construct_device!(
+        model,
+        device_model;
+        built_for_recurrent_solves = true,
+    )
+end
+
+@testset "EnergyTargetFeedforward with the energy_target attribute is rejected" begin
+    device_model = DeviceModel(
+        EnergyReservoirStorage,
+        StorageDispatchWithReserves;
+        attributes = Dict{String, Any}(
+            "reservation" => true,
+            "cycling_limits" => false,
+            "energy_target" => true,
+            "complete_coverage" => false,
+            "regularization" => false,
+        ),
+    )
+    ff = EnergyTargetFeedforward(;
+        component_type = EnergyReservoirStorage,
+        source = EnergyVariable,
+        affected_values = [EnergyVariable],
+        target_period = 24,
+        penalty_cost = 1e5,
+    )
+    attach_feedforward!(device_model, ff)
+    sys = PSB.build_system(PSITestSystems, "c_sys5_bat")
+    model = DecisionModel(MockOperationProblem, DCPNetworkModel, sys)
+    # `energy_target = true` and this feedforward both call
+    # `add_variables!(container, StorageEnergyShortageVariable, ...)`; the second call
+    # collides on the container key and IOM raises `InvalidValue`, not `ErrorException`.
+    @test_throws IS.InvalidValue mock_construct_device!(
+        model,
+        device_model;
+        built_for_recurrent_solves = true,
+    )
 end
 
 @testset "ReservoirLimitFeedforward attaches to a HydroReservoir DeviceModel" begin
