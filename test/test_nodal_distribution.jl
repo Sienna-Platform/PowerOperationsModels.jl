@@ -768,3 +768,62 @@ end
     PSY.add_component!(sys, hub)
     @test POM.get_member_buses(sys, hub) == [zone_buses[2]]
 end
+
+# AbstractSecurityConstrainedStaticBranch snapshots the nodal balance into a fixed
+# PTDFBranchFlow AffExpr during its ArgumentConstructStage -- one stage earlier than
+# StaticBranch. The cleared-position fan-out must therefore also land in the argument
+# stage, or the security-constrained flows carry none of the market injections and the
+# LP holds no variable able to relieve the corridor.
+@testset "Cleared position reaches security-constrained branch flows" begin
+    sys, zone, zone_buses = _build_zone_system()
+    all_branches = collect(PSY.get_components(PSY.ACTransmission, sys))
+    for line_name in ["1", "2", "3"]
+        line = PSY.get_component(PSY.ACTransmission, sys, line_name)
+        PSY.add_supplemental_attribute!(
+            sys,
+            line,
+            PSY.GeometricDistributionForcedOutage(;
+                mean_time_to_recovery = 10,
+                outage_transition_probability = 0.9999,
+                monitored_components = all_branches,
+            ),
+        )
+    end
+
+    template = get_thermal_dispatch_template_network(
+        NetworkModel(
+            PTDFNetworkModel;
+            network_source = PrebuiltMatrixSource(PNM.VirtualPTDF(sys)),
+        ),
+    )
+    set_market_model!(
+        template,
+        IOM.MarketModel(SettlementMarket; settlement_domain = PSY.System),
+    )
+    set_market_component_model!(template, DeviceModel(PSY.LoadZone, NodalRedistribution))
+    set_device_model!(template, PSY.Line, POM.SecurityConstrainedStaticBranch)
+
+    model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+    container = get_optimization_container(model)
+    t1 = first(get_time_steps(container))
+    position = IOM.get_variable(container, ClearedPositionVariable, PSY.LoadZone)
+    flows = IOM.get_expression(container, PTDFBranchFlow, PSY.Line)
+
+    # Ground truth: the position enters each branch flow with the PTDF-weighted sum of
+    # its distribution factors over the member buses.
+    ptdf = PNM.PTDF(sys)
+    weights = Dict(PSY.get_number(b) => f for (b, f) in zip(zone_buses, (0.6, 0.4)))
+    nonzero = 0
+    for lname in axes(flows)[1]
+        expected = sum(ptdf[lname, n] * f for (n, f) in weights)
+        @test isapprox(
+            JuMP.coefficient(flows[lname, t1], position["LZ1", t1]),
+            expected;
+            atol = 1e-9,
+        )
+        abs(expected) > 1e-9 && (nonzero += 1)
+    end
+    @test nonzero > 0
+end

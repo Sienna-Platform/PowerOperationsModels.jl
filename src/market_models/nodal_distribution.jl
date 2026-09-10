@@ -189,10 +189,11 @@ function construct_market_component!(
     ::ArgumentConstructStage,
     model::DeviceModel{T, NodalRedistribution},
     ::IOM.MarketModel,
-    ::NetworkModel{<:AbstractNetworkModel},
+    network_model::NetworkModel{<:AbstractNetworkModel},
 ) where {T <: SettlementLocation}
     assert_numeric_distribution_factors(container)
-    names = PSY.get_name.(get_settlement_locations(model, sys))
+    locations = collect(get_settlement_locations(model, sys))
+    names = PSY.get_name.(locations)
     time_steps = get_time_steps(container)
     add_expression_container!(container, AggregateClearedInjection, T, names, time_steps)
     variable = add_variable_container!(
@@ -205,6 +206,11 @@ function construct_market_component!(
             base_name = "$(ClearedPositionVariable)_$(T)_{$(name), $(t)}",
         )
     end
+    # Argument stage: branches snapshot ActivePowerBalance into a fixed flow AffExpr, the
+    # security-constrained ones during their own argument stage. A later write is lost.
+    for location in locations
+        distribute_cleared_position!(container, sys, location, network_model)
+    end
     return
 end
 
@@ -214,10 +220,9 @@ function construct_market_component!(
     ::ModelConstructStage,
     model::DeviceModel{T, NodalRedistribution},
     ::IOM.MarketModel,
-    network_model::NetworkModel{U},
-) where {T <: SettlementLocation, U <: AbstractNetworkModel}
-    locations = collect(get_settlement_locations(model, sys))
-    names = PSY.get_name.(locations)
+    ::NetworkModel{<:AbstractNetworkModel},
+) where {T <: SettlementLocation}
+    names = PSY.get_name.(get_settlement_locations(model, sys))
     time_steps = get_time_steps(container)
     expression = get_expression(container, AggregateClearedInjection, T)
     variable = get_variable(container, ClearedPositionVariable, T)
@@ -229,9 +234,6 @@ function construct_market_component!(
         constraint[name, t] = JuMP.@constraint(
             jump_model, variable[name, t] == expression[name, t],
         )
-    end
-    for location in locations
-        distribute_cleared_position!(container, sys, location, network_model)
     end
     return
 end
