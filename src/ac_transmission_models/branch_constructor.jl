@@ -2591,7 +2591,7 @@ end
 
 function _add_to_branch_map!(
     branch_typed_dict::Dict{DataType, Vector{String}},
-    reduction_entry::Union{PNM.BranchesParallel, PNM.BranchesSeries},
+    reduction_entry::Union{PNM.AbstractBranchesParallel, PNM.BranchesSeries},
     name::String,
 )
     _add_to_branch_map!(branch_typed_dict, first(reduction_entry), name)
@@ -2622,7 +2622,7 @@ function _get_area_from_to(reduction_entry::PNM.ThreeWindingTransformerCircuit)
     return area_from, area_to
 end
 
-function _get_area_from_to(reduction_entry::PNM.BranchesParallel)
+function _get_area_from_to(reduction_entry::PNM.AbstractBranchesParallel)
     return _get_area_from_to(first(reduction_entry))
 end
 

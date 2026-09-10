@@ -1884,3 +1884,43 @@ end
     end
     @test n_checked > 0
 end
+
+@testset "Unavailable monitored components are dropped, not fatal" begin
+    # An unavailable branch is absent from the branch catalog, so a monitored
+    # reference to one cannot resolve to a representative arc. Discovery skips it
+    # and reports once rather than failing the build.
+    sys = PSB.build_system(PSITestSystems, "c_sys5")
+    all_branches = collect(get_components(PSY.ACTransmission, sys))
+    outage = PSY.GeometricDistributionForcedOutage(;
+        mean_time_to_recovery = 10,
+        outage_transition_probability = 0.9999,
+        monitored_components = all_branches,
+    )
+    PSY.add_supplemental_attribute!(
+        sys,
+        get_component(PSY.ACTransmission, sys, "1"),
+        outage,
+    )
+    outage_id = IS.get_id(outage)
+
+    de_energized = get_component(PSY.ACTransmission, sys, "6")
+    PSY.set_available!(de_energized, false)
+
+    template = get_thermal_dispatch_template_network(NetworkModel(PTDFNetworkModel))
+    set_device_model!(template, PSY.Line, POM.SecurityConstrainedStaticBranch)
+    model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
+    output_dir = mktempdir(; cleanup = true)
+    @test build!(model; output_dir = output_dir) == IOM.ModelBuildStatus.BUILT
+
+    # The unavailable branch is dropped; the available ones survive.
+    device_model = get_branch_models(get_template(model))[:Line]
+    monitored = POM._monitored_component_names(device_model, PSY.Line)
+    @test !("6" in monitored)
+    @test "1" in monitored
+
+    # Discovery runs inside `build!`'s `with_logger`, so the warning lands in the
+    # build log rather than at the call site.
+    log = read(joinpath(output_dir, "operation_problem.log"), String)
+    @test occursin("1 monitored component(s) across 1 outage(s) are unavailable", log)
+    @test occursin("$(outage_id) => 1", log)
+end

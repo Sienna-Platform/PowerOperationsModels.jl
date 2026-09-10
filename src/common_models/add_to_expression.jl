@@ -2321,13 +2321,25 @@ function get_ptdf_orientation_sign(
     return _ptdf_orientation_sign(PNM.arc_provenance(entry), entry, arc, name)
 end
 
+# Every PNM reduction wrapper subtypes `PSY.ACTransmission`, so an aggregate with
+# no dedicated method binds the single-branch method and fails deep inside it.
+_assert_not_aggregate(::PSY.ACTransmission, ::String) = nothing
+
+function _assert_not_aggregate(entry::PNM.AbstractReductionAggregate, caller::String)
+    return error(
+        "$(caller) has no method for the reduction aggregate $(typeof(entry)); \
+         add one rather than letting it bind the single-branch method.",
+    )
+end
+
 function _get_direction(
     ::Tuple{Int, Int},
     reduction_entry::PSY.ACTransmission,
     direction_map::Dict{String, Int},
     ::PNM.NetworkReductionData,
 )
-    name = PSY.get_name(reduction_entry)
+    _assert_not_aggregate(reduction_entry, "_get_direction")
+    name = PNM.get_name(reduction_entry)
     if !haskey(direction_map, name)
         @warn "Direction not found for $(summary(reduction_entry)). Will use the default from -> to direction"
         return 1.0
@@ -2338,7 +2350,7 @@ end
 
 function _get_direction(
     arc_tuple::Tuple{Int, Int},
-    reduction_entry::PNM.BranchesParallel,
+    reduction_entry::PNM.AbstractBranchesParallel,
     direction_map::Dict{String, Int},
     net_reduction_data::PNM.NetworkReductionData,
 )
@@ -2389,7 +2401,8 @@ function _reduced_entry_in_interface(
     reduction_entry::PSY.ACTransmission,
     contributing_devices::Vector{<:PSY.ACTransmission},
 )
-    reduction_entry_name = PSY.get_name(reduction_entry)
+    _assert_not_aggregate(reduction_entry, "_reduced_entry_in_interface")
+    reduction_entry_name = PNM.get_name(reduction_entry)
     # This is compared by name given that the reduction data uses copies of the devices
     # so, simple comparisons will not work
     for device in contributing_devices
@@ -2401,7 +2414,7 @@ function _reduced_entry_in_interface(
     return false
 end
 
-_error_msg(::Type{PNM.BranchesParallel}) =
+_error_msg(::Type{<:PNM.AbstractBranchesParallel}) =
     "An interface is specified with only part of a double-circuit that has been reduced. Modify the data to include all parallel segments."
 _error_msg(::Type{PNM.BranchesSeries}) =
     "An interface is specified with only part of a degree two chain reduction that has been reduced. Modify the data to include all segments of the reduced chain."
@@ -2409,7 +2422,7 @@ _error_msg(::Type{PNM.BranchesSeries}) =
 function _reduced_entry_in_interface(
     reduction_entry::T,
     contributing_devices::Vector{<:PSY.ACTransmission},
-) where {T <: Union{PNM.BranchesParallel, PNM.BranchesSeries}}
+) where {T <: Union{PNM.AbstractBranchesParallel, PNM.BranchesSeries}}
     in_interface = [
         _reduced_entry_in_interface(x, contributing_devices) for
         x in reduction_entry
