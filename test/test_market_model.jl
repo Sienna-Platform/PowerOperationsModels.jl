@@ -503,13 +503,68 @@ end
     @test lambda_with != lambda_without
 end
 
-# Three-period extension of `_vp_test_system` covering block bids (`curve_style`). Same
-# thermal ($20/$50/$80 segments, cap 100) and vp_demand (70 MW, $200/MWh) as
-# `_vp_test_system`; every period is identical (no forecast on vp_demand's own MW), so `vp_supply`'s
-# in-merit/out-of-merit decision is driven purely by its own price/curve vs. thermal's
-# $80/MWh top segment (thermal always serves at least 60 of the 70 MW demand, landing in
-# that segment) -- not by any period-varying scarcity.
-function _block_bid_test_system(; vp_supply_curve, vp_supply_style)
+# Three-period system for block-bid tests: thermal ($20/$50/$80 segments, cap 100 MW), a
+# demand bid `vp_demand` (70 MW at $200/MWh every period unless `demand_mw` gives a
+# per-period MW through a time-series cost) and a supply bid `vp_supply` (10 MW envelope)
+# whose curve, `curve_style` and `curve_multistep` are the knobs. `vp_supply_ts` gives the
+# supply a per-period `(mw, price)` one-step curve instead of the static `vp_supply_curve`.
+# With the default demand every period is identical, so vp_supply's decision is driven by
+# its own price against thermal's $80/MWh top segment; `demand_mw = [70, 70, 20]` makes the
+# marginal thermal segment $20/MWh in the third period.
+const _BB_T0 = Dates.DateTime("2020-01-01T00:00:00")
+_bb_step(mw, price) = IS.PiecewiseStepData([0.0, Float64(mw)], [Float64(price)])
+_bb_inert() = IS.PiecewiseStepData([0.0, 0.0], [0.0])
+
+function _bb_sts!(sys, comp, name, values)
+    stamps = collect(range(_BB_T0; step = Dates.Hour(1), length = length(values)))
+    return PSY.add_time_series!(
+        sys, comp, PSY.SingleTimeSeries(name, TimeSeries.TimeArray(stamps, values)),
+    )
+end
+
+function _bb_ts_side!(sys, comp, prefix, steps)
+    key = _bb_sts!(sys, comp, "$(prefix)_offer", steps)
+    initial_key = _bb_sts!(sys, comp, "$(prefix)_init_input", zeros(length(steps)))
+    return PSY.make_market_bid_ts_curve(key, initial_key)
+end
+
+# A MarketBidTimeSeriesCost with per-period one-step curves (`nothing` side = inert).
+function _bb_ts_cost!(
+    sys, comp;
+    incremental = nothing, decremental = nothing,
+    style = PSY.CurveStyles.VARIABLE, multistep = PSY.CurveMultiStep.SINGLE_STEP,
+)
+    n = length(something(incremental, decremental))
+    inc = _bb_ts_side!(sys, comp, "inc", something(incremental, fill(_bb_inert(), n)))
+    dec = _bb_ts_side!(sys, comp, "dec", something(decremental, fill(_bb_inert(), n)))
+    zeros_linear = fill(IS.LinearFunctionData(0.0, 0.0), n)
+    shut_down = _bb_sts!(sys, comp, "shut_down", zeros_linear)
+    no_load = _bb_sts!(sys, comp, "no_load", zeros_linear)
+    start_up = _bb_sts!(sys, comp, "start_up", fill((0.0, 0.0, 0.0), n))
+    cost = PSY.MarketBidTimeSeriesCost(;
+        minimum_energy_offer = IS.TimeSeriesLinearCurve(no_load),
+        start_up = start_up,
+        shut_down = IS.TimeSeriesLinearCurve(shut_down),
+        incremental_offer_curves = inc,
+        decremental_offer_curves = dec,
+        curve_style = style,
+        curve_multistep = multistep,
+    )
+    PSY.set_operation_cost!(comp, cost)
+    return cost
+end
+
+# Four hourly values so every series matches the thermal's `max_active_power` length; the
+# model horizon is three periods.
+_bb_pad4(v) = vcat(v, v[end])
+
+function _block_bid_test_system(;
+    vp_supply_curve = nothing,
+    vp_supply_style = PSY.CurveStyles.VARIABLE,
+    vp_supply_multistep = PSY.CurveMultiStep.SINGLE_STEP,
+    vp_supply_ts = nothing,
+    demand_mw = nothing,
+)
     sys = PSY.System(100.0)
     bus = _add_simple_bus!(sys)
 
@@ -531,23 +586,7 @@ function _block_bid_test_system(; vp_supply_curve, vp_supply_style)
         name = "thermal1",
         active_power_limits = (min = 0.0, max = 100.0),
     )
-    PSY.add_time_series!(
-        sys,
-        thermal,
-        PSY.SingleTimeSeries(
-            "max_active_power",
-            TimeSeries.TimeArray(
-                [
-                    Dates.DateTime("2020-01-01T00:00:00"),
-                    Dates.DateTime("2020-01-01T01:00:00"),
-                    Dates.DateTime("2020-01-01T02:00:00"),
-                    Dates.DateTime("2020-01-01T03:00:00"),
-                ],
-                [1.0, 1.0, 1.0, 1.0],
-            ),
-        ),
-    )
-    PSY.transform_single_time_series!(sys, Dates.Hour(3), Dates.Hour(3))
+    _bb_sts!(sys, thermal, "max_active_power", [1.0, 1.0, 1.0, 1.0])
 
     vp_demand = PSY.VirtualParticipant(;
         name = "vp_demand",
@@ -563,6 +602,12 @@ function _block_bid_test_system(; vp_supply_curve, vp_supply_style)
         ),
     )
     PSY.add_component!(sys, vp_demand)
+    if demand_mw !== nothing
+        _bb_ts_cost!(
+            sys, vp_demand;
+            decremental = _bb_pad4([_bb_step(mw, 200.0) for mw in demand_mw]),
+        )
+    end
 
     vp_supply = PSY.VirtualParticipant(;
         name = "vp_supply",
@@ -572,10 +617,22 @@ function _block_bid_test_system(; vp_supply_curve, vp_supply_style)
         max_demand = 0.0,
         operation_cost = PSY.MarketBidCost(;
             curve_style = vp_supply_style,
-            incremental_offer_curves = vp_supply_curve,
+            curve_multistep = vp_supply_multistep,
+            incremental_offer_curves = something(
+                vp_supply_curve,
+                _single_segment_curve(50.0),
+            ),
         ),
     )
     PSY.add_component!(sys, vp_supply)
+    if vp_supply_ts !== nothing
+        _bb_ts_cost!(
+            sys, vp_supply;
+            incremental = _bb_pad4([_bb_step(mw, price) for (mw, price) in vp_supply_ts]),
+            style = vp_supply_style, multistep = vp_supply_multistep,
+        )
+    end
+    PSY.transform_single_time_series!(sys, Dates.Hour(3), Dates.Hour(3))
     return sys
 end
 
@@ -591,111 +648,267 @@ _kinked_curve() =
         PSY.NU,
     )
 
-@testset "Block bids: FIXED clears identically in every period or not at all (price straddle)" begin
-    for (price, expect_commit) in ((50.0, true), (95.0, false))
+# Two segments both in merit against $80 but only the first against $20.
+_two_step_curve() =
+    PSY.CostCurve(
+        PSY.PiecewiseIncrementalCurve(0.0, [0.0, 5.0, 10.0], [10.0, 40.0]),
+        PSY.NU,
+    )
+
+_bb_model(sys) = DecisionModel(
+    _vp_test_template(), sys; optimizer = HiGHS_optimizer, store_variable_names = true,
+)
+
+function _bb_solved(sys)
+    model = _bb_model(sys)
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+    @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+    return model, OptimizationProblemOutputs(model)
+end
+
+_bb_out(res) = read_variable(
+    res, "ActivePowerOutVariable__VirtualParticipant"; table_format = TableFormat.WIDE,
+)[
+    !,
+    "vp_supply",
+]
+_bb_z(res) = read_variable(
+    res, "BlockBidCommitmentVariable__VirtualParticipant__Out";
+    table_format = TableFormat.WIDE,
+)[
+    !,
+    "vp_supply",
+]
+_bb_link_keys(container) = Set(
+    keys(
+        IOM.get_constraint(
+            container, BlockBidLinkConstraint, PSY.VirtualParticipant, "Out").data,
+    ),
+)
+
+@testset "Block bids: FIXED clears each period on its own, the whole quantity or nothing (p = Q z)" begin
+    for (price, expect) in ((50.0, 1.0), (95.0, 0.0))
         sys = _block_bid_test_system(;
             vp_supply_curve = _single_segment_curve(price),
             vp_supply_style = PSY.CurveStyles.FIXED,
         )
-        model = DecisionModel(
-            _vp_test_template(), sys;
-            optimizer = HiGHS_optimizer, store_variable_names = true,
-        )
+        model = _bb_model(sys)
         @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
               IOM.ModelBuildStatus.BUILT
-
         container = get_optimization_container(model)
+        base = PSY.get_base_power(sys)
         z = IOM.get_variable(
             container, BlockBidCommitmentVariable, PSY.VirtualParticipant, "Out")
+        p_out = IOM.get_variable(container, ActivePowerOutVariable, PSY.VirtualParticipant)
+        # One binary and one award variable per period; the award, not the binary, settles.
+        @test z["vp_supply", 1] !== z["vp_supply", 2] !== z["vp_supply", 3]
         settlement_expr = IOM.get_expression(container, IOM.SettlementBalance, PSY.System)
-        base = PSY.get_base_power(sys)
-
-        # Coefficient check: the FIXED variable is the SAME shared JuMP variable, entered
-        # into all three periods' settlement rows at coefficient max_supply/base.
-        @test z["vp_supply", 1] === z["vp_supply", 2] === z["vp_supply", 3]
+        quantity = IOM.get_constraint(
+            container, BlockBidQuantityConstraint, PSY.VirtualParticipant, "Out")
         for t in 1:3
-            @test JuMP.coefficient(settlement_expr[1, t], z["vp_supply", t]) ≈ 10.0 / base
+            @test JuMP.coefficient(settlement_expr[1, t], p_out["vp_supply", t]) == 1.0
+            @test JuMP.coefficient(settlement_expr[1, t], z["vp_supply", t]) == 0.0
+            # p - Q z == 0 with Q = 10 MW in per-unit
+            @test JuMP.normalized_coefficient(
+                quantity["vp_supply", t],
+                p_out["vp_supply", t],
+            ) ≈ 1.0
+            @test JuMP.normalized_coefficient(quantity["vp_supply", t], z["vp_supply", t]) ≈
+                  -10.0 / base
         end
+        @test !IOM.has_container_key(
+            container,
+            BlockBidLinkConstraint,
+            PSY.VirtualParticipant,
+            "Out",
+        )
 
         @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
         res = OptimizationProblemOutputs(model)
-        z_values = read_variable(
-            res, "BlockBidCommitmentVariable__VirtualParticipant__Out";
-            table_format = TableFormat.WIDE,
-        )
-        cleared = 0.0
-        if expect_commit
-            cleared = 1.0
-        end
-        for t in 1:3
-            @test z_values[t, "vp_supply"] ≈ cleared atol = 1e-6
-        end
+        @test all(isapprox.(_bb_z(res), expect; atol = 1e-6))
+        @test all(isapprox.(_bb_out(res), 10.0 * expect; atol = 1e-6))
     end
 end
 
-@testset "Block bids: VARIABLE clears one shared fraction; CURVE clears each period independently" begin
-    sys_variable = _block_bid_test_system(;
+@testset "Block bids: FIXED MULTI_STEP clears one constant-offer block as a whole" begin
+    # Same offer every period, third period out of merit on its own ($45 vs a $20 margin):
+    # SINGLE_STEP rejects it, MULTI_STEP carries it (2 x 350 saved in periods 1-2 against
+    # 250 lost in period 3).
+    for (multistep, expect_z) in (
+        (PSY.CurveMultiStep.SINGLE_STEP, [1.0, 1.0, 0.0]),
+        (PSY.CurveMultiStep.MULTI_STEP, [1.0, 1.0, 1.0]),
+    )
+        sys = _block_bid_test_system(;
+            vp_supply_curve = _single_segment_curve(45.0),
+            vp_supply_style = PSY.CurveStyles.FIXED,
+            vp_supply_multistep = multistep,
+            demand_mw = [70.0, 70.0, 20.0],
+        )
+        model, res = _bb_solved(sys)
+        @test _bb_z(res) ≈ expect_z atol = 1e-6
+        @test _bb_out(res) ≈ 10.0 .* expect_z atol = 1e-6
+        container = get_optimization_container(model)
+        linked = IOM.has_container_key(
+            container, BlockBidLinkConstraint, PSY.VirtualParticipant, "Out")
+        @test linked == (multistep == PSY.CurveMultiStep.MULTI_STEP)
+        linked || continue
+        @test _bb_link_keys(container) == Set([("vp_supply", 1), ("vp_supply", 2)])
+    end
+
+    # A price change ends the block: periods 1-2 at $45 are one block, period 3 at $95 is
+    # its own and stays out of merit even under MULTI_STEP.
+    sys = _block_bid_test_system(;
+        vp_supply_ts = [(10.0, 45.0), (10.0, 45.0), (10.0, 95.0)],
+        vp_supply_style = PSY.CurveStyles.FIXED,
+        vp_supply_multistep = PSY.CurveMultiStep.MULTI_STEP,
+    )
+    model, res = _bb_solved(sys)
+    @test _bb_z(res) ≈ [1.0, 1.0, 0.0] atol = 1e-6
+    @test _bb_link_keys(get_optimization_container(model)) == Set([("vp_supply", 1)])
+end
+
+@testset "Block bids: VARIABLE SINGLE_STEP clears each period independently on the PWL path" begin
+    sys = _block_bid_test_system(;
         vp_supply_curve = _kinked_curve(),
         vp_supply_style = PSY.CurveStyles.VARIABLE,
     )
-    model_variable = DecisionModel(
-        _vp_test_template(), sys_variable;
-        optimizer = HiGHS_optimizer, store_variable_names = true,
+    model, res = _bb_solved(sys)
+    container = get_optimization_container(model)
+    p_out = IOM.get_variable(container, ActivePowerOutVariable, PSY.VirtualParticipant)
+    @test p_out["vp_supply", 1] !== p_out["vp_supply", 2] !== p_out["vp_supply", 3]
+    @test !IOM.has_container_key(
+        container,
+        BlockBidCommitmentVariable,
+        PSY.VirtualParticipant,
+        "Out",
     )
-    @test build!(model_variable; output_dir = mktempdir(; cleanup = true)) ==
-          IOM.ModelBuildStatus.BUILT
-
-    container_variable = get_optimization_container(model_variable)
-    p_out_variable =
-        IOM.get_variable(container_variable, ActivePowerOutVariable, PSY.VirtualParticipant)
-    # VARIABLE reuses the SAME JuMP variable at every period: a single shared fraction of
-    # the block, cleared identically at every period.
-    @test p_out_variable["vp_supply", 1] === p_out_variable["vp_supply", 2] ===
-          p_out_variable["vp_supply", 3]
-
-    @test solve!(model_variable) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
-    res_variable = OptimizationProblemOutputs(model_variable)
-    variable_values = read_variable(
-        res_variable, "ActivePowerOutVariable__VirtualParticipant";
-        table_format = TableFormat.WIDE,
+    @test !IOM.has_container_key(
+        container,
+        BlockBidLinkConstraint,
+        PSY.VirtualParticipant,
+        "Out",
     )
     # Only the cheap ($10) 5 MW half-segment is in merit against thermal's $80/MWh top
     # segment; the $250 half never is -> exactly half the block clears, every period.
-    for t in 1:3
-        @test variable_values[t, "vp_supply"] ≈ 5.0 atol = 1e-6
-    end
-
-    sys_curve = _block_bid_test_system(;
-        vp_supply_curve = _kinked_curve(),
-        vp_supply_style = PSY.CurveStyles.CURVE,
-    )
-    model_curve = DecisionModel(
-        _vp_test_template(), sys_curve;
-        optimizer = HiGHS_optimizer, store_variable_names = true,
-    )
-    @test build!(model_curve; output_dir = mktempdir(; cleanup = true)) ==
-          IOM.ModelBuildStatus.BUILT
-
-    container_curve = get_optimization_container(model_curve)
-    p_out_curve =
-        IOM.get_variable(container_curve, ActivePowerOutVariable, PSY.VirtualParticipant)
-    # CURVE: a distinct JuMP variable per period, unlike VARIABLE's/FIXED's single shared
-    # decision.
-    @test p_out_curve["vp_supply", 1] !== p_out_curve["vp_supply", 2]
-    @test p_out_curve["vp_supply", 2] !== p_out_curve["vp_supply", 3]
-
-    @test solve!(model_curve) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
-    res_curve = OptimizationProblemOutputs(model_curve)
-    curve_values = read_variable(
-        res_curve, "ActivePowerOutVariable__VirtualParticipant";
-        table_format = TableFormat.WIDE,
-    )
-    for t in 1:3
-        @test curve_values[t, "vp_supply"] ≈ 5.0 atol = 1e-6
-    end
+    @test _bb_out(res) ≈ [5.0, 5.0, 5.0] atol = 1e-6
 end
 
-@testset "Block bids: nonzero VOM on a FIXED/VARIABLE device is rejected loudly" begin
+@testset "Block bids: VARIABLE MULTI_STEP clears the same MW in every period of a block" begin
+    # One step at $45: SINGLE_STEP drops the third period ($20 margin), MULTI_STEP keeps it.
+    for (multistep, expect) in (
+        (PSY.CurveMultiStep.SINGLE_STEP, [10.0, 10.0, 0.0]),
+        (PSY.CurveMultiStep.MULTI_STEP, [10.0, 10.0, 10.0]),
+    )
+        sys = _block_bid_test_system(;
+            vp_supply_curve = _single_segment_curve(45.0),
+            vp_supply_style = PSY.CurveStyles.VARIABLE,
+            vp_supply_multistep = multistep,
+            demand_mw = [70.0, 70.0, 20.0],
+        )
+        model, res = _bb_solved(sys)
+        @test _bb_out(res) ≈ expect atol = 1e-6
+        @test !IOM.has_container_key(
+            get_optimization_container(model), BlockBidCommitmentVariable,
+            PSY.VirtualParticipant, "Out")
+    end
+
+    # Multi-segment curves link too: both steps clear against $80, only the $10 step
+    # against $20. SINGLE_STEP -> 5 MW in period 3; MULTI_STEP -> 10 MW everywhere, since
+    # 2 x 550 saved in periods 1-2 outweighs the 50 lost in period 3.
+    for (multistep, expect) in (
+        (PSY.CurveMultiStep.SINGLE_STEP, [10.0, 10.0, 5.0]),
+        (PSY.CurveMultiStep.MULTI_STEP, [10.0, 10.0, 10.0]),
+    )
+        sys = _block_bid_test_system(;
+            vp_supply_curve = _two_step_curve(),
+            vp_supply_style = PSY.CurveStyles.VARIABLE,
+            vp_supply_multistep = multistep,
+            demand_mw = [70.0, 70.0, 20.0],
+        )
+        model, res = _bb_solved(sys)
+        @test _bb_out(res) ≈ expect atol = 1e-6
+    end
+
+    # A partial block: the kinked curve clears its fractional optimum, the same in every
+    # period, with the link rows in place.
+    sys = _block_bid_test_system(;
+        vp_supply_curve = _kinked_curve(),
+        vp_supply_style = PSY.CurveStyles.VARIABLE,
+        vp_supply_multistep = PSY.CurveMultiStep.MULTI_STEP,
+    )
+    model, res = _bb_solved(sys)
+    @test _bb_out(res) ≈ [5.0, 5.0, 5.0] atol = 1e-6
+    @test _bb_link_keys(get_optimization_container(model)) ==
+          Set([("vp_supply", 1), ("vp_supply", 2)])
+
+    # A MW change ends the block: 10 MW in periods 1-2, 5 MW in period 3, all at $45. The
+    # 5 MW block stands alone against the $20 margin and is rejected.
+    sys = _block_bid_test_system(;
+        vp_supply_ts = [(10.0, 45.0), (10.0, 45.0), (5.0, 45.0)],
+        vp_supply_style = PSY.CurveStyles.VARIABLE,
+        vp_supply_multistep = PSY.CurveMultiStep.MULTI_STEP,
+        demand_mw = [70.0, 70.0, 20.0],
+    )
+    model, res = _bb_solved(sys)
+    @test _bb_out(res) ≈ [10.0, 10.0, 0.0] atol = 1e-6
+    @test _bb_link_keys(get_optimization_container(model)) == Set([("vp_supply", 1)])
+end
+
+@testset "Block bids: periods with an empty curve pin the award and the binary to zero" begin
+    sys = _block_bid_test_system(;
+        vp_supply_ts = [(10.0, 50.0), (0.0, 0.0), (10.0, 50.0)],
+        vp_supply_style = PSY.CurveStyles.FIXED,
+        vp_supply_multistep = PSY.CurveMultiStep.MULTI_STEP,
+    )
+    model = _bb_model(sys)
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+    container = get_optimization_container(model)
+    z = IOM.get_variable(
+        container,
+        BlockBidCommitmentVariable,
+        PSY.VirtualParticipant,
+        "Out",
+    )
+    # Checked before the solve: the dual pass fixes and unfixes every integer afterwards.
+    @test JuMP.is_fixed(z["vp_supply", 2])
+    @test !JuMP.is_fixed(z["vp_supply", 1])
+    @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+    res = OptimizationProblemOutputs(model)
+    @test _bb_z(res) ≈ [1.0, 0.0, 1.0] atol = 1e-6
+    @test _bb_out(res) ≈ [10.0, 0.0, 10.0] atol = 1e-6
+    # The empty period splits the run: two single-period blocks, no link rows at all.
+    @test !IOM.has_container_key(
+        container,
+        BlockBidLinkConstraint,
+        PSY.VirtualParticipant,
+        "Out",
+    )
+end
+
+@testset "Block bids: a FIXED curve with more than one segment is rejected" begin
+    # Static curves are refused by PSY at construction.
+    @test_throws Exception PSY.MarketBidCost(;
+        curve_style = PSY.CurveStyles.FIXED, incremental_offer_curves = _kinked_curve(),
+    )
+    # Time-series curves are only resolved at build, so POM refuses them there.
+    sys = _block_bid_test_system(; vp_supply_style = PSY.CurveStyles.FIXED)
+    vp = PSY.get_component(PSY.VirtualParticipant, sys, "vp_supply")
+    _bb_ts_cost!(
+        sys, vp;
+        incremental = fill(IS.PiecewiseStepData([0.0, 5.0, 10.0], [10.0, 250.0]), 4),
+        style = PSY.CurveStyles.FIXED,
+    )
+    PSY.transform_single_time_series!(sys, Dates.Hour(3), Dates.Hour(3))
+    model = _bb_model(sys)
+    output_dir = mktempdir(; cleanup = true)
+    @test build!(model; output_dir = output_dir) == IOM.ModelBuildStatus.FAILED
+    @test _market_model_log_contains(output_dir, "vp_supply")
+    @test _market_model_log_contains(output_dir, "segment")
+end
+
+@testset "Block bids: nonzero VOM on a FIXED device is rejected loudly; VARIABLE carries it" begin
     _vom_test_vp(name, style) = PSY.VirtualParticipant(;
         name = name,
         available = true,
@@ -724,23 +937,9 @@ end
     @test occursin("FIXED", err_fixed.msg)
     @test occursin("5.0", err_fixed.msg)
 
-    # VARIABLE: rejected the same way.
+    # VARIABLE: the same nonzero VOM is untouched, it flows through the PWL path.
     vp_variable = _vom_test_vp("vp_variable", PSY.CurveStyles.VARIABLE)
-    err_variable = nothing
-    try
-        POM._validate_block_bid_vom!(vp_variable, PSY.CurveStyles.VARIABLE)
-    catch e
-        err_variable = e
-    end
-    @test err_variable isa ErrorException
-    @test occursin("vp_variable", err_variable.msg)
-    @test occursin("VARIABLE", err_variable.msg)
-    @test occursin("5.0", err_variable.msg)
-
-    # CURVE: the same nonzero VOM is untouched -- CURVE devices route through the
-    # standard `add_variable_cost!` path, which handles VOM correctly.
-    vp_curve = _vom_test_vp("vp_curve", PSY.CurveStyles.CURVE)
-    POM._validate_block_bid_vom!(vp_curve, PSY.CurveStyles.CURVE)
+    @test POM._validate_block_bid_vom!(vp_variable, PSY.CurveStyles.VARIABLE) === nothing
 
     # Zero VOM (the default) never throws, regardless of style.
     vp_zero_vom = PSY.VirtualParticipant(;
@@ -775,14 +974,14 @@ end
     @test _market_model_log_contains(output_dir, "VOM cost")
 end
 
-@testset "CURVE VP's VOM is per-variable direction (own curve's VOM, not the formulation default)" begin
+@testset "VARIABLE VP's VOM is per-variable direction (own curve's VOM, not the formulation default)" begin
     # Unit-level: the dispatch table itself.
     @test IOM._vom_offer_direction(ActivePowerOutVariable, VirtualBidDispatch) ==
           IOM.IncrementalOffer()
     @test IOM._vom_offer_direction(ActivePowerInVariable, VirtualBidDispatch) ==
           IOM.DecrementalOffer()
 
-    # End-to-end, coefficient-level: a two-sided CURVE VP with DISTINCT nonzero VOM on
+    # End-to-end, coefficient-level: a two-sided VARIABLE VP with DISTINCT nonzero VOM on
     # each side. Resolving the direction from the formulation alone would make In's VOM read
     # Out's ($2) curve instead of its own ($7). VOM is the ONLY way either variable
     # enters the objective directly (the PWL delta machinery links p = Σδ_k via a
@@ -797,7 +996,7 @@ end
         max_supply = 50.0,
         max_demand = 50.0,
         operation_cost = PSY.MarketBidCost(;
-            curve_style = PSY.CurveStyles.CURVE,
+            curve_style = PSY.CurveStyles.VARIABLE,
             incremental_offer_curves = PSY.CostCurve(
                 PSY.PiecewiseIncrementalCurve(0.0, [0.0, 50.0], [10.0]),
                 PSY.NU,
@@ -851,83 +1050,18 @@ end
     end
 end
 
-@testset "FIXED/VARIABLE offer curve span must match its envelope (max_supply/max_demand)" begin
-    _span_test_vp(name, style, max_supply, curve_span) = PSY.VirtualParticipant(;
-        name = name,
-        available = true,
-        max_supply = max_supply,
-        max_demand = 0.0,
-        operation_cost = PSY.MarketBidCost(;
-            curve_style = style,
-            incremental_offer_curves = PSY.CostCurve(
-                PSY.PiecewiseIncrementalCurve(0.0, [0.0, curve_span], [50.0]),
-                PSY.NU,
-            ),
-        ),
-    )
-
-    # Mismatch: curve spans [0, 5] but max_supply = 10 -> rejected, both values named.
-    vp_mismatch = _span_test_vp("vp_mismatch", PSY.CurveStyles.FIXED, 10.0, 5.0)
-    err = nothing
-    try
-        POM._validate_block_bid_span!(vp_mismatch, PSY.CurveStyles.FIXED)
-    catch e
-        err = e
+@testset "Block bids: FIXED and VARIABLE settle the curve's own quantity, not the envelope" begin
+    # A curve spanning 5 MW under a 10 MW envelope clears 5 MW in merit, for both styles;
+    # nothing prices the envelope any more.
+    for style in (PSY.CurveStyles.FIXED, PSY.CurveStyles.VARIABLE)
+        sys = _block_bid_test_system(;
+            vp_supply_curve = PSY.CostCurve(
+                PSY.PiecewiseIncrementalCurve(0.0, [0.0, 5.0], [50.0]), PSY.NU),
+            vp_supply_style = style,
+        )
+        model, res = _bb_solved(sys)
+        @test _bb_out(res) ≈ [5.0, 5.0, 5.0] atol = 1e-6
     end
-    @test err isa ErrorException
-    @test occursin("vp_mismatch", err.msg)
-    @test occursin("10.0", err.msg)
-    @test occursin("5.0", err.msg)
-
-    # Match: curve spans [0, 10] and max_supply = 10 -> no error.
-    vp_match = _span_test_vp("vp_match", PSY.CurveStyles.FIXED, 10.0, 10.0)
-    @test POM._validate_block_bid_span!(vp_match, PSY.CurveStyles.FIXED) === nothing
-
-    # VARIABLE: same rule applies.
-    vp_variable_mismatch =
-        _span_test_vp("vp_variable_mismatch", PSY.CurveStyles.VARIABLE, 10.0, 5.0)
-    err_var = nothing
-    try
-        POM._validate_block_bid_span!(vp_variable_mismatch, PSY.CurveStyles.VARIABLE)
-    catch e
-        err_var = e
-    end
-    @test err_var isa ErrorException
-
-    # CURVE is exempt (its own per-period variable is bounded directly by the curve, no
-    # separate envelope to mismatch).
-    vp_curve_mismatch = _span_test_vp("vp_curve_mismatch", PSY.CurveStyles.CURVE, 10.0, 5.0)
-    @test POM._validate_block_bid_span!(vp_curve_mismatch, PSY.CurveStyles.CURVE) ===
-          nothing
-
-    # End-to-end: a FIXED VP with a mismatched span fails the full build.
-    sys_mismatch = _block_bid_test_system(;
-        vp_supply_curve = PSY.CostCurve(
-            PSY.PiecewiseIncrementalCurve(0.0, [0.0, 5.0], [50.0]),
-            PSY.NU,
-        ),
-        vp_supply_style = PSY.CurveStyles.FIXED,
-    )
-    model_mismatch = DecisionModel(
-        _vp_test_template(), sys_mismatch;
-        optimizer = HiGHS_optimizer, store_variable_names = true,
-    )
-    output_dir = mktempdir(; cleanup = true)
-    @test build!(model_mismatch; output_dir = output_dir) == IOM.ModelBuildStatus.FAILED
-    @test _market_model_log_contains(output_dir, "envelope")
-
-    # A matching-span build still succeeds (regression: `_block_bid_test_system`'s
-    # `_single_segment_curve` fixtures span [0, 10], matching its hardcoded max_supply = 10).
-    sys_match = _block_bid_test_system(;
-        vp_supply_curve = _single_segment_curve(50.0),
-        vp_supply_style = PSY.CurveStyles.FIXED,
-    )
-    model_match = DecisionModel(
-        _vp_test_template(), sys_match;
-        optimizer = HiGHS_optimizer, store_variable_names = true,
-    )
-    @test build!(model_match; output_dir = mktempdir(; cleanup = true)) ==
-          IOM.ModelBuildStatus.BUILT
 end
 
 # One-bus MarketLoadBid fixture: a cheap thermal (`ThermalStandardUnitCommitment`,
@@ -1238,54 +1372,47 @@ end
         end
     end
 
-    @testset "Block-bid identity: FIXED shared var / VARIABLE shared var / CURVE per-period" begin
+    @testset "Block-bid identity: per-period variables for every style, link rows only for MULTI_STEP" begin
         sys_fixed = _block_bid_test_system(;
             vp_supply_curve = _single_segment_curve(50.0),
             vp_supply_style = PSY.CurveStyles.FIXED,
         )
-        model_fixed =
-            DecisionModel(_vp_test_template(), sys_fixed; optimizer = HiGHS_optimizer)
+        model_fixed = _bb_model(sys_fixed)
         @test build!(model_fixed; output_dir = mktempdir(; cleanup = true)) ==
               IOM.ModelBuildStatus.BUILT
+        container_fixed = get_optimization_container(model_fixed)
         z = IOM.get_variable(
-            get_optimization_container(model_fixed),
-            BlockBidCommitmentVariable,
+            container_fixed, BlockBidCommitmentVariable, PSY.VirtualParticipant, "Out")
+        p_fixed = IOM.get_variable(
+            container_fixed,
+            ActivePowerOutVariable,
             PSY.VirtualParticipant,
-            "Out",
         )
-        @test z["vp_supply", 1] === z["vp_supply", 2] === z["vp_supply", 3]
+        @test z["vp_supply", 1] !== z["vp_supply", 2] !== z["vp_supply", 3]
+        @test p_fixed["vp_supply", 1] !== p_fixed["vp_supply", 2] !==
+              p_fixed["vp_supply", 3]
+        @test IOM.has_container_key(
+            container_fixed, BlockBidQuantityConstraint, PSY.VirtualParticipant, "Out")
+        @test !IOM.has_container_key(
+            container_fixed, BlockBidLinkConstraint, PSY.VirtualParticipant, "Out")
 
         sys_variable = _block_bid_test_system(;
             vp_supply_curve = _kinked_curve(),
             vp_supply_style = PSY.CurveStyles.VARIABLE,
+            vp_supply_multistep = PSY.CurveMultiStep.MULTI_STEP,
         )
-        model_variable =
-            DecisionModel(_vp_test_template(), sys_variable; optimizer = HiGHS_optimizer)
+        model_variable = _bb_model(sys_variable)
         @test build!(model_variable; output_dir = mktempdir(; cleanup = true)) ==
               IOM.ModelBuildStatus.BUILT
-        p_out_variable = IOM.get_variable(
-            get_optimization_container(model_variable),
-            ActivePowerOutVariable,
-            PSY.VirtualParticipant,
-        )
-        @test p_out_variable["vp_supply", 1] === p_out_variable["vp_supply", 2] ===
-              p_out_variable["vp_supply", 3]
-
-        sys_curve = _block_bid_test_system(;
-            vp_supply_curve = _kinked_curve(),
-            vp_supply_style = PSY.CurveStyles.CURVE,
-        )
-        model_curve =
-            DecisionModel(_vp_test_template(), sys_curve; optimizer = HiGHS_optimizer)
-        @test build!(model_curve; output_dir = mktempdir(; cleanup = true)) ==
-              IOM.ModelBuildStatus.BUILT
-        p_out_curve = IOM.get_variable(
-            get_optimization_container(model_curve),
-            ActivePowerOutVariable,
-            PSY.VirtualParticipant,
-        )
-        @test p_out_curve["vp_supply", 1] !== p_out_curve["vp_supply", 2] !==
-              p_out_curve["vp_supply", 3]
+        container_variable = get_optimization_container(model_variable)
+        p_variable = IOM.get_variable(
+            container_variable, ActivePowerOutVariable, PSY.VirtualParticipant)
+        @test p_variable["vp_supply", 1] !== p_variable["vp_supply", 2] !==
+              p_variable["vp_supply", 3]
+        @test !IOM.has_container_key(
+            container_variable, BlockBidCommitmentVariable, PSY.VirtualParticipant, "Out")
+        @test IOM.has_container_key(
+            container_variable, BlockBidLinkConstraint, PSY.VirtualParticipant, "Out")
     end
 
     @testset "Zero-cost load's market energy variable is fixed to zero at build time" begin
