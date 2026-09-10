@@ -48,9 +48,13 @@ UUIDs = "cf7118a7-6976-5b1a-9a39-7adc72f591a4"
 # to apply). Drop the dep + entry once InfraStore is registered.
 [sources]
 PowerOperationsModels = {path = ".."}
-InfrastructureSystems = {rev = "IS4", url = "https://github.com/Sienna-Platform/InfrastructureSystems.jl"}
+# TEMPORARY: the last IS4 commit before its OpenAPI 1.x move (2026-09-10), which needs the same
+# unpushed OpenAPI model packages.
+InfrastructureSystems = {rev = "04af380f8a013b150ddf7e0d8ca812ad9e24812b", url = "https://github.com/Sienna-Platform/InfrastructureSystems.jl"}
 InfrastructureOptimizationModels = {rev = "jd/market_models2", url = "https://github.com/Sienna-Platform/InfrastructureOptimizationModels.jl"}
-PowerSystems = {rev = "rh/update_enums", url = "https://github.com/Sienna-Platform/PowerSystems.jl"}
+# TEMPORARY: psy6 as of the PowerSystems #1784 merge. The psy6 head (2026-09-10) moved to OpenAPI 1.x
+# against unpushed OpenAPI model packages; follow it once those are pushed.
+PowerSystems = {rev = "f75b4418c2928ff7efd6d110c6dce40c401f874e", url = "https://github.com/Sienna-Platform/PowerSystems.jl"}
 PowerSystemCaseBuilder = {rev = "psy6", url = "https://github.com/Sienna-Platform/PowerSystemCaseBuilder.jl"}
 # PSY psy6 depends on these unregistered packages; [sources] of non-root projects are
 # ignored by Pkg, so every environment resolving PSY must pin them itself (same rev as
