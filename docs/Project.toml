@@ -21,7 +21,9 @@ PrettyTables = "08abe8d2-0d0c-5749-adfa-8a2ac140af0d"
 [sources]
 # TEMPORARY (mirrors the root Project.toml): last IS4 commit before its OpenAPI 1.x move.
 InfrastructureSystems = {rev = "04af380f8a013b150ddf7e0d8ca812ad9e24812b", url = "https://github.com/Sienna-Platform/InfrastructureSystems.jl"}
-# TEMPORARY (mirrors the root Project.toml): psy6 as of the PowerSystems #1784 merge.
+# TEMPORARY: psy6 as of the PowerSystems #1784 squash merge (2026-09-10). It already carries #1783
+# (must_run removed, status enum), which POM's feedforwards and the pushed OpenAPI model packages do
+# not follow yet, and the psy6 head has since moved to OpenAPI 1.x against unpushed model packages.
 PowerSystems = {rev = "f75b4418c2928ff7efd6d110c6dce40c401f874e", url = "https://github.com/Sienna-Platform/PowerSystems.jl"}
 # Still-unmerged market-model work; not yet an ancestor of IOM's main.
 InfrastructureOptimizationModels = {rev = "jd/market_models2", url = "https://github.com/Sienna-Platform/InfrastructureOptimizationModels.jl"}

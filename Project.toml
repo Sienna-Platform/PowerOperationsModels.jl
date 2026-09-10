@@ -43,8 +43,9 @@ InfrastructureOptimizationModels = {rev = "jd/market_models2", url = "https://gi
 # LOCAL PATH CO-DEV PIN (temporary): the variable -> variable_operation_cost cost-field
 # rename on PSY's generated cost types is uncommitted on disk, not on the psy6 branch yet.
 # Revert to the git rev pin once pushed/merged.
-# TEMPORARY: psy6 as of the PowerSystems #1784 merge. The psy6 head (2026-09-10) moved to OpenAPI 1.x
-# against unpushed OpenAPI model packages; follow it once those are pushed.
+# TEMPORARY: psy6 as of the PowerSystems #1784 squash merge (2026-09-10). It already carries #1783
+# (must_run removed, status enum), which POM's feedforwards and the pushed OpenAPI model packages do
+# not follow yet, and the psy6 head has since moved to OpenAPI 1.x against unpushed model packages.
 PowerSystems = {rev = "f75b4418c2928ff7efd6d110c6dce40c401f874e", url = "https://github.com/Sienna-Platform/PowerSystems.jl"}
 # TEMPORARY: pinned to the arc-keyed-catalog branch (PNM #356 + #357) until they merge to
 # psy6. Revert to `rev = "psy6"` once they land.
