@@ -964,8 +964,6 @@ export StaticBranch
 export StaticBranchBounds
 export StaticBranchUnbounded
 export SecurityConstrainedStaticBranch
-# psy6: disabled pending transformer refactor
-# export PhaseAngleControl
 export TapRatioVariable
 
 # DC Branch Formulations
