@@ -110,7 +110,7 @@ Three arguments define every feedforward:
 `meta` disambiguates the source key when the same quantity is recorded under different
 labels, and `add_slacks` is available on the two bound feedforwards.
 
-The available types, their parameters, constraints, and exact constraint expressions
+POM has ten feedforward types. Their parameters, constraints, and exact constraint expressions
 are tabulated in [Feedforward Formulations](@ref ff_formulations). The guidance for choosing
 between them:
 
@@ -128,6 +128,28 @@ between them:
   - **`EnergyTargetFeedforward`** — hold a storage device's end-of-horizon energy to the
     level a longer-horizon model decided, relaxed by a penalized shortage slack. The storage
     twin of `ReservoirTargetFeedforward`; `target_period` must be the last step.
+  - **`ReservoirTargetFeedforward`** — the reservoir twin of `EnergyTargetFeedforward`: hold a
+    hydro reservoir variable to a target read from the state at `target_period`, relaxed by a
+    penalized shortage slack. Unlike its storage twin, `target_period` need not be the last
+    step — use it when a longer-horizon model has fixed a reservoir level partway through this
+    model's horizon, not only at the end.
+  - **`ReservoirLimitFeedforward`** — bound the sum of a variable over consecutive blocks of
+    `number_of_periods` steps to a per-block limit from the state. Reach for it when a
+    state-recorded limit applies to several blocks within the horizon rather than to the whole
+    horizon at once — a weekly water-release budget expressed as within-horizon chunks, say.
+    It dispatches on any `PSY.Component`, not only hydro reservoirs, despite the name.
+  - **`EnergyLimitFeedforward`** — the storage twin of `ReservoirLimitFeedforward`: bound the
+    sum of a variable over consecutive blocks of `number_of_periods` steps to a per-block
+    energy limit from the state. Reach for it to ration a storage device's throughput across
+    within-horizon blocks when a longer-horizon model owns the energy budget.
+  - **`WaterLevelBudgetFeedforward`** — bound a hydro reservoir's cumulative outgoing water
+    flow, summed over the full horizon, to a water usage budget from the state. Use it when
+    the limit is a single full-horizon total; `ReservoirLimitFeedforward` is the version for
+    multiple within-horizon blocks.
+  - **`HydroUsageLimitFeedforward`** — bound a hydro unit's cumulative active power, summed
+    over the full horizon, to an energy usage limit from the state. Reach for it to cap total
+    hydro generation against a state-recorded allocation; the recommended source is the
+    `HydroEnergyOutput` auxiliary variable.
 
 ## The semicontinuous feedforward substitutes; it does not stack
 

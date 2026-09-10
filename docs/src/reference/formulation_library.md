@@ -641,13 +641,18 @@ attach_feedforward!(
 )
 ```
 
-| Feedforward                 | Parameter                  | Constraint                            | Effect                                                                                                                                                                             |
-|:--------------------------- |:-------------------------- |:------------------------------------- |:---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `UpperBoundFeedforward`     | `UpperBoundValueParameter` | `FeedforwardUpperBoundConstraint`     | ``x_t \le \text{param}_t \cdot \text{mult}_t``                                                                                                                                     |
-| `LowerBoundFeedforward`     | `LowerBoundValueParameter` | `FeedforwardLowerBoundConstraint`     | ``x_t \ge \text{param}_t \cdot \text{mult}_t``                                                                                                                                     |
-| `SemiContinuousFeedforward` | `OnStatusParameter`        | `FeedforwardSemiContinuousConstraint` | commitment status from the state bounds ``x_t`` to 0 or its range                                                                                                                  |
-| `FixValueFeedforward`       | `FixValueParameter`        | `FeedforwardFixValueConstraint`       | ``x_t = \text{param}_t \cdot \text{mult}_t``                                                                                                                                       |
-| `EnergyTargetFeedforward`   | `EnergyTargetParameter`    | `FeedforwardEnergyTargetConstraint`   | ``E_T + s_T \ge \text{param}_T \cdot \text{mult}_T`` at the horizon end ``T``, with the `StorageEnergyShortageVariable` slack ``s_T`` penalized in the objective at `penalty_cost` |
+| Feedforward                   | Parameter                   | Constraint                              | Effect                                                                                                                                                                             |
+|:----------------------------- |:--------------------------- |:--------------------------------------- |:---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `UpperBoundFeedforward`       | `UpperBoundValueParameter`  | `FeedforwardUpperBoundConstraint`       | ``x_t \le \text{param}_t \cdot \text{mult}_t``                                                                                                                                     |
+| `LowerBoundFeedforward`       | `LowerBoundValueParameter`  | `FeedforwardLowerBoundConstraint`       | ``x_t \ge \text{param}_t \cdot \text{mult}_t``                                                                                                                                     |
+| `SemiContinuousFeedforward`   | `OnStatusParameter`         | `FeedforwardSemiContinuousConstraint`   | commitment status from the state bounds ``x_t`` to 0 or its range                                                                                                                  |
+| `FixValueFeedforward`         | `FixValueParameter`         | `FeedforwardFixValueConstraint`         | ``x_t = \text{param}_t \cdot \text{mult}_t``                                                                                                                                       |
+| `EnergyTargetFeedforward`     | `EnergyTargetParameter`     | `FeedforwardEnergyTargetConstraint`     | ``E_T + s_T \ge \text{param}_T \cdot \text{mult}_T`` at the horizon end ``T``, with the `StorageEnergyShortageVariable` slack ``s_T`` penalized in the objective at `penalty_cost` |
+| `ReservoirTargetFeedforward`  | `ReservoirTargetParameter`  | `FeedforwardEnergyTargetConstraint`     | ``x_T + s_T \ge \text{param}_T \cdot \text{mult}_T`` at `target_period` ``T``, with the `HydroEnergyShortageVariable` slack ``s_T`` penalized in the objective at `penalty_cost`   |
+| `ReservoirLimitFeedforward`   | `ReservoirLimitParameter`   | `FeedforwardIntegralLimitConstraint`    | ``\sum_{t \in B} x_t \le \sum_{t \in B} \text{param}_t \cdot \text{mult}_t`` for each consecutive block ``B`` of `number_of_periods` steps                                         |
+| `EnergyLimitFeedforward`      | `EnergyLimitParameter`      | `FeedforwardIntegralLimitConstraint`    | ``\sum_{t \in B} x_t \le \sum_{t \in B} \text{param}_t \cdot \text{mult}_t`` for each consecutive block ``B`` of `number_of_periods` steps                                         |
+| `WaterLevelBudgetFeedforward` | `WaterLevelBudgetParameter` | `FeedForwardWaterLevelBudgetConstraint` | ``\sum_t w_t \le \sum_t \text{param}_t``, where ``w_t`` is the reservoir's `TotalHydroFlowRateReservoirOutgoing` expression, summed over the full horizon                          |
+| `HydroUsageLimitFeedforward`  | `HydroUsageLimitParameter`  | `FeedForwardHydroUsageLimitConstraint`  | ``h \sum_t p_t \le \text{param}_T`` at the horizon end ``T``, where ``h`` is the resolution as a fraction of an hour and ``p_t`` is `ActivePowerVariable`                          |
 
 `UpperBoundFeedforward` and `LowerBoundFeedforward` accept `add_slacks = true`, which relaxes the
 bound with a non-negative `UpperBoundFeedForwardSlack` / `LowerBoundFeedForwardSlack` penalized at
@@ -658,6 +663,17 @@ bound with a non-negative `UpperBoundFeedForwardSlack` / `LowerBoundFeedForwardS
 in the `ActivePowerRangeExpressionUB` / `…LB` expressions instead. Must-run thermal units are
 excluded throughout: they are never turned off, so they carry no `OnStatusParameter` entry and get
 no semicontinuous constraints.
+
+`ReservoirTargetFeedforward` and `EnergyTargetFeedforward` build the same
+`FeedforwardEnergyTargetConstraint` container, distinguished by `meta`; unlike
+`EnergyTargetFeedforward`, `ReservoirTargetFeedforward` does not require `target_period` to be the
+horizon's last step. `ReservoirLimitFeedforward` and `EnergyLimitFeedforward` likewise share one
+`FeedforwardIntegralLimitConstraint` container, again separated by `meta`, and differ only in the
+parameter they read. `ReservoirLimitFeedforward` dispatches on any `PSY.Component`, not only
+hydro reservoirs, despite its name. `HydroUsageLimitFeedforward` reads `ActivePowerVariable`
+directly rather than an entry from `affected_values`; when the device model carries a service
+model, the sum nets in served regulation reserves (`HydroServedReserveUpExpression` /
+`…DownExpression`) before comparing to the limit.
 
 !!! warning "Service feedforwards are not implemented"
     
