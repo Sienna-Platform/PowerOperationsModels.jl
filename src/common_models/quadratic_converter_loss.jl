@@ -16,7 +16,52 @@
 #########################################
 
 _get_quadratic_term(loss_fn::PSY.QuadraticCurve) = PSY.get_quadratic_term(loss_fn)
-_get_quadratic_term(loss_fn) = 0.0
+_get_quadratic_term(loss_fn::PSY.LinearCurve) = 0.0
+_get_quadratic_term(loss_fn::PSY.ValueCurve) = error(
+    "Unsupported loss curve type $(typeof(loss_fn)) for a quadratic/two-term " *
+    "converter loss; expected LinearCurve or QuadraticCurve.",
+)
+
+#########################################
+######## Loss-curve unit handling #######
+#########################################
+
+# `PSY.get_loss_function`/`get_loss`/`get_converter_loss_from`/`_to` return a
+# `LossCurve` wrapper that declares its own unit system (`get_power_units`); the
+# ratio to system base depends on that declared system, not on an assumed one.
+# Dispatched on the unit-system instance rather than `isa`. `NaturalUnit` values are
+# absolute (MW), so the x-axis ratio to system base is the system base power itself;
+# `DeviceBaseUnit` values are per-unit on the component's own base; `SystemBaseUnit`
+# is already the target (the ratio is unused — `LossCurve`'s own `convert_power_units`
+# short-circuits same-unit conversions to the identity).
+_loss_curve_ratio_to_system_base(::PSY.NaturalUnit, ::PSY.Component, system_base::Float64) =
+    system_base
+_loss_curve_ratio_to_system_base(
+    ::PSY.SystemBaseUnit, ::PSY.Component, system_base::Float64,
+) = system_base
+_loss_curve_ratio_to_system_base(
+    ::PSY.DeviceBaseUnit,
+    d::PSY.Component,
+    system_base::Float64,
+) =
+    system_base / PSY.get_base_power(d, PSY.NU)
+_loss_curve_ratio_to_system_base(
+    u::IS.AbstractUnitSystem,
+    d::PSY.Component,
+    ::Float64,
+) = error(
+    "No system-base ratio defined for unit system $(typeof(u)) on component " *
+    "$(PSY.get_name(d)); expected NaturalUnit, SystemBaseUnit or DeviceBaseUnit.",
+)
+
+"""
+Unwrap a `LossCurve` to its plain `ValueCurve`, rescaled to system base regardless of the
+unit system it was authored in.
+"""
+function _loss_curve_value(curve::PSY.LossCurve, d::PSY.Component, system_base::Float64)
+    ratio = _loss_curve_ratio_to_system_base(PSY.get_power_units(curve), d, system_base)
+    return PSY.get_value_curve(IS.convert_power_units(curve, PSY.SU, ratio))
+end
 
 #########################################
 ######## AC apparent-current loss #######
