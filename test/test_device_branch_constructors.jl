@@ -1015,7 +1015,7 @@ end
 
 # Guards the system-base assumption behind `branch_rating`/`min_max_flow_limits`
 # (AC_branches.jl): POM consumes the PNM rating aggregators as system-base values, while
-# `PNM.get_equivalent_rating` reads the device-base (`PSY.DU`) rating leaf. For AC branches
+# `PNM.get_equivalent_rating` reads the device-base (`PSY.CU`) rating leaf. For AC branches
 # device base equals system base, so the two agree; this locks that invariant so a future
 # PSY change introducing a per-branch base surfaces here instead of silently mis-bounding
 # branch flows against the system-base `FlowActivePowerVariable` bounds.

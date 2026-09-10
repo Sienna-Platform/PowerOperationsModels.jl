@@ -31,7 +31,7 @@ _get_quadratic_term(loss_fn::PSY.ValueCurve) = error(
 # ratio to system base depends on that declared system, not on an assumed one.
 # Dispatched on the unit-system instance rather than `isa`. `NaturalUnit` values are
 # absolute (MW), so the x-axis ratio to system base is the system base power itself;
-# `DeviceBaseUnit` values are per-unit on the component's own base; `SystemBaseUnit`
+# `ComponentBaseUnit` values are per-unit on the component's own base; `SystemBaseUnit`
 # is already the target (the ratio is unused — `LossCurve`'s own `convert_power_units`
 # short-circuits same-unit conversions to the identity).
 _loss_curve_ratio_to_system_base(::PSY.NaturalUnit, ::PSY.Component, system_base::Float64) =
@@ -40,7 +40,7 @@ _loss_curve_ratio_to_system_base(
     ::PSY.SystemBaseUnit, ::PSY.Component, system_base::Float64,
 ) = system_base
 _loss_curve_ratio_to_system_base(
-    ::PSY.DeviceBaseUnit,
+    ::PSY.ComponentBaseUnit,
     d::PSY.Component,
     system_base::Float64,
 ) =
@@ -51,7 +51,7 @@ _loss_curve_ratio_to_system_base(
     ::Float64,
 ) = error(
     "No system-base ratio defined for unit system $(typeof(u)) on component " *
-    "$(PSY.get_name(d)); expected NaturalUnit, SystemBaseUnit or DeviceBaseUnit.",
+    "$(PSY.get_name(d)); expected NaturalUnit, SystemBaseUnit or ComponentBaseUnit.",
 )
 
 """
