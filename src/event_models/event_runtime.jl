@@ -282,14 +282,12 @@ device's own time series term, it cancels that term for the duration of the outa
 
 `injection` is the value the device's time-series parameter contributes to the balance,
 so the same function serves the active and reactive offsets.
-
-# TODO(events): PSI writes the offset only on the step an outage begins
-# (`status == 1 && countdown == 1` in `simulation_state.jl`), not for its whole duration.
-# That reads as an artifact of advancing one step at a time rather than an intended
-# window, and cancelling the injection for as long as the device is out is what an
-# outage means, but it is a behavior change from PSI and should be confirmed against a
-# simulation before PSI is rewired to this.
 """
+# The pre-port PSI runtime wrote the offset only on the step an outage began
+# (`status == 1 && countdown == 1`), an artifact of stepping one interval at a time.
+# Cancelling the injection for as long as the device is out is what an outage means, and
+# PSI #1664 now delegates both offset writes here, so this is the live behavior.
+# TODO(events): still unvalidated against pre-port PSI results in a full simulation.
 outage_power_offset(countdown::Real, injection::Real) =
     if countdown > 0
         -Float64(injection)

@@ -148,6 +148,16 @@ end
 Reserved time-series mapping keys for a contingency type. `:outage_status` is required
 for `PSY.FixedForcedOutage`.
 """
+# Events model forced outages only. Planned outages are the security-constrained
+# (MODF) outage mechanism and never carry an event model.
+function get_empty_timeseries_mapping(::Type{T}) where {T <: PSY.Contingency}
+    error(
+        "$T is not an event contingency type. Event models support \
+         PSY.FixedForcedOutage and PSY.GeometricDistributionForcedOutage; planned \
+         outages are handled by the security-constrained branch formulations.",
+    )
+end
+
 function get_empty_timeseries_mapping(::Type{PSY.FixedForcedOutage})
     return Dict{Symbol, Union{String, Nothing}}(:outage_status => nothing)
 end

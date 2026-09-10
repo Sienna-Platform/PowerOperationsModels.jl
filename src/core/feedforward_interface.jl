@@ -1,11 +1,10 @@
 #################################################################################
-# No-op stubs for event functions
+# Event fallbacks
 #
-# The contingency/event infrastructure lives in PowerSimulations.jl and has not yet
-# been moved into POM. These stubs allow constructor code (which calls
-# add_event_arguments!, etc.) to compile and run correctly when no events are
-# configured. Once the event code is migrated, these stubs should be replaced by
-# the real implementations.
+# Every constructor calls add_event_arguments! and add_event_constraints!
+# unconditionally. The real methods live in src/event_models/; these fallbacks
+# catch device models with no event support, and only pass when no events are
+# attached.
 #################################################################################
 
 # Both event fallbacks must stay no-ops for the empty-events case (every constructor
