@@ -1,6 +1,9 @@
 const GAEVF = JuMP.GenericAffExpr{Float64, VariableRef}
 const GQEVF = JuMP.GenericQuadExpr{Float64, VariableRef}
 
+is_greater_than_set(::MOI.GreaterThan) = true
+is_greater_than_set(::MOI.AbstractScalarSet) = false
+
 function moi_tests(
     model::DecisionModel,
     vars::Int,

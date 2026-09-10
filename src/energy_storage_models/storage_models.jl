@@ -368,7 +368,7 @@ end
 function add_variables!(
     container::OptimizationContainer,
     ::Type{T},
-    devices::IS.FlattenIteratorWrapper{U},
+    devices::Union{Vector{U}, IS.FlattenIteratorWrapper{U}},
     ::Type{<:AbstractStorageFormulation},
 ) where {
     T <: Union{StorageEnergyShortageVariable, StorageEnergySurplusVariable},

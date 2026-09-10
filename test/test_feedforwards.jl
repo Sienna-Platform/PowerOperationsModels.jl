@@ -40,7 +40,7 @@ end
         IOM.ConstraintKey(
             FeedforwardUpperBoundConstraint,
             PSY.ThermalStandard,
-            "$(ActivePowerVariable)ub",
+            "$(nameof(ActivePowerVariable))ub",
         ),
     )
     var = IOM.get_variable(container, ActivePowerVariable, PSY.ThermalStandard)
@@ -89,14 +89,14 @@ end
         IOM.ConstraintKey(
             FeedforwardUpperBoundConstraint,
             PSY.ThermalStandard,
-            "$(ActivePowerVariable)ub",
+            "$(nameof(ActivePowerVariable))ub",
         ),
     )
     slack = IOM.get_variable(
         container,
         UpperBoundFeedForwardSlack,
         PSY.ThermalStandard,
-        "$(ActivePowerVariable)",
+        "$(nameof(ActivePowerVariable))",
     )
     names, time_steps = JuMP.axes(slack)
     for name in names, t in time_steps
@@ -131,7 +131,7 @@ end
         IOM.ConstraintKey(
             FeedforwardLowerBoundConstraint,
             PSY.ThermalStandard,
-            "$(ActivePowerVariable)lb",
+            "$(nameof(ActivePowerVariable))lb",
         ),
     )
     var = IOM.get_variable(container, ActivePowerVariable, PSY.ThermalStandard)
@@ -171,14 +171,14 @@ end
         IOM.ConstraintKey(
             FeedforwardLowerBoundConstraint,
             PSY.ThermalStandard,
-            "$(ActivePowerVariable)lb",
+            "$(nameof(ActivePowerVariable))lb",
         ),
     )
     slack = IOM.get_variable(
         container,
         LowerBoundFeedForwardSlack,
         PSY.ThermalStandard,
-        "$(ActivePowerVariable)",
+        "$(nameof(ActivePowerVariable))",
     )
     names, time_steps = JuMP.axes(slack)
     for name in names, t in time_steps
@@ -216,7 +216,7 @@ end
         IOM.ConstraintKey(
             FeedforwardSemiContinuousConstraint,
             PSY.ThermalStandard,
-            "$(ActivePowerVariable)_ub",
+            "$(nameof(ActivePowerVariable))_ub",
         ),
     )
     con_lb = IOM.get_constraint(
@@ -224,7 +224,7 @@ end
         IOM.ConstraintKey(
             FeedforwardSemiContinuousConstraint,
             PSY.ThermalStandard,
-            "$(ActivePowerVariable)_lb",
+            "$(nameof(ActivePowerVariable))_lb",
         ),
     )
 
@@ -304,7 +304,7 @@ end
         IOM.ConstraintKey(
             FeedforwardSemiContinuousConstraint,
             PSY.ThermalStandard,
-            "$(PowerAboveMinimumVariable)_ub",
+            "$(nameof(PowerAboveMinimumVariable))_ub",
         ),
     )
     names, time_steps = JuMP.axes(var)
@@ -369,7 +369,7 @@ end
         IOM.ConstraintKey(
             FeedforwardSemiContinuousConstraint,
             PSY.ThermalStandard,
-            "$(ActivePowerVariable)_ub",
+            "$(nameof(ActivePowerVariable))_ub",
         ),
     )
     names, time_steps = JuMP.axes(var)
@@ -409,7 +409,7 @@ end
         IOM.ConstraintKey(
             FeedforwardSemiContinuousConstraint,
             PSY.HydroDispatch,
-            "$(ActivePowerVariable)_ub",
+            "$(nameof(ActivePowerVariable))_ub",
         ),
     )
     con_lb = IOM.get_constraint(
@@ -417,7 +417,7 @@ end
         IOM.ConstraintKey(
             FeedforwardSemiContinuousConstraint,
             PSY.HydroDispatch,
-            "$(ActivePowerVariable)_lb",
+            "$(nameof(ActivePowerVariable))_lb",
         ),
     )
 
@@ -496,7 +496,7 @@ end
         IOM.ConstraintKey(
             FeedforwardSemiContinuousConstraint,
             PSY.HydroDispatch,
-            "$(ActivePowerVariable)_ub",
+            "$(nameof(ActivePowerVariable))_ub",
         ),
     )
     names, time_steps = JuMP.axes(var)
@@ -538,7 +538,7 @@ end
         IOM.ConstraintKey(
             FeedforwardSemiContinuousConstraint,
             PSY.ThermalStandard,
-            "$(ActivePowerVariable)_ub",
+            "$(nameof(ActivePowerVariable))_ub",
         ),
     )
     time_steps = JuMP.axes(con_ub)[2]
@@ -666,20 +666,20 @@ end
         container,
         FixValueParameter,
         PSY.ThermalStandard,
-        "$(ActivePowerVariable)",
+        "$(nameof(ActivePowerVariable))",
     )
     mult = IOM.get_parameter_multiplier_array(
         container,
         FixValueParameter,
         PSY.ThermalStandard,
-        "$(ActivePowerVariable)",
+        "$(nameof(ActivePowerVariable))",
     )
     con = IOM.get_constraint(
         container,
         IOM.ConstraintKey(
             FeedforwardFixValueConstraint,
             PSY.ThermalStandard,
-            "$(ActivePowerVariable)",
+            "$(nameof(ActivePowerVariable))",
         ),
     )
 
@@ -699,7 +699,7 @@ end
         IOM.ParameterKey(
             FixValueParameter,
             PSY.ThermalStandard,
-            "$(ActivePowerVariable)",
+            "$(nameof(ActivePowerVariable))",
         ),
     )
     @test IOM.VariableKey(ActivePowerVariable, PSY.ThermalStandard) ∈ attrs.affected_keys
@@ -728,14 +728,14 @@ end
         container,
         FixValueParameter,
         PSY.ThermalStandard,
-        "$(POM.PowerOutput)",
+        "$(nameof(POM.PowerOutput))",
     )
     con = IOM.get_constraint(
         container,
         IOM.ConstraintKey(
             FeedforwardFixValueConstraint,
             PSY.ThermalStandard,
-            "$(ActivePowerVariable)",
+            "$(nameof(ActivePowerVariable))",
         ),
     )
 
@@ -750,7 +750,7 @@ end
         IOM.ParameterKey(
             FixValueParameter,
             PSY.ThermalStandard,
-            "$(POM.PowerOutput)",
+            "$(nameof(POM.PowerOutput))",
         ),
     )
     @test IOM.VariableKey(ActivePowerVariable, PSY.ThermalStandard) ∈ attrs.affected_keys
@@ -1135,7 +1135,7 @@ end
         IOM.ConstraintKey(
             FeedforwardEnergyTargetConstraint,
             HydroReservoir,
-            "$(HydroReservoirVolumeVariable)target",
+            "$(nameof(HydroReservoirVolumeVariable))target",
         ),
     )
     var = IOM.get_variable(container, HydroReservoirVolumeVariable, HydroReservoir)
@@ -1149,7 +1149,7 @@ end
     for name in names
         # var[name, 1] + slack[name, 1] - param[name, 1] >= 0
         con_obj = JuMP.constraint_object(con[name, "horizon"])
-        @test con_obj.set isa MOI.GreaterThan
+        @test is_greater_than_set(con_obj.set)
         @test JuMP.normalized_coefficient(con[name, "horizon"], var[name, 1]) == 1.0
         @test JuMP.normalized_coefficient(con[name, "horizon"], slack[name, 1]) == 1.0
         @test JuMP.normalized_coefficient(con[name, "horizon"], param[name, 1]) == -1.0
@@ -1188,7 +1188,7 @@ end
         container,
         FeedforwardEnergyTargetConstraint(),
         EnergyReservoirStorage,
-        "$(EnergyVariable)target",
+        "$(nameof(EnergyVariable))target",
     )
     energy = IOM.get_variable(container, EnergyVariable, EnergyReservoirStorage)
     slack =
@@ -1317,7 +1317,7 @@ end
         IOM.ConstraintKey(
             FeedforwardIntegralLimitConstraint,
             HydroReservoir,
-            "$(HydroReservoirVolumeVariable)integral",
+            "$(nameof(HydroReservoirVolumeVariable))integral",
         ),
     )
     var = IOM.get_variable(container, HydroReservoirVolumeVariable, HydroReservoir)

@@ -638,6 +638,7 @@ export WaterLevelBudgetFeedforward
 export ReservoirTargetFeedforward
 export EnergyTargetFeedforward
 export ReservoirLimitFeedforward
+export EnergyLimitFeedforward
 export HydroUsageLimitFeedforward
 export attach_feedforward!
 export FeedforwardUpperBoundConstraint

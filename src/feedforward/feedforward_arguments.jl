@@ -74,7 +74,7 @@ function _add_feedforward_slack_variables!(
             U,
             devices_names,
             time_steps;
-            meta = "$(var_type)",
+            meta = "$(nameof(var_type))",
         )
 
         for t in time_steps, name in device_name_set

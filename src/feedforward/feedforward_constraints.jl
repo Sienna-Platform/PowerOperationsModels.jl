@@ -117,7 +117,7 @@ function _add_sc_feedforward_constraints!(
             V,
             names,
             time_steps;
-            meta = "$(U)_$(IOM.constraint_meta(dir))",
+            meta = "$(nameof(U))_$(IOM.constraint_meta(dir))",
         )
         _feedforward_bound_range_with_parameter!(
             dir,
@@ -164,7 +164,7 @@ function _add_sc_feedforward_constraints!(
             V,
             names,
             time_steps;
-            meta = "$(U)_$(IOM.constraint_meta(dir))",
+            meta = "$(nameof(U))_$(IOM.constraint_meta(dir))",
         )
         # The bound is constant across time for a given device, so a `Dict` keyed by name
         # stands in for the multiplier without repeating it into a device x time matrix.
@@ -259,13 +259,18 @@ function _add_bound_feedforward_constraints!(
             T,
             device_name_set,
             time_steps;
-            meta = "$(var_type)$(IOM.constraint_meta(dir))",
+            meta = "$(nameof(var_type))$(IOM.constraint_meta(dir))",
         )
         # NOTE (deviation from PowerSimulations): PSI allocates the slack when
         # `add_slacks = true` but never references it in this constraint, so the slack
         # has no effect there. POM wires it in.
         if use_slacks
-            slack = get_variable(container, _feedforward_slack_type(dir), T, "$(var_type)")
+            slack = get_variable(
+                container,
+                _feedforward_slack_type(dir),
+                T,
+                "$(nameof(var_type))",
+            )
         end
         for t in time_steps, name in device_name_set
             if use_slacks
@@ -378,7 +383,7 @@ function add_feedforward_constraints!(
             T,
             device_name_set,
             time_steps;
-            meta = "$(affected_var_type)",
+            meta = "$(nameof(affected_var_type))",
         )
         for t in time_steps, name in device_name_set
             con[name, t] = JuMP.@constraint(
@@ -456,7 +461,7 @@ function _add_energy_target_constraints!(
             T,
             device_name_set,
             ["horizon"];
-            meta = "$(var_type)target",
+            meta = "$(nameof(var_type))target",
         )
         for name in device_name_set
             con[name, "horizon"] = JuMP.@constraint(
@@ -517,18 +522,13 @@ function add_feedforward_constraints!(
     return
 end
 
-@doc raw"""
-Constructs a constraint bounding the sum of a variable over consecutive blocks of
-`number_of_periods` time steps to a per-block limit read from the system state.
-
-``` sum(variable[name, t] for t in block) <= sum(param[name, t] * multiplier[name, t] for t in block) ```
-"""
-function add_feedforward_constraints!(
+# Shared by the reservoir and storage energy-limit feedforwards, which differ only in the
+# parameter type each reads (`get_default_parameter_type`).
+function _add_integral_limit_constraints!(
     container::OptimizationContainer,
-    ::DeviceModel{T, U},
     devices::Union{Vector{T}, IS.FlattenIteratorWrapper{T}},
-    ff::ReservoirLimitFeedforward,
-) where {T <: PSY.Component, U <: AbstractDeviceFormulation}
+    ff::AbstractAffectFeedforward,
+) where {T <: PSY.Component}
     time_steps = get_time_steps(container)
     parameter_type = get_default_parameter_type(ff, T)
     param = get_parameter_array(container, parameter_type, T)
@@ -554,7 +554,7 @@ function add_feedforward_constraints!(
             T,
             device_name_set,
             1:no_trenches;
-            meta = "$(var_type)integral",
+            meta = "$(nameof(var_type))integral",
         )
         for name in device_name_set, i in 1:no_trenches
             block = (1 + (i - 1) * affected_periods):(i * affected_periods)
@@ -565,6 +565,23 @@ function add_feedforward_constraints!(
             )
         end
     end
+    return
+end
+
+@doc raw"""
+Constructs a constraint bounding the sum of a variable over consecutive blocks of
+`number_of_periods` time steps to a per-block limit read from the system state. The
+reservoir and storage variants differ only in the parameter each reads.
+
+``` sum(variable[name, t] for t in block) <= sum(param[name, t] * multiplier[name, t] for t in block) ```
+"""
+function add_feedforward_constraints!(
+    container::OptimizationContainer,
+    ::DeviceModel{T, U},
+    devices::Union{Vector{T}, IS.FlattenIteratorWrapper{T}},
+    ff::Union{ReservoirLimitFeedforward, EnergyLimitFeedforward},
+) where {T <: PSY.Component, U <: AbstractDeviceFormulation}
+    _add_integral_limit_constraints!(container, devices, ff)
     return
 end
 

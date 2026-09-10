@@ -688,38 +688,23 @@ end
     moi_tests(model, 40, 0, 56, 52, 13, true)
 end
 
-#=
-@testset "Test EnergyLimitFeedforward to EnergyReservoirStorage with BookKeeping model" begin
-    device_model = DeviceModel(EnergyReservoirStorage, BookKeeping)
+@testset "Test EnergyLimitFeedforward to EnergyReservoirStorage with StorageDispatchWithReserves model - $sys_name" for sys_name in
+                                                                                                                        (
+    "c_sys5_bat",
+    "c_sys5_bat_ems",
+)
+    device_model = DeviceModel(EnergyReservoirStorage, StorageDispatchWithReserves)
 
     ff_il = EnergyLimitFeedforward(;
-        component_type=EnergyReservoirStorage,
-        source=ActivePowerOutVariable,
-        affected_values=[ActivePowerOutVariable],
-        number_of_periods=12,
+        component_type = EnergyReservoirStorage,
+        source = ActivePowerOutVariable,
+        affected_values = [ActivePowerOutVariable],
+        number_of_periods = 12,
     )
 
     attach_feedforward!(device_model, ff_il)
-    sys = PSB.build_system(PSITestSystems, "c_sys5_bat")
+    sys = PSB.build_system(PSITestSystems, sys_name)
     model = DecisionModel(MockOperationProblem, DCPNetworkModel, sys)
-    mock_construct_device!(model, device_model; built_for_recurrent_solves=true)
+    mock_construct_device!(model, device_model; built_for_recurrent_solves = true)
     moi_tests(model, 121, 0, 74, 72, 24, true)
 end
-
-@testset "Test EnergyLimitFeedforward to EnergyReservoirStorage with BatteryAncillaryServices model" begin
-    device_model = DeviceModel(EnergyReservoirStorage, BatteryAncillaryServices)
-
-    ff_il = EnergyLimitFeedforward(;
-        component_type=EnergyReservoirStorage,
-        source=ActivePowerOutVariable,
-        affected_values=[ActivePowerOutVariable],
-        number_of_periods=12,
-    )
-
-    attach_feedforward!(device_model, ff_il)
-    sys = PSB.build_system(PSITestSystems, "c_sys5_bat")
-    model = DecisionModel(MockOperationProblem, DCPNetworkModel, sys)
-    mock_construct_device!(model, device_model; built_for_recurrent_solves=true)
-    moi_tests(model, 121, 0, 74, 72, 24, true)
-end
-=#
