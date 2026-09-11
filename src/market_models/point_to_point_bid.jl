@@ -13,13 +13,49 @@ get_multiplier_value(::Type{<:AbstractPiecewiseLinearBreakpointParameter}, ::PSY
 
 """
 A spread bid prices a single award, so the offer direction is a pure function of the
-formulation and the one-argument trait suffices. Incremental is the economically correct
-side: the cleared quantity `q` injects at `to` and withdraws at `from`, so the system saving
-from a marginal MW is the `to`-minus-`from` price spread, and a convex increasing cost term
-`C(q)` clears the bid up to `C'(q) = spread`. That is exactly a willingness-to-pay curve on
-the spread, and it matches PSY's "incremental side only" contract for `spread_bid`.
+formulation and the one-argument trait suffices. The curve sits on the incremental side,
+which is PSY's contract for `spread_bid`, but it is a willingness to pay rather than an
+offer to supply: the bid must clear while the cleared `to`-minus-`from` spread is at or
+below its bid price, which is the marginal condition of a **benefit** term `- p * q`.
+[`IncrementalBidOffer`](@ref) is that pairing — the incremental side with a negative
+objective sign.
 """
-IOM._vom_offer_direction(::Type{SpreadBid}) = IOM.IncrementalOffer()
+IOM._vom_offer_direction(::Type{SpreadBid}) = IncrementalBidOffer()
+
+"""
+Route the spread bid's objective term through [`IncrementalBidOffer`](@ref) rather than the
+generic incremental path, so the bid price enters the minimized objective as a benefit.
+Mirrors the load and storage specializations in `market_bid_overrides.jl`, which pass their
+own direction the same way. No demand-side guard is needed here: `_validate_spread_bid!`
+has already rejected a decremental curve in the argument stage.
+"""
+function IOM.add_variable_cost_to_objective!(
+    container::OptimizationContainer,
+    ::Type{T},
+    component::PSY.PointToPointBid,
+    cost_function::PSY.OfferCurveCost,
+    ::Type{SpreadBid},
+) where {T <: VariableType}
+    @debug "Spread Bid" _group = LOG_GROUP_COST_FUNCTIONS PSY.get_name(component)
+    IOM.add_pwl_term_delta!(
+        IncrementalBidOffer(),
+        container,
+        component,
+        cost_function,
+        T,
+        SpreadBid,
+    )
+    return
+end
+
+# Curvity is validated per parameter type, and the incremental breakpoint parameter defaults
+# to the convexity an incremental *offer* needs. A spread bid is priced with the opposite
+# sign, so its curve must be concave (non-increasing bid prices) for the delta PWL
+# relaxation to be exact.
+IOM.validate_occ_component(
+    ::Type{<:IncrementalPiecewiseLinearBreakpointParameter},
+    device::PSY.PointToPointBid,
+) = IOM.validate_occ_breakpoints_slopes(device, IncrementalBidOffer())
 
 """
 Reject a `spread_bid` that cannot mean what a spread bid means.
@@ -30,8 +66,8 @@ divisible quantity per period, so a block style would be priced here as if divis
 A willingness-to-pay on the `to`-minus-`from` spread lives on the incremental side (PSY
 documents `spread_bid` as "incremental side only", and see `_vom_offer_direction` for why
 that is the economically correct side). A curve authored on the decremental side would
-otherwise leave the bid looking unpriced and clearing free, so it is rejected rather than
-skipped. Both mirror `VirtualBidDispatch`'s `_validate_block_bid_vom!` idiom.
+otherwise leave the bid looking unpriced, so it is rejected rather than silently held at
+zero. Both mirror `VirtualBidDispatch`'s `_validate_block_bid_vom!` idiom.
 """
 function _validate_spread_bid!(container::OptimizationContainer, bid::PSY.PointToPointBid)
     cost = IOM.get_operation_cost(bid)
@@ -55,25 +91,45 @@ function _validate_spread_bid!(container::OptimizationContainer, bid::PSY.PointT
 end
 
 """
-Warn on a spread bid whose incremental curve is the `MarketBidCost(nothing)` placeholder (or
-a stored-but-inert time series). Such a bid carries no willingness-to-pay, so it contributes
-no objective term and clears its full `max_active_power` envelope whenever the spread is
-favourable — free optionality that is almost never intended. It is a warning rather than an
-error because an unpriced envelope is a representable instrument, but it must not pass
-silently.
+Is the bid's incremental curve priced over the model horizon? False for the
+`MarketBidCost(nothing)` placeholder and for a stored-but-inert time series — including the
+common case of a block bid whose priced hours all fall outside a partial-day horizon.
 """
-function _spread_bid_is_priced(
+_spread_bid_is_priced(container::OptimizationContainer, bid::PSY.PointToPointBid) =
+    IOM.is_nontrivial_offer(
+        container,
+        bid,
+        get_output_offer_curves(IOM.get_operation_cost(bid)),
+    )
+
+"""
+Hold an unpriced bid's transfer at zero for the whole horizon.
+
+An unpriced bid gets no objective term and therefore no piecewise delta variables, so
+nothing but the `max_active_power` envelope would bound its `ClearedTransferVariable`: it
+would move its full peak MW from source to sink, in every hour, at zero cost. Zeroing the
+upper bound is the same bound a priced bid already gets in its own inert hours, where the
+piecewise constraint holds it to the curve's top breakpoint of zero.
+
+One summary warning rather than one per bid: on a partial-day run the unpriced bids number
+in the thousands, and a per-bid line is not read.
+"""
+function _zero_unpriced_transfers!(
     container::OptimizationContainer,
-    bid::PSY.PointToPointBid,
+    bids::Vector{PSY.PointToPointBid},
 )
-    curve = get_output_offer_curves(IOM.get_operation_cost(bid))
-    if !IOM.is_nontrivial_offer(container, bid, curve)
-        @warn "PointToPointBid $(PSY.get_name(bid)) has no incremental spread_bid curve. " *
-              "It contributes no objective term and will clear its full " *
-              "$(PSY.get_max_active_power(bid)) MW envelope up to congestion."
-        return false
+    isempty(bids) && return
+    variable = get_variable(container, ClearedTransferVariable, PSY.PointToPointBid)
+    for bid in bids, t in get_time_steps(container)
+        JuMP.set_upper_bound(variable[PSY.get_name(bid), t], 0.0)
     end
-    return true
+    shown = PSY.get_name.(bids[1:min(end, 5)])
+    @warn "No incremental spread_bid curve over the model horizon for " *
+          "$(length(bids)) PointToPointBid(s), $(sum(PSY.get_max_active_power, bids)) MW " *
+          "of envelope in total. They carry no willingness-to-pay, so their cleared " *
+          "transfer is held at zero rather than clearing free: " *
+          "$(join(shown, ", "))$(length(bids) > length(shown) ? ", ..." : "")."
+    return
 end
 
 """
@@ -150,8 +206,12 @@ end
 """
 Model stage for `SpreadBid`: the willingness-to-pay curve on the `to`-minus-`from` spread
 (`PSY.get_spread_bid`, reached through `IOM.get_operation_cost`) becomes the bid's objective
-term through the standard incremental PWL path, so the bid clears up to the quantity where
-its marginal bid price meets the cleared spread instead of clearing free.
+term through the incremental PWL path, signed as a benefit ([`IncrementalBidOffer`](@ref)),
+so the bid clears up to the quantity where its bid price meets the cleared spread.
+
+A bid whose curve is inert over the whole horizon has no objective term and so no piecewise
+bound; `_zero_unpriced_transfers!` holds it at zero instead of letting it clear its full
+envelope free.
 
 Two independent quantities bound the award and the tighter one binds: the
 `max_active_power` envelope, which bounds the variable directly, and the offer curve's own
@@ -170,12 +230,14 @@ function construct_market_component!(
     ::IOM.MarketModel,
     ::NetworkModel{<:AbstractNetworkModel},
 )
-    bids = [
-        b for b in get_available_components(model, sys)
-        if _spread_bid_is_priced(container, b)
-    ]
-    isempty(bids) && return
-    wrapped = IS.FlattenIteratorWrapper(PSY.PointToPointBid, [bids])
+    priced = PSY.PointToPointBid[]
+    unpriced = PSY.PointToPointBid[]
+    for bid in get_available_components(model, sys)
+        push!(_spread_bid_is_priced(container, bid) ? priced : unpriced, bid)
+    end
+    _zero_unpriced_transfers!(container, unpriced)
+    isempty(priced) && return
+    wrapped = IS.FlattenIteratorWrapper(PSY.PointToPointBid, [priced])
     add_variable_cost!(container, ClearedTransferVariable, wrapped, SpreadBid)
     return
 end
