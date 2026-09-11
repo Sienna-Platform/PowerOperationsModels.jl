@@ -18,19 +18,20 @@ PowerSystems = "bcd98974-b02a-5e2f-9ee0-a103f5c450dd"
 PrettyTables = "08abe8d2-0d0c-5749-adfa-8a2ac140af0d"
 
 [sources]
-InfrastructureSystems = {rev = "IS4", url = "https://github.com/Sienna-Platform/InfrastructureSystems.jl"}
-PowerSystems = {rev = "psy6", url = "https://github.com/Sienna-Platform/PowerSystems.jl"}
+InfrastructureSystems = {rev = "jd/openapi-1x-suite", url = "https://github.com/Sienna-Platform/InfrastructureSystems.jl"}
+PowerSystems = {rev = "jd/openapi-1x", url = "https://github.com/Sienna-Platform/PowerSystems.jl"}
 InfrastructureOptimizationModels = {rev = "main", url = "https://github.com/Sienna-Platform/InfrastructureOptimizationModels.jl"}
 PowerNetworkMatrices = {rev = "psy6", url = "https://github.com/Sienna-Platform/PowerNetworkMatrices.jl"}
 # PSY psy6 depends on these unregistered packages; [sources] of non-root projects are
 # ignored by Pkg, so every environment resolving PSY must pin them itself (same rev as
-# PSY's own sources). Temporary until the OpenAPI packages are registered.
-PowerCoreOpenAPIModels = {rev = "main", url = "https://github.com/Sienna-Platform/PowerOpenAPIModels.git", subdir = "PowerCoreOpenAPIModels.jl"}
-PowerDynamicsOpenAPIModels = {rev = "main", url = "https://github.com/Sienna-Platform/PowerOpenAPIModels.git", subdir = "PowerDynamicsOpenAPIModels.jl"}
-PowerInvestmentsOpenAPIModels = {rev = "main", url = "https://github.com/Sienna-Platform/PowerOpenAPIModels.git", subdir = "PowerInvestmentsOpenAPIModels.jl"}
-PowerOpenAPIModels = {rev = "main", url = "https://github.com/Sienna-Platform/PowerOpenAPIModels.git", subdir = "PowerOpenAPIModels.jl"}
-PowerOperationsOpenAPIModels = {rev = "main", url = "https://github.com/Sienna-Platform/PowerOpenAPIModels.git", subdir = "PowerOperationsOpenAPIModels.jl"}
-InfrastructureTimeSeriesOpenAPIModels = {rev = "main", url = "https://github.com/Sienna-Platform/PowerOpenAPIModels.git", subdir = "InfrastructureTimeSeriesOpenAPIModels.jl"}
+# PSY's own sources).
+# Branch pins until the OpenAPI packages are registered and the psy6-line branches merge.
+PowerCoreOpenAPIModels = {rev = "jd/openapi_deps_update", url = "https://github.com/Sienna-Platform/PowerOpenAPIModels.git", subdir = "PowerCoreOpenAPIModels.jl"}
+PowerDynamicsOpenAPIModels = {rev = "jd/openapi_deps_update", url = "https://github.com/Sienna-Platform/PowerOpenAPIModels.git", subdir = "PowerDynamicsOpenAPIModels.jl"}
+PowerInvestmentsOpenAPIModels = {rev = "jd/openapi_deps_update", url = "https://github.com/Sienna-Platform/PowerOpenAPIModels.git", subdir = "PowerInvestmentsOpenAPIModels.jl"}
+PowerOpenAPIModels = {rev = "jd/openapi_deps_update", url = "https://github.com/Sienna-Platform/PowerOpenAPIModels.git", subdir = "PowerOpenAPIModels.jl"}
+PowerOperationsOpenAPIModels = {rev = "jd/openapi_deps_update", url = "https://github.com/Sienna-Platform/PowerOpenAPIModels.git", subdir = "PowerOperationsOpenAPIModels.jl"}
+InfrastructureTimeSeriesOpenAPIModels = {rev = "jd/openapi_deps_update", url = "https://github.com/Sienna-Platform/PowerOpenAPIModels.git", subdir = "InfrastructureTimeSeriesOpenAPIModels.jl"}
 
 [compat]
 Documenter = "^1.0"
