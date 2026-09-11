@@ -164,7 +164,7 @@ The specified constraint is formulated as:
 """
 struct FeedforwardFixValueConstraint <: ConstraintType end
 """
-Struct to create the constraint that set the flow limits through a PhaseShiftingTransformer.
+Struct to create the constraint that sets the apparent power flow limits on a branch.
 
 For more information check [Branch Formulations](@ref PowerSystems.Branch-Formulations).
 
@@ -388,18 +388,6 @@ Struct to create the start-up time limit constraints for ThermalMultiStart.
 For more information check [ThermalGen Formulations](@ref ThermalGen-Formulations) for ThermalMultiStartUnitCommitment.
 """
 struct StartupTimeLimitTemperatureConstraint <: ConstraintType end
-"""
-Struct to create the constraint that set the angle limits through a PhaseShiftingTransformer.
-
-For more information check [Branch Formulations](@ref PowerSystems.Branch-Formulations).
-
-The specified constraint is formulated as:
-
-```math
-\\Theta^\\text{min} \\le \\theta^\\text{shift}_t \\le \\Theta^\\text{max}, \\quad \\forall t \\in \\{1,\\dots,T\\}
-```
-"""
-struct PhaseAngleControlLimit <: ConstraintType end
 struct InterfaceFlowLimit <: ConstraintType end
 struct HVDCFlowCalculationConstraint <: ConstraintType end
 
