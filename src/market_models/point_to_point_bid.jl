@@ -24,8 +24,9 @@ IOM._vom_offer_direction(::Type{SpreadBid}) = IOM.IncrementalOffer()
 """
 Reject a `spread_bid` that cannot mean what a spread bid means.
 
-FIXED/VARIABLE block-bid clearing is not modelled: a spread bid's whole model is one
-divisible quantity per period, so a block style would be priced here as if divisible.
+A spread bid is always divisible, so `curve_style` FIXED is rejected: its all-or-nothing
+clearing would be priced here as if divisible. `curve_multistep` is honoured
+(`_add_spread_bid_link_rows!`).
 
 A willingness-to-pay on the `to`-minus-`from` spread lives on the incremental side (PSY
 documents `spread_bid` as "incremental side only", and see `_vom_offer_direction` for why
@@ -36,12 +37,12 @@ skipped. Both mirror `VirtualBidDispatch`'s `_validate_block_bid_vom!` idiom.
 function _validate_spread_bid!(container::OptimizationContainer, bid::PSY.PointToPointBid)
     cost = IOM.get_operation_cost(bid)
     name = PSY.get_name(bid)
-    style = _curve_style(cost)
-    if style != PSY.CurveStyles.CURVE
+    style = PSY.get_curve_style(cost)
+    if style == PSY.CurveStyles.FIXED
         error(
-            "PointToPointBid $(name) has spread_bid curve_style $(style). Only CURVE is " *
-            "supported: a spread bid clears as one divisible quantity per period, so " *
-            "FIXED/VARIABLE block clearing has no meaning for it.",
+            "PointToPointBid $(name) has spread_bid curve_style FIXED. A spread bid clears " *
+            "as one divisible quantity per period, so all-or-nothing clearing has no " *
+            "meaning for it; use VARIABLE.",
         )
     end
     if IOM.is_nontrivial_offer(container, bid, get_input_offer_curves(cost))
@@ -159,8 +160,10 @@ top breakpoint, which bounds it through the PWL delta constraint. Authoring them
 different values is legitimate (the curve is the offer), so they are not validated against
 each other as `VirtualBidDispatch`'s block bids are.
 
-No other constraints: everything else about the instrument is its two signed position
-writes from the argument stage.
+A MULTI_STEP bid (`curve_multistep`) also gets [`BlockBidLinkConstraint`](@ref) rows tying
+consecutive periods with identical spread curves to one cleared MW
+(`_add_spread_bid_link_rows!`). Everything else about the instrument is its two signed
+position writes from the argument stage.
 """
 function construct_market_component!(
     container::OptimizationContainer,
@@ -177,5 +180,38 @@ function construct_market_component!(
     isempty(bids) && return
     wrapped = IS.FlattenIteratorWrapper(PSY.PointToPointBid, [bids])
     add_variable_cost!(container, ClearedTransferVariable, wrapped, SpreadBid)
+    _add_spread_bid_link_rows!(container, bids)
+    return
+end
+
+_is_multistep(bid::PSY.PointToPointBid) =
+    PSY.get_curve_multistep(IOM.get_operation_cost(bid)) == PSY.CurveMultiStep.MULTI_STEP
+
+"""
+Link rows for MULTI_STEP spread bids: `q[b, t] - q[b, t + 1] == 0` between consecutive
+periods of each block of identical spread curves (`_block_runs` on the incremental side),
+so a block clears the same MW in every period it covers or nothing.
+"""
+function _add_spread_bid_link_rows!(container::OptimizationContainer, bids)
+    linked = [b for b in bids if _is_multistep(b)]
+    isempty(linked) && return
+    time_steps = get_time_steps(container)
+    blocks = Tuple{String, Vector{UnitRange{Int}}}[]
+    for bid in linked
+        runs = _block_runs(IOM.IncrementalOffer(), container, bid, time_steps)
+        long = UnitRange{Int}[r for r in runs if length(r) > 1]
+        isempty(long) || push!(blocks, (PSY.get_name(bid), long))
+    end
+    isempty(blocks) && return
+    names = String[name for (name, _) in blocks]
+    rows = add_constraints_container!(
+        container, BlockBidLinkConstraint, PSY.PointToPointBid, names, time_steps;
+        sparse = true,
+    )
+    q = get_variable(container, ClearedTransferVariable, PSY.PointToPointBid)
+    jump_model = get_jump_model(container)
+    for (name, runs) in blocks, run in runs, t in first(run):(last(run) - 1)
+        rows[name, t] = JuMP.@constraint(jump_model, q[name, t] - q[name, t + 1] == 0)
+    end
     return
 end

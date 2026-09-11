@@ -172,9 +172,6 @@ _has_market_bid_cost(device::OFFER_CURVE_COMPONENTS) =
 _has_market_bid_cost(::MBC_TYPES) = true
 _has_market_bid_cost(::PSY.OperationalCost) = false
 
-"Curve-clearing style (`PSY.CurveStyles`) for a `MarketBidCost`/`MarketBidTimeSeriesCost` bid."
-_curve_style(cost::MBC_TYPES) = PSY.get_curve_style(cost)
-
 _has_import_export_cost(::PSY.StaticInjection) = false
 _has_import_export_cost(device::PSY.Source) =
     _has_import_export_cost(IOM.get_operation_cost(device))

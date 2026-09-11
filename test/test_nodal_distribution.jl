@@ -464,6 +464,82 @@ end
           IOM.ModelBuildStatus.FAILED
 end
 
+# The settlement row holds market participants only and a spread bid is excluded from it, so
+# a solvable system needs a demand virtual sized above the fleet's summed minimum power.
+function _add_settlement_demand!(sys, zone)
+    vp = PSY.VirtualParticipant(;
+        name = "VD", available = true, max_supply = 0.0, max_demand = 1000.0,
+        settlement_point = zone,
+        operation_cost = PSY.MarketBidCost(;
+            decremental_offer_curves = PSY.CostCurve(
+                PSY.PiecewiseIncrementalCurve(0.0, [0.0, 1000.0], [1000.0]),
+                PSY.NU,
+            ),
+        ),
+    )
+    PSY.add_component!(sys, vp)
+    return vp
+end
+
+function _p2p_and_demand_template()
+    template = _p2p_template()
+    set_market_component_model!(
+        template, DeviceModel(PSY.VirtualParticipant, VirtualBidDispatch),
+    )
+    return template
+end
+
+@testset "SpreadBid MULTI_STEP links the periods of one constant-offer block" begin
+    step_curve =
+        PSY.CostCurve(PSY.PiecewiseIncrementalCurve(0.0, [0.0, 50.0], [3.0]), PSY.NU)
+    sys, zone, zone_buses = _build_zone_system()
+    _add_settlement_demand!(sys, zone)
+    hub, bid = _add_hub_and_p2p!(
+        sys, zone;
+        spread_bid = PSY.MarketBidCost(;
+            incremental_offer_curves = step_curve,
+            curve_multistep = PSY.CurveMultiStep.MULTI_STEP,
+        ),
+    )
+    model = DecisionModel(_p2p_and_demand_template(), sys; optimizer = HiGHS_optimizer)
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+    container = get_optimization_container(model)
+    time_steps = get_time_steps(container)
+    q = IOM.get_variable(container, ClearedTransferVariable, PSY.PointToPointBid)
+    @test IOM.has_container_key(container, BlockBidLinkConstraint, PSY.PointToPointBid)
+    rows = IOM.get_constraint(container, BlockBidLinkConstraint, PSY.PointToPointBid)
+    # One row per consecutive pair: the whole horizon is one block for a constant offer.
+    @test Set(keys(rows.data)) ==
+          Set(("P2P1", t) for t in first(time_steps):(last(time_steps) - 1))
+    t1 = first(time_steps)
+    @test JuMP.normalized_coefficient(rows["P2P1", t1], q["P2P1", t1]) == 1.0
+    @test JuMP.normalized_coefficient(rows["P2P1", t1], q["P2P1", t1 + 1]) == -1.0
+    @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+    res = OptimizationProblemOutputs(model)
+    cleared = read_variable(
+        res, "ClearedTransferVariable__PointToPointBid"; table_format = TableFormat.WIDE,
+    )[
+        !,
+        "P2P1",
+    ]
+    @test maximum(cleared) - minimum(cleared) < 1e-6
+
+    # SINGLE_STEP, the default, adds no link rows.
+    sys2, zone2, _ = _build_zone_system()
+    _add_settlement_demand!(sys2, zone2)
+    _add_hub_and_p2p!(
+        sys2,
+        zone2;
+        spread_bid = PSY.MarketBidCost(; incremental_offer_curves = step_curve),
+    )
+    model2 = DecisionModel(_p2p_and_demand_template(), sys2; optimizer = HiGHS_optimizer)
+    @test build!(model2; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+    @test !IOM.has_container_key(
+        get_optimization_container(model2), BlockBidLinkConstraint, PSY.PointToPointBid)
+end
+
 @testset "SpreadBid rejects a decremental spread curve" begin
     sys, zone, zone_buses = _build_zone_system()
     hub, bid = _add_hub_and_p2p!(
@@ -522,6 +598,46 @@ end
         @test JuMP.coefficient(nodal[n, t1], p_out["V1", t1]) == 0.0
         @test JuMP.coefficient(nodal[n, t1], p_in["V1", t1]) == 0.0
     end
+end
+
+@testset "VirtualBidDispatch writes a FIXED participant's award into its settlement location" begin
+    sys, zone, zone_buses = _build_zone_system()
+    vp = PSY.VirtualParticipant(;
+        name = "VF", available = true, max_supply = 10.0, max_demand = 0.0,
+        settlement_point = zone,
+        operation_cost = PSY.MarketBidCost(;
+            curve_style = PSY.CurveStyles.FIXED,
+            incremental_offer_curves = PSY.CostCurve(
+                PSY.PiecewiseIncrementalCurve(0.0, [0.0, 10.0], [1000.0]),
+                PSY.NU,
+            ),
+        ),
+    )
+    PSY.add_component!(sys, vp)
+    template = _ptdf_market_template()
+    set_market_component_model!(template, DeviceModel(PSY.LoadZone, NodalRedistribution))
+    set_market_component_model!(
+        template, DeviceModel(PSY.VirtualParticipant, VirtualBidDispatch),
+    )
+    model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+    container = get_optimization_container(model)
+    t1 = first(get_time_steps(container))
+    p_out = IOM.get_variable(container, ActivePowerOutVariable, PSY.VirtualParticipant)
+    z = IOM.get_variable(
+        container,
+        BlockBidCommitmentVariable,
+        PSY.VirtualParticipant,
+        "Out",
+    )
+    zexpr = IOM.get_expression(container, AggregateClearedInjection, PSY.LoadZone)
+    # The award variable carries the position; the binary appears nowhere but its own row.
+    @test JuMP.coefficient(zexpr["LZ1", t1], p_out["VF", t1]) == 1.0
+    @test JuMP.coefficient(zexpr["LZ1", t1], z["VF", t1]) == 0.0
+    sexpr = IOM.get_expression(container, IOM.SettlementBalance, PSY.System)
+    @test JuMP.coefficient(sexpr[1, t1], p_out["VF", t1]) == 1.0
+    @test JuMP.coefficient(sexpr[1, t1], z["VF", t1]) == 0.0
 end
 
 @testset "VirtualBidDispatch at a single trading hub writes into the hub" begin

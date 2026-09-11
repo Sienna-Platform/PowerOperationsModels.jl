@@ -820,6 +820,8 @@ export RampConstraint
 export RampLimitConstraint
 export CopperPlateBalanceConstraint
 export SettlementBalanceConstraint
+export BlockBidQuantityConstraint
+export BlockBidLinkConstraint
 export ClearedPositionConstraint
 export ActiveRangeICConstraint
 export NodalBalanceActiveConstraint
