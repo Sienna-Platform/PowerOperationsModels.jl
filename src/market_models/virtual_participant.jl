@@ -143,86 +143,52 @@ _get_award_variable(container::OptimizationContainer, dir::IOM.OfferDirection) =
     get_variable(container, _bid_award_variable_type(dir), PSY.VirtualParticipant)
 
 #################################################################################
-# Offer curves over the model window
+# Offer curves period by period
 #
-# Two paths need an offer curve period by period. A FIXED bid takes its quantity and its
-# value from the curve at every period: `p = Q z`, the `z` objective term, and `z` fixed to
-# zero where nothing is offered. A MULTI_STEP bid of either style takes its block boundaries
-# from it: a block ends where consecutive periods stop carrying the same curve. An
-# `OfferWindow` is that per-period view, read once per (component, direction) and construct
-# stage and shared through an `OfferWindowCache`. The VARIABLE single-step path does not use
-# it; its PWL delta terms read the parameters themselves.
+# Two paths read an offer curve at each period through `IOM._get_pwl_data`, which resolves a
+# static curve from the cost object and a time-series curve from the padded parameter
+# arrays, both in system per-unit. A FIXED bid takes its quantity and value from it: `p = Q z`,
+# the `z` objective term, and `z` fixed to zero where nothing is offered. A MULTI_STEP bid of
+# either style takes its block boundaries from it: a block ends where consecutive periods
+# stop carrying the same curve. The VARIABLE single-step path does not read it; its PWL
+# delta terms read the parameters themselves.
 #
-# The PWL parameter containers pad every curve to the widest segment count in the model, so
-# a one-step curve comes back with zero-width segments appended. Real segments are the
+# The parameter containers pad every curve to the widest segment count in the model, so a
+# one-step curve comes back with zero-width segments appended. Real segments are the
 # positive-width ones; the quantity is the top breakpoint either way.
 #################################################################################
 
-"""
-One offer side over the model window, in system per-unit: `(breakpoints, slopes)` per period
-for a time-series curve, a single pair for a time-invariant one. Empty when the side carries
-no curve.
-"""
-struct OfferWindow
-    periods::Vector{Tuple{Vector{Float64}, Vector{Float64}}}
-    time_variant::Bool
-end
-OfferWindow() = OfferWindow(Tuple{Vector{Float64}, Vector{Float64}}[], false)
-Base.isempty(window::OfferWindow) = isempty(window.periods)
-
-"The curve at window position `i`; a time-invariant window answers from its one curve."
-function _period(window::OfferWindow, i::Int)
-    window.time_variant && return window.periods[i]
-    return window.periods[1]
+"`(breakpoints, slopes)` of `d`'s `dir` curve at period `t`, in per-unit; empty when that side has no curve."
+function _curve_at(
+    dir::IOM.OfferDirection,
+    container::OptimizationContainer,
+    d::IS.InfrastructureSystemsComponent,
+    t::Int,
+)
+    IOM.is_nontrivial_offer(get_offer_curves(dir, d)) || return (Float64[], Float64[])
+    breakpoints, slopes = IOM._get_pwl_data(dir, container, d, t)
+    return (breakpoints, slopes)
 end
 
-"Windows read so far in one construct stage, keyed by (direction meta, component name)."
-const OfferWindowCache = Dict{Tuple{String, String}, OfferWindow}
+"Quantity `d` offers in direction `dir` at period `t`, in per-unit; 0 when that side has no curve."
+function _offer_quantity(
+    dir::IOM.OfferDirection,
+    container::OptimizationContainer,
+    d::IS.InfrastructureSystemsComponent,
+    t::Int,
+)
+    breakpoints, _ = _curve_at(dir, container, d, t)
+    isempty(breakpoints) && return 0.0
+    return Float64(maximum(breakpoints))
+end
 
-"""
-    _offer_window(dir, container, d, time_steps) -> OfferWindow
-
-`d`'s `dir` curve over the window; empty when that side carries no curve. A time-invariant
-curve is read once, since every period holds the same curve.
-"""
-function _offer_window(
+"Whether `d` offers a positive quantity in direction `dir` at some period."
+_offers_quantity(
     dir::IOM.OfferDirection,
     container::OptimizationContainer,
     d::IS.InfrastructureSystemsComponent,
     time_steps,
-)
-    curve = get_offer_curves(dir, d)
-    IOM.is_nontrivial_offer(curve) || return OfferWindow()
-    time_variant = IOM.is_time_variant(curve)
-    read_periods = time_steps
-    time_variant || (read_periods = first(time_steps):first(time_steps))
-    periods = Tuple{Vector{Float64}, Vector{Float64}}[]
-    for t in read_periods
-        breakpoints, slopes = IOM._get_pwl_data(dir, container, d, t)
-        push!(periods, (collect(Float64, breakpoints), collect(Float64, slopes)))
-    end
-    return OfferWindow(periods, time_variant)
-end
-
-"The cached window of `d` in direction `dir`, read on first use."
-function _window!(
-    cache::OfferWindowCache,
-    dir::IOM.OfferDirection,
-    container::OptimizationContainer,
-    d::IS.InfrastructureSystemsComponent,
-    time_steps,
-)
-    return get!(cache, (_bid_direction_meta(dir), PSY.get_name(d))) do
-        _offer_window(dir, container, d, time_steps)
-    end
-end
-
-"Offered quantity at window position `i`, in per-unit."
-_window_quantity(window::OfferWindow, i::Int) = Float64(maximum(_period(window, i)[1]))
-
-"Whether the window offers a positive quantity at some period."
-_offers_quantity(window::OfferWindow) =
-    any(i -> _window_quantity(window, i) > 0.0, eachindex(window.periods))
+) = any(t -> _offer_quantity(dir, container, d, t) > 0.0, time_steps)
 
 "Number of positive-width segments in a padded breakpoint vector."
 _real_segments(breakpoints) =
@@ -302,16 +268,17 @@ quantity must have exactly one positive-width segment. Static curves are checked
 construction; time-series curves only resolve here.
 """
 function _validate_block_bid_segments!(
-    name::String,
     dir::IOM.OfferDirection,
-    window::OfferWindow,
+    container::OptimizationContainer,
+    d::PSY.VirtualParticipant,
     time_steps,
 )
-    for (i, t) in enumerate(time_steps)
-        _window_quantity(window, i) > 0.0 || continue
-        segments = _real_segments(_period(window, i)[1])
+    for t in time_steps
+        breakpoints, _ = _curve_at(dir, container, d, t)
+        (isempty(breakpoints) || maximum(breakpoints) <= 0.0) && continue
+        segments = _real_segments(breakpoints)
         segments == 1 || error(
-            "VirtualParticipant $(name) has curve_style FIXED but its " *
+            "VirtualParticipant $(PSY.get_name(d)) has curve_style FIXED but its " *
             "$(_bid_direction_meta(dir)) offer curve at period $(t) has $(segments) " *
             "segments; a FIXED bid is a single segment per period.",
         )
@@ -330,25 +297,21 @@ function _add_block_bid_commitment_variables!(
 )
     isempty(devices) && return
     time_steps = get_time_steps(container)
-    cache = OfferWindowCache()
     for dir in (IOM.IncrementalOffer(), IOM.DecrementalOffer())
-        offering = [
-            d for d in devices if
-            _offers_quantity(_window!(cache, dir, container, d, time_steps))
-        ]
+        offering = [d for d in devices if _offers_quantity(dir, container, d, time_steps)]
         isempty(offering) && continue
         variable = add_variable_container!(
             container, BlockBidCommitmentVariable, PSY.VirtualParticipant,
             _bid_direction_meta(dir), PSY.get_name.(offering), time_steps,
         )
         for d in offering
+            _validate_block_bid_segments!(dir, container, d, time_steps)
             name = PSY.get_name(d)
-            window = _window!(cache, dir, container, d, time_steps)
-            _validate_block_bid_segments!(name, dir, window, time_steps)
-            for (i, t) in enumerate(time_steps)
+            for t in time_steps
                 z = _new_bid_jump_var!(container, BlockBidCommitmentVariable, d, t)
                 variable[name, t] = z
-                _window_quantity(window, i) > 0.0 || JuMP.fix(z, 0.0; force = true)
+                _offer_quantity(dir, container, d, t) > 0.0 ||
+                    JuMP.fix(z, 0.0; force = true)
             end
         end
     end
@@ -359,11 +322,7 @@ end
 `p[d, t] - Q[d, t] z[d, t] == 0` for every FIXED device, direction with an offer, and
 period. Where nothing is offered `Q = 0` and `z` is fixed, so the row pins the award to 0.
 """
-function _add_block_bid_quantity_rows!(
-    container::OptimizationContainer,
-    devices,
-    cache::OfferWindowCache,
-)
+function _add_block_bid_quantity_rows!(container::OptimizationContainer, devices)
     isempty(devices) && return
     time_steps = get_time_steps(container)
     jump_model = get_jump_model(container)
@@ -378,14 +337,11 @@ function _add_block_bid_quantity_rows!(
         )
         p = _get_award_variable(container, dir)
         z = _get_block_bid_variable(container, dir)
-        for name in names
-            window = _window!(cache, dir, container, by_name[name], time_steps)
-            for (i, t) in enumerate(time_steps)
-                quantity = _window_quantity(window, i)
-                rows[name, t] = JuMP.@constraint(
-                    jump_model, p[name, t] - quantity * z[name, t] == 0,
-                )
-            end
+        for name in names, t in time_steps
+            quantity = _offer_quantity(dir, container, by_name[name], t)
+            rows[name, t] = JuMP.@constraint(
+                jump_model, p[name, t] - quantity * z[name, t] == 0,
+            )
         end
     end
     return
@@ -427,7 +383,6 @@ priced decision, so no PWL delta variables are built for these devices; VOM is r
 function _add_block_bid_objective_terms!(
     container::OptimizationContainer,
     devices,
-    cache::OfferWindowCache,
 )
     isempty(devices) && return
     time_steps = get_time_steps(container)
@@ -439,10 +394,10 @@ function _add_block_bid_objective_terms!(
         z = _get_block_bid_variable(container, dir)
         sign = IOM._objective_sign(dir)
         for name in names
-            window = _window!(cache, dir, container, by_name[name], time_steps)
-            is_variant = window.time_variant
-            for (i, t) in enumerate(time_steps)
-                block_value = _pwl_curve_total(_period(window, i)...)
+            d = by_name[name]
+            is_variant = IOM.is_time_variant(get_offer_curves(dir, d))
+            for t in time_steps
+                block_value = _pwl_curve_total(_curve_at(dir, container, d, t)...)
                 iszero(block_value) && continue
                 _add_block_bid_cost_term!(
                     container,
@@ -469,47 +424,46 @@ _same_offer(breakpoints_a, slopes_a, breakpoints_b, slopes_b) =
     isapprox(slopes_a, slopes_b; rtol = 1e-9, atol = 1e-9)
 
 """
-    _block_runs(window, time_steps) -> Vector{UnitRange{Int}}
+    _block_runs(dir, container, d, time_steps) -> Vector{UnitRange{Int}}
 
-The blocks of a MULTI_STEP offer side, as ranges of periods: a period with an offered
-quantity belongs to a block, and consecutive such periods stay in one block while their
-curves are identical. A change of curve or a period with no quantity ends the block.
+The blocks of a MULTI_STEP component in direction `dir`, as ranges of periods: a period with
+an offered quantity belongs to a block, and consecutive such periods stay in one block while
+their curves are identical. A change of curve or a period with no quantity ends the block.
 Adjacent blocks with the same curve cannot be told apart and count as one. A time-invariant
 curve is one block over the whole window (or none), with no per-period comparison.
 """
-function _block_runs(window::OfferWindow, time_steps)
-    runs = UnitRange{Int}[]
-    isempty(window) && return runs
-    if !window.time_variant
-        _offers_quantity(window) && push!(runs, first(time_steps):last(time_steps))
-        return runs
-    end
-    start = 0
-    for (i, t) in enumerate(time_steps)
-        if _window_quantity(window, i) <= 0.0
-            start == 0 || push!(runs, start:(t - 1))
-            start = 0
-            continue
-        end
-        continues =
-            start != 0 && _same_offer(_period(window, i)..., _period(window, i - 1)...)
-        if !continues
-            start == 0 || push!(runs, start:(t - 1))
-            start = t
-        end
-    end
-    start == 0 || push!(runs, start:last(time_steps))
-    return runs
-end
-
-"The blocks of `d` in direction `dir`, reading its window once (see the window method)."
 function _block_runs(
     dir::IOM.OfferDirection,
     container::OptimizationContainer,
     d::IS.InfrastructureSystemsComponent,
     time_steps,
 )
-    return _block_runs(_offer_window(dir, container, d, time_steps), time_steps)
+    runs = UnitRange{Int}[]
+    curve = get_offer_curves(dir, d)
+    IOM.is_nontrivial_offer(curve) || return runs
+    if !IOM.is_time_variant(curve)
+        offers = _offer_quantity(dir, container, d, first(time_steps)) > 0.0
+        offers && push!(runs, first(time_steps):last(time_steps))
+        return runs
+    end
+    start = 0
+    previous = (Float64[], Float64[])
+    for t in time_steps
+        current = _curve_at(dir, container, d, t)
+        if maximum(current[1]) <= 0.0
+            start == 0 || push!(runs, start:(t - 1))
+            start = 0
+            continue
+        end
+        continues = start != 0 && _same_offer(current..., previous...)
+        if !continues
+            start == 0 || push!(runs, start:(t - 1))
+            start = t
+        end
+        previous = current
+    end
+    start == 0 || push!(runs, start:last(time_steps))
+    return runs
 end
 
 """
@@ -518,11 +472,7 @@ periods of each block longer than one period, per direction with an offer. The s
 serves FIXED and VARIABLE devices; for a FIXED block it is `z[t] = z[t + 1]` through the
 quantity row, since a block has one quantity.
 """
-function _add_block_bid_link_rows!(
-    container::OptimizationContainer,
-    devices,
-    cache::OfferWindowCache,
-)
+function _add_block_bid_link_rows!(container::OptimizationContainer, devices)
     linked = [d for d in devices if _is_multistep(d)]
     isempty(linked) && return
     time_steps = get_time_steps(container)
@@ -530,7 +480,7 @@ function _add_block_bid_link_rows!(
     for dir in (IOM.IncrementalOffer(), IOM.DecrementalOffer())
         blocks = Tuple{String, Vector{UnitRange{Int}}}[]
         for d in linked
-            runs = _block_runs(_window!(cache, dir, container, d, time_steps), time_steps)
+            runs = _block_runs(dir, container, d, time_steps)
             long = UnitRange{Int}[r for r in runs if length(r) > 1]
             isempty(long) || push!(blocks, (PSY.get_name(d), long))
         end
@@ -600,7 +550,6 @@ function _add_virtual_location_writes!(
 )
     return
 end
-
 """
 Argument stage for `VirtualBidDispatch`: populates the MBC PWL parameters, creates a
 per-period `ActivePowerOutVariable`/`ActivePowerInVariable` for every device and adds them
@@ -664,8 +613,8 @@ end
 """
 Model stage for `VirtualBidDispatch`: the PWL delta objective for VARIABLE devices
 (`add_variable_cost!`), the quantity rows and `z`-priced objective for FIXED devices, and
-the link rows of MULTI_STEP devices, all reading each offer curve once through one window
-cache. No range or budget constraints — bounds are set directly on the variables at creation.
+the link rows of MULTI_STEP devices. No range or budget constraints — bounds are set
+directly on the variables at creation.
 """
 function construct_market_component!(
     container::OptimizationContainer,
@@ -683,9 +632,8 @@ function construct_market_component!(
         add_variable_cost!(container, ActivePowerOutVariable, wrapped, VirtualBidDispatch)
         add_variable_cost!(container, ActivePowerInVariable, wrapped, VirtualBidDispatch)
     end
-    cache = OfferWindowCache()
-    _add_block_bid_quantity_rows!(container, fixed_devices, cache)
-    _add_block_bid_objective_terms!(container, fixed_devices, cache)
-    _add_block_bid_link_rows!(container, devices, cache)
+    _add_block_bid_quantity_rows!(container, fixed_devices)
+    _add_block_bid_objective_terms!(container, fixed_devices)
+    _add_block_bid_link_rows!(container, devices)
     return
 end
