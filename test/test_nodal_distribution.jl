@@ -185,6 +185,15 @@ function _add_hub_and_p2p!(sys, zone; spread_bid = PSY.MarketBidCost(nothing))
     return hub, bid
 end
 
+# A single-segment willingness-to-pay curve at a flat `price` (\$/MWh, natural units)
+# across the bid's whole envelope.
+_flat_spread_bid(price, max_mw = 50.0) = PSY.MarketBidCost(;
+    incremental_offer_curves = PSY.CostCurve(
+        PSY.PiecewiseIncrementalCurve(0.0, [0.0, max_mw], [price]),
+        PSY.NU,
+    ),
+)
+
 # A spread bid template with both terminals' location models registered.
 function _p2p_template()
     template = _ptdf_market_template()
@@ -196,7 +205,8 @@ end
 
 @testset "SpreadBid: two signed writes, nets to zero across all buses" begin
     sys, zone, zone_buses = _build_zone_system()
-    hub, bid = _add_hub_and_p2p!(sys, zone)
+    # Priced, so the `max_active_power` envelope is what bounds the award.
+    hub, bid = _add_hub_and_p2p!(sys, zone; spread_bid = _flat_spread_bid(3.0))
     template = _ptdf_market_template()
     set_market_component_model!(template, DeviceModel(PSY.LoadZone, NodalRedistribution))
     set_market_component_model!(template, DeviceModel(PSY.TradingHub, NodalRedistribution))
@@ -288,9 +298,10 @@ end
 
 @testset "SpreadBid prices its incremental curve into the objective" begin
     sys, zone, zone_buses = _build_zone_system()
-    # Two segments with distinct, increasing marginal prices in natural units (\$/MWh),
-    # spanning the bid's full 50 MW envelope.
-    slopes = [3.0, 8.0]
+    # Two segments with distinct, decreasing marginal prices in natural units (\$/MWh),
+    # spanning the bid's full 50 MW envelope. A willingness-to-pay curve is concave: the
+    # bid pays less for each additional MW.
+    slopes = [8.0, 3.0]
     hub, bid = _add_hub_and_p2p!(
         sys, zone;
         spread_bid = PSY.MarketBidCost(;
@@ -316,15 +327,15 @@ end
     @test JuMP.coefficient(objective, q["P2P1", t1]) == 0.0
 
     # Independent reference: a curve authored in natural units prices a per-unit award at
-    # slope * base_power, per hour of the model resolution. The sign is POSITIVE -- the
-    # spread bid is an incremental offer, so a higher bid price makes the transfer more
-    # expensive to clear rather than more attractive.
+    # slope * base_power, per hour of the model resolution. The sign is NEGATIVE -- the bid
+    # price is a willingness to pay, so a higher price makes the transfer more attractive
+    # to clear, and the bid clears while the cleared spread stays at or below it.
     base_power = IOM.get_model_base_power(container)
     dt = Dates.value(IOM.get_resolution(container)) / POM.MILLISECONDS_IN_HOUR
     for t in time_steps, (segment, slope) in enumerate(slopes)
         @test isapprox(
             JuMP.coefficient(objective, delta[("P2P1", segment, t)]),
-            slope * base_power * dt;
+            -slope * base_power * dt;
             atol = 1e-9,
         )
     end
@@ -396,7 +407,7 @@ end
 
 @testset "SpreadBid prices a time-series-backed spread curve identically" begin
     sys, zone, zone_buses = _build_zone_system()
-    slopes = [3.0, 8.0]
+    slopes = [8.0, 3.0]
     hub, bid = _add_hub_and_p2p!(sys, zone)
     _promote_spread_bid_to_ts!(sys, bid, [0.0, 20.0, 50.0], slopes)
     model = DecisionModel(_p2p_template(), sys; optimizer = HiGHS_optimizer)
@@ -416,7 +427,7 @@ end
     for t in time_steps, (segment, slope) in enumerate(slopes)
         @test isapprox(
             JuMP.coefficient(objective, delta[("P2P1", segment, t)]),
-            slope * base_power * dt;
+            -slope * base_power * dt;
             atol = 1e-9,
         )
     end
@@ -427,24 +438,96 @@ end
     )
 end
 
-@testset "SpreadBid without a curve warns and stays unpriced" begin
+# Objective coefficient on a flat-priced bid's single offer segment, per unit per period.
+function _flat_price_objective_coefficient(price)
+    sys, zone, zone_buses = _build_zone_system()
+    hub, bid = _add_hub_and_p2p!(sys, zone; spread_bid = _flat_spread_bid(price))
+    model = DecisionModel(_p2p_template(), sys; optimizer = HiGHS_optimizer)
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+    container = get_optimization_container(model)
+    t1 = first(get_time_steps(container))
+    delta = IOM.get_variable(
+        container, PiecewiseLinearBlockIncrementalOffer, PSY.PointToPointBid,
+    )
+    objective = JuMP.objective_function(get_jump_model(container))
+    dt = Dates.value(IOM.get_resolution(container)) / POM.MILLISECONDS_IN_HOUR
+    base_power = IOM.get_model_base_power(container)
+    return JuMP.coefficient(objective, delta[("P2P1", 1, t1)]) / (base_power * dt)
+end
+
+@testset "SpreadBid enters the objective on the sign of its bid price" begin
+    # The economic content of the sign. A minimizing model clears the bid while its
+    # benefit outweighs the congestion it causes, so a willingness to pay must carry a
+    # negative coefficient and a willingness to be paid a positive one. Under a cost sign
+    # both invert, and the awards invert with them.
+    @test isapprox(_flat_price_objective_coefficient(30.0), -30.0; atol = 1e-9)
+    @test isapprox(_flat_price_objective_coefficient(-30.0), 30.0; atol = 1e-9)
+end
+
+@testset "SpreadBid without a curve warns and clears zero" begin
     sys, zone, zone_buses = _build_zone_system()
     hub, bid = _add_hub_and_p2p!(sys, zone)
     model = DecisionModel(_p2p_template(), sys; optimizer = HiGHS_optimizer)
     output_dir = mktempdir(; cleanup = true)
     @test build!(model; output_dir = output_dir) == IOM.ModelBuildStatus.BUILT
     container = get_optimization_container(model)
-    t1 = first(get_time_steps(container))
+    time_steps = get_time_steps(container)
     q = IOM.get_variable(container, ClearedTransferVariable, PSY.PointToPointBid)
     @test JuMP.coefficient(JuMP.objective_function(get_jump_model(container)),
-        q["P2P1", t1]) == 0.0
+        q["P2P1", first(time_steps)]) == 0.0
     @test !IOM.has_container_key(
         container, PiecewiseLinearBlockIncrementalOffer, PSY.PointToPointBid,
     )
-    # Free optionality must be loud. Build warnings land in the build log, not at the
+    # No willingness-to-pay, no transfer: without the zeroed bound the bid would move its
+    # full 50 MW envelope in every hour at zero cost.
+    for t in time_steps
+        @test JuMP.upper_bound(q["P2P1", t]) == 0.0
+    end
+    # An unpriced envelope must be loud. Build warnings land in the build log, not at the
     # call site, so assert by reading the file.
     log = read(joinpath(output_dir, "operation_problem.log"), String)
-    @test occursin("P2P1 has no incremental spread_bid curve", log)
+    @test occursin("No incremental spread_bid curve over the model horizon", log)
+    @test occursin("P2P1", log)
+end
+
+@testset "SpreadBid inert over the horizon clears zero" begin
+    # A block bid whose priced hours all fall outside the modeled window stores a real
+    # time series whose every hour has zero span. It must be held at zero exactly as the
+    # curveless bid is, not left with a free envelope.
+    sys, zone, zone_buses = _build_zone_system()
+    hub, bid = _add_hub_and_p2p!(sys, zone)
+    _promote_spread_bid_to_ts!(sys, bid, [0.0, 0.0], [0.0])
+    model = DecisionModel(_p2p_template(), sys; optimizer = HiGHS_optimizer)
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+    container = get_optimization_container(model)
+    q = IOM.get_variable(container, ClearedTransferVariable, PSY.PointToPointBid)
+    for t in get_time_steps(container)
+        @test JuMP.upper_bound(q["P2P1", t]) == 0.0
+    end
+    @test !IOM.has_container_key(
+        container, PiecewiseLinearBlockIncrementalOffer, PSY.PointToPointBid,
+    )
+end
+
+@testset "SpreadBid rejects an increasing bid curve" begin
+    # A negatively signed curve is only exact in the delta PWL relaxation when it is
+    # concave: increasing bid prices would let the model buy a high-priced MW without
+    # first taking the cheaper ones below it.
+    sys, zone, zone_buses = _build_zone_system()
+    hub, bid = _add_hub_and_p2p!(
+        sys, zone;
+        spread_bid = PSY.MarketBidCost(;
+            incremental_offer_curves = PSY.CostCurve(
+                PSY.PiecewiseIncrementalCurve(0.0, [0.0, 20.0, 50.0], [3.0, 8.0]),
+                PSY.NU,
+            ),
+        ),
+    )
+    model = DecisionModel(_p2p_template(), sys; optimizer = HiGHS_optimizer)
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.FAILED
 end
 
 @testset "SpreadBid rejects block-bid curve styles" begin

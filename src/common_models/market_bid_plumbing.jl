@@ -120,6 +120,28 @@ get_offer_curves(::IOM.DecrementalOffer, op_cost::PSY.OfferCurveCost) =
 get_offer_curves(::IOM.IncrementalOffer, op_cost::PSY.OfferCurveCost) =
     get_output_offer_curves(op_cost)
 
+# `IncrementalBidOffer` reads the same incremental side as `IncrementalOffer`; only the
+# objective sign and the expected curvity differ (see the type's docstring).
+get_offer_curves(
+    ::IncrementalBidOffer,
+    device::OFFER_CURVE_COMPONENTS,
+) = get_output_offer_curves(IOM.get_operation_cost(device))
+get_offer_curves(::IncrementalBidOffer, op_cost::PSY.OfferCurveCost) =
+    get_output_offer_curves(op_cost)
+
+# The rest of IOM's OfferDirection dispatch table for the bid direction: incremental
+# parameter/variable/constraint types, a benefit sign, and the concavity the negative sign
+# requires of the curve.
+Base.string(::IncrementalBidOffer) = "incremental bid"
+IOM._slope_param(::IncrementalBidOffer) = IncrementalPiecewiseLinearSlopeParameter
+IOM._breakpoint_param(::IncrementalBidOffer) = IncrementalPiecewiseLinearBreakpointParameter
+IOM._block_offer_var(::IncrementalBidOffer) = PiecewiseLinearBlockIncrementalOffer
+IOM._block_offer_constraint(::IncrementalBidOffer) =
+    PiecewiseLinearBlockIncrementalOfferConstraint
+IOM._objective_sign(::IncrementalBidOffer) = OBJECTIVE_FUNCTION_NEGATIVE
+IOM.curvity_check(::IncrementalBidOffer, x) = IS.is_concave(x)
+IOM.expected_curvity(::IncrementalBidOffer) = "concave"
+
 # direction and operating reserve demand curve (ORDC) reserve service: the curve is on the
 # `variable` field (a CostCurve, static or time-series-backed) rather than split
 # across incremental/decremental sides. Direction is irrelevant to the lookup; the
