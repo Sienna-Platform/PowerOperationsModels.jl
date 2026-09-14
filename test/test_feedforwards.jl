@@ -40,7 +40,7 @@ end
         IOM.ConstraintKey(
             FeedforwardUpperBoundConstraint,
             PSY.ThermalStandard,
-            "$(ActivePowerVariable)ub",
+            "$(nameof(ActivePowerVariable))ub",
         ),
     )
     var = IOM.get_variable(container, ActivePowerVariable, PSY.ThermalStandard)
@@ -89,14 +89,14 @@ end
         IOM.ConstraintKey(
             FeedforwardUpperBoundConstraint,
             PSY.ThermalStandard,
-            "$(ActivePowerVariable)ub",
+            "$(nameof(ActivePowerVariable))ub",
         ),
     )
     slack = IOM.get_variable(
         container,
         UpperBoundFeedForwardSlack,
         PSY.ThermalStandard,
-        "$(ActivePowerVariable)",
+        "$(nameof(ActivePowerVariable))",
     )
     names, time_steps = JuMP.axes(slack)
     for name in names, t in time_steps
@@ -131,7 +131,7 @@ end
         IOM.ConstraintKey(
             FeedforwardLowerBoundConstraint,
             PSY.ThermalStandard,
-            "$(ActivePowerVariable)lb",
+            "$(nameof(ActivePowerVariable))lb",
         ),
     )
     var = IOM.get_variable(container, ActivePowerVariable, PSY.ThermalStandard)
@@ -171,14 +171,14 @@ end
         IOM.ConstraintKey(
             FeedforwardLowerBoundConstraint,
             PSY.ThermalStandard,
-            "$(ActivePowerVariable)lb",
+            "$(nameof(ActivePowerVariable))lb",
         ),
     )
     slack = IOM.get_variable(
         container,
         LowerBoundFeedForwardSlack,
         PSY.ThermalStandard,
-        "$(ActivePowerVariable)",
+        "$(nameof(ActivePowerVariable))",
     )
     names, time_steps = JuMP.axes(slack)
     for name in names, t in time_steps
@@ -216,7 +216,7 @@ end
         IOM.ConstraintKey(
             FeedforwardSemiContinuousConstraint,
             PSY.ThermalStandard,
-            "$(ActivePowerVariable)_ub",
+            "$(nameof(ActivePowerVariable))_ub",
         ),
     )
     con_lb = IOM.get_constraint(
@@ -224,7 +224,7 @@ end
         IOM.ConstraintKey(
             FeedforwardSemiContinuousConstraint,
             PSY.ThermalStandard,
-            "$(ActivePowerVariable)_lb",
+            "$(nameof(ActivePowerVariable))_lb",
         ),
     )
 
@@ -304,7 +304,7 @@ end
         IOM.ConstraintKey(
             FeedforwardSemiContinuousConstraint,
             PSY.ThermalStandard,
-            "$(PowerAboveMinimumVariable)_ub",
+            "$(nameof(PowerAboveMinimumVariable))_ub",
         ),
     )
     names, time_steps = JuMP.axes(var)
@@ -369,7 +369,7 @@ end
         IOM.ConstraintKey(
             FeedforwardSemiContinuousConstraint,
             PSY.ThermalStandard,
-            "$(ActivePowerVariable)_ub",
+            "$(nameof(ActivePowerVariable))_ub",
         ),
     )
     names, time_steps = JuMP.axes(var)
@@ -409,7 +409,7 @@ end
         IOM.ConstraintKey(
             FeedforwardSemiContinuousConstraint,
             PSY.HydroDispatch,
-            "$(ActivePowerVariable)_ub",
+            "$(nameof(ActivePowerVariable))_ub",
         ),
     )
     con_lb = IOM.get_constraint(
@@ -417,7 +417,7 @@ end
         IOM.ConstraintKey(
             FeedforwardSemiContinuousConstraint,
             PSY.HydroDispatch,
-            "$(ActivePowerVariable)_lb",
+            "$(nameof(ActivePowerVariable))_lb",
         ),
     )
 
@@ -496,7 +496,7 @@ end
         IOM.ConstraintKey(
             FeedforwardSemiContinuousConstraint,
             PSY.HydroDispatch,
-            "$(ActivePowerVariable)_ub",
+            "$(nameof(ActivePowerVariable))_ub",
         ),
     )
     names, time_steps = JuMP.axes(var)
@@ -511,7 +511,7 @@ end
     c_sys5 = PSB.build_system(PSITestSystems, "c_sys5")
     must_run_unit = first(PSY.get_components(PSY.ThermalStandard, c_sys5))
     must_run_name = PSY.get_name(must_run_unit)
-    PSY.set_must_run!(must_run_unit, true)
+    PSY.set_commitment_mode!(must_run_unit, PSY.CommitmentModes.MUST_RUN)
 
     # `ThermalBasicDispatch` has no ramp constraints; see the broken testset below for
     # why `ThermalStandardDispatch` cannot be used here yet.
@@ -538,7 +538,7 @@ end
         IOM.ConstraintKey(
             FeedforwardSemiContinuousConstraint,
             PSY.ThermalStandard,
-            "$(ActivePowerVariable)_ub",
+            "$(nameof(ActivePowerVariable))_ub",
         ),
     )
     time_steps = JuMP.axes(con_ub)[2]
@@ -547,7 +547,7 @@ end
         @test !isassigned(con_ub.data, ix, t)
     end
 
-    PSY.set_must_run!(must_run_unit, false)
+    PSY.set_commitment_mode!(must_run_unit, PSY.CommitmentModes.COMMITTED)
 end
 
 # POM leaves must-run units out of the `OnStatusParameter` container; this covers the
@@ -556,7 +556,7 @@ end
     c_sys5 = PSB.build_system(PSITestSystems, "c_sys5")
     must_run_unit = first(PSY.get_components(PSY.ThermalStandard, c_sys5))
     must_run_name = PSY.get_name(must_run_unit)
-    PSY.set_must_run!(must_run_unit, true)
+    PSY.set_commitment_mode!(must_run_unit, PSY.CommitmentModes.MUST_RUN)
 
     device_model = DeviceModel(PSY.ThermalStandard, ThermalStandardDispatch)
     ff_sc = SemiContinuousFeedforward(;
@@ -573,7 +573,7 @@ end
     con_up = IOM.get_constraint(container, RampConstraint, PSY.ThermalStandard, "up")
     @test must_run_name ∈ JuMP.axes(con_up)[1]
 
-    PSY.set_must_run!(must_run_unit, false)
+    PSY.set_commitment_mode!(must_run_unit, PSY.CommitmentModes.COMMITTED)
 end
 
 @testset "must-run unit under SemiContinuousFeedforward keeps its ActivePowerBalance contribution (ThermalCompactDispatch)" begin
@@ -585,7 +585,7 @@ end
     c_sys5 = PSB.build_system(PSITestSystems, "c_sys5")
     must_run_unit = first(PSY.get_components(PSY.ThermalStandard, c_sys5))
     must_run_name = PSY.get_name(must_run_unit)
-    PSY.set_must_run!(must_run_unit, true)
+    PSY.set_commitment_mode!(must_run_unit, PSY.CommitmentModes.MUST_RUN)
     min_limit = PSY.get_active_power_limits(must_run_unit, PSY.SU).min
     bus_no = PSY.get_number(PSY.get_bus(must_run_unit))
 
@@ -610,7 +610,7 @@ end
         @test JuMP.constant(balance[bus_no, t]) == min_limit
     end
 
-    PSY.set_must_run!(must_run_unit, false)
+    PSY.set_commitment_mode!(must_run_unit, PSY.CommitmentModes.COMMITTED)
 end
 
 @testset "Non-semicontinuous feedforward on ThermalCompactDispatch keeps the float OnStatusParameter container" begin
@@ -666,20 +666,20 @@ end
         container,
         FixValueParameter,
         PSY.ThermalStandard,
-        "$(ActivePowerVariable)",
+        "$(nameof(ActivePowerVariable))",
     )
     mult = IOM.get_parameter_multiplier_array(
         container,
         FixValueParameter,
         PSY.ThermalStandard,
-        "$(ActivePowerVariable)",
+        "$(nameof(ActivePowerVariable))",
     )
     con = IOM.get_constraint(
         container,
         IOM.ConstraintKey(
             FeedforwardFixValueConstraint,
             PSY.ThermalStandard,
-            "$(ActivePowerVariable)",
+            "$(nameof(ActivePowerVariable))",
         ),
     )
 
@@ -699,7 +699,7 @@ end
         IOM.ParameterKey(
             FixValueParameter,
             PSY.ThermalStandard,
-            "$(ActivePowerVariable)",
+            "$(nameof(ActivePowerVariable))",
         ),
     )
     @test IOM.VariableKey(ActivePowerVariable, PSY.ThermalStandard) ∈ attrs.affected_keys
@@ -728,14 +728,14 @@ end
         container,
         FixValueParameter,
         PSY.ThermalStandard,
-        "$(POM.PowerOutput)",
+        "$(nameof(POM.PowerOutput))",
     )
     con = IOM.get_constraint(
         container,
         IOM.ConstraintKey(
             FeedforwardFixValueConstraint,
             PSY.ThermalStandard,
-            "$(ActivePowerVariable)",
+            "$(nameof(ActivePowerVariable))",
         ),
     )
 
@@ -750,7 +750,7 @@ end
         IOM.ParameterKey(
             FixValueParameter,
             PSY.ThermalStandard,
-            "$(POM.PowerOutput)",
+            "$(nameof(POM.PowerOutput))",
         ),
     )
     @test IOM.VariableKey(ActivePowerVariable, PSY.ThermalStandard) ∈ attrs.affected_keys
@@ -1086,6 +1086,26 @@ end
     @test length(IOM.get_feedforwards(reservoir_model)) == 1
 end
 
+@testset "attach_feedforward! rejects a second differing EnergyTargetFeedforward" begin
+    device_model = DeviceModel(EnergyReservoirStorage, StorageDispatchWithReserves)
+    ff1 = EnergyTargetFeedforward(;
+        component_type = EnergyReservoirStorage,
+        source = EnergyVariable,
+        affected_values = [EnergyVariable],
+        target_period = 24,
+        penalty_cost = 1e5,
+    )
+    ff2 = EnergyTargetFeedforward(;
+        component_type = EnergyReservoirStorage,
+        source = ActivePowerOutVariable,
+        affected_values = [EnergyVariable],
+        target_period = 24,
+        penalty_cost = 1e5,
+    )
+    attach_feedforward!(device_model, ff1)
+    @test_throws ArgumentError attach_feedforward!(device_model, ff2)
+end
+
 @testset "ReservoirTargetFeedforward builds the target constraint and penalizes the shortage slack" begin
     c_sys5_hy = PSB.build_system(PSITestSystems, "c_sys5_hy_turbine_head")
     reservoir_model = DeviceModel(HydroReservoir, HydroWaterModelReservoir)
@@ -1115,7 +1135,7 @@ end
         IOM.ConstraintKey(
             FeedforwardEnergyTargetConstraint,
             HydroReservoir,
-            "$(HydroReservoirVolumeVariable)target",
+            "$(nameof(HydroReservoirVolumeVariable))target",
         ),
     )
     var = IOM.get_variable(container, HydroReservoirVolumeVariable, HydroReservoir)
@@ -1129,13 +1149,124 @@ end
     for name in names
         # var[name, 1] + slack[name, 1] - param[name, 1] >= 0
         con_obj = JuMP.constraint_object(con[name, "horizon"])
-        @test con_obj.set isa MOI.GreaterThan
+        @test is_greater_than_set(con_obj.set)
         @test JuMP.normalized_coefficient(con[name, "horizon"], var[name, 1]) == 1.0
         @test JuMP.normalized_coefficient(con[name, "horizon"], slack[name, 1]) == 1.0
         @test JuMP.normalized_coefficient(con[name, "horizon"], param[name, 1]) == -1.0
         # An unpenalized slack would make the target vacuous.
         @test get(obj.terms, slack[name, 1], 0.0) == penalty_cost
     end
+end
+
+@testset "EnergyTargetFeedforward bounds EnergyVariable at the horizon end" begin
+    device_model = DeviceModel(
+        EnergyReservoirStorage,
+        StorageDispatchWithReserves;
+        attributes = Dict{String, Any}(
+            "reservation" => true,
+            "cycling_limits" => false,
+            "energy_target" => false,
+            "complete_coverage" => false,
+            "regularization" => false,
+        ),
+    )
+    penalty = 1e5
+    ff = EnergyTargetFeedforward(;
+        component_type = EnergyReservoirStorage,
+        source = EnergyVariable,
+        affected_values = [EnergyVariable],
+        target_period = 24,
+        penalty_cost = penalty,
+    )
+    attach_feedforward!(device_model, ff)
+    sys = PSB.build_system(PSITestSystems, "c_sys5_bat")
+    model = DecisionModel(MockOperationProblem, DCPNetworkModel, sys)
+    mock_construct_device!(model, device_model; built_for_recurrent_solves = true)
+    container = IOM.get_optimization_container(model)
+
+    cons = IOM.get_constraint(
+        container,
+        FeedforwardEnergyTargetConstraint(),
+        EnergyReservoirStorage,
+        "$(nameof(EnergyVariable))target",
+    )
+    energy = IOM.get_variable(container, EnergyVariable, EnergyReservoirStorage)
+    slack =
+        IOM.get_variable(container, StorageEnergyShortageVariable, EnergyReservoirStorage)
+    param =
+        IOM.get_parameter_array(container, EnergyTargetParameter, EnergyReservoirStorage)
+    obj = IOM.get_objective_expression(container)
+    for name in axes(cons)[1]
+        c = JuMP.constraint_object(cons[name, "horizon"])
+        # energy[name, 24] + slack[name, 24] - param[name, 24] >= 0
+        @test c.set == MOI.GreaterThan(0.0)
+        @test JuMP.coefficient(c.func, energy[name, 24]) ≈ 1.0
+        @test JuMP.coefficient(c.func, slack[name, 24]) ≈ 1.0
+        @test JuMP.normalized_coefficient(cons[name, "horizon"], param[name, 24]) ≈ -1.0
+        # an unpenalized slack would make the target vacuous
+        @test JuMP.coefficient(IOM.get_invariant_terms(obj), slack[name, 24]) ≈ penalty
+    end
+end
+
+@testset "EnergyTargetFeedforward rejects a mid-horizon target_period" begin
+    device_model = DeviceModel(
+        EnergyReservoirStorage,
+        StorageDispatchWithReserves;
+        attributes = Dict{String, Any}(
+            "reservation" => true,
+            "cycling_limits" => false,
+            "energy_target" => false,
+            "complete_coverage" => false,
+            "regularization" => false,
+        ),
+    )
+    ff = EnergyTargetFeedforward(;
+        component_type = EnergyReservoirStorage,
+        source = EnergyVariable,
+        affected_values = [EnergyVariable],
+        target_period = 12,
+        penalty_cost = 1e5,
+    )
+    attach_feedforward!(device_model, ff)
+    sys = PSB.build_system(PSITestSystems, "c_sys5_bat")
+    model = DecisionModel(MockOperationProblem, DCPNetworkModel, sys)
+    @test_throws ErrorException mock_construct_device!(
+        model,
+        device_model;
+        built_for_recurrent_solves = true,
+    )
+end
+
+@testset "EnergyTargetFeedforward with the energy_target attribute is rejected" begin
+    device_model = DeviceModel(
+        EnergyReservoirStorage,
+        StorageDispatchWithReserves;
+        attributes = Dict{String, Any}(
+            "reservation" => true,
+            "cycling_limits" => false,
+            "energy_target" => true,
+            "complete_coverage" => false,
+            "regularization" => false,
+        ),
+    )
+    ff = EnergyTargetFeedforward(;
+        component_type = EnergyReservoirStorage,
+        source = EnergyVariable,
+        affected_values = [EnergyVariable],
+        target_period = 24,
+        penalty_cost = 1e5,
+    )
+    attach_feedforward!(device_model, ff)
+    sys = PSB.build_system(PSITestSystems, "c_sys5_bat")
+    model = DecisionModel(MockOperationProblem, DCPNetworkModel, sys)
+    # `energy_target = true` and this feedforward both call
+    # `add_variables!(container, StorageEnergyShortageVariable, ...)`; the second call
+    # collides on the container key and IOM raises `InvalidValue`, not `ErrorException`.
+    @test_throws IS.InvalidValue mock_construct_device!(
+        model,
+        device_model;
+        built_for_recurrent_solves = true,
+    )
 end
 
 @testset "ReservoirLimitFeedforward attaches to a HydroReservoir DeviceModel" begin
@@ -1186,7 +1317,7 @@ end
         IOM.ConstraintKey(
             FeedforwardIntegralLimitConstraint,
             HydroReservoir,
-            "$(HydroReservoirVolumeVariable)integral",
+            "$(nameof(HydroReservoirVolumeVariable))integral",
         ),
     )
     var = IOM.get_variable(container, HydroReservoirVolumeVariable, HydroReservoir)

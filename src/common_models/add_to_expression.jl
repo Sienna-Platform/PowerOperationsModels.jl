@@ -153,7 +153,7 @@ function _add_pmin_scaled_on_to_balance!(
         targets = _balance_expression_targets(container, T, network_model, d)
         name = PSY.get_name(d)
         multiplier = PSY.get_active_power_limits(d, PSY.SU).min * base_multiplier
-        if PSY.get_must_run(d)
+        if _is_must_run(d)
             # On ≡ 1 for must-run units, so the term is the constant p_min * mult.
             for t in time_steps
                 _apply_term_to_targets!(targets, 1.0, multiplier, t)
@@ -189,7 +189,7 @@ function _add_compact_on_to_balance!(
         targets = _balance_expression_targets(container, T, network_model, d)
         name = PSY.get_name(d)
         multiplier = PSY.get_active_power_limits(d, PSY.SU).min * base_multiplier
-        if PSY.get_must_run(d)
+        if _is_must_run(d)
             # On ≡ 1 for must-run units, so the term is the constant p_min * mult.
             for t in time_steps
                 _apply_term_to_targets!(targets, 1.0, multiplier, t)
@@ -1929,46 +1929,6 @@ function add_to_expression!(
     return
 end
 
-# psy6: disabled pending transformer refactor
-# """
-# Implementation of add_to_expression! for lossless branch/network models
-# """
-# function add_to_expression!(
-#     container::OptimizationContainer,
-#     ::Type{T},
-#     ::Type{U},
-#     devices::IS.FlattenIteratorWrapper{PSY.PhaseShiftingTransformer},
-#     ::DeviceModel{PSY.PhaseShiftingTransformer, V},
-#     network_model::NetworkModel{<:AbstractPTDFNetworkModel},
-# ) where {T <: ActivePowerBalance, U <: PhaseShifterAngle, V <: PhaseAngleControl}
-#     var = get_variable(container, U, PSY.PhaseShiftingTransformer)
-#     expression = get_expression(container, T, PSY.ACBus)
-#     network_reduction = get_network_reduction(network_model)
-#     time_steps = get_time_steps(container)
-#     for d in devices
-#         name = PSY.get_name(d)
-#         bus_no_from =
-#             PNM.get_mapped_bus_number(network_reduction, PSY.get_from(PSY.get_arc(d)))
-#         bus_no_to = PNM.get_mapped_bus_number(network_reduction, PSY.get_to(PSY.get_arc(d)))
-#         # Per-device reactance multiplier for phase shifter
-#         x_mult = 1.0 / PSY.get_x(d, PSY.SU)
-#         for t in time_steps
-#             flow_variable = var[name, t]
-#             add_proportional_to_jump_expression!(
-#                 expression[bus_no_from, t],
-#                 flow_variable,
-#                 -x_mult * get_variable_multiplier(U, PSY.PhaseShiftingTransformer, V),
-#             )
-#             add_proportional_to_jump_expression!(
-#                 expression[bus_no_to, t],
-#                 flow_variable,
-#                 x_mult * get_variable_multiplier(U, PSY.PhaseShiftingTransformer, V),
-#             )
-#         end
-#     end
-#     return
-# end
-
 function add_to_expression!(
     container::OptimizationContainer,
     ::Type{T},
@@ -2573,7 +2533,7 @@ function add_to_expression!(
     expression = get_expression(container, T, V)
     time_steps = get_time_steps(container)
     for d in devices
-        if PSY.get_must_run(d)
+        if _is_must_run(d)
             continue
         end
         name = PSY.get_name(d)

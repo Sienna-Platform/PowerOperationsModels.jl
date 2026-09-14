@@ -4,6 +4,7 @@ module PowerOperationsModels
 # Package imports
 #################################################################################
 import Dates
+import Random
 import InfrastructureSystems
 import InfrastructureSystems: @assert_op, TableFormat
 import JuMP
@@ -132,7 +133,6 @@ import InfrastructureOptimizationModels:
     add_parameters!,
     # Cost/status functions (IOM has default stubs, POM adds device-specific methods)
     get_operation_cost,
-    get_must_run,
     # Build-pipeline extension points (IOM declares stubs, POM extends)
     calculate_aux_variable_value!,
     is_from_evaluator,
@@ -261,6 +261,10 @@ include("core/feedforward_interface.jl")
 include("feedforward/feedforwards.jl")
 include("core/initial_conditions.jl")
 
+include("event_models/event_model.jl")
+include("event_models/event_traits.jl")
+include("event_models/event_runtime.jl")
+
 # Common models - expression infrastructure
 # Expression container creation (add_expressions!) and helpers
 include("common_models/add_expressions.jl")
@@ -283,6 +287,9 @@ include("common_models/converter_control.jl")
 # Market bid cost plumbing (PSY orchestration moved out of IOM). Must be included
 # before device-specific files that reference MBC_TYPES / IEC_TYPES.
 include("common_models/market_bid_plumbing.jl")
+
+include("event_models/event_arguments.jl")
+include("event_models/event_constraints.jl")
 
 # Initial Conditions
 include("initial_conditions/add_initial_condition.jl")
@@ -433,6 +440,46 @@ export NetworkModel
 export DeviceModel
 export ServiceModel
 export OptimizationContainer
+
+# Event Model Container Types
+export EventModel
+export EventKey
+export AbstractEventCondition
+export ContinuousCondition
+export PresetTimeCondition
+export StateVariableValueCondition
+export DiscreteEventCondition
+export get_time_stamps
+export get_empty_timeseries_mapping
+export get_event_type
+export get_event_condition
+export get_attribute_device_map
+export set_event_model!
+export get_event_models
+export supports_events
+export event_parameter_keys
+export EVENT_PARAMETER_UPDATE_ORDER
+export outage_occurred
+export time_to_recover
+export countdown_steps
+export advance_countdown
+export countdown_trajectory
+export availability_from_countdown
+export availability_trajectory
+export outage_power_offset
+export event_step_values
+export AbstractConditionInput
+export StateValueInput
+export RuntimeStateInput
+export required_inputs
+export is_triggered
+export AvailableStatusParameter
+export ActivePowerOffsetParameter
+export ReactivePowerOffsetParameter
+export AvailableStatusChangeCountdownParameter
+export ActivePowerOutageConstraint
+export ReactivePowerOutageConstraint
+export ActivePowerPumpOutageConstraint
 
 # Initial Conditions Quantities
 export DevicePower
@@ -609,7 +656,9 @@ export SemiContinuousFeedforward
 export FixValueFeedforward
 export WaterLevelBudgetFeedforward
 export ReservoirTargetFeedforward
+export EnergyTargetFeedforward
 export ReservoirLimitFeedforward
+export EnergyLimitFeedforward
 export HydroUsageLimitFeedforward
 export attach_feedforward!
 export FeedforwardUpperBoundConstraint
@@ -946,8 +995,6 @@ export StaticBranch
 export StaticBranchBounds
 export StaticBranchUnbounded
 export SecurityConstrainedStaticBranch
-# psy6: disabled pending transformer refactor
-# export PhaseAngleControl
 export TapRatioVariable
 
 # DC Branch Formulations

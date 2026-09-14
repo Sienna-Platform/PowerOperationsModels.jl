@@ -34,13 +34,6 @@ function add_feedforward_constraints!(
     return
 end
 
-# `must_run` has no shared abstract type to hang off: it sits on the two concrete `ThermalGen`
-# types and on `HydroPumpTurbine`, whose sibling `HydroTurbine` lacks it. Reading it through a
-# trait keeps the must-run skip on dispatch instead of a per-device `hasmethod` probe.
-_is_must_run(::PSY.Component)::Bool = false
-_is_must_run(d::PSY.ThermalGen)::Bool = PSY.get_must_run(d)
-_is_must_run(d::PSY.HydroPumpTurbine)::Bool = PSY.get_must_run(d)
-
 # IOM's `upper_bound_range_with_parameter!` / `lower_bound_range_with_parameter!` read the
 # multiplier straight out of the parameter container. The semicontinuous feedforward supplies
 # its own -- zeros when the status already sits inside the range expressions, the variable's
@@ -117,7 +110,7 @@ function _add_sc_feedforward_constraints!(
             V,
             names,
             time_steps;
-            meta = "$(U)_$(IOM.constraint_meta(dir))",
+            meta = "$(nameof(U))_$(IOM.constraint_meta(dir))",
         )
         _feedforward_bound_range_with_parameter!(
             dir,
@@ -164,7 +157,7 @@ function _add_sc_feedforward_constraints!(
             V,
             names,
             time_steps;
-            meta = "$(U)_$(IOM.constraint_meta(dir))",
+            meta = "$(nameof(U))_$(IOM.constraint_meta(dir))",
         )
         # The bound is constant across time for a given device, so a `Dict` keyed by name
         # stands in for the multiplier without repeating it into a device x time matrix.
@@ -259,13 +252,18 @@ function _add_bound_feedforward_constraints!(
             T,
             device_name_set,
             time_steps;
-            meta = "$(var_type)$(IOM.constraint_meta(dir))",
+            meta = "$(nameof(var_type))$(IOM.constraint_meta(dir))",
         )
         # NOTE (deviation from PowerSimulations): PSI allocates the slack when
         # `add_slacks = true` but never references it in this constraint, so the slack
         # has no effect there. POM wires it in.
         if use_slacks
-            slack = get_variable(container, _feedforward_slack_type(dir), T, "$(var_type)")
+            slack = get_variable(
+                container,
+                _feedforward_slack_type(dir),
+                T,
+                "$(nameof(var_type))",
+            )
         end
         for t in time_steps, name in device_name_set
             if use_slacks
@@ -353,8 +351,9 @@ function add_feedforward_constraints!(
     parameter_type = get_default_parameter_type(ff, T)
     source_key = get_optimization_container_key(ff)
     var_type = get_entry_type(source_key)
-    param = get_parameter_array(container, parameter_type, T, "$var_type")
-    multiplier = get_parameter_multiplier_array(container, parameter_type, T, "$var_type")
+    param = get_parameter_array(container, parameter_type, T, "$(nameof(var_type))")
+    multiplier =
+        get_parameter_multiplier_array(container, parameter_type, T, "$(nameof(var_type))")
     jump_model = get_jump_model(container)
     devices_names = PSY.get_name.(devices)
     for var in get_affected_values(ff)
@@ -378,7 +377,7 @@ function add_feedforward_constraints!(
             T,
             device_name_set,
             time_steps;
-            meta = "$(affected_var_type)",
+            meta = "$(nameof(affected_var_type))",
         )
         for t in time_steps, name in device_name_set
             con[name, t] = JuMP.@constraint(
@@ -427,19 +426,16 @@ function add_feedforward_constraints!(
     return
 end
 
-@doc raw"""
-Constructs a constraint holding a reservoir variable to a minimum target read from the
-system state at `target_period`, relaxed by a `HydroEnergyShortageVariable` slack penalized
-in the objective at `penalty_cost`.
-
-``` variable[name, target_period] + slack[name, target_period] >= param[name, target_period] * multiplier[name, target_period] ```
-"""
-function add_feedforward_constraints!(
+# Shared by the reservoir and storage energy-target feedforwards, which differ only in
+# the component family and the slack that relaxes the target.
+# A single value per device, at `target_period`; `["horizon"]` is the same degenerate
+# second axis `WaterBudgetConstraint` uses, since IOM rejects 1D constraint containers.
+function _add_energy_target_constraints!(
     container::OptimizationContainer,
-    ::DeviceModel{T, U},
     devices::Union{Vector{T}, IS.FlattenIteratorWrapper{T}},
-    ff::ReservoirTargetFeedforward,
-) where {T <: PSY.HydroReservoir, U <: AbstractDeviceFormulation}
+    ff::AbstractAffectFeedforward,
+    ::Type{S},
+) where {T <: PSY.Component, S <: VariableType}
     time_steps = get_time_steps(container)
     parameter_type = get_default_parameter_type(ff, T)
     param = get_parameter_array(container, parameter_type, T)
@@ -448,21 +444,18 @@ function add_feedforward_constraints!(
     penalty_cost = get_penalty_cost(ff)
     jump_model = get_jump_model(container)
     devices_names = PSY.get_name.(devices)
-    slack_var = get_variable(container, HydroEnergyShortageVariable, T)
+    slack_var = get_variable(container, S, T)
     for var in get_affected_values(ff)
         variable = get_variable(container, var)
         device_name_set = _check_device_time_axes(variable, devices_names, time_steps)
-
         var_type = get_entry_type(var)
-        # A single value per device, at `target_period`; `["horizon"]` is the same degenerate
-        # second axis `WaterBudgetConstraint` uses, since IOM rejects 1D constraint containers.
         con = add_constraints_container!(
             container,
             FeedforwardEnergyTargetConstraint,
             T,
             device_name_set,
             ["horizon"];
-            meta = "$(var_type)target",
+            meta = "$(nameof(var_type))target",
         )
         for name in device_name_set
             con[name, "horizon"] = JuMP.@constraint(
@@ -480,17 +473,56 @@ function add_feedforward_constraints!(
 end
 
 @doc raw"""
-Constructs a constraint bounding the sum of a variable over consecutive blocks of
-`number_of_periods` time steps to a per-block limit read from the system state.
+Constructs a constraint holding a reservoir variable to a minimum target read from the
+system state at `target_period`, relaxed by a `HydroEnergyShortageVariable` slack penalized
+in the objective at `penalty_cost`.
 
-``` sum(variable[name, t] for t in block) <= sum(param[name, t] * multiplier[name, t] for t in block) ```
+``` variable[name, target_period] + slack[name, target_period] >= param[name, target_period] * multiplier[name, target_period] ```
 """
 function add_feedforward_constraints!(
     container::OptimizationContainer,
     ::DeviceModel{T, U},
     devices::Union{Vector{T}, IS.FlattenIteratorWrapper{T}},
-    ff::ReservoirLimitFeedforward,
-) where {T <: PSY.Component, U <: AbstractDeviceFormulation}
+    ff::ReservoirTargetFeedforward,
+) where {T <: PSY.HydroReservoir, U <: AbstractDeviceFormulation}
+    _add_energy_target_constraints!(container, devices, ff, HydroEnergyShortageVariable)
+    return
+end
+
+@doc raw"""
+Constructs a constraint holding a storage energy variable to a minimum target read from the
+system state at `target_period`, relaxed by a `StorageEnergyShortageVariable` slack penalized
+in the objective at `penalty_cost`. The slack exists only at the last time step, so
+`target_period` must be the horizon end.
+
+``` variable[name, target_period] + slack[name, target_period] >= param[name, target_period] * multiplier[name, target_period] ```
+"""
+function add_feedforward_constraints!(
+    container::OptimizationContainer,
+    ::DeviceModel{T, U},
+    devices::Union{Vector{T}, IS.FlattenIteratorWrapper{T}},
+    ff::EnergyTargetFeedforward,
+) where {T <: PSY.Storage, U <: AbstractStorageFormulation}
+    time_steps = get_time_steps(container)
+    target_period = get_target_period(ff)
+    if target_period != last(time_steps)
+        error(
+            "EnergyTargetFeedforward on $T has target_period = $target_period, but the \
+             storage shortage slack exists only at the last time step \
+             ($(last(time_steps))). Set target_period to the horizon end.",
+        )
+    end
+    _add_energy_target_constraints!(container, devices, ff, StorageEnergyShortageVariable)
+    return
+end
+
+# Shared by the reservoir and storage energy-limit feedforwards, which differ only in the
+# parameter type each reads (`get_default_parameter_type`).
+function _add_integral_limit_constraints!(
+    container::OptimizationContainer,
+    devices::Union{Vector{T}, IS.FlattenIteratorWrapper{T}},
+    ff::AbstractAffectFeedforward,
+) where {T <: PSY.Component}
     time_steps = get_time_steps(container)
     parameter_type = get_default_parameter_type(ff, T)
     param = get_parameter_array(container, parameter_type, T)
@@ -516,7 +548,7 @@ function add_feedforward_constraints!(
             T,
             device_name_set,
             1:no_trenches;
-            meta = "$(var_type)integral",
+            meta = "$(nameof(var_type))integral",
         )
         for name in device_name_set, i in 1:no_trenches
             block = (1 + (i - 1) * affected_periods):(i * affected_periods)
@@ -527,6 +559,23 @@ function add_feedforward_constraints!(
             )
         end
     end
+    return
+end
+
+@doc raw"""
+Constructs a constraint bounding the sum of a variable over consecutive blocks of
+`number_of_periods` time steps to a per-block limit read from the system state. The
+reservoir and storage variants differ only in the parameter each reads.
+
+``` sum(variable[name, t] for t in block) <= sum(param[name, t] * multiplier[name, t] for t in block) ```
+"""
+function add_feedforward_constraints!(
+    container::OptimizationContainer,
+    ::DeviceModel{T, U},
+    devices::Union{Vector{T}, IS.FlattenIteratorWrapper{T}},
+    ff::Union{ReservoirLimitFeedforward, EnergyLimitFeedforward},
+) where {T <: PSY.Component, U <: AbstractDeviceFormulation}
+    _add_integral_limit_constraints!(container, devices, ff)
     return
 end
 

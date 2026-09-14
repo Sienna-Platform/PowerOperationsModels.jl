@@ -61,8 +61,8 @@ struct ReactivePowerVariable <: VariableType end
 Continuous shunt susceptance ``b`` (pu on system MVA base) dispatched by
 [`ShuntSusceptanceDispatch`](@ref) for `PSY.SwitchedAdmittance` and
 `PSY.FACTSControlDevice`. Bounded by the device susceptance range: for
-`SwitchedAdmittance`, the base susceptance plus the achievable block increment span
-(continuous relaxation of discrete steps); for `FACTSControlDevice`, the per-unit
+`SwitchedAdmittance`, the span its blocks can reach (continuous relaxation of discrete
+steps); for `FACTSControlDevice`, the per-unit
 conversion of `max_shunt_current`. Enters [`ShuntReactivePowerConstraint`](@ref) as
 ``Q = b \\cdot V^2``. Only valid under AC network models.
 

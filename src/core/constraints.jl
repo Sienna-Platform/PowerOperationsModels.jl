@@ -197,7 +197,7 @@ The specified constraint is formulated as:
 """
 struct FeedforwardFixValueConstraint <: ConstraintType end
 """
-Struct to create the constraint that set the flow limits through a PhaseShiftingTransformer.
+Struct to create the constraint that sets the apparent power flow limits on a branch.
 
 For more information check [Branch Formulations](@ref PowerSystems.Branch-Formulations).
 
@@ -421,18 +421,6 @@ Struct to create the start-up time limit constraints for ThermalMultiStart.
 For more information check [ThermalGen Formulations](@ref ThermalGen-Formulations) for ThermalMultiStartUnitCommitment.
 """
 struct StartupTimeLimitTemperatureConstraint <: ConstraintType end
-"""
-Struct to create the constraint that set the angle limits through a PhaseShiftingTransformer.
-
-For more information check [Branch Formulations](@ref PowerSystems.Branch-Formulations).
-
-The specified constraint is formulated as:
-
-```math
-\\Theta^\\text{min} \\le \\theta^\\text{shift}_t \\le \\Theta^\\text{max}, \\quad \\forall t \\in \\{1,\\dots,T\\}
-```
-"""
-struct PhaseAngleControlLimit <: ConstraintType end
 struct InterfaceFlowLimit <: ConstraintType end
 struct HVDCFlowCalculationConstraint <: ConstraintType end
 
@@ -714,7 +702,25 @@ struct ImportExportBudgetConstraint <: ConstraintType end
 struct LineFlowBoundConstraint <: ConstraintType end
 
 abstract type EventConstraint <: ConstraintType end
+
+"""
+Struct to create the constraint that bounds a device's active power expression by
+its available capacity during an outage event.
+
+```math
+p_t \\le P^\\text{max} \\cdot \\text{status}_t, \\quad \\forall t \\in \\{1,\\dots,T\\}
+```
+"""
 struct ActivePowerOutageConstraint <: EventConstraint end
+
+"""
+Struct to create the constraint that bounds a device's reactive power by its
+available capacity squared during an outage event.
+
+```math
+q_t^2 \\le \\max\\left((Q^\\text{max})^2, (Q^\\text{min})^2\\right) \\cdot \\text{status}_t, \\quad \\forall t \\in \\{1,\\dots,T\\}
+```
+"""
 struct ReactivePowerOutageConstraint <: EventConstraint end
 
 ############################################################

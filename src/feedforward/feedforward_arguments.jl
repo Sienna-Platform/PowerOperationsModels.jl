@@ -74,7 +74,7 @@ function _add_feedforward_slack_variables!(
             U,
             devices_names,
             time_steps;
-            meta = "$(var_type)",
+            meta = "$(nameof(var_type))",
         )
 
         for t in time_steps, name in device_name_set
@@ -145,6 +145,20 @@ function _add_feedforward_arguments!(
     parameter_type = get_default_parameter_type(ff, T)
     add_parameters!(container, parameter_type, ff, model, devices)
     add_variables!(container, HydroEnergyShortageVariable, devices, U)
+    return
+end
+
+# `EnergyTargetFeedforward` needs the shortage slack that `energy_target = false` models
+# do not otherwise build; it relaxes the target constraint in `feedforward_constraints.jl`.
+function _add_feedforward_arguments!(
+    container::OptimizationContainer,
+    model::DeviceModel{T, U},
+    devices::Union{Vector{T}, IS.FlattenIteratorWrapper{T}},
+    ff::EnergyTargetFeedforward,
+) where {T <: PSY.Storage, U <: AbstractStorageFormulation}
+    parameter_type = get_default_parameter_type(ff, T)
+    add_parameters!(container, parameter_type, ff, model, devices)
+    add_variables!(container, StorageEnergyShortageVariable, devices, U)
     return
 end
 

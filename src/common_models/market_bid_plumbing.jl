@@ -645,7 +645,6 @@ IOM.get_operation_cost(c::PSY.Component) = PSY.get_operation_cost(c)
 # (it has no `operation_cost` field at all), so this is the seam that lets the whole
 # offer-curve plumbing price a spread bid with no other special-casing.
 IOM.get_operation_cost(c::PSY.PointToPointBid) = PSY.get_spread_bid(c)
-IOM.get_must_run(c::PSY.Component) = PSY.get_must_run(c)
 IOM.get_active_power_limits(c::PSY.Component) = PSY.get_active_power_limits(c, PSY.SU)
 # `RenewableGen` has no `active_power_limits` field: return (0.0, max_active_power)
 IOM.get_active_power_limits(c::PSY.RenewableGen) =

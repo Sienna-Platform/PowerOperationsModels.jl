@@ -523,8 +523,10 @@ end
 
 # LinearLossConverter: a loss function with a quadratic term cannot be represented;
 # refuse it instead of silently dropping the `a·I²` term.
-function _check_linear_converter_loss(d::PSY.InterconnectingConverter)
-    loss_function = PSY.get_loss_function(d)
+function _check_linear_converter_loss(
+    d::PSY.InterconnectingConverter,
+    loss_function::PSY.ValueCurve,
+)
     a = _get_quadratic_term(loss_function)
     if !iszero(a)
         error(
@@ -553,15 +555,11 @@ function _add_linear_converter_loss_to_dc_balance!(
         get_variable(container, CurrentAbsoluteValueVariable, PSY.InterconnectingConverter)
     system_base = get_model_base_power(container)
     for d in devices
-        _check_linear_converter_loss(d)
         name = PSY.get_name(d)
-        loss_function = PSY.get_loss_function(d)
-        # Assumes the loss curve is authored in the converter device base (see PSY #1728,
-        # unresolved): then `b` is base-invariant and only the constant `c` rescales to
-        # system base. `|I|` is the system-base surrogate for `|P|`.
-        base_factor = PSY.get_base_power(d, PSY.NU) / system_base
+        loss_function = _loss_curve_value(PSY.get_loss_function(d), d, system_base)
+        _check_linear_converter_loss(d, loss_function)
         b = PSY.get_proportional_term(loss_function)
-        c = PSY.get_constant_term(loss_function) * base_factor
+        c = PSY.get_constant_term(loss_function)
         bus_number_dc = PSY.get_number(PSY.get_dc_bus(d))
         for t in get_time_steps(container)
             iszero(b) || add_proportional_to_jump_expression!(
@@ -642,6 +640,7 @@ function add_constraints!(
     vi_expr = get_expression(container, IOM.BilinearProductExpression, U, "vi")
     i_sq_expr = get_expression(container, IOM.QuadraticExpression, U, "i_sq")
     abs_i_var = get_variable(container, CurrentAbsoluteValueVariable, U)
+    system_base = get_model_base_power(container)
 
     ipc_names = [PSY.get_name(d) for d in devices]
     loss_const = add_constraints_container!(
@@ -651,7 +650,8 @@ function add_constraints!(
     jump_model = get_jump_model(container)
     for device in devices
         name = PSY.get_name(device)
-        loss_function = PSY.get_loss_function(device)
+        loss_function =
+            _loss_curve_value(PSY.get_loss_function(device), device, system_base)
         a = _get_quadratic_term(loss_function)
         b = PSY.get_proportional_term(loss_function)
         c = PSY.get_constant_term(loss_function)
@@ -686,6 +686,7 @@ function add_constraints!(
     vi_expr = get_expression(container, IOM.BilinearProductExpression, U, "vi")
     i_ac_var = get_variable(container, ConverterACCurrentVariable, U)
     v_arrays = _fetch_voltage_arrays(container, network_model)
+    system_base = get_model_base_power(container)
 
     ipc_names = [PSY.get_name(d) for d in devices]
     loss_const = add_constraints_container!(
@@ -699,7 +700,8 @@ function add_constraints!(
     for device in devices
         name = PSY.get_name(device)
         bus_name = PSY.get_name(PSY.get_bus(device))
-        loss_function = PSY.get_loss_function(device)
+        loss_function =
+            _loss_curve_value(PSY.get_loss_function(device), device, system_base)
         a = _get_quadratic_term(loss_function)
         b = PSY.get_proportional_term(loss_function)
         c = PSY.get_constant_term(loss_function)

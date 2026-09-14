@@ -17,6 +17,7 @@ mutable struct PowerOperationsProblemTemplate <: IOM.AbstractProblemTemplate
     branches::BranchModelContainer
     services::ServicesModelContainer
     market_model::Union{Nothing, IOM.MarketModel}
+    events::Vector{IOM.AbstractEventModel}
     function PowerOperationsProblemTemplate(
         network::NetworkModel{T};
         market_model::Union{Nothing, IOM.MarketModel} = nothing,
@@ -27,6 +28,7 @@ mutable struct PowerOperationsProblemTemplate <: IOM.AbstractProblemTemplate
             BranchModelContainer(),
             ServicesModelContainer(),
             market_model,
+            Vector{IOM.AbstractEventModel}(),
         )
     end
 end
@@ -57,6 +59,11 @@ get_network_formulation(template::PowerOperationsProblemTemplate) =
 get_hvdc_network_model(template::PowerOperationsProblemTemplate) =
     template.network_model.hvdc_network_model
 get_market_model(template::PowerOperationsProblemTemplate) = template.market_model
+
+"""
+Return the outage-event models attached to `template` via `set_event_model!`.
+"""
+get_event_models(template::PowerOperationsProblemTemplate) = template.events
 
 # Returns `Vector{Type}`, not `Vector{DataType}`: a service's component type can be a
 # `UnionAll` rather than a concrete `DataType` when it carries an unapplied type parameter
@@ -204,6 +211,35 @@ function set_device_model!(
     model::DeviceModel{D},
 ) where {D <: PSY.Branch}
     set_model!(template.branches, model)
+    return
+end
+
+"""
+    set_event_model!(template::PowerOperationsProblemTemplate, event_model)
+
+Attach an outage-event model to the template. At build time the event is validated,
+its `attribute_device_map` is populated from the system's supplemental attributes, and
+it is distributed to every matching `DeviceModel`.
+"""
+function IOM.set_event_model!(
+    template::PowerOperationsProblemTemplate,
+    event_model::IOM.AbstractEventModel,
+)
+    if any(e -> e === event_model, template.events)
+        error("This event model is already attached to the template")
+    end
+    push!(template.events, event_model)
+    return
+end
+
+# Build-time discovery (`_build_device_model_events!`) mutates each event model's
+# `attribute_device_map`, and callers inspect that mutation on the object they passed to
+# `set_event_model!`, so the build copy shares the event models by reference.
+function IOM.share_template_references!(
+    template_::PowerOperationsProblemTemplate,
+    template::PowerOperationsProblemTemplate,
+)
+    template_.events = copy(template.events)
     return
 end
 
