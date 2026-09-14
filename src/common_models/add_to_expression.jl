@@ -2422,7 +2422,7 @@ _error_msg(::Type{PNM.BranchesSeries}) =
 function _reduced_entry_in_interface(
     reduction_entry::T,
     contributing_devices::Vector{<:PSY.ACTransmission},
-) where {T <: Union{PNM.AbstractBranchesParallel, PNM.BranchesSeries}}
+) where {T <: PNM.AbstractReductionAggregate}
     in_interface = [
         _reduced_entry_in_interface(x, contributing_devices) for
         x in reduction_entry

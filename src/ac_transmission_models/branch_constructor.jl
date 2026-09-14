@@ -2591,7 +2591,7 @@ end
 
 function _add_to_branch_map!(
     branch_typed_dict::Dict{DataType, Vector{String}},
-    reduction_entry::Union{PNM.AbstractBranchesParallel, PNM.BranchesSeries},
+    reduction_entry::PNM.AbstractReductionAggregate,
     name::String,
 )
     _add_to_branch_map!(branch_typed_dict, first(reduction_entry), name)
