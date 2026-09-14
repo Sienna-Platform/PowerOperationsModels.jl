@@ -51,7 +51,8 @@ PowerOperationsModels = {path = ".."}
 InfrastructureSystems = {url = "https://github.com/Sienna-Platform/InfrastructureSystems.jl.git", rev = "IS4"}
 # TEMPORARY: IOM main still calls the convert_cost_coefficient signature IS removed; #166 fixes it.
 InfrastructureOptimizationModels = {rev = "rh/cost_coefficient_ratio", url = "https://github.com/Sienna-Platform/InfrastructureOptimizationModels.jl"}
-PowerSystems = {url = "https://github.com/Sienna-Platform/PowerSystems.jl.git", rev = "jd/openapi-1x"}
+# TEMPORARY: PowerSystems #1795 carries a LossCurve's basis through the document and omits unstated optional fields.
+PowerSystems = {url = "https://github.com/Sienna-Platform/PowerSystems.jl.git", rev = "rh/loss_curve_power_units"}
 PowerSystemCaseBuilder = {url = "https://github.com/Sienna-Platform/PowerSystemCaseBuilder.jl.git", rev = "jd/openapi-1x"}
 # Branch pins until the OpenAPI packages are registered and the psy6-line branches merge.
 PowerCoreOpenAPIModels = {url = "https://github.com/Sienna-Platform/PowerOpenAPIModels.git", rev = "main", subdir = "PowerCoreOpenAPIModels.jl"}
@@ -59,7 +60,8 @@ InfrastructureTimeSeriesOpenAPIModels = {url = "https://github.com/Sienna-Platfo
 InfrastructureCoreOpenAPIModels = {url = "https://github.com/Sienna-Platform/PowerOpenAPIModels.git", rev = "main", subdir = "InfrastructureCoreOpenAPIModels.jl"}
 PowerDynamicsOpenAPIModels = {url = "https://github.com/Sienna-Platform/PowerOpenAPIModels.git", rev = "main", subdir = "PowerDynamicsOpenAPIModels.jl"}
 PowerFlowFileParser = {url = "https://github.com/Sienna-Platform/PowerFlowFileParser.jl.git", rev = "jd/openapi-1x"}
-PowerFlows = {rev = "psy6", url = "https://github.com/Sienna-Platform/PowerFlows.jl"}
+# TEMPORARY: PowerFlows #449 evaluates a LossCurve on its own base; psy6 does not yet.
+PowerFlows = {rev = "jd/openapi-1x-pins", url = "https://github.com/Sienna-Platform/PowerFlows.jl"}
 PowerInvestmentsOpenAPIModels = {url = "https://github.com/Sienna-Platform/PowerOpenAPIModels.git", rev = "main", subdir = "PowerInvestmentsOpenAPIModels.jl"}
 # TEMPORARY: pinned to the arc-keyed-catalog branch (PNM #356 + #357) until they merge to
 # psy6. Revert to `rev = "psy6"` once they land.
