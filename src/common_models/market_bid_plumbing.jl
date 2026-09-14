@@ -588,7 +588,6 @@ end
 IOM.get_base_power(sys::PSY.System) = PSY.get_base_power(sys, PSY.NU)
 IOM.get_base_power(c::PSY.Component) = PSY.get_base_power(c, PSY.NU)
 IOM.get_operation_cost(c::PSY.Component) = PSY.get_operation_cost(c)
-IOM.get_must_run(c::PSY.Component) = PSY.get_must_run(c)
 IOM.get_active_power_limits(c::PSY.Component) = PSY.get_active_power_limits(c, PSY.SU)
 # `RenewableGen` has no `active_power_limits` field: return (0.0, max_active_power)
 IOM.get_active_power_limits(c::PSY.RenewableGen) =

@@ -57,7 +57,7 @@ end
             name = "shunt_lpacc_gate",
             available = true,
             bus = bus,
-            Y = 0.0 + 0.1im,
+            number_engaged = [1],
             number_of_steps = [2],
             Y_increase = [0.0 + 0.1im],
         ),

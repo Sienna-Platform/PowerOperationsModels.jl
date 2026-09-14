@@ -21,7 +21,7 @@ function _c_sys5_with_hvdc_tie()
         reactive_power_limits_from = (min = -1.0, max = 1.0),
         reactive_power_limits_to = (min = -1.0, max = 1.0),
         arc = arc,
-        loss = LinearCurve(0.0),
+        loss = PSY.LossCurve(LinearCurve(0.0), PSY.CU),
     )
     PSY.add_component!(sys, hvdc)
     from_no = PSY.get_number(PSY.get_from(arc))
@@ -46,7 +46,7 @@ function _c_sys5_with_asymmetric_hvdc_tie()
         reactive_power_limits_from = (min = -0.4, max = 0.9),
         reactive_power_limits_to = (min = -0.7, max = 0.3),
         arc = arc,
-        loss = LinearCurve(0.0),
+        loss = PSY.LossCurve(LinearCurve(0.0), PSY.CU),
     )
     PSY.add_component!(sys, hvdc)
     from_no = PSY.get_number(PSY.get_from(arc))
@@ -419,7 +419,7 @@ function _c_sys5_with_lossy_hvdc_tie()
         reactive_power_limits_from = (min = -1.0, max = 1.0),
         reactive_power_limits_to = (min = -1.0, max = 1.0),
         arc = arc,
-        loss = LinearCurve(0.05, 0.01),
+        loss = PSY.LossCurve(LinearCurve(0.05, 0.01), PSY.CU),
     )
     PSY.add_component!(sys, hvdc)
     from_no = PSY.get_number(PSY.get_from(arc))
@@ -573,7 +573,7 @@ function _two_area_sys_with_lossy_hvdc_tie()
         reactive_power_limits_from = (min = -1.0, max = 1.0),
         reactive_power_limits_to = (min = -1.0, max = 1.0),
         arc = arc,
-        loss = LinearCurve(0.05, 0.01),
+        loss = PSY.LossCurve(LinearCurve(0.05, 0.01), PSY.CU),
     )
     PSY.add_component!(sys, hvdc)
     return sys
@@ -675,7 +675,14 @@ end
 
 # A probe device attached to a real system so PSY unit settings resolve for the
 # PSY.SU getters that _get_flow_bounds reads.
-function _hvdc_probe(sys, arc, name; from_limits, to_limits, loss = LinearCurve(0.0))
+function _hvdc_probe(
+    sys,
+    arc,
+    name;
+    from_limits,
+    to_limits,
+    loss = PSY.LossCurve(LinearCurve(0.0), PSY.CU),
+)
     hvdc = TwoTerminalGenericHVDCLine(;
         name = name,
         available = true,
@@ -744,19 +751,22 @@ end
     # A zero LinearCurve pins HVDCLosses to 0.0; a nonzero one leaves it unbounded above.
     d_zero = _hvdc_probe(sys, arc, "probe_zero_loss";
         from_limits = (min = -2.0, max = 2.0), to_limits = (min = -2.0, max = 2.0),
-        loss = LinearCurve(0.0, 0.0))
+        loss = PSY.LossCurve(LinearCurve(0.0, 0.0), PSY.CU))
     @test POM.get_variable_upper_bound(
         POM.HVDCLosses, d_zero, POM.HVDCTwoTerminalDispatch) == 0.0
 
     d_lossy = _hvdc_probe(sys, arc, "probe_lossy";
         from_limits = (min = -2.0, max = 2.0), to_limits = (min = -2.0, max = 2.0),
-        loss = LinearCurve(0.05, 0.01))
+        loss = PSY.LossCurve(LinearCurve(0.05, 0.01), PSY.CU))
     @test POM.get_variable_upper_bound(
         POM.HVDCLosses, d_lossy, POM.HVDCTwoTerminalDispatch) === nothing
 
     d_pwl = _hvdc_probe(sys, arc, "probe_pwl_loss";
         from_limits = (min = -2.0, max = 2.0), to_limits = (min = -2.0, max = 2.0),
-        loss = PSY.PiecewiseIncrementalCurve(0.0, [0.0, 1.0, 2.0], [0.02, 0.05]))
+        loss = PSY.LossCurve(
+            PSY.PiecewiseIncrementalCurve(0.0, [0.0, 1.0, 2.0], [0.02, 0.05]),
+            PSY.CU,
+        ))
     @test_throws ErrorException POM.get_variable_upper_bound(
         POM.HVDCLosses, d_pwl, POM.HVDCTwoTerminalDispatch)
 end
@@ -766,14 +776,17 @@ end
     arc = PSY.get_arc(PSY.get_component(Line, sys, "1"))
     d = _hvdc_probe(sys, arc, "probe_asymmetric_pwl";
         from_limits = (min = -2.0, max = 2.0), to_limits = (min = -1.5, max = 1.5),
-        loss = LinearCurve(0.05, 0.01))
-    @test_throws ErrorException POM._get_pwl_loss_params(d, PSY.get_loss(d))
+        loss = PSY.LossCurve(LinearCurve(0.05, 0.01), PSY.CU))
+    @test_throws ErrorException POM._get_pwl_loss_params(
+        d,
+        PSY.get_value_curve(PSY.get_loss(d)),
+    )
 end
 
 # A 2-segment incremental loss curve, so _get_pwl_loss_params takes the multi-segment
 # path (6 params) rather than the 4-param LinearCurve path.
 const _HVDC_INCREMENTAL_LOSS =
-    PSY.PiecewiseIncrementalCurve(0.0, [0.0, 1.0, 2.0], [0.02, 0.05])
+    PSY.LossCurve(PSY.PiecewiseIncrementalCurve(0.0, [0.0, 1.0, 2.0], [0.02, 0.05]), PSY.CU)
 
 # Hand-derived from the breakpoint formulae in _get_pwl_loss_params.
 const _HVDC_PWL_INCR_FT_PARAMS = [-2.0, -1.0, 0.0, 0.0, 0.98, 1.9]
@@ -804,7 +817,7 @@ end
 @testset "Incremental-curve PWL loss params match the hand-derived breakpoints" begin
     sys, _, _ = _c_sys5_with_incremental_loss_hvdc_tie()
     d = PSY.get_component(TwoTerminalGenericHVDCLine, sys, "hvdc_tie")
-    ft, tf = POM._get_pwl_loss_params(d, PSY.get_loss(d))
+    ft, tf = POM._get_pwl_loss_params(d, PSY.get_value_curve(PSY.get_loss(d)))
     @test length(ft) == 6
     @test length(tf) == 6
     @test ft ≈ _HVDC_PWL_INCR_FT_PARAMS
@@ -869,7 +882,7 @@ function _c_sys5_two_islands_with_hvdc()
         reactive_power_limits_from = (min = -1.0, max = 1.0),
         reactive_power_limits_to = (min = -1.0, max = 1.0),
         arc = tie_arc,
-        loss = LinearCurve(0.05, 0.01),
+        loss = PSY.LossCurve(LinearCurve(0.05, 0.01), PSY.CU),
     )
     PSY.add_component!(sys, tie)
 
@@ -888,7 +901,7 @@ function _c_sys5_two_islands_with_hvdc()
         reactive_power_limits_from = (min = -1.0, max = 1.0),
         reactive_power_limits_to = (min = -1.0, max = 1.0),
         arc = intra_arc,
-        loss = LinearCurve(0.05, 0.01),
+        loss = PSY.LossCurve(LinearCurve(0.05, 0.01), PSY.CU),
     )
     PSY.add_component!(sys, intra)
     return sys, "hvdc_tie", "hvdc_intra"

@@ -146,7 +146,8 @@ struct ShuntSusceptanceDispatch <: AbstractShuntFormulation end
 
 """
 Fixed-susceptance shunt injecting `Q = b_nominal·V²` into the reactive nodal balance with a
-non-dispatched `b_nominal` (`SwitchedAdmittance`: `imag(get_Y)`; `FACTSControlDevice`: the
+non-dispatched `b_nominal` (`SwitchedAdmittance`: the engaged susceptance, `solved_admittance`
+when set and the engaged blocks otherwise; `FACTSControlDevice`: the
 reactive-power setpoint on system base). The susceptance is not a decision variable and
 there is no voltage-control objective. This is the only shunt formulation valid under
 `LPACCNetworkModel`, where `V²` linearizes to `1 + 2φ`; it also builds on ACP/ACR/IVR.

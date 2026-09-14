@@ -21,7 +21,7 @@ function get_initial_conditions_value(
     else
         var = get_initial_condition_value(ic_data, var_type, W)[PSY.get_name(component), 1]
         val = 0.0
-        if !PSY.get_status(component) && !(var > ABSOLUTE_TOLERANCE)
+        if !is_online(component) && !(var > ABSOLUTE_TOLERANCE)
             val = PSY.get_time_at_status(component)
         end
     end
@@ -48,7 +48,7 @@ function get_initial_conditions_value(
     else
         var = get_initial_condition_value(ic_data, var_type, W)[PSY.get_name(component), 1]
         val = 0.0
-        if !PSY.get_status(component) && !(var > ABSOLUTE_TOLERANCE)
+        if !is_online(component) && !(var > ABSOLUTE_TOLERANCE)
             val = PSY.get_time_at_status(component)
         end
     end
@@ -79,7 +79,7 @@ function get_initial_conditions_value(
     else
         var = get_initial_condition_value(ic_data, var_type, W)[PSY.get_name(component), 1]
         val = 0.0
-        if PSY.get_status(component) && (var > ABSOLUTE_TOLERANCE)
+        if is_online(component) && (var > ABSOLUTE_TOLERANCE)
             val = PSY.get_time_at_status(component)
         end
     end
@@ -107,7 +107,7 @@ function get_initial_conditions_value(
     else
         var = get_initial_condition_value(ic_data, var_type, W)[PSY.get_name(component), 1]
         val = 0.0
-        if PSY.get_status(component) && (var > ABSOLUTE_TOLERANCE)
+        if is_online(component) && (var > ABSOLUTE_TOLERANCE)
             val = PSY.get_time_at_status(component)
         end
     end
@@ -140,7 +140,7 @@ function add_initial_condition!(
 
     ini_cond_vector = add_initial_condition_container!(container, D(), T, components)
     for (ix, component) in enumerate(components)
-        if PSY.get_must_run(component)
+        if _is_must_run(component)
             ini_cond_vector[ix] = InitialCondition{D, Nothing}(component, nothing)
         else
             ini_cond_vector[ix] =

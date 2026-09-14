@@ -511,7 +511,7 @@ end
     c_sys5 = PSB.build_system(PSITestSystems, "c_sys5")
     must_run_unit = first(PSY.get_components(PSY.ThermalStandard, c_sys5))
     must_run_name = PSY.get_name(must_run_unit)
-    PSY.set_must_run!(must_run_unit, true)
+    PSY.set_commitment_mode!(must_run_unit, PSY.CommitmentModes.MUST_RUN)
 
     # `ThermalBasicDispatch` has no ramp constraints; see the broken testset below for
     # why `ThermalStandardDispatch` cannot be used here yet.
@@ -547,7 +547,7 @@ end
         @test !isassigned(con_ub.data, ix, t)
     end
 
-    PSY.set_must_run!(must_run_unit, false)
+    PSY.set_commitment_mode!(must_run_unit, PSY.CommitmentModes.COMMITTED)
 end
 
 # POM leaves must-run units out of the `OnStatusParameter` container; this covers the
@@ -556,7 +556,7 @@ end
     c_sys5 = PSB.build_system(PSITestSystems, "c_sys5")
     must_run_unit = first(PSY.get_components(PSY.ThermalStandard, c_sys5))
     must_run_name = PSY.get_name(must_run_unit)
-    PSY.set_must_run!(must_run_unit, true)
+    PSY.set_commitment_mode!(must_run_unit, PSY.CommitmentModes.MUST_RUN)
 
     device_model = DeviceModel(PSY.ThermalStandard, ThermalStandardDispatch)
     ff_sc = SemiContinuousFeedforward(;
@@ -573,7 +573,7 @@ end
     con_up = IOM.get_constraint(container, RampConstraint, PSY.ThermalStandard, "up")
     @test must_run_name ∈ JuMP.axes(con_up)[1]
 
-    PSY.set_must_run!(must_run_unit, false)
+    PSY.set_commitment_mode!(must_run_unit, PSY.CommitmentModes.COMMITTED)
 end
 
 @testset "must-run unit under SemiContinuousFeedforward keeps its ActivePowerBalance contribution (ThermalCompactDispatch)" begin
@@ -585,7 +585,7 @@ end
     c_sys5 = PSB.build_system(PSITestSystems, "c_sys5")
     must_run_unit = first(PSY.get_components(PSY.ThermalStandard, c_sys5))
     must_run_name = PSY.get_name(must_run_unit)
-    PSY.set_must_run!(must_run_unit, true)
+    PSY.set_commitment_mode!(must_run_unit, PSY.CommitmentModes.MUST_RUN)
     min_limit = PSY.get_active_power_limits(must_run_unit, PSY.SU).min
     bus_no = PSY.get_number(PSY.get_bus(must_run_unit))
 
@@ -610,7 +610,7 @@ end
         @test JuMP.constant(balance[bus_no, t]) == min_limit
     end
 
-    PSY.set_must_run!(must_run_unit, false)
+    PSY.set_commitment_mode!(must_run_unit, PSY.CommitmentModes.COMMITTED)
 end
 
 @testset "Non-semicontinuous feedforward on ThermalCompactDispatch keeps the float OnStatusParameter container" begin

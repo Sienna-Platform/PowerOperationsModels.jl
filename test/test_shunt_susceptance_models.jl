@@ -1,12 +1,13 @@
 @testset "ShuntSusceptance bounds are finite (Principle 0 — SwitchedAdmittance)" begin
-    # A device with one adjustable block: b ∈ [0.1, 0.1 + 3*0.05] = [0.1, 0.25]
+    # A device with one adjustable block of three steps: b ∈ [0, 3*0.05] = [0, 0.15], with
+    # two steps engaged (0.10) unless the solved case overrides the engaged blocks.
     sys = PSB.build_system(PSITestSystems, "c_sys5")
     bus = first(PSY.get_components(PSY.ACBus, sys))
     sa = PSY.SwitchedAdmittance(;
         name = "sa_test",
         available = true,
         bus = bus,
-        Y = 0.0 + 0.1im,
+        number_engaged = [2],
         number_of_steps = [3],
         Y_increase = [0.0 + 0.05im],
     )
@@ -14,8 +15,11 @@
     @test isfinite(lim.min)
     @test isfinite(lim.max)
     @test lim.max >= lim.min
-    @test isapprox(lim.min, 0.1; atol = 1e-10)
-    @test isapprox(lim.max, 0.25; atol = 1e-10)
+    @test isapprox(lim.min, 0.0; atol = 1e-10)
+    @test isapprox(lim.max, 0.15; atol = 1e-10)
+    @test isapprox(POM._fixed_shunt_susceptance(sa), 0.10; atol = 1e-10)
+    PSY.set_solved_admittance!(sa, 0.12)
+    @test isapprox(POM._fixed_shunt_susceptance(sa), 0.12; atol = 1e-10)
 end
 
 @testset "ShuntSusceptanceDispatch build — ACPNetworkModel (SwitchedAdmittance)" begin
@@ -30,7 +34,7 @@ end
         name = "shunt_cap",
         available = true,
         bus = bus,
-        Y = 0.0 + 0.1im,
+        number_engaged = [1],
         number_of_steps = [2],
         Y_increase = [0.0 + 0.1im],
     )
@@ -55,7 +59,8 @@ end
         name = "facts_acp_test",
         available = true,
         bus = bus,
-        control_mode = nothing,
+        # BYP leaves Q free like `nothing` did; the OpenAPI schema no longer encodes a null mode.
+        control_mode = PSY.FACTSOperationModes.BYP,
         max_shunt_current = 100.0,
     )
     PSY.add_component!(sys, facts)
@@ -233,7 +238,6 @@ end
         name = "sa_mixed_test",
         available = true,
         bus = bus,
-        Y = 0.0 + 0.0im,
         number_of_steps = [2, 2],
         Y_increase = [0.0 + 0.1im, 0.0 - 0.1im],
     )
@@ -302,7 +306,7 @@ end
         name = "shunt_dc_test",
         available = true,
         bus = bus,
-        Y = 0.0 + 0.1im,
+        number_engaged = [1],
         number_of_steps = [1],
         Y_increase = [0.0 + 0.1im],
     )
@@ -324,11 +328,11 @@ end
     sys = PSB.build_system(PSITestSystems, "c_sys5")
     bus = PSY.get_component(PSY.ACBus, sys, "nodeA")
     sa = PSY.SwitchedAdmittance(;
-        name = "shunt_lpacc", available = true, bus = bus, Y = 0.0 + 0.1im,
+        name = "shunt_lpacc", available = true, bus = bus, number_engaged = [1],
         number_of_steps = [2], Y_increase = [0.0 + 0.1im],
     )
     PSY.add_component!(sys, sa)
-    b_nominal = imag(PSY.get_Y(sa))
+    b_nominal = sum(PSY.get_number_engaged(sa) .* imag.(PSY.get_Y_increase(sa)))
 
     template = get_thermal_dispatch_template_network(NetworkModel(LPACCNetworkModel))
     set_device_model!(template, PSY.SwitchedAdmittance, FixedShuntAdmittance)
@@ -416,11 +420,11 @@ end
     sys = PSB.build_system(PSITestSystems, "c_sys5")
     bus = PSY.get_component(PSY.ACBus, sys, "nodeA")
     sa = PSY.SwitchedAdmittance(;
-        name = "shunt_acp_fixed", available = true, bus = bus, Y = 0.0 + 0.1im,
+        name = "shunt_acp_fixed", available = true, bus = bus, number_engaged = [1],
         number_of_steps = [2], Y_increase = [0.0 + 0.1im],
     )
     PSY.add_component!(sys, sa)
-    b_nominal = imag(PSY.get_Y(sa))
+    b_nominal = sum(PSY.get_number_engaged(sa) .* imag.(PSY.get_Y_increase(sa)))
 
     template = get_thermal_dispatch_template_network(NetworkModel(ACPNetworkModel))
     set_device_model!(template, PSY.SwitchedAdmittance, FixedShuntAdmittance)

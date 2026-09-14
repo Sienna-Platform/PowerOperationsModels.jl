@@ -139,7 +139,7 @@ function _sys5_with_3w()
             PSY.ThermalStandard(;
                 name = name,
                 available = true,
-                status = true,
+                status = PSY.OperationalStates.ONLINE,
                 bus = bus,
                 active_power = 0.8 * active_max,
                 reactive_power = 0.0,

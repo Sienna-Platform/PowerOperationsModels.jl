@@ -528,7 +528,7 @@ end
     hvdc = only(get_components(TwoTerminalGenericHVDCLine, sys))
     from = get_from(get_arc(hvdc))
     to = get_to(get_arc(hvdc))
-    set_loss!(hvdc, LinearCurve(0.0))
+    set_loss!(hvdc, PSY.LossCurve(LinearCurve(0.0), PSY.CU))
     set_active_power_flow!(hvdc, 0.5 * PSY.SU)   # a stale system seed the optimization won't reproduce
 
     template = PowerOperationsProblemTemplate(
@@ -670,7 +670,8 @@ end
     # stale value stacks on top. Set an unreproducible stored flow (a deliberately large 0.5 pu
     # that would be obvious if it leaked), assert the channel holds only the optimized flow.
     (; model, sys, hvdc, from, to) = _build_rts_hvdc_acpf_model(
-        HVDCTwoTerminalLossless; loss = LinearCurve(0.0), stored_flow = 0.5)
+        HVDCTwoTerminalLossless; loss = PSY.LossCurve(LinearCurve(0.0), PSY.CU),
+        stored_flow = 0.5)
     @test build!(model; output_dir = mktempdir()) == ModelBuildStatus.BUILT
     @test solve!(model) == RunStatus.SUCCESSFULLY_FINALIZED
 

@@ -15,7 +15,7 @@ function replace_with_hydro_dispatch!(
         ramp_limits = nothing,
         time_limits = nothing,
         base_power = get_base_power(unit1, PSY.NU),
-        status = true,
+        status = PSY.OperationalStates.ONLINE,
         operation_cost = get_operation_cost(unit1),
     )
     add_component!(sys, hydro)

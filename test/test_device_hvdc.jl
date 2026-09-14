@@ -78,7 +78,7 @@ function _generate_test_hvdc_sys()
     end
 
     for ipc in get_components(InterconnectingConverter, sys)
-        new_dc_loss = QuadraticCurve(0.01, 0.01, 0.0)
+        new_dc_loss = PSY.LossCurve(QuadraticCurve(0.01, 0.01, 0.0), PSY.CU)
         set_loss_function!(ipc, new_dc_loss)
         set_max_dc_current!(ipc, 2.0 * PSY.SU)
     end
@@ -229,7 +229,7 @@ function _generate_test_vsc_sys(;
         ac_control_from = VSCACControlModes.AC_VOLTAGE,
         dc_setpoint_from = 1.0,
         ac_setpoint_from = 1.0,
-        converter_loss_from = QuadraticCurve(loss_a, loss_b, loss_c),
+        converter_loss_from = PSY.LossCurve(QuadraticCurve(loss_a, loss_b, loss_c), PSY.CU),
         max_dc_current_from = 5.0,
         rating_from = rating_from,
         reactive_power_limits_from = (min = -rating_from, max = rating_from),
@@ -241,7 +241,7 @@ function _generate_test_vsc_sys(;
         ac_control_to = VSCACControlModes.AC_REACTIVE_POWER,
         dc_setpoint_to = 0.0,
         ac_setpoint_to = 0.0,
-        converter_loss_to = QuadraticCurve(loss_a, loss_b, loss_c),
+        converter_loss_to = PSY.LossCurve(QuadraticCurve(loss_a, loss_b, loss_c), PSY.CU),
         max_dc_current_to = 5.0,
         rating_to = rating_to,
         reactive_power_limits_to = (min = -rating_to, max = rating_to),

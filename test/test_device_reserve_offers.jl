@@ -633,7 +633,7 @@ function _check_offline_band(
         d = get_component(device_type, sys, name)
         limits = PSY.get_active_power_limits(d, PSY.SU)
         u_coefficient = expected_u_coefficient(limits)
-        if PSY.get_must_run(d)
+        if IOM.get_must_run(d)
             @test JuMP.normalized_rhs(c) ≈ limits.max - u_coefficient
         else
             @test JuMP.normalized_rhs(c) ≈ limits.max
