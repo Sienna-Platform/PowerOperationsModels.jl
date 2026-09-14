@@ -34,13 +34,6 @@ function add_feedforward_constraints!(
     return
 end
 
-# `must_run` has no shared abstract type to hang off: it sits on the two concrete `ThermalGen`
-# types and on `HydroPumpTurbine`, whose sibling `HydroTurbine` lacks it. Reading it through a
-# trait keeps the must-run skip on dispatch instead of a per-device `hasmethod` probe.
-_is_must_run(::PSY.Component)::Bool = false
-_is_must_run(d::PSY.ThermalGen)::Bool = PSY.get_must_run(d)
-_is_must_run(d::PSY.HydroPumpTurbine)::Bool = PSY.get_must_run(d)
-
 # IOM's `upper_bound_range_with_parameter!` / `lower_bound_range_with_parameter!` read the
 # multiplier straight out of the parameter container. The semicontinuous feedforward supplies
 # its own -- zeros when the status already sits inside the range expressions, the variable's
@@ -358,8 +351,9 @@ function add_feedforward_constraints!(
     parameter_type = get_default_parameter_type(ff, T)
     source_key = get_optimization_container_key(ff)
     var_type = get_entry_type(source_key)
-    param = get_parameter_array(container, parameter_type, T, "$var_type")
-    multiplier = get_parameter_multiplier_array(container, parameter_type, T, "$var_type")
+    param = get_parameter_array(container, parameter_type, T, "$(nameof(var_type))")
+    multiplier =
+        get_parameter_multiplier_array(container, parameter_type, T, "$(nameof(var_type))")
     jump_model = get_jump_model(container)
     devices_names = PSY.get_name.(devices)
     for var in get_affected_values(ff)

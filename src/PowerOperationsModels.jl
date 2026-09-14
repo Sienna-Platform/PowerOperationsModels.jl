@@ -133,7 +133,6 @@ import InfrastructureOptimizationModels:
     add_parameters!,
     # Cost/status functions (IOM has default stubs, POM adds device-specific methods)
     get_operation_cost,
-    get_must_run,
     # Build-pipeline extension points (IOM declares stubs, POM extends)
     calculate_aux_variable_value!,
     is_from_evaluator,

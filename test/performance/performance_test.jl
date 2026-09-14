@@ -77,7 +77,7 @@ try
     )
 
     for g in get_components(ThermalStandard, sys_rts_da)
-        get_name(g) == "121_NUCLEAR_1" && set_must_run!(g, true)
+        get_name(g) == "121_NUCLEAR_1" && set_commitment_mode!(g, CommitmentModes.MUST_RUN)
     end
 
     for i in 1:2

@@ -52,7 +52,7 @@ end
 @testset "Duals retrievable with manual binary SOS2 bilinear approximation" begin
     sys = PSB.build_system(PSISystems, "sys10_pjm_ac_dc")
     for ipc in get_components(InterconnectingConverter, sys)
-        set_loss_function!(ipc, QuadraticCurve(0.01, 0.01, 0.0))
+        set_loss_function!(ipc, PSY.LossCurve(QuadraticCurve(0.01, 0.01, 0.0), PSY.CU))
         set_max_dc_current!(ipc, 2.0 * PSY.SU)
     end
 

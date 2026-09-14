@@ -116,7 +116,7 @@ function add_hybrid_to_chuhsi_bus!(
     hybrid = PSY.HybridSystem(;
         name = hybrid_name,
         available = true,
-        status = true,
+        status = PSY.OperationalStates.ONLINE,
         bus = bus,
         active_power = 1.0,
         reactive_power = 0.0,

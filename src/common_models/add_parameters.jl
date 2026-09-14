@@ -144,7 +144,7 @@ function _set_affected_variables!(
 }
     source_key = get_optimization_container_key(ff)
     var_type = get_entry_type(source_key)
-    parameter_container = get_parameter(container, T, U, "$var_type")
+    parameter_container = get_parameter(container, T, U, "$(nameof(var_type))")
     param_attributes = get_attributes(parameter_container)
     affected_variables = get_affected_values(ff)
     push!(param_attributes.affected_keys, affected_variables...)
@@ -1033,7 +1033,7 @@ function _add_parameters!(
     W <: AbstractThermalFormulation,
 } where {D <: PSY.ThermalGen}
     @debug "adding" T D U _group = IOM.LOG_GROUP_OPTIMIZATION_CONTAINER
-    names = [PSY.get_name(device) for device in devices if !PSY.get_must_run(device)]
+    names = [PSY.get_name(device) for device in devices if !_is_must_run(device)]
     time_steps = get_time_steps(container)
     parameter_container = add_param_container!(container, T, D, key, names, time_steps)
     jump_model = get_jump_model(container)
@@ -1041,7 +1041,7 @@ function _add_parameters!(
     parent_param = IOM.get_parameter_array_data(parameter_container)
     # Iterate the same filtered view used to construct `names` so enumeration index
     # `i` lines up with the parameter container's first axis.
-    for (i, d) in enumerate(Iterators.filter(d -> !PSY.get_must_run(d), devices))
+    for (i, d) in enumerate(Iterators.filter(d -> !_is_must_run(d), devices))
         IOM._set_multiplier_at!(
             parent_mult,
             get_parameter_multiplier(T, d, W),
@@ -1079,7 +1079,7 @@ function _add_parameters!(
     names = [PSY.get_name(device) for device in devices]
     time_steps = get_time_steps(container)
     parameter_container =
-        add_param_container!(container, T, D, key, names, time_steps; meta = "$U")
+        add_param_container!(container, T, D, key, names, time_steps; meta = "$(nameof(U))")
     jump_model = get_jump_model(container)
     parent_mult = IOM.get_multiplier_array_data(parameter_container)
     parent_param = IOM.get_parameter_array_data(parameter_container)
@@ -1139,7 +1139,7 @@ function _add_auxvar_parameter!(
 end
 
 # An `AuxVariableType` source (e.g. a `FixValueFeedforward` pinned to another model's
-# aux variable) must store under the same "$U" meta as the `VariableKey` method above --
+# aux variable) must store under the same `nameof(U)` meta as the `VariableKey` method above --
 # `add_feedforward_constraints!` always reads the parameter back under that meta,
 # regardless of whether the source was a variable or an aux variable.
 function _add_parameters!(
@@ -1155,7 +1155,7 @@ function _add_parameters!(
     W <: AbstractDeviceFormulation,
 } where {D <: PSY.Component}
     @debug "adding" T D U _group = IOM.LOG_GROUP_OPTIMIZATION_CONTAINER
-    _add_auxvar_parameter!(container, T, key, devices, W, "$U")
+    _add_auxvar_parameter!(container, T, key, devices, W, "$(nameof(U))")
     return
 end
 
