@@ -182,7 +182,7 @@ end
     hybrid = PSY.HybridSystem(;
         name = string(PSY.get_number(bus)) * "_BareHybrid",
         available = true,
-        status = true,
+        status = PSY.OperationalStates.ONLINE,
         bus = bus,
         active_power = 0.0,
         reactive_power = 0.0,

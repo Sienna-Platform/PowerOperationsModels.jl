@@ -101,21 +101,26 @@ function _warn_no_hvdc_reactive_capability(devices)
     return
 end
 
+# `HVDCTwoTerminalDispatch`/`HVDCTwoTerminalPiecewiseLoss` only support a linear loss
+# model; other curve shapes are refused. Dispatched on the unwrapped `ValueCurve` type
+# rather than `isa`. The proportional term is base-invariant and the constant term's
+# zero-ness survives any nonzero rescaling, so these two callers can compare against the
+# curve's declared unit system directly without converting to system base first.
+_hvdc_linear_loss_terms(loss::PSY.LinearCurve, ::PSY.TwoTerminalHVDC) =
+    (PSY.get_proportional_term(loss), PSY.get_constant_term(loss))
+_hvdc_linear_loss_terms(loss::PSY.ValueCurve, d::PSY.TwoTerminalHVDC) = error(
+    "HVDCTwoTerminalDispatch of branch $(PSY.get_name(d)) only accepts LinearCurve " *
+    "for loss models, got $(typeof(loss)).",
+)
+
 function get_variable_upper_bound(
     ::Type{HVDCLosses},
     d::PSY.TwoTerminalHVDC,
     ::Type{HVDCTwoTerminalDispatch},
 )
-    # get_loss returns a LinearCurve or PiecewiseIncrementalCurve struct — not a unit-bearing scalar; no PSY.SU conversion applies
-    loss = PSY.get_loss(d)
-    if !isa(loss, PSY.LinearCurve)
-        error(
-            "HVDCTwoTerminalDispatch of branch $(PSY.get_name(d)) only accepts LinearCurve for loss models.",
-        )
-    end
-    l1 = PSY.get_proportional_term(loss)
-    l0 = PSY.get_constant_term(loss)
-    if l1 == 0.0 && l0 == 0.0
+    loss = PSY.get_value_curve(PSY.get_loss(d))
+    l1, l0 = _hvdc_linear_loss_terms(loss, d)
+    if iszero(l1) && iszero(l0)
         return 0.0
     else
         return nothing
@@ -158,6 +163,16 @@ get_initial_conditions_device_model(
 
 ####################################### PWL Constraints #######################################################
 
+# Number of piecewise-loss segments for `HVDCTwoTerminalPiecewiseLoss`, dispatched on the
+# unwrapped `ValueCurve` type rather than `isa`.
+_hvdc_pwl_len_segments(::PSY.LinearCurve) = 3 # 2*1 + 1
+_hvdc_pwl_len_segments(loss::PSY.PiecewiseIncrementalCurve) =
+    2 * length(PSY.get_slopes(loss)) + 1
+_hvdc_pwl_len_segments(loss::PSY.ValueCurve) = error(
+    "Unsupported loss curve type $(typeof(loss)) for HVDCTwoTerminalPiecewiseLoss; " *
+    "only LinearCurve and PiecewiseIncrementalCurve are supported.",
+)
+
 # Full Binary
 function _add_sparse_pwl_loss_variables!(
     container::OptimizationContainer,
@@ -172,15 +187,8 @@ function _add_sparse_pwl_loss_variables!(
     binary_T = get_variable_binary(T, D, formulation)
     U = HVDCPiecewiseBinaryLossVariable
     binary_U = get_variable_binary(U, D, formulation)
-    # get_loss returns a LinearCurve or PiecewiseIncrementalCurve struct — not a unit-bearing scalar; no PSY.SU conversion applies
-    first_loss = PSY.get_loss(first(devices))
-    if isa(first_loss, PSY.LinearCurve)
-        len_segments = 3 # 2*1 + 1
-    elseif isa(first_loss, PSY.PiecewiseIncrementalCurve)
-        len_segments = 2 * length(PSY.get_slopes(first_loss)) + 1
-    else
-        error("Should not be here")
-    end
+    first_loss = PSY.get_value_curve(PSY.get_loss(first(devices)))
+    len_segments = _hvdc_pwl_len_segments(first_loss)
 
     var_container = lazy_container_addition!(container, T, D)
     var_container_binary = lazy_container_addition!(container, U, D)
@@ -330,10 +338,10 @@ function add_constraints!(
         add_constraints_container!(container, T, U, names, time_steps; meta = "tf")
     constraint_binary =
         add_constraints_container!(container, T, U, names, time_steps; meta = "bin")
+    system_base = get_model_base_power(container)
     for d in devices
         name = PSY.get_name(d)
-        # get_loss returns a LinearCurve or PiecewiseIncrementalCurve struct — not a unit-bearing scalar; no PSY.SU conversion applies
-        loss = PSY.get_loss(d)
+        loss = _loss_curve_value(PSY.get_loss(d), d, system_base)
         from_to_params, to_from_params = _get_pwl_loss_params(d, loss)
         range_segments = 1:(length(from_to_params) - 1) # 1:(2S+1)
         for t in time_steps
@@ -720,6 +728,7 @@ function add_constraints!(
     ft_var = get_variable(container, FlowActivePowerFromToVariable, T)
     direction_var = get_variable(container, HVDCFlowDirectionVariable, T)
     losses = get_variable(container, HVDCLosses, T)
+    system_base = get_model_base_power(container)
 
     constraint_ft_ub = add_constraints_container!(container, HVDCPowerBalance,
         T,
@@ -777,15 +786,8 @@ function add_constraints!(
     )
     for d in devices
         name = PSY.get_name(d)
-        # get_loss returns a LinearCurve or PiecewiseIncrementalCurve struct — not a unit-bearing scalar; no PSY.SU conversion applies
-        loss = PSY.get_loss(d)
-        if !isa(loss, PSY.LinearCurve)
-            error(
-                "HVDCTwoTerminalDispatch of branch $(name) only accepts LinearCurve for loss models.",
-            )
-        end
-        l1 = PSY.get_proportional_term(loss)
-        l0 = PSY.get_constant_term(loss)
+        loss = _loss_curve_value(PSY.get_loss(d), d, system_base)
+        l1, l0 = _hvdc_linear_loss_terms(loss, d)
         R_min_from, R_max_from = PSY.get_active_power_limits_from(d, PSY.SU)
         R_min_to, R_max_to = PSY.get_active_power_limits_to(d, PSY.SU)
         for t in get_time_steps(container)
@@ -1655,6 +1657,7 @@ function add_constraints!(
     i_sq_expr = get_expression(container, IOM.QuadraticExpression, U, "i_sq")
 
     abs_i_var = get_variable(container, CurrentAbsoluteValueVariable, U)
+    system_base = get_model_base_power(container)
 
     cons_ft = add_constraints_container!(
         container, HVDCVSCConverterPowerConstraint, U, names, time_steps; meta = "ft",
@@ -1665,8 +1668,8 @@ function add_constraints!(
 
     for d in devices
         name = PSY.get_name(d)
-        loss_from = PSY.get_converter_loss_from(d)
-        loss_to = PSY.get_converter_loss_to(d)
+        loss_from = _loss_curve_value(PSY.get_converter_loss_from(d), d, system_base)
+        loss_to = _loss_curve_value(PSY.get_converter_loss_to(d), d, system_base)
         a_f = _get_quadratic_term(loss_from)
         b_f = PSY.get_proportional_term(loss_from)
         c_f = PSY.get_constant_term(loss_from)
@@ -1722,6 +1725,7 @@ function add_constraints!(
     i_ac_f = get_variable(container, ConverterACCurrentFromVariable, U)
     i_ac_t = get_variable(container, ConverterACCurrentToVariable, U)
     v_arrays = _fetch_voltage_arrays(container, network_model)
+    system_base = get_model_base_power(container)
 
     cons_ft = add_constraints_container!(
         container, HVDCVSCConverterPowerConstraint, U, names, time_steps; meta = "ft",
@@ -1740,8 +1744,8 @@ function add_constraints!(
         name = PSY.get_name(d)
         from_bus = PSY.get_name(PSY.get_from(PSY.get_arc(d)))
         to_bus = PSY.get_name(PSY.get_to(PSY.get_arc(d)))
-        loss_from = PSY.get_converter_loss_from(d)
-        loss_to = PSY.get_converter_loss_to(d)
+        loss_from = _loss_curve_value(PSY.get_converter_loss_from(d), d, system_base)
+        loss_to = _loss_curve_value(PSY.get_converter_loss_to(d), d, system_base)
         a_f = _get_quadratic_term(loss_from)
         b_f = PSY.get_proportional_term(loss_from)
         c_f = PSY.get_constant_term(loss_from)

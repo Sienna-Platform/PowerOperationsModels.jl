@@ -989,7 +989,7 @@ end
     # rating so the test cannot pass by accident on a symmetric fixture.
     sys = PSB.build_system(PSITestSystems, "c_sys5_ml")
     ml = first(PSY.get_components(PSY.MonitoredLine, sys))
-    PSY.set_flow_limits!(ml, (from_to = 2.0 * PSY.MW, to_from = 4.0 * PSY.MW))
+    PSY.set_flow_limits!(ml, (from_to = 2.0 * u"MW", to_from = 4.0 * u"MW"))
     limits = PSY.get_flow_limits(ml, PSY.SU)
     rate = PSY.get_rating(ml, PSY.SU)
     @test limits.from_to != limits.to_from
@@ -1035,7 +1035,7 @@ end
     # different code path from the directional ACP bounds exercised above.
     sys = PSB.build_system(PSITestSystems, "c_sys5_ml")
     ml = first(PSY.get_components(PSY.MonitoredLine, sys))
-    PSY.set_flow_limits!(ml, (from_to = 2.0 * PSY.MW, to_from = 4.0 * PSY.MW))
+    PSY.set_flow_limits!(ml, (from_to = 2.0 * u"MW", to_from = 4.0 * u"MW"))
     limits = PSY.get_flow_limits(ml, PSY.SU)
     rate = PSY.get_rating(ml, PSY.SU)
     @test limits.from_to != limits.to_from

@@ -34,7 +34,7 @@ function _build_vsc_reactive_sys(;
         ac_control_from = ac_control_from,
         dc_setpoint_from = dc_setpoint_from,
         ac_setpoint_from = ac_setpoint_from,
-        converter_loss_from = QuadraticCurve(0.01, 0.0, 0.0),
+        converter_loss_from = PSY.LossCurve(QuadraticCurve(0.01, 0.0, 0.0), PSY.CU),
         max_dc_current_from = 5.0,
         rating_from = rating,
         reactive_power_limits_from = (min = -rating, max = rating),
@@ -46,7 +46,7 @@ function _build_vsc_reactive_sys(;
         ac_control_to = ac_control_to,
         dc_setpoint_to = dc_setpoint_to,
         ac_setpoint_to = ac_setpoint_to,
-        converter_loss_to = QuadraticCurve(0.01, 0.0, 0.0),
+        converter_loss_to = PSY.LossCurve(QuadraticCurve(0.01, 0.0, 0.0), PSY.CU),
         max_dc_current_to = 5.0,
         rating_to = rating,
         reactive_power_limits_to = (min = -rating, max = rating),
@@ -296,7 +296,7 @@ end
     vsc = get_component(TwoTerminalVSCLine, sys, "1")
     to_bus = get_name(get_to(get_arc(vsc)))
     loss_to = get_converter_loss_to(vsc)
-    a = POM._get_quadratic_term(loss_to)
+    a = POM._get_quadratic_term(PSY.get_value_curve(loss_to))
 
     for t in 1:length(POM.get_time_steps(c))
         iac = JuMP.value(i_ac_t["1", t])

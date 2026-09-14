@@ -218,7 +218,8 @@ struct ShuntSusceptanceDispatch <: AbstractShuntFormulation end
 
 """
 Fixed-susceptance shunt injecting `Q = b_nominal·V²` into the reactive nodal balance with a
-non-dispatched `b_nominal` (`SwitchedAdmittance`: `imag(get_Y)`; `FACTSControlDevice`: the
+non-dispatched `b_nominal` (`SwitchedAdmittance`: the engaged susceptance, `solved_admittance`
+when set and the engaged blocks otherwise; `FACTSControlDevice`: the
 reactive-power setpoint on system base). The susceptance is not a decision variable and
 there is no voltage-control objective. This is the only shunt formulation valid under
 `LPACCNetworkModel`, where `V²` linearizes to `1 + 2φ`; it also builds on ACP/ACR/IVR.
@@ -310,12 +311,6 @@ Outage modeling notes:
 struct SecurityConstrainedStaticBranch <: AbstractSecurityConstrainedStaticBranch end
 
 IOM.supports_outages(::Type{<:AbstractSecurityConstrainedStaticBranch}) = true
-
-# psy6: disabled pending transformer refactor
-# """
-# Branch formulation for PhaseShiftingTransformer flow control
-# """
-# struct PhaseAngleControl <: AbstractBranchFormulation end
 
 ############################### DC Branch Formulations #####################################
 abstract type AbstractTwoTerminalDCLineFormulation <: AbstractBranchFormulation end
@@ -648,9 +643,9 @@ The formulation supports the following attributes when used in a [`PowerSimulati
 
 !!! danger
 
-    Setting the energy target attribute in combination with `EnergyTargetFeedforward`
-    or `EnergyLimitFeedforward` is not permitted and `StorageSystemsSimulations.jl`
-    will throw an exception.
+    The `energy_target` attribute and `EnergyTargetFeedforward` both build the
+    `StorageEnergyShortageVariable`, so combining them fails at construction with
+    an `IS.InvalidValue` duplicate-container error. Use one or the other.
 
 See the [Formulation Library](@ref storage_math_model) for the full mathematical description.
 """

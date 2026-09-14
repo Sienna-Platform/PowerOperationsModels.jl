@@ -1,6 +1,9 @@
 const GAEVF = JuMP.GenericAffExpr{Float64, VariableRef}
 const GQEVF = JuMP.GenericQuadExpr{Float64, VariableRef}
 
+is_greater_than_set(::MOI.GreaterThan) = true
+is_greater_than_set(::MOI.AbstractScalarSet) = false
+
 function moi_tests(
     model::DecisionModel,
     vars::Int,
@@ -364,9 +367,9 @@ function check_duration_on_initial_conditions_values(
             1,
         ]
         duration_on = IOM.jump_value(IOM.get_value(ic))
-        if on_var == 1.0 && PSY.get_status(ic.component)
+        if on_var == 1.0 && POM.is_online(ic.component)
             @test duration_on == PSY.get_time_at_status(ic.component)
-        elseif on_var == 1.0 && !PSY.get_status(ic.component)
+        elseif on_var == 1.0 && !POM.is_online(ic.component)
             @test duration_on == 0.0
         end
     end
@@ -390,9 +393,9 @@ function check_duration_off_initial_conditions_values(
             1,
         ]
         duration_off = IOM.jump_value(IOM.get_value(ic))
-        if on_var == 0.0 && !PSY.get_status(ic.component)
+        if on_var == 0.0 && !POM.is_online(ic.component)
             @test duration_off == PSY.get_time_at_status(ic.component)
-        elseif on_var == 0.0 && PSY.get_status(ic.component)
+        elseif on_var == 0.0 && POM.is_online(ic.component)
             @test duration_off == 0.0
         end
     end

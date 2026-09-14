@@ -10,7 +10,7 @@
 # sys10_pjm_ac_dc with the marginal cost of every side-2 thermal unit doubled so
 # the optimum must move power across the DC ties (non-vacuous converter flows).
 function _build_converter_sys(;
-    loss = QuadraticCurve(0.0, 0.0, 0.0),
+    loss = PSY.LossCurve(QuadraticCurve(0.0, 0.0, 0.0), PSY.CU),
     reactive_limit = 1.5,
     ac_control = VSCACControlModes.AC_REACTIVE_POWER,
     ac_setpoint = 0.0,
@@ -160,7 +160,7 @@ end
         (DCPLLNetworkModel, ipopt_optimizer),
     )
         sys = _build_converter_sys(;
-            loss = QuadraticCurve(0.0, b_term, c_term),
+            loss = PSY.LossCurve(QuadraticCurve(0.0, b_term, c_term), PSY.CU),
             with_areas = true,
         )
         template = _converter_template(
@@ -176,7 +176,9 @@ end
 @testset "LinearLossConverter loss surrogate pins |P| at the optimum" begin
     b_term = 0.05
     c_term = 0.01
-    sys = _build_converter_sys(; loss = QuadraticCurve(0.0, b_term, c_term))
+    sys = _build_converter_sys(;
+        loss = PSY.LossCurve(QuadraticCurve(0.0, b_term, c_term), PSY.CU),
+    )
     template = _converter_template(
         DCPNetworkModel, DeviceModel(InterconnectingConverter, LinearLossConverter),
     )
@@ -201,7 +203,9 @@ end
 end
 
 @testset "LinearLossConverter rejects a quadratic loss function" begin
-    sys = _build_converter_sys(; loss = QuadraticCurve(0.01, 0.05, 0.01))
+    sys = _build_converter_sys(;
+        loss = PSY.LossCurve(QuadraticCurve(0.01, 0.05, 0.01), PSY.CU),
+    )
     template = _converter_template(
         DCPNetworkModel, DeviceModel(InterconnectingConverter, LinearLossConverter),
     )
@@ -233,7 +237,9 @@ end
     c_term = 0.01
     for net in (ACPNetworkModel, ACRNetworkModel, IVRNetworkModel, LPACCNetworkModel)
         for formulation in (LosslessConverter, LinearLossConverter)
-            sys = _build_converter_sys(; loss = QuadraticCurve(0.0, b_term, c_term))
+            sys = _build_converter_sys(;
+                loss = PSY.LossCurve(QuadraticCurve(0.0, b_term, c_term), PSY.CU),
+            )
             template = _converter_template(
                 net, DeviceModel(InterconnectingConverter, formulation),
             )
@@ -295,7 +301,9 @@ _uses_ac_apparent_current(::Type{LPACCNetworkModel}) = false
 
 @testset "QuadraticLossConverter on AC networks" begin
     for net in (ACPNetworkModel, ACRNetworkModel, IVRNetworkModel, LPACCNetworkModel)
-        sys = _build_converter_sys(; loss = QuadraticCurve(0.01, 0.01, 0.0))
+        sys = _build_converter_sys(;
+            loss = PSY.LossCurve(QuadraticCurve(0.01, 0.01, 0.0), PSY.CU),
+        )
         template = _converter_template(
             net,
             DeviceModel(InterconnectingConverter, QuadraticLossConverter);
@@ -346,7 +354,9 @@ _uses_ac_apparent_current(::Type{LPACCNetworkModel}) = false
 end
 
 @testset "QuadraticLossConverter solves on LPACC with the DC-current loss" begin
-    sys = _build_converter_sys(; loss = QuadraticCurve(0.01, 0.01, 0.0))
+    sys = _build_converter_sys(;
+        loss = PSY.LossCurve(QuadraticCurve(0.01, 0.01, 0.0), PSY.CU),
+    )
     template = _converter_template(
         LPACCNetworkModel,
         DeviceModel(InterconnectingConverter, QuadraticLossConverter);
@@ -374,7 +384,7 @@ end
     v_sp = 1.01
     dc_sp = 1.0
     sys = _build_converter_sys(;
-        loss = QuadraticCurve(0.01, 0.01, 0.0),
+        loss = PSY.LossCurve(QuadraticCurve(0.01, 0.01, 0.0), PSY.CU),
         ac_control = VSCACControlModes.AC_VOLTAGE,
         ac_setpoint = v_sp,
         dc_control = VSCDCControlModes.DC_VOLTAGE,
@@ -420,7 +430,7 @@ end
 @testset "VoltageControlConverter is count-invariant across AC control modes (LPACC)" begin
     function _lpacc_container_for_ac_mode(mode, setpoint)
         sys = _build_converter_sys(;
-            loss = QuadraticCurve(0.01, 0.01, 0.0),
+            loss = PSY.LossCurve(QuadraticCurve(0.01, 0.01, 0.0), PSY.CU),
             ac_control = mode,
             ac_setpoint = setpoint,
         )
@@ -480,7 +490,7 @@ function _vsc_lpacc_sys(;
         ac_control_from = ac_control_from,
         dc_setpoint_from = dc_setpoint_from,
         ac_setpoint_from = ac_setpoint_from,
-        converter_loss_from = QuadraticCurve(0.01, 0.0, 0.0),
+        converter_loss_from = PSY.LossCurve(QuadraticCurve(0.01, 0.0, 0.0), PSY.CU),
         max_dc_current_from = 5.0,
         rating_from = 2.0,
         reactive_power_limits_from = (min = -2.0, max = 2.0),
@@ -492,7 +502,7 @@ function _vsc_lpacc_sys(;
         ac_control_to = ac_control_to,
         dc_setpoint_to = dc_setpoint_to,
         ac_setpoint_to = ac_setpoint_to,
-        converter_loss_to = QuadraticCurve(0.01, 0.0, 0.0),
+        converter_loss_to = PSY.LossCurve(QuadraticCurve(0.01, 0.0, 0.0), PSY.CU),
         max_dc_current_to = 5.0,
         rating_to = 2.0,
         reactive_power_limits_to = (min = -2.0, max = 2.0),
@@ -569,7 +579,9 @@ end
     b_term = 0.05
     c_term = 0.01
     i_max = 2.0
-    sys = _build_converter_sys(; loss = QuadraticCurve(0.0, b_term, c_term))
+    sys = _build_converter_sys(;
+        loss = PSY.LossCurve(QuadraticCurve(0.0, b_term, c_term), PSY.CU),
+    )
     system_base = get_base_power(sys)
     converter_base = 50.0
     for ic in get_components(InterconnectingConverter, sys)
