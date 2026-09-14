@@ -977,3 +977,64 @@ end
     # silently either way.
     @test all(==(1.0), signs)
 end
+
+@testset "Mixed-type parallel groups resolve on the interface path" begin
+    # PNM builds a `MixedBranchesParallel` when parallel branches have different
+    # concrete types. The interface contains neither member: membership is tested
+    # by walking every branch of each modeled type, so one mixed group anywhere
+    # plus one registered interface service model exercises the path.
+    sys = PSB.build_system(PSITestSystems, "c_sys5")
+    mixed_member = get_component(PSY.Line, sys, "2")
+    add_equivalent_ac_transmission_with_parallel_circuits!(
+        sys,
+        mixed_member,
+        PSY.Line,
+        PSY.MonitoredLine,
+    )
+
+    unrelated = get_component(PSY.Line, sys, "4")
+    interface = TransmissionInterface(;
+        name = "unrelated_interface",
+        available = true,
+        active_power_flow_limits = (min = -100.0, max = 100.0),
+    )
+    add_service!(sys, interface, [unrelated])
+
+    template = get_thermal_dispatch_template_network(NetworkModel(POM.DCPNetworkModel))
+    set_service_model!(
+        template,
+        ServiceModel(TransmissionInterface, ConstantMaxInterfaceFlow),
+    )
+    model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
+    @test build!(
+        model;
+        output_dir = mktempdir(; cleanup = true),
+        console_level = Logging.Error,
+    ) == IOM.ModelBuildStatus.BUILT
+    @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+
+    # The mixed group contributes nothing to an interface it is not a member of.
+    container = IOM.get_optimization_container(model)
+    interface_flow =
+        IOM.get_expression(container, POM.InterfaceTotalFlow, TransmissionInterface)
+    line_flow = IOM.get_expression(container, POM.BThetaBranchFlow, PSY.Line)
+    for t in axes(interface_flow)[2]
+        @test isapprox(
+            JuMP.value(interface_flow["unrelated_interface", t]),
+            JuMP.value(line_flow["4", t]);
+            atol = POM.ABSOLUTE_TOLERANCE,
+        )
+    end
+end
+
+@testset "Reduction aggregates cannot silently bind the single-branch methods" begin
+    # `AbstractReductionAggregate <: PSY.ACTransmission`, so an aggregate with no
+    # dedicated method would otherwise bind the single-branch method.
+    group = PNM.MixedBranchesParallel(
+        PSY.ACTransmission[],
+        (1, 2),
+        PNM.EMPTY_TWO_PORT,
+        false,
+    )
+    @test_throws ErrorException POM._assert_not_aggregate(group, "_get_direction")
+end
