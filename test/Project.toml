@@ -49,8 +49,7 @@ UUIDs = "cf7118a7-6976-5b1a-9a39-7adc72f591a4"
 [sources]
 PowerOperationsModels = {path = ".."}
 InfrastructureSystems = {url = "https://github.com/Sienna-Platform/InfrastructureSystems.jl.git", rev = "IS4"}
-# TEMPORARY: IOM jd/market_models2 plus main (IOM PR into jd/market_models2); back to jd/market_models2 once it merges.
-InfrastructureOptimizationModels = {rev = "rh/market_models_1x", url = "https://github.com/Sienna-Platform/InfrastructureOptimizationModels.jl"}
+InfrastructureOptimizationModels = {rev = "jd/market_models2", url = "https://github.com/Sienna-Platform/InfrastructureOptimizationModels.jl"}
 PowerSystems = {url = "https://github.com/Sienna-Platform/PowerSystems.jl.git", rev = "jd/openapi-1x"}
 PowerSystemCaseBuilder = {url = "https://github.com/Sienna-Platform/PowerSystemCaseBuilder.jl.git", rev = "jd/openapi-1x"}
 # Branch pins until the OpenAPI packages are registered and the psy6-line branches merge.

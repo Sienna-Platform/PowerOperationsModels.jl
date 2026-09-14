@@ -35,8 +35,7 @@ PowerFlows = "94fada2c-fd9a-4e89-8d82-81405f5cb4f6"
 
 [sources]
 InfrastructureSystems = {url = "https://github.com/Sienna-Platform/InfrastructureSystems.jl.git", rev = "IS4"}
-# TEMPORARY: IOM jd/market_models2 plus main (IOM PR into jd/market_models2); back to jd/market_models2 once it merges.
-InfrastructureOptimizationModels = {rev = "rh/market_models_1x", url = "https://github.com/Sienna-Platform/InfrastructureOptimizationModels.jl"}
+InfrastructureOptimizationModels = {rev = "jd/market_models2", url = "https://github.com/Sienna-Platform/InfrastructureOptimizationModels.jl"}
 PowerSystems = {url = "https://github.com/Sienna-Platform/PowerSystems.jl.git", rev = "jd/openapi-1x"}
 PowerNetworkMatrices = {rev = "psy6", url = "https://github.com/Sienna-Platform/PowerNetworkMatrices.jl"}
 # PSY psy6 depends on these unregistered packages; [sources] of non-root projects are
