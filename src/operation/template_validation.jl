@@ -674,7 +674,8 @@ The monitored set is exactly what each outage lists in its
 `monitored_components`; an outage with empty `monitored_components` is treated
 as "monitor nothing" (a warning is emitted). A monitored component whose type
 is not a modeled `PSY.ACTransmission` branch type is reported once per type and
-skipped.
+skipped, as is an unavailable one: it is absent from the branch catalog and so
+cannot resolve to a representative arc.
 """
 function _build_device_model_outages!(
     template::IOM.AbstractProblemTemplate,
@@ -686,6 +687,7 @@ function _build_device_model_outages!(
     modeled_types = Set{Type}(get_component_types(template))
     selection = _take_outage_selection!(sc_models)
     uncovered_types = Dict{DataType, Set{Int}}()
+    unavailable_counts = Dict{Int, Int}()
 
     for outage in PSY.get_supplemental_attributes(PSY.Outage, sys)
         outage_id = IS.get_id(outage)
@@ -697,10 +699,13 @@ function _build_device_model_outages!(
             continue
         end
 
-        per_type, uncovered =
+        per_type, uncovered, unavailable =
             _monitored_components_by_modeled_type(outage, outage_id, sys, modeled_types)
         for comp_type in uncovered
             push!(get!(Set{Int}, uncovered_types, comp_type), outage_id)
+        end
+        if !isempty(unavailable)
+            unavailable_counts[outage_id] = length(unavailable)
         end
         isempty(per_type) && continue
 
@@ -724,6 +729,7 @@ function _build_device_model_outages!(
     end
 
     _warn_uncovered_monitored_types(uncovered_types)
+    _warn_unavailable_monitored_components(unavailable_counts)
     _warn_unmatched_user_outages(sc_models, selection)
     return
 end
@@ -750,8 +756,8 @@ function _take_outage_selection!(sc_models::Vector{<:IOM.DeviceModelForBranches}
 end
 
 # Monitored-component names grouped by their concrete (modeled) type. Returns
-# `(per_type, uncovered)` where `uncovered` is the set of monitored component
-# types the template does not model.
+# `(per_type, uncovered, unavailable)`: the monitored component types the template
+# does not model, and the names of the de-energized ones.
 function _monitored_components_by_modeled_type(
     outage::PSY.Outage,
     outage_id::Int,
@@ -760,6 +766,7 @@ function _monitored_components_by_modeled_type(
 )
     per_type = Dict{DataType, Set{String}}()
     uncovered = Set{DataType}()
+    unavailable = Set{String}()
     for uuid in PSY.get_monitored_components(outage)
         component = IS.get_component(sys, uuid)
         isnothing(component) && throw(
@@ -769,13 +776,15 @@ function _monitored_components_by_modeled_type(
             ),
         )
         comp_type = typeof(component)
-        if comp_type <: PSY.ACTransmission && comp_type in modeled_types
-            push!(get!(Set{String}, per_type, comp_type), PSY.get_name(component))
-        else
+        if !(comp_type <: PSY.ACTransmission && comp_type in modeled_types)
             push!(uncovered, comp_type)
+        elseif !PSY.get_available(component)
+            push!(unavailable, PSY.get_name(component))
+        else
+            push!(get!(Set{String}, per_type, comp_type), PSY.get_name(component))
         end
     end
-    return per_type, uncovered
+    return per_type, uncovered, unavailable
 end
 
 function _attached_component_types(outage::PSY.Outage, sys::PSY.System)
@@ -838,6 +847,19 @@ function _warn_uncovered_monitored_types(
                ACTransmission branch type; their post-contingency variables \
                will be skipped." _group = IOM.LOG_GROUP_MODELS_VALIDATION
     end
+    return
+end
+
+# Systems with de-energized islands carry unavailable monitored components
+# routinely, so report and skip rather than fail the build.
+function _warn_unavailable_monitored_components(unavailable_counts::Dict{Int, Int})
+    isempty(unavailable_counts) && return
+    total = sum(values(unavailable_counts))
+    @warn "$(total) monitored component(s) across $(length(unavailable_counts)) \
+           outage(s) are unavailable and absent from the network; no \
+           post-contingency variables or constraints will be created for them. \
+           Dropped per outage: $(sort!(collect(unavailable_counts); by = first))." _group =
+        IOM.LOG_GROUP_MODELS_VALIDATION
     return
 end
 
