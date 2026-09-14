@@ -43,10 +43,10 @@ struct LiftVariable <: VariableType end
 
 """
 Binary block-bid commitment variable (``z``) for a FIXED-`curve_style` market bid
-(`PSY.CurveStyles.FIXED`): one JuMP variable per (component, direction), reused unscaled
-at every period of the horizon in both the settlement row and the objective. The block
-clears at its full MW envelope in every period when ``z = 1``, or not at all when
-``z = 0`` — an all-or-nothing decision across the whole bid period.
+(`PSY.CurveStyles.FIXED`): one per (component, direction, period). The award equals the
+period's offer quantity when ``z = 1`` and zero when ``z = 0``
+([`BlockBidQuantityConstraint`](@ref)); ``z`` prices the block in the objective and never
+enters the settlement row itself.
 """
 struct BlockBidCommitmentVariable <: VariableType end
 

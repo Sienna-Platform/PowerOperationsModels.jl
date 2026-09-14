@@ -40,15 +40,14 @@ IOM._vom_offer_direction(::Type{ActivePowerInVariable}, ::Type{VirtualBidDispatc
     IOM.DecrementalOffer()
 
 """
-FIXED/VARIABLE block bids are costed directly from PWL segments
-(`_add_block_bid_objective_terms!`), which never reads VOM: only CURVE-style devices go
-through the standard `add_variable_cost!` -> `_add_vom_cost_to_objective!` path that does.
-A nonzero VOM component on a FIXED/VARIABLE device's offer curve would therefore silently
-vanish from the objective, so it is rejected loudly here instead (mirrors the
-`ImportExportCost` "VOM cost must be zero" idiom in `_validate_occ_subtype`).
+A FIXED bid is priced from its curve's total value on the commitment binary
+(`_add_block_bid_objective_terms!`), a path that never reads VOM; VARIABLE bids go through
+`add_variable_cost!`, which does. A nonzero VOM on a FIXED bid would vanish from the
+objective, so it is rejected loudly (mirrors the `ImportExportCost` "VOM cost must be zero"
+idiom in `_validate_occ_subtype`).
 """
 function _validate_block_bid_vom!(d::PSY.VirtualParticipant, style::PSY.CurveStyles)
-    style == PSY.CurveStyles.CURVE && return
+    style == PSY.CurveStyles.FIXED || return
     cost = PSY.get_operation_cost(d)
     for curve in (get_output_offer_curves(cost), get_input_offer_curves(cost))
         vom = IS.get_proportional_term(IS.get_vom_cost(curve))
@@ -56,53 +55,8 @@ function _validate_block_bid_vom!(d::PSY.VirtualParticipant, style::PSY.CurveSty
             error(
                 "VirtualParticipant $(PSY.get_name(d)) has curve_style $(style) with a " *
                 "nonzero VOM cost ($vom) on an offer curve. VOM is not supported for " *
-                "FIXED/VARIABLE block bids (it would silently drop from the objective); " *
+                "FIXED block bids (it would silently drop from the objective); " *
                 "set the offer curve's vom_cost to zero.",
-            )
-        end
-    end
-    return
-end
-
-"""
-Total MW span `[0, top_breakpoint]` of a static PWL offer curve, the quantity FIXED's `z`
-and VARIABLE's shared variable both scale (see [`_validate_block_bid_span!`](@ref)).
-"""
-_block_bid_offer_span(curve::IS.CostCurve{IS.PiecewiseIncrementalCurve}) =
-    last(IS.get_x_coords(IS.get_function_data(IS.get_value_curve(curve))))
-_block_bid_offer_span(curve::IS.CostCurve{<:IS.TimeSeriesPiecewiseIncrementalCurve}) =
-    error(
-        "Time-series-backed offer curves are not yet supported for FIXED/VARIABLE block bids " *
-        "(their envelope-vs-curve span cannot be validated at build time).",
-    )
-
-"""
-FIXED/VARIABLE block bids settle at the envelope (`max_supply`/`max_demand`,
-[`_bid_max_mw`](@ref)) but are PRICED over the offer curve's own span
-([`_block_bid_curve_value`](@ref)), which is a completely separate field. Nothing else ties
-the two together, so a curve authored with a different top breakpoint than the envelope
-silently mis-prices the block (it clears the envelope's quantity at the curve's average
-price over a different quantity). Rejected loudly here, mirroring
-[`_validate_block_bid_vom!`](@ref)'s idiom -- CURVE devices are exempt since their own
-per-period variable is bounded directly by the curve (no separate envelope to mismatch).
-"""
-function _validate_block_bid_span!(d::PSY.VirtualParticipant, style::PSY.CurveStyles)
-    style == PSY.CurveStyles.CURVE && return
-    cost = PSY.get_operation_cost(d)
-    for (meta, curve, envelope) in (
-        ("incremental", get_output_offer_curves(cost), PSY.get_max_supply(d)),
-        ("decremental", get_input_offer_curves(cost), PSY.get_max_demand(d)),
-    )
-        IOM.is_nontrivial_offer(curve) || continue
-        span = _block_bid_offer_span(curve)
-        if !isapprox(span, envelope)
-            error(
-                "VirtualParticipant $(PSY.get_name(d)) has curve_style $(style) with a " *
-                "$(meta) offer curve spanning [0, $span] MW, which does not match its " *
-                "$(meta) envelope of $envelope MW. FIXED/VARIABLE block bids settle the " *
-                "envelope but are priced over the curve; the two must be equal or the " *
-                "bid is silently mispriced. Fix the curve's top breakpoint or the " *
-                "envelope field.",
             )
         end
     end
@@ -114,8 +68,7 @@ Validate `VirtualParticipant` `MarketBidCost`s and add the incremental/decrement
 parameters (slope/breakpoint, static or time-series-backed). Mirrors
 `process_import_export_parameters!` for `Source`; startup/shutdown/cost-at-min are not
 processed here since virtual bids carry no commitment. Runs for every device regardless
-of `curve_style`: FIXED/VARIABLE block bids reuse the same PWL parameter machinery as
-CURVE bids to evaluate their offer curve.
+of `curve_style`: FIXED bids read their quantity and value off the same PWL parameters.
 """
 function process_virtual_bid_parameters!(
     container::OptimizationContainer,
@@ -125,9 +78,7 @@ function process_virtual_bid_parameters!(
     devices = [d for d in devices_in if _has_market_bid_cost(d)]
 
     for d in devices
-        style = _curve_style(PSY.get_operation_cost(d))
-        _validate_block_bid_vom!(d, style)
-        _validate_block_bid_span!(d, style)
+        _validate_block_bid_vom!(d, PSY.get_curve_style(PSY.get_operation_cost(d)))
     end
 
     for param in (
@@ -142,32 +93,25 @@ function process_virtual_bid_parameters!(
 end
 
 #################################################################################
-# Curve-style variable creation
+# Curve-style partition
 #
-# CURVE: a fresh ActivePowerOutVariable/InVariable JuMP variable per period, divisible
-# across [0, mw/base] independently at each t.
-# VARIABLE: the SAME ActivePowerOutVariable/InVariable JuMP object assigned at every
-# period. Bounds are unchanged ([0, mw/base]), so this variable is still divisible; the
-# per-period PWL cost machinery links `p[t] = Σδ_k(t)` for every t against that one shared
-# object, giving a single shared fraction of the block cleared identically at every period
-# with no new cost code.
-# FIXED: excluded from the ActivePowerOutVariable/InVariable containers entirely (its
-# quantity is not "the variable's own value" but "mw times a binary flag"), and instead
-# gets its own `BlockBidCommitmentVariable` (z), built with the same
-# create-once/reuse-every-period pattern as VARIABLE.
+# Every device gets a fresh ActivePowerOutVariable/InVariable per period; that award is
+# what settles and what the location writes carry. VARIABLE devices price it through the
+# per-period PWL path. FIXED devices add a per-period BlockBidCommitmentVariable (z) tied
+# to the award by BlockBidQuantityConstraint (p = Q z) and priced on z. MULTI_STEP devices
+# of either style link consecutive periods with identical offers (BlockBidLinkConstraint).
 #################################################################################
 
 """
 Split market components into the FIXED-style block bids (which get a
-`BlockBidCommitmentVariable`) and the divisible CURVE/VARIABLE bids (which get
-`ActivePowerOutVariable`/`ActivePowerInVariable`). Both construct stages need the same
-split.
+`BlockBidCommitmentVariable` and quantity rows) and the divisible VARIABLE bids (which get
+the PWL cost path). Both construct stages need the same split.
 """
 function _partition_by_curve_style(devices)
     fixed = eltype(devices)[]
     divisible = eltype(devices)[]
     for d in devices
-        style = _curve_style(PSY.get_operation_cost(d))
+        style = PSY.get_curve_style(PSY.get_operation_cost(d))
         if style == PSY.CurveStyles.FIXED
             push!(fixed, d)
         else
@@ -177,13 +121,15 @@ function _partition_by_curve_style(devices)
     return fixed, divisible
 end
 
-"Envelope MW a `VirtualParticipant`'s bid is capped at for the given offer direction."
-_bid_max_mw(::IOM.IncrementalOffer, d::PSY.VirtualParticipant) = PSY.get_max_supply(d)
-_bid_max_mw(::IOM.DecrementalOffer, d::PSY.VirtualParticipant) = PSY.get_max_demand(d)
+_is_multistep(d::PSY.VirtualParticipant) =
+    PSY.get_curve_multistep(PSY.get_operation_cost(d)) == PSY.CurveMultiStep.MULTI_STEP
+
 _bid_settlement_sign(::IOM.IncrementalOffer) = 1.0
 _bid_settlement_sign(::IOM.DecrementalOffer) = -1.0
 _bid_direction_meta(::IOM.IncrementalOffer) = "Out"
 _bid_direction_meta(::IOM.DecrementalOffer) = "In"
+_bid_award_variable_type(::IOM.IncrementalOffer) = ActivePowerOutVariable
+_bid_award_variable_type(::IOM.DecrementalOffer) = ActivePowerInVariable
 
 _get_block_bid_variable(container::OptimizationContainer, dir::IOM.OfferDirection) =
     get_variable(
@@ -192,6 +138,91 @@ _get_block_bid_variable(container::OptimizationContainer, dir::IOM.OfferDirectio
         PSY.VirtualParticipant,
         _bid_direction_meta(dir),
     )
+
+_get_award_variable(container::OptimizationContainer, dir::IOM.OfferDirection) =
+    get_variable(container, _bid_award_variable_type(dir), PSY.VirtualParticipant)
+
+#################################################################################
+# Offer curves period by period
+#
+# Two paths read an offer curve at each period through `IOM._get_pwl_data`, which resolves a
+# static curve from the cost object and a time-series curve from the padded parameter
+# arrays, both in system per-unit. A FIXED bid takes its quantity and value from it: `p = Q z`,
+# the `z` objective term, and `z` fixed to zero where nothing is offered. A MULTI_STEP bid of
+# either style takes its block boundaries from it: a block ends where consecutive periods
+# stop carrying the same curve. The VARIABLE single-step path does not read it; its PWL
+# delta terms read the parameters themselves.
+#
+# The parameter containers pad every curve to the widest segment count in the model, so a
+# one-step curve comes back with zero-width segments appended. Real segments are the
+# positive-width ones; the quantity is the top breakpoint either way.
+#################################################################################
+
+"`(breakpoints, slopes)` of `d`'s `dir` curve at period `t`, in per-unit; empty when that side has no curve."
+function _curve_at(
+    dir::IOM.OfferDirection,
+    container::OptimizationContainer,
+    d::IS.InfrastructureSystemsComponent,
+    t::Int,
+)
+    IOM.is_nontrivial_offer(get_offer_curves(dir, d)) || return (Float64[], Float64[])
+    breakpoints, slopes = IOM._get_pwl_data(dir, container, d, t)
+    return (breakpoints, slopes)
+end
+
+"Quantity `d` offers in direction `dir` at period `t`, in per-unit; 0 when that side has no curve."
+function _offer_quantity(
+    dir::IOM.OfferDirection,
+    container::OptimizationContainer,
+    d::IS.InfrastructureSystemsComponent,
+    t::Int,
+)
+    breakpoints, _ = _curve_at(dir, container, d, t)
+    isempty(breakpoints) && return 0.0
+    return Float64(maximum(breakpoints))
+end
+
+"Whether `d` offers a positive quantity in direction `dir` at some period."
+_offers_quantity(
+    dir::IOM.OfferDirection,
+    container::OptimizationContainer,
+    d::IS.InfrastructureSystemsComponent,
+    time_steps,
+) = any(t -> _offer_quantity(dir, container, d, t) > 0.0, time_steps)
+
+"Number of positive-width segments in a padded breakpoint vector."
+_real_segments(breakpoints) =
+    count(i -> breakpoints[i + 1] > breakpoints[i] + 1e-9, 1:(length(breakpoints) - 1))
+
+"""
+Value of clearing a whole curve for one hour: `Σ slope_k × width_k` over its segments. For a
+FIXED bid this is `price × quantity`, but the vectors come padded to the model's widest curve
+(IOM repeats the last breakpoint, so the extra segments have zero width), and the sum stays
+correct whatever the padding holds; a direct `slopes[1] × width_1` would rely on the real
+segment being stored first.
+"""
+function _pwl_curve_total(breakpoints, slopes)::Float64
+    total = 0.0
+    for i in eachindex(slopes)
+        total += slopes[i] * (breakpoints[i + 1] - breakpoints[i])
+    end
+    return total
+end
+
+"""
+The FIXED devices that offer in direction `dir`: the names carrying a
+`BlockBidCommitmentVariable` on that side. The argument stage creates that container only
+for the FIXED devices with a positive quantity in the direction, so the model stage reads
+the set off it instead of deriving it again; empty when no FIXED device offers there.
+"""
+function _block_bid_names(container::OptimizationContainer, dir::IOM.OfferDirection)
+    key_present = IOM.has_container_key(
+        container, BlockBidCommitmentVariable, PSY.VirtualParticipant,
+        _bid_direction_meta(dir),
+    )
+    key_present || return String[]
+    return collect(String, axes(_get_block_bid_variable(container, dir))[1])
+end
 
 function _new_bid_jump_var!(
     container::OptimizationContainer,
@@ -231,44 +262,34 @@ function _populate_per_period_bid_variable!(
     return
 end
 
-function _populate_shared_bid_variable!(
+"""
+A FIXED bid is one (quantity, price) point per period: every period that offers a
+quantity must have exactly one positive-width segment. Static curves are checked by PSY at
+construction; time-series curves only resolve here.
+"""
+function _validate_block_bid_segments!(
+    dir::IOM.OfferDirection,
     container::OptimizationContainer,
-    variable,
-    ::Type{T},
     d::PSY.VirtualParticipant,
     time_steps,
-) where {T <: VariableType}
-    name = PSY.get_name(d)
-    var = _new_bid_jump_var!(container, T, d, first(time_steps))
+)
     for t in time_steps
-        variable[name, t] = var
+        breakpoints, _ = _curve_at(dir, container, d, t)
+        (isempty(breakpoints) || maximum(breakpoints) <= 0.0) && continue
+        segments = _real_segments(breakpoints)
+        segments == 1 || error(
+            "VirtualParticipant $(PSY.get_name(d)) has curve_style FIXED but its " *
+            "$(_bid_direction_meta(dir)) offer curve at period $(t) has $(segments) " *
+            "segments; a FIXED bid is a single segment per period.",
+        )
     end
     return
 end
 
-_populate_bid_variable!(
-    container::OptimizationContainer,
-    variable,
-    ::Type{T},
-    d::PSY.VirtualParticipant,
-    time_steps,
-    ::Val{PSY.CurveStyles.CURVE},
-) where {T <: VariableType} =
-    _populate_per_period_bid_variable!(container, variable, T, d, time_steps)
-
-_populate_bid_variable!(
-    container::OptimizationContainer,
-    variable,
-    ::Type{T},
-    d::PSY.VirtualParticipant,
-    time_steps,
-    ::Val{PSY.CurveStyles.VARIABLE},
-) where {T <: VariableType} =
-    _populate_shared_bid_variable!(container, variable, T, d, time_steps)
-
 """
-Creates the `BlockBidCommitmentVariable` (z) for every FIXED-style device, one per
-(device, direction), reused at every period — see the curve-style section header.
+Creates the `BlockBidCommitmentVariable` (z) for every FIXED-style device and direction it
+offers in, one per period, fixed to zero at periods with no quantity. Needs the PWL
+parameters processed first.
 """
 function _add_block_bid_commitment_variables!(
     container::OptimizationContainer,
@@ -276,72 +297,54 @@ function _add_block_bid_commitment_variables!(
 )
     isempty(devices) && return
     time_steps = get_time_steps(container)
-    names = PSY.get_name.(devices)
     for dir in (IOM.IncrementalOffer(), IOM.DecrementalOffer())
-        meta = _bid_direction_meta(dir)
+        offering = [d for d in devices if _offers_quantity(dir, container, d, time_steps)]
+        isempty(offering) && continue
         variable = add_variable_container!(
-            container, BlockBidCommitmentVariable, PSY.VirtualParticipant, meta, names,
-            time_steps,
+            container, BlockBidCommitmentVariable, PSY.VirtualParticipant,
+            _bid_direction_meta(dir), PSY.get_name.(offering), time_steps,
         )
-        for d in devices
-            _populate_shared_bid_variable!(
-                container, variable, BlockBidCommitmentVariable, d, time_steps,
+        for d in offering
+            _validate_block_bid_segments!(dir, container, d, time_steps)
+            name = PSY.get_name(d)
+            for t in time_steps
+                z = _new_bid_jump_var!(container, BlockBidCommitmentVariable, d, t)
+                variable[name, t] = z
+                _offer_quantity(dir, container, d, t) > 0.0 ||
+                    JuMP.fix(z, 0.0; force = true)
+            end
+        end
+    end
+    return
+end
+
+"""
+`p[d, t] - Q[d, t] z[d, t] == 0` for every FIXED device, direction with an offer, and
+period. Where nothing is offered `Q = 0` and `z` is fixed, so the row pins the award to 0.
+"""
+function _add_block_bid_quantity_rows!(container::OptimizationContainer, devices)
+    isempty(devices) && return
+    time_steps = get_time_steps(container)
+    jump_model = get_jump_model(container)
+    by_name = Dict(PSY.get_name(d) => d for d in devices)
+    for dir in (IOM.IncrementalOffer(), IOM.DecrementalOffer())
+        names = _block_bid_names(container, dir)
+        isempty(names) && continue
+        rows = add_constraints_container!(
+            container, BlockBidQuantityConstraint, PSY.VirtualParticipant, names,
+            time_steps;
+            meta = _bid_direction_meta(dir),
+        )
+        p = _get_award_variable(container, dir)
+        z = _get_block_bid_variable(container, dir)
+        for name in names, t in time_steps
+            quantity = _offer_quantity(dir, container, by_name[name], t)
+            rows[name, t] = JuMP.@constraint(
+                jump_model, p[name, t] - quantity * z[name, t] == 0,
             )
         end
     end
     return
-end
-
-"""
-Adds FIXED-style block-bid settlement terms: `z` scaled by `mw/base` (natural-units
-`max_supply`/`max_demand` converted at the formulation surface, per the units rule) at
-every period, `+z` on the supply (out) side and `-z` on the demand (in) side.
-"""
-function _add_block_bid_settlement_terms!(
-    container::OptimizationContainer,
-    devices,
-    settlement_expr,
-    time_steps,
-)
-    isempty(devices) && return
-    for dir in (IOM.IncrementalOffer(), IOM.DecrementalOffer())
-        z = _get_block_bid_variable(container, dir)
-        sign = _bid_settlement_sign(dir)
-        for d in devices
-            name = PSY.get_name(d)
-            mw = _bid_max_mw(dir, d) / PSY.get_base_power(d, PSY.NU)
-            iszero(mw) && continue
-            _add_settlement_terms!(settlement_expr, z, name, sign * mw, time_steps)
-        end
-    end
-    return
-end
-
-"""
-Total \$ value of clearing a block-bid device's full offer curve for one hour: the sum of
-`slope_k * segment_width_k` over the whole curve. A block bid's curve is assumed to span
-exactly `[0, mw]` (the same assumption CURVE-style devices make about their top
-breakpoint), so this is the \$/h cost (or, for a decremental curve, value) of clearing the
-entire block — the quantity FIXED's `z` and VARIABLE's shared variable both scale.
-"""
-function _block_bid_curve_value(
-    dir::IOM.OfferDirection,
-    container::OptimizationContainer,
-    d::PSY.VirtualParticipant,
-    t::Int,
-)::Float64
-    breakpoints, slopes = IOM._get_pwl_data(dir, container, d, t)
-    return _pwl_curve_total(breakpoints, slopes)
-end
-
-# Function barrier: `_get_pwl_data`'s breakpoint/slope vectors are not inferrable at its
-# call site, so the accumulation is compiled here against their concrete types.
-function _pwl_curve_total(breakpoints, slopes)::Float64
-    total = 0.0
-    for i in eachindex(slopes)
-        total += slopes[i] * (breakpoints[i + 1] - breakpoints[i])
-    end
-    return total
 end
 
 # Function barrier: `z` is read from an abstractly-typed variable container, so the term is
@@ -372,15 +375,10 @@ function _add_block_bid_cost_term!(
 end
 
 """
-FIXED-style objective terms: the block's per-period \$ value (`_block_bid_curve_value`) is
-multiplied by the shared commitment variable `z` and `dt`, never routed through
-per-period PWL delta variables — `z` is the only decision, so IOM's block-offer PWL
-primitives (`offer_curve_types.jl` `_block_offer_var`/`_block_offer_constraint`, meant for
-per-segment divisible dispatch) don't fit this single-shared-variable shape; the terms are
-built directly with `add_to_objective_*`/`add_cost_to_expression!` instead. VOM cost is
-not modeled for FIXED bids (there is no per-period dispatch variable to carry it — only
-VARIABLE/CURVE devices, which keep the standard `add_variable_cost!` path, get VOM), and
-[`_validate_block_bid_vom!`](@ref) rejects a nonzero one rather than dropping it silently.
+FIXED-style objective terms: the block's per-period value (`_pwl_curve_total` of that
+period's curve) multiplied by the period's commitment variable `z` and `dt`. `z` is the only
+priced decision, so no PWL delta variables are built for these devices; VOM is rejected by
+[`_validate_block_bid_vom!`](@ref) rather than dropped.
 """
 function _add_block_bid_objective_terms!(
     container::OptimizationContainer,
@@ -389,23 +387,17 @@ function _add_block_bid_objective_terms!(
     isempty(devices) && return
     time_steps = get_time_steps(container)
     dt = Dates.value(get_resolution(container)) / MILLISECONDS_IN_HOUR
+    by_name = Dict(PSY.get_name(d) => d for d in devices)
     for dir in (IOM.IncrementalOffer(), IOM.DecrementalOffer())
+        names = _block_bid_names(container, dir)
+        isempty(names) && continue
         z = _get_block_bid_variable(container, dir)
         sign = IOM._objective_sign(dir)
-        for d in devices
-            cost_curve = get_offer_curves(dir, d)
-            IOM.is_nontrivial_offer(cost_curve) || continue
-            name = PSY.get_name(d)
-            is_variant = IOM.is_time_variant(cost_curve)
-            static_value = 0.0
-            if !is_variant
-                static_value = _block_bid_curve_value(dir, container, d, first(time_steps))
-            end
+        for name in names
+            d = by_name[name]
+            is_variant = IOM.is_time_variant(get_offer_curves(dir, d))
             for t in time_steps
-                block_value = static_value
-                if is_variant
-                    block_value = _block_bid_curve_value(dir, container, d, t)
-                end
+                block_value = _pwl_curve_total(_curve_at(dir, container, d, t)...)
                 iszero(block_value) && continue
                 _add_block_bid_cost_term!(
                     container,
@@ -421,18 +413,103 @@ function _add_block_bid_objective_terms!(
     return
 end
 
+#################################################################################
+# Multi-step blocks
+#################################################################################
+
+"Whether two padded PWL curves are the same offer (same breakpoints and slopes)."
+_same_offer(breakpoints_a, slopes_a, breakpoints_b, slopes_b) =
+    length(breakpoints_a) == length(breakpoints_b) &&
+    isapprox(breakpoints_a, breakpoints_b; rtol = 1e-9, atol = 1e-12) &&
+    isapprox(slopes_a, slopes_b; rtol = 1e-9, atol = 1e-9)
+
 """
-A divisible virtual settles at a point OR at trading hubs (PSY enforces mutual exclusion);
-a virtual with neither has no nodal footprint and writes nowhere. Under a nodal network
-model the location must carry a `NodalRedistribution` component model, or the write fails
-loudly on the missing `AggregateClearedInjection` container: the template asked to clear
-a located virtual without modeling its location. Under `CopperPlateNetworkModel` location
-is moot and the write is a declared no-op (see the method below). Location writes are
-additive to the settlement-row writes: `AggregateClearedInjection` never feeds
-`SettlementBalance`, so nothing is counted twice. Each hub receives the participant's full
-award: the current bid plumbing carries one award per participant, not one per hub, so a
-participant settling at several hubs is rejected until a per-hub split exists rather than
-silently over-injecting.
+    _block_runs(dir, container, d, time_steps) -> Vector{UnitRange{Int}}
+
+The blocks of a MULTI_STEP component in direction `dir`, as ranges of periods: a period with
+an offered quantity belongs to a block, and consecutive such periods stay in one block while
+their curves are identical. A change of curve or a period with no quantity ends the block.
+Adjacent blocks with the same curve cannot be told apart and count as one. A time-invariant
+curve is one block over the whole window (or none), with no per-period comparison.
+"""
+function _block_runs(
+    dir::IOM.OfferDirection,
+    container::OptimizationContainer,
+    d::IS.InfrastructureSystemsComponent,
+    time_steps,
+)
+    runs = UnitRange{Int}[]
+    curve = get_offer_curves(dir, d)
+    IOM.is_nontrivial_offer(curve) || return runs
+    if !IOM.is_time_variant(curve)
+        offers = _offer_quantity(dir, container, d, first(time_steps)) > 0.0
+        offers && push!(runs, first(time_steps):last(time_steps))
+        return runs
+    end
+    start = 0
+    previous = (Float64[], Float64[])
+    for t in time_steps
+        current = _curve_at(dir, container, d, t)
+        if maximum(current[1]) <= 0.0
+            start == 0 || push!(runs, start:(t - 1))
+            start = 0
+            continue
+        end
+        continues = start != 0 && _same_offer(current..., previous...)
+        if !continues
+            start == 0 || push!(runs, start:(t - 1))
+            start = t
+        end
+        previous = current
+    end
+    start == 0 || push!(runs, start:last(time_steps))
+    return runs
+end
+
+"""
+Link rows for every MULTI_STEP device: `p[d, t] - p[d, t + 1] == 0` between consecutive
+periods of each block longer than one period, per direction with an offer. The same row
+serves FIXED and VARIABLE devices; for a FIXED block it is `z[t] = z[t + 1]` through the
+quantity row, since a block has one quantity.
+"""
+function _add_block_bid_link_rows!(container::OptimizationContainer, devices)
+    linked = [d for d in devices if _is_multistep(d)]
+    isempty(linked) && return
+    time_steps = get_time_steps(container)
+    jump_model = get_jump_model(container)
+    for dir in (IOM.IncrementalOffer(), IOM.DecrementalOffer())
+        blocks = Tuple{String, Vector{UnitRange{Int}}}[]
+        for d in linked
+            runs = _block_runs(dir, container, d, time_steps)
+            long = UnitRange{Int}[r for r in runs if length(r) > 1]
+            isempty(long) || push!(blocks, (PSY.get_name(d), long))
+        end
+        isempty(blocks) && continue
+        names = String[name for (name, _) in blocks]
+        rows = add_constraints_container!(
+            container, BlockBidLinkConstraint, PSY.VirtualParticipant, names,
+            time_steps;
+            sparse = true, meta = _bid_direction_meta(dir),
+        )
+        p = _get_award_variable(container, dir)
+        for (name, runs) in blocks, run in runs, t in first(run):(last(run) - 1)
+            rows[name, t] = JuMP.@constraint(jump_model, p[name, t] - p[name, t + 1] == 0)
+        end
+    end
+    return
+end
+
+"""
+A virtual settles at a point OR at trading hubs (PSY enforces mutual exclusion); a virtual
+with neither has no nodal footprint and writes nowhere. Under a nodal network model the
+location must carry a `NodalRedistribution` component model, or the write fails loudly on
+the missing `AggregateClearedInjection` container: the template asked to clear a located
+virtual without modeling its location. Under `CopperPlateNetworkModel` location is moot and
+the write is a declared no-op (see the method below). Location writes are additive to the
+settlement-row writes: `AggregateClearedInjection` never feeds `SettlementBalance`, so
+nothing is counted twice. Each hub receives the participant's full award: the current bid
+plumbing carries one award per participant, not one per hub, so a participant settling at
+several hubs is rejected until a per-hub split exists rather than silently over-injecting.
 """
 function _add_virtual_location_writes!(
     container::OptimizationContainer,
@@ -473,15 +550,13 @@ function _add_virtual_location_writes!(
 )
     return
 end
-
 """
-Argument stage for `VirtualBidDispatch`: creates `ActivePowerOutVariable`/
-`ActivePowerInVariable` for CURVE/VARIABLE devices and `BlockBidCommitmentVariable` for
-FIXED devices (dispatched on `PSY.get_curve_style`), populates MBC PWL parameters, and
-adds every device's bid to the single system-wide `SettlementBalance` row (+out, -in) and,
-for divisible devices, to their settlement location's `AggregateClearedInjection`
-(`_add_virtual_location_writes!`). Never touches a physical `ActivePowerBalance` row
-directly: the location model distributes the position.
+Argument stage for `VirtualBidDispatch`: populates the MBC PWL parameters, creates a
+per-period `ActivePowerOutVariable`/`ActivePowerInVariable` for every device and adds them
+to the single system-wide `SettlementBalance` row (+out, -in) and to the settlement
+location's `AggregateClearedInjection` (`_add_virtual_location_writes!`), then the
+per-period `BlockBidCommitmentVariable` of the FIXED devices. Never touches a physical
+`ActivePowerBalance` row directly: the location model distributes the position.
 """
 function construct_market_component!(
     container::OptimizationContainer,
@@ -493,72 +568,52 @@ function construct_market_component!(
 )
     devices = get_available_components(model, sys)
     add_cost_expressions!(container, devices, model)
-    fixed_devices, divisible_devices = _partition_by_curve_style(devices)
+    process_virtual_bid_parameters!(container, devices, model)
+    fixed_devices, _ = _partition_by_curve_style(devices)
 
     time_steps = get_time_steps(container)
     settlement_expr = get_expression(container, IOM.SettlementBalance, PSY.System)
 
-    if !isempty(divisible_devices)
-        names = PSY.get_name.(divisible_devices)
-        p_out = add_variable_container!(
-            container, ActivePowerOutVariable, PSY.VirtualParticipant, names, time_steps,
+    names = PSY.get_name.(devices)
+    p_out = add_variable_container!(
+        container, ActivePowerOutVariable, PSY.VirtualParticipant, names, time_steps,
+    )
+    p_in = add_variable_container!(
+        container, ActivePowerInVariable, PSY.VirtualParticipant, names, time_steps,
+    )
+    for d in devices
+        name = PSY.get_name(d)
+        _populate_per_period_bid_variable!(
+            container,
+            p_out,
+            ActivePowerOutVariable,
+            d,
+            time_steps,
         )
-        p_in = add_variable_container!(
-            container, ActivePowerInVariable, PSY.VirtualParticipant, names, time_steps,
+        _populate_per_period_bid_variable!(
+            container,
+            p_in,
+            ActivePowerInVariable,
+            d,
+            time_steps,
         )
-        for d in divisible_devices
-            name = PSY.get_name(d)
-            style = _curve_style(PSY.get_operation_cost(d))
-            _populate_bid_variable!(
-                container,
-                p_out,
-                ActivePowerOutVariable,
-                d,
-                time_steps,
-                Val(style),
+        _add_settlement_terms!(settlement_expr, p_out, name, 1.0, time_steps)
+        _add_settlement_terms!(settlement_expr, p_in, name, -1.0, time_steps)
+        for t in time_steps
+            _add_virtual_location_writes!(
+                container, d, p_out[name, t], p_in[name, t], t, network_model,
             )
-            _populate_bid_variable!(
-                container,
-                p_in,
-                ActivePowerInVariable,
-                d,
-                time_steps,
-                Val(style),
-            )
-            _add_settlement_terms!(settlement_expr, p_out, name, 1.0, time_steps)
-            _add_settlement_terms!(settlement_expr, p_in, name, -1.0, time_steps)
-            for t in time_steps
-                _add_virtual_location_writes!(
-                    container,
-                    d,
-                    p_out[name, t],
-                    p_in[name, t],
-                    t,
-                    network_model,
-                )
-            end
         end
     end
 
-    if !isempty(fixed_devices)
-        _add_block_bid_commitment_variables!(container, fixed_devices)
-        _add_block_bid_settlement_terms!(
-            container,
-            fixed_devices,
-            settlement_expr,
-            time_steps,
-        )
-    end
-
-    process_virtual_bid_parameters!(container, devices, model)
+    _add_block_bid_commitment_variables!(container, fixed_devices)
     return
 end
 
 """
-Model stage for `VirtualBidDispatch`: adds the incremental (out) / decremental (in)
-objective cost terms. CURVE/VARIABLE devices keep the standard PWL delta machinery
-(`add_variable_cost!`); FIXED devices get bespoke single-variable terms
-(`_add_block_bid_objective_terms!`). No range or budget constraints — bounds are set
+Model stage for `VirtualBidDispatch`: the PWL delta objective for VARIABLE devices
+(`add_variable_cost!`), the quantity rows and `z`-priced objective for FIXED devices, and
+the link rows of MULTI_STEP devices. No range or budget constraints — bounds are set
 directly on the variables at creation.
 """
 function construct_market_component!(
@@ -577,6 +632,8 @@ function construct_market_component!(
         add_variable_cost!(container, ActivePowerOutVariable, wrapped, VirtualBidDispatch)
         add_variable_cost!(container, ActivePowerInVariable, wrapped, VirtualBidDispatch)
     end
+    _add_block_bid_quantity_rows!(container, fixed_devices)
     _add_block_bid_objective_terms!(container, fixed_devices)
+    _add_block_bid_link_rows!(container, devices)
     return
 end

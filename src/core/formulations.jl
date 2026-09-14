@@ -138,9 +138,11 @@ Formulation for `PSY.VirtualParticipant` market components. Adds `ActivePowerOut
 bounded by `max_supply`/`max_demand`, and adds both directly to the single system-wide
 `SettlementBalance` row (+out, -in) — never to a physical `ActivePowerBalance` row.
 `settlement_point`/`trading_hubs` are recorded on the component but unresolved here: with
-one settlement row, location is moot. `PSY.CurveStyles` selects the bid's shape: CURVE gets
-a fresh divisible variable per period, VARIABLE one shared divisible variable across the
-horizon, and FIXED a shared binary [`BlockBidCommitmentVariable`](@ref).
+one settlement row, location is moot. `PSY.CurveStyles` selects the bid's shape: VARIABLE
+clears a divisible quantity per period on the PWL path, FIXED clears the period's whole
+quantity or nothing through a per-period binary [`BlockBidCommitmentVariable`](@ref).
+`PSY.CurveMultiStep.MULTI_STEP` links consecutive periods with identical offers into one
+block ([`BlockBidLinkConstraint`](@ref)).
 
 Simultaneous nonzero `ActivePowerOutVariable` and `ActivePowerInVariable` on the same
 participant (self-crossing) is permitted, mirroring real DAM virtual-bidding rules: an
@@ -167,9 +169,12 @@ equality with no nodal effect.
 struct AggregateBalance <: AbstractDeviceFormulation end
 
 """
-Formulation for `PSY.PointToPointBid`: one [`ClearedTransferVariable`](@ref) per bid, written
-as −q into the `from` location's [`AggregateClearedInjection`](@ref) and +q into the `to`
-location's. Excluded from `SettlementBalance`: its two settlement terms would cancel exactly.
+Formulation for `PSY.PointToPointBid`: one [`ClearedTransferVariable`](@ref) per bid and
+period, written as −q into the `from` location's [`AggregateClearedInjection`](@ref) and +q
+into the `to` location's. Excluded from `SettlementBalance`: its two settlement terms would
+cancel exactly. A MULTI_STEP spread bid clears one MW across every period of a block of
+identical curves ([`BlockBidLinkConstraint`](@ref)); FIXED is rejected, a spread bid is
+always divisible.
 """
 struct SpreadBid <: AbstractDeviceFormulation end
 

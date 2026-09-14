@@ -66,6 +66,21 @@ keeps its own parameters/slacks): the settlement row carries only bid variables.
 struct SettlementBalanceConstraint <: ConstraintType end
 
 """
+Quantity row of a FIXED-`curve_style` market bid, one per (component, direction, period):
+`p[c, t] - Q[c, t] z[c, t] == 0`, with `p` the award (`ActivePowerOutVariable` /
+`ActivePowerInVariable`), `Q` the period's offer quantity and `z` its
+[`BlockBidCommitmentVariable`](@ref). The bid clears its whole quantity or nothing.
+"""
+struct BlockBidQuantityConstraint <: ConstraintType end
+
+"""
+Link row of a MULTI_STEP-`curve_multistep` market bid between two consecutive periods of
+one block: `p[c, t] - p[c, t + 1] == 0`. A block is a run of consecutive periods whose
+offer curves are identical; the rows are keyed by the first period of each pair, sparse.
+"""
+struct BlockBidLinkConstraint <: ConstraintType end
+
+"""
 `ClearedPositionVariable[loc, t] == AggregateClearedInjection[loc, t]` — one row per
 settlement location per timestep, never per bus.
 """
