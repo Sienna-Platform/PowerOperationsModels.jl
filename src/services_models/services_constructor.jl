@@ -54,11 +54,30 @@ seed_reserve_range_expressions!(
     ::DevicesModelContainer,
 ) = nothing
 
+# Function barrier: the caller's loop is uninferable, so the container work happens here
+# where `T`, `D` and `W` are concrete.
+function _seed_range_expression!(
+    container::OptimizationContainer,
+    sys::PSY.System,
+    ::Type{T},
+    device_model::DeviceModel{D, W},
+) where {T <: ExpressionType, D <: PSY.Component, W <: AbstractDeviceFormulation}
+    has_container_key(container, T, D) && return
+    add_expressions!(
+        container,
+        T,
+        get_available_components(device_model, sys),
+        device_model,
+    )
+    return
+end
+
 function seed_reserve_range_expressions!(
     container::OptimizationContainer,
     sys::PSY.System,
     model::ServiceModel{S, <:AbstractReservesFormulation},
     devices_template::DevicesModelContainer,
+    stage::ArgumentConstructStage,
 ) where {S <: PSY.AbstractReserve}
     for by_device_type in values(get_contributing_devices_map(model)),
         device_type in keys(by_device_type)
@@ -81,28 +100,12 @@ function seed_reserve_range_expressions!(
     return
 end
 
-# Function barrier: the caller's loop is uninferable, so the container work happens here
-# where `T`, `D` and `W` are concrete.
-function _seed_range_expression!(
-    container::OptimizationContainer,
-    sys::PSY.System,
-    ::Type{T},
-    device_model::DeviceModel{D, W},
-) where {T <: ExpressionType, D <: PSY.Component, W <: AbstractDeviceFormulation}
-    has_container_key(container, T, D) && return
-    add_expressions!(
-        container,
-        T,
-        get_available_components(device_model, sys),
-        device_model,
-    )
-    return
-end
+seed_reserve_range_expressions!(::OptimizationContainer, ::PSY.System, ::ServiceModel, ::DevicesModelContainer, ::ModelConstructStage) = nothing
 
 function construct_services!(
     container::OptimizationContainer,
     sys::PSY.System,
-    stage::ArgumentConstructStage,
+    stage::Union{ArgumentConstructStage, ModelConstructStage},
     services_template::ServicesModelContainer,
     devices_template::DevicesModelContainer,
     network_model::NetworkModel{<:AbstractNetworkModel},
@@ -117,49 +120,7 @@ function construct_services!(
             continue
         end
         isempty(get_contributing_devices_map(service_model)) && continue
-        seed_reserve_range_expressions!(container, sys, service_model, devices_template)
-        construct_service!(
-            container,
-            sys,
-            stage,
-            service_model,
-            devices_template,
-            incompatible_device_types,
-            network_model,
-        )
-    end
-    for key in deferred_groups
-        construct_service!(
-            container,
-            sys,
-            stage,
-            services_template[key],
-            devices_template,
-            incompatible_device_types,
-            network_model,
-        )
-    end
-    return
-end
-
-function construct_services!(
-    container::OptimizationContainer,
-    sys::PSY.System,
-    stage::ModelConstructStage,
-    services_template::ServicesModelContainer,
-    devices_template::DevicesModelContainer,
-    network_model::NetworkModel{<:AbstractNetworkModel},
-)
-    isempty(services_template) && return
-    incompatible_device_types = get_incompatible_devices(devices_template)
-
-    deferred_groups = Symbol[]
-    for (key, service_model) in services_template
-        if _is_deferred_group_formulation(get_formulation(service_model))
-            push!(deferred_groups, key)  # constructed last
-            continue
-        end
-        isempty(get_contributing_devices_map(service_model)) && continue
+        seed_reserve_range_expressions!(container, sys, service_model, devices_template, stage)
         construct_service!(
             container,
             sys,
