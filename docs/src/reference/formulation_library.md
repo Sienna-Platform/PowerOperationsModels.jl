@@ -541,6 +541,19 @@ The `ActivePowerBalance ← RealizedShiftedLoad` wiring for `PowerLoadShift` is 
 `<:AbstractNetworkModel`, via the same `_balance_expression_targets` dispatch every other
 injection uses to reach its nodal, area, or system target.
 
+Only `PowerLoadDispatch` and `PowerLoadInterruption` may contribute to reserves.
+When a load under either formulation carries a service model, its active-power limits move onto
+`ActivePowerRangeExpressionLB`/`UB`: an up award consumes shed headroom (``P - \sum r_\text{up} \ge 0``)
+and a down award consumes forecast headroom (``P + \sum r_\text{down} \le \bar{P}``), summed across
+every service at once.
+A template that wires a load into a reserve under any other formulation is rejected by name, because
+the award would otherwise be bounded only by the device's nameplate rating — uncoupled from its
+dispatch and uncoupled across services.
+`StaticPowerLoad` creates no variables and no cost expressions, so the capacity it sold would also be
+free in the objective; `PowerLoadShift` is priced and dispatchable, but its headroom is shift
+capability carrying an energy-recovery balance, which the range expression cannot express.
+The trait is `supports_reserve_provision`, and a load formulation added later must opt in.
+
 `SynchronousCondenserBasicDispatch` is gated by `models_reactive_power`, so on an active-power
 network it is dropped from the template (with an `@info` message) rather than being built as a
 no-op.

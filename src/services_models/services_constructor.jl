@@ -40,6 +40,76 @@ function _groups_with_demand(model::ServiceModel, sys::PSY.System)
     return [g for g in candidates if _has_reserve_demand(model, g)]
 end
 
+"""
+Create the reserve range expression container for every contributing device type of
+`model`, sized over that device model's FULL available component set.
+
+The per-service `add_to_expression!` methods create these containers lazily, sized to the
+contributors of whichever service reaches them first. When two services of the same type
+have contributor sets that do not nest, the second service then indexes an axis that is
+missing its devices. Seeding here - once per service model, before any service wires in -
+is the only place with both `sys` and `devices_template` in scope, so it is the only place
+that can size the axis over all of the devices.
+
+Devices whose own formulation already built the container (thermal, storage, controllable
+loads) are left untouched by the `has_container_key` guard in
+[`_seed_range_expression!`](@ref), so no existing model changes shape.
+"""
+seed_reserve_range_expressions!(
+    ::OptimizationContainer,
+    ::PSY.System,
+    ::ServiceModel,
+    ::DevicesModelContainer,
+) = nothing
+
+function seed_reserve_range_expressions!(
+    container::OptimizationContainer,
+    sys::PSY.System,
+    model::ServiceModel{S, <:AbstractReservesFormulation},
+    devices_template::DevicesModelContainer,
+) where {S <: PSY.AbstractReserve}
+    for by_device_type in values(get_contributing_devices_map(model)),
+        device_type in keys(by_device_type)
+        # Template keys are `nameof(D)`; see the note on the matching lookup in
+        # `add_to_expression!(..., devices_template)`.
+        device_model = get(devices_template, nameof(device_type), nothing)
+        isnothing(device_model) && continue
+        # Mirror the offline-award skip: formulations that carry offline capability through
+        # `OfflineReserveBandConstraint` never wire into the range expression.
+        if _is_offline_reserve(S) &&
+           !offline_reserve_in_range_ub(get_formulation(device_model))
+            continue
+        end
+        _seed_range_expression!(
+            container,
+            sys,
+            get_expression_type_for_reserve(ActivePowerReserveVariable, device_type, S),
+            device_model,
+        )
+    end
+    return
+end
+
+# Function barrier. The loop above walks a `Dict{Symbol, DeviceModel}` with an abstract
+# element type and a runtime-valued expression type, so it cannot be inferred; everything
+# that touches the container is done here instead, where `T`, `D` and `W` are concrete type
+# parameters and `get_available_components` returns a `FlattenIteratorWrapper{D}`.
+function _seed_range_expression!(
+    container::OptimizationContainer,
+    sys::PSY.System,
+    ::Type{T},
+    device_model::DeviceModel{D, W},
+) where {T <: ExpressionType, D <: PSY.Component, W <: AbstractDeviceFormulation}
+    has_container_key(container, T, D) && return
+    add_expressions!(
+        container,
+        T,
+        get_available_components(device_model, sys),
+        device_model,
+    )
+    return
+end
+
 function construct_services!(
     container::OptimizationContainer,
     sys::PSY.System,
@@ -58,6 +128,7 @@ function construct_services!(
             continue
         end
         isempty(get_contributing_devices_map(service_model)) && continue
+        seed_reserve_range_expressions!(container, sys, service_model, devices_template)
         construct_service!(
             container,
             sys,
