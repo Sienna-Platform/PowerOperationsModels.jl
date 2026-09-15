@@ -415,8 +415,8 @@ function add_constraints!(
 end
 
 _get_ramp_limits(::PSY.Component) = nothing
-_get_ramp_limits(d::PSY.ThermalGen) = PSY.get_ramp_limits(d, PSY.SU)
-_get_ramp_limits(d::PSY.HydroGen) = PSY.get_ramp_limits(d, PSY.SU)
+_get_ramp_limits(d::PSY.ThermalGen) = PSY.get_ramp_limits(d, PSY.SU / u"minute")
+_get_ramp_limits(d::PSY.HydroGen) = PSY.get_ramp_limits(d, PSY.SU / u"minute")
 
 function _get_ramp_constraint_contributing_devices(
     service::PSY.Reserve,
@@ -468,7 +468,7 @@ function add_constraints!(
         )
         for d in ramp_devices, t in time_steps
             name = PSY.get_name(d)
-            ramp_limits = PSY.get_ramp_limits(d, PSY.SU)
+            ramp_limits = PSY.get_ramp_limits(d, PSY.SU / u"minute")
             con_up[(service_name, name, t)] = JuMP.@constraint(
                 jump_model,
                 variable[(service_name, name, t)] <= ramp_limits.up * time_frame
@@ -508,7 +508,7 @@ function add_constraints!(
         )
         for d in ramp_devices, t in time_steps
             name = PSY.get_name(d)
-            ramp_limits = PSY.get_ramp_limits(d, PSY.SU)
+            ramp_limits = PSY.get_ramp_limits(d, PSY.SU / u"minute")
             con_down[(service_name, name, t)] = JuMP.@constraint(
                 jump_model,
                 variable[(service_name, name, t)] <= ramp_limits.down * time_frame
