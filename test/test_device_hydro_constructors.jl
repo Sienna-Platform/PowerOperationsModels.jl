@@ -477,7 +477,7 @@ end
         prime_mover_type = get_prime_mover_type(hy),
         active_power_limits = get_active_power_limits(hy, PSY.SU),
         reactive_power_limits = get_reactive_power_limits(hy, PSY.SU),
-        ramp_limits = get_ramp_limits(hy, PSY.SU),
+        ramp_limits = get_ramp_limits(hy, PSY.SU / PSY.u"minute"),
         time_limits = get_time_limits(hy),
         base_power = get_base_power(hy, PSY.NU),
     )

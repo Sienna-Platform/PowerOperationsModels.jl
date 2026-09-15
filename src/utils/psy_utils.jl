@@ -56,3 +56,7 @@ end
 
 # IOM's own callers (start-up costs, ramps) read the predicate POM's formulations use.
 IOM.get_must_run(c::PSY.Component) = _is_must_run(c)
+
+# `ramp_limits` is a rate, so PowerSystems asks for a time next to the power base.
+# POM's formulations read ramps as per-unit on the system base, per minute.
+const SU_PER_MINUTE = PSY.SU / PSY.u"minute"
