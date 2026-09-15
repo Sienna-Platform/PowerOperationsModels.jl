@@ -2059,3 +2059,148 @@ end
     @test occursin("interchange1_3", message)
     @test !occursin("\"interchange1_2\"", message)
 end
+
+#################################################################################
+# Reserve range expressions when contributor sets differ across services.
+#
+# The service-side `add_to_expression!` methods create the `ActivePowerRangeExpression*`
+# container lazily, sized to whichever service reaches them first. Two services of the same
+# type whose contributor sets do not nest then index an axis missing their devices.
+# `seed_reserve_range_expressions!` sizes the axis over the device model's full component
+# set before any service wires in.
+#################################################################################
+
+const _NONNESTED_LOAD_B = "IL_B"
+
+_nonnested_ordc_curve() = make_market_bid_curve(
+    [0.0, 200.0, 400.0],
+    [80.0, 15.0],
+    0.0;
+    power_units = IS.NaturalUnit(),
+)
+
+# Two up-reserves over two interruptible loads. `nested = false` gives each service exactly
+# one of the loads, so neither contributor set contains the other.
+function _build_nonnested_reserve_system(; nested::Bool)
+    sys = deepcopy(PSB.build_system(PSITestSystems, "c_sys5_il"; add_reserves = false))
+    thermals = collect(get_components(ThermalStandard, sys))
+    il_a = first(get_components(PSY.InterruptiblePowerLoad, sys))
+
+    il_b = PSY.InterruptiblePowerLoad(;
+        name = _NONNESTED_LOAD_B,
+        available = true,
+        bus = PSY.get_bus(il_a),
+        active_power = PSY.get_active_power(il_a, PSY.SU),
+        reactive_power = PSY.get_reactive_power(il_a, PSY.SU),
+        max_active_power = PSY.get_max_active_power(il_a, PSY.SU),
+        max_reactive_power = PSY.get_max_reactive_power(il_a, PSY.SU),
+        base_power = PSY.get_base_power(il_a),
+        operation_cost = deepcopy(get_operation_cost(il_a)),
+    )
+    add_component!(sys, il_b)
+    PSY.copy_time_series!(il_b, il_a)
+
+    for name in ("R1", "R2")
+        add_service!(
+            sys,
+            PSY.OnlineReserve{PSY.ReserveUp}(;
+                name = name,
+                available = true,
+                time_frame = 5.0,
+                variable = _nonnested_ordc_curve(),
+            ),
+            if nested
+                vcat(PSY.Device[thermals...], il_a, il_b)
+            else
+                vcat(PSY.Device[thermals...], name == "R1" ? il_a : il_b)
+            end,
+        )
+    end
+    return sys
+end
+
+function _nonnested_reserve_template(load_formulation)
+    template = PowerOperationsProblemTemplate(NetworkModel(CopperPlateNetworkModel))
+    set_device_model!(template, ThermalStandard, ThermalBasicUnitCommitment)
+    set_device_model!(template, PowerLoad, StaticPowerLoad)
+    set_device_model!(template, PSY.InterruptiblePowerLoad, load_formulation)
+    set_service_model!(
+        template,
+        ServiceModel(PSY.OnlineReserve{PSY.ReserveUp}, StepwiseCostReserve),
+    )
+    return template
+end
+
+@testset "Reserve range expression axis spans every contributing device" begin
+    for (formulation, nested) in
+        ((PowerLoadInterruption, false), (PowerLoadInterruption, true),
+        (PowerLoadDispatch, false), (PowerLoadDispatch, true))
+        sys = _build_nonnested_reserve_system(; nested = nested)
+        # Initialization left on: the IC template maps loads to `StaticPowerLoad` while
+        # keeping the service wiring, so it exercises the seeding a second time.
+        model = DecisionModel(
+            _nonnested_reserve_template(formulation),
+            sys;
+            optimizer = HiGHS_optimizer,
+        )
+        @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+              IOM.ModelBuildStatus.BUILT
+        @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+
+        container = IOM.get_optimization_container(model)
+        expression = IOM.get_expression(
+            container,
+            ActivePowerRangeExpressionLB,
+            PSY.InterruptiblePowerLoad,
+        )
+        # The axis must cover both loads regardless of which service was constructed first.
+        @test sort(collect(JuMP.axes(expression)[1])) ==
+              sort(PSY.get_name.(get_components(PSY.InterruptiblePowerLoad, sys)))
+
+        # Each award enters its device's LB expression with -1.0, so a single row couples the
+        # shed to consumption across every service at once.
+        reserve = IOM.get_variable(
+            container,
+            ActivePowerReserveVariable,
+            PSY.OnlineReserve{PSY.ReserveUp},
+        )
+        for service_name in ("R1", "R2")
+            devices = if nested
+                ("IloadBus4", _NONNESTED_LOAD_B)
+            else
+                (service_name == "R1" ? ("IloadBus4",) : (_NONNESTED_LOAD_B,))
+            end
+            for name in devices
+                @test JuMP.coefficient(
+                    expression[name, 1],
+                    reserve[(service_name, name, 1)],
+                ) == -1.0
+            end
+        end
+    end
+end
+
+@testset "Formulations that cannot bound a reserve award are rejected" begin
+    for formulation in (StaticPowerLoad, PowerLoadShift)
+        @test !POM.supports_reserve_provision(formulation)
+    end
+    for formulation in (PowerLoadDispatch, PowerLoadInterruption)
+        @test POM.supports_reserve_provision(formulation)
+    end
+
+    sys = _build_nonnested_reserve_system(; nested = true)
+    err = try
+        DecisionModel(
+            _nonnested_reserve_template(StaticPowerLoad),
+            sys;
+            optimizer = HiGHS_optimizer,
+        )
+        nothing
+    catch e
+        e
+    end
+    @test err isa ErrorException
+    @test occursin("StaticPowerLoad", err.msg)
+    @test occursin("InterruptiblePowerLoad", err.msg)
+    @test occursin("cannot bound a reserve award", err.msg)
+end
