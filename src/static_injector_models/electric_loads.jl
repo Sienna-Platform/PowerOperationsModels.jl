@@ -44,6 +44,12 @@ variable_cost(cost::PSY.OperationalCost, ::Type{ShiftDownActivePowerVariable}, :
 get_expression_type_for_reserve(::Type{ActivePowerReserveVariable}, ::Type{<:PSY.ElectricLoad}, ::Type{<:UP_RESERVE}) = ActivePowerRangeExpressionLB
 get_expression_type_for_reserve(::Type{ActivePowerReserveVariable}, ::Type{<:PSY.ElectricLoad}, ::Type{<:PSY.Reserve{PSY.ReserveDown}}) = ActivePowerRangeExpressionUB
 
+# Loads opt in to reserve provision one formulation at a time; see `supports_reserve_provision`.
+# Both of these make the withdrawal a priced decision, so an award consumes shed headroom the
+# objective can value.
+supports_reserve_provision(::Type{PowerLoadDispatch}) = true
+supports_reserve_provision(::Type{PowerLoadInterruption}) = true
+
 ######################################################
 
 # To avoid ambiguity with default_interface_methods.jl:
@@ -309,10 +315,12 @@ get_min_max_limits(
     ::Type{PowerLoadDispatch},
 ) = (min = 0.0, max = PSY.get_max_active_power(d, PSY.SU))
 
+# Upper bound is the load's forecast; with reserves, `ActivePowerRangeExpressionUB`
+# (= P + Σ r_down) rides the same bound, capping down awards by the forecast headroom.
 function add_constraints!(
     container::OptimizationContainer,
     T::Type{ActivePowerVariableLimitsConstraint},
-    U::Type{<:VariableType},
+    U::Type{<:Union{VariableType, ActivePowerRangeExpressionUB}},
     devices::IS.FlattenIteratorWrapper{V},
     model::DeviceModel{V, W},
     ::NetworkModel{X},
@@ -328,6 +336,28 @@ function add_constraints!(
     )
     return
 end
+
+# `ActivePowerRangeExpressionLB` (= P - Σ r_up) >= 0: an up award cannot exceed the shed the
+# load can actually deliver. An interrupted load (`OnVariable` = 0) is held at P = 0 by the
+# binary constraint below, so this row also forces its up awards to zero.
+function add_constraints!(
+    container::OptimizationContainer,
+    T::Type{ActivePowerVariableLimitsConstraint},
+    U::Type{ActivePowerRangeExpressionLB},
+    devices::IS.FlattenIteratorWrapper{V},
+    model::DeviceModel{V, W},
+    ::NetworkModel{X},
+) where {V <: PSY.ControllableLoad, W <: PowerLoadInterruption, X <: AbstractNetworkModel}
+    add_range_constraints!(container, T, U, devices, model, X)
+    return
+end
+
+# Only `min` is consumed (shed floor); the upper bound rides the forecast parameter.
+get_min_max_limits(
+    d::PSY.ControllableLoad,
+    ::Type{ActivePowerVariableLimitsConstraint},
+    ::Type{PowerLoadInterruption},
+) = (min = 0.0, max = PSY.get_max_active_power(d, PSY.SU))
 
 function add_constraints!(
     container::OptimizationContainer,

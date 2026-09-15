@@ -99,6 +99,28 @@ capability through [`OfflineReserveBandConstraint`](@ref) return `false`.
 offline_reserve_in_range_ub(::Type{<:AbstractDeviceFormulation}) = true
 
 """
+Whether a device formulation can provide reserve, i.e. whether it bounds a reserve award
+against what the device can actually deliver.
+
+A formulation qualifies only if it makes the device's output a decision AND puts that
+decision in the objective. Both halves matter: the range expression ties the award to the
+dispatch (`P - Σ r_up >= 0`, summed across every service at once), and objective
+participation is what makes the capacity cost something. A formulation with neither sells
+reserve that is free and bounded only by nameplate rating - it clears ahead of every priced
+resource, and no constraint can repair that.
+
+The load family defaults to `false` and opts in per formulation, so a load formulation added
+later is rejected by the template until its reserve semantics are written. Generation and
+storage formulations keep the permissive default.
+"""
+supports_reserve_provision(::Type{<:AbstractDeviceFormulation}) = true
+# `StaticPowerLoad` creates no variables and no cost expressions at all; `PowerLoadShift`
+# is priced and dispatchable, but its headroom is shift capability with an energy-recovery
+# balance, which the range expression cannot express. The two load formulations that do
+# qualify opt in beside the other load reserve traits in `electric_loads.jl`.
+supports_reserve_provision(::Type{<:AbstractLoadFormulation}) = false
+
+"""
 Whether a `DeviceModel` carries an `OfflineReserve` service. Gates the
 [`OfflineReserveBandConstraint`](@ref) so that models without offline reserves build
 exactly the classic single semi-continuous band row.
