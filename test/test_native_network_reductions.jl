@@ -345,7 +345,7 @@ end
         name = "sh8",
         available = true,
         bus = bus8,
-        Y = 0.0 + 0.1im,
+        number_engaged = [1],
         number_of_steps = [5],
         Y_increase = [0.0 + 0.02im],
     )

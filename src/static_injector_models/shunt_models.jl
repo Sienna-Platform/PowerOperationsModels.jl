@@ -9,22 +9,19 @@
 #################################################################################
 
 # Susceptance limits (pu, system base) for the continuous shunt control variable `b`.
-# SwitchedAdmittance: base imag(Y) plus the achievable block increments (continuous
-# relaxation of the discrete steps). FACTSControlDevice: maximum shunt current band.
+# SwitchedAdmittance: the span its blocks can reach (continuous relaxation of the discrete
+# steps); the struct carries no fixed part. FACTSControlDevice: maximum shunt current band.
 function _shunt_susceptance_limits(d::PSY.SwitchedAdmittance)
-    b0 = imag(PSY.get_Y(d))
     steps = PSY.get_number_of_steps(d)
     incr = PSY.get_Y_increase(d)
     # Sum capacitive (positive imag) and inductive (negative imag) blocks separately so
     # that a device with mixed-sign blocks is not silently collapsed to b ∈ [0, 0].
-    b_dec = sum(steps[i] * min(imag(incr[i]), 0.0) for i in eachindex(steps); init = 0.0)
-    b_inc = sum(steps[i] * max(imag(incr[i]), 0.0) for i in eachindex(steps); init = 0.0)
-    lo = b0 + b_dec
-    hi = b0 + b_inc
+    lo = sum(steps[i] * min(imag(incr[i]), 0.0) for i in eachindex(steps); init = 0.0)
+    hi = sum(steps[i] * max(imag(incr[i]), 0.0) for i in eachindex(steps); init = 0.0)
     if !(isfinite(lo) && isfinite(hi))
         error(
             "SwitchedAdmittance $(PSY.get_name(d)) has non-finite susceptance limits; ",
-            "check Y and Y_increase fields",
+            "check number_of_steps and Y_increase fields",
         )
     end
     return (min = lo, max = hi)
@@ -44,10 +41,17 @@ function _shunt_susceptance_limits(d::PSY.FACTSControlDevice)
 end
 
 # Non-dispatched susceptance (pu, system base) for FixedShuntAdmittance.
-# SwitchedAdmittance: the base admittance imag(Y). FACTSControlDevice: the reactive-power
+# SwitchedAdmittance: the engaged susceptance, `solved_admittance` when the solved case
+# carries one and the engaged blocks otherwise. FACTSControlDevice: the reactive-power
 # setpoint at unity voltage (Q = b·V² = b at V = 1 pu), converted to system base like the
 # max_shunt_current band.
-_fixed_shunt_susceptance(d::PSY.SwitchedAdmittance) = imag(PSY.get_Y(d))
+function _fixed_shunt_susceptance(d::PSY.SwitchedAdmittance)
+    solved = PSY.get_solved_admittance(d)
+    solved === nothing || return solved
+    engaged = PSY.get_number_engaged(d)
+    incr = PSY.get_Y_increase(d)
+    return sum(engaged[i] * imag(incr[i]) for i in eachindex(engaged); init = 0.0)
+end
 
 function _fixed_shunt_susceptance(d::PSY.FACTSControlDevice)
     s_base = PSY.get_base_power(d)

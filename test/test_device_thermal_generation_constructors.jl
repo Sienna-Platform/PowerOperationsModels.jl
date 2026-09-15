@@ -107,7 +107,7 @@ const TIME1 = DateTime("2024-01-01T00:00:00")
         # Run 2: units initially OFF — startup forced in first timestep
         sys_yes = build_system(PSITestSystems, "c_linear_cost_test")
         for u in collect(get_components(ThermalStandard, sys_yes))
-            set_status!(u, false)
+            set_status!(u, OperationalStates.OFFLINE)
             set_time_at_status!(u, 10.0)  # > min down time
         end
         model_yes = DecisionModel(
@@ -1149,7 +1149,7 @@ end =#
 
     # Set Must Run the most expensive one: Sundance
     sundance = get_component(ThermalStandard, sys_5, "Sundance")
-    set_must_run!(sundance, true)
+    set_commitment_mode!(sundance, CommitmentModes.MUST_RUN)
     for rebuild in [true, false]
         model = DecisionModel(
             template_uc,

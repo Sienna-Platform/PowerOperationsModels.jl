@@ -116,7 +116,7 @@ function _add_simple_thermal_standard!(
     gen = PSY.ThermalStandard(;
         name = name,
         available = true,
-        status = true,
+        status = PSY.OperationalStates.ONLINE,
         bus = bus,
         active_power = 0.0,
         reactive_power = 0.0,
@@ -157,7 +157,7 @@ function _add_simple_thermal_multistart!(
     gen = PSY.ThermalMultiStart(;
         name = name,
         available = true,
-        status = true,
+        status = PSY.OperationalStates.ONLINE,
         bus = bus,
         active_power = 0.0,
         reactive_power = 0.0,

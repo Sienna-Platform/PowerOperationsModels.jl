@@ -113,7 +113,7 @@ function _add_inter_area_hvdc_tie!(sys)
         reactive_power_limits_from = (min = -1.0, max = 1.0),
         reactive_power_limits_to = (min = -1.0, max = 1.0),
         arc = arc,
-        loss = LinearCurve(0.05, 0.01),
+        loss = PSY.LossCurve(LinearCurve(0.05, 0.01), PSY.CU),
     )
     add_component!(sys, hvdc)
     return
@@ -323,7 +323,7 @@ function _add_intra_area_hvdc_line!(sys)
         reactive_power_limits_from = (min = -1.0, max = 1.0),
         reactive_power_limits_to = (min = -1.0, max = 1.0),
         arc = arc,
-        loss = LinearCurve(0.05, 0.01),
+        loss = PSY.LossCurve(LinearCurve(0.05, 0.01), PSY.CU),
     )
     add_component!(sys, hvdc)
     return

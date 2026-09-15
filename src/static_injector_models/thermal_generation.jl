@@ -47,7 +47,7 @@ offline_reserve_in_range_ub(::Type{<:AbstractThermalUnitCommitment}) = false
 ############## ActivePowerVariable, ThermalGen ####################
 get_variable_binary(::Type{ActivePowerVariable}, ::Type{<:PSY.ThermalGen}, ::Type{<:AbstractThermalFormulation}) = false
 get_variable_warm_start_value(::Type{ActivePowerVariable}, d::PSY.ThermalGen, ::Type{<:AbstractThermalFormulation}) = PSY.get_active_power(d, PSY.SU)
-get_variable_lower_bound(::Type{ActivePowerVariable}, d::PSY.ThermalGen, ::Type{<:AbstractThermalFormulation}) = PSY.get_must_run(d) ? PSY.get_active_power_limits(d, PSY.SU).min : 0.0
+get_variable_lower_bound(::Type{ActivePowerVariable}, d::PSY.ThermalGen, ::Type{<:AbstractThermalFormulation}) = _is_must_run(d) ? PSY.get_active_power_limits(d, PSY.SU).min : 0.0
 get_variable_upper_bound(::Type{ActivePowerVariable}, d::PSY.ThermalGen, ::Type{<:AbstractThermalFormulation}) = PSY.get_active_power_limits(d, PSY.SU).max
 get_variable_lower_bound(::Type{ActivePowerVariable}, d::PSY.ThermalGen, ::Type{ThermalDispatchNoMin}) = 0.0
 
@@ -65,8 +65,8 @@ get_variable_upper_bound(::Type{ReactivePowerVariable}, d::PSY.ThermalGen, ::Typ
 
 ############## OnVariable, ThermalGen ####################
 get_variable_binary(::Type{OnVariable}, ::Type{<:PSY.ThermalGen}, ::Type{<:AbstractThermalFormulation}) = true
-get_variable_warm_start_value(::Type{OnVariable}, d::PSY.ThermalGen, ::Type{<:AbstractThermalFormulation}) = PSY.get_status(d) ? 1.0 : 0.0
-get_variable_lower_bound(::Type{OnVariable}, d::PSY.ThermalGen, ::Type{<:AbstractThermalUnitCommitment}) = PSY.get_must_run(d) ? 1.0 : 0.0
+get_variable_warm_start_value(::Type{OnVariable}, d::PSY.ThermalGen, ::Type{<:AbstractThermalFormulation}) = is_online(d) ? 1.0 : 0.0
+get_variable_lower_bound(::Type{OnVariable}, d::PSY.ThermalGen, ::Type{<:AbstractThermalUnitCommitment}) = _is_must_run(d) ? 1.0 : 0.0
 
 ############## StopVariable, ThermalGen ####################
 get_variable_binary(::Type{StopVariable}, ::Type{<:PSY.ThermalGen}, ::Type{<:AbstractThermalFormulation}) = true
@@ -104,16 +104,16 @@ get_expression_multiplier(::Type{OnStatusParameter}, ::Type{ActivePowerRangeExpr
 get_expression_multiplier(::Type{OnStatusParameter}, ::Type{ActivePowerBalance}, d::PSY.ThermalGen, ::Type{<:AbstractThermalFormulation}) = PSY.get_active_power_limits(d, PSY.SU).min
 
 #################### Initial Conditions for models ###############
-initial_condition_default(::DeviceStatus, d::PSY.ThermalGen, ::AbstractThermalFormulation) = PSY.get_status(d) ? 1.0 : 0.0
+initial_condition_default(::DeviceStatus, d::PSY.ThermalGen, ::AbstractThermalFormulation) = is_online(d) ? 1.0 : 0.0
 initial_condition_variable(::DeviceStatus, d::PSY.ThermalGen, ::AbstractThermalFormulation) = OnVariable()
 initial_condition_default(::DevicePower, d::PSY.ThermalGen, ::AbstractThermalFormulation) = PSY.get_active_power(d, PSY.SU)
 initial_condition_variable(::DevicePower, d::PSY.ThermalGen, ::AbstractThermalFormulation) = ActivePowerVariable()
 initial_condition_default(::DeviceAboveMinPower, d::PSY.ThermalGen, ::AbstractThermalFormulation) = max(0.0, PSY.get_active_power(d, PSY.SU) - PSY.get_active_power_limits(d, PSY.SU).min)
 initial_condition_variable(::DeviceAboveMinPower, d::PSY.ThermalGen, ::AbstractCompactUnitCommitment) = PowerAboveMinimumVariable()
 initial_condition_variable(::DeviceAboveMinPower, d::PSY.ThermalGen, ::ThermalCompactDispatch) = PowerAboveMinimumVariable()
-initial_condition_default(::InitialTimeDurationOn, d::PSY.ThermalGen, ::AbstractThermalFormulation) = PSY.get_status(d) ? PSY.get_time_at_status(d) : 0.0
+initial_condition_default(::InitialTimeDurationOn, d::PSY.ThermalGen, ::AbstractThermalFormulation) = is_online(d) ? PSY.get_time_at_status(d) : 0.0
 initial_condition_variable(::InitialTimeDurationOn, d::PSY.ThermalGen, ::AbstractThermalFormulation) = OnVariable()
-initial_condition_default(::InitialTimeDurationOff, d::PSY.ThermalGen, ::AbstractThermalFormulation) = !PSY.get_status(d) ? PSY.get_time_at_status(d) : 0.0
+initial_condition_default(::InitialTimeDurationOff, d::PSY.ThermalGen, ::AbstractThermalFormulation) = !is_online(d) ? PSY.get_time_at_status(d) : 0.0
 initial_condition_variable(::InitialTimeDurationOff, d::PSY.ThermalGen, ::AbstractThermalFormulation) = OnVariable()
 
 ########################Objective Function##################################################
@@ -394,12 +394,12 @@ function add_variables!(
         container,
         T,
         D,
-        [PSY.get_name(d) for d in devices if !PSY.get_must_run(d)],
+        [PSY.get_name(d) for d in devices if !_is_must_run(d)],
         time_steps,
     )
 
     for d in devices
-        if PSY.get_must_run(d)
+        if _is_must_run(d)
             continue
         end
         name = PSY.get_name(d)
@@ -709,7 +709,7 @@ function add_constraints!(
         # A must-run unit is in none of the On/Start/Stop containers: On is identically 1
         # and Start and Stop identically 0, so both start-up and shut-down ramp terms drop
         # out and the ceiling is the plain range.
-        if PSY.get_must_run(device)
+        if _is_must_run(device)
             for t in time_steps
                 if JuMP.has_lower_bound(varp[name, t])
                     JuMP.set_lower_bound(varp[name, t], 0.0)
@@ -845,7 +845,7 @@ function add_constraints!(
 
     for ic in initial_conditions
         name = IOM.get_component_name(ic)
-        if !PSY.get_must_run(IOM.get_component(ic))
+        if !_is_must_run(IOM.get_component(ic))
             constraint[name, 1] = JuMP.@constraint(
                 get_jump_model(container),
                 varon[name, 1] == get_value(ic) + varstart[name, 1] - varstop[name, 1]
@@ -858,7 +858,7 @@ function add_constraints!(
     end
 
     for ic in initial_conditions
-        if PSY.get_must_run(IOM.get_component(ic))
+        if _is_must_run(IOM.get_component(ic))
             continue
         else
             name = IOM.get_component_name(ic)
@@ -1052,7 +1052,7 @@ function calculate_aux_variable_value!(
         # A must-run unit appears in neither the OnVariable container nor the
         # OnStatusParameter array — both are built from the non-must-run devices — while
         # the power axis above carries every device. Its commitment is fixed at 1.
-        if PSY.get_must_run(d)
+        if _is_must_run(d)
             for t in time_steps
                 aux_variable_container[name, t] =
                     min + jump_value(p_variable_output[name, t])
@@ -1418,7 +1418,7 @@ function _get_data_for_tdc(
         # A must-run unit never starts or stops, so its up/down durations are vacuous —
         # and it is in none of the On/Start/Stop containers the duration constraints
         # index, so including it here is a KeyError, not a redundant constraint.
-        if PSY.get_must_run(g)
+        if _is_must_run(g)
             @debug "Generator $(name) is must-run. Duration constraints skipped"
             continue
         end
@@ -1523,7 +1523,7 @@ end
 # proportional cost: connects to common implementation in IOM
 # The OnVariable `add_proportional_cost!` forwarder (thermal + hydro) lives in
 # common_models/objective_function.jl.
-skip_proportional_cost(d::PSY.ThermalGen) = get_must_run(d)
+skip_proportional_cost(d::PSY.ThermalGen) = _is_must_run(d)
 
 ########################### Objective Function Calls#############################################
 # These functions are custom implementations of the cost data. In the file objective_functions.jl there are default implementations. Define these only if needed.
@@ -1742,7 +1742,7 @@ function IOM._add_semicontinuous_bound_range_constraints_impl!(
         ci_name = IS.get_name(device)
         limits = IOM.get_min_max_limits(device, T, W)
         for t in time_steps
-            bin = PSY.get_must_run(device) ? 1.0 : varbin[ci_name, t]
+            bin = _is_must_run(device) ? 1.0 : varbin[ci_name, t]
             IOM.add_range_bound_constraint!(
                 dir, jump_model, con, ci_name, t,
                 array[ci_name, t], IOM.get_bound(dir, limits), bin)
@@ -1806,7 +1806,7 @@ function add_constraints!(
         isempty(awards) && continue
         q_limit = PSY.get_active_power_limits(d, PSY.SU).max
         gated = IOM.get_min_max_limits(d, ActivePowerVariableLimitsConstraint, W).max
-        if PSY.get_must_run(d)
+        if _is_must_run(d)
             for t in time_steps
                 constraint[(name, t)] = JuMP.@constraint(
                     jump_model,

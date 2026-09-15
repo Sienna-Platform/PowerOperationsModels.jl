@@ -153,7 +153,7 @@ function _add_pmin_scaled_on_to_balance!(
         targets = _balance_expression_targets(container, T, network_model, d)
         name = PSY.get_name(d)
         multiplier = PSY.get_active_power_limits(d, PSY.SU).min * base_multiplier
-        if PSY.get_must_run(d)
+        if _is_must_run(d)
             # On ≡ 1 for must-run units, so the term is the constant p_min * mult.
             for t in time_steps
                 _apply_term_to_targets!(targets, 1.0, multiplier, t)
@@ -189,7 +189,7 @@ function _add_compact_on_to_balance!(
         targets = _balance_expression_targets(container, T, network_model, d)
         name = PSY.get_name(d)
         multiplier = PSY.get_active_power_limits(d, PSY.SU).min * base_multiplier
-        if PSY.get_must_run(d)
+        if _is_must_run(d)
             # On ≡ 1 for must-run units, so the term is the constant p_min * mult.
             for t in time_steps
                 _apply_term_to_targets!(targets, 1.0, multiplier, t)
@@ -2546,7 +2546,7 @@ function add_to_expression!(
     expression = get_expression(container, T, V)
     time_steps = get_time_steps(container)
     for d in devices
-        if PSY.get_must_run(d)
+        if _is_must_run(d)
             continue
         end
         name = PSY.get_name(d)

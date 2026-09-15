@@ -249,7 +249,7 @@ end
         reactive_power_limits_from = (min = -1.0, max = 1.0),
         reactive_power_limits_to = (min = -1.0, max = 1.0),
         arc = get_arc(line),
-        loss = LinearCurve(0.0),
+        loss = PSY.LossCurve(LinearCurve(0.0), PSY.CU),
     )
 
     add_component!(sys_5, hvdc)
@@ -319,13 +319,13 @@ end
         reactive_power_limits_from = (min = -1.0, max = 1.0),
         reactive_power_limits_to = (min = -1.0, max = 1.0),
         arc = get_arc(line),
-        loss = LinearCurve(0.0),
+        loss = PSY.LossCurve(LinearCurve(0.0), PSY.CU),
     )
 
     add_component!(sys_5, hvdc)
     for net_model in DC_NETWORK_MODELS_FOR_TESTING
         @testset "$net_model" begin
-            PSY.set_loss!(hvdc, PSY.LinearCurve(0.0))
+            PSY.set_loss!(hvdc, PSY.LossCurve(PSY.LinearCurve(0.0), PSY.CU))
             template_uc = PowerOperationsProblemTemplate(
                 NetworkModel(net_model; use_slacks = true),
             )
@@ -423,7 +423,7 @@ end
 
             @test isapprox(no_loss_total_gen, ref_total_gen; atol = 0.1)
 
-            PSY.set_loss!(hvdc, PSY.LinearCurve(0.005, 0.1))
+            PSY.set_loss!(hvdc, PSY.LossCurve(PSY.LinearCurve(0.005, 0.1), PSY.CU))
 
             model_wl = DecisionModel(
                 template_uc,
@@ -794,7 +794,7 @@ end
     new_gen = ThermalStandard(;
         name = "Gen_Bus100",
         available = true,
-        status = true,
+        status = PSY.OperationalStates.ONLINE,
         bus = new_bus2,
         active_power = 0.4,
         reactive_power = 0.0,
