@@ -84,9 +84,9 @@ market bid (`_is_costless_offer`), adds every device's energy variable to the si
 `SettlementBalance` row at `-1.0` (a decremental contributor, coefficient added regardless of
 priced/costless so the fixed-zero coefficient is exactly-once and provably zero-valued), builds
 the priced devices' decremental `MarketBidCost` PWL parameters, and seeds the reserve range
-expressions on their per-direction baselines. Never touches a physical `ActivePowerBalance` row -- the component's
-physical forecast is carried by a separate `StaticPowerLoad`-formulated twin `DeviceModel` in
-`template.devices`.
+expressions on their per-direction baselines. Never touches a physical `ActivePowerBalance` row:
+without a `StaticPowerLoad` twin in `template.devices` the component has no physical term at all,
+and with one the twin carries its forecast.
 """
 function construct_market_component!(
     container::OptimizationContainer,

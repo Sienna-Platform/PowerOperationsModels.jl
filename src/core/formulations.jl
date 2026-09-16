@@ -103,15 +103,16 @@ device dispatching at `P ≡ 0` would otherwise make any up-reserve award infeas
 baseline and down-reserve adds load from a zero baseline, so each direction is bounded by
 `max_active_power`. A device may serve reserves in one direction only: nothing links the two
 baselines. Constant baselines decouple reserve eligibility from realized market energy,
-matching the "AS-only" intent — the physical
-forecast this component would otherwise carry is modeled separately by a `StaticPowerLoad`-
-formulated twin `DeviceModel` for the same component in `template.devices` (that twin's mere
-presence is also what lets the reserve service machinery find this component type: see
-`market_loads.jl`).
+matching the "AS-only" intent.
 
-Offline-reserve range placement (`offline_reserve_in_range_ub`, add_to_expression.jl:~2566)
-dispatches on the TEMPLATE registration's formulation (the `StaticPowerLoad` twin above), not
-this one — a future override on `MarketLoadBid` would be silently ignored through that path.
+No `DeviceModel` in `template.devices` is needed: the service machinery sees market component
+models too (`get_service_device_models`), so the component contributes reserves while adding
+nothing to any physical balance row. Do not register a `StaticPowerLoad` twin for a component
+that contributes to a reserve: a device model wins in that view, and `StaticPowerLoad` cannot
+bound an award (`supports_reserve_provision`), so template finalization rejects it.
+
+Offline-reserve range placement (`offline_reserve_in_range_ub`) dispatches on this formulation
+in that view and takes the `AbstractDeviceFormulation` default (`true`).
 """
 struct MarketLoadBid <: AbstractControllablePowerLoadFormulation end
 
