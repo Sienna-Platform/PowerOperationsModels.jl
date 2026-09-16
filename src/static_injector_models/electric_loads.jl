@@ -44,8 +44,7 @@ variable_cost(cost::PSY.OperationalCost, ::Type{ShiftDownActivePowerVariable}, :
 get_expression_type_for_reserve(::Type{ActivePowerReserveVariable}, ::Type{<:PSY.ElectricLoad}, ::Type{<:UP_RESERVE}) = ActivePowerRangeExpressionLB
 get_expression_type_for_reserve(::Type{ActivePowerReserveVariable}, ::Type{<:PSY.ElectricLoad}, ::Type{<:PSY.Reserve{PSY.ReserveDown}}) = ActivePowerRangeExpressionUB
 
-# Loads opt in to reserve provision one formulation at a time; see `supports_reserve_provision`.
-# Both of these make the withdrawal a priced decision, so an award consumes shed headroom the
+# Both make the withdrawal a priced decision, so an award consumes shed headroom the
 # objective can value.
 supports_reserve_provision(::Type{PowerLoadDispatch}) = true
 supports_reserve_provision(::Type{PowerLoadInterruption}) = true
@@ -315,8 +314,7 @@ get_min_max_limits(
     ::Type{PowerLoadDispatch},
 ) = (min = 0.0, max = PSY.get_max_active_power(d, PSY.SU))
 
-# Upper bound is the load's forecast; with reserves, `ActivePowerRangeExpressionUB`
-# (= P + Σ r_down) rides the same bound, capping down awards by the forecast headroom.
+# `P + Σ r_down <= forecast`: down awards consume forecast headroom.
 function add_constraints!(
     container::OptimizationContainer,
     T::Type{ActivePowerVariableLimitsConstraint},
@@ -337,9 +335,8 @@ function add_constraints!(
     return
 end
 
-# `ActivePowerRangeExpressionLB` (= P - Σ r_up) >= 0: an up award cannot exceed the shed the
-# load can actually deliver. An interrupted load (`OnVariable` = 0) is held at P = 0 by the
-# binary constraint below, so this row also forces its up awards to zero.
+# `P - Σ r_up >= 0`: an up award cannot exceed the shed the load can deliver. An interrupted
+# load is held at P = 0 by the gate below, so this row also zeroes its up awards.
 function add_constraints!(
     container::OptimizationContainer,
     T::Type{ActivePowerVariableLimitsConstraint},
@@ -359,11 +356,8 @@ get_min_max_limits(
     ::Type{PowerLoadInterruption},
 ) = (min = 0.0, max = PSY.get_max_active_power(d, PSY.SU))
 
-# The interruption gate caps `ActivePowerRangeExpressionUB` (= P + Σ r_down), not the bare
-# `ActivePowerVariable`, whenever the load carries a service: an interrupted load consumes
-# nothing, so it can neither shed (the LB row zeroes its up awards through P = 0) nor absorb
-# more, and gating only P would let an OFF load sell down-reserve up to its whole forecast.
-# Without services the expression does not exist and the gate rides the variable directly.
+# An interrupted load consumes nothing, so it can neither shed nor absorb: with services the
+# gate caps `ActivePowerRangeExpressionUB` (= P + Σ r_down) so down awards are gated too.
 function add_constraints!(
     container::OptimizationContainer,
     T::Type{ActivePowerVariableLimitsConstraint},
@@ -392,10 +386,8 @@ function add_constraints!(
     return
 end
 
-# Function barrier: `gated` is a variable container in one branch and an expression
-# container in the other, so the row building specializes here on whichever was passed.
-# `AbstractArray` covers both the dense and sparse JuMP containers holding either
-# `VariableRef` or `AffExpr`; a tighter bound would have to enumerate all four.
+# `gated` is a variable container in one branch and an expression container in the other;
+# `AbstractArray` covers the dense and sparse JuMP containers of both element types.
 function _add_interruption_gate!(
     container::OptimizationContainer,
     ::Type{T},

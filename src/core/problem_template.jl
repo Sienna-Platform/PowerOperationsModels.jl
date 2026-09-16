@@ -375,9 +375,8 @@ end
 
 """
 Reject a contributing device whose formulation cannot bound a reserve award
-([`supports_reserve_provision`](@ref)). Such a device would sell capacity limited only by
-its nameplate rating - uncoupled from its dispatch and uncoupled across services - so fail
-the template by name rather than emit a model that silently clears free reserve.
+([`supports_reserve_provision`](@ref)); such a device would sell capacity limited only by
+its nameplate rating, uncoupled from its dispatch and from its other services.
 """
 function _validate_reserve_provision!(template::PowerOperationsProblemTemplate)
     devices_template = get_device_models(template)

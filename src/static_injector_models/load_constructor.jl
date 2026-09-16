@@ -276,8 +276,6 @@ function construct_device!(
         network_model,
     )
 
-    # With reserves, the dispatch limits move to the range expressions so awards consume
-    # shed/forecast headroom (load direction map in electric_loads.jl).
     if has_service_model(model)
         add_to_expression!(
             container,
@@ -403,8 +401,6 @@ function construct_device!(
         network_model,
     )
 
-    # With reserves, the dispatch limits move to the range expressions so awards consume
-    # shed/forecast headroom (load direction map in electric_loads.jl).
     if has_service_model(model)
         add_to_expression!(
             container,
