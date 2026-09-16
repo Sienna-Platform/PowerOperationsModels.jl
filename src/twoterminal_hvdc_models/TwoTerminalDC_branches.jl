@@ -297,7 +297,7 @@ function add_variables!(
     container::OptimizationContainer,
     ::Type{FlowActivePowerVariable},
     network_model::NetworkModel{CopperPlateNetworkModel},
-    devices::IS.FlattenIteratorWrapper{T},
+    devices::Union{Vector{T}, IS.FlattenIteratorWrapper{T}},
     ::Type{U},
 ) where {T <: PSY.TwoTerminalHVDC, U <: AbstractBranchFormulation}
     inter_network_branches = T[]
@@ -422,7 +422,7 @@ end
 add_constraints!(
     ::OptimizationContainer,
     ::Type{<:Union{FlowRateConstraintFromTo, FlowRateConstraintToFrom}},
-    ::IS.FlattenIteratorWrapper{T},
+    ::Union{Vector{T}, IS.FlattenIteratorWrapper{T}},
     ::DeviceModel{T, HVDCTwoTerminalUnbounded},
     ::NetworkModel{<:AbstractNetworkModel},
 ) where {T <: PSY.TwoTerminalHVDC} = nothing
@@ -430,7 +430,7 @@ add_constraints!(
 add_constraints!(
     ::OptimizationContainer,
     ::Type{FlowRateConstraint},
-    ::IS.FlattenIteratorWrapper{T},
+    ::Union{Vector{T}, IS.FlattenIteratorWrapper{T}},
     ::DeviceModel{T, HVDCTwoTerminalUnbounded},
     ::NetworkModel{<:AbstractNetworkModel},
 ) where {T <: PSY.TwoTerminalHVDC} = nothing
@@ -592,7 +592,7 @@ end
 function add_constraints!(
     container::OptimizationContainer,
     ::Type{T},
-    devices::IS.FlattenIteratorWrapper{U},
+    devices::Union{Vector{U}, IS.FlattenIteratorWrapper{U}},
     model::DeviceModel{U, HVDCTwoTerminalDispatch},
     network_model::NetworkModel{CopperPlateNetworkModel},
 ) where {
@@ -616,7 +616,7 @@ end
 function add_constraints!(
     container::OptimizationContainer,
     ::Type{T},
-    devices::IS.FlattenIteratorWrapper{U},
+    devices::Union{Vector{U}, IS.FlattenIteratorWrapper{U}},
     ::DeviceModel{U, HVDCTwoTerminalDispatch},
     ::NetworkModel{<:Union{AbstractDCPNetworkModel, NativeACNetworkModel}},
 ) where {
@@ -630,7 +630,7 @@ end
 function add_constraints!(
     container::OptimizationContainer,
     ::Type{T},
-    devices::IS.FlattenIteratorWrapper{U},
+    devices::Union{Vector{U}, IS.FlattenIteratorWrapper{U}},
     ::DeviceModel{U, HVDCTwoTerminalDispatch},
     ::NetworkModel{<:AbstractPTDFNetworkModel},
 ) where {
@@ -644,7 +644,7 @@ end
 function add_constraints!(
     container::OptimizationContainer,
     ::Type{T},
-    devices::IS.FlattenIteratorWrapper{U},
+    devices::Union{Vector{U}, IS.FlattenIteratorWrapper{U}},
     model::DeviceModel{U, V},
     network_model::NetworkModel{CopperPlateNetworkModel},
 ) where {
@@ -683,7 +683,7 @@ end
 function add_constraints!(
     container::OptimizationContainer,
     ::Type{T},
-    devices::IS.FlattenIteratorWrapper{U},
+    devices::Union{Vector{U}, IS.FlattenIteratorWrapper{U}},
     ::DeviceModel{U, V},
     ::NetworkModel{
         <:Union{
@@ -718,7 +718,7 @@ end
 function add_constraints!(
     container::OptimizationContainer,
     ::Type{HVDCPowerBalance},
-    devices::IS.FlattenIteratorWrapper{T},
+    devices::Union{Vector{T}, IS.FlattenIteratorWrapper{T}},
     ::DeviceModel{T, <:AbstractTwoTerminalDCLineFormulation},
     ::NetworkModel{<:Union{AbstractDCPNetworkModel, NativeACNetworkModel}},
 ) where {T <: PSY.TwoTerminalHVDC}
@@ -872,7 +872,7 @@ end
 function add_constraints!(
     container::OptimizationContainer,
     ::Type{HVDCRectifierDCLineVoltageConstraint},
-    devices::IS.FlattenIteratorWrapper{T},
+    devices::Union{Vector{T}, IS.FlattenIteratorWrapper{T}},
     ::DeviceModel{T, <:HVDCTwoTerminalLCC},
     network_model::NetworkModel{<:AbstractReactivePowerNetworkModel},
 ) where {T <: PSY.TwoTerminalLCCLine}
@@ -918,7 +918,7 @@ end
 function add_constraints!(
     container::OptimizationContainer,
     ::Type{HVDCInverterDCLineVoltageConstraint},
-    devices::IS.FlattenIteratorWrapper{T},
+    devices::Union{Vector{T}, IS.FlattenIteratorWrapper{T}},
     ::DeviceModel{T, <:HVDCTwoTerminalLCC},
     network_model::NetworkModel{<:AbstractReactivePowerNetworkModel},
 ) where {T <: PSY.TwoTerminalLCCLine}
@@ -965,7 +965,7 @@ end
 function add_constraints!(
     container::OptimizationContainer,
     ::Type{HVDCRectifierOverlapAngleConstraint},
-    devices::IS.FlattenIteratorWrapper{T},
+    devices::Union{Vector{T}, IS.FlattenIteratorWrapper{T}},
     ::DeviceModel{T, <:HVDCTwoTerminalLCC},
     network_model::NetworkModel{<:AbstractReactivePowerNetworkModel},
 ) where {T <: PSY.TwoTerminalLCCLine}
@@ -1021,7 +1021,7 @@ end
 function add_constraints!(
     container::OptimizationContainer,
     ::Type{HVDCInverterOverlapAngleConstraint},
-    devices::IS.FlattenIteratorWrapper{T},
+    devices::Union{Vector{T}, IS.FlattenIteratorWrapper{T}},
     ::DeviceModel{T, <:HVDCTwoTerminalLCC},
     network_model::NetworkModel{<:AbstractReactivePowerNetworkModel},
 ) where {T <: PSY.TwoTerminalLCCLine}
@@ -1078,7 +1078,7 @@ end
 function add_constraints!(
     container::OptimizationContainer,
     ::Type{HVDCRectifierPowerFactorAngleConstraint},
-    devices::IS.FlattenIteratorWrapper{T},
+    devices::Union{Vector{T}, IS.FlattenIteratorWrapper{T}},
     ::DeviceModel{T, <:HVDCTwoTerminalLCC},
     ::NetworkModel{<:AbstractReactivePowerNetworkModel},
 ) where {T <: PSY.TwoTerminalLCCLine}
@@ -1139,7 +1139,7 @@ end
 function add_constraints!(
     container::OptimizationContainer,
     ::Type{HVDCInverterPowerFactorAngleConstraint},
-    devices::IS.FlattenIteratorWrapper{T},
+    devices::Union{Vector{T}, IS.FlattenIteratorWrapper{T}},
     ::DeviceModel{T, <:HVDCTwoTerminalLCC},
     ::NetworkModel{<:AbstractReactivePowerNetworkModel},
 ) where {T <: PSY.TwoTerminalLCCLine}
@@ -1201,7 +1201,7 @@ end
 function add_constraints!(
     container::OptimizationContainer,
     ::Type{HVDCRectifierACCurrentFlowConstraint},
-    devices::IS.FlattenIteratorWrapper{T},
+    devices::Union{Vector{T}, IS.FlattenIteratorWrapper{T}},
     ::DeviceModel{T, <:HVDCTwoTerminalLCC},
     ::NetworkModel{<:AbstractReactivePowerNetworkModel},
 ) where {T <: PSY.TwoTerminalLCCLine}
@@ -1235,7 +1235,7 @@ end
 function add_constraints!(
     container::OptimizationContainer,
     ::Type{HVDCInverterACCurrentFlowConstraint},
-    devices::IS.FlattenIteratorWrapper{T},
+    devices::Union{Vector{T}, IS.FlattenIteratorWrapper{T}},
     ::DeviceModel{T, <:HVDCTwoTerminalLCC},
     ::NetworkModel{<:AbstractReactivePowerNetworkModel},
 ) where {T <: PSY.TwoTerminalLCCLine}
@@ -1269,7 +1269,7 @@ end
 function add_constraints!(
     container::OptimizationContainer,
     ::Type{HVDCRectifierPowerCalculationConstraint},
-    devices::IS.FlattenIteratorWrapper{T},
+    devices::Union{Vector{T}, IS.FlattenIteratorWrapper{T}},
     ::DeviceModel{T, <:HVDCTwoTerminalLCC},
     network_model::NetworkModel{<:AbstractReactivePowerNetworkModel},
 ) where {T <: PSY.TwoTerminalLCCLine}
@@ -1329,7 +1329,7 @@ end
 function add_constraints!(
     container::OptimizationContainer,
     ::Type{HVDCInverterPowerCalculationConstraint},
-    devices::IS.FlattenIteratorWrapper{T},
+    devices::Union{Vector{T}, IS.FlattenIteratorWrapper{T}},
     ::DeviceModel{T, <:HVDCTwoTerminalLCC},
     network_model::NetworkModel{<:AbstractReactivePowerNetworkModel},
 ) where {T <: PSY.TwoTerminalLCCLine}
@@ -1389,7 +1389,7 @@ end
 function add_constraints!(
     container::OptimizationContainer,
     ::Type{HVDCTransmissionDCLineConstraint},
-    devices::IS.FlattenIteratorWrapper{T},
+    devices::Union{Vector{T}, IS.FlattenIteratorWrapper{T}},
     ::DeviceModel{T, <:HVDCTwoTerminalLCC},
     ::NetworkModel{<:AbstractReactivePowerNetworkModel},
 ) where {T <: PSY.TwoTerminalLCCLine}

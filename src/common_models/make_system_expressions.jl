@@ -98,7 +98,7 @@ function make_system_expressions!(
     container::OptimizationContainer,
     ::Dict{Int, Set{Int}},
     ::Type{AreaBalanceNetworkModel},
-    areas::IS.FlattenIteratorWrapper{PSY.Area},
+    areas::Union{Vector{PSY.Area}, IS.FlattenIteratorWrapper{PSY.Area}},
 )
     time_steps = get_time_steps(container)
     container.expressions = Dict(
@@ -113,7 +113,7 @@ function make_system_expressions!(
     subnetworks::Dict{Int, Set{Int}},
     ::Vector{Int},
     ::Type{AreaPTDFNetworkModel},
-    areas::IS.FlattenIteratorWrapper{PSY.Area},
+    areas::Union{Vector{PSY.Area}, IS.FlattenIteratorWrapper{PSY.Area}},
     bus_reduction_map::Dict{Int64, Set{Int64}},
 )
     time_steps = get_time_steps(container)

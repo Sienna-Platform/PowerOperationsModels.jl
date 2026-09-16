@@ -651,7 +651,7 @@ function add_to_expression!(
     container::OptimizationContainer,
     ::Type{T},
     ::Type{U},
-    devices::IS.FlattenIteratorWrapper{V},
+    devices::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
     model::DeviceModel{V, W},
     network_model::NetworkModel{X},
 ) where {
@@ -672,7 +672,7 @@ function add_to_expression!(
     container::OptimizationContainer,
     ::Type{T},
     ::Type{U},
-    devices::IS.FlattenIteratorWrapper{V},
+    devices::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
     model::DeviceModel{V, W},
     network_model::NetworkModel{X},
 ) where {
@@ -693,7 +693,7 @@ function add_to_expression!(
     container::OptimizationContainer,
     ::Type{T},
     ::Type{U},
-    devices::IS.FlattenIteratorWrapper{V},
+    devices::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
     model::DeviceModel{V, W},
     network_model::NetworkModel{X},
 ) where {
@@ -719,7 +719,7 @@ function add_to_expression!(
     container::OptimizationContainer,
     ::Type{T},
     ::Type{U},
-    devices::IS.FlattenIteratorWrapper{V},
+    devices::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
     model::DeviceModel{V, W},
     network_model::NetworkModel{AreaBalanceNetworkModel},
 ) where {
@@ -744,7 +744,7 @@ function add_to_expression!(
     container::OptimizationContainer,
     ::Type{T},
     ::Type{U},
-    devices::IS.FlattenIteratorWrapper{V},
+    devices::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
     model::DeviceModel{V, W},
     network_model::NetworkModel{X},
 ) where {
@@ -767,7 +767,7 @@ function add_to_expression!(
     container::OptimizationContainer,
     ::Type{T},
     ::Type{U},
-    devices::IS.FlattenIteratorWrapper{V},
+    devices::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
     model::DeviceModel{V, W},
     network_model::NetworkModel{AreaBalanceNetworkModel},
 ) where {
@@ -784,7 +784,7 @@ function add_to_expression!(
     container::OptimizationContainer,
     ::Type{T},
     ::Type{U},
-    devices::IS.FlattenIteratorWrapper{V},
+    devices::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
     model::DeviceModel{V, W},
     network_model::NetworkModel{AreaBalanceNetworkModel},
 ) where {
@@ -801,7 +801,7 @@ function add_to_expression!(
     container::OptimizationContainer,
     ::Type{T},
     ::Type{U},
-    devices::IS.FlattenIteratorWrapper{V},
+    devices::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
     model::DeviceModel{V, W},
     network_model::NetworkModel{X},
 ) where {
@@ -822,7 +822,7 @@ function add_to_expression!(
     container::OptimizationContainer,
     ::Type{T},
     ::Type{U},
-    devices::IS.FlattenIteratorWrapper{V},
+    devices::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
     model::DeviceModel{V, W},
     network_model::NetworkModel{X},
 ) where {
@@ -840,7 +840,7 @@ function add_to_expression!(
     container::OptimizationContainer,
     ::Type{T},
     ::Type{U},
-    devices::IS.FlattenIteratorWrapper{V},
+    devices::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
     model::DeviceModel{V, W},
     network_model::NetworkModel{AreaBalanceNetworkModel},
 ) where {
@@ -862,7 +862,7 @@ function add_to_expression!(
     container::OptimizationContainer,
     ::Type{T},
     ::Type{U},
-    devices::IS.FlattenIteratorWrapper{V},
+    devices::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
     ::DeviceModel{V, W},
     network_model::NetworkModel{X},
 ) where {
@@ -898,7 +898,7 @@ function add_to_expression!(
     container::OptimizationContainer,
     ::Type{T},
     ::Type{U},
-    devices::IS.FlattenIteratorWrapper{V},
+    devices::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
     ::DeviceModel{V, W},
     network_model::NetworkModel{X},
 ) where {
@@ -933,7 +933,7 @@ function add_to_expression!(
     container::OptimizationContainer,
     ::Type{T},
     ::Type{U},
-    devices::IS.FlattenIteratorWrapper{V},
+    devices::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
     ::DeviceModel{V, W},
     network_model::NetworkModel{PTDFNetworkModel},
 ) where {
@@ -955,7 +955,7 @@ function add_to_expression!(
     container::OptimizationContainer,
     ::Type{T},
     ::Type{U},
-    devices::IS.FlattenIteratorWrapper{V},
+    devices::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
     ::DeviceModel{V, W},
     network_model::NetworkModel{X},
 ) where {
@@ -980,7 +980,7 @@ function add_to_expression!(
     container::OptimizationContainer,
     ::Type{T},
     ::Type{U},
-    devices::IS.FlattenIteratorWrapper{V},
+    devices::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
     ::DeviceModel{V, W},
     network_model::NetworkModel{X},
 ) where {
@@ -1006,7 +1006,7 @@ function add_to_expression!(
     container::OptimizationContainer,
     ::Type{T},
     ::Type{U},
-    devices::IS.FlattenIteratorWrapper{V},
+    devices::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
     ::DeviceModel{V, W},
     network_model::NetworkModel{CopperPlateNetworkModel},
 ) where {
@@ -1042,7 +1042,7 @@ function add_to_expression!(
     container::OptimizationContainer,
     ::Type{T},
     ::Type{U},
-    devices::IS.FlattenIteratorWrapper{V},
+    devices::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
     ::DeviceModel{V, W},
     network_model::NetworkModel{AreaBalanceNetworkModel},
 ) where {
@@ -1075,7 +1075,7 @@ function add_to_expression!(
     container::OptimizationContainer,
     ::Type{T},
     ::Type{U},
-    devices::IS.FlattenIteratorWrapper{V},
+    devices::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
     ::DeviceModel{V, W},
     network_model::NetworkModel{X},
 ) where {
@@ -1098,7 +1098,7 @@ function add_to_expression!(
     container::OptimizationContainer,
     ::Type{T},
     ::Type{U},
-    devices::IS.FlattenIteratorWrapper{V},
+    devices::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
     ::DeviceModel{V, W},
     network_model::NetworkModel{X},
 ) where {
@@ -1122,7 +1122,7 @@ function add_to_expression!(
     container::OptimizationContainer,
     ::Type{T},
     ::Type{U},
-    devices::IS.FlattenIteratorWrapper{V},
+    devices::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
     ::DeviceModel{V, W},
     network_model::NetworkModel{X},
 ) where {
@@ -1145,7 +1145,7 @@ function add_to_expression!(
     container::OptimizationContainer,
     ::Type{T},
     ::Type{U},
-    devices::IS.FlattenIteratorWrapper{V},
+    devices::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
     ::DeviceModel{V, W},
     network_model::NetworkModel{X},
 ) where {
@@ -1166,7 +1166,7 @@ function add_to_expression!(
     container::OptimizationContainer,
     ::Type{T},
     ::Type{U},
-    devices::IS.FlattenIteratorWrapper{V},
+    devices::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
     ::DeviceModel{V, W},
     network_model::NetworkModel{X},
 ) where {
@@ -1187,7 +1187,7 @@ function add_to_expression!(
     container::OptimizationContainer,
     ::Type{T},
     ::Type{U},
-    devices::IS.FlattenIteratorWrapper{V},
+    devices::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
     ::DeviceModel{V, W},
     network_model::NetworkModel{X},
 ) where {
@@ -1208,7 +1208,7 @@ function add_to_expression!(
     container::OptimizationContainer,
     ::Type{T},
     ::Type{U},
-    devices::IS.FlattenIteratorWrapper{V},
+    devices::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
     ::DeviceModel{V, W},
     network_model::NetworkModel{X},
 ) where {
@@ -1244,7 +1244,7 @@ function add_to_expression!(
     container::OptimizationContainer,
     ::Type{T},
     ::Type{U},
-    devices::IS.FlattenIteratorWrapper{V},
+    devices::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
     ::DeviceModel{V, W},
     network_model::NetworkModel{X},
 ) where {
@@ -1277,7 +1277,7 @@ function add_to_expression!(
     container::OptimizationContainer,
     ::Type{T},
     ::Type{U},
-    devices::IS.FlattenIteratorWrapper{V},
+    devices::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
     ::DeviceModel{V, HVDCTwoTerminalDispatch},
     network_model::NetworkModel{AreaBalanceNetworkModel},
 ) where {
@@ -1306,7 +1306,7 @@ function add_to_expression!(
     container::OptimizationContainer,
     ::Type{T},
     ::Type{U},
-    devices::IS.FlattenIteratorWrapper{V},
+    devices::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
     device_model::DeviceModel{V, W},
     network_model::NetworkModel{AreaBalanceNetworkModel},
 ) where {
@@ -1330,7 +1330,7 @@ function add_to_expression!(
     container::OptimizationContainer,
     ::Type{T},
     ::Type{U},
-    devices::IS.FlattenIteratorWrapper{V},
+    devices::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
     device_model::DeviceModel{V, W},
     network_model::NetworkModel{X},
 ) where {
@@ -1355,7 +1355,7 @@ function add_to_expression!(
     container::OptimizationContainer,
     ::Type{T},
     ::Type{U},
-    devices::IS.FlattenIteratorWrapper{V},
+    devices::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
     device_model::DeviceModel{V, W},
     network_model::NetworkModel{AreaBalanceNetworkModel},
 ) where {
@@ -1375,7 +1375,7 @@ function add_to_expression!(
     container::OptimizationContainer,
     ::Type{T},
     ::Type{U},
-    devices::IS.FlattenIteratorWrapper{V},
+    devices::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
     device_model::DeviceModel{V, W},
     network_model::NetworkModel{CopperPlateNetworkModel},
 ) where {
@@ -1395,7 +1395,7 @@ function add_to_expression!(
     container::OptimizationContainer,
     ::Type{T},
     ::Type{U},
-    devices::IS.FlattenIteratorWrapper{V},
+    devices::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
     device_model::DeviceModel{V, W},
     network_model::NetworkModel{CopperPlateNetworkModel},
 ) where {
@@ -1422,7 +1422,7 @@ function add_to_expression!(
     container::OptimizationContainer,
     ::Type{T},
     ::Type{U},
-    devices::IS.FlattenIteratorWrapper{V},
+    devices::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
     device_model::DeviceModel{V, W},
     network_model::NetworkModel{CopperPlateNetworkModel},
 ) where {
@@ -1444,7 +1444,7 @@ function add_to_expression!(
     container::OptimizationContainer,
     ::Type{T},
     ::Type{U},
-    devices::IS.FlattenIteratorWrapper{V},
+    devices::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
     model::DeviceModel{V, W},
     network_model::NetworkModel{CopperPlateNetworkModel},
 ) where {
@@ -1464,7 +1464,7 @@ function add_to_expression!(
     container::OptimizationContainer,
     ::Type{T},
     ::Type{U},
-    devices::IS.FlattenIteratorWrapper{V},
+    devices::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
     device_model::DeviceModel{V, W},
     network_model::NetworkModel{CopperPlateNetworkModel},
 ) where {
@@ -1481,7 +1481,7 @@ function add_to_expression!(
     container::OptimizationContainer,
     ::Type{T},
     ::Type{U},
-    devices::IS.FlattenIteratorWrapper{V},
+    devices::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
     device_model::DeviceModel{V, W},
     network_model::NetworkModel{CopperPlateNetworkModel},
 ) where {
@@ -1509,7 +1509,7 @@ function add_to_expression!(
     container::OptimizationContainer,
     ::Type{T},
     ::Type{U},
-    devices::IS.FlattenIteratorWrapper{V},
+    devices::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
     device_model::DeviceModel{V, W},
     network_model::NetworkModel{X},
 ) where {
@@ -1554,7 +1554,7 @@ function add_to_expression!(
     container::OptimizationContainer,
     ::Type{T},
     ::Type{U},
-    devices::IS.FlattenIteratorWrapper{V},
+    devices::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
     device_model::DeviceModel{V, W},
     network_model::NetworkModel{X},
 ) where {
@@ -1601,7 +1601,7 @@ function add_to_expression!(
     container::OptimizationContainer,
     ::Type{T},
     ::Type{U},
-    devices::IS.FlattenIteratorWrapper{V},
+    devices::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
     ::DeviceModel{V, W},
     network_model::NetworkModel{X},
 ) where {
@@ -1646,7 +1646,7 @@ function add_to_expression!(
     container::OptimizationContainer,
     ::Type{T},
     ::Type{U},
-    devices::IS.FlattenIteratorWrapper{V},
+    devices::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
     device_model::DeviceModel{V, W},
     network_model::NetworkModel{X},
 ) where {
@@ -1667,7 +1667,7 @@ function add_to_expression!(
     container::OptimizationContainer,
     ::Type{T},
     ::Type{U},
-    devices::IS.FlattenIteratorWrapper{V},
+    devices::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
     device_model::DeviceModel{V, W},
     network_model::NetworkModel{X},
 ) where {
@@ -1705,7 +1705,7 @@ function add_to_expression!(
     container::OptimizationContainer,
     ::Type{T},
     ::Type{U},
-    devices::IS.FlattenIteratorWrapper{V},
+    devices::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
     device_model::DeviceModel{V, W},
     network_model::NetworkModel{X},
 ) where {
@@ -1726,7 +1726,7 @@ function add_to_expression!(
     container::OptimizationContainer,
     ::Type{T},
     ::Type{U},
-    devices::IS.FlattenIteratorWrapper{V},
+    devices::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
     device_model::DeviceModel{V, W},
     network_model::NetworkModel{X},
 ) where {
@@ -1755,7 +1755,7 @@ function add_to_expression!(
     container::OptimizationContainer,
     ::Type{T},
     ::Type{U},
-    devices::IS.FlattenIteratorWrapper{V},
+    devices::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
     ::DeviceModel{V, W},
     network_model::NetworkModel{X},
 ) where {
@@ -1773,7 +1773,10 @@ function add_to_expression!(
     container::OptimizationContainer,
     ::Type{ActivePowerBalance},
     ::Type{FlowActivePowerVariable},
-    devices::IS.FlattenIteratorWrapper{PSY.AreaInterchange},
+    devices::Union{
+        Vector{PSY.AreaInterchange},
+        IS.FlattenIteratorWrapper{PSY.AreaInterchange},
+    },
     ::DeviceModel{PSY.AreaInterchange, W},
     network_model::NetworkModel{U},
 ) where {
@@ -1807,7 +1810,10 @@ function add_to_expression!(
     container::OptimizationContainer,
     ::Type{ActivePowerBalance},
     ::Type{FlowActivePowerVariable},
-    devices::IS.FlattenIteratorWrapper{PSY.AreaInterchange},
+    devices::Union{
+        Vector{PSY.AreaInterchange},
+        IS.FlattenIteratorWrapper{PSY.AreaInterchange},
+    },
     ::DeviceModel{PSY.AreaInterchange, W},
     network_model::NetworkModel{U},
 ) where {
@@ -1825,7 +1831,7 @@ function add_to_expression!(
     container::OptimizationContainer,
     ::Type{T},
     ::Type{U},
-    devices::IS.FlattenIteratorWrapper{V},
+    devices::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
     ::DeviceModel{V, W},
     network_model::NetworkModel{X},
 ) where {
@@ -1883,7 +1889,7 @@ function add_to_expression!(
     container::OptimizationContainer,
     ::Type{T},
     ::Type{U},
-    devices::IS.FlattenIteratorWrapper{V},
+    devices::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
     ::DeviceModel{V, W},
     network_model::NetworkModel{CopperPlateNetworkModel},
 ) where {
@@ -1933,7 +1939,7 @@ function add_to_expression!(
     container::OptimizationContainer,
     ::Type{T},
     ::Type{U},
-    devices::IS.FlattenIteratorWrapper{V},
+    devices::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
     model::DeviceModel{V, W},
     network_model::NetworkModel{X},
 ) where {
@@ -2499,7 +2505,7 @@ function add_to_expression!(
     container::OptimizationContainer,
     ::Type{T},
     ::U,
-    devices::IS.FlattenIteratorWrapper{V},
+    devices::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
     model::DeviceModel{V, W},
 ) where {
     T <: Union{ActivePowerRangeExpressionUB, ActivePowerRangeExpressionLB},
@@ -2531,7 +2537,7 @@ function add_to_expression!(
     container::OptimizationContainer,
     ::Type{T},
     ::U,
-    devices::IS.FlattenIteratorWrapper{V},
+    devices::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
     model::DeviceModel{V, W},
 ) where {
     T <: Union{ActivePowerRangeExpressionUB, ActivePowerRangeExpressionLB},
@@ -2846,7 +2852,7 @@ function add_to_expression!(
     container::OptimizationContainer,
     ::Type{T},
     ::Type{U},
-    devices::IS.FlattenIteratorWrapper{V},
+    devices::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
     model::DeviceModel{V, W},
 ) where {
     T <: FuelConsumptionExpression,
@@ -2933,7 +2939,7 @@ function add_to_expression!(
     container::OptimizationContainer,
     ::Type{T},
     ::Type{U},
-    devices::IS.FlattenIteratorWrapper{V},
+    devices::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
     model::DeviceModel{V, W},
 ) where {
     T <: FuelConsumptionExpression,
@@ -2963,7 +2969,7 @@ function add_to_expression!(
     container::OptimizationContainer,
     ::Type{T},
     ::U,
-    devices::IS.FlattenIteratorWrapper{V},
+    devices::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
     model::DeviceModel{V, W},
 ) where {
     T <: NetActivePower,
@@ -2992,7 +2998,7 @@ function add_to_expression!(
     container::OptimizationContainer,
     ::Type{T},
     ::Type{U},
-    areas::IS.FlattenIteratorWrapper{V},
+    areas::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
     model::ServiceModel{PSY.AGC, W},
 ) where {
     T <: Union{EmergencyUp, EmergencyDown},
@@ -3018,7 +3024,7 @@ function add_to_expression!(
     container::OptimizationContainer,
     ::Type{T},
     ::Type{U},
-    services::IS.FlattenIteratorWrapper{V},
+    services::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
     model::ServiceModel{V, W},
 ) where {
     T <: RawACE,
@@ -3113,7 +3119,7 @@ function add_to_expression!(
     container::OptimizationContainer,
     ::Type{T},
     ::Type{U},
-    devices::IS.FlattenIteratorWrapper{V},
+    devices::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
     ::DeviceModel{V, W},
     network_model::NetworkModel{X},
 ) where {
@@ -3143,7 +3149,7 @@ function add_to_expression!(
     container::OptimizationContainer,
     ::Type{T},
     ::Type{U},
-    devices::IS.FlattenIteratorWrapper{V},
+    devices::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
     ::DeviceModel{V, W},
     network_model::NetworkModel{X},
 ) where {
@@ -3169,7 +3175,7 @@ function add_to_expression!(
     container::OptimizationContainer,
     ::Type{ActivePowerBalance},
     ::Type{FlowActivePowerFromToVariable},
-    devices::IS.FlattenIteratorWrapper{T},
+    devices::Union{Vector{T}, IS.FlattenIteratorWrapper{T}},
     ::DeviceModel{T, W},
     network_model::NetworkModel{
         <:Union{
@@ -3196,7 +3202,7 @@ function add_to_expression!(
     container::OptimizationContainer,
     ::Type{ActivePowerBalance},
     ::Type{FlowActivePowerToFromVariable},
-    devices::IS.FlattenIteratorWrapper{T},
+    devices::Union{Vector{T}, IS.FlattenIteratorWrapper{T}},
     ::DeviceModel{T, W},
     network_model::NetworkModel{
         <:Union{
@@ -3224,7 +3230,7 @@ function add_to_expression!(
     container::OptimizationContainer,
     ::Type{ReactivePowerBalance},
     ::Type{U},
-    devices::IS.FlattenIteratorWrapper{T},
+    devices::Union{Vector{T}, IS.FlattenIteratorWrapper{T}},
     ::DeviceModel{T, W},
     network_model::NetworkModel{
         <:Union{ACPNetworkModel, ACRNetworkModel, LPACCNetworkModel, IVRNetworkModel},
@@ -3249,7 +3255,7 @@ function add_to_expression!(
     container::OptimizationContainer,
     ::Type{ReactivePowerBalance},
     ::Type{U},
-    devices::IS.FlattenIteratorWrapper{T},
+    devices::Union{Vector{T}, IS.FlattenIteratorWrapper{T}},
     ::DeviceModel{T, W},
     network_model::NetworkModel{
         <:Union{ACPNetworkModel, ACRNetworkModel, LPACCNetworkModel, IVRNetworkModel},

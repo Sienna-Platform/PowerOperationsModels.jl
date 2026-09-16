@@ -378,7 +378,7 @@ end
 
 function _make_device_cache(
     filter_function::Function,
-    devices::IS.FlattenIteratorWrapper{T},
+    devices::Union{Vector{T}, IS.FlattenIteratorWrapper{T}},
     check_components::Bool,
     sys::PSY.System,
 ) where {T <: PSY.Device}
@@ -394,7 +394,7 @@ end
 
 function _make_device_cache(
     ::Nothing,
-    devices::IS.FlattenIteratorWrapper{T},
+    devices::Union{Vector{T}, IS.FlattenIteratorWrapper{T}},
     check_components::Bool,
     sys::PSY.System,
 ) where {T <: PSY.Device}

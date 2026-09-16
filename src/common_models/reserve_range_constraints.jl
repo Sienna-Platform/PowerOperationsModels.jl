@@ -20,7 +20,7 @@ function add_reserve_range_constraints!(
     container::OptimizationContainer,
     ::Type{T},
     ::Type{U},
-    devices::IS.FlattenIteratorWrapper{V},
+    devices::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
     model::DeviceModel{V, W},
     ::Type{X},
 ) where {
@@ -42,7 +42,7 @@ function add_reserve_range_constraints!(
     container::OptimizationContainer,
     ::Type{T},
     ::Type{U},
-    devices::IS.FlattenIteratorWrapper{V},
+    devices::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
     model::DeviceModel{V, W},
     ::Type{X},
 ) where {
@@ -77,7 +77,7 @@ function add_reserve_range_constraints!(
     container::OptimizationContainer,
     ::Type{T},
     ::Type{U},
-    devices::IS.FlattenIteratorWrapper{W},
+    devices::Union{Vector{W}, IS.FlattenIteratorWrapper{W}},
     model::DeviceModel{W, X},
     ::Type{Y},
 ) where {
@@ -119,7 +119,7 @@ function add_reserve_range_constraints!(
     container::OptimizationContainer,
     ::Type{T},
     ::Type{U},
-    devices::IS.FlattenIteratorWrapper{W},
+    devices::Union{Vector{W}, IS.FlattenIteratorWrapper{W}},
     model::DeviceModel{W, X},
     ::Type{Y},
 ) where {

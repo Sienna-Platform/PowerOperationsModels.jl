@@ -102,7 +102,7 @@ _add_curtailment_cost!(
 add_proportional_cost!(
     container::OptimizationContainer,
     ::Type{U},
-    devices::IS.FlattenIteratorWrapper{T},
+    devices::Union{Vector{T}, IS.FlattenIteratorWrapper{T}},
     ::Type{V},
 ) where {
     U <: OnVariable,
@@ -118,7 +118,7 @@ field, or where the field is `nothing`, are skipped.
 function add_curtailment_cost!(
     container::OptimizationContainer,
     ::Type{T},
-    devices::IS.FlattenIteratorWrapper{V},
+    devices::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
     ::Type{U},
 ) where {T <: VariableType, V <: PSY.RenewableGen, U <: AbstractDeviceFormulation}
     for d in devices

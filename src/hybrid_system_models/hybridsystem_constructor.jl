@@ -287,7 +287,7 @@ function construct_device!(
     model::DeviceModel{T, D},
     network_model::NetworkModel{S},
 ) where {T <: PSY.HybridSystem, D <: HybridDispatchWithReserves, S <: AbstractNetworkModel}
-    devices = get_available_components(model, sys)
+    devices = get_device_cache(model)
     grouped = _filter_hybrids(devices)
 
     # PCC variables
@@ -394,7 +394,7 @@ function construct_device!(
     model::DeviceModel{T, D},
     network_model::NetworkModel{S},
 ) where {T <: PSY.HybridSystem, D <: HybridDispatchWithReserves, S <: AbstractNetworkModel}
-    devices = get_available_components(model, sys)
+    devices = get_device_cache(model)
     grouped = _filter_hybrids(devices)
 
     # PCC reactive-power limits (active-power limits handled via the asset balance + status constraints)

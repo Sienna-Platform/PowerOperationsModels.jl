@@ -1,6 +1,6 @@
 function _add_ancillary_services!(
     container::OptimizationContainer,
-    devices::IS.FlattenIteratorWrapper{T},
+    devices::Union{Vector{T}, IS.FlattenIteratorWrapper{T}},
     ::ArgumentConstructStage,
     model::DeviceModel{T, U},
     network_model::NetworkModel{V},
@@ -70,7 +70,7 @@ end
 
 function _add_ancillary_services!(
     container::OptimizationContainer,
-    devices::IS.FlattenIteratorWrapper{T},
+    devices::Union{Vector{T}, IS.FlattenIteratorWrapper{T}},
     ::ModelConstructStage,
     model::DeviceModel{T, U},
     network_model::NetworkModel{V},
@@ -117,7 +117,7 @@ end
 
 function _active_power_variables_and_expressions(
     container::OptimizationContainer,
-    devices::IS.FlattenIteratorWrapper{T},
+    devices::Union{Vector{T}, IS.FlattenIteratorWrapper{T}},
     model::DeviceModel{T, U},
     network_model::NetworkModel,
 ) where {T <: PSY.Storage, U <: StorageDispatchWithReserves}
@@ -163,7 +163,7 @@ end
 
 function _active_power_and_energy_bounds(
     container::OptimizationContainer,
-    devices::IS.FlattenIteratorWrapper{T},
+    devices::Union{Vector{T}, IS.FlattenIteratorWrapper{T}},
     model::DeviceModel{T, U},
     network_model::NetworkModel,
 ) where {T <: PSY.Storage, U <: StorageDispatchWithReserves}
@@ -241,7 +241,7 @@ function construct_device!(
     model::DeviceModel{St, D},
     network_model::NetworkModel{S},
 ) where {St <: PSY.Storage, D <: StorageDispatchWithReserves, S <: AbstractNetworkModel}
-    devices = get_available_components(model, sys)
+    devices = get_device_cache(model)
     _active_power_variables_and_expressions(container, devices, model, network_model)
     add_variables!(container, ReactivePowerVariable, devices, D)
 
@@ -272,7 +272,7 @@ end
 function _energy_constraints_and_objective!(
     container::OptimizationContainer,
     sys::PSY.System,
-    devices::IS.FlattenIteratorWrapper{T},
+    devices::Union{Vector{T}, IS.FlattenIteratorWrapper{T}},
     stage::ModelConstructStage,
     model::DeviceModel{T, U},
     network_model::NetworkModel{S},
@@ -368,7 +368,7 @@ function construct_device!(
     model::DeviceModel{St, D},
     network_model::NetworkModel{S},
 ) where {St <: PSY.Storage, D <: StorageDispatchWithReserves, S <: AbstractNetworkModel}
-    devices = get_available_components(model, sys)
+    devices = get_device_cache(model)
     _active_power_and_energy_bounds(container, devices, model, network_model)
 
     add_constraints!(
@@ -402,7 +402,7 @@ function construct_device!(
     D <: StorageDispatchWithReserves,
     S <: AbstractActivePowerModel,
 }
-    devices = get_available_components(model, sys)
+    devices = get_device_cache(model)
     _active_power_variables_and_expressions(container, devices, model, network_model)
 
     if get_attribute(model, "regularization")
@@ -432,7 +432,7 @@ function construct_device!(
     D <: StorageDispatchWithReserves,
     S <: AbstractActivePowerModel,
 }
-    devices = get_available_components(model, sys)
+    devices = get_device_cache(model)
     _active_power_and_energy_bounds(container, devices, model, network_model)
     _energy_constraints_and_objective!(
         container,

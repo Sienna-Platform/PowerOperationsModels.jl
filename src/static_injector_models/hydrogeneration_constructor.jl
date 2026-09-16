@@ -12,7 +12,7 @@ function construct_device!(
     model::DeviceModel{H, FixedOutput},
     network_model::NetworkModel{S},
 ) where {H <: PSY.HydroGen, S <: AbstractNetworkModel}
-    devices = get_available_components(model, sys)
+    devices = get_device_cache(model)
 
     add_parameters!(container, ActivePowerTimeSeriesParameter, devices, model)
     add_parameters!(container, ReactivePowerTimeSeriesParameter, devices, model)
@@ -58,7 +58,7 @@ function construct_device!(
     model::DeviceModel{H, FixedOutput},
     network_model::NetworkModel{S},
 ) where {H <: PSY.HydroGen, S <: AbstractActivePowerModel}
-    devices = get_available_components(model, sys)
+    devices = get_device_cache(model)
 
     add_parameters!(container, ActivePowerTimeSeriesParameter, devices, model)
     process_market_bid_parameters!(container, devices, model)
@@ -94,7 +94,7 @@ function construct_device!(
     D <: AbstractHydroDispatchFormulation,
     S <: AbstractNetworkModel,
 }
-    devices = get_available_components(model, sys)
+    devices = get_device_cache(model)
 
     add_variables!(container, ActivePowerVariable, devices, D)
     add_variables!(container, ReactivePowerVariable, devices, D)
@@ -165,7 +165,7 @@ function construct_device!(
     D <: AbstractHydroDispatchFormulation,
     S <: AbstractNetworkModel,
 }
-    devices = get_available_components(model, sys)
+    devices = get_device_cache(model)
 
     if has_service_model(model)
         add_to_expression!(
@@ -238,7 +238,7 @@ function construct_device!(
     D <: AbstractHydroDispatchFormulation,
     S <: AbstractActivePowerModel,
 }
-    devices = get_available_components(model, sys)
+    devices = get_device_cache(model)
 
     add_variables!(container, ActivePowerVariable, devices, D)
     add_variables!(container, HydroEnergyOutput, devices, D)
@@ -302,7 +302,7 @@ function construct_device!(
     model::DeviceModel{H, D},
     network_model::NetworkModel{S},
 ) where {H <: PSY.HydroGen, D <: HydroCommitmentRunOfRiver, S <: AbstractNetworkModel}
-    devices = get_available_components(model, sys)
+    devices = get_device_cache(model)
 
     add_variables!(container, ActivePowerVariable, devices, D)
     add_variables!(container, ReactivePowerVariable, devices, D)
@@ -371,7 +371,7 @@ function construct_device!(
     D <: HydroCommitmentRunOfRiver,
     S <: AbstractActivePowerModel,
 }
-    devices = get_available_components(model, sys)
+    devices = get_device_cache(model)
 
     add_variables!(container, ActivePowerVariable, devices, D)
     add_variables!(container, OnVariable, devices, D)
@@ -477,7 +477,7 @@ function construct_device!(
     D <: HydroCommitmentRunOfRiver,
     S <: AbstractNetworkModel,
 }
-    devices = get_available_components(model, sys)
+    devices = get_device_cache(model)
     _maybe_add_reactive_power_constraints!(
         container,
         devices,
@@ -665,7 +665,7 @@ function construct_device!(
     S <: AbstractNetworkModel,
 }
     # why is there no add_parameters here?
-    devices = get_available_components(model, sys)
+    devices = get_device_cache(model)
 
     add_variables!(container, ActivePowerVariable, devices, D)
     add_variables!(container, ReactivePowerVariable, devices, D)
@@ -728,7 +728,7 @@ function construct_device!(
     D <: HydroTurbineEnergyDispatch,
     S <: AbstractNetworkModel,
 }
-    devices = get_available_components(model, sys)
+    devices = get_device_cache(model)
 
     if has_service_model(model)
         add_to_expression!(
@@ -797,7 +797,7 @@ function construct_device!(
     D <: HydroTurbineEnergyDispatch,
     S <: AbstractActivePowerModel,
 }
-    devices = get_available_components(model, sys)
+    devices = get_device_cache(model)
 
     add_variables!(container, ActivePowerVariable, devices, D)
     add_variables!(container, HydroEnergyOutput, devices, D)
@@ -858,7 +858,7 @@ function construct_device!(
     D <: HydroTurbineEnergyCommitment,
     S <: AbstractNetworkModel,
 }
-    devices = get_available_components(model, sys)
+    devices = get_device_cache(model)
 
     add_variables!(container, ActivePowerVariable, devices, D)
     add_variables!(container, ReactivePowerVariable, devices, D)
@@ -922,7 +922,7 @@ function construct_device!(
     D <: HydroTurbineEnergyCommitment,
     S <: AbstractNetworkModel,
 }
-    devices = get_available_components(model, sys)
+    devices = get_device_cache(model)
 
     if has_service_model(model)
         add_to_expression!(
@@ -991,7 +991,7 @@ function construct_device!(
     D <: HydroTurbineEnergyCommitment,
     S <: AbstractActivePowerModel,
 }
-    devices = get_available_components(model, sys)
+    devices = get_device_cache(model)
 
     add_variables!(container, ActivePowerVariable, devices, D)
     add_variables!(container, HydroEnergyOutput, devices, D)
@@ -1175,7 +1175,7 @@ function construct_device!(
     D <: HydroWaterFactorModel,
     S <: AbstractActivePowerModel,
 }
-    devices = get_available_components(model, sys)
+    devices = get_device_cache(model)
     _add_hydro_water_factor_model_turbine_arguments!(
         container,
         model,
@@ -1199,7 +1199,7 @@ function construct_device!(
     D <: HydroWaterFactorModel,
     S <: AbstractNetworkModel,
 }
-    devices = get_available_components(model, sys)
+    devices = get_device_cache(model)
     _add_hydro_water_factor_model_turbine_arguments!(
         container,
         model,
@@ -1289,7 +1289,7 @@ function construct_device!(
     D <: HydroWaterFactorModel,
     S <: AbstractNetworkModel,
 }
-    devices = get_available_components(model, sys)
+    devices = get_device_cache(model)
     _maybe_add_reactive_power_constraints!(
         container,
         devices,
@@ -1554,7 +1554,7 @@ function construct_device!(
     D <: HydroTurbineWaterFormulation,
     S <: AbstractActivePowerModel,
 }
-    devices = get_available_components(model, sys)
+    devices = get_device_cache(model)
     reservoirs = get_available_reservoirs(sys)
     _add_hydro_turbine_water_arguments!(
         container,
@@ -1577,7 +1577,7 @@ function construct_device!(
     D <: HydroTurbineWaterFormulation,
     S <: AbstractNetworkModel,
 }
-    devices = get_available_components(model, sys)
+    devices = get_device_cache(model)
     reservoirs = get_available_reservoirs(sys)
     _add_hydro_turbine_water_arguments!(
         container,
@@ -1682,7 +1682,7 @@ function construct_device!(
     D <: HydroTurbineWaterFormulation,
     S <: AbstractNetworkModel,
 }
-    devices = get_available_components(model, sys)
+    devices = get_device_cache(model)
     _maybe_add_reactive_power_constraints!(
         container,
         devices,
@@ -1710,7 +1710,7 @@ function construct_device!(
     D <: HydroPumpEnergyDispatch,
     S <: AbstractNetworkModel,
 }
-    devices = get_available_components(model, sys)
+    devices = get_device_cache(model)
     add_variables!(container, ActivePowerVariable, devices, D)
     add_variables!(container, ActivePowerPumpVariable, devices, D)
     add_variables!(container, ReactivePowerVariable, devices, D)
@@ -1779,7 +1779,7 @@ function construct_device!(
     D <: HydroPumpEnergyDispatch,
     S <: AbstractActivePowerModel,
 }
-    devices = get_available_components(model, sys)
+    devices = get_device_cache(model)
     add_variables!(container, ActivePowerVariable, devices, D)
     add_variables!(container, ActivePowerPumpVariable, devices, D)
 
@@ -1880,7 +1880,7 @@ function construct_device!(
     D <: HydroPumpEnergyDispatch,
     S <: AbstractNetworkModel,
 }
-    devices = get_available_components(model, sys)
+    devices = get_device_cache(model)
     _maybe_add_reactive_power_constraints!(
         container,
         devices,
@@ -1913,7 +1913,7 @@ function construct_device!(
     D <: HydroPumpEnergyCommitment,
     S <: AbstractNetworkModel,
 }
-    devices = get_available_components(model, sys)
+    devices = get_device_cache(model)
     add_variables!(container, ActivePowerVariable, devices, D)
     add_variables!(container, ActivePowerPumpVariable, devices, D)
     add_variables!(container, ReactivePowerVariable, devices, D)
@@ -1983,7 +1983,7 @@ function construct_device!(
     D <: HydroPumpEnergyCommitment,
     S <: AbstractActivePowerModel,
 }
-    devices = get_available_components(model, sys)
+    devices = get_device_cache(model)
     add_variables!(container, ActivePowerVariable, devices, D)
     add_variables!(container, ActivePowerPumpVariable, devices, D)
     add_variables!(container, OnVariable, devices, D)
@@ -2098,7 +2098,7 @@ function construct_device!(
     D <: HydroPumpEnergyCommitment,
     S <: AbstractNetworkModel,
 }
-    devices = get_available_components(model, sys)
+    devices = get_device_cache(model)
     _maybe_add_reactive_power_constraints!(
         container,
         devices,

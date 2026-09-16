@@ -34,7 +34,10 @@ function add_variables!(
     container::OptimizationContainer,
     ::Type{FlowActivePowerVariable},
     model::NetworkModel{T},
-    devices::IS.FlattenIteratorWrapper{PSY.AreaInterchange},
+    devices::Union{
+        Vector{PSY.AreaInterchange},
+        IS.FlattenIteratorWrapper{PSY.AreaInterchange},
+    },
     ::Type{<:AbstractBranchFormulation},
 ) where {T <: AbstractNetworkModel}
     time_steps = get_time_steps(container)
@@ -59,7 +62,10 @@ function add_variables!(
     container::OptimizationContainer,
     ::Type{FlowActivePowerVariable},
     model::NetworkModel{CopperPlateNetworkModel},
-    devices::IS.FlattenIteratorWrapper{PSY.AreaInterchange},
+    devices::Union{
+        Vector{PSY.AreaInterchange},
+        IS.FlattenIteratorWrapper{PSY.AreaInterchange},
+    },
     ::Type{<:AbstractBranchFormulation},
 )
     @warn(
@@ -74,7 +80,10 @@ Add flow constraints for area interchanges
 function add_constraints!(
     container::OptimizationContainer,
     ::Type{FlowLimitConstraint},
-    devices::IS.FlattenIteratorWrapper{PSY.AreaInterchange},
+    devices::Union{
+        Vector{PSY.AreaInterchange},
+        IS.FlattenIteratorWrapper{PSY.AreaInterchange},
+    },
     model::DeviceModel{PSY.AreaInterchange, StaticBranch},
     ::NetworkModel{T},
 ) where {T <: AbstractNetworkModel}
@@ -152,7 +161,10 @@ end
 function add_constraints!(
     container::OptimizationContainer,
     ::Type{LineFlowBoundConstraint},
-    devices::IS.FlattenIteratorWrapper{PSY.AreaInterchange},
+    devices::Union{
+        Vector{PSY.AreaInterchange},
+        IS.FlattenIteratorWrapper{PSY.AreaInterchange},
+    },
     model::DeviceModel{PSY.AreaInterchange, <:AbstractBranchFormulation},
     network_model::NetworkModel{T},
     inter_area_branch_map::Dict{
@@ -299,7 +311,10 @@ end
 function add_constraints!(
     container::OptimizationContainer,
     ::Type{LineFlowBoundConstraint},
-    devices::IS.FlattenIteratorWrapper{PSY.AreaInterchange},
+    devices::Union{
+        Vector{PSY.AreaInterchange},
+        IS.FlattenIteratorWrapper{PSY.AreaInterchange},
+    },
     model::DeviceModel{PSY.AreaInterchange, <:AbstractBranchFormulation},
     network_model::NetworkModel{T},
     inter_area_branch_map::Dict{

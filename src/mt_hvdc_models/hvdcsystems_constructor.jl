@@ -5,10 +5,7 @@ function construct_device!(
     model::DeviceModel{PSY.InterconnectingConverter, LosslessConverter},
     network_model::NetworkModel{<:AbstractDCPNetworkModel},
 )
-    devices = get_available_components(
-        model,
-        sys,
-    )
+    devices = get_device_cache(model)
     add_variables!(container, ActivePowerVariable, devices, LosslessConverter)
     add_to_expression!(
         container,
@@ -29,10 +26,7 @@ function construct_device!(
     model::DeviceModel{PSY.InterconnectingConverter, LosslessConverter},
     network_model::NetworkModel{<:AbstractDCPNetworkModel},
 )
-    devices = get_available_components(
-        model,
-        sys,
-    )
+    devices = get_device_cache(model)
     add_feedforward_constraints!(container, model, devices)
     add_to_objective_function!(
         container,
@@ -181,7 +175,7 @@ function construct_device!(
     model::DeviceModel{PSY.InterconnectingConverter, T},
     network_model::NetworkModel{<:AbstractDCPNetworkModel},
 ) where {T <: AbstractQuadraticLossConverter}
-    devices = get_available_components(model, sys)
+    devices = get_device_cache(model)
     _add_converter_dc_arguments!(container, devices, model, network_model)
     add_feedforward_arguments!(container, model, devices)
     return
@@ -222,7 +216,7 @@ function construct_device!(
     model::DeviceModel{PSY.InterconnectingConverter, T},
     network_model::NetworkModel{<:AbstractDCPNetworkModel},
 ) where {T <: AbstractQuadraticLossConverter}
-    devices = get_available_components(model, sys)
+    devices = get_device_cache(model)
     _add_converter_dc_model!(container, devices, model, network_model)
     add_feedforward_constraints!(container, model, devices)
     add_to_objective_function!(
@@ -243,7 +237,7 @@ function construct_device!(
     model::DeviceModel{PSY.InterconnectingConverter, T},
     network_model::NetworkModel{<:NativeACNetworkModel},
 ) where {T <: AbstractQuadraticLossConverter}
-    devices = get_available_components(model, sys)
+    devices = get_device_cache(model)
     _add_converter_dc_arguments!(container, devices, model, network_model)
     _maybe_add_reactive_power_variables!(
         container, devices, model, network_model, (ReactivePowerVariable,),
@@ -259,7 +253,7 @@ function construct_device!(
     model::DeviceModel{PSY.InterconnectingConverter, T},
     network_model::NetworkModel{<:NativeACNetworkModel},
 ) where {T <: AbstractQuadraticLossConverter}
-    devices = get_available_components(model, sys)
+    devices = get_device_cache(model)
     _add_converter_dc_model!(container, devices, model, network_model)
     _add_ic_apparent_power_limit!(container, devices, model, network_model)
     add_feedforward_constraints!(container, model, devices)
@@ -277,7 +271,7 @@ function construct_device!(
     model::DeviceModel{PSY.InterconnectingConverter, LosslessConverter},
     network_model::NetworkModel{<:NativeACNetworkModel},
 )
-    devices = get_available_components(model, sys)
+    devices = get_device_cache(model)
     add_variables!(container, ActivePowerVariable, devices, LosslessConverter)
     add_to_expression!(
         container,
@@ -301,7 +295,7 @@ function construct_device!(
     model::DeviceModel{PSY.InterconnectingConverter, LosslessConverter},
     network_model::NetworkModel{<:NativeACNetworkModel},
 )
-    devices = get_available_components(model, sys)
+    devices = get_device_cache(model)
     _add_ic_apparent_power_limit!(container, devices, model, network_model)
     add_feedforward_constraints!(container, model, devices)
     add_to_objective_function!(
@@ -324,7 +318,7 @@ function construct_device!(
     model::DeviceModel{PSY.InterconnectingConverter, LinearLossConverter},
     network_model::NetworkModel{<:AbstractDCPNetworkModel},
 )
-    devices = get_available_components(model, sys)
+    devices = get_device_cache(model)
     add_variables!(container, ActivePowerVariable, devices, LinearLossConverter)
     add_variables!(container, CurrentAbsoluteValueVariable, devices, LinearLossConverter)
     add_to_expression!(
@@ -347,7 +341,7 @@ function construct_device!(
     model::DeviceModel{PSY.InterconnectingConverter, LinearLossConverter},
     network_model::NetworkModel{<:AbstractDCPNetworkModel},
 )
-    devices = get_available_components(model, sys)
+    devices = get_device_cache(model)
     _add_abs_value_constraints!(
         container, devices, model, network_model, ActivePowerVariable,
     )
@@ -369,7 +363,7 @@ function construct_device!(
     model::DeviceModel{PSY.InterconnectingConverter, LinearLossConverter},
     network_model::NetworkModel{<:NativeACNetworkModel},
 )
-    devices = get_available_components(model, sys)
+    devices = get_device_cache(model)
     add_variables!(container, ActivePowerVariable, devices, LinearLossConverter)
     add_variables!(container, CurrentAbsoluteValueVariable, devices, LinearLossConverter)
     add_to_expression!(
@@ -395,7 +389,7 @@ function construct_device!(
     model::DeviceModel{PSY.InterconnectingConverter, LinearLossConverter},
     network_model::NetworkModel{<:NativeACNetworkModel},
 )
-    devices = get_available_components(model, sys)
+    devices = get_device_cache(model)
     _add_abs_value_constraints!(
         container, devices, model, network_model, ActivePowerVariable,
     )
@@ -420,10 +414,7 @@ function construct_device!(
     model::DeviceModel{PSY.TModelHVDCLine, LosslessLine},
     network_model::NetworkModel{<:AbstractNetworkModel},
 )
-    devices = get_available_components(
-        model,
-        sys,
-    )
+    devices = get_device_cache(model)
     add_variables!(container, FlowActivePowerVariable, devices, LosslessLine)
     add_to_expression!(
         container,
@@ -453,10 +444,7 @@ function construct_device!(
     model::DeviceModel{PSY.TModelHVDCLine, DCLossyLine},
     network_model::NetworkModel{<:AbstractNetworkModel},
 )
-    devices = get_available_components(
-        model,
-        sys,
-    )
+    devices = get_device_cache(model)
 
     add_variables!(container, DCLineCurrent, devices, DCLossyLine)
     add_to_expression!(
@@ -478,10 +466,7 @@ function construct_device!(
     model::DeviceModel{PSY.TModelHVDCLine, DCLossyLine},
     network_model::NetworkModel{<:AbstractNetworkModel},
 )
-    devices = get_available_components(
-        model,
-        sys,
-    )
+    devices = get_device_cache(model)
     add_constraints!(
         container,
         DCLineCurrentConstraint,

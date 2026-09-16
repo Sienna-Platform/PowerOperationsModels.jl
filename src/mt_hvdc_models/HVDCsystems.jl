@@ -188,7 +188,7 @@ function add_to_expression!(
     container::OptimizationContainer,
     ::Type{T},
     ::Type{U},
-    devices::IS.FlattenIteratorWrapper{V},
+    devices::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
     ::DeviceModel{V, W},
     network_model::NetworkModel{X},
 ) where {
@@ -225,7 +225,7 @@ function add_to_expression!(
     container::OptimizationContainer,
     ::Type{T},
     ::Type{U},
-    devices::IS.FlattenIteratorWrapper{V},
+    devices::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
     device_model::DeviceModel{V, W},
     network_model::NetworkModel{X},
 ) where {
@@ -250,7 +250,7 @@ function _add_to_expression!(
     container::OptimizationContainer,
     ::Type{T},
     ::Type{U},
-    devices::IS.FlattenIteratorWrapper{V},
+    devices::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
     ::DeviceModel{V, W},
     network_model::NetworkModel{X},
 ) where {
@@ -286,7 +286,7 @@ function add_to_expression!(
     container::OptimizationContainer,
     ::Type{T},
     ::Type{U},
-    devices::IS.FlattenIteratorWrapper{V},
+    devices::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
     ::DeviceModel{V, W},
     network_model::NetworkModel{X},
 ) where {
@@ -333,7 +333,7 @@ function add_to_expression!(
     container::OptimizationContainer,
     ::Type{T},
     ::Type{U},
-    devices::IS.FlattenIteratorWrapper{V},
+    devices::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
     ::DeviceModel{V, W},
     ::NetworkModel{X},
 ) where {
@@ -366,7 +366,7 @@ function add_to_expression!(
     container::OptimizationContainer,
     ::Type{T},
     ::Type{U},
-    devices::IS.FlattenIteratorWrapper{V},
+    devices::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
     device_model::DeviceModel{V, W},
     network_model::NetworkModel{X},
 ) where {
@@ -386,7 +386,7 @@ function add_to_expression!(
     container::OptimizationContainer,
     ::Type{T},
     ::Type{U},
-    devices::IS.FlattenIteratorWrapper{V},
+    devices::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
     device_model::DeviceModel{V, W},
     network_model::NetworkModel{X},
 ) where {
@@ -404,7 +404,7 @@ function add_to_expression!(
     container::OptimizationContainer,
     ::Type{T},
     ::Type{U},
-    devices::IS.FlattenIteratorWrapper{V},
+    devices::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
     ::DeviceModel{V, W},
     network_model::NetworkModel{X},
 ) where {
@@ -456,7 +456,7 @@ function add_to_expression!(
     container::OptimizationContainer,
     ::Type{T},
     ::Type{U},
-    devices::IS.FlattenIteratorWrapper{V},
+    devices::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
     ::DeviceModel{V, W},
     network_model::NetworkModel{X},
 ) where {
@@ -495,7 +495,7 @@ function add_to_expression!(
     container::OptimizationContainer,
     ::Type{T},
     ::Type{U},
-    devices::IS.FlattenIteratorWrapper{V},
+    devices::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
     ::DeviceModel{V, W},
     ::NetworkModel{X},
 ) where {
@@ -547,7 +547,10 @@ end
 # increases the required generation.
 function _add_linear_converter_loss_to_dc_balance!(
     container::OptimizationContainer,
-    devices::IS.FlattenIteratorWrapper{PSY.InterconnectingConverter},
+    devices::Union{
+        Vector{PSY.InterconnectingConverter},
+        IS.FlattenIteratorWrapper{PSY.InterconnectingConverter},
+    },
     ::NetworkModel{<:AbstractNetworkModel},
 )
     expression_dc = get_expression(container, ActivePowerBalance, PSY.DCBus)
@@ -582,7 +585,7 @@ end
 function add_constraints!(
     container::OptimizationContainer,
     ::Type{DCLineCurrentConstraint},
-    devices::IS.FlattenIteratorWrapper{T},
+    devices::Union{Vector{T}, IS.FlattenIteratorWrapper{T}},
     model::DeviceModel{T, U},
     network_model::NetworkModel{V},
 ) where {T <: PSY.TModelHVDCLine, U <: DCLossyLine, V <: AbstractNetworkModel}
@@ -627,7 +630,7 @@ end
 function add_constraints!(
     container::OptimizationContainer,
     ::Type{ConverterLossConstraint},
-    devices::IS.FlattenIteratorWrapper{U},
+    devices::Union{Vector{U}, IS.FlattenIteratorWrapper{U}},
     model::DeviceModel{U, V},
     ::NetworkModel{X},
 ) where {
@@ -676,7 +679,7 @@ end
 function add_constraints!(
     container::OptimizationContainer,
     ::Type{ConverterLossConstraint},
-    devices::IS.FlattenIteratorWrapper{U},
+    devices::Union{Vector{U}, IS.FlattenIteratorWrapper{U}},
     model::DeviceModel{U, V},
     network_model::NetworkModel{<:_ConverterACVoltageNetwork},
 ) where {U <: PSY.InterconnectingConverter, V <: AbstractQuadraticLossConverter}
@@ -727,7 +730,10 @@ end
 
 function add_to_objective_function!(
     ::OptimizationContainer,
-    ::IS.FlattenIteratorWrapper{PSY.InterconnectingConverter},
+    ::Union{
+        Vector{PSY.InterconnectingConverter},
+        IS.FlattenIteratorWrapper{PSY.InterconnectingConverter},
+    },
     ::DeviceModel{PSY.InterconnectingConverter, D},
     ::Type{<:AbstractNetworkModel},
 ) where {D <: AbstractConverterFormulation}

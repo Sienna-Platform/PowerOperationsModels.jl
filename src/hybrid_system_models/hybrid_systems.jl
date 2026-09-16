@@ -504,7 +504,7 @@ initial_condition_variable(
 
 function initial_conditions!(
     container::OptimizationContainer,
-    devices::IS.FlattenIteratorWrapper{T},
+    devices::Union{Vector{T}, IS.FlattenIteratorWrapper{T}},
     formulation::AbstractHybridFormulation,
 ) where {T <: PSY.HybridSystem}
     storage_devices = [d for d in devices if PSY.get_storage(d) !== nothing]
@@ -1796,7 +1796,7 @@ function add_constraints!(
     container::OptimizationContainer,
     ::Type{T},
     ::Type{U},
-    devices::IS.FlattenIteratorWrapper{V},
+    devices::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
     model::DeviceModel{V, W},
     ::NetworkModel{X},
 ) where {
@@ -1851,7 +1851,7 @@ _pcc_has_reserves(::Type{<:AbstractHybridFormulation}, _model) = false
 function add_constraints!(
     container::OptimizationContainer,
     ::Type{T},
-    devices::IS.FlattenIteratorWrapper{V},
+    devices::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
     model::DeviceModel{V, W},
     ::NetworkModel{X},
 ) where {
@@ -1910,7 +1910,7 @@ mirroring HSS `_add_constraints_energyassetbalance_with_reserves!`.
 function add_constraints!(
     container::OptimizationContainer,
     ::Type{HybridEnergyAssetBalanceConstraint},
-    devices::IS.FlattenIteratorWrapper{V},
+    devices::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
     model::DeviceModel{V, W},
     ::NetworkModel{X},
 ) where {V <: PSY.HybridSystem, W <: AbstractHybridFormulation, X <: AbstractNetworkModel}
@@ -2041,7 +2041,7 @@ participates in.
 function add_constraints!(
     container::OptimizationContainer,
     ::Type{HybridReserveAssignmentConstraint},
-    devices::IS.FlattenIteratorWrapper{V},
+    devices::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
     model::DeviceModel{V, W},
     ::NetworkModel{X},
 ) where {
@@ -2098,7 +2098,7 @@ reserve allocations (thermal + renewable + charging + discharging).
 function add_constraints!(
     container::OptimizationContainer,
     ::Type{HybridReserveBalanceConstraint},
-    devices::IS.FlattenIteratorWrapper{V},
+    devices::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
     model::DeviceModel{V, W},
     ::NetworkModel{X},
 ) where {

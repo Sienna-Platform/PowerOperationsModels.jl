@@ -343,7 +343,7 @@ function add_constraints!(
     container::OptimizationContainer,
     T::Type{<:PowerVariableLimitsConstraint},
     U::Type{<:Union{VariableType, ExpressionType}},
-    devices::IS.FlattenIteratorWrapper{V},
+    devices::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
     model::DeviceModel{V, W},
     ::NetworkModel{X},
 ) where {
@@ -426,7 +426,7 @@ function add_constraints!(
     container::OptimizationContainer,
     T::Type{<:PowerVariableLimitsConstraint},
     U::Type{<:Union{VariableType, ExpressionType}},
-    devices::IS.FlattenIteratorWrapper{V},
+    devices::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
     model::DeviceModel{V, W},
     ::NetworkModel{X},
 ) where {
@@ -514,7 +514,7 @@ function add_constraints!(
     container::OptimizationContainer,
     ::Type{ActivePowerVariableTimeSeriesLimitsConstraint},
     U::Type{<:Union{ActivePowerVariable, ActivePowerRangeExpressionUB}},
-    devices::IS.FlattenIteratorWrapper{V},
+    devices::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
     model::DeviceModel{V, W},
     ::NetworkModel{X},
 ) where {
@@ -545,7 +545,7 @@ function add_constraints!(
     container::OptimizationContainer,
     T::Type{<:ActivePowerVariableLimitsConstraint},
     U::Type{<:VariableType},
-    devices::IS.FlattenIteratorWrapper{V},
+    devices::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
     ::DeviceModel{V, W},
     ::NetworkModel{X},
 ) where {
@@ -623,7 +623,7 @@ function add_constraints!(
     container::OptimizationContainer,
     T::Type{<:ActivePowerVariableLimitsConstraint},
     U::Type{ActivePowerRangeExpressionLB},
-    devices::IS.FlattenIteratorWrapper{V},
+    devices::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
     ::DeviceModel{V, W},
     ::NetworkModel{X},
 ) where {
@@ -667,7 +667,7 @@ function add_constraints!(
     container::OptimizationContainer,
     T::Type{<:ActivePowerVariableLimitsConstraint},
     U::Type{ActivePowerRangeExpressionUB},
-    devices::IS.FlattenIteratorWrapper{V},
+    devices::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
     ::DeviceModel{V, W},
     ::NetworkModel{X},
 ) where {
@@ -755,7 +755,7 @@ end
 function add_constraints!(
     container::OptimizationContainer,
     ::Type{ActiveRangeICConstraint},
-    devices::IS.FlattenIteratorWrapper{T},
+    devices::Union{Vector{T}, IS.FlattenIteratorWrapper{T}},
     model::DeviceModel{T, S},
     network_model::NetworkModel{X},
 ) where {
@@ -820,7 +820,7 @@ end
 function add_constraints!(
     container::OptimizationContainer,
     T::Type{CommitmentConstraint},
-    devices::IS.FlattenIteratorWrapper{U},
+    devices::Union{Vector{U}, IS.FlattenIteratorWrapper{U}},
     model::DeviceModel{U, V},
     network_model::NetworkModel{X},
 ) where {
@@ -881,7 +881,7 @@ end
 ########################## Make initial Conditions for a Model #############################
 function initial_conditions!(
     container::OptimizationContainer,
-    devices::IS.FlattenIteratorWrapper{T},
+    devices::Union{Vector{T}, IS.FlattenIteratorWrapper{T}},
     formulation::AbstractThermalUnitCommitment,
 ) where {T <: PSY.ThermalGen}
     add_initial_condition!(container, devices, formulation, DeviceStatus())
@@ -894,7 +894,7 @@ end
 
 function initial_conditions!(
     container::OptimizationContainer,
-    devices::IS.FlattenIteratorWrapper{T},
+    devices::Union{Vector{T}, IS.FlattenIteratorWrapper{T}},
     formulation::AbstractCompactUnitCommitment,
 ) where {T <: PSY.ThermalGen}
     add_initial_condition!(container, devices, formulation, DeviceStatus())
@@ -907,7 +907,7 @@ end
 
 function initial_conditions!(
     container::OptimizationContainer,
-    devices::IS.FlattenIteratorWrapper{T},
+    devices::Union{Vector{T}, IS.FlattenIteratorWrapper{T}},
     formulation::Union{ThermalBasicUnitCommitment, ThermalBasicCompactUnitCommitment},
 ) where {T <: PSY.ThermalGen}
     add_initial_condition!(container, devices, formulation, DeviceStatus())
@@ -918,7 +918,7 @@ end
 
 function initial_conditions!(
     container::OptimizationContainer,
-    devices::IS.FlattenIteratorWrapper{T},
+    devices::Union{Vector{T}, IS.FlattenIteratorWrapper{T}},
     formulation::AbstractThermalDispatchFormulation,
 ) where {T <: PSY.ThermalGen}
     add_initial_condition!(container, devices, formulation, DevicePower())
@@ -927,7 +927,7 @@ end
 
 function initial_conditions!(
     container::OptimizationContainer,
-    devices::IS.FlattenIteratorWrapper{T},
+    devices::Union{Vector{T}, IS.FlattenIteratorWrapper{T}},
     formulation::ThermalCompactDispatch,
 ) where {T <: PSY.ThermalGen}
     add_initial_condition!(container, devices, formulation, DeviceAboveMinPower())
@@ -1095,7 +1095,7 @@ This function adds the ramping limits of generators when there are CommitmentVar
 function add_constraints!(
     container::OptimizationContainer,
     T::Type{RampConstraint},
-    devices::IS.FlattenIteratorWrapper{U},
+    devices::Union{Vector{U}, IS.FlattenIteratorWrapper{U}},
     model::DeviceModel{U, V},
     ::NetworkModel{W},
 ) where {
@@ -1118,7 +1118,7 @@ end
 function add_constraints!(
     container::OptimizationContainer,
     T::Type{RampConstraint},
-    devices::IS.FlattenIteratorWrapper{U},
+    devices::Union{Vector{U}, IS.FlattenIteratorWrapper{U}},
     model::DeviceModel{U, V},
     ::NetworkModel{W},
 ) where {
@@ -1141,7 +1141,7 @@ end
 function add_constraints!(
     container::OptimizationContainer,
     T::Type{RampConstraint},
-    devices::IS.FlattenIteratorWrapper{U},
+    devices::Union{Vector{U}, IS.FlattenIteratorWrapper{U}},
     model::DeviceModel{U, ThermalCompactDispatch},
     ::NetworkModel{V},
 ) where {U <: PSY.ThermalGen, V <: AbstractNetworkModel}
@@ -1153,7 +1153,7 @@ end
 function add_constraints!(
     container::OptimizationContainer,
     T::Type{RampConstraint},
-    devices::IS.FlattenIteratorWrapper{U},
+    devices::Union{Vector{U}, IS.FlattenIteratorWrapper{U}},
     model::DeviceModel{U, V},
     ::NetworkModel{W},
 ) where {
@@ -1169,7 +1169,10 @@ end
 function add_constraints!(
     container::OptimizationContainer,
     T::Type{RampConstraint},
-    devices::IS.FlattenIteratorWrapper{PSY.ThermalMultiStart},
+    devices::Union{
+        Vector{PSY.ThermalMultiStart},
+        IS.FlattenIteratorWrapper{PSY.ThermalMultiStart},
+    },
     model::DeviceModel{PSY.ThermalMultiStart, ThermalMultiStartUnitCommitment},
     ::NetworkModel{U},
 ) where {U <: AbstractNetworkModel}
@@ -1206,7 +1209,7 @@ for t in time_limits[s+1]:T
 function add_constraints!(
     container::OptimizationContainer,
     ::Type{StartupTimeLimitTemperatureConstraint},
-    devices::IS.FlattenIteratorWrapper{T},
+    devices::Union{Vector{T}, IS.FlattenIteratorWrapper{T}},
     model::DeviceModel{T, ThermalMultiStartUnitCommitment},
     ::NetworkModel{<:AbstractNetworkModel},
 ) where {T <: PSY.ThermalMultiStart}
@@ -1278,7 +1281,7 @@ Constructs contraints that restricts devices to one type of start at a time
 function add_constraints!(
     container::OptimizationContainer,
     ::Type{StartTypeConstraint},
-    devices::IS.FlattenIteratorWrapper{T},
+    devices::Union{Vector{T}, IS.FlattenIteratorWrapper{T}},
     model::DeviceModel{T, ThermalMultiStartUnitCommitment},
     ::NetworkModel{<:AbstractNetworkModel},
 ) where {T <: PSY.ThermalMultiStart}
@@ -1327,7 +1330,7 @@ lb:
 function add_constraints!(
     container::OptimizationContainer,
     ::Type{StartupInitialConditionConstraint},
-    devices::IS.FlattenIteratorWrapper{T},
+    devices::Union{Vector{T}, IS.FlattenIteratorWrapper{T}},
     model::DeviceModel{T, ThermalMultiStartUnitCommitment},
     ::NetworkModel{<:AbstractNetworkModel},
 ) where {T <: PSY.ThermalMultiStart}
@@ -1447,7 +1450,7 @@ end
 function add_constraints!(
     container::OptimizationContainer,
     ::Type{DurationConstraint},
-    ::IS.FlattenIteratorWrapper{U},
+    ::Union{Vector{U}, IS.FlattenIteratorWrapper{U}},
     ::DeviceModel{U, V},
     ::NetworkModel{<:AbstractNetworkModel},
 ) where {U <: PSY.ThermalGen, V <: AbstractThermalUnitCommitment}
@@ -1486,7 +1489,7 @@ end
 function add_constraints!(
     container::OptimizationContainer,
     ::Type{DurationConstraint},
-    devices::IS.FlattenIteratorWrapper{U},
+    devices::Union{Vector{U}, IS.FlattenIteratorWrapper{U}},
     model::DeviceModel{U, ThermalMultiStartUnitCommitment},
     ::NetworkModel{<:AbstractNetworkModel},
 ) where {U <: PSY.ThermalGen}
@@ -1531,7 +1534,7 @@ skip_proportional_cost(d::PSY.ThermalGen) = _is_must_run(d)
 # regular commitment
 function add_to_objective_function!(
     container::OptimizationContainer,
-    devices::IS.FlattenIteratorWrapper{T},
+    devices::Union{Vector{T}, IS.FlattenIteratorWrapper{T}},
     device_model::DeviceModel{T, U},
     ::Type{<:AbstractNetworkModel},
 ) where {T <: PSY.ThermalGen, U <: AbstractThermalUnitCommitment}
@@ -1549,7 +1552,7 @@ end
 # compact commitment
 function add_to_objective_function!(
     container::OptimizationContainer,
-    devices::IS.FlattenIteratorWrapper{T},
+    devices::Union{Vector{T}, IS.FlattenIteratorWrapper{T}},
     device_model::DeviceModel{T, U},
     ::Type{<:AbstractNetworkModel},
 ) where {T <: PSY.ThermalGen, U <: AbstractCompactUnitCommitment}
@@ -1567,7 +1570,10 @@ end
 # multi-start commitment
 function add_to_objective_function!(
     container::OptimizationContainer,
-    devices::IS.FlattenIteratorWrapper{PSY.ThermalMultiStart},
+    devices::Union{
+        Vector{PSY.ThermalMultiStart},
+        IS.FlattenIteratorWrapper{PSY.ThermalMultiStart},
+    },
     device_model::DeviceModel{PSY.ThermalMultiStart, U},
     ::Type{<:AbstractNetworkModel},
 ) where {U <: ThermalMultiStartUnitCommitment}
@@ -1587,7 +1593,7 @@ end
 # regular dispatch
 function add_to_objective_function!(
     container::OptimizationContainer,
-    devices::IS.FlattenIteratorWrapper{T},
+    devices::Union{Vector{T}, IS.FlattenIteratorWrapper{T}},
     device_model::DeviceModel{T, U},
     ::Type{<:AbstractNetworkModel},
 ) where {T <: PSY.ThermalGen, U <: AbstractThermalDispatchFormulation}
@@ -1602,7 +1608,7 @@ end
 # compact dispatch
 function add_to_objective_function!(
     container::OptimizationContainer,
-    devices::IS.FlattenIteratorWrapper{T},
+    devices::Union{Vector{T}, IS.FlattenIteratorWrapper{T}},
     device_model::DeviceModel{T, U},
     ::Type{<:AbstractNetworkModel},
 ) where {T <: PSY.ThermalGen, U <: ThermalCompactDispatch}
@@ -1617,7 +1623,10 @@ end
 # can't have multi-start with ThermalDispatchNoMin.
 function add_to_objective_function!(
     ::OptimizationContainer,
-    ::IS.FlattenIteratorWrapper{PSY.ThermalMultiStart},
+    ::Union{
+        Vector{PSY.ThermalMultiStart},
+        IS.FlattenIteratorWrapper{PSY.ThermalMultiStart},
+    },
     ::DeviceModel{PSY.ThermalMultiStart, ThermalDispatchNoMin},
     ::Type{<:AbstractNetworkModel},
 )
@@ -1771,7 +1780,7 @@ Devices contributing to no offline service get no row.
 function add_constraints!(
     container::OptimizationContainer,
     T::Type{OfflineReserveBandConstraint},
-    devices::IS.FlattenIteratorWrapper{V},
+    devices::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
     model::DeviceModel{V, W},
     ::NetworkModel{X},
 ) where {

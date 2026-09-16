@@ -324,7 +324,7 @@ aliases the same underlying JuMP variable.
 function add_variables!(
     container::OptimizationContainer,
     ::Type{V},
-    ::IS.FlattenIteratorWrapper{T},
+    ::Union{Vector{T}, IS.FlattenIteratorWrapper{T}},
     device_model::DeviceModel{T, F},
     network_model::NetworkModel{
         <:Union{AbstractPTDFNetworkModel, NativeNodalNetworkModel},
@@ -373,7 +373,7 @@ end
 
 function _add_transformer_control_variables!(
     container::OptimizationContainer,
-    devices::IS.FlattenIteratorWrapper{T},
+    devices::Union{Vector{T}, IS.FlattenIteratorWrapper{T}},
     device_model::DeviceModel{T},
     network_model::NetworkModel,
 ) where {T <: PSY.ACTransmission}
@@ -498,7 +498,7 @@ Add branch rate limit constraints for ACBranch with AbstractActivePowerModel
 function add_constraints!(
     container::OptimizationContainer,
     cons_type::Type{FlowRateConstraint},
-    devices::IS.FlattenIteratorWrapper{T},
+    devices::Union{Vector{T}, IS.FlattenIteratorWrapper{T}},
     device_model::DeviceModel{T, U},
     network_model::NetworkModel{V},
 ) where {
@@ -549,7 +549,7 @@ end
 function add_constraints!(
     container::OptimizationContainer,
     cons_type::Type{FlowRateConstraint},
-    devices::IS.FlattenIteratorWrapper{T},
+    devices::Union{Vector{T}, IS.FlattenIteratorWrapper{T}},
     device_model::DeviceModel{T, U},
     network_model::NetworkModel{V},
 ) where {
@@ -627,7 +627,7 @@ end
 function add_flow_rate_constraint_with_parameters!(
     container::OptimizationContainer,
     cons_type::Type{FlowRateConstraint},
-    devices::IS.FlattenIteratorWrapper{T},
+    devices::Union{Vector{T}, IS.FlattenIteratorWrapper{T}},
     device_model::DeviceModel{T, U},
     network_model::NetworkModel{V},
 ) where {
@@ -790,7 +790,7 @@ end
 function add_expressions!(
     container::OptimizationContainer,
     ::Type{PTDFBranchFlow},
-    devices::IS.FlattenIteratorWrapper{B},
+    devices::Union{Vector{B}, IS.FlattenIteratorWrapper{B}},
     device_model::DeviceModel{B, <:AbstractBranchFormulation},
     network_model::NetworkModel{<:AbstractPTDFNetworkModel},
 ) where {B <: PSY.ACTransmission}
@@ -856,7 +856,7 @@ Add network flow constraints for ACBranch and NetworkModel with <: AbstractPTDFN
 function add_constraints!(
     container::OptimizationContainer,
     cons_type::Type{NetworkFlowConstraint},
-    devices::IS.FlattenIteratorWrapper{T},
+    devices::Union{Vector{T}, IS.FlattenIteratorWrapper{T}},
     device_model::DeviceModel{T, StaticBranchBounds},
     network_model::NetworkModel{<:AbstractPTDFNetworkModel},
 ) where {T <: PSY.ACTransmission}
@@ -905,7 +905,7 @@ end
 function add_constraints!(
     ::OptimizationContainer,
     cons_type::Type{NetworkFlowConstraint},
-    ::IS.FlattenIteratorWrapper{B},
+    ::Union{Vector{B}, IS.FlattenIteratorWrapper{B}},
     ::DeviceModel{B, T},
     ::NetworkModel{<:AbstractPTDFNetworkModel},
 ) where {B <: PSY.ACTransmission, T <: Union{StaticBranchUnbounded, StaticBranch}}
@@ -920,7 +920,7 @@ Add branch flow constraints for monitored lines with DC Power Model
 function add_constraints!(
     container::OptimizationContainer,
     ::Type{FlowLimitConstraint},
-    devices::IS.FlattenIteratorWrapper{T},
+    devices::Union{Vector{T}, IS.FlattenIteratorWrapper{T}},
     model::DeviceModel{T, U},
     ::NetworkModel{V},
 ) where {
@@ -945,7 +945,7 @@ Don't add branch flow constraints for monitored lines if formulation is StaticBr
 function add_constraints!(
     ::OptimizationContainer,
     ::Type{FlowRateConstraintFromTo},
-    devices::IS.FlattenIteratorWrapper{T},
+    devices::Union{Vector{T}, IS.FlattenIteratorWrapper{T}},
     model::DeviceModel{T, U},
     ::NetworkModel{V},
 ) where {
@@ -964,7 +964,7 @@ end
 # surface as a MethodError.
 function add_to_objective_function!(
     container::OptimizationContainer,
-    ::IS.FlattenIteratorWrapper{T},
+    ::Union{Vector{T}, IS.FlattenIteratorWrapper{T}},
     device_model::DeviceModel{T, F},
     ::Type{N},
 ) where {T <: PSY.ACTransmission, F <: AbstractBranchFormulation, N <: AbstractNetworkModel}
@@ -1060,7 +1060,7 @@ function _add_directional_flow_rate_limits!(
     ::Type{ConsKey},
     ::Type{PVar},
     ::Type{QVar},
-    devices::IS.FlattenIteratorWrapper{T},
+    devices::Union{Vector{T}, IS.FlattenIteratorWrapper{T}},
     device_model::DeviceModel{T, U},
     network_model::NetworkModel,
 ) where {
@@ -1128,7 +1128,7 @@ Constrains pft² + qft² ≤ rating².
 function add_constraints!(
     container::OptimizationContainer,
     ::Type{FlowRateConstraintFromTo},
-    devices::IS.FlattenIteratorWrapper{T},
+    devices::Union{Vector{T}, IS.FlattenIteratorWrapper{T}},
     device_model::DeviceModel{T, U},
     network_model::NetworkModel{
         <:Union{ACPNetworkModel, ACRNetworkModel, LPACCNetworkModel, IVRNetworkModel},
@@ -1154,7 +1154,7 @@ Constrains ptf² + qtf² ≤ rating².
 function add_constraints!(
     container::OptimizationContainer,
     ::Type{FlowRateConstraintToFrom},
-    devices::IS.FlattenIteratorWrapper{T},
+    devices::Union{Vector{T}, IS.FlattenIteratorWrapper{T}},
     device_model::DeviceModel{T, U},
     network_model::NetworkModel{
         <:Union{ACPNetworkModel, ACRNetworkModel, LPACCNetworkModel, IVRNetworkModel},
@@ -1483,7 +1483,7 @@ function add_constraints!(
     container::OptimizationContainer,
     sys::PSY.System,
     ::Type{NetworkFlowConstraint},
-    devices::IS.FlattenIteratorWrapper{T},
+    devices::Union{Vector{T}, IS.FlattenIteratorWrapper{T}},
     device_model::DeviceModel{T, U},
     network_model::NetworkModel{N},
 ) where {
@@ -1617,7 +1617,7 @@ _voltage_limits(limits, ::NetworkModel{LPACCNetworkModel}) =
 function _add_voltage_control_constraints!(
     container::OptimizationContainer,
     sys::PSY.System,
-    devices::IS.FlattenIteratorWrapper{T},
+    devices::Union{Vector{T}, IS.FlattenIteratorWrapper{T}},
     device_model::DeviceModel{T},
     network_model::NetworkModel,
 ) where {T <: _TRANSFORMERS}
@@ -1657,7 +1657,7 @@ end
 _add_voltage_control_constraints!(
     ::OptimizationContainer,
     ::PSY.System,
-    ::IS.FlattenIteratorWrapper{T},
+    ::Union{Vector{T}, IS.FlattenIteratorWrapper{T}},
     ::DeviceModel{T},
     ::NetworkModel,
 ) where {T <: PSY.ACTransmission} = nothing
@@ -1713,7 +1713,7 @@ _flow_array(
 function _add_flow_control_constraints!(
     container::OptimizationContainer,
     ::Type{C},
-    devices::IS.FlattenIteratorWrapper{T},
+    devices::Union{Vector{T}, IS.FlattenIteratorWrapper{T}},
     device_model::DeviceModel{T},
     network_model::NetworkModel,
 ) where {
@@ -1755,7 +1755,7 @@ end
 function _add_transformer_control_constraints!(
     container::OptimizationContainer,
     sys::PSY.System,
-    devices::IS.FlattenIteratorWrapper{T},
+    devices::Union{Vector{T}, IS.FlattenIteratorWrapper{T}},
     device_model::DeviceModel{T},
     network_model::NetworkModel,
 ) where {T <: PSY.ACTransmission}
@@ -1802,7 +1802,7 @@ function add_constraints!(
     container::OptimizationContainer,
     sys::PSY.System,
     ::Type{CosineRelaxationConstraint},
-    devices::IS.FlattenIteratorWrapper{T},
+    devices::Union{Vector{T}, IS.FlattenIteratorWrapper{T}},
     ::DeviceModel{T, U},
     network_model::NetworkModel{LPACCNetworkModel},
 ) where {T <: PSY.ACTransmission, U <: AbstractBranchFormulation}
@@ -1866,7 +1866,7 @@ function add_constraints!(
     container::OptimizationContainer,
     sys::PSY.System,
     ::Type{NetworkFlowConstraint},
-    devices::IS.FlattenIteratorWrapper{T},
+    devices::Union{Vector{T}, IS.FlattenIteratorWrapper{T}},
     device_model::DeviceModel{T, U},
     network_model::NetworkModel{IVRNetworkModel},
 ) where {T <: PSY.ACTransmission, U <: AbstractBranchFormulation}
@@ -2048,7 +2048,7 @@ function add_constraints!(
     container::OptimizationContainer,
     sys::PSY.System,
     ::Type{CurrentLimitConstraint},
-    devices::IS.FlattenIteratorWrapper{T},
+    devices::Union{Vector{T}, IS.FlattenIteratorWrapper{T}},
     device_model::DeviceModel{T, U},
     network_model::NetworkModel{IVRNetworkModel},
 ) where {T <: PSY.ACTransmission, U <: AbstractBranchFormulation}
@@ -2113,7 +2113,7 @@ PTDF / network-reduction infrastructure used by the AbstractActivePowerModel dis
 function add_constraints!(
     container::OptimizationContainer,
     ::Type{FlowRateConstraint},
-    devices::IS.FlattenIteratorWrapper{T},
+    devices::Union{Vector{T}, IS.FlattenIteratorWrapper{T}},
     device_model::DeviceModel{T, U},
     network_model::NetworkModel{DCPNetworkModel},
 ) where {T <: PSY.ACTransmission, U <: AbstractBranchFormulation}
@@ -2200,7 +2200,7 @@ function add_constraints!(
     container::OptimizationContainer,
     sys::PSY.System,
     ::Type{NetworkFlowConstraint},
-    devices::IS.FlattenIteratorWrapper{T},
+    devices::Union{Vector{T}, IS.FlattenIteratorWrapper{T}},
     device_model::DeviceModel{T, U},
     network_model::NetworkModel{DCPNetworkModel},
 ) where {T <: PSY.ACTransmission, U <: AbstractBranchFormulation}
@@ -2263,7 +2263,7 @@ function add_expressions!(
     container::OptimizationContainer,
     ::Type{BThetaBranchFlow},
     sys::PSY.System,
-    devices::IS.FlattenIteratorWrapper{T},
+    devices::Union{Vector{T}, IS.FlattenIteratorWrapper{T}},
     device_model::DeviceModel{T, StaticBranch},
     network_model::NetworkModel{DCPNetworkModel},
 ) where {T <: PSY.ACTransmission}
@@ -2314,7 +2314,7 @@ the shared static/parameterized-rating row builders, mirroring the variable-base
 function add_constraints!(
     container::OptimizationContainer,
     ::Type{FlowRateConstraint},
-    devices::IS.FlattenIteratorWrapper{T},
+    devices::Union{Vector{T}, IS.FlattenIteratorWrapper{T}},
     device_model::DeviceModel{T, StaticBranch},
     network_model::NetworkModel{DCPNetworkModel},
 ) where {T <: PSY.ACTransmission}
@@ -2387,7 +2387,7 @@ function add_constraints!(
     container::OptimizationContainer,
     sys::PSY.System,
     ::Type{AngleDifferenceConstraint},
-    devices::IS.FlattenIteratorWrapper{T},
+    devices::Union{Vector{T}, IS.FlattenIteratorWrapper{T}},
     ::DeviceModel{T, U},
     network_model::NetworkModel{
         <:Union{DCPNetworkModel, ACPNetworkModel, DCPLLNetworkModel, LPACCNetworkModel},
@@ -2445,7 +2445,7 @@ function add_constraints!(
     container::OptimizationContainer,
     sys::PSY.System,
     ::Type{AngleDifferenceConstraint},
-    devices::IS.FlattenIteratorWrapper{T},
+    devices::Union{Vector{T}, IS.FlattenIteratorWrapper{T}},
     ::DeviceModel{T, U},
     network_model::NetworkModel{<:Union{ACRNetworkModel, IVRNetworkModel}},
 ) where {T <: PSY.ACTransmission, U <: AbstractBranchFormulation}
@@ -2515,7 +2515,7 @@ end
 function _set_dcpll_flow_bounds!(
     container::OptimizationContainer,
     sys::PSY.System,
-    devices::IS.FlattenIteratorWrapper{T},
+    devices::Union{Vector{T}, IS.FlattenIteratorWrapper{T}},
     device_model::DeviceModel,
     network_model::NetworkModel{DCPLLNetworkModel},
 ) where {T <: PSY.ACTransmission}
@@ -2543,7 +2543,7 @@ is priced once.
 function add_constraints!(
     container::OptimizationContainer,
     ::Type{FlowRateConstraint},
-    devices::IS.FlattenIteratorWrapper{T},
+    devices::Union{Vector{T}, IS.FlattenIteratorWrapper{T}},
     device_model::DeviceModel{T, U},
     network_model::NetworkModel{DCPLLNetworkModel},
 ) where {T <: PSY.ACTransmission, U <: AbstractBranchFormulation}
@@ -2601,7 +2601,7 @@ function add_constraints!(
     container::OptimizationContainer,
     sys::PSY.System,
     ::Type{NetworkFlowConstraint},
-    devices::IS.FlattenIteratorWrapper{T},
+    devices::Union{Vector{T}, IS.FlattenIteratorWrapper{T}},
     device_model::DeviceModel{T, U},
     network_model::NetworkModel{DCPLLNetworkModel},
 ) where {T <: PSY.ACTransmission, U <: AbstractBranchFormulation}
@@ -2649,7 +2649,7 @@ function add_constraints!(
     container::OptimizationContainer,
     sys::PSY.System,
     ::Type{NetworkLossConstraint},
-    devices::IS.FlattenIteratorWrapper{T},
+    devices::Union{Vector{T}, IS.FlattenIteratorWrapper{T}},
     device_model::DeviceModel{T, U},
     network_model::NetworkModel{DCPLLNetworkModel},
 ) where {T <: PSY.ACTransmission, U <: AbstractBranchFormulation}
