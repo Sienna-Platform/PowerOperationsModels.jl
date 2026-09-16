@@ -19,19 +19,6 @@ function _is_shared_post_contingency_source(
            _post_contingency_match(c, target)
 end
 
-# Names of components of type `D` monitored by at least one outage on this
-# device model.
-function _monitored_component_names(device_model::DeviceModel, ::Type{D}) where {D}
-    names = Set{String}()
-    for (_, per_type) in get_outages(device_model)
-        for (mon_type, mon_names) in per_type
-            mon_type <: D || continue
-            union!(names, mon_names)
-        end
-    end
-    return names
-end
-
 # True when a `PostContingencyBranchRatingTimeSeriesParameter` column exists for
 # `name` under `entry_type`.
 function _has_post_contingency_rate(
@@ -68,16 +55,15 @@ function _post_contingency_rate_columns(
     get_multiplier_array(param_container)[name, :]
 end
 
-# Reactivated post-contingency branch-rating time series parameter, scoped to
-# the monitored components only.
+# Add parameter for monitored components under this device model.
 function _add_post_contingency_branch_rating_parameter!(
     container::OptimizationContainer,
     device_model::DeviceModel{T},
     devices,
     network_model::NetworkModel{<:AbstractNetworkModel},
 ) where {T <: PSY.ACTransmission}
-    monitored = _monitored_component_names(device_model, T)
-    monitored_devices = [d for d in devices if PSY.get_name(d) in monitored]
+    monitored_names = Set{String}(name for (_, per_type) in get_outages(device_model), name in per_type[T])
+    monitored_devices = [d for d in devices if PSY.get_name(d) in monitored_names]
     isempty(monitored_devices) && return
     add_branch_parameters!(
         container,
@@ -314,10 +300,6 @@ function add_constraints!(
     jump_model = get_jump_model(container)
 
     has_other_v = _has_other_v_container(get_constraints(container), T, V)
-    has_pc_rating = haskey(
-        get_time_series_names(device_model),
-        PostContingencyBranchRatingTimeSeriesParameter,
-    )
     for (uuid, reps) in resolved
         outage_id = string(uuid)
         for rep in reps
@@ -363,7 +345,7 @@ function add_constraints!(
                     continue
                 end
             end
-            if has_pc_rating && _has_post_contingency_rate(container, _monitored_type(rep), name)
+            if _has_post_contingency_rate(container, _monitored_type(rep), name)
                 param, multiplier = _post_contingency_rate_columns(container, _monitored_type(rep), name)
                 for t in time_steps
                     sub = if use_slacks
