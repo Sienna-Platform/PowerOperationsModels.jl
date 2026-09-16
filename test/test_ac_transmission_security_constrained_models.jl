@@ -1272,7 +1272,7 @@ end
 
 # Attach N-1 outages on three named branches, each monitoring every branch, so the
 # post-contingency flow constraints are dense enough that at least one binds.
-function _attach_all_branch_outages!(sys)
+function _attach_some_branch_outages!(sys)
     branches = collect(get_components(PSY.ACTransmission, sys))
     for line_name in ("1", "2", "3")
         PSY.add_supplemental_attribute!(
@@ -1328,7 +1328,7 @@ end
 @testset "Duals of post-contingency flow constraints (sparse dual path)" begin
     # Exercises the sparse dual-assignment path on an LP (thermal dispatch) so
     # HiGHS returns the dual values directly.
-    c_sys5 = _attach_all_branch_outages!(PSB.build_system(PSITestSystems, "c_sys5"))
+    c_sys5 = _attach_some_branch_outages!(PSB.build_system(PSITestSystems, "c_sys5"))
     template = get_thermal_dispatch_template_network(
         NetworkModel(PTDFNetworkModel),
     )
@@ -1363,7 +1363,7 @@ end
     # Unit-commitment binaries make this a MILP, so duals go through the
     # relax-integers / re-solve-LP / copy-duals path rather than the direct LP
     # path of the testset above.
-    c_sys5 = _attach_all_branch_outages!(PSB.build_system(PSITestSystems, "c_sys5"))
+    c_sys5 = _attach_some_branch_outages!(PSB.build_system(PSITestSystems, "c_sys5"))
     template =
         PowerOperationsProblemTemplate(
             NetworkModel(PTDFNetworkModel),
@@ -1459,7 +1459,7 @@ end
 # containers exist, each post-contingency lb/ub constraint references a slack,
 # the model solves, and that with `use_slacks=false` neither container exists.
 @testset "SecurityConstrainedStaticBranch post-contingency slacks (use_slacks)" begin
-    c_sys5 = _attach_all_branch_outages!(PSB.build_system(PSITestSystems, "c_sys5"))
+    c_sys5 = _attach_some_branch_outages!(PSB.build_system(PSITestSystems, "c_sys5"))
 
     function _build_sc_slack_model(use_slacks)
         template = get_thermal_dispatch_template_network(
@@ -1775,7 +1775,8 @@ const _PC_RATING_FACTORS = vcat([fill(x, 6) for x in [0.99, 0.98, 1.0, 0.95]]...
 # `c_sys5` with `rating_b = 1.2 * rating` and a post-contingency rating forecast
 # on `lines_with_ts`, every branch outaged and monitored.
 function _pc_rating_ts_system(lines_with_ts::Vector{String})
-    sys = PSB.build_system(PSITestSystems, "c_sys5")
+    sys = PSB.build_system(PSITestSystems, "c_sys14")
+    lines_with_ts = ["Line1", "Line2", "Line6", "Trans1"]
     for name in lines_with_ts
         line = PSY.get_component(PSY.Line, sys, name)
         PSY.set_rating_b!(line, (1.2 * PSY.get_rating(line, PSY.SU)) * PSY.SU)
@@ -1784,8 +1785,19 @@ function _pc_rating_ts_system(lines_with_ts::Vector{String})
         sys, lines_with_ts, 2, _PC_RATING_FACTORS;
         initial_date = "2024-01-01", ts_name = _PC_RATING_TS_NAME,
     )
-    _attach_all_branch_outages!(sys)
-    return sys
+    branches = collect(get_components(PSY.ACTransmission, sys))
+    for line_name in ("Line1", "Line2", "Line3")
+        PSY.add_supplemental_attribute!(
+            sys,
+            get_component(PSY.ACTransmission, sys, line_name),
+            PSY.GeometricDistributionForcedOutage(;
+                mean_time_to_recovery = 10,
+                outage_transition_probability = 0.9999,
+                monitored_components = branches,
+            ),
+        )
+    end
+    return sys, lines_with_ts
 end
 
 function _build_pc_rating_ts_model(sys)
@@ -1812,8 +1824,7 @@ function _build_pc_rating_ts_model(sys)
 end
 
 @testset "post-contingency rate limit follows the post-contingency rating time series" begin
-    lines_with_ts = ["1", "2", "6"]
-    sys = _pc_rating_ts_system(lines_with_ts)
+    sys, lines_with_ts = _pc_rating_ts_system(lines_with_ts)
     model, status = _build_pc_rating_ts_model(sys)
     @test status == IOM.ModelBuildStatus.BUILT
 
@@ -1861,8 +1872,7 @@ end
 end
 
 @testset "a branch without a post-contingency rating forecast keeps the static limit" begin
-    lines_with_ts = ["1", "2", "6"]
-    sys = _pc_rating_ts_system(lines_with_ts)
+    sys, lines_with_ts = _pc_rating_ts_system(lines_with_ts)
     model, status = _build_pc_rating_ts_model(sys)
     @test status == IOM.ModelBuildStatus.BUILT
 
