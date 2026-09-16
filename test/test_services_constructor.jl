@@ -2204,3 +2204,74 @@ end
     @test occursin("InterruptiblePowerLoad", err.msg)
     @test occursin("cannot bound a reserve award", err.msg)
 end
+
+# An interrupted load consumes nothing, so it can neither shed nor absorb: both directions
+# must be forced to zero by `OnVariable = 0`. Up awards ride the LB row through `P = 0`;
+# down awards need the interruption gate to cap `ActivePowerRangeExpressionUB`, since the
+# forecast upper bound alone would let an OFF load sell its whole forecast as ReserveDown.
+@testset "PowerLoadInterruption: an interrupted load sells no reserve" begin
+    load_name = "IloadBus4"
+    sys = deepcopy(PSB.build_system(PSITestSystems, "c_sys5_il"; add_reserves = false))
+    thermals = collect(get_components(ThermalStandard, sys))
+    il = get_component(PSY.InterruptiblePowerLoad, sys, load_name)
+    for (name, R) in (("R_UP", PSY.ReserveUp), ("R_DN", PSY.ReserveDown))
+        add_service!(
+            sys,
+            PSY.OnlineReserve{R}(;
+                name = name,
+                available = true,
+                time_frame = 5.0,
+                variable = _nonnested_ordc_curve(),
+            ),
+            vcat(PSY.Device[thermals...], il),
+        )
+    end
+
+    template = _nonnested_reserve_template(PowerLoadInterruption)
+    set_service_model!(
+        template,
+        ServiceModel(PSY.OnlineReserve{PSY.ReserveDown}, StepwiseCostReserve),
+    )
+    model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+
+    container = IOM.get_optimization_container(model)
+    jump_model = IOM.get_jump_model(container)
+    on = IOM.get_variable(container, OnVariable, PSY.InterruptiblePowerLoad)
+    r_up =
+        IOM.get_variable(
+            container,
+            ActivePowerReserveVariable,
+            PSY.OnlineReserve{PSY.ReserveUp},
+        )
+    r_dn = IOM.get_variable(
+        container,
+        ActivePowerReserveVariable,
+        PSY.OnlineReserve{PSY.ReserveDown},
+    )
+
+    for t in IOM.get_time_steps(container)
+        JuMP.fix(on[load_name, t], 0.0; force = true)
+    end
+    JuMP.@objective(
+        jump_model,
+        Max,
+        r_up[("R_UP", load_name, 1)] + r_dn[("R_DN", load_name, 1)]
+    )
+    JuMP.optimize!(jump_model)
+    @test JuMP.termination_status(jump_model) == JuMP.OPTIMAL
+    @test isapprox(JuMP.value(r_up[("R_UP", load_name, 1)]), 0.0; atol = 1e-8)
+    @test isapprox(JuMP.value(r_dn[("R_DN", load_name, 1)]), 0.0; atol = 1e-8)
+
+    # Committed, the same load must still be able to sell in both directions.
+    for t in IOM.get_time_steps(container)
+        JuMP.fix(on[load_name, t], 1.0; force = true)
+    end
+    JuMP.@objective(jump_model, Max, r_up[("R_UP", load_name, 1)])
+    JuMP.optimize!(jump_model)
+    @test JuMP.value(r_up[("R_UP", load_name, 1)]) > 0.0
+    JuMP.@objective(jump_model, Max, r_dn[("R_DN", load_name, 1)])
+    JuMP.optimize!(jump_model)
+    @test JuMP.value(r_dn[("R_DN", load_name, 1)]) > 0.0
+end

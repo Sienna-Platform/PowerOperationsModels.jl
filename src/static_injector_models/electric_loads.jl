@@ -359,6 +359,11 @@ get_min_max_limits(
     ::Type{PowerLoadInterruption},
 ) = (min = 0.0, max = PSY.get_max_active_power(d, PSY.SU))
 
+# The interruption gate caps `ActivePowerRangeExpressionUB` (= P + Σ r_down), not the bare
+# `ActivePowerVariable`, whenever the load carries a service: an interrupted load consumes
+# nothing, so it can neither shed (the LB row zeroes its up awards through P = 0) nor absorb
+# more, and gating only P would let an OFF load sell down-reserve up to its whole forecast.
+# Without services the expression does not exist and the gate rides the variable directly.
 function add_constraints!(
     container::OptimizationContainer,
     T::Type{ActivePowerVariableLimitsConstraint},
@@ -367,6 +372,41 @@ function add_constraints!(
     model::DeviceModel{V, W},
     ::NetworkModel{X},
 ) where {V <: PSY.ControllableLoad, W <: PowerLoadInterruption, X <: AbstractNetworkModel}
+    if has_service_model(model)
+        _add_interruption_gate!(
+            container,
+            T,
+            get_expression(container, ActivePowerRangeExpressionUB, V),
+            devices,
+            model,
+        )
+    else
+        _add_interruption_gate!(
+            container,
+            T,
+            get_variable(container, ActivePowerVariable, V),
+            devices,
+            model,
+        )
+    end
+    return
+end
+
+# Function barrier: `gated` is a variable container in one branch and an expression
+# container in the other, so the row building specializes here on whichever was passed.
+# `AbstractArray` covers both the dense and sparse JuMP containers holding either
+# `VariableRef` or `AffExpr`; a tighter bound would have to enumerate all four.
+function _add_interruption_gate!(
+    container::OptimizationContainer,
+    ::Type{T},
+    gated::AbstractArray,
+    devices::IS.FlattenIteratorWrapper{V},
+    model::DeviceModel{V, W},
+) where {
+    T <: ActivePowerVariableLimitsConstraint,
+    V <: PSY.ControllableLoad,
+    W <: PowerLoadInterruption,
+}
     time_steps = get_time_steps(container)
     constraint = add_constraints_container!(container, T,
         V,
@@ -374,14 +414,13 @@ function add_constraints!(
         time_steps;
         meta = "binary",
     )
-    on_variable = get_variable(container, U, V)
-    power = get_variable(container, ActivePowerVariable, V)
+    on_variable = get_variable(container, OnVariable, V)
     jump_model = get_jump_model(container)
     for t in time_steps, d in devices
         name = PSY.get_name(d)
         pmax = PSY.get_max_active_power(d, PSY.SU)
         constraint[name, t] =
-            JuMP.@constraint(jump_model, power[name, t] <= on_variable[name, t] * pmax)
+            JuMP.@constraint(jump_model, gated[name, t] <= on_variable[name, t] * pmax)
     end
     return
 end
