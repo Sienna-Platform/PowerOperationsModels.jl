@@ -2062,12 +2062,8 @@ end
 
 #################################################################################
 # Reserve range expressions when contributor sets differ across services.
-#
-# The service-side `add_to_expression!` methods create the `ActivePowerRangeExpression*`
-# container lazily, sized to whichever service reaches them first. Two services of the same
-# type whose contributor sets do not nest then index an axis missing their devices.
-# `seed_reserve_range_expressions!` sizes the axis over the device model's full component
-# set before any service wires in.
+# `seed_reserve_range_expressions!` sizes each axis over the device model's full component
+# set, so services whose contributor sets do not nest all find their devices on it.
 #################################################################################
 
 const _NONNESTED_LOAD_B = "IL_B"
@@ -2079,8 +2075,8 @@ _nonnested_ordc_curve() = make_market_bid_curve(
     power_units = IS.NaturalUnit(),
 )
 
-# Two up-reserves over two interruptible loads. `nested = false` gives each service exactly
-# one of the loads, so neither contributor set contains the other.
+# `nested = false` gives each service exactly one of the loads, so neither contributor set
+# contains the other.
 function _build_nonnested_reserve_system(; nested::Bool)
     sys = deepcopy(PSB.build_system(PSITestSystems, "c_sys5_il"; add_reserves = false))
     thermals = collect(get_components(ThermalStandard, sys))
@@ -2136,8 +2132,8 @@ end
         ((PowerLoadInterruption, false), (PowerLoadInterruption, true),
         (PowerLoadDispatch, false), (PowerLoadDispatch, true))
         sys = _build_nonnested_reserve_system(; nested = nested)
-        # Initialization left on: the IC template maps loads to `StaticPowerLoad` while
-        # keeping the service wiring, so it exercises the seeding a second time.
+        # The IC template maps loads to `StaticPowerLoad` while keeping the service
+        # wiring, so initialization exercises the seeding a second time.
         model = DecisionModel(
             _nonnested_reserve_template(formulation),
             sys;
@@ -2153,12 +2149,11 @@ end
             ActivePowerRangeExpressionLB,
             PSY.InterruptiblePowerLoad,
         )
-        # The axis must cover both loads regardless of which service was constructed first.
         @test sort(collect(JuMP.axes(expression)[1])) ==
               sort(PSY.get_name.(get_components(PSY.InterruptiblePowerLoad, sys)))
 
-        # Each award enters its device's LB expression with -1.0, so a single row couples the
-        # shed to consumption across every service at once.
+        # Every service's award enters the same LB expression, so one row couples the shed
+        # to consumption across all of them.
         reserve = IOM.get_variable(
             container,
             ActivePowerReserveVariable,
@@ -2205,10 +2200,8 @@ end
     @test occursin("cannot bound a reserve award", err.msg)
 end
 
-# An interrupted load consumes nothing, so it can neither shed nor absorb: both directions
-# must be forced to zero by `OnVariable = 0`. Up awards ride the LB row through `P = 0`;
-# down awards need the interruption gate to cap `ActivePowerRangeExpressionUB`, since the
-# forecast upper bound alone would let an OFF load sell its whole forecast as ReserveDown.
+# An interrupted load consumes nothing, so it can neither shed nor absorb: `OnVariable = 0`
+# forces both directions to zero, up through the LB row and down through the gate.
 @testset "PowerLoadInterruption: an interrupted load sells no reserve" begin
     load_name = "IloadBus4"
     sys = deepcopy(PSB.build_system(PSITestSystems, "c_sys5_il"; add_reserves = false))
@@ -2264,7 +2257,7 @@ end
     @test isapprox(JuMP.value(r_up[("R_UP", load_name, 1)]), 0.0; atol = 1e-8)
     @test isapprox(JuMP.value(r_dn[("R_DN", load_name, 1)]), 0.0; atol = 1e-8)
 
-    # Committed, the same load must still be able to sell in both directions.
+    # Committed, it sells in both directions.
     for t in IOM.get_time_steps(container)
         JuMP.fix(on[load_name, t], 1.0; force = true)
     end
