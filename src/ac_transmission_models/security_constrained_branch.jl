@@ -62,7 +62,9 @@ function _add_post_contingency_branch_rating_parameter!(
     devices,
     network_model::NetworkModel{<:AbstractNetworkModel},
 ) where {T <: PSY.ACTransmission}
-    monitored_names = Set{String}(name for (_, per_type) in get_outages(device_model), name in per_type[T])
+    monitored_names = Set{String}(
+        name for (_, per_type) in get_outages(device_model), name in per_type[T]
+    )
     monitored_devices = [d for d in devices if PSY.get_name(d) in monitored_names]
     isempty(monitored_devices) && return
     add_branch_parameters!(
@@ -346,7 +348,8 @@ function add_constraints!(
                 end
             end
             if _has_post_contingency_rate(container, _monitored_type(rep), name)
-                param, multiplier = _post_contingency_rate_columns(container, _monitored_type(rep), name)
+                param, multiplier =
+                    _post_contingency_rate_columns(container, _monitored_type(rep), name)
                 for t in time_steps
                     sub = if use_slacks
                         _make_post_contingency_slack!(
