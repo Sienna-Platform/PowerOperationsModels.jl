@@ -92,7 +92,7 @@ function add_constraints!(
     container::OptimizationContainer,
     T::Type{<:PowerVariableLimitsConstraint},
     U::Type{<:Union{VariableType, ExpressionType}},
-    devices::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
+    devices::Vector{V},
     model::DeviceModel{V, W},
     ::NetworkModel{X},
 ) where {
@@ -111,7 +111,7 @@ end
 function add_constraints!(
     container::OptimizationContainer,
     T::Type{ImportExportBudgetConstraint},
-    devices::Union{Vector{U}, IS.FlattenIteratorWrapper{U}},
+    devices::Vector{U},
     model::DeviceModel{U, V},
     network_model::NetworkModel{X},
 ) where {
@@ -171,7 +171,7 @@ function add_constraints!(
     container::OptimizationContainer,
     ::Type{ActivePowerOutVariableTimeSeriesLimitsConstraint},
     U::Type{<:Union{ActivePowerOutVariable, ActivePowerRangeExpressionUB}},
-    devices::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
+    devices::Vector{V},
     model::DeviceModel{V, W},
     ::NetworkModel{X},
 ) where {
@@ -195,7 +195,7 @@ function add_constraints!(
     container::OptimizationContainer,
     ::Type{ActivePowerInVariableTimeSeriesLimitsConstraint},
     U::Type{<:Union{ActivePowerInVariable, ActivePowerRangeExpressionUB}},
-    devices::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
+    devices::Vector{V},
     model::DeviceModel{V, W},
     ::NetworkModel{X},
 ) where {
@@ -217,7 +217,7 @@ end
 
 function add_to_objective_function!(
     container::OptimizationContainer,
-    devices::Union{Vector{T}, IS.FlattenIteratorWrapper{T}},
+    devices::Vector{T},
     ::DeviceModel{T, U},
     ::Type{V},
 ) where {T <: PSY.Source, U <: AbstractSourceFormulation, V <: AbstractNetworkModel}

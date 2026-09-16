@@ -145,7 +145,7 @@ function add_constraints!(
     container::OptimizationContainer,
     ::Type{ShuntReactivePowerConstraint},
     ::PSY.System,
-    devices::Union{Vector{R}, IS.FlattenIteratorWrapper{R}},
+    devices::Vector{R},
     model::DeviceModel{R, ShuntSusceptanceDispatch},
     network_model::NetworkModel{<:AbstractNetworkModel},
 ) where {R <: Union{PSY.SwitchedAdmittance, PSY.FACTSControlDevice}}
@@ -249,7 +249,7 @@ function add_constraints!(
     container::OptimizationContainer,
     ::Type{ShuntReactivePowerConstraint},
     ::PSY.System,
-    devices::Union{Vector{R}, IS.FlattenIteratorWrapper{R}},
+    devices::Vector{R},
     model::DeviceModel{R, FixedShuntAdmittance},
     network_model::NetworkModel{<:AbstractNetworkModel},
 ) where {R <: Union{PSY.SwitchedAdmittance, PSY.FACTSControlDevice}}
@@ -293,10 +293,7 @@ _regulated_buses(d::PSY.FACTSControlDevice, bus_by_number) = [("1", PSY.get_bus(
 
 function _add_shunt_regulated_voltage!(
     container::OptimizationContainer,
-    devices::Union{
-        Vector{PSY.FACTSControlDevice},
-        IS.FlattenIteratorWrapper{PSY.FACTSControlDevice},
-    },
+    devices::Vector{PSY.FACTSControlDevice},
     sys::PSY.System,
     network_model::NetworkModel{<:AbstractNetworkModel},
 )
@@ -308,10 +305,7 @@ end
 
 function _add_shunt_regulated_voltage_constraints!(
     container::OptimizationContainer,
-    devices::Union{
-        Vector{PSY.FACTSControlDevice},
-        IS.FlattenIteratorWrapper{PSY.FACTSControlDevice},
-    },
+    devices::Vector{PSY.FACTSControlDevice},
     sys::PSY.System,
     network_model::NetworkModel{<:AbstractNetworkModel},
 )
@@ -325,7 +319,7 @@ end
 # no aux variable/constraint.
 function _add_shunt_regulated_voltage!(
     ::OptimizationContainer,
-    ::Union{Vector, IS.FlattenIteratorWrapper},
+    ::Vector,
     ::PSY.System,
     ::NetworkModel{<:AbstractNetworkModel},
 )
@@ -334,7 +328,7 @@ end
 
 function _add_shunt_regulated_voltage_constraints!(
     ::OptimizationContainer,
-    ::Union{Vector, IS.FlattenIteratorWrapper},
+    ::Vector,
     ::PSY.System,
     ::NetworkModel{<:AbstractNetworkModel},
 )
@@ -349,10 +343,7 @@ end
 # SwitchedAdmittance: b and Q are pure optimization variables; no fix.
 function _apply_shunt_control_objective!(
     ::OptimizationContainer,
-    ::Union{
-        Vector{PSY.SwitchedAdmittance},
-        IS.FlattenIteratorWrapper{PSY.SwitchedAdmittance},
-    },
+    ::Vector{PSY.SwitchedAdmittance},
     ::NetworkModel{<:AbstractNetworkModel},
 )
     return
@@ -366,10 +357,7 @@ end
 # fix is mode-conditional (count-invariance).
 function _apply_shunt_control_objective!(
     container::OptimizationContainer,
-    devices::Union{
-        Vector{PSY.FACTSControlDevice},
-        IS.FlattenIteratorWrapper{PSY.FACTSControlDevice},
-    },
+    devices::Vector{PSY.FACTSControlDevice},
     network_model::NetworkModel{
         <:Union{ACPNetworkModel, ACRNetworkModel, IVRNetworkModel},
     },
@@ -390,10 +378,7 @@ end
 # no voltage fix.
 function _apply_shunt_control_objective!(
     ::OptimizationContainer,
-    ::Union{
-        Vector{PSY.FACTSControlDevice},
-        IS.FlattenIteratorWrapper{PSY.FACTSControlDevice},
-    },
+    ::Vector{PSY.FACTSControlDevice},
     ::NetworkModel{<:AbstractNetworkModel},
 )
     return

@@ -197,7 +197,7 @@ function _sum_service_reserves(
     t::Int,
     extra::Int,
 ) where {
-    U <: Union{Vector{D}, IS.FlattenIteratorWrapper{D}},
+    U <: Vector{D},
 } where {D <: PSY.Component}
     acc = IOM.get_hinted_aff_expr(length(contributing_devices) + extra)
     for d in contributing_devices
@@ -216,7 +216,7 @@ function add_constraints!(
 ) where {
     SR <: PSY.AbstractReserve,
     V <: AbstractReservesFormulation,
-    U <: Union{Vector{D}, IS.FlattenIteratorWrapper{D}},
+    U <: Vector{D},
 } where {D <: PSY.Component}
     time_steps = get_time_steps(container)
     service_name = PSY.get_name(service)
@@ -299,7 +299,7 @@ function add_constraints!(
 ) where {
     SR <: PSY.AbstractReserve,
     V <: AbstractReservesFormulation,
-    U <: Union{Vector{D}, IS.FlattenIteratorWrapper{D}},
+    U <: Vector{D},
 } where {D <: PSY.Device}
     max_participation_factor = PSY.get_max_participation_factor(service)
 
@@ -386,7 +386,7 @@ function add_constraints!(
     ::ServiceModel{SR, StepwiseCostReserve},
 ) where {
     SR <: PSY.AbstractReserve,
-    U <: Union{Vector{D}, IS.FlattenIteratorWrapper{D}},
+    U <: Vector{D},
 } where {D <: PSY.Component}
     time_steps = get_time_steps(container)
     service_name = PSY.get_name(service)
@@ -420,7 +420,7 @@ _get_ramp_limits(d::PSY.HydroGen) = PSY.get_ramp_limits(d, PSY.SU)
 
 function _get_ramp_constraint_contributing_devices(
     service::PSY.Reserve,
-    contributing_devices::Union{Vector{D}, IS.FlattenIteratorWrapper{D}},
+    contributing_devices::Vector{D},
 ) where {D <: PSY.Component}
     time_frame = PSY.get_time_frame(service)
     filtered_device = Vector{D}()
@@ -444,7 +444,7 @@ function add_constraints!(
     container::OptimizationContainer,
     T::Type{RampConstraint},
     service::SR,
-    contributing_devices::Union{Vector{D}, IS.FlattenIteratorWrapper{D}},
+    contributing_devices::Vector{D},
     ::ServiceModel{SR, V},
 ) where {
     SR <: PSY.Reserve{PSY.ReserveUp},
@@ -484,7 +484,7 @@ function add_constraints!(
     container::OptimizationContainer,
     T::Type{RampConstraint},
     service::SR,
-    contributing_devices::Union{Vector{D}, IS.FlattenIteratorWrapper{D}},
+    contributing_devices::Vector{D},
     ::ServiceModel{SR, V},
 ) where {
     SR <: PSY.Reserve{PSY.ReserveDown},
@@ -529,7 +529,7 @@ function add_constraints!(
 ) where {
     SR <: PSY.OfflineReserve,
     V <: AbstractReservesFormulation,
-    U <: Union{Vector{D}, IS.FlattenIteratorWrapper{D}},
+    U <: Vector{D},
 } where {D <: PSY.Component}
     time_steps = get_time_steps(container)
     resolution = get_resolution(container)

@@ -39,7 +39,7 @@ function add_event_constraints!(
     device_model::DeviceModel{U, V},
     network_model::NetworkModel{W},
 ) where {
-    T <: Union{Vector{U}, IS.FlattenIteratorWrapper{U}},
+    T <: Vector{U},
     V <: AbstractDeviceFormulation,
     W <: AbstractActivePowerModel,
 } where {U <: Union{PSY.ThermalGen, PSY.HydroGen}}
@@ -60,7 +60,7 @@ function add_event_constraints!(
     device_model::DeviceModel{U, V},
     network_model::NetworkModel{W},
 ) where {
-    T <: Union{Vector{U}, IS.FlattenIteratorWrapper{U}},
+    T <: Vector{U},
     V <: AbstractDeviceFormulation,
     W <: AbstractReactivePowerNetworkModel,
 } where {U <: Union{PSY.ThermalGen, PSY.HydroGen}}
@@ -90,7 +90,7 @@ function add_event_constraints!(
     device_model::DeviceModel{U, V},
     network_model::NetworkModel{W},
 ) where {
-    T <: Union{Vector{U}, IS.FlattenIteratorWrapper{U}},
+    T <: Vector{U},
     V <: AbstractDeviceFormulation,
     W <: AbstractActivePowerModel,
 } where {U <: PSY.RenewableGen}
@@ -111,7 +111,7 @@ function add_event_constraints!(
     device_model::DeviceModel{U, V},
     network_model::NetworkModel{W},
 ) where {
-    T <: Union{Vector{U}, IS.FlattenIteratorWrapper{U}},
+    T <: Vector{U},
     V <: AbstractDeviceFormulation,
     W <: AbstractReactivePowerNetworkModel,
 } where {U <: PSY.RenewableGen}
@@ -141,7 +141,7 @@ function add_event_constraints!(
     device_model::DeviceModel{U, V},
     network_model::NetworkModel{W},
 ) where {
-    T <: Union{Vector{U}, IS.FlattenIteratorWrapper{U}},
+    T <: Vector{U},
     V <: AbstractDeviceFormulation,
     W <: AbstractActivePowerModel,
 } where {U <: PSY.ElectricLoad}
@@ -162,7 +162,7 @@ function add_event_constraints!(
     device_model::DeviceModel{U, V},
     network_model::NetworkModel{W},
 ) where {
-    T <: Union{Vector{U}, IS.FlattenIteratorWrapper{U}},
+    T <: Vector{U},
     V <: AbstractDeviceFormulation,
     W <: AbstractReactivePowerNetworkModel,
 } where {U <: PSY.ElectricLoad}
@@ -195,7 +195,7 @@ function add_reactive_power_contingency_constraint(
     ::Type{ReactivePowerOutageConstraint},
     ::Type{ReactivePowerVariable},
     ::Type{AvailableStatusParameter},
-    devices::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
+    devices::Vector{V},
     model::DeviceModel{V, W},
     ::Type{X},
 ) where {
@@ -220,7 +220,7 @@ function _add_reactive_power_contingency_constraint_impl!(
     ::Type{ReactivePowerOutageConstraint},
     array_reactive,
     param::AvailableStatusParameter,
-    devices::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
+    devices::Vector{V},
     model::DeviceModel{V, W},
 ) where {
     V <: PSY.Component,
@@ -269,7 +269,7 @@ function add_event_constraints!(
     device_model::DeviceModel{U, V},
     network_model::NetworkModel{W},
 ) where {
-    T <: Union{Vector{U}, IS.FlattenIteratorWrapper{U}},
+    T <: Vector{U},
     V <: AbstractDeviceFormulation,
     W <: AbstractActivePowerModel,
 } where {U <: PSY.HydroPumpTurbine}
@@ -289,7 +289,7 @@ function add_event_constraints!(
     device_model::DeviceModel{U, V},
     network_model::NetworkModel{W},
 ) where {
-    T <: Union{Vector{U}, IS.FlattenIteratorWrapper{U}},
+    T <: Vector{U},
     V <: AbstractDeviceFormulation,
     W <: AbstractReactivePowerNetworkModel,
 } where {U <: PSY.HydroPumpTurbine}
@@ -317,7 +317,7 @@ function add_pump_turbine_active_power_contingency_constraints!(
     devices::T,
     device_model::DeviceModel{U, V},
 ) where {
-    T <: Union{Vector{U}, IS.FlattenIteratorWrapper{U}},
+    T <: Vector{U},
     V <: AbstractDeviceFormulation,
 } where {U <: PSY.HydroPumpTurbine}
     names = PSY.get_name.(devices)
@@ -369,7 +369,7 @@ function add_event_constraints!(
     device_model::DeviceModel{U, V},
     network_model::NetworkModel{W},
 ) where {
-    T <: Union{Vector{U}, IS.FlattenIteratorWrapper{U}},
+    T <: Vector{U},
     V <: AbstractDeviceFormulation,
     W <: AbstractActivePowerModel,
 } where {U <: PSY.EnergyReservoirStorage}
@@ -389,7 +389,7 @@ function add_event_constraints!(
     device_model::DeviceModel{U, V},
     network_model::NetworkModel{W},
 ) where {
-    T <: Union{Vector{U}, IS.FlattenIteratorWrapper{U}},
+    T <: Vector{U},
     V <: AbstractDeviceFormulation,
     W <: AbstractReactivePowerNetworkModel,
 } where {U <: PSY.EnergyReservoirStorage}
@@ -417,7 +417,7 @@ function add_input_output_active_power_contingency_constraints!(
     devices::T,
     device_model::DeviceModel{U, V},
 ) where {
-    T <: Union{Vector{U}, IS.FlattenIteratorWrapper{U}},
+    T <: Vector{U},
     V <: AbstractDeviceFormulation,
 } where {U <: PSY.EnergyReservoirStorage}
     names = PSY.get_name.(devices)

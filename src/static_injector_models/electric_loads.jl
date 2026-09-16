@@ -66,7 +66,7 @@ objective_function_multiplier(::Type{ShiftDownActivePowerVariable}, ::Type{Power
 add_proportional_cost!(
     container::OptimizationContainer,
     ::Type{U},
-    devices::Union{Vector{T}, IS.FlattenIteratorWrapper{T}},
+    devices::Vector{T},
     ::Type{PowerLoadInterruption},
 ) where {U <: OnVariable, T <: PSY.ControllableLoad} =
     add_proportional_cost_maybe_time_variant!(
@@ -126,7 +126,7 @@ function add_expressions!(
     model::DeviceModel{D, W},
 ) where {
     T <: RealizedShiftedLoad,
-    U <: Union{Vector{D}, IS.FlattenIteratorWrapper{D}},
+    U <: Vector{D},
     W <: PowerLoadShift,
 } where {D <: PSY.ShiftablePowerLoad}
     time_steps = get_time_steps(container)
@@ -157,7 +157,7 @@ function add_to_expression!(
     container::OptimizationContainer,
     ::Type{T},
     ::Type{U},
-    devices::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
+    devices::Vector{V},
     device_model::DeviceModel{V, W},
     network_model::NetworkModel{X},
 ) where {
@@ -198,7 +198,7 @@ function add_constraints!(
     container::OptimizationContainer,
     T::Type{<:ReactivePowerVariableLimitsConstraint},
     U::Type{<:ReactivePowerVariable},
-    devices::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
+    devices::Vector{V},
     ::DeviceModel{V, W},
     network_model::NetworkModel{X},
 ) where {
@@ -236,7 +236,7 @@ function add_constraints!(
     container::OptimizationContainer,
     T::Type{<:ReactivePowerVariableLimitsConstraint},
     U::Type{<:ReactivePowerVariable},
-    devices::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
+    devices::Vector{V},
     ::DeviceModel{V, W},
     ::NetworkModel{X},
 ) where {
@@ -272,7 +272,7 @@ function add_constraints!(
     container::OptimizationContainer,
     ::Type{ActivePowerVariableLimitsConstraint},
     U::Type{<:Union{VariableType, ActivePowerRangeExpressionUB}},
-    devices::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
+    devices::Vector{V},
     model::DeviceModel{V, W},
     ::NetworkModel{X},
 ) where {V <: PSY.ControllableLoad, W <: PowerLoadDispatch, X <: AbstractNetworkModel}
@@ -294,7 +294,7 @@ function add_constraints!(
     container::OptimizationContainer,
     T::Type{ActivePowerVariableLimitsConstraint},
     U::Type{ActivePowerRangeExpressionLB},
-    devices::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
+    devices::Vector{V},
     model::DeviceModel{V, W},
     ::NetworkModel{X},
 ) where {V <: PSY.ControllableLoad, W <: PowerLoadDispatch, X <: AbstractNetworkModel}
@@ -313,7 +313,7 @@ function add_constraints!(
     container::OptimizationContainer,
     T::Type{ActivePowerVariableLimitsConstraint},
     U::Type{<:VariableType},
-    devices::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
+    devices::Vector{V},
     model::DeviceModel{V, W},
     ::NetworkModel{X},
 ) where {V <: PSY.ControllableLoad, W <: PowerLoadInterruption, X <: AbstractNetworkModel}
@@ -333,7 +333,7 @@ function add_constraints!(
     container::OptimizationContainer,
     T::Type{ActivePowerVariableLimitsConstraint},
     U::Type{OnVariable},
-    devices::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
+    devices::Vector{V},
     model::DeviceModel{V, W},
     ::NetworkModel{X},
 ) where {V <: PSY.ControllableLoad, W <: PowerLoadInterruption, X <: AbstractNetworkModel}
@@ -359,7 +359,7 @@ end
 function add_constraints!(
     container::OptimizationContainer,
     T::Type{ShiftedActivePowerBalanceConstraint},
-    devices::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
+    devices::Vector{V},
     model::DeviceModel{V, W},
     ::NetworkModel{X},
 ) where {V <: PSY.ShiftablePowerLoad, W <: PowerLoadShift, X <: AbstractNetworkModel}
@@ -458,7 +458,7 @@ function add_constraints!(
     container::OptimizationContainer,
     T::Type{RealizedShiftedLoadMinimumBoundConstraint},
     U::Type{<:ExpressionType},
-    devices::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
+    devices::Vector{V},
     ::DeviceModel{V, W},
     ::NetworkModel{X},
 ) where {V <: PSY.ShiftablePowerLoad, W <: PowerLoadShift, X <: AbstractNetworkModel}
@@ -482,7 +482,7 @@ end
 function add_constraints!(
     container::OptimizationContainer,
     T::Type{NonAnticipativityConstraint},
-    devices::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
+    devices::Vector{V},
     ::DeviceModel{V, W},
     ::NetworkModel{X},
 ) where {V <: PSY.ShiftablePowerLoad, W <: PowerLoadShift, X <: AbstractNetworkModel}
@@ -513,7 +513,7 @@ function add_constraints!(
     container::OptimizationContainer,
     ::Type{ShiftUpActivePowerVariableLimitsConstraint},
     U::Type{<:VariableType},
-    devices::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
+    devices::Vector{V},
     model::DeviceModel{V, W},
     ::NetworkModel{X},
 ) where {V <: PSY.ShiftablePowerLoad, W <: PowerLoadShift, X <: AbstractNetworkModel}
@@ -533,7 +533,7 @@ function add_constraints!(
     container::OptimizationContainer,
     ::Type{ShiftDownActivePowerVariableLimitsConstraint},
     U::Type{<:VariableType},
-    devices::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
+    devices::Vector{V},
     model::DeviceModel{V, W},
     ::NetworkModel{X},
 ) where {V <: PSY.ShiftablePowerLoad, W <: PowerLoadShift, X <: AbstractNetworkModel}
@@ -563,7 +563,7 @@ _is_costless_offer(::PSY.OperationalCost) = false
 ############################## FormulationControllable Load Cost ###########################
 function add_to_objective_function!(
     container::OptimizationContainer,
-    devices::Union{Vector{T}, IS.FlattenIteratorWrapper{T}},
+    devices::Vector{T},
     model::DeviceModel{T, U},
     ::Type{<:AbstractNetworkModel},
 ) where {T <: PSY.ControllableLoad, U <: PowerLoadDispatch}
@@ -589,7 +589,7 @@ end
 
 function add_to_objective_function!(
     container::OptimizationContainer,
-    devices::Union{Vector{T}, IS.FlattenIteratorWrapper{T}},
+    devices::Vector{T},
     ::DeviceModel{T, U},
     ::Type{<:AbstractNetworkModel},
 ) where {T <: PSY.ControllableLoad, U <: PowerLoadInterruption}
@@ -635,7 +635,7 @@ IOM.is_time_variant_proportional(::PSY.LoadCost) = false
 
 function objective_function!(
     container::OptimizationContainer,
-    devices::Union{Vector{T}, IS.FlattenIteratorWrapper{T}},
+    devices::Vector{T},
     ::DeviceModel{T, U},
     ::Type{<:AbstractNetworkModel},
 ) where {T <: PSY.ShiftablePowerLoad, U <: PowerLoadShift}
@@ -648,7 +648,7 @@ end
 function add_variable_cost!(
     container::OptimizationContainer,
     ::Type{U},
-    devices::Union{Vector{T}, IS.FlattenIteratorWrapper{T}},
+    devices::Vector{T},
     ::Type{V},
 ) where {T <: PSY.ShiftablePowerLoad, U <: ShiftUpActivePowerVariable, V <: PowerLoadShift}
     for d in devices

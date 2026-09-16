@@ -1,6 +1,6 @@
 function _add_ancillary_services!(
     container::OptimizationContainer,
-    devices::Union{Vector{T}, IS.FlattenIteratorWrapper{T}},
+    devices::Vector{T},
     ::ArgumentConstructStage,
     model::DeviceModel{T, U},
     network_model::NetworkModel{V},
@@ -70,7 +70,7 @@ end
 
 function _add_ancillary_services!(
     container::OptimizationContainer,
-    devices::Union{Vector{T}, IS.FlattenIteratorWrapper{T}},
+    devices::Vector{T},
     ::ModelConstructStage,
     model::DeviceModel{T, U},
     network_model::NetworkModel{V},
@@ -117,7 +117,7 @@ end
 
 function _active_power_variables_and_expressions(
     container::OptimizationContainer,
-    devices::Union{Vector{T}, IS.FlattenIteratorWrapper{T}},
+    devices::Vector{T},
     model::DeviceModel{T, U},
     network_model::NetworkModel,
 ) where {T <: PSY.Storage, U <: StorageDispatchWithReserves}
@@ -163,7 +163,7 @@ end
 
 function _active_power_and_energy_bounds(
     container::OptimizationContainer,
-    devices::Union{Vector{T}, IS.FlattenIteratorWrapper{T}},
+    devices::Vector{T},
     model::DeviceModel{T, U},
     network_model::NetworkModel,
 ) where {T <: PSY.Storage, U <: StorageDispatchWithReserves}
@@ -272,7 +272,7 @@ end
 function _energy_constraints_and_objective!(
     container::OptimizationContainer,
     sys::PSY.System,
-    devices::Union{Vector{T}, IS.FlattenIteratorWrapper{T}},
+    devices::Vector{T},
     stage::ModelConstructStage,
     model::DeviceModel{T, U},
     network_model::NetworkModel{S},

@@ -505,8 +505,8 @@ function add_variables!(
     ::Type{X},
 ) where {
     T <: HydroTurbineFlowRateVariable,
-    U <: Union{Vector{D}, IS.FlattenIteratorWrapper{D}},
-    W <: Union{Vector{E}, IS.FlattenIteratorWrapper{E}},
+    U <: Vector{D},
+    W <: Vector{E},
     X <: HydroTurbineWaterFormulation,
 } where {
     D <: PSY.HydroTurbine,
@@ -546,7 +546,7 @@ function add_variables!(
     formulation::X,
 ) where {
     T <: Union{HydroBalanceSurplusVariable, HydroBalanceShortageVariable},
-    W <: Union{Vector{E}, IS.FlattenIteratorWrapper{E}},
+    W <: Vector{E},
     X <: Union{HydroEnergyModelReservoir},
 } where {
     E <: PSY.HydroReservoir,
@@ -592,7 +592,7 @@ function add_constraints!(
     container::OptimizationContainer,
     T::Type{ActivePowerVariableLimitsConstraint},
     U::Type{<:RangeConstraintLBExpressions},
-    devices::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
+    devices::Vector{V},
     model::DeviceModel{V, W},
     ::NetworkModel{X},
 ) where {
@@ -610,7 +610,7 @@ function add_constraints!(
     container::OptimizationContainer,
     T::Type{ActivePowerVariableLimitsConstraint},
     U::Type{<:RangeConstraintUBExpressions},
-    devices::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
+    devices::Vector{V},
     model::DeviceModel{V, W},
     ::NetworkModel{X},
 ) where {
@@ -639,7 +639,7 @@ function add_constraints!(
     container::OptimizationContainer,
     T::Type{ActivePowerVariableLimitsConstraint},
     U::Type{<:RangeConstraintLBExpressions},
-    devices::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
+    devices::Vector{V},
     model::DeviceModel{V, W},
     ::NetworkModel{X},
 ) where {V <: PSY.HydroGen, W <: HydroCommitmentRunOfRiver, X <: AbstractNetworkModel}
@@ -653,7 +653,7 @@ function add_constraints!(
     container::OptimizationContainer,
     T::Type{ActivePowerVariableLimitsConstraint},
     U::Type{<:RangeConstraintUBExpressions},
-    devices::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
+    devices::Vector{V},
     model::DeviceModel{V, W},
     ::NetworkModel{X},
 ) where {V <: PSY.HydroGen, W <: HydroCommitmentRunOfRiver, X <: AbstractNetworkModel}
@@ -677,7 +677,7 @@ function add_constraints!(
     container::OptimizationContainer,
     T::Type{ActivePowerVariableLimitsConstraint},
     U::Type{<:Union{RangeConstraintLBExpressions, RangeConstraintUBExpressions}},
-    devices::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
+    devices::Vector{V},
     model::DeviceModel{V, W},
     ::NetworkModel{X},
 ) where {
@@ -698,7 +698,7 @@ function add_constraints!(
     container::OptimizationContainer,
     T::Type{ActivePowerVariableLimitsConstraint},
     U::Type{<:Union{RangeConstraintLBExpressions, RangeConstraintUBExpressions}},
-    devices::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
+    devices::Vector{V},
     model::DeviceModel{V, W},
     ::NetworkModel{X},
 ) where {
@@ -806,7 +806,7 @@ function add_constraints!(
     container::OptimizationContainer,
     T::Type{<:PowerVariableLimitsConstraint},
     U::Type{<:Union{VariableType, ExpressionType}},
-    devices::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
+    devices::Vector{V},
     model::DeviceModel{V, W},
     ::NetworkModel{X},
 ) where {V <: PSY.HydroGen, W <: AbstractHydroUnitCommitment, X <: AbstractNetworkModel}
@@ -823,7 +823,7 @@ function add_constraints!(
     container::OptimizationContainer,
     T::Type{<:PowerVariableLimitsConstraint},
     U::Type{<:Union{VariableType, ExpressionType}},
-    devices::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
+    devices::Vector{V},
     model::DeviceModel{V, W},
     ::NetworkModel{X},
 ) where {
@@ -847,7 +847,7 @@ function add_constraints!(
     container::OptimizationContainer,
     sys::PSY.System,
     ::Type{EnergyBalanceConstraint},
-    devices::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
+    devices::Vector{V},
     model::DeviceModel{V, W},
     ::NetworkModel{X},
 ) where {
@@ -951,7 +951,7 @@ Add energy target constraints for [`PowerSystems.HydroGen`](@extref)
 function add_constraints!(
     container::OptimizationContainer,
     ::Type{EnergyTargetConstraint},
-    devices::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
+    devices::Vector{V},
     model::DeviceModel{V, W},
     ::NetworkModel{X},
 ) where {
@@ -1009,7 +1009,7 @@ Add energy target constraints for [`PowerSystems.HydroReservoir`](@extref)
 function add_constraints!(
     container::OptimizationContainer,
     ::Type{EnergyTargetConstraint},
-    devices::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
+    devices::Vector{V},
     model::DeviceModel{V, W},
     ::NetworkModel{X},
 ) where {
@@ -1062,7 +1062,7 @@ Only supported for HEAD type.
 function add_constraints!(
     container::OptimizationContainer,
     ::Type{WaterTargetConstraint},
-    devices::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
+    devices::Vector{V},
     model::DeviceModel{V, W},
     ::NetworkModel{X},
 ) where {
@@ -1122,7 +1122,7 @@ function add_constraints!(
     container::OptimizationContainer,
     sys::PSY.System,
     ::Type{HydroPowerConstraint},
-    devices::Union{Vector{PSY.HydroTurbine}, IS.FlattenIteratorWrapper{PSY.HydroTurbine}},
+    devices::Vector{PSY.HydroTurbine},
     model::DeviceModel{PSY.HydroTurbine, W},
     ::NetworkModel{X},
 ) where {
@@ -1206,7 +1206,7 @@ function add_constraints!(
     container::OptimizationContainer,
     sys::PSY.System,
     ::Type{ReservoirInventoryConstraint},
-    devices::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
+    devices::Vector{V},
     model::DeviceModel{V, W},
     ::NetworkModel{X},
 ) where {
@@ -1304,7 +1304,7 @@ active power budget formulation.
 function add_constraints!(
     container::OptimizationContainer,
     ::Type{EnergyBudgetConstraint},
-    devices::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
+    devices::Vector{V},
     model::DeviceModel{V, W},
     ::NetworkModel{X},
 ) where {
@@ -1376,7 +1376,7 @@ function add_constraints!(
     container::OptimizationContainer,
     sys::PSY.System,
     ::Type{EnergyBudgetConstraint},
-    devices::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
+    devices::Vector{V},
     model::DeviceModel{V, W},
     ::NetworkModel{X},
 ) where {
@@ -1421,7 +1421,7 @@ function add_constraints!(
     container::OptimizationContainer,
     sys::PSY.System,
     ::Type{WaterBudgetConstraint},
-    devices::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
+    devices::Vector{V},
     model::DeviceModel{V, W},
     ::NetworkModel{X},
 ) where {
@@ -1490,7 +1490,7 @@ This function define the level (head or volume) limits for the reservoir.
 function add_constraints!(
     container::OptimizationContainer,
     ::Type{ReservoirLevelLimitConstraint},
-    devices::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
+    devices::Vector{V},
     model::DeviceModel{V, W},
     ::NetworkModel{X},
 ) where {
@@ -1545,7 +1545,7 @@ function add_constraints!(
     container::OptimizationContainer,
     ::Type{ReservoirInventoryConstraint},
     ::Type{HydroReservoirVolumeVariable},
-    devices::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
+    devices::Vector{V},
     model::DeviceModel{V, W},
     ::NetworkModel{X},
 ) where {
@@ -1617,7 +1617,7 @@ This function define the target level constraint for the reservoir.
 function add_constraints!(
     container::OptimizationContainer,
     ::Type{ReservoirLevelTargetConstraint},
-    devices::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
+    devices::Vector{V},
     model::DeviceModel{V, W},
     ::NetworkModel{X},
 ) where {
@@ -1658,7 +1658,7 @@ This function define the target level constraint for the reservoir.
 function add_constraints!(
     container::OptimizationContainer,
     ::Type{ReservoirLevelTargetConstraint},
-    devices::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
+    devices::Vector{V},
     model::DeviceModel{V, W},
     ::NetworkModel{X},
 ) where {
@@ -1707,7 +1707,7 @@ This function define the relationship between head and volume for the reservoir.
 function add_constraints!(
     container::OptimizationContainer,
     ::Type{ReservoirHeadToVolumeConstraint},
-    devices::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
+    devices::Vector{V},
     model::DeviceModel{V, W},
     ::NetworkModel{X},
 ) where {
@@ -1746,7 +1746,7 @@ function add_constraints!(
     container::OptimizationContainer,
     sys::PSY.System,
     ::Type{TurbinePowerOutputConstraint},
-    devices::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
+    devices::Vector{V},
     model::DeviceModel{V, W},
     ::NetworkModel{X},
 ) where {
@@ -1803,7 +1803,7 @@ function add_constraints!(
     container::OptimizationContainer,
     sys::PSY.System,
     ::Type{TurbinePowerOutputConstraint},
-    devices::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
+    devices::Vector{V},
     model::DeviceModel{V, W},
     ::NetworkModel{X},
 ) where {
@@ -1951,7 +1951,7 @@ end
 function add_expressions!(
     container::OptimizationContainer,
     ::Type{U},
-    devices::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
+    devices::Vector{V},
     model::DeviceModel{V, W},
 ) where {
     U <: Union{TotalHydroFlowRateReservoirIncoming, TotalHydroFlowRateReservoirOutgoing},
@@ -1982,7 +1982,7 @@ function add_expressions!(
     container::OptimizationContainer,
     sys::PSY.System,
     ::Type{TotalHydroFlowRateTurbineOutgoing},
-    devices::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
+    devices::Vector{V},
     model::DeviceModel{V, W},
 ) where {
     V <: PSY.HydroTurbine,
@@ -2011,7 +2011,7 @@ end
 function add_expressions!(
     container::OptimizationContainer,
     ::Type{U},
-    devices::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
+    devices::Vector{V},
     model::DeviceModel{V, W},
 ) where {
     U <: TotalHydroPowerReservoirIncoming,
@@ -2080,7 +2080,7 @@ end
 function add_expressions!(
     container::OptimizationContainer,
     ::Type{U},
-    devices::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
+    devices::Vector{V},
     model::DeviceModel{V, W},
 ) where {
     U <: TotalHydroPowerReservoirOutgoing,
@@ -2149,7 +2149,7 @@ end
 function add_expressions!(
     container::OptimizationContainer,
     ::Type{U},
-    devices::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
+    devices::Vector{V},
     model::DeviceModel{V, W},
 ) where {
     U <: Union{TotalSpillagePowerReservoirIncoming, TotalSpillageFlowRateReservoirIncoming},
@@ -2181,7 +2181,7 @@ function add_to_balance_expression!(
     container::OptimizationContainer,
     ::Type{U},
     ::Type{V},
-    devices::Union{Vector{W}, IS.FlattenIteratorWrapper{W}},
+    devices::Vector{W},
     model::DeviceModel{W, X},
     ::NetworkModel{Y},
     resolution::Float64,
@@ -2213,7 +2213,7 @@ function add_to_balance_expression!(
     container::OptimizationContainer,
     ::Type{U},
     ::Type{V},
-    devices::Union{Vector{W}, IS.FlattenIteratorWrapper{W}},
+    devices::Vector{W},
     model::DeviceModel{W, X},
     ::NetworkModel{Y},
 ) where {
@@ -2340,7 +2340,7 @@ end
 # generic commitment
 function add_to_objective_function!(
     container::OptimizationContainer,
-    devices::Union{Vector{T}, IS.FlattenIteratorWrapper{T}},
+    devices::Vector{T},
     ::DeviceModel{T, U},
     ::Type{<:AbstractNetworkModel},
 ) where {T <: PSY.HydroGen, U <: AbstractHydroUnitCommitment}
@@ -2408,7 +2408,7 @@ _include_min_gen_power_in_constraint(
 
 function add_to_objective_function!(
     container::OptimizationContainer,
-    devices::Union{Vector{T}, IS.FlattenIteratorWrapper{T}},
+    devices::Vector{T},
     model::DeviceModel{T, U},
     ::Type{<:AbstractNetworkModel},
 ) where {T <: PSY.HydroGen, U <: AbstractHydroDispatchFormulation}
@@ -2422,7 +2422,7 @@ end
 # energy model reservoir
 function add_to_objective_function!(
     container::OptimizationContainer,
-    devices::Union{Vector{T}, IS.FlattenIteratorWrapper{T}},
+    devices::Vector{T},
     model::DeviceModel{T, U},
     ::Type{<:AbstractNetworkModel},
 ) where {T <: PSY.HydroReservoir, U <: HydroEnergyModelReservoir}
@@ -2439,7 +2439,7 @@ end
 # water model reservoir
 function add_to_objective_function!(
     container::OptimizationContainer,
-    devices::Union{Vector{T}, IS.FlattenIteratorWrapper{T}},
+    devices::Vector{T},
     ::DeviceModel{T, U},
     ::Type{<:AbstractNetworkModel},
 ) where {T <: PSY.HydroReservoir, U <: HydroWaterModelReservoir}
@@ -2452,7 +2452,7 @@ end
 # pump turbines
 function add_to_objective_function!(
     container::OptimizationContainer,
-    devices::Union{Vector{T}, IS.FlattenIteratorWrapper{T}},
+    devices::Vector{T},
     ::DeviceModel{T, U},
     ::Type{<:AbstractNetworkModel},
 ) where {T <: PSY.HydroPumpTurbine, U <: AbstractHydroPumpFormulation}
@@ -2467,7 +2467,7 @@ end
 function add_proportional_cost!(
     container::OptimizationContainer,
     ::Type{U},
-    devices::Union{Vector{T}, IS.FlattenIteratorWrapper{T}},
+    devices::Vector{T},
     ::Type{V},
 ) where {
     T <: PSY.Component,
@@ -2509,7 +2509,7 @@ function add_constraints!(
     container::OptimizationContainer,
     T::Type{ActivePowerVariableLimitsConstraint},
     U::Type{<:RangeConstraintLBExpressions},
-    devices::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
+    devices::Vector{V},
     model::DeviceModel{V, W},
     ::NetworkModel{X},
 ) where {V <: PSY.HydroPumpTurbine, W <: HydroPumpEnergyDispatch, X <: AbstractNetworkModel}
@@ -2530,7 +2530,7 @@ function add_constraints!(
     container::OptimizationContainer,
     T::Type{ActivePowerVariableLimitsConstraint},
     U::Type{<:RangeConstraintUBExpressions},
-    devices::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
+    devices::Vector{V},
     model::DeviceModel{V, W},
     ::NetworkModel{X},
 ) where {V <: PSY.HydroPumpTurbine, W <: HydroPumpEnergyDispatch, X <: AbstractNetworkModel}
@@ -2552,7 +2552,7 @@ function add_constraints!(
     container::OptimizationContainer,
     T::Type{ActivePowerVariableLimitsConstraint},
     U::Type{<:RangeConstraintLBExpressions},
-    devices::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
+    devices::Vector{V},
     model::DeviceModel{V, W},
     ::NetworkModel{X},
 ) where {
@@ -2580,7 +2580,7 @@ function add_constraints!(
     container::OptimizationContainer,
     T::Type{ActivePowerVariableLimitsConstraint},
     U::Type{<:RangeConstraintUBExpressions},
-    devices::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
+    devices::Vector{V},
     model::DeviceModel{V, W},
     ::NetworkModel{X},
 ) where {
@@ -2604,7 +2604,7 @@ function add_constraints!(
     container::OptimizationContainer,
     T::Type{InputActivePowerVariableLimitsConstraint},
     U::Type{ActivePowerPumpVariable},
-    devices::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
+    devices::Vector{V},
     model::DeviceModel{V, W},
     ::NetworkModel{X},
 ) where {
@@ -2635,7 +2635,7 @@ function add_constraints!(
     container::OptimizationContainer,
     T::Type{ReactivePowerVariableLimitsConstraint},
     U::Type{ReactivePowerVariable},
-    devices::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
+    devices::Vector{V},
     model::DeviceModel{V, W},
     ::NetworkModel{X},
 ) where {
@@ -2657,7 +2657,7 @@ when the unit is not reserved for generation.
 function add_constraints!(
     container::OptimizationContainer,
     T::Type{ActivePowerPumpReservationConstraint},
-    devices::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
+    devices::Vector{V},
     model::DeviceModel{V, W},
     ::NetworkModel{X},
 ) where {
@@ -2675,7 +2675,7 @@ function add_constraints!(
     container::OptimizationContainer,
     ::Type{T},
     ::Type{U},
-    devices::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
+    devices::Vector{V},
     model::DeviceModel{V, W},
     ::NetworkModel{X},
 ) where {
@@ -2700,7 +2700,7 @@ function add_to_expression!(
     container::OptimizationContainer,
     ::Type{T},
     ::Type{U},
-    devices::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
+    devices::Vector{V},
     model::DeviceModel{V, W},
     network_model::NetworkModel{X},
 ) where {
@@ -2740,7 +2740,7 @@ function add_to_expression!(
     container::OptimizationContainer,
     ::Type{T},
     ::Type{U},
-    devices::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
+    devices::Vector{V},
     model::DeviceModel{V, W},
     network_model::NetworkModel{X},
 ) where {
@@ -2786,7 +2786,7 @@ function _add_parameters!(
     model::DeviceModel{D, W},
 ) where {
     T <: HydroUsageLimitParameter,
-    V <: Union{Vector{D}, IS.FlattenIteratorWrapper{D}},
+    V <: Vector{D},
     W <: AbstractHydroFormulation,
 } where {D <: PSY.HydroGen}
     #@debug "adding" T D U _group = LOG_GROUP_OPTIMIZATION_CONTAINER
@@ -2821,7 +2821,7 @@ function add_to_expression!(
     ::Type{T},
     ::Type{U},
     service::X,
-    devices::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
+    devices::Vector{V},
     model::ServiceModel{X, W},
 ) where {
     T <: HydroServedReserveUpExpression,
@@ -2852,7 +2852,7 @@ function add_to_expression!(
     ::Type{T},
     ::Type{U},
     service::X,
-    devices::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
+    devices::Vector{V},
     model::ServiceModel{X, W},
 ) where {
     T <: HydroServedReserveDownExpression,
@@ -2887,7 +2887,7 @@ function _add_parameters!(
     model::DeviceModel{D, W},
 ) where {
     T <: WaterLevelBudgetParameter,
-    V <: Union{Vector{D}, IS.FlattenIteratorWrapper{D}},
+    V <: Vector{D},
     W <: AbstractHydroFormulation,
 } where {D <: PSY.HydroReservoir}
     #@debug "adding" T D U _group = LOG_GROUP_OPTIMIZATION_CONTAINER

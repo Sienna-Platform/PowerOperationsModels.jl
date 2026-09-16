@@ -183,7 +183,7 @@ end
 
 function get_branch_argument_parameter_axes(
     branch_catalog::PNM.BranchCatalog,
-    ::Union{Vector{T}, IS.FlattenIteratorWrapper{T}},
+    ::Vector{T},
     ::Type{V},
     ts_name::String;
     interval::Dates.Millisecond = IOM.UNSET_INTERVAL,
@@ -255,7 +255,7 @@ end
 
 function get_branch_argument_variable_axis(
     branch_catalog::PNM.BranchCatalog,
-    ::Union{Vector{T}, IS.FlattenIteratorWrapper{T}},
+    ::Vector{T},
 ) where {T <: IS.InfrastructureSystemsComponent}
     return get_branch_argument_variable_axis(branch_catalog, T)
 end
@@ -281,7 +281,7 @@ the claim in `reduced_branch_tracker` so the guarantee holds across separate
 function get_branch_argument_constraint_axis(
     branch_catalog::PNM.BranchCatalog,
     reduced_branch_tracker::BranchReductionOptimizationTracker,
-    ::Union{Vector{T}, IS.FlattenIteratorWrapper{T}},
+    ::Vector{T},
     ::Type{U},
 ) where {T <: IS.InfrastructureSystemsComponent, U <: ConstraintType}
     return get_branch_argument_constraint_axis(

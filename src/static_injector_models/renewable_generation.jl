@@ -69,7 +69,7 @@ function add_constraints!(
     container::OptimizationContainer,
     T::Type{<:ReactivePowerVariableLimitsConstraint},
     U::Type{<:ReactivePowerVariable},
-    devices::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
+    devices::Vector{V},
     model::DeviceModel{V, W},
     ::NetworkModel{X},
 ) where {V <: PSY.RenewableGen, W <: AbstractDeviceFormulation, X <: AbstractNetworkModel}
@@ -84,7 +84,7 @@ function add_constraints!(
     container::OptimizationContainer,
     ::Type{<:ReactivePowerVariableLimitsConstraint},
     ::Type{<:ReactivePowerVariable},
-    devices::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
+    devices::Vector{V},
     ::DeviceModel{V, W},
     ::NetworkModel{X},
 ) where {
@@ -111,7 +111,7 @@ function add_constraints!(
     container::OptimizationContainer,
     ::Type{ActivePowerVariableLimitsConstraint},
     U::Type{<:Union{VariableType, ActivePowerRangeExpressionUB}},
-    devices::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
+    devices::Vector{V},
     model::DeviceModel{V, W},
     ::NetworkModel{X},
 ) where {
@@ -135,7 +135,7 @@ function add_constraints!(
     container::OptimizationContainer,
     T::Type{ActivePowerVariableLimitsConstraint},
     U::Type{ActivePowerRangeExpressionLB},
-    devices::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
+    devices::Vector{V},
     model::DeviceModel{V, W},
     ::NetworkModel{X},
 ) where {
@@ -157,7 +157,7 @@ end
 ##################################### renewable generation cost ############################
 function add_to_objective_function!(
     container::OptimizationContainer,
-    devices::Union{Vector{T}, IS.FlattenIteratorWrapper{T}},
+    devices::Vector{T},
     ::DeviceModel{T, U},
     ::Type{<:AbstractNetworkModel},
 ) where {T <: PSY.RenewableGen, U <: AbstractRenewableDispatchFormulation}

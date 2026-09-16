@@ -183,7 +183,7 @@ end
 function _add_flow_definition_slacks!(
     container::OptimizationContainer,
     device_model::DeviceModel{U, <:AbstractBranchFormulation},
-    devices::Union{Vector{U}, IS.FlattenIteratorWrapper{U}},
+    devices::Vector{U},
     network_model::NetworkModel,
     metas,
 ) where {U <: PSY.ACTransmission}
@@ -219,7 +219,7 @@ end
 # ("c_from"/"c_to"); each relaxes the CurrentLimitConstraint quadratic at one terminal.
 function _add_current_magnitude_slacks!(
     container::OptimizationContainer,
-    devices::Union{Vector{U}, IS.FlattenIteratorWrapper{U}},
+    devices::Vector{U},
     network_model::NetworkModel,
 ) where {U <: PSY.ACTransmission}
     time_steps = get_time_steps(container)
@@ -2732,10 +2732,7 @@ end
 function _add_inter_area_flow_bound_constraints!(
     container::OptimizationContainer,
     sys::PSY.System,
-    devices::Union{
-        Vector{PSY.AreaInterchange},
-        IS.FlattenIteratorWrapper{PSY.AreaInterchange},
-    },
+    devices::Vector{PSY.AreaInterchange},
     device_model::DeviceModel{PSY.AreaInterchange, <:AbstractBranchFormulation},
     network_model::NetworkModel,
 )

@@ -10,7 +10,7 @@ end
 
 @inline function _handle_common_thermal_parameters!(
     container::OptimizationContainer,
-    devices::Union{Vector{T}, IS.FlattenIteratorWrapper{T}},
+    devices::Vector{T},
     model::DeviceModel{T},
 ) where {T <: PSY.ThermalGen}
     if haskey(get_time_series_names(model), FuelCostParameter)

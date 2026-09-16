@@ -148,7 +148,7 @@ initial_condition_variable(
 
 function initial_conditions!(
     container::OptimizationContainer,
-    devices::Union{Vector{St}, IS.FlattenIteratorWrapper{St}},
+    devices::Vector{St},
     formulation::AbstractStorageFormulation,
 ) where {St <: PSY.Storage}
     add_initial_condition!(container, devices, formulation, InitialEnergyLevel())
@@ -176,7 +176,7 @@ function add_constraints!(
     container::OptimizationContainer,
     ::Type{T},
     ::Type{U},
-    devices::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
+    devices::Vector{V},
     model::DeviceModel{V, W},
     ::NetworkModel{X},
 ) where {
@@ -219,7 +219,7 @@ function _add_deployment_upper_bound!(
     container::OptimizationContainer,
     ::Type{T},
     ::Type{U},
-    devices::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
+    devices::Vector{V},
     model::DeviceModel{V, W};
     with_reservation::Bool,
 ) where {
@@ -279,7 +279,7 @@ function add_constraints!(
     container::OptimizationContainer,
     T::Type{<:ReactivePowerVariableLimitsConstraint},
     U::Type{<:ReactivePowerVariable},
-    devices::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
+    devices::Vector{V},
     model::DeviceModel{V, W},
     ::NetworkModel{X},
 ) where {V <: PSY.Storage, W <: AbstractStorageFormulation, X <: AbstractNetworkModel}
@@ -311,7 +311,7 @@ function add_constraints!(
     container::OptimizationContainer,
     ::Type{StateofChargeLimitsConstraint},
     ::Type{EnergyVariable},
-    devices::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
+    devices::Vector{V},
     model::DeviceModel{V, W},
     ::NetworkModel{X},
 ) where {V <: PSY.Storage, W <: AbstractStorageFormulation, X <: AbstractNetworkModel}
@@ -330,7 +330,7 @@ end
 function add_variables!(
     container::OptimizationContainer,
     ::Type{T},
-    devices::Union{Vector{U}, IS.FlattenIteratorWrapper{U}},
+    devices::Vector{U},
     ::Type{F},
 ) where {
     T <: Union{AncillaryServiceVariableDischarge, AncillaryServiceVariableCharge},
@@ -368,7 +368,7 @@ end
 function add_variables!(
     container::OptimizationContainer,
     ::Type{T},
-    devices::Union{Vector{U}, IS.FlattenIteratorWrapper{U}},
+    devices::Vector{U},
     ::Type{<:AbstractStorageFormulation},
 ) where {
     T <: Union{StorageEnergyShortageVariable, StorageEnergySurplusVariable},
@@ -397,7 +397,7 @@ end
 function add_variables!(
     container::OptimizationContainer,
     ::Type{T},
-    devices::Union{Vector{U}, IS.FlattenIteratorWrapper{U}},
+    devices::Vector{U},
     ::Type{<:AbstractStorageFormulation},
 ) where {
     T <: Union{StorageChargeCyclingSlackVariable, StorageDischargeCyclingSlackVariable},
@@ -578,7 +578,7 @@ function add_to_expression!(
     container::OptimizationContainer,
     ::Type{T},
     ::Type{U},
-    devices::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
+    devices::Vector{V},
     device_model::DeviceModel{V, W},
     network_model::NetworkModel{AreaPTDFNetworkModel},
 ) where {
@@ -616,7 +616,7 @@ function add_to_expression!(
     container::OptimizationContainer,
     ::Type{T},
     ::Type{U},
-    devices::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
+    devices::Vector{V},
     model::DeviceModel{V, W},
 ) where {
     T <:
@@ -649,7 +649,7 @@ function add_to_expression!(
     container::OptimizationContainer,
     ::Type{T},
     ::Type{U},
-    devices::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
+    devices::Vector{V},
     model::DeviceModel{V, W},
 ) where {
     T <:
@@ -682,7 +682,7 @@ function add_to_expression!(
     container::OptimizationContainer,
     ::Type{T},
     ::Type{U},
-    devices::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
+    devices::Vector{V},
     model::DeviceModel{V, W},
 ) where {
     T <: TotalReserveOffering,
@@ -745,7 +745,7 @@ Add Energy Balance Constraints for AbstractStorageFormulation
 function add_constraints!(
     container::OptimizationContainer,
     ::Type{EnergyBalanceConstraint},
-    devices::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
+    devices::Vector{V},
     model::DeviceModel{V, StorageDispatchWithReserves},
     network_model::NetworkModel{X},
 ) where {V <: PSY.Storage, X <: AbstractNetworkModel}
@@ -759,7 +759,7 @@ end
 
 function add_energybalance_with_reserves!(
     container::OptimizationContainer,
-    devices::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
+    devices::Vector{V},
     model::DeviceModel{V, StorageDispatchWithReserves},
     network_model::NetworkModel{X},
 ) where {V <: PSY.Storage, X <: AbstractNetworkModel}
@@ -841,7 +841,7 @@ end
 
 function add_energybalance_without_reserves!(
     container::OptimizationContainer,
-    devices::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
+    devices::Vector{V},
     model::DeviceModel{V, StorageDispatchWithReserves},
     network_model::NetworkModel{X},
 ) where {V <: PSY.Storage, X <: AbstractNetworkModel}
@@ -916,7 +916,7 @@ and charge (T = ReserveChargeConstraint) under `StorageDispatchWithReserves`.
 function add_constraints!(
     container::OptimizationContainer,
     ::Type{T},
-    devices::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
+    devices::Vector{V},
     model::DeviceModel{V, StorageDispatchWithReserves},
     network_model::NetworkModel{X},
 ) where {
@@ -954,7 +954,7 @@ time_offset(::Type{ReserveCompleteCoverageConstraintEndOfPeriod}) = 0
 function add_constraints!(
     container::OptimizationContainer,
     ::Type{T},
-    devices::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
+    devices::Vector{V},
     model::DeviceModel{V, StorageDispatchWithReserves},
     network_model::NetworkModel{X},
 ) where {
@@ -1094,7 +1094,7 @@ end
 function add_constraints!(
     container::OptimizationContainer,
     ::Type{T},
-    devices::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
+    devices::Vector{V},
     model::DeviceModel{V, StorageDispatchWithReserves},
     network_model::NetworkModel{X},
 ) where {
@@ -1254,7 +1254,7 @@ end
 function add_constraints!(
     container::OptimizationContainer,
     ::Type{StorageTotalReserveConstraint},
-    devices::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
+    devices::Vector{V},
     model::DeviceModel{V, StorageDispatchWithReserves},
     network_model::NetworkModel{X},
 ) where {V <: PSY.Storage, X <: AbstractNetworkModel}
@@ -1288,7 +1288,7 @@ end
 function add_constraints!(
     container::OptimizationContainer,
     ::Type{StateofChargeTargetConstraint},
-    devices::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
+    devices::Vector{V},
     model::DeviceModel{V, StorageDispatchWithReserves},
     network_model::NetworkModel{X},
 ) where {V <: PSY.EnergyReservoirStorage, X <: AbstractNetworkModel}
@@ -1319,7 +1319,7 @@ end
 
 function add_cycling_charge_without_reserves!(
     container::OptimizationContainer,
-    devices::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
+    devices::Vector{V},
     ::DeviceModel{V, StorageDispatchWithReserves},
     ::NetworkModel{X},
 ) where {V <: PSY.EnergyReservoirStorage, X <: AbstractNetworkModel}
@@ -1354,7 +1354,7 @@ end
 
 function add_cycling_charge_with_reserves!(
     container::OptimizationContainer,
-    devices::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
+    devices::Vector{V},
     ::DeviceModel{V, StorageDispatchWithReserves},
     ::NetworkModel{X},
 ) where {V <: PSY.EnergyReservoirStorage, X <: AbstractNetworkModel}
@@ -1397,7 +1397,7 @@ end
 function add_constraints!(
     container::OptimizationContainer,
     ::Type{StorageCyclingCharge},
-    devices::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
+    devices::Vector{V},
     model::DeviceModel{V, StorageDispatchWithReserves},
     network_model::NetworkModel{X},
 ) where {V <: PSY.EnergyReservoirStorage, X <: AbstractNetworkModel}
@@ -1411,7 +1411,7 @@ end
 
 function add_cycling_discharge_without_reserves!(
     container::OptimizationContainer,
-    devices::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
+    devices::Vector{V},
     ::DeviceModel{V, StorageDispatchWithReserves},
     ::NetworkModel{X},
 ) where {V <: PSY.EnergyReservoirStorage, X <: AbstractNetworkModel}
@@ -1447,7 +1447,7 @@ end
 
 function add_cycling_discharge_with_reserves!(
     container::OptimizationContainer,
-    devices::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
+    devices::Vector{V},
     ::DeviceModel{V, StorageDispatchWithReserves},
     ::NetworkModel{X},
 ) where {V <: PSY.EnergyReservoirStorage, X <: AbstractNetworkModel}
@@ -1489,7 +1489,7 @@ end
 function add_constraints!(
     container::OptimizationContainer,
     ::Type{StorageCyclingDischarge},
-    devices::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
+    devices::Vector{V},
     model::DeviceModel{V, StorageDispatchWithReserves},
     network_model::NetworkModel{X},
 ) where {V <: PSY.EnergyReservoirStorage, X <: AbstractNetworkModel}
@@ -1529,7 +1529,7 @@ _storage_reg_reserve_signs(::Type{StorageRegularizationConstraintDischarge}) = (
 function add_constraints!(
     container::OptimizationContainer,
     ::Type{T},
-    devices::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
+    devices::Vector{V},
     model::DeviceModel{V, StorageDispatchWithReserves},
     network_model::NetworkModel{X},
 ) where {
@@ -1581,7 +1581,7 @@ end
 # no test coverage
 function add_to_objective_function!(
     container::OptimizationContainer,
-    devices::Union{Vector{T}, IS.FlattenIteratorWrapper{T}},
+    devices::Vector{T},
     model::DeviceModel{T, U},
     ::Type{V},
 ) where {T <: PSY.Storage, U <: AbstractStorageFormulation, V <: AbstractNetworkModel}
@@ -1607,10 +1607,7 @@ end
 
 function add_to_objective_function!(
     container::OptimizationContainer,
-    devices::Union{
-        Vector{PSY.EnergyReservoirStorage},
-        IS.FlattenIteratorWrapper{PSY.EnergyReservoirStorage},
-    },
+    devices::Vector{PSY.EnergyReservoirStorage},
     model::DeviceModel{PSY.EnergyReservoirStorage, T},
     ::Type{V},
 ) where {T <: AbstractStorageFormulation, V <: AbstractNetworkModel}
@@ -1659,7 +1656,7 @@ end
 function add_proportional_cost!(
     container::OptimizationContainer,
     ::Type{T},
-    devices::Union{Vector{U}, IS.FlattenIteratorWrapper{U}},
+    devices::Vector{U},
     ::Type{F},
 ) where {
     T <: Union{

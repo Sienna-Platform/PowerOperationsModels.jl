@@ -10,7 +10,7 @@
 function add_feedforward_arguments!(
     container::OptimizationContainer,
     model::DeviceModel,
-    devices::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
+    devices::Vector{V},
 ) where {V <: PSY.Component}
     for ff in get_feedforwards(model)
         @debug "arguments" ff V _group = IOM.LOG_GROUP_FEEDFORWARDS_CONSTRUCTION
@@ -38,7 +38,7 @@ end
 function _add_feedforward_arguments!(
     container::OptimizationContainer,
     model::DeviceModel{T, U},
-    devices::Union{Vector{T}, IS.FlattenIteratorWrapper{T}},
+    devices::Vector{T},
     ff::AbstractAffectFeedforward,
 ) where {T <: PSY.Device, U <: AbstractDeviceFormulation}
     parameter_type = get_default_parameter_type(ff, T)
@@ -53,7 +53,7 @@ function _add_feedforward_slack_variables!(
     ::Type{T},
     ff::Union{LowerBoundFeedforward, UpperBoundFeedforward},
     ::DeviceModel{U, V},
-    devices::Union{Vector{U}, IS.FlattenIteratorWrapper{U}},
+    devices::Vector{U},
 ) where {
     T <: Union{LowerBoundFeedForwardSlack, UpperBoundFeedForwardSlack},
     U <: PSY.Device,
@@ -95,7 +95,7 @@ end
 function _add_feedforward_arguments!(
     container::OptimizationContainer,
     model::DeviceModel{T, U},
-    devices::Union{Vector{T}, IS.FlattenIteratorWrapper{T}},
+    devices::Vector{T},
     ff::FF,
 ) where {
     T <: PSY.Device,
@@ -125,7 +125,7 @@ end
 function _add_feedforward_arguments!(
     container::OptimizationContainer,
     model::DeviceModel{T, U},
-    devices::Union{Vector{T}, IS.FlattenIteratorWrapper{T}},
+    devices::Vector{T},
     ff::WaterLevelBudgetFeedforward,
 ) where {T <: PSY.HydroReservoir, U <: AbstractDeviceFormulation}
     parameter_type = get_default_parameter_type(ff, T)
@@ -139,7 +139,7 @@ end
 function _add_feedforward_arguments!(
     container::OptimizationContainer,
     model::DeviceModel{T, U},
-    devices::Union{Vector{T}, IS.FlattenIteratorWrapper{T}},
+    devices::Vector{T},
     ff::ReservoirTargetFeedforward,
 ) where {T <: PSY.HydroReservoir, U <: AbstractDeviceFormulation}
     parameter_type = get_default_parameter_type(ff, T)
@@ -153,7 +153,7 @@ end
 function _add_feedforward_arguments!(
     container::OptimizationContainer,
     model::DeviceModel{T, U},
-    devices::Union{Vector{T}, IS.FlattenIteratorWrapper{T}},
+    devices::Vector{T},
     ff::EnergyTargetFeedforward,
 ) where {T <: PSY.Storage, U <: AbstractStorageFormulation}
     parameter_type = get_default_parameter_type(ff, T)
@@ -169,7 +169,7 @@ end
 function _add_feedforward_arguments!(
     container::OptimizationContainer,
     model::DeviceModel{T, U},
-    devices::Union{Vector{T}, IS.FlattenIteratorWrapper{T}},
+    devices::Vector{T},
     ff::HydroUsageLimitFeedforward,
 ) where {T <: PSY.HydroGen, U <: AbstractHydroFormulation}
     parameter_type = get_default_parameter_type(ff, T)
@@ -180,7 +180,7 @@ end
 function _add_feedforward_arguments!(
     container::OptimizationContainer,
     model::DeviceModel{T, U},
-    devices::Union{Vector{T}, IS.FlattenIteratorWrapper{T}},
+    devices::Vector{T},
     ff::SemiContinuousFeedforward,
 ) where {T <: PSY.Device, U <: AbstractDeviceFormulation}
     parameter_type = get_default_parameter_type(ff, T)

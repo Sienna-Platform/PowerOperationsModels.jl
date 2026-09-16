@@ -9,7 +9,7 @@
 function add_feedforward_constraints!(
     container::OptimizationContainer,
     model::DeviceModel,
-    devices::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
+    devices::Vector{V},
 ) where {V <: PSY.Component}
     for ff in get_feedforwards(model)
         @debug "constraints" ff V _group = IOM.LOG_GROUP_FEEDFORWARDS_CONSTRUCTION
@@ -57,7 +57,7 @@ function _feedforward_bound_range_with_parameter!(
     lhs_array,
     param_multiplier::Union{JuMPFloatArray, Real, AbstractDict},
     param_array::Union{JuMPVariableArray, JuMPFloatArray},
-    devices::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
+    devices::Vector{V},
 ) where {V <: PSY.Component}
     time_steps = axes(constraint_container)[2]
     for device in devices
@@ -84,7 +84,7 @@ function _add_sc_feedforward_constraints!(
     ::Type{T},
     ::Type{P},
     ::VariableKey{U, V},
-    devices::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
+    devices::Vector{V},
     ::DeviceModel{V, W},
 ) where {
     T <: FeedforwardSemiContinuousConstraint,
@@ -130,7 +130,7 @@ function _add_sc_feedforward_constraints!(
     ::Type{T},
     ::Type{P},
     ::VariableKey{U, V},
-    devices::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
+    devices::Vector{V},
     ::DeviceModel{V, W},
 ) where {
     T <: FeedforwardSemiContinuousConstraint,
@@ -178,7 +178,7 @@ end
 function add_feedforward_constraints!(
     container::OptimizationContainer,
     model::DeviceModel,
-    devices::Union{Vector{T}, IS.FlattenIteratorWrapper{T}},
+    devices::Vector{T},
     ff::SemiContinuousFeedforward,
 ) where {T <: PSY.Component}
     parameter_type = get_default_parameter_type(ff, T)
@@ -231,7 +231,7 @@ _slack_adjusted(::IOM.LowerBound, variable, slack) = variable + slack
 function _add_bound_feedforward_constraints!(
     container::OptimizationContainer,
     dir::IOM.BoundDirection,
-    devices::Union{Vector{T}, IS.FlattenIteratorWrapper{T}},
+    devices::Vector{T},
     ff::AbstractAffectFeedforward,
 ) where {T <: PSY.Component}
     time_steps = get_time_steps(container)
@@ -300,7 +300,7 @@ With `add_slacks = true` the bound is relaxed by a non-negative slack penalized 
 function add_feedforward_constraints!(
     container::OptimizationContainer,
     ::DeviceModel{T, U},
-    devices::Union{Vector{T}, IS.FlattenIteratorWrapper{T}},
+    devices::Vector{T},
     ff::UpperBoundFeedforward,
 ) where {T <: PSY.Component, U <: AbstractDeviceFormulation}
     _add_bound_feedforward_constraints!(container, IOM.UpperBound(), devices, ff)
@@ -321,7 +321,7 @@ With `add_slacks = true` the bound is relaxed by a non-negative slack penalized 
 function add_feedforward_constraints!(
     container::OptimizationContainer,
     ::DeviceModel{T, U},
-    devices::Union{Vector{T}, IS.FlattenIteratorWrapper{T}},
+    devices::Vector{T},
     ff::LowerBoundFeedforward,
 ) where {T <: PSY.Component, U <: AbstractDeviceFormulation}
     _add_bound_feedforward_constraints!(container, IOM.LowerBound(), devices, ff)
@@ -344,7 +344,7 @@ in both storage modes, and tracks the parameter automatically when it is repopul
 function add_feedforward_constraints!(
     container::OptimizationContainer,
     ::DeviceModel,
-    devices::Union{Vector{T}, IS.FlattenIteratorWrapper{T}},
+    devices::Vector{T},
     ff::FixValueFeedforward,
 ) where {T <: PSY.Component}
     time_steps = get_time_steps(container)
@@ -398,7 +398,7 @@ over the full model horizon, to the water usage budget read from the system stat
 function add_feedforward_constraints!(
     container::OptimizationContainer,
     ::DeviceModel{T, U},
-    devices::Union{Vector{T}, IS.FlattenIteratorWrapper{T}},
+    devices::Vector{T},
     ::WaterLevelBudgetFeedforward,
 ) where {T <: PSY.HydroReservoir, U <: AbstractDeviceFormulation}
     names = PSY.get_name.(devices)
@@ -432,7 +432,7 @@ end
 # second axis `WaterBudgetConstraint` uses, since IOM rejects 1D constraint containers.
 function _add_energy_target_constraints!(
     container::OptimizationContainer,
-    devices::Union{Vector{T}, IS.FlattenIteratorWrapper{T}},
+    devices::Vector{T},
     ff::AbstractAffectFeedforward,
     ::Type{S},
 ) where {T <: PSY.Component, S <: VariableType}
@@ -482,7 +482,7 @@ in the objective at `penalty_cost`.
 function add_feedforward_constraints!(
     container::OptimizationContainer,
     ::DeviceModel{T, U},
-    devices::Union{Vector{T}, IS.FlattenIteratorWrapper{T}},
+    devices::Vector{T},
     ff::ReservoirTargetFeedforward,
 ) where {T <: PSY.HydroReservoir, U <: AbstractDeviceFormulation}
     _add_energy_target_constraints!(container, devices, ff, HydroEnergyShortageVariable)
@@ -500,7 +500,7 @@ in the objective at `penalty_cost`. The slack exists only at the last time step,
 function add_feedforward_constraints!(
     container::OptimizationContainer,
     ::DeviceModel{T, U},
-    devices::Union{Vector{T}, IS.FlattenIteratorWrapper{T}},
+    devices::Vector{T},
     ff::EnergyTargetFeedforward,
 ) where {T <: PSY.Storage, U <: AbstractStorageFormulation}
     time_steps = get_time_steps(container)
@@ -520,7 +520,7 @@ end
 # parameter type each reads (`get_default_parameter_type`).
 function _add_integral_limit_constraints!(
     container::OptimizationContainer,
-    devices::Union{Vector{T}, IS.FlattenIteratorWrapper{T}},
+    devices::Vector{T},
     ff::AbstractAffectFeedforward,
 ) where {T <: PSY.Component}
     time_steps = get_time_steps(container)
@@ -572,7 +572,7 @@ reservoir and storage variants differ only in the parameter each reads.
 function add_feedforward_constraints!(
     container::OptimizationContainer,
     ::DeviceModel{T, U},
-    devices::Union{Vector{T}, IS.FlattenIteratorWrapper{T}},
+    devices::Vector{T},
     ff::Union{ReservoirLimitFeedforward, EnergyLimitFeedforward},
 ) where {T <: PSY.Component, U <: AbstractDeviceFormulation}
     _add_integral_limit_constraints!(container, devices, ff)
@@ -588,7 +588,7 @@ the full model horizon, to a hydro energy usage limit read from the system state
 function add_feedforward_constraints!(
     container::OptimizationContainer,
     model::DeviceModel{T, U},
-    devices::Union{Vector{T}, IS.FlattenIteratorWrapper{T}},
+    devices::Vector{T},
     ::HydroUsageLimitFeedforward,
 ) where {T <: PSY.HydroGen, U <: AbstractHydroFormulation}
     time_steps = get_time_steps(container)
