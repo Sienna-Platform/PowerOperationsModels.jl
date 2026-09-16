@@ -130,7 +130,7 @@ function build_problem!(
             sys,
             ArgumentConstructStage(),
             get_service_models(template),
-            get_device_models(template),
+            get_service_device_models(template),
             transmission_model,
         )
     end
@@ -228,7 +228,7 @@ function build_problem!(
             sys,
             ModelConstructStage(),
             get_service_models(template),
-            get_device_models(template),
+            get_service_device_models(template),
             transmission_model,
         )
     end

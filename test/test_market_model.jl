@@ -1066,18 +1066,18 @@ end
 
 # One-bus MarketLoadBid fixture: a cheap thermal (`ThermalStandardUnitCommitment`,
 # $20/MWh), a plain physical `PowerLoad` (20 MW), and an `InterruptiblePowerLoad` (`il1`,
-# max_active_power = 30 MW) registered TWICE -- once in `template.devices` as a
-# `StaticPowerLoad` twin (carries `il1`'s physical forecast, and is what lets the reserve
-# service machinery find `InterruptiblePowerLoad` as a contributing type -- see the
-# `MarketLoadBid` docstring), and once in the market container as `MarketLoadBid` (the AS-only
-# zero-cost energy bid). `il1`'s default `MarketBidCost()` has no decremental offer curve, so
-# `_is_costless_offer` is true and its market energy variable is fixed to zero.
+# max_active_power = 30 MW) registered ONLY in the market container as `MarketLoadBid` (the
+# AS-only zero-cost energy bid): the service machinery sees market component models
+# (`get_service_device_models`), so no `StaticPowerLoad` twin is needed in `template.devices`,
+# and `physical_twin = true` registers one only to show it is rejected. `il1`'s default
+# `MarketBidCost()` has no decremental offer curve, so `_is_costless_offer` is true and its
+# market energy variable is fixed to zero.
 #
 # `il1` is the sole contributor to `Reserve1` (`OnlineReserve{ReserveUp}`, requirement 10 MW).
 # Because the market energy variable is fixed at zero, the settlement balance (thermal's award
 # is its only other term) forces the thermal unit to clear zero energy too -- so the physical
-# balance's entire 50 MW (20 MW static load + 30 MW il1 forecast) is served by the market
-# model's zero-cost `SystemBalanceSlackUp`, deterministically (not merely cost-optimal).
+# balance's 20 MW static load is served by the market model's zero-cost
+# `SystemBalanceSlackUp`, deterministically (not merely cost-optimal). il1 puts nothing there.
 function _market_load_test_system()
     sys = PSY.System(100.0)
     bus = _add_simple_bus!(sys)
@@ -1140,14 +1140,13 @@ function _market_load_test_system()
     return sys
 end
 
-function _market_load_test_template()
+function _market_load_test_template(; physical_twin::Bool = false)
     template = PowerOperationsProblemTemplate(CopperPlateNetworkModel)
     set_device_model!(template, ThermalStandard, ThermalStandardUnitCommitment)
     set_device_model!(template, PSY.PowerLoad, StaticPowerLoad)
-    # The physical twin: carries il1's forecast on the physical balance, and its mere
-    # presence in `template.devices` is what makes `InterruptiblePowerLoad` a contributing
-    # type for reserve-service construction (see the `MarketLoadBid` docstring).
-    set_device_model!(template, PSY.InterruptiblePowerLoad, StaticPowerLoad)
+    # A StaticPowerLoad twin for a reserve-contributing load is rejected at finalization.
+    physical_twin &&
+        set_device_model!(template, PSY.InterruptiblePowerLoad, StaticPowerLoad)
     set_service_model!(template, ServiceModel(OnlineReserve{ReserveUp}, RangeReserve))
     set_market_model!(
         template,
@@ -1157,10 +1156,12 @@ function _market_load_test_template()
     return template
 end
 
-@testset "MarketLoadBid: zero-cost load clears zero energy while providing up-reserve" begin
+@testset "MarketLoadBid: zero-cost load clears zero energy while providing up-reserve, no physical twin" begin
     sys = _market_load_test_system()
+    template = _market_load_test_template()
+    @test !haskey(get_device_models(template), nameof(PSY.InterruptiblePowerLoad))
     model = DecisionModel(
-        _market_load_test_template(), sys;
+        template, sys;
         optimizer = HiGHS_optimizer, store_variable_names = true,
     )
     @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
@@ -1172,80 +1173,73 @@ end
     physical_expr = IOM.get_expression(container, ActivePowerBalance, PSY.System)
     time_steps = axes(p)[2]
 
-    # Build-time: the costless market bid fixes the energy variable to zero every period.
+    # No twin: il1 has no forecast parameter, and the physical row's constant is the plain
+    # static load alone. The market side is unchanged (fixed-zero variable, -1.0 settlement).
+    @test !IOM.has_container_key(
+        container,
+        ActivePowerTimeSeriesParameter,
+        PSY.InterruptiblePowerLoad,
+    )
+    static_load = PSY.get_component(PSY.PowerLoad, sys, "load1")
+    static_pu = PSY.get_max_active_power(static_load, PSY.SU)
     for t in time_steps
+        @test JuMP.constant(physical_expr[1, t]) ≈ -static_pu atol = 1e-9
+        @test JuMP.coefficient(physical_expr[1, t], p["il1", t]) == 0.0
+        @test JuMP.coefficient(settlement_expr[1, t], p["il1", t]) == -1.0
         @test JuMP.is_fixed(p["il1", t])
         @test JuMP.fix_value(p["il1", t]) == 0.0
     end
 
-    # Exactly-once settlement coefficient (no double count with the physical-bid sweep,
-    # which never sees this variable since it only sweeps `template.devices`): -1.0, like a
-    # decremental VirtualParticipant.
-    for t in time_steps
-        @test JuMP.coefficient(settlement_expr[1, t], p["il1", t]) == -1.0
-    end
-
-    # il1's market variable never enters the physical balance; its StaticPowerLoad twin
-    # contributes il1's forecast there as a constant, together with the plain static load.
-    for t in time_steps
-        @test JuMP.coefficient(physical_expr[1, t], p["il1", t]) == 0.0
-        @test !iszero(JuMP.constant(physical_expr[1, t]))
-    end
-
-    # Reserve range: 0 <= max_active_power - r_up <= max_active_power (anchored on the
-    # parameter, not the zero-fixed variable) -- exists and is finite even before solving.
-    @test IOM.has_container_key(
+    # The market component model stands in for the device model in service wiring: il1 is
+    # Reserve1's contributor and its LB range is `max_active_power - r_up`.
+    award =
+        IOM.get_variable(container, ActivePowerReserveVariable, OnlineReserve{ReserveUp})
+    lb = IOM.get_expression(
         container,
         ActivePowerRangeExpressionLB,
         PSY.InterruptiblePowerLoad,
     )
-    @test IOM.has_container_key(
-        container,
-        ActivePowerRangeExpressionUB,
-        PSY.InterruptiblePowerLoad,
-    )
+    il1 = PSY.get_component(PSY.InterruptiblePowerLoad, sys, "il1")
+    pmax = PSY.get_max_active_power(il1, PSY.SU)
+    for t in time_steps
+        @test JuMP.constant(lb["il1", t]) ≈ pmax atol = 1e-9
+        @test JuMP.coefficient(lb["il1", t], award[("Reserve1", "il1", t)]) == -1.0
+    end
 
     @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
 
     reserve = PSY.get_component(OnlineReserve{ReserveUp}, sys, "Reserve1")
     requirement_pu = PSY.get_requirement(reserve, PSY.SU)
-    award =
-        IOM.get_variable(container, ActivePowerReserveVariable, OnlineReserve{ReserveUp})
-    for t in time_steps
-        # (2) The reserve award meets the requirement exactly (il1 is the sole contributor,
-        # bounded above by its participation-factor cap at the same value).
-        @test JuMP.value(award[("Reserve1", "il1", t)]) ≈ requirement_pu atol = 1e-6
-        @test JuMP.value(award[("Reserve1", "il1", t)]) > 0.0
-
-        # (1) P == 0 post-solve too.
-        @test JuMP.value(p["il1", t]) ≈ 0.0 atol = 1e-8
-    end
-
-    # The zero-cost physical slack's NET value (up - down) equals the forecast minus
-    # cleared physical injections, computed from PSY getters rather than a literal.
-    # The up/down SPLIT is not unique under a market model (both are free and
-    # unpenalized, so any (s_up, s_dn) = (a + k, k) is optimal) -- only the net is a
-    # well-defined unserved-load measure, so that is what's asserted here, never s_up
-    # alone. With il1's market energy pinned at zero, the settlement balance forces the
-    # thermal unit's award to zero too, so the injection term is 0 every period and the
-    # net slack must equal the total forecast (20 MW static load + 30 MW il1) exactly.
-    static_load = PSY.get_component(PSY.PowerLoad, sys, "load1")
-    il1 = PSY.get_component(PSY.InterruptiblePowerLoad, sys, "il1")
-    forecast_total =
-        PSY.get_max_active_power(static_load, PSY.SU) +
-        PSY.get_max_active_power(il1, PSY.SU)
     thermal_p = IOM.get_variable(container, ActivePowerVariable, ThermalStandard)
     slack_up = IOM.get_variable(container, SystemBalanceSlackUp, PSY.System)
     slack_dn = IOM.get_variable(container, SystemBalanceSlackDown, PSY.System)
-    obj = JuMP.objective_function(get_jump_model(container))
     for t in time_steps
-        @test JuMP.coefficient(obj, slack_up[1, t]) == 0.0
-        @test JuMP.coefficient(obj, slack_dn[1, t]) == 0.0
-        cleared_injection = JuMP.value(thermal_p["thermal1", t])
-        @test cleared_injection ≈ 0.0 atol = 1e-8
+        @test JuMP.value(award[("Reserve1", "il1", t)]) ≈ requirement_pu atol = 1e-6
+        @test JuMP.value(p["il1", t]) ≈ 0.0 atol = 1e-8
+        # The settlement row pins thermal at zero, so the net physical slack covers the
+        # static load only: il1 carries no forecast here.
+        @test JuMP.value(thermal_p["thermal1", t]) ≈ 0.0 atol = 1e-8
         net_slack = JuMP.value(slack_up[1, t]) - JuMP.value(slack_dn[1, t])
-        @test net_slack ≈ forecast_total - cleared_injection atol = 1e-6
+        @test net_slack ≈ static_pu atol = 1e-6
     end
+end
+
+@testset "MarketLoadBid with a StaticPowerLoad twin is rejected: the twin cannot bound a reserve award" begin
+    sys = _market_load_test_system()
+    err = try
+        DecisionModel(
+            _market_load_test_template(; physical_twin = true),
+            sys;
+            optimizer = HiGHS_optimizer,
+        )
+        nothing
+    catch e
+        e
+    end
+    @test err isa ErrorException
+    @test occursin("StaticPowerLoad", err.msg)
+    @test occursin("InterruptiblePowerLoad", err.msg)
+    @test occursin("cannot bound a reserve award", err.msg)
 end
 
 @testset "VP and MarketLoadBid costs register in ProductionCostExpression like device costs" begin

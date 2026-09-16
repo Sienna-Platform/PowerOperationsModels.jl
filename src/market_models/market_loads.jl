@@ -13,6 +13,11 @@ get_min_max_limits(
 
 #! format: on
 
+# The reserve ranges are seeded on the constant `max_active_power` and bounded within
+# `[0, max_active_power]` (below), so an award is capped at the load's rated capacity by
+# design: that cap IS the AS-only semantic, not an unbounded nameplate sale.
+supports_reserve_provision(::Type{MarketLoadBid}) = true
+
 _is_reserve_down_service(::PSY.Reserve{PSY.ReserveDown}) = true
 _is_reserve_down_service(::PSY.Service) = false
 
@@ -49,9 +54,9 @@ market bid (`_is_costless_offer`), adds every device's energy variable to the si
 `SettlementBalance` row at `-1.0` (a decremental contributor, coefficient added regardless of
 priced/costless so the fixed-zero coefficient is exactly-once and provably zero-valued), builds
 the priced devices' decremental `MarketBidCost` PWL parameters, and seeds the parameter-anchored
-reserve range expressions. Never touches a physical `ActivePowerBalance` row -- the component's
-physical forecast is carried by a separate `StaticPowerLoad`-formulated twin `DeviceModel` in
-`template.devices`.
+reserve range expressions. Never touches a physical `ActivePowerBalance` row: without a
+`StaticPowerLoad` twin in `template.devices` the component has no physical term at all, and
+with one the twin carries its forecast.
 """
 function construct_market_component!(
     container::OptimizationContainer,

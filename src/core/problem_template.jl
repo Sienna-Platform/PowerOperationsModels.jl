@@ -61,6 +61,22 @@ get_hvdc_network_model(template::PowerOperationsProblemTemplate) =
 get_market_model(template::PowerOperationsProblemTemplate) = template.market_model
 
 """
+Device models as the service machinery sees them: `template.devices`, plus every market
+component model whose component type has no device model. A type registered only in the
+market model (e.g. `InterruptiblePowerLoad` under `MarketLoadBid`) then contributes to
+reserves without a physical twin in `template.devices`. A device model, when present, wins.
+"""
+function get_service_device_models(template::PowerOperationsProblemTemplate)
+    models = copy(get_device_models(template))
+    market_model = get_market_model(template)
+    market_model === nothing && return models
+    for (key, model) in IOM.get_market_component_models(market_model)
+        haskey(models, key) || (models[key] = model)
+    end
+    return models
+end
+
+"""
 Return the outage-event models attached to `template` via `set_event_model!`.
 """
 get_event_models(template::PowerOperationsProblemTemplate) = template.events
@@ -306,7 +322,7 @@ function _populate_contributing_devices!(
     service_models = get_service_models(template)
     isempty(service_models) && return
 
-    device_models = get_device_models(template)
+    device_models = get_service_device_models(template)
     branch_models = get_branch_models(template)
     # Type stability: explicitly type the Set to avoid widening to Set{Type}
     modeled_devices = Set{DataType}(get_component_type(m) for m in values(device_models))
@@ -408,7 +424,7 @@ end
 
 function _add_services_to_device_model!(template::PowerOperationsProblemTemplate)
     service_models = get_service_models(template)
-    devices_template = get_device_models(template)
+    devices_template = get_service_device_models(template)
     for (service_key, service_model) in service_models
         S = get_component_type(service_model)
         (S <: PSY.AGC || S <: PSY.GroupReserve) && continue
@@ -425,7 +441,7 @@ Reject a contributing device whose formulation cannot bound a reserve award
 its nameplate rating, uncoupled from its dispatch and from its other services.
 """
 function _validate_reserve_provision!(template::PowerOperationsProblemTemplate)
-    devices_template = get_device_models(template)
+    devices_template = get_service_device_models(template)
     for service_model in values(get_service_models(template))
         get_component_type(service_model) <: PSY.AbstractReserve || continue
         for (service_name, by_device_type) in get_contributing_devices_map(service_model)
