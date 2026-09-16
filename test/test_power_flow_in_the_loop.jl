@@ -771,3 +771,56 @@ end
         @test_throws ArgumentError ACRectangularPowerFlow{PFS.FastDecoupledXB}()
     end
 end
+
+@testset "PF evaluator reports convergence (issue #305)" begin
+    system = build_system(PSITestSystems, "c_sys5_uc")
+    template = get_template_dispatch_with_network(
+        NetworkModel(
+            PTDFNetworkModel;
+            evaluations = power_flow_evaluations(ACPowerFlow(; correct_bustypes = true)),
+        ),
+    )
+    model = DecisionModel(template, system; optimizer = HiGHS_optimizer)
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          ModelBuildStatus.BUILT
+    @test solve!(model) == RunStatus.SUCCESSFULLY_FINALIZED
+
+    container = get_optimization_container(model)
+    pf_e_data = only(values(get_evaluation_data(get_evaluations(container))))
+
+    # `is_solved` tracks what PowerFlows actually reported, instead of always `true`
+    @test is_solved(pf_e_data) == all(PFS.get_converged(get_inner_data(pf_e_data)))
+    @test is_solved(pf_e_data)
+
+    IOM.reset!(pf_e_data)
+    @test !is_solved(pf_e_data)
+end
+
+@testset "PF evaluator reports non-convergence (issue #305)" begin
+    system = build_system(PSITestSystems, "c_sys5_uc")
+    # Engineered setup where PCM solves, but PF doesn't, via copperplate + AC
+    # with poor transmission. nodeB's 3.0 pu load is fed only by lines "1" and "4":
+    # 0.35 here is hand-tuned such that off-peak hours solve, but peak hours don't
+    for name in ("1", "4")
+        set_x!(get_component(Line, system, name), 0.35 * PSY.SU)
+    end
+    template = get_thermal_dispatch_template_network(
+        NetworkModel(
+            CopperPlateNetworkModel;
+            evaluations = power_flow_evaluations(ACPowerFlow(; correct_bustypes = true)),
+        ),
+    )
+    model = DecisionModel(template, system; optimizer = HiGHS_optimizer)
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          ModelBuildStatus.BUILT
+    # Before this fix the evaluator reported `is_solved = true` and this returned
+    # SUCCESSFULLY_FINALIZED with NaN-poisoned power flow aux variables.
+    @test solve!(model) == RunStatus.FAILED
+
+    container = get_optimization_container(model)
+    pf_e_data = only(values(get_evaluation_data(get_evaluations(container))))
+    converged = PFS.get_converged(get_inner_data(pf_e_data))
+    @test !all(converged)
+    @test any(converged)
+    @test !is_solved(pf_e_data)
+end

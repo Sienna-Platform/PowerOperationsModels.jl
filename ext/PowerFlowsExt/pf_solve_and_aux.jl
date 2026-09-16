@@ -27,13 +27,21 @@ function IOM.evaluate!(
             pf_data, container, sys, get_input_key_map(pf_e_data),
         )
         PFS.solve_power_flow!(pf_data)
+        converged = PFS.get_converged(pf_data)
+        pf_e_data.is_solved = all(converged)
+        pf_e_data.is_solved || @error(
+            "Power flow evaluator $(typeof(pf_data)) failed to converge at time steps \
+             $(findall(!, converged)); PowerFlows wrote NaN into those steps."
+        )
     else
         for t in get_time_steps(container)
             update_pf_data!(pf_e_data, container, t)
             PFS.solve_power_flow!(pf_data)
         end
+        # Single-period containers (PSSEExporter) only write data out: no convergence
+        # to report.
+        pf_e_data.is_solved = true
     end
-    pf_e_data.is_solved = true
     return
 end
 
