@@ -232,7 +232,6 @@ the active reduction graph. Duplicate arcs within an outage are collapsed
 per-type. Outages sorted by UUID for deterministic axes.
 """
 function _resolve_monitored_branches(
-    sys::PSY.System,
     device_model::DeviceModel,
     network_model::NetworkModel,
 )
@@ -288,7 +287,6 @@ Add branch post-contingency rate limit constraints for ACBranch considering MODF
 """
 function add_constraints!(
     container::OptimizationContainer,
-    sys::PSY.System,
     cons_type::Type{T},
     device_model::DeviceModel{V, U},
     network_model::NetworkModel{X},
@@ -300,7 +298,7 @@ function add_constraints!(
 }
     time_steps = get_time_steps(container)
 
-    resolved = _resolve_monitored_branches(sys, device_model, network_model)
+    resolved = _resolve_monitored_branches(device_model, network_model)
 
     con_lb = _add_post_contingency_sparse_constraints!(container, T, V; meta = "lb")
     con_ub = _add_post_contingency_sparse_constraints!(container, T, V; meta = "ub")
@@ -365,9 +363,8 @@ function add_constraints!(
                     continue
                 end
             end
-            if has_pc_rating && _has_post_contingency_rate(container, V, name)
-                param, multiplier =
-                    _post_contingency_rate_columns(container, V, name)
+            if has_pc_rating && _has_post_contingency_rate(container, _monitored_type(rep), name)
+                param, multiplier = _post_contingency_rate_columns(container, _monitored_type(rep), name)
                 for t in time_steps
                     sub = if use_slacks
                         _make_post_contingency_slack!(
@@ -505,7 +502,6 @@ recovered from the balance's branch-flow terms (see
 """
 function _add_modf_post_contingency_flow_expressions!(
     container::OptimizationContainer,
-    sys::PSY.System,
     ::Type{T},
     model::DeviceModel{V, F},
     network_model::NetworkModel,
@@ -519,7 +515,7 @@ function _add_modf_post_contingency_flow_expressions!(
     modf_matrix = get_contingency_matrix(network_model)
     registered_contingencies = PNM.get_registered_contingencies(modf_matrix)
 
-    resolved = _resolve_monitored_branches(sys, model, network_model)
+    resolved = _resolve_monitored_branches(model, network_model)
 
     expression_container = _add_post_contingency_sparse_expression!(
         container, T, V, resolved, time_steps,
@@ -828,7 +824,6 @@ function construct_device!(
 
     add_constraints!(
         container,
-        sys,
         PostContingencyFlowRateConstraint,
         device_model,
         network_model,
@@ -928,7 +923,6 @@ function construct_device!(
 
     add_constraints!(
         container,
-        sys,
         PostContingencyFlowRateConstraint,
         device_model,
         network_model,
