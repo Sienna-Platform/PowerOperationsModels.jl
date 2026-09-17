@@ -1821,7 +1821,16 @@ function _build_pc_rating_ts_model(sys)
             ),
         ),
     )
-    set_device_model!(template, DeviceModel(PSY.TwoWindingTransformer, POM.StaticBranch; time_series_names = Dict(POM.PostContingencyBranchRatingTimeSeriesParameter => _PC_RATING_TS_NAME)))
+    set_device_model!(
+        template,
+        DeviceModel(
+            PSY.TwoWindingTransformer,
+            POM.StaticBranch;
+            time_series_names = Dict(
+                POM.PostContingencyBranchRatingTimeSeriesParameter => _PC_RATING_TS_NAME,
+            ),
+        ),
+    )
     model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
     status = build!(model; output_dir = mktempdir(; cleanup = true))
     return model, status
