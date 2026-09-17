@@ -568,7 +568,11 @@ function _build_post_contingency_flow_expressions_for_outage(
             sensitivity = modf_col[adj.from_pos] - modf_col[adj.to_pos]
             # A monitored arc that loses a shifted member also loses that member's share of
             # its own `-b·α` flow offset.
-            own = adj.arc == rep.arc ? -1.0 : 0.0
+            if adj.arc == rep.arc
+                own = -1.0
+            else
+                own = 0.0
+            end
             for t in time_steps
                 JuMP.add_to_expression!(expressions[t], sensitivity + own, adj.delta[t])
             end
