@@ -587,8 +587,9 @@ end
                 JuMP.add_to_expression!(expected, -b, alpha[name, t])
             actual = pcbf.data[(outage_str, name, t)]
             @test _phase_affexpr_approx_equal(actual, expected)
-            iszero(JuMP.coefficient(actual, alpha[_PST_NAME, t])) ||
-                (rows_carrying_angle += 1)
+            if !iszero(JuMP.coefficient(actual, alpha[_PST_NAME, t]))
+                rows_carrying_angle += 1
+            end
         end
         # The angle must actually reach the post-contingency rows, not merely cancel out.
         @test rows_carrying_angle > 0
@@ -772,8 +773,9 @@ end
             @test abs(JuMP.coefficient(actual, angle[_PST_NAME, t])) < 1e-8
             own_rows += 1
         elseif outage_str == string(line_outage_id)
-            iszero(JuMP.coefficient(actual, angle[_PST_NAME, t])) ||
-                (other_rows_with_angle += 1)
+            if !iszero(JuMP.coefficient(actual, angle[_PST_NAME, t]))
+                other_rows_with_angle += 1
+            end
         end
     end
     @test own_rows > 0
