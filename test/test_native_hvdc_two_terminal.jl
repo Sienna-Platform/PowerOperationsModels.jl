@@ -555,11 +555,9 @@ function _two_area_sys_with_lossy_hvdc_tie()
     transform_single_time_series!(sys, Hour(24), Hour(1))
     bus_from = PSY.get_component(PSY.ACBus, sys, "Bus_nodeC_1")
     bus_to = PSY.get_component(PSY.ACBus, sys, "Bus_nodeC_2")
-    existing_arcs = collect(
-        PSY.get_components(
+    existing_arcs = PSY.get_components(
             x -> PSY.get_from(x) == bus_from && PSY.get_to(x) == bus_to, PSY.Arc, sys,
-        ),
-    )
+    ),
     if isempty(existing_arcs)
         arc = PSY.Arc(; from = bus_from, to = bus_to)
         PSY.add_component!(sys, arc)
