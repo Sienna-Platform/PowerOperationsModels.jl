@@ -55,30 +55,6 @@ function _post_contingency_rate_columns(
     get_multiplier_array(param_container)[name, :]
 end
 
-# Add parameter for monitored components under this device model.
-function _add_post_contingency_branch_rating_parameter!(
-    container::OptimizationContainer,
-    device_model::DeviceModel{T},
-    devices,
-    network_model::NetworkModel{<:AbstractNetworkModel},
-) where {T <: PSY.ACTransmission}
-    monitored_names = Set{String}(
-        name
-        for (_, per_type) in get_outages(device_model)
-        for name in get(per_type, T, Set{String}())
-    )
-    monitored_devices = [d for d in devices if PSY.get_name(d) in monitored_names]
-    isempty(monitored_devices) && return
-    add_branch_parameters!(
-        container,
-        PostContingencyBranchRatingTimeSeriesParameter,
-        monitored_devices,
-        device_model,
-        network_model,
-    )
-    return
-end
-
 function _find_shared_post_contingency_expression_source(
     container::OptimizationContainer,
     ::Type{T},
@@ -762,10 +738,11 @@ function construct_device!(
         get_time_series_names(device_model),
         PostContingencyBranchRatingTimeSeriesParameter,
     )
-        _add_post_contingency_branch_rating_parameter!(
+        add_branch_parameters!(
             container,
-            device_model,
+            PostContingencyBranchRatingTimeSeriesParameter,
             devices,
+            device_model,
             network_model,
         )
     end
@@ -865,10 +842,11 @@ function construct_device!(
         get_time_series_names(device_model),
         PostContingencyBranchRatingTimeSeriesParameter,
     )
-        _add_post_contingency_branch_rating_parameter!(
+        add_branch_parameters!(
             container,
-            device_model,
+            PostContingencyBranchRatingTimeSeriesParameter,
             devices,
+            device_model,
             network_model,
         )
     end

@@ -1908,6 +1908,87 @@ end
     @test n_checked > 0
 end
 
+@testset "a monitored branch keeps its rating forecast when another type carries the outage" begin
+    # An outage is assigned to a security-constrained `DeviceModel` by the type of the
+    # component it is *attached* to, not by the types it monitors. With the outage on a
+    # transformer and only `Line`s monitored, the `Line` model's outage set is empty, so
+    # its post-contingency rating parameter has to be built from the full device list --
+    # the transformer model reads it cross-type when it builds the rate limits.
+    sys = PSB.build_system(PSITestSystems, "c_sys14")
+    branches_with_ts = ["Line1", "Line2"]
+    for name in branches_with_ts
+        branch = PSY.get_component(PSY.ACTransmission, sys, name)
+        _set_rating_b!(branch, (1.2 * POM._branch_rating(branch)) * PSY.SU)
+    end
+    add_branch_rating_time_series_to_system!(
+        sys, branches_with_ts, 2, _PC_RATING_FACTORS;
+        initial_date = "2024-01-01", ts_name = _PC_RATING_TS_NAME,
+    )
+    PSY.add_supplemental_attribute!(
+        sys,
+        get_component(PSY.ACTransmission, sys, "Trans1"),
+        PSY.GeometricDistributionForcedOutage(;
+            mean_time_to_recovery = 10,
+            outage_transition_probability = 0.9999,
+            monitored_components = [
+                PSY.get_component(PSY.ACTransmission, sys, n) for n in branches_with_ts
+            ],
+        ),
+    )
+
+    template = get_thermal_dispatch_template_network(
+        NetworkModel(
+            PTDFNetworkModel;
+            network_source = PrebuiltMatrixSource(PNM.VirtualPTDF(sys)),
+        ),
+    )
+    for T in (PSY.Line, PSY.TwoWindingTransformer)
+        set_device_model!(
+            template,
+            DeviceModel(
+                T,
+                POM.SecurityConstrainedStaticBranch;
+                time_series_names = Dict(
+                    POM.PostContingencyBranchRatingTimeSeriesParameter =>
+                        _PC_RATING_TS_NAME,
+                ),
+            ),
+        )
+    end
+    model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+
+    container = IOM.get_optimization_container(model)
+    branch_models = get_branch_models(get_template(model))
+    @test isempty(IOM.get_outages(branch_models[:Line]))
+    @test !isempty(IOM.get_outages(branch_models[:TwoWindingTransformer]))
+    @test IOM.has_container_key(
+        container, POM.PostContingencyBranchRatingTimeSeriesParameter, PSY.Line,
+    )
+
+    pcbf = IOM.get_expression(
+        container, POM.PostContingencyBranchFlow, PSY.TwoWindingTransformer,
+    )
+    con_ub = IOM.get_constraints(container)[IOM.ConstraintKey(
+        POM.PostContingencyFlowRateConstraint, PSY.TwoWindingTransformer, "ub",
+    )]
+
+    n_checked = 0
+    for (outage_id, name, t) in keys(pcbf.data)
+        name in branches_with_ts || continue
+        branch = PSY.get_component(PSY.ACTransmission, sys, name)
+        expected = POM._branch_rating_b(branch) * _PC_RATING_FACTORS[t]
+        expr_const = JuMP.constant(pcbf[outage_id, name, t])
+        @test JuMP.normalized_rhs(con_ub[outage_id, name, t]) + expr_const ≈ expected
+        # The forecast has to actually move the limit off the static value.
+        @test !isapprox(expected, POM._branch_rating_b(branch); atol = 1e-8) ||
+              _PC_RATING_FACTORS[t] == 1.0
+        n_checked += 1
+    end
+    @test n_checked > 0
+end
+
 @testset "Unavailable monitored components are dropped, not fatal" begin
     # An unavailable branch is absent from the branch catalog, so a monitored
     # reference to one cannot resolve to a representative arc. Discovery skips it
