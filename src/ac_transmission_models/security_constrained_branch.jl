@@ -63,7 +63,9 @@ function _add_post_contingency_branch_rating_parameter!(
     network_model::NetworkModel{<:AbstractNetworkModel},
 ) where {T <: PSY.ACTransmission}
     monitored_names = Set{String}(
-        name for (_, per_type) in get_outages(device_model) for name in per_type[T]
+        name
+        for (_, per_type) in get_outages(device_model)
+        for name in get(per_type, T, Set{String}())
     )
     monitored_devices = [d for d in devices if PSY.get_name(d) in monitored_names]
     isempty(monitored_devices) && return
