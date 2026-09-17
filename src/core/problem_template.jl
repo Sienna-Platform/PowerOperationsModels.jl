@@ -373,8 +373,38 @@ function _add_services_to_device_model!(template::PowerOperationsProblemTemplate
     return
 end
 
+"""
+Reject a contributing device whose formulation cannot bound a reserve award
+([`supports_reserve_provision`](@ref)); such a device would sell capacity limited only by
+its nameplate rating, uncoupled from its dispatch and from its other services.
+"""
+function _validate_reserve_provision!(template::PowerOperationsProblemTemplate)
+    devices_template = get_device_models(template)
+    for service_model in values(get_service_models(template))
+        get_component_type(service_model) <: PSY.AbstractReserve || continue
+        for (service_name, by_device_type) in get_contributing_devices_map(service_model)
+            for device_type in keys(by_device_type)
+                device_model = get(devices_template, nameof(device_type), nothing)
+                isnothing(device_model) && continue
+                formulation = get_formulation(device_model)
+                supports_reserve_provision(formulation) && continue
+                error(
+                    "$(device_type) devices are modeled under $(formulation), which " *
+                    "cannot bound a reserve award, but they contribute to service " *
+                    "\"$(service_name)\" of type $(get_component_type(service_model)). " *
+                    "Model them under a formulation that supports reserves " *
+                    "(PowerLoadDispatch or PowerLoadInterruption for loads), or remove " *
+                    "them from the service's contributing devices.",
+                )
+            end
+        end
+    end
+    return
+end
+
 function finalize_template!(template::PowerOperationsProblemTemplate, sys::PSY.System)
     _populate_contributing_devices!(template, sys)
+    _validate_reserve_provision!(template)
     _add_services_to_device_model!(template)
     return
 end

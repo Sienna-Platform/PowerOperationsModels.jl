@@ -18,7 +18,7 @@ import PowerNetworkMatrices: PTDF, VirtualPTDF
 import PowerNetworkMatrices:
     RadialReduction, DegreeTwoReduction, WardReduction, ZeroImpedanceBranchReduction
 import PowerSystems
-import PowerSystems: get_component
+import PowerSystems: get_component, @u_str
 import PrettyTables
 import ProgressMeter
 import Serialization

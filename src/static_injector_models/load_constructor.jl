@@ -266,6 +266,25 @@ function construct_device!(
         network_model,
     )
 
+    if has_service_model(model)
+        add_to_expression!(
+            container,
+            ActivePowerRangeExpressionLB,
+            ActivePowerVariable,
+            devices,
+            model,
+            network_model,
+        )
+        add_to_expression!(
+            container,
+            ActivePowerRangeExpressionUB,
+            ActivePowerVariable,
+            devices,
+            model,
+            network_model,
+        )
+    end
+
     if haskey(get_time_series_names(model), ActivePowerTimeSeriesParameter)
         add_parameters!(container, ActivePowerTimeSeriesParameter, devices, model)
     end
@@ -287,14 +306,33 @@ function construct_device!(
     devices =
         get_device_cache(model)
 
-    add_constraints!(
-        container,
-        ActivePowerVariableLimitsConstraint,
-        ActivePowerVariable,
-        devices,
-        model,
-        network_model,
-    )
+    if has_service_model(model)
+        add_constraints!(
+            container,
+            ActivePowerVariableLimitsConstraint,
+            ActivePowerRangeExpressionLB,
+            devices,
+            model,
+            network_model,
+        )
+        add_constraints!(
+            container,
+            ActivePowerVariableLimitsConstraint,
+            ActivePowerRangeExpressionUB,
+            devices,
+            model,
+            network_model,
+        )
+    else
+        add_constraints!(
+            container,
+            ActivePowerVariableLimitsConstraint,
+            ActivePowerVariable,
+            devices,
+            model,
+            network_model,
+        )
+    end
     add_constraints!(
         container,
         ActivePowerVariableLimitsConstraint,
@@ -349,6 +387,25 @@ function construct_device!(
         network_model,
     )
 
+    if has_service_model(model)
+        add_to_expression!(
+            container,
+            ActivePowerRangeExpressionLB,
+            ActivePowerVariable,
+            devices,
+            model,
+            network_model,
+        )
+        add_to_expression!(
+            container,
+            ActivePowerRangeExpressionUB,
+            ActivePowerVariable,
+            devices,
+            model,
+            network_model,
+        )
+    end
+
     if haskey(get_time_series_names(model), ActivePowerTimeSeriesParameter)
         add_parameters!(container, ActivePowerTimeSeriesParameter, devices, model)
     end
@@ -368,14 +425,33 @@ function construct_device!(
     devices =
         get_device_cache(model)
 
-    add_constraints!(
-        container,
-        ActivePowerVariableLimitsConstraint,
-        ActivePowerVariable,
-        devices,
-        model,
-        network_model,
-    )
+    if has_service_model(model)
+        add_constraints!(
+            container,
+            ActivePowerVariableLimitsConstraint,
+            ActivePowerRangeExpressionLB,
+            devices,
+            model,
+            network_model,
+        )
+        add_constraints!(
+            container,
+            ActivePowerVariableLimitsConstraint,
+            ActivePowerRangeExpressionUB,
+            devices,
+            model,
+            network_model,
+        )
+    else
+        add_constraints!(
+            container,
+            ActivePowerVariableLimitsConstraint,
+            ActivePowerVariable,
+            devices,
+            model,
+            network_model,
+        )
+    end
     add_constraints!(
         container,
         ActivePowerVariableLimitsConstraint,
