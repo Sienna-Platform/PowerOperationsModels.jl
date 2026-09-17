@@ -238,6 +238,8 @@ function advance_countdown(previous::Real, occurred::Bool, duration_steps::Int)
     return 0.0
 end
 
+_countdown_at_step(remaining::Real, i::Int) = max(Float64(remaining) - (i - 1), 0.0)
+
 """
     countdown_trajectory(remaining, n_steps)
 
@@ -246,8 +248,6 @@ what carries an in-progress outage into the horizon of the next decision model: 
 model is built once, so the whole trajectory has to be written up front rather than
 discovered step by step.
 """
-_countdown_at_step(remaining::Real, i::Int) = max(Float64(remaining) - (i - 1), 0.0)
-
 countdown_trajectory(remaining::Real, n_steps::Int) =
     [_countdown_at_step(remaining, i) for i in 1:n_steps]
 
