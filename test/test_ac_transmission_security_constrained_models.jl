@@ -1772,14 +1772,17 @@ end
 const _PC_RATING_TS_NAME = "pc_branch_rating"
 const _PC_RATING_FACTORS = vcat([fill(x, 6) for x in [0.99, 0.98, 1.0, 0.95]]...)
 
+_set_rating_b!(l::PSY.Line, r) = PSY.set_rating_b!(l, r)
+_set_rating_b!(t::PSY.TwoWindingTransformer, r) = PSY.set_rating_b!(t.circuit, r)
+
 # `c_sys5` with `rating_b = 1.2 * rating` and a post-contingency rating forecast
 # on `lines_with_ts`, every branch outaged and monitored.
-function _pc_rating_ts_system(lines_with_ts::Vector{String})
+function _pc_rating_ts_system()
     sys = PSB.build_system(PSITestSystems, "c_sys14")
     lines_with_ts = ["Line1", "Line2", "Line6", "Trans1"]
     for name in lines_with_ts
-        line = PSY.get_component(PSY.Line, sys, name)
-        PSY.set_rating_b!(line, (1.2 * PSY.get_rating(line, PSY.SU)) * PSY.SU)
+        line = PSY.get_component(PSY.ACTransmission, sys, name)
+        _set_rating_b!(line, (1.2 * POM._branch_rating(line)) * PSY.SU)
     end
     add_branch_rating_time_series_to_system!(
         sys, lines_with_ts, 2, _PC_RATING_FACTORS;
@@ -1818,13 +1821,14 @@ function _build_pc_rating_ts_model(sys)
             ),
         ),
     )
+    set_device_model!(template, DeviceModel(PSY.TwoWindingTransformer, POM.StaticBranch; time_series_names = Dict(POM.PostContingencyBranchRatingTimeSeriesParameter => _PC_RATING_TS_NAME)))
     model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
     status = build!(model; output_dir = mktempdir(; cleanup = true))
     return model, status
 end
 
 @testset "post-contingency rate limit follows the post-contingency rating time series" begin
-    sys, lines_with_ts = _pc_rating_ts_system(lines_with_ts)
+    sys, lines_with_ts = _pc_rating_ts_system()
     model, status = _build_pc_rating_ts_model(sys)
     @test status == IOM.ModelBuildStatus.BUILT
 
@@ -1845,8 +1849,8 @@ end
     # actually vary, else the assertions below could not tell the parameterized
     # RHS apart from the static one.
     for name in lines_with_ts
-        line = PSY.get_component(PSY.Line, sys, name)
-        @test PSY.get_rating_b(line, PSY.SU) > PSY.get_rating(line, PSY.SU)
+        line = PSY.get_component(PSY.ACTransmission, sys, name)
+        @test POM._branch_rating_b(line) > POM._branch_rating(line)
     end
     @test length(unique(_PC_RATING_FACTORS)) > 1
 
@@ -1855,7 +1859,7 @@ end
     seen_rhs = Set{Float64}()
     for (outage_id, name, t) in keys(pcbf.data)
         name in lines_with_ts || continue
-        rating_b = PSY.get_rating_b(PSY.get_component(PSY.Line, sys, name), PSY.SU)
+        rating_b = POM._branch_rating_b(PSY.get_component(PSY.ACTransmission, sys, name))
         expected = rating_b * _PC_RATING_FACTORS[mod1(t, n_factors)]
         push!(seen_rhs, expected)
         # JuMP migrates the expression's affine constant to the RHS; add it back
@@ -1872,7 +1876,7 @@ end
 end
 
 @testset "a branch without a post-contingency rating forecast keeps the static limit" begin
-    sys, lines_with_ts = _pc_rating_ts_system(lines_with_ts)
+    sys, lines_with_ts = _pc_rating_ts_system()
     model, status = _build_pc_rating_ts_model(sys)
     @test status == IOM.ModelBuildStatus.BUILT
 
@@ -1887,7 +1891,7 @@ end
         name in lines_with_ts && continue
         line = PSY.get_component(PSY.Line, sys, name)
         isnothing(line) && continue
-        expected = POM._emergency_flow_limits(line).max
+        expected = POM._branch_rating_b(line)
         expr_const = JuMP.constant(pcbf[outage_id, name, t])
         @test JuMP.normalized_rhs(con_ub[outage_id, name, t]) + expr_const ≈ expected
         n_checked += 1
@@ -1924,7 +1928,7 @@ end
 
     # The unavailable branch is dropped; the available ones survive.
     device_model = get_branch_models(get_template(model))[:Line]
-    monitored = POM._monitored_component_names(device_model, PSY.Line)
+    monitored = get_outages(device_model)[outage_id][PSY.Line]
     @test !("6" in monitored)
     @test "1" in monitored
 

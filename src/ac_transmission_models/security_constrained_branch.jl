@@ -63,7 +63,7 @@ function _add_post_contingency_branch_rating_parameter!(
     network_model::NetworkModel{<:AbstractNetworkModel},
 ) where {T <: PSY.ACTransmission}
     monitored_names = Set{String}(
-        name for (_, per_type) in get_outages(device_model), name in per_type[T]
+        name for (_, per_type) in get_outages(device_model) for name in per_type[T]
     )
     monitored_devices = [d for d in devices if PSY.get_name(d) in monitored_names]
     isempty(monitored_devices) && return
@@ -487,6 +487,7 @@ recovered from the balance's branch-flow terms (see
 """
 function _add_modf_post_contingency_flow_expressions!(
     container::OptimizationContainer,
+    sys::PSY.System,
     ::Type{T},
     model::DeviceModel{V, F},
     network_model::NetworkModel,
