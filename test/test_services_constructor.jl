@@ -2059,3 +2059,212 @@ end
     @test occursin("interchange1_3", message)
     @test !occursin("\"interchange1_2\"", message)
 end
+
+#################################################################################
+# Reserve range expressions when contributor sets differ across services.
+# `seed_reserve_range_expressions!` sizes each axis over the device model's full component
+# set, so services whose contributor sets do not nest all find their devices on it.
+#################################################################################
+
+const _NONNESTED_LOAD_B = "IL_B"
+
+_nonnested_ordc_curve() = make_market_bid_curve(
+    [0.0, 200.0, 400.0],
+    [80.0, 15.0],
+    0.0;
+    power_units = IS.NaturalUnit(),
+)
+
+# `nested = false` gives each service exactly one of the loads, so neither contributor set
+# contains the other.
+function _build_nonnested_reserve_system(; nested::Bool)
+    sys = deepcopy(PSB.build_system(PSITestSystems, "c_sys5_il"; add_reserves = false))
+    thermals = collect(get_components(ThermalStandard, sys))
+    il_a = first(get_components(PSY.InterruptiblePowerLoad, sys))
+
+    il_b = PSY.InterruptiblePowerLoad(;
+        name = _NONNESTED_LOAD_B,
+        available = true,
+        bus = PSY.get_bus(il_a),
+        active_power = PSY.get_active_power(il_a, PSY.SU),
+        reactive_power = PSY.get_reactive_power(il_a, PSY.SU),
+        max_active_power = PSY.get_max_active_power(il_a, PSY.SU),
+        max_reactive_power = PSY.get_max_reactive_power(il_a, PSY.SU),
+        base_power = PSY.get_base_power(il_a),
+        operation_cost = deepcopy(get_operation_cost(il_a)),
+    )
+    add_component!(sys, il_b)
+    PSY.copy_time_series!(il_b, il_a)
+
+    for name in ("R1", "R2")
+        add_service!(
+            sys,
+            PSY.OnlineReserve{PSY.ReserveUp}(;
+                name = name,
+                available = true,
+                time_frame = 5.0,
+                variable = _nonnested_ordc_curve(),
+            ),
+            if nested
+                vcat(PSY.Device[thermals...], il_a, il_b)
+            else
+                vcat(PSY.Device[thermals...], name == "R1" ? il_a : il_b)
+            end,
+        )
+    end
+    return sys
+end
+
+function _nonnested_reserve_template(load_formulation)
+    template = PowerOperationsProblemTemplate(NetworkModel(CopperPlateNetworkModel))
+    set_device_model!(template, ThermalStandard, ThermalBasicUnitCommitment)
+    set_device_model!(template, PowerLoad, StaticPowerLoad)
+    set_device_model!(template, PSY.InterruptiblePowerLoad, load_formulation)
+    set_service_model!(
+        template,
+        ServiceModel(PSY.OnlineReserve{PSY.ReserveUp}, StepwiseCostReserve),
+    )
+    return template
+end
+
+@testset "Reserve range expression axis spans every contributing device" begin
+    for (formulation, nested) in
+        ((PowerLoadInterruption, false), (PowerLoadInterruption, true),
+        (PowerLoadDispatch, false), (PowerLoadDispatch, true))
+        sys = _build_nonnested_reserve_system(; nested = nested)
+        # The IC template maps loads to `StaticPowerLoad` while keeping the service
+        # wiring, so initialization exercises the seeding a second time.
+        model = DecisionModel(
+            _nonnested_reserve_template(formulation),
+            sys;
+            optimizer = HiGHS_optimizer,
+        )
+        @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+              IOM.ModelBuildStatus.BUILT
+        @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+
+        container = IOM.get_optimization_container(model)
+        expression = IOM.get_expression(
+            container,
+            ActivePowerRangeExpressionLB,
+            PSY.InterruptiblePowerLoad,
+        )
+        @test sort(collect(JuMP.axes(expression)[1])) ==
+              sort(PSY.get_name.(get_components(PSY.InterruptiblePowerLoad, sys)))
+
+        # Every service's award enters the same LB expression, so one row couples the shed
+        # to consumption across all of them.
+        reserve = IOM.get_variable(
+            container,
+            ActivePowerReserveVariable,
+            PSY.OnlineReserve{PSY.ReserveUp},
+        )
+        for service_name in ("R1", "R2")
+            devices = if nested
+                ("IloadBus4", _NONNESTED_LOAD_B)
+            else
+                (service_name == "R1" ? ("IloadBus4",) : (_NONNESTED_LOAD_B,))
+            end
+            for name in devices
+                @test JuMP.coefficient(
+                    expression[name, 1],
+                    reserve[(service_name, name, 1)],
+                ) == -1.0
+            end
+        end
+    end
+end
+
+@testset "Formulations that cannot bound a reserve award are rejected" begin
+    for formulation in (StaticPowerLoad, PowerLoadShift)
+        @test !POM.supports_reserve_provision(formulation)
+    end
+    for formulation in (PowerLoadDispatch, PowerLoadInterruption)
+        @test POM.supports_reserve_provision(formulation)
+    end
+
+    sys = _build_nonnested_reserve_system(; nested = true)
+    err = try
+        DecisionModel(
+            _nonnested_reserve_template(StaticPowerLoad),
+            sys;
+            optimizer = HiGHS_optimizer,
+        )
+        nothing
+    catch e
+        e
+    end
+    @test err isa ErrorException
+    @test occursin("StaticPowerLoad", err.msg)
+    @test occursin("InterruptiblePowerLoad", err.msg)
+    @test occursin("cannot bound a reserve award", err.msg)
+end
+
+# An interrupted load consumes nothing, so it can neither shed nor absorb: `OnVariable = 0`
+# forces both directions to zero, up through the LB row and down through the gate.
+@testset "PowerLoadInterruption: an interrupted load sells no reserve" begin
+    load_name = "IloadBus4"
+    sys = deepcopy(PSB.build_system(PSITestSystems, "c_sys5_il"; add_reserves = false))
+    thermals = collect(get_components(ThermalStandard, sys))
+    il = get_component(PSY.InterruptiblePowerLoad, sys, load_name)
+    for (name, R) in (("R_UP", PSY.ReserveUp), ("R_DN", PSY.ReserveDown))
+        add_service!(
+            sys,
+            PSY.OnlineReserve{R}(;
+                name = name,
+                available = true,
+                time_frame = 5.0,
+                variable = _nonnested_ordc_curve(),
+            ),
+            vcat(PSY.Device[thermals...], il),
+        )
+    end
+
+    template = _nonnested_reserve_template(PowerLoadInterruption)
+    set_service_model!(
+        template,
+        ServiceModel(PSY.OnlineReserve{PSY.ReserveDown}, StepwiseCostReserve),
+    )
+    model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+
+    container = IOM.get_optimization_container(model)
+    jump_model = IOM.get_jump_model(container)
+    on = IOM.get_variable(container, OnVariable, PSY.InterruptiblePowerLoad)
+    r_up =
+        IOM.get_variable(
+            container,
+            ActivePowerReserveVariable,
+            PSY.OnlineReserve{PSY.ReserveUp},
+        )
+    r_dn = IOM.get_variable(
+        container,
+        ActivePowerReserveVariable,
+        PSY.OnlineReserve{PSY.ReserveDown},
+    )
+
+    for t in IOM.get_time_steps(container)
+        JuMP.fix(on[load_name, t], 0.0; force = true)
+    end
+    JuMP.@objective(
+        jump_model,
+        Max,
+        r_up[("R_UP", load_name, 1)] + r_dn[("R_DN", load_name, 1)]
+    )
+    JuMP.optimize!(jump_model)
+    @test JuMP.termination_status(jump_model) == JuMP.OPTIMAL
+    @test isapprox(JuMP.value(r_up[("R_UP", load_name, 1)]), 0.0; atol = 1e-8)
+    @test isapprox(JuMP.value(r_dn[("R_DN", load_name, 1)]), 0.0; atol = 1e-8)
+
+    # Committed, it sells in both directions.
+    for t in IOM.get_time_steps(container)
+        JuMP.fix(on[load_name, t], 1.0; force = true)
+    end
+    JuMP.@objective(jump_model, Max, r_up[("R_UP", load_name, 1)])
+    JuMP.optimize!(jump_model)
+    @test JuMP.value(r_up[("R_UP", load_name, 1)]) > 0.0
+    JuMP.@objective(jump_model, Max, r_dn[("R_DN", load_name, 1)])
+    JuMP.optimize!(jump_model)
+    @test JuMP.value(r_dn[("R_DN", load_name, 1)]) > 0.0
+end
