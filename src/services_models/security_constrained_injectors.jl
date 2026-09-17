@@ -70,14 +70,14 @@ function _constrain_post_contingency_generation!(
     jump_model = get_jump_model(container)
     time_steps = get_time_steps(container)
     cons = add_constraints_container!(container, PostContingencyActivePowerGenerationLimitsConstraint, D, time_steps)
-    for device in contributing_devices, uuid in keys(outaged_gens)
+    power = get_variable(container, ActivePowerVariable, D)
+    reserve = get_variable(container, PostContingencyActivePowerReserveDeploymentVariable, D)
+    for device in contributing_devices
         name = PSY.get_name(device)
         (D, name) in outaged_gens[uuid] && continue
-        power = get_variable(container, ActivePowerVariable, D)
-        reserve = get_variable(container, PostContingencyActivePowerReserveDeploymentVariable, D)
         # TODO: max deployment fraction?
         limit = PSY.get_max_active_power(device)
-        for t in time_steps
+        for t in time_steps, uuid in keys(outaged_gens)
             cons[name, uuid, t] = JuMP.@constraint(jump_model, power[name, t] + reserve[name, t] <= limit)
         end
     end
@@ -94,14 +94,52 @@ function _constrain_post_contingency_reserve!(
     jump_model = get_jump_model(container)
     time_steps = get_time_steps(container)
     cons = add_constraints_container!(container, PostContingencyActivePowerReserveDeploymentVariableLimitsConstraint, D, time_steps)
-    for device in contributing_devices, uuid in keys(outaged_gens)
+    pre_reserve = get_variable(container, ActivePowerReserveVariable, D)
+    post_reserve = get_variable(container, PostContingencyActivePowerReserveDeploymentVariable, D)
+    for device in contributing_devices
         name = PSY.get_name(device)
         (D, name) in outaged_gens[uuid] && continue
-        pre_reserve = get_variable(container, ActivePowerReserveVariable, D)
-        post_reserve = get_variable(container, PostContingencyActivePowerReserveDeploymentVariable, D)
-        for t in time_steps
+        for uuid in keys(outaged_gens), t in time_steps
             cons[name, uuid, t] = JuMP.@constraint(jump_model, post_reserve[name, t] <= pre_reserve[name, t])
         end
+    end
+end
+
+function _build_post_contingency_nodal_power!(
+    container::OptimizationContainer,
+    outaged_gens::Dict{Int, Set{Tuple{DataType, String}}},
+    contributing_devices::Vector{D},
+) where {D <: PSY.StaticInjection}
+    expr = add_expression_container!(container, PostContingencyNodalActivePowerDeployment, D, Int[], Int[], Int[]; sparse = true)
+    power = get_variable(container, ActivePowerVariable, D)
+    reserve = get_variable(container, PostContingencyActivePowerReserveDeploymentVariable, D)
+    for device in contributing_devices
+        name = PSY.get_name(device)
+        (D, name) in contributing_devices && continue
+        bus = PNM.get_mapped_bus_number(network_reduction, PSY.get_bus(device))
+        for uuid in values(outaged_gens), t in time_steps
+            ex = expr[uuid, bus, t] = JuMP.AffExpr(0.0)
+            JuMP.add_to_expression!(ex, power[name, t])
+            JuMP.add_to_expression!(ex, reserve[name, t])
+        end
+    end
+    return
+end
+
+# Go through monitored lines, find what arc they reduced to, build flow on that arc.
+# Flow on arc will consider pre-conting. flow and post-conting. nodal power.
+function _build_post_contingency_branch_flow!(
+    container::OptimizationContainer,
+)
+    nodal = get_expression(container, PostContingencyNodalActivePowerDeployment, D)
+    catalog = get_branch_catalog(network_model)
+    reduction_name = get_component_to_reduction_name_map(catalog, T)[name]
+    get_name_to_arc_map(catalog, T)[reduction_name]
+
+    for uuid in values(outaged_gens)
+        per_type = get_outages(model)[uuid]
+
+        arc = PNM.get_name_to_arc_maps(catalog)[T][name]
     end
 end
 
@@ -140,18 +178,20 @@ function construct_service!(
     container::OptimizationContainer,
     sys::PSY.System,
     ::ArgumentConstructStage,
-    model::ServiceModel{SR, F},
+    model::ServiceModel{S, F},
     devices_template::Dict{Symbol, DeviceModel},
     ::Set{<:DataType},
     ::NetworkModel{<:AbstractActivePowerModel},
-) where {SR <: PSY.AbstractReserve, F <: AbstractSecurityConstrainedReservesFormulation}
+) where {S <: PSY.AbstractReserve, F <: AbstractSecurityConstrainedReservesFormulation}
     services = _services_with_contributors(model, sys)
     isempty(services) && return
+
+    outaged_gens = _outaged_generators(sys, model)
+    isempty(outaged_gens) && return
 
     ts_services = [s for s in _demand_services(model, services) if _has_ts_requirement(model, s)]
     isempty(ts_services) || add_parameters!(container, RequirementTimeSeriesParameter, ts_services, model)
 
-    outaged_gens = _outaged_generators(sys, model)
     for service in services
         per_type = get_contributing_devices(model, PSY.get_name(service))
         for contributing_devices in values(per_type)
@@ -168,18 +208,48 @@ function construct_service!(
     container::OptimizationContainer,
     sys::PSY.System,
     ::ModelConstructStage,
-    model::ServiceModel{SR, F},
+    model::ServiceModel{S, F},
     ::Dict{Symbol, DeviceModel},
     ::Set{<:DataType},
     network_model::NetworkModel{<:CopperPlateNetworkModel},
-) where {SR <: PSY.AbstractReserve, F <: AbstractSecurityConstrainedReservesFormulation}
+) where {S <: PSY.AbstractReserve, F <: AbstractSecurityConstrainedReservesFormulation}
     services = _services_with_contributors(model, sys)
     isempty(services) && return
-    outaged_gens = _outaged_generators(sys, outage_uuids)
+    outaged_gens = _outaged_generators(sys, model)
+    isempty(outaged_gens) && return
 
     for service in services
         per_type = get_contributing_devices(model, PSY.get_name(service))
         has_requirement = _service_needs_requirement_ts(sys, service, model)
+        for contributing_devices in values(per_type)
+            _constrain_post_contingency_balance!(container, outaged_gens, contributing_devices)
+            _constrain_post_contingency_generation!(container, outaged_gens, contributing_devices)
+            if has_requirement
+                # TODO: Both are needed? Cause what if pre-conting. is too loose?
+                # TODO: Don't I have to enforce the pre-conting. level too?
+                _constrain_post_contingency_reserve!(container, outaged_gens, contributing_devices)
+            end
+        end
+    end
+    return
+end
+
+function construct_service!(
+    container::OptimizationContainer,
+    sys::PSY.System,
+    ::ModelConstructStage,
+    model::ServiceModel{S, F},
+    ::Dict{Symbol, DeviceModel},
+    ::Set{<:DataType},
+    network_model::NetworkModel{<:AbstractPTDFNetworkModel},
+) where {S <: PSY.AbstractReserve, F <: AbstractSecurityConstrainedReservesFormulation}
+    services = _services_with_contributors(model, sys)
+    isempty(services) && return
+    outaged_gens = _outaged_generators(sys, model)
+    isempty(services) && return
+
+    for service in services
+        per_type = get_contributing_devices(model, PSY.get_name(service))
         for contributing_devices in values(per_type)
             _constrain_post_contingency_balance!(container, outaged_gens, contributing_devices)
             _constrain_post_contingency_generation!(container, outaged_gens, contributing_devices)
