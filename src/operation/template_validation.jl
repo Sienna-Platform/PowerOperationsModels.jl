@@ -623,6 +623,26 @@ end
 # Outage validation
 #################################################################################
 
+_validate_reserve_direction(::ServiceModel{<:PSY.Reserve{PSY.ReserveUp}}) = nothing
+_validate_reserve_direction(::ServiceModel{<:PSY.Reserve}) = throw(IS.ConflictingInputsError("Security-constrained reserves currently only support Reserve{ReserveUp}."))
+
+function _build_service_model_outages!(template::IOM.AbstractProblemTemplate, sys::PSY.System)
+    sc_models = ServiceModel[m for m in values(get_service_models(template)) if m <: AbstractSecurityConstrainedReservesFormulation]
+    isempty(sc_models) && return
+
+    modeled_types = Set{DataType}(get_component_types(template))
+    uncovered_types = Dict{DataType, Set{Int}}()
+
+    for model in sc_models
+        _validate_reserve_direction(model)
+        for (service_name, per_type) in get_contributing_devices_map(model)
+            isempty(per_type) && continue
+            #service = PSY.get_component(
+        end
+
+    end
+end
+
 """
 Populate `device_model.outages` for every security-constrained (SC) branch
 device model in the template, in a single pass over the system's outage
