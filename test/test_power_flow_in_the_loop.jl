@@ -417,12 +417,13 @@ end
     @test IOM.get_entry_type(supported_key) === POM.PowerFlowBranchActivePowerLoss
 
     # Default ACPowerFlow() has `calculate_loss_factors = false`, so
-    # `PowerFlowLossFactors` is NOT in `bus_aux_vars(pf_data)`. The aux-var
-    # guard at pf_solve_and_aux.jl:152 must early-return on the entry-type
-    # mismatch rather than calling the 4-arg dispatch — which would fail
-    # because the container has no `PowerFlowLossFactors` aux var.
+    # `PowerFlowLossFactors` is not in `bus_aux_vars(pf_data)` and the guard must
+    # early-return: the container has no `PowerFlowLossFactors` aux var to write.
+    pf_e_data = only(values(get_evaluation_data(get_evaluations(container))))
     unsupported_key = AuxVarKey(POM.PowerFlowLossFactors, PSY.ACBus)
-    @test_nowarn IOM.calculate_aux_variable_value!(container, unsupported_key, system)
+    @test_nowarn IOM.calculate_aux_variable_value!(
+        container, unsupported_key, system, pf_e_data,
+    )
 end
 
 # Regression for issue #1623 ("PowerFlow in the loop mismatch with Sources"), ported from
@@ -796,7 +797,7 @@ end
     @test !is_solved(pf_e_data)
 end
 
-@testset "PF evaluator reports non-convergence (issue #305)" begin
+@testset "Non-converged PF NaNs its aux vars without failing the run (issue #305)" begin
     system = build_system(PSITestSystems, "c_sys5_uc")
     # Copperplate dispatch + AC power flow over weak transmission: nodeB's 3.0 pu load
     # is fed only by lines "1" and "4", and 0.35 is hand-tuned so off-peak hours
@@ -813,14 +814,98 @@ end
     model = DecisionModel(template, system; optimizer = HiGHS_optimizer)
     @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
           ModelBuildStatus.BUILT
-    # Before this fix the evaluator reported `is_solved = true` and this returned
-    # SUCCESSFULLY_FINALIZED with NaN-poisoned power flow aux variables.
-    @test solve!(model) == RunStatus.FAILED
+    # A power flow that doesn't converge is an error in the log and NaN in the aux
+    # vars, not a failed run: the optimization itself solved fine.
+    @test solve!(model) == RunStatus.SUCCESSFULLY_FINALIZED
 
     container = get_optimization_container(model)
     pf_e_data = only(values(get_evaluation_data(get_evaluations(container))))
     converged = PFS.get_converged(get_inner_data(pf_e_data))
+    # Partial failure, so `all(converged)` is doing real work here.
     @test !all(converged)
     @test any(converged)
     @test !is_solved(pf_e_data)
+
+    # The read-back still runs per time step: NaN where the PF diverged, real values
+    # where it converged.
+    vm = lookup_value(container, AuxVarKey(POM.PowerFlowVoltageMagnitude, PSY.ACBus))
+    for (t, t_converged) in enumerate(converged)
+        @test all(t_converged ? isfinite : isnan, vm[:, t])
+    end
+end
+
+# `PSSEExporter` owns no aux vars at all, and must not keep the AC power flow's from
+# being written.
+@testset "AC power flow alongside a PSS/E export (issue #308)" begin
+    system = build_system(PSITestSystems, "c_sys5_uc")
+    export_dir = mktempdir(; cleanup = true)
+    evaluations = IOM.EvaluationContainer()
+    for ev in (
+        ACPowerFlow(; correct_bustypes = true),
+        PSSEExportPowerFlow(:v33, export_dir; overwrite = true),
+    )
+        IOM.add_evaluator!(evaluations, typeof(ev), POM.PowerFlowEvaluator(ev))
+    end
+    template = get_template_dispatch_with_network(
+        NetworkModel(PTDFNetworkModel; evaluations = evaluations),
+    )
+    model = DecisionModel(template, system; optimizer = HiGHS_optimizer)
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          ModelBuildStatus.BUILT
+    @test solve!(model) == RunStatus.SUCCESSFULLY_FINALIZED
+
+    container = get_optimization_container(model)
+    @test length(get_evaluation_data(get_evaluations(container))) == 2
+    # The exporter has nothing to converge, and reports solved either way.
+    @test all(is_solved, values(get_evaluation_data(get_evaluations(container))))
+    @test !isempty(readdir(export_dir))
+
+    # The AC evaluator's aux vars are still written.
+    vm = lookup_value(container, AuxVarKey(POM.PowerFlowVoltageMagnitude, PSY.ACBus))
+    @test all(v -> 0.8 < v < 1.2, vm)
+end
+
+@testset "Aux vars are read back per evaluator (issue #308)" begin
+    system = build_system(PSITestSystems, "c_sys5_uc")
+    evaluations = IOM.EvaluationContainer()
+    for ev in (DCPowerFlow(), ACPowerFlow(; correct_bustypes = true))
+        IOM.add_evaluator!(evaluations, typeof(ev), POM.PowerFlowEvaluator(ev))
+    end
+    template = get_template_dispatch_with_network(
+        NetworkModel(PTDFNetworkModel; evaluations = evaluations),
+    )
+    model = DecisionModel(template, system; optimizer = HiGHS_optimizer)
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          ModelBuildStatus.BUILT
+    @test solve!(model) == RunStatus.SUCCESSFULLY_FINALIZED
+
+    container = get_optimization_container(model)
+    evaluation_data = get_evaluation_data(get_evaluations(container))
+    @test length(evaluation_data) == 2
+    @test all(is_solved, values(evaluation_data))
+    ac_e_data = only(
+        d for d in values(evaluation_data) if
+        get_inner_data(d) isa PFS.ACPowerFlowData
+    )
+    dc_e_data = only(
+        d for d in values(evaluation_data) if
+        get_inner_data(d) isa PFS.ABAPowerFlowData
+    )
+
+    # Voltage magnitude is an AC-only aux var.
+    vm_key = AuxVarKey(POM.PowerFlowVoltageMagnitude, PSY.ACBus)
+    vm = lookup_value(container, vm_key)
+    @test all(v -> 0.8 < v < 1.2, vm)
+
+    # Ownership follows the evaluator passed in, not `Dict` iteration order: the DC
+    # evaluator leaves the AC-only key alone, the AC evaluator rewrites it. The two
+    # halves are order-proof together — were the evaluator still picked from the
+    # container, one of them fails whichever of the two happened to be picked.
+    # `.data` because a `DenseAxisArray` over bus numbers has no `copy`/`fill!`.
+    solved_vm = copy(vm.data)
+    fill!(vm.data, NaN)
+    IOM.calculate_aux_variable_value!(container, vm_key, system, dc_e_data)
+    @test all(isnan, vm.data)
+    IOM.calculate_aux_variable_value!(container, vm_key, system, ac_e_data)
+    @test vm.data == solved_vm
 end
