@@ -5,7 +5,6 @@ function add_variables!(
     service_model::ServiceModel{R, <:AbstractSecurityConstrainedReservesFormulation},
     contributing_devices::Vector{V},
     ::Type{F},
-    outage_uuids::Vector{String},
     outaged_gens::Dict{String, Set{PSY.Generator}},
 ) where {
     T <: AbstractContingencyVariableType,
@@ -40,7 +39,6 @@ end
 pre-contingency generation."""
 function _constrain_post_contingency_balance!(
     container::OptimizationContainer,
-    outage_uuids::Vector{Int},
     outaged_gens::Dict{Int, Set{Tuple{DataType, String}}}
     contributing_devices::Vector{D},
 ) where {D <: PSY.StaticInjection}
@@ -48,7 +46,7 @@ function _constrain_post_contingency_balance!(
     cons = add_constraints_container!(container, PostContingencyGenerationBalanceConstraint, D, outage_uuids, time_steps)
     deployment = get_variable(container, PostContingencyActivePowerReserveDeploymentVariable, D)
     jump_model = get_jump_model(container)
-    for uuid in outage_uuids, t in time_steps
+    for uuid in keys(outaged_gens), t in time_steps
         balance = JuMP.AffExpr(0.0)
         for (gen_type, name) in outaged_gens[uuid]
             power = get_variable(container, ActivePowerVariable, gen_type)
@@ -66,19 +64,19 @@ end
 if they are outaged."""
 function _constrain_post_contingency_generation!(
     container::OptimizationContainer,
-    outage_uuids::Vector{Int},
     outaged_gens::Dict{Int, Set{Tuple{DataType, String}}},
     contributing_devices::Vector{D},
 ) where {D <: PSY.StaticInjection}
     jump_model = get_jump_model(container)
     time_steps = get_time_steps(container)
-    cons = add_constraints_container!(container, PostContingencyActivePowerGenerationLimitsConstraint, R, time_steps)
-    for device in contributing_devices, uuid in outage_uuids
+    cons = add_constraints_container!(container, PostContingencyActivePowerGenerationLimitsConstraint, D, time_steps)
+    for device in contributing_devices, uuid in keys(outaged_gens)
         name = PSY.get_name(device)
+        (D, name) in outaged_gens[uuid] && continue
         power = get_variable(container, ActivePowerVariable, D)
-        reserve = get_varaible(container, PostContingencyActivePowerReserveDeploymentVariable, D)
-        limit = (D, name) in outaged_gens[uuid] ? 0.0 : PSY.get_active_power_limits(device).max
+        reserve = get_variable(container, PostContingencyActivePowerReserveDeploymentVariable, D)
         # TODO: max deployment fraction?
+        limit = PSY.get_max_active_power(device)
         for t in time_steps
             cons[name, uuid, t] = JuMP.@constraint(jump_model, power[name, t] + reserve[name, t] <= limit)
         end
@@ -86,13 +84,39 @@ function _constrain_post_contingency_generation!(
     return
 end
 
+"""Contributing devices with a TS-backed pre-contingency reserve limit maintain
+that limit post-contingency."""
+function _constrain_post_contingency_reserve!(
+    container::OptimizationContainer,
+    outaged_gens::Dict{Int, Set{Tuple{DataType, String}}},
+    contributing_devices::Vector{D},
+) where {D <: PSY.StaticInjection}
+    jump_model = get_jump_model(container)
+    time_steps = get_time_steps(container)
+    cons = add_constraints_container!(container, PostContingencyActivePowerReserveDeploymentVariableLimitsConstraint, D, time_steps)
+    for device in contributing_devices, uuid in keys(outaged_gens)
+        name = PSY.get_name(device)
+        (D, name) in outaged_gens[uuid] && continue
+        pre_reserve = get_variable(container, ActivePowerReserveVariable, D)
+        post_reserve = get_variable(container, PostContingencyActivePowerReserveDeploymentVariable, D)
+        for t in time_steps
+            cons[name, uuid, t] = JuMP.@constraint(jump_model, post_reserve[name, t] <= pre_reserve[name, t])
+        end
+    end
+end
+
 ###############################################################################
 ###############################################################################
 ###############################################################################
 
-_service_outage_uuids(model::ServiceModel) = string.(sort!(collect(keys(get_outages(model)))))
-
-function _outaged_generators(sys::PSY.System, uuids::Vector{Int})
+function _outaged_generators(sys::PSY.System, model::ServiceModel{R, F}) where {R <: PSY.AbstractReserve, F <: AbstractSecurityConstrainedReservesFormulation}
+    uuids = string.(sort!(collect(keys(get_outages(model)))))
+    if isempty(uuids)
+        @warn "Service{$(R),$(F)}($(PSY.get_name(model)): `service_model.outages` is empty; the \
+               security-constrained formulation will not add any \
+               post-contingency variables or constraints."
+        return
+    end
     generator_outage_pairs = PSY.get_component_supplemental_attribute_pairs(PSY.Generator, PSY.Outage, sys)
     outaged_gens = Dict{Int, Set{Tuple{DataType, String}}}(uuid => Set{Tuple{DataType, String}}() for uuid in uuids)
     for (generator, outage) in generator_outage_pairs
@@ -100,6 +124,16 @@ function _outaged_generators(sys::PSY.System, uuids::Vector{Int})
         push!(outaged_gens[uuid], (typeof(generator), PSY.get_name(generator)))
     end
     return outaged_gens
+end
+
+_formulation_needs_requirement_ts(::Type{SecurityConstrainedContingencyReserve}) = false
+_formulation_needs_requirement_ts(::Type{SecurityConstrainedRampReserve}) = true
+
+function _service_needs_requirement_ts(sys::PSY.System, service::S, model::ServiceModel{S, F}) where {S <: PSY.AbstractReserve, F <: AbstractSecurityConstrainedReservesFormulation}
+    _formulation_needs_requirement_ts(F) && return true
+    ts_names = get_time_series_names(model)
+    has(ts_names, RequirementTimeSeriesParameter) || return false
+    return PSY.has_time_series(service, get_deterministic_time_series_type(sys), ts_name[RequirementTimeSeriesParameter])
 end
 
 function construct_service!(
@@ -117,15 +151,7 @@ function construct_service!(
     ts_services = [s for s in _demand_services(model, services) if _has_ts_requirement(model, s)]
     isempty(ts_services) || add_parameters!(container, RequirementTimeSeriesParameter, ts_services, model)
 
-    outage_uuids = _service_outage_uuids(model)
-    if isempty(outage_uuids)
-        @warn "Service $(SR)('$name'): `service_model.outages` is empty; the \
-               security-constrained formulation $(F) will not add any \
-               post-contingency variables or constraints."
-        return
-    end
-    outaged_gens = _outaged_generators(sys, outage_uuids)
-
+    outaged_gens = _outaged_generators(sys, model)
     for service in services
         per_type = get_contributing_devices(model, PSY.get_name(service))
         for contributing_devices in values(per_type)
@@ -149,12 +175,18 @@ function construct_service!(
 ) where {SR <: PSY.AbstractReserve, F <: AbstractSecurityConstrainedReservesFormulation}
     services = _services_with_contributors(model, sys)
     isempty(services) && return
+    outaged_gens = _outaged_generators(sys, outage_uuids)
 
-    _constrain_post_contingency_balance!()
-
-    _construct_service_deployment_limits!(
-        container, contributing_devices, service, model, network_model,
-        has_requirement_ts, outage_ids, outaged_gens,
-    )
+    for service in services
+        per_type = get_contributing_devices(model, PSY.get_name(service))
+        has_requirement = _service_needs_requirement_ts(sys, service, model)
+        for contributing_devices in values(per_type)
+            _constrain_post_contingency_balance!(container, outaged_gens, contributing_devices)
+            _constrain_post_contingency_generation!(container, outaged_gens, contributing_devices)
+            if has_requirement
+                _constrain_post_contingency_reserve!(container, outaged_gens, contributing_devices)
+            end
+        end
+    end
     return
 end
