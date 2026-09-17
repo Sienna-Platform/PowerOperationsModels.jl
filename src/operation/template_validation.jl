@@ -220,7 +220,7 @@ function _interface_branch_problems!(
 end
 
 #################################################################################
-# Security-constrained branch validation and outage population
+# Security-constrained branch validation
 #################################################################################
 
 function _any_component_has_branch_rating_ts(
@@ -500,45 +500,9 @@ function _check_security_constrained_network(
     return
 end
 
-function _assert_transformer_outages(
-    transformer::T,
-    branch_models::IOM.BranchModelContainer,
-) where {T <: _TRANSFORMERS}
-    model = get(branch_models, nameof(T), nothing)
-    _has_unsupported_phase(transformer, model) && throw(
-        IS.ConflictingInputsError(
-            "Phase-shifting transformers and transformers with non-zero angle may not be outages.",
-        ),
-    )
-    return
-end
-
-_assert_transformer_outages(::PSY.Device, ::IOM.BranchModelContainer) =
-    nothing
-
-# Monitored components exist; no controlled transformer outages
-function _check_monitored_components(
-    branch_models::IOM.BranchModelContainer,
-    sys::PSY.System,
-)
-    for branch_model in values(branch_models)
-        IOM.supports_outages(IOM.get_formulation(branch_model)) || continue
-        for outage_id in keys(get_outages(branch_model))
-            outage = PSY.get_supplemental_attribute(sys, outage_id)
-            for uuid in PSY.get_monitored_components(outage)
-                isnothing(IS.get_component(sys, uuid)) && throw(
-                    IS.ConflictingInputsError(
-                        "Monitored component with UUID $uuid on outage $outage_id is not found in the system.",
-                    ),
-                )
-            end
-            for component in PSY.get_associated_components(sys, outage)
-                _assert_transformer_outages(component, branch_models)
-            end
-        end
-    end
-    return
-end
+#################################################################################
+# Voltage control
+#################################################################################
 
 # Under ACP a VOLTAGE-control device pins the shared network VoltageMagnitude at its
 # regulated bus via JuMP.fix(force=true); two devices on one bus silently override
@@ -654,6 +618,10 @@ function _check_voltage_regulation_conflicts!(
     end
     return
 end
+
+#################################################################################
+# Outage validation
+#################################################################################
 
 """
 Populate `device_model.outages` for every security-constrained (SC) branch
@@ -878,6 +846,46 @@ function _warn_unmatched_user_outages(
                    of type $D in the system — it will not contribute any \
                    post-contingency constraints." _group =
                 IOM.LOG_GROUP_MODELS_VALIDATION
+        end
+    end
+    return
+end
+
+function _assert_transformer_outages(
+    transformer::T,
+    branch_models::IOM.BranchModelContainer,
+) where {T <: _TRANSFORMERS}
+    model = get(branch_models, nameof(T), nothing)
+    _has_unsupported_phase(transformer, model) && throw(
+        IS.ConflictingInputsError(
+            "Phase-shifting transformers and transformers with non-zero angle may not be outages.",
+        ),
+    )
+    return
+end
+
+_assert_transformer_outages(::PSY.Device, ::IOM.BranchModelContainer) =
+    nothing
+
+# Monitored components exist; no controlled transformer outages
+function _check_monitored_components(
+    branch_models::IOM.BranchModelContainer,
+    sys::PSY.System,
+)
+    for branch_model in values(branch_models)
+        IOM.supports_outages(IOM.get_formulation(branch_model)) || continue
+        for outage_id in keys(get_outages(branch_model))
+            outage = PSY.get_supplemental_attribute(sys, outage_id)
+            for uuid in PSY.get_monitored_components(outage)
+                isnothing(IS.get_component(sys, uuid)) && throw(
+                    IS.ConflictingInputsError(
+                        "Monitored component with UUID $uuid on outage $outage_id is not found in the system.",
+                    ),
+                )
+            end
+            for component in PSY.get_associated_components(sys, outage)
+                _assert_transformer_outages(component, branch_models)
+            end
         end
     end
     return
