@@ -490,16 +490,15 @@ end
           IOM.ModelBuildStatus.BUILT
 end
 
-@testset "a phase shifter may not be the outaged element" begin
-    # `f_l^(k) = MODF[l,k]·P - b_l·α_l` assumes the outaged branch `k` satisfies
-    # `f_k = PTDF[k]·P`; a shift on `k` adds an uncorrected `-LODF[l,k]·b_k·α_k` term.
+@testset "a phase shifter may be the outaged element on a PTDF network" begin
+    # The MODF handles the tripped shifter's susceptance; its `±b·α` injection pair is
+    # removed from the post-contingency rows by the outage shift adjustments.
     function _outaged_transformer_model(; control::Bool, alpha = nothing)
         sys, transformer, _ = _sc_phase_system(;
             control = control,
             alpha = alpha,
             monitor_transformer = false,
         )
-        # A second outage, this time hanging off the transformer: `Trans1` is outaged.
         PSY.add_supplemental_attribute!(
             sys,
             transformer,
@@ -517,23 +516,12 @@ end
         )
     end
 
-    @test_throws IS.ConflictingInputsError POM.validate_template(
-        _outaged_transformer_model(; control = true),
-    )
-    @test_throws IS.ConflictingInputsError POM.validate_template(
-        _outaged_transformer_model(; control = false, alpha = 0.05),
-    )
-
-    unshifted = _outaged_transformer_model(; control = false)
-    @test isnothing(POM.validate_template(unshifted))
-    @test build!(unshifted; output_dir = mktempdir(; cleanup = true)) ==
-          IOM.ModelBuildStatus.BUILT
-
-    # Only the OUTAGED element is constrained: a live phase shifter elsewhere is fine.
-    sys, _, _ = _sc_phase_system(; control = true)
-    @test isnothing(
-        POM.validate_template(_sc_phase_model(PTDFNetworkModel, sys; enable = true)),
-    )
+    for (control, alpha) in ((true, nothing), (false, 0.05), (false, nothing))
+        model = _outaged_transformer_model(; control = control, alpha = alpha)
+        @test isnothing(POM.validate_template(model))
+        @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+              IOM.ModelBuildStatus.BUILT
+    end
 end
 
 @testset "PhaseShifterAngle reaches the N-1 PTDF post-contingency flows" begin
@@ -619,4 +607,356 @@ end
             )
         end
     end
+end
+
+############################ phase shifter as the outaged element ######################
+
+# `sys` with a second forced outage hanging off `_PST_NAME`, monitoring every line.
+function _add_pst_outage!(sys, transformer)
+    outage = PSY.GeometricDistributionForcedOutage(;
+        mean_time_to_recovery = 10,
+        outage_transition_probability = 0.9999,
+        monitored_components = collect(get_components(PSY.Line, sys)),
+    )
+    PSY.add_supplemental_attribute!(sys, transformer, outage)
+    return string(IS.get_id(outage))
+end
+
+@testset "N-1 on a DCP network rejects a phase shifter as the outaged element" begin
+    # The DCP check sweeps every transformer with a DeviceModel; an outaged shifter must
+    # be caught whether its angle is static or controlled.
+    for (control, alpha, enable) in ((true, nothing, true), (false, 0.05, false))
+        sys, transformer, _ = _sc_phase_system(;
+            control = control,
+            alpha = alpha,
+            monitor_transformer = false,
+        )
+        _add_pst_outage!(sys, transformer)
+        model = _sc_phase_model(
+            DCPNetworkModel,
+            sys;
+            transformer_formulation = POM.SecurityConstrainedStaticBranch,
+            enable = enable,
+        )
+        err = try
+            POM.validate_template(model)
+            nothing
+        catch e
+            e
+        end
+        @test err isa IS.ConflictingInputsError
+        @test occursin("DCP", sprint(showerror, err))
+    end
+end
+
+# PTDF of `sys` with `name` out of service: the reference every outaged-shifter row is
+# checked against, built without the MODF.
+function _reference_ptdf_without(sys, name)
+    reduced = deepcopy(sys)
+    PSY.set_available!(
+        PSY.get_component(PSY.TwoWindingTransformer, reduced, name),
+        false,
+    )
+    return PNM.VirtualPTDF(reduced)
+end
+
+# Post-contingency rows are stored in the container of the OUTAGED device's model, so a
+# transformer outage's rows sit under `TwoWindingTransformer` while a line outage's sit
+# under `Line`, whatever types the monitored branches have.
+function _all_post_contingency_rows(container)
+    rows = Dict{Tuple{String, String, Int}, JuMP.AffExpr}()
+    for T in (PSY.Line, PSY.TwoWindingTransformer)
+        IOM.has_container_key(container, POM.PostContingencyBranchFlow, T) || continue
+        merge!(rows, IOM.get_expression(container, POM.PostContingencyBranchFlow, T).data)
+    end
+    return rows
+end
+
+# `Σ_i col[i]·balance[i, t]` over the MODF bus axis, skipping numerically zero entries.
+function _ptdf_product(col, nodal_balance, t)
+    expr = zero(JuMP.AffExpr)
+    for i in eachindex(col)
+        abs(col[i]) > POM.PTDF_ZERO_TOL || continue
+        JuMP.add_to_expression!(expr, col[i], nodal_balance[i, t])
+    end
+    return expr
+end
+
+@testset "a static phase shifter as the outaged element matches a rebuilt PTDF" begin
+    alpha = 0.05
+    sys, transformer, _ =
+        _sc_phase_system(; control = false, alpha = alpha, monitor_transformer = false)
+    pst_outage = _add_pst_outage!(sys, transformer)
+    model = _sc_phase_model(
+        PTDFNetworkModel,
+        sys;
+        transformer_formulation = POM.SecurityConstrainedStaticBranch,
+        enable = false,
+    )
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+
+    container = IOM.get_optimization_container(model)
+    network_model = IOM.get_network_model(IOM.get_template(model))
+    modf = IOM.get_contingency_matrix(network_model)
+    nodal_balance = IOM.get_expression(container, POM.ActivePowerBalance, PSY.ACBus).data
+    pcbf = _all_post_contingency_rows(container)
+
+    ptdf_ref = _reference_ptdf_without(sys, _PST_NAME)
+    @test PNM.get_bus_axis(ptdf_ref) == PNM.get_bus_axis(modf)
+    bus_lookup = PNM.get_bus_lookup(ptdf_ref)
+    arc = PNM.get_arc_tuple(transformer)
+    from_pos, to_pos = bus_lookup[arc[1]], bus_lookup[arc[2]]
+    injection = PNM.get_series_susceptance(transformer, PSY.SU) * alpha
+    @test injection ≈
+          PNM.arc_dc_shift_injection(PNM.get_network_reduction_data(modf), arc)
+
+    name_to_arc = PNM.get_name_to_arc_map(POM.get_branch_catalog(network_model), PSY.Line)
+    n_rows = 0
+    for (outage_str, name, t) in keys(pcbf)
+        outage_str == pst_outage || continue
+        col = ptdf_ref[name_to_arc[name], :]
+        expected = _ptdf_product(col, nodal_balance, t)
+        # The nodal balance still carries the tripped shifter's `±b·α` pair; the reference
+        # network has no shifter, so strip it.
+        JuMP.add_to_expression!(expected, -injection * (col[from_pos] - col[to_pos]))
+        @test _phase_affexpr_approx_equal(pcbf[(outage_str, name, t)], expected)
+        n_rows += 1
+    end
+    @test n_rows > 0
+end
+
+@testset "a controlled phase shifter as the outaged element drops out of its own rows" begin
+    sys, transformer, line_outage_id =
+        _sc_phase_system(; control = true, monitor_transformer = false)
+    pst_outage = _add_pst_outage!(sys, transformer)
+    model = _sc_phase_model(
+        PTDFNetworkModel,
+        sys;
+        transformer_formulation = POM.SecurityConstrainedStaticBranch,
+        enable = true,
+    )
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+
+    container = IOM.get_optimization_container(model)
+    network_model = IOM.get_network_model(IOM.get_template(model))
+    modf = IOM.get_contingency_matrix(network_model)
+    nodal_balance = IOM.get_expression(container, POM.ActivePowerBalance, PSY.ACBus).data
+    pcbf = _all_post_contingency_rows(container)
+    angle = IOM.get_variable(container, PhaseShifterAngle, PSY.TwoWindingTransformer)
+
+    ptdf_ref = _reference_ptdf_without(sys, _PST_NAME)
+    @test PNM.get_bus_axis(ptdf_ref) == PNM.get_bus_axis(modf)
+    bus_lookup = PNM.get_bus_lookup(ptdf_ref)
+    arc = PNM.get_arc_tuple(transformer)
+    from_pos, to_pos = bus_lookup[arc[1]], bus_lookup[arc[2]]
+    b = PNM.get_series_susceptance(transformer, PSY.SU)
+
+    name_to_arc = PNM.get_name_to_arc_map(POM.get_branch_catalog(network_model), PSY.Line)
+    own_rows = 0
+    other_rows_with_angle = 0
+    for (outage_str, name, t) in keys(pcbf)
+        actual = pcbf[(outage_str, name, t)]
+        if outage_str == pst_outage
+            col = ptdf_ref[name_to_arc[name], :]
+            expected = _ptdf_product(col, nodal_balance, t)
+            JuMP.add_to_expression!(
+                expected,
+                -b * (col[from_pos] - col[to_pos]),
+                angle[_PST_NAME, t],
+            )
+            @test _phase_affexpr_approx_equal(actual, expected)
+            # A tripped shifter has no influence on the network, so its angle must vanish
+            # from every row of its own outage.
+            @test abs(JuMP.coefficient(actual, angle[_PST_NAME, t])) < 1e-8
+            own_rows += 1
+        elseif outage_str == string(line_outage_id)
+            iszero(JuMP.coefficient(actual, angle[_PST_NAME, t])) ||
+                (other_rows_with_angle += 1)
+        end
+    end
+    @test own_rows > 0
+    # Under a different outage the live shifter still steers the flows.
+    @test other_rows_with_angle > 0
+end
+
+@testset "post-contingency flows under a static shifter outage match a model built without it" begin
+    alpha = 0.05
+    sys, transformer, _ =
+        _sc_phase_system(; control = false, alpha = alpha, monitor_transformer = false)
+    pst_outage = _add_pst_outage!(sys, transformer)
+    model = _sc_phase_model(
+        PTDFNetworkModel,
+        sys;
+        transformer_formulation = POM.SecurityConstrainedStaticBranch,
+        enable = false,
+    )
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+    @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+    container = IOM.get_optimization_container(model)
+    pcbf = _all_post_contingency_rows(container)
+    dispatch = IOM.get_variable(container, ActivePowerVariable, PSY.ThermalStandard)
+
+    # Independent model: the physically reduced system on a plain PTDF network, generation
+    # pinned to the security-constrained solution. Its line flows are the true
+    # post-contingency flows.
+    reduced = deepcopy(sys)
+    PSY.set_available!(
+        PSY.get_component(PSY.TwoWindingTransformer, reduced, _PST_NAME),
+        false,
+    )
+    template = get_thermal_dispatch_template_network(NetworkModel(PTDFNetworkModel))
+    set_device_model!(template, DeviceModel(PSY.Line, StaticBranch))
+    set_device_model!(template, DeviceModel(PSY.TwoWindingTransformer, StaticBranch))
+    reference = DecisionModel(template, reduced; optimizer = HiGHS_optimizer)
+    @test build!(reference; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+    ref_container = IOM.get_optimization_container(reference)
+    ref_dispatch = IOM.get_variable(ref_container, ActivePowerVariable, PSY.ThermalStandard)
+    for name in axes(ref_dispatch)[1], t in axes(ref_dispatch)[2]
+        JuMP.fix(ref_dispatch[name, t], JuMP.value(dispatch[name, t]); force = true)
+    end
+    @test solve!(reference) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+    ref_flows = IOM.get_expression(ref_container, PTDFBranchFlow, PSY.Line)
+
+    n_rows = 0
+    for (outage_str, name, t) in keys(pcbf)
+        outage_str == pst_outage || continue
+        @test isapprox(
+            JuMP.value(pcbf[(outage_str, name, t)]),
+            JuMP.value(ref_flows[name, t]);
+            atol = 1e-6,
+        )
+        n_rows += 1
+    end
+    @test n_rows > 0
+end
+
+@testset "a shifted parallel member as the outaged element corrects the surviving arc" begin
+    sys = PSB.build_system(PSITestSystems, "c_sys14")
+    line = PSY.get_component(PSY.Line, sys, "Line1")
+    alpha = 0.1
+    pst = PSY.TwoWindingTransformer(;
+        name = "PST_parallel_Line1",
+        circuit = PSY.TransformerCircuit(;
+            available = true,
+            arc = PSY.get_arc(line),
+            r = 0.0,
+            x = PSY.get_x(line, PSY.SU),
+            tap = 1.0,
+            α = alpha,
+            rating = PSY.get_rating(line, PSY.SU),
+            base_power = PSY.get_base_power(sys, PSY.NU),
+        ),
+        magnetizing_shunt = 0.0 + 0.0im,
+        shunt_location = PSY.TwoWindingTransformerShuntLocation.PRIMARY,
+    )
+    PSY.add_component!(sys, pst)
+    outage = PSY.GeometricDistributionForcedOutage(;
+        mean_time_to_recovery = 10,
+        outage_transition_probability = 0.9999,
+        monitored_components = collect(get_components(PSY.Line, sys)),
+    )
+    PSY.add_supplemental_attribute!(sys, pst, outage)
+    pst_outage = string(IS.get_id(outage))
+
+    model = _sc_phase_model(
+        PTDFNetworkModel,
+        sys;
+        transformer_formulation = POM.SecurityConstrainedStaticBranch,
+        enable = false,
+    )
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+
+    container = IOM.get_optimization_container(model)
+    network_model = IOM.get_network_model(IOM.get_template(model))
+    modf = IOM.get_contingency_matrix(network_model)
+    nr = PNM.get_network_reduction_data(modf)
+    nodal_balance = IOM.get_expression(container, POM.ActivePowerBalance, PSY.ACBus).data
+    pcbf = _all_post_contingency_rows(container)
+
+    arc = PNM.get_arc_tuple(line)
+    @test haskey(PNM.get_parallel_branch_map(nr), arc)
+    injection = PNM.get_series_susceptance(pst, PSY.SU) * alpha
+    # The group's injection is the sum of its members', and the line contributes none.
+    @test PNM.arc_dc_shift_injection(nr, arc) ≈ injection
+
+    ptdf_ref = _reference_ptdf_without(sys, "PST_parallel_Line1")
+    @test PNM.get_bus_axis(ptdf_ref) == PNM.get_bus_axis(modf)
+    bus_lookup = PNM.get_bus_lookup(ptdf_ref)
+    from_pos, to_pos = bus_lookup[arc[1]], bus_lookup[arc[2]]
+
+    name_to_arc_maps = PNM.get_name_to_arc_maps(POM.get_branch_catalog(network_model))
+    function _arc(name)
+        for n2a in values(name_to_arc_maps)
+            haskey(n2a, name) && return n2a[name]
+        end
+        error("monitored name $name not found in any reduction map")
+    end
+
+    surviving_rows = 0
+    n_rows = 0
+    for (outage_str, name, t) in keys(pcbf)
+        outage_str == pst_outage || continue
+        row_arc = _arc(name)
+        col = ptdf_ref[row_arc, :]
+        expected = _ptdf_product(col, nodal_balance, t)
+        JuMP.add_to_expression!(expected, -injection * (col[from_pos] - col[to_pos]))
+        # The reference network has no shifted arc, so no own-shift term applies anywhere,
+        # including on the surviving line. The tolerance carries the round-off between the
+        # MODF update and the independently factorized reference PTDF, amplified by this
+        # arc's 16.9 pu susceptance.
+        @test _phase_affexpr_approx_equal(
+            pcbf[(outage_str, name, t)],
+            expected;
+            atol = 1e-7,
+        )
+        row_arc == arc && (surviving_rows += 1)
+        n_rows += 1
+    end
+    @test n_rows > 0
+    @test surviving_rows > 0
+end
+
+@testset "a controlled shifter that is outaged and monitored has an identically zero row" begin
+    # Its MODF row is zero and its own-shift term cancels against the adjustment, so
+    # nothing may remain: no variable coefficient and no constant.
+    sys, transformer, _ = _sc_phase_system(; control = true, monitor_transformer = true)
+    # Monitor the shifter itself under its own outage as well.
+    monitored = PSY.ACTransmission[get_components(PSY.Line, sys)...]
+    push!(monitored, transformer)
+    outage = PSY.GeometricDistributionForcedOutage(;
+        mean_time_to_recovery = 10,
+        outage_transition_probability = 0.9999,
+        monitored_components = monitored,
+    )
+    PSY.add_supplemental_attribute!(sys, transformer, outage)
+    outage_id = string(IS.get_id(outage))
+
+    model = _sc_phase_model(
+        PTDFNetworkModel,
+        sys;
+        transformer_formulation = POM.SecurityConstrainedStaticBranch,
+        enable = true,
+    )
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+
+    container = IOM.get_optimization_container(model)
+    pcbf = _all_post_contingency_rows(container)
+
+    n_rows = 0
+    for t in get_time_steps(container)
+        haskey(pcbf, (outage_id, _PST_NAME, t)) || continue
+        row = pcbf[(outage_id, _PST_NAME, t)]
+        @test abs(JuMP.constant(row)) < 1e-8
+        for (coef, _) in JuMP.linear_terms(row)
+            @test abs(coef) < 1e-8
+        end
+        n_rows += 1
+    end
+    @test n_rows > 0
 end

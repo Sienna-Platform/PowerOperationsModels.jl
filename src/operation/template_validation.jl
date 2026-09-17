@@ -442,17 +442,13 @@ _has_unsupported_phase(t::_TRANSFORMERS, m::DeviceModel{<:_TRANSFORMERS}) = any(
     c in PSY.get_circuits(t)
 )
 _has_unsupported_phase(_, ::DeviceModel) = false
-# A transformer carrying an outage need not have a `DeviceModel` in the template. Its
-# control objective is then inert, but a nonzero fixed shift still corrupts the MODF
-# columns of every monitored arc, so the static angle alone is disqualifying.
-_has_unsupported_phase(t::_TRANSFORMERS, ::Nothing) =
-    any(!iszero(PSY.get_α(c)) for c in PSY.get_circuits(t))
-_has_unsupported_phase(_, ::Nothing) = false
 
 _has_unsupported_phase(m::DeviceModel{<:_TRANSFORMERS}) =
     any(_has_unsupported_phase(t, m) for t in get_device_cache(m))
 _has_unsupported_phase(::DeviceModel) = false
 
+# This sweep catches an outaged transformer because DCP requires a `DeviceModel` for every
+# branch type (`requires_all_branch_models`), so every transformer is in some model's cache.
 function _check_security_constrained_phase_control(
     branch_models::IOM.BranchModelContainer,
     network_model::NetworkModel{<:Union{DCPNetworkModel, AbstractDCPLLNetworkModel}},
@@ -460,7 +456,8 @@ function _check_security_constrained_phase_control(
     any(_is_security_constrained(m) for m in values(branch_models)) || return
     any(_has_unsupported_phase(m) for m in values(branch_models)) && throw(
         IS.ConflictingInputsError(
-            "N-1 DCP/DCPLL networks do not support any transformers with phase-control or nonzero phase.",
+            "N-1 on DCP or DCPLL networks does not support transformers with phase " *
+            "control or a nonzero phase shift. Use a PTDF network model.",
         ),
     )
     return
@@ -500,23 +497,7 @@ function _check_security_constrained_network(
     return
 end
 
-function _assert_transformer_outages(
-    transformer::T,
-    branch_models::IOM.BranchModelContainer,
-) where {T <: _TRANSFORMERS}
-    model = get(branch_models, nameof(T), nothing)
-    _has_unsupported_phase(transformer, model) && throw(
-        IS.ConflictingInputsError(
-            "Phase-shifting transformers and transformers with non-zero angle may not be outages.",
-        ),
-    )
-    return
-end
-
-_assert_transformer_outages(::PSY.Device, ::IOM.BranchModelContainer) =
-    nothing
-
-# Monitored components exist; no controlled transformer outages
+# Every monitored component of every registered outage exists in the system
 function _check_monitored_components(
     branch_models::IOM.BranchModelContainer,
     sys::PSY.System,
@@ -531,9 +512,6 @@ function _check_monitored_components(
                         "Monitored component with UUID $uuid on outage $outage_id is not found in the system.",
                     ),
                 )
-            end
-            for component in PSY.get_associated_components(sys, outage)
-                _assert_transformer_outages(component, branch_models)
             end
         end
     end

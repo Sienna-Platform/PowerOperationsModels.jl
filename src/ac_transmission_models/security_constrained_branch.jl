@@ -463,6 +463,83 @@ function _phase_variables(container::OptimizationContainer)
     return phase_vars
 end
 
+# One outaged circuit's change to the DC shift-injection pair, positioned on the MODF bus
+# axis: `delta[t]` lands at `from_pos` and `-delta[t]` at `to_pos`. A static arc carries a
+# constant; a phase-controlled arc carries `-b · PhaseShifterAngle[t]`. `arc` lets a
+# monitored row on the same arc correct its own shift term.
+struct OutageShiftAdjustment
+    arc::Tuple{Int, Int}
+    from_pos::Int
+    to_pos::Int
+    delta::Vector{JuMP.AffExpr}
+end
+
+# Arc tuple => (representative, `PhaseShifterAngle` row) for every phase-controlled circuit.
+function _controlled_arc_rows(container::OptimizationContainer, network_model::NetworkModel)
+    rows = Dict{Tuple{Int, Int}, Tuple{RepresentativeBranch, Vector{JuMP.VariableRef}}}()
+    for T in (PSY.TwoWindingTransformer, PSY.ThreeWindingTransformer)
+        has_container_key(container, PhaseShifterAngle, T) || continue
+        phase_var = get_variable(container, PhaseShifterAngle, T)
+        for name in axes(phase_var)[1]
+            rep = _representative_branch(network_model, T, name)
+            rows[rep.arc] = (rep, _phase_row(phase_var, name))
+        end
+    end
+    return rows
+end
+
+"""
+The shift-injection adjustments of one registered contingency. On PTDF networks the nodal
+balance carries every arc's `±b·α` pair, so a tripped shifter's pair must be taken back
+out before the MODF row multiplies the injections:
+
+    expr[m, k, t] += Σ_adj delta[t] · (MODF[m, k][from_pos] − MODF[m, k][to_pos])
+
+A phase-controlled arc is a single circuit alone on its arc, so its modification is a full
+removal and `-b · PhaseShifterAngle[t]` is the whole injection it loses.
+"""
+function _outage_shift_adjustments(
+    modf_matrix::PNM.VirtualMODF,
+    outage_spec::PNM.ContingencySpec,
+    controlled_rows::Dict{
+        Tuple{Int, Int},
+        Tuple{RepresentativeBranch, Vector{JuMP.VariableRef}},
+    },
+    time_steps::UnitRange{Int},
+)
+    arc_axis = PNM.get_arc_axis(modf_matrix)
+    bus_lookup = PNM.get_bus_lookup(modf_matrix)
+    adjustments = OutageShiftAdjustment[]
+    for mod in outage_spec.modification.arc_modifications
+        arc = arc_axis[mod.arc_index]
+        controlled = get(controlled_rows, arc, nothing)
+        if isnothing(controlled)
+            iszero(mod.delta_shift_injection) && continue
+            delta = [JuMP.AffExpr(mod.delta_shift_injection) for _ in time_steps]
+        else
+            rep, row = controlled
+            b = _dc_susceptance(rep)
+            # The tolerance absorbs PNM's single-precision susceptance recovery while
+            # still catching a shared arc, which changes `delta_b` by order one.
+            if !isapprox(mod.delta_b, -b; rtol = 1e-4)
+                error(
+                    "Outage $(outage_spec.id) removes only part of arc $(arc), which " *
+                    "carries the phase-controlled circuit \"$(rep.name)\". A controlled " *
+                    "circuit must be the only branch on its arc.",
+                )
+            end
+            # `-b` rather than `mod.delta_b`: the nodal balance injected exactly `b`, and
+            # only the exact value cancels it.
+            delta = [JuMP.AffExpr(0.0, row[t] => -b) for t in time_steps]
+        end
+        push!(
+            adjustments,
+            OutageShiftAdjustment(arc, bus_lookup[arc[1]], bus_lookup[arc[2]], delta),
+        )
+    end
+    return adjustments
+end
+
 function _build_post_contingency_flow_expressions_for_outage(
     time_steps::UnitRange{Int},
     outage_id::String,
@@ -470,6 +547,7 @@ function _build_post_contingency_flow_expressions_for_outage(
     nodal_balance_expressions::Matrix{JuMP.AffExpr},
     reps::Vector{RepresentativeBranch},
     phase_vars::Dict{String, Vector{JuMP.VariableRef}},
+    adjustments::Vector{OutageShiftAdjustment},
 )
     results = Vector{Tuple{String, Vector{JuMP.AffExpr}}}(undef, length(reps))
     for (i, rep) in enumerate(reps)
@@ -486,6 +564,15 @@ function _build_post_contingency_flow_expressions_for_outage(
                 phase_row,
             )
         end
+        for adj in adjustments
+            sensitivity = modf_col[adj.from_pos] - modf_col[adj.to_pos]
+            # A monitored arc that loses a shifted member also loses that member's share of
+            # its own `-b·α` flow offset.
+            own = adj.arc == rep.arc ? -1.0 : 0.0
+            for t in time_steps
+                JuMP.add_to_expression!(expressions[t], sensitivity + own, adj.delta[t])
+            end
+        end
         results[i] = (rep.name, expressions)
     end
     return results
@@ -496,12 +583,16 @@ Shared MODF post-contingency expression builder: for every monitored arc `m`
 and registered outage `k`,
 
     expr[m, k, t] = Σ_bus MODF[m, k][bus] * nodal_injection_expressions[bus, t]
+                    + Σ_adj delta_adj[t] * (MODF[m, k][from_adj] − MODF[m, k][to_adj])
 
-`nodal_injection_expressions` must hold the per-bus ACTIVE-POWER INJECTIONS in
-the same bus order as the MODF columns. On PTDF networks the `ActivePowerBalance`
-expression IS the injection vector (flows are not variables there); on DCP it is
-recovered from the balance's branch-flow terms (see
-[`_dcp_nodal_injection_expressions`](@ref)).
+`nodal_injection_expressions` must hold the per-bus active-power injections in the same
+bus order as the MODF columns. On PTDF networks the `ActivePowerBalance` expression IS the
+injection vector (flows are not variables there), and it already includes every arc's
+shift-injection pair — the adjustments remove the pairs of the arcs the outage trips. On
+DCP the injections are recovered from the balance's branch-flow terms (see
+[`_dcp_nodal_injection_expressions`](@ref)) and carry no shift pairs at all; that is
+consistent only because security-constrained DCP models reject every shifted transformer
+at validation.
 """
 function _add_modf_post_contingency_flow_expressions!(
     container::OptimizationContainer,
@@ -543,6 +634,17 @@ function _add_modf_post_contingency_flow_expressions!(
         end
     end
 
+    controlled_rows = _controlled_arc_rows(container, network_model)
+    adjustments = Dict{String, Vector{OutageShiftAdjustment}}()
+    for (uuid, _) in fresh_resolved
+        adjustments[string(uuid)] = _outage_shift_adjustments(
+            modf_matrix,
+            registered_contingencies[uuid],
+            controlled_rows,
+            time_steps,
+        )
+    end
+
     phase_vars = _phase_variables(container)
 
     # Parallel JuMP `AffExpr` build (no libklu): tasks return results, the main
@@ -557,6 +659,7 @@ function _add_modf_post_contingency_flow_expressions!(
                 nodal_injection_expressions,
                 reps,
                 phase_vars,
+                adjustments[outage_id],
             )
         catch e
             @error "Post-contingency flow-expression task failed" outage_id =
