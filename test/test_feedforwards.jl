@@ -554,7 +554,9 @@ end
 # must-run path through IOM's ramp constraints.
 @testset "must-run unit under SemiContinuousFeedforward with ramp constraints" begin
     c_sys5 = PSB.build_system(PSITestSystems, "c_sys5")
-    must_run_unit = first(PSY.get_components(PSY.ThermalStandard, c_sys5))
+    # Solitude is the only unit whose ramp limits bind; the others are filtered out
+    # of RampConstraint, so picking `first(...)` depends on Dict iteration order.
+    must_run_unit = PSY.get_component(PSY.ThermalStandard, c_sys5, "Solitude")
     must_run_name = PSY.get_name(must_run_unit)
     PSY.set_commitment_mode!(must_run_unit, PSY.CommitmentModes.MUST_RUN)
 

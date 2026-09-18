@@ -593,7 +593,7 @@ IOM.get_active_power_limits(c::PSY.Component) = PSY.get_active_power_limits(c, P
 IOM.get_active_power_limits(c::PSY.RenewableGen) =
     (min = 0.0, max = PSY.get_max_active_power(c, PSY.SU))
 IOM.get_max_active_power(c::PSY.Component) = PSY.get_max_active_power(c, PSY.SU)
-IOM.get_ramp_limits(c::PSY.Component) = PSY.get_ramp_limits(c, PSY.SU)
+IOM.get_ramp_limits(c::PSY.Component) = PSY.get_ramp_limits(c, PSY.SU / u"minute")
 IOM.get_start_up(op_cost) = PSY.get_start_up(op_cost)
 IOM.get_shut_down(op_cost) = PSY.get_shut_down(op_cost)
 IOM.get_dc_bus(c::PSY.Component) = PSY.get_dc_bus(c)
