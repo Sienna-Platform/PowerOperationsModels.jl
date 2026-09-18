@@ -341,7 +341,7 @@ function add_constraints!(
     container::OptimizationContainer,
     T::Type{ActivePowerVariableLimitsConstraint},
     U::Type{ActivePowerRangeExpressionLB},
-    devices::IS.FlattenIteratorWrapper{V},
+    devices::Vector{V},
     model::DeviceModel{V, W},
     ::NetworkModel{X},
 ) where {V <: PSY.ControllableLoad, W <: PowerLoadInterruption, X <: AbstractNetworkModel}
@@ -392,7 +392,7 @@ function _add_interruption_gate!(
     container::OptimizationContainer,
     ::Type{T},
     gated::AbstractArray,
-    devices::IS.FlattenIteratorWrapper{V},
+    devices::Vector{V},
     model::DeviceModel{V, W},
 ) where {
     T <: ActivePowerVariableLimitsConstraint,

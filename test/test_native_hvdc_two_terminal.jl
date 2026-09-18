@@ -556,8 +556,8 @@ function _two_area_sys_with_lossy_hvdc_tie()
     bus_from = PSY.get_component(PSY.ACBus, sys, "Bus_nodeC_1")
     bus_to = PSY.get_component(PSY.ACBus, sys, "Bus_nodeC_2")
     existing_arcs = PSY.get_components(
-            x -> PSY.get_from(x) == bus_from && PSY.get_to(x) == bus_to, PSY.Arc, sys,
-    ),
+        x -> PSY.get_from(x) == bus_from && PSY.get_to(x) == bus_to, PSY.Arc, sys,
+    )
     if isempty(existing_arcs)
         arc = PSY.Arc(; from = bus_from, to = bus_to)
         PSY.add_component!(sys, arc)

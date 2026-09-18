@@ -73,7 +73,6 @@ function seed_reserve_range_expressions!(
         end
         _seed_range_expression!(
             container,
-            sys,
             get_expression_type_for_reserve(ActivePowerReserveVariable, device_type, S),
             device_model,
         )
@@ -85,7 +84,6 @@ end
 # where `T`, `D` and `W` are concrete.
 function _seed_range_expression!(
     container::OptimizationContainer,
-    sys::PSY.System,
     ::Type{T},
     device_model::DeviceModel{D, W},
 ) where {T <: ExpressionType, D <: PSY.Component, W <: AbstractDeviceFormulation}
@@ -93,7 +91,7 @@ function _seed_range_expression!(
     add_expressions!(
         container,
         T,
-        get_available_components(device_model, sys),
+        get_device_cache(device_model),
         device_model,
     )
     return
