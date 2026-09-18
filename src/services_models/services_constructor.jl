@@ -47,15 +47,7 @@ device model's full available component set.
 Runs once per service model, before any service wires awards in, so services of the same
 type with contributor sets that do not nest all index an axis that holds their devices.
 """
-seed_reserve_range_expressions!(
-    ::OptimizationContainer,
-    ::PSY.System,
-    ::ServiceModel,
-    ::DevicesModelContainer,
-) = nothing
-
-# Function barrier: the caller's loop is uninferable, so the container work happens here
-# where `T`, `D` and `W` are concrete.
+# Function barrier
 function _seed_range_expression!(
     container::OptimizationContainer,
     sys::PSY.System,
@@ -72,12 +64,18 @@ function _seed_range_expression!(
     return
 end
 
+seed_reserve_range_expressions!(
+    ::OptimizationContainer,
+    ::PSY.System,
+    ::ServiceModel,
+    ::DevicesModelContainer,
+) = nothing
+
 function seed_reserve_range_expressions!(
     container::OptimizationContainer,
     sys::PSY.System,
     model::ServiceModel{S, <:AbstractReservesFormulation},
     devices_template::DevicesModelContainer,
-    stage::ArgumentConstructStage,
 ) where {S <: PSY.AbstractReserve}
     for by_device_type in values(get_contributing_devices_map(model)),
         device_type in keys(by_device_type)
@@ -100,12 +98,10 @@ function seed_reserve_range_expressions!(
     return
 end
 
-seed_reserve_range_expressions!(::OptimizationContainer, ::PSY.System, ::ServiceModel, ::DevicesModelContainer, ::ModelConstructStage) = nothing
-
 function construct_services!(
     container::OptimizationContainer,
     sys::PSY.System,
-    stage::Union{ArgumentConstructStage, ModelConstructStage},
+    stage::ArgumentConstructStage,
     services_template::ServicesModelContainer,
     devices_template::DevicesModelContainer,
     network_model::NetworkModel{<:AbstractNetworkModel},
@@ -120,7 +116,7 @@ function construct_services!(
             continue
         end
         isempty(get_contributing_devices_map(service_model)) && continue
-        seed_reserve_range_expressions!(container, sys, service_model, devices_template, stage)
+        seed_reserve_range_expressions!(container, sys, service_model, devices_template)
         construct_service!(
             container,
             sys,
@@ -142,6 +138,57 @@ function construct_services!(
             network_model,
         )
     end
+
+    contributing_devices, outaged_generators = _post_contingency_devices(sys, services_template)
+    _create_post_contingency_reserve_variables(container, contributing_devices, outaged_generators)
+    return
+end
+
+function construct_services!(
+    container::OptimizationContainer,
+    sys::PSY.System,
+    stage::ArgumentConstructStage,
+    services_template::ServicesModelContainer,
+    devices_template::DevicesModelContainer,
+    network_model::NetworkModel{<:AbstractNetworkModel},
+)
+    isempty(services_template) && return
+    incompatible_device_types = get_incompatible_devices(devices_template)
+
+    deferred_groups = Symbol[]
+    for (key, service_model) in services_template
+        if _is_deferred_group_formulation(get_formulation(service_model))
+            push!(deferred_groups, key)  # constructed last
+            continue
+        end
+        isempty(get_contributing_devices_map(service_model)) && continue
+        construct_service!(
+            container,
+            sys,
+            stage,
+            service_model,
+            devices_template,
+            incompatible_device_types,
+            network_model,
+        )
+    end
+    for key in deferred_groups
+        construct_service!(
+            container,
+            sys,
+            stage,
+            services_template[key],
+            devices_template,
+            incompatible_device_types,
+            network_model,
+        )
+    end
+
+
+
+    contributing_devices, outaged_generators = _post_contingency_devices(sys, services_template)
+    _constrain_post_contingency_balance!(container, contributing_devices, outaged_generators)
+    _constrain_post_contingency_generation!(container, contributing_devices, outaged_generators)
     return
 end
 
