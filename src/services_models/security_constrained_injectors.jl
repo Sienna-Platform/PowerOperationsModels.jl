@@ -46,9 +46,9 @@ function _constrain_post_contingency_balance!(
     cons = add_constraints_container!(container, PostContingencyGenerationBalanceConstraint, D, outage_uuids, time_steps)
     deployment = get_variable(container, PostContingencyActivePowerReserveDeploymentVariable, D)
     jump_model = get_jump_model(container)
-    for uuid in keys(outaged_gens), t in time_steps
+    for (uuid, gens) in outaged_gens, t in time_steps
         balance = JuMP.AffExpr(0.0)
-        for (gen_type, name) in outaged_gens[uuid]
+        for (gen_type, name) in gens
             power = get_variable(container, ActivePowerVariable, gen_type)
             JuMP.add_to_expression!(balance, -power[name, t])
         end
@@ -72,12 +72,12 @@ function _constrain_post_contingency_generation!(
     cons = add_constraints_container!(container, PostContingencyActivePowerGenerationLimitsConstraint, D, time_steps)
     power = get_variable(container, ActivePowerVariable, D)
     reserve = get_variable(container, PostContingencyActivePowerReserveDeploymentVariable, D)
-    for device in contributing_devices
+    for device in contributing_devices, (uuid, gens) in outaged_gens
         name = PSY.get_name(device)
-        (D, name) in outaged_gens[uuid] && continue
+        (D, name) in gens && continue
         # TODO: max deployment fraction?
         limit = PSY.get_max_active_power(device)
-        for t in time_steps, uuid in keys(outaged_gens)
+        for t in time_steps
             cons[name, uuid, t] = JuMP.@constraint(jump_model, power[name, t] + reserve[name, t] <= limit)
         end
     end
@@ -96,26 +96,27 @@ function _constrain_post_contingency_reserve!(
     cons = add_constraints_container!(container, PostContingencyActivePowerReserveDeploymentVariableLimitsConstraint, D, time_steps)
     pre_reserve = get_variable(container, ActivePowerReserveVariable, D)
     post_reserve = get_variable(container, PostContingencyActivePowerReserveDeploymentVariable, D)
-    for device in contributing_devices
+    for device in contributing_devices, (uuid, gens) in outaged_gens
         name = PSY.get_name(device)
-        (D, name) in outaged_gens[uuid] && continue
-        for uuid in keys(outaged_gens), t in time_steps
+        (D, name) in gens && continue
+        for t in time_steps
             cons[name, uuid, t] = JuMP.@constraint(jump_model, post_reserve[name, t] <= pre_reserve[name, t])
         end
     end
 end
 
+# TODO: What about outaged gens? Subtract their power on the node?
 function _build_post_contingency_nodal_power!(
     container::OptimizationContainer,
     outaged_gens::Dict{Int, Set{Tuple{DataType, String}}},
     contributing_devices::Vector{D},
-) where {D <: PSY.StaticInjection}
-    expr = add_expression_container!(container, PostContingencyNodalActivePowerDeployment, D, Int[], Int[], Int[]; sparse = true)
+) where {R <: PSY.AbstractReserve, D <: PSY.StaticInjection}
+    expr = lazy_container_addition!(container, PostContingencyNodalActivePowerDeployment, PSY.Outage, Int[], Int[], Int[]; sparse = true)
     power = get_variable(container, ActivePowerVariable, D)
     reserve = get_variable(container, PostContingencyActivePowerReserveDeploymentVariable, D)
-    for device in contributing_devices
+    for device in contributing_devices, (uuid, gens) in outaged_gens
         name = PSY.get_name(device)
-        (D, name) in contributing_devices && continue
+        (D, name) in gens && continue
         bus = PNM.get_mapped_bus_number(network_reduction, PSY.get_bus(device))
         for uuid in values(outaged_gens), t in time_steps
             ex = expr[uuid, bus, t] = JuMP.AffExpr(0.0)
@@ -128,19 +129,48 @@ end
 
 # Go through monitored lines, find what arc they reduced to, build flow on that arc.
 # Flow on arc will consider pre-conting. flow and post-conting. nodal power.
-function _build_post_contingency_branch_flow!(
+function _build_post_contingency_flow!(
     container::OptimizationContainer,
-)
-    nodal = get_expression(container, PostContingencyNodalActivePowerDeployment, D)
+    network_model::NetworkModel{<:AbstractPTDFNetworkModel},
+    monitored_lines::Dict{M, Vector{Int}},
+) where {R <: PSY.AbstractReserve, M <: PSY.ACTransmission}
     catalog = get_branch_catalog(network_model)
-    reduction_name = get_component_to_reduction_name_map(catalog, T)[name]
-    get_name_to_arc_map(catalog, T)[reduction_name]
+    reduction_name_map = PNM.get_component_to_reduction_name_map(catalog, M)
+    name_to_arc_map = PNM.get_name_to_arc_map(catalog, M)
 
-    for uuid in values(outaged_gens)
-        per_type = get_outages(model)[uuid]
+    expr = add_expression_container!(container, PostContingencyBranchFlow, M, String[], Int[], Int[]; sparse = true)
+    nodal = get_expression(container, PostContingencyNodalActivePowerDeployment, PSY.Outage)
+    # TODO is pre_flow needed when nodal already considers active power?
+    pre_flow = get_expression(container, PTDFBranchFlow, M)
 
-        arc = PNM.get_name_to_arc_maps(catalog)[T][name]
+    ptdf = get_PTDF_matrix(network_model)
+    bus_axis = PNM.get_bus_axis(ptdf)
+
+    dfs = Dict{String, Vector{Float64}}()
+    for line in monitored_lines
+        name = PSY.get_name(line)
+        arc = name_to_arc_map[reduction_name_map[name]]
+        ptdf_col = ptdf[arc, :]
+        sign = get_ptdf_orientation_sign(catalog, M, name)
+        for bus in buses
+            # TODO: am I indexing the bus correctly?
+            df = sign * ptdf_col[bus_axis[bus]]
+            abs(df) < PTDF_ZERO_TOL && continue
+            push!(dfs[name], df)
+        end
     end
+
+    for (line, uuids) in monitored_lines
+        name = PSY.get_name(line)
+        for uuid in uuids, t in time_steps
+            ex = expr[name, uuid, t] = JuMP.AffExpr(0.0)
+            JuMP.add_to_expression!(ex, pre_flow)
+            for bus in buses
+                JuMP.add_to_expression!(ex, dfs[name][bus], nodal[uuid, bus, t])
+            end
+        end
+    end
+    return
 end
 
 ###############################################################################
@@ -248,6 +278,14 @@ function construct_service!(
     outaged_gens = _outaged_generators(sys, model)
     isempty(services) && return
 
+    # Build PC nodal power before building and constraining PC flows
+    for service in services
+        per_type = get_contributing_devices(model, PSY.get_name(services))
+        for contributing_devices in values(per_type)
+            _build_post_contingency_nodal_power(model, outaged_gens, service, contributing_devices)
+        end
+    end
+
     for service in services
         per_type = get_contributing_devices(model, PSY.get_name(service))
         for contributing_devices in values(per_type)
@@ -256,6 +294,8 @@ function construct_service!(
             if has_requirement
                 _constrain_post_contingency_reserve!(container, outaged_gens, contributing_devices)
             end
+
+            _constrain_post_contingency_flow!(container, outaged_gens, contributing_devices)
         end
     end
     return
