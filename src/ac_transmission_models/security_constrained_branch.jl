@@ -465,7 +465,6 @@ recovered from the balance's branch-flow terms (see
 """
 function _add_modf_post_contingency_flow_expressions!(
     container::OptimizationContainer,
-    sys::PSY.System,
     ::Type{T},
     model::DeviceModel{V, F},
     network_model::NetworkModel,
@@ -553,7 +552,7 @@ function add_post_contingency_flow_expressions!(
     nodal_injection_expressions =
         get_expression(container, ActivePowerBalance, PSY.ACBus).data
     _add_modf_post_contingency_flow_expressions!(
-        container, sys, T, model, network_model, nodal_injection_expressions,
+        container, T, model, network_model, nodal_injection_expressions,
     )
     return
 end
@@ -575,7 +574,7 @@ function add_post_contingency_flow_expressions!(
     nodal_injection_expressions =
         _dcp_nodal_injection_expressions(container, PNM.get_bus_axis(modf_matrix))
     _add_modf_post_contingency_flow_expressions!(
-        container, sys, T, model, network_model, nodal_injection_expressions,
+        container, T, model, network_model, nodal_injection_expressions,
     )
     return
 end

@@ -1775,8 +1775,8 @@ const _PC_RATING_FACTORS = vcat([fill(x, 6) for x in [0.99, 0.98, 1.0, 0.95]]...
 _set_rating_b!(l::PSY.Line, r) = PSY.set_rating_b!(l, r)
 _set_rating_b!(t::PSY.TwoWindingTransformer, r) = PSY.set_rating_b!(t.circuit, r)
 
-# `c_sys5` with `rating_b = 1.2 * rating` and a post-contingency rating forecast
-# on `lines_with_ts`, every branch outaged and monitored.
+# `c_sys14` with `rating_b = 1.2 * rating` and a post-contingency rating forecast
+# on Line1, Line2, Line6, and Trans1. Every branch monitored. Line1, Line2, Line3 outaged.
 function _pc_rating_ts_system()
     sys = PSB.build_system(PSITestSystems, "c_sys14")
     lines_with_ts = ["Line1", "Line2", "Line6", "Trans1"]
@@ -1898,7 +1898,7 @@ end
     n_checked = 0
     for (outage_id, name, t) in keys(pcbf.data)
         name in lines_with_ts && continue
-        line = PSY.get_component(PSY.Line, sys, name)
+        line = PSY.get_component(PSY.ACTransmission, sys, name)
         isnothing(line) && continue
         expected = POM._branch_rating_b(line)
         expr_const = JuMP.constant(pcbf[outage_id, name, t])
