@@ -126,7 +126,7 @@ end
     # initial_input = 2 (OnVariable coef dial), plus distinct slopes for PWL.
     cost = _decr_mbc(2.0, [0.0, 0.5, 1.0], [3.0, 7.0])
     sys = one_bus_one_interruptible_load(cost)
-    devs = PSY.get_components(PSY.InterruptiblePowerLoad, sys)
+    devs = collect(PSY.get_components(PSY.InterruptiblePowerLoad, sys))
 
     container = build_test_container(sys, 1:1)
     add_jump_var!(
@@ -154,7 +154,7 @@ end
     # A load has no supply (incremental) offer, so that side is the absent placeholder.
     cost = stub_ts_market_bid_cost(; incremental_trivial = true)
     sys = one_bus_one_interruptible_load(cost)
-    devs = PSY.get_components(PSY.InterruptiblePowerLoad, sys)
+    devs = collect(PSY.get_components(PSY.InterruptiblePowerLoad, sys))
 
     container = build_test_container(sys, 1:2)
     for t in 1:2
@@ -229,7 +229,7 @@ end
         decremental_offer_curves = _ZERO_OFFER_SB,
     )
     sys = one_bus_one_thermal(mbc; name = _THERMAL_NAME)
-    devs = PSY.get_components(PSY.ThermalStandard, sys)
+    devs = collect(PSY.get_components(PSY.ThermalStandard, sys))
 
     container = build_test_container(sys, 1:1)
     for V in (IOM.ActivePowerVariable, IOM.OnVariable, IOM.StartVariable, IOM.StopVariable)
@@ -267,7 +267,7 @@ end
     # A generator has no demand (decremental) offer, so that side is the absent placeholder.
     cost = stub_ts_market_bid_cost(; decremental_trivial = true)
     sys = one_bus_one_thermal(cost; name = _THERMAL_NAME)
-    devs = PSY.get_components(PSY.ThermalStandard, sys)
+    devs = collect(PSY.get_components(PSY.ThermalStandard, sys))
 
     container = build_test_container(sys, 1:2)
     for V in (IOM.ActivePowerVariable, IOM.OnVariable, IOM.StartVariable, IOM.StopVariable),
@@ -328,7 +328,7 @@ end
     cost = stub_ts_market_bid_cost()
     ms_name = "thermal_ms1"
     sys = one_bus_one_thermal_multistart(cost; name = ms_name)
-    devs = PSY.get_components(PSY.ThermalMultiStart, sys)
+    devs = collect(PSY.get_components(PSY.ThermalMultiStart, sys))
 
     container = build_test_container(sys, 1:1)
     for V in (POM.HotStartVariable, POM.WarmStartVariable, POM.ColdStartVariable)

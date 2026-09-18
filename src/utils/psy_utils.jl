@@ -5,10 +5,13 @@ _to_is_resolution(resolution::Dates.Millisecond) =
     resolution == UNSET_RESOLUTION ? nothing : resolution
 
 function get_available_reservoirs(sys::PSY.System)
-    return PSY.get_components(
-        x -> (PSY.get_available(x)),
-        PSY.HydroReservoir,
-        sys,
+    # Materialized: the build path hands this straight to the `Vector`-typed builders.
+    return collect(
+        PSY.get_components(
+            x -> (PSY.get_available(x)),
+            PSY.HydroReservoir,
+            sys,
+        ),
     )
 end
 
