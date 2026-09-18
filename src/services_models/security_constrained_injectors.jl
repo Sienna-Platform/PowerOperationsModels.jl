@@ -1,108 +1,125 @@
-function add_variables!(
-    container::OptimizationContainer,
-    ::Type{T},
-    service::PSY.AbstractReserve
-    service_model::ServiceModel{R, <:AbstractSecurityConstrainedReservesFormulation},
-    contributing_devices::Vector{V},
-    ::Type{F},
-    outaged_gens::Dict{String, Set{PSY.Generator}},
-) where {
-    T <: AbstractContingencyVariableType,
-    R <: PSY.AbstractReserve,
-    V <: PSY.StaticInjection,
-    F <: AbstractSecurityConstrainedReservesFormulation,
-}
-    var = add_variable_container!(container, T, V, String[], Int[], Int[]; sparse = true)
-    binary = get_variable_binary(T, R, F)
-    jump_model = get_jump_model(container)
-    for uuid in outage_uuids, device in contributing_devices, t in time_steps
-        device_name = PSY.get_name(device)
-        v = var[device_name, uuid, t] = JuMP.@variable(jump_model, base_name = "$(T)_$(R)_$(service_name)_{$(uuid), $(device_name), $(t)}", binary = binary)
-        if device in outaged_gens[uuid]
-            JuMP.fix(v, 0.0)
-            continue
+const _PER_TYPE = Dict{DataType, Set{String}}
+const _OUTAGE_MAP = Dict{Int, _PER_TYPE}
+
+# One outage may be tied to several reserves with overlapping contributing devices. So aggregate
+# those devices across all modeled reserves
+# TODO: Need to do only security constrained ones
+function _post_contingency_devices(sys::PSY.System, services_template::ServicesModelContainer)
+    uuids = Set{Int}()
+    contributing_devices = _OUTAGE_MAP()
+    for model in values(services_template)
+        for uuid in keys(get_outages(model)), device in get_contributing_devices(model)
+            per_type = get!(contributing_devices, uuid, _PER_TYPE())
+            c = get!(per_type, typeof(device), Set{String}())
+            push!(c, PSY.get_name(device))
+            push!(uuids, uuid)
         end
-        # TODO Check about this trait... I don't see where it's defined
-        ub = get_variable_upper_bound(T, service, device, F)
-        isnothing(ub) || JuMP.set_upper_bound(v, ub)
-        lb = get_variable_lower_bound(T, service, device, F)
-        isnothing(lb) || JuMP.set_lower_bound(v, lb)
-        if get_warm_start(get_settings(container))
-            start = get_variable_warm_start_value(T, device, F)
-            isnothing(start) || JuMP.set_start_value(v, start)
+    end
+    outaged_generators = _OUTAGE_MAP(uuid => Dict{DataType, Set{String}}() for uuid in uuids)
+    for (generator, outage) in PSY.get_component_supplemental_attribute_pairs(PSY.Generator, PSY.Outage, sys)
+        uuid = IS.get_uuid(outage)
+        haskey(outaged_generators, uuid) || continue
+        c = get!(outaged_generators[uuid], typeof(generator), Set{String}())
+        push!(c, PSY.get_name(generator))
+    end
+    return contributing_devices, outaged_generators
+end
+
+function _create_post_contingency_reserve_variables!(
+    container::OptimizationContainer,
+    contributing_devices::_OUTAGE_MAP,
+    outaged_gens::_OUTAGE_MAP,
+)
+    jump_model = get_jump_model(container)
+    for (uuid, per_type) in contributing_devices
+        for (device_type, names) in per_device
+            var = lazy_add_container!(container, PostContingencyActivePowerReserveDeploymentVariable, device_type, String[], Int[], Int[]; sparse = true)
+            for name in names
+                (device_type, name) in outaged_generators[uuid] && continue
+                for t in time_steps
+                    v = var[name, uuid, t] = JuMP.@variable(jump_model, base_name = "PostContingencyActivePowerReserveDeploymentVariable_$(device_type)_{$(name), $(uuid), $(t)}")
+                    # TODO bounds? start?
+                end
+            end
         end
     end
     return
 end
 
-"""Post-contingency reserve deployment must match outaged generator's
-pre-contingency generation."""
 function _constrain_post_contingency_balance!(
     container::OptimizationContainer,
-    outaged_gens::Dict{Int, Set{Tuple{DataType, String}}}
-    contributing_devices::Vector{D},
-) where {D <: PSY.StaticInjection}
-    time_steps = get_time_steps(container)
-    cons = add_constraints_container!(container, PostContingencyGenerationBalanceConstraint, D, outage_uuids, time_steps)
-    deployment = get_variable(container, PostContingencyActivePowerReserveDeploymentVariable, D)
-    jump_model = get_jump_model(container)
-    for (uuid, gens) in outaged_gens, t in time_steps
+    contributing_devices::_OUTAGE_MAP,
+    outaged_generators::_OUTAGE_MAP,
+)
+    cons = add_constraints_container!(container, PostContingencyGenerationBalanceConstraint, PSY.System, uuids, time_steps)
+
+    for uuid in keys(contributing_devices), t in time_steps
         balance = JuMP.AffExpr(0.0)
-        for (gen_type, name) in gens
-            power = get_variable(container, ActivePowerVariable, gen_type)
-            JuMP.add_to_expression!(balance, -power[name, t])
+        for (generator_type, names) in outaged_generators[uuid]
+            power = get_variable(container, ActivePowerVariable, generator_type)
+            for name in names
+                JuMP.add_to_expression!(balance, -power[name, t])
+            end
         end
-        for device in contributing_devices
-            JuMP.add_to_expression!(balance, deployment[uuid, PSY.get_name(device), t])
+        for (device_type, names) in contributing_devices[uuid]
+            reserve = get_variable(container, PostContingencyActivePowerReserveDeploymentVariable, device_type)
+            for name in names
+                JuMP.add_to_expression!(balance, reserve[name, t])
+            end
         end
-        cons[uuid, t] = JuMP.@constraint(jump_model, balance == 0)
+
+        cons[uuid, t] = JuMP.@constraint(jump_model, balance == 0.0)
     end
     return
 end
 
-"""Contributing devices inject and reserve up to their max, or nothing
-if they are outaged."""
 function _constrain_post_contingency_generation!(
     container::OptimizationContainer,
-    outaged_gens::Dict{Int, Set{Tuple{DataType, String}}},
-    contributing_devices::Vector{D},
-) where {D <: PSY.StaticInjection}
+    sys::PSY.System,
+    outaged_gens::_OUTAGE_MAP,
+    contributing_devices::_OUTAGE_MAP,
+)
     jump_model = get_jump_model(container)
-    time_steps = get_time_steps(container)
-    cons = add_constraints_container!(container, PostContingencyActivePowerGenerationLimitsConstraint, D, time_steps)
-    power = get_variable(container, ActivePowerVariable, D)
-    reserve = get_variable(container, PostContingencyActivePowerReserveDeploymentVariable, D)
-    for device in contributing_devices, (uuid, gens) in outaged_gens
-        name = PSY.get_name(device)
-        (D, name) in gens && continue
-        # TODO: max deployment fraction?
-        limit = PSY.get_max_active_power(device)
-        for t in time_steps
-            cons[name, uuid, t] = JuMP.@constraint(jump_model, power[name, t] + reserve[name, t] <= limit)
+    for (uuid, per_type) in contributing_devices
+        for (device_type, names) in per_type
+            cons = lazy_add_container!(container, PostContingencyActivePowerGenerationLimitsConstraint, device_type, String[], Int[], Int[]; sparse = true)
+            power = get_variable(container, ActivePowerVariable, device_type)
+            reserve = get_variable(contianer, PostContingencyActivePowerReserveDeploymentVariable, device_type)
+            for name in names
+                (device_type, name) in outaged_gens[uuid] && continue
+                limit = PSY.get_max_active_power(PSY.get_component(device_type, sys, name))
+                for t in time_steps
+                    cons[uuid, name, t] = JuMP.@constraint(jump_model, power[name, t] + reserve[name, t] <= limit)
+                end
+            end
         end
     end
     return
 end
 
-"""Contributing devices with a TS-backed pre-contingency reserve limit maintain
-that limit post-contingency."""
+# Contributing devices with a TS-backed pre-contingency reserve limit maintain that limit
+# post-contingency.
+# TODO: That's not quite what this is doing...
 function _constrain_post_contingency_reserve!(
     container::OptimizationContainer,
-    outaged_gens::Dict{Int, Set{Tuple{DataType, String}}},
-    contributing_devices::Vector{D},
-) where {D <: PSY.StaticInjection}
+    contributing_devices::_OUTAGE_MAP,
+    outaged_gens::_OUTAGE_MAP,
+)
     jump_model = get_jump_model(container)
-    time_steps = get_time_steps(container)
-    cons = add_constraints_container!(container, PostContingencyActivePowerReserveDeploymentVariableLimitsConstraint, D, time_steps)
-    pre_reserve = get_variable(container, ActivePowerReserveVariable, D)
-    post_reserve = get_variable(container, PostContingencyActivePowerReserveDeploymentVariable, D)
-    for device in contributing_devices, (uuid, gens) in outaged_gens
-        name = PSY.get_name(device)
-        (D, name) in gens && continue
-        for t in time_steps
-            cons[name, uuid, t] = JuMP.@constraint(jump_model, post_reserve[name, t] <= pre_reserve[name, t])
+    for (uuid, per_type) in contributing_devices
+        for (device_type, names) in per_type
+            cons = lazy_add_container!(container, PostContingencyActivePowerReserveDeploymentVariable, device_type, String[], Int[], Int[]; sparse = true)
+            pre_reserve = get_variable(container, ActivePowerReserveVariable, device_type)
+            post_reserve = get_variable(container, PostContingencyActivePowerReserveDeploymentVariable, device_type)
+            for name in names
+                (device_type, name) in outaged_gens[uuid] && continue
+                for t in time_steps
+                    cons[name, uuid, t] = JuMP.@constraint(jump_model, post_reserve[name, t] <= pre_reserve[name, t])
+                end
+            end
         end
     end
+    return
 end
 
 # TODO: What about outaged gens? Subtract their power on the node?
@@ -178,7 +195,7 @@ end
 ###############################################################################
 
 function _outaged_generators(sys::PSY.System, model::ServiceModel{R, F}) where {R <: PSY.AbstractReserve, F <: AbstractSecurityConstrainedReservesFormulation}
-    uuids = string.(sort!(collect(keys(get_outages(model)))))
+    uuids = sort!(collect(keys(get_outages(model))))
     if isempty(uuids)
         @warn "Service{$(R),$(F)}($(PSY.get_name(model)): `service_model.outages` is empty; the \
                security-constrained formulation will not add any \
@@ -187,9 +204,11 @@ function _outaged_generators(sys::PSY.System, model::ServiceModel{R, F}) where {
     end
     generator_outage_pairs = PSY.get_component_supplemental_attribute_pairs(PSY.Generator, PSY.Outage, sys)
     outaged_gens = Dict{Int, Set{Tuple{DataType, String}}}(uuid => Set{Tuple{DataType, String}}() for uuid in uuids)
+    outaged_gens = Dict{Int, Dict{DataType, Set{String}}}(uuid => Dict{DataType, Set{String}}() for uuid in uuids)
     for (generator, outage) in generator_outage_pairs
         haskey(outaged_gens, uuid) || continue
         push!(outaged_gens[uuid], (typeof(generator), PSY.get_name(generator)))
+        push!(outaged_gens[uuid][typeof(generator)],)
     end
     return outaged_gens
 end
