@@ -195,6 +195,40 @@ end
 _size_wrapper(elem) = size(elem)
 _size_wrapper(::Tuple) = ()
 
+# The first window's values for one component. A `DeterministicSingleTimeSeries` is a view
+# of its `SingleTimeSeries`, but IS reads any forecast window by materializing the whole
+# backing array first. The store chunks by timestep, so that is one chunk per step of the
+# full series for every component (a year of hourly data: ~0.13 s each, minutes for a few
+# thousand loads). The `SingleTimeSeries` read is windowed in the store and returns the
+# same values, so read the view through it.
+function _get_time_series_initial_values(
+    container::OptimizationContainer,
+    ::Type{T},
+    component::IS.InfrastructureSystemsComponent,
+    ts_name::AbstractString;
+    interval::Dates.Millisecond = UNSET_INTERVAL,
+    resolution::Dates.Millisecond = UNSET_RESOLUTION,
+) where {T <: IS.TimeSeriesData}
+    if !(T <: IS.DeterministicSingleTimeSeries)
+        return IOM.get_time_series_initial_values!(
+            container,
+            T,
+            component,
+            ts_name;
+            interval = interval,
+            resolution = resolution,
+        )
+    end
+    return IS.get_time_series_values(
+        IS.SingleTimeSeries,
+        component,
+        ts_name;
+        start_time = get_initial_time(container),
+        len = length(get_time_steps(container)),
+        resolution = _to_is_resolution(resolution),
+    )
+end
+
 #################################################################################
 # _add_time_series_parameters! — main workhorse
 #################################################################################
@@ -258,7 +292,7 @@ function _add_time_series_parameters!(
         device_ts_hashes[device_name] = ts_hash
         if !(ts_hash in keys(initial_values))
             initial_values[ts_hash] =
-                IOM.get_time_series_initial_values!(
+                _get_time_series_initial_values(
                     container,
                     ts_type,
                     device,
@@ -407,7 +441,7 @@ function _add_time_series_parameters!(
         if has_entry
             @assert !isempty(tracker_container) name arc reduction
         else
-            raw_ts_vals = IOM.get_time_series_initial_values!(
+            raw_ts_vals = _get_time_series_initial_values(
                 container,
                 ts_type,
                 device_with_time_series,
@@ -813,7 +847,7 @@ function _add_objective_function_parameters!(
     for (i, (ts_name, device_name, device)) in
         enumerate(zip(ts_names, device_names, active_devices))
         raw_ts_vals =
-            IOM.get_time_series_initial_values!(
+            _get_time_series_initial_values(
                 container,
                 ts_type,
                 device,
@@ -928,7 +962,7 @@ function _add_parameters!(
         end
         service_ts_hashes[name] = ts_hash
         if !haskey(initial_values, ts_hash)
-            initial_values[ts_hash] = IOM.get_time_series_initial_values!(
+            initial_values[ts_hash] = _get_time_series_initial_values(
                 container,
                 ts_type,
                 service,
