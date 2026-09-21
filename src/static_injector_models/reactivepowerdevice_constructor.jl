@@ -8,7 +8,7 @@ function construct_device!(
     R <: PSY.SynchronousCondenser,
     D <: AbstractReactivePowerDeviceFormulation,
 }
-    devices = get_available_components(model, sys)
+    devices = get_device_cache(model)
     add_variables!(container, ReactivePowerVariable, devices, D)
     add_to_expression!(
         container,
@@ -31,7 +31,7 @@ function construct_device!(
     R <: PSY.SynchronousCondenser,
     D <: AbstractReactivePowerDeviceFormulation,
 }
-    devices = get_available_components(model, sys)
+    devices = get_device_cache(model)
     # No constraints
     # Add FFs
     add_feedforward_constraints!(container, model, devices)

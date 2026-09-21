@@ -11,8 +11,9 @@
 # (without) variants.
 #################################################################################
 
-function _filter_hybrids(devices)
-    devices_vec = collect(devices)
+function _filter_hybrids(devices::Vector)
+    # `devices` is the DeviceModel cache: read-only here, so alias it rather than copy.
+    devices_vec = devices
     return (
         all = devices_vec,
         with_thermal = [d for d in devices_vec if PSY.get_thermal_unit(d) !== nothing],
@@ -210,7 +211,7 @@ _maybe_add_reactive_power_variable!(
     ::Type{<:AbstractNetworkModel},
 ) where {
     D <: AbstractHybridFormulation,
-    U <: Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
+    U <: Vector{V},
 } where {V <: PSY.HybridSystem} =
     add_variables!(container, ReactivePowerVariable, devices, D)
 
@@ -221,7 +222,7 @@ _maybe_add_reactive_power_balance!(
     network_model::NetworkModel{<:AbstractNetworkModel},
 ) where {
     D <: AbstractHybridFormulation,
-    U <: Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
+    U <: Vector{V},
 } where {V <: PSY.HybridSystem} =
     add_to_expression!(
         container,
@@ -239,7 +240,7 @@ _maybe_add_reactive_power_limits!(
     network_model::NetworkModel{<:AbstractNetworkModel},
 ) where {
     D <: AbstractHybridFormulation,
-    U <: Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
+    U <: Vector{V},
 } where {V <: PSY.HybridSystem} =
     add_constraints!(
         container,
@@ -257,7 +258,7 @@ _maybe_add_reactive_power_variable!(
     ::Type{<:AbstractActivePowerModel},
 ) where {
     D <: AbstractHybridFormulation,
-    U <: Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
+    U <: Vector{V},
 } where {V <: PSY.HybridSystem} = nothing
 
 _maybe_add_reactive_power_balance!(
@@ -267,7 +268,7 @@ _maybe_add_reactive_power_balance!(
     ::NetworkModel{<:AbstractActivePowerModel},
 ) where {
     D <: AbstractHybridFormulation,
-    U <: Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
+    U <: Vector{V},
 } where {V <: PSY.HybridSystem} = nothing
 
 _maybe_add_reactive_power_limits!(
@@ -277,7 +278,7 @@ _maybe_add_reactive_power_limits!(
     ::NetworkModel{<:AbstractActivePowerModel},
 ) where {
     D <: AbstractHybridFormulation,
-    U <: Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
+    U <: Vector{V},
 } where {V <: PSY.HybridSystem} = nothing
 
 function construct_device!(
@@ -287,7 +288,7 @@ function construct_device!(
     model::DeviceModel{T, D},
     network_model::NetworkModel{S},
 ) where {T <: PSY.HybridSystem, D <: HybridDispatchWithReserves, S <: AbstractNetworkModel}
-    devices = get_available_components(model, sys)
+    devices = get_device_cache(model)
     grouped = _filter_hybrids(devices)
 
     # PCC variables
@@ -394,7 +395,7 @@ function construct_device!(
     model::DeviceModel{T, D},
     network_model::NetworkModel{S},
 ) where {T <: PSY.HybridSystem, D <: HybridDispatchWithReserves, S <: AbstractNetworkModel}
-    devices = get_available_components(model, sys)
+    devices = get_device_cache(model)
     grouped = _filter_hybrids(devices)
 
     # PCC reactive-power limits (active-power limits handled via the asset balance + status constraints)

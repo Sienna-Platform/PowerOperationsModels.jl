@@ -8,7 +8,7 @@ function construct_device!(
     R <: PSY.RenewableGen,
     D <: AbstractRenewableDispatchFormulation,
 }
-    devices = get_available_components(model, sys)
+    devices = get_device_cache(model)
 
     add_variables!(container, ActivePowerVariable, devices, D)
     add_variables!(container, ReactivePowerVariable, devices, D)
@@ -68,7 +68,7 @@ function construct_device!(
     model::DeviceModel{R, <:AbstractRenewableDispatchFormulation},
     network_model::NetworkModel{<:AbstractNetworkModel},
 ) where {R <: PSY.RenewableGen}
-    devices = get_available_components(model, sys)
+    devices = get_device_cache(model)
 
     if has_service_model(model)
         add_constraints!(
@@ -130,7 +130,7 @@ function construct_device!(
     R <: PSY.RenewableGen,
     D <: AbstractRenewableDispatchFormulation,
 }
-    devices = get_available_components(model, sys)
+    devices = get_device_cache(model)
 
     add_variables!(container, ActivePowerVariable, devices, D)
     # this is always true!! see get_default_time_series_names in renewable_generation.jl
@@ -180,7 +180,7 @@ function construct_device!(
     model::DeviceModel{R, <:AbstractRenewableDispatchFormulation},
     network_model::NetworkModel{<:AbstractActivePowerModel},
 ) where {R <: PSY.RenewableGen}
-    devices = get_available_components(model, sys)
+    devices = get_device_cache(model)
 
     if has_service_model(model)
         add_constraints!(
@@ -231,7 +231,7 @@ function construct_device!(
     model::DeviceModel{R, FixedOutput},
     network_model::NetworkModel{<:AbstractNetworkModel},
 ) where {R <: PSY.RenewableGen}
-    devices = get_available_components(model, sys)
+    devices = get_device_cache(model)
 
     add_parameters!(container, ActivePowerTimeSeriesParameter, devices, model)
     add_parameters!(container, ReactivePowerTimeSeriesParameter, devices, model)
@@ -264,7 +264,7 @@ function construct_device!(
     model::DeviceModel{R, FixedOutput},
     network_model::NetworkModel{<:AbstractActivePowerModel},
 ) where {R <: PSY.RenewableGen}
-    devices = get_available_components(model, sys)
+    devices = get_device_cache(model)
 
     add_parameters!(container, ActivePowerTimeSeriesParameter, devices, model)
     add_to_expression!(

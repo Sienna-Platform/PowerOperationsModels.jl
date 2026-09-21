@@ -719,7 +719,7 @@ function construct_device!(
     device_model::DeviceModel{T, F},
     network_model::NetworkModel{<:AbstractPTDFNetworkModel},
 ) where {T <: PSY.ACTransmission, F <: AbstractSecurityConstrainedStaticBranch}
-    devices = get_available_components(device_model, sys)
+    devices = get_device_cache(device_model)
     if get_use_slacks(device_model)
         _add_flow_slacks!(container, devices, device_model, network_model)
     end
@@ -769,7 +769,7 @@ function construct_device!(
     F <: AbstractSecurityConstrainedStaticBranch,
     X <: AbstractPTDFNetworkModel,
 }
-    devices = get_available_components(device_model, sys)
+    devices = get_device_cache(device_model)
 
     add_constraints!(container, FlowRateConstraint, devices, device_model, network_model)
     _add_transformer_control_constraints!(
@@ -811,7 +811,7 @@ function construct_device!(
     device_model::DeviceModel{T, F},
     network_model::NetworkModel{DCPNetworkModel},
 ) where {T <: PSY.ACTransmission, F <: AbstractSecurityConstrainedStaticBranch}
-    devices = get_available_components(device_model, sys)
+    devices = get_device_cache(device_model)
     add_variables!(
         container, FlowActivePowerVariable, devices, device_model, network_model,
     )
@@ -863,7 +863,7 @@ function construct_device!(
     device_model::DeviceModel{V, F},
     network_model::NetworkModel{DCPNetworkModel},
 ) where {V <: PSY.ACTransmission, F <: AbstractSecurityConstrainedStaticBranch}
-    devices = get_available_components(device_model, sys)
+    devices = get_device_cache(device_model)
 
     add_constraints!(container, FlowRateConstraint, devices, device_model, network_model)
     add_constraints!(

@@ -24,7 +24,7 @@ end
 
 function add_event_arguments!(
     ::OptimizationContainer,
-    ::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
+    ::Vector{V},
     device_model::DeviceModel,
     ::NetworkModel,
 ) where {V <: PSY.Component}
@@ -36,7 +36,7 @@ end
 
 function add_event_constraints!(
     ::OptimizationContainer,
-    ::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
+    ::Vector{V},
     device_model::DeviceModel,
     ::NetworkModel,
 ) where {V <: PSY.Component}

@@ -257,7 +257,7 @@ get_variable_warm_start_value(
 function add_variables!(
     container::OptimizationContainer,
     ::Type{T},
-    devices::Union{Vector{U}, IS.FlattenIteratorWrapper{U}},
+    devices::Vector{U},
     ::Type{<:AbstractHybridFormulation},
 ) where {
     T <: Union{HybridEnergyShortageVariable, HybridEnergySurplusVariable},
@@ -504,7 +504,7 @@ initial_condition_variable(
 
 function initial_conditions!(
     container::OptimizationContainer,
-    devices::IS.FlattenIteratorWrapper{T},
+    devices::Vector{T},
     formulation::AbstractHybridFormulation,
 ) where {T <: PSY.HybridSystem}
     storage_devices = [d for d in devices if PSY.get_storage(d) !== nothing]
@@ -534,7 +534,7 @@ function add_variables!(
     ::Type{F},
 ) where {
     T <: AbstractHybridReserveVariableType,
-    U <: Union{Vector{D}, IS.FlattenIteratorWrapper{D}},
+    U <: Vector{D},
     F <: AbstractHybridFormulation,
 } where {D <: PSY.HybridSystem}
     @assert !isempty(devices)
@@ -660,7 +660,7 @@ function add_to_expression!(
     container::OptimizationContainer,
     ::Type{T},
     ::Type{U},
-    devices::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
+    devices::Vector{V},
     ::DeviceModel{V, W},
 ) where {
     T <: ReserveAggregationExpression,
@@ -680,7 +680,7 @@ function add_to_expression!(
     container::OptimizationContainer,
     ::Type{T},
     ::Type{U},
-    devices::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
+    devices::Vector{V},
     model::DeviceModel{V, W},
     ::NetworkModel{X},
 ) where {
@@ -699,7 +699,7 @@ function add_to_expression!(
     container::OptimizationContainer,
     ::Type{TotalReserveOffering},
     ::Type{U},
-    devices::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
+    devices::Vector{V},
     model::DeviceModel{V, W},
 ) where {
     U <: HybridStorageSubcomponentReserveVariable,
@@ -855,7 +855,7 @@ function add_constraints!(
     model::DeviceModel{V, W},
     ::NetworkModel{X},
 ) where {
-    U <: Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
+    U <: Vector{V},
     W <: AbstractHybridFormulationWithReserves,
     X <: AbstractNetworkModel,
 } where {V <: PSY.HybridSystem}
@@ -936,7 +936,7 @@ function add_constraints!(
     ::NetworkModel{X},
 ) where {
     T <: HybridThermalOnVariableConstraint,
-    U <: Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
+    U <: Vector{V},
     W <: AbstractHybridFormulation,
     X <: AbstractNetworkModel,
 } where {V <: PSY.HybridSystem}
@@ -979,7 +979,7 @@ function add_constraints!(
     model::DeviceModel{V, W},
     ::NetworkModel{X},
 ) where {
-    U <: Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
+    U <: Vector{V},
     W <: AbstractHybridFormulation,
     X <: AbstractNetworkModel,
 } where {V <: PSY.HybridSystem}
@@ -1037,7 +1037,7 @@ function add_constraints!(
     model::DeviceModel{V, W},
     ::NetworkModel{X},
 ) where {
-    U <: Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
+    U <: Vector{V},
     W <: AbstractHybridFormulationWithReserves,
     X <: AbstractNetworkModel,
 } where {V <: PSY.HybridSystem}
@@ -1137,7 +1137,7 @@ function add_constraints!(
     model::DeviceModel{V, W},
     network_model::NetworkModel{X},
 ) where {
-    U <: Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
+    U <: Vector{V},
     W <: AbstractHybridFormulationWithReserves,
     X <: AbstractNetworkModel,
 } where {V <: PSY.HybridSystem}
@@ -1157,7 +1157,7 @@ function add_constraints!(
     model::DeviceModel{V, W},
     network_model::NetworkModel{X},
 ) where {
-    U <: Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
+    U <: Vector{V},
     W <: AbstractHybridFormulation,
     X <: AbstractNetworkModel,
 } where {V <: PSY.HybridSystem}
@@ -1320,7 +1320,7 @@ function add_constraints!(
     ::NetworkModel{X},
 ) where {
     T <: HybridStorageStatusOnConstraint,
-    U <: Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
+    U <: Vector{V},
     W <: AbstractHybridFormulation,
     X <: AbstractNetworkModel,
 } where {V <: PSY.HybridSystem}
@@ -1380,7 +1380,7 @@ function add_constraints!(
     ::NetworkModel{X},
 ) where {
     T <: HybridStorageReservePowerLimitConstraint,
-    U <: Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
+    U <: Vector{V},
     W <: AbstractHybridFormulationWithReserves,
     X <: AbstractNetworkModel,
 } where {V <: PSY.HybridSystem}
@@ -1461,7 +1461,7 @@ function add_constraints!(
     ::NetworkModel{X},
 ) where {
     T <: RegularizationConstraint,
-    U <: Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
+    U <: Vector{V},
     W <: AbstractHybridFormulation,
     X <: AbstractNetworkModel,
 } where {V <: PSY.HybridSystem}
@@ -1685,7 +1685,7 @@ _emit_coverage_constraint!(
 function add_constraints!(
     container::OptimizationContainer,
     ::Type{T},
-    devices::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
+    devices::Vector{V},
     model::DeviceModel{V, HybridDispatchWithReserves},
     network_model::NetworkModel{X},
 ) where {
@@ -1740,7 +1740,7 @@ end
 function add_constraints!(
     container::OptimizationContainer,
     ::Type{HybridEnergyTargetConstraint},
-    devices::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
+    devices::Vector{V},
     model::DeviceModel{V, HybridDispatchWithReserves},
     ::NetworkModel{X},
 ) where {V <: PSY.HybridSystem, X <: AbstractNetworkModel}
@@ -1796,7 +1796,7 @@ function add_constraints!(
     container::OptimizationContainer,
     ::Type{T},
     ::Type{U},
-    devices::IS.FlattenIteratorWrapper{V},
+    devices::Vector{V},
     model::DeviceModel{V, W},
     ::NetworkModel{X},
 ) where {
@@ -1851,7 +1851,7 @@ _pcc_has_reserves(::Type{<:AbstractHybridFormulation}, _model) = false
 function add_constraints!(
     container::OptimizationContainer,
     ::Type{T},
-    devices::IS.FlattenIteratorWrapper{V},
+    devices::Vector{V},
     model::DeviceModel{V, W},
     ::NetworkModel{X},
 ) where {
@@ -1910,7 +1910,7 @@ mirroring HSS `_add_constraints_energyassetbalance_with_reserves!`.
 function add_constraints!(
     container::OptimizationContainer,
     ::Type{HybridEnergyAssetBalanceConstraint},
-    devices::IS.FlattenIteratorWrapper{V},
+    devices::Vector{V},
     model::DeviceModel{V, W},
     ::NetworkModel{X},
 ) where {V <: PSY.HybridSystem, W <: AbstractHybridFormulation, X <: AbstractNetworkModel}
@@ -2041,7 +2041,7 @@ participates in.
 function add_constraints!(
     container::OptimizationContainer,
     ::Type{HybridReserveAssignmentConstraint},
-    devices::IS.FlattenIteratorWrapper{V},
+    devices::Vector{V},
     model::DeviceModel{V, W},
     ::NetworkModel{X},
 ) where {
@@ -2098,7 +2098,7 @@ reserve allocations (thermal + renewable + charging + discharging).
 function add_constraints!(
     container::OptimizationContainer,
     ::Type{HybridReserveBalanceConstraint},
-    devices::IS.FlattenIteratorWrapper{V},
+    devices::Vector{V},
     model::DeviceModel{V, W},
     ::NetworkModel{X},
 ) where {
@@ -2237,10 +2237,10 @@ function objective_function!(
     model::DeviceModel{D, W},
     ::Type{<:AbstractNetworkModel},
 ) where {
-    U <: Union{Vector{D}, IS.FlattenIteratorWrapper{D}},
+    U <: Vector{D},
     W <: AbstractHybridFormulation,
 } where {D <: PSY.HybridSystem}
-    devices_vec = collect(devices)
+    devices_vec = devices
     hybrids_with_thermal = [d for d in devices_vec if PSY.get_thermal_unit(d) !== nothing]
     hybrids_with_renewable =
         [d for d in devices_vec if PSY.get_renewable_unit(d) !== nothing]

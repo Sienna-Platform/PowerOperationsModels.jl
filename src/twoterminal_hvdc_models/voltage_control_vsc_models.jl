@@ -29,7 +29,7 @@
 # regulates voltage; other VSC formulations fall through to the no-op below.
 function _add_vsc_regulated_voltage!(
     container::OptimizationContainer,
-    devices::IS.FlattenIteratorWrapper{U},
+    devices::Vector{U},
     sys::PSY.System,
     ::DeviceModel{U, VoltageControlVSC},
     network_model::NetworkModel{<:AbstractNetworkModel},
@@ -42,7 +42,7 @@ end
 
 function _add_vsc_regulated_voltage!(
     ::OptimizationContainer,
-    ::IS.FlattenIteratorWrapper{U},
+    ::Vector{U},
     ::PSY.System,
     ::DeviceModel{U, <:AbstractTwoTerminalVSCFormulation},
     ::NetworkModel{<:AbstractNetworkModel},
@@ -53,7 +53,7 @@ end
 # Model-stage: tie each per-terminal aux variable to (vr, vi) at its bus (ACR/IVR).
 function _add_vsc_regulated_voltage_constraints!(
     container::OptimizationContainer,
-    devices::IS.FlattenIteratorWrapper{U},
+    devices::Vector{U},
     sys::PSY.System,
     ::DeviceModel{U, VoltageControlVSC},
     network_model::NetworkModel{<:AbstractNetworkModel},
@@ -66,7 +66,7 @@ end
 
 function _add_vsc_regulated_voltage_constraints!(
     ::OptimizationContainer,
-    ::IS.FlattenIteratorWrapper{U},
+    ::Vector{U},
     ::PSY.System,
     ::DeviceModel{U, <:AbstractTwoTerminalVSCFormulation},
     ::NetworkModel{<:AbstractNetworkModel},
@@ -81,7 +81,7 @@ end
 # Default: no control layer (covers HVDCTwoTerminalVSC on every network).
 function _apply_vsc_control_objective!(
     ::OptimizationContainer,
-    ::IS.FlattenIteratorWrapper{U},
+    ::Vector{U},
     ::DeviceModel{U, <:AbstractTwoTerminalVSCFormulation},
     ::NetworkModel{<:AbstractNetworkModel},
 ) where {U <: PSY.TwoTerminalVSCLine}
@@ -93,7 +93,7 @@ end
 # DC-controlled quantity (mode-invariant containers, meta = "from" / "to").
 function _apply_vsc_control_objective!(
     container::OptimizationContainer,
-    devices::IS.FlattenIteratorWrapper{U},
+    devices::Vector{U},
     ::DeviceModel{U, VoltageControlVSC},
     ::NetworkModel{ACPNetworkModel},
 ) where {U <: PSY.TwoTerminalVSCLine}
@@ -152,7 +152,7 @@ end
 # one HVDCDCControlConstraint per terminal per time step, mode-invariant.
 function _apply_vsc_control_objective!(
     container::OptimizationContainer,
-    devices::IS.FlattenIteratorWrapper{U},
+    devices::Vector{U},
     ::DeviceModel{U, VoltageControlVSC},
     ::NetworkModel{LPACCNetworkModel},
 ) where {U <: PSY.TwoTerminalVSCLine}
@@ -219,7 +219,7 @@ end
 # simultaneously — each pins its own tagged aux var at its own bus.
 function _apply_vsc_control_objective!(
     container::OptimizationContainer,
-    devices::IS.FlattenIteratorWrapper{U},
+    devices::Vector{U},
     ::DeviceModel{U, VoltageControlVSC},
     network_model::NetworkModel{<:Union{ACRNetworkModel, IVRNetworkModel}},
 ) where {U <: PSY.TwoTerminalVSCLine}

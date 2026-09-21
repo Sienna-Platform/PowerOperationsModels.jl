@@ -149,7 +149,7 @@ end
         POM.add_constraints!(
             container,
             POM.ImportExportBudgetConstraint,
-            PSY.get_components(PSY.Source, sys),
+            collect(PSY.get_components(PSY.Source, sys)),
             IOM.DeviceModel(PSY.Source, POM.ImportExportSourceModel),
             IOM.NetworkModel(POM.CopperPlateNetworkModel),
         )
@@ -182,7 +182,7 @@ end
     POM.add_constraints!(
         container,
         POM.ImportExportBudgetConstraint,
-        PSY.get_components(PSY.Source, sys),
+        collect(PSY.get_components(PSY.Source, sys)),
         IOM.DeviceModel(PSY.Source, POM.ImportExportSourceModel),
         IOM.NetworkModel(POM.CopperPlateNetworkModel),
     )

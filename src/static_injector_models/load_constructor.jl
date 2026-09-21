@@ -10,9 +10,7 @@ function construct_device!(
     D <: AbstractControllablePowerLoadFormulation,
 }
     devices =
-        get_available_components(model,
-            sys,
-        )
+        get_device_cache(model)
 
     add_variables!(container, ActivePowerVariable, devices, D)
     add_variables!(container, ReactivePowerVariable, devices, D)
@@ -76,9 +74,7 @@ function construct_device!(
     network_model::NetworkModel{<:AbstractNetworkModel},
 ) where {L <: PSY.ControllableLoad}
     devices =
-        get_available_components(model,
-            sys,
-        )
+        get_device_cache(model)
 
     if has_service_model(model)
         add_constraints!(
@@ -140,9 +136,7 @@ function construct_device!(
     D <: AbstractControllablePowerLoadFormulation,
 }
     devices =
-        get_available_components(model,
-            sys,
-        )
+        get_device_cache(model)
 
     add_variables!(container, ActivePowerVariable, devices, D)
 
@@ -196,9 +190,7 @@ function construct_device!(
     network_model::NetworkModel{<:AbstractActivePowerModel},
 ) where {L <: PSY.ControllableLoad}
     devices =
-        get_available_components(model,
-            sys,
-        )
+        get_device_cache(model)
 
     if has_service_model(model)
         add_constraints!(
@@ -249,9 +241,7 @@ function construct_device!(
     network_model::NetworkModel{<:AbstractNetworkModel},
 ) where {L <: PSY.ControllableLoad}
     devices =
-        get_available_components(model,
-            sys,
-        )
+        get_device_cache(model)
 
     add_variables!(container, ActivePowerVariable, devices, PowerLoadInterruption)
     add_variables!(container, ReactivePowerVariable, devices, PowerLoadInterruption)
@@ -276,6 +266,25 @@ function construct_device!(
         network_model,
     )
 
+    if has_service_model(model)
+        add_to_expression!(
+            container,
+            ActivePowerRangeExpressionLB,
+            ActivePowerVariable,
+            devices,
+            model,
+            network_model,
+        )
+        add_to_expression!(
+            container,
+            ActivePowerRangeExpressionUB,
+            ActivePowerVariable,
+            devices,
+            model,
+            network_model,
+        )
+    end
+
     if haskey(get_time_series_names(model), ActivePowerTimeSeriesParameter)
         add_parameters!(container, ActivePowerTimeSeriesParameter, devices, model)
     end
@@ -295,18 +304,35 @@ function construct_device!(
     network_model::NetworkModel{<:AbstractNetworkModel},
 ) where {L <: PSY.ControllableLoad}
     devices =
-        get_available_components(model,
-            sys,
-        )
+        get_device_cache(model)
 
-    add_constraints!(
-        container,
-        ActivePowerVariableLimitsConstraint,
-        ActivePowerVariable,
-        devices,
-        model,
-        network_model,
-    )
+    if has_service_model(model)
+        add_constraints!(
+            container,
+            ActivePowerVariableLimitsConstraint,
+            ActivePowerRangeExpressionLB,
+            devices,
+            model,
+            network_model,
+        )
+        add_constraints!(
+            container,
+            ActivePowerVariableLimitsConstraint,
+            ActivePowerRangeExpressionUB,
+            devices,
+            model,
+            network_model,
+        )
+    else
+        add_constraints!(
+            container,
+            ActivePowerVariableLimitsConstraint,
+            ActivePowerVariable,
+            devices,
+            model,
+            network_model,
+        )
+    end
     add_constraints!(
         container,
         ActivePowerVariableLimitsConstraint,
@@ -345,9 +371,7 @@ function construct_device!(
     network_model::NetworkModel{<:AbstractActivePowerModel},
 ) where {L <: PSY.ControllableLoad}
     devices =
-        get_available_components(model,
-            sys,
-        )
+        get_device_cache(model)
 
     add_variables!(container, ActivePowerVariable, devices, PowerLoadInterruption)
     add_variables!(container, OnVariable, devices, PowerLoadInterruption)
@@ -362,6 +386,25 @@ function construct_device!(
         model,
         network_model,
     )
+
+    if has_service_model(model)
+        add_to_expression!(
+            container,
+            ActivePowerRangeExpressionLB,
+            ActivePowerVariable,
+            devices,
+            model,
+            network_model,
+        )
+        add_to_expression!(
+            container,
+            ActivePowerRangeExpressionUB,
+            ActivePowerVariable,
+            devices,
+            model,
+            network_model,
+        )
+    end
 
     if haskey(get_time_series_names(model), ActivePowerTimeSeriesParameter)
         add_parameters!(container, ActivePowerTimeSeriesParameter, devices, model)
@@ -380,18 +423,35 @@ function construct_device!(
     network_model::NetworkModel{<:AbstractActivePowerModel},
 ) where {L <: PSY.ControllableLoad}
     devices =
-        get_available_components(model,
-            sys,
-        )
+        get_device_cache(model)
 
-    add_constraints!(
-        container,
-        ActivePowerVariableLimitsConstraint,
-        ActivePowerVariable,
-        devices,
-        model,
-        network_model,
-    )
+    if has_service_model(model)
+        add_constraints!(
+            container,
+            ActivePowerVariableLimitsConstraint,
+            ActivePowerRangeExpressionLB,
+            devices,
+            model,
+            network_model,
+        )
+        add_constraints!(
+            container,
+            ActivePowerVariableLimitsConstraint,
+            ActivePowerRangeExpressionUB,
+            devices,
+            model,
+            network_model,
+        )
+    else
+        add_constraints!(
+            container,
+            ActivePowerVariableLimitsConstraint,
+            ActivePowerVariable,
+            devices,
+            model,
+            network_model,
+        )
+    end
     add_constraints!(
         container,
         ActivePowerVariableLimitsConstraint,
@@ -422,9 +482,7 @@ function construct_device!(
     network_model::NetworkModel{<:AbstractNetworkModel},
 ) where {L <: PSY.ElectricLoad}
     devices =
-        get_available_components(model,
-            sys,
-        )
+        get_device_cache(model)
 
     if haskey(get_time_series_names(model), ActivePowerTimeSeriesParameter)
         add_parameters!(container, ActivePowerTimeSeriesParameter, devices, model)
@@ -463,9 +521,7 @@ function construct_device!(
     network_model::NetworkModel{<:AbstractActivePowerModel},
 ) where {L <: PSY.ElectricLoad}
     devices =
-        get_available_components(model,
-            sys,
-        )
+        get_device_cache(model)
 
     if haskey(get_time_series_names(model), ActivePowerTimeSeriesParameter)
         add_parameters!(container, ActivePowerTimeSeriesParameter, devices, model)
@@ -505,9 +561,7 @@ function construct_device!(
     network_model::NetworkModel{<:AbstractNetworkModel},
 ) where {L <: PSY.StaticLoad}
     devices =
-        get_available_components(model,
-            sys,
-        )
+        get_device_cache(model)
 
     if haskey(get_time_series_names(model), ActivePowerTimeSeriesParameter)
         add_parameters!(container, ActivePowerTimeSeriesParameter, devices, model)
@@ -546,9 +600,7 @@ function construct_device!(
     network_model::NetworkModel{<:AbstractActivePowerModel},
 ) where {L <: PSY.StaticLoad}
     devices =
-        get_available_components(model,
-            sys,
-        )
+        get_device_cache(model)
 
     if haskey(get_time_series_names(model), ActivePowerTimeSeriesParameter)
         add_parameters!(container, ActivePowerTimeSeriesParameter, devices, model)
@@ -592,6 +644,8 @@ function construct_device!(
         time_series_names = model.time_series_names,
         attributes = model.attributes,
     )
+    # The template validation never saw new_model, so its device cache is empty.
+    new_model.device_cache = get_device_cache(model)
     construct_device!(container, sys, ccs, new_model, network_model)
     return
 end
@@ -603,7 +657,7 @@ function construct_device!(
     model::DeviceModel{PSY.ShiftablePowerLoad, PowerLoadShift},
     network_model::NetworkModel{<:AbstractNetworkModel},
 )
-    devices = get_available_components(model, sys)
+    devices = get_device_cache(model)
 
     add_variables!(container, ShiftUpActivePowerVariable, devices, PowerLoadShift)
     add_variables!(container, ShiftDownActivePowerVariable, devices, PowerLoadShift)
@@ -655,9 +709,7 @@ function construct_device!(
     network_model::NetworkModel{<:AbstractNetworkModel},
 )
     devices =
-        get_available_components(model,
-            sys,
-        )
+        get_device_cache(model)
 
     add_constraints!(
         container,
@@ -722,7 +774,7 @@ function construct_device!(
     model::DeviceModel{PSY.ShiftablePowerLoad, PowerLoadShift},
     network_model::NetworkModel{<:AbstractActivePowerModel},
 )
-    devices = get_available_components(model, sys)
+    devices = get_device_cache(model)
 
     add_variables!(container, ShiftUpActivePowerVariable, devices, PowerLoadShift)
     add_variables!(container, ShiftDownActivePowerVariable, devices, PowerLoadShift)
@@ -765,9 +817,7 @@ function construct_device!(
     network_model::NetworkModel{<:AbstractActivePowerModel},
 )
     devices =
-        get_available_components(model,
-            sys,
-        )
+        get_device_cache(model)
 
     add_constraints!(
         container,
