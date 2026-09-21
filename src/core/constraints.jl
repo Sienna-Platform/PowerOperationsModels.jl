@@ -1274,3 +1274,24 @@ Single award variable per (device, service): the device's merged offer curve pri
 provision states (documented approximation).
 """
 struct OfflineReserveBandConstraint <: ConstraintType end
+
+#################################################################################
+# G-1 constraints
+#################################################################################
+
+"""
+Deployed reserves from devices contributing to security-constrained reserves must match outaged
+power.
+"""
+struct PostContingencyGenerationBalanceConstraint <: ConstraintType end
+
+"""
+Devices contributing to security-constrained reserves cannot reserve more than their personal
+limit.
+"""
+struct PostContingencyActivePowerGenerationLimitsConstraint <: ConstraintType end
+
+"""
+TODO: complete
+"""
+struct PostContingencyActivePowerReserveDeploymentVariableLimitsConstraint <: ConstraintType end

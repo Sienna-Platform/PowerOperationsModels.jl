@@ -148,7 +148,7 @@ end
 function construct_services!(
     container::OptimizationContainer,
     sys::PSY.System,
-    stage::ArgumentConstructStage,
+    stage::ModelConstructStage,
     services_template::ServicesModelContainer,
     devices_template::DevicesModelContainer,
     network_model::NetworkModel{<:AbstractNetworkModel},
@@ -601,11 +601,11 @@ function construct_service!(
     container::OptimizationContainer,
     sys::PSY.System,
     ::ArgumentConstructStage,
-    model::ServiceModel{SR, RampReserve},
+    model::ServiceModel{SR, F},
     devices_template::Dict{Symbol, DeviceModel},
     incompatible_device_types::Set{<:DataType},
     ::NetworkModel{<:AbstractNetworkModel},
-) where {SR <: PSY.Reserve}
+) where {SR <: PSY.Reserve, F <: Union{RampReserve, SecurityConstrainedRampReserve}}
     services = _services_with_contributors(model, sys)
     isempty(services) && return
     # Only services carrying a requirement series get the parameter (a curve-only ORDC of the
@@ -638,7 +638,7 @@ function construct_service!(
     container::OptimizationContainer,
     sys::PSY.System,
     ::ModelConstructStage,
-    model::ServiceModel{SR, RampReserve},
+    model::ServiceModel{SR, Union{RampReserve, SecurityConstrainedRampReserve}},
     devices_template::Dict{Symbol, DeviceModel},
     incompatible_device_types::Set{<:DataType},
     ::NetworkModel{<:AbstractNetworkModel},
@@ -1104,3 +1104,7 @@ function construct_service!(
     add_constraint_dual!(container, sys, model)
     return
 end
+
+# These models are constructed entirely in construct_services!
+construct_service!(::OptimizationContainer, ::PSY.System, ::ArgumentConstructStage, ::ServiceModel{<:PSY.AbstractReserve, SecurityConstrainedContingencyReserve}, ::Dict, ::Set, ::NetworkModel) = nothing
+construct_service!(::OptimizationContainer, ::PSY.System, ::ModelConstructStage, ::ServiceModel{<:PSY.AbstractReserve, SecurityConstrainedContingencyReserve}, ::Dict, ::Set, ::NetworkModel) = nothing

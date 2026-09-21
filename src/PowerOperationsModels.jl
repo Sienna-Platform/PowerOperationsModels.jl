@@ -677,6 +677,10 @@ export HVDCReactivePowerToVariable
 export ShiftUpActivePowerVariable
 export ShiftDownActivePowerVariable
 
+# G-1 Variables
+export PostContingencyActivePowerReserveDeploymentVariable
+export PostContignencyAreaInterchangeFlowDeviationVariable
+
 ######## Hydro Formulations ########
 export HydroDispatchRunOfRiver
 export HydroCommitmentRunOfRiver
@@ -867,7 +871,9 @@ export ShiftUpActivePowerVariableLimitsConstraint
 export ShiftDownActivePowerVariableLimitsConstraint
 export RealizedShiftedLoadMinimumBoundConstraint
 export NonAnticipativityConstraint
-export HVDCDCControlConstraint
+export PostContingencyGenerationBalanceConstraint
+export PostContingencyActivePowerGenerationLimitsConstraint
+export PostContingencyActivePowerReserveDeploymentVariableLimitsConstraint
 
 #################################################################################
 # Exports - Expression Types (defined in core/expressions.jl)
@@ -900,6 +906,10 @@ export ComponentReserveDownBalanceExpression
 export InterfaceTotalFlow
 export PTDFBranchFlow
 export BThetaBranchFlow
+export PostContingencyNodalActivePowerDeployment
+export PostContingencyAreaActivePowerDeployment
+export PostContingencyBranchFlow
+export PostContingencyAreaInterchangeFlow
 
 #################################################################################
 # Exports - Parameter Types (defined in core/parameters.jl)
@@ -1006,6 +1016,10 @@ export VariableMaxInterfaceFlow
 # Regulation Formulations
 export ReserveLimitedRegulation
 export DeviceLimitedRegulation
+
+# G-1 Formulations
+export SecurityConstrainedContingency
+export SecurityConstrainedRampReserve
 
 #################################################################################
 # Exports - Network Formulation Types (defined in core/network_formulations.jl)
