@@ -124,6 +124,25 @@ Aggregation of reserve variables allocated to the storage subcomponent of a hybr
 struct StorageReserveBalanceExpression{D, S, Sd} <:
        ReserveAggregationExpression{D, S, Sd} end
 
+#################################################################################
+# G-1 expressions
+#################################################################################
+
+"""
+Per-area power considering post-contingency reserve deployment.
+"""
+struct PostContingencyAreaActivePowerDeployment <: ExpressionType end
+
+"""
+Per-branch flow considering post-contingency reserve deployment.
+"""
+struct PostContingencyBranchFlow <: ExpressionType end
+
+"""
+Per-interchange flow considering post-contingency reserve deployment.
+"""
+struct PostContingencyAreaInterchangeFlow <: ExpressionType end
+
 # Method extensions for output writing
 should_write_resulting_value(::Type{InterfaceTotalFlow}) = true
 should_write_resulting_value(::Type{PTDFBranchFlow}) = true

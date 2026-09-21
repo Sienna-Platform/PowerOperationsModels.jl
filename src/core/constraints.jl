@@ -1289,3 +1289,24 @@ unit commitment and `HydroCommitmentRunOfRiver`; other formulations book `Offlin
 awards against their headroom and are not restricted.
 """
 struct OfflineReserveOffStateConstraint <: ConstraintType end
+
+#################################################################################
+# G-1 constraints
+#################################################################################
+
+"""
+Deployed reserves from devices contributing to security-constrained reserves must match outaged
+power.
+"""
+struct PostContingencyGenerationBalanceConstraint <: ConstraintType end
+
+"""
+Devices contributing to security-constrained reserves cannot reserve more than their personal
+limit.
+"""
+struct PostContingencyActivePowerGenerationLimitsConstraint <: ConstraintType end
+
+"""
+TODO: complete
+"""
+struct PostContingencyActivePowerReserveDeploymentVariableLimitsConstraint <: ConstraintType end

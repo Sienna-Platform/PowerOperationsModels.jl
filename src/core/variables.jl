@@ -841,6 +841,20 @@ Reserve allocated to one side of a hybrid system's storage subcomponent. Paramet
 struct HybridStorageSubcomponentReserveVariable{Sd <: ReserveSide} <:
        AbstractHybridReserveVariableType end
 
+#################################################################################
+# G-1 Variables
+#################################################################################
+
+"""
+Reserve deployed by a contributing device on a security-constrained reserve.
+"""
+struct PostContingencyActivePowerReserveDeploymentVariable <: VariableType end
+
+"""
+Post-contingency power exchange over an area interchange from security-constrained reserves.
+"""
+struct PostContignencyAreaInterchangeFlowDeviationVariable <: VariableType end
+
 const MULTI_START_VARIABLES = (HotStartVariable, WarmStartVariable, ColdStartVariable)
 
 should_write_resulting_value(::Type{PiecewiseLinearCostVariable}) = false

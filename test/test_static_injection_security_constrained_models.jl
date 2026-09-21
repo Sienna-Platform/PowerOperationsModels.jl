@@ -1,3 +1,73 @@
+# Shared skeleton for the SC reserve deliverability test cases: attach a
+# `GeometricDistributionForcedOutage` to `device` and every service in
+# `services` in one shot, instead of repeating the construct-and-attach block
+# per testset. Device-side (line/transformer) callers pass `PSY.Service[]`.
+function attach_geometric_outage!(
+    sys::PSY.System,
+    device::PSY.Device,
+    services::Vector{<:PSY.Service};
+    monitored_components::Vector{<:PSY.Component} = collect(
+        PSY.get_components(PSY.ACTransmission, sys),
+    ),
+    mean_time_to_recovery::Float64 = 10.0,
+    outage_transition_probability::Float64 = 0.9999,
+)
+    transition_data = GeometricDistributionForcedOutage(;
+        mean_time_to_recovery = mean_time_to_recovery,
+        outage_transition_probability = outage_transition_probability,
+        monitored_components = monitored_components,
+    )
+    add_supplemental_attribute!(sys, device, transition_data)
+    for service in services
+        add_supplemental_attribute!(sys, service, transition_data)
+    end
+    return transition_data
+end
+
+# Same as `attach_geometric_outage!` but for the `PSY.FixedForcedOutage`
+# fixture used by the deterministic (non-probabilistic) regression tests.
+function attach_fixed_outage!(
+    sys::PSY.System,
+    device::PSY.Device,
+    services::Vector{<:PSY.Service};
+    monitored_components::Vector{<:PSY.Component},
+)
+    outage = PSY.FixedForcedOutage(;
+        outage_status = 1.0,
+        monitored_components = monitored_components,
+    )
+    add_supplemental_attribute!(sys, device, outage)
+    for service in services
+        add_supplemental_attribute!(sys, service, outage)
+    end
+    return outage
+end
+
+# Callers compare against a SECOND, independent VirtualMODF/VirtualPTDF. Those
+# columns are solved through multithreaded BLAS, whose reduction order is not deterministic,
+# so two instances agree only to machine precision (~1e-16), never bit-for-bit. Exact
+# `JuMP.isequal_canonical` therefore fails or passes depending on the BLAS thread count of
+# the machine. Compare coefficients to `PTDF_ZERO_TOL` instead: a variable absent from one
+# side counts as a zero coefficient, so a term sitting on the sparsity threshold cannot flip
+# the result, while a genuinely wrong term (sign flip, wrong arc) differs by orders of
+# magnitude more and still fails.
+function aff_exprs_approx_equal(
+    actual::JuMP.AffExpr,
+    expected::JuMP.AffExpr;
+    atol::Float64 = IOM.PTDF_ZERO_TOL,
+)
+    if !isapprox(actual.constant, expected.constant; atol = atol)
+        return false
+    end
+    for v in union(keys(actual.terms), keys(expected.terms))
+        a = get(actual.terms, v, 0.0)
+        e = get(expected.terms, v, 0.0)
+        if !isapprox(a, e; atol = atol)
+            return false
+        end
+    end
+    return true
+end
 function get_outage_total_power_by_step_dict(
     sys::PSY.System,
     variables::Dict{String, DataFrame},
@@ -71,8 +141,8 @@ end
 
 function compare_outage_power_and_deployed_reserves(
     sys::PSY.System,
-    res::OptimizationProblemResults,
-    service::PSY.VariableReserve;
+    res::OptimizationProblemOutputs,
+    service::PSY.AbstractReserve;
     tolerance::Float64 = 1e-3,
     require_positive_outage::Bool = true,
 )
@@ -92,7 +162,7 @@ function compare_outage_power_and_deployed_reserves(
     service_name = PSY.get_name(service)
     reserve_dict = get_reserve_total_power_by_step_dict(
         variablesdict,
-        "PostContingencyActivePowerReserveDeploymentVariable__VariableReserve__ReserveUp__" *
+        "PostContingencyActivePowerReserveDeploymentVariable__OnlineReserve__ReserveUp__" *
         service_name,
         associated_outages,
         contributing_devices;
@@ -118,13 +188,13 @@ end
 
 function compare_outage_power_and_deployed_reserves(
     sys::PSY.System,
-    res::OptimizationProblemResults,
+    res::OptimizationProblemOutputs,
     reserve_names::Vector{String};
     tolerance::Float64 = 1e-3,
     require_positive_outage::Bool = true,
 )
     for reserve_name in reserve_names
-        reserve = get_component(VariableReserve{ReserveUp}, sys, reserve_name)
+        reserve = get_component(OnlineReserve{ReserveUp}, sys, reserve_name)
         compare_outage_power_and_deployed_reserves(
             sys,
             res,
@@ -136,10 +206,10 @@ function compare_outage_power_and_deployed_reserves(
     return nothing
 end
 
-# Shorthand for the `PSI.ConstraintKey(T, PSY.VariableReserve{ReserveUp}, name)`
+# Shorthand for the `IOM.ConstraintKey(T, PSY.OnlineReserve{ReserveUp}, name)`
 # pattern that dominates the constraint-key lists below.
 function sc_key(constraint_type::DataType, name::String)
-    return PSI.ConstraintKey(constraint_type, PSY.VariableReserve{ReserveUp}, name)
+    return IOM.ConstraintKey(constraint_type, PSY.OnlineReserve{ReserveUp}, name)
 end
 
 # Shared tail for the SC reserve deliverability testsets: build, check
@@ -149,7 +219,7 @@ end
 function run_sc_reserve_case!(
     ps_model::DecisionModel,
     sys::PSY.System,
-    constraint_keys::Vector{<:PSI.ConstraintKey},
+    constraint_keys::Vector{<:IOM.ConstraintKey},
     moi_counts::Vector{Int},
     has_binaries::Bool,
     objfunc::DataType,
@@ -159,7 +229,7 @@ function run_sc_reserve_case!(
     require_positive_outage::Bool = true,
 )
     @test build!(ps_model; output_dir = mktempdir(; cleanup = true)) ==
-          PSI.ModelBuildStatus.BUILT
+          IOM.ModelBuildStatus.BUILT
     psi_constraint_test(ps_model, constraint_keys)
     moi_tests(ps_model, moi_counts..., has_binaries)
     psi_checkobjfun_test(ps_model, objfunc)
@@ -172,7 +242,7 @@ function run_sc_reserve_case!(
     if isempty(reserve_names)
         return nothing
     end
-    res = OptimizationProblemResults(ps_model)
+    res = OptimizationProblemOutputs(ps_model)
     compare_outage_power_and_deployed_reserves(
         sys,
         res,
@@ -186,7 +256,7 @@ end
 # the monitored "1_2" tie stays within its flow limits, and each area's
 # generation plus load nets to zero against the tie flow.
 function verify_zone_balance!(
-    results::OptimizationProblemResults;
+    results::OptimizationProblemOutputs;
     flow_tol::Float64 = 1e-6,
 )
     interarea_flow = read_variable(
@@ -252,22 +322,22 @@ end
             add_equivalent_ac_transmission_with_parallel_circuits!(sys, l4, PSY.Line)
         end
         constraint_keys = [
-            PSI.ConstraintKey(
+            IOM.ConstraintKey(
                 ActivePowerVariableLimitsConstraint,
                 PSY.ThermalStandard,
                 "lb",
             ),
-            PSI.ConstraintKey(
+            IOM.ConstraintKey(
                 ActivePowerVariableLimitsConstraint,
                 PSY.ThermalStandard,
                 "ub",
             ),
-            PSI.ConstraintKey(FlowRateConstraint, PSY.Line, "lb"),
-            PSI.ConstraintKey(FlowRateConstraint, PSY.Line, "ub"),
+            IOM.ConstraintKey(FlowRateConstraint, PSY.Line, "lb"),
+            IOM.ConstraintKey(FlowRateConstraint, PSY.Line, "ub"),
             sc_key(PostContingencyFlowRateConstraint, "Reserve1_lb"),
             sc_key(PostContingencyFlowRateConstraint, "Reserve1_ub"),
-            PSI.ConstraintKey(CopperPlateBalanceConstraint, PSY.System),
-            #PSI.ConstraintKey(NetworkFlowConstraint, PSY.Line),
+            IOM.ConstraintKey(CopperPlateBalanceConstraint, PSY.System),
+            #IOM.ConstraintKey(NetworkFlowConstraint, PSY.Line),
             sc_key(RequirementConstraint, "Reserve1"),
             sc_key(RampConstraint, "Reserve1"),
             sc_key(PostContingencyGenerationBalanceConstraint, "Reserve1"),
@@ -277,19 +347,18 @@ end
             ),
         ]
         gen = get_component(ThermalStandard, sys, "Solitude")
-        set_ramp_limits!(gen, (up = 0.4, down = 0.4)) #Increase ramp limits to make the problem feasible
-        reserve_up = get_component(VariableReserve{ReserveUp}, sys, "Reserve1")
+        set_ramp_limits!(gen, (up = 0.4 * PSY.CU/u"minute", down = 0.4 * PSY.CU/u"minute"))
+        reserve_up = get_component(OnlineReserve{ReserveUp}, sys, "Reserve1")
         component = get_component(ThermalStandard, sys, "Alta")
         attach_geometric_outage!(sys, component, [reserve_up])
 
         template = get_thermal_dispatch_template_network(
-            NetworkModel(PTDFPowerModel; PTDF_matrix = PTDF(sys)),
+            NetworkModel(PTDFNetworkModel),
         )
         set_service_model!(template,
             ServiceModel(
-                VariableReserve{ReserveUp},
+                OnlineReserve{ReserveUp},
                 SecurityConstrainedRampReserve,
-                "Reserve1",
             ))
 
         ps_model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
@@ -309,30 +378,30 @@ end
 
 # Exercises the per-service line-scoping path in
 # `_monitored_components_by_modeled_type` and the downstream
-# `PostContingencyFlowRateConstraint` build for `PTDFPowerModel` when the
+# `PostContingencyFlowRateConstraint` build for `PTDFNetworkModel` when the
 # reserve service monitors a strict subset of the system's AC lines instead of
 # every line. The constraint key meta does not change (it remains keyed by
 # service name) but the per-outage flow constraint container ends up with
 # fewer entries, which lowers the MOI counts compared to the all-lines variant.
-@testset "G-n with Ramp reserve deliverability constraints PTDFPowerModel with monitored line subset" begin
+@testset "G-n with Ramp reserve deliverability constraints PTDFNetworkModel with monitored line subset" begin
     sys = PSB.build_system(PSITestSystems, "c_sys5_uc"; add_reserves = true)
     monitored_line_names = ["1", "2"]
     constraint_keys = [
-        PSI.ConstraintKey(
+        IOM.ConstraintKey(
             ActivePowerVariableLimitsConstraint,
             PSY.ThermalStandard,
             "lb",
         ),
-        PSI.ConstraintKey(
+        IOM.ConstraintKey(
             ActivePowerVariableLimitsConstraint,
             PSY.ThermalStandard,
             "ub",
         ),
-        PSI.ConstraintKey(FlowRateConstraint, PSY.Line, "lb"),
-        PSI.ConstraintKey(FlowRateConstraint, PSY.Line, "ub"),
+        IOM.ConstraintKey(FlowRateConstraint, PSY.Line, "lb"),
+        IOM.ConstraintKey(FlowRateConstraint, PSY.Line, "ub"),
         sc_key(PostContingencyFlowRateConstraint, "Reserve1_lb"),
         sc_key(PostContingencyFlowRateConstraint, "Reserve1_ub"),
-        PSI.ConstraintKey(CopperPlateBalanceConstraint, PSY.System),
+        IOM.ConstraintKey(CopperPlateBalanceConstraint, PSY.System),
         sc_key(RequirementConstraint, "Reserve1"),
         sc_key(RampConstraint, "Reserve1"),
         sc_key(PostContingencyGenerationBalanceConstraint, "Reserve1"),
@@ -345,8 +414,8 @@ end
     # because only the monitored subset contributes
     # `PostContingencyFlowRateConstraint` rows per outage step.
     gen = get_component(ThermalStandard, sys, "Solitude")
-    set_ramp_limits!(gen, (up = 0.4, down = 0.4)) #Increase ramp limits to make the problem feasible
-    reserve_up = get_component(VariableReserve{ReserveUp}, sys, "Reserve1")
+    set_ramp_limits!(gen, (up = 0.4 * PSY.CU/u"minute", down = 0.4 * PSY.CU/u"minute")) #Increase ramp limits to make the problem feasible
+    reserve_up = get_component(OnlineReserve{ReserveUp}, sys, "Reserve1")
     monitored_subset = [get_component(Line, sys, n) for n in monitored_line_names]
     component = get_component(ThermalStandard, sys, "Alta")
     attach_geometric_outage!(
@@ -357,13 +426,12 @@ end
     )
 
     template = get_thermal_dispatch_template_network(
-        NetworkModel(PTDFPowerModel; PTDF_matrix = PTDF(sys)),
+        NetworkModel(PTDFNetworkModel),
     )
     set_service_model!(template,
         ServiceModel(
-            VariableReserve{ReserveUp},
+            OnlineReserve{ReserveUp},
             SecurityConstrainedRampReserve,
-            "Reserve1",
         ))
 
     ps_model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
@@ -389,22 +457,22 @@ end
             add_equivalent_ac_transmission_with_parallel_circuits!(sys, l4, PSY.Line)
         end
         constraint_keys = [
-            PSI.ConstraintKey(
+            IOM.ConstraintKey(
                 ActivePowerVariableLimitsConstraint,
                 PSY.ThermalStandard,
                 "lb",
             ),
-            PSI.ConstraintKey(
+            IOM.ConstraintKey(
                 ActivePowerVariableLimitsConstraint,
                 PSY.ThermalStandard,
                 "ub",
             ),
-            PSI.ConstraintKey(FlowRateConstraint, PSY.Line, "lb"),
-            PSI.ConstraintKey(FlowRateConstraint, PSY.Line, "ub"),
+            IOM.ConstraintKey(FlowRateConstraint, PSY.Line, "lb"),
+            IOM.ConstraintKey(FlowRateConstraint, PSY.Line, "ub"),
             sc_key(PostContingencyFlowRateConstraint, "Reserve1_lb"),
             sc_key(PostContingencyFlowRateConstraint, "Reserve1_ub"),
-            PSI.ConstraintKey(CopperPlateBalanceConstraint, PSY.System),
-            #PSI.ConstraintKey(NetworkFlowConstraint, PSY.Line),
+            IOM.ConstraintKey(CopperPlateBalanceConstraint, PSY.System),
+            #IOM.ConstraintKey(NetworkFlowConstraint, PSY.Line),
             sc_key(RequirementConstraint, "Reserve1"),
             sc_key(PostContingencyGenerationBalanceConstraint, "Reserve1"),
             sc_key(
@@ -412,18 +480,17 @@ end
                 "Reserve1",
             ),
         ]
-        reserve_up = get_component(VariableReserve{ReserveUp}, sys, "Reserve1")
+        reserve_up = get_component(OnlineReserve{ReserveUp}, sys, "Reserve1")
         component = get_component(ThermalStandard, sys, "Alta")
         attach_geometric_outage!(sys, component, [reserve_up])
 
         template = get_thermal_dispatch_template_network(
-            NetworkModel(PTDFPowerModel; PTDF_matrix = PTDF(sys)),
+            NetworkModel(PTDFNetworkModel),
         )
         set_service_model!(template,
             ServiceModel(
-                VariableReserve{ReserveUp},
+                OnlineReserve{ReserveUp},
                 SecurityConstrainedContingencyReserve,
-                "Reserve1",
             ))
 
         ps_model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
@@ -451,28 +518,28 @@ end
         end
         sys = c_sys5
         constraint_keys = [
-            PSI.ConstraintKey(
+            IOM.ConstraintKey(
                 ActivePowerVariableLimitsConstraint,
                 PSY.ThermalStandard,
                 "lb",
             ),
-            PSI.ConstraintKey(
+            IOM.ConstraintKey(
                 ActivePowerVariableLimitsConstraint,
                 PSY.ThermalStandard,
                 "ub",
             ),
-            PSI.ConstraintKey(FlowRateConstraint, PSY.Line, "lb"),
-            PSI.ConstraintKey(FlowRateConstraint, PSY.Line, "ub"),
+            IOM.ConstraintKey(FlowRateConstraint, PSY.Line, "lb"),
+            IOM.ConstraintKey(FlowRateConstraint, PSY.Line, "ub"),
             sc_key(PostContingencyFlowRateConstraint, "Reserve1_lb"),
             sc_key(PostContingencyFlowRateConstraint, "Reserve1_ub"),
-            PSI.ConstraintKey(CopperPlateBalanceConstraint, PSY.System),
-            #PSI.ConstraintKey(NetworkFlowConstraint, PSY.Line),
+            IOM.ConstraintKey(CopperPlateBalanceConstraint, PSY.System),
+            #IOM.ConstraintKey(NetworkFlowConstraint, PSY.Line),
             sc_key(PostContingencyGenerationBalanceConstraint, "Reserve1"),
             sc_key(PostContingencyActivePowerGenerationLimitsConstraint, "Reserve1_ub"),
         ]
         gen = get_component(ThermalStandard, sys, "Solitude")
-        set_ramp_limits!(gen, (up = 0.4, down = 0.4)) #Increase ramp limits to make the problem feasible
-        reserve_up = get_component(VariableReserve{ReserveUp}, sys, "Reserve1")
+        set_ramp_limits!(gen, (up = 0.4 * PSY.CU/u"minute", down = 0.4 * PSY.CU/u"minute")) #Increase ramp limits to make the problem feasible
+        reserve_up = get_component(OnlineReserve{ReserveUp}, sys, "Reserve1")
         remove_time_series!(
             sys,
             Deterministic,
@@ -483,13 +550,12 @@ end
         attach_geometric_outage!(sys, component, [reserve_up])
 
         template = get_thermal_dispatch_template_network(
-            NetworkModel(PTDFPowerModel; PTDF_matrix = PTDF(sys)),
+            NetworkModel(PTDFNetworkModel),
         )
         set_service_model!(template,
             ServiceModel(
-                VariableReserve{ReserveUp},
+                OnlineReserve{ReserveUp},
                 SecurityConstrainedContingencyReserve,
-                "Reserve1",
             ))
 
         ps_model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
@@ -521,10 +587,10 @@ end
     remove_component!(sys, l4)
 
     component = get_component(ThermalStandard, sys, "Alta")
-    reserve_up = get_component(VariableReserve{ReserveUp}, sys, "Reserve1")
+    reserve_up = get_component(OnlineReserve{ReserveUp}, sys, "Reserve1")
     attach_geometric_outage!(sys, component, [reserve_up])
 
-    template = ProblemTemplate(NetworkModel(PTDFPowerModel; PTDF_matrix = PTDF(sys)))
+    template = PowerOperationsProblemTemplate(NetworkModel(PTDFNetworkModel))
     set_device_model!(template, ThermalStandard, ThermalBasicDispatch)
     set_device_model!(template, PowerLoad, StaticPowerLoad)
     #set_device_model!(template, MonitoredLine, StaticBranchBounds)
@@ -535,15 +601,14 @@ end
 
     set_service_model!(template,
         ServiceModel(
-            VariableReserve{ReserveUp},
+            OnlineReserve{ReserveUp},
             SecurityConstrainedRampReserve,
-            "Reserve1",
         ))
 
     ps_model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
 
     @test build!(ps_model; output_dir = mktempdir(; cleanup = true)) ==
-          PSI.ModelBuildStatus.BUILT
+          IOM.ModelBuildStatus.BUILT
 end
 @testset "Test SecurityConstrainedContingencyReserve with different BranchFormulations" begin
     for line_formulation in [StaticBranch, StaticBranchUnbounded, StaticBranchBounds]
@@ -558,10 +623,10 @@ end
         remove_component!(sys, l4)
 
         component = get_component(ThermalStandard, sys, "Alta")
-        reserve_up = get_component(VariableReserve{ReserveUp}, sys, "Reserve1")
+        reserve_up = get_component(OnlineReserve{ReserveUp}, sys, "Reserve1")
         attach_geometric_outage!(sys, component, [reserve_up])
 
-        template = ProblemTemplate(NetworkModel(PTDFPowerModel; PTDF_matrix = PTDF(sys)))
+        template = PowerOperationsProblemTemplate(NetworkModel(PTDFNetworkModel))
         set_device_model!(template, ThermalStandard, ThermalBasicDispatch)
         set_device_model!(template, PowerLoad, StaticPowerLoad)
         #set_device_model!(template, MonitoredLine, StaticBranchBounds)
@@ -572,19 +637,18 @@ end
 
         set_service_model!(template,
             ServiceModel(
-                VariableReserve{ReserveUp},
+                OnlineReserve{ReserveUp},
                 SecurityConstrainedContingencyReserve,
-                "Reserve1",
             ))
 
         ps_model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
 
         @test build!(ps_model; output_dir = mktempdir(; cleanup = true)) ==
-              PSI.ModelBuildStatus.BUILT
+              IOM.ModelBuildStatus.BUILT
         constraints = ps_model.internal.container.constraints
-        flow_rate_cons = constraints[PSI.ConstraintKey{
+        flow_rate_cons = constraints[IOM.ConstraintKey{
             PostContingencyFlowRateConstraint,
-            VariableReserve{ReserveUp},
+            OnlineReserve{ReserveUp},
         }(
             "Reserve1_lb",
         )]
@@ -605,10 +669,10 @@ end
     remove_component!(sys, l4)
 
     component = get_component(ThermalStandard, sys, "Alta")
-    reserve_up = get_component(VariableReserve{ReserveUp}, sys, "Reserve1")
+    reserve_up = get_component(OnlineReserve{ReserveUp}, sys, "Reserve1")
     attach_geometric_outage!(sys, component, [reserve_up])
 
-    template = ProblemTemplate(NetworkModel(PTDFPowerModel; PTDF_matrix = PTDF(sys)))
+    template = PowerOperationsProblemTemplate(NetworkModel(PTDFNetworkModel))
     set_device_model!(template, ThermalStandard, ThermalBasicDispatch)
     set_device_model!(template, PowerLoad, StaticPowerLoad)
     #set_device_model!(template, MonitoredLine, StaticBranchBounds)
@@ -619,30 +683,29 @@ end
 
     set_service_model!(template,
         ServiceModel(
-            VariableReserve{ReserveUp},
+            OnlineReserve{ReserveUp},
             SecurityConstrainedContingencyReserve,
-            "Reserve1",
         ))
 
     ps_model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
 
     @test build!(ps_model; output_dir = mktempdir(; cleanup = true)) ==
-          PSI.ModelBuildStatus.BUILT
+          IOM.ModelBuildStatus.BUILT
 end
 
 @testset "G-n with Ramp reserve deliverability constraints UC allowing 2 reserve products to respond" begin
     sys = PSB.build_system(PSITestSystems, "c_sys5_uc"; add_reserves = true)
     constraint_keys = [
-        PSI.ConstraintKey(ActivePowerVariableLimitsConstraint, PSY.ThermalStandard, "lb"),
-        PSI.ConstraintKey(ActivePowerVariableLimitsConstraint, PSY.ThermalStandard, "ub"),
-        PSI.ConstraintKey(FlowRateConstraint, PSY.Line, "lb"),
-        PSI.ConstraintKey(FlowRateConstraint, PSY.Line, "ub"),
+        IOM.ConstraintKey(ActivePowerVariableLimitsConstraint, PSY.ThermalStandard, "lb"),
+        IOM.ConstraintKey(ActivePowerVariableLimitsConstraint, PSY.ThermalStandard, "ub"),
+        IOM.ConstraintKey(FlowRateConstraint, PSY.Line, "lb"),
+        IOM.ConstraintKey(FlowRateConstraint, PSY.Line, "ub"),
         sc_key(PostContingencyFlowRateConstraint, "Reserve1_lb"),
         sc_key(PostContingencyFlowRateConstraint, "Reserve1_ub"),
         sc_key(PostContingencyFlowRateConstraint, "Reserve11_lb"),
         sc_key(PostContingencyFlowRateConstraint, "Reserve11_ub"),
-        PSI.ConstraintKey(CopperPlateBalanceConstraint, PSY.System),
-        #PSI.ConstraintKey(NetworkFlowConstraint, PSY.Line),
+        IOM.ConstraintKey(CopperPlateBalanceConstraint, PSY.System),
+        #IOM.ConstraintKey(NetworkFlowConstraint, PSY.Line),
         sc_key(RequirementConstraint, "Reserve1"),
         sc_key(RequirementConstraint, "Reserve11"),
         sc_key(RampConstraint, "Reserve1"),
@@ -659,12 +722,12 @@ end
         ),
     ]
     component = get_component(ThermalStandard, sys, "Alta")
-    reserve_up = get_component(VariableReserve{ReserveUp}, sys, "Reserve1")
-    reserve_up2 = get_component(VariableReserve{ReserveUp}, sys, "Reserve11")
+    reserve_up = get_component(OnlineReserve{ReserveUp}, sys, "Reserve1")
+    reserve_up2 = get_component(OnlineReserve{ReserveUp}, sys, "Reserve11")
     attach_geometric_outage!(sys, component, [reserve_up, reserve_up2])
 
     template = get_thermal_dispatch_template_network(
-        NetworkModel(PTDFPowerModel; PTDF_matrix = PTDF(sys)),
+        NetworkModel(PTDFNetworkModel),
     )
 
     set_device_model!(
@@ -675,16 +738,14 @@ end
 
     set_service_model!(template,
         ServiceModel(
-            VariableReserve{ReserveUp},
+            OnlineReserve{ReserveUp},
             SecurityConstrainedRampReserve,
-            "Reserve1",
         ))
 
     set_service_model!(template,
         ServiceModel(
-            VariableReserve{ReserveUp},
+            OnlineReserve{ReserveUp},
             SecurityConstrainedRampReserve,
-            "Reserve11",
         ))
 
     ps_model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
@@ -701,17 +762,17 @@ end
     )
 end
 
-@testset "G-n with Ramp reserve deliverability constraints with AreaPTDFPowerModel w/wo Reserve Slacks" begin
+@testset "G-n with Ramp reserve deliverability constraints with AreaPTDFNetworkModel w/wo Reserve Slacks" begin
     constraint_keys = [
-        PSI.ConstraintKey(ActivePowerVariableLimitsConstraint, PSY.ThermalStandard, "lb"),
-        PSI.ConstraintKey(ActivePowerVariableLimitsConstraint, PSY.ThermalStandard, "ub"),
-        PSI.ConstraintKey(FlowRateConstraint, PSY.Line, "lb"),
-        PSI.ConstraintKey(FlowRateConstraint, PSY.Line, "ub"),
+        IOM.ConstraintKey(ActivePowerVariableLimitsConstraint, PSY.ThermalStandard, "lb"),
+        IOM.ConstraintKey(ActivePowerVariableLimitsConstraint, PSY.ThermalStandard, "ub"),
+        IOM.ConstraintKey(FlowRateConstraint, PSY.Line, "lb"),
+        IOM.ConstraintKey(FlowRateConstraint, PSY.Line, "ub"),
         sc_key(PostContingencyFlowRateConstraint, "Reserve1_1_lb"),
         sc_key(PostContingencyFlowRateConstraint, "Reserve1_2_lb"),
         sc_key(PostContingencyFlowRateConstraint, "Reserve1_1_ub"),
         sc_key(PostContingencyFlowRateConstraint, "Reserve1_2_ub"),
-        PSI.ConstraintKey(CopperPlateBalanceConstraint, PSY.Area),
+        IOM.ConstraintKey(CopperPlateBalanceConstraint, PSY.Area),
         sc_key(RequirementConstraint, "Reserve1_1"),
         sc_key(RequirementConstraint, "Reserve1_2"),
         sc_key(RampConstraint, "Reserve1_1"),
@@ -737,25 +798,23 @@ end
         for (component_name, reserve_name) in
             zip(components_outages_names, reserve_names)
             component = get_component(ThermalStandard, sys, component_name)
-            reserve_up = get_component(VariableReserve{ReserveUp}, sys, reserve_name)
+            reserve_up = get_component(OnlineReserve{ReserveUp}, sys, reserve_name)
             attach_geometric_outage!(sys, component, [reserve_up])
         end
 
         template = get_thermal_dispatch_template_network(
-            NetworkModel(AreaPTDFPowerModel; PTDF_matrix = PTDF(sys)),
+            NetworkModel(AreaPTDFNetworkModel),
         )
         set_service_model!(template,
             ServiceModel(
-                VariableReserve{ReserveUp},
-                SecurityConstrainedRampReserve,
-                "Reserve1_1";
+                OnlineReserve{ReserveUp},
+                SecurityConstrainedRampReserve;
                 use_slacks = reserve_slack,
             ))
         set_service_model!(template,
             ServiceModel(
-                VariableReserve{ReserveUp},
-                SecurityConstrainedRampReserve,
-                "Reserve1_2";
+                OnlineReserve{ReserveUp},
+                SecurityConstrainedRampReserve;
                 use_slacks = reserve_slack,
             ))
         ps_model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
@@ -779,23 +838,23 @@ end
 end
 
 # Exercises the per-service line-scoping path in
-# `_monitored_components_by_modeled_type` for the `AreaPTDFPowerModel`
+# `_monitored_components_by_modeled_type` for the `AreaPTDFNetworkModel`
 # network model. Each reserve service monitors a different hand-picked
 # subset of AC lines, which keeps the constraint key meta keyed by service
 # name but reduces the number of `PostContingencyFlowRateConstraint` rows
 # compared to the all-lines baseline.
-@testset "G-n with Ramp reserve deliverability constraints with AreaPTDFPowerModel and monitored line subset" begin
+@testset "G-n with Ramp reserve deliverability constraints with AreaPTDFNetworkModel and monitored line subset" begin
     monitored_line_names_per_service = (["1_1", "2_1"], ["1_2", "2_2"])
     constraint_keys = [
-        PSI.ConstraintKey(ActivePowerVariableLimitsConstraint, PSY.ThermalStandard, "lb"),
-        PSI.ConstraintKey(ActivePowerVariableLimitsConstraint, PSY.ThermalStandard, "ub"),
-        PSI.ConstraintKey(FlowRateConstraint, PSY.Line, "lb"),
-        PSI.ConstraintKey(FlowRateConstraint, PSY.Line, "ub"),
+        IOM.ConstraintKey(ActivePowerVariableLimitsConstraint, PSY.ThermalStandard, "lb"),
+        IOM.ConstraintKey(ActivePowerVariableLimitsConstraint, PSY.ThermalStandard, "ub"),
+        IOM.ConstraintKey(FlowRateConstraint, PSY.Line, "lb"),
+        IOM.ConstraintKey(FlowRateConstraint, PSY.Line, "ub"),
         sc_key(PostContingencyFlowRateConstraint, "Reserve1_1_lb"),
         sc_key(PostContingencyFlowRateConstraint, "Reserve1_2_lb"),
         sc_key(PostContingencyFlowRateConstraint, "Reserve1_1_ub"),
         sc_key(PostContingencyFlowRateConstraint, "Reserve1_2_ub"),
-        PSI.ConstraintKey(CopperPlateBalanceConstraint, PSY.Area),
+        IOM.ConstraintKey(CopperPlateBalanceConstraint, PSY.Area),
         sc_key(RequirementConstraint, "Reserve1_1"),
         sc_key(RequirementConstraint, "Reserve1_2"),
         sc_key(RampConstraint, "Reserve1_1"),
@@ -826,7 +885,7 @@ end
     )
         monitored_subset = [get_component(Line, sys, n) for n in monitored_names]
         component = get_component(ThermalStandard, sys, component_name)
-        reserve_up = get_component(VariableReserve{ReserveUp}, sys, reserve_name)
+        reserve_up = get_component(OnlineReserve{ReserveUp}, sys, reserve_name)
         attach_geometric_outage!(
             sys,
             component,
@@ -836,19 +895,17 @@ end
     end
 
     template = get_thermal_dispatch_template_network(
-        NetworkModel(AreaPTDFPowerModel; PTDF_matrix = PTDF(sys)),
+        NetworkModel(AreaPTDFNetworkModel),
     )
     set_service_model!(template,
         ServiceModel(
-            VariableReserve{ReserveUp},
+            OnlineReserve{ReserveUp},
             SecurityConstrainedRampReserve,
-            "Reserve1_1",
         ))
     set_service_model!(template,
         ServiceModel(
-            VariableReserve{ReserveUp},
+            OnlineReserve{ReserveUp},
             SecurityConstrainedRampReserve,
-            "Reserve1_2",
         ))
     ps_model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
 
@@ -864,17 +921,17 @@ end
     )
 end
 
-@testset "G-n with Contingency reserve deliverability constraints with AreaPTDFPowerModel, reserves only up, reserve requirement" begin
+@testset "G-n with Contingency reserve deliverability constraints with AreaPTDFNetworkModel, reserves only up, reserve requirement" begin
     constraint_keys = [
-        PSI.ConstraintKey(ActivePowerVariableLimitsConstraint, PSY.ThermalStandard, "lb"),
-        PSI.ConstraintKey(ActivePowerVariableLimitsConstraint, PSY.ThermalStandard, "ub"),
-        PSI.ConstraintKey(FlowRateConstraint, PSY.Line, "lb"),
-        PSI.ConstraintKey(FlowRateConstraint, PSY.Line, "ub"),
+        IOM.ConstraintKey(ActivePowerVariableLimitsConstraint, PSY.ThermalStandard, "lb"),
+        IOM.ConstraintKey(ActivePowerVariableLimitsConstraint, PSY.ThermalStandard, "ub"),
+        IOM.ConstraintKey(FlowRateConstraint, PSY.Line, "lb"),
+        IOM.ConstraintKey(FlowRateConstraint, PSY.Line, "ub"),
         sc_key(PostContingencyFlowRateConstraint, "Reserve1_1_lb"),
         sc_key(PostContingencyFlowRateConstraint, "Reserve1_2_lb"),
         sc_key(PostContingencyFlowRateConstraint, "Reserve1_1_ub"),
         sc_key(PostContingencyFlowRateConstraint, "Reserve1_2_ub"),
-        PSI.ConstraintKey(CopperPlateBalanceConstraint, PSY.Area),
+        IOM.ConstraintKey(CopperPlateBalanceConstraint, PSY.Area),
         sc_key(RequirementConstraint, "Reserve1_1"),
         sc_key(RequirementConstraint, "Reserve1_2"),
         sc_key(PostContingencyGenerationBalanceConstraint, "Reserve1_1"),
@@ -896,25 +953,23 @@ end
         transform_single_time_series!(sys, Hour(24), Hour(1))
         for (component_name, reserve_name) in zip(components_outages_names, reserve_names)
             component = get_component(ThermalStandard, sys, component_name)
-            reserve_up = get_component(VariableReserve{ReserveUp}, sys, reserve_name)
+            reserve_up = get_component(OnlineReserve{ReserveUp}, sys, reserve_name)
             attach_geometric_outage!(sys, component, [reserve_up])
         end
 
         template = get_thermal_dispatch_template_network(
-            NetworkModel(AreaPTDFPowerModel; PTDF_matrix = PTDF(sys)),
+            NetworkModel(AreaPTDFNetworkModel),
         )
         set_service_model!(template,
             ServiceModel(
-                VariableReserve{ReserveUp},
-                SecurityConstrainedContingencyReserve,
-                "Reserve1_1";
+                OnlineReserve{ReserveUp},
+                SecurityConstrainedContingencyReserve;
                 use_slacks = reserve_slack,
             ))
         set_service_model!(template,
             ServiceModel(
-                VariableReserve{ReserveUp},
-                SecurityConstrainedContingencyReserve,
-                "Reserve1_2";
+                OnlineReserve{ReserveUp},
+                SecurityConstrainedContingencyReserve;
                 use_slacks = reserve_slack,
             ))
         ps_model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
@@ -937,20 +992,20 @@ end
     end
 end
 
-@testset "G-n with Contingency reserve deliverability constraints with AreaPTDFPowerModel, reserves only up, NO reserve requirement" begin
+@testset "G-n with Contingency reserve deliverability constraints with AreaPTDFNetworkModel, reserves only up, NO reserve requirement" begin
     sys = PSB.build_system(PSISystems, "two_area_pjm_DA")
     transform_single_time_series!(sys, Hour(24), Hour(1))
     constraint_keys = [
-        PSI.ConstraintKey(ActivePowerVariableLimitsConstraint, PSY.ThermalStandard, "lb"),
-        PSI.ConstraintKey(ActivePowerVariableLimitsConstraint, PSY.ThermalStandard, "ub"),
-        PSI.ConstraintKey(FlowRateConstraint, PSY.Line, "lb"),
-        PSI.ConstraintKey(FlowRateConstraint, PSY.Line, "ub"),
+        IOM.ConstraintKey(ActivePowerVariableLimitsConstraint, PSY.ThermalStandard, "lb"),
+        IOM.ConstraintKey(ActivePowerVariableLimitsConstraint, PSY.ThermalStandard, "ub"),
+        IOM.ConstraintKey(FlowRateConstraint, PSY.Line, "lb"),
+        IOM.ConstraintKey(FlowRateConstraint, PSY.Line, "ub"),
         sc_key(PostContingencyFlowRateConstraint, "Reserve1_1_lb"),
         sc_key(PostContingencyFlowRateConstraint, "Reserve1_2_lb"),
         sc_key(PostContingencyFlowRateConstraint, "Reserve1_1_ub"),
         sc_key(PostContingencyFlowRateConstraint, "Reserve1_2_ub"),
-        PSI.ConstraintKey(CopperPlateBalanceConstraint, PSY.Area),
-        #PSI.ConstraintKey(NetworkFlowConstraint, PSY.Line),
+        IOM.ConstraintKey(CopperPlateBalanceConstraint, PSY.Area),
+        #IOM.ConstraintKey(NetworkFlowConstraint, PSY.Line),
         sc_key(PostContingencyGenerationBalanceConstraint, "Reserve1_1"),
         sc_key(PostContingencyGenerationBalanceConstraint, "Reserve1_2"),
         sc_key(PostContingencyActivePowerGenerationLimitsConstraint, "Reserve1_1_ub"),
@@ -984,24 +1039,22 @@ end
 
     for (component_name, reserve_name) in zip(components_outages_names, reserve_names)
         component = get_component(ThermalStandard, sys, component_name)
-        reserve_up = get_component(VariableReserve{ReserveUp}, sys, reserve_name)
+        reserve_up = get_component(OnlineReserve{ReserveUp}, sys, reserve_name)
         attach_geometric_outage!(sys, component, [reserve_up])
     end
 
     template = get_thermal_dispatch_template_network(
-        NetworkModel(AreaPTDFPowerModel; PTDF_matrix = PTDF(sys)),
+        NetworkModel(AreaPTDFNetworkModel),
     )
     set_service_model!(template,
         ServiceModel(
-            VariableReserve{ReserveUp},
+            OnlineReserve{ReserveUp},
             SecurityConstrainedContingencyReserve,
-            "Reserve1_1",
         ))
     set_service_model!(template,
         ServiceModel(
-            VariableReserve{ReserveUp},
+            OnlineReserve{ReserveUp},
             SecurityConstrainedContingencyReserve,
-            "Reserve1_2",
         ))
     ps_model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
 
@@ -1021,8 +1074,8 @@ end
     sys = PSB.build_system(PSISystems, "two_area_pjm_DA"; add_reserves = true)
     transform_single_time_series!(sys, Hour(24), Hour(1))
     constraint_keys = [
-        PSI.ConstraintKey(ActivePowerVariableLimitsConstraint, PSY.ThermalStandard, "lb"),
-        PSI.ConstraintKey(ActivePowerVariableLimitsConstraint, PSY.ThermalStandard, "ub"), PSI.ConstraintKey(CopperPlateBalanceConstraint, PSY.System),
+        IOM.ConstraintKey(ActivePowerVariableLimitsConstraint, PSY.ThermalStandard, "lb"),
+        IOM.ConstraintKey(ActivePowerVariableLimitsConstraint, PSY.ThermalStandard, "ub"), IOM.ConstraintKey(CopperPlateBalanceConstraint, PSY.System),
         sc_key(RequirementConstraint, "Reserve1_1"),
         sc_key(RequirementConstraint, "Reserve1_2"),
         sc_key(RampConstraint, "Reserve1_1"),
@@ -1043,24 +1096,22 @@ end
 
     for (component_name, reserve_name) in zip(components_outages_names, reserve_names)
         component = get_component(ThermalStandard, sys, component_name)
-        reserve_up = get_component(VariableReserve{ReserveUp}, sys, reserve_name)
+        reserve_up = get_component(OnlineReserve{ReserveUp}, sys, reserve_name)
         attach_geometric_outage!(sys, component, [reserve_up])
     end
 
     template = get_thermal_dispatch_template_network(
-        NetworkModel(CopperPlatePowerModel; PTDF_matrix = PTDF(sys)),
+        NetworkModel(CopperPlatePowerModel),
     )
     set_service_model!(template,
         ServiceModel(
-            VariableReserve{ReserveUp},
+            OnlineReserve{ReserveUp},
             SecurityConstrainedRampReserve,
-            "Reserve1_1",
         ))
     set_service_model!(template,
         ServiceModel(
-            VariableReserve{ReserveUp},
+            OnlineReserve{ReserveUp},
             SecurityConstrainedRampReserve,
-            "Reserve1_2",
         ))
     ps_model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
 
@@ -1080,8 +1131,8 @@ end
     sys = PSB.build_system(PSISystems, "two_area_pjm_DA"; add_reserves = true)
     transform_single_time_series!(sys, Hour(24), Hour(1))
     constraint_keys = [
-        PSI.ConstraintKey(ActivePowerVariableLimitsConstraint, PSY.ThermalStandard, "lb"),
-        PSI.ConstraintKey(ActivePowerVariableLimitsConstraint, PSY.ThermalStandard, "ub"), PSI.ConstraintKey(CopperPlateBalanceConstraint, PSY.System),
+        IOM.ConstraintKey(ActivePowerVariableLimitsConstraint, PSY.ThermalStandard, "lb"),
+        IOM.ConstraintKey(ActivePowerVariableLimitsConstraint, PSY.ThermalStandard, "ub"), IOM.ConstraintKey(CopperPlateBalanceConstraint, PSY.System),
         sc_key(RequirementConstraint, "Reserve1_1"),
         sc_key(RequirementConstraint, "Reserve1_2"),
         sc_key(PostContingencyGenerationBalanceConstraint, "Reserve1_1"),
@@ -1100,24 +1151,22 @@ end
 
     for (component_name, reserve_name) in zip(components_outages_names, reserve_names)
         component = get_component(ThermalStandard, sys, component_name)
-        reserve_up = get_component(VariableReserve{ReserveUp}, sys, reserve_name)
+        reserve_up = get_component(OnlineReserve{ReserveUp}, sys, reserve_name)
         attach_geometric_outage!(sys, component, [reserve_up])
     end
 
     template = get_thermal_dispatch_template_network(
-        NetworkModel(CopperPlatePowerModel; PTDF_matrix = PTDF(sys)),
+        NetworkModel(CopperPlatePowerModel),
     )
     set_service_model!(template,
         ServiceModel(
-            VariableReserve{ReserveUp},
+            OnlineReserve{ReserveUp},
             SecurityConstrainedContingencyReserve,
-            "Reserve1_1",
         ))
     set_service_model!(template,
         ServiceModel(
-            VariableReserve{ReserveUp},
+            OnlineReserve{ReserveUp},
             SecurityConstrainedContingencyReserve,
-            "Reserve1_2",
         ))
     ps_model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
 
@@ -1137,11 +1186,11 @@ end
     sys = PSB.build_system(PSITestSystems, "c_sys5_uc"; add_reserves = true)
 
     constraint_keys = [
-        PSI.ConstraintKey(ActivePowerVariableLimitsConstraint, PSY.ThermalStandard, "lb"),
-        PSI.ConstraintKey(ActivePowerVariableLimitsConstraint, PSY.ThermalStandard, "ub"), PSI.ConstraintKey(CopperPlateBalanceConstraint, PSY.System),
+        IOM.ConstraintKey(ActivePowerVariableLimitsConstraint, PSY.ThermalStandard, "lb"),
+        IOM.ConstraintKey(ActivePowerVariableLimitsConstraint, PSY.ThermalStandard, "ub"), IOM.ConstraintKey(CopperPlateBalanceConstraint, PSY.System),
         sc_key(PostContingencyGenerationBalanceConstraint, "Reserve1"),
         sc_key(PostContingencyActivePowerGenerationLimitsConstraint, "Reserve1_ub")]
-    reserve_up = get_component(VariableReserve{ReserveUp}, sys, "Reserve1")
+    reserve_up = get_component(OnlineReserve{ReserveUp}, sys, "Reserve1")
     remove_time_series!(
         sys,
         Deterministic,
@@ -1152,13 +1201,12 @@ end
     attach_geometric_outage!(sys, component, [reserve_up])
 
     template = get_thermal_dispatch_template_network(
-        NetworkModel(CopperPlatePowerModel; PTDF_matrix = PTDF(sys)),
+        NetworkModel(CopperPlatePowerModel),
     )
     set_service_model!(template,
         ServiceModel(
-            VariableReserve{ReserveUp},
+            OnlineReserve{ReserveUp},
             SecurityConstrainedContingencyReserve,
-            "Reserve1",
         ))
 
     ps_model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
@@ -1177,8 +1225,8 @@ end
 
 @testset "G-n with Ramp reserve deliverability constraints with AreaBalance PowerModel" begin
     constraint_keys = [
-        PSI.ConstraintKey(ActivePowerVariableLimitsConstraint, PSY.ThermalStandard, "lb"),
-        PSI.ConstraintKey(ActivePowerVariableLimitsConstraint, PSY.ThermalStandard, "ub"), PSI.ConstraintKey(CopperPlateBalanceConstraint, PSY.Area),
+        IOM.ConstraintKey(ActivePowerVariableLimitsConstraint, PSY.ThermalStandard, "lb"),
+        IOM.ConstraintKey(ActivePowerVariableLimitsConstraint, PSY.ThermalStandard, "ub"), IOM.ConstraintKey(CopperPlateBalanceConstraint, PSY.Area),
         sc_key(RequirementConstraint, "Reserve1_1"),
         sc_key(RequirementConstraint, "Reserve1_2"),
         sc_key(RampConstraint, "Reserve1_1"),
@@ -1210,7 +1258,7 @@ end
     )
     for (component_name, reserve_name) in zip(components_outages_names, reserve_names)
         component = get_component(ThermalStandard, c_sys, component_name)
-        reserve_up = get_component(VariableReserve{ReserveUp}, c_sys, reserve_name)
+        reserve_up = get_component(OnlineReserve{ReserveUp}, c_sys, reserve_name)
         attach_geometric_outage!(
             c_sys,
             component,
@@ -1224,37 +1272,35 @@ end
 
     set_service_model!(template,
         ServiceModel(
-            VariableReserve{ReserveUp},
+            OnlineReserve{ReserveUp},
             SecurityConstrainedRampReserve,
-            "Reserve1_1",
         ))
     set_service_model!(template,
         ServiceModel(
-            VariableReserve{ReserveUp},
+            OnlineReserve{ReserveUp},
             SecurityConstrainedRampReserve,
-            "Reserve1_2",
         ))
 
     ps_model =
         DecisionModel(template, c_sys; resolution = Hour(1), optimizer = HiGHS_optimizer)
 
     @test build!(ps_model; output_dir = mktempdir(; cleanup = true)) ==
-          PSI.ModelBuildStatus.BUILT
+          IOM.ModelBuildStatus.BUILT
 
     psi_constraint_test(ps_model, constraint_keys)
 
-    @test solve!(ps_model) == PSI.RunStatus.SUCCESSFULLY_FINALIZED
+    @test solve!(ps_model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
 
     moi_tests(ps_model, 792, 0, 696, 360, 144, false)
 
-    opt_container = PSI.get_optimization_container(ps_model)
+    opt_container = IOM.get_optimization_container(ps_model)
     copper_plate_constraints =
-        PSI.get_constraint(opt_container, CopperPlateBalanceConstraint(), PSY.Area)
+        IOM.get_constraint(opt_container, CopperPlateBalanceConstraint(), PSY.Area)
     @test size(copper_plate_constraints) == (2, 24)
 
     psi_checksolve_test(ps_model, [MOI.OPTIMAL], 497494.4871638, 1)
 
-    results = OptimizationProblemResults(ps_model)
+    results = OptimizationProblemOutputs(ps_model)
     verify_zone_balance!(results; flow_tol = 1e-6)
 
     compare_outage_power_and_deployed_reserves(c_sys, results, reserve_names)
@@ -1262,8 +1308,8 @@ end
 
 @testset "G-n with Contingency reserve deliverability constraints with AreaBalancePowerModel with Reserve Requirement" begin
     constraint_keys = [
-        PSI.ConstraintKey(ActivePowerVariableLimitsConstraint, PSY.ThermalStandard, "lb"),
-        PSI.ConstraintKey(ActivePowerVariableLimitsConstraint, PSY.ThermalStandard, "ub"), PSI.ConstraintKey(CopperPlateBalanceConstraint, PSY.Area),
+        IOM.ConstraintKey(ActivePowerVariableLimitsConstraint, PSY.ThermalStandard, "lb"),
+        IOM.ConstraintKey(ActivePowerVariableLimitsConstraint, PSY.ThermalStandard, "ub"), IOM.ConstraintKey(CopperPlateBalanceConstraint, PSY.Area),
         sc_key(RequirementConstraint, "Reserve1_1"),
         sc_key(RequirementConstraint, "Reserve1_2"),
         sc_key(
@@ -1293,7 +1339,7 @@ end
     )
     for (component_name, reserve_name) in zip(components_outages_names, reserve_names)
         component = get_component(ThermalStandard, c_sys, component_name)
-        reserve_up = get_component(VariableReserve{ReserveUp}, c_sys, reserve_name)
+        reserve_up = get_component(OnlineReserve{ReserveUp}, c_sys, reserve_name)
         attach_geometric_outage!(
             c_sys,
             component,
@@ -1307,37 +1353,35 @@ end
 
     set_service_model!(template,
         ServiceModel(
-            VariableReserve{ReserveUp},
+            OnlineReserve{ReserveUp},
             SecurityConstrainedContingencyReserve,
-            "Reserve1_1",
         ))
     set_service_model!(template,
         ServiceModel(
-            VariableReserve{ReserveUp},
+            OnlineReserve{ReserveUp},
             SecurityConstrainedContingencyReserve,
-            "Reserve1_2",
         ))
 
     ps_model =
         DecisionModel(template, c_sys; resolution = Hour(1), optimizer = HiGHS_optimizer)
 
     @test build!(ps_model; output_dir = mktempdir(; cleanup = true)) ==
-          PSI.ModelBuildStatus.BUILT
+          IOM.ModelBuildStatus.BUILT
 
     psi_constraint_test(ps_model, constraint_keys)
 
-    @test solve!(ps_model) == PSI.RunStatus.SUCCESSFULLY_FINALIZED
+    @test solve!(ps_model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
 
     moi_tests(ps_model, 792, 0, 504, 360, 144, false)
 
-    opt_container = PSI.get_optimization_container(ps_model)
+    opt_container = IOM.get_optimization_container(ps_model)
     copper_plate_constraints =
-        PSI.get_constraint(opt_container, CopperPlateBalanceConstraint(), PSY.Area)
+        IOM.get_constraint(opt_container, CopperPlateBalanceConstraint(), PSY.Area)
     @test size(copper_plate_constraints) == (2, 24)
 
     psi_checksolve_test(ps_model, [MOI.OPTIMAL], 482055.9151334, 1)
 
-    results = OptimizationProblemResults(ps_model)
+    results = OptimizationProblemOutputs(ps_model)
     verify_zone_balance!(results; flow_tol = 1e-6)
 
     compare_outage_power_and_deployed_reserves(c_sys, results, reserve_names)
@@ -1345,8 +1389,8 @@ end
 
 @testset "G-n with Contingency reserve deliverability constraints with AreaBalancePowerModel with NO Reserve Requirement" begin
     constraint_keys = [
-        PSI.ConstraintKey(ActivePowerVariableLimitsConstraint, PSY.ThermalStandard, "lb"),
-        PSI.ConstraintKey(ActivePowerVariableLimitsConstraint, PSY.ThermalStandard, "ub"), PSI.ConstraintKey(CopperPlateBalanceConstraint, PSY.Area),
+        IOM.ConstraintKey(ActivePowerVariableLimitsConstraint, PSY.ThermalStandard, "lb"),
+        IOM.ConstraintKey(ActivePowerVariableLimitsConstraint, PSY.ThermalStandard, "ub"), IOM.ConstraintKey(CopperPlateBalanceConstraint, PSY.Area),
         sc_key(PostContingencyActivePowerGenerationLimitsConstraint, "Reserve1_1_ub"),
         sc_key(PostContingencyActivePowerGenerationLimitsConstraint, "Reserve1_2_ub"),
         sc_key(PostContingencyCopperPlateBalanceConstraint, "Reserve1_1"),
@@ -1359,14 +1403,14 @@ end
 
     c_sys = PSB.build_system(PSISystems, "two_area_pjm_DA"; add_reserves = true)
 
-    reserve_up = get_component(VariableReserve{ReserveUp}, c_sys, "Reserve1_1")
+    reserve_up = get_component(OnlineReserve{ReserveUp}, c_sys, "Reserve1_1")
     remove_time_series!(
         c_sys,
         SingleTimeSeries,
         reserve_up,
         "requirement",
     )
-    reserve_up = get_component(VariableReserve{ReserveUp}, c_sys, "Reserve1_2")
+    reserve_up = get_component(OnlineReserve{ReserveUp}, c_sys, "Reserve1_2")
     remove_time_series!(
         c_sys,
         SingleTimeSeries,
@@ -1384,7 +1428,7 @@ end
     )
     for (component_name, reserve_name) in zip(components_outages_names, reserve_names)
         component = get_component(ThermalStandard, c_sys, component_name)
-        reserve_up = get_component(VariableReserve{ReserveUp}, c_sys, reserve_name)
+        reserve_up = get_component(OnlineReserve{ReserveUp}, c_sys, reserve_name)
         attach_geometric_outage!(
             c_sys,
             component,
@@ -1398,37 +1442,35 @@ end
 
     set_service_model!(template,
         ServiceModel(
-            VariableReserve{ReserveUp},
+            OnlineReserve{ReserveUp},
             SecurityConstrainedContingencyReserve,
-            "Reserve1_1",
         ))
     set_service_model!(template,
         ServiceModel(
-            VariableReserve{ReserveUp},
+            OnlineReserve{ReserveUp},
             SecurityConstrainedContingencyReserve,
-            "Reserve1_2",
         ))
 
     ps_model =
         DecisionModel(template, c_sys; resolution = Hour(1), optimizer = HiGHS_optimizer)
 
     @test build!(ps_model; output_dir = mktempdir(; cleanup = true)) ==
-          PSI.ModelBuildStatus.BUILT
+          IOM.ModelBuildStatus.BUILT
 
     psi_constraint_test(ps_model, constraint_keys)
 
-    @test solve!(ps_model) == PSI.RunStatus.SUCCESSFULLY_FINALIZED
+    @test solve!(ps_model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
 
     moi_tests(ps_model, 552, 0, 504, 312, 192, false)
 
-    opt_container = PSI.get_optimization_container(ps_model)
+    opt_container = IOM.get_optimization_container(ps_model)
     copper_plate_constraints =
-        PSI.get_constraint(opt_container, CopperPlateBalanceConstraint(), PSY.Area)
+        IOM.get_constraint(opt_container, CopperPlateBalanceConstraint(), PSY.Area)
     @test size(copper_plate_constraints) == (2, 24)
 
     psi_checksolve_test(ps_model, [MOI.OPTIMAL], 482055.7647083302, 1)
 
-    results = OptimizationProblemResults(ps_model)
+    results = OptimizationProblemOutputs(ps_model)
     verify_zone_balance!(results; flow_tol = 0.0)
 
     compare_outage_power_and_deployed_reserves(c_sys, results, reserve_names)
@@ -1446,7 +1488,7 @@ end
     sys = PSB.build_system(PSISystems, "two_area_pjm_DA"; add_reserves = true)
     transform_single_time_series!(sys, Hour(24), Hour(1))
 
-    reserve1 = get_component(VariableReserve{ReserveUp}, sys, "Reserve1_1")
+    reserve1 = get_component(OnlineReserve{ReserveUp}, sys, "Reserve1_1")
 
     # Attach an UnplannedOutage to a single Area1 generator and to the
     # reserve that should respond. Reserve1_2 is intentionally NOT attached.
@@ -1455,27 +1497,25 @@ end
     outage_uuid = IS.get_uuid(transition_data)
 
     template = get_thermal_dispatch_template_network(
-        NetworkModel(AreaPTDFPowerModel; PTDF_matrix = PTDF(sys)),
+        NetworkModel(AreaPTDFNetworkModel),
     )
     set_service_model!(template,
         ServiceModel(
-            VariableReserve{ReserveUp},
+            OnlineReserve{ReserveUp},
             SecurityConstrainedRampReserve,
-            "Reserve1_1",
         ))
     set_service_model!(template,
         ServiceModel(
-            VariableReserve{ReserveUp},
+            OnlineReserve{ReserveUp},
             SecurityConstrainedRampReserve,
-            "Reserve1_2",
         ))
 
     # --- Unit-level: attachment scoping populates only the responding ServiceModel ---
-    PSI._build_service_model_outages!(template, sys)
+    IOM._build_service_model_outages!(template, sys)
 
-    services = PSI.get_service_models(template)
-    sm1 = services[("Reserve1_1", Symbol(VariableReserve{ReserveUp}))]
-    sm2 = services[("Reserve1_2", Symbol(VariableReserve{ReserveUp}))]
+    services = IOM.get_service_models(template)
+    sm1 = services[("Reserve1_1", Symbol(OnlineReserve{ReserveUp}))]
+    sm2 = services[("Reserve1_2", Symbol(OnlineReserve{ReserveUp}))]
     @test haskey(sm1.outages, outage_uuid)
     @test !haskey(sm2.outages, outage_uuid)
 
@@ -1483,22 +1523,22 @@ end
     ps_model =
         DecisionModel(template, sys; resolution = Hour(1), optimizer = HiGHS_optimizer)
     @test build!(ps_model; output_dir = mktempdir(; cleanup = true)) ==
-          PSI.ModelBuildStatus.BUILT
+          IOM.ModelBuildStatus.BUILT
 
-    container = PSI.get_optimization_container(ps_model)
-    @test PSI.has_container_key(
+    container = IOM.get_optimization_container(ps_model)
+    @test IOM.has_container_key(
         container,
         PostContingencyGenerationBalanceConstraint,
-        PSY.VariableReserve{ReserveUp},
+        PSY.OnlineReserve{ReserveUp},
         "Reserve1_1",
     )
-    @test !PSI.has_container_key(
+    @test !IOM.has_container_key(
         container,
         PostContingencyGenerationBalanceConstraint,
-        PSY.VariableReserve{ReserveUp},
+        PSY.OnlineReserve{ReserveUp},
         "Reserve1_2",
     )
-    cons_resp = PSI.get_constraint(
+    cons_resp = IOM.get_constraint(
         container,
         sc_key(PostContingencyGenerationBalanceConstraint, "Reserve1_1"),
     )
@@ -1512,24 +1552,23 @@ end
     sys = PSB.build_system(PSITestSystems, "c_sys5_uc"; add_reserves = true)
 
     alta = get_component(ThermalStandard, sys, "Alta")
-    reserve_up = get_component(VariableReserve{ReserveUp}, sys, "Reserve1")
+    reserve_up = get_component(OnlineReserve{ReserveUp}, sys, "Reserve1")
     transition_data = attach_geometric_outage!(sys, alta, [reserve_up])
     outage_uuid = IS.get_uuid(transition_data)
 
     template = get_thermal_dispatch_template_network(
-        NetworkModel(PTDFPowerModel; PTDF_matrix = PTDF(sys)),
+        NetworkModel(PTDFNetworkModel),
     )
     set_service_model!(template,
         ServiceModel(
-            VariableReserve{ReserveUp},
+            OnlineReserve{ReserveUp},
             SecurityConstrainedRampReserve,
-            "Reserve1",
         ))
 
-    PSI._build_service_model_outages!(template, sys)
+    IOM._build_service_model_outages!(template, sys)
 
-    services = PSI.get_service_models(template)
-    sm = services[("Reserve1", Symbol(VariableReserve{ReserveUp}))]
+    services = IOM.get_service_models(template)
+    sm = services[("Reserve1", Symbol(OnlineReserve{ReserveUp}))]
     @test haskey(sm.outages, outage_uuid)
 end
 
@@ -1614,7 +1653,7 @@ function _two_area_g1_setup!(;
     end
 
     outaged_gen = get_component(ThermalStandard, sys, outaged_gen_name)
-    reserve_up = get_component(VariableReserve{ReserveUp}, sys, "Reserve1_2")
+    reserve_up = get_component(OnlineReserve{ReserveUp}, sys, "Reserve1_2")
     attach_fixed_outage!(
         sys,
         outaged_gen,
@@ -1626,9 +1665,8 @@ function _two_area_g1_setup!(;
     set_interchange_model!(template)
     set_service_model!(template,
         ServiceModel(
-            VariableReserve{ReserveUp},
-            SecurityConstrainedContingencyReserve,
-            "Reserve1_2";
+            OnlineReserve{ReserveUp},
+            SecurityConstrainedContingencyReserve;
             use_slacks = use_slacks,
         ))
 
@@ -1648,10 +1686,10 @@ end
         ),
     )
     @test build!(ps_model; output_dir = mktempdir(; cleanup = true)) ==
-          PSI.ModelBuildStatus.BUILT
-    @test solve!(ps_model) == PSI.RunStatus.SUCCESSFULLY_FINALIZED
+          IOM.ModelBuildStatus.BUILT
+    @test solve!(ps_model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
 
-    res = OptimizationProblemResults(ps_model)
+    res = OptimizationProblemOutputs(ps_model)
     variables = read_variables(res)
 
     # The outaged generator must dispatch normally, not be pinned to zero by
@@ -1678,11 +1716,11 @@ end
     outage_id = string(IS.get_uuid(only(resolved_outages)))
 
     deployment =
-        variables["PostContingencyActivePowerReserveDeploymentVariable__VariableReserve__ReserveUp__Reserve1_2"]
+        variables["PostContingencyActivePowerReserveDeploymentVariable__OnlineReserve__ReserveUp__Reserve1_2"]
     total_deployment = total_deployment_series(deployment, outage_id)
 
     flow_dev =
-        variables["PostContingencyAreaInterchangeFlowDeviationVariable__VariableReserve__ReserveUp__Reserve1_2"]
+        variables["PostContingencyAreaInterchangeFlowDeviationVariable__OnlineReserve__ReserveUp__Reserve1_2"]
     tie_flow_dev = _sc_flow_deviation_series(flow_dev, outage_id, "1_2")
 
     @test all(total_deployment .> 0.0)
@@ -1700,10 +1738,10 @@ end
         ),
     )
     @test build!(ps_model; output_dir = mktempdir(; cleanup = true)) ==
-          PSI.ModelBuildStatus.BUILT
-    @test solve!(ps_model) == PSI.RunStatus.SUCCESSFULLY_FINALIZED
+          IOM.ModelBuildStatus.BUILT
+    @test solve!(ps_model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
 
-    res = OptimizationProblemResults(ps_model)
+    res = OptimizationProblemOutputs(ps_model)
     variables = read_variables(res)
     compare_outage_power_and_deployed_reserves(sys, res, reserve_up)
 
@@ -1712,11 +1750,11 @@ end
     outage_id = string(IS.get_uuid(only(resolved_outages)))
 
     deployment =
-        variables["PostContingencyActivePowerReserveDeploymentVariable__VariableReserve__ReserveUp__Reserve1_2"]
+        variables["PostContingencyActivePowerReserveDeploymentVariable__OnlineReserve__ReserveUp__Reserve1_2"]
     total_deployment = total_deployment_series(deployment, outage_id)
 
     flow_dev =
-        variables["PostContingencyAreaInterchangeFlowDeviationVariable__VariableReserve__ReserveUp__Reserve1_2"]
+        variables["PostContingencyAreaInterchangeFlowDeviationVariable__OnlineReserve__ReserveUp__Reserve1_2"]
     tie1_flow_dev = _sc_flow_deviation_series(flow_dev, outage_id, "1_2")
     tie2_flow_dev = _sc_flow_deviation_series(flow_dev, outage_id, "1_2_b")
 
@@ -1738,13 +1776,13 @@ end
         monitored = s -> [get_component(AreaInterchange, s, "1_2")],
     )
     @test build!(ps_model; output_dir = mktempdir(; cleanup = true)) ==
-          PSI.ModelBuildStatus.BUILT
+          IOM.ModelBuildStatus.BUILT
 
-    container = PSI.get_optimization_container(ps_model)
-    flow_dev = PSI.get_variable(
+    container = IOM.get_optimization_container(ps_model)
+    flow_dev = IOM.get_variable(
         container,
-        PSI.PostContingencyAreaInterchangeFlowDeviationVariable(),
-        VariableReserve{ReserveUp},
+        IOM.PostContingencyAreaInterchangeFlowDeviationVariable(),
+        OnlineReserve{ReserveUp},
         "Reserve1_2",
     )
     @test Set(axes(flow_dev, 2)) == Set(["1_2", "1_2_b"])
@@ -1753,7 +1791,7 @@ end
         # `SparseAxisArray` does not forward `Base.keys` to the container
         # axes, so index its `.data` dict directly to get the actual
         # `(outage_id, name, t)` tuples that were written.
-        cons = PSI.get_constraint(
+        cons = IOM.get_constraint(
             container,
             sc_key(PostContingencyFlowRateConstraint, "Reserve1_2_$(suffix)"),
         )
@@ -1776,10 +1814,10 @@ end
     set_flow_limits!(tie, (from_to = 0.1, to_from = 0.1))
 
     @test build!(ps_model; output_dir = mktempdir(; cleanup = true)) ==
-          PSI.ModelBuildStatus.BUILT
-    @test solve!(ps_model) == PSI.RunStatus.SUCCESSFULLY_FINALIZED
+          IOM.ModelBuildStatus.BUILT
+    @test solve!(ps_model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
 
-    res = OptimizationProblemResults(ps_model)
+    res = OptimizationProblemOutputs(ps_model)
     variables = read_variables(res)
 
     # The balance still holds exactly even though the tie's physical limit
@@ -1788,7 +1826,7 @@ end
     compare_outage_power_and_deployed_reserves(sys, res, reserve_up)
 
     slack_lb =
-        variables["PostContingencyFlowActivePowerSlackLowerBound__VariableReserve__ReserveUp__Reserve1_2"]
+        variables["PostContingencyFlowActivePowerSlackLowerBound__OnlineReserve__ReserveUp__Reserve1_2"]
     @test maximum(slack_lb[!, "value"]) > 1e-3
 end
 
@@ -1808,13 +1846,13 @@ end
         ),
     )
     @test build!(ps_model; output_dir = mktempdir(; cleanup = true)) ==
-          PSI.ModelBuildStatus.BUILT
+          IOM.ModelBuildStatus.BUILT
 
-    container = PSI.get_optimization_container(ps_model)
-    flow_deviation_var = PSI.get_variable(
+    container = IOM.get_optimization_container(ps_model)
+    flow_deviation_var = IOM.get_variable(
         container,
-        PSI.PostContingencyAreaInterchangeFlowDeviationVariable(),
-        VariableReserve{ReserveUp},
+        IOM.PostContingencyAreaInterchangeFlowDeviationVariable(),
+        OnlineReserve{ReserveUp},
         "Reserve1_2",
     )
     interchange_axis = axes(flow_deviation_var, 2)
@@ -1824,8 +1862,8 @@ end
     # Matches pre-contingency semantics: the disabled tie is not the sole
     # path here (the original "1_2" tie stays available), so the model
     # remains solvable and the response still balances exactly.
-    @test solve!(ps_model) == PSI.RunStatus.SUCCESSFULLY_FINALIZED
-    res = OptimizationProblemResults(ps_model)
+    @test solve!(ps_model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+    res = OptimizationProblemOutputs(ps_model)
     compare_outage_power_and_deployed_reserves(sys, res, reserve_up)
 end
 
@@ -1837,19 +1875,19 @@ end
         tie_available = false,
         monitored = s -> collect(get_components(AreaInterchange, s)),
     )
-    template = PSI.get_template(ps_model)
+    template = IOM.get_template(ps_model)
 
     # `build!` catches this internally and reports `ModelBuildStatus.FAILED`
     # rather than propagating it, so the throw is only observable by calling
     # the template-validation step directly (mirrors the `ReserveDown`
     # rejection testset below).
-    @test_throws IS.ConflictingInputsError PSI._build_service_model_outages!(
+    @test_throws IS.ConflictingInputsError IOM._build_service_model_outages!(
         template,
         sys,
     )
 
     @test build!(ps_model; output_dir = mktempdir(; cleanup = true)) ==
-          PSI.ModelBuildStatus.FAILED
+          IOM.ModelBuildStatus.FAILED
 end
 
 # The AreaInterchange `DeviceModel`'s set — not the network model's scope — is
@@ -1867,7 +1905,7 @@ end
 # container, asserted below). Do not "fix" these tests by removing
 # `filter_function` — the warning is a known false positive in the unrelated
 # branch-filtering validation path, not a signal that filtering was ignored.
-_exclude_parallel_tie_model!(template::PSI.ProblemTemplate) = set_device_model!(
+_exclude_parallel_tie_model!(template::PowerOperationsProblemTemplate) = set_device_model!(
     template,
     DeviceModel(
         AreaInterchange,
@@ -1883,23 +1921,23 @@ _exclude_parallel_tie_model!(template::PSI.ProblemTemplate) = set_device_model!(
         set_interchange_model! = _exclude_parallel_tie_model!,
     )
     @test build!(ps_model; output_dir = mktempdir(; cleanup = true)) ==
-          PSI.ModelBuildStatus.BUILT
+          IOM.ModelBuildStatus.BUILT
 
-    container = PSI.get_optimization_container(ps_model)
+    container = IOM.get_optimization_container(ps_model)
     flow_var =
-        PSI.get_variable(container, PSI.FlowActivePowerVariable(), AreaInterchange)
-    flow_deviation_var = PSI.get_variable(
+        IOM.get_variable(container, IOM.FlowActivePowerVariable(), AreaInterchange)
+    flow_deviation_var = IOM.get_variable(
         container,
-        PSI.PostContingencyAreaInterchangeFlowDeviationVariable(),
-        VariableReserve{ReserveUp},
+        IOM.PostContingencyAreaInterchangeFlowDeviationVariable(),
+        OnlineReserve{ReserveUp},
         "Reserve1_2",
     )
     # Δf spans exactly the pre-contingency flow variable's ties.
     @test Set(axes(flow_var, 1)) == Set(["1_2"])
     @test Set(axes(flow_deviation_var, 2)) == Set(["1_2"])
 
-    @test solve!(ps_model) == PSI.RunStatus.SUCCESSFULLY_FINALIZED
-    res = OptimizationProblemResults(ps_model)
+    @test solve!(ps_model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+    res = OptimizationProblemOutputs(ps_model)
     variables = read_variables(res)
     compare_outage_power_and_deployed_reserves(sys, res, reserve_up)
 
@@ -1909,11 +1947,11 @@ _exclude_parallel_tie_model!(template::PSI.ProblemTemplate) = set_device_model!(
         ),
     )
     total_deployment = total_deployment_series(
-        variables["PostContingencyActivePowerReserveDeploymentVariable__VariableReserve__ReserveUp__Reserve1_2"],
+        variables["PostContingencyActivePowerReserveDeploymentVariable__OnlineReserve__ReserveUp__Reserve1_2"],
         outage_id,
     )
     tie_flow_dev = _sc_flow_deviation_series(
-        variables["PostContingencyAreaInterchangeFlowDeviationVariable__VariableReserve__ReserveUp__Reserve1_2"],
+        variables["PostContingencyAreaInterchangeFlowDeviationVariable__OnlineReserve__ReserveUp__Reserve1_2"],
         outage_id,
         "1_2",
     )
@@ -1931,15 +1969,15 @@ end
         monitored = s -> collect(get_components(AreaInterchange, s)),
         set_interchange_model! = _exclude_parallel_tie_model!,
     )
-    template = PSI.get_template(ps_model)
+    template = IOM.get_template(ps_model)
 
-    @test_throws IS.ConflictingInputsError PSI._build_service_model_outages!(
+    @test_throws IS.ConflictingInputsError IOM._build_service_model_outages!(
         template,
         sys,
     )
 
     @test build!(ps_model; output_dir = mktempdir(; cleanup = true)) ==
-          PSI.ModelBuildStatus.FAILED
+          IOM.ModelBuildStatus.FAILED
 end
 
 @testset "G-1 AreaBalancePowerModel: no AreaInterchange device model warns and covers in-area" begin
@@ -1952,43 +1990,42 @@ end
         set_interchange_model! = t -> nothing,
     )
     @test build!(ps_model; output_dir = mktempdir(; cleanup = true)) ==
-          PSI.ModelBuildStatus.BUILT
+          IOM.ModelBuildStatus.BUILT
 
-    container = PSI.get_optimization_container(ps_model)
-    @test !PSI.has_container_key(
+    container = IOM.get_optimization_container(ps_model)
+    @test !IOM.has_container_key(
         container,
-        PSI.FlowActivePowerVariable,
+        IOM.FlowActivePowerVariable,
         AreaInterchange,
     )
     # No modeled tie, so no Δf container at all: the per-area balance reduces
     # to in-area coverage.
-    @test !PSI.has_container_key(
+    @test !IOM.has_container_key(
         container,
-        PSI.PostContingencyAreaInterchangeFlowDeviationVariable,
-        VariableReserve{ReserveUp},
+        IOM.PostContingencyAreaInterchangeFlowDeviationVariable,
+        OnlineReserve{ReserveUp},
         "Reserve1_2",
     )
 
     # `build!` installs its own logger, so the construct-time warning is only
     # observable in the model's log file; it must be emitted exactly once.
-    log_text = read(PSI.get_log_file(ps_model), String)
+    log_text = read(IOM.get_log_file(ps_model), String)
     @test length(
         collect(eachmatch(r"no PSY\.AreaInterchange device model in the", log_text)),
     ) == 1
 
-    @test solve!(ps_model) == PSI.RunStatus.SUCCESSFULLY_FINALIZED
-    res = OptimizationProblemResults(ps_model)
+    @test solve!(ps_model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+    res = OptimizationProblemOutputs(ps_model)
     compare_outage_power_and_deployed_reserves(sys, res, reserve_up)
 end
 
 @testset "SecurityConstrainedContingencyReserve rejects Reserve{ReserveDown}" begin
     sys = PSB.build_system(PSITestSystems, "c_sys5_uc"; add_reserves = true)
-    template = get_thermal_dispatch_template_network(PTDFPowerModel)
+    template = get_thermal_dispatch_template_network(PTDFNetworkModel)
     set_service_model!(template,
         ServiceModel(
-            VariableReserve{ReserveDown},
+            OnlineReserve{ReserveDown},
             SecurityConstrainedContingencyReserve,
-            "Reserve2",
         ))
 
     # `build!` catches this internally and reports `ModelBuildStatus.FAILED`
@@ -1996,7 +2033,7 @@ end
     # observable by calling the template-validation step directly — mirrors
     # the sibling AC-transmission test file's convention for internal
     # validation checks.
-    @test_throws IS.ConflictingInputsError PSI._build_service_model_outages!(
+    @test_throws IS.ConflictingInputsError IOM._build_service_model_outages!(
         template,
         sys,
     )
@@ -2004,12 +2041,12 @@ end
 
 @testset "SC guard rails: fail-fast on unresolved monitored components" begin
     sys = PSB.build_system(PSITestSystems, "c_sys5_uc"; add_reserves = true)
-    template = get_thermal_dispatch_template_network(PTDFPowerModel)
+    template = get_thermal_dispatch_template_network(PTDFNetworkModel)
     ps_model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
     @test build!(ps_model; output_dir = mktempdir(; cleanup = true)) ==
-          PSI.ModelBuildStatus.BUILT
-    network_model = PSI.get_network_model(PSI.get_template(ps_model))
-    net_reduction_data = network_model.network_reduction
+          IOM.ModelBuildStatus.BUILT
+    network_model = IOM.get_network_model(IOM.get_template(ps_model))
+    net_reduction_data = IOM.get_network_reduction(network_model)
     uuid = IS.get_uuid(sys)
 
     # (a) device-side: an ACTransmission-type monitor absent from the
@@ -2018,20 +2055,19 @@ end
     device_model = DeviceModel(MonitoredLine, SecurityConstrainedStaticBranch)
     device_model.outages[uuid] =
         Dict{DataType, Set{String}}(MonitoredLine => Set(["fake_line"]))
-    @test_throws ErrorException PSI._resolve_monitored_arcs(
+    @test_throws ErrorException IOM._resolve_monitored_arcs(
         device_model,
         net_reduction_data,
     )
 
     # (a) service-side counterpart.
     service_model = ServiceModel(
-        VariableReserve{ReserveUp},
+        OnlineReserve{ReserveUp},
         SecurityConstrainedContingencyReserve,
-        "Reserve1",
     )
     service_model.outages[uuid] =
         Dict{DataType, Set{String}}(MonitoredLine => Set(["fake_line"]))
-    @test_throws ErrorException PSI._resolve_service_monitored_arcs(
+    @test_throws ErrorException IOM._resolve_service_monitored_arcs(
         service_model,
         net_reduction_data,
     )
@@ -2040,13 +2076,12 @@ end
     # network model; dropped with a warning naming the component instead of
     # being silently skipped.
     service_model_ai = ServiceModel(
-        VariableReserve{ReserveUp},
+        OnlineReserve{ReserveUp},
         SecurityConstrainedContingencyReserve,
-        "Reserve1",
     )
     service_model_ai.outages[uuid] =
         Dict{DataType, Set{String}}(AreaInterchange => Set(["tie1"]))
-    @test_logs (:warn, r"AreaInterchange monitor.*tie1.*dropped") PSI._resolve_service_monitored_arcs(
+    @test_logs (:warn, r"AreaInterchange monitor.*tie1.*dropped") IOM._resolve_service_monitored_arcs(
         service_model_ai,
         net_reduction_data,
     )
@@ -2054,13 +2089,12 @@ end
     # (c) an AreaInterchange monitor naming a component absent from the
     # system raises, rather than being silently skipped.
     service_model_missing = ServiceModel(
-        VariableReserve{ReserveUp},
+        OnlineReserve{ReserveUp},
         SecurityConstrainedContingencyReserve,
-        "Reserve1",
     )
     service_model_missing.outages[uuid] =
         Dict{DataType, Set{String}}(AreaInterchange => Set(["not_a_real_tie"]))
-    @test_throws ErrorException PSI._resolve_service_monitored_area_interchanges(
+    @test_throws ErrorException IOM._resolve_service_monitored_area_interchanges(
         sys,
         service_model_missing,
     )
@@ -2086,7 +2120,7 @@ end
     )
 
     template = get_thermal_dispatch_template_network(
-        NetworkModel(PTDFPowerModel; PTDF_matrix = PTDF(sys)),
+        NetworkModel(PTDFNetworkModel),
     )
     set_device_model!(template, Line, SecurityConstrainedStaticBranch)
     set_device_model!(template, AreaInterchange, StaticBranch)
@@ -2094,9 +2128,9 @@ end
     @test_logs (
         :warn,
         r"AreaInterchange.*is not a modeled ACTransmission branch type",
-    ) PSI._build_device_model_outages!(template, sys)
+    ) IOM._build_device_model_outages!(template, sys)
 
-    device_model = only(PSI._sc_branch_models(template))
+    device_model = only(IOM._sc_branch_models(template))
     outage_uuid = only(keys(device_model.outages))
     per_type = device_model.outages[outage_uuid]
     @test haskey(per_type, Line)
@@ -2121,7 +2155,7 @@ end
 
     gens = collect(get_components(ThermalStandard, sys_red))
     add_service!(sys_red,
-        VariableReserve{ReserveUp}(;
+        OnlineReserve{ReserveUp}(;
             name = "Reserve1",
             available = true,
             time_frame = 0.0,
@@ -2132,7 +2166,7 @@ end
             deployed_fraction = 0.0,
         ),
         gens)
-    reserve_up = get_component(VariableReserve{ReserveUp}, sys_red, "Reserve1")
+    reserve_up = get_component(OnlineReserve{ReserveUp}, sys_red, "Reserve1")
 
     outaged_gen = gens[1]
     monitored_name = "RADIAL1-RADIAL2-i_1"
@@ -2144,12 +2178,10 @@ end
         monitored_components = [monitored_line],
     )
 
-    ptdf_red = PTDF(sys_red; network_reductions = NetworkReduction[DegreeTwoReduction()])
-    template = ProblemTemplate(
+    template = PowerOperationsProblemTemplate(
         NetworkModel(
-            PTDFPowerModel;
-            PTDF_matrix = ptdf_red,
-            reduce_degree_two_branches = true,
+            PTDFNetworkModel;
+            network_source = SystemNetworkSource(DegreeTwoReduction()),
         ),
     )
     set_device_model!(template, ThermalStandard, ThermalBasicDispatch)
@@ -2157,35 +2189,34 @@ end
     set_device_model!(template, Line, StaticBranch)
     set_service_model!(template,
         ServiceModel(
-            VariableReserve{ReserveUp},
+            OnlineReserve{ReserveUp},
             SecurityConstrainedContingencyReserve,
-            "Reserve1",
         ))
 
     ps_model = DecisionModel(template, sys_red; optimizer = HiGHS_optimizer)
     @test build!(ps_model; output_dir = mktempdir(; cleanup = true)) ==
-          PSI.ModelBuildStatus.BUILT
+          IOM.ModelBuildStatus.BUILT
 
-    container = PSI.get_optimization_container(ps_model)
-    network_model = PSI.get_network_model(PSI.get_template(ps_model))
-    net_reduction_data = network_model.network_reduction
+    container = IOM.get_optimization_container(ps_model)
+    network_model = IOM.get_network_model(IOM.get_template(ps_model))
+    net_reduction_data = IOM.get_network_reduction(network_model)
     orientation_sign =
-        PSI.get_ptdf_orientation_sign(net_reduction_data, Line, monitored_name)
+        IOM.get_ptdf_orientation_sign(net_reduction_data, Line, monitored_name)
     @test orientation_sign == -1.0   # guard: fixture must exercise the :ToFrom member
 
-    time_steps = PSI.get_time_steps(container)
+    time_steps = IOM.get_time_steps(container)
     outage_id = string(IS.get_uuid(outage))
-    actual_container = PSI.get_expression(
+    actual_container = IOM.get_expression(
         container,
-        PSI.PostContingencyBranchFlow(),
-        VariableReserve{ReserveUp},
+        IOM.PostContingencyBranchFlow(),
+        OnlineReserve{ReserveUp},
         "Reserve1",
     )
-    pre_flow = PSI.get_expression(container, PSI.PTDFBranchFlow(), Line)
-    nodal_deployment = PSI.get_expression(
+    pre_flow = IOM.get_expression(container, IOM.PTDFBranchFlow(), Line)
+    nodal_deployment = IOM.get_expression(
         container,
-        PSI.PostContingencyNodalActivePowerDeployment(),
-        VariableReserve{ReserveUp},
+        IOM.PostContingencyNodalActivePowerDeployment(),
+        OnlineReserve{ReserveUp},
         "Reserve1",
     )
     # `nodal_deployment`'s bus axis is scoped to injection-relevant buses
@@ -2194,8 +2225,8 @@ end
     # expression, so they're skipped here rather than indexed positionally.
     name_to_arc_maps = PNM.get_name_to_arc_maps(net_reduction_data)
     arc, _ = name_to_arc_maps[Line][monitored_name]
-    ptdf_col = PSI.get_PTDF_matrix(network_model)[arc, :]
-    full_bus_axis = PNM.get_bus_axis(PSI.get_PTDF_matrix(network_model))
+    ptdf_col = IOM.get_network_matrix(network_model)[arc, :]
+    full_bus_axis = PNM.get_bus_axis(IOM.get_network_matrix(network_model))
     relevant_buses = Set(nodal_deployment.axes[2])
 
     for t in time_steps
@@ -2204,7 +2235,7 @@ end
         naively_signed = copy(pre_flow[monitored_name, t])
         for b in eachindex(ptdf_col)
             coef = ptdf_col[b]
-            abs(coef) < PSI.PTDF_ZERO_TOL && continue
+            abs(coef) < IOM.PTDF_ZERO_TOL && continue
             bus_number = full_bus_axis[b]
             bus_number in relevant_buses || continue
             JuMP.add_to_expression!(
@@ -2230,7 +2261,7 @@ end
     # this is `0 >= limits.min`, which is false whenever `limits.min > 0` —
     # provably infeasible under the pre-fix constraint.
     sys = PSB.build_system(PSITestSystems, "c_sys5_uc"; add_reserves = true)
-    reserve_up = get_component(VariableReserve{ReserveUp}, sys, "Reserve1")
+    reserve_up = get_component(OnlineReserve{ReserveUp}, sys, "Reserve1")
     remove_time_series!(sys, Deterministic, reserve_up, "requirement")
 
     outaged_gen = get_component(ThermalStandard, sys, "Alta")
@@ -2245,35 +2276,34 @@ end
     )
 
     template = get_thermal_dispatch_template_network(
-        NetworkModel(PTDFPowerModel; PTDF_matrix = PTDF(sys)),
+        NetworkModel(PTDFNetworkModel),
     )
     set_device_model!(template, ThermalStandard, ThermalStandardUnitCommitment)
     set_service_model!(template,
         ServiceModel(
-            VariableReserve{ReserveUp},
+            OnlineReserve{ReserveUp},
             SecurityConstrainedContingencyReserve,
-            "Reserve1",
         ))
 
     ps_model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
     @test build!(ps_model; output_dir = mktempdir(; cleanup = true)) ==
-          PSI.ModelBuildStatus.BUILT
+          IOM.ModelBuildStatus.BUILT
 
-    container = PSI.get_optimization_container(ps_model)
-    on_var = PSI.get_variable(container, OnVariable(), ThermalStandard)
-    deployment_var = PSI.get_variable(
+    container = IOM.get_optimization_container(ps_model)
+    on_var = IOM.get_variable(container, OnVariable(), ThermalStandard)
+    deployment_var = IOM.get_variable(
         container,
         PostContingencyActivePowerReserveDeploymentVariable(),
-        VariableReserve{ReserveUp},
+        OnlineReserve{ReserveUp},
         "Reserve1",
     )
     outage_id = string(IS.get_uuid(outage))
-    for t in PSI.get_time_steps(container)
+    for t in IOM.get_time_steps(container)
         JuMP.fix(on_var["Park City", t], 0.0; force = true)
         JuMP.fix(deployment_var[outage_id, "Park City", t], 0.0; force = true)
     end
 
-    @test solve!(ps_model) == PSI.RunStatus.SUCCESSFULLY_FINALIZED
+    @test solve!(ps_model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
 end
 
 @testset "has_requirement_ts is gated on the mapped requirement series, not any time series" begin
@@ -2281,7 +2311,7 @@ end
     # (not the name mapped to `RequirementTimeSeriesParameter`) must take the
     # no-requirement path — no `RequirementConstraint` should be built.
     sys = PSB.build_system(PSITestSystems, "c_sys5_uc"; add_reserves = true)
-    reserve_up = get_component(VariableReserve{ReserveUp}, sys, "Reserve1")
+    reserve_up = get_component(OnlineReserve{ReserveUp}, sys, "Reserve1")
     remove_time_series!(sys, Deterministic, reserve_up, "requirement")
 
     unrelated_forecast = Deterministic(
@@ -2300,24 +2330,23 @@ end
     )
 
     template = get_thermal_dispatch_template_network(
-        NetworkModel(PTDFPowerModel; PTDF_matrix = PTDF(sys)),
+        NetworkModel(PTDFNetworkModel),
     )
     set_service_model!(template,
         ServiceModel(
-            VariableReserve{ReserveUp},
+            OnlineReserve{ReserveUp},
             SecurityConstrainedContingencyReserve,
-            "Reserve1",
         ))
 
     ps_model =
         DecisionModel(template, sys; optimizer = HiGHS_optimizer, interval = Hour(24))
     @test build!(ps_model; output_dir = mktempdir(; cleanup = true)) ==
-          PSI.ModelBuildStatus.BUILT
+          IOM.ModelBuildStatus.BUILT
 
-    container = PSI.get_optimization_container(ps_model)
-    @test !PSI.has_container_key(
+    container = IOM.get_optimization_container(ps_model)
+    @test !IOM.has_container_key(
         container,
         RequirementConstraint,
-        VariableReserve{ReserveUp},
+        OnlineReserve{ReserveUp},
     )
 end

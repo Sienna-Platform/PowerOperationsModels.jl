@@ -302,7 +302,8 @@ function _constrain_post_contingency_reserve!(
     jump_model = get_jump_model(container)
     for (uuid, per_type) in contributing_devices
         for (device_type, names) in per_type
-            cons = lazy_add_container!(container, PostContingencyActivePowerReserveDeploymentVariable, device_type, String[], Int[], Int[]; sparse = true)
+            # TODO: shorter name
+            cons = lazy_add_container!(container, PostContingencyActivePowerReserveDeploymentVariableLimitsConstraint, device_type, String[], Int[], Int[]; sparse = true)
             pre_reserve = get_variable(container, ActivePowerReserveVariable, device_type)
             post_reserve = get_variable(container, PostContingencyActivePowerReserveDeploymentVariable, device_type)
             for name in names
