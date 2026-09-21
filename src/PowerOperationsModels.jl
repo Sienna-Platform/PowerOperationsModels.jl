@@ -346,6 +346,7 @@ include("services_models/reserve_group.jl")
 # include("services_models/agc.jl")  # TODO: needs _get_ace_error
 include("services_models/transmission_interface.jl")
 include("services_models/services_constructor.jl")
+include("services_models/security_constrained_injectors.jl")
 
 # Hybrid System Models (after services_models since they share reserve infrastructure)
 include("hybrid_system_models/hybrid_systems.jl")

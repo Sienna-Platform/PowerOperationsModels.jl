@@ -13,7 +13,6 @@ We perform this aggregation because an outage may be tied to reserves with diffe
 devices and different service models.
 """
 function _security_constrained_contributing_devices(sys::PSY.System, services_template::ServicesModelContainer)
-    uuids = Set{Int}()
     contributing_devices = _OUTAGE_MAP()
     for model in values(services_template)
         get_formulation(model) <: AbstractSecurityConstrainedReservesFormulation || continue
@@ -21,40 +20,44 @@ function _security_constrained_contributing_devices(sys::PSY.System, services_te
             per_type = get!(contributing_devices, uuid, _PER_TYPE())
             c = get!(per_type, typeof(device), Set{String}())
             push!(c, PSY.get_name(device))
-            push!(uuids, uuid)
         end
     end
     return contributing_devices
 end
 
-function _outaged_generators(sys::PSY.System, uuids::Set{Int})
+function _outaged_generators(sys::PSY.System, uuids::Vector{Int})
     outaged_generators = _OUTAGE_MAP(uuid => Dict{DataType, Set{String}}() for uuid in uuids)
     for (generator, outage) in PSY.get_component_supplemental_attribute_pairs(PSY.Generator, PSY.Outage, sys)
-        uuid = IS.get_uuid(outage)
-        uuid in uuids || continue
+        uuid = IS.get_id(outage)
+        haskey(outaged_generators, uuid) || continue
         c = get!(outaged_generators[uuid], typeof(generator), Set{String}())
         push!(c, PSY.get_name(generator))
     end
     return outaged_generators
 end
 
-_validate_reserve_formulation(::ServiceModel{<:PSY.AbstractReserve{PSY.ReserveUp}, AbstractSecurityConstrainedReservesFormulation}) = true
+_validate_reserve_formulation(::ServiceModel{Union{PSY.OnlineReserve{PSY.ReserveUp}, PSY.OfflineReserve}, AbstractSecurityConstrainedReservesFormulation}) = true
 _validate_reserve_formulation(::ServiceModel) = false
-_validate_reserve_formulation(::ServiceModel{<:PSY.AbstractReserve, AbstractSecurityConstrainedReservesFormulation}) = throw(IS.ConflictingInputsError("Security-constrained formulations currently only support ReserveUp.")
+_validate_reserve_formulation(::ServiceModel{<:PSY.AbstractReserve, AbstractSecurityConstrainedReservesFormulation}) = throw(IS.ConflictingInputsError("Security-constrained formulations currently only support ReserveUp."))
+
+_valid_component_type(::PSY.ACTransmission, ::NetworkModel{<:AbstractPTDFNetworkModel}) = true
+_valid_component_type(::PSY.AreaInterchange, ::NetworkModel{AreaBalanceNetworkModel}) = true
+_valid_component_type(::PSY.Component, ::NetworkModel) = false
 
 # TODO move to template_validation or keep here?
 # TODO: split between ptdf and area?
-function _monitored_components(sys::PSY.System, services_template::ServicesModelContainer)
+function _monitored_components(sys::PSY.System, services_template::ServicesModelContainer, network_model::NetworkModel)
     components = _OUTAGE_MAP()
-    for model in service_models
+    for model in values(services_template)
         _validate_reserve_formulation(model) || continue
         # TODO: validate that its nonempty?
         for service in get_available_components(sys, model)
             for outage in PSY.get_supplemental_attributes(PSY.Outage, service)
-                outage_uuid = IS.get_uuid(outage)
+                outage_uuid = IS.get_id(outage)
                 per_type = PER_TYPE()
                 for component_uuid in PSY.get_monitored_components(outage)
                     component = IS.get_component(sys, component_uuid)
+                    _valid_component_type(component, network_model) || continue
                     names = get!(per_type, typeof(component), Set{String})
                     push!(names, PSY.get_name(component))
                 end
@@ -88,7 +91,7 @@ end
 
 function _modeled_interchange_names(container::OptimizationContainer)
     if !has_container_key(container, FlowActivePowerVariable, PSY.AreaInterchange)
-        @warn "An AreaBalancePowerModel with security-constrained reserves needs PSY.AreaInterchange(s) and DeviceModel{PSY.AreaInterchange} for reserve deployment to cross area boundaries. Otherwise, each area must cover its own outages." _group = LOG_GROUP_SERVICE_CONSTUCTORS maxlog = 1
+        @warn "An AreaBalanceNetworkModel with security-constrained reserves needs PSY.AreaInterchange(s) and DeviceModel{PSY.AreaInterchange} for reserve deployment to cross area boundaries. Otherwise, each area must cover its own outages." _group = LOG_GROUP_SERVICE_CONSTUCTORS maxlog = 1
         String[]
     else
         var = get_variable(container, FlowActivePowerVariable, PSY.AreaInterchange)
@@ -99,7 +102,7 @@ end
 function _create_post_contingency_interchange_variables!(
     container::OptimizationContainer,
     uuids::Vector{Int},
-    ::NetworkModel{AreaBalancePowerModel},
+    ::NetworkModel{AreaBalanceNetworkModel},
 )
     names = _modeled_interchange_names(container)
     isempty(names) && return
@@ -111,14 +114,14 @@ function _create_post_contingency_interchange_variables!(
     end
 end
 
-_create_post_contingency_interchange_variables(::OptimizationContainer, ::Vector, ::NetworkModel) = nothing
+_create_post_contingency_interchange_variables!(::OptimizationContainer, ::Vector, ::NetworkModel) = nothing
 
 _deployment_expression(::NetworkModel{<:AbstractPTDFNetworkModel}) = PostContingencyNodalActivePowerDeployment
-_deployment_expression(::NetworkModel{AreaBalancePowerModel}) = PostContingencyAreaActivePowerDeployment
+_deployment_expression(::NetworkModel{AreaBalanceNetworkModel}) = PostContingencyAreaActivePowerDeployment
 
 _location_key(component, network_model::NetworkModel{<:AbstractPTDFNetworkModel}) = string(PNM.get_mapped_bus_number(network_reduction, PSY.get_bus(component)))
 # TODO are there reductions on area models?
-_location_key(component, ::NetworkModel{AreaBalancePowerModel}) = PSY.get_name(PSY.get_area(PSY.get_bus(component)))
+_location_key(component, ::NetworkModel{AreaBalanceNetworkModel}) = PSY.get_name(PSY.get_area(PSY.get_bus(component)))
 
 # TODO: What about outaged gens? Subtract their power on the node?
 function _build_post_contingency_locational_power!(
@@ -199,7 +202,7 @@ end
 function _build_post_contingency_flow!(
     container::OptimizationContainer,
     monitored_interchanges::_OUTAGE_MAP,
-    ::NetworkModel{AreaBalancePowerModel},
+    ::NetworkModel{AreaBalanceNetworkModel},
 )
     expr = add_expression_container!(container, PostContingencyAreaInterchangeFlow, PSY.AreaInterchange, String[], Int[], Int[]; sparse = true)
     flow = get_variable(container, FlowActivePowerVariable, PSY.AreaInterchange)
@@ -218,8 +221,10 @@ function _constrain_post_contingency_balance!(
     container::OptimizationContainer,
     contributing_devices::_OUTAGE_MAP,
     outaged_generators::_OUTAGE_MAP,
-    ::NetworkModel,
+    ::NetworkModel{<:AbstractPTDFNetworkModel},
 )
+    uuids = collect(keys(contributing_devices))
+    time_steps = get_time_steps(container)
     cons = add_constraints_container!(container, PostContingencyGenerationBalanceConstraint, PSY.System, uuids, time_steps)
 
     for uuid in keys(contributing_devices), t in time_steps
@@ -247,7 +252,7 @@ function _constrain_post_contingency_balance!(
     container::OptimizationContainer,
     contributing_devices::_OUTAGE_MAP,
     outaged_generators::_OUTAGE_MAP,
-    ::NetworkModel{AreaBalancePowerModel},
+    ::NetworkModel{AreaBalanceNetworkModel},
 )
     interchanges = Dict{String, Vector{Tuple{Float64, String}}}()
     for interchange in PSY.get_components(PSY.AreaInterchange, sys)
@@ -323,7 +328,7 @@ end
 function _constrain_post_contingency_flow!(
     container::OptimizationContainer,
     monitored_components::_OUTAGE_MAP,
-    network_model::NetworkModel{Union{AbstractPTDFNetworkModel, AreaBalancePowerModel}},
+    network_model::NetworkModel{Union{AbstractPTDFNetworkModel, AreaBalanceNetworkModel}},
 )
     for (uuid, per_type) in monitored_components
         for (component_type, names) in per_type
@@ -340,130 +345,3 @@ end
 
 _constrain_post_contingency_flow!(::OptimizationContainer, ::_OUTAGE_MAP, ::NetworkModel) = nothing
 
-###############################################################################
-###############################################################################
-###############################################################################
-
-function _outaged_generators(sys::PSY.System, model::ServiceModel{R, F}) where {R <: PSY.AbstractReserve, F <: AbstractSecurityConstrainedReservesFormulation}
-    uuids = sort!(collect(keys(get_outages(model))))
-    if isempty(uuids)
-        @warn "Service{$(R),$(F)}($(PSY.get_name(model)): `service_model.outages` is empty; the \
-               security-constrained formulation will not add any \
-               post-contingency variables or constraints."
-        return
-    end
-    generator_outage_pairs = PSY.get_component_supplemental_attribute_pairs(PSY.Generator, PSY.Outage, sys)
-    outaged_gens = _OUTAGE_MAP(uuid => PER_TYPE() for uuid in uuids)
-    for (generator, outage) in generator_outage_pairs
-        haskey(outaged_gens, uuid) || continue
-        push!(outaged_gens[uuid][typeof(generator)], PSY,get_name(generator))
-    end
-    return outaged_gens
-end
-
-_formulation_needs_requirement_ts(::Type{SecurityConstrainedContingencyReserve}) = false
-_formulation_needs_requirement_ts(::Type{SecurityConstrainedRampReserve}) = true
-
-function _service_needs_requirement_ts(sys::PSY.System, service::S, model::ServiceModel{S, F}) where {S <: PSY.AbstractReserve, F <: AbstractSecurityConstrainedReservesFormulation}
-    _formulation_needs_requirement_ts(F) && return true
-    ts_names = get_time_series_names(model)
-    has(ts_names, RequirementTimeSeriesParameter) || return false
-    return PSY.has_time_series(service, get_deterministic_time_series_type(sys), ts_name[RequirementTimeSeriesParameter])
-end
-
-function construct_service!(
-    container::OptimizationContainer,
-    sys::PSY.System,
-    ::ArgumentConstructStage,
-    model::ServiceModel{S, F},
-    devices_template::Dict{Symbol, DeviceModel},
-    ::Set{<:DataType},
-    ::NetworkModel{<:AbstractActivePowerModel},
-) where {S <: PSY.AbstractReserve, F <: AbstractSecurityConstrainedReservesFormulation}
-    services = _services_with_contributors(model, sys)
-    isempty(services) && return
-
-    outaged_gens = _outaged_generators(sys, model)
-    isempty(outaged_gens) && return
-
-    ts_services = [s for s in _demand_services(model, services) if _has_ts_requirement(model, s)]
-    isempty(ts_services) || add_parameters!(container, RequirementTimeSeriesParameter, ts_services, model)
-
-    for service in services
-        per_type = get_contributing_devices(model, PSY.get_name(service))
-        for contributing_devices in values(per_type)
-            add_variables!(container, PostContingencyActivePowerReserveDeploymentVariable, service, model, contributing_devices, F, outage_uuids, outaged_gens)
-        end
-        add_service_variables!(container, ActivePowerReserveVariable, service, contributing_devices, F)
-        add_to_expression!(container, ActivePowerReserveVariable, service, model, devices_template)
-        add_feedforward_arguments!(container, model, service)
-    end
-    return
-end
-
-function construct_service!(
-    container::OptimizationContainer,
-    sys::PSY.System,
-    ::ModelConstructStage,
-    model::ServiceModel{S, F},
-    ::Dict{Symbol, DeviceModel},
-    ::Set{<:DataType},
-    network_model::NetworkModel{<:CopperPlateNetworkModel},
-) where {S <: PSY.AbstractReserve, F <: AbstractSecurityConstrainedReservesFormulation}
-    services = _services_with_contributors(model, sys)
-    isempty(services) && return
-    outaged_gens = _outaged_generators(sys, model)
-    isempty(outaged_gens) && return
-
-    for service in services
-        per_type = get_contributing_devices(model, PSY.get_name(service))
-        has_requirement = _service_needs_requirement_ts(sys, service, model)
-        for contributing_devices in values(per_type)
-            _constrain_post_contingency_balance!(container, outaged_gens, contributing_devices)
-            _constrain_post_contingency_generation!(container, outaged_gens, contributing_devices)
-            if has_requirement
-                # TODO: Both are needed? Cause what if pre-conting. is too loose?
-                # TODO: Don't I have to enforce the pre-conting. level too?
-                _constrain_post_contingency_reserve!(container, outaged_gens, contributing_devices)
-            end
-        end
-    end
-    return
-end
-
-function construct_service!(
-    container::OptimizationContainer,
-    sys::PSY.System,
-    ::ModelConstructStage,
-    model::ServiceModel{S, F},
-    ::Dict{Symbol, DeviceModel},
-    ::Set{<:DataType},
-    network_model::NetworkModel{<:AbstractPTDFNetworkModel},
-) where {S <: PSY.AbstractReserve, F <: AbstractSecurityConstrainedReservesFormulation}
-    services = _services_with_contributors(model, sys)
-    isempty(services) && return
-    outaged_gens = _outaged_generators(sys, model)
-    isempty(services) && return
-
-    # Build PC nodal power before building and constraining PC flows
-    for service in services
-        per_type = get_contributing_devices(model, PSY.get_name(services))
-        for contributing_devices in values(per_type)
-            _build_post_contingency_nodal_power(model, outaged_gens, service, contributing_devices)
-        end
-    end
-
-    for service in services
-        per_type = get_contributing_devices(model, PSY.get_name(service))
-        for contributing_devices in values(per_type)
-            _constrain_post_contingency_balance!(container, outaged_gens, contributing_devices)
-            _constrain_post_contingency_generation!(container, outaged_gens, contributing_devices)
-            if has_requirement
-                _constrain_post_contingency_reserve!(container, outaged_gens, contributing_devices)
-            end
-
-            _constrain_post_contingency_flow!(container, outaged_gens, contributing_devices)
-        end
-    end
-    return
-end

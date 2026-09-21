@@ -139,9 +139,11 @@ function construct_services!(
         )
     end
 
-    contributing_devices, outaged_generators = _post_contingency_devices(sys, services_template)
-    _create_post_contingency_reserve_variables(container, contributing_devices, outaged_generators)
-    _create_post_contingency_interchange_variables(container, uuids, network_model)
+    contributing_devices = _security_constrained_contributing_devices(sys, services_template)
+    uuids = collect(keys(contributing_devices))
+    outaged_generators = _outaged_generators(sys, uuids)
+    _create_post_contingency_reserve_variables!(container, contributing_devices, outaged_generators)
+    _create_post_contingency_interchange_variables!(container, uuids, network_model)
     return
 end
 
@@ -185,12 +187,13 @@ function construct_services!(
         )
     end
 
-
-
-    contributing_devices, outaged_generators = _post_contingency_devices(sys, services_template)
-    monitored_components = _monitored_components(sys, service_template, network_model)
-    _constrain_post_contingency_balance!(container, contributing_devices, outaged_generators)
-    _constrain_post_contingency_generation!(container, contributing_devices, outaged_generators)
+    contributing_devices = _security_constrained_contributing_devices(sys, services_template)
+    # TODO: combine into prev function
+    uuids = collect(keys(contributing_devices))
+    monitored_components = _monitored_components(sys, services_template, network_model)
+    outaged_generators = _outaged_generators(sys, uuids)
+    _constrain_post_contingency_balance!(container, contributing_devices, outaged_generators, network_model)
+    _constrain_post_contingency_generation!(container, sys, contributing_devices, outaged_generators)
     _constrain_post_contingency_flow!(container, monitored_components, network_model)
     return
 end
@@ -638,11 +641,11 @@ function construct_service!(
     container::OptimizationContainer,
     sys::PSY.System,
     ::ModelConstructStage,
-    model::ServiceModel{SR, Union{RampReserve, SecurityConstrainedRampReserve}},
+    model::ServiceModel{SR, F},
     devices_template::Dict{Symbol, DeviceModel},
     incompatible_device_types::Set{<:DataType},
     ::NetworkModel{<:AbstractNetworkModel},
-) where {SR <: PSY.Reserve}
+) where {SR <: PSY.Reserve, F <: Union{RampReserve, SecurityConstrainedRampReserve}}
     services = _services_with_contributors(model, sys)
     isempty(services) && return
     service_names = PSY.get_name.(services)

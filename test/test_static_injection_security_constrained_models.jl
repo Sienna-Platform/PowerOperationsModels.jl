@@ -78,7 +78,7 @@ function get_outage_total_power_by_step_dict(
     required_variables = variables[var_name]
     total_variable_dict = Dict{String, Vector{Float64}}()
     for outage in associated_outages
-        outage_name = string(IS.get_uuid(outage))
+        outage_name = string(IS.get_id(outage))
         outage_power_v = Vector{Float64}()
         devices = PSY.get_associated_components(
             sys,
@@ -160,10 +160,10 @@ function compare_outage_power_and_deployed_reserves(
     )
     contributing_devices = PSY.get_contributing_devices(sys, service)
     service_name = PSY.get_name(service)
+    @show variablesdict
     reserve_dict = get_reserve_total_power_by_step_dict(
         variablesdict,
-        "PostContingencyActivePowerReserveDeploymentVariable__OnlineReserve__ReserveUp__" *
-        service_name,
+        "PostContingencyActivePowerReserveDeploymentVariable_",
         associated_outages,
         contributing_devices;
         col_name = "name2",
