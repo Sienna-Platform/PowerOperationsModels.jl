@@ -13,7 +13,7 @@ _accumulate_headroom!(
     ::OptimizationContainerKey{<:ISOPT.ParameterType, <:PSY.Component},
     ::Dict{String, Int},
     ::Int,
-    ::Matrix{PSY.ACBusTypes},
+    ::Matrix{PSY.ACBusTypes.Value},
     ::Vector{Dict{Tuple{DataType, String}, Float64}},
 ) = nothing
 
@@ -27,7 +27,7 @@ _accumulate_headroom!(
     ::OptimizationContainerKey{<:ISOPT.OptimizationKeyType, <:PSY.Storage},
     ::Dict{String, Int},
     ::Int,
-    ::Matrix{PSY.ACBusTypes},
+    ::Matrix{PSY.ACBusTypes.Value},
     ::Vector{Dict{Tuple{DataType, String}, Float64}},
 ) = nothing
 
@@ -40,7 +40,7 @@ _accumulate_headroom!(
     ::OptimizationContainerKey{<:ISOPT.ParameterType, <:PSY.Storage},
     ::Dict{String, Int64},
     ::Int,
-    ::Matrix{PSY.ACBusTypes},
+    ::Matrix{PSY.ACBusTypes.Value},
     ::Vector{Dict{Tuple{DataType, String}, Float64}},
 ) = nothing
 
@@ -60,7 +60,7 @@ function _accumulate_headroom!(
     key::OptimizationContainerKey{<:ISOPT.OptimizationKeyType, U},
     component_map::Dict{String, Int},
     n_time_steps::Int,
-    bus_types::Matrix{PSY.ACBusTypes},
+    bus_types::Matrix{PSY.ACBusTypes.Value},
     computed_gspf::Vector{Dict{Tuple{DataType, String}, Float64}},
 ) where {U <: PSY.Component}
     result = lookup_value(container, key)
@@ -129,7 +129,7 @@ function _update_headroom_participation_factors!(
         PFS.get_computed_gspf(pf_data)::Vector{Dict{Tuple{DataType, String}, Float64}}
 
     n_time_steps = length(get_time_steps(container))
-    bus_types = PFS.get_bus_type(pf_data)::Matrix{PSY.ACBusTypes}
+    bus_types = PFS.get_bus_type(pf_data)::Matrix{PSY.ACBusTypes.Value}
     bus_slack_pf =
         PFS.get_bus_slack_participation_factors(
             pf_data,
