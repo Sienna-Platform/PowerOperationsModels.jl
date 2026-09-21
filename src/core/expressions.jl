@@ -134,11 +134,6 @@ Per-area power considering post-contingency reserve deployment.
 struct PostContingencyAreaActivePowerDeployment <: ExpressionType end
 
 """
-Per-branch flow considering post-contingency reserve deployment.
-"""
-struct PostContingencyBranchFlow <: ExpressionType end
-
-"""
 Per-interchange flow considering post-contingency reserve deployment.
 """
 struct PostContingencyAreaInterchangeFlow <: ExpressionType end

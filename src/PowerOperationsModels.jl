@@ -680,7 +680,7 @@ export ShiftDownActivePowerVariable
 
 # G-1 Variables
 export PostContingencyActivePowerReserveDeploymentVariable
-export PostContignencyAreaInterchangeFlowDeviationVariable
+export PostContingencyAreaInterchangeFlowDeviationVariable
 
 ######## Hydro Formulations ########
 export HydroDispatchRunOfRiver
@@ -909,7 +909,6 @@ export PTDFBranchFlow
 export BThetaBranchFlow
 export PostContingencyNodalActivePowerDeployment
 export PostContingencyAreaActivePowerDeployment
-export PostContingencyBranchFlow
 export PostContingencyAreaInterchangeFlow
 
 #################################################################################
@@ -1019,7 +1018,7 @@ export ReserveLimitedRegulation
 export DeviceLimitedRegulation
 
 # G-1 Formulations
-export SecurityConstrainedContingency
+export SecurityConstrainedContingencyReserve
 export SecurityConstrainedRampReserve
 
 #################################################################################

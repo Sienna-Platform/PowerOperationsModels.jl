@@ -853,7 +853,7 @@ struct PostContingencyActivePowerReserveDeploymentVariable <: VariableType end
 """
 Post-contingency power exchange over an area interchange from security-constrained reserves.
 """
-struct PostContignencyAreaInterchangeFlowDeviationVariable <: VariableType end
+struct PostContingencyAreaInterchangeFlowDeviationVariable <: VariableType end
 
 const MULTI_START_VARIABLES = (HotStartVariable, WarmStartVariable, ColdStartVariable)
 

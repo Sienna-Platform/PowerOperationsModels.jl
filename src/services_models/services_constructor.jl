@@ -139,11 +139,9 @@ function construct_services!(
         )
     end
 
-    contributing_devices = _security_constrained_contributing_devices(sys, services_template)
-    uuids = collect(keys(contributing_devices))
-    outaged_generators = _outaged_generators(sys, uuids)
+    contributing_devices, outaged_generators, _ =
+        _security_constrained_outages(sys, services_template, network_model)
     _create_post_contingency_reserve_variables!(container, contributing_devices, outaged_generators)
-    _create_post_contingency_interchange_variables!(container, uuids, network_model)
     return
 end
 
@@ -187,14 +185,15 @@ function construct_services!(
         )
     end
 
-    contributing_devices = _security_constrained_contributing_devices(sys, services_template)
     # TODO: combine into prev function
-    uuids = collect(keys(contributing_devices))
-    monitored_components = _monitored_components(sys, services_template, network_model)
-    outaged_generators = _outaged_generators(sys, uuids)
-    _constrain_post_contingency_balance!(container, contributing_devices, outaged_generators, network_model)
-    _constrain_post_contingency_generation!(container, sys, contributing_devices, outaged_generators)
-    _constrain_post_contingency_flow!(container, monitored_components, network_model)
+    contributing_devices, outaged_generators, monitored_components =
+        _security_constrained_outages(sys, services_template, network_model)
+    uuids = sort!(collect(keys(contributing_devices)))
+    _create_post_contingency_interchange_variables!(container, uuids, network_model)
+    _build_post_contingency_flow!(container, monitored_components, network_model)
+    _constrain_post_contingency_balance!(container, sys, contributing_devices, outaged_generators, network_model)
+    _constrain_post_contingency_generation!(container, sys, outaged_generators, contributing_devices)
+    _constrain_post_contingency_flow!(container, sys, monitored_components, network_model)
     return
 end
 
