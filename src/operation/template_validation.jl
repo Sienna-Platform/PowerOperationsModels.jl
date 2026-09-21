@@ -114,6 +114,7 @@ function validate_template_impl!(model::IOM.AbstractOptimizationModel)
     _check_security_constrained_phase_control(template.branches, network_model)
     _check_voltage_regulation_conflicts!(template, system, network_model)
     _check_branch_rating_time_series_formulation!(template.branches, system)
+    _check_deployed_fraction_time_series(model)
     validate_network_model(network_model, unmodeled_branch_types, model_has_branch_filters)
     _build_device_model_outages!(template, system)
     # Must follow `_build_device_model_outages!`: that call is what fills the per-type
@@ -280,6 +281,35 @@ function _check_branch_rating_time_series_formulation!(
                     ),
                 )
             end
+        end
+    end
+    return
+end
+
+# A deployed-fraction profile becomes a constraint COEFFICIENT, not a parameter: the fraction
+# multiplies a reserve award, and a JuMP parameter in coefficient position would make the
+# energy balance bilinear. Coefficients are baked at build and never updated in place, so under
+# recurrent solves they only stay correct if the model is rebuilt each window.
+function _check_deployed_fraction_time_series(model::IOM.AbstractOptimizationModel)
+    container = get_optimization_container(model)
+    built_for_recurrent_solves(container) || return
+    get_rebuild_model(get_settings(container)) && return
+    system = get_system(model)
+    for (_, service_model) in get_service_models(get_template(model))
+        for service in get_available_components(service_model, system)
+            service isa PSY.AbstractReserve || continue
+            _has_ts_deployed_fraction(service) || continue
+            throw(
+                IS.ConflictingInputsError(
+                    "Reserve $(PSY.get_name(service)) carries a \
+                    $(get_deployed_fraction_time_series_name(service)) time series, but the \
+                    model is built for recurrent solves with rebuild_model = false. The \
+                    deployed fraction is a constraint coefficient baked at build time, so it \
+                    would stay pinned to the first window while the horizon advances. Set \
+                    rebuild_model = true, or remove the time series and use the scalar \
+                    deployed_fraction field.",
+                ),
+            )
         end
     end
     return

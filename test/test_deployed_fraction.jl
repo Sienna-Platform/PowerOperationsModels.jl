@@ -88,3 +88,57 @@ end
     @test length(vals) == horizon
     @test vals ≈ 0.5 .* profile[1:horizon]
 end
+
+# The guard lives in template validation, which `mock_construct_devices!` skips, so these
+# cases need a real `DecisionModel` build.
+@testset "A deployed_fraction profile requires rebuild_model under recurrent solves" begin
+    profile = collect(range(0.1, 0.8; length = 48))
+    sys, _ = _deployed_fraction_test_system(; add_profile = profile)
+
+    template = PowerOperationsProblemTemplate()
+    set_device_model!(template, ThermalStandard, ThermalBasicUnitCommitment)
+    set_device_model!(template, PowerLoad, StaticPowerLoad)
+    set_device_model!(template, HydroDispatch, HydroDispatchRunOfRiver)
+    set_service_model!(template, OnlineReserve{ReserveUp}, RangeReserve)
+    set_service_model!(template, OnlineReserve{ReserveDown}, RangeReserve)
+
+    model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
+    IOM.get_optimization_container(model).built_for_recurrent_solves = true
+
+    @test_throws IS.ConflictingInputsError POM.validate_template(model)
+end
+
+@testset "A deployed_fraction profile builds under recurrent solves with rebuild_model" begin
+    profile = collect(range(0.1, 0.8; length = 48))
+    sys, _ = _deployed_fraction_test_system(; add_profile = profile)
+
+    template = PowerOperationsProblemTemplate()
+    set_device_model!(template, ThermalStandard, ThermalBasicUnitCommitment)
+    set_device_model!(template, PowerLoad, StaticPowerLoad)
+    set_device_model!(template, HydroDispatch, HydroDispatchRunOfRiver)
+    set_service_model!(template, OnlineReserve{ReserveUp}, RangeReserve)
+    set_service_model!(template, OnlineReserve{ReserveDown}, RangeReserve)
+
+    model = DecisionModel(template, sys; optimizer = HiGHS_optimizer, rebuild_model = true)
+    IOM.get_optimization_container(model).built_for_recurrent_solves = true
+
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          ModelBuildStatus.BUILT
+end
+
+@testset "No deployed_fraction profile is fine under recurrent solves" begin
+    sys, _ = _deployed_fraction_test_system()
+
+    template = PowerOperationsProblemTemplate()
+    set_device_model!(template, ThermalStandard, ThermalBasicUnitCommitment)
+    set_device_model!(template, PowerLoad, StaticPowerLoad)
+    set_device_model!(template, HydroDispatch, HydroDispatchRunOfRiver)
+    set_service_model!(template, OnlineReserve{ReserveUp}, RangeReserve)
+    set_service_model!(template, OnlineReserve{ReserveDown}, RangeReserve)
+
+    model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
+    IOM.get_optimization_container(model).built_for_recurrent_solves = true
+
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          ModelBuildStatus.BUILT
+end
