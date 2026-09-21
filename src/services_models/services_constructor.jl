@@ -141,6 +141,7 @@ function construct_services!(
 
     contributing_devices, outaged_generators = _post_contingency_devices(sys, services_template)
     _create_post_contingency_reserve_variables(container, contributing_devices, outaged_generators)
+    _create_post_contingency_interchange_variables(container, uuids, network_model)
     return
 end
 
@@ -187,8 +188,10 @@ function construct_services!(
 
 
     contributing_devices, outaged_generators = _post_contingency_devices(sys, services_template)
+    monitored_components = _monitored_components(sys, service_template, network_model)
     _constrain_post_contingency_balance!(container, contributing_devices, outaged_generators)
     _constrain_post_contingency_generation!(container, contributing_devices, outaged_generators)
+    _constrain_post_contingency_flow!(container, monitored_components, network_model)
     return
 end
 
