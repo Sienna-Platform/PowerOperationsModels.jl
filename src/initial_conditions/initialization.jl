@@ -41,6 +41,8 @@ function get_initial_conditions_template(
         base_model.use_slacks = device_model.use_slacks
         base_model.time_series_names = device_model.time_series_names
         base_model.attributes = device_model.attributes
+        # The IC template skips validate_template!, so carry the cache over by hand.
+        base_model.device_cache = get_device_cache(device_model)
         set_device_model!(ic_template, base_model)
     end
     for device_model in values(get_branch_models(model.template))
@@ -48,6 +50,8 @@ function get_initial_conditions_template(
         base_model.use_slacks = device_model.use_slacks
         base_model.time_series_names = device_model.time_series_names
         base_model.attributes = device_model.attributes
+        # The IC template skips validate_template!, so carry the cache over by hand.
+        base_model.device_cache = get_device_cache(device_model)
         set_device_model!(ic_template, base_model)
     end
 

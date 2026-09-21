@@ -196,7 +196,7 @@ function construct_device!(
     model::DeviceModel{PSY.InterconnectingConverter, VoltageControlConverter},
     network_model::NetworkModel{<:NativeACNetworkModel},
 )
-    devices = get_available_components(model, sys)
+    devices = get_device_cache(model)
     _add_converter_dc_arguments!(container, devices, model, network_model)
     _maybe_add_reactive_power_variables!(
         container, devices, model, network_model, (ReactivePowerVariable,),
@@ -217,7 +217,7 @@ function construct_device!(
     model::DeviceModel{PSY.InterconnectingConverter, VoltageControlConverter},
     network_model::NetworkModel{<:NativeACNetworkModel},
 )
-    devices = get_available_components(model, sys)
+    devices = get_device_cache(model)
     _add_converter_dc_model!(container, devices, model, network_model)
     add_regulated_voltage_magnitude_constraints!(
         container, devices, sys, network_model,

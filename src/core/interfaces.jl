@@ -46,7 +46,7 @@ Add objective function contributions for devices.
 """
 function add_to_objective_function!(
     ::IOM.OptimizationContainer,
-    ::Union{Vector{U}, IS.FlattenIteratorWrapper{U}},
+    ::Vector{U},
     ::IOM.DeviceModel{U, F},
     ::Type{S},
 ) where {
@@ -66,7 +66,7 @@ Add constraints to the optimization container.
 function add_constraints!(
     ::IOM.OptimizationContainer,
     ::Type{T},
-    devices::Union{Vector{U}, IS.FlattenIteratorWrapper{U}},
+    devices::Vector{U},
     model::IOM.DeviceModel{U, F},
     network_model::IOM.NetworkModel{S},
 ) where {

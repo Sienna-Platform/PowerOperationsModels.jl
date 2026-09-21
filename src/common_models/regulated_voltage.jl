@@ -47,7 +47,7 @@ end
 
 function add_regulated_voltage_magnitude!(
     container::OptimizationContainer,
-    components::IS.FlattenIteratorWrapper{T},
+    components::Vector{T},
     sys::PSY.System,
     ::NetworkModel{<:Union{ACRNetworkModel, IVRNetworkModel}},
 ) where {T <: PSY.Component}
@@ -96,7 +96,7 @@ end
 
 function add_regulated_voltage_magnitude!(
     ::OptimizationContainer,
-    ::IS.FlattenIteratorWrapper,
+    ::Vector,
     ::PSY.System,
     ::NetworkModel{<:AbstractNetworkModel},
 )
@@ -107,7 +107,7 @@ end
 
 function add_regulated_voltage_magnitude_constraints!(
     container::OptimizationContainer,
-    components::IS.FlattenIteratorWrapper{T},
+    components::Vector{T},
     sys::PSY.System,
     ::NetworkModel{<:Union{ACRNetworkModel, IVRNetworkModel}},
 ) where {T <: PSY.Component}
@@ -145,7 +145,7 @@ end
 
 function add_regulated_voltage_magnitude_constraints!(
     ::OptimizationContainer,
-    ::IS.FlattenIteratorWrapper,
+    ::Vector,
     ::PSY.System,
     ::NetworkModel{<:AbstractNetworkModel},
 )

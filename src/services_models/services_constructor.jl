@@ -73,7 +73,6 @@ function seed_reserve_range_expressions!(
         end
         _seed_range_expression!(
             container,
-            sys,
             get_expression_type_for_reserve(ActivePowerReserveVariable, device_type, S),
             device_model,
         )
@@ -85,7 +84,6 @@ end
 # where `T`, `D` and `W` are concrete.
 function _seed_range_expression!(
     container::OptimizationContainer,
-    sys::PSY.System,
     ::Type{T},
     device_model::DeviceModel{D, W},
 ) where {T <: ExpressionType, D <: PSY.Component, W <: AbstractDeviceFormulation}
@@ -93,7 +91,7 @@ function _seed_range_expression!(
     add_expressions!(
         container,
         T,
-        get_available_components(device_model, sys),
+        get_device_cache(device_model),
         device_model,
     )
     return
@@ -386,9 +384,9 @@ function construct_service!(
     ::Set{<:DataType},
     ::NetworkModel{<:AbstractNetworkModel},
 ) where {S <: PSY.AGC, T <: AbstractAGCFormulation}
-    services = get_available_components(model, sys)
+    services = collect(get_available_components(model, sys))
     agc_areas = PSY.get_area.(services)
-    areas = PSY.get_components(PSY.Area, sys)
+    areas = collect(PSY.get_components(PSY.Area, sys))
     if !isempty(setdiff(areas, agc_areas))
         throw(
             IS.ConflictingInputsError(
@@ -440,8 +438,8 @@ function construct_service!(
     ::Set{<:DataType},
     ::NetworkModel{<:AbstractNetworkModel},
 ) where {S <: PSY.AGC, T <: AbstractAGCFormulation}
-    areas = PSY.get_components(PSY.Area, sys)
-    services = get_available_components(model, sys)
+    areas = collect(PSY.get_components(PSY.Area, sys))
+    services = collect(get_available_components(model, sys))
 
     add_constraints!(container, AbsoluteValueConstraint, LiftVariable, services, model)
     add_constraints!(

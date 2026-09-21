@@ -11,7 +11,7 @@ function construct_device!(
     T <: PSY.Source,
     D <: ImportExportSourceModel,
 }
-    devices = get_available_components(model, sys)
+    devices = get_device_cache(model)
 
     add_variables!(container, ActivePowerInVariable, devices, D)
     add_variables!(container, ActivePowerOutVariable, devices, D)
@@ -107,7 +107,7 @@ function construct_device!(
     T <: PSY.Source,
     D <: ImportExportSourceModel,
 }
-    devices = get_available_components(model, sys)
+    devices = get_device_cache(model)
 
     add_constraints!(
         container,
@@ -189,7 +189,7 @@ function construct_device!(
     T <: PSY.Source,
     D <: ImportExportSourceModel,
 }
-    devices = get_available_components(model, sys)
+    devices = get_device_cache(model)
 
     add_variables!(container, ActivePowerInVariable, devices, D)
     add_variables!(container, ActivePowerOutVariable, devices, D)
@@ -276,7 +276,7 @@ function construct_device!(
     T <: PSY.Source,
     D <: ImportExportSourceModel,
 }
-    devices = get_available_components(model, sys)
+    devices = get_device_cache(model)
 
     add_constraints!(
         container,
@@ -351,7 +351,7 @@ function construct_device!(
     T <: PSY.Source,
     D <: FixedOutput,
 }
-    devices = get_available_components(model, sys)
+    devices = get_device_cache(model)
     add_parameters!(container, ActivePowerInTimeSeriesParameter, devices, model)
     add_parameters!(container, ActivePowerOutTimeSeriesParameter, devices, model)
 
