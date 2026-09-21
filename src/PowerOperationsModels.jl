@@ -910,7 +910,6 @@ export ActivePowerInTimeSeriesParameter
 export ReactivePowerTimeSeriesParameter
 export RequirementTimeSeriesParameter
 export DeployedFractionTimeSeriesParameter
-export get_deployed_fraction_time_series_name
 export UpperBoundValueParameter
 export LowerBoundValueParameter
 export OnStatusParameter

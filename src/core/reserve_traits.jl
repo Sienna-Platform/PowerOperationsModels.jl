@@ -69,6 +69,12 @@ Unlike [`RequirementTimeSeriesParameter`](@ref), this name is not overridable pe
 `_reserve_scale` for hybrids) are called from device-side wiring that reaches services through
 `PSY.get_services(d)` and never holds a `ServiceModel`. Dispatching on the reserve keeps the
 name customizable without threading a `ServiceModel` through three device families.
+
+Extend it by qualifying the name, as with `get_default_time_series_names`:
+
+```julia
+POM.get_deployed_fraction_time_series_name(::MyReserve) = "my_fraction"
+```
 """
 get_deployed_fraction_time_series_name(::PSY.AbstractReserve) = "deployed_fraction"
 
