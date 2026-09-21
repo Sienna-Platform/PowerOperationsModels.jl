@@ -97,10 +97,21 @@ function deployed_fraction_values(
     if !_has_ts_deployed_fraction(s)
         return fill(scalar, length(time_steps))
     end
+    ts_name = get_deployed_fraction_time_series_name(s)
+    ts_type = get_default_time_series_type(container)
+    if !PSY.has_time_series(s, ts_type, ts_name)
+        throw(
+            IS.ConflictingInputsError(
+                "Reserve $(PSY.get_name(s)) carries a $(ts_name) time series, but not as \
+                $(ts_type), which is what this model reads. Attach the series before calling \
+                transform_single_time_series!, or add it directly as $(ts_type).",
+            ),
+        )
+    end
     ts_values = IOM.get_time_series(
         container,
         s,
-        get_deployed_fraction_time_series_name(s);
+        ts_name;
         interval = get_interval(get_settings(container)),
     )
     return scalar .* Vector{Float64}(ts_values)

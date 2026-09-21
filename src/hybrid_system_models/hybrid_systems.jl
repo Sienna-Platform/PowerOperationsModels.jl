@@ -597,15 +597,19 @@ objective_function_multiplier(::Type{<:VariableType}, ::Type{<:AbstractHybridFor
 # The Scale parameter (UnscaledReserve / DeployedReserve) drives the multiplier scale.
 #################################################################################
 
-# Multiplier scale: UnscaledReserve → 1.0; DeployedReserve → deployed_fraction(service).
+# Per-time-step multiplier scale: UnscaledReserve → 1.0; DeployedReserve → the service's
+# deployed fraction, which may vary over the horizon. Always a `Vector{Float64}` of length
+# `length(get_time_steps(container))` so both scales stay type-stable.
 _reserve_scale(
+    container::OptimizationContainer,
     ::Type{<:ReserveAggregationExpression{<:PSY.ReserveDirection, UnscaledReserve}},
     ::PSY.Service,
-) = 1.0
+) = ones(Float64, length(get_time_steps(container)))
 _reserve_scale(
+    container::OptimizationContainer,
     ::Type{<:ReserveAggregationExpression{<:PSY.ReserveDirection, DeployedReserve}},
     s::PSY.Service,
-) = PSY.get_deployed_fraction(s)
+) = deployed_fraction_values(container, s)
 
 # Up-direction expressions: ReserveDown services are a no-op (skipped via dispatch).
 _add_reserve_term!(
@@ -650,7 +654,9 @@ function _add_reserve_term!(
     name = PSY.get_name(d)
     variable =
         get_variable(container, U, V, _service_container_meta(service))
-    mult = get_variable_multiplier(U, d, W, service) * _reserve_scale(T, service)
+    mult =
+        get_variable_multiplier(U, d, W, service) *
+        _reserve_scale(container, T, service)[t]
     add_proportional_to_jump_expression!(expression[name, t], variable[name, t], mult)
     return
 end
