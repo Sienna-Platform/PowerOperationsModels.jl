@@ -61,6 +61,51 @@ function _has_ts_requirement(model::ServiceModel, s::PSY.AbstractReserve)
     return PSY.has_time_series(s, ts_names[RequirementTimeSeriesParameter])
 end
 
+"""
+Name of the time series carrying a reserve's deployed-fraction profile.
+
+Unlike [`RequirementTimeSeriesParameter`](@ref), this name is not overridable per
+`ServiceModel`. The multiplier seams that consume it (`get_fraction` for storage,
+`_reserve_scale` for hybrids) are called from device-side wiring that reaches services through
+`PSY.get_services(d)` and never holds a `ServiceModel`. Dispatching on the reserve keeps the
+name customizable without threading a `ServiceModel` through three device families.
+"""
+get_deployed_fraction_time_series_name(::PSY.AbstractReserve) = "deployed_fraction"
+
+"Whether a reserve carries a deployed-fraction profile series."
+function _has_ts_deployed_fraction(s::PSY.AbstractReserve)
+    return PSY.has_time_series(s, get_deployed_fraction_time_series_name(s))
+end
+
+"""
+Per-time-step deployed fraction for `s`, as `deployed_fraction * profile[t]`.
+
+Returns `fill(scalar, horizon)` when no profile is attached, reproducing the constant-coefficient
+behavior exactly. Always returns a `Vector{Float64}` so the multiplier seams stay type-stable.
+
+The value lands in constraint-coefficient position, so it is resolved to `Float64` at build time
+rather than held in a parameter container: a JuMP parameter multiplying a reserve award would
+make the energy balance bilinear. Repeated calls for a service shared across devices are cheap
+because IOM caches resolved series.
+"""
+function deployed_fraction_values(
+    container::OptimizationContainer,
+    s::PSY.AbstractReserve,
+)::Vector{Float64}
+    scalar = PSY.get_deployed_fraction(s)
+    time_steps = get_time_steps(container)
+    if !_has_ts_deployed_fraction(s)
+        return fill(scalar, length(time_steps))
+    end
+    ts_values = IOM.get_time_series(
+        container,
+        s,
+        get_deployed_fraction_time_series_name(s);
+        interval = get_interval(get_settings(container)),
+    )
+    return scalar .* Vector{Float64}(ts_values)
+end
+
 # ── ORDC (operating-reserve-demand-curve) predicates ─────────────────────────────────
 # A demand curve lives on a reserve's `variable` field ("is this an ORDC" is
 # `PSY.has_demand_curve`), so "static vs time-varying" is a runtime inspection of the curve
