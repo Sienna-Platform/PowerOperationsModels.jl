@@ -61,7 +61,7 @@ function construct_market_component!(
     ::IOM.MarketModel,
     ::NetworkModel{<:AbstractNetworkModel},
 ) where {L <: PSY.ControllableLoad}
-    devices = get_available_components(model, sys)
+    devices = collect(get_available_components(model, sys))
     add_cost_expressions!(container, devices, model)
     time_steps = get_time_steps(container)
     settlement_expr = get_expression(container, IOM.SettlementBalance, PSY.System)
@@ -105,7 +105,7 @@ function construct_market_component!(
     ::IOM.MarketModel,
     ::NetworkModel{N},
 ) where {L <: PSY.ControllableLoad, N <: AbstractNetworkModel}
-    devices = get_available_components(model, sys)
+    devices = collect(get_available_components(model, sys))
 
     add_range_constraints!(
         container,
@@ -126,8 +126,7 @@ function construct_market_component!(
 
     priced_devices = [d for d in devices if !_is_costless_offer(PSY.get_operation_cost(d))]
     if !isempty(priced_devices)
-        wrapped = IS.FlattenIteratorWrapper(L, [priced_devices])
-        add_variable_cost!(container, ActivePowerVariable, wrapped, MarketLoadBid)
+        add_variable_cost!(container, ActivePowerVariable, priced_devices, MarketLoadBid)
     end
     return
 end

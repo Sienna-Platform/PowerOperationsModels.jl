@@ -46,7 +46,7 @@ A FIXED bid is priced from its curve's total value on the commitment binary
 objective, so it is rejected loudly (mirrors the `ImportExportCost` "VOM cost must be zero"
 idiom in `_validate_occ_subtype`).
 """
-function _validate_block_bid_vom!(d::PSY.VirtualParticipant, style::PSY.CurveStyles)
+function _validate_block_bid_vom!(d::PSY.VirtualParticipant, style::PSY.CurveStyles.Value)
     style == PSY.CurveStyles.FIXED || return
     cost = PSY.get_operation_cost(d)
     for curve in (get_output_offer_curves(cost), get_input_offer_curves(cost))
@@ -566,7 +566,7 @@ function construct_market_component!(
     ::IOM.MarketModel,
     network_model::NetworkModel{<:AbstractNetworkModel},
 )
-    devices = get_available_components(model, sys)
+    devices = collect(get_available_components(model, sys))
     add_cost_expressions!(container, devices, model)
     process_virtual_bid_parameters!(container, devices, model)
     fixed_devices, _ = _partition_by_curve_style(devices)
@@ -624,13 +624,16 @@ function construct_market_component!(
     ::IOM.MarketModel,
     ::NetworkModel{<:AbstractNetworkModel},
 )
-    devices = get_available_components(model, sys)
+    devices = collect(get_available_components(model, sys))
     fixed_devices, divisible_devices = _partition_by_curve_style(devices)
 
     if !isempty(divisible_devices)
-        wrapped = IS.FlattenIteratorWrapper(PSY.VirtualParticipant, [divisible_devices])
-        add_variable_cost!(container, ActivePowerOutVariable, wrapped, VirtualBidDispatch)
-        add_variable_cost!(container, ActivePowerInVariable, wrapped, VirtualBidDispatch)
+        add_variable_cost!(
+            container, ActivePowerOutVariable, divisible_devices, VirtualBidDispatch,
+        )
+        add_variable_cost!(
+            container, ActivePowerInVariable, divisible_devices, VirtualBidDispatch,
+        )
     end
     _add_block_bid_quantity_rows!(container, fixed_devices)
     _add_block_bid_objective_terms!(container, fixed_devices)

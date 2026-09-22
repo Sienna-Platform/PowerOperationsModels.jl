@@ -286,11 +286,9 @@ function run!(
                             IOM.make_system_dirname(sys),
                         )
                         # Re-solving into an existing directory must not rewrite the system and its time series.
-                        # `power_units = :component_base` is what PSY stores internally, so the
-                        # write needs no unit conversion and no round-trip ledger — a model's
-                        # system carries one only when it was built from a document.
-                        !ispath(sys_dir) &&
-                            PSY.to_file(sys, sys_dir; power_units = :component_base)
+                        # `to_file` defaults to CU, what PSY stores internally, so the write
+                        # needs no unit conversion.
+                        !ispath(sys_dir) && PSY.to_file(sys, sys_dir)
                     end
                 end
                 @info "\n$(RUN_OPERATION_MODEL_TIMER)\n"

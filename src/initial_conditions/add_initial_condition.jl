@@ -161,7 +161,7 @@ end
 
 function add_initial_condition!(
     container::OptimizationContainer,
-    components::Union{Vector{T}, IS.FlattenIteratorWrapper{T}},
+    components::Vector{T},
     ::U,
     ::D,
 ) where {

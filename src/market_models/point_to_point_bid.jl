@@ -240,8 +240,7 @@ function construct_market_component!(
     end
     _zero_unpriced_transfers!(container, unpriced)
     isempty(priced) && return
-    wrapped = IS.FlattenIteratorWrapper(PSY.PointToPointBid, [priced])
-    add_variable_cost!(container, ClearedTransferVariable, wrapped, SpreadBid)
+    add_variable_cost!(container, ClearedTransferVariable, priced, SpreadBid)
     _add_spread_bid_link_rows!(container, priced)
     return
 end

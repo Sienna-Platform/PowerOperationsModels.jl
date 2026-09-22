@@ -153,6 +153,9 @@ function mock_construct_devices!(
 )
     for model in models
         set_device_model!(problem.template, model)
+        # The mock skips `validate_template!`, which is what fills the device cache the
+        # constructors now read.
+        POM.make_device_cache!(model, IOM.get_system(problem), false)
     end
     template = IOM.get_template(problem)
     IOM.finalize_template!(template, IOM.get_system(problem))

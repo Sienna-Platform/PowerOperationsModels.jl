@@ -116,7 +116,7 @@ function make_system_expressions!(
     container::OptimizationContainer,
     ::Dict{Int, Set{Int}},
     ::Type{AreaBalanceNetworkModel},
-    areas::IS.FlattenIteratorWrapper{PSY.Area},
+    areas::Vector{PSY.Area},
 )
     time_steps = get_time_steps(container)
     container.expressions = Dict(
@@ -131,7 +131,7 @@ function make_system_expressions!(
     subnetworks::Dict{Int, Set{Int}},
     ::Vector{Int},
     ::Type{AreaPTDFNetworkModel},
-    areas::IS.FlattenIteratorWrapper{PSY.Area},
+    areas::Vector{PSY.Area},
     bus_reduction_map::Dict{Int64, Set{Int64}},
 )
     time_steps = get_time_steps(container)
@@ -205,7 +205,7 @@ function initialize_system_expressions!(
     system::PSY.System,
     ::Dict{Int64, Set{Int64}},
 )
-    areas = get_available_components(network_model, PSY.Area, system)
+    areas = collect(get_available_components(network_model, PSY.Area, system))
     if isempty(areas)
         throw(
             IS.ConflictingInputsError(
@@ -234,7 +234,7 @@ function initialize_system_expressions!(
     system::PSY.System,
     bus_reduction_map::Dict{Int64, Set{Int64}},
 ) where {T <: AreaPTDFNetworkModel}
-    areas = get_available_components(network_model, PSY.Area, system)
+    areas = collect(get_available_components(network_model, PSY.Area, system))
     if isempty(areas)
         throw(
             IS.ConflictingInputsError(

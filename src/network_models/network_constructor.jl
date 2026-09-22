@@ -119,7 +119,7 @@ function _add_static_branch_btheta_expression!(
     device_model::DeviceModel{T, StaticBranch},
     network_model::NetworkModel{DCPNetworkModel},
 ) where {T <: PSY.ACTransmission}
-    devices = get_available_components(device_model, sys)
+    devices = get_device_cache(device_model)
     isempty(devices) && return
     add_expressions!(container, BThetaBranchFlow, sys, devices, device_model, network_model)
     return

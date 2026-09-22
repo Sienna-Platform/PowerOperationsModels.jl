@@ -90,7 +90,7 @@ function add_constraints!(
     container::OptimizationContainer,
     ::Type{T},
     ::Type{LiftVariable},
-    agcs::IS.FlattenIteratorWrapper{U},
+    agcs::Vector{U},
     ::ServiceModel{PSY.AGC, V},
 ) where {T <: AbsoluteValueConstraint, U <: PSY.AGC, V <: PIDSmoothACE}
     time_steps = get_time_steps(container)
@@ -118,7 +118,7 @@ function add_constraints!(
     container::OptimizationContainer,
     ::Type{T},
     ::Type{SteadyStateFrequencyDeviation},
-    agcs::IS.FlattenIteratorWrapper{U},
+    agcs::Vector{U},
     ::ServiceModel{PSY.AGC, V},
     sys::PSY.System,
 ) where {T <: FrequencyResponseConstraint, U <: PSY.AGC, V <: PIDSmoothACE}
@@ -178,7 +178,7 @@ function add_constraints!(
     container::OptimizationContainer,
     ::Type{T},
     ::Type{SteadyStateFrequencyDeviation},
-    agcs::IS.FlattenIteratorWrapper{U},
+    agcs::Vector{U},
     model::ServiceModel{PSY.AGC, V},
     sys::PSY.System,
 ) where {T <: SACEPIDAreaConstraint, U <: PSY.AGC, V <: PIDSmoothACE}
@@ -226,7 +226,7 @@ function add_constraints!(
     container::OptimizationContainer,
     ::Type{T},
     ::Type{SmoothACE},
-    agcs::IS.FlattenIteratorWrapper{U},
+    agcs::Vector{U},
     ::ServiceModel{PSY.AGC, V},
     sys::PSY.System,
 ) where {T <: BalanceAuxConstraint, U <: PSY.AGC, V <: PIDSmoothACE}
@@ -264,7 +264,7 @@ end
 
 function add_to_objective_function!(
     container::OptimizationContainer,
-    agcs::IS.FlattenIteratorWrapper{T},
+    agcs::Vector{T},
     ::ServiceModel{<:PSY.AGC, U},
 ) where {T <: PSY.AGC, U <: PIDSmoothACE}
     add_service_proportional_cost!(container, LiftVariable(), agcs, U())
@@ -275,7 +275,7 @@ end
 function add_feedforward_arguments!(
     container::OptimizationContainer,
     model::ServiceModel{PSY.AGC, PIDSmoothACE},
-    areas::IS.FlattenIteratorWrapper{PSY.AGC},
+    areas::Vector{PSY.AGC},
 )
     for ff in get_feedforwards(model)
         @debug "arguments" ff V _group = LOG_GROUP_FEEDFORWARDS_CONSTRUCTION
@@ -287,7 +287,7 @@ end
 function add_feedforward_constraints!(
     container::OptimizationContainer,
     model::ServiceModel{PSY.AGC, PIDSmoothACE},
-    areas::IS.FlattenIteratorWrapper{PSY.AGC},
+    areas::Vector{PSY.AGC},
 )
     for ff in get_feedforwards(model)
         @debug "arguments" ff V _group = LOG_GROUP_FEEDFORWARDS_CONSTRUCTION
@@ -299,7 +299,7 @@ end
 function add_service_proportional_cost!(
     container::OptimizationContainer,
     ::U,
-    agcs::IS.FlattenIteratorWrapper{T},
+    agcs::Vector{T},
     ::PIDSmoothACE,
 ) where {T <: PSY.AGC, U <: LiftVariable}
     lift_variable = get_variable(container, U, T)

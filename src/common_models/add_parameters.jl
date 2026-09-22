@@ -21,7 +21,7 @@ function add_parameters!(
     model::DeviceModel{D, W},
 ) where {
     T <: ParameterType,
-    U <: Union{Vector{D}, IS.FlattenIteratorWrapper{D}},
+    U <: Vector{D},
     W <: AbstractDeviceFormulation,
 } where {D <: PSY.Component}
     if get_rebuild_model(get_settings(container)) && has_container_key(container, T, D)
@@ -97,7 +97,7 @@ function add_parameters!(
     devices::V,
 ) where {
     T <: VariableValueParameter,
-    V <: Union{Vector{D}, IS.FlattenIteratorWrapper{D}},
+    V <: Vector{D},
     W <: AbstractDeviceFormulation,
 } where {D <: PSY.Component}
     if get_rebuild_model(get_settings(container)) && has_container_key(container, T, D)
@@ -116,7 +116,7 @@ function add_parameters!(
     devices::V,
 ) where {
     T <: VariableValueParameter,
-    V <: Union{Vector{D}, IS.FlattenIteratorWrapper{D}},
+    V <: Vector{D},
     W <: AbstractDeviceFormulation,
 } where {D <: PSY.Component}
     source_key = get_optimization_container_key(ff)
@@ -159,7 +159,7 @@ function add_branch_parameters!(
     network_model::NetworkModel{<:AbstractNetworkModel},
 ) where {
     T <: ParameterType,
-    U <: Union{Vector{D}, IS.FlattenIteratorWrapper{D}},
+    U <: Vector{D},
     W <: AbstractDeviceFormulation,
 } where {D <: PSY.ACTransmission}
     if get_rebuild_model(get_settings(container)) && has_container_key(container, T, D)
@@ -180,7 +180,7 @@ function _add_parameters!(
     model::DeviceModel{D, W},
 ) where {
     T <: TimeSeriesParameter,
-    U <: Union{Vector{D}, IS.FlattenIteratorWrapper{D}},
+    U <: Vector{D},
     W <: AbstractDeviceFormulation,
 } where {D <: PSY.Component}
     _add_time_series_parameters!(container, param, devices, model)
@@ -207,7 +207,7 @@ function _add_time_series_parameters!(
 ) where {
     D <: PSY.Component,
     T <: TimeSeriesParameter,
-    U <: Union{Vector{D}, IS.FlattenIteratorWrapper{D}},
+    U <: Vector{D},
     W <: AbstractDeviceFormulation,
 }
     ts_type = get_default_time_series_type(container)
@@ -329,7 +329,7 @@ function _add_time_series_parameters!(
 ) where {
     D <: PSY.ACTransmission,
     T <: TimeSeriesParameter,
-    U <: Union{Vector{D}, IS.FlattenIteratorWrapper{D}},
+    U <: Vector{D},
     W <: AbstractDeviceFormulation,
 }
     ts_type = get_default_time_series_type(container)
@@ -610,7 +610,7 @@ calc_additional_axes(
     ::DeviceModel{D, W},
 ) where {
     T <: ParameterType,
-    U <: Union{Vector{D}, IS.FlattenIteratorWrapper{D}},
+    U <: Vector{D},
     W <: AbstractDeviceFormulation,
 } where {D <: PSY.Component} = ()
 
@@ -618,7 +618,7 @@ calc_additional_axes(
 calc_additional_axes(
     ::OptimizationContainer,
     ::Type{T},
-    ::Union{Vector{<:PSY.Service}, IS.FlattenIteratorWrapper{<:PSY.Service}},
+    ::Vector{<:PSY.Service},
     ::ServiceModel{D, W},
 ) where {
     T <: ParameterType,
@@ -716,7 +716,7 @@ function calc_additional_axes(
     ::DeviceModel{D, W},
 ) where {
     T <: AbstractPiecewiseLinearSlopeParameter,
-    U <: Union{Vector{D}, IS.FlattenIteratorWrapper{D}},
+    U <: Vector{D},
     W <: AbstractDeviceFormulation,
 } where {D <: PSY.Component}
     max_tranches =
@@ -731,7 +731,7 @@ function calc_additional_axes(
     ::DeviceModel{D, W},
 ) where {
     T <: AbstractPiecewiseLinearBreakpointParameter,
-    U <: Union{Vector{D}, IS.FlattenIteratorWrapper{D}},
+    U <: Vector{D},
     W <: AbstractDeviceFormulation,
 } where {D <: PSY.Component}
     max_tranches =
@@ -845,7 +845,7 @@ function _add_parameters!(
     model::DeviceModel{D, W},
 ) where {
     T <: ObjectiveFunctionParameter,
-    U <: Union{Vector{D}, IS.FlattenIteratorWrapper{D}},
+    U <: Vector{D},
     W <: AbstractDeviceFormulation,
 } where {D <: PSY.Component}
     _add_objective_function_parameters!(container, T, devices, model, W)
@@ -988,7 +988,7 @@ function _add_parameters!(
 ) where {
     T <: VariableValueParameter,
     U <: VariableType,
-    V <: Union{Vector{D}, IS.FlattenIteratorWrapper{D}},
+    V <: Vector{D},
     W <: AbstractDeviceFormulation,
 } where {D <: PSY.Component}
     @debug "adding" T D U _group = IOM.LOG_GROUP_OPTIMIZATION_CONTAINER
@@ -1029,7 +1029,7 @@ function _add_parameters!(
 ) where {
     T <: OnStatusParameter,
     U <: OnVariable,
-    V <: Union{Vector{D}, IS.FlattenIteratorWrapper{D}},
+    V <: Vector{D},
     W <: AbstractThermalFormulation,
 } where {D <: PSY.ThermalGen}
     @debug "adding" T D U _group = IOM.LOG_GROUP_OPTIMIZATION_CONTAINER
@@ -1072,7 +1072,7 @@ function _add_parameters!(
 ) where {
     T <: FixValueParameter,
     U <: VariableType,
-    V <: Union{Vector{D}, IS.FlattenIteratorWrapper{D}},
+    V <: Vector{D},
     W <: AbstractDeviceFormulation,
 } where {D <: PSY.Component}
     @debug "adding" T D U _group = IOM.LOG_GROUP_OPTIMIZATION_CONTAINER
@@ -1114,7 +1114,7 @@ function _add_auxvar_parameter!(
 ) where {
     T <: VariableValueParameter,
     U <: AuxVariableType,
-    V <: Union{Vector{D}, IS.FlattenIteratorWrapper{D}},
+    V <: Vector{D},
     W <: AbstractDeviceFormulation,
 } where {D <: PSY.Component}
     names = [PSY.get_name(device) for device in devices]
@@ -1151,7 +1151,7 @@ function _add_parameters!(
 ) where {
     T <: FixValueParameter,
     U <: AuxVariableType,
-    V <: Union{Vector{D}, IS.FlattenIteratorWrapper{D}},
+    V <: Vector{D},
     W <: AbstractDeviceFormulation,
 } where {D <: PSY.Component}
     @debug "adding" T D U _group = IOM.LOG_GROUP_OPTIMIZATION_CONTAINER
@@ -1172,7 +1172,7 @@ function _add_parameters!(
 ) where {
     T <: VariableValueParameter,
     U <: AuxVariableType,
-    V <: Union{Vector{D}, IS.FlattenIteratorWrapper{D}},
+    V <: Vector{D},
     W <: AbstractDeviceFormulation,
 } where {D <: PSY.Component}
     @debug "adding" T D U _group = IOM.LOG_GROUP_OPTIMIZATION_CONTAINER
@@ -1191,7 +1191,7 @@ function _add_parameters!(
     model::DeviceModel{D, W},
 ) where {
     T <: OnStatusParameter,
-    V <: Union{Vector{D}, IS.FlattenIteratorWrapper{D}},
+    V <: Vector{D},
     W <: AbstractDeviceFormulation,
 } where {D <: PSY.Component}
     @debug "adding" T D V _group = IOM.LOG_GROUP_OPTIMIZATION_CONTAINER
@@ -1242,7 +1242,7 @@ function _add_parameters!(
     S <: PSY.AbstractReserve,
     T <: VariableValueParameter,
     U <: VariableType,
-    V <: Union{Vector{D}, IS.FlattenIteratorWrapper{D}},
+    V <: Vector{D},
     W <: AbstractReservesFormulation,
 } where {D <: PSY.Component}
     @debug "adding" T D U _group = IOM.LOG_GROUP_OPTIMIZATION_CONTAINER

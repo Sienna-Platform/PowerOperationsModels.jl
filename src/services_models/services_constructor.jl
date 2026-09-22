@@ -40,6 +40,63 @@ function _groups_with_demand(model::ServiceModel, sys::PSY.System)
     return [g for g in candidates if _has_reserve_demand(model, g)]
 end
 
+"""
+Create each contributing device type's reserve range expression container, sized over that
+device model's full available component set.
+
+Runs once per service model, before any service wires awards in, so services of the same
+type with contributor sets that do not nest all index an axis that holds their devices.
+"""
+seed_reserve_range_expressions!(
+    ::OptimizationContainer,
+    ::PSY.System,
+    ::ServiceModel,
+    ::DevicesModelContainer,
+) = nothing
+
+function seed_reserve_range_expressions!(
+    container::OptimizationContainer,
+    sys::PSY.System,
+    model::ServiceModel{S, <:AbstractReservesFormulation},
+    devices_template::DevicesModelContainer,
+) where {S <: PSY.AbstractReserve}
+    for by_device_type in values(get_contributing_devices_map(model)),
+        device_type in keys(by_device_type)
+        # Template keys are `nameof(D)`; `Symbol(T)` would qualify the name off Main.
+        device_model = get(devices_template, nameof(device_type), nothing)
+        isnothing(device_model) && continue
+        # Formulations carrying offline capability through `OfflineReserveBandConstraint`
+        # never wire into the range expression.
+        if _is_offline_reserve(S) &&
+           !offline_reserve_in_range_ub(get_formulation(device_model))
+            continue
+        end
+        _seed_range_expression!(
+            container,
+            get_expression_type_for_reserve(ActivePowerReserveVariable, device_type, S),
+            device_model,
+        )
+    end
+    return
+end
+
+# Function barrier: the caller's loop is uninferable, so the container work happens here
+# where `T`, `D` and `W` are concrete.
+function _seed_range_expression!(
+    container::OptimizationContainer,
+    ::Type{T},
+    device_model::DeviceModel{D, W},
+) where {T <: ExpressionType, D <: PSY.Component, W <: AbstractDeviceFormulation}
+    has_container_key(container, T, D) && return
+    add_expressions!(
+        container,
+        T,
+        get_device_cache(device_model),
+        device_model,
+    )
+    return
+end
+
 function construct_services!(
     container::OptimizationContainer,
     sys::PSY.System,
@@ -58,6 +115,7 @@ function construct_services!(
             continue
         end
         isempty(get_contributing_devices_map(service_model)) && continue
+        seed_reserve_range_expressions!(container, sys, service_model, devices_template)
         construct_service!(
             container,
             sys,
@@ -326,9 +384,9 @@ function construct_service!(
     ::Set{<:DataType},
     ::NetworkModel{<:AbstractNetworkModel},
 ) where {S <: PSY.AGC, T <: AbstractAGCFormulation}
-    services = get_available_components(model, sys)
+    services = collect(get_available_components(model, sys))
     agc_areas = PSY.get_area.(services)
-    areas = PSY.get_components(PSY.Area, sys)
+    areas = collect(PSY.get_components(PSY.Area, sys))
     if !isempty(setdiff(areas, agc_areas))
         throw(
             IS.ConflictingInputsError(
@@ -380,8 +438,8 @@ function construct_service!(
     ::Set{<:DataType},
     ::NetworkModel{<:AbstractNetworkModel},
 ) where {S <: PSY.AGC, T <: AbstractAGCFormulation}
-    areas = PSY.get_components(PSY.Area, sys)
-    services = get_available_components(model, sys)
+    areas = collect(PSY.get_components(PSY.Area, sys))
+    services = collect(get_available_components(model, sys))
 
     add_constraints!(container, AbsoluteValueConstraint, LiftVariable, services, model)
     add_constraints!(

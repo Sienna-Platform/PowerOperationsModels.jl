@@ -48,6 +48,11 @@ variable_cost(cost::PSY.OperationalCost, ::Type{ShiftDownActivePowerVariable}, :
 get_expression_type_for_reserve(::Type{ActivePowerReserveVariable}, ::Type{<:PSY.ElectricLoad}, ::Type{<:UP_RESERVE}) = ActivePowerRangeExpressionLB
 get_expression_type_for_reserve(::Type{ActivePowerReserveVariable}, ::Type{<:PSY.ElectricLoad}, ::Type{<:PSY.Reserve{PSY.ReserveDown}}) = ActivePowerRangeExpressionUB
 
+# Both make the withdrawal a priced decision, so an award consumes shed headroom the
+# objective can value.
+supports_reserve_provision(::Type{PowerLoadDispatch}) = true
+supports_reserve_provision(::Type{PowerLoadInterruption}) = true
+
 ######################################################
 
 # To avoid ambiguity with default_interface_methods.jl:
@@ -70,7 +75,7 @@ objective_function_multiplier(::Type{ShiftDownActivePowerVariable}, ::Type{Power
 add_proportional_cost!(
     container::OptimizationContainer,
     ::Type{U},
-    devices::IS.FlattenIteratorWrapper{T},
+    devices::Vector{T},
     ::Type{PowerLoadInterruption},
 ) where {U <: OnVariable, T <: PSY.ControllableLoad} =
     add_proportional_cost_maybe_time_variant!(
@@ -130,7 +135,7 @@ function add_expressions!(
     model::DeviceModel{D, W},
 ) where {
     T <: RealizedShiftedLoad,
-    U <: Union{Vector{D}, IS.FlattenIteratorWrapper{D}},
+    U <: Vector{D},
     W <: PowerLoadShift,
 } where {D <: PSY.ShiftablePowerLoad}
     time_steps = get_time_steps(container)
@@ -161,7 +166,7 @@ function add_to_expression!(
     container::OptimizationContainer,
     ::Type{T},
     ::Type{U},
-    devices::IS.FlattenIteratorWrapper{V},
+    devices::Vector{V},
     device_model::DeviceModel{V, W},
     network_model::NetworkModel{X},
 ) where {
@@ -202,7 +207,7 @@ function add_constraints!(
     container::OptimizationContainer,
     T::Type{<:ReactivePowerVariableLimitsConstraint},
     U::Type{<:ReactivePowerVariable},
-    devices::IS.FlattenIteratorWrapper{V},
+    devices::Vector{V},
     ::DeviceModel{V, W},
     network_model::NetworkModel{X},
 ) where {
@@ -240,7 +245,7 @@ function add_constraints!(
     container::OptimizationContainer,
     T::Type{<:ReactivePowerVariableLimitsConstraint},
     U::Type{<:ReactivePowerVariable},
-    devices::IS.FlattenIteratorWrapper{V},
+    devices::Vector{V},
     ::DeviceModel{V, W},
     ::NetworkModel{X},
 ) where {
@@ -276,7 +281,7 @@ function add_constraints!(
     container::OptimizationContainer,
     ::Type{ActivePowerVariableLimitsConstraint},
     U::Type{<:Union{VariableType, ActivePowerRangeExpressionUB}},
-    devices::IS.FlattenIteratorWrapper{V},
+    devices::Vector{V},
     model::DeviceModel{V, W},
     ::NetworkModel{X},
 ) where {V <: PSY.ControllableLoad, W <: PowerLoadDispatch, X <: AbstractNetworkModel}
@@ -298,7 +303,7 @@ function add_constraints!(
     container::OptimizationContainer,
     T::Type{ActivePowerVariableLimitsConstraint},
     U::Type{ActivePowerRangeExpressionLB},
-    devices::IS.FlattenIteratorWrapper{V},
+    devices::Vector{V},
     model::DeviceModel{V, W},
     ::NetworkModel{X},
 ) where {V <: PSY.ControllableLoad, W <: PowerLoadDispatch, X <: AbstractNetworkModel}
@@ -313,11 +318,12 @@ get_min_max_limits(
     ::Type{PowerLoadDispatch},
 ) = (min = 0.0, max = PSY.get_max_active_power(d, PSY.SU))
 
+# `P + Σ r_down <= forecast`: down awards consume forecast headroom.
 function add_constraints!(
     container::OptimizationContainer,
     T::Type{ActivePowerVariableLimitsConstraint},
-    U::Type{<:VariableType},
-    devices::IS.FlattenIteratorWrapper{V},
+    U::Type{<:Union{VariableType, ActivePowerRangeExpressionUB}},
+    devices::Vector{V},
     model::DeviceModel{V, W},
     ::NetworkModel{X},
 ) where {V <: PSY.ControllableLoad, W <: PowerLoadInterruption, X <: AbstractNetworkModel}
@@ -333,14 +339,70 @@ function add_constraints!(
     return
 end
 
+# `P - Σ r_up >= 0`: an up award cannot exceed the shed the load can deliver. An interrupted
+# load is held at P = 0 by the gate below, so this row also zeroes its up awards.
+function add_constraints!(
+    container::OptimizationContainer,
+    T::Type{ActivePowerVariableLimitsConstraint},
+    U::Type{ActivePowerRangeExpressionLB},
+    devices::Vector{V},
+    model::DeviceModel{V, W},
+    ::NetworkModel{X},
+) where {V <: PSY.ControllableLoad, W <: PowerLoadInterruption, X <: AbstractNetworkModel}
+    add_range_constraints!(container, T, U, devices, model, X)
+    return
+end
+
+# Only `min` is consumed (shed floor); the upper bound rides the forecast parameter.
+get_min_max_limits(
+    d::PSY.ControllableLoad,
+    ::Type{ActivePowerVariableLimitsConstraint},
+    ::Type{PowerLoadInterruption},
+) = (min = 0.0, max = PSY.get_max_active_power(d, PSY.SU))
+
+# An interrupted load consumes nothing, so it can neither shed nor absorb: with services the
+# gate caps `ActivePowerRangeExpressionUB` (= P + Σ r_down) so down awards are gated too.
 function add_constraints!(
     container::OptimizationContainer,
     T::Type{ActivePowerVariableLimitsConstraint},
     U::Type{OnVariable},
-    devices::IS.FlattenIteratorWrapper{V},
+    devices::Vector{V},
     model::DeviceModel{V, W},
     ::NetworkModel{X},
 ) where {V <: PSY.ControllableLoad, W <: PowerLoadInterruption, X <: AbstractNetworkModel}
+    if has_service_model(model)
+        _add_interruption_gate!(
+            container,
+            T,
+            get_expression(container, ActivePowerRangeExpressionUB, V),
+            devices,
+            model,
+        )
+    else
+        _add_interruption_gate!(
+            container,
+            T,
+            get_variable(container, ActivePowerVariable, V),
+            devices,
+            model,
+        )
+    end
+    return
+end
+
+# `gated` is a variable container in one branch and an expression container in the other;
+# `AbstractArray` covers the dense and sparse JuMP containers of both element types.
+function _add_interruption_gate!(
+    container::OptimizationContainer,
+    ::Type{T},
+    gated::AbstractArray,
+    devices::Vector{V},
+    model::DeviceModel{V, W},
+) where {
+    T <: ActivePowerVariableLimitsConstraint,
+    V <: PSY.ControllableLoad,
+    W <: PowerLoadInterruption,
+}
     time_steps = get_time_steps(container)
     constraint = add_constraints_container!(container, T,
         V,
@@ -348,14 +410,13 @@ function add_constraints!(
         time_steps;
         meta = "binary",
     )
-    on_variable = get_variable(container, U, V)
-    power = get_variable(container, ActivePowerVariable, V)
+    on_variable = get_variable(container, OnVariable, V)
     jump_model = get_jump_model(container)
     for t in time_steps, d in devices
         name = PSY.get_name(d)
         pmax = PSY.get_max_active_power(d, PSY.SU)
         constraint[name, t] =
-            JuMP.@constraint(jump_model, power[name, t] <= on_variable[name, t] * pmax)
+            JuMP.@constraint(jump_model, gated[name, t] <= on_variable[name, t] * pmax)
     end
     return
 end
@@ -363,7 +424,7 @@ end
 function add_constraints!(
     container::OptimizationContainer,
     T::Type{ShiftedActivePowerBalanceConstraint},
-    devices::IS.FlattenIteratorWrapper{V},
+    devices::Vector{V},
     model::DeviceModel{V, W},
     ::NetworkModel{X},
 ) where {V <: PSY.ShiftablePowerLoad, W <: PowerLoadShift, X <: AbstractNetworkModel}
@@ -462,7 +523,7 @@ function add_constraints!(
     container::OptimizationContainer,
     T::Type{RealizedShiftedLoadMinimumBoundConstraint},
     U::Type{<:ExpressionType},
-    devices::IS.FlattenIteratorWrapper{V},
+    devices::Vector{V},
     ::DeviceModel{V, W},
     ::NetworkModel{X},
 ) where {V <: PSY.ShiftablePowerLoad, W <: PowerLoadShift, X <: AbstractNetworkModel}
@@ -486,7 +547,7 @@ end
 function add_constraints!(
     container::OptimizationContainer,
     T::Type{NonAnticipativityConstraint},
-    devices::IS.FlattenIteratorWrapper{V},
+    devices::Vector{V},
     ::DeviceModel{V, W},
     ::NetworkModel{X},
 ) where {V <: PSY.ShiftablePowerLoad, W <: PowerLoadShift, X <: AbstractNetworkModel}
@@ -517,7 +578,7 @@ function add_constraints!(
     container::OptimizationContainer,
     ::Type{ShiftUpActivePowerVariableLimitsConstraint},
     U::Type{<:VariableType},
-    devices::IS.FlattenIteratorWrapper{V},
+    devices::Vector{V},
     model::DeviceModel{V, W},
     ::NetworkModel{X},
 ) where {V <: PSY.ShiftablePowerLoad, W <: PowerLoadShift, X <: AbstractNetworkModel}
@@ -537,7 +598,7 @@ function add_constraints!(
     container::OptimizationContainer,
     ::Type{ShiftDownActivePowerVariableLimitsConstraint},
     U::Type{<:VariableType},
-    devices::IS.FlattenIteratorWrapper{V},
+    devices::Vector{V},
     model::DeviceModel{V, W},
     ::NetworkModel{X},
 ) where {V <: PSY.ShiftablePowerLoad, W <: PowerLoadShift, X <: AbstractNetworkModel}
@@ -595,10 +656,10 @@ _push_by_basis!(::PricedDispatch, priced, ::Vector, d) = push!(priced, d)
 _push_by_basis!(::UnofferedDispatch, ::Vector, unoffered, d) = push!(unoffered, d)
 
 """
-Split controllable loads into priced and unoffered, wrapped for the standard builders.
+Split controllable loads into priced and unoffered.
 """
 function _partition_by_dispatch_basis(
-    devices::IS.FlattenIteratorWrapper{L},
+    devices::Vector{L},
 ) where {L <: PSY.ControllableLoad}
     priced = L[]
     unoffered = L[]
@@ -606,7 +667,7 @@ function _partition_by_dispatch_basis(
         basis = get_dispatch_basis(PSY.get_operation_cost(d))
         _push_by_basis!(basis, priced, unoffered, d)
     end
-    return IS.FlattenIteratorWrapper(L, [priced]), IS.FlattenIteratorWrapper(L, [unoffered])
+    return priced, unoffered
 end
 
 """
@@ -620,7 +681,7 @@ own additions land in the same expression regardless of call order.
 """
 function _seed_reserve_ranges_on_limits!(
     container::OptimizationContainer,
-    devices::Union{Vector{L}, IS.FlattenIteratorWrapper{L}},
+    devices::Vector{L},
     model::DeviceModel{L, <:AbstractControllablePowerLoadFormulation},
 ) where {L <: PSY.ControllableLoad}
     time_steps = get_time_steps(container)
@@ -649,7 +710,7 @@ ReserveDown service rather than let it surface as a confusing zero award.
 """
 function _validate_unoffered_no_reserve_down!(
     model::DeviceModel{L, <:AbstractControllablePowerLoadFormulation},
-    unoffered::IS.FlattenIteratorWrapper{L},
+    unoffered::Vector{L},
 ) where {L <: PSY.ControllableLoad}
     isempty(unoffered) && return
     for service_model in get_services(model)
@@ -672,7 +733,7 @@ forecast headroom (load direction map above). Priced loads anchor the range on t
 """
 function add_reserve_range_expressions!(
     container::OptimizationContainer,
-    devices::IS.FlattenIteratorWrapper{L},
+    devices::Vector{L},
     model::DeviceModel{L, <:AbstractControllablePowerLoadFormulation},
     network_model::NetworkModel{<:AbstractNetworkModel},
 ) where {L <: PSY.ControllableLoad}
@@ -693,7 +754,7 @@ end
 # nothing is left for a costless-load-selling-reserves guard to catch.
 function add_to_objective_function!(
     container::OptimizationContainer,
-    devices::IS.FlattenIteratorWrapper{T},
+    devices::Vector{T},
     ::DeviceModel{T, U},
     ::Type{<:AbstractNetworkModel},
 ) where {T <: PSY.ControllableLoad, U <: PowerLoadDispatch}
@@ -704,7 +765,7 @@ end
 
 function add_to_objective_function!(
     container::OptimizationContainer,
-    devices::IS.FlattenIteratorWrapper{T},
+    devices::Vector{T},
     ::DeviceModel{T, U},
     ::Type{<:AbstractNetworkModel},
 ) where {T <: PSY.ControllableLoad, U <: PowerLoadInterruption}
@@ -751,7 +812,7 @@ IOM.is_time_variant_proportional(::PSY.LoadCost) = false
 
 function objective_function!(
     container::OptimizationContainer,
-    devices::IS.FlattenIteratorWrapper{T},
+    devices::Vector{T},
     ::DeviceModel{T, U},
     ::Type{<:AbstractNetworkModel},
 ) where {T <: PSY.ShiftablePowerLoad, U <: PowerLoadShift}
@@ -764,7 +825,7 @@ end
 function add_variable_cost!(
     container::OptimizationContainer,
     ::Type{U},
-    devices::IS.FlattenIteratorWrapper{T},
+    devices::Vector{T},
     ::Type{V},
 ) where {T <: PSY.ShiftablePowerLoad, U <: ShiftUpActivePowerVariable, V <: PowerLoadShift}
     for d in devices

@@ -73,7 +73,7 @@ function add_to_expression!(
     container::OptimizationContainer,
     ::Type{T},
     ::Type{U},
-    devices::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
+    devices::Vector{V},
     device_model::DeviceModel{V, W},
     network_model::NetworkModel{X},
 ) where {
@@ -127,7 +127,7 @@ function add_event_arguments!(
     device_model::DeviceModel{U, V},
     network_model::NetworkModel,
 ) where {
-    T <: Union{Vector{U}, IS.FlattenIteratorWrapper{U}},
+    T <: Vector{U},
     V <: AbstractDeviceFormulation,
 } where {U <: PSY.StaticInjection}
     _for_each_event_devices(devices, device_model) do devices_with_attributes, event_model
@@ -233,7 +233,7 @@ function add_event_arguments!(
     device_model::DeviceModel{U, V},
     network_model::NetworkModel{<:AbstractActivePowerModel},
 ) where {
-    T <: Union{Vector{U}, IS.FlattenIteratorWrapper{U}},
+    T <: Vector{U},
     V <: AbstractLoadFormulation,
 } where {U <: PSY.PowerLoad}
     _for_each_event_devices(devices, device_model) do devices_with_attributes, event_model
@@ -256,7 +256,7 @@ function add_event_arguments!(
     device_model::DeviceModel{U, V},
     network_model::NetworkModel{<:AbstractReactivePowerNetworkModel},
 ) where {
-    T <: Union{Vector{U}, IS.FlattenIteratorWrapper{U}},
+    T <: Vector{U},
     V <: AbstractLoadFormulation,
 } where {U <: PSY.PowerLoad}
     _for_each_event_devices(devices, device_model) do devices_with_attributes, event_model
@@ -279,7 +279,7 @@ function add_event_arguments!(
     device_model::DeviceModel{U, FixedOutput},
     network_model::NetworkModel{<:AbstractActivePowerModel},
 ) where {
-    T <: Union{Vector{U}, IS.FlattenIteratorWrapper{U}},
+    T <: Vector{U},
 } where {U <: PSY.StaticInjection}
     _for_each_event_devices(devices, device_model) do devices_with_attributes, event_model
         _add_event_offset_arguments!(
@@ -301,7 +301,7 @@ function add_event_arguments!(
     device_model::DeviceModel{U, FixedOutput},
     network_model::NetworkModel{<:AbstractReactivePowerNetworkModel},
 ) where {
-    T <: Union{Vector{U}, IS.FlattenIteratorWrapper{U}},
+    T <: Vector{U},
 } where {U <: PSY.StaticInjection}
     _for_each_event_devices(devices, device_model) do devices_with_attributes, event_model
         _add_event_offset_arguments!(

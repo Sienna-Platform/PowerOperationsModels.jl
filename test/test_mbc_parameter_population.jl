@@ -106,7 +106,7 @@ end
         start_up_incr = 10.0,
         horizon = Hour(3),
     )
-    devs = PSY.get_components(PSY.ThermalStandard, sys)
+    devs = collect(PSY.get_components(PSY.ThermalStandard, sys))
 
     container = _pp_build_container(sys, 1:3)
     POM.add_parameters!(container, IOM.StartupCostParameter, devs, _PP_MODEL)
@@ -125,7 +125,7 @@ end
         shut_down_incr = 5.0,
         horizon = Hour(3),
     )
-    devs = PSY.get_components(PSY.ThermalStandard, sys)
+    devs = collect(PSY.get_components(PSY.ThermalStandard, sys))
 
     container = _pp_build_container(sys, 1:3)
     POM.add_parameters!(container, IOM.ShutdownCostParameter, devs, _PP_MODEL)
@@ -144,7 +144,7 @@ end
         incr_init_incr = 2.0,
         horizon = Hour(3),
     )
-    devs = PSY.get_components(PSY.ThermalStandard, sys)
+    devs = collect(PSY.get_components(PSY.ThermalStandard, sys))
 
     container = _pp_build_container(sys, 1:3)
     POM.add_parameters!(container, IOM.IncrementalCostAtMinParameter, devs, _PP_MODEL)
@@ -163,7 +163,7 @@ end
         decr_init_incr = 1.0,
         horizon = Hour(3),
     )
-    devs = PSY.get_components(PSY.ThermalStandard, sys)
+    devs = collect(PSY.get_components(PSY.ThermalStandard, sys))
 
     container = _pp_build_container(sys, 1:3)
     POM.add_parameters!(container, IOM.DecrementalCostAtMinParameter, devs, _PP_MODEL)
@@ -183,7 +183,7 @@ end
     # decremental [30, 25] slopes over breakpoints [0, 50, 100], so a swapped accessor or
     # mis-sized axis is visible.
     sys, _ = _build_mbtsc_thermal_system(; name = _PP_THERMAL_NAME, horizon = Hour(3))
-    devs = PSY.get_components(PSY.ThermalStandard, sys)
+    devs = collect(PSY.get_components(PSY.ThermalStandard, sys))
 
     cases = (
         (IOM.IncrementalPiecewiseLinearSlopeParameter,
@@ -231,7 +231,7 @@ end
     )
     _add_simple_thermal_standard!(sys, bus2, static_mbc; name = "thermal_static")
 
-    devs = PSY.get_components(PSY.ThermalStandard, sys)
+    devs = collect(PSY.get_components(PSY.ThermalStandard, sys))
     container = _pp_build_container(sys, 1:3)
     # `_consider_parameter` needs StartVariable for StartupCostParameter and StopVariable
     # for ShutdownCostParameter; register both devices so neither gets short-circuited
@@ -296,7 +296,7 @@ end
         ),
     )
 
-    devs = PSY.get_components(PSY.Source, sys)
+    devs = collect(PSY.get_components(PSY.Source, sys))
     iec_model = IOM.DeviceModel(PSY.Source, POM.ImportExportSourceModel)
 
     # incremental → import slopes [5, 10]

@@ -52,7 +52,7 @@ function add_expressions!(
     model::DeviceModel{D, W},
 ) where {
     T <: ExpressionType,
-    U <: Union{Vector{D}, IS.FlattenIteratorWrapper{D}},
+    U <: Vector{D},
     W <: AbstractDeviceFormulation,
 } where {D <: PSY.Component}
     time_steps = get_time_steps(container)
@@ -71,7 +71,7 @@ function add_expressions!(
     model::DeviceModel{D, W},
 ) where {
     T <: FuelConsumptionExpression,
-    U <: Union{Vector{D}, IS.FlattenIteratorWrapper{D}},
+    U <: Vector{D},
     W <: AbstractDeviceFormulation,
 } where {D <: PSY.Component}
     time_steps = get_time_steps(container)
@@ -114,7 +114,7 @@ function add_cost_expressions!(
     devices::U,
     model::DeviceModel{D, W},
 ) where {
-    U <: Union{Vector{D}, IS.FlattenIteratorWrapper{D}},
+    U <: Vector{D},
     W <: AbstractDeviceFormulation,
 } where {D <: PSY.Component}
     time_steps = get_time_steps(container)
@@ -135,7 +135,7 @@ function add_cost_expressions!(
     devices::U,
     model::DeviceModel{D, W},
 ) where {
-    U <: Union{Vector{D}, IS.FlattenIteratorWrapper{D}},
+    U <: Vector{D},
     W <: AbstractThermalFormulation,
 } where {D <: PSY.ThermalGen}
     time_steps = get_time_steps(container)
@@ -180,7 +180,7 @@ function add_cost_expressions!(
     devices::U,
     model::DeviceModel{D, W},
 ) where {
-    U <: Union{Vector{D}, IS.FlattenIteratorWrapper{D}},
+    U <: Vector{D},
     W <: AbstractRenewableDispatchFormulation,
 } where {D <: PSY.RenewableGen}
     time_steps = get_time_steps(container)
@@ -202,7 +202,7 @@ function add_expressions!(
     model::ServiceModel{V, W},
 ) where {
     T <: ExpressionType,
-    U <: Union{Vector{D}, IS.FlattenIteratorWrapper{D}},
+    U <: Vector{D},
     V <: PSY.AbstractReserve,
     W <: AbstractReservesFormulation,
 } where {D <: PSY.Component}
@@ -230,7 +230,7 @@ function add_expressions!(
     model::ServiceModel{V, W},
 ) where {
     T <: CostExpressions,
-    U <: Union{Vector{D}, IS.FlattenIteratorWrapper{D}},
+    U <: Vector{D},
     V <: PSY.AbstractReserve,
     W <: AbstractReservesFormulation,
 } where {D <: PSY.Component}
