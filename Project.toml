@@ -36,7 +36,7 @@ PowerFlows = "94fada2c-fd9a-4e89-8d82-81405f5cb4f6"
 [sources]
 # Revert to psy6/main when the EnumX PRs land (PSY #1804, PSB #225, PTDP #11).
 InfrastructureSystems = {url = "https://github.com/Sienna-Platform/InfrastructureSystems.jl.git", rev = "IS4"}
-InfrastructureOptimizationModels = {rev = "lk/enumx", url = "https://github.com/Sienna-Platform/InfrastructureOptimizationModels.jl"}
+InfrastructureOptimizationModels = {rev = "main", url = "https://github.com/Sienna-Platform/InfrastructureOptimizationModels.jl"}
 PowerSystems = {url = "https://github.com/Sienna-Platform/PowerSystems.jl.git", rev = "lk/enumx"}
 PowerNetworkMatrices = {rev = "lk/enumx", url = "https://github.com/Sienna-Platform/PowerNetworkMatrices.jl"}
 # PSY psy6 depends on these unregistered packages; [sources] of non-root projects are

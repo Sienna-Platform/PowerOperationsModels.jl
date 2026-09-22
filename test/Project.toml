@@ -50,7 +50,7 @@ UUIDs = "cf7118a7-6976-5b1a-9a39-7adc72f591a4"
 # Revert to psy6/main when the EnumX PRs land (PSY #1804, PSB #225, PTDP #11).
 PowerOperationsModels = {path = ".."}
 InfrastructureSystems = {url = "https://github.com/Sienna-Platform/InfrastructureSystems.jl.git", rev = "IS4"}
-InfrastructureOptimizationModels = {rev = "lk/enumx", url = "https://github.com/Sienna-Platform/InfrastructureOptimizationModels.jl"}
+InfrastructureOptimizationModels = {rev = "main", url = "https://github.com/Sienna-Platform/InfrastructureOptimizationModels.jl"}
 PowerSystems = {url = "https://github.com/Sienna-Platform/PowerSystems.jl.git", rev = "lk/enumx"}
 PowerSystemCaseBuilder = {url = "https://github.com/Sienna-Platform/PowerSystemCaseBuilder.jl.git", rev = "lk/enumx"}
 # Branch pins until the OpenAPI packages are registered and the psy6-line branches merge.
