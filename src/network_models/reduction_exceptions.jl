@@ -194,7 +194,7 @@ function _pin_transformer_controls!(
     for transformer in get_device_cache(m)
         for circuit in PSY.get_circuits(transformer)
             obj = PSY.get_control_objective(circuit)
-            if obj.value <= 0
+            if Int(obj) <= 0
                 continue
             end
             if !PSY.get_available(circuit)
