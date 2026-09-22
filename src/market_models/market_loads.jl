@@ -13,6 +13,16 @@ get_min_max_limits(
 
 #! format: on
 
+"""
+`MarketLoadBid` bounds its reserve awards: `_seed_reserve_ranges_on_limits!` anchors
+`ActivePowerRangeExpressionLB`/`UB` on the constant `max_active_power`, and the model stage
+constrains both within `[0, max_active_power]`. Up-reserve enters the LB at `-1.0` for every
+contributing service, so that bound reads `Σ r_up <= max_active_power` -- the capability is
+sold at most once across services, which is what the load-family `false` default guards
+against.
+"""
+supports_reserve_provision(::Type{MarketLoadBid}) = true
+
 _is_reserve_down_service(::PSY.Reserve{PSY.ReserveDown}) = true
 _is_reserve_down_service(::PSY.Service) = false
 
