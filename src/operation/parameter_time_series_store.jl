@@ -10,10 +10,12 @@ This is the only place in PowerOperationsModels or PowerSimulations that knows I
 """
 struct ParameterTimeSeriesStore
     store::IS.Store
+    document_association_ids::Set{Int64}
 end
 
 """A fresh, writable, in-memory parameter store."""
-ParameterTimeSeriesStore() = ParameterTimeSeriesStore(IS.Store(; in_memory = true))
+ParameterTimeSeriesStore() =
+    ParameterTimeSeriesStore(IS.Store(; in_memory = true), Set{Int64}())
 
 """
 Persist the store — arrays and catalog — to `path` (`path` and `path.sqlite`).
@@ -28,7 +30,7 @@ end
 
 """Reopen a persisted parameter store with its catalog."""
 function open_parameter_store(path::AbstractString)
-    return ParameterTimeSeriesStore(IS.open_infrastore_store(path))
+    return ParameterTimeSeriesStore(IS.open_infrastore_store(path), Set{Int64}())
 end
 
 function close_parameter_store!(store::ParameterTimeSeriesStore)
@@ -41,20 +43,52 @@ Store one parameter's realized series and return its key.
 
 `owner_id` must be the owner's **document id** — the same id the System document gives that
 component — or the row will not attach to anything on read.
+
+`in_document` marks this series as one the System document declares: its `association_id` is
+recorded so [`parameter_association_rows`](@ref) exports a catalog row for it. A series written
+with `in_document = false` (the default) is still stored and readable — a feedforward value or a
+scalar-built cost belongs in the store without becoming a document row.
 """
 function write_parameter_series!(
     store::ParameterTimeSeriesStore,
     owner_id::Int,
     owner_type::AbstractString,
     name::AbstractString,
-    data::IS.TimeSeries.TimeArray,
+    data::IS.TimeSeries.TimeArray;
+    in_document::Bool = false,
 )
-    return IS.add_time_series!(
+    key = IS.add_time_series!(
         store.store,
         owner_id,
         String(owner_type),
         IS.get_owner_category(IS.InfrastructureSystemsComponent),
         PSY.SingleTimeSeries(String(name), data),
+    )
+    if in_document
+        push!(store.document_association_ids, IS.get_association_id(key))
+    end
+    return key
+end
+
+"""
+Unwrap an OpenAPI `oneOf` wrapper to the concrete row it carries. Association rows come back
+from InfraStore as `oneOf` wrappers whose `.value` holds the type-specific struct; this
+recurses so a plain (already-unwrapped) row passes through unchanged.
+"""
+_unwrap_oneof(row::IC.OneOfAPIModel) = _unwrap_oneof(row.value)
+_unwrap_oneof(row) = row
+
+"""
+The association rows the System document declares: only the series written with
+`in_document = true`. Exported from the store that wrote the arrays, so each row's `uri` names
+an array the store genuinely holds, and each `association_id` is the one the catalog will
+answer for on load.
+"""
+function parameter_association_rows(store::ParameterTimeSeriesStore)
+    rows = IS.openapi_time_series_association_rows(store.store)
+    return filter(
+        row -> _unwrap_oneof(row).association_id in store.document_association_ids,
+        rows,
     )
 end
 
