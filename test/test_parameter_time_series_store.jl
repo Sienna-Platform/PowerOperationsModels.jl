@@ -3,7 +3,7 @@
     stamps = range(Dates.DateTime(2024, 1, 1); step = Dates.Hour(1), length = 24)
     ta = TimeSeries.TimeArray(stamps, collect(1.0:24.0))
     key = POM.write_parameter_series!(store, 7, "ThermalStandard", "fuel_cost", ta)
-    @test key isa IS.TimeSeriesKey
+    @test IS.get_association_id(key) > 0
 
     back = POM.read_parameter_series(store, 7, "fuel_cost")
     @test TimeSeries.values(back) == collect(1.0:24.0)
@@ -191,6 +191,25 @@ end
     POM.write_parameter_array!(store, other, array .* 2, stamps, Dates.Hour(1))
     @test TimeSeries.values(POM.read_parameter_array(store, other)["Solitude"]) ==
           [2.0, 4.0, 6.0, 8.0]
+    POM.close_parameter_store!(store)
+end
+
+@testset "has_parameter_rows reports presence and honors extra_features" begin
+    store = POM.ParameterTimeSeriesStore()
+    key = IOM.ParameterKey(POM.ActivePowerTimeSeriesParameter, PSY.ThermalStandard)
+    labels = ["Solitude", "Park City"]
+    stamps = collect(range(Dates.DateTime(2024, 1, 1); step = Dates.Hour(1), length = 4))
+    array = JuMP.Containers.DenseAxisArray(
+        [1.0 2.0 3.0 4.0; 10.0 20.0 30.0 40.0], labels, 1:4,
+    )
+    @test !POM.has_parameter_rows(store, key)
+
+    POM.write_parameter_array!(
+        store, key, array, stamps, Dates.Hour(1);
+        extra_features = Dict{String, Any}("model" => "UC"),
+    )
+    @test POM.has_parameter_rows(store, key; extra_features = Dict("model" => "UC"))
+    @test !POM.has_parameter_rows(store, key; extra_features = Dict("model" => "ED"))
     POM.close_parameter_store!(store)
 end
 
