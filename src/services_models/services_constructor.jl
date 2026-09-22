@@ -188,9 +188,11 @@ function construct_services!(
 
     contributing_devices, outaged_generators, monitored_components =
         _security_constrained_outages(sys, services_template, network_model)
+    _build_post_contingency_locational_power!(container, sys, contributing_devices, outaged_generators, network_model)
     _build_post_contingency_flow!(container, monitored_components, network_model)
     _constrain_post_contingency_balance!(container, sys, contributing_devices, outaged_generators, network_model)
     _constrain_post_contingency_generation!(container, sys, outaged_generators, contributing_devices)
+    _constrain_post_contingency_reserve!(container, sys, services_template, outaged_generators)
     _constrain_post_contingency_flow!(container, sys, monitored_components, network_model)
     return
 end
@@ -1118,7 +1120,14 @@ function construct_service!(container::OptimizationContainer, sys::PSY.System, :
             ActivePowerReserveVariable,
             service,
             contributing_devices,
-            R,
+            RampReserve,
+        )
+        add_to_expression!(
+            container,
+            ActivePowerReserveVariable,
+            service,
+            model,
+            devices_template,
         )
         add_feedforward_arguments!(container, model, service)
     end

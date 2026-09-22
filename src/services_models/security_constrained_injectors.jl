@@ -85,8 +85,9 @@ function _create_post_contingency_reserve_variables!(
                 Int[];
                 sparse = true,
             )
+            outaged = get(Set{String}, outaged_generators[uuid], device_type)
             for name in names
-                name in outaged_generators[uuid] && continue
+                name in outaged && continue
                 for t in time_steps
                     var[name, uuid, t] = JuMP.@variable(
                         jump_model,
@@ -130,7 +131,7 @@ end
 
 _create_post_contingency_interchange_variables!(
     ::OptimizationContainer,
-    ::Vector{Int},
+    ::_OUTAGE_MAP,
     ::NetworkModel,
 ) = nothing
 
@@ -140,7 +141,7 @@ _deployment_expression_type(::NetworkModel{AreaBalanceNetworkModel}) = PostConti
 _deployment_component_type(::NetworkModel{<:AbstractPTDFNetworkModel}) = PSY.ACBus
 _deployment_component_type(::NetworkModel{AreaBalanceNetworkModel}) = PSY.Area
 
-_location_key(component, network_model::NetworkModel{<:AbstractPTDFNetworkModel}) = string(PNM.get_mapped_bus_number(network_reduction, PSY.get_bus(component)))
+_location_key(component, network_model::NetworkModel{<:AbstractPTDFNetworkModel}) = string(PNM.get_mapped_bus_number(get_network_reduction(network_model), PSY.get_bus(component)))
 _location_key(component, ::NetworkModel{AreaBalanceNetworkModel}) = PSY.get_name(PSY.get_area(PSY.get_bus(component)))
 
 # [contributing device reserve] minus [outaged generator power] per bus or area
@@ -148,25 +149,28 @@ function _build_post_contingency_locational_power!(
     container::OptimizationContainer,
     sys::PSY.System,
     contributing_devices::_OUTAGE_MAP,
-    outaged_gens::_OUTAGE_MAP,
+    outaged_generators::_OUTAGE_MAP,
     network_model::NetworkModel
 )
-    expr = lazy_add_container(container, _deployment_expression_type(network_model), _deployment_component_type(network_model), String[], Int[], Int[]; sparse = true)
+    expr = lazy_container_addition!(container, _deployment_expression_type(network_model), _deployment_component_type(network_model), String[], Int[], Int[]; sparse = true)
     jump_model = get_jump_model(container)
     uuids = collect(keys(contributing_devices))
+    time_steps = get_time_steps(container)
     for uuid in uuids
         for (device_type, names) in contributing_devices[uuid]
             reserve = get_variable(container, PostContingencyActivePowerReserveDeploymentVariable, device_type)
+            outaged = get(Set{String}, outaged_generators[uuid], device_type)
             for name in names
-                (device_type, name) in outaged_gens[uuid] && continue
+                name in outaged && continue
                 key = _location_key(PSY.get_component(device_type, sys, name), network_model)
                 for t in time_steps
-                    JuMP.add_to_expression!(expr[key, uuid, t], reserve[name, t])
+                    ex = get!(expr.data, (key, uuid, t), JuMP.AffExpr(0.0))
+                    JuMP.add_to_expression!(ex, reserve[name, uuid, t])
                 end
             end
         end
-        for (generator_type, names) in outaged_gens[uuid]
-            power = get_variable(container, ActivePowerVariable, _deployment_component_type(network_model))
+        for (generator_type, names) in outaged_generators[uuid]
+            power = get_variable(container, ActivePowerVariable, generator_type)
             for name in names
                 key = _location_key(PSY.get_component(generator_type, sys, name), network_model)
                 for t in time_steps
@@ -211,10 +215,10 @@ function _build_post_contingency_flow!(
                 meta = _G1_META,
             )
             pre_flow = get_expression(container, PTDFBranchFlow, line_type)
-            arc_map = PNM.get_name_to_arc_map(catalog, line_type)
             reduction_name_map = PNM.get_component_to_reduction_name_map(catalog, line_type)
+            arc_map = PNM.get_name_to_arc_map(catalog, line_type)
             for name in names
-                entry_name = haskey(arc_map, name) ? name : reduction_name_map[name]
+                entry_name = reduction_name_map[name]
                 df = get!(dfs, (line_type, name)) do
                     ptdf_col = ptdf[arc_map[entry_name], :]
                     sign = get_ptdf_orientation_sign(catalog, line_type, name)
@@ -224,7 +228,7 @@ function _build_post_contingency_flow!(
                     )
                 end
                 for t in time_steps
-                    ex = expr[entry_name, uuid, t] = get_hinted_aff_expr(length(JuMP.linear_terms(pre_flow[entry_name, t])) + length(buses[uuid]))
+                    ex = expr[entry_name, uuid, t] = IOM.get_hinted_aff_expr(length(JuMP.linear_terms(pre_flow[entry_name, t])) + length(buses[uuid]))
                     JuMP.add_to_expression!(ex, pre_flow[entry_name, t])
                     for bus in buses[uuid]
                         haskey(df, bus) || continue
@@ -363,6 +367,8 @@ function _constrain_post_contingency_balance!(
     return
 end
 
+# Redundant for devices bounded by `_constrain_post_contingency_reserve!`, since their awards
+# already sit in the device headroom; kept unconditional so no device can deploy past pmax.
 function _constrain_post_contingency_generation!(
     container::OptimizationContainer,
     sys::PSY.System,
@@ -404,26 +410,58 @@ function _constrain_post_contingency_generation!(
     return
 end
 
-# TODO: this constraint confuses me
+# Deployment can only draw on procured reserve: bounded by the sum of the device's awards in
+# every reserve with a requirement series that responds to the outage. Reserves without one have
+# no meaningful award, so their deployment is limited by generation headroom alone.
 function _constrain_post_contingency_reserve!(
     container::OptimizationContainer,
-    contributing_devices::_OUTAGE_MAP,
-    outaged_gens::_OUTAGE_MAP,
+    sys::PSY.System,
+    services_template::ServicesModelContainer,
+    outaged_generators::_OUTAGE_MAP,
 )
     jump_model = get_jump_model(container)
-    for (uuid, per_type) in contributing_devices
-        for (device_type, names) in per_type
-            # TODO: shorter name
-            cons = lazy_add_container!(container, PostContingencyActivePowerReserveDeploymentVariableLimitsConstraint, device_type, String[], Int[], Int[]; sparse = true)
-            pre_reserve = get_variable(container, ActivePowerReserveVariable, device_type)
-            post_reserve = get_variable(container, PostContingencyActivePowerReserveDeploymentVariable, device_type)
-            for name in names
-                (device_type, name) in outaged_gens[uuid] && continue
-                for t in time_steps
-                    cons[name, uuid, t] = JuMP.@constraint(jump_model, post_reserve[name, t] <= pre_reserve[name, t])
+    time_steps = get_time_steps(container)
+    awards = Dict{Tuple{DataType, String, Int, Int}, JuMP.AffExpr}()
+    for model in values(services_template)
+        _validate_reserve_formulation(model) || continue
+        service_type = get_component_type(model)
+        for (service_name, per_type) in get_contributing_devices_map(model)
+            service = PSY.get_component(service_type, sys, service_name)
+            _has_ts_requirement(model, service) || continue
+            reserve = get_variable(container, ActivePowerReserveVariable, service_type)
+            for outage in PSY.get_supplemental_attributes(PSY.Outage, service)
+                uuid = IS.get_id(outage)
+                for (device_type, devices) in per_type
+                    outaged = get(Set{String}, outaged_generators[uuid], device_type)
+                    for device in devices
+                        name = PSY.get_name(device)
+                        name in outaged && continue
+                        for t in time_steps
+                            ex = get!(JuMP.AffExpr, awards, (device_type, name, uuid, t))
+                            JuMP.add_to_expression!(ex, reserve[(service_name, name, t)])
+                        end
+                    end
                 end
             end
         end
+    end
+    for ((device_type, name, uuid, t), award) in awards
+        cons = lazy_container_addition!(
+            container,
+            PostContingencyActivePowerReserveDeploymentVariableLimitsConstraint,
+            device_type,
+            String[],
+            Int[],
+            Int[];
+            sparse = true,
+        )
+        deployment = get_variable(
+            container,
+            PostContingencyActivePowerReserveDeploymentVariable,
+            device_type,
+        )
+        cons[name, uuid, t] =
+            JuMP.@constraint(jump_model, deployment[name, uuid, t] <= award)
     end
     return
 end
@@ -437,9 +475,10 @@ function _post_contingency_flow_limits(
     ::PSY.System,
     network_model::NetworkModel{<:AbstractPTDFNetworkModel},
     ::Type{T},
-    entry_name::String,
+    name::String,
 ) where {T <: PSY.ACTransmission}
     catalog = get_branch_catalog(network_model)
+    entry_name = PNM.get_component_to_reduction_name_map(catalog, T)[name]
     arc = PNM.get_name_to_arc_map(catalog, T)[entry_name]
     return _emergency_flow_limits(PNM.get_reduction_entry(catalog, arc))
 end
@@ -461,6 +500,7 @@ function _constrain_post_contingency_flow!(
     monitored_components::_OUTAGE_MAP,
     network_model::NetworkModel{<:Union{AbstractPTDFNetworkModel, AreaBalanceNetworkModel}},
 )
+    catalog = get_branch_catalog(network_model)
     jump_model = get_jump_model(container)
     for (uuid, per_type) in monitored_components
         for (component_type, names) in per_type
@@ -485,13 +525,15 @@ function _constrain_post_contingency_flow!(
                 sparse = true,
                 meta = "$(_G1_META)_ub",
             )
+            reduction_name_map = PNM.get_component_to_reduction_name_map(catalog, component_type)
             limits = Dict{String, MinMax}()
-            for name in names, t in time_steps
-                lims = get!(limits, name) do
+            for name in names, t in get_time_steps(container)
+                entry_name = reduction_name_map[name]
+                lims = get!(limits, entry_name) do
                     _post_contingency_flow_limits(sys, network_model, component_type, name)
                 end
-                cons_ub[name, uuid, t] = JuMP.@constraint(jump_model, flow[name, uuid, t] <= lims.max)
-                cons_lb[name, uuid, t] = JuMP.@constraint(jump_model, flow[name, uuid, t] >= lims.min)
+                cons_ub[entry_name, uuid, t] = JuMP.@constraint(jump_model, flow[entry_name, uuid, t] <= lims.max)
+                cons_lb[entry_name, uuid, t] = JuMP.@constraint(jump_model, flow[entry_name, uuid, t] >= lims.min)
             end
         end
     end

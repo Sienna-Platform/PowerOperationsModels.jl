@@ -114,7 +114,7 @@ function get_reserve_total_power_by_step_dict(
     total_variable_dict = Dict{Int, Vector{Float64}}()
     for outage in associated_outages
         outage_name = IS.get_id(outage)
-        outage_rows = filter(x -> x["name2"] == outage_name, required_variables)
+        outage_rows = filter(x -> x["name"] == outage_name, required_variables)
         outage_power_v = Vector{Float64}()
         for device in contributing_devices
             device_name = PSY.get_name(device)
