@@ -895,3 +895,5 @@ convert_output_to_natural_units(::Type{HVDCLosses}) = true
 convert_output_to_natural_units(::Type{InterfaceFlowSlackUp}) = true
 convert_output_to_natural_units(::Type{InterfaceFlowSlackDown}) = true
 convert_output_to_natural_units(::Type{ActivePowerPumpVariable}) = true
+convert_output_to_natural_units(::Type{PostContingencyActivePowerReserveDeploymentVariable}) =
+    true
