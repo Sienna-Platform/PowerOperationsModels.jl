@@ -39,13 +39,15 @@ end
 # but not run in the tests and not yet refactored for IOM-POM split.
 function build_pre_step!(model::EmulationModel)
     TimerOutputs.@timeit BUILD_PROBLEMS_TIMER "Build pre-step" begin
-        validate_template(model)
         if !isempty(model)
             @info "AbstractPowerEmulationProblem status not ModelBuildStatus.EMPTY. Resetting"
             reset!(model)
         end
+        # `reset!` installs a fresh container, so the flag is set after it and before
+        # `validate_template`: the template checks read `built_for_recurrent_solves`.
         container = get_optimization_container(model)
         container.built_for_recurrent_solves = true
+        validate_template(model)
 
         @info "Initializing Optimization Container For an EmulationModel"
         init_optimization_container!(

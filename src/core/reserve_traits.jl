@@ -112,11 +112,16 @@ function deployed_fraction_values(
             ),
         )
     end
-    ts_values = IOM.get_time_series(
+    # `resolution` accompanies `interval` so an off-resolution series is rejected rather than
+    # read at the wrong step length, matching the parameter path in `add_parameters.jl`.
+    settings = get_settings(container)
+    ts_values = IOM.get_time_series_initial_values!(
         container,
+        ts_type,
         s,
         ts_name;
-        interval = get_interval(get_settings(container)),
+        interval = get_interval(settings),
+        resolution = get_resolution(settings),
     )
     return scalar .* Vector{Float64}(ts_values)
 end
