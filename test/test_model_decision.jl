@@ -239,6 +239,10 @@ end
     # The copy reads the realized values starting at the forecast's own initial timestamp,
     # i.e. its first window.
     @test TimeSeries.values(PSY.get_fuel_cost(gen2)) == fuel_window_1
+    # The second window survives the copy too — not just the first.
+    @test TimeSeries.values(
+        PSY.get_fuel_cost(gen2; start_time = init_time + Dates.Hour(24)),
+    ) == fuel_window_2
     @test [IS.get_name(md) for md in IS.list_time_series_metadata(gen2)] == ["fuel_cost"]
     @test length(collect(get_components(PSY.ThermalStandard, restored))) ==
           length(collect(get_components(PSY.ThermalStandard, c_sys5)))
