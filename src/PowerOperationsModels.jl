@@ -369,6 +369,7 @@ include("area_interchange.jl")
 
 # Operation lifecycle: build/solve/run
 include("operation/build_problem.jl")
+include("operation/parameter_time_series_store.jl")
 include("initial_conditions/initialization.jl")
 include("operation/template_validation.jl")
 include("operation/decision_model.jl")
