@@ -213,6 +213,30 @@ end
     POM.close_parameter_store!(store)
 end
 
+@testset "parameter_slice_labels finds axis2 for a 3-D parameter, empty for a 2-D one" begin
+    store = POM.ParameterTimeSeriesStore()
+    key = IOM.ParameterKey(
+        POM.IncrementalPiecewiseLinearBreakpointParameter, PSY.ThermalStandard,
+    )
+    array = JuMP.Containers.DenseAxisArray(
+        rand(2, 3, 4), ["a", "b"], ["seg1", "seg2", "seg3"], 1:4,
+    )
+    stamps = collect(range(Dates.DateTime(2024, 1, 1); step = Dates.Hour(1), length = 4))
+    POM.write_parameter_array!(store, key, array, stamps, Dates.Hour(1))
+    @test POM.parameter_slice_labels(store, key) == ["seg1", "seg2", "seg3"]
+    @test POM.parameter_slice_labels(
+        store, key; extra_features = Dict{String, Any}("model" => "UC"),
+    ) == String[]
+
+    other = IOM.ParameterKey(POM.ActivePowerTimeSeriesParameter, PSY.ThermalStandard)
+    array_2d = JuMP.Containers.DenseAxisArray(
+        [1.0 2.0 3.0 4.0; 10.0 20.0 30.0 40.0], ["a", "b"], 1:4,
+    )
+    POM.write_parameter_array!(store, other, array_2d, stamps, Dates.Hour(1))
+    @test isempty(POM.parameter_slice_labels(store, other))
+    POM.close_parameter_store!(store)
+end
+
 @testset "write_parameter_array! errors on a single-point array (IS's own floor)" begin
     store = POM.ParameterTimeSeriesStore()
     key = IOM.ParameterKey(POM.ActivePowerTimeSeriesParameter, PSY.ThermalStandard)
@@ -232,8 +256,8 @@ end
     fuel_forecast = PSY.Deterministic(;
         name = "fuel_cost",
         data = Dict(
-            init_time => collect(3.0:0.5:26.5),
-            init_time + Dates.Hour(24) => collect(4.0:0.5:27.5),
+            init_time => collect(3.0:0.5:14.5),
+            init_time + Dates.Hour(24) => collect(4.0:0.5:15.5),
         ),
         resolution = Dates.Hour(1),
         interval = Dates.Hour(24),
