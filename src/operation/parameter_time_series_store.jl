@@ -234,6 +234,29 @@ function write_parameter_array!(
 end
 
 """
+The distinct `"axis2"` feature values among this store's rows for `key` (further narrowed by
+`extra_features`, e.g. `"model"`), sorted for a deterministic order. Empty for a 2-D parameter,
+which carries no `"axis2"` feature on any of its rows -- a caller merging by slice treats that
+as "merge once, with no axis2 filter" rather than iterating zero times.
+"""
+function parameter_slice_labels(
+    store::ParameterTimeSeriesStore,
+    key::IOM.ParameterKey;
+    extra_features::Dict{String, <:Any} = Dict{String, Any}(),
+)::Vector{String}
+    features = _parameter_key_features(key, extra_features)
+    rows = IS.list_time_series_metadata(
+        store.store; owner_id = PARAMETER_ROW_OWNER_ID, features = features,
+    )
+    slice_labels = Set{String}()
+    for md in rows
+        row_features = IS.get_features(md)
+        haskey(row_features, "axis2") && push!(slice_labels, string(row_features["axis2"]))
+    end
+    return sort!(collect(slice_labels))
+end
+
+"""
 Read back every parameter array row this store holds for `key`, keyed by its axis-1 label.
 """
 function read_parameter_array(
