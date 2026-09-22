@@ -257,6 +257,21 @@ function parameter_slice_labels(
 end
 
 """
+Whether this store holds any parameter row for `key` (narrowed by `extra_features`).
+"""
+function has_parameter_rows(
+    store::ParameterTimeSeriesStore,
+    key::IOM.ParameterKey;
+    extra_features::Dict{String, <:Any} = Dict{String, Any}(),
+)::Bool
+    features = _parameter_key_features(key, extra_features)
+    rows = IS.list_time_series_metadata(
+        store.store; owner_id = PARAMETER_ROW_OWNER_ID, features = features,
+    )
+    return !isempty(rows)
+end
+
+"""
 Read back every parameter array row this store holds for `key`, keyed by its axis-1 label.
 """
 function read_parameter_array(
