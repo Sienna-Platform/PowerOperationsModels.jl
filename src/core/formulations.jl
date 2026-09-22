@@ -842,7 +842,8 @@ per-(outage, generator) post-contingency active power expression.
 
 See also `SecurityConstrainedRampReserve`.
 """
-struct SecurityConstrainedContingencyReserve <: AbstractSecurityConstrainedReservesFormulation end
+struct SecurityConstrainedContingencyReserve <:
+       AbstractSecurityConstrainedReservesFormulation end
 
 """
 Security-constrained ramp reserve formulation: like `RampReserve` for the

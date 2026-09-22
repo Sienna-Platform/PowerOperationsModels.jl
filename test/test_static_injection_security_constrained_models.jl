@@ -341,7 +341,10 @@ end
             ),
         ]
         gen = get_component(ThermalStandard, sys, "Solitude")
-        set_ramp_limits!(gen, (up = 0.4 * PSY.CU/u"minute", down = 0.4 * PSY.CU/u"minute"))
+        set_ramp_limits!(
+            gen,
+            (up = 0.4 * PSY.CU / u"minute", down = 0.4 * PSY.CU / u"minute"),
+        )
         reserve_up = get_component(OnlineReserve{ReserveUp}, sys, "Reserve1")
         component = get_component(ThermalStandard, sys, "Alta")
         attach_geometric_outage!(sys, component, [reserve_up])
@@ -408,7 +411,7 @@ end
     # because only the monitored subset contributes
     # `PostContingencyFlowRateConstraint` rows per outage step.
     gen = get_component(ThermalStandard, sys, "Solitude")
-    set_ramp_limits!(gen, (up = 0.4 * PSY.CU/u"minute", down = 0.4 * PSY.CU/u"minute")) #Increase ramp limits to make the problem feasible
+    set_ramp_limits!(gen, (up = 0.4 * PSY.CU / u"minute", down = 0.4 * PSY.CU / u"minute")) #Increase ramp limits to make the problem feasible
     reserve_up = get_component(OnlineReserve{ReserveUp}, sys, "Reserve1")
     monitored_subset = [get_component(Line, sys, n) for n in monitored_line_names]
     component = get_component(ThermalStandard, sys, "Alta")
@@ -535,7 +538,10 @@ end
             ),
         ]
         gen = get_component(ThermalStandard, sys, "Solitude")
-        set_ramp_limits!(gen, (up = 0.4 * PSY.CU/u"minute", down = 0.4 * PSY.CU/u"minute")) #Increase ramp limits to make the problem feasible
+        set_ramp_limits!(
+            gen,
+            (up = 0.4 * PSY.CU / u"minute", down = 0.4 * PSY.CU / u"minute"),
+        ) #Increase ramp limits to make the problem feasible
         reserve_up = get_component(OnlineReserve{ReserveUp}, sys, "Reserve1")
         remove_time_series!(
             sys,
