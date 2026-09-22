@@ -178,7 +178,7 @@ end
     array = JuMP.Containers.DenseAxisArray(
         [1.0 2.0 3.0 4.0; 10.0 20.0 30.0 40.0], labels, 1:4,
     )
-    POM.write_parameter_array!(store, key, array, stamps)
+    POM.write_parameter_array!(store, key, array, stamps, Dates.Hour(1))
 
     back = POM.read_parameter_array(store, key)
     @test Set(keys(back)) == Set(labels)
@@ -188,9 +188,92 @@ end
     @test isempty(POM.parameter_association_rows(store))
     # A different parameter with the same labels does not collide.
     other = IOM.ParameterKey(POM.FuelCostParameter, PSY.ThermalStandard)
-    POM.write_parameter_array!(store, other, array .* 2, stamps)
+    POM.write_parameter_array!(store, other, array .* 2, stamps, Dates.Hour(1))
     @test TimeSeries.values(POM.read_parameter_array(store, other)["Solitude"]) ==
           [2.0, 4.0, 6.0, 8.0]
+    POM.close_parameter_store!(store)
+end
+
+@testset "3-D parameter arrays round-trip with time as the last axis" begin
+    store = POM.ParameterTimeSeriesStore()
+    key = IOM.ParameterKey(
+        POM.IncrementalPiecewiseLinearBreakpointParameter, PSY.ThermalStandard,
+    )
+    array = JuMP.Containers.DenseAxisArray(
+        rand(2, 3, 4), ["a", "b"], ["seg1", "seg2", "seg3"], 1:4,
+    )
+    stamps = collect(range(Dates.DateTime(2024, 1, 1); step = Dates.Hour(1), length = 4))
+    POM.write_parameter_array!(store, key, array, stamps, Dates.Hour(1))
+
+    back = POM.read_parameter_array(
+        store, key; extra_features = Dict("axis2" => "seg2"),
+    )
+    @test TimeSeries.values(back["a"]) == array["a", "seg2", :]
+    @test TimeSeries.timestamp(back["a"]) == stamps
+    POM.close_parameter_store!(store)
+end
+
+@testset "write_parameter_array! errors on a single-point array (IS's own floor)" begin
+    store = POM.ParameterTimeSeriesStore()
+    key = IOM.ParameterKey(POM.ActivePowerTimeSeriesParameter, PSY.ThermalStandard)
+    labels = ["Solitude", "Park City"]
+    stamps = [Dates.DateTime(2024, 1, 1)]
+    array = JuMP.Containers.DenseAxisArray(reshape([1.0, 10.0], 2, 1), labels, 1:1)
+    @test_throws ArgumentError POM.write_parameter_array!(
+        store, key, array, stamps, Dates.Hour(1),
+    )
+    POM.close_parameter_store!(store)
+end
+
+@testset "parameter_store_from_model warns and skips arrays on a 1-step horizon, but still copies costs" begin
+    c_sys5 = deepcopy(PSB.build_system(PSITestSystems, "c_sys5_uc"))
+    gen = first(get_components(PSY.ThermalStandard, c_sys5))
+    init_time = Dates.DateTime(2024, 1, 1)
+    fuel_forecast = PSY.Deterministic(;
+        name = "fuel_cost",
+        data = Dict(
+            init_time => collect(3.0:0.5:26.5),
+            init_time + Dates.Hour(24) => collect(4.0:0.5:27.5),
+        ),
+        resolution = Dates.Hour(1),
+        interval = Dates.Hour(24),
+    )
+    PSY.add_time_series!(c_sys5, gen, fuel_forecast)
+    original_key = IS.get_time_series_key(
+        only(
+            IS.list_time_series_metadata(
+                IS.get_data_store(c_sys5.data); owner_id = IS.get_id(gen),
+                name = "fuel_cost",
+            ),
+        ),
+    )
+    PSY.set_operation_cost!(
+        gen,
+        PSY.ThermalGenerationCost(
+            PSY.FuelCurve(PSY.LinearCurve(1.0), original_key), 0.0, 0.0, 0.0,
+        ),
+    )
+
+    template = get_thermal_standard_uc_template()
+    model = DecisionModel(
+        template, c_sys5;
+        optimizer = HiGHS_optimizer, horizon = Dates.Hour(1), system_to_file = false,
+    )
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+    @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+
+    store, key_map =
+        @test_logs (:warn, r"at least two points") POM.parameter_store_from_model(
+            model,
+        )
+    # No parameter array rows were written (they live under the synthetic owner id).
+    @test isempty(
+        IS.list_time_series_metadata(store.store; owner_id = POM.PARAMETER_ROW_OWNER_ID),
+    )
+    # The cost copy still went through: one series, under gen's own id.
+    @test IS.get_num_time_series(store.store) == 1
+    @test length(key_map) == 1
     POM.close_parameter_store!(store)
 end
 
@@ -220,6 +303,52 @@ end
     @test IS.get_num_time_series(store.store) == 1      # the load profiles were NOT copied
     @test length(POM.parameter_association_rows(store)) == 1
     POM.close_parameter_store!(store)
+end
+
+@testset "copy_cost_time_series! keeps every forecast window and the series type" begin
+    sys = deepcopy(PSB.build_system(PSITestSystems, "c_sys5_uc"))
+    gen = first(get_components(PSY.ThermalStandard, sys))
+    init_time = Dates.DateTime(2024, 1, 1)
+    window_2_start = init_time + Dates.Hour(24)
+    fuel_window_1 = collect(3.0:0.5:14.5)
+    fuel_window_2 = collect(4.0:0.5:15.5)
+    fuel_forecast = PSY.Deterministic(;
+        name = "fuel_cost",
+        data = Dict(init_time => fuel_window_1, window_2_start => fuel_window_2),
+        resolution = Dates.Hour(1),
+        interval = Dates.Hour(24),
+    )
+    PSY.add_time_series!(sys, gen, fuel_forecast)
+    original_key = IS.get_time_series_key(
+        only(
+            IS.list_time_series_metadata(
+                IS.get_data_store(sys.data); owner_id = IS.get_id(gen),
+                name = "fuel_cost",
+            ),
+        ),
+    )
+    PSY.set_operation_cost!(
+        gen,
+        PSY.ThermalGenerationCost(
+            PSY.FuelCurve(PSY.LinearCurve(1.0), original_key), 0.0, 0.0, 0.0,
+        ),
+    )
+
+    store = POM.ParameterTimeSeriesStore()
+    key_map = POM.copy_cost_time_series!(store, sys)
+    @test length(key_map) == 1
+
+    dir = mktempdir(; cleanup = true)
+    bundle = joinpath(dir, "system-test")
+    POM.write_results_system_bundle!(sys, store, key_map, bundle)
+    POM.close_parameter_store!(store)
+
+    restored = PSY.from_file(bundle; time_series_read_only = true)
+    gen2 = get_component(PSY.ThermalStandard, restored, PSY.get_name(gen))
+    restored_ts = PSY.get_time_series(PSY.Deterministic, gen2, "fuel_cost")
+    @test PSY.get_name(restored_ts) == "fuel_cost"
+    @test TimeSeries.values(PSY.get_fuel_cost(gen2; start_time = window_2_start)) ==
+          fuel_window_2
 end
 
 @testset "parameter windows round-trip as forecasts" begin
@@ -278,6 +407,7 @@ end
     POM.write_parameter_array!(
         live, key, JuMP.Containers.DenseAxisArray([5.0 6.0 7.0 8.0], ["Solitude"], 1:4),
         collect(range(Dates.DateTime(2024, 1, 1); step = Dates.Hour(1), length = 4)),
+        Dates.Hour(1),
     )
     POM.close_parameter_store!(live)
 
@@ -298,7 +428,7 @@ end
     array = JuMP.Containers.DenseAxisArray(
         [1.0 2.0 3.0 4.0; 10.0 20.0 30.0 40.0], labels, 1:4,
     )
-    POM.write_parameter_array!(store, key, array, stamps)
+    POM.write_parameter_array!(store, key, array, stamps, Dates.Hour(1))
 
     dir = mktempdir(; cleanup = true)
     bundle = joinpath(dir, "system-test")
