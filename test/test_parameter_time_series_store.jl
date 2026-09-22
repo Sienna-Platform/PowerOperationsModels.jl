@@ -169,3 +169,55 @@ end
     cost_ts = PSY.get_fuel_cost(gen2)
     @test TimeSeries.values(cost_ts) == collect(3.0:0.5:14.5)
 end
+
+@testset "parameter arrays round-trip under the synthetic owner" begin
+    store = POM.ParameterTimeSeriesStore()
+    key = IOM.ParameterKey(POM.ActivePowerTimeSeriesParameter, PSY.ThermalStandard)
+    labels = ["Solitude", "Park City"]
+    stamps = collect(range(Dates.DateTime(2024, 1, 1); step = Dates.Hour(1), length = 4))
+    array = JuMP.Containers.DenseAxisArray(
+        [1.0 2.0 3.0 4.0; 10.0 20.0 30.0 40.0], labels, 1:4,
+    )
+    POM.write_parameter_array!(store, key, array, stamps)
+
+    back = POM.read_parameter_array(store, key)
+    @test Set(keys(back)) == Set(labels)
+    @test TimeSeries.values(back["Solitude"]) == [1.0, 2.0, 3.0, 4.0]
+    @test TimeSeries.timestamp(back["Park City"]) == stamps
+    # Parameter rows are not document rows.
+    @test isempty(POM.parameter_association_rows(store))
+    # A different parameter with the same labels does not collide.
+    other = IOM.ParameterKey(POM.FuelCostParameter, PSY.ThermalStandard)
+    POM.write_parameter_array!(store, other, array .* 2, stamps)
+    @test TimeSeries.values(POM.read_parameter_array(store, other)["Solitude"]) ==
+          [2.0, 4.0, 6.0, 8.0]
+    POM.close_parameter_store!(store)
+end
+
+@testset "copy_cost_time_series! copies exactly the keys the costs hold" begin
+    sys = deepcopy(PSB.build_system(PSITestSystems, "c_sys5"))
+    gen = first(get_components(PSY.ThermalStandard, sys))
+    stamps = range(Dates.DateTime(2024, 1, 1); step = Dates.Hour(1), length = 24)
+    fuel = TimeSeries.TimeArray(stamps, collect(3.0:0.5:14.5))
+    PSY.add_time_series!(sys, gen, PSY.SingleTimeSeries(; name = "fuel_cost", data = fuel))
+    key = IS.get_time_series_key(
+        only(
+            IS.list_time_series_metadata(
+                IS.get_data_store(sys.data); owner_id = IS.get_id(gen),
+                name = "fuel_cost",
+            ),
+        ),
+    )
+    PSY.set_operation_cost!(
+        gen,
+        PSY.ThermalGenerationCost(PSY.FuelCurve(PSY.LinearCurve(1.0), key), 0.0, 0.0, 0.0),
+    )
+
+    store = POM.ParameterTimeSeriesStore()
+    key_map = POM.copy_cost_time_series!(store, sys)
+    @test length(key_map) == 1
+    @test haskey(key_map, IS.get_association_id(key))
+    @test IS.get_num_time_series(store.store) == 1      # the load profiles were NOT copied
+    @test length(POM.parameter_association_rows(store)) == 1
+    POM.close_parameter_store!(store)
+end
