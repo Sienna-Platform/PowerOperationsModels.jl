@@ -19,6 +19,7 @@ import PowerNetworkMatrices:
     RadialReduction, DegreeTwoReduction, WardReduction, ZeroImpedanceBranchReduction
 import PowerSystems
 import PowerSystems: get_component, @u_str
+import InfrastructureCoreOpenAPIModels
 import PrettyTables
 import ProgressMeter
 import Serialization
@@ -62,6 +63,7 @@ const ISOPT = InfrastructureSystems.Optimization
 
 const PSY = PowerSystems
 const PNM = PowerNetworkMatrices
+const IC = InfrastructureCoreOpenAPIModels
 
 # Import abstract types from InfrastructureSystems.Optimization
 import InfrastructureSystems.Optimization:
