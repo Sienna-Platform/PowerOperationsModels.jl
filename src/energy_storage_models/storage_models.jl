@@ -724,7 +724,7 @@ function add_to_expression!(
     W <: AbstractReservesFormulation,
 }
     s_name = PSY.get_name(service)
-    variable = get_variable(container, U, V)
+    variable = get_variable(container, U, IOM.ComponentPairKey{UV, V})
     for d in devices
         name = PSY.get_name(d)
         expression = get_expression(container, T, UV, _service_container_meta(service))

@@ -2723,7 +2723,7 @@ function add_to_expression!(
                 isa(service, PSY.Reserve{PSY.ReserveUp}) || continue
                 service_name = PSY.get_name(service)
                 deployed_fraction = PSY.get_deployed_fraction(service)
-                variable = get_variable(container, U, typeof(service))
+                variable = get_variable(container, U, IOM.ComponentPairKey{V, typeof(service)})
                 for t in get_time_steps(container)
                     add_proportional_to_jump_expression!(
                         expression[name, t],
@@ -2762,7 +2762,7 @@ function add_to_expression!(
                 isa(service, PSY.Reserve{PSY.ReserveDown}) || continue
                 service_name = PSY.get_name(service)
                 deployed_fraction = PSY.get_deployed_fraction(service)
-                variable = get_variable(container, U, typeof(service))
+                variable = get_variable(container, U, IOM.ComponentPairKey{V, typeof(service)})
                 for t in get_time_steps(container)
                     add_proportional_to_jump_expression!(
                         expression[name, t],
@@ -2831,7 +2831,7 @@ function add_to_expression!(
     W <: AbstractReservesFormulation,
 }
     service_name = PSY.get_name(service)
-    variable = get_variable(container, U, X)
+    variable = get_variable(container, U, IOM.ComponentPairKey{V, X})
     if !has_container_key(container, T, V)
         add_expressions!(container, T, devices, model)
     end
@@ -2862,7 +2862,7 @@ function add_to_expression!(
     W <: AbstractReservesFormulation,
 }
     service_name = PSY.get_name(service)
-    variable = get_variable(container, U, X)
+    variable = get_variable(container, U, IOM.ComponentPairKey{V, X})
     if !has_container_key(container, T, V)
         add_expressions!(container, T, devices, model)
     end
