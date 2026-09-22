@@ -5,7 +5,10 @@ const _G1_META = "G1"
 
 _validate_reserve_formulation(::ServiceModel) = false
 _validate_reserve_formulation(
-    ::ServiceModel{<:PSY.Reserve{PSY.ReserveUp}, <:AbstractSecurityConstrainedReservesFormulation},
+    ::ServiceModel{
+        <:PSY.Reserve{PSY.ReserveUp},
+        <:AbstractSecurityConstrainedReservesFormulation,
+    },
 ) = true
 _validate_reserve_formulation(
     ::ServiceModel{<:PSY.AbstractReserve, <:AbstractSecurityConstrainedReservesFormulation},
@@ -15,7 +18,8 @@ _validate_reserve_formulation(
     ),
 )
 
-_valid_component_type(::PSY.ACTransmission, ::NetworkModel{<:AbstractPTDFNetworkModel}) = true
+_valid_component_type(::PSY.ACTransmission, ::NetworkModel{<:AbstractPTDFNetworkModel}) =
+    true
 _valid_component_type(::PSY.AreaInterchange, ::NetworkModel{AreaBalanceNetworkModel}) = true
 _valid_component_type(::PSY.Component, ::NetworkModel) = false
 
@@ -31,7 +35,8 @@ function _security_constrained_outages(
     services_template::ServicesModelContainer,
     network_model::NetworkModel,
 )
-    contributing_devices, outaged_generators, monitored_components = _OUTAGE_MAP(), _OUTAGE_MAP(), _OUTAGE_MAP()
+    contributing_devices, outaged_generators, monitored_components =
+        _OUTAGE_MAP(), _OUTAGE_MAP(), _OUTAGE_MAP()
     for model in values(services_template)
         _validate_reserve_formulation(model) || continue
         service_type = get_component_type(model)
@@ -46,8 +51,15 @@ function _security_constrained_outages(
 
                 haskey(outaged_generators, uuid) && continue
                 outaged = outaged_generators[uuid] = _PER_TYPE()
-                for generator in PSY.get_associated_components(sys, outage; component_type = PSY.Generator)
-                    push!(get!(Set{String}, outaged, typeof(generator)), PSY.get_name(generator))
+                for generator in PSY.get_associated_components(
+                    sys,
+                    outage;
+                    component_type = PSY.Generator,
+                )
+                    push!(
+                        get!(Set{String}, outaged, typeof(generator)),
+                        PSY.get_name(generator),
+                    )
                 end
 
                 monitored = monitored_components[uuid] = _PER_TYPE()
@@ -135,14 +147,19 @@ _create_post_contingency_interchange_variables!(
     ::NetworkModel,
 ) = nothing
 
-_deployment_expression_type(::NetworkModel{<:AbstractPTDFNetworkModel}) = PostContingencyNodalActivePowerDeployment
-_deployment_expression_type(::NetworkModel{AreaBalanceNetworkModel}) = PostContingencyAreaActivePowerDeployment
+_deployment_expression_type(::NetworkModel{<:AbstractPTDFNetworkModel}) =
+    PostContingencyNodalActivePowerDeployment
+_deployment_expression_type(::NetworkModel{AreaBalanceNetworkModel}) =
+    PostContingencyAreaActivePowerDeployment
 
 _deployment_component_type(::NetworkModel{<:AbstractPTDFNetworkModel}) = PSY.ACBus
 _deployment_component_type(::NetworkModel{AreaBalanceNetworkModel}) = PSY.Area
 
-_location_key(component, network_model::NetworkModel{<:AbstractPTDFNetworkModel}) = string(PNM.get_mapped_bus_number(get_network_reduction(network_model), PSY.get_bus(component)))
-_location_key(component, ::NetworkModel{AreaBalanceNetworkModel}) = PSY.get_name(PSY.get_area(PSY.get_bus(component)))
+_location_key(component, network_model::NetworkModel{<:AbstractPTDFNetworkModel}) = string(
+    PNM.get_mapped_bus_number(get_network_reduction(network_model), PSY.get_bus(component)),
+)
+_location_key(component, ::NetworkModel{AreaBalanceNetworkModel}) =
+    PSY.get_name(PSY.get_area(PSY.get_bus(component)))
 
 # [contributing device reserve] minus [outaged generator power] per bus or area
 function _build_post_contingency_locational_power!(
@@ -150,19 +167,32 @@ function _build_post_contingency_locational_power!(
     sys::PSY.System,
     contributing_devices::_OUTAGE_MAP,
     outaged_generators::_OUTAGE_MAP,
-    network_model::NetworkModel
+    network_model::NetworkModel,
 )
-    expr = lazy_container_addition!(container, _deployment_expression_type(network_model), _deployment_component_type(network_model), String[], Int[], Int[]; sparse = true)
+    expr = lazy_container_addition!(
+        container,
+        _deployment_expression_type(network_model),
+        _deployment_component_type(network_model),
+        String[],
+        Int[],
+        Int[];
+        sparse = true,
+    )
     jump_model = get_jump_model(container)
     uuids = collect(keys(contributing_devices))
     time_steps = get_time_steps(container)
     for uuid in uuids
         for (device_type, names) in contributing_devices[uuid]
-            reserve = get_variable(container, PostContingencyActivePowerReserveDeploymentVariable, device_type)
+            reserve = get_variable(
+                container,
+                PostContingencyActivePowerReserveDeploymentVariable,
+                device_type,
+            )
             outaged = get(Set{String}, outaged_generators[uuid], device_type)
             for name in names
                 name in outaged && continue
-                key = _location_key(PSY.get_component(device_type, sys, name), network_model)
+                key =
+                    _location_key(PSY.get_component(device_type, sys, name), network_model)
                 for t in time_steps
                     ex = get!(expr.data, (key, uuid, t), JuMP.AffExpr(0.0))
                     JuMP.add_to_expression!(ex, reserve[name, uuid, t])
@@ -172,7 +202,10 @@ function _build_post_contingency_locational_power!(
         for (generator_type, names) in outaged_generators[uuid]
             power = get_variable(container, ActivePowerVariable, generator_type)
             for name in names
-                key = _location_key(PSY.get_component(generator_type, sys, name), network_model)
+                key = _location_key(
+                    PSY.get_component(generator_type, sys, name),
+                    network_model,
+                )
                 for t in time_steps
                     JuMP.add_to_expression!(expr[key, uuid, t], -1.0, power[name, t])
                 end
@@ -228,7 +261,11 @@ function _build_post_contingency_flow!(
                     )
                 end
                 for t in time_steps
-                    ex = expr[entry_name, uuid, t] = IOM.get_hinted_aff_expr(length(JuMP.linear_terms(pre_flow[entry_name, t])) + length(buses[uuid]))
+                    ex =
+                        expr[entry_name, uuid, t] = IOM.get_hinted_aff_expr(
+                            length(JuMP.linear_terms(pre_flow[entry_name, t])) +
+                            length(buses[uuid]),
+                        )
                     JuMP.add_to_expression!(ex, pre_flow[entry_name, t])
                     for bus in buses[uuid]
                         haskey(df, bus) || continue
@@ -258,11 +295,19 @@ function _build_post_contingency_flow!(
         meta = _G1_META,
     )
     flow = get_variable(container, FlowActivePowerVariable, PSY.AreaInterchange)
-    deviation = get_variable(container, PostContingencyAreaInterchangeFlowDeviationVariable, PSY.AreaInterchange)
+    deviation = get_variable(
+        container,
+        PostContingencyAreaInterchangeFlowDeviationVariable,
+        PSY.AreaInterchange,
+    )
     modeled = Set{String}(axes(flow, 1))
     for (uuid, per_type) in monitored_components
         for name in get(per_type, PSY.AreaInterchange, Set{String}())
-            name in modeled || throw(IS.ConflictingInputsError("Monitored AreaInterchange $(name) is not modeled."))
+            name in modeled || throw(
+                IS.ConflictingInputsError(
+                    "Monitored AreaInterchange $(name) is not modeled.",
+                ),
+            )
             for t in time_steps
                 ex = expr[name, uuid, t]
                 JuMP.add_to_expression!(ex, flow[name, t])
@@ -303,7 +348,11 @@ function _constrain_post_contingency_balance!(
             end
         end
         for (device_type, names) in contributing_devices[uuid]
-            reserve = get_variable(container, PostContingencyActivePowerReserveDeploymentVariable, device_type)
+            reserve = get_variable(
+                container,
+                PostContingencyActivePowerReserveDeploymentVariable,
+                device_type,
+            )
             outaged = get(outaged_generators[uuid], device_type, Set{String}())
             for name in names
                 name in outaged && continue
@@ -329,7 +378,11 @@ function _constrain_post_contingency_balance!(
 
     # Area name => (sign, interchange name)
     interchanges = Dict{String, Vector{Tuple{Float64, String}}}()
-    if has_container_key(container, PostContingencyAreaInterchangeFlowDeviationVariable, PSY.AreaInterchange)
+    if has_container_key(
+        container,
+        PostContingencyAreaInterchangeFlowDeviationVariable,
+        PSY.AreaInterchange,
+    )
         deviation = get_variable(
             container,
             PostContingencyAreaInterchangeFlowDeviationVariable,
@@ -341,11 +394,15 @@ function _constrain_post_contingency_balance!(
             name in modeled || continue
             from_area = PSY.get_name(PSY.get_from_area(interchange))
             to_area = PSY.get_name(PSY.get_to_area(interchange))
-            push!(get!(Vector{Tuple{Float64, String}}, interchanges, from_area), (-1.0, name))
+            push!(
+                get!(Vector{Tuple{Float64, String}}, interchanges, from_area),
+                (-1.0, name),
+            )
             push!(get!(Vector{Tuple{Float64, String}}, interchanges, to_area), (1.0, name))
         end
     end
-    deployment = get_expression(container, PostContingencyAreaActivePowerDeployment, PSY.Area)
+    deployment =
+        get_expression(container, PostContingencyAreaActivePowerDeployment, PSY.Area)
 
     area_names = PSY.get_name.(PSY.get_components(PSY.Area, sys))
     cons = add_constraints_container!(
@@ -402,7 +459,10 @@ function _constrain_post_contingency_generation!(
                     PSY.get_max_active_power(PSY.get_component(device_type, sys, name), PSY.SU)
                 end
                 for t in time_steps
-                    cons[name, uuid, t] = JuMP.@constraint(jump_model, power[name, t] + reserve[name, uuid, t] <= limit)
+                    cons[name, uuid, t] = JuMP.@constraint(
+                        jump_model,
+                        power[name, t] + reserve[name, uuid, t] <= limit
+                    )
                 end
             end
         end
@@ -504,7 +564,12 @@ function _constrain_post_contingency_flow!(
     jump_model = get_jump_model(container)
     for (uuid, per_type) in monitored_components
         for (component_type, names) in per_type
-            flow = get_expression(container, _post_contingency_flow_expression(network_model), component_type, _G1_META)
+            flow = get_expression(
+                container,
+                _post_contingency_flow_expression(network_model),
+                component_type,
+                _G1_META,
+            )
             cons_lb = lazy_container_addition!(
                 container,
                 PostContingencyFlowRateConstraint,
@@ -525,15 +590,18 @@ function _constrain_post_contingency_flow!(
                 sparse = true,
                 meta = "$(_G1_META)_ub",
             )
-            reduction_name_map = PNM.get_component_to_reduction_name_map(catalog, component_type)
+            reduction_name_map =
+                PNM.get_component_to_reduction_name_map(catalog, component_type)
             limits = Dict{String, MinMax}()
             for name in names, t in get_time_steps(container)
                 entry_name = reduction_name_map[name]
                 lims = get!(limits, entry_name) do
                     _post_contingency_flow_limits(sys, network_model, component_type, name)
                 end
-                cons_ub[entry_name, uuid, t] = JuMP.@constraint(jump_model, flow[entry_name, uuid, t] <= lims.max)
-                cons_lb[entry_name, uuid, t] = JuMP.@constraint(jump_model, flow[entry_name, uuid, t] >= lims.min)
+                cons_ub[entry_name, uuid, t] =
+                    JuMP.@constraint(jump_model, flow[entry_name, uuid, t] <= lims.max)
+                cons_lb[entry_name, uuid, t] =
+                    JuMP.@constraint(jump_model, flow[entry_name, uuid, t] >= lims.min)
             end
         end
     end

@@ -141,8 +141,16 @@ function construct_services!(
 
     contributing_devices, outaged_generators, monitored_components =
         _security_constrained_outages(sys, services_template, network_model)
-    _create_post_contingency_reserve_variables!(container, contributing_devices, outaged_generators)
-    _create_post_contingency_interchange_variables!(container, monitored_components, network_model)
+    _create_post_contingency_reserve_variables!(
+        container,
+        contributing_devices,
+        outaged_generators,
+    )
+    _create_post_contingency_interchange_variables!(
+        container,
+        monitored_components,
+        network_model,
+    )
     return
 end
 
@@ -188,11 +196,33 @@ function construct_services!(
 
     contributing_devices, outaged_generators, monitored_components =
         _security_constrained_outages(sys, services_template, network_model)
-    _build_post_contingency_locational_power!(container, sys, contributing_devices, outaged_generators, network_model)
+    _build_post_contingency_locational_power!(
+        container,
+        sys,
+        contributing_devices,
+        outaged_generators,
+        network_model,
+    )
     _build_post_contingency_flow!(container, monitored_components, network_model)
-    _constrain_post_contingency_balance!(container, sys, contributing_devices, outaged_generators, network_model)
-    _constrain_post_contingency_generation!(container, sys, outaged_generators, contributing_devices)
-    _constrain_post_contingency_reserve!(container, sys, services_template, outaged_generators)
+    _constrain_post_contingency_balance!(
+        container,
+        sys,
+        contributing_devices,
+        outaged_generators,
+        network_model,
+    )
+    _constrain_post_contingency_generation!(
+        container,
+        sys,
+        outaged_generators,
+        contributing_devices,
+    )
+    _constrain_post_contingency_reserve!(
+        container,
+        sys,
+        services_template,
+        outaged_generators,
+    )
     _constrain_post_contingency_flow!(container, sys, monitored_components, network_model)
     return
 end
@@ -1107,7 +1137,15 @@ function construct_service!(
     return
 end
 
-function construct_service!(container::OptimizationContainer, sys::PSY.System, ::ArgumentConstructStage, model::ServiceModel{R, SecurityConstrainedContingencyReserve}, ::Dict, ::Set, ::NetworkModel) where {R <: PSY.AbstractReserve}
+function construct_service!(
+    container::OptimizationContainer,
+    sys::PSY.System,
+    ::ArgumentConstructStage,
+    model::ServiceModel{R, SecurityConstrainedContingencyReserve},
+    ::Dict,
+    ::Set,
+    ::NetworkModel,
+) where {R <: PSY.AbstractReserve}
     services = _services_with_contributors(model, sys)
     isempty(services) && return
     ts_services = [s for s in services if _has_ts_requirement(model, s)]
@@ -1134,4 +1172,12 @@ function construct_service!(container::OptimizationContainer, sys::PSY.System, :
     return
 end
 # These models are constructed entirely in construct_services!
-construct_service!(::OptimizationContainer, ::PSY.System, ::ModelConstructStage, ::ServiceModel{<:PSY.AbstractReserve, SecurityConstrainedContingencyReserve}, ::Dict, ::Set, ::NetworkModel) = nothing
+construct_service!(
+    ::OptimizationContainer,
+    ::PSY.System,
+    ::ModelConstructStage,
+    ::ServiceModel{<:PSY.AbstractReserve, SecurityConstrainedContingencyReserve},
+    ::Dict,
+    ::Set,
+    ::NetworkModel,
+) = nothing
