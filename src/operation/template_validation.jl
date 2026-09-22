@@ -296,13 +296,16 @@ function _check_deployed_fraction_time_series(model::IOM.AbstractOptimizationMod
     get_rebuild_model(get_settings(container)) && return
     system = get_system(model)
     for (_, service_model) in get_service_models(get_template(model))
+        ts_names = get_time_series_names(service_model)
+        haskey(ts_names, DeployedFractionTimeSeriesParameter) || continue
+        ts_name = ts_names[DeployedFractionTimeSeriesParameter]
         for service in get_available_components(service_model, system)
             service isa PSY.AbstractReserve || continue
-            _has_ts_deployed_fraction(service) || continue
+            PSY.has_time_series(service, ts_name) || continue
             throw(
                 IS.ConflictingInputsError(
-                    "Reserve $(PSY.get_name(service)) carries a \
-                    $(get_deployed_fraction_time_series_name(service)) time series, but the \
+                    "Reserve $(PSY.get_name(service)) carries a $(ts_name) time series, \
+                    but the \
                     model is built for recurrent solves with rebuild_model = false. The \
                     deployed fraction is a constraint coefficient baked at build time, so it \
                     would stay pinned to the first window while the horizon advances. Set \

@@ -62,48 +62,46 @@ function _has_ts_requirement(model::ServiceModel, s::PSY.AbstractReserve)
 end
 
 """
-Name of the time series carrying a reserve's deployed-fraction profile.
+The `ServiceModel` in `device_model` that covers `service`, or `nothing` when the device model
+registers no model for that service's type.
 
-Unlike [`RequirementTimeSeriesParameter`](@ref), this name is not overridable per
-`ServiceModel`. The multiplier seams that consume it (`get_fraction` for storage,
-`_reserve_scale` for hybrids) are called from device-side wiring that reaches services through
-`PSY.get_services(d)` and never holds a `ServiceModel`. Dispatching on the reserve keeps the
-name customizable without threading a `ServiceModel` through three device families.
-
-Extend it by qualifying the name, as with `get_default_time_series_names`:
-
-```julia
-POM.get_deployed_fraction_time_series_name(::MyReserve) = "my_fraction"
-```
+Mirrors the type match the hydro served-reserve wiring already performs: a `ServiceModel`'s
+component type can be partially applied (`OnlineReserve{ReserveUp}`, a `UnionAll`), so the
+comparison is `typeof(service) <: get_component_type(service_model)`.
 """
-get_deployed_fraction_time_series_name(::PSY.AbstractReserve) = "deployed_fraction"
-
-"Whether a reserve carries a deployed-fraction profile series."
-function _has_ts_deployed_fraction(s::PSY.AbstractReserve)
-    return PSY.has_time_series(s, get_deployed_fraction_time_series_name(s))
+function _service_model_for(device_model::DeviceModel, service::PSY.Service)
+    for service_model in get_services(device_model)
+        typeof(service) <: get_component_type(service_model) && return service_model
+    end
+    return nothing
 end
 
 """
 Per-time-step deployed fraction for `s`, as `deployed_fraction * profile[t]`.
 
-Returns `fill(scalar, horizon)` when no profile is attached, reproducing the constant-coefficient
-behavior exactly. Always returns a `Vector{Float64}` so the multiplier seams stay type-stable.
+Returns `fill(scalar, horizon)` when the model declares no deployed-fraction series name or the
+reserve carries no such series, reproducing the constant-coefficient behavior exactly. Always
+returns a `Vector{Float64}` so the multiplier seams stay type-stable.
 
-The value lands in constraint-coefficient position, so it is resolved to `Float64` at build time
-rather than held in a parameter container: a JuMP parameter multiplying a reserve award would
-make the energy balance bilinear. Repeated calls for a service shared across devices are cheap
-because IOM caches resolved series.
+The name is resolved from the `ServiceModel`'s `time_series_names`, so a user can override it
+there, exactly as for [`RequirementTimeSeriesParameter`](@ref). Unlike `requirement` the series
+backs no parameter container: the fraction multiplies a reserve award, so it is a constraint
+coefficient, and a JuMP parameter in coefficient position would make the energy balance
+bilinear. Repeated calls for a service shared across devices are cheap because IOM caches
+resolved series.
 """
 function deployed_fraction_values(
     container::OptimizationContainer,
+    model::ServiceModel,
     s::PSY.AbstractReserve,
 )::Vector{Float64}
     scalar = PSY.get_deployed_fraction(s)
     time_steps = get_time_steps(container)
-    if !_has_ts_deployed_fraction(s)
+    ts_names = get_time_series_names(model)
+    haskey(ts_names, DeployedFractionTimeSeriesParameter) ||
         return fill(scalar, length(time_steps))
-    end
-    ts_name = get_deployed_fraction_time_series_name(s)
+    ts_name = ts_names[DeployedFractionTimeSeriesParameter]
+    PSY.has_time_series(s, ts_name) || return fill(scalar, length(time_steps))
     ts_type = get_default_time_series_type(container)
     if !PSY.has_time_series(s, ts_type, ts_name)
         throw(
@@ -121,6 +119,26 @@ function deployed_fraction_values(
         interval = get_interval(get_settings(container)),
     )
     return scalar .* Vector{Float64}(ts_values)
+end
+
+"""
+Per-time-step deployed fraction resolved through `device_model`'s registered service models.
+
+Convenience for the device-side multiplier seams, which hold a `DeviceModel` and reach services
+through `PSY.get_services(d)`. Falls back to the scalar when the device model registers no
+service model covering `s`.
+"""
+function deployed_fraction_values(
+    container::OptimizationContainer,
+    device_model::DeviceModel,
+    s::PSY.AbstractReserve,
+)::Vector{Float64}
+    service_model = _service_model_for(device_model, s)
+    isnothing(service_model) && return fill(
+        PSY.get_deployed_fraction(s),
+        length(get_time_steps(container)),
+    )
+    return deployed_fraction_values(container, service_model, s)
 end
 
 # ── ORDC (operating-reserve-demand-curve) predicates ─────────────────────────────────

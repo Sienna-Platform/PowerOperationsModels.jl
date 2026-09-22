@@ -565,15 +565,15 @@ get_variable_multiplier(
 # Always a `Vector{Float64}` of length `length(get_time_steps(container))` so callers stay
 # type-stable across both scales.
 #! format: off
-get_fraction(container::OptimizationContainer, ::Type{StorageReserveBalanceExpression{PSY.ReserveUp, UnscaledReserve, DischargeSide}}, d::PSY.AbstractReserve) = ones(Float64, length(get_time_steps(container)))
-get_fraction(container::OptimizationContainer, ::Type{StorageReserveBalanceExpression{PSY.ReserveUp, UnscaledReserve, ChargeSide}}, d::PSY.AbstractReserve) = ones(Float64, length(get_time_steps(container)))
-get_fraction(container::OptimizationContainer, ::Type{StorageReserveBalanceExpression{PSY.ReserveDown, UnscaledReserve, DischargeSide}}, d::PSY.AbstractReserve) = ones(Float64, length(get_time_steps(container)))
-get_fraction(container::OptimizationContainer, ::Type{StorageReserveBalanceExpression{PSY.ReserveDown, UnscaledReserve, ChargeSide}}, d::PSY.AbstractReserve) = ones(Float64, length(get_time_steps(container)))
+get_fraction(container::OptimizationContainer, ::DeviceModel, ::Type{StorageReserveBalanceExpression{PSY.ReserveUp, UnscaledReserve, DischargeSide}}, d::PSY.AbstractReserve) = ones(Float64, length(get_time_steps(container)))
+get_fraction(container::OptimizationContainer, ::DeviceModel, ::Type{StorageReserveBalanceExpression{PSY.ReserveUp, UnscaledReserve, ChargeSide}}, d::PSY.AbstractReserve) = ones(Float64, length(get_time_steps(container)))
+get_fraction(container::OptimizationContainer, ::DeviceModel, ::Type{StorageReserveBalanceExpression{PSY.ReserveDown, UnscaledReserve, DischargeSide}}, d::PSY.AbstractReserve) = ones(Float64, length(get_time_steps(container)))
+get_fraction(container::OptimizationContainer, ::DeviceModel, ::Type{StorageReserveBalanceExpression{PSY.ReserveDown, UnscaledReserve, ChargeSide}}, d::PSY.AbstractReserve) = ones(Float64, length(get_time_steps(container)))
 
-get_fraction(container::OptimizationContainer, ::Type{StorageReserveBalanceExpression{PSY.ReserveUp, DeployedReserve, DischargeSide}}, d::PSY.AbstractReserve) = deployed_fraction_values(container, d)
-get_fraction(container::OptimizationContainer, ::Type{StorageReserveBalanceExpression{PSY.ReserveUp, DeployedReserve, ChargeSide}}, d::PSY.AbstractReserve) = deployed_fraction_values(container, d)
-get_fraction(container::OptimizationContainer, ::Type{StorageReserveBalanceExpression{PSY.ReserveDown, DeployedReserve, DischargeSide}}, d::PSY.AbstractReserve) = deployed_fraction_values(container, d)
-get_fraction(container::OptimizationContainer, ::Type{StorageReserveBalanceExpression{PSY.ReserveDown, DeployedReserve, ChargeSide}}, d::PSY.AbstractReserve) = deployed_fraction_values(container, d)
+get_fraction(container::OptimizationContainer, model::DeviceModel, ::Type{StorageReserveBalanceExpression{PSY.ReserveUp, DeployedReserve, DischargeSide}}, d::PSY.AbstractReserve) = deployed_fraction_values(container, model, d)
+get_fraction(container::OptimizationContainer, model::DeviceModel, ::Type{StorageReserveBalanceExpression{PSY.ReserveUp, DeployedReserve, ChargeSide}}, d::PSY.AbstractReserve) = deployed_fraction_values(container, model, d)
+get_fraction(container::OptimizationContainer, model::DeviceModel, ::Type{StorageReserveBalanceExpression{PSY.ReserveDown, DeployedReserve, DischargeSide}}, d::PSY.AbstractReserve) = deployed_fraction_values(container, model, d)
+get_fraction(container::OptimizationContainer, model::DeviceModel, ::Type{StorageReserveBalanceExpression{PSY.ReserveDown, DeployedReserve, ChargeSide}}, d::PSY.AbstractReserve) = deployed_fraction_values(container, model, d)
 #! format: on
 
 function add_to_expression!(
@@ -634,7 +634,7 @@ function add_to_expression!(
         for s in services
             variable = get_variable(container, U, V, _service_container_meta(s))
             base_mult = get_variable_multiplier(U, T, d, W, s)
-            fractions = get_fraction(container, T, s)
+            fractions = get_fraction(container, model, T, s)
             for t in get_time_steps(container)
                 add_proportional_to_jump_expression!(
                     expression[name, t],
@@ -667,7 +667,7 @@ function add_to_expression!(
         for s in services
             variable = get_variable(container, U, V, _service_container_meta(s))
             base_mult = get_variable_multiplier(U, T, d, W, s)
-            fractions = get_fraction(container, T, s)
+            fractions = get_fraction(container, model, T, s)
             for t in get_time_steps(container)
                 add_proportional_to_jump_expression!(
                     expression[name, t],

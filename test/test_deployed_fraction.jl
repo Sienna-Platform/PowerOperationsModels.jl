@@ -65,9 +65,10 @@ end
     model = _build_deployed_fraction_model(sys)
     container = IOM.get_optimization_container(model)
 
-    @test !POM._has_ts_deployed_fraction(reserve)
+    @test !PSY.has_time_series(reserve, "deployed_fraction")
 
-    vals = POM.deployed_fraction_values(container, reserve)
+    service_model = ServiceModel(typeof(reserve), RangeReserve)
+    vals = POM.deployed_fraction_values(container, service_model, reserve)
     @test vals isa Vector{Float64}
     @test length(vals) == length(IOM.get_time_steps(container))
     @test all(isequal(0.4), vals)
@@ -80,9 +81,13 @@ end
     model = _build_deployed_fraction_model(sys)
     container = IOM.get_optimization_container(model)
 
-    @test POM._has_ts_deployed_fraction(reserve)
+    @test PSY.has_time_series(reserve, "deployed_fraction")
 
-    vals = POM.deployed_fraction_values(container, reserve)
+    service_model = ServiceModel(typeof(reserve), RangeReserve)
+    @test POM.get_time_series_names(service_model)[DeployedFractionTimeSeriesParameter] ==
+          "deployed_fraction"
+
+    vals = POM.deployed_fraction_values(container, service_model, reserve)
     horizon = length(IOM.get_time_steps(container))
     @test vals isa Vector{Float64}
     @test length(vals) == horizon
@@ -141,4 +146,32 @@ end
 
     @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
           ModelBuildStatus.BUILT
+end
+
+@testset "The deployed_fraction series name is overridable per ServiceModel" begin
+    profile = collect(range(0.1, 0.8; length = 48))
+    # The series is attached under "deployed_fraction"; a ServiceModel pointing elsewhere, or
+    # declaring no name at all, must fall back to the scalar rather than pick it up.
+    sys, reserve =
+        _deployed_fraction_test_system(; add_profile = profile, deployed_fraction = 0.5)
+    model = _build_deployed_fraction_model(sys)
+    container = IOM.get_optimization_container(model)
+
+    renamed = ServiceModel(
+        typeof(reserve),
+        RangeReserve;
+        time_series_names = Dict{Type{<:POM.TimeSeriesParameter}, String}(
+            DeployedFractionTimeSeriesParameter => "other_name",
+        ),
+    )
+    @test POM.deployed_fraction_values(container, renamed, reserve) ==
+          fill(0.5, length(IOM.get_time_steps(container)))
+
+    declared_none = ServiceModel(
+        typeof(reserve),
+        RangeReserve;
+        time_series_names = Dict{Type{<:POM.TimeSeriesParameter}, String}(),
+    )
+    @test POM.deployed_fraction_values(container, declared_none, reserve) ==
+          fill(0.5, length(IOM.get_time_steps(container)))
 end
