@@ -170,25 +170,78 @@ end
     @test isfile(joinpath(variables_dir, "ActivePowerVariable__ThermalStandard.csv"))
 end
 
-@testset "System bundle written alongside outputs" begin
-    c_sys5 = PSB.build_system(PSITestSystems, "c_sys5")
-    template = get_thermal_standard_uc_template()
+@testset "System bundle carries the parameters and a time-series cost resolves" begin
+    c_sys5 = deepcopy(PSB.build_system(PSITestSystems, "c_sys5_uc"))
+    gen = first(get_components(PSY.ThermalStandard, c_sys5))
+    # c_sys5_uc's own forecasts are `Deterministic`, 2 windows of 24 hourly steps starting at
+    # 2024-01-01T00:00:00; a cost parameter's time series must match both the System's
+    # dominant forecast type and its window count, or the build silently drops the parameter.
+    init_time = Dates.DateTime(2024, 1, 1)
+    fuel_window_1 = collect(3.0:0.5:14.5)
+    fuel_window_2 = collect(4.0:0.5:15.5)
+    fuel_forecast = PSY.Deterministic(;
+        name = "fuel_cost",
+        data = Dict(
+            init_time => fuel_window_1,
+            init_time + Dates.Hour(24) => fuel_window_2,
+        ),
+        resolution = Dates.Hour(1),
+        interval = Dates.Hour(24),
+    )
+    PSY.add_time_series!(c_sys5, gen, fuel_forecast)
+    original_key = IS.get_time_series_key(
+        only(
+            IS.list_time_series_metadata(
+                IS.get_data_store(c_sys5.data); owner_id = IS.get_id(gen),
+                name = "fuel_cost",
+            ),
+        ),
+    )
+    PSY.set_operation_cost!(
+        gen,
+        PSY.ThermalGenerationCost(
+            PSY.FuelCurve(PSY.LinearCurve(1.0), original_key), 0.0, 0.0, 0.0,
+        ),
+    )
 
+    template = get_thermal_standard_uc_template()
     output_dir = mktempdir(; cleanup = true)
     model = DecisionModel(template, c_sys5; optimizer = HiGHS_optimizer)
     @test build!(model; output_dir = output_dir) == IOM.ModelBuildStatus.BUILT
     @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+
     sys_dir = joinpath(output_dir, IOM.make_system_dirname(IOM.get_system(model)))
-    @test isdir(sys_dir)
     # Assert on the document, not the directory: a directory's mtime does not reliably
     # change when a file inside it is rewritten.
     sys_document = joinpath(sys_dir, PSY.SYSTEM_DOCUMENT_FILE)
     @test isfile(sys_document)
+    @test isfile(joinpath(sys_dir, PSY.TIME_SERIES_FILE))
+    @test isfile(joinpath(sys_dir, PSY.TIME_SERIES_FILE * ".sqlite"))
 
+    # Re-solving into an existing directory must not rewrite the bundle.
     mtime_before = mtime(sys_document)
     sleep(1)
     @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
     @test mtime(sys_document) == mtime_before
+
+    # Parameters are in the sidecar, as InfraStore rows.
+    store = POM.open_parameter_store(joinpath(sys_dir, PSY.TIME_SERIES_FILE))
+    fuel_param = POM.read_parameter_array(
+        store, IOM.ParameterKey(POM.FuelCostParameter, PSY.ThermalStandard),
+    )
+    @test haskey(fuel_param, PSY.get_name(gen))
+    POM.close_parameter_store!(store)
+
+    # The restored System's cost resolves to the copied series, and its component listing is
+    # not polluted by parameter rows.
+    restored = PSY.from_file(sys_dir; time_series_read_only = true)
+    gen2 = get_component(PSY.ThermalStandard, restored, PSY.get_name(gen))
+    # The copy reads the realized values starting at the forecast's own initial timestamp,
+    # i.e. its first window.
+    @test TimeSeries.values(PSY.get_fuel_cost(gen2)) == fuel_window_1
+    @test [IS.get_name(md) for md in IS.list_time_series_metadata(gen2)] == ["fuel_cost"]
+    @test length(collect(get_components(PSY.ThermalStandard, restored))) ==
+          length(collect(get_components(PSY.ThermalStandard, c_sys5)))
 
     output_dir_no_write = mktempdir(; cleanup = true)
     model_no_write = DecisionModel(

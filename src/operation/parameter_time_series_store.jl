@@ -1,4 +1,13 @@
 """
+The owner id every parameter array row is written under. No component ever holds this id, so a
+parameter row never shows up in a restored component's own `list_time_series_metadata`.
+"""
+const PARAMETER_ROW_OWNER_ID = -1
+const PARAMETER_ROW_OWNER_TYPE = "OptimizationParameter"
+"""Feature key carrying the encoded `IOM.ParameterKey` a parameter row belongs to."""
+const PARAMETER_KEY_FEATURE = "parameter"
+
+"""
 The InfraStore-backed store for optimization parameters.
 
 Parameters are written here rather than into a results dataset so the bundle carries a real
@@ -68,6 +77,183 @@ function write_parameter_series!(
         push!(store.document_association_ids, IS.get_association_id(key))
     end
     return key
+end
+
+function _check_parameter_array_length(
+    key::IOM.ParameterKey,
+    array_length::Int,
+    timestamps_length::Int,
+)
+    array_length == timestamps_length || error(
+        "parameter array for $key has $array_length time steps but $timestamps_length " *
+        "timestamps were given",
+    )
+    return nothing
+end
+
+_parameter_key_features(key::IOM.ParameterKey, extra_features::Dict{String, <:Any}) =
+    merge(
+        Dict{String, Any}(PARAMETER_KEY_FEATURE => IOM.encode_key_as_string(key)),
+        extra_features,
+    )
+
+"""
+Store one parameter array's realized values under the synthetic parameter owner, one
+`SingleTimeSeries` per axis-1 label. Never becomes a document row: it is read back through
+[`read_parameter_array`](@ref), not through the restored System's own component listing.
+"""
+function write_parameter_array!(
+    store::ParameterTimeSeriesStore,
+    key::IOM.ParameterKey,
+    array::JuMP.Containers.DenseAxisArray{<:Any, 2},
+    timestamps::AbstractVector{Dates.DateTime};
+    extra_features::Dict{String, <:Any} = Dict{String, Any}(),
+)
+    labels = axes(array, 1)
+    _check_parameter_array_length(key, length(axes(array, 2)), length(timestamps))
+    features = _parameter_key_features(key, extra_features)
+    for label in labels
+        data = IS.TimeSeries.TimeArray(timestamps, vec(array[label, :]))
+        IS.add_time_series!(
+            store.store,
+            PARAMETER_ROW_OWNER_ID,
+            PARAMETER_ROW_OWNER_TYPE,
+            IS.get_owner_category(IS.InfrastructureSystemsComponent),
+            PSY.SingleTimeSeries(string(label), data);
+            features = features,
+        )
+    end
+    return nothing
+end
+
+"""
+Store one 3-D parameter array's realized values, one `SingleTimeSeries` per
+`(axis-1 label, axis-3 label)` slice, the axis-3 label carried in the `"axis3"` feature.
+"""
+function write_parameter_array!(
+    store::ParameterTimeSeriesStore,
+    key::IOM.ParameterKey,
+    array::JuMP.Containers.DenseAxisArray{<:Any, 3},
+    timestamps::AbstractVector{Dates.DateTime};
+    extra_features::Dict{String, <:Any} = Dict{String, Any}(),
+)
+    labels = axes(array, 1)
+    labels3 = axes(array, 3)
+    _check_parameter_array_length(key, length(axes(array, 2)), length(timestamps))
+    base_features = _parameter_key_features(key, extra_features)
+    for label3 in labels3, label in labels
+        features = merge(base_features, Dict{String, Any}("axis3" => string(label3)))
+        data = IS.TimeSeries.TimeArray(timestamps, vec(array[label, :, label3]))
+        IS.add_time_series!(
+            store.store,
+            PARAMETER_ROW_OWNER_ID,
+            PARAMETER_ROW_OWNER_TYPE,
+            IS.get_owner_category(IS.InfrastructureSystemsComponent),
+            PSY.SingleTimeSeries(string(label), data);
+            features = features,
+        )
+    end
+    return nothing
+end
+
+"""
+Read back every parameter array row this store holds for `key`, keyed by its axis-1 label.
+"""
+function read_parameter_array(
+    store::ParameterTimeSeriesStore,
+    key::IOM.ParameterKey;
+    extra_features::Dict{String, <:Any} = Dict{String, Any}(),
+)::Dict{String, IS.TimeSeries.TimeArray}
+    features = _parameter_key_features(key, extra_features)
+    rows = IS.list_time_series_metadata(
+        store.store; owner_id = PARAMETER_ROW_OWNER_ID, features = features,
+    )
+    isempty(rows) &&
+        error("no parameter arrays found for $key in this results store")
+    result = Dict{String, IS.TimeSeries.TimeArray}()
+    for md in rows
+        ts = IS._infrastore_read_key(store.store, IS.get_time_series_key(md))
+        result[IS.get_name(md)] = IS.make_time_array(ts, IS.get_initial_timestamp(ts))
+    end
+    return result
+end
+
+"""
+Every `TimeSeriesKey` component `c`'s operation cost holds, or an empty vector for a
+component type that carries no `operation_cost` field. One method per abstract type that
+covers only components with an `operation_cost`; never `isa`/`hasfield` on `Component`.
+"""
+_cost_time_series_keys(::PSY.Component) = IS.TimeSeriesKey[]
+_cost_time_series_keys(c::PSY.Storage) =
+    PSY.get_time_series_keys(PSY.get_operation_cost(c))
+_cost_time_series_keys(c::PSY.StaticInjectionSubsystem) =
+    PSY.get_time_series_keys(PSY.get_operation_cost(c))
+_cost_time_series_keys(c::PSY.ControllableLoad) =
+    PSY.get_time_series_keys(PSY.get_operation_cost(c))
+_cost_time_series_keys(c::PSY.ThermalGen) =
+    PSY.get_time_series_keys(PSY.get_operation_cost(c))
+_cost_time_series_keys(c::PSY.HydroGen) =
+    PSY.get_time_series_keys(PSY.get_operation_cost(c))
+_cost_time_series_keys(c::PSY.RenewableDispatch) =
+    PSY.get_time_series_keys(PSY.get_operation_cost(c))
+_cost_time_series_keys(c::PSY.Source) =
+    PSY.get_time_series_keys(PSY.get_operation_cost(c))
+_cost_time_series_keys(c::PSY.HydroReservoir) =
+    PSY.get_time_series_keys(PSY.get_operation_cost(c))
+_cost_time_series_keys(c::PSY.VirtualParticipant) =
+    PSY.get_time_series_keys(PSY.get_operation_cost(c))
+
+"""
+Copy every time series a System component's operation cost holds into `store`, under that
+component's own id and type, and return the map from each series' original
+`association_id` to the association id it was written under.
+
+Not derived from parameter arrays: start-up costs are 3-tuples, offer curves split into
+slope/breakpoint arrays, and re-deriving a cost series from a parameter array risks a unit
+mismatch. This copies the System's own series verbatim instead.
+"""
+function copy_cost_time_series!(
+    store::ParameterTimeSeriesStore,
+    sys::PSY.System,
+)::Dict{Int64, Int64}
+    key_map = Dict{Int64, Int64}()
+    for c in PSY.get_components(PSY.Component, sys)
+        for key in _cost_time_series_keys(c)
+            original_id = IS.get_association_id(key)
+            haskey(key_map, original_id) && continue
+            ts = IS.get_time_series(c, key)
+            data = IS.make_time_array(ts, IS.get_initial_timestamp(ts))
+            new_key = write_parameter_series!(
+                store, IS.get_id(c), string(nameof(typeof(c))), IS.get_name(ts), data;
+                in_document = true,
+            )
+            key_map[original_id] = IS.get_association_id(new_key)
+        end
+    end
+    return key_map
+end
+
+"""
+Build a fresh [`ParameterTimeSeriesStore`](@ref) from `model`'s realized parameters and its
+System's cost time series, ready for [`write_results_system_bundle!`](@ref).
+"""
+function parameter_store_from_model(
+    model,
+)::Tuple{ParameterTimeSeriesStore, Dict{Int64, Int64}}
+    container = IOM.get_optimization_container(model)
+    timestamps = collect(
+        range(
+            IOM.get_initial_time(container);
+            step = IOM.get_resolution(container),
+            length = length(IOM.get_time_steps(container)),
+        ),
+    )
+    store = ParameterTimeSeriesStore()
+    for (key, array) in IOM.read_parameters(container)
+        write_parameter_array!(store, key, array, timestamps)
+    end
+    key_map = copy_cost_time_series!(store, IOM.get_system(model))
+    return store, key_map
 end
 
 """

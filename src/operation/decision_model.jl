@@ -227,10 +227,12 @@ function solve!(
                             IOM.get_output_dir(model),
                             IOM.make_system_dirname(sys),
                         )
-                        # Re-solving into an existing directory must not rewrite the system and its time series.
-                        # `to_file` defaults to CU, what PSY stores internally, so the write
-                        # needs no unit conversion.
-                        !ispath(sys_dir) && PSY.to_file(sys, sys_dir)
+                        # Re-solving into an existing directory must not rewrite the bundle.
+                        if !ispath(sys_dir)
+                            store, key_map = parameter_store_from_model(model)
+                            write_results_system_bundle!(sys, store, key_map, sys_dir)
+                            close_parameter_store!(store)
+                        end
                     end
                 end
                 @info "\n$(RUN_OPERATION_MODEL_TIMER)\n"
