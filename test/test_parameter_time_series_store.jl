@@ -91,3 +91,81 @@ end
     @test after.uri == declared.uri
     POM.close_parameter_store!(reopened)
 end
+
+@testset "write_results_system_bundle!: the bundle loads with PSY.from_file" begin
+    sys = PSB.build_system(PSITestSystems, "c_sys5")
+    store = POM.ParameterTimeSeriesStore()
+    gen = first(get_components(PSY.ThermalStandard, sys))
+    ta = TimeSeries.TimeArray(
+        range(Dates.DateTime(2024, 1, 1); step = Dates.Hour(1), length = 24),
+        collect(1.0:24.0),
+    )
+    POM.write_parameter_series!(
+        store, IS.get_id(gen), "ThermalStandard", "fuel_cost", ta; in_document = true,
+    )
+    # A synthetic owner, not a component id: the sidecar's catalog is authoritative, so any
+    # row under a real component's owner id would read back as that component's own series.
+    # An undeclared parameter array must live under an owner no component ever has.
+    POM.write_parameter_series!(store, -1, "OptimizationParameter", "undeclared", ta)
+    @test IS.get_num_time_series(store.store) == 2
+
+    dir = mktempdir(; cleanup = true)
+    bundle = joinpath(dir, "system-test")
+    POM.write_results_system_bundle!(sys, store, Dict{Int64, Int64}(), bundle)
+    POM.close_parameter_store!(store)
+
+    @test isfile(joinpath(bundle, PSY.SYSTEM_DOCUMENT_FILE))
+    @test isfile(joinpath(bundle, PSY.TIME_SERIES_FILE))
+    @test isfile(joinpath(bundle, PSY.TIME_SERIES_FILE * ".sqlite"))
+
+    # The payoff: the ordinary loader, no bespoke reader. The sidecar's catalog holds a row
+    # the document does not declare; PowerSystems' import tolerates that, and it stays out of
+    # gen2's own view because it was never written under gen2's owner id.
+    restored = PSY.from_file(bundle; time_series_read_only = true)
+    gen2 = get_component(PSY.ThermalStandard, restored, PSY.get_name(gen))
+    @test !isnothing(gen2)
+    @test PSY.get_time_series_values(PSY.SingleTimeSeries, gen2, "fuel_cost") ==
+          collect(1.0:24.0)
+    @test !PSY.has_time_series(gen2, PSY.SingleTimeSeries, "undeclared")
+end
+
+@testset "write_results_system_bundle!: a time-series cost resolves in the restored System" begin
+    sys = deepcopy(PSB.build_system(PSITestSystems, "c_sys5"))
+    gen = first(get_components(PSY.ThermalStandard, sys))
+    stamps = range(Dates.DateTime(2024, 1, 1); step = Dates.Hour(1), length = 24)
+    fuel = TimeSeries.TimeArray(stamps, collect(3.0:0.5:14.5))
+    PSY.add_time_series!(sys, gen, PSY.SingleTimeSeries(; name = "fuel_cost", data = fuel))
+    original_key = IS.get_time_series_key(
+        only(
+            IS.list_time_series_metadata(
+                IS.get_data_store(sys.data); owner_id = IS.get_id(gen),
+                name = "fuel_cost",
+            ),
+        ),
+    )
+    PSY.set_operation_cost!(
+        gen,
+        PSY.ThermalGenerationCost(
+            PSY.FuelCurve(PSY.LinearCurve(1.0), original_key), 0.0, 0.0, 0.0,
+        ),
+    )
+
+    # The parameter store holds the realized fuel cost; the cost key must be remapped to it.
+    store = POM.ParameterTimeSeriesStore()
+    new_key = POM.write_parameter_series!(
+        store, IS.get_id(gen), "ThermalStandard", "fuel_cost", fuel; in_document = true,
+    )
+    key_map = Dict(IS.get_association_id(original_key) => IS.get_association_id(new_key))
+
+    dir = mktempdir(; cleanup = true)
+    bundle = joinpath(dir, "system-test")
+    POM.write_results_system_bundle!(sys, store, key_map, bundle)
+    POM.close_parameter_store!(store)
+
+    restored = PSY.from_file(bundle; time_series_read_only = true)
+    gen2 = get_component(PSY.ThermalStandard, restored, PSY.get_name(gen))
+    # Design 3 got this far and failed here: the cost held a key for a series the System did
+    # not have. It must now resolve to the parameter values.
+    cost_ts = PSY.get_fuel_cost(gen2)
+    @test TimeSeries.values(cost_ts) == collect(3.0:0.5:14.5)
+end

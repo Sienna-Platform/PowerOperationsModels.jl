@@ -106,3 +106,43 @@ function read_parameter_series(
     ts = IS._infrastore_read_key(store.store, IS.get_time_series_key(only(rows)))
     return IS.make_time_array(ts, IS.get_initial_timestamp(ts))
 end
+
+"""
+Write a results bundle: the System document plus the parameter store it points at.
+
+The layout is PowerSystems' ordinary directory form, so `PSY.from_file(bundle_dir)` reads it
+with no special casing and PowerAnalytics needs no changes. What differs from a normal bundle is
+only *which* series the sidecar holds — the parameters the model used, not a second copy of the
+System's original series — and that the sidecar keeps its catalog, so parameters the document
+does not declare stay readable.
+
+`key_map` sends each time-series-backed cost's `association_id` to the parameter series that
+replaces it, so the restored System's costs resolve against the sidecar.
+
+The store is persisted first and the rows exported from that same store, so every row names an
+array already on disk.
+"""
+function write_results_system_bundle!(
+    sys::PSY.System,
+    store::ParameterTimeSeriesStore,
+    key_map::AbstractDict{Int64, Int64},
+    bundle_dir::AbstractString,
+)
+    mkpath(bundle_dir)
+    sidecar = joinpath(bundle_dir, PSY.TIME_SERIES_FILE)
+    persist_parameter_store!(store, sidecar)
+    rows = parameter_association_rows(store)
+    doc = PSY.to_openapi(
+        sys;
+        time_series_storage_path = sidecar,
+        write_time_series_data = false,
+        store_rows = PSY.ExportStoreRows(
+            IS.openapi_supplemental_attribute_association_rows(sys.data),
+            length(rows),
+            rows,
+        ),
+        association_id_map = key_map,
+    )
+    PSY.PD.write_document(doc, joinpath(bundle_dir, PSY.SYSTEM_DOCUMENT_FILE))
+    return nothing
+end
