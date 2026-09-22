@@ -288,3 +288,29 @@ end
           [5.0, 6.0, 7.0, 8.0]
     POM.close_parameter_store!(again)
 end
+
+@testset "parameter_store_of reads a System's own already-open store, no second open" begin
+    sys = PSB.build_system(PSITestSystems, "c_sys5")
+    store = POM.ParameterTimeSeriesStore()
+    key = IOM.ParameterKey(POM.ActivePowerTimeSeriesParameter, PSY.ThermalStandard)
+    labels = ["Solitude", "Park City"]
+    stamps = collect(range(Dates.DateTime(2024, 1, 1); step = Dates.Hour(1), length = 4))
+    array = JuMP.Containers.DenseAxisArray(
+        [1.0 2.0 3.0 4.0; 10.0 20.0 30.0 40.0], labels, 1:4,
+    )
+    POM.write_parameter_array!(store, key, array, stamps)
+
+    dir = mktempdir(; cleanup = true)
+    bundle = joinpath(dir, "system-test")
+    POM.write_results_system_bundle!(sys, store, Dict{Int64, Int64}(), bundle)
+    POM.close_parameter_store!(store)
+
+    # `time_series_read_only = true` is exactly what a results reader's `get_system!` does;
+    # this leaves that same handle open (never closed by this test) and reads the parameter
+    # array straight through it via `parameter_store_of`, not a second, independent open.
+    restored = PSY.from_file(bundle; time_series_read_only = true)
+    borrowed = POM.parameter_store_of(restored)
+    back = POM.read_parameter_array(borrowed, key)
+    @test Set(keys(back)) == Set(labels)
+    @test TimeSeries.values(back["Solitude"]) == [1.0, 2.0, 3.0, 4.0]
+end
