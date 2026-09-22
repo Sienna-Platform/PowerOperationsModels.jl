@@ -117,10 +117,22 @@ function write_parameter_series!(
         IS.get_owner_category(IS.InfrastructureSystemsComponent),
         PSY.SingleTimeSeries(String(name), data),
     )
-    if in_document
-        push!(store.document_association_ids, IS.get_association_id(key))
-    end
+    _record_document_association!(store, key, in_document)
     return key
+end
+
+"""
+Record `key`'s association id so [`parameter_association_rows`](@ref) exports a catalog row
+for it. Shared by every path that writes a document-declared series, so the bookkeeping lives
+in one place regardless of which `IS.add_time_series!` method wrote the row.
+"""
+function _record_document_association!(
+    store::ParameterTimeSeriesStore,
+    key::IS.TimeSeriesKey,
+    in_document::Bool,
+)
+    in_document && push!(store.document_association_ids, IS.get_association_id(key))
+    return nothing
 end
 
 function _check_parameter_array_length(
@@ -145,25 +157,38 @@ _parameter_key_features(key::IOM.ParameterKey, extra_features::Dict{String, <:An
 Store one parameter array's realized values under the synthetic parameter owner, one
 `SingleTimeSeries` per axis-1 label. Never becomes a document row: it is read back through
 [`read_parameter_array`](@ref), not through the restored System's own component listing.
+
+`resolution` is passed explicitly rather than inferred from `timestamps`, and `data` is built
+directly from `array` rather than routed through `IS.TimeSeries.TimeArray`: a single-time-step
+array (e.g. a model built with `horizon = Dates.Hour(1)`) gives `SingleTimeSeries` only one
+timestamp, and `IS.check_resolution` requires at least two timestamps to validate a resolution
+against, TimeArray-backed or not. `timestamps` is always a `range(initial_time; step =
+resolution, length = ...)` in every caller, so the stride is already correct by construction —
+`initial_timestamp`/`resolution` alone are enough to place `data`.
 """
 function write_parameter_array!(
     store::ParameterTimeSeriesStore,
     key::IOM.ParameterKey,
     array::JuMP.Containers.DenseAxisArray{<:Any, 2},
-    timestamps::AbstractVector{Dates.DateTime};
+    timestamps::AbstractVector{Dates.DateTime},
+    resolution::Dates.Period;
     extra_features::Dict{String, <:Any} = Dict{String, Any}(),
 )
     labels = axes(array, 1)
     _check_parameter_array_length(key, length(axes(array, 2)), length(timestamps))
     features = _parameter_key_features(key, extra_features)
     for label in labels
-        data = IS.TimeSeries.TimeArray(timestamps, vec(array[label, :]))
         IS.add_time_series!(
             store.store,
             PARAMETER_ROW_OWNER_ID,
             PARAMETER_ROW_OWNER_TYPE,
             IS.get_owner_category(IS.InfrastructureSystemsComponent),
-            PSY.SingleTimeSeries(string(label), data);
+            PSY.SingleTimeSeries(;
+                name = string(label),
+                data = vec(array[label, :]),
+                initial_timestamp = first(timestamps),
+                resolution = resolution,
+            );
             features = features,
         )
     end
@@ -172,28 +197,36 @@ end
 
 """
 Store one 3-D parameter array's realized values, one `SingleTimeSeries` per
-`(axis-1 label, axis-3 label)` slice, the axis-3 label carried in the `"axis3"` feature.
+`(axis-1 label, axis-2 label)` slice, the axis-2 label carried in the `"axis2"` feature.
+Time is the last axis, matching PSI's HDF5 layout (`(label, label2, time)`).
+
+`resolution` is passed explicitly for the same reason as the 2-D method above.
 """
 function write_parameter_array!(
     store::ParameterTimeSeriesStore,
     key::IOM.ParameterKey,
     array::JuMP.Containers.DenseAxisArray{<:Any, 3},
-    timestamps::AbstractVector{Dates.DateTime};
+    timestamps::AbstractVector{Dates.DateTime},
+    resolution::Dates.Period;
     extra_features::Dict{String, <:Any} = Dict{String, Any}(),
 )
     labels = axes(array, 1)
-    labels3 = axes(array, 3)
-    _check_parameter_array_length(key, length(axes(array, 2)), length(timestamps))
+    labels2 = axes(array, 2)
+    _check_parameter_array_length(key, length(axes(array, 3)), length(timestamps))
     base_features = _parameter_key_features(key, extra_features)
-    for label3 in labels3, label in labels
-        features = merge(base_features, Dict{String, Any}("axis3" => string(label3)))
-        data = IS.TimeSeries.TimeArray(timestamps, vec(array[label, :, label3]))
+    for label2 in labels2, label in labels
+        features = merge(base_features, Dict{String, Any}("axis2" => string(label2)))
         IS.add_time_series!(
             store.store,
             PARAMETER_ROW_OWNER_ID,
             PARAMETER_ROW_OWNER_TYPE,
             IS.get_owner_category(IS.InfrastructureSystemsComponent),
-            PSY.SingleTimeSeries(string(label), data);
+            PSY.SingleTimeSeries(;
+                name = string(label),
+                data = vec(array[label, label2, :]),
+                initial_timestamp = first(timestamps),
+                resolution = resolution,
+            );
             features = features,
         )
     end
@@ -339,13 +372,66 @@ _cost_time_series_keys(c::PSY.VirtualParticipant) =
     PSY.get_time_series_keys(PSY.get_operation_cost(c))
 
 """
+An online/offline reserve's own `TimeSeriesKey`, when its operating-reserve-demand-curve
+`variable` is time-series-backed, else none. A reserve's variable curve is not an
+`operation_cost`, so it is not reached by the `PSY.get_time_series_keys(PSY.get_operation_cost(c))`
+methods above; it is exported to the document the same way a device's cost is
+(`PowerSystems.convert_cost_to_openapi` on the curve's `TimeSeriesFunctionData`), so it must be
+copied here too or the exported document ends up with a dangling association id.
+"""
+function _cost_time_series_keys(c::Union{PSY.OnlineReserve, PSY.OfflineReserve})
+    value_curve = PSY.get_value_curve(PSY.get_variable(c))
+    IS.is_time_series_backed(value_curve) || return IS.TimeSeriesKey[]
+    return IS.TimeSeriesKey[IS.get_time_series_key(value_curve)]
+end
+
+"""
+Copy a static series verbatim into `store`, under `c`'s own document id and type. No
+`make_time_array` round trip: the original series object goes in as-is.
+"""
+function _copy_cost_time_series!(
+    store::ParameterTimeSeriesStore,
+    c::PSY.Component,
+    ts::IS.StaticTimeSeries,
+)::IS.TimeSeriesKey
+    return IS.add_time_series!(
+        store.store,
+        IS.get_id(c),
+        string(nameof(typeof(c))),
+        IS.get_owner_category(IS.InfrastructureSystemsComponent),
+        ts,
+    )
+end
+
+"""
+Copy every window of a forecast series into `store`, through `IS.TimeSeriesManager` under `c`
+itself as the owner. A forecast carries window parameters `IS.add_time_series!` on the bare
+store refuses to validate by owner id (see `InfrastructureSystems/src/infrastore.jl`), so this
+goes through the manager path instead, the same path [`write_parameter_windows!`](@ref) uses.
+
+`c` is used directly as the owner rather than a synthetic stand-in: `IS`'s owner marshalling
+(`_infrastore_owner_args`) only reads `get_id(c)` and `nameof(typeof(c))` from it and never
+mutates `c` or its shared system references, and the component's own type name is exactly the
+`owner_type` the document row needs.
+"""
+function _copy_cost_time_series!(
+    store::ParameterTimeSeriesStore,
+    c::PSY.Component,
+    ts::IS.Forecast,
+)::IS.TimeSeriesKey
+    mgr = IS.TimeSeriesManager(store.store, false)
+    return IS.add_time_series!(mgr, c, ts)
+end
+
+"""
 Copy every time series a System component's operation cost holds into `store`, under that
 component's own id and type, and return the map from each series' original
 `association_id` to the association id it was written under.
 
 Not derived from parameter arrays: start-up costs are 3-tuples, offer curves split into
 slope/breakpoint arrays, and re-deriving a cost series from a parameter array risks a unit
-mismatch. This copies the System's own series verbatim instead.
+mismatch. This copies the System's own series verbatim instead, keeping every forecast window
+and the original series type.
 """
 function copy_cost_time_series!(
     store::ParameterTimeSeriesStore,
@@ -357,15 +443,41 @@ function copy_cost_time_series!(
             original_id = IS.get_association_id(key)
             haskey(key_map, original_id) && continue
             ts = IS.get_time_series(c, key)
-            data = IS.make_time_array(ts, IS.get_initial_timestamp(ts))
-            new_key = write_parameter_series!(
-                store, IS.get_id(c), string(nameof(typeof(c))), IS.get_name(ts), data;
-                in_document = true,
-            )
+            new_key = _copy_cost_time_series!(store, c, ts)
+            _record_document_association!(store, new_key, true)
             key_map[original_id] = IS.get_association_id(new_key)
         end
     end
     return key_map
+end
+
+"""
+Write every realized parameter array into `store`, or none of them. `IS.SingleTimeSeries`,
+`NonSequentialTimeSeries`, and `Forecast` all require at least two points at the InfraStore
+layer (R32: not something this store patches around), so a model whose time axis has a single
+step (e.g. `horizon = Dates.Hour(1)`) cannot store a single parameter row. Warning once here,
+rather than letting [`write_parameter_array!`](@ref) error once per key, is the loud-but-not-fatal
+choice: the model's realized parameters stay readable through `OptimizationProblemOutputs`, only
+the exported results bundle loses them.
+"""
+function _write_parameter_arrays!(
+    store::ParameterTimeSeriesStore,
+    params,
+    timestamps::AbstractVector{Dates.DateTime},
+    resolution::Dates.Period,
+    model_type_name::AbstractString,
+)
+    if length(timestamps) < 2
+        @warn "$model_type_name has a $(length(timestamps))-point time axis " *
+              "($(Dates.canonicalize(resolution * length(timestamps))) horizon); the results " *
+              "bundle will carry no parameter rows because an InfraStore time series needs at " *
+              "least two points. Parameters remain readable through OptimizationProblemOutputs."
+        return nothing
+    end
+    for (key, array) in params
+        write_parameter_array!(store, key, array, timestamps, resolution)
+    end
+    return nothing
 end
 
 """
@@ -376,17 +488,22 @@ function parameter_store_from_model(
     model,
 )::Tuple{ParameterTimeSeriesStore, Dict{Int64, Int64}}
     container = IOM.get_optimization_container(model)
+    resolution = IOM.get_resolution(container)
     timestamps = collect(
         range(
             IOM.get_initial_time(container);
-            step = IOM.get_resolution(container),
+            step = resolution,
             length = length(IOM.get_time_steps(container)),
         ),
     )
     store = ParameterTimeSeriesStore()
-    for (key, array) in IOM.read_parameters(container)
-        write_parameter_array!(store, key, array, timestamps)
-    end
+    _write_parameter_arrays!(
+        store,
+        IOM.read_parameters(container),
+        timestamps,
+        resolution,
+        string(typeof(model)),
+    )
     key_map = copy_cost_time_series!(store, IOM.get_system(model))
     return store, key_map
 end
