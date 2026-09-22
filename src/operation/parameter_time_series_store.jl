@@ -8,6 +8,26 @@ const PARAMETER_ROW_OWNER_TYPE = "OptimizationParameter"
 const PARAMETER_KEY_FEATURE = "parameter"
 
 """
+A synthetic, non-domain `IS.InfrastructureSystemsComponent`. It exists only to satisfy
+`IS`'s time-series-owner interface for a parameter forecast row: a forecast must go
+through `IS.TimeSeriesManager`'s owner-typed `add_time_series!`, which validates window
+parameters against the rest of the store, whereas the bare owner-id path
+[`write_parameter_array!`](@ref) uses accepts only static series. No instance of this
+type is ever attached to a `SystemData`; it carries [`PARAMETER_ROW_OWNER_ID`](@ref)
+through that call and nothing else.
+"""
+struct OptimizationParameter <: IS.InfrastructureSystemsComponent
+    internal::IS.InfrastructureSystemsInternal
+end
+
+OptimizationParameter() =
+    OptimizationParameter(IS.InfrastructureSystemsInternal(; id = PARAMETER_ROW_OWNER_ID))
+
+IS.supports_time_series(::OptimizationParameter) = true
+
+const PARAMETER_ROW_OWNER = OptimizationParameter()
+
+"""
 The InfraStore-backed store for optimization parameters.
 
 Parameters are written here rather than into a results dataset so the bundle carries a real
@@ -41,6 +61,18 @@ end
 function open_parameter_store(path::AbstractString)
     return ParameterTimeSeriesStore(IS.open_infrastore_store(path), Set{Int64}())
 end
+
+"""
+Reopen a persisted parameter store writable in place, so later `write_parameter_*` calls
+land directly in the on-disk `.h5`/`.sqlite` pair with no re-persist.
+
+An alias of [`open_parameter_store`](@ref): `IS.open_infrastore_store` already opens its
+artifacts in place, writable, by default (`read_only = false`, `catalog = :attached`). The
+copy-to-a-temp-location path lives in a different function
+(`open_deserialized_infrastore_store`), used only for deserialized `System` artifacts, and
+this store never goes through it.
+"""
+open_parameter_store_writable(path::AbstractString) = open_parameter_store(path)
 
 function close_parameter_store!(store::ParameterTimeSeriesStore)
     IS.close!(store.store)
@@ -174,6 +206,97 @@ function read_parameter_array(
     for md in rows
         ts = IS._infrastore_read_key(store.store, IS.get_time_series_key(md))
         result[IS.get_name(md)] = IS.make_time_array(ts, IS.get_initial_timestamp(ts))
+    end
+    return result
+end
+
+function _check_parameter_windows(
+    key::IOM.ParameterKey,
+    windows::AbstractDict{Dates.DateTime, <:JuMP.Containers.DenseAxisArray{<:Any, 2}},
+)
+    isempty(windows) && error("no parameter windows given for $key")
+    _, reference_window = first(windows)
+    labels = axes(reference_window, 1)
+    steps = length(axes(reference_window, 2))
+    for (initial_time, window) in windows
+        axes(window, 1) == labels || error(
+            "parameter windows for $key do not share the same axis-1 labels: window at " *
+            "$initial_time has $(collect(axes(window, 1))), expected $(collect(labels))",
+        )
+        length(axes(window, 2)) == steps || error(
+            "parameter windows for $key do not share the same time-axis length: window " *
+            "at $initial_time has $(length(axes(window, 2))) steps, expected $steps",
+        )
+    end
+    return labels
+end
+
+"""
+Store one parameter's realized per-execution windows under the synthetic parameter owner,
+one `PSY.Deterministic` per axis-1 label, keyed by each window's initial time. Never
+becomes a document row: it is read back through [`read_parameter_windows`](@ref).
+"""
+function write_parameter_windows!(
+    store::ParameterTimeSeriesStore,
+    key::IOM.ParameterKey,
+    windows::AbstractDict{Dates.DateTime, <:JuMP.Containers.DenseAxisArray{<:Any, 2}},
+    resolution::Dates.Period,
+    interval::Dates.Period;
+    extra_features::Dict{String, <:Any} = Dict{String, Any}(),
+)::Nothing
+    labels = _check_parameter_windows(key, windows)
+    features = _parameter_key_features(key, extra_features)
+    mgr = IS.TimeSeriesManager(store.store, false)
+    for label in labels
+        data = Dict(
+            initial_time => collect(vec(window[label, :])) for
+            (initial_time, window) in windows
+        )
+        IS.add_time_series!(
+            mgr,
+            PARAMETER_ROW_OWNER,
+            PSY.Deterministic(string(label), data, resolution, interval);
+            features = features,
+        )
+    end
+    return nothing
+end
+
+"""
+Store one 3-D parameter window set. Not supported: a 3-D window has no `Deterministic`
+counterpart in this store, so this errors naming the key rather than silently dropping
+the third axis.
+"""
+function write_parameter_windows!(
+    store::ParameterTimeSeriesStore,
+    key::IOM.ParameterKey,
+    windows::AbstractDict{Dates.DateTime, <:JuMP.Containers.DenseAxisArray{<:Any, 3}},
+    resolution::Dates.Period,
+    interval::Dates.Period;
+    extra_features::Dict{String, <:Any} = Dict{String, Any}(),
+)::Nothing
+    error("3-D parameter windows are not stored: $key")
+end
+
+"""
+Read back every parameter window row this store holds for `key`, keyed by its axis-1
+label and then by each window's initial time.
+"""
+function read_parameter_windows(
+    store::ParameterTimeSeriesStore,
+    key::IOM.ParameterKey;
+    extra_features::Dict{String, <:Any} = Dict{String, Any}(),
+)::Dict{String, Dict{Dates.DateTime, Vector{Float64}}}
+    features = _parameter_key_features(key, extra_features)
+    rows = IS.list_time_series_metadata(
+        store.store; owner_id = PARAMETER_ROW_OWNER_ID, features = features,
+    )
+    isempty(rows) &&
+        error("no parameter windows found for $key in this results store")
+    result = Dict{String, Dict{Dates.DateTime, Vector{Float64}}}()
+    for md in rows
+        ts = IS._infrastore_read_key(store.store, IS.get_time_series_key(md))
+        result[IS.get_name(md)] = Dict{Dates.DateTime, Vector{Float64}}(IS.get_data(ts))
     end
     return result
 end

@@ -221,3 +221,70 @@ end
     @test length(POM.parameter_association_rows(store)) == 1
     POM.close_parameter_store!(store)
 end
+
+@testset "parameter windows round-trip as forecasts" begin
+    store = POM.ParameterTimeSeriesStore()
+    key = IOM.ParameterKey(POM.ActivePowerTimeSeriesParameter, PSY.ThermalStandard)
+    labels = ["Solitude", "Park City"]
+    t0 = Dates.DateTime(2024, 1, 1)
+    windows = Dict(
+        t0 =>
+            JuMP.Containers.DenseAxisArray([1.0 2.0 3.0; 10.0 20.0 30.0], labels, 1:3),
+        t0 + Dates.Hour(1) =>
+            JuMP.Containers.DenseAxisArray([2.0 3.0 4.0; 20.0 30.0 40.0], labels, 1:3),
+    )
+    POM.write_parameter_windows!(store, key, windows, Dates.Hour(1), Dates.Hour(1))
+
+    back = POM.read_parameter_windows(store, key)
+    @test Set(keys(back)) == Set(labels)
+    @test back["Solitude"][t0] == [1.0, 2.0, 3.0]
+    @test back["Park City"][t0 + Dates.Hour(1)] == [20.0, 30.0, 40.0]
+    @test isempty(POM.parameter_association_rows(store))
+    # Distinct features keep two models' rows apart.
+    POM.write_parameter_windows!(
+        store, key, windows, Dates.Hour(1), Dates.Hour(1);
+        extra_features = Dict{String, Any}("model" => "ED"),
+    )
+    @test length(POM.read_parameter_windows(store, key)) == 2
+    @test length(
+        POM.read_parameter_windows(
+            store, key; extra_features = Dict{String, Any}("model" => "ED"),
+        ),
+    ) == 2
+    POM.close_parameter_store!(store)
+end
+
+@testset "a persisted store reopens writable in place" begin
+    store = POM.ParameterTimeSeriesStore()
+    ta = TimeSeries.TimeArray(
+        range(Dates.DateTime(2024, 1, 1); step = Dates.Hour(1), length = 4),
+        collect(1.0:4.0),
+    )
+    POM.write_parameter_series!(
+        store,
+        7,
+        "ThermalStandard",
+        "fuel_cost",
+        ta;
+        in_document = true,
+    )
+    dir = mktempdir(; cleanup = true)
+    path = joinpath(dir, "time_series.h5")
+    POM.persist_parameter_store!(store, path)
+    POM.close_parameter_store!(store)
+
+    live = POM.open_parameter_store_writable(path)
+    key = IOM.ParameterKey(POM.FuelCostParameter, PSY.ThermalStandard)
+    POM.write_parameter_array!(
+        live, key, JuMP.Containers.DenseAxisArray([5.0 6.0 7.0 8.0], ["Solitude"], 1:4),
+        collect(range(Dates.DateTime(2024, 1, 1); step = Dates.Hour(1), length = 4)),
+    )
+    POM.close_parameter_store!(live)
+
+    # The files on disk now hold both rows: no re-persist happened.
+    again = POM.open_parameter_store(path)
+    @test IS.get_num_time_series(again.store) == 2
+    @test TimeSeries.values(POM.read_parameter_array(again, key)["Solitude"]) ==
+          [5.0, 6.0, 7.0, 8.0]
+    POM.close_parameter_store!(again)
+end
