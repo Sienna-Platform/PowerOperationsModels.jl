@@ -74,6 +74,18 @@ this store never goes through it.
 """
 open_parameter_store_writable(path::AbstractString) = open_parameter_store(path)
 
+"""
+A borrowed view of a `System`'s own already-open store -- for a caller that already has this
+bundle's System loaded (e.g. via `PSY.from_file(...; time_series_read_only = true)`) and wants
+to read its realized parameters without opening a second handle to the same sidecar file
+(InfraStore allows only one open handle per file per process).
+
+The caller must **not** [`close_parameter_store!`](@ref) the result: the underlying store is
+owned by `sys`'s own time series manager, which opened it and will close it.
+"""
+parameter_store_of(sys::PSY.System) =
+    ParameterTimeSeriesStore(IS.get_data_store(sys.data), Set{Int64}())
+
 function close_parameter_store!(store::ParameterTimeSeriesStore)
     IS.close!(store.store)
     return nothing
