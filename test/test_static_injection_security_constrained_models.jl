@@ -114,12 +114,12 @@ function get_reserve_total_power_by_step_dict(
     total_variable_dict = Dict{Int, Vector{Float64}}()
     for outage in associated_outages
         outage_name = IS.get_id(outage)
-        outage_rows = filter(x -> x["name"] == outage_name, required_variables)
         outage_power_v = Vector{Float64}()
         for device in contributing_devices
-            device_name = PSY.get_name(device)
+            # Sparse (device, outage, t) outputs are flattened to a single "device__outage" column.
+            column = IOM.encode_tuple_to_column((PSY.get_name(device), string(outage_name)))
             current_v =
-                filter(x -> x[col_name] == device_name, outage_rows)[!, "value"]
+                filter(x -> x[col_name] == column, required_variables)[!, "value"]
             # The outaged generator has no deployment rows.
             isempty(current_v) && continue
             if isempty(outage_power_v)
@@ -364,7 +364,7 @@ end
             ps_model,
             sys,
             constraint_keys,
-            [360, 0, 600, 432, 48],
+            [576, 0, 888, 480, 48],
             false,
             GAEVF,
             329000.0,
@@ -407,7 +407,7 @@ end
             PSY.ThermalStandard,
         ),
     ]
-    # Counts are smaller than the all-lines baseline `[360, 0, 600, 432, 72]`
+    # Counts are smaller than the all-lines baseline `[576, 0, 888, 480, 48]`
     # because only the monitored subset contributes
     # `PostContingencyFlowRateConstraint` rows per outage step.
     gen = get_component(ThermalStandard, sys, "Solitude")
@@ -437,7 +437,7 @@ end
         ps_model,
         sys,
         constraint_keys,
-        [360, 0, 504, 336, 48],
+        [576, 0, 792, 384, 48],
         false,
         GAEVF,
         329000.0,
@@ -496,7 +496,7 @@ end
             ps_model,
             sys,
             constraint_keys,
-            [360, 0, 504, 432, 48],
+            [576, 0, 600, 480, 48],
             false,
             GAEVF,
             329000.0,
@@ -505,7 +505,7 @@ end
     end
 end
 
-@testset "G-n with contingency reserves deliverability constraints including responding reserves only up, NO reserve requirement, and reduction of parallel circuits" begin
+@testset "G-n with contingency reserves deliverability constraints including responding reserves only up, NO requirement time series, and reduction of parallel circuits" begin
     for add_parallel_line in [true, false]
         c_sys5 = PSB.build_system(PSITestSystems, "c_sys5_uc"; add_reserves = true)
 
@@ -567,7 +567,7 @@ end
             ps_model,
             sys,
             constraint_keys,
-            [240, 0, 504, 408, 72],
+            [576, 0, 504, 480, 48],
             false,
             GAEVF,
             329000.0,
@@ -598,8 +598,7 @@ end
     set_device_model!(template, PowerLoad, StaticPowerLoad)
     #set_device_model!(template, MonitoredLine, StaticBranchBounds)
     set_device_model!(template, Line, StaticBranch)
-    set_device_model!(template, Transformer2W, StaticBranch)
-    set_device_model!(template, TapTransformer, StaticBranch)
+    set_device_model!(template, TwoWindingTransformer, StaticBranch)
     set_device_model!(template, TwoTerminalGenericHVDCLine, HVDCTwoTerminalLossless)
 
     set_service_model!(template,
@@ -634,8 +633,7 @@ end
         set_device_model!(template, PowerLoad, StaticPowerLoad)
         #set_device_model!(template, MonitoredLine, StaticBranchBounds)
         set_device_model!(template, Line, line_formulation)
-        set_device_model!(template, Transformer2W, StaticBranch)
-        set_device_model!(template, TapTransformer, StaticBranch)
+        set_device_model!(template, TwoWindingTransformer, StaticBranch)
         set_device_model!(template, TwoTerminalGenericHVDCLine, HVDCTwoTerminalLossless)
 
         set_service_model!(template,
@@ -679,8 +677,7 @@ end
     set_device_model!(template, PowerLoad, StaticPowerLoad)
     #set_device_model!(template, MonitoredLine, StaticBranchBounds)
     set_device_model!(template, Line, StaticBranch)
-    set_device_model!(template, Transformer2W, StaticBranch)
-    set_device_model!(template, TapTransformer, StaticBranch)
+    set_device_model!(template, TwoWindingTransformer, StaticBranch)
     set_device_model!(template, TwoTerminalGenericHVDCLine, HVDCTwoTerminalLossless)
 
     set_service_model!(template,
@@ -741,7 +738,7 @@ end
         ps_model,
         sys,
         constraint_keys,
-        [960, 0, 1296, 600, 192],
+        [936, 0, 1248, 480, 168],
         true,
         GAEVF,
         254242.0,
@@ -794,7 +791,7 @@ end
         if reserve_slack
             moi_counts = [2040, 0, 1536, 1200, 120]
         else
-            moi_counts = [744, 0, 1536, 1200, 120]
+            moi_counts = [1176, 0, 2112, 1296, 120]
         end
         run_sc_reserve_case!(
             ps_model,

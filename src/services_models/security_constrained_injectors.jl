@@ -130,7 +130,7 @@ function _create_post_contingency_interchange_variables!(
         sparse = true,
     )
     for (uuid, per_type) in monitored_components
-        for name in get!(Vector{String}, per_type, PSY.AreaInterchange)
+        for name in get(Set{String}, per_type, PSY.AreaInterchange), t in time_steps
             var[name, uuid, t] = JuMP.@variable(
                 jump_model,
                 base_name = "PostContingencyAreaInterchangeFlowDeviationVariable_AreaInterchange_{$(name), $(uuid), $(t)}",
@@ -143,6 +143,95 @@ end
 
 _create_post_contingency_interchange_variables!(
     ::OptimizationContainer,
+    ::_OUTAGE_MAP,
+    ::NetworkModel,
+) = nothing
+
+# Flow constraints are shared by every reserve responding to an outage, so the service
+# models carrying that outage must agree on relaxing them.
+function _create_post_contingency_flow_slacks!(
+    container::OptimizationContainer,
+    sys::PSY.System,
+    services_template::ServicesModelContainer,
+    monitored_components::_OUTAGE_MAP,
+    network_model::NetworkModel{<:Union{AbstractPTDFNetworkModel, AreaBalanceNetworkModel}},
+)
+    use_slacks = Dict{Int, Bool}()
+    for model in values(services_template)
+        _validate_reserve_formulation(model) || continue
+        service_type = get_component_type(model)
+        model_slacks = get_use_slacks(model)
+        for service_name in keys(get_contributing_devices_map(model))
+            service = PSY.get_component(service_type, sys, service_name)
+            for outage in PSY.get_supplemental_attributes(PSY.Outage, service)
+                uuid = IS.get_id(outage)
+                if get!(use_slacks, uuid, model_slacks) != model_slacks
+                    throw(
+                        IS.ConflictingInputsError(
+                            "Outage $uuid is attached to security-constrained reserves \
+                             with different `use_slacks` settings; set `use_slacks` \
+                             consistently across their service models.",
+                        ),
+                    )
+                end
+            end
+        end
+    end
+
+    jump_model = get_jump_model(container)
+    time_steps = get_time_steps(container)
+    for (uuid, per_type) in monitored_components
+        use_slacks[uuid] || continue
+        for (component_type, names) in per_type
+            # Meta keeps these apart from the branch-side MODF slacks of the same type.
+            slack_ub = lazy_container_addition!(
+                container,
+                PostContingencyFlowActivePowerSlackUpperBound,
+                component_type,
+                String[],
+                Int[],
+                Int[];
+                sparse = true,
+                meta = _G1_META,
+            )
+            slack_lb = lazy_container_addition!(
+                container,
+                PostContingencyFlowActivePowerSlackLowerBound,
+                component_type,
+                String[],
+                Int[],
+                Int[];
+                sparse = true,
+                meta = _G1_META,
+            )
+            for entry_name in
+                keys(_post_contingency_flow_entries(network_model, component_type, names)),
+                t in time_steps
+
+                ub = slack_ub[entry_name, uuid, t] = JuMP.@variable(
+                    jump_model,
+                    base_name = "PostContingencyFlowActivePowerSlackUpperBound_$(component_type)_{$(entry_name), $(uuid), $(t)}",
+                    lower_bound = 0.0,
+                )
+                lb = slack_lb[entry_name, uuid, t] = JuMP.@variable(
+                    jump_model,
+                    base_name = "PostContingencyFlowActivePowerSlackLowerBound_$(component_type)_{$(entry_name), $(uuid), $(t)}",
+                    lower_bound = 0.0,
+                )
+                add_to_objective_invariant_expression!(
+                    container,
+                    (ub + lb) * CONSTRAINT_VIOLATION_SLACK_COST,
+                )
+            end
+        end
+    end
+    return
+end
+
+_create_post_contingency_flow_slacks!(
+    ::OptimizationContainer,
+    ::PSY.System,
+    ::ServicesModelContainer,
     ::_OUTAGE_MAP,
     ::NetworkModel,
 ) = nothing
@@ -233,7 +322,7 @@ function _build_post_contingency_flow!(
         t == first(time_steps) && push!(get!(Vector{String}, buses, uuid), bus)
     end
 
-    # Signed distribution factors per monitored branch, keyed by the nodal bus key.
+    # Arc distribution factors per reduced entry, keyed by the nodal bus key.
     dfs = Dict{Tuple{DataType, String}, Dict{String, Float64}}()
     for (uuid, per_type) in monitored_components
         for (line_type, names) in per_type
@@ -248,15 +337,13 @@ function _build_post_contingency_flow!(
                 meta = _G1_META,
             )
             pre_flow = get_expression(container, PTDFBranchFlow, line_type)
-            reduction_name_map = PNM.get_component_to_reduction_name_map(catalog, line_type)
             arc_map = PNM.get_name_to_arc_map(catalog, line_type)
-            for name in names
-                entry_name = reduction_name_map[name]
-                df = get!(dfs, (line_type, name)) do
+            for entry_name in
+                keys(_post_contingency_flow_entries(network_model, line_type, names))
+                df = get!(dfs, (line_type, entry_name)) do
                     ptdf_col = ptdf[arc_map[entry_name], :]
-                    sign = get_ptdf_orientation_sign(catalog, line_type, name)
                     Dict{String, Float64}(
-                        string(bus_axis[i]) => sign * ptdf_col[i] for
+                        string(bus_axis[i]) => ptdf_col[i] for
                         i in eachindex(ptdf_col) if abs(ptdf_col[i]) > PTDF_ZERO_TOL
                     )
                 end
@@ -531,6 +618,28 @@ _post_contingency_flow_expression(::NetworkModel{<:AbstractPTDFNetworkModel}) =
 _post_contingency_flow_expression(::NetworkModel{AreaBalanceNetworkModel}) =
     PostContingencyAreaInterchangeFlow
 
+# Post-contingency flow key => a representative monitored component name. Parallel
+# circuits share one reduced entry, so each entry is constrained once.
+function _post_contingency_flow_entries(
+    network_model::NetworkModel{<:AbstractPTDFNetworkModel},
+    ::Type{T},
+    names::Set{String},
+) where {T <: PSY.ACTransmission}
+    reduction_name_map =
+        PNM.get_component_to_reduction_name_map(get_branch_catalog(network_model), T)
+    entries = Dict{String, String}()
+    for name in names
+        get!(entries, reduction_name_map[name], name)
+    end
+    return entries
+end
+
+_post_contingency_flow_entries(
+    ::NetworkModel{AreaBalanceNetworkModel},
+    ::Type{PSY.AreaInterchange},
+    names::Set{String},
+) = Dict{String, String}(name => name for name in names)
+
 function _post_contingency_flow_limits(
     ::PSY.System,
     network_model::NetworkModel{<:AbstractPTDFNetworkModel},
@@ -553,15 +662,14 @@ function _post_contingency_flow_limits(
     return (min = -limits.to_from, max = limits.from_to)
 end
 
-# TODO: slacks?
 function _constrain_post_contingency_flow!(
     container::OptimizationContainer,
     sys::PSY.System,
     monitored_components::_OUTAGE_MAP,
     network_model::NetworkModel{<:Union{AbstractPTDFNetworkModel, AreaBalanceNetworkModel}},
 )
-    catalog = get_branch_catalog(network_model)
     jump_model = get_jump_model(container)
+    time_steps = get_time_steps(container)
     for (uuid, per_type) in monitored_components
         for (component_type, names) in per_type
             flow = get_expression(
@@ -590,18 +698,48 @@ function _constrain_post_contingency_flow!(
                 sparse = true,
                 meta = "$(_G1_META)_ub",
             )
-            reduction_name_map =
-                PNM.get_component_to_reduction_name_map(catalog, component_type)
-            limits = Dict{String, MinMax}()
-            for name in names, t in get_time_steps(container)
-                entry_name = reduction_name_map[name]
-                lims = get!(limits, entry_name) do
+            has_slacks = has_container_key(
+                container,
+                PostContingencyFlowActivePowerSlackUpperBound,
+                component_type,
+                _G1_META,
+            )
+            if has_slacks
+                slack_ub = get_variable(
+                    container,
+                    PostContingencyFlowActivePowerSlackUpperBound,
+                    component_type,
+                    _G1_META,
+                )
+                slack_lb = get_variable(
+                    container,
+                    PostContingencyFlowActivePowerSlackLowerBound,
+                    component_type,
+                    _G1_META,
+                )
+            end
+            for (entry_name, name) in
+                _post_contingency_flow_entries(network_model, component_type, names)
+                lims =
                     _post_contingency_flow_limits(sys, network_model, component_type, name)
+                for t in time_steps
+                    f = flow[entry_name, uuid, t]
+                    if has_slacks && haskey(slack_ub.data, (entry_name, uuid, t))
+                        cons_ub[entry_name, uuid, t] = JuMP.@constraint(
+                            jump_model,
+                            f - slack_ub[entry_name, uuid, t] <= lims.max
+                        )
+                        cons_lb[entry_name, uuid, t] = JuMP.@constraint(
+                            jump_model,
+                            f + slack_lb[entry_name, uuid, t] >= lims.min
+                        )
+                    else
+                        cons_ub[entry_name, uuid, t] =
+                            JuMP.@constraint(jump_model, f <= lims.max)
+                        cons_lb[entry_name, uuid, t] =
+                            JuMP.@constraint(jump_model, f >= lims.min)
+                    end
                 end
-                cons_ub[entry_name, uuid, t] =
-                    JuMP.@constraint(jump_model, flow[entry_name, uuid, t] <= lims.max)
-                cons_lb[entry_name, uuid, t] =
-                    JuMP.@constraint(jump_model, flow[entry_name, uuid, t] >= lims.min)
             end
         end
     end

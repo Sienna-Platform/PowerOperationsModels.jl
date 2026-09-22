@@ -151,6 +151,13 @@ function construct_services!(
         monitored_components,
         network_model,
     )
+    _create_post_contingency_flow_slacks!(
+        container,
+        sys,
+        services_template,
+        monitored_components,
+        network_model,
+    )
     return
 end
 
@@ -1142,9 +1149,9 @@ function construct_service!(
     sys::PSY.System,
     ::ArgumentConstructStage,
     model::ServiceModel{R, SecurityConstrainedContingencyReserve},
-    ::Dict,
-    ::Set,
-    ::NetworkModel,
+    devices_template::Dict{Symbol, DeviceModel},
+    ::Set{<:DataType},
+    ::NetworkModel{<:AbstractNetworkModel},
 ) where {R <: PSY.AbstractReserve}
     services = _services_with_contributors(model, sys)
     isempty(services) && return
@@ -1171,13 +1178,46 @@ function construct_service!(
     end
     return
 end
-# These models are constructed entirely in construct_services!
-construct_service!(
-    ::OptimizationContainer,
-    ::PSY.System,
+
+function construct_service!(
+    container::OptimizationContainer,
+    sys::PSY.System,
     ::ModelConstructStage,
-    ::ServiceModel{<:PSY.AbstractReserve, SecurityConstrainedContingencyReserve},
-    ::Dict,
-    ::Set,
-    ::NetworkModel,
-) = nothing
+    model::ServiceModel{R, SecurityConstrainedContingencyReserve},
+    ::Dict{Symbol, DeviceModel},
+    ::Set{<:DataType},
+    ::NetworkModel{<:AbstractNetworkModel},
+) where {R <: PSY.AbstractReserve}
+    services = _services_with_contributors(model, sys)
+    isempty(services) && return
+    service_names = PSY.get_name.(services)
+    add_constraints_container!(
+        container,
+        RequirementConstraint,
+        R,
+        service_names,
+        get_time_steps(container),
+    )
+    get_use_slacks(model) && add_reserve_slacks!(container, R, service_names)
+    for service in services
+        contributing_devices = get_contributing_devices(model, PSY.get_name(service))
+        add_constraints!(
+            container,
+            RequirementConstraint,
+            service,
+            contributing_devices,
+            model,
+        )
+        add_constraints!(
+            container,
+            ParticipationFractionConstraint,
+            service,
+            contributing_devices,
+            model,
+        )
+        add_to_objective_function!(container, service, model)
+        add_feedforward_constraints!(container, model, service)
+    end
+    add_constraint_dual!(container, sys, model)
+    return
+end
