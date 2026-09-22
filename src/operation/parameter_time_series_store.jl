@@ -8,26 +8,6 @@ const PARAMETER_ROW_OWNER_TYPE = "OptimizationParameter"
 const PARAMETER_KEY_FEATURE = "parameter"
 
 """
-A synthetic, non-domain `IS.InfrastructureSystemsComponent`. It exists only to satisfy
-`IS`'s time-series-owner interface for a parameter forecast row: a forecast must go
-through `IS.TimeSeriesManager`'s owner-typed `add_time_series!`, which validates window
-parameters against the rest of the store, whereas the bare owner-id path
-[`write_parameter_array!`](@ref) uses accepts only static series. No instance of this
-type is ever attached to a `SystemData`; it carries [`PARAMETER_ROW_OWNER_ID`](@ref)
-through that call and nothing else.
-"""
-struct OptimizationParameter <: IS.InfrastructureSystemsComponent
-    internal::IS.InfrastructureSystemsInternal
-end
-
-OptimizationParameter() =
-    OptimizationParameter(IS.InfrastructureSystemsInternal(; id = PARAMETER_ROW_OWNER_ID))
-
-IS.supports_time_series(::OptimizationParameter) = true
-
-const PARAMETER_ROW_OWNER = OptimizationParameter()
-
-"""
 The InfraStore-backed store for optimization parameters.
 
 Parameters are written here rather than into a results dataset so the bundle carries a real
@@ -287,7 +267,7 @@ function read_parameter_array(
         error("no parameter arrays found for $key in this results store")
     result = Dict{String, IS.TimeSeries.TimeArray}()
     for md in rows
-        ts = IS._infrastore_read_key(store.store, IS.get_time_series_key(md))
+        ts = IS.get_time_series(store.store, IS.get_time_series_key(md))
         result[IS.get_name(md)] = IS.make_time_array(ts, IS.get_initial_timestamp(ts))
     end
     return result
@@ -329,15 +309,16 @@ function write_parameter_windows!(
 )::Nothing
     labels = _check_parameter_windows(key, windows)
     features = _parameter_key_features(key, extra_features)
-    mgr = IS.TimeSeriesManager(store.store, false)
     for label in labels
         data = Dict(
             initial_time => collect(vec(window[label, :])) for
             (initial_time, window) in windows
         )
         IS.add_time_series!(
-            mgr,
-            PARAMETER_ROW_OWNER,
+            store.store,
+            PARAMETER_ROW_OWNER_ID,
+            PARAMETER_ROW_OWNER_TYPE,
+            IS.get_owner_category(IS.InfrastructureSystemsComponent),
             PSY.Deterministic(string(label), data, resolution, interval);
             features = features,
         )
@@ -378,7 +359,7 @@ function read_parameter_windows(
         error("no parameter windows found for $key in this results store")
     result = Dict{String, Dict{Dates.DateTime, Vector{Float64}}}()
     for md in rows
-        ts = IS._infrastore_read_key(store.store, IS.get_time_series_key(md))
+        ts = IS.get_time_series(store.store, IS.get_time_series_key(md))
         result[IS.get_name(md)] = Dict{Dates.DateTime, Vector{Float64}}(IS.get_data(ts))
     end
     return result
@@ -424,13 +405,15 @@ function _cost_time_series_keys(c::Union{PSY.OnlineReserve, PSY.OfflineReserve})
 end
 
 """
-Copy a static series verbatim into `store`, under `c`'s own document id and type. No
-`make_time_array` round trip: the original series object goes in as-is.
+Copy a series verbatim into `store`, under `c`'s own document id and type. No
+`make_time_array` round trip: the original series object goes in as-is. The store-level
+`IS.add_time_series!` dispatches on `ts` itself (static vs. forecast), so one method
+covers both.
 """
 function _copy_cost_time_series!(
     store::ParameterTimeSeriesStore,
     c::PSY.Component,
-    ts::IS.StaticTimeSeries,
+    ts::IS.TimeSeriesData,
 )::IS.TimeSeriesKey
     return IS.add_time_series!(
         store.store,
@@ -439,26 +422,6 @@ function _copy_cost_time_series!(
         IS.get_owner_category(IS.InfrastructureSystemsComponent),
         ts,
     )
-end
-
-"""
-Copy every window of a forecast series into `store`, through `IS.TimeSeriesManager` under `c`
-itself as the owner. A forecast carries window parameters `IS.add_time_series!` on the bare
-store refuses to validate by owner id (see `InfrastructureSystems/src/infrastore.jl`), so this
-goes through the manager path instead, the same path [`write_parameter_windows!`](@ref) uses.
-
-`c` is used directly as the owner rather than a synthetic stand-in: `IS`'s owner marshalling
-(`_infrastore_owner_args`) only reads `get_id(c)` and `nameof(typeof(c))` from it and never
-mutates `c` or its shared system references, and the component's own type name is exactly the
-`owner_type` the document row needs.
-"""
-function _copy_cost_time_series!(
-    store::ParameterTimeSeriesStore,
-    c::PSY.Component,
-    ts::IS.Forecast,
-)::IS.TimeSeriesKey
-    mgr = IS.TimeSeriesManager(store.store, false)
-    return IS.add_time_series!(mgr, c, ts)
 end
 
 """
@@ -579,7 +542,7 @@ function read_parameter_series(
     isempty(rows) && error(
         "no parameter series named \"$name\" for owner id $owner_id in this results store",
     )
-    ts = IS._infrastore_read_key(store.store, IS.get_time_series_key(only(rows)))
+    ts = IS.get_time_series(store.store, IS.get_time_series_key(only(rows)))
     return IS.make_time_array(ts, IS.get_initial_timestamp(ts))
 end
 
