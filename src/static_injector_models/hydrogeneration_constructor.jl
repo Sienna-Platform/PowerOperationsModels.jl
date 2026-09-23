@@ -457,6 +457,16 @@ function _add_hydro_commitment_run_of_river_constraints!(
         model,
         network_model,
     )
+    if _has_offline_reserve_service(model)
+        # p + online + offline <= ts_t preserves an OFF unit's offline capability.
+        add_constraints!(
+            container,
+            OfflineReserveBandConstraint,
+            devices,
+            model,
+            network_model,
+        )
+    end
 
     add_feedforward_constraints!(container, model, devices)
 
