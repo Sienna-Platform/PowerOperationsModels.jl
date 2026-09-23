@@ -232,20 +232,44 @@ end
     @test haskey(fuel_param, PSY.get_name(gen))
     POM.close_parameter_store!(store)
 
-    # The restored System's cost resolves to the copied series, and its component listing is
-    # not polluted by parameter rows.
-    restored = PSY.from_file(sys_dir; time_series_read_only = true)
+    # `time_series_read_only = true` gets refused by the rebuild below (`build!` needs a
+    # writable System), so this bundle is reopened writable, per the task fallback.
+    restored = PSY.from_file(sys_dir)
     gen2 = get_component(PSY.ThermalStandard, restored, PSY.get_name(gen))
-    # The copy reads the realized values starting at the forecast's own initial timestamp,
-    # i.e. its first window.
+    # The cost copy is re-windowed to the run: the model's single window, not the System's two.
     @test TimeSeries.values(PSY.get_fuel_cost(gen2)) == fuel_window_1
-    # The second window survives the copy too — not just the first.
-    @test TimeSeries.values(
-        PSY.get_fuel_cost(gen2; start_time = init_time + Dates.Hour(24)),
-    ) == fuel_window_2
+    @test_throws Exception PSY.get_fuel_cost(gen2; start_time = init_time + Dates.Hour(24))
+    # ThermalStandardUnitCommitment gives ThermalStandard only a FuelCostParameter (not an
+    # input-recast type); the input recast in this run lands on PowerLoad's
+    # ActivePowerTimeSeriesParameter instead, exercised by the rebuild-equality check below.
     @test [IS.get_name(md) for md in IS.list_time_series_metadata(gen2)] == ["fuel_cost"]
     @test length(collect(get_components(PSY.ThermalStandard, restored))) ==
           length(collect(get_components(PSY.ThermalStandard, c_sys5)))
+
+    # The point of the recast: the same template rebuilt from the restored System reproduces
+    # the run's parameters. Build status is not evidence (a missing series is a silent skip),
+    # so compare every input parameter's realized values and the objective.
+    rebuilt = DecisionModel(template, restored; optimizer = HiGHS_optimizer)
+    @test build!(rebuilt; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+    original_params = IOM.read_parameters(IOM.get_optimization_container(model))
+    rebuilt_params = IOM.read_parameters(IOM.get_optimization_container(rebuilt))
+    input_keys = [
+        k for (k, pc) in IOM.get_parameters(IOM.get_optimization_container(model)) if
+        POM.is_input_parameter(k, pc)
+    ]
+    @test !isempty(input_keys)
+    for k in input_keys
+        @test haskey(rebuilt_params, k)
+        @test axes(rebuilt_params[k]) == axes(original_params[k])
+        @test rebuilt_params[k].data == original_params[k].data
+    end
+    @test solve!(rebuilt) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+    @test isapprox(
+        JuMP.objective_value(IOM.get_jump_model(IOM.get_optimization_container(rebuilt))),
+        JuMP.objective_value(IOM.get_jump_model(IOM.get_optimization_container(model)));
+        rtol = 1e-6,
+    )
 
     output_dir_no_write = mktempdir(; cleanup = true)
     model_no_write = DecisionModel(
@@ -908,4 +932,77 @@ end
     # The text/html show path delegates the same way; exercise it too.
     out_html = sprint(show, MIME("text/html"), model)
     @test occursin("Network Model", out_html)
+end
+
+@testset "System bundle: overridden series name restores under that name; reduction aggregates warn" begin
+    # 1. Custom name. Build with the same system and device models as the first testset of
+    #    test_network_constructors_with_branch_rating_time_series.jl, which names the
+    #    BranchRatingTimeSeriesParameter series "branch_rating".
+    sys, template, rating_line = let
+        line_device_model = DeviceModel(
+            Line,
+            StaticBranch;
+            time_series_names = Dict(
+                BranchRatingTimeSeriesParameter => "branch_rating",
+            ),
+        )
+        sys = PSB.build_system(PSITestSystems, "c_sys5")
+        rating_factors = vcat([fill(x, 6) for x in [0.99, 0.98, 1.0, 0.95]]...)
+        add_branch_rating_time_series_to_system!(
+            sys,
+            ["1", "2", "6"],
+            2,
+            rating_factors;
+            initial_date = "2024-01-01",
+        )
+        template = get_thermal_dispatch_template_network(NetworkModel(PTDFNetworkModel))
+        set_device_model!(template, line_device_model)
+        (sys, template, "1")
+    end
+    output_dir = mktempdir(; cleanup = true)
+    model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
+    @test build!(model; output_dir = output_dir) == IOM.ModelBuildStatus.BUILT
+    @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+    sys_dir = joinpath(output_dir, IOM.make_system_dirname(sys))
+    restored = PSY.from_file(sys_dir; time_series_read_only = true)
+    line2 = get_component(PSY.Line, restored, rating_line)
+    @test "branch_rating" in [IS.get_name(md) for md in IS.list_time_series_metadata(line2)]
+    IS.close!(IS.get_data_store(restored.data))
+
+    # 2. Reduction aggregates: labels that are not components are warned about, the bundle
+    #    still writes and loads. Use the DegreeTwoReduction setup from the same test file.
+    template_nr = let
+        nr = NetworkReduction[DegreeTwoReduction()]
+        template_nr = get_thermal_dispatch_template_network(
+            NetworkModel(
+                PTDFNetworkModel;
+                network_source = SystemNetworkSource(nr),
+            ),
+        )
+        set_device_model!(
+            template_nr,
+            DeviceModel(
+                Line,
+                StaticBranch;
+                time_series_names = Dict(
+                    BranchRatingTimeSeriesParameter => "branch_rating",
+                ),
+            ),
+        )
+        template_nr
+    end
+    output_dir_nr = mktempdir(; cleanup = true)
+    model_nr = DecisionModel(template_nr, sys; optimizer = HiGHS_optimizer)
+    @test build!(model_nr; output_dir = output_dir_nr) == IOM.ModelBuildStatus.BUILT
+    # DegreeTwoReduction on this fixture resolves every aggregate label back to a component
+    # (no unresolved labels), so there is no "not components of the System" warning to assert
+    # on; this checks the plain solve succeeds instead.
+    @test solve!(model_nr) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+    restored_nr = PSY.from_file(
+        joinpath(output_dir_nr, IOM.make_system_dirname(sys));
+        time_series_read_only = true,
+    )
+    @test length(collect(get_components(PSY.Line, restored_nr))) ==
+          length(collect(get_components(PSY.Line, sys)))
+    IS.close!(IS.get_data_store(restored_nr.data))
 end

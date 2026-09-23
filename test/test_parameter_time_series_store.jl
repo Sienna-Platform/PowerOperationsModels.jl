@@ -613,3 +613,94 @@ end
     @test Set(keys(back)) == Set(labels)
     @test TimeSeries.values(back["Solitude"]) == [1.0, 2.0, 3.0, 4.0]
 end
+
+@testset "write_input_forecast_row!: a component-owned Deterministic with the marker feature; second write is a no-op" begin
+    sys = PSB.build_system(PSITestSystems, "c_sys5")
+    load = first(get_components(PSY.PowerLoad, sys))
+    t0 = Dates.DateTime(2024, 1, 1)
+    data = Dict(t0 => collect(0.1:0.1:2.4), t0 + Dates.Hour(24) => collect(0.2:0.1:2.5))
+    store = POM.ParameterTimeSeriesStore()
+    @test POM.write_input_forecast_row!(
+        store, IS.get_id(load), "PowerLoad", "max_active_power", data, Dates.Hour(1),
+        Dates.Hour(24),
+    )
+    # Review Focus 2: the same (owner, name) again is skipped, not duplicated and not an error.
+    @test !POM.write_input_forecast_row!(
+        store, IS.get_id(load), "PowerLoad", "max_active_power", data, Dates.Hour(1),
+        Dates.Hour(24),
+    )
+    rows = IS.list_time_series_metadata(
+        store.store;
+        owner_id = IS.get_id(load),
+        name = "max_active_power",
+    )
+    @test length(rows) == 1
+    @test IS.get_features(only(rows))["source"] == "parameter"
+    @test IS.get_association_id(IS.get_time_series_key(only(rows))) in
+          store.document_association_ids
+    POM.close_parameter_store!(store)
+end
+
+@testset "input_series_descriptor resolves labels to owners and warns once for the rest" begin
+    c_sys5 = PSB.build_system(PSITestSystems, "c_sys5_uc")
+    model = DecisionModel(
+        get_thermal_standard_uc_template(),
+        c_sys5;
+        optimizer = HiGHS_optimizer,
+    )
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+    container = IOM.get_optimization_container(model)
+    key = IOM.ParameterKey(POM.ActivePowerTimeSeriesParameter, PSY.PowerLoad)
+    pc = IOM.get_parameters(container)[key]
+    @test POM.is_input_parameter(key, pc)
+    d = POM.input_series_descriptor(c_sys5, key, pc)
+    @test d.name == "max_active_power"
+    @test d.time_series_type <: PSY.Deterministic
+    @test Set(keys(d.owners)) == Set(PSY.get_name.(get_components(PSY.PowerLoad, c_sys5)))
+    @test isempty(d.unresolved)
+    # Review Focus 3: a label that is not a component is reported, not fatal.
+    IOM.add_component_name!(IOM.get_attributes(pc), "bogus", "deadbeef")
+    d2 = @test_logs (:warn, r"bogus") POM.input_series_descriptor(c_sys5, key, pc)
+    @test d2.unresolved == ["bogus"]
+    @test !haskey(d2.owners, "bogus")
+    cost_key = IOM.ParameterKey(POM.FuelCostParameter, PSY.ThermalStandard)
+    if haskey(IOM.get_parameters(container), cost_key)
+        @test !POM.is_input_parameter(cost_key, IOM.get_parameters(container)[cost_key])
+    end
+end
+
+@testset "write_model_inputs!: the restored load carries the raw parameter values as its own forecast" begin
+    c_sys5 = PSB.build_system(PSITestSystems, "c_sys5_uc")
+    model = DecisionModel(
+        get_thermal_standard_uc_template(),
+        c_sys5;
+        optimizer = HiGHS_optimizer,
+    )
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+    container = IOM.get_optimization_container(model)
+    windows = POM.run_windows(model)
+    store = POM.ParameterTimeSeriesStore()
+    key_map = POM.copy_cost_time_series!(store, c_sys5, windows)
+    POM.write_model_inputs!(store, c_sys5, container, windows)
+
+    bundle = joinpath(mktempdir(; cleanup = true), "system-test")
+    POM.write_results_system_bundle!(c_sys5, store, key_map, bundle)
+    POM.close_parameter_store!(store)
+
+    restored = PSY.from_file(bundle; time_series_read_only = true)
+    load = first(get_components(PSY.PowerLoad, c_sys5))
+    load2 = get_component(PSY.PowerLoad, restored, PSY.get_name(load))
+    @test PSY.has_time_series(load2)
+    key = IOM.ParameterKey(POM.ActivePowerTimeSeriesParameter, PSY.PowerLoad)
+    raw = IOM.get_parameter_values(IOM.get_parameters(container)[key])
+    got = PSY.get_time_series_values(PSY.Deterministic, load2, "max_active_power")
+    @test got == collect(vec(raw[PSY.get_name(load), :]))
+    # The raw values are the System's own scaling factors: not multiplied, not sign-flipped.
+    @test got == PSY.get_time_series_values(
+        PSY.Deterministic, load, "max_active_power";
+        start_time = first(windows.initial_times),
+    )
+    IS.close!(IS.get_data_store(restored.data))
+end
