@@ -129,6 +129,7 @@ function get_default_time_series_names(
 ) where {T <: Union{RangeReserve, RampReserve}}
     return Dict{Type{<:TimeSeriesParameter}, String}(
         RequirementTimeSeriesParameter => "requirement",
+        DeployedFractionTimeSeriesParameter => "deployed_fraction",
     )
 end
 
@@ -138,6 +139,7 @@ function get_default_time_series_names(
 )
     return Dict{Type{<:TimeSeriesParameter}, String}(
         RequirementTimeSeriesParameter => "requirement",
+        DeployedFractionTimeSeriesParameter => "deployed_fraction",
     )
 end
 
@@ -145,7 +147,12 @@ function get_default_time_series_names(
     ::Type{T},
     ::Type{<:AbstractReservesFormulation},
 ) where {T <: PSY.AbstractReserve}
-    return Dict{Type{<:TimeSeriesParameter}, String}()
+    # `deployed_fraction` is a property of the reserve, not of the formulation pricing it, so
+    # every reserves formulation resolves the name. Unlike `requirement` it backs no parameter
+    # container: the fraction is a constraint coefficient read at build time.
+    return Dict{Type{<:TimeSeriesParameter}, String}(
+        DeployedFractionTimeSeriesParameter => "deployed_fraction",
+    )
 end
 
 function get_default_attributes(

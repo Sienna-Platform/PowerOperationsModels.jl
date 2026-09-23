@@ -2722,13 +2722,13 @@ function add_to_expression!(
                 typeof(service) <: S || continue
                 isa(service, PSY.Reserve{PSY.ReserveUp}) || continue
                 service_name = PSY.get_name(service)
-                deployed_fraction = PSY.get_deployed_fraction(service)
+                fractions = deployed_fraction_values(container, service_model, service)
                 variable = get_variable(container, U, typeof(service))
                 for t in get_time_steps(container)
                     add_proportional_to_jump_expression!(
                         expression[name, t],
                         variable[(service_name, name, t)],
-                        deployed_fraction,
+                        fractions[t],
                     )
                 end
             end
@@ -2761,13 +2761,13 @@ function add_to_expression!(
                 typeof(service) <: S || continue
                 isa(service, PSY.Reserve{PSY.ReserveDown}) || continue
                 service_name = PSY.get_name(service)
-                deployed_fraction = PSY.get_deployed_fraction(service)
+                fractions = deployed_fraction_values(container, service_model, service)
                 variable = get_variable(container, U, typeof(service))
                 for t in get_time_steps(container)
                     add_proportional_to_jump_expression!(
                         expression[name, t],
                         variable[(service_name, name, t)],
-                        deployed_fraction,
+                        fractions[t],
                     )
                 end
             end
@@ -2811,68 +2811,6 @@ function _add_parameters!(
             mult * get_initial_parameter_value(T, d, W),
             i,
             1,
-        )
-    end
-    return
-end
-
-function add_to_expression!(
-    container::OptimizationContainer,
-    ::Type{T},
-    ::Type{U},
-    service::X,
-    devices::Vector{V},
-    model::ServiceModel{X, W},
-) where {
-    T <: HydroServedReserveUpExpression,
-    U <: VariableType,
-    V <: PSY.HydroGen,
-    X <: PSY.Reserve{PSY.ReserveUp},
-    W <: AbstractReservesFormulation,
-}
-    service_name = PSY.get_name(service)
-    variable = get_variable(container, U, X)
-    if !has_container_key(container, T, V)
-        add_expressions!(container, T, devices, model)
-    end
-    expression = get_expression(container, T, V)
-    for d in devices, t in get_time_steps(container)
-        name = PSY.get_name(d)
-        add_proportional_to_jump_expression!(
-            expression[name, t],
-            variable[(service_name, name, t)],
-            1.0,
-        )
-    end
-    return
-end
-
-function add_to_expression!(
-    container::OptimizationContainer,
-    ::Type{T},
-    ::Type{U},
-    service::X,
-    devices::Vector{V},
-    model::ServiceModel{X, W},
-) where {
-    T <: HydroServedReserveDownExpression,
-    U <: VariableType,
-    V <: PSY.HydroGen,
-    X <: PSY.Reserve{PSY.ReserveDown},
-    W <: AbstractReservesFormulation,
-}
-    service_name = PSY.get_name(service)
-    variable = get_variable(container, U, X)
-    if !has_container_key(container, T, V)
-        add_expressions!(container, T, devices, model)
-    end
-    expression = get_expression(container, T, V)
-    for d in devices, t in get_time_steps(container)
-        name = PSY.get_name(d)
-        add_proportional_to_jump_expression!(
-            expression[name, t],
-            variable[(service_name, name, t)],
-            -1.0,
         )
     end
     return

@@ -909,6 +909,7 @@ export ActivePowerOutTimeSeriesParameter
 export ActivePowerInTimeSeriesParameter
 export ReactivePowerTimeSeriesParameter
 export RequirementTimeSeriesParameter
+export DeployedFractionTimeSeriesParameter
 export UpperBoundValueParameter
 export LowerBoundValueParameter
 export OnStatusParameter

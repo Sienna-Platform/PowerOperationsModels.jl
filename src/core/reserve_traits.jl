@@ -61,6 +61,91 @@ function _has_ts_requirement(model::ServiceModel, s::PSY.AbstractReserve)
     return PSY.has_time_series(s, ts_names[RequirementTimeSeriesParameter])
 end
 
+"""
+The `ServiceModel` in `device_model` that covers `service`, or `nothing` when the device model
+registers no model for that service's type.
+
+Mirrors the type match the hydro served-reserve wiring already performs: a `ServiceModel`'s
+component type can be partially applied (`OnlineReserve{ReserveUp}`, a `UnionAll`), so the
+comparison is `typeof(service) <: get_component_type(service_model)`.
+"""
+function _service_model_for(device_model::DeviceModel, service::PSY.Service)
+    for service_model in get_services(device_model)
+        typeof(service) <: get_component_type(service_model) && return service_model
+    end
+    return nothing
+end
+
+"""
+Per-time-step deployed fraction for `s`, as `deployed_fraction * profile[t]`.
+
+Returns `fill(scalar, horizon)` when the model declares no deployed-fraction series name or the
+reserve carries no such series, reproducing the constant-coefficient behavior exactly. Always
+returns a `Vector{Float64}` so the multiplier seams stay type-stable.
+
+The name is resolved from the `ServiceModel`'s `time_series_names`, so a user can override it
+there, exactly as for [`RequirementTimeSeriesParameter`](@ref). Unlike `requirement` the series
+backs no parameter container: the fraction multiplies a reserve award, so it is a constraint
+coefficient, and a JuMP parameter in coefficient position would make the energy balance
+bilinear. Repeated calls for a service shared across devices are cheap because IOM caches
+resolved series.
+"""
+function deployed_fraction_values(
+    container::OptimizationContainer,
+    model::ServiceModel,
+    s::PSY.AbstractReserve,
+)::Vector{Float64}
+    scalar = PSY.get_deployed_fraction(s)
+    time_steps = get_time_steps(container)
+    ts_names = get_time_series_names(model)
+    haskey(ts_names, DeployedFractionTimeSeriesParameter) ||
+        return fill(scalar, length(time_steps))
+    ts_name = ts_names[DeployedFractionTimeSeriesParameter]
+    PSY.has_time_series(s, ts_name) || return fill(scalar, length(time_steps))
+    ts_type = get_default_time_series_type(container)
+    if !PSY.has_time_series(s, ts_type, ts_name)
+        throw(
+            IS.ConflictingInputsError(
+                "Reserve $(PSY.get_name(s)) carries a $(ts_name) time series, but not as \
+                $(ts_type), which is what this model reads. Attach the series before calling \
+                transform_single_time_series!, or add it directly as $(ts_type).",
+            ),
+        )
+    end
+    # `resolution` accompanies `interval` so an off-resolution series is rejected rather than
+    # read at the wrong step length, matching the parameter path in `add_parameters.jl`.
+    settings = get_settings(container)
+    ts_values = IOM.get_time_series_initial_values!(
+        container,
+        ts_type,
+        s,
+        ts_name;
+        interval = get_interval(settings),
+        resolution = get_resolution(settings),
+    )
+    return scalar .* Vector{Float64}(ts_values)
+end
+
+"""
+Per-time-step deployed fraction resolved through `device_model`'s registered service models.
+
+Convenience for the device-side multiplier seams, which hold a `DeviceModel` and reach services
+through `PSY.get_services(d)`. Falls back to the scalar when the device model registers no
+service model covering `s`.
+"""
+function deployed_fraction_values(
+    container::OptimizationContainer,
+    device_model::DeviceModel,
+    s::PSY.AbstractReserve,
+)::Vector{Float64}
+    service_model = _service_model_for(device_model, s)
+    isnothing(service_model) && return fill(
+        PSY.get_deployed_fraction(s),
+        length(get_time_steps(container)),
+    )
+    return deployed_fraction_values(container, service_model, s)
+end
+
 # ── ORDC (operating-reserve-demand-curve) predicates ─────────────────────────────────
 # A demand curve lives on a reserve's `variable` field ("is this an ORDC" is
 # `PSY.has_demand_curve`), so "static vs time-varying" is a runtime inspection of the curve

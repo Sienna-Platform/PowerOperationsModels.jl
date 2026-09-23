@@ -708,3 +708,79 @@ end
     mock_construct_device!(model, device_model; built_for_recurrent_solves = true)
     moi_tests(model, 121, 0, 74, 72, 24, true)
 end
+
+@testset "StorageDispatchWithReserves honors a deployed_fraction profile" begin
+    # The deployed fraction scales the award into the SOC balance. With a profile attached it
+    # must vary by time step rather than being hoisted once per service.
+    profile = collect(range(0.2, 0.9; length = 48))
+    sys = PSB.build_system(
+        PSITestSystems,
+        "c_sys5_bat";
+        add_single_time_series = true,
+        add_reserves = true,
+    )
+    _deactivate_unmodeled_ordc!(sys)
+    reserve = only(
+        [
+        r for r in get_components(OnlineReserve{ReserveUp}, sys) if
+        get_available(r) && !PSY.has_demand_curve(r)
+    ],
+    )
+    set_deployed_fraction!(reserve, 0.5)
+    PSY.add_time_series!(
+        sys,
+        reserve,
+        PSY.SingleTimeSeries(
+            "deployed_fraction",
+            TimeArray(
+                collect(
+                    range(
+                        DateTime("2024-01-01T00:00:00");
+                        step = Hour(1),
+                        length = length(profile),
+                    ),
+                ),
+                profile,
+            ),
+        ),
+    )
+    transform_single_time_series!(sys, Hour(4), Hour(4))
+
+    template = PowerOperationsProblemTemplate()
+    set_device_model!(template, ThermalStandard, ThermalBasicUnitCommitment)
+    set_device_model!(template, PowerLoad, StaticPowerLoad)
+    set_device_model!(
+        template,
+        DeviceModel(EnergyReservoirStorage, StorageDispatchWithReserves),
+    )
+    set_service_model!(template, OnlineReserve{ReserveUp}, RangeReserve)
+    set_service_model!(template, OnlineReserve{ReserveDown}, RangeReserve)
+
+    model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          ModelBuildStatus.BUILT
+
+    container = IOM.get_optimization_container(model)
+    expr = IOM.get_expression(
+        container,
+        POM.StorageReserveBalanceExpression{
+            ReserveUp,
+            POM.DeployedReserve,
+            POM.DischargeSide,
+        },
+        EnergyReservoirStorage,
+    )
+    var = IOM.get_variable(
+        container,
+        AncillaryServiceVariableDischarge,
+        EnergyReservoirStorage,
+        POM._service_container_meta(reserve),
+    )
+    name = "Bat"
+    time_steps = IOM.get_time_steps(container)
+    for t in time_steps
+        @test JuMP.coefficient(expr[name, t], var[name, t]) ≈ 0.5 * profile[t]
+    end
+    @test JuMP.coefficient(expr[name, first(time_steps)], var[name, first(time_steps)]) !=
+          JuMP.coefficient(expr[name, last(time_steps)], var[name, last(time_steps)])
+end
