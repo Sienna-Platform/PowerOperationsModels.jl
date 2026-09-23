@@ -143,7 +143,7 @@ _pair_types(::Type{IOM.ComponentPairKey{D, S}}) where {D, S} = (D, S)
 
 # Every deployment entry as (device type, service type, service, device, outage, t) => variable.
 function _deployments(container)
-    entries = Dict{Tuple{DataType, DataType, String, String, Int, Int}, JuMP.VariableRef}()
+    entries = Dict{Tuple{DataType, Type, String, String, Int, Int}, JuMP.VariableRef}()
     for (key, variable) in IOM.get_variables(container)
         IOM.get_entry_type(key) === PostContingencyDeploymentVariable || continue
         D, S = _pair_types(IOM.get_component_type(key))
@@ -359,8 +359,8 @@ end
 end
 
 @testset "G-1 reserves on a degree-two reduced network" begin
-    # `RADIAL1-RADIAL2-i_1` is merged into a degree-two series entry, so its post-contingency
-    # flow is keyed and limited by that entry.
+    # `RADIAL1-RADIAL2-i_1` is merged into a degree-two series chain. Series segments keep
+    # their own names but map to the chain's reduced arc.
     sys = PSB.build_system(PSITestSystems, "case10_radial_series_reductions")
     load = first(collect(get_components(StandardLoad, sys)))
     add_time_series!(
@@ -417,11 +417,14 @@ end
     catalog = POM.get_branch_catalog(network_model)
     reduction = POM.get_network_reduction(network_model)
     entry_name = PNM.get_component_to_reduction_name_map(catalog, Line)[monitored_name]
-    @test entry_name != monitored_name
+    reduced_arc = PNM.get_name_to_arc_map(catalog, Line)[entry_name]
+    line_arc = PSY.get_arc(get_component(Line, sys, monitored_name))
+    @test reduced_arc !=
+          (PSY.get_number(PSY.get_from(line_arc)), PSY.get_number(PSY.get_to(line_arc)))
 
     ptdf = PNM.VirtualPTDF(sys; network_reductions = reductions)
     bus_axis = PNM.get_bus_axis(ptdf)
-    row = ptdf[PNM.get_name_to_arc_map(catalog, Line)[entry_name], :]
+    row = ptdf[reduced_arc, :]
     factor(component) =
         row[findfirst(
             ==(PNM.get_mapped_bus_number(reduction, PSY.get_bus(component))),
