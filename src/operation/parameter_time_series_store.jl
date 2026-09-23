@@ -19,40 +19,22 @@ This is the only place in PowerOperationsModels or PowerSimulations that knows I
 """
 struct ParameterTimeSeriesStore
     store::IS.Store
-    document_association_ids::Set{Int64}
 end
 
 """A fresh, writable, in-memory parameter store."""
-ParameterTimeSeriesStore() =
-    ParameterTimeSeriesStore(IS.Store(; in_memory = true), Set{Int64}())
+ParameterTimeSeriesStore() = ParameterTimeSeriesStore(IS.Store(; in_memory = true))
 
 """
-Persist the store — arrays and catalog — to `path` (`path` and `path.sqlite`).
-
-The catalog is kept so parameters the System document does not mention (feedforward values,
-scalar-built costs) stay readable after reopen.
+Reopen a persisted parameter store with its catalog, writable in place, so later
+`write_parameter_*` calls land directly in the on-disk `.h5`/`.sqlite` pair with no re-persist.
+`IS.open_infrastore_store` opens its artifacts in place, writable, by default (`read_only =
+false`, `catalog = :attached`); the copy-to-a-temp-location path lives in a different function
+(`open_deserialized_infrastore_store`), used only for deserialized `System` artifacts, and this
+store never goes through it.
 """
-function persist_parameter_store!(store::ParameterTimeSeriesStore, path::AbstractString)
-    IS.serialize(store.store, path)
-    return nothing
-end
-
-"""Reopen a persisted parameter store with its catalog."""
 function open_parameter_store(path::AbstractString)
-    return ParameterTimeSeriesStore(IS.open_infrastore_store(path), Set{Int64}())
+    return ParameterTimeSeriesStore(IS.open_infrastore_store(path))
 end
-
-"""
-Reopen a persisted parameter store writable in place, so later `write_parameter_*` calls
-land directly in the on-disk `.h5`/`.sqlite` pair with no re-persist.
-
-An alias of [`open_parameter_store`](@ref): `IS.open_infrastore_store` already opens its
-artifacts in place, writable, by default (`read_only = false`, `catalog = :attached`). The
-copy-to-a-temp-location path lives in a different function
-(`open_deserialized_infrastore_store`), used only for deserialized `System` artifacts, and
-this store never goes through it.
-"""
-open_parameter_store_writable(path::AbstractString) = open_parameter_store(path)
 
 """
 A borrowed view of a `System`'s own already-open store -- for a caller that already has this
@@ -64,54 +46,10 @@ The caller must **not** [`close_parameter_store!`](@ref) the result: the underly
 owned by `sys`'s own time series manager, which opened it and will close it.
 """
 parameter_store_of(sys::PSY.System) =
-    ParameterTimeSeriesStore(IS.get_data_store(sys.data), Set{Int64}())
+    ParameterTimeSeriesStore(IS.get_data_store(sys.data))
 
 function close_parameter_store!(store::ParameterTimeSeriesStore)
     IS.close!(store.store)
-    return nothing
-end
-
-"""
-Store one parameter's realized series and return its key.
-
-`owner_id` must be the owner's **document id** — the same id the System document gives that
-component — or the row will not attach to anything on read.
-
-`in_document` marks this series as one the System document declares: its `association_id` is
-recorded so [`parameter_association_rows`](@ref) exports a catalog row for it. A series written
-with `in_document = false` (the default) is still stored and readable — a feedforward value or a
-scalar-built cost belongs in the store without becoming a document row.
-"""
-function write_parameter_series!(
-    store::ParameterTimeSeriesStore,
-    owner_id::Int,
-    owner_type::AbstractString,
-    name::AbstractString,
-    data::IS.TimeSeries.TimeArray;
-    in_document::Bool = false,
-)
-    key = IS.add_time_series!(
-        store.store,
-        owner_id,
-        String(owner_type),
-        IS.get_owner_category(IS.InfrastructureSystemsComponent),
-        PSY.SingleTimeSeries(String(name), data),
-    )
-    _record_document_association!(store, key, in_document)
-    return key
-end
-
-"""
-Record `key`'s association id so [`parameter_association_rows`](@ref) exports a catalog row
-for it. Shared by every path that writes a document-declared series, so the bookkeeping lives
-in one place regardless of which `IS.add_time_series!` method wrote the row.
-"""
-function _record_document_association!(
-    store::ParameterTimeSeriesStore,
-    key::IS.TimeSeriesKey,
-    in_document::Bool,
-)
-    in_document && push!(store.document_association_ids, IS.get_association_id(key))
     return nothing
 end
 
@@ -132,6 +70,44 @@ _parameter_key_features(key::IOM.ParameterKey, extra_features::Dict{String, <:An
         Dict{String, Any}(PARAMETER_KEY_FEATURE => IOM.encode_key_as_string(key)),
         extra_features,
     )
+
+"""
+Add one row to `store`, under `owner_id`/`owner_type` (or a component's own id/type). One spot
+for the owner-category argument every `IS.add_time_series!` call here repeats.
+"""
+_add_row!(
+    store::ParameterTimeSeriesStore,
+    owner_id::Integer,
+    owner_type::AbstractString,
+    ts::IS.TimeSeriesData,
+) = IS.add_time_series!(
+    store.store,
+    owner_id,
+    owner_type,
+    IS.get_owner_category(IS.InfrastructureSystemsComponent),
+    ts,
+)
+
+_add_row!(
+    store::ParameterTimeSeriesStore,
+    owner_id::Integer,
+    owner_type::AbstractString,
+    ts::IS.TimeSeriesData,
+    features::Dict,
+) = IS.add_time_series!(
+    store.store,
+    owner_id,
+    owner_type,
+    IS.get_owner_category(IS.InfrastructureSystemsComponent),
+    ts;
+    features = features,
+)
+
+_add_row!(
+    store::ParameterTimeSeriesStore,
+    c::PSY.Component,
+    ts::IS.TimeSeriesData,
+) = _add_row!(store, IS.get_id(c), string(nameof(typeof(c))), ts)
 
 """
 Store one parameter array's realized values under the synthetic parameter owner, one
@@ -158,18 +134,17 @@ function write_parameter_array!(
     _check_parameter_array_length(key, length(axes(array, 2)), length(timestamps))
     features = _parameter_key_features(key, extra_features)
     for label in labels
-        IS.add_time_series!(
-            store.store,
+        _add_row!(
+            store,
             PARAMETER_ROW_OWNER_ID,
             PARAMETER_ROW_OWNER_TYPE,
-            IS.get_owner_category(IS.InfrastructureSystemsComponent),
             PSY.SingleTimeSeries(;
                 name = string(label),
                 data = vec(array[label, :]),
                 initial_timestamp = first(timestamps),
                 resolution = resolution,
-            );
-            features = features,
+            ),
+            features,
         )
     end
     return nothing
@@ -178,9 +153,8 @@ end
 """
 Store one 3-D parameter array's realized values, one `SingleTimeSeries` per
 `(axis-1 label, axis-2 label)` slice, the axis-2 label carried in the `"axis2"` feature.
-Time is the last axis, matching PSI's HDF5 layout (`(label, label2, time)`).
-
-`resolution` is passed explicitly for the same reason as the 2-D method above.
+Time is the last axis, matching PSI's HDF5 layout (`(label, label2, time)`). Delegates to the
+2-D method per axis-2 slice; only the slice and the `"axis2"` feature differ.
 """
 function write_parameter_array!(
     store::ParameterTimeSeriesStore,
@@ -190,28 +164,34 @@ function write_parameter_array!(
     resolution::Dates.Period;
     extra_features::Dict{String, <:Any} = Dict{String, Any}(),
 )
-    labels = axes(array, 1)
-    labels2 = axes(array, 2)
-    _check_parameter_array_length(key, length(axes(array, 3)), length(timestamps))
-    base_features = _parameter_key_features(key, extra_features)
-    for label2 in labels2, label in labels
-        features = merge(base_features, Dict{String, Any}("axis2" => string(label2)))
-        IS.add_time_series!(
-            store.store,
-            PARAMETER_ROW_OWNER_ID,
-            PARAMETER_ROW_OWNER_TYPE,
-            IS.get_owner_category(IS.InfrastructureSystemsComponent),
-            PSY.SingleTimeSeries(;
-                name = string(label),
-                data = vec(array[label, label2, :]),
-                initial_timestamp = first(timestamps),
-                resolution = resolution,
-            );
-            features = features,
+    for label2 in axes(array, 2)
+        write_parameter_array!(
+            store,
+            key,
+            array[:, label2, :],
+            timestamps,
+            resolution;
+            extra_features = merge(
+                extra_features, Dict{String, Any}("axis2" => string(label2)),
+            ),
         )
     end
     return nothing
 end
+
+"""
+The parameter-owner rows this store holds for `key` (further narrowed by `extra_features`, e.g.
+`"model"`). Shared by every parameter reader below.
+"""
+_parameter_rows(
+    store::ParameterTimeSeriesStore,
+    key::IOM.ParameterKey,
+    extra_features::Dict{String, <:Any},
+) = IS.list_time_series_metadata(
+    store.store;
+    owner_id = PARAMETER_ROW_OWNER_ID,
+    features = _parameter_key_features(key, extra_features),
+)
 
 """
 The distinct `"axis2"` feature values among this store's rows for `key` (further narrowed by
@@ -224,12 +204,8 @@ function parameter_slice_labels(
     key::IOM.ParameterKey;
     extra_features::Dict{String, <:Any} = Dict{String, Any}(),
 )::Vector{String}
-    features = _parameter_key_features(key, extra_features)
-    rows = IS.list_time_series_metadata(
-        store.store; owner_id = PARAMETER_ROW_OWNER_ID, features = features,
-    )
     slice_labels = Set{String}()
-    for md in rows
+    for md in _parameter_rows(store, key, extra_features)
         row_features = IS.get_features(md)
         haskey(row_features, "axis2") && push!(slice_labels, string(row_features["axis2"]))
     end
@@ -239,17 +215,11 @@ end
 """
 Whether this store holds any parameter row for `key` (narrowed by `extra_features`).
 """
-function has_parameter_rows(
+has_parameter_rows(
     store::ParameterTimeSeriesStore,
     key::IOM.ParameterKey;
     extra_features::Dict{String, <:Any} = Dict{String, Any}(),
-)::Bool
-    features = _parameter_key_features(key, extra_features)
-    rows = IS.list_time_series_metadata(
-        store.store; owner_id = PARAMETER_ROW_OWNER_ID, features = features,
-    )
-    return !isempty(rows)
-end
+)::Bool = !isempty(_parameter_rows(store, key, extra_features))
 
 """
 Read back every parameter array row this store holds for `key`, keyed by its axis-1 label.
@@ -259,10 +229,7 @@ function read_parameter_array(
     key::IOM.ParameterKey;
     extra_features::Dict{String, <:Any} = Dict{String, Any}(),
 )::Dict{String, IS.TimeSeries.TimeArray}
-    features = _parameter_key_features(key, extra_features)
-    rows = IS.list_time_series_metadata(
-        store.store; owner_id = PARAMETER_ROW_OWNER_ID, features = features,
-    )
+    rows = _parameter_rows(store, key, extra_features)
     isempty(rows) &&
         error("no parameter arrays found for $key in this results store")
     result = Dict{String, IS.TimeSeries.TimeArray}()
@@ -314,13 +281,12 @@ function write_parameter_windows!(
             initial_time => collect(vec(window[label, :])) for
             (initial_time, window) in windows
         )
-        IS.add_time_series!(
-            store.store,
+        _add_row!(
+            store,
             PARAMETER_ROW_OWNER_ID,
             PARAMETER_ROW_OWNER_TYPE,
-            IS.get_owner_category(IS.InfrastructureSystemsComponent),
-            PSY.Deterministic(string(label), data, resolution, interval);
-            features = features,
+            PSY.Deterministic(string(label), data, resolution, interval),
+            features,
         )
     end
     return nothing
@@ -351,10 +317,7 @@ function read_parameter_windows(
     key::IOM.ParameterKey;
     extra_features::Dict{String, <:Any} = Dict{String, Any}(),
 )::Dict{String, Dict{Dates.DateTime, Vector{Float64}}}
-    features = _parameter_key_features(key, extra_features)
-    rows = IS.list_time_series_metadata(
-        store.store; owner_id = PARAMETER_ROW_OWNER_ID, features = features,
-    )
+    rows = _parameter_rows(store, key, extra_features)
     isempty(rows) &&
         error("no parameter windows found for $key in this results store")
     result = Dict{String, Dict{Dates.DateTime, Vector{Float64}}}()
@@ -428,6 +391,15 @@ function RunWindows(
     return RunWindows(initial_times, horizon_count, resolution, interval)
 end
 
+"""The per-step timestamps the first window in `windows` covers."""
+_window_timestamps(windows::RunWindows) = collect(
+    range(
+        first(windows.initial_times);
+        step = windows.resolution,
+        length = windows.horizon_count,
+    ),
+)
+
 """
 One window at the model's initial time. A standalone model has no execution interval; when its
 `Settings` leave it unset the horizon stands in, which keeps a single window self-consistent.
@@ -460,13 +432,7 @@ function _copy_cost_time_series!(
     ts::IS.StaticTimeSeries,
     ::RunWindows,
 )::IS.TimeSeriesKey
-    return IS.add_time_series!(
-        store.store,
-        IS.get_id(c),
-        string(nameof(typeof(c))),
-        IS.get_owner_category(IS.InfrastructureSystemsComponent),
-        ts,
-    )
+    return _add_row!(store, c, ts)
 end
 
 """
@@ -474,7 +440,7 @@ Re-window a forecast cost onto `windows`: one window per run execution, `horizon
 each, read starting at each of `windows.initial_times`.
 
 A horizon under two steps cannot hold a re-windowed forecast (InfraStore's own floor; see
-[`_write_parameter_arrays!`](@ref) for the identical constraint on parameter rows) — every
+[`parameter_store_from_model`](@ref) for the identical constraint on parameter rows) — every
 run this short writes no parameter rows either, so nothing downstream depends on this cost
 sharing their grid, and the original series is copied verbatim instead. Skipping it outright
 is not an option: `sys`'s own cost still points at the original series, and every reader of the
@@ -488,15 +454,7 @@ function _copy_cost_time_series!(
     ts::IS.Forecast,
     windows::RunWindows,
 )::IS.TimeSeriesKey
-    if windows.horizon_count < 2
-        return IS.add_time_series!(
-            store.store,
-            IS.get_id(c),
-            string(nameof(typeof(c))),
-            IS.get_owner_category(IS.InfrastructureSystemsComponent),
-            ts,
-        )
-    end
+    windows.horizon_count < 2 && return _add_row!(store, c, ts)
     data = Dict(
         t => collect(
             IS.get_time_series_values(c, key; start_time = t, len = windows.horizon_count),
@@ -512,13 +470,7 @@ function _copy_cost_time_series!(
         quantity_kind = IS.get_quantity_kind(ts),
         unit_system = IS.get_unit_system(ts),
     )
-    return IS.add_time_series!(
-        store.store,
-        IS.get_id(c),
-        string(nameof(typeof(c))),
-        IS.get_owner_category(IS.InfrastructureSystemsComponent),
-        copy,
-    )
+    return _add_row!(store, c, copy)
 end
 
 """
@@ -543,7 +495,6 @@ function copy_cost_time_series!(
             haskey(key_map, original_id) && continue
             ts = IS.get_time_series(c, key)
             new_key = _copy_cost_time_series!(store, c, key, ts, windows)
-            _record_document_association!(store, new_key, true)
             key_map[original_id] = IS.get_association_id(new_key)
         end
     end
@@ -551,100 +502,50 @@ function copy_cost_time_series!(
 end
 
 """
-Write every realized parameter array into `store`, or none of them. `IS.SingleTimeSeries`,
-`NonSequentialTimeSeries`, and `Forecast` all require at least two points at the InfraStore
-layer (R32: not something this store patches around), so a model whose time axis has a single
-step (e.g. `horizon = Dates.Hour(1)`) cannot store a single parameter row. Warning once here,
-rather than letting [`write_parameter_array!`](@ref) error once per key, is the loud-but-not-fatal
-choice: the model's realized parameters stay readable through `OptimizationProblemOutputs`, only
-the exported results bundle loses them.
-"""
-function _write_parameter_arrays!(
-    store::ParameterTimeSeriesStore,
-    params,
-    timestamps::AbstractVector{Dates.DateTime},
-    resolution::Dates.Period,
-    model_type_name::AbstractString,
-)
-    if length(timestamps) < 2
-        @warn "$model_type_name has a $(length(timestamps))-point time axis " *
-              "($(Dates.canonicalize(resolution * length(timestamps))) horizon); the results " *
-              "bundle will carry no parameter rows because an InfraStore time series needs at " *
-              "least two points. Parameters remain readable through OptimizationProblemOutputs."
-        return nothing
-    end
-    for (key, array) in params
-        write_parameter_array!(store, key, array, timestamps, resolution)
-    end
-    return nothing
-end
-
-"""
 Build a fresh [`ParameterTimeSeriesStore`](@ref) from `model`'s realized parameters and its
 System's cost time series re-windowed to the run, plus every time-series parameter recast as
 component-owned input series, ready for [`write_results_system_bundle!`](@ref).
+
+Writes no parameter arrays, only warns, on a single-point time axis (e.g. `horizon =
+Dates.Hour(1)`): `IS.SingleTimeSeries`, `NonSequentialTimeSeries`, and `Forecast` all require at
+least two points at the InfraStore layer (R32: not something this store patches around). The
+model's realized parameters stay readable through `OptimizationProblemOutputs`, only the exported
+results bundle loses them.
 """
 function parameter_store_from_model(
     model,
 )::Tuple{ParameterTimeSeriesStore, Dict{Int64, Int64}}
     container = IOM.get_optimization_container(model)
-    resolution = IOM.get_resolution(container)
-    timestamps = collect(
-        range(
-            IOM.get_initial_time(container);
-            step = resolution,
-            length = length(IOM.get_time_steps(container)),
-        ),
-    )
-    store = ParameterTimeSeriesStore()
-    _write_parameter_arrays!(
-        store,
-        IOM.read_parameters(container),
-        timestamps,
-        resolution,
-        string(typeof(model)),
-    )
     windows = run_windows(model)
+    timestamps = _window_timestamps(windows)
+    store = ParameterTimeSeriesStore()
+    if length(timestamps) < 2
+        @warn "$(typeof(model)) has a $(length(timestamps))-point time axis " *
+              "($(Dates.canonicalize(windows.resolution * length(timestamps))) horizon); the " *
+              "results bundle will carry no parameter rows because an InfraStore time series " *
+              "needs at least two points. Parameters remain readable through " *
+              "OptimizationProblemOutputs."
+    else
+        for (key, array) in IOM.read_parameters(container)
+            write_parameter_array!(store, key, array, timestamps, windows.resolution)
+        end
+    end
     key_map = copy_cost_time_series!(store, IOM.get_system(model), windows)
     write_model_inputs!(store, IOM.get_system(model), container, windows)
     return store, key_map
 end
 
 """
-Unwrap an OpenAPI `oneOf` wrapper to the concrete row it carries. Association rows come back
-from InfraStore as `oneOf` wrappers whose `.value` holds the type-specific struct; this
-recurses so a plain (already-unwrapped) row passes through unchanged.
-"""
-_unwrap_oneof(row::IC.OneOfAPIModel) = _unwrap_oneof(row.value)
-_unwrap_oneof(row) = row
-
-"""
-The association rows the System document declares: only the series written with
-`in_document = true`. Exported from the store that wrote the arrays, so each row's `uri` names
-an array the store genuinely holds, and each `association_id` is the one the catalog will
-answer for on load.
+The association rows the System document declares: every row whose owner is a real component,
+not the synthetic parameter-array owner. Parameter arrays and windows are the only series
+written under [`PARAMETER_ROW_OWNER_ID`](@ref); every document-declared series (cost copies,
+input rows) is written under its owning component's own id. Exported from the store that wrote
+the arrays, so each row's `uri` names an array the store genuinely holds, and each
+`association_id` is the one the catalog will answer for on load.
 """
 function parameter_association_rows(store::ParameterTimeSeriesStore)
     rows = IS.openapi_time_series_association_rows(store.store)
-    return filter(
-        row -> _unwrap_oneof(row).association_id in store.document_association_ids,
-        rows,
-    )
-end
-
-"""Read back a series this store holds, by owner id and name."""
-function read_parameter_series(
-    store::ParameterTimeSeriesStore,
-    owner_id::Int,
-    name::AbstractString,
-)
-    rows =
-        IS.list_time_series_metadata(store.store; owner_id = owner_id, name = String(name))
-    isempty(rows) && error(
-        "no parameter series named \"$name\" for owner id $owner_id in this results store",
-    )
-    ts = IS.get_time_series(store.store, IS.get_time_series_key(only(rows)))
-    return IS.make_time_array(ts, IS.get_initial_timestamp(ts))
+    return filter(row -> row.value.owner_id != PARAMETER_ROW_OWNER_ID, rows)
 end
 
 """
@@ -670,7 +571,7 @@ function write_results_system_bundle!(
 )
     mkpath(bundle_dir)
     sidecar = joinpath(bundle_dir, PSY.TIME_SERIES_FILE)
-    persist_parameter_store!(store, sidecar)
+    IS.serialize(store.store, sidecar)
     rows = parameter_association_rows(store)
     doc = PSY.to_openapi(
         sys;
@@ -684,6 +585,18 @@ function write_results_system_bundle!(
         association_id_map = key_map,
     )
     PSY.PD.write_document(doc, joinpath(bundle_dir, PSY.SYSTEM_DOCUMENT_FILE))
+    return nothing
+end
+
+"""
+Build `model`'s results-system bundle at `sys_dir` and write it, unless one is already there —
+re-solving into an existing directory must not rewrite the bundle.
+"""
+function _write_results_bundle!(model, sys::PSY.System, sys_dir::AbstractString)
+    ispath(sys_dir) && return nothing
+    store, key_map = parameter_store_from_model(model)
+    write_results_system_bundle!(sys, store, key_map, sys_dir)
+    close_parameter_store!(store)
     return nothing
 end
 
@@ -709,15 +622,16 @@ struct InputSeriesDescriptor
     unresolved::Vector{String}
 end
 
-_is_input_key(::IOM.ParameterKey{<:IOM.TimeSeriesParameter}) = true
-_is_input_key(::IOM.ParameterKey) = false
 _is_input_attributes(::IOM.TimeSeriesAttributes) = true
 _is_input_attributes(::IOM.ParameterAttributes) = false
 
-"""Whether `key`'s realized values are a component input series the bundle recasts."""
-function is_input_parameter(key::IOM.ParameterKey, pc::IOM.ParameterContainer)::Bool
-    return _is_input_key(key) && _is_input_attributes(IOM.get_attributes(pc))
-end
+"""
+Whether `key`'s realized values are a component input series the bundle recasts. IOM only ever
+pairs `TimeSeriesAttributes` with a `TimeSeriesParameter` key, so the attributes check alone
+decides it.
+"""
+is_input_parameter(::IOM.ParameterKey, pc::IOM.ParameterContainer)::Bool =
+    _is_input_attributes(IOM.get_attributes(pc))
 
 function input_series_descriptor(
     sys::PSY.System,
@@ -786,15 +700,13 @@ function write_input_forecast_row!(
     interval::Dates.Period,
 )::Bool
     _input_row_exists(store, PSY.Deterministic, owner_id, name) && return false
-    key = IS.add_time_series!(
-        store.store,
+    _add_row!(
+        store,
         owner_id,
         owner_type,
-        IS.get_owner_category(IS.InfrastructureSystemsComponent),
-        PSY.Deterministic(name, Dict(data), resolution, interval);
-        features = INPUT_ROW_FEATURES,
+        PSY.Deterministic(name, Dict(data), resolution, interval),
+        INPUT_ROW_FEATURES,
     )
-    _record_document_association!(store, key, true)
     return true
 end
 
@@ -814,20 +726,18 @@ function write_input_series_row!(
     resolution::Dates.Period,
 )::Bool
     _input_row_exists(store, PSY.SingleTimeSeries, owner_id, name) && return false
-    key = IS.add_time_series!(
-        store.store,
+    _add_row!(
+        store,
         owner_id,
         owner_type,
-        IS.get_owner_category(IS.InfrastructureSystemsComponent),
         PSY.SingleTimeSeries(;
             name = name,
             data = collect(values),
             initial_timestamp = initial_timestamp,
             resolution = resolution,
-        );
-        features = INPUT_ROW_FEATURES,
+        ),
+        INPUT_ROW_FEATURES,
     )
-    _record_document_association!(store, key, true)
     return true
 end
 
@@ -891,29 +801,12 @@ _write_input!(
     d::InputSeriesDescriptor,
     raw::JuMP.Containers.DenseAxisArray{Float64, 2},
     windows::RunWindows,
-) = write_input_series!(
-    store,
-    d,
-    raw,
-    collect(
-        range(
-            first(windows.initial_times);
-            step = windows.resolution,
-            length = windows.horizon_count,
-        ),
-    ),
-    windows.resolution,
-)
+) = write_input_series!(store, d, raw, _window_timestamps(windows), windows.resolution)
 
-_write_model_input!(
-    store::ParameterTimeSeriesStore,
-    d::InputSeriesDescriptor,
-    raw::JuMP.Containers.DenseAxisArray{Float64, 2},
-    windows::RunWindows,
-) = _write_input!(store, d.time_series_type, d, raw, windows)
-
-function _write_model_input!(
+"""A 3-D parameter has no input-series counterpart in this store; warn and skip it."""
+function _write_input!(
     ::ParameterTimeSeriesStore,
+    ::Type{<:IS.TimeSeriesData},
     d::InputSeriesDescriptor,
     ::JuMP.Containers.DenseAxisArray{Float64, 3},
     ::RunWindows,
@@ -925,7 +818,7 @@ end
 """
 Recast every time-series parameter of a standalone model as component-owned input series, one
 window at the model's initial time. Skips a horizon under two steps: InfraStore needs at least two
-points per series, and [`_write_parameter_arrays!`](@ref) already warned about it.
+points per series, and [`parameter_store_from_model`](@ref) already warned about it.
 """
 function write_model_inputs!(
     store::ParameterTimeSeriesStore,
@@ -937,7 +830,7 @@ function write_model_inputs!(
     for (key, pc) in IOM.get_parameters(container)
         is_input_parameter(key, pc) || continue
         d = input_series_descriptor(sys, key, pc)
-        _write_model_input!(store, d, IOM.get_parameter_values(pc), windows)
+        _write_input!(store, d.time_series_type, d, IOM.get_parameter_values(pc), windows)
     end
     return nothing
 end

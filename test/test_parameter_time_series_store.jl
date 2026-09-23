@@ -1,53 +1,53 @@
-@testset "ParameterTimeSeriesStore: a written series reads back identically" begin
-    store = POM.ParameterTimeSeriesStore()
-    stamps = range(Dates.DateTime(2024, 1, 1); step = Dates.Hour(1), length = 24)
-    ta = TimeSeries.TimeArray(stamps, collect(1.0:24.0))
-    key = POM.write_parameter_series!(store, 7, "ThermalStandard", "fuel_cost", ta)
-    @test IS.get_association_id(key) > 0
-
-    back = POM.read_parameter_series(store, 7, "fuel_cost")
-    @test TimeSeries.values(back) == collect(1.0:24.0)
-    @test TimeSeries.timestamp(back) == collect(stamps)
-    POM.close_parameter_store!(store)
-end
-
 @testset "ParameterTimeSeriesStore: the store round-trips through a file with its catalog" begin
     store = POM.ParameterTimeSeriesStore()
-    ta = TimeSeries.TimeArray(
-        range(Dates.DateTime(2024, 1, 1); step = Dates.Hour(1), length = 24),
-        collect(1.0:24.0),
+    key = IOM.ParameterKey(POM.ActivePowerTimeSeriesParameter, PSY.ThermalStandard)
+    stamps = collect(range(Dates.DateTime(2024, 1, 1); step = Dates.Hour(1), length = 24))
+    array = JuMP.Containers.DenseAxisArray(
+        reshape(collect(1.0:24.0), 1, 24), ["Solitude"], 1:24,
     )
-    POM.write_parameter_series!(store, 7, "ThermalStandard", "fuel_cost", ta)
+    POM.write_parameter_array!(store, key, array, stamps, Dates.Hour(1))
 
     dir = mktempdir(; cleanup = true)
     path = joinpath(dir, "time_series.h5")
-    POM.persist_parameter_store!(store, path)
+    IS.serialize(store.store, path)
     POM.close_parameter_store!(store)
     @test isfile(path)
     @test isfile(path * ".sqlite")
 
     reopened = POM.open_parameter_store(path)
     @test IS.get_num_time_series(reopened.store) == 1
-    back = POM.read_parameter_series(reopened, 7, "fuel_cost")
-    @test TimeSeries.values(back) == collect(1.0:24.0)
+    back = POM.read_parameter_array(reopened, key)
+    @test TimeSeries.values(back["Solitude"]) == collect(1.0:24.0)
     POM.close_parameter_store!(reopened)
 end
 
-@testset "ParameterTimeSeriesStore: only document-declared series export rows" begin
+@testset "ParameterTimeSeriesStore: only component-owned rows export as document rows" begin
     store = POM.ParameterTimeSeriesStore()
     ta = TimeSeries.TimeArray(
         range(Dates.DateTime(2024, 1, 1); step = Dates.Hour(1), length = 24),
         collect(1.0:24.0),
     )
-    key = POM.write_parameter_series!(
-        store, 7, "ThermalStandard", "fuel_cost", ta; in_document = true,
+    key = IS.add_time_series!(
+        store.store, 7, "ThermalStandard",
+        IS.get_owner_category(IS.InfrastructureSystemsComponent),
+        PSY.SingleTimeSeries("fuel_cost", ta),
     )
-    POM.write_parameter_series!(store, 7, "ThermalStandard", "feedforward_bound", ta)
+    pkey = IOM.ParameterKey(POM.ActivePowerTimeSeriesParameter, PSY.ThermalStandard)
+    POM.write_parameter_array!(
+        store, pkey,
+        JuMP.Containers.DenseAxisArray(
+            reshape(collect(1.0:24.0), 1, 24),
+            ["Solitude"],
+            1:24,
+        ),
+        collect(range(Dates.DateTime(2024, 1, 1); step = Dates.Hour(1), length = 24)),
+        Dates.Hour(1),
+    )
 
     @test IS.get_num_time_series(store.store) == 2
     rows = POM.parameter_association_rows(store)
     @test length(rows) == 1
-    row = POM._unwrap_oneof(only(rows))
+    row = only(rows).value
     @test row.name == "fuel_cost"
     @test row.owner_id == 7
     @test row.association_id == IS.get_association_id(key)
@@ -62,15 +62,27 @@ end
         range(Dates.DateTime(2024, 1, 1); step = Dates.Hour(1), length = 24),
         collect(1.0:24.0),
     )
-    POM.write_parameter_series!(
-        store, 7, "ThermalStandard", "fuel_cost", ta; in_document = true,
+    IS.add_time_series!(
+        store.store, 7, "ThermalStandard",
+        IS.get_owner_category(IS.InfrastructureSystemsComponent),
+        PSY.SingleTimeSeries("fuel_cost", ta),
     )
-    POM.write_parameter_series!(store, 7, "ThermalStandard", "feedforward_bound", ta)
+    pkey = IOM.ParameterKey(POM.ActivePowerTimeSeriesParameter, PSY.ThermalStandard)
+    POM.write_parameter_array!(
+        store, pkey,
+        JuMP.Containers.DenseAxisArray(
+            reshape(collect(1.0:24.0), 1, 24),
+            ["Solitude"],
+            1:24,
+        ),
+        collect(range(Dates.DateTime(2024, 1, 1); step = Dates.Hour(1), length = 24)),
+        Dates.Hour(1),
+    )
     before = POM.parameter_association_rows(store)
 
     dir = mktempdir(; cleanup = true)
     path = joinpath(dir, "time_series.h5")
-    POM.persist_parameter_store!(store, path)
+    IS.serialize(store.store, path)
     POM.close_parameter_store!(store)
 
     reopened = POM.open_parameter_store(path)
@@ -79,13 +91,10 @@ end
     # ... and the catalog's row for the declared series matches what was exported before,
     # field for field. This is what PowerSystems' import checks on load.
     all_rows = IS.openapi_time_series_association_rows(reopened.store)
-    declared = POM._unwrap_oneof(only(before))
-    matching = filter(
-        r -> POM._unwrap_oneof(r).association_id == declared.association_id,
-        all_rows,
-    )
+    declared = only(before).value
+    matching = filter(r -> r.value.association_id == declared.association_id, all_rows)
     @test length(matching) == 1
-    after = POM._unwrap_oneof(only(matching))
+    after = only(matching).value
     @test after.name == declared.name
     @test after.owner_id == declared.owner_id
     @test after.uri == declared.uri
@@ -100,13 +109,19 @@ end
         range(Dates.DateTime(2024, 1, 1); step = Dates.Hour(1), length = 24),
         collect(1.0:24.0),
     )
-    POM.write_parameter_series!(
-        store, IS.get_id(gen), "ThermalStandard", "fuel_cost", ta; in_document = true,
+    IS.add_time_series!(
+        store.store, IS.get_id(gen), "ThermalStandard",
+        IS.get_owner_category(IS.InfrastructureSystemsComponent),
+        PSY.SingleTimeSeries("fuel_cost", ta),
     )
     # A synthetic owner, not a component id: the sidecar's catalog is authoritative, so any
     # row under a real component's owner id would read back as that component's own series.
     # An undeclared parameter array must live under an owner no component ever has.
-    POM.write_parameter_series!(store, -1, "OptimizationParameter", "undeclared", ta)
+    IS.add_time_series!(
+        store.store, POM.PARAMETER_ROW_OWNER_ID, POM.PARAMETER_ROW_OWNER_TYPE,
+        IS.get_owner_category(IS.InfrastructureSystemsComponent),
+        PSY.SingleTimeSeries("undeclared", ta),
+    )
     @test IS.get_num_time_series(store.store) == 2
 
     dir = mktempdir(; cleanup = true)
@@ -152,8 +167,10 @@ end
 
     # The parameter store holds the realized fuel cost; the cost key must be remapped to it.
     store = POM.ParameterTimeSeriesStore()
-    new_key = POM.write_parameter_series!(
-        store, IS.get_id(gen), "ThermalStandard", "fuel_cost", fuel; in_document = true,
+    new_key = IS.add_time_series!(
+        store.store, IS.get_id(gen), "ThermalStandard",
+        IS.get_owner_category(IS.InfrastructureSystemsComponent),
+        PSY.SingleTimeSeries("fuel_cost", fuel),
     )
     key_map = Dict(IS.get_association_id(original_key) => IS.get_association_id(new_key))
 
@@ -498,7 +515,13 @@ end
         sys,
         POM.RunWindows(t0, 1, 24, Dates.Hour(1), Dates.Hour(24)),
     )
-    back = POM.read_parameter_series(store, IS.get_id(gen), "fuel_cost")
+    copied_md = only(
+        IS.list_time_series_metadata(
+            store.store; owner_id = IS.get_id(gen), name = "fuel_cost",
+        ),
+    )
+    copied_ts = IS.get_time_series(store.store, IS.get_time_series_key(copied_md))
+    back = IS.make_time_array(copied_ts, IS.get_initial_timestamp(copied_ts))
     @test TimeSeries.values(back) == collect(1.0:48.0)
     POM.close_parameter_store!(store)
 end
@@ -554,27 +577,21 @@ end
 
 @testset "a persisted store reopens writable in place" begin
     store = POM.ParameterTimeSeriesStore()
-    ta = TimeSeries.TimeArray(
-        range(Dates.DateTime(2024, 1, 1); step = Dates.Hour(1), length = 4),
-        collect(1.0:4.0),
-    )
-    POM.write_parameter_series!(
-        store,
-        7,
-        "ThermalStandard",
-        "fuel_cost",
-        ta;
-        in_document = true,
+    key1 = IOM.ParameterKey(POM.ActivePowerTimeSeriesParameter, PSY.ThermalStandard)
+    POM.write_parameter_array!(
+        store, key1, JuMP.Containers.DenseAxisArray([1.0 2.0 3.0 4.0], ["Solitude"], 1:4),
+        collect(range(Dates.DateTime(2024, 1, 1); step = Dates.Hour(1), length = 4)),
+        Dates.Hour(1),
     )
     dir = mktempdir(; cleanup = true)
     path = joinpath(dir, "time_series.h5")
-    POM.persist_parameter_store!(store, path)
+    IS.serialize(store.store, path)
     POM.close_parameter_store!(store)
 
-    live = POM.open_parameter_store_writable(path)
-    key = IOM.ParameterKey(POM.FuelCostParameter, PSY.ThermalStandard)
+    live = POM.open_parameter_store(path)
+    key2 = IOM.ParameterKey(POM.FuelCostParameter, PSY.ThermalStandard)
     POM.write_parameter_array!(
-        live, key, JuMP.Containers.DenseAxisArray([5.0 6.0 7.0 8.0], ["Solitude"], 1:4),
+        live, key2, JuMP.Containers.DenseAxisArray([5.0 6.0 7.0 8.0], ["Solitude"], 1:4),
         collect(range(Dates.DateTime(2024, 1, 1); step = Dates.Hour(1), length = 4)),
         Dates.Hour(1),
     )
@@ -583,7 +600,9 @@ end
     # The files on disk now hold both rows: no re-persist happened.
     again = POM.open_parameter_store(path)
     @test IS.get_num_time_series(again.store) == 2
-    @test TimeSeries.values(POM.read_parameter_array(again, key)["Solitude"]) ==
+    @test TimeSeries.values(POM.read_parameter_array(again, key1)["Solitude"]) ==
+          [1.0, 2.0, 3.0, 4.0]
+    @test TimeSeries.values(POM.read_parameter_array(again, key2)["Solitude"]) ==
           [5.0, 6.0, 7.0, 8.0]
     POM.close_parameter_store!(again)
 end
@@ -636,8 +655,10 @@ end
     )
     @test length(rows) == 1
     @test IS.get_features(only(rows))["source"] == "parameter"
+    document_association_ids =
+        Set(row.value.association_id for row in POM.parameter_association_rows(store))
     @test IS.get_association_id(IS.get_time_series_key(only(rows))) in
-          store.document_association_ids
+          document_association_ids
     POM.close_parameter_store!(store)
 end
 
@@ -713,11 +734,18 @@ end
         Dict(t0 => collect(1.0:24.0), t0 + Dates.Hour(24) => collect(2.0:25.0)),
         Dates.Hour(1), Dates.Hour(24),
     )
-    POM.write_parameter_series!(store, 7, "PowerLoad", "fuel_cost",
-        TimeSeries.TimeArray(
-            range(t0; step = Dates.Hour(1), length = 24),
-            collect(1.0:24.0),
-        ))
+    # A non-marker row (no INPUT_ROW_FEATURES) must not count as an input series.
+    pkey = IOM.ParameterKey(POM.FuelCostParameter, PSY.ThermalStandard)
+    POM.write_parameter_array!(
+        store, pkey,
+        JuMP.Containers.DenseAxisArray(
+            reshape(collect(1.0:24.0), 1, 24),
+            ["Solitude"],
+            1:24,
+        ),
+        collect(range(t0; step = Dates.Hour(1), length = 24)),
+        Dates.Hour(1),
+    )
     rows = POM.list_input_series(store)
     @test length(rows) == 1
     @test IS.get_name(only(rows)) == "max_active_power"
