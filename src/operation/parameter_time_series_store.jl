@@ -750,17 +750,31 @@ function input_series_descriptor(
     )
 end
 
-_input_row_exists(store::ParameterTimeSeriesStore, owner_id::Int64, name::String) =
+"""
+Whether this store already has an input row for `(owner_id, name)` of exactly `T`. Scoped by
+type, not just `(owner, name)`: a `Deterministic` input row (decision models) and a
+`SingleTimeSeries` input row (the emulation model) are different series derived from the same
+underlying source, and a shared bundle -- the Emulator aggregator borrows a decision model's
+bundle when it has none of its own -- can legitimately hold one of each for the same owner and
+name. Scoping the existence check by type keeps them from colliding under write-once.
+"""
+_input_row_exists(
+    store::ParameterTimeSeriesStore,
+    ::Type{T},
+    owner_id::Int64,
+    name::String,
+) where {T <: IS.TimeSeriesData} =
     !isempty(
         IS.list_time_series_metadata(
-            store.store; owner_id = owner_id, name = name, features = INPUT_ROW_FEATURES,
+            store.store; owner_id = owner_id, name = name, time_series_type = T,
+            features = INPUT_ROW_FEATURES,
         ),
     )
 
 """
 Add one component-owned `Deterministic` input row, declared in the document. Returns `false`
-without writing when this `(owner, name)` already has an input row: two parameters may read the
-same series, and a re-merge may see rows it wrote before.
+without writing when this `(owner, name)` already has a `Deterministic` input row: two
+parameters may read the same series, and a re-merge may see rows it wrote before.
 """
 function write_input_forecast_row!(
     store::ParameterTimeSeriesStore,
@@ -771,7 +785,7 @@ function write_input_forecast_row!(
     resolution::Dates.Period,
     interval::Dates.Period,
 )::Bool
-    _input_row_exists(store, owner_id, name) && return false
+    _input_row_exists(store, PSY.Deterministic, owner_id, name) && return false
     key = IS.add_time_series!(
         store.store,
         owner_id,
@@ -784,7 +798,12 @@ function write_input_forecast_row!(
     return true
 end
 
-"""Static counterpart of [`write_input_forecast_row!`](@ref), for emulation models."""
+"""
+Static counterpart of [`write_input_forecast_row!`](@ref), for emulation models. Returns `false`
+without writing when this `(owner, name)` already has a `SingleTimeSeries` input row -- a
+`Deterministic` input row for the same `(owner, name)` (e.g. a decision model's, in a bundle the
+Emulator aggregator borrows) does not block this write; see [`_input_row_exists`](@ref).
+"""
 function write_input_series_row!(
     store::ParameterTimeSeriesStore,
     owner_id::Int64,
@@ -794,7 +813,7 @@ function write_input_series_row!(
     initial_timestamp::Dates.DateTime,
     resolution::Dates.Period,
 )::Bool
-    _input_row_exists(store, owner_id, name) && return false
+    _input_row_exists(store, PSY.SingleTimeSeries, owner_id, name) && return false
     key = IS.add_time_series!(
         store.store,
         owner_id,
