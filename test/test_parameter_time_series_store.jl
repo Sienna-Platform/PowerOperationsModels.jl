@@ -726,3 +726,37 @@ end
     @test IS.get_data(ts)[t0] == collect(1.0:24.0)
     POM.close_parameter_store!(store)
 end
+
+@testset "a Deterministic and a SingleTimeSeries input row coexist for the same (owner, name)" begin
+    store = POM.ParameterTimeSeriesStore()
+    t0 = Dates.DateTime(2024, 1, 1)
+    @test POM.write_input_forecast_row!(
+        store, 7, "PowerLoad", "max_active_power",
+        Dict(t0 => collect(1.0:24.0)), Dates.Hour(1), Dates.Hour(24),
+    )
+    @test POM.write_input_series_row!(
+        store, 7, "PowerLoad", "max_active_power", collect(1.0:48.0), t0, Dates.Hour(1),
+    )
+    rows = POM.list_input_series(store)
+    @test length(rows) == 2
+    # A second write of the SAME type must still return false (write-once within a type).
+    @test !POM.write_input_forecast_row!(
+        store, 7, "PowerLoad", "max_active_power",
+        Dict(t0 => collect(2.0:25.0)), Dates.Hour(1), Dates.Hour(24),
+    )
+    @test !POM.write_input_series_row!(
+        store, 7, "PowerLoad", "max_active_power", collect(2.0:49.0), t0, Dates.Hour(1),
+    )
+    @test length(POM.list_input_series(store)) == 2
+    forecast_ts = POM.read_input_time_series(
+        store,
+        only(filter(md -> IS.get_time_series_type(md) <: PSY.Deterministic, rows)),
+    )
+    @test IS.get_data(forecast_ts)[t0] == collect(1.0:24.0)
+    series_ts = POM.read_input_time_series(
+        store,
+        only(filter(md -> IS.get_time_series_type(md) <: PSY.SingleTimeSeries, rows)),
+    )
+    @test TimeSeries.values(IS.get_data(series_ts)) == collect(1.0:48.0)
+    POM.close_parameter_store!(store)
+end
