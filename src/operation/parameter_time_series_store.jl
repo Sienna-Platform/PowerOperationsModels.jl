@@ -405,15 +405,60 @@ function _cost_time_series_keys(c::Union{PSY.OnlineReserve, PSY.OfflineReserve})
 end
 
 """
-Copy a series verbatim into `store`, under `c`'s own document id and type. No
-`make_time_array` round trip: the original series object goes in as-is. The store-level
-`IS.add_time_series!` dispatches on `ts` itself (static vs. forecast), so one method
-covers both.
+The window grid a run realized: one forecast window per execution, `horizon_count` steps each.
+Every forecast row in a bundle is shaped to this grid. InfraStore requires all forecasts sharing a
+`(resolution, interval)` to agree on count, initial time and horizon, and the parameter rows
+already have the run's shape, so the cost copies must take it too.
+"""
+struct RunWindows
+    initial_times::Vector{Dates.DateTime}
+    horizon_count::Int
+    resolution::Dates.Period
+    interval::Dates.Period
+end
+
+function RunWindows(
+    initial_time::Dates.DateTime,
+    steps::Int,
+    horizon_count::Int,
+    resolution::Dates.Period,
+    interval::Dates.Period,
+)
+    initial_times = collect(range(initial_time; step = interval, length = steps))
+    return RunWindows(initial_times, horizon_count, resolution, interval)
+end
+
+"""
+One window at the model's initial time. A standalone model has no execution interval; when its
+`Settings` leave it unset the horizon stands in, which keeps a single window self-consistent.
+"""
+function run_windows(model)
+    container = IOM.get_optimization_container(model)
+    resolution = IOM.get_resolution(container)
+    horizon_count = length(IOM.get_time_steps(container))
+    interval = IOM.get_interval(IOM.get_settings(model))
+    if iszero(Dates.Millisecond(interval))
+        interval = resolution * horizon_count
+    end
+    return RunWindows(
+        [IOM.get_initial_time(container)],
+        horizon_count,
+        resolution,
+        interval,
+    )
+end
+
+"""
+Copy a static series verbatim into `store`, under `c`'s own document id and type. No
+`make_time_array` round trip: the original series object goes in as-is. Statics have no
+cross-forecast compatibility constraint, so no re-windowing is needed.
 """
 function _copy_cost_time_series!(
     store::ParameterTimeSeriesStore,
     c::PSY.Component,
-    ts::IS.TimeSeriesData,
+    ::IS.TimeSeriesKey,
+    ts::IS.StaticTimeSeries,
+    ::RunWindows,
 )::IS.TimeSeriesKey
     return IS.add_time_series!(
         store.store,
@@ -425,26 +470,84 @@ function _copy_cost_time_series!(
 end
 
 """
+Re-window a forecast cost onto `windows`: one window per run execution, `horizon_count` steps
+each, read starting at each of `windows.initial_times`.
+"""
+function _copy_cost_time_series!(
+    store::ParameterTimeSeriesStore,
+    c::PSY.Component,
+    key::IS.TimeSeriesKey,
+    ts::IS.Forecast,
+    windows::RunWindows,
+)::IS.TimeSeriesKey
+    data = Dict(
+        t => collect(
+            IS.get_time_series_values(c, key; start_time = t, len = windows.horizon_count),
+        )
+        for t in windows.initial_times
+    )
+    copy = PSY.Deterministic(
+        IS.get_name(ts),
+        data,
+        windows.resolution,
+        windows.interval;
+        units = IS.get_units(ts),
+        quantity_kind = IS.get_quantity_kind(ts),
+        unit_system = IS.get_unit_system(ts),
+    )
+    return IS.add_time_series!(
+        store.store,
+        IS.get_id(c),
+        string(nameof(typeof(c))),
+        IS.get_owner_category(IS.InfrastructureSystemsComponent),
+        copy,
+    )
+end
+
+"""
+Whether re-windowing a cost onto `windows` would violate InfraStore's forecast floor of at
+least two points per window. Only a forecast is re-windowed (a static copies verbatim), and only
+a horizon this short (e.g. `horizon = resolution`) is too short.
+"""
+_cost_forecast_too_short(::IS.StaticTimeSeries, ::RunWindows) = false
+_cost_forecast_too_short(::IS.Forecast, windows::RunWindows) = windows.horizon_count < 2
+
+"""
 Copy every time series a System component's operation cost holds into `store`, under that
 component's own id and type, and return the map from each series' original
 `association_id` to the association id it was written under.
 
 Not derived from parameter arrays: start-up costs are 3-tuples, offer curves split into
 slope/breakpoint arrays, and re-deriving a cost series from a parameter array risks a unit
-mismatch. This copies the System's own series verbatim instead, keeping every forecast window
-and the original series type.
+mismatch. This copies the System's own series instead: statics verbatim, forecasts re-windowed
+onto the run grid `windows`.
+
+A run whose horizon is shorter than two steps cannot hold a re-windowed forecast cost (same
+InfraStore floor [`_write_parameter_arrays!`](@ref) skips arrays for); such costs are skipped
+with one warning rather than erroring mid-copy. Static costs are unaffected.
 """
 function copy_cost_time_series!(
     store::ParameterTimeSeriesStore,
     sys::PSY.System,
+    windows::RunWindows,
 )::Dict{Int64, Int64}
     key_map = Dict{Int64, Int64}()
+    warned = false
     for c in PSY.get_components(PSY.Component, sys)
         for key in _cost_time_series_keys(c)
             original_id = IS.get_association_id(key)
             haskey(key_map, original_id) && continue
             ts = IS.get_time_series(c, key)
-            new_key = _copy_cost_time_series!(store, c, ts)
+            if _cost_forecast_too_short(ts, windows)
+                warned ||
+                    @warn "the run's $(windows.horizon_count)-step horizon is below " *
+                          "InfraStore's forecast floor of at least two points per " *
+                          "window; forecast-backed costs are not copied into the " *
+                          "results bundle"
+                warned = true
+                continue
+            end
+            new_key = _copy_cost_time_series!(store, c, key, ts, windows)
             _record_document_association!(store, new_key, true)
             key_map[original_id] = IS.get_association_id(new_key)
         end
@@ -505,7 +608,8 @@ function parameter_store_from_model(
         resolution,
         string(typeof(model)),
     )
-    key_map = copy_cost_time_series!(store, IOM.get_system(model))
+    windows = run_windows(model)
+    key_map = copy_cost_time_series!(store, IOM.get_system(model), windows)
     return store, key_map
 end
 
