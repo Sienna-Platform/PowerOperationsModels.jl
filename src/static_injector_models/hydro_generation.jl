@@ -16,6 +16,9 @@ get_expression_type_for_reserve(::Type{ActivePowerReserveVariable}, ::Type{<:PSY
 get_expression_type_for_reserve(::Type{ActivePowerReserveVariable}, ::Type{<:PSY.HydroGen}, ::Type{<:PSY.Reserve{PSY.ReserveDown}}) = ActivePowerRangeExpressionLB
 # OfflineReserve (non-spin) is upward-only, so it reduces upward headroom like a ReserveUp product.
 get_expression_type_for_reserve(::Type{ActivePowerReserveVariable}, ::Type{<:PSY.HydroGen}, ::Type{<:PSY.OfflineReserve}) = ActivePowerRangeExpressionUB
+# Like thermal UC: the UB expression stays gated on commitment only, and offline awards
+# enter OfflineReserveBandConstraint, so an OFF unit can supply them.
+offline_reserve_in_range_ub(::Type{HydroCommitmentRunOfRiver}) = false
 
 ########################### ActivePowerVariable, HydroGen #################################
 # These methods are defined in PowerSimulations
@@ -669,6 +672,85 @@ function add_constraints!(
         model,
         X,
     )
+    return
+end
+
+"""
+Offline-capability band row for [`HydroCommitmentRunOfRiver`](@ref) devices contributing
+to an `OfflineReserve`. The commitment-gated UB expression excludes the offline awards
+([`offline_reserve_in_range_ub`](@ref)); this row adds them back against the hour's limit
+in both commitment states:
+
+`p + online + offline <= ts_t`
+
+where `ts_t` is the device's `ActivePowerTimeSeriesParameter` (static `pmax` without that
+series). Committed: offline competes with the online products, which the semicontinuous
+row already caps at `pmax * u`. Off: that row zeroes `p` and the online awards, leaving
+`offline <= ts_t`.
+
+With `"offline_only" = true` on the `OfflineReserve` `ServiceModel`, an extra
+[`OfflineReserveOffStateConstraint`](@ref) row forbids offline awards while committed:
+`offline <= pmax * (1 - u)`.
+"""
+function add_constraints!(
+    container::OptimizationContainer,
+    T::Type{OfflineReserveBandConstraint},
+    devices::Union{Vector{V}, IS.FlattenIteratorWrapper{V}},
+    model::DeviceModel{V, W},
+    ::NetworkModel{X},
+) where {V <: PSY.HydroGen, W <: HydroCommitmentRunOfRiver, X <: AbstractNetworkModel}
+    offline = _offline_reserve_awards(container, model, V)
+    isempty(offline) && return
+    time_steps = get_time_steps(container)
+    expression = get_expression(container, ActivePowerRangeExpressionUB, V)
+    jump_model = get_jump_model(container)
+    varbin = get_variable(container, OnVariable, V)
+    param_container = get_parameter(container, ActivePowerTimeSeriesParameter, V)
+    mult = get_multiplier_array(param_container)
+    ts_name = get_time_series_names(model)[ActivePowerTimeSeriesParameter]
+    ts_type = get_default_time_series_type(container)
+    names = [PSY.get_name(d) for d in devices]
+    constraint =
+        add_constraints_container!(container, T, V, names, time_steps; sparse = true)
+    # Extra row for services opted into "offline_only": their award needs the unit off.
+    off_rows = if any(last, offline)
+        add_constraints_container!(
+            container, OfflineReserveOffStateConstraint, V, names, time_steps;
+            sparse = true,
+        )
+    else
+        nothing
+    end
+    for d in devices
+        name = PSY.get_name(d)
+        awards = [(sname, v) for (sname, v, members, _) in offline if name in members]
+        isempty(awards) && continue
+        q_limit = PSY.get_active_power_limits(d, PSY.SU).max
+        param_col = if IS.has_time_series(d, ts_type, ts_name)
+            get_parameter_column_refs(param_container, name)
+        else
+            nothing
+        end
+        off_awards = [
+            (sname, v) for (sname, v, members, only_off) in offline
+            if only_off && name in members
+        ]
+        for t in time_steps
+            limit = isnothing(param_col) ? q_limit : mult[name, t] * param_col[t]
+            constraint[(name, t)] = JuMP.@constraint(
+                jump_model,
+                expression[name, t] +
+                sum(v[(sname, name, t)] for (sname, v) in awards) <= limit
+            )
+            isempty(off_awards) && continue
+            # Offline awards need the unit off: q_limit * (1 - u) is 0 once committed.
+            off_rows[(name, t)] = JuMP.@constraint(
+                jump_model,
+                sum(v[(sname, name, t)] for (sname, v) in off_awards) <=
+                q_limit * (1 - varbin[name, t])
+            )
+        end
+    end
     return
 end
 

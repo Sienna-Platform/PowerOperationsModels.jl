@@ -113,6 +113,31 @@ supports_reserve_provision(::Type{<:AbstractDeviceFormulation}) = true
 supports_reserve_provision(::Type{<:AbstractLoadFormulation}) = false
 
 """
+Offline services on `model` that devices of type `V` contribute to, for the
+[`OfflineReserveBandConstraint`](@ref) builders: `(service name, award variable, member
+names, offline_only)` per service, where `offline_only` is the `ServiceModel` attribute.
+"""
+function _offline_reserve_awards(
+    container::OptimizationContainer,
+    model::DeviceModel,
+    ::Type{V},
+) where {V <: PSY.Device}
+    offline = Tuple{String, IOM.JuMPArray, Set{String}, Bool}[]
+    for sm in get_services(model)
+        _is_offline_reserve(get_component_type(sm)) || continue
+        variable =
+            get_variable(container, ActivePowerReserveVariable, get_component_type(sm))
+        only_off = something(get_attribute(sm, "offline_only"), false)
+        for (service_name, dev_map) in get_contributing_devices_map(sm)
+            members = get(dev_map, V, nothing)
+            isnothing(members) && continue
+            push!(offline, (service_name, variable, Set(PSY.get_name.(members)), only_off))
+        end
+    end
+    return offline
+end
+
+"""
 Whether a `DeviceModel` carries an `OfflineReserve` service. Gates the
 [`OfflineReserveBandConstraint`](@ref) so that models without offline reserves build
 exactly the classic single semi-continuous band row.
