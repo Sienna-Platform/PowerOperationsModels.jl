@@ -1782,7 +1782,7 @@ function _pc_rating_ts_system()
     lines_with_ts = ["Line1", "Line2", "Line6", "Trans1"]
     for name in lines_with_ts
         line = PSY.get_component(PSY.ACTransmission, sys, name)
-        _set_rating_b!(line, (1.2 * POM._branch_rating(line)) * PSY.SU)
+        _set_rating_b!(line, (1.2 * branch_rating_su(line)) * PSY.SU)
     end
     add_branch_rating_time_series_to_system!(
         sys, lines_with_ts, 2, _PC_RATING_FACTORS;
@@ -1859,7 +1859,7 @@ end
     # RHS apart from the static one.
     for name in lines_with_ts
         line = PSY.get_component(PSY.ACTransmission, sys, name)
-        @test POM._branch_rating_b(line) > POM._branch_rating(line)
+        @test branch_rating_b_su(line) > branch_rating_su(line)
     end
     @test length(unique(_PC_RATING_FACTORS)) > 1
 
@@ -1868,7 +1868,7 @@ end
     seen_rhs = Set{Float64}()
     for (outage_id, name, t) in keys(pcbf.data)
         name in lines_with_ts || continue
-        rating_b = POM._branch_rating_b(PSY.get_component(PSY.ACTransmission, sys, name))
+        rating_b = branch_rating_b_su(PSY.get_component(PSY.ACTransmission, sys, name))
         expected = rating_b * _PC_RATING_FACTORS[mod1(t, n_factors)]
         push!(seen_rhs, expected)
         # JuMP migrates the expression's affine constant to the RHS; add it back
@@ -1900,7 +1900,7 @@ end
         name in lines_with_ts && continue
         line = PSY.get_component(PSY.ACTransmission, sys, name)
         isnothing(line) && continue
-        expected = POM._branch_rating_b(line)
+        expected = branch_rating_b_su(line)
         expr_const = JuMP.constant(pcbf[outage_id, name, t])
         @test JuMP.normalized_rhs(con_ub[outage_id, name, t]) + expr_const ≈ expected
         n_checked += 1
@@ -1918,7 +1918,7 @@ end
     branches_with_ts = ["Line1", "Line2"]
     for name in branches_with_ts
         branch = PSY.get_component(PSY.ACTransmission, sys, name)
-        _set_rating_b!(branch, (1.2 * POM._branch_rating(branch)) * PSY.SU)
+        _set_rating_b!(branch, (1.2 * branch_rating_su(branch)) * PSY.SU)
     end
     add_branch_rating_time_series_to_system!(
         sys, branches_with_ts, 2, _PC_RATING_FACTORS;
@@ -1978,11 +1978,11 @@ end
     for (outage_id, name, t) in keys(pcbf.data)
         name in branches_with_ts || continue
         branch = PSY.get_component(PSY.ACTransmission, sys, name)
-        expected = POM._branch_rating_b(branch) * _PC_RATING_FACTORS[t]
+        expected = branch_rating_b_su(branch) * _PC_RATING_FACTORS[t]
         expr_const = JuMP.constant(pcbf[outage_id, name, t])
         @test JuMP.normalized_rhs(con_ub[outage_id, name, t]) + expr_const ≈ expected
         # The forecast has to actually move the limit off the static value.
-        @test !isapprox(expected, POM._branch_rating_b(branch); atol = 1e-8) ||
+        @test !isapprox(expected, branch_rating_b_su(branch); atol = 1e-8) ||
               _PC_RATING_FACTORS[t] == 1.0
         n_checked += 1
     end

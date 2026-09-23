@@ -289,20 +289,16 @@ end
 _parallel_branches_rating(::DeviceModel, mbp::PNM.MixedBranchesParallel) =
     PNM.get_sum_of_max_rating(mbp)
 
-_branch_rating(d::PSY.ACTransmission) = PSY.get_rating(d, PSY.SU)
-_branch_rating(t::PSY.TwoWindingTransformer) =
+_branch_rating(d::PSY.ACTransmission, ::DeviceModel) = PSY.get_rating(d, PSY.SU)
+_branch_rating(t::PSY.TwoWindingTransformer, ::DeviceModel) =
     PSY.get_rating(PSY.get_circuit(t), PSY.SU)
-_branch_rating(t::PNM.ThreeWindingTransformerCircuit) =
+_branch_rating(t::PNM.ThreeWindingTransformerCircuit, ::DeviceModel) =
     PSY.get_rating(t.circuit, PSY.SU)
-_branch_rating(entry::PNM.BranchesSeries) = PNM.get_equivalent_rating(entry)
-_branch_rating(entry, ::DeviceModel) = _branch_rating(entry)
+_branch_rating(entry::PNM.BranchesSeries, ::DeviceModel) = PNM.get_equivalent_rating(entry)
 _branch_rating(entry::PNM.AbstractBranchesParallel, model::DeviceModel) =
     _parallel_branches_rating(model, entry)
 _branch_rating(rep::RepresentativeBranch, model::DeviceModel) =
     _branch_rating(rep.branch, model)
-
-_branch_rating_b(branch) = PNM.get_equivalent_emergency_rating(branch)
-_branch_rating_b(rep::RepresentativeBranch) = _branch_rating_b(rep.branch)
 
 """
 `_branch_rating` with a zero guard, for the flow limits that would otherwise pin
@@ -338,7 +334,7 @@ covers raw devices, reduction aggregates and three-winding circuits alike — it
 system-base per-unit, so it takes no `PSY.SU`.
 """
 function _emergency_flow_limits(branch::PSY.ACTransmission)
-    rating = _branch_rating_b(branch)
+    rating = PNM.get_equivalent_emergency_rating(branch)
     return (min = -rating, max = rating)
 end
 _emergency_flow_limits(rep::RepresentativeBranch) = _emergency_flow_limits(rep.branch)
