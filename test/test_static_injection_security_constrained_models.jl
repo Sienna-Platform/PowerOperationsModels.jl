@@ -1394,23 +1394,28 @@ end
     built_template = IOM.get_template(ps_model)
 
     # --- Unit-level: only Reserve1_1's contributing devices respond to the outage ---
-    contributing_devices, _, _ = POM._security_constrained_outages(
+    outaged_generators, _, _ = POM._security_constrained_outages(
         sys,
         IOM.get_service_models(built_template),
         IOM.get_network_model(built_template),
     )
-    @test collect(keys(contributing_devices)) == [outage_id]
-    reserve1_devices = Set(
-        PSY.get_name(d) for
-        d in PSY.get_contributing_devices(sys, reserve1) if d isa ThermalStandard
-    )
-    @test contributing_devices[outage_id][ThermalStandard] == reserve1_devices
+    @test collect(keys(outaged_generators)) == [outage_id]
 
     # --- Build-level: one outage, one balance row per time step ---
     @test build!(ps_model; output_dir = mktempdir(; cleanup = true)) ==
           IOM.ModelBuildStatus.BUILT
 
     container = IOM.get_optimization_container(ps_model)
+    reserve1_devices = Set(
+        PSY.get_name(d) for
+        d in PSY.get_contributing_devices(sys, reserve1) if d isa ThermalStandard
+    )
+    total = IOM.get_expression(
+        container,
+        IOM.ExpressionKey(PostContingencyTotalReserveDeployment, ThermalStandard),
+    )
+    @test Set(name for (name, uuid, _) in keys(total.data) if uuid == outage_id) ==
+          setdiff(reserve1_devices, ["Alta_1"])
     cons_resp = IOM.get_constraint(
         container,
         IOM.ConstraintKey(PostContingencyGenerationBalanceConstraint, PSY.System),
@@ -1440,12 +1445,11 @@ end
     ps_model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
     built_template = IOM.get_template(ps_model)
 
-    contributing_devices, outaged_generators, _ = POM._security_constrained_outages(
+    outaged_generators, _, _ = POM._security_constrained_outages(
         sys,
         IOM.get_service_models(built_template),
         IOM.get_network_model(built_template),
     )
-    @test haskey(contributing_devices, outage_id)
     @test outaged_generators[outage_id] ==
           Dict{DataType, Set{String}}(ThermalStandard => Set(["Alta"]))
 end

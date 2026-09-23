@@ -18,7 +18,7 @@ end
 # AC control on one terminal/converter: AC_VOLTAGE pins the regulated bus
 # VoltageMagnitude; AC_REACTIVE_POWER pins the reactive injection to its setpoint.
 function _fix_converter_ac_control!(
-    mode::PSY.VSCACControlModes,
+    mode::PSY.VSCACControlModes.Value,
     setpoint::Float64,
     vm,
     bus_name::String,
@@ -43,7 +43,7 @@ end
 # magnitude deviation phi = |V| - 1, so AC_VOLTAGE pins phi to setpoint - 1.
 # AC_REACTIVE_POWER pins the reactive injection to its setpoint, unshifted.
 function _fix_converter_ac_control_lpacc!(
-    mode::PSY.VSCACControlModes,
+    mode::PSY.VSCACControlModes.Value,
     setpoint::Float64,
     phi,
     bus_name::String,
@@ -70,7 +70,7 @@ end
 function _fill_converter_dc_control!(
     jump_model,
     con::AbstractArray,
-    mode::PSY.VSCDCControlModes,
+    mode::PSY.VSCDCControlModes.Value,
     setpoint::Float64,
     droop_gain::Float64,
     vdc_var,
@@ -103,7 +103,7 @@ end
 # through the RegulatedVoltageMagnitude aux variable by the caller, not here):
 # AC_REACTIVE_POWER pins the reactive injection; AC_VOLTAGE is a no-op here.
 function _fix_converter_ac_reactive!(
-    mode::PSY.VSCACControlModes,
+    mode::PSY.VSCACControlModes.Value,
     setpoint::Float64,
     q_var,
     name::String,

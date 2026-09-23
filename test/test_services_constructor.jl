@@ -112,7 +112,7 @@ end
 end
 
 @testset "Per-type reserve container isolates services of the same type" begin
-    # Two OnlineReserve{ReserveUp} services share one
+    # Two OnlineReserve{ReserveUp} services share one per-device-type
     # `(service, device, time)` ActivePowerReserveVariable container. Verify (a) each
     # service's requirement constraint sums only its own device variables (no
     # cross-service leakage) and (b) the proportional reserve cost prices each variable
@@ -129,7 +129,11 @@ end
           IOM.ModelBuildStatus.BUILT
 
     container = get_optimization_container(model)
-    rv = IOM.get_variable(container, ActivePowerReserveVariable, OnlineReserve{ReserveUp})
+    rv = IOM.get_variable(
+        container,
+        ActivePowerReserveVariable,
+        IOM.ComponentPairKey{ThermalStandard, OnlineReserve{ReserveUp}},
+    )
     con = IOM.get_constraint(
         container,
         RequirementConstraint,
@@ -373,7 +377,11 @@ end
     @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
 
     container = get_optimization_container(model)
-    rv = IOM.get_variable(container, ActivePowerReserveVariable, OnlineReserve{ReserveUp})
+    rv = IOM.get_variable(
+        container,
+        ActivePowerReserveVariable,
+        IOM.ComponentPairKey{ThermalStandard, OnlineReserve{ReserveUp}},
+    )
     con = IOM.get_constraint(
         container,
         RequirementConstraint,
@@ -1317,7 +1325,11 @@ end
           IOM.ModelBuildStatus.BUILT
 
     container = get_optimization_container(model)
-    rv = IOM.get_variable(container, ActivePowerReserveVariable, OnlineReserve{ReserveUp})
+    rv = IOM.get_variable(
+        container,
+        ActivePowerReserveVariable,
+        IOM.ComponentPairKey{ThermalStandard, OnlineReserve{ReserveUp}},
+    )
     con = IOM.get_constraint(
         container,
         RequirementConstraint,
@@ -1368,7 +1380,11 @@ end
           IOM.ModelBuildStatus.BUILT
 
     container = get_optimization_container(model)
-    rv = IOM.get_variable(container, ActivePowerReserveVariable, OnlineReserve{ReserveUp})
+    rv = IOM.get_variable(
+        container,
+        ActivePowerReserveVariable,
+        IOM.ComponentPairKey{ThermalStandard, OnlineReserve{ReserveUp}},
+    )
     con = IOM.get_constraint(
         container,
         RequirementConstraint,
@@ -1446,7 +1462,11 @@ end
     @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
 
     container = get_optimization_container(model)
-    rv = IOM.get_variable(container, ActivePowerReserveVariable, OnlineReserve{ReserveUp})
+    rv = IOM.get_variable(
+        container,
+        ActivePowerReserveVariable,
+        IOM.ComponentPairKey{ThermalStandard, OnlineReserve{ReserveUp}},
+    )
     for t in IOM.get_time_steps(container)
         provided =
             sum(
@@ -1747,7 +1767,7 @@ end
         table_format = TableFormat.WIDE,
     )
     awards = read_variable(
-        res, "ActivePowerReserveVariable__OnlineReserve__ReserveUp";
+        res, "ActivePowerReserveVariable__ThermalStandard__OnlineReserve__ReserveUp";
         table_format = TableFormat.WIDE,
     )
     sub_cols = _sub_cols(awards, "GROUP_SUB_")
@@ -1762,7 +1782,7 @@ end
     model = _solve_group_model(sys)
     res = IOM.OptimizationProblemOutputs(model)
     awards = read_variable(
-        res, "ActivePowerReserveVariable__OnlineReserve__ReserveUp";
+        res, "ActivePowerReserveVariable__ThermalStandard__OnlineReserve__ReserveUp";
         table_format = TableFormat.WIDE,
     )
     sub_a_total = sum(awards[1, c] for c in _sub_cols(awards, "GROUP_SUB_A"))
@@ -1808,7 +1828,7 @@ end
     model = _solve_group_model(sys; include_group = false)
     res = IOM.OptimizationProblemOutputs(model)
     awards = read_variable(
-        res, "ActivePowerReserveVariable__OnlineReserve__ReserveUp";
+        res, "ActivePowerReserveVariable__ThermalStandard__OnlineReserve__ReserveUp";
         table_format = TableFormat.WIDE,
     )
     for t in 1:24, c in _sub_cols(awards, "GROUP_SUB_")
@@ -1864,7 +1884,7 @@ end
         table_format = TableFormat.WIDE,
     )
     awards = read_variable(
-        res, "ActivePowerReserveVariable__OnlineReserve__ReserveUp";
+        res, "ActivePowerReserveVariable__ThermalStandard__OnlineReserve__ReserveUp";
         table_format = TableFormat.WIDE,
     )
     sub_cols = _sub_cols(awards, "GROUP_SUB_")
@@ -2157,7 +2177,7 @@ end
         reserve = IOM.get_variable(
             container,
             ActivePowerReserveVariable,
-            PSY.OnlineReserve{PSY.ReserveUp},
+            IOM.ComponentPairKey{PSY.InterruptiblePowerLoad, PSY.OnlineReserve{PSY.ReserveUp}},
         )
         for service_name in ("R1", "R2")
             devices = if nested
@@ -2232,16 +2252,15 @@ end
     container = IOM.get_optimization_container(model)
     jump_model = IOM.get_jump_model(container)
     on = IOM.get_variable(container, OnVariable, PSY.InterruptiblePowerLoad)
-    r_up =
-        IOM.get_variable(
-            container,
-            ActivePowerReserveVariable,
-            PSY.OnlineReserve{PSY.ReserveUp},
-        )
+    r_up = IOM.get_variable(
+        container,
+        ActivePowerReserveVariable,
+        IOM.ComponentPairKey{PSY.InterruptiblePowerLoad, PSY.OnlineReserve{PSY.ReserveUp}},
+    )
     r_dn = IOM.get_variable(
         container,
         ActivePowerReserveVariable,
-        PSY.OnlineReserve{PSY.ReserveDown},
+        IOM.ComponentPairKey{PSY.InterruptiblePowerLoad, PSY.OnlineReserve{PSY.ReserveDown}},
     )
 
     for t in IOM.get_time_steps(container)

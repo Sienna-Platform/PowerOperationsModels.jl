@@ -1783,12 +1783,12 @@ function add_constraints!(
     # to the device model; the ServiceModel's contributing map carries both.
     offline = Tuple{String, IOM.JuMPArray, Set{String}}[]
     for sm in get_services(model)
-        _is_offline_reserve(get_component_type(sm)) || continue
-        variable =
-            get_variable(container, ActivePowerReserveVariable, get_component_type(sm))
+        S = get_component_type(sm)
+        _is_offline_reserve(S) || continue
         for (service_name, dev_map) in get_contributing_devices_map(sm)
             members = get(dev_map, V, nothing)
             isnothing(members) && continue
+            variable = _reserve_variable(container, V, S)
             push!(offline, (service_name, variable, Set(PSY.get_name.(members))))
         end
     end
