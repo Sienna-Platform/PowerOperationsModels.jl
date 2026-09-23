@@ -1167,3 +1167,209 @@ end
     # The zero-priced block clears against the elastic demand.
     @test total > 1.0
 end
+
+# Solve the offline ORDC fixture with the given OfflineReserve attributes. Returns the
+# offline MW cleared from committed units, from the OFF unit, and the model's container.
+function _solve_offline_ordc(attributes::Dict{String, Any})
+    sys, offunit = _offline_ordc_uc_system()
+    template = get_thermal_standard_uc_template()
+    set_service_model!(
+        template,
+        ServiceModel(OfflineReserve, StepwiseCostReserve; attributes = attributes),
+    )
+    set_service_model!(
+        template,
+        ServiceModel(OnlineReserve{ReserveUp}, StepwiseCostReserve),
+    )
+    model = DecisionModel(
+        template,
+        sys;
+        optimizer = HiGHS_optimizer,
+        store_variable_names = true,
+    )
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+    @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+    res = IOM.OptimizationProblemOutputs(model)
+    on = read_variable(res, OnVariable, ThermalStandard; table_format = TableFormat.WIDE)
+    awards = read_variable(
+        res,
+        "ActivePowerReserveVariable__OfflineReserve";
+        table_format = TableFormat.WIDE,
+    )
+    service = PSY.get_name(only(get_components(OfflineReserve, sys)))
+    committed_offline = 0.0
+    for g in get_components(ThermalStandard, sys), t in 1:24
+        on[t, PSY.get_name(g)] > 0.5 || continue
+        committed_offline += awards[t, "$(service)__$(PSY.get_name(g))"]
+    end
+    off_award = sum(awards[t, "$(service)__$(PSY.get_name(offunit))"] for t in 1:24)
+    return committed_offline, off_award, IOM.get_optimization_container(model)
+end
+
+_has_off_state_rows(container) = any(
+    k -> IOM.get_entry_type(k) == POM.OfflineReserveOffStateConstraint,
+    keys(IOM.get_constraints(container)),
+)
+
+@testset "OfflineReserve: offline awards only from OFF units when opted in" begin
+    # Baseline: by default committed units clear offline awards in this fixture.
+    committed_offline, _, container = _solve_offline_ordc(Dict{String, Any}())
+    @test committed_offline > 1.0
+    @test !_has_off_state_rows(container)
+
+    committed_offline, off_award, container =
+        _solve_offline_ordc(Dict{String, Any}("offline_only" => true))
+    @test committed_offline <= 1e-6
+    @test off_award > 1.0
+    @test _has_off_state_rows(container)
+end
+
+@testset "OfflineReserve: must-run units never clear offline_only awards" begin
+    # A must-run unit is always committed (IOM.get_must_run(d) == true, no OnVariable
+    # lower bound of 0), so its opted-in offline awards must stay pinned at 0 - the
+    # band row alone would let it clear like any other committed unit.
+    sys, offunit = _offline_ordc_uc_system()
+    thermals = collect(get_components(ThermalStandard, sys))
+    mustrun = first(g for g in thermals if g !== offunit)
+    PSY.set_commitment_mode!(mustrun, PSY.CommitmentModes.MUST_RUN)
+    template = get_thermal_standard_uc_template()
+    set_service_model!(
+        template,
+        ServiceModel(OfflineReserve, StepwiseCostReserve;
+            attributes = Dict{String, Any}("offline_only" => true)),
+    )
+    set_service_model!(
+        template,
+        ServiceModel(OnlineReserve{ReserveUp}, StepwiseCostReserve),
+    )
+    model = DecisionModel(
+        template,
+        sys;
+        optimizer = HiGHS_optimizer,
+        store_variable_names = true,
+    )
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+    @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+    res = IOM.OptimizationProblemOutputs(model)
+    awards = read_variable(
+        res,
+        "ActivePowerReserveVariable__OfflineReserve";
+        table_format = TableFormat.WIDE,
+    )
+    service = PSY.get_name(only(get_components(OfflineReserve, sys)))
+    mustrun_name = PSY.get_name(mustrun)
+    for t in 1:24
+        @test awards[t, "$(service)__$(mustrun_name)"] <= 1e-6
+    end
+end
+
+# `c_sys5_hy` with an OfflineReserve ORDC supplied only by its HydroDispatch. The
+# hydro energy offer and commitment cost are prohibitive, so the UC leaves it OFF unless
+# a test fixes its OnVariable. The demand exceeds the hydro series in every hour.
+function _hydro_offline_model(attributes::Dict{String, Any})
+    sys = deepcopy(PSB.build_system(PSITestSystems, "c_sys5_hy"))
+    hydro = only(get_components(HydroDispatch, sys))
+    set_operation_cost!(
+        hydro,
+        HydroGenerationCost(;
+            variable_operation_cost = CostCurve(LinearCurve(1.0e4)),
+            fixed = 1.0e5,
+        ),
+    )
+    offline_reserve = OfflineReserve(;
+        name = "OfflineReserve1",
+        available = true,
+        time_frame = 30.0,
+        variable = _mkt_curve([0.0, 2000.0], [65.0]),
+    )
+    add_service!(sys, offline_reserve, PSY.Device[hydro])
+    template = get_thermal_standard_uc_template()
+    set_device_model!(template, HydroDispatch, HydroCommitmentRunOfRiver)
+    set_service_model!(
+        template,
+        ServiceModel(OfflineReserve, StepwiseCostReserve; attributes = attributes),
+    )
+    model = DecisionModel(
+        template,
+        sys;
+        optimizer = HiGHS_optimizer,
+        store_variable_names = true,
+    )
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+    return model
+end
+
+# Solve `model`, optionally with the hydro OnVariable fixed to `on`. Returns the hydro
+# commitment, offline award and `max_active_power` parameter per hour, in MW.
+function _solve_hydro_offline!(model; on = nothing)
+    container = IOM.get_optimization_container(model)
+    if !isnothing(on)
+        u = IOM.get_variable(container, POM.OnVariable, HydroDispatch)
+        for t in axes(u)[2]
+            JuMP.fix(u["HydroDispatch", t], on)
+        end
+    end
+    @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+    res = IOM.OptimizationProblemOutputs(model)
+    wide = TableFormat.WIDE
+    commitment = read_variable(res, OnVariable, HydroDispatch; table_format = wide)
+    award = read_variable(
+        res,
+        "ActivePowerReserveVariable__OfflineReserve";
+        table_format = wide,
+    )
+    limit = read_parameter(
+        res,
+        ActivePowerTimeSeriesParameter,
+        HydroDispatch;
+        table_format = wide,
+    )
+    return commitment[:, "HydroDispatch"], award[:, "OfflineReserve1__HydroDispatch"],
+    limit[:, "HydroDispatch"]
+end
+
+@testset "HydroCommitmentRunOfRiver: OFF hydro supplies OfflineReserve up to the hour's limit" begin
+    model = _hydro_offline_model(Dict{String, Any}())
+    container = IOM.get_optimization_container(model)
+    # The initialization template shares this device model; it must not attach a second
+    # copy of the service model, which would count each award twice in the band row.
+    device_model = IOM.get_model(POM.get_template(model), HydroDispatch)
+    @test length(POM.get_services(device_model)) == 1
+    @test IOM.has_container_key(container, POM.OfflineReserveBandConstraint, HydroDispatch)
+    @test !_has_off_state_rows(container)
+    commitment, award, limit = _solve_hydro_offline!(model)
+    @test all(commitment .<= 1e-6)
+    # Off, the award reaches the hour's series (below pmax = 600 MW), not the static pmax.
+    @test all(isapprox.(award, limit; atol = 1e-3))
+    @test all(limit .< 600.0)
+    @test sum(award) > 1.0
+end
+
+@testset "HydroCommitmentRunOfRiver: offline_only forbids offline awards while committed" begin
+    # Baseline: a committed unit competes for the offline award by default.
+    _, award, _ = _solve_hydro_offline!(_hydro_offline_model(Dict{String, Any}()); on = 1.0)
+    @test sum(award) > 1.0
+
+    model = _hydro_offline_model(Dict{String, Any}("offline_only" => true))
+    @test _has_off_state_rows(IOM.get_optimization_container(model))
+    _, award, _ = _solve_hydro_offline!(model; on = 1.0)
+    @test all(award .<= 1e-6)
+end
+
+@testset "HydroCommitmentRunOfRiver: no offline service builds no offline band" begin
+    sys = PSB.build_system(PSITestSystems, "c_sys5_hy")
+    template = get_thermal_standard_uc_template()
+    set_device_model!(template, HydroDispatch, HydroCommitmentRunOfRiver)
+    model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+    container = IOM.get_optimization_container(model)
+    @test !IOM.has_container_key(
+        container,
+        POM.OfflineReserveBandConstraint,
+        HydroDispatch,
+    )
+end

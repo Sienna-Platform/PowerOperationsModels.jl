@@ -8,7 +8,7 @@ One branch as the reduction-aware builders see it. Build with
 [`_all_branches`](@ref) (one per reporting row, for variables), and iterate with
 [`_foreach_branch`](@ref).
 
-`B` is either a PSY.Device, a PNM.AbstractReductionAggregate, or a
+`B` is either a PSY.Device, a PNM.AbstractReductionAggregate, or
 PNM.ThreeWindingTransformerCircuit.
 """
 struct RepresentativeBranch{B}
@@ -17,6 +17,7 @@ struct RepresentativeBranch{B}
     branch::B
     nr::PNM.NetworkReductionData
     number_to_name::Dict{Int, String}
+    monitored_type::DataType
 end
 
 """
@@ -45,7 +46,6 @@ function _foreach_branch(f::F, reps) where {F}
     return
 end
 
-# Concrete-typed for container axes
 _branch_names(reps) = String[rep.name for rep in reps]
 
 function _make_representative_branch(
@@ -62,6 +62,7 @@ function _make_representative_branch(
         PNM.get_reduction_entry(catalog, arc),
         PNM.get_network_reduction_data(catalog),
         number_to_name,
+        T,
     )
 end
 
@@ -285,7 +286,6 @@ function _parallel_branches_rating(model::DeviceModel, bp::PNM.BranchesParallel)
         )
     end
 end
-
 _parallel_branches_rating(::DeviceModel, mbp::PNM.MixedBranchesParallel) =
     PNM.get_sum_of_max_rating(mbp)
 
@@ -384,3 +384,7 @@ function _max_angle_difference(rep::RepresentativeBranch)
     lims = _angle_limits(rep)
     return max(abs(lims.min), abs(lims.max))
 end
+
+################################## Miscellaneous ##########################################
+
+_monitored_type(rep::RepresentativeBranch) = rep.monitored_type

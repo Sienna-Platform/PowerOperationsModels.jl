@@ -727,6 +727,7 @@ end
         name = "west_east",
         available = true,
         active_power_flow_limits = (min = 0.0, max = 400.0),
+        input_basis = CU,
     )
     interface_lines = [
         get_component(Line, c_sys5_uc, "1"),
@@ -762,6 +763,7 @@ end
         name = "west_east",
         available = true,
         active_power_flow_limits = (min = 0.0, max = 400.0),
+        input_basis = CU,
     )
     interface_lines = [
         get_component(Line, c_sys5_uc, "1"),
@@ -820,6 +822,7 @@ end
         available = true,
         active_power_flow_limits = (min = 0.0, max = 400.0),
         violation_penalty = 1e5,
+        input_basis = CU,
     )
     add_service!(sys, interface, [get_component(Line, sys, l) for l in ("1", "2", "6")])
 
@@ -854,6 +857,7 @@ end
         name = "west_east",
         available = true,
         active_power_flow_limits = (min = 0.0, max = 400.0),
+        input_basis = CU,
     )
     add_service!(sys, interface, [get_component(Line, sys, l) for l in ("1", "2", "6")])
     for ts_name in ("min_active_power_flow_limit", "max_active_power_flow_limit")
@@ -898,6 +902,7 @@ end
         name = "west_east",
         available = true,
         active_power_flow_limits = (min = 0.0, max = 400.0),
+        input_basis = CU,
     )
     interface_lines = [get_component(Line, sys, l) for l in ("1", "2", "6")]
     add_service!(sys, interface, interface_lines)
@@ -927,6 +932,7 @@ end
         flow_limits = (from_to = 1.0, to_from = 1.0),
         from_area = get_component(Area, sys_rts_da, "1"),
         to_area = get_component(Area, sys_rts_da, "2"),
+        input_basis = CU,
     )
     interchange2 = AreaInterchange(;
         name = "interchange1_3",
@@ -935,6 +941,7 @@ end
         flow_limits = (from_to = 1.0, to_from = 1.0),
         from_area = get_component(Area, sys_rts_da, "1"),
         to_area = get_component(Area, sys_rts_da, "3"),
+        input_basis = CU,
     )
     interchange3 = AreaInterchange(;
         name = "interchange3_2",
@@ -943,6 +950,7 @@ end
         flow_limits = (from_to = 1.0, to_from = 1.0),
         from_area = get_component(Area, sys_rts_da, "3"),
         to_area = get_component(Area, sys_rts_da, "2"),
+        input_basis = CU,
     )
     add_components!(sys_rts_da, [interchange1, interchange2, interchange3])
     interface = TransmissionInterface(;
@@ -951,6 +959,7 @@ end
         active_power_flow_limits = (min = 0.0, max = 1.0),
         violation_penalty = 1000.0,
         direction_mapping = Dict("interchange1_2" => 1, "interchange1_3" => -1),
+        input_basis = CU,
     )
     add_service!(sys_rts_da, interface, [interchange1, interchange2])
     template = PowerOperationsProblemTemplate(NetworkModel(AreaBalanceNetworkModel))
@@ -1019,6 +1028,7 @@ end
         flow_limits = (from_to = 1.0, to_from = 1.0),
         from_area = get_component(Area, sys_rts_da, "1"),
         to_area = get_component(Area, sys_rts_da, "2"),
+        input_basis = CU,
     )
     interchange2 = AreaInterchange(;
         name = "interchange1_3",
@@ -1027,6 +1037,7 @@ end
         flow_limits = (from_to = 1.0, to_from = 1.0),
         from_area = get_component(Area, sys_rts_da, "1"),
         to_area = get_component(Area, sys_rts_da, "3"),
+        input_basis = CU,
     )
     interchange3 = AreaInterchange(;
         name = "interchange3_2",
@@ -1035,6 +1046,7 @@ end
         flow_limits = (from_to = 1.0, to_from = 1.0),
         from_area = get_component(Area, sys_rts_da, "3"),
         to_area = get_component(Area, sys_rts_da, "2"),
+        input_basis = CU,
     )
     add_components!(sys_rts_da, [interchange1, interchange2, interchange3])
     interface1 = TransmissionInterface(;
@@ -1043,6 +1055,7 @@ end
         active_power_flow_limits = (min = 0.0, max = 1.0),
         violation_penalty = 1000.0,
         direction_mapping = Dict("interchange1_2" => 1, "interchange1_3" => -1),
+        input_basis = CU,
     )
     add_service!(sys_rts_da, interface1, [interchange1, interchange2])
 
@@ -1054,6 +1067,7 @@ end
         active_power_flow_limits = (min = 0.0, max = 1.0),
         violation_penalty = 1000.0,
         direction_mapping = Dict("A33-1" => 1, "A33-2" => 1),
+        input_basis = CU,
     )
     add_service!(sys_rts_da, interface2, [double_circuit_1, double_circuit_2])
 
@@ -1138,6 +1152,7 @@ _reduced_entry_kind(::PNM.BranchesParallel) = :parallel
         active_power_flow_limits = (min = 0.0, max = 1.0),
         violation_penalty = 1000.0,
         direction_mapping = Dict("A33-1" => 1, "A33-2" => 1),
+        input_basis = CU,
     )
     add_service!(sys_rts_da, interface_double_circuit, [double_circuit_1, double_circuit_2])
 
@@ -1149,6 +1164,7 @@ _reduced_entry_kind(::PNM.BranchesParallel) = :parallel
         active_power_flow_limits = (min = 0.0, max = 1.0),
         violation_penalty = 1000.0,
         direction_mapping = Dict("CA-1" => -1, "C35" => -1),
+        input_basis = CU,
     )
     #=
     Built before the series interface exists, so its degree-two reduction merges "CA-1"
@@ -1883,6 +1899,7 @@ end
         name = "west_east",
         available = true,
         active_power_flow_limits = (min = 0.0, max = 400.0),
+        input_basis = CU,
     )
     interface_line_names = ["1", "2", "6"]
     add_service!(
@@ -1960,6 +1977,7 @@ end
         name = "mixed_types",
         available = true,
         active_power_flow_limits = (min = -400.0, max = 400.0),
+        input_basis = CU,
     )
     add_service!(c_sys14, interface, [line, transformer])
 
@@ -2002,6 +2020,7 @@ end
         flow_limits = (from_to = 1.0, to_from = 1.0),
         from_area = get_component(Area, sys_rts_da, "1"),
         to_area = get_component(Area, sys_rts_da, "2"),
+        input_basis = CU,
     )
     interchange2 = AreaInterchange(;
         name = "interchange1_3",
@@ -2010,6 +2029,7 @@ end
         flow_limits = (from_to = 1.0, to_from = 1.0),
         from_area = get_component(Area, sys_rts_da, "1"),
         to_area = get_component(Area, sys_rts_da, "3"),
+        input_basis = CU,
     )
     add_components!(sys_rts_da, [interchange1, interchange2])
     interface = TransmissionInterface(;
@@ -2017,6 +2037,7 @@ end
         available = true,
         active_power_flow_limits = (min = 0.0, max = 1.0),
         direction_mapping = Dict("interchange1_2" => 1, "interchange1_3" => -1),
+        input_basis = CU,
     )
     add_service!(sys_rts_da, interface, [interchange1, interchange2])
 
@@ -2092,6 +2113,7 @@ function _build_nonnested_reserve_system(; nested::Bool)
         max_reactive_power = PSY.get_max_reactive_power(il_a, PSY.SU),
         base_power = PSY.get_base_power(il_a),
         operation_cost = deepcopy(get_operation_cost(il_a)),
+        input_basis = CU,
     )
     add_component!(sys, il_b)
     PSY.copy_time_series!(il_b, il_a)

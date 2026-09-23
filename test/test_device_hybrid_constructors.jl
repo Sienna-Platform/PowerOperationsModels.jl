@@ -197,6 +197,7 @@ end
         input_active_power_limits = (min = 0.0, max = 1.0),
         output_active_power_limits = (min = 0.0, max = 1.0),
         reactive_power_limits = nothing,
+        input_basis = CU,
     )
     PSY.add_component!(sys, hybrid)
     template = _build_hybrid_template(sys; with_reserves = false)

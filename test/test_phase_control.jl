@@ -369,9 +369,11 @@ end
                 α = 0.0,
                 rating = PSY.get_rating(circuit, PSY.SU),
                 base_power = PSY.get_base_power(fixture.sys, PSY.NU),
+                input_basis = CU,
             ),
             magnetizing_shunt = 0.0 + 0.0im,
             shunt_location = PSY.TwoWindingTransformerShuntLocation.PRIMARY,
+            input_basis = CU,
         ),
     )
     template = _controlled_template(DCPNetworkModel, PSY.TwoWindingTransformer)
@@ -851,9 +853,11 @@ end
             α = alpha,
             rating = PSY.get_rating(line, PSY.SU),
             base_power = PSY.get_base_power(sys, PSY.NU),
+            input_basis = CU,
         ),
         magnetizing_shunt = 0.0 + 0.0im,
         shunt_location = PSY.TwoWindingTransformerShuntLocation.PRIMARY,
+        input_basis = CU,
     )
     PSY.add_component!(sys, pst)
     outage = PSY.GeometricDistributionForcedOutage(;

@@ -664,6 +664,7 @@ end
         reactive_power = 0.0,
         reactive_power_limits = (min = -2.0, max = 2.0),
         base_power = 100.0,
+        input_basis = CU,
     )
     add_component!(sys, bat)
 
