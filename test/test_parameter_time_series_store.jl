@@ -268,7 +268,7 @@ end
     POM.close_parameter_store!(store)
 end
 
-@testset "parameter_store_from_model warns and skips arrays on a 1-step horizon, but still copies costs" begin
+@testset "parameter_store_from_model warns and skips arrays and forecast costs on a 1-step horizon" begin
     c_sys5 = deepcopy(PSB.build_system(PSITestSystems, "c_sys5_uc"))
     gen = first(get_components(PSY.ThermalStandard, c_sys5))
     init_time = Dates.DateTime(2024, 1, 1)
@@ -307,16 +307,16 @@ end
     @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
 
     store, key_map =
-        @test_logs (:warn, r"at least two points") POM.parameter_store_from_model(
+        @test_logs (:warn, r"at least two points") (:warn, r"forecast floor") POM.parameter_store_from_model(
             model,
         )
     # No parameter array rows were written (they live under the synthetic owner id).
     @test isempty(
         IS.list_time_series_metadata(store.store; owner_id = POM.PARAMETER_ROW_OWNER_ID),
     )
-    # The cost copy still went through: one series, under gen's own id.
-    @test IS.get_num_time_series(store.store) == 1
-    @test length(key_map) == 1
+    # The forecast-backed cost is too short to re-window onto a 1-step run and is skipped too.
+    @test IS.get_num_time_series(store.store) == 0
+    @test isempty(key_map)
     POM.close_parameter_store!(store)
 end
 
@@ -340,7 +340,12 @@ end
     )
 
     store = POM.ParameterTimeSeriesStore()
-    key_map = POM.copy_cost_time_series!(store, sys)
+    # c_sys5's own max_active_power forecasts: initial 2024-01-01, hourly, 24h windows, 24h
+    # interval, 2 windows. The static fuel_cost cost key ignores the grid, so any grid this
+    # fixture would itself produce is fine.
+    windows =
+        POM.RunWindows(Dates.DateTime(2024, 1, 1), 2, 24, Dates.Hour(1), Dates.Hour(24))
+    key_map = POM.copy_cost_time_series!(store, sys, windows)
     @test length(key_map) == 1
     @test haskey(key_map, IS.get_association_id(key))
     @test IS.get_num_time_series(store.store) == 1      # the load profiles were NOT copied
@@ -348,21 +353,22 @@ end
     POM.close_parameter_store!(store)
 end
 
-@testset "copy_cost_time_series! keeps every forecast window and the series type" begin
-    sys = deepcopy(PSB.build_system(PSITestSystems, "c_sys5_uc"))
+@testset "copy_cost_time_series! re-windows a forecast cost onto the run grid" begin
+    sys = PSB.build_system(PSITestSystems, "c_sys5")
     gen = first(get_components(PSY.ThermalStandard, sys))
-    init_time = Dates.DateTime(2024, 1, 1)
-    window_2_start = init_time + Dates.Hour(24)
-    fuel_window_1 = collect(3.0:0.5:14.5)
-    fuel_window_2 = collect(4.0:0.5:15.5)
-    fuel_forecast = PSY.Deterministic(;
-        name = "fuel_cost",
-        data = Dict(init_time => fuel_window_1, window_2_start => fuel_window_2),
-        resolution = Dates.Hour(1),
-        interval = Dates.Hour(24),
+    t0 = Dates.DateTime(2024, 1, 1)
+    # 3 windows, 1-hour interval, 24 steps each; the run below uses every second window
+    # and a 12-step horizon (Review Focus 4 and 5).
+    data = Dict(t0 + Dates.Hour(k) => collect((1.0 + k):(24.0 + k)) for k in 0:2)
+    PSY.add_time_series!(
+        sys,
+        gen,
+        PSY.Deterministic(;
+            name = "fuel_cost", data = data, resolution = Dates.Hour(1),
+            interval = Dates.Hour(1),
+        ),
     )
-    PSY.add_time_series!(sys, gen, fuel_forecast)
-    original_key = IS.get_time_series_key(
+    key = IS.get_time_series_key(
         only(
             IS.list_time_series_metadata(
                 IS.get_data_store(sys.data); owner_id = IS.get_id(gen),
@@ -373,25 +379,84 @@ end
     PSY.set_operation_cost!(
         gen,
         PSY.ThermalGenerationCost(
-            PSY.FuelCurve(PSY.LinearCurve(1.0), original_key), 0.0, 0.0, 0.0,
+            PSY.FuelCurve(PSY.LinearCurve(1.0), key), 0.0, 0.0, 0.0,
         ),
     )
 
+    windows = POM.RunWindows(t0, 2, 12, Dates.Hour(1), Dates.Hour(2))
+    @test windows.initial_times == [t0, t0 + Dates.Hour(2)]
     store = POM.ParameterTimeSeriesStore()
-    key_map = POM.copy_cost_time_series!(store, sys)
+    key_map = POM.copy_cost_time_series!(store, sys, windows)
     @test length(key_map) == 1
-
-    dir = mktempdir(; cleanup = true)
-    bundle = joinpath(dir, "system-test")
-    POM.write_results_system_bundle!(sys, store, key_map, bundle)
+    copied_md = only(
+        IS.list_time_series_metadata(
+            store.store; owner_id = IS.get_id(gen), name = "fuel_cost",
+        ),
+    )
+    copied = IS.get_time_series(store.store, IS.get_time_series_key(copied_md))
+    copied_data = IS.get_data(copied)
+    @test sort(collect(keys(copied_data))) == [t0, t0 + Dates.Hour(2)]
+    @test copied_data[t0] == collect(1.0:12.0)
+    @test copied_data[t0 + Dates.Hour(2)] == collect(3.0:14.0)
+    @test IS.get_interval(copied) == Dates.Hour(2)
     POM.close_parameter_store!(store)
+end
 
-    restored = PSY.from_file(bundle; time_series_read_only = true)
-    gen2 = get_component(PSY.ThermalStandard, restored, PSY.get_name(gen))
-    restored_ts = PSY.get_time_series(PSY.Deterministic, gen2, "fuel_cost")
-    @test PSY.get_name(restored_ts) == "fuel_cost"
-    @test TimeSeries.values(PSY.get_fuel_cost(gen2; start_time = window_2_start)) ==
-          fuel_window_2
+@testset "copy_cost_time_series! copies a static cost verbatim" begin
+    sys = PSB.build_system(PSITestSystems, "c_sys5")
+    gen = first(get_components(PSY.ThermalStandard, sys))
+    t0 = Dates.DateTime(2024, 1, 1)
+    PSY.add_time_series!(
+        sys,
+        gen,
+        PSY.SingleTimeSeries(
+            "fuel_cost",
+            TimeSeries.TimeArray(
+                range(t0; step = Dates.Hour(1), length = 48),
+                collect(1.0:48.0),
+            ),
+        ),
+    )
+    key = IS.get_time_series_key(
+        only(
+            IS.list_time_series_metadata(
+                IS.get_data_store(sys.data); owner_id = IS.get_id(gen),
+                name = "fuel_cost",
+            ),
+        ),
+    )
+    PSY.set_operation_cost!(
+        gen,
+        PSY.ThermalGenerationCost(
+            PSY.FuelCurve(PSY.LinearCurve(1.0), key), 0.0, 0.0, 0.0,
+        ),
+    )
+    store = POM.ParameterTimeSeriesStore()
+    POM.copy_cost_time_series!(
+        store,
+        sys,
+        POM.RunWindows(t0, 1, 24, Dates.Hour(1), Dates.Hour(24)),
+    )
+    back = POM.read_parameter_series(store, IS.get_id(gen), "fuel_cost")
+    @test TimeSeries.values(back) == collect(1.0:48.0)
+    POM.close_parameter_store!(store)
+end
+
+@testset "run_windows: one window at the model's initial time; horizon stands in for an unset interval" begin
+    c_sys5 = PSB.build_system(PSITestSystems, "c_sys5_uc")
+    model = DecisionModel(
+        get_thermal_standard_uc_template(),
+        c_sys5;
+        optimizer = HiGHS_optimizer,
+    )
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+    windows = POM.run_windows(model)
+    container = IOM.get_optimization_container(model)
+    @test windows.initial_times == [IOM.get_initial_time(container)]
+    @test windows.horizon_count == length(IOM.get_time_steps(container))
+    @test windows.resolution == IOM.get_resolution(container)
+    @test windows.interval == windows.resolution * windows.horizon_count
 end
 
 @testset "parameter windows round-trip as forecasts" begin
