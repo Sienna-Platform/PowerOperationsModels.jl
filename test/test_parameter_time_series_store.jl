@@ -268,7 +268,7 @@ end
     POM.close_parameter_store!(store)
 end
 
-@testset "parameter_store_from_model warns and skips arrays and forecast costs on a 1-step horizon" begin
+@testset "parameter_store_from_model warns and skips arrays on a 1-step horizon, but still copies costs" begin
     c_sys5 = deepcopy(PSB.build_system(PSITestSystems, "c_sys5_uc"))
     gen = first(get_components(PSY.ThermalStandard, c_sys5))
     init_time = Dates.DateTime(2024, 1, 1)
@@ -307,17 +307,78 @@ end
     @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
 
     store, key_map =
-        @test_logs (:warn, r"at least two points") (:warn, r"forecast floor") POM.parameter_store_from_model(
+        @test_logs (:warn, r"at least two points") POM.parameter_store_from_model(
             model,
         )
     # No parameter array rows were written (they live under the synthetic owner id).
     @test isempty(
         IS.list_time_series_metadata(store.store; owner_id = POM.PARAMETER_ROW_OWNER_ID),
     )
-    # The forecast-backed cost is too short to re-window onto a 1-step run and is skipped too.
-    @test IS.get_num_time_series(store.store) == 0
-    @test isempty(key_map)
+    # The cost is too short to re-window onto a 1-step run, so it is copied verbatim instead.
+    @test IS.get_num_time_series(store.store) == 1
+    @test length(key_map) == 1
+    copied_md = only(
+        IS.list_time_series_metadata(
+            store.store;
+            owner_id = IS.get_id(gen),
+            name = "fuel_cost",
+        ),
+    )
+    copied = IS.get_time_series(store.store, IS.get_time_series_key(copied_md))
+    @test sort(collect(keys(IS.get_data(copied)))) ==
+          [init_time, init_time + Dates.Hour(24)]
     POM.close_parameter_store!(store)
+end
+
+@testset "a 1-step-horizon model with a forecast-backed cost still writes its results bundle" begin
+    # Exercises the real solve! -> parameter_store_from_model -> write_results_system_bundle!
+    # path (default system_to_file = true), not a direct call: a dangling association id for
+    # the verbatim-copied cost would make PSY.to_openapi's association_id_map remap throw here.
+    c_sys5 = deepcopy(PSB.build_system(PSITestSystems, "c_sys5_uc"))
+    gen = first(get_components(PSY.ThermalStandard, c_sys5))
+    init_time = Dates.DateTime(2024, 1, 1)
+    fuel_window_1 = collect(3.0:0.5:14.5)
+    fuel_window_2 = collect(4.0:0.5:15.5)
+    fuel_forecast = PSY.Deterministic(;
+        name = "fuel_cost",
+        data = Dict(
+            init_time => fuel_window_1,
+            init_time + Dates.Hour(24) => fuel_window_2,
+        ),
+        resolution = Dates.Hour(1),
+        interval = Dates.Hour(24),
+    )
+    PSY.add_time_series!(c_sys5, gen, fuel_forecast)
+    original_key = IS.get_time_series_key(
+        only(
+            IS.list_time_series_metadata(
+                IS.get_data_store(c_sys5.data); owner_id = IS.get_id(gen),
+                name = "fuel_cost",
+            ),
+        ),
+    )
+    PSY.set_operation_cost!(
+        gen,
+        PSY.ThermalGenerationCost(
+            PSY.FuelCurve(PSY.LinearCurve(1.0), original_key), 0.0, 0.0, 0.0,
+        ),
+    )
+
+    template = get_thermal_standard_uc_template()
+    output_dir = mktempdir(; cleanup = true)
+    model = DecisionModel(
+        template, c_sys5;
+        optimizer = HiGHS_optimizer, horizon = Dates.Hour(1),
+    )
+    @test build!(model; output_dir = output_dir) == IOM.ModelBuildStatus.BUILT
+    @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+
+    sys_dir = joinpath(output_dir, IOM.make_system_dirname(IOM.get_system(model)))
+    @test isfile(joinpath(sys_dir, PSY.SYSTEM_DOCUMENT_FILE))
+
+    restored = PSY.from_file(sys_dir; time_series_read_only = true)
+    gen2 = get_component(PSY.ThermalStandard, restored, PSY.get_name(gen))
+    @test TimeSeries.values(PSY.get_fuel_cost(gen2)) == fuel_window_1
 end
 
 @testset "copy_cost_time_series! copies exactly the keys the costs hold" begin
