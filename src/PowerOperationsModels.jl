@@ -910,6 +910,7 @@ export BThetaBranchFlow
 export PostContingencyNodalActivePowerDeployment
 export PostContingencyAreaActivePowerDeployment
 export PostContingencyAreaInterchangeFlow
+export PostContingencyTotalReserveDeployment
 
 #################################################################################
 # Exports - Parameter Types (defined in core/parameters.jl)

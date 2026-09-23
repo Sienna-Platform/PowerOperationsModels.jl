@@ -138,6 +138,12 @@ Per-interchange flow considering post-contingency reserve deployment.
 """
 struct PostContingencyAreaInterchangeFlow <: ExpressionType end
 
+"""
+Post-contingency reserve deployed by a contributing device, summed across every
+security-constrained reserve responding to the outage.
+"""
+struct PostContingencyTotalReserveDeployment <: ExpressionType end
+
 # Method extensions for output writing
 should_write_resulting_value(::Type{InterfaceTotalFlow}) = true
 should_write_resulting_value(::Type{PTDFBranchFlow}) = true

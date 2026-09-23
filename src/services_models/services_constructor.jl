@@ -156,13 +156,8 @@ function construct_services!(
         )
     end
 
-    contributing_devices, outaged_generators, monitored_components =
+    _, monitored_components, use_slacks =
         _security_constrained_outages(sys, services_template, network_model)
-    _create_post_contingency_reserve_variables!(
-        container,
-        contributing_devices,
-        outaged_generators,
-    )
     _create_post_contingency_interchange_variables!(
         container,
         monitored_components,
@@ -170,9 +165,8 @@ function construct_services!(
     )
     _create_post_contingency_flow_slacks!(
         container,
-        sys,
-        services_template,
         monitored_components,
+        use_slacks,
         network_model,
     )
     return
@@ -218,12 +212,11 @@ function construct_services!(
         )
     end
 
-    contributing_devices, outaged_generators, monitored_components =
+    outaged_generators, monitored_components, _ =
         _security_constrained_outages(sys, services_template, network_model)
     _build_post_contingency_locational_power!(
         container,
         sys,
-        contributing_devices,
         outaged_generators,
         network_model,
     )
@@ -231,22 +224,10 @@ function construct_services!(
     _constrain_post_contingency_balance!(
         container,
         sys,
-        contributing_devices,
         outaged_generators,
         network_model,
     )
-    _constrain_post_contingency_generation!(
-        container,
-        sys,
-        outaged_generators,
-        contributing_devices,
-    )
-    _constrain_post_contingency_reserve!(
-        container,
-        sys,
-        services_template,
-        outaged_generators,
-    )
+    _constrain_post_contingency_generation!(container, sys)
     _constrain_post_contingency_flow!(container, sys, monitored_components, network_model)
     return
 end
@@ -661,7 +642,7 @@ function construct_service!(
     devices_template::Dict{Symbol, DeviceModel},
     incompatible_device_types::Set{<:DataType},
     ::NetworkModel{<:AbstractNetworkModel},
-) where {SR <: PSY.Reserve, F <: Union{RampReserve, SecurityConstrainedRampReserve}}
+) where {SR <: PSY.Reserve, F <: RampReserve}
     services = _services_with_contributors(model, sys)
     isempty(services) && return
     # Only services carrying a requirement series get the parameter (a curve-only ORDC of the
@@ -697,7 +678,7 @@ function construct_service!(
     devices_template::Dict{Symbol, DeviceModel},
     incompatible_device_types::Set{<:DataType},
     ::NetworkModel{<:AbstractNetworkModel},
-) where {SR <: PSY.Reserve, F <: Union{RampReserve, SecurityConstrainedRampReserve}}
+) where {SR <: PSY.Reserve, F <: RampReserve}
     services = _services_with_contributors(model, sys)
     isempty(services) && return
     service_names = PSY.get_name.(services)
@@ -1161,25 +1142,25 @@ function construct_service!(
     container::OptimizationContainer,
     sys::PSY.System,
     ::ArgumentConstructStage,
-    model::ServiceModel{R, SecurityConstrainedContingencyReserve},
+    model::ServiceModel{R, <:AbstractSecurityConstrainedReservesFormulation},
     devices_template::Dict{Symbol, DeviceModel},
     ::Set{<:DataType},
     ::NetworkModel{<:AbstractNetworkModel},
-) where {R <: PSY.AbstractReserve}
+) where {R <: _SECURITY_CONSTRAINED_RESERVE}
     services = _services_with_contributors(model, sys)
     isempty(services) && return
     ts_services = [s for s in services if _has_ts_requirement(model, s)]
     isempty(ts_services) ||
         add_parameters!(container, RequirementTimeSeriesParameter, ts_services, model)
+    add_service_variables!(
+        container,
+        ActivePowerReserveVariable,
+        services,
+        model,
+        RampReserve,
+    )
     for service in services
-        contributing_devices = get_contributing_devices(model, PSY.get_name(service))
-        add_service_variables!(
-            container,
-            ActivePowerReserveVariable,
-            service,
-            contributing_devices,
-            RampReserve,
-        )
+        _add_post_contingency_deployment!(container, sys, service, model)
         add_to_expression!(
             container,
             ActivePowerReserveVariable,
@@ -1196,11 +1177,11 @@ function construct_service!(
     container::OptimizationContainer,
     sys::PSY.System,
     ::ModelConstructStage,
-    model::ServiceModel{R, SecurityConstrainedContingencyReserve},
+    model::ServiceModel{R, <:AbstractSecurityConstrainedReservesFormulation},
     ::Dict{Symbol, DeviceModel},
     ::Set{<:DataType},
     ::NetworkModel{<:AbstractNetworkModel},
-) where {R <: PSY.AbstractReserve}
+) where {R <: _SECURITY_CONSTRAINED_RESERVE}
     services = _services_with_contributors(model, sys)
     isempty(services) && return
     service_names = PSY.get_name.(services)
@@ -1213,10 +1194,16 @@ function construct_service!(
     )
     get_use_slacks(model) && add_reserve_slacks!(container, R, service_names)
     for service in services
-        contributing_devices = get_contributing_devices(model, PSY.get_name(service))
+        contributing_devices = get_contributing_devices_map(model, PSY.get_name(service))
         add_constraints!(
             container,
             RequirementConstraint,
+            service,
+            contributing_devices,
+            model,
+        )
+        _add_security_constrained_ramp_constraints!(
+            container,
             service,
             contributing_devices,
             model,
@@ -1228,9 +1215,38 @@ function construct_service!(
             contributing_devices,
             model,
         )
+        _constrain_post_contingency_reserve!(container, service, model)
         add_to_objective_function!(container, service, model)
         add_feedforward_constraints!(container, model, service)
     end
     add_constraint_dual!(container, sys, model)
     return
 end
+
+_add_security_constrained_ramp_constraints!(
+    container::OptimizationContainer,
+    service::PSY.Reserve,
+    contributing_devices::AbstractDict,
+    model::ServiceModel{<:PSY.Reserve, SecurityConstrainedRampReserve},
+) = add_constraints!(container, RampConstraint, service, contributing_devices, model)
+
+_add_security_constrained_ramp_constraints!(
+    ::OptimizationContainer,
+    ::PSY.AbstractReserve,
+    ::AbstractDict,
+    ::ServiceModel,
+) = nothing
+
+construct_service!(
+    ::OptimizationContainer,
+    ::PSY.System,
+    ::Union{ArgumentConstructStage, ModelConstructStage},
+    ::ServiceModel{<:PSY.AbstractReserve, <:AbstractSecurityConstrainedReservesFormulation},
+    ::Dict{Symbol, DeviceModel},
+    ::Set{<:DataType},
+    ::NetworkModel{<:AbstractNetworkModel},
+) = throw(
+    IS.ConflictingInputsError(
+        "Security-constrained formulations currently only support reserve-up services.",
+    ),
+)
