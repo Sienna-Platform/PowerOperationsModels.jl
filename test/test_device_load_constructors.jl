@@ -90,6 +90,7 @@ function _two_area_ac_interchange_system(; include_reverse_tie = true)
             b = (from = 0.0, to = 0.0),
             rating = 10.0,
             angle_limits = (min = -1.57, max = 1.57),
+            input_basis = CU,
         )
         add_component!(sys, line)
     end
@@ -114,6 +115,7 @@ function _add_inter_area_hvdc_tie!(sys)
         reactive_power_limits_to = (min = -1.0, max = 1.0),
         arc = arc,
         loss = PSY.LossCurve(LinearCurve(0.05, 0.01), PSY.CU),
+        input_basis = CU,
     )
     add_component!(sys, hvdc)
     return
@@ -324,6 +326,7 @@ function _add_intra_area_hvdc_line!(sys)
         reactive_power_limits_to = (min = -1.0, max = 1.0),
         arc = arc,
         loss = PSY.LossCurve(LinearCurve(0.05, 0.01), PSY.CU),
+        input_basis = CU,
     )
     add_component!(sys, hvdc)
     return
@@ -718,6 +721,7 @@ end
         rating = load.max_active_power / 10.0,
         max_active_power = load.max_active_power / 10.0,
         reactive_power_limits = nothing,
+        input_basis = CU,
     )
     add_component!(sys, mload)
 
@@ -772,6 +776,7 @@ end
             ),
             fixed = 0.0,
         ),
+        input_basis = CU,
     )
     PSY.add_component!(c_sys5_il, shiftable_load)
     PSY.set_available!(il_load, false)
@@ -858,7 +863,7 @@ function _build_shiftable_load_system()
 
     # AreaBalanceNetworkModel/AreaPTDFNetworkModel require at least one Area; c_sys5_il
     # ships with none.
-    area = PSY.Area(; name = "area1")
+    area = PSY.Area(; name = "area1", input_basis = CU)
     PSY.add_component!(c_sys5_il, area)
     for bus in PSY.get_components(PSY.ACBus, c_sys5_il)
         PSY.set_area!(bus, area)
@@ -885,6 +890,7 @@ function _build_shiftable_load_system()
             ),
             fixed = 0.0,
         ),
+        input_basis = CU,
     )
     PSY.add_component!(c_sys5_il, shiftable_load)
     PSY.set_available!(il_load, false)

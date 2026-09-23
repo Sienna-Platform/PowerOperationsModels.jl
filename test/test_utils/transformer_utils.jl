@@ -129,6 +129,7 @@ function _sys5_with_3w()
             base_power = 100.0,
             max_active_power = 0.5,
             max_reactive_power = 0.1,
+            input_basis = CU,
         ),
     )
     # `Bus3WT_1`'s generator stays small on active power so the load keeps drawing across
@@ -157,6 +158,7 @@ function _sys5_with_3w()
                 ),
                 base_power = 100.0,
                 time_limits = nothing,
+                input_basis = CU,
             ),
         )
     end
@@ -171,6 +173,7 @@ function _sys5_with_3w()
         x = 0.1,
         rating = 1.0,
         base_power = 100.0,
+        input_basis = CU,
     )
     PSY.add_component!(
         sys,
@@ -180,6 +183,7 @@ function _sys5_with_3w()
             secondary_circuit = _star_leg(terminal_1),
             tertiary_circuit = _star_leg(terminal_2),
             star_bus = star_bus,
+            input_basis = CU,
         ),
     )
     return sys

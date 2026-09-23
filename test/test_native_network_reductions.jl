@@ -458,9 +458,11 @@ end
                 α = 0.0,
                 rating = PSY.get_rating(circuit, PSY.SU),
                 base_power = PSY.get_base_power(sys, PSY.NU),
+                input_basis = CU,
             ),
             magnetizing_shunt = 0.0 + 0.0im,
             shunt_location = PSY.TwoWindingTransformerShuntLocation.PRIMARY,
+            input_basis = CU,
         ),
     )
     template = _controlled_template(ACPNetworkModel, PSY.TwoWindingTransformer)
@@ -804,6 +806,7 @@ end
             name = "leaf_interface",
             available = true,
             active_power_flow_limits = (min = -100.0, max = 100.0),
+            input_basis = CU,
         )
         add_service!(sys, interface, [get_component(Line, sys, "1-8-i_1")])
         net = NetworkModel(
@@ -997,6 +1000,7 @@ end
         name = "unrelated_interface",
         available = true,
         active_power_flow_limits = (min = -100.0, max = 100.0),
+        input_basis = CU,
     )
     add_service!(sys, interface, [unrelated])
 

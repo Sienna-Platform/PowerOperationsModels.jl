@@ -1767,6 +1767,12 @@ A must-run device is always committed, so its band is `gated` outright.
 Committed: offline competes with the online products for the gated band. Off: the
 semi-continuous UB row zeroes `p` and the online awards, leaving `offline <= pmax`.
 Devices contributing to no offline service get no row.
+
+With `"offline_only" = true` on the `OfflineReserve` `ServiceModel`, an extra
+[`OfflineReserveOffStateConstraint`](@ref) row forbids offline awards while committed
+(`offline <= q_limit * (1 - u)`; `0` for must-run). Scope: thermal unit commitment and
+`HydroCommitmentRunOfRiver`; other formulations book `OfflineReserve` awards against
+their headroom and are not restricted.
 """
 function add_constraints!(
     container::OptimizationContainer,
@@ -1779,19 +1785,7 @@ function add_constraints!(
     W <: AbstractThermalUnitCommitment,
     X <: AbstractNetworkModel,
 }
-    # (service name, award variable, contributing member names) per offline service attached
-    # to the device model; the ServiceModel's contributing map carries both.
-    offline = Tuple{String, IOM.JuMPArray, Set{String}}[]
-    for sm in get_services(model)
-        _is_offline_reserve(get_component_type(sm)) || continue
-        variable =
-            get_variable(container, ActivePowerReserveVariable, get_component_type(sm))
-        for (service_name, dev_map) in get_contributing_devices_map(sm)
-            members = get(dev_map, V, nothing)
-            isnothing(members) && continue
-            push!(offline, (service_name, variable, Set(PSY.get_name.(members))))
-        end
-    end
+    offline = _offline_reserve_awards(container, model, V)
     isempty(offline) && return
     time_steps = get_time_steps(container)
     expression = get_expression(container, ActivePowerRangeExpressionUB, V)
@@ -1800,18 +1794,38 @@ function add_constraints!(
     names = [PSY.get_name(d) for d in devices]
     constraint =
         add_constraints_container!(container, T, V, names, time_steps; sparse = true)
+    # Extra row for services opted into "offline_only": their award needs the unit off.
+    off_rows = if any(last, offline)
+        add_constraints_container!(
+            container, OfflineReserveOffStateConstraint, V, names, time_steps;
+            sparse = true,
+        )
+    else
+        nothing
+    end
     for d in devices
         name = PSY.get_name(d)
-        awards = [(sname, v) for (sname, v, members) in offline if name in members]
+        awards = [(sname, v) for (sname, v, members, _) in offline if name in members]
         isempty(awards) && continue
         q_limit = PSY.get_active_power_limits(d, PSY.SU).max
         gated = IOM.get_min_max_limits(d, ActivePowerVariableLimitsConstraint, W).max
+        # Time-invariant: only which services opted into "offline_only" contribute.
+        off_awards = [
+            (sname, v) for (sname, v, members, only_off) in offline
+            if only_off && name in members
+        ]
         if _is_must_run(d)
             for t in time_steps
                 constraint[(name, t)] = JuMP.@constraint(
                     jump_model,
                     expression[name, t] +
                     sum(v[(sname, name, t)] for (sname, v) in awards) <= gated
+                )
+                isempty(off_awards) && continue
+                # Always committed: opted-in offline awards must be 0, never cleared.
+                off_rows[(name, t)] = JuMP.@constraint(
+                    jump_model,
+                    sum(v[(sname, name, t)] for (sname, v) in off_awards) <= 0.0
                 )
             end
         else
@@ -1822,6 +1836,13 @@ function add_constraints!(
                     expression[name, t] +
                     sum(v[(sname, name, t)] for (sname, v) in awards) <=
                     q_limit - (q_limit - gated) * u
+                )
+                isempty(off_awards) && continue
+                # Offline awards need the unit off: q_limit * (1 - u) is 0 once committed.
+                off_rows[(name, t)] = JuMP.@constraint(
+                    jump_model,
+                    sum(v[(sname, name, t)] for (sname, v) in off_awards) <=
+                    q_limit * (1 - u)
                 )
             end
         end

@@ -17,6 +17,7 @@ function replace_with_hydro_dispatch!(
         base_power = get_base_power(unit1, PSY.NU),
         status = PSY.OperationalStates.ONLINE,
         operation_cost = get_operation_cost(unit1),
+        input_basis = CU,
     )
     add_component!(sys, hydro)
     transfer_mbc!(hydro, unit1, sys)
@@ -141,6 +142,7 @@ function build_hydro_with_both_pump_and_turbine()
         base_power = 100.0,
         active_power_pump = 0.0,
         efficiency = (turbine = 0.93, pump = 0.93),
+        input_basis = CU,
     )
 
     add_component!(sys, hpump)
