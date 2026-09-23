@@ -679,10 +679,10 @@ export ShiftUpActivePowerVariable
 export ShiftDownActivePowerVariable
 
 # G-1 Variables
-export PostContingencyActivePowerReserveDeploymentVariable
-export PostContingencyAreaInterchangeFlowDeviationVariable
-export PostGeneratorContingencyFlowActivePowerSlackUpperBound
-export PostGeneratorContingencyFlowActivePowerSlackLowerBound
+export PostContingencyDeploymentVariable
+export PostContingencyDeviationVariable
+export PostGeneratorContingencyFlowSlackUpperBound
+export PostGeneratorContingencyFlowSlackLowerBound
 
 ######## Hydro Formulations ########
 export HydroDispatchRunOfRiver
@@ -874,9 +874,10 @@ export ShiftUpActivePowerVariableLimitsConstraint
 export ShiftDownActivePowerVariableLimitsConstraint
 export RealizedShiftedLoadMinimumBoundConstraint
 export NonAnticipativityConstraint
-export PostContingencyGenerationBalanceConstraint
-export PostContingencyActivePowerGenerationLimitsConstraint
-export PostContingencyActivePowerReserveDeploymentVariableLimitsConstraint
+export HVDCDCControlConstraint
+export PostContingencyBalanceConstraint
+export PostContingencyGenerationConstraint
+export PostContingencyDeploymentConstraint
 
 #################################################################################
 # Exports - Expression Types (defined in core/expressions.jl)
@@ -909,10 +910,10 @@ export ComponentReserveDownBalanceExpression
 export InterfaceTotalFlow
 export PTDFBranchFlow
 export BThetaBranchFlow
-export PostContingencyNodalActivePowerDeployment
-export PostContingencyAreaActivePowerDeployment
-export PostContingencyAreaInterchangeFlow
-export PostContingencyTotalReserveDeployment
+export PostContingencyNodalDeployment
+export PostContingencyAreaDeployment
+export PostContingencyInterchangeFlow
+export PostContingencyTotalDeployment
 
 #################################################################################
 # Exports - Parameter Types (defined in core/parameters.jl)

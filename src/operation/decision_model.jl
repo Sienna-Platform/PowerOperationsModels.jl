@@ -231,8 +231,9 @@ function solve!(
                         # `power_units = :component_base` is what PSY stores internally, so the
                         # write needs no unit conversion and no round-trip ledger — a model's
                         # system carries one only when it was built from a document.
+                        # TODO: re-enable before merging, once PSY.to_file is fixed.
                         #!ispath(sys_dir) &&
-                        #    PSY.to_file(sys, sys_dir; units = :component_base)
+                        #    PSY.to_file(sys, sys_dir; power_units = :component_base)
                     end
                 end
                 @info "\n$(RUN_OPERATION_MODEL_TIMER)\n"

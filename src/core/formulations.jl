@@ -827,30 +827,66 @@ struct HybridDispatchWithReserves <: AbstractHybridFormulationWithReserves end
 abstract type AbstractSecurityConstrainedReservesFormulation <: AbstractReservesFormulation end
 
 """
-Security-constrained contingency reserve formulation: deploys reserves
-under each G-1 outage scoped to the reserve `PSY.Service`. The set of
-contingencies a service responds to is the `PSY.Outage` supplemental
-attributes attached to that service via
-`add_supplemental_attribute!(sys, service, outage)`; template validation
-mirrors those attachments into `service_model.outages`. Post-contingency
-branch-flow constraints are added only for the monitored components
-listed on each outage's `monitored_components`.
+Security-constrained (G-1) contingency reserve for `PSY.OnlineReserve{PSY.ReserveUp}` and
+`PSY.OfflineReserve`: reserves must be deliverable after the loss of any generator outage
+they respond to.
 
-A `RequirementTimeSeriesParameter` is optional: if no requirement time
-series is configured on the service, the formulation falls back to the
-per-(outage, generator) post-contingency active power expression.
+**Sets.** Each reserve ``s`` responds to the `PSY.Outage`s ``O_s`` attached to it with
+`add_supplemental_attribute!(sys, service, outage)`. Outage ``o`` takes offline the
+generators ``G_o`` associated with it and monitors the components listed in its
+`monitored_components`. ``D_s`` are the contributing devices of ``s``. Outaged generators
+that are not modeled are skipped with a warning.
 
-See also `SecurityConstrainedRampReserve`.
+**Procurement.** A reserve with a requirement time series is procured as under
+[`RampReserve`](@ref) without the ramp limit: awards ``r_{s,d,t}``, the requirement,
+participation-fraction limits, and the reserve cost. A reserve without one is not procured
+and only deploys post-contingency.
+
+**Deployment.** Under each outage ``o \\in O_s``, every contributor ``d \\in D_s \\setminus G_o``
+deploys ``\\delta_{s,d,o,t} \\ge 0`` ([`PostContingencyDeploymentVariable`](@ref)), capped by
+its award when ``s`` is procured ([`PostContingencyDeploymentConstraint`](@ref)). A device's
+deployment across reserves, ``\\Delta_{d,o,t}``
+([`PostContingencyTotalDeployment`](@ref)), keeps it within its maximum
+([`PostContingencyGenerationConstraint`](@ref)).
+
+**Balance.** Deployment replaces the outaged generation
+([`PostContingencyBalanceConstraint`](@ref)):
+
+  - `CopperPlateNetworkModel` and PTDF networks balance the system:
+    ``\\sum_d \\Delta_{d,o,t} = \\sum_{g \\in G_o} p_{g,t}``.
+  - `AreaBalanceNetworkModel` balances each area. Every modeled area interchange carries a
+    deviation ``\\Delta f_{i,o,t}`` ([`PostContingencyDeviationVariable`](@ref)) that moves
+    deployment between areas. Without an `AreaInterchange` device model each area covers its
+    own outages.
+
+**Flow limits.** Monitored components get post-contingency flow limits at their emergency
+rating (`PostContingencyFlowRateConstraint`, metas `"G1_lb"`/`"G1_ub"`):
+
+  - PTDF networks: monitored branches carry
+    ``f^o_{\\ell,t} = f_{\\ell,t} + \\sum_n PTDF_{\\ell,n} \\Delta P_{n,o,t}``
+    (`PostContingencyBranchFlow`, meta `"G1"`), with ``\\Delta P_{n,o,t}`` the nodal change
+    in injection ([`PostContingencyNodalDeployment`](@ref)). Parallel circuits and reduced
+    branches are limited once, on their reduced entry.
+  - `AreaBalanceNetworkModel`: monitored interchanges carry
+    ``f^o_{i,t} = f_{i,t} + \\Delta f_{i,o,t}``
+    ([`PostContingencyInterchangeFlow`](@ref)). Deviations exist on every modeled
+    interchange and enter every area balance; only monitored interchanges are limited.
+
+Monitored components must be modeled (including by the branch model's `filter_function`), or
+template validation fails. With `use_slacks = true` the flow limits are relaxed by
+[`PostGeneratorContingencyFlowSlackUpperBound`](@ref) and
+[`PostGeneratorContingencyFlowSlackLowerBound`](@ref). Flow limits are shared by every
+reserve responding to an outage, so their service models must agree on `use_slacks`.
+
+See also [`SecurityConstrainedRampReserve`](@ref).
 """
 struct SecurityConstrainedContingencyReserve <:
        AbstractSecurityConstrainedReservesFormulation end
 
 """
-Security-constrained ramp reserve formulation: like `RampReserve` for the
-pre-contingency requirement/ramp/participation constraints, plus the same
-G-1 post-contingency deployment + monitored-branch flow constraints as
-`SecurityConstrainedContingencyReserve`.
-
-See also `SecurityConstrainedContingencyReserve`.
+Same as [`SecurityConstrainedContingencyReserve`](@ref), except every reserve is procured:
+a requirement time series is required, and spinning reserves' awards are also limited by
+the contributing devices' ramp rates over the reserve time frame (`RampConstraint`), as in
+[`RampReserve`](@ref).
 """
 struct SecurityConstrainedRampReserve <: AbstractSecurityConstrainedReservesFormulation end

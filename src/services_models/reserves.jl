@@ -204,35 +204,38 @@ _reserve_variable(
 ) where {D <: PSY.Component, SR <: PSY.Service} =
     get_variable(container, ActivePowerReserveVariable, IOM.ComponentPairKey{D, SR})
 
-# Sum the reserve provision of one service across all its contributing device types at time `t`.
+# Per time step, the sum of one service's awards across all its contributing device types.
 function _sum_service_reserves(
     container::OptimizationContainer,
     ::Type{SR},
     service_name::String,
     contributing_devices::AbstractDict,
-    t::Int,
     extra::Int,
 ) where {SR <: PSY.Service}
-    acc = IOM.get_hinted_aff_expr(
-        sum(length, values(contributing_devices); init = 0) + extra,
-    )
-    for devices in values(contributing_devices)
-        _add_service_reserves!(acc, container, SR, service_name, devices, t)
+    n_terms = sum(length, values(contributing_devices); init = 0) + extra
+    acc = [IOM.get_hinted_aff_expr(n_terms) for _ in get_time_steps(container)]
+    for (device_type, devices) in contributing_devices
+        _sum_service_reserves!(
+            acc,
+            _reserve_variable(container, device_type, SR),
+            service_name,
+            devices,
+        )
     end
     return acc
 end
 
-function _add_service_reserves!(
-    acc::JuMP.AffExpr,
-    container::OptimizationContainer,
-    ::Type{SR},
+function _sum_service_reserves!(
+    acc::Vector{JuMP.AffExpr},
+    reserve_variable::SparseAxisArray,
     service_name::String,
     devices::Vector{D},
-    t::Int,
-) where {SR <: PSY.Service, D <: PSY.Component}
-    reserve_variable = _reserve_variable(container, D, SR)
-    for d in devices
-        JuMP.add_to_expression!(acc, reserve_variable[(service_name, PSY.get_name(d), t)])
+) where {D <: PSY.Component}
+    for d in devices, t in eachindex(acc)
+        JuMP.add_to_expression!(
+            acc[t],
+            reserve_variable[(service_name, PSY.get_name(d), t)],
+        )
     end
     return
 end
@@ -250,10 +253,21 @@ function add_constraints!(
     # Dense container keyed `[service_name, time]`, built per type; fill this service's row.
     constraint = get_constraint(container, T, SR)
     use_slacks = get_use_slacks(model)
-    use_slacks && (slack_vars = get_variable(container, ReserveRequirementSlack, SR))
     requirement = _get_requirement(service)
     jump_model = get_jump_model(container)
-    extra = use_slacks ? 1 : 0
+    resource_expression = _sum_service_reserves(
+        container,
+        SR,
+        service_name,
+        contributing_devices,
+        use_slacks ? 1 : 0,
+    )
+    if use_slacks
+        slack_vars = get_variable(container, ReserveRequirementSlack, SR)
+        for t in time_steps
+            JuMP.add_to_expression!(resource_expression[t], slack_vars[service_name, t])
+        end
+    end
 
     # A static reserve gets a scalar requirement RHS; a time-varying one scales it by an
     # attached requirement series (resolved by the model-configured name).
@@ -263,20 +277,10 @@ function add_constraints!(
                 get_parameter(container, RequirementTimeSeriesParameter, SR)
             param = get_parameter_column_refs(param_container, service_name)
             for t in time_steps
-                resource_expression =
-                    _sum_service_reserves(container, SR, service_name,
-                        contributing_devices,
-                        t, extra)
-                use_slacks &&
-                    JuMP.add_to_expression!(
-                        resource_expression,
-                        slack_vars[service_name, t],
-                    )
-                constraint[service_name, t] =
-                    JuMP.@constraint(
-                        jump_model,
-                        resource_expression >= param[t] * requirement
-                    )
+                constraint[service_name, t] = JuMP.@constraint(
+                    jump_model,
+                    resource_expression[t] >= param[t] * requirement
+                )
             end
         else
             ts_vector = IOM.get_time_series(
@@ -286,31 +290,16 @@ function add_constraints!(
                 interval = get_interval(get_settings(container)),
             )
             for t in time_steps
-                resource_expression =
-                    _sum_service_reserves(container, SR, service_name,
-                        contributing_devices,
-                        t, extra)
-                use_slacks &&
-                    JuMP.add_to_expression!(
-                        resource_expression,
-                        slack_vars[service_name, t],
-                    )
                 constraint[service_name, t] = JuMP.@constraint(
                     jump_model,
-                    resource_expression >= ts_vector[t] * requirement
+                    resource_expression[t] >= ts_vector[t] * requirement
                 )
             end
         end
     else
         for t in time_steps
-            resource_expression =
-                _sum_service_reserves(container, SR, service_name, contributing_devices,
-                    t,
-                    extra)
-            use_slacks &&
-                JuMP.add_to_expression!(resource_expression, slack_vars[service_name, t])
             constraint[service_name, t] =
-                JuMP.@constraint(jump_model, resource_expression >= requirement)
+                JuMP.@constraint(jump_model, resource_expression[t] >= requirement)
         end
     end
     return
@@ -320,9 +309,9 @@ function add_constraints!(
     container::OptimizationContainer,
     T::Type{ParticipationFractionConstraint},
     service::SR,
-    contributing_devices::AbstractDict,
+    contributing_devices::Vector{D},
     model::ServiceModel{SR, V},
-) where {SR <: PSY.AbstractReserve, V <: AbstractReservesFormulation}
+) where {SR <: PSY.AbstractReserve, V <: AbstractReservesFormulation, D <: PSY.Component}
     max_participation_factor = PSY.get_max_participation_factor(service)
 
     if max_participation_factor >= 1.0
@@ -332,12 +321,17 @@ function add_constraints!(
     time_steps = get_time_steps(container)
     service_name = PSY.get_name(service)
     # Sparse constraint container keyed `(service_name, device_name, time)`.
-    cons = lazy_container_addition!(container, T, SR,
-        [service_name],
-        [PSY.get_name(d) for devices in values(contributing_devices) for d in devices],
-        time_steps;
+    cons = lazy_container_addition!(
+        container,
+        T,
+        IOM.ComponentPairKey{D, SR},
+        String[],
+        String[],
+        Int[];
         sparse = true,
     )
+    var_r = _reserve_variable(container, D, SR)
+    jump_model = get_jump_model(container)
     requirement = _get_requirement(service)
     cap = requirement * max_participation_factor
     # Static reserve: constant participation cap. Time-varying reserve: scale by the requirement
@@ -347,7 +341,13 @@ function add_constraints!(
             param_container =
                 get_parameter(container, RequirementTimeSeriesParameter, SR)
             param = get_parameter_column_refs(param_container, service_name)
-            limits = [cap * param[t] for t in time_steps]
+            for t in time_steps, d in contributing_devices
+                name = PSY.get_name(d)
+                cons[(service_name, name, t)] = JuMP.@constraint(
+                    jump_model,
+                    var_r[(service_name, name, t)] <= cap * param[t]
+                )
+            end
         else
             ts_vector = IOM.get_time_series(
                 container,
@@ -355,35 +355,24 @@ function add_constraints!(
                 get_time_series_names(model)[RequirementTimeSeriesParameter];
                 interval = get_interval(get_settings(container)),
             )
-            limits = [cap * ts_vector[t] for t in time_steps]
+            for t in time_steps, d in contributing_devices
+                name = PSY.get_name(d)
+                cons[(service_name, name, t)] = JuMP.@constraint(
+                    jump_model,
+                    var_r[(service_name, name, t)] <= cap * ts_vector[t]
+                )
+            end
         end
     else
-        limits = fill(cap, length(time_steps))
+        for t in time_steps, d in contributing_devices
+            name = PSY.get_name(d)
+            cons[(service_name, name, t)] = JuMP.@constraint(
+                jump_model,
+                var_r[(service_name, name, t)] <= cap
+            )
+        end
     end
-    for devices in values(contributing_devices)
-        _add_participation_fraction_constraints!(
-            cons, container, SR, service_name, devices, limits)
-    end
-    return
-end
 
-function _add_participation_fraction_constraints!(
-    cons::SparseAxisArray,
-    container::OptimizationContainer,
-    ::Type{SR},
-    service_name::String,
-    devices::Vector{D},
-    limits::Vector,
-) where {SR <: PSY.AbstractReserve, D <: PSY.Component}
-    var_r = _reserve_variable(container, D, SR)
-    jump_model = get_jump_model(container)
-    for t in get_time_steps(container), d in devices
-        name = PSY.get_name(d)
-        cons[(service_name, name, t)] = JuMP.@constraint(
-            jump_model,
-            var_r[(service_name, name, t)] <= limits[t]
-        )
-    end
     return
 end
 
@@ -395,10 +384,11 @@ function add_to_objective_function!(
     # Devices that submitted a reserve OFFER are priced by their offer curve; the rest keep the
     # flat DEFAULT_RESERVE_COST.
     offered = add_reserve_offer_costs!(container, service, model)
-    add_reserves_proportional_cost!(
-        container, ActivePowerReserveVariable, service, T,
-        get_contributing_devices_map(model, PSY.get_name(service));
-        skip_devices = offered)
+    for devices in values(get_contributing_devices_map(model, PSY.get_name(service)))
+        add_reserves_proportional_cost!(
+            container, ActivePowerReserveVariable, service, T, devices;
+            skip_devices = offered)
+    end
     return
 end
 
@@ -416,19 +406,12 @@ function add_constraints!(
     requirement_variable =
         get_variable(container, ServiceRequirementVariable, SR)
     jump_model = get_jump_model(container)
+    resource_expression =
+        _sum_service_reserves(container, SR, service_name, contributing_devices, 0)
     for t in time_steps
-        resource_expression =
-            _sum_service_reserves(
-                container,
-                SR,
-                service_name,
-                contributing_devices,
-                t,
-                0,
-            )
         constraint[service_name, t] = JuMP.@constraint(
             jump_model,
-            resource_expression >= requirement_variable[service_name, t]
+            resource_expression[t] >= requirement_variable[service_name, t]
         )
     end
 
@@ -470,47 +453,33 @@ function add_constraints!(
     container::OptimizationContainer,
     T::Type{RampConstraint},
     service::SR,
-    contributing_devices::AbstractDict,
+    contributing_devices::Vector{D},
     ::ServiceModel{SR, V},
 ) where {
     SR <: Union{PSY.Reserve{PSY.ReserveUp}, PSY.Reserve{PSY.ReserveDown}},
     V <: AbstractReservesFormulation,
+    D <: PSY.Component,
 }
+    ramp_devices = _get_ramp_constraint_contributing_devices(service, contributing_devices)
     service_name = PSY.get_name(service)
-    ramp_devices = [
-        _get_ramp_constraint_contributing_devices(service, devices) for
-        devices in values(contributing_devices)
-    ]
-    if all(isempty, ramp_devices)
-        @warn "Data doesn't contain contributing devices with ramp limits for service $service_name, consider adjusting your formulation"
+    if isempty(ramp_devices)
+        @warn "Contributing $(D) devices on service $service_name have no binding ramp limits; no ramp constraints are added for them."
         return
     end
+    jump_model = get_jump_model(container)
     time_steps = get_time_steps(container)
-    cons = lazy_container_addition!(container, T,
-        SR,
-        [service_name],
-        [PSY.get_name(d) for devices in ramp_devices for d in devices],
-        time_steps;
+    time_frame = PSY.get_time_frame(service)
+    variable = _reserve_variable(container, D, SR)
+    cons = lazy_container_addition!(
+        container,
+        T,
+        IOM.ComponentPairKey{D, SR},
+        String[],
+        String[],
+        Int[];
         sparse = true,
     )
-    for devices in ramp_devices
-        isempty(devices) && continue
-        _add_reserve_ramp_constraints!(cons, container, service, devices)
-    end
-    return
-end
-
-function _add_reserve_ramp_constraints!(
-    cons::SparseAxisArray,
-    container::OptimizationContainer,
-    service::SR,
-    devices::Vector{D},
-) where {SR <: PSY.Reserve, D <: PSY.Component}
-    variable = _reserve_variable(container, D, SR)
-    jump_model = get_jump_model(container)
-    service_name = PSY.get_name(service)
-    time_frame = PSY.get_time_frame(service)
-    for d in devices, t in get_time_steps(container)
+    for d in ramp_devices, t in time_steps
         name = PSY.get_name(d)
         limit = _directional_ramp_limit(PSY.get_ramp_limits(d, PSY.SU / u"minute"), SR)
         cons[(service_name, name, t)] = JuMP.@constraint(
@@ -525,9 +494,9 @@ function add_constraints!(
     container::OptimizationContainer,
     T::Type{ReservePowerConstraint},
     service::SR,
-    contributing_devices::AbstractDict,
+    contributing_devices::Vector{D},
     ::ServiceModel{SR, V},
-) where {SR <: PSY.OfflineReserve, V <: AbstractReservesFormulation}
+) where {SR <: PSY.OfflineReserve, V <: AbstractReservesFormulation, D <: PSY.Component}
     time_steps = get_time_steps(container)
     resolution = get_resolution(container)
     if resolution > Dates.Minute(1)
@@ -537,83 +506,37 @@ function add_constraints!(
         minutes_per_period = Dates.value(Dates.Second(resolution)) / 60
     end
     service_name = PSY.get_name(service)
-    cons = lazy_container_addition!(container, T,
-        SR,
-        [service_name],
-        [PSY.get_name(d) for devices in values(contributing_devices) for d in devices],
-        time_steps;
+    cons = lazy_container_addition!(
+        container,
+        T,
+        IOM.ComponentPairKey{D, SR},
+        String[],
+        String[],
+        Int[];
         sparse = true,
     )
-    reserve_response_time = PSY.get_time_frame(service)
-    for devices in values(contributing_devices)
-        _add_reserve_power_constraints!(
-            cons,
-            container,
-            SR,
-            devices,
-            service_name,
-            reserve_response_time,
-            minutes_per_period,
-        )
-    end
-    return
-end
-
-function _add_reserve_power_constraints!(
-    cons::SparseAxisArray,
-    container::OptimizationContainer,
-    ::Type{SR},
-    devices::Vector{D},
-    service_name::String,
-    reserve_response_time,
-    minutes_per_period,
-) where {SR <: PSY.OfflineReserve, D <: PSY.Component}
     var_r = _reserve_variable(container, D, SR)
     varstatus = get_variable(container, OnVariable, D)
+    reserve_response_time = PSY.get_time_frame(service)
     jump_model = get_jump_model(container)
-    time_steps = get_time_steps(container)
-    for d in devices
-        _add_reserve_power_constraint_device!(
-            cons,
-            var_r,
-            varstatus,
-            d,
-            service_name,
-            reserve_response_time,
-            minutes_per_period,
-            jump_model,
-            time_steps,
-        )
-    end
-    return
-end
-
-function _add_reserve_power_constraint_device!(
-    cons,
-    var_r,
-    varstatus,
-    d::D,
-    service_name::String,
-    reserve_response_time,
-    minutes_per_period,
-    jump_model,
-    time_steps,
-) where {D <: PSY.Component}
-    name = PSY.get_name(d)
-    startup_time = PSY.get_time_limits(d).up
-    ramp_limits = _get_ramp_limits(d)
-    if reserve_response_time > startup_time
-        reserve_limit =
-            PSY.get_active_power_limits(d, PSY.SU).min +
-            (reserve_response_time - startup_time) * minutes_per_period * ramp_limits.up
-    else
-        reserve_limit = 0.0
-    end
-    for t in time_steps
-        cons[(service_name, name, t)] = JuMP.@constraint(
-            jump_model,
-            var_r[(service_name, name, t)] <= (1 - varstatus[name, t]) * reserve_limit
-        )
+    for d in contributing_devices
+        name = PSY.get_name(d)
+        startup_time = PSY.get_time_limits(d).up
+        ramp_limits = _get_ramp_limits(d)
+        if reserve_response_time > startup_time
+            reserve_limit =
+                PSY.get_active_power_limits(d, PSY.SU).min +
+                (reserve_response_time - startup_time) * minutes_per_period *
+                ramp_limits.up
+        else
+            reserve_limit = 0.0
+        end
+        for t in time_steps
+            cons[(service_name, name, t)] = JuMP.@constraint(
+                jump_model,
+                var_r[(service_name, name, t)] <= (1 - varstatus[name, t]) * reserve_limit
+            )
+        end
     end
     return
 end
@@ -739,36 +662,24 @@ function process_stepwise_cost_reserve_parameters!(
     return
 end
 
+# `skip_devices` are priced by their offer curve in `add_reserve_offer_costs!` instead.
 function add_reserves_proportional_cost!(
     container::OptimizationContainer,
     ::Type{U},
     service::T,
     ::Type{V},
-    contributing_devices::AbstractDict;
+    contributing_devices::Vector{D};
     skip_devices = Set{Tuple{DataType, String}}(),
 ) where {
     T <: PSY.AbstractReserve,
     U <: ActivePowerReserveVariable,
     V <: AbstractReservesFormulation,
+    D <: PSY.Component,
 }
-    for devices in values(contributing_devices)
-        _add_reserves_proportional_cost!(container, U, service, devices, skip_devices)
-    end
-    return
-end
-
-# `skip_devices` are priced by their offer curve in `add_reserve_offer_costs!` instead.
-function _add_reserves_proportional_cost!(
-    container::OptimizationContainer,
-    ::Type{U},
-    service::T,
-    devices::Vector{D},
-    skip_devices::Set{Tuple{DataType, String}},
-) where {T <: PSY.AbstractReserve, U <: ActivePowerReserveVariable, D <: PSY.Component}
     service_name = PSY.get_name(service)
     reserve_variable = get_variable(container, U, IOM.ComponentPairKey{D, T})
     cost = DEFAULT_RESERVE_COST / get_model_base_power(container)
-    for d in devices
+    for d in contributing_devices
         name = PSY.get_name(d)
         (D, name) in skip_devices && continue
         for t in get_time_steps(container)

@@ -224,12 +224,13 @@ function _group_member_variables(
 end
 
 # Award containers of every contributing device type for service type `SR`. Groups only know
-# their member services, not the members' contributing device types.
+# their member services, not the members' contributing device types. Keys store the service
+# type with its unit parameter stripped, so match on that form.
 function _reserve_variables(
     container::OptimizationContainer,
     ::Type{SR},
 ) where {SR <: PSY.Service}
-    S = get_component_type(VariableKey(ActivePowerReserveVariable, SR))
+    S = IOM.canonical_component_type(SR)
     return [
         variable for (key, variable) in IOM.get_variables(container) if
         IOM.get_entry_type(key) === ActivePowerReserveVariable &&
