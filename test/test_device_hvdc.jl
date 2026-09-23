@@ -248,6 +248,7 @@ function _generate_test_vsc_sys(;
         power_factor_weighting_fraction_to = 1.0,
         voltage_limits_to = (min = 0.95, max = 1.05),
         dc_voltage_droop_to = 0.0,
+        input_basis = CU,
     )
     add_component!(sys, vsc)
     return sys

@@ -265,6 +265,7 @@ end
         base_power = 100.0,
         base_voltage_primary = 230.0,
         base_voltage_secondary = 230.0,
+        input_basis = CU,
     )
     transformer3w = PSY.ThreeWindingTransformer(;
         name = "ThreeWindingTransformer_busD",
@@ -283,6 +284,7 @@ end
         base_power_31 = 100.0,
         magnetizing_shunt = 0.001 + 0.05im,
         shunt_location = PSY.ThreeWindingTransformerShuntLocation.PRIMARY,
+        input_basis = CU,
     )
     PSY.add_component!(sys, transformer3w)
 
