@@ -103,6 +103,7 @@ end
 function get_reserve_total_power_by_step_dict(
     variables::Dict{String, DataFrame},
     var_name::String,
+    service_name::String,
     associated_outages::Vector{PSY.UnplannedOutage},
     contributing_devices::Union{
         IS.FlattenIteratorWrapper{<:PSY.Generator},
@@ -116,8 +117,13 @@ function get_reserve_total_power_by_step_dict(
         outage_name = IS.get_id(outage)
         outage_power_v = Vector{Float64}()
         for device in contributing_devices
-            # Sparse (device, outage, t) outputs are flattened to a single "device__outage" column.
-            column = IOM.encode_tuple_to_column((PSY.get_name(device), string(outage_name)))
+            # Sparse (service, device, outage, t) outputs are flattened to a single
+            # "service__device__outage" column.
+            column = IOM.encode_tuple_to_column((
+                service_name,
+                PSY.get_name(device),
+                string(outage_name),
+            ))
             current_v =
                 filter(x -> x[col_name] == column, required_variables)[!, "value"]
             # The outaged generator has no deployment rows.
@@ -163,7 +169,13 @@ function compare_outage_power_and_deployed_reserves(
     contributing_devices = PSY.get_contributing_devices(sys, service)
     reserve_dict = get_reserve_total_power_by_step_dict(
         variablesdict,
-        "PostContingencyActivePowerReserveDeploymentVariable__ThermalStandard",
+        IOM.encode_key_as_string(
+            IOM.VariableKey(
+                PostContingencyActivePowerReserveDeploymentVariable,
+                IOM.ComponentPairKey{PSY.ThermalStandard, typeof(service)},
+            ),
+        ),
+        PSY.get_name(service),
         associated_outages,
         contributing_devices;
         col_name = "name",
@@ -337,7 +349,7 @@ end
             IOM.ConstraintKey(PostContingencyGenerationBalanceConstraint, PSY.System),
             IOM.ConstraintKey(
                 PostContingencyActivePowerReserveDeploymentVariableLimitsConstraint,
-                PSY.ThermalStandard,
+                IOM.ComponentPairKey{PSY.ThermalStandard, PSY.OnlineReserve{ReserveUp}},
             ),
         ]
         gen = get_component(ThermalStandard, sys, "Solitude")
@@ -404,7 +416,7 @@ end
         IOM.ConstraintKey(PostContingencyGenerationBalanceConstraint, PSY.System),
         IOM.ConstraintKey(
             PostContingencyActivePowerReserveDeploymentVariableLimitsConstraint,
-            PSY.ThermalStandard,
+            IOM.ComponentPairKey{PSY.ThermalStandard, PSY.OnlineReserve{ReserveUp}},
         ),
     ]
     # Counts are smaller than the all-lines baseline `[576, 0, 888, 480, 48]`
@@ -474,7 +486,7 @@ end
             IOM.ConstraintKey(PostContingencyGenerationBalanceConstraint, PSY.System),
             IOM.ConstraintKey(
                 PostContingencyActivePowerReserveDeploymentVariableLimitsConstraint,
-                PSY.ThermalStandard,
+                IOM.ComponentPairKey{PSY.ThermalStandard, PSY.OnlineReserve{ReserveUp}},
             ),
         ]
         reserve_up = get_component(OnlineReserve{ReserveUp}, sys, "Reserve1")
@@ -496,7 +508,7 @@ end
             ps_model,
             sys,
             constraint_keys,
-            [576, 0, 600, 480, 48],
+            [456, 0, 600, 456, 48],
             false,
             GAEVF,
             329000.0,
@@ -567,7 +579,7 @@ end
             ps_model,
             sys,
             constraint_keys,
-            [576, 0, 504, 480, 48],
+            [336, 0, 504, 432, 48],
             false,
             GAEVF,
             329000.0,
@@ -708,7 +720,7 @@ end
         IOM.ConstraintKey(PostContingencyGenerationBalanceConstraint, PSY.System),
         IOM.ConstraintKey(
             PostContingencyActivePowerReserveDeploymentVariableLimitsConstraint,
-            PSY.ThermalStandard,
+            IOM.ComponentPairKey{PSY.ThermalStandard, PSY.OnlineReserve{ReserveUp}},
         ),
     ]
     component = get_component(ThermalStandard, sys, "Alta")
@@ -738,7 +750,7 @@ end
         ps_model,
         sys,
         constraint_keys,
-        [936, 0, 1248, 480, 168],
+        [1032, 0, 1344, 480, 168],
         true,
         GAEVF,
         254242.0,
@@ -760,7 +772,7 @@ end
         IOM.ConstraintKey(PostContingencyGenerationBalanceConstraint, PSY.System),
         IOM.ConstraintKey(
             PostContingencyActivePowerReserveDeploymentVariableLimitsConstraint,
-            PSY.ThermalStandard,
+            IOM.ComponentPairKey{PSY.ThermalStandard, PSY.OnlineReserve{ReserveUp}},
         ),
     ]
     components_outages_names, reserve_names =
@@ -789,7 +801,7 @@ end
         ps_model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
 
         if reserve_slack
-            moi_counts = [2040, 0, 1536, 1200, 120]
+            moi_counts = [2568, 0, 2112, 1296, 120]
         else
             moi_counts = [1176, 0, 2112, 1296, 120]
         end
@@ -827,10 +839,10 @@ end
         IOM.ConstraintKey(PostContingencyGenerationBalanceConstraint, PSY.System),
         IOM.ConstraintKey(
             PostContingencyActivePowerReserveDeploymentVariableLimitsConstraint,
-            PSY.ThermalStandard,
+            IOM.ComponentPairKey{PSY.ThermalStandard, PSY.OnlineReserve{ReserveUp}},
         ),
     ]
-    # Counts are smaller than the all-lines baseline `[744, 0, 1536, 1200, 120]`
+    # Counts are smaller than the all-lines baseline `[1176, 0, 2112, 1296, 120]`
     # because each service monitors only two AC lines instead of all 13.
     components_outages_names, reserve_names =
         (["Alta_1", "Alta_2"], ["Reserve1_1", "Reserve1_2"])
@@ -868,7 +880,7 @@ end
         ps_model,
         sys,
         constraint_keys,
-        [744, 0, 1008, 672, 120],
+        [1176, 0, 1584, 768, 120],
         false,
         GAEVF,
         497000.0,
@@ -889,7 +901,7 @@ end
         IOM.ConstraintKey(PostContingencyGenerationBalanceConstraint, PSY.System),
         IOM.ConstraintKey(
             PostContingencyActivePowerReserveDeploymentVariableLimitsConstraint,
-            PSY.ThermalStandard,
+            IOM.ComponentPairKey{PSY.ThermalStandard, PSY.OnlineReserve{ReserveUp}},
         ),
     ]
     components_outages_names, reserve_names =
@@ -916,9 +928,9 @@ end
         ps_model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
 
         if reserve_slack
-            moi_counts = [2040, 0, 1344, 1200, 120]
+            moi_counts = [2280, 0, 1536, 1248, 120]
         else
-            moi_counts = [744, 0, 1344, 1200, 120]
+            moi_counts = [936, 0, 1536, 1248, 120]
         end
         run_sc_reserve_case!(
             ps_model,
@@ -997,7 +1009,7 @@ end
         ps_model,
         sys,
         constraint_keys,
-        [504, 0, 1344, 1152, 168],
+        [456, 0, 1344, 1152, 120],
         false,
         GAEVF,
         497000.0,
@@ -1016,7 +1028,7 @@ end
         IOM.ConstraintKey(PostContingencyGenerationBalanceConstraint, PSY.System),
         IOM.ConstraintKey(
             PostContingencyActivePowerReserveDeploymentVariableLimitsConstraint,
-            PSY.ThermalStandard,
+            IOM.ComponentPairKey{PSY.ThermalStandard, PSY.OnlineReserve{ReserveUp}},
         ),
     ]
     components_outages_names, reserve_names =
@@ -1042,7 +1054,7 @@ end
         ps_model,
         sys,
         constraint_keys,
-        [720, 0, 624, 288, 72],
+        [1152, 0, 1200, 384, 72],
         false,
         GAEVF,
         497494.48,
@@ -1060,7 +1072,7 @@ end
         IOM.ConstraintKey(PostContingencyGenerationBalanceConstraint, PSY.System),
         IOM.ConstraintKey(
             PostContingencyActivePowerReserveDeploymentVariableLimitsConstraint,
-            PSY.ThermalStandard,
+            IOM.ComponentPairKey{PSY.ThermalStandard, PSY.OnlineReserve{ReserveUp}},
         ),
     ]
     components_outages_names, reserve_names =
@@ -1086,7 +1098,7 @@ end
         ps_model,
         sys,
         constraint_keys,
-        [720, 0, 432, 288, 72],
+        [912, 0, 624, 336, 72],
         false,
         GAEVF,
         482055.92,
@@ -1131,7 +1143,7 @@ end
         ps_model,
         sys,
         constraint_keys,
-        [240, 0, 216, 120, 72],
+        [336, 0, 216, 144, 48],
         false,
         GAEVF,
         329000.0,
@@ -1147,7 +1159,7 @@ end
         IOM.ConstraintKey(RampConstraint, PSY.OnlineReserve{ReserveUp}),
         IOM.ConstraintKey(
             PostContingencyActivePowerReserveDeploymentVariableLimitsConstraint,
-            PSY.ThermalStandard,
+            IOM.ComponentPairKey{PSY.ThermalStandard, PSY.OnlineReserve{ReserveUp}},
         ),
         IOM.ConstraintKey(PostContingencyGenerationBalanceConstraint, PSY.Area),
         IOM.ConstraintKey(PostContingencyFlowRateConstraint, PSY.AreaInterchange, "G1_lb"),
@@ -1193,7 +1205,7 @@ end
 
     @test solve!(ps_model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
 
-    moi_tests(ps_model, 792, 0, 696, 360, 144, false)
+    moi_tests(ps_model, 1224, 0, 1272, 456, 144, false)
 
     opt_container = IOM.get_optimization_container(ps_model)
     copper_plate_constraints =
@@ -1215,7 +1227,7 @@ end
         IOM.ConstraintKey(RequirementConstraint, PSY.OnlineReserve{ReserveUp}),
         IOM.ConstraintKey(
             PostContingencyActivePowerReserveDeploymentVariableLimitsConstraint,
-            PSY.ThermalStandard,
+            IOM.ComponentPairKey{PSY.ThermalStandard, PSY.OnlineReserve{ReserveUp}},
         ),
         IOM.ConstraintKey(PostContingencyGenerationBalanceConstraint, PSY.Area),
         IOM.ConstraintKey(PostContingencyFlowRateConstraint, PSY.AreaInterchange, "G1_lb"),
@@ -1261,7 +1273,7 @@ end
 
     @test solve!(ps_model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
 
-    moi_tests(ps_model, 792, 0, 504, 360, 144, false)
+    moi_tests(ps_model, 984, 0, 696, 408, 144, false)
 
     opt_container = IOM.get_optimization_container(ps_model)
     copper_plate_constraints =
@@ -1344,7 +1356,7 @@ end
 
     @test solve!(ps_model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
 
-    moi_tests(ps_model, 552, 0, 504, 312, 192, false)
+    moi_tests(ps_model, 744, 0, 504, 360, 144, false)
 
     opt_container = IOM.get_optimization_container(ps_model)
     copper_plate_constraints =
@@ -1467,16 +1479,16 @@ end
 # do not hold).
 # ----------------------------------------------------------------------------
 
-# `PostContingencyAreaInterchangeFlowDeviationVariable` is dense over
-# (area_interchange_name, outage_id, t), so `read_variable` returns separate
-# "name"/"name2" columns (tie, outage) like the reserve deployment variable.
+# `PostContingencyAreaInterchangeFlowDeviationVariable` is sparse over
+# (area_interchange_name, outage_id, t), flattened to a "tie__outage" column.
 # Filter to one (outage, tie) pair and return the value series sorted by time.
 function _sc_flow_deviation_series(
     df::DataFrame,
     outage_id::Int,
     monitored_name::String,
 )
-    rows = filter(x -> x["name2"] == outage_id && x["name"] == monitored_name, df)
+    column = IOM.encode_tuple_to_column((monitored_name, string(outage_id)))
+    rows = filter(x -> x["name"] == column, df)
     sorted = sort(rows, :DateTime)
     return sorted[!, "value"]
 end
@@ -1485,7 +1497,8 @@ end
 # contributing devices for one outage, sorted by time. Shared by the
 # cross-area deployment/Δf identity checks below.
 function total_deployment_series(df::DataFrame, outage_id::Int)
-    outage_rows = filter(x -> x["name2"] == outage_id, df)
+    suffix = IOM.PSI_NAME_DELIMITER * string(outage_id)
+    outage_rows = filter(x -> endswith(x["name"], suffix), df)
     total_by_t = combine(groupby(outage_rows, :DateTime), :value => sum => :dep)
     sort!(total_by_t, :DateTime)
     return total_by_t.dep
@@ -1598,7 +1611,7 @@ end
     outage_id = IS.get_id(only(resolved_outages))
 
     deployment =
-        variables["PostContingencyActivePowerReserveDeploymentVariable__ThermalStandard"]
+        variables["PostContingencyActivePowerReserveDeploymentVariable__ThermalStandard__OnlineReserve__ReserveUp"]
     total_deployment = total_deployment_series(deployment, outage_id)
 
     flow_dev =
@@ -1632,7 +1645,7 @@ end
     outage_id = IS.get_id(only(resolved_outages))
 
     deployment =
-        variables["PostContingencyActivePowerReserveDeploymentVariable__ThermalStandard"]
+        variables["PostContingencyActivePowerReserveDeploymentVariable__ThermalStandard__OnlineReserve__ReserveUp"]
     total_deployment = total_deployment_series(deployment, outage_id)
 
     flow_dev =
@@ -1663,10 +1676,10 @@ end
     container = IOM.get_optimization_container(ps_model)
     flow_dev = IOM.get_variable(
         container,
-        PostContingencyAreaInterchangeFlowDeviationVariable(),
+        PostContingencyAreaInterchangeFlowDeviationVariable,
         AreaInterchange,
     )
-    @test Set(axes(flow_dev, 1)) == Set(["1_2", "1_2_b"])
+    @test Set(k[1] for k in keys(flow_dev.data)) == Set(["1_2", "1_2_b"])
 
     for meta in ("G1_lb", "G1_ub")
         # `SparseAxisArray` does not forward `Base.keys` to the container
@@ -1692,7 +1705,7 @@ end
     # Tighten the "1_2" tie well below the cross-area response so the
     # post-contingency flow-rate constraint binds.
     tie = get_component(AreaInterchange, sys, "1_2")
-    set_flow_limits!(tie, (from_to = 0.1, to_from = 0.1))
+    set_flow_limits!(tie, (from_to = 0.1 * PSY.SU, to_from = 0.1 * PSY.SU))
 
     @test build!(ps_model; output_dir = mktempdir(; cleanup = true)) ==
           IOM.ModelBuildStatus.BUILT
@@ -1707,7 +1720,7 @@ end
     compare_outage_power_and_deployed_reserves(sys, res, reserve_up)
 
     slack_lb =
-        variables["PostContingencyFlowActivePowerSlackLowerBound__AreaInterchange"]
+        variables["PostGeneratorContingencyFlowActivePowerSlackLowerBound__AreaInterchange"]
     @test maximum(slack_lb[!, "value"]) > 1e-3
 end
 
@@ -1731,10 +1744,10 @@ end
     container = IOM.get_optimization_container(ps_model)
     flow_deviation_var = IOM.get_variable(
         container,
-        PostContingencyAreaInterchangeFlowDeviationVariable(),
+        PostContingencyAreaInterchangeFlowDeviationVariable,
         AreaInterchange,
     )
-    interchange_axis = axes(flow_deviation_var, 1)
+    interchange_axis = Set(k[1] for k in keys(flow_deviation_var.data))
     @test "1_2" in interchange_axis
     @test !("1_2_b" in interchange_axis)
 
@@ -1802,15 +1815,15 @@ _exclude_parallel_tie_model!(template::PowerOperationsProblemTemplate) = set_dev
 
     container = IOM.get_optimization_container(ps_model)
     flow_var =
-        IOM.get_variable(container, IOM.FlowActivePowerVariable(), AreaInterchange)
+        IOM.get_variable(container, FlowActivePowerVariable, AreaInterchange)
     flow_deviation_var = IOM.get_variable(
         container,
-        PostContingencyAreaInterchangeFlowDeviationVariable(),
+        PostContingencyAreaInterchangeFlowDeviationVariable,
         AreaInterchange,
     )
     # Δf spans exactly the pre-contingency flow variable's ties.
     @test Set(axes(flow_var, 1)) == Set(["1_2"])
-    @test Set(axes(flow_deviation_var, 1)) == Set(["1_2"])
+    @test Set(k[1] for k in keys(flow_deviation_var.data)) == Set(["1_2"])
 
     @test solve!(ps_model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
     res = OptimizationProblemOutputs(ps_model)
@@ -1821,7 +1834,7 @@ _exclude_parallel_tie_model!(template::PowerOperationsProblemTemplate) = set_dev
         only(collect(PSY.get_supplemental_attributes(PSY.UnplannedOutage, reserve_up))),
     )
     total_deployment = total_deployment_series(
-        variables["PostContingencyActivePowerReserveDeploymentVariable__ThermalStandard"],
+        variables["PostContingencyActivePowerReserveDeploymentVariable__ThermalStandard__OnlineReserve__ReserveUp"],
         outage_id,
     )
     tie_flow_dev = _sc_flow_deviation_series(
@@ -1864,7 +1877,7 @@ end
     container = IOM.get_optimization_container(ps_model)
     @test !IOM.has_container_key(
         container,
-        IOM.FlowActivePowerVariable,
+        FlowActivePowerVariable,
         AreaInterchange,
     )
     # No modeled tie, so no Δf container at all: the per-area balance reduces
@@ -1948,12 +1961,10 @@ end
     @test !haskey(per_type, AreaInterchange)
 end
 
-@testset "PostContingencyBranchFlow applies PTDF orientation sign for series-reduced monitored branch" begin
-    # Regression for M4: `RADIAL1-RADIAL2-i_1` is a `:ToFrom`-oriented member
-    # of a degree-two series reduction (orientation_sign == -1.0) — mirrors
-    # the `case10_radial_series_reductions` fixture pattern used for the
-    # equivalent device-side check in
-    # test_ac_transmission_security_constrained_models.jl.
+@testset "PostContingencyBranchFlow uses reduced-arc PTDF for series-reduced monitored branch" begin
+    # `RADIAL1-RADIAL2-i_1` is a `:ToFrom`-oriented member of a degree-two series
+    # reduction (orientation_sign == -1.0). Pre- and post-contingency flows are both
+    # keyed by the reduced arc, so the arc's PTDF column applies unflipped.
     sys_red = PSB.build_system(PSITestSystems, "case10_radial_series_reductions")
 
     dummy_forecast = Deterministic(
@@ -2017,11 +2028,11 @@ end
     time_steps = IOM.get_time_steps(container)
     outage_id = IS.get_id(outage)
     actual_container =
-        IOM.get_expression(container, PostContingencyBranchFlow(), Line, "G1")
-    pre_flow = IOM.get_expression(container, PTDFBranchFlow(), Line)
+        IOM.get_expression(container, PostContingencyBranchFlow, Line, "G1")
+    pre_flow = IOM.get_expression(container, PTDFBranchFlow, Line)
     nodal_deployment = IOM.get_expression(
         container,
-        PostContingencyNodalActivePowerDeployment(),
+        PostContingencyNodalActivePowerDeployment,
         ACBus,
     )
     # The series member resolves to its reduction entry, which keys both the
@@ -2041,23 +2052,23 @@ end
 
     for t in time_steps
         actual = actual_container[entry_name, outage_id, t]
-        correctly_signed = copy(pre_flow[entry_name, t])
-        naively_signed = copy(pre_flow[entry_name, t])
+        arc_oriented = copy(pre_flow[entry_name, t])
+        member_oriented = copy(pre_flow[entry_name, t])
         for b in eachindex(ptdf_col)
             coef = ptdf_col[b]
             abs(coef) < IOM.PTDF_ZERO_TOL && continue
             bus_key = string(full_bus_axis[b])
             bus_key in relevant_buses || continue
             JuMP.add_to_expression!(
-                correctly_signed, orientation_sign * coef,
-                nodal_deployment[bus_key, outage_id, t],
+                arc_oriented, coef, nodal_deployment[bus_key, outage_id, t],
             )
             JuMP.add_to_expression!(
-                naively_signed, coef, nodal_deployment[bus_key, outage_id, t],
+                member_oriented, orientation_sign * coef,
+                nodal_deployment[bus_key, outage_id, t],
             )
         end
-        @test aff_exprs_approx_equal(actual, correctly_signed; atol = 1e-8)
-        @test !aff_exprs_approx_equal(actual, naively_signed; atol = 1e-8)
+        @test aff_exprs_approx_equal(actual, arc_oriented; atol = 1e-8)
+        @test !aff_exprs_approx_equal(actual, member_oriented; atol = 1e-8)
     end
 end
 
@@ -2076,7 +2087,7 @@ end
 
     outaged_gen = get_component(ThermalStandard, sys, "Alta")
     offline_gen = get_component(ThermalStandard, sys, "Park City")
-    @test PSY.get_active_power_limits(offline_gen).min > 0.0   # guard: fix-to-zero must bind the old lb
+    @test PSY.get_active_power_limits(offline_gen, PSY.SU).min > 0.0   # guard: fix-to-zero must bind the old lb
 
     outage = attach_fixed_outage!(
         sys,
@@ -2100,16 +2111,16 @@ end
           IOM.ModelBuildStatus.BUILT
 
     container = IOM.get_optimization_container(ps_model)
-    on_var = IOM.get_variable(container, OnVariable(), ThermalStandard)
+    on_var = IOM.get_variable(container, OnVariable, ThermalStandard)
     deployment_var = IOM.get_variable(
         container,
-        PostContingencyActivePowerReserveDeploymentVariable(),
-        ThermalStandard,
+        PostContingencyActivePowerReserveDeploymentVariable,
+        IOM.ComponentPairKey{ThermalStandard, OnlineReserve{ReserveUp}},
     )
     outage_id = IS.get_id(outage)
     for t in IOM.get_time_steps(container)
         JuMP.fix(on_var["Park City", t], 0.0; force = true)
-        JuMP.fix(deployment_var["Park City", outage_id, t], 0.0; force = true)
+        JuMP.fix(deployment_var["Reserve1", "Park City", outage_id, t], 0.0; force = true)
     end
 
     @test solve!(ps_model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
@@ -2153,9 +2164,7 @@ end
           IOM.ModelBuildStatus.BUILT
 
     container = IOM.get_optimization_container(ps_model)
-    @test !IOM.has_container_key(
-        container,
-        RequirementConstraint,
-        OnlineReserve{ReserveUp},
-    )
+    requirement =
+        IOM.get_constraint(container, RequirementConstraint, OnlineReserve{ReserveUp})
+    @test !("Reserve1" in axes(requirement, 1))
 end

@@ -162,14 +162,13 @@ _total_deployments(container::OptimizationContainer) = [
     IOM.get_entry_type(key) === PostContingencyTotalReserveDeployment
 ]
 
-# Deployment can only draw on procured reserve. Reserves without a requirement series have no
-# meaningful award, so their deployment is limited by generation headroom alone.
+# Deployment can only draw on procured reserve. Unprocured reserves are limited by
+# generation headroom alone.
 function _constrain_post_contingency_reserve!(
     container::OptimizationContainer,
     service::R,
     model::ServiceModel{R, <:AbstractSecurityConstrainedReservesFormulation},
 ) where {R <: _SECURITY_CONSTRAINED_RESERVE}
-    _has_ts_requirement(model, service) || return
     for device_type in keys(get_contributing_devices_map(model, PSY.get_name(service)))
         _constrain_post_contingency_reserve!(container, service, device_type)
     end
@@ -213,9 +212,11 @@ end
 
 function _create_post_contingency_interchange_variables!(
     container::OptimizationContainer,
-    monitored_components::_OUTAGE_MAP,
+    outaged_generators::_OUTAGE_MAP,
     ::NetworkModel{AreaBalanceNetworkModel},
 )
+    has_container_key(container, FlowActivePowerVariable, PSY.AreaInterchange) || return
+    flow = get_variable(container, FlowActivePowerVariable, PSY.AreaInterchange)
     jump_model = get_jump_model(container)
     time_steps = get_time_steps(container)
     var = add_variable_container!(
@@ -227,14 +228,12 @@ function _create_post_contingency_interchange_variables!(
         Int[];
         sparse = true,
     )
-    for (uuid, per_type) in monitored_components
-        for name in get(Set{String}, per_type, PSY.AreaInterchange), t in time_steps
-            var[name, uuid, t] = JuMP.@variable(
-                jump_model,
-                base_name = "PostContingencyAreaInterchangeFlowDeviationVariable_AreaInterchange_{$(name), $(uuid), $(t)}",
-                start = 0.0,
-            )
-        end
+    for uuid in keys(outaged_generators), name in axes(flow, 1), t in time_steps
+        var[name, uuid, t] = JuMP.@variable(
+            jump_model,
+            base_name = "PostContingencyAreaInterchangeFlowDeviationVariable_AreaInterchange_{$(name), $(uuid), $(t)}",
+            start = 0.0,
+        )
     end
     return
 end
@@ -256,39 +255,37 @@ function _create_post_contingency_flow_slacks!(
     for (uuid, per_type) in monitored_components
         use_slacks[uuid] || continue
         for (component_type, names) in per_type
-            # Meta keeps these apart from the branch-side MODF slacks of the same type.
             slack_ub = lazy_container_addition!(
                 container,
-                PostContingencyFlowActivePowerSlackUpperBound,
+                PostGeneratorContingencyFlowActivePowerSlackUpperBound,
                 component_type,
                 String[],
                 Int[],
                 Int[];
                 sparse = true,
-                meta = _G1_META,
             )
             slack_lb = lazy_container_addition!(
                 container,
-                PostContingencyFlowActivePowerSlackLowerBound,
+                PostGeneratorContingencyFlowActivePowerSlackLowerBound,
                 component_type,
                 String[],
                 Int[],
                 Int[];
                 sparse = true,
-                meta = _G1_META,
             )
             for entry_name in _flow_entries(network_model, component_type, names),
                 t in time_steps
+
                 ub =
                     slack_ub[entry_name, uuid, t] = JuMP.@variable(
                         jump_model,
-                        base_name = "PostContingencyFlowActivePowerSlackUpperBound_$(component_type)_{$(entry_name), $(uuid), $(t)}",
+                        base_name = "PostGeneratorContingencyFlowActivePowerSlackUpperBound_$(component_type)_{$(entry_name), $(uuid), $(t)}",
                         lower_bound = 0.0,
                     )
                 lb =
                     slack_lb[entry_name, uuid, t] = JuMP.@variable(
                         jump_model,
-                        base_name = "PostContingencyFlowActivePowerSlackLowerBound_$(component_type)_{$(entry_name), $(uuid), $(t)}",
+                        base_name = "PostGeneratorContingencyFlowActivePowerSlackLowerBound_$(component_type)_{$(entry_name), $(uuid), $(t)}",
                         lower_bound = 0.0,
                     )
                 add_to_objective_invariant_expression!(
@@ -327,7 +324,7 @@ function _build_post_contingency_locational_power!(
     container::OptimizationContainer,
     sys::PSY.System,
     outaged_generators::_OUTAGE_MAP,
-    network_model::NetworkModel,
+    network_model::NetworkModel{<:Union{AbstractPTDFNetworkModel, AreaBalanceNetworkModel}},
 )
     totals = _total_deployments(container)
     expr = lazy_container_addition!(
@@ -370,6 +367,13 @@ function _build_post_contingency_locational_power!(
     end
     return
 end
+
+_build_post_contingency_locational_power!(
+    ::OptimizationContainer,
+    ::PSY.System,
+    ::_OUTAGE_MAP,
+    ::NetworkModel,
+) = nothing
 
 # Monitored names resolve to their reduction entry, the row the pre-contingency
 # `PTDFBranchFlow` and the post-contingency expression are keyed by.
@@ -431,12 +435,21 @@ function _build_post_contingency_flow!(
     return
 end
 
-# TODO: Only monitored interchanges can take post-contingency flow, is that sensible?
 function _build_post_contingency_flow!(
     container::OptimizationContainer,
     monitored_components::_OUTAGE_MAP,
     ::NetworkModel{AreaBalanceNetworkModel},
 )
+    if !has_container_key(container, FlowActivePowerVariable, PSY.AreaInterchange)
+        @warn "An AreaBalanceNetworkModel with security-constrained reserves needs PSY.AreaInterchange(s) and DeviceModel{PSY.AreaInterchange} for reserve deployment to cross area boundaries. Otherwise, each area must cover its own outages." _group =
+            LOG_GROUP_SERVICE_CONSTUCTORS maxlog = 1
+        return
+    end
+    has_container_key(
+        container,
+        PostContingencyAreaInterchangeFlowDeviationVariable,
+        PSY.AreaInterchange,
+    ) || return
     time_steps = get_time_steps(container)
     expr = add_expression_container!(
         container,
@@ -463,7 +476,7 @@ function _build_post_contingency_flow!(
                 ),
             )
             for t in time_steps
-                ex = expr[name, uuid, t]
+                ex = expr[name, uuid, t] = JuMP.AffExpr(0.0)
                 JuMP.add_to_expression!(ex, flow[name, t])
                 JuMP.add_to_expression!(ex, deviation[name, uuid, t])
             end
@@ -534,7 +547,7 @@ function _constrain_post_contingency_balance!(
             PostContingencyAreaInterchangeFlowDeviationVariable,
             PSY.AreaInterchange,
         )
-        modeled = Set{String}(axes(deviation, 1))
+        modeled = Set{String}(k[1] for k in keys(deviation.data))
         for interchange in PSY.get_components(PSY.AreaInterchange, sys)
             name = PSY.get_name(interchange)
             name in modeled || continue
@@ -559,9 +572,13 @@ function _constrain_post_contingency_balance!(
         uuids,
         time_steps,
     )
-    for (area_name, uuid, t) in keys(deployment.data)
+    # Every area needs a row, or deviations into an area without deployment are unconstrained.
+    for area_name in area_names, uuid in uuids, t in time_steps
         balance = JuMP.AffExpr(0.0)
-        JuMP.add_to_expression!(balance, deployment[area_name, uuid, t])
+        JuMP.add_to_expression!(
+            balance,
+            get(deployment.data, (area_name, uuid, t), zero(JuMP.AffExpr)),
+        )
         for (sign, interchange_name) in get(interchanges, area_name, ())
             JuMP.add_to_expression!(balance, sign, deviation[interchange_name, uuid, t])
         end
@@ -605,8 +622,7 @@ _post_contingency_flow_expression(::NetworkModel{<:AbstractPTDFNetworkModel}) =
 _post_contingency_flow_expression(::NetworkModel{AreaBalanceNetworkModel}) =
     PostContingencyAreaInterchangeFlow
 
-# Post-contingency flow key => a representative monitored component name. Parallel
-# circuits share one reduced entry, so each entry is constrained once.
+# Parallel circuits share one reduced entry, so each entry is constrained once.
 function _flow_entries(
     network_model::NetworkModel{<:AbstractPTDFNetworkModel},
     ::Type{T},
@@ -614,15 +630,14 @@ function _flow_entries(
 ) where {T <: PSY.ACTransmission}
     reduction_name_map =
         PNM.get_component_to_reduction_name_map(get_branch_catalog(network_model), T)
-    entries = Dict{String, String}()
-    return [reduction_name_map[name] for name in names]
+    return Set{String}(reduction_name_map[name] for name in names)
 end
 
 _flow_entries(
     ::NetworkModel{AreaBalanceNetworkModel},
     ::Type{PSY.AreaInterchange},
     names::Set{String},
-) = Dict{String, String}(name => name for name in names)
+) = names
 
 function _post_contingency_flow_limits(
     ::PSY.System,
@@ -683,22 +698,19 @@ function _constrain_post_contingency_flow!(
             )
             has_slacks = has_container_key(
                 container,
-                PostContingencyFlowActivePowerSlackUpperBound,
+                PostGeneratorContingencyFlowActivePowerSlackUpperBound,
                 component_type,
-                _G1_META,
             )
             if has_slacks
                 slack_ub = get_variable(
                     container,
-                    PostContingencyFlowActivePowerSlackUpperBound,
+                    PostGeneratorContingencyFlowActivePowerSlackUpperBound,
                     component_type,
-                    _G1_META,
                 )
                 slack_lb = get_variable(
                     container,
-                    PostContingencyFlowActivePowerSlackLowerBound,
+                    PostGeneratorContingencyFlowActivePowerSlackLowerBound,
                     component_type,
-                    _G1_META,
                 )
             end
             for entry_name in _flow_entries(network_model, component_type, names)

@@ -855,6 +855,18 @@ Post-contingency power exchange over an area interchange from security-constrain
 """
 struct PostContingencyAreaInterchangeFlowDeviationVariable <: VariableType end
 
+"""
+Relaxes the upper bound of the post-generator-contingency flow-rate constraint of
+security-constrained reserves when `use_slacks = true`.
+"""
+struct PostGeneratorContingencyFlowActivePowerSlackUpperBound <: VariableType end
+
+"""
+Relaxes the lower bound of the post-generator-contingency flow-rate constraint of
+security-constrained reserves when `use_slacks = true`.
+"""
+struct PostGeneratorContingencyFlowActivePowerSlackLowerBound <: VariableType end
+
 const MULTI_START_VARIABLES = (HotStartVariable, WarmStartVariable, ColdStartVariable)
 
 should_write_resulting_value(::Type{PiecewiseLinearCostVariable}) = false
@@ -897,5 +909,9 @@ convert_output_to_natural_units(::Type{InterfaceFlowSlackDown}) = true
 convert_output_to_natural_units(::Type{ActivePowerPumpVariable}) = true
 convert_output_to_natural_units(
     ::Type{PostContingencyActivePowerReserveDeploymentVariable},
+) =
+    true
+convert_output_to_natural_units(
+    ::Type{PostContingencyAreaInterchangeFlowDeviationVariable},
 ) =
     true

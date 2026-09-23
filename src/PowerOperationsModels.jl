@@ -681,6 +681,8 @@ export ShiftDownActivePowerVariable
 # G-1 Variables
 export PostContingencyActivePowerReserveDeploymentVariable
 export PostContingencyAreaInterchangeFlowDeviationVariable
+export PostGeneratorContingencyFlowActivePowerSlackUpperBound
+export PostGeneratorContingencyFlowActivePowerSlackLowerBound
 
 ######## Hydro Formulations ########
 export HydroDispatchRunOfRiver

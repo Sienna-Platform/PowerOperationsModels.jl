@@ -142,11 +142,6 @@ function construct_services!(
 
     _, monitored_components, use_slacks =
         _security_constrained_outages(sys, services_template, network_model)
-    _create_post_contingency_interchange_variables!(
-        container,
-        monitored_components,
-        network_model,
-    )
     _create_post_contingency_flow_slacks!(
         container,
         monitored_components,
@@ -198,6 +193,12 @@ function construct_services!(
 
     outaged_generators, monitored_components, _ =
         _security_constrained_outages(sys, services_template, network_model)
+    # Tie flow variables are built with the branches, after the services argument stage.
+    _create_post_contingency_interchange_variables!(
+        container,
+        outaged_generators,
+        network_model,
+    )
     _build_post_contingency_locational_power!(
         container,
         sys,
@@ -1125,6 +1126,17 @@ end
 const _SECURITY_CONSTRAINED_RESERVE =
     Union{PSY.OnlineReserve{PSY.ReserveUp}, PSY.OfflineReserve}
 
+_requires_requirement_ts(::Type{SecurityConstrainedContingencyReserve}) = false
+_requires_requirement_ts(::Type{SecurityConstrainedRampReserve}) = true
+
+# Whether `service` is procured pre-contingency (reserve variable, requirement, ramp,
+# participation, objective); otherwise it only deploys post-contingency.
+_service_requires_requirement_ts(
+    model::ServiceModel{<:PSY.AbstractReserve, F},
+    service::PSY.AbstractReserve,
+) where {F <: AbstractSecurityConstrainedReservesFormulation} =
+    _requires_requirement_ts(F) || _has_ts_requirement(model, service)
+
 function construct_service!(
     container::OptimizationContainer,
     sys::PSY.System,
@@ -1139,15 +1151,16 @@ function construct_service!(
     ts_services = [s for s in services if _has_ts_requirement(model, s)]
     isempty(ts_services) ||
         add_parameters!(container, RequirementTimeSeriesParameter, ts_services, model)
-    add_service_variables!(
+    requirement_services =
+        [s for s in services if _service_requires_requirement_ts(model, s)]
+    isempty(requirement_services) || add_service_variables!(
         container,
         ActivePowerReserveVariable,
-        services,
+        requirement_services,
         model,
         RampReserve,
     )
-    for service in services
-        _add_post_contingency_deployment!(container, sys, service, model)
+    for service in requirement_services
         add_to_expression!(
             container,
             ActivePowerReserveVariable,
@@ -1155,6 +1168,9 @@ function construct_service!(
             model,
             devices_template,
         )
+    end
+    for service in services
+        _add_post_contingency_deployment!(container, sys, service, model)
         add_feedforward_arguments!(container, model, service)
     end
     return
@@ -1171,7 +1187,16 @@ function construct_service!(
 ) where {R <: _SECURITY_CONSTRAINED_RESERVE}
     services = _services_with_contributors(model, sys)
     isempty(services) && return
-    service_names = PSY.get_name.(services)
+    for service in services
+        add_feedforward_constraints!(container, model, service)
+    end
+    requirement_services =
+        [s for s in services if _service_requires_requirement_ts(model, s)]
+    if isempty(requirement_services)
+        add_constraint_dual!(container, sys, model)
+        return
+    end
+    service_names = PSY.get_name.(requirement_services)
     add_constraints_container!(
         container,
         RequirementConstraint,
@@ -1180,7 +1205,7 @@ function construct_service!(
         get_time_steps(container),
     )
     get_use_slacks(model) && add_reserve_slacks!(container, R, service_names)
-    for service in services
+    for service in requirement_services
         contributing_devices = get_contributing_devices_map(model, PSY.get_name(service))
         add_constraints!(
             container,
@@ -1204,7 +1229,6 @@ function construct_service!(
         )
         _constrain_post_contingency_reserve!(container, service, model)
         add_to_objective_function!(container, service, model)
-        add_feedforward_constraints!(container, model, service)
     end
     add_constraint_dual!(container, sys, model)
     return
