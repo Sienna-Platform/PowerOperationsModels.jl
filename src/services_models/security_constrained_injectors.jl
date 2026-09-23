@@ -3,9 +3,6 @@ const _OUTAGE_MAP = Dict{Int, _PER_TYPE}
 
 const _G1_META = "G1"
 
-const _SECURITY_CONSTRAINED_RESERVE =
-    Union{PSY.OnlineReserve{PSY.ReserveUp}, PSY.OfflineReserve}
-
 _validate_reserve_formulation(::ServiceModel) = false
 _validate_reserve_formulation(
     ::ServiceModel{
@@ -340,7 +337,7 @@ function _build_post_contingency_locational_power!(
         locations = Dict{String, String}()
         for ((name, uuid, t), deployed) in total.data
             key = get!(locations, name) do
-                _location_key(PSY.get_component(D, sys, name), network_model)
+                _location_key(PSY.get_component(device_type, sys, name), network_model)
             end
             JuMP.add_to_expression!(get!(JuMP.AffExpr, expr.data, (key, uuid, t)), deployed)
         end
@@ -611,10 +608,7 @@ function _flow_entries(
     reduction_name_map =
         PNM.get_component_to_reduction_name_map(get_branch_catalog(network_model), T)
     entries = Dict{String, String}()
-    for name in names
-        get!(entries, reduction_name_map[name], name)
-    end
-    return entries
+    return [reduction_name_map[name] for name in names]
 end
 
 _flow_entries(
