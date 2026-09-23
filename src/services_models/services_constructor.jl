@@ -156,14 +156,7 @@ function construct_services!(
         )
     end
 
-    _, monitored_components, use_slacks =
-        _security_constrained_outages(sys, services_template, network_model)
-    _create_post_contingency_flow_slacks!(
-        container,
-        monitored_components,
-        use_slacks,
-        network_model,
-    )
+    _construct_post_contingency!(container, sys, stage, services_template, network_model)
     return
 end
 
@@ -207,29 +200,7 @@ function construct_services!(
         )
     end
 
-    outaged_generators, monitored_components, _ =
-        _security_constrained_outages(sys, services_template, network_model)
-    # Tie flow variables are built with the branches, after the services argument stage.
-    _create_post_contingency_interchange_variables!(
-        container,
-        outaged_generators,
-        network_model,
-    )
-    _build_post_contingency_locational_power!(
-        container,
-        sys,
-        outaged_generators,
-        network_model,
-    )
-    _build_post_contingency_flow!(container, monitored_components, network_model)
-    _constrain_post_contingency_balance!(
-        container,
-        sys,
-        outaged_generators,
-        network_model,
-    )
-    _constrain_post_contingency_generation!(container, sys)
-    _constrain_post_contingency_flow!(container, sys, monitored_components, network_model)
+    _construct_post_contingency!(container, sys, stage, services_template, network_model)
     return
 end
 
@@ -639,11 +610,11 @@ function construct_service!(
     container::OptimizationContainer,
     sys::PSY.System,
     ::ArgumentConstructStage,
-    model::ServiceModel{SR, F},
+    model::ServiceModel{SR, RampReserve},
     devices_template::Dict{Symbol, DeviceModel},
     incompatible_device_types::Set{<:DataType},
     ::NetworkModel{<:AbstractNetworkModel},
-) where {SR <: PSY.Reserve, F <: RampReserve}
+) where {SR <: PSY.Reserve}
     services = _services_with_contributors(model, sys)
     isempty(services) && return
     # Only services carrying a requirement series get the parameter (a curve-only ORDC of the
@@ -675,11 +646,11 @@ function construct_service!(
     container::OptimizationContainer,
     sys::PSY.System,
     ::ModelConstructStage,
-    model::ServiceModel{SR, F},
+    model::ServiceModel{SR, RampReserve},
     devices_template::Dict{Symbol, DeviceModel},
     incompatible_device_types::Set{<:DataType},
     ::NetworkModel{<:AbstractNetworkModel},
-) where {SR <: PSY.Reserve, F <: RampReserve}
+) where {SR <: PSY.Reserve}
     services = _services_with_contributors(model, sys)
     isempty(services) && return
     service_names = PSY.get_name.(services)
@@ -1139,19 +1110,18 @@ function construct_service!(
     return
 end
 
-const _SECURITY_CONSTRAINED_RESERVE =
-    Union{PSY.OnlineReserve{PSY.ReserveUp}, PSY.OfflineReserve}
+const _RESERVE_UP = Union{PSY.OnlineReserve{PSY.ReserveUp}, PSY.OfflineReserve}
 
-_requires_requirement_ts(::Type{SecurityConstrainedContingencyReserve}) = false
-_requires_requirement_ts(::Type{SecurityConstrainedRampReserve}) = true
+_is_ramp_formulation(::Type{SecurityConstrainedContingencyReserve}) = false
+_is_ramp_formulation(::Type{SecurityConstrainedRampReserve}) = true
 
 # Whether `service` is procured pre-contingency (reserve variable, requirement, ramp,
 # participation, objective); otherwise it only deploys post-contingency.
-_service_requires_requirement_ts(
+_is_procured(
     model::ServiceModel{<:PSY.AbstractReserve, F},
     service::PSY.AbstractReserve,
 ) where {F <: AbstractSecurityConstrainedReservesFormulation} =
-    _requires_requirement_ts(F) || _has_ts_requirement(model, service)
+    _is_ramp_formulation(F) || _has_ts_requirement(model, service)
 
 function construct_service!(
     container::OptimizationContainer,
@@ -1161,22 +1131,21 @@ function construct_service!(
     devices_template::Dict{Symbol, DeviceModel},
     ::Set{<:DataType},
     ::NetworkModel{<:AbstractNetworkModel},
-) where {R <: _SECURITY_CONSTRAINED_RESERVE}
+) where {R <: _RESERVE_UP}
     services = _services_with_contributors(model, sys)
     isempty(services) && return
     ts_services = [s for s in services if _has_ts_requirement(model, s)]
     isempty(ts_services) ||
         add_parameters!(container, RequirementTimeSeriesParameter, ts_services, model)
-    requirement_services =
-        [s for s in services if _service_requires_requirement_ts(model, s)]
-    isempty(requirement_services) || add_service_variables!(
+    procured = [s for s in services if _is_procured(model, s)]
+    isempty(procured) || add_service_variables!(
         container,
         ActivePowerReserveVariable,
-        requirement_services,
+        procured,
         model,
         RampReserve,
     )
-    for service in requirement_services
+    for service in procured
         add_to_expression!(
             container,
             ActivePowerReserveVariable,
@@ -1186,7 +1155,9 @@ function construct_service!(
         )
     end
     for service in services
-        _add_post_contingency_deployment!(container, sys, service, model)
+        for devices in values(get_contributing_devices_map(model, PSY.get_name(service)))
+            _add_post_contingency_deployment!(container, sys, service, devices)
+        end
         add_feedforward_arguments!(container, model, service)
     end
     return
@@ -1196,23 +1167,22 @@ function construct_service!(
     container::OptimizationContainer,
     sys::PSY.System,
     ::ModelConstructStage,
-    model::ServiceModel{R, <:AbstractSecurityConstrainedReservesFormulation},
+    model::ServiceModel{R, F},
     ::Dict{Symbol, DeviceModel},
     ::Set{<:DataType},
     ::NetworkModel{<:AbstractNetworkModel},
-) where {R <: _SECURITY_CONSTRAINED_RESERVE}
+) where {R <: _RESERVE_UP, F <: AbstractSecurityConstrainedReservesFormulation}
     services = _services_with_contributors(model, sys)
     isempty(services) && return
     for service in services
         add_feedforward_constraints!(container, model, service)
     end
-    requirement_services =
-        [s for s in services if _service_requires_requirement_ts(model, s)]
-    if isempty(requirement_services)
+    procured = [s for s in services if _is_procured(model, s)]
+    if isempty(procured)
         add_constraint_dual!(container, sys, model)
         return
     end
-    service_names = PSY.get_name.(requirement_services)
+    service_names = PSY.get_name.(procured)
     add_constraints_container!(
         container,
         RequirementConstraint,
@@ -1221,7 +1191,7 @@ function construct_service!(
         get_time_steps(container),
     )
     get_use_slacks(model) && add_reserve_slacks!(container, R, service_names)
-    for service in requirement_services
+    for service in procured
         contributing_devices = get_contributing_devices_map(model, PSY.get_name(service))
         add_constraints!(
             container,
@@ -1230,39 +1200,30 @@ function construct_service!(
             contributing_devices,
             model,
         )
-        _add_security_constrained_ramp_constraints!(
-            container,
-            service,
-            contributing_devices,
-            model,
-        )
-        add_constraints!(
-            container,
-            ParticipationFractionConstraint,
-            service,
-            contributing_devices,
-            model,
-        )
-        _constrain_post_contingency_reserve!(container, service, model)
+        for devices in values(contributing_devices)
+            # Ramp limits bind spinning reserves only.
+            _is_ramp_formulation(F) && R <: PSY.Reserve &&
+                add_constraints!(container, RampConstraint, service, devices, model)
+            add_constraints!(
+                container,
+                ParticipationFractionConstraint,
+                service,
+                devices,
+                model,
+            )
+            add_constraints!(
+                container,
+                PostContingencyDeploymentConstraint,
+                service,
+                devices,
+                model,
+            )
+        end
         add_to_objective_function!(container, service, model)
     end
     add_constraint_dual!(container, sys, model)
     return
 end
-
-_add_security_constrained_ramp_constraints!(
-    container::OptimizationContainer,
-    service::PSY.Reserve,
-    contributing_devices::AbstractDict,
-    model::ServiceModel{<:PSY.Reserve, SecurityConstrainedRampReserve},
-) = add_constraints!(container, RampConstraint, service, contributing_devices, model)
-
-_add_security_constrained_ramp_constraints!(
-    ::OptimizationContainer,
-    ::PSY.AbstractReserve,
-    ::AbstractDict,
-    ::ServiceModel,
-) = nothing
 
 construct_service!(
     ::OptimizationContainer,

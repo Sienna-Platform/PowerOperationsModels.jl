@@ -15,7 +15,15 @@ variable); `FlowRateConstraint` rows are written directly on it. Reportable as a
 mirroring `PTDFBranchFlow`.
 """
 struct BThetaBranchFlow <: ExpressionType end
-struct PostContingencyNodalActivePowerDeployment <: PostContingencyExpressions end
+
+"""
+Post-contingency change in injection at bus ``n`` under outage ``o``:
+``\\Delta P_{n,o,t} = \\sum_{d \\in n} \\Delta_{d,o,t} - \\sum_{g \\in G_o \\cap n} p_{g,t}``.
+
+Sparse, indexed `(bus number, outage, time)`. See
+[`SecurityConstrainedContingencyReserve`](@ref).
+"""
+struct PostContingencyNodalDeployment <: PostContingencyExpressions end
 struct RealizedShiftedLoad <: ExpressionType end
 
 #################################################################################
@@ -129,20 +137,31 @@ struct StorageReserveBalanceExpression{D, S, Sd} <:
 #################################################################################
 
 """
-Per-area power considering post-contingency reserve deployment.
+Post-contingency change in injection in area ``a`` under outage ``o``:
+``\\Delta P_{a,o,t} = \\sum_{d \\in a} \\Delta_{d,o,t} - \\sum_{g \\in G_o \\cap a} p_{g,t}``.
+
+Sparse, indexed `(area, outage, time)`. See [`SecurityConstrainedContingencyReserve`](@ref).
 """
-struct PostContingencyAreaActivePowerDeployment <: ExpressionType end
+struct PostContingencyAreaDeployment <: ExpressionType end
 
 """
-Per-interchange flow considering post-contingency reserve deployment.
+Post-contingency flow over monitored area interchange ``i`` under outage ``o``:
+``f^o_{i,t} = f_{i,t} + \\Delta f_{i,o,t}``.
+
+Sparse, indexed `(interchange, outage, time)`, meta `"G1"`. See
+[`SecurityConstrainedContingencyReserve`](@ref).
 """
-struct PostContingencyAreaInterchangeFlow <: ExpressionType end
+struct PostContingencyInterchangeFlow <: ExpressionType end
 
 """
-Post-contingency reserve deployed by a contributing device, summed across every
-security-constrained reserve responding to the outage.
+Post-contingency deployment of contributing device ``d`` under outage ``o``, summed across the
+security-constrained reserves responding to it:
+``\\Delta_{d,o,t} = \\sum_s \\delta_{s,d,o,t}``.
+
+Sparse, indexed `(device, outage, time)`. Stored because the balance, generation-limit, and
+locational-deployment terms all read it. See [`SecurityConstrainedContingencyReserve`](@ref).
 """
-struct PostContingencyTotalReserveDeployment <: ExpressionType end
+struct PostContingencyTotalDeployment <: ExpressionType end
 
 # Method extensions for output writing
 should_write_resulting_value(::Type{InterfaceTotalFlow}) = true
