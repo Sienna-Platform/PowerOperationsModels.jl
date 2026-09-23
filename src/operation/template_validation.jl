@@ -114,6 +114,7 @@ function validate_template_impl!(model::IOM.AbstractOptimizationModel)
     _check_security_constrained_phase_control(template.branches, network_model)
     _check_voltage_regulation_conflicts!(template, system, network_model)
     _check_branch_rating_time_series_formulation!(template.branches, system)
+    _check_deployed_fraction_time_series(model)
     validate_network_model(network_model, unmodeled_branch_types, model_has_branch_filters)
     _build_device_model_outages!(template, system)
     # Must follow `_build_device_model_outages!`: that call is what fills the per-type
@@ -285,6 +286,38 @@ function _check_branch_rating_time_series_formulation!(
     return
 end
 
+# A deployed-fraction profile becomes a constraint COEFFICIENT, not a parameter: the fraction
+# multiplies a reserve award, and a JuMP parameter in coefficient position would make the
+# energy balance bilinear. Coefficients are baked at build and never updated in place, so under
+# recurrent solves they only stay correct if the model is rebuilt each window.
+function _check_deployed_fraction_time_series(model::IOM.AbstractOptimizationModel)
+    container = get_optimization_container(model)
+    built_for_recurrent_solves(container) || return
+    get_rebuild_model(get_settings(container)) && return
+    system = get_system(model)
+    for (_, service_model) in get_service_models(get_template(model))
+        ts_names = get_time_series_names(service_model)
+        haskey(ts_names, DeployedFractionTimeSeriesParameter) || continue
+        ts_name = ts_names[DeployedFractionTimeSeriesParameter]
+        for service in get_available_components(service_model, system)
+            service isa PSY.AbstractReserve || continue
+            PSY.has_time_series(service, ts_name) || continue
+            throw(
+                IS.ConflictingInputsError(
+                    "Reserve $(PSY.get_name(service)) carries a $(ts_name) time series, \
+                    but the \
+                    model is built for recurrent solves with rebuild_model = false. The \
+                    deployed fraction is a constraint coefficient baked at build time, so it \
+                    would stay pinned to the first window while the horizon advances. Set \
+                    rebuild_model = true, or remove the time series and use the scalar \
+                    deployed_fraction field.",
+                ),
+            )
+        end
+    end
+    return
+end
+
 function _check_security_constrained_three_winding_transformer(
     branch_model::DeviceModel{
         PSY.ThreeWindingTransformer,
@@ -442,17 +475,13 @@ _has_unsupported_phase(t::_TRANSFORMERS, m::DeviceModel{<:_TRANSFORMERS}) = any(
     c in PSY.get_circuits(t)
 )
 _has_unsupported_phase(_, ::DeviceModel) = false
-# A transformer carrying an outage need not have a `DeviceModel` in the template. Its
-# control objective is then inert, but a nonzero fixed shift still corrupts the MODF
-# columns of every monitored arc, so the static angle alone is disqualifying.
-_has_unsupported_phase(t::_TRANSFORMERS, ::Nothing) =
-    any(!iszero(PSY.get_α(c)) for c in PSY.get_circuits(t))
-_has_unsupported_phase(_, ::Nothing) = false
 
 _has_unsupported_phase(m::DeviceModel{<:_TRANSFORMERS}) =
     any(_has_unsupported_phase(t, m) for t in get_device_cache(m))
 _has_unsupported_phase(::DeviceModel) = false
 
+# This sweep catches an outaged transformer because DCP requires a `DeviceModel` for every
+# branch type (`requires_all_branch_models`), so every transformer is in some model's cache.
 function _check_security_constrained_phase_control(
     branch_models::IOM.BranchModelContainer,
     network_model::NetworkModel{<:Union{DCPNetworkModel, AbstractDCPLLNetworkModel}},
@@ -460,7 +489,8 @@ function _check_security_constrained_phase_control(
     any(_is_security_constrained(m) for m in values(branch_models)) || return
     any(_has_unsupported_phase(m) for m in values(branch_models)) && throw(
         IS.ConflictingInputsError(
-            "N-1 DCP/DCPLL networks do not support any transformers with phase-control or nonzero phase.",
+            "N-1 on DCP or DCPLL networks does not support transformers with phase " *
+            "control or a nonzero phase shift. Use a PTDF network model.",
         ),
     )
     return
@@ -500,23 +530,7 @@ function _check_security_constrained_network(
     return
 end
 
-function _assert_transformer_outages(
-    transformer::T,
-    branch_models::IOM.BranchModelContainer,
-) where {T <: _TRANSFORMERS}
-    model = get(branch_models, nameof(T), nothing)
-    _has_unsupported_phase(transformer, model) && throw(
-        IS.ConflictingInputsError(
-            "Phase-shifting transformers and transformers with non-zero angle may not be outages.",
-        ),
-    )
-    return
-end
-
-_assert_transformer_outages(::PSY.Device, ::IOM.BranchModelContainer) =
-    nothing
-
-# Monitored components exist; no controlled transformer outages
+# Every monitored component of every registered outage exists in the system
 function _check_monitored_components(
     branch_models::IOM.BranchModelContainer,
     sys::PSY.System,
@@ -531,9 +545,6 @@ function _check_monitored_components(
                         "Monitored component with UUID $uuid on outage $outage_id is not found in the system.",
                     ),
                 )
-            end
-            for component in PSY.get_associated_components(sys, outage)
-                _assert_transformer_outages(component, branch_models)
             end
         end
     end

@@ -81,6 +81,12 @@ get_default_attributes(
 ) where {D <: PSY.AbstractReserve, B <: _GROUP_FORMULATIONS} =
     _throw_group_pairing_error(D, B)
 
+# Disambiguates against the `OfflineReserve` "offline_only" default: the pairing still errors.
+get_default_attributes(
+    ::Type{PSY.OfflineReserve},
+    ::Type{B},
+) where {B <: _GROUP_FORMULATIONS} = _throw_group_pairing_error(PSY.OfflineReserve, B)
+
 # Disambiguates the two guards' intersection (`GroupReserve <: AbstractReserve`) and gives
 # the bare-type declaration an actionable message.
 _throw_group_direction_error(D::Type, B::Type) = throw(

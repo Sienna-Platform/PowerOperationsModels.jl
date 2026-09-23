@@ -197,6 +197,7 @@ end
         input_active_power_limits = (min = 0.0, max = 1.0),
         output_active_power_limits = (min = 0.0, max = 1.0),
         reactive_power_limits = nothing,
+        input_basis = CU,
     )
     PSY.add_component!(sys, hybrid)
     template = _build_hybrid_template(sys; with_reserves = false)
@@ -378,4 +379,54 @@ end
         k -> IOM.get_entry_type(k) === POM.RegularizationVariable{ChargeSide},
         _var_keys(m_off),
     )
+end
+
+@testset "HybridDispatchWithReserves honors a deployed_fraction profile" begin
+    # The deployed fraction scales the PCC reserve award. With a profile attached the
+    # coefficient must track the profile per time step rather than a hoisted scalar.
+    sys, _ = _build_hybrid_test_system()
+    reserve = PSY.get_component(PSY.OnlineReserve, sys, "Reg_Up")
+    PSY.set_deployed_fraction!(reserve, 0.5)
+
+    # The fixture is already transformed, so a raw Deterministic would mix forecast types.
+    # Add a SingleTimeSeries and let the system's existing transform cover it.
+    profile = collect(range(0.2, 0.9; length = 24))
+    initial_time = only(PSY.get_forecast_initial_times(sys))
+    stamps = collect(range(initial_time; step = Hour(1), length = length(profile)))
+    PSY.add_time_series!(
+        sys,
+        reserve,
+        PSY.SingleTimeSeries("deployed_fraction", TimeArray(stamps, profile)),
+    )
+    PSY.transform_single_time_series!(sys, _HYBRID_HORIZON, _HYBRID_HORIZON)
+
+    template = _build_hybrid_template(sys)
+    model = POM.DecisionModel(template, sys;
+        optimizer = HiGHS_optimizer, horizon = _HYBRID_HORIZON)
+    @test POM.build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+
+    container = IOM.get_optimization_container(model)
+    expr = IOM.get_expression(
+        container,
+        POM.HybridPCCReserveExpression{
+            PSY.ReserveUp,
+            POM.DeployedReserve,
+            POM.DischargeSide,
+        },
+        PSY.HybridSystem,
+    )
+    var = IOM.get_variable(
+        container,
+        POM.HybridPCCReserveVariable{POM.DischargeSide},
+        PSY.HybridSystem,
+        POM._service_container_meta(reserve),
+    )
+    name = first(axes(expr, 1))
+    time_steps = IOM.get_time_steps(container)
+    for t in time_steps
+        @test JuMP.coefficient(expr[name, t], var[name, t]) ≈ 0.5 * profile[t]
+    end
+    @test JuMP.coefficient(expr[name, first(time_steps)], var[name, first(time_steps)]) !=
+          JuMP.coefficient(expr[name, last(time_steps)], var[name, last(time_steps)])
 end

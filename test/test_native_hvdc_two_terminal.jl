@@ -22,6 +22,7 @@ function _c_sys5_with_hvdc_tie()
         reactive_power_limits_to = (min = -1.0, max = 1.0),
         arc = arc,
         loss = PSY.LossCurve(LinearCurve(0.0), PSY.CU),
+        input_basis = CU,
     )
     PSY.add_component!(sys, hvdc)
     from_no = PSY.get_number(PSY.get_from(arc))
@@ -47,6 +48,7 @@ function _c_sys5_with_asymmetric_hvdc_tie()
         reactive_power_limits_to = (min = -0.7, max = 0.3),
         arc = arc,
         loss = PSY.LossCurve(LinearCurve(0.0), PSY.CU),
+        input_basis = CU,
     )
     PSY.add_component!(sys, hvdc)
     from_no = PSY.get_number(PSY.get_from(arc))
@@ -64,6 +66,7 @@ function _no_reactive_hvdc(::Type{TwoTerminalVSCLine}, arc)
         rating = 2.0,
         active_power_limits_from = (min = -2.0, max = 2.0),
         active_power_limits_to = (min = -2.0, max = 2.0),
+        input_basis = CU,
     )
 end
 
@@ -88,6 +91,7 @@ function _no_reactive_hvdc(::Type{TwoTerminalLCCLine}, arc)
         inverter_base_voltage = 500.0,
         active_power_limits_from = (min = -2.0, max = 2.0),
         active_power_limits_to = (min = -2.0, max = 2.0),
+        input_basis = CU,
     )
 end
 
@@ -420,6 +424,7 @@ function _c_sys5_with_lossy_hvdc_tie()
         reactive_power_limits_to = (min = -1.0, max = 1.0),
         arc = arc,
         loss = PSY.LossCurve(LinearCurve(0.05, 0.01), PSY.CU),
+        input_basis = CU,
     )
     PSY.add_component!(sys, hvdc)
     from_no = PSY.get_number(PSY.get_from(arc))
@@ -574,6 +579,7 @@ function _two_area_sys_with_lossy_hvdc_tie()
         reactive_power_limits_to = (min = -1.0, max = 1.0),
         arc = arc,
         loss = PSY.LossCurve(LinearCurve(0.05, 0.01), PSY.CU),
+        input_basis = CU,
     )
     PSY.add_component!(sys, hvdc)
     return sys
@@ -693,6 +699,7 @@ function _hvdc_probe(
         reactive_power_limits_to = (min = -1.0, max = 1.0),
         arc = arc,
         loss = loss,
+        input_basis = CU,
     )
     PSY.add_component!(sys, hvdc)
     return hvdc
@@ -807,6 +814,7 @@ function _c_sys5_with_incremental_loss_hvdc_tie()
         reactive_power_limits_to = (min = -1.0, max = 1.0),
         arc = arc,
         loss = _HVDC_INCREMENTAL_LOSS,
+        input_basis = CU,
     )
     PSY.add_component!(sys, hvdc)
     from_no = PSY.get_number(PSY.get_from(arc))
@@ -883,6 +891,7 @@ function _c_sys5_two_islands_with_hvdc()
         reactive_power_limits_to = (min = -1.0, max = 1.0),
         arc = tie_arc,
         loss = PSY.LossCurve(LinearCurve(0.05, 0.01), PSY.CU),
+        input_basis = CU,
     )
     PSY.add_component!(sys, tie)
 
@@ -902,6 +911,7 @@ function _c_sys5_two_islands_with_hvdc()
         reactive_power_limits_to = (min = -1.0, max = 1.0),
         arc = intra_arc,
         loss = PSY.LossCurve(LinearCurve(0.05, 0.01), PSY.CU),
+        input_basis = CU,
     )
     PSY.add_component!(sys, intra)
     return sys, "hvdc_tie", "hvdc_intra"

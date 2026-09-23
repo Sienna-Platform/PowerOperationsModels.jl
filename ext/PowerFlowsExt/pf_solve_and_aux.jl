@@ -1,19 +1,6 @@
 # Power flow in-the-loop: solve dispatcher and auxiliary variable readback.
-# Defines latest_solved_power_flow_evaluation_data, IOM.evaluate!,
-# calculate_aux_variable_value! overloads for PowerFlowAuxVariableType,
-# and _get_pf_result helpers.
-
-"Fetch the most recently solved `PowerFlowEvaluationData`."
-function latest_solved_power_flow_evaluation_data(container::OptimizationContainer)
-    datas = collect(values(get_evaluation_data(get_evaluations(container))))
-    idx = findlast(x -> x.is_solved, datas)
-    # FIXME: AC PF convergence can fail when the optimization permits a
-    # transmission scenario infeasible for the full AC equations; full handling
-    # is pending a broader PF-failure design (kiernan, PR #112).
-    isnothing(idx) &&
-        error("No solved PowerFlowEvaluationData available; PF in the loop did not converge")
-    return datas[idx]
-end
+# Defines IOM.evaluate!, calculate_aux_variable_value! overloads for
+# PowerFlowAuxVariableType, and _get_pf_result helpers.
 
 function IOM.evaluate!(
     pf_e_data::PowerFlowEvaluationData,
@@ -27,13 +14,21 @@ function IOM.evaluate!(
             pf_data, container, sys, get_input_key_map(pf_e_data),
         )
         PFS.solve_power_flow!(pf_data)
+        converged = PFS.get_converged(pf_data)
+        pf_e_data.is_solved = all(converged)
+        pf_e_data.is_solved || @error(
+            "Power flow evaluator $(typeof(pf_data)) failed to converge at time steps \
+             $(findall(!, converged)); PowerFlows wrote NaN into those steps."
+        )
     else
         for t in get_time_steps(container)
             update_pf_data!(pf_e_data, container, t)
             PFS.solve_power_flow!(pf_data)
         end
+        # Single-period containers (PSSEExporter) only write data out: nothing to
+        # converge.
+        pf_e_data.is_solved = true
     end
-    pf_e_data.is_solved = true
     return
 end
 
@@ -84,10 +79,9 @@ _get_pf_result(
     PFS.get_arc_active_power_flow_from_to(pf_data) .+
     PFS.get_arc_active_power_flow_to_from(pf_data)
 
-function IOM.calculate_aux_variable_value!(
+function _write_aux_variable_value!(
     container::OptimizationContainer,
     key::AuxVarKey{T, <:PSY.ACBus},
-    ::PSY.System,
     pf_e_data::PowerFlowEvaluationData{<:PFS.PowerFlowData},
 ) where {T <: POM.PowerFlowAuxVariableType}
     @debug "Updating $key from PowerFlowData"
@@ -103,10 +97,9 @@ function IOM.calculate_aux_variable_value!(
     return
 end
 
-function IOM.calculate_aux_variable_value!(
+function _write_aux_variable_value!(
     container::OptimizationContainer,
     key::AuxVarKey{T, U},
-    ::PSY.System,
     pf_e_data::PowerFlowEvaluationData{<:PFS.PowerFlowData},
 ) where {T <: POM.PowerFlowAuxVariableType, U <: PSY.Branch}
     @debug "Updating $key from PowerFlowData"
@@ -144,14 +137,16 @@ end
 function IOM.calculate_aux_variable_value!(
     container::OptimizationContainer,
     key::AuxVarKey{<:POM.PowerFlowAuxVariableType, <:PSY.Component},
-    system::PSY.System,
+    ::PSY.System,
+    pf_e_data::PowerFlowEvaluationData{<:PFS.PowerFlowData},
 )
-    # Skip the aux vars that the current power flow isn't meant to update
-    pf_e_data = latest_solved_power_flow_evaluation_data(container)
+    # With several evaluators registered each owns only part of the aux var keys, so
+    # skip the ones this evaluator isn't meant to update.
     pf_data = IOM.get_inner_data(pf_e_data)
     key_type = IOM.get_entry_type(key)
     (key_type in branch_aux_vars(pf_data) || key_type in bus_aux_vars(pf_data)) ||
         return
-    IOM.calculate_aux_variable_value!(container, key, system, pf_e_data)
+    # Time steps where the power flow didn't converge get NaNs.
+    _write_aux_variable_value!(container, key, pf_e_data)
     return
 end

@@ -597,15 +597,21 @@ objective_function_multiplier(::Type{<:VariableType}, ::Type{<:AbstractHybridFor
 # The Scale parameter (UnscaledReserve / DeployedReserve) drives the multiplier scale.
 #################################################################################
 
-# Multiplier scale: UnscaledReserve → 1.0; DeployedReserve → deployed_fraction(service).
+# Per-time-step multiplier scale: UnscaledReserve → 1.0; DeployedReserve → the service's
+# deployed fraction, which may vary over the horizon. Always a `Vector{Float64}` of length
+# `length(get_time_steps(container))` so both scales stay type-stable.
 _reserve_scale(
+    container::OptimizationContainer,
+    ::DeviceModel,
     ::Type{<:ReserveAggregationExpression{<:PSY.ReserveDirection, UnscaledReserve}},
     ::PSY.Service,
-) = 1.0
+) = ones(Float64, length(get_time_steps(container)))
 _reserve_scale(
+    container::OptimizationContainer,
+    model::DeviceModel,
     ::Type{<:ReserveAggregationExpression{<:PSY.ReserveDirection, DeployedReserve}},
     s::PSY.Service,
-) = PSY.get_deployed_fraction(s)
+) = deployed_fraction_values(container, model, s)
 
 # Up-direction expressions: ReserveDown services are a no-op (skipped via dispatch).
 _add_reserve_term!(
@@ -617,6 +623,7 @@ _add_reserve_term!(
     ::Type{<:AbstractHybridFormulationWithReserves},
     ::Int,
     ::PSY.Reserve{PSY.ReserveDown},
+    ::Vector{Float64},
 ) = nothing
 
 # Down-direction expressions: ReserveUp services are a no-op (skipped via dispatch).
@@ -629,6 +636,7 @@ _add_reserve_term!(
     ::Type{<:AbstractHybridFormulationWithReserves},
     ::Int,
     ::PSY.Reserve{PSY.ReserveUp},
+    ::Vector{Float64},
 ) = nothing
 
 # Fallback: actually accumulate the (correct-direction) reserve term.
@@ -641,6 +649,7 @@ function _add_reserve_term!(
     ::Type{W},
     t::Int,
     service::PSY.Service,
+    fractions::Vector{Float64},
 ) where {
     T <: ReserveAggregationExpression,
     U <: AbstractHybridReserveVariableType,
@@ -650,7 +659,7 @@ function _add_reserve_term!(
     name = PSY.get_name(d)
     variable =
         get_variable(container, U, V, _service_container_meta(service))
-    mult = get_variable_multiplier(U, d, W, service) * _reserve_scale(T, service)
+    mult = get_variable_multiplier(U, d, W, service) * fractions[t]
     add_proportional_to_jump_expression!(expression[name, t], variable[name, t], mult)
     return
 end
@@ -661,7 +670,7 @@ function add_to_expression!(
     ::Type{T},
     ::Type{U},
     devices::Vector{V},
-    ::DeviceModel{V, W},
+    model::DeviceModel{V, W},
 ) where {
     T <: ReserveAggregationExpression,
     U <: AbstractHybridReserveVariableType,
@@ -669,8 +678,13 @@ function add_to_expression!(
     W <: AbstractHybridFormulationWithReserves,
 }
     expression = get_expression(container, T, V)
-    for d in devices, service in PSY.get_services(d), t in get_time_steps(container)
-        _add_reserve_term!(T, container, expression, U, d, W, t, service)
+    for d in devices, service in PSY.get_services(d)
+        # Hoisted per (device, service): the scale is constant across the time loop, and
+        # `DeployedReserve` resolves a time series to build it.
+        fractions = _reserve_scale(container, model, T, service)
+        for t in get_time_steps(container)
+            _add_reserve_term!(T, container, expression, U, d, W, t, service, fractions)
+        end
     end
     return
 end

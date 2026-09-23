@@ -37,6 +37,7 @@ function _make_lcc_line(arc; name = "lcc")
         active_power_limits_to = (min = -3.0, max = 3.0),
         reactive_power_limits_from = (min = -3.0, max = 3.0),
         reactive_power_limits_to = (min = -3.0, max = 3.0),
+        input_basis = CU,
     )
 end
 
