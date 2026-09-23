@@ -1122,6 +1122,9 @@ function construct_service!(
     return
 end
 
+const _SECURITY_CONSTRAINED_RESERVE =
+    Union{PSY.OnlineReserve{PSY.ReserveUp}, PSY.OfflineReserve}
+
 function construct_service!(
     container::OptimizationContainer,
     sys::PSY.System,
