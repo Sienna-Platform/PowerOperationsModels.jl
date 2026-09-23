@@ -1900,7 +1900,7 @@ end
         name in lines_with_ts && continue
         line = PSY.get_component(PSY.ACTransmission, sys, name)
         isnothing(line) && continue
-        expected = branch_rating_b_su(line)
+        expected = POM._emergency_flow_limits(line).max
         expr_const = JuMP.constant(pcbf[outage_id, name, t])
         @test JuMP.normalized_rhs(con_ub[outage_id, name, t]) + expr_const ≈ expected
         n_checked += 1
