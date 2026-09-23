@@ -704,3 +704,25 @@ end
     )
     IS.close!(IS.get_data_store(restored.data))
 end
+
+@testset "list_input_series returns only marker rows" begin
+    store = POM.ParameterTimeSeriesStore()
+    t0 = Dates.DateTime(2024, 1, 1)
+    POM.write_input_forecast_row!(
+        store, 7, "PowerLoad", "max_active_power",
+        Dict(t0 => collect(1.0:24.0), t0 + Dates.Hour(24) => collect(2.0:25.0)),
+        Dates.Hour(1), Dates.Hour(24),
+    )
+    POM.write_parameter_series!(store, 7, "PowerLoad", "fuel_cost",
+        TimeSeries.TimeArray(
+            range(t0; step = Dates.Hour(1), length = 24),
+            collect(1.0:24.0),
+        ))
+    rows = POM.list_input_series(store)
+    @test length(rows) == 1
+    @test IS.get_name(only(rows)) == "max_active_power"
+    @test IS.get_owner_id(only(rows)) == 7
+    ts = POM.read_input_time_series(store, only(rows))
+    @test IS.get_data(ts)[t0] == collect(1.0:24.0)
+    POM.close_parameter_store!(store)
+end

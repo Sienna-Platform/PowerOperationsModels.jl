@@ -922,3 +922,11 @@ function write_model_inputs!(
     end
     return nothing
 end
+
+"""Every input row this store holds, any owner — the rows carrying [`INPUT_ROW_FEATURES`](@ref)."""
+list_input_series(store::ParameterTimeSeriesStore) =
+    IS.list_time_series_metadata(store.store; features = INPUT_ROW_FEATURES)
+
+"""The series behind one input row."""
+read_input_time_series(store::ParameterTimeSeriesStore, md::IS.TimeSeriesMetadata) =
+    IS.get_time_series(store.store, IS.get_time_series_key(md))
