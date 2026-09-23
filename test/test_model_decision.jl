@@ -414,7 +414,9 @@ end
     vars = res.variable_values
     # Reserve variables share one container per (device type, service type), keyed
     # `(service_name, device_name, time)`.
-    S = IOM.get_component_type(IOM.VariableKey(ActivePowerReserveVariable, PSY.OfflineReserve))
+    S = IOM.get_component_type(
+        IOM.VariableKey(ActivePowerReserveVariable, PSY.OfflineReserve),
+    )
     service_keys = [
         k for k in keys(vars) if
         IOM.get_entry_type(k) === ActivePowerReserveVariable &&

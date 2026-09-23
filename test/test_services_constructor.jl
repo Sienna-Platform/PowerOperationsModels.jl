@@ -2177,7 +2177,10 @@ end
         reserve = IOM.get_variable(
             container,
             ActivePowerReserveVariable,
-            IOM.ComponentPairKey{PSY.InterruptiblePowerLoad, PSY.OnlineReserve{PSY.ReserveUp}},
+            IOM.ComponentPairKey{
+                PSY.InterruptiblePowerLoad,
+                PSY.OnlineReserve{PSY.ReserveUp},
+            },
         )
         for service_name in ("R1", "R2")
             devices = if nested
@@ -2260,7 +2263,10 @@ end
     r_dn = IOM.get_variable(
         container,
         ActivePowerReserveVariable,
-        IOM.ComponentPairKey{PSY.InterruptiblePowerLoad, PSY.OnlineReserve{PSY.ReserveDown}},
+        IOM.ComponentPairKey{
+            PSY.InterruptiblePowerLoad,
+            PSY.OnlineReserve{PSY.ReserveDown},
+        },
     )
 
     for t in IOM.get_time_steps(container)

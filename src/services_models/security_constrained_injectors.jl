@@ -157,7 +157,8 @@ function _add_post_contingency_deployment!(
 end
 
 _total_deployments(container::OptimizationContainer) = [
-    (get_component_type(key), expr) for (key, expr) in IOM.get_expressions(container) if
+    (get_component_type(key), expr) for
+    (key, expr) in IOM.get_expressions(container) if
     IOM.get_entry_type(key) === PostContingencyTotalReserveDeployment
 ]
 
@@ -181,7 +182,11 @@ function _constrain_post_contingency_reserve!(
     ::Type{D},
 ) where {R <: PSY.Service, D <: PSY.Component}
     key = IOM.ComponentPairKey{D, R}
-    has_container_key(container, PostContingencyActivePowerReserveDeploymentVariable, key) ||
+    has_container_key(
+        container,
+        PostContingencyActivePowerReserveDeploymentVariable,
+        key,
+    ) ||
         return
     jump_model = get_jump_model(container)
     service_name = PSY.get_name(service)
@@ -272,18 +277,20 @@ function _create_post_contingency_flow_slacks!(
                 sparse = true,
                 meta = _G1_META,
             )
-            for entry_name in _flow_entries(network_model, component_type, names), t in time_steps
-
-                ub = slack_ub[entry_name, uuid, t] = JuMP.@variable(
-                    jump_model,
-                    base_name = "PostContingencyFlowActivePowerSlackUpperBound_$(component_type)_{$(entry_name), $(uuid), $(t)}",
-                    lower_bound = 0.0,
-                )
-                lb = slack_lb[entry_name, uuid, t] = JuMP.@variable(
-                    jump_model,
-                    base_name = "PostContingencyFlowActivePowerSlackLowerBound_$(component_type)_{$(entry_name), $(uuid), $(t)}",
-                    lower_bound = 0.0,
-                )
+            for entry_name in _flow_entries(network_model, component_type, names),
+                t in time_steps
+                ub =
+                    slack_ub[entry_name, uuid, t] = JuMP.@variable(
+                        jump_model,
+                        base_name = "PostContingencyFlowActivePowerSlackUpperBound_$(component_type)_{$(entry_name), $(uuid), $(t)}",
+                        lower_bound = 0.0,
+                    )
+                lb =
+                    slack_lb[entry_name, uuid, t] = JuMP.@variable(
+                        jump_model,
+                        base_name = "PostContingencyFlowActivePowerSlackLowerBound_$(component_type)_{$(entry_name), $(uuid), $(t)}",
+                        lower_bound = 0.0,
+                    )
                 add_to_objective_invariant_expression!(
                     container,
                     (ub + lb) * CONSTRAINT_VIOLATION_SLACK_COST,
@@ -695,7 +702,12 @@ function _constrain_post_contingency_flow!(
                 )
             end
             for entry_name in _flow_entries(network_model, component_type, names)
-                lims = _post_contingency_flow_limits(sys, network_model, component_type, entry_name)
+                lims = _post_contingency_flow_limits(
+                    sys,
+                    network_model,
+                    component_type,
+                    entry_name,
+                )
                 for t in time_steps
                     f = flow[entry_name, uuid, t]
                     if has_slacks && haskey(slack_ub.data, (entry_name, uuid, t))
