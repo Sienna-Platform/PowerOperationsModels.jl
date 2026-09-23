@@ -472,6 +472,14 @@ end
 """
 Re-window a forecast cost onto `windows`: one window per run execution, `horizon_count` steps
 each, read starting at each of `windows.initial_times`.
+
+A horizon under two steps cannot hold a re-windowed forecast (InfraStore's own floor; see
+[`_write_parameter_arrays!`](@ref) for the identical constraint on parameter rows) — every
+run this short writes no parameter rows either, so nothing downstream depends on this cost
+sharing their grid, and the original series is copied verbatim instead. Skipping it outright
+is not an option: `sys`'s own cost still points at the original series, and every reader of the
+key map (`write_results_system_bundle!`'s `PSY.to_openapi` remap, `decision_model.jl`'s
+`system_to_file` path) requires an entry for every association id `sys` still references.
 """
 function _copy_cost_time_series!(
     store::ParameterTimeSeriesStore,
@@ -480,6 +488,15 @@ function _copy_cost_time_series!(
     ts::IS.Forecast,
     windows::RunWindows,
 )::IS.TimeSeriesKey
+    if windows.horizon_count < 2
+        return IS.add_time_series!(
+            store.store,
+            IS.get_id(c),
+            string(nameof(typeof(c))),
+            IS.get_owner_category(IS.InfrastructureSystemsComponent),
+            ts,
+        )
+    end
     data = Dict(
         t => collect(
             IS.get_time_series_values(c, key; start_time = t, len = windows.horizon_count),
@@ -505,14 +522,6 @@ function _copy_cost_time_series!(
 end
 
 """
-Whether re-windowing a cost onto `windows` would violate InfraStore's forecast floor of at
-least two points per window. Only a forecast is re-windowed (a static copies verbatim), and only
-a horizon this short (e.g. `horizon = resolution`) is too short.
-"""
-_cost_forecast_too_short(::IS.StaticTimeSeries, ::RunWindows) = false
-_cost_forecast_too_short(::IS.Forecast, windows::RunWindows) = windows.horizon_count < 2
-
-"""
 Copy every time series a System component's operation cost holds into `store`, under that
 component's own id and type, and return the map from each series' original
 `association_id` to the association id it was written under.
@@ -520,11 +529,7 @@ component's own id and type, and return the map from each series' original
 Not derived from parameter arrays: start-up costs are 3-tuples, offer curves split into
 slope/breakpoint arrays, and re-deriving a cost series from a parameter array risks a unit
 mismatch. This copies the System's own series instead: statics verbatim, forecasts re-windowed
-onto the run grid `windows`.
-
-A run whose horizon is shorter than two steps cannot hold a re-windowed forecast cost (same
-InfraStore floor [`_write_parameter_arrays!`](@ref) skips arrays for); such costs are skipped
-with one warning rather than erroring mid-copy. Static costs are unaffected.
+onto the run grid `windows` (or copied verbatim too, on a horizon too short to re-window).
 """
 function copy_cost_time_series!(
     store::ParameterTimeSeriesStore,
@@ -532,21 +537,11 @@ function copy_cost_time_series!(
     windows::RunWindows,
 )::Dict{Int64, Int64}
     key_map = Dict{Int64, Int64}()
-    warned = false
     for c in PSY.get_components(PSY.Component, sys)
         for key in _cost_time_series_keys(c)
             original_id = IS.get_association_id(key)
             haskey(key_map, original_id) && continue
             ts = IS.get_time_series(c, key)
-            if _cost_forecast_too_short(ts, windows)
-                warned ||
-                    @warn "the run's $(windows.horizon_count)-step horizon is below " *
-                          "InfraStore's forecast floor of at least two points per " *
-                          "window; forecast-backed costs are not copied into the " *
-                          "results bundle"
-                warned = true
-                continue
-            end
             new_key = _copy_cost_time_series!(store, c, key, ts, windows)
             _record_document_association!(store, new_key, true)
             key_map[original_id] = IS.get_association_id(new_key)
