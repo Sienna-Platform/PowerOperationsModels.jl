@@ -581,7 +581,8 @@ end
 
 """
 Build a fresh [`ParameterTimeSeriesStore`](@ref) from `model`'s realized parameters and its
-System's cost time series, ready for [`write_results_system_bundle!`](@ref).
+System's cost time series re-windowed to the run, plus every time-series parameter recast as
+component-owned input series, ready for [`write_results_system_bundle!`](@ref).
 """
 function parameter_store_from_model(
     model,
@@ -605,6 +606,7 @@ function parameter_store_from_model(
     )
     windows = run_windows(model)
     key_map = copy_cost_time_series!(store, IOM.get_system(model), windows)
+    write_model_inputs!(store, IOM.get_system(model), container, windows)
     return store, key_map
 end
 
@@ -682,5 +684,241 @@ function write_results_system_bundle!(
         association_id_map = key_map,
     )
     PSY.PD.write_document(doc, joinpath(bundle_dir, PSY.SYSTEM_DOCUMENT_FILE))
+    return nothing
+end
+
+"""
+Marks a row the bundle writer derived from a model's realized parameter values. One marker only:
+IS resolves a by-name read as a subset match on features, so a rebuild's plain
+`get_time_series(Deterministic, component, name)` still finds the row, and the partition merge can
+list every input row without knowing the parameter keys. No `parameter`/`model` feature here — two
+parameters reading one series would make two rows and an ambiguous read.
+"""
+const INPUT_ROW_FEATURES = Dict{String, Any}("source" => "parameter")
+
+"""
+What one time-series parameter needs to come back as component series: the series name and type
+the model read, and each parameter label's owner `(id, type name)`. Labels that are not components
+of the System (network-reduction aggregates) are listed in `unresolved`; their values stay
+readable through the parameter rows under the synthetic owner.
+"""
+struct InputSeriesDescriptor
+    name::String
+    time_series_type::Type
+    owners::Dict{String, Tuple{Int64, String}}
+    unresolved::Vector{String}
+end
+
+_is_input_key(::IOM.ParameterKey{<:IOM.TimeSeriesParameter}) = true
+_is_input_key(::IOM.ParameterKey) = false
+_is_input_attributes(::IOM.TimeSeriesAttributes) = true
+_is_input_attributes(::IOM.ParameterAttributes) = false
+
+"""Whether `key`'s realized values are a component input series the bundle recasts."""
+function is_input_parameter(key::IOM.ParameterKey, pc::IOM.ParameterContainer)::Bool
+    return _is_input_key(key) && _is_input_attributes(IOM.get_attributes(pc))
+end
+
+function input_series_descriptor(
+    sys::PSY.System,
+    key::IOM.ParameterKey,
+    pc::IOM.ParameterContainer,
+)::InputSeriesDescriptor
+    attributes = IOM.get_attributes(pc)
+    D = IOM.get_component_type(key)
+    owners = Dict{String, Tuple{Int64, String}}()
+    unresolved = String[]
+    for label in IOM.get_component_names(attributes)
+        name = String(label)
+        if PSY.has_component(sys, D, name)
+            c = PSY.get_component(D, sys, name)
+            owners[name] = (IS.get_id(c), string(nameof(typeof(c))))
+        else
+            push!(unresolved, name)
+        end
+    end
+    sort!(unresolved)
+    isempty(unresolved) ||
+        @warn "$(IOM.encode_key_as_string(key)): labels $(unresolved) " *
+              "are not components of the System; their input series are not written to the " *
+              "bundle (values remain in the parameter rows)."
+    return InputSeriesDescriptor(
+        IOM.get_time_series_name(attributes),
+        IOM.get_time_series_type(attributes),
+        owners,
+        unresolved,
+    )
+end
+
+_input_row_exists(store::ParameterTimeSeriesStore, owner_id::Int64, name::String) =
+    !isempty(
+        IS.list_time_series_metadata(
+            store.store; owner_id = owner_id, name = name, features = INPUT_ROW_FEATURES,
+        ),
+    )
+
+"""
+Add one component-owned `Deterministic` input row, declared in the document. Returns `false`
+without writing when this `(owner, name)` already has an input row: two parameters may read the
+same series, and a re-merge may see rows it wrote before.
+"""
+function write_input_forecast_row!(
+    store::ParameterTimeSeriesStore,
+    owner_id::Int64,
+    owner_type::String,
+    name::String,
+    data::AbstractDict{Dates.DateTime, <:AbstractVector},
+    resolution::Dates.Period,
+    interval::Dates.Period,
+)::Bool
+    _input_row_exists(store, owner_id, name) && return false
+    key = IS.add_time_series!(
+        store.store,
+        owner_id,
+        owner_type,
+        IS.get_owner_category(IS.InfrastructureSystemsComponent),
+        PSY.Deterministic(name, Dict(data), resolution, interval);
+        features = INPUT_ROW_FEATURES,
+    )
+    _record_document_association!(store, key, true)
+    return true
+end
+
+"""Static counterpart of [`write_input_forecast_row!`](@ref), for emulation models."""
+function write_input_series_row!(
+    store::ParameterTimeSeriesStore,
+    owner_id::Int64,
+    owner_type::String,
+    name::String,
+    values::AbstractVector{Float64},
+    initial_timestamp::Dates.DateTime,
+    resolution::Dates.Period,
+)::Bool
+    _input_row_exists(store, owner_id, name) && return false
+    key = IS.add_time_series!(
+        store.store,
+        owner_id,
+        owner_type,
+        IS.get_owner_category(IS.InfrastructureSystemsComponent),
+        PSY.SingleTimeSeries(;
+            name = name,
+            data = collect(values),
+            initial_timestamp = initial_timestamp,
+            resolution = resolution,
+        );
+        features = INPUT_ROW_FEATURES,
+    )
+    _record_document_association!(store, key, true)
+    return true
+end
+
+"""
+One `Deterministic` per resolved label, its windows sliced from `windows` (each a
+`(label, time)` array keyed by the execution's initial time).
+"""
+function write_input_forecasts!(
+    store::ParameterTimeSeriesStore,
+    d::InputSeriesDescriptor,
+    windows::AbstractDict{Dates.DateTime, <:JuMP.Containers.DenseAxisArray{Float64, 2}},
+    resolution::Dates.Period,
+    interval::Dates.Period,
+)
+    for (label, (owner_id, owner_type)) in d.owners
+        data = Dict(t => collect(vec(w[label, :])) for (t, w) in windows)
+        write_input_forecast_row!(
+            store,
+            owner_id,
+            owner_type,
+            d.name,
+            data,
+            resolution,
+            interval,
+        )
+    end
+    return nothing
+end
+
+"""One `SingleTimeSeries` per resolved label, from a `(label, time)` array."""
+function write_input_series!(
+    store::ParameterTimeSeriesStore,
+    d::InputSeriesDescriptor,
+    array::JuMP.Containers.DenseAxisArray{Float64, 2},
+    timestamps::AbstractVector{Dates.DateTime},
+    resolution::Dates.Period,
+)
+    for (label, (owner_id, owner_type)) in d.owners
+        write_input_series_row!(
+            store, owner_id, owner_type, d.name, vec(array[label, :]), first(timestamps),
+            resolution,
+        )
+    end
+    return nothing
+end
+
+_write_input!(
+    store::ParameterTimeSeriesStore,
+    ::Type{<:IS.Forecast},
+    d::InputSeriesDescriptor,
+    raw::JuMP.Containers.DenseAxisArray{Float64, 2},
+    windows::RunWindows,
+) = write_input_forecasts!(
+    store, d, Dict(first(windows.initial_times) => raw), windows.resolution,
+    windows.interval,
+)
+
+_write_input!(
+    store::ParameterTimeSeriesStore,
+    ::Type{<:IS.StaticTimeSeries},
+    d::InputSeriesDescriptor,
+    raw::JuMP.Containers.DenseAxisArray{Float64, 2},
+    windows::RunWindows,
+) = write_input_series!(
+    store,
+    d,
+    raw,
+    collect(
+        range(
+            first(windows.initial_times);
+            step = windows.resolution,
+            length = windows.horizon_count,
+        ),
+    ),
+    windows.resolution,
+)
+
+_write_model_input!(
+    store::ParameterTimeSeriesStore,
+    d::InputSeriesDescriptor,
+    raw::JuMP.Containers.DenseAxisArray{Float64, 2},
+    windows::RunWindows,
+) = _write_input!(store, d.time_series_type, d, raw, windows)
+
+function _write_model_input!(
+    ::ParameterTimeSeriesStore,
+    d::InputSeriesDescriptor,
+    ::JuMP.Containers.DenseAxisArray{Float64, 3},
+    ::RunWindows,
+)
+    @warn "input series \"$(d.name)\" comes from a 3-D parameter array; not recast into the bundle"
+    return nothing
+end
+
+"""
+Recast every time-series parameter of a standalone model as component-owned input series, one
+window at the model's initial time. Skips a horizon under two steps: InfraStore needs at least two
+points per series, and [`_write_parameter_arrays!`](@ref) already warned about it.
+"""
+function write_model_inputs!(
+    store::ParameterTimeSeriesStore,
+    sys::PSY.System,
+    container::IOM.OptimizationContainer,
+    windows::RunWindows,
+)
+    windows.horizon_count < 2 && return nothing
+    for (key, pc) in IOM.get_parameters(container)
+        is_input_parameter(key, pc) || continue
+        d = input_series_descriptor(sys, key, pc)
+        _write_model_input!(store, d, IOM.get_parameter_values(pc), windows)
+    end
     return nothing
 end
