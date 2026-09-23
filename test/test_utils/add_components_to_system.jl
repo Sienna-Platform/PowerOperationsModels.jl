@@ -17,6 +17,7 @@ function get_copied_line(
         g = PSY.get_g(line, PSY.SU),
         services = PSY.get_services(line),
         ext = PSY.get_ext(line),
+        input_basis = CU,
     )
     return copied_line
 end
@@ -143,7 +144,7 @@ function add_equivalent_ac_transmission_with_parallel_circuits!(
         rating_c = PSY.get_rating_c(ac_transmission, PSY.SU),
         g = PSY.get_g(ac_transmission, PSY.SU),
         services = PSY.get_services(ac_transmission),
-        ext = PSY.get_ext(ac_transmission))
+        ext = PSY.get_ext(ac_transmission), input_basis = CU)
 
     #Set ratings the half so the case remains equivalent to the original
     set_rating!(ac_transmission, rating_new * PSY.SU)

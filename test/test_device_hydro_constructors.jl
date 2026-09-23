@@ -480,6 +480,7 @@ end
         ramp_limits = get_ramp_limits(hy, PSY.SU / PSY.u"minute"),
         time_limits = get_time_limits(hy),
         base_power = get_base_power(hy, PSY.NU),
+        input_basis = CU,
     )
     add_component!(c_sys5_hy, hy_copy)
     copy_time_series!(hy_copy, hy)

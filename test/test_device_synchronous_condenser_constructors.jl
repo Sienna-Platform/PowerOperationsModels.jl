@@ -9,6 +9,7 @@
         rating = 2.0,
         reactive_power_limits = (min = -2.0, max = 2.0),
         base_power = 100.0,
+        input_basis = CU,
     )
 
     add_component!(sys, syncon)
@@ -68,6 +69,7 @@ end
         rating = 2.0,
         reactive_power_limits = (min = -2.0, max = 2.0),
         base_power = 100.0,
+        input_basis = CU,
     )
     add_component!(sys, syncon)
     transform_single_time_series!(sys, Hour(24), Hour(24))

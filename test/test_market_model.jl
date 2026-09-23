@@ -1115,6 +1115,7 @@ function _market_load_test_system()
         base_power = 100.0,
         max_active_power = 20.0,
         max_reactive_power = 0.0,
+        input_basis = CU,
     )
     PSY.add_component!(sys, static_load)
     PSY.add_time_series!(sys, static_load, PSY.SingleTimeSeries("max_active_power", times))
@@ -1129,6 +1130,7 @@ function _market_load_test_system()
         max_reactive_power = 0.0,
         operation_cost = PSY.MarketBidCost(),
         base_power = 100.0,
+        input_basis = CU,
     )
     PSY.add_component!(sys, il)
     PSY.add_time_series!(sys, il, PSY.SingleTimeSeries("max_active_power", times))

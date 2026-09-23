@@ -272,6 +272,7 @@ end
                     b = split_shunt,
                     angle_limits = get_angle_limits(line),
                     rating = get_rating(line, PSY.SU),
+                    input_basis = CU,
                 )
                 add_component!(system, l)
             end
@@ -323,6 +324,7 @@ end
         rating = get_rating(line, PSY.SU),
         discrete_branch_type = PSY.DiscreteControlledBranchType.BREAKER,
         branch_status = PSY.DiscreteControlledBranchStatus.CLOSED,
+        input_basis = CU,
     )
     add_component!(system, bs)
     remove_component!(system, line)

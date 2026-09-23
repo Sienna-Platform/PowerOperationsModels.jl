@@ -23,7 +23,12 @@ end
 # timestamps/resolution so the forecast parameters stay consistent system-wide.
 function _build_zone_system()
     sys = PSB.build_system(PSITestSystems, "c_sys5_uc")
-    zone = PSY.LoadZone(; name = "LZ1", peak_active_power = 10.0, peak_reactive_power = 3.0)
+    zone = PSY.LoadZone(;
+        name = "LZ1",
+        peak_active_power = 10.0,
+        peak_reactive_power = 3.0,
+        input_basis = CU,
+    )
     PSY.add_component!(sys, zone)
     buses = sort!(collect(PSY.get_components(PSY.ACBus, sys)); by = PSY.get_number)
     zone_buses = buses[1:2]
@@ -87,7 +92,12 @@ end
 
     # LoadZone member bus with no series contributes 0.0, no error (D13), as long as some
     # member bus carries a series.
-    zone2 = PSY.LoadZone(; name = "LZ2", peak_active_power = 5.0, peak_reactive_power = 1.0)
+    zone2 = PSY.LoadZone(;
+        name = "LZ2",
+        peak_active_power = 5.0,
+        peak_reactive_power = 1.0,
+        input_basis = CU,
+    )
     PSY.add_component!(sys, zone2)
     buses = sort!(collect(PSY.get_components(PSY.ACBus, sys)); by = PSY.get_number)
     b3, b4 = buses[3], buses[4]
@@ -113,7 +123,12 @@ end
     @test zf[PSY.get_number(b4), t1] == 1.0
 
     # A LoadZone with no series on any member bus is a loud error, not a silent zero.
-    zone3 = PSY.LoadZone(; name = "LZ3", peak_active_power = 5.0, peak_reactive_power = 1.0)
+    zone3 = PSY.LoadZone(;
+        name = "LZ3",
+        peak_active_power = 5.0,
+        peak_reactive_power = 1.0,
+        input_basis = CU,
+    )
     PSY.add_component!(sys, zone3)
     PSY.set_load_zone!(buses[5], zone3)
     @test_throws ErrorException get_distribution_factors(
