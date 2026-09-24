@@ -81,7 +81,7 @@ end
 
 """
 Implementation of build for any AbstractPowerEmulationProblem
-  - `store_system_in_results::Bool = true`: If true, stores the system as JSON in the results HDF5 file.
+  - `store_system_in_outputs::Bool = true`: If true, stores the system as JSON in the outputs HDF5 file.
 """
 function build!(
     model::EmulationModel{<:AbstractPowerEmulationProblem};
@@ -91,7 +91,7 @@ function build!(
     console_level = Logging.Error,
     file_level = Logging.Info,
     disable_timer_outputs = false,
-    store_system_in_results = true,
+    store_system_in_outputs = true,
 )
     mkpath(output_dir)
     IOM.set_output_dir!(model, output_dir)
@@ -107,8 +107,8 @@ function build!(
         IOM.PROBLEM_LOG_FILENAME,
         file_mode,
     )
-    if store_system_in_results
-        @warn "store_system_in_results is set to true. This will do nothing unless a Simulation is being built."
+    if store_system_in_outputs
+        @warn "store_system_in_outputs is set to true. This will do nothing unless a Simulation is being built."
     end
     try
         Logging.with_logger(logger) do
@@ -215,7 +215,7 @@ keyword arguments to that function.
   - `output_dir::String`: Required if the model is not already built, otherwise ignored
   - `enable_progress_bar::Bool`: Enables/Disable progress bar printing
   - `export_optimization_problem::Bool`: If true, serialize the model to a file to allow re-execution later.
-  - `store_system_in_results::Bool = true`: If true, stores the system as JSON in the results HDF5 file.
+  - `store_system_in_outputs::Bool = true`: If true, stores the system as JSON in the outputs HDF5 file.
 
 # Examples
 
@@ -232,11 +232,11 @@ function run!(
     disable_timer_outputs = false,
     export_optimization_problem = true,
     enable_progress_bar = _progress_meter_enabled(),
-    store_system_in_results = true,
+    store_system_in_outputs = true,
     kwargs...,
 )
-    if store_system_in_results
-        @warn "store_system_in_results is set to true. This will do nothing unless a Simulation is being built."
+    if store_system_in_outputs
+        @warn "store_system_in_outputs is set to true. This will do nothing unless a Simulation is being built."
     end
     build_if_not_already_built!(
         model;
@@ -287,7 +287,7 @@ function run!(
                             IOM.get_output_dir(model),
                             IOM.make_system_dirname(sys),
                         )
-                        _write_results_bundle!(model, sys, sys_dir)
+                        _write_outputs_bundle!(model, sys, sys_dir)
                     end
                 end
                 @info "\n$(RUN_OPERATION_MODEL_TIMER)\n"

@@ -10,7 +10,7 @@ const PARAMETER_KEY_FEATURE = "parameter"
 """
 The InfraStore-backed store for optimization parameters.
 
-Parameters are written here rather than into a results dataset so the bundle carries a real
+Parameters are written here rather than into an outputs dataset so the bundle carries a real
 InfraStore store. The System document's association rows are exported from this same store,
 which is what makes every `uri` resolve on read — InfraStore refuses a catalog row naming an
 array it does not hold.
@@ -231,7 +231,7 @@ function read_parameter_array(
 )::Dict{String, IS.TimeSeries.TimeArray}
     rows = _parameter_rows(store, key, extra_features)
     isempty(rows) &&
-        error("no parameter arrays found for $key in this results store")
+        error("no parameter arrays found for $key in this outputs store")
     result = Dict{String, IS.TimeSeries.TimeArray}()
     for md in rows
         ts = IS.get_time_series(store.store, IS.get_time_series_key(md))
@@ -319,7 +319,7 @@ function read_parameter_windows(
 )::Dict{String, Dict{Dates.DateTime, Vector{Float64}}}
     rows = _parameter_rows(store, key, extra_features)
     isempty(rows) &&
-        error("no parameter windows found for $key in this results store")
+        error("no parameter windows found for $key in this outputs store")
     result = Dict{String, Dict{Dates.DateTime, Vector{Float64}}}()
     for md in rows
         ts = IS.get_time_series(store.store, IS.get_time_series_key(md))
@@ -444,7 +444,7 @@ A horizon under two steps cannot hold a re-windowed forecast (InfraStore's own f
 run this short writes no parameter rows either, so nothing downstream depends on this cost
 sharing their grid, and the original series is copied verbatim instead. Skipping it outright
 is not an option: `sys`'s own cost still points at the original series, and every reader of the
-key map (`write_results_system_bundle!`'s `PSY.to_openapi` remap, `decision_model.jl`'s
+key map (`write_outputs_system_bundle!`'s `PSY.to_openapi` remap, `decision_model.jl`'s
 `system_to_file` path) requires an entry for every association id `sys` still references.
 """
 function _copy_cost_time_series!(
@@ -504,13 +504,13 @@ end
 """
 Build a fresh [`ParameterTimeSeriesStore`](@ref) from `model`'s realized parameters and its
 System's cost time series re-windowed to the run, plus every time-series parameter recast as
-component-owned input series, ready for [`write_results_system_bundle!`](@ref).
+component-owned input series, ready for [`write_outputs_system_bundle!`](@ref).
 
 Writes no parameter arrays, only warns, on a single-point time axis (e.g. `horizon =
 Dates.Hour(1)`): `IS.SingleTimeSeries`, `NonSequentialTimeSeries`, and `Forecast` all require at
 least two points at the InfraStore layer (R32: not something this store patches around). The
 model's realized parameters stay readable through `OptimizationProblemOutputs`, only the exported
-results bundle loses them.
+outputs bundle loses them.
 """
 function parameter_store_from_model(
     model,
@@ -522,7 +522,7 @@ function parameter_store_from_model(
     if length(timestamps) < 2
         @warn "$(typeof(model)) has a $(length(timestamps))-point time axis " *
               "($(Dates.canonicalize(windows.resolution * length(timestamps))) horizon); the " *
-              "results bundle will carry no parameter rows because an InfraStore time series " *
+              "outputs bundle will carry no parameter rows because an InfraStore time series " *
               "needs at least two points. Parameters remain readable through " *
               "OptimizationProblemOutputs."
     else
@@ -549,7 +549,7 @@ function parameter_association_rows(store::ParameterTimeSeriesStore)
 end
 
 """
-Write a results bundle: the System document plus the parameter store it points at.
+Write an outputs bundle: the System document plus the parameter store it points at.
 
 The layout is PowerSystems' ordinary directory form, so `PSY.from_file(bundle_dir)` reads it
 with no special casing and PowerAnalytics needs no changes. What differs from a normal bundle is
@@ -563,7 +563,7 @@ replaces it, so the restored System's costs resolve against the sidecar.
 The store is persisted first and the rows exported from that same store, so every row names an
 array already on disk.
 """
-function write_results_system_bundle!(
+function write_outputs_system_bundle!(
     sys::PSY.System,
     store::ParameterTimeSeriesStore,
     key_map::AbstractDict{Int64, Int64},
@@ -589,13 +589,13 @@ function write_results_system_bundle!(
 end
 
 """
-Build `model`'s results-system bundle at `sys_dir` and write it, unless one is already there —
+Build `model`'s outputs-system bundle at `sys_dir` and write it, unless one is already there —
 re-solving into an existing directory must not rewrite the bundle.
 """
-function _write_results_bundle!(model, sys::PSY.System, sys_dir::AbstractString)
+function _write_outputs_bundle!(model, sys::PSY.System, sys_dir::AbstractString)
     ispath(sys_dir) && return nothing
     store, key_map = parameter_store_from_model(model)
-    write_results_system_bundle!(sys, store, key_map, sys_dir)
+    write_outputs_system_bundle!(sys, store, key_map, sys_dir)
     close_parameter_store!(store)
     return nothing
 end

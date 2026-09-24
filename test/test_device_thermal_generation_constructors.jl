@@ -1278,7 +1278,7 @@ end
     moi_tests(model, 432, 0, 192, 120, 72, false)
     execute!(sim)
 
-    sim_res = SimulationResults(sim)
+    sim_res = SimulationOutputs(sim)
     res_uc = get_decision_problem_results(sim_res, "UC")
 
     # Test time series <-> parameter correspondence
