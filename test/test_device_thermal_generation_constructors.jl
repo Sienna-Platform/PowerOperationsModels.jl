@@ -1279,7 +1279,7 @@ end
     execute!(sim)
 
     sim_res = SimulationOutputs(sim)
-    res_uc = get_decision_problem_results(sim_res, "UC")
+    res_uc = get_decision_problem_outputs(sim_res, "UC")
 
     # Test time series <-> parameter correspondence
     fc_uc = read_parameter(

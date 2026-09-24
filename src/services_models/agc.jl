@@ -139,7 +139,7 @@ function add_constraints!(
 
     IS.@assert_op frequency_response >= 0.0
 
-    # This value is the one updated later in simulation based on the UC result
+    # This value is the one updated later in simulation based on the UC output
     inv_frequency_response = 1 / frequency_response
 
     area_balance = get_variable(container, ActivePowerVariable, PSY.Area)
