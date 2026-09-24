@@ -19,19 +19,6 @@ function _is_shared_post_contingency_source(
            _post_contingency_match(c, target)
 end
 
-# Names of components of type `D` monitored by at least one outage on this
-# device model.
-function _monitored_component_names(device_model::DeviceModel, ::Type{D}) where {D}
-    names = Set{String}()
-    for (_, per_type) in get_outages(device_model)
-        for (mon_type, mon_names) in per_type
-            mon_type <: D || continue
-            union!(names, mon_names)
-        end
-    end
-    return names
-end
-
 # True when a `PostContingencyBranchRatingTimeSeriesParameter` column exists for
 # `name` under `entry_type`.
 function _has_post_contingency_rate(
@@ -66,27 +53,6 @@ function _post_contingency_rate_columns(
     )
     return get_parameter_column_refs(param_container, name),
     get_multiplier_array(param_container)[name, :]
-end
-
-# Reactivated post-contingency branch-rating time series parameter, scoped to
-# the monitored components only.
-function _add_post_contingency_branch_rating_parameter!(
-    container::OptimizationContainer,
-    device_model::DeviceModel{T},
-    devices,
-    network_model::NetworkModel{<:AbstractNetworkModel},
-) where {T <: PSY.ACTransmission}
-    monitored = _monitored_component_names(device_model, T)
-    monitored_devices = [d for d in devices if PSY.get_name(d) in monitored]
-    isempty(monitored_devices) && return
-    add_branch_parameters!(
-        container,
-        PostContingencyBranchRatingTimeSeriesParameter,
-        monitored_devices,
-        device_model,
-        network_model,
-    )
-    return
 end
 
 function _find_shared_post_contingency_expression_source(
@@ -232,7 +198,6 @@ the active reduction graph. Duplicate arcs within an outage are collapsed
 per-type. Outages sorted by UUID for deterministic axes.
 """
 function _resolve_monitored_branches(
-    sys::PSY.System,
     device_model::DeviceModel,
     network_model::NetworkModel,
 )
@@ -288,7 +253,6 @@ Add branch post-contingency rate limit constraints for ACBranch considering MODF
 """
 function add_constraints!(
     container::OptimizationContainer,
-    sys::PSY.System,
     cons_type::Type{T},
     device_model::DeviceModel{V, U},
     network_model::NetworkModel{X},
@@ -300,7 +264,7 @@ function add_constraints!(
 }
     time_steps = get_time_steps(container)
 
-    resolved = _resolve_monitored_branches(sys, device_model, network_model)
+    resolved = _resolve_monitored_branches(device_model, network_model)
 
     con_lb = _add_post_contingency_sparse_constraints!(container, T, V; meta = "lb")
     con_ub = _add_post_contingency_sparse_constraints!(container, T, V; meta = "ub")
@@ -316,10 +280,6 @@ function add_constraints!(
     jump_model = get_jump_model(container)
 
     has_other_v = _has_other_v_container(get_constraints(container), T, V)
-    has_pc_rating = haskey(
-        get_time_series_names(device_model),
-        PostContingencyBranchRatingTimeSeriesParameter,
-    )
     for (uuid, reps) in resolved
         outage_id = string(uuid)
         for rep in reps
@@ -365,9 +325,9 @@ function add_constraints!(
                     continue
                 end
             end
-            if has_pc_rating && _has_post_contingency_rate(container, V, name)
+            if _has_post_contingency_rate(container, _monitored_type(rep), name)
                 param, multiplier =
-                    _post_contingency_rate_columns(container, V, name)
+                    _post_contingency_rate_columns(container, _monitored_type(rep), name)
                 for t in time_steps
                     sub = if use_slacks
                         _make_post_contingency_slack!(
@@ -600,7 +560,6 @@ at validation.
 """
 function _add_modf_post_contingency_flow_expressions!(
     container::OptimizationContainer,
-    sys::PSY.System,
     ::Type{T},
     model::DeviceModel{V, F},
     network_model::NetworkModel,
@@ -614,7 +573,7 @@ function _add_modf_post_contingency_flow_expressions!(
     modf_matrix = get_contingency_matrix(network_model)
     registered_contingencies = PNM.get_registered_contingencies(modf_matrix)
 
-    resolved = _resolve_monitored_branches(sys, model, network_model)
+    resolved = _resolve_monitored_branches(model, network_model)
 
     expression_container = _add_post_contingency_sparse_expression!(
         container, T, V, resolved, time_steps,
@@ -700,7 +659,7 @@ function add_post_contingency_flow_expressions!(
     nodal_injection_expressions =
         get_expression(container, ActivePowerBalance, PSY.ACBus).data
     _add_modf_post_contingency_flow_expressions!(
-        container, sys, T, model, network_model, nodal_injection_expressions,
+        container, T, model, network_model, nodal_injection_expressions,
     )
     return
 end
@@ -722,7 +681,7 @@ function add_post_contingency_flow_expressions!(
     nodal_injection_expressions =
         _dcp_nodal_injection_expressions(container, PNM.get_bus_axis(modf_matrix))
     _add_modf_post_contingency_flow_expressions!(
-        container, sys, T, model, network_model, nodal_injection_expressions,
+        container, T, model, network_model, nodal_injection_expressions,
     )
     return
 end
@@ -885,10 +844,11 @@ function construct_device!(
         get_time_series_names(device_model),
         PostContingencyBranchRatingTimeSeriesParameter,
     )
-        _add_post_contingency_branch_rating_parameter!(
+        add_branch_parameters!(
             container,
-            device_model,
+            PostContingencyBranchRatingTimeSeriesParameter,
             devices,
+            device_model,
             network_model,
         )
     end
@@ -935,7 +895,6 @@ function construct_device!(
 
     add_constraints!(
         container,
-        sys,
         PostContingencyFlowRateConstraint,
         device_model,
         network_model,
@@ -989,10 +948,11 @@ function construct_device!(
         get_time_series_names(device_model),
         PostContingencyBranchRatingTimeSeriesParameter,
     )
-        _add_post_contingency_branch_rating_parameter!(
+        add_branch_parameters!(
             container,
-            device_model,
+            PostContingencyBranchRatingTimeSeriesParameter,
             devices,
+            device_model,
             network_model,
         )
     end
@@ -1035,7 +995,6 @@ function construct_device!(
 
     add_constraints!(
         container,
-        sys,
         PostContingencyFlowRateConstraint,
         device_model,
         network_model,

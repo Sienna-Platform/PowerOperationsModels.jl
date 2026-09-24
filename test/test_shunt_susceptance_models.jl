@@ -62,6 +62,7 @@ end
         # BYP leaves Q free like `nothing` did; the OpenAPI schema no longer encodes a null mode.
         control_mode = PSY.FACTSOperationModes.BYP,
         max_shunt_current = 100.0,
+        input_basis = CU,
     )
     PSY.add_component!(sys, facts)
 
@@ -88,6 +89,7 @@ end
             control_mode = control_mode,
             voltage_setpoint = 1.0,
             max_shunt_current = 100.0,
+            input_basis = CU,
         )
         PSY.add_component!(sys, facts)
         template = get_thermal_dispatch_template_network(NetworkModel(ACPNetworkModel))
@@ -126,6 +128,7 @@ end
         control_mode = PSY.FACTSOperationModes.NML,
         voltage_setpoint = 1.0,
         max_shunt_current = 100.0,
+        input_basis = CU,
     )
     PSY.add_component!(sys, facts)
     regulated_bus = PSY.get_name(bus)
@@ -159,6 +162,7 @@ end
         control_mode = PSY.FACTSOperationModes.NML,
         voltage_setpoint = 1.0,
         max_shunt_current = 100.0,
+        input_basis = CU,
     )
     PSY.add_component!(sys, facts)
     regulated_bus = PSY.get_name(bus)
@@ -193,6 +197,7 @@ end
             control_mode = control_mode,
             voltage_setpoint = 1.0,
             max_shunt_current = 100.0,
+            input_basis = CU,
         )
         PSY.add_component!(sys, facts)
         template = get_thermal_dispatch_template_network(NetworkModel(ACRNetworkModel))
@@ -377,6 +382,7 @@ end
         name = "facts_lpacc_fixed", available = true, bus = bus,
         control_mode = PSY.FACTSOperationModes.NML, voltage_setpoint = 1.0,
         max_shunt_current = 100.0,
+        input_basis = CU,
     )
     PSY.set_reactive_power_required!(facts, 10.0)
     PSY.add_component!(sys, facts)

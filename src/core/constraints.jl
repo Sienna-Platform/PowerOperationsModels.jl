@@ -1304,6 +1304,21 @@ regardless of `u`; for compact UC, `gated = pmax - pmin`, so the RHS becomes
 Committed: offline competes with the online products for the gated band. Off: the
 semi-continuous range row zeroes `p` and the online awards, leaving `offline <= q_limit`.
 Single award variable per (device, service): the device's merged offer curve prices both
-provision states (documented approximation).
+provision states (documented approximation). With `"offline_only" = true` on the
+`OfflineReserve` `ServiceModel`, offline awards are forbidden while committed instead
+([`OfflineReserveOffStateConstraint`](@ref)).
+
+`HydroCommitmentRunOfRiver` uses the hour's limit in both states,
+`p + online + offline <= ts_t`, from its `ActivePowerTimeSeriesParameter` (static
+`pmax` for a unit without that series).
 """
 struct OfflineReserveBandConstraint <: ConstraintType end
+
+"""
+Offline awards of services whose `ServiceModel` sets `"offline_only" = true` need
+the unit off: `sum(those awards) <= q_limit * (1 - u)`. A must-run device has no
+`u` (always committed), so its row fixes those awards to `0` outright. Scope: thermal
+unit commitment and `HydroCommitmentRunOfRiver`; other formulations book `OfflineReserve`
+awards against their headroom and are not restricted.
+"""
+struct OfflineReserveOffStateConstraint <: ConstraintType end

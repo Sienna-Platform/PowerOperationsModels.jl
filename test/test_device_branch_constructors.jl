@@ -250,6 +250,7 @@ end
         reactive_power_limits_to = (min = -1.0, max = 1.0),
         arc = get_arc(line),
         loss = PSY.LossCurve(LinearCurve(0.0), PSY.CU),
+        input_basis = CU,
     )
 
     add_component!(sys_5, hvdc)
@@ -320,6 +321,7 @@ end
         reactive_power_limits_to = (min = -1.0, max = 1.0),
         arc = get_arc(line),
         loss = PSY.LossCurve(LinearCurve(0.0), PSY.CU),
+        input_basis = CU,
     )
 
     add_component!(sys_5, hvdc)
@@ -787,6 +789,7 @@ end
         base_power = 100.0,
         max_active_power = 0.5,
         max_reactive_power = 0.1,
+        input_basis = CU,
     )
     PSY.add_component!(system, new_load)
 
@@ -812,6 +815,7 @@ end
         ),
         base_power = 100.0,
         time_limits = nothing,
+        input_basis = CU,
     )
     PSY.add_component!(system, new_gen)
 
@@ -840,6 +844,7 @@ end
             x = 0.1,
             rating = 1.0,
             base_power = 100.0,
+            input_basis = CU,
         ),
         secondary_circuit = PSY.TransformerCircuit(;
             available = true,
@@ -848,6 +853,7 @@ end
             x = 0.1,
             rating = 1.0,
             base_power = 100.0,
+            input_basis = CU,
         ),
         tertiary_circuit = PSY.TransformerCircuit(;
             available = true,
@@ -856,8 +862,10 @@ end
             x = 0.1,
             rating = 0.5,
             base_power = 100.0,
+            input_basis = CU,
         ),
         star_bus = star_bus,
+        input_basis = CU,
     )
     PSY.add_component!(system, transformer3w)
 

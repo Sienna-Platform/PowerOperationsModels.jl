@@ -368,7 +368,10 @@ function _modify_device_model!(
         for device_model in values(devices_template)
             # add message here when it exists
             get_component_type(device_model) != dt && continue
-            service_model in device_model.services && continue
+            # One model per service type: the initialization template shares some device
+            # models by reference and would otherwise attach a second copy of this one.
+            S = get_component_type(service_model)
+            any(sm -> get_component_type(sm) == S, device_model.services) && continue
             # TODO(services stability): `device_model.services` has an abstract element type, so
             # this `push!`/iteration dynamic-dispatch; rooted in the IOM `DeviceModel.services`
             # field, needs an IOM struct-typing pass (build-time only). See #216.

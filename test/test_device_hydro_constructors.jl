@@ -480,6 +480,7 @@ end
         ramp_limits = get_ramp_limits(hy, PSY.SU / PSY.u"minute"),
         time_limits = get_time_limits(hy),
         base_power = get_base_power(hy, PSY.NU),
+        input_basis = CU,
     )
     add_component!(c_sys5_hy, hy_copy)
     copy_time_series!(hy_copy, hy)
@@ -1634,4 +1635,61 @@ end
         )
         @test occursin("AbstractHydroPumpFormulation", string(m.sig))
     end
+end
+
+@testset "Hydro served-reserve expressions honor a deployed_fraction profile" begin
+    # The served-reserve expressions feed HydroEnergyOutput and the usage-limit feedforward.
+    # With a profile attached the award coefficient must track the profile per time step.
+    output_dir = mktempdir(; cleanup = true)
+    c_sys5_hy = PSB.build_system(
+        PSITestSystems,
+        "c_sys5_hy";
+        add_single_time_series = true,
+        add_reserves = true,
+    )
+    reserve_up = only(get_components(OnlineReserve{ReserveUp}, c_sys5_hy))
+    reserve_down = only(get_components(OnlineReserve{ReserveDown}, c_sys5_hy))
+    set_deployed_fraction!(reserve_up, 0.5)
+    set_deployed_fraction!(reserve_down, 0.0)
+    set_requirement!(reserve_up, 0.01 * PSY.SU)
+    set_requirement!(reserve_down, 0.01 * PSY.SU)
+
+    profile = collect(range(0.2, 0.9; length = 48))
+    stamps = collect(
+        range(DateTime("2024-01-01T00:00:00"); step = Hour(1), length = length(profile)),
+    )
+    add_time_series!(
+        c_sys5_hy,
+        reserve_up,
+        SingleTimeSeries("deployed_fraction", TimeArray(stamps, profile)),
+    )
+    transform_single_time_series!(c_sys5_hy, Hour(4), Hour(4))
+
+    template = PowerOperationsProblemTemplate()
+    set_device_model!(template, ThermalStandard, ThermalBasicUnitCommitment)
+    set_device_model!(template, PowerLoad, StaticPowerLoad)
+    set_device_model!(template, HydroDispatch, HydroDispatchRunOfRiver)
+    set_service_model!(template, OnlineReserve{ReserveUp}, RangeReserve)
+    set_service_model!(template, OnlineReserve{ReserveDown}, RangeReserve)
+
+    model = DecisionModel(template, c_sys5_hy; optimizer = HiGHS_optimizer)
+    @test build!(model; output_dir = output_dir) == ModelBuildStatus.BUILT
+
+    container = IOM.get_optimization_container(model)
+    expr = IOM.get_expression(container, HydroServedReserveUpExpression, HydroDispatch)
+    var = IOM.get_variable(container, ActivePowerReserveVariable, typeof(reserve_up))
+    hy_name = get_name(only(get_components(HydroDispatch, c_sys5_hy)))
+    up_name = get_name(reserve_up)
+    time_steps = IOM.get_time_steps(container)
+    for t in time_steps
+        @test JuMP.coefficient(expr[hy_name, t], var[(up_name, hy_name, t)]) ≈
+              0.5 * profile[t]
+    end
+    @test JuMP.coefficient(
+        expr[hy_name, first(time_steps)],
+        var[(up_name, hy_name, first(time_steps))],
+    ) != JuMP.coefficient(
+        expr[hy_name, last(time_steps)],
+        var[(up_name, hy_name, last(time_steps))],
+    )
 end
