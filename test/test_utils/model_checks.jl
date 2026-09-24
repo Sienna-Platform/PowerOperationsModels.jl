@@ -200,7 +200,8 @@ end
 branch_rating_su(d::PSY.ACTransmission) = PSY.get_rating(d, PSY.SU)
 branch_rating_su(d::PSY.TwoWindingTransformer) = PSY.get_rating(PSY.get_circuit(d), PSY.SU)
 branch_rating_b_su(d::PSY.ACTransmission) = PSY.get_rating_b(d, PSY.SU)
-branch_rating_b_su(d::PSY.TwoWindingTransformer) = PSY.get_rating_b(PSY.get_circuit(d), PSY.SU)
+branch_rating_b_su(d::PSY.TwoWindingTransformer) =
+    PSY.get_rating_b(PSY.get_circuit(d), PSY.SU)
 
 # StaticBranch under DCPNetworkModel carries its flow as the BThetaBranchFlow expression
 # for every ACTransmission component.

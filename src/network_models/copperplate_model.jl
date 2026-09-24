@@ -28,7 +28,9 @@ function add_constraint_dual!(
     container::OptimizationContainer,
     sys::PSY.System,
     model::NetworkModel{T},
-) where {T <: Union{CopperPlateNetworkModel, AbstractPTDFNetworkModel, AreaBalanceNetworkModel}}
+) where {
+    T <: Union{CopperPlateNetworkModel, AbstractPTDFNetworkModel, AreaBalanceNetworkModel},
+}
     if !isempty(get_duals(model))
         for constraint_type in get_duals(model)
             assign_dual_variable!(container, constraint_type, sys, model)
@@ -58,7 +60,13 @@ function assign_dual_variable!(
     time_steps = get_time_steps(container)
     existing = get_constraint(container, CopperPlateBalanceConstraint(), PSY.Area)
     area_names = axes(existing)[1]
-    add_dual_container!(container, CopperPlateBalanceConstraint, PSY.Area, area_names, time_steps)
+    add_dual_container!(
+        container,
+        CopperPlateBalanceConstraint,
+        PSY.Area,
+        area_names,
+        time_steps,
+    )
     return
 end
 
