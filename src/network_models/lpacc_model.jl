@@ -18,13 +18,19 @@ function add_variables!(
     sys::PSY.System,
     network_model::NetworkModel{LPACCNetworkModel},
 )
-    _add_bounded_bus_voltage_variable!(
-        container, VoltageDeviation, sys, network_model,
-        bus -> begin
-            # bus voltage limits are already per-unit
-            vlim = PSY.get_voltage_limits(bus)
-            return (vlim.min - 1.0, vlim.max - 1.0, 0.0)
-        end,
+    add_variables!(
+        container,
+        VoltageDeviation,
+        _network_buses(sys, network_model),
+        LPACCNetworkModel,
     )
     return
 end
+
+#! format: off
+# bus voltage limits are already per-unit
+get_variable_binary(::Type{VoltageDeviation}, ::Type{PSY.ACBus}, ::Type{LPACCNetworkModel}) = false
+get_variable_lower_bound(::Type{VoltageDeviation}, bus::PSY.ACBus, ::Type{LPACCNetworkModel}) = PSY.get_voltage_limits(bus).min - 1.0
+get_variable_upper_bound(::Type{VoltageDeviation}, bus::PSY.ACBus, ::Type{LPACCNetworkModel}) = PSY.get_voltage_limits(bus).max - 1.0
+get_variable_warm_start_value(::Type{VoltageDeviation}, ::PSY.ACBus, ::Type{LPACCNetworkModel}) = 0.0
+#! format: on

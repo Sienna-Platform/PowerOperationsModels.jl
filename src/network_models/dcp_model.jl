@@ -173,35 +173,13 @@ function _assert_reference_voltage_within_limits(bus::PSY.ACBus)
     return
 end
 
-# Shared skeleton for a bounded per-bus voltage variable (VoltageReal / VoltageImaginary
-# / VoltageDeviation). `bounds(bus) -> (lower, upper, start)` supplies the per-bus bounds
-# and warm start; everything else (axis, container, iteration) is identical.
-function _add_bounded_bus_voltage_variable!(
-    container::OptimizationContainer,
-    ::Type{T},
-    sys::PSY.System,
-    network_model,
-    bounds,
-) where {T}
-    time_steps = get_time_steps(container)
-    bus_names = [name for (name, _) in _bus_name_number_pairs(sys, network_model)]
+# The buses that carry per-bus network variables: every bus retained by the network
+# reduction, in the order of `_bus_name_number_pairs`.
+function _network_buses(sys::PSY.System, network_model::NetworkModel)
     bus_by_name = _bus_by_name(sys)
-
-    var = add_variable_container!(container, T, PSY.ACBus, bus_names, time_steps)
-
-    for name in bus_names
-        lower, upper, start = bounds(bus_by_name[name])
-        for t in time_steps
-            var[name, t] = JuMP.@variable(
-                get_jump_model(container),
-                base_name = "$(nameof(T))_ACBus_{$(name), $(t)}",
-                lower_bound = lower,
-                upper_bound = upper,
-                start = start,
-            )
-        end
-    end
-    return
+    return PSY.ACBus[
+        bus_by_name[name] for (name, _) in _bus_name_number_pairs(sys, network_model)
+    ]
 end
 
 function add_constraints!(

@@ -13,37 +13,22 @@ function add_variables!(
     sys::PSY.System,
     network_model::NetworkModel{ACPNetworkModel},
 )
-    time_steps = get_time_steps(container)
-    bus_names = [name for (name, _) in _bus_name_number_pairs(sys, network_model)]
-    bus_by_name = Dict{String, PSY.ACBus}(
-        PSY.get_name(b) => b for b in PSY.get_components(PSY.ACBus, sys)
-    )
-
-    var = add_variable_container!(
+    add_variables!(
         container,
         VoltageMagnitude,
-        PSY.ACBus,
-        bus_names,
-        time_steps,
+        _network_buses(sys, network_model),
+        ACPNetworkModel,
     )
-
-    for name in bus_names
-        bus = bus_by_name[name]
-        # bus voltage limits are already per-unit
-        vlim = PSY.get_voltage_limits(bus)
-        v0 = PSY.get_magnitude(bus)
-        for t in time_steps
-            var[name, t] = JuMP.@variable(
-                get_jump_model(container),
-                base_name = "VoltageMagnitude_ACBus_{$(name), $(t)}",
-                lower_bound = vlim.min,
-                upper_bound = vlim.max,
-                start = v0,
-            )
-        end
-    end
     return
 end
+
+#! format: off
+# bus voltage limits are already per-unit
+get_variable_binary(::Type{VoltageMagnitude}, ::Type{PSY.ACBus}, ::Type{ACPNetworkModel}) = false
+get_variable_lower_bound(::Type{VoltageMagnitude}, bus::PSY.ACBus, ::Type{ACPNetworkModel}) = PSY.get_voltage_limits(bus).min
+get_variable_upper_bound(::Type{VoltageMagnitude}, bus::PSY.ACBus, ::Type{ACPNetworkModel}) = PSY.get_voltage_limits(bus).max
+get_variable_warm_start_value(::Type{VoltageMagnitude}, bus::PSY.ACBus, ::Type{ACPNetworkModel}) = PSY.get_magnitude(bus)
+#! format: on
 
 function add_constraints!(
     container::OptimizationContainer,
