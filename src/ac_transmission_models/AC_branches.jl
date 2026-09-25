@@ -360,7 +360,7 @@ function add_variables!(
                 )
                 lb !== nothing && JuMP.set_lower_bound(var, lb)
                 ub !== nothing && JuMP.set_upper_bound(var, ub)
-                start !== nothing && JuMP.set_start_value(var, start)
+                set_start_value!(container, var, start)
                 tracker_container[t] = var
             end
         end

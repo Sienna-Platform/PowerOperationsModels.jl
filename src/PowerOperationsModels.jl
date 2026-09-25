@@ -116,6 +116,7 @@ import InfrastructureOptimizationModels:
     get_variable_lower_bound,
     get_variable_upper_bound,
     get_variable_warm_start_value,
+    skip_variable,
     # Device/formulation attribute defaults (IOM has stubs, POM specializes)
     get_default_attributes,
     get_default_time_series_names,
