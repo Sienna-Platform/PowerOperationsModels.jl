@@ -168,7 +168,7 @@ end
         pf_data_opt_container_map::Dict{OptimizationContainerKey, <:Dict},
     )
 
-For every results variable from the optimization, finds the corresponding mapping between
+For every output variable from the optimization, finds the corresponding mapping between
 the optimization variable and the `PowerFlowData` variable, following the `precedence` list
 to break ties when multiple sources exist for the same component type.
 """
@@ -216,7 +216,7 @@ _add_two_terminal_elements_map!(
 
 """
 Adds mappings for two-terminal elements (HVDC components) that connect the power flow
-results (from → to, to → from) to the mappings for all component types. Their results are
+outputs (from → to, to → from) to the mappings for all component types. Their outputs are
 added as bus injections in the `PowerFlowData` as a simplified representation.
 """
 function _add_two_terminal_elements_map!(
