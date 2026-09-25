@@ -78,6 +78,9 @@ get_variable_binary(::Type{StartVariable}, d::Type{<:PSY.ThermalGen}, ::Type{<:A
 get_variable_lower_bound(::Type{StartVariable}, d::PSY.ThermalGen, ::Type{<:AbstractThermalFormulation}) = 0.0
 get_variable_upper_bound(::Type{StartVariable}, d::PSY.ThermalGen, ::Type{<:AbstractThermalFormulation}) = 1.0
 
+# Must-run units are always on, so they carry no commitment variables.
+skip_variable(::Type{<:Union{OnVariable, StartVariable, StopVariable}}, d::PSY.ThermalGen, ::Type{<:AbstractThermalFormulation}) = _is_must_run(d)
+
 ############## ColdStartVariable, WarmStartVariable, HotStartVariable ############
 get_variable_binary(::Type{<:Union{ColdStartVariable, WarmStartVariable, HotStartVariable}}, ::Type{PSY.ThermalMultiStart}, ::Type{<:AbstractThermalFormulation}) = true
 
@@ -370,53 +373,6 @@ function get_min_max_limits(
         max = PSY.get_active_power_limits(device, PSY.SU).max -
               PSY.get_active_power_limits(device, PSY.SU).min,
     )
-end
-
-"""
-Adds a variable to the optimization model for the OnVariable of Thermal Units
-"""
-function add_variables!(
-    container::OptimizationContainer,
-    ::Type{T},
-    devices::U,
-    ::Type{F},
-) where {
-    T <: Union{OnVariable, StartVariable, StopVariable},
-    U <: Vector{D},
-    F <: AbstractThermalFormulation,
-} where {D <: PSY.ThermalGen}
-    @assert !isempty(devices)
-    time_steps = get_time_steps(container)
-    settings = get_settings(container)
-    binary = get_variable_binary(T, D, F)
-
-    variable = add_variable_container!(
-        container,
-        T,
-        D,
-        [PSY.get_name(d) for d in devices if !_is_must_run(d)],
-        time_steps,
-    )
-
-    for d in devices
-        if _is_must_run(d)
-            continue
-        end
-        name = PSY.get_name(d)
-        for t in time_steps
-            variable[name, t] = JuMP.@variable(
-                get_jump_model(container),
-                base_name = "$(T)_$(D)_{$(name), $(t)}",
-                binary = binary
-            )
-            if get_warm_start(settings)
-                init = get_variable_warm_start_value(T, d, F)
-                !isnothing(init) && JuMP.set_start_value(variable[name, t], init)
-            end
-        end
-    end
-
-    return
 end
 
 """
