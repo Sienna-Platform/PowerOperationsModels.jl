@@ -11,6 +11,18 @@
 # (instead of the flat `DEFAULT_RESERVE_COST`). These tests pin the DATA MODEL and assert the
 # consumer builds the 4D block variable, the award-linking constraint, and the offer-slope cost.
 
+# Awards are stored per (device type, service type): join every device type's WIDE frame for
+# `service_type` (the encoded service type, e.g. "OnlineReserve__ReserveUp").
+function _read_awards(res, service_type::String)
+    frames = [
+        read_variable(res, key; table_format = TableFormat.WIDE) for
+        key in list_variable_names(res) if
+        startswith(key, "ActivePowerReserveVariable__") &&
+        endswith(key, "__" * service_type)
+    ]
+    return reduce((a, b) -> innerjoin(a, b; on = :DateTime), frames)
+end
+
 # Give every contributing thermal device of `reserve` a MarketBidCost with an energy offer and a
 # per-device reserve OFFER curve (PiecewiseStepData, NaturalUnit) named after the service.
 function add_device_reserve_offers!(
@@ -86,9 +98,12 @@ end
     @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
 
     container = get_optimization_container(model)
-    # The reserve award exists, keyed by service type.
+    # The reserve award exists, keyed by (device type, service type).
     @test IOM.has_container_key(
-        container, ActivePowerReserveVariable, OnlineReserve{ReserveUp})
+        container,
+        ActivePowerReserveVariable,
+        IOM.ComponentPairKey{ThermalStandard, OnlineReserve{ReserveUp}},
+    )
 
     # The per-device reserve OFFER is now consumed: a 4D block variable keyed
     # (service, device, segment, time) exists for the contributing device type, plus the
@@ -99,8 +114,11 @@ end
         container, POM.ReserveOfferLinkingConstraint, ThermalStandard)
     blk = IOM.get_variable(container, POM.PiecewiseLinearBlockReserveOffer, ThermalStandard)
     cons = IOM.get_constraint(container, POM.ReserveOfferLinkingConstraint, ThermalStandard)
-    award =
-        IOM.get_variable(container, ActivePowerReserveVariable, OnlineReserve{ReserveUp})
+    award = IOM.get_variable(
+        container,
+        ActivePowerReserveVariable,
+        IOM.ComponentPairKey{ThermalStandard, OnlineReserve{ReserveUp}},
+    )
     @test !isempty(blk)
 
     sname = PSY.get_name(reserve)
@@ -221,9 +239,7 @@ end
     @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
 
     res = IOM.OptimizationProblemOutputs(model)
-    awards = read_variable(
-        res, "ActivePowerReserveVariable__OnlineReserve__ReserveUp";
-        table_format = TableFormat.WIDE)
+    awards = _read_awards(res, "OnlineReserve__ReserveUp")
     # WIDE columns are "<service>__<device>"; values are per-hour reserve awards in MW.
     col = "$(PSY.get_name(ordc))__$(PSY.get_name(g1))"
     # The linking constraint caps g1's award at the offered MW each hour; in a dummy hour that cap
@@ -277,9 +293,7 @@ end
     @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
 
     res = IOM.OptimizationProblemOutputs(model)
-    awards = read_variable(
-        res, "ActivePowerReserveVariable__OnlineReserve__ReserveUp";
-        table_format = TableFormat.WIDE)
+    awards = _read_awards(res, "OnlineReserve__ReserveUp")
     sname = PSY.get_name(ordc)
     order = sort(collect(keys(base_slope)); by = n -> base_slope[n])
     cheapest, priciest = first(order), last(order)
@@ -466,10 +480,7 @@ end
         res, "ServiceRequirementVariable__GroupReserve__ReserveUp";
         table_format = TableFormat.WIDE,
     )
-    awards = read_variable(
-        res, "ActivePowerReserveVariable__OnlineReserve__ReserveUp";
-        table_format = TableFormat.WIDE,
-    )
+    awards = _read_awards(res, "OnlineReserve__ReserveUp")
     sub_cols = [c for c in names(awards) if startswith(c, "GROUP_SUB_")]
     load_col = "GROUP_SUB_A__$(_MKT_LOAD)"
     @test load_col in names(awards)
@@ -526,10 +537,7 @@ end
         res, "ServiceRequirementVariable__OfflineReserve";
         table_format = TableFormat.WIDE,
     )
-    awards = read_variable(
-        res, "ActivePowerReserveVariable__OfflineReserve";
-        table_format = TableFormat.WIDE,
-    )
+    awards = _read_awards(res, "OfflineReserve")
     load_col = "NSPIN__$(_MKT_LOAD)"
     @test load_col in names(awards)
     for t in 1:24
@@ -626,7 +634,11 @@ function _check_offline_band(
 )
     con = IOM.get_constraint(container, POM.OfflineReserveBandConstraint, device_type)
     varbin = IOM.get_variable(container, POM.OnVariable, device_type)
-    awards = IOM.get_variable(container, POM.ActivePowerReserveVariable, OfflineReserve)
+    awards = IOM.get_variable(
+        container,
+        POM.ActivePowerReserveVariable,
+        IOM.ComponentPairKey{device_type, OfflineReserve},
+    )
     checked = 0
     for (idx, c) in con.data
         name, t = idx
@@ -671,14 +683,8 @@ end
 
     res = IOM.OptimizationProblemOutputs(model)
     on = read_variable(res, OnVariable, ThermalStandard; table_format = TableFormat.WIDE)
-    nspin_awards = read_variable(
-        res, "ActivePowerReserveVariable__OfflineReserve";
-        table_format = TableFormat.WIDE,
-    )
-    spin_awards = read_variable(
-        res, "ActivePowerReserveVariable__OnlineReserve__ReserveUp";
-        table_format = TableFormat.WIDE,
-    )
+    nspin_awards = _read_awards(res, "OfflineReserve")
+    spin_awards = _read_awards(res, "OnlineReserve__ReserveUp")
     # Standard UC: the band row is `p + online + offline <= pmax` for every t, so the
     # coefficient on `u` is exactly zero. This gates the row's existence and its RHS -
     # the surviving solve assertions below do not, since each award is separately capped
@@ -769,14 +775,8 @@ end
             res, PowerAboveMinimumVariable, ThermalStandard;
             table_format = TableFormat.WIDE,
         )
-        nspin_awards = read_variable(
-            res, "ActivePowerReserveVariable__OfflineReserve";
-            table_format = TableFormat.WIDE,
-        )
-        spin_awards = read_variable(
-            res, "ActivePowerReserveVariable__OnlineReserve__ReserveUp";
-            table_format = TableFormat.WIDE,
-        )
+        nspin_awards = _read_awards(res, "OfflineReserve")
+        spin_awards = _read_awards(res, "OnlineReserve__ReserveUp")
 
         off_name = PSY.get_name(offunit)
         total_off_award = 0.0
@@ -884,10 +884,7 @@ end
         res, PowerAboveMinimumVariable, PSY.ThermalMultiStart;
         table_format = TableFormat.WIDE,
     )
-    awards = read_variable(
-        res, "ActivePowerReserveVariable__OfflineReserve";
-        table_format = TableFormat.WIDE,
-    )
+    awards = _read_awards(res, "OfflineReserve")
     # Committed multistart units honour the compact band in the solved solution.
     committed = 0
     for d in multistarts
@@ -965,10 +962,7 @@ end
         res, "ActivePowerVariable__InterruptiblePowerLoad";
         table_format = TableFormat.WIDE,
     )
-    awards = read_variable(
-        res, "ActivePowerReserveVariable__OnlineReserve__ReserveUp";
-        table_format = TableFormat.WIDE,
-    )
+    awards = _read_awards(res, "OnlineReserve__ReserveUp")
     total_award = 0.0
     for t in 1:24
         awarded = sum(awards[t, c] for c in _il_cols(awards))
@@ -989,10 +983,7 @@ end
         res, "ActivePowerVariable__InterruptiblePowerLoad";
         table_format = TableFormat.WIDE,
     )
-    awards = read_variable(
-        res, "ActivePowerReserveVariable__OnlineReserve__ReserveDown";
-        table_format = TableFormat.WIDE,
-    )
+    awards = _read_awards(res, "OnlineReserve__ReserveDown")
     hsl = read_parameter(
         res, "ActivePowerTimeSeriesParameter__InterruptiblePowerLoad";
         table_format = TableFormat.WIDE,
@@ -1026,14 +1017,8 @@ end
         res, "ActivePowerVariable__InterruptiblePowerLoad";
         table_format = TableFormat.WIDE,
     )
-    up = read_variable(
-        res, "ActivePowerReserveVariable__OnlineReserve__ReserveUp";
-        table_format = TableFormat.WIDE,
-    )
-    dn = read_variable(
-        res, "ActivePowerReserveVariable__OnlineReserve__ReserveDown";
-        table_format = TableFormat.WIDE,
-    )
+    up = _read_awards(res, "OnlineReserve__ReserveUp")
+    dn = _read_awards(res, "OnlineReserve__ReserveDown")
     hsl = read_parameter(
         res, "ActivePowerTimeSeriesParameter__InterruptiblePowerLoad";
         table_format = TableFormat.WIDE,
@@ -1101,10 +1086,7 @@ end
         res, "ActivePowerVariable__InterruptiblePowerLoad";
         table_format = TableFormat.WIDE,
     )
-    awards = read_variable(
-        res, "ActivePowerReserveVariable__OnlineReserve__ReserveUp";
-        table_format = TableFormat.WIDE,
-    )
+    awards = _read_awards(res, "OnlineReserve__ReserveUp")
     combined_total = 0.0
     for t in 1:24
         # One shared LB expression: a per-service headroom bug would allow up to 2*P.
@@ -1154,10 +1136,7 @@ end
         container, POM.PiecewiseLinearBlockReserveOffer, PSY.InterruptiblePowerLoad,
     )
     res = IOM.OptimizationProblemOutputs(model)
-    awards = read_variable(
-        res, "ActivePowerReserveVariable__OnlineReserve__ReserveUp";
-        table_format = TableFormat.WIDE,
-    )
+    awards = _read_awards(res, "OnlineReserve__ReserveUp")
     col = "$(PSY.get_name(ordc))__$(_IL_NAME)"
     total = 0.0
     for t in 1:24
@@ -1192,11 +1171,7 @@ function _solve_offline_ordc(attributes::Dict{String, Any})
     @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
     res = IOM.OptimizationProblemOutputs(model)
     on = read_variable(res, OnVariable, ThermalStandard; table_format = TableFormat.WIDE)
-    awards = read_variable(
-        res,
-        "ActivePowerReserveVariable__OfflineReserve";
-        table_format = TableFormat.WIDE,
-    )
+    awards = _read_awards(res, "OfflineReserve")
     service = PSY.get_name(only(get_components(OfflineReserve, sys)))
     committed_offline = 0.0
     for g in get_components(ThermalStandard, sys), t in 1:24
@@ -1253,11 +1228,7 @@ end
           IOM.ModelBuildStatus.BUILT
     @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
     res = IOM.OptimizationProblemOutputs(model)
-    awards = read_variable(
-        res,
-        "ActivePowerReserveVariable__OfflineReserve";
-        table_format = TableFormat.WIDE,
-    )
+    awards = _read_awards(res, "OfflineReserve")
     service = PSY.get_name(only(get_components(OfflineReserve, sys)))
     mustrun_name = PSY.get_name(mustrun)
     for t in 1:24
@@ -1316,11 +1287,7 @@ function _solve_hydro_offline!(model; on = nothing)
     res = IOM.OptimizationProblemOutputs(model)
     wide = TableFormat.WIDE
     commitment = read_variable(res, OnVariable, HydroDispatch; table_format = wide)
-    award = read_variable(
-        res,
-        "ActivePowerReserveVariable__OfflineReserve";
-        table_format = wide,
-    )
+    award = _read_awards(res, "OfflineReserve")
     limit = read_parameter(
         res,
         ActivePowerTimeSeriesParameter,
