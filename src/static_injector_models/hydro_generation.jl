@@ -2805,7 +2805,8 @@ function add_to_expression!(
                 isa(service, PSY.Reserve{PSY.ReserveUp}) || continue
                 service_name = PSY.get_name(service)
                 fractions = deployed_fraction_values(container, service_model, service)
-                variable = get_variable(container, U, typeof(service))
+                variable =
+                    get_variable(container, U, IOM.ComponentPairKey{V, typeof(service)})
                 for t in get_time_steps(container)
                     add_proportional_to_jump_expression!(
                         expression[name, t],
@@ -2844,7 +2845,8 @@ function add_to_expression!(
                 isa(service, PSY.Reserve{PSY.ReserveDown}) || continue
                 service_name = PSY.get_name(service)
                 fractions = deployed_fraction_values(container, service_model, service)
-                variable = get_variable(container, U, typeof(service))
+                variable =
+                    get_variable(container, U, IOM.ComponentPairKey{V, typeof(service)})
                 for t in get_time_steps(container)
                     add_proportional_to_jump_expression!(
                         expression[name, t],

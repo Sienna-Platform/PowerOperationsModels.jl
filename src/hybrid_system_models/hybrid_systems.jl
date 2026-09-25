@@ -758,7 +758,7 @@ function add_to_expression!(
     W <: AbstractReservesFormulation,
 }
     s_name = PSY.get_name(service)
-    variable = get_variable(container, U, V)
+    variable = get_variable(container, U, IOM.ComponentPairKey{UV, V})
     for d in devices
         name = PSY.get_name(d)
         expression = get_expression(container, T, UV, _service_container_meta(service))
@@ -2079,7 +2079,7 @@ function add_constraints!(
                 names, time_steps;
                 meta = "$(s_type)_$s_name")
         # System-level reserve variable for this service, keyed `(service, device, time)`.
-        sys_reserve = get_variable(container, ActivePowerReserveVariable, s_type)
+        sys_reserve = _reserve_variable(container, V, s_type)
         # Per-hybrid reserve variables for this service
         r_out = get_variable(
             container,
