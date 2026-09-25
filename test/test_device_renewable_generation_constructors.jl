@@ -142,6 +142,53 @@ end
     @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
 end
 
+@testset "Renewable curtailment cost follows availability curve" begin
+    c_sys5_re = PSB.build_system(PSITestSystems, "c_sys5_re")
+    wind = get_component(RenewableDispatch, c_sys5_re, "WindBusC")
+    # Oversize so available wind exceeds load and the unit is forced to curtail.
+    # max active power is derived as rating * power_factor.
+    set_rating!(wind, 200.0 * PSY.SU)
+    set_operation_cost!(
+        wind,
+        PSY.RenewableGenerationCost(;
+            variable_operation_cost = CostCurve(LinearCurve(0.0)),
+            curtailment_cost = CostCurve(LinearCurve(10.0)),
+            fixed = 0.0,
+        ),
+    )
+    template = PowerOperationsProblemTemplate(NetworkModel(CopperPlateNetworkModel))
+    set_device_model!(template, RenewableDispatch, RenewableFullDispatch)
+    set_device_model!(template, ThermalStandard, ThermalStandardDispatch)
+    set_device_model!(template, PowerLoad, StaticPowerLoad)
+    model = DecisionModel(
+        template,
+        c_sys5_re;
+        name = "RE_curtailment_availability",
+        optimizer = HiGHS_optimizer,
+    )
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+    @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+
+    results = OptimizationProblemOutputs(model)
+    wide = (; table_format = TableFormat.WIDE)
+    available = read_parameter(
+        results, "ActivePowerTimeSeriesParameter__RenewableDispatch";
+        table_format = TableFormat.WIDE)
+    dispatch = read_variable(
+        results,
+        "ActivePowerVariable__RenewableDispatch";
+        table_format = TableFormat.WIDE,
+    )
+    curt_cost = read_expression(
+        results, "CurtailmentCostExpression__RenewableDispatch";
+        table_format = TableFormat.WIDE)
+
+    curtailed_mw = available[!, "WindBusC"] .- dispatch[!, "WindBusC"]
+    @test any(curtailed_mw .> 0.1)
+    @test isapprox(curt_cost[!, "WindBusC"], 10.0 .* curtailed_mw; rtol = 1e-6)
+end
+
 @testset "Renewable with quadratic variable cost builds objective (issue #9)" begin
     # Regression test: a RenewableDispatch with a quadratic cost curve used to call
     # `PSY.get_active_power_limits`, but renewables only have a max active power field,

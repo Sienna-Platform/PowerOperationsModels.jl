@@ -1,9 +1,10 @@
 # One `ServiceModel` per service TYPE (like `DeviceModel`). `construct_service!` runs once
 # per type: it gets all services of the type via `get_available_components(model, sys)`,
 # reads each service's contributing devices from the nested per-service map
-# (`get_contributing_devices(model, service_name)`), and builds. Reserve variable and
-# constraint containers are shared per `(entry type, service type)`, with each service
-# filling its own slice. Group formulations are deferred to last (their members must exist).
+# (`get_contributing_devices_map(model, service_name)`), and builds. Reserve award containers
+# are shared per `(device type, service type)` and constraint containers per
+# `(entry type, service type)`, with each service filling its own slice. Group formulations
+# are deferred to last (their members must exist).
 #
 # TODO(services stability): See issue #216.
 
@@ -202,15 +203,14 @@ function construct_service!(
     ts_services = [s for s in demand_services if _has_ts_requirement(model, s)]
     isempty(ts_services) ||
         add_parameters!(container, RequirementTimeSeriesParameter, ts_services, model)
+    add_service_variables!(
+        container,
+        ActivePowerReserveVariable,
+        services,
+        model,
+        RangeReserve,
+    )
     for service in services
-        contributing_devices = get_contributing_devices(model, PSY.get_name(service))
-        add_service_variables!(
-            container,
-            ActivePowerReserveVariable,
-            service,
-            contributing_devices,
-            RangeReserve,
-        )
         add_to_expression!(
             container,
             ActivePowerReserveVariable,
@@ -252,7 +252,7 @@ function construct_service!(
         get_use_slacks(model) && add_reserve_slacks!(container, SR, demand_names)
     end
     for service in services
-        contributing_devices = get_contributing_devices(model, PSY.get_name(service))
+        contributing_devices = get_contributing_devices_map(model, PSY.get_name(service))
         if _has_reserve_demand(model, service)
             add_constraints!(
                 container,
@@ -261,13 +261,15 @@ function construct_service!(
                 contributing_devices,
                 model,
             )
-            add_constraints!(
-                container,
-                ParticipationFractionConstraint,
-                service,
-                contributing_devices,
-                model,
-            )
+            for devices in values(contributing_devices)
+                add_constraints!(
+                    container,
+                    ParticipationFractionConstraint,
+                    service,
+                    devices,
+                    model,
+                )
+            end
             add_to_objective_function!(container, service, model)
         else
             # Supply-only: no requirement of its own (it may serve a GroupReserve). Price any
@@ -309,15 +311,14 @@ function construct_service!(
         # Slope/breakpoint PWL cost params for the time-series-backed ORDCs (no-op otherwise).
         process_stepwise_cost_reserve_parameters!(container, model, demand_services)
     end
+    add_service_variables!(
+        container,
+        ActivePowerReserveVariable,
+        services,
+        model,
+        StepwiseCostReserve,
+    )
     for service in services
-        contributing_devices = get_contributing_devices(model, PSY.get_name(service))
-        add_service_variables!(
-            container,
-            ActivePowerReserveVariable,
-            service,
-            contributing_devices,
-            StepwiseCostReserve,
-        )
         add_to_expression!(
             container,
             ActivePowerReserveVariable,
@@ -352,7 +353,7 @@ function construct_service!(
         )
     end
     for service in services
-        contributing_devices = get_contributing_devices(model, PSY.get_name(service))
+        contributing_devices = get_contributing_devices_map(model, PSY.get_name(service))
         if _has_reserve_demand(model, service)
             add_constraints!(
                 container,
@@ -600,15 +601,14 @@ function construct_service!(
     ts_services = [s for s in services if _has_ts_requirement(model, s)]
     isempty(ts_services) ||
         add_parameters!(container, RequirementTimeSeriesParameter, ts_services, model)
+    add_service_variables!(
+        container,
+        ActivePowerReserveVariable,
+        services,
+        model,
+        RampReserve,
+    )
     for service in services
-        contributing_devices = get_contributing_devices(model, PSY.get_name(service))
-        add_service_variables!(
-            container,
-            ActivePowerReserveVariable,
-            service,
-            contributing_devices,
-            RampReserve,
-        )
         add_to_expression!(
             container,
             ActivePowerReserveVariable,
@@ -643,7 +643,7 @@ function construct_service!(
     )
     get_use_slacks(model) && add_reserve_slacks!(container, SR, service_names)
     for service in services
-        contributing_devices = get_contributing_devices(model, PSY.get_name(service))
+        contributing_devices = get_contributing_devices_map(model, PSY.get_name(service))
         add_constraints!(
             container,
             RequirementConstraint,
@@ -651,14 +651,16 @@ function construct_service!(
             contributing_devices,
             model,
         )
-        add_constraints!(container, RampConstraint, service, contributing_devices, model)
-        add_constraints!(
-            container,
-            ParticipationFractionConstraint,
-            service,
-            contributing_devices,
-            model,
-        )
+        for devices in values(contributing_devices)
+            add_constraints!(container, RampConstraint, service, devices, model)
+            add_constraints!(
+                container,
+                ParticipationFractionConstraint,
+                service,
+                devices,
+                model,
+            )
+        end
         add_to_objective_function!(container, service, model)
         add_feedforward_constraints!(container, model, service)
     end
@@ -682,15 +684,14 @@ function construct_service!(
     ts_services = [s for s in services if _has_ts_requirement(model, s)]
     isempty(ts_services) ||
         add_parameters!(container, RequirementTimeSeriesParameter, ts_services, model)
+    add_service_variables!(
+        container,
+        ActivePowerReserveVariable,
+        services,
+        model,
+        NonSpinningReserve,
+    )
     for service in services
-        contributing_devices = get_contributing_devices(model, PSY.get_name(service))
-        add_service_variables!(
-            container,
-            ActivePowerReserveVariable,
-            service,
-            contributing_devices,
-            NonSpinningReserve,
-        )
         add_feedforward_arguments!(container, model, service)
     end
     return
@@ -718,7 +719,7 @@ function construct_service!(
     )
     get_use_slacks(model) && add_reserve_slacks!(container, SR, service_names)
     for service in services
-        contributing_devices = get_contributing_devices(model, PSY.get_name(service))
+        contributing_devices = get_contributing_devices_map(model, PSY.get_name(service))
         add_constraints!(
             container,
             RequirementConstraint,
@@ -726,20 +727,16 @@ function construct_service!(
             contributing_devices,
             model,
         )
-        add_constraints!(
-            container,
-            ReservePowerConstraint,
-            service,
-            contributing_devices,
-            model,
-        )
-        add_constraints!(
-            container,
-            ParticipationFractionConstraint,
-            service,
-            contributing_devices,
-            model,
-        )
+        for devices in values(contributing_devices)
+            add_constraints!(container, ReservePowerConstraint, service, devices, model)
+            add_constraints!(
+                container,
+                ParticipationFractionConstraint,
+                service,
+                devices,
+                model,
+            )
+        end
         add_to_objective_function!(container, service, model)
         add_feedforward_constraints!(container, model, service)
     end

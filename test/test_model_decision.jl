@@ -493,21 +493,29 @@ end
     # This test needs to be reviewed
     # @test isapprox(get_objective_value(res), 256937.0; atol = 10000.0)
     vars = res.variable_values
-    # Reserve variables of a type share one container keyed
+    # Reserve variables share one container per (device type, service type), keyed
     # `(service_name, device_name, time)`.
-    service_key = IOM.VariableKey(
-        ActivePowerReserveVariable,
-        PSY.OfflineReserve,
+    S = IOM.get_component_type(
+        IOM.VariableKey(ActivePowerReserveVariable, PSY.OfflineReserve),
     )
-    @test service_key in keys(vars)
-    # That container flattens to `"service_name__device_name"` result columns
+    service_keys = [
+        k for k in keys(vars) if
+        IOM.get_entry_type(k) === ActivePowerReserveVariable &&
+        IOM.get_component_type(k) <: IOM.ComponentPairKey{<:PSY.Component, S}
+    ]
+    @test !isempty(service_keys)
+    # Each container flattens to `"service_name__device_name"` result columns
     # (WIDE format one column per flattened pair).
-    result = read_variable(
-        res,
-        "ActivePowerReserveVariable__OfflineReserve";
-        table_format = TableFormat.WIDE,
-    )
-    @test any(startswith(string(n), "NonSpinningReserve__") for n in names(result))
+    result_columns = [
+        n for k in service_keys for n in names(
+            read_variable(
+                res,
+                IOM.encode_key_as_string(k);
+                table_format = TableFormat.WIDE,
+            ),
+        )
+    ]
+    @test any(startswith(string(n), "NonSpinningReserve__") for n in result_columns)
 end
 
 @testset "Test serialization/deserialization of DecisionModel outputs" begin

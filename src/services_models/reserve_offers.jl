@@ -22,7 +22,7 @@ _cost_offers_reserve(cost::Union{PSY.MarketBidCost, PSY.MarketBidTimeSeriesCost}
 _cost_offers_reserve(::PSY.OperationalCost, service) = false
 
 # Price every contributing device that offers into `service` by its offer curve; returns the set of
-# device names so priced (the flat-cost pass skips them).
+# `(device type, device name)` so priced (the flat-cost pass skips them).
 # A group has no contributing devices, so it can carry no per-device offers; with
 # `GroupReserve <: AbstractReserve` the generic method below would otherwise accept it.
 # Offers live on the group's contributing services and are priced by their own models.
@@ -45,19 +45,19 @@ function add_reserve_offer_costs!(
     model::ServiceModel{SR, T},
 ) where {SR <: PSY.AbstractReserve, T <: AbstractReservesFormulation}
     service_name = PSY.get_name(service)
-    award = get_variable(container, ActivePowerReserveVariable, SR)
     time_steps = get_time_steps(container)
     resolution = get_resolution(container)
     dt = Dates.value(Dates.Second(resolution)) / SECONDS_IN_HOUR
     base_p = get_model_base_power(container)
     initial_time = IOM.get_initial_time(container)
     jump_model = get_jump_model(container)
-    offered = Set{String}()
+    offered = Set{Tuple{DataType, String}}()
 
     for (device_type, devices) in get_contributing_devices_map(model, service_name)
         offering = [d for d in devices if _has_reserve_offer(d, service)]
         isempty(offering) && continue
         names = [PSY.get_name(d) for d in offering]
+        award = _reserve_variable(container, device_type, SR)
         # Block var keyed `(service, device, segment, time)` via
         # `IOM.sparse_variable_key_type(PiecewiseLinearBlockReserveOffer)`. Segments vary per
         # device and time, so they are filled sparsely below.
@@ -99,7 +99,7 @@ function add_reserve_offer_costs!(
                 add_to_objective_invariant_expression!(
                     container, get_pwl_cost_expression_delta(pwl_vars, slopes, dt))
             end
-            push!(offered, dev_name)
+            push!(offered, (device_type, dev_name))
         end
     end
     return offered
