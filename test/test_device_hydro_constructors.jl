@@ -1677,7 +1677,11 @@ end
 
     container = IOM.get_optimization_container(model)
     expr = IOM.get_expression(container, HydroServedReserveUpExpression, HydroDispatch)
-    var = IOM.get_variable(container, ActivePowerReserveVariable, typeof(reserve_up))
+    var = IOM.get_variable(
+        container,
+        ActivePowerReserveVariable,
+        IOM.ComponentPairKey{HydroDispatch, typeof(reserve_up)},
+    )
     hy_name = get_name(only(get_components(HydroDispatch, c_sys5_hy)))
     up_name = get_name(reserve_up)
     time_steps = IOM.get_time_steps(container)

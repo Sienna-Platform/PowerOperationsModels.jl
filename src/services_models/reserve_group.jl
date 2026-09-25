@@ -214,9 +214,9 @@ function _group_member_variables(
 )
     member_names = Set(PSY.get_name(r) for r in contributing_services)
     index = [JuMP.VariableRef[] for _ in time_steps]
-    scanned = Set{DataType}()
+    scanned = Set{Type}()
     for r in contributing_services
-        rtype = typeof(r)
+        rtype = IOM.canonical_component_type(typeof(r))
         rtype in scanned && continue
         push!(scanned, rtype)
         for reserve_variable in _reserve_variables(container, rtype)
