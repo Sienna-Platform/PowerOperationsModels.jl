@@ -236,19 +236,19 @@ end
     q = IOM.get_variable(container, ClearedTransferVariable, PSY.PointToPointBid)
     @test JuMP.lower_bound(q["P2P1", t1]) == 0.0
     @test JuMP.upper_bound(q["P2P1", t1]) == 50.0 / PSY.get_base_power(sys)
-    # -q at from (zone expression), +q at to (hub expression).
+    # +q at from (zone expression), -q at to (hub expression).
     zexpr = IOM.get_expression(container, AggregateClearedInjection, PSY.LoadZone)
     hexpr = IOM.get_expression(container, AggregateClearedInjection, PSY.TradingHub)
-    @test JuMP.coefficient(zexpr["LZ1", t1], q["P2P1", t1]) == -1.0
-    @test JuMP.coefficient(hexpr["HUB1", t1], q["P2P1", t1]) == 1.0
+    @test JuMP.coefficient(zexpr["LZ1", t1], q["P2P1", t1]) == 1.0
+    @test JuMP.coefficient(hexpr["HUB1", t1], q["P2P1", t1]) == -1.0
 
     # D11: excluded from the settlement row outright.
     sexpr = IOM.get_expression(container, IOM.SettlementBalance, PSY.System)
     @test JuMP.coefficient(sexpr[1, t1], q["P2P1", t1]) == 0.0
 
     # The invariant that catches factor bugs end-to-end: each position's distributed
-    # coefficients sum to one across ALL buses at every timestep, so -q via the zone and
-    # +q via the hub cancel system-wide and the bid acts only through the nodal pattern.
+    # coefficients sum to one across ALL buses at every timestep, so +q via the zone and
+    # -q via the hub cancel system-wide and the bid acts only through the nodal pattern.
     zpos = IOM.get_variable(container, ClearedPositionVariable, PSY.LoadZone)
     hpos = IOM.get_variable(container, ClearedPositionVariable, PSY.TradingHub)
     nodal = IOM.get_expression(container, ActivePowerBalance, PSY.ACBus)
@@ -297,7 +297,7 @@ end
     end
     q = IOM.get_variable(container, ClearedTransferVariable, PSY.PointToPointBid)
     bexpr = IOM.get_expression(container, AggregateClearedInjection, PSY.ACBus)
-    @test JuMP.coefficient(bexpr[bname, t1], q["P2P_BUS", t1]) == 1.0
+    @test JuMP.coefficient(bexpr[bname, t1], q["P2P_BUS", t1]) == -1.0
 end
 
 @testset "SpreadBid terminal without a location model fails loudly" begin
@@ -371,8 +371,8 @@ end
     # The two signed position writes are untouched by pricing.
     zexpr = IOM.get_expression(container, AggregateClearedInjection, PSY.LoadZone)
     hexpr = IOM.get_expression(container, AggregateClearedInjection, PSY.TradingHub)
-    @test JuMP.coefficient(zexpr["LZ1", t1], q["P2P1", t1]) == -1.0
-    @test JuMP.coefficient(hexpr["HUB1", t1], q["P2P1", t1]) == 1.0
+    @test JuMP.coefficient(zexpr["LZ1", t1], q["P2P1", t1]) == 1.0
+    @test JuMP.coefficient(hexpr["HUB1", t1], q["P2P1", t1]) == -1.0
 end
 
 # Promote a bid's spread_bid to a fully time-series-backed `MarketBidTimeSeriesCost` with
@@ -856,6 +856,83 @@ end
         for meta in ("lb", "ub")
     )
     @test dual_value > 1e-6
+end
+
+# A PTP obligation injects at its source (`from`) and withdraws at its sink (`to`), and
+# clears while the sink-minus-source spread is at or below its bid price. On a congested
+# line the spread is the line's congestion rent times the shift-factor difference, so a
+# bid that relieves the line sees a negative spread and must clear in full, and its mirror
+# image, which loads the line, sees a large positive spread and must not clear at all.
+@testset "SpreadBid clears on the sink-minus-source spread across a congested line" begin
+    sys, zone, zone_buses = _build_zone_system()
+    vp = PSY.VirtualParticipant(;
+        name = "VD", available = true, max_supply = 0.0, max_demand = 1000.0,
+        settlement_point = zone,
+        operation_cost = PSY.MarketBidCost(;
+            decremental_offer_curves = PSY.CostCurve(
+                PSY.PiecewiseIncrementalCurve(0.0, [0.0, 1000.0], [1000.0]),
+                PSY.NU,
+            ),
+        ),
+    )
+    PSY.add_component!(sys, vp)
+
+    model = _solve_congestion_model(sys)
+    container = get_optimization_container(model)
+    t1 = first(get_time_steps(container))
+    flows = IOM.get_expression(container, PTDFBranchFlow, PSY.Line)
+    line_names = collect(axes(flows)[1])
+    loaded = argmax(l -> abs(JuMP.value(flows[l, t1])), line_names)
+    direction = sign(JuMP.value(flows[loaded, t1]))
+    rating = 0.9 * abs(JuMP.value(flows[loaded, t1]))
+    PSY.set_rating!(PSY.get_component(PSY.Line, sys, loaded), rating * PSY.SU)
+
+    # The bus pair with the largest shift-factor difference on the congested line, ordered
+    # so that injecting at `a` and withdrawing at `b` pushes flow against the congestion.
+    ptdf = PNM.PTDF(sys)
+    buses = sort!(collect(PSY.get_components(PSY.ACBus, sys)); by = PSY.get_number)
+    sf(bus) = ptdf[loaded, PSY.get_number(bus)]
+    pairs = [(x, y) for x in buses for y in buses if x !== y]
+    a, b = argmax(((x, y),) -> abs(sf(x) - sf(y)), pairs)
+    direction * (sf(a) - sf(b)) > 0 && ((a, b) = (b, a))
+    @test direction * (sf(a) - sf(b)) < 0
+
+    # Small envelopes, so relief never unbinds the line: the demand bid refills it.
+    envelope_mw = 5.0
+    for (name, from, to) in (("RELIEVE", a, b), ("AGGRAVATE", b, a))
+        PSY.add_component!(
+            sys,
+            PSY.PointToPointBid(;
+                name = name, available = true, from = from, to = to,
+                max_active_power = envelope_mw,
+                price_limits = (min = -100.0, max = 100.0),
+                spread_bid = _flat_spread_bid(1.0, envelope_mw),
+            ),
+        )
+    end
+
+    template = _congestion_template()
+    set_market_component_model!(template, DeviceModel(PSY.ACBus, NodalRedistribution))
+    set_market_component_model!(template, DeviceModel(PSY.PointToPointBid, SpreadBid))
+    model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+    @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+    container = get_optimization_container(model)
+    q = IOM.get_variable(container, ClearedTransferVariable, PSY.PointToPointBid)
+    flows = IOM.get_expression(container, PTDFBranchFlow, PSY.Line)
+
+    # Each award is an injection at its source and a withdrawal at its sink.
+    bexpr = IOM.get_expression(container, AggregateClearedInjection, PSY.ACBus)
+    for (name, from, to) in (("RELIEVE", a, b), ("AGGRAVATE", b, a))
+        @test JuMP.coefficient(bexpr[PSY.get_name(from), t1], q[name, t1]) == 1.0
+        @test JuMP.coefficient(bexpr[PSY.get_name(to), t1], q[name, t1]) == -1.0
+    end
+
+    @test isapprox(abs(JuMP.value(flows[loaded, t1])), rating; atol = 1e-6)
+    envelope = envelope_mw / PSY.get_base_power(sys)
+    @test isapprox(JuMP.value(q["RELIEVE", t1]), envelope; atol = 1e-6)
+    @test isapprox(JuMP.value(q["AGGRAVATE", t1]), 0.0; atol = 1e-6)
 end
 
 @testset "get_member_buses drops unavailable members" begin

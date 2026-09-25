@@ -156,7 +156,7 @@ end
 
 """
 Argument stage for `SpreadBid`: a point-to-point spread bid is one cleared quantity at two
-locations with opposite signs, a withdrawal at `from` and an injection at `to`. The two
+locations with opposite signs, an injection at `from` and a withdrawal at `to`. The two
 `add_cleared_position!` writes are the whole model of the instrument. Because they cancel
 and each location's factor set is what distributes them, the bid contributes nothing net
 system-wide and moves the solution only through the nodal pattern, which is what an
@@ -196,8 +196,8 @@ function construct_market_component!(
                 upper_bound =
                     get_variable_upper_bound(ClearedTransferVariable, bid, SpreadBid),
             )
-            add_cleared_position!(container, PSY.get_from(bid), variable[name, t], -1.0, t)
-            add_cleared_position!(container, PSY.get_to(bid), variable[name, t], 1.0, t)
+            add_cleared_position!(container, PSY.get_from(bid), variable[name, t], 1.0, t)
+            add_cleared_position!(container, PSY.get_to(bid), variable[name, t], -1.0, t)
         end
     end
     process_spread_bid_parameters!(container, bids, model)

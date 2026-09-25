@@ -170,7 +170,7 @@ struct AggregateBalance <: AbstractDeviceFormulation end
 
 """
 Formulation for `PSY.PointToPointBid`: one [`ClearedTransferVariable`](@ref) per bid and
-period, written as −q into the `from` location's [`AggregateClearedInjection`](@ref) and +q
+period, written as +q into the `from` location's [`AggregateClearedInjection`](@ref) and −q
 into the `to` location's. Excluded from `SettlementBalance`: its two settlement terms would
 cancel exactly. A MULTI_STEP spread bid clears one MW across every period of a block of
 identical curves ([`BlockBidLinkConstraint`](@ref)); FIXED is rejected, a spread bid is

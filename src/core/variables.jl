@@ -874,7 +874,7 @@ doubles as the reportable cleared position per settlement point.
 struct ClearedPositionVariable <: VariableType end
 
 """
-Cleared quantity of a `PSY.PointToPointBid`: a withdrawal at `from`, an injection at `to`.
+Cleared quantity of a `PSY.PointToPointBid`: an injection at `from`, a withdrawal at `to`.
 """
 struct ClearedTransferVariable <: VariableType end
 
