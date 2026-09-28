@@ -158,8 +158,6 @@ function construct_services!(
             network_model,
         )
     end
-
-    _construct_post_contingency!(container, sys, stage, services_template, network_model)
     return
 end
 

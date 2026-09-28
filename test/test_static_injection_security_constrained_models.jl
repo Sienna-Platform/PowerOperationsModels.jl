@@ -450,21 +450,26 @@ end
     end
 end
 
-@testset "monitored interchange excluded by filter_function is rejected" begin
+@testset "monitored interchange excluded by filter_function warns" begin
     sys, _ = g1_system()
     template = g1_template(
         AreaBalanceNetworkModel;
         interchange_filter = x -> PSY.get_name(x) != "1_2",
     )
-    @test build!(g1_model(template, sys); output_dir = mktempdir(; cleanup = true)) ==
-          IOM.ModelBuildStatus.FAILED
+    model = g1_model(template, sys)
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+    log_text = read(IOM.get_log_file(model), String)
+    @test occursin(r"Monitored component 1_2 .* is not modeled", log_text)
 end
 
-@testset "monitored interchange without a device model is rejected" begin
+@testset "monitored interchange without a device model warns" begin
     sys, _ = g1_system()
-    template = g1_template(AreaBalanceNetworkModel; model_interchanges = false)
-    @test build!(g1_model(template, sys); output_dir = mktempdir(; cleanup = true)) ==
-          IOM.ModelBuildStatus.FAILED
+    model = g1_model(g1_template(AreaBalanceNetworkModel; model_interchanges = false), sys)
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+    log_text = read(IOM.get_log_file(model), String)
+    @test occursin(r"Monitored component 1_2 .* is not modeled", log_text)
 end
 
 @testset "no AreaInterchange model warns and balances each area alone" begin

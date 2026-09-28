@@ -71,15 +71,16 @@ function _outaged_generators(
         end
         outaged_generators[outage_id] = outaged
     end
-    return outaged
+    return outaged_generators
 end
 
-_flow_variable(::NetworkModel{<:AbstractPTDFNetworkModel}) = PTDFBranchFlow
-_flow_variable(::NetworkModel{AreaBalanceNetworkModel}) = FlowActivePowerVariable
+_monitored_is_modeled(container::OptimizationContainer, T::Type{<:PSY.ACTransmission}, name::String, ::NetworkModel{<:AbstractPTDFNetworkModel}) = has_container_key(container, PTDFBranchFlow, T) && name in axes(get_expression(container, PTDFBranchFlow, T), 1)
+_monitored_is_modeled(container::OptimizationContainer, T::Type{PSY.AreaInterchange}, name::String, ::NetworkModel{AreaBalanceNetworkModel}) = has_container_key(container, FlowActivePowerVariable, T) && name in axes(get_variable(container, FlowActivePowerVariable, T), 1)
 
 function _monitored_components(
     sys::PSY.System,
     outages::Dict{Int, PSY.Outage},
+    container::OptimizationContainer,
     network_model::NetworkModel,
 )
     monitored_components = Dict{Int, Dict{DataType, Set{String}}}()
@@ -90,10 +91,10 @@ function _monitored_components(
             _valid_monitored_component(component, network_model) || continue
             T = typeof(component)
             name = PSY.get_name(component)
-            if has_container_key(container, _flow_variable(network_model), T) && name in axes(get_variable(container, _flow_variable(network_model), T), 1)
+            if _monitored_is_modeled(container, T, name, network_model)
                 push!(get!(Set{String}, monitored, T), name)
             else
-                @warn "Monitored component $name ($T) on outage $outage_id is not modeled; it is left out of the post-contingency balance." _group = LOG_GROUP_SERVICE_CONSTUCTORS
+                @warn "Monitored component $name ($T) on outage $outage_id is not modeled; its post-contingency flow will not be limited." _group = LOG_GROUP_SERVICE_CONSTUCTORS
             end
         end
         monitored_components[outage_id] = monitored
@@ -140,24 +141,6 @@ end
 
 ################################## Construction ###########################################
 
-function _construct_post_contingency!(
-    container::OptimizationContainer,
-    sys::PSY.System,
-    ::ArgumentConstructStage,
-    services_template::ServicesModelContainer,
-    network_model::NetworkModel,
-)
-    outages, use_slacks = _security_constrained_outages(sys, services_template)
-    isempty(outages) && return
-    _add_post_contingency_flow_slacks!(
-        container,
-        _monitored_components(sys, outages, network_model),
-        use_slacks,
-        network_model,
-    )
-    return
-end
-
 # Every outage gets a balance row per network region. Modeled interchanges carry a deviation
 # variable per outage, balanced across areas; monitored interchanges and monitored branches
 # additionally get post-contingency flow limits.
@@ -171,11 +154,17 @@ function _construct_post_contingency!(
     outages, use_slacks = _security_constrained_outages(sys, services_template)
     isempty(outages) && return
     outaged_generators = _outaged_generators(sys, outages, container)
-    monitored_components = _monitored_components(sys, outages, network_model)
+    monitored_components = _monitored_components(sys, outages, container, network_model)
     outage_ids = sort!(collect(keys(outages)))
-    # AreaInterchange flow variables are created by the branch constructors, which run after the
-    # services argument stage.
+    # Branch and interchange flows are created by the branch constructors, which run after the
+    # services argument stage, so the variables that depend on them are added here.
     _add_post_contingency_deviation_variables!(container, outage_ids, network_model)
+    _add_post_contingency_flow_slacks!(
+        container,
+        monitored_components,
+        use_slacks,
+        network_model,
+    )
     _add_post_contingency_locational_deployment!(
         container,
         sys,
