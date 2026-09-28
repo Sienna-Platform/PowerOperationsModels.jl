@@ -9,39 +9,26 @@
 # _bus_name_number_pairs / _retained_number_to_name / _bus_by_number are defined in
 # dcp_model.jl (same module scope) and available here.
 
-function add_variables!(
-    container::OptimizationContainer,
-    ::Type{VoltageReal},
-    sys::PSY.System,
-    network_model::NetworkModel{<:Union{ACRNetworkModel, IVRNetworkModel}},
-)
-    _add_bounded_bus_voltage_variable!(
-        container, VoltageReal, sys, network_model,
-        bus -> begin
-            # bus voltage limits are already per-unit
-            vlim = PSY.get_voltage_limits(bus)
-            return (-vlim.max, vlim.max, PSY.get_magnitude(bus))
-        end,
-    )
-    return
-end
+const _RectangularVoltageNetworks = Union{ACRNetworkModel, IVRNetworkModel}
 
 function add_variables!(
     container::OptimizationContainer,
-    ::Type{VoltageImaginary},
+    ::Type{T},
     sys::PSY.System,
-    network_model::NetworkModel{<:Union{ACRNetworkModel, IVRNetworkModel}},
-)
-    _add_bounded_bus_voltage_variable!(
-        container, VoltageImaginary, sys, network_model,
-        bus -> begin
-            # bus voltage limits are already per-unit
-            vlim = PSY.get_voltage_limits(bus)
-            return (-vlim.max, vlim.max, 0.0)
-        end,
-    )
+    network_model::NetworkModel{N},
+) where {T <: Union{VoltageReal, VoltageImaginary}, N <: _RectangularVoltageNetworks}
+    add_variables!(container, T, _network_buses(sys, network_model), N)
     return
 end
+
+#! format: off
+# bus voltage limits are already per-unit
+get_variable_binary(::Type{<:Union{VoltageReal, VoltageImaginary}}, ::Type{PSY.ACBus}, ::Type{<:_RectangularVoltageNetworks}) = false
+get_variable_lower_bound(::Type{<:Union{VoltageReal, VoltageImaginary}}, bus::PSY.ACBus, ::Type{<:_RectangularVoltageNetworks}) = -PSY.get_voltage_limits(bus).max
+get_variable_upper_bound(::Type{<:Union{VoltageReal, VoltageImaginary}}, bus::PSY.ACBus, ::Type{<:_RectangularVoltageNetworks}) = PSY.get_voltage_limits(bus).max
+get_variable_warm_start_value(::Type{VoltageReal}, bus::PSY.ACBus, ::Type{<:_RectangularVoltageNetworks}) = PSY.get_magnitude(bus)
+get_variable_warm_start_value(::Type{VoltageImaginary}, ::PSY.ACBus, ::Type{<:_RectangularVoltageNetworks}) = 0.0
+#! format: on
 
 function add_constraints!(
     container::OptimizationContainer,
