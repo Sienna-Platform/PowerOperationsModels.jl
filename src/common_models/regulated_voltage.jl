@@ -86,8 +86,8 @@ function add_regulated_voltage_magnitude!(
                     base_name = "RegulatedVoltageMagnitude_$(T)_{$(name), $(t)}_$(tag)",
                     lower_bound = lo,
                     upper_bound = hi,
-                    start = v0,
                 )
+                set_start_value!(container, var[name, t], v0)
             end
         end
     end
