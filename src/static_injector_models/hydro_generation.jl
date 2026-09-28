@@ -2844,11 +2844,7 @@ function add_to_expression!(
                 typeof(service) <: S || continue
                 isa(service, PSY.Reserve{PSY.ReserveDown}) || continue
                 service_name = PSY.get_name(service)
-<<<<<<< HEAD
                 fractions = deployed_fraction_values(container, service_model, service)
-=======
-                deployed_fraction = PSY.get_deployed_fraction(service)
->>>>>>> 1b4468c (formatting)
                 variable =
                     get_variable(container, U, IOM.ComponentPairKey{V, typeof(service)})
                 for t in get_time_steps(container)
