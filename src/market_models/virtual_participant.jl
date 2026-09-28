@@ -241,10 +241,7 @@ function _new_bid_jump_var!(
     ub !== nothing && JuMP.set_upper_bound(var, ub)
     lb = get_variable_lower_bound(T, d, VirtualBidDispatch)
     lb !== nothing && !binary && JuMP.set_lower_bound(var, lb)
-    if get_warm_start(get_settings(container))
-        init = get_variable_warm_start_value(T, d, VirtualBidDispatch)
-        init !== nothing && JuMP.set_start_value(var, init)
-    end
+    set_start_value!(container, var, get_variable_warm_start_value(T, d, VirtualBidDispatch))
     return var
 end
 
