@@ -15,15 +15,6 @@ variable); `FlowRateConstraint` rows are written directly on it. Reportable as a
 mirroring `PTDFBranchFlow`.
 """
 struct BThetaBranchFlow <: ExpressionType end
-
-"""
-Post-contingency change in injection at bus ``n`` under outage ``o``:
-``\\Delta P_{n,o,t} = \\sum_{d \\in n} \\Delta_{d,o,t} - \\sum_{g \\in G_o \\cap n} p_{g,t}``.
-
-Sparse, indexed `(bus number, outage, time)`. See
-[`SecurityConstrainedContingencyReserve`](@ref).
-"""
-struct PostContingencyNodalDeployment <: PostContingencyExpressions end
 struct RealizedShiftedLoad <: ExpressionType end
 
 #################################################################################
@@ -137,21 +128,13 @@ struct StorageReserveBalanceExpression{D, S, Sd} <:
 #################################################################################
 
 """
-Post-contingency change in injection in area ``a`` under outage ``o``:
-``\\Delta P_{a,o,t} = \\sum_{d \\in a} \\Delta_{d,o,t} - \\sum_{g \\in G_o \\cap a} p_{g,t}``.
+Post-contingency change in injection at bus or area ``n`` under outage ``o``:
+``\\Delta P_{n,o,t} = \\sum_{d \\in n} \\Delta_{d,o,t} - \\sum_{g \\in G_o \\cap n} p_{g,t}``.
 
-Sparse, indexed `(area, outage, time)`. See [`SecurityConstrainedContingencyReserve`](@ref).
-"""
-struct PostContingencyAreaDeployment <: ExpressionType end
-
-"""
-Post-contingency flow over monitored area interchange ``i`` under outage ``o``:
-``f^o_{i,t} = f_{i,t} + \\Delta f_{i,o,t}``.
-
-Sparse, indexed `(interchange, outage, time)`, meta `"G1"`. See
+Sparse, indexed `(bus number / area name, outage, time)`. See
 [`SecurityConstrainedContingencyReserve`](@ref).
 """
-struct PostContingencyInterchangeFlow <: ExpressionType end
+struct PostContingencyLocationalDeployment <: ExpressionType end
 
 """
 Post-contingency deployment of contributing device ``d`` under outage ``o``, summed across the

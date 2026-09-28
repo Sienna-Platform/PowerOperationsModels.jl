@@ -109,7 +109,6 @@ function validate_template_impl!(model::IOM.AbstractOptimizationModel)
         delete!(template.branches, k)
     end
     _check_interface_branches(template, system, network_model)
-    _check_security_constrained_reserve_monitors(template, system, network_model)
     _check_security_constrained_three_winding_transformer(template.branches)
     _check_security_constrained_network(template.branches, network_model)
     _check_security_constrained_phase_control(template.branches, network_model)

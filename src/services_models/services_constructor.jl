@@ -41,6 +41,33 @@ function _groups_with_demand(model::ServiceModel, sys::PSY.System)
     return [g for g in candidates if _has_reserve_demand(model, g)]
 end
 
+function seed_reserve_range_expressions!(
+    container::OptimizationContainer,
+    sys::PSY.System,
+    model::ServiceModel{S, <:AbstractReservesFormulation},
+    devices_template::DevicesModelContainer,
+) where {S <: PSY.AbstractReserve}
+    for by_device_type in values(get_contributing_devices_map(model)),
+        device_type in keys(by_device_type)
+        # Template keys are `nameof(D)`; `Symbol(T)` would qualify the name off Main.
+        device_model = get(devices_template, nameof(device_type), nothing)
+        isnothing(device_model) && continue
+        # Formulations carrying offline capability through `OfflineReserveBandConstraint`
+        # never wire into the range expression.
+        if _is_offline_reserve(S) &&
+           !offline_reserve_in_range_ub(get_formulation(device_model))
+            continue
+        end
+        _seed_range_expression!(
+            container,
+            sys,
+            get_expression_type_for_reserve(ActivePowerReserveVariable, device_type, S),
+            device_model,
+        )
+    end
+    return
+end
+
 """
 Create each contributing device type's reserve range expression container, sized over that
 device model's full available component set.
@@ -48,30 +75,6 @@ device model's full available component set.
 Runs once per service model, before any service wires awards in, so services of the same
 type with contributor sets that do not nest all index an axis that holds their devices.
 """
-# Function barrier
-function _seed_range_expression!(
-    container::OptimizationContainer,
-    sys::PSY.System,
-    ::Type{T},
-    device_model::DeviceModel{D, W},
-) where {T <: ExpressionType, D <: PSY.Component, W <: AbstractDeviceFormulation}
-    has_container_key(container, T, D) && return
-    add_expressions!(
-        container,
-        T,
-        get_available_components(device_model, sys),
-        device_model,
-    )
-    return
-end
-
-seed_reserve_range_expressions!(
-    ::OptimizationContainer,
-    ::PSY.System,
-    ::ServiceModel,
-    ::DevicesModelContainer,
-) = nothing
-
 function seed_reserve_range_expressions!(
     container::OptimizationContainer,
     sys::PSY.System,
@@ -1115,6 +1118,9 @@ const _RESERVE_UP = Union{PSY.OnlineReserve{PSY.ReserveUp}, PSY.OfflineReserve}
 _is_ramp_formulation(::Type{SecurityConstrainedContingencyReserve}) = false
 _is_ramp_formulation(::Type{SecurityConstrainedRampReserve}) = true
 
+_is_spinning(::PSY.OnlineReserve) = true
+_is_spinning(::PSY.AbstractReserve) = false
+
 # Whether `service` is procured pre-contingency (reserve variable, requirement, ramp,
 # participation, objective); otherwise it only deploys post-contingency.
 _is_procured(
@@ -1201,8 +1207,7 @@ function construct_service!(
             model,
         )
         for devices in values(contributing_devices)
-            # Ramp limits bind spinning reserves only.
-            _is_ramp_formulation(F) && R <: PSY.Reserve &&
+            _is_ramp_formulation(F) && _is_spinning(R) &&
                 add_constraints!(container, RampConstraint, service, devices, model)
             add_constraints!(
                 container,

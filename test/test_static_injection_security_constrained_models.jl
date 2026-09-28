@@ -342,20 +342,18 @@ function check_g1_area_flows(sys, model, outages)
     return
 end
 
-@testset "G-1 reserves: $(network)" for network in (
-    CopperPlateNetworkModel,
-    PTDFNetworkModel,
-    AreaBalanceNetworkModel,
-)
-    sys, outages = g1_system()
-    model = g1_model(g1_template(network), sys)
-    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
-          IOM.ModelBuildStatus.BUILT
-    check_g1_containers(model, outages)
-    @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
-    check_g1_deployment(sys, model, outages)
-    network === PTDFNetworkModel && check_g1_ptdf_flows(sys, model, outages)
-    network === AreaBalanceNetworkModel && check_g1_area_flows(sys, model, outages)
+@testset "G-1 reserves per-network" begin
+    for network in (CopperPlateNetworkModel, PTDFNetworkModel, AreaBalanceNetworkModel)
+        sys, outages = g1_system()
+        model = g1_model(g1_template(network), sys)
+        @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+              IOM.ModelBuildStatus.BUILT
+        check_g1_containers(model, outages)
+        @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+        check_g1_deployment(sys, model, outages)
+        network === PTDFNetworkModel && check_g1_ptdf_flows(sys, model, outages)
+        network === AreaBalanceNetworkModel && check_g1_area_flows(sys, model, outages)
+    end
 end
 
 @testset "G-1 reserves on a degree-two reduced network" begin
@@ -452,79 +450,77 @@ end
     end
 end
 
-@testset "G-1 reserves validation" begin
-    @testset "monitored interchange excluded by filter_function is rejected" begin
-        sys, _ = g1_system()
-        template = g1_template(
-            AreaBalanceNetworkModel;
-            interchange_filter = x -> PSY.get_name(x) != "1_2",
-        )
-        @test build!(g1_model(template, sys); output_dir = mktempdir(; cleanup = true)) ==
-              IOM.ModelBuildStatus.FAILED
-    end
+@testset "monitored interchange excluded by filter_function is rejected" begin
+    sys, _ = g1_system()
+    template = g1_template(
+        AreaBalanceNetworkModel;
+        interchange_filter = x -> PSY.get_name(x) != "1_2",
+    )
+    @test build!(g1_model(template, sys); output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.FAILED
+end
 
-    @testset "monitored interchange without a device model is rejected" begin
-        sys, _ = g1_system()
-        template = g1_template(AreaBalanceNetworkModel; model_interchanges = false)
-        @test build!(g1_model(template, sys); output_dir = mktempdir(; cleanup = true)) ==
-              IOM.ModelBuildStatus.FAILED
-    end
+@testset "monitored interchange without a device model is rejected" begin
+    sys, _ = g1_system()
+    template = g1_template(AreaBalanceNetworkModel; model_interchanges = false)
+    @test build!(g1_model(template, sys); output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.FAILED
+end
 
-    @testset "no AreaInterchange model warns and balances each area alone" begin
-        sys, _ = g1_system(; monitored = s -> [get_component(Line, s, "2_2")])
-        model = g1_model(
-            g1_template(AreaBalanceNetworkModel; model_interchanges = false),
-            sys,
-        )
-        @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
-              IOM.ModelBuildStatus.BUILT
-        container = IOM.get_optimization_container(model)
-        @test !IOM.has_container_key(
-            container,
-            PostContingencyDeviationVariable,
-            AreaInterchange,
-        )
-        # `build!` logs to the model's log file, not the caller's logger.
-        log_text = read(IOM.get_log_file(model), String)
-        @test length(
-            collect(eachmatch(r"each area must cover its own outages", log_text)),
-        ) ==
-              1
-    end
+@testset "no AreaInterchange model warns and balances each area alone" begin
+    sys, _ = g1_system(; monitored = s -> [get_component(Line, s, "2_2")])
+    model = g1_model(
+        g1_template(AreaBalanceNetworkModel; model_interchanges = false),
+        sys,
+    )
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+    container = IOM.get_optimization_container(model)
+    @test !IOM.has_container_key(
+        container,
+        PostContingencyDeviationVariable,
+        AreaInterchange,
+    )
+    # `build!` logs to the model's log file, not the caller's logger.
+    log_text = read(IOM.get_log_file(model), String)
+    @test length(
+        collect(eachmatch(r"each area must cover its own outages", log_text)),
+    ) ==
+          1
+end
 
-    @testset "unmodeled outaged generator warns and is skipped" begin
-        sys, outages = g1_system()
-        online = get_component(OnlineReserve{ReserveUp}, sys, _G1_RESERVE)
-        _attach_outage!(
-            sys,
-            [get_component(RenewableDispatch, sys, "PVBus5")],
-            [online],
-            [get_component(Line, sys, "2_2")],
-        )
-        template = g1_template(CopperPlateNetworkModel)
-        delete!(template.devices, :RenewableDispatch)
-        model = g1_model(template, sys)
-        @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
-              IOM.ModelBuildStatus.BUILT
-        log_text = read(IOM.get_log_file(model), String)
-        @test occursin(r"PVBus5.*is not modeled", log_text)
-    end
+@testset "unmodeled outaged generator warns and is skipped" begin
+    sys, outages = g1_system()
+    online = get_component(OnlineReserve{ReserveUp}, sys, _G1_RESERVE)
+    _attach_outage!(
+        sys,
+        [get_component(RenewableDispatch, sys, "PVBus5")],
+        [online],
+        [get_component(Line, sys, "2_2")],
+    )
+    template = g1_template(CopperPlateNetworkModel)
+    delete!(template.devices, :RenewableDispatch)
+    model = g1_model(template, sys)
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+    log_text = read(IOM.get_log_file(model), String)
+    @test occursin(r"PVBus5.*is not modeled", log_text)
+end
 
-    @testset "service models sharing an outage must agree on use_slacks" begin
-        sys, _ = g1_system()
-        template = g1_template(PTDFNetworkModel; offline_slacks = false)
-        @test build!(g1_model(template, sys); output_dir = mktempdir(; cleanup = true)) ==
-              IOM.ModelBuildStatus.FAILED
-    end
+@testset "service models sharing an outage must agree on use_slacks" begin
+    sys, _ = g1_system()
+    template = g1_template(PTDFNetworkModel; offline_slacks = false)
+    @test build!(g1_model(template, sys); output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.FAILED
+end
 
-    @testset "down reserves are rejected" begin
-        sys, _ = g1_system()
-        template = g1_template(CopperPlateNetworkModel)
-        set_service_model!(
-            template,
-            ServiceModel(OnlineReserve{ReserveDown}, SecurityConstrainedContingencyReserve),
-        )
-        @test build!(g1_model(template, sys); output_dir = mktempdir(; cleanup = true)) ==
-              IOM.ModelBuildStatus.FAILED
-    end
+@testset "down reserves are rejected" begin
+    sys, _ = g1_system()
+    template = g1_template(CopperPlateNetworkModel)
+    set_service_model!(
+        template,
+        ServiceModel(OnlineReserve{ReserveDown}, SecurityConstrainedContingencyReserve),
+    )
+    @test build!(g1_model(template, sys); output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.FAILED
 end
