@@ -266,42 +266,60 @@ function _add_two_terminal_elements_map!(
     return
 end
 
-# Trait that determines what branch aux vars we can get from each PowerFlowContainer
-branch_aux_vars(::PFS.ACPowerFlowData) =
-    [
-        POM.PowerFlowBranchReactivePowerFromTo,
-        POM.PowerFlowBranchReactivePowerToFrom,
-        POM.PowerFlowBranchActivePowerFromTo,
-        POM.PowerFlowBranchActivePowerToFrom,
-        POM.PowerFlowBranchActivePowerLoss,
-    ]
-branch_aux_vars(::PFS.ABAPowerFlowData) =
-    [POM.PowerFlowBranchActivePowerFromTo, POM.PowerFlowBranchActivePowerToFrom]
-branch_aux_vars(::PFS.PTDFPowerFlowData) =
-    [POM.PowerFlowBranchActivePowerFromTo, POM.PowerFlowBranchActivePowerToFrom]
-branch_aux_vars(::PFS.vPTDFPowerFlowData) =
-    [POM.PowerFlowBranchActivePowerFromTo, POM.PowerFlowBranchActivePowerToFrom]
-branch_aux_vars(::PFS.PSSEExporter) = DataType[]
+# Does this power flow container compute aux variable `T`? Drives both registration
+# (`branch_aux_vars`/`bus_aux_vars`) and the read-back guard. An unspecialized container
+# (e.g. `PSSEExporter`) registers nothing and no-ops on read-back.
+_pf_provides_aux_var(::Type{<:POM.PowerFlowAuxVariableType}, ::PFS.PowerFlowContainer) =
+    false
 
-# Same for bus aux vars. Loss/voltage-stability factors are registered ONLY when their
-# `get_calculate_*` flag is set — the same flag under which `_get_pf_result` returns a
-# non-`nothing` matrix (`PFS.get_loss_factors` / `get_voltage_stability_factors` are `nothing`
-# otherwise). Keep these two conditions in lockstep so the read-back never indexes a `nothing`.
-function bus_aux_vars(data::PFS.ACPowerFlowData)
-    vars = [POM.PowerFlowVoltageAngle, POM.PowerFlowVoltageMagnitude]
-    if PFS.get_calculate_loss_factors(data)
-        push!(vars, POM.PowerFlowLossFactors)
-    end
-    if PFS.get_calculate_voltage_stability_factors(data)
-        push!(vars, POM.PowerFlowVoltageStabilityFactors)
-    end
-    return vars
+# AC power flow solves the full branch flows and the full bus voltage state.
+_pf_provides_aux_var(::Type{<:POM.BranchFlowAuxVariableType}, ::PFS.ACPowerFlowData) = true
+_pf_provides_aux_var(::Type{POM.PowerFlowBranchActivePowerLoss}, ::PFS.ACPowerFlowData) =
+    true
+_pf_provides_aux_var(::Type{POM.PowerFlowVoltageAngle}, ::PFS.ACPowerFlowData) = true
+_pf_provides_aux_var(::Type{POM.PowerFlowVoltageMagnitude}, ::PFS.ACPowerFlowData) = true
+
+# Must track the flag `_get_pf_result` checks: these results are `nothing` when it is unset.
+_pf_provides_aux_var(::Type{POM.PowerFlowLossFactors}, data::PFS.ACPowerFlowData) =
+    PFS.get_calculate_loss_factors(data)
+_pf_provides_aux_var(
+    ::Type{POM.PowerFlowVoltageStabilityFactors},
+    data::PFS.ACPowerFlowData,
+) = PFS.get_calculate_voltage_stability_factors(data)
+
+# Every DC power flow (ABA, PTDF, vPTDF) gives active branch flows, and only those.
+_pf_provides_aux_var(
+    ::Type{POM.PowerFlowBranchActivePowerFromTo},
+    ::PFS.PowerFlowData{<:PFS.AbstractDCPowerFlow},
+) = true
+_pf_provides_aux_var(
+    ::Type{POM.PowerFlowBranchActivePowerToFrom},
+    ::PFS.PowerFlowData{<:PFS.AbstractDCPowerFlow},
+) = true
+
+# ABA additionally solves for the bus angles; the PTDF formulations never form them.
+_pf_provides_aux_var(::Type{POM.PowerFlowVoltageAngle}, ::PFS.ABAPowerFlowData) = true
+
+"""
+The aux variable types over components of type `C` that `pf_data` provides.
+
+`provides` is a named function with a `where {T}` parameter because a lambda would not
+specialize on `Type{T}`; with it, mapping over the `pf_aux_var_types` tuple resolves every
+`_pf_provides_aux_var` call at compile time.
+"""
+function _provided_aux_vars(
+    pf_data::PFS.PowerFlowContainer,
+    ::Type{C},
+) where {C <: PSY.Component}
+    candidates = POM.pf_aux_var_types(C)
+    provides(::Type{T}) where {T} = _pf_provides_aux_var(T, pf_data)
+    provided = map(provides, candidates)
+    return DataType[candidates[i] for i in eachindex(candidates) if provided[i]]
 end
 
-bus_aux_vars(::PFS.ABAPowerFlowData) = [POM.PowerFlowVoltageAngle]
-bus_aux_vars(::PFS.PTDFPowerFlowData) = DataType[]
-bus_aux_vars(::PFS.vPTDFPowerFlowData) = DataType[]
-bus_aux_vars(::PFS.PSSEExporter) = DataType[]
+branch_aux_vars(pf_data::PFS.PowerFlowContainer) =
+    _provided_aux_vars(pf_data, PSY.ACBranch)
+bus_aux_vars(pf_data::PFS.PowerFlowContainer) = _provided_aux_vars(pf_data, PSY.ACBus)
 
 # TODO: Needs update for MultiTerminal HVDC
 _get_branch_component_tuples(sys::PSY.System) = [

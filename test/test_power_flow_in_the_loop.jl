@@ -1,3 +1,20 @@
+@testset "pf_aux_var_types enumerates every PowerFlowAuxVariableType" begin
+    # Registration walks these tuples, not the type tree, so a type missing from them
+    # would silently never register.
+    branch_types = POM.pf_aux_var_types(PSY.ACBranch)
+    bus_types = POM.pf_aux_var_types(PSY.ACBus)
+    declared = union(Set(branch_types), Set(bus_types))
+    defined = Set(IS.get_all_concrete_subtypes(POM.PowerFlowAuxVariableType))
+
+    @test setdiff(defined, declared) == Set{DataType}()   # a type nothing would register
+    @test setdiff(declared, defined) == Set{DataType}()   # a stale/removed entry
+    # No type may be claimed as both branch- and bus-indexed.
+    @test isempty(intersect(Set(branch_types), Set(bus_types)))
+    # Tuples, not vectors: compile-time resolution depends on it.
+    @test branch_types isa Tuple
+    @test bus_types isa Tuple
+end
+
 @testset "AC Power Flow in the loop with headroom-proportional slack" begin
     system = build_system(PSITestSystems, "c_sys5_uc")
 
