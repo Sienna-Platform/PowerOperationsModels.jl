@@ -12,9 +12,13 @@ _validate_reserve_formulation(
     ),
 )
 
-_valid_monitored_component(::PSY.ACTransmission, ::NetworkModel{<:AbstractPTDFNetworkModel}) =
+_valid_monitored_component(
+    ::PSY.ACTransmission,
+    ::NetworkModel{<:AbstractPTDFNetworkModel},
+) =
     true
-_valid_monitored_component(::PSY.AreaInterchange, ::NetworkModel{AreaBalanceNetworkModel}) = true
+_valid_monitored_component(::PSY.AreaInterchange, ::NetworkModel{AreaBalanceNetworkModel}) =
+    true
 _valid_monitored_component(::PSY.Component, ::NetworkModel) = false
 
 """
@@ -60,13 +64,16 @@ function _outaged_generators(
     outaged_generators = Dict{Int, Dict{DataType, Set{String}}}()
     for (outage_id, outage) in outages
         outaged = Dict{DataType, Set{String}}()
-        for generator in PSY.get_associated_components(sys, outage; component_type = PSY.Generator)
+        for generator in
+            PSY.get_associated_components(sys, outage; component_type = PSY.Generator)
             T = typeof(generator)
             name = PSY.get_name(generator)
-            if has_container_key(container, ActivePowerVariable, T) && name in axes(get_variable(container, ActivePowerVariable, T), 1)
+            if has_container_key(container, ActivePowerVariable, T) &&
+               name in axes(get_variable(container, ActivePowerVariable, T), 1)
                 push!(get!(Set{String}, outaged, T), name)
             else
-                @warn "Generator $name ($T) outaged by outage $outage_id is not modeled; it is left out of the post-contingency balance." _group = LOG_GROUP_SERVICE_CONSTUCTORS
+                @warn "Generator $name ($T) outaged by outage $outage_id is not modeled; it is left out of the post-contingency balance." _group =
+                    LOG_GROUP_SERVICE_CONSTUCTORS
             end
         end
         outaged_generators[outage_id] = outaged
@@ -74,8 +81,22 @@ function _outaged_generators(
     return outaged_generators
 end
 
-_monitored_is_modeled(container::OptimizationContainer, T::Type{<:PSY.ACTransmission}, name::String, ::NetworkModel{<:AbstractPTDFNetworkModel}) = has_container_key(container, PTDFBranchFlow, T) && name in axes(get_expression(container, PTDFBranchFlow, T), 1)
-_monitored_is_modeled(container::OptimizationContainer, T::Type{PSY.AreaInterchange}, name::String, ::NetworkModel{AreaBalanceNetworkModel}) = has_container_key(container, FlowActivePowerVariable, T) && name in axes(get_variable(container, FlowActivePowerVariable, T), 1)
+_monitored_is_modeled(
+    container::OptimizationContainer,
+    T::Type{<:PSY.ACTransmission},
+    name::String,
+    ::NetworkModel{<:AbstractPTDFNetworkModel},
+) =
+    has_container_key(container, PTDFBranchFlow, T) &&
+    name in axes(get_expression(container, PTDFBranchFlow, T), 1)
+_monitored_is_modeled(
+    container::OptimizationContainer,
+    T::Type{PSY.AreaInterchange},
+    name::String,
+    ::NetworkModel{AreaBalanceNetworkModel},
+) =
+    has_container_key(container, FlowActivePowerVariable, T) &&
+    name in axes(get_variable(container, FlowActivePowerVariable, T), 1)
 
 function _monitored_components(
     sys::PSY.System,
@@ -94,7 +115,8 @@ function _monitored_components(
             if _monitored_is_modeled(container, T, name, network_model)
                 push!(get!(Set{String}, monitored, T), name)
             else
-                @warn "Monitored component $name ($T) on outage $outage_id is not modeled; its post-contingency flow will not be limited." _group = LOG_GROUP_SERVICE_CONSTUCTORS
+                @warn "Monitored component $name ($T) on outage $outage_id is not modeled; its post-contingency flow will not be limited." _group =
+                    LOG_GROUP_SERVICE_CONSTUCTORS
             end
         end
         monitored_components[outage_id] = monitored
@@ -275,7 +297,8 @@ function add_constraints!(
         Int[];
         sparse = true,
     )
-    outage_ids = [IS.get_id(o) for o in PSY.get_supplemental_attributes(PSY.Outage, service)]
+    outage_ids =
+        [IS.get_id(o) for o in PSY.get_supplemental_attributes(PSY.Outage, service)]
     for d in devices, outage_id in outage_ids, t in get_time_steps(container)
         name = PSY.get_name(d)
         # Devices the outage takes offline have no deployment.
@@ -303,7 +326,8 @@ function _add_post_contingency_deviation_variables!(
     ::NetworkModel{AreaBalanceNetworkModel},
 )
     if !has_container_key(container, FlowActivePowerVariable, PSY.AreaInterchange)
-        @warn "An AreaBalanceNetworkModel with security-constrained reserves needs modeled PSY.AreaInterchanges for reserve deployment to cross area boundaries. Otherwise, each area must cover its own outages." _group = LOG_GROUP_SERVICE_CONSTUCTORS
+        @warn "An AreaBalanceNetworkModel with security-constrained reserves needs modeled PSY.AreaInterchanges for reserve deployment to cross area boundaries. Otherwise, each area must cover its own outages." _group =
+            LOG_GROUP_SERVICE_CONSTUCTORS
         return
     end
     flow = get_variable(container, FlowActivePowerVariable, PSY.AreaInterchange)
@@ -410,7 +434,15 @@ function _add_post_contingency_locational_deployment!(
 )
     # Keyed `(bus number or area name, outage, time)`, sparse since an outage only touches the
     # locations of its deployments and outaged generators.
-    expr = add_expression_container!(container, PostContingencyLocationalDeployment, _location_type(network_model), String[], Int[], Int[]; sparse = true)
+    expr = add_expression_container!(
+        container,
+        PostContingencyLocationalDeployment,
+        _location_type(network_model),
+        String[],
+        Int[],
+        Int[];
+        sparse = true,
+    )
 
     for (device_type, total) in _total_deployments(container)
         locations = Dict{String, String}()
@@ -418,7 +450,10 @@ function _add_post_contingency_locational_deployment!(
             key = get!(locations, name) do
                 _location_key(PSY.get_component(device_type, sys, name), network_model)
             end
-            JuMP.add_to_expression!(get!(JuMP.AffExpr, expr.data, (key, outage_id, t)), deployed)
+            JuMP.add_to_expression!(
+                get!(JuMP.AffExpr, expr.data, (key, outage_id, t)),
+                deployed,
+            )
         end
     end
 
@@ -551,7 +586,11 @@ function _add_post_contingency_flow!(
     return
 end
 
-_add_post_contingency_flow!(::OptimizationContainer, ::Dict{Int, Dict{DataType, Set{String}}}, ::NetworkModel) =
+_add_post_contingency_flow!(
+    ::OptimizationContainer,
+    ::Dict{Int, Dict{DataType, Set{String}}},
+    ::NetworkModel,
+) =
     nothing
 
 ################################## Constraints ############################################
@@ -573,7 +612,9 @@ function _add_post_contingency_balance_constraints!(
         time_steps,
     )
 
-    balance = Dict((outage_id, t) => JuMP.AffExpr(0.0) for outage_id in outage_ids, t in time_steps)
+    balance = Dict(
+        (outage_id, t) => JuMP.AffExpr(0.0) for outage_id in outage_ids, t in time_steps
+    )
     for (outage_id, per_type) in outaged_generators
         for (generator_type, names) in per_type
             power = get_variable(container, ActivePowerVariable, generator_type)
@@ -646,7 +687,11 @@ function _add_post_contingency_balance_constraints!(
             get(deployment.data, (area_name, outage_id, t), zero(JuMP.AffExpr)),
         )
         for (sign, interchange_name) in get(interchanges, area_name, ())
-            JuMP.add_to_expression!(balance, sign, deviation[interchange_name, outage_id, t])
+            JuMP.add_to_expression!(
+                balance,
+                sign,
+                deviation[interchange_name, outage_id, t],
+            )
         end
         cons[area_name, outage_id, t] = JuMP.@constraint(jump_model, balance == 0.0)
     end
