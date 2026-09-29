@@ -257,13 +257,34 @@ _controlled_circuit_names(
     network_model::NetworkModel,
 ) = _controlled_circuit_names(rep.branch, device_model, network_model)
 
-_control_limits(::Nothing) = (min = -Inf, max = Inf)
-_control_limits(c::PSY.TransformerCircuit) = PSY.get_control_limits(c)
-_control_limits(rep::RepresentativeBranch) = _control_limits(_get_circuit(rep.branch))
+# The band a control variable or constraint reads, as `(field, band)`; flow bands in
+# system per unit.
+_control_band(::Type{TapRatioVariable}, c::PSY.TransformerCircuit) =
+    (:tap_ratio_limits, PSY.get_tap_ratio_limits(c))
+_control_band(::Type{PhaseShifterAngle}, c::PSY.TransformerCircuit) =
+    (:phase_angle_limits, PSY.get_phase_angle_limits(c))
+_control_band(::Type{VoltageControlConstraint}, c::PSY.TransformerCircuit) =
+    (:controlled_voltage_limits, PSY.get_controlled_voltage_limits(c))
+_control_band(::Type{ReactivePowerFlowControlConstraint}, c::PSY.TransformerCircuit) = (
+    :controlled_reactive_power_flow_limits,
+    PSY.get_controlled_reactive_power_flow_limits(c, PSY.SU),
+)
+_control_band(::Type{ActivePowerFlowControlConstraint}, c::PSY.TransformerCircuit) = (
+    :controlled_active_power_flow_limits,
+    PSY.get_controlled_active_power_flow_limits(c, PSY.SU),
+)
 
-_quantity_limits(::Nothing) = (min = -Inf, max = Inf)
-_quantity_limits(c::PSY.TransformerCircuit) = PSY.get_controlled_quantity_limits(c)
-_quantity_limits(rep::RepresentativeBranch) = _quantity_limits(_get_circuit(rep.branch))
+# PSY leaves the bands an objective does not select `nothing`, so a controlled circuit
+# without its band is a data error.
+function _control_limits(T::Type, rep::RepresentativeBranch)
+    circuit = _get_circuit(rep.branch)
+    isnothing(circuit) && return (min = -Inf, max = Inf)
+    field, band = _control_band(T, circuit)
+    isnothing(band) && throw(
+        IS.ConflictingInputsError("Controlled circuit $(rep.name) has no $field."),
+    )
+    return band
+end
 
 _regulated_number(::Nothing) = -1
 _regulated_number(c::PSY.TransformerCircuit) = PSY.get_regulated_bus_number(c)

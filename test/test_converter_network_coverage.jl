@@ -13,7 +13,7 @@ function _build_converter_sys(;
     loss = PSY.LossCurve(QuadraticCurve(0.0, 0.0, 0.0), PSY.CU),
     reactive_limit = 1.5,
     ac_control = VSCACControlModes.AC_REACTIVE_POWER,
-    ac_setpoint = 0.0,
+    ac_setpoint = 1.0,
     dc_control = VSCDCControlModes.DC_VOLTAGE,
     dc_setpoint = 1.0,
     dc_voltage_droop = 0.0,
@@ -46,10 +46,7 @@ function _build_converter_sys(;
         set_reactive_power_limits!(
             ic, (min = -reactive_limit * PSY.SU, max = reactive_limit * PSY.SU),
         )
-        set_ac_control!(ic, ac_control)
-        set_ac_setpoint!(ic, ac_setpoint)
-        set_dc_control!(ic, dc_control)
-        set_dc_setpoint!(ic, dc_setpoint)
+        set_converter_control!(ic, ac_control, ac_setpoint, dc_control, dc_setpoint)
         set_dc_voltage_droop!(ic, dc_voltage_droop)
     end
     if with_areas
@@ -446,7 +443,7 @@ end
     end
 
     c_v = _lpacc_container_for_ac_mode(VSCACControlModes.AC_VOLTAGE, 1.0)
-    c_q = _lpacc_container_for_ac_mode(VSCACControlModes.AC_REACTIVE_POWER, 0.0)
+    c_q = _lpacc_container_for_ac_mode(VSCACControlModes.AC_REACTIVE_POWER, 1.0)
     var_v = IOM.get_variables(c_v)
     var_q = IOM.get_variables(c_q)
     @test Set(keys(var_v)) == Set(keys(var_q))
@@ -468,7 +465,7 @@ function _vsc_lpacc_sys(;
     dc_control_from = VSCDCControlModes.DC_VOLTAGE,
     dc_setpoint_from = 1.0,
     ac_control_to = VSCACControlModes.AC_REACTIVE_POWER,
-    ac_setpoint_to = 0.0,
+    ac_setpoint_to = 1.0,
     dc_control_to = VSCDCControlModes.DC_POWER,
     dc_setpoint_to = 0.0,
 )
@@ -488,8 +485,10 @@ function _vsc_lpacc_sys(;
         reactive_power_from = 0.0,
         dc_control_from = dc_control_from,
         ac_control_from = ac_control_from,
-        dc_setpoint_from = dc_setpoint_from,
-        ac_setpoint_from = ac_setpoint_from,
+        vsc_setpoint_kwargs(
+            "_from", ac_control_from, ac_setpoint_from, dc_control_from,
+            dc_setpoint_from,
+        )...,
         converter_loss_from = PSY.LossCurve(QuadraticCurve(0.01, 0.0, 0.0), PSY.CU),
         max_dc_current_from = 5.0,
         rating_from = 2.0,
@@ -500,8 +499,9 @@ function _vsc_lpacc_sys(;
         reactive_power_to = 0.0,
         dc_control_to = dc_control_to,
         ac_control_to = ac_control_to,
-        dc_setpoint_to = dc_setpoint_to,
-        ac_setpoint_to = ac_setpoint_to,
+        vsc_setpoint_kwargs(
+            "_to", ac_control_to, ac_setpoint_to, dc_control_to, dc_setpoint_to,
+        )...,
         converter_loss_to = PSY.LossCurve(QuadraticCurve(0.01, 0.0, 0.0), PSY.CU),
         max_dc_current_to = 5.0,
         rating_to = 2.0,
@@ -518,12 +518,11 @@ end
 @testset "VoltageControlVSC LPACC control layer pins phi, Q, and the DC quantities" begin
     v_sp = 1.02
     dc_sp = 1.0
-    q_sp = 0.0
     p_sp = 0.0
     sys = _vsc_lpacc_sys(;
         ac_setpoint_from = v_sp,
         dc_setpoint_from = dc_sp,
-        ac_setpoint_to = q_sp,
+        ac_setpoint_to = 1.0,
         dc_setpoint_to = p_sp,
     )
     template = PowerOperationsProblemTemplate(NetworkModel(LPACCNetworkModel))
@@ -554,7 +553,8 @@ end
     @test JuMP.fix_value(phi[from_bus, 1]) == v_sp - 1.0
     q_t = IOM.get_variable(container, POM.HVDCReactivePowerToVariable, TwoTerminalVSCLine)
     @test JuMP.is_fixed(q_t[get_name(vsc), 1])
-    @test JuMP.fix_value(q_t[get_name(vsc), 1]) == q_sp
+    # A unity power factor holds Q at zero.
+    @test JuMP.fix_value(q_t[get_name(vsc), 1]) == 0.0
 
     @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
     v_f =

@@ -93,12 +93,12 @@ function _apply_ic_control_objective!(
         name = PSY.get_name(d)
         bus_name = PSY.get_name(PSY.get_bus(d))
         _fix_converter_ac_control!(
-            PSY.get_ac_control(d), PSY.get_ac_setpoint(d),
+            PSY.get_ac_control(d), _ac_setpoint(d),
             vm, bus_name, q_var, name, time_steps,
         )
         _fill_converter_dc_control!(
             jump_model, con,
-            PSY.get_dc_control(d), PSY.get_dc_setpoint(d), PSY.get_dc_voltage_droop(d),
+            PSY.get_dc_control(d), _dc_setpoint(d), PSY.get_dc_voltage_droop(d),
             vdc, p_var, name, time_steps,
         )
     end
@@ -129,19 +129,19 @@ function _apply_ic_control_objective!(
         ac_mode = PSY.get_ac_control(d)
         if ac_mode == PSY.VSCACControlModes.AC_VOLTAGE
             fix_regulated_voltage!(
-                container, d, "1", PSY.get_bus(d), PSY.get_ac_setpoint(d), network_model,
+                container, d, "1", PSY.get_bus(d), _ac_setpoint(d), network_model,
             )
         end
         _fix_converter_ac_reactive!(
             ac_mode,
-            PSY.get_ac_setpoint(d),
+            _ac_setpoint(d),
             q_var,
             name,
             time_steps,
         )
         _fill_converter_dc_control!(
             jump_model, con,
-            PSY.get_dc_control(d), PSY.get_dc_setpoint(d), PSY.get_dc_voltage_droop(d),
+            PSY.get_dc_control(d), _dc_setpoint(d), PSY.get_dc_voltage_droop(d),
             vdc, p_var, name, time_steps,
         )
     end
@@ -173,12 +173,12 @@ function _apply_ic_control_objective!(
         name = PSY.get_name(d)
         bus_name = PSY.get_name(PSY.get_bus(d))
         _fix_converter_ac_control_lpacc!(
-            PSY.get_ac_control(d), PSY.get_ac_setpoint(d),
+            PSY.get_ac_control(d), _ac_setpoint(d),
             phi, bus_name, q_var, name, time_steps,
         )
         _fill_converter_dc_control!(
             jump_model, con,
-            PSY.get_dc_control(d), PSY.get_dc_setpoint(d), PSY.get_dc_voltage_droop(d),
+            PSY.get_dc_control(d), _dc_setpoint(d), PSY.get_dc_voltage_droop(d),
             vdc, p_var, name, time_steps,
         )
     end

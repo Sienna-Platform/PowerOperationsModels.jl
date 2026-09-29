@@ -31,10 +31,30 @@ function _default_quantity_limits(objective)
 end
 
 # `control_limits` is the free variable's own band: a tap ratio for the tap objectives, a
-# phase angle in radians for the active-power one, so the PSY default `(0.9, 1.1)` is
-# tap-shaped and unusable under a phase objective.
+# phase angle in radians for the active-power one.
 _default_control_limits(objective) =
     objective === P_FLOW_CONTROL ? (min = -0.3, max = 0.3) : (min = 0.9, max = 1.1)
+
+# Store the actuator and target bands in the fields `objective` selects.
+function _set_control_bands!(circuit, objective, control_limits, quantity_limits)
+    actuator, target = PSY.control_band_fields(objective)
+    _set_band!(circuit, Val(actuator), control_limits)
+    _set_band!(circuit, Val(target), quantity_limits)
+    return
+end
+_set_band!(c, ::Val{:tap_ratio_limits}, band) = PSY.set_tap_ratio_limits!(c, band)
+_set_band!(c, ::Val{:phase_angle_limits}, band) = PSY.set_phase_angle_limits!(c, band)
+_set_band!(c, ::Val{:controlled_voltage_limits}, band) =
+    PSY.set_controlled_voltage_limits!(c, band)
+# The flow bands are system per unit.
+_set_band!(c, ::Val{:controlled_reactive_power_flow_limits}, band) =
+    PSY.set_controlled_reactive_power_flow_limits!(
+        c, (min = band.min * PSY.SU, max = band.max * PSY.SU),
+    )
+_set_band!(c, ::Val{:controlled_active_power_flow_limits}, band) =
+    PSY.set_controlled_active_power_flow_limits!(
+        c, (min = band.min * PSY.SU, max = band.max * PSY.SU),
+    )
 
 const T3W_NAME = "ThreeWindingTransformer_busD"
 const T3W_WINDINGS = ["$(T3W_NAME)_winding_$i" for i in 1:3]
@@ -60,8 +80,7 @@ function _controlled_sys14(
     isnothing(alpha) || PSY.set_α!(circuit, alpha)
     PSY.set_control_objective!(circuit, objective)
     PSY.set_regulated_bus_number!(circuit, regulated)
-    PSY.set_controlled_quantity_limits!(circuit, quantity_limits)
-    PSY.set_control_limits!(circuit, control_limits)
+    _set_control_bands!(circuit, objective, control_limits, quantity_limits)
     return (
         sys = sys,
         device = transformer,
@@ -209,8 +228,7 @@ function _controlled_sys3w(
     end
     PSY.set_control_objective!(circuit, objective)
     PSY.set_regulated_bus_number!(circuit, number)
-    PSY.set_controlled_quantity_limits!(circuit, quantity_limits)
-    PSY.set_control_limits!(circuit, control_limits)
+    _set_control_bands!(circuit, objective, control_limits, quantity_limits)
     return (
         sys = sys,
         device = transformer,

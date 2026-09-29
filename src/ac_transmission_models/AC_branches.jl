@@ -219,32 +219,24 @@ _branch_variable_bounds(
     rep::RepresentativeBranch,
     ::DeviceModel{<:PSY.ACTransmission, <:AbstractBranchFormulation},
     ::NetworkModel,
-) = _control_limits(rep)
+) = _control_limits(TapRatioVariable, rep)
 
-# `control_limits` is dual-purpose — a tap-ratio band under voltage/reactive control, a
-# phase-angle band in radians under active-power control — but `PSY.TransformerCircuit`
-# defaults it to the TAP band `(min = 0.9, max = 1.1)`. A circuit authored for
-# ACTIVE_POWER_FLOW without explicit limits would therefore have its angle forced into
-# [0.9, 1.1] rad (52°-63°), excluding the neutral shift and the 0.0 start value, and the
-# model would still solve. Anchor on the stored α: the authored operating point has to be
-# feasible, which rejects the inherited tap default without assuming a band shape.
+# The stored α is the authored operating point, so the band must contain it.
 function _branch_variable_bounds(
     ::Type{PhaseShifterAngle},
     rep::RepresentativeBranch,
     ::DeviceModel{<:PSY.ACTransmission, <:AbstractBranchFormulation},
     ::NetworkModel,
 )
-    limits = _control_limits(rep)
+    limits = _control_limits(PhaseShifterAngle, rep)
     shift = _dc_shift(rep)
     if !(limits.min <= shift <= limits.max)
         throw(
             IS.ConflictingInputsError(
-                "Phase-controlled circuit $(rep.name) has control_limits \
+                "Phase-controlled circuit $(rep.name) has phase_angle_limits \
                  (min = $(limits.min), max = $(limits.max)) rad, which excludes its own \
                  stored phase shift α = $(shift) rad, so the authored operating point is \
-                 infeasible. `PSY.TransformerCircuit` defaults `control_limits` to the \
-                 tap-ratio band (min = 0.9, max = 1.1); set explicit phase-angle bounds in \
-                 radians for ACTIVE_POWER_FLOW control.",
+                 infeasible.",
             ),
         )
     end
@@ -1636,7 +1628,7 @@ function _add_voltage_control_constraints!(
 
     jump_model = get_jump_model(container)
     _foreach_branch(branches) do rep
-        cont_lims = _quantity_limits(rep)
+        cont_lims = _control_limits(VoltageControlConstraint, rep)
         bus = PSY.get_bus(sys, _regulated_number(rep))
         bus_name = PSY.get_name(bus)
         bus_lims = PSY.get_voltage_limits(bus)
@@ -1736,7 +1728,7 @@ function _add_flow_control_constraints!(
 
     jump_model = get_jump_model(container)
     _foreach_branch(branches) do rep
-        cont_lims = _quantity_limits(rep)
+        cont_lims = _control_limits(C, rep)
         line_lims = _flow_limits(rep, device_model)
 
         (line_lims.min <= cont_lims.min <= cont_lims.max <= line_lims.max) ||

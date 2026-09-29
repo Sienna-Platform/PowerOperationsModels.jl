@@ -295,10 +295,11 @@ cable current, the DC cable Ohm's law, bounded per-terminal reactive injection i
 `JuMP.fix` (`force = true`): `AC_VOLTAGE` → the regulated AC-bus voltage (the `VoltageMagnitude`
 under ACP, the `VoltageDeviation` `phi = |V| - 1` under LPACC, a per-terminal
 `RegulatedVoltageMagnitude` aux variable under ACR/IVR), `AC_REACTIVE_POWER` → the terminal
-reactive injection. DC control adds one always-present `HVDCDCControlConstraint` per terminal
-per time step (`DC_VOLTAGE` / `DC_POWER` / `DC_VOLTAGE_DROOP`), so the variable/constraint
-containers are identical across all control modes. Only valid under AC network models
-(ACP/ACR/IVR/LPACC); dropped from DC templates automatically via `models_reactive_power`.
+reactive injection, at zero for the unity `power_factor_setpoint` it supports. DC control adds
+one always-present `HVDCDCControlConstraint` per terminal per time step (`DC_VOLTAGE` /
+`DC_POWER` / `DC_VOLTAGE_DROOP`), so the variable/constraint containers are identical across
+all control modes. Only valid under AC network models (ACP/ACR/IVR/LPACC); dropped from DC
+templates automatically via `models_reactive_power`.
 """
 struct VoltageControlVSC <: AbstractTwoTerminalVSCFormulation end
 
@@ -352,17 +353,18 @@ representation: a bounded `ReactivePowerVariable` injected into `ReactivePowerBa
 converter's AC bus, the apparent-power capability disk ``p^2 + q^2 \\le \\text{rating}^2``, and a
 count-invariant control layer driven by the converter's `ac_control` / `dc_control` modes.
 
-AC control: `AC_VOLTAGE` regulates the AC bus voltage to `ac_setpoint` (under ACP by fixing the
-network `VoltageMagnitude`; under LPACC by fixing the `VoltageDeviation` `phi = |V| - 1` to
-`ac_setpoint - 1`; under ACR/IVR via a component-owned `RegulatedVoltageMagnitude` aux
-variable); `AC_REACTIVE_POWER` fixes the reactive injection to `ac_setpoint`. DC control adds one
-always-present `HVDCDCControlConstraint` per converter per time step: `DC_VOLTAGE` →
-`vdc = dc_setpoint`, `DC_POWER` → `p = dc_setpoint`, `DC_VOLTAGE_DROOP` →
-`vdc + dc_voltage_droop * p = dc_setpoint`. The aux voltage variable + its constraint and the
-`HVDCDCControlConstraint` are created regardless of mode, so variable/constraint containers are
-identical across all control modes (only per-mode coefficients / `JuMP.fix` differ). Only valid
-under AC network models; dropped from DC templates automatically via `models_reactive_power`.
-Requires a `VoltageDispatchHVDCNetworkModel` HVDC network model (for the `DCVoltage` /
+AC control: `AC_VOLTAGE` regulates the AC bus voltage to `ac_voltage_setpoint` (under ACP by
+fixing the network `VoltageMagnitude`; under LPACC by fixing the `VoltageDeviation`
+`phi = |V| - 1` to `ac_voltage_setpoint - 1`; under ACR/IVR via a component-owned
+`RegulatedVoltageMagnitude` aux variable); `AC_REACTIVE_POWER` holds a unity
+`power_factor_setpoint` by fixing the reactive injection to zero (other power factors are
+rejected). DC control adds one always-present `HVDCDCControlConstraint` per converter per time
+step: `DC_VOLTAGE` → `vdc = dc_voltage_setpoint`, `DC_POWER` → `p = dc_power_setpoint`,
+`DC_VOLTAGE_DROOP` → `vdc + dc_voltage_droop * p = dc_voltage_setpoint`. The aux voltage
+variable + its constraint and the `HVDCDCControlConstraint` are created regardless of mode, so
+variable/constraint containers are identical across all control modes (only per-mode
+coefficients / `JuMP.fix` differ). Only valid under AC network models; dropped from DC
+templates automatically via `models_reactive_power`. Requires a `VoltageDispatchHVDCNetworkModel` HVDC network model (for the `DCVoltage` /
 `DCCurrentBalance` DC-side) and finite `reactive_power_limits` on each converter.
 """
 struct VoltageControlConverter <: AbstractQuadraticLossConverter end

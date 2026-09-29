@@ -2,12 +2,79 @@
 # arrays + scalars so both TwoTerminalVSCLine (once per from/to terminal) and
 # InterconnectingConverter (once per converter) reuse them.
 
-# Pin a converter/terminal reactive injection at its setpoint. Shared by both AC
-# control primitives so the AC_REACTIVE_POWER enforcement lives in one place.
-# `setpoint` is interpreted as system-base reactive power (pu MVAr) and is fixed
-# directly onto the reactive-injection variable — NOT a power factor. The PSY
-# `ac_setpoint` field comment is ambiguous (documents the AC_VOLTAGE meaning and a
-# "power factor" alternative); POM's contract here is reactive power in pu.
+# The setpoint a converter's control mode selects; PSY leaves the others `nothing`.
+function _required_setpoint(value::Union{Nothing, Float64}, field::String, name::String)
+    isnothing(value) && throw(
+        ArgumentError(
+            "Converter $(name): its control mode selects $(field), which is nothing.",
+        ),
+    )
+    return value
+end
+
+# AC-side target: the AC voltage (pu) under AC_VOLTAGE, the reactive injection (pu) under
+# AC_REACTIVE_POWER. A fixed power factor is modeled at unity only, where Q = 0 for any P.
+function _converter_ac_setpoint(
+    mode::PSY.VSCACControlModes.Value,
+    ac_voltage_setpoint::Union{Nothing, Float64},
+    power_factor_setpoint::Union{Nothing, Float64},
+    name::String,
+)
+    if mode == PSY.VSCACControlModes.AC_VOLTAGE
+        return _required_setpoint(ac_voltage_setpoint, "ac_voltage_setpoint", name)
+    elseif mode == PSY.VSCACControlModes.AC_REACTIVE_POWER
+        pf = _required_setpoint(power_factor_setpoint, "power_factor_setpoint", name)
+        isapprox(abs(pf), 1.0) || throw(
+            ArgumentError(
+                "Converter $(name): power_factor_setpoint $(pf) is not unity; \
+                 AC_REACTIVE_POWER is modeled at unity power factor only.",
+            ),
+        )
+        return 0.0
+    end
+    error("Unrecognized VSCACControlModes value $(mode) on converter $(name).")
+end
+
+# DC-side target: the active-power order (system pu) under DC_POWER, the DC voltage (pu)
+# under DC_VOLTAGE and DC_VOLTAGE_DROOP.
+function _converter_dc_setpoint(
+    mode::PSY.VSCDCControlModes.Value,
+    dc_power_setpoint::Union{Nothing, Float64},
+    dc_voltage_setpoint::Union{Nothing, Float64},
+    name::String,
+)
+    mode == PSY.VSCDCControlModes.DC_POWER &&
+        return _required_setpoint(dc_power_setpoint, "dc_power_setpoint", name)
+    return _required_setpoint(dc_voltage_setpoint, "dc_voltage_setpoint", name)
+end
+
+_ac_setpoint(d::PSY.InterconnectingConverter) = _converter_ac_setpoint(
+    PSY.get_ac_control(d), PSY.get_ac_voltage_setpoint(d),
+    PSY.get_power_factor_setpoint(d), PSY.get_name(d),
+)
+_dc_setpoint(d::PSY.InterconnectingConverter) = _converter_dc_setpoint(
+    PSY.get_dc_control(d), PSY.get_dc_power_setpoint(d, PSY.SU),
+    PSY.get_dc_voltage_setpoint(d), PSY.get_name(d),
+)
+_ac_setpoint_from(d::PSY.TwoTerminalVSCLine) = _converter_ac_setpoint(
+    PSY.get_ac_control_from(d), PSY.get_ac_voltage_setpoint_from(d),
+    PSY.get_power_factor_setpoint_from(d), "$(PSY.get_name(d)) from",
+)
+_ac_setpoint_to(d::PSY.TwoTerminalVSCLine) = _converter_ac_setpoint(
+    PSY.get_ac_control_to(d), PSY.get_ac_voltage_setpoint_to(d),
+    PSY.get_power_factor_setpoint_to(d), "$(PSY.get_name(d)) to",
+)
+_dc_setpoint_from(d::PSY.TwoTerminalVSCLine) = _converter_dc_setpoint(
+    PSY.get_dc_control_from(d), PSY.get_dc_power_setpoint_from(d, PSY.SU),
+    PSY.get_dc_voltage_setpoint_from(d), "$(PSY.get_name(d)) from",
+)
+_dc_setpoint_to(d::PSY.TwoTerminalVSCLine) = _converter_dc_setpoint(
+    PSY.get_dc_control_to(d), PSY.get_dc_power_setpoint_to(d, PSY.SU),
+    PSY.get_dc_voltage_setpoint_to(d), "$(PSY.get_name(d)) to",
+)
+
+# Pin a converter/terminal reactive injection (system pu) at its setpoint. Shared by
+# both AC control primitives so the AC_REACTIVE_POWER enforcement lives in one place.
 function _pin_converter_reactive!(q_var, name::String, setpoint::Float64, time_steps)
     for t in time_steps
         JuMP.fix(q_var[name, t], setpoint; force = true)

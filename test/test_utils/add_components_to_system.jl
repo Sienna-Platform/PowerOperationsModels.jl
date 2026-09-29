@@ -179,3 +179,27 @@ function add_reserve_product_without_requirement_time_series!(
     )
     add_service!(sys, reserve_instance, contributing_devices)
 end
+
+# Keyword arguments storing one VSC terminal's setpoints in the fields its modes select.
+vsc_setpoint_kwargs(suffix, ac_control, ac_setpoint, dc_control, dc_setpoint) = (
+    Symbol(PSY.vsc_ac_setpoint_field(ac_control), suffix) => ac_setpoint,
+    Symbol(PSY.vsc_dc_setpoint_field(dc_control), suffix) => dc_setpoint,
+)
+
+# Set an InterconnectingConverter's modes and store each setpoint in the field its mode
+# selects; a DC power setpoint is in system per unit.
+function set_converter_control!(ic, ac_control, ac_setpoint, dc_control, dc_setpoint)
+    PSY.set_ac_control!(ic, ac_control)
+    PSY.set_dc_control!(ic, dc_control)
+    if ac_control == PSY.VSCACControlModes.AC_VOLTAGE
+        PSY.set_ac_voltage_setpoint!(ic, ac_setpoint)
+    else
+        PSY.set_power_factor_setpoint!(ic, ac_setpoint)
+    end
+    if dc_control == PSY.VSCDCControlModes.DC_POWER
+        PSY.set_dc_power_setpoint!(ic, dc_setpoint * PSY.SU)
+    else
+        PSY.set_dc_voltage_setpoint!(ic, dc_setpoint)
+    end
+    return
+end
