@@ -6,8 +6,9 @@ A storage device bids both sides of the market: discharge is an incremental (sup
 offer carried on `ActivePowerOutVariable`, charge is a decremental (demand) offer carried
 on `ActivePowerInVariable`. This mirrors the Source ImportExport pair in
 `test_import_export_cost.jl`, with the same conventions: system base == device base == 100,
-curves in `SYSTEM_BASE` power units, hourly resolution, one time step - so translated slopes
-arrive at the objective unchanged. Scaling (dt + unit conversion) gets its own testset.
+curves in MW and \$/MWh, hourly resolution, one time step - so a breakpoint of 25 MW arrives
+as 0.25 p.u. and a slope of 0.4 \$/MWh as 40 \$/(p.u. h). Scaling (dt + system base) gets
+its own testset.
 
 Sign convention for `EnergyReservoirStorage` with `StorageDispatchWithReserves`:
 - Discharge (`ActivePowerOutVariable`, `IncrementalOffer`) -> `OBJECTIVE_FUNCTION_POSITIVE`.
@@ -15,23 +16,21 @@ Sign convention for `EnergyReservoirStorage` with `StorageDispatchWithReserves`:
 """
 
 # A static MarketBidCost with both offer sides nontrivial: incremental (discharge) and
-# decremental (charge). Both curves in SYSTEM_BASE so the translated slopes equal the inputs.
+# decremental (charge).
 _storage_mbc(inc_xs, inc_ys, dec_xs, dec_ys) = PSY.MarketBidCost(;
     incremental_offer_curves = PSY.CostCurve(
         PSY.PiecewiseIncrementalCurve(0.0, inc_xs, inc_ys),
-        PSY.SU,
     ),
     decremental_offer_curves = PSY.CostCurve(
         PSY.PiecewiseIncrementalCurve(0.0, dec_xs, dec_ys),
-        PSY.SU,
     ),
 )
 
 @testset "EnergyReservoirStorage + StorageDispatchWithReserves + static MBC" begin
     # Distinct breakpoints & slopes for the discharge vs charge side so any swap is visible.
     cost = _storage_mbc(
-        [0.0, 0.25, 1.0], [40.0, 55.0],    # incremental (discharge) side
-        [0.0, 0.40, 0.9], [25.0, 35.0],    # decremental (charge) side
+        [0.0, 25.0, 100.0], [0.40, 0.55],  # incremental (discharge) side
+        [0.0, 40.0, 90.0], [0.25, 0.35],   # decremental (charge) side
     )
     sys = one_bus_one_storage(cost; name = "storage1")
     storage = PSY.get_component(PSY.EnergyReservoirStorage, sys, "storage1")
@@ -50,7 +49,7 @@ _storage_mbc(inc_xs, inc_ys, dec_xs, dec_ys) = PSY.MarketBidCost(;
         container, IOM.ActivePowerInVariable, storage, cost,
         POM.StorageDispatchWithReserves)
 
-    # Discharge side: IncrementalOffer sign = +1, dt = 1 hr, SYSTEM_BASE => coefficient == slope.
+    # Discharge side: IncrementalOffer sign = +1, dt = 1 hr => coefficient == slope × 100.
     @test pwl_delta_coefs(
         container, IOM.IncrementalOffer(), PSY.EnergyReservoirStorage, "storage1", 1,
     ) ≈ [40.0, 55.0]
@@ -68,16 +67,14 @@ _storage_mbc(inc_xs, inc_ys, dec_xs, dec_ys) = PSY.MarketBidCost(;
 end
 
 @testset "EnergyReservoirStorage + StorageDispatchWithReserves: dt and unit conversion" begin
-    # NATURAL_UNITS + 15-minute resolution. Slope scaling: y × sys_base × dt.
+    # 15-minute resolution. Slope scaling: y × sys_base × dt.
     # Break scaling: x / sys_base.
     cost = PSY.MarketBidCost(;
         incremental_offer_curves = PSY.CostCurve(
             PSY.PiecewiseIncrementalCurve(0.0, [0.0, 200.0], [40.0]),
-            PSY.NU,
         ),
         decremental_offer_curves = PSY.CostCurve(
             PSY.PiecewiseIncrementalCurve(0.0, [0.0, 200.0], [25.0]),
-            PSY.NU,
         ),
     )
     sys = one_bus_one_storage(cost; name = "storage1")
@@ -137,14 +134,14 @@ end
     # direction or the wrong t is visible.
     setup_delta_pwl_parameters!(
         container, PSY.EnergyReservoirStorage, ["storage1"],
-        reshape([[40.0, 55.0], [44.0, 60.0]], 1, 2),
-        reshape([[0.0, 0.25, 1.0], [0.0, 0.35, 0.8]], 1, 2),
+        reshape([[0.40, 0.55], [0.44, 0.60]], 1, 2),
+        reshape([[0.0, 25.0, 100.0], [0.0, 35.0, 80.0]], 1, 2),
         1:2;
         dir = IOM.IncrementalOffer())
     setup_delta_pwl_parameters!(
         container, PSY.EnergyReservoirStorage, ["storage1"],
-        reshape([[25.0, 35.0], [27.0, 38.0]], 1, 2),
-        reshape([[0.0, 0.40, 0.9], [0.0, 0.50, 0.8]], 1, 2),
+        reshape([[0.25, 0.35], [0.27, 0.38]], 1, 2),
+        reshape([[0.0, 40.0, 90.0], [0.0, 50.0, 80.0]], 1, 2),
         1:2;
         dir = IOM.DecrementalOffer())
 
@@ -191,16 +188,10 @@ end
 @testset "EnergyReservoirStorage + StorageDispatchWithReserves: one-sided offers skip" begin
     # A storage that only bids to discharge (incremental) should add no charge (decremental)
     # PWL terms, and vice versa. The override guards each side on `is_nontrivial_offer`.
-    zero_offer = PSY.CostCurve(
-        PSY.PiecewiseIncrementalCurve(0.0, [0.0, 0.0], [0.0]),
-        PSY.SU,
-    )
     cost = PSY.MarketBidCost(;
         incremental_offer_curves = PSY.CostCurve(
-            PSY.PiecewiseIncrementalCurve(0.0, [0.0, 0.5, 1.0], [40.0, 55.0]),
-            PSY.SU,
+            PSY.PiecewiseIncrementalCurve(0.0, [0.0, 50.0, 100.0], [0.40, 0.55]),
         ),
-        decremental_offer_curves = zero_offer,
     )
     sys = one_bus_one_storage(cost; name = "storage1")
     storage = PSY.get_component(PSY.EnergyReservoirStorage, sys, "storage1")

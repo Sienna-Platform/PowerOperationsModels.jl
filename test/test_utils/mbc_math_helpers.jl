@@ -364,10 +364,7 @@ Construct a `CostCurve{TimeSeriesPiecewiseIncrementalCurve}` with stub TS keys. 
 offer, or a generator with no demand offer): it carries the reserved zero-id keys, which
 IOM's `is_nontrivial_offer` treats as the placeholder/absent side.
 """
-function stub_ts_offer_curve(;
-    power_units = PSY.SU,
-    trivial::Bool = false,
-)
+function stub_ts_offer_curve(; trivial::Bool = false)
     curve_id = if trivial
         0
     else
@@ -383,18 +380,14 @@ function stub_ts_offer_curve(;
         _stub_scalar_key(initial_id),
         nothing,
     )
-    return PSY.CostCurve(vc, power_units)
+    return PSY.CostCurve(vc)
 end
 
 "Construct a minimal `ImportExportTimeSeriesCost` backed by stub TS keys."
-function stub_ts_import_export_cost(;
-    power_units = PSY.SU,
+stub_ts_import_export_cost() = PSY.ImportExportTimeSeriesCost(;
+    import_offer_curves = stub_ts_offer_curve(),
+    export_offer_curves = stub_ts_offer_curve(),
 )
-    return PSY.ImportExportTimeSeriesCost(;
-        import_offer_curves = stub_ts_offer_curve(; power_units = power_units),
-        export_offer_curves = stub_ts_offer_curve(; power_units = power_units),
-    )
-end
 
 """
 Construct a minimal `MarketBidTimeSeriesCost` backed by stub TS keys. By default both
@@ -403,7 +396,6 @@ offer sides are present (a two-sided participant). For a one-sided device pass
 (a generator with no demand offer) so the unused side reads as the absent placeholder.
 """
 function stub_ts_market_bid_cost(;
-    power_units = PSY.SU,
     incremental_trivial::Bool = false,
     decremental_trivial::Bool = false,
 )
@@ -411,14 +403,8 @@ function stub_ts_market_bid_cost(;
         minimum_energy_offer = _stub_linear_curve(),
         start_up = _stub_startup_key(_next_stub_ts_id()),
         shut_down = _stub_linear_curve(),
-        incremental_offer_curves = stub_ts_offer_curve(;
-            power_units = power_units,
-            trivial = incremental_trivial,
-        ),
-        decremental_offer_curves = stub_ts_offer_curve(;
-            power_units = power_units,
-            trivial = decremental_trivial,
-        ),
+        incremental_offer_curves = stub_ts_offer_curve(; trivial = incremental_trivial),
+        decremental_offer_curves = stub_ts_offer_curve(; trivial = decremental_trivial),
     )
 end
 

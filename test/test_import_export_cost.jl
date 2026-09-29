@@ -2,8 +2,9 @@
 Unit tests for POM's ImportExportCost objective-function construction.
 
 Same conventions as `test_market_bid_cost.jl`: system base == device base == 100, curves
-in `SYSTEM_BASE` power units, hourly resolution, one time step — so translated slopes
-arrive at the objective unchanged. Scaling is covered by its own testset.
+in MW and \$/MWh, hourly resolution, one time step - so a breakpoint of 25 MW arrives as
+0.25 p.u. and a slope of 0.02 \$/MWh as 2 \$/(p.u. h). Scaling is covered by its own
+testset.
 
 Sign convention for a Source with `ImportExportSourceModel`:
 - Import (`ActivePowerOutVariable`, `IncrementalOffer`) → `OBJECTIVE_FUNCTION_POSITIVE`.
@@ -15,19 +16,17 @@ const _SOURCE_NAME = "source1"
 _static_iec(import_xs, import_ys, export_xs, export_ys) = PSY.ImportExportCost(;
     import_offer_curves = PSY.CostCurve(
         PSY.PiecewiseIncrementalCurve(0.0, import_xs, import_ys),
-        PSY.SU,
     ),
     export_offer_curves = PSY.CostCurve(
         PSY.PiecewiseIncrementalCurve(0.0, export_xs, export_ys),
-        PSY.SU,
     ),
 )
 
 @testset "Source + ImportExportSourceModel + static IEC" begin
     # Distinct slopes for import vs export so a swap is visible.
     cost = _static_iec(
-        [0.0, 0.25, 1.0], [2.0, 5.0],      # import side
-        [0.0, 0.40, 0.9], [4.0, 8.0],      # export side — distinct breakpoints & slopes
+        [0.0, 25.0, 100.0], [0.02, 0.05],  # import side
+        [0.0, 40.0, 90.0], [0.04, 0.08],   # export side - distinct breakpoints & slopes
     )
     sys = one_bus_one_source(cost; name = _SOURCE_NAME)
     source = PSY.get_component(PSY.Source, sys, _SOURCE_NAME)
@@ -60,16 +59,14 @@ _static_iec(import_xs, import_ys, export_xs, export_ys) = PSY.ImportExportCost(;
 end
 
 @testset "Source + ImportExportSourceModel: dt and unit conversion" begin
-    # NATURAL_UNITS + 15-minute resolution. Slope scaling: y × sys_base × dt.
+    # 15-minute resolution. Slope scaling: y × sys_base × dt.
     # Break scaling: x / sys_base.
     cost = PSY.ImportExportCost(;
         import_offer_curves = PSY.CostCurve(
             PSY.PiecewiseIncrementalCurve(0.0, [0.0, 200.0], [6.0]),
-            PSY.NU,
         ),
         export_offer_curves = PSY.CostCurve(
             PSY.PiecewiseIncrementalCurve(0.0, [0.0, 200.0], [9.0]),
-            PSY.NU,
         ),
     )
     sys = one_bus_one_source(cost; name = _SOURCE_NAME)
@@ -136,7 +133,8 @@ end
     # bound must therefore move with the base, or a 100 MVA system gets a budget
     # 100x looser than it asked for.
     for base in (1.0, 100.0)
-        cost = _static_iec([0.0, 0.25, 1.0], [2.0, 5.0], [0.0, 0.40, 0.9], [4.0, 8.0])
+        cost =
+            _static_iec([0.0, 25.0, 100.0], [0.02, 0.05], [0.0, 40.0, 90.0], [0.04, 0.08])
         PSY.set_energy_import_weekly_limit!(cost, 168.0)
         PSY.set_energy_export_weekly_limit!(cost, 336.0)
         sys = one_bus_one_source(cost; name = _SOURCE_NAME, system_base_power = base)
@@ -167,7 +165,7 @@ end
 end
 
 @testset "ImportExportBudgetConstraint: sub-hourly resolution" begin
-    cost = _static_iec([0.0, 0.25, 1.0], [2.0, 5.0], [0.0, 0.40, 0.9], [4.0, 8.0])
+    cost = _static_iec([0.0, 25.0, 100.0], [0.02, 0.05], [0.0, 40.0, 90.0], [0.04, 0.08])
     PSY.set_energy_import_weekly_limit!(cost, 168.0)
     PSY.set_energy_export_weekly_limit!(cost, 336.0)
     sys = one_bus_one_source(cost; name = _SOURCE_NAME)
@@ -227,14 +225,14 @@ end
     # Distinct values per direction AND per time step.
     setup_delta_pwl_parameters!(
         container, PSY.Source, [_SOURCE_NAME],
-        reshape([[2.0, 5.0], [11.0, 15.0]], 1, 2),
-        reshape([[0.0, 0.25, 1.0], [0.0, 0.35, 0.8]], 1, 2),
+        reshape([[0.02, 0.05], [0.11, 0.15]], 1, 2),
+        reshape([[0.0, 25.0, 100.0], [0.0, 35.0, 80.0]], 1, 2),
         1:2;
         dir = IOM.IncrementalOffer())
     setup_delta_pwl_parameters!(
         container, PSY.Source, [_SOURCE_NAME],
-        reshape([[4.0, 8.0], [14.0, 18.0]], 1, 2),
-        reshape([[0.0, 0.40, 0.9], [0.0, 0.50, 0.8]], 1, 2),
+        reshape([[0.04, 0.08], [0.14, 0.18]], 1, 2),
+        reshape([[0.0, 40.0, 90.0], [0.0, 50.0, 80.0]], 1, 2),
         1:2;
         dir = IOM.DecrementalOffer())
 
