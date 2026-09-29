@@ -1014,7 +1014,7 @@ end
         r = IOM.get_variable(
             container,
             ActivePowerReserveVariable,
-            OnlineReserve{ReserveUp},
+            IOM.ComponentPairKey{InterruptiblePowerLoad, OnlineReserve{ReserveUp}},
         )
         t1 = first(get_time_steps(container))
         @test ("Reserve7", name, t1) in eachindex(r)

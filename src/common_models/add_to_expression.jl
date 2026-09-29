@@ -1971,7 +1971,7 @@ function add_to_expression!(
     W <: AbstractReservesFormulation,
 }
     service_name = PSY.get_name(service)
-    variable = get_variable(container, U, X)
+    variable = get_variable(container, U, IOM.ComponentPairKey{V, X})
     if !has_container_key(container, T, V)
         add_expressions!(container, T, devices, model)
     end
@@ -2410,7 +2410,7 @@ function add_to_expression!(
     W <: AbstractReservesFormulation,
 }
     service_name = PSY.get_name(service)
-    variable = get_variable(container, U, X)
+    variable = get_variable(container, U, IOM.ComponentPairKey{V, X})
     if !has_container_key(container, T, V)
         add_expressions!(container, T, devices, model)
     end
@@ -2444,7 +2444,7 @@ function add_to_expression!(
     W <: AbstractReservesFormulation,
 }
     service_name = PSY.get_name(service)
-    variable = get_variable(container, U, X)
+    variable = get_variable(container, U, IOM.ComponentPairKey{V, X})
     if !has_container_key(container, T, V)
         add_expressions!(container, T, devices, model)
     end
@@ -2478,7 +2478,7 @@ function add_to_expression!(
     W <: AbstractReservesFormulation,
 }
     service_name = PSY.get_name(service)
-    variable = get_variable(container, U, X)
+    variable = get_variable(container, U, IOM.ComponentPairKey{V, X})
     if !has_container_key(container, T, V)
         add_expressions!(container, T, devices, model)
     end

@@ -179,3 +179,47 @@ end
     p = JuMP.value.(conv)
     @test maximum(abs.(p.data)) > 1e-3
 end
+
+@testset "2 Areas area-aggregated duals" begin
+    for network_formulation in (
+        AreaBalanceNetworkModel,
+        AreaPTDFNetworkModel,
+    )
+        c_sys = PSB.build_system(PSISystems, "two_area_pjm_DA")
+        transform_single_time_series!(c_sys, Hour(24), Hour(1))
+        template = get_thermal_dispatch_template_network(
+            NetworkModel(network_formulation; duals = [CopperPlateBalanceConstraint]),
+        )
+        set_device_model!(template, AreaInterchange, StaticBranch)
+        set_device_model!(template, Line, StaticBranch)
+        ps_model =
+            DecisionModel(
+                template,
+                c_sys;
+                resolution = Hour(1),
+                optimizer = HiGHS_optimizer,
+            )
+
+        @test build!(ps_model; output_dir = mktempdir(; cleanup = true)) ==
+              IOM.ModelBuildStatus.BUILT
+
+        opt_container = IOM.get_optimization_container(ps_model)
+        dual_keys = collect(keys(get_duals(opt_container)))
+        @test IOM.ConstraintKey(CopperPlateBalanceConstraint, PSY.Area) in dual_keys
+
+        @test solve!(ps_model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+
+        results = OptimizationProblemOutputs(ps_model)
+        area_duals = read_dual(
+            results,
+            CopperPlateBalanceConstraint,
+            PSY.Area;
+            table_format = TableFormat.WIDE,
+        )
+        @test size(area_duals, 1) == 24
+        foreach(get_components(Area, c_sys)) do area
+            @test get_name(area) in names(area_duals)
+            @test all(isfinite, area_duals[!, get_name(area)])
+        end
+    end
+end

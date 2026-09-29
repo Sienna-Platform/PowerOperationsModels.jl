@@ -143,9 +143,7 @@ function IOM.calculate_aux_variable_value!(
     # With several evaluators registered each owns only part of the aux var keys, so
     # skip the ones this evaluator isn't meant to update.
     pf_data = IOM.get_inner_data(pf_e_data)
-    key_type = IOM.get_entry_type(key)
-    (key_type in branch_aux_vars(pf_data) || key_type in bus_aux_vars(pf_data)) ||
-        return
+    _pf_provides_aux_var(IOM.get_entry_type(key), pf_data) || return
     # Time steps where the power flow didn't converge get NaNs.
     _write_aux_variable_value!(container, key, pf_e_data)
     return

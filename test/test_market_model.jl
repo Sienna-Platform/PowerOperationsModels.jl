@@ -1211,8 +1211,11 @@ end
 
     reserve = PSY.get_component(OnlineReserve{ReserveUp}, sys, "Reserve1")
     requirement_pu = PSY.get_requirement(reserve, PSY.SU)
-    award =
-        IOM.get_variable(container, ActivePowerReserveVariable, OnlineReserve{ReserveUp})
+    award = IOM.get_variable(
+        container,
+        ActivePowerReserveVariable,
+        IOM.ComponentPairKey{InterruptiblePowerLoad, OnlineReserve{ReserveUp}},
+    )
     for t in time_steps
         # (2) The reserve award meets the requirement exactly (il1 is the sole contributor,
         # bounded above by its participation-factor cap at the same value).
