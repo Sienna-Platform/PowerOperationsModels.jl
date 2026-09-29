@@ -96,13 +96,21 @@ _include_min_gen_power_in_constraint(
     ::AbstractStorageFormulation,
 ) = false
 
-function IOM.variable_cost(
-    ::PSY.StorageCost,
-    ::Type{<:StorageRegularizationVariable},
-    ::Type{<:PSY.Storage},
-    ::Type{<:AbstractStorageFormulation},
-)
-    return PSY.CostCurve(PSY.LinearCurve(STORAGE_REG_COST), PSY.SU)
+# STORAGE_REG_COST is per system per-unit hour, so its natural-unit curve depends on the
+# system base.
+function _add_storage_regularization_cost!(
+    container::OptimizationContainer,
+    ::Type{T},
+    devices,
+    ::Type{U},
+) where {T <: StorageRegularizationVariable, U <: AbstractStorageFormulation}
+    cost = PSY.CostCurve(
+        PSY.LinearCurve(STORAGE_REG_COST / get_model_base_power(container)),
+    )
+    for d in devices
+        IOM.add_variable_cost_to_objective!(container, T, d, cost, U)
+    end
+    return
 end
 
 function get_default_time_series_names(
@@ -1590,13 +1598,13 @@ function add_to_objective_function!(
     add_variable_cost!(container, ActivePowerOutVariable, devices, U)
     add_variable_cost!(container, ActivePowerInVariable, devices, U)
     if get_attribute(model, "regularization")
-        add_variable_cost!(
+        _add_storage_regularization_cost!(
             container,
             StorageRegularizationVariableCharge,
             devices,
             U,
         )
-        add_variable_cost!(
+        _add_storage_regularization_cost!(
             container,
             StorageRegularizationVariableDischarge,
             devices,
@@ -1635,13 +1643,13 @@ function add_to_objective_function!(
         )
     end
     if get_attribute(model, "regularization")
-        add_variable_cost!(
+        _add_storage_regularization_cost!(
             container,
             StorageRegularizationVariableCharge,
             devices,
             T,
         )
-        add_variable_cost!(
+        _add_storage_regularization_cost!(
             container,
             StorageRegularizationVariableDischarge,
             devices,
