@@ -854,13 +854,6 @@ function construct_device!(
     end
 
     _add_transformer_control_variables!(container, devices, device_model, network_model)
-    add_expressions!(
-        container,
-        PTDFBranchFlow,
-        devices,
-        device_model,
-        network_model,
-    )
     add_feedforward_arguments!(container, device_model, devices)
     return
 end
@@ -878,6 +871,15 @@ function construct_device!(
 }
     devices = get_device_cache(device_model)
 
+    # The flows copy the nodal balance, so they are built here, after the network
+    # ArgumentConstructStage has added the phase-shift injections to it.
+    add_expressions!(
+        container,
+        PTDFBranchFlow,
+        devices,
+        device_model,
+        network_model,
+    )
     add_constraints!(container, FlowRateConstraint, devices, device_model, network_model)
     _add_transformer_control_constraints!(
         container, sys, devices, device_model, network_model,
