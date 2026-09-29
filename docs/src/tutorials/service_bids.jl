@@ -88,7 +88,7 @@ for (i, g) in enumerate(contributors)
             start_up = (hot = 0.0, warm = 0.0, cold = 0.0),
             shut_down = LinearCurve(0.0),
             incremental_offer_curves = make_market_bid_curve(
-                [0.0, pmax], [energy_slope], 0.0; power_units = IS.NaturalUnit(),
+                [0.0, pmax], [energy_slope], 0.0,
             ),
         ),
     )
@@ -96,12 +96,12 @@ for (i, g) in enumerate(contributors)
     price = 8.0 + 2.0 * i
     data = Dict(it => [offer_curve(price) for _ in 1:horizon] for it in init_times)
     ts = Deterministic(get_name(reserve), data, resolution)
-    set_service_bid!(sys, g, reserve, ts, IS.NaturalUnit())
+    set_service_bid!(sys, g, reserve, ts)
 end
 
 # `set_service_bid!` is what actually wires the offer to the device. For each call it does two
-# things (after validating that the device's cost is an `OfferCurveCost`, that the units are
-# natural, and that the device is eligible to provide the service):
+# things (after validating that the device's cost is an `OfferCurveCost` and that the device is
+# eligible to provide the service):
 #
 # 1. **Attaches the offer curve as a time series** on the device, via `add_time_series!`. The
 #    time series *must* be named after the service (`get_name(reserve)`) - that name is how the

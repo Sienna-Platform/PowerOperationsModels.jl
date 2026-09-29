@@ -34,11 +34,9 @@ end
 # Per-type service time-series parameter: all services of the type share one container
 # keyed `(ParameterType, ServiceType)`, axed by service name.
 #
-# `U` is decoupled from the model's component type `V`: a `ServiceModel` can be declared with a
-# partially applied type, e.g. `OnlineReserve{ReserveDown}` (a `UnionAll` with a free unit-system
-# parameter), while the vector holds concrete `OnlineReserve{ReserveDown, NaturalUnit}` instances.
-# `Vector` is invariant, so no single type variable can bind both. Container keys are unaffected
-# (`canonical_component_type` strips the unit parameter).
+# `U` is decoupled from the model's component type `V`: a `ServiceModel` can be declared with an
+# abstract or `UnionAll` service type while the vector holds concrete instances, and `Vector` is
+# invariant, so no single type variable can bind both.
 function add_parameters!(
     container::OptimizationContainer,
     ::Type{T},

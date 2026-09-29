@@ -27,7 +27,7 @@ function _services_with_contributors(
 end
 
 # Groups are device-less, so the device-map filter above cannot apply. The comprehensions
-# keep the eltype concrete (e.g. `GroupReserve{ReserveUp, NaturalUnit}`): a bare
+# keep the eltype concrete (e.g. `GroupReserve{ReserveUp}`): a bare
 # `PSY.GroupReserve[]` accumulator would canonicalize container keys direction-less,
 # unreachable by readers keyed on `GroupReserve{Dir}`.
 function _groups_with_demand(model::ServiceModel, sys::PSY.System)
