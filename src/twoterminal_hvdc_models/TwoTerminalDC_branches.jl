@@ -1479,8 +1479,8 @@ get_variable_binary(::Type{ConverterACCurrentFromVariable}, ::Type{PSY.TwoTermin
 get_variable_binary(::Type{ConverterACCurrentToVariable}, ::Type{PSY.TwoTerminalVSCLine}, ::Type{<:AbstractTwoTerminalVSCFormulation}) = false
 get_variable_lower_bound(::Type{ConverterACCurrentFromVariable}, d::PSY.TwoTerminalVSCLine, ::Type{<:AbstractTwoTerminalVSCFormulation}) = CONVERTER_AC_CURRENT_FLOOR
 get_variable_lower_bound(::Type{ConverterACCurrentToVariable}, d::PSY.TwoTerminalVSCLine, ::Type{<:AbstractTwoTerminalVSCFormulation}) = CONVERTER_AC_CURRENT_FLOOR
-get_variable_upper_bound(::Type{ConverterACCurrentFromVariable}, d::PSY.TwoTerminalVSCLine, ::Type{<:AbstractTwoTerminalVSCFormulation}) = _converter_ac_current_max(PSY.get_rating_from(d, PSY.SU), PSY.get_voltage_limits(PSY.get_from(PSY.get_arc(d))).min, PSY.get_name(d))
-get_variable_upper_bound(::Type{ConverterACCurrentToVariable}, d::PSY.TwoTerminalVSCLine, ::Type{<:AbstractTwoTerminalVSCFormulation}) = _converter_ac_current_max(PSY.get_rating_to(d, PSY.SU), PSY.get_voltage_limits(PSY.get_to(PSY.get_arc(d))).min, PSY.get_name(d))
+get_variable_upper_bound(::Type{ConverterACCurrentFromVariable}, d::PSY.TwoTerminalVSCLine, ::Type{<:AbstractTwoTerminalVSCFormulation}) = _converter_ac_current_max(PSY.get_rating_from(d, PSY.SU), PSY.get_voltage_limits(PSY.get_from(PSY.get_arc(d)), PSY.CU).min, PSY.get_name(d))
+get_variable_upper_bound(::Type{ConverterACCurrentToVariable}, d::PSY.TwoTerminalVSCLine, ::Type{<:AbstractTwoTerminalVSCFormulation}) = _converter_ac_current_max(PSY.get_rating_to(d, PSY.SU), PSY.get_voltage_limits(PSY.get_to(PSY.get_arc(d)), PSY.CU).min, PSY.get_name(d))
 # Warm-started at the rated apparent current (pu, strictly interior to (ε, S_max/vmin)
 # and away from the degenerate I_ac = 0); see CONVERTER_AC_CURRENT_FLOOR.
 get_variable_warm_start_value(::Type{ConverterACCurrentFromVariable}, d::PSY.TwoTerminalVSCLine, ::Type{<:AbstractTwoTerminalVSCFormulation}) = PSY.get_rating_from(d, PSY.SU)

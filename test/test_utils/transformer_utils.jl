@@ -99,6 +99,7 @@ function _sys5_with_3w()
 
     function _add_bus!(number, name)
         bus = PSY.ACBus(;
+            input_basis = PSY.CU,
             number = number,
             name = name,
             available = true,

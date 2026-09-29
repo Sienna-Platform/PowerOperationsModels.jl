@@ -342,8 +342,8 @@ _emergency_flow_limits(rep::RepresentativeBranch) = _emergency_flow_limits(rep.b
 function _min_endpoint_voltage_limit(branch::PSY.ACTransmission)
     arc = PSY.get_arc(branch)
     # bus voltage limits are already per-unit
-    vmin_fr = PSY.get_voltage_limits(PSY.get_from(arc)).min
-    vmin_to = PSY.get_voltage_limits(PSY.get_to(arc)).min
+    vmin_fr = PSY.get_voltage_limits(PSY.get_from(arc), PSY.CU).min
+    vmin_to = PSY.get_voltage_limits(PSY.get_to(arc), PSY.CU).min
     return min(vmin_fr, vmin_to)
 end
 _min_endpoint_voltage_limit(entry::PNM.AbstractReductionAggregate) =

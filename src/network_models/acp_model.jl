@@ -25,9 +25,9 @@ end
 #! format: off
 # bus voltage limits are already per-unit
 get_variable_binary(::Type{VoltageMagnitude}, ::Type{PSY.ACBus}, ::Type{ACPNetworkModel}) = false
-get_variable_lower_bound(::Type{VoltageMagnitude}, bus::PSY.ACBus, ::Type{ACPNetworkModel}) = PSY.get_voltage_limits(bus).min
-get_variable_upper_bound(::Type{VoltageMagnitude}, bus::PSY.ACBus, ::Type{ACPNetworkModel}) = PSY.get_voltage_limits(bus).max
-get_variable_warm_start_value(::Type{VoltageMagnitude}, bus::PSY.ACBus, ::Type{ACPNetworkModel}) = PSY.get_magnitude(bus)
+get_variable_lower_bound(::Type{VoltageMagnitude}, bus::PSY.ACBus, ::Type{ACPNetworkModel}) = PSY.get_voltage_limits(bus, PSY.CU).min
+get_variable_upper_bound(::Type{VoltageMagnitude}, bus::PSY.ACBus, ::Type{ACPNetworkModel}) = PSY.get_voltage_limits(bus, PSY.CU).max
+get_variable_warm_start_value(::Type{VoltageMagnitude}, bus::PSY.ACBus, ::Type{ACPNetworkModel}) = PSY.get_magnitude(bus, PSY.CU)
 #! format: on
 
 function add_constraints!(
@@ -68,7 +68,7 @@ function add_constraints!(
         ref_name = number_to_name[k]
         ref_bus = PSY.get_component(PSY.ACBus, sys, ref_name)
         _assert_reference_voltage_within_limits(ref_bus)
-        v_set = PSY.get_magnitude(ref_bus)
+        v_set = PSY.get_magnitude(ref_bus, PSY.CU)
         for t in time_steps
             cons_va[k, t] =
                 JuMP.@constraint(get_jump_model(container), va[ref_name, t] == 0.0)
