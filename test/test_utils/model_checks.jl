@@ -365,10 +365,13 @@ function check_duration_on_initial_conditions_values(
     )
     for ic in duration_on_data
         name = PSY.get_name(ic.component)
-        on_var = IOM.get_initial_condition_value(initial_conditions_data, OnVariable(), T)[
-            name,
-            1,
-        ]
+        # A MIP solution can hold a binary within solver tolerance of 0 or 1.
+        on_var = round(
+            IOM.get_initial_condition_value(initial_conditions_data, OnVariable(), T)[
+                name,
+                1,
+            ],
+        )
         duration_on = IOM.jump_value(IOM.get_value(ic))
         if on_var == 1.0 && POM.is_online(ic.component)
             @test duration_on == PSY.get_time_at_status(ic.component)
@@ -391,10 +394,12 @@ function check_duration_off_initial_conditions_values(
     )
     for ic in duration_off_data
         name = PSY.get_name(ic.component)
-        on_var = IOM.get_initial_condition_value(initial_conditions_data, OnVariable(), T)[
-            name,
-            1,
-        ]
+        on_var = round(
+            IOM.get_initial_condition_value(initial_conditions_data, OnVariable(), T)[
+                name,
+                1,
+            ],
+        )
         duration_off = IOM.jump_value(IOM.get_value(ic))
         if on_var == 0.0 && !POM.is_online(ic.component)
             @test duration_off == PSY.get_time_at_status(ic.component)
