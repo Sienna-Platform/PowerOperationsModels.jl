@@ -1,30 +1,3 @@
-function create_temporary_cost_function_in_system_per_unit(
-    original_cost_function::PSY.CostCurve,
-    new_data::PSY.PiecewiseLinearData,
-)
-    return PSY.CostCurve(
-        PSY.PiecewisePointCurve(new_data),
-        PSY.SU,
-        PSY.get_vom_cost(original_cost_function),
-    )
-end
-
-function create_temporary_cost_function_in_system_per_unit(
-    original_cost_function::PSY.FuelCurve,
-    new_data::PSY.PiecewiseLinearData,
-)
-    # Keyword form: the fixed and time-series fuel cost are separate, mutually
-    # exclusive fields, so carry both through unchanged.
-    return PSY.FuelCurve(;
-        value_curve = PSY.PiecewisePointCurve(new_data),
-        power_units = PSY.SU,
-        fuel_cost = PSY.get_fuel_cost(original_cost_function),
-        fuel_cost_time_series = IS.get_fuel_cost_time_series(original_cost_function),
-        startup_fuel_offtake = IS.LinearCurve(0.0),  # default of 0
-        vom_cost = PSY.get_vom_cost(original_cost_function),
-    )
-end
-
 #! format: off
 
 requires_initialization(::AbstractThermalFormulation) = false
@@ -1603,16 +1576,9 @@ function IOM.add_pwl_term_lambda!(
     value_curve = PSY.get_value_curve(cost_function)
     cost_component = PSY.get_function_data(value_curve)
     base_power = IOM.get_model_base_power(container)
-    device_base_power = PSY.get_base_power(component, PSY.NU)
-    power_units = PSY.get_power_units(cost_function)
 
     # Normalize data
-    data = IOM.get_piecewise_pointcurve_per_system_unit(
-        cost_component,
-        power_units,
-        base_power,
-        device_base_power,
-    )
+    data = IOM.get_piecewise_pointcurve_per_system_unit(cost_component, base_power)
     @debug "PWL cost function detected for device $(name) using $V"
     slopes = PSY.get_slopes(data)
     if any(slopes .< 0) || !PSY.is_convex(data)
@@ -1648,8 +1614,9 @@ function IOM.add_pwl_term_lambda!(
     pwl_cost_expressions = Vector{JuMP.AffExpr}(undef, time_steps[end])
     break_points = PSY.get_x_coords(data)
     sos_val = IOM._get_sos_value(container, V, component)
-    temp_cost_function =
-        create_temporary_cost_function_in_system_per_unit(cost_function, data)
+    dt = Dates.value(IOM.get_resolution(container)) / MILLISECONDS_IN_HOUR
+    # `data` is in system per unit; the curve-level lambda would normalize it again.
+    multiplier = dt * IOM._get_pwl_cost_multiplier(cost_function, U, V)
     for t in time_steps
         IOM.add_pwl_variables_lambda!(container, T, name, t, data)
         power_var = IOM.get_variable(container, U, T)[name, t]
@@ -1661,16 +1628,8 @@ function IOM.add_pwl_term_lambda!(
             t,
             power_var,
         )
-        pwl_cost =
-            IOM.get_pwl_cost_expression_lambda(
-                container,
-                component,
-                t,
-                temp_cost_function,
-                U,
-                V,
-            )
-        pwl_cost_expressions[t] = pwl_cost
+        pwl_cost_expressions[t] =
+            IOM.get_pwl_cost_expression_lambda(container, T, name, t, data, multiplier)
     end
     return pwl_cost_expressions
 end
