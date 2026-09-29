@@ -18,21 +18,22 @@ PowerSystems = "bcd98974-b02a-5e2f-9ee0-a103f5c450dd"
 PrettyTables = "08abe8d2-0d0c-5749-adfa-8a2ac140af0d"
 
 [sources]
+# rh/natural-unit-costs set: revert to the base branches once these merge.
+# PNM follows the per-quantity control fields PSY carries on this branch.
 PowerOperationsModels = {path = ".."}
-InfrastructureSystems = {rev = "IS4", url = "https://github.com/Sienna-Platform/InfrastructureSystems.jl"}
-PowerSystems = {rev = "psy6", url = "https://github.com/Sienna-Platform/PowerSystems.jl"}
-InfrastructureOptimizationModels = {rev = "main", url = "https://github.com/Sienna-Platform/InfrastructureOptimizationModels.jl"}
-PowerNetworkMatrices = {rev = "psy6", url = "https://github.com/Sienna-Platform/PowerNetworkMatrices.jl"}
-# PSY psy6 depends on these unregistered packages; [sources] of non-root projects are
+InfrastructureSystems = {url = "https://github.com/Sienna-Platform/InfrastructureSystems.jl.git", rev = "rh/natural-unit-costs"}
+PowerSystems = {url = "https://github.com/Sienna-Platform/PowerSystems.jl.git", rev = "rh/natural-unit-costs"}
+InfrastructureOptimizationModels = {url = "https://github.com/Sienna-Platform/InfrastructureOptimizationModels.jl.git", rev = "rh/natural-unit-costs"}
+PowerNetworkMatrices = {url = "https://github.com/Sienna-Platform/PowerNetworkMatrices.jl.git", rev = "mb/fixed-quantity-fields"}
+# PSY depends on these unregistered packages; [sources] of non-root projects are
 # ignored by Pkg, so every environment resolving PSY must pin them itself (same rev as
 # PSY's own sources).
-# Branch pins until the OpenAPI packages are registered and the psy6-line branches merge.
-PowerCoreOpenAPIModels = {rev = "main", url = "https://github.com/Sienna-Platform/PowerOpenAPIModels.git", subdir = "PowerCoreOpenAPIModels.jl"}
-PowerDynamicsOpenAPIModels = {rev = "main", url = "https://github.com/Sienna-Platform/PowerOpenAPIModels.git", subdir = "PowerDynamicsOpenAPIModels.jl"}
-PowerInvestmentsOpenAPIModels = {rev = "main", url = "https://github.com/Sienna-Platform/PowerOpenAPIModels.git", subdir = "PowerInvestmentsOpenAPIModels.jl"}
-PowerOpenAPIModels = {rev = "main", url = "https://github.com/Sienna-Platform/PowerOpenAPIModels.git", subdir = "PowerOpenAPIModels.jl"}
-PowerOperationsOpenAPIModels = {rev = "main", url = "https://github.com/Sienna-Platform/PowerOpenAPIModels.git", subdir = "PowerOperationsOpenAPIModels.jl"}
-InfrastructureTimeSeriesOpenAPIModels = {rev = "main", url = "https://github.com/Sienna-Platform/PowerOpenAPIModels.git", subdir = "InfrastructureTimeSeriesOpenAPIModels.jl"}
+PowerCoreOpenAPIModels = {url = "https://github.com/Sienna-Platform/PowerOpenAPIModels.git", rev = "rh/natural-unit-costs", subdir = "PowerCoreOpenAPIModels.jl"}
+PowerDynamicsOpenAPIModels = {url = "https://github.com/Sienna-Platform/PowerOpenAPIModels.git", rev = "rh/natural-unit-costs", subdir = "PowerDynamicsOpenAPIModels.jl"}
+PowerInvestmentsOpenAPIModels = {url = "https://github.com/Sienna-Platform/PowerOpenAPIModels.git", rev = "rh/natural-unit-costs", subdir = "PowerInvestmentsOpenAPIModels.jl"}
+PowerOpenAPIModels = {url = "https://github.com/Sienna-Platform/PowerOpenAPIModels.git", rev = "rh/natural-unit-costs", subdir = "PowerOpenAPIModels.jl"}
+PowerOperationsOpenAPIModels = {url = "https://github.com/Sienna-Platform/PowerOpenAPIModels.git", rev = "rh/natural-unit-costs", subdir = "PowerOperationsOpenAPIModels.jl"}
+InfrastructureTimeSeriesOpenAPIModels = {url = "https://github.com/Sienna-Platform/PowerOpenAPIModels.git", rev = "rh/natural-unit-costs", subdir = "InfrastructureTimeSeriesOpenAPIModels.jl"}
 
 [compat]
 Documenter = "^1.0"
