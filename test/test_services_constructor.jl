@@ -13,7 +13,6 @@ function _add_ts_ordc!(
     create_extra_tranches = false,
 )
     baseline_curve = PSY.get_variable(static_ordc)
-    power_units = PSY.get_power_units(baseline_curve)
     fd = PSY.get_function_data(PSY.get_value_curve(baseline_curve))
 
     # Construct with the default `variable` (the ZERO_OFFER_CURVE "no curve" placeholder);
@@ -36,7 +35,7 @@ function _add_ts_ordc!(
         create_extra_tranches = create_extra_tranches,
     )
     pwl_key = add_time_series!(sys, ordc_ts, pwl_ts)
-    PSY.set_variable!(ordc_ts, PSY.make_market_bid_ts_curve(pwl_key, nothing, power_units))
+    PSY.set_variable!(ordc_ts, PSY.make_market_bid_ts_curve(pwl_key, nothing))
     return ordc_ts
 end
 
@@ -1564,7 +1563,7 @@ end
     storage = first(get_components(PSY.EnergyReservoirStorage, sys))
     ordc_ts = OnlineReserve{ReserveUp}(;
         name = "ORDC_TS", available = true, time_frame = 1.0,
-        variable = stub_ts_offer_curve(; power_units = PSY.SU))
+        variable = stub_ts_offer_curve())
     # Full input/output range, exactly as for a static ORDC (demand curves have no
     # `get_max_output_fraction`).
     @test POM.get_variable_upper_bound(
@@ -1598,7 +1597,7 @@ end
 
     ordc_ts = OnlineReserve{ReserveUp}(;
         name = "ORDC_TS", available = true, time_frame = 1.0,
-        variable = stub_ts_offer_curve(; power_units = IS.NaturalUnit()))
+        variable = stub_ts_offer_curve())
     add_service!(sys, ordc_ts, get_components(PSY.EnergyReservoirStorage, sys))
     add_time_series!(sys, ordc_ts,
         IS.SingleTimeSeries(;
@@ -1615,7 +1614,7 @@ end
         ),
     )
     PSY.set_variable!(ordc_ts,
-        PSY.make_market_bid_ts_curve(key, nothing, IS.NaturalUnit()))
+        PSY.make_market_bid_ts_curve(key, nothing))
 
     resolved =
         PSY.get_time_series(ordc_ts, IS.get_time_series_key(PSY.get_variable(ordc_ts)))
@@ -1679,14 +1678,14 @@ function _setup_group_reserve_offers!(
                 start_up = (hot = 0.0, warm = 0.0, cold = 0.0),
                 shut_down = LinearCurve(0.0),
                 incremental_offer_curves = make_market_bid_curve(
-                    [0.0, pmax], [energy_slope], 0.0; power_units = IS.NaturalUnit(),
+                    [0.0, pmax], [energy_slope], 0.0,
                 ),
             ),
         )
         for (svc, price) in ((sub_a, sub_a_price), (sub_b, sub_b_price))
             data = Dict(it => [offer_curve(price) for _ in 1:horizon] for it in init_times)
             ts = Deterministic(PSY.get_name(svc), data, resolution)
-            PSY.set_service_bid!(sys, g, svc, ts, IS.NaturalUnit())
+            PSY.set_service_bid!(sys, g, svc, ts)
         end
     end
     return
@@ -1711,7 +1710,7 @@ function build_group_reserve_system(;
             available = true,
             requirement = 0.0,
             variable = make_market_bid_curve(
-                [0.0, 40.0, 80.0], [80.0, 10.0], 0.0; power_units = IS.NaturalUnit(),
+                [0.0, 40.0, 80.0], [80.0, 10.0], 0.0,
             ),
             contributing_services = Service[sub_a, sub_b],
         )
@@ -1827,7 +1826,7 @@ end
         group,
         Deterministic("variable_cost", data, Hour(1)),
     )
-    PSY.set_variable!(group, PSY.make_market_bid_ts_curve(key, nothing, IS.NaturalUnit()))
+    PSY.set_variable!(group, PSY.make_market_bid_ts_curve(key, nothing))
     @test PSY.has_demand_curve(group)
 
     model = _solve_group_model(sys)
@@ -1879,7 +1878,6 @@ end
 @testset "GroupStepwiseCostReserve: time-series group curve builds, solves and clears" begin
     sys, group = build_group_reserve_system()
     baseline_curve = PSY.get_variable(group)
-    power_units = PSY.get_power_units(baseline_curve)
     fd = PSY.get_function_data(PSY.get_value_curve(baseline_curve))
     pwl_ts = make_deterministic_ts(
         sys,
@@ -1891,7 +1889,7 @@ end
         override_max_x = last(get_x_coords(fd)),
     )
     pwl_key = add_time_series!(sys, group, pwl_ts)
-    PSY.set_variable!(group, PSY.make_market_bid_ts_curve(pwl_key, nothing, power_units))
+    PSY.set_variable!(group, PSY.make_market_bid_ts_curve(pwl_key, nothing))
 
     model = _solve_group_model(sys)
     res = IOM.OptimizationProblemOutputs(model)
@@ -2112,8 +2110,7 @@ const _NONNESTED_LOAD_B = "IL_B"
 _nonnested_ordc_curve() = make_market_bid_curve(
     [0.0, 200.0, 400.0],
     [80.0, 15.0],
-    0.0;
-    power_units = IS.NaturalUnit(),
+    0.0,
 )
 
 # `nested = false` gives each service exactly one of the loads, so neither contributor set

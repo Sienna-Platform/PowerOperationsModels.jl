@@ -215,7 +215,7 @@ function _rehomed_offer_curve(curve::CostCurve{<:TimeSeriesPiecewiseIncrementalC
     else
         new_initial_key = rehome_key(initial_key)
     end
-    return make_market_bid_ts_curve(new_pwl_key, new_initial_key, get_power_units(curve))
+    return make_market_bid_ts_curve(new_pwl_key, new_initial_key)
 end
 
 zero_out_startup_shutdown_costs!(sys::PSY.System, comp::PSY.Device) =

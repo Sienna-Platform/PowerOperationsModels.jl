@@ -109,7 +109,7 @@ function _constant_ts_offer_curve(sys::PSY.System, comp::PSY.Component, name::St
         ii_ts = make_deterministic_ts(sys, name * "_initial_input", initial_input, 0.0, 0.0)
         add_time_series!(sys, comp, ii_ts)
     end
-    return make_market_bid_ts_curve(pwl_key, initial_key, get_power_units(curve))
+    return make_market_bid_ts_curve(pwl_key, initial_key)
 end
 
 """
@@ -269,11 +269,7 @@ function extend_mbc!(
             initial_key = add_time_series!(sys, comp, my_initial_ts)
             curve_key = add_time_series!(sys, comp, my_pwl_ts)
             new_curves[incr_or_decr] =
-                make_market_bid_ts_curve(
-                    curve_key,
-                    initial_key,
-                    get_power_units(cost_curve),
-                )
+                make_market_bid_ts_curve(curve_key, initial_key)
         end
         ts_cost = to_market_bid_ts_cost(
             sys,

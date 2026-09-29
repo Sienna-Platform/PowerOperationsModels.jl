@@ -323,7 +323,7 @@ end
         time_frame = 30.0,
         sustained_time = 3600.0,
         variable = make_market_bid_curve(
-            [0.0, 20.0, 40.0], [60.0, 10.0], 0.0; power_units = IS.NaturalUnit(),
+            [0.0, 20.0, 40.0], [60.0, 10.0], 0.0,
         ),
     )
     bat = get_component(EnergyReservoirStorage, sys, "Bat")
@@ -362,7 +362,7 @@ end
     )
     @test IOM.has_container_key(
         container, POM.ReserveCompleteCoverageConstraint, EnergyReservoirStorage,
-        "$(OfflineReserve{IS.NaturalUnit})_discharge",
+        "$(OfflineReserve)_discharge",
     )
 
     # Balance rows carry charge + discharge - award: the award term is wired, not skipped.

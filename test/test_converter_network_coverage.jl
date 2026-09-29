@@ -31,7 +31,6 @@ function _build_converter_sys(;
                     2.0 * get_proportional_term(val_curve),
                     get_constant_term(val_curve),
                 ),
-                get_power_units(PSY.get_variable_operation_cost(op_cost)),
                 get_vom_cost(PSY.get_variable_operation_cost(op_cost)),
             ),
             get_fixed(op_cost),

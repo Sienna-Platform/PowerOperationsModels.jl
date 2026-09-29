@@ -24,7 +24,7 @@ function _read_awards(res, service_type::String)
 end
 
 # Give every contributing thermal device of `reserve` a MarketBidCost with an energy offer and a
-# per-device reserve OFFER curve (PiecewiseStepData, NaturalUnit) named after the service.
+# per-device reserve OFFER curve (PiecewiseStepData in MW and $/MWh) named after the service.
 function add_device_reserve_offers!(
     sys,
     reserve;
@@ -52,7 +52,7 @@ function add_device_reserve_offers!(
                 start_up = (hot = 0.0, warm = 0.0, cold = 0.0),
                 shut_down = LinearCurve(0.0),
                 incremental_offer_curves = make_market_bid_curve(
-                    [0.0, pmax], [energy_slope], 0.0; power_units = IS.NaturalUnit(),
+                    [0.0, pmax], [energy_slope], 0.0,
                 ),
             ),
         )
@@ -60,7 +60,7 @@ function add_device_reserve_offers!(
         base_slope[PSY.get_name(g)] = price
         data = Dict(it => [offer_curve(price) for _ in 1:horizon] for it in init_times)
         ts = Deterministic(PSY.get_name(reserve), data, resolution)
-        PSY.set_service_bid!(sys, g, reserve, ts, IS.NaturalUnit())
+        PSY.set_service_bid!(sys, g, reserve, ts)
     end
     return contributors, base_slope
 end
@@ -203,7 +203,7 @@ function add_per_hour_reserve_offer!(
             start_up = (hot = 0.0, warm = 0.0, cold = 0.0),
             shut_down = LinearCurve(0.0),
             incremental_offer_curves = make_market_bid_curve(
-                [0.0, pmax], [energy_slope], 0.0; power_units = IS.NaturalUnit()),
+                [0.0, pmax], [energy_slope], 0.0),
         ),
     )
     real_curve = IS.PiecewiseStepData([0.0, 50.0], [5.0])       # hour 1: cheap, 50 MW at $5
@@ -214,7 +214,7 @@ function add_per_hour_reserve_offer!(
         Dict(it => per_hour for it in init_times),
         resolution,
     )
-    PSY.set_service_bid!(sys, g, reserve, ts, IS.NaturalUnit())
+    PSY.set_service_bid!(sys, g, reserve, ts)
     return g
 end
 
@@ -355,7 +355,7 @@ _mkt_offer_ts(svc, mw, price) = Deterministic(
     Hour(1),
 )
 
-_mkt_curve(x, y) = make_market_bid_curve(x, y, 0.0; power_units = IS.NaturalUnit())
+_mkt_curve(x, y) = make_market_bid_curve(x, y, 0.0)
 
 function build_reserve_market_system(; load_offer_mw = 10.0, load_offer_price = 4.0)
     sys = deepcopy(PSB.build_system(PSITestSystems, "c_sys5_il"; add_reserves = false))
@@ -412,7 +412,6 @@ function build_reserve_market_system(; load_offer_mw = 10.0, load_offer_price = 
                 g,
                 svc,
                 _mkt_offer_ts(svc, mw, price),
-                IS.NaturalUnit(),
             )
         end
     end
@@ -431,7 +430,6 @@ function build_reserve_market_system(; load_offer_mw = 10.0, load_offer_price = 
     )
     PSY.set_service_bid!(
         sys, il, sub_a, _mkt_offer_ts(sub_a, load_offer_mw, load_offer_price),
-        IS.NaturalUnit(),
     )
     return sys
 end
@@ -514,12 +512,12 @@ end
     # would crowd out the load's priced block.
     for (i, g) in enumerate(thermals)
         PSY.set_service_bid!(
-            sys, g, nspin, _mkt_offer_ts(nspin, 30.0, 6.0 + i), IS.NaturalUnit(),
+            sys, g, nspin, _mkt_offer_ts(nspin, 30.0, 6.0 + i),
         )
     end
     nspin_offer = 8.0
     PSY.set_service_bid!(
-        sys, il, nspin, _mkt_offer_ts(nspin, nspin_offer, 3.0), IS.NaturalUnit(),
+        sys, il, nspin, _mkt_offer_ts(nspin, nspin_offer, 3.0),
     )
 
     template = _reserve_market_template()
@@ -582,7 +580,7 @@ function _offline_ordc_uc_system()
                 ),
                 shut_down = LinearCurve(0.0),
                 incremental_offer_curves = make_market_bid_curve(
-                    [0.0, pmax_g], [slope], 0.0; power_units = IS.NaturalUnit(),
+                    [0.0, pmax_g], [slope], 0.0,
                 ),
             ),
         )
@@ -606,14 +604,12 @@ function _offline_ordc_uc_system()
             g,
             nspin,
             _mkt_offer_ts(nspin, 80.0, price),
-            IS.NaturalUnit(),
         )
         PSY.set_service_bid!(
             sys,
             g,
             spin,
             _mkt_offer_ts(spin, 30.0, price),
-            IS.NaturalUnit(),
         )
     end
     return sys, offunit
@@ -848,7 +844,7 @@ end
     for (i, g) in enumerate(gens)
         pmax = PSY.get_active_power_limits(g, PSY.NU).max
         PSY.set_service_bid!(
-            sys, g, nspin, _mkt_offer_ts(nspin, pmax, 5.0 + i), IS.NaturalUnit(),
+            sys, g, nspin, _mkt_offer_ts(nspin, pmax, 5.0 + i),
         )
     end
 
@@ -1004,7 +1000,7 @@ end
     il = get_component(PSY.InterruptiblePowerLoad, sys, _IL_NAME)
     set_operation_cost!(
         il,
-        PSY.LoadCost(PSY.CostCurve(PSY.LinearCurve(5000.0, 0.0), IS.NaturalUnit()), 24.0),
+        PSY.LoadCost(PSY.CostCurve(PSY.LinearCurve(5000.0, 0.0)), 24.0),
     )
     template = _load_reserve_template(:up)
     set_service_model!(
@@ -1075,7 +1071,7 @@ end
     il = get_component(PSY.InterruptiblePowerLoad, sys, _IL_NAME)
     set_operation_cost!(
         il,
-        PSY.LoadCost(PSY.CostCurve(PSY.LinearCurve(5000.0, 0.0), IS.NaturalUnit()), 24.0),
+        PSY.LoadCost(PSY.CostCurve(PSY.LinearCurve(5000.0, 0.0)), 24.0),
     )
     # A second requirement reserve on the same load; both clear under ONE per-type model.
     second = OnlineReserve{ReserveUp}("Reserve7B", true, 30.0, 100.0)
@@ -1110,7 +1106,7 @@ end
             start_up = (hot = 0.0, warm = 0.0, cold = 0.0),
             shut_down = LinearCurve(0.0),
             decremental_offer_curves = make_market_bid_curve(
-                [0.0, pmax], [5000.0], 0.0; power_units = IS.NaturalUnit(),
+                [0.0, pmax], [5000.0], 0.0,
             ),
         ),
     )
@@ -1122,7 +1118,7 @@ end
         ),
         Hour(1),
     )
-    PSY.set_service_bid!(sys, il, ordc, offer_ts, IS.NaturalUnit())
+    PSY.set_service_bid!(sys, il, ordc, offer_ts)
 
     template = get_thermal_dispatch_template_network()
     set_device_model!(template, PSY.InterruptiblePowerLoad, PowerLoadDispatch)
