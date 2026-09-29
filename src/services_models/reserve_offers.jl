@@ -72,16 +72,15 @@ function add_reserve_offer_costs!(
         for d in offering
             dev_name = PSY.get_name(d)
             cost = PSY.get_operation_cost(d)
-            dev_base = PSY.get_base_power(d)
             bid = PSY.get_services_bid(
                 d, cost, service; start_time = initial_time, len = length(time_steps))
             curves = values(bid)
             for t in time_steps
-                bp_c, slope_c, unit = IOM._get_raw_pwl_data(
+                bp_c, slope_c = IOM._get_raw_pwl_data(
                     IOM.IncrementalOffer(), container, device_type, dev_name, curves[t],
                     t)
-                breakpoints, slopes = IOM.get_piecewise_curve_per_system_unit(
-                    bp_c, slope_c, unit, base_p, dev_base)
+                breakpoints, slopes =
+                    IOM.get_piecewise_curve_per_system_unit(bp_c, slope_c, base_p)
                 nseg = length(slopes)
                 pwl_vars = Vector{JuMP.VariableRef}(undef, nseg)
                 for k in 1:nseg

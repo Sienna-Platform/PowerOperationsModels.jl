@@ -399,17 +399,13 @@ function IOM._get_pwl_data(
 ) where {T <: IS.InfrastructureSystemsComponent}
     name = IS.get_name(component)
     cost_data = get_offer_curves(dir, component)
-    breakpoint_cost_component, slope_cost_component, unit_system =
+    breakpoint_cost_component, slope_cost_component =
         IOM._get_raw_pwl_data(dir, container, T, name, cost_data, time; meta = meta)
-
-    breakpoints, slopes = IOM.get_piecewise_curve_per_system_unit(
+    return IOM.get_piecewise_curve_per_system_unit(
         breakpoint_cost_component,
         slope_cost_component,
-        unit_system,
         get_model_base_power(container),
-        PSY.get_base_power(component, PSY.NU),
     )
-    return breakpoints, slopes
 end
 
 # static curve: read directly from the cost curve. `meta` is accepted (and
@@ -424,9 +420,7 @@ function IOM._get_raw_pwl_data(
     meta = IOM.CONTAINER_KEY_EMPTY_META,
 )
     cost_component = IS.get_function_data(IS.get_value_curve(cost_data))
-    return IS.get_x_coords(cost_component),
-    IS.get_y_coords(cost_component),
-    IS.get_power_units(cost_data)
+    return IS.get_x_coords(cost_component), IS.get_y_coords(cost_component)
 end
 
 #################################################################################
@@ -567,10 +561,9 @@ function _add_vom_cost_to_objective_helper!(
     cost_data::IS.CostCurve{IS.PiecewiseIncrementalCurve},
     ::Type{U},
 ) where {T <: VariableType, U <: AbstractDeviceFormulation}
-    power_units = IS.get_power_units(cost_data)
     cost_term = IS.get_proportional_term(IS.get_vom_cost(cost_data))
     IOM.add_proportional_cost_invariant!(
-        container, T, component, cost_term, power_units, 1.0, VOMCostExpression)
+        container, T, component, cost_term, 1.0, VOMCostExpression)
     return
 end
 

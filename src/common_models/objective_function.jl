@@ -56,16 +56,13 @@ function _add_curtailment_cost!(
     ::Type{U},
 ) where {T <: VariableType, C <: PSY.RenewableGen, U <: AbstractDeviceFormulation}
     base_power = get_model_base_power(container)
-    device_base_power = PSY.get_base_power(component, PSY.NU)
     value_curve = PSY.get_value_curve(cost_function)
-    power_units = PSY.get_power_units(cost_function)
     cost_component = PSY.get_function_data(value_curve)
     proportional_term = PSY.get_proportional_term(cost_component)
     iszero(proportional_term) && return
 
-    proportional_term_per_unit = get_proportional_cost_per_system_unit(
-        proportional_term, power_units, base_power, device_base_power,
-    )
+    proportional_term_per_unit =
+        get_proportional_cost_per_system_unit(proportional_term, base_power)
     resolution = get_resolution(container)
     dt = Dates.value(resolution) / MILLISECONDS_IN_HOUR
     name = PSY.get_name(component)
