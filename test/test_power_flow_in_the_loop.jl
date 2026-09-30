@@ -746,9 +746,9 @@ end
             ACPolarPowerFlow{PFS.FastDecoupledXB}(),
         "FDNR handoff -> NewtonRaphson" =>
             ACPolarPowerFlow{PFS.FastDecoupledACPowerFlow}(;
-                solver_settings = Dict{Symbol, Any}(
-                    :handoff_solver => PFS.NewtonRaphsonACPowerFlow,
-                    :handoff_tol => 1e-3,
+                solution_parameters = PFS.SolutionParameters(;
+                    handoff_solver = PFS.NewtonRaphsonACPowerFlow,
+                    handoff_tol = 1e-3,
                 ),
             ),
     ]
