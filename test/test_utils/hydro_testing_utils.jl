@@ -164,3 +164,15 @@ function build_hydro_pump_only()
     remove_component!(sys, turbine)
     return sys
 end
+
+"""
+Size `reserve`'s requirement so its `"requirement"` series peaks at `peak` (system base).
+
+The fixture's series already carry the reserve's magnitude, so setting the requirement to
+a bare number scales that magnitude rather than replacing it.
+"""
+function set_requirement_peak!(reserve::PSY.AbstractReserve, peak::Float64)
+    series = get_time_series_values(SingleTimeSeries, reserve, "requirement")
+    set_requirement!(reserve, peak / maximum(series) * PSY.SU)
+    return
+end

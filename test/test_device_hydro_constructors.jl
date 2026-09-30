@@ -443,8 +443,8 @@ end
     reserve_down = only(get_components(OnlineReserve{ReserveDown}, c_sys5_hy))
     set_deployed_fraction!(reserve_up, 0.0)
     set_deployed_fraction!(reserve_down, 0.0)
-    set_requirement!(reserve_up, 0.01 * PSY.SU)
-    set_requirement!(reserve_down, 0.01 * PSY.SU)
+    set_requirement_peak!(reserve_up, 0.01)
+    set_requirement_peak!(reserve_down, 0.01)
 
     hydro_budget = 24
     eps = 1e-6
@@ -533,8 +533,8 @@ end
     reserve_down = only(get_components(OnlineReserve{ReserveDown}, c_sys5_hy))
     set_deployed_fraction!(reserve_up, 0.0)
     set_deployed_fraction!(reserve_down, 0.5)
-    set_requirement!(reserve_up, 0.01 * PSY.SU)
-    set_requirement!(reserve_down, 0.01 * PSY.SU)
+    set_requirement_peak!(reserve_up, 0.01)
+    set_requirement_peak!(reserve_down, 0.01)
 
     transform_single_time_series!(c_sys5_hy, Hour(4), Hour(4))
 
@@ -1652,8 +1652,8 @@ end
     reserve_down = only(get_components(OnlineReserve{ReserveDown}, c_sys5_hy))
     set_deployed_fraction!(reserve_up, 0.5)
     set_deployed_fraction!(reserve_down, 0.0)
-    set_requirement!(reserve_up, 0.01 * PSY.SU)
-    set_requirement!(reserve_down, 0.01 * PSY.SU)
+    set_requirement_peak!(reserve_up, 0.01)
+    set_requirement_peak!(reserve_down, 0.01)
 
     profile = collect(range(0.2, 0.9; length = 48))
     stamps = collect(
