@@ -48,6 +48,7 @@ owned by `sys`'s own time series manager, which opened it and will close it.
 parameter_store_of(sys::PSY.System) =
     ParameterTimeSeriesStore(IS.get_data_store(sys.data))
 
+"""Close the InfraStore handle `store` owns."""
 function close_parameter_store!(store::ParameterTimeSeriesStore)
     IS.close!(store.store)
     return nothing
