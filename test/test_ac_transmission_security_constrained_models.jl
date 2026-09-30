@@ -2048,7 +2048,7 @@ end
 
 @testset "MathOptLazy" begin
     # The default
-    model, status = _build_lazy_system(Dict{String,Any}(), HiGHS.Optimizer)
+    model, status = _build_lazy_system(Dict{String, Any}(), HiGHS.Optimizer)
     @test status == IOM.ModelBuildStatus.BUILT
     solve!(model)
     jump_model = IOM.get_jump_model(model)
