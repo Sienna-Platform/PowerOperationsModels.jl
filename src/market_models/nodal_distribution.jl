@@ -24,25 +24,36 @@ get_member_buses(sys::PSY.System, zone::PSY.LoadZone) = _available(PSY.get_buses
 get_member_buses(::PSY.System, hub::PSY.TradingHub) = _available(PSY.get_buses(hub))
 
 """
-Feature key of the `distribution_factor` series a settlement location carries for one of
-its member buses. `PSY.ACBus` does not own time series, so the location owns one series per
-member bus, distinguished by the bus number feature; InfrastructureSystems stores every
-series sharing a name in one table, buses as columns.
+Keys of the `distribution_factor` series `location` carries for `buses`, by bus number.
+`PSY.ACBus` does not own time series, so the location owns one series per member bus,
+distinguished by the `"bus" => bus number` feature. One catalog listing resolves every
+member, so reading a location costs one pass over its series rather than one feature-keyed
+lookup, each a scan of the location's catalog, per member bus. Series for buses outside
+`buses` are ignored; two series for one member bus are ambiguous and error.
 """
-bus_factor_features(bus::PSY.ACBus) = Dict{String, Any}("bus" => PSY.get_number(bus))
-
-function _has_factor_series(location::PSY.Component, bus::PSY.ACBus)
-    return IS.has_time_series(
-        location, IS.Deterministic, DISTRIBUTION_FACTOR_TS_NAME;
-        features = bus_factor_features(bus),
+function _factor_series_keys(location::PSY.Component, buses::Vector{PSY.ACBus})
+    members = Set(PSY.get_number(b) for b in buses)
+    series_keys = Dict{Int, IS.TimeSeriesKey}()
+    for metadata in IS.list_time_series_metadata(
+        location;
+        time_series_type = IS.Deterministic,
+        name = DISTRIBUTION_FACTOR_TS_NAME,
     )
-end
-
-function _any_factor_series(
-    location::T,
-    buses,
-) where {T <: Union{PSY.LoadZone, PSY.TradingHub}}
-    return any(b -> _has_factor_series(location, b), buses)
+        bus_no = get(IS.get_features(metadata), "bus", nothing)
+        bus_no in members || continue
+        if haskey(series_keys, bus_no)
+            throw(
+                ArgumentError(
+                    "$(summary(location)) carries more than one " *
+                    "$(DISTRIBUTION_FACTOR_TS_NAME) series for bus $(bus_no). Keep one " *
+                    "Deterministic series per member bus, with features " *
+                    "(\"bus\" => bus number).",
+                ),
+            )
+        end
+        series_keys[bus_no] = IS.get_time_series_key(metadata)
+    end
+    return series_keys
 end
 
 function _zero_factors(
@@ -61,7 +72,7 @@ end
 
 """
 Read the per-bus distribution factors for `location` (one series per member bus, owned by
-the location, keyed by [`bus_factor_features`](@ref)) into a numeric
+the location, resolved by `_factor_series_keys`) into a numeric
 `(retained bus number, timestep)` array. A member bus without a factor series contributes
 `0.0`: ERCOT membership rules admit abandoned buses, and factor-set quality (summing to one)
 is an ingestion concern, not a modeling one. Factors on buses eliminated by the network
@@ -74,18 +85,18 @@ function get_distribution_factors(
     network_model::NetworkModel{U},
 ) where {T <: Union{PSY.LoadZone, PSY.TradingHub}, U <: AbstractNetworkModel}
     buses = get_member_buses(sys, location)
-    if !_any_factor_series(location, buses)
+    series_keys = _factor_series_keys(location, buses)
+    if isempty(series_keys)
         return _fallback_factors(container, location, buses, network_model)
     end
     reduction, factors = _zero_factors(container, buses, network_model)
     time_steps = get_time_steps(container)
     initial_time = get_initial_time(container)
     for bus in buses
-        _has_factor_series(location, bus) || continue
+        key = get(series_keys, PSY.get_number(bus), nothing)
+        key === nothing && continue
         values = IS.get_time_series_values(
-            IS.Deterministic, location, DISTRIBUTION_FACTOR_TS_NAME;
-            start_time = initial_time, len = length(time_steps),
-            features = bus_factor_features(bus),
+            location, key; start_time = initial_time, len = length(time_steps),
         )
         bus_no = PNM.get_mapped_bus_number(reduction, bus)
         for t in time_steps

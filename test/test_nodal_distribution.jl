@@ -944,6 +944,119 @@ end
     @test POM.get_member_buses(sys, hub) == [zone_buses[2]]
 end
 
+# Attach a constant distribution factor series for `bus` to `location`, on the same
+# forecast parameters as the LZ1 series `_build_zone_system` created.
+function _add_factor_series!(sys, location, bus, factor; features = Dict{String, Any}())
+    zone = PSY.get_component(PSY.LoadZone, sys, "LZ1")
+    existing = first(
+        PSY.get_time_series_multiple(
+            zone; type = PSY.Deterministic, name = POM.DISTRIBUTION_FACTOR_TS_NAME,
+        ),
+    )
+    data = SortedDict(ts => fill(factor, length(v)) for (ts, v) in PSY.get_data(existing))
+    ts = PSY.Deterministic(;
+        name = POM.DISTRIBUTION_FACTOR_TS_NAME, data = data,
+        resolution = PSY.get_resolution(existing),
+    )
+    PSY.add_time_series!(
+        sys, location, ts; features = merge(features, Dict("bus" => PSY.get_number(bus))),
+    )
+    return
+end
+
+function _build_factor_model(sys, network_model = NetworkModel(PTDFNetworkModel))
+    template = get_thermal_dispatch_template_network(network_model)
+    model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+    container = get_optimization_container(model)
+    return container, get_network_model(IOM.get_template(model))
+end
+
+@testset "An unavailable member's factor series is ignored" begin
+    sys, zone, zone_buses = _build_zone_system()
+    container, network_model = _build_factor_model(sys)
+    n1, n2 = PSY.get_number.(zone_buses)
+    PSY.set_available!(zone_buses[1], false)
+    factors = get_distribution_factors(container, sys, zone, network_model)
+    @test collect(axes(factors)[1]) == [n2]
+    @test all(factors[n2, t] == 0.4 for t in get_time_steps(container))
+
+    # A hub whose only series belongs to an unavailable member falls back to uniform.
+    hub = PSY.TradingHub(; name = "HUB_OFF", buses = collect(zone_buses))
+    PSY.add_component!(sys, hub)
+    _add_factor_series!(sys, hub, zone_buses[1], 0.9)
+    hf = get_distribution_factors(container, sys, hub, network_model)
+    @test collect(axes(hf)[1]) == [n2]
+    @test all(hf[n2, t] == 1.0 for t in get_time_steps(container))
+end
+
+@testset "Hub factors ignore series for buses outside the hub" begin
+    sys, _, zone_buses = _build_zone_system()
+    container, network_model = _build_factor_model(sys)
+    buses = sort!(collect(PSY.get_components(PSY.ACBus, sys)); by = PSY.get_number)
+    hub = PSY.TradingHub(; name = "HUB_PART", buses = buses[3:4])
+    PSY.add_component!(sys, hub)
+    _add_factor_series!(sys, hub, buses[4], 0.7)
+    _add_factor_series!(sys, hub, buses[5], 0.3)
+    n3, n4 = PSY.get_number(buses[3]), PSY.get_number(buses[4])
+    hf = get_distribution_factors(container, sys, hub, network_model)
+    @test collect(axes(hf)[1]) == [n3, n4]
+    @test all(hf[n3, t] == 0.0 for t in get_time_steps(container))
+    @test all(hf[n4, t] == 0.7 for t in get_time_steps(container))
+
+    # A series only for a non-member bus is no series at all: uniform fallback.
+    hub2 = PSY.TradingHub(; name = "HUB_OUT", buses = buses[3:4])
+    PSY.add_component!(sys, hub2)
+    _add_factor_series!(sys, hub2, buses[5], 1.0)
+    hf2 = get_distribution_factors(container, sys, hub2, network_model)
+    @test all(hf2[n, t] == 0.5 for n in (n3, n4), t in get_time_steps(container))
+end
+
+@testset "Two factor series for one member bus is an error" begin
+    sys, zone, zone_buses = _build_zone_system()
+    container, network_model = _build_factor_model(sys)
+    _add_factor_series!(sys, zone, zone_buses[1], 0.1; features = Dict("year" => 2030))
+    @test_throws ArgumentError get_distribution_factors(
+        container, sys, zone, network_model,
+    )
+end
+
+@testset "A reduced member bus's factor sums into its retained bus" begin
+    sys, zone, zone_buses = _build_zone_system()
+    n1, n2 = PSY.get_number.(zone_buses)
+    leaf = PSY.ACBus(;
+        number = 99, name = "leaf", available = true, bustype = PSY.ACBusTypes.PQ,
+        angle = 0.0, magnitude = 1.0, voltage_limits = (min = 0.9, max = 1.1),
+        base_voltage = PSY.get_base_voltage(zone_buses[1]),
+        area = PSY.get_area(zone_buses[1]), load_zone = zone,
+    )
+    PSY.add_component!(sys, leaf)
+    arc = PSY.Arc(; from = zone_buses[1], to = leaf)
+    PSY.add_component!(sys, arc)
+    line = PSY.Line(;
+        name = "leaf_line", available = true, active_power_flow = 0.0,
+        reactive_power_flow = 0.0, arc = arc,
+        r = 0.001, x = 0.01, b = (from = 0.0, to = 0.0), rating = 1.0,
+        angle_limits = (min = -1.0, max = 1.0), input_basis = CU,
+    )
+    PSY.add_component!(sys, line)
+    _add_factor_series!(sys, zone, leaf, 0.1)
+    container, network_model = _build_factor_model(
+        sys,
+        NetworkModel(
+            PTDFNetworkModel;
+            network_source = SystemNetworkSource(PNM.RadialReduction()),
+        ),
+    )
+    reduction = get_network_reduction(network_model)
+    @test PNM.get_mapped_bus_number(reduction, leaf) == n1
+    factors = get_distribution_factors(container, sys, zone, network_model)
+    @test collect(axes(factors)[1]) == [n1, n2]
+    @test all(factors[n1, t] ≈ 0.7 for t in get_time_steps(container))
+    @test all(factors[n2, t] == 0.4 for t in get_time_steps(container))
+end
+
 # AbstractSecurityConstrainedStaticBranch snapshots the nodal balance into a fixed
 # PTDFBranchFlow AffExpr during its ArgumentConstructStage -- one stage earlier than
 # StaticBranch. The cleared-position fan-out must therefore also land in the argument
