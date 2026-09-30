@@ -477,12 +477,9 @@ function _add_flow_rate_constraint!(
     end
     limits = _flow_limits(rep, device_model)
     model = get_jump_model(container)
-    # This tag is a helper-function from MathOptLazy.jl. If `model` supports
-    # lazy constraints (e.g., because it is a `MathOptLazy.Optimizer`), then the
-    # constraint will be implemented as a lazy constraint. If `model` does not
-    # support lazy constraints (e.g., because it is a `HiGHS.Optimizer`) then
-    # the constraint will be a regular constraint.
-    tag = MathOptLazy.Lazy(model, JuMP.AffExpr, JuMP.MOI.LessThan{Float64})
+    tag = MathOptLazy.Lazy(;
+        lazy = something(get_attribute(device_model, "lazy"), false)::Bool,
+    )
     for t in time_steps
         if use_slacks
             ub_lhs = var[name, t] - slack_ub[t]

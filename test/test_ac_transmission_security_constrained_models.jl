@@ -2028,3 +2028,46 @@ end
     @test occursin("1 monitored component(s) across 1 outage(s) are unavailable", log)
     @test occursin("$(outage_id) => 1", log)
 end
+
+function _build_lazy_system(attributes, optimizer)
+    sys = PSB.build_system(PSITestSystems, "c_sys5")
+    template = get_thermal_dispatch_template_network(
+        NetworkModel(
+            PTDFNetworkModel;
+            network_source = PrebuiltMatrixSource(PNM.VirtualPTDF(sys)),
+        ),
+    )
+    set_device_model!(
+        template,
+        POM.DeviceModel(PSY.Line, POM.StaticBranch; attributes),
+    )
+    model = DecisionModel(template, sys; optimizer)
+    status = build!(model; output_dir = mktempdir(; cleanup = true))
+    return model, status
+end
+
+@testset "MathOptLazy" begin
+    # The default
+    model, status = _build_lazy_system(Dict{String,Any}(), HiGHS.Optimizer)
+    @test status == IOM.ModelBuildStatus.BUILT
+    solve!(model)
+    jump_model = IOM.get_jump_model(model)
+    obj_value = JuMP.objective_value(jump_model)
+    @test isapprox(obj_value, 241293; rtol = 1e-4)
+    # Lazy constraints + HiGHS will fail
+    model, status = _build_lazy_system(
+        Dict{String,Any}("lazy" => true),
+        HiGHS.Optimizer,
+    )
+    @test status == IOM.ModelBuildStatus.FAILED
+    # Lazy constraints + MathOptLazy will work
+    model, status = _build_lazy_system(
+        Dict("lazy" => true),
+        optimizer_with_attributes(() -> MathOptLazy.Optimizer(HiGHS.Optimizer)),
+    )
+    @test status == IOM.ModelBuildStatus.BUILT
+    solve!(model)
+    jump_model = IOM.get_jump_model(model)
+    obj_value = JuMP.objective_value(jump_model)
+    @test isapprox(obj_value, 241293; rtol = 1e-4)
+end
