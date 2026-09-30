@@ -586,7 +586,8 @@ end
     system_base = get_base_power(sys)
     converter_base = 50.0
     for ic in get_components(InterconnectingConverter, sys)
-        set_base_power!(ic, converter_base)
+        # Move the base under the CU loss curve on purpose (set_base_power! throws).
+        ic.base_power = converter_base
     end
     factor = converter_base / system_base
 
