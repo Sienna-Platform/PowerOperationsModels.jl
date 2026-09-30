@@ -2056,7 +2056,7 @@ end
     @test isapprox(obj_value, 241293; rtol = 1e-4)
     # Lazy constraints + HiGHS will fail
     model, status = _build_lazy_system(
-        Dict{String,Any}("lazy" => true),
+        Dict{String, Any}("lazy" => true),
         HiGHS.Optimizer,
     )
     @test status == IOM.ModelBuildStatus.FAILED
