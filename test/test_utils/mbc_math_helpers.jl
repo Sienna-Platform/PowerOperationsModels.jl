@@ -17,13 +17,14 @@ function _add_simple_bus!(
     base_voltage::Float64 = 230.0,
 )
     bus = PSY.ACBus(;
+        input_basis = PSY.CU,
         number = number,
         name = name,
         available = true,
         bustype = bustype,
         angle = 0.0,
         magnitude = 1.0,
-        voltage_limits = (0.0, 2.0),
+        voltage_limits = (min = 0.0, max = 2.0),
         base_voltage = base_voltage,
     )
     PSY.add_component!(sys, bus)

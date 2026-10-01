@@ -1639,7 +1639,7 @@ function _add_voltage_control_constraints!(
         cont_lims = _quantity_limits(rep)
         bus = PSY.get_bus(sys, _regulated_number(rep))
         bus_name = PSY.get_name(bus)
-        bus_lims = PSY.get_voltage_limits(bus)
+        bus_lims = PSY.get_voltage_limits(bus, PSY.CU)
         (bus_lims.min <= cont_lims.min <= cont_lims.max <= bus_lims.max) || error(
             "Bus voltage limits for $bus_name disagree with control limits for circuit $(rep.name).",
         )

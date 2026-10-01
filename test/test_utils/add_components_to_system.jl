@@ -26,13 +26,14 @@ function get_copied_bus(
     bus::PSY.ACBus,
 )
     copied_bus = ACBus(;
+        input_basis = PSY.CU,
         number = PSY.get_number(bus) + 1000, #Add 1000 to avoid name conflicts
         name = PSY.get_name(bus) * "_copy",
         available = PSY.get_available(bus),
         bustype = ACBusTypes.PQ,
         angle = PSY.get_angle(bus),
-        magnitude = PSY.get_magnitude(bus),
-        voltage_limits = PSY.get_voltage_limits(bus),
+        magnitude = PSY.get_magnitude(bus, PSY.CU),
+        voltage_limits = PSY.get_voltage_limits(bus, PSY.CU),
         base_voltage = PSY.get_base_voltage(bus),
         area = PSY.get_area(bus),
         load_zone = PSY.get_load_zone(bus),

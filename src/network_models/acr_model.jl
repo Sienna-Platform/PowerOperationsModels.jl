@@ -24,9 +24,9 @@ end
 #! format: off
 # bus voltage limits are already per-unit
 get_variable_binary(::Type{<:Union{VoltageReal, VoltageImaginary}}, ::Type{PSY.ACBus}, ::Type{<:_RectangularVoltageNetworks}) = false
-get_variable_lower_bound(::Type{<:Union{VoltageReal, VoltageImaginary}}, bus::PSY.ACBus, ::Type{<:_RectangularVoltageNetworks}) = -PSY.get_voltage_limits(bus).max
-get_variable_upper_bound(::Type{<:Union{VoltageReal, VoltageImaginary}}, bus::PSY.ACBus, ::Type{<:_RectangularVoltageNetworks}) = PSY.get_voltage_limits(bus).max
-get_variable_warm_start_value(::Type{VoltageReal}, bus::PSY.ACBus, ::Type{<:_RectangularVoltageNetworks}) = PSY.get_magnitude(bus)
+get_variable_lower_bound(::Type{<:Union{VoltageReal, VoltageImaginary}}, bus::PSY.ACBus, ::Type{<:_RectangularVoltageNetworks}) = -PSY.get_voltage_limits(bus, PSY.CU).max
+get_variable_upper_bound(::Type{<:Union{VoltageReal, VoltageImaginary}}, bus::PSY.ACBus, ::Type{<:_RectangularVoltageNetworks}) = PSY.get_voltage_limits(bus, PSY.CU).max
+get_variable_warm_start_value(::Type{VoltageReal}, bus::PSY.ACBus, ::Type{<:_RectangularVoltageNetworks}) = PSY.get_magnitude(bus, PSY.CU)
 get_variable_warm_start_value(::Type{VoltageImaginary}, ::PSY.ACBus, ::Type{<:_RectangularVoltageNetworks}) = 0.0
 #! format: on
 
@@ -68,7 +68,7 @@ function add_constraints!(
         ref_name = number_to_name[k]
         ref_bus = PSY.get_component(PSY.ACBus, sys, ref_name)
         _assert_reference_voltage_within_limits(ref_bus)
-        v_set = PSY.get_magnitude(ref_bus)
+        v_set = PSY.get_magnitude(ref_bus, PSY.CU)
         for t in time_steps
             cons_vi[k, t] =
                 JuMP.@constraint(get_jump_model(container), vi[ref_name, t] == 0.0)
@@ -103,7 +103,7 @@ function add_constraints!(
     for name in bus_names
         bus = bus_by_name[name]
         # bus voltage limits are already per-unit
-        vlim = PSY.get_voltage_limits(bus)
+        vlim = PSY.get_voltage_limits(bus, PSY.CU)
         for t in time_steps
             cons[name, t] = JuMP.@constraint(
                 get_jump_model(container),

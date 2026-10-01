@@ -1311,9 +1311,10 @@ end
     # (min = 0, max = 0), under which every path returns 0.0. SU units require system
     # attachment, so attach the demo to a throwaway System first.
     lb_sys = PSY.System(100.0)
-    lb_bus = PSY.ACBus(; number = 1, name = "LB_B1", available = true,
-        bustype = PSY.ACBusTypes.REF, angle = 0.0, magnitude = 1.0,
-        voltage_limits = (min = 0.9, max = 1.1), base_voltage = 345.0)
+    lb_bus =
+        PSY.ACBus(; input_basis = PSY.CU, number = 1, name = "LB_B1", available = true,
+            bustype = PSY.ACBusTypes.REF, angle = 0.0, magnitude = 1.0,
+            voltage_limits = (min = 0.9, max = 1.1), base_voltage = 345.0)
     PSY.add_component!(lb_sys, lb_bus)
     PSY.set_bus!(demo_hydro, lb_bus)
     PSY.add_component!(lb_sys, demo_hydro)
