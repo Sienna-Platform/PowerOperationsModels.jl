@@ -1437,12 +1437,17 @@ end
     end
 end
 
-# `c_sys5_hy` with an OfflineReserve ORDC supplied only by its HydroDispatch. The
-# hydro energy offer and commitment cost are prohibitive, so the UC leaves it OFF unless
-# a test fixes its OnVariable. The demand exceeds the hydro series in every hour.
-function _hydro_offline_model(attributes::Dict{String, Any})
+# `c_sys5_hy` with an OfflineReserve ORDC supplied only by its prohibitively priced
+# HydroDispatch (off unless a test fixes its OnVariable); demand exceeds the series in every
+# step. `thermal = ThermalBasicUnitCommitment` skips the initialization solve.
+function _hydro_offline_model(
+    attributes::Dict{String, Any};
+    status = nothing,
+    thermal = ThermalStandardUnitCommitment,
+)
     sys = deepcopy(PSB.build_system(PSITestSystems, "c_sys5_hy"))
     hydro = only(get_components(HydroDispatch, sys))
+    isnothing(status) || PSY.set_status!(hydro, status)
     set_operation_cost!(
         hydro,
         HydroGenerationCost(;
@@ -1457,7 +1462,10 @@ function _hydro_offline_model(attributes::Dict{String, Any})
         variable = _mkt_curve([0.0, 2000.0], [65.0]),
     )
     add_service!(sys, offline_reserve, PSY.Device[hydro])
-    template = get_thermal_standard_uc_template()
+    # `get_thermal_standard_uc_template()` with the thermal formulation swappable.
+    template = PowerOperationsProblemTemplate(CopperPlateNetworkModel)
+    set_device_model!(template, PowerLoad, StaticPowerLoad)
+    set_device_model!(template, ThermalStandard, thermal)
     set_device_model!(template, HydroDispatch, HydroCommitmentRunOfRiver)
     set_service_model!(
         template,
@@ -1474,14 +1482,14 @@ function _hydro_offline_model(attributes::Dict{String, Any})
     return model
 end
 
-# Solve `model`, optionally with the hydro OnVariable fixed to `on`. Returns the hydro
+# Solve `model`, optionally with the hydro OnVariable fixed to the per-step `on`. Returns the hydro
 # commitment, offline award and `max_active_power` parameter per hour, in MW.
 function _solve_hydro_offline!(model; on = nothing)
     container = IOM.get_optimization_container(model)
     if !isnothing(on)
         u = IOM.get_variable(container, POM.OnVariable, HydroDispatch)
         for t in axes(u)[2]
-            JuMP.fix(u["HydroDispatch", t], on)
+            JuMP.fix(u["HydroDispatch", t], on[t])
         end
     end
     @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
@@ -1518,12 +1526,13 @@ end
 
 @testset "HydroCommitmentRunOfRiver: offline_only forbids offline awards while committed" begin
     # Baseline: a committed unit competes for the offline award by default.
-    _, award, _ = _solve_hydro_offline!(_hydro_offline_model(Dict{String, Any}()); on = 1.0)
+    _, award, _ =
+        _solve_hydro_offline!(_hydro_offline_model(Dict{String, Any}()); on = ones(24))
     @test sum(award) > 1.0
 
     model = _hydro_offline_model(Dict{String, Any}("offline_only" => true))
     @test _has_off_state_rows(IOM.get_optimization_container(model))
-    _, award, _ = _solve_hydro_offline!(model; on = 1.0)
+    _, award, _ = _solve_hydro_offline!(model; on = ones(24))
     @test all(award .<= 1e-6)
 end
 
@@ -1540,4 +1549,52 @@ end
         POM.OfflineReserveBandConstraint,
         HydroDispatch,
     )
+end
+
+@testset "HydroCommitmentRunOfRiver: exclude_shutdown_step blocks the step it goes off" begin
+    attrs = Dict{String, Any}("exclude_shutdown_step" => true)
+    # No initialization solve, so the status before step 1 is the PSY status.
+    basic = ThermalBasicUnitCommitment
+    # On before step 1 and off throughout: step 1 is the shutdown step.
+    model =
+        _hydro_offline_model(attrs; status = PSY.OperationalStates.ONLINE, thermal = basic)
+    container = IOM.get_optimization_container(model)
+    @test IOM.has_container_key(
+        container,
+        POM.OfflineReserveShutdownConstraint,
+        HydroDispatch,
+    )
+    @test IOM.has_container_key(container, POM.DeviceStatus, HydroDispatch)
+    _, award, limit = _solve_hydro_offline!(model; on = zeros(24))
+    @test award[1] <= 1e-6
+    @test all(isapprox.(award[2:end], limit[2:end]; atol = 1e-3))
+    # Off before step 1 and on in step 1 only: the start step keeps its award, step 2
+    # (the shutdown step) has none, step 3 is back to the limit.
+    model =
+        _hydro_offline_model(attrs; status = PSY.OperationalStates.OFFLINE, thermal = basic)
+    _, award, limit = _solve_hydro_offline!(model; on = [1.0; zeros(23)])
+    @test isapprox(award[1], limit[1]; atol = 1e-3)
+    @test award[2] <= 1e-6
+    @test isapprox(award[3], limit[3]; atol = 1e-3)
+end
+
+@testset "HydroCommitmentRunOfRiver: the initialization solve sets the status before step 1" begin
+    # ThermalStandardUnitCommitment initializes the model. The initialization solve leaves the
+    # costly hydro off, so u_0 = 0 overrides its ONLINE PSY status and step 1 keeps its award.
+    model = _hydro_offline_model(
+        Dict{String, Any}("exclude_shutdown_step" => true);
+        status = PSY.OperationalStates.ONLINE,
+    )
+    _, award, limit = _solve_hydro_offline!(model; on = zeros(24))
+    @test isapprox(award[1], limit[1]; atol = 1e-3)
+end
+
+@testset "HydroCommitmentRunOfRiver: no DeviceStatus without exclude_shutdown_step" begin
+    for attrs in (Dict{String, Any}(), Dict{String, Any}("exclude_shutdown_step" => false))
+        container = IOM.get_optimization_container(_hydro_offline_model(attrs))
+        @test !IOM.has_container_key(container, POM.DeviceStatus, HydroDispatch)
+        @test !IOM.has_container_key(
+            container, POM.OfflineReserveShutdownConstraint, HydroDispatch,
+        )
+    end
 end

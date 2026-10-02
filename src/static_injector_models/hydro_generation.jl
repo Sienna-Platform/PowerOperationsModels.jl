@@ -245,6 +245,9 @@ initial_condition_default(::InitialTimeDurationOn, d::PSY.HydroGen, ::AbstractHy
 initial_condition_variable(::InitialTimeDurationOn, d::PSY.HydroGen, ::AbstractHydroReservoirFormulation) = OnVariable()
 initial_condition_default(::InitialTimeDurationOff, d::PSY.HydroGen, ::AbstractHydroReservoirFormulation) = is_online(d) ? 0.0 : PSY.get_time_at_status(d)
 initial_condition_variable(::InitialTimeDurationOff, d::PSY.HydroGen, ::AbstractHydroReservoirFormulation) = OnVariable()
+# OfflineReserveShutdownConstraint reads the status before the first step (the init solve's, if any).
+initial_condition_default(::DeviceStatus, d::PSY.HydroGen, ::HydroCommitmentRunOfRiver) = Float64(is_online(d))
+initial_condition_variable(::DeviceStatus, d::PSY.HydroGen, ::HydroCommitmentRunOfRiver) = OnVariable()
 
 initial_condition_default(::InitialEnergyLevel, d::PSY.HydroReservoir, ::HydroEnergyModelReservoir) = PSY.get_initial_level(d) * PSY.get_storage_level_limits(d).max / PSY._get_system_base_power(d)
 initial_condition_variable(::InitialEnergyLevel, d::PSY.HydroReservoir, ::HydroEnergyModelReservoir) = EnergyVariable()
@@ -691,6 +694,10 @@ row already caps at `pmax * u`. Off: that row zeroes `p` and the online awards, 
 With `"offline_only" = true` on the `OfflineReserve` `ServiceModel`, an extra
 [`OfflineReserveOffStateConstraint`](@ref) row forbids offline awards while committed:
 `offline <= pmax * (1 - u)`.
+
+With `"exclude_shutdown_step" = true`, [`OfflineReserveShutdownConstraint`](@ref) forbids
+offline awards in the step the unit goes off: `offline <= pmax * (1 - u_{t-1} + u_t)`, with
+`u_0` from the `DeviceStatus` initial condition.
 """
 function add_constraints!(
     container::OptimizationContainer,
@@ -717,6 +724,21 @@ function add_constraints!(
     else
         nothing
     end
+    # Extra rows for services opted into "exclude_shutdown_step"; the constructor adds the
+    # DeviceStatus they read only under that attribute.
+    shut_rows = if any(o -> o[5], offline)
+        add_constraints_container!(
+            container, OfflineReserveShutdownConstraint, V, names, time_steps;
+            sparse = true,
+        )
+    else
+        nothing
+    end
+    status0 = if isnothing(shut_rows)
+        nothing
+    else
+        _initial_status(container, V)
+    end
     for d in devices
         name = PSY.get_name(d)
         awards = [(sname, v) for (sname, v, members, _, _) in offline if name in members]
@@ -727,6 +749,10 @@ function add_constraints!(
         off_awards = [
             (sname, v) for (sname, v, members, only_off, _) in offline
             if only_off && name in members
+        ]
+        shut_awards = [
+            (sname, v) for (sname, v, members, _, no_shut) in offline
+            if no_shut && name in members
         ]
         for t in time_steps
             constraint[(name, t)] = JuMP.@constraint(
@@ -742,6 +768,10 @@ function add_constraints!(
                 q_limit * (1 - varbin[name, t])
             )
         end
+        isempty(shut_awards) || _add_offline_shutdown_rows!(
+            shut_rows, jump_model, name, q_limit, shut_awards, varbin,
+            status0[name], time_steps,
+        )
     end
     return
 end

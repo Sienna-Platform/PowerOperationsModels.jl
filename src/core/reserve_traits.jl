@@ -310,3 +310,15 @@ exactly the classic single semi-continuous band row.
 _has_offline_reserve_service(model::DeviceModel) =
     has_service_model(model) &&
     any(sm -> _is_offline_reserve(get_component_type(sm)), get_services(model))
+
+"""
+Whether an `OfflineReserve` service on `model` sets `"exclude_shutdown_step"`. Gates the
+hydro `DeviceStatus` initial condition that [`OfflineReserveShutdownConstraint`](@ref)
+reads, so models without the rule keep their initial-condition set.
+"""
+_excludes_shutdown_step(model::DeviceModel) = any(
+    sm ->
+        _is_offline_reserve(get_component_type(sm)) &&
+            something(get_attribute(sm, "exclude_shutdown_step"), false),
+    get_services(model),
+)
