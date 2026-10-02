@@ -53,7 +53,7 @@ function get_variable_lower_bound(::Type{DCLineCurrent}, d::PSY.TModelHVDCLine, 
     arc = PSY.get_arc(d)
     bus_from = arc.from
     bus_to = arc.to
-    max_v = max(PSY.get_magnitude(bus_from), PSY.get_magnitude(bus_to))
+    max_v = max(PSY.get_magnitude(bus_from, PSY.CU), PSY.get_magnitude(bus_to, PSY.CU))
     return p_min_flow / max_v
 end
 # This is an approximation for DC lines since the actual current limit depends on the voltage, that is a variable in the optimization problem
@@ -62,7 +62,7 @@ function get_variable_upper_bound(::Type{DCLineCurrent}, d::PSY.TModelHVDCLine, 
     arc = PSY.get_arc(d)
     bus_from = arc.from
     bus_to = arc.to
-    max_v = max(PSY.get_magnitude(bus_from), PSY.get_magnitude(bus_to))
+    max_v = max(PSY.get_magnitude(bus_from, PSY.CU), PSY.get_magnitude(bus_to, PSY.CU))
     return p_max_flow / max_v
 end
 get_variable_multiplier(::Type{<:VariableType}, ::Type{PSY.TModelHVDCLine}, ::Type{<:AbstractBranchFormulation}) = 1.0
@@ -155,7 +155,7 @@ get_variable_upper_bound(::Type{CurrentAbsoluteValueVariable}, d::PSY.Interconne
 # traps Ipopt at a locally-infeasible restoration.
 get_variable_binary(::Type{ConverterACCurrentVariable}, ::Type{PSY.InterconnectingConverter}, ::Type{<:AbstractConverterFormulation}) = false
 get_variable_lower_bound(::Type{ConverterACCurrentVariable}, d::PSY.InterconnectingConverter, ::Type{<:AbstractConverterFormulation}) = CONVERTER_AC_CURRENT_FLOOR
-get_variable_upper_bound(::Type{ConverterACCurrentVariable}, d::PSY.InterconnectingConverter, ::Type{<:AbstractConverterFormulation}) = _converter_ac_current_max(PSY.get_rating(d, PSY.SU), PSY.get_voltage_limits(PSY.get_bus(d)).min, PSY.get_name(d))
+get_variable_upper_bound(::Type{ConverterACCurrentVariable}, d::PSY.InterconnectingConverter, ::Type{<:AbstractConverterFormulation}) = _converter_ac_current_max(PSY.get_rating(d, PSY.SU), PSY.get_voltage_limits(PSY.get_bus(d), PSY.CU).min, PSY.get_name(d))
 get_variable_warm_start_value(::Type{ConverterACCurrentVariable}, d::PSY.InterconnectingConverter, ::Type{<:AbstractConverterFormulation}) = PSY.get_rating(d, PSY.SU)
 
 #! format: on

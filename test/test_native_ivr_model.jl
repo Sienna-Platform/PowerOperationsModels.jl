@@ -14,7 +14,7 @@ import PowerNetworkMatrices as PNM
     vr_sol = read_variable(res, "VoltageReal__ACBus"; table_format = TableFormat.WIDE)
     vi_sol = read_variable(res, "VoltageImaginary__ACBus"; table_format = TableFormat.WIDE)
     for bus in PSY.get_components(PSY.ACBus, sys)
-        lim = PSY.get_voltage_limits(bus)
+        lim = PSY.get_voltage_limits(bus, PSY.CU)
         bname = PSY.get_name(bus)
         vm2 = vr_sol[1, bname]^2 + vi_sol[1, bname]^2
         @test lim.min^2 - 1e-4 <= vm2 <= lim.max^2 + 1e-4
@@ -32,8 +32,8 @@ import PowerNetworkMatrices as PNM
         arc = PSY.get_arc(line)
         rate_a = branch_rating_su(line)
         vmin = min(
-            PSY.get_voltage_limits(PSY.get_from(arc)).min,
-            PSY.get_voltage_limits(PSY.get_to(arc)).min,
+            PSY.get_voltage_limits(PSY.get_from(arc), PSY.CU).min,
+            PSY.get_voltage_limits(PSY.get_to(arc), PSY.CU).min,
         )
         c_rating = rate_a / vmin
         lname = PSY.get_name(line)

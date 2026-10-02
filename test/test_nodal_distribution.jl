@@ -1026,6 +1026,7 @@ end
     sys, zone, zone_buses = _build_zone_system()
     n1, n2 = PSY.get_number.(zone_buses)
     leaf = PSY.ACBus(;
+        input_basis = PSY.CU,
         number = 99, name = "leaf", available = true, bustype = PSY.ACBusTypes.PQ,
         angle = 0.0, magnitude = 1.0, voltage_limits = (min = 0.9, max = 1.1),
         base_voltage = PSY.get_base_voltage(zone_buses[1]),

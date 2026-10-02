@@ -72,7 +72,7 @@ Build the Decision Model based on the specified AbstractPowerDecisionProblem.
   - `console_level = Logging.Error`:
   - `file_level = Logging.Info`:
   - `disable_timer_outputs = false` : Enable/Disable timing outputs
-  - `store_system_in_results::Bool = true`: If true, stores the system as JSON in the results HDF5 file.
+  - `store_system_in_outputs::Bool = true`: If true, stores the system as JSON in the outputs HDF5 file.
 """
 function build!(
     model::DecisionModel{<:AbstractPowerDecisionProblem};
@@ -81,7 +81,7 @@ function build!(
     console_level = Logging.Error,
     file_level = Logging.Info,
     disable_timer_outputs = false,
-    store_system_in_results = true,
+    store_system_in_outputs = true,
 )
     mkpath(output_dir)
     IOM.set_output_dir!(model, output_dir)
@@ -155,7 +155,7 @@ keyword arguments to that function.
   - `file_level = Logging.Info`:
   - `disable_timer_outputs = false` : Enable/Disable timing outputs
   - `export_optimization_problem::Bool = true`: If true, serialize the model to a file to allow re-execution later.
-  - `store_system_in_results::Bool = true`: If true, stores the system as JSON in the results HDF5 file.
+  - `store_system_in_outputs::Bool = true`: If true, stores the system as JSON in the outputs HDF5 file.
 
 # Examples
 
@@ -171,7 +171,7 @@ function solve!(
     file_level = Logging.Info,
     disable_timer_outputs = false,
     export_optimization_problem = true,
-    store_system_in_results = true,
+    store_system_in_outputs = true,
     kwargs...,
 )
     build_if_not_already_built!(
@@ -227,10 +227,7 @@ function solve!(
                             IOM.get_output_dir(model),
                             IOM.make_system_dirname(sys),
                         )
-                        # Re-solving into an existing directory must not rewrite the system and its time series.
-                        # `to_file` defaults to CU, what PSY stores internally, so the write
-                        # needs no unit conversion.
-                        !ispath(sys_dir) && PSY.to_file(sys, sys_dir)
+                        _write_outputs_bundle!(model, sys, sys_dir)
                     end
                 end
                 @info "\n$(RUN_OPERATION_MODEL_TIMER)\n"

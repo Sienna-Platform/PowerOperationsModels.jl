@@ -56,7 +56,7 @@ end
     res = IOM.OptimizationProblemOutputs(model)
     vm = read_variable(res, "VoltageMagnitude__ACBus"; table_format = TableFormat.WIDE)
     for bus in PSY.get_components(PSY.ACBus, sys)
-        lim = PSY.get_voltage_limits(bus)
+        lim = PSY.get_voltage_limits(bus, PSY.CU)
         bname = PSY.get_name(bus)
         v = vm[1, bname]
         @test lim.min - 1e-6 <= v <= lim.max + 1e-6
@@ -218,6 +218,7 @@ end
     sys = PSB.build_system(PSITestSystems, "c_sys5_ml")
     busD = PSY.get_component(PSY.ACBus, sys, "nodeD")
     star_bus = PSY.ACBus(;
+        input_basis = PSY.CU,
         number = 103,
         name = "Star_Bus_T3W",
         available = true,
@@ -231,6 +232,7 @@ end
     )
     PSY.add_component!(sys, star_bus)
     sec_bus = PSY.ACBus(;
+        input_basis = PSY.CU,
         number = 101,
         name = "Bus3WT_1",
         available = true,
@@ -244,6 +246,7 @@ end
     )
     PSY.add_component!(sys, sec_bus)
     ter_bus = PSY.ACBus(;
+        input_basis = PSY.CU,
         number = 102,
         name = "Bus3WT_2",
         available = true,

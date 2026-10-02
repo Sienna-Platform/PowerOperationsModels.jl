@@ -752,6 +752,7 @@ end
     busD = PSY.get_component(ACBus, system, "nodeD")
     # Create a new bus for the tertiary winding (connected via transformer to Bus 4)
     new_bus1 = ACBus(;
+        input_basis = PSY.CU,
         number = 101,
         name = "Bus3WT_1",
         available = true,
@@ -766,6 +767,7 @@ end
     PSY.add_component!(system, new_bus1)
 
     new_bus2 = ACBus(;
+        input_basis = PSY.CU,
         number = 102,
         name = "Bus3WT_2",
         available = true,
@@ -821,6 +823,7 @@ end
 
     # Create a star bus for the ThreeWindingTransformer
     star_bus = ACBus(;
+        input_basis = PSY.CU,
         number = 103,
         name = "Star_Bus_T3W",
         available = true,

@@ -95,10 +95,11 @@ would be satisfiable.
 function _sys5_with_3w()
     sys = PSB.build_system(PSITestSystems, "c_sys5_ml")
     busD = PSY.get_component(PSY.ACBus, sys, "nodeD")
-    PSY.set_voltage_limits!(busD, (min = 0.9, max = 1.1))
+    PSY.set_voltage_limits!(busD, (min = 0.9 * PSY.CU, max = 1.1 * PSY.CU))
 
     function _add_bus!(number, name)
         bus = PSY.ACBus(;
+            input_basis = PSY.CU,
             number = number,
             name = name,
             available = true,

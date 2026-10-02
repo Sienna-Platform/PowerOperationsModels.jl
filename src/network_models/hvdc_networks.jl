@@ -16,13 +16,13 @@ get_variable_lower_bound(
     d::PSY.DCBus,
     ::Type{<:AbstractHVDCNetworkModel},
 ) =
-    PSY.get_voltage_limits(d).min
+    PSY.get_voltage_limits(d, PSY.CU).min
 get_variable_upper_bound(
     ::Type{DCVoltage},
     d::PSY.DCBus,
     ::Type{<:AbstractHVDCNetworkModel},
 ) =
-    PSY.get_voltage_limits(d).max
+    PSY.get_voltage_limits(d, PSY.CU).max
 
 function add_constraints!(
     container::OptimizationContainer,

@@ -360,7 +360,10 @@ end
                 VOLTAGE_CONTROL;
                 circuit_index = index,
                 regulated = number,
-                quantity_limits = PSY.get_voltage_limits(PSY.get_bus(rawsys, number)),
+                quantity_limits = PSY.get_voltage_limits(
+                    PSY.get_bus(rawsys, number),
+                    PSY.CU,
+                ),
             )
             model, status = _build_controlled(
                 fixture.sys, ACPNetworkModel, case.device_type;
