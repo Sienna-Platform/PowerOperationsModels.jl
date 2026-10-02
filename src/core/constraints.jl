@@ -1255,6 +1255,17 @@ e^{st}_{T} - e^{st+} + e^{st-} = E^{st}_{T}.
 struct HybridEnergyTargetConstraint <: ConstraintType end
 
 """
+Offline awards of services whose `ServiceModel` sets `"exclude_shutdown_step" = true` are
+forbidden in the time step a unit goes off:
+`sum(those awards) <= q_limit * (1 - u_{t-1} + u_t)`, with `u_0` from the `DeviceStatus`
+initial condition (the initialization solve's commitment when the model initializes, the
+PSY status otherwise). The right-hand side is `0` only when `u_{t-1} = 1` and `u_t = 0`.
+Thermal unit commitment; a must-run device never goes off and gets no row. Rows are keyed
+`(device, t)`.
+"""
+struct OfflineReserveShutdownConstraint <: ConstraintType end
+
+"""
 Offline-capability band row for commitment formulations whose
 [`offline_reserve_in_range_ub`](@ref) trait is `false`: their commitment-gated range
 expression stays `p + online`, and this row adds the offline awards back against the

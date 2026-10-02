@@ -1730,7 +1730,9 @@ With `"offline_only" = true` on the `OfflineReserve` `ServiceModel`, an extra
 [`OfflineReserveOffStateConstraint`](@ref) row forbids offline awards while committed
 (`offline <= q_limit * (1 - u)`; `0` for must-run). Scope: thermal unit commitment and
 `HydroCommitmentRunOfRiver`; other formulations book `OfflineReserve` awards against
-their headroom and are not restricted.
+their headroom and are not restricted. With `"exclude_shutdown_step" = true`,
+[`OfflineReserveShutdownConstraint`](@ref) forbids offline awards in the step the unit goes
+off (`offline <= q_limit * (1 - u_{t-1} + u_t)`).
 """
 function add_constraints!(
     container::OptimizationContainer,
@@ -1753,7 +1755,7 @@ function add_constraints!(
     constraint =
         add_constraints_container!(container, T, V, names, time_steps; sparse = true)
     # Extra row for services opted into "offline_only": their award needs the unit off.
-    off_rows = if any(last, offline)
+    off_rows = if any(o -> o[4], offline)
         add_constraints_container!(
             container, OfflineReserveOffStateConstraint, V, names, time_steps;
             sparse = true,
@@ -1761,20 +1763,40 @@ function add_constraints!(
     else
         nothing
     end
+    # Extra rows for services opted into "exclude_shutdown_step": none in the step the
+    # unit goes off, read against the commitment before the first step.
+    shut_rows = if any(o -> o[5], offline)
+        add_constraints_container!(
+            container, OfflineReserveShutdownConstraint, V, names, time_steps;
+            sparse = true,
+        )
+    else
+        nothing
+    end
+    status0 = if isnothing(shut_rows)
+        nothing
+    else
+        _initial_status(container, V)
+    end
     for d in devices
         name = PSY.get_name(d)
-        awards = [(sname, v) for (sname, v, members, _) in offline if name in members]
+        awards = [(sname, v) for (sname, v, members, _, _) in offline if name in members]
         isempty(awards) && continue
         q_limit = PSY.get_active_power_limits(d, PSY.SU).max
         gated = IOM.get_min_max_limits(d, ActivePowerVariableLimitsConstraint, W).max
         # The step's available max (static pmax without a max_active_power series).
         limit = _offline_hourly_limit(container, model, d, q_limit)
-        # Time-invariant: only which services opted into "offline_only" contribute.
+        # Time-invariant: only which services opted into each rule contribute.
         off_awards = [
-            (sname, v) for (sname, v, members, only_off) in offline
+            (sname, v) for (sname, v, members, only_off, _) in offline
             if only_off && name in members
         ]
+        shut_awards = [
+            (sname, v) for (sname, v, members, _, no_shut) in offline
+            if no_shut && name in members
+        ]
         if _is_must_run(d)
+            # Always committed and never goes off, so no shutdown-step row.
             for t in time_steps
                 constraint[(name, t)] = JuMP.@constraint(
                     jump_model,
@@ -1806,6 +1828,10 @@ function add_constraints!(
                     q_limit * (1 - u)
                 )
             end
+            isempty(shut_awards) || _add_offline_shutdown_rows!(
+                shut_rows, jump_model, name, q_limit, shut_awards, varbin,
+                status0[name], time_steps,
+            )
         end
     end
     return

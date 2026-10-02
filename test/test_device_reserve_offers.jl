@@ -1013,6 +1013,96 @@ end
           (MOI.INFEASIBLE, MOI.INFEASIBLE_OR_UNBOUNDED)
 end
 
+# `_offline_ordc_uc_system` under ThermalBasicUnitCommitment, which needs no initialization
+# solve, so `offunit`'s ONLINE status is its commitment before step 1 and the UC turns it
+# off in step 1. With `mustrun`, one other unit is must-run. Returns model, sys, offunit.
+function _offline_shutdown_model(attributes::Dict{String, Any}; mustrun::Bool = false)
+    sys, offunit = _offline_ordc_uc_system()
+    PSY.set_status!(offunit, PSY.OperationalStates.ONLINE)
+    if mustrun
+        g = first(g for g in get_components(ThermalStandard, sys) if g !== offunit)
+        PSY.set_commitment_mode!(g, PSY.CommitmentModes.MUST_RUN)
+    end
+    template = PowerOperationsProblemTemplate(CopperPlateNetworkModel)
+    set_device_model!(template, PowerLoad, StaticPowerLoad)
+    set_device_model!(template, ThermalStandard, ThermalBasicUnitCommitment)
+    set_service_model!(
+        template,
+        ServiceModel(OfflineReserve, StepwiseCostReserve; attributes = attributes),
+    )
+    set_service_model!(
+        template,
+        ServiceModel(OnlineReserve{ReserveUp}, StepwiseCostReserve),
+    )
+    model = DecisionModel(
+        template, sys;
+        optimizer = HiGHS_optimizer, store_variable_names = true,
+    )
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+    return model, sys, offunit
+end
+
+@testset "OfflineReserve: exclude_shutdown_step blocks the award in a thermal unit's shutdown step" begin
+    for (attributes, blocked) in (
+        (Dict{String, Any}(), false),
+        (Dict{String, Any}("exclude_shutdown_step" => true), true),
+    )
+        model, sys, offunit = _offline_shutdown_model(attributes)
+        service = PSY.get_name(only(get_components(OfflineReserve, sys)))
+        name = PSY.get_name(offunit)
+        container = IOM.get_optimization_container(model)
+        @test IOM.has_container_key(
+            container, POM.OfflineReserveShutdownConstraint, ThermalStandard,
+        ) == blocked
+        if blocked
+            # One row form, no StopVariable: `award <= q * (1 - u_{t-1} + u_t)`, u_0 = 1.
+            rows = IOM.get_constraint(
+                container, POM.OfflineReserveShutdownConstraint, ThermalStandard,
+            )
+            u = IOM.get_variable(container, POM.OnVariable, ThermalStandard)
+            stop = IOM.get_variable(container, POM.StopVariable, ThermalStandard)
+            q = PSY.get_active_power_limits(offunit, PSY.SU).max
+            @test JuMP.normalized_rhs(rows[(name, 1)]) ≈ 0.0 atol = 1e-9
+            @test JuMP.normalized_coefficient(rows[(name, 1)], u[name, 1]) ≈ -q
+            @test JuMP.normalized_rhs(rows[(name, 2)]) ≈ q
+            @test JuMP.normalized_coefficient(rows[(name, 2)], u[name, 1]) ≈ q
+            @test JuMP.normalized_coefficient(rows[(name, 2)], u[name, 2]) ≈ -q
+            @test JuMP.normalized_coefficient(rows[(name, 2)], stop[name, 2]) == 0.0
+        end
+        @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+        res = IOM.OptimizationProblemOutputs(model)
+        on =
+            read_variable(res, OnVariable, ThermalStandard; table_format = TableFormat.WIDE)
+        award = _read_awards(res, "OfflineReserve")[!, "$(service)__$(name)"]
+        @test all(on[!, name] .< 0.5)          # on before step 1, off from step 1
+        @test all(award[2:end] .> 1.0)         # later off steps keep their award
+        if blocked
+            @test award[1] <= 1e-6
+        else
+            @test award[1] > 1.0
+        end
+    end
+end
+
+@testset "OfflineReserve: exclude_shutdown_step builds no row for a must-run unit" begin
+    model, sys, _ = _offline_shutdown_model(
+        Dict{String, Any}("exclude_shutdown_step" => true); mustrun = true,
+    )
+    rows = IOM.get_constraint(
+        IOM.get_optimization_container(model),
+        POM.OfflineReserveShutdownConstraint,
+        ThermalStandard,
+    )
+    mustrun = only(
+        PSY.get_name(g) for g in get_components(ThermalStandard, sys) if
+        PSY.get_commitment_mode(g) == PSY.CommitmentModes.MUST_RUN
+    )
+    @test !isempty(rows.data)
+    @test all(k -> first(k) != mustrun, keys(rows.data))
+    @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+end
+
 #################################################################################
 # Load reserve provision (PowerLoadDispatch)
 #################################################################################

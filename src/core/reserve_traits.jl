@@ -200,23 +200,28 @@ supports_reserve_provision(::Type{<:AbstractLoadFormulation}) = false
 """
 Offline services on `model` that devices of type `V` contribute to, for the
 [`OfflineReserveBandConstraint`](@ref) builders: `(service name, award variable, member
-names, offline_only)` per service, where `offline_only` is the `ServiceModel` attribute.
+names, offline_only, exclude_shutdown_step)` per service; the flags are `ServiceModel`
+attributes.
 """
 function _offline_reserve_awards(
     container::OptimizationContainer,
     model::DeviceModel,
     ::Type{V},
 ) where {V <: PSY.Device}
-    offline = Tuple{String, IOM.JuMPArray, Set{String}, Bool}[]
+    offline = Tuple{String, IOM.JuMPArray, Set{String}, Bool, Bool}[]
     for sm in get_services(model)
         S = get_component_type(sm)
         _is_offline_reserve(S) || continue
         only_off = something(get_attribute(sm, "offline_only"), false)
+        no_shut = something(get_attribute(sm, "exclude_shutdown_step"), false)
         for (service_name, dev_map) in get_contributing_devices_map(sm)
             members = get(dev_map, V, nothing)
             isnothing(members) && continue
             variable = _reserve_variable(container, V, S)
-            push!(offline, (service_name, variable, Set(PSY.get_name.(members)), only_off))
+            push!(
+                offline,
+                (service_name, variable, Set(PSY.get_name.(members)), only_off, no_shut),
+            )
         end
     end
     return offline
@@ -245,6 +250,56 @@ function _offline_hourly_limit(
     name = PSY.get_name(d)
     param_col = get_parameter_column_refs(param_container, name)
     return [mult[name, t] * param_col[t] for t in time_steps]
+end
+
+"""
+Commitment of each `V` device before the first time step, from its `DeviceStatus` initial
+condition: the initialization solve's step-1 commitment when the model initializes,
+`is_online(d)` otherwise. Must-run thermal devices carry no value and are left out.
+"""
+function _initial_status(
+    container::OptimizationContainer,
+    ::Type{V},
+) where {V <: PSY.Device}
+    status = Dict{String, Union{Float64, JuMP.VariableRef}}()
+    for ic in get_initial_condition(container, DeviceStatus(), V)
+        value = get_value(ic)
+        isnothing(value) && continue
+        status[IOM.get_component_name(ic)] = value
+    end
+    return status
+end
+
+"""
+[`OfflineReserveShutdownConstraint`](@ref) rows of device `name`: the offline awards in
+`awards` (`(service name, award variable)` pairs) are `0` in the step it goes off,
+`sum(awards) <= q_limit * (1 - u_{t-1} + u_t)` with `u_0 = status0`. The right-hand side is
+`0` when the unit goes off, `q_limit` while its status holds and `2 * q_limit` when it starts.
+"""
+function _add_offline_shutdown_rows!(
+    rows,
+    jump_model::JuMP.Model,
+    name::String,
+    q_limit::Float64,
+    awards,
+    varbin,
+    status0,
+    time_steps,
+)
+    t1 = first(time_steps)
+    rows[(name, t1)] = JuMP.@constraint(
+        jump_model,
+        sum(v[(sname, name, t1)] for (sname, v) in awards) <=
+        q_limit * (1 - status0 + varbin[name, t1])
+    )
+    for t in time_steps[2:end]
+        rows[(name, t)] = JuMP.@constraint(
+            jump_model,
+            sum(v[(sname, name, t)] for (sname, v) in awards) <=
+            q_limit * (1 - varbin[name, t - 1] + varbin[name, t])
+        )
+    end
+    return
 end
 
 """

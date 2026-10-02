@@ -709,7 +709,7 @@ function add_constraints!(
     constraint =
         add_constraints_container!(container, T, V, names, time_steps; sparse = true)
     # Extra row for services opted into "offline_only": their award needs the unit off.
-    off_rows = if any(last, offline)
+    off_rows = if any(o -> o[4], offline)
         add_constraints_container!(
             container, OfflineReserveOffStateConstraint, V, names, time_steps;
             sparse = true,
@@ -719,13 +719,13 @@ function add_constraints!(
     end
     for d in devices
         name = PSY.get_name(d)
-        awards = [(sname, v) for (sname, v, members, _) in offline if name in members]
+        awards = [(sname, v) for (sname, v, members, _, _) in offline if name in members]
         isempty(awards) && continue
         q_limit = PSY.get_active_power_limits(d, PSY.SU).max
         # The step's limit (static pmax for a unit without the series).
         limit = _offline_hourly_limit(container, model, d, q_limit)
         off_awards = [
-            (sname, v) for (sname, v, members, only_off) in offline
+            (sname, v) for (sname, v, members, only_off, _) in offline
             if only_off && name in members
         ]
         for t in time_steps
