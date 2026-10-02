@@ -621,6 +621,20 @@ Service `meta` strings are **per-instance**, not a fixed vocabulary: every reser
 keyed by the service's own name (`meta = get_service_name(model)`). The only fixed metas here are
 `"ub"`/`"lb"` on `InterfaceFlowLimit`.
 
+### Offline reserves
+
+For thermal unit commitment and `HydroCommitmentRunOfRiver`, `OfflineReserve` awards stay out of `ActivePowerRangeExpressionUB` and enter [`OfflineReserveBandConstraint`](@ref PowerOperationsModels.OfflineReserveBandConstraint), so a unit that is off supplies them up to the time step's available maximum ``\bar{P}_t``: the `ActivePowerTimeSeriesParameter` when the `DeviceModel` maps it and the device has that series, the static ``P^\text{max}`` otherwise.
+Two `OfflineReserve` `ServiceModel` attributes, both `false` by default, tighten an off-line award ``r_t``:
+
+| Attribute                         | Row                                                                                                                                                                                                     |
+|:--------------------------------- |:------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `"offline_only" => true`          | [`OfflineReserveOffStateConstraint`](@ref PowerOperationsModels.OfflineReserveOffStateConstraint): ``r_t \le P^\text{max} (1 - u_t)``                                                                   |
+| `"exclude_shutdown_step" => true` | [`OfflineReserveShutdownConstraint`](@ref PowerOperationsModels.OfflineReserveShutdownConstraint): ``r_t \le P^\text{max} (1 - u_{t-1} + u_t)``, with ``u_0`` from the `DeviceStatus` initial condition |
+
+Every right-hand side is non-negative, so zero off-line awards always satisfy the rows.
+Must-run thermal units never go off and get no shutdown-step row; `HydroCommitmentRunOfRiver` carries a `DeviceStatus` initial condition only under `"exclude_shutdown_step"`.
+Other formulations book `OfflineReserve` awards against their headroom and get none of these rows.
+
 !!! note "AGC is not available"
     
     `services_models/agc.jl` is not included in the module and its `construct_service!` methods are

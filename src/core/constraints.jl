@@ -1285,7 +1285,8 @@ semi-continuous range row zeroes `p` and the online awards, leaving `offline <= 
 Single award variable per (device, service): the device's merged offer curve prices both
 provision states (documented approximation). With `"offline_only" = true` on the
 `OfflineReserve` `ServiceModel`, offline awards are forbidden while committed instead
-([`OfflineReserveOffStateConstraint`](@ref)).
+([`OfflineReserveOffStateConstraint`](@ref)). `"exclude_shutdown_step"` adds
+[`OfflineReserveShutdownConstraint`](@ref).
 
 `HydroCommitmentRunOfRiver` uses the hour's limit in both states,
 `p + online + offline <= ts_t`, from its `ActivePowerTimeSeriesParameter` (static
