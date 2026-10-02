@@ -198,7 +198,7 @@ function construct_device!(
         network_model,
     )
     if _has_offline_reserve_service(device_model)
-        # p + online + offline <= pmax preserves an OFF unit's offline capability.
+        # Offline awards bound against the step's available max, so an off unit keeps them.
         add_constraints!(
             container,
             OfflineReserveBandConstraint,
@@ -355,7 +355,7 @@ function construct_device!(
         network_model,
     )
     if _has_offline_reserve_service(device_model)
-        # p + online + offline <= pmax preserves an OFF unit's offline capability.
+        # Offline awards bound against the step's available max, so an off unit keeps them.
         add_constraints!(
             container,
             OfflineReserveBandConstraint,
@@ -511,7 +511,7 @@ function construct_device!(
         network_model,
     )
     if _has_offline_reserve_service(device_model)
-        # p + online + offline <= pmax preserves an OFF unit's offline capability.
+        # Offline awards bound against the step's available max, so an off unit keeps them.
         add_constraints!(
             container,
             OfflineReserveBandConstraint,
@@ -665,7 +665,7 @@ function construct_device!(
         network_model,
     )
     if _has_offline_reserve_service(device_model)
-        # p + online + offline <= pmax preserves an OFF unit's offline capability.
+        # Offline awards bound against the step's available max, so an off unit keeps them.
         add_constraints!(
             container,
             OfflineReserveBandConstraint,
@@ -1301,7 +1301,7 @@ function construct_device!(
         network_model,
     )
     if _has_offline_reserve_service(device_model)
-        # Offline awards bound against static capability so an OFF unit keeps its capability.
+        # Offline awards bound against the step's available max, so an off unit keeps them.
         add_constraints!(
             container,
             OfflineReserveBandConstraint,
@@ -1492,7 +1492,7 @@ function construct_device!(
         network_model,
     )
     if _has_offline_reserve_service(device_model)
-        # Offline awards bound against static capability so an OFF unit keeps its capability.
+        # Offline awards bound against the step's available max, so an off unit keeps them.
         add_constraints!(
             container,
             OfflineReserveBandConstraint,
@@ -1685,7 +1685,7 @@ function construct_device!(
         network_model,
     )
     if _has_offline_reserve_service(device_model)
-        # Offline awards bound against static capability so an OFF unit keeps its capability.
+        # Offline awards bound against the step's available max, so an off unit keeps them.
         add_constraints!(
             container,
             OfflineReserveBandConstraint,
@@ -1849,7 +1849,7 @@ function construct_device!(
         network_model,
     )
     if _has_offline_reserve_service(device_model)
-        # Offline awards bound against static capability so an OFF unit keeps its capability.
+        # Offline awards bound against the step's available max, so an off unit keeps them.
         add_constraints!(
             container,
             OfflineReserveBandConstraint,
@@ -2019,7 +2019,7 @@ function construct_device!(
         network_model,
     )
     if _has_offline_reserve_service(device_model)
-        # Offline awards bound against static capability so an OFF unit keeps its capability.
+        # Offline awards bound against the step's available max, so an off unit keeps them.
         add_constraints!(
             container,
             OfflineReserveBandConstraint,
@@ -2179,7 +2179,7 @@ function construct_device!(
         network_model,
     )
     if _has_offline_reserve_service(device_model)
-        # Offline awards bound against static capability so an OFF unit keeps its capability.
+        # Offline awards bound against the step's available max, so an off unit keeps them.
         add_constraints!(
             container,
             OfflineReserveBandConstraint,

@@ -705,10 +705,6 @@ function add_constraints!(
     expression = get_expression(container, ActivePowerRangeExpressionUB, V)
     jump_model = get_jump_model(container)
     varbin = get_variable(container, OnVariable, V)
-    param_container = get_parameter(container, ActivePowerTimeSeriesParameter, V)
-    mult = get_multiplier_array(param_container)
-    ts_name = get_time_series_names(model)[ActivePowerTimeSeriesParameter]
-    ts_type = get_default_time_series_type(container)
     names = [PSY.get_name(d) for d in devices]
     constraint =
         add_constraints_container!(container, T, V, names, time_steps; sparse = true)
@@ -726,21 +722,17 @@ function add_constraints!(
         awards = [(sname, v) for (sname, v, members, _) in offline if name in members]
         isempty(awards) && continue
         q_limit = PSY.get_active_power_limits(d, PSY.SU).max
-        param_col = if IS.has_time_series(d, ts_type, ts_name)
-            get_parameter_column_refs(param_container, name)
-        else
-            nothing
-        end
+        # The step's limit (static pmax for a unit without the series).
+        limit = _offline_hourly_limit(container, model, d, q_limit)
         off_awards = [
             (sname, v) for (sname, v, members, only_off) in offline
             if only_off && name in members
         ]
         for t in time_steps
-            limit = isnothing(param_col) ? q_limit : mult[name, t] * param_col[t]
             constraint[(name, t)] = JuMP.@constraint(
                 jump_model,
                 expression[name, t] +
-                sum(v[(sname, name, t)] for (sname, v) in awards) <= limit
+                sum(v[(sname, name, t)] for (sname, v) in awards) <= limit[t]
             )
             isempty(off_awards) && continue
             # Offline awards need the unit off: q_limit * (1 - u) is 0 once committed.

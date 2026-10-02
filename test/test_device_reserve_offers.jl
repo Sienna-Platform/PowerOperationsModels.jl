@@ -902,6 +902,117 @@ end
     @test committed > 0
 end
 
+# `_offline_ordc_uc_system` with `offunit`'s `max_active_power` series at `factor` of its
+# max, under `formulation` with that series mapped. `offline` adds the OfflineReserve
+# service; `mustrun` makes `offunit` must-run. Returns the built model, sys and `offunit`.
+function _offline_hourly_model(
+    formulation;
+    factor::Float64,
+    offline::Bool = true,
+    mustrun::Bool = false,
+)
+    sys, offunit = _offline_ordc_uc_system()
+    mustrun && PSY.set_commitment_mode!(offunit, PSY.CommitmentModes.MUST_RUN)
+    PSY.add_time_series!(
+        sys,
+        offunit,
+        Deterministic(
+            "max_active_power",
+            Dict(it => fill(factor, 24) for it in _MKT_INIT_TIMES),
+            Hour(1),
+        ),
+    )
+    ts_names = POM.get_default_time_series_names(ThermalStandard, formulation)
+    ts_names[ActivePowerTimeSeriesParameter] = "max_active_power"
+    template = PowerOperationsProblemTemplate(CopperPlateNetworkModel)
+    set_device_model!(template, PowerLoad, StaticPowerLoad)
+    set_device_model!(
+        template,
+        DeviceModel(ThermalStandard, formulation; time_series_names = ts_names),
+    )
+    offline &&
+        set_service_model!(template, ServiceModel(OfflineReserve, StepwiseCostReserve))
+    set_service_model!(
+        template,
+        ServiceModel(OnlineReserve{ReserveUp}, StepwiseCostReserve),
+    )
+    model = DecisionModel(
+        template, sys;
+        optimizer = HiGHS_optimizer, store_variable_names = true,
+    )
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+    return model, sys, offunit
+end
+
+@testset "OfflineReserve band: an off thermal unit's offline award follows its hourly max" begin
+    # Neither formulation needs an initialization solve.
+    factor = 0.5
+    for formulation in (ThermalBasicUnitCommitment, ThermalBasicCompactUnitCommitment)
+        model, sys, offunit = _offline_hourly_model(formulation; factor)
+        service = PSY.get_name(only(get_components(OfflineReserve, sys)))
+        pmax_mw = PSY.get_active_power_limits(offunit, PSY.NU).max
+        # The 80 MW offer exceeds the derated max, so the band binds, not the offer.
+        @test 80.0 > factor * pmax_mw
+        container = IOM.get_optimization_container(model)
+        con =
+            IOM.get_constraint(container, POM.OfflineReserveBandConstraint, ThermalStandard)
+        u = IOM.get_variable(container, POM.OnVariable, ThermalStandard)
+        # Compact UC's row is `ts_t - pmin * u`; JuMP moves `pmin * u` to the left-hand side.
+        function u_coefficient(d)
+            if formulation === ThermalBasicCompactUnitCommitment
+                return PSY.get_active_power_limits(d, PSY.SU).min
+            end
+            return 0.0
+        end
+        off_name = PSY.get_name(offunit)
+        for t in 1:24
+            @test JuMP.normalized_rhs(con[(off_name, t)]) ≈
+                  factor * PSY.get_max_active_power(offunit, PSY.SU)
+            @test JuMP.normalized_coefficient(con[(off_name, t)], u[off_name, t]) ≈
+                  u_coefficient(offunit)
+        end
+        # A unit without the series keeps its static pmax.
+        other = first(g for g in get_components(ThermalStandard, sys) if g !== offunit)
+        other_name = PSY.get_name(other)
+        @test JuMP.normalized_rhs(con[(other_name, 1)]) ≈
+              PSY.get_active_power_limits(other, PSY.SU).max
+        @test JuMP.normalized_coefficient(con[(other_name, 1)], u[other_name, 1]) ≈
+              u_coefficient(other)
+        @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+        res = IOM.OptimizationProblemOutputs(model)
+        on =
+            read_variable(res, OnVariable, ThermalStandard; table_format = TableFormat.WIDE)
+        award = _read_awards(res, "OfflineReserve")[!, "$(service)__$(off_name)"]
+        @test all(on[!, off_name] .< 0.5)
+        @test all(award .<= factor * pmax_mw + 1e-3)
+        @test maximum(award) >= factor * pmax_mw - 1e-2
+    end
+end
+
+@testset "OfflineReserve band: a compact must-run unit below pmin is infeasible with an offline service" begin
+    # Compact UC's own time-series row bounds only the power above pmin, so a must-run unit
+    # whose hourly max is below pmin stays feasible; the offline band makes it `ts_t - pmin < 0`.
+    factor = 0.25
+    model, _, offunit = _offline_hourly_model(
+        ThermalBasicCompactUnitCommitment; factor, offline = false, mustrun = true,
+    )
+    limits = PSY.get_active_power_limits(offunit, PSY.SU)
+    ts_max = factor * PSY.get_max_active_power(offunit, PSY.SU)
+    @test ts_max < limits.min
+    @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+    model, _, offunit = _offline_hourly_model(
+        ThermalBasicCompactUnitCommitment; factor, mustrun = true,
+    )
+    container = IOM.get_optimization_container(model)
+    con = IOM.get_constraint(container, POM.OfflineReserveBandConstraint, ThermalStandard)
+    @test JuMP.normalized_rhs(con[(PSY.get_name(offunit), 1)]) ≈ ts_max - limits.min
+    jump_model = IOM.get_jump_model(container)
+    JuMP.optimize!(jump_model)
+    @test JuMP.termination_status(jump_model) in
+          (MOI.INFEASIBLE, MOI.INFEASIBLE_OR_UNBOUNDED)
+end
+
 #################################################################################
 # Load reserve provision (PowerLoadDispatch)
 #################################################################################

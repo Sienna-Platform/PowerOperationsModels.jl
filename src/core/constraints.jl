@@ -1258,18 +1258,18 @@ struct HybridEnergyTargetConstraint <: ConstraintType end
 Offline-capability band row for commitment formulations whose
 [`offline_reserve_in_range_ub`](@ref) trait is `false`: their commitment-gated range
 expression stays `p + online`, and this row adds the offline awards back against the
-formulation's gated capacity when committed, or the static capability (`q_limit = pmax`)
-when not:
+formulation's gated capacity when committed, or the step's available max when not:
 
-`p + online + offline <= gated * u + q_limit * (1 - u)`
+`p + online + offline <= ts_t - (q_limit - gated) * u`
 
-`gated` is the formulation's own commitment-gated max (the same value the semicontinuous
-range row uses): for standard UC, `gated = pmax`, so the RHS collapses to `pmax`
-regardless of `u`; for compact UC, `gated = pmax - pmin`, so the RHS becomes
-`pmax - pmin * u`.
+`ts_t` is `mult * ActivePowerTimeSeriesParameter` when the `DeviceModel` maps that series and
+the device has it, and the static `q_limit = pmax` otherwise. `gated` is the formulation's
+own commitment-gated max (the same value the semicontinuous range row uses): for standard
+UC, `gated = pmax`, so the RHS is `ts_t` regardless of `u`; for compact UC,
+`gated = pmax - pmin`, so the RHS becomes `ts_t - pmin * u`.
 
 Committed: offline competes with the online products for the gated band. Off: the
-semi-continuous range row zeroes `p` and the online awards, leaving `offline <= q_limit`.
+semi-continuous range row zeroes `p` and the online awards, leaving `offline <= ts_t`.
 Single award variable per (device, service): the device's merged offer curve prices both
 provision states (documented approximation). With `"offline_only" = true` on the
 `OfflineReserve` `ServiceModel`, offline awards are forbidden while committed instead

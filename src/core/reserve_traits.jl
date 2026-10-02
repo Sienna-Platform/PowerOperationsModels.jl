@@ -223,6 +223,31 @@ function _offline_reserve_awards(
 end
 
 """
+Available maximum of `d` in each time step for the offline band: `mult[name, t] * ts_t` from
+its `ActivePowerTimeSeriesParameter`, or `q_limit` (static `pmax`) in every step when `model`
+maps no such series or `d` has none.
+"""
+function _offline_hourly_limit(
+    container::OptimizationContainer,
+    model::DeviceModel{V},
+    d::V,
+    q_limit::Float64,
+) where {V <: PSY.Device}
+    time_steps = get_time_steps(container)
+    fallback = fill(q_limit, length(time_steps))
+    ts_names = get_time_series_names(model)
+    haskey(ts_names, ActivePowerTimeSeriesParameter) || return fallback
+    ts_type = get_default_time_series_type(container)
+    IS.has_time_series(d, ts_type, ts_names[ActivePowerTimeSeriesParameter]) ||
+        return fallback
+    param_container = get_parameter(container, ActivePowerTimeSeriesParameter, V)
+    mult = get_multiplier_array(param_container)
+    name = PSY.get_name(d)
+    param_col = get_parameter_column_refs(param_container, name)
+    return [mult[name, t] * param_col[t] for t in time_steps]
+end
+
+"""
 Whether a `DeviceModel` carries an `OfflineReserve` service. Gates the
 [`OfflineReserveBandConstraint`](@ref) so that models without offline reserves build
 exactly the classic single semi-continuous band row.

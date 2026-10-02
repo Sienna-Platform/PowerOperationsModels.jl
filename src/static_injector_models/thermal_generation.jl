@@ -1711,17 +1711,19 @@ end
 Offline-capability band row for thermal-UC devices contributing to an `OfflineReserve`.
 The commitment-gated UB expression excludes the offline awards
 ([`offline_reserve_in_range_ub`](@ref)); this row adds them back against the
-formulation's gated capacity when committed, or the static `q_limit = pmax` when not:
+formulation's gated capacity when committed, or the step's available max when not:
 
-`p + online + offline <= q_limit - (q_limit - gated) * u`
+`p + online + offline <= ts_t - (q_limit - gated) * u`
 
-where `gated = get_min_max_limits(d, ActivePowerVariableLimitsConstraint, W).max` is the
-same headroom the semicontinuous range row gates on: `pmax` for standard UC (the reduction
-term vanishes, leaving `pmax`) and `pmax - pmin` for compact UC (giving `pmax - pmin * u`).
-A must-run device is always committed, so its band is `gated` outright.
+where `ts_t = mult * ActivePowerTimeSeriesParameter` when the `DeviceModel` maps that series
+and the device has it (`q_limit = pmax` otherwise), and
+`gated = get_min_max_limits(d, ActivePowerVariableLimitsConstraint, W).max` is the
+same headroom the semicontinuous range row gates on: `pmax` for standard UC (giving `ts_t`)
+and `pmax - pmin` for compact UC (giving `ts_t - pmin * u`).
+A must-run device is always committed, so its band is `ts_t - (q_limit - gated)` outright.
 
 Committed: offline competes with the online products for the gated band. Off: the
-semi-continuous UB row zeroes `p` and the online awards, leaving `offline <= pmax`.
+semi-continuous UB row zeroes `p` and the online awards, leaving `offline <= ts_t`.
 Devices contributing to no offline service get no row.
 
 With `"offline_only" = true` on the `OfflineReserve` `ServiceModel`, an extra
@@ -1765,6 +1767,8 @@ function add_constraints!(
         isempty(awards) && continue
         q_limit = PSY.get_active_power_limits(d, PSY.SU).max
         gated = IOM.get_min_max_limits(d, ActivePowerVariableLimitsConstraint, W).max
+        # The step's available max (static pmax without a max_active_power series).
+        limit = _offline_hourly_limit(container, model, d, q_limit)
         # Time-invariant: only which services opted into "offline_only" contribute.
         off_awards = [
             (sname, v) for (sname, v, members, only_off) in offline
@@ -1775,7 +1779,8 @@ function add_constraints!(
                 constraint[(name, t)] = JuMP.@constraint(
                     jump_model,
                     expression[name, t] +
-                    sum(v[(sname, name, t)] for (sname, v) in awards) <= gated
+                    sum(v[(sname, name, t)] for (sname, v) in awards) <=
+                    limit[t] - (q_limit - gated)
                 )
                 isempty(off_awards) && continue
                 # Always committed: opted-in offline awards must be 0, never cleared.
@@ -1791,7 +1796,7 @@ function add_constraints!(
                     jump_model,
                     expression[name, t] +
                     sum(v[(sname, name, t)] for (sname, v) in awards) <=
-                    q_limit - (q_limit - gated) * u
+                    limit[t] - (q_limit - gated) * u
                 )
                 isempty(off_awards) && continue
                 # Offline awards need the unit off: q_limit * (1 - u) is 0 once committed.
