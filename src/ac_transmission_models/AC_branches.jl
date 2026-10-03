@@ -476,6 +476,10 @@ function _add_flow_rate_constraint!(
         slack_lb = get_variable(container, FlowActivePowerSlackLowerBound, T)[name, :]
     end
     limits = _flow_limits(rep, device_model)
+    model = get_jump_model(container)
+    tag = MathOptLazy.Lazy(;
+        lazy = something(get_attribute(device_model, "lazy"), false)::Bool,
+    )
     for t in time_steps
         if use_slacks
             ub_lhs = var[name, t] - slack_ub[t]
@@ -484,10 +488,8 @@ function _add_flow_rate_constraint!(
             ub_lhs = var[name, t]
             lb_lhs = var[name, t]
         end
-        con_ub[name, t] =
-            JuMP.@constraint(get_jump_model(container), ub_lhs <= limits.max)
-        con_lb[name, t] =
-            JuMP.@constraint(get_jump_model(container), lb_lhs >= limits.min)
+        con_ub[name, t] = JuMP.@constraint(model, ub_lhs <= limits.max, tag)
+        con_lb[name, t] = JuMP.@constraint(model, lb_lhs >= limits.min, tag)
     end
     return
 end
