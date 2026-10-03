@@ -778,31 +778,10 @@ end
         POM._service_container_meta(reserve),
     )
     name = "Bat"
-    device = get_component(EnergyReservoirStorage, sys, name)
-    base = POM.get_variable_multiplier(
-        AncillaryServiceVariableDischarge,
-        POM.StorageReserveBalanceExpression{
-            ReserveUp,
-            POM.DeployedReserve,
-            POM.DischargeSide,
-        },
-        device,
-        StorageDispatchWithReserves,
-        reserve,
-    )
-    products = deployed_product_variables(
-        container, AncillaryServiceVariableDischarge, EnergyReservoirStorage, reserve)
-    for t in IOM.get_time_steps(container)
-        @test deployed_fraction_in_model(
-            container,
-            AncillaryServiceVariableDischarge,
-            EnergyReservoirStorage,
-            reserve,
-            name,
-            var[name, t],
-            t,
-        ) ≈ 0.5 * profile[t]
-        @test JuMP.coefficient(expr[name, t], products[name, t]) ≈ base
-        @test JuMP.coefficient(expr[name, t], var[name, t]) == 0.0
+    time_steps = IOM.get_time_steps(container)
+    for t in time_steps
+        @test JuMP.coefficient(expr[name, t], var[name, t]) ≈ 0.5 * profile[t]
     end
+    @test JuMP.coefficient(expr[name, first(time_steps)], var[name, first(time_steps)]) !=
+          JuMP.coefficient(expr[name, last(time_steps)], var[name, last(time_steps)])
 end

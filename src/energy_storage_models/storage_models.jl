@@ -616,12 +616,15 @@ function add_to_expression!(
         name = PSY.get_name(d)
         for s in PSY.get_services(d)
             variable = get_variable(container, U, V, _service_container_meta(s))
-            scaling = reserve_award_scaling(S, container, model, devices, s, U, name)
-            awards = [variable[name, t] for t in get_time_steps(container)]
-            add_reserve_awards!(
-                expression, scaling, container, name, awards,
-                get_variable_multiplier(U, T, d, W, s),
-            )
+            base_mult = get_variable_multiplier(U, T, d, W, s)
+            fractions = reserve_scale_values(S, container, model, s)
+            for t in get_time_steps(container)
+                add_proportional_to_jump_expression!(
+                    expression[name, t],
+                    variable[name, t],
+                    base_mult * fractions[t],
+                )
+            end
         end
     end
     return
@@ -645,12 +648,15 @@ function add_to_expression!(
         name = PSY.get_name(d)
         for s in PSY.get_services(d)
             variable = get_variable(container, U, V, _service_container_meta(s))
-            scaling = reserve_award_scaling(S, container, model, devices, s, U, name)
-            awards = [variable[name, t] for t in get_time_steps(container)]
-            add_reserve_awards!(
-                expression, scaling, container, name, awards,
-                get_variable_multiplier(U, T, d, W, s),
-            )
+            base_mult = get_variable_multiplier(U, T, d, W, s)
+            fractions = reserve_scale_values(S, container, model, s)
+            for t in get_time_steps(container)
+                add_proportional_to_jump_expression!(
+                    expression[name, t],
+                    variable[name, t],
+                    base_mult * fractions[t],
+                )
+            end
         end
     end
     return

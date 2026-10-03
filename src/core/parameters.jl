@@ -49,8 +49,8 @@ struct RequirementTimeSeriesParameter <: TimeSeriesParameter end
 Profile of a reserve's deployed fraction, scaled by the reserve's `deployed_fraction` field.
 
 The fraction multiplies a reserve award, so this is a left-hand-side parameter: its container
-holds numbers in every build mode, and its values reach the model through product rows that
-are rewritten in place between solves.
+holds numbers in every build mode, and its values are written into constraints as fixed
+coefficients. A model holding one is rebuilt every simulation step.
 """
 struct DeployedFractionParameter <: TimeSeriesLHSParameter end
 

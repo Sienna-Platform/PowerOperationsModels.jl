@@ -423,13 +423,10 @@ end
         POM._service_container_meta(reserve),
     )
     name = first(axes(expr, 1))
-    U = POM.HybridPCCReserveVariable{POM.DischargeSide}
-    products = deployed_product_variables(container, U, PSY.HybridSystem, reserve)
-    for t in IOM.get_time_steps(container)
-        @test deployed_fraction_in_model(
-            container, U, PSY.HybridSystem, reserve, name, var[name, t], t,
-        ) ≈ 0.5 * profile[t]
-        @test JuMP.coefficient(expr[name, t], products[name, t]) != 0.0
-        @test JuMP.coefficient(expr[name, t], var[name, t]) == 0.0
+    time_steps = IOM.get_time_steps(container)
+    for t in time_steps
+        @test JuMP.coefficient(expr[name, t], var[name, t]) ≈ 0.5 * profile[t]
     end
+    @test JuMP.coefficient(expr[name, first(time_steps)], var[name, first(time_steps)]) !=
+          JuMP.coefficient(expr[name, last(time_steps)], var[name, last(time_steps)])
 end

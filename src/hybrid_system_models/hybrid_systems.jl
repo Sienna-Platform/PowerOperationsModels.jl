@@ -594,7 +594,7 @@ objective_function_multiplier(::Type{<:VariableType}, ::Type{<:AbstractHybridFor
 # (HybridStorageSubcomponentReserveVariable{ChargeSide}/Discharging... into StorageReserveBalanceExpression{...}).
 # Mismatched-direction services are filtered out by dispatch on the Direction parameter
 # of the expression type vs the Reserve direction (ReserveUp / ReserveDown).
-# The Scale parameter (UnscaledReserve / DeployedReserve) selects `reserve_award_scaling`.
+# The Scale parameter (UnscaledReserve / DeployedReserve) selects `reserve_scale_values`.
 #################################################################################
 
 # Up-direction expressions: ReserveDown services are a no-op (skipped via dispatch).
@@ -604,7 +604,6 @@ _add_reserve_terms!(
     _expression,
     ::Type{<:AbstractHybridReserveVariableType},
     ::DeviceModel,
-    ::Vector{<:PSY.HybridSystem},
     ::PSY.HybridSystem,
     ::Type{<:AbstractHybridFormulationWithReserves},
     ::PSY.Reserve{PSY.ReserveDown},
@@ -617,7 +616,6 @@ _add_reserve_terms!(
     _expression,
     ::Type{<:AbstractHybridReserveVariableType},
     ::DeviceModel,
-    ::Vector{<:PSY.HybridSystem},
     ::PSY.HybridSystem,
     ::Type{<:AbstractHybridFormulationWithReserves},
     ::PSY.Reserve{PSY.ReserveUp},
@@ -631,7 +629,6 @@ function _add_reserve_terms!(
     expression,
     ::Type{U},
     model::DeviceModel,
-    devices::Vector{V},
     d::V,
     ::Type{W},
     service::PSY.Service,
@@ -645,12 +642,15 @@ function _add_reserve_terms!(
     name = PSY.get_name(d)
     variable =
         get_variable(container, U, V, _service_container_meta(service))
-    scaling = reserve_award_scaling(S, container, model, devices, service, U, name)
-    awards = [variable[name, t] for t in get_time_steps(container)]
-    add_reserve_awards!(
-        expression, scaling, container, name, awards,
-        get_variable_multiplier(U, d, W, service),
-    )
+    base_mult = get_variable_multiplier(U, d, W, service)
+    fractions = reserve_scale_values(S, container, model, service)
+    for t in get_time_steps(container)
+        add_proportional_to_jump_expression!(
+            expression[name, t],
+            variable[name, t],
+            base_mult * fractions[t],
+        )
+    end
     return
 end
 
@@ -669,7 +669,7 @@ function add_to_expression!(
 }
     expression = get_expression(container, T, V)
     for d in devices, service in PSY.get_services(d)
-        _add_reserve_terms!(T, container, expression, U, model, devices, d, W, service)
+        _add_reserve_terms!(T, container, expression, U, model, d, W, service)
     end
     return
 end

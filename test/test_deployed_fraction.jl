@@ -4,8 +4,8 @@ Tests for time-varying deployed fractions.
 A reserve's `deployed_fraction` scalar is a dimensionless share of the award assumed to be
 physically deployed. Attaching a `"deployed_fraction"` profile makes it vary over the horizon,
 following the same scalar-times-normalized-profile convention `requirement` uses. The profile
-is a left-hand-side parameter: a `Float64` container whose values reach the model only through
-product rows that are rewritten in place between solves.
+is a left-hand-side parameter: a `Float64` container whose values are written into constraints
+as fixed coefficients, so a model holding one is rebuilt every simulation step.
 """
 
 # Adds a deployed-fraction profile as a `SingleTimeSeries`. Call before
@@ -63,7 +63,7 @@ function _build_deployed_fraction_model(
     sys;
     template = _deployed_fraction_template(),
     recurrent = false,
-    rebuild_model = false,
+    rebuild_model = nothing,
 )
     model = DecisionModel(template, sys; optimizer = HiGHS_optimizer, rebuild_model)
     IOM.get_optimization_container(model).built_for_recurrent_solves = recurrent
@@ -92,6 +92,8 @@ _has_deployed_fraction_container(container) = IOM.has_container_key(
     OnlineReserve{ReserveUp},
 )
 
+_build_log(output_dir) = read(joinpath(output_dir, "operation_problem.log"), String)
+
 @testset "DeployedFractionParameter is a time-series LHS parameter" begin
     @test DeployedFractionParameter <: IOM.TimeSeriesLHSParameter
     @test DeployedFractionParameter <: IOM.LeftHandSideParameter
@@ -106,18 +108,12 @@ end
     hy_name = get_name(only(get_components(HydroDispatch, sys)))
 
     @test !_has_deployed_fraction_container(container)
-    @test !has_deployed_products(
-        container,
-        ActivePowerReserveVariable,
-        HydroDispatch,
-        reserve,
-    )
     for t in IOM.get_time_steps(container)
         @test _served_up_coefficient(container, reserve, hy_name, t) ≈ 0.4
     end
 end
 
-@testset "Profile: a Float64 container whose product rows carry scalar * profile" begin
+@testset "Profile: a Float64 container written as scalar * profile coefficients" begin
     profile = collect(range(0.1, 0.8; length = 48))
     sys, reserve =
         _deployed_fraction_test_system(; add_profile = profile, deployed_fraction = 0.5)
@@ -132,41 +128,59 @@ end
     @test eltype(IOM.get_parameter_array(param_container)) == Float64
     @test IOM.get_parameter_array_data(param_container)[1, :] ≈ profile[time_steps]
     @test all(==(0.5), IOM.get_multiplier_array(param_container)[get_name(reserve), :])
-
-    awards = _hydro_award(container, reserve)
     for t in time_steps
-        @test deployed_fraction_in_model(
-            container,
-            ActivePowerReserveVariable,
-            HydroDispatch,
-            reserve,
-            hy_name,
-            awards[(get_name(reserve), hy_name, t)],
-            t,
-        ) ≈ 0.5 * profile[t]
+        @test _served_up_coefficient(container, reserve, hy_name, t) ≈ 0.5 * profile[t]
     end
 end
 
-@testset "Profile under recurrent solves without rebuild builds a linear model" begin
+@testset "Profile under recurrent solves turns on rebuild_model with a warning" begin
     profile = collect(range(0.1, 0.8; length = 48))
     sys, _ = _deployed_fraction_test_system(; add_profile = profile)
-    model = _build_deployed_fraction_model(sys; recurrent = true)
+    model = DecisionModel(_deployed_fraction_template(), sys; optimizer = HiGHS_optimizer)
+    IOM.get_optimization_container(model).built_for_recurrent_solves = true
+    output_dir = mktempdir(; cleanup = true)
+    @test build!(model; output_dir = output_dir) == ModelBuildStatus.BUILT
+
+    settings = IOM.get_settings(model)
+    @test IOM.get_rebuild_model_setting(settings) === true
+    @test occursin("rebuild_model = true", _build_log(output_dir))
+    # Every parameter is a number when the model is rebuilt each step.
     jump_model = IOM.get_jump_model(IOM.get_optimization_container(model))
-    for (F, _) in JuMP.list_of_constraint_types(jump_model)
-        @test !(F <: JuMP.GenericQuadExpr)
-    end
+    @test all(!JuMP.is_fixed(v) for v in JuMP.all_variables(jump_model))
 end
 
-@testset "Profile under recurrent solves with rebuild_model builds" begin
+@testset "Profile under recurrent solves rejects an explicit rebuild_model = false" begin
+    profile = collect(range(0.1, 0.8; length = 48))
+    sys, _ = _deployed_fraction_test_system(; add_profile = profile)
+    model = DecisionModel(
+        _deployed_fraction_template(),
+        sys;
+        optimizer = HiGHS_optimizer,
+        rebuild_model = false,
+    )
+    IOM.get_optimization_container(model).built_for_recurrent_solves = true
+    @test_throws IS.ConflictingInputsError POM.validate_template(model)
+end
+
+@testset "Profile under recurrent solves keeps an explicit rebuild_model = true" begin
     profile = collect(range(0.1, 0.8; length = 48))
     sys, _ = _deployed_fraction_test_system(; add_profile = profile)
     model = _build_deployed_fraction_model(sys; recurrent = true, rebuild_model = true)
+    @test IOM.get_rebuild_model_setting(IOM.get_settings(model)) === true
     @test _has_deployed_fraction_container(IOM.get_optimization_container(model))
 end
 
-@testset "No profile is fine under recurrent solves" begin
+@testset "A single solve leaves rebuild_model alone" begin
+    profile = collect(range(0.1, 0.8; length = 48))
+    sys, _ = _deployed_fraction_test_system(; add_profile = profile)
+    model = _build_deployed_fraction_model(sys)
+    @test IOM.get_rebuild_model_setting(IOM.get_settings(model)) === nothing
+end
+
+@testset "No profile leaves rebuild_model alone under recurrent solves" begin
     sys, _ = _deployed_fraction_test_system()
     model = _build_deployed_fraction_model(sys; recurrent = true)
+    @test IOM.get_rebuild_model_setting(IOM.get_settings(model)) === nothing
     @test !_has_deployed_fraction_container(IOM.get_optimization_container(model))
 end
 
@@ -243,30 +257,35 @@ end
 
     V = EnergyReservoirStorage
     U = AncillaryServiceVariableDischarge
+    W = StorageDispatchWithReserves
     name = "Bat"
     device = get_component(V, sys, name)
-    up_award = IOM.get_variable(container, U, V, POM._service_container_meta(up))
-    down_award = IOM.get_variable(container, U, V, POM._service_container_meta(down))
+    UpExpr = POM.StorageReserveBalanceExpression{
+        ReserveUp,
+        POM.DeployedReserve,
+        POM.DischargeSide,
+    }
     DownExpr =
         POM.StorageReserveBalanceExpression{
             ReserveDown,
             POM.DeployedReserve,
             POM.DischargeSide,
         }
+    up_award = IOM.get_variable(container, U, V, POM._service_container_meta(up))
+    down_award = IOM.get_variable(container, U, V, POM._service_container_meta(down))
+    up_expr = IOM.get_expression(container, UpExpr, V)
     down_expr = IOM.get_expression(container, DownExpr, V)
-    down_base =
-        POM.get_variable_multiplier(U, DownExpr, device, StorageDispatchWithReserves, down)
+    up_base = POM.get_variable_multiplier(U, UpExpr, device, W, up)
+    down_base = POM.get_variable_multiplier(U, DownExpr, device, W, down)
 
-    @test has_deployed_products(container, U, V, up)
-    @test !has_deployed_products(container, U, V, down)
     for t in IOM.get_time_steps(container)
-        @test deployed_fraction_in_model(container, U, V, up, name, up_award[name, t], t) ≈
-              0.5 * profile[t]
+        @test JuMP.coefficient(up_expr[name, t], up_award[name, t]) ≈
+              up_base * 0.5 * profile[t]
         @test JuMP.coefficient(down_expr[name, t], down_award[name, t]) ≈ down_base * 0.3
     end
 end
 
-@testset "A profiled reserve shared by two devices binds each award to one series row" begin
+@testset "A profiled reserve shared by two devices reads one series row" begin
     profile = collect(range(0.1, 0.8; length = 48))
     sys = PSB.build_system(
         PSITestSystems,
@@ -304,20 +323,7 @@ end
     param_container =
         IOM.get_parameter(container, DeployedFractionParameter, OnlineReserve{ReserveUp})
     @test size(IOM.get_parameter_array(param_container), 1) == 1
-
-    awards = _hydro_award(container, reserve)
     for hy_name in (get_name(hy), get_name(hy_copy)), t in IOM.get_time_steps(container)
-        @test deployed_fraction_in_model(
-            container,
-            ActivePowerReserveVariable,
-            HydroDispatch,
-            reserve,
-            hy_name,
-            awards[(get_name(reserve), hy_name, t)],
-            t,
-        ) ≈ 0.5 * profile[t]
+        @test _served_up_coefficient(container, reserve, hy_name, t) ≈ 0.5 * profile[t]
     end
-    key = IOM.ParameterKey(DeployedFractionParameter, OnlineReserve{ReserveUp})
-    @test length(container.coefficient_bindings[key]) ==
-          2 * length(IOM.get_time_steps(container))
 end
