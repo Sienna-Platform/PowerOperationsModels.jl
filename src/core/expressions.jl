@@ -15,7 +15,6 @@ variable); `FlowRateConstraint` rows are written directly on it. Reportable as a
 mirroring `PTDFBranchFlow`.
 """
 struct BThetaBranchFlow <: ExpressionType end
-struct PostContingencyNodalActivePowerDeployment <: PostContingencyExpressions end
 struct RealizedShiftedLoad <: ExpressionType end
 
 #################################################################################
@@ -123,6 +122,29 @@ Aggregation of reserve variables allocated to the storage subcomponent of a hybr
 """
 struct StorageReserveBalanceExpression{D, S, Sd} <:
        ReserveAggregationExpression{D, S, Sd} end
+
+#################################################################################
+# G-1 expressions
+#################################################################################
+
+"""
+Post-contingency change in injection at bus or area ``n`` under outage ``o``:
+``\\Delta P_{n,o,t} = \\sum_{d \\in n} \\Delta_{d,o,t} - \\sum_{g \\in G_o \\cap n} p_{g,t}``.
+
+Sparse, indexed `(bus number / area name, outage, time)`. See
+[`SecurityConstrainedContingencyReserve`](@ref).
+"""
+struct PostContingencyLocationalDeployment <: ExpressionType end
+
+"""
+Post-contingency deployment of contributing device ``d`` under outage ``o``, summed across the
+security-constrained reserves responding to it:
+``\\Delta_{d,o,t} = \\sum_s \\delta_{s,d,o,t}``.
+
+Sparse, indexed `(device, outage, time)`. Stored because the balance, generation-limit, and
+locational-deployment terms all read it. See [`SecurityConstrainedContingencyReserve`](@ref).
+"""
+struct PostContingencyTotalDeployment <: ExpressionType end
 
 # Method extensions for output writing
 should_write_resulting_value(::Type{InterfaceTotalFlow}) = true

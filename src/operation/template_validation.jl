@@ -530,7 +530,23 @@ function _check_security_constrained_network(
     return
 end
 
-# Every monitored component of every registered outage exists in the system
+function _assert_transformer_outages(
+    transformer::T,
+    branch_models::IOM.BranchModelContainer,
+) where {T <: _TRANSFORMERS}
+    model = get(branch_models, nameof(T), nothing)
+    _has_unsupported_phase(transformer, model) && throw(
+        IS.ConflictingInputsError(
+            "Phase-shifting transformers and transformers with non-zero angle may not be outages.",
+        ),
+    )
+    return
+end
+
+_assert_transformer_outages(::PSY.Device, ::IOM.BranchModelContainer) =
+    nothing
+
+# Monitored components exist; no controlled transformer outages
 function _check_monitored_components(
     branch_models::IOM.BranchModelContainer,
     sys::PSY.System,
@@ -545,6 +561,9 @@ function _check_monitored_components(
                         "Monitored component with UUID $uuid on outage $outage_id is not found in the system.",
                     ),
                 )
+            end
+            for component in PSY.get_associated_components(sys, outage)
+                _assert_transformer_outages(component, branch_models)
             end
         end
     end
