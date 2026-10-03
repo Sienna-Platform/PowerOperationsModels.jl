@@ -307,6 +307,10 @@ function construct_device!(
     add_variables!(container, ActivePowerVariable, devices, D)
     add_variables!(container, ReactivePowerVariable, devices, D)
     add_variables!(container, OnVariable, devices, D)
+    if _excludes_shutdown_step(model)
+        # OfflineReserveShutdownConstraint reads the commitment before the first step.
+        add_initial_condition!(container, devices, D(), DeviceStatus())
+    end
     add_variables!(container, HydroEnergyOutput, devices, D)
     add_to_expression!(
         container,
@@ -375,6 +379,10 @@ function construct_device!(
 
     add_variables!(container, ActivePowerVariable, devices, D)
     add_variables!(container, OnVariable, devices, D)
+    if _excludes_shutdown_step(model)
+        # OfflineReserveShutdownConstraint reads the commitment before the first step.
+        add_initial_condition!(container, devices, D(), DeviceStatus())
+    end
     add_variables!(container, HydroEnergyOutput, devices, D)
     add_to_expression!(
         container,

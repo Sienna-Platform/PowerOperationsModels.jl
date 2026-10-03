@@ -162,14 +162,14 @@ function get_default_attributes(
     return Dict{String, Any}()
 end
 
-# "offline_only" forbids offline awards to units committed in the same time step.
-# Enforced for thermal unit commitment and HydroCommitmentRunOfRiver; other formulations
-# book OfflineReserve awards against their headroom and are not restricted.
+# "offline_only" forbids offline awards to units committed in the same time step;
+# "exclude_shutdown_step" forbids them in the step a unit goes off. Enforced for thermal
+# unit commitment and HydroCommitmentRunOfRiver; other formulations are not restricted.
 function get_default_attributes(
     ::Type{PSY.OfflineReserve},
     ::Type{<:AbstractReservesFormulation},
 )
-    return Dict{String, Any}("offline_only" => false)
+    return Dict{String, Any}("offline_only" => false, "exclude_shutdown_step" => false)
 end
 
 """

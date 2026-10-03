@@ -245,6 +245,9 @@ initial_condition_default(::InitialTimeDurationOn, d::PSY.HydroGen, ::AbstractHy
 initial_condition_variable(::InitialTimeDurationOn, d::PSY.HydroGen, ::AbstractHydroReservoirFormulation) = OnVariable()
 initial_condition_default(::InitialTimeDurationOff, d::PSY.HydroGen, ::AbstractHydroReservoirFormulation) = is_online(d) ? 0.0 : PSY.get_time_at_status(d)
 initial_condition_variable(::InitialTimeDurationOff, d::PSY.HydroGen, ::AbstractHydroReservoirFormulation) = OnVariable()
+# OfflineReserveShutdownConstraint reads the status before the first step (the init solve's, if any).
+initial_condition_default(::DeviceStatus, d::PSY.HydroGen, ::HydroCommitmentRunOfRiver) = Float64(is_online(d))
+initial_condition_variable(::DeviceStatus, d::PSY.HydroGen, ::HydroCommitmentRunOfRiver) = OnVariable()
 
 initial_condition_default(::InitialEnergyLevel, d::PSY.HydroReservoir, ::HydroEnergyModelReservoir) = PSY.get_initial_level(d) * PSY.get_storage_level_limits(d).max / PSY._get_system_base_power(d)
 initial_condition_variable(::InitialEnergyLevel, d::PSY.HydroReservoir, ::HydroEnergyModelReservoir) = EnergyVariable()
@@ -691,6 +694,10 @@ row already caps at `pmax * u`. Off: that row zeroes `p` and the online awards, 
 With `"offline_only" = true` on the `OfflineReserve` `ServiceModel`, an extra
 [`OfflineReserveOffStateConstraint`](@ref) row forbids offline awards while committed:
 `offline <= pmax * (1 - u)`.
+
+With `"exclude_shutdown_step" = true`, [`OfflineReserveShutdownConstraint`](@ref) forbids
+offline awards in the step the unit goes off: `offline <= pmax * (1 - u_{t-1} + u_t)`, with
+`u_0` from the `DeviceStatus` initial condition.
 """
 function add_constraints!(
     container::OptimizationContainer,
@@ -705,15 +712,11 @@ function add_constraints!(
     expression = get_expression(container, ActivePowerRangeExpressionUB, V)
     jump_model = get_jump_model(container)
     varbin = get_variable(container, OnVariable, V)
-    param_container = get_parameter(container, ActivePowerTimeSeriesParameter, V)
-    mult = get_multiplier_array(param_container)
-    ts_name = get_time_series_names(model)[ActivePowerTimeSeriesParameter]
-    ts_type = get_default_time_series_type(container)
     names = [PSY.get_name(d) for d in devices]
     constraint =
         add_constraints_container!(container, T, V, names, time_steps; sparse = true)
     # Extra row for services opted into "offline_only": their award needs the unit off.
-    off_rows = if any(last, offline)
+    off_rows = if any(o -> o[4], offline)
         add_constraints_container!(
             container, OfflineReserveOffStateConstraint, V, names, time_steps;
             sparse = true,
@@ -721,26 +724,41 @@ function add_constraints!(
     else
         nothing
     end
+    # Extra rows for services opted into "exclude_shutdown_step"; the constructor adds the
+    # DeviceStatus they read only under that attribute.
+    shut_rows = if any(o -> o[5], offline)
+        add_constraints_container!(
+            container, OfflineReserveShutdownConstraint, V, names, time_steps;
+            sparse = true,
+        )
+    else
+        nothing
+    end
+    status0 = if isnothing(shut_rows)
+        nothing
+    else
+        _initial_status(container, V)
+    end
     for d in devices
         name = PSY.get_name(d)
-        awards = [(sname, v) for (sname, v, members, _) in offline if name in members]
+        awards = [(sname, v) for (sname, v, members, _, _) in offline if name in members]
         isempty(awards) && continue
         q_limit = PSY.get_active_power_limits(d, PSY.SU).max
-        param_col = if IS.has_time_series(d, ts_type, ts_name)
-            get_parameter_column_refs(param_container, name)
-        else
-            nothing
-        end
+        # The step's limit (static pmax for a unit without the series).
+        limit = _offline_hourly_limit(container, model, d, q_limit)
         off_awards = [
-            (sname, v) for (sname, v, members, only_off) in offline
+            (sname, v) for (sname, v, members, only_off, _) in offline
             if only_off && name in members
         ]
+        shut_awards = [
+            (sname, v) for (sname, v, members, _, no_shut) in offline
+            if no_shut && name in members
+        ]
         for t in time_steps
-            limit = isnothing(param_col) ? q_limit : mult[name, t] * param_col[t]
             constraint[(name, t)] = JuMP.@constraint(
                 jump_model,
                 expression[name, t] +
-                sum(v[(sname, name, t)] for (sname, v) in awards) <= limit
+                sum(v[(sname, name, t)] for (sname, v) in awards) <= limit[t]
             )
             isempty(off_awards) && continue
             # Offline awards need the unit off: q_limit * (1 - u) is 0 once committed.
@@ -750,6 +768,10 @@ function add_constraints!(
                 q_limit * (1 - varbin[name, t])
             )
         end
+        isempty(shut_awards) || _add_offline_shutdown_rows!(
+            shut_rows, jump_model, name, q_limit, shut_awards, varbin,
+            status0[name], time_steps,
+        )
     end
     return
 end
