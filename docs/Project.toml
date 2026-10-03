@@ -20,9 +20,9 @@ PrettyTables = "08abe8d2-0d0c-5749-adfa-8a2ac140af0d"
 
 [sources]
 PowerOperationsModels = {path = ".."}
-InfrastructureSystems = {rev = "IS4", url = "https://github.com/Sienna-Platform/InfrastructureSystems.jl"}
+InfrastructureSystems = {url = "https://github.com/Sienna-Platform/InfrastructureSystems.jl", rev = "mb/lhs-params"}
 PowerSystems = {rev = "psy6", url = "https://github.com/Sienna-Platform/PowerSystems.jl"}
-InfrastructureOptimizationModels = {rev = "main", url = "https://github.com/Sienna-Platform/InfrastructureOptimizationModels.jl"}
+InfrastructureOptimizationModels = {url = "https://github.com/Sienna-Platform/InfrastructureOptimizationModels.jl", rev = "mb/lhs-params"}
 PowerNetworkMatrices = {rev = "psy6", url = "https://github.com/Sienna-Platform/PowerNetworkMatrices.jl"}
 # OpenAPI packages pinned to their v0.1.0 releases; see the root Project.toml.
 PowerCoreOpenAPIModels = {rev = "PowerCoreOpenAPIModels-v0.1.0", url = "https://github.com/Sienna-Platform/PowerOpenAPIModels.git", subdir = "PowerCoreOpenAPIModels.jl"}

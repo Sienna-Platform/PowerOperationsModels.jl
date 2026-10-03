@@ -627,9 +627,9 @@ _is_input_attributes(::IOM.TimeSeriesAttributes) = true
 _is_input_attributes(::IOM.ParameterAttributes) = false
 
 """
-Whether `key`'s realized values are a component input series the bundle recasts. IOM only ever
-pairs `TimeSeriesAttributes` with a `TimeSeriesParameter` key, so the attributes check alone
-decides it.
+Whether `key`'s realized values are a component input series the bundle recasts. IOM pairs
+`TimeSeriesAttributes` only with time-series keys (`TimeSeriesParameter` or
+`TimeSeriesLHSParameter`), so the attributes check alone decides it.
 """
 is_input_parameter(::IOM.ParameterKey, pc::IOM.ParameterContainer)::Bool =
     _is_input_attributes(IOM.get_attributes(pc))

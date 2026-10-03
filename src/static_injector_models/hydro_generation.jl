@@ -2826,16 +2826,13 @@ function add_to_expression!(
                 typeof(service) <: S || continue
                 isa(service, PSY.Reserve{PSY.ReserveUp}) || continue
                 service_name = PSY.get_name(service)
-                fractions = deployed_fraction_values(container, service_model, service)
                 variable =
                     get_variable(container, U, IOM.ComponentPairKey{V, typeof(service)})
-                for t in get_time_steps(container)
-                    add_proportional_to_jump_expression!(
-                        expression[name, t],
-                        variable[(service_name, name, t)],
-                        fractions[t],
-                    )
-                end
+                scaling = reserve_award_scaling(
+                    DeployedReserve, container, model, devices, service, U, name)
+                awards =
+                    [variable[(service_name, name, t)] for t in get_time_steps(container)]
+                add_reserve_awards!(expression, scaling, container, name, awards, 1.0)
             end
         end
     end
@@ -2866,16 +2863,13 @@ function add_to_expression!(
                 typeof(service) <: S || continue
                 isa(service, PSY.Reserve{PSY.ReserveDown}) || continue
                 service_name = PSY.get_name(service)
-                fractions = deployed_fraction_values(container, service_model, service)
                 variable =
                     get_variable(container, U, IOM.ComponentPairKey{V, typeof(service)})
-                for t in get_time_steps(container)
-                    add_proportional_to_jump_expression!(
-                        expression[name, t],
-                        variable[(service_name, name, t)],
-                        fractions[t],
-                    )
-                end
+                scaling = reserve_award_scaling(
+                    DeployedReserve, container, model, devices, service, U, name)
+                awards =
+                    [variable[(service_name, name, t)] for t in get_time_steps(container)]
+                add_reserve_awards!(expression, scaling, container, name, awards, 1.0)
             end
         end
     end

@@ -114,7 +114,7 @@ function validate_template_impl!(model::IOM.AbstractOptimizationModel)
     _check_security_constrained_phase_control(template.branches, network_model)
     _check_voltage_regulation_conflicts!(template, system, network_model)
     _check_branch_rating_time_series_formulation!(template.branches, system)
-    _check_deployed_fraction_time_series(model)
+    _check_lhs_time_series_types(model)
     validate_network_model(network_model, unmodeled_branch_types, model_has_branch_filters)
     _build_device_model_outages!(template, system)
     # Must follow `_build_device_model_outages!`: that call is what fills the per-type
@@ -286,33 +286,26 @@ function _check_branch_rating_time_series_formulation!(
     return
 end
 
-# A deployed-fraction profile becomes a constraint COEFFICIENT, not a parameter: the fraction
-# multiplies a reserve award, and a JuMP parameter in coefficient position would make the
-# energy balance bilinear. Coefficients are baked at build and never updated in place, so under
-# recurrent solves they only stay correct if the model is rebuilt each window.
-function _check_deployed_fraction_time_series(model::IOM.AbstractOptimizationModel)
-    container = get_optimization_container(model)
-    built_for_recurrent_solves(container) || return
-    get_rebuild_model(get_settings(container)) && return
+# A left-hand-side parameter series stored under a time series type other than the one the
+# model reads would be skipped, silently replacing the profile with the scalar.
+function _check_lhs_time_series_types(model::IOM.AbstractOptimizationModel)
+    ts_type = get_default_time_series_type(get_optimization_container(model))
     system = get_system(model)
     for (_, service_model) in get_service_models(get_template(model))
-        ts_names = get_time_series_names(service_model)
-        haskey(ts_names, DeployedFractionTimeSeriesParameter) || continue
-        ts_name = ts_names[DeployedFractionTimeSeriesParameter]
-        for service in get_available_components(service_model, system)
-            service isa PSY.AbstractReserve || continue
-            PSY.has_time_series(service, ts_name) || continue
-            throw(
-                IS.ConflictingInputsError(
-                    "Reserve $(PSY.get_name(service)) carries a $(ts_name) time series, \
-                    but the \
-                    model is built for recurrent solves with rebuild_model = false. The \
-                    deployed fraction is a constraint coefficient baked at build time, so it \
-                    would stay pinned to the first window while the horizon advances. Set \
-                    rebuild_model = true, or remove the time series and use the scalar \
-                    deployed_fraction field.",
-                ),
-            )
+        for (P, ts_name) in get_time_series_names(service_model)
+            P <: TimeSeriesLHSParameter || continue
+            for service in get_available_components(service_model, system)
+                PSY.has_time_series(service, ts_name) || continue
+                PSY.has_time_series(service, ts_type, ts_name) && continue
+                throw(
+                    IS.ConflictingInputsError(
+                        "$(PSY.get_name(service)) carries a $(ts_name) time series, but not \
+                        as $(ts_type), which is what this model reads. Attach the series \
+                        before calling transform_single_time_series!, or add it directly as \
+                        $(ts_type).",
+                    ),
+                )
+            end
         end
     end
     return

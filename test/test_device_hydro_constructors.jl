@@ -1685,16 +1685,18 @@ end
     )
     hy_name = get_name(only(get_components(HydroDispatch, c_sys5_hy)))
     up_name = get_name(reserve_up)
-    time_steps = IOM.get_time_steps(container)
-    for t in time_steps
-        @test JuMP.coefficient(expr[hy_name, t], var[(up_name, hy_name, t)]) ≈
-              0.5 * profile[t]
+    products = deployed_product_variables(
+        container, ActivePowerReserveVariable, HydroDispatch, reserve_up)
+    for t in IOM.get_time_steps(container)
+        award = var[(up_name, hy_name, t)]
+        @test deployed_fraction_in_model(
+            container, ActivePowerReserveVariable, HydroDispatch, reserve_up, hy_name,
+            award, t,
+        ) ≈ 0.5 * profile[t]
+        @test JuMP.coefficient(expr[hy_name, t], products[hy_name, t]) ≈ 1.0
+        @test JuMP.coefficient(expr[hy_name, t], award) == 0.0
     end
-    @test JuMP.coefficient(
-        expr[hy_name, first(time_steps)],
-        var[(up_name, hy_name, first(time_steps))],
-    ) != JuMP.coefficient(
-        expr[hy_name, last(time_steps)],
-        var[(up_name, hy_name, last(time_steps))],
-    )
+    # The down reserve has no profile: its scalar fraction is baked, with no product rows.
+    @test !has_deployed_products(
+        container, ActivePowerReserveVariable, HydroDispatch, reserve_down)
 end

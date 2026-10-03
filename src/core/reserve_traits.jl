@@ -77,73 +77,175 @@ function _service_model_for(device_model::DeviceModel, service::PSY.Service)
 end
 
 """
-Per-time-step deployed fraction for `s`, as `deployed_fraction * profile[t]`.
-
-Returns `fill(scalar, horizon)` when the model declares no deployed-fraction series name or the
-reserve carries no such series, reproducing the constant-coefficient behavior exactly. Always
-returns a `Vector{Float64}` so the multiplier seams stay type-stable.
-
-The name is resolved from the `ServiceModel`'s `time_series_names`, so a user can override it
-there, exactly as for [`RequirementTimeSeriesParameter`](@ref). Unlike `requirement` the series
-backs no parameter container: the fraction multiplies a reserve award, so it is a constraint
-coefficient, and a JuMP parameter in coefficient position would make the energy balance
-bilinear. Repeated calls for a service shared across devices are cheap because IOM caches
-resolved series.
+The deployed-fraction parameter key covering `service` through `device_model`'s registered
+service models, or `nothing` when the reserve's fraction is its fixed scalar: no service model
+covers it, or it carries no deployed-fraction profile.
 """
-function deployed_fraction_values(
+function _deployed_fraction_key(
     container::OptimizationContainer,
-    model::ServiceModel,
-    s::PSY.AbstractReserve,
-)::Vector{Float64}
-    scalar = PSY.get_deployed_fraction(s)
-    time_steps = get_time_steps(container)
-    ts_names = get_time_series_names(model)
-    haskey(ts_names, DeployedFractionTimeSeriesParameter) ||
-        return fill(scalar, length(time_steps))
-    ts_name = ts_names[DeployedFractionTimeSeriesParameter]
-    PSY.has_time_series(s, ts_name) || return fill(scalar, length(time_steps))
-    ts_type = get_default_time_series_type(container)
-    if !PSY.has_time_series(s, ts_type, ts_name)
-        throw(
-            IS.ConflictingInputsError(
-                "Reserve $(PSY.get_name(s)) carries a $(ts_name) time series, but not as \
-                $(ts_type), which is what this model reads. Attach the series before calling \
-                transform_single_time_series!, or add it directly as $(ts_type).",
-            ),
-        )
+    device_model::DeviceModel,
+    service::PSY.AbstractReserve,
+)
+    service_model = _service_model_for(device_model, service)
+    isnothing(service_model) && return nothing
+    SR = get_component_type(service_model)
+    has_container_key(container, DeployedFractionParameter, SR) || return nothing
+    key = IOM.ParameterKey(DeployedFractionParameter, SR)
+    has_lhs_parameter_component(container, key, PSY.get_name(service)) || return nothing
+    return key
+end
+
+_type_label(T::DataType) =
+    if isempty(T.parameters)
+        string(nameof(T))
+    else
+        join((string(nameof(T)), (_type_label(p) for p in T.parameters)...), "_")
     end
-    # `resolution` accompanies `interval` so an off-resolution series is rejected rather than
-    # read at the wrong step length, matching the parameter path in `add_parameters.jl`.
-    settings = get_settings(container)
-    ts_values = IOM.get_time_series_initial_values!(
-        container,
-        ts_type,
-        s,
-        ts_name;
-        interval = get_interval(settings),
-        resolution = get_resolution(settings),
-    )
-    return scalar .* Vector{Float64}(ts_values)
+_type_label(T) = string(T)
+
+"""
+Meta string of the product containers holding `service`'s deployed `U` awards. Built from
+`nameof` so it is the same in every module context.
+"""
+_deployed_product_meta(::Type{U}, service::PSY.Service) where {U <: VariableType} =
+    "$(_type_label(U))_$(_service_container_meta(service))"
+
+"""
+How one reserve's awards enter an aggregation expression. Resolved once per device and service
+by [`reserve_award_scaling`](@ref), then applied across the horizon by
+[`add_reserve_awards!`](@ref).
+"""
+abstract type ReserveAwardScaling end
+
+"Awards enter at their base multiplier."
+struct UnscaledAward <: ReserveAwardScaling end
+
+"Awards enter scaled by a fixed fraction: a reserve without a deployed-fraction profile."
+struct FixedDeployedAward <: ReserveAwardScaling
+    fraction::Float64
 end
 
 """
-Per-time-step deployed fraction resolved through `device_model`'s registered service models.
-
-Convenience for the device-side multiplier seams, which hold a `DeviceModel` and reach services
-through `PSY.get_services(d)`. Falls back to the scalar when the device model registers no
-service model covering `s`.
+Awards enter through product variables whose defining rows carry the deployed fraction and
+are refreshed in place between solves: a reserve with a deployed-fraction profile.
 """
-function deployed_fraction_values(
+struct ProfiledDeployedAward{
+    K <: IOM.ParameterKey,
+    P <: AbstractArray,
+    C <: AbstractArray,
+} <:
+       ReserveAwardScaling
+    key::K
+    service_name::String
+    products::P
+    constraints::C
+    row::Int
+    base_name::String
+end
+
+reserve_award_scaling(
+    ::Type{UnscaledReserve},
+    ::OptimizationContainer,
+    ::DeviceModel,
+    ::AbstractVector,
+    ::PSY.Service,
+    ::Type{<:VariableType},
+    ::String,
+) = UnscaledAward()
+
+function reserve_award_scaling(
+    ::Type{DeployedReserve},
     container::OptimizationContainer,
-    device_model::DeviceModel,
-    s::PSY.AbstractReserve,
-)::Vector{Float64}
-    service_model = _service_model_for(device_model, s)
-    isnothing(service_model) && return fill(
-        PSY.get_deployed_fraction(s),
-        length(get_time_steps(container)),
+    device_model::DeviceModel{V},
+    devices::AbstractVector{V},
+    service::PSY.AbstractReserve,
+    ::Type{U},
+    device_name::String,
+) where {V <: PSY.Component, U <: VariableType}
+    key = _deployed_fraction_key(container, device_model, service)
+    isnothing(key) && return FixedDeployedAward(PSY.get_deployed_fraction(service))
+    meta = _deployed_product_meta(U, service)
+    if !has_container_key(container, ParameterizedProductVariable, V, meta)
+        names = [PSY.get_name(d) for d in devices if service in PSY.get_services(d)]
+        time_steps = get_time_steps(container)
+        add_variable_container!(
+            container, ParameterizedProductVariable, V, names, time_steps; meta = meta)
+        add_constraints_container!(
+            container, ParameterizedProductConstraint, V, names, time_steps; meta = meta)
+    end
+    products = get_variable(container, ParameterizedProductVariable, V, meta)
+    return ProfiledDeployedAward(
+        key,
+        PSY.get_name(service),
+        products,
+        get_constraint(container, ParameterizedProductConstraint, V, meta),
+        products.lookup[1][device_name],
+        "ParameterizedProductVariable_$(V)_{$(meta), $(device_name)",
     )
-    return deployed_fraction_values(container, service_model, s)
+end
+
+"Add `base * awards[t]` to `expression[device_name, t]` for every time step."
+function add_reserve_awards!(
+    expression::AbstractArray,
+    ::UnscaledAward,
+    container::OptimizationContainer,
+    device_name::String,
+    awards::Vector{JuMP.VariableRef},
+    base::Float64,
+)
+    for t in get_time_steps(container)
+        add_proportional_to_jump_expression!(expression[device_name, t], awards[t], base)
+    end
+    return
+end
+
+"Add `base * fraction * awards[t]` to `expression[device_name, t]` for every time step."
+function add_reserve_awards!(
+    expression::AbstractArray,
+    scaling::FixedDeployedAward,
+    container::OptimizationContainer,
+    device_name::String,
+    awards::Vector{JuMP.VariableRef},
+    base::Float64,
+)
+    for t in get_time_steps(container)
+        add_proportional_to_jump_expression!(
+            expression[device_name, t], awards[t], base * scaling.fraction)
+    end
+    return
+end
+
+"""
+Add `base * y[t]` to `expression[device_name, t]`, where `y[t] = deployed_fraction(t) * awards[t]`
+is a product variable bound by IOM. A product already created for this award (one award can
+feed several expressions) is reused, so each award is bound once.
+"""
+function add_reserve_awards!(
+    expression::AbstractArray,
+    scaling::ProfiledDeployedAward,
+    container::OptimizationContainer,
+    device_name::String,
+    awards::Vector{JuMP.VariableRef},
+    base::Float64,
+)
+    products = scaling.products.data
+    constraints = scaling.constraints.data
+    row = scaling.row
+    jump_model = get_jump_model(container)
+    for t in get_time_steps(container)
+        if !isassigned(products, row, t)
+            product = JuMP.@variable(jump_model, base_name = "$(scaling.base_name), $(t)}")
+            products[row, t] = product
+            constraints[row, t] = IOM.add_parameterized_product_constraint!(
+                container, scaling.key, scaling.service_name, t, product, awards[t])
+        end
+        add_proportional_to_jump_expression!(
+            expression[device_name, t],
+            products[row, t],
+            base,
+        )
+    end
+    return
 end
 
 # ── ORDC (operating-reserve-demand-curve) predicates ─────────────────────────────────

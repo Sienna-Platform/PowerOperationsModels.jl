@@ -98,6 +98,7 @@ function _log_skipped_reserve_demand(
 end
 
 get_multiplier_value(::Type{RequirementTimeSeriesParameter}, d::PSY.AbstractReserve, ::Type{<:AbstractReservesFormulation}) = _get_requirement(d)
+get_multiplier_value(::Type{DeployedFractionParameter}, d::PSY.AbstractReserve, ::Type{<:AbstractReservesFormulation}) = PSY.get_deployed_fraction(d)
 
 get_parameter_multiplier(::Type{<:VariableValueParameter}, d::Type{<:PSY.AbstractReserve}, ::Type{<:AbstractReservesFormulation}) = 1.0
 get_initial_parameter_value(::Type{<:VariableValueParameter}, d::Type{<:PSY.AbstractReserve}, ::Type{<:AbstractReservesFormulation}) = 0.0
@@ -127,9 +128,9 @@ function get_default_time_series_names(
     ::Type{<:PSY.Reserve},
     ::Type{T},
 ) where {T <: Union{RangeReserve, RampReserve}}
-    return Dict{Type{<:TimeSeriesParameter}, String}(
+    return Dict{Type{<:ParameterType}, String}(
         RequirementTimeSeriesParameter => "requirement",
-        DeployedFractionTimeSeriesParameter => "deployed_fraction",
+        DeployedFractionParameter => "deployed_fraction",
     )
 end
 
@@ -137,9 +138,9 @@ function get_default_time_series_names(
     ::Type{<:PSY.OfflineReserve},
     ::Type{NonSpinningReserve},
 )
-    return Dict{Type{<:TimeSeriesParameter}, String}(
+    return Dict{Type{<:ParameterType}, String}(
         RequirementTimeSeriesParameter => "requirement",
-        DeployedFractionTimeSeriesParameter => "deployed_fraction",
+        DeployedFractionParameter => "deployed_fraction",
     )
 end
 
@@ -148,10 +149,9 @@ function get_default_time_series_names(
     ::Type{<:AbstractReservesFormulation},
 ) where {T <: PSY.AbstractReserve}
     # `deployed_fraction` is a property of the reserve, not of the formulation pricing it, so
-    # every reserves formulation resolves the name. Unlike `requirement` it backs no parameter
-    # container: the fraction is a constraint coefficient read at build time.
-    return Dict{Type{<:TimeSeriesParameter}, String}(
-        DeployedFractionTimeSeriesParameter => "deployed_fraction",
+    # every reserves formulation resolves the name.
+    return Dict{Type{<:ParameterType}, String}(
+        DeployedFractionParameter => "deployed_fraction",
     )
 end
 
