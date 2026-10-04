@@ -59,8 +59,7 @@ InfrastructureTimeSeriesOpenAPIModels = {url = "https://github.com/Sienna-Platfo
 InfrastructureCoreOpenAPIModels = {url = "https://github.com/Sienna-Platform/PowerOpenAPIModels.git", rev = "main", subdir = "InfrastructureCoreOpenAPIModels.jl"}
 PowerDynamicsOpenAPIModels = {url = "https://github.com/Sienna-Platform/PowerOpenAPIModels.git", rev = "main", subdir = "PowerDynamicsOpenAPIModels.jl"}
 PowerFlowFileParser = {url = "https://github.com/Sienna-Platform/PowerFlowFileParser.jl.git", rev = "psy6"}
-# TODO: revert to rev = "psy6" once PowerFlows.jl#462 merges.
-PowerFlows = {rev = "lk/voltage-units-1821", url = "https://github.com/Sienna-Platform/PowerFlows.jl"}
+PowerFlows = {rev = "psy6", url = "https://github.com/Sienna-Platform/PowerFlows.jl"}
 PowerInvestmentsOpenAPIModels = {url = "https://github.com/Sienna-Platform/PowerOpenAPIModels.git", rev = "main", subdir = "PowerInvestmentsOpenAPIModels.jl"}
 # TEMPORARY: pinned to the arc-keyed-catalog branch (PNM #356 + #357) until they merge to
 # psy6. Revert to `rev = "psy6"` once they land.
