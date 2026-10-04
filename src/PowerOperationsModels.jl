@@ -72,7 +72,6 @@ import InfrastructureSystems.Optimization:
     ExpressionType,
     InitialConditionType,
     TimeSeriesParameter,
-    RightHandSideParameter,
     ObjectiveFunctionParameter
 
 # Import formulation abstract types from InfrastructureSystems.Optimization

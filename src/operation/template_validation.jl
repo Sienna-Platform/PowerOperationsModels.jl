@@ -287,12 +287,9 @@ function _check_branch_rating_time_series_formulation!(
     return
 end
 
-# The first (component, parameter type) pair for which a model declares a left-hand-side
-# parameter and the component carries its series, or `nothing`.
-function _first_lhs_parameter_component(
-    model::Union{ServiceModel, DeviceModel},
-    system::PSY.System,
-)
+# The first (component, parameter type) pair for which a service or device model declares a
+# left-hand-side parameter and the component carries its series, or `nothing`.
+function _first_lhs_parameter_component(model, system::PSY.System)
     for (P, ts_name) in get_time_series_names(model)
         P <: TimeSeriesLHSParameter || continue
         for component in get_available_components(model, system)
@@ -316,25 +313,15 @@ function _first_lhs_parameter_component(model::IOM.AbstractOptimizationModel)
 end
 
 # Left-hand-side parameter values are fixed coefficients, so under recurrent solves the model
-# must be rebuilt every step to read the refreshed values. An unset `rebuild_model` is turned
-# on with a warning; an explicit `false` cannot be honored.
+# must be rebuilt every step to read the refreshed values: `rebuild_model` is switched on, with
+# a warning, whatever it was set to.
 function _resolve_lhs_rebuild!(model::IOM.AbstractOptimizationModel)
     built_for_recurrent_solves(get_optimization_container(model)) || return
     settings = get_settings(model)
-    IOM.get_rebuild_model_setting(settings) === true && return
+    get_rebuild_model(settings) && return
     found = _first_lhs_parameter_component(model)
     isnothing(found) && return
     component, P = found
-    if IOM.get_rebuild_model_setting(settings) === false
-        throw(
-            IS.ConflictingInputsError(
-                "$(PSY.get_name(component)) carries a $(nameof(P)) time series, a \
-                left-hand-side parameter that must be refreshed by rebuilding the model every \
-                step, but the model was created with rebuild_model = false. Remove the \
-                rebuild_model = false argument or the time series.",
-            ),
-        )
-    end
     @warn "$(PSY.get_name(component)) carries a $(nameof(P)) time series, a left-hand-side \
            parameter; setting rebuild_model = true so every step rebuilds the model with the \
            refreshed values." _group = IOM.LOG_GROUP_MODELS_VALIDATION

@@ -45,7 +45,7 @@ function add_parameters!(
     services::Vector{U},
     model::ServiceModel{V, W},
 ) where {
-    T <: Union{TimeSeriesParameter, TimeSeriesLHSParameter},
+    T <: TimeSeriesParameter,
     U <: PSY.Service,
     V <: PSY.Service,
     W <: AbstractServiceFormulation,
@@ -889,7 +889,7 @@ function _add_parameters!(
     services::Vector{U},
     model::ServiceModel{V, W},
 ) where {
-    T <: Union{TimeSeriesParameter, TimeSeriesLHSParameter},
+    T <: TimeSeriesParameter,
     U <: PSY.Service,
     V <: PSY.Service,
     W <: AbstractServiceFormulation,

@@ -63,7 +63,7 @@ function _build_deployed_fraction_model(
     sys;
     template = _deployed_fraction_template(),
     recurrent = false,
-    rebuild_model = nothing,
+    rebuild_model = false,
 )
     model = DecisionModel(template, sys; optimizer = HiGHS_optimizer, rebuild_model)
     IOM.get_optimization_container(model).built_for_recurrent_solves = recurrent
@@ -96,8 +96,7 @@ _build_log(output_dir) = read(joinpath(output_dir, "operation_problem.log"), Str
 
 @testset "DeployedFractionParameter is a time-series LHS parameter" begin
     @test DeployedFractionParameter <: IOM.TimeSeriesLHSParameter
-    @test DeployedFractionParameter <: IOM.LeftHandSideParameter
-    @test !(DeployedFractionParameter <: POM.TimeSeriesParameter)
+    @test DeployedFractionParameter <: POM.TimeSeriesParameter
     @test IOM.should_write_resulting_value(DeployedFractionParameter)
 end
 
@@ -141,17 +140,17 @@ end
     output_dir = mktempdir(; cleanup = true)
     @test build!(model; output_dir = output_dir) == ModelBuildStatus.BUILT
 
-    settings = IOM.get_settings(model)
-    @test IOM.get_rebuild_model_setting(settings) === true
+    @test IOM.get_rebuild_model(IOM.get_settings(model))
     @test occursin("rebuild_model = true", _build_log(output_dir))
     # Every parameter is a number when the model is rebuilt each step.
     jump_model = IOM.get_jump_model(IOM.get_optimization_container(model))
     @test all(!JuMP.is_fixed(v) for v in JuMP.all_variables(jump_model))
 end
 
-@testset "Profile under recurrent solves rejects an explicit rebuild_model = false" begin
+@testset "Profile under recurrent solves overrides an explicit rebuild_model = false" begin
     profile = collect(range(0.1, 0.8; length = 48))
     sys, _ = _deployed_fraction_test_system(; add_profile = profile)
+    output_dir = mktempdir(; cleanup = true)
     model = DecisionModel(
         _deployed_fraction_template(),
         sys;
@@ -159,14 +158,16 @@ end
         rebuild_model = false,
     )
     IOM.get_optimization_container(model).built_for_recurrent_solves = true
-    @test_throws IS.ConflictingInputsError POM.validate_template(model)
+    @test build!(model; output_dir = output_dir) == ModelBuildStatus.BUILT
+    @test IOM.get_rebuild_model(IOM.get_settings(model))
+    @test occursin("rebuild_model = true", _build_log(output_dir))
 end
 
 @testset "Profile under recurrent solves keeps an explicit rebuild_model = true" begin
     profile = collect(range(0.1, 0.8; length = 48))
     sys, _ = _deployed_fraction_test_system(; add_profile = profile)
     model = _build_deployed_fraction_model(sys; recurrent = true, rebuild_model = true)
-    @test IOM.get_rebuild_model_setting(IOM.get_settings(model)) === true
+    @test IOM.get_rebuild_model(IOM.get_settings(model))
     @test _has_deployed_fraction_container(IOM.get_optimization_container(model))
 end
 
@@ -174,13 +175,13 @@ end
     profile = collect(range(0.1, 0.8; length = 48))
     sys, _ = _deployed_fraction_test_system(; add_profile = profile)
     model = _build_deployed_fraction_model(sys)
-    @test IOM.get_rebuild_model_setting(IOM.get_settings(model)) === nothing
+    @test !IOM.get_rebuild_model(IOM.get_settings(model))
 end
 
 @testset "No profile leaves rebuild_model alone under recurrent solves" begin
     sys, _ = _deployed_fraction_test_system()
     model = _build_deployed_fraction_model(sys; recurrent = true)
-    @test IOM.get_rebuild_model_setting(IOM.get_settings(model)) === nothing
+    @test !IOM.get_rebuild_model(IOM.get_settings(model))
     @test !_has_deployed_fraction_container(IOM.get_optimization_container(model))
 end
 
@@ -198,8 +199,10 @@ end
     # The series is attached under "deployed_fraction"; a ServiceModel pointing elsewhere, or
     # declaring no name at all, must fall back to the scalar rather than pick it up.
     for names in (
-        Dict{Type{<:IOM.ParameterType}, String}(DeployedFractionParameter => "other_name"),
-        Dict{Type{<:IOM.ParameterType}, String}(),
+        Dict{Type{<:POM.TimeSeriesParameter}, String}(
+            DeployedFractionParameter => "other_name",
+        ),
+        Dict{Type{<:POM.TimeSeriesParameter}, String}(),
     )
         sys, reserve =
             _deployed_fraction_test_system(; add_profile = profile, deployed_fraction = 0.5)

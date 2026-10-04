@@ -505,7 +505,7 @@ Storage and hybrid reserve *expressions* are parametrized on three axes rather t
 sibling singletons:
 
   - **Direction** — `PSY.ReserveUp` / `PSY.ReserveDown`
-  - **Scale** — [`UnscaledReserve`](@ref) (raw multiplier) / [`DeployedReserve`](@ref) (scaled by `deployed_fraction`). Attach a `"deployed_fraction"` profile to the reserve to make the fraction vary over the horizon; the scalar field then scales that profile, and the profile alone applies no scaling until the scalar is set. The profile is a left-hand-side parameter ([`DeployedFractionParameter`](@ref)), written into constraints as fixed coefficients, so a simulation rebuilds the model every step: `rebuild_model` is set to `true` automatically with a warning, and an explicit `rebuild_model = false` is an error.
+  - **Scale** — [`UnscaledReserve`](@ref) (raw multiplier) / [`DeployedReserve`](@ref) (scaled by `deployed_fraction`). Attach a `"deployed_fraction"` profile to the reserve to make the fraction vary over the horizon; the scalar field then scales that profile, and the profile alone applies no scaling until the scalar is set. The profile is a left-hand-side parameter ([`DeployedFractionParameter`](@ref)), written into constraints as fixed coefficients, so a simulation rebuilds the model every step: `rebuild_model` is switched to `true` with a warning.
   - **Side** — [`DischargeSide`](@ref) / [`ChargeSide`](@ref)
 
 giving eight instantiations each of `StorageReserveBalanceExpression{D,S,Sd}` and
