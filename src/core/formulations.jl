@@ -87,11 +87,14 @@ or priced through the standard decremental `MarketBidCost` path otherwise. Regis
 settlement contribution (`-1.0`, like a decremental `VirtualParticipant`) is the load's only
 balance-row entry.
 
-Reserve range expressions (`ActivePowerRangeExpressionLB`/`UB`) are anchored on the constant
-`max_active_power` parameter, NOT on this formulation's own (possibly zero-fixed) energy
-variable: a costless device dispatching at `P ≡ 0` would otherwise make any up-reserve award
-infeasible (`LB = P - r_up >= 0` forces `r_up <= 0`). Anchoring on `max_active_power` decouples
-reserve eligibility from realized market energy, matching the "AS-only" intent — the physical
+Reserve range expressions (`ActivePowerRangeExpressionLB`/`UB`) are anchored on constant
+baselines, NOT on this formulation's own (possibly zero-fixed) energy variable: a costless
+device dispatching at `P ≡ 0` would otherwise make any up-reserve award infeasible
+(`LB = P - r_up >= 0` forces `r_up <= 0`). Up-reserve sheds load from a `max_active_power`
+baseline and down-reserve adds load from a zero baseline, so each direction is bounded by
+`max_active_power`. A device may serve reserves in one direction only: nothing links the two
+baselines. Constant baselines decouple reserve eligibility from realized market energy,
+matching the "AS-only" intent — the physical
 forecast this component would otherwise carry is modeled separately by a `StaticPowerLoad`-
 formulated twin `DeviceModel` for the same component in `template.devices` (that twin's mere
 presence is also what lets the reserve service machinery find this component type: see

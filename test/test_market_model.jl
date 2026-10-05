@@ -1073,12 +1073,13 @@ end
 # zero-cost energy bid). `il1`'s default `MarketBidCost()` has no decremental offer curve, so
 # `_is_costless_offer` is true and its market energy variable is fixed to zero.
 #
-# `il1` is the sole contributor to `Reserve1` (`OnlineReserve{ReserveUp}`, requirement 10 MW).
+# `il1` is the sole contributor to `Reserve1` (`OnlineReserve{ReserveUp}`, requirement 10 MW),
+# or with `direction = :down` to `ReserveDown1` (`OnlineReserve{ReserveDown}`, same requirement).
 # Because the market energy variable is fixed at zero, the settlement balance (thermal's award
 # is its only other term) forces the thermal unit to clear zero energy too -- so the physical
 # balance's entire 50 MW (20 MW static load + 30 MW il1 forecast) is served by the market
 # model's zero-cost `SystemBalanceSlackUp`, deterministically (not merely cost-optimal).
-function _market_load_test_system()
+function _market_load_test_system(; direction::Symbol = :up)
     sys = PSY.System(100.0)
     bus = _add_simple_bus!(sys)
     times = TimeSeries.TimeArray(
@@ -1137,12 +1138,14 @@ function _market_load_test_system()
 
     PSY.transform_single_time_series!(sys, Dates.Hour(1), Dates.Hour(1))
 
-    reserve = PSY.OnlineReserve{PSY.ReserveUp}("Reserve1", true, 60.0, 10.0)
+    reserve = direction === :up ?
+              PSY.OnlineReserve{PSY.ReserveUp}("Reserve1", true, 60.0, 10.0) :
+              PSY.OnlineReserve{PSY.ReserveDown}("ReserveDown1", true, 60.0, 10.0)
     PSY.add_service!(sys, reserve, [il])
     return sys
 end
 
-function _market_load_test_template()
+function _market_load_test_template(; direction::Symbol = :up)
     template = PowerOperationsProblemTemplate(CopperPlateNetworkModel)
     set_device_model!(template, ThermalStandard, ThermalStandardUnitCommitment)
     set_device_model!(template, PSY.PowerLoad, StaticPowerLoad)
@@ -1150,7 +1153,8 @@ function _market_load_test_template()
     # presence in `template.devices` is what makes `InterruptiblePowerLoad` a contributing
     # type for reserve-service construction (see the `MarketLoadBid` docstring).
     set_device_model!(template, PSY.InterruptiblePowerLoad, StaticPowerLoad)
-    set_service_model!(template, ServiceModel(OnlineReserve{ReserveUp}, RangeReserve))
+    R = direction === :up ? ReserveUp : ReserveDown
+    set_service_model!(template, ServiceModel(OnlineReserve{R}, RangeReserve))
     set_market_model!(
         template,
         IOM.MarketModel(SettlementMarket; settlement_domain = PSY.System),
@@ -1290,7 +1294,54 @@ end
     @test "il1" in axes(load_expr)[1]
 end
 
-@testset "MarketLoadBid contributing to a ReserveDown service is a loud, named error" begin
+@testset "MarketLoadBid: zero-cost load clears zero energy while providing down-reserve" begin
+    sys = _market_load_test_system(; direction = :down)
+    model = DecisionModel(
+        _market_load_test_template(; direction = :down), sys;
+        optimizer = HiGHS_optimizer, store_variable_names = true,
+    )
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+
+    container = get_optimization_container(model)
+    p = IOM.get_variable(container, ActivePowerVariable, PSY.InterruptiblePowerLoad)
+    settlement_expr = IOM.get_expression(container, IOM.SettlementBalance, PSY.System)
+    time_steps = axes(p)[2]
+    il1 = PSY.get_component(PSY.InterruptiblePowerLoad, sys, "il1")
+    pmax = PSY.get_max_active_power(il1, PSY.SU)
+    award = IOM.get_variable(
+        container,
+        ActivePowerReserveVariable,
+        IOM.ComponentPairKey{InterruptiblePowerLoad, OnlineReserve{ReserveDown}},
+    )
+    # Down-reserve is extra consumption from a zero baseline: 0 + r_down <= max_active_power.
+    # Anchored on max_active_power instead, the row would read r_down <= 0.
+    ub = IOM.get_constraint(
+        container,
+        ActivePowerVariableLimitsConstraint,
+        PSY.InterruptiblePowerLoad,
+        "ub",
+    )
+    for t in time_steps
+        @test JuMP.fix_value(p["il1", t]) == 0.0
+        @test JuMP.coefficient(settlement_expr[1, t], p["il1", t]) == -1.0
+        row = ub["il1", t]
+        @test JuMP.normalized_coefficient(row, award[("ReserveDown1", "il1", t)]) == 1.0
+        @test JuMP.normalized_rhs(row) ≈ pmax
+    end
+
+    @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+    reserve = PSY.get_component(OnlineReserve{ReserveDown}, sys, "ReserveDown1")
+    for t in time_steps
+        @test JuMP.value(award[("ReserveDown1", "il1", t)]) ≈
+              PSY.get_requirement(reserve, PSY.SU) atol = 1e-6
+        @test JuMP.value(p["il1", t]) ≈ 0.0 atol = 1e-8
+    end
+end
+
+@testset "MarketLoadBid serving reserves in both directions is a loud, named error" begin
+    # Each direction has its own baseline (up from max_active_power, down from zero) and no
+    # row links them, so one device in both would sell its capacity twice.
     sys = _market_load_test_system()
     il1 = PSY.get_component(PSY.InterruptiblePowerLoad, sys, "il1")
     reserve_down = PSY.OnlineReserve{PSY.ReserveDown}("ReserveDown1", true, 60.0, 5.0)
@@ -1299,12 +1350,13 @@ end
     # Unit-level.
     err = nothing
     try
-        POM._validate_no_reserve_down!(il1)
+        POM._validate_single_reserve_direction!(il1)
     catch e
         err = e
     end
     @test err isa ErrorException
     @test occursin("il1", err.msg)
+    @test occursin("Reserve1", err.msg)
     @test occursin("ReserveDown1", err.msg)
 
     # End-to-end: build fails with the same device/service names in the log.
