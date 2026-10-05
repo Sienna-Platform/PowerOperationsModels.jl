@@ -52,7 +52,7 @@ The fraction multiplies a reserve award, so this is a left-hand-side parameter: 
 holds numbers in every build mode, and its values are written into constraints as fixed
 coefficients. A model holding one is rebuilt every simulation step.
 """
-struct DeployedFractionParameter <: TimeSeriesLHSParameter end
+struct DeployedFractionParameter <: LeftHandSideTimeSeriesParameter end
 
 """
 Abstract type for dynamic ratings of AC branches

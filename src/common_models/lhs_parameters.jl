@@ -25,7 +25,7 @@ function _add_lhs_parameters!(
 )
     ts_type = get_default_time_series_type(container)
     for (P, ts_name) in get_time_series_names(model)
-        P <: TimeSeriesLHSParameter || continue
+        P <: LeftHandSideTimeSeriesParameter || continue
         profiled = [
             s for s in get_available_components(model, sys) if
             PSY.has_time_series(s, ts_type, ts_name)

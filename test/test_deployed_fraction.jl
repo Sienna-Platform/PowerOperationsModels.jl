@@ -95,7 +95,7 @@ _has_deployed_fraction_container(container) = IOM.has_container_key(
 _build_log(output_dir) = read(joinpath(output_dir, "operation_problem.log"), String)
 
 @testset "DeployedFractionParameter is a time-series LHS parameter" begin
-    @test DeployedFractionParameter <: IOM.TimeSeriesLHSParameter
+    @test DeployedFractionParameter <: IOM.LeftHandSideTimeSeriesParameter
     @test DeployedFractionParameter <: POM.TimeSeriesParameter
     @test IOM.should_write_resulting_value(DeployedFractionParameter)
 end

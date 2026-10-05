@@ -291,7 +291,7 @@ end
 # left-hand-side parameter and the component carries its series, or `nothing`.
 function _first_lhs_parameter_component(model, system::PSY.System)
     for (P, ts_name) in get_time_series_names(model)
-        P <: TimeSeriesLHSParameter || continue
+        P <: LeftHandSideTimeSeriesParameter || continue
         for component in get_available_components(model, system)
             PSY.has_time_series(component, ts_name) && return (component, P)
         end
@@ -336,7 +336,7 @@ function _check_lhs_time_series_types(model::IOM.AbstractOptimizationModel)
     system = get_system(model)
     for (_, service_model) in get_service_models(get_template(model))
         for (P, ts_name) in get_time_series_names(service_model)
-            P <: TimeSeriesLHSParameter || continue
+            P <: LeftHandSideTimeSeriesParameter || continue
             for service in get_available_components(service_model, system)
                 PSY.has_time_series(service, ts_name) || continue
                 PSY.has_time_series(service, ts_type, ts_name) && continue
