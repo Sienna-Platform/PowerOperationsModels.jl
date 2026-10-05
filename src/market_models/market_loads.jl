@@ -14,40 +14,65 @@ get_min_max_limits(
 #! format: on
 
 """
-`MarketLoadBid` bounds its reserve awards: `_seed_reserve_ranges_on_limits!` anchors
-`ActivePowerRangeExpressionLB`/`UB` on the constant `max_active_power`, and the model stage
-constrains both within `[0, max_active_power]`. Up-reserve enters the LB at `-1.0` for every
-contributing service, so that bound reads `Σ r_up <= max_active_power` -- the capability is
-sold at most once across services, which is what the load-family `false` default guards
-against.
+`MarketLoadBid` bounds its reserve awards: `_seed_reserve_ranges_on_limits!` gives each
+direction its own constant baseline, and the model stage constrains both range expressions
+within `[0, max_active_power]`. Up-reserve sheds load from a `max_active_power` baseline
+(`LB = pmax - Σ r_up >= 0`); down-reserve adds load from a zero baseline
+(`UB = 0 + Σ r_down <= pmax`). Each direction sells the capability at most once across its
+services, which is what the load-family `false` default guards against.
 """
 supports_reserve_provision(::Type{MarketLoadBid}) = true
 
-_is_reserve_down_service(::PSY.Reserve{PSY.ReserveDown}) = true
-_is_reserve_down_service(::PSY.Service) = false
+_reserve_direction(::PSY.Reserve{PSY.ReserveUp}) = :up
+_reserve_direction(::PSY.Reserve{PSY.ReserveDown}) = :down
+_reserve_direction(::PSY.Service) = nothing
 
 """
-A `MarketLoadBid` load's reserve ranges are seeded on the constant `max_active_power`
-parameter (`_seed_reserve_ranges_on_limits!`), both bounded within `[0, max_active_power]`
-(`get_min_max_limits`). For an `ElectricLoad`, down-reserve enters the UB expression at
-`+1.0` (`add_to_expression.jl`: "Load down-reserve is committed extra consumption"), so with
-`P` replaced by the constant `pmax` the UB constraint becomes `pmax + Σr_down <= pmax`, i.e.
-`Σr_down <= 0` -- every down-reserve award is structurally forced to zero regardless of
-system conditions. Rather than let that surface as a confusing zero award or infeasibility
-far from the cause, reject a `MarketLoadBid` device contributing to a ReserveDown-direction
-service loudly, naming both.
+The two directions of a `MarketLoadBid` load's reserve range have different baselines
+(`max_active_power` for up, zero for down) and no row links them, so a device serving both
+could sell its whole capability twice. Reject a device with reserve services in both
+directions loudly, naming the device and the services; an AS-only offer is one product, so
+it never has both.
 """
-function _validate_no_reserve_down!(d::PSY.ControllableLoad)
+function _validate_single_reserve_direction!(d::PSY.ControllableLoad)
+    by_direction = Dict{Symbol, Vector{String}}()
     for service in PSY.get_services(d)
-        _is_reserve_down_service(service) || continue
-        error(
-            "MarketLoadBid device $(PSY.get_name(d)) contributes to ReserveDown service " *
-            "$(PSY.get_name(service)): down-reserve is structurally zero for a " *
-            "MarketLoadBid load (its reserve range is anchored on the constant " *
-            "max_active_power parameter, not its energy variable, so any down-reserve " *
-            "award is forced to zero) -- remove the device from the service, or model it " *
-            "under a different load formulation.",
-        )
+        dir = _reserve_direction(service)
+        isnothing(dir) && continue
+        push!(get!(by_direction, dir, String[]), PSY.get_name(service))
+    end
+    length(by_direction) < 2 && return
+    error(
+        "MarketLoadBid device $(PSY.get_name(d)) contributes to ReserveUp services " *
+        "$(join(by_direction[:up], ", ")) and ReserveDown services " *
+        "$(join(by_direction[:down], ", ")): its up- and down-reserve ranges have separate " *
+        "baselines with no linking constraint, so it could sell its capability twice -- " *
+        "split the offers across devices, or model it under a different load formulation.",
+    )
+end
+
+"""
+Seed a `MarketLoadBid` load's reserve ranges on constant baselines rather than its zero-fixed
+energy variable: the LB on `max_active_power` (up-reserve sheds load from full consumption)
+and the UB on zero (down-reserve adds load from none). The energy variable never enters
+either range, so the awards put nothing on the settlement or physical balance.
+"""
+function _seed_reserve_ranges_on_limits!(
+    container::OptimizationContainer,
+    devices::Vector{L},
+    model::DeviceModel{L, MarketLoadBid},
+) where {L <: PSY.ControllableLoad}
+    time_steps = get_time_steps(container)
+    for T in (ActivePowerRangeExpressionLB, ActivePowerRangeExpressionUB)
+        has_container_key(container, T, L) || add_expressions!(container, T, devices, model)
+    end
+    lb = get_expression(container, ActivePowerRangeExpressionLB, L)
+    for d in devices
+        name = PSY.get_name(d)
+        pmax = PSY.get_max_active_power(d, PSY.SU)
+        for t in time_steps
+            add_proportional_to_jump_expression!(lb[name, t], pmax, 1.0)
+        end
     end
     return
 end
@@ -58,8 +83,8 @@ from the generic `PSY.ElectricLoad` getters), fixes it to zero every period for 
 market bid (`_is_costless_offer`), adds every device's energy variable to the single system-wide
 `SettlementBalance` row at `-1.0` (a decremental contributor, coefficient added regardless of
 priced/costless so the fixed-zero coefficient is exactly-once and provably zero-valued), builds
-the priced devices' decremental `MarketBidCost` PWL parameters, and seeds the parameter-anchored
-reserve range expressions. Never touches a physical `ActivePowerBalance` row -- the component's
+the priced devices' decremental `MarketBidCost` PWL parameters, and seeds the reserve range
+expressions on their per-direction baselines. Never touches a physical `ActivePowerBalance` row -- the component's
 physical forecast is carried by a separate `StaticPowerLoad`-formulated twin `DeviceModel` in
 `template.devices`.
 """
@@ -81,7 +106,7 @@ function construct_market_component!(
 
     priced_devices = L[]
     for d in devices
-        _validate_no_reserve_down!(d)
+        _validate_single_reserve_direction!(d)
         name = PSY.get_name(d)
         _add_settlement_terms!(settlement_expr, p, name, -1.0, time_steps)
         if _is_costless_offer(PSY.get_operation_cost(d))
