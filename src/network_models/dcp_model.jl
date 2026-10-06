@@ -160,9 +160,9 @@ end
 # voltage variable (ACP) or the magnitude constraint (ACR/IVR) — a silent infeasibility.
 # Fail loudly with context instead.
 function _assert_reference_voltage_within_limits(bus::PSY.ACBus)
-    v_set = PSY.get_magnitude(bus, PSY.CU)
+    v_set = PSY.get_magnitude(bus, u"CU")
     # bus voltage limits are already per-unit
-    vlim = PSY.get_voltage_limits(bus, PSY.CU)
+    vlim = PSY.get_voltage_limits(bus, u"CU")
     if !(vlim.min <= v_set <= vlim.max)
         error(
             "Reference bus $(PSY.get_name(bus)) voltage setpoint $(v_set) pu is outside its ",

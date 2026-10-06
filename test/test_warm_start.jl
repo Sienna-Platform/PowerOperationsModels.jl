@@ -35,7 +35,7 @@ function _regulated_voltage_case()
         control_mode = nothing,
         voltage_setpoint = 1.0,
         max_shunt_current = 100.0,
-        input_basis = CU,
+        input_basis = u"CU",
     )
     PSY.add_component!(sys, facts)
     template = get_thermal_dispatch_template_network(NetworkModel(ACRNetworkModel))

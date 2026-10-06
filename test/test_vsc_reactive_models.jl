@@ -19,41 +19,50 @@ function _build_vsc_reactive_sys(;
     sys = build_system(PSITestSystems, "c_sys5_uc"; force_build = true)
     line = get_component(Line, sys, "1")
     remove_component!(sys, line)
+    # PSY holds the VSC DC quantities in kV, S, and A. These are the old per-unit values
+    # on (rated_dc_voltage, system base).
+    v_dc = 230.0
+    s_base = get_base_power(sys)
+    from_bus = get_from(get_arc(line))
+    to_bus = get_to(get_arc(line))
     vsc = TwoTerminalVSCLine(;
         name = get_name(line),
         available = true,
         arc = get_arc(line),
         active_power_flow = 0.0,
         rating = rating,
-        active_power_limits_from = (min = -rating, max = rating),
-        active_power_limits_to = (min = -rating, max = rating),
-        g = 50.0,
+        g = 50.0 * s_base / v_dc^2,
         dc_current = 0.0,
         reactive_power_from = 0.0,
         dc_control_from = dc_control_from,
         ac_control_from = ac_control_from,
-        dc_setpoint_from = dc_setpoint_from,
-        ac_setpoint_from = ac_setpoint_from,
+        _vsc_setpoint_kwargs(
+            "from", ac_control_from, ac_setpoint_from, dc_control_from, dc_setpoint_from,
+        )...,
+        rated_ac_voltage_from = get_base_voltage(from_bus),
         converter_loss_from = PSY.LossCurve(QuadraticCurve(0.01, 0.0, 0.0), PSY.CU),
-        max_dc_current_from = 5.0,
+        max_dc_current_from = 5.0 * 1000.0 * s_base / v_dc,
         rating_from = rating,
         reactive_power_limits_from = (min = -rating, max = rating),
         power_factor_weighting_fraction_from = 1.0,
-        voltage_limits_from = (min = 0.95, max = 1.05),
-        dc_voltage_droop_from = dc_voltage_droop_from,
+        voltage_limits_from = (min = 0.95 * v_dc, max = 1.05 * v_dc),
+        dc_voltage_droop_from = dc_voltage_droop_from * v_dc / s_base,
         reactive_power_to = 0.0,
         dc_control_to = dc_control_to,
         ac_control_to = ac_control_to,
-        dc_setpoint_to = dc_setpoint_to,
-        ac_setpoint_to = ac_setpoint_to,
+        _vsc_setpoint_kwargs(
+            "to", ac_control_to, ac_setpoint_to, dc_control_to, dc_setpoint_to,
+        )...,
+        rated_ac_voltage_to = get_base_voltage(to_bus),
         converter_loss_to = PSY.LossCurve(QuadraticCurve(0.01, 0.0, 0.0), PSY.CU),
-        max_dc_current_to = 5.0,
+        max_dc_current_to = 5.0 * 1000.0 * s_base / v_dc,
         rating_to = rating,
         reactive_power_limits_to = (min = -rating, max = rating),
         power_factor_weighting_fraction_to = 1.0,
-        voltage_limits_to = (min = 0.95, max = 1.05),
-        dc_voltage_droop_to = dc_voltage_droop_to,
-        input_basis = CU,
+        voltage_limits_to = (min = 0.95 * v_dc, max = 1.05 * v_dc),
+        dc_voltage_droop_to = dc_voltage_droop_to * v_dc / s_base,
+        rated_dc_voltage = v_dc,
+        input_basis = u"CU",
     )
     add_component!(sys, vsc)
     return sys
@@ -96,7 +105,7 @@ end
     )
     vsc = get_component(TwoTerminalVSCLine, sys, "1")
     regulated_bus = get_name(get_from(get_arc(vsc)))
-    setpoint = get_ac_setpoint_from(vsc)
+    setpoint = get_ac_voltage_setpoint_from(vsc)
 
     template = _vsc_reactive_template(ACPNetworkModel)
     model = DecisionModel(
@@ -154,7 +163,7 @@ end
     )
     vsc = get_component(TwoTerminalVSCLine, sys, "1")
     regulated_bus = get_name(get_from(get_arc(vsc)))
-    setpoint = get_ac_setpoint_from(vsc)
+    setpoint = get_ac_voltage_setpoint_from(vsc)
 
     template = _vsc_reactive_template(ACRNetworkModel)
     model = DecisionModel(
@@ -263,13 +272,13 @@ function _vsc_no_integer_vars(model)
 end
 
 @testset "VoltageControlVSC AC loss is parameterized on AC apparent current" begin
-    # Pin the to-terminal reactive injection to a non-zero value so the converter
-    # carries reactive power; the loss must then exceed the active-only (Q=0) loss.
+    # Pin the to-terminal bus off nominal voltage so the converter carries reactive
+    # power; the loss must then exceed the active-only (Q=0) loss.
     sys = _build_vsc_reactive_sys(;
         ac_control_from = VSCACControlModes.AC_VOLTAGE,
         ac_setpoint_from = 1.0,
-        ac_control_to = VSCACControlModes.AC_REACTIVE_POWER,
-        ac_setpoint_to = 0.6,
+        ac_control_to = VSCACControlModes.AC_VOLTAGE,
+        ac_setpoint_to = 1.04,
     )
     template = _vsc_reactive_template(ACPNetworkModel)
     model = DecisionModel(

@@ -15,15 +15,16 @@ function _build_ic_reactive_sys(;
     sys = build_system(PSISystems, "sys10_pjm_ac_dc"; force_build = true)
     for ic in get_components(InterconnectingConverter, sys)
         set_loss_function!(ic, PSY.LossCurve(QuadraticCurve(0.01, 0.01, 0.0), PSY.CU))
-        set_max_dc_current!(ic, 2.0 * PSY.SU)
-        set_reactive_power_limits!(
-            ic, (min = -reactive_limit * PSY.SU, max = reactive_limit * PSY.SU),
+        # 2.0 pu on the system base, in amperes.
+        set_max_dc_current!(
+            ic,
+            2.0 * 1000.0 * get_base_power(sys) / get_base_voltage(get_dc_bus(ic)),
         )
-        set_ac_control!(ic, ac_control)
-        set_ac_setpoint!(ic, ac_setpoint)
-        set_dc_control!(ic, dc_control)
-        set_dc_setpoint!(ic, dc_setpoint)
-        set_dc_voltage_droop!(ic, dc_voltage_droop)
+        set_reactive_power_limits!(
+            ic, (min = -reactive_limit * u"SU", max = reactive_limit * u"SU"),
+        )
+        _set_ic_setpoints!(ic, ac_control, ac_setpoint, dc_control, dc_setpoint)
+        set_dc_voltage_droop!(ic, _ic_droop_kv_per_mw(ic, dc_voltage_droop, sys))
     end
     return sys
 end
@@ -83,7 +84,8 @@ end
 end
 
 @testset "VoltageControlConverter AC_REACTIVE_POWER pins the reactive injection" begin
-    q_sp = 0.3
+    # AC_REACTIVE_POWER holds a power factor; unity pins Q to zero.
+    q_sp = 0.0
     sys = _build_ic_reactive_sys(;
         ac_control = VSCACControlModes.AC_REACTIVE_POWER, ac_setpoint = q_sp,
     )
@@ -281,11 +283,11 @@ function _ic_no_integer_vars(model)
 end
 
 @testset "VoltageControlConverter AC loss is parameterized on AC apparent current" begin
-    # Pin every converter's reactive injection to a non-zero setpoint so they carry
-    # reactive power; the loss must then reflect Q via the AC apparent current.
+    # Pin every converter AC bus off nominal voltage so the converters carry reactive
+    # power; the loss must then reflect Q via the AC apparent current.
     sys = _build_ic_reactive_sys(;
-        ac_control = VSCACControlModes.AC_REACTIVE_POWER,
-        ac_setpoint = 0.8,
+        ac_control = VSCACControlModes.AC_VOLTAGE,
+        ac_setpoint = 1.04,
         reactive_limit = 1.5,
     )
     template = _ic_reactive_template(ACPNetworkModel)

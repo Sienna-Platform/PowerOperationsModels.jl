@@ -29,6 +29,33 @@
 # variable/constraint containers.
 #################################################################################
 
+# Setpoint of the quantity the converter controls, in the model's per-unit. PSY holds
+# the voltage setpoints in kV; the AC one is per-unitized on the AC bus base voltage and
+# the DC one on the DC bus base voltage, the bases of the voltage variables they pin.
+function _ic_ac_setpoint(d::PSY.InterconnectingConverter)
+    if PSY.get_ac_control(d) == PSY.VSCACControlModes.AC_VOLTAGE
+        kv = _mode_setpoint(PSY.get_ac_voltage_setpoint(d), "ac_voltage_setpoint", d)
+        return _kv_to_su(kv, _bus_base_voltage(PSY.get_bus(d)))
+    end
+    pf = _mode_setpoint(PSY.get_power_factor_setpoint(d), "power_factor_setpoint", d)
+    return _reactive_setpoint_from_power_factor(pf, d)
+end
+
+function _ic_dc_setpoint(d::PSY.InterconnectingConverter)
+    if PSY.get_dc_control(d) == PSY.VSCDCControlModes.DC_POWER
+        return _mode_setpoint(PSY.get_dc_power_setpoint(d, u"SU"), "dc_power_setpoint", d)
+    end
+    kv = _mode_setpoint(PSY.get_dc_voltage_setpoint(d), "dc_voltage_setpoint", d)
+    return _kv_to_su(kv, _bus_base_voltage(PSY.get_dc_bus(d)))
+end
+
+# Droop gain in kV/MW to per unit on (DC bus base voltage, system base).
+_ic_droop_su(d::PSY.InterconnectingConverter) = _kv_per_mw_to_su(
+    PSY.get_dc_voltage_droop(d),
+    _bus_base_voltage(PSY.get_dc_bus(d)),
+    PSY._get_system_base_power(d),
+)
+
 # The converter regulates its AC bus (get_bus), not its DC bus.
 _regulated_buses(d::PSY.InterconnectingConverter, bus_by_number) = [("1", PSY.get_bus(d))]
 
@@ -52,7 +79,7 @@ function _add_ic_apparent_power_limit!(
     )
     for d in devices
         name = PSY.get_name(d)
-        s2 = PSY.get_rating(d, PSY.SU)^2
+        s2 = PSY.get_rating(d, u"SU")^2
         for t in time_steps
             cons[name, t] = JuMP.@constraint(
                 jump_model, p_var[name, t]^2 + q_var[name, t]^2 <= s2,
@@ -93,12 +120,12 @@ function _apply_ic_control_objective!(
         name = PSY.get_name(d)
         bus_name = PSY.get_name(PSY.get_bus(d))
         _fix_converter_ac_control!(
-            PSY.get_ac_control(d), PSY.get_ac_setpoint(d),
+            PSY.get_ac_control(d), _ic_ac_setpoint(d),
             vm, bus_name, q_var, name, time_steps,
         )
         _fill_converter_dc_control!(
             jump_model, con,
-            PSY.get_dc_control(d), PSY.get_dc_setpoint(d), PSY.get_dc_voltage_droop(d),
+            PSY.get_dc_control(d), _ic_dc_setpoint(d), _ic_droop_su(d),
             vdc, p_var, name, time_steps,
         )
     end
@@ -129,19 +156,19 @@ function _apply_ic_control_objective!(
         ac_mode = PSY.get_ac_control(d)
         if ac_mode == PSY.VSCACControlModes.AC_VOLTAGE
             fix_regulated_voltage!(
-                container, d, "1", PSY.get_bus(d), PSY.get_ac_setpoint(d), network_model,
+                container, d, "1", PSY.get_bus(d), _ic_ac_setpoint(d), network_model,
             )
         end
         _fix_converter_ac_reactive!(
             ac_mode,
-            PSY.get_ac_setpoint(d),
+            _ic_ac_setpoint(d),
             q_var,
             name,
             time_steps,
         )
         _fill_converter_dc_control!(
             jump_model, con,
-            PSY.get_dc_control(d), PSY.get_dc_setpoint(d), PSY.get_dc_voltage_droop(d),
+            PSY.get_dc_control(d), _ic_dc_setpoint(d), _ic_droop_su(d),
             vdc, p_var, name, time_steps,
         )
     end
@@ -173,12 +200,12 @@ function _apply_ic_control_objective!(
         name = PSY.get_name(d)
         bus_name = PSY.get_name(PSY.get_bus(d))
         _fix_converter_ac_control_lpacc!(
-            PSY.get_ac_control(d), PSY.get_ac_setpoint(d),
+            PSY.get_ac_control(d), _ic_ac_setpoint(d),
             phi, bus_name, q_var, name, time_steps,
         )
         _fill_converter_dc_control!(
             jump_model, con,
-            PSY.get_dc_control(d), PSY.get_dc_setpoint(d), PSY.get_dc_voltage_droop(d),
+            PSY.get_dc_control(d), _ic_dc_setpoint(d), _ic_droop_su(d),
             vdc, p_var, name, time_steps,
         )
     end

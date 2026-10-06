@@ -385,13 +385,13 @@ end
     #            available = true,
     #            active_power_flow = 0.0,
     #            reactive_power_flow = 0.0,
-    #            r = PSY.get_r(line, PSY.SU),
-    #            x = PSY.get_x(line, PSY.SU),
+    #            r = PSY.get_r(line, u"SU"),
+    #            x = PSY.get_x(line, u"SU"),
     #            tap = 1.0,
     #            α = 0.0,
-    #            rating = PSY.get_rating(line, PSY.SU),
+    #            rating = PSY.get_rating(line, u"SU"),
     #            arc = arc,
-    #            base_power = PSY.get_base_power(sys, PSY.NU)
+    #            base_power = PSY.get_base_power(sys, u"NU")
     #        ),
     #        magnetizing_shunt = 0.0 + 0.0im,
     #        shunt_location = TwoWindingTransformerShuntLocation.PRIMARY
@@ -452,17 +452,17 @@ end
             circuit = PSY.TransformerCircuit(;
                 available = true,
                 arc = arc,
-                r = PSY.get_r(circuit, PSY.SU),
-                x = PSY.get_x(circuit, PSY.SU),
+                r = PSY.get_r(circuit, u"SU"),
+                x = PSY.get_x(circuit, u"SU"),
                 tap = 1.0,
                 α = 0.0,
-                rating = PSY.get_rating(circuit, PSY.SU),
-                base_power = PSY.get_base_power(sys, PSY.NU),
-                input_basis = CU,
+                rating = PSY.get_rating(circuit, u"SU"),
+                base_power = PSY.get_base_power(sys, u"NU"),
+                input_basis = u"CU",
             ),
             magnetizing_shunt = 0.0 + 0.0im,
             shunt_location = PSY.TwoWindingTransformerShuntLocation.PRIMARY,
-            input_basis = CU,
+            input_basis = u"CU",
         ),
     )
     template = _controlled_template(ACPNetworkModel, PSY.TwoWindingTransformer)
@@ -488,7 +488,7 @@ end
     tightened_rating = 1.5
     PSY.set_rating!(
         PSY.get_component(PSY.Line, sys, tightened_member),
-        tightened_rating * PSY.SU,
+        tightened_rating * u"SU",
     )
 
     net = NetworkModel(
@@ -654,7 +654,7 @@ end
     entry_12 = PNM.get_reduction_entry(catalog, arc_12)
     @test PNM.get_equivalent_rating(entry_12) == tightened_rating
     representative_raw =
-        PSY.get_rating(PSY.get_component(PSY.Line, sys, "1-6-i_1"), PSY.SU)
+        PSY.get_rating(PSY.get_component(PSY.Line, sys, "1-6-i_1"), u"SU")
     @test tightened_rating < representative_raw
     @test JuMP.upper_bound(pft["1-6-i_1", first(time_steps)]) == tightened_rating
 end
@@ -806,7 +806,7 @@ end
             name = "leaf_interface",
             available = true,
             active_power_flow_limits = (min = -100.0, max = 100.0),
-            input_basis = CU,
+            input_basis = u"CU",
         )
         add_service!(sys, interface, [get_component(Line, sys, "1-8-i_1")])
         net = NetworkModel(
@@ -992,7 +992,8 @@ end
         sys,
         mixed_member,
         PSY.Line,
-        PSY.MonitoredLine,
+        PSY.Line,
+        Val(:operational_flow_limit),
     )
 
     unrelated = get_component(PSY.Line, sys, "4")
@@ -1000,7 +1001,7 @@ end
         name = "unrelated_interface",
         available = true,
         active_power_flow_limits = (min = -100.0, max = 100.0),
-        input_basis = CU,
+        input_basis = u"CU",
     )
     add_service!(sys, interface, [unrelated])
 

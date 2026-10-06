@@ -42,15 +42,16 @@ function _build_converter_sys(;
     end
     for ic in get_components(InterconnectingConverter, sys)
         set_loss_function!(ic, loss)
-        set_max_dc_current!(ic, 2.0 * PSY.SU)
-        set_reactive_power_limits!(
-            ic, (min = -reactive_limit * PSY.SU, max = reactive_limit * PSY.SU),
+        # 2.0 pu on the system base, in amperes.
+        set_max_dc_current!(
+            ic,
+            2.0 * 1000.0 * get_base_power(sys) / get_base_voltage(get_dc_bus(ic)),
         )
-        set_ac_control!(ic, ac_control)
-        set_ac_setpoint!(ic, ac_setpoint)
-        set_dc_control!(ic, dc_control)
-        set_dc_setpoint!(ic, dc_setpoint)
-        set_dc_voltage_droop!(ic, dc_voltage_droop)
+        set_reactive_power_limits!(
+            ic, (min = -reactive_limit * u"SU", max = reactive_limit * u"SU"),
+        )
+        _set_ic_setpoints!(ic, ac_control, ac_setpoint, dc_control, dc_setpoint)
+        set_dc_voltage_droop!(ic, _ic_droop_kv_per_mw(ic, dc_voltage_droop, sys))
     end
     if with_areas
         areas = [Area("Area_1", 0.0, 0.0, 0.0), Area("Area_2", 0.0, 0.0, 0.0)]
@@ -475,41 +476,50 @@ function _vsc_lpacc_sys(;
     sys = build_system(PSITestSystems, "c_sys5_uc")
     line = get_component(Line, sys, "1")
     remove_component!(sys, line)
+    # PSY holds the VSC DC quantities in kV, S, and A. These are the old per-unit values
+    # on (rated_dc_voltage, system base).
+    v_dc = 230.0
+    s_base = get_base_power(sys)
+    from_bus = get_from(get_arc(line))
+    to_bus = get_to(get_arc(line))
     vsc = TwoTerminalVSCLine(;
         name = get_name(line),
         available = true,
         arc = get_arc(line),
         active_power_flow = 0.0,
         rating = 2.0,
-        active_power_limits_from = (min = -2.0, max = 2.0),
-        active_power_limits_to = (min = -2.0, max = 2.0),
-        g = 50.0,
+        g = 50.0 * s_base / v_dc^2,
         dc_current = 0.0,
         reactive_power_from = 0.0,
         dc_control_from = dc_control_from,
         ac_control_from = ac_control_from,
-        dc_setpoint_from = dc_setpoint_from,
-        ac_setpoint_from = ac_setpoint_from,
+        _vsc_setpoint_kwargs(
+            "from", ac_control_from, ac_setpoint_from, dc_control_from, dc_setpoint_from,
+        )...,
+        rated_ac_voltage_from = get_base_voltage(from_bus),
         converter_loss_from = PSY.LossCurve(QuadraticCurve(0.01, 0.0, 0.0), PSY.CU),
-        max_dc_current_from = 5.0,
+        max_dc_current_from = 5.0 * 1000.0 * s_base / v_dc,
         rating_from = 2.0,
         reactive_power_limits_from = (min = -2.0, max = 2.0),
         power_factor_weighting_fraction_from = 1.0,
-        voltage_limits_from = (min = 0.95, max = 1.05),
+        voltage_limits_from = (min = 0.95 * v_dc, max = 1.05 * v_dc),
         dc_voltage_droop_from = 0.0,
         reactive_power_to = 0.0,
         dc_control_to = dc_control_to,
         ac_control_to = ac_control_to,
-        dc_setpoint_to = dc_setpoint_to,
-        ac_setpoint_to = ac_setpoint_to,
+        _vsc_setpoint_kwargs(
+            "to", ac_control_to, ac_setpoint_to, dc_control_to, dc_setpoint_to,
+        )...,
+        rated_ac_voltage_to = get_base_voltage(to_bus),
         converter_loss_to = PSY.LossCurve(QuadraticCurve(0.01, 0.0, 0.0), PSY.CU),
-        max_dc_current_to = 5.0,
+        max_dc_current_to = 5.0 * 1000.0 * s_base / v_dc,
         rating_to = 2.0,
         reactive_power_limits_to = (min = -2.0, max = 2.0),
         power_factor_weighting_fraction_to = 1.0,
-        voltage_limits_to = (min = 0.95, max = 1.05),
+        voltage_limits_to = (min = 0.95 * v_dc, max = 1.05 * v_dc),
         dc_voltage_droop_to = 0.0,
-        input_basis = CU,
+        rated_dc_voltage = v_dc,
+        input_basis = u"CU",
     )
     add_component!(sys, vsc)
     return sys
@@ -573,10 +583,11 @@ end
 end
 
 @testset "LinearLossConverter scales loss constant and current limit by converter base" begin
-    # Converter base_power (50) != system base (100): the DC-side loss constant and the
-    # DC-current limit are on the converter's own base and must be rescaled by
-    # base_power/system_base = 0.5 into the system-base DC balance. The proportional loss
-    # term is a base-invariant fraction and must not change.
+    # Converter base_power (50) != system base (100): the DC-side loss constant is on the
+    # converter's own base and must be rescaled by base_power/system_base = 0.5 into the
+    # system-base DC balance. The proportional loss term is a base-invariant fraction and
+    # must not change. The DC-current limit is in amperes, so the converter base does not
+    # scale it.
     b_term = 0.05
     c_term = 0.01
     i_max = 2.0
@@ -605,7 +616,7 @@ end
     for ic in get_components(InterconnectingConverter, sys)
         name = get_name(ic)
         dc_no = get_number(get_dc_bus(ic))
-        @test JuMP.upper_bound(abs_v[name, 1]) == i_max * factor
+        @test JuMP.upper_bound(abs_v[name, 1]) ≈ i_max
         for t in (1, size(p)[2])
             @test JuMP.coefficient(dc_expr[dc_no, t], abs_v[name, t]) == -b_term
             @test JuMP.constant(dc_expr[dc_no, t]) == -c_term * factor

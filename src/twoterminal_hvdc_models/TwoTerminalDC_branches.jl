@@ -1,25 +1,24 @@
-function check_hvdc_line_limits_consistency(
-    d::Union{PSY.TwoTerminalHVDC, PSY.TModelHVDCLine},
-)
-    from_min = PSY.get_active_power_limits_from(d, PSY.SU).min
-    to_min = PSY.get_active_power_limits_to(d, PSY.SU).min
-    from_max = PSY.get_active_power_limits_from(d, PSY.SU).max
-    to_max = PSY.get_active_power_limits_to(d, PSY.SU).max
+"""
+Active-power cap at each end of a two-terminal HVDC line, system base: the line `rating`,
+tightened by the converter rating at that end. `rating_from`/`rating_to` default to `1e8`,
+which leaves `rating` as the cap.
+"""
+function _hvdc_end_caps(d::PSY.TwoTerminalHVDC)
+    rating = PSY.get_rating(d, u"SU")
+    return (
+        from = min(rating, PSY.get_rating_from(d, u"SU")),
+        to = min(rating, PSY.get_rating_to(d, u"SU")),
+    )
+end
 
-    if from_max < to_min
-        throw(
-            IS.ConflictingInputsError(
-                "From Max $(from_max) can't be a smaller value than To Min $(to_min)",
-            ),
-        )
-    elseif to_max < from_min
-        throw(
-            IS.ConflictingInputsError(
-                "To Max $(to_max) can't be a smaller value than From Min $(from_min)",
-            ),
-        )
-    end
-    return
+function _hvdc_from_limits(d::PSY.TwoTerminalHVDC)
+    cap = _hvdc_end_caps(d).from
+    return (min = -cap, max = cap)
+end
+
+function _hvdc_to_limits(d::PSY.TwoTerminalHVDC)
+    cap = _hvdc_end_caps(d).to
+    return (min = -cap, max = cap)
 end
 
 #################################### Branch Variables ##################################################
@@ -53,23 +52,23 @@ get_variable_lower_bound(::Type{FlowActivePowerVariable}, d::PSY.TwoTerminalHVDC
 get_variable_upper_bound(::Type{FlowActivePowerVariable}, d::PSY.TwoTerminalHVDC, ::Type{HVDCTwoTerminalUnbounded}) = nothing
 get_variable_lower_bound(::Type{FlowActivePowerVariable}, d::PSY.TwoTerminalHVDC, ::Type{<:AbstractTwoTerminalDCLineFormulation}) = nothing
 get_variable_upper_bound(::Type{FlowActivePowerVariable}, d::PSY.TwoTerminalHVDC, ::Type{<:AbstractTwoTerminalDCLineFormulation}) = nothing
-get_variable_lower_bound(::Type{FlowReactivePowerFromToVariable}, d::PSY.TwoTerminalHVDC, ::Type{HVDCTwoTerminalLossless}) = PSY.get_reactive_power_limits_from(d, PSY.SU).min
-get_variable_upper_bound(::Type{FlowReactivePowerFromToVariable}, d::PSY.TwoTerminalHVDC, ::Type{HVDCTwoTerminalLossless}) = PSY.get_reactive_power_limits_from(d, PSY.SU).max
-get_variable_lower_bound(::Type{FlowReactivePowerToFromVariable}, d::PSY.TwoTerminalHVDC, ::Type{HVDCTwoTerminalLossless}) = PSY.get_reactive_power_limits_to(d, PSY.SU).min
-get_variable_upper_bound(::Type{FlowReactivePowerToFromVariable}, d::PSY.TwoTerminalHVDC, ::Type{HVDCTwoTerminalLossless}) = PSY.get_reactive_power_limits_to(d, PSY.SU).max
+get_variable_lower_bound(::Type{FlowReactivePowerFromToVariable}, d::PSY.TwoTerminalHVDC, ::Type{HVDCTwoTerminalLossless}) = PSY.get_reactive_power_limits_from(d, u"SU").min
+get_variable_upper_bound(::Type{FlowReactivePowerFromToVariable}, d::PSY.TwoTerminalHVDC, ::Type{HVDCTwoTerminalLossless}) = PSY.get_reactive_power_limits_from(d, u"SU").max
+get_variable_lower_bound(::Type{FlowReactivePowerToFromVariable}, d::PSY.TwoTerminalHVDC, ::Type{HVDCTwoTerminalLossless}) = PSY.get_reactive_power_limits_to(d, u"SU").min
+get_variable_upper_bound(::Type{FlowReactivePowerToFromVariable}, d::PSY.TwoTerminalHVDC, ::Type{HVDCTwoTerminalLossless}) = PSY.get_reactive_power_limits_to(d, u"SU").max
 get_variable_lower_bound(::Type{HVDCLosses}, d::PSY.TwoTerminalHVDC, ::Type{HVDCTwoTerminalDispatch}) = 0.0
-get_variable_upper_bound(::Type{FlowActivePowerFromToVariable}, d::PSY.TwoTerminalHVDC, ::Type{HVDCTwoTerminalDispatch}) = PSY.get_active_power_limits_from(d, PSY.SU).max
-get_variable_lower_bound(::Type{FlowActivePowerFromToVariable}, d::PSY.TwoTerminalHVDC, ::Type{HVDCTwoTerminalDispatch}) = PSY.get_active_power_limits_from(d, PSY.SU).min
-get_variable_upper_bound(::Type{FlowActivePowerToFromVariable}, d::PSY.TwoTerminalHVDC, ::Type{HVDCTwoTerminalDispatch}) = PSY.get_active_power_limits_to(d, PSY.SU).max
-get_variable_lower_bound(::Type{FlowActivePowerToFromVariable}, d::PSY.TwoTerminalHVDC, ::Type{HVDCTwoTerminalDispatch}) = PSY.get_active_power_limits_to(d, PSY.SU).min
-get_variable_upper_bound(::Type{HVDCActivePowerReceivedFromVariable}, d::PSY.TwoTerminalHVDC, ::Type{<:AbstractTwoTerminalDCLineFormulation}) = PSY.get_active_power_limits_from(d, PSY.SU).max
-get_variable_lower_bound(::Type{HVDCActivePowerReceivedFromVariable}, d::PSY.TwoTerminalHVDC, ::Type{<:AbstractTwoTerminalDCLineFormulation}) = PSY.get_active_power_limits_from(d, PSY.SU).min
-get_variable_upper_bound(::Type{HVDCActivePowerReceivedToVariable}, d::PSY.TwoTerminalHVDC, ::Type{<:AbstractTwoTerminalDCLineFormulation}) = PSY.get_active_power_limits_to(d, PSY.SU).max
-get_variable_lower_bound(::Type{HVDCActivePowerReceivedToVariable}, d::PSY.TwoTerminalHVDC, ::Type{<:AbstractTwoTerminalDCLineFormulation}) = PSY.get_active_power_limits_to(d, PSY.SU).min
-get_variable_upper_bound(::Type{HVDCRectifierActivePowerVariable}, d::PSY.TwoTerminalHVDC, ::Type{<:AbstractTwoTerminalDCLineFormulation}) = PSY.get_active_power_limits_from(d, PSY.SU).max
-get_variable_lower_bound(::Type{HVDCRectifierActivePowerVariable}, d::PSY.TwoTerminalHVDC, ::Type{<:AbstractTwoTerminalDCLineFormulation}) = PSY.get_active_power_limits_from(d, PSY.SU).min
-get_variable_upper_bound(::Type{HVDCInverterActivePowerVariable}, d::PSY.TwoTerminalHVDC, ::Type{<:AbstractTwoTerminalDCLineFormulation}) = PSY.get_active_power_limits_to(d, PSY.SU).max
-get_variable_lower_bound(::Type{HVDCInverterActivePowerVariable}, d::PSY.TwoTerminalHVDC, ::Type{<:AbstractTwoTerminalDCLineFormulation}) = PSY.get_active_power_limits_to(d, PSY.SU).min
+get_variable_upper_bound(::Type{FlowActivePowerFromToVariable}, d::PSY.TwoTerminalHVDC, ::Type{HVDCTwoTerminalDispatch}) = _hvdc_from_limits(d).max
+get_variable_lower_bound(::Type{FlowActivePowerFromToVariable}, d::PSY.TwoTerminalHVDC, ::Type{HVDCTwoTerminalDispatch}) = _hvdc_from_limits(d).min
+get_variable_upper_bound(::Type{FlowActivePowerToFromVariable}, d::PSY.TwoTerminalHVDC, ::Type{HVDCTwoTerminalDispatch}) = _hvdc_to_limits(d).max
+get_variable_lower_bound(::Type{FlowActivePowerToFromVariable}, d::PSY.TwoTerminalHVDC, ::Type{HVDCTwoTerminalDispatch}) = _hvdc_to_limits(d).min
+get_variable_upper_bound(::Type{HVDCActivePowerReceivedFromVariable}, d::PSY.TwoTerminalHVDC, ::Type{<:AbstractTwoTerminalDCLineFormulation}) = _hvdc_from_limits(d).max
+get_variable_lower_bound(::Type{HVDCActivePowerReceivedFromVariable}, d::PSY.TwoTerminalHVDC, ::Type{<:AbstractTwoTerminalDCLineFormulation}) = _hvdc_from_limits(d).min
+get_variable_upper_bound(::Type{HVDCActivePowerReceivedToVariable}, d::PSY.TwoTerminalHVDC, ::Type{<:AbstractTwoTerminalDCLineFormulation}) = _hvdc_to_limits(d).max
+get_variable_lower_bound(::Type{HVDCActivePowerReceivedToVariable}, d::PSY.TwoTerminalHVDC, ::Type{<:AbstractTwoTerminalDCLineFormulation}) = _hvdc_to_limits(d).min
+get_variable_upper_bound(::Type{HVDCRectifierActivePowerVariable}, d::PSY.TwoTerminalHVDC, ::Type{<:AbstractTwoTerminalDCLineFormulation}) = _hvdc_from_limits(d).max
+get_variable_lower_bound(::Type{HVDCRectifierActivePowerVariable}, d::PSY.TwoTerminalHVDC, ::Type{<:AbstractTwoTerminalDCLineFormulation}) = _hvdc_from_limits(d).min
+get_variable_upper_bound(::Type{HVDCInverterActivePowerVariable}, d::PSY.TwoTerminalHVDC, ::Type{<:AbstractTwoTerminalDCLineFormulation}) = _hvdc_to_limits(d).max
+get_variable_lower_bound(::Type{HVDCInverterActivePowerVariable}, d::PSY.TwoTerminalHVDC, ::Type{<:AbstractTwoTerminalDCLineFormulation}) = _hvdc_to_limits(d).min
 
 _degenerate_reactive_limits(limits) = iszero(limits.min) && iszero(limits.max)
 
@@ -85,10 +84,10 @@ but it can silently make an AC model infeasible.
 function _warn_no_hvdc_reactive_capability(devices)
     for d in devices
         terminals = String[]
-        if _degenerate_reactive_limits(PSY.get_reactive_power_limits_from(d, PSY.SU))
+        if _degenerate_reactive_limits(PSY.get_reactive_power_limits_from(d, u"SU"))
             push!(terminals, "from")
         end
-        if _degenerate_reactive_limits(PSY.get_reactive_power_limits_to(d, PSY.SU))
+        if _degenerate_reactive_limits(PSY.get_reactive_power_limits_to(d, u"SU"))
             push!(terminals, "to")
         end
         if isempty(terminals)
@@ -131,6 +130,26 @@ get_variable_upper_bound(::Type{HVDCPiecewiseLossVariable}, d::PSY.TwoTerminalHV
 get_variable_lower_bound(::Type{HVDCPiecewiseLossVariable}, d::PSY.TwoTerminalHVDC, ::Type{<:Union{HVDCTwoTerminalDispatch, HVDCTwoTerminalPiecewiseLoss}}) = 0.0
 
 #################################### LCC ##################################################
+#! format: on
+# PSY stores the LCC impedances in ohm. The per-unit bases are the ones PSY applied before
+# 0.2 (and PowerFlows applies): the DC line on `scheduled_dc_voltage`, each commutating
+# reactance on its converter's AC base voltage.
+_lcc_r_su(d::PSY.TwoTerminalLCCLine) = _ohm_to_su(
+    PSY.get_r(d),
+    _nonzero_base_voltage(PSY.get_scheduled_dc_voltage(d), "scheduled_dc_voltage", d),
+    PSY._get_system_base_power(d),
+)
+_lcc_rectifier_xc_su(d::PSY.TwoTerminalLCCLine) = _ohm_to_su(
+    PSY.get_rectifier_xc(d),
+    _nonzero_base_voltage(PSY.get_rectifier_base_voltage(d), "rectifier_base_voltage", d),
+    PSY._get_system_base_power(d),
+)
+_lcc_inverter_xc_su(d::PSY.TwoTerminalLCCLine) = _ohm_to_su(
+    PSY.get_inverter_xc(d),
+    _nonzero_base_voltage(PSY.get_inverter_base_voltage(d), "inverter_base_voltage", d),
+    PSY._get_system_base_power(d),
+)
+#! format: off
 get_variable_upper_bound(::Type{HVDCRectifierDelayAngleVariable}, d::PSY.TwoTerminalLCCLine, ::Type{HVDCTwoTerminalLCC}) = PSY.get_rectifier_delay_angle_limits(d).max
 get_variable_lower_bound(::Type{HVDCRectifierDelayAngleVariable}, d::PSY.TwoTerminalLCCLine, ::Type{HVDCTwoTerminalLCC}) = PSY.get_rectifier_delay_angle_limits(d).min
 get_variable_upper_bound(::Type{HVDCInverterExtinctionAngleVariable}, d::PSY.TwoTerminalLCCLine, ::Type{HVDCTwoTerminalLCC}) = PSY.get_inverter_extinction_angle_limits(d).max
@@ -227,8 +246,8 @@ function _get_pwl_loss_params(d::PSY.TwoTerminalHVDC, loss::PSY.LinearCurve)
     to_from_loss_params = Vector{Float64}(undef, 4)
     loss_factor = PSY.get_proportional_term(loss)
     P_send0 = PSY.get_constant_term(loss)
-    P_max_ft = PSY.get_active_power_limits_from(d, PSY.SU).max
-    P_max_tf = PSY.get_active_power_limits_to(d, PSY.SU).max
+    P_max_ft = _hvdc_from_limits(d).max
+    P_max_tf = _hvdc_to_limits(d).max
     if P_max_ft != P_max_tf
         error(
             "HVDC Line $(PSY.get_name(d)) has non-symmetrical limits for from and to, that are not supported in the HVDCTwoTerminalPiecewiseLoss formulation",
@@ -259,8 +278,8 @@ function _get_pwl_loss_params(
     len_variables = 2 * len_segments + 2
     from_to_loss_params = Vector{Float64}(undef, len_variables)
     to_from_loss_params = similar(from_to_loss_params)
-    P_max_ft = PSY.get_active_power_limits_from(d, PSY.SU).max
-    P_max_tf = PSY.get_active_power_limits_to(d, PSY.SU).max
+    P_max_ft = _hvdc_from_limits(d).max
+    P_max_tf = _hvdc_to_limits(d).max
     if P_max_ft != P_max_tf
         error(
             "HVDC Line $(PSY.get_name(d)) has non-symmetrical limits for from and to, that are not supported in the HVDCTwoTerminalPiecewiseLoss formulation",
@@ -390,33 +409,9 @@ end
 
 #################################### Rate Limits Constraints ##################################################
 function _get_flow_bounds(d::PSY.TwoTerminalHVDC)
-    check_hvdc_line_limits_consistency(d)
-    from_min = PSY.get_active_power_limits_from(d, PSY.SU).min
-    to_min = PSY.get_active_power_limits_to(d, PSY.SU).min
-    from_max = PSY.get_active_power_limits_from(d, PSY.SU).max
-    to_max = PSY.get_active_power_limits_to(d, PSY.SU).max
-
-    if from_min >= 0.0 && to_min >= 0.0
-        min_rate = min(from_min, to_min)
-    elseif from_min <= 0.0 && to_min <= 0.0
-        min_rate = max(from_min, to_min)
-    elseif from_min <= 0.0 && to_min >= 0.0
-        min_rate = from_min
-    elseif to_min <= 0.0 && from_min >= 0.0
-        min_rate = to_min
-    end
-
-    if from_max >= 0.0 && to_max >= 0.0
-        max_rate = min(from_max, to_max)
-    elseif from_max <= 0.0 && to_max <= 0.0
-        max_rate = max(from_max, to_max)
-    elseif from_max <= 0.0 && to_max >= 0.0
-        max_rate = from_max
-    elseif from_max >= 0.0 && to_max <= 0.0
-        max_rate = to_max
-    end
-
-    return min_rate, max_rate
+    caps = _hvdc_end_caps(d)
+    cap = min(caps.from, caps.to)
+    return -cap, cap
 end
 
 add_constraints!(
@@ -571,7 +566,6 @@ function _add_hvdc_flow_constraints!(
             meta = "lb",
         )
     for d in devices
-        check_hvdc_line_limits_consistency(d)
         max_rate = get_variable_upper_bound(V, d, HVDCTwoTerminalDispatch)
         min_rate = get_variable_lower_bound(V, d, HVDCTwoTerminalDispatch)
         name = PSY.get_name(d)
@@ -788,8 +782,8 @@ function add_constraints!(
         name = PSY.get_name(d)
         loss = _loss_curve_value(PSY.get_loss(d), d, system_base)
         l1, l0 = _hvdc_linear_loss_terms(loss, d)
-        R_min_from, R_max_from = PSY.get_active_power_limits_from(d, PSY.SU)
-        R_min_to, R_max_to = PSY.get_active_power_limits_to(d, PSY.SU)
+        R_min_from, R_max_from = _hvdc_from_limits(d)
+        R_min_to, R_max_to = _hvdc_to_limits(d)
         for t in get_time_steps(container)
             constraint_tf_ub[name, t] = JuMP.@constraint(
                 get_jump_model(container),
@@ -893,7 +887,7 @@ function add_constraints!(
     for d in devices
         name = PSY.get_name(d)
         rect_bridges = PSY.get_rectifier_bridges(d)
-        dc_rect_com_reactance = PSY.get_rectifier_xc(d)
+        dc_rect_com_reactance = _lcc_rectifier_xc_su(d)
         rect_tap_ratio = PSY.get_rectifier_transformer_ratio(d)
         rect_ac_voltage = _lcc_terminal_voltage(container, d, "from", network_model)
 
@@ -940,7 +934,7 @@ function add_constraints!(
     for d in devices
         name = PSY.get_name(d)
         inv_bridges = PSY.get_inverter_bridges(d)
-        dc_inv_com_reactance = PSY.get_inverter_xc(d)
+        dc_inv_com_reactance = _lcc_inverter_xc_su(d)
         inv_tap_ratio = PSY.get_inverter_transformer_ratio(d)
         inv_ac_voltage = _lcc_terminal_voltage(container, d, "to", network_model)
 
@@ -985,7 +979,7 @@ function add_constraints!(
 
     for d in devices
         name = PSY.get_name(d)
-        dc_rect_com_reactance = PSY.get_rectifier_xc(d)
+        dc_rect_com_reactance = _lcc_rectifier_xc_su(d)
         rect_tap_ratio = PSY.get_rectifier_transformer_ratio(d)
         rect_ac_voltage = _lcc_terminal_voltage(container, d, "from", network_model)
 
@@ -1042,7 +1036,7 @@ function add_constraints!(
 
     for d in devices
         name = PSY.get_name(d)
-        dc_inv_com_reactance = PSY.get_inverter_xc(d)
+        dc_inv_com_reactance = _lcc_inverter_xc_su(d)
         inv_tap_ratio = PSY.get_inverter_transformer_ratio(d)
         inv_ac_voltage = _lcc_terminal_voltage(container, d, "to", network_model)
 
@@ -1408,8 +1402,7 @@ function add_constraints!(
 
     for d in devices
         name = PSY.get_name(d)
-        # get_r on TwoTerminalLCCLine is already pu (SYSTEM_BASE); single-arg getter, no unit marker — no PSY.SU conversion applies
-        dc_line_resistance = PSY.get_r(d)
+        dc_line_resistance = _lcc_r_su(d)
 
         for t in get_time_steps(container)
             constraint_tl_c[name, t] = JuMP.@constraint(
@@ -1429,6 +1422,19 @@ end
 
 #! format: off
 
+# PSY stores the VSC DC quantities in kV, S, and A. The DC voltage base is
+# `rated_dc_voltage`, which is also the base of the DC voltage setpoints.
+_vsc_dc_base_voltage(d::PSY.TwoTerminalVSCLine) =
+    _nonzero_base_voltage(PSY.get_rated_dc_voltage(d), "rated_dc_voltage", d)
+_vsc_dc_current_su(d::PSY.TwoTerminalVSCLine, amps::Float64) =
+    _amps_to_su(amps, _vsc_dc_base_voltage(d), PSY._get_system_base_power(d))
+_vsc_g_su(d::PSY.TwoTerminalVSCLine) =
+    _siemens_to_su(PSY.get_g(d), _vsc_dc_base_voltage(d), PSY._get_system_base_power(d))
+function _vsc_voltage_limits_su(d::PSY.TwoTerminalVSCLine, limits::PSY.MinMax)
+    v_base = _vsc_dc_base_voltage(d)
+    return (min = _kv_to_su(limits.min, v_base), max = _kv_to_su(limits.max, v_base))
+end
+
 # Variable trait methods for the shared cable current and DC voltages
 get_variable_binary(::Type{DCLineCurrentFlowVariable}, ::Type{PSY.TwoTerminalVSCLine}, ::Type{<:AbstractTwoTerminalVSCFormulation}) = false
 get_variable_binary(::Type{HVDCFromDCVoltage}, ::Type{PSY.TwoTerminalVSCLine}, ::Type{<:AbstractTwoTerminalVSCFormulation}) = false
@@ -1440,33 +1446,34 @@ get_variable_binary(::Type{FlowActivePowerFromToVariable}, ::Type{PSY.TwoTermina
 get_variable_binary(::Type{FlowActivePowerToFromVariable}, ::Type{PSY.TwoTerminalVSCLine}, ::Type{<:AbstractTwoTerminalVSCFormulation}) = false
 
 # Warm starts
-get_variable_warm_start_value(::Type{DCLineCurrentFlowVariable}, d::PSY.TwoTerminalVSCLine, ::Type{<:AbstractTwoTerminalVSCFormulation}) = PSY.get_dc_current(d)
-get_variable_warm_start_value(::Type{HVDCReactivePowerFromVariable}, d::PSY.TwoTerminalVSCLine, ::Type{<:AbstractTwoTerminalVSCFormulation}) = PSY.get_reactive_power_from(d, PSY.SU)
-get_variable_warm_start_value(::Type{HVDCReactivePowerToVariable}, d::PSY.TwoTerminalVSCLine, ::Type{<:AbstractTwoTerminalVSCFormulation}) = PSY.get_reactive_power_to(d, PSY.SU)
-get_variable_warm_start_value(::Type{FlowActivePowerFromToVariable}, d::PSY.TwoTerminalVSCLine, ::Type{<:AbstractTwoTerminalVSCFormulation}) = PSY.get_active_power_flow(d, PSY.SU)
-get_variable_warm_start_value(::Type{FlowActivePowerToFromVariable}, d::PSY.TwoTerminalVSCLine, ::Type{<:AbstractTwoTerminalVSCFormulation}) = -PSY.get_active_power_flow(d, PSY.SU)
+get_variable_warm_start_value(::Type{DCLineCurrentFlowVariable}, d::PSY.TwoTerminalVSCLine, ::Type{<:AbstractTwoTerminalVSCFormulation}) = _vsc_dc_current_su(d, PSY.get_dc_current(d))
+get_variable_warm_start_value(::Type{HVDCReactivePowerFromVariable}, d::PSY.TwoTerminalVSCLine, ::Type{<:AbstractTwoTerminalVSCFormulation}) = PSY.get_reactive_power_from(d, u"SU")
+get_variable_warm_start_value(::Type{HVDCReactivePowerToVariable}, d::PSY.TwoTerminalVSCLine, ::Type{<:AbstractTwoTerminalVSCFormulation}) = PSY.get_reactive_power_to(d, u"SU")
+get_variable_warm_start_value(::Type{FlowActivePowerFromToVariable}, d::PSY.TwoTerminalVSCLine, ::Type{<:AbstractTwoTerminalVSCFormulation}) = PSY.get_active_power_flow(d, u"SU")
+get_variable_warm_start_value(::Type{FlowActivePowerToFromVariable}, d::PSY.TwoTerminalVSCLine, ::Type{<:AbstractTwoTerminalVSCFormulation}) = -PSY.get_active_power_flow(d, u"SU")
 
 # Active power flow bounds (per-terminal)
-get_variable_lower_bound(::Type{FlowActivePowerFromToVariable}, d::PSY.TwoTerminalVSCLine, ::Type{<:AbstractTwoTerminalVSCFormulation}) = PSY.get_active_power_limits_from(d, PSY.SU).min
-get_variable_upper_bound(::Type{FlowActivePowerFromToVariable}, d::PSY.TwoTerminalVSCLine, ::Type{<:AbstractTwoTerminalVSCFormulation}) = PSY.get_active_power_limits_from(d, PSY.SU).max
-get_variable_lower_bound(::Type{FlowActivePowerToFromVariable}, d::PSY.TwoTerminalVSCLine, ::Type{<:AbstractTwoTerminalVSCFormulation}) = PSY.get_active_power_limits_to(d, PSY.SU).min
-get_variable_upper_bound(::Type{FlowActivePowerToFromVariable}, d::PSY.TwoTerminalVSCLine, ::Type{<:AbstractTwoTerminalVSCFormulation}) = PSY.get_active_power_limits_to(d, PSY.SU).max
+get_variable_lower_bound(::Type{FlowActivePowerFromToVariable}, d::PSY.TwoTerminalVSCLine, ::Type{<:AbstractTwoTerminalVSCFormulation}) = _hvdc_from_limits(d).min
+get_variable_upper_bound(::Type{FlowActivePowerFromToVariable}, d::PSY.TwoTerminalVSCLine, ::Type{<:AbstractTwoTerminalVSCFormulation}) = _hvdc_from_limits(d).max
+get_variable_lower_bound(::Type{FlowActivePowerToFromVariable}, d::PSY.TwoTerminalVSCLine, ::Type{<:AbstractTwoTerminalVSCFormulation}) = _hvdc_to_limits(d).min
+get_variable_upper_bound(::Type{FlowActivePowerToFromVariable}, d::PSY.TwoTerminalVSCLine, ::Type{<:AbstractTwoTerminalVSCFormulation}) = _hvdc_to_limits(d).max
 
 # Reactive power bounds (per-terminal)
-get_variable_lower_bound(::Type{HVDCReactivePowerFromVariable}, d::PSY.TwoTerminalVSCLine, ::Type{<:AbstractTwoTerminalVSCFormulation}) = PSY.get_reactive_power_limits_from(d, PSY.SU).min
-get_variable_upper_bound(::Type{HVDCReactivePowerFromVariable}, d::PSY.TwoTerminalVSCLine, ::Type{<:AbstractTwoTerminalVSCFormulation}) = PSY.get_reactive_power_limits_from(d, PSY.SU).max
-get_variable_lower_bound(::Type{HVDCReactivePowerToVariable}, d::PSY.TwoTerminalVSCLine, ::Type{<:AbstractTwoTerminalVSCFormulation}) = PSY.get_reactive_power_limits_to(d, PSY.SU).min
-get_variable_upper_bound(::Type{HVDCReactivePowerToVariable}, d::PSY.TwoTerminalVSCLine, ::Type{<:AbstractTwoTerminalVSCFormulation}) = PSY.get_reactive_power_limits_to(d, PSY.SU).max
+get_variable_lower_bound(::Type{HVDCReactivePowerFromVariable}, d::PSY.TwoTerminalVSCLine, ::Type{<:AbstractTwoTerminalVSCFormulation}) = PSY.get_reactive_power_limits_from(d, u"SU").min
+get_variable_upper_bound(::Type{HVDCReactivePowerFromVariable}, d::PSY.TwoTerminalVSCLine, ::Type{<:AbstractTwoTerminalVSCFormulation}) = PSY.get_reactive_power_limits_from(d, u"SU").max
+get_variable_lower_bound(::Type{HVDCReactivePowerToVariable}, d::PSY.TwoTerminalVSCLine, ::Type{<:AbstractTwoTerminalVSCFormulation}) = PSY.get_reactive_power_limits_to(d, u"SU").min
+get_variable_upper_bound(::Type{HVDCReactivePowerToVariable}, d::PSY.TwoTerminalVSCLine, ::Type{<:AbstractTwoTerminalVSCFormulation}) = PSY.get_reactive_power_limits_to(d, u"SU").max
 
 # DC voltage bounds (per-terminal)
-get_variable_lower_bound(::Type{HVDCFromDCVoltage}, d::PSY.TwoTerminalVSCLine, ::Type{<:AbstractTwoTerminalVSCFormulation}) = PSY.get_voltage_limits_from(d).min
-get_variable_upper_bound(::Type{HVDCFromDCVoltage}, d::PSY.TwoTerminalVSCLine, ::Type{<:AbstractTwoTerminalVSCFormulation}) = PSY.get_voltage_limits_from(d).max
-get_variable_lower_bound(::Type{HVDCToDCVoltage}, d::PSY.TwoTerminalVSCLine, ::Type{<:AbstractTwoTerminalVSCFormulation}) = PSY.get_voltage_limits_to(d).min
-get_variable_upper_bound(::Type{HVDCToDCVoltage}, d::PSY.TwoTerminalVSCLine, ::Type{<:AbstractTwoTerminalVSCFormulation}) = PSY.get_voltage_limits_to(d).max
+get_variable_lower_bound(::Type{HVDCFromDCVoltage}, d::PSY.TwoTerminalVSCLine, ::Type{<:AbstractTwoTerminalVSCFormulation}) = _vsc_voltage_limits_su(d, PSY.get_voltage_limits_from(d)).min
+get_variable_upper_bound(::Type{HVDCFromDCVoltage}, d::PSY.TwoTerminalVSCLine, ::Type{<:AbstractTwoTerminalVSCFormulation}) = _vsc_voltage_limits_su(d, PSY.get_voltage_limits_from(d)).max
+get_variable_lower_bound(::Type{HVDCToDCVoltage}, d::PSY.TwoTerminalVSCLine, ::Type{<:AbstractTwoTerminalVSCFormulation}) = _vsc_voltage_limits_su(d, PSY.get_voltage_limits_to(d)).min
+get_variable_upper_bound(::Type{HVDCToDCVoltage}, d::PSY.TwoTerminalVSCLine, ::Type{<:AbstractTwoTerminalVSCFormulation}) = _vsc_voltage_limits_su(d, PSY.get_voltage_limits_to(d)).max
 
 # Shared cable current bounds — must respect BOTH terminals' I_max ratings.
-_vsc_cable_i_max(d::PSY.TwoTerminalVSCLine) =
-    min(PSY.get_max_dc_current_from(d), PSY.get_max_dc_current_to(d))
+_vsc_cable_i_max(d::PSY.TwoTerminalVSCLine) = _vsc_dc_current_su(
+    d, min(PSY.get_max_dc_current_from(d), PSY.get_max_dc_current_to(d)),
+)
 get_variable_lower_bound(::Type{DCLineCurrentFlowVariable}, d::PSY.TwoTerminalVSCLine, ::Type{<:AbstractTwoTerminalVSCFormulation}) = -_vsc_cable_i_max(d)
 get_variable_upper_bound(::Type{DCLineCurrentFlowVariable}, d::PSY.TwoTerminalVSCLine, ::Type{<:AbstractTwoTerminalVSCFormulation}) = _vsc_cable_i_max(d)
 
@@ -1479,12 +1486,12 @@ get_variable_binary(::Type{ConverterACCurrentFromVariable}, ::Type{PSY.TwoTermin
 get_variable_binary(::Type{ConverterACCurrentToVariable}, ::Type{PSY.TwoTerminalVSCLine}, ::Type{<:AbstractTwoTerminalVSCFormulation}) = false
 get_variable_lower_bound(::Type{ConverterACCurrentFromVariable}, d::PSY.TwoTerminalVSCLine, ::Type{<:AbstractTwoTerminalVSCFormulation}) = CONVERTER_AC_CURRENT_FLOOR
 get_variable_lower_bound(::Type{ConverterACCurrentToVariable}, d::PSY.TwoTerminalVSCLine, ::Type{<:AbstractTwoTerminalVSCFormulation}) = CONVERTER_AC_CURRENT_FLOOR
-get_variable_upper_bound(::Type{ConverterACCurrentFromVariable}, d::PSY.TwoTerminalVSCLine, ::Type{<:AbstractTwoTerminalVSCFormulation}) = _converter_ac_current_max(PSY.get_rating_from(d, PSY.SU), PSY.get_voltage_limits(PSY.get_from(PSY.get_arc(d)), PSY.CU).min, PSY.get_name(d))
-get_variable_upper_bound(::Type{ConverterACCurrentToVariable}, d::PSY.TwoTerminalVSCLine, ::Type{<:AbstractTwoTerminalVSCFormulation}) = _converter_ac_current_max(PSY.get_rating_to(d, PSY.SU), PSY.get_voltage_limits(PSY.get_to(PSY.get_arc(d)), PSY.CU).min, PSY.get_name(d))
+get_variable_upper_bound(::Type{ConverterACCurrentFromVariable}, d::PSY.TwoTerminalVSCLine, ::Type{<:AbstractTwoTerminalVSCFormulation}) = _converter_ac_current_max(PSY.get_rating_from(d, u"SU"), PSY.get_voltage_limits(PSY.get_from(PSY.get_arc(d)), u"CU").min, PSY.get_name(d))
+get_variable_upper_bound(::Type{ConverterACCurrentToVariable}, d::PSY.TwoTerminalVSCLine, ::Type{<:AbstractTwoTerminalVSCFormulation}) = _converter_ac_current_max(PSY.get_rating_to(d, u"SU"), PSY.get_voltage_limits(PSY.get_to(PSY.get_arc(d)), u"CU").min, PSY.get_name(d))
 # Warm-started at the rated apparent current (pu, strictly interior to (ε, S_max/vmin)
 # and away from the degenerate I_ac = 0); see CONVERTER_AC_CURRENT_FLOOR.
-get_variable_warm_start_value(::Type{ConverterACCurrentFromVariable}, d::PSY.TwoTerminalVSCLine, ::Type{<:AbstractTwoTerminalVSCFormulation}) = PSY.get_rating_from(d, PSY.SU)
-get_variable_warm_start_value(::Type{ConverterACCurrentToVariable}, d::PSY.TwoTerminalVSCLine, ::Type{<:AbstractTwoTerminalVSCFormulation}) = PSY.get_rating_to(d, PSY.SU)
+get_variable_warm_start_value(::Type{ConverterACCurrentFromVariable}, d::PSY.TwoTerminalVSCLine, ::Type{<:AbstractTwoTerminalVSCFormulation}) = PSY.get_rating_from(d, u"SU")
+get_variable_warm_start_value(::Type{ConverterACCurrentToVariable}, d::PSY.TwoTerminalVSCLine, ::Type{<:AbstractTwoTerminalVSCFormulation}) = PSY.get_rating_to(d, u"SU")
 
 #! format: on
 
@@ -1506,10 +1513,10 @@ function _register_vsc_apparent_power_squares!(
     p_tf = get_variable(container, FlowActivePowerToFromVariable, PSY.TwoTerminalVSCLine)
     q_f = get_variable(container, HVDCReactivePowerFromVariable, PSY.TwoTerminalVSCLine)
     q_t = get_variable(container, HVDCReactivePowerToVariable, PSY.TwoTerminalVSCLine)
-    p_ft_bounds = PSY.get_active_power_limits_from.(devices, Ref(PSY.SU))
-    p_tf_bounds = PSY.get_active_power_limits_to.(devices, Ref(PSY.SU))
-    q_f_bounds = PSY.get_reactive_power_limits_from.(devices, Ref(PSY.SU))
-    q_t_bounds = PSY.get_reactive_power_limits_to.(devices, Ref(PSY.SU))
+    p_ft_bounds = _hvdc_from_limits.(devices)
+    p_tf_bounds = _hvdc_to_limits.(devices)
+    q_f_bounds = PSY.get_reactive_power_limits_from.(devices, Ref(u"SU"))
+    q_t_bounds = PSY.get_reactive_power_limits_to.(devices, Ref(u"SU"))
     IOM._add_quadratic_approx!(
         quad_cfg, container, PSY.TwoTerminalVSCLine,
         line_names, time_steps, p_ft, p_ft_bounds, "p_ft_sq",
@@ -1616,8 +1623,7 @@ function add_constraints!(
 
     for d in devices
         name = PSY.get_name(d)
-        # get_g on TwoTerminalVSCLine is already pu (SYSTEM_BASE); single-arg getter, no unit marker — no PSY.SU conversion applies
-        g = PSY.get_g(d)
+        g = _vsc_g_su(d)
         for t in time_steps
             cons[name, t] = if iszero(g)
                 JuMP.@constraint(jump_model, i_var[name, t] == 0)
@@ -1807,8 +1813,8 @@ function _add_vsc_apparent_power_limit!(
 
     for d in devices
         name = PSY.get_name(d)
-        s_f2 = PSY.get_rating_from(d, PSY.SU)^2
-        s_t2 = PSY.get_rating_to(d, PSY.SU)^2
+        s_f2 = PSY.get_rating_from(d, u"SU")^2
+        s_t2 = PSY.get_rating_to(d, u"SU")^2
         for t in time_steps
             cons_f[name, t] = JuMP.@constraint(
                 jump_model, p_ft_sq[name, t] + q_f_sq[name, t] <= s_f2,
@@ -1875,7 +1881,7 @@ function _add_vsc_apparent_power_limit!(
     for d in devices
         name = PSY.get_name(d)
         for spec in side_specs
-            rating = spec.rating_getter(d, PSY.SU)
+            rating = spec.rating_getter(d, u"SU")
             diag = rating * sqrt(2.0)
             prefix = spec.prefix
             p_var, q_var = spec.p_var, spec.q_var

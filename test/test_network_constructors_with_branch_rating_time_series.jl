@@ -33,7 +33,7 @@ function check_branch_rating_time_series_flows!(
         redirects = PNM.get_component_to_reduction_name_map(catalog, typeof(branch))
         col_key = get(redirects, branch_name, branch_name)
 
-        static_rating = branch_rating_su(branch) * PSY.get_base_power(sys, PSY.NU)
+        static_rating = branch_rating_su(branch) * PSY.get_base_power(sys, u"NU")
         if is_parallel_group_flow
             static_rating *= 2
         end
@@ -178,7 +178,8 @@ end
                 sys,
                 line_to_add_parallel,
                 PSY.Line,
-                PSY.MonitoredLine,
+                PSY.Line,
+                Val(:operational_flow_limit),
             )
 
             add_branch_rating_time_series_to_system!(
@@ -193,7 +194,6 @@ end
                 NetworkModel(PTDFNetworkModel),
             )
             set_device_model!(template, line_device_model)
-            set_device_model!(template, PSY.MonitoredLine, StaticBranch)
             ps_model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
 
             @test build!(ps_model; output_dir = mktempdir(; cleanup = true)) ==
@@ -223,7 +223,7 @@ end
     end
 end
 
-@testset "Network DC-PF with PTDF Model and implementing branch rating time series with BranchesParallel of different types (MonitoredLine with BranchRatingTimeSeriesParameter)" begin
+@testset "Network DC-PF with PTDF Model and implementing branch rating time series with BranchesParallel of different types (Line with operational flow limit with BranchRatingTimeSeriesParameter)" begin
     objfuncs = [GAEVF, GQEVF, GQEVF]
     constraint_keys = [
         IOM.ConstraintKey(FlowRateConstraint, PSY.Line, "lb"),
@@ -262,7 +262,8 @@ end
                 sys,
                 line_to_add_parallel,
                 PSY.Line,
-                PSY.MonitoredLine,
+                PSY.Line,
+                Val(:operational_flow_limit),
             )
 
             add_branch_rating_time_series_to_system!(
@@ -277,7 +278,6 @@ end
                 NetworkModel(PTDFNetworkModel),
             )
             set_device_model!(template, line_device_model)
-            set_device_model!(template, PSY.MonitoredLine, StaticBranch)
             ps_model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
 
             @test build!(ps_model; output_dir = mktempdir(; cleanup = true)) ==
@@ -752,7 +752,7 @@ end
     sys = PSB.build_system(PSITestSystems, "c_sys5")
     line_a = get_component(ACTransmission, sys, "1")
     line_b = get_component(ACTransmission, sys, "2")
-    PSY.set_rating!(line_b, 2 * PSY.get_rating(line_a, PSY.SU) * PSY.SU)
+    PSY.set_rating!(line_b, 2 * PSY.get_rating(line_a, u"SU") * u"SU")
 
     data_ts =
         collect(DateTime("2024-01-01T00:00:00"):Hour(1):DateTime("2024-01-01T23:00:00"))

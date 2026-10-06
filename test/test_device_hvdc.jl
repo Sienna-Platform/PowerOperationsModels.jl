@@ -80,7 +80,11 @@ function _generate_test_hvdc_sys()
     for ipc in get_components(InterconnectingConverter, sys)
         new_dc_loss = PSY.LossCurve(QuadraticCurve(0.01, 0.01, 0.0), PSY.CU)
         set_loss_function!(ipc, new_dc_loss)
-        set_max_dc_current!(ipc, 2.0 * PSY.SU)
+        # 2.0 pu on the system base, in amperes.
+        set_max_dc_current!(
+            ipc,
+            2.0 * 1000.0 * get_base_power(sys) / get_base_voltage(get_dc_bus(ipc)),
+        )
     end
     return sys
 end
@@ -119,7 +123,7 @@ end
     for (name, cap) in (("Brighton-2", 2.0), ("Solitude-2", 2.0))
         PSY.set_active_power_limits!(
             get_component(ThermalStandard, sys, name),
-            (min = 0.0 * PSY.SU, max = cap * PSY.SU),
+            (min = 0.0 * u"SU", max = cap * u"SU"),
         )
     end
     template = PowerOperationsProblemTemplate(
@@ -213,6 +217,10 @@ function _generate_test_vsc_sys(;
     sys = build_system(PSITestSystems, "c_sys5_uc")
     line = get_component(Line, sys, "1")
     remove_component!(sys, line)
+    # PSY holds the VSC DC quantities in kV, S, and A. These are the old per-unit values
+    # on (rated_dc_voltage, system base); `g` stays a per-unit argument.
+    v_dc = 230.0
+    s_base = get_base_power(sys)
 
     vsc = TwoTerminalVSCLine(;
         name = get_name(line),
@@ -220,35 +228,35 @@ function _generate_test_vsc_sys(;
         arc = get_arc(line),
         active_power_flow = 0.0,
         rating = max(rating_from, rating_to),
-        active_power_limits_from = (min = -rating_from, max = rating_from),
-        active_power_limits_to = (min = -rating_to, max = rating_to),
-        g = g,
+        g = g * s_base / v_dc^2,
         dc_current = 0.0,
         reactive_power_from = 0.0,
         dc_control_from = VSCDCControlModes.DC_VOLTAGE,
         ac_control_from = VSCACControlModes.AC_VOLTAGE,
-        dc_setpoint_from = 1.0,
-        ac_setpoint_from = 1.0,
+        dc_voltage_setpoint_from = 1.0,
+        ac_voltage_setpoint_from = 1.0,
+        rated_ac_voltage_from = get_base_voltage(get_from(get_arc(line))),
+        rated_dc_voltage = v_dc,
         converter_loss_from = PSY.LossCurve(QuadraticCurve(loss_a, loss_b, loss_c), PSY.CU),
-        max_dc_current_from = 5.0,
+        max_dc_current_from = 5.0 * 1000.0 * s_base / v_dc,
         rating_from = rating_from,
         reactive_power_limits_from = (min = -rating_from, max = rating_from),
         power_factor_weighting_fraction_from = 1.0,
-        voltage_limits_from = (min = 0.95, max = 1.05),
+        voltage_limits_from = (min = 0.95 * v_dc, max = 1.05 * v_dc),
         dc_voltage_droop_from = 0.0,
         reactive_power_to = 0.0,
         dc_control_to = VSCDCControlModes.DC_POWER,
         ac_control_to = VSCACControlModes.AC_REACTIVE_POWER,
-        dc_setpoint_to = 0.0,
-        ac_setpoint_to = 0.0,
+        dc_power_setpoint_to = 0.0,
+        power_factor_setpoint_to = 1.0,
         converter_loss_to = PSY.LossCurve(QuadraticCurve(loss_a, loss_b, loss_c), PSY.CU),
-        max_dc_current_to = 5.0,
+        max_dc_current_to = 5.0 * 1000.0 * s_base / v_dc,
         rating_to = rating_to,
         reactive_power_limits_to = (min = -rating_to, max = rating_to),
         power_factor_weighting_fraction_to = 1.0,
-        voltage_limits_to = (min = 0.95, max = 1.05),
+        voltage_limits_to = (min = 0.95 * v_dc, max = 1.05 * v_dc),
         dc_voltage_droop_to = 0.0,
-        input_basis = CU,
+        input_basis = u"CU",
     )
     add_component!(sys, vsc)
     return sys

@@ -1,63 +1,64 @@
 const DC_NETWORK_MODELS_FOR_TESTING = [PTDFNetworkModel, DCPNetworkModel]
 
-_rating(d::PSY.TwoWindingTransformer) = PSY.get_rating(PSY.get_circuit(d), PSY.SU)
-_rating(d) = PSY.get_rating(d, PSY.SU)
+_rating(d::PSY.TwoWindingTransformer) = PSY.get_rating(PSY.get_circuit(d), u"SU")
+_rating(d) = PSY.get_rating(d, u"SU")
 
 @testset "DC Power Flow Models Monitored Line Flow Constraints and Static Unbounded" begin
     system = PSB.build_system(PSITestSystems, "c_sys5_ml")
-    limits = PSY.get_flow_limits(PSY.get_component(MonitoredLine, system, "1"), PSY.SU)
+    limits = PSY.get_operational_flow_limit(PSY.get_component(Line, system, "1"), u"SU")
     for model in DC_NETWORK_MODELS_FOR_TESTING
         template = get_thermal_dispatch_template_network(
             NetworkModel(model),
         )
+        set_device_model!(template, DeviceModel(Line, StaticBranchBounds))
         model_m = DecisionModel(template, system; optimizer = HiGHS_optimizer)
         @test build!(model_m; output_dir = mktempdir(; cleanup = true)) ==
               IOM.ModelBuildStatus.BUILT
-        @test check_variable_bounded(model_m, FlowActivePowerVariable, MonitoredLine)
+        @test check_variable_bounded(model_m, FlowActivePowerVariable, Line)
 
         @test solve!(model_m) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
         @test check_flow_variable_values(
             model_m,
             FlowActivePowerVariable,
-            MonitoredLine,
+            Line,
             "1",
-            limits.from_to,
+            limits.from_to.max,
         )
     end
 end
 
 @testset "AC Power Flow Monitored Line Flow Constraints" begin
     system = PSB.build_system(PSITestSystems, "c_sys5_ml")
-    limits = PSY.get_flow_limits(PSY.get_component(MonitoredLine, system, "1"), PSY.SU)
+    limits = PSY.get_operational_flow_limit(PSY.get_component(Line, system, "1"), u"SU")
     template = get_thermal_dispatch_template_network(ACPNetworkModel)
+    set_device_model!(template, DeviceModel(Line, StaticBranchBounds))
     model_m = DecisionModel(template, system; optimizer = ipopt_optimizer)
     @test build!(model_m; output_dir = mktempdir(; cleanup = true)) ==
           IOM.ModelBuildStatus.BUILT
 
-    @test check_variable_bounded(model_m, FlowActivePowerFromToVariable, MonitoredLine)
-    @test check_variable_bounded(model_m, FlowReactivePowerFromToVariable, MonitoredLine)
+    @test check_variable_bounded(model_m, FlowActivePowerFromToVariable, Line)
+    @test check_variable_bounded(model_m, FlowReactivePowerFromToVariable, Line)
 
     @test solve!(model_m) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
     @test check_flow_variable_values(
         model_m,
         FlowActivePowerFromToVariable,
         FlowReactivePowerFromToVariable,
-        MonitoredLine,
+        Line,
         "1",
         0.0,
-        limits.from_to,
+        limits.from_to.max,
     )
 end
 
 @testset "DC Power Flow Models Monitored Line Flow Constraints and Static with inequalities" begin
     system = PSB.build_system(PSITestSystems, "c_sys5_ml")
-    set_rating!(PSY.get_component(Line, system, "2"), 1.5 * PSY.SU)
+    set_rating!(PSY.get_component(Line, system, "2"), 1.5 * u"SU")
     for model in DC_NETWORK_MODELS_FOR_TESTING
         template = get_thermal_dispatch_template_network(
             NetworkModel(model),
         )
         set_device_model!(template, DeviceModel(Line, StaticBranch))
-        set_device_model!(template, DeviceModel(MonitoredLine, StaticBranchUnbounded))
         model_m = DecisionModel(template, system; optimizer = HiGHS_optimizer)
         @test build!(model_m; output_dir = mktempdir(; cleanup = true)) ==
               IOM.ModelBuildStatus.BUILT
@@ -69,11 +70,10 @@ end
 
 @testset "DC Power Flow Models Monitored Line Flow Constraints and Static with Bounds" begin
     system = PSB.build_system(PSITestSystems, "c_sys5_ml")
-    set_rating!(PSY.get_component(Line, system, "2"), 1.5 * PSY.SU)
+    set_rating!(PSY.get_component(Line, system, "2"), 1.5 * u"SU")
     for model in DC_NETWORK_MODELS_FOR_TESTING
         template = get_thermal_dispatch_template_network(NetworkModel(model))
         set_device_model!(template, DeviceModel(Line, StaticBranchBounds))
-        set_device_model!(template, DeviceModel(MonitoredLine, StaticBranchUnbounded))
         model_m = DecisionModel(template, system; optimizer = HiGHS_optimizer)
         @test build!(model_m; output_dir = mktempdir(; cleanup = true)) ==
               IOM.ModelBuildStatus.BUILT
@@ -87,20 +87,13 @@ end
     # Test the addition of slacks
     template = get_thermal_dispatch_template_network(NetworkModel(PTDFNetworkModel))
     set_device_model!(template, DeviceModel(Line, StaticBranchBounds; use_slacks = true))
-    set_device_model!(
-        template,
-        DeviceModel(MonitoredLine, StaticBranchBounds; use_slacks = true),
-    )
     model_m = DecisionModel(template, system; optimizer = HiGHS_optimizer)
     @test build!(model_m; output_dir = mktempdir(; cleanup = true)) ==
           IOM.ModelBuildStatus.BUILT
 
     @test check_variable_bounded(model_m, FlowActivePowerVariable, Line)
-    @test check_variable_bounded(model_m, FlowActivePowerVariable, MonitoredLine)
     @test !check_variable_bounded(model_m, FlowActivePowerSlackLowerBound, Line)
     @test !check_variable_bounded(model_m, FlowActivePowerSlackUpperBound, Line)
-    @test !check_variable_bounded(model_m, FlowActivePowerSlackLowerBound, MonitoredLine)
-    @test !check_variable_bounded(model_m, FlowActivePowerSlackUpperBound, MonitoredLine)
 
     @test solve!(model_m) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
 end
@@ -113,8 +106,8 @@ end
 
     system = PSB.build_system(PSITestSystems, "c_sys14_dc")
     hvdc_line = PSY.get_component(TwoTerminalGenericHVDCLine, system, "DCLine3")
-    limits_from = PSY.get_active_power_limits_from(hvdc_line, PSY.SU)
-    limits_to = PSY.get_active_power_limits_to(hvdc_line, PSY.SU)
+    limits_from = POM._hvdc_from_limits(hvdc_line)
+    limits_to = POM._hvdc_to_limits(hvdc_line)
     limits_min = min(limits_from.min, limits_to.min)
     limits_max = min(limits_from.max, limits_to.max)
 
@@ -168,8 +161,8 @@ end
 @testset "DC Power Flow Models for Unbounded TwoTerminalGenericHVDCLine , and StaticBranchBounds for TwoWindingTransformer" begin
     system = PSB.build_system(PSITestSystems, "c_sys14_dc")
     hvdc_line = PSY.get_component(TwoTerminalGenericHVDCLine, system, "DCLine3")
-    limits_from = PSY.get_active_power_limits_from(hvdc_line, PSY.SU)
-    limits_to = PSY.get_active_power_limits_to(hvdc_line, PSY.SU)
+    limits_from = POM._hvdc_from_limits(hvdc_line)
+    limits_to = POM._hvdc_to_limits(hvdc_line)
     limits_min = min(limits_from.min, limits_to.min)
     limits_max = min(limits_from.max, limits_to.max)
 
@@ -243,17 +236,21 @@ end
         name = get_name(line),
         available = true,
         active_power_flow = 0.0,
-        # Force the flow in the opposite direction for testing purposes
-        active_power_limits_from = (min = -0.5, max = -0.5),
-        active_power_limits_to = (min = -3.0, max = 2.0),
+        rating = 3.0,
+        rating_from = 0.5,
+        rating_to = 3.0,
         reactive_power_limits_from = (min = -1.0, max = 1.0),
         reactive_power_limits_to = (min = -1.0, max = 1.0),
         arc = get_arc(line),
         loss = PSY.LossCurve(LinearCurve(0.0), PSY.CU),
-        input_basis = CU,
+        input_basis = u"CU",
     )
 
     add_component!(sys_5, hvdc)
+    # Congest nodeA -> nodeE so every hour pushes the HVDC to its `from` cap, nodeB ->
+    # nodeA. A binding cap gives one optimal flow, so both networks must return it.
+    set_rating!(get_component(Line, sys_5, "3"), 0.5 * u"SU")
+    expected_flow = -PSY.get_rating_from(hvdc, u"NU")
 
     template_uc = PowerOperationsProblemTemplate(
         NetworkModel(PTDFNetworkModel),
@@ -297,15 +294,15 @@ end
     dcp_objective =
         IOM.get_optimization_container(model).optimizer_stats.objective_value
     @test isapprox(dcp_objective, ptdf_objective; atol = 0.1)
-    # Resulting solution is in the 4e5 order of magnitude
-    @test all(isapprox.(ptdf_values[!, "1"], dcp_values[!, "1"]; atol = 10))
+    @test all(isapprox.(ptdf_values[!, "1"], expected_flow; atol = 1e-3))
+    @test all(isapprox.(dcp_values[!, "1"], expected_flow; atol = 1e-3))
 end
 
 @testset "HVDCDispatch Model Tests" begin
     # Test to compare lossless models with lossless formulation
     sys_5 = build_system(PSITestSystems, "c_sys5_uc")
     # Revert to previous rating before data change to prevent different optimal solutions for the lossless model and lossless formulation:
-    PSY.set_rating!(PSY.get_component(PSY.Line, sys_5, "6"), 2.0 * PSY.SU)
+    PSY.set_rating!(PSY.get_component(PSY.Line, sys_5, "6"), 2.0 * u"SU")
 
     line = get_component(Line, sys_5, "1")
     remove_component!(sys_5, line)
@@ -314,14 +311,14 @@ end
         name = get_name(line),
         available = true,
         active_power_flow = 0.0,
-        # Force the flow in the opposite direction for testing purposes
-        active_power_limits_from = (min = -2.0, max = 2.0),
-        active_power_limits_to = (min = -2.0, max = 2.0),
+        rating = 2.0,
+        rating_from = 2.0,
+        rating_to = 2.0,
         reactive_power_limits_from = (min = -1.0, max = 1.0),
         reactive_power_limits_to = (min = -1.0, max = 1.0),
         arc = get_arc(line),
         loss = PSY.LossCurve(LinearCurve(0.0), PSY.CU),
-        input_basis = CU,
+        input_basis = u"CU",
     )
 
     add_component!(sys_5, hvdc)
@@ -481,8 +478,8 @@ end
     system = PSB.build_system(PSITestSystems, "c_sys14_dc")
 
     hvdc_line = PSY.get_component(TwoTerminalGenericHVDCLine, system, "DCLine3")
-    limits_from = PSY.get_active_power_limits_from(hvdc_line, PSY.SU)
-    limits_to = PSY.get_active_power_limits_to(hvdc_line, PSY.SU)
+    limits_from = POM._hvdc_from_limits(hvdc_line)
+    limits_to = POM._hvdc_to_limits(hvdc_line)
     limits_min = min(limits_from.min, limits_to.min)
     limits_max = min(limits_from.max, limits_to.max)
 
@@ -541,14 +538,14 @@ end
     #         available = true,
     #         active_power_flow = 0.0,
     #         reactive_power_flow = 0.0,
-    #         r = get_r(line, PSY.SU),
-    #         x = get_r(line, PSY.SU),
+    #         r = get_r(line, u"SU"),
+    #         x = get_r(line, u"SU"),
     #         primary_shunt = 0.0,
     #         tap = 1.0,
     #         α = 0.0,
-    #         rating = get_rating(line, PSY.SU),
+    #         rating = get_rating(line, u"SU"),
     #         arc = get_arc(line),
-    #         base_power = get_base_power(system, PSY.NU),
+    #         base_power = get_base_power(system, u"NU"),
     #     )
     #
     #     add_component!(system, ps)
@@ -575,7 +572,7 @@ end
     #         FlowActivePowerVariable,
     #         TwoWindingTransformer,
     #         "1",
-    #         get_rating(ps, PSY.SU),
+    #         get_rating(ps, u"SU"),
     #     )
     #
     #     @test check_flow_variable_values(
@@ -599,8 +596,8 @@ end
     system = PSB.build_system(PSITestSystems, "c_sys14_dc")
 
     hvdc_line = PSY.get_component(TwoTerminalGenericHVDCLine, system, "DCLine3")
-    limits_from = PSY.get_active_power_limits_from(hvdc_line, PSY.SU)
-    limits_to = PSY.get_active_power_limits_to(hvdc_line, PSY.SU)
+    limits_from = POM._hvdc_from_limits(hvdc_line)
+    limits_to = POM._hvdc_to_limits(hvdc_line)
     limits_min = min(limits_from.min, limits_to.min)
     limits_max = min(limits_from.max, limits_to.max)
 
@@ -673,7 +670,7 @@ end
 @testset "Test Line and Monitored Line models with slacks" begin
     system = PSB.build_system(PSITestSystems, "c_sys5_ml")
     # This rating (0.247479) was previously inferred in PSY.check_component after setting the rating to 0.0 in the tests
-    set_rating!(PSY.get_component(Line, system, "2"), 0.247479 * PSY.SU)
+    set_rating!(PSY.get_component(Line, system, "2"), 0.247479 * u"SU")
     for (model, optimizer) in NETWORKS_FOR_TESTING
         # CopperPlate no-ops branch construction, so slack variables won't exist
         model == CopperPlateNetworkModel && continue
@@ -681,10 +678,6 @@ end
             NetworkModel(model; use_slacks = true),
         )
         set_device_model!(template, DeviceModel(Line, StaticBranch; use_slacks = true))
-        set_device_model!(
-            template,
-            DeviceModel(MonitoredLine, StaticBranch; use_slacks = true),
-        )
         model_m = DecisionModel(template, system; optimizer = optimizer)
         @test build!(model_m; output_dir = mktempdir(; cleanup = true)) ==
               IOM.ModelBuildStatus.BUILT
@@ -703,10 +696,6 @@ end
         NetworkModel(PTDFNetworkModel; use_slacks = true),
     )
     set_device_model!(template, DeviceModel(Line, StaticBranchBounds; use_slacks = true))
-    set_device_model!(
-        template,
-        DeviceModel(MonitoredLine, StaticBranchBounds; use_slacks = true),
-    )
     model_m = DecisionModel(template, system; optimizer = fast_ipopt_optimizer)
     @test build!(
         model_m;
@@ -728,10 +717,6 @@ end
         NetworkModel(PTDFNetworkModel; use_slacks = true),
     )
     set_device_model!(template, DeviceModel(Line, StaticBranch; use_slacks = true))
-    set_device_model!(
-        template,
-        DeviceModel(MonitoredLine, StaticBranch; use_slacks = true),
-    )
     model_m = DecisionModel(template, system; optimizer = fast_ipopt_optimizer)
     @test build!(model_m; output_dir = mktempdir(; cleanup = true)) ==
           IOM.ModelBuildStatus.BUILT
@@ -752,7 +737,7 @@ end
     busD = PSY.get_component(ACBus, system, "nodeD")
     # Create a new bus for the tertiary winding (connected via transformer to Bus 4)
     new_bus1 = ACBus(;
-        input_basis = PSY.CU,
+        input_basis = u"CU",
         number = 101,
         name = "Bus3WT_1",
         available = true,
@@ -767,7 +752,7 @@ end
     PSY.add_component!(system, new_bus1)
 
     new_bus2 = ACBus(;
-        input_basis = PSY.CU,
+        input_basis = u"CU",
         number = 102,
         name = "Bus3WT_2",
         available = true,
@@ -791,7 +776,7 @@ end
         base_power = 100.0,
         max_active_power = 0.5,
         max_reactive_power = 0.1,
-        input_basis = CU,
+        input_basis = u"CU",
     )
     PSY.add_component!(system, new_load)
 
@@ -817,13 +802,13 @@ end
         ),
         base_power = 100.0,
         time_limits = nothing,
-        input_basis = CU,
+        input_basis = u"CU",
     )
     PSY.add_component!(system, new_gen)
 
     # Create a star bus for the ThreeWindingTransformer
     star_bus = ACBus(;
-        input_basis = PSY.CU,
+        input_basis = u"CU",
         number = 103,
         name = "Star_Bus_T3W",
         available = true,
@@ -847,7 +832,7 @@ end
             x = 0.1,
             rating = 1.0,
             base_power = 100.0,
-            input_basis = CU,
+            input_basis = u"CU",
         ),
         secondary_circuit = PSY.TransformerCircuit(;
             available = true,
@@ -856,7 +841,7 @@ end
             x = 0.1,
             rating = 1.0,
             base_power = 100.0,
-            input_basis = CU,
+            input_basis = u"CU",
         ),
         tertiary_circuit = PSY.TransformerCircuit(;
             available = true,
@@ -865,10 +850,10 @@ end
             x = 0.1,
             rating = 0.5,
             base_power = 100.0,
-            input_basis = CU,
+            input_basis = u"CU",
         ),
         star_bus = star_bus,
-        input_basis = CU,
+        input_basis = u"CU",
     )
     PSY.add_component!(system, transformer3w)
 
@@ -880,7 +865,6 @@ end
         )
         # Set device model for ThreeWindingTransformer
         set_device_model!(template, DeviceModel(ThreeWindingTransformer, StaticBranch))
-        set_device_model!(template, MonitoredLine, StaticBranch)
 
         model_m = DecisionModel(template, system; optimizer = HiGHS_optimizer)
         @test build!(model_m; output_dir = mktempdir(; cleanup = true)) ==
@@ -899,7 +883,7 @@ end
             FlowActivePowerVariable,
             ThreeWindingTransformer,
             "ThreeWindingTransformer_busD_winding_3",
-            PSY.get_rating(PSY.get_tertiary_circuit(transformer), PSY.SU),
+            PSY.get_rating(PSY.get_tertiary_circuit(transformer), u"SU"),
         )
     end
 
@@ -916,25 +900,25 @@ end
 # are the keys; `get_removed_buses` is unrelated to zero-impedance coalescing here.
 _bus_merged_away(nrd, b) = any(b in s for s in values(PNM.get_bus_reduction_map(nrd)))
 
-# A zero-impedance `MonitoredLine` is merged away by the reduction. With
+# A zero-impedance `Line` is merged away by the reduction. With
 # `model_all_branches = true` its buses are pinned so it survives and is modeled;
 # with the default `false` it is reduced away and its (sole-of-type) DeviceModel is
 # pruned. Both build; only the flow-rate constraint differs.
-@testset "MonitoredLine model_all_branches retains zero-impedance branch" begin
+@testset "Line model_all_branches retains zero-impedance branch" begin
     function _build_zib_monitored_line(model_all_branches)
         sys = PSB.build_system(PSITestSystems, "c_sys5_ml")
-        # Force MonitoredLine "1" to be zero-impedance: r == 0 and a tiny reactance
+        # Force Line "1" to be zero-impedance: r == 0 and a tiny reactance
         # push it above the zero-impedance threshold, so the reduction merges its
         # endpoints unless they are pinned irreducible.
-        ml = PSY.get_component(MonitoredLine, sys, "1")
-        PSY.set_r!(ml, 0.0 * PSY.SU)
-        PSY.set_x!(ml, 1e-5 * PSY.SU)
+        ml = PSY.get_component(Line, sys, "1")
+        PSY.set_r!(ml, 0.0 * u"SU")
+        PSY.set_x!(ml, 1e-5 * u"SU")
         # The default network source builds a VirtualPTDF, so the reduction runs.
         template = get_thermal_dispatch_template_network(NetworkModel(PTDFNetworkModel))
         set_device_model!(
             template,
             DeviceModel(
-                MonitoredLine,
+                Line,
                 StaticBranch;
                 attributes = Dict{String, Any}(
                     "model_all_branches" => model_all_branches,
@@ -947,7 +931,7 @@ _bus_merged_away(nrd, b) = any(b in s for s in values(PNM.get_bus_reduction_map(
     end
 
     # The attribute defaults to false.
-    default_model = DeviceModel(MonitoredLine, StaticBranch)
+    default_model = DeviceModel(Line, StaticBranch)
     @test POM.get_attribute(default_model, "model_all_branches") == false
 
     # true: line retained, build succeeds, buses not merged, line modeled.
@@ -960,23 +944,23 @@ _bus_merged_away(nrd, b) = any(b in s for s in values(PNM.get_bus_reduction_map(
     nrd = PNM.get_network_reduction_data(IOM.get_network_matrix(nm))
     @test !_bus_merged_away(nrd, from_bus)
     @test !_bus_merged_away(nrd, to_bus)
-    @test haskey(IOM.get_branch_models(IOM.get_template(model)), :MonitoredLine)
+    @test haskey(IOM.get_branch_models(IOM.get_template(model)), :Line)
     container = IOM.get_optimization_container(model)
-    @test IOM.has_container_key(container, FlowRateConstraint, MonitoredLine, "ub")
+    @test IOM.has_container_key(container, FlowRateConstraint, Line, "ub")
 
     # false (default): line reduced away, its sole-of-type DeviceModel pruned,
-    # build succeeds with no MonitoredLine flow-rate constraint.
+    # build succeeds with no Line flow-rate constraint.
     model_default, ml_default, status_default = _build_zib_monitored_line(false)
     @test status_default == IOM.ModelBuildStatus.BUILT
     nm_d = IOM.get_network_model(IOM.get_template(model_default))
     nrd_d = PNM.get_network_reduction_data(IOM.get_network_matrix(nm_d))
     @test _bus_merged_away(nrd_d, PSY.get_number(PSY.get_to(PSY.get_arc(ml_default))))
-    @test !haskey(IOM.get_branch_models(IOM.get_template(model_default)), :MonitoredLine)
+    @test !haskey(IOM.get_branch_models(IOM.get_template(model_default)), :Line)
     container_default = IOM.get_optimization_container(model_default)
     @test !IOM.has_container_key(
         container_default,
         FlowRateConstraint,
-        MonitoredLine,
+        Line,
         "ub",
     )
 end
@@ -986,24 +970,24 @@ end
 # Whereas a fully-reduced type is pruned, here the reduced line is silently unmodeled,
 # so the build must still succeed and emit an actionable warning that names the line
 # and points the user at `model_all_branches`.
-@testset "MonitoredLine partial reduction warns and drops only the reduced line" begin
+@testset "Line partial reduction warns and drops only the reduced line" begin
     sys = PSB.build_system(PSITestSystems, "c_sys5_ml")
-    # MonitoredLine "1" forced near-zero impedance so the reduction merges it away.
-    ml = PSY.get_component(MonitoredLine, sys, "1")
-    PSY.set_r!(ml, 0.0 * PSY.SU)
-    PSY.set_x!(ml, 1e-5 * PSY.SU)
-    # A second MonitoredLine (converted from a healthy Line) keeps the type non-empty.
+    # Line "1" forced near-zero impedance so the reduction merges it away.
+    ml = PSY.get_component(Line, sys, "1")
+    PSY.set_r!(ml, 0.0 * u"SU")
+    PSY.set_x!(ml, 1e-5 * u"SU")
+    # A second Line (converted from a healthy Line) keeps the type non-empty.
     line = first(PSY.get_components(Line, sys))
     survivor = PSY.get_name(line)
     PSY.convert_component!(
         sys,
         line,
-        MonitoredLine;
+        Line;
         flow_limits = (from_to = 1.0, to_from = 1.0),
     )
 
     template = get_thermal_dispatch_template_network(NetworkModel(PTDFNetworkModel))
-    set_device_model!(template, DeviceModel(MonitoredLine, StaticBranch))
+    set_device_model!(template, DeviceModel(Line, StaticBranch))
     model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
     output_dir = mktempdir(; cleanup = true)
     @test build!(model; output_dir = output_dir) == IOM.ModelBuildStatus.BUILT
@@ -1012,7 +996,7 @@ end
     container = IOM.get_optimization_container(model)
     constraint_names = axes(
         IOM.get_constraints(container)[IOM.ConstraintKey(
-            FlowRateConstraint, MonitoredLine, "ub",
+            FlowRateConstraint, Line, "ub",
         )],
     )[1]
     @test survivor in constraint_names
@@ -1020,13 +1004,13 @@ end
 
     # The drop is reported with an actionable warning naming the line.
     log_contents = read(joinpath(output_dir, "operation_problem.log"), String)
-    @test occursin("MonitoredLine(s) [\"1\"]", log_contents)
+    @test occursin("Line(s) [\"1\"]", log_contents)
     @test occursin("model_all_branches", log_contents)
 end
 
 # Guards the system-base assumption behind `branch_rating`/`min_max_flow_limits`
 # (AC_branches.jl): POM consumes the PNM rating aggregators as system-base values, while
-# `PNM.get_equivalent_rating` reads the device-base (`PSY.CU`) rating leaf. For AC branches
+# `PNM.get_equivalent_rating` reads the device-base (`u"CU"`) rating leaf. For AC branches
 # device base equals system base, so the two agree; this locks that invariant so a future
 # PSY change introducing a per-branch base surfaces here instead of silently mis-bounding
 # branch flows against the system-base `FlowActivePowerVariable` bounds.
@@ -1066,7 +1050,7 @@ end
     ac_tf = IOM.get_constraint(container, IOM.ConstraintKey(FlowRateConstraintToFrom, Line))
     for name in axes(ac_ft, 1)
         line = get_component(Line, sys, name)
-        expected = POM._rate_rhs_squared(PSY.get_rating(line, PSY.SU))
+        expected = POM._rate_rhs_squared(PSY.get_rating(line, u"SU"))
         for t in axes(ac_ft, 2)
             @test isapprox(JuMP.normalized_rhs(ac_ft[name, t]), expected; rtol = 1e-8)
             @test isapprox(JuMP.normalized_rhs(ac_tf[name, t]), expected; rtol = 1e-8)
@@ -1104,7 +1088,7 @@ end
     # rating_factor, so the builder output must equal the sampled squared RHS.
     n_rating = length(rating_factors)
     for name in branches_with_rating_ts
-        static_rating = PSY.get_rating(get_component(Line, sys_ts, name), PSY.SU)
+        static_rating = PSY.get_rating(get_component(Line, sys_ts, name), u"SU")
         for (i, t) in enumerate(axes(ac_ft_ts, 2))
             rating_t = static_rating * rating_factors[mod1(i, n_rating)]
             expected = POM._rate_rhs_squared(rating_t)

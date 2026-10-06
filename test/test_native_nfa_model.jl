@@ -12,7 +12,7 @@
     # Transportation model: every line flow respects its rating (system base → MW).
     base = IOM.get_model_base_power(res)
     for line in PSY.get_components(PSY.Line, sys)
-        rate_mw = PSY.get_rating(line, PSY.SU) * base
+        rate_mw = PSY.get_rating(line, u"SU") * base
         col = PSY.get_name(line)
         @test col in names(flow)
         @test all(abs.(flow[!, col]) .<= rate_mw + 1e-4)
@@ -65,7 +65,7 @@ end
     time_steps = IOM.get_time_steps(container)
     for line in PSY.get_components(PSY.Line, sys)
         name = PSY.get_name(line)
-        rate = PSY.get_rating(line, PSY.SU)
+        rate = PSY.get_rating(line, u"SU")
         for t in time_steps
             # A hard variable bound would cap flow at the rating and make the slack dead.
             @test !JuMP.has_upper_bound(flow[name, t])

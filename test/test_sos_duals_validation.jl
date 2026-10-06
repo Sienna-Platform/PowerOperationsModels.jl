@@ -53,7 +53,11 @@ end
     sys = PSB.build_system(PSISystems, "sys10_pjm_ac_dc")
     for ipc in get_components(InterconnectingConverter, sys)
         set_loss_function!(ipc, PSY.LossCurve(QuadraticCurve(0.01, 0.01, 0.0), PSY.CU))
-        set_max_dc_current!(ipc, 2.0 * PSY.SU)
+        # 2.0 pu on the system base, in amperes.
+        set_max_dc_current!(
+            ipc,
+            2.0 * 1000.0 * get_base_power(sys) / get_base_voltage(get_dc_bus(ipc)),
+        )
     end
 
     template = PowerOperationsProblemTemplate(
