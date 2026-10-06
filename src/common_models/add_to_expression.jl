@@ -102,8 +102,8 @@ Constant device power for a `StaticPowerLoad`-style injection. Active vs reactiv
 already encoded in the balance-expression type, so it is resolved by dispatch rather than
 by passing a getter.
 """
-_constant_power(::Type{<:ActivePowerBalance}, d) = PSY.get_active_power(d, PSY.SU)
-_constant_power(::Type{<:ReactivePowerBalance}, d) = PSY.get_reactive_power(d, PSY.SU)
+_constant_power(::Type{<:ActivePowerBalance}, d) = PSY.get_active_power(d, u"SU")
+_constant_power(::Type{<:ReactivePowerBalance}, d) = PSY.get_reactive_power(d, u"SU")
 
 """
 Add a device variable to a balance expression for any network model. Targets come from
@@ -152,7 +152,7 @@ function _add_pmin_scaled_on_to_balance!(
     for d in devices
         targets = _balance_expression_targets(container, T, network_model, d)
         name = PSY.get_name(d)
-        multiplier = PSY.get_active_power_limits(d, PSY.SU).min * base_multiplier
+        multiplier = PSY.get_active_power_limits(d, u"SU").min * base_multiplier
         if _is_must_run(d)
             # On ≡ 1 for must-run units, so the term is the constant p_min * mult.
             for t in time_steps
@@ -188,7 +188,7 @@ function _add_compact_on_to_balance!(
     for d in devices
         targets = _balance_expression_targets(container, T, network_model, d)
         name = PSY.get_name(d)
-        multiplier = PSY.get_active_power_limits(d, PSY.SU).min * base_multiplier
+        multiplier = PSY.get_active_power_limits(d, u"SU").min * base_multiplier
         if _is_must_run(d)
             # On ≡ 1 for must-run units, so the term is the constant p_min * mult.
             for t in time_steps
@@ -1688,12 +1688,12 @@ function add_to_expression!(
         for t in time_steps
             add_proportional_to_jump_expression!(
                 sys_expr[ref_index, t],
-                PSY.get_active_power(d, PSY.SU),
+                PSY.get_active_power(d, u"SU"),
                 -1.0,
             )
             add_proportional_to_jump_expression!(
                 nodal_expr[bus_no, t],
-                PSY.get_active_power(d, PSY.SU),
+                PSY.get_active_power(d, u"SU"),
                 -1.0,
             )
         end
@@ -2863,7 +2863,7 @@ function add_to_expression!(
         var_cost = _get_cost_if_exists(PSY.get_operation_cost(d))
         _is_fuel_curve(var_cost) || continue
         name = PSY.get_name(d)
-        device_base_power = PSY.get_base_power(d, PSY.NU)
+        device_base_power = PSY.get_base_power(d, u"NU")
         value_curve = PSY.get_value_curve(var_cost)
         _add_fuel_consumption_term!(
             container, V, variable, name, var_cost, value_curve,
@@ -2889,7 +2889,7 @@ function _add_compact_fuel_consumption_term!(
     time_steps,
 ) where {V <: PSY.ThermalGen, W <: AbstractDeviceFormulation}
     name = PSY.get_name(d)
-    P_min = PSY.get_active_power_limits(d, PSY.SU).min
+    P_min = PSY.get_active_power_limits(d, u"SU").min
     power_units = PSY.get_power_units(var_cost)
     proportional_term = PSY.get_proportional_term(value_curve)
     prop_term_per_unit = get_proportional_cost_per_system_unit(
@@ -2950,7 +2950,7 @@ function add_to_expression!(
         var_cost = _get_cost_if_exists(PSY.get_operation_cost(d))
         _is_fuel_curve(var_cost) || continue
         expression = get_expression(container, T, V)
-        device_base_power = PSY.get_base_power(d, PSY.NU)
+        device_base_power = PSY.get_base_power(d, u"NU")
         value_curve = PSY.get_value_curve(var_cost)
         _add_compact_fuel_consumption_term!(
             container, W, expression, variable, d, var_cost, value_curve,

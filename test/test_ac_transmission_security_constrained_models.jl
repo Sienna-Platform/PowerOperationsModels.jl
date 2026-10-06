@@ -1541,9 +1541,9 @@ end
     # delegation refactor to PNM.get_equivalent_emergency_rating stays a no-op on values.
     sys = PSB.build_system(PSITestSystems, "c_sys5")
     line = first(PSY.get_components(PSY.Line, sys))
-    PSY.set_rating_b!(line, 0.9 * PSY.SU)
+    PSY.set_rating_b!(line, 0.9 * u"SU")
     lim = POM._emergency_flow_limits(line)
-    rb = PSY.get_rating_b(line, PSY.SU)
+    rb = PSY.get_rating_b(line, u"SU")
     @test lim.max ≈ rb
     @test lim.min ≈ -rb
 end
@@ -1782,7 +1782,7 @@ function _pc_rating_ts_system()
     lines_with_ts = ["Line1", "Line2", "Line6", "Trans1"]
     for name in lines_with_ts
         line = PSY.get_component(PSY.ACTransmission, sys, name)
-        _set_rating_b!(line, (1.2 * branch_rating_su(line)) * PSY.SU)
+        _set_rating_b!(line, (1.2 * branch_rating_su(line)) * u"SU")
     end
     add_branch_rating_time_series_to_system!(
         sys, lines_with_ts, 2, _PC_RATING_FACTORS;
@@ -1918,7 +1918,7 @@ end
     branches_with_ts = ["Line1", "Line2"]
     for name in branches_with_ts
         branch = PSY.get_component(PSY.ACTransmission, sys, name)
-        _set_rating_b!(branch, (1.2 * branch_rating_su(branch)) * PSY.SU)
+        _set_rating_b!(branch, (1.2 * branch_rating_su(branch)) * u"SU")
     end
     add_branch_rating_time_series_to_system!(
         sys, branches_with_ts, 2, _PC_RATING_FACTORS;

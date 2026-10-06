@@ -271,14 +271,14 @@ DeviceModel(
 ```
 
 With the attribute set, each `PSY.TransformerCircuit` whose `control_objective` POM models
-gets a continuous [`TapRatioVariable`](@ref) bounded by the circuit's `control_limits`,
+gets a continuous [`TapRatioVariable`](@ref) bounded by the circuit's `tap_ratio_limits`,
 which enters the AC flow equations in place of the fixed `tap`. Control is per circuit, so
 each winding of a `ThreeWindingTransformer` is controlled independently.
 
-| `control_objective`   | Constraint added                             | Regulated quantity                                                                                         |
-|:--------------------- |:-------------------------------------------- |:---------------------------------------------------------------------------------------------------------- |
-| `VOLTAGE`             | [`VoltageControlConstraint`](@ref)           | voltage magnitude at `regulated_bus_number`, banded by `controlled_quantity_limits`                        |
-| `REACTIVE_POWER_FLOW` | [`ReactivePowerFlowControlConstraint`](@ref) | `FlowReactivePowerFromToVariable` at the circuit's winding-one bus, banded by `controlled_quantity_limits` |
+| `control_objective`   | Constraint added                             | Regulated quantity                                                                                                    |
+|:--------------------- |:-------------------------------------------- |:--------------------------------------------------------------------------------------------------------------------- |
+| `VOLTAGE`             | [`VoltageControlConstraint`](@ref)           | voltage magnitude at `regulated_bus_number`, banded by `controlled_voltage_limits`                                    |
+| `REACTIVE_POWER_FLOW` | [`ReactivePowerFlowControlConstraint`](@ref) | `FlowReactivePowerFromToVariable` at the circuit's winding-one bus, banded by `controlled_reactive_power_flow_limits` |
 
 Every other `TransformerControlObjective` is inert. `UNDEFINED` (the field default),
 `FIXED` and the `*_DISABLED` codes are treated as "no control block" and pass silently; the
@@ -620,6 +620,20 @@ cannot contribute to a reserve.
 Service `meta` strings are **per-instance**, not a fixed vocabulary: every reserve container is
 keyed by the service's own name (`meta = get_service_name(model)`). The only fixed metas here are
 `"ub"`/`"lb"` on `InterfaceFlowLimit`.
+
+### Offline reserves
+
+For thermal unit commitment and `HydroCommitmentRunOfRiver`, `OfflineReserve` awards stay out of `ActivePowerRangeExpressionUB` and enter [`OfflineReserveBandConstraint`](@ref PowerOperationsModels.OfflineReserveBandConstraint), so a unit that is off supplies them up to the time step's available maximum ``\bar{P}_t``: the `ActivePowerTimeSeriesParameter` when the `DeviceModel` maps it and the device has that series, the static ``P^\text{max}`` otherwise.
+Two `OfflineReserve` `ServiceModel` attributes, both `false` by default, tighten an off-line award ``r_t``:
+
+| Attribute                         | Row                                                                                                                                                                                                     |
+|:--------------------------------- |:------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `"offline_only" => true`          | [`OfflineReserveOffStateConstraint`](@ref PowerOperationsModels.OfflineReserveOffStateConstraint): ``r_t \le P^\text{max} (1 - u_t)``                                                                   |
+| `"exclude_shutdown_step" => true` | [`OfflineReserveShutdownConstraint`](@ref PowerOperationsModels.OfflineReserveShutdownConstraint): ``r_t \le P^\text{max} (1 - u_{t-1} + u_t)``, with ``u_0`` from the `DeviceStatus` initial condition |
+
+Every right-hand side is non-negative, so zero off-line awards always satisfy the rows.
+Must-run thermal units never go off and get no shutdown-step row; `HydroCommitmentRunOfRiver` carries a `DeviceStatus` initial condition only under `"exclude_shutdown_step"`.
+Other formulations book `OfflineReserve` awards against their headroom and get none of these rows.
 
 !!! note "AGC is not available"
     

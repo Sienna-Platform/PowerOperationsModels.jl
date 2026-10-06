@@ -2830,8 +2830,8 @@ function construct_device!(
     v_t_var = get_variable(container, HVDCToDCVoltage, PSY.TwoTerminalVSCLine)
     i_var = get_variable(container, DCLineCurrentFlowVariable, PSY.TwoTerminalVSCLine)
 
-    v_f_bounds = PSY.get_voltage_limits_from.(devices)
-    v_t_bounds = PSY.get_voltage_limits_to.(devices)
+    v_f_bounds = _vsc_voltage_limits_from_su.(devices)
+    v_t_bounds = _vsc_voltage_limits_to_su.(devices)
     i_bounds = [
         (min = -_vsc_cable_i_max(d), max = _vsc_cable_i_max(d)) for d in devices
     ]

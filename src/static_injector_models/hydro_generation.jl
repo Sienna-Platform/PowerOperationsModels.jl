@@ -23,18 +23,18 @@ offline_reserve_in_range_ub(::Type{HydroCommitmentRunOfRiver}) = false
 ########################### ActivePowerVariable, HydroGen #################################
 # These methods are defined in PowerSimulations
 get_variable_binary(::Type{ActivePowerVariable}, ::Type{<:PSY.HydroGen}, ::Type{<:AbstractHydroFormulation}) = false
-get_variable_warm_start_value(::Type{ActivePowerVariable}, d::PSY.HydroGen, ::Type{<:AbstractHydroReservoirFormulation}) = PSY.get_active_power(d, PSY.SU)
-get_variable_lower_bound(::Type{ActivePowerVariable}, d::PSY.HydroGen, ::Type{<:AbstractHydroFormulation}) = PSY.get_active_power_limits(d, PSY.SU).min
+get_variable_warm_start_value(::Type{ActivePowerVariable}, d::PSY.HydroGen, ::Type{<:AbstractHydroReservoirFormulation}) = PSY.get_active_power(d, u"SU")
+get_variable_lower_bound(::Type{ActivePowerVariable}, d::PSY.HydroGen, ::Type{<:AbstractHydroFormulation}) = PSY.get_active_power_limits(d, u"SU").min
 get_variable_lower_bound(::Type{ActivePowerVariable}, d::PSY.HydroGen, ::Type{<:AbstractHydroUnitCommitment}) = 0.0
-get_variable_upper_bound(::Type{ActivePowerVariable}, d::PSY.HydroGen, ::Type{<:AbstractHydroFormulation}) = PSY.get_active_power_limits(d, PSY.SU).max
+get_variable_upper_bound(::Type{ActivePowerVariable}, d::PSY.HydroGen, ::Type{<:AbstractHydroFormulation}) = PSY.get_active_power_limits(d, u"SU").max
 
 ############## ReactivePowerVariable, HydroGen ####################
 get_variable_binary(::Type{ReactivePowerVariable}, ::Type{<:PSY.HydroGen}, ::Type{<:AbstractHydroDispatchFormulation}) = false
 get_variable_binary(::Type{ReactivePowerVariable}, ::Type{<:PSY.HydroGen}, ::Type{<:AbstractHydroReservoirFormulation}) = false
 get_variable_binary(::Type{ReactivePowerVariable}, ::Type{<:PSY.HydroGen}, ::Type{<:AbstractHydroUnitCommitment}) = false
-get_variable_warm_start_value(::Type{ReactivePowerVariable}, d::PSY.HydroGen, ::Type{<:AbstractHydroReservoirFormulation}) = PSY.get_active_power(d, PSY.SU)
-get_variable_lower_bound(::Type{ReactivePowerVariable}, d::PSY.HydroGen, ::Type{<:AbstractHydroReservoirFormulation}) = PSY.get_active_power_limits(d, PSY.SU).min
-get_variable_upper_bound(::Type{ReactivePowerVariable}, d::PSY.HydroGen, ::Type{<:AbstractHydroReservoirFormulation}) = PSY.get_active_power_limits(d, PSY.SU).max
+get_variable_warm_start_value(::Type{ReactivePowerVariable}, d::PSY.HydroGen, ::Type{<:AbstractHydroReservoirFormulation}) = PSY.get_active_power(d, u"SU")
+get_variable_lower_bound(::Type{ReactivePowerVariable}, d::PSY.HydroGen, ::Type{<:AbstractHydroReservoirFormulation}) = PSY.get_active_power_limits(d, u"SU").min
+get_variable_upper_bound(::Type{ReactivePowerVariable}, d::PSY.HydroGen, ::Type{<:AbstractHydroReservoirFormulation}) = PSY.get_active_power_limits(d, u"SU").max
 
 # EnergyVariable is no longer modeled on HydroGen: PSY6 moved reservoir/energy state
 # off the generator and onto the HydroReservoir component, so these getters
@@ -57,7 +57,7 @@ get_variable_multiplier(::Type{ActivePowerOutVariable}, d::Type{<:PSY.HydroGen},
 # These methods are defined in PowerSimulations
 get_variable_binary(::Type{OnVariable}, ::Type{<:PSY.HydroGen}, ::Type{<:AbstractHydroReservoirFormulation}) = true
 get_variable_binary(::Type{OnVariable}, ::Type{<:PSY.HydroGen}, ::Type{<:AbstractHydroUnitCommitment}) = true
-get_variable_warm_start_value(::Type{OnVariable}, d::PSY.HydroGen, ::Type{<:AbstractHydroReservoirFormulation}) = PSY.get_active_power(d, PSY.SU) > 0 ? 1.0 : 0.0
+get_variable_warm_start_value(::Type{OnVariable}, d::PSY.HydroGen, ::Type{<:AbstractHydroReservoirFormulation}) = PSY.get_active_power(d, u"SU") > 0 ? 1.0 : 0.0
 
 ############## WaterSpillageVariable, HydroGen ####################
 get_variable_binary(::Type{WaterSpillageVariable}, ::Type{<:PSY.HydroGen}, ::Type{<:AbstractHydroFormulation}) = false
@@ -112,18 +112,18 @@ get_variable_binary(::Type{OnVariable}, ::Type{<:PSY.HydroPumpTurbine}, ::Type{H
 
 # ActivePowerVariable
 get_variable_binary(::Type{ActivePowerVariable}, ::Type{<:PSY.HydroPumpTurbine}, ::Type{<:AbstractHydroPumpFormulation}) = false
-get_variable_lower_bound(::Type{ActivePowerVariable}, d::PSY.HydroPumpTurbine, ::Type{<:AbstractHydroPumpFormulation}) = PSY.get_active_power_limits(d, PSY.SU).min
+get_variable_lower_bound(::Type{ActivePowerVariable}, d::PSY.HydroPumpTurbine, ::Type{<:AbstractHydroPumpFormulation}) = PSY.get_active_power_limits(d, u"SU").min
 get_variable_lower_bound(::Type{ActivePowerVariable}, d::PSY.HydroPumpTurbine, ::Type{HydroPumpEnergyCommitment}) = 0.0
-get_variable_upper_bound(::Type{ActivePowerVariable}, d::PSY.HydroPumpTurbine, ::Type{<:AbstractHydroPumpFormulation}) = PSY.get_active_power_limits(d, PSY.SU).max
+get_variable_upper_bound(::Type{ActivePowerVariable}, d::PSY.HydroPumpTurbine, ::Type{<:AbstractHydroPumpFormulation}) = PSY.get_active_power_limits(d, u"SU").max
 # ActivePowerPumpVariable
 get_variable_binary(::Type{ActivePowerPumpVariable}, ::Type{<:PSY.HydroPumpTurbine}, ::Type{<:AbstractHydroPumpFormulation}) = false
-get_variable_lower_bound(::Type{ActivePowerPumpVariable}, d::PSY.HydroPumpTurbine, ::Type{<:AbstractHydroPumpFormulation}) = PSY.get_active_power_limits_pump(d, PSY.SU).min
+get_variable_lower_bound(::Type{ActivePowerPumpVariable}, d::PSY.HydroPumpTurbine, ::Type{<:AbstractHydroPumpFormulation}) = PSY.get_active_power_limits_pump(d, u"SU").min
 get_variable_lower_bound(::Type{ActivePowerPumpVariable}, d::PSY.HydroPumpTurbine, ::Type{HydroPumpEnergyCommitment}) = 0.0
-get_variable_upper_bound(::Type{ActivePowerPumpVariable}, d::PSY.HydroPumpTurbine, ::Type{<:AbstractHydroPumpFormulation}) = PSY.get_active_power_limits_pump(d, PSY.SU).max
+get_variable_upper_bound(::Type{ActivePowerPumpVariable}, d::PSY.HydroPumpTurbine, ::Type{<:AbstractHydroPumpFormulation}) = PSY.get_active_power_limits_pump(d, u"SU").max
 # ReactivePowerVariable
 get_variable_binary(::Type{ReactivePowerVariable}, ::Type{<:PSY.HydroPumpTurbine}, ::Type{<:AbstractHydroPumpFormulation}) = false
-get_variable_lower_bound(::Type{ReactivePowerVariable}, d::PSY.HydroPumpTurbine, ::Type{<:AbstractHydroPumpFormulation}) = PSY.get_reactive_power_limits(d, PSY.SU).min
-get_variable_upper_bound(::Type{ReactivePowerVariable}, d::PSY.HydroPumpTurbine, ::Type{<:AbstractHydroPumpFormulation}) = PSY.get_reactive_power_limits(d, PSY.SU).max
+get_variable_lower_bound(::Type{ReactivePowerVariable}, d::PSY.HydroPumpTurbine, ::Type{<:AbstractHydroPumpFormulation}) = PSY.get_reactive_power_limits(d, u"SU").min
+get_variable_upper_bound(::Type{ReactivePowerVariable}, d::PSY.HydroPumpTurbine, ::Type{<:AbstractHydroPumpFormulation}) = PSY.get_reactive_power_limits(d, u"SU").max
 
 
 ############## EnergyShortageVariable, HydroReservoir ####################
@@ -199,8 +199,8 @@ function get_variable_lower_bound(::Type{HydroReservoirVolumeVariable}, d::PSY.H
 end
 
 ########################### Parameter related set functions ################################
-get_multiplier_value(::Type{EnergyBudgetTimeSeriesParameter}, d::PSY.HydroGen, ::Type{<:AbstractHydroFormulation}) = PSY.get_max_active_power(d, PSY.SU)
-# get_multiplier_value(::EnergyBudgetTimeSeriesParameter, d::PSY.HydroEnergyReservoir, ::AbstractHydroFormulation) = PSY.get_storage_capacity(d, PSY.SU)
+get_multiplier_value(::Type{EnergyBudgetTimeSeriesParameter}, d::PSY.HydroGen, ::Type{<:AbstractHydroFormulation}) = PSY.get_max_active_power(d, u"SU")
+# get_multiplier_value(::EnergyBudgetTimeSeriesParameter, d::PSY.HydroEnergyReservoir, ::AbstractHydroFormulation) = PSY.get_storage_capacity(d, u"SU")
 get_multiplier_value(::Type{EnergyBudgetTimeSeriesParameter}, d::PSY.HydroReservoir, ::Type{HydroEnergyModelReservoir}) = PSY.get_storage_level_limits(d).max / PSY._get_system_base_power(d)
 get_multiplier_value(::Type{WaterBudgetTimeSeriesParameter}, d::PSY.HydroReservoir, ::Type{HydroWaterModelReservoir}) = 1.0 # Data already in m3/s
 # EnergyTargetTimeSeriesParameter is added only for HydroReservoir (HydroEnergyModelReservoir);
@@ -214,8 +214,8 @@ get_multiplier_value(::Type{InflowTimeSeriesParameter}, d::PSY.HydroReservoir, :
 get_multiplier_value(::Type{OutflowTimeSeriesParameter}, d::PSY.HydroReservoir, ::Type{<:AbstractHydroFormulation}) = 1.0 # Data already in m3/s
 get_multiplier_value(::Type{InflowTimeSeriesParameter}, d::PSY.HydroReservoir, ::Type{HydroEnergyModelReservoir}) = PSY.get_inflow(d) # Data normalized
 get_multiplier_value(::Type{InflowTimeSeriesParameter}, d::PSY.HydroReservoir, ::Type{HydroWaterFactorModel}) = PSY.get_inflow(d)
-get_multiplier_value(::Type{<:TimeSeriesParameter}, d::PSY.HydroGen, ::Type{<:AbstractHydroFormulation}) = PSY.get_max_active_power(d, PSY.SU)
-get_multiplier_value(::Type{<:TimeSeriesParameter}, d::PSY.HydroGen, ::Type{FixedOutput}) = PSY.get_max_active_power(d, PSY.SU)
+get_multiplier_value(::Type{<:TimeSeriesParameter}, d::PSY.HydroGen, ::Type{<:AbstractHydroFormulation}) = PSY.get_max_active_power(d, u"SU")
+get_multiplier_value(::Type{<:TimeSeriesParameter}, d::PSY.HydroGen, ::Type{FixedOutput}) = PSY.get_max_active_power(d, u"SU")
 # next 2 needed to avoid ambiguity errors
 # Market-bid PWL breakpoints are already expressed in system units (like every other
 # device type: PSY.Device's default and the explicit RenewableGen/ElectricLoad/Source
@@ -232,19 +232,22 @@ get_parameter_multiplier(::Type{<:VariableValueParameter}, d::PSY.HydroReservoir
 get_initial_parameter_value(::Type{<:VariableValueParameter}, d::PSY.HydroGen, ::Type{<:AbstractHydroFormulation}) = 1.0
 get_initial_parameter_value(::Type{HydroUsageLimitParameter}, d::PSY.HydroGen, ::Type{<:AbstractHydroFormulation}) = 1e6 #unbounded
 get_initial_parameter_value(::Type{WaterLevelBudgetParameter}, d::PSY.HydroReservoir, ::Type{<:AbstractHydroFormulation}) = 1e6 #unbounded
-get_expression_multiplier(::Type{OnStatusParameter}, ::Type{ActivePowerRangeExpressionUB}, d::PSY.HydroGen, ::Type{<:AbstractHydroFormulation}) = PSY.get_active_power_limits(d, PSY.SU).max
-get_expression_multiplier(::Type{OnStatusParameter}, ::Type{ActivePowerRangeExpressionLB}, d::PSY.HydroGen, ::Type{<:AbstractHydroFormulation}) = PSY.get_active_power_limits(d, PSY.SU).min
+get_expression_multiplier(::Type{OnStatusParameter}, ::Type{ActivePowerRangeExpressionUB}, d::PSY.HydroGen, ::Type{<:AbstractHydroFormulation}) = PSY.get_active_power_limits(d, u"SU").max
+get_expression_multiplier(::Type{OnStatusParameter}, ::Type{ActivePowerRangeExpressionLB}, d::PSY.HydroGen, ::Type{<:AbstractHydroFormulation}) = PSY.get_active_power_limits(d, u"SU").min
 
 #################### Initial Conditions for models ###############
 initial_condition_default(::DeviceStatus, d::PSY.HydroGen, ::AbstractHydroReservoirFormulation) = Float64(is_online(d))
 initial_condition_variable(::DeviceStatus, d::PSY.HydroGen, ::AbstractHydroReservoirFormulation) = OnVariable()
-initial_condition_default(::DevicePower, d::PSY.HydroGen, ::AbstractHydroReservoirFormulation) = PSY.get_active_power(d, PSY.SU)
+initial_condition_default(::DevicePower, d::PSY.HydroGen, ::AbstractHydroReservoirFormulation) = PSY.get_active_power(d, u"SU")
 initial_condition_variable(::DevicePower, d::PSY.HydroGen, ::AbstractHydroReservoirFormulation) = ActivePowerVariable()
 
 initial_condition_default(::InitialTimeDurationOn, d::PSY.HydroGen, ::AbstractHydroReservoirFormulation) = is_online(d) ? PSY.get_time_at_status(d) : 0.0
 initial_condition_variable(::InitialTimeDurationOn, d::PSY.HydroGen, ::AbstractHydroReservoirFormulation) = OnVariable()
 initial_condition_default(::InitialTimeDurationOff, d::PSY.HydroGen, ::AbstractHydroReservoirFormulation) = is_online(d) ? 0.0 : PSY.get_time_at_status(d)
 initial_condition_variable(::InitialTimeDurationOff, d::PSY.HydroGen, ::AbstractHydroReservoirFormulation) = OnVariable()
+# OfflineReserveShutdownConstraint reads the status before the first step (the init solve's, if any).
+initial_condition_default(::DeviceStatus, d::PSY.HydroGen, ::HydroCommitmentRunOfRiver) = Float64(is_online(d))
+initial_condition_variable(::DeviceStatus, d::PSY.HydroGen, ::HydroCommitmentRunOfRiver) = OnVariable()
 
 initial_condition_default(::InitialEnergyLevel, d::PSY.HydroReservoir, ::HydroEnergyModelReservoir) = PSY.get_initial_level(d) * PSY.get_storage_level_limits(d).max / PSY._get_system_base_power(d)
 initial_condition_variable(::InitialEnergyLevel, d::PSY.HydroReservoir, ::HydroEnergyModelReservoir) = EnergyVariable()
@@ -691,6 +694,10 @@ row already caps at `pmax * u`. Off: that row zeroes `p` and the online awards, 
 With `"offline_only" = true` on the `OfflineReserve` `ServiceModel`, an extra
 [`OfflineReserveOffStateConstraint`](@ref) row forbids offline awards while committed:
 `offline <= pmax * (1 - u)`.
+
+With `"exclude_shutdown_step" = true`, [`OfflineReserveShutdownConstraint`](@ref) forbids
+offline awards in the step the unit goes off: `offline <= pmax * (1 - u_{t-1} + u_t)`, with
+`u_0` from the `DeviceStatus` initial condition.
 """
 function add_constraints!(
     container::OptimizationContainer,
@@ -705,15 +712,11 @@ function add_constraints!(
     expression = get_expression(container, ActivePowerRangeExpressionUB, V)
     jump_model = get_jump_model(container)
     varbin = get_variable(container, OnVariable, V)
-    param_container = get_parameter(container, ActivePowerTimeSeriesParameter, V)
-    mult = get_multiplier_array(param_container)
-    ts_name = get_time_series_names(model)[ActivePowerTimeSeriesParameter]
-    ts_type = get_default_time_series_type(container)
     names = [PSY.get_name(d) for d in devices]
     constraint =
         add_constraints_container!(container, T, V, names, time_steps; sparse = true)
     # Extra row for services opted into "offline_only": their award needs the unit off.
-    off_rows = if any(last, offline)
+    off_rows = if any(o -> o[4], offline)
         add_constraints_container!(
             container, OfflineReserveOffStateConstraint, V, names, time_steps;
             sparse = true,
@@ -721,26 +724,41 @@ function add_constraints!(
     else
         nothing
     end
+    # Extra rows for services opted into "exclude_shutdown_step"; the constructor adds the
+    # DeviceStatus they read only under that attribute.
+    shut_rows = if any(o -> o[5], offline)
+        add_constraints_container!(
+            container, OfflineReserveShutdownConstraint, V, names, time_steps;
+            sparse = true,
+        )
+    else
+        nothing
+    end
+    status0 = if isnothing(shut_rows)
+        nothing
+    else
+        _initial_status(container, V)
+    end
     for d in devices
         name = PSY.get_name(d)
-        awards = [(sname, v) for (sname, v, members, _) in offline if name in members]
+        awards = [(sname, v) for (sname, v, members, _, _) in offline if name in members]
         isempty(awards) && continue
-        q_limit = PSY.get_active_power_limits(d, PSY.SU).max
-        param_col = if IS.has_time_series(d, ts_type, ts_name)
-            get_parameter_column_refs(param_container, name)
-        else
-            nothing
-        end
+        q_limit = PSY.get_active_power_limits(d, u"SU").max
+        # The step's limit (static pmax for a unit without the series).
+        limit = _offline_hourly_limit(container, model, d, q_limit)
         off_awards = [
-            (sname, v) for (sname, v, members, only_off) in offline
+            (sname, v) for (sname, v, members, only_off, _) in offline
             if only_off && name in members
         ]
+        shut_awards = [
+            (sname, v) for (sname, v, members, _, no_shut) in offline
+            if no_shut && name in members
+        ]
         for t in time_steps
-            limit = isnothing(param_col) ? q_limit : mult[name, t] * param_col[t]
             constraint[(name, t)] = JuMP.@constraint(
                 jump_model,
                 expression[name, t] +
-                sum(v[(sname, name, t)] for (sname, v) in awards) <= limit
+                sum(v[(sname, name, t)] for (sname, v) in awards) <= limit[t]
             )
             isempty(off_awards) && continue
             # Offline awards need the unit off: q_limit * (1 - u) is 0 once committed.
@@ -750,6 +768,10 @@ function add_constraints!(
                 q_limit * (1 - varbin[name, t])
             )
         end
+        isempty(shut_awards) || _add_offline_shutdown_rows!(
+            shut_rows, jump_model, name, q_limit, shut_awards, varbin,
+            status0[name], time_steps,
+        )
     end
     return
 end
@@ -802,7 +824,7 @@ function get_min_max_limits(
     ::Type{<:ReactivePowerVariableLimitsConstraint},
     ::Type{<:AbstractHydroReservoirFormulation},
 )
-    return PSY.get_reactive_power_limits(x, PSY.SU)
+    return PSY.get_reactive_power_limits(x, u"SU")
 end
 
 function get_min_max_limits(
@@ -810,7 +832,7 @@ function get_min_max_limits(
     ::Type{<:ReactivePowerVariableLimitsConstraint},
     ::Type{<:AbstractHydroDispatchFormulation},
 )
-    return PSY.get_reactive_power_limits(x, PSY.SU)
+    return PSY.get_reactive_power_limits(x, u"SU")
 end
 
 function get_min_max_limits(
@@ -818,7 +840,7 @@ function get_min_max_limits(
     ::Type{<:ReactivePowerVariableLimitsConstraint},
     ::Type{<:AbstractHydroUnitCommitment},
 )
-    return PSY.get_reactive_power_limits(x, PSY.SU)
+    return PSY.get_reactive_power_limits(x, u"SU")
 end
 
 function get_min_max_limits(
@@ -826,7 +848,7 @@ function get_min_max_limits(
     ::Type{<:ActivePowerVariableLimitsConstraint},
     ::Type{<:AbstractHydroFormulation},
 )
-    return PSY.get_active_power_limits(x, PSY.SU)
+    return PSY.get_active_power_limits(x, u"SU")
 end
 
 """
@@ -837,7 +859,7 @@ function get_min_max_limits(
     ::Type{<:ActivePowerVariableLimitsConstraint},
     ::Type{<:AbstractHydroReservoirFormulation},
 )
-    return PSY.get_active_power_limits(x, PSY.SU)
+    return PSY.get_active_power_limits(x, u"SU")
 end
 
 function get_min_max_limits(
@@ -845,7 +867,7 @@ function get_min_max_limits(
     ::Type{<:ActivePowerVariableLimitsConstraint},
     ::Type{<:HydroDispatchRunOfRiver},
 )
-    return (min = 0.0, max = PSY.get_max_active_power(x, PSY.SU))
+    return (min = 0.0, max = PSY.get_max_active_power(x, u"SU"))
 end
 
 """
@@ -856,7 +878,7 @@ function get_min_max_limits(
     ::Type{<:ActivePowerVariableLimitsConstraint},
     ::Type{<:AbstractHydroUnitCommitment},
 )
-    return PSY.get_active_power_limits(x, PSY.SU)
+    return PSY.get_active_power_limits(x, u"SU")
 end
 
 """
@@ -867,7 +889,7 @@ function get_min_max_limits(
     ::Type{<:InputActivePowerVariableLimitsConstraint},
     ::Type{<:AbstractHydroPumpFormulation},
 )
-    return PSY.get_active_power_limits_pump(x, PSY.SU)
+    return PSY.get_active_power_limits_pump(x, u"SU")
 end
 
 """
@@ -878,7 +900,7 @@ function get_min_max_limits(
     ::Type{<:ActivePowerVariableLimitsConstraint},
     ::Type{<:AbstractHydroPumpFormulation},
 )
-    return PSY.get_active_power_limits(x, PSY.SU)
+    return PSY.get_active_power_limits(x, u"SU")
 end
 
 """
@@ -2702,7 +2724,7 @@ get_min_max_limits(
     x::PSY.HydroPumpTurbine,
     ::Type{<:ActivePowerPumpReservationConstraint},
     ::Type{<:AbstractHydroPumpFormulation},
-) = PSY.get_active_power_limits_pump(x, PSY.SU)
+) = PSY.get_active_power_limits_pump(x, u"SU")
 
 """
 Min and max reactive Power Variable limits for hydro pump/turbine formulations.
@@ -2711,7 +2733,7 @@ get_min_max_limits(
     x::PSY.HydroPumpTurbine,
     ::Type{<:ReactivePowerVariableLimitsConstraint},
     ::Type{<:AbstractHydroPumpFormulation},
-) = PSY.get_reactive_power_limits(x, PSY.SU)
+) = PSY.get_reactive_power_limits(x, u"SU")
 
 function add_constraints!(
     container::OptimizationContainer,

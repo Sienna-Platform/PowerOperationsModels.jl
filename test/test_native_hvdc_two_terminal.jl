@@ -16,13 +16,14 @@ function _c_sys5_with_hvdc_tie()
         name = "hvdc_tie",
         available = true,
         active_power_flow = 0.0,
-        active_power_limits_from = (min = -2.0, max = 2.0),
-        active_power_limits_to = (min = -2.0, max = 2.0),
+        rating = 2.0,
+        rating_from = 2.0,
+        rating_to = 2.0,
         reactive_power_limits_from = (min = -1.0, max = 1.0),
         reactive_power_limits_to = (min = -1.0, max = 1.0),
         arc = arc,
         loss = PSY.LossCurve(LinearCurve(0.0), PSY.CU),
-        input_basis = CU,
+        input_basis = u"CU",
     )
     PSY.add_component!(sys, hvdc)
     from_no = PSY.get_number(PSY.get_from(arc))
@@ -42,13 +43,14 @@ function _c_sys5_with_asymmetric_hvdc_tie()
         name = "hvdc_tie",
         available = true,
         active_power_flow = 0.0,
-        active_power_limits_from = (min = -2.0, max = 2.0),
-        active_power_limits_to = (min = -2.0, max = 2.0),
+        rating = 2.0,
+        rating_from = 2.0,
+        rating_to = 2.0,
         reactive_power_limits_from = (min = -0.4, max = 0.9),
         reactive_power_limits_to = (min = -0.7, max = 0.3),
         arc = arc,
         loss = PSY.LossCurve(LinearCurve(0.0), PSY.CU),
-        input_basis = CU,
+        input_basis = u"CU",
     )
     PSY.add_component!(sys, hvdc)
     from_no = PSY.get_number(PSY.get_from(arc))
@@ -64,9 +66,17 @@ function _no_reactive_hvdc(::Type{TwoTerminalVSCLine}, arc)
         arc = arc,
         active_power_flow = 0.0,
         rating = 2.0,
-        active_power_limits_from = (min = -2.0, max = 2.0),
-        active_power_limits_to = (min = -2.0, max = 2.0),
-        input_basis = CU,
+        dc_control_from = VSCDCControlModes.DC_POWER,
+        ac_control_from = VSCACControlModes.AC_REACTIVE_POWER,
+        dc_control_to = VSCDCControlModes.DC_POWER,
+        ac_control_to = VSCACControlModes.AC_REACTIVE_POWER,
+        dc_power_setpoint_from = 0.0,
+        power_factor_setpoint_from = 1.0,
+        dc_power_setpoint_to = 0.0,
+        power_factor_setpoint_to = 1.0,
+        rating_from = 2.0,
+        rating_to = 2.0,
+        input_basis = u"CU",
     )
 end
 
@@ -76,22 +86,25 @@ function _no_reactive_hvdc(::Type{TwoTerminalLCCLine}, arc)
         available = true,
         arc = arc,
         active_power_flow = 0.0,
-        r = 0.01,
-        transfer_setpoint = 1.0,
+        # PSY holds the impedances in ohm: 0.01 pu on (500 kV, 100 MVA).
+        r = 0.01 * 500.0^2 / 100.0,
+        control_mode = LCCControlMode.POWER,
+        power_transfer_setpoint = 1.0,
         scheduled_dc_voltage = 500.0,
         rectifier_bridges = 1,
         rectifier_delay_angle_limits = (min = 0.0, max = 1.5),
-        rectifier_rc = 0.01,
-        rectifier_xc = 0.01,
+        rectifier_rc = 0.01 * 500.0^2 / 100.0,
+        rectifier_xc = 0.01 * 500.0^2 / 100.0,
         rectifier_base_voltage = 500.0,
         inverter_bridges = 1,
         inverter_extinction_angle_limits = (min = 0.0, max = 1.5),
-        inverter_rc = 0.01,
-        inverter_xc = 0.01,
+        inverter_rc = 0.01 * 500.0^2 / 100.0,
+        inverter_xc = 0.01 * 500.0^2 / 100.0,
         inverter_base_voltage = 500.0,
-        active_power_limits_from = (min = -2.0, max = 2.0),
-        active_power_limits_to = (min = -2.0, max = 2.0),
-        input_basis = CU,
+        rating = 2.0,
+        rating_from = 2.0,
+        rating_to = 2.0,
+        input_basis = u"CU",
     )
 end
 
@@ -418,13 +431,14 @@ function _c_sys5_with_lossy_hvdc_tie()
         name = "hvdc_tie",
         available = true,
         active_power_flow = 0.0,
-        active_power_limits_from = (min = -2.0, max = 2.0),
-        active_power_limits_to = (min = -2.0, max = 2.0),
+        rating = 2.0,
+        rating_from = 2.0,
+        rating_to = 2.0,
         reactive_power_limits_from = (min = -1.0, max = 1.0),
         reactive_power_limits_to = (min = -1.0, max = 1.0),
         arc = arc,
         loss = PSY.LossCurve(LinearCurve(0.05, 0.01), PSY.CU),
-        input_basis = CU,
+        input_basis = u"CU",
     )
     PSY.add_component!(sys, hvdc)
     from_no = PSY.get_number(PSY.get_from(arc))
@@ -573,13 +587,14 @@ function _two_area_sys_with_lossy_hvdc_tie()
         name = "hvdc_tie",
         available = true,
         active_power_flow = 0.0,
-        active_power_limits_from = (min = -2.0, max = 2.0),
-        active_power_limits_to = (min = -2.0, max = 2.0),
+        rating = 2.0,
+        rating_from = 2.0,
+        rating_to = 2.0,
         reactive_power_limits_from = (min = -1.0, max = 1.0),
         reactive_power_limits_to = (min = -1.0, max = 1.0),
         arc = arc,
         loss = PSY.LossCurve(LinearCurve(0.05, 0.01), PSY.CU),
-        input_basis = CU,
+        input_basis = u"CU",
     )
     PSY.add_component!(sys, hvdc)
     return sys
@@ -679,76 +694,44 @@ end
     end
 end
 
-# A probe device attached to a real system so PSY unit settings resolve for the
-# PSY.SU getters that _get_flow_bounds reads.
+# A probe device attached to a real system so the u"SU" getters resolve.
 function _hvdc_probe(
     sys,
     arc,
     name;
-    from_limits,
-    to_limits,
+    rating = 2.0,
+    rating_from = 1e8,
+    rating_to = 1e8,
     loss = PSY.LossCurve(LinearCurve(0.0), PSY.CU),
 )
     hvdc = TwoTerminalGenericHVDCLine(;
         name = name,
         available = true,
         active_power_flow = 0.0,
-        active_power_limits_from = from_limits,
-        active_power_limits_to = to_limits,
+        rating = rating,
+        rating_from = rating_from,
+        rating_to = rating_to,
         reactive_power_limits_from = (min = -1.0, max = 1.0),
         reactive_power_limits_to = (min = -1.0, max = 1.0),
         arc = arc,
         loss = loss,
-        input_basis = CU,
+        input_basis = u"CU",
     )
     PSY.add_component!(sys, hvdc)
     return hvdc
 end
 
-@testset "HVDC flow bounds select the correct terminal per sign combination" begin
+@testset "HVDC end caps take the smaller of the line and converter ratings" begin
     sys = PSB.build_system(PSITestSystems, "c_sys5")
     arc = PSY.get_arc(PSY.get_component(Line, sys, "1"))
-
-    # (from_limits, to_limits, expected_min_rate, expected_max_rate), hand-derived:
-    #   both mins >= 0        -> min_rate = min(from_min, to_min)
-    #   from_min <= 0 <= to_min -> min_rate = from_min
-    #   to_min <= 0 <= from_min -> min_rate = to_min
-    #   both maxes >= 0       -> max_rate = min(from_max, to_max)
-    cases = (
-        (name = "probe_pos_mins",
-            from = (min = 0.5, max = 2.0), to = (min = 1.0, max = 1.5),
-            min_rate = 0.5, max_rate = 1.5),
-        (name = "probe_from_neg_min",
-            from = (min = -2.0, max = 2.0), to = (min = 0.5, max = 1.5),
-            min_rate = -2.0, max_rate = 1.5),
-        (name = "probe_to_neg_min",
-            from = (min = 0.5, max = 2.0), to = (min = -1.0, max = 1.5),
-            min_rate = -1.0, max_rate = 1.5),
-        (name = "probe_both_neg_mins",
-            from = (min = -2.0, max = 2.0), to = (min = -1.0, max = 1.5),
-            min_rate = -1.0, max_rate = 1.5),
-    )
-    for c in cases
-        d = _hvdc_probe(sys, arc, c.name; from_limits = c.from, to_limits = c.to)
-        min_rate, max_rate = POM._get_flow_bounds(d)
-        @test min_rate == c.min_rate
-        @test max_rate == c.max_rate
-    end
-end
-
-@testset "HVDC limit consistency rejects non-overlapping from/to ranges" begin
-    sys = PSB.build_system(PSITestSystems, "c_sys5")
-    arc = PSY.get_arc(PSY.get_component(Line, sys, "1"))
-
-    # from_max (0.5) < to_min (1.0)
-    d_ft = _hvdc_probe(sys, arc, "probe_from_max_lt_to_min";
-        from_limits = (min = -2.0, max = 0.5), to_limits = (min = 1.0, max = 2.0))
-    @test_throws IS.ConflictingInputsError POM.check_hvdc_line_limits_consistency(d_ft)
-
-    # to_max (0.5) < from_min (1.0)
-    d_tf = _hvdc_probe(sys, arc, "probe_to_max_lt_from_min";
-        from_limits = (min = 1.0, max = 2.0), to_limits = (min = -2.0, max = 0.5))
-    @test_throws IS.ConflictingInputsError POM.check_hvdc_line_limits_consistency(d_tf)
+    d = _hvdc_probe(sys, arc, "probe_caps"; rating = 2.0, rating_from = 1.5)
+    caps = POM._hvdc_end_caps(d)
+    @test caps.from ≈ 1.5
+    @test caps.to ≈ 2.0
+    @test POM._hvdc_from_limits(d) == (min = -caps.from, max = caps.from)
+    @test POM._get_flow_bounds(d) == (-caps.from, caps.from)
+    d_default = _hvdc_probe(sys, arc, "probe_default_caps"; rating = 2.0)
+    @test POM._hvdc_end_caps(d_default).from ≈ 2.0
 end
 
 @testset "HVDCTwoTerminalDispatch loss bound rejects non-linear loss curves" begin
@@ -757,19 +740,19 @@ end
 
     # A zero LinearCurve pins HVDCLosses to 0.0; a nonzero one leaves it unbounded above.
     d_zero = _hvdc_probe(sys, arc, "probe_zero_loss";
-        from_limits = (min = -2.0, max = 2.0), to_limits = (min = -2.0, max = 2.0),
+        rating = 2.0,
         loss = PSY.LossCurve(LinearCurve(0.0, 0.0), PSY.CU))
     @test POM.get_variable_upper_bound(
         POM.HVDCLosses, d_zero, POM.HVDCTwoTerminalDispatch) == 0.0
 
     d_lossy = _hvdc_probe(sys, arc, "probe_lossy";
-        from_limits = (min = -2.0, max = 2.0), to_limits = (min = -2.0, max = 2.0),
+        rating = 2.0,
         loss = PSY.LossCurve(LinearCurve(0.05, 0.01), PSY.CU))
     @test POM.get_variable_upper_bound(
         POM.HVDCLosses, d_lossy, POM.HVDCTwoTerminalDispatch) === nothing
 
     d_pwl = _hvdc_probe(sys, arc, "probe_pwl_loss";
-        from_limits = (min = -2.0, max = 2.0), to_limits = (min = -2.0, max = 2.0),
+        rating = 2.0,
         loss = PSY.LossCurve(
             PSY.PiecewiseIncrementalCurve(0.0, [0.0, 1.0, 2.0], [0.02, 0.05]),
             PSY.CU,
@@ -782,7 +765,7 @@ end
     sys = PSB.build_system(PSITestSystems, "c_sys5")
     arc = PSY.get_arc(PSY.get_component(Line, sys, "1"))
     d = _hvdc_probe(sys, arc, "probe_asymmetric_pwl";
-        from_limits = (min = -2.0, max = 2.0), to_limits = (min = -1.5, max = 1.5),
+        rating = 2.0, rating_from = 2.0, rating_to = 1.5,
         loss = PSY.LossCurve(LinearCurve(0.05, 0.01), PSY.CU))
     @test_throws ErrorException POM._get_pwl_loss_params(
         d,
@@ -808,13 +791,14 @@ function _c_sys5_with_incremental_loss_hvdc_tie()
         name = "hvdc_tie",
         available = true,
         active_power_flow = 0.0,
-        active_power_limits_from = (min = -2.0, max = 2.0),
-        active_power_limits_to = (min = -2.0, max = 2.0),
+        rating = 2.0,
+        rating_from = 2.0,
+        rating_to = 2.0,
         reactive_power_limits_from = (min = -1.0, max = 1.0),
         reactive_power_limits_to = (min = -1.0, max = 1.0),
         arc = arc,
         loss = _HVDC_INCREMENTAL_LOSS,
-        input_basis = CU,
+        input_basis = u"CU",
     )
     PSY.add_component!(sys, hvdc)
     from_no = PSY.get_number(PSY.get_from(arc))
@@ -885,13 +869,14 @@ function _c_sys5_two_islands_with_hvdc()
         name = "hvdc_tie",
         available = true,
         active_power_flow = 0.0,
-        active_power_limits_from = (min = -2.0, max = 2.0),
-        active_power_limits_to = (min = -2.0, max = 2.0),
+        rating = 2.0,
+        rating_from = 2.0,
+        rating_to = 2.0,
         reactive_power_limits_from = (min = -1.0, max = 1.0),
         reactive_power_limits_to = (min = -1.0, max = 1.0),
         arc = tie_arc,
         loss = PSY.LossCurve(LinearCurve(0.05, 0.01), PSY.CU),
-        input_basis = CU,
+        input_basis = u"CU",
     )
     PSY.add_component!(sys, tie)
 
@@ -905,13 +890,14 @@ function _c_sys5_two_islands_with_hvdc()
         name = "hvdc_intra",
         available = true,
         active_power_flow = 0.0,
-        active_power_limits_from = (min = -2.0, max = 2.0),
-        active_power_limits_to = (min = -2.0, max = 2.0),
+        rating = 2.0,
+        rating_from = 2.0,
+        rating_to = 2.0,
         reactive_power_limits_from = (min = -1.0, max = 1.0),
         reactive_power_limits_to = (min = -1.0, max = 1.0),
         arc = intra_arc,
         loss = PSY.LossCurve(LinearCurve(0.05, 0.01), PSY.CU),
-        input_basis = CU,
+        input_basis = u"CU",
     )
     PSY.add_component!(sys, intra)
     return sys, "hvdc_tie", "hvdc_intra"

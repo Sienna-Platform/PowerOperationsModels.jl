@@ -42,12 +42,12 @@ get_variable_lower_bound(
     ::Type{ActivePowerInVariable},
     d::PSY.HybridSystem,
     ::Type{<:AbstractHybridFormulation},
-) = PSY.get_input_active_power_limits(d, PSY.SU).min
+) = PSY.get_input_active_power_limits(d, u"SU").min
 get_variable_upper_bound(
     ::Type{ActivePowerInVariable},
     d::PSY.HybridSystem,
     ::Type{<:AbstractHybridFormulation},
-) = PSY.get_input_active_power_limits(d, PSY.SU).max
+) = PSY.get_input_active_power_limits(d, u"SU").max
 get_variable_multiplier(
     ::Type{ActivePowerInVariable},
     ::Type{<:PSY.HybridSystem},
@@ -63,12 +63,12 @@ get_variable_lower_bound(
     ::Type{ActivePowerOutVariable},
     d::PSY.HybridSystem,
     ::Type{<:AbstractHybridFormulation},
-) = PSY.get_output_active_power_limits(d, PSY.SU).min
+) = PSY.get_output_active_power_limits(d, u"SU").min
 get_variable_upper_bound(
     ::Type{ActivePowerOutVariable},
     d::PSY.HybridSystem,
     ::Type{<:AbstractHybridFormulation},
-) = PSY.get_output_active_power_limits(d, PSY.SU).max
+) = PSY.get_output_active_power_limits(d, u"SU").max
 get_variable_multiplier(
     ::Type{ActivePowerOutVariable},
     ::Type{<:PSY.HybridSystem},
@@ -85,7 +85,7 @@ function get_variable_lower_bound(
     d::PSY.HybridSystem,
     ::Type{<:AbstractHybridFormulation},
 )
-    limits = PSY.get_reactive_power_limits(d, PSY.SU)
+    limits = PSY.get_reactive_power_limits(d, u"SU")
     return limits === nothing ? nothing : limits.min
 end
 function get_variable_upper_bound(
@@ -93,7 +93,7 @@ function get_variable_upper_bound(
     d::PSY.HybridSystem,
     ::Type{<:AbstractHybridFormulation},
 )
-    limits = PSY.get_reactive_power_limits(d, PSY.SU)
+    limits = PSY.get_reactive_power_limits(d, u"SU")
     return limits === nothing ? nothing : limits.max
 end
 get_variable_multiplier(
@@ -112,17 +112,17 @@ get_min_max_limits(
     d::PSY.HybridSystem,
     ::Type{InputActivePowerVariableLimitsConstraint},
     ::Type{<:AbstractHybridFormulation},
-) = PSY.get_input_active_power_limits(d, PSY.SU)
+) = PSY.get_input_active_power_limits(d, u"SU")
 get_min_max_limits(
     d::PSY.HybridSystem,
     ::Type{OutputActivePowerVariableLimitsConstraint},
     ::Type{<:AbstractHybridFormulation},
-) = PSY.get_output_active_power_limits(d, PSY.SU)
+) = PSY.get_output_active_power_limits(d, u"SU")
 get_min_max_limits(
     d::PSY.HybridSystem,
     ::Type{ReactivePowerVariableLimitsConstraint},
     ::Type{<:AbstractHybridFormulation},
-) = PSY.get_reactive_power_limits(d, PSY.SU)
+) = PSY.get_reactive_power_limits(d, u"SU")
 
 #################################################################################
 # Subcomponent power variables
@@ -142,7 +142,7 @@ get_variable_upper_bound(
     ::Type{HybridThermalActivePower},
     d::PSY.HybridSystem,
     ::Type{<:AbstractHybridFormulation},
-) = PSY.get_active_power_limits(PSY.get_thermal_unit(d), PSY.SU).max
+) = PSY.get_active_power_limits(PSY.get_thermal_unit(d), u"SU").max
 
 get_variable_binary(
     ::Type{HybridRenewableActivePower},
@@ -158,7 +158,7 @@ get_variable_upper_bound(
     ::Type{HybridRenewableActivePower},
     d::PSY.HybridSystem,
     ::Type{<:AbstractHybridFormulation},
-) = PSY.get_max_active_power(PSY.get_renewable_unit(d), PSY.SU)
+) = PSY.get_max_active_power(PSY.get_renewable_unit(d), u"SU")
 
 get_variable_binary(
     ::Type{HybridStorageSubcomponentPower{ChargeSide}},
@@ -174,7 +174,7 @@ get_variable_upper_bound(
     ::Type{HybridStorageSubcomponentPower{ChargeSide}},
     d::PSY.HybridSystem,
     ::Type{<:AbstractHybridFormulation},
-) = PSY.get_input_active_power_limits(PSY.get_storage(d), PSY.SU).max
+) = PSY.get_input_active_power_limits(PSY.get_storage(d), u"SU").max
 
 get_variable_binary(
     ::Type{HybridStorageSubcomponentPower{DischargeSide}},
@@ -190,7 +190,7 @@ get_variable_upper_bound(
     ::Type{HybridStorageSubcomponentPower{DischargeSide}},
     d::PSY.HybridSystem,
     ::Type{<:AbstractHybridFormulation},
-) = PSY.get_output_active_power_limits(PSY.get_storage(d), PSY.SU).max
+) = PSY.get_output_active_power_limits(PSY.get_storage(d), u"SU").max
 
 get_variable_binary(
     ::Type{HybridStorageReservation},
@@ -232,7 +232,7 @@ get_variable_lower_bound(
     ::Type{<:AbstractHybridFormulation},
 ) =
     PSY.get_storage_level_limits(PSY.get_storage(d)).min *
-    PSY.get_storage_capacity(PSY.get_storage(d), PSY.SU) *
+    PSY.get_storage_capacity(PSY.get_storage(d), u"SU") *
     PSY.get_conversion_factor(PSY.get_storage(d))
 get_variable_upper_bound(
     ::Type{EnergyVariable},
@@ -240,7 +240,7 @@ get_variable_upper_bound(
     ::Type{<:AbstractHybridFormulation},
 ) =
     PSY.get_storage_level_limits(PSY.get_storage(d)).max *
-    PSY.get_storage_capacity(PSY.get_storage(d), PSY.SU) *
+    PSY.get_storage_capacity(PSY.get_storage(d), u"SU") *
     PSY.get_conversion_factor(PSY.get_storage(d))
 get_variable_warm_start_value(
     ::Type{EnergyVariable},
@@ -248,7 +248,7 @@ get_variable_warm_start_value(
     ::Type{<:AbstractHybridFormulation},
 ) =
     PSY.get_initial_storage_capacity_level(PSY.get_storage(d)) *
-    PSY.get_storage_capacity(PSY.get_storage(d), PSY.SU) *
+    PSY.get_storage_capacity(PSY.get_storage(d), u"SU") *
     PSY.get_conversion_factor(PSY.get_storage(d))
 
 # End-of-period energy-target slacks (added when `energy_target = true`). Non-negative,
@@ -335,7 +335,7 @@ function get_variable_upper_bound(
     ::Type{<:AbstractHybridFormulation},
 )
     return PSY.get_max_output_fraction(r) *
-           PSY.get_active_power_limits(PSY.get_thermal_unit(d), PSY.SU).max
+           PSY.get_active_power_limits(PSY.get_thermal_unit(d), u"SU").max
 end
 function get_variable_upper_bound(
     ::Type{HybridRenewableReserveVariable},
@@ -344,7 +344,7 @@ function get_variable_upper_bound(
     ::Type{<:AbstractHybridFormulation},
 )
     return PSY.get_max_output_fraction(r) *
-           PSY.get_max_active_power(PSY.get_renewable_unit(d), PSY.SU)
+           PSY.get_max_active_power(PSY.get_renewable_unit(d), u"SU")
 end
 function get_variable_upper_bound(
     ::Type{HybridStorageSubcomponentReserveVariable{ChargeSide}},
@@ -353,7 +353,7 @@ function get_variable_upper_bound(
     ::Type{<:AbstractHybridFormulation},
 )
     return PSY.get_max_output_fraction(r) *
-           PSY.get_input_active_power_limits(PSY.get_storage(d), PSY.SU).max
+           PSY.get_input_active_power_limits(PSY.get_storage(d), u"SU").max
 end
 function get_variable_upper_bound(
     ::Type{HybridStorageSubcomponentReserveVariable{DischargeSide}},
@@ -362,7 +362,7 @@ function get_variable_upper_bound(
     ::Type{<:AbstractHybridFormulation},
 )
     return PSY.get_max_output_fraction(r) *
-           PSY.get_output_active_power_limits(PSY.get_storage(d), PSY.SU).max
+           PSY.get_output_active_power_limits(PSY.get_storage(d), u"SU").max
 end
 
 # Hybrid PCC reserve variables — limited by the hybrid's PCC limits × max_output_fraction
@@ -383,7 +383,7 @@ function get_variable_upper_bound(
     ::Type{<:AbstractHybridFormulation},
 )
     return PSY.get_max_output_fraction(r) *
-           PSY.get_output_active_power_limits(d, PSY.SU).max
+           PSY.get_output_active_power_limits(d, u"SU").max
 end
 
 get_variable_binary(
@@ -402,7 +402,7 @@ function get_variable_upper_bound(
     d::PSY.HybridSystem,
     ::Type{<:AbstractHybridFormulation},
 )
-    return PSY.get_max_output_fraction(r) * PSY.get_input_active_power_limits(d, PSY.SU).max
+    return PSY.get_max_output_fraction(r) * PSY.get_input_active_power_limits(d, u"SU").max
 end
 
 # Multipliers used by reserve aggregations (Out side gets +1; In side handled via separate dispatch in add_to_expression)
@@ -446,8 +446,8 @@ function get_variable_upper_bound(
     ::Type{<:AbstractReservesFormulation},
 )
     return PSY.get_max_output_fraction(r) * (
-        PSY.get_output_active_power_limits(d, PSY.SU).max +
-        PSY.get_input_active_power_limits(d, PSY.SU).max
+        PSY.get_output_active_power_limits(d, u"SU").max +
+        PSY.get_input_active_power_limits(d, u"SU").max
     )
 end
 
@@ -459,13 +459,13 @@ get_multiplier_value(
     ::HybridRenewableActivePowerTimeSeriesParameter,
     d::PSY.HybridSystem,
     ::AbstractHybridFormulation,
-) = PSY.get_max_active_power(PSY.get_renewable_unit(d), PSY.SU)
+) = PSY.get_max_active_power(PSY.get_renewable_unit(d), u"SU")
 
 get_multiplier_value(
     ::HybridElectricLoadTimeSeriesParameter,
     d::PSY.HybridSystem,
     ::AbstractHybridFormulation,
-) = PSY.get_max_active_power(PSY.get_electric_load(d), PSY.SU)
+) = PSY.get_max_active_power(PSY.get_electric_load(d), u"SU")
 
 get_parameter_multiplier(
     ::HybridRenewableActivePowerTimeSeriesParameter,
@@ -493,7 +493,7 @@ initial_condition_default(
     ::AbstractHybridFormulation,
 ) =
     PSY.get_initial_storage_capacity_level(PSY.get_storage(d)) *
-    PSY.get_storage_capacity(PSY.get_storage(d), PSY.SU) *
+    PSY.get_storage_capacity(PSY.get_storage(d), u"SU") *
     PSY.get_conversion_factor(PSY.get_storage(d))
 
 initial_condition_variable(
@@ -899,7 +899,7 @@ function add_constraints!(
         name = PSY.get_name(d)
         thermal_unit = PSY.get_thermal_unit(d)
         thermal_unit === nothing && continue
-        limits = PSY.get_active_power_limits(thermal_unit, PSY.SU)
+        limits = PSY.get_active_power_limits(thermal_unit, u"SU")
         services = PSY.get_services(d)
         r_up = _subcomponent_reserve_expr(
             PSY.ReserveUp,
@@ -964,7 +964,7 @@ function add_constraints!(
         name = PSY.get_name(d)
         thermal_unit = PSY.get_thermal_unit(d)
         thermal_unit === nothing && continue
-        bound = _thermal_on_limit(T, PSY.get_active_power_limits(thermal_unit, PSY.SU))
+        bound = _thermal_on_limit(T, PSY.get_active_power_limits(thermal_unit, u"SU"))
         constraint[name, t] =
             _thermal_on_relation(T, jm, p_th[name, t], bound * on_var[name, t])
     end
@@ -1030,7 +1030,7 @@ function add_constraints!(
                 p_re[name, t] <= re_multiplier[name, t] * re_ref
             )
         else
-            max_p = PSY.get_max_active_power(renewable_unit, PSY.SU)
+            max_p = PSY.get_max_active_power(renewable_unit, u"SU")
             constraint[name, t] = JuMP.@constraint(
                 get_jump_model(container),
                 p_re[name, t] <= max_p
@@ -1114,7 +1114,7 @@ function add_constraints!(
                 p_re[name, t] + r_up <= re_multiplier[name, t] * re_ref
             )
         else
-            max_p = PSY.get_max_active_power(renewable_unit, PSY.SU)
+            max_p = PSY.get_max_active_power(renewable_unit, u"SU")
             con_ub[name, t] = JuMP.@constraint(
                 get_jump_model(container),
                 p_re[name, t] + r_up <= max_p
@@ -1319,9 +1319,9 @@ const _StorageSideConstraint{Sd} = Union{
 _storage_side_power_var(::Type{<:_StorageSideConstraint{Sd}}) where {Sd <: ReserveSide} =
     HybridStorageSubcomponentPower{Sd}
 _storage_side_max(::Type{<:_StorageSideConstraint{ChargeSide}}, s) =
-    PSY.get_input_active_power_limits(s, PSY.SU).max
+    PSY.get_input_active_power_limits(s, u"SU").max
 _storage_side_max(::Type{<:_StorageSideConstraint{DischargeSide}}, s) =
-    PSY.get_output_active_power_limits(s, PSY.SU).max
+    PSY.get_output_active_power_limits(s, u"SU").max
 # Reservation-binary factor applied to the side limit. Charge side flips ss → (1-ss).
 _storage_side_ss_factor(::Type{<:_StorageSideConstraint{ChargeSide}}, ss_val) = 1 - ss_val
 _storage_side_ss_factor(::Type{<:_StorageSideConstraint{DischargeSide}}, ss_val) = ss_val
@@ -1598,7 +1598,7 @@ function _emit_coverage_constraint!(
     jm = get_jump_model(container)
     soc_min =
         PSY.get_storage_level_limits(storage).min *
-        PSY.get_storage_capacity(storage, PSY.SU) *
+        PSY.get_storage_capacity(storage, u"SU") *
         PSY.get_conversion_factor(storage)
     if time_offset(T) == -1
         con[ci_name, 1] = JuMP.@constraint(
@@ -1653,7 +1653,7 @@ function _emit_coverage_constraint!(
     con = get_constraint(container, T, V, "$(s_type)_$(s_name)_charge")
     soc_max =
         PSY.get_storage_level_limits(storage).max *
-        PSY.get_storage_capacity(storage, PSY.SU) *
+        PSY.get_storage_capacity(storage, u"SU") *
         PSY.get_conversion_factor(storage)
     jm = get_jump_model(container)
     if time_offset(T) == -1
@@ -1776,7 +1776,7 @@ function add_constraints!(
         name = PSY.get_name(d)
         target =
             PSY.get_storage_target(storage) *
-            PSY.get_storage_capacity(storage, PSY.SU) *
+            PSY.get_storage_capacity(storage, u"SU") *
             PSY.get_conversion_factor(storage)
         t_end = last(time_steps)
         constraint[name, t_end] = JuMP.@constraint(
@@ -1843,9 +1843,9 @@ HSS `_add_constraints_status{out,in}_withreserves!`.
 _pcc_power_var(::Type{HybridStatusOnConstraint{DischargeSide}}) = ActivePowerOutVariable
 _pcc_power_var(::Type{HybridStatusOnConstraint{ChargeSide}}) = ActivePowerInVariable
 _pcc_max_limit(::Type{HybridStatusOnConstraint{DischargeSide}}, d) =
-    PSY.get_output_active_power_limits(d, PSY.SU).max
+    PSY.get_output_active_power_limits(d, u"SU").max
 _pcc_max_limit(::Type{HybridStatusOnConstraint{ChargeSide}}, d) =
-    PSY.get_input_active_power_limits(d, PSY.SU).max
+    PSY.get_input_active_power_limits(d, u"SU").max
 _pcc_reserve_ub_expr(::Type{HybridStatusOnConstraint{DischargeSide}}) =
     HybridPCCReserveExpression{PSY.ReserveUp, UnscaledReserve, DischargeSide}
 _pcc_reserve_ub_expr(::Type{HybridStatusOnConstraint{ChargeSide}}) =

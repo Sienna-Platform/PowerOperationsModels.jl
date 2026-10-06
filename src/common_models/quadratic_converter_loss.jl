@@ -44,7 +44,7 @@ _loss_curve_ratio_to_system_base(
     d::PSY.Component,
     system_base::Float64,
 ) =
-    system_base / PSY.get_base_power(d, PSY.NU)
+    system_base / PSY.get_base_power(d, u"NU")
 _loss_curve_ratio_to_system_base(
     u::IS.AbstractUnitSystem,
     d::PSY.Component,

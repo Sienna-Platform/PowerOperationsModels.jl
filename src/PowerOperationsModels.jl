@@ -18,7 +18,7 @@ import PowerNetworkMatrices: PTDF, VirtualPTDF
 import PowerNetworkMatrices:
     RadialReduction, DegreeTwoReduction, WardReduction, ZeroImpedanceBranchReduction
 import PowerSystems
-import PowerSystems: get_component, @u_str
+import PowerSystems: get_component, @u_str, PerUnit
 import PrettyTables
 import ProgressMeter
 import Serialization
@@ -72,7 +72,6 @@ import InfrastructureSystems.Optimization:
     ExpressionType,
     InitialConditionType,
     TimeSeriesParameter,
-    RightHandSideParameter,
     ObjectiveFunctionParameter
 
 # Import formulation abstract types from InfrastructureSystems.Optimization

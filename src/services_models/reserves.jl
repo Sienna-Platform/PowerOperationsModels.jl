@@ -7,7 +7,7 @@ get_variable_multiplier(::Type{<:VariableType}, ::Type{<:PSY.AbstractReserve}, :
 # ORDC reserves carry `max_output_fraction = 1.0`, so the capped bound is a no-op for them.
 get_variable_binary(::Type{ActivePowerReserveVariable}, ::Type{<:PSY.AbstractReserve}, ::Type{<:AbstractReservesFormulation}) = false
 function get_variable_upper_bound(::Type{ActivePowerReserveVariable}, r::PSY.AbstractReserve, d::PSY.Device, ::Type{<:AbstractReservesFormulation})
-    return PSY.get_max_output_fraction(r) * PSY.get_max_active_power(d, PSY.SU)
+    return PSY.get_max_output_fraction(r) * PSY.get_max_active_power(d, u"SU")
 end
 get_variable_lower_bound(::Type{ActivePowerReserveVariable}, ::PSY.AbstractReserve, ::PSY.Device, ::Type) = 0.0
 
@@ -15,11 +15,11 @@ get_variable_lower_bound(::Type{ActivePowerReserveVariable}, ::PSY.AbstractReser
 # Only created on the StepwiseCostReserve / GroupStepwiseCostReserve construct paths, so the
 # formulation gates these to curve-bearing reserves and groups.
 get_variable_binary(::Type{ServiceRequirementVariable}, ::Type{<:PSY.AbstractReserve}, ::Type{<:AbstractReservesFormulation}) = false
-get_variable_upper_bound(::Type{ServiceRequirementVariable}, ::PSY.AbstractReserve, d::PSY.Component, ::Type{<:AbstractReservesFormulation}) = PSY.get_max_active_power(d, PSY.SU)
+get_variable_upper_bound(::Type{ServiceRequirementVariable}, ::PSY.AbstractReserve, d::PSY.Component, ::Type{<:AbstractReservesFormulation}) = PSY.get_max_active_power(d, u"SU")
 get_variable_lower_bound(::Type{ServiceRequirementVariable}, ::PSY.AbstractReserve, ::PSY.Component, ::Type{<:AbstractReservesFormulation}) = 0.0
 
 # Reserve requirement in system units; the getter is units-aware for every reserve type.
-_get_requirement(service) = PSY.get_requirement(service, PSY.SU)
+_get_requirement(service) = PSY.get_requirement(service, u"SU")
 
 # ── Degenerate-demand skip (formulation-driven) ──────────────────────────────────────
 # Each reserve formulation has exactly ONE demand driver. When that driver is degenerate for a
@@ -162,14 +162,14 @@ function get_default_attributes(
     return Dict{String, Any}()
 end
 
-# "offline_only" forbids offline awards to units committed in the same time step.
-# Enforced for thermal unit commitment and HydroCommitmentRunOfRiver; other formulations
-# book OfflineReserve awards against their headroom and are not restricted.
+# "offline_only" forbids offline awards to units committed in the same time step;
+# "exclude_shutdown_step" forbids them in the step a unit goes off. Enforced for thermal
+# unit commitment and HydroCommitmentRunOfRiver; other formulations are not restricted.
 function get_default_attributes(
     ::Type{PSY.OfflineReserve},
     ::Type{<:AbstractReservesFormulation},
 )
-    return Dict{String, Any}("offline_only" => false)
+    return Dict{String, Any}("offline_only" => false, "exclude_shutdown_step" => false)
 end
 
 """
@@ -427,8 +427,8 @@ function add_constraints!(
 end
 
 _get_ramp_limits(::PSY.Component) = nothing
-_get_ramp_limits(d::PSY.ThermalGen) = PSY.get_ramp_limits(d, SU_PER_MINUTE)
-_get_ramp_limits(d::PSY.HydroGen) = PSY.get_ramp_limits(d, SU_PER_MINUTE)
+_get_ramp_limits(d::PSY.ThermalGen) = PSY.get_ramp_limits(d, u"SU/minute")
+_get_ramp_limits(d::PSY.HydroGen) = PSY.get_ramp_limits(d, u"SU/minute")
 
 function _get_ramp_constraint_contributing_devices(
     service::PSY.Reserve,
@@ -439,7 +439,7 @@ function _get_ramp_constraint_contributing_devices(
     for d in contributing_devices
         ramp_limits = _get_ramp_limits(d)
         if ramp_limits !== nothing
-            p_lims = PSY.get_active_power_limits(d, PSY.SU)
+            p_lims = PSY.get_active_power_limits(d, u"SU")
             max_rate = abs(p_lims.min - p_lims.max) / time_frame
             if (ramp_limits.up >= max_rate) & (ramp_limits.down >= max_rate)
                 @debug "Generator $(PSY.get_name(d)) has a nonbinding ramp limits. Constraints Skipped"
@@ -489,7 +489,7 @@ function add_constraints!(
     )
     for d in ramp_devices, t in time_steps
         name = PSY.get_name(d)
-        limit = _directional_ramp_limit(PSY.get_ramp_limits(d, SU_PER_MINUTE), SR)
+        limit = _directional_ramp_limit(PSY.get_ramp_limits(d, u"SU/minute"), SR)
         cons[(service_name, name, t)] = JuMP.@constraint(
             jump_model,
             variable[(service_name, name, t)] <= limit * time_frame
@@ -533,7 +533,7 @@ function add_constraints!(
         ramp_limits = _get_ramp_limits(d)
         if reserve_response_time > startup_time
             reserve_limit =
-                PSY.get_active_power_limits(d, PSY.SU).min +
+                PSY.get_active_power_limits(d, u"SU").min +
                 (reserve_response_time - startup_time) * minutes_per_period *
                 ramp_limits.up
         else

@@ -370,7 +370,8 @@ cable current, the DC cable Ohm's law, bounded per-terminal reactive injection i
 `JuMP.fix` (`force = true`): `AC_VOLTAGE` → the regulated AC-bus voltage (the `VoltageMagnitude`
 under ACP, the `VoltageDeviation` `phi = |V| - 1` under LPACC, a per-terminal
 `RegulatedVoltageMagnitude` aux variable under ACR/IVR), `AC_REACTIVE_POWER` → the terminal
-reactive injection. DC control adds one always-present `HVDCDCControlConstraint` per terminal
+reactive injection, at `reactive_power_from` / `reactive_power_to`. DC control adds one
+always-present `HVDCDCControlConstraint` per terminal
 per time step (`DC_VOLTAGE` / `DC_POWER` / `DC_VOLTAGE_DROOP`), so the variable/constraint
 containers are identical across all control modes. Only valid under AC network models
 (ACP/ACR/IVR/LPACC); dropped from DC templates automatically via `models_reactive_power`.
@@ -430,7 +431,7 @@ count-invariant control layer driven by the converter's `ac_control` / `dc_contr
 AC control: `AC_VOLTAGE` regulates the AC bus voltage to `ac_setpoint` (under ACP by fixing the
 network `VoltageMagnitude`; under LPACC by fixing the `VoltageDeviation` `phi = |V| - 1` to
 `ac_setpoint - 1`; under ACR/IVR via a component-owned `RegulatedVoltageMagnitude` aux
-variable); `AC_REACTIVE_POWER` fixes the reactive injection to `ac_setpoint`. DC control adds one
+variable); `AC_REACTIVE_POWER` is not supported and fails template validation. DC control adds one
 always-present `HVDCDCControlConstraint` per converter per time step: `DC_VOLTAGE` →
 `vdc = dc_setpoint`, `DC_POWER` → `p = dc_setpoint`, `DC_VOLTAGE_DROOP` →
 `vdc + dc_voltage_droop * p = dc_setpoint`. The aux voltage variable + its constraint and the
@@ -768,7 +769,7 @@ dispatch.
   - ``P_{\\max,\\text{ds}}`` = `PSY.get_output_active_power_limits(storage).max`
   - ``\\eta_{\\text{ch}}`` = `PSY.get_efficiency(storage).in`
   - ``\\eta_{\\text{ds}}`` = `PSY.get_efficiency(storage).out`
-  - ``E_{\\max,\\text{st}}`` = `PSY.get_storage_level_limits(storage).max * PSY.get_storage_capacity(storage, PSY.SU) * PSY.get_conversion_factor(storage)``
+  - ``E_{\\max,\\text{st}}`` = `PSY.get_storage_level_limits(storage).max * PSY.get_storage_capacity(storage, u"SU") * PSY.get_conversion_factor(storage)``
   - ``E^{\\text{st}}_0`` = initial storage energy
   - ``R^{*}_{p,t}`` = ancillary service deployment forecast for service ``p`` at time ``t``
   - ``F_p`` = fraction of ``P_{\\max,\\text{pcc}}`` allowed for service ``p``

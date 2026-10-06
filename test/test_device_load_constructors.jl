@@ -90,7 +90,7 @@ function _two_area_ac_interchange_system(; include_reverse_tie = true)
             b = (from = 0.0, to = 0.0),
             rating = 10.0,
             angle_limits = (min = -1.57, max = 1.57),
-            input_basis = CU,
+            input_basis = u"CU",
         )
         add_component!(sys, line)
     end
@@ -109,13 +109,14 @@ function _add_inter_area_hvdc_tie!(sys)
         name = "hvdc_tie",
         available = true,
         active_power_flow = 0.0,
-        active_power_limits_from = (min = -2.0, max = 2.0),
-        active_power_limits_to = (min = -2.0, max = 2.0),
+        rating = 2.0,
+        rating_from = 2.0,
+        rating_to = 2.0,
         reactive_power_limits_from = (min = -1.0, max = 1.0),
         reactive_power_limits_to = (min = -1.0, max = 1.0),
         arc = arc,
         loss = PSY.LossCurve(LinearCurve(0.05, 0.01), PSY.CU),
-        input_basis = CU,
+        input_basis = u"CU",
     )
     add_component!(sys, hvdc)
     return
@@ -145,8 +146,8 @@ end
         container = IOM.get_optimization_container(model)
         t1 = first(IOM.get_time_steps(container))
         ex = IOM.get_variable(container, FlowActivePowerVariable, AreaInterchange)
-        pft_ml = IOM.get_variable(container, FlowActivePowerFromToVariable, MonitoredLine)
-        ptf_ml = IOM.get_variable(container, FlowActivePowerToFromVariable, MonitoredLine)
+        pft_ml = IOM.get_variable(container, FlowActivePowerFromToVariable, Line)
+        ptf_ml = IOM.get_variable(container, FlowActivePowerToFromVariable, Line)
         pft_l = IOM.get_variable(container, FlowActivePowerFromToVariable, Line)
         ptf_l = IOM.get_variable(container, FlowActivePowerToFromVariable, Line)
         con_ub =
@@ -255,7 +256,7 @@ end
     )
     ex_ll = IOM.get_variable(container_ll, FlowActivePowerVariable, AreaInterchange)
     pft_ml_ll =
-        IOM.get_variable(container_ll, FlowActivePowerFromToVariable, MonitoredLine)
+        IOM.get_variable(container_ll, FlowActivePowerFromToVariable, Line)
     con_ub_ll = IOM.get_constraint(
         container_ll, POM.LineFlowBoundConstraint, AreaInterchange, "ub",
     )
@@ -320,13 +321,14 @@ function _add_intra_area_hvdc_line!(sys)
         name = "hvdc_intra",
         available = true,
         active_power_flow = 0.0,
-        active_power_limits_from = (min = -2.0, max = 2.0),
-        active_power_limits_to = (min = -2.0, max = 2.0),
+        rating = 2.0,
+        rating_from = 2.0,
+        rating_to = 2.0,
         reactive_power_limits_from = (min = -1.0, max = 1.0),
         reactive_power_limits_to = (min = -1.0, max = 1.0),
         arc = arc,
         loss = PSY.LossCurve(LinearCurve(0.05, 0.01), PSY.CU),
-        input_basis = CU,
+        input_basis = u"CU",
     )
     add_component!(sys, hvdc)
     return
@@ -369,7 +371,7 @@ end
     ptf_dc = IOM.get_variable(
         container, FlowActivePowerToFromVariable, TwoTerminalGenericHVDCLine,
     )
-    ptdf_ml = IOM.get_expression(container, POM.PTDFBranchFlow, MonitoredLine)
+    ptdf_ml = IOM.get_expression(container, POM.PTDFBranchFlow, Line)
     ac_tie = ptdf_ml["inter_area_line", t1]
     con_ub =
         IOM.get_constraint(container, POM.LineFlowBoundConstraint, AreaInterchange, "ub")
@@ -418,7 +420,7 @@ end
         container_ll, FlowActivePowerVariable, TwoTerminalGenericHVDCLine,
     )
     ex_ll = IOM.get_variable(container_ll, FlowActivePowerVariable, AreaInterchange)
-    ptdf_flow_ml = IOM.get_expression(container_ll, POM.PTDFBranchFlow, MonitoredLine)
+    ptdf_flow_ml = IOM.get_expression(container_ll, POM.PTDFBranchFlow, Line)
     ac_tie_ll = ptdf_flow_ml["inter_area_line", t1_ll]
     con_ub_ll = IOM.get_constraint(
         container_ll, POM.LineFlowBoundConstraint, AreaInterchange, "ub",
@@ -468,7 +470,7 @@ end
         container_ap, FlowActivePowerVariable, TwoTerminalGenericHVDCLine,
     )
     ex_ap = IOM.get_variable(container_ap, FlowActivePowerVariable, AreaInterchange)
-    ptdf_ml_ap = IOM.get_expression(container_ap, POM.PTDFBranchFlow, MonitoredLine)
+    ptdf_ml_ap = IOM.get_expression(container_ap, POM.PTDFBranchFlow, Line)
     ac_tie_ap = ptdf_ml_ap["inter_area_line", t1_ap]
     con_ub_ap = IOM.get_constraint(
         container_ap, POM.LineFlowBoundConstraint, AreaInterchange, "ub",
@@ -517,7 +519,7 @@ end
     received_from = IOM.get_variable(
         container, POM.HVDCActivePowerReceivedFromVariable, TwoTerminalGenericHVDCLine,
     )
-    ptdf_ml = IOM.get_expression(container, POM.PTDFBranchFlow, MonitoredLine)
+    ptdf_ml = IOM.get_expression(container, POM.PTDFBranchFlow, Line)
     con_ub =
         IOM.get_constraint(container, POM.LineFlowBoundConstraint, AreaInterchange, "ub")
     for t in IOM.get_time_steps(container)
@@ -721,7 +723,7 @@ end
         rating = load.max_active_power / 10.0,
         max_active_power = load.max_active_power / 10.0,
         reactive_power_limits = nothing,
-        input_basis = CU,
+        input_basis = u"CU",
     )
     add_component!(sys, mload)
 
@@ -761,12 +763,12 @@ end
         name = "shiftable_load",
         available = true,
         bus = PSY.get_bus(il_load),
-        active_power = PSY.get_active_power(il_load, PSY.SU),
-        active_power_limits = (min = 0.0, max = PSY.get_active_power(il_load, PSY.SU)),
-        reactive_power = PSY.get_reactive_power(il_load, PSY.SU),
-        max_active_power = PSY.get_max_active_power(il_load, PSY.SU),
-        max_reactive_power = PSY.get_max_reactive_power(il_load, PSY.SU),
-        base_power = PSY.get_base_power(il_load, PSY.NU),
+        active_power = PSY.get_active_power(il_load, u"SU"),
+        active_power_limits = (min = 0.0, max = PSY.get_active_power(il_load, u"SU")),
+        reactive_power = PSY.get_reactive_power(il_load, u"SU"),
+        max_active_power = PSY.get_max_active_power(il_load, u"SU"),
+        max_reactive_power = PSY.get_max_reactive_power(il_load, u"SU"),
+        base_power = PSY.get_base_power(il_load, u"NU"),
         load_balance_time_horizon = 1,
         operation_cost = LoadCost(;
             variable_operation_cost = CostCurve(
@@ -776,7 +778,7 @@ end
             ),
             fixed = 0.0,
         ),
-        input_basis = CU,
+        input_basis = u"CU",
     )
     PSY.add_component!(c_sys5_il, shiftable_load)
     PSY.set_available!(il_load, false)
@@ -863,7 +865,7 @@ function _build_shiftable_load_system()
 
     # AreaBalanceNetworkModel/AreaPTDFNetworkModel require at least one Area; c_sys5_il
     # ships with none.
-    area = PSY.Area(; name = "area1", input_basis = CU)
+    area = PSY.Area(; name = "area1", input_basis = u"CU")
     PSY.add_component!(c_sys5_il, area)
     for bus in PSY.get_components(PSY.ACBus, c_sys5_il)
         PSY.set_area!(bus, area)
@@ -875,12 +877,12 @@ function _build_shiftable_load_system()
         name = "shiftable_load",
         available = true,
         bus = PSY.get_bus(il_load),
-        active_power = PSY.get_active_power(il_load, PSY.SU),
-        active_power_limits = (min = 0.0, max = PSY.get_active_power(il_load, PSY.SU)),
-        reactive_power = PSY.get_reactive_power(il_load, PSY.SU),
-        max_active_power = PSY.get_max_active_power(il_load, PSY.SU),
-        max_reactive_power = PSY.get_max_reactive_power(il_load, PSY.SU),
-        base_power = PSY.get_base_power(il_load, PSY.NU),
+        active_power = PSY.get_active_power(il_load, u"SU"),
+        active_power_limits = (min = 0.0, max = PSY.get_active_power(il_load, u"SU")),
+        reactive_power = PSY.get_reactive_power(il_load, u"SU"),
+        max_active_power = PSY.get_max_active_power(il_load, u"SU"),
+        max_reactive_power = PSY.get_max_reactive_power(il_load, u"SU"),
+        base_power = PSY.get_base_power(il_load, u"NU"),
         load_balance_time_horizon = 1,
         operation_cost = LoadCost(;
             variable_operation_cost = CostCurve(
@@ -890,7 +892,7 @@ function _build_shiftable_load_system()
             ),
             fixed = 0.0,
         ),
-        input_basis = CU,
+        input_basis = u"CU",
     )
     PSY.add_component!(c_sys5_il, shiftable_load)
     PSY.set_available!(il_load, false)
