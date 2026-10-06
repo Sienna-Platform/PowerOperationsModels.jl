@@ -225,12 +225,12 @@ end
     @test mtime(sys_document) == mtime_before
 
     # Parameters are in the sidecar, as InfraStore rows.
-    store = POM.open_parameter_store(joinpath(sys_dir, PSY.TIME_SERIES_FILE))
+    store = IS.open_infrastore_store(joinpath(sys_dir, PSY.TIME_SERIES_FILE))
     fuel_param = POM.read_parameter_array(
         store, IOM.ParameterKey(POM.FuelCostParameter, PSY.ThermalStandard),
     )
     @test haskey(fuel_param, PSY.get_name(gen))
-    POM.close_parameter_store!(store)
+    IS.close!(store)
 
     # `time_series_read_only = true` gets refused by the rebuild below (`build!` needs a
     # writable System), so this bundle is reopened writable, per the task fallback.
@@ -256,7 +256,7 @@ end
     rebuilt_params = IOM.read_parameters(IOM.get_optimization_container(rebuilt))
     input_keys = [
         k for (k, pc) in IOM.get_parameters(IOM.get_optimization_container(model)) if
-        POM.is_input_parameter(k, pc)
+        POM.is_input_parameter(pc)
     ]
     @test !isempty(input_keys)
     for k in input_keys
