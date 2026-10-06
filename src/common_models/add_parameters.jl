@@ -944,7 +944,9 @@ function _add_parameters!(
     # Key the container by the MODEL's component type `V`, not the element type `U`: readers
     # fetch with `SR` from the `ServiceModel`, and the two diverge when the model is declared
     # with a broader type (e.g. `ServiceModel{OnlineReserve, ...}` covering both directions).
-    parameter_container = add_param_container!(container, T,
+    parameter_container = IOM.add_time_series_parameter_container!(
+        container,
+        T,
         V,
         ts_type,
         ts_name,
