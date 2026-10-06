@@ -27,7 +27,7 @@ function _build_zone_system()
         name = "LZ1",
         peak_active_power = 10.0,
         peak_reactive_power = 3.0,
-        input_basis = CU,
+        input_basis = u"CU",
     )
     PSY.add_component!(sys, zone)
     buses = sort!(collect(PSY.get_components(PSY.ACBus, sys)); by = PSY.get_number)
@@ -96,7 +96,7 @@ end
         name = "LZ2",
         peak_active_power = 5.0,
         peak_reactive_power = 1.0,
-        input_basis = CU,
+        input_basis = u"CU",
     )
     PSY.add_component!(sys, zone2)
     buses = sort!(collect(PSY.get_components(PSY.ACBus, sys)); by = PSY.get_number)
@@ -127,7 +127,7 @@ end
         name = "LZ3",
         peak_active_power = 5.0,
         peak_reactive_power = 1.0,
-        input_basis = CU,
+        input_basis = u"CU",
     )
     PSY.add_component!(sys, zone3)
     PSY.set_load_zone!(buses[5], zone3)
@@ -824,7 +824,7 @@ end
     line_names = collect(axes(flows)[1])
     loaded = argmax(l -> abs(JuMP.value(flows[l, t1])), line_names)
     rating = 0.9 * abs(JuMP.value(flows[loaded, t1]))
-    PSY.set_rating!(PSY.get_component(PSY.Line, sys, loaded), rating * PSY.SU)
+    PSY.set_rating!(PSY.get_component(PSY.Line, sys, loaded), rating * u"SU")
 
     model = _solve_congestion_model(sys)
     container = get_optimization_container(model)
@@ -885,7 +885,7 @@ end
     loaded = argmax(l -> abs(JuMP.value(flows[l, t1])), line_names)
     direction = sign(JuMP.value(flows[loaded, t1]))
     rating = 0.9 * abs(JuMP.value(flows[loaded, t1]))
-    PSY.set_rating!(PSY.get_component(PSY.Line, sys, loaded), rating * PSY.SU)
+    PSY.set_rating!(PSY.get_component(PSY.Line, sys, loaded), rating * u"SU")
 
     # The bus pair with the largest shift-factor difference on the congested line, ordered
     # so that injecting at `a` and withdrawing at `b` pushes flow against the congestion.
@@ -1026,7 +1026,7 @@ end
     sys, zone, zone_buses = _build_zone_system()
     n1, n2 = PSY.get_number.(zone_buses)
     leaf = PSY.ACBus(;
-        input_basis = PSY.CU,
+        input_basis = u"CU",
         number = 99, name = "leaf", available = true, bustype = PSY.ACBusTypes.PQ,
         angle = 0.0, magnitude = 1.0, voltage_limits = (min = 0.9, max = 1.1),
         base_voltage = PSY.get_base_voltage(zone_buses[1]),
@@ -1039,7 +1039,7 @@ end
         name = "leaf_line", available = true, active_power_flow = 0.0,
         reactive_power_flow = 0.0, arc = arc,
         r = 0.001, x = 0.01, b = (from = 0.0, to = 0.0), rating = 1.0,
-        angle_limits = (min = -1.0, max = 1.0), input_basis = CU,
+        angle_limits = (min = -1.0, max = 1.0), input_basis = u"CU",
     )
     PSY.add_component!(sys, line)
     _add_factor_series!(sys, zone, leaf, 0.1)

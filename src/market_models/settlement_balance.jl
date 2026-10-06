@@ -84,7 +84,7 @@ function _add_compact_on_term_to_settlement!(
     base_multiplier = get_variable_multiplier(OnVariable, V, W)
     for name in axes(on)[1]
         d = PSY.get_component(V, sys, name)
-        pmin_multiplier = PSY.get_active_power_limits(d, PSY.SU).min * base_multiplier
+        pmin_multiplier = PSY.get_active_power_limits(d, u"SU").min * base_multiplier
         _add_settlement_terms!(settlement_expr, on, name, pmin_multiplier, time_steps)
     end
     return

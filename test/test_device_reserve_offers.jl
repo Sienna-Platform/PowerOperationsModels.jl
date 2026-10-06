@@ -1265,7 +1265,7 @@ function _assert_unoffered_load_pinned(sys)
     for t in get_time_steps(container)
         @test JuMP.upper_bound(p[_IL_NAME, t]) == 0.0
         @test JuMP.coefficient(lb[_IL_NAME, t], p[_IL_NAME, t]) == 0.0
-        @test JuMP.constant(lb[_IL_NAME, t]) == PSY.get_max_active_power(il, PSY.SU)
+        @test JuMP.constant(lb[_IL_NAME, t]) == PSY.get_max_active_power(il, u"SU")
     end
     return
 end

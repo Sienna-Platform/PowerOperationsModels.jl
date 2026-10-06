@@ -1021,7 +1021,7 @@ end
         t1 = first(get_time_steps(container))
         @test ("Reserve7", name, t1) in eachindex(r)
         if formulation == PowerLoadDispatch
-            pmax = PSY.get_max_active_power(load, PSY.SU)
+            pmax = PSY.get_max_active_power(load, u"SU")
             lb = IOM.get_expression(
                 container, ActivePowerRangeExpressionLB, InterruptiblePowerLoad,
             )
@@ -1061,7 +1061,7 @@ end
     p = IOM.get_variable(container, ActivePowerVariable, InterruptiblePowerLoad)
     name = PSY.get_name(load)
     t1 = first(get_time_steps(container))
-    @test JuMP.upper_bound(p[name, t1]) == PSY.get_max_active_power(load, PSY.SU)
+    @test JuMP.upper_bound(p[name, t1]) == PSY.get_max_active_power(load, u"SU")
     lb = IOM.get_expression(container, ActivePowerRangeExpressionLB, InterruptiblePowerLoad)
     @test JuMP.coefficient(lb[name, t1], p[name, t1]) == 1.0
     @test JuMP.constant(lb[name, t1]) == 0.0

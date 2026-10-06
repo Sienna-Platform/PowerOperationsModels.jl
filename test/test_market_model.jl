@@ -1116,7 +1116,7 @@ function _market_load_test_system(; direction::Symbol = :up)
         base_power = 100.0,
         max_active_power = 20.0,
         max_reactive_power = 0.0,
-        input_basis = CU,
+        input_basis = u"CU",
     )
     PSY.add_component!(sys, static_load)
     PSY.add_time_series!(sys, static_load, PSY.SingleTimeSeries("max_active_power", times))
@@ -1131,16 +1131,18 @@ function _market_load_test_system(; direction::Symbol = :up)
         max_reactive_power = 0.0,
         operation_cost = PSY.MarketBidCost(),
         base_power = 100.0,
-        input_basis = CU,
+        input_basis = u"CU",
     )
     PSY.add_component!(sys, il)
     PSY.add_time_series!(sys, il, PSY.SingleTimeSeries("max_active_power", times))
 
     PSY.transform_single_time_series!(sys, Dates.Hour(1), Dates.Hour(1))
 
-    reserve = direction === :up ?
-              PSY.OnlineReserve{PSY.ReserveUp}("Reserve1", true, 60.0, 10.0) :
-              PSY.OnlineReserve{PSY.ReserveDown}("ReserveDown1", true, 60.0, 10.0)
+    reserve = if direction === :up
+        PSY.OnlineReserve{PSY.ReserveUp}("Reserve1", true, 60.0, 10.0)
+    else
+        PSY.OnlineReserve{PSY.ReserveDown}("ReserveDown1", true, 60.0, 10.0)
+    end
     PSY.add_service!(sys, reserve, [il])
     return sys
 end
@@ -1214,7 +1216,7 @@ end
     @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
 
     reserve = PSY.get_component(OnlineReserve{ReserveUp}, sys, "Reserve1")
-    requirement_pu = PSY.get_requirement(reserve, PSY.SU)
+    requirement_pu = PSY.get_requirement(reserve, u"SU")
     award = IOM.get_variable(
         container,
         ActivePowerReserveVariable,
@@ -1241,8 +1243,8 @@ end
     static_load = PSY.get_component(PSY.PowerLoad, sys, "load1")
     il1 = PSY.get_component(PSY.InterruptiblePowerLoad, sys, "il1")
     forecast_total =
-        PSY.get_max_active_power(static_load, PSY.SU) +
-        PSY.get_max_active_power(il1, PSY.SU)
+        PSY.get_max_active_power(static_load, u"SU") +
+        PSY.get_max_active_power(il1, u"SU")
     thermal_p = IOM.get_variable(container, ActivePowerVariable, ThermalStandard)
     slack_up = IOM.get_variable(container, SystemBalanceSlackUp, PSY.System)
     slack_dn = IOM.get_variable(container, SystemBalanceSlackDown, PSY.System)
@@ -1308,7 +1310,7 @@ end
     settlement_expr = IOM.get_expression(container, IOM.SettlementBalance, PSY.System)
     time_steps = axes(p)[2]
     il1 = PSY.get_component(PSY.InterruptiblePowerLoad, sys, "il1")
-    pmax = PSY.get_max_active_power(il1, PSY.SU)
+    pmax = PSY.get_max_active_power(il1, u"SU")
     award = IOM.get_variable(
         container,
         ActivePowerReserveVariable,
@@ -1334,7 +1336,7 @@ end
     reserve = PSY.get_component(OnlineReserve{ReserveDown}, sys, "ReserveDown1")
     for t in time_steps
         @test JuMP.value(award[("ReserveDown1", "il1", t)]) ≈
-              PSY.get_requirement(reserve, PSY.SU) atol = 1e-6
+              PSY.get_requirement(reserve, u"SU") atol = 1e-6
         @test JuMP.value(p["il1", t]) ≈ 0.0 atol = 1e-8
     end
 end

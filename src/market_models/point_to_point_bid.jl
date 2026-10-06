@@ -4,7 +4,7 @@ get_variable_lower_bound(::Type{ClearedTransferVariable}, ::PSY.PointToPointBid,
 # `max_active_power` is a plain natural-units MW field (not a convertible field), so the
 # bound divides explicitly by the system base power, as `VirtualBidDispatch` does.
 get_variable_upper_bound(::Type{ClearedTransferVariable}, d::PSY.PointToPointBid, ::Type{SpreadBid}) =
-    PSY.get_max_active_power(d) / PSY.get_base_power(d, PSY.NU)
+    PSY.get_max_active_power(d) / PSY.get_base_power(d, u"NU")
 
 # Generic `= 1.0` PWL-parameter fallbacks for market components (not Device)
 get_multiplier_value(::Type{<:AbstractPiecewiseLinearSlopeParameter}, ::PSY.PointToPointBid, ::Type{SpreadBid}) = 1.0

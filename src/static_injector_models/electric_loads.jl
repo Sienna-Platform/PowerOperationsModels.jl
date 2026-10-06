@@ -625,7 +625,7 @@ struct PricedDispatch <: LoadDispatchBasis end
 struct UnofferedDispatch <: LoadDispatchBasis end
 
 _active_power_upper_bound(::PricedDispatch, d::PSY.ControllableLoad) =
-    PSY.get_max_active_power(d, PSY.SU)
+    PSY.get_max_active_power(d, u"SU")
 _active_power_upper_bound(::UnofferedDispatch, ::PSY.ControllableLoad) = 0.0
 
 # Is this cost curve zero-valued, i.e. it puts no price on the device's dispatch? A market
@@ -690,7 +690,7 @@ function _seed_reserve_ranges_on_limits!(
         expression = get_expression(container, T, L)
         for d in devices
             name = PSY.get_name(d)
-            pmax = PSY.get_max_active_power(d, PSY.SU)
+            pmax = PSY.get_max_active_power(d, u"SU")
             for t in time_steps
                 add_proportional_to_jump_expression!(expression[name, t], pmax, 1.0)
             end

@@ -2,16 +2,16 @@
 
 """
 `PSY.VirtualParticipant`'s `max_supply`/`max_demand` are plain natural-units MW fields
-(no `PSY.SU`/`PSY.NU` unit-system argument — not a convertible field), while POM models
+(no `u"SU"`/`u"NU"` unit argument — not a convertible field), while POM models
 in system per-unit. Bounds divide explicitly by the system base power:
-`PSY.get_base_power(d, PSY.NU)` falls back to the attached system's base power for a
+`PSY.get_base_power(d, u"NU")` falls back to the attached system's base power for a
 component with no dedicated device `base_power` field, which is the case here.
 """
 get_variable_upper_bound(::Type{ActivePowerOutVariable}, d::PSY.VirtualParticipant, ::Type{VirtualBidDispatch}) =
-    PSY.get_max_supply(d) / PSY.get_base_power(d, PSY.NU)
+    PSY.get_max_supply(d) / PSY.get_base_power(d, u"NU")
 get_variable_lower_bound(::Type{ActivePowerOutVariable}, ::PSY.VirtualParticipant, ::Type{VirtualBidDispatch}) = 0.0
 get_variable_upper_bound(::Type{ActivePowerInVariable}, d::PSY.VirtualParticipant, ::Type{VirtualBidDispatch}) =
-    PSY.get_max_demand(d) / PSY.get_base_power(d, PSY.NU)
+    PSY.get_max_demand(d) / PSY.get_base_power(d, u"NU")
 get_variable_lower_bound(::Type{ActivePowerInVariable}, ::PSY.VirtualParticipant, ::Type{VirtualBidDispatch}) = 0.0
 
 get_variable_binary(::Type{ActivePowerOutVariable}, ::Type{<:PSY.VirtualParticipant}, ::Type{VirtualBidDispatch}) = false
