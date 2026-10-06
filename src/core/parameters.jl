@@ -199,12 +199,6 @@ struct CostFunctionParameter <: ObjectiveFunctionParameter end
 # Offer curve parameter types (CostAtMin, PiecewiseLinearSlope, PiecewiseLinearBreakpoint): moved into IOM
 
 #################################################################################
-# Auxiliary Variable Value Parameters
-#################################################################################
-
-abstract type AuxVariableValueParameter <: RightHandSideParameter end
-
-#################################################################################
 # Event Parameters
 #################################################################################
 
@@ -246,7 +240,8 @@ struct HybridElectricLoadTimeSeriesParameter <: TimeSeriesParameter end
 # Method extensions for should_write_resulting_value
 #################################################################################
 
-should_write_resulting_value(::Type{<:RightHandSideParameter}) = true
+should_write_resulting_value(::Type{<:TimeSeriesParameter}) = true
+should_write_resulting_value(::Type{<:VariableValueParameter}) = true
 should_write_resulting_value(::Type{<:EventParameter}) = true
 
 should_write_resulting_value(::Type{<:FuelCostParameter}) = true
