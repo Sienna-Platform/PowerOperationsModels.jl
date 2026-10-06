@@ -5,6 +5,7 @@ import InfrastructureOptimizationModels as IOM
 import InfrastructureSystems as IS
 import InfrastructureSystems.Optimization as ISOPT
 import PowerSystems as PSY
+using PowerSystems: @u_str, PerUnit
 import PowerNetworkMatrices as PNM
 import PowerFlows as PFS
 import JuMP

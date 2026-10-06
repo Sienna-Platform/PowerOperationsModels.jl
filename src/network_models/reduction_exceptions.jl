@@ -163,14 +163,15 @@ function _pin_outage_buses!(buses::Set{Int}, m::DeviceModel, sys::PSY.System)
     return
 end
 
-# A `model_all_branches` MonitoredLine model pins its lines so zero-impedance
-# ones survive the reduction instead of being merged away.
+# A `model_all_branches` Line model pins its lines with an operational flow limit so
+# zero-impedance ones survive the reduction instead of being merged away.
 function _pin_model_all_branches!(
     buses::Set{Int},
-    m::DeviceModel{PSY.MonitoredLine},
+    m::DeviceModel{PSY.Line},
 )
     get_attribute(m, MODEL_ALL_BRANCHES_KEY) === true || return
     for branch in get_device_cache(m)
+        isnothing(_operational_flow_limit(branch)) && continue
         _push_component_buses!(buses, branch)
     end
     return

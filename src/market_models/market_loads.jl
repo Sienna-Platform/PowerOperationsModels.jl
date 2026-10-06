@@ -9,7 +9,7 @@ get_min_max_limits(
     d::PSY.ControllableLoad,
     ::Type{ActivePowerVariableLimitsConstraint},
     ::Type{MarketLoadBid},
-) = (min = 0.0, max = PSY.get_max_active_power(d, PSY.SU))
+) = (min = 0.0, max = PSY.get_max_active_power(d, u"SU"))
 
 #! format: on
 
@@ -69,7 +69,7 @@ function _seed_reserve_ranges_on_limits!(
     lb = get_expression(container, ActivePowerRangeExpressionLB, L)
     for d in devices
         name = PSY.get_name(d)
-        pmax = PSY.get_max_active_power(d, PSY.SU)
+        pmax = PSY.get_max_active_power(d, u"SU")
         for t in time_steps
             add_proportional_to_jump_expression!(lb[name, t], pmax, 1.0)
         end

@@ -212,7 +212,7 @@ struct CostFunctionParameter <: ObjectiveFunctionParameter end
 # Auxiliary Variable Value Parameters
 #################################################################################
 
-abstract type AuxVariableValueParameter <: RightHandSideParameter end
+abstract type AuxVariableValueParameter <: ParameterType end
 
 #################################################################################
 # Event Parameters
@@ -256,7 +256,12 @@ struct HybridElectricLoadTimeSeriesParameter <: TimeSeriesParameter end
 # Method extensions for should_write_resulting_value
 #################################################################################
 
-should_write_resulting_value(::Type{<:RightHandSideParameter}) = true
+# Parameters that carry a value into a constraint are written to results; the coefficients
+# of left-hand-side time-series parameters are not.
+should_write_resulting_value(::Type{<:TimeSeriesParameter}) = true
+should_write_resulting_value(::Type{<:LeftHandSideTimeSeriesParameter}) = false
+should_write_resulting_value(::Type{<:VariableValueParameter}) = true
+should_write_resulting_value(::Type{<:AuxVariableValueParameter}) = true
 should_write_resulting_value(::Type{<:EventParameter}) = true
 
 should_write_resulting_value(::Type{<:FuelCostParameter}) = true

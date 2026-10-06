@@ -201,8 +201,8 @@ function _converter_vi_bounds(devices)
     i_bounds = Vector{IOM.MinMax}(undef, n)
     for (k, d) in enumerate(devices)
         # bus voltage limits are already per-unit
-        v_min, v_max = PSY.get_voltage_limits(PSY.get_dc_bus(d), PSY.CU)
-        i_max = PSY.get_max_dc_current(d, PSY.SU)
+        v_min, v_max = PSY.get_voltage_limits(PSY.get_dc_bus(d), u"CU")
+        i_max = PSY.get_max_dc_current(d, u"SU")
         v_bounds[k] = IOM.MinMax((min = v_min, max = v_max))
         i_bounds[k] = IOM.MinMax((min = -i_max, max = i_max))
     end

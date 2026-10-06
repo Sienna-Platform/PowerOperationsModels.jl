@@ -99,8 +99,8 @@ function _prune_fully_reduced_branch_models!(
         push!(pruned, branch_type)
     end
     for branch_type in pruned
-        hint = if branch_type === PSY.MonitoredLine
-            " Use the `model_all_branches` attribute on the MonitoredLine DeviceModel to retain such lines through the reduction."
+        hint = if branch_type === PSY.Line
+            " Use the `model_all_branches` attribute on the Line DeviceModel to retain lines with an operational flow limit through the reduction."
         else
             " Consider adjusting the network-reduction settings/tolerance to avoid merging all branches of this type."
         end
@@ -134,18 +134,18 @@ _warn_reduced_monitored_lines!(removed_arcs::Set{Tuple{Int, Int}}, ::DeviceModel
 
 function _warn_reduced_monitored_lines!(
     removed_arcs::Set{Tuple{Int, Int}},
-    m::DeviceModel{PSY.MonitoredLine},
+    m::DeviceModel{PSY.Line},
 )
     dropped = [
-        PSY.get_name(ml) for ml in get_device_cache(m) if
-        _branch_arc_removed(ml, removed_arcs)
+        PSY.get_name(l) for l in get_device_cache(m) if
+        !isnothing(_operational_flow_limit(l)) && _branch_arc_removed(l, removed_arcs)
     ]
     isempty(dropped) && return
-    @warn "MonitoredLine(s) $(dropped) were merged away by the network reduction " *
-          "(near-zero impedance) and will not be modeled or monitored, though other " *
-          "MonitoredLines remain. Set the `model_all_branches` attribute on the " *
-          "MonitoredLine DeviceModel to force all monitored lines to be modeled " *
-          "through the reduction."
+    @warn "Line(s) $(dropped) with an operational flow limit were merged away by the " *
+          "network reduction (near-zero impedance) and will not be modeled or " *
+          "monitored. Set the `model_all_branches` attribute on the Line DeviceModel " *
+          "to force every line with an operational flow limit to be modeled through " *
+          "the reduction."
     return
 end
 

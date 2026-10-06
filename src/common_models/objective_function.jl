@@ -35,14 +35,14 @@ function _renewable_offer_max(
     t::Int,
 ) where {C <: PSY.RenewableGen}
     has_container_key(container, ActivePowerTimeSeriesParameter, C) ||
-        return PSY.get_max_active_power(component, PSY.SU)
+        return PSY.get_max_active_power(component, u"SU")
     param_container = get_parameter(container, ActivePowerTimeSeriesParameter, C)
     multiplier = get_multiplier_array(param_container)
     # The container can exist for type `C` while this particular device has no
     # time-series entry (mixed TS / no-TS devices of the same type). Fall back to
     # the static max in that case rather than indexing into a missing row.
     name ∈ axes(multiplier, 1) ||
-        return PSY.get_max_active_power(component, PSY.SU)
+        return PSY.get_max_active_power(component, u"SU")
     return get_parameter_column_refs(param_container, name)[t] * multiplier[name, t]
 end
 
@@ -56,7 +56,7 @@ function _add_curtailment_cost!(
     ::Type{U},
 ) where {T <: VariableType, C <: PSY.RenewableGen, U <: AbstractDeviceFormulation}
     base_power = get_model_base_power(container)
-    device_base_power = PSY.get_base_power(component, PSY.NU)
+    device_base_power = PSY.get_base_power(component, u"NU")
     value_curve = PSY.get_value_curve(cost_function)
     power_units = PSY.get_power_units(cost_function)
     cost_component = PSY.get_function_data(value_curve)

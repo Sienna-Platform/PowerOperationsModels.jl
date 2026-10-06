@@ -52,7 +52,7 @@ function _add_ic_apparent_power_limit!(
     )
     for d in devices
         name = PSY.get_name(d)
-        s2 = PSY.get_rating(d, PSY.SU)^2
+        s2 = PSY.get_rating(d, u"SU")^2
         for t in time_steps
             cons[name, t] = JuMP.@constraint(
                 jump_model, p_var[name, t]^2 + q_var[name, t]^2 <= s2,

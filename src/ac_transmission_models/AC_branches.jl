@@ -24,10 +24,11 @@ get_variable_lower_bound(::Type{FlowActivePowerSlackUpperBound}, ::PSY.ACTransmi
 get_variable_upper_bound(::Type{FlowActivePowerSlackLowerBound}, ::PSY.ACTransmission, ::Type{<:AbstractBranchFormulation}) = nothing
 get_variable_lower_bound(::Type{FlowActivePowerSlackLowerBound}, ::PSY.ACTransmission, ::Type{<:AbstractBranchFormulation}) = 0.0
 
-get_variable_upper_bound(::Type{FlowActivePowerFromToVariable}, d::PSY.MonitoredLine, ::Type{<:AbstractBranchFormulation}) = PSY.get_flow_limits(d, PSY.SU).from_to
-get_variable_lower_bound(::Type{FlowActivePowerFromToVariable}, d::PSY.MonitoredLine, ::Type{<:AbstractBranchFormulation}) = -1 * PSY.get_flow_limits(d, PSY.SU).from_to
-get_variable_upper_bound(::Type{FlowActivePowerToFromVariable}, d::PSY.MonitoredLine, ::Type{<:AbstractBranchFormulation}) = PSY.get_flow_limits(d, PSY.SU).to_from
-get_variable_lower_bound(::Type{FlowActivePowerToFromVariable}, d::PSY.MonitoredLine, ::Type{<:AbstractBranchFormulation}) = -1 * PSY.get_flow_limits(d, PSY.SU).to_from
+# A Line's operator-set flow limit bounds its directional flows; without one they stay free.
+get_variable_upper_bound(::Type{FlowActivePowerFromToVariable}, d::PSY.Line, ::Type{<:AbstractBranchFormulation}) = _operational_flow_bound(d, :from_to, :max)
+get_variable_lower_bound(::Type{FlowActivePowerFromToVariable}, d::PSY.Line, ::Type{<:AbstractBranchFormulation}) = _operational_flow_bound(d, :from_to, :min)
+get_variable_upper_bound(::Type{FlowActivePowerToFromVariable}, d::PSY.Line, ::Type{<:AbstractBranchFormulation}) = _operational_flow_bound(d, :to_from, :max)
+get_variable_lower_bound(::Type{FlowActivePowerToFromVariable}, d::PSY.Line, ::Type{<:AbstractBranchFormulation}) = _operational_flow_bound(d, :to_from, :min)
 
 #! format: on
 function get_default_time_series_names(
@@ -98,17 +99,17 @@ function get_default_attributes(
 end
 
 """
-`MonitoredLine` DeviceModel attribute. When `true`, both endpoint buses of every
-monitored line are pinned irreducible so zero-impedance lines survive the network
-reduction. Defaults to `false` (such lines are reduced away and not modeled). For
-the "base case flowgate" use case.
+`Line` DeviceModel attribute. When `true`, both endpoint buses of every line with an
+`operational_flow_limit` are pinned irreducible so zero-impedance monitored lines survive
+the network reduction. Defaults to `false` (such lines are reduced away and not modeled).
+For the "base case flowgate" use case.
 """
 const MODEL_ALL_BRANCHES_KEY = "model_all_branches"
 
-# Specialize the generic `ACTransmission` defaults for `MonitoredLine` to add
+# Specialize the generic `ACTransmission` defaults for `Line` to add
 # `MODEL_ALL_BRANCHES_KEY` (default `false`) alongside the inherited keys.
 function get_default_attributes(
-    ::Type{PSY.MonitoredLine},
+    ::Type{PSY.Line},
     ::Type{V},
 ) where {V <: AbstractBranchFormulation}
     return Dict{String, Any}(
@@ -118,7 +119,7 @@ function get_default_attributes(
 end
 
 function get_default_attributes(
-    ::Type{PSY.MonitoredLine},
+    ::Type{PSY.Line},
     ::Type{V},
 ) where {V <: AbstractSecurityConstrainedStaticBranch}
     return Dict{String, Any}(
@@ -221,13 +222,8 @@ _branch_variable_bounds(
     ::NetworkModel,
 ) = _control_limits(rep)
 
-# `control_limits` is dual-purpose — a tap-ratio band under voltage/reactive control, a
-# phase-angle band in radians under active-power control — but `PSY.TransformerCircuit`
-# defaults it to the TAP band `(min = 0.9, max = 1.1)`. A circuit authored for
-# ACTIVE_POWER_FLOW without explicit limits would therefore have its angle forced into
-# [0.9, 1.1] rad (52°-63°), excluding the neutral shift and the 0.0 start value, and the
-# model would still solve. Anchor on the stored α: the authored operating point has to be
-# feasible, which rejects the inherited tap default without assuming a band shape.
+# The phase-angle band must contain the stored α: the authored operating point has to be
+# feasible, which catches a band authored in the wrong units.
 function _branch_variable_bounds(
     ::Type{PhaseShifterAngle},
     rep::RepresentativeBranch,
@@ -239,7 +235,7 @@ function _branch_variable_bounds(
     if !(limits.min <= shift <= limits.max)
         throw(
             IS.ConflictingInputsError(
-                "Phase-controlled circuit $(rep.name) has control_limits \
+                "Phase-controlled circuit $(rep.name) has phase_angle_limits \
                  (min = $(limits.min), max = $(limits.max)) rad, which excludes its own \
                  stored phase shift α = $(shift) rad, so the authored operating point is \
                  infeasible. `PSY.TransformerCircuit` defaults `control_limits` to the \
@@ -914,48 +910,6 @@ function add_constraints!(
 end
 
 ############################## Flow Limits Constraints #####################################
-"""
-Add branch flow constraints for monitored lines with DC Power Model
-"""
-function add_constraints!(
-    container::OptimizationContainer,
-    ::Type{FlowLimitConstraint},
-    devices::Vector{T},
-    model::DeviceModel{T, U},
-    ::NetworkModel{V},
-) where {
-    T <: PSY.MonitoredLine,
-    U <: AbstractBranchFormulation,
-    V <: AbstractDCPNetworkModel,
-}
-    add_range_constraints!(
-        container,
-        FlowLimitConstraint,
-        FlowActivePowerVariable,
-        devices,
-        model,
-        V,
-    )
-    return
-end
-
-"""
-Don't add branch flow constraints for monitored lines if formulation is StaticBranchUnbounded
-"""
-function add_constraints!(
-    ::OptimizationContainer,
-    ::Type{FlowRateConstraintFromTo},
-    devices::Vector{T},
-    model::DeviceModel{T, U},
-    ::NetworkModel{V},
-) where {
-    T <: PSY.MonitoredLine,
-    U <: StaticBranchUnbounded,
-    V <: AbstractActivePowerModel,
-}
-    return
-end
-
 # Branch slack pricing derives from the pair's `slack_spec` declaration
 # (core/branch_slack_specs.jl): every slack container the spec names is priced at the
 # violation cost, so pricing cannot drift from what the constructors build. There is
@@ -1639,7 +1593,7 @@ function _add_voltage_control_constraints!(
         cont_lims = _quantity_limits(rep)
         bus = PSY.get_bus(sys, _regulated_number(rep))
         bus_name = PSY.get_name(bus)
-        bus_lims = PSY.get_voltage_limits(bus, PSY.CU)
+        bus_lims = PSY.get_voltage_limits(bus, u"CU")
         (bus_lims.min <= cont_lims.min <= cont_lims.max <= bus_lims.max) || error(
             "Bus voltage limits for $bus_name disagree with control limits for circuit $(rep.name).",
         )
@@ -2379,8 +2333,8 @@ end
 Add branch angle-difference limit constraints for ACBranch under DCP/ACP/DCPLL/LPACC
 network models.
 
-Only branches for which `PSY.get_angle_limits` is defined (currently `PSY.Line` and
-`PSY.MonitoredLine`) and that carry non-trivial limits (i.e. not the ±π defaults) receive
+Only branches for which `PSY.get_angle_limits` is defined (currently `PSY.Line`)
+that carry non-trivial limits (i.e. not the ±π defaults) receive
 a constraint.  Branches where the method is not defined are silently skipped.
 """
 function add_constraints!(
@@ -2492,7 +2446,7 @@ end
 ################################## DCPLLNetworkModel branch constraints #################
 
 # Tighten a flow variable to ±rate without loosening any bound it already carries (a
-# MonitoredLine's directional flow vars keep their tighter flow_limits).
+# Line's directional flow vars keep their tighter operational_flow_limit).
 function _tighten_flow_bound!(v, rate)
     if JuMP.has_upper_bound(v)
         JuMP.set_upper_bound(v, min(JuMP.upper_bound(v), rate))

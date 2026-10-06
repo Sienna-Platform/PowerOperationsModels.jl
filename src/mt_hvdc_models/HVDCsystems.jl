@@ -1,17 +1,17 @@
 #! format: off
 get_variable_binary(::Type{ActivePowerVariable}, ::Type{PSY.InterconnectingConverter}, ::Type{<:AbstractConverterFormulation}) = false
-get_variable_warm_start_value(::Type{ActivePowerVariable}, d::PSY.InterconnectingConverter, ::Type{<:AbstractConverterFormulation}) = PSY.get_active_power(d, PSY.SU)
-get_variable_lower_bound(::Type{ActivePowerVariable}, d::PSY.InterconnectingConverter, ::Type{<:AbstractConverterFormulation}) = PSY.get_active_power_limits(d, PSY.SU).min
-get_variable_upper_bound(::Type{ActivePowerVariable}, d::PSY.InterconnectingConverter, ::Type{<:AbstractConverterFormulation}) = PSY.get_active_power_limits(d, PSY.SU).max
+get_variable_warm_start_value(::Type{ActivePowerVariable}, d::PSY.InterconnectingConverter, ::Type{<:AbstractConverterFormulation}) = PSY.get_active_power(d, u"SU")
+get_variable_lower_bound(::Type{ActivePowerVariable}, d::PSY.InterconnectingConverter, ::Type{<:AbstractConverterFormulation}) = PSY.get_active_power_limits(d, u"SU").min
+get_variable_upper_bound(::Type{ActivePowerVariable}, d::PSY.InterconnectingConverter, ::Type{<:AbstractConverterFormulation}) = PSY.get_active_power_limits(d, u"SU").max
 get_variable_multiplier(::Type{<:VariableType}, ::Type{PSY.InterconnectingConverter}, ::Type{<:AbstractConverterFormulation}) = 1.0
 
 
 function _get_flow_bounds(d::PSY.TModelHVDCLine)
     check_hvdc_line_limits_consistency(d)
-    from_min = PSY.get_active_power_limits_from(d, PSY.SU).min
-    to_min = PSY.get_active_power_limits_to(d, PSY.SU).min
-    from_max = PSY.get_active_power_limits_from(d, PSY.SU).max
-    to_max = PSY.get_active_power_limits_to(d, PSY.SU).max
+    from_min = PSY.get_active_power_limits_from(d, u"SU").min
+    to_min = PSY.get_active_power_limits_to(d, u"SU").min
+    from_max = PSY.get_active_power_limits_from(d, u"SU").max
+    to_max = PSY.get_active_power_limits_to(d, u"SU").max
 
     if from_min >= 0.0 && to_min >= 0.0
         min_rate = min(from_min, to_min)
@@ -43,7 +43,7 @@ end
 
 get_variable_binary(::Type{FlowActivePowerVariable}, ::Type{PSY.TModelHVDCLine}, ::Type{<:AbstractBranchFormulation}) = false
 get_variable_binary(::Type{DCLineCurrent}, ::Type{PSY.TModelHVDCLine}, ::Type{<:AbstractBranchFormulation}) = false
-get_variable_warm_start_value(::Type{FlowActivePowerVariable}, d::PSY.TModelHVDCLine, ::Type{<:AbstractBranchFormulation}) = PSY.get_active_power_flow(d, PSY.SU)
+get_variable_warm_start_value(::Type{FlowActivePowerVariable}, d::PSY.TModelHVDCLine, ::Type{<:AbstractBranchFormulation}) = PSY.get_active_power_flow(d, u"SU")
 get_variable_lower_bound(::Type{FlowActivePowerVariable}, d::PSY.TModelHVDCLine, ::Type{<:AbstractBranchFormulation}) = _get_flow_bounds(d)[1]
 get_variable_upper_bound(::Type{FlowActivePowerVariable}, d::PSY.TModelHVDCLine, ::Type{<:AbstractBranchFormulation}) = _get_flow_bounds(d)[2]
 
@@ -53,7 +53,7 @@ function get_variable_lower_bound(::Type{DCLineCurrent}, d::PSY.TModelHVDCLine, 
     arc = PSY.get_arc(d)
     bus_from = arc.from
     bus_to = arc.to
-    max_v = max(PSY.get_magnitude(bus_from, PSY.CU), PSY.get_magnitude(bus_to, PSY.CU))
+    max_v = max(PSY.get_magnitude(bus_from, u"CU"), PSY.get_magnitude(bus_to, u"CU"))
     return p_min_flow / max_v
 end
 # This is an approximation for DC lines since the actual current limit depends on the voltage, that is a variable in the optimization problem
@@ -62,7 +62,7 @@ function get_variable_upper_bound(::Type{DCLineCurrent}, d::PSY.TModelHVDCLine, 
     arc = PSY.get_arc(d)
     bus_from = arc.from
     bus_to = arc.to
-    max_v = max(PSY.get_magnitude(bus_from, PSY.CU), PSY.get_magnitude(bus_to, PSY.CU))
+    max_v = max(PSY.get_magnitude(bus_from, u"CU"), PSY.get_magnitude(bus_to, u"CU"))
     return p_max_flow / max_v
 end
 get_variable_multiplier(::Type{<:VariableType}, ::Type{PSY.TModelHVDCLine}, ::Type{<:AbstractBranchFormulation}) = 1.0
@@ -137,15 +137,15 @@ get_variable_binary(::Type{ConverterCurrent}, ::Type{PSY.InterconnectingConverte
 get_variable_binary(::Type{CurrentAbsoluteValueVariable}, ::Type{PSY.InterconnectingConverter}, ::Type{<:AbstractConverterFormulation}) = false
 
 ### Warm Start ###
-get_variable_warm_start_value(::Type{ConverterCurrent}, d::PSY.InterconnectingConverter, ::Type{<:AbstractConverterFormulation}) = PSY.get_dc_current(d, PSY.SU)
+get_variable_warm_start_value(::Type{ConverterCurrent}, d::PSY.InterconnectingConverter, ::Type{<:AbstractConverterFormulation}) = PSY.get_dc_current(d, u"SU")
 
 ### Lower Bounds ###
-get_variable_lower_bound(::Type{ConverterCurrent}, d::PSY.InterconnectingConverter, ::Type{<:AbstractConverterFormulation}) = -PSY.get_max_dc_current(d, PSY.SU)
+get_variable_lower_bound(::Type{ConverterCurrent}, d::PSY.InterconnectingConverter, ::Type{<:AbstractConverterFormulation}) = -PSY.get_max_dc_current(d, u"SU")
 get_variable_lower_bound(::Type{CurrentAbsoluteValueVariable}, d::PSY.InterconnectingConverter, ::Type{<:AbstractConverterFormulation}) = 0.0
 
 ### Upper Bounds ###
-get_variable_upper_bound(::Type{ConverterCurrent}, d::PSY.InterconnectingConverter, ::Type{<:AbstractConverterFormulation}) = PSY.get_max_dc_current(d, PSY.SU)
-get_variable_upper_bound(::Type{CurrentAbsoluteValueVariable}, d::PSY.InterconnectingConverter, ::Type{<:AbstractConverterFormulation}) = PSY.get_max_dc_current(d, PSY.SU)
+get_variable_upper_bound(::Type{ConverterCurrent}, d::PSY.InterconnectingConverter, ::Type{<:AbstractConverterFormulation}) = PSY.get_max_dc_current(d, u"SU")
+get_variable_upper_bound(::Type{CurrentAbsoluteValueVariable}, d::PSY.InterconnectingConverter, ::Type{<:AbstractConverterFormulation}) = PSY.get_max_dc_current(d, u"SU")
 
 # AC apparent-current variable (AC networks only): 0 ≤ I_ac ≤ S_max/vmin.
 # Warm-started at the rated apparent current S_max (pu, at nominal voltage), which is
@@ -155,8 +155,8 @@ get_variable_upper_bound(::Type{CurrentAbsoluteValueVariable}, d::PSY.Interconne
 # traps Ipopt at a locally-infeasible restoration.
 get_variable_binary(::Type{ConverterACCurrentVariable}, ::Type{PSY.InterconnectingConverter}, ::Type{<:AbstractConverterFormulation}) = false
 get_variable_lower_bound(::Type{ConverterACCurrentVariable}, d::PSY.InterconnectingConverter, ::Type{<:AbstractConverterFormulation}) = CONVERTER_AC_CURRENT_FLOOR
-get_variable_upper_bound(::Type{ConverterACCurrentVariable}, d::PSY.InterconnectingConverter, ::Type{<:AbstractConverterFormulation}) = _converter_ac_current_max(PSY.get_rating(d, PSY.SU), PSY.get_voltage_limits(PSY.get_bus(d), PSY.CU).min, PSY.get_name(d))
-get_variable_warm_start_value(::Type{ConverterACCurrentVariable}, d::PSY.InterconnectingConverter, ::Type{<:AbstractConverterFormulation}) = PSY.get_rating(d, PSY.SU)
+get_variable_upper_bound(::Type{ConverterACCurrentVariable}, d::PSY.InterconnectingConverter, ::Type{<:AbstractConverterFormulation}) = _converter_ac_current_max(PSY.get_rating(d, u"SU"), PSY.get_voltage_limits(PSY.get_bus(d), u"CU").min, PSY.get_name(d))
+get_variable_warm_start_value(::Type{ConverterACCurrentVariable}, d::PSY.InterconnectingConverter, ::Type{<:AbstractConverterFormulation}) = PSY.get_rating(d, u"SU")
 
 #! format: on
 
@@ -176,8 +176,8 @@ end
 #! format: off
 get_variable_binary(::Type{ReactivePowerVariable}, ::Type{PSY.InterconnectingConverter}, ::Type{<:AbstractConverterFormulation}) = false
 get_variable_warm_start_value(::Type{ReactivePowerVariable}, ::PSY.InterconnectingConverter, ::Type{<:AbstractConverterFormulation}) = 0.0
-get_variable_lower_bound(::Type{ReactivePowerVariable}, d::PSY.InterconnectingConverter, ::Type{<:AbstractConverterFormulation}) = _require_reactive_limits(PSY.get_reactive_power_limits(d, PSY.SU), d).min
-get_variable_upper_bound(::Type{ReactivePowerVariable}, d::PSY.InterconnectingConverter, ::Type{<:AbstractConverterFormulation}) = _require_reactive_limits(PSY.get_reactive_power_limits(d, PSY.SU), d).max
+get_variable_lower_bound(::Type{ReactivePowerVariable}, d::PSY.InterconnectingConverter, ::Type{<:AbstractConverterFormulation}) = _require_reactive_limits(PSY.get_reactive_power_limits(d, u"SU"), d).min
+get_variable_upper_bound(::Type{ReactivePowerVariable}, d::PSY.InterconnectingConverter, ::Type{<:AbstractConverterFormulation}) = _require_reactive_limits(PSY.get_reactive_power_limits(d, u"SU"), d).max
 #! format: on
 
 ############################################
