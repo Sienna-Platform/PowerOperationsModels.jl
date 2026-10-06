@@ -178,8 +178,7 @@ end
                 sys,
                 line_to_add_parallel,
                 PSY.Line,
-                PSY.Line,
-                Val(:operational_flow_limit),
+                PSY.TwoWindingTransformer,
             )
 
             add_branch_rating_time_series_to_system!(
@@ -223,7 +222,7 @@ end
     end
 end
 
-@testset "Network DC-PF with PTDF Model and implementing branch rating time series with BranchesParallel of different types (Line with operational flow limit with BranchRatingTimeSeriesParameter)" begin
+@testset "Network DC-PF with PTDF Model and implementing branch rating time series with BranchesParallel of different types (TwoWindingTransformer with BranchRatingTimeSeriesParameter)" begin
     objfuncs = [GAEVF, GQEVF, GQEVF]
     constraint_keys = [
         IOM.ConstraintKey(FlowRateConstraint, PSY.Line, "lb"),
@@ -262,8 +261,7 @@ end
                 sys,
                 line_to_add_parallel,
                 PSY.Line,
-                PSY.Line,
-                Val(:operational_flow_limit),
+                PSY.TwoWindingTransformer,
             )
 
             add_branch_rating_time_series_to_system!(

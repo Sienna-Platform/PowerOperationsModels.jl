@@ -1434,6 +1434,10 @@ function _vsc_voltage_limits_su(d::PSY.TwoTerminalVSCLine, limits::PSY.MinMax)
     v_base = _vsc_dc_base_voltage(d)
     return (min = _kv_to_su(limits.min, v_base), max = _kv_to_su(limits.max, v_base))
 end
+_vsc_voltage_limits_from_su(d::PSY.TwoTerminalVSCLine) =
+    _vsc_voltage_limits_su(d, PSY.get_voltage_limits_from(d))
+_vsc_voltage_limits_to_su(d::PSY.TwoTerminalVSCLine) =
+    _vsc_voltage_limits_su(d, PSY.get_voltage_limits_to(d))
 
 # Variable trait methods for the shared cable current and DC voltages
 get_variable_binary(::Type{DCLineCurrentFlowVariable}, ::Type{PSY.TwoTerminalVSCLine}, ::Type{<:AbstractTwoTerminalVSCFormulation}) = false
@@ -1465,10 +1469,10 @@ get_variable_lower_bound(::Type{HVDCReactivePowerToVariable}, d::PSY.TwoTerminal
 get_variable_upper_bound(::Type{HVDCReactivePowerToVariable}, d::PSY.TwoTerminalVSCLine, ::Type{<:AbstractTwoTerminalVSCFormulation}) = PSY.get_reactive_power_limits_to(d, u"SU").max
 
 # DC voltage bounds (per-terminal)
-get_variable_lower_bound(::Type{HVDCFromDCVoltage}, d::PSY.TwoTerminalVSCLine, ::Type{<:AbstractTwoTerminalVSCFormulation}) = _vsc_voltage_limits_su(d, PSY.get_voltage_limits_from(d)).min
-get_variable_upper_bound(::Type{HVDCFromDCVoltage}, d::PSY.TwoTerminalVSCLine, ::Type{<:AbstractTwoTerminalVSCFormulation}) = _vsc_voltage_limits_su(d, PSY.get_voltage_limits_from(d)).max
-get_variable_lower_bound(::Type{HVDCToDCVoltage}, d::PSY.TwoTerminalVSCLine, ::Type{<:AbstractTwoTerminalVSCFormulation}) = _vsc_voltage_limits_su(d, PSY.get_voltage_limits_to(d)).min
-get_variable_upper_bound(::Type{HVDCToDCVoltage}, d::PSY.TwoTerminalVSCLine, ::Type{<:AbstractTwoTerminalVSCFormulation}) = _vsc_voltage_limits_su(d, PSY.get_voltage_limits_to(d)).max
+get_variable_lower_bound(::Type{HVDCFromDCVoltage}, d::PSY.TwoTerminalVSCLine, ::Type{<:AbstractTwoTerminalVSCFormulation}) = _vsc_voltage_limits_from_su(d).min
+get_variable_upper_bound(::Type{HVDCFromDCVoltage}, d::PSY.TwoTerminalVSCLine, ::Type{<:AbstractTwoTerminalVSCFormulation}) = _vsc_voltage_limits_from_su(d).max
+get_variable_lower_bound(::Type{HVDCToDCVoltage}, d::PSY.TwoTerminalVSCLine, ::Type{<:AbstractTwoTerminalVSCFormulation}) = _vsc_voltage_limits_to_su(d).min
+get_variable_upper_bound(::Type{HVDCToDCVoltage}, d::PSY.TwoTerminalVSCLine, ::Type{<:AbstractTwoTerminalVSCFormulation}) = _vsc_voltage_limits_to_su(d).max
 
 # Shared cable current bounds — must respect BOTH terminals' I_max ratings.
 _vsc_cable_i_max(d::PSY.TwoTerminalVSCLine) = _vsc_dc_current_su(

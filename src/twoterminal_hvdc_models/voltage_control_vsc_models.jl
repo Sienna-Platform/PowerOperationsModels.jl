@@ -9,11 +9,15 @@
 # HVDCDCControlConstraint per terminal per time step (always present regardless
 # of DC control mode), plus per-mode handling for AC control.
 #
-# DC control modes (setpoints are per unit; positive power = withdrawn from the
-# AC network at the terminal, matching the flow variables' sign):
+# DC control modes (setpoints are per unit). The terminal power p (FlowActivePower*Variable)
+# is positive when the terminal withdraws power from the AC network: it enters
+# ActivePowerBalance with -1.0. PSY's dc_power_setpoint_* is positive when the converter
+# supplies power to the AC network, so `_vsc_dc_setpoint` negates it:
 #   DC_VOLTAGE:       vdc[t] == dc_voltage_setpoint
-#   DC_POWER:         p[t]   == dc_power_setpoint
+#   DC_POWER:         p[t]   == -dc_power_setpoint
 #   DC_VOLTAGE_DROOP: vdc[t] + droop_gain * p[t] == dc_voltage_setpoint
+# The droop row is PSY's V_dc = dc_voltage_setpoint + dc_voltage_droop * P_c, with the
+# AC-side injection P_c = -p.
 # Constraint containers (meta = "from" / "to") are allocated once before the
 # device loop, so variable + constraint counts are identical across all modes.
 #
@@ -76,14 +80,16 @@ end
 
 # Setpoint of the quantity a terminal controls, in the model's per-unit. The AC voltage
 # setpoint is per unit of the terminal's rated AC voltage; the model pins the bus
-# magnitude on the bus base voltage. The DC voltage setpoint is per unit of
-# `rated_dc_voltage`, which is the VSC DC voltage base.
+# magnitude on the bus base voltage. AC_REACTIVE_POWER holds the terminal's
+# `reactive_power_*` field (injection into the bus, system base) as the setpoint. The DC
+# voltage setpoint is per unit of `rated_dc_voltage`, which is the VSC DC voltage base.
 function _vsc_ac_setpoint(
     d::PSY.TwoTerminalVSCLine,
     mode::PSY.VSCACControlModes.Value,
     voltage_setpoint::Union{Nothing, Float64},
     rated_ac_voltage::Float64,
-    power_factor::Union{Nothing, Float64},
+    reactive_power::Float64,
+    reactive_limits::PSY.MinMax,
     bus::PSY.ACBus,
     side::String,
 )
@@ -92,19 +98,26 @@ function _vsc_ac_setpoint(
         rated = _nonzero_base_voltage(rated_ac_voltage, "rated_ac_voltage_$(side)", d)
         return v * (rated / _bus_base_voltage(bus))
     end
-    pf = _mode_setpoint(power_factor, "power_factor_setpoint_$(side)", d)
-    return _reactive_setpoint_from_power_factor(pf, d)
+    if reactive_power < reactive_limits.min || reactive_power > reactive_limits.max
+        error(
+            "TwoTerminalVSCLine $(PSY.get_name(d)): AC_REACTIVE_POWER on the $(side) " *
+            "converter holds reactive_power_$(side) = $(reactive_power) pu, outside " *
+            "reactive_power_limits_$(side) = ($(reactive_limits.min), " *
+            "$(reactive_limits.max)) pu.",
+        )
+    end
+    return reactive_power
 end
 
 _vsc_ac_setpoint_from(d::PSY.TwoTerminalVSCLine) = _vsc_ac_setpoint(
     d, PSY.get_ac_control_from(d), PSY.get_ac_voltage_setpoint_from(d),
-    PSY.get_rated_ac_voltage_from(d), PSY.get_power_factor_setpoint_from(d),
-    PSY.get_from(PSY.get_arc(d)), "from",
+    PSY.get_rated_ac_voltage_from(d), PSY.get_reactive_power_from(d, u"SU"),
+    PSY.get_reactive_power_limits_from(d, u"SU"), PSY.get_from(PSY.get_arc(d)), "from",
 )
 _vsc_ac_setpoint_to(d::PSY.TwoTerminalVSCLine) = _vsc_ac_setpoint(
     d, PSY.get_ac_control_to(d), PSY.get_ac_voltage_setpoint_to(d),
-    PSY.get_rated_ac_voltage_to(d), PSY.get_power_factor_setpoint_to(d),
-    PSY.get_to(PSY.get_arc(d)), "to",
+    PSY.get_rated_ac_voltage_to(d), PSY.get_reactive_power_to(d, u"SU"),
+    PSY.get_reactive_power_limits_to(d, u"SU"), PSY.get_to(PSY.get_arc(d)), "to",
 )
 
 function _vsc_dc_setpoint(
@@ -115,7 +128,7 @@ function _vsc_dc_setpoint(
     side::String,
 )
     if mode == PSY.VSCDCControlModes.DC_POWER
-        return _mode_setpoint(power_setpoint, "dc_power_setpoint_$(side)", d)
+        return -_mode_setpoint(power_setpoint, "dc_power_setpoint_$(side)", d)
     end
     return _mode_setpoint(voltage_setpoint, "dc_voltage_setpoint_$(side)", d)
 end

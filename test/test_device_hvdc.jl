@@ -111,6 +111,23 @@ end
     @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
 end
 
+@testset "HVDC ohm and ampere conversions match hand-computed per-unit values" begin
+    sys = build_system(PSISystems, "sys10_pjm_ac_dc")
+    @test get_base_power(sys) == 100.0
+    for bus in get_components(DCBus, sys)
+        set_base_voltage!(bus, 500.0)
+    end
+    # Z_base = 500^2 / 100 = 2500 ohm, so 25 ohm is 0.01 pu.
+    for line in get_components(TModelHVDCLine, sys)
+        set_r!(line, 25.0)
+        @test POM._tmodel_r_su(line) ≈ 0.01
+    end
+    # I_base = 1000 * 100 / 500 = 200 A, so 400 A is 2.0 pu.
+    for ipc in get_components(InterconnectingConverter, sys)
+        @test POM._dc_current_su(ipc, 400.0) ≈ 2.0
+    end
+end
+
 @testset "HVDC CurrentAbsoluteValueVariable matches |ConverterCurrent| at MILP optimum" begin
     # Force a ~2 pu side-2 generation deficit (within the 2 converters × 2.0 pu DC
     # import capacity) so side-2 must import over the DC ties. Under CopperPlate the
@@ -338,6 +355,45 @@ end
         )
         @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
               IOM.ModelBuildStatus.BUILT
+    end
+end
+
+@testset "HVDC VSC bilinear factor bounds are in system per unit" begin
+    sys = _generate_test_vsc_sys()
+    vsc = get_component(TwoTerminalVSCLine, sys, "1")
+    # DC side, V_base = rated_dc_voltage = 230 kV; the limits are 0.95 and 1.05 times it.
+    for lims in (POM._vsc_voltage_limits_from_su(vsc), POM._vsc_voltage_limits_to_su(vsc))
+        @test lims.min ≈ 0.95
+        @test lims.max ≈ 1.05
+    end
+    # DC side, I_base = 1000 * 100 MVA / 230 kV; max_dc_current is 5 times it.
+    @test POM._vsc_cable_i_max(vsc) ≈ 5.0
+    # AC side: I_ac <= rating_from / vmin, both in per unit of the from-bus base.
+    vmin = get_voltage_limits(get_from(get_arc(vsc)), u"CU").min
+    @test POM.get_variable_upper_bound(
+        POM.ConverterACCurrentFromVariable, vsc, HVDCTwoTerminalVSC,
+    ) ≈ 2.0 / vmin
+
+    # The bin2 builder gets the same DC bounds, so v_f * I is feasible and in tolerance.
+    rel_tol = 0.1
+    model = _build_vsc_model(
+        _vsc_milp("bilinear_relative_tolerance" => rel_tol),
+        DCPNetworkModel, HiGHS_optimizer; sys = sys,
+    )
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+    @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+    c = IOM.get_optimization_container(model)
+    v_f = IOM.get_variable(c, POM.HVDCFromDCVoltage, TwoTerminalVSCLine)
+    i_dc = IOM.get_variable(c, POM.DCLineCurrentFlowVariable, TwoTerminalVSCLine)
+    vi_ft = IOM.get_expression(
+        c, IOM.BilinearProductExpression, TwoTerminalVSCLine, "vi_ft",
+    )
+    for t in axes(v_f)[2]
+        @test JuMP.lower_bound(v_f["1", t]) ≈ 0.95
+        @test JuMP.upper_bound(v_f["1", t]) ≈ 1.05
+        exact = JuMP.value(v_f["1", t]) * JuMP.value(i_dc["1", t])
+        @test abs(JuMP.value(vi_ft["1", t]) - exact) <= rel_tol * 1.05 * 5.0 + 1e-6
     end
 end
 

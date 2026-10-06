@@ -686,7 +686,7 @@ end
     model = DecisionModel(template, sys)
     @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
           ModelBuildStatus.BUILT
-    moi_tests(model, 40, 0, 56, 52, 13, true)
+    moi_tests(model, 38, 0, 58, 54, 11, true)
 end
 
 @testset "Test EnergyLimitFeedforward to EnergyReservoirStorage with StorageDispatchWithReserves model - $sys_name" for sys_name in

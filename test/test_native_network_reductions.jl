@@ -992,8 +992,7 @@ end
         sys,
         mixed_member,
         PSY.Line,
-        PSY.Line,
-        Val(:operational_flow_limit),
+        PSY.TwoWindingTransformer,
     )
 
     unrelated = get_component(PSY.Line, sys, "4")

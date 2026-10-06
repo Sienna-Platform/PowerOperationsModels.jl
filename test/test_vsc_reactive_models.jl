@@ -33,7 +33,6 @@ function _build_vsc_reactive_sys(;
         rating = rating,
         g = 50.0 * s_base / v_dc^2,
         dc_current = 0.0,
-        reactive_power_from = 0.0,
         dc_control_from = dc_control_from,
         ac_control_from = ac_control_from,
         _vsc_setpoint_kwargs(
@@ -47,7 +46,6 @@ function _build_vsc_reactive_sys(;
         power_factor_weighting_fraction_from = 1.0,
         voltage_limits_from = (min = 0.95 * v_dc, max = 1.05 * v_dc),
         dc_voltage_droop_from = dc_voltage_droop_from * v_dc / s_base,
-        reactive_power_to = 0.0,
         dc_control_to = dc_control_to,
         ac_control_to = ac_control_to,
         _vsc_setpoint_kwargs(
@@ -121,6 +119,40 @@ end
     for r in 1:nrow(vm)
         @test isapprox(vm[r, regulated_bus], setpoint; atol = 1e-6)
     end
+end
+
+@testset "VoltageControlVSC AC_REACTIVE_POWER pins q at reactive_power_from" begin
+    sys = _build_vsc_reactive_sys(;
+        ac_control_from = VSCACControlModes.AC_REACTIVE_POWER,
+        dc_control_from = VSCDCControlModes.DC_VOLTAGE,
+        ac_control_to = VSCACControlModes.AC_VOLTAGE,
+        ac_setpoint_to = 1.0,
+    )
+    vsc = get_component(TwoTerminalVSCLine, sys, "1")
+    # 30 MVAr on the 100 MVA system base is 0.3 pu.
+    @test get_base_power(sys) == 100.0
+    set_reactive_power_from!(vsc, 30.0 * u"MVAr")
+    template = _vsc_reactive_template(ACPNetworkModel)
+    model = DecisionModel(
+        template, sys; store_variable_names = true, optimizer = ipopt_optimizer,
+    )
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+    c = IOM.get_optimization_container(model)
+    q_f = POM.get_variable(c, POM.HVDCReactivePowerFromVariable, TwoTerminalVSCLine)
+    for t in axes(q_f)[2]
+        @test JuMP.is_fixed(q_f["1", t])
+        @test JuMP.fix_value(q_f["1", t]) ≈ 0.3
+    end
+
+    # A setpoint outside reactive_power_limits_from (±2.0 pu) is a build error.
+    set_reactive_power_from!(vsc, 250.0 * u"MVAr")
+    model = DecisionModel(template, sys; optimizer = ipopt_optimizer)
+    out = mktempdir(; cleanup = true)
+    @test build!(model; output_dir = out, console_level = Logging.Error) ==
+          IOM.ModelBuildStatus.FAILED
+    log = read(joinpath(out, "operation_problem.log"), String)
+    @test occursin("reactive_power_from = 2.5 pu, outside reactive_power_limits_from", log)
 end
 
 @testset "VoltageControlVSC is count-invariant across AC control modes" begin
@@ -272,13 +304,13 @@ function _vsc_no_integer_vars(model)
 end
 
 @testset "VoltageControlVSC AC loss is parameterized on AC apparent current" begin
-    # Pin the to-terminal bus off nominal voltage so the converter carries reactive
-    # power; the loss must then exceed the active-only (Q=0) loss.
+    # Pin the to-terminal reactive injection to a non-zero value so the converter
+    # carries reactive power; the loss must then exceed the active-only (Q=0) loss.
     sys = _build_vsc_reactive_sys(;
         ac_control_from = VSCACControlModes.AC_VOLTAGE,
         ac_setpoint_from = 1.0,
-        ac_control_to = VSCACControlModes.AC_VOLTAGE,
-        ac_setpoint_to = 1.04,
+        ac_control_to = VSCACControlModes.AC_REACTIVE_POWER,
+        ac_setpoint_to = 0.6,
     )
     template = _vsc_reactive_template(ACPNetworkModel)
     model = DecisionModel(
@@ -549,5 +581,46 @@ end
     for tag in _VSC_OCTAGON_BOX_TAGS
         c = _vsc_apparent_power_constraint(octagon, tag)["1", t1]
         @test JuMP.normalized_rhs(c) ≈ rating
+    end
+end
+
+@testset "VoltageControlVSC DC_POWER: positive dc_power_setpoint injects into the AC bus" begin
+    # PSY: positive dc_power_setpoint_to means the `to` converter supplies power to the
+    # AC network. POM's p_tf is AC withdrawal, so the model must hold p_tf == -setpoint.
+    sys = _build_vsc_reactive_sys(;
+        ac_control_to = VSCACControlModes.AC_VOLTAGE,
+        ac_setpoint_to = 1.0,
+        dc_setpoint_to = 0.5,
+    )
+    vsc = only(get_components(TwoTerminalVSCLine, sys))
+    name = get_name(vsc)
+    p_sp = PSY.get_dc_power_setpoint_to(vsc, u"SU")
+    @test p_sp > 0.0
+    model = DecisionModel(
+        _vsc_reactive_template(ACPNetworkModel), sys;
+        store_variable_names = true, optimizer = ipopt_optimizer,
+    )
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+
+    container = IOM.get_optimization_container(model)
+    p_tf = IOM.get_variable(container, FlowActivePowerToFromVariable, TwoTerminalVSCLine)
+    con = IOM.get_constraint(
+        container, POM.HVDCDCControlConstraint, TwoTerminalVSCLine, "to",
+    )
+    balance = IOM.get_expression(container, ActivePowerBalance, ACBus)
+    to_bus = get_number(get_to(get_arc(vsc)))
+    for t in IOM.get_time_steps(container)
+        c = JuMP.constraint_object(con[name, t])
+        pinned = c.set.value / JuMP.coefficient(c.func, p_tf[name, t])
+        @test isapprox(pinned, -p_sp; atol = 1e-9)
+        # The AC-bus injection of the pinned terminal power equals the PSY setpoint.
+        injection = JuMP.coefficient(balance[to_bus, t], p_tf[name, t]) * pinned
+        @test isapprox(injection, p_sp; atol = 1e-9)
+    end
+
+    @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+    for t in IOM.get_time_steps(container)
+        @test isapprox(JuMP.value(p_tf[name, t]), -p_sp; atol = 1e-5)
     end
 end

@@ -36,22 +36,9 @@ _mode_setpoint(::Nothing, field::String, d::PSY.Component) = error(
     "is nothing.",
 )
 
-# AC_REACTIVE_POWER holds a power factor. Q = P * tan(acos(pf)) couples Q to P, which
-# the reactive pin cannot express, so only unity power factor (Q = 0) is supported.
-function _reactive_setpoint_from_power_factor(pf::Float64, d::PSY.Component)
-    if !isone(abs(pf))
-        error(
-            "$(nameof(typeof(d))) $(PSY.get_name(d)): power_factor_setpoint = $(pf). " *
-            "AC_REACTIVE_POWER control supports only unity power factor (Q = 0).",
-        )
-    end
-    return 0.0
-end
-
 # Pin a converter/terminal reactive injection at its setpoint. Shared by both AC
 # control primitives so the AC_REACTIVE_POWER enforcement lives in one place.
-# `setpoint` is system-base reactive power (pu MVAr), derived from the power factor
-# by `_reactive_setpoint_from_power_factor`.
+# `setpoint` is system-base reactive power (pu MVAr).
 function _pin_converter_reactive!(q_var, name::String, setpoint::Float64, time_steps)
     for t in time_steps
         JuMP.fix(q_var[name, t], setpoint; force = true)

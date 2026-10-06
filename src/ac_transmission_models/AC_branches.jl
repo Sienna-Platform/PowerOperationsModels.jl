@@ -99,7 +99,6 @@ kept out of the network reduction, so each device keeps its own arc. Defaults to
 """
 const MODEL_ALL_BRANCHES_KEY = "model_all_branches"
 
-
 _control_enabled(m::DeviceModel) =
     _control_supported(m) && get_attribute(m, ENABLE_CONTROLS_KEY) === true
 

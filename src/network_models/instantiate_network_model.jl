@@ -138,7 +138,8 @@ end
 function _warn_reduced_monitored_lines!(removed_arcs::Set{Tuple{Int, Int}}, m::DeviceModel)
     haskey(get_attributes(m), MODEL_ALL_BRANCHES_KEY) || return
     dropped = [
-        PSY.get_name(d) for d in get_device_cache(m) if _branch_arc_removed(d, removed_arcs)
+        PSY.get_name(d) for
+        d in get_device_cache(m) if _branch_arc_removed(d, removed_arcs)
     ]
     isempty(dropped) && return
     @warn "$(get_component_type(m)) component(s) $(dropped) were merged away by the \

@@ -12,8 +12,8 @@
 function _build_converter_sys(;
     loss = PSY.LossCurve(QuadraticCurve(0.0, 0.0, 0.0), PSY.CU),
     reactive_limit = 1.5,
-    ac_control = VSCACControlModes.AC_REACTIVE_POWER,
-    ac_setpoint = 0.0,
+    ac_control = VSCACControlModes.AC_VOLTAGE,
+    ac_setpoint = 1.0,
     dc_control = VSCDCControlModes.DC_VOLTAGE,
     dc_setpoint = 1.0,
     dc_voltage_droop = 0.0,
@@ -428,38 +428,21 @@ end
     end
 end
 
-@testset "VoltageControlConverter is count-invariant across AC control modes (LPACC)" begin
-    function _lpacc_container_for_ac_mode(mode, setpoint)
-        sys = _build_converter_sys(;
-            loss = PSY.LossCurve(QuadraticCurve(0.01, 0.01, 0.0), PSY.CU),
-            ac_control = mode,
-            ac_setpoint = setpoint,
-        )
-        template = _converter_template(
-            LPACCNetworkModel,
-            DeviceModel(InterconnectingConverter, VoltageControlConverter);
-            hvdc_model = VoltageDispatchHVDCNetworkModel,
-            line_formulation = DCLossyLine,
-        )
-        model, status = _build_converter_model(template, sys, ipopt_optimizer)
-        @test status == IOM.ModelBuildStatus.BUILT
-        return IOM.get_optimization_container(model)
-    end
-
-    c_v = _lpacc_container_for_ac_mode(VSCACControlModes.AC_VOLTAGE, 1.0)
-    c_q = _lpacc_container_for_ac_mode(VSCACControlModes.AC_REACTIVE_POWER, 0.0)
-    var_v = IOM.get_variables(c_v)
-    var_q = IOM.get_variables(c_q)
-    @test Set(keys(var_v)) == Set(keys(var_q))
-    for k in keys(var_v)
-        @test size(var_v[k]) == size(var_q[k])
-    end
-    con_v = IOM.get_constraints(c_v)
-    con_q = IOM.get_constraints(c_q)
-    @test Set(keys(con_v)) == Set(keys(con_q))
-    for k in keys(con_v)
-        @test size(con_v[k]) == size(con_q[k])
-    end
+@testset "VoltageControlConverter supports only AC_VOLTAGE among AC control modes (LPACC)" begin
+    template = _converter_template(
+        LPACCNetworkModel,
+        DeviceModel(InterconnectingConverter, VoltageControlConverter);
+        hvdc_model = VoltageDispatchHVDCNetworkModel,
+        line_formulation = DCLossyLine,
+    )
+    loss = PSY.LossCurve(QuadraticCurve(0.01, 0.01, 0.0), PSY.CU)
+    sys = _build_converter_sys(; loss = loss, ac_control = VSCACControlModes.AC_VOLTAGE)
+    _, status = _build_converter_model(template, sys, ipopt_optimizer)
+    @test status == IOM.ModelBuildStatus.BUILT
+    sys = _build_converter_sys(;
+        loss = loss, ac_control = VSCACControlModes.AC_REACTIVE_POWER,
+    )
+    _assert_ic_reactive_power_rejected(template, sys)
 end
 
 # TwoTerminalVSCLine fixture: c_sys5_uc with one AC line replaced by a VSC line.
@@ -490,7 +473,6 @@ function _vsc_lpacc_sys(;
         rating = 2.0,
         g = 50.0 * s_base / v_dc^2,
         dc_current = 0.0,
-        reactive_power_from = 0.0,
         dc_control_from = dc_control_from,
         ac_control_from = ac_control_from,
         _vsc_setpoint_kwargs(
@@ -504,7 +486,6 @@ function _vsc_lpacc_sys(;
         power_factor_weighting_fraction_from = 1.0,
         voltage_limits_from = (min = 0.95 * v_dc, max = 1.05 * v_dc),
         dc_voltage_droop_from = 0.0,
-        reactive_power_to = 0.0,
         dc_control_to = dc_control_to,
         ac_control_to = ac_control_to,
         _vsc_setpoint_kwargs(
@@ -578,11 +559,11 @@ end
     name = get_name(vsc)
     for t in axes(v_f)[2]
         @test isapprox(v_f[name, t], dc_sp; atol = 1e-5)
-        @test isapprox(p_tf[name, t], p_sp; atol = 1e-5)
+        @test isapprox(p_tf[name, t], -p_sp; atol = 1e-5)
     end
 end
 
-@testset "LinearLossConverter scales loss constant and current limit by converter base" begin
+@testset "LinearLossConverter scales the loss constant but not the current limit by converter base" begin
     # Converter base_power (50) != system base (100): the DC-side loss constant is on the
     # converter's own base and must be rescaled by base_power/system_base = 0.5 into the
     # system-base DC balance. The proportional loss term is a base-invariant fraction and

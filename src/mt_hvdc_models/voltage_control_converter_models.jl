@@ -17,7 +17,14 @@
 #   - the apparent-power capability disk p² + q² ≤ rating²,
 #   - one always-present HVDCDCControlConstraint per converter per time step
 #     (DC_VOLTAGE / DC_POWER / DC_VOLTAGE_DROOP), and per-mode AC control
-#     (AC_VOLTAGE pins the regulated voltage, AC_REACTIVE_POWER pins Q).
+#     (AC_VOLTAGE pins the regulated voltage; AC_REACTIVE_POWER fails template
+#     validation, because PSY has no reactive-power setpoint for the converter).
+#
+# Sign: ActivePowerVariable p enters the AC-bus ActivePowerBalance with +1.0, so p is
+# positive when the converter supplies power to the AC network. That is also the sign
+# of PSY's dc_power_setpoint, so DC_POWER pins p == dc_power_setpoint without a sign
+# change. DC_VOLTAGE_DROOP, vdc + droop_gain * p == dc_voltage_setpoint, is PSY's
+# V_dc = dc_voltage_setpoint - dc_voltage_droop * P_c with P_c = p.
 #
 # Under LPACC the DC-side loss keeps the |I_dc| surrogate (the linearized voltage
 # has no magnitude primitive compatible with the AC apparent-current relation).
@@ -37,8 +44,18 @@ function _ic_ac_setpoint(d::PSY.InterconnectingConverter)
         kv = _mode_setpoint(PSY.get_ac_voltage_setpoint(d), "ac_voltage_setpoint", d)
         return _kv_to_su(kv, _bus_base_voltage(PSY.get_bus(d)))
     end
-    pf = _mode_setpoint(PSY.get_power_factor_setpoint(d), "power_factor_setpoint", d)
-    return _reactive_setpoint_from_power_factor(pf, d)
+    return _ic_reactive_power_control_error(d)
+end
+
+# PSY has no reactive-power setpoint field for InterconnectingConverter.
+function _ic_reactive_power_control_error(d::PSY.InterconnectingConverter)
+    return throw(
+        IS.ConflictingInputsError(
+            "InterconnectingConverter $(PSY.get_name(d)) uses AC_REACTIVE_POWER control, " *
+            "which POM does not support for InterconnectingConverter. Use the AC_VOLTAGE " *
+            "control mode.",
+        ),
+    )
 end
 
 function _ic_dc_setpoint(d::PSY.InterconnectingConverter)
@@ -97,8 +114,8 @@ function _vdc_by_converter_name(container, devices, names, time_steps)
     return _voltage_expr_per_converter(container, devices, names, time_steps)
 end
 
-# ACP: pin the AC-controlled quantity via JuMP.fix on the network VoltageMagnitude /
-# the reactive injection; one HVDCDCControlConstraint per converter per time step.
+# ACP: pin the AC-controlled quantity via JuMP.fix on the network VoltageMagnitude;
+# one HVDCDCControlConstraint per converter per time step.
 function _apply_ic_control_objective!(
     container::OptimizationContainer,
     devices,
@@ -133,8 +150,7 @@ function _apply_ic_control_objective!(
 end
 
 # ACR/IVR: AC_VOLTAGE pins the component-owned RegulatedVoltageMagnitude aux
-# variable; AC_REACTIVE_POWER pins the reactive injection; one
-# HVDCDCControlConstraint per converter per time step.
+# variable; one HVDCDCControlConstraint per converter per time step.
 function _apply_ic_control_objective!(
     container::OptimizationContainer,
     devices,
@@ -177,7 +193,7 @@ end
 
 # LPACC: pin the AC-controlled quantity via JuMP.fix on the linearized
 # voltage-magnitude deviation (phi = |V| - 1, so AC_VOLTAGE pins phi to
-# setpoint - 1) / the reactive injection; one HVDCDCControlConstraint per
+# setpoint - 1); one HVDCDCControlConstraint per
 # converter per time step, identical to the other AC networks.
 function _apply_ic_control_objective!(
     container::OptimizationContainer,

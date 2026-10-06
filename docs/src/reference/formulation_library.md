@@ -275,9 +275,9 @@ gets a continuous [`TapRatioVariable`](@ref) bounded by the circuit's `tap_ratio
 which enters the AC flow equations in place of the fixed `tap`. Control is per circuit, so
 each winding of a `ThreeWindingTransformer` is controlled independently.
 
-| `control_objective`   | Constraint added                             | Regulated quantity                                                                                         |
-|:--------------------- |:-------------------------------------------- |:---------------------------------------------------------------------------------------------------------- |
-| `VOLTAGE`             | [`VoltageControlConstraint`](@ref)           | voltage magnitude at `regulated_bus_number`, banded by `controlled_voltage_limits`                         |
+| `control_objective`   | Constraint added                             | Regulated quantity                                                                                                    |
+|:--------------------- |:-------------------------------------------- |:--------------------------------------------------------------------------------------------------------------------- |
+| `VOLTAGE`             | [`VoltageControlConstraint`](@ref)           | voltage magnitude at `regulated_bus_number`, banded by `controlled_voltage_limits`                                    |
 | `REACTIVE_POWER_FLOW` | [`ReactivePowerFlowControlConstraint`](@ref) | `FlowReactivePowerFromToVariable` at the circuit's winding-one bus, banded by `controlled_reactive_power_flow_limits` |
 
 Every other `TransformerControlObjective` is inert. `UNDEFINED` (the field default),

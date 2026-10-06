@@ -110,14 +110,10 @@ get_variable_binary(::Type{CurrentAbsoluteValueVariable}, ::Type{PSY.Interconnec
 
 # PSY stores `dc_current` and `max_dc_current` in amperes. `ConverterCurrent` is the
 # system-base power equivalent at 1.0 pu of the DC bus base voltage (kV * A / 1000 = MW).
-_dc_bus_base_voltage(v::Float64, ::PSY.InterconnectingConverter) = v
-_dc_bus_base_voltage(::Nothing, d::PSY.InterconnectingConverter) = error(
-    "InterconnectingConverter $(PSY.get_name(d)): DC bus $(PSY.get_name(PSY.get_dc_bus(d))) " *
-    "has no base_voltage, so its DC current in amperes cannot be per-unitized.",
-)
 function _dc_current_su(d::PSY.InterconnectingConverter, amps::Float64)
-    v_base = _dc_bus_base_voltage(PSY.get_base_voltage(PSY.get_dc_bus(d)), d)
-    return amps * v_base / (1000.0 * PSY._get_system_base_power(d))
+    return _amps_to_su(
+        amps, _bus_base_voltage(PSY.get_dc_bus(d)), PSY._get_system_base_power(d),
+    )
 end
 _max_dc_current_su(d::PSY.InterconnectingConverter) =
     _dc_current_su(d, PSY.get_max_dc_current(d))

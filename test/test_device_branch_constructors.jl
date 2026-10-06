@@ -3,6 +3,29 @@ const DC_NETWORK_MODELS_FOR_TESTING = [PTDFNetworkModel, DCPNetworkModel]
 _rating(d::PSY.TwoWindingTransformer) = PSY.get_rating(PSY.get_circuit(d), u"SU")
 _rating(d) = PSY.get_rating(d, u"SU")
 
+@testset "Build warns when a Line sets an operational flow limit that POM does not enforce" begin
+    system = PSB.build_system(PSITestSystems, "c_sys5")
+    line = PSY.get_component(Line, system, "1")
+    limit = PSY.get_rating(line, u"SU")
+    PSY.set_operational_flow_limit!(
+        line,
+        (
+            from_to = (min = 0.0 * u"SU", max = limit * u"SU"),
+            to_from = (min = 0.0 * u"SU", max = limit * u"SU"),
+        ),
+    )
+    template = get_thermal_dispatch_template_network(NetworkModel(DCPNetworkModel))
+    model = DecisionModel(template, system; optimizer = HiGHS_optimizer)
+    output_dir = mktempdir(; cleanup = true)
+    @test build!(model; output_dir = output_dir) == IOM.ModelBuildStatus.BUILT
+    log = read(joinpath(output_dir, "operation_problem.log"), String)
+    @test occursin(
+        "1 Line component(s) set operational_flow_limit, which this version of POM " *
+        "does not enforce yet: 1",
+        log,
+    )
+end
+
 @testset "DC Power Flow Models Monitored Line Flow Constraints and Static Unbounded" begin
     system = PSB.build_system(PSITestSystems, "c_sys5_ml")
     limits = PSY.get_operational_flow_limit(PSY.get_component(Line, system, "1"), u"SU")
@@ -98,6 +121,15 @@ end
     @test solve!(model_m) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
 end
 
+# Independent oracle: each end cap is the line rating, tightened by that end's rating.
+function _hvdc_end_caps_su(hvdc)
+    rating = PSY.get_rating(hvdc, u"SU")
+    return (
+        from = min(rating, PSY.get_rating_from(hvdc, u"SU")),
+        to = min(rating, PSY.get_rating_to(hvdc, u"SU")),
+    )
+end
+
 @testset "DC Power Flow Models for TwoTerminalGenericHVDCLine  with with Line Flow Constraints, TwoWindingTransformer Unbounded" begin
     ratelimit_constraint_keys = [
         IOM.ConstraintKey(FlowRateConstraint, TwoWindingTransformer, "ub"),
@@ -106,10 +138,9 @@ end
 
     system = PSB.build_system(PSITestSystems, "c_sys14_dc")
     hvdc_line = PSY.get_component(TwoTerminalGenericHVDCLine, system, "DCLine3")
-    limits_from = POM._hvdc_from_limits(hvdc_line)
-    limits_to = POM._hvdc_to_limits(hvdc_line)
-    limits_min = min(limits_from.min, limits_to.min)
-    limits_max = min(limits_from.max, limits_to.max)
+    caps = _hvdc_end_caps_su(hvdc_line)
+    limits_min = min(-caps.from, -caps.to)
+    limits_max = min(caps.from, caps.to)
 
     tap_transformer = PSY.get_component(TwoWindingTransformer, system, "Trans3")
     rate_limit = _rating(tap_transformer)
@@ -161,10 +192,9 @@ end
 @testset "DC Power Flow Models for Unbounded TwoTerminalGenericHVDCLine , and StaticBranchBounds for TwoWindingTransformer" begin
     system = PSB.build_system(PSITestSystems, "c_sys14_dc")
     hvdc_line = PSY.get_component(TwoTerminalGenericHVDCLine, system, "DCLine3")
-    limits_from = POM._hvdc_from_limits(hvdc_line)
-    limits_to = POM._hvdc_to_limits(hvdc_line)
-    limits_min = min(limits_from.min, limits_to.min)
-    limits_max = min(limits_from.max, limits_to.max)
+    caps = _hvdc_end_caps_su(hvdc_line)
+    limits_min = min(-caps.from, -caps.to)
+    limits_max = min(caps.from, caps.to)
 
     tap_transformer = PSY.get_component(TwoWindingTransformer, system, "Trans3")
     rate_limit = _rating(tap_transformer)
@@ -478,10 +508,9 @@ end
     system = PSB.build_system(PSITestSystems, "c_sys14_dc")
 
     hvdc_line = PSY.get_component(TwoTerminalGenericHVDCLine, system, "DCLine3")
-    limits_from = POM._hvdc_from_limits(hvdc_line)
-    limits_to = POM._hvdc_to_limits(hvdc_line)
-    limits_min = min(limits_from.min, limits_to.min)
-    limits_max = min(limits_from.max, limits_to.max)
+    caps = _hvdc_end_caps_su(hvdc_line)
+    limits_min = min(-caps.from, -caps.to)
+    limits_max = min(caps.from, caps.to)
 
     tap_transformer = PSY.get_component(TwoWindingTransformer, system, "Trans3")
     rate_limit = _rating(tap_transformer)
@@ -596,10 +625,9 @@ end
     system = PSB.build_system(PSITestSystems, "c_sys14_dc")
 
     hvdc_line = PSY.get_component(TwoTerminalGenericHVDCLine, system, "DCLine3")
-    limits_from = POM._hvdc_from_limits(hvdc_line)
-    limits_to = POM._hvdc_to_limits(hvdc_line)
-    limits_min = min(limits_from.min, limits_to.min)
-    limits_max = min(limits_from.max, limits_to.max)
+    caps = _hvdc_end_caps_su(hvdc_line)
+    limits_min = min(-caps.from, -caps.to)
+    limits_max = min(caps.from, caps.to)
 
     tap_transformer = PSY.get_component(TwoWindingTransformer, system, "Trans3")
     rate_limit = _rating(tap_transformer)
