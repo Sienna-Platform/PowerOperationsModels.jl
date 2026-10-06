@@ -12,7 +12,9 @@ Abstraction hierarchy (low → high level of generality):
 - **InfrastructureOptimizationModels (IOM)** — domain-neutral optimization infrastructure: `OptimizationContainer`, `DeviceModel{D,F}` / `ServiceModel{S,F}` / `NetworkModel{N}`, `ProblemTemplate`, `DecisionModel{M}` / `EmulationModel{M}` (parameterized over the single abstract tag `IOM.AbstractOptimizationProblem`), both stores, settings, the generic `add_*!` builders, objective/initial-condition infra. Reusable beyond power systems.
 - **POM (this repo)** — the "what": device formulations (`ThermalBasicUnitCommitment`, `RenewableFullDispatch`, `StaticBranch`, storage, HVDC, …), variable/constraint/expression/parameter types, network formulations, service models, and the concrete problem taxonomy.
 
-PSI (the old PowerSimulations.jl) ≈ POM + IOM. Many ports into POM originate from PSI PRs.
+psy5 PSI's operations layer ≈ POM + IOM. Many ports into POM originate from PSI PRs. PSI itself
+exists in psy6 (branch `psy6`) as the intended home for simulation orchestration on top of
+IOM+POM, but it is not ported: simulation is unsupported today.
 
 IS and IOM are **external package dependencies** (resolved via `Project.toml`/`[sources]`), not subdirectories.
 
@@ -110,7 +112,7 @@ Solvers: `HiGHS` (LP/MILP), `Ipopt` (NLP), `SCS` (SDP) — helpers `HiGHS_optimi
 - **Security-constrained N-1 uses MODF** (Modified Outage Distribution Factors: PNM `VirtualMODF`/`ContingencySpec`), in `ac_transmission_models/security_constrained_branch.jl`. The old LODF-based `network_models/security_constrained_models.jl` and all generator-side (G-1) SC have been **removed** — do not reintroduce LODF or gen-side MODF. `NetworkModel.contingency_matrix`, `DeviceModel.outages`, and `supports_outages` (default false; POM specializes `true` for `AbstractSecurityConstrainedStaticBranch`) live in IOM.
 - **Units (IS4/psy6 rework) — the highest-risk silent-failure class.** The stateful `SYSTEM_BASE` normalization is gone (`temp_set_units_base_system!` is removed/commented out upstream). Every `PSY` getter read during model build must pass the intended unit system **explicitly**: optimization models are all system base, so use `PSY.SU`. PNM aggregators already return system base (no `PSY.SU` needed). If objective/limit/rating values come out wrong post-refactor, suspect units first. Known traps: AC apparent-power rating RHS must be squared `(rating·factor)^2`; PSY setters reject bare `Float64` under psy6 (`set_rating_b!(line, 0.9*PSY.SU)`).
 - **psy6 is a planned breaking release:** no compat shims, no deprecation framing, no serialization aliases for renamed enums — fix callers instead. Old serialized systems are expected to be regenerated. Never touch changelogs (unmaintained since 1.0).
-- **No mid-project Project.toml version/compat bumps.** `[sources]` currently pin git branches: IS→`IS4`, PSY/PNM→`psy6`, IOM→`main`. Do the version/compat pass once at release time, not during cross-repo co-dev. Do not copy PSI Project.toml version bumps when porting PRs.
+- **No mid-project Project.toml version/compat bumps.** `[sources]` currently pin git branches: IS→`IS4`, PSY/PNM→`psy6`, IOM→`main`. The six OpenAPI subpackages are pinned to their `-v0.1.0` tags (Julia 1.13 applies the `main` pins of upstream repos transitively; a root entry overrides them). Do the version/compat pass once at release time, not during cross-repo co-dev. Do not copy PSI Project.toml version bumps when porting PRs.
 - **Method ambiguity:** the codebase relies on extensive multiple dispatch — check with `Test.detect_ambiguities` when adding overlapping signatures. Use parametric `where` signatures with abstract bounds for extensibility.
 
 ## DecisionModel test API (PowerSystems 6, verified)
@@ -121,11 +123,40 @@ Solvers: `HiGHS` (LP/MILP), `Ipopt` (NLP), `SCS` (SDP) — helpers `HiGHS_optimi
 - Template helper `get_thermal_dispatch_template_network(NetworkModel(<Formulation>))` and reduction kwargs `NetworkModel(DCPNetworkModel; reduce_radial_branches=true, reduce_degree_two_branches=true)` come from `test/test_utils/`.
 - Reduction test systems: `c_sys5`/`c_sys14` reduce nothing (assert build+solve only). Use `case11_network_reductions` (purpose-built ~4 series arcs) or matpower cases for real reductions — but those lack forecast data, so a full `DecisionModel` `build!` errors; for white-box reduction tests build `NetworkReductionData` directly via `PNM.Ybus(sys; network_reductions=[...])` + `deepcopy(PNM.get_network_reduction_data(ybus))`.
 
+## Outputs bundle and parameter store (`src/operation/parameter_time_series_store.jl`)
+
+After a successful `solve!` / `run!`, `_write_outputs_bundle!(model)` writes an outputs bundle to
+`<output_dir>/<make_system_dirname(sys)>`, which `PSY.from_file` can load. It contains the System
+document and an InfraStore sidecar (`PSY.TIME_SERIES_FILE`) with the cost series, the parameter
+arrays, and the time-series parameters as component-owned input rows.
+
+- **The store is `IS.Store`.** There is no POM wrapper type: `ParameterTimeSeriesStore`,
+  `open_parameter_store`, and `close_parameter_store!` are gone. Open a store with
+  `IS.open_infrastore_store(path)` and close it with `IS.close!(store)`.
+- **InfraStore allows one open handle per file.** To read a loaded bundle, use
+  `parameter_store_of(sys)`. Do not close that store; `sys` owns it.
+- **Name things "outputs", not "results"** (`write_outputs_system_bundle!`). Only PowerAnalytics
+  produces results.
+- **The bundle write is gated by IOM's `system_to_file` setting, which defaults to `true`.** The
+  write runs inside `solve!`, so solve-time benchmarks include it. An existing bundle directory
+  is not rewritten.
+- **`_cost_time_series_keys` must cover every component type with a time-series-backed cost
+  field.** A missing type makes `PSY.to_openapi` raise `IS.DataFormatError` on the unmapped
+  `association_id`. Add each new type to the existing `@eval` loops or as its own method; do
+  not grow a `Union`. The current coverage includes `GroupReserve` demand curves,
+  `PointToPointBid` spread bids, and `HydroReservoir` `head_to_volume_factor`.
+- **A horizon with less than two steps writes no parameter or input rows**, and it gives a
+  warning, because an InfraStore series needs two points. The values stay readable through
+  `OptimizationProblemOutputs`.
+- **Parameter rows use the owner id `PARAMETER_ROW_OWNER_ID` (-1)**, so they never appear in the
+  `list_time_series_metadata` of a restored component. Input rows are write-once per
+  `(owner, name, time series type)`.
+
 ## Known open debt & active work (2026-07 snapshot)
 
 - **~30 bare-unit PSY getters remain in build code** (the units rule above is stated but not fully enforced yet): known sites include `get_angle_limits` in `AC_branches.jl` (~1750, 1767) and `pm_translator.jl` (~280), and `get_loss` across `TwoTerminalDC_branches.jl` (71, 166, 221, 380, 818, and more). Angle limits are radians — no base conversion; loss terms are convertible. When touching one of these files, fix the bare getters in it. This POM/PNM/PF consumer sweep is the open remainder of the units-ecosystem closure effort.
 - **Silent TS-missing device skip** (`common_models/add_parameters.jl:~175`): a device whose time series is missing gets `@debug` + skip — it silently drops out of the model. Named silent-failure pattern; never extend it, and prefer converting it to a loud error when the opportunity arises.
-- **PSI port backlog** lives in `.claude/pom_port_plan.md`: fork baseline ≈ PSI #1503, PSI swept through #1640. Highlights: the event framework is ported (`EventModel`/`FixedForcedOutage` machinery: template-level `set_event_model!`, `src/event_models/`, build-level coverage in `test/test_events.jl`) — the remaining PSI-side gap is simulation-runtime only; service-side G-1 (PSI #1617) pending; a list of symbol-verified absent bugfixes/features (#1519, #1527, #1535, #1587, #1508, #1614, #1622, …). Porting rule: formulation-specific → POM, generic optimization core → IOM; adapt to POM's type-based dispatch, don't copy PSI code verbatim. Simulation orchestration is out of scope — never port it.
+- **PSI port backlog** lives in `.claude/pom_port_plan.md`: fork baseline ≈ PSI #1503, PSI swept through #1640. Highlights: the event framework is ported (`EventModel`/`FixedForcedOutage` machinery: template-level `set_event_model!`, `src/event_models/`, build-level coverage in `test/test_events.jl`) — the remaining PSI-side gap is simulation-runtime only; service-side G-1 (PSI #1617) pending; a list of symbol-verified absent bugfixes/features (#1519, #1527, #1535, #1587, #1508, #1614, #1622, …). Porting rule: formulation-specific → POM, generic optimization core → IOM; adapt to POM's type-based dispatch, don't copy PSI code verbatim. Simulation orchestration is PSI's, not POM's or IOM's — do not port it here; PSI itself is not ported yet.
 - **Direct-write hot spots to not extend:** `instantiate_network_model!` is a ~15-step mutation cascade with direct `model.field =` writes and no rollback; some `.data` writes into IOM containers exist (`thermal_generation.jl`). Prefer setters; don't add new direct reaches.
 
 ## Cross-package coupling (summary)
