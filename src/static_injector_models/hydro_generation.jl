@@ -2400,43 +2400,30 @@ end
 function calculate_aux_variable_value!(
     container::OptimizationContainer,
     ::AuxVarKey{HydroEnergyOutput, T},
-    system::PSY.System,
+    ::PSY.System,
 ) where {T <: PSY.HydroGen}
     time_steps = get_time_steps(container)
     resolution = get_resolution(container)
     fraction_of_hour = Dates.value(Dates.Minute(resolution)) / MINUTES_IN_HOUR
-    p_variable_output = get_variable(container, ActivePowerVariable, T)
+    p_variable_output = lookup_value(container, ActivePowerVariable, T)
+    served_up = if has_container_key(container, HydroServedReserveUpExpression, T)
+        lookup_value(container, HydroServedReserveUpExpression, T)
+    else
+        nothing
+    end
+    served_down = if has_container_key(container, HydroServedReserveDownExpression, T)
+        lookup_value(container, HydroServedReserveDownExpression, T)
+    else
+        nothing
+    end
     aux_variable_container = get_aux_variable(container, HydroEnergyOutput, T)
     devices_names = axes(aux_variable_container, 1)
-    for name in devices_names
-        d = PSY.get_component(T, system, name)
-        for t in time_steps
-            if has_container_key(container, HydroServedReserveUpExpression, typeof(d))
-                served_reserve_up = jump_value(
-                    get_expression(container, HydroServedReserveUpExpression, T)[
-                        name,
-                        t,
-                    ],
-                )
-            else
-                served_reserve_up = 0.0
-            end
-            if has_container_key(container, HydroServedReserveDownExpression, typeof(d))
-                served_reserve_down = jump_value(
-                    get_expression(container, HydroServedReserveDownExpression, T)[
-                        name,
-                        t,
-                    ],
-                )
-            else
-                served_reserve_down = 0.0
-            end
-            aux_variable_container[name, t] =
-                (
-                    jump_value(p_variable_output[name, t]) +
-                    served_reserve_up - served_reserve_down
-                ) * fraction_of_hour
-        end
+    for name in devices_names, t in time_steps
+        served_reserve_up = isnothing(served_up) ? 0.0 : served_up[name, t]
+        served_reserve_down = isnothing(served_down) ? 0.0 : served_down[name, t]
+        aux_variable_container[name, t] =
+            (p_variable_output[name, t] + served_reserve_up - served_reserve_down) *
+            fraction_of_hour
     end
 
     return
