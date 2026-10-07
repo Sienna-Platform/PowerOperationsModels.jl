@@ -318,8 +318,9 @@ equivalent is a hard error rather than a silent demotion.
     On `CopperPlateNetworkModel` the constructor warns, then skips `HVDCPowerBalance` entirely:
     `HVDCLosses` and `HVDCFlowDirectionVariable` are created but left unconstrained and unwired,
     so the line's losses vanish from the single system balance. Use
-    `HVDCTwoTerminalPiecewiseLoss` on CopperPlate when the losses matter. On every other
-    supported network the losses are accounted for: the nodal models
+    `HVDCTwoTerminalPiecewiseLoss` on CopperPlate when the losses matter. On the other
+    supported networks the losses are accounted for, except for the AreaPTDF cases in the
+    warning "Lossy two-terminal HVDC on AreaPTDF" below: the nodal models
     (NFA/DCP/DCPLL/ACP/ACR/IVR/LPACC) carry them implicitly through the `HVDCPowerBalance`
     coupling `ft + tf == losses` with both directional flows entering their terminal balances,
     while the PTDF/AreaPTDF paths add `HVDCLosses` to an aggregated row explicitly: on
@@ -345,7 +346,9 @@ equivalent is a hard error rather than a silent demotion.
     
     On `AreaPTDFNetworkModel`, a lossy two-terminal HVDC tie (`HVDCTwoTerminalDispatch`,
     `HVDCTwoTerminalPiecewiseLoss`) is not supported yet together with an `AreaInterchange`
-    that meters it. Its losses do not enter the area rows correctly. See GitHub issue #330.
+    that meters it. Its losses do not enter the area rows correctly. Also, an
+    `HVDCTwoTerminalPiecewiseLoss` line with both terminals in one area gives the lossless
+    result, because its losses do not enter the area row. See GitHub issue #330.
 
 The apparent-power limit on the VSC formulations depends on the `"bilinear_approximation"` device
 attribute. With the default `"none"` it is an exact quadratic disk (`"from"`/`"to"`); with a
