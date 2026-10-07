@@ -3,7 +3,7 @@
     @test ClearedPositionVariable <: IOM.VariableType
     @test ClearedTransferVariable <: IOM.VariableType
     @test ClearedPositionConstraint <: IOM.ConstraintType
-    @test DistributionFactorParameter <: IOM.TimeSeriesParameter
+    @test !isdefined(POM, :DistributionFactorParameter)
     @test NodalRedistribution <: IOM.AbstractDeviceFormulation
     @test AggregateBalance <: IOM.AbstractDeviceFormulation
     @test SpreadBid <: IOM.AbstractDeviceFormulation
