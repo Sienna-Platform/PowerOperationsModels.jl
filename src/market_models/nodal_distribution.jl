@@ -16,12 +16,11 @@ end
 
 # Membership differs by location type: dispatch, never branch on the type. Only available
 # members receive a share: the nodal balance has no row for a bus out of service.
-_available(buses) = [b for b in buses if PSY.get_available(b)]
-_members(sys::PSY.System, zone::PSY.LoadZone) = PSY.get_buses(sys, zone)
-_members(::PSY.System, hub::PSY.TradingHub) = PSY.get_buses(hub)
 get_member_buses(::PSY.System, bus::PSY.ACBus) = [bus]
-get_member_buses(sys::PSY.System, location::Union{PSY.LoadZone, PSY.TradingHub}) =
-    _available(_members(sys, location))
+get_member_buses(sys::PSY.System, zone::PSY.LoadZone) =
+    [b for b in PSY.get_buses(sys, zone) if PSY.get_available(b)]
+get_member_buses(::PSY.System, hub::PSY.TradingHub) =
+    [b for b in PSY.get_buses(hub) if PSY.get_available(b)]
 
 function _check_window_resolution(container::OptimizationContainer, md, owner)
     if IS.get_resolution(md) != get_resolution(container)
@@ -186,18 +185,19 @@ function get_distribution_factors(
 )
     buses = _buses_by_number(sys)
     labels = _factor_bus_labels(container, location, buses)
-    return _distribution_factors(container, location, network_model, labels, buses)
+    return _distribution_factors(container, sys, location, network_model, labels, buses)
 end
 
 function _distribution_factors(
     container::OptimizationContainer,
+    sys::PSY.System,
     location::T,
     network_model::NetworkModel{U},
     labels::Union{Nothing, Vector{Int}},
     buses::Dict{Int, PSY.ACBus},
 ) where {T <: Union{PSY.LoadZone, PSY.TradingHub}, U <: AbstractNetworkModel}
     if labels === nothing
-        return _fallback_factors(container, location, network_model)
+        return _fallback_factors(container, sys, location, network_model)
     end
     name = PSY.get_name(location)
     key = IOM.ParameterKey(DistributionFactorParameter, T)
@@ -214,7 +214,7 @@ function _distribution_factors(
     live = [(j, buses[bus_no]) for (j, bus_no) in enumerate(labels)]
     filter!(((_, bus),) -> PSY.get_available(bus), live)
     if isempty(live)
-        return _fallback_factors(container, location, network_model)
+        return _fallback_factors(container, sys, location, network_model)
     end
     shares = IOM.get_lhs_parameter_values(container, key, name)::Matrix{Float64}
     reduction, factors = _zero_factors(container, last.(live), network_model)
@@ -248,6 +248,7 @@ end
 # zone still cannot silently vanish from the model: error naming the fix.
 function _fallback_factors(
     ::OptimizationContainer,
+    ::PSY.System,
     zone::PSY.LoadZone,
     ::NetworkModel,
 )
@@ -262,10 +263,11 @@ end
 # member buses as unweighted, so uniform is a declared default, not a silent fallback.
 function _fallback_factors(
     container::OptimizationContainer,
+    sys::PSY.System,
     hub::PSY.TradingHub,
     network_model::NetworkModel,
 )
-    buses = _available(PSY.get_buses(hub))
+    buses = get_member_buses(sys, hub)
     reduction, factors = _zero_factors(container, buses, network_model)
     share = 1.0 / length(buses)
     for bus in buses
@@ -415,12 +417,13 @@ _location_factors(container, sys, bus::PSY.ACBus, network_model, ::Nothing) =
     get_distribution_factors(container, sys, bus, network_model)
 _location_factors(
     container,
-    ::PSY.System,
+    sys::PSY.System,
     location::Union{PSY.LoadZone, PSY.TradingHub},
     network_model,
     factor_inputs,
 ) = _distribution_factors(
     container,
+    sys,
     location,
     network_model,
     factor_inputs.labels[PSY.get_name(location)],
