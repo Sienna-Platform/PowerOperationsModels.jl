@@ -937,6 +937,7 @@ export ActivePowerInTimeSeriesParameter
 export ReactivePowerTimeSeriesParameter
 export RequirementTimeSeriesParameter
 export DeployedFractionTimeSeriesParameter
+export DistributionFactorParameter
 export UpperBoundValueParameter
 export LowerBoundValueParameter
 export OnStatusParameter
