@@ -65,13 +65,14 @@ loop, so no bug there; it just isn't part of the "always exactly one column" fam
 
 ## 3D containers
 
-| Container type                                                                | File                                           | Notes                                                                                                                                                                        |
-|:----------------------------------------------------------------------------- |:---------------------------------------------- |:---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `HydroTurbineFlowRateVariable`                                                | `static_injector_models/hydro_generation.jl`   | Indexed `[turbine_name, reservoir_name, time_step]` — flow rate depends on both the turbine and which reservoir it draws from.                                               |
-| `StartupInitialConditionConstraint` (`meta = "ub"`/`"lb"`, `sparse = true`)   | `static_injector_models/thermal_generation.jl` | `SparseAxisArray` indexed `[name, time_step, start_stage]`.                                                                                                                  |
-| `ActivePowerReserveVariable`                                                  | `services_models/reserves.jl`                  | `SparseAxisArray` keyed `(service_name, device_name, time_step)`. One container per service type; each service fills its own slice. See the service-container section below. |
-| `ParticipationFractionConstraint`, `RampConstraint`, `ReservePowerConstraint` | `services_models/reserves.jl`                  | `SparseAxisArray` keyed `(service_name, device_name, time_step)`, matching the reserve variable above.                                                                       |
-| `ReserveOfferLinkingConstraint`                                               | `services_models/reserve_offers.jl`            | `SparseAxisArray` keyed `(service_name, device_name, time_step)`. Ties a device's reserve award to its offer-curve blocks.                                                   |
+| Container type                                                                | File                                           | Notes                                                                                                                                                                                                        |
+|:----------------------------------------------------------------------------- |:---------------------------------------------- |:------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `HydroTurbineFlowRateVariable`                                                | `static_injector_models/hydro_generation.jl`   | Indexed `[turbine_name, reservoir_name, time_step]` — flow rate depends on both the turbine and which reservoir it draws from.                                                                               |
+| `StartupInitialConditionConstraint` (`meta = "ub"`/`"lb"`, `sparse = true`)   | `static_injector_models/thermal_generation.jl` | `SparseAxisArray` indexed `[name, time_step, start_stage]`.                                                                                                                                                  |
+| `ActivePowerReserveVariable`                                                  | `services_models/reserves.jl`                  | `SparseAxisArray` keyed `(service_name, device_name, time_step)`. One container per service type; each service fills its own slice. See the service-container section below.                                 |
+| `ParticipationFractionConstraint`, `RampConstraint`, `ReservePowerConstraint` | `services_models/reserves.jl`                  | `SparseAxisArray` keyed `(service_name, device_name, time_step)`, matching the reserve variable above.                                                                                                       |
+| `ReserveOfferLinkingConstraint`                                               | `services_models/reserve_offers.jl`            | `SparseAxisArray` keyed `(service_name, device_name, time_step)`. Ties a device's reserve award to its offer-curve blocks.                                                                                   |
+| `LinkedReserveOfferConstraint`                                                | `common_models/offer_limits.jl`                | `SparseAxisArray` keyed `(device_name, block, time_step)`, one container per device type. Registered empty before the device model stage so `DeviceModel` duals work; filled after the services model stage. |
 
 ## 4D containers
 
@@ -122,3 +123,5 @@ reserve sub-containers are the remaining `meta`-keyed service containers.
 Anything not listed above is built via `add_*_container!` as 2D `[device_name, time_step]`,
 including the practically-1D singleton-second-axis containers - they're still 2 axes and
 follow the normal `container[name, t]` indexing pattern.
+
+`EnergyOfferCapConstraint` (`common_models/offer_limits.jl`) is a sparse 2D container keyed `(device_name, time_step)`, registered and filled like `LinkedReserveOfferConstraint`.
