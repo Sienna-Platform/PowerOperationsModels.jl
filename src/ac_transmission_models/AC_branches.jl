@@ -545,17 +545,35 @@ function add_constraints!(
 
     array = get_expression(container, PTDFBranchFlow, T)
 
+    ts_branch_names = Set{String}()
+    if has_container_key(container, BranchRatingTimeSeriesParameter, T)
+        param_container = get_parameter(container, BranchRatingTimeSeriesParameter, T)
+        ts_branch_names = Set(axes(get_multiplier_array(param_container), 1))
+    end
+
     use_slacks = get_use_slacks(device_model)
     _foreach_branch(reps) do rep
-        _add_flow_rate_constraint!(
-            container,
-            rep,
-            use_slacks,
-            con_lb,
-            con_ub,
-            array,
-            device_model,
-        )
+        if rep.name in ts_branch_names
+            _add_flow_rate_constraint_with_parameters!(
+                container,
+                T,
+                use_slacks,
+                con_lb,
+                con_ub,
+                array,
+                rep.name,
+            )
+        else
+            _add_flow_rate_constraint!(
+                container,
+                rep,
+                use_slacks,
+                con_lb,
+                con_ub,
+                array,
+                device_model,
+            )
+        end
     end
     return
 end
