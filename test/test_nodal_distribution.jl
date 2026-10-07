@@ -3,7 +3,7 @@
     @test ClearedPositionVariable <: IOM.VariableType
     @test ClearedTransferVariable <: IOM.VariableType
     @test ClearedPositionConstraint <: IOM.ConstraintType
-    @test !isdefined(POM, :DistributionFactorParameter)
+    @test DistributionFactorParameter <: IOM.LeftHandSideTimeSeriesParameter
     @test NodalRedistribution <: IOM.AbstractDeviceFormulation
     @test AggregateBalance <: IOM.AbstractDeviceFormulation
     @test SpreadBid <: IOM.AbstractDeviceFormulation
@@ -74,18 +74,43 @@ function _ptdf_market_template()
     return template
 end
 
-@testset "get_distribution_factors" begin
-    sys, zone, zone_buses = _build_zone_system()
-    template = get_thermal_dispatch_template_network(NetworkModel(PTDFNetworkModel))
+# A PTDF market model whose load zones and trading hubs distribute through their factors.
+# Attach every series before calling it: the factors are read at build.
+function _build_factor_model(sys, network_model = NetworkModel(PTDFNetworkModel))
+    template = get_thermal_dispatch_template_network(network_model)
+    set_market_model!(
+        template, IOM.MarketModel(SettlementMarket; settlement_domain = PSY.System),
+    )
+    set_market_component_model!(template, DeviceModel(PSY.LoadZone, NodalRedistribution))
+    set_market_component_model!(template, DeviceModel(PSY.TradingHub, NodalRedistribution))
     model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
     @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
           IOM.ModelBuildStatus.BUILT
     container = get_optimization_container(model)
-    network_model = get_network_model(IOM.get_template(model))
-    time_steps = get_time_steps(container)
-    t1 = first(time_steps)
+    return container, get_network_model(IOM.get_template(model))
+end
+
+@testset "get_distribution_factors" begin
+    sys, zone, zone_buses = _build_zone_system()
     n1 = PSY.get_number(zone_buses[1])
     n2 = PSY.get_number(zone_buses[2])
+    hub = PSY.TradingHub(; name = "HUB1", buses = collect(zone_buses))
+    PSY.add_component!(sys, hub)
+    zone2 = PSY.LoadZone(;
+        name = "LZ2",
+        peak_active_power = 5.0,
+        peak_reactive_power = 1.0,
+        input_basis = u"CU",
+    )
+    PSY.add_component!(sys, zone2)
+    buses = sort!(collect(PSY.get_components(PSY.ACBus, sys)); by = PSY.get_number)
+    b3, b4 = buses[3], buses[4]
+    PSY.set_load_zone!(b3, zone2)
+    PSY.set_load_zone!(b4, zone2)
+    _add_factor_matrix!(sys, zone2, [PSY.get_number(b4)], [1.0])
+    container, network_model = _build_factor_model(sys)
+    time_steps = get_time_steps(container)
+    t1 = first(time_steps)
 
     # LoadZone: series values land on the right retained buses, every timestep.
     factors = get_distribution_factors(container, sys, zone, network_model)
@@ -99,25 +124,11 @@ end
     @test all(bf[n1, t] == 1.0 for t in time_steps)
 
     # TradingHub with no series: uniform 1/N (D9).
-    hub = PSY.TradingHub(; name = "HUB1", buses = collect(zone_buses))
-    PSY.add_component!(sys, hub)
     hf = get_distribution_factors(container, sys, hub, network_model)
     @test hf[n1, t1] == 0.5
     @test hf[n2, t1] == 0.5
 
     # A member bus without a column contributes 0.0, as long as some member has one.
-    zone2 = PSY.LoadZone(;
-        name = "LZ2",
-        peak_active_power = 5.0,
-        peak_reactive_power = 1.0,
-        input_basis = u"CU",
-    )
-    PSY.add_component!(sys, zone2)
-    buses = sort!(collect(PSY.get_components(PSY.ACBus, sys)); by = PSY.get_number)
-    b3, b4 = buses[3], buses[4]
-    PSY.set_load_zone!(b3, zone2)
-    PSY.set_load_zone!(b4, zone2)
-    _add_factor_matrix!(sys, zone2, [PSY.get_number(b4)], [1.0])
     zf = get_distribution_factors(container, sys, zone2, network_model)
     @test zf[PSY.get_number(b3), t1] == 0.0
     @test zf[PSY.get_number(b4), t1] == 1.0
@@ -944,23 +955,14 @@ end
     @test POM.get_member_buses(sys, hub) == [zone_buses[2]]
 end
 
-function _build_factor_model(sys, network_model = NetworkModel(PTDFNetworkModel))
-    template = get_thermal_dispatch_template_network(network_model)
-    model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
-    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
-          IOM.ModelBuildStatus.BUILT
-    container = get_optimization_container(model)
-    return container, get_network_model(IOM.get_template(model))
-end
-
 @testset "Hourly factors land on each time step" begin
     sys, zone, zone_buses = _build_zone_system()
     hub = PSY.TradingHub(; name = "HUB_H", buses = collect(zone_buses))
     PSY.add_component!(sys, hub)
     n1, n2 = PSY.get_number.(zone_buses)
-    container, network_model = _build_factor_model(sys)
     first_bus = [0.1 * (t % 5) for t in 1:_factor_horizon(sys)]
     _add_factor_matrix!(sys, hub, [n1, n2], [first_bus, 1.0 .- first_bus])
+    container, network_model = _build_factor_model(sys)
     hf = get_distribution_factors(container, sys, hub, network_model)
     @test all(hf[n1, t] ≈ first_bus[t] for t in get_time_steps(container))
     @test all(hf[n2, t] ≈ 1.0 - first_bus[t] for t in get_time_steps(container))
@@ -968,17 +970,18 @@ end
 
 @testset "An unavailable member's factor column is dropped" begin
     sys, zone, zone_buses = _build_zone_system()
-    container, network_model = _build_factor_model(sys)
     n1, n2 = PSY.get_number.(zone_buses)
+    hub = PSY.TradingHub(; name = "HUB_OFF", buses = collect(zone_buses))
+    PSY.add_component!(sys, hub)
+    _add_factor_matrix!(sys, hub, [n1], [0.9])
+    # After the build: the network matrices reject an unavailable bus with live lines.
+    container, network_model = _build_factor_model(sys)
     PSY.set_available!(zone_buses[1], false)
     factors = get_distribution_factors(container, sys, zone, network_model)
     @test collect(axes(factors)[1]) == [n2]
     @test all(factors[n2, t] == 0.4 for t in get_time_steps(container))
 
     # A hub whose only column belongs to an unavailable member falls back to uniform.
-    hub = PSY.TradingHub(; name = "HUB_OFF", buses = collect(zone_buses))
-    PSY.add_component!(sys, hub)
-    _add_factor_matrix!(sys, hub, [n1], [0.9])
     hf = get_distribution_factors(container, sys, hub, network_model)
     @test collect(axes(hf)[1]) == [n2]
     @test all(hf[n2, t] == 1.0 for t in get_time_steps(container))
@@ -986,47 +989,45 @@ end
 
 @testset "A factor column for a bus outside the location is an error" begin
     sys, _, _ = _build_zone_system()
-    container, network_model = _build_factor_model(sys)
+    container, _ = _build_factor_model(sys)
     buses = sort!(collect(PSY.get_components(PSY.ACBus, sys)); by = PSY.get_number)
     hub = PSY.TradingHub(; name = "HUB_PART", buses = buses[3:4])
     PSY.add_component!(sys, hub)
     _add_factor_matrix!(sys, hub, PSY.get_number.(buses[4:5]), [0.7, 0.3])
-    @test_throws ArgumentError get_distribution_factors(container, sys, hub, network_model)
+    @test_throws ArgumentError POM._factor_bus_labels(container, sys, hub)
 end
 
 @testset "Factor series must be one [time step, bus] matrix" begin
     sys, zone, zone_buses = _build_zone_system()
-    container, network_model = _build_factor_model(sys)
+    container, _ = _build_factor_model(sys)
     n1, n2 = PSY.get_number.(zone_buses)
     # IS rejects repeated labels when the series is built, so POM never sees them.
     @test_throws ArgumentError _factor_matrix(sys, [n1, n1], [0.5, 0.5])
     hub = PSY.TradingHub(; name = "HUB_AXES", buses = collect(zone_buses))
     PSY.add_component!(sys, hub)
     _add_factor_matrix!(sys, hub, ["a", "b"], [0.5, 0.5])
-    @test_throws ArgumentError get_distribution_factors(container, sys, hub, network_model)
+    @test_throws ArgumentError POM._factor_bus_labels(container, sys, hub)
     hub2 = PSY.TradingHub(; name = "HUB_NODE", buses = collect(zone_buses))
     PSY.add_component!(sys, hub2)
     _add_factor_matrix!(sys, hub2, [n1, n2], [0.5, 0.5]; axis = "node")
-    @test_throws ArgumentError get_distribution_factors(container, sys, hub2, network_model)
+    @test_throws ArgumentError POM._factor_bus_labels(container, sys, hub2)
     # A second series on the same location is ambiguous.
     PSY.add_time_series!(
         sys, zone, _factor_matrix(sys, [n1, n2], [0.1, 0.9]);
         features = Dict("year" => 2030),
     )
-    @test_throws ArgumentError get_distribution_factors(container, sys, zone, network_model)
+    @test_throws ArgumentError POM._factor_bus_labels(container, sys, zone)
 end
 
 @testset "A factor window at another resolution is an error" begin
     sys, zone, zone_buses = _build_zone_system()
-    container, network_model = _build_factor_model(sys)
+    container, _ = _build_factor_model(sys)
     hub = PSY.TradingHub(; name = "HUB_RES", buses = collect(zone_buses))
     PSY.add_component!(sys, hub)
     _add_factor_matrix!(
         sys, hub, PSY.get_number.(zone_buses), [0.5, 0.5]; resolution = Minute(30),
     )
-    @test_throws IS.ConflictingInputsError get_distribution_factors(
-        container, sys, hub, network_model,
-    )
+    @test_throws IS.ConflictingInputsError POM._factor_bus_labels(container, sys, hub)
 end
 
 @testset "A reduced member bus's factor sums into its retained bus" begin
@@ -1123,4 +1124,90 @@ end
         abs(expected) > 1e-9 && (nonzero += 1)
     end
     @test nonzero > 0
+end
+
+@testset "Factors reach the model through DistributionFactorParameter" begin
+    sys, zone, zone_buses = _build_zone_system()
+    n1, n2 = PSY.get_number.(zone_buses)
+    container, _ = _build_factor_model(sys)
+    key = IOM.ParameterKey(DistributionFactorParameter, PSY.LoadZone)
+    pc = IOM.get_parameter(container, key)
+    @test eltype(IOM.get_parameter_array(pc)) == Float64
+    values = IOM.get_lhs_parameter_values(container, key, "LZ1")
+    @test size(values, 1) == 2
+    @test all(values[:, t] == [0.6, 0.4] for t in get_time_steps(container))
+    nodal = IOM.get_expression(container, ActivePowerBalance, PSY.ACBus)
+    position = IOM.get_variable(container, ClearedPositionVariable, PSY.LoadZone)
+    t1 = first(get_time_steps(container))
+    @test JuMP.coefficient(nodal[n1, t1], position["LZ1", t1]) == 0.6
+    @test JuMP.coefficient(nodal[n2, t1], position["LZ1", t1]) == 0.4
+end
+
+@testset "Equal factors on different buses keep their own buses" begin
+    sys, _, _ = _build_zone_system()
+    buses = sort!(collect(PSY.get_components(PSY.ACBus, sys)); by = PSY.get_number)
+    n = PSY.get_number.(buses)
+    for (name, members) in (("H1", buses[2:3]), ("H2", buses[4:5]))
+        hub = PSY.TradingHub(; name = name, buses = members)
+        PSY.add_component!(sys, hub)
+        _add_factor_matrix!(sys, hub, PSY.get_number.(members), [0.7, 0.3])
+    end
+    container, _ = _build_factor_model(sys)
+    pc = IOM.get_parameter(
+        container,
+        IOM.ParameterKey(DistributionFactorParameter, PSY.TradingHub),
+    )
+    @test length(axes(IOM.get_parameter_array(pc), 1)) == 1   # one shared row
+    nodal = IOM.get_expression(container, ActivePowerBalance, PSY.ACBus)
+    position = IOM.get_variable(container, ClearedPositionVariable, PSY.TradingHub)
+    t1 = first(get_time_steps(container))
+    @test JuMP.coefficient(nodal[n[2], t1], position["H1", t1]) == 0.7
+    @test JuMP.coefficient(nodal[n[3], t1], position["H1", t1]) == 0.3
+    @test JuMP.coefficient(nodal[n[4], t1], position["H2", t1]) == 0.7
+    @test JuMP.coefficient(nodal[n[5], t1], position["H2", t1]) == 0.3
+    @test JuMP.coefficient(nodal[n[4], t1], position["H1", t1]) == 0.0
+end
+
+@testset "A location read without its parameter errors" begin
+    sys, zone, _ = _build_zone_system()
+    template = get_thermal_dispatch_template_network(NetworkModel(PTDFNetworkModel))
+    model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+    container = get_optimization_container(model)
+    network_model = get_network_model(IOM.get_template(model))
+    @test_throws ErrorException get_distribution_factors(
+        container,
+        sys,
+        zone,
+        network_model,
+    )
+end
+
+@testset "Factors round trip through the outputs bundle in their own layout" begin
+    sys, zone, zone_buses = _build_zone_system()
+    template = get_thermal_dispatch_template_network(NetworkModel(PTDFNetworkModel))
+    set_market_model!(
+        template, IOM.MarketModel(SettlementMarket; settlement_domain = PSY.System),
+    )
+    set_market_component_model!(template, DeviceModel(PSY.LoadZone, NodalRedistribution))
+    model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+    container = IOM.get_optimization_container(model)
+    windows = POM.run_windows(model)
+    store = POM.ParameterTimeSeriesStore()
+    key_map = POM.copy_cost_time_series!(store, sys, windows)
+    POM.write_model_inputs!(store, sys, container, windows)
+    bundle = joinpath(mktempdir(; cleanup = true), "system-test")
+    POM.write_outputs_system_bundle!(sys, store, key_map, bundle)
+    POM.close_parameter_store!(store)
+    restored = PSY.from_file(bundle; time_series_read_only = true)
+    zone2 = get_component(PSY.LoadZone, restored, "LZ1")
+    got = PSY.get_time_series(PSY.Deterministic, zone2, POM.DISTRIBUTION_FACTOR_TS_NAME)
+    @test IS.get_value_axes(got) ==
+          [IS.TimeSeriesAxis("bus", PSY.get_number.(zone_buses))]
+    window = only(values(PSY.get_data(got)))
+    @test all(window[t, :] == [0.6, 0.4] for t in axes(window, 1))
+    IS.close!(IS.get_data_store(restored.data))
 end

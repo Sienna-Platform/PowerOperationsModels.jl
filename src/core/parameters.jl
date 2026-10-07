@@ -142,6 +142,15 @@ Name of the series that carries a `LoadZone`'s or `TradingHub`'s distribution fa
 const DISTRIBUTION_FACTOR_TS_NAME = "distribution_factor"
 
 """
+Distribution factors of a settlement location. The location owns one `distribution_factor`
+series, a `[time step, bus]` matrix with `value_axes = [IS.TimeSeriesAxis("bus", bus
+numbers)]`. The container holds each location's factors along one positional axis; the bus
+labels stay in the series metadata. The values multiply cleared positions, so they are fixed
+coefficients and the container holds `Float64`.
+"""
+struct DistributionFactorParameter <: IOM.LeftHandSideTimeSeriesParameter end
+
+"""
 Reservoir energy target read from the system state
 """
 struct ReservoirTargetParameter <: VariableValueParameter end
