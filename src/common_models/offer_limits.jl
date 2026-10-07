@@ -138,9 +138,135 @@ function _warn_ignored_offer_links(
     return
 end
 
-add_linked_reserve_offer_constraints!(
-    ::OptimizationContainer, ::PSY.System, ::DeviceModel,
-) = nothing
+# One window `[time step, value dims...]` of `owner`'s series and its value axes. Reads the
+# forecast object: a window of rank 3 or more has no TimeArray form (`get_window` throws).
+function _read_offer_window(container::OptimizationContainer, owner, name::String)
+    forecast = IS.get_time_series(
+        IS.Deterministic,
+        owner,
+        name;
+        start_time = get_initial_time(container),
+        len = length(get_time_steps(container)),
+        count = 1,
+    )
+    if IS.get_resolution(forecast) != get_resolution(container)
+        throw(
+            IS.ConflictingInputsError(
+                "$(PSY.get_name(owner)): series $(name) has resolution " *
+                "$(IS.get_resolution(forecast)); the model runs at " *
+                "$(get_resolution(container)).",
+            ),
+        )
+    end
+    return only(values(IS.get_data(forecast))), IS.get_value_axes(forecast)
+end
+
+_links_message(d) =
+    "The $(RESERVE_OFFER_LINKS_TS_NAME) series of $(PSY.get_name(d)) must hold Int64 " *
+    "[time step, block, product] values with value_axes = [IS.TimeSeriesAxis(\"block\", " *
+    "1:n), IS.TimeSeriesAxis(\"product\", service names)]."
+
+_product_labels(::Nothing, d) = throw(ArgumentError(_links_message(d)))
+function _product_labels(value_axes::Vector{IS.TimeSeriesAxis}, d)
+    if length(value_axes) != 2 || value_axes[1].name != "block" ||
+       value_axes[2].name != "product"
+        throw(ArgumentError(_links_message(d)))
+    end
+    return _string_labels(value_axes[2].labels, d)
+end
+_string_labels(labels::Vector{String}, _) = labels
+_string_labels(::Vector{Int64}, d) = throw(ArgumentError(_links_message(d)))
+
+_int_links(window::Array{Int64, 3}, _) = window
+_int_links(::AbstractArray, d) = throw(ArgumentError(_links_message(d)))
+
+_offered_services(cost::Union{PSY.MarketBidCost, PSY.MarketBidTimeSeriesCost}) =
+    PSY.get_ancillary_service_offers(cost)
+_offered_services(::PSY.OperationalCost) = PSY.Service[]
+
+# Services by product label, resolved by name among the services `d` offers into, so the
+# column order need not follow `ancillary_service_offers`.
+function _linked_services(d::PSY.Component, value_axes)
+    offered =
+        Dict(PSY.get_name(s) => s for s in _offered_services(PSY.get_operation_cost(d)))
+    services = PSY.Service[]
+    for label in _product_labels(value_axes, d)
+        if !haskey(offered, label)
+            throw(
+                IS.ConflictingInputsError(
+                    "$(PSY.get_name(d)) links offer blocks into $(label), which is not " *
+                    "among its ancillary_service_offers.",
+                ),
+            )
+        end
+        push!(services, offered[label])
+    end
+    return services
+end
+
+# Step widths of `d`'s curve for `service`, per time step, or `nothing` when the model
+# prices no offer of `d` into it (no service model, or `d` does not contribute).
+function _modeled_offer_widths(container, blk, d::D, service) where {D <: PSY.Component}
+    first_key =
+        (PSY.get_name(service), PSY.get_name(d), 1, first(get_time_steps(container)))
+    haskey(blk.data, first_key) || return nothing
+    return [diff(bp) for (bp, _) in _reserve_offer_curves(container, D, d, service)]
+end
+
+"""
+Rows of `LinkedReserveOfferConstraint` for the devices of `model` that carry a
+`reserve_offer_links` series. A block linked into two or more modeled services caps the sum
+of its steps at the smallest of their widths; widths agree unless a curve was cut short.
+"""
+function add_linked_reserve_offer_constraints!(
+    container::OptimizationContainer,
+    sys::PSY.System,
+    model::DeviceModel{D},
+) where {D <: PSY.Component}
+    rows = lazy_container_addition!(
+        container, LinkedReserveOfferConstraint, D, String[], Int[], Int[];
+        sparse = true,
+    )
+    has_container_key(container, PiecewiseLinearBlockReserveOffer, D) || return
+    blk = get_variable(container, PiecewiseLinearBlockReserveOffer, D)
+    for d in get_available_components(model, sys)
+        IS.has_time_series(d, IS.Deterministic, RESERVE_OFFER_LINKS_TS_NAME) || continue
+        _add_linked_offer_rows!(container, rows, blk, d)
+    end
+    return
+end
+
+function _add_linked_offer_rows!(container, rows, blk, d::D) where {D <: PSY.Component}
+    name = PSY.get_name(d)
+    window, value_axes = _read_offer_window(container, d, RESERVE_OFFER_LINKS_TS_NAME)
+    links = _int_links(window, d)
+    services = _linked_services(d, value_axes)
+    widths = [_modeled_offer_widths(container, blk, d, s) for s in services]
+    jump_model = get_jump_model(container)
+    for t in get_time_steps(container), b in axes(links, 2)
+        terms = JuMP.VariableRef[]
+        width = Inf
+        for (p, service) in enumerate(services)
+            k = links[t, b, p]
+            (k == 0 || widths[p] === nothing) && continue
+            steps = widths[p][t]
+            if !(1 <= k <= length(steps))
+                throw(
+                    IS.ConflictingInputsError(
+                        "$(name): block $(b) at step $(t) links to step $(k) of " *
+                        "$(PSY.get_name(service)), whose offer curve has " *
+                        "$(length(steps)) steps.",
+                    ),
+                )
+            end
+            push!(terms, blk[(PSY.get_name(service), name, k, t)])
+            width = min(width, steps[k])
+        end
+        length(terms) < 2 && continue
+        rows[(name, b, t)] = JuMP.@constraint(jump_model, sum(terms) <= width)
+    end
+    return
+end
 
 add_energy_offer_cap_constraints!(::OptimizationContainer, ::PSY.System, ::DeviceModel) =
     nothing

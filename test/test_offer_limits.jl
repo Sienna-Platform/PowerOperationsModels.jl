@@ -165,3 +165,84 @@ end
         container, POM.LINKED_RESERVE_OFFERS_KEY,
     )
 end
+
+const _OL_LINKED = Dict{String, Any}("linked_reserve_offers" => true)
+_ol_linked_model(::Type{F} = ThermalBasicUnitCommitment) where {F} =
+    DeviceModel(ThermalStandard, F; attributes = _OL_LINKED)
+
+@testset "Linked reserve offers: a block linked into two services is sold once" begin
+    sys, g = _ol_system(; up = _OL_TWO_SERVICES)
+    # Block 1 (10 MW) is step 1 of both curves, block 2 (20 MW) step 2 of UP_A only, block 3
+    # pads. Products run in the reverse of the order the offers were attached.
+    _ol_add_links!(sys, g, ["UP_B", "UP_A"], [[1, 1], [0, 2], [0, 0]])
+    model = _ol_model(sys; attributes = _OL_LINKED)
+    c = get_optimization_container(model)
+    rows = IOM.get_constraint(c, POM.LinkedReserveOfferConstraint, ThermalStandard)
+    blk = _ol_blk(c)
+    base = IOM.get_model_base_power(c)
+    @test _ol_rows(c, POM.LinkedReserveOfferConstraint) == [(_OL_UNIT, 1, t) for t in 1:24]
+    for t in 1:24
+        row = rows[(_OL_UNIT, 1, t)]
+        @test JuMP.normalized_coefficient(row, blk[("UP_A", _OL_UNIT, 1, t)]) == 1.0
+        @test JuMP.normalized_coefficient(row, blk[("UP_B", _OL_UNIT, 1, t)]) == 1.0
+        @test JuMP.normalized_coefficient(row, blk[("UP_A", _OL_UNIT, 2, t)]) == 0.0
+        @test JuMP.normalized_rhs(row) ≈ 10.0 / base
+    end
+    @test _ol_solve!(model)
+    award = _ol_award(c)
+    for t in 1:24
+        a = JuMP.value(award[("UP_A", _OL_UNIT, t)])
+        b = JuMP.value(award[("UP_B", _OL_UNIT, t)])
+        @test isapprox(base * (a + b), 30.0; atol = 1e-6)
+        linked =
+            JuMP.value(blk[("UP_A", _OL_UNIT, 1, t)]) +
+            JuMP.value(blk[("UP_B", _OL_UNIT, 1, t)])
+        @test isapprox(base * linked, 10.0; atol = 1e-6)
+    end
+end
+
+@testset "Linked reserve offers: linked steps of different widths take the smallest" begin
+    sys, g = _ol_system(;
+        up = ["UP_A" => ([0.0, 10.0], [5.0]), "UP_B" => ([0.0, 8.0], [6.0])],
+    )
+    _ol_add_links!(sys, g, ["UP_A", "UP_B"], [[1, 1]])
+    c = get_optimization_container(_ol_model(sys; attributes = _OL_LINKED))
+    rows = IOM.get_constraint(c, POM.LinkedReserveOfferConstraint, ThermalStandard)
+    base = IOM.get_model_base_power(c)
+    @test all(JuMP.normalized_rhs(rows[(_OL_UNIT, 1, t)]) ≈ 8.0 / base for t in 1:24)
+end
+
+@testset "Linked reserve offers: a service the model does not price is skipped" begin
+    sys, g = _ol_system(;
+        up = ["UP_A" => ([0.0, 10.0], [5.0])], down = ["DN_A" => ([0.0, 10.0], [6.0])],
+    )
+    _ol_add_links!(sys, g, ["UP_A", "DN_A"], [[1, 1]])
+    c = get_optimization_container(
+        _ol_model(
+            sys; attributes = _OL_LINKED, service_types = (OnlineReserve{ReserveUp},),
+        ),
+    )
+    @test isempty(_ol_rows(c, POM.LinkedReserveOfferConstraint))
+end
+
+@testset "Linked reserve offers: bad links are errors" begin
+    function built(links...; kwargs...)
+        sys, g = _ol_system(; up = _OL_TWO_SERVICES)
+        model = _ol_model(sys)
+        _ol_add_links!(sys, g, links...; kwargs...)
+        return get_optimization_container(model), sys
+    end
+    add!(c, sys) = POM.add_linked_reserve_offer_constraints!(c, sys, _ol_linked_model())
+    # UP_B's curve has one step.
+    c, sys = built(["UP_A", "UP_B"], [[1, 2]])
+    @test_throws IS.ConflictingInputsError add!(c, sys)
+    # UP_C is not among the device's ancillary_service_offers.
+    c, sys = built(["UP_A", "UP_C"], [[1, 1]])
+    @test_throws IS.ConflictingInputsError add!(c, sys)
+    # The axes must be [block, product].
+    c, sys = built(["UP_A", "UP_B"], [[1, 1]]; axis_names = ("product", "block"))
+    @test_throws ArgumentError add!(c, sys)
+    # The window must run at the model's resolution.
+    c, sys = built(["UP_A", "UP_B"], [[1, 1]]; resolution = Minute(30), steps = 48)
+    @test_throws IS.ConflictingInputsError add!(c, sys)
+end
