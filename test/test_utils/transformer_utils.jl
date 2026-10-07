@@ -31,10 +31,27 @@ function _default_quantity_limits(objective)
 end
 
 # `control_limits` is the free variable's own band: a tap ratio for the tap objectives, a
-# phase angle in radians for the active-power one, so the PSY default `(0.9, 1.1)` is
-# tap-shaped and unusable under a phase objective.
+# phase angle in radians for the active-power one.
 _default_control_limits(objective) =
     objective === P_FLOW_CONTROL ? (min = -0.3, max = 0.3) : (min = 0.9, max = 1.1)
+
+# PSY holds one band per controlled quantity. `control_limits` fills the actuator band
+# and `quantity_limits` the target band that `objective` selects; power bands are in
+# system per-unit.
+function _set_control_bands!(circuit, objective, quantity_limits, control_limits)
+    su(band) = (min = band.min * u"SU", max = band.max * u"SU")
+    if objective === P_FLOW_CONTROL
+        PSY.set_phase_angle_limits!(circuit, control_limits)
+        PSY.set_controlled_active_power_flow_limits!(circuit, su(quantity_limits))
+    elseif objective === Q_FLOW_CONTROL
+        PSY.set_tap_ratio_limits!(circuit, control_limits)
+        PSY.set_controlled_reactive_power_flow_limits!(circuit, su(quantity_limits))
+    else
+        PSY.set_tap_ratio_limits!(circuit, control_limits)
+        PSY.set_controlled_voltage_limits!(circuit, quantity_limits)
+    end
+    return
+end
 
 const T3W_NAME = "ThreeWindingTransformer_busD"
 const T3W_WINDINGS = ["$(T3W_NAME)_winding_$i" for i in 1:3]
@@ -60,8 +77,7 @@ function _controlled_sys14(
     isnothing(alpha) || PSY.set_α!(circuit, alpha)
     PSY.set_control_objective!(circuit, objective)
     PSY.set_regulated_bus_number!(circuit, regulated)
-    PSY.set_controlled_quantity_limits!(circuit, quantity_limits)
-    PSY.set_control_limits!(circuit, control_limits)
+    _set_control_bands!(circuit, objective, quantity_limits, control_limits)
     return (
         sys = sys,
         device = transformer,
@@ -95,11 +111,11 @@ would be satisfiable.
 function _sys5_with_3w()
     sys = PSB.build_system(PSITestSystems, "c_sys5_ml")
     busD = PSY.get_component(PSY.ACBus, sys, "nodeD")
-    PSY.set_voltage_limits!(busD, (min = 0.9 * PSY.CU, max = 1.1 * PSY.CU))
+    PSY.set_voltage_limits!(busD, (min = 0.9 * u"CU", max = 1.1 * u"CU"))
 
     function _add_bus!(number, name)
         bus = PSY.ACBus(;
-            input_basis = PSY.CU,
+            input_basis = u"CU",
             number = number,
             name = name,
             available = true,
@@ -130,7 +146,7 @@ function _sys5_with_3w()
             base_power = 100.0,
             max_active_power = 0.5,
             max_reactive_power = 0.1,
-            input_basis = CU,
+            input_basis = u"CU",
         ),
     )
     # `Bus3WT_1`'s generator stays small on active power so the load keeps drawing across
@@ -159,7 +175,7 @@ function _sys5_with_3w()
                 ),
                 base_power = 100.0,
                 time_limits = nothing,
-                input_basis = CU,
+                input_basis = u"CU",
             ),
         )
     end
@@ -174,7 +190,7 @@ function _sys5_with_3w()
         x = 0.1,
         rating = 1.0,
         base_power = 100.0,
-        input_basis = CU,
+        input_basis = u"CU",
     )
     PSY.add_component!(
         sys,
@@ -184,7 +200,7 @@ function _sys5_with_3w()
             secondary_circuit = _star_leg(terminal_1),
             tertiary_circuit = _star_leg(terminal_2),
             star_bus = star_bus,
-            input_basis = CU,
+            input_basis = u"CU",
         ),
     )
     return sys
@@ -210,8 +226,7 @@ function _controlled_sys3w(
     end
     PSY.set_control_objective!(circuit, objective)
     PSY.set_regulated_bus_number!(circuit, number)
-    PSY.set_controlled_quantity_limits!(circuit, quantity_limits)
-    PSY.set_control_limits!(circuit, control_limits)
+    _set_control_bands!(circuit, objective, quantity_limits, control_limits)
     return (
         sys = sys,
         device = transformer,

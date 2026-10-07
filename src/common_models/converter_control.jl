@@ -2,12 +2,43 @@
 # arrays + scalars so both TwoTerminalVSCLine (once per from/to terminal) and
 # InterconnectingConverter (once per converter) reuse them.
 
+# PSY stores HVDC quantities in natural units. System per-unit bases: S in MVA,
+# V in kV, Z = V^2 / S (ohm), Y = 1 / Z (S), I = 1000 * S / V (A).
+_ohm_to_su(z::Float64, v_base::Float64, s_base::Float64) = z * s_base / v_base^2
+_siemens_to_su(g::Float64, v_base::Float64, s_base::Float64) = g * v_base^2 / s_base
+_amps_to_su(i::Float64, v_base::Float64, s_base::Float64) = i * v_base / (1000.0 * s_base)
+_kv_to_su(v::Float64, v_base::Float64) = v / v_base
+_kv_per_mw_to_su(droop::Float64, v_base::Float64, s_base::Float64) =
+    droop * s_base / v_base
+
+_bus_base_voltage(bus::PSY.Bus) = _bus_base_voltage(PSY.get_base_voltage(bus), bus)
+_bus_base_voltage(v::Float64, ::PSY.Bus) = v
+_bus_base_voltage(::Nothing, bus::PSY.Bus) = error(
+    "Bus $(PSY.get_name(bus)) has no base_voltage, so the HVDC quantities in kV, ohm, " *
+    "S, or A at it cannot be per-unitized.",
+)
+
+# A kV base field where 0.0 means "unspecified".
+function _nonzero_base_voltage(v::Float64, field::String, d::PSY.Component)
+    if iszero(v)
+        error(
+            "$(nameof(typeof(d))) $(PSY.get_name(d)): $(field) is 0.0, so the fields in " *
+            "kV, ohm, S, or A cannot be per-unitized. Set $(field) in kV.",
+        )
+    end
+    return v
+end
+
+# A control mode selects one setpoint field; every other setpoint field is `nothing`.
+_mode_setpoint(value::Float64, ::String, ::PSY.Component) = value
+_mode_setpoint(::Nothing, field::String, d::PSY.Component) = error(
+    "$(nameof(typeof(d))) $(PSY.get_name(d)): its control mode needs $(field), which " *
+    "is nothing.",
+)
+
 # Pin a converter/terminal reactive injection at its setpoint. Shared by both AC
 # control primitives so the AC_REACTIVE_POWER enforcement lives in one place.
-# `setpoint` is interpreted as system-base reactive power (pu MVAr) and is fixed
-# directly onto the reactive-injection variable — NOT a power factor. The PSY
-# `ac_setpoint` field comment is ambiguous (documents the AC_VOLTAGE meaning and a
-# "power factor" alternative); POM's contract here is reactive power in pu.
+# `setpoint` is system-base reactive power (pu MVAr).
 function _pin_converter_reactive!(q_var, name::String, setpoint::Float64, time_steps)
     for t in time_steps
         JuMP.fix(q_var[name, t], setpoint; force = true)

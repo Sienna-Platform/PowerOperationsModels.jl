@@ -11,20 +11,20 @@ get_variable_binary(::Type{ActivePowerInVariable}, ::Type{<:PSY.Source}, ::Type{
 get_variable_binary(::Type{ActivePowerOutVariable}, ::Type{<:PSY.Source}, ::Type{<:AbstractSourceFormulation}) = false
 get_variable_lower_bound(::Type{ActivePowerInVariable}, d::PSY.Source, ::Type{<:AbstractSourceFormulation}) = 0.0
 get_variable_lower_bound(::Type{ActivePowerOutVariable}, d::PSY.Source, ::Type{<:AbstractSourceFormulation}) = 0.0
-get_variable_upper_bound(::Type{ActivePowerInVariable}, d::PSY.Source, ::Type{<:AbstractSourceFormulation}) = -PSY.get_active_power_limits(d, PSY.SU).min
-get_variable_upper_bound(::Type{ActivePowerOutVariable}, d::PSY.Source, ::Type{<:AbstractSourceFormulation}) = PSY.get_active_power_limits(d, PSY.SU).max
+get_variable_upper_bound(::Type{ActivePowerInVariable}, d::PSY.Source, ::Type{<:AbstractSourceFormulation}) = -PSY.get_active_power_limits(d, u"SU").min
+get_variable_upper_bound(::Type{ActivePowerOutVariable}, d::PSY.Source, ::Type{<:AbstractSourceFormulation}) = PSY.get_active_power_limits(d, u"SU").max
 
 ############## ReactivePowerVariable, Source ####################
 get_variable_binary(::Type{ReactivePowerVariable}, ::Type{<:PSY.Source}, ::Type{<:AbstractSourceFormulation}) = false
-get_variable_lower_bound(::Type{ReactivePowerVariable}, d::PSY.Source, ::Type{<:AbstractSourceFormulation}) = PSY.get_reactive_power_limits(d, PSY.SU).min
-get_variable_upper_bound(::Type{ReactivePowerVariable}, d::PSY.Source, ::Type{<:AbstractSourceFormulation}) = PSY.get_reactive_power_limits(d, PSY.SU).max
+get_variable_lower_bound(::Type{ReactivePowerVariable}, d::PSY.Source, ::Type{<:AbstractSourceFormulation}) = PSY.get_reactive_power_limits(d, u"SU").min
+get_variable_upper_bound(::Type{ReactivePowerVariable}, d::PSY.Source, ::Type{<:AbstractSourceFormulation}) = PSY.get_reactive_power_limits(d, u"SU").max
 
-get_multiplier_value(::Type{ActivePowerTimeSeriesParameter}, d::PSY.Source, ::Type{<:AbstractSourceFormulation}) = PSY.get_active_power_limits(d, PSY.SU).max
-get_multiplier_value(::Type{ActivePowerOutTimeSeriesParameter}, d::PSY.Source, ::Type{<:AbstractSourceFormulation}) = PSY.get_active_power_limits(d, PSY.SU).max
-get_multiplier_value(::Type{ActivePowerInTimeSeriesParameter}, d::PSY.Source, ::Type{<:AbstractSourceFormulation}) = PSY.get_active_power_limits(d, PSY.SU).max
-get_multiplier_value(::Type{ActivePowerTimeSeriesParameter}, d::PSY.Source, ::Type{FixedOutput}) = PSY.get_active_power_limits(d, PSY.SU).max
-get_multiplier_value(::Type{ActivePowerOutTimeSeriesParameter}, d::PSY.Source, ::Type{FixedOutput}) = PSY.get_active_power_limits(d, PSY.SU).max
-get_multiplier_value(::Type{ActivePowerInTimeSeriesParameter}, d::PSY.Source, ::Type{FixedOutput}) = PSY.get_active_power_limits(d, PSY.SU).min
+get_multiplier_value(::Type{ActivePowerTimeSeriesParameter}, d::PSY.Source, ::Type{<:AbstractSourceFormulation}) = PSY.get_active_power_limits(d, u"SU").max
+get_multiplier_value(::Type{ActivePowerOutTimeSeriesParameter}, d::PSY.Source, ::Type{<:AbstractSourceFormulation}) = PSY.get_active_power_limits(d, u"SU").max
+get_multiplier_value(::Type{ActivePowerInTimeSeriesParameter}, d::PSY.Source, ::Type{<:AbstractSourceFormulation}) = PSY.get_active_power_limits(d, u"SU").max
+get_multiplier_value(::Type{ActivePowerTimeSeriesParameter}, d::PSY.Source, ::Type{FixedOutput}) = PSY.get_active_power_limits(d, u"SU").max
+get_multiplier_value(::Type{ActivePowerOutTimeSeriesParameter}, d::PSY.Source, ::Type{FixedOutput}) = PSY.get_active_power_limits(d, u"SU").max
+get_multiplier_value(::Type{ActivePowerInTimeSeriesParameter}, d::PSY.Source, ::Type{FixedOutput}) = PSY.get_active_power_limits(d, u"SU").min
 # This additional method definition is used to avoid ambiguity with the method defined in default_interface_methods.jl
 get_multiplier_value(::Type{<:AbstractPiecewiseLinearBreakpointParameter}, d::PSY.Source, ::Type{<:AbstractSourceFormulation}) = 1.0
 
@@ -67,7 +67,7 @@ function get_min_max_limits(
     ::Type{ActivePowerVariableLimitsConstraint},
     ::Type{<:AbstractSourceFormulation},
 )
-    return PSY.get_active_power_limits(device, PSY.SU)
+    return PSY.get_active_power_limits(device, u"SU")
 end
 
 function get_min_max_limits(
@@ -75,7 +75,7 @@ function get_min_max_limits(
     ::Type{InputActivePowerVariableLimitsConstraint},
     ::Type{<:AbstractSourceFormulation},
 )
-    return PSY.get_active_power_limits(device, PSY.SU)  # TODO do we need a new field in PSY for this -- input active power limits?
+    return PSY.get_active_power_limits(device, u"SU")  # TODO do we need a new field in PSY for this -- input active power limits?
 end
 
 function get_min_max_limits(
@@ -83,7 +83,7 @@ function get_min_max_limits(
     ::Type{ReactivePowerVariableLimitsConstraint},
     ::Type{<:AbstractSourceFormulation},
 )
-    return PSY.get_reactive_power_limits(device, PSY.SU)
+    return PSY.get_reactive_power_limits(device, u"SU")
 end
 
 ##### Constraints ######

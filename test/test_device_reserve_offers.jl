@@ -39,7 +39,7 @@ function add_device_reserve_offers!(
     # device name -> first-segment offer slope ($/MWh, natural units); segment 2 is 1.5x it.
     base_slope = Dict{String, Float64}()
     for (i, g) in enumerate(contributors)
-        pmax = PSY.get_max_active_power(g, PSY.NU)
+        pmax = PSY.get_max_active_power(g, u"NU")
         # Keep the unit's own marginal energy cost: read the proportional (linear) term of its
         # existing variable cost before overwriting, and use it as the single-block energy offer.
         energy_slope = PSY.get_proportional_term(
@@ -193,7 +193,7 @@ function add_per_hour_reserve_offer!(
     init_times = [DateTime("2024-01-01T00:00:00"), DateTime("2024-01-02T00:00:00")],
     horizon = 24, resolution = Hour(1),
 )
-    pmax = PSY.get_max_active_power(g, PSY.NU)
+    pmax = PSY.get_max_active_power(g, u"NU")
     energy_slope = PSY.get_proportional_term(
         PSY.get_value_curve(PSY.get_variable_operation_cost(get_operation_cost(g))))
     set_operation_cost!(
@@ -389,7 +389,7 @@ function build_reserve_market_system(; load_offer_mw = 10.0, load_offer_price = 
     # Generators: energy at each unit's own marginal cost, flat AS offers into all three
     # up-products with per-unit prices.
     for (i, g) in enumerate(thermals)
-        pmax = PSY.get_max_active_power(g, PSY.NU)
+        pmax = PSY.get_max_active_power(g, u"NU")
         energy_slope = PSY.get_proportional_term(
             PSY.get_value_curve(PSY.get_variable_operation_cost(get_operation_cost(g))),
         )
@@ -419,7 +419,7 @@ function build_reserve_market_system(; load_offer_mw = 10.0, load_offer_price = 
 
     # Load: consumption valued at VOLL (consumes at forecast), plus one cheap block into
     # GROUP_SUB_A - the cheapest offer in the whole stack.
-    pmax_il = PSY.get_max_active_power(il, PSY.NU)
+    pmax_il = PSY.get_max_active_power(il, u"NU")
     set_operation_cost!(
         il,
         MarketBidCost(;
@@ -563,7 +563,7 @@ function _offline_ordc_uc_system()
     # keeps its energy slope; the off-unit gets a prohibitive slope + startup so the UC
     # never commits it for energy.
     for g in thermals
-        pmax_g = PSY.get_max_active_power(g, PSY.NU)
+        pmax_g = PSY.get_max_active_power(g, u"NU")
         slope = if g === offunit
             1.0e4
         else
@@ -643,7 +643,7 @@ function _check_offline_band(
     for (idx, c) in con.data
         name, t = idx
         d = get_component(device_type, sys, name)
-        limits = PSY.get_active_power_limits(d, PSY.SU)
+        limits = PSY.get_active_power_limits(d, u"SU")
         u_coefficient = expected_u_coefficient(limits)
         if IOM.get_must_run(d)
             @test JuMP.normalized_rhs(c) ≈ limits.max - u_coefficient
@@ -740,7 +740,7 @@ end
         sys, offunit = _offline_ordc_uc_system()
         # The pmin gating term is only observable if some unit actually has a nonzero pmin.
         @test any(
-            d -> PSY.get_active_power_limits(d, PSY.SU).min > 0.0,
+            d -> PSY.get_active_power_limits(d, u"SU").min > 0.0,
             get_components(ThermalStandard, sys),
         )
 
@@ -793,7 +793,7 @@ end
         for d in get_components(ThermalStandard, sys)
             name = PSY.get_name(d)
             name in names(on) || continue
-            limits = PSY.get_active_power_limits(d, PSY.NU)
+            limits = PSY.get_active_power_limits(d, u"NU")
             for t in 1:24
                 on[t, name] > 0.5 || continue
                 committed += 1
@@ -822,12 +822,12 @@ end
     multistarts = collect(get_components(PSY.ThermalMultiStart, sys))
     @test !isempty(multistarts)
     # pmin must be nonzero for the compact gating term to be observable at all.
-    @test all(d -> PSY.get_active_power_limits(d, PSY.SU).min > 0.0, multistarts)
+    @test all(d -> PSY.get_active_power_limits(d, u"SU").min > 0.0, multistarts)
 
     gens = vcat(collect(get_components(ThermalStandard, sys)), multistarts)
     # Service bids require an OfferCurveCost on every contributor.
     for g in gens
-        pmax = PSY.get_active_power_limits(g, PSY.NU).max
+        pmax = PSY.get_active_power_limits(g, u"NU").max
         PSY.set_operation_cost!(
             g,
             MarketBidCost(;
@@ -846,7 +846,7 @@ end
     )
     add_service!(sys, nspin, PSY.Device[gens...])
     for (i, g) in enumerate(gens)
-        pmax = PSY.get_active_power_limits(g, PSY.NU).max
+        pmax = PSY.get_active_power_limits(g, u"NU").max
         PSY.set_service_bid!(
             sys, g, nspin, _mkt_offer_ts(nspin, pmax, 5.0 + i), IS.NaturalUnit(),
         )
@@ -892,7 +892,7 @@ end
         name in names(on) || continue
         col = "NSPIN__$(name)"
         col in names(awards) || continue
-        limits = PSY.get_active_power_limits(d, PSY.NU)
+        limits = PSY.get_active_power_limits(d, u"NU")
         for t in 1:24
             on[t, name] > 0.5 || continue
             committed += 1
@@ -951,7 +951,7 @@ end
     for formulation in (ThermalBasicUnitCommitment, ThermalBasicCompactUnitCommitment)
         model, sys, offunit = _offline_hourly_model(formulation; factor)
         service = PSY.get_name(only(get_components(OfflineReserve, sys)))
-        pmax_mw = PSY.get_active_power_limits(offunit, PSY.NU).max
+        pmax_mw = PSY.get_active_power_limits(offunit, u"NU").max
         # The 80 MW offer exceeds the derated max, so the band binds, not the offer.
         @test 80.0 > factor * pmax_mw
         container = IOM.get_optimization_container(model)
@@ -961,14 +961,14 @@ end
         # Compact UC's row is `ts_t - pmin * u`; JuMP moves `pmin * u` to the left-hand side.
         function u_coefficient(d)
             if formulation === ThermalBasicCompactUnitCommitment
-                return PSY.get_active_power_limits(d, PSY.SU).min
+                return PSY.get_active_power_limits(d, u"SU").min
             end
             return 0.0
         end
         off_name = PSY.get_name(offunit)
         for t in 1:24
             @test JuMP.normalized_rhs(con[(off_name, t)]) ≈
-                  factor * PSY.get_max_active_power(offunit, PSY.SU)
+                  factor * PSY.get_max_active_power(offunit, u"SU")
             @test JuMP.normalized_coefficient(con[(off_name, t)], u[off_name, t]) ≈
                   u_coefficient(offunit)
         end
@@ -976,7 +976,7 @@ end
         other = first(g for g in get_components(ThermalStandard, sys) if g !== offunit)
         other_name = PSY.get_name(other)
         @test JuMP.normalized_rhs(con[(other_name, 1)]) ≈
-              PSY.get_active_power_limits(other, PSY.SU).max
+              PSY.get_active_power_limits(other, u"SU").max
         @test JuMP.normalized_coefficient(con[(other_name, 1)], u[other_name, 1]) ≈
               u_coefficient(other)
         @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
@@ -997,8 +997,8 @@ end
     model, _, offunit = _offline_hourly_model(
         ThermalBasicCompactUnitCommitment; factor, offline = false, mustrun = true,
     )
-    limits = PSY.get_active_power_limits(offunit, PSY.SU)
-    ts_max = factor * PSY.get_max_active_power(offunit, PSY.SU)
+    limits = PSY.get_active_power_limits(offunit, u"SU")
+    ts_max = factor * PSY.get_max_active_power(offunit, u"SU")
     @test ts_max < limits.min
     @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
     model, _, offunit = _offline_hourly_model(
@@ -1062,7 +1062,7 @@ end
             )
             u = IOM.get_variable(container, POM.OnVariable, ThermalStandard)
             stop = IOM.get_variable(container, POM.StopVariable, ThermalStandard)
-            q = PSY.get_active_power_limits(offunit, PSY.SU).max
+            q = PSY.get_active_power_limits(offunit, u"SU").max
             @test JuMP.normalized_rhs(rows[(name, 1)]) ≈ 0.0 atol = 1e-9
             @test JuMP.normalized_coefficient(rows[(name, 1)], u[name, 1]) ≈ -q
             @test JuMP.normalized_rhs(rows[(name, 2)]) ≈ q
@@ -1177,7 +1177,7 @@ end
 @testset "DOWN-reserve: award within forecast headroom" begin
     sys = deepcopy(PSB.build_system(PSITestSystems, "c_sys5_il"; add_reserves = true))
     il = get_component(PSY.InterruptiblePowerLoad, sys, _IL_NAME)
-    pmax = PSY.get_max_active_power(il, PSY.NU)
+    pmax = PSY.get_max_active_power(il, u"NU")
     model = _solve_load_model(_load_reserve_template(:down), sys)
     res = IOM.OptimizationProblemOutputs(model)
     p = read_variable(
@@ -1301,7 +1301,7 @@ end
 @testset "Load offers into an elastic reserve: award bounded by the offer" begin
     sys = deepcopy(PSB.build_system(PSITestSystems, "c_sys5_il"; add_reserves = true))
     il = get_component(PSY.InterruptiblePowerLoad, sys, _IL_NAME)
-    pmax = PSY.get_max_active_power(il, PSY.NU)
+    pmax = PSY.get_max_active_power(il, u"NU")
     ordc = first(get_components(PSY.has_demand_curve, PSY.OnlineReserve, sys))
     offer_mw = 10.0
     set_operation_cost!(

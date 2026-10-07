@@ -407,7 +407,7 @@ function IOM._get_pwl_data(
         slope_cost_component,
         unit_system,
         get_model_base_power(container),
-        PSY.get_base_power(component, PSY.NU),
+        PSY.get_base_power(component, u"NU"),
     )
     return breakpoints, slopes
 end
@@ -582,18 +582,18 @@ end
 #################################################################################
 
 # IS4 made units explicit on getters. System base power is the MVA anchor
-# (`PSY.NU`); device power/limit getters are read in system-per-unit (`PSY.SU`),
+# (`u"NU"`); device power/limit getters are read in system-per-unit (`u"SU"`),
 # reproducing the SYSTEM_BASE context the build used to set statefully. The
-# one-arg component `get_base_power(c, PSY.NU)` is the device MVA base and is unchanged.
-IOM.get_base_power(sys::PSY.System) = PSY.get_base_power(sys, PSY.NU)
-IOM.get_base_power(c::PSY.Component) = PSY.get_base_power(c, PSY.NU)
+# one-arg component `get_base_power(c, u"NU")` is the device MVA base and is unchanged.
+IOM.get_base_power(sys::PSY.System) = PSY.get_base_power(sys, u"NU")
+IOM.get_base_power(c::PSY.Component) = PSY.get_base_power(c, u"NU")
 IOM.get_operation_cost(c::PSY.Component) = PSY.get_operation_cost(c)
-IOM.get_active_power_limits(c::PSY.Component) = PSY.get_active_power_limits(c, PSY.SU)
+IOM.get_active_power_limits(c::PSY.Component) = PSY.get_active_power_limits(c, u"SU")
 # `RenewableGen` has no `active_power_limits` field: return (0.0, max_active_power)
 IOM.get_active_power_limits(c::PSY.RenewableGen) =
-    (min = 0.0, max = PSY.get_max_active_power(c, PSY.SU))
-IOM.get_max_active_power(c::PSY.Component) = PSY.get_max_active_power(c, PSY.SU)
-IOM.get_ramp_limits(c::PSY.Component) = PSY.get_ramp_limits(c, PSY.SU / u"minute")
+    (min = 0.0, max = PSY.get_max_active_power(c, u"SU"))
+IOM.get_max_active_power(c::PSY.Component) = PSY.get_max_active_power(c, u"SU")
+IOM.get_ramp_limits(c::PSY.Component) = PSY.get_ramp_limits(c, u"SU/minute")
 IOM.get_start_up(op_cost) = PSY.get_start_up(op_cost)
 IOM.get_shut_down(op_cost) = PSY.get_shut_down(op_cost)
 IOM.get_dc_bus(c::PSY.Component) = PSY.get_dc_bus(c)

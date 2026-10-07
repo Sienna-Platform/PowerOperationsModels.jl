@@ -99,8 +99,8 @@ function add_constraints!(
     if !all(PSY.has_time_series.(devices))
         for device in devices
             ci_name = PSY.get_name(device)
-            to_from_limit = PSY.get_flow_limits(device, PSY.SU).to_from
-            from_to_limit = PSY.get_flow_limits(device, PSY.SU).from_to
+            to_from_limit = PSY.get_flow_limits(device, u"SU").to_from
+            from_to_limit = PSY.get_flow_limits(device, u"SU").from_to
             for t in time_steps
                 con_lb[ci_name, t] =
                     JuMP.@constraint(

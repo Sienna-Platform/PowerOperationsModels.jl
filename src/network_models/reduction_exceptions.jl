@@ -163,20 +163,14 @@ function _pin_outage_buses!(buses::Set{Int}, m::DeviceModel, sys::PSY.System)
     return
 end
 
-# A `model_all_branches` MonitoredLine model pins its lines so zero-impedance
-# ones survive the reduction instead of being merged away.
-function _pin_model_all_branches!(
-    buses::Set{Int},
-    m::DeviceModel{PSY.MonitoredLine},
-)
+# A model with `model_all_branches = true` keeps its devices out of the reduction.
+function _pin_model_all_branches!(buses::Set{Int}, m::DeviceModel)
     get_attribute(m, MODEL_ALL_BRANCHES_KEY) === true || return
-    for branch in get_device_cache(m)
-        _push_component_buses!(buses, branch)
+    for device in get_device_cache(m)
+        _push_component_buses!(buses, device)
     end
     return
 end
-
-_pin_model_all_branches!(::Set{Int}, ::DeviceModel) = nothing
 
 _warn_circuit(o, m) =
     @warn "Circuit has control $o enabled but $m. This control will be ignored, and the \
