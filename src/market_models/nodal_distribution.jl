@@ -1,59 +1,87 @@
 """
 Distribution factors multiply cleared-quantity variables, so they must reach JuMP as
 numbers. `IOM.get_param_eltype` returns `JuMP.VariableRef` for recurrent solves with
-`rebuild_model` off, which would make `df * cleared_q` a product of two variable
-references. Guard at build time rather than surfacing as a solver error mid-simulation.
+`rebuild_model` off, so guard at build time rather than surface a solver error mid-simulation.
 """
 function assert_numeric_distribution_factors(container::OptimizationContainer)
     if IOM.get_param_eltype(container) !== Float64
         error(
             "Nodal distribution requires rebuild_model = true. With recurrent solves " *
-            "and rebuild_model off, DistributionFactorParameter would hold JuMP " *
-            "parameters and df * cleared_q would be nonlinear.",
+            "and rebuild_model off, the factors would be JuMP parameters and " *
+            "df * cleared_q would be nonlinear.",
         )
     end
     return
 end
 
 # Membership differs by location type: dispatch, never branch on the type. Only available
-# members count: the nodal balance has no row for a bus that is out of service, so such a
-# member must not receive any of the cleared position.
+# members receive a share: the nodal balance has no row for a bus out of service.
 _available(buses) = [b for b in buses if PSY.get_available(b)]
+_members(sys::PSY.System, zone::PSY.LoadZone) = PSY.get_buses(sys, zone)
+_members(::PSY.System, hub::PSY.TradingHub) = PSY.get_buses(hub)
 get_member_buses(::PSY.System, bus::PSY.ACBus) = [bus]
-get_member_buses(sys::PSY.System, zone::PSY.LoadZone) = _available(PSY.get_buses(sys, zone))
-get_member_buses(::PSY.System, hub::PSY.TradingHub) = _available(PSY.get_buses(hub))
+get_member_buses(sys::PSY.System, location::Union{PSY.LoadZone, PSY.TradingHub}) =
+    _available(_members(sys, location))
+
+function _check_window_resolution(container::OptimizationContainer, forecast, owner)
+    if IS.get_resolution(forecast) != get_resolution(container)
+        throw(
+            IS.ConflictingInputsError(
+                "$(summary(owner)): series $(IS.get_name(forecast)) has resolution " *
+                "$(IS.get_resolution(forecast)); the model runs at " *
+                "$(get_resolution(container)).",
+            ),
+        )
+    end
+    return
+end
+
+_factor_axes_message(location) =
+    "The $(DISTRIBUTION_FACTOR_TS_NAME) series of $(summary(location)) must be one " *
+    "[time step, bus] matrix with value_axes = [IS.TimeSeriesAxis(\"bus\", bus numbers)]."
+
+_bus_labels(::Nothing, location) = throw(ArgumentError(_factor_axes_message(location)))
+function _bus_labels(value_axes::Vector{IS.TimeSeriesAxis}, location)
+    if length(value_axes) != 1 || only(value_axes).name != "bus"
+        throw(ArgumentError(_factor_axes_message(location)))
+    end
+    return _int_labels(only(value_axes).labels, location)
+end
+_int_labels(labels::Vector{Int64}, _) = labels
+_int_labels(::Vector{String}, location) =
+    throw(ArgumentError(_factor_axes_message(location)))
 
 """
-Keys of the `distribution_factor` series `location` carries for `buses`, by bus number.
-`PSY.ACBus` does not own time series, so the location owns one series per member bus,
-distinguished by the `"bus" => bus number` feature. One catalog listing resolves every
-member, so reading a location costs one pass over its series rather than one feature-keyed
-lookup, each a scan of the location's catalog, per member bus. Series for buses outside
-`buses` are ignored; two series for one member bus are ambiguous and error.
+The model's window of the `distribution_factor` series `location` owns, as a
+`[time step, bus]` matrix and its bus-number column labels, or `nothing` when it owns none.
+`PSY.ACBus` owns no time series, so the location carries the factors of all its members.
 """
-function _factor_series_keys(location::PSY.Component, buses::Vector{PSY.ACBus})
-    members = Set(PSY.get_number(b) for b in buses)
-    series_keys = Dict{Int, IS.TimeSeriesKey}()
-    for metadata in IS.list_time_series_metadata(
+function _read_factor_window(container::OptimizationContainer, location::PSY.Component)
+    metadata = IS.list_time_series_metadata(
         location;
         time_series_type = IS.Deterministic,
         name = DISTRIBUTION_FACTOR_TS_NAME,
     )
-        bus_no = get(IS.get_features(metadata), "bus", nothing)
-        bus_no in members || continue
-        if haskey(series_keys, bus_no)
-            throw(
-                ArgumentError(
-                    "$(summary(location)) carries more than one " *
-                    "$(DISTRIBUTION_FACTOR_TS_NAME) series for bus $(bus_no). Keep one " *
-                    "Deterministic series per member bus, with features " *
-                    "(\"bus\" => bus number).",
-                ),
-            )
-        end
-        series_keys[bus_no] = IS.get_time_series_key(metadata)
+    isempty(metadata) && return nothing
+    if length(metadata) > 1
+        throw(
+            ArgumentError(
+                "$(summary(location)) carries $(length(metadata)) " *
+                "$(DISTRIBUTION_FACTOR_TS_NAME) series; keep one [time step, bus] matrix.",
+            ),
+        )
     end
-    return series_keys
+    forecast = IS.get_time_series(
+        IS.Deterministic,
+        location,
+        DISTRIBUTION_FACTOR_TS_NAME;
+        start_time = get_initial_time(container),
+        len = length(get_time_steps(container)),
+        count = 1,
+    )
+    _check_window_resolution(container, forecast, location)
+    labels = _bus_labels(IS.get_value_axes(forecast), location)
+    return only(values(IS.get_data(forecast))), labels
 end
 
 function _zero_factors(
@@ -71,12 +99,11 @@ function _zero_factors(
 end
 
 """
-Read the per-bus distribution factors for `location` (one series per member bus, owned by
-the location, resolved by `_factor_series_keys`) into a numeric
-`(retained bus number, timestep)` array. A member bus without a factor series contributes
-`0.0`: ERCOT membership rules admit abandoned buses, and factor-set quality (summing to one)
-is an ingestion concern, not a modeling one. Factors on buses eliminated by the network
-reduction are summed into their retained bus.
+Read the distribution factors of `location` into a numeric `(retained bus number, time step)`
+array. A member without a column contributes `0.0` (factor quality, such as summing to one,
+is an ingestion concern), an unavailable member's column is dropped, and a column on a bus
+eliminated by the network reduction adds into its retained bus. A column for a bus that is
+not a member is an error.
 """
 function get_distribution_factors(
     container::OptimizationContainer,
@@ -84,24 +111,36 @@ function get_distribution_factors(
     location::T,
     network_model::NetworkModel{U},
 ) where {T <: Union{PSY.LoadZone, PSY.TradingHub}, U <: AbstractNetworkModel}
-    buses = get_member_buses(sys, location)
-    series_keys = _factor_series_keys(location, buses)
-    if isempty(series_keys)
+    members = _members(sys, location)
+    buses = _available(members)
+    window = _read_factor_window(container, location)
+    if window === nothing
         return _fallback_factors(container, location, buses, network_model)
     end
+    shares, labels = window
+    member_numbers = Set(PSY.get_number(b) for b in members)
+    live = Set(PSY.get_number(b) for b in buses)
     reduction, factors = _zero_factors(container, buses, network_model)
     time_steps = get_time_steps(container)
-    initial_time = get_initial_time(container)
-    for bus in buses
-        key = get(series_keys, PSY.get_number(bus), nothing)
-        key === nothing && continue
-        values = IS.get_time_series_values(
-            location, key; start_time = initial_time, len = length(time_steps),
-        )
-        bus_no = PNM.get_mapped_bus_number(reduction, bus)
-        for t in time_steps
-            factors[bus_no, t] += values[t]
+    found = false
+    for (j, bus_no) in enumerate(labels)
+        if !(bus_no in member_numbers)
+            throw(
+                ArgumentError(
+                    "$(summary(location)) has a $(DISTRIBUTION_FACTOR_TS_NAME) column " *
+                    "for bus $(bus_no), which is not a member.",
+                ),
+            )
         end
+        bus_no in live || continue
+        found = true
+        retained = PNM.get_mapped_bus_number(reduction, bus_no)
+        for t in time_steps
+            factors[retained, t] += shares[t, j]
+        end
+    end
+    if !found
+        return _fallback_factors(container, location, buses, network_model)
     end
     @debug "Distribution factor sums for $(PSY.get_name(location))" [
         sum(factors[:, t]) for t in time_steps
@@ -131,9 +170,9 @@ function _fallback_factors(
     ::NetworkModel,
 )
     error(
-        "Load zone $(PSY.get_name(zone)) has no $(DISTRIBUTION_FACTOR_TS_NAME) series for " *
-        "any member bus. Attach one Deterministic series per member bus to the zone with " *
-        "features (\"bus\" => bus number).",
+        "Load zone $(PSY.get_name(zone)) has no $(DISTRIBUTION_FACTOR_TS_NAME) column for " *
+        "an available member bus. Attach one Deterministic [time step, bus] matrix to the " *
+        "zone with value_axes = [IS.TimeSeriesAxis(\"bus\", bus numbers)].",
     )
 end
 
