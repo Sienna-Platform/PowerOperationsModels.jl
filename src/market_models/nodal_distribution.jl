@@ -22,6 +22,9 @@ get_member_buses(sys::PSY.System, zone::PSY.LoadZone) =
 get_member_buses(::PSY.System, hub::PSY.TradingHub) =
     [b for b in PSY.get_buses(hub) if PSY.get_available(b)]
 
+# Each step of a factor series multiplies one model time step, so the resolutions must match.
+# Checked on the metadata before the fill, which would otherwise fail with a plain error
+# that names neither the location nor the fix.
 function _check_window_resolution(container::OptimizationContainer, md, owner)
     if IS.get_resolution(md) != get_resolution(container)
         throw(
@@ -38,6 +41,9 @@ _factor_axes_message(location) =
     "The $(DISTRIBUTION_FACTOR_TS_NAME) series of $(summary(location)) must be one " *
     "[time step, bus] matrix with value_axes = [IS.TimeSeriesAxis(\"bus\", bus numbers)]."
 
+# A factor series has exactly one value axis, named "bus", labeled by bus numbers. Dispatch
+# rejects the three bad layouts with one message: no value axes (`nothing`), another axis
+# name or count, and string labels (`_int_labels`).
 _bus_labels(::Nothing, location) = throw(ArgumentError(_factor_axes_message(location)))
 function _bus_labels(value_axes::Vector{IS.TimeSeriesAxis}, location)
     if length(value_axes) != 1 || only(value_axes).name != "bus"
