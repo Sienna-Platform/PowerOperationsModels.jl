@@ -235,6 +235,9 @@ end
 _check_int_links(::Type{Int64}, _) = nothing
 _check_int_links(::Type, d) = throw(ArgumentError(_links_message(d)))
 
+# Links are flattened onto one positional axis, not a (device, block, product, time) container:
+# the 3-D fill setters, parameter writer and input recast have no 4-D methods, and every
+# solve writes the outputs bundle through them.
 function calc_additional_axes(
     container::OptimizationContainer,
     ::Type{ReserveOfferLinkParameter},
