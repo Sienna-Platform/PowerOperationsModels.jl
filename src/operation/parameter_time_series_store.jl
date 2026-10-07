@@ -453,7 +453,7 @@ function write_outputs_system_bundle!(
         ),
         association_id_map = key_map,
     )
-    PSY.PD.write_document(doc, joinpath(bundle_dir, PSY.SYSTEM_DOCUMENT_FILE))
+    PSY.PC.write_document(doc, joinpath(bundle_dir, PSY.SYSTEM_DOCUMENT_FILE))
     return nothing
 end
 
