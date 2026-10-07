@@ -12,8 +12,8 @@
 function _build_converter_sys(;
     loss = PSY.LossCurve(QuadraticCurve(0.0, 0.0, 0.0), PSY.CU),
     reactive_limit = 1.5,
-    ac_control = VSCACControlModes.AC_REACTIVE_POWER,
-    ac_setpoint = 0.0,
+    ac_control = VSCACControlModes.AC_VOLTAGE,
+    ac_setpoint = 1.0,
     dc_control = VSCDCControlModes.DC_VOLTAGE,
     dc_setpoint = 1.0,
     dc_voltage_droop = 0.0,
@@ -42,15 +42,16 @@ function _build_converter_sys(;
     end
     for ic in get_components(InterconnectingConverter, sys)
         set_loss_function!(ic, loss)
-        set_max_dc_current!(ic, 2.0 * PSY.SU)
-        set_reactive_power_limits!(
-            ic, (min = -reactive_limit * PSY.SU, max = reactive_limit * PSY.SU),
+        # 2.0 pu on the system base, in amperes.
+        set_max_dc_current!(
+            ic,
+            2.0 * 1000.0 * get_base_power(sys) / get_base_voltage(get_dc_bus(ic)),
         )
-        set_ac_control!(ic, ac_control)
-        set_ac_setpoint!(ic, ac_setpoint)
-        set_dc_control!(ic, dc_control)
-        set_dc_setpoint!(ic, dc_setpoint)
-        set_dc_voltage_droop!(ic, dc_voltage_droop)
+        set_reactive_power_limits!(
+            ic, (min = -reactive_limit * u"SU", max = reactive_limit * u"SU"),
+        )
+        _set_ic_setpoints!(ic, ac_control, ac_setpoint, dc_control, dc_setpoint)
+        set_dc_voltage_droop!(ic, _ic_droop_kv_per_mw(ic, dc_voltage_droop, sys))
     end
     if with_areas
         areas = [Area("Area_1", 0.0, 0.0, 0.0), Area("Area_2", 0.0, 0.0, 0.0)]
@@ -427,38 +428,21 @@ end
     end
 end
 
-@testset "VoltageControlConverter is count-invariant across AC control modes (LPACC)" begin
-    function _lpacc_container_for_ac_mode(mode, setpoint)
-        sys = _build_converter_sys(;
-            loss = PSY.LossCurve(QuadraticCurve(0.01, 0.01, 0.0), PSY.CU),
-            ac_control = mode,
-            ac_setpoint = setpoint,
-        )
-        template = _converter_template(
-            LPACCNetworkModel,
-            DeviceModel(InterconnectingConverter, VoltageControlConverter);
-            hvdc_model = VoltageDispatchHVDCNetworkModel,
-            line_formulation = DCLossyLine,
-        )
-        model, status = _build_converter_model(template, sys, ipopt_optimizer)
-        @test status == IOM.ModelBuildStatus.BUILT
-        return IOM.get_optimization_container(model)
-    end
-
-    c_v = _lpacc_container_for_ac_mode(VSCACControlModes.AC_VOLTAGE, 1.0)
-    c_q = _lpacc_container_for_ac_mode(VSCACControlModes.AC_REACTIVE_POWER, 0.0)
-    var_v = IOM.get_variables(c_v)
-    var_q = IOM.get_variables(c_q)
-    @test Set(keys(var_v)) == Set(keys(var_q))
-    for k in keys(var_v)
-        @test size(var_v[k]) == size(var_q[k])
-    end
-    con_v = IOM.get_constraints(c_v)
-    con_q = IOM.get_constraints(c_q)
-    @test Set(keys(con_v)) == Set(keys(con_q))
-    for k in keys(con_v)
-        @test size(con_v[k]) == size(con_q[k])
-    end
+@testset "VoltageControlConverter supports only AC_VOLTAGE among AC control modes (LPACC)" begin
+    template = _converter_template(
+        LPACCNetworkModel,
+        DeviceModel(InterconnectingConverter, VoltageControlConverter);
+        hvdc_model = VoltageDispatchHVDCNetworkModel,
+        line_formulation = DCLossyLine,
+    )
+    loss = PSY.LossCurve(QuadraticCurve(0.01, 0.01, 0.0), PSY.CU)
+    sys = _build_converter_sys(; loss = loss, ac_control = VSCACControlModes.AC_VOLTAGE)
+    _, status = _build_converter_model(template, sys, ipopt_optimizer)
+    @test status == IOM.ModelBuildStatus.BUILT
+    sys = _build_converter_sys(;
+        loss = loss, ac_control = VSCACControlModes.AC_REACTIVE_POWER,
+    )
+    _assert_ic_reactive_power_rejected(template, sys)
 end
 
 # TwoTerminalVSCLine fixture: c_sys5_uc with one AC line replaced by a VSC line.
@@ -475,41 +459,48 @@ function _vsc_lpacc_sys(;
     sys = build_system(PSITestSystems, "c_sys5_uc")
     line = get_component(Line, sys, "1")
     remove_component!(sys, line)
+    # PSY holds the VSC DC quantities in kV, S, and A. These are the old per-unit values
+    # on (rated_dc_voltage, system base).
+    v_dc = 230.0
+    s_base = get_base_power(sys)
+    from_bus = get_from(get_arc(line))
+    to_bus = get_to(get_arc(line))
     vsc = TwoTerminalVSCLine(;
         name = get_name(line),
         available = true,
         arc = get_arc(line),
         active_power_flow = 0.0,
         rating = 2.0,
-        active_power_limits_from = (min = -2.0, max = 2.0),
-        active_power_limits_to = (min = -2.0, max = 2.0),
-        g = 50.0,
+        g = 50.0 * s_base / v_dc^2,
         dc_current = 0.0,
-        reactive_power_from = 0.0,
         dc_control_from = dc_control_from,
         ac_control_from = ac_control_from,
-        dc_setpoint_from = dc_setpoint_from,
-        ac_setpoint_from = ac_setpoint_from,
+        _vsc_setpoint_kwargs(
+            "from", ac_control_from, ac_setpoint_from, dc_control_from, dc_setpoint_from,
+        )...,
+        rated_ac_voltage_from = get_base_voltage(from_bus),
         converter_loss_from = PSY.LossCurve(QuadraticCurve(0.01, 0.0, 0.0), PSY.CU),
-        max_dc_current_from = 5.0,
+        max_dc_current_from = 5.0 * 1000.0 * s_base / v_dc,
         rating_from = 2.0,
         reactive_power_limits_from = (min = -2.0, max = 2.0),
         power_factor_weighting_fraction_from = 1.0,
-        voltage_limits_from = (min = 0.95, max = 1.05),
+        voltage_limits_from = (min = 0.95 * v_dc, max = 1.05 * v_dc),
         dc_voltage_droop_from = 0.0,
-        reactive_power_to = 0.0,
         dc_control_to = dc_control_to,
         ac_control_to = ac_control_to,
-        dc_setpoint_to = dc_setpoint_to,
-        ac_setpoint_to = ac_setpoint_to,
+        _vsc_setpoint_kwargs(
+            "to", ac_control_to, ac_setpoint_to, dc_control_to, dc_setpoint_to,
+        )...,
+        rated_ac_voltage_to = get_base_voltage(to_bus),
         converter_loss_to = PSY.LossCurve(QuadraticCurve(0.01, 0.0, 0.0), PSY.CU),
-        max_dc_current_to = 5.0,
+        max_dc_current_to = 5.0 * 1000.0 * s_base / v_dc,
         rating_to = 2.0,
         reactive_power_limits_to = (min = -2.0, max = 2.0),
         power_factor_weighting_fraction_to = 1.0,
-        voltage_limits_to = (min = 0.95, max = 1.05),
+        voltage_limits_to = (min = 0.95 * v_dc, max = 1.05 * v_dc),
         dc_voltage_droop_to = 0.0,
-        input_basis = CU,
+        rated_dc_voltage = v_dc,
+        input_basis = u"CU",
     )
     add_component!(sys, vsc)
     return sys
@@ -568,15 +559,16 @@ end
     name = get_name(vsc)
     for t in axes(v_f)[2]
         @test isapprox(v_f[name, t], dc_sp; atol = 1e-5)
-        @test isapprox(p_tf[name, t], p_sp; atol = 1e-5)
+        @test isapprox(p_tf[name, t], -p_sp; atol = 1e-5)
     end
 end
 
-@testset "LinearLossConverter scales loss constant and current limit by converter base" begin
-    # Converter base_power (50) != system base (100): the DC-side loss constant and the
-    # DC-current limit are on the converter's own base and must be rescaled by
-    # base_power/system_base = 0.5 into the system-base DC balance. The proportional loss
-    # term is a base-invariant fraction and must not change.
+@testset "LinearLossConverter scales the loss constant but not the current limit by converter base" begin
+    # Converter base_power (50) != system base (100): the DC-side loss constant is on the
+    # converter's own base and must be rescaled by base_power/system_base = 0.5 into the
+    # system-base DC balance. The proportional loss term is a base-invariant fraction and
+    # must not change. The DC-current limit is in amperes, so the converter base does not
+    # scale it.
     b_term = 0.05
     c_term = 0.01
     i_max = 2.0
@@ -605,7 +597,7 @@ end
     for ic in get_components(InterconnectingConverter, sys)
         name = get_name(ic)
         dc_no = get_number(get_dc_bus(ic))
-        @test JuMP.upper_bound(abs_v[name, 1]) == i_max * factor
+        @test JuMP.upper_bound(abs_v[name, 1]) ≈ i_max
         for t in (1, size(p)[2])
             @test JuMP.coefficient(dc_expr[dc_no, t], abs_v[name, t]) == -b_term
             @test JuMP.constant(dc_expr[dc_no, t]) == -c_term * factor

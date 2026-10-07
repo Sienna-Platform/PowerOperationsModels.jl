@@ -142,7 +142,7 @@ end
     # headroom ever silently re-introduces a `* device_base / system_base` factor,
     # the recomputed expected_headroom below will mismatch by 0.5×, failing the
     # assertion.
-    re_gen.base_power = get_base_power(re_gen, PSY.NU) / 2
+    re_gen.base_power = get_base_power(re_gen, u"NU") / 2
 
     template = get_template_dispatch_with_network(
         NetworkModel(
@@ -219,14 +219,14 @@ end
     #        available = true,
     #        active_power_flow = 0.0,
     #        reactive_power_flow = 0.0,
-    #        r = get_r(line, PSY.SU),
-    #        x = get_x(line, PSY.SU),
+    #        r = get_r(line, u"SU"),
+    #        x = get_x(line, u"SU"),
     #        primary_shunt = 0.0,
     #        tap = 1.0,
     #        α = 0.0,
-    #        rating = get_rating(line, PSY.SU),
+    #        rating = get_rating(line, u"SU"),
     #        arc = arc,
-    #        base_power = get_base_power(system, PSY.NU),
+    #        base_power = get_base_power(system, u"NU"),
     #    )
     #    add_component!(system, ps)
     #    remove_component!(system, line)
@@ -273,8 +273,8 @@ end
         system = build_system(PSITestSystems, "c_sys5_uc")
         line = get_component(Line, system, "1")
         if replace_line
-            original_impedance = get_r(line, PSY.SU) + im * get_x(line, PSY.SU)
-            original_shunt = get_b(line, PSY.SU)
+            original_impedance = get_r(line, u"SU") + im * get_x(line, u"SU")
+            original_shunt = get_b(line, u"SU")
             split_impedance = original_impedance * 2
             split_shunt = (from = 0.5 * original_shunt.from, to = 0.5 * original_shunt.to)
             for i in 1:2
@@ -288,8 +288,8 @@ end
                     x = imag(split_impedance),
                     b = split_shunt,
                     angle_limits = get_angle_limits(line),
-                    rating = get_rating(line, PSY.SU),
-                    input_basis = CU,
+                    rating = get_rating(line, u"SU"),
+                    input_basis = u"CU",
                 )
                 add_component!(system, l)
             end
@@ -338,18 +338,18 @@ end
         arc = get_arc(line),
         r = 0.0,
         x = 0.0,
-        rating = get_rating(line, PSY.SU),
+        rating = get_rating(line, u"SU"),
         discrete_branch_type = PSY.DiscreteControlledBranchType.BREAKER,
         branch_status = PSY.DiscreteControlledBranchStatus.CLOSED,
-        input_basis = CU,
+        input_basis = u"CU",
     )
     add_component!(system, bs)
     remove_component!(system, line)
     # Set lines 3 and 6 to identical impedance so they're truly parallel
     line3 = get_component(Line, system, "3")
     line6 = get_component(Line, system, "6")
-    PSY.set_r!(line3, PSY.get_r(line6, PSY.SU) * PSY.SU)
-    PSY.set_x!(line3, PSY.get_x(line6, PSY.SU) * PSY.SU)
+    PSY.set_r!(line3, PSY.get_r(line6, u"SU") * u"SU")
+    PSY.set_x!(line3, PSY.get_x(line6, u"SU") * u"SU")
 
     template = get_template_dispatch_with_network(
         NetworkModel(
@@ -549,7 +549,7 @@ end
     from = get_from(get_arc(hvdc))
     to = get_to(get_arc(hvdc))
     set_loss!(hvdc, PSY.LossCurve(LinearCurve(0.0), PSY.CU))
-    set_active_power_flow!(hvdc, 0.5 * PSY.SU)   # a stale system seed the optimization won't reproduce
+    set_active_power_flow!(hvdc, 0.5 * u"SU")   # a stale system seed the optimization won't reproduce
 
     template = PowerOperationsProblemTemplate(
         NetworkModel(PTDFNetworkModel; evaluations = power_flow_evaluations(DCPowerFlow())),
@@ -599,7 +599,7 @@ function _build_rts_hvdc_acpf_model(hvdc_formulation; loss = nothing, stored_flo
     from = get_from(get_arc(hvdc))
     to = get_to(get_arc(hvdc))
     isnothing(loss) || set_loss!(hvdc, loss)
-    isnothing(stored_flow) || set_active_power_flow!(hvdc, stored_flow * PSY.SU)
+    isnothing(stored_flow) || set_active_power_flow!(hvdc, stored_flow * u"SU")
     # remove components that impact total bus power at the HVDC line buses.
     injectors = collect(
         get_components(
@@ -746,9 +746,9 @@ end
             ACPolarPowerFlow{PFS.FastDecoupledXB}(),
         "FDNR handoff -> NewtonRaphson" =>
             ACPolarPowerFlow{PFS.FastDecoupledACPowerFlow}(;
-                solver_settings = Dict{Symbol, Any}(
-                    :handoff_solver => PFS.NewtonRaphsonACPowerFlow,
-                    :handoff_tol => 1e-3,
+                solution_parameters = PFS.SolutionParameters(;
+                    handoff_solver = PFS.NewtonRaphsonACPowerFlow,
+                    handoff_tol = 1e-3,
                 ),
             ),
     ]
@@ -822,7 +822,7 @@ end
     # is fed only by lines "1" and "4", and 0.35 is hand-tuned so off-peak hours
     # converge and peak hours don't.
     for name in ("1", "4")
-        set_x!(get_component(Line, system, name), 0.35 * PSY.SU)
+        set_x!(get_component(Line, system, name), 0.35 * u"SU")
     end
     template = get_thermal_dispatch_template_network(
         NetworkModel(

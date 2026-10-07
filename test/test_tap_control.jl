@@ -85,7 +85,7 @@ end
         tap = IOM.get_variable(container, TapRatioVariable, case.device_type)
         @test axes(tap)[1] == [fixture.axis_name]
 
-        band = PSY.get_control_limits(fixture.circuit)
+        band = PSY.get_tap_ratio_limits(fixture.circuit)
         for t in get_time_steps(container)
             var = tap[fixture.axis_name, t]
             @test JuMP.has_lower_bound(var)
@@ -362,7 +362,7 @@ end
                 regulated = number,
                 quantity_limits = PSY.get_voltage_limits(
                     PSY.get_bus(rawsys, number),
-                    PSY.CU,
+                    u"CU",
                 ),
             )
             model, status = _build_controlled(

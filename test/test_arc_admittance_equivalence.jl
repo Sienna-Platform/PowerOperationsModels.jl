@@ -44,7 +44,7 @@ import PowerNetworkMatrices as PNM
                     # into the retained arc_lookup; nothing to compare for them.
                     haskey(arc_lookup, arc) || continue
                     entry = PNM.get_reduction_entry(catalog, arc)
-                    from_branch = PNM.get_series_susceptance(entry, PSY.SU)
+                    from_branch = PNM.get_series_susceptance(entry, u"SU")
                     from_arc = per_arc[arc_lookup[arc]]
                     n_checked += 1
                     # Sign convention differs between the branch-side getter and the

@@ -252,12 +252,12 @@ function _add_reactive_power_contingency_constraint_impl!(
 end
 
 _get_reactive_power_upper_bound(device::PSY.StaticInjection) = begin
-    limits = PSY.get_reactive_power_limits(device, PSY.SU)
+    limits = PSY.get_reactive_power_limits(device, u"SU")
     max(limits.max^2, limits.min^2)
 end
 
 _get_reactive_power_upper_bound(device::PSY.ElectricLoad) =
-    PSY.get_max_reactive_power(device, PSY.SU)^2
+    PSY.get_max_reactive_power(device, u"SU")^2
 
 #################################################################################
 # Hydro (ported from HydroPowerSimulations src/contingency_model.jl)
@@ -342,8 +342,8 @@ function add_pump_turbine_active_power_contingency_constraints!(
     jump_model = get_jump_model(container)
     for device in devices
         name = PSY.get_name(device)
-        ub_active_power = PSY.get_active_power_limits(device, PSY.SU).max
-        ub_active_power_pump = PSY.get_active_power_limits_pump(device, PSY.SU).max
+        ub_active_power = PSY.get_active_power_limits(device, u"SU").max
+        ub_active_power_pump = PSY.get_active_power_limits_pump(device, u"SU").max
         for t in time_steps
             constraint_active_power[name, t] = JuMP.@constraint(
                 jump_model,
@@ -444,8 +444,8 @@ function add_input_output_active_power_contingency_constraints!(
     jump_model = get_jump_model(container)
     for device in devices
         name = PSY.get_name(device)
-        ub_input = PSY.get_input_active_power_limits(device, PSY.SU).max
-        ub_output = PSY.get_output_active_power_limits(device, PSY.SU).max
+        ub_input = PSY.get_input_active_power_limits(device, u"SU").max
+        ub_output = PSY.get_output_active_power_limits(device, u"SU").max
         for t in time_steps
             constraint_input[name, t] = JuMP.@constraint(
                 jump_model,

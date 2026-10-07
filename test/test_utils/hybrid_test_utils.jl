@@ -51,7 +51,7 @@ function _build_hybrid_storage(
         base_power = 100.0,
         operation_cost = storage_cost,
         storage_target = storage_target,
-        input_basis = CU,
+        input_basis = u"CU",
     )
 end
 
@@ -132,7 +132,7 @@ function add_hybrid_to_chuhsi_bus!(
         input_active_power_limits = (min = 0.0, max = 10.0),
         output_active_power_limits = (min = 0.0, max = 10.0),
         reactive_power_limits = nothing,
-        input_basis = CU,
+        input_basis = u"CU",
     )
     PSY.add_component!(sys, hybrid)
     return hybrid

@@ -147,7 +147,7 @@ end
     wind = get_component(RenewableDispatch, c_sys5_re, "WindBusC")
     # Oversize so available wind exceeds load and the unit is forced to curtail.
     # max active power is derived as rating * power_factor.
-    set_rating!(wind, 200.0 * PSY.SU)
+    set_rating!(wind, 200.0 * u"SU")
     set_operation_cost!(
         wind,
         PSY.RenewableGenerationCost(;
@@ -218,5 +218,5 @@ end
 
     # Direct check of the bridge that the issue is about.
     @test IOM.get_active_power_limits(quad_re) ==
-          (min = 0.0, max = PSY.get_max_active_power(quad_re, PSY.SU))
+          (min = 0.0, max = PSY.get_max_active_power(quad_re, u"SU"))
 end

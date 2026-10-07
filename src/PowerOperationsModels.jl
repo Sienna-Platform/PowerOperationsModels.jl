@@ -18,7 +18,7 @@ import PowerNetworkMatrices: PTDF, VirtualPTDF
 import PowerNetworkMatrices:
     RadialReduction, DegreeTwoReduction, WardReduction, ZeroImpedanceBranchReduction
 import PowerSystems
-import PowerSystems: get_component, @u_str
+import PowerSystems: get_component, @u_str, PerUnit
 import PrettyTables
 import ProgressMeter
 import Serialization
@@ -72,7 +72,6 @@ import InfrastructureSystems.Optimization:
     ExpressionType,
     InitialConditionType,
     TimeSeriesParameter,
-    RightHandSideParameter,
     ObjectiveFunctionParameter
 
 # Import formulation abstract types from InfrastructureSystems.Optimization
@@ -271,6 +270,7 @@ include("common_models/add_to_expression.jl")
 include("common_models/objective_function.jl")
 # add_param_container.jl: moved into IOM
 include("common_models/add_parameters.jl")
+include("common_models/lhs_parameters.jl")
 include("feedforward/feedforward_arguments.jl")
 include("feedforward/feedforward_constraints.jl")
 include("common_models/make_system_expressions.jl")
@@ -370,6 +370,7 @@ include("area_interchange.jl")
 
 # Operation lifecycle: build/solve/run
 include("operation/build_problem.jl")
+include("operation/parameter_time_series_store.jl")
 include("initial_conditions/initialization.jl")
 include("operation/template_validation.jl")
 include("operation/decision_model.jl")
@@ -910,7 +911,7 @@ export ActivePowerOutTimeSeriesParameter
 export ActivePowerInTimeSeriesParameter
 export ReactivePowerTimeSeriesParameter
 export RequirementTimeSeriesParameter
-export DeployedFractionTimeSeriesParameter
+export DeployedFractionParameter
 export UpperBoundValueParameter
 export LowerBoundValueParameter
 export OnStatusParameter

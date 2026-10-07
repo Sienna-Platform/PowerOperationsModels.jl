@@ -232,7 +232,7 @@ end
 # PERF direct dot access + manual unit conversions for performance and convenience.
 # active/reactive convert to the component base; voltages are written raw.
 _pf_to_comp(::Union{PFActiveQuantity, PFReactiveQuantity}, value::Float64, sys_base::Float64,
-    comp::PSY.Component) = value * sys_base / PSY.get_base_power(comp, PSY.NU)
+    comp::PSY.Component) = value * sys_base / PSY.get_base_power(comp, u"NU")
 _pf_to_comp(
     ::Union{PFAngleQuantity, PFMagnitudeQuantity},
     value::Float64,

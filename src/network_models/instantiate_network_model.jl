@@ -99,11 +99,7 @@ function _prune_fully_reduced_branch_models!(
         push!(pruned, branch_type)
     end
     for branch_type in pruned
-        hint = if branch_type === PSY.MonitoredLine
-            " Use the `model_all_branches` attribute on the MonitoredLine DeviceModel to retain such lines through the reduction."
-        else
-            " Consider adjusting the network-reduction settings/tolerance to avoid merging all branches of this type."
-        end
+        hint = _reduction_hint(branch_models[nameof(branch_type)])
         @warn "All components of branch type $(branch_type) were merged away by the " *
               "network reduction (e.g. a zero-impedance branch merge). The " *
               "$(branch_type) DeviceModel is dropped from the template and will not " *
@@ -114,9 +110,18 @@ function _prune_fully_reduced_branch_models!(
     return
 end
 
-# Warn about individual monitored lines the reduction merged away while their type
+function _reduction_hint(m::DeviceModel)
+    if haskey(get_attributes(m), MODEL_ALL_BRANCHES_KEY)
+        return " Set the `model_all_branches` attribute on the DeviceModel to keep \
+                these devices through the reduction."
+    end
+    return " Consider adjusting the network-reduction settings/tolerance to avoid \
+            merging all branches of this type."
+end
+
+# Warn about individual devices the reduction merged away while their type
 # still has surviving members. The whole-type prune above misses this partial case,
-# so without a message the dropped line is silently unmodeled. Suggest
+# so without a message the dropped device is silently unmodeled. Suggest
 # `model_all_branches` to retain it.
 function _warn_partially_reduced_monitored_lines!(
     network_model::NetworkModel,
@@ -130,22 +135,16 @@ function _warn_partially_reduced_monitored_lines!(
     return
 end
 
-_warn_reduced_monitored_lines!(removed_arcs::Set{Tuple{Int, Int}}, ::DeviceModel) = nothing
-
-function _warn_reduced_monitored_lines!(
-    removed_arcs::Set{Tuple{Int, Int}},
-    m::DeviceModel{PSY.MonitoredLine},
-)
+function _warn_reduced_monitored_lines!(removed_arcs::Set{Tuple{Int, Int}}, m::DeviceModel)
+    haskey(get_attributes(m), MODEL_ALL_BRANCHES_KEY) || return
     dropped = [
-        PSY.get_name(ml) for ml in get_device_cache(m) if
-        _branch_arc_removed(ml, removed_arcs)
+        PSY.get_name(d) for
+        d in get_device_cache(m) if _branch_arc_removed(d, removed_arcs)
     ]
     isempty(dropped) && return
-    @warn "MonitoredLine(s) $(dropped) were merged away by the network reduction " *
-          "(near-zero impedance) and will not be modeled or monitored, though other " *
-          "MonitoredLines remain. Set the `model_all_branches` attribute on the " *
-          "MonitoredLine DeviceModel to force all monitored lines to be modeled " *
-          "through the reduction."
+    @warn "$(get_component_type(m)) component(s) $(dropped) were merged away by the \
+           network reduction and are not modeled. Set the `model_all_branches` attribute \
+           on the $(get_component_type(m)) DeviceModel to keep them."
     return
 end
 

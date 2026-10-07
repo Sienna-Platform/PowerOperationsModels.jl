@@ -17,7 +17,7 @@ function _add_simple_bus!(
     base_voltage::Float64 = 230.0,
 )
     bus = PSY.ACBus(;
-        input_basis = PSY.CU,
+        input_basis = u"CU",
         number = number,
         name = name,
         available = true,
@@ -49,7 +49,7 @@ function _add_simple_interruptible_load!(
         max_reactive_power = 0.0,
         operation_cost = cost,
         base_power = base_power,
-        input_basis = CU,
+        input_basis = u"CU",
     )
     PSY.add_component!(sys, load)
     return load
@@ -89,7 +89,7 @@ function _add_simple_source!(
         internal_voltage = 1.0,
         internal_angle = 0.0,
         base_power = base_power,
-        input_basis = CU,
+        input_basis = u"CU",
     )
     PSY.set_operation_cost!(source, cost)
     PSY.add_component!(sys, source)
@@ -132,7 +132,7 @@ function _add_simple_thermal_standard!(
         base_power = base_power,
         prime_mover_type = PSY.PrimeMovers.OT,
         fuel = PSY.ThermalFuels.OTHER,
-        input_basis = CU,
+        input_basis = u"CU",
     )
     PSY.add_component!(sys, gen)
     return gen
@@ -177,7 +177,7 @@ function _add_simple_thermal_multistart!(
         start_types = 3,
         operation_cost = cost,
         base_power = base_power,
-        input_basis = CU,
+        input_basis = u"CU",
     )
     PSY.add_component!(sys, gen)
     return gen
@@ -222,7 +222,7 @@ function _add_simple_storage!(
         reactive_power_limits = nothing,
         operation_cost = cost,
         base_power = base_power,
-        input_basis = CU,
+        input_basis = u"CU",
     )
     PSY.add_component!(sys, storage)
     return storage

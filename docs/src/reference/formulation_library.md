@@ -271,14 +271,14 @@ DeviceModel(
 ```
 
 With the attribute set, each `PSY.TransformerCircuit` whose `control_objective` POM models
-gets a continuous [`TapRatioVariable`](@ref) bounded by the circuit's `control_limits`,
+gets a continuous [`TapRatioVariable`](@ref) bounded by the circuit's `tap_ratio_limits`,
 which enters the AC flow equations in place of the fixed `tap`. Control is per circuit, so
 each winding of a `ThreeWindingTransformer` is controlled independently.
 
-| `control_objective`   | Constraint added                             | Regulated quantity                                                                                         |
-|:--------------------- |:-------------------------------------------- |:---------------------------------------------------------------------------------------------------------- |
-| `VOLTAGE`             | [`VoltageControlConstraint`](@ref)           | voltage magnitude at `regulated_bus_number`, banded by `controlled_quantity_limits`                        |
-| `REACTIVE_POWER_FLOW` | [`ReactivePowerFlowControlConstraint`](@ref) | `FlowReactivePowerFromToVariable` at the circuit's winding-one bus, banded by `controlled_quantity_limits` |
+| `control_objective`   | Constraint added                             | Regulated quantity                                                                                                    |
+|:--------------------- |:-------------------------------------------- |:--------------------------------------------------------------------------------------------------------------------- |
+| `VOLTAGE`             | [`VoltageControlConstraint`](@ref)           | voltage magnitude at `regulated_bus_number`, banded by `controlled_voltage_limits`                                    |
+| `REACTIVE_POWER_FLOW` | [`ReactivePowerFlowControlConstraint`](@ref) | `FlowReactivePowerFromToVariable` at the circuit's winding-one bus, banded by `controlled_reactive_power_flow_limits` |
 
 Every other `TransformerControlObjective` is inert. `UNDEFINED` (the field default),
 `FIXED` and the `*_DISABLED` codes are treated as "no control block" and pass silently; the
@@ -505,7 +505,7 @@ Storage and hybrid reserve *expressions* are parametrized on three axes rather t
 sibling singletons:
 
   - **Direction** — `PSY.ReserveUp` / `PSY.ReserveDown`
-  - **Scale** — [`UnscaledReserve`](@ref) (raw multiplier) / [`DeployedReserve`](@ref) (scaled by `deployed_fraction`). Attach a `"deployed_fraction"` profile to the reserve to make the fraction vary over the horizon; the scalar field then scales that profile, and the profile alone applies no scaling until the scalar is set. See [`DeployedFractionTimeSeriesParameter`](@ref).
+  - **Scale** — [`UnscaledReserve`](@ref) (raw multiplier) / [`DeployedReserve`](@ref) (scaled by `deployed_fraction`). Attach a `"deployed_fraction"` profile to the reserve to make the fraction vary over the horizon; the scalar field then scales that profile, and the profile alone applies no scaling until the scalar is set. The profile is a left-hand-side parameter ([`DeployedFractionParameter`](@ref)), written into constraints as fixed coefficients, so a simulation rebuilds the model every step: `rebuild_model` is switched to `true` with a warning.
   - **Side** — [`DischargeSide`](@ref) / [`ChargeSide`](@ref)
 
 giving eight instantiations each of `StorageReserveBalanceExpression{D,S,Sd}` and

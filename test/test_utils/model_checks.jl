@@ -197,11 +197,11 @@ function check_flow_variable_values(
     return true
 end
 
-branch_rating_su(d::PSY.ACTransmission) = PSY.get_rating(d, PSY.SU)
-branch_rating_su(d::PSY.TwoWindingTransformer) = PSY.get_rating(PSY.get_circuit(d), PSY.SU)
-branch_rating_b_su(d::PSY.ACTransmission) = PSY.get_rating_b(d, PSY.SU)
+branch_rating_su(d::PSY.ACTransmission) = PSY.get_rating(d, u"SU")
+branch_rating_su(d::PSY.TwoWindingTransformer) = PSY.get_rating(PSY.get_circuit(d), u"SU")
+branch_rating_b_su(d::PSY.ACTransmission) = PSY.get_rating_b(d, u"SU")
 branch_rating_b_su(d::PSY.TwoWindingTransformer) =
-    PSY.get_rating_b(PSY.get_circuit(d), PSY.SU)
+    PSY.get_rating_b(PSY.get_circuit(d), u"SU")
 
 # StaticBranch under DCPNetworkModel carries its flow as the BThetaBranchFlow expression
 # for every ACTransmission component.
@@ -415,7 +415,7 @@ function check_energy_initial_conditions_values(model, ::Type{T}) where {T <: PS
         name = PSY.get_name(ic.component)
         e_value = IOM.jump_value(IOM.get_value(ic))
         @test PSY.get_initial_storage_capacity_level(d) *
-              PSY.get_storage_capacity(d, PSY.SU) *
+              PSY.get_storage_capacity(d, u"SU") *
               PSY.get_conversion_factor(d) == e_value
     end
 end

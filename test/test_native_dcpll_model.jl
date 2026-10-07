@@ -14,7 +14,7 @@
     for line in PSY.get_components(PSY.Line, sys)
         name = PSY.get_name(line)
         @test name in names(pft)
-        rate_mw = PSY.get_rating(line, PSY.SU) * base
+        rate_mw = PSY.get_rating(line, u"SU") * base
         @test all(abs.(pft[!, name]) .<= rate_mw + 1e-4)
     end
 end

@@ -363,17 +363,17 @@ end
             circuit = PSY.TransformerCircuit(;
                 available = true,
                 arc = PSY.get_arc(circuit),
-                r = PSY.get_r(circuit, PSY.SU),
-                x = PSY.get_x(circuit, PSY.SU),
+                r = PSY.get_r(circuit, u"SU"),
+                x = PSY.get_x(circuit, u"SU"),
                 tap = 1.0,
                 α = 0.0,
-                rating = PSY.get_rating(circuit, PSY.SU),
-                base_power = PSY.get_base_power(fixture.sys, PSY.NU),
-                input_basis = CU,
+                rating = PSY.get_rating(circuit, u"SU"),
+                base_power = PSY.get_base_power(fixture.sys, u"NU"),
+                input_basis = u"CU",
             ),
             magnetizing_shunt = 0.0 + 0.0im,
             shunt_location = PSY.TwoWindingTransformerShuntLocation.PRIMARY,
-            input_basis = CU,
+            input_basis = u"CU",
         ),
     )
     template = _controlled_template(DCPNetworkModel, PSY.TwoWindingTransformer)
@@ -561,7 +561,7 @@ end
             IOM.get_expression(container, POM.ActivePowerBalance, PSY.ACBus).data
         name_to_arc_maps =
             PNM.get_name_to_arc_maps(POM.get_branch_catalog(network_model))
-        b = PNM.get_series_susceptance(transformer, PSY.SU)
+        b = PNM.get_series_susceptance(transformer, u"SU")
         @test !iszero(b)
 
         function _arc(name)
@@ -666,7 +666,7 @@ end
         nodal_balance =
             IOM.get_expression(container, POM.ActivePowerBalance, PSY.ACBus).data
         ptdf = PNM.VirtualPTDF(sys)
-        b = PNM.get_series_susceptance(transformer, PSY.SU)
+        b = PNM.get_series_susceptance(transformer, u"SU")
         alpha_var = if control
             IOM.get_variable(container, PhaseShifterAngle, PSY.TwoWindingTransformer)
         else
@@ -707,7 +707,7 @@ end
         available = true,
         active_power_flow_limits = (min = -1000.0, max = 1000.0),
         violation_penalty = 1e5,
-        input_basis = CU,
+        input_basis = u"CU",
     )
     PSY.add_service!(
         sys,
@@ -839,7 +839,7 @@ end
     bus_lookup = PNM.get_bus_lookup(ptdf_ref)
     arc = PNM.get_arc_tuple(transformer)
     from_pos, to_pos = bus_lookup[arc[1]], bus_lookup[arc[2]]
-    injection = PNM.get_series_susceptance(transformer, PSY.SU) * alpha
+    injection = PNM.get_series_susceptance(transformer, u"SU") * alpha
     @test injection ≈
           PNM.arc_dc_shift_injection(PNM.get_network_reduction_data(modf), arc)
 
@@ -883,7 +883,7 @@ end
     bus_lookup = PNM.get_bus_lookup(ptdf_ref)
     arc = PNM.get_arc_tuple(transformer)
     from_pos, to_pos = bus_lookup[arc[1]], bus_lookup[arc[2]]
-    b = PNM.get_series_susceptance(transformer, PSY.SU)
+    b = PNM.get_series_susceptance(transformer, u"SU")
 
     name_to_arc = PNM.get_name_to_arc_map(POM.get_branch_catalog(network_model), PSY.Line)
     own_rows = 0
@@ -977,16 +977,16 @@ end
             available = true,
             arc = PSY.get_arc(line),
             r = 0.0,
-            x = PSY.get_x(line, PSY.SU),
+            x = PSY.get_x(line, u"SU"),
             tap = 1.0,
             α = alpha,
-            rating = PSY.get_rating(line, PSY.SU),
-            base_power = PSY.get_base_power(sys, PSY.NU),
-            input_basis = CU,
+            rating = PSY.get_rating(line, u"SU"),
+            base_power = PSY.get_base_power(sys, u"NU"),
+            input_basis = u"CU",
         ),
         magnetizing_shunt = 0.0 + 0.0im,
         shunt_location = PSY.TwoWindingTransformerShuntLocation.PRIMARY,
-        input_basis = CU,
+        input_basis = u"CU",
     )
     PSY.add_component!(sys, pst)
     outage = PSY.GeometricDistributionForcedOutage(;
@@ -1015,7 +1015,7 @@ end
 
     arc = PNM.get_arc_tuple(line)
     @test haskey(PNM.get_parallel_branch_map(nr), arc)
-    injection = PNM.get_series_susceptance(pst, PSY.SU) * alpha
+    injection = PNM.get_series_susceptance(pst, u"SU") * alpha
     # The group's injection is the sum of its members', and the line contributes none.
     @test PNM.arc_dc_shift_injection(nr, arc) ≈ injection
 

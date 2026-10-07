@@ -14,7 +14,7 @@ import PowerNetworkMatrices as PNM
     vr_sol = read_variable(res, "VoltageReal__ACBus"; table_format = TableFormat.WIDE)
     vi_sol = read_variable(res, "VoltageImaginary__ACBus"; table_format = TableFormat.WIDE)
     for bus in PSY.get_components(PSY.ACBus, sys)
-        lim = PSY.get_voltage_limits(bus, PSY.CU)
+        lim = PSY.get_voltage_limits(bus, u"CU")
         bname = PSY.get_name(bus)
         vm2 = vr_sol[1, bname]^2 + vi_sol[1, bname]^2
         @test lim.min^2 - 1e-4 <= vm2 <= lim.max^2 + 1e-4
@@ -32,8 +32,8 @@ import PowerNetworkMatrices as PNM
         arc = PSY.get_arc(line)
         rate_a = branch_rating_su(line)
         vmin = min(
-            PSY.get_voltage_limits(PSY.get_from(arc), PSY.CU).min,
-            PSY.get_voltage_limits(PSY.get_to(arc), PSY.CU).min,
+            PSY.get_voltage_limits(PSY.get_from(arc), u"CU").min,
+            PSY.get_voltage_limits(PSY.get_to(arc), u"CU").min,
         )
         c_rating = rate_a / vmin
         lname = PSY.get_name(line)
@@ -209,7 +209,7 @@ end
     # infeasible. If an Ipopt_jll bump breaks this solve, widen the cut toward 0.99.
     cut = 0.98
     sys = PSB.build_system(PSITestSystems, "c_sys5")
-    PSY.set_rating!(PSY.get_component(PSY.Line, sys, "1"), cut * PSY.SU)
+    PSY.set_rating!(PSY.get_component(PSY.Line, sys, "1"), cut * u"SU")
     template = get_thermal_dispatch_template_network(NetworkModel(IVRNetworkModel))
     set_device_model!(template, DeviceModel(PSY.Line, StaticBranch; use_slacks = true))
     model = DecisionModel(template, sys; optimizer = ipopt_optimizer)
@@ -241,7 +241,7 @@ end
     # variables keep their hard ±rating box bounds.
     cut = 0.5
     sys = PSB.build_system(PSITestSystems, "c_sys5")
-    PSY.set_rating!(PSY.get_component(PSY.Line, sys, "1"), cut * PSY.SU)
+    PSY.set_rating!(PSY.get_component(PSY.Line, sys, "1"), cut * u"SU")
     template = get_thermal_dispatch_template_network(NetworkModel(IVRNetworkModel))
     set_device_model!(
         template, DeviceModel(PSY.Line, StaticBranchBounds; use_slacks = true),
