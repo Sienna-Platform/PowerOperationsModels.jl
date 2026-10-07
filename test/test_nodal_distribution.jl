@@ -128,9 +128,9 @@ end
     @test hf[n1, t1] == 0.5
     @test hf[n2, t1] == 0.5
 
-    # A member bus without a column contributes 0.0, as long as some member has one.
+    # The series labels are the buses that carry factors: a member without a column gets none.
     zf = get_distribution_factors(container, sys, zone2, network_model)
-    @test zf[PSY.get_number(b3), t1] == 0.0
+    @test collect(axes(zf)[1]) == [PSY.get_number(b4)]
     @test zf[PSY.get_number(b4), t1] == 1.0
 
     # A LoadZone with no series on any member bus is a loud error, not a silent zero.
@@ -994,7 +994,26 @@ end
     hub = PSY.TradingHub(; name = "HUB_PART", buses = buses[3:4])
     PSY.add_component!(sys, hub)
     _add_factor_matrix!(sys, hub, PSY.get_number.(buses[4:5]), [0.7, 0.3])
-    @test_throws ArgumentError POM._factor_bus_labels(container, sys, hub)
+    @test_throws ArgumentError POM._factor_bus_labels(
+        container,
+        hub,
+        POM._buses_by_number(sys),
+    )
+    # A zone's members are the buses that name it; bus 4 names no zone.
+    zone = PSY.LoadZone(;
+        name = "LZ_PART",
+        peak_active_power = 1.0,
+        peak_reactive_power = 0.0,
+        input_basis = u"CU",
+    )
+    PSY.add_component!(sys, zone)
+    PSY.set_load_zone!(buses[3], zone)
+    _add_factor_matrix!(sys, zone, PSY.get_number.(buses[3:4]), [0.5, 0.5])
+    @test_throws ArgumentError POM._factor_bus_labels(
+        container,
+        zone,
+        POM._buses_by_number(sys),
+    )
 end
 
 @testset "Factor series must be one [time step, bus] matrix" begin
@@ -1006,17 +1025,29 @@ end
     hub = PSY.TradingHub(; name = "HUB_AXES", buses = collect(zone_buses))
     PSY.add_component!(sys, hub)
     _add_factor_matrix!(sys, hub, ["a", "b"], [0.5, 0.5])
-    @test_throws ArgumentError POM._factor_bus_labels(container, sys, hub)
+    @test_throws ArgumentError POM._factor_bus_labels(
+        container,
+        hub,
+        POM._buses_by_number(sys),
+    )
     hub2 = PSY.TradingHub(; name = "HUB_NODE", buses = collect(zone_buses))
     PSY.add_component!(sys, hub2)
     _add_factor_matrix!(sys, hub2, [n1, n2], [0.5, 0.5]; axis = "node")
-    @test_throws ArgumentError POM._factor_bus_labels(container, sys, hub2)
+    @test_throws ArgumentError POM._factor_bus_labels(
+        container,
+        hub2,
+        POM._buses_by_number(sys),
+    )
     # A second series on the same location is ambiguous.
     PSY.add_time_series!(
         sys, zone, _factor_matrix(sys, [n1, n2], [0.1, 0.9]);
         features = Dict("year" => 2030),
     )
-    @test_throws ArgumentError POM._factor_bus_labels(container, sys, zone)
+    @test_throws ArgumentError POM._factor_bus_labels(
+        container,
+        zone,
+        POM._buses_by_number(sys),
+    )
 end
 
 @testset "A factor window at another resolution is an error" begin
@@ -1027,7 +1058,11 @@ end
     _add_factor_matrix!(
         sys, hub, PSY.get_number.(zone_buses), [0.5, 0.5]; resolution = Minute(30),
     )
-    @test_throws IS.ConflictingInputsError POM._factor_bus_labels(container, sys, hub)
+    @test_throws IS.ConflictingInputsError POM._factor_bus_labels(
+        container,
+        hub,
+        POM._buses_by_number(sys),
+    )
 end
 
 @testset "A reduced member bus's factor sums into its retained bus" begin
