@@ -322,11 +322,10 @@ equivalent is a hard error rather than a silent demotion.
     supported network the losses are accounted for: the nodal models
     (NFA/DCP/DCPLL/ACP/ACR/IVR/LPACC) carry them implicitly through the `HVDCPowerBalance`
     coupling `ft + tf == losses` with both directional flows entering their terminal balances,
-    while the PTDF/AreaPTDF paths add `HVDCLosses` to the aggregated system/area row explicitly.
+    while the PTDF/AreaPTDF paths add `HVDCLosses` to an aggregated row explicitly: on
+    `PTDFNetworkModel` it enters the system row only when both terminals share one reference
+    bus, and on `AreaPTDFNetworkModel` it enters the row of the `from` area.
     On `AreaBalanceNetworkModel` the Dispatch formulation is not built at all (warn no-op).
-    
-    On `PTDFNetworkModel`, the `HVDCTwoTerminalPiecewiseLoss` received flows always enter the
-    system row, so the losses of a line inside one subnetwork are in the system balance.
 
 !!! warning "HVDCTwoTerminalLossless pins reactive flow to zero on default VSC/LCC data"
     
@@ -336,6 +335,17 @@ equivalent is a hard error rather than a silent demotion.
     device can neither inject nor absorb reactive power at the affected terminal, which can make
     an AC network model infeasible. This is valid data, so the build warns (naming the device)
     rather than erroring.
+
+!!! note "HVDCTwoTerminalPiecewiseLoss on PTDF"
+    
+    On `PTDFNetworkModel`, the `HVDCTwoTerminalPiecewiseLoss` received flows always enter the
+    system row, so the losses of a line inside one subnetwork are in the system balance.
+
+!!! warning "Lossy two-terminal HVDC on AreaPTDF"
+    
+    On `AreaPTDFNetworkModel`, a lossy two-terminal HVDC tie (`HVDCTwoTerminalDispatch`,
+    `HVDCTwoTerminalPiecewiseLoss`) is not supported yet together with an `AreaInterchange`
+    that meters it. Its losses do not enter the area rows correctly. See GitHub issue #330.
 
 The apparent-power limit on the VSC formulations depends on the `"bilinear_approximation"` device
 attribute. With the default `"none"` it is an exact quadratic disk (`"from"`/`"to"`); with a
@@ -353,11 +363,11 @@ other network model. Use `HVDCTwoTerminalDispatch` or `HVDCTwoTerminalLossless` 
 The constraints below are the same on all four networks. Only the terminal AC voltage magnitude
 ``v^r`` / ``v^i`` changes:
 
-| Network model                        | Terminal voltage magnitude (`from` -> ``v^r``, `to` -> ``v^i``)                                                                                         |
-|:------------------------------------ |:------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `ACPNetworkModel`                    | the bus `VoltageMagnitude`                                                                                                                              |
-| `ACRNetworkModel`, `IVRNetworkModel` | the device-owned `RegulatedVoltageMagnitude` (`"from"`/`"to"`), tied to the bus by `RegulatedVoltageMagnitudeConstraint`: ``v_{reg}^2 = v_r^2 + v_i^2`` |
-| `LPACCNetworkModel`                  | ``1 + \phi`` with ``\phi`` the bus `VoltageDeviation`                                                                                                   |
+| Network model                        | Terminal voltage magnitude (`from` -> ``v^r``, `to` -> ``v^i``)                                                                                               |
+|:------------------------------------ |:------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ACPNetworkModel`                    | the bus `VoltageMagnitude`                                                                                                                                    |
+| `ACRNetworkModel`, `IVRNetworkModel` | the device-owned `RegulatedVoltageMagnitude` (`"from"`/`"to"`), tied to the bus by `RegulatedVoltageMagnitudeConstraint`: ``v_{reg}^2 = v_{re}^2 + v_{im}^2`` |
+| `LPACCNetworkModel`                  | ``1 + \phi`` with ``\phi`` the bus `VoltageDeviation`                                                                                                         |
 
 **Variables.** All variables are continuous, one per device and time step, and are in per-unit
 on the system base unless noted. A bound of "none" means POM sets no bound. The bounds come from

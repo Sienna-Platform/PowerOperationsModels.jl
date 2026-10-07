@@ -560,7 +560,7 @@ function _hvdc_flow_enters_region_row(
     network_model::NetworkModel{X},
     ::Type{W},
     arc::PSY.Arc,
-) where {X <: AbstractPTDFNetworkModel, W <: AbstractTwoTerminalDCLineFormulation}
+) where {X <: AbstractPTDFNetworkModel, W <: AbstractBranchFormulation}
     return get_reference_bus(network_model, PSY.get_from(arc)) !=
            get_reference_bus(network_model, PSY.get_to(arc))
 end
@@ -574,11 +574,11 @@ function _hvdc_flow_enters_region_row(
 end
 
 """
-Add a single directional HVDC flow variable to both the nodal and the
-system/area balance of a PTDF network. The variable contributes `multiplier` at
-the chosen terminal's nodal bus, and the same at that terminal's reference bus
-when `_hvdc_flow_enters_region_row` is true. The terminal (from/to) is fixed by the
-variable type `U` via [`_terminal_bus`](@ref) for both the nodal and reference-bus entry.
+Add a single directional HVDC flow variable to the nodal balance and to the
+system or area balance of a PTDF network. The variable contributes `multiplier`
+at the nodal row of the terminal bus. It contributes the same value at the system
+or area row of that terminal when `_hvdc_flow_enters_region_row` is true. The
+variable type `U` selects the terminal (from/to) through [`_terminal_bus`](@ref).
 """
 function _add_terminal_flow_to_ptdf_balance!(
     container::OptimizationContainer,
@@ -949,13 +949,12 @@ function add_to_expression!(
     ::Type{U},
     devices::Vector{V},
     ::DeviceModel{V, W},
-    network_model::NetworkModel{X},
+    network_model::NetworkModel{PTDFNetworkModel},
 ) where {
     T <: ActivePowerBalance,
     U <: FlowActivePowerToFromVariable,
     V <: PSY.TwoTerminalHVDC,
     W <: AbstractTwoTerminalDCLineFormulation,
-    X <: AbstractPTDFNetworkModel,
 }
     _add_terminal_flow_to_ptdf_balance!(
         container, T, U, devices, W, network_model, -1.0,
@@ -1848,22 +1847,20 @@ function add_to_expression!(
     U <: FlowActivePowerVariable,
     V <: PSY.TwoTerminalHVDC,
     W <: AbstractBranchFormulation,
-    X <: AbstractPTDFNetworkModel,
+    X <: PTDFNetworkModel,
 }
     var = get_variable(container, U, V)
     nodal_expr = get_expression(container, T, PSY.ACBus)
-    sys_expr = get_expression(container, T, _system_expression_type(X))
+    sys_expr = get_expression(container, T, PSY.System)
     network_reduction = get_network_reduction(network_model)
     time_steps = get_time_steps(container)
     for d in devices
         name = PSY.get_name(d)
-        bus_no_from =
-            PNM.get_mapped_bus_number(network_reduction, PSY.get_from(PSY.get_arc(d)))
-        bus_no_to = PNM.get_mapped_bus_number(network_reduction, PSY.get_to(PSY.get_arc(d)))
-        ref_bus_from = get_reference_bus(network_model, PSY.get_from(PSY.get_arc(d)))
-        ref_bus_to = get_reference_bus(network_model, PSY.get_to(PSY.get_arc(d)))
-        row_from = _ref_index(network_model, PSY.get_from(PSY.get_arc(d)))
-        row_to = _ref_index(network_model, PSY.get_to(PSY.get_arc(d)))
+        arc = PSY.get_arc(d)
+        bus_no_from = PNM.get_mapped_bus_number(network_reduction, PSY.get_from(arc))
+        bus_no_to = PNM.get_mapped_bus_number(network_reduction, PSY.get_to(arc))
+        ref_bus_from = get_reference_bus(network_model, PSY.get_from(arc))
+        ref_bus_to = get_reference_bus(network_model, PSY.get_to(arc))
         for t in time_steps
             flow_variable = var[name, t]
             add_proportional_to_jump_expression!(
@@ -1876,14 +1873,14 @@ function add_to_expression!(
                 flow_variable,
                 1.0,
             )
-            if ref_bus_from != ref_bus_to
+            if _hvdc_flow_enters_region_row(network_model, W, arc)
                 add_proportional_to_jump_expression!(
-                    sys_expr[row_from, t],
+                    sys_expr[ref_bus_from, t],
                     flow_variable,
                     -1.0,
                 )
                 add_proportional_to_jump_expression!(
-                    sys_expr[row_to, t],
+                    sys_expr[ref_bus_to, t],
                     flow_variable,
                     1.0,
                 )

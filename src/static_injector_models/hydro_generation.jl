@@ -2661,11 +2661,7 @@ function add_constraints!(
     if !get_attribute(model, "reservation")
         add_range_constraints!(container, T, U, devices, model, X)
     else
-        array = get_variable(container, U, V)
-        IOM.add_reserve_bound_range_constraints!(
-            container, T, IOM.LowerBound(), array, devices, model, true)
-        IOM.add_reserve_bound_range_constraints!(
-            container, T, IOM.UpperBound(), array, devices, model, true)
+        add_reserve_range_constraints!(container, T, U, devices, model, X)
     end
     return
 end

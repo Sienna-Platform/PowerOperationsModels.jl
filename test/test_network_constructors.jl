@@ -287,6 +287,54 @@ function _hvdc_terminal_variables(container, formulation)
     return from, to
 end
 
+function _net_device_injection(container, t)
+    thermal = IOM.get_variable(container, ActivePowerVariable, ThermalStandard)
+    total = sum(JuMP.value(thermal[name, t]) for name in axes(thermal, 1))
+    for device_type in (PowerLoad, RenewableDispatch)
+        param = IOM.get_parameter(container, ActivePowerTimeSeriesParameter, device_type)
+        mult = IOM.get_multiplier_array(param)
+        total += sum(
+            IOM.jump_value(IOM.get_parameter_column_refs(param, name)[t]) * mult[name, t]
+            for name in axes(mult, 1)
+        )
+    end
+    return total
+end
+
+function _fixed_hvdc_objective(network_type, formulation, transfer)
+    loss_factor = 0.02
+    if formulation == HVDCTwoTerminalLossless
+        loss_factor = 0.0
+    end
+    from_sign = -1.0
+    if formulation == HVDCTwoTerminalPiecewiseLoss
+        from_sign = 1.0
+    end
+    sys, _ = _make_hvdc_area_system(; same_area = true, loss_factor)
+    if network_type == AreaPTDFNetworkModel
+        set_flow_limits!(
+            get_component(AreaInterchange, sys, "1_2"),
+            (from_to = 20.0u"SU", to_from = 20.0u"SU"),
+        )
+    end
+    model = _hvdc_area_model(sys, network_type, formulation)
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+    container = IOM.get_optimization_container(model)
+    from, _ = _hvdc_terminal_variables(container, formulation)
+    for t in 1:2
+        JuMP.fix(from["test_hvdc", t], -from_sign * transfer; force = true)
+    end
+    solve!(model)
+    jump_model = IOM.get_jump_model(container)
+    status = JuMP.termination_status(jump_model)
+    objective = NaN
+    if status == MOI.OPTIMAL
+        objective = JuMP.objective_value(jump_model)
+    end
+    return status, objective
+end
+
 @testset "PTDFNetworkModel PWL HVDC losses enter the system row" begin
     sys, _ = _make_hvdc_area_system(; same_area = true, loss_factor = 0.02)
     model = _hvdc_area_model(sys, PTDFNetworkModel, HVDCTwoTerminalPiecewiseLoss)
@@ -339,6 +387,11 @@ end
                 loss_factor * max(-from_injection, -to_injection);
                 atol = 1e-8,
             )
+            @test isapprox(
+                _net_device_injection(container, t),
+                -(from_injection + to_injection);
+                atol = 1e-6,
+            )
         end
     end
 end
@@ -375,8 +428,29 @@ end
         if formulation == HVDCTwoTerminalLossless
             @test status == MOI.OPTIMAL
         else
-            # Losses in the area balance are not consistent with the interchange metering.
+            # Pre-existing: the area rows do not give the HVDC losses to the area that the interchange metering does not measure.
             @test_broken status == MOI.OPTIMAL
+        end
+    end
+end
+
+@testset "AreaPTDFNetworkModel same-area HVDC matches PTDFNetworkModel" begin
+    for formulation in (
+        HVDCTwoTerminalLossless,
+        HVDCTwoTerminalDispatch,
+        HVDCTwoTerminalPiecewiseLoss,
+    )
+        ptdf_status, ptdf_objective =
+            _fixed_hvdc_objective(PTDFNetworkModel, formulation, 0.5)
+        @test ptdf_status == MOI.OPTIMAL
+        area_status, area_objective =
+            _fixed_hvdc_objective(AreaPTDFNetworkModel, formulation, 0.5)
+        @test area_status == MOI.OPTIMAL
+        if formulation == HVDCTwoTerminalPiecewiseLoss
+            # Pre-existing: the area rows do not get the PWL HVDC losses of a same-area tie.
+            @test_broken isapprox(area_objective, ptdf_objective; atol = 0.1)
+        else
+            @test isapprox(area_objective, ptdf_objective; atol = 0.1)
         end
     end
 end
