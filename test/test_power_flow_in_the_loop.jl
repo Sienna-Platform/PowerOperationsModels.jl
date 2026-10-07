@@ -86,7 +86,7 @@ end
 
             var_key = VariableKey(ActivePowerVariable, comp_type)
             result_data = lookup_value(container, var_key)
-            p_setpoint = JuMP.value(result_data[comp_name, t])
+            p_setpoint = result_data[comp_name, t]
 
             expected_headroom = p_max_sys - p_setpoint
             @test expected_headroom > 0.0
@@ -179,7 +179,7 @@ end
     ts_values = lookup_value(container, ts_key)
 
     for t in 1:n_time_steps
-        p_setpoint = JuMP.value(var_values[re_name, t])
+        p_setpoint = var_values[re_name, t]
         p_max_ts = ts_values[re_name, t]
         p_max_t = min(p_max_static, p_max_ts)
         expected_headroom = p_max_t - p_setpoint
@@ -253,10 +253,10 @@ end
     #    flow_values = lookup_value(container, flow_key)
     #    line_name = get_name(line)
     #    line_flows =
-    #        [JuMP.value(flow_values[line_name, t]) for t in 1:length(get_time_steps(container))]
+    #        [flow_values[line_name, t] for t in 1:length(get_time_steps(container))]
     #
     #    # The PhaseShiftingTransformer flow contributes to the "to"-bus active power injection.
-    #    # Both sides are in per-unit; lookup_value returns raw JuMP values in the model unit
+    #    # Both sides are in per-unit; lookup_value returns solved values in the model unit
     #    # system rather than the natural-unit conversion that `read_variables(...; WIDE)`
     #    # performs in PSI.
     #    @test isapprox(
