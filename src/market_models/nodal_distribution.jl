@@ -129,8 +129,8 @@ function calc_additional_axes(
 end
 
 # Locations that own a series get a parameter row; a hub without one is uniform and a zone
-# without one errors, both in the reader. Returns the bus lookup and each location's
-# validated labels (`nothing` without a series) for the reader of the same call.
+# without one errors, both in the reader. Returns the bus lookup the reader of the same call
+# resolves labels through; a bus location reads no factors, so its lookup is empty.
 function _add_distribution_factor_parameters!(
     container::OptimizationContainer,
     sys::PSY.System,
@@ -138,14 +138,11 @@ function _add_distribution_factor_parameters!(
     locations::Vector{T},
 ) where {T <: Union{PSY.LoadZone, PSY.TradingHub}}
     buses = _buses_by_number(sys)
-    labels = Dict(
-        PSY.get_name(l) => _factor_bus_labels(container, l, buses) for l in locations
-    )
-    owners = T[l for l in locations if labels[PSY.get_name(l)] !== nothing]
+    owners = T[l for l in locations if _factor_bus_labels(container, l, buses) !== nothing]
     if !isempty(owners)
         add_parameters!(container, DistributionFactorParameter, owners, model)
     end
-    return (buses = buses, labels = labels)
+    return buses
 end
 
 _add_distribution_factor_parameters!(
@@ -153,7 +150,7 @@ _add_distribution_factor_parameters!(
     ::PSY.System,
     ::DeviceModel,
     ::Vector,
-) = nothing
+) = Dict{Int, PSY.ACBus}()
 
 function _zero_factors(
     container::OptimizationContainer,
@@ -183,19 +180,25 @@ function get_distribution_factors(
     location::Union{PSY.LoadZone, PSY.TradingHub},
     network_model::NetworkModel,
 )
-    buses = _buses_by_number(sys)
-    labels = _factor_bus_labels(container, location, buses)
-    return _distribution_factors(container, sys, location, network_model, labels, buses)
+    return _distribution_factors(
+        container,
+        sys,
+        location,
+        network_model,
+        _buses_by_number(sys),
+    )
 end
 
+# The reader behind `get_distribution_factors`, with `buses` (`_buses_by_number`) shared by
+# every location of one construct call.
 function _distribution_factors(
     container::OptimizationContainer,
     sys::PSY.System,
     location::T,
     network_model::NetworkModel{U},
-    labels::Union{Nothing, Vector{Int}},
     buses::Dict{Int, PSY.ACBus},
 ) where {T <: Union{PSY.LoadZone, PSY.TradingHub}, U <: AbstractNetworkModel}
+    labels = _factor_bus_labels(container, location, buses)
     if labels === nothing
         return _fallback_factors(container, sys, location, network_model)
     end
@@ -327,7 +330,7 @@ function construct_market_component!(
 ) where {T <: SettlementLocation}
     assert_numeric_distribution_factors(container)
     locations = collect(get_settlement_locations(model, sys))
-    factor_inputs = _add_distribution_factor_parameters!(container, sys, model, locations)
+    buses = _add_distribution_factor_parameters!(container, sys, model, locations)
     names = PSY.get_name.(locations)
     time_steps = get_time_steps(container)
     add_expression_container!(container, AggregateClearedInjection, T, names, time_steps)
@@ -344,7 +347,7 @@ function construct_market_component!(
     # Argument stage: branches snapshot ActivePowerBalance into a fixed flow AffExpr, the
     # security-constrained ones during their own argument stage. A later write is lost.
     for location in locations
-        distribute_cleared_position!(container, sys, location, network_model, factor_inputs)
+        distribute_cleared_position!(container, sys, location, network_model, buses)
     end
     return
 end
@@ -385,10 +388,10 @@ function distribute_cleared_position!(
     sys::PSY.System,
     location::T,
     network_model::NetworkModel{U},
-    factor_inputs,
+    buses::Dict{Int, PSY.ACBus},
 ) where {T <: SettlementLocation, U <: AbstractNetworkModel}
     name = PSY.get_name(location)
-    factors = _location_factors(container, sys, location, network_model, factor_inputs)
+    factors = _distribution_factors(container, sys, location, network_model, buses)
     position = get_variable(container, ClearedPositionVariable, T)
     nodal = get_expression(container, ActivePowerBalance, PSY.ACBus)
     for bus_no in axes(factors)[1], t in get_time_steps(container)
@@ -407,25 +410,16 @@ function distribute_cleared_position!(
     ::PSY.System,
     ::T,
     ::NetworkModel{CopperPlateNetworkModel},
-    _,
+    ::Dict{Int, PSY.ACBus},
 ) where {T <: SettlementLocation}
     return
 end
 
-# `factor_inputs` is what `_add_distribution_factor_parameters!` returned in the same call.
-_location_factors(container, sys, bus::PSY.ACBus, network_model, ::Nothing) =
-    get_distribution_factors(container, sys, bus, network_model)
-_location_factors(
-    container,
+# A bus distributes to itself; it reads no factor series.
+_distribution_factors(
+    container::OptimizationContainer,
     sys::PSY.System,
-    location::Union{PSY.LoadZone, PSY.TradingHub},
-    network_model,
-    factor_inputs,
-) = _distribution_factors(
-    container,
-    sys,
-    location,
-    network_model,
-    factor_inputs.labels[PSY.get_name(location)],
-    factor_inputs.buses,
-)
+    bus::PSY.ACBus,
+    network_model::NetworkModel,
+    ::Dict{Int, PSY.ACBus},
+) = get_distribution_factors(container, sys, bus, network_model)
