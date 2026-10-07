@@ -347,6 +347,15 @@ Struct to create the constraint for branch flow rate limits from the 'to' bus to
 For more information check [Branch Formulations](@ref PowerSystems.Branch-Formulations).
 """
 struct FlowRateConstraintToFrom <: ConstraintType end
+
+"""
+Operational flow limit of a branch in one direction, in addition to the rating:
+`flow_ft ≤ limit_ft` (meta `"ft"`) and `flow_tf ≤ limit_tf` (meta `"tf"`). Flow is
+measured at the sending end of each direction. The limit is the `max` of the device's
+`operational_flow_limit` in that direction, tightened by the rating.
+"""
+struct OperationalFlowLimitConstraint <: ConstraintType end
+
 struct RegulationLimitsConstraint <: ConstraintType end
 
 """

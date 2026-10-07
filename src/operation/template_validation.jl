@@ -100,7 +100,7 @@ function validate_template_impl!(model::IOM.AbstractOptimizationModel)
             )
         else
             _validate_branch_slack_request(k, device_model, network_formulation)
-            _warn_unenforced_operational_flow_limits(device_model)
+            _check_operational_flow_limits(device_model)
             push!(network_model.modeled_branch_types, get_component_type(device_model))
         end
         if get_attribute(device_model, "filter_function") !== nothing
@@ -140,33 +140,6 @@ function _check_converter_ac_control(
             _ic_reactive_power_control_error(d)
         end
     end
-    return
-end
-
-#################################################################################
-# Operational flow limits that POM does not enforce yet
-#################################################################################
-
-_sets_operational_flow_limit(::PSY.Device) = false
-_sets_operational_flow_limit(d::PSY.Line) =
-    !isnothing(PSY.get_operational_flow_limit(d, u"SU"))
-_sets_operational_flow_limit(d::PSY.TransformerCircuit) =
-    !isnothing(PSY.get_operational_flow_limit(d, u"SU"))
-_sets_operational_flow_limit(d::PSY.TwoWindingTransformer) =
-    _sets_operational_flow_limit(PSY.get_circuit(d))
-_sets_operational_flow_limit(d::PSY.ThreeWindingTransformer) =
-    any(_sets_operational_flow_limit, PSY.get_circuits(d))
-_sets_operational_flow_limit(d::PSY.TwoTerminalHVDC) =
-    !isnothing(PSY.get_operational_flow_limit(d, u"SU"))
-
-function _warn_unenforced_operational_flow_limits(device_model::DeviceModel)
-    names = [
-        PSY.get_name(d) for
-        d in get_device_cache(device_model) if _sets_operational_flow_limit(d)
-    ]
-    isempty(names) && return
-    @warn "$(length(names)) $(nameof(get_component_type(device_model))) component(s) set operational_flow_limit, which this version of POM does not enforce yet: $(join(first(names, 5), ", "))" _group =
-        IOM.LOG_GROUP_MODELS_VALIDATION
     return
 end
 
@@ -274,7 +247,7 @@ function _any_component_has_branch_rating_ts(
     ::Type{P},
     device_model::DeviceModel,
     sys::PSY.System,
-) where {P <: AbstractBranchRatingTimeSeriesParameter}
+) where {P <: TimeSeriesParameter}
     haskey(get_time_series_names(device_model), P) || return false
     ts_name = get_time_series_names(device_model)[P]
     # Only the modeled forecast matters: operations consume a
@@ -288,11 +261,12 @@ function _any_component_has_branch_rating_ts(
     )
 end
 
-# Both `BranchRatingTimeSeriesParameter` and
-# `PostContingencyBranchRatingTimeSeriesParameter` are only honored by the
+# `BranchRatingTimeSeriesParameter`,
+# `PostContingencyBranchRatingTimeSeriesParameter` and the operational-limit time series
+# are only honored by the
 # `StaticBranch` (pre-contingency PTDF / DCP / ACP) and
 # `AbstractSecurityConstrainedStaticBranch` constructors. Any other
-# formulation that carries either series passes validation but never builds a
+# formulation that carries any of these series passes validation but never builds a
 # usable parameter container, so the series would be silently ignored —
 # reject it up front instead. `StaticBranchUnbounded` enforces no flow limits
 # at all, so the series is simply unused there: warn rather than error.
@@ -306,8 +280,11 @@ function _check_branch_rating_time_series_formulation!(
         for P in (
             BranchRatingTimeSeriesParameter,
             PostContingencyBranchRatingTimeSeriesParameter,
+            FromToFlowLimitParameter,
+            ToFromFlowLimitParameter,
         )
             _any_component_has_branch_rating_ts(P, device_model, sys) || continue
+            _time_series_enforced(P, device_model) || continue
             if B <: StaticBranch || B <: AbstractSecurityConstrainedStaticBranch
                 continue
             elseif B <: StaticBranchUnbounded
@@ -322,7 +299,7 @@ function _check_branch_rating_time_series_formulation!(
                         "$(P) is only supported with the StaticBranch or \
                         AbstractSecurityConstrainedStaticBranch formulations, \
                         but branch type $(D) was configured with $(B). Remove \
-                        the branch rating time series from the components or \
+                        the $(_time_series_label(P)) from the components or \
                         change the formulation.",
                     ),
                 )

@@ -148,12 +148,18 @@ function _warn_reduced_monitored_lines!(removed_arcs::Set{Tuple{Int, Int}}, m::D
     return
 end
 
-function _branch_arc_removed(branch::PSY.Branch, removed_arcs)
+function _branch_arc_removed(
+    branch::Union{PSY.Branch, PSY.TransformerCircuit},
+    removed_arcs,
+)
     arc = PSY.get_arc(branch)
     from = PSY.get_number(PSY.get_from(arc))
     to = PSY.get_number(PSY.get_to(arc))
     return (from, to) in removed_arcs || (to, from) in removed_arcs
 end
+
+_branch_arc_removed(t::PSY.ThreeWindingTransformer, removed_arcs) =
+    any(c -> _branch_arc_removed(c, removed_arcs), PSY.get_circuits(t))
 
 function _get_unmodeled_branch_types(
     branch_models::BranchModelContainer,

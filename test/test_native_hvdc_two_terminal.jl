@@ -941,3 +941,53 @@ end
         end
     end
 end
+
+@testset "HVDCTwoTerminalDispatch bounds follow the operational limit per end" begin
+    sys = PSB.build_system(PSITestSystems, "c_sys5")
+    arc = PSY.get_arc(PSY.get_component(Line, sys, "1"))
+    d = _hvdc_probe(sys, arc, "probe_ofl"; rating = 2.0)
+    PSY.set_operational_flow_limit!(
+        d,
+        (from_to = (min = 0.0 * u"MW", max = 50.0 * u"MW"),
+            to_from = (min = 0.0 * u"MW", max = 30.0 * u"MW")),
+    )
+    template = get_thermal_dispatch_template_network(NetworkModel(PTDFNetworkModel))
+    set_device_model!(
+        template,
+        DeviceModel(TwoTerminalGenericHVDCLine, HVDCTwoTerminalDispatch),
+    )
+    model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+    container = IOM.get_optimization_container(model)
+    pft = IOM.get_variable(
+        container, FlowActivePowerFromToVariable, TwoTerminalGenericHVDCLine,
+    )
+    ptf = IOM.get_variable(
+        container, FlowActivePowerToFromVariable, TwoTerminalGenericHVDCLine,
+    )
+    t = first(IOM.get_time_steps(container))
+    @test JuMP.upper_bound(pft["probe_ofl", t]) ≈ 0.5
+    @test JuMP.lower_bound(pft["probe_ofl", t]) ≈ -0.3
+    @test JuMP.upper_bound(ptf["probe_ofl", t]) ≈ 0.3
+    @test JuMP.lower_bound(ptf["probe_ofl", t]) ≈ -0.5
+
+    template_off = get_thermal_dispatch_template_network(NetworkModel(PTDFNetworkModel))
+    set_device_model!(
+        template_off,
+        DeviceModel(
+            TwoTerminalGenericHVDCLine,
+            HVDCTwoTerminalDispatch;
+            attributes = Dict{String, Any}("apply_operational_flow_limits" => false),
+        ),
+    )
+    model_off = DecisionModel(template_off, sys; optimizer = HiGHS_optimizer)
+    @test build!(model_off; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+    pft_off = IOM.get_variable(
+        IOM.get_optimization_container(model_off),
+        FlowActivePowerFromToVariable,
+        TwoTerminalGenericHVDCLine,
+    )
+    @test JuMP.upper_bound(pft_off["probe_ofl", t]) ≈ 2.0
+end

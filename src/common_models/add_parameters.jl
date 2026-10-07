@@ -418,6 +418,7 @@ function _add_time_series_parameters!(
             ts_vals =
                 IOM.unwrap_for_param.((param_instance,), raw_ts_vals, (additional_axes,))
             @assert all(_size_wrapper.(ts_vals) .== (length.(additional_axes),))
+            _validate_branch_parameter_values(T, D, name, ts_vals)
         end
         # `_resolve_branch_multiplier` is `DeviceModel`-aware: it applies the
         # branch-rating aggregation policy (parallel groups use the summed rating;

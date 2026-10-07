@@ -37,6 +37,14 @@ end
 
 # Warn-skip instead of MethodError so this set stays reconcilable with PNM's
 # `_accumulate_protected_buses!(::PSY.Component)`, which also warn-skips.
+# A ThreeWindingTransformer has no arc of its own; each winding circuit has one.
+function _push_component_buses!(buses::Set{Int}, t::PSY.ThreeWindingTransformer)
+    for circuit in PSY.get_circuits(t)
+        _push_component_buses!(buses, circuit)
+    end
+    return
+end
+
 function _push_component_buses!(::Set{Int}, c::PSY.Component)
     @warn "Outage-monitored component $(typeof(c)) ($(PSY.get_name(c))) has no \
            reduction-protection rule; its bus is not pinned and may be reduced away, so \
@@ -120,13 +128,20 @@ function _pin_time_series_branch_buses!(
     sys::PSY.System,
 ) where {T <: PSY.ACTransmission}
     ts_names = get_time_series_names(m)
-    haskey(ts_names, BranchRatingTimeSeriesParameter) || return
-    ts_name = ts_names[BranchRatingTimeSeriesParameter]
     # TODO workaround since we dont have the container
     ts_type = PSY.Deterministic
-    for branch in PSY.get_available_components(T, sys)
-        PSY.has_time_series(branch, ts_type, ts_name) || continue
-        _push_component_buses!(buses, branch)
+    for P in (
+        BranchRatingTimeSeriesParameter,
+        FromToFlowLimitParameter,
+        ToFromFlowLimitParameter,
+    )
+        haskey(ts_names, P) || continue
+        _time_series_enforced(P, m) || continue
+        ts_name = ts_names[P]
+        for branch in PSY.get_available_components(T, sys)
+            PSY.has_time_series(branch, ts_type, ts_name) || continue
+            _push_component_buses!(buses, branch)
+        end
     end
     return
 end
