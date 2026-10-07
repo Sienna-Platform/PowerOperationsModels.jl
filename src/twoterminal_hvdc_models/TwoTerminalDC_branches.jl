@@ -171,7 +171,7 @@ function get_default_attributes(
     ::Type{U},
     ::Type{V},
 ) where {U <: PSY.TwoTerminalHVDC, V <: AbstractTwoTerminalDCLineFormulation}
-    return Dict{String, Any}()
+    return Dict{String, Any}(_operational_flow_limit_attributes(U)...)
 end
 
 get_initial_conditions_device_model(
@@ -1965,5 +1965,6 @@ function get_default_attributes(
     return merge(
         BILINEAR_APPROX_DEFAULT_ATTRIBUTES,
         Dict{String, Any}("use_octagon" => true),
+        Dict{String, Any}(_operational_flow_limit_attributes(PSY.TwoTerminalVSCLine)...),
     )
 end

@@ -31,9 +31,9 @@ function get_default_time_series_names(
     ::Type{V},
 ) where {U <: PSY.ACTransmission, V <: AbstractBranchFormulation}
     # Branch rating time series are opt-in: the user must explicitly set the
-    # `BranchRatingTimeSeriesParameter` name on the `DeviceModel`. An empty
-    # default routes every branch through the static-rating path.
-    return Dict{Type{<:TimeSeriesParameter}, String}()
+    # `BranchRatingTimeSeriesParameter` name on the `DeviceModel`. Operational-limit time
+    # series have default names; a branch without the series uses its static limit.
+    return _operational_flow_limit_time_series_names(U)
 end
 
 const _TRANSFORMERS = Union{PSY.TwoWindingTransformer, PSY.ThreeWindingTransformer}
@@ -79,6 +79,7 @@ function get_default_attributes(
     return Dict{String, Any}(
         PARALLEL_BRANCH_MAX_RATING_KEY => "single_element_contingency",
         _control_attribute(U, V)...,
+        _operational_flow_limit_attributes(U)...,
     )
 end
 
@@ -90,6 +91,7 @@ function get_default_attributes(
         PARALLEL_BRANCH_MAX_RATING_KEY => "single_element_contingency",
         "include_planned_outages" => false,
         _control_attribute(U, V)...,
+        _operational_flow_limit_attributes(U)...,
     )
 end
 
@@ -98,6 +100,12 @@ Branch DeviceModel attribute. When `true`, the end buses of every device in the 
 kept out of the network reduction, so each device keeps its own arc. Defaults to `false`.
 """
 const MODEL_ALL_BRANCHES_KEY = "model_all_branches"
+
+"""
+Branch DeviceModel attribute. When `true` (the default), the model enforces the
+`operational_flow_limit` of its devices in addition to the rating.
+"""
+const APPLY_OPERATIONAL_FLOW_LIMITS_KEY = "apply_operational_flow_limits"
 
 _control_enabled(m::DeviceModel) =
     _control_supported(m) && get_attribute(m, ENABLE_CONTROLS_KEY) === true
@@ -224,12 +232,22 @@ function _branch_variable_bounds(
     return (-rating, rating)
 end
 
-_static_branch_rate_limits(
-    ::Type{<:AbstractACActivePowerFlow},
+function _static_branch_rate_limits(
+    ::Type{V},
     rep::RepresentativeBranch,
     device_model::DeviceModel,
-) =
-    _flow_limits(rep, device_model)
+) where {V <: AbstractACActivePowerFlow}
+    if !_applies_operational_flow_limits(rep, device_model)
+        return _flow_limits(rep, device_model)
+    end
+    return _directional_bounds(V, _operational_flow_limits(rep, device_model))
+end
+
+# A to-from flow is measured at the to end, so its positive side is the to-from direction.
+_directional_bounds(::Type{FlowActivePowerToFromVariable}, lims) =
+    (min = -lims.from_to, max = lims.to_from)
+_directional_bounds(::Type{<:AbstractACActivePowerFlow}, lims) =
+    (min = -lims.to_from, max = lims.from_to)
 
 function _static_branch_rate_limits(
     ::Type{<:AbstractACReactivePowerFlow},
@@ -422,6 +440,21 @@ function _resolve_branch_multiplier(
 )
     return PNM.get_equivalent_emergency_rating(entry)
 end
+
+# An operational-limit time series is a factor on the static limit. The constraint applies
+# the static limit of the arc, so the stored multiplier is 1.0.
+_resolve_branch_multiplier(
+    ::Type{FromToFlowLimitParameter},
+    ::Any,
+    ::Type{<:AbstractBranchFormulation},
+    ::DeviceModel,
+) = 1.0
+_resolve_branch_multiplier(
+    ::Type{ToFromFlowLimitParameter},
+    ::Any,
+    ::Type{<:AbstractBranchFormulation},
+    ::DeviceModel,
+) = 1.0
 
 function _add_flow_rate_constraint!(
     container::OptimizationContainer,
