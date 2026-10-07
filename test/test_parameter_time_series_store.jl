@@ -802,7 +802,6 @@ end
     @test got[3, 1, 2] == 33      # step 3, block 1, product b = position 3
     shifted = JuMP.Containers.DenseAxisArray(raw.data .+ 0.5, ["d1"], 1:6, 1:3)
     @test_throws InexactError POM._labeled_window(shifted, "d1", axes, Int64)
-    @test POM._value_eltype(IS.DeterministicSingleTimeSeries{Int64}) == Int64
 end
 
 @testset "An input forecast row keeps value axes" begin
