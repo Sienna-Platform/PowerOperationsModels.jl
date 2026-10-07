@@ -934,6 +934,7 @@ export BThetaBranchFlow
 #################################################################################
 export ActivePowerTimeSeriesParameter
 export DistributionFactorParameter
+export ReserveOfferLinkParameter
 export ActivePowerOutTimeSeriesParameter
 export ActivePowerInTimeSeriesParameter
 export ReactivePowerTimeSeriesParameter

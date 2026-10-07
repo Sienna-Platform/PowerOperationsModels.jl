@@ -167,7 +167,9 @@ function build_problem!(
     end
 
     # Before the device stage: its dual hook needs these containers to exist.
-    add_offer_limit_containers!(container, sys, template)
+    TimerOutputs.@timeit BUILD_PROBLEMS_TIMER "Offer limits" begin
+        add_offer_limit_containers!(container, sys, template)
+    end
 
     for device_model in values(template.devices)
         @debug "Building Model for $(get_component_type(device_model)) with $(get_formulation(device_model)) formulation" _group =

@@ -26,6 +26,47 @@ const RESERVE_OFFER_LINKS_TS_NAME = "reserve_offer_links"
 
 _attribute_on(model::DeviceModel, key::String) = get_attribute(model, key) === true
 
+_get_time_series_name(::Type{ReserveOfferLinkParameter}, ::PSY.Component, ::DeviceModel) =
+    RESERVE_OFFER_LINKS_TS_NAME
+
+# Links are step indices: the capacity multipliers some device families apply to
+# time-series parameters must not scale them.
+get_multiplier_value(
+    ::Type{ReserveOfferLinkParameter},
+    ::PSY.RenewableGen,
+    ::Type{FixedOutput},
+) = 1.0
+get_multiplier_value(
+    ::Type{ReserveOfferLinkParameter},
+    ::PSY.RenewableGen,
+    ::Type{<:AbstractRenewableFormulation},
+) = 1.0
+get_multiplier_value(
+    ::Type{ReserveOfferLinkParameter},
+    ::PSY.ElectricLoad,
+    ::Type{StaticPowerLoad},
+) = 1.0
+get_multiplier_value(
+    ::Type{ReserveOfferLinkParameter},
+    ::PSY.ElectricLoad,
+    ::Type{<:AbstractControllablePowerLoadFormulation},
+) = 1.0
+get_multiplier_value(
+    ::Type{ReserveOfferLinkParameter},
+    ::PSY.HydroGen,
+    ::Type{<:AbstractHydroFormulation},
+) = 1.0
+get_multiplier_value(
+    ::Type{ReserveOfferLinkParameter},
+    ::PSY.HydroGen,
+    ::Type{FixedOutput},
+) = 1.0
+get_multiplier_value(
+    ::Type{ReserveOfferLinkParameter},
+    ::PSY.ThermalGen,
+    ::Type{FixedOutput},
+) = 1.0
+
 # The rows read offer data once, at build.
 function _require_rebuild_model(container::OptimizationContainer, key::String)
     if IOM.get_param_eltype(container) !== Float64
@@ -48,16 +89,19 @@ function add_offer_limit_containers!(
 )
     for model in values(get_device_models(template))
         validate_available_devices(model, sys) || continue
-        _add_offer_limit_containers!(container, model)
+        _add_offer_limit_containers!(container, sys, model)
     end
     return
 end
 
 function _add_offer_limit_containers!(
     container::OptimizationContainer,
+    sys::PSY.System,
     model::DeviceModel{D},
 ) where {D <: PSY.Component}
     if _attribute_on(model, LINKED_RESERVE_OFFERS_KEY)
+        _require_rebuild_model(container, LINKED_RESERVE_OFFERS_KEY)
+        _add_offer_link_parameters!(container, sys, model)
         add_constraints_container!(
             container, LinkedReserveOfferConstraint, D, String[], Int[], Int[];
             sparse = true,
@@ -93,7 +137,6 @@ function _add_offer_limit_constraints!(
     model::DeviceModel{D, F},
 ) where {D <: PSY.Component, F <: AbstractDeviceFormulation}
     if _attribute_on(model, LINKED_RESERVE_OFFERS_KEY)
-        _require_rebuild_model(container, LINKED_RESERVE_OFFERS_KEY)
         add_linked_reserve_offer_constraints!(container, sys, model)
         _reassign_dual!(container, sys, LinkedReserveOfferConstraint, model)
     else
@@ -138,29 +181,6 @@ function _warn_ignored_offer_links(
     return
 end
 
-# One window `[time step, value dims...]` of `owner`'s series and its value axes. Reads the
-# forecast object: a window of rank 3 or more has no TimeArray form (`get_window` throws).
-function _read_offer_window(container::OptimizationContainer, owner, name::String)
-    forecast = IS.get_time_series(
-        IS.Deterministic,
-        owner,
-        name;
-        start_time = get_initial_time(container),
-        len = length(get_time_steps(container)),
-        count = 1,
-    )
-    if IS.get_resolution(forecast) != get_resolution(container)
-        throw(
-            IS.ConflictingInputsError(
-                "$(PSY.get_name(owner)): series $(name) has resolution " *
-                "$(IS.get_resolution(forecast)); the model runs at " *
-                "$(get_resolution(container)).",
-            ),
-        )
-    end
-    return only(values(IS.get_data(forecast))), IS.get_value_axes(forecast)
-end
-
 _links_message(d) =
     "The $(RESERVE_OFFER_LINKS_TS_NAME) series of $(PSY.get_name(d)) must hold Int64 " *
     "[time step, block, product] values with value_axes = [IS.TimeSeriesAxis(\"block\", " *
@@ -177,8 +197,67 @@ end
 _string_labels(labels::Vector{String}, _) = labels
 _string_labels(::Vector{Int64}, d) = throw(ArgumentError(_links_message(d)))
 
-_int_links(window::Array{Int64, 3}, _) = window
-_int_links(::AbstractArray, d) = throw(ArgumentError(_links_message(d)))
+"""
+Value axes of the `reserve_offer_links` series `d` owns, read from its metadata without
+loading data, or `nothing` when it owns none. Errors for a second series, axes other than
+`"block"` and `"product"` (service names), values other than Int64, or another resolution.
+"""
+function _links_value_axes(container::OptimizationContainer, d::PSY.Component)
+    metadata = IS.list_time_series_metadata(
+        d;
+        time_series_type = IS.Deterministic,
+        name = RESERVE_OFFER_LINKS_TS_NAME,
+    )
+    isempty(metadata) && return nothing
+    if length(metadata) > 1
+        throw(
+            ArgumentError(
+                "$(PSY.get_name(d)) carries $(length(metadata)) " *
+                "$(RESERVE_OFFER_LINKS_TS_NAME) series; keep one.",
+            ),
+        )
+    end
+    md = only(metadata)
+    if IS.get_resolution(md) != get_resolution(container)
+        throw(
+            IS.ConflictingInputsError(
+                "$(PSY.get_name(d)): series $(RESERVE_OFFER_LINKS_TS_NAME) has resolution " *
+                "$(IS.get_resolution(md)); the model runs at $(get_resolution(container)).",
+            ),
+        )
+    end
+    value_axes = IS.get_value_axes(md)
+    _product_labels(value_axes, d)
+    _check_int_links(_value_eltype(IS.get_time_series_type(md)), d)
+    return value_axes
+end
+
+_check_int_links(::Type{Int64}, _) = nothing
+_check_int_links(::Type, d) = throw(ArgumentError(_links_message(d)))
+
+function calc_additional_axes(
+    container::OptimizationContainer,
+    ::Type{ReserveOfferLinkParameter},
+    devices::Vector{D},
+    ::DeviceModel{D, W},
+) where {D <: PSY.Component, W <: AbstractDeviceFormulation}
+    lengths = (IOM.get_value_length(_links_value_axes(container, d)) for d in devices)
+    return (1:maximum(lengths),)
+end
+
+function _add_offer_link_parameters!(
+    container::OptimizationContainer,
+    sys::PSY.System,
+    model::DeviceModel{D},
+) where {D <: PSY.Component}
+    owners = D[
+        d for d in get_available_components(model, sys) if
+        _links_value_axes(container, d) !== nothing
+    ]
+    isempty(owners) && return
+    add_parameters!(container, ReserveOfferLinkParameter, owners, model)
+    return
+end
 
 _offered_services(cost::Union{PSY.MarketBidCost, PSY.MarketBidTimeSeriesCost}) =
     PSY.get_ancillary_service_offers(cost)
@@ -229,25 +308,33 @@ function add_linked_reserve_offer_constraints!(
     )
     has_container_key(container, PiecewiseLinearBlockReserveOffer, D) || return
     blk = get_variable(container, PiecewiseLinearBlockReserveOffer, D)
+    has_container_key(container, ReserveOfferLinkParameter, D) || return
+    key = IOM.ParameterKey(ReserveOfferLinkParameter, D)
     for d in get_available_components(model, sys)
-        IS.has_time_series(d, IS.Deterministic, RESERVE_OFFER_LINKS_TS_NAME) || continue
-        _add_linked_offer_rows!(container, rows, blk, d)
+        IOM.has_lhs_parameter_component(container, key, PSY.get_name(d)) || continue
+        _add_linked_offer_rows!(container, rows, blk, key, d)
     end
     return
 end
 
-function _add_linked_offer_rows!(container, rows, blk, d::D) where {D <: PSY.Component}
+function _add_linked_offer_rows!(
+    container,
+    rows,
+    blk,
+    key,
+    d::D,
+) where {D <: PSY.Component}
     name = PSY.get_name(d)
-    window, value_axes = _read_offer_window(container, d, RESERVE_OFFER_LINKS_TS_NAME)
-    links = _int_links(window, d)
+    value_axes = _links_value_axes(container, d)
+    links = IOM.get_lhs_parameter_values(container, key, name, value_axes)
     services = _linked_services(d, value_axes)
     widths = [_modeled_offer_widths(container, blk, d, s) for s in services]
     jump_model = get_jump_model(container)
-    for t in get_time_steps(container), b in axes(links, 2)
+    for t in get_time_steps(container), b in axes(links, 1)
         terms = JuMP.VariableRef[]
         width = Inf
         for (p, service) in enumerate(services)
-            k = links[t, b, p]
+            k = Int(links[b, p, t])
             (k == 0 || widths[p] === nothing) && continue
             steps = widths[p][t]
             if !(1 <= k <= length(steps))
