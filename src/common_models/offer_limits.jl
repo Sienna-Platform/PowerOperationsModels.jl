@@ -268,5 +268,78 @@ function _add_linked_offer_rows!(container, rows, blk, d::D) where {D <: PSY.Com
     return
 end
 
-add_energy_offer_cap_constraints!(::OptimizationContainer, ::PSY.System, ::DeviceModel) =
-    nothing
+"""
+Rows of `EnergyOfferCapConstraint`: energy plus upward reserve awards at most the top of the
+energy offer curve. A step whose curve spans no MW offers no energy and gets no row; a top
+at or above ``P^\\text{max}`` is already enforced by the range rows.
+"""
+function add_energy_offer_cap_constraints!(
+    container::OptimizationContainer,
+    sys::PSY.System,
+    model::DeviceModel{D, F},
+) where {D <: PSY.ThermalGen, F <: AbstractThermalFormulation}
+    rows = lazy_container_addition!(
+        container, EnergyOfferCapConstraint, D, String[], Int[]; sparse = true,
+    )
+    range_ub = get_expression(container, ActivePowerRangeExpressionUB, D)
+    jump_model = get_jump_model(container)
+    for d in get_available_components(model, sys)
+        _has_market_bid_cost(d) || continue
+        name = PSY.get_name(d)
+        pmax = PSY.get_active_power_limits(d, u"SU").max
+        for t in get_time_steps(container)
+            breakpoints, _ = IOM._get_pwl_data(IOM.IncrementalOffer(), container, d, t)
+            top = last(breakpoints)
+            (top <= first(breakpoints) || top >= pmax) && continue
+            rows[(name, t)] = JuMP.@constraint(
+                jump_model,
+                range_ub[name, t] + _energy_offer_floor(container, F, d, t) <= top,
+            )
+        end
+    end
+    return
+end
+
+function add_energy_offer_cap_constraints!(
+    ::OptimizationContainer,
+    ::PSY.System,
+    ::DeviceModel{D, F},
+) where {D <: PSY.Component, F <: AbstractDeviceFormulation}
+    throw(
+        ArgumentError(
+            "\"$(ENERGY_OFFER_CAP_KEY)\" is for thermal formulations; $(D) under $(F) " *
+            "has no energy offer cap.",
+        ),
+    )
+end
+
+# Energy is the range expression's variable, plus pmin for compact formulations, whose
+# expression holds only the power above minimum.
+_energy_offer_floor(
+    ::OptimizationContainer,
+    ::Type{<:AbstractThermalFormulation},
+    ::PSY.ThermalGen,
+    ::Int,
+) = 0.0
+
+function _energy_offer_floor(
+    container::OptimizationContainer,
+    ::Type{<:AbstractCompactUnitCommitment},
+    d::D,
+    t::Int,
+) where {D <: PSY.ThermalGen}
+    pmin = PSY.get_active_power_limits(d, u"SU").min
+    if _is_must_run(d)
+        return pmin
+    end
+    return pmin * get_variable(container, OnVariable, D)[PSY.get_name(d), t]
+end
+
+_energy_offer_floor(
+    ::OptimizationContainer,
+    ::Type{ThermalCompactDispatch},
+    ::PSY.ThermalGen,
+    ::Int,
+) = throw(
+    ArgumentError("\"$(ENERGY_OFFER_CAP_KEY)\" does not support ThermalCompactDispatch."),
+)

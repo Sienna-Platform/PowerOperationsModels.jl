@@ -246,3 +246,131 @@ end
     c, sys = built(["UP_A", "UP_B"], [[1, 1]]; resolution = Minute(30), steps = 48)
     @test_throws IS.ConflictingInputsError add!(c, sys)
 end
+
+const _OL_CAP = Dict{String, Any}("energy_offer_cap" => true)
+const _OL_ONE_SERVICE = ["UP_A" => ([0.0, 100.0], [5.0])]
+
+_ol_energy(c, t) =
+    JuMP.value(IOM.get_variable(c, ActivePowerVariable, ThermalStandard)[_OL_UNIT, t]) +
+    JuMP.value(_ol_award(c)[("UP_A", _OL_UNIT, t)])
+
+@testset "Energy offer cap: energy plus up awards stop at a curve top below pmax" begin
+    sys, _ = _ol_system(; up = _OL_ONE_SERVICE, energy_top = 400.0)
+    model = _ol_model(sys; attributes = _OL_CAP)
+    c = get_optimization_container(model)
+    base = IOM.get_model_base_power(c)
+    @test _ol_rows(c, POM.EnergyOfferCapConstraint) == [(_OL_UNIT, t) for t in 1:24]
+    row =
+        IOM.get_constraint(c, POM.EnergyOfferCapConstraint, ThermalStandard)[(_OL_UNIT, 1)]
+    p = IOM.get_variable(c, ActivePowerVariable, ThermalStandard)
+    @test JuMP.normalized_coefficient(row, p[_OL_UNIT, 1]) == 1.0
+    @test JuMP.normalized_coefficient(row, _ol_award(c)[("UP_A", _OL_UNIT, 1)]) == 1.0
+    @test JuMP.normalized_rhs(row) ≈ 400.0 / base
+    @test _ol_solve!(model)
+    @test all(isapprox(base * _ol_energy(c, t), 400.0; atol = 1e-6) for t in 1:24)
+    # Without the cap the unit sells its 100 MW of reserve on top of cheap energy.
+    free = _ol_model(sys)
+    @test _ol_solve!(free)
+    @test any(
+        base * _ol_energy(get_optimization_container(free), t) > 400.0 + 1e-3 for
+        t in 1:24
+    )
+end
+
+@testset "Energy offer cap: no row when the curve tops at pmax" begin
+    sys, _ = _ol_system(; up = _OL_ONE_SERVICE)
+    c = get_optimization_container(_ol_model(sys; attributes = _OL_CAP))
+    @test isempty(_ol_rows(c, POM.EnergyOfferCapConstraint))
+end
+
+@testset "Energy offer cap: no row in a step whose curve offers no energy" begin
+    sys, g = _ol_system(; up = _OL_ONE_SERVICE, energy_top = 400.0)
+    curves = [IS.PiecewiseStepData([0.0, 400.0], [1.0]) for _ in 1:24]
+    curves[1] = IS.PiecewiseStepData([0.0, 0.0], [1.0])
+    key, initial_key = map(
+        ((name, v),) -> PSY.add_time_series!(
+            sys, g,
+            Deterministic(name, Dict(it => v for it in _OL_INIT_TIMES), Hour(1)),
+        ),
+        (("incremental_offer_curves", curves), ("initial_input", zeros(24))),
+    )
+    set_operation_cost!(
+        g,
+        to_market_bid_ts_cost(
+            sys, g, get_operation_cost(g);
+            new_incremental_offer_curves = make_market_bid_ts_curve(
+                key, initial_key, IS.NaturalUnit(),
+            ),
+        ),
+    )
+    c = get_optimization_container(_ol_model(sys; attributes = _OL_CAP))
+    rows = IOM.get_constraint(c, POM.EnergyOfferCapConstraint, ThermalStandard)
+    @test _ol_rows(c, POM.EnergyOfferCapConstraint) == [(_OL_UNIT, t) for t in 2:24]
+    @test JuMP.normalized_rhs(rows[(_OL_UNIT, 2)]) ≈
+          400.0 / IOM.get_model_base_power(c)
+end
+
+@testset "Energy offer cap: compact UC adds pmin times the commitment" begin
+    sys, g = _ol_system(; up = _OL_ONE_SERVICE, energy_top = 400.0)
+    model = _ol_model(
+        sys; formulation = ThermalBasicCompactUnitCommitment, attributes = _OL_CAP,
+    )
+    c = get_optimization_container(model)
+    base = IOM.get_model_base_power(c)
+    row =
+        IOM.get_constraint(c, POM.EnergyOfferCapConstraint, ThermalStandard)[(_OL_UNIT, 1)]
+    above = IOM.get_variable(c, PowerAboveMinimumVariable, ThermalStandard)
+    on = IOM.get_variable(c, OnVariable, ThermalStandard)
+    pmin = PSY.get_active_power_limits(g, u"SU").min
+    @test JuMP.normalized_coefficient(row, above[_OL_UNIT, 1]) == 1.0
+    @test JuMP.normalized_coefficient(row, on[_OL_UNIT, 1]) ≈ pmin
+    @test JuMP.normalized_rhs(row) ≈ 400.0 / base
+    @test _ol_solve!(model)
+    award = _ol_award(c)
+    for t in 1:24
+        energy =
+            JuMP.value(above[_OL_UNIT, t]) + pmin +
+            JuMP.value(award[("UP_A", _OL_UNIT, t)])
+        @test isapprox(base * energy, 400.0; atol = 1e-6)
+    end
+end
+
+@testset "Energy offer cap: offline and down awards stay out" begin
+    sys, _ = _ol_system(;
+        up = _OL_ONE_SERVICE, down = ["DN_A" => ([0.0, 50.0], [1.0])],
+        energy_top = 400.0, offline = true,
+    )
+    c = get_optimization_container(_ol_model(sys; attributes = _OL_CAP))
+    row =
+        IOM.get_constraint(c, POM.EnergyOfferCapConstraint, ThermalStandard)[(_OL_UNIT, 1)]
+    @test JuMP.normalized_coefficient(row, _ol_award(c)[("UP_A", _OL_UNIT, 1)]) == 1.0
+    off = _ol_award(c, OfflineReserve)
+    down = _ol_award(c, OnlineReserve{ReserveDown})
+    @test JuMP.normalized_coefficient(row, off[("OFF_UP", _OL_UNIT, 1)]) == 0.0
+    @test JuMP.normalized_coefficient(row, down[("DN_A", _OL_UNIT, 1)]) == 0.0
+end
+
+@testset "Energy offer cap: only thermal formulations take it" begin
+    sys, _ = _ol_system(; up = _OL_ONE_SERVICE, energy_top = 400.0)
+    c = get_optimization_container(_ol_model(sys))
+    loads = DeviceModel(PowerLoad, StaticPowerLoad; attributes = _OL_CAP)
+    @test_throws ArgumentError POM.add_energy_offer_cap_constraints!(c, sys, loads)
+end
+
+@testset "Offer limits: duals listed on the device model cover every row" begin
+    sys, g = _ol_system(; up = _OL_TWO_SERVICES, energy_top = 400.0)
+    _ol_add_links!(sys, g, ["UP_A", "UP_B"], [[1, 1], [2, 0]])
+    types = [POM.LinkedReserveOfferConstraint, POM.EnergyOfferCapConstraint]
+    model = _ol_model(sys; attributes = merge(_OL_LINKED, _OL_CAP), duals = types)
+    c = get_optimization_container(model)
+    for T in types
+        dual = IOM.get_duals(c)[IOM.ConstraintKey(T, ThermalStandard)]
+        @test !isempty(dual.data)
+        @test sort!(collect(keys(dual.data))) == _ol_rows(c, T)
+    end
+    @test _ol_solve!(model)
+    res = IOM.OptimizationProblemOutputs(model)
+    names = IOM.list_dual_names(res)
+    @test any(occursin("LinkedReserveOfferConstraint", n) for n in names)
+    @test any(occursin("EnergyOfferCapConstraint", n) for n in names)
+end
