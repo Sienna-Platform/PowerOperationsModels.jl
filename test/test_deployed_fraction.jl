@@ -298,22 +298,22 @@ end
     )
     reserve = only(get_components(OnlineReserve{ReserveUp}, sys))
     set_deployed_fraction!(reserve, 0.5)
-    set_requirement!(reserve, 0.01 * PSY.SU)
+    set_requirement!(reserve, 0.01 * u"SU")
     hy = only(get_components(HydroDispatch, sys))
     hy_copy = HydroDispatch(;
         name = "HydroDispatchCopy",
         available = get_available(hy),
         bus = get_bus(hy),
-        active_power = get_active_power(hy, PSY.SU),
-        reactive_power = get_reactive_power(hy, PSY.SU),
-        rating = get_rating(hy, PSY.SU),
+        active_power = get_active_power(hy, u"SU"),
+        reactive_power = get_reactive_power(hy, u"SU"),
+        rating = get_rating(hy, u"SU"),
         prime_mover_type = get_prime_mover_type(hy),
-        active_power_limits = get_active_power_limits(hy, PSY.SU),
-        reactive_power_limits = get_reactive_power_limits(hy, PSY.SU),
-        ramp_limits = get_ramp_limits(hy, PSY.SU / u"minute"),
+        active_power_limits = get_active_power_limits(hy, u"SU"),
+        reactive_power_limits = get_reactive_power_limits(hy, u"SU"),
+        ramp_limits = get_ramp_limits(hy, u"SU/minute"),
         time_limits = get_time_limits(hy),
-        base_power = get_base_power(hy, PSY.NU),
-        input_basis = CU,
+        base_power = get_base_power(hy, u"NU"),
+        input_basis = u"CU",
     )
     add_component!(sys, hy_copy)
     copy_time_series!(hy_copy, hy)

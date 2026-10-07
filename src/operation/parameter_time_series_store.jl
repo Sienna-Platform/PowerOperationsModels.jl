@@ -355,14 +355,18 @@ _cost_time_series_keys(c::PSY.VirtualParticipant) =
     PSY.get_time_series_keys(PSY.get_operation_cost(c))
 
 """
-An online/offline reserve's own `TimeSeriesKey`, when its operating-reserve-demand-curve
-`variable` is time-series-backed, else none. A reserve's variable curve is not an
-`operation_cost`, so it is not reached by the `PSY.get_time_series_keys(PSY.get_operation_cost(c))`
-methods above; it is exported to the document the same way a device's cost is
+An online/offline/group reserve's own `TimeSeriesKey`, when its demand-curve `variable` is
+time-series-backed, else none. A reserve's variable curve is not an `operation_cost`, so it is
+not reached by the `PSY.get_time_series_keys(PSY.get_operation_cost(c))` methods above; it is
+exported to the document the same way a device's cost is
 (`PowerSystems.convert_cost_to_openapi` on the curve's `TimeSeriesFunctionData`), so it must be
 copied here too or the exported document ends up with a dangling association id.
 """
-function _cost_time_series_keys(c::Union{PSY.OnlineReserve, PSY.OfflineReserve})
+_cost_time_series_keys(c::Union{PSY.OnlineReserve, PSY.OfflineReserve}) =
+    _variable_time_series_keys(c)
+_cost_time_series_keys(c::PSY.GroupReserve) = _variable_time_series_keys(c)
+
+function _variable_time_series_keys(c::PSY.Service)
     value_curve = PSY.get_value_curve(PSY.get_variable(c))
     IS.is_time_series_backed(value_curve) || return IS.TimeSeriesKey[]
     return IS.TimeSeriesKey[IS.get_time_series_key(value_curve)]
@@ -585,7 +589,7 @@ function write_outputs_system_bundle!(
         ),
         association_id_map = key_map,
     )
-    PSY.PD.write_document(doc, joinpath(bundle_dir, PSY.SYSTEM_DOCUMENT_FILE))
+    PSY.PC.write_document(doc, joinpath(bundle_dir, PSY.SYSTEM_DOCUMENT_FILE))
     return nothing
 end
 
