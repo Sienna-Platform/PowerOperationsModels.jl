@@ -228,7 +228,7 @@ function _links_value_axes(container::OptimizationContainer, d::PSY.Component)
     end
     value_axes = IS.get_value_axes(md)
     _product_labels(value_axes, d)
-    _check_int_links(_value_eltype(IS.get_time_series_type(md)), d)
+    _check_int_links(eltype(md), d)
     return value_axes
 end
 
