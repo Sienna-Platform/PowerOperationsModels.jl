@@ -354,6 +354,7 @@ include("market_models/market_loads.jl")
 include("services_models/service_slacks.jl")
 include("services_models/reserves.jl")
 include("services_models/reserve_offers.jl")
+include("common_models/offer_limits.jl")
 include("services_models/reserve_group.jl")
 # include("services_models/agc.jl")  # TODO: needs _get_ace_error
 include("services_models/transmission_interface.jl")

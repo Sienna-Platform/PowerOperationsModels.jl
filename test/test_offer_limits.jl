@@ -1,0 +1,167 @@
+# Opt-in device-model attributes over offer data that spans services: linked reserve offer
+# blocks are sold once ("linked_reserve_offers"), and energy plus upward reserve awards stay
+# within the top of the energy offer curve ("energy_offer_cap").
+
+const _OL_INIT_TIMES = [DateTime("2024-01-01T00:00:00"), DateTime("2024-01-02T00:00:00")]
+const _OL_UNIT = "Brighton"  # c_sys5_uc: 300 to 600 MW
+
+_ol_curve(x, y) = make_market_bid_curve(x, y, 0.0; power_units = IS.NaturalUnit())
+
+_ol_offer_ts(name, x, y) = Deterministic(
+    name,
+    Dict(it => [IS.PiecewiseStepData(x, y) for _ in 1:24] for it in _OL_INIT_TIMES),
+    Hour(1),
+)
+
+# c_sys5_uc where `_OL_UNIT` offers energy at 1 $/MWh up to `energy_top` MW (its pmax when
+# `nothing`) and alone supplies each service: `up`/`down` map a name to (breakpoints MW,
+# prices). Every service values 100 MW at 1000 $/MW; `offline` adds one offline service.
+function _ol_system(; up = [], down = [], energy_top = nothing, offline = false)
+    sys = deepcopy(PSB.build_system(PSITestSystems, "c_sys5_uc"))
+    g = get_component(ThermalStandard, sys, _OL_UNIT)
+    top = something(energy_top, PSY.get_max_active_power(g, u"NU"))
+    set_operation_cost!(
+        g,
+        MarketBidCost(;
+            minimum_energy_offer = LinearCurve(0.0),
+            start_up = (hot = 0.0, warm = 0.0, cold = 0.0),
+            shut_down = LinearCurve(0.0),
+            incremental_offer_curves = _ol_curve([0.0, top], [1.0]),
+        ),
+    )
+    demand = _ol_curve([0.0, 100.0], [1000.0])
+    services = vcat(
+        [(OnlineReserve{ReserveUp}, name, x, y) for (name, (x, y)) in up],
+        [(OnlineReserve{ReserveDown}, name, x, y) for (name, (x, y)) in down],
+    )
+    for (S, name, x, y) in services
+        service = S(;
+            name = name, available = true, time_frame = 10.0, requirement = 0.0,
+            variable = demand,
+        )
+        add_service!(sys, service, PSY.Device[g])
+        PSY.set_service_bid!(sys, g, service, _ol_offer_ts(name, x, y), IS.NaturalUnit())
+    end
+    if offline
+        service = OfflineReserve(;
+            name = "OFF_UP", available = true, time_frame = 30.0, variable = demand,
+        )
+        add_service!(sys, service, PSY.Device[g])
+        PSY.set_service_bid!(
+            sys, g, service, _ol_offer_ts("OFF_UP", [0.0, 50.0], [1.0]), IS.NaturalUnit(),
+        )
+    end
+    return sys, g
+end
+
+const _OL_SERVICE_TYPES =
+    (OnlineReserve{ReserveUp}, OnlineReserve{ReserveDown}, OfflineReserve)
+
+function _ol_model(
+    sys;
+    formulation = ThermalBasicUnitCommitment,
+    attributes = Dict{String, Any}(),
+    duals = DataType[],
+    service_types = _OL_SERVICE_TYPES,
+)
+    template = PowerOperationsProblemTemplate(CopperPlateNetworkModel)
+    set_device_model!(template, PowerLoad, StaticPowerLoad)
+    set_device_model!(
+        template, DeviceModel(ThermalStandard, formulation; attributes, duals),
+    )
+    for S in service_types
+        isempty(get_components(S, sys)) && continue
+        set_service_model!(template, ServiceModel(S, StepwiseCostReserve))
+    end
+    model = DecisionModel(
+        template, sys; optimizer = HiGHS_optimizer, store_variable_names = true,
+    )
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+    return model
+end
+
+# Commit `_OL_UNIT` in every step and solve: the rows under test bind only while it runs.
+function _ol_solve!(model)
+    container = get_optimization_container(model)
+    on = IOM.get_variable(container, OnVariable, ThermalStandard)
+    for t in axes(on)[2]
+        JuMP.fix(on[_OL_UNIT, t], 1.0; force = true)
+    end
+    return solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+end
+
+# A `reserve_offer_links` series for `g`, the same in every step: `rows[b]` holds block b's
+# step in each service of `products` (0: not in it).
+function _ol_add_links!(
+    sys, g, products, rows;
+    resolution = Hour(1), steps = 24, axis_names = ("block", "product"),
+)
+    window = permutedims(hcat(rows...))
+    data = Dict(
+        it => repeat(reshape(window, 1, size(window)...), steps) for it in _OL_INIT_TIMES
+    )
+    ts = Deterministic(;
+        name = POM.RESERVE_OFFER_LINKS_TS_NAME,
+        data = data,
+        resolution = resolution,
+        value_axes = [
+            IS.TimeSeriesAxis(axis_names[1], collect(1:length(rows))),
+            IS.TimeSeriesAxis(axis_names[2], products),
+        ],
+    )
+    PSY.add_time_series!(sys, g, ts)
+    return
+end
+
+_ol_blk(c) = IOM.get_variable(c, POM.PiecewiseLinearBlockReserveOffer, ThermalStandard)
+_ol_award(c, S = OnlineReserve{ReserveUp}) =
+    IOM.get_variable(
+        c,
+        ActivePowerReserveVariable,
+        IOM.ComponentPairKey{ThermalStandard, S},
+    )
+_ol_keys(container) = sort!(IOM.encode_key.(IOM.get_constraint_keys(container)))
+_ol_rows(c, T) = sort!(collect(keys(IOM.get_constraint(c, T, ThermalStandard).data)))
+
+const _OL_TWO_SERVICES =
+    ["UP_A" => ([0.0, 10.0, 30.0], [5.0, 7.0]), "UP_B" => ([0.0, 10.0], [6.0])]
+
+@testset "Offer limits are off by default: model unchanged, links ignored with a warning" begin
+    plain_sys, _ = _ol_system(; up = _OL_TWO_SERVICES)
+    plain = _ol_model(plain_sys)
+    sys, g = _ol_system(; up = _OL_TWO_SERVICES)
+    _ol_add_links!(sys, g, ["UP_A", "UP_B"], [[1, 1], [2, 0]])
+    model = _ol_model(sys; attributes = Dict{String, Any}("energy_offer_cap" => false))
+    # `build!` logs through its own logger, so the warning is read from the problem log.
+    log_of(m) = read(joinpath(IOM.get_output_dir(m), IOM.PROBLEM_LOG_FILENAME), String)
+    @test occursin(r"carry reserve_offer_links series .* ignored", log_of(model))
+    @test !occursin("reserve_offer_links", log_of(plain))
+    c0 = get_optimization_container(plain)
+    c1 = get_optimization_container(model)
+    jm0, jm1 = IOM.get_jump_model(c0), IOM.get_jump_model(c1)
+    @test _ol_keys(c1) == _ol_keys(c0)
+    @test JuMP.num_constraints(jm1; count_variable_in_set_constraints = true) ==
+          JuMP.num_constraints(jm0; count_variable_in_set_constraints = true)
+    @test string(JuMP.objective_function(jm1)) == string(JuMP.objective_function(jm0))
+    # Unlinked, block 1 clears in both services: 10 + 20 MW of UP_A and 10 MW of UP_B.
+    @test _ol_solve!(model)
+    award = _ol_award(c1)
+    base = IOM.get_model_base_power(c1)
+    for t in 1:24
+        total =
+            JuMP.value(award[("UP_A", _OL_UNIT, t)]) +
+            JuMP.value(award[("UP_B", _OL_UNIT, t)])
+        @test isapprox(base * total, 40.0; atol = 1e-6)
+    end
+end
+
+@testset "Offer limits need rebuild_model = true" begin
+    sys, _ = _ol_system(; up = _OL_TWO_SERVICES)
+    container = get_optimization_container(_ol_model(sys))
+    @test POM._require_rebuild_model(container, POM.LINKED_RESERVE_OFFERS_KEY) === nothing
+    container.built_for_recurrent_solves = true
+    @test_throws ErrorException POM._require_rebuild_model(
+        container, POM.LINKED_RESERVE_OFFERS_KEY,
+    )
+end
