@@ -57,10 +57,10 @@ end
 const _OL_SERVICE_TYPES =
     (OnlineReserve{ReserveUp}, OnlineReserve{ReserveDown}, OfflineReserve)
 
-function _ol_model(
-    sys;
+function _ol_template(
+    attributes;
+    sys,
     formulation = ThermalBasicUnitCommitment,
-    attributes = Dict{String, Any}(),
     duals = DataType[],
     service_types = _OL_SERVICE_TYPES,
 )
@@ -73,6 +73,11 @@ function _ol_model(
         isempty(get_components(S, sys)) && continue
         set_service_model!(template, ServiceModel(S, StepwiseCostReserve))
     end
+    return template
+end
+
+function _ol_model(sys; attributes = Dict{String, Any}(), kwargs...)
+    template = _ol_template(attributes; sys, kwargs...)
     model = DecisionModel(
         template, sys; optimizer = HiGHS_optimizer, store_variable_names = true,
     )
@@ -167,8 +172,6 @@ end
 end
 
 const _OL_LINKED = Dict{String, Any}("linked_reserve_offers" => true)
-_ol_linked_model(::Type{F} = ThermalBasicUnitCommitment) where {F} =
-    DeviceModel(ThermalStandard, F; attributes = _OL_LINKED)
 
 @testset "Linked reserve offers: a block linked into two services is sold once" begin
     sys, g = _ol_system(; up = _OL_TWO_SERVICES)
@@ -226,25 +229,30 @@ end
 end
 
 @testset "Linked reserve offers: bad links are errors" begin
-    function built(links...; kwargs...)
-        sys, g = _ol_system(; up = _OL_TWO_SERVICES)
-        model = _ol_model(sys)
-        _ol_add_links!(sys, g, links...; kwargs...)
-        return get_optimization_container(model), sys
+    sys, g = _ol_system(; up = _OL_TWO_SERVICES)
+    model = _ol_model(sys)  # no links yet: a container for the validator
+    c = get_optimization_container(model)
+    _ol_add_links!(sys, g, ["UP_A", "UP_B"], [[1, 1]]; axis_names = ("blocks", "product"))
+    @test_throws ArgumentError POM._links_value_axes(c, g)
+    sys2, g2 = _ol_system(; up = _OL_TWO_SERVICES)
+    _ol_add_links!(sys2, g2, ["UP_A", "UP_B"], [[1, 1]]; resolution = Minute(30))
+    @test_throws IS.ConflictingInputsError POM._links_value_axes(c, g2)
+
+    # Product not offered and a step past the curve fail the build with the message logged.
+    for (products, rows, message) in (
+        (["UP_A", "UP_X"], [[1, 1]], "not among its ancillary_service_offers"),
+        (["UP_A", "UP_B"], [[3, 1]], "links to step 3"),
+    )
+        sys3, g3 = _ol_system(; up = _OL_TWO_SERVICES)
+        _ol_add_links!(sys3, g3, products, rows)
+        dir = mktempdir(; cleanup = true)
+        model3 = DecisionModel(
+            _ol_template(_OL_LINKED; sys = sys3), sys3; optimizer = HiGHS_optimizer,
+        )
+        @test build!(model3; output_dir = dir, console_level = Logging.AboveMaxLevel) ==
+              IOM.ModelBuildStatus.FAILED
+        @test occursin(message, read(joinpath(dir, IOM.PROBLEM_LOG_FILENAME), String))
     end
-    add!(c, sys) = POM.add_linked_reserve_offer_constraints!(c, sys, _ol_linked_model())
-    # UP_B's curve has one step.
-    c, sys = built(["UP_A", "UP_B"], [[1, 2]])
-    @test_throws IS.ConflictingInputsError add!(c, sys)
-    # UP_C is not among the device's ancillary_service_offers.
-    c, sys = built(["UP_A", "UP_C"], [[1, 1]])
-    @test_throws IS.ConflictingInputsError add!(c, sys)
-    # The axes must be [block, product].
-    c, sys = built(["UP_A", "UP_B"], [[1, 1]]; axis_names = ("product", "block"))
-    @test_throws ArgumentError add!(c, sys)
-    # The window must run at the model's resolution.
-    c, sys = built(["UP_A", "UP_B"], [[1, 1]]; resolution = Minute(30), steps = 48)
-    @test_throws IS.ConflictingInputsError add!(c, sys)
 end
 
 const _OL_CAP = Dict{String, Any}("energy_offer_cap" => true)
@@ -373,4 +381,57 @@ end
     names = IOM.list_dual_names(res)
     @test any(occursin("LinkedReserveOfferConstraint", n) for n in names)
     @test any(occursin("EnergyOfferCapConstraint", n) for n in names)
+end
+
+@testset "Links reach the model through ReserveOfferLinkParameter" begin
+    sys, g = _ol_system(; up = _OL_TWO_SERVICES)
+    _ol_add_links!(sys, g, ["UP_A", "UP_B"], [[1, 1], [2, 0]])
+    model = _ol_model(sys; attributes = _OL_LINKED)
+    c = get_optimization_container(model)
+    key = IOM.ParameterKey(POM.ReserveOfferLinkParameter, ThermalStandard)
+    links = IOM.get_lhs_parameter_values(c, key, _OL_UNIT, POM._links_value_axes(c, g))
+    @test size(links) == (2, 2, 24)
+    @test links[:, :, 1] == [1.0 1.0; 2.0 0.0]
+    @test _ol_rows(c, POM.LinkedReserveOfferConstraint) == [(_OL_UNIT, 1, t) for t in 1:24]
+end
+
+@testset "Links keep multiplier 1.0" begin
+    # One formulation per family method that scales time-series parameters by capacity.
+    for (sys_name, D, F) in (
+        ("c_sys5_re", PSY.RenewableDispatch, RenewableFullDispatch),
+        ("c_sys5_re", PSY.RenewableDispatch, FixedOutput),
+        ("c_sys5_uc", PSY.PowerLoad, StaticPowerLoad),
+        ("c_sys5_il", PSY.InterruptiblePowerLoad, PowerLoadInterruption),
+        ("c_sys5_hy", PSY.HydroDispatch, HydroDispatchRunOfRiver),
+        ("c_sys5_hy", PSY.HydroDispatch, FixedOutput),
+        ("c_sys5_uc", PSY.ThermalStandard, FixedOutput),
+        ("c_sys5_uc", PSY.ThermalStandard, ThermalBasicUnitCommitment),
+    )
+        device = first(PSY.get_components(D, PSB.build_system(PSITestSystems, sys_name)))
+        @test POM.get_multiplier_value(POM.ReserveOfferLinkParameter, device, F) == 1.0
+    end
+end
+
+@testset "Links round trip through the outputs bundle as Int64" begin
+    sys, g = _ol_system(; up = _OL_TWO_SERVICES)
+    _ol_add_links!(sys, g, ["UP_A", "UP_B"], [[1, 1], [2, 0]])
+    model = _ol_model(sys; attributes = _OL_LINKED)
+    container = IOM.get_optimization_container(model)
+    windows = POM.run_windows(model)
+    store = POM.ParameterTimeSeriesStore()
+    key_map = POM.copy_cost_time_series!(store, sys, windows)
+    POM.write_model_inputs!(store, sys, container, windows)
+    bundle = joinpath(mktempdir(; cleanup = true), "system-test")
+    @test_logs (:info, r"Serialized") POM.write_outputs_system_bundle!(
+        sys, store, key_map, bundle,
+    )
+    POM.close_parameter_store!(store)
+    restored = PSY.from_file(bundle; time_series_read_only = true)
+    g2 = get_component(ThermalStandard, restored, _OL_UNIT)
+    got = PSY.get_time_series(PSY.Deterministic, g2, POM.RESERVE_OFFER_LINKS_TS_NAME)
+    window = only(values(PSY.get_data(got)))
+    @test eltype(window) == Int64
+    @test window[1, :, :] == [1 1; 2 0]
+    @test [a.name for a in IS.get_value_axes(got)] == ["block", "product"]
+    IS.close!(IS.get_data_store(restored.data))
 end

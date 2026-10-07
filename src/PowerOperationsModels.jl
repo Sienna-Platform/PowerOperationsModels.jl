@@ -933,6 +933,7 @@ export BThetaBranchFlow
 # Exports - Parameter Types (defined in core/parameters.jl)
 #################################################################################
 export ActivePowerTimeSeriesParameter
+export ReserveOfferLinkParameter
 export ActivePowerOutTimeSeriesParameter
 export ActivePowerInTimeSeriesParameter
 export ReactivePowerTimeSeriesParameter
