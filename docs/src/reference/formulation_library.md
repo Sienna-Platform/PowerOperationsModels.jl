@@ -322,10 +322,11 @@ equivalent is a hard error rather than a silent demotion.
     supported network the losses are accounted for: the nodal models
     (NFA/DCP/DCPLL/ACP/ACR/IVR/LPACC) carry them implicitly through the `HVDCPowerBalance`
     coupling `ft + tf == losses` with both directional flows entering their terminal balances,
-    while `PTDFNetworkModel` adds `HVDCLosses` to the system row explicitly when both terminals
-    share one reference bus. Under `AreaPTDFNetworkModel` both directional flows enter their area
-    rows, so the losses are already in them and `HVDCLosses` adds nothing.
+    while the PTDF/AreaPTDF paths add `HVDCLosses` to the aggregated system/area row explicitly.
     On `AreaBalanceNetworkModel` the Dispatch formulation is not built at all (warn no-op).
+    
+    On `PTDFNetworkModel`, the `HVDCTwoTerminalPiecewiseLoss` received flows always enter the
+    system row, so the losses of a line inside one subnetwork are in the system balance.
 
 !!! warning "HVDCTwoTerminalLossless pins reactive flow to zero on default VSC/LCC data"
     
