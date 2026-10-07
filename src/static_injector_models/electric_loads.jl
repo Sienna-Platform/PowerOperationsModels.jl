@@ -7,22 +7,22 @@ get_variable_multiplier(::Type{<:VariableType}, ::Type{<:PSY.ElectricLoad}, ::Ty
 
 get_variable_binary(::Type{ActivePowerVariable}, ::Type{<:PSY.ElectricLoad}, ::Type{<:AbstractLoadFormulation}) = false
 get_variable_lower_bound(::Type{ActivePowerVariable}, d::PSY.ElectricLoad, ::Type{<:AbstractLoadFormulation}) = 0.0
-get_variable_upper_bound(::Type{ActivePowerVariable}, d::PSY.ElectricLoad, ::Type{<:AbstractLoadFormulation}) = PSY.get_max_active_power(d, PSY.SU)
+get_variable_upper_bound(::Type{ActivePowerVariable}, d::PSY.ElectricLoad, ::Type{<:AbstractLoadFormulation}) = PSY.get_max_active_power(d, u"SU")
 
 ########################### ReactivePowerVariable, ElectricLoad ####################################
 
 get_variable_binary(::Type{ReactivePowerVariable}, ::Type{<:PSY.ElectricLoad}, ::Type{<:AbstractLoadFormulation}) = false
 
 get_variable_lower_bound(::Type{ReactivePowerVariable}, d::PSY.ElectricLoad, ::Type{<:AbstractLoadFormulation}) = 0.0
-get_variable_upper_bound(::Type{ReactivePowerVariable}, d::PSY.ElectricLoad, ::Type{<:AbstractLoadFormulation}) = PSY.get_max_reactive_power(d, PSY.SU)
+get_variable_upper_bound(::Type{ReactivePowerVariable}, d::PSY.ElectricLoad, ::Type{<:AbstractLoadFormulation}) = PSY.get_max_reactive_power(d, u"SU")
 
 ########################### ReactivePowerVariable, ElectricLoad ####################################
 
 get_variable_binary(::Type{OnVariable}, ::Type{<:PSY.ElectricLoad}, ::Type{<:AbstractLoadFormulation}) = true
 
-get_multiplier_value(::Type{<:TimeSeriesParameter}, d::PSY.ElectricLoad, ::Type{StaticPowerLoad}) = -1*PSY.get_max_active_power(d, PSY.SU)
-get_multiplier_value(::Type{ReactivePowerTimeSeriesParameter}, d::PSY.ElectricLoad, ::Type{StaticPowerLoad}) = -1*PSY.get_max_reactive_power(d, PSY.SU)
-get_multiplier_value(::Type{<:TimeSeriesParameter}, d::PSY.ElectricLoad, ::Type{<:AbstractControllablePowerLoadFormulation}) = PSY.get_max_active_power(d, PSY.SU)
+get_multiplier_value(::Type{<:TimeSeriesParameter}, d::PSY.ElectricLoad, ::Type{StaticPowerLoad}) = -1*PSY.get_max_active_power(d, u"SU")
+get_multiplier_value(::Type{ReactivePowerTimeSeriesParameter}, d::PSY.ElectricLoad, ::Type{StaticPowerLoad}) = -1*PSY.get_max_reactive_power(d, u"SU")
+get_multiplier_value(::Type{<:TimeSeriesParameter}, d::PSY.ElectricLoad, ::Type{<:AbstractControllablePowerLoadFormulation}) = PSY.get_max_active_power(d, u"SU")
 
 ########################### ShiftablePowerLoad #####################################
 
@@ -187,8 +187,8 @@ end
 ####################################### Reactive Power Constraints #########################
 # Power factor sin(atan(q/p)) in closed form via the Pythagorean identity.
 function _controllable_load_power_factor(d::PSY.ElectricLoad)
-    q_max = PSY.get_max_reactive_power(d, PSY.SU)
-    p_max = PSY.get_max_active_power(d, PSY.SU)
+    q_max = PSY.get_max_reactive_power(d, u"SU")
+    p_max = PSY.get_max_active_power(d, u"SU")
     denom = sqrt(q_max^2 + p_max^2)
     if iszero(denom)
         return 0.0
@@ -312,7 +312,7 @@ get_min_max_limits(
     d::PSY.ControllableLoad,
     ::Type{ActivePowerVariableLimitsConstraint},
     ::Type{PowerLoadDispatch},
-) = (min = 0.0, max = PSY.get_max_active_power(d, PSY.SU))
+) = (min = 0.0, max = PSY.get_max_active_power(d, u"SU"))
 
 # `P + Σ r_down <= forecast`: down awards consume forecast headroom.
 function add_constraints!(
@@ -354,7 +354,7 @@ get_min_max_limits(
     d::PSY.ControllableLoad,
     ::Type{ActivePowerVariableLimitsConstraint},
     ::Type{PowerLoadInterruption},
-) = (min = 0.0, max = PSY.get_max_active_power(d, PSY.SU))
+) = (min = 0.0, max = PSY.get_max_active_power(d, u"SU"))
 
 # An interrupted load consumes nothing, so it can neither shed nor absorb: with services the
 # gate caps `ActivePowerRangeExpressionUB` (= P + Σ r_down) so down awards are gated too.
@@ -410,7 +410,7 @@ function _add_interruption_gate!(
     jump_model = get_jump_model(container)
     for t in time_steps, d in devices
         name = PSY.get_name(d)
-        pmax = PSY.get_max_active_power(d, PSY.SU)
+        pmax = PSY.get_max_active_power(d, u"SU")
         constraint[name, t] =
             JuMP.@constraint(jump_model, gated[name, t] <= on_variable[name, t] * pmax)
     end

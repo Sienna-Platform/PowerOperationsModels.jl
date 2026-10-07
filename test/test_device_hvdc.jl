@@ -80,7 +80,11 @@ function _generate_test_hvdc_sys()
     for ipc in get_components(InterconnectingConverter, sys)
         new_dc_loss = PSY.LossCurve(QuadraticCurve(0.01, 0.01, 0.0), PSY.CU)
         set_loss_function!(ipc, new_dc_loss)
-        set_max_dc_current!(ipc, 2.0 * PSY.SU)
+        # 2.0 pu on the system base, in amperes.
+        set_max_dc_current!(
+            ipc,
+            2.0 * 1000.0 * get_base_power(sys) / get_base_voltage(get_dc_bus(ipc)),
+        )
     end
     return sys
 end
@@ -107,6 +111,23 @@ end
     @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
 end
 
+@testset "HVDC ohm and ampere conversions match hand-computed per-unit values" begin
+    sys = build_system(PSISystems, "sys10_pjm_ac_dc")
+    @test get_base_power(sys) == 100.0
+    for bus in get_components(DCBus, sys)
+        set_base_voltage!(bus, 500.0)
+    end
+    # Z_base = 500^2 / 100 = 2500 ohm, so 25 ohm is 0.01 pu.
+    for line in get_components(TModelHVDCLine, sys)
+        set_r!(line, 25.0)
+        @test POM._tmodel_r_su(line) ≈ 0.01
+    end
+    # I_base = 1000 * 100 / 500 = 200 A, so 400 A is 2.0 pu.
+    for ipc in get_components(InterconnectingConverter, sys)
+        @test POM._dc_current_su(ipc, 400.0) ≈ 2.0
+    end
+end
+
 @testset "HVDC CurrentAbsoluteValueVariable matches |ConverterCurrent| at MILP optimum" begin
     # Force a ~2 pu side-2 generation deficit (within the 2 converters × 2.0 pu DC
     # import capacity) so side-2 must import over the DC ties. Under CopperPlate the
@@ -119,7 +140,7 @@ end
     for (name, cap) in (("Brighton-2", 2.0), ("Solitude-2", 2.0))
         PSY.set_active_power_limits!(
             get_component(ThermalStandard, sys, name),
-            (min = 0.0 * PSY.SU, max = cap * PSY.SU),
+            (min = 0.0 * u"SU", max = cap * u"SU"),
         )
     end
     template = PowerOperationsProblemTemplate(
@@ -213,6 +234,10 @@ function _generate_test_vsc_sys(;
     sys = build_system(PSITestSystems, "c_sys5_uc")
     line = get_component(Line, sys, "1")
     remove_component!(sys, line)
+    # PSY holds the VSC DC quantities in kV, S, and A. These are the old per-unit values
+    # on (rated_dc_voltage, system base); `g` stays a per-unit argument.
+    v_dc = 230.0
+    s_base = get_base_power(sys)
 
     vsc = TwoTerminalVSCLine(;
         name = get_name(line),
@@ -220,35 +245,35 @@ function _generate_test_vsc_sys(;
         arc = get_arc(line),
         active_power_flow = 0.0,
         rating = max(rating_from, rating_to),
-        active_power_limits_from = (min = -rating_from, max = rating_from),
-        active_power_limits_to = (min = -rating_to, max = rating_to),
-        g = g,
+        g = g * s_base / v_dc^2,
         dc_current = 0.0,
         reactive_power_from = 0.0,
         dc_control_from = VSCDCControlModes.DC_VOLTAGE,
         ac_control_from = VSCACControlModes.AC_VOLTAGE,
-        dc_setpoint_from = 1.0,
-        ac_setpoint_from = 1.0,
+        dc_voltage_setpoint_from = 1.0,
+        ac_voltage_setpoint_from = 1.0,
+        rated_ac_voltage_from = get_base_voltage(get_from(get_arc(line))),
+        rated_dc_voltage = v_dc,
         converter_loss_from = PSY.LossCurve(QuadraticCurve(loss_a, loss_b, loss_c), PSY.CU),
-        max_dc_current_from = 5.0,
+        max_dc_current_from = 5.0 * 1000.0 * s_base / v_dc,
         rating_from = rating_from,
         reactive_power_limits_from = (min = -rating_from, max = rating_from),
         power_factor_weighting_fraction_from = 1.0,
-        voltage_limits_from = (min = 0.95, max = 1.05),
+        voltage_limits_from = (min = 0.95 * v_dc, max = 1.05 * v_dc),
         dc_voltage_droop_from = 0.0,
         reactive_power_to = 0.0,
         dc_control_to = VSCDCControlModes.DC_POWER,
         ac_control_to = VSCACControlModes.AC_REACTIVE_POWER,
-        dc_setpoint_to = 0.0,
-        ac_setpoint_to = 0.0,
+        dc_power_setpoint_to = 0.0,
+        power_factor_setpoint_to = 1.0,
         converter_loss_to = PSY.LossCurve(QuadraticCurve(loss_a, loss_b, loss_c), PSY.CU),
-        max_dc_current_to = 5.0,
+        max_dc_current_to = 5.0 * 1000.0 * s_base / v_dc,
         rating_to = rating_to,
         reactive_power_limits_to = (min = -rating_to, max = rating_to),
         power_factor_weighting_fraction_to = 1.0,
-        voltage_limits_to = (min = 0.95, max = 1.05),
+        voltage_limits_to = (min = 0.95 * v_dc, max = 1.05 * v_dc),
         dc_voltage_droop_to = 0.0,
-        input_basis = CU,
+        input_basis = u"CU",
     )
     add_component!(sys, vsc)
     return sys
@@ -330,6 +355,45 @@ end
         )
         @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
               IOM.ModelBuildStatus.BUILT
+    end
+end
+
+@testset "HVDC VSC bilinear factor bounds are in system per unit" begin
+    sys = _generate_test_vsc_sys()
+    vsc = get_component(TwoTerminalVSCLine, sys, "1")
+    # DC side, V_base = rated_dc_voltage = 230 kV; the limits are 0.95 and 1.05 times it.
+    for lims in (POM._vsc_voltage_limits_from_su(vsc), POM._vsc_voltage_limits_to_su(vsc))
+        @test lims.min ≈ 0.95
+        @test lims.max ≈ 1.05
+    end
+    # DC side, I_base = 1000 * 100 MVA / 230 kV; max_dc_current is 5 times it.
+    @test POM._vsc_cable_i_max(vsc) ≈ 5.0
+    # AC side: I_ac <= rating_from / vmin, both in per unit of the from-bus base.
+    vmin = get_voltage_limits(get_from(get_arc(vsc)), u"CU").min
+    @test POM.get_variable_upper_bound(
+        POM.ConverterACCurrentFromVariable, vsc, HVDCTwoTerminalVSC,
+    ) ≈ 2.0 / vmin
+
+    # The bin2 builder gets the same DC bounds, so v_f * I is feasible and in tolerance.
+    rel_tol = 0.1
+    model = _build_vsc_model(
+        _vsc_milp("bilinear_relative_tolerance" => rel_tol),
+        DCPNetworkModel, HiGHS_optimizer; sys = sys,
+    )
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+    @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+    c = IOM.get_optimization_container(model)
+    v_f = IOM.get_variable(c, POM.HVDCFromDCVoltage, TwoTerminalVSCLine)
+    i_dc = IOM.get_variable(c, POM.DCLineCurrentFlowVariable, TwoTerminalVSCLine)
+    vi_ft = IOM.get_expression(
+        c, IOM.BilinearProductExpression, TwoTerminalVSCLine, "vi_ft",
+    )
+    for t in axes(v_f)[2]
+        @test JuMP.lower_bound(v_f["1", t]) ≈ 0.95
+        @test JuMP.upper_bound(v_f["1", t]) ≈ 1.05
+        exact = JuMP.value(v_f["1", t]) * JuMP.value(i_dc["1", t])
+        @test abs(JuMP.value(vi_ft["1", t]) - exact) <= rel_tol * 1.05 * 5.0 + 1e-6
     end
 end
 

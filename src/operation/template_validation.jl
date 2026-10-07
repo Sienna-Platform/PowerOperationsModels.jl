@@ -73,6 +73,7 @@ function validate_template_impl!(model::IOM.AbstractOptimizationModel)
     for k in device_keys_to_delete
         delete!(template.devices, k)
     end
+    foreach(_check_converter_ac_control, values(template.devices))
 
     model_has_branch_filters = false
     branch_keys_to_delete = Symbol[]
@@ -99,6 +100,7 @@ function validate_template_impl!(model::IOM.AbstractOptimizationModel)
             )
         else
             _validate_branch_slack_request(k, device_model, network_formulation)
+            _warn_unenforced_operational_flow_limits(device_model)
             push!(network_model.modeled_branch_types, get_component_type(device_model))
         end
         if get_attribute(device_model, "filter_function") !== nothing
@@ -122,6 +124,50 @@ function validate_template_impl!(model::IOM.AbstractOptimizationModel)
     # monitored-name maps this check reads.
     _check_monitored_components(template.branches, system)
     _build_device_model_events!(template, system)
+    return
+end
+
+#################################################################################
+# InterconnectingConverter AC control
+#################################################################################
+
+_check_converter_ac_control(::DeviceModel) = nothing
+
+function _check_converter_ac_control(
+    device_model::DeviceModel{PSY.InterconnectingConverter, VoltageControlConverter},
+)
+    for d in get_device_cache(device_model)
+        if PSY.get_ac_control(d) == PSY.VSCACControlModes.AC_REACTIVE_POWER
+            _ic_reactive_power_control_error(d)
+        end
+    end
+    return
+end
+
+#################################################################################
+# Operational flow limits that POM does not enforce yet
+#################################################################################
+
+_sets_operational_flow_limit(::PSY.Device) = false
+_sets_operational_flow_limit(d::PSY.Line) =
+    !isnothing(PSY.get_operational_flow_limit(d, u"SU"))
+_sets_operational_flow_limit(d::PSY.TransformerCircuit) =
+    !isnothing(PSY.get_operational_flow_limit(d, u"SU"))
+_sets_operational_flow_limit(d::PSY.TwoWindingTransformer) =
+    _sets_operational_flow_limit(PSY.get_circuit(d))
+_sets_operational_flow_limit(d::PSY.ThreeWindingTransformer) =
+    any(_sets_operational_flow_limit, PSY.get_circuits(d))
+_sets_operational_flow_limit(d::PSY.TwoTerminalHVDC) =
+    !isnothing(PSY.get_operational_flow_limit(d, u"SU"))
+
+function _warn_unenforced_operational_flow_limits(device_model::DeviceModel)
+    names = [
+        PSY.get_name(d) for
+        d in get_device_cache(device_model) if _sets_operational_flow_limit(d)
+    ]
+    isempty(names) && return
+    @warn "$(length(names)) $(nameof(get_component_type(device_model))) component(s) set operational_flow_limit, which this version of POM does not enforce yet: $(join(first(names, 5), ", "))" _group =
+        IOM.LOG_GROUP_MODELS_VALIDATION
     return
 end
 

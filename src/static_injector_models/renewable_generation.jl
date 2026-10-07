@@ -9,16 +9,16 @@ get_parameter_multiplier(::Type{<:VariableValueParameter}, d::PSY.RenewableGen, 
 ########################### ActivePowerVariable, RenewableGen #################################
 
 get_variable_binary(::Type{ActivePowerVariable}, ::Type{<:PSY.RenewableGen}, ::Type{<:AbstractRenewableFormulation}) = false
-get_min_max_limits(d::PSY.RenewableGen, ::Type{ActivePowerVariableLimitsConstraint}, ::Type{<:AbstractRenewableFormulation}) = (min = 0.0, max = PSY.get_max_active_power(d, PSY.SU))
+get_min_max_limits(d::PSY.RenewableGen, ::Type{ActivePowerVariableLimitsConstraint}, ::Type{<:AbstractRenewableFormulation}) = (min = 0.0, max = PSY.get_max_active_power(d, u"SU"))
 get_variable_lower_bound(::Type{ActivePowerVariable}, d::PSY.RenewableGen, ::Type{<:AbstractRenewableFormulation}) = 0.0
-get_variable_upper_bound(::Type{ActivePowerVariable}, d::PSY.RenewableGen, ::Type{<:AbstractRenewableFormulation}) = PSY.get_max_active_power(d, PSY.SU)
+get_variable_upper_bound(::Type{ActivePowerVariable}, d::PSY.RenewableGen, ::Type{<:AbstractRenewableFormulation}) = PSY.get_max_active_power(d, u"SU")
 
 ########################### ReactivePowerVariable, RenewableGen #################################
 
 get_variable_binary(::Type{ReactivePowerVariable}, ::Type{<:PSY.RenewableGen}, ::Type{<:AbstractRenewableFormulation}) = false
 
-get_multiplier_value(::Type{<:TimeSeriesParameter}, d::PSY.RenewableGen, ::Type{FixedOutput}) = PSY.get_max_active_power(d, PSY.SU)
-get_multiplier_value(::Type{<:TimeSeriesParameter}, d::PSY.RenewableGen, ::Type{<:AbstractRenewableFormulation}) = PSY.get_max_active_power(d, PSY.SU)
+get_multiplier_value(::Type{<:TimeSeriesParameter}, d::PSY.RenewableGen, ::Type{FixedOutput}) = PSY.get_max_active_power(d, u"SU")
+get_multiplier_value(::Type{<:TimeSeriesParameter}, d::PSY.RenewableGen, ::Type{<:AbstractRenewableFormulation}) = PSY.get_max_active_power(d, u"SU")
 
 # To avoid ambiguity with default_interface_methods.jl:
 get_multiplier_value(::Type{<:AbstractPiecewiseLinearBreakpointParameter}, ::PSY.RenewableGen, ::Type{FixedOutput}) = 1.0
@@ -43,7 +43,7 @@ function get_min_max_limits(
     ::Type{ReactivePowerVariableLimitsConstraint},
     ::Type{<:AbstractRenewableFormulation},
 )
-    return PSY.get_reactive_power_limits(device, PSY.SU)
+    return PSY.get_reactive_power_limits(device, u"SU")
 end
 
 function get_default_time_series_names(

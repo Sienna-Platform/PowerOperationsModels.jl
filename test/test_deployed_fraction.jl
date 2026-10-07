@@ -39,7 +39,7 @@ function _deployed_fraction_test_system(;
     )
     reserve = only(get_components(OnlineReserve{ReserveUp}, sys))
     set_deployed_fraction!(reserve, deployed_fraction)
-    set_requirement!(reserve, 0.01 * PSY.SU)
+    set_requirement!(reserve, 0.01 * u"SU")
     if add_profile !== nothing
         _add_deployed_fraction_ts!(sys, reserve, add_profile)
     end
