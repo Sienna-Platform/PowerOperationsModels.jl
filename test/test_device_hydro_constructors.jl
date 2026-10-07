@@ -653,7 +653,10 @@ end
         pumping = IOM.get_variable(container, ActivePowerPumpVariable, HydroPumpTurbine)
         t = first(IOM.get_time_steps(container))
 
-        reservation_values = reservation ? (0, 1) : (0,)
+        reservation_values = (0,)
+        if reservation
+            reservation_values = (0, 1)
+        end
         for reservation_value in reservation_values
             if reservation
                 reservation_variable =
@@ -661,8 +664,12 @@ end
                 JuMP.fix(reservation_variable[name, t], reservation_value; force = true)
             end
             psi_checksolve_test(model, [MOI.OPTIMAL])
-            generation_status = reservation ? reservation_value : 1
-            pumping_status = reservation ? 1 - reservation_value : 1
+            generation_status = 1
+            pumping_status = 1
+            if reservation
+                generation_status = reservation_value
+                pumping_status = 1 - reservation_value
+            end
             @test 0.32 * generation_status - 1e-6 <=
                   JuMP.value(generation[name, t]) <=
                   0.43 * generation_status + 1e-6
