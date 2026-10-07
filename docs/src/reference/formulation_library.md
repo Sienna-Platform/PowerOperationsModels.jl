@@ -318,14 +318,14 @@ equivalent is a hard error rather than a silent demotion.
     On `CopperPlateNetworkModel` the constructor warns, then skips `HVDCPowerBalance` entirely:
     `HVDCLosses` and `HVDCFlowDirectionVariable` are created but left unconstrained and unwired,
     so the line's losses vanish from the single system balance. Use
-    `HVDCTwoTerminalPiecewiseLoss` on CopperPlate when the losses matter. On the other
-    supported networks the losses are accounted for, except for the AreaPTDF cases in the
-    warning "Lossy two-terminal HVDC on AreaPTDF" below: the nodal models
+    `HVDCTwoTerminalPiecewiseLoss` on CopperPlate when the losses matter. On every other
+    supported network the losses are accounted for: the nodal models
     (NFA/DCP/DCPLL/ACP/ACR/IVR/LPACC) carry them implicitly through the `HVDCPowerBalance`
-    coupling `ft + tf == losses` with both directional flows entering their terminal balances,
-    while the PTDF/AreaPTDF paths add `HVDCLosses` to an aggregated row explicitly: on
-    `PTDFNetworkModel` it enters the system row only when both terminals share one reference
-    bus, and on `AreaPTDFNetworkModel` it enters the row of the `from` area.
+    coupling `ft + tf == losses` with both directional flows entering their terminal balances.
+    On `PTDFNetworkModel`, `HVDCLosses` enters the system row when both terminals share one
+    reference bus; otherwise the two directional flows enter the rows of their reference buses.
+    On `AreaPTDFNetworkModel`, both directional flows always enter the rows of their areas, so
+    their sum carries the losses and `HVDCLosses` is not added.
     On `AreaBalanceNetworkModel` the Dispatch formulation is not built at all (warn no-op).
 
 !!! warning "HVDCTwoTerminalLossless pins reactive flow to zero on default VSC/LCC data"
@@ -337,18 +337,13 @@ equivalent is a hard error rather than a silent demotion.
     an AC network model infeasible. This is valid data, so the build warns (naming the device)
     rather than erroring.
 
-!!! note "HVDCTwoTerminalPiecewiseLoss on PTDF"
+!!! note "HVDC terminal flows on PTDF and AreaPTDF"
     
     On `PTDFNetworkModel`, the `HVDCTwoTerminalPiecewiseLoss` received flows always enter the
-    system row, so the losses of a line inside one subnetwork are in the system balance.
-
-!!! warning "Lossy two-terminal HVDC on AreaPTDF"
-    
-    On `AreaPTDFNetworkModel`, a lossy two-terminal HVDC tie (`HVDCTwoTerminalDispatch`,
-    `HVDCTwoTerminalPiecewiseLoss`) is not supported yet together with an `AreaInterchange`
-    that meters it. Its losses do not enter the area rows correctly. Also, an
-    `HVDCTwoTerminalPiecewiseLoss` line with both terminals in one area gives the lossless
-    result, because its losses do not enter the area row. See GitHub issue #330.
+    system row, so the losses of a line inside one subnetwork are in the system balance. On
+    `AreaPTDFNetworkModel`, the terminal flows of every two-terminal HVDC formulation enter the
+    rows of their areas. An `AreaInterchange` meters the HVDC ties in its flow, so its flow
+    limits include them. The area rows do not count the metered HVDC flow a second time.
 
 The apparent-power limit on the VSC formulations depends on the `"bilinear_approximation"` device
 attribute. With the default `"none"` it is an exact quadratic disk (`"from"`/`"to"`); with a
@@ -492,7 +487,11 @@ and sign, converted to a common "export at the measured terminal" convention:
 
 On PTDF/AreaPTDF networks the same table applies on top of each tie's own `PTDFBranchFlow`
 nodal-injection response, so the metering coefficient surfaces as the *difference* between the
-constraint's coefficient on a tie variable and that tie's own PTDF row.
+constraint's coefficient on a tie variable and that tie's own PTDF row. On
+`AreaPTDFNetworkModel` the HVDC terminal flows enter the area rows directly, so the network
+stage removes the metered HVDC part of each interchange flow from the area rows
+(`_remove_metered_hvdc_from_area_rows!`): the interchange limits still include the HVDC ties,
+and each tie and its losses count once in the area balance.
 
 #### Multi-terminal HVDC (`PSY.InterconnectingConverter`, `PSY.TModelHVDCLine`)
 

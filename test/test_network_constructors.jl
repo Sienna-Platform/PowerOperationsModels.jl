@@ -301,16 +301,25 @@ function _net_device_injection(container, t)
     return total
 end
 
-function _fixed_hvdc_objective(network_type, formulation, transfer)
+function _hvdc_signs(formulation)
+    from_sign = -1.0
+    to_sign = -1.0
+    if formulation == HVDCTwoTerminalLossless
+        to_sign = 1.0
+    elseif formulation == HVDCTwoTerminalPiecewiseLoss
+        from_sign = 1.0
+        to_sign = 1.0
+    end
+    return from_sign, to_sign
+end
+
+function _solve_fixed_hvdc_transfer(network_type, formulation, same_area)
     loss_factor = 0.02
     if formulation == HVDCTwoTerminalLossless
         loss_factor = 0.0
     end
-    from_sign = -1.0
-    if formulation == HVDCTwoTerminalPiecewiseLoss
-        from_sign = 1.0
-    end
-    sys, _ = _make_hvdc_area_system(; same_area = true, loss_factor)
+    from_sign, _ = _hvdc_signs(formulation)
+    sys, _ = _make_hvdc_area_system(; same_area, loss_factor)
     if network_type == AreaPTDFNetworkModel
         set_flow_limits!(
             get_component(AreaInterchange, sys, "1_2"),
@@ -322,17 +331,11 @@ function _fixed_hvdc_objective(network_type, formulation, transfer)
           IOM.ModelBuildStatus.BUILT
     container = IOM.get_optimization_container(model)
     from, _ = _hvdc_terminal_variables(container, formulation)
-    for t in 1:2
+    for (t, transfer) in enumerate((0.5, -0.5))
         JuMP.fix(from["test_hvdc", t], -from_sign * transfer; force = true)
     end
-    solve!(model)
-    jump_model = IOM.get_jump_model(container)
-    status = JuMP.termination_status(jump_model)
-    objective = NaN
-    if status == MOI.OPTIMAL
-        objective = JuMP.objective_value(jump_model)
-    end
-    return status, objective
+    @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+    return container
 end
 
 @testset "PTDFNetworkModel PWL HVDC losses enter the system row" begin
@@ -360,14 +363,7 @@ end
         if formulation == HVDCTwoTerminalLossless
             loss_factor = 0.0
         end
-        from_sign = -1.0
-        to_sign = -1.0
-        if formulation == HVDCTwoTerminalLossless
-            to_sign = 1.0
-        elseif formulation == HVDCTwoTerminalPiecewiseLoss
-            from_sign = 1.0
-            to_sign = 1.0
-        end
+        from_sign, to_sign = _hvdc_signs(formulation)
         sys, _ = _make_hvdc_area_system(; same_area, loss_factor)
         model = _hvdc_area_model(sys, PTDFNetworkModel, formulation)
         @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
@@ -396,61 +392,29 @@ end
     end
 end
 
-@testset "AreaPTDFNetworkModel HVDC tie with AreaInterchange" begin
+@testset "AreaPTDFNetworkModel HVDC with AreaInterchange matches PTDFNetworkModel" begin
     for formulation in (
-        HVDCTwoTerminalLossless,
-        HVDCTwoTerminalDispatch,
-        HVDCTwoTerminalPiecewiseLoss,
-    )
-        loss_factor = 0.02
-        if formulation == HVDCTwoTerminalLossless
-            loss_factor = 0.0
-        end
-        from_sign = -1.0
-        if formulation == HVDCTwoTerminalPiecewiseLoss
-            from_sign = 1.0
-        end
-        sys, _ = _make_hvdc_area_system(; same_area = false, loss_factor)
-        set_flow_limits!(
-            get_component(AreaInterchange, sys, "1_2"),
-            (from_to = 20.0u"SU", to_from = 20.0u"SU"),
+            HVDCTwoTerminalLossless,
+            HVDCTwoTerminalDispatch,
+            HVDCTwoTerminalPiecewiseLoss,
+        ), same_area in (false, true)
+        from_sign, to_sign = _hvdc_signs(formulation)
+        ptdf = _solve_fixed_hvdc_transfer(PTDFNetworkModel, formulation, same_area)
+        area = _solve_fixed_hvdc_transfer(AreaPTDFNetworkModel, formulation, same_area)
+        @test isapprox(
+            JuMP.objective_value(IOM.get_jump_model(area)),
+            JuMP.objective_value(IOM.get_jump_model(ptdf));
+            atol = 0.1,
         )
-        model = _hvdc_area_model(sys, AreaPTDFNetworkModel, formulation)
-        @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
-              IOM.ModelBuildStatus.BUILT
-        container = IOM.get_optimization_container(model)
-        from, _ = _hvdc_terminal_variables(container, formulation)
-        for (t, transfer) in enumerate((0.5, -0.5))
-            JuMP.fix(from["test_hvdc", t], -from_sign * transfer; force = true)
-        end
-        solve!(model)
-        status = JuMP.termination_status(IOM.get_jump_model(container))
-        if formulation == HVDCTwoTerminalLossless
-            @test status == MOI.OPTIMAL
-        else
-            # Pre-existing: the area rows do not give the HVDC losses to the area that the interchange metering does not measure.
-            @test_broken status == MOI.OPTIMAL
-        end
-    end
-end
-
-@testset "AreaPTDFNetworkModel same-area HVDC matches PTDFNetworkModel" begin
-    for formulation in (
-        HVDCTwoTerminalLossless,
-        HVDCTwoTerminalDispatch,
-        HVDCTwoTerminalPiecewiseLoss,
-    )
-        ptdf_status, ptdf_objective =
-            _fixed_hvdc_objective(PTDFNetworkModel, formulation, 0.5)
-        @test ptdf_status == MOI.OPTIMAL
-        area_status, area_objective =
-            _fixed_hvdc_objective(AreaPTDFNetworkModel, formulation, 0.5)
-        @test area_status == MOI.OPTIMAL
-        if formulation == HVDCTwoTerminalPiecewiseLoss
-            # Pre-existing: the area rows do not get the PWL HVDC losses of a same-area tie.
-            @test_broken isapprox(area_objective, ptdf_objective; atol = 0.1)
-        else
-            @test isapprox(area_objective, ptdf_objective; atol = 0.1)
+        from, to = _hvdc_terminal_variables(area, formulation)
+        for t in 1:2
+            from_injection = from_sign * JuMP.value(from["test_hvdc", t])
+            to_injection = to_sign * JuMP.value(to["test_hvdc", t])
+            @test isapprox(
+                _net_device_injection(area, t),
+                -(from_injection + to_injection);
+                atol = 1e-6,
+            )
         end
     end
 end
