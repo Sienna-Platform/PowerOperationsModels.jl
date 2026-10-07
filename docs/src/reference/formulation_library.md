@@ -386,8 +386,8 @@ the `get_variable_lower_bound` / `get_variable_upper_bound` methods in
 
 On ACR and IVR the device also owns the two `RegulatedVoltageMagnitude` variables (`"from"`, `"to"`).
 
-**Static parameters.** The model reads these `PSY.TwoTerminalLCCLine` getters. None takes a unit
-argument. The impedances are in ohm and POM converts them to system base itself, as
+**Static parameters.** The model reads these `PSY.TwoTerminalLCCLine` getters. Only the rating getters take a unit
+argument. The other getters return raw values. The impedances are in ohm and POM converts them to system base itself, as
 `z_{su} = z \cdot S_{base} / V_{base}^2`, with the base voltage listed below.
 
 | Parameter                                 | PSY getter                                                                     | Unit / base                                  |
