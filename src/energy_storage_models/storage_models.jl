@@ -560,22 +560,6 @@ get_variable_multiplier(
     ::PSY.Reserve{PSY.ReserveDown},
 ) = 0.0
 
-# Per-time-step multiplier applied to a reserve award. `UnscaledReserve` contributes the raw
-# award; `DeployedReserve` scales it by the deployed fraction, which may vary over the horizon.
-# Always a `Vector{Float64}` of length `length(get_time_steps(container))` so callers stay
-# type-stable across both scales.
-#! format: off
-get_fraction(container::OptimizationContainer, ::DeviceModel, ::Type{StorageReserveBalanceExpression{PSY.ReserveUp, UnscaledReserve, DischargeSide}}, d::PSY.AbstractReserve) = ones(Float64, length(get_time_steps(container)))
-get_fraction(container::OptimizationContainer, ::DeviceModel, ::Type{StorageReserveBalanceExpression{PSY.ReserveUp, UnscaledReserve, ChargeSide}}, d::PSY.AbstractReserve) = ones(Float64, length(get_time_steps(container)))
-get_fraction(container::OptimizationContainer, ::DeviceModel, ::Type{StorageReserveBalanceExpression{PSY.ReserveDown, UnscaledReserve, DischargeSide}}, d::PSY.AbstractReserve) = ones(Float64, length(get_time_steps(container)))
-get_fraction(container::OptimizationContainer, ::DeviceModel, ::Type{StorageReserveBalanceExpression{PSY.ReserveDown, UnscaledReserve, ChargeSide}}, d::PSY.AbstractReserve) = ones(Float64, length(get_time_steps(container)))
-
-get_fraction(container::OptimizationContainer, model::DeviceModel, ::Type{StorageReserveBalanceExpression{PSY.ReserveUp, DeployedReserve, DischargeSide}}, d::PSY.AbstractReserve) = deployed_fraction_values(container, model, d)
-get_fraction(container::OptimizationContainer, model::DeviceModel, ::Type{StorageReserveBalanceExpression{PSY.ReserveUp, DeployedReserve, ChargeSide}}, d::PSY.AbstractReserve) = deployed_fraction_values(container, model, d)
-get_fraction(container::OptimizationContainer, model::DeviceModel, ::Type{StorageReserveBalanceExpression{PSY.ReserveDown, DeployedReserve, DischargeSide}}, d::PSY.AbstractReserve) = deployed_fraction_values(container, model, d)
-get_fraction(container::OptimizationContainer, model::DeviceModel, ::Type{StorageReserveBalanceExpression{PSY.ReserveDown, DeployedReserve, ChargeSide}}, d::PSY.AbstractReserve) = deployed_fraction_values(container, model, d)
-#! format: on
-
 function add_to_expression!(
     container::OptimizationContainer,
     ::Type{T},
@@ -621,8 +605,8 @@ function add_to_expression!(
     devices::Vector{V},
     model::DeviceModel{V, W},
 ) where {
-    T <:
-    StorageReserveBalanceExpression{<:PSY.ReserveDirection, <:ReserveScale, ChargeSide},
+    S <: ReserveScale,
+    T <: StorageReserveBalanceExpression{<:PSY.ReserveDirection, S, ChargeSide},
     U <: AncillaryServiceVariableCharge,
     V <: PSY.Storage,
     W <: StorageDispatchWithReserves,
@@ -630,11 +614,10 @@ function add_to_expression!(
     expression = get_expression(container, T, V)
     for d in devices
         name = PSY.get_name(d)
-        services = PSY.get_services(d)
-        for s in services
+        for s in PSY.get_services(d)
             variable = get_variable(container, U, V, _service_container_meta(s))
             base_mult = get_variable_multiplier(U, T, d, W, s)
-            fractions = get_fraction(container, model, T, s)
+            fractions = reserve_scale_values(S, container, model, s)
             for t in get_time_steps(container)
                 add_proportional_to_jump_expression!(
                     expression[name, t],
@@ -654,8 +637,8 @@ function add_to_expression!(
     devices::Vector{V},
     model::DeviceModel{V, W},
 ) where {
-    T <:
-    StorageReserveBalanceExpression{<:PSY.ReserveDirection, <:ReserveScale, DischargeSide},
+    S <: ReserveScale,
+    T <: StorageReserveBalanceExpression{<:PSY.ReserveDirection, S, DischargeSide},
     U <: AncillaryServiceVariableDischarge,
     V <: PSY.Storage,
     W <: StorageDispatchWithReserves,
@@ -663,11 +646,10 @@ function add_to_expression!(
     expression = get_expression(container, T, V)
     for d in devices
         name = PSY.get_name(d)
-        services = PSY.get_services(d)
-        for s in services
+        for s in PSY.get_services(d)
             variable = get_variable(container, U, V, _service_container_meta(s))
             base_mult = get_variable_multiplier(U, T, d, W, s)
-            fractions = get_fraction(container, model, T, s)
+            fractions = reserve_scale_values(S, container, model, s)
             for t in get_time_steps(container)
                 add_proportional_to_jump_expression!(
                     expression[name, t],
