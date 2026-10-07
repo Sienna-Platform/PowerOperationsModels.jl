@@ -228,7 +228,7 @@ function _links_value_axes(container::OptimizationContainer, d::PSY.Component)
     end
     value_axes = IS.get_value_axes(md)
     _product_labels(value_axes, d)
-    _check_int_links(_value_eltype(IS.get_time_series_type(md)), d)
+    _check_int_links(eltype(md), d)
     return value_axes
 end
 
@@ -326,7 +326,8 @@ function _add_linked_offer_rows!(
 ) where {D <: PSY.Component}
     name = PSY.get_name(d)
     value_axes = _links_value_axes(container, d)
-    links = IOM.get_lhs_parameter_values(container, key, name, value_axes)
+    links =
+        IOM.get_lhs_parameter_values(container, key, name, value_axes)::Array{Float64, 3}
     services = _linked_services(d, value_axes)
     widths = [_modeled_offer_widths(container, blk, d, s) for s in services]
     jump_model = get_jump_model(container)
