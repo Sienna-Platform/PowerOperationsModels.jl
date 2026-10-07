@@ -223,3 +223,137 @@ end
         end
     end
 end
+
+@testset "2 Areas AreaPTDFNetworkModel with HVDC" begin
+    function make_hvdc_area_balance_system(; same_area, loss_factor)
+        sys = PSB.build_system(
+            PSISystems, "two_area_pjm_DA";
+            add_reserves = false, time_series_in_memory = true,
+        )
+        tie = get_component(Line, sys, "inter_area_line")
+        arc = get_arc(tie)
+        if same_area
+            arc = get_arc(
+                first(
+                    l for l in get_components(Line, sys) if
+                    get_area(get_from(get_arc(l))) == get_area(get_to(get_arc(l)))
+                ),
+            )
+        end
+        hvdc = TwoTerminalGenericHVDCLine(;
+            name = "test_hvdc",
+            available = true,
+            active_power_flow = 0.0,
+            arc = arc,
+            rating = 3.0,
+            rating_from = 3.0,
+            rating_to = 3.0,
+            reactive_power_limits_from = (min = -1.0, max = 1.0),
+            reactive_power_limits_to = (min = -1.0, max = 1.0),
+            loss = PSY.LossCurve(LinearCurve(loss_factor), PSY.CU),
+            input_basis = u"CU",
+        )
+        add_component!(sys, hvdc)
+        transform_single_time_series!(sys, Hour(24), Hour(1))
+        return sys, hvdc
+    end
+
+    for formulation in (
+        HVDCTwoTerminalLossless,
+        HVDCTwoTerminalDispatch,
+        HVDCTwoTerminalPiecewiseLoss,
+    )
+        @testset "$formulation area balances" begin
+            for same_area in (false, true)
+                @testset "same_area=$same_area" begin
+                    objectives = Float64[]
+                    for network_type in (PTDFNetworkModel, AreaPTDFNetworkModel)
+                        loss_factor = 0.02
+                        if formulation == HVDCTwoTerminalLossless
+                            loss_factor = 0.0
+                        end
+                        sys, hvdc = make_hvdc_area_balance_system(;
+                            same_area, loss_factor)
+                        template =
+                            PowerOperationsProblemTemplate(NetworkModel(network_type))
+                        set_device_model!(template, ThermalStandard, ThermalBasicDispatch)
+                        set_device_model!(template, RenewableDispatch, FixedOutput)
+                        set_device_model!(template, PowerLoad, StaticPowerLoad)
+                        set_device_model!(template, Line, StaticBranchUnbounded)
+                        set_device_model!(template, TwoTerminalGenericHVDCLine, formulation)
+                        if network_type == AreaPTDFNetworkModel
+                            set_device_model!(template, AreaInterchange, StaticBranch)
+                        else
+                            remove_component!(
+                                sys,
+                                get_component(AreaInterchange, sys, "1_2"),
+                            )
+                        end
+                        model = DecisionModel(template, sys; resolution = Hour(1),
+                            horizon = Hour(2), optimizer = HiGHS_optimizer)
+                        @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+                              IOM.ModelBuildStatus.BUILT
+                        container = IOM.get_optimization_container(model)
+                        from_area = get_name(get_area(get_from(get_arc(hvdc))))
+                        to_area = get_name(get_area(get_to(get_arc(hvdc))))
+                        @test (from_area == to_area) == same_area
+
+                        if network_type == AreaPTDFNetworkModel
+                            constraints = IOM.get_constraint(
+                                container, CopperPlateBalanceConstraint, Area)
+                            if formulation == HVDCTwoTerminalLossless
+                                flow = IOM.get_variable(
+                                    container, FlowActivePowerVariable,
+                                    TwoTerminalGenericHVDCLine)
+                                for t in 1:2, area in get_components(Area, sys)
+                                    name = get_name(area)
+                                    balance =
+                                        JuMP.constraint_object(constraints[name, t]).func
+                                    expected = 0.0
+                                    if !same_area
+                                        expected =
+                                            -1.0 * (name == from_area) +
+                                            1.0 * (name == to_area)
+                                    end
+                                    @test JuMP.coefficient(
+                                        balance, flow["test_hvdc", t]) == expected
+                                end
+                            else
+                                from_sign = -1.0
+                                to_sign = -1.0
+                                from_type = FlowActivePowerFromToVariable
+                                to_type = FlowActivePowerToFromVariable
+                                if formulation == HVDCTwoTerminalPiecewiseLoss
+                                    from_sign = 1.0
+                                    to_sign = 1.0
+                                    from_type = POM.HVDCActivePowerReceivedFromVariable
+                                    to_type = POM.HVDCActivePowerReceivedToVariable
+                                end
+                                from = IOM.get_variable(
+                                    container, from_type, TwoTerminalGenericHVDCLine)
+                                to = IOM.get_variable(
+                                    container, to_type, TwoTerminalGenericHVDCLine)
+                                for t in 1:2, area in get_components(Area, sys)
+                                    name = get_name(area)
+                                    balance =
+                                        JuMP.constraint_object(constraints[name, t]).func
+                                    @test JuMP.coefficient(
+                                        balance, from["test_hvdc", t]) ==
+                                          from_sign * (name == from_area)
+                                    @test JuMP.coefficient(
+                                        balance, to["test_hvdc", t]) ==
+                                          to_sign * (name == to_area)
+                                end
+                            end
+                        end
+                        @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+                        jm = IOM.get_jump_model(container)
+                        @test JuMP.termination_status(jm) == MOI.OPTIMAL
+                        push!(objectives, JuMP.objective_value(jm))
+                    end
+                    @test isapprox(objectives[1], objectives[2]; atol = 0.1)
+                end
+            end
+        end
+    end
+end
