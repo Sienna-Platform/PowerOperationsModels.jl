@@ -635,6 +635,19 @@ Every right-hand side is non-negative, so zero off-line awards always satisfy th
 Must-run thermal units never go off and get no shutdown-step row; `HydroCommitmentRunOfRiver` carries a `DeviceStatus` initial condition only under `"exclude_shutdown_step"`.
 Other formulations book `OfflineReserve` awards against their headroom and get none of these rows.
 
+### Offers that span services
+
+Two `DeviceModel` attributes, off when absent, add rows over a device's offer data. Both rows are built after every service model, and their duals are requested in the `DeviceModel`'s `duals`.
+
+| Attribute                                           | Data                                                                                                                                                                                                                                                       | Row                                                                                                                                                                                                                  |
+|:--------------------------------------------------- |:---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |:-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `"linked_reserve_offers" => true`                   | A `reserve_offer_links` series on the device: Int64 `[time step, block, product]`, the block's step in that service's offer curve (`0` when not in it), with `value_axes = [IS.TimeSeriesAxis("block", 1:n), IS.TimeSeriesAxis("product", service names)]` | [`LinkedReserveOfferConstraint`](@ref PowerOperationsModels.LinkedReserveOfferConstraint): a block linked into two or more modeled services sells at most the smallest width of its linked steps in total            |
+| `"energy_offer_cap" => true` (thermal formulations) | The device's market-bid energy offer curve                                                                                                                                                                                                                 | [`EnergyOfferCapConstraint`](@ref PowerOperationsModels.EnergyOfferCapConstraint): energy plus upward reserve awards at most the curve's top, in steps where the curve offers energy and tops below ``P^\text{max}`` |
+
+Product labels are service names among the device's `ancillary_service_offers`, in any order; a link past the last step of a curve, a label the device does not offer, or a series at another resolution is an error, and a product the model prices no offer for is skipped.
+Both rows read data once at build, so recurrent models need `rebuild_model = true`.
+Offline and downward reserve awards are not in the energy offer cap: it reuses `ActivePowerRangeExpressionUB`, which holds them only where a formulation books offline awards as headroom.
+
 !!! note "AGC is not available"
     
     `services_models/agc.jl` is not included in the module and its `construct_service!` methods are
