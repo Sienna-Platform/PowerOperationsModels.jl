@@ -260,7 +260,19 @@ Branch type to represent piecewise lossy power flow on two terminal DC lines
 struct HVDCTwoTerminalPiecewiseLoss <: AbstractTwoTerminalDCLineFormulation end
 
 """
-Branch type to represent non-linear LCC (line commutated converter) model on two-terminal DC lines
+Branch type to represent a non-linear LCC (line commutated converter) model on two-terminal DC lines.
+The model applies to `PSY.TwoTerminalLCCLine`.
+
+The formulation builds on `ACPNetworkModel`, `ACRNetworkModel`, `IVRNetworkModel`, and
+`LPACCNetworkModel`. Template validation rejects all other network models.
+
+The rectifier is at the `from` bus. The inverter is at the `to` bus. The formulation adds
+the rectifier and inverter power, angle, DC voltage, AC current, and tap variables. It
+links them with the converter equations. The overlap angle and power factor equations are
+non-linear, so a non-linear solver is necessary.
+
+See the `HVDCTwoTerminalLCC` subsection of the formulation library in the documentation
+for the variables, the parameters, and the equations.
 """
 struct HVDCTwoTerminalLCC <: AbstractTwoTerminalDCLineFormulation end
 

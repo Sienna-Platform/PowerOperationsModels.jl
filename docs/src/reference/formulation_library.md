@@ -342,6 +342,127 @@ attribute. With the default `"none"` it is an exact quadratic disk (`"from"`/`"t
 linearizing scheme it becomes a box of eight half-planes, plus eight more octagon cuts when
 `"use_octagon"` is true (the default).
 
+#### `HVDCTwoTerminalLCC`
+
+`HVDCTwoTerminalLCC` models a `PSY.TwoTerminalLCCLine` as a non-linear line commutated converter
+pair. The rectifier is at the `from` bus and the inverter at the `to` bus. The formulation is
+available only on the networks that have a reactive power balance: `ACPNetworkModel`,
+`ACRNetworkModel`, `IVRNetworkModel` and `LPACCNetworkModel`. Template validation rejects every
+other network model. Use `HVDCTwoTerminalDispatch` or `HVDCTwoTerminalLossless` there instead.
+
+The constraints below are the same on all four networks. Only the terminal AC voltage magnitude
+``v^r`` / ``v^i`` changes:
+
+| Network model                        | Terminal voltage magnitude (`from` -> ``v^r``, `to` -> ``v^i``)                                                                                         |
+|:------------------------------------ |:------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ACPNetworkModel`                    | the bus `VoltageMagnitude`                                                                                                                              |
+| `ACRNetworkModel`, `IVRNetworkModel` | the device-owned `RegulatedVoltageMagnitude` (`"from"`/`"to"`), tied to the bus by `RegulatedVoltageMagnitudeConstraint`: ``v_{reg}^2 = v_r^2 + v_i^2`` |
+| `LPACCNetworkModel`                  | ``1 + \phi`` with ``\phi`` the bus `VoltageDeviation`                                                                                                   |
+
+**Variables.** All variables are continuous, one per device and time step, and are in per-unit
+on the system base unless noted. A bound of "none" means POM sets no bound. The bounds come from
+the `get_variable_lower_bound` / `get_variable_upper_bound` methods in
+`src/twoterminal_hvdc_models/TwoTerminalDC_branches.jl`.
+
+| Variable                                | Symbol       | Bounds                                                                |
+|:--------------------------------------- |:------------ |:--------------------------------------------------------------------- |
+| `HVDCRectifierActivePowerVariable`      | ``p^r``      | ``\pm`` the `from` end cap: `min(rating, rating_from)` in system base |
+| `HVDCInverterActivePowerVariable`       | ``p^i``      | ``\pm`` the `to` end cap: `min(rating, rating_to)` in system base     |
+| `HVDCRectifierReactivePowerVariable`    | ``q^r``      | none                                                                  |
+| `HVDCInverterReactivePowerVariable`     | ``q^i``      | none                                                                  |
+| `HVDCRectifierDelayAngleVariable`       | ``\alpha^r`` | `rectifier_delay_angle_limits` (min, max)                             |
+| `HVDCInverterExtinctionAngleVariable`   | ``\gamma^i`` | `inverter_extinction_angle_limits` (min, max)                         |
+| `HVDCRectifierPowerFactorAngleVariable` | ``\phi^r``   | none                                                                  |
+| `HVDCInverterPowerFactorAngleVariable`  | ``\phi^i``   | none                                                                  |
+| `HVDCRectifierOverlapAngleVariable`     | ``\mu^r``    | none                                                                  |
+| `HVDCInverterOverlapAngleVariable`      | ``\mu^i``    | none                                                                  |
+| `HVDCRectifierDCVoltageVariable`        | ``v_d^r``    | none                                                                  |
+| `HVDCInverterDCVoltageVariable`         | ``v_d^i``    | none                                                                  |
+| `HVDCRectifierACCurrentVariable`        | ``i_{ac}^r`` | none                                                                  |
+| `HVDCInverterACCurrentVariable`         | ``i_{ac}^i`` | none                                                                  |
+| `DCLineCurrentFlowVariable`             | ``i_d``      | none                                                                  |
+| `HVDCRectifierTapSettingVariable`       | ``t^r``      | `rectifier_tap_limits` (min, max)                                     |
+| `HVDCInverterTapSettingVariable`        | ``t^i``      | `inverter_tap_limits` (min, max)                                      |
+
+On ACR and IVR the device also owns the two `RegulatedVoltageMagnitude` variables (`"from"`, `"to"`).
+
+**Static parameters.** The model reads these `PSY.TwoTerminalLCCLine` getters. None takes a unit
+argument. The impedances are in ohm and POM converts them to system base itself, as
+`z_{su} = z \cdot S_{base} / V_{base}^2`, with the base voltage listed below.
+
+| Parameter                                 | PSY getter                                                                     | Unit / base                                  |
+|:----------------------------------------- |:------------------------------------------------------------------------------ |:-------------------------------------------- |
+| DC line resistance ``r``                  | `get_r`                                                                        | ohm, converted with `scheduled_dc_voltage`   |
+| Rectifier commutating reactance ``x_c^r`` | `get_rectifier_xc`                                                             | ohm, converted with `rectifier_base_voltage` |
+| Inverter commutating reactance ``x_c^i``  | `get_inverter_xc`                                                              | ohm, converted with `inverter_base_voltage`  |
+| Bridges ``B^r``, ``B^i``                  | `get_rectifier_bridges`, `get_inverter_bridges`                                | count, unitless                              |
+| Transformer ratios ``a^r``, ``a^i``       | `get_rectifier_transformer_ratio`, `get_inverter_transformer_ratio`            | ratio, unitless                              |
+| Delay / extinction angle limits           | `get_rectifier_delay_angle_limits`, `get_inverter_extinction_angle_limits`     | `MinMax`, angle as stored                    |
+| Tap limits                                | `get_rectifier_tap_limits`, `get_inverter_tap_limits`                          | `MinMax`, unitless                           |
+| Active power end caps                     | `get_rating(d, u"SU")`, `get_rating_from(d, u"SU")`, `get_rating_to(d, u"SU")` | system base                                  |
+
+**Expressions.** The constructor adds the converter powers to the nodal balances:
+
+| Expression             | Variable                             | Coefficient | Bus  |
+|:---------------------- |:------------------------------------ |:----------- |:---- |
+| `ActivePowerBalance`   | `HVDCRectifierActivePowerVariable`   | ``-1``      | from |
+| `ActivePowerBalance`   | `HVDCInverterActivePowerVariable`    | ``+1``      | to   |
+| `ReactivePowerBalance` | `HVDCRectifierReactivePowerVariable` | ``-1``      | from |
+| `ReactivePowerBalance` | `HVDCInverterReactivePowerVariable`  | ``-1``      | to   |
+
+The rectifier draws active power from its bus and the inverter injects it. Both converters
+consume reactive power at their own bus.
+
+**Constraints.** Each constraint is indexed by device and time step. Overlap-angle and
+power-factor equations are non-linear, so the model needs a non-linear solver such as Ipopt.
+
+Rectifier and inverter DC voltage (`HVDCRectifierDCLineVoltageConstraint`,
+`HVDCInverterDCLineVoltageConstraint`):
+
+```math
+v_d^r = \frac{3 B^r}{\pi}\left(\frac{\sqrt{2}\, a^r v^r \cos\alpha^r}{t^r} - x_c^r\, i_d\right), \qquad
+v_d^i = \frac{3 B^i}{\pi}\left(\frac{\sqrt{2}\, a^i v^i \cos\gamma^i}{t^i} - x_c^i\, i_d\right)
+```
+
+Overlap angle (`HVDCRectifierOverlapAngleConstraint`, `HVDCInverterOverlapAngleConstraint`):
+
+```math
+\mu^r = \arccos\!\left(\cos\alpha^r - \frac{\sqrt{2}\, x_c^r\, i_d\, t^r}{a^r v^r}\right) - \alpha^r, \qquad
+\mu^i = \arccos\!\left(\cos\gamma^i - \frac{\sqrt{2}\, x_c^i\, i_d\, t^i}{a^i v^i}\right) - \gamma^i
+```
+
+Power-factor angle (`HVDCRectifierPowerFactorAngleConstraint`,
+`HVDCInverterPowerFactorAngleConstraint`). POM uses an approximation of the exact
+power-factor relation, because the exact form does not converge with Ipopt:
+
+```math
+\phi^r = \arccos\!\left(\tfrac{1}{2}\cos\alpha^r + \tfrac{1}{2}\cos(\alpha^r + \mu^r)\right), \qquad
+\phi^i = \arccos\!\left(\tfrac{1}{2}\cos\gamma^i + \tfrac{1}{2}\cos(\gamma^i + \mu^i)\right)
+```
+
+AC current (`HVDCRectifierACCurrentFlowConstraint`, `HVDCInverterACCurrentFlowConstraint`):
+
+```math
+i_{ac}^r = \frac{\sqrt{6}\, B^r}{\pi}\, i_d, \qquad
+i_{ac}^i = \frac{\sqrt{6}\, B^i}{\pi}\, i_d
+```
+
+AC power (`HVDCRectifierPowerCalculationConstraint`, `HVDCInverterPowerCalculationConstraint`;
+metas `"active"` and `"reactive"`):
+
+```math
+p^r = \frac{a^r \sqrt{3}\, i_{ac}^r v^r \cos\phi^r}{t^r}, \quad
+q^r = \frac{a^r \sqrt{3}\, i_{ac}^r v^r \sin\phi^r}{t^r}, \quad
+p^i = \frac{a^i \sqrt{3}\, i_{ac}^i v^i \cos\phi^i}{t^i}, \quad
+q^i = \frac{a^i \sqrt{3}\, i_{ac}^i v^i \sin\phi^i}{t^i}
+```
+
+DC line (`HVDCTransmissionDCLineConstraint`):
+
+```math
+v_d^i = v_d^r - r\, i_d
+```
+
 #### AreaInterchange tie-line metering
 
 `AreaInterchange` (`StaticBranch`/`StaticBranchUnbounded`) builds one `LineFlowBoundConstraint` per
