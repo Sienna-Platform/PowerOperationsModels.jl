@@ -639,8 +639,6 @@ decides it.
 is_input_parameter(::IOM.ParameterKey, pc::IOM.ParameterContainer)::Bool =
     _is_input_attributes(IOM.get_attributes(pc))
 
-_value_eltype(::Type{<:IS.TimeSeriesData{T}}) where {T} = T
-
 # The value axes and element type of `owner`'s own series, read from its metadata, when that
 # series has value axes: the recast writes a parameter row back in this layout.
 function _add_value_layout!(value_axes, value_types, name, owner, attributes)
@@ -654,7 +652,7 @@ function _add_value_layout!(value_axes, value_types, name, owner, attributes)
     owner_axes = IS.get_value_axes(md)
     owner_axes === nothing && return
     value_axes[name] = owner_axes
-    value_types[name] = _value_eltype(IS.get_time_series_type(md))
+    value_types[name] = eltype(md)
     return
 end
 
