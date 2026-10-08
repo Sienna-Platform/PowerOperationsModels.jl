@@ -27,7 +27,7 @@ import TimerOutputs
 import InteractiveUtils: methodswith, subtypes
 
 using DocStringExtensions
-using JSON3
+import JSON
 
 # Network-formulation abstract types: the two roots are IS-owned consts; the
 # intermediates are POM-native. AbstractNetworkModel is brought in via the import
