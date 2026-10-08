@@ -203,21 +203,21 @@ loading data, or `nothing` when it owns none. Errors for a second series, axes o
 `"block"` and `"product"` (service names), values other than Int64, or another resolution.
 """
 function _links_value_axes(container::OptimizationContainer, d::PSY.Component)
-    metadata = IS.list_time_series_metadata(
+    rows = IS.list_time_series_metadata(
         d;
         time_series_type = IS.Deterministic,
         name = RESERVE_OFFER_LINKS_TS_NAME,
     )
-    isempty(metadata) && return nothing
-    if length(metadata) > 1
+    isempty(rows) && return nothing
+    if length(rows) > 1
         throw(
             ArgumentError(
-                "$(PSY.get_name(d)) carries $(length(metadata)) " *
+                "$(PSY.get_name(d)) carries $(length(rows)) " *
                 "$(RESERVE_OFFER_LINKS_TS_NAME) series; keep one.",
             ),
         )
     end
-    md = only(metadata)
+    md = only(rows)
     if IS.get_resolution(md) != get_resolution(container)
         throw(
             IS.ConflictingInputsError(
