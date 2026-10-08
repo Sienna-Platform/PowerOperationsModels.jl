@@ -855,6 +855,20 @@ end
     @test _bb_link_keys(get_optimization_container(model)) == Set([("vp_supply", 1)])
 end
 
+@testset "Block bids: a curve empty over the whole window still gets its binaries, fixed to zero" begin
+    # A simulation's later window may offer what this one does not; the names stay the same.
+    sys = _block_bid_test_system(;
+        vp_supply_ts = [(0.0, 0.0), (0.0, 0.0), (0.0, 0.0)],
+        vp_supply_style = PSY.CurveStyles.FIXED,
+    )
+    model, res = _bb_solved(sys)
+    z = IOM.get_variable(get_optimization_container(model), BlockBidCommitmentVariable,
+        PSY.VirtualParticipant, "Out")
+    @test axes(z, 1) == ["vp_supply"]
+    @test _bb_z(res) ≈ [0.0, 0.0, 0.0] atol = 1e-6
+    @test _bb_out(res) ≈ [0.0, 0.0, 0.0] atol = 1e-6
+end
+
 @testset "Block bids: periods with an empty curve pin the award and the binary to zero" begin
     sys = _block_bid_test_system(;
         vp_supply_ts = [(10.0, 50.0), (0.0, 0.0), (10.0, 50.0)],
