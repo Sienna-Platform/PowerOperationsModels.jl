@@ -129,6 +129,9 @@ end
 _get_time_series_name(::Type{DistributionFactorParameter}, ::PSY.Component, ::DeviceModel) =
     DISTRIBUTION_FACTOR_TS_NAME
 
+# The extra parameter axis between location and time: positions 1:n, n the most buses any
+# location's series labels. Shorter locations are padded with zeros; position j is the j-th
+# label of that location's own series, read back from its metadata.
 function calc_additional_axes(
     container::OptimizationContainer,
     ::Type{DistributionFactorParameter},
