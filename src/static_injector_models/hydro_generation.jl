@@ -113,11 +113,13 @@ get_variable_binary(::Type{OnVariable}, ::Type{<:PSY.HydroPumpTurbine}, ::Type{H
 # ActivePowerVariable
 get_variable_binary(::Type{ActivePowerVariable}, ::Type{<:PSY.HydroPumpTurbine}, ::Type{<:AbstractHydroPumpFormulation}) = false
 get_variable_lower_bound(::Type{ActivePowerVariable}, d::PSY.HydroPumpTurbine, ::Type{<:AbstractHydroPumpFormulation}) = PSY.get_active_power_limits(d, u"SU").min
+get_variable_lower_bound(::Type{ActivePowerVariable}, d::PSY.HydroPumpTurbine, ::Type{HydroPumpEnergyDispatch}) = 0.0
 get_variable_lower_bound(::Type{ActivePowerVariable}, d::PSY.HydroPumpTurbine, ::Type{HydroPumpEnergyCommitment}) = 0.0
 get_variable_upper_bound(::Type{ActivePowerVariable}, d::PSY.HydroPumpTurbine, ::Type{<:AbstractHydroPumpFormulation}) = PSY.get_active_power_limits(d, u"SU").max
 # ActivePowerPumpVariable
 get_variable_binary(::Type{ActivePowerPumpVariable}, ::Type{<:PSY.HydroPumpTurbine}, ::Type{<:AbstractHydroPumpFormulation}) = false
 get_variable_lower_bound(::Type{ActivePowerPumpVariable}, d::PSY.HydroPumpTurbine, ::Type{<:AbstractHydroPumpFormulation}) = PSY.get_active_power_limits_pump(d, u"SU").min
+get_variable_lower_bound(::Type{ActivePowerPumpVariable}, d::PSY.HydroPumpTurbine, ::Type{HydroPumpEnergyDispatch}) = 0.0
 get_variable_lower_bound(::Type{ActivePowerPumpVariable}, d::PSY.HydroPumpTurbine, ::Type{HydroPumpEnergyCommitment}) = 0.0
 get_variable_upper_bound(::Type{ActivePowerPumpVariable}, d::PSY.HydroPumpTurbine, ::Type{<:AbstractHydroPumpFormulation}) = PSY.get_active_power_limits_pump(d, u"SU").max
 # ReactivePowerVariable
@@ -2398,43 +2400,30 @@ end
 function calculate_aux_variable_value!(
     container::OptimizationContainer,
     ::AuxVarKey{HydroEnergyOutput, T},
-    system::PSY.System,
+    ::PSY.System,
 ) where {T <: PSY.HydroGen}
     time_steps = get_time_steps(container)
     resolution = get_resolution(container)
     fraction_of_hour = Dates.value(Dates.Minute(resolution)) / MINUTES_IN_HOUR
-    p_variable_output = get_variable(container, ActivePowerVariable, T)
+    p_variable_output = lookup_value(container, ActivePowerVariable, T)
+    served_up = if has_container_key(container, HydroServedReserveUpExpression, T)
+        lookup_value(container, HydroServedReserveUpExpression, T)
+    else
+        nothing
+    end
+    served_down = if has_container_key(container, HydroServedReserveDownExpression, T)
+        lookup_value(container, HydroServedReserveDownExpression, T)
+    else
+        nothing
+    end
     aux_variable_container = get_aux_variable(container, HydroEnergyOutput, T)
     devices_names = axes(aux_variable_container, 1)
-    for name in devices_names
-        d = PSY.get_component(T, system, name)
-        for t in time_steps
-            if has_container_key(container, HydroServedReserveUpExpression, typeof(d))
-                served_reserve_up = jump_value(
-                    get_expression(container, HydroServedReserveUpExpression, T)[
-                        name,
-                        t,
-                    ],
-                )
-            else
-                served_reserve_up = 0.0
-            end
-            if has_container_key(container, HydroServedReserveDownExpression, typeof(d))
-                served_reserve_down = jump_value(
-                    get_expression(container, HydroServedReserveDownExpression, T)[
-                        name,
-                        t,
-                    ],
-                )
-            else
-                served_reserve_down = 0.0
-            end
-            aux_variable_container[name, t] =
-                (
-                    jump_value(p_variable_output[name, t]) +
-                    served_reserve_up - served_reserve_down
-                ) * fraction_of_hour
-        end
+    for name in devices_names, t in time_steps
+        served_reserve_up = isnothing(served_up) ? 0.0 : served_up[name, t]
+        served_reserve_down = isnothing(served_down) ? 0.0 : served_down[name, t]
+        aux_variable_container[name, t] =
+            (p_variable_output[name, t] + served_reserve_up - served_reserve_down) *
+            fraction_of_hour
     end
 
     return
@@ -2648,9 +2637,24 @@ function add_constraints!(
     return
 end
 
+function add_constraints!(
+    container::OptimizationContainer,
+    T::Type{InputActivePowerVariableLimitsConstraint},
+    U::Type{ActivePowerPumpVariable},
+    devices::Vector{V},
+    model::DeviceModel{V, W},
+    ::NetworkModel{X},
+) where {V <: PSY.HydroPumpTurbine, W <: HydroPumpEnergyDispatch, X <: AbstractNetworkModel}
+    if !get_attribute(model, "reservation")
+        add_range_constraints!(container, T, U, devices, model, X)
+    else
+        add_reserve_range_constraints!(container, T, U, devices, model, X)
+    end
+    return
+end
+
 """
 Add semicontinuous LB range constraints for [`HydroPumpEnergyCommitment`](@ref) formulation.
-Reservation path pairs a reservation-keyed bound ("lb") with an OnVariable-keyed bound ("lb_aux").
 """
 function add_constraints!(
     container::OptimizationContainer,
@@ -2670,15 +2674,12 @@ function add_constraints!(
         array = get_expression(container, U, V)
         IOM.add_reserve_bound_range_constraints!(
             container, T, IOM.LowerBound(), array, devices, model, false)
-        IOM.add_commitment_bound_range_constraints!(
-            container, T, IOM.LowerBound(), array, devices, model; meta_suffix = "_aux")
     end
     return
 end
 
 """
 Add semicontinuous UB range constraints for [`HydroPumpEnergyCommitment`](@ref) formulation.
-Reservation path pairs a reservation-keyed bound ("ub") with an OnVariable-keyed bound ("ub_aux").
 """
 function add_constraints!(
     container::OptimizationContainer,
@@ -2698,8 +2699,6 @@ function add_constraints!(
         array = get_expression(container, U, V)
         IOM.add_reserve_bound_range_constraints!(
             container, T, IOM.UpperBound(), array, devices, model, false)
-        IOM.add_commitment_bound_range_constraints!(
-            container, T, IOM.UpperBound(), array, devices, model; meta_suffix = "_aux")
     end
     return
 end
@@ -2716,7 +2715,51 @@ function add_constraints!(
     W <: HydroPumpEnergyCommitment,
     X <: AbstractNetworkModel,
 }
-    add_semicontinuous_range_constraints!(container, T, U, devices, model, X)
+    if !get_attribute(model, "reservation")
+        add_semicontinuous_range_constraints!(container, T, U, devices, model, X)
+    else
+        time_steps = get_time_steps(container)
+        names = PSY.get_name.(devices)
+        pumping = get_variable(container, U, V)
+        on = get_variable(container, OnVariable, V)
+        reservation = get_variable(container, ReservationVariable, V)
+        con_lb = add_constraints_container!(
+            container, T, V, names, time_steps; meta = "lb")
+        con_ub = add_constraints_container!(
+            container, T, V, names, time_steps; meta = "ub")
+        jump_model = get_jump_model(container)
+        for device in devices
+            name = PSY.get_name(device)
+            limits = get_min_max_limits(device, T, W)
+            for t in time_steps
+                pumping_status = on[name, t] - reservation[name, t]
+                con_lb[name, t] = JuMP.@constraint(
+                    jump_model, pumping[name, t] >= limits.min * pumping_status)
+                con_ub[name, t] = JuMP.@constraint(
+                    jump_model, pumping[name, t] <= limits.max * pumping_status)
+            end
+        end
+    end
+    return
+end
+
+function add_constraints!(
+    container::OptimizationContainer,
+    ::Type{HydroPumpReservationCommitmentConstraint},
+    devices::Vector{V},
+    ::DeviceModel{V, HydroPumpEnergyCommitment},
+    ::NetworkModel{X},
+) where {V <: PSY.HydroPumpTurbine, X <: AbstractNetworkModel}
+    time_steps = get_time_steps(container)
+    names = PSY.get_name.(devices)
+    on = get_variable(container, OnVariable, V)
+    reservation = get_variable(container, ReservationVariable, V)
+    constraint = add_constraints_container!(
+        container, HydroPumpReservationCommitmentConstraint, V, names, time_steps)
+    for name in names, t in time_steps
+        constraint[name, t] = JuMP.@constraint(
+            get_jump_model(container), reservation[name, t] <= on[name, t])
+    end
     return
 end
 
@@ -2826,9 +2869,9 @@ function add_to_expression!(
                 typeof(service) <: S || continue
                 isa(service, PSY.Reserve{PSY.ReserveUp}) || continue
                 service_name = PSY.get_name(service)
-                fractions = deployed_fraction_values(container, service_model, service)
                 variable =
                     get_variable(container, U, IOM.ComponentPairKey{V, typeof(service)})
+                fractions = deployed_fraction_values(container, model, service)
                 for t in get_time_steps(container)
                     add_proportional_to_jump_expression!(
                         expression[name, t],
@@ -2866,9 +2909,9 @@ function add_to_expression!(
                 typeof(service) <: S || continue
                 isa(service, PSY.Reserve{PSY.ReserveDown}) || continue
                 service_name = PSY.get_name(service)
-                fractions = deployed_fraction_values(container, service_model, service)
                 variable =
                     get_variable(container, U, IOM.ComponentPairKey{V, typeof(service)})
+                fractions = deployed_fraction_values(container, model, service)
                 for t in get_time_steps(container)
                     add_proportional_to_jump_expression!(
                         expression[name, t],

@@ -46,14 +46,13 @@ Parameter to define requirement time series
 struct RequirementTimeSeriesParameter <: TimeSeriesParameter end
 
 """
-Registry key identifying a reserve's deployed-fraction profile time series.
+Profile of a reserve's deployed fraction, scaled by the reserve's `deployed_fraction` field.
 
-This type names a series and supplies its multiplier; it never backs a parameter container.
-The deployed fraction multiplies a decision variable, so it is a constraint coefficient rather
-than an additive term, and a JuMP parameter in coefficient position would make the model
-bilinear. The value is read at build time and applied as a `Float64`.
+The fraction multiplies a reserve award, so this is a left-hand-side parameter: its container
+holds numbers in every build mode, and its values are written into constraints as fixed
+coefficients. A model holding one is rebuilt every simulation step.
 """
-struct DeployedFractionTimeSeriesParameter <: TimeSeriesParameter end
+struct DeployedFractionParameter <: LeftHandSideTimeSeriesParameter end
 
 """
 Abstract type for dynamic ratings of AC branches
