@@ -186,6 +186,9 @@ _links_message(d) =
     "[time step, block, product] values with value_axes = [IS.TimeSeriesAxis(\"block\", " *
     "1:n), IS.TimeSeriesAxis(\"product\", service names)]."
 
+# A links series has a "block" axis and a "product" axis labeled by service names. Dispatch
+# rejects the bad layouts with one message: no value axes (`nothing`), other axis names or
+# count, and integer product labels (`_string_labels`).
 _product_labels(::Nothing, d) = throw(ArgumentError(_links_message(d)))
 function _product_labels(value_axes::Vector{IS.TimeSeriesAxis}, d)
     if length(value_axes) != 2 || value_axes[1].name != "block" ||
@@ -268,7 +271,7 @@ _offered_services(::PSY.OperationalCost) = PSY.Service[]
 
 # Services by product label, resolved by name among the services `d` offers into, so the
 # column order need not follow `ancillary_service_offers`.
-function _linked_services(d::PSY.Component, value_axes)
+function _linked_services(d::PSY.Component, value_axes::Vector{IS.TimeSeriesAxis})
     offered =
         Dict(PSY.get_name(s) => s for s in _offered_services(PSY.get_operation_cost(d)))
     services = PSY.Service[]
@@ -286,14 +289,26 @@ function _linked_services(d::PSY.Component, value_axes)
     return services
 end
 
-# Step widths of `d`'s curve for `service`, per time step, or `nothing` when the model
-# prices no offer of `d` into it (no service model, or `d` does not contribute).
-function _modeled_offer_widths(container, blk, d::D, service) where {D <: PSY.Component}
+# Whether the model prices an offer of `d` into `service`: it has a service model and `d`
+# contributes to it.
+function _offer_modeled(
+    container::OptimizationContainer,
+    blk::JuMP.Containers.SparseAxisArray,
+    d::PSY.Component,
+    service::PSY.Service,
+)
     first_key =
         (PSY.get_name(service), PSY.get_name(d), 1, first(get_time_steps(container)))
-    haskey(blk.data, first_key) || return nothing
-    return [diff(bp) for (bp, _) in _reserve_offer_curves(container, D, d, service)]
+    return haskey(blk.data, first_key)
 end
+
+# Step widths of `d`'s offer curve for `service`, per time step.
+_offer_widths(
+    container::OptimizationContainer,
+    d::D,
+    service::PSY.Service,
+) where {D <: PSY.Component} =
+    [diff(bp) for (bp, _) in _reserve_offer_curves(container, D, d, service)]
 
 """
 Rows of `LinkedReserveOfferConstraint` for the devices of `model` that carry a
@@ -321,26 +336,30 @@ function add_linked_reserve_offer_constraints!(
 end
 
 function _add_linked_offer_rows!(
-    container,
-    rows,
-    blk,
-    key,
+    container::OptimizationContainer,
+    rows::JuMP.Containers.SparseAxisArray,
+    blk::JuMP.Containers.SparseAxisArray,
+    key::IOM.ParameterKey{ReserveOfferLinkParameter, D},
     d::D,
 ) where {D <: PSY.Component}
     name = PSY.get_name(d)
     value_axes = _links_value_axes(container, d)
     links =
         IOM.get_lhs_parameter_values(container, key, name, value_axes)::Array{Float64, 3}
-    services = _linked_services(d, value_axes)
-    widths = [_modeled_offer_widths(container, blk, d, s) for s in services]
+    # Product columns of the modeled services, with their step widths.
+    modeled = [
+        (p, service, _offer_widths(container, d, service)) for
+        (p, service) in enumerate(_linked_services(d, value_axes)) if
+        _offer_modeled(container, blk, d, service)
+    ]
     jump_model = get_jump_model(container)
     for t in get_time_steps(container), b in axes(links, 1)
         terms = JuMP.VariableRef[]
         width = Inf
-        for (p, service) in enumerate(services)
+        for (p, service, widths) in modeled
             k = Int(links[b, p, t])
-            (k == 0 || widths[p] === nothing) && continue
-            steps = widths[p][t]
+            k == 0 && continue
+            steps = widths[t]
             if !(1 <= k <= length(steps))
                 throw(
                     IS.ConflictingInputsError(
