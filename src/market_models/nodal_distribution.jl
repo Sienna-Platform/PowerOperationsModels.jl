@@ -25,7 +25,11 @@ get_member_buses(::PSY.System, hub::PSY.TradingHub) =
 # Each step of a factor series multiplies one model time step, so the resolutions must match.
 # Checked on the metadata before the fill, which would otherwise fail with a plain error
 # that names neither the location nor the fix.
-function _check_window_resolution(container::OptimizationContainer, md, owner)
+function _check_window_resolution(
+    container::OptimizationContainer,
+    md::IS.TimeSeriesMetadata,
+    owner,
+)
     if IS.get_resolution(md) != get_resolution(container)
         throw(
             IS.ConflictingInputsError(
@@ -61,21 +65,21 @@ without loading data, or `nothing` when it owns none. Errors for a second series
 other than one `"bus"` axis of bus numbers, or another resolution.
 """
 function _factor_series_labels(container::OptimizationContainer, location::PSY.Component)
-    metadata = IS.list_time_series_metadata(
+    rows = IS.list_time_series_metadata(
         location;
         time_series_type = IS.Deterministic,
         name = DISTRIBUTION_FACTOR_TS_NAME,
     )
-    isempty(metadata) && return nothing
-    if length(metadata) > 1
+    isempty(rows) && return nothing
+    if length(rows) > 1
         throw(
             ArgumentError(
-                "$(summary(location)) carries $(length(metadata)) " *
+                "$(summary(location)) carries $(length(rows)) " *
                 "$(DISTRIBUTION_FACTOR_TS_NAME) series; keep one [time step, bus] matrix.",
             ),
         )
     end
-    md = only(metadata)
+    md = only(rows)
     _check_window_resolution(container, md, location)
     return _bus_labels(IS.get_value_axes(md), location)
 end
