@@ -1908,6 +1908,64 @@ end
     @test n_checked > 0
 end
 
+@testset "pre-contingency rate limit follows the branch rating time series" begin
+    sys = PSB.build_system(PSITestSystems, "c_sys14")
+    lines_with_ts = ["Line1", "Line2", "Line6"]
+    add_branch_rating_time_series_to_system!(
+        sys, lines_with_ts, 2, _PC_RATING_FACTORS;
+        initial_date = "2024-01-01", ts_name = "branch_rating",
+    )
+    branches = collect(get_components(PSY.ACTransmission, sys))
+    PSY.add_supplemental_attribute!(
+        sys,
+        get_component(PSY.ACTransmission, sys, "Line3"),
+        PSY.GeometricDistributionForcedOutage(;
+            mean_time_to_recovery = 10,
+            outage_transition_probability = 0.9999,
+            monitored_components = branches,
+        ),
+    )
+    template = get_thermal_dispatch_template_network(
+        NetworkModel(
+            PTDFNetworkModel;
+            network_source = PrebuiltMatrixSource(PNM.VirtualPTDF(sys)),
+        ),
+    )
+    set_device_model!(
+        template,
+        DeviceModel(
+            PSY.Line,
+            POM.SecurityConstrainedStaticBranch;
+            time_series_names = Dict(
+                POM.BranchRatingTimeSeriesParameter => "branch_rating",
+            ),
+        ),
+    )
+    model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+
+    container = IOM.get_optimization_container(model)
+    flow = IOM.get_expression(container, POM.PTDFBranchFlow, PSY.Line)
+    con_ub = IOM.get_constraints(container)[IOM.ConstraintKey(
+        POM.FlowRateConstraint, PSY.Line, "ub",
+    )]
+    n_factors = length(_PC_RATING_FACTORS)
+    n_ts = 0
+    n_static = 0
+    for line in get_components(PSY.Line, sys), t in axes(con_ub, 2)
+        name = PSY.get_name(line)
+        rating = branch_rating_su(line)
+        expected = name in lines_with_ts ?
+                   rating * _PC_RATING_FACTORS[mod1(t, n_factors)] : rating
+        # JuMP migrates the expression's affine constant to the RHS; add it back.
+        expr_const = JuMP.constant(flow[name, t])
+        @test JuMP.normalized_rhs(con_ub[name, t]) + expr_const ≈ expected
+        name in lines_with_ts ? (n_ts += 1) : (n_static += 1)
+    end
+    @test n_ts > 0 && n_static > 0
+end
+
 @testset "a monitored branch keeps its rating forecast when another type carries the outage" begin
     # An outage is assigned to a security-constrained `DeviceModel` by the type of the
     # component it is *attached* to, not by the types it monitors. With the outage on a

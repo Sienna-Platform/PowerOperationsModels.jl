@@ -92,8 +92,8 @@ end
             reserve_down = only(get_components(OnlineReserve{ReserveDown}, sys))
             set_deployed_fraction!(reserve_up, 0.0)
             set_deployed_fraction!(reserve_down, 0.5)
-            set_requirement!(reserve_up, 0.01 * PSY.SU)
-            set_requirement!(reserve_down, 0.01 * PSY.SU)
+            set_requirement!(reserve_up, 0.01u"SU")
+            set_requirement!(reserve_down, 0.01u"SU")
             transform_single_time_series!(sys, Hour(4), Hour(4))
             sys
         end
