@@ -464,7 +464,10 @@ function get_default_attributes(
     ::Type{T},
     ::Type{D},
 ) where {T <: PSY.HydroTurbine, D <: HydroTurbineWaterLinearCommitment}
-    return Dict{String, Any}("head_fraction_usage" => 0.0, RELAX_BINARIES_ATTRIBUTE => false)
+    return Dict{String, Any}(
+        "head_fraction_usage" => 0.0,
+        RELAX_BINARIES_ATTRIBUTE => false,
+    )
 end
 
 function get_default_attributes(
