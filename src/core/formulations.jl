@@ -159,9 +159,9 @@ Location formulation for `PSY.ACBus`, `PSY.LoadZone`, and `PSY.TradingHub`: the 
 location's cleared position ([`ClearedPositionVariable`](@ref)) is distributed onto its member
 buses' `ActivePowerBalance` via per-bus distribution factors, so a nodal network model prices
 the congestion that position creates. A bus distributes to itself with factor `1.0`; a load
-zone reads its own `distribution_factor` time series per member bus (feature `"bus"` = bus
-number; a member bus without one contributes `0.0`); a trading hub reads the series if it has
-any, else distributes uniformly. A declared no-op under `CopperPlateNetworkModel`.
+zone reads its `distribution_factor` matrix (one column per member bus, labeled by bus number;
+a member without a column contributes `0.0`); a trading hub reads the matrix if it has one,
+else distributes uniformly. A declared no-op under `CopperPlateNetworkModel`.
 """
 struct NodalRedistribution <: AbstractDeviceFormulation end
 

@@ -133,15 +133,22 @@ Parameter to define energy capacity limits for hydro pump-turbine time series
 """
 struct EnergyCapacityTimeSeriesParameter <: TimeSeriesParameter end
 
+"""
+Name of the series that carries a `LoadZone`'s or `TradingHub`'s distribution factors: one
+`[time step, bus]` matrix owned by the location, with
+`value_axes = [IS.TimeSeriesAxis("bus", bus numbers)]`. The factors are read at build as
+`Float64` coefficients (see `get_distribution_factors`), never as JuMP parameters.
+"""
 const DISTRIBUTION_FACTOR_TS_NAME = "distribution_factor"
 
 """
-Per-bus distribution factors of a settlement location: the location owns one
-`distribution_factor` time series per member bus, feature-keyed by `"bus" => bus number`.
-Values are consumed as `Float64` constraint coefficients — never as JuMP parameters —
-because they multiply cleared-quantity variables.
+Distribution factors of a settlement location. The location owns one `distribution_factor`
+series, a `[time step, bus]` matrix with `value_axes = [IS.TimeSeriesAxis("bus", bus
+numbers)]`. The container holds each location's factors along one positional axis; the bus
+labels stay in the series metadata. The values multiply cleared positions, so they are fixed
+coefficients and the container holds `Float64`.
 """
-struct DistributionFactorParameter <: TimeSeriesParameter end
+struct DistributionFactorParameter <: IOM.LeftHandSideTimeSeriesParameter end
 
 """
 Reservoir energy target read from the system state

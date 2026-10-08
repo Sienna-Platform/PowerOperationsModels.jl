@@ -788,3 +788,100 @@ end
     @test TimeSeries.values(IS.get_data(series_ts)) == collect(1.0:48.0)
     POM.close_parameter_store!(store)
 end
+
+@testset "A labeled window comes back in its owner's layout and element type" begin
+    raw = JuMP.Containers.DenseAxisArray(zeros(1, 6, 3), ["d1"], 1:6, 1:3)
+    for k in 1:4, t in 1:3
+        raw["d1", k, t] = 10.0 * k + t
+    end
+    axes = [IS.TimeSeriesAxis("block", [1, 2]), IS.TimeSeriesAxis("product", ["a", "b"])]
+    got = POM._labeled_window(raw, "d1", axes, Int64)
+    @test eltype(got) == Int64
+    @test size(got) == (3, 2, 2)
+    @test got[2, 2, 1] == 22      # step 2, block 2, product a = position 2
+    @test got[3, 1, 2] == 33      # step 3, block 1, product b = position 3
+    shifted = JuMP.Containers.DenseAxisArray(raw.data .+ 0.5, ["d1"], 1:6, 1:3)
+    @test_throws InexactError POM._labeled_window(shifted, "d1", axes, Int64)
+end
+
+@testset "An input forecast row keeps value axes" begin
+    store = POM.ParameterTimeSeriesStore()
+    t0 = Dates.DateTime(2024, 1, 1)
+    window = reshape(collect(Int64, 1:12), 3, 2, 2)
+    axes = [IS.TimeSeriesAxis("block", [1, 2]), IS.TimeSeriesAxis("product", ["a", "b"])]
+    @test POM.write_input_forecast_row!(store, 7, "ThermalStandard", "links",
+        Dict(t0 => window), Dates.Hour(1), Dates.Hour(24); value_axes = axes)
+    md = only(POM.list_input_series(store))
+    ts = POM.read_input_time_series(store, md)
+    @test IS.get_value_axes(ts) == axes
+    @test only(values(IS.get_data(ts))) == window
+    POM.close_parameter_store!(store)
+end
+
+@testset "A 3-D input parameter is recast per owner for forecasts and static series" begin
+    sys = PSB.build_system(PSITestSystems, "c_sys5")
+    zones = Dict(
+        n => PSY.LoadZone(;
+            name = n, peak_active_power = 10.0, peak_reactive_power = 3.0,
+            input_basis = u"CU",
+        ) for n in ("A", "B")
+    )
+    foreach(z -> PSY.add_component!(sys, z), values(zones))
+    t0 = Dates.DateTime(2024, 1, 1)
+    vaxes = [IS.TimeSeriesAxis("block", [1, 2]), IS.TimeSeriesAxis("product", ["a", "b"])]
+    links = reshape(collect(Int64, 1:12), 3, 2, 2)
+    plain = [1.0, 2.0, 3.0]
+    PSY.add_time_series!(
+        sys, zones["A"],
+        PSY.Deterministic("fc", Dict(t0 => links), Dates.Hour(1), Dates.Hour(3);
+            value_axes = vaxes),
+    )
+    PSY.add_time_series!(
+        sys, zones["B"],
+        PSY.Deterministic("fc", Dict(t0 => plain), Dates.Hour(1), Dates.Hour(3)),
+    )
+    PSY.add_time_series!(
+        sys, zones["A"],
+        PSY.SingleTimeSeries("st", t0, Dates.Hour(1), links; value_axes = vaxes),
+    )
+    PSY.add_time_series!(
+        sys, zones["B"],
+        PSY.SingleTimeSeries(; name = "st", data = plain, initial_timestamp = t0,
+            resolution = Dates.Hour(1)),
+    )
+    windows = POM.RunWindows(t0, 1, 3, Dates.Hour(1), Dates.Hour(3))
+    raw = JuMP.Containers.DenseAxisArray(zeros(2, 6, 3), ["A", "B"], 1:6, 1:3)
+    for k in 1:4, t in 1:3
+        raw["A", k, t] = 10.0 * k + t
+    end
+    expected = [10 * (b + 2 * (p - 1)) + t for t in 1:3, b in 1:2, p in 1:2]
+    key = IOM.ParameterKey(POM.ActivePowerTimeSeriesParameter, PSY.LoadZone)
+
+    for (T, name) in ((PSY.Deterministic, "fc"), (PSY.SingleTimeSeries, "st"))
+        attributes = IOM.TimeSeriesAttributes(T, name)
+        for z in values(zones)
+            IOM.add_component_name!(attributes, PSY.get_name(z), "")
+        end
+        pc = IOM.ParameterContainer(attributes, raw, raw)
+        d = POM.input_series_descriptor(sys, key, pc)
+        @test collect(keys(d.value_axes)) == ["A"]
+        @test d.value_axes["A"] == vaxes
+        @test d.value_types["A"] == Int64
+
+        store = POM.ParameterTimeSeriesStore()
+        @test_logs (:warn, r"no value axes") POM._write_input!(
+            store, d.time_series_type, d, raw, windows,
+        )
+        md = only(POM.list_input_series(store))
+        ts = POM.read_input_time_series(store, md)
+        @test IS.get_value_axes(ts) == vaxes
+        if T <: IS.Forecast
+            got = only(values(IS.get_data(ts)))
+        else
+            got = IS.get_array(ts)
+        end
+        @test got == expected
+        @test eltype(got) == Int64
+        POM.close_parameter_store!(store)
+    end
+end

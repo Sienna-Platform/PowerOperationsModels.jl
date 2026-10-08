@@ -624,6 +624,8 @@ struct InputSeriesDescriptor
     time_series_type::Type
     owners::Dict{String, Tuple{Int64, String}}
     unresolved::Vector{String}
+    value_axes::Dict{String, Vector{IS.TimeSeriesAxis}}
+    value_types::Dict{String, DataType}
 end
 
 _is_input_attributes(::IOM.TimeSeriesAttributes) = true
@@ -637,6 +639,23 @@ decides it.
 is_input_parameter(::IOM.ParameterKey, pc::IOM.ParameterContainer)::Bool =
     _is_input_attributes(IOM.get_attributes(pc))
 
+# The value axes and element type of `owner`'s own series, read from its metadata, when that
+# series has value axes: the recast writes a parameter row back in this layout.
+function _add_value_layout!(value_axes, value_types, name, owner, attributes)
+    rows = IS.list_time_series_metadata(
+        owner;
+        time_series_type = IOM.get_time_series_type(attributes),
+        name = IOM.get_time_series_name(attributes),
+    )
+    length(rows) == 1 || return
+    md = only(rows)
+    owner_axes = IS.get_value_axes(md)
+    owner_axes === nothing && return
+    value_axes[name] = owner_axes
+    value_types[name] = eltype(md)
+    return
+end
+
 function input_series_descriptor(
     sys::PSY.System,
     key::IOM.ParameterKey,
@@ -646,11 +665,14 @@ function input_series_descriptor(
     D = IOM.get_component_type(key)
     owners = Dict{String, Tuple{Int64, String}}()
     unresolved = String[]
+    value_axes = Dict{String, Vector{IS.TimeSeriesAxis}}()
+    value_types = Dict{String, DataType}()
     for label in IOM.get_component_names(attributes)
         name = String(label)
         if PSY.has_component(sys, D, name)
             c = PSY.get_component(D, sys, name)
             owners[name] = (IS.get_id(c), string(nameof(typeof(c))))
+            _add_value_layout!(value_axes, value_types, name, c, attributes)
         else
             push!(unresolved, name)
         end
@@ -665,6 +687,8 @@ function input_series_descriptor(
         IOM.get_time_series_type(attributes),
         owners,
         unresolved,
+        value_axes,
+        value_types,
     )
 end
 
@@ -699,16 +723,17 @@ function write_input_forecast_row!(
     owner_id::Int64,
     owner_type::String,
     name::String,
-    data::AbstractDict{Dates.DateTime, <:AbstractVector},
+    data::AbstractDict{Dates.DateTime, <:AbstractArray},
     resolution::Dates.Period,
-    interval::Dates.Period,
+    interval::Dates.Period;
+    value_axes = nothing,
 )::Bool
     _input_row_exists(store, PSY.Deterministic, owner_id, name) && return false
     _add_row!(
         store,
         owner_id,
         owner_type,
-        PSY.Deterministic(name, Dict(data), resolution, interval),
+        PSY.Deterministic(name, Dict(data), resolution, interval; value_axes = value_axes),
         INPUT_ROW_FEATURES,
     )
     return true
@@ -725,9 +750,10 @@ function write_input_series_row!(
     owner_id::Int64,
     owner_type::String,
     name::String,
-    values::AbstractVector{Float64},
+    values::AbstractArray,
     initial_timestamp::Dates.DateTime,
-    resolution::Dates.Period,
+    resolution::Dates.Period;
+    value_axes = nothing,
 )::Bool
     _input_row_exists(store, PSY.SingleTimeSeries, owner_id, name) && return false
     _add_row!(
@@ -739,6 +765,7 @@ function write_input_series_row!(
             data = collect(values),
             initial_timestamp = initial_timestamp,
             resolution = resolution,
+            value_axes = value_axes,
         ),
         INPUT_ROW_FEATURES,
     )
@@ -807,17 +834,59 @@ _write_input!(
     windows::RunWindows,
 ) = write_input_series!(store, d, raw, _window_timestamps(windows), windows.resolution)
 
-"""A 3-D parameter has no input-series counterpart in this store; warn and skip it."""
+"""
+Recast a 3-D parameter: each owner's row goes back in the layout of its own series, with the
+value axes and element type read from that series' metadata. An owner whose series has no
+value axes has no such layout and is skipped with a warning.
+"""
 function _write_input!(
-    ::ParameterTimeSeriesStore,
-    ::Type{<:IS.TimeSeriesData},
+    store::ParameterTimeSeriesStore,
+    ::Type{T},
     d::InputSeriesDescriptor,
-    ::JuMP.Containers.DenseAxisArray{Float64, 3},
-    ::RunWindows,
-)
-    @warn "input series \"$(d.name)\" comes from a 3-D parameter array; not recast into the bundle"
+    raw::JuMP.Containers.DenseAxisArray{Float64, 3},
+    windows::RunWindows,
+) where {T <: IS.TimeSeriesData}
+    for (label, (owner_id, owner_type)) in d.owners
+        if !haskey(d.value_axes, label)
+            @warn "input series \"$(d.name)\" of $label has no value axes; not recast into the bundle"
+            continue
+        end
+        window = _labeled_window(raw, label, d.value_axes[label], d.value_types[label])
+        _write_labeled_input!(
+            store, T, d.name, owner_id, owner_type, window, d.value_axes[label], windows,
+        )
+    end
     return nothing
 end
+
+# `label`'s row of a `(owner, position, time)` array as `(time, value dims...)` in `value_type`.
+function _labeled_window(raw, label, value_axes, value_type)
+    rows = raw[label, :, :].data[1:IOM.get_value_length(value_axes), :]
+    dims = Tuple(length(axis.labels) for axis in value_axes)
+    shaped = reshape(rows, dims..., size(rows, 2))
+    return convert.(value_type, permutedims(shaped, (length(dims) + 1, 1:length(dims)...)))
+end
+
+_write_labeled_input!(store, ::Type{<:IS.Forecast}, name, id, type, window, axes, windows) =
+    write_input_forecast_row!(
+        store, id, type, name, Dict(first(windows.initial_times) => window),
+        windows.resolution, windows.interval; value_axes = axes,
+    )
+
+_write_labeled_input!(
+    store,
+    ::Type{<:IS.StaticTimeSeries},
+    name,
+    id,
+    type,
+    window,
+    axes,
+    windows,
+) =
+    write_input_series_row!(
+        store, id, type, name, window, first(_window_timestamps(windows)),
+        windows.resolution; value_axes = axes,
+    )
 
 """
 Recast every time-series parameter of a standalone model as component-owned input series, one
