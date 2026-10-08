@@ -353,6 +353,9 @@ _cost_time_series_keys(c::PSY.HydroReservoir) =
     PSY.get_time_series_keys(PSY.get_operation_cost(c))
 _cost_time_series_keys(c::PSY.VirtualParticipant) =
     PSY.get_time_series_keys(PSY.get_operation_cost(c))
+# A PointToPointBid's offer is its `spread_bid`, not an `operation_cost`.
+_cost_time_series_keys(c::PSY.PointToPointBid) =
+    PSY.get_time_series_keys(PSY.get_spread_bid(c))
 
 """
 An online, offline, or group reserve's own `TimeSeriesKey`, when its

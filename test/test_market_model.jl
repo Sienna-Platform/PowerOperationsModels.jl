@@ -528,11 +528,13 @@ function _bb_ts_side!(sys, comp, prefix, steps)
     return PSY.make_market_bid_ts_curve(key, initial_key)
 end
 
-# A MarketBidTimeSeriesCost with per-period one-step curves (`nothing` side = inert).
+# A MarketBidTimeSeriesCost with per-period one-step curves (`nothing` side = inert), set on
+# `comp` by `setter`.
 function _bb_ts_cost!(
     sys, comp;
     incremental = nothing, decremental = nothing,
     style = PSY.CurveStyles.VARIABLE, multistep = PSY.CurveMultiStep.SINGLE_STEP,
+    setter = PSY.set_operation_cost!,
 )
     n = length(something(incremental, decremental))
     inc = _bb_ts_side!(sys, comp, "inc", something(incremental, fill(_bb_inert(), n)))
@@ -550,7 +552,7 @@ function _bb_ts_cost!(
         curve_style = style,
         curve_multistep = multistep,
     )
-    PSY.set_operation_cost!(comp, cost)
+    setter(comp, cost)
     return cost
 end
 
@@ -853,6 +855,31 @@ end
     model, res = _bb_solved(sys)
     @test _bb_out(res) ≈ [10.0, 10.0, 0.0] atol = 1e-6
     @test _bb_link_keys(get_optimization_container(model)) == Set([("vp_supply", 1)])
+end
+
+@testset "copy_cost_time_series!: a PointToPointBid's time-series spread bid reaches the outputs bundle" begin
+    # A simulation writes each model's System bundle at build; a spread bid's series must be
+    # copied with it, or the document refers to series it does not hold.
+    sys = PSY.System(100.0)
+    from = _add_simple_bus!(sys)
+    to = _add_simple_bus!(sys; number = 2, name = "bus2", bustype = PSY.ACBusTypes.PQ)
+    bid = PSY.PointToPointBid(;
+        name = "ptp", available = true, from, to, max_active_power = 10.0,
+        price_limits = (min = -100.0, max = 100.0),
+    )
+    PSY.add_component!(sys, bid)
+    _bb_ts_cost!(sys, bid; incremental = _bb_pad4(fill(_bb_step(10.0, 5.0), 3)),
+        setter = PSY.set_spread_bid!)
+    PSY.transform_single_time_series!(sys, Dates.Hour(2), Dates.Hour(2))
+    store = POM.ParameterTimeSeriesStore()
+    windows = POM.RunWindows(_BB_T0, 2, 2, Dates.Hour(1), Dates.Hour(2))
+    key_map = POM.copy_cost_time_series!(store, sys, windows)
+    @test length(key_map) == length(PSY.get_time_series_keys(PSY.get_spread_bid(bid)))
+    bundle = joinpath(mktempdir(; cleanup = true), "system-ptp")
+    POM.write_outputs_system_bundle!(sys, store, key_map, bundle)
+    POM.close_parameter_store!(store)
+    restored = PSY.from_file(bundle; time_series_read_only = true)
+    @test PSY.get_name.(PSY.get_components(PSY.PointToPointBid, restored)) == ["ptp"]
 end
 
 @testset "Block bids: a curve empty over the whole window still gets its binaries, fixed to zero" begin
