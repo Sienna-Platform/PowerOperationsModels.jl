@@ -86,7 +86,7 @@ end
 
             var_key = VariableKey(ActivePowerVariable, comp_type)
             result_data = lookup_value(container, var_key)
-            p_setpoint = JuMP.value(result_data[comp_name, t])
+            p_setpoint = result_data[comp_name, t]
 
             expected_headroom = p_max_sys - p_setpoint
             @test expected_headroom > 0.0
@@ -142,7 +142,7 @@ end
     # headroom ever silently re-introduces a `* device_base / system_base` factor,
     # the recomputed expected_headroom below will mismatch by 0.5×, failing the
     # assertion.
-    PSY.set_base_power!(re_gen, get_base_power(re_gen, PSY.NU) / 2)
+    re_gen.base_power = get_base_power(re_gen, u"NU") / 2
 
     template = get_template_dispatch_with_network(
         NetworkModel(
@@ -179,7 +179,7 @@ end
     ts_values = lookup_value(container, ts_key)
 
     for t in 1:n_time_steps
-        p_setpoint = JuMP.value(var_values[re_name, t])
+        p_setpoint = var_values[re_name, t]
         p_max_ts = ts_values[re_name, t]
         p_max_t = min(p_max_static, p_max_ts)
         expected_headroom = p_max_t - p_setpoint
@@ -196,6 +196,47 @@ end
     # The time series should cause P_max to vary, producing different headroom across steps
     re_ts_vals = [ts_values[re_name, t] for t in 1:n_time_steps]
     @test !all(isapprox.(re_ts_vals, re_ts_vals[1]; atol = 1e-10))
+end
+
+@testset "Headroom proportional slack counts committed units only" begin
+    # c_sys5_uc decommits units in some hours under unit commitment.
+    system = build_system(PSITestSystems, "c_sys5_uc")
+    template = get_template_dispatch_with_network(
+        NetworkModel(
+            PTDFNetworkModel;
+            evaluations = power_flow_evaluations(
+                ACPowerFlow(;
+                    distribute_slack_proportional_to_headroom = true,
+                    correct_bustypes = true,
+                ),
+            ),
+        ),
+    )
+    set_device_model!(template, ThermalStandard, ThermalBasicUnitCommitment)
+    model = DecisionModel(template, system; optimizer = HiGHS_optimizer)
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          ModelBuildStatus.BUILT
+    @test solve!(model) == RunStatus.SUCCESSFULLY_FINALIZED
+
+    container = get_optimization_container(model)
+    data = get_inner_data(only(values(get_evaluation_data(get_evaluations(container)))))
+    computed_gspf = PFS.get_computed_gspf(data)
+    on = lookup_value(container, VariableKey(OnVariable, ThermalStandard))
+    p = lookup_value(container, VariableKey(ActivePowerVariable, ThermalStandard))
+
+    n_off = 0
+    for t in get_time_steps(container), name in axes(on, 1)
+        entry = get(computed_gspf[t], (ThermalStandard, name), 0.0)
+        if iszero(on[name, t])
+            n_off += 1
+            @test iszero(entry)
+        else
+            comp = get_component(ThermalStandard, system, name)
+            p_max = PFS.get_active_power_limits_for_power_flow(comp).max
+            @test isapprox(entry, max(p_max - p[name, t], 0.0); atol = 1e-10)
+        end
+    end
+    @test n_off > 0
 end
 
 # -----------------------------------------------------------------------------
@@ -219,14 +260,14 @@ end
     #        available = true,
     #        active_power_flow = 0.0,
     #        reactive_power_flow = 0.0,
-    #        r = get_r(line, PSY.SU),
-    #        x = get_x(line, PSY.SU),
+    #        r = get_r(line, u"SU"),
+    #        x = get_x(line, u"SU"),
     #        primary_shunt = 0.0,
     #        tap = 1.0,
     #        α = 0.0,
-    #        rating = get_rating(line, PSY.SU),
+    #        rating = get_rating(line, u"SU"),
     #        arc = arc,
-    #        base_power = get_base_power(system, PSY.NU),
+    #        base_power = get_base_power(system, u"NU"),
     #    )
     #    add_component!(system, ps)
     #    remove_component!(system, line)
@@ -253,10 +294,10 @@ end
     #    flow_values = lookup_value(container, flow_key)
     #    line_name = get_name(line)
     #    line_flows =
-    #        [JuMP.value(flow_values[line_name, t]) for t in 1:length(get_time_steps(container))]
+    #        [flow_values[line_name, t] for t in 1:length(get_time_steps(container))]
     #
     #    # The PhaseShiftingTransformer flow contributes to the "to"-bus active power injection.
-    #    # Both sides are in per-unit; lookup_value returns raw JuMP values in the model unit
+    #    # Both sides are in per-unit; lookup_value returns solved values in the model unit
     #    # system rather than the natural-unit conversion that `read_variables(...; WIDE)`
     #    # performs in PSI.
     #    @test isapprox(
@@ -273,8 +314,8 @@ end
         system = build_system(PSITestSystems, "c_sys5_uc")
         line = get_component(Line, system, "1")
         if replace_line
-            original_impedance = get_r(line, PSY.SU) + im * get_x(line, PSY.SU)
-            original_shunt = get_b(line, PSY.SU)
+            original_impedance = get_r(line, u"SU") + im * get_x(line, u"SU")
+            original_shunt = get_b(line, u"SU")
             split_impedance = original_impedance * 2
             split_shunt = (from = 0.5 * original_shunt.from, to = 0.5 * original_shunt.to)
             for i in 1:2
@@ -288,8 +329,8 @@ end
                     x = imag(split_impedance),
                     b = split_shunt,
                     angle_limits = get_angle_limits(line),
-                    rating = get_rating(line, PSY.SU),
-                    input_basis = CU,
+                    rating = get_rating(line, u"SU"),
+                    input_basis = u"CU",
                 )
                 add_component!(system, l)
             end
@@ -338,18 +379,18 @@ end
         arc = get_arc(line),
         r = 0.0,
         x = 0.0,
-        rating = get_rating(line, PSY.SU),
+        rating = get_rating(line, u"SU"),
         discrete_branch_type = PSY.DiscreteControlledBranchType.BREAKER,
         branch_status = PSY.DiscreteControlledBranchStatus.CLOSED,
-        input_basis = CU,
+        input_basis = u"CU",
     )
     add_component!(system, bs)
     remove_component!(system, line)
     # Set lines 3 and 6 to identical impedance so they're truly parallel
     line3 = get_component(Line, system, "3")
     line6 = get_component(Line, system, "6")
-    PSY.set_r!(line3, PSY.get_r(line6, PSY.SU) * PSY.SU)
-    PSY.set_x!(line3, PSY.get_x(line6, PSY.SU) * PSY.SU)
+    PSY.set_r!(line3, PSY.get_r(line6, u"SU") * u"SU")
+    PSY.set_x!(line3, PSY.get_x(line6, u"SU") * u"SU")
 
     template = get_template_dispatch_with_network(
         NetworkModel(
@@ -549,7 +590,7 @@ end
     from = get_from(get_arc(hvdc))
     to = get_to(get_arc(hvdc))
     set_loss!(hvdc, PSY.LossCurve(LinearCurve(0.0), PSY.CU))
-    set_active_power_flow!(hvdc, 0.5 * PSY.SU)   # a stale system seed the optimization won't reproduce
+    set_active_power_flow!(hvdc, 0.5 * u"SU")   # a stale system seed the optimization won't reproduce
 
     template = PowerOperationsProblemTemplate(
         NetworkModel(PTDFNetworkModel; evaluations = power_flow_evaluations(DCPowerFlow())),
@@ -599,7 +640,7 @@ function _build_rts_hvdc_acpf_model(hvdc_formulation; loss = nothing, stored_flo
     from = get_from(get_arc(hvdc))
     to = get_to(get_arc(hvdc))
     isnothing(loss) || set_loss!(hvdc, loss)
-    isnothing(stored_flow) || set_active_power_flow!(hvdc, stored_flow * PSY.SU)
+    isnothing(stored_flow) || set_active_power_flow!(hvdc, stored_flow * u"SU")
     # remove components that impact total bus power at the HVDC line buses.
     injectors = collect(
         get_components(
@@ -746,9 +787,9 @@ end
             ACPolarPowerFlow{PFS.FastDecoupledXB}(),
         "FDNR handoff -> NewtonRaphson" =>
             ACPolarPowerFlow{PFS.FastDecoupledACPowerFlow}(;
-                solver_settings = Dict{Symbol, Any}(
-                    :handoff_solver => PFS.NewtonRaphsonACPowerFlow,
-                    :handoff_tol => 1e-3,
+                solution_parameters = PFS.SolutionParameters(;
+                    handoff_solver = PFS.NewtonRaphsonACPowerFlow,
+                    handoff_tol = 1e-3,
                 ),
             ),
     ]
@@ -822,7 +863,7 @@ end
     # is fed only by lines "1" and "4", and 0.35 is hand-tuned so off-peak hours
     # converge and peak hours don't.
     for name in ("1", "4")
-        set_x!(get_component(Line, system, name), 0.35 * PSY.SU)
+        set_x!(get_component(Line, system, name), 0.35 * u"SU")
     end
     template = get_thermal_dispatch_template_network(
         NetworkModel(

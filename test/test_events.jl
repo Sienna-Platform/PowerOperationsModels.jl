@@ -288,7 +288,7 @@ end
     # expression (ActivePowerRangeExpressionUB) carries no constant term here, so
     # the normalized upper bound must equal the device's rated max active power.
     outaged_device = PSY.get_component(PSY.ThermalStandard, sys, outaged_name)
-    @test c1.set.upper ≈ PSY.get_max_active_power(outaged_device, PSY.SU)
+    @test c1.set.upper ≈ PSY.get_max_active_power(outaged_device, u"SU")
 end
 
 @testset "Event constraints - storage" begin
@@ -488,7 +488,7 @@ end
 #
 # The shared path (`add_parameterized_upper_bound_range_constraints` ->
 # IOM `_bound_range_with_parameter!` -> `IOM.get_max_active_power`, whose single
-# POM method passes `PSY.SU`) is component-neutral, so the thermal RHS check
+# POM method passes `u"SU"`) is component-neutral, so the thermal RHS check
 # above covers units for thermal/renewable/load/hydro alike. What is *not*
 # shared, and is checked here:
 #
@@ -568,8 +568,8 @@ end
     @test JuMP.coefficient(c_out.func, p_in[name, t]) ≈ 0.0
     # Bounds recomputed from the fixture in system base, not read back from
     # whatever the builder read.
-    @test c_in.set.upper ≈ PSY.get_input_active_power_limits(device, PSY.SU).max
-    @test c_out.set.upper ≈ PSY.get_output_active_power_limits(device, PSY.SU).max
+    @test c_in.set.upper ≈ PSY.get_input_active_power_limits(device, u"SU").max
+    @test c_out.set.upper ≈ PSY.get_output_active_power_limits(device, u"SU").max
 end
 
 @testset "Reactive outage constraint bounds q^2 by the squared reactive limit" begin
@@ -597,7 +597,7 @@ end
             t,
         ],
     )
-    limits = PSY.get_reactive_power_limits(device, PSY.SU)
+    limits = PSY.get_reactive_power_limits(device, u"SU")
     q_limit = max(abs(limits.max), abs(limits.min))
 
     @test JuMP.coefficient(c.func, q[name, t], q[name, t]) ≈ 1.0

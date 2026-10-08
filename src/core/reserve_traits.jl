@@ -77,74 +77,56 @@ function _service_model_for(device_model::DeviceModel, service::PSY.Service)
 end
 
 """
-Per-time-step deployed fraction for `s`, as `deployed_fraction * profile[t]`.
-
-Returns `fill(scalar, horizon)` when the model declares no deployed-fraction series name or the
-reserve carries no such series, reproducing the constant-coefficient behavior exactly. Always
-returns a `Vector{Float64}` so the multiplier seams stay type-stable.
-
-The name is resolved from the `ServiceModel`'s `time_series_names`, so a user can override it
-there, exactly as for [`RequirementTimeSeriesParameter`](@ref). Unlike `requirement` the series
-backs no parameter container: the fraction multiplies a reserve award, so it is a constraint
-coefficient, and a JuMP parameter in coefficient position would make the energy balance
-bilinear. Repeated calls for a service shared across devices are cheap because IOM caches
-resolved series.
+The deployed-fraction parameter key covering `service` through `device_model`'s registered
+service models, or `nothing` when the reserve's fraction is its fixed scalar: no service model
+covers it, or it carries no deployed-fraction profile.
 """
-function deployed_fraction_values(
+function _deployed_fraction_key(
     container::OptimizationContainer,
-    model::ServiceModel,
-    s::PSY.AbstractReserve,
-)::Vector{Float64}
-    scalar = PSY.get_deployed_fraction(s)
-    time_steps = get_time_steps(container)
-    ts_names = get_time_series_names(model)
-    haskey(ts_names, DeployedFractionTimeSeriesParameter) ||
-        return fill(scalar, length(time_steps))
-    ts_name = ts_names[DeployedFractionTimeSeriesParameter]
-    PSY.has_time_series(s, ts_name) || return fill(scalar, length(time_steps))
-    ts_type = get_default_time_series_type(container)
-    if !PSY.has_time_series(s, ts_type, ts_name)
-        throw(
-            IS.ConflictingInputsError(
-                "Reserve $(PSY.get_name(s)) carries a $(ts_name) time series, but not as \
-                $(ts_type), which is what this model reads. Attach the series before calling \
-                transform_single_time_series!, or add it directly as $(ts_type).",
-            ),
-        )
-    end
-    # `resolution` accompanies `interval` so an off-resolution series is rejected rather than
-    # read at the wrong step length, matching the parameter path in `add_parameters.jl`.
-    settings = get_settings(container)
-    ts_values = IOM.get_time_series_initial_values!(
-        container,
-        ts_type,
-        s,
-        ts_name;
-        interval = get_interval(settings),
-        resolution = get_resolution(settings),
-    )
-    return scalar .* Vector{Float64}(ts_values)
+    device_model::DeviceModel,
+    service::PSY.AbstractReserve,
+)
+    service_model = _service_model_for(device_model, service)
+    isnothing(service_model) && return nothing
+    SR = get_component_type(service_model)
+    has_container_key(container, DeployedFractionParameter, SR) || return nothing
+    key = IOM.ParameterKey(DeployedFractionParameter, SR)
+    has_lhs_parameter_component(container, key, PSY.get_name(service)) || return nothing
+    return key
 end
 
 """
-Per-time-step deployed fraction resolved through `device_model`'s registered service models.
+Per-time-step deployed fraction for `service` as a reserve covered by `device_model`:
+`deployed_fraction * profile[t]` read from the [`DeployedFractionParameter`](@ref) container
+when the reserve carries a profile, otherwise the scalar `deployed_fraction` at every step.
 
-Convenience for the device-side multiplier seams, which hold a `DeviceModel` and reach services
-through `PSY.get_services(d)`. Falls back to the scalar when the device model registers no
-service model covering `s`.
+The values are written into constraints as fixed coefficients. A model holding a profile is
+rebuilt every simulation step, so each build reads the refreshed container.
 """
 function deployed_fraction_values(
     container::OptimizationContainer,
     device_model::DeviceModel,
-    s::PSY.AbstractReserve,
+    service::PSY.AbstractReserve,
 )::Vector{Float64}
-    service_model = _service_model_for(device_model, s)
-    isnothing(service_model) && return fill(
-        PSY.get_deployed_fraction(s),
-        length(get_time_steps(container)),
-    )
-    return deployed_fraction_values(container, service_model, s)
+    key = _deployed_fraction_key(container, device_model, service)
+    isnothing(key) &&
+        return fill(PSY.get_deployed_fraction(service), length(get_time_steps(container)))
+    return get_lhs_parameter_values(container, key, PSY.get_name(service))
 end
+
+"Per-time-step scale of a reserve award per its [`ReserveScale`](@ref)."
+reserve_scale_values(
+    ::Type{UnscaledReserve},
+    container::OptimizationContainer,
+    ::DeviceModel,
+    ::PSY.Service,
+) = ones(Float64, length(get_time_steps(container)))
+reserve_scale_values(
+    ::Type{DeployedReserve},
+    container::OptimizationContainer,
+    device_model::DeviceModel,
+    service::PSY.AbstractReserve,
+) = deployed_fraction_values(container, device_model, service)
 
 # ── ORDC (operating-reserve-demand-curve) predicates ─────────────────────────────────
 # A demand curve lives on a reserve's `variable` field ("is this an ORDC" is
@@ -200,26 +182,106 @@ supports_reserve_provision(::Type{<:AbstractLoadFormulation}) = false
 """
 Offline services on `model` that devices of type `V` contribute to, for the
 [`OfflineReserveBandConstraint`](@ref) builders: `(service name, award variable, member
-names, offline_only)` per service, where `offline_only` is the `ServiceModel` attribute.
+names, offline_only, exclude_shutdown_step)` per service; the flags are `ServiceModel`
+attributes.
 """
 function _offline_reserve_awards(
     container::OptimizationContainer,
     model::DeviceModel,
     ::Type{V},
 ) where {V <: PSY.Device}
-    offline = Tuple{String, IOM.JuMPArray, Set{String}, Bool}[]
+    offline = Tuple{String, IOM.JuMPArray, Set{String}, Bool, Bool}[]
     for sm in get_services(model)
         S = get_component_type(sm)
         _is_offline_reserve(S) || continue
         only_off = something(get_attribute(sm, "offline_only"), false)
+        no_shut = something(get_attribute(sm, "exclude_shutdown_step"), false)
         for (service_name, dev_map) in get_contributing_devices_map(sm)
             members = get(dev_map, V, nothing)
             isnothing(members) && continue
             variable = _reserve_variable(container, V, S)
-            push!(offline, (service_name, variable, Set(PSY.get_name.(members)), only_off))
+            push!(
+                offline,
+                (service_name, variable, Set(PSY.get_name.(members)), only_off, no_shut),
+            )
         end
     end
     return offline
+end
+
+"""
+Available maximum of `d` in each time step for the offline band: `mult[name, t] * ts_t` from
+its `ActivePowerTimeSeriesParameter`, or `q_limit` (static `pmax`) in every step when `model`
+maps no such series or `d` has none.
+"""
+function _offline_hourly_limit(
+    container::OptimizationContainer,
+    model::DeviceModel{V},
+    d::V,
+    q_limit::Float64,
+) where {V <: PSY.Device}
+    time_steps = get_time_steps(container)
+    fallback = fill(q_limit, length(time_steps))
+    ts_names = get_time_series_names(model)
+    haskey(ts_names, ActivePowerTimeSeriesParameter) || return fallback
+    ts_type = get_default_time_series_type(container)
+    IS.has_time_series(d, ts_type, ts_names[ActivePowerTimeSeriesParameter]) ||
+        return fallback
+    param_container = get_parameter(container, ActivePowerTimeSeriesParameter, V)
+    mult = get_multiplier_array(param_container)
+    name = PSY.get_name(d)
+    param_col = get_parameter_column_refs(param_container, name)
+    return [mult[name, t] * param_col[t] for t in time_steps]
+end
+
+"""
+Commitment of each `V` device before the first time step, from its `DeviceStatus` initial
+condition: the initialization solve's step-1 commitment when the model initializes,
+`is_online(d)` otherwise. Must-run thermal devices carry no value and are left out.
+"""
+function _initial_status(
+    container::OptimizationContainer,
+    ::Type{V},
+) where {V <: PSY.Device}
+    status = Dict{String, Union{Float64, JuMP.VariableRef}}()
+    for ic in get_initial_condition(container, DeviceStatus(), V)
+        value = get_value(ic)
+        isnothing(value) && continue
+        status[IOM.get_component_name(ic)] = value
+    end
+    return status
+end
+
+"""
+[`OfflineReserveShutdownConstraint`](@ref) rows of device `name`: the offline awards in
+`awards` (`(service name, award variable)` pairs) are `0` in the step it goes off,
+`sum(awards) <= q_limit * (1 - u_{t-1} + u_t)` with `u_0 = status0`. The right-hand side is
+`0` when the unit goes off, `q_limit` while its status holds and `2 * q_limit` when it starts.
+"""
+function _add_offline_shutdown_rows!(
+    rows,
+    jump_model::JuMP.Model,
+    name::String,
+    q_limit::Float64,
+    awards,
+    varbin,
+    status0,
+    time_steps,
+)
+    t1 = first(time_steps)
+    rows[(name, t1)] = JuMP.@constraint(
+        jump_model,
+        sum(v[(sname, name, t1)] for (sname, v) in awards) <=
+        q_limit * (1 - status0 + varbin[name, t1])
+    )
+    for t in time_steps[2:end]
+        rows[(name, t)] = JuMP.@constraint(
+            jump_model,
+            sum(v[(sname, name, t)] for (sname, v) in awards) <=
+            q_limit * (1 - varbin[name, t - 1] + varbin[name, t])
+        )
+    end
+    return
 end
 
 """
@@ -230,3 +292,15 @@ exactly the classic single semi-continuous band row.
 _has_offline_reserve_service(model::DeviceModel) =
     has_service_model(model) &&
     any(sm -> _is_offline_reserve(get_component_type(sm)), get_services(model))
+
+"""
+Whether an `OfflineReserve` service on `model` sets `"exclude_shutdown_step"`. Gates the
+hydro `DeviceStatus` initial condition that [`OfflineReserveShutdownConstraint`](@ref)
+reads, so models without the rule keep their initial-condition set.
+"""
+_excludes_shutdown_step(model::DeviceModel) = any(
+    sm ->
+        _is_offline_reserve(get_component_type(sm)) &&
+            something(get_attribute(sm, "exclude_shutdown_step"), false),
+    get_services(model),
+)

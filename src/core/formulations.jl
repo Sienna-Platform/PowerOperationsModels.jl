@@ -260,7 +260,19 @@ Branch type to represent piecewise lossy power flow on two terminal DC lines
 struct HVDCTwoTerminalPiecewiseLoss <: AbstractTwoTerminalDCLineFormulation end
 
 """
-Branch type to represent non-linear LCC (line commutated converter) model on two-terminal DC lines
+Branch type to represent a non-linear LCC (line commutated converter) model on two-terminal DC lines.
+The model applies to `PSY.TwoTerminalLCCLine`.
+
+The formulation builds on `ACPNetworkModel`, `ACRNetworkModel`, `IVRNetworkModel`, and
+`LPACCNetworkModel`. Template validation rejects all other network models.
+
+The rectifier is at the `from` bus. The inverter is at the `to` bus. The formulation adds
+the rectifier and inverter power, angle, DC voltage, AC current, and tap variables. It
+links them with the converter equations. The overlap angle and power factor equations are
+non-linear, so a non-linear solver is necessary.
+
+See the `HVDCTwoTerminalLCC` subsection of the formulation library in the documentation
+for the variables, the parameters, and the equations.
 """
 struct HVDCTwoTerminalLCC <: AbstractTwoTerminalDCLineFormulation end
 
@@ -295,7 +307,8 @@ cable current, the DC cable Ohm's law, bounded per-terminal reactive injection i
 `JuMP.fix` (`force = true`): `AC_VOLTAGE` → the regulated AC-bus voltage (the `VoltageMagnitude`
 under ACP, the `VoltageDeviation` `phi = |V| - 1` under LPACC, a per-terminal
 `RegulatedVoltageMagnitude` aux variable under ACR/IVR), `AC_REACTIVE_POWER` → the terminal
-reactive injection. DC control adds one always-present `HVDCDCControlConstraint` per terminal
+reactive injection, at `reactive_power_from` / `reactive_power_to`. DC control adds one
+always-present `HVDCDCControlConstraint` per terminal
 per time step (`DC_VOLTAGE` / `DC_POWER` / `DC_VOLTAGE_DROOP`), so the variable/constraint
 containers are identical across all control modes. Only valid under AC network models
 (ACP/ACR/IVR/LPACC); dropped from DC templates automatically via `models_reactive_power`.
@@ -355,7 +368,7 @@ count-invariant control layer driven by the converter's `ac_control` / `dc_contr
 AC control: `AC_VOLTAGE` regulates the AC bus voltage to `ac_setpoint` (under ACP by fixing the
 network `VoltageMagnitude`; under LPACC by fixing the `VoltageDeviation` `phi = |V| - 1` to
 `ac_setpoint - 1`; under ACR/IVR via a component-owned `RegulatedVoltageMagnitude` aux
-variable); `AC_REACTIVE_POWER` fixes the reactive injection to `ac_setpoint`. DC control adds one
+variable); `AC_REACTIVE_POWER` is not supported and fails template validation. DC control adds one
 always-present `HVDCDCControlConstraint` per converter per time step: `DC_VOLTAGE` →
 `vdc = dc_setpoint`, `DC_POWER` → `p = dc_setpoint`, `DC_VOLTAGE_DROOP` →
 `vdc + dc_voltage_droop * p = dc_setpoint`. The aux voltage variable + its constraint and the
@@ -693,7 +706,7 @@ dispatch.
   - ``P_{\\max,\\text{ds}}`` = `PSY.get_output_active_power_limits(storage).max`
   - ``\\eta_{\\text{ch}}`` = `PSY.get_efficiency(storage).in`
   - ``\\eta_{\\text{ds}}`` = `PSY.get_efficiency(storage).out`
-  - ``E_{\\max,\\text{st}}`` = `PSY.get_storage_level_limits(storage).max * PSY.get_storage_capacity(storage, PSY.SU) * PSY.get_conversion_factor(storage)``
+  - ``E_{\\max,\\text{st}}`` = `PSY.get_storage_level_limits(storage).max * PSY.get_storage_capacity(storage, u"SU") * PSY.get_conversion_factor(storage)``
   - ``E^{\\text{st}}_0`` = initial storage energy
   - ``R^{*}_{p,t}`` = ancillary service deployment forecast for service ``p`` at time ``t``
   - ``F_p`` = fraction of ``P_{\\max,\\text{pcc}}`` allowed for service ``p``

@@ -363,17 +363,17 @@ end
             circuit = PSY.TransformerCircuit(;
                 available = true,
                 arc = PSY.get_arc(circuit),
-                r = PSY.get_r(circuit, PSY.SU),
-                x = PSY.get_x(circuit, PSY.SU),
+                r = PSY.get_r(circuit, u"SU"),
+                x = PSY.get_x(circuit, u"SU"),
                 tap = 1.0,
                 α = 0.0,
-                rating = PSY.get_rating(circuit, PSY.SU),
-                base_power = PSY.get_base_power(fixture.sys, PSY.NU),
-                input_basis = CU,
+                rating = PSY.get_rating(circuit, u"SU"),
+                base_power = PSY.get_base_power(fixture.sys, u"NU"),
+                input_basis = u"CU",
             ),
             magnetizing_shunt = 0.0 + 0.0im,
             shunt_location = PSY.TwoWindingTransformerShuntLocation.PRIMARY,
-            input_basis = CU,
+            input_basis = u"CU",
         ),
     )
     template = _controlled_template(DCPNetworkModel, PSY.TwoWindingTransformer)
@@ -561,7 +561,7 @@ end
             IOM.get_expression(container, POM.ActivePowerBalance, PSY.ACBus).data
         name_to_arc_maps =
             PNM.get_name_to_arc_maps(POM.get_branch_catalog(network_model))
-        b = PNM.get_series_susceptance(transformer, PSY.SU)
+        b = PNM.get_series_susceptance(transformer, u"SU")
         @test !iszero(b)
 
         function _arc(name)
@@ -609,6 +609,135 @@ end
                 atol = 1e-8,
             )
         end
+    end
+end
+
+############################ PTDF base-case flows under N-1 ############################
+
+function _catalog_arc(network_model, name)
+    for n2a in values(PNM.get_name_to_arc_maps(POM.get_branch_catalog(network_model)))
+        haskey(n2a, name) && return n2a[name]
+    end
+    error("branch $name not found in any reduction map")
+end
+
+function _ptdf_product(ptdf_row, nodal_balance, t)
+    expr = zero(JuMP.AffExpr)
+    for i in eachindex(ptdf_row)
+        abs(ptdf_row[i]) > POM.PTDF_ZERO_TOL || continue
+        JuMP.add_to_expression!(expr, ptdf_row[i], nodal_balance[i, t])
+    end
+    return expr
+end
+
+# Lines and transformers share one formulation so the security-constrained and the plain
+# base-case paths are compared on the same fixture.
+function _base_flow_model(formulation; enable::Bool)
+    template = get_thermal_dispatch_template_network(NetworkModel(PTDFNetworkModel))
+    set_device_model!(template, DeviceModel(PSY.Line, formulation))
+    set_device_model!(
+        template,
+        DeviceModel(
+            PSY.TwoWindingTransformer,
+            formulation;
+            attributes = Dict(POM.ENABLE_CONTROLS_KEY => enable),
+        ),
+    )
+    return template
+end
+
+@testset "PTDF base-case flows carry every shift injection under $formulation" for formulation in
+                                                                                   (
+    StaticBranch,
+    POM.SecurityConstrainedStaticBranch,
+)
+    # Ground truth: `PTDF[arc, :] · P[:, t]` over the complete nodal balance, minus the
+    # branch's own `b·α` (variable or static) when the branch is the shifter. The PTDF is
+    # rebuilt independently of the container. `StaticBranch` is the control group.
+    for (control, alpha) in ((true, nothing), (false, 0.05))
+        sys, transformer, _ = _sc_phase_system(; control = control, alpha = alpha)
+        template = _base_flow_model(formulation; enable = control)
+        model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
+        @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+              IOM.ModelBuildStatus.BUILT
+
+        container = IOM.get_optimization_container(model)
+        network_model = IOM.get_network_model(IOM.get_template(model))
+        nodal_balance =
+            IOM.get_expression(container, POM.ActivePowerBalance, PSY.ACBus).data
+        ptdf = PNM.VirtualPTDF(sys)
+        b = PNM.get_series_susceptance(transformer, u"SU")
+        alpha_var = if control
+            IOM.get_variable(container, PhaseShifterAngle, PSY.TwoWindingTransformer)
+        else
+            nothing
+        end
+        alpha_static = PSY.get_α(PSY.get_circuit(transformer))
+
+        line_rows_carrying_angle = 0
+        for T in (PSY.Line, PSY.TwoWindingTransformer)
+            flows = IOM.get_expression(container, PTDFBranchFlow, T)
+            for name in axes(flows)[1], t in axes(flows)[2]
+                ptdf_row = ptdf[_catalog_arc(network_model, name), :]
+                expected = _ptdf_product(ptdf_row, nodal_balance, t)
+                if name == _PST_NAME
+                    if control
+                        JuMP.add_to_expression!(expected, -b, alpha_var[name, t])
+                    else
+                        JuMP.add_to_expression!(expected, -b * alpha_static)
+                    end
+                end
+                @test _phase_affexpr_approx_equal(flows[name, t], expected)
+                if control && T === PSY.Line &&
+                   !iszero(JuMP.coefficient(flows[name, t], alpha_var[_PST_NAME, t]))
+                    line_rows_carrying_angle += 1
+                end
+            end
+        end
+        # The angle must reach the line rows, not merely cancel out of both sides.
+        control && @test line_rows_carrying_angle > 0
+    end
+end
+
+@testset "interface flows over N-1 lines carry the phase shifter angle" begin
+    sys, _, _ = _sc_phase_system(; control = true)
+    interface_lines = ["Line1", "Line2", "Line3"]
+    interface = PSY.TransmissionInterface(;
+        name = "shifted_interface",
+        available = true,
+        active_power_flow_limits = (min = -1000.0, max = 1000.0),
+        violation_penalty = 1e5,
+        input_basis = u"CU",
+    )
+    PSY.add_service!(
+        sys,
+        interface,
+        [PSY.get_component(PSY.Line, sys, l) for l in interface_lines],
+    )
+    template = _base_flow_model(POM.SecurityConstrainedStaticBranch; enable = true)
+    set_service_model!(
+        template,
+        ServiceModel(PSY.TransmissionInterface, ConstantMaxInterfaceFlow),
+    )
+    model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+
+    container = IOM.get_optimization_container(model)
+    network_model = IOM.get_network_model(IOM.get_template(model))
+    nodal_balance = IOM.get_expression(container, POM.ActivePowerBalance, PSY.ACBus).data
+    ptdf = PNM.VirtualPTDF(sys)
+    alpha_var = IOM.get_variable(container, PhaseShifterAngle, PSY.TwoWindingTransformer)
+    total = IOM.get_expression(container, POM.InterfaceTotalFlow, PSY.TransmissionInterface)
+    for t in get_time_steps(container)
+        expected = zero(JuMP.AffExpr)
+        for l in interface_lines
+            ptdf_row = ptdf[_catalog_arc(network_model, l), :]
+            JuMP.add_to_expression!(expected, _ptdf_product(ptdf_row, nodal_balance, t))
+        end
+        actual = total["shifted_interface", t]
+        @test _phase_affexpr_approx_equal(actual, expected)
+        @test !iszero(JuMP.coefficient(actual, alpha_var[_PST_NAME, t]))
     end
 end
 
@@ -710,7 +839,7 @@ end
     bus_lookup = PNM.get_bus_lookup(ptdf_ref)
     arc = PNM.get_arc_tuple(transformer)
     from_pos, to_pos = bus_lookup[arc[1]], bus_lookup[arc[2]]
-    injection = PNM.get_series_susceptance(transformer, PSY.SU) * alpha
+    injection = PNM.get_series_susceptance(transformer, u"SU") * alpha
     @test injection ≈
           PNM.arc_dc_shift_injection(PNM.get_network_reduction_data(modf), arc)
 
@@ -754,7 +883,7 @@ end
     bus_lookup = PNM.get_bus_lookup(ptdf_ref)
     arc = PNM.get_arc_tuple(transformer)
     from_pos, to_pos = bus_lookup[arc[1]], bus_lookup[arc[2]]
-    b = PNM.get_series_susceptance(transformer, PSY.SU)
+    b = PNM.get_series_susceptance(transformer, u"SU")
 
     name_to_arc = PNM.get_name_to_arc_map(POM.get_branch_catalog(network_model), PSY.Line)
     own_rows = 0
@@ -848,16 +977,16 @@ end
             available = true,
             arc = PSY.get_arc(line),
             r = 0.0,
-            x = PSY.get_x(line, PSY.SU),
+            x = PSY.get_x(line, u"SU"),
             tap = 1.0,
             α = alpha,
-            rating = PSY.get_rating(line, PSY.SU),
-            base_power = PSY.get_base_power(sys, PSY.NU),
-            input_basis = CU,
+            rating = PSY.get_rating(line, u"SU"),
+            base_power = PSY.get_base_power(sys, u"NU"),
+            input_basis = u"CU",
         ),
         magnetizing_shunt = 0.0 + 0.0im,
         shunt_location = PSY.TwoWindingTransformerShuntLocation.PRIMARY,
-        input_basis = CU,
+        input_basis = u"CU",
     )
     PSY.add_component!(sys, pst)
     outage = PSY.GeometricDistributionForcedOutage(;
@@ -886,7 +1015,7 @@ end
 
     arc = PNM.get_arc_tuple(line)
     @test haskey(PNM.get_parallel_branch_map(nr), arc)
-    injection = PNM.get_series_susceptance(pst, PSY.SU) * alpha
+    injection = PNM.get_series_susceptance(pst, u"SU") * alpha
     # The group's injection is the sum of its members', and the line contributes none.
     @test PNM.arc_dc_shift_injection(nr, arc) ≈ injection
 

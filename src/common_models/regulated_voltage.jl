@@ -70,7 +70,7 @@ function add_regulated_voltage_magnitude!(
         for (name, tag_buses) in rows
             bus = _reg_bus_for_tag(tag_buses, tag)
             # bus voltage limits are already per-unit
-            vlim = PSY.get_voltage_limits(bus)
+            vlim = PSY.get_voltage_limits(bus, u"CU")
             lo = vlim.min
             hi = vlim.max
             if !(isfinite(lo) && isfinite(hi))
@@ -79,7 +79,7 @@ function add_regulated_voltage_magnitude!(
                     "voltage_limits ($(lo), $(hi)); cannot bound RegulatedVoltageMagnitude",
                 )
             end
-            v0 = PSY.get_magnitude(bus)
+            v0 = PSY.get_magnitude(bus, u"CU")
             for t in time_steps
                 var[name, t] = JuMP.@variable(
                     jm,

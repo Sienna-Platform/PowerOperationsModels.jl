@@ -1216,7 +1216,7 @@ end
         "ub",
     )
     constraint = IOM.get_constraint(IOM.get_optimization_container(model), key)
-    ub_value = get_max_active_power(solitude, PSY.SU) * 0.8
+    ub_value = get_max_active_power(solitude, u"SU") * 0.8
     for ix in eachindex(constraint)
         @test JuMP.normalized_rhs(constraint[ix]) == ub_value
     end
@@ -1278,8 +1278,8 @@ end
     moi_tests(model, 432, 0, 192, 120, 72, false)
     execute!(sim)
 
-    sim_res = SimulationResults(sim)
-    res_uc = get_decision_problem_results(sim_res, "UC")
+    sim_res = SimulationOutputs(sim)
+    res_uc = get_decision_problem_outputs(sim_res, "UC")
 
     # Test time series <-> parameter correspondence
     fc_uc = read_parameter(

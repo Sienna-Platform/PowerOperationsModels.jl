@@ -39,7 +39,7 @@ function add_device_reserve_offers!(
     # device name -> first-segment offer slope ($/MWh, natural units); segment 2 is 1.5x it.
     base_slope = Dict{String, Float64}()
     for (i, g) in enumerate(contributors)
-        pmax = PSY.get_max_active_power(g, PSY.NU)
+        pmax = PSY.get_max_active_power(g, u"NU")
         # Keep the unit's own marginal energy cost: read the proportional (linear) term of its
         # existing variable cost before overwriting, and use it as the single-block energy offer.
         energy_slope = PSY.get_proportional_term(
@@ -193,7 +193,7 @@ function add_per_hour_reserve_offer!(
     init_times = [DateTime("2024-01-01T00:00:00"), DateTime("2024-01-02T00:00:00")],
     horizon = 24, resolution = Hour(1),
 )
-    pmax = PSY.get_max_active_power(g, PSY.NU)
+    pmax = PSY.get_max_active_power(g, u"NU")
     energy_slope = PSY.get_proportional_term(
         PSY.get_value_curve(PSY.get_variable_operation_cost(get_operation_cost(g))))
     set_operation_cost!(
@@ -389,7 +389,7 @@ function build_reserve_market_system(; load_offer_mw = 10.0, load_offer_price = 
     # Generators: energy at each unit's own marginal cost, flat AS offers into all three
     # up-products with per-unit prices.
     for (i, g) in enumerate(thermals)
-        pmax = PSY.get_max_active_power(g, PSY.NU)
+        pmax = PSY.get_max_active_power(g, u"NU")
         energy_slope = PSY.get_proportional_term(
             PSY.get_value_curve(PSY.get_variable_operation_cost(get_operation_cost(g))),
         )
@@ -419,7 +419,7 @@ function build_reserve_market_system(; load_offer_mw = 10.0, load_offer_price = 
 
     # Load: consumption valued at VOLL (consumes at forecast), plus one cheap block into
     # GROUP_SUB_A - the cheapest offer in the whole stack.
-    pmax_il = PSY.get_max_active_power(il, PSY.NU)
+    pmax_il = PSY.get_max_active_power(il, u"NU")
     set_operation_cost!(
         il,
         MarketBidCost(;
@@ -563,7 +563,7 @@ function _offline_ordc_uc_system()
     # keeps its energy slope; the off-unit gets a prohibitive slope + startup so the UC
     # never commits it for energy.
     for g in thermals
-        pmax_g = PSY.get_max_active_power(g, PSY.NU)
+        pmax_g = PSY.get_max_active_power(g, u"NU")
         slope = if g === offunit
             1.0e4
         else
@@ -643,7 +643,7 @@ function _check_offline_band(
     for (idx, c) in con.data
         name, t = idx
         d = get_component(device_type, sys, name)
-        limits = PSY.get_active_power_limits(d, PSY.SU)
+        limits = PSY.get_active_power_limits(d, u"SU")
         u_coefficient = expected_u_coefficient(limits)
         if IOM.get_must_run(d)
             @test JuMP.normalized_rhs(c) ≈ limits.max - u_coefficient
@@ -740,7 +740,7 @@ end
         sys, offunit = _offline_ordc_uc_system()
         # The pmin gating term is only observable if some unit actually has a nonzero pmin.
         @test any(
-            d -> PSY.get_active_power_limits(d, PSY.SU).min > 0.0,
+            d -> PSY.get_active_power_limits(d, u"SU").min > 0.0,
             get_components(ThermalStandard, sys),
         )
 
@@ -793,7 +793,7 @@ end
         for d in get_components(ThermalStandard, sys)
             name = PSY.get_name(d)
             name in names(on) || continue
-            limits = PSY.get_active_power_limits(d, PSY.NU)
+            limits = PSY.get_active_power_limits(d, u"NU")
             for t in 1:24
                 on[t, name] > 0.5 || continue
                 committed += 1
@@ -822,12 +822,12 @@ end
     multistarts = collect(get_components(PSY.ThermalMultiStart, sys))
     @test !isempty(multistarts)
     # pmin must be nonzero for the compact gating term to be observable at all.
-    @test all(d -> PSY.get_active_power_limits(d, PSY.SU).min > 0.0, multistarts)
+    @test all(d -> PSY.get_active_power_limits(d, u"SU").min > 0.0, multistarts)
 
     gens = vcat(collect(get_components(ThermalStandard, sys)), multistarts)
     # Service bids require an OfferCurveCost on every contributor.
     for g in gens
-        pmax = PSY.get_active_power_limits(g, PSY.NU).max
+        pmax = PSY.get_active_power_limits(g, u"NU").max
         PSY.set_operation_cost!(
             g,
             MarketBidCost(;
@@ -846,7 +846,7 @@ end
     )
     add_service!(sys, nspin, PSY.Device[gens...])
     for (i, g) in enumerate(gens)
-        pmax = PSY.get_active_power_limits(g, PSY.NU).max
+        pmax = PSY.get_active_power_limits(g, u"NU").max
         PSY.set_service_bid!(
             sys, g, nspin, _mkt_offer_ts(nspin, pmax, 5.0 + i), IS.NaturalUnit(),
         )
@@ -892,7 +892,7 @@ end
         name in names(on) || continue
         col = "NSPIN__$(name)"
         col in names(awards) || continue
-        limits = PSY.get_active_power_limits(d, PSY.NU)
+        limits = PSY.get_active_power_limits(d, u"NU")
         for t in 1:24
             on[t, name] > 0.5 || continue
             committed += 1
@@ -900,6 +900,207 @@ end
         end
     end
     @test committed > 0
+end
+
+# `_offline_ordc_uc_system` with `offunit`'s `max_active_power` series at `factor` of its
+# max, under `formulation` with that series mapped. `offline` adds the OfflineReserve
+# service; `mustrun` makes `offunit` must-run. Returns the built model, sys and `offunit`.
+function _offline_hourly_model(
+    formulation;
+    factor::Float64,
+    offline::Bool = true,
+    mustrun::Bool = false,
+)
+    sys, offunit = _offline_ordc_uc_system()
+    mustrun && PSY.set_commitment_mode!(offunit, PSY.CommitmentModes.MUST_RUN)
+    PSY.add_time_series!(
+        sys,
+        offunit,
+        Deterministic(
+            "max_active_power",
+            Dict(it => fill(factor, 24) for it in _MKT_INIT_TIMES),
+            Hour(1),
+        ),
+    )
+    ts_names = POM.get_default_time_series_names(ThermalStandard, formulation)
+    ts_names[ActivePowerTimeSeriesParameter] = "max_active_power"
+    template = PowerOperationsProblemTemplate(CopperPlateNetworkModel)
+    set_device_model!(template, PowerLoad, StaticPowerLoad)
+    set_device_model!(
+        template,
+        DeviceModel(ThermalStandard, formulation; time_series_names = ts_names),
+    )
+    offline &&
+        set_service_model!(template, ServiceModel(OfflineReserve, StepwiseCostReserve))
+    set_service_model!(
+        template,
+        ServiceModel(OnlineReserve{ReserveUp}, StepwiseCostReserve),
+    )
+    model = DecisionModel(
+        template, sys;
+        optimizer = HiGHS_optimizer, store_variable_names = true,
+    )
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+    return model, sys, offunit
+end
+
+@testset "OfflineReserve band: an off thermal unit's offline award follows its hourly max" begin
+    # Neither formulation needs an initialization solve.
+    factor = 0.5
+    for formulation in (ThermalBasicUnitCommitment, ThermalBasicCompactUnitCommitment)
+        model, sys, offunit = _offline_hourly_model(formulation; factor)
+        service = PSY.get_name(only(get_components(OfflineReserve, sys)))
+        pmax_mw = PSY.get_active_power_limits(offunit, u"NU").max
+        # The 80 MW offer exceeds the derated max, so the band binds, not the offer.
+        @test 80.0 > factor * pmax_mw
+        container = IOM.get_optimization_container(model)
+        con =
+            IOM.get_constraint(container, POM.OfflineReserveBandConstraint, ThermalStandard)
+        u = IOM.get_variable(container, POM.OnVariable, ThermalStandard)
+        # Compact UC's row is `ts_t - pmin * u`; JuMP moves `pmin * u` to the left-hand side.
+        function u_coefficient(d)
+            if formulation === ThermalBasicCompactUnitCommitment
+                return PSY.get_active_power_limits(d, u"SU").min
+            end
+            return 0.0
+        end
+        off_name = PSY.get_name(offunit)
+        for t in 1:24
+            @test JuMP.normalized_rhs(con[(off_name, t)]) ≈
+                  factor * PSY.get_max_active_power(offunit, u"SU")
+            @test JuMP.normalized_coefficient(con[(off_name, t)], u[off_name, t]) ≈
+                  u_coefficient(offunit)
+        end
+        # A unit without the series keeps its static pmax.
+        other = first(g for g in get_components(ThermalStandard, sys) if g !== offunit)
+        other_name = PSY.get_name(other)
+        @test JuMP.normalized_rhs(con[(other_name, 1)]) ≈
+              PSY.get_active_power_limits(other, u"SU").max
+        @test JuMP.normalized_coefficient(con[(other_name, 1)], u[other_name, 1]) ≈
+              u_coefficient(other)
+        @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+        res = IOM.OptimizationProblemOutputs(model)
+        on =
+            read_variable(res, OnVariable, ThermalStandard; table_format = TableFormat.WIDE)
+        award = _read_awards(res, "OfflineReserve")[!, "$(service)__$(off_name)"]
+        @test all(on[!, off_name] .< 0.5)
+        @test all(award .<= factor * pmax_mw + 1e-3)
+        @test maximum(award) >= factor * pmax_mw - 1e-2
+    end
+end
+
+@testset "OfflineReserve band: a compact must-run unit below pmin is infeasible with an offline service" begin
+    # Compact UC's own time-series row bounds only the power above pmin, so a must-run unit
+    # whose hourly max is below pmin stays feasible; the offline band makes it `ts_t - pmin < 0`.
+    factor = 0.25
+    model, _, offunit = _offline_hourly_model(
+        ThermalBasicCompactUnitCommitment; factor, offline = false, mustrun = true,
+    )
+    limits = PSY.get_active_power_limits(offunit, u"SU")
+    ts_max = factor * PSY.get_max_active_power(offunit, u"SU")
+    @test ts_max < limits.min
+    @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+    model, _, offunit = _offline_hourly_model(
+        ThermalBasicCompactUnitCommitment; factor, mustrun = true,
+    )
+    container = IOM.get_optimization_container(model)
+    con = IOM.get_constraint(container, POM.OfflineReserveBandConstraint, ThermalStandard)
+    @test JuMP.normalized_rhs(con[(PSY.get_name(offunit), 1)]) ≈ ts_max - limits.min
+    jump_model = IOM.get_jump_model(container)
+    JuMP.optimize!(jump_model)
+    @test JuMP.termination_status(jump_model) in
+          (MOI.INFEASIBLE, MOI.INFEASIBLE_OR_UNBOUNDED)
+end
+
+# `_offline_ordc_uc_system` under ThermalBasicUnitCommitment, which needs no initialization
+# solve, so `offunit`'s ONLINE status is its commitment before step 1 and the UC turns it
+# off in step 1. With `mustrun`, one other unit is must-run. Returns model, sys, offunit.
+function _offline_shutdown_model(attributes::Dict{String, Any}; mustrun::Bool = false)
+    sys, offunit = _offline_ordc_uc_system()
+    PSY.set_status!(offunit, PSY.OperationalStates.ONLINE)
+    if mustrun
+        g = first(g for g in get_components(ThermalStandard, sys) if g !== offunit)
+        PSY.set_commitment_mode!(g, PSY.CommitmentModes.MUST_RUN)
+    end
+    template = PowerOperationsProblemTemplate(CopperPlateNetworkModel)
+    set_device_model!(template, PowerLoad, StaticPowerLoad)
+    set_device_model!(template, ThermalStandard, ThermalBasicUnitCommitment)
+    set_service_model!(
+        template,
+        ServiceModel(OfflineReserve, StepwiseCostReserve; attributes = attributes),
+    )
+    set_service_model!(
+        template,
+        ServiceModel(OnlineReserve{ReserveUp}, StepwiseCostReserve),
+    )
+    model = DecisionModel(
+        template, sys;
+        optimizer = HiGHS_optimizer, store_variable_names = true,
+    )
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+    return model, sys, offunit
+end
+
+@testset "OfflineReserve: exclude_shutdown_step blocks the award in a thermal unit's shutdown step" begin
+    for (attributes, blocked) in (
+        (Dict{String, Any}(), false),
+        (Dict{String, Any}("exclude_shutdown_step" => true), true),
+    )
+        model, sys, offunit = _offline_shutdown_model(attributes)
+        service = PSY.get_name(only(get_components(OfflineReserve, sys)))
+        name = PSY.get_name(offunit)
+        container = IOM.get_optimization_container(model)
+        @test IOM.has_container_key(
+            container, POM.OfflineReserveShutdownConstraint, ThermalStandard,
+        ) == blocked
+        if blocked
+            # One row form, no StopVariable: `award <= q * (1 - u_{t-1} + u_t)`, u_0 = 1.
+            rows = IOM.get_constraint(
+                container, POM.OfflineReserveShutdownConstraint, ThermalStandard,
+            )
+            u = IOM.get_variable(container, POM.OnVariable, ThermalStandard)
+            stop = IOM.get_variable(container, POM.StopVariable, ThermalStandard)
+            q = PSY.get_active_power_limits(offunit, u"SU").max
+            @test JuMP.normalized_rhs(rows[(name, 1)]) ≈ 0.0 atol = 1e-9
+            @test JuMP.normalized_coefficient(rows[(name, 1)], u[name, 1]) ≈ -q
+            @test JuMP.normalized_rhs(rows[(name, 2)]) ≈ q
+            @test JuMP.normalized_coefficient(rows[(name, 2)], u[name, 1]) ≈ q
+            @test JuMP.normalized_coefficient(rows[(name, 2)], u[name, 2]) ≈ -q
+            @test JuMP.normalized_coefficient(rows[(name, 2)], stop[name, 2]) == 0.0
+        end
+        @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+        res = IOM.OptimizationProblemOutputs(model)
+        on =
+            read_variable(res, OnVariable, ThermalStandard; table_format = TableFormat.WIDE)
+        award = _read_awards(res, "OfflineReserve")[!, "$(service)__$(name)"]
+        @test all(on[!, name] .< 0.5)          # on before step 1, off from step 1
+        @test all(award[2:end] .> 1.0)         # later off steps keep their award
+        if blocked
+            @test award[1] <= 1e-6
+        else
+            @test award[1] > 1.0
+        end
+    end
+end
+
+@testset "OfflineReserve: exclude_shutdown_step builds no row for a must-run unit" begin
+    model, sys, _ = _offline_shutdown_model(
+        Dict{String, Any}("exclude_shutdown_step" => true); mustrun = true,
+    )
+    rows = IOM.get_constraint(
+        IOM.get_optimization_container(model),
+        POM.OfflineReserveShutdownConstraint,
+        ThermalStandard,
+    )
+    mustrun = only(
+        PSY.get_name(g) for g in get_components(ThermalStandard, sys) if
+        PSY.get_commitment_mode(g) == PSY.CommitmentModes.MUST_RUN
+    )
+    @test !isempty(rows.data)
+    @test all(k -> first(k) != mustrun, keys(rows.data))
+    @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
 end
 
 #################################################################################
@@ -976,7 +1177,7 @@ end
 @testset "DOWN-reserve: award within forecast headroom" begin
     sys = deepcopy(PSB.build_system(PSITestSystems, "c_sys5_il"; add_reserves = true))
     il = get_component(PSY.InterruptiblePowerLoad, sys, _IL_NAME)
-    pmax = PSY.get_max_active_power(il, PSY.NU)
+    pmax = PSY.get_max_active_power(il, u"NU")
     model = _solve_load_model(_load_reserve_template(:down), sys)
     res = IOM.OptimizationProblemOutputs(model)
     p = read_variable(
@@ -1100,7 +1301,7 @@ end
 @testset "Load offers into an elastic reserve: award bounded by the offer" begin
     sys = deepcopy(PSB.build_system(PSITestSystems, "c_sys5_il"; add_reserves = true))
     il = get_component(PSY.InterruptiblePowerLoad, sys, _IL_NAME)
-    pmax = PSY.get_max_active_power(il, PSY.NU)
+    pmax = PSY.get_max_active_power(il, u"NU")
     ordc = first(get_components(PSY.has_demand_curve, PSY.OnlineReserve, sys))
     offer_mw = 10.0
     set_operation_cost!(
@@ -1236,12 +1437,17 @@ end
     end
 end
 
-# `c_sys5_hy` with an OfflineReserve ORDC supplied only by its HydroDispatch. The
-# hydro energy offer and commitment cost are prohibitive, so the UC leaves it OFF unless
-# a test fixes its OnVariable. The demand exceeds the hydro series in every hour.
-function _hydro_offline_model(attributes::Dict{String, Any})
+# `c_sys5_hy` with an OfflineReserve ORDC supplied only by its prohibitively priced
+# HydroDispatch (off unless a test fixes its OnVariable); demand exceeds the series in every
+# step. `thermal = ThermalBasicUnitCommitment` skips the initialization solve.
+function _hydro_offline_model(
+    attributes::Dict{String, Any};
+    status = nothing,
+    thermal = ThermalStandardUnitCommitment,
+)
     sys = deepcopy(PSB.build_system(PSITestSystems, "c_sys5_hy"))
     hydro = only(get_components(HydroDispatch, sys))
+    isnothing(status) || PSY.set_status!(hydro, status)
     set_operation_cost!(
         hydro,
         HydroGenerationCost(;
@@ -1256,7 +1462,10 @@ function _hydro_offline_model(attributes::Dict{String, Any})
         variable = _mkt_curve([0.0, 2000.0], [65.0]),
     )
     add_service!(sys, offline_reserve, PSY.Device[hydro])
-    template = get_thermal_standard_uc_template()
+    # `get_thermal_standard_uc_template()` with the thermal formulation swappable.
+    template = PowerOperationsProblemTemplate(CopperPlateNetworkModel)
+    set_device_model!(template, PowerLoad, StaticPowerLoad)
+    set_device_model!(template, ThermalStandard, thermal)
     set_device_model!(template, HydroDispatch, HydroCommitmentRunOfRiver)
     set_service_model!(
         template,
@@ -1273,14 +1482,14 @@ function _hydro_offline_model(attributes::Dict{String, Any})
     return model
 end
 
-# Solve `model`, optionally with the hydro OnVariable fixed to `on`. Returns the hydro
+# Solve `model`, optionally with the hydro OnVariable fixed to the per-step `on`. Returns the hydro
 # commitment, offline award and `max_active_power` parameter per hour, in MW.
 function _solve_hydro_offline!(model; on = nothing)
     container = IOM.get_optimization_container(model)
     if !isnothing(on)
         u = IOM.get_variable(container, POM.OnVariable, HydroDispatch)
         for t in axes(u)[2]
-            JuMP.fix(u["HydroDispatch", t], on)
+            JuMP.fix(u["HydroDispatch", t], on[t])
         end
     end
     @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
@@ -1317,12 +1526,13 @@ end
 
 @testset "HydroCommitmentRunOfRiver: offline_only forbids offline awards while committed" begin
     # Baseline: a committed unit competes for the offline award by default.
-    _, award, _ = _solve_hydro_offline!(_hydro_offline_model(Dict{String, Any}()); on = 1.0)
+    _, award, _ =
+        _solve_hydro_offline!(_hydro_offline_model(Dict{String, Any}()); on = ones(24))
     @test sum(award) > 1.0
 
     model = _hydro_offline_model(Dict{String, Any}("offline_only" => true))
     @test _has_off_state_rows(IOM.get_optimization_container(model))
-    _, award, _ = _solve_hydro_offline!(model; on = 1.0)
+    _, award, _ = _solve_hydro_offline!(model; on = ones(24))
     @test all(award .<= 1e-6)
 end
 
@@ -1339,4 +1549,52 @@ end
         POM.OfflineReserveBandConstraint,
         HydroDispatch,
     )
+end
+
+@testset "HydroCommitmentRunOfRiver: exclude_shutdown_step blocks the step it goes off" begin
+    attrs = Dict{String, Any}("exclude_shutdown_step" => true)
+    # No initialization solve, so the status before step 1 is the PSY status.
+    basic = ThermalBasicUnitCommitment
+    # On before step 1 and off throughout: step 1 is the shutdown step.
+    model =
+        _hydro_offline_model(attrs; status = PSY.OperationalStates.ONLINE, thermal = basic)
+    container = IOM.get_optimization_container(model)
+    @test IOM.has_container_key(
+        container,
+        POM.OfflineReserveShutdownConstraint,
+        HydroDispatch,
+    )
+    @test IOM.has_container_key(container, POM.DeviceStatus, HydroDispatch)
+    _, award, limit = _solve_hydro_offline!(model; on = zeros(24))
+    @test award[1] <= 1e-6
+    @test all(isapprox.(award[2:end], limit[2:end]; atol = 1e-3))
+    # Off before step 1 and on in step 1 only: the start step keeps its award, step 2
+    # (the shutdown step) has none, step 3 is back to the limit.
+    model =
+        _hydro_offline_model(attrs; status = PSY.OperationalStates.OFFLINE, thermal = basic)
+    _, award, limit = _solve_hydro_offline!(model; on = [1.0; zeros(23)])
+    @test isapprox(award[1], limit[1]; atol = 1e-3)
+    @test award[2] <= 1e-6
+    @test isapprox(award[3], limit[3]; atol = 1e-3)
+end
+
+@testset "HydroCommitmentRunOfRiver: the initialization solve sets the status before step 1" begin
+    # ThermalStandardUnitCommitment initializes the model. The initialization solve leaves the
+    # costly hydro off, so u_0 = 0 overrides its ONLINE PSY status and step 1 keeps its award.
+    model = _hydro_offline_model(
+        Dict{String, Any}("exclude_shutdown_step" => true);
+        status = PSY.OperationalStates.ONLINE,
+    )
+    _, award, limit = _solve_hydro_offline!(model; on = zeros(24))
+    @test isapprox(award[1], limit[1]; atol = 1e-3)
+end
+
+@testset "HydroCommitmentRunOfRiver: no DeviceStatus without exclude_shutdown_step" begin
+    for attrs in (Dict{String, Any}(), Dict{String, Any}("exclude_shutdown_step" => false))
+        container = IOM.get_optimization_container(_hydro_offline_model(attrs))
+        @test !IOM.has_container_key(container, POM.DeviceStatus, HydroDispatch)
+        @test !IOM.has_container_key(
+            container, POM.OfflineReserveShutdownConstraint, HydroDispatch,
+        )
+    end
 end

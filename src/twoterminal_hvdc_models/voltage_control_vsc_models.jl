@@ -9,11 +9,15 @@
 # HVDCDCControlConstraint per terminal per time step (always present regardless
 # of DC control mode), plus per-mode handling for AC control.
 #
-# DC control modes (setpoints are per unit; positive power = withdrawn from the
-# AC network at the terminal, matching the flow variables' sign):
-#   DC_VOLTAGE:       vdc[t] == dc_setpoint
-#   DC_POWER:         p[t]   == dc_setpoint
-#   DC_VOLTAGE_DROOP: vdc[t] + droop_gain * p[t] == dc_setpoint
+# DC control modes (setpoints are per unit). The terminal power p (FlowActivePower*Variable)
+# is positive when the terminal withdraws power from the AC network: it enters
+# ActivePowerBalance with -1.0. PSY's dc_power_setpoint_* is positive when the converter
+# supplies power to the AC network, so `_vsc_dc_setpoint` negates it:
+#   DC_VOLTAGE:       vdc[t] == dc_voltage_setpoint
+#   DC_POWER:         p[t]   == -dc_power_setpoint
+#   DC_VOLTAGE_DROOP: vdc[t] + droop_gain * p[t] == dc_voltage_setpoint
+# The droop row is PSY's V_dc = dc_voltage_setpoint + dc_voltage_droop * P_c, with the
+# AC-side injection P_c = -p.
 # Constraint containers (meta = "from" / "to") are allocated once before the
 # device loop, so variable + constraint counts are identical across all modes.
 #
@@ -74,6 +78,75 @@ function _add_vsc_regulated_voltage_constraints!(
     return
 end
 
+# Setpoint of the quantity a terminal controls, in the model's per-unit. The AC voltage
+# setpoint is per unit of the terminal's rated AC voltage; the model pins the bus
+# magnitude on the bus base voltage. AC_REACTIVE_POWER holds the terminal's
+# `reactive_power_*` field (injection into the bus, system base) as the setpoint. The DC
+# voltage setpoint is per unit of `rated_dc_voltage`, which is the VSC DC voltage base.
+function _vsc_ac_setpoint(
+    d::PSY.TwoTerminalVSCLine,
+    mode::PSY.VSCACControlModes.Value,
+    voltage_setpoint::Union{Nothing, Float64},
+    rated_ac_voltage::Float64,
+    reactive_power::Float64,
+    reactive_limits::PSY.MinMax,
+    bus::PSY.ACBus,
+    side::String,
+)
+    if mode == PSY.VSCACControlModes.AC_VOLTAGE
+        v = _mode_setpoint(voltage_setpoint, "ac_voltage_setpoint_$(side)", d)
+        rated = _nonzero_base_voltage(rated_ac_voltage, "rated_ac_voltage_$(side)", d)
+        return v * (rated / _bus_base_voltage(bus))
+    end
+    if reactive_power < reactive_limits.min || reactive_power > reactive_limits.max
+        error(
+            "TwoTerminalVSCLine $(PSY.get_name(d)): AC_REACTIVE_POWER on the $(side) " *
+            "converter holds reactive_power_$(side) = $(reactive_power) pu, outside " *
+            "reactive_power_limits_$(side) = ($(reactive_limits.min), " *
+            "$(reactive_limits.max)) pu.",
+        )
+    end
+    return reactive_power
+end
+
+_vsc_ac_setpoint_from(d::PSY.TwoTerminalVSCLine) = _vsc_ac_setpoint(
+    d, PSY.get_ac_control_from(d), PSY.get_ac_voltage_setpoint_from(d),
+    PSY.get_rated_ac_voltage_from(d), PSY.get_reactive_power_from(d, u"SU"),
+    PSY.get_reactive_power_limits_from(d, u"SU"), PSY.get_from(PSY.get_arc(d)), "from",
+)
+_vsc_ac_setpoint_to(d::PSY.TwoTerminalVSCLine) = _vsc_ac_setpoint(
+    d, PSY.get_ac_control_to(d), PSY.get_ac_voltage_setpoint_to(d),
+    PSY.get_rated_ac_voltage_to(d), PSY.get_reactive_power_to(d, u"SU"),
+    PSY.get_reactive_power_limits_to(d, u"SU"), PSY.get_to(PSY.get_arc(d)), "to",
+)
+
+function _vsc_dc_setpoint(
+    d::PSY.TwoTerminalVSCLine,
+    mode::PSY.VSCDCControlModes.Value,
+    power_setpoint::Union{Nothing, Float64},
+    voltage_setpoint::Union{Nothing, Float64},
+    side::String,
+)
+    if mode == PSY.VSCDCControlModes.DC_POWER
+        return -_mode_setpoint(power_setpoint, "dc_power_setpoint_$(side)", d)
+    end
+    return _mode_setpoint(voltage_setpoint, "dc_voltage_setpoint_$(side)", d)
+end
+
+_vsc_dc_setpoint_from(d::PSY.TwoTerminalVSCLine) = _vsc_dc_setpoint(
+    d, PSY.get_dc_control_from(d), PSY.get_dc_power_setpoint_from(d, u"SU"),
+    PSY.get_dc_voltage_setpoint_from(d), "from",
+)
+_vsc_dc_setpoint_to(d::PSY.TwoTerminalVSCLine) = _vsc_dc_setpoint(
+    d, PSY.get_dc_control_to(d), PSY.get_dc_power_setpoint_to(d, u"SU"),
+    PSY.get_dc_voltage_setpoint_to(d), "to",
+)
+
+# Droop gain in kV/MW to per unit on (rated_dc_voltage, system base).
+_vsc_droop_su(d::PSY.TwoTerminalVSCLine, droop::Float64) = _kv_per_mw_to_su(
+    droop, _vsc_dc_base_voltage(d), PSY._get_system_base_power(d),
+)
+
 # AC control (_fix_converter_ac_control!), DC control (_fill_converter_dc_control!),
 # and AC reactive control (_fix_converter_ac_reactive!) are the shared primitives in
 # common_models/converter_control.jl, applied here once per terminal (from/to).
@@ -119,27 +192,27 @@ function _apply_vsc_control_objective!(
         from_bus = PSY.get_name(PSY.get_from(arc))
         to_bus = PSY.get_name(PSY.get_to(arc))
         _fix_converter_ac_control!(
-            PSY.get_ac_control_from(d), PSY.get_ac_setpoint_from(d),
+            PSY.get_ac_control_from(d), _vsc_ac_setpoint_from(d),
             vm, from_bus, q_f, name, time_steps,
         )
         _fill_converter_dc_control!(
             jump_model,
             con_from,
             PSY.get_dc_control_from(d),
-            PSY.get_dc_setpoint_from(d),
-            PSY.get_dc_voltage_droop_from(d),
+            _vsc_dc_setpoint_from(d),
+            _vsc_droop_su(d, PSY.get_dc_voltage_droop_from(d)),
             v_f, p_ft, name, time_steps,
         )
         _fix_converter_ac_control!(
-            PSY.get_ac_control_to(d), PSY.get_ac_setpoint_to(d),
+            PSY.get_ac_control_to(d), _vsc_ac_setpoint_to(d),
             vm, to_bus, q_t, name, time_steps,
         )
         _fill_converter_dc_control!(
             jump_model,
             con_to,
             PSY.get_dc_control_to(d),
-            PSY.get_dc_setpoint_to(d),
-            PSY.get_dc_voltage_droop_to(d),
+            _vsc_dc_setpoint_to(d),
+            _vsc_droop_su(d, PSY.get_dc_voltage_droop_to(d)),
             v_t, p_tf, name, time_steps,
         )
     end
@@ -178,27 +251,27 @@ function _apply_vsc_control_objective!(
         from_bus = PSY.get_name(PSY.get_from(arc))
         to_bus = PSY.get_name(PSY.get_to(arc))
         _fix_converter_ac_control_lpacc!(
-            PSY.get_ac_control_from(d), PSY.get_ac_setpoint_from(d),
+            PSY.get_ac_control_from(d), _vsc_ac_setpoint_from(d),
             phi, from_bus, q_f, name, time_steps,
         )
         _fill_converter_dc_control!(
             jump_model,
             con_from,
             PSY.get_dc_control_from(d),
-            PSY.get_dc_setpoint_from(d),
-            PSY.get_dc_voltage_droop_from(d),
+            _vsc_dc_setpoint_from(d),
+            _vsc_droop_su(d, PSY.get_dc_voltage_droop_from(d)),
             v_f, p_ft, name, time_steps,
         )
         _fix_converter_ac_control_lpacc!(
-            PSY.get_ac_control_to(d), PSY.get_ac_setpoint_to(d),
+            PSY.get_ac_control_to(d), _vsc_ac_setpoint_to(d),
             phi, to_bus, q_t, name, time_steps,
         )
         _fill_converter_dc_control!(
             jump_model,
             con_to,
             PSY.get_dc_control_to(d),
-            PSY.get_dc_setpoint_to(d),
-            PSY.get_dc_voltage_droop_to(d),
+            _vsc_dc_setpoint_to(d),
+            _vsc_droop_su(d, PSY.get_dc_voltage_droop_to(d)),
             v_t, p_tf, name, time_steps,
         )
     end
@@ -245,38 +318,38 @@ function _apply_vsc_control_objective!(
         ac_to = PSY.get_ac_control_to(d)
         if ac_from == PSY.VSCACControlModes.AC_VOLTAGE
             fix_regulated_voltage!(
-                container, d, "from", PSY.get_from(arc), PSY.get_ac_setpoint_from(d),
+                container, d, "from", PSY.get_from(arc), _vsc_ac_setpoint_from(d),
                 network_model,
             )
         end
         if ac_to == PSY.VSCACControlModes.AC_VOLTAGE
             fix_regulated_voltage!(
-                container, d, "to", PSY.get_to(arc), PSY.get_ac_setpoint_to(d),
+                container, d, "to", PSY.get_to(arc), _vsc_ac_setpoint_to(d),
                 network_model,
             )
         end
         _fix_converter_ac_reactive!(
             ac_from,
-            PSY.get_ac_setpoint_from(d),
+            _vsc_ac_setpoint_from(d),
             q_f,
             name,
             time_steps,
         )
-        _fix_converter_ac_reactive!(ac_to, PSY.get_ac_setpoint_to(d), q_t, name, time_steps)
+        _fix_converter_ac_reactive!(ac_to, _vsc_ac_setpoint_to(d), q_t, name, time_steps)
         _fill_converter_dc_control!(
             jump_model,
             con_from,
             PSY.get_dc_control_from(d),
-            PSY.get_dc_setpoint_from(d),
-            PSY.get_dc_voltage_droop_from(d),
+            _vsc_dc_setpoint_from(d),
+            _vsc_droop_su(d, PSY.get_dc_voltage_droop_from(d)),
             v_f, p_ft, name, time_steps,
         )
         _fill_converter_dc_control!(
             jump_model,
             con_to,
             PSY.get_dc_control_to(d),
-            PSY.get_dc_setpoint_to(d),
-            PSY.get_dc_voltage_droop_to(d),
+            _vsc_dc_setpoint_to(d),
+            _vsc_droop_su(d, PSY.get_dc_voltage_droop_to(d)),
             v_t, p_tf, name, time_steps,
         )
     end

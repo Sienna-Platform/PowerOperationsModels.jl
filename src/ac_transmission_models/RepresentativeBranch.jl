@@ -168,7 +168,7 @@ _dc_shift(rep::RepresentativeBranch) = _dc_shift(rep.branch, rep.nr)
 
 # DC susceptance `1/(tap*x)` — tap-divided, not the r-inclusive π-model susceptance.
 _dc_susceptance(rep::RepresentativeBranch) =
-    PNM.get_series_susceptance(rep.branch, PSY.SU)
+    PNM.get_series_susceptance(rep.branch, u"SU")
 _dc_resistance(rep::RepresentativeBranch) = PNM.arc_dc_resistance(rep.nr, rep.arc)
 _dc_shift_injection(rep::RepresentativeBranch) =
     PNM.arc_dc_shift_injection(rep.nr, rep.arc)
@@ -257,12 +257,47 @@ _controlled_circuit_names(
     network_model::NetworkModel,
 ) = _controlled_circuit_names(rep.branch, device_model, network_model)
 
+# PSY holds one band per controlled quantity; the control objective selects which
+# actuator band and which target band the circuit populates.
+_populated_band(band::NamedTuple, ::PSY.TransformerCircuit, ::String) = band
+function _populated_band(::Nothing, c::PSY.TransformerCircuit, field::String)
+    arc = PSY.get_arc(c)
+    error(
+        "TransformerCircuit $(PSY.get_name(PSY.get_from(arc))) -> " *
+        "$(PSY.get_name(PSY.get_to(arc))) has control objective " *
+        "$(PSY.get_control_objective(c)) but no $(field).",
+    )
+end
+
 _control_limits(::Nothing) = (min = -Inf, max = Inf)
-_control_limits(c::PSY.TransformerCircuit) = PSY.get_control_limits(c)
+function _control_limits(c::PSY.TransformerCircuit)
+    if PSY.get_control_objective(c) in _PHASE_CONTROLS
+        return _populated_band(PSY.get_phase_angle_limits(c), c, "phase_angle_limits")
+    end
+    return _populated_band(PSY.get_tap_ratio_limits(c), c, "tap_ratio_limits")
+end
 _control_limits(rep::RepresentativeBranch) = _control_limits(_get_circuit(rep.branch))
 
 _quantity_limits(::Nothing) = (min = -Inf, max = Inf)
-_quantity_limits(c::PSY.TransformerCircuit) = PSY.get_controlled_quantity_limits(c)
+function _quantity_limits(c::PSY.TransformerCircuit)
+    objective = PSY.get_control_objective(c)
+    if objective == _VOLTAGE_CONTROL
+        return _populated_band(
+            PSY.get_controlled_voltage_limits(c), c, "controlled_voltage_limits",
+        )
+    elseif objective == _REACTIVE_CONTROL
+        return _populated_band(
+            PSY.get_controlled_reactive_power_flow_limits(c, u"SU"), c,
+            "controlled_reactive_power_flow_limits",
+        )
+    elseif objective == _ACTIVE_CONTROL
+        return _populated_band(
+            PSY.get_controlled_active_power_flow_limits(c, u"SU"), c,
+            "controlled_active_power_flow_limits",
+        )
+    end
+    return _populated_band(nothing, c, "target band that POM models for this objective")
+end
 _quantity_limits(rep::RepresentativeBranch) = _quantity_limits(_get_circuit(rep.branch))
 
 _regulated_number(::Nothing) = -1
@@ -289,11 +324,11 @@ end
 _parallel_branches_rating(::DeviceModel, mbp::PNM.MixedBranchesParallel) =
     PNM.get_sum_of_max_rating(mbp)
 
-_branch_rating(d::PSY.ACTransmission, ::DeviceModel) = PSY.get_rating(d, PSY.SU)
+_branch_rating(d::PSY.ACTransmission, ::DeviceModel) = PSY.get_rating(d, u"SU")
 _branch_rating(t::PSY.TwoWindingTransformer, ::DeviceModel) =
-    PSY.get_rating(PSY.get_circuit(t), PSY.SU)
+    PSY.get_rating(PSY.get_circuit(t), u"SU")
 _branch_rating(t::PNM.ThreeWindingTransformerCircuit, ::DeviceModel) =
-    PSY.get_rating(t.circuit, PSY.SU)
+    PSY.get_rating(t.circuit, u"SU")
 _branch_rating(entry::PNM.BranchesSeries, ::DeviceModel) = PNM.get_equivalent_rating(entry)
 _branch_rating(entry::PNM.AbstractBranchesParallel, model::DeviceModel) =
     _parallel_branches_rating(model, entry)
@@ -318,20 +353,12 @@ function _flow_limits(rep::RepresentativeBranch, model::DeviceModel)
     rating = _branch_rating(rep, model)
     return (min = -rating, max = rating)
 end
-function _flow_limits(rep::RepresentativeBranch{PSY.MonitoredLine}, model::DeviceModel)
-    lims = PSY.get_flow_limits(rep.branch, PSY.SU)
-    if lims.from_to != lims.to_from
-        @warn "Flow limits in MonitoredLine $(rep.name) aren't equal; the minimum will be used."
-    end
-    limit = min(_branch_rating(rep, model), lims.from_to, lims.to_from)
-    return (min = -limit, max = limit)
-end
 
 """
 Post-contingency (emergency) flow limits of the arc. `PNM.get_equivalent_emergency_rating`
 covers raw devices, reduction aggregates and three-winding circuits alike — it returns
 `rating_b` and falls back to `rating` where `rating_b` is undefined — and is already
-system-base per-unit, so it takes no `PSY.SU`.
+system-base per-unit, so it takes no `u"SU"`.
 """
 function _emergency_flow_limits(branch::PSY.ACTransmission)
     rating = PNM.get_equivalent_emergency_rating(branch)
@@ -342,8 +369,8 @@ _emergency_flow_limits(rep::RepresentativeBranch) = _emergency_flow_limits(rep.b
 function _min_endpoint_voltage_limit(branch::PSY.ACTransmission)
     arc = PSY.get_arc(branch)
     # bus voltage limits are already per-unit
-    vmin_fr = PSY.get_voltage_limits(PSY.get_from(arc)).min
-    vmin_to = PSY.get_voltage_limits(PSY.get_to(arc)).min
+    vmin_fr = PSY.get_voltage_limits(PSY.get_from(arc), u"CU").min
+    vmin_to = PSY.get_voltage_limits(PSY.get_to(arc), u"CU").min
     return min(vmin_fr, vmin_to)
 end
 _min_endpoint_voltage_limit(entry::PNM.AbstractReductionAggregate) =
@@ -362,19 +389,16 @@ function _current_rating(rep::RepresentativeBranch, model::DeviceModel)
 end
 
 _angle_limits(d::PSY.Line) = PSY.get_angle_limits(d)
-_angle_limits(d::PSY.MonitoredLine) = PSY.get_angle_limits(d)
 _angle_limits(::Union{PSY.ACTransmission, PNM.AbstractReductionAggregate}) =
     (min = -π / 2, max = π / 2)
 _angle_limits(rep::RepresentativeBranch) = _angle_limits(rep.branch)
 
 # A branch constrains the angle difference when it carries angle-limit data (only
-# Line / MonitoredLine do) narrower than the PSY default ±π window.
+# Line does) narrower than the PSY default ±π window.
 _is_binding_angle_window(lims) = !(lims.min ≈ -π && lims.max ≈ π)
 _constrains_angle_difference(::Union{PSY.ACTransmission, PNM.AbstractReductionAggregate}) =
     false
 _constrains_angle_difference(d::PSY.Line) =
-    _is_binding_angle_window(PSY.get_angle_limits(d))
-_constrains_angle_difference(d::PSY.MonitoredLine) =
     _is_binding_angle_window(PSY.get_angle_limits(d))
 _constrains_angle_difference(rep::RepresentativeBranch) =
     _constrains_angle_difference(rep.branch)

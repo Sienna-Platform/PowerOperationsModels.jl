@@ -14,7 +14,7 @@ import PowerNetworkMatrices as PNM
     phi_sol =
         read_variable(res, "VoltageDeviation__ACBus"; table_format = TableFormat.WIDE)
     for bus in PSY.get_components(PSY.ACBus, sys)
-        lim = PSY.get_voltage_limits(bus)
+        lim = PSY.get_voltage_limits(bus, u"CU")
         bname = PSY.get_name(bus)
         phi = phi_sol[1, bname]
         @test (lim.min - 1.0) - 1e-4 <= phi <= (lim.max - 1.0) + 1e-4

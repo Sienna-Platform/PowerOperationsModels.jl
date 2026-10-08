@@ -25,7 +25,7 @@ function make_5_bus_with_import_export(;
         internal_voltage = 1.0,
         internal_angle = 0.0,
         base_power = 100.0,
-        input_basis = CU,
+        input_basis = u"CU",
     )
 
     import_curve = make_import_curve(
@@ -194,11 +194,11 @@ end
 # TODO deduplicate after initial time-sensitive merge
 function cost_due_to_time_varying_iec(
     sys::System,
-    res::IS.Results,
+    outputs::IS.Outputs,
     ::Type{T},
 ) where {T <: PSY.Component}
-    power_in_vars = read_variable_dict(res, IOM.ActivePowerInVariable, T)
-    power_out_vars = read_variable_dict(res, IOM.ActivePowerOutVariable, T)
+    power_in_vars = read_variable_dict(outputs, IOM.ActivePowerInVariable, T)
+    power_out_vars = read_variable_dict(outputs, IOM.ActivePowerOutVariable, T)
     output = SortedDict{DateTime, DataFrame}()
 
     for step_dt in keys(power_in_vars)

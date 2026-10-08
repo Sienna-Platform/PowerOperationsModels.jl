@@ -45,7 +45,7 @@ end
         POM.write_formulation_combinations(filename)
         @test isfile(filename)
         data = open(filename) do io
-            JSON3.read(io, Dict)
+            JSON.parse(io; dicttype = Dict)
         end
         @test "device_formulations" in keys(data)
         @test length(data["device_formulations"]) == length(res["device_formulations"])

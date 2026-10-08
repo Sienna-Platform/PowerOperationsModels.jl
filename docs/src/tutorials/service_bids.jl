@@ -73,7 +73,7 @@ resolution = Hour(1)
 offer_curve(price) = IS.PiecewiseStepData([0.0, 50.0, 100.0], [price, price * 1.5])
 
 for (i, g) in enumerate(contributors)
-    pmax = get_max_active_power(g, PSY.NU)
+    pmax = get_max_active_power(g, u"NU")
     ## Keep the unit's own marginal energy cost as its energy offer: read the proportional
     ## (linear) term of its existing variable cost before we replace the operation cost.
     energy_slope =

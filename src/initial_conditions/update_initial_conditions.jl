@@ -10,13 +10,6 @@ _ic_variable_type(::Type{InitialTimeDurationOff}) = TimeDurationOff()
 _ic_variable_type(::Type{InitialEnergyLevel}) = EnergyVariable()
 _ic_variable_type(::Type{InitialReservoirVolume}) = HydroReservoirVolumeVariable()
 
-# Dispatch to the right container getter based on variable vs aux variable type
-# FIXME we should add something like this to the API.
-_get_from_container(source, var_type::VariableType, comp_type) =
-    get_variable(source, var_type, comp_type)
-_get_from_container(source, var_type::AuxVariableType, comp_type) =
-    get_aux_variable(source, var_type, comp_type)
-
 #################################################################################
 # Generic update from EmulationModelStore
 #################################################################################
@@ -45,8 +38,8 @@ function update_initial_conditions!(
     var_type = _ic_variable_type(T)
     t_last = last(get_time_steps(source))
     for ic in ics
-        var = _get_from_container(source, var_type, get_component_type(ic))
-        set_ic_quantity!(ic, jump_value(var[get_component_name(ic), t_last]))
+        var = lookup_value(source, typeof(var_type), get_component_type(ic))
+        set_ic_quantity!(ic, var[get_component_name(ic), t_last])
     end
     return
 end

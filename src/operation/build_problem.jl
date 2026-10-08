@@ -96,6 +96,8 @@ function build_problem!(
         sys,
     )
 
+    construct_lhs_parameters!(container, template, sys)
+
     # Order is required
     for device_model in values(template.devices)
         @debug "Building Arguments for $(get_component_type(device_model)) with $(get_formulation(device_model)) formulation" _group =

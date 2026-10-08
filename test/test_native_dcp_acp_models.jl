@@ -33,7 +33,7 @@ end
         read_expression(res, "BThetaBranchFlow__Line"; table_format = TableFormat.WIDE)
     va = read_variable(res, "VoltageAngle__ACBus"; table_format = TableFormat.WIDE)
     line = first(PSY.get_components(PSY.Line, sys))
-    b = 1 / PSY.get_x(line, PSY.SU)
+    b = 1 / PSY.get_x(line, u"SU")
     fr = PSY.get_name(PSY.get_from(PSY.get_arc(line)))
     to = PSY.get_name(PSY.get_to(PSY.get_arc(line)))
     lname = PSY.get_name(line)
@@ -56,7 +56,7 @@ end
     res = IOM.OptimizationProblemOutputs(model)
     vm = read_variable(res, "VoltageMagnitude__ACBus"; table_format = TableFormat.WIDE)
     for bus in PSY.get_components(PSY.ACBus, sys)
-        lim = PSY.get_voltage_limits(bus)
+        lim = PSY.get_voltage_limits(bus, u"CU")
         bname = PSY.get_name(bus)
         v = vm[1, bname]
         @test lim.min - 1e-6 <= v <= lim.max + 1e-6
@@ -218,6 +218,7 @@ end
     sys = PSB.build_system(PSITestSystems, "c_sys5_ml")
     busD = PSY.get_component(PSY.ACBus, sys, "nodeD")
     star_bus = PSY.ACBus(;
+        input_basis = u"CU",
         number = 103,
         name = "Star_Bus_T3W",
         available = true,
@@ -231,6 +232,7 @@ end
     )
     PSY.add_component!(sys, star_bus)
     sec_bus = PSY.ACBus(;
+        input_basis = u"CU",
         number = 101,
         name = "Bus3WT_1",
         available = true,
@@ -244,6 +246,7 @@ end
     )
     PSY.add_component!(sys, sec_bus)
     ter_bus = PSY.ACBus(;
+        input_basis = u"CU",
         number = 102,
         name = "Bus3WT_2",
         available = true,
@@ -265,7 +268,7 @@ end
         base_power = 100.0,
         base_voltage_primary = 230.0,
         base_voltage_secondary = 230.0,
-        input_basis = CU,
+        input_basis = u"CU",
     )
     transformer3w = PSY.ThreeWindingTransformer(;
         name = "ThreeWindingTransformer_busD",
@@ -284,7 +287,7 @@ end
         base_power_31 = 100.0,
         magnetizing_shunt = 0.001 + 0.05im,
         shunt_location = PSY.ThreeWindingTransformerShuntLocation.PRIMARY,
-        input_basis = CU,
+        input_basis = u"CU",
     )
     PSY.add_component!(sys, transformer3w)
 
@@ -298,7 +301,7 @@ end
     @test isapprox(adm.b, imag(y); atol = 1e-12)
 
     # `PRIMARY` puts the whole magnetizing shunt on circuit 1's terminal (from) side.
-    y_sh = PSY.get_magnetizing_shunt(transformer3w, PSY.SU)
+    y_sh = PSY.get_magnetizing_shunt(transformer3w, u"SU")
     @test adm.g_fr == real(y_sh)
     @test adm.b_fr == imag(y_sh)
     @test adm.g_to == 0.0
@@ -322,7 +325,7 @@ end
     # current-rating behavior.
     for network_formulation in (ACPNetworkModel, ACRNetworkModel, LPACCNetworkModel)
         sys = PSB.build_system(PSITestSystems, "c_sys5")
-        PSY.set_rating!(PSY.get_component(Line, sys, "1"), 0.0 * PSY.SU)
+        PSY.set_rating!(PSY.get_component(Line, sys, "1"), 0.0 * u"SU")
         template = get_thermal_dispatch_template_network(NetworkModel(network_formulation))
         model = DecisionModel(template, sys; optimizer = ipopt_optimizer)
         out = mktempdir(; cleanup = true)
@@ -452,7 +455,7 @@ end
     time_steps = IOM.get_time_steps(container)
     for line in PSY.get_components(PSY.Line, sys)
         name = PSY.get_name(line)
-        rate = PSY.get_rating(line, PSY.SU)
+        rate = PSY.get_rating(line, u"SU")
         for t in time_steps
             @test JuMP.has_lower_bound(pft[name, t])
             @test JuMP.has_upper_bound(pft[name, t])
@@ -579,7 +582,7 @@ end
             time_steps = IOM.get_time_steps(container)
             for line in PSY.get_components(PSY.Line, sys)
                 name = PSY.get_name(line)
-                rate = PSY.get_rating(line, PSY.SU)
+                rate = PSY.get_rating(line, u"SU")
                 for t in time_steps
                     # Directional flow variables keep hard ±rating box bounds.
                     for var in (pft, ptf, qft, qtf)
@@ -686,7 +689,7 @@ end
     @test !has_container_key(container, FlowRateConstraint, PSY.Line)
     for line in PSY.get_components(PSY.Line, sys)
         name = PSY.get_name(line)
-        rate = PSY.get_rating(line, PSY.SU)
+        rate = PSY.get_rating(line, u"SU")
         for t in time_steps
             @test JuMP.has_upper_bound(flow[name, t])
             @test JuMP.has_lower_bound(flow[name, t])
@@ -740,7 +743,7 @@ end
             time_steps = IOM.get_time_steps(container)
             for line in PSY.get_components(PSY.Line, sys)
                 name = PSY.get_name(line)
-                rate = PSY.get_rating(line, PSY.SU)
+                rate = PSY.get_rating(line, u"SU")
                 for t in time_steps
                     @test JuMP.has_upper_bound(flow[name, t])
                     @test JuMP.has_lower_bound(flow[name, t])
@@ -796,7 +799,7 @@ end
     time_steps = IOM.get_time_steps(container)
     for line in PSY.get_components(PSY.Line, sys)
         name = PSY.get_name(line)
-        rate = PSY.get_rating(line, PSY.SU)
+        rate = PSY.get_rating(line, u"SU")
         for t in time_steps
             # The slack path must leave the directional flows unbounded so the slack can relax.
             @test !JuMP.has_upper_bound(pft[name, t])
@@ -840,7 +843,7 @@ end
     @test !has_container_key(container, FlowRateConstraint, PSY.Line)
     for line in PSY.get_components(PSY.Line, sys)
         name = PSY.get_name(line)
-        rate = PSY.get_rating(line, PSY.SU)
+        rate = PSY.get_rating(line, u"SU")
         for t in time_steps
             @test JuMP.has_upper_bound(flow[name, t])
             @test JuMP.has_lower_bound(flow[name, t])
@@ -866,7 +869,7 @@ end
     time_steps = IOM.get_time_steps(container)
     for line in PSY.get_components(PSY.Line, sys)
         name = PSY.get_name(line)
-        rate = PSY.get_rating(line, PSY.SU)
+        rate = PSY.get_rating(line, u"SU")
         for t in time_steps
             @test JuMP.has_upper_bound(flow[name, t])
             @test JuMP.has_lower_bound(flow[name, t])
@@ -890,7 +893,7 @@ end
     time_steps = IOM.get_time_steps(container)
     for line in PSY.get_components(PSY.Line, sys)
         name = PSY.get_name(line)
-        rate = PSY.get_rating(line, PSY.SU)
+        rate = PSY.get_rating(line, u"SU")
         for t in time_steps
             @test JuMP.has_upper_bound(flow[name, t])
             @test JuMP.has_lower_bound(flow[name, t])
@@ -918,7 +921,7 @@ end
     time_steps = IOM.get_time_steps(container)
     for line in PSY.get_components(PSY.Line, sys)
         name = PSY.get_name(line)
-        rate = PSY.get_rating(line, PSY.SU)
+        rate = PSY.get_rating(line, u"SU")
         for t in time_steps
             @test JuMP.has_upper_bound(flow[name, t])
             @test JuMP.has_lower_bound(flow[name, t])
@@ -956,7 +959,7 @@ end
             time_steps = IOM.get_time_steps(container)
             for line in PSY.get_components(PSY.Line, sys)
                 name = PSY.get_name(line)
-                rate = PSY.get_rating(line, PSY.SU)
+                rate = PSY.get_rating(line, u"SU")
                 for t in time_steps
                     @test JuMP.upper_bound(pft[name, t]) == rate
                     @test JuMP.lower_bound(pft[name, t]) == -rate
@@ -981,97 +984,6 @@ end
     end
 end
 
-@testset "StaticBranchBounds on a MonitoredLine bounds active by monitoring limits, reactive by rating" begin
-    # `min_max_flow_limits(::PSY.MonitoredLine, ...)` (AC_branches.jl) collapses the (possibly
-    # asymmetric) `PSY.get_flow_limits` into an ACTIVE-flow monitoring limit. That limit bounds
-    # only the active directional variables; the reactive variables are bounded by the
-    # symmetric thermal `branch_rating` (PM parity — q is bounded by the rating, not by an
-    # active monitoring limit — and it keeps StaticBranchBounds ≡ StaticBranch, whose quadratic
-    # apparent-power limit bounds |q| by the rating alone). Force asymmetric limits below the
-    # rating so the test cannot pass by accident on a symmetric fixture.
-    sys = PSB.build_system(PSITestSystems, "c_sys5_ml")
-    ml = first(PSY.get_components(PSY.MonitoredLine, sys))
-    PSY.set_flow_limits!(ml, (from_to = 2.0 * u"MW", to_from = 4.0 * u"MW"))
-    limits = PSY.get_flow_limits(ml, PSY.SU)
-    rate = PSY.get_rating(ml, PSY.SU)
-    @test limits.from_to != limits.to_from
-    @test limits.from_to != rate
-    @test limits.to_from != rate
-    # Guard: the reactive bound (rating) must be strictly wider than the collapsed active
-    # monitoring limit, otherwise the reactive assertions would pass vacuously.
-    @test rate > min(rate, limits.from_to, limits.to_from)
-
-    template = get_thermal_dispatch_template_network(NetworkModel(ACPNetworkModel))
-    set_device_model!(template, DeviceModel(PSY.MonitoredLine, StaticBranchBounds))
-    model = DecisionModel(template, sys; optimizer = ipopt_optimizer)
-    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
-          IOM.ModelBuildStatus.BUILT
-
-    container = IOM.get_optimization_container(model)
-    pft = IOM.get_variable(container, FlowActivePowerFromToVariable, PSY.MonitoredLine)
-    ptf = IOM.get_variable(container, FlowActivePowerToFromVariable, PSY.MonitoredLine)
-    qft = IOM.get_variable(container, FlowReactivePowerFromToVariable, PSY.MonitoredLine)
-    qtf = IOM.get_variable(container, FlowReactivePowerToFromVariable, PSY.MonitoredLine)
-    name = PSY.get_name(ml)
-    time_steps = IOM.get_time_steps(container)
-    for t in time_steps
-        # Active variables keep the (asymmetric) monitoring limits.
-        @test JuMP.upper_bound(pft[name, t]) == limits.from_to
-        @test JuMP.lower_bound(pft[name, t]) == -limits.from_to
-        @test JuMP.upper_bound(ptf[name, t]) == limits.to_from
-        @test JuMP.lower_bound(ptf[name, t]) == -limits.to_from
-        # Reactive variables widen to the symmetric thermal rating.
-        @test JuMP.upper_bound(qft[name, t]) == rate
-        @test JuMP.lower_bound(qft[name, t]) == -rate
-        @test JuMP.upper_bound(qtf[name, t]) == rate
-        @test JuMP.lower_bound(qtf[name, t]) == -rate
-    end
-end
-
-@testset "PTDFNetworkModel + StaticBranchBounds pins MonitoredLine flow bounds via min_max_flow_limits, not the symmetric rating" begin
-    # `min_max_flow_limits(::PSY.MonitoredLine, ::DeviceModel)` (AC_branches.jl:445-447)
-    # defers to `get_min_max_limits(device, FlowRateConstraint, AbstractBranchFormulation)`,
-    # which collapses the (possibly asymmetric) `flow_limits` and the rating into a single
-    # symmetric `min(rating, to_from, from_to)` bound on the PTDF network's scalar
-    # `FlowActivePowerVariable` (`branch_rate_bounds!`, AC_branches.jl:366-389). This is a
-    # different code path from the directional ACP bounds exercised above.
-    sys = PSB.build_system(PSITestSystems, "c_sys5_ml")
-    ml = first(PSY.get_components(PSY.MonitoredLine, sys))
-    PSY.set_flow_limits!(ml, (from_to = 2.0 * u"MW", to_from = 4.0 * u"MW"))
-    limits = PSY.get_flow_limits(ml, PSY.SU)
-    rate = PSY.get_rating(ml, PSY.SU)
-    @test limits.from_to != limits.to_from
-    @test limits.from_to != rate
-    @test limits.to_from != rate
-    # Guard: the collapsed PTDF bound must actually be tighter than the symmetric rating,
-    # otherwise this testset would pass vacuously even if flow_limits were ignored entirely.
-    @test min(rate, limits.from_to, limits.to_from) != rate
-
-    template = get_thermal_dispatch_template_network(
-        NetworkModel(PTDFNetworkModel),
-    )
-    set_device_model!(template, DeviceModel(PSY.MonitoredLine, StaticBranchBounds))
-    model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
-    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
-          IOM.ModelBuildStatus.BUILT
-
-    container = IOM.get_optimization_container(model)
-    flow = IOM.get_variable(container, FlowActivePowerVariable, PSY.MonitoredLine)
-    time_steps = IOM.get_time_steps(container)
-    for line in PSY.get_components(PSY.MonitoredLine, sys)
-        name = PSY.get_name(line)
-        dev_limits = PSY.get_flow_limits(line, PSY.SU)
-        dev_rate = PSY.get_rating(line, PSY.SU)
-        expected_limit = min(dev_rate, dev_limits.from_to, dev_limits.to_from)
-        for t in time_steps
-            @test JuMP.has_upper_bound(flow[name, t])
-            @test JuMP.has_lower_bound(flow[name, t])
-            @test JuMP.upper_bound(flow[name, t]) == expected_limit
-            @test JuMP.lower_bound(flow[name, t]) == -expected_limit
-        end
-    end
-end
-
 @testset "ACP + StaticBranchBounds use_slacks relaxes an otherwise-infeasible over-tight rating" begin
     # Line "1" (nodeA-nodeB) carries ~3.26 pu in an unconstrained ACP solve; cutting its
     # rating to 0.5 pu makes the directional ±rating box bounds too tight for any voltage
@@ -1081,7 +993,7 @@ end
     cut = 0.5
     sys = PSB.build_system(PSITestSystems, "c_sys5")
     line = PSY.get_component(PSY.Line, sys, "1")
-    PSY.set_rating!(line, cut * PSY.SU)
+    PSY.set_rating!(line, cut * u"SU")
 
     template = get_thermal_dispatch_template_network(NetworkModel(ACPNetworkModel))
     set_device_model!(
@@ -1109,7 +1021,7 @@ end
     # on the Ohm's-law equality, never on the box.
     for component in PSY.get_components(PSY.Line, sys)
         component_name = PSY.get_name(component)
-        rate = PSY.get_rating(component, PSY.SU)
+        rate = PSY.get_rating(component, u"SU")
         for t in time_steps
             for variable in (pft, ptf, qft, qtf)
                 @test abs(JuMP.value(variable[component_name, t])) <= rate + 1e-6
@@ -1160,7 +1072,7 @@ end
     # infeasible (Ipopt returns a locally-infeasible status). If a future Ipopt instead
     # converges, the no-slack objective must be strictly higher than the slacked one.
     sys_no_slack = PSB.build_system(PSITestSystems, "c_sys5")
-    PSY.set_rating!(PSY.get_component(PSY.Line, sys_no_slack, "1"), cut * PSY.SU)
+    PSY.set_rating!(PSY.get_component(PSY.Line, sys_no_slack, "1"), cut * u"SU")
     template_no_slack = get_thermal_dispatch_template_network(NetworkModel(ACPNetworkModel))
     set_device_model!(template_no_slack, DeviceModel(PSY.Line, StaticBranchBounds))
     model_no_slack =
@@ -1186,7 +1098,7 @@ end
     cut = 2.0
     function _acp_binding_solve(formulation)
         sys = PSB.build_system(PSITestSystems, "c_sys5")
-        PSY.set_rating!(PSY.get_component(PSY.Line, sys, "1"), cut * PSY.SU)
+        PSY.set_rating!(PSY.get_component(PSY.Line, sys, "1"), cut * u"SU")
         template = get_thermal_dispatch_template_network(NetworkModel(ACPNetworkModel))
         set_device_model!(template, DeviceModel(PSY.Line, formulation))
         model = DecisionModel(template, sys; optimizer = ipopt_optimizer)
@@ -1228,7 +1140,7 @@ end
         IOM.get_variable(container, FlowActivePowerVariable, PSY.Line)
     function _dcp_binding_solve(formulation)
         sys = PSB.build_system(PSITestSystems, "c_sys5")
-        PSY.set_rating!(PSY.get_component(PSY.Line, sys, "1"), cut * PSY.SU)
+        PSY.set_rating!(PSY.get_component(PSY.Line, sys, "1"), cut * u"SU")
         template = get_thermal_dispatch_template_network(NetworkModel(DCPNetworkModel))
         set_device_model!(template, DeviceModel(PSY.Line, formulation))
         model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)

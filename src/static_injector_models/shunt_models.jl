@@ -30,7 +30,7 @@ end
 function _shunt_susceptance_limits(d::PSY.FACTSControlDevice)
     # max_shunt_current is stored in MVA at unity voltage. At V = 1 pu the reactive power
     # equals B * V² = B, so its system-base per-unit value IS the susceptance bound.
-    b_max = PSY.get_max_shunt_current(d, PSY.SU)
+    b_max = PSY.get_max_shunt_current(d, u"SU")
     if !isfinite(b_max) || iszero(b_max)
         error(
             "FACTSControlDevice $(PSY.get_name(d)) has zero/invalid max_shunt_current; ",
@@ -127,7 +127,7 @@ get_variable_multiplier(
 function _reactive_power_bounds(d::PSY.StaticInjection)
     b = _shunt_susceptance_limits(d)
     # bus voltage limits are already per-unit
-    vlims = PSY.get_voltage_limits(PSY.get_bus(d))
+    vlims = PSY.get_voltage_limits(PSY.get_bus(d), u"CU")
     vmin = vlims.min
     vmax = vlims.max
     if !isfinite(vmin) || !isfinite(vmax) || vmin <= 0.0
@@ -178,7 +178,7 @@ get_variable_multiplier(
 
 function _fixed_reactive_power_bounds(d::PSY.StaticInjection)
     b = _fixed_shunt_susceptance(d)
-    vlims = PSY.get_voltage_limits(PSY.get_bus(d))
+    vlims = PSY.get_voltage_limits(PSY.get_bus(d), u"CU")
     vmin = vlims.min
     vmax = vlims.max
     if !isfinite(vmin) || !isfinite(vmax) || vmin <= 0.0

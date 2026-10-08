@@ -13,17 +13,24 @@ function _build_ic_reactive_sys(;
     reactive_limit = 1.5,
 )
     sys = build_system(PSISystems, "sys10_pjm_ac_dc"; force_build = true)
+    # The fixture stores r = 0.01, a per-unit value, but psy6 reads r in ohm. At 4e-6 pu
+    # the DC network is near-singular and Ipopt does not converge. Restore 0.01 pu.
+    for line in get_components(TModelHVDCLine, sys)
+        v_base = get_base_voltage(get_from(get_arc(line)))
+        set_r!(line, 0.01 * v_base^2 / get_base_power(sys))
+    end
     for ic in get_components(InterconnectingConverter, sys)
         set_loss_function!(ic, PSY.LossCurve(QuadraticCurve(0.01, 0.01, 0.0), PSY.CU))
-        set_max_dc_current!(ic, 2.0 * PSY.SU)
-        set_reactive_power_limits!(
-            ic, (min = -reactive_limit * PSY.SU, max = reactive_limit * PSY.SU),
+        # 2.0 pu on the system base, in amperes.
+        set_max_dc_current!(
+            ic,
+            2.0 * 1000.0 * get_base_power(sys) / get_base_voltage(get_dc_bus(ic)),
         )
-        set_ac_control!(ic, ac_control)
-        set_ac_setpoint!(ic, ac_setpoint)
-        set_dc_control!(ic, dc_control)
-        set_dc_setpoint!(ic, dc_setpoint)
-        set_dc_voltage_droop!(ic, dc_voltage_droop)
+        set_reactive_power_limits!(
+            ic, (min = -reactive_limit * u"SU", max = reactive_limit * u"SU"),
+        )
+        _set_ic_setpoints!(ic, ac_control, ac_setpoint, dc_control, dc_setpoint)
+        set_dc_voltage_droop!(ic, _ic_droop_kv_per_mw(ic, dc_voltage_droop, sys))
     end
     return sys
 end
@@ -82,24 +89,10 @@ end
     end
 end
 
-@testset "VoltageControlConverter AC_REACTIVE_POWER pins the reactive injection" begin
-    q_sp = 0.3
-    sys = _build_ic_reactive_sys(;
-        ac_control = VSCACControlModes.AC_REACTIVE_POWER, ac_setpoint = q_sp,
-    )
-    template = _ic_reactive_template(ACPNetworkModel)
-    model = DecisionModel(
-        template, sys; store_variable_names = true, optimizer = ipopt_optimizer,
-    )
-    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
-          IOM.ModelBuildStatus.BUILT
-    @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
-
-    c = IOM.get_optimization_container(model)
-    q = JuMP.value.(IOM.get_variable(c, ReactivePowerVariable, InterconnectingConverter))
-    @test all(isapprox.(q, q_sp; atol = 1e-6))
+@testset "VoltageControlConverter rejects AC_REACTIVE_POWER control" begin
+    sys = _build_ic_reactive_sys(; ac_control = VSCACControlModes.AC_REACTIVE_POWER)
+    _assert_ic_reactive_power_rejected(_ic_reactive_template(ACPNetworkModel), sys)
 end
-
 @testset "VoltageControlConverter DC_VOLTAGE_DROOP satisfies vdc + k*P == setpoint" begin
     droop = 0.05
     dc_sp = 1.0
@@ -129,36 +122,16 @@ end
     end
 end
 
-@testset "VoltageControlConverter is count-invariant across AC control modes (ACP)" begin
-    function _container_for_ac_mode(mode, setpoint)
-        sys = _build_ic_reactive_sys(; ac_control = mode, ac_setpoint = setpoint)
-        template = _ic_reactive_template(ACPNetworkModel)
-        model = DecisionModel(
-            template, sys; store_variable_names = true, optimizer = ipopt_optimizer,
-        )
-        @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
-              IOM.ModelBuildStatus.BUILT
-        return IOM.get_optimization_container(model)
-    end
-
-    c_v = _container_for_ac_mode(VSCACControlModes.AC_VOLTAGE, 1.0)
-    c_q = _container_for_ac_mode(VSCACControlModes.AC_REACTIVE_POWER, 0.0)
-
-    var_v = IOM.get_variables(c_v)
-    var_q = IOM.get_variables(c_q)
-    @test Set(keys(var_v)) == Set(keys(var_q))
-    for k in keys(var_v)
-        @test size(var_v[k]) == size(var_q[k])
-    end
-
-    con_v = IOM.get_constraints(c_v)
-    con_q = IOM.get_constraints(c_q)
-    @test Set(keys(con_v)) == Set(keys(con_q))
-    for k in keys(con_v)
-        @test size(con_v[k]) == size(con_q[k])
-    end
+@testset "VoltageControlConverter supports only AC_VOLTAGE among AC control modes (ACP)" begin
+    sys = _build_ic_reactive_sys(; ac_control = VSCACControlModes.AC_VOLTAGE)
+    model = DecisionModel(
+        _ic_reactive_template(ACPNetworkModel), sys; optimizer = ipopt_optimizer,
+    )
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+    sys = _build_ic_reactive_sys(; ac_control = VSCACControlModes.AC_REACTIVE_POWER)
+    _assert_ic_reactive_power_rejected(_ic_reactive_template(ACPNetworkModel), sys)
 end
-
 @testset "VoltageControlConverter is count-invariant across DC control modes (ACP)" begin
     function _container_for_dc_mode(mode; droop = 0.0)
         sys = _build_ic_reactive_sys(;
@@ -219,37 +192,18 @@ end
     end
 end
 
-@testset "VoltageControlConverter is count-invariant across AC control modes (ACR)" begin
-    function _acr_container_for_ac_mode(mode, setpoint)
-        sys = _build_ic_reactive_sys(; ac_control = mode, ac_setpoint = setpoint)
-        template = _ic_reactive_template(ACRNetworkModel)
-        model = DecisionModel(
-            template, sys; store_variable_names = true, optimizer = ipopt_optimizer,
-        )
-        @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
-              IOM.ModelBuildStatus.BUILT
-        return IOM.get_optimization_container(model)
-    end
-
-    c_v = _acr_container_for_ac_mode(VSCACControlModes.AC_VOLTAGE, 1.0)
-    c_q = _acr_container_for_ac_mode(VSCACControlModes.AC_REACTIVE_POWER, 0.0)
-
-    var_v = IOM.get_variables(c_v)
-    var_q = IOM.get_variables(c_q)
-    @test any(k -> occursin("RegulatedVoltageMagnitude", string(k)), keys(var_v))
-    @test Set(keys(var_v)) == Set(keys(var_q))
-    for k in keys(var_v)
-        @test size(var_v[k]) == size(var_q[k])
-    end
-
-    con_v = IOM.get_constraints(c_v)
-    con_q = IOM.get_constraints(c_q)
-    @test Set(keys(con_v)) == Set(keys(con_q))
-    for k in keys(con_v)
-        @test size(con_v[k]) == size(con_q[k])
-    end
+@testset "VoltageControlConverter supports only AC_VOLTAGE among AC control modes (ACR)" begin
+    sys = _build_ic_reactive_sys(; ac_control = VSCACControlModes.AC_VOLTAGE)
+    model = DecisionModel(
+        _ic_reactive_template(ACRNetworkModel), sys; optimizer = ipopt_optimizer,
+    )
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+    vars = IOM.get_variables(IOM.get_optimization_container(model))
+    @test any(k -> occursin("RegulatedVoltageMagnitude", string(k)), keys(vars))
+    sys = _build_ic_reactive_sys(; ac_control = VSCACControlModes.AC_REACTIVE_POWER)
+    _assert_ic_reactive_power_rejected(_ic_reactive_template(ACRNetworkModel), sys)
 end
-
 @testset "VoltageControlConverter drops under DCPNetworkModel" begin
     sys = _build_ic_reactive_sys()
     template = _ic_reactive_template(DCPNetworkModel)
@@ -281,13 +235,19 @@ function _ic_no_integer_vars(model)
 end
 
 @testset "VoltageControlConverter AC loss is parameterized on AC apparent current" begin
-    # Pin every converter's reactive injection to a non-zero setpoint so they carry
-    # reactive power; the loss must then reflect Q via the AC apparent current.
+    # Pin every converter AC bus off nominal voltage so the converters carry reactive
+    # power; the loss must then reflect Q via the AC apparent current.
+    setpoint = 1.01
     sys = _build_ic_reactive_sys(;
-        ac_control = VSCACControlModes.AC_REACTIVE_POWER,
-        ac_setpoint = 0.8,
+        ac_control = VSCACControlModes.AC_VOLTAGE,
+        ac_setpoint = setpoint,
         reactive_limit = 1.5,
     )
+    # IPC-nodeD sits on the REF bus, whose ACP reference constraint pins vm to the bus
+    # magnitude. Match the magnitudes to the setpoint so the two pins agree.
+    for ic in get_components(InterconnectingConverter, sys)
+        set_magnitude!(get_bus(ic), setpoint * u"SU")
+    end
     template = _ic_reactive_template(ACPNetworkModel)
     model = DecisionModel(
         template, sys; store_variable_names = true, optimizer = ipopt_optimizer,
@@ -327,4 +287,39 @@ end
         end
     end
     @test loaded >= 1
+end
+
+@testset "VoltageControlConverter DC_POWER: positive dc_power_setpoint injects into the AC bus" begin
+    # PSY: positive dc_power_setpoint means the converter supplies power to the AC network.
+    # POM's ActivePowerVariable is AC injection (+1.0 in the AC balance), so p == setpoint.
+    # One converter holds DC_POWER; the others hold DC_VOLTAGE and balance the DC network.
+    sys = _build_ic_reactive_sys()
+    ic = first(sort(collect(get_components(InterconnectingConverter, sys)); by = get_name))
+    _set_ic_setpoints!(
+        ic, VSCACControlModes.AC_VOLTAGE, 1.0, VSCDCControlModes.DC_POWER, 0.5,
+    )
+    name = get_name(ic)
+    p_sp = PSY.get_dc_power_setpoint(ic, u"SU")
+    @test p_sp > 0.0
+    model = DecisionModel(
+        _ic_reactive_template(ACPNetworkModel), sys;
+        store_variable_names = true, optimizer = ipopt_optimizer,
+    )
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+
+    container = IOM.get_optimization_container(model)
+    p = IOM.get_variable(container, ActivePowerVariable, InterconnectingConverter)
+    con =
+        IOM.get_constraint(container, POM.HVDCDCControlConstraint, InterconnectingConverter)
+    balance = IOM.get_expression(container, ActivePowerBalance, ACBus)
+    ac_bus = get_number(get_bus(ic))
+    for t in IOM.get_time_steps(container)
+        c = JuMP.constraint_object(con[name, t])
+        pinned = c.set.value / JuMP.coefficient(c.func, p[name, t])
+        @test isapprox(pinned, p_sp; atol = 1e-9)
+        # The AC-bus injection of the pinned converter power equals the PSY setpoint.
+        injection = JuMP.coefficient(balance[ac_bus, t], p[name, t]) * pinned
+        @test isapprox(injection, p_sp; atol = 1e-9)
+    end
 end

@@ -16,7 +16,7 @@ the coefficient assertions below are checked against.
 """
 function _ff_limits(sys)
     return Dict(
-        PSY.get_name(d) => PSY.get_active_power_limits(d, PSY.SU) for
+        PSY.get_name(d) => PSY.get_active_power_limits(d, u"SU") for
         d in PSY.get_components(PSY.ThermalStandard, sys)
     )
 end
@@ -395,7 +395,7 @@ end
 
     c_sys5_hy = PSB.build_system(PSITestSystems, "c_sys5_hy")
     limits = Dict(
-        PSY.get_name(d) => PSY.get_active_power_limits(d, PSY.SU) for
+        PSY.get_name(d) => PSY.get_active_power_limits(d, u"SU") for
         d in PSY.get_components(PSY.HydroDispatch, c_sys5_hy)
     )
     model = DecisionModel(MockOperationProblem, DCPNetworkModel, c_sys5_hy)
@@ -449,7 +449,7 @@ end
 
     c_sys5_hy = PSB.build_system(PSITestSystems, "c_sys5_hy")
     limits = Dict(
-        PSY.get_name(d) => PSY.get_active_power_limits(d, PSY.SU) for
+        PSY.get_name(d) => PSY.get_active_power_limits(d, u"SU") for
         d in PSY.get_components(PSY.HydroDispatch, c_sys5_hy)
     )
 
@@ -588,7 +588,7 @@ end
     must_run_unit = first(PSY.get_components(PSY.ThermalStandard, c_sys5))
     must_run_name = PSY.get_name(must_run_unit)
     PSY.set_commitment_mode!(must_run_unit, PSY.CommitmentModes.MUST_RUN)
-    min_limit = PSY.get_active_power_limits(must_run_unit, PSY.SU).min
+    min_limit = PSY.get_active_power_limits(must_run_unit, u"SU").min
     bus_no = PSY.get_number(PSY.get_bus(must_run_unit))
 
     device_model = DeviceModel(PSY.ThermalStandard, ThermalCompactDispatch)

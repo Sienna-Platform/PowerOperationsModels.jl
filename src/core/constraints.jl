@@ -832,6 +832,13 @@ p^\\text{pump}_t \\le P^\\text{max,pump} \\cdot (1 - \\text{ReservationVariable}
 struct ActivePowerPumpReservationConstraint <: ConstraintType end
 
 """
+Require `ReservationVariable` to be no greater than `OnVariable` for pump-turbine commitment.
+
+Together with pumping bounds based on `OnVariable - ReservationVariable`, this permits off, pumping and generating states in [`HydroPumpEnergyCommitment`](@ref).
+"""
+struct HydroPumpReservationCommitmentConstraint <: ConstraintType end
+
+"""
 Struct to create the constraint that limits the pump power  for hydro pump formulations.
 
 For more information check [HydroPowerSimulations Formulations](@ref HydroPowerSimulations-Formulations).
@@ -1255,25 +1262,38 @@ e^{st}_{T} - e^{st+} + e^{st-} = E^{st}_{T}.
 struct HybridEnergyTargetConstraint <: ConstraintType end
 
 """
+Offline awards of services whose `ServiceModel` sets `"exclude_shutdown_step" = true` are
+forbidden in the time step a unit goes off:
+`sum(those awards) <= q_limit * (1 - u_{t-1} + u_t)`, with `u_0` from the `DeviceStatus`
+initial condition (the initialization solve's commitment when the model initializes, the
+PSY status otherwise). The right-hand side is `0` only when `u_{t-1} = 1` and `u_t = 0`.
+Built for thermal unit commitment (a must-run device never goes off and gets no row) and
+`HydroCommitmentRunOfRiver`, whose constructor adds the `DeviceStatus` initial condition only
+under this attribute. Rows are keyed `(device, t)`.
+"""
+struct OfflineReserveShutdownConstraint <: ConstraintType end
+
+"""
 Offline-capability band row for commitment formulations whose
 [`offline_reserve_in_range_ub`](@ref) trait is `false`: their commitment-gated range
 expression stays `p + online`, and this row adds the offline awards back against the
-formulation's gated capacity when committed, or the static capability (`q_limit = pmax`)
-when not:
+formulation's gated capacity when committed, or the step's available max when not:
 
-`p + online + offline <= gated * u + q_limit * (1 - u)`
+`p + online + offline <= ts_t - (q_limit - gated) * u`
 
-`gated` is the formulation's own commitment-gated max (the same value the semicontinuous
-range row uses): for standard UC, `gated = pmax`, so the RHS collapses to `pmax`
-regardless of `u`; for compact UC, `gated = pmax - pmin`, so the RHS becomes
-`pmax - pmin * u`.
+`ts_t` is `mult * ActivePowerTimeSeriesParameter` when the `DeviceModel` maps that series and
+the device has it, and the static `q_limit = pmax` otherwise. `gated` is the formulation's
+own commitment-gated max (the same value the semicontinuous range row uses): for standard
+UC, `gated = pmax`, so the RHS is `ts_t` regardless of `u`; for compact UC,
+`gated = pmax - pmin`, so the RHS becomes `ts_t - pmin * u`.
 
 Committed: offline competes with the online products for the gated band. Off: the
-semi-continuous range row zeroes `p` and the online awards, leaving `offline <= q_limit`.
+semi-continuous range row zeroes `p` and the online awards, leaving `offline <= ts_t`.
 Single award variable per (device, service): the device's merged offer curve prices both
 provision states (documented approximation). With `"offline_only" = true` on the
 `OfflineReserve` `ServiceModel`, offline awards are forbidden while committed instead
-([`OfflineReserveOffStateConstraint`](@ref)).
+([`OfflineReserveOffStateConstraint`](@ref)). `"exclude_shutdown_step"` adds
+[`OfflineReserveShutdownConstraint`](@ref).
 
 `HydroCommitmentRunOfRiver` uses the hour's limit in both states,
 `p + online + offline <= ts_t`, from its `ActivePowerTimeSeriesParameter` (static

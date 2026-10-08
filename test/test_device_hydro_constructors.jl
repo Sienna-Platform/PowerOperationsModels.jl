@@ -344,10 +344,10 @@ end
 
     sys = PSB.build_system(PSITestSystems, "c_sys5_hy"; add_single_time_series = true)
     hy = only(get_components(HydroDispatch, sys))
-    max_power = get_max_active_power(hy, PSY.SU)
+    max_power = get_max_active_power(hy, u"SU")
     resolution = Dates.Hour(1)
     tstamp = range(DateTime("2024-01-01T00:00:00"); step = resolution, length = 48)
-    data = ones(length(tstamp)) / (get_base_power(sys, PSY.NU) * max_power)
+    data = ones(length(tstamp)) / (get_base_power(sys, u"NU") * max_power)
     ts = SingleTimeSeries("hydro_budget", TimeArray(tstamp, data))
     add_time_series!(sys, hy, ts)
     transform_single_time_series!(sys, Hour(24), Hour(24))
@@ -387,10 +387,10 @@ end
     eps = 1e-6
 
     hy = only(get_components(HydroDispatch, c_sys5_hy))
-    max_power = get_max_active_power(hy, PSY.SU)
+    max_power = get_max_active_power(hy, u"SU")
 
     tstamp = range(DateTime("2024-01-01T00:00:00"); step = Dates.Hour(1), length = 48)
-    data = ones(length(tstamp)) / (get_base_power(c_sys5_hy, PSY.NU) * max_power)
+    data = ones(length(tstamp)) / (get_base_power(c_sys5_hy, u"NU") * max_power)
     ts = SingleTimeSeries("hydro_budget", TimeArray(tstamp, data))
     add_time_series!(c_sys5_hy, first(get_components(HydroDispatch, c_sys5_hy)), ts)
     #remove_time_series!(c_sys5_hy, Deterministic)
@@ -443,8 +443,8 @@ end
     reserve_down = only(get_components(OnlineReserve{ReserveDown}, c_sys5_hy))
     set_deployed_fraction!(reserve_up, 0.0)
     set_deployed_fraction!(reserve_down, 0.0)
-    set_requirement!(reserve_up, 0.01 * PSY.SU)
-    set_requirement!(reserve_down, 0.01 * PSY.SU)
+    set_requirement!(reserve_up, 0.01 * u"SU")
+    set_requirement!(reserve_down, 0.01 * u"SU")
 
     hydro_budget = 24
     eps = 1e-6
@@ -460,9 +460,9 @@ end
         add_service!(th, reserve_up, c_sys5_hy)
     end
 
-    max_power = get_max_active_power(hy, PSY.SU)
+    max_power = get_max_active_power(hy, u"SU")
     tstamp = range(DateTime("2024-01-01T00:00:00"); step = Dates.Hour(1), length = 48)
-    data = ones(length(tstamp)) / (get_base_power(c_sys5_hy, PSY.NU) * max_power)
+    data = ones(length(tstamp)) / (get_base_power(c_sys5_hy, u"NU") * max_power)
     ts = SingleTimeSeries("hydro_budget", TimeArray(tstamp, data))
     add_time_series!(c_sys5_hy, first(get_components(HydroDispatch, c_sys5_hy)), ts)
 
@@ -471,16 +471,16 @@ end
         name = "HydroDispatchCopy",
         available = get_available(hy),
         bus = get_bus(hy),
-        active_power = get_active_power(hy, PSY.SU),
-        reactive_power = get_reactive_power(hy, PSY.SU),
-        rating = get_rating(hy, PSY.SU),
+        active_power = get_active_power(hy, u"SU"),
+        reactive_power = get_reactive_power(hy, u"SU"),
+        rating = get_rating(hy, u"SU"),
         prime_mover_type = get_prime_mover_type(hy),
-        active_power_limits = get_active_power_limits(hy, PSY.SU),
-        reactive_power_limits = get_reactive_power_limits(hy, PSY.SU),
-        ramp_limits = get_ramp_limits(hy, PSY.SU / u"minute"),
+        active_power_limits = get_active_power_limits(hy, u"SU"),
+        reactive_power_limits = get_reactive_power_limits(hy, u"SU"),
+        ramp_limits = get_ramp_limits(hy, u"SU/minute"),
         time_limits = get_time_limits(hy),
-        base_power = get_base_power(hy, PSY.NU),
-        input_basis = CU,
+        base_power = get_base_power(hy, u"NU"),
+        input_basis = u"CU",
     )
     add_component!(c_sys5_hy, hy_copy)
     copy_time_series!(hy_copy, hy)
@@ -533,8 +533,8 @@ end
     reserve_down = only(get_components(OnlineReserve{ReserveDown}, c_sys5_hy))
     set_deployed_fraction!(reserve_up, 0.0)
     set_deployed_fraction!(reserve_down, 0.5)
-    set_requirement!(reserve_up, 0.01 * PSY.SU)
-    set_requirement!(reserve_down, 0.01 * PSY.SU)
+    set_requirement!(reserve_up, 0.01 * u"SU")
+    set_requirement!(reserve_down, 0.01 * u"SU")
 
     transform_single_time_series!(c_sys5_hy, Hour(4), Hour(4))
 
@@ -623,8 +623,61 @@ end
 
     model = DecisionModel(MockOperationProblem, CopperPlateNetworkModel, c_sys5_bat)
     mock_construct_device!(model, device_model)
-    moi_tests(model, 72, 0, 48, 24, 0, true)
+    moi_tests(model, 72, 0, 48, 48, 0, true)
     psi_checkobjfun_test(model, GAEVF)
+end
+
+@testset "Hydro Pump Energy Dispatch minimum limits" begin
+    sys = PSB.build_system(
+        PSITestSystems,
+        "c_sys5_hydro_pump_energy";
+        add_single_time_series = true,
+    )
+    transform_single_time_series!(sys, Hour(24), Hour(24))
+    pump = first(PSY.get_components(HydroPumpTurbine, sys))
+    PSY.set_active_power_limits!(pump, (min = 0.32 * u"SU", max = 0.43 * u"SU"))
+    PSY.set_active_power_limits_pump!(pump, (min = 0.21 * u"SU", max = 0.37 * u"SU"))
+    name = PSY.get_name(pump)
+
+    for reservation in (true, false)
+        device_model = DeviceModel(
+            HydroPumpTurbine,
+            HydroPumpEnergyDispatch;
+            attributes = Dict{String, Any}("reservation" => reservation),
+        )
+        model = DecisionModel(MockOperationProblem, CopperPlateNetworkModel, sys)
+        mock_construct_device!(model, device_model)
+        container = IOM.get_optimization_container(model)
+        JuMP.set_optimizer(IOM.get_jump_model(container), HiGHS_optimizer)
+        generation = IOM.get_variable(container, ActivePowerVariable, HydroPumpTurbine)
+        pumping = IOM.get_variable(container, ActivePowerPumpVariable, HydroPumpTurbine)
+        t = first(IOM.get_time_steps(container))
+
+        reservation_values = (0,)
+        if reservation
+            reservation_values = (0, 1)
+        end
+        for reservation_value in reservation_values
+            if reservation
+                reservation_variable =
+                    IOM.get_variable(container, ReservationVariable, HydroPumpTurbine)
+                JuMP.fix(reservation_variable[name, t], reservation_value; force = true)
+            end
+            psi_checksolve_test(model, [MOI.OPTIMAL])
+            generation_status = 1
+            pumping_status = 1
+            if reservation
+                generation_status = reservation_value
+                pumping_status = 1 - reservation_value
+            end
+            @test 0.32 * generation_status - 1e-6 <=
+                  JuMP.value(generation[name, t]) <=
+                  0.43 * generation_status + 1e-6
+            @test 0.21 * pumping_status - 1e-6 <=
+                  JuMP.value(pumping[name, t]) <=
+                  0.37 * pumping_status + 1e-6
+        end
+    end
 end
 
 @testset "Test Hydro Pump Energy Dispatch Formulations 2" begin
@@ -1093,7 +1146,7 @@ end
     add_time_series!(sys, res, budget_ts)
     transform_single_time_series!(sys, Hour(24), Hour(24))
     turb = first(get_components(HydroTurbine, sys))
-    set_active_power_limits!(turb, (min = 0.1 * PSY.SU, max = 5.2 * PSY.SU))
+    set_active_power_limits!(turb, (min = 0.1 * u"SU", max = 5.2 * u"SU"))
     set_operation_cost!(turb, HydroGenerationCost(
         CostCurve(LinearCurve(1.0)),
         2.0,
@@ -1193,6 +1246,99 @@ end
 
     moi_tests(model, 360, 0, 168, 168, 72, false)
     psi_checkobjfun_test(model, AffExpr)
+end
+
+##################################################
+######## Hydro Pump Energy Commitment Tests #######
+##################################################
+
+@testset "Hydro Pump Energy Commitment operating modes" begin
+    sys = PSB.build_system(
+        PSITestSystems,
+        "c_sys5_hydro_pump_energy";
+        add_reserves = false,
+        add_single_time_series = true,
+    )
+    transform_single_time_series!(sys, Hour(24), Hour(24))
+    pump = only(PSY.get_components(HydroPumpTurbine, sys))
+    name = PSY.get_name(pump)
+
+    for (gen_min, pump_min, pump_max) in
+        ((0.32, 0.21, 0.37), (0.0, 0.0, 0.37), (0.0, 0.0, 0.0))
+        PSY.set_active_power_limits!(pump, (min = gen_min * u"SU", max = 0.43 * u"SU"))
+        PSY.set_active_power_limits_pump!(
+            pump,
+            (min = pump_min * u"SU", max = pump_max * u"SU"),
+        )
+        device_model = DeviceModel(
+            HydroPumpTurbine,
+            HydroPumpEnergyCommitment;
+            attributes = Dict{String, Any}("reservation" => true),
+        )
+        model = DecisionModel(MockOperationProblem, CopperPlateNetworkModel, sys)
+        mock_construct_device!(model, device_model)
+        container = IOM.get_optimization_container(model)
+        JuMP.set_optimizer(IOM.get_jump_model(container), HiGHS_optimizer)
+        generation = IOM.get_variable(container, ActivePowerVariable, HydroPumpTurbine)
+        pumping = IOM.get_variable(container, ActivePowerPumpVariable, HydroPumpTurbine)
+        on = IOM.get_variable(container, OnVariable, HydroPumpTurbine)
+        reservation = IOM.get_variable(container, ReservationVariable, HydroPumpTurbine)
+        t = first(IOM.get_time_steps(container))
+
+        for (on_status, reservation_value) in ((0, 0), (1, 0), (1, 1))
+            JuMP.fix(on[name, t], on_status; force = true)
+            JuMP.fix(reservation[name, t], reservation_value; force = true)
+            psi_checksolve_test(model, [MOI.OPTIMAL])
+            pumping_status = on_status - reservation_value
+            @test gen_min * reservation_value - 1e-6 <=
+                  JuMP.value(generation[name, t]) <=
+                  0.43 * reservation_value + 1e-6
+            @test pump_min * pumping_status - 1e-6 <=
+                  JuMP.value(pumping[name, t]) <=
+                  pump_max * pumping_status + 1e-6
+        end
+
+        JuMP.fix(on[name, t], 0; force = true)
+        JuMP.fix(reservation[name, t], 1; force = true)
+        psi_checksolve_test(model, [MOI.INFEASIBLE])
+    end
+end
+
+@testset "Hydro Pump Energy Commitment without reservation" begin
+    sys = PSB.build_system(
+        PSITestSystems,
+        "c_sys5_hydro_pump_energy";
+        add_reserves = false,
+        add_single_time_series = true,
+    )
+    transform_single_time_series!(sys, Hour(24), Hour(24))
+    pump = only(PSY.get_components(HydroPumpTurbine, sys))
+    PSY.set_active_power_limits!(pump, (min = 0.32 * u"SU", max = 0.43 * u"SU"))
+    PSY.set_active_power_limits_pump!(pump, (min = 0.21 * u"SU", max = 0.37 * u"SU"))
+    name = PSY.get_name(pump)
+    device_model = DeviceModel(
+        HydroPumpTurbine,
+        HydroPumpEnergyCommitment;
+        attributes = Dict{String, Any}("reservation" => false),
+    )
+    model = DecisionModel(MockOperationProblem, CopperPlateNetworkModel, sys)
+    mock_construct_device!(model, device_model)
+    container = IOM.get_optimization_container(model)
+    JuMP.set_optimizer(IOM.get_jump_model(container), HiGHS_optimizer)
+    generation = IOM.get_variable(container, ActivePowerVariable, HydroPumpTurbine)
+    pumping = IOM.get_variable(container, ActivePowerPumpVariable, HydroPumpTurbine)
+    on = IOM.get_variable(container, OnVariable, HydroPumpTurbine)
+    t = first(IOM.get_time_steps(container))
+    for on_status in (0, 1)
+        JuMP.fix(on[name, t], on_status; force = true)
+        psi_checksolve_test(model, [MOI.OPTIMAL])
+        @test 0.32 * on_status - 1e-6 <=
+              JuMP.value(generation[name, t]) <=
+              0.43 * on_status + 1e-6
+        @test 0.21 * on_status - 1e-6 <=
+              JuMP.value(pumping[name, t]) <=
+              0.37 * on_status + 1e-6
+    end
 end
 
 ###################################################################
@@ -1311,13 +1457,14 @@ end
     # (min = 0, max = 0), under which every path returns 0.0. SU units require system
     # attachment, so attach the demo to a throwaway System first.
     lb_sys = PSY.System(100.0)
-    lb_bus = PSY.ACBus(; number = 1, name = "LB_B1", available = true,
-        bustype = PSY.ACBusTypes.REF, angle = 0.0, magnitude = 1.0,
-        voltage_limits = (min = 0.9, max = 1.1), base_voltage = 345.0)
+    lb_bus =
+        PSY.ACBus(; input_basis = u"CU", number = 1, name = "LB_B1", available = true,
+            bustype = PSY.ACBusTypes.REF, angle = 0.0, magnitude = 1.0,
+            voltage_limits = (min = 0.9, max = 1.1), base_voltage = 345.0)
     PSY.add_component!(lb_sys, lb_bus)
     PSY.set_bus!(demo_hydro, lb_bus)
     PSY.add_component!(lb_sys, demo_hydro)
-    PSY.set_active_power_limits!(demo_hydro, (min = 0.17 * PSY.SU, max = 0.21 * PSY.SU))
+    PSY.set_active_power_limits!(demo_hydro, (min = 0.17 * u"SU", max = 0.21 * u"SU"))
 
     # Dispatch formulations keep the hard variable bound at the static min: a real
     # min-gen under an always-on formulation is intended behavior. A unit whose min must
@@ -1651,8 +1798,8 @@ end
     reserve_down = only(get_components(OnlineReserve{ReserveDown}, c_sys5_hy))
     set_deployed_fraction!(reserve_up, 0.5)
     set_deployed_fraction!(reserve_down, 0.0)
-    set_requirement!(reserve_up, 0.01 * PSY.SU)
-    set_requirement!(reserve_down, 0.01 * PSY.SU)
+    set_requirement!(reserve_up, 0.01 * u"SU")
+    set_requirement!(reserve_down, 0.01 * u"SU")
 
     profile = collect(range(0.2, 0.9; length = 48))
     stamps = collect(
