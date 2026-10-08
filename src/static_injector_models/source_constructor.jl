@@ -91,6 +91,7 @@ function construct_device!(
     )
 
     add_feedforward_arguments!(container, model, devices)
+    _maybe_relax_binaries(container, model, [ReservationVariable])
     return
 end
 
@@ -260,6 +261,7 @@ function construct_device!(
     )
 
     add_feedforward_arguments!(container, model, devices)
+    _maybe_relax_binaries(container, model, [ReservationVariable])
     return
 end
 

@@ -1,17 +1,3 @@
-# Helpers for variables/constraints that should only appear when the network
-# model actually represents the relevant physical quantity (e.g. reactive
-# power on AC networks). Each helper has a no-op method that dispatches on
-# `NetworkModel{<:AbstractActivePowerModel}`; Julia's method resolution picks
-# the more specific no-op over the AC body for DC formulations.
-
-"""
-Add reactive-power variables for a device and register them in the system's
-`ReactivePowerBalance` expression. `var_types` is a tuple/iterable of
-`VariableType` subtypes; each is added via `add_variables!` and then linked
-into `ReactivePowerBalance` via `add_to_expression!`. The caller's
-device-specific `add_to_expression!` methods are responsible for the actual
-bus mapping and sign convention.
-"""
 function _maybe_add_reactive_power_variables!(
     container::OptimizationContainer,
     devices,
@@ -36,9 +22,6 @@ _maybe_add_reactive_power_variables!(
     _var_types,
 ) where {D <: PSY.Device, F} = nothing
 
-"""
-Add a reactive-power-related constraint for a device on AC networks.
-"""
 function _maybe_add_reactive_power_constraints!(
     container::OptimizationContainer,
     devices,
@@ -58,11 +41,6 @@ _maybe_add_reactive_power_constraints!(
     ::Type{<:ConstraintType},
 ) where {D <: PSY.Device, F} = nothing
 
-"""
-Variable-typed form: adds a reactive-power constraint built from a specific
-variable (the 6-arg `add_constraints!` form) on AC networks; no-op on
-active-power-only networks.
-"""
 function _maybe_add_reactive_power_constraints!(
     container::OptimizationContainer,
     devices,
@@ -85,3 +63,29 @@ _maybe_add_reactive_power_constraints!(
     ::Type{<:ConstraintType},
     ::Type{<:VariableType},
 ) where {D <: PSY.Device, F} = nothing
+
+function _maybe_relax_binaries(
+    container::OptimizationContainer,
+    model::DeviceModel{D},
+    var_types::Vector{<:Type},
+) where {D <: PSY.Component}
+    get_attribute(model, RELAX_BINARIES_ATTRIBUTE) === true || return
+    for V in var_types
+        _relax_binaries(container, V, D)
+    end
+    return
+end
+
+function _relax_binaries(
+    container::OptimizationContainer,
+    ::Type{V},
+    ::Type{D},
+) where {V <: VariableType, D <: PSY.Component}
+    has_container_key(container, V, D) || return
+    for var in get_variable(container, V, D)
+        JuMP.unset_binary(var)
+        JuMP.set_lower_bound(var, 0.0)
+        JuMP.set_upper_bound(var, 1.0)
+    end
+    return
+end

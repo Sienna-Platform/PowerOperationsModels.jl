@@ -123,6 +123,7 @@ function get_default_attributes(
         "reserve_coverage" => true,
         "complete_coverage" => false,
         "regularization" => false,
+        RELAX_BINARIES_ATTRIBUTE => false,
     )
 end
 

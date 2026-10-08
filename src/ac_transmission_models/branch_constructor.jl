@@ -1979,6 +1979,7 @@ function construct_device!(
         network_model,
     )
     add_feedforward_arguments!(container, device_model, devices)
+    _maybe_relax_binaries(container, device_model, [HVDCFlowDirectionVariable])
     return
 end
 
@@ -2052,6 +2053,7 @@ function construct_device!(
         network_model,
     )
     add_feedforward_arguments!(container, device_model, devices)
+    _maybe_relax_binaries(container, device_model, [HVDCFlowDirectionVariable])
     return
 end
 
@@ -2130,6 +2132,7 @@ function construct_device!(
         network_model,
     )
     add_feedforward_arguments!(container, device_model, devices)
+    _maybe_relax_binaries(container, device_model, [HVDCPiecewiseBinaryLossVariable])
     return
 end
 

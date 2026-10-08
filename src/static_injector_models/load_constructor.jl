@@ -293,6 +293,7 @@ function construct_device!(
 
     add_cost_expressions!(container, devices, model)
     add_event_arguments!(container, devices, model, network_model)
+    _maybe_relax_binaries(container, model, [OnVariable])
     return
 end
 
@@ -412,6 +413,7 @@ function construct_device!(
 
     add_cost_expressions!(container, devices, model)
     add_event_arguments!(container, devices, model, network_model)
+    _maybe_relax_binaries(container, model, [OnVariable])
     return
 end
 

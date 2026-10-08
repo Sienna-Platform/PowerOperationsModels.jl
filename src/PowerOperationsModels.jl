@@ -277,7 +277,7 @@ include("common_models/make_system_expressions.jl")
 include("common_models/reserve_range_constraints.jl")
 include("common_models/branch_rating_constraints.jl")
 include("common_models/quadratic_converter_loss.jl")
-include("common_models/network_conditional.jl")
+include("common_models/helpers.jl")
 include("common_models/regulated_voltage.jl")
 include("common_models/converter_control.jl")
 

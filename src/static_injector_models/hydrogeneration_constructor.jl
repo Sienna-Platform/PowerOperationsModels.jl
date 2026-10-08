@@ -357,6 +357,7 @@ function construct_device!(
     )
     add_feedforward_arguments!(container, model, devices)
     add_event_arguments!(container, devices, model, network_model)
+    _maybe_relax_binaries(container, model, [OnVariable])
     return
 end
 
@@ -420,6 +421,7 @@ function construct_device!(
     )
     add_feedforward_arguments!(container, model, devices)
     add_event_arguments!(container, devices, model, network_model)
+    _maybe_relax_binaries(container, model, [OnVariable])
     return
 end
 
@@ -926,6 +928,7 @@ function construct_device!(
 
     add_feedforward_arguments!(container, model, devices)
     add_event_arguments!(container, devices, model, network_model)
+    _maybe_relax_binaries(container, model, [OnVariable])
     return
 end
 
@@ -1050,6 +1053,7 @@ function construct_device!(
 
     add_feedforward_arguments!(container, model, devices)
     add_event_arguments!(container, devices, model, network_model)
+    _maybe_relax_binaries(container, model, [OnVariable])
     return
 end
 
@@ -1558,6 +1562,7 @@ function _add_hydro_turbine_water_arguments!(
 
     add_feedforward_arguments!(container, model, devices)
     add_event_arguments!(container, devices, model, network_model)
+    _maybe_relax_binaries(container, model, [OnVariable])
     return
 end
 
@@ -1783,6 +1788,7 @@ function construct_device!(
 
     add_feedforward_arguments!(container, model, devices)
     add_event_arguments!(container, devices, model, network_model)
+    _maybe_relax_binaries(container, model, [ReservationVariable])
     return
 end
 
@@ -1843,6 +1849,7 @@ function construct_device!(
 
     add_feedforward_arguments!(container, model, devices)
     add_event_arguments!(container, devices, model, network_model)
+    _maybe_relax_binaries(container, model, [ReservationVariable])
     return
 end
 
@@ -1987,6 +1994,7 @@ function construct_device!(
 
     add_feedforward_arguments!(container, model, devices)
     add_event_arguments!(container, devices, model, network_model)
+    _maybe_relax_binaries(container, model, [OnVariable, ReservationVariable])
     return
 end
 
@@ -2048,6 +2056,7 @@ function construct_device!(
 
     add_feedforward_arguments!(container, model, devices)
     add_event_arguments!(container, devices, model, network_model)
+    _maybe_relax_binaries(container, model, [OnVariable, ReservationVariable])
     return
 end
 

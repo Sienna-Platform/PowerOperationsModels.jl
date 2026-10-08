@@ -217,6 +217,20 @@ end
     moi_tests(model, 480, 0, 264, 120, 120, true)
 end
 
+@testset "Thermal UC With relaxed binaries" begin
+    device_model = DeviceModel(
+        ThermalStandard,
+        ThermalStandardUnitCommitment;
+        attributes = Dict{String, Any}(POM.RELAX_BINARIES_ATTRIBUTE => true),
+    )
+    c_sys5_uc = PSB.build_system(PSITestSystems, "c_sys5_uc")
+    model = DecisionModel(MockOperationProblem, DCPNetworkModel, c_sys5_uc)
+    mock_construct_device!(model, device_model)
+    jump_model = IOM.get_jump_model(model)
+    @test JuMP.num_variables(jump_model) == 480
+    @test !any(JuMP.is_binary, JuMP.all_variables(jump_model))
+end
+
 @testset "Thermal UC With AC - PF" begin
     bin_variable_keys = [
         IOM.VariableKey(OnVariable, PSY.ThermalStandard),

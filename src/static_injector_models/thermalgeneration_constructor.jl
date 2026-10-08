@@ -163,6 +163,7 @@ function construct_device!(
     end
     add_feedforward_arguments!(container, device_model, devices)
     add_event_arguments!(container, devices, device_model, network_model)
+    _maybe_relax_binaries(container, device_model, [OnVariable, StartVariable, StopVariable])
     return
 end
 
@@ -324,6 +325,7 @@ function construct_device!(
 
     add_feedforward_arguments!(container, device_model, devices)
     add_event_arguments!(container, devices, device_model, network_model)
+    _maybe_relax_binaries(container, device_model, [OnVariable, StartVariable, StopVariable])
     return
 end
 
@@ -479,6 +481,7 @@ function construct_device!(
 
     add_feedforward_arguments!(container, device_model, devices)
     add_event_arguments!(container, devices, device_model, network_model)
+    _maybe_relax_binaries(container, device_model, [OnVariable, StartVariable, StopVariable])
     return
 end
 
@@ -633,6 +636,7 @@ function construct_device!(
 
     add_feedforward_arguments!(container, device_model, devices)
     add_event_arguments!(container, devices, device_model, network_model)
+    _maybe_relax_binaries(container, device_model, [OnVariable, StartVariable, StopVariable])
     return
 end
 
@@ -1272,6 +1276,18 @@ function construct_device!(
 
     add_feedforward_arguments!(container, device_model, devices)
     add_event_arguments!(container, devices, device_model, network_model)
+    _maybe_relax_binaries(
+        container,
+        device_model,
+        [
+            OnVariable,
+            StopVariable,
+            StartVariable,
+            ColdStartVariable,
+            WarmStartVariable,
+            HotStartVariable,
+        ],
+    )
     return
 end
 
@@ -1461,6 +1477,18 @@ function construct_device!(
 
     add_feedforward_arguments!(container, device_model, devices)
     add_event_arguments!(container, devices, device_model, network_model)
+    _maybe_relax_binaries(
+        container,
+        device_model,
+        [
+            OnVariable,
+            StopVariable,
+            StartVariable,
+            ColdStartVariable,
+            WarmStartVariable,
+            HotStartVariable,
+        ],
+    )
     return
 end
 
@@ -1656,6 +1684,7 @@ function construct_device!(
 
     add_feedforward_arguments!(container, device_model, devices)
     add_event_arguments!(container, devices, device_model, network_model)
+    _maybe_relax_binaries(container, device_model, [OnVariable, StartVariable, StopVariable])
     return
 end
 
@@ -1820,6 +1849,7 @@ function construct_device!(
 
     add_feedforward_arguments!(container, device_model, devices)
     add_event_arguments!(container, devices, device_model, network_model)
+    _maybe_relax_binaries(container, device_model, [OnVariable, StartVariable, StopVariable])
     return
 end
 
@@ -1990,6 +2020,7 @@ function construct_device!(
 
     add_feedforward_arguments!(container, device_model, devices)
     add_event_arguments!(container, devices, device_model, network_model)
+    _maybe_relax_binaries(container, device_model, [OnVariable, StartVariable, StopVariable])
     return
 end
 
@@ -2150,6 +2181,7 @@ function construct_device!(
     end
     add_feedforward_arguments!(container, device_model, devices)
     add_event_arguments!(container, devices, device_model, network_model)
+    _maybe_relax_binaries(container, device_model, [OnVariable, StartVariable, StopVariable])
     return
 end
 
