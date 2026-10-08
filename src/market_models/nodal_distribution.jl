@@ -24,12 +24,16 @@ get_member_buses(::PSY.System, hub::PSY.TradingHub) =
 
 # Each step of a factor series multiplies one model time step, so the resolutions must match.
 # Checked on the metadata before the fill, which would otherwise fail with a plain error
-# that names neither the location nor the fix.
-function _check_window_resolution(container::OptimizationContainer, md, owner)
+# that names neither the component nor the fix.
+function _check_window_resolution(
+    container::OptimizationContainer,
+    md::IS.TimeSeriesMetadata,
+    component,
+)
     if IS.get_resolution(md) != get_resolution(container)
         throw(
             IS.ConflictingInputsError(
-                "$(summary(owner)): series $(IS.get_name(md)) has resolution " *
+                "$(summary(component)): series $(IS.get_name(md)) has resolution " *
                 "$(IS.get_resolution(md)); the model runs at $(get_resolution(container)).",
             ),
         )
@@ -37,47 +41,47 @@ function _check_window_resolution(container::OptimizationContainer, md, owner)
     return
 end
 
-_factor_axes_message(location) =
-    "The $(DISTRIBUTION_FACTOR_TS_NAME) series of $(summary(location)) must be one " *
+_factor_axes_message(component) =
+    "The $(DISTRIBUTION_FACTOR_TS_NAME) series of $(summary(component)) must be one " *
     "[time step, bus] matrix with value_axes = [IS.TimeSeriesAxis(\"bus\", bus numbers)]."
 
 # A factor series has exactly one value axis, named "bus", labeled by bus numbers. Dispatch
 # rejects the three bad layouts with one message: no value axes (`nothing`), another axis
 # name or count, and string labels (`_int_labels`).
-_bus_labels(::Nothing, location) = throw(ArgumentError(_factor_axes_message(location)))
-function _bus_labels(value_axes::Vector{IS.TimeSeriesAxis}, location)
+_bus_labels(::Nothing, component) = throw(ArgumentError(_factor_axes_message(component)))
+function _bus_labels(value_axes::Vector{IS.TimeSeriesAxis}, component)
     if length(value_axes) != 1 || only(value_axes).name != "bus"
-        throw(ArgumentError(_factor_axes_message(location)))
+        throw(ArgumentError(_factor_axes_message(component)))
     end
-    return _int_labels(only(value_axes).labels, location)
+    return _int_labels(only(value_axes).labels, component)
 end
 _int_labels(labels::Vector{Int64}, _) = labels
-_int_labels(::Vector{String}, location) =
-    throw(ArgumentError(_factor_axes_message(location)))
+_int_labels(::Vector{String}, component) =
+    throw(ArgumentError(_factor_axes_message(component)))
 
 """
-Bus-number labels of the `distribution_factor` series `location` owns, read from its metadata
+Bus-number labels of the `distribution_factor` series `component` owns, read from its metadata
 without loading data, or `nothing` when it owns none. Errors for a second series, a layout
 other than one `"bus"` axis of bus numbers, or another resolution.
 """
-function _factor_series_labels(container::OptimizationContainer, location::PSY.Component)
-    metadata = IS.list_time_series_metadata(
-        location;
+function _factor_series_labels(container::OptimizationContainer, component::PSY.Component)
+    rows = IS.list_time_series_metadata(
+        component;
         time_series_type = IS.Deterministic,
         name = DISTRIBUTION_FACTOR_TS_NAME,
     )
-    isempty(metadata) && return nothing
-    if length(metadata) > 1
+    isempty(rows) && return nothing
+    if length(rows) > 1
         throw(
             ArgumentError(
-                "$(summary(location)) carries $(length(metadata)) " *
+                "$(summary(component)) carries $(length(rows)) " *
                 "$(DISTRIBUTION_FACTOR_TS_NAME) series; keep one [time step, bus] matrix.",
             ),
         )
     end
-    md = only(metadata)
-    _check_window_resolution(container, md, location)
-    return _bus_labels(IS.get_value_axes(md), location)
+    md = only(rows)
+    _check_window_resolution(container, md, component)
+    return _bus_labels(IS.get_value_axes(md), component)
 end
 
 # Bus by number, built once per argument-stage call: factor labels resolve through it, so
@@ -97,23 +101,23 @@ function _member_test(hub::PSY.TradingHub)
 end
 
 """
-`_factor_series_labels`, also checking that every label is a member bus of `location`;
+`_factor_series_labels`, also checking that every label is a member bus of `component`;
 `buses` maps bus numbers to buses (`_buses_by_number`).
 """
 function _factor_bus_labels(
     container::OptimizationContainer,
-    location::PSY.Component,
+    component::PSY.Component,
     buses::Dict{Int, PSY.ACBus},
 )
-    labels = _factor_series_labels(container, location)
+    labels = _factor_series_labels(container, component)
     labels === nothing && return nothing
-    is_member = _member_test(location)
+    is_member = _member_test(component)
     for bus_no in labels
         bus = get(buses, bus_no, nothing)
         if bus === nothing || !is_member(bus)
             throw(
                 ArgumentError(
-                    "$(summary(location)) has a $(DISTRIBUTION_FACTOR_TS_NAME) column " *
+                    "$(summary(component)) has a $(DISTRIBUTION_FACTOR_TS_NAME) column " *
                     "for bus $(bus_no), which is not a member.",
                 ),
             )
