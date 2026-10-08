@@ -62,7 +62,7 @@ the output to a JSON file.
 """
 function write_formulation_combinations(filename::AbstractString, sys = nothing)
     open(filename, "w") do io
-        JSON3.pretty(io, serialize_formulation_combinations(sys))
+        JSON.json(io, serialize_formulation_combinations(sys); pretty = true)
     end
     @info(" to $filename")
 end
