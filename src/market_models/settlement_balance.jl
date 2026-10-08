@@ -147,8 +147,8 @@ function add_constraints!(
 end
 
 ########################### Dual variable handling ####################################
-# SettlementBalanceConstraint is System-keyed, mirroring how CopperPlateBalanceConstraint's
-# dual is special-cased (network_models/copperplate_model.jl).
+# The dual container reuses the constraint's row axis, so IOM's generic dual copy fills it
+# on both the LP and the MILP (fix-and-resolve) paths.
 
 function add_constraint_dual!(
     container::OptimizationContainer,
@@ -172,18 +172,5 @@ function assign_dual_variable!(
     time_steps = get_time_steps(container)
     row_axis = axes(get_constraint(container, ConstraintKey(constraint_type, U)))[1]
     add_dual_container!(container, constraint_type, U, row_axis, time_steps)
-    return
-end
-
-function _calculate_dual_variable_value!(
-    container::OptimizationContainer,
-    key::ConstraintKey{SettlementBalanceConstraint, PSY.System},
-    ::PSY.System,
-)
-    constraint_container = get_constraint(container, key)
-    dual_variable_container = get_duals(container)[key]
-    for row in axes(constraint_container)[1], t in axes(constraint_container)[2]
-        dual_variable_container[row, t] = jump_value(constraint_container[row, t])
-    end
     return
 end

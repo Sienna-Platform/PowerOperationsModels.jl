@@ -503,6 +503,42 @@ end
     @test lambda_with != lambda_without
 end
 
+@testset "Settlement lambda on an LP reads the duals directly" begin
+    # A MarketBidCost thermal needs an OnVariable, so the same segments go on a
+    # ThermalGenerationCost to keep the model continuous.
+    sys = _vp_test_system(; include_vp_supply = true)
+    base = PSY.get_base_power(sys)
+    PSY.set_operation_cost!(
+        PSY.get_component(PSY.ThermalStandard, sys, "thermal1"),
+        PSY.ThermalGenerationCost(;
+            variable_operation_cost = PSY.CostCurve(
+                PSY.PiecewiseIncrementalCurve(
+                    0.0,
+                    [0.0, 30.0, 60.0, 100.0],
+                    [20.0, 50.0, 80.0],
+                ),
+                PSY.NU,
+            ),
+            fixed = 0.0,
+            start_up = 0.0,
+            shut_down = 0.0,
+        ),
+    )
+    template = _vp_test_template()
+    set_device_model!(template, ThermalStandard, ThermalDispatchNoMin)
+    model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+    @test !IOM.is_milp(get_optimization_container(model))
+    @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+    lambda = read_dual(
+        OptimizationProblemOutputs(model),
+        IOM.ConstraintKey(SettlementBalanceConstraint, PSY.System);
+        table_format = TableFormat.WIDE,
+    )
+    @test all(isapprox.(abs.(lambda[!, 2]), 20.0 * base; atol = 1e-4))
+end
+
 # Three-period system for block-bid tests: thermal ($20/$50/$80 segments, cap 100 MW), a
 # demand bid `vp_demand` (70 MW at $200/MWh every period unless `demand_mw` gives a
 # per-period MW through a time-series cost) and a supply bid `vp_supply` (10 MW envelope)
