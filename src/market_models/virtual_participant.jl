@@ -182,14 +182,6 @@ function _offer_quantity(
     return Float64(maximum(breakpoints))
 end
 
-"Whether `d` offers a positive quantity in direction `dir` at some period."
-_offers_quantity(
-    dir::IOM.OfferDirection,
-    container::OptimizationContainer,
-    d::IS.InfrastructureSystemsComponent,
-    time_steps,
-) = any(t -> _offer_quantity(dir, container, d, t) > 0.0, time_steps)
-
 "Number of positive-width segments in a padded breakpoint vector."
 _real_segments(breakpoints) =
     count(i -> breakpoints[i + 1] > breakpoints[i] + 1e-9, 1:(length(breakpoints) - 1))
@@ -288,8 +280,10 @@ function _validate_block_bid_segments!(
 end
 
 """
-Creates the `BlockBidCommitmentVariable` (z) for every FIXED-style device and direction it
-offers in, one per period, fixed to zero at periods with no quantity. Needs the PWL
+Creates the `BlockBidCommitmentVariable` (z) for every FIXED-style device and direction it has
+a curve on, one per period, fixed to zero at periods with no quantity. A device whose curve
+offers nothing in this window still gets its z: a simulation rebuilds the model over later
+windows of the same system, and its state keeps the names of the first build. Needs the PWL
 parameters processed first.
 """
 function _add_block_bid_commitment_variables!(
@@ -299,7 +293,7 @@ function _add_block_bid_commitment_variables!(
     isempty(devices) && return
     time_steps = get_time_steps(container)
     for dir in (IOM.IncrementalOffer(), IOM.DecrementalOffer())
-        offering = [d for d in devices if _offers_quantity(dir, container, d, time_steps)]
+        offering = [d for d in devices if IOM.is_nontrivial_offer(get_offer_curves(dir, d))]
         isempty(offering) && continue
         variable = add_variable_container!(
             container, BlockBidCommitmentVariable, PSY.VirtualParticipant,
