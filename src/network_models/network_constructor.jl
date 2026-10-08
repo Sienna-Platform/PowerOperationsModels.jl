@@ -270,9 +270,10 @@ function construct_network!(
     container::OptimizationContainer,
     sys::PSY.System,
     model::NetworkModel{<:AbstractPTDFNetworkModel},
-    ::PowerOperationsProblemTemplate,
+    template::PowerOperationsProblemTemplate,
     ::ModelConstructStage,
 )
+    _remove_metered_hvdc_from_area_rows!(container, sys, model, template)
     _construct_copper_plate_model!(container, sys, model)
     return
 end

@@ -321,8 +321,11 @@ equivalent is a hard error rather than a silent demotion.
     `HVDCTwoTerminalPiecewiseLoss` on CopperPlate when the losses matter. On every other
     supported network the losses are accounted for: the nodal models
     (NFA/DCP/DCPLL/ACP/ACR/IVR/LPACC) carry them implicitly through the `HVDCPowerBalance`
-    coupling `ft + tf == losses` with both directional flows entering their terminal balances,
-    while the PTDF/AreaPTDF paths add `HVDCLosses` to the aggregated system/area row explicitly.
+    coupling `ft + tf == losses` with both directional flows entering their terminal balances.
+    On `PTDFNetworkModel`, `HVDCLosses` enters the system row when both terminals share one
+    reference bus; otherwise the two directional flows enter the rows of their reference buses.
+    On `AreaPTDFNetworkModel`, both directional flows always enter the rows of their areas, so
+    their sum carries the losses and `HVDCLosses` is not added.
     On `AreaBalanceNetworkModel` the Dispatch formulation is not built at all (warn no-op).
 
 !!! warning "HVDCTwoTerminalLossless pins reactive flow to zero on default VSC/LCC data"
@@ -334,10 +337,139 @@ equivalent is a hard error rather than a silent demotion.
     an AC network model infeasible. This is valid data, so the build warns (naming the device)
     rather than erroring.
 
+!!! note "HVDC terminal flows on PTDF and AreaPTDF"
+    
+    On `PTDFNetworkModel`, the `HVDCTwoTerminalPiecewiseLoss` received flows always enter the
+    system row, so the losses of a line inside one subnetwork are in the system balance. On
+    `AreaPTDFNetworkModel`, the terminal flows of every two-terminal HVDC formulation enter the
+    rows of their areas. An `AreaInterchange` meters the HVDC ties in its flow, so its flow
+    limits include them. The area rows do not count the metered HVDC flow a second time.
+
 The apparent-power limit on the VSC formulations depends on the `"bilinear_approximation"` device
 attribute. With the default `"none"` it is an exact quadratic disk (`"from"`/`"to"`); with a
 linearizing scheme it becomes a box of eight half-planes, plus eight more octagon cuts when
 `"use_octagon"` is true (the default).
+
+#### `HVDCTwoTerminalLCC`
+
+`HVDCTwoTerminalLCC` models a `PSY.TwoTerminalLCCLine` as a non-linear line commutated converter
+pair. The rectifier is at the `from` bus and the inverter at the `to` bus. The formulation is
+available only on the networks that have a reactive power balance: `ACPNetworkModel`,
+`ACRNetworkModel`, `IVRNetworkModel` and `LPACCNetworkModel`. Template validation rejects every
+other network model. Use `HVDCTwoTerminalDispatch` or `HVDCTwoTerminalLossless` there instead.
+
+The constraints below are the same on all four networks. Only the terminal AC voltage magnitude
+``v^r`` / ``v^i`` changes:
+
+| Network model                        | Terminal voltage magnitude (`from` -> ``v^r``, `to` -> ``v^i``)                                                                                               |
+|:------------------------------------ |:------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ACPNetworkModel`                    | the bus `VoltageMagnitude`                                                                                                                                    |
+| `ACRNetworkModel`, `IVRNetworkModel` | the device-owned `RegulatedVoltageMagnitude` (`"from"`/`"to"`), tied to the bus by `RegulatedVoltageMagnitudeConstraint`: ``v_{reg}^2 = v_{re}^2 + v_{im}^2`` |
+| `LPACCNetworkModel`                  | ``1 + \phi`` with ``\phi`` the bus `VoltageDeviation`                                                                                                         |
+
+**Variables.** All variables are continuous, one per device and time step, and are in per-unit
+on the system base unless noted. A bound of "none" means POM sets no bound. The bounds come from
+the `get_variable_lower_bound` / `get_variable_upper_bound` methods in
+`src/twoterminal_hvdc_models/TwoTerminalDC_branches.jl`.
+
+| Variable                                | Symbol       | Bounds                                                                |
+|:--------------------------------------- |:------------ |:--------------------------------------------------------------------- |
+| `HVDCRectifierActivePowerVariable`      | ``p^r``      | ``\pm`` the `from` end cap: `min(rating, rating_from)` in system base |
+| `HVDCInverterActivePowerVariable`       | ``p^i``      | ``\pm`` the `to` end cap: `min(rating, rating_to)` in system base     |
+| `HVDCRectifierReactivePowerVariable`    | ``q^r``      | none                                                                  |
+| `HVDCInverterReactivePowerVariable`     | ``q^i``      | none                                                                  |
+| `HVDCRectifierDelayAngleVariable`       | ``\alpha^r`` | `rectifier_delay_angle_limits` (min, max)                             |
+| `HVDCInverterExtinctionAngleVariable`   | ``\gamma^i`` | `inverter_extinction_angle_limits` (min, max)                         |
+| `HVDCRectifierPowerFactorAngleVariable` | ``\phi^r``   | none                                                                  |
+| `HVDCInverterPowerFactorAngleVariable`  | ``\phi^i``   | none                                                                  |
+| `HVDCRectifierOverlapAngleVariable`     | ``\mu^r``    | none                                                                  |
+| `HVDCInverterOverlapAngleVariable`      | ``\mu^i``    | none                                                                  |
+| `HVDCRectifierDCVoltageVariable`        | ``v_d^r``    | none                                                                  |
+| `HVDCInverterDCVoltageVariable`         | ``v_d^i``    | none                                                                  |
+| `HVDCRectifierACCurrentVariable`        | ``i_{ac}^r`` | none                                                                  |
+| `HVDCInverterACCurrentVariable`         | ``i_{ac}^i`` | none                                                                  |
+| `DCLineCurrentFlowVariable`             | ``i_d``      | none                                                                  |
+| `HVDCRectifierTapSettingVariable`       | ``t^r``      | `rectifier_tap_limits` (min, max)                                     |
+| `HVDCInverterTapSettingVariable`        | ``t^i``      | `inverter_tap_limits` (min, max)                                      |
+
+On ACR and IVR the device also owns the two `RegulatedVoltageMagnitude` variables (`"from"`, `"to"`).
+
+**Static parameters.** The model reads these `PSY.TwoTerminalLCCLine` getters. Only the rating getters take a unit
+argument. The other getters return raw values. The impedances are in ohm and POM converts them to system base itself, as
+`z_{su} = z \cdot S_{base} / V_{base}^2`, with the base voltage listed below.
+
+| Parameter                                 | PSY getter                                                                     | Unit / base                                  |
+|:----------------------------------------- |:------------------------------------------------------------------------------ |:-------------------------------------------- |
+| DC line resistance ``r``                  | `get_r`                                                                        | ohm, converted with `scheduled_dc_voltage`   |
+| Rectifier commutating reactance ``x_c^r`` | `get_rectifier_xc`                                                             | ohm, converted with `rectifier_base_voltage` |
+| Inverter commutating reactance ``x_c^i``  | `get_inverter_xc`                                                              | ohm, converted with `inverter_base_voltage`  |
+| Bridges ``B^r``, ``B^i``                  | `get_rectifier_bridges`, `get_inverter_bridges`                                | count, unitless                              |
+| Transformer ratios ``a^r``, ``a^i``       | `get_rectifier_transformer_ratio`, `get_inverter_transformer_ratio`            | ratio, unitless                              |
+| Delay / extinction angle limits           | `get_rectifier_delay_angle_limits`, `get_inverter_extinction_angle_limits`     | `MinMax`, angle as stored                    |
+| Tap limits                                | `get_rectifier_tap_limits`, `get_inverter_tap_limits`                          | `MinMax`, unitless                           |
+| Active power end caps                     | `get_rating(d, u"SU")`, `get_rating_from(d, u"SU")`, `get_rating_to(d, u"SU")` | system base                                  |
+
+**Expressions.** The constructor adds the converter powers to the nodal balances:
+
+| Expression             | Variable                             | Coefficient | Bus  |
+|:---------------------- |:------------------------------------ |:----------- |:---- |
+| `ActivePowerBalance`   | `HVDCRectifierActivePowerVariable`   | ``-1``      | from |
+| `ActivePowerBalance`   | `HVDCInverterActivePowerVariable`    | ``+1``      | to   |
+| `ReactivePowerBalance` | `HVDCRectifierReactivePowerVariable` | ``-1``      | from |
+| `ReactivePowerBalance` | `HVDCInverterReactivePowerVariable`  | ``-1``      | to   |
+
+The rectifier draws active power from its bus and the inverter injects it. Both converters
+consume reactive power at their own bus.
+
+**Constraints.** Each constraint is indexed by device and time step. Overlap-angle and
+power-factor equations are non-linear, so the model needs a non-linear solver such as Ipopt.
+
+Rectifier and inverter DC voltage (`HVDCRectifierDCLineVoltageConstraint`,
+`HVDCInverterDCLineVoltageConstraint`):
+
+```math
+v_d^r = \frac{3 B^r}{\pi}\left(\frac{\sqrt{2}\, a^r v^r \cos\alpha^r}{t^r} - x_c^r\, i_d\right), \qquad
+v_d^i = \frac{3 B^i}{\pi}\left(\frac{\sqrt{2}\, a^i v^i \cos\gamma^i}{t^i} - x_c^i\, i_d\right)
+```
+
+Overlap angle (`HVDCRectifierOverlapAngleConstraint`, `HVDCInverterOverlapAngleConstraint`):
+
+```math
+\mu^r = \arccos\!\left(\cos\alpha^r - \frac{\sqrt{2}\, x_c^r\, i_d\, t^r}{a^r v^r}\right) - \alpha^r, \qquad
+\mu^i = \arccos\!\left(\cos\gamma^i - \frac{\sqrt{2}\, x_c^i\, i_d\, t^i}{a^i v^i}\right) - \gamma^i
+```
+
+Power-factor angle (`HVDCRectifierPowerFactorAngleConstraint`,
+`HVDCInverterPowerFactorAngleConstraint`). POM uses an approximation of the exact
+power-factor relation, because the exact form does not converge with Ipopt:
+
+```math
+\phi^r = \arccos\!\left(\tfrac{1}{2}\cos\alpha^r + \tfrac{1}{2}\cos(\alpha^r + \mu^r)\right), \qquad
+\phi^i = \arccos\!\left(\tfrac{1}{2}\cos\gamma^i + \tfrac{1}{2}\cos(\gamma^i + \mu^i)\right)
+```
+
+AC current (`HVDCRectifierACCurrentFlowConstraint`, `HVDCInverterACCurrentFlowConstraint`):
+
+```math
+i_{ac}^r = \frac{\sqrt{6}\, B^r}{\pi}\, i_d, \qquad
+i_{ac}^i = \frac{\sqrt{6}\, B^i}{\pi}\, i_d
+```
+
+AC power (`HVDCRectifierPowerCalculationConstraint`, `HVDCInverterPowerCalculationConstraint`;
+metas `"active"` and `"reactive"`):
+
+```math
+p^r = \frac{a^r \sqrt{3}\, i_{ac}^r v^r \cos\phi^r}{t^r}, \quad
+q^r = \frac{a^r \sqrt{3}\, i_{ac}^r v^r \sin\phi^r}{t^r}, \quad
+p^i = \frac{a^i \sqrt{3}\, i_{ac}^i v^i \cos\phi^i}{t^i}, \quad
+q^i = \frac{a^i \sqrt{3}\, i_{ac}^i v^i \sin\phi^i}{t^i}
+```
+
+DC line (`HVDCTransmissionDCLineConstraint`):
+
+```math
+v_d^i = v_d^r - r\, i_d
+```
 
 #### AreaInterchange tie-line metering
 
@@ -355,7 +487,11 @@ and sign, converted to a common "export at the measured terminal" convention:
 
 On PTDF/AreaPTDF networks the same table applies on top of each tie's own `PTDFBranchFlow`
 nodal-injection response, so the metering coefficient surfaces as the *difference* between the
-constraint's coefficient on a tie variable and that tie's own PTDF row.
+constraint's coefficient on a tie variable and that tie's own PTDF row. On
+`AreaPTDFNetworkModel` the HVDC terminal flows enter the area rows directly, so the network
+stage removes the metered HVDC part of each interchange flow from the area rows
+(`_remove_metered_hvdc_from_area_rows!`): the interchange limits still include the HVDC ties,
+and each tie and its losses count once in the area balance.
 
 #### Multi-terminal HVDC (`PSY.InterconnectingConverter`, `PSY.TModelHVDCLine`)
 
@@ -454,13 +590,13 @@ Hydro is the largest family. It splits by *which PSY device* the formulation att
 
 ### On `PSY.HydroTurbine` / `PSY.HydroPumpTurbine`
 
-| Formulation                                       | Variables                                                                        | Constraints                                                                                                                              |
-|:------------------------------------------------- |:-------------------------------------------------------------------------------- |:---------------------------------------------------------------------------------------------------------------------------------------- |
-| `HydroTurbineEnergyDispatch` / `…Commitment`      | `ActivePowerVariable` (+ `OnVariable` for commitment)                            | range limits (semicontinuous for commitment)                                                                                             |
-| `HydroTurbineWaterLinearDispatch` / `…Commitment` | `HydroTurbineFlowRateVariable` (turbine × reservoir × t), `ActivePowerVariable`  | range limits + `TurbinePowerOutputConstraint` (linear, shallow-reservoir head model)                                                     |
-| `HydroTurbineBilinearDispatch`                    | as above                                                                         | as above, with the flow × head product handled by the bilinear approximation API — exact NLP by default, MILP under a linearizing scheme |
-| `HydroWaterFactorModel` (turbine side)            | `HydroTurbineFlowRateVariable` (turbine × t), `ActivePowerVariable`              | range limits + `HydroPowerConstraint`                                                                                                    |
-| `HydroPumpEnergyDispatch` / `…Commitment`         | `ActivePowerVariable`, `ActivePowerPumpVariable`, optional `ReservationVariable` | range limits; commitment adds `InputActivePowerVariableLimitsConstraint`; `ActivePowerPumpReservationConstraint` when reserving          |
+| Formulation                                       | Variables                                                                        | Constraints                                                                                                                                                    |
+|:------------------------------------------------- |:-------------------------------------------------------------------------------- |:-------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `HydroTurbineEnergyDispatch` / `…Commitment`      | `ActivePowerVariable` (+ `OnVariable` for commitment)                            | range limits (semicontinuous for commitment)                                                                                                                   |
+| `HydroTurbineWaterLinearDispatch` / `…Commitment` | `HydroTurbineFlowRateVariable` (turbine × reservoir × t), `ActivePowerVariable`  | range limits + `TurbinePowerOutputConstraint` (linear, shallow-reservoir head model)                                                                           |
+| `HydroTurbineBilinearDispatch`                    | as above                                                                         | as above, with the flow × head product handled by the bilinear approximation API — exact NLP by default, MILP under a linearizing scheme                       |
+| `HydroWaterFactorModel` (turbine side)            | `HydroTurbineFlowRateVariable` (turbine × t), `ActivePowerVariable`              | range limits + `HydroPowerConstraint`                                                                                                                          |
+| `HydroPumpEnergyDispatch` / `…Commitment`         | `ActivePowerVariable`, `ActivePowerPumpVariable`, optional `ReservationVariable` | range limits; Dispatch adds `InputActivePowerVariableLimitsConstraint`; Commitment adds it too, plus `HydroPumpReservationCommitmentConstraint` when reserving |
 
 `ActivePowerPumpVariable` enters `ActivePowerBalance` with multiplier `-1.0` — pumping is a
 withdrawal. The three water-flow turbine formulations are collected by the union alias

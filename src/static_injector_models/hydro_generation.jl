@@ -113,11 +113,13 @@ get_variable_binary(::Type{OnVariable}, ::Type{<:PSY.HydroPumpTurbine}, ::Type{H
 # ActivePowerVariable
 get_variable_binary(::Type{ActivePowerVariable}, ::Type{<:PSY.HydroPumpTurbine}, ::Type{<:AbstractHydroPumpFormulation}) = false
 get_variable_lower_bound(::Type{ActivePowerVariable}, d::PSY.HydroPumpTurbine, ::Type{<:AbstractHydroPumpFormulation}) = PSY.get_active_power_limits(d, u"SU").min
+get_variable_lower_bound(::Type{ActivePowerVariable}, d::PSY.HydroPumpTurbine, ::Type{HydroPumpEnergyDispatch}) = 0.0
 get_variable_lower_bound(::Type{ActivePowerVariable}, d::PSY.HydroPumpTurbine, ::Type{HydroPumpEnergyCommitment}) = 0.0
 get_variable_upper_bound(::Type{ActivePowerVariable}, d::PSY.HydroPumpTurbine, ::Type{<:AbstractHydroPumpFormulation}) = PSY.get_active_power_limits(d, u"SU").max
 # ActivePowerPumpVariable
 get_variable_binary(::Type{ActivePowerPumpVariable}, ::Type{<:PSY.HydroPumpTurbine}, ::Type{<:AbstractHydroPumpFormulation}) = false
 get_variable_lower_bound(::Type{ActivePowerPumpVariable}, d::PSY.HydroPumpTurbine, ::Type{<:AbstractHydroPumpFormulation}) = PSY.get_active_power_limits_pump(d, u"SU").min
+get_variable_lower_bound(::Type{ActivePowerPumpVariable}, d::PSY.HydroPumpTurbine, ::Type{HydroPumpEnergyDispatch}) = 0.0
 get_variable_lower_bound(::Type{ActivePowerPumpVariable}, d::PSY.HydroPumpTurbine, ::Type{HydroPumpEnergyCommitment}) = 0.0
 get_variable_upper_bound(::Type{ActivePowerPumpVariable}, d::PSY.HydroPumpTurbine, ::Type{<:AbstractHydroPumpFormulation}) = PSY.get_active_power_limits_pump(d, u"SU").max
 # ReactivePowerVariable
@@ -2635,9 +2637,24 @@ function add_constraints!(
     return
 end
 
+function add_constraints!(
+    container::OptimizationContainer,
+    T::Type{InputActivePowerVariableLimitsConstraint},
+    U::Type{ActivePowerPumpVariable},
+    devices::Vector{V},
+    model::DeviceModel{V, W},
+    ::NetworkModel{X},
+) where {V <: PSY.HydroPumpTurbine, W <: HydroPumpEnergyDispatch, X <: AbstractNetworkModel}
+    if !get_attribute(model, "reservation")
+        add_range_constraints!(container, T, U, devices, model, X)
+    else
+        add_reserve_range_constraints!(container, T, U, devices, model, X)
+    end
+    return
+end
+
 """
 Add semicontinuous LB range constraints for [`HydroPumpEnergyCommitment`](@ref) formulation.
-Reservation path pairs a reservation-keyed bound ("lb") with an OnVariable-keyed bound ("lb_aux").
 """
 function add_constraints!(
     container::OptimizationContainer,
@@ -2657,15 +2674,12 @@ function add_constraints!(
         array = get_expression(container, U, V)
         IOM.add_reserve_bound_range_constraints!(
             container, T, IOM.LowerBound(), array, devices, model, false)
-        IOM.add_commitment_bound_range_constraints!(
-            container, T, IOM.LowerBound(), array, devices, model; meta_suffix = "_aux")
     end
     return
 end
 
 """
 Add semicontinuous UB range constraints for [`HydroPumpEnergyCommitment`](@ref) formulation.
-Reservation path pairs a reservation-keyed bound ("ub") with an OnVariable-keyed bound ("ub_aux").
 """
 function add_constraints!(
     container::OptimizationContainer,
@@ -2685,8 +2699,6 @@ function add_constraints!(
         array = get_expression(container, U, V)
         IOM.add_reserve_bound_range_constraints!(
             container, T, IOM.UpperBound(), array, devices, model, false)
-        IOM.add_commitment_bound_range_constraints!(
-            container, T, IOM.UpperBound(), array, devices, model; meta_suffix = "_aux")
     end
     return
 end
@@ -2703,7 +2715,51 @@ function add_constraints!(
     W <: HydroPumpEnergyCommitment,
     X <: AbstractNetworkModel,
 }
-    add_semicontinuous_range_constraints!(container, T, U, devices, model, X)
+    if !get_attribute(model, "reservation")
+        add_semicontinuous_range_constraints!(container, T, U, devices, model, X)
+    else
+        time_steps = get_time_steps(container)
+        names = PSY.get_name.(devices)
+        pumping = get_variable(container, U, V)
+        on = get_variable(container, OnVariable, V)
+        reservation = get_variable(container, ReservationVariable, V)
+        con_lb = add_constraints_container!(
+            container, T, V, names, time_steps; meta = "lb")
+        con_ub = add_constraints_container!(
+            container, T, V, names, time_steps; meta = "ub")
+        jump_model = get_jump_model(container)
+        for device in devices
+            name = PSY.get_name(device)
+            limits = get_min_max_limits(device, T, W)
+            for t in time_steps
+                pumping_status = on[name, t] - reservation[name, t]
+                con_lb[name, t] = JuMP.@constraint(
+                    jump_model, pumping[name, t] >= limits.min * pumping_status)
+                con_ub[name, t] = JuMP.@constraint(
+                    jump_model, pumping[name, t] <= limits.max * pumping_status)
+            end
+        end
+    end
+    return
+end
+
+function add_constraints!(
+    container::OptimizationContainer,
+    ::Type{HydroPumpReservationCommitmentConstraint},
+    devices::Vector{V},
+    ::DeviceModel{V, HydroPumpEnergyCommitment},
+    ::NetworkModel{X},
+) where {V <: PSY.HydroPumpTurbine, X <: AbstractNetworkModel}
+    time_steps = get_time_steps(container)
+    names = PSY.get_name.(devices)
+    on = get_variable(container, OnVariable, V)
+    reservation = get_variable(container, ReservationVariable, V)
+    constraint = add_constraints_container!(
+        container, HydroPumpReservationCommitmentConstraint, V, names, time_steps)
+    for name in names, t in time_steps
+        constraint[name, t] = JuMP.@constraint(
+            get_jump_model(container), reservation[name, t] <= on[name, t])
+    end
     return
 end
 
