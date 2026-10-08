@@ -198,6 +198,47 @@ end
     @test !all(isapprox.(re_ts_vals, re_ts_vals[1]; atol = 1e-10))
 end
 
+@testset "Headroom proportional slack counts committed units only" begin
+    # c_sys5_uc decommits units in some hours under unit commitment.
+    system = build_system(PSITestSystems, "c_sys5_uc")
+    template = get_template_dispatch_with_network(
+        NetworkModel(
+            PTDFNetworkModel;
+            evaluations = power_flow_evaluations(
+                ACPowerFlow(;
+                    distribute_slack_proportional_to_headroom = true,
+                    correct_bustypes = true,
+                ),
+            ),
+        ),
+    )
+    set_device_model!(template, ThermalStandard, ThermalBasicUnitCommitment)
+    model = DecisionModel(template, system; optimizer = HiGHS_optimizer)
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          ModelBuildStatus.BUILT
+    @test solve!(model) == RunStatus.SUCCESSFULLY_FINALIZED
+
+    container = get_optimization_container(model)
+    data = get_inner_data(only(values(get_evaluation_data(get_evaluations(container)))))
+    computed_gspf = PFS.get_computed_gspf(data)
+    on = lookup_value(container, VariableKey(OnVariable, ThermalStandard))
+    p = lookup_value(container, VariableKey(ActivePowerVariable, ThermalStandard))
+
+    n_off = 0
+    for t in get_time_steps(container), name in axes(on, 1)
+        entry = get(computed_gspf[t], (ThermalStandard, name), 0.0)
+        if iszero(on[name, t])
+            n_off += 1
+            @test iszero(entry)
+        else
+            comp = get_component(ThermalStandard, system, name)
+            p_max = PFS.get_active_power_limits_for_power_flow(comp).max
+            @test isapprox(entry, max(p_max - p[name, t], 0.0); atol = 1e-10)
+        end
+    end
+    @test n_off > 0
+end
+
 # -----------------------------------------------------------------------------
 # Baseline PFitL coverage (ported from PowerSimulations.jl test file lines 1-548).
 # These exercise the regular non-headroom paths through the migrated code:
