@@ -72,6 +72,17 @@ function validate_available_devices(
     return true
 end
 
+"""
+Runs once per device model after every constraint is built, for formulations whose
+requirements depend on rows other models create.
+"""
+finalize_device_construction!(
+    ::OptimizationContainer,
+    ::PSY.System,
+    ::DeviceModel,
+    ::NetworkModel,
+) = nothing
+
 # Called `build_impl!(container, template, sys)` in PSI (lived in optimization_container.jl).
 function build_problem!(
     container::OptimizationContainer,
@@ -233,6 +244,12 @@ function build_problem!(
             get_device_models(template),
             transmission_model,
         )
+    end
+
+    for device_model in values(get_device_models(template))
+        if validate_available_devices(device_model, sys)
+            finalize_device_construction!(container, sys, device_model, transmission_model)
+        end
     end
 
     TimerOutputs.@timeit BUILD_PROBLEMS_TIMER "Objective" begin

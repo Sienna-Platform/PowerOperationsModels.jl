@@ -350,6 +350,7 @@ include("market_models/nodal_distribution.jl")
 include("market_models/point_to_point_bid.jl")
 include("market_models/virtual_participant.jl")
 include("market_models/market_loads.jl")
+include("market_models/bid_adjustment_armed.jl")
 
 # Services Models
 include("services_models/service_slacks.jl")
@@ -515,6 +516,9 @@ export get_initial_condition_value
 export get_objective_expression
 export get_formulation
 export TimeDurationOn
+export BidAdjustmentArmed
+export BID_ADJUSTMENT_CAP_FRACTION
+export BID_ADJUSTMENT_SHIFT_FACTOR_THRESHOLD
 export TimeDurationOff
 
 # Alias for InfrastructureSystems.Optimization needed by tests
@@ -968,6 +972,7 @@ export ThermalCompactDispatch
 
 # Load Formulations
 export StaticPowerLoad
+export StaticPowerLoadBidAdjustment
 export PowerLoadInterruption
 export PowerLoadDispatch
 export PowerLoadShift

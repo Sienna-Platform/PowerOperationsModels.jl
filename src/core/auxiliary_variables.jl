@@ -116,3 +116,15 @@ pf_aux_var_types(::Type{PSY.ACBus}) = (
 "Whether the auxiliary variable is calculated using a `PowerFlowEvaluationModel`"
 # Default is_from_evaluator(::Type{<:AuxVariableType}) = false is in IOM interfaces.jl
 is_from_evaluator(::Type{<:PowerFlowAuxVariableType}) = true
+
+"""
+Whether a load meets the conditions for an adjusted bid at a time step: `1.0` when some
+base-case or post-contingency branch limit has a shadow price of at least
+[`BID_ADJUSTMENT_CAP_FRACTION`](@ref) of its slack penalty and the load's directed shift
+factor to that limit is below [`BID_ADJUSTMENT_SHIFT_FACTOR_THRESHOLD`](@ref); `0.0`
+otherwise. The directed shift factor is the injection shift factor in the limit's binding
+direction, so a negative value means the load's consumption pushes the flow further into
+that limit. Computed after the solve for loads modeled with
+[`StaticPowerLoadBidAdjustment`](@ref).
+"""
+struct BidAdjustmentArmed <: AuxVariableType end

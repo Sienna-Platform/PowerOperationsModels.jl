@@ -65,6 +65,15 @@ Formulation type to add a time series parameter for non-dispatchable `ElectricLo
 struct StaticPowerLoad <: AbstractLoadFormulation end
 
 """
+Models an `ElectricLoad` as [`StaticPowerLoad`](@ref) does under a `PTDFNetworkModel` and
+also reports [`BidAdjustmentArmed`](@ref) for each load. Requires slacks
+(`use_slacks = true`) on every branch model whose flow limits it reads; it registers the
+duals of those limits itself. Does not support `PSY.MotorLoad`, and load outage events do
+not offset its loads.
+"""
+struct StaticPowerLoadBidAdjustment <: AbstractLoadFormulation end
+
+"""
 Formulation type to enable (binary) load interruptions
 """
 struct PowerLoadInterruption <: AbstractControllablePowerLoadFormulation end

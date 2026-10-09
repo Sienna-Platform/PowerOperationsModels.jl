@@ -62,6 +62,18 @@ const UNSET_INI_TIME = Dates.DateTime(0)
 const ABSOLUTE_TOLERANCE = 1.0e-3
 const BALANCE_SLACK_COST = 1e6
 const CONSTRAINT_VIOLATION_SLACK_COST = 2e5
+
+"""
+Fraction of a branch limit's slack penalty its shadow price must reach for
+[`BidAdjustmentArmed`](@ref).
+"""
+const BID_ADJUSTMENT_CAP_FRACTION = 0.9
+
+"""
+A load's directed shift factor to a capped branch limit must be below this value for
+[`BidAdjustmentArmed`](@ref).
+"""
+const BID_ADJUSTMENT_SHIFT_FACTOR_THRESHOLD = -0.02
 const SERVICES_SLACK_COST = 1e5
 const COST_EPSILON = 1e-3
 # Structural-zero filter: a PTDF/MODF entry at or below this magnitude contributes no
