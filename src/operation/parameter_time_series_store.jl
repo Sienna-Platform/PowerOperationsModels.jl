@@ -25,6 +25,23 @@ end
 ParameterTimeSeriesStore() = ParameterTimeSeriesStore(IS.Store(; in_memory = true))
 
 """
+A fresh, writable parameter store on disk: arrays at `path`, catalog at `path.sqlite`. Created at
+a bundle's own sidecar, it needs no persist: InfraStore's `persist!` rewrites every array one
+column at a time, which slows by orders of magnitude once a packed pool outgrows its 64 MiB
+chunk cache (a multi-day market run's cost copies do).
+"""
+ParameterTimeSeriesStore(path::AbstractString) = ParameterTimeSeriesStore(IS.Store(; path))
+
+"""Run `f` inside one store transaction, so a run of adds is written as whole blocks."""
+_in_transaction(f, store::ParameterTimeSeriesStore) = IS.InfraStore.transaction(f, store.store.inner)
+
+"""Whether `store` is the on-disk store at `path`."""
+function _stored_at(store::ParameterTimeSeriesStore, path::AbstractString)
+    stored = IS.get_file_path(store.store)
+    return !isnothing(stored) && abspath(stored) == abspath(path)
+end
+
+"""
 Reopen a persisted parameter store with its catalog, writable in place, so later
 `write_parameter_*` calls land directly in the on-disk `.h5`/`.sqlite` pair with no re-persist.
 `IS.open_infrastore_store` opens its artifacts in place, writable, by default (`read_only =
@@ -496,13 +513,15 @@ function copy_cost_time_series!(
     windows::RunWindows,
 )::Dict{Int64, Int64}
     key_map = Dict{Int64, Int64}()
-    for c in PSY.get_components(PSY.Component, sys)
-        for key in _cost_time_series_keys(c)
-            original_id = IS.get_association_id(key)
-            haskey(key_map, original_id) && continue
-            ts = IS.get_time_series(c, key)
-            new_key = _copy_cost_time_series!(store, c, key, ts, windows)
-            key_map[original_id] = IS.get_association_id(new_key)
+    _in_transaction(store) do
+        for c in PSY.get_components(PSY.Component, sys)
+            for key in _cost_time_series_keys(c)
+                original_id = IS.get_association_id(key)
+                haskey(key_map, original_id) && continue
+                ts = IS.get_time_series(c, key)
+                new_key = _copy_cost_time_series!(store, c, key, ts, windows)
+                key_map[original_id] = IS.get_association_id(new_key)
+            end
         end
     end
     return key_map
@@ -568,7 +587,8 @@ does not declare stay readable.
 replaces it, so the restored System's costs resolve against the sidecar.
 
 The store is persisted first and the rows exported from that same store, so every row names an
-array already on disk.
+array already on disk. A store created at the sidecar (`ParameterTimeSeriesStore(path)`) is
+already there and is not persisted again.
 """
 function write_outputs_system_bundle!(
     sys::PSY.System,
@@ -578,7 +598,7 @@ function write_outputs_system_bundle!(
 )
     mkpath(bundle_dir)
     sidecar = joinpath(bundle_dir, PSY.TIME_SERIES_FILE)
-    IS.serialize(store.store, sidecar)
+    _stored_at(store, sidecar) || IS.serialize(store.store, sidecar)
     rows = parameter_association_rows(store)
     doc = PSY.to_openapi(
         sys;
