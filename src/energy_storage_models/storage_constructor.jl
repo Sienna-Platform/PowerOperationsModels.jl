@@ -127,7 +127,13 @@ function _active_power_variables_and_expressions(
     add_variables!(container, StorageEnergyOutput, devices, U)
 
     if get_attribute(model, "reservation")
-        add_variables!(container, ReservationVariable, devices, U)
+        add_variables!(
+            container,
+            ReservationVariable,
+            devices,
+            U;
+            relax_binaries = get_attribute(model, RELAX_BINARIES_ATTRIBUTE),
+        )
     end
 
     if get_attribute(model, "energy_target")
@@ -266,7 +272,6 @@ function construct_device!(
 
     add_feedforward_arguments!(container, model, devices)
     add_event_arguments!(container, devices, model, network_model)
-    _maybe_relax_binaries(container, model, [ReservationVariable])
     return
 end
 
@@ -419,7 +424,6 @@ function construct_device!(
 
     add_feedforward_arguments!(container, model, devices)
     add_event_arguments!(container, devices, model, network_model)
-    _maybe_relax_binaries(container, model, [ReservationVariable])
     return
 end
 

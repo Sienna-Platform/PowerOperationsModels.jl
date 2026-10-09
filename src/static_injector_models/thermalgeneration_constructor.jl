@@ -100,9 +100,27 @@ function construct_device!(
 
     add_variables!(container, ActivePowerVariable, devices, D)
     add_variables!(container, ReactivePowerVariable, devices, D)
-    add_variables!(container, OnVariable, devices, D)
-    add_variables!(container, StartVariable, devices, D)
-    add_variables!(container, StopVariable, devices, D)
+    add_variables!(
+        container,
+        OnVariable,
+        devices,
+        D;
+        relax_binaries = get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
+    )
+    add_variables!(
+        container,
+        StartVariable,
+        devices,
+        D;
+        relax_binaries = get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
+    )
+    add_variables!(
+        container,
+        StopVariable,
+        devices,
+        D;
+        relax_binaries = get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
+    )
 
     add_variables!(container, TimeDurationOn, devices, D)
     add_variables!(container, TimeDurationOff, devices, D)
@@ -163,11 +181,6 @@ function construct_device!(
     end
     add_feedforward_arguments!(container, device_model, devices)
     add_event_arguments!(container, devices, device_model, network_model)
-    _maybe_relax_binaries(
-        container,
-        device_model,
-        [OnVariable, StartVariable, StopVariable],
-    )
     return
 end
 
@@ -273,9 +286,27 @@ function construct_device!(
     devices = get_device_cache(device_model)
 
     add_variables!(container, ActivePowerVariable, devices, D)
-    add_variables!(container, OnVariable, devices, D)
-    add_variables!(container, StartVariable, devices, D)
-    add_variables!(container, StopVariable, devices, D)
+    add_variables!(
+        container,
+        OnVariable,
+        devices,
+        D;
+        relax_binaries = get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
+    )
+    add_variables!(
+        container,
+        StartVariable,
+        devices,
+        D;
+        relax_binaries = get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
+    )
+    add_variables!(
+        container,
+        StopVariable,
+        devices,
+        D;
+        relax_binaries = get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
+    )
 
     add_variables!(container, TimeDurationOn, devices, D)
     add_variables!(container, TimeDurationOff, devices, D)
@@ -329,11 +360,6 @@ function construct_device!(
 
     add_feedforward_arguments!(container, device_model, devices)
     add_event_arguments!(container, devices, device_model, network_model)
-    _maybe_relax_binaries(
-        container,
-        device_model,
-        [OnVariable, StartVariable, StopVariable],
-    )
     return
 end
 
@@ -416,9 +442,27 @@ function construct_device!(
 
     add_variables!(container, ActivePowerVariable, devices, ThermalBasicUnitCommitment)
     add_variables!(container, ReactivePowerVariable, devices, ThermalBasicUnitCommitment)
-    add_variables!(container, OnVariable, devices, ThermalBasicUnitCommitment)
-    add_variables!(container, StartVariable, devices, ThermalBasicUnitCommitment)
-    add_variables!(container, StopVariable, devices, ThermalBasicUnitCommitment)
+    add_variables!(
+        container,
+        OnVariable,
+        devices,
+        ThermalBasicUnitCommitment;
+        relax_binaries = get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
+    )
+    add_variables!(
+        container,
+        StartVariable,
+        devices,
+        ThermalBasicUnitCommitment;
+        relax_binaries = get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
+    )
+    add_variables!(
+        container,
+        StopVariable,
+        devices,
+        ThermalBasicUnitCommitment;
+        relax_binaries = get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
+    )
 
     add_variables!(container, TimeDurationOn, devices, ThermalBasicUnitCommitment)
     add_variables!(container, TimeDurationOff, devices, ThermalBasicUnitCommitment)
@@ -489,11 +533,6 @@ function construct_device!(
 
     add_feedforward_arguments!(container, device_model, devices)
     add_event_arguments!(container, devices, device_model, network_model)
-    _maybe_relax_binaries(
-        container,
-        device_model,
-        [OnVariable, StartVariable, StopVariable],
-    )
     return
 end
 
@@ -583,9 +622,27 @@ function construct_device!(
     devices = get_device_cache(device_model)
 
     add_variables!(container, ActivePowerVariable, devices, ThermalBasicUnitCommitment)
-    add_variables!(container, OnVariable, devices, ThermalBasicUnitCommitment)
-    add_variables!(container, StartVariable, devices, ThermalBasicUnitCommitment)
-    add_variables!(container, StopVariable, devices, ThermalBasicUnitCommitment)
+    add_variables!(
+        container,
+        OnVariable,
+        devices,
+        ThermalBasicUnitCommitment;
+        relax_binaries = get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
+    )
+    add_variables!(
+        container,
+        StartVariable,
+        devices,
+        ThermalBasicUnitCommitment;
+        relax_binaries = get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
+    )
+    add_variables!(
+        container,
+        StopVariable,
+        devices,
+        ThermalBasicUnitCommitment;
+        relax_binaries = get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
+    )
 
     add_variables!(container, TimeDurationOn, devices, ThermalBasicUnitCommitment)
     add_variables!(container, TimeDurationOff, devices, ThermalBasicUnitCommitment)
@@ -648,11 +705,6 @@ function construct_device!(
 
     add_feedforward_arguments!(container, device_model, devices)
     add_event_arguments!(container, devices, device_model, network_model)
-    _maybe_relax_binaries(
-        container,
-        device_model,
-        [OnVariable, StartVariable, StopVariable],
-    )
     return
 end
 
@@ -1205,12 +1257,48 @@ function construct_device!(
         devices,
         ThermalMultiStartUnitCommitment,
     )
-    add_variables!(container, OnVariable, devices, ThermalMultiStartUnitCommitment)
-    add_variables!(container, StopVariable, devices, ThermalMultiStartUnitCommitment)
-    add_variables!(container, StartVariable, devices, ThermalMultiStartUnitCommitment)
-    add_variables!(container, ColdStartVariable, devices, ThermalMultiStartUnitCommitment)
-    add_variables!(container, WarmStartVariable, devices, ThermalMultiStartUnitCommitment)
-    add_variables!(container, HotStartVariable, devices, ThermalMultiStartUnitCommitment)
+    add_variables!(
+        container,
+        OnVariable,
+        devices,
+        ThermalMultiStartUnitCommitment;
+        relax_binaries = get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
+    )
+    add_variables!(
+        container,
+        StopVariable,
+        devices,
+        ThermalMultiStartUnitCommitment;
+        relax_binaries = get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
+    )
+    add_variables!(
+        container,
+        StartVariable,
+        devices,
+        ThermalMultiStartUnitCommitment;
+        relax_binaries = get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
+    )
+    add_variables!(
+        container,
+        ColdStartVariable,
+        devices,
+        ThermalMultiStartUnitCommitment;
+        relax_binaries = get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
+    )
+    add_variables!(
+        container,
+        WarmStartVariable,
+        devices,
+        ThermalMultiStartUnitCommitment;
+        relax_binaries = get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
+    )
+    add_variables!(
+        container,
+        HotStartVariable,
+        devices,
+        ThermalMultiStartUnitCommitment;
+        relax_binaries = get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
+    )
 
     add_variables!(container, TimeDurationOn, devices, ThermalMultiStartUnitCommitment)
     add_variables!(container, TimeDurationOff, devices, ThermalMultiStartUnitCommitment)
@@ -1292,18 +1380,6 @@ function construct_device!(
 
     add_feedforward_arguments!(container, device_model, devices)
     add_event_arguments!(container, devices, device_model, network_model)
-    _maybe_relax_binaries(
-        container,
-        device_model,
-        [
-            OnVariable,
-            StopVariable,
-            StartVariable,
-            ColdStartVariable,
-            WarmStartVariable,
-            HotStartVariable,
-        ],
-    )
     return
 end
 
@@ -1416,12 +1492,48 @@ function construct_device!(
         devices,
         ThermalMultiStartUnitCommitment,
     )
-    add_variables!(container, OnVariable, devices, ThermalMultiStartUnitCommitment)
-    add_variables!(container, StopVariable, devices, ThermalMultiStartUnitCommitment)
-    add_variables!(container, StartVariable, devices, ThermalMultiStartUnitCommitment)
-    add_variables!(container, ColdStartVariable, devices, ThermalMultiStartUnitCommitment)
-    add_variables!(container, WarmStartVariable, devices, ThermalMultiStartUnitCommitment)
-    add_variables!(container, HotStartVariable, devices, ThermalMultiStartUnitCommitment)
+    add_variables!(
+        container,
+        OnVariable,
+        devices,
+        ThermalMultiStartUnitCommitment;
+        relax_binaries = get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
+    )
+    add_variables!(
+        container,
+        StopVariable,
+        devices,
+        ThermalMultiStartUnitCommitment;
+        relax_binaries = get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
+    )
+    add_variables!(
+        container,
+        StartVariable,
+        devices,
+        ThermalMultiStartUnitCommitment;
+        relax_binaries = get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
+    )
+    add_variables!(
+        container,
+        ColdStartVariable,
+        devices,
+        ThermalMultiStartUnitCommitment;
+        relax_binaries = get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
+    )
+    add_variables!(
+        container,
+        WarmStartVariable,
+        devices,
+        ThermalMultiStartUnitCommitment;
+        relax_binaries = get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
+    )
+    add_variables!(
+        container,
+        HotStartVariable,
+        devices,
+        ThermalMultiStartUnitCommitment;
+        relax_binaries = get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
+    )
 
     add_variables!(container, TimeDurationOn, devices, ThermalMultiStartUnitCommitment)
     add_variables!(container, TimeDurationOff, devices, ThermalMultiStartUnitCommitment)
@@ -1493,18 +1605,6 @@ function construct_device!(
 
     add_feedforward_arguments!(container, device_model, devices)
     add_event_arguments!(container, devices, device_model, network_model)
-    _maybe_relax_binaries(
-        container,
-        device_model,
-        [
-            OnVariable,
-            StopVariable,
-            StartVariable,
-            ColdStartVariable,
-            WarmStartVariable,
-            HotStartVariable,
-        ],
-    )
     return
 end
 
@@ -1617,9 +1717,27 @@ function construct_device!(
         devices,
         ThermalCompactUnitCommitment,
     )
-    add_variables!(container, OnVariable, devices, ThermalCompactUnitCommitment)
-    add_variables!(container, StartVariable, devices, ThermalCompactUnitCommitment)
-    add_variables!(container, StopVariable, devices, ThermalCompactUnitCommitment)
+    add_variables!(
+        container,
+        OnVariable,
+        devices,
+        ThermalCompactUnitCommitment;
+        relax_binaries = get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
+    )
+    add_variables!(
+        container,
+        StartVariable,
+        devices,
+        ThermalCompactUnitCommitment;
+        relax_binaries = get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
+    )
+    add_variables!(
+        container,
+        StopVariable,
+        devices,
+        ThermalCompactUnitCommitment;
+        relax_binaries = get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
+    )
 
     add_variables!(container, TimeDurationOn, devices, ThermalCompactUnitCommitment)
     add_variables!(container, TimeDurationOff, devices, ThermalCompactUnitCommitment)
@@ -1700,11 +1818,6 @@ function construct_device!(
 
     add_feedforward_arguments!(container, device_model, devices)
     add_event_arguments!(container, devices, device_model, network_model)
-    _maybe_relax_binaries(
-        container,
-        device_model,
-        [OnVariable, StartVariable, StopVariable],
-    )
     return
 end
 
@@ -1794,9 +1907,27 @@ function construct_device!(
         devices,
         ThermalCompactUnitCommitment,
     )
-    add_variables!(container, OnVariable, devices, ThermalCompactUnitCommitment)
-    add_variables!(container, StartVariable, devices, ThermalCompactUnitCommitment)
-    add_variables!(container, StopVariable, devices, ThermalCompactUnitCommitment)
+    add_variables!(
+        container,
+        OnVariable,
+        devices,
+        ThermalCompactUnitCommitment;
+        relax_binaries = get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
+    )
+    add_variables!(
+        container,
+        StartVariable,
+        devices,
+        ThermalCompactUnitCommitment;
+        relax_binaries = get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
+    )
+    add_variables!(
+        container,
+        StopVariable,
+        devices,
+        ThermalCompactUnitCommitment;
+        relax_binaries = get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
+    )
 
     add_variables!(container, TimeDurationOn, devices, ThermalCompactUnitCommitment)
     add_variables!(container, TimeDurationOff, devices, ThermalCompactUnitCommitment)
@@ -1869,11 +2000,6 @@ function construct_device!(
 
     add_feedforward_arguments!(container, device_model, devices)
     add_event_arguments!(container, devices, device_model, network_model)
-    _maybe_relax_binaries(
-        container,
-        device_model,
-        [OnVariable, StartVariable, StopVariable],
-    )
     return
 end
 
@@ -1961,9 +2087,27 @@ function construct_device!(
         devices,
         ThermalBasicCompactUnitCommitment,
     )
-    add_variables!(container, OnVariable, devices, ThermalBasicCompactUnitCommitment)
-    add_variables!(container, StartVariable, devices, ThermalBasicCompactUnitCommitment)
-    add_variables!(container, StopVariable, devices, ThermalBasicCompactUnitCommitment)
+    add_variables!(
+        container,
+        OnVariable,
+        devices,
+        ThermalBasicCompactUnitCommitment;
+        relax_binaries = get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
+    )
+    add_variables!(
+        container,
+        StartVariable,
+        devices,
+        ThermalBasicCompactUnitCommitment;
+        relax_binaries = get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
+    )
+    add_variables!(
+        container,
+        StopVariable,
+        devices,
+        ThermalBasicCompactUnitCommitment;
+        relax_binaries = get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
+    )
 
     add_variables!(container, PowerOutput, devices, ThermalBasicCompactUnitCommitment)
     add_variables!(container, TimeDurationOn, devices, ThermalBasicCompactUnitCommitment)
@@ -2044,11 +2188,6 @@ function construct_device!(
 
     add_feedforward_arguments!(container, device_model, devices)
     add_event_arguments!(container, devices, device_model, network_model)
-    _maybe_relax_binaries(
-        container,
-        device_model,
-        [OnVariable, StartVariable, StopVariable],
-    )
     return
 end
 
@@ -2136,9 +2275,27 @@ function construct_device!(
         devices,
         ThermalBasicCompactUnitCommitment,
     )
-    add_variables!(container, OnVariable, devices, ThermalBasicCompactUnitCommitment)
-    add_variables!(container, StartVariable, devices, ThermalBasicCompactUnitCommitment)
-    add_variables!(container, StopVariable, devices, ThermalBasicCompactUnitCommitment)
+    add_variables!(
+        container,
+        OnVariable,
+        devices,
+        ThermalBasicCompactUnitCommitment;
+        relax_binaries = get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
+    )
+    add_variables!(
+        container,
+        StartVariable,
+        devices,
+        ThermalBasicCompactUnitCommitment;
+        relax_binaries = get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
+    )
+    add_variables!(
+        container,
+        StopVariable,
+        devices,
+        ThermalBasicCompactUnitCommitment;
+        relax_binaries = get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
+    )
 
     add_variables!(container, PowerOutput, devices, ThermalBasicCompactUnitCommitment)
     add_variables!(container, TimeDurationOn, devices, ThermalBasicCompactUnitCommitment)
@@ -2209,11 +2366,6 @@ function construct_device!(
     end
     add_feedforward_arguments!(container, device_model, devices)
     add_event_arguments!(container, devices, device_model, network_model)
-    _maybe_relax_binaries(
-        container,
-        device_model,
-        [OnVariable, StartVariable, StopVariable],
-    )
     return
 end
 

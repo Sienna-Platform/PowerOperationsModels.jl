@@ -196,7 +196,7 @@ _hvdc_pwl_len_segments(loss::PSY.ValueCurve) = error(
 function _add_sparse_pwl_loss_variables!(
     container::OptimizationContainer,
     devices,
-    ::DeviceModel{D, HVDCTwoTerminalPiecewiseLoss},
+    model::DeviceModel{D, HVDCTwoTerminalPiecewiseLoss},
 ) where {D <: PSY.TwoTerminalHVDC}
     # Create Variables
     time_steps = get_time_steps(container)
@@ -205,7 +205,10 @@ function _add_sparse_pwl_loss_variables!(
     T = HVDCPiecewiseLossVariable
     binary_T = get_variable_binary(T, D, formulation)
     U = HVDCPiecewiseBinaryLossVariable
-    binary_U = get_variable_binary(U, D, formulation)
+    relax_U =
+        get_attribute(model, RELAX_BINARIES_ATTRIBUTE) &&
+        get_variable_binary(U, D, formulation)
+    binary_U = !relax_U && get_variable_binary(U, D, formulation)
     first_loss = PSY.get_value_curve(PSY.get_loss(first(devices)))
     len_segments = _hvdc_pwl_len_segments(first_loss)
 
@@ -236,6 +239,10 @@ function _add_sparse_pwl_loss_variables!(
                         base_name = "$(U)_$(name)_{pwl_$(i), $(t)}",
                         binary = binary_U
                     )
+                if relax_U
+                    JuMP.set_lower_bound(pwlvars_bin[i], 0.0)
+                    JuMP.set_upper_bound(pwlvars_bin[i], 1.0)
+                end
             end
         end
     end

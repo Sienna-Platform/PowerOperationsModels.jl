@@ -1953,7 +1953,13 @@ function construct_device!(
         HVDCTwoTerminalDispatch,
     )
     add_variables!(container, HVDCLosses, devices, HVDCTwoTerminalDispatch)
-    add_variables!(container, HVDCFlowDirectionVariable, devices, HVDCTwoTerminalDispatch)
+    add_variables!(
+        container,
+        HVDCFlowDirectionVariable,
+        devices,
+        HVDCTwoTerminalDispatch;
+        relax_binaries = get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
+    )
     add_to_expression!(
         container,
         ActivePowerBalance,
@@ -1979,7 +1985,6 @@ function construct_device!(
         network_model,
     )
     add_feedforward_arguments!(container, device_model, devices)
-    _maybe_relax_binaries(container, device_model, [HVDCFlowDirectionVariable])
     return
 end
 
@@ -2034,7 +2039,13 @@ function construct_device!(
         devices,
         HVDCTwoTerminalDispatch,
     )
-    add_variables!(container, HVDCFlowDirectionVariable, devices, HVDCTwoTerminalDispatch)
+    add_variables!(
+        container,
+        HVDCFlowDirectionVariable,
+        devices,
+        HVDCTwoTerminalDispatch;
+        relax_binaries = get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
+    )
     add_variables!(container, HVDCLosses, devices, HVDCTwoTerminalDispatch)
     add_to_expression!(
         container,
@@ -2053,7 +2064,6 @@ function construct_device!(
         network_model,
     )
     add_feedforward_arguments!(container, device_model, devices)
-    _maybe_relax_binaries(container, device_model, [HVDCFlowDirectionVariable])
     return
 end
 
@@ -2132,7 +2142,6 @@ function construct_device!(
         network_model,
     )
     add_feedforward_arguments!(container, device_model, devices)
-    _maybe_relax_binaries(container, device_model, [HVDCPiecewiseBinaryLossVariable])
     return
 end
 

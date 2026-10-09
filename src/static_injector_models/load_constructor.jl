@@ -245,7 +245,13 @@ function construct_device!(
 
     add_variables!(container, ActivePowerVariable, devices, PowerLoadInterruption)
     add_variables!(container, ReactivePowerVariable, devices, PowerLoadInterruption)
-    add_variables!(container, OnVariable, devices, PowerLoadInterruption)
+    add_variables!(
+        container,
+        OnVariable,
+        devices,
+        PowerLoadInterruption;
+        relax_binaries = get_attribute(model, RELAX_BINARIES_ATTRIBUTE),
+    )
 
     # Add Variables to expressions
     add_to_expression!(
@@ -293,7 +299,6 @@ function construct_device!(
 
     add_cost_expressions!(container, devices, model)
     add_event_arguments!(container, devices, model, network_model)
-    _maybe_relax_binaries(container, model, [OnVariable])
     return
 end
 
@@ -375,7 +380,13 @@ function construct_device!(
         get_device_cache(model)
 
     add_variables!(container, ActivePowerVariable, devices, PowerLoadInterruption)
-    add_variables!(container, OnVariable, devices, PowerLoadInterruption)
+    add_variables!(
+        container,
+        OnVariable,
+        devices,
+        PowerLoadInterruption;
+        relax_binaries = get_attribute(model, RELAX_BINARIES_ATTRIBUTE),
+    )
 
     process_market_bid_parameters!(container, devices, model, false, true)
     # Add Variables to expressions
@@ -413,7 +424,6 @@ function construct_device!(
 
     add_cost_expressions!(container, devices, model)
     add_event_arguments!(container, devices, model, network_model)
-    _maybe_relax_binaries(container, model, [OnVariable])
     return
 end
 

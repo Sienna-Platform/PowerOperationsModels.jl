@@ -26,7 +26,13 @@ function construct_device!(
     end
 
     if get_attribute(model, "reservation")
-        add_variables!(container, ReservationVariable, devices, D)
+        add_variables!(
+            container,
+            ReservationVariable,
+            devices,
+            D;
+            relax_binaries = get_attribute(model, RELAX_BINARIES_ATTRIBUTE),
+        )
     end
 
     process_import_export_parameters!(container, devices, model)
@@ -91,7 +97,6 @@ function construct_device!(
     )
 
     add_feedforward_arguments!(container, model, devices)
-    _maybe_relax_binaries(container, model, [ReservationVariable])
     return
 end
 
@@ -204,7 +209,13 @@ function construct_device!(
     end
 
     if get_attribute(model, "reservation")
-        add_variables!(container, ReservationVariable, devices, D)
+        add_variables!(
+            container,
+            ReservationVariable,
+            devices,
+            D;
+            relax_binaries = get_attribute(model, RELAX_BINARIES_ATTRIBUTE),
+        )
     end
 
     process_import_export_parameters!(container, devices, model)
@@ -261,7 +272,6 @@ function construct_device!(
     )
 
     add_feedforward_arguments!(container, model, devices)
-    _maybe_relax_binaries(container, model, [ReservationVariable])
     return
 end
 
