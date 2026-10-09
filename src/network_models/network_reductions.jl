@@ -32,7 +32,7 @@ mutable struct BranchReductionOptimizationTracker <: IOM.AbstractBranchReduction
     # `_bus_name_number_pairs` so the per-bus name resolution (an O(n_buses) component
     # scan) runs once per build rather than once per network variable/constraint type.
     # Empty means "not yet computed" — a network always has ≥1 bus. Not part of
-    # `isempty`/`empty!`'s reduction semantics, but cleared on rebuild.
+    # `isempty`/`empty!`'s reduction semantics; each build starts a new tracker.
     bus_name_number_pairs::Vector{Tuple{String, Int}}
 end
 
@@ -349,8 +349,8 @@ end
 
 """
 Install a fresh branch-reduction tracker on `model` sized for `number_of_steps`.
-The tracker lives behind `IOM.AbstractBranchReductionTracker` and is `nothing`
-until network model instantiation reaches this point.
+The tracker lives behind `IOM.AbstractBranchReductionTracker`; `build_problem!` installs a
+new one at the start of every build, so it is `nothing` until the first build.
 """
 function _reset_reduced_branch_tracker!(model::NetworkModel, number_of_steps::Int)
     tracker = BranchReductionOptimizationTracker()
