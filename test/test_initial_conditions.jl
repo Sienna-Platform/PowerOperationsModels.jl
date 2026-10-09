@@ -11,7 +11,7 @@
           IOM.ModelBuildStatus.BUILT
 
     main = get_network_model(get_template(model))
-    ic = get_network_model(POM.get_initial_conditions_template(model, 2))
+    ic = get_network_model(POM.get_initial_conditions_template(model))
     # Shared by reference, not rebuilt: this is what makes an IC/main network
     # divergence structurally impossible rather than something to validate.
     @test get_network_source(ic) === get_network_source(main)
