@@ -385,6 +385,19 @@ end
     @test all(iszero, values(_armed_values(container)))
 end
 
+@testset "A requested post-contingency dual with no rows arms nothing" begin
+    sys = PSB.build_system(PSITestSystems, "c_sys5")
+    template = _bid_adjustment_template(;
+        line_model = DeviceModel(PSY.Line, SecurityConstrainedStaticBranch;
+            use_slacks = true, duals = [PostContingencyFlowRateConstraint]),
+    )
+    model, status = _build_bid_adjustment_model(sys, template)
+    @test status == IOM.ModelBuildStatus.BUILT
+    @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+    container = IOM.get_optimization_container(model)
+    @test all(iszero, values(_armed_values(container)))
+end
+
 @testset "StaticPowerLoadBidAdjustment rejects motor loads" begin
     @test_throws r"does not support" POM._check_bid_adjustment_load_type(PSY.MotorLoad)
     @test POM._check_bid_adjustment_load_type(PSY.PowerLoad) === nothing

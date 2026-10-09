@@ -210,7 +210,8 @@ function _collect_rows_at_cap!(
     key::ConstraintKey{FlowRateConstraint, V},
     dual::DenseAxisArray,
 ) where {V <: PSY.ACTransmission}
-    _counts_for_bid_adjustment(key) || return
+    # A row-less container whose dual the template requested has no slack to pair.
+    (_counts_for_bid_adjustment(key) && !isempty(dual)) || return
     sign = _binding_sign(key.meta)
     slack = get_variable(container, _paired_slack(FlowRateConstraint, key.meta), V)
     names, time_steps = axes(dual)
@@ -229,7 +230,7 @@ function _collect_rows_at_cap!(
     key::ConstraintKey{PostContingencyFlowRateConstraint, V},
     dual::SparseAxisArray,
 ) where {V <: PSY.ACTransmission}
-    _counts_for_bid_adjustment(key) || return
+    (_counts_for_bid_adjustment(key) && !isempty(dual.data)) || return
     sign = _binding_sign(key.meta)
     slack = get_variable(
         container, _paired_slack(PostContingencyFlowRateConstraint, key.meta), V,
