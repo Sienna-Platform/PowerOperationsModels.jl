@@ -229,9 +229,14 @@ function build_problem!(
     @debug "Total operation count $(get_jump_model(container).operator_counter)" _group =
         LOG_GROUP_OPTIMIZATION_CONTAINER
 
+    # IOM.calculate_aux_variables! reads the evaluations off the container, while the user
+    # supplies them on the NetworkModel. Both must be the same object so the runtime data
+    # registered at build time is the data read later.
+    container.evaluations = IOM.get_evaluations(transmission_model)
     TimerOutputs.@timeit BUILD_PROBLEMS_TIMER "Power Flow Initialization" begin
         add_power_flow_data!(container, transmission_model, sys)
     end
+    add_evaluator_data!(container, transmission_model, sys)
     IOM.check_optimization_container(container)
     _validate_dual_sos_compatibility(container)
     return
