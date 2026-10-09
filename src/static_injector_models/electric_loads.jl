@@ -95,7 +95,7 @@ function get_default_attributes(
     ::Type{U},
     ::Type{V},
 ) where {U <: PSY.ElectricLoad, V <: AbstractLoadFormulation}
-    return Dict{String, Any}()
+    return Dict{String, Any}(RELAX_BINARIES_ATTRIBUTE => false)
 end
 
 get_initial_conditions_device_model(

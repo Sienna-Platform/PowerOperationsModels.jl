@@ -1956,8 +1956,9 @@ end
     for line in get_components(PSY.Line, sys), t in axes(con_ub, 2)
         name = PSY.get_name(line)
         rating = branch_rating_su(line)
-        expected = name in lines_with_ts ?
-                   rating * _PC_RATING_FACTORS[mod1(t, n_factors)] : rating
+        expected =
+            name in lines_with_ts ?
+            rating * _PC_RATING_FACTORS[mod1(t, n_factors)] : rating
         # JuMP migrates the expression's affine constant to the RHS; add it back.
         expr_const = JuMP.constant(flow[name, t])
         @test JuMP.normalized_rhs(con_ub[name, t]) + expr_const ≈ expected

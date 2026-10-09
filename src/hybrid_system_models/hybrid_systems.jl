@@ -23,6 +23,7 @@ function get_default_attributes(
         "storage_reservation" => true,
         "energy_target" => false,
         "regularization" => false,
+        RELAX_BINARIES_ATTRIBUTE => false,
     )
 end
 

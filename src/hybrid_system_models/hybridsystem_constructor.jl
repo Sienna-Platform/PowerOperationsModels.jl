@@ -296,7 +296,13 @@ function construct_device!(
     add_variables!(container, ActivePowerInVariable, devices, D)
     _maybe_add_reactive_power_variable!(container, devices, D, S)
     if get_attribute(model, "reservation")
-        add_variables!(container, ReservationVariable, devices, D)
+        add_variables!(
+            container,
+            ReservationVariable,
+            devices,
+            D;
+            relax_binaries = get_attribute(model, RELAX_BINARIES_ATTRIBUTE),
+        )
     end
 
     add_to_expression!(
@@ -320,7 +326,13 @@ function construct_device!(
     # Subcomponent variables
     if !isempty(grouped.with_thermal)
         add_variables!(container, HybridThermalActivePower, grouped.with_thermal, D)
-        add_variables!(container, OnVariable, grouped.with_thermal, D)
+        add_variables!(
+            container,
+            OnVariable,
+            grouped.with_thermal,
+            D;
+            relax_binaries = get_attribute(model, RELAX_BINARIES_ATTRIBUTE),
+        )
     end
     if !isempty(grouped.with_renewable)
         add_variables!(container, HybridRenewableActivePower, grouped.with_renewable, D)
@@ -346,7 +358,13 @@ function construct_device!(
         )
         add_variables!(container, EnergyVariable, grouped.with_storage, D)
         if get_attribute(model, "storage_reservation")
-            add_variables!(container, HybridStorageReservation, grouped.with_storage, D)
+            add_variables!(
+                container,
+                HybridStorageReservation,
+                grouped.with_storage,
+                D;
+                relax_binaries = get_attribute(model, RELAX_BINARIES_ATTRIBUTE),
+            )
         end
         if get_attribute(model, "regularization")
             add_variables!(

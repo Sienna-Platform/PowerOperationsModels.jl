@@ -569,6 +569,32 @@ end
     @test isapprox(_hvdc_net_received(container), -0.01; atol = 1e-6)
 end
 
+@testset "HVDCTwoTerminalPiecewiseLoss with relaxed binaries" begin
+    sys, _, _ = _c_sys5_with_lossy_hvdc_tie()
+    template = get_thermal_dispatch_template_network(NetworkModel(DCPNetworkModel))
+    set_device_model!(
+        template,
+        DeviceModel(
+            TwoTerminalGenericHVDCLine,
+            HVDCTwoTerminalPiecewiseLoss;
+            attributes = Dict{String, Any}(POM.RELAX_BINARIES_ATTRIBUTE => true),
+        ),
+    )
+    model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
+    @test build!(
+        model;
+        output_dir = mktempdir(; cleanup = true),
+        console_level = Logging.Error,
+    ) == IOM.ModelBuildStatus.BUILT
+    container = IOM.get_optimization_container(model)
+    @test !any(JuMP.is_binary, JuMP.all_variables(IOM.get_jump_model(container)))
+    bin = IOM.get_variable(
+        container, POM.HVDCPiecewiseBinaryLossVariable, TwoTerminalGenericHVDCLine,
+    )
+    @test !isempty(bin)
+    @test all(v -> JuMP.lower_bound(v) == 0.0 && JuMP.upper_bound(v) == 1.0, bin)
+end
+
 function _two_area_sys_with_lossy_hvdc_tie()
     sys = PSB.build_system(PSB.PSISystems, "two_area_pjm_DA")
     transform_single_time_series!(sys, Hour(24), Hour(1))

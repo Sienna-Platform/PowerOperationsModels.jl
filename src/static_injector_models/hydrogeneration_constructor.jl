@@ -306,7 +306,13 @@ function construct_device!(
 
     add_variables!(container, ActivePowerVariable, devices, D)
     add_variables!(container, ReactivePowerVariable, devices, D)
-    add_variables!(container, OnVariable, devices, D)
+    add_variables!(
+        container,
+        OnVariable,
+        devices,
+        D;
+        relax_binaries = get_attribute(model, RELAX_BINARIES_ATTRIBUTE),
+    )
     if _excludes_shutdown_step(model)
         # OfflineReserveShutdownConstraint reads the commitment before the first step.
         add_initial_condition!(container, devices, D(), DeviceStatus())
@@ -378,7 +384,13 @@ function construct_device!(
     devices = get_device_cache(model)
 
     add_variables!(container, ActivePowerVariable, devices, D)
-    add_variables!(container, OnVariable, devices, D)
+    add_variables!(
+        container,
+        OnVariable,
+        devices,
+        D;
+        relax_binaries = get_attribute(model, RELAX_BINARIES_ATTRIBUTE),
+    )
     if _excludes_shutdown_step(model)
         # OfflineReserveShutdownConstraint reads the commitment before the first step.
         add_initial_condition!(container, devices, D(), DeviceStatus())
@@ -880,7 +892,13 @@ function construct_device!(
 
     add_variables!(container, ActivePowerVariable, devices, D)
     add_variables!(container, ReactivePowerVariable, devices, D)
-    add_variables!(container, OnVariable, devices, D)
+    add_variables!(
+        container,
+        OnVariable,
+        devices,
+        D;
+        relax_binaries = get_attribute(model, RELAX_BINARIES_ATTRIBUTE),
+    )
     add_variables!(container, HydroEnergyOutput, devices, D)
     add_to_expression!(
         container,
@@ -1013,7 +1031,13 @@ function construct_device!(
 
     add_variables!(container, ActivePowerVariable, devices, D)
     add_variables!(container, HydroEnergyOutput, devices, D)
-    add_variables!(container, OnVariable, devices, D)
+    add_variables!(
+        container,
+        OnVariable,
+        devices,
+        D;
+        relax_binaries = get_attribute(model, RELAX_BINARIES_ATTRIBUTE),
+    )
     add_to_expression!(
         container,
         ActivePowerBalance,
@@ -1488,14 +1512,20 @@ end
 _maybe_add_on_variables!(
     container::OptimizationContainer,
     devices,
-    ::Type{HydroTurbineWaterLinearCommitment},
-) = add_variables!(container, OnVariable, devices, HydroTurbineWaterLinearCommitment)
+    model::DeviceModel{<:PSY.HydroTurbine, HydroTurbineWaterLinearCommitment},
+) = add_variables!(
+    container,
+    OnVariable,
+    devices,
+    HydroTurbineWaterLinearCommitment;
+    relax_binaries = get_attribute(model, RELAX_BINARIES_ATTRIBUTE),
+)
 _maybe_add_on_variables!(
     ::OptimizationContainer,
     devices,
-    ::Union{
-        Type{HydroTurbineBilinearDispatch},
-        Type{HydroTurbineWaterLinearDispatch},
+    ::DeviceModel{
+        <:PSY.HydroTurbine,
+        <:Union{HydroTurbineBilinearDispatch, HydroTurbineWaterLinearDispatch},
     },
 ) = nothing
 
@@ -1519,7 +1549,7 @@ function _add_hydro_turbine_water_arguments!(
     )
 
     add_variables!(container, ActivePowerVariable, devices, D)
-    _maybe_add_on_variables!(container, devices, D)
+    _maybe_add_on_variables!(container, devices, model)
 
     add_to_expression!(
         container,
@@ -1734,7 +1764,13 @@ function construct_device!(
     add_variables!(container, ReactivePowerVariable, devices, D)
 
     if get_attribute(model, "reservation")
-        add_variables!(container, ReservationVariable, devices, D)
+        add_variables!(
+            container,
+            ReservationVariable,
+            devices,
+            D;
+            relax_binaries = get_attribute(model, RELAX_BINARIES_ATTRIBUTE),
+        )
     end
 
     process_market_bid_parameters!(container, devices, model)
@@ -1802,7 +1838,13 @@ function construct_device!(
     add_variables!(container, ActivePowerPumpVariable, devices, D)
 
     if get_attribute(model, "reservation")
-        add_variables!(container, ReservationVariable, devices, D)
+        add_variables!(
+            container,
+            ReservationVariable,
+            devices,
+            D;
+            relax_binaries = get_attribute(model, RELAX_BINARIES_ATTRIBUTE),
+        )
     end
 
     process_market_bid_parameters!(container, devices, model)
@@ -1934,10 +1976,22 @@ function construct_device!(
     add_variables!(container, ActivePowerVariable, devices, D)
     add_variables!(container, ActivePowerPumpVariable, devices, D)
     add_variables!(container, ReactivePowerVariable, devices, D)
-    add_variables!(container, OnVariable, devices, D)
+    add_variables!(
+        container,
+        OnVariable,
+        devices,
+        D;
+        relax_binaries = get_attribute(model, RELAX_BINARIES_ATTRIBUTE),
+    )
 
     if get_attribute(model, "reservation")
-        add_variables!(container, ReservationVariable, devices, D)
+        add_variables!(
+            container,
+            ReservationVariable,
+            devices,
+            D;
+            relax_binaries = get_attribute(model, RELAX_BINARIES_ATTRIBUTE),
+        )
     end
 
     process_market_bid_parameters!(container, devices, model)
@@ -2003,10 +2057,22 @@ function construct_device!(
     devices = get_device_cache(model)
     add_variables!(container, ActivePowerVariable, devices, D)
     add_variables!(container, ActivePowerPumpVariable, devices, D)
-    add_variables!(container, OnVariable, devices, D)
+    add_variables!(
+        container,
+        OnVariable,
+        devices,
+        D;
+        relax_binaries = get_attribute(model, RELAX_BINARIES_ATTRIBUTE),
+    )
 
     if get_attribute(model, "reservation")
-        add_variables!(container, ReservationVariable, devices, D)
+        add_variables!(
+            container,
+            ReservationVariable,
+            devices,
+            D;
+            relax_binaries = get_attribute(model, RELAX_BINARIES_ATTRIBUTE),
+        )
     end
 
     process_market_bid_parameters!(container, devices, model)
