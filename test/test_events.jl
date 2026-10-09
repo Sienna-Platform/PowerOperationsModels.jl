@@ -161,6 +161,28 @@ end
     @test any(k -> IOM.get_entry_type(k) <: EventParameter, main_keys)
 end
 
+@testset "Initialization container uses the initialization template's NetworkModel" begin
+    sys = PSB.build_system(PSB.PSITestSystems, "c_sys5_uc")
+    template = get_template_dispatch_with_network(
+        NetworkModel(
+            PTDFNetworkModel;
+            evaluations = power_flow_evaluations(ACPowerFlow(;)),
+        ),
+    )
+    set_device_model!(template, ThermalStandard, ThermalStandardUnitCommitment)
+    model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
+    POM.build_pre_step!(model)
+    IOM.instantiate_network_model!(model)
+    POM.build_initial_conditions!(model)
+    ic_container = IOM.get_initial_conditions_model_container(IOM.get_internal(model))
+    main_nm = IOM.get_network_model(IOM.get_template(model))
+    ic_nm = IOM.get_network_model(ic_container)
+    @test ic_nm !== main_nm
+    @test IOM.get_network_data(ic_nm) === IOM.get_network_data(main_nm)
+    @test isempty(IOM.get_evaluations(ic_container))
+    @test !isempty(IOM.get_evaluations(main_nm))
+end
+
 @testset "Event parameters via mock construct - ThermalStandard UC" begin
     device_model = DeviceModel(PSY.ThermalStandard, ThermalBasicUnitCommitment)
     sys = PSB.build_system(PSITestSystems, "c_sys5_uc")

@@ -70,13 +70,26 @@ function get_initial_conditions_template(
     return ic_template
 end
 
+# The container holds a reference to the main NetworkModel, whose derived matrices can own
+# native factorization handles that must not be deep-copied. The copy is detached from the
+# NetworkModel; `init_optimization_container!` attaches the model it is built for.
+function _deepcopy_container_without_network_model(container::IOM.OptimizationContainer)
+    network_model = container.network_model
+    container.network_model = nothing
+    try
+        return deepcopy(container)
+    finally
+        container.network_model = network_model
+    end
+end
+
 function build_initial_conditions_model!(
     model::T,
 ) where {T <: IOM.AbstractOptimizationModel}
     internal = get_internal(model)
     set_initial_conditions_model_container!(
         internal,
-        deepcopy(get_optimization_container(model)),
+        _deepcopy_container_without_network_model(get_optimization_container(model)),
     )
     ic_container = get_initial_conditions_model_container(internal)
     ic_settings = deepcopy(get_settings(ic_container))
@@ -92,7 +105,7 @@ function build_initial_conditions_model!(
     set_horizon!(ic_settings, number_of_steps)
     init_optimization_container!(
         get_initial_conditions_model_container(internal),
-        get_network_model(get_template(model)),
+        get_network_model(template),
         get_system(model),
     )
     JuMP.set_string_names_on_creation(
