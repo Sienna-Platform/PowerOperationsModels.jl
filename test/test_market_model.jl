@@ -907,15 +907,22 @@ end
     _bb_ts_cost!(sys, bid; incremental = _bb_pad4(fill(_bb_step(10.0, 5.0), 3)),
         setter = PSY.set_spread_bid!)
     PSY.transform_single_time_series!(sys, Dates.Hour(2), Dates.Hour(2))
-    store = POM.ParameterTimeSeriesStore()
     windows = POM.RunWindows(_BB_T0, 2, 2, Dates.Hour(1), Dates.Hour(2))
-    key_map = POM.copy_cost_time_series!(store, sys, windows)
-    @test length(key_map) == length(PSY.get_time_series_keys(PSY.get_spread_bid(bid)))
-    bundle = joinpath(mktempdir(; cleanup = true), "system-ptp")
-    POM.write_outputs_system_bundle!(sys, store, key_map, bundle)
-    POM.close_parameter_store!(store)
-    restored = PSY.from_file(bundle; time_series_read_only = true)
-    @test PSY.get_name.(PSY.get_components(PSY.PointToPointBid, restored)) == ["ptp"]
+    # The same bundle from an in-memory store (persisted) and from one created at the sidecar.
+    restored_data = map((false, true)) do on_disk
+        bundle = joinpath(mktempdir(; cleanup = true), "system-ptp")
+        sidecar = joinpath(mkpath(bundle), PSY.TIME_SERIES_FILE)
+        store = on_disk ? POM.ParameterTimeSeriesStore(sidecar) : POM.ParameterTimeSeriesStore()
+        key_map = POM.copy_cost_time_series!(store, sys, windows)
+        @test length(key_map) == length(PSY.get_time_series_keys(PSY.get_spread_bid(bid)))
+        POM.write_outputs_system_bundle!(sys, store, key_map, bundle)
+        POM.close_parameter_store!(store)
+        restored = PSY.from_file(bundle; time_series_read_only = true)
+        r = only(PSY.get_components(PSY.PointToPointBid, restored))
+        @test PSY.get_name(r) == "ptp"
+        [IS.get_data(IS.get_time_series(r, k)) for k in PSY.get_time_series_keys(PSY.get_spread_bid(r))]
+    end
+    @test !isempty(restored_data[1]) && restored_data[1] == restored_data[2]
 end
 
 @testset "Block bids: a curve empty over the whole window still gets its binaries, fixed to zero" begin
