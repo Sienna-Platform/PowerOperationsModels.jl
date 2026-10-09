@@ -229,6 +229,11 @@ end
     jump_model = IOM.get_jump_model(model)
     @test JuMP.num_variables(jump_model) == 480
     @test !any(JuMP.is_binary, JuMP.all_variables(jump_model))
+    container = IOM.get_optimization_container(model)
+    for T in (OnVariable, StartVariable, StopVariable)
+        vars = IOM.get_variable(container, T, ThermalStandard)
+        @test all(v -> JuMP.lower_bound(v) == 0.0 && JuMP.upper_bound(v) == 1.0, vars)
+    end
 end
 
 @testset "Thermal UC With AC - PF" begin
