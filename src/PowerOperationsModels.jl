@@ -913,9 +913,7 @@ export ComponentReserveDownBalanceExpression
 export InterfaceTotalFlow
 export PTDFBranchFlow
 export BThetaBranchFlow
-export PostContingencyNodalDeployment
-export PostContingencyAreaDeployment
-export PostContingencyInterchangeFlow
+export PostContingencyLocationalDeployment
 export PostContingencyTotalDeployment
 
 #################################################################################

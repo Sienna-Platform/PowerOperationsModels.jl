@@ -113,6 +113,7 @@ function validate_template_impl!(model::IOM.AbstractOptimizationModel)
     _check_interface_branches(template, system, network_model)
     _check_security_constrained_three_winding_transformer(template.branches)
     _check_security_constrained_network(template.branches, network_model)
+    _check_security_constrained_reserves(get_service_models(template), network_model)
     _check_security_constrained_phase_control(template.branches, network_model)
     _check_voltage_regulation_conflicts!(template, system, network_model)
     _check_branch_rating_time_series_formulation!(template.branches, system)
@@ -612,23 +613,100 @@ function _check_security_constrained_network(
     return
 end
 
-function _assert_transformer_outages(
-    transformer::T,
-    branch_models::IOM.BranchModelContainer,
-) where {T <: _TRANSFORMERS}
-    model = get(branch_models, nameof(T), nothing)
-    _has_unsupported_phase(transformer, model) && throw(
+_check_security_constrained_reserve_network(::NetworkModel, ::ServiceModel) = nothing
+
+_check_security_constrained_reserve_network(
+    ::NetworkModel{
+        <:Union{
+            CopperPlateNetworkModel,
+            PTDFNetworkModel,
+            AreaPTDFNetworkModel,
+            AreaBalanceNetworkModel,
+        },
+    },
+    ::ServiceModel{<:PSY.Service, <:AbstractSecurityConstrainedReservesFormulation},
+) = nothing
+
+function _check_security_constrained_reserve_network(
+    network_model::NetworkModel,
+    ::ServiceModel{<:PSY.Service, <:AbstractSecurityConstrainedReservesFormulation},
+)
+    throw(
         IS.ConflictingInputsError(
-            "Phase-shifting transformers and transformers with non-zero angle may not be outages.",
+            "Security-constrained reserve formulations are not supported with network \
+            model $(get_network_formulation(network_model)). Supported network models \
+            are CopperPlateNetworkModel, PTDFNetworkModel, AreaPTDFNetworkModel and \
+            AreaBalanceNetworkModel.",
         ),
     )
+end
+
+_check_security_constrained_reserve_type(::ServiceModel) = nothing
+
+_check_security_constrained_reserve_type(
+    ::ServiceModel{
+        <:PSY.OnlineReserve{PSY.ReserveUp},
+        <:AbstractSecurityConstrainedReservesFormulation,
+    },
+) = nothing
+
+function _check_security_constrained_reserve_type(
+    ::ServiceModel{<:PSY.AbstractReserve, <:AbstractSecurityConstrainedReservesFormulation},
+)
+    throw(
+        IS.ConflictingInputsError(
+            "Security-constrained formulations currently only support `OnlineReserve{ReserveUp}` services.",
+        ),
+    )
+end
+
+_supports_post_contingency_deployment(::Type{<:PSY.Generator}) = true
+_supports_post_contingency_deployment(::Type{<:PSY.Storage}) = true
+_supports_post_contingency_deployment(::Type{<:PSY.Device}) = false
+
+_check_security_constrained_contributor(::Val{true}, ::Type, ::String) = nothing
+
+function _check_security_constrained_contributor(
+    ::Val{false},
+    ::Type{D},
+    service_name::String,
+) where {D}
+    throw(
+        IS.ConflictingInputsError(
+            "Device type $(D) contributes to service $(service_name) but cannot deploy \
+            after a contingency. Security-constrained reserve formulations support \
+            only generator and storage contributors.",
+        ),
+    )
+end
+
+_check_security_constrained_contributors(::ServiceModel) = nothing
+
+function _check_security_constrained_contributors(
+    model::ServiceModel{<:PSY.Service, <:AbstractSecurityConstrainedReservesFormulation},
+)
+    for (service_name, by_device_type) in get_contributing_devices_map(model)
+        for D in keys(by_device_type)
+            _check_security_constrained_contributor(
+                Val(_supports_post_contingency_deployment(D)),
+                D,
+                service_name,
+            )
+        end
+    end
     return
 end
 
-_assert_transformer_outages(::PSY.Device, ::IOM.BranchModelContainer) =
-    nothing
+function _check_security_constrained_reserves(service_models, network_model::NetworkModel)
+    for service_model in values(service_models)
+        _check_security_constrained_reserve_network(network_model, service_model)
+        _check_security_constrained_reserve_type(service_model)
+        _check_security_constrained_contributors(service_model)
+    end
+    return
+end
 
-# Monitored components exist; no controlled transformer outages
+# Every monitored component of every registered outage exists in the system
 function _check_monitored_components(
     branch_models::IOM.BranchModelContainer,
     sys::PSY.System,
@@ -643,9 +721,6 @@ function _check_monitored_components(
                         "Monitored component with UUID $uuid on outage $outage_id is not found in the system.",
                     ),
                 )
-            end
-            for component in PSY.get_associated_components(sys, outage)
-                _assert_transformer_outages(component, branch_models)
             end
         end
     end

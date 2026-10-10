@@ -840,9 +840,9 @@ struct HybridDispatchWithReserves <: AbstractHybridFormulationWithReserves end
 abstract type AbstractSecurityConstrainedReservesFormulation <: AbstractReservesFormulation end
 
 """
-Security-constrained (G-1) contingency reserve for `PSY.OnlineReserve{PSY.ReserveUp}` and
-`PSY.OfflineReserve`: reserves must be deliverable after the loss of any generator outage
-they respond to.
+Security-constrained (G-1) contingency reserve for `PSY.OnlineReserve{PSY.ReserveUp}`:
+reserves must be deliverable after the loss of any generator outage they respond to.
+`PSY.OfflineReserve` is not supported.
 
 **Sets.** Each reserve ``s`` responds to the `PSY.Outage`s ``O_s`` attached to it with
 `add_supplemental_attribute!(sys, service, outage)`. Outage ``o`` takes offline the
@@ -860,7 +860,8 @@ deploys ``\\delta_{s,d,o,t} \\ge 0`` ([`PostContingencyDeploymentVariable`](@ref
 its award when ``s`` is procured ([`PostContingencyDeploymentConstraint`](@ref)). A device's
 deployment across reserves, ``\\Delta_{d,o,t}``
 ([`PostContingencyTotalDeployment`](@ref)), keeps it within its maximum
-([`PostContingencyGenerationConstraint`](@ref)).
+([`PostContingencyGenerationConstraint`](@ref)); under commitment the deployment also needs
+the unit on.
 
 **Balance.** Deployment replaces the outaged generation
 ([`PostContingencyBalanceConstraint`](@ref)):
@@ -871,6 +872,8 @@ deployment across reserves, ``\\Delta_{d,o,t}``
     deviation ``\\Delta f_{i,o,t}`` ([`PostContingencyDeviationVariable`](@ref)) that moves
     deployment between areas. Without an `AreaInterchange` device model each area covers its
     own outages.
+  - `AreaPTDFNetworkModel` balances the system, as the PTDF networks do. The PTDF rows
+    carry the per-area effect.
 
 **Flow limits.** Monitored components get post-contingency flow limits at their emergency
 rating (`PostContingencyFlowRateConstraint`, metas `"G1_lb"`/`"G1_ub"`):
@@ -878,18 +881,20 @@ rating (`PostContingencyFlowRateConstraint`, metas `"G1_lb"`/`"G1_ub"`):
   - PTDF networks: monitored branches carry
     ``f^o_{\\ell,t} = f_{\\ell,t} + \\sum_n PTDF_{\\ell,n} \\Delta P_{n,o,t}``
     (`PostContingencyBranchFlow`, meta `"G1"`), with ``\\Delta P_{n,o,t}`` the nodal change
-    in injection ([`PostContingencyNodalDeployment`](@ref)). Parallel circuits and reduced
+    in injection ([`PostContingencyLocationalDeployment`](@ref)). Parallel circuits and reduced
     branches are limited once, on their reduced entry.
   - `AreaBalanceNetworkModel`: monitored interchanges carry
     ``f^o_{i,t} = f_{i,t} + \\Delta f_{i,o,t}``
-    ([`PostContingencyInterchangeFlow`](@ref)). Deviations exist on every modeled
+    (`PostContingencyBranchFlow`, meta `"G1"`). Deviations exist on every modeled
     interchange and enter every area balance; only monitored interchanges are limited.
+  - `AreaPTDFNetworkModel`: monitored branches follow the PTDF rule. Monitored interchanges
+    carry their flow ``f_{i,t}`` plus the PTDF change over their AC tie lines. HVDC tie
+    lines do not change.
 
 Monitored components must be modeled (including by the branch model's `filter_function`), or
 template validation fails. With `use_slacks = true` the flow limits are relaxed by
 [`PostGeneratorContingencyFlowSlackUpperBound`](@ref) and
-[`PostGeneratorContingencyFlowSlackLowerBound`](@ref). Flow limits are shared by every
-reserve responding to an outage, so their service models must agree on `use_slacks`.
+[`PostGeneratorContingencyFlowSlackLowerBound`](@ref).
 
 See also [`SecurityConstrainedRampReserve`](@ref).
 """
@@ -897,9 +902,10 @@ struct SecurityConstrainedContingencyReserve <:
        AbstractSecurityConstrainedReservesFormulation end
 
 """
-Same as [`SecurityConstrainedContingencyReserve`](@ref), except every reserve is procured:
-a requirement time series is required, and spinning reserves' awards are also limited by
-the contributing devices' ramp rates over the reserve time frame (`RampConstraint`), as in
+Same as [`SecurityConstrainedContingencyReserve`](@ref), except every reserve is procured.
+The requirement time series scales the requirement when the service has one. Otherwise the
+scalar `requirement` applies. Awards are also limited by the contributing
+devices' ramp rates over the reserve time frame (`RampConstraint`), as in
 [`RampReserve`](@ref).
 """
 struct SecurityConstrainedRampReserve <: AbstractSecurityConstrainedReservesFormulation end

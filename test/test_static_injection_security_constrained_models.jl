@@ -1,15 +1,16 @@
 # G-1 security-constrained reserves (`SecurityConstrainedContingencyReserve`).
 #
 # One fixture on `two_area_pjm_DA` covers the cases the formulation must keep apart:
-# - an OnlineReserve and an OfflineReserve both named "Reserve1_2"; the online one is procured
-#   (requirement series), the offline one only deploys;
-# - a RenewableDispatch named "Brighton_2", like a thermal, contributing to the online reserve;
-# - three outages overlapping on "Alta_1": A (online only), B (both reserves), C (offline only);
+# - two OnlineReserves: "Reserve1_2" is procured by its requirement series and
+#   "Reserve1_2_static" is unprocured;
+# - a RenewableDispatch named "Brighton_2", like a thermal, contributing to "Reserve1_2";
+# - three outages overlapping on "Alta_1": A ("Reserve1_2" only), B (both), C ("Reserve1_2_static" only);
 # - a parallel line and a parallel interchange, monitored or modeled-but-unmonitored.
 # The main test builds and solves it under copper plate, PTDF, and area balance, and checks
 # the solution against quantities recomputed from the system data.
 
 const _G1_RESERVE = "Reserve1_2"
+const _G1_STATIC_RESERVE = "Reserve1_2_static"
 const _G1_TOL = 1e-4
 
 function _attach_outage!(sys, generators, services, monitored)
@@ -34,6 +35,7 @@ function _add_parallel_interchange!(sys::PSY.System)
         from_area = get_component(Area, sys, "Area1"),
         to_area = get_component(Area, sys, "Area2"),
         flow_limits = (from_to = 1.5, to_from = 1.5),
+        input_basis = u"CU",
     )
     add_component!(sys, interchange)
     return interchange
@@ -48,8 +50,17 @@ _default_g1_monitored(sys) = [
 function g1_system(; monitored::Function = _default_g1_monitored)
     sys = PSB.build_system(PSISystems, "two_area_pjm_DA"; add_reserves = true)
     online = get_component(OnlineReserve{ReserveUp}, sys, _G1_RESERVE)
-    offline = OfflineReserve(; name = _G1_RESERVE, available = true, time_frame = 30.0)
-    add_service!(sys, offline, collect(get_components(ThermalStandard, sys)))
+    static = OnlineReserve{ReserveUp}(;
+        name = _G1_STATIC_RESERVE,
+        available = true,
+        time_frame = 30.0,
+        requirement = 0.0,
+        sustained_time = 3600,
+        max_output_fraction = 1.0,
+        max_participation_factor = 1.0,
+        deployed_fraction = 0.0,
+    )
+    add_service!(sys, static, collect(get_components(ThermalStandard, sys)))
 
     wind = get_component(RenewableDispatch, sys, "WindBus1")
     PSY.set_name!(sys, wind, "Brighton_2")
@@ -74,13 +85,13 @@ function g1_system(; monitored::Function = _default_g1_monitored)
         b = _attach_outage!(
             sys,
             [thermal("Alta_1"), thermal("Sundance_2")],
-            [online, offline],
+            [online, static],
             monitored_components,
         ),
         c = _attach_outage!(
             sys,
             [thermal("Alta_1"), thermal("Park City_2")],
-            [offline],
+            [static],
             monitored_components,
         ),
     )
@@ -88,10 +99,12 @@ function g1_system(; monitored::Function = _default_g1_monitored)
     return sys, outages
 end
 
+_interchange_formulation(::Type{<:AbstractNetworkModel}) = StaticBranch
+_interchange_formulation(::Type{AreaPTDFNetworkModel}) = StaticBranchUnbounded
+
 function g1_template(
     network::Type{<:AbstractNetworkModel};
     online_slacks::Bool = true,
-    offline_slacks::Bool = true,
     model_interchanges::Bool = network === AreaBalanceNetworkModel,
     interchange_filter = nothing,
 )
@@ -103,7 +116,11 @@ function g1_template(
             (attributes["filter_function"] = interchange_filter)
         set_device_model!(
             template,
-            DeviceModel(AreaInterchange, StaticBranch; attributes = attributes),
+            DeviceModel(
+                AreaInterchange,
+                _interchange_formulation(network);
+                attributes = attributes,
+            ),
         )
     end
     set_service_model!(
@@ -112,14 +129,6 @@ function g1_template(
             OnlineReserve{ReserveUp},
             SecurityConstrainedContingencyReserve;
             use_slacks = online_slacks,
-        ),
-    )
-    set_service_model!(
-        template,
-        ServiceModel(
-            OfflineReserve,
-            SecurityConstrainedContingencyReserve;
-            use_slacks = offline_slacks,
         ),
     )
     return template
@@ -204,7 +213,7 @@ function check_g1_deployment(sys, model, outages)
         IOM.get_variable(container, ActivePowerReserveVariable, IOM.ComponentPairKey{D, S})
     @test all(
         JuMP.value(var) <= JuMP.value(award(D, S)[s, d, t]) + _G1_TOL for
-        ((D, S, s, d, _, t), var) in deployments if S <: OnlineReserve
+        ((D, S, s, d, _, t), var) in deployments if s == _G1_RESERVE
     )
 
     # Output plus total deployment stays within the device maximum.
@@ -214,7 +223,7 @@ function check_g1_deployment(sys, model, outages)
     end
     @test all(
         _power_value(container, get_component(D, sys, d), t) + deployed <=
-        PSY.get_max_active_power(get_component(D, sys, d), PSY.SU) + _G1_TOL for
+        PSY.get_max_active_power(get_component(D, sys, d), u"SU") + _G1_TOL for
         ((D, d, _, t), deployed) in totals
     )
     return
@@ -223,7 +232,6 @@ end
 function check_g1_containers(model, outages)
     container = IOM.get_optimization_container(model)
     online_key(D) = IOM.ComponentPairKey{D, OnlineReserve{ReserveUp}}
-    offline_key(D) = IOM.ComponentPairKey{D, OfflineReserve}
 
     # Same-named contributors of different types stay apart.
     for D in (ThermalStandard, RenewableDispatch)
@@ -231,40 +239,31 @@ function check_g1_containers(model, outages)
         @test haskey(award.data, (_G1_RESERVE, "Brighton_2", 1))
     end
 
-    # Same-named services of different types stay apart; only the online one responds to A
-    # and only the offline one to C.
-    online = IOM.get_variable(
+    # Each reserve responds only to the outages it is attached to.
+    variable = IOM.get_variable(
         container,
         PostContingencyDeploymentVariable,
         online_key(ThermalStandard),
     )
-    offline = IOM.get_variable(
-        container,
-        PostContingencyDeploymentVariable,
-        offline_key(ThermalStandard),
+    responds(outage, service_name) = any(
+        k -> k[1] == service_name && k[3] == IS.get_id(outage),
+        keys(variable.data),
     )
-    responds(variable, outage) = any(k -> k[3] == IS.get_id(outage), keys(variable.data))
-    @test responds(online, outages.a) && !responds(offline, outages.a)
-    @test responds(online, outages.b) && responds(offline, outages.b)
-    @test !responds(online, outages.c) && responds(offline, outages.c)
+    @test responds(outages.a, _G1_RESERVE) && !responds(outages.a, _G1_STATIC_RESERVE)
+    @test responds(outages.b, _G1_RESERVE) && responds(outages.b, _G1_STATIC_RESERVE)
+    @test !responds(outages.c, _G1_RESERVE) && responds(outages.c, _G1_STATIC_RESERVE)
 
-    # The offline reserve has no requirement series, so it is not procured.
-    @test !IOM.has_container_key(container, RequirementConstraint, OfflineReserve)
-    @test !IOM.has_container_key(
-        container,
-        ActivePowerReserveVariable,
-        offline_key(ThermalStandard),
-    )
-    @test IOM.has_container_key(
+    # Only the reserve with a requirement series is procured.
+    requirement =
+        IOM.get_constraint(container, RequirementConstraint, OnlineReserve{ReserveUp})
+    @test _G1_RESERVE in axes(requirement, 1)
+    @test !(_G1_STATIC_RESERVE in axes(requirement, 1))
+    cons = IOM.get_constraint(
         container,
         PostContingencyDeploymentConstraint,
         online_key(ThermalStandard),
     )
-    @test !IOM.has_container_key(
-        container,
-        PostContingencyDeploymentConstraint,
-        offline_key(ThermalStandard),
-    )
+    @test !any(k -> k[1] == _G1_STATIC_RESERVE, keys(cons.data))
     return
 end
 
@@ -512,13 +511,6 @@ end
     @test occursin(r"PVBus5.*is not modeled", log_text)
 end
 
-@testset "service models sharing an outage must agree on use_slacks" begin
-    sys, _ = g1_system()
-    template = g1_template(PTDFNetworkModel; offline_slacks = false)
-    @test build!(g1_model(template, sys); output_dir = mktempdir(; cleanup = true)) ==
-          IOM.ModelBuildStatus.FAILED
-end
-
 @testset "down reserves are rejected" begin
     sys, _ = g1_system()
     template = g1_template(CopperPlateNetworkModel)
@@ -528,4 +520,159 @@ end
     )
     @test build!(g1_model(template, sys); output_dir = mktempdir(; cleanup = true)) ==
           IOM.ModelBuildStatus.FAILED
+end
+
+@testset "unsupported network formulations are rejected" begin
+    sys, _ = g1_system()
+    model = g1_model(g1_template(DCPNetworkModel), sys)
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.FAILED
+    @test occursin("AreaBalanceNetworkModel", read(IOM.get_log_file(model), String))
+end
+
+@testset "unsupported contributor types are rejected" begin
+    @test !POM._supports_post_contingency_deployment(PSY.HybridSystem)
+    @test POM._supports_post_contingency_deployment(PSY.ThermalStandard)
+    @test POM._supports_post_contingency_deployment(PSY.EnergyReservoirStorage)
+end
+
+@testset "G-1 reserves under unit commitment" begin
+    sys, outages = g1_system()
+    template = g1_template(CopperPlateNetworkModel)
+    set_device_model!(template, ThermalStandard, ThermalBasicUnitCommitment)
+    model = g1_model(template, sys)
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+    container = IOM.get_optimization_container(model)
+    # The optimum commits every unit, so decommit the smallest one.
+    on = IOM.get_variable(container, OnVariable, ThermalStandard)
+    smallest = argmin(
+        d -> PSY.get_max_active_power(get_component(ThermalStandard, sys, d), u"SU"),
+        axes(on, 1),
+    )
+    for t in IOM.get_time_steps(container)
+        JuMP.fix(on[smallest, t], 0.0; force = true)
+    end
+    @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+    @test IOM.has_container_key(
+        container,
+        PostContingencyGenerationConstraint,
+        ThermalStandard,
+    )
+    n_off = 0
+    for ((D, _, _, d, _, t), var) in _deployments(container)
+        D === ThermalStandard || continue
+        iszero(round(JuMP.value(on[d, t]))) || continue
+        n_off += 1
+        @test JuMP.value(var) <= 1e-6
+    end
+    @test n_off > 0
+    check_g1_deployment(sys, model, outages)
+end
+
+@testset "G-1 reserves with a storage contributor" begin
+    sys = PSB.build_system(PSITestSystems, "c_sys5_bat")
+    battery = first(get_components(EnergyReservoirStorage, sys))
+    thermals = collect(get_components(ThermalStandard, sys))
+    reserve = OnlineReserve{ReserveUp}(;
+        name = "G1_bat",
+        available = true,
+        time_frame = 0.0,
+        requirement = 0.0,
+        sustained_time = 3600,
+        max_output_fraction = 1.0,
+        max_participation_factor = 1.0,
+        deployed_fraction = 0.0,
+    )
+    add_service!(sys, reserve, [battery; thermals])
+    outaged = first(thermals)
+    outage = _attach_outage!(sys, [outaged], [reserve], PSY.Component[])
+    transform_single_time_series!(sys, Hour(24), Hour(1))
+
+    template = get_thermal_dispatch_template_network(NetworkModel(CopperPlateNetworkModel))
+    set_device_model!(template, EnergyReservoirStorage, StorageDispatchWithReserves)
+    set_service_model!(
+        template,
+        ServiceModel(OnlineReserve{ReserveUp}, SecurityConstrainedContingencyReserve),
+    )
+    model = g1_model(template, sys)
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+    @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+    container = IOM.get_optimization_container(model)
+    discharge = IOM.get_variable(container, ActivePowerOutVariable, EnergyReservoirStorage)
+    charge = IOM.get_variable(container, ActivePowerInVariable, EnergyReservoirStorage)
+    limit = PSY.get_output_active_power_limits(battery, u"SU").max
+    name = PSY.get_name(battery)
+    battery_entries = [
+        (t, var) for ((D, _, _, d, _, t), var) in _deployments(container) if
+        D === EnergyReservoirStorage && d == name
+    ]
+    @test !isempty(battery_entries)
+    @test all(
+        JuMP.value(discharge[name, t]) - JuMP.value(charge[name, t]) +
+        JuMP.value(var) <= limit + _G1_TOL for (t, var) in battery_entries
+    )
+end
+
+function check_g1_area_ptdf_flows(sys, model, outages)
+    container = IOM.get_optimization_container(model)
+    time_steps = IOM.get_time_steps(container)
+    network_model = IOM.get_network_model(IOM.get_template(model))
+    reduction = POM.get_network_reduction(network_model)
+    catalog = POM.get_branch_catalog(network_model)
+    ptdf = PNM.VirtualPTDF(sys)
+    bus_axis = PNM.get_bus_axis(ptdf)
+    deployments = _deployments(container)
+    mapped_bus(component) = PNM.get_mapped_bus_number(reduction, PSY.get_bus(component))
+    net = _net_deployment(sys, container, deployments, values(outages), mapped_bus)
+
+    post_flow =
+        IOM.get_expression(container, PostContingencyBranchFlow, AreaInterchange, "G1")
+    flow = IOM.get_variable(container, FlowActivePowerVariable, AreaInterchange)
+    interchange = get_component(AreaInterchange, sys, "1_2")
+    direction_branch_map = POM._interchange_direction_branch_map(
+        interchange,
+        POM._get_branch_map(network_model),
+    )
+    @test !isempty(direction_branch_map)
+    tie_change(type, name, uuid, t) = sum(
+        r * get(net, (uuid, t, bus), 0.0) for (r, bus) in
+        zip(ptdf[PNM.get_name_to_arc_map(catalog, type)[name], :], bus_axis)
+    )
+    expected(uuid, t) = sum(
+        mult * POM.get_ptdf_orientation_sign(catalog, type, name) *
+        tie_change(type, name, uuid, t) for (mult, by_type) in direction_branch_map for
+        (type, names) in by_type for name in names
+    )
+    uuids = [IS.get_id(o) for o in values(outages)]
+    @test all(
+        isapprox(
+            JuMP.value(post_flow["1_2", uuid, t]) - JuMP.value(flow["1_2", t]),
+            expected(uuid, t);
+            atol = 1e-4,
+        ) for uuid in uuids, t in time_steps
+    )
+    @test any(abs(expected(uuid, t)) > 1e-4 for uuid in uuids, t in time_steps)
+
+    limits = IOM.get_constraint(
+        container,
+        PostContingencyFlowRateConstraint,
+        AreaInterchange,
+        "G1_ub",
+    )
+    limited = Set(k[1] for k in keys(limits.data))
+    @test "1_2" in limited
+    @test !("1_2_b" in limited)
+    return
+end
+
+@testset "G-1 reserves limit a monitored interchange under AreaPTDF" begin
+    sys, outages = g1_system()
+    model = g1_model(g1_template(AreaPTDFNetworkModel; model_interchanges = true), sys)
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+    @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+    check_g1_deployment(sys, model, outages)
+    check_g1_area_ptdf_flows(sys, model, outages)
 end

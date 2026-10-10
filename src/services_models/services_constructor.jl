@@ -41,32 +41,12 @@ function _groups_with_demand(model::ServiceModel, sys::PSY.System)
     return [g for g in candidates if _has_reserve_demand(model, g)]
 end
 
-function seed_reserve_range_expressions!(
-    container::OptimizationContainer,
-    sys::PSY.System,
-    model::ServiceModel{S, <:AbstractReservesFormulation},
-    devices_template::DevicesModelContainer,
-) where {S <: PSY.AbstractReserve}
-    for by_device_type in values(get_contributing_devices_map(model)),
-        device_type in keys(by_device_type)
-        # Template keys are `nameof(D)`; `Symbol(T)` would qualify the name off Main.
-        device_model = get(devices_template, nameof(device_type), nothing)
-        isnothing(device_model) && continue
-        # Formulations carrying offline capability through `OfflineReserveBandConstraint`
-        # never wire into the range expression.
-        if _is_offline_reserve(S) &&
-           !offline_reserve_in_range_ub(get_formulation(device_model))
-            continue
-        end
-        _seed_range_expression!(
-            container,
-            sys,
-            get_expression_type_for_reserve(ActivePowerReserveVariable, device_type, S),
-            device_model,
-        )
-    end
-    return
-end
+seed_reserve_range_expressions!(
+    ::OptimizationContainer,
+    ::PSY.System,
+    ::ServiceModel,
+    ::DevicesModelContainer,
+) = nothing
 
 """
 Create each contributing device type's reserve range expression container, sized over that
@@ -201,7 +181,14 @@ function construct_services!(
         )
     end
 
-    _construct_post_contingency!(container, sys, stage, services_template, network_model)
+    _construct_post_contingency!(
+        container,
+        sys,
+        stage,
+        services_template,
+        devices_template,
+        network_model,
+    )
     return
 end
 
@@ -1111,13 +1098,8 @@ function construct_service!(
     return
 end
 
-const _RESERVE_UP = Union{PSY.OnlineReserve{PSY.ReserveUp}, PSY.OfflineReserve}
-
 _is_ramp_formulation(::Type{SecurityConstrainedContingencyReserve}) = false
 _is_ramp_formulation(::Type{SecurityConstrainedRampReserve}) = true
-
-_is_spinning(::PSY.OnlineReserve) = true
-_is_spinning(::PSY.AbstractReserve) = false
 
 # Whether `service` is procured pre-contingency (reserve variable, requirement, ramp,
 # participation, objective); otherwise it only deploys post-contingency.
@@ -1135,7 +1117,7 @@ function construct_service!(
     devices_template::Dict{Symbol, DeviceModel},
     ::Set{<:DataType},
     ::NetworkModel{<:AbstractNetworkModel},
-) where {R <: _RESERVE_UP}
+) where {R <: PSY.OnlineReserve{PSY.ReserveUp}}
     services = _services_with_contributors(model, sys)
     isempty(services) && return
     ts_services = [s for s in services if _has_ts_requirement(model, s)]
@@ -1175,7 +1157,10 @@ function construct_service!(
     ::Dict{Symbol, DeviceModel},
     ::Set{<:DataType},
     ::NetworkModel{<:AbstractNetworkModel},
-) where {R <: _RESERVE_UP, F <: AbstractSecurityConstrainedReservesFormulation}
+) where {
+    R <: PSY.OnlineReserve{PSY.ReserveUp},
+    F <: AbstractSecurityConstrainedReservesFormulation,
+}
     services = _services_with_contributors(model, sys)
     isempty(services) && return
     for service in services
@@ -1205,7 +1190,7 @@ function construct_service!(
             model,
         )
         for devices in values(contributing_devices)
-            _is_ramp_formulation(F) && _is_spinning(R) &&
+            _is_ramp_formulation(F) &&
                 add_constraints!(container, RampConstraint, service, devices, model)
             add_constraints!(
                 container,
@@ -1238,6 +1223,6 @@ construct_service!(
     ::NetworkModel{<:AbstractNetworkModel},
 ) = throw(
     IS.ConflictingInputsError(
-        "Security-constrained formulations currently only support reserve-up services.",
+        "Security-constrained formulations currently only support `OnlineReserve{ReserveUp}` services.",
     ),
 )
