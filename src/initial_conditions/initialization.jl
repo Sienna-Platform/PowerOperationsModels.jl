@@ -1,7 +1,4 @@
-function get_initial_conditions_template(
-    model::IOM.AbstractOptimizationModel,
-    number_of_steps::Int,
-)
+function get_initial_conditions_template(model::IOM.AbstractOptimizationModel)
     # This is done to avoid passing the duals but also not re-allocating the PTDF when it
     # exists
 
@@ -63,7 +60,6 @@ function get_initial_conditions_template(
         base_model.attributes = service_model.attributes
         set_service_model!(ic_template, base_model)
     end
-    _reset_reduced_branch_tracker!(network_model, number_of_steps)
     if !isempty(get_service_models(model.template))
         _add_services_to_device_model!(ic_template)
     end
@@ -86,7 +82,7 @@ function build_initial_conditions_model!(
     resolution = get_resolution(ic_settings)
     init_horizon = INITIALIZATION_PROBLEM_HORIZON_COUNT * resolution
     number_of_steps = min(init_horizon, main_problem_horizon)
-    template = get_initial_conditions_template(model, number_of_steps ÷ resolution)
+    template = get_initial_conditions_template(model)
     ic_container.settings = ic_settings
     ic_container.built_for_recurrent_solves = false
     set_horizon!(ic_settings, number_of_steps)
