@@ -1,34 +1,34 @@
-@testset "ParameterTimeSeriesStore: the store round-trips through a file with its catalog" begin
-    store = POM.ParameterTimeSeriesStore()
+@testset "parameter store: the store round-trips through a file with its catalog" begin
+    store = IS.Store(; in_memory = true)
     key = IOM.ParameterKey(POM.ActivePowerTimeSeriesParameter, PSY.ThermalStandard)
     stamps = collect(range(Dates.DateTime(2024, 1, 1); step = Dates.Hour(1), length = 24))
     array = JuMP.Containers.DenseAxisArray(
         reshape(collect(1.0:24.0), 1, 24), ["Solitude"], 1:24,
     )
-    POM.write_parameter_array!(store, key, array, stamps, Dates.Hour(1))
+    POM.write_parameter_array!(store, key, array, first(stamps), Dates.Hour(1))
 
     dir = mktempdir(; cleanup = true)
     path = joinpath(dir, "time_series.h5")
-    IS.serialize(store.store, path)
-    POM.close_parameter_store!(store)
+    IS.serialize(store, path)
+    IS.close!(store)
     @test isfile(path)
     @test isfile(path * ".sqlite")
 
-    reopened = POM.open_parameter_store(path)
-    @test IS.get_num_time_series(reopened.store) == 1
+    reopened = IS.open_infrastore_store(path)
+    @test IS.get_num_time_series(reopened) == 1
     back = POM.read_parameter_array(reopened, key)
     @test TimeSeries.values(back["Solitude"]) == collect(1.0:24.0)
-    POM.close_parameter_store!(reopened)
+    IS.close!(reopened)
 end
 
-@testset "ParameterTimeSeriesStore: only component-owned rows export as document rows" begin
-    store = POM.ParameterTimeSeriesStore()
+@testset "parameter store: only component-owned rows export as document rows" begin
+    store = IS.Store(; in_memory = true)
     ta = TimeSeries.TimeArray(
         range(Dates.DateTime(2024, 1, 1); step = Dates.Hour(1), length = 24),
         collect(1.0:24.0),
     )
     key = IS.add_time_series!(
-        store.store, 7, "ThermalStandard",
+        store, 7, "ThermalStandard",
         IS.get_owner_category(IS.InfrastructureSystemsComponent),
         PSY.SingleTimeSeries("fuel_cost", ta),
     )
@@ -40,11 +40,11 @@ end
             ["Solitude"],
             1:24,
         ),
-        collect(range(Dates.DateTime(2024, 1, 1); step = Dates.Hour(1), length = 24)),
+        Dates.DateTime(2024, 1, 1),
         Dates.Hour(1),
     )
 
-    @test IS.get_num_time_series(store.store) == 2
+    @test IS.get_num_time_series(store) == 2
     rows = POM.parameter_association_rows(store)
     @test length(rows) == 1
     row = only(rows).value
@@ -53,17 +53,17 @@ end
     @test row.association_id == IS.get_association_id(key)
     # The property the whole design rests on: the uri names an array this store holds.
     @test occursin(r"^[0-9a-f]{64}$", row.uri)
-    POM.close_parameter_store!(store)
+    IS.close!(store)
 end
 
-@testset "ParameterTimeSeriesStore: document rows are identical after persist and reopen" begin
-    store = POM.ParameterTimeSeriesStore()
+@testset "parameter store: document rows are identical after persist and reopen" begin
+    store = IS.Store(; in_memory = true)
     ta = TimeSeries.TimeArray(
         range(Dates.DateTime(2024, 1, 1); step = Dates.Hour(1), length = 24),
         collect(1.0:24.0),
     )
     IS.add_time_series!(
-        store.store, 7, "ThermalStandard",
+        store, 7, "ThermalStandard",
         IS.get_owner_category(IS.InfrastructureSystemsComponent),
         PSY.SingleTimeSeries("fuel_cost", ta),
     )
@@ -75,22 +75,22 @@ end
             ["Solitude"],
             1:24,
         ),
-        collect(range(Dates.DateTime(2024, 1, 1); step = Dates.Hour(1), length = 24)),
+        Dates.DateTime(2024, 1, 1),
         Dates.Hour(1),
     )
     before = POM.parameter_association_rows(store)
 
     dir = mktempdir(; cleanup = true)
     path = joinpath(dir, "time_series.h5")
-    IS.serialize(store.store, path)
-    POM.close_parameter_store!(store)
+    IS.serialize(store, path)
+    IS.close!(store)
 
-    reopened = POM.open_parameter_store(path)
+    reopened = IS.open_infrastore_store(path)
     # The reopened store holds every row, including the undeclared one ...
-    @test IS.get_num_time_series(reopened.store) == 2
+    @test IS.get_num_time_series(reopened) == 2
     # ... and the catalog's row for the declared series matches what was exported before,
     # field for field. This is what PowerSystems' import checks on load.
-    all_rows = IS.openapi_time_series_association_rows(reopened.store)
+    all_rows = IS.openapi_time_series_association_rows(reopened)
     declared = only(before).value
     matching = filter(r -> r.value.association_id == declared.association_id, all_rows)
     @test length(matching) == 1
@@ -98,19 +98,19 @@ end
     @test after.name == declared.name
     @test after.owner_id == declared.owner_id
     @test after.uri == declared.uri
-    POM.close_parameter_store!(reopened)
+    IS.close!(reopened)
 end
 
 @testset "write_outputs_system_bundle!: the bundle loads with PSY.from_file" begin
     sys = PSB.build_system(PSITestSystems, "c_sys5")
-    store = POM.ParameterTimeSeriesStore()
+    store = IS.Store(; in_memory = true)
     gen = first(get_components(PSY.ThermalStandard, sys))
     ta = TimeSeries.TimeArray(
         range(Dates.DateTime(2024, 1, 1); step = Dates.Hour(1), length = 24),
         collect(1.0:24.0),
     )
     IS.add_time_series!(
-        store.store, IS.get_id(gen), "ThermalStandard",
+        store, IS.get_id(gen), "ThermalStandard",
         IS.get_owner_category(IS.InfrastructureSystemsComponent),
         PSY.SingleTimeSeries("fuel_cost", ta),
     )
@@ -118,16 +118,16 @@ end
     # row under a real component's owner id would read back as that component's own series.
     # An undeclared parameter array must live under an owner no component ever has.
     IS.add_time_series!(
-        store.store, POM.PARAMETER_ROW_OWNER_ID, POM.PARAMETER_ROW_OWNER_TYPE,
+        store, POM.PARAMETER_ROW_OWNER_ID, POM.PARAMETER_ROW_OWNER_TYPE,
         IS.get_owner_category(IS.InfrastructureSystemsComponent),
         PSY.SingleTimeSeries("undeclared", ta),
     )
-    @test IS.get_num_time_series(store.store) == 2
+    @test IS.get_num_time_series(store) == 2
 
     dir = mktempdir(; cleanup = true)
     bundle = joinpath(dir, "system-test")
     POM.write_outputs_system_bundle!(sys, store, Dict{Int64, Int64}(), bundle)
-    POM.close_parameter_store!(store)
+    IS.close!(store)
 
     @test isfile(joinpath(bundle, PSY.SYSTEM_DOCUMENT_FILE))
     @test isfile(joinpath(bundle, PSY.TIME_SERIES_FILE))
@@ -166,9 +166,9 @@ end
     )
 
     # The parameter store holds the realized fuel cost; the cost key must be remapped to it.
-    store = POM.ParameterTimeSeriesStore()
+    store = IS.Store(; in_memory = true)
     new_key = IS.add_time_series!(
-        store.store, IS.get_id(gen), "ThermalStandard",
+        store, IS.get_id(gen), "ThermalStandard",
         IS.get_owner_category(IS.InfrastructureSystemsComponent),
         PSY.SingleTimeSeries("fuel_cost", fuel),
     )
@@ -177,7 +177,7 @@ end
     dir = mktempdir(; cleanup = true)
     bundle = joinpath(dir, "system-test")
     POM.write_outputs_system_bundle!(sys, store, key_map, bundle)
-    POM.close_parameter_store!(store)
+    IS.close!(store)
 
     restored = PSY.from_file(bundle; time_series_read_only = true)
     gen2 = get_component(PSY.ThermalStandard, restored, PSY.get_name(gen))
@@ -187,15 +187,127 @@ end
     @test TimeSeries.values(cost_ts) == collect(3.0:0.5:14.5)
 end
 
+const _BUNDLE_T0 = Dates.DateTime(2024, 1, 1)
+
+function _bundle_step_curves(scale::Float64)
+    return [
+        IS.PiecewiseStepData([0.0, 10.0, 20.0], [scale + h, 2.0 * scale + h]) for h in 1:24
+    ]
+end
+
+function _bundle_forecast!(sys, component, name, values)
+    key = PSY.add_time_series!(
+        sys,
+        component,
+        PSY.Deterministic(;
+            name = name, data = Dict(_BUNDLE_T0 => values), resolution = Dates.Hour(1),
+        ),
+    )
+    return key
+end
+
+# Copies the costs of `sys` into a store, writes the bundle and restores it.
+function _bundle_round_trip(sys)
+    windows = POM.RunWindows(_BUNDLE_T0, 1, 24, Dates.Hour(1), Dates.Hour(24))
+    store = IS.Store(; in_memory = true)
+    key_map = POM.copy_cost_time_series!(store, sys, windows)
+    bundle = joinpath(mktempdir(; cleanup = true), "system-test")
+    POM.write_outputs_system_bundle!(sys, store, key_map, bundle)
+    IS.close!(store)
+    return key_map, PSY.from_file(bundle; time_series_read_only = true)
+end
+
+@testset "write_outputs_system_bundle!: a time-series GroupReserve demand curve is copied" begin
+    sys = deepcopy(PSB.build_system(PSITestSystems, "c_sys5"))
+    group = PSY.GroupReserve{PSY.ReserveUp}(;
+        name = "UP_GROUP", available = true, requirement = 0.0,
+        contributing_services = PSY.Service[],
+    )
+    PSY.add_service!(sys, group)
+    expected = _bundle_step_curves(5.0)
+    key = _bundle_forecast!(sys, group, "variable_cost", expected)
+    PSY.set_variable!(group, PSY.make_market_bid_ts_curve(key, nothing, IS.NaturalUnit()))
+
+    @test POM._cost_time_series_keys(group) == [key]
+    key_map, restored = _bundle_round_trip(sys)
+    @test haskey(key_map, IS.get_association_id(key))
+    group2 = PSY.get_component(PSY.GroupReserve{PSY.ReserveUp}, restored, "UP_GROUP")
+    key2 = IS.get_time_series_key(PSY.get_value_curve(PSY.get_variable(group2)))
+    @test IS.get_data(PSY.get_time_series(group2, key2))[_BUNDLE_T0] == expected
+end
+
+@testset "write_outputs_system_bundle!: a time-series PointToPointBid spread bid resolves" begin
+    sys = deepcopy(PSB.build_system(PSITestSystems, "c_sys5"))
+    buses = collect(PSY.get_components(PSY.ACBus, sys))
+    hub = PSY.TradingHub(; name = "hub", buses = buses[1:2])
+    PSY.add_component!(sys, hub)
+    ptp = PSY.PointToPointBid(;
+        name = "ptp", available = true, from = buses[1], to = hub,
+        max_active_power = 50.0,
+        spread_bid = PSY.MarketBidCost(nothing),
+        price_limits = (min = -50.0, max = 50.0),
+    )
+    PSY.add_component!(sys, ptp)
+    expected = _bundle_step_curves(7.0)
+    key = _bundle_forecast!(sys, ptp, "variable_cost incremental", expected)
+    decr_key =
+        _bundle_forecast!(sys, ptp, "variable_cost decremental", _bundle_step_curves(3.0))
+    linear = [IS.LinearFunctionData(1.0 + h, 0.0) for h in 1:24]
+    meo_key = _bundle_forecast!(sys, ptp, "minimum_energy_offer", linear)
+    sd_key = _bundle_forecast!(sys, ptp, "shut_down", linear)
+    su_key = _bundle_forecast!(sys, ptp, "start_up", fill((1.0, 2.0, 3.0), 24))
+    PSY.set_spread_bid!(
+        ptp,
+        PSY.MarketBidTimeSeriesCost(;
+            minimum_energy_offer = PSY.TimeSeriesLinearCurve(meo_key),
+            start_up = su_key,
+            shut_down = PSY.TimeSeriesLinearCurve(sd_key),
+            incremental_offer_curves = PSY.make_market_bid_ts_curve(key),
+            decremental_offer_curves = PSY.make_market_bid_ts_curve(decr_key),
+        ),
+    )
+
+    key_map, restored = _bundle_round_trip(sys)
+    @test haskey(key_map, IS.get_association_id(key))
+    @test length(key_map) == 5
+    ptp2 = PSY.get_component(PSY.PointToPointBid, restored, "ptp")
+    key2 = IS.get_time_series_key(
+        PSY.get_value_curve(PSY.get_incremental_offer_curves(PSY.get_spread_bid(ptp2))),
+    )
+    ts = PSY.get_time_series(ptp2, key2)
+    @test IS.get_data(ts)[_BUNDLE_T0] == expected
+end
+
+@testset "write_outputs_system_bundle!: a time-series HydroReservoir head_to_volume_factor resolves" begin
+    sys = deepcopy(PSB.build_system(PSITestSystems, "c_sys5"))
+    reservoir = PSY.HydroReservoir(;
+        name = "res", available = true, storage_level_limits = (min = 0.0, max = 100.0),
+        initial_level = 0.5, spillage_limits = nothing, inflow = 1.0, outflow = 1.0,
+        level_targets = 0.5, intake_elevation = 10.0,
+        head_to_volume_factor = IS.LinearFunctionData(0.0),
+    )
+    PSY.add_component!(sys, reservoir)
+    expected = [IS.LinearFunctionData(1.0 + h, 0.0) for h in 1:24]
+    key = _bundle_forecast!(sys, reservoir, "head_to_volume", expected)
+    PSY.set_head_to_volume_factor!(reservoir, IS.TimeSeriesLinearFunctionData(key))
+
+    key_map, restored = _bundle_round_trip(sys)
+    @test haskey(key_map, IS.get_association_id(key))
+    reservoir2 = PSY.get_component(PSY.HydroReservoir, restored, "res")
+    key2 = IS.get_time_series_key(PSY.get_head_to_volume_factor(reservoir2))
+    ts = PSY.get_time_series(reservoir2, key2)
+    @test IS.get_data(ts)[_BUNDLE_T0] == expected
+end
+
 @testset "parameter arrays round-trip under the synthetic owner" begin
-    store = POM.ParameterTimeSeriesStore()
+    store = IS.Store(; in_memory = true)
     key = IOM.ParameterKey(POM.ActivePowerTimeSeriesParameter, PSY.ThermalStandard)
     labels = ["Solitude", "Park City"]
     stamps = collect(range(Dates.DateTime(2024, 1, 1); step = Dates.Hour(1), length = 4))
     array = JuMP.Containers.DenseAxisArray(
         [1.0 2.0 3.0 4.0; 10.0 20.0 30.0 40.0], labels, 1:4,
     )
-    POM.write_parameter_array!(store, key, array, stamps, Dates.Hour(1))
+    POM.write_parameter_array!(store, key, array, first(stamps), Dates.Hour(1))
 
     back = POM.read_parameter_array(store, key)
     @test Set(keys(back)) == Set(labels)
@@ -205,14 +317,14 @@ end
     @test isempty(POM.parameter_association_rows(store))
     # A different parameter with the same labels does not collide.
     other = IOM.ParameterKey(POM.FuelCostParameter, PSY.ThermalStandard)
-    POM.write_parameter_array!(store, other, array .* 2, stamps, Dates.Hour(1))
+    POM.write_parameter_array!(store, other, array .* 2, first(stamps), Dates.Hour(1))
     @test TimeSeries.values(POM.read_parameter_array(store, other)["Solitude"]) ==
           [2.0, 4.0, 6.0, 8.0]
-    POM.close_parameter_store!(store)
+    IS.close!(store)
 end
 
 @testset "has_parameter_rows reports presence and honors extra_features" begin
-    store = POM.ParameterTimeSeriesStore()
+    store = IS.Store(; in_memory = true)
     key = IOM.ParameterKey(POM.ActivePowerTimeSeriesParameter, PSY.ThermalStandard)
     labels = ["Solitude", "Park City"]
     stamps = collect(range(Dates.DateTime(2024, 1, 1); step = Dates.Hour(1), length = 4))
@@ -222,16 +334,16 @@ end
     @test !POM.has_parameter_rows(store, key)
 
     POM.write_parameter_array!(
-        store, key, array, stamps, Dates.Hour(1);
+        store, key, array, first(stamps), Dates.Hour(1);
         extra_features = Dict{String, Any}("model" => "UC"),
     )
     @test POM.has_parameter_rows(store, key; extra_features = Dict("model" => "UC"))
     @test !POM.has_parameter_rows(store, key; extra_features = Dict("model" => "ED"))
-    POM.close_parameter_store!(store)
+    IS.close!(store)
 end
 
 @testset "3-D parameter arrays round-trip with time as the last axis" begin
-    store = POM.ParameterTimeSeriesStore()
+    store = IS.Store(; in_memory = true)
     key = IOM.ParameterKey(
         POM.IncrementalPiecewiseLinearBreakpointParameter, PSY.ThermalStandard,
     )
@@ -239,18 +351,18 @@ end
         rand(2, 3, 4), ["a", "b"], ["seg1", "seg2", "seg3"], 1:4,
     )
     stamps = collect(range(Dates.DateTime(2024, 1, 1); step = Dates.Hour(1), length = 4))
-    POM.write_parameter_array!(store, key, array, stamps, Dates.Hour(1))
+    POM.write_parameter_array!(store, key, array, first(stamps), Dates.Hour(1))
 
     back = POM.read_parameter_array(
         store, key; extra_features = Dict("axis2" => "seg2"),
     )
     @test TimeSeries.values(back["a"]) == array["a", "seg2", :]
     @test TimeSeries.timestamp(back["a"]) == stamps
-    POM.close_parameter_store!(store)
+    IS.close!(store)
 end
 
 @testset "parameter_slice_labels finds axis2 for a 3-D parameter, empty for a 2-D one" begin
-    store = POM.ParameterTimeSeriesStore()
+    store = IS.Store(; in_memory = true)
     key = IOM.ParameterKey(
         POM.IncrementalPiecewiseLinearBreakpointParameter, PSY.ThermalStandard,
     )
@@ -258,7 +370,7 @@ end
         rand(2, 3, 4), ["a", "b"], ["seg1", "seg2", "seg3"], 1:4,
     )
     stamps = collect(range(Dates.DateTime(2024, 1, 1); step = Dates.Hour(1), length = 4))
-    POM.write_parameter_array!(store, key, array, stamps, Dates.Hour(1))
+    POM.write_parameter_array!(store, key, array, first(stamps), Dates.Hour(1))
     @test POM.parameter_slice_labels(store, key) == ["seg1", "seg2", "seg3"]
     @test POM.parameter_slice_labels(
         store, key; extra_features = Dict{String, Any}("model" => "UC"),
@@ -268,21 +380,21 @@ end
     array_2d = JuMP.Containers.DenseAxisArray(
         [1.0 2.0 3.0 4.0; 10.0 20.0 30.0 40.0], ["a", "b"], 1:4,
     )
-    POM.write_parameter_array!(store, other, array_2d, stamps, Dates.Hour(1))
+    POM.write_parameter_array!(store, other, array_2d, first(stamps), Dates.Hour(1))
     @test isempty(POM.parameter_slice_labels(store, other))
-    POM.close_parameter_store!(store)
+    IS.close!(store)
 end
 
 @testset "write_parameter_array! errors on a single-point array (IS's own floor)" begin
-    store = POM.ParameterTimeSeriesStore()
+    store = IS.Store(; in_memory = true)
     key = IOM.ParameterKey(POM.ActivePowerTimeSeriesParameter, PSY.ThermalStandard)
     labels = ["Solitude", "Park City"]
     stamps = [Dates.DateTime(2024, 1, 1)]
     array = JuMP.Containers.DenseAxisArray(reshape([1.0, 10.0], 2, 1), labels, 1:1)
     @test_throws ArgumentError POM.write_parameter_array!(
-        store, key, array, stamps, Dates.Hour(1),
+        store, key, array, first(stamps), Dates.Hour(1),
     )
-    POM.close_parameter_store!(store)
+    IS.close!(store)
 end
 
 @testset "parameter_store_from_model warns and skips arrays on a 1-step horizon, but still copies costs" begin
@@ -329,22 +441,22 @@ end
         )
     # No parameter array rows were written (they live under the synthetic owner id).
     @test isempty(
-        IS.list_time_series_metadata(store.store; owner_id = POM.PARAMETER_ROW_OWNER_ID),
+        IS.list_time_series_metadata(store; owner_id = POM.PARAMETER_ROW_OWNER_ID),
     )
     # The cost is too short to re-window onto a 1-step run, so it is copied verbatim instead.
-    @test IS.get_num_time_series(store.store) == 1
+    @test IS.get_num_time_series(store) == 1
     @test length(key_map) == 1
     copied_md = only(
         IS.list_time_series_metadata(
-            store.store;
+            store;
             owner_id = IS.get_id(gen),
             name = "fuel_cost",
         ),
     )
-    copied = IS.get_time_series(store.store, IS.get_time_series_key(copied_md))
+    copied = IS.get_time_series(store, IS.get_time_series_key(copied_md))
     @test sort(collect(keys(IS.get_data(copied)))) ==
           [init_time, init_time + Dates.Hour(24)]
-    POM.close_parameter_store!(store)
+    IS.close!(store)
 end
 
 @testset "a 1-step-horizon model with a forecast-backed cost still writes its outputs bundle" begin
@@ -417,7 +529,7 @@ end
         PSY.ThermalGenerationCost(PSY.FuelCurve(PSY.LinearCurve(1.0), key), 0.0, 0.0, 0.0),
     )
 
-    store = POM.ParameterTimeSeriesStore()
+    store = IS.Store(; in_memory = true)
     # c_sys5's own max_active_power forecasts: initial 2024-01-01, hourly, 24h windows, 24h
     # interval, 2 windows. The static fuel_cost cost key ignores the grid, so any grid this
     # fixture would itself produce is fine.
@@ -426,9 +538,9 @@ end
     key_map = POM.copy_cost_time_series!(store, sys, windows)
     @test length(key_map) == 1
     @test haskey(key_map, IS.get_association_id(key))
-    @test IS.get_num_time_series(store.store) == 1      # the load profiles were NOT copied
+    @test IS.get_num_time_series(store) == 1      # the load profiles were NOT copied
     @test length(POM.parameter_association_rows(store)) == 1
-    POM.close_parameter_store!(store)
+    IS.close!(store)
 end
 
 @testset "copy_cost_time_series! re-windows a forecast cost onto the run grid" begin
@@ -463,21 +575,21 @@ end
 
     windows = POM.RunWindows(t0, 2, 12, Dates.Hour(1), Dates.Hour(2))
     @test windows.initial_times == [t0, t0 + Dates.Hour(2)]
-    store = POM.ParameterTimeSeriesStore()
+    store = IS.Store(; in_memory = true)
     key_map = POM.copy_cost_time_series!(store, sys, windows)
     @test length(key_map) == 1
     copied_md = only(
         IS.list_time_series_metadata(
-            store.store; owner_id = IS.get_id(gen), name = "fuel_cost",
+            store; owner_id = IS.get_id(gen), name = "fuel_cost",
         ),
     )
-    copied = IS.get_time_series(store.store, IS.get_time_series_key(copied_md))
+    copied = IS.get_time_series(store, IS.get_time_series_key(copied_md))
     copied_data = IS.get_data(copied)
     @test sort(collect(keys(copied_data))) == [t0, t0 + Dates.Hour(2)]
     @test copied_data[t0] == collect(1.0:12.0)
     @test copied_data[t0 + Dates.Hour(2)] == collect(3.0:14.0)
     @test IS.get_interval(copied) == Dates.Hour(2)
-    POM.close_parameter_store!(store)
+    IS.close!(store)
 end
 
 @testset "copy_cost_time_series! copies a static cost verbatim" begin
@@ -509,7 +621,7 @@ end
             PSY.FuelCurve(PSY.LinearCurve(1.0), key), 0.0, 0.0, 0.0,
         ),
     )
-    store = POM.ParameterTimeSeriesStore()
+    store = IS.Store(; in_memory = true)
     POM.copy_cost_time_series!(
         store,
         sys,
@@ -517,13 +629,13 @@ end
     )
     copied_md = only(
         IS.list_time_series_metadata(
-            store.store; owner_id = IS.get_id(gen), name = "fuel_cost",
+            store; owner_id = IS.get_id(gen), name = "fuel_cost",
         ),
     )
-    copied_ts = IS.get_time_series(store.store, IS.get_time_series_key(copied_md))
+    copied_ts = IS.get_time_series(store, IS.get_time_series_key(copied_md))
     back = IS.make_time_array(copied_ts, IS.get_initial_timestamp(copied_ts))
     @test TimeSeries.values(back) == collect(1.0:48.0)
-    POM.close_parameter_store!(store)
+    IS.close!(store)
 end
 
 @testset "run_windows: one window at the model's initial time; horizon stands in for an unset interval" begin
@@ -544,7 +656,7 @@ end
 end
 
 @testset "parameter windows round-trip as forecasts" begin
-    store = POM.ParameterTimeSeriesStore()
+    store = IS.Store(; in_memory = true)
     key = IOM.ParameterKey(POM.ActivePowerTimeSeriesParameter, PSY.ThermalStandard)
     labels = ["Solitude", "Park City"]
     t0 = Dates.DateTime(2024, 1, 1)
@@ -572,56 +684,56 @@ end
             store, key; extra_features = Dict{String, Any}("model" => "ED"),
         ),
     ) == 2
-    POM.close_parameter_store!(store)
+    IS.close!(store)
 end
 
 @testset "a persisted store reopens writable in place" begin
-    store = POM.ParameterTimeSeriesStore()
+    store = IS.Store(; in_memory = true)
     key1 = IOM.ParameterKey(POM.ActivePowerTimeSeriesParameter, PSY.ThermalStandard)
     POM.write_parameter_array!(
         store, key1, JuMP.Containers.DenseAxisArray([1.0 2.0 3.0 4.0], ["Solitude"], 1:4),
-        collect(range(Dates.DateTime(2024, 1, 1); step = Dates.Hour(1), length = 4)),
+        Dates.DateTime(2024, 1, 1),
         Dates.Hour(1),
     )
     dir = mktempdir(; cleanup = true)
     path = joinpath(dir, "time_series.h5")
-    IS.serialize(store.store, path)
-    POM.close_parameter_store!(store)
+    IS.serialize(store, path)
+    IS.close!(store)
 
-    live = POM.open_parameter_store(path)
+    live = IS.open_infrastore_store(path)
     key2 = IOM.ParameterKey(POM.FuelCostParameter, PSY.ThermalStandard)
     POM.write_parameter_array!(
         live, key2, JuMP.Containers.DenseAxisArray([5.0 6.0 7.0 8.0], ["Solitude"], 1:4),
-        collect(range(Dates.DateTime(2024, 1, 1); step = Dates.Hour(1), length = 4)),
+        Dates.DateTime(2024, 1, 1),
         Dates.Hour(1),
     )
-    POM.close_parameter_store!(live)
+    IS.close!(live)
 
     # The files on disk now hold both rows: no re-persist happened.
-    again = POM.open_parameter_store(path)
-    @test IS.get_num_time_series(again.store) == 2
+    again = IS.open_infrastore_store(path)
+    @test IS.get_num_time_series(again) == 2
     @test TimeSeries.values(POM.read_parameter_array(again, key1)["Solitude"]) ==
           [1.0, 2.0, 3.0, 4.0]
     @test TimeSeries.values(POM.read_parameter_array(again, key2)["Solitude"]) ==
           [5.0, 6.0, 7.0, 8.0]
-    POM.close_parameter_store!(again)
+    IS.close!(again)
 end
 
 @testset "parameter_store_of reads a System's own already-open store, no second open" begin
     sys = PSB.build_system(PSITestSystems, "c_sys5")
-    store = POM.ParameterTimeSeriesStore()
+    store = IS.Store(; in_memory = true)
     key = IOM.ParameterKey(POM.ActivePowerTimeSeriesParameter, PSY.ThermalStandard)
     labels = ["Solitude", "Park City"]
     stamps = collect(range(Dates.DateTime(2024, 1, 1); step = Dates.Hour(1), length = 4))
     array = JuMP.Containers.DenseAxisArray(
         [1.0 2.0 3.0 4.0; 10.0 20.0 30.0 40.0], labels, 1:4,
     )
-    POM.write_parameter_array!(store, key, array, stamps, Dates.Hour(1))
+    POM.write_parameter_array!(store, key, array, first(stamps), Dates.Hour(1))
 
     dir = mktempdir(; cleanup = true)
     bundle = joinpath(dir, "system-test")
     POM.write_outputs_system_bundle!(sys, store, Dict{Int64, Int64}(), bundle)
-    POM.close_parameter_store!(store)
+    IS.close!(store)
 
     # `time_series_read_only = true` is exactly what an outputs reader's `get_system!` does;
     # this leaves that same handle open (never closed by this test) and reads the parameter
@@ -638,18 +750,18 @@ end
     load = first(get_components(PSY.PowerLoad, sys))
     t0 = Dates.DateTime(2024, 1, 1)
     data = Dict(t0 => collect(0.1:0.1:2.4), t0 + Dates.Hour(24) => collect(0.2:0.1:2.5))
-    store = POM.ParameterTimeSeriesStore()
-    @test POM.write_input_forecast_row!(
+    store = IS.Store(; in_memory = true)
+    POM.write_input_forecast_row!(
         store, IS.get_id(load), "PowerLoad", "max_active_power", data, Dates.Hour(1),
         Dates.Hour(24),
     )
     # Review Focus 2: the same (owner, name) again is skipped, not duplicated and not an error.
-    @test !POM.write_input_forecast_row!(
+    POM.write_input_forecast_row!(
         store, IS.get_id(load), "PowerLoad", "max_active_power", data, Dates.Hour(1),
         Dates.Hour(24),
     )
     rows = IS.list_time_series_metadata(
-        store.store;
+        store;
         owner_id = IS.get_id(load),
         name = "max_active_power",
     )
@@ -659,7 +771,7 @@ end
         Set(row.value.association_id for row in POM.parameter_association_rows(store))
     @test IS.get_association_id(IS.get_time_series_key(only(rows))) in
           document_association_ids
-    POM.close_parameter_store!(store)
+    IS.close!(store)
 end
 
 @testset "input_series_descriptor resolves labels to owners and warns once for the rest" begin
@@ -674,20 +786,18 @@ end
     container = IOM.get_optimization_container(model)
     key = IOM.ParameterKey(POM.ActivePowerTimeSeriesParameter, PSY.PowerLoad)
     pc = IOM.get_parameters(container)[key]
-    @test POM.is_input_parameter(key, pc)
+    @test POM.is_input_parameter(pc)
     d = POM.input_series_descriptor(c_sys5, key, pc)
     @test d.name == "max_active_power"
     @test d.time_series_type <: PSY.Deterministic
     @test Set(keys(d.owners)) == Set(PSY.get_name.(get_components(PSY.PowerLoad, c_sys5)))
-    @test isempty(d.unresolved)
     # Review Focus 3: a label that is not a component is reported, not fatal.
     IOM.add_component_name!(IOM.get_attributes(pc), "bogus", "deadbeef")
     d2 = @test_logs (:warn, r"bogus") POM.input_series_descriptor(c_sys5, key, pc)
-    @test d2.unresolved == ["bogus"]
     @test !haskey(d2.owners, "bogus")
     cost_key = IOM.ParameterKey(POM.FuelCostParameter, PSY.ThermalStandard)
     if haskey(IOM.get_parameters(container), cost_key)
-        @test !POM.is_input_parameter(cost_key, IOM.get_parameters(container)[cost_key])
+        @test !POM.is_input_parameter(IOM.get_parameters(container)[cost_key])
     end
 end
 
@@ -702,13 +812,13 @@ end
           IOM.ModelBuildStatus.BUILT
     container = IOM.get_optimization_container(model)
     windows = POM.run_windows(model)
-    store = POM.ParameterTimeSeriesStore()
+    store = IS.Store(; in_memory = true)
     key_map = POM.copy_cost_time_series!(store, c_sys5, windows)
     POM.write_model_inputs!(store, c_sys5, container, windows)
 
     bundle = joinpath(mktempdir(; cleanup = true), "system-test")
     POM.write_outputs_system_bundle!(c_sys5, store, key_map, bundle)
-    POM.close_parameter_store!(store)
+    IS.close!(store)
 
     restored = PSY.from_file(bundle; time_series_read_only = true)
     load = first(get_components(PSY.PowerLoad, c_sys5))
@@ -727,7 +837,7 @@ end
 end
 
 @testset "list_input_series returns only marker rows" begin
-    store = POM.ParameterTimeSeriesStore()
+    store = IS.Store(; in_memory = true)
     t0 = Dates.DateTime(2024, 1, 1)
     POM.write_input_forecast_row!(
         store, 7, "PowerLoad", "max_active_power",
@@ -743,7 +853,7 @@ end
             ["Solitude"],
             1:24,
         ),
-        collect(range(t0; step = Dates.Hour(1), length = 24)),
+        t0,
         Dates.Hour(1),
     )
     rows = POM.list_input_series(store)
@@ -752,27 +862,27 @@ end
     @test IS.get_owner_id(only(rows)) == 7
     ts = POM.read_input_time_series(store, only(rows))
     @test IS.get_data(ts)[t0] == collect(1.0:24.0)
-    POM.close_parameter_store!(store)
+    IS.close!(store)
 end
 
 @testset "a Deterministic and a SingleTimeSeries input row coexist for the same (owner, name)" begin
-    store = POM.ParameterTimeSeriesStore()
+    store = IS.Store(; in_memory = true)
     t0 = Dates.DateTime(2024, 1, 1)
-    @test POM.write_input_forecast_row!(
+    POM.write_input_forecast_row!(
         store, 7, "PowerLoad", "max_active_power",
         Dict(t0 => collect(1.0:24.0)), Dates.Hour(1), Dates.Hour(24),
     )
-    @test POM.write_input_series_row!(
+    POM.write_input_series_row!(
         store, 7, "PowerLoad", "max_active_power", collect(1.0:48.0), t0, Dates.Hour(1),
     )
     rows = POM.list_input_series(store)
     @test length(rows) == 2
-    # A second write of the SAME type must still return false (write-once within a type).
-    @test !POM.write_input_forecast_row!(
+    # A second write of the same type is a no-op (write-once within a type).
+    POM.write_input_forecast_row!(
         store, 7, "PowerLoad", "max_active_power",
         Dict(t0 => collect(2.0:25.0)), Dates.Hour(1), Dates.Hour(24),
     )
-    @test !POM.write_input_series_row!(
+    POM.write_input_series_row!(
         store, 7, "PowerLoad", "max_active_power", collect(2.0:49.0), t0, Dates.Hour(1),
     )
     @test length(POM.list_input_series(store)) == 2
@@ -786,5 +896,25 @@ end
         only(filter(md -> IS.get_time_series_type(md) <: PSY.SingleTimeSeries, rows)),
     )
     @test TimeSeries.values(IS.get_data(series_ts)) == collect(1.0:48.0)
-    POM.close_parameter_store!(store)
+    IS.close!(store)
+end
+
+@testset "3-D parameter windows round-trip as one forecast per axis-2 label" begin
+    store = IS.Store(; in_memory = true)
+    key = IOM.ParameterKey(
+        POM.IncrementalPiecewiseLinearBreakpointParameter, PSY.ThermalStandard,
+    )
+    t0 = Dates.DateTime(2024, 1, 1)
+    windows = Dict(
+        t0 + Dates.Hour(k) => JuMP.Containers.DenseAxisArray(
+            rand(2, 3, 4), ["a", "b"], ["seg1", "seg2", "seg3"], 1:4,
+        ) for k in 0:1
+    )
+    POM.write_parameter_windows!(store, key, windows, Dates.Hour(1), Dates.Hour(1))
+    @test POM.parameter_slice_labels(store, key) == ["seg1", "seg2", "seg3"]
+    back = POM.read_parameter_windows(
+        store, key; extra_features = Dict{String, Any}("axis2" => "seg2"),
+    )
+    @test back["b"][t0 + Dates.Hour(1)] == windows[t0 + Dates.Hour(1)]["b", "seg2", :]
+    IS.close!(store)
 end

@@ -221,14 +221,7 @@ function solve!(
                     outputs = OptimizationProblemOutputs(model)
                     serialize_outputs(outputs, IOM.get_output_dir(model))
                     export_problem_outputs && export_outputs(outputs)
-                    if IOM.get_system_to_file(IOM.get_settings(model))
-                        sys = IOM.get_system(model)
-                        sys_dir = joinpath(
-                            IOM.get_output_dir(model),
-                            IOM.make_system_dirname(sys),
-                        )
-                        _write_outputs_bundle!(model, sys, sys_dir)
-                    end
+                    _write_outputs_bundle!(model)
                 end
                 @info "\n$(RUN_OPERATION_MODEL_TIMER)\n"
             catch e
