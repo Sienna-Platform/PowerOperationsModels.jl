@@ -1309,3 +1309,33 @@ unit commitment and `HydroCommitmentRunOfRiver`; other formulations book `Offlin
 awards against their headroom and are not restricted.
 """
 struct OfflineReserveOffStateConstraint <: ConstraintType end
+
+#################################################################################
+# G-1 constraints
+#################################################################################
+
+"""
+Post-contingency power balance under outage ``o``. Copper plate and PTDF networks balance the
+system: ``\\sum_d \\Delta_{d,o,t} = \\sum_{g \\in G_o} p_{g,t}``. Area balance networks
+balance each area ``a`` over the interchanges ``i`` into and out of it:
+
+``\\Delta P_{a,o,t} + \\sum_{i \\to a} \\Delta f_{i,o,t} - \\sum_{i \\leftarrow a} \\Delta f_{i,o,t} = 0``.
+
+See [`SecurityConstrainedContingencyReserve`](@ref).
+"""
+struct PostContingencyBalanceConstraint <: ConstraintType end
+
+"""
+A contributing device's post-contingency output stays within its maximum:
+``p_{d,t} + \\Delta_{d,o,t} \\le P^{max}_d``.
+
+See [`SecurityConstrainedContingencyReserve`](@ref).
+"""
+struct PostContingencyGenerationConstraint <: ConstraintType end
+
+"""
+A procured reserve deploys at most its award: ``\\delta_{s,d,o,t} \\le r_{s,d,t}``.
+
+See [`SecurityConstrainedContingencyReserve`](@ref).
+"""
+struct PostContingencyDeploymentConstraint <: ConstraintType end

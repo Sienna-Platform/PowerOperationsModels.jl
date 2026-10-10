@@ -41,13 +41,6 @@ function _groups_with_demand(model::ServiceModel, sys::PSY.System)
     return [g for g in candidates if _has_reserve_demand(model, g)]
 end
 
-"""
-Create each contributing device type's reserve range expression container, sized over that
-device model's full available component set.
-
-Runs once per service model, before any service wires awards in, so services of the same
-type with contributor sets that do not nest all index an axis that holds their devices.
-"""
 seed_reserve_range_expressions!(
     ::OptimizationContainer,
     ::PSY.System,
@@ -55,6 +48,13 @@ seed_reserve_range_expressions!(
     ::DevicesModelContainer,
 ) = nothing
 
+"""
+Create each contributing device type's reserve range expression container, sized over that
+device model's full available component set.
+
+Runs once per service model, before any service wires awards in, so services of the same
+type with contributor sets that do not nest all index an axis that holds their devices.
+"""
 function seed_reserve_range_expressions!(
     container::OptimizationContainer,
     sys::PSY.System,
@@ -180,6 +180,15 @@ function construct_services!(
             network_model,
         )
     end
+
+    _construct_post_contingency!(
+        container,
+        sys,
+        stage,
+        services_template,
+        devices_template,
+        network_model,
+    )
     return
 end
 
@@ -1088,3 +1097,132 @@ function construct_service!(
     add_constraint_dual!(container, sys, model)
     return
 end
+
+_is_ramp_formulation(::Type{SecurityConstrainedContingencyReserve}) = false
+_is_ramp_formulation(::Type{SecurityConstrainedRampReserve}) = true
+
+# Whether `service` is procured pre-contingency (reserve variable, requirement, ramp,
+# participation, objective); otherwise it only deploys post-contingency.
+_is_procured(
+    model::ServiceModel{<:PSY.AbstractReserve, F},
+    service::PSY.AbstractReserve,
+) where {F <: AbstractSecurityConstrainedReservesFormulation} =
+    _is_ramp_formulation(F) || _has_ts_requirement(model, service)
+
+function construct_service!(
+    container::OptimizationContainer,
+    sys::PSY.System,
+    ::ArgumentConstructStage,
+    model::ServiceModel{R, <:AbstractSecurityConstrainedReservesFormulation},
+    devices_template::Dict{Symbol, DeviceModel},
+    ::Set{<:DataType},
+    ::NetworkModel{<:AbstractNetworkModel},
+) where {R <: PSY.OnlineReserve{PSY.ReserveUp}}
+    services = _services_with_contributors(model, sys)
+    isempty(services) && return
+    ts_services = [s for s in services if _has_ts_requirement(model, s)]
+    isempty(ts_services) ||
+        add_parameters!(container, RequirementTimeSeriesParameter, ts_services, model)
+    procured = [s for s in services if _is_procured(model, s)]
+    isempty(procured) || add_service_variables!(
+        container,
+        ActivePowerReserveVariable,
+        procured,
+        model,
+        RampReserve,
+    )
+    for service in procured
+        add_to_expression!(
+            container,
+            ActivePowerReserveVariable,
+            service,
+            model,
+            devices_template,
+        )
+    end
+    for service in services
+        for devices in values(get_contributing_devices_map(model, PSY.get_name(service)))
+            _add_post_contingency_deployment!(container, sys, service, devices)
+        end
+        add_feedforward_arguments!(container, model, service)
+    end
+    return
+end
+
+function construct_service!(
+    container::OptimizationContainer,
+    sys::PSY.System,
+    ::ModelConstructStage,
+    model::ServiceModel{R, F},
+    ::Dict{Symbol, DeviceModel},
+    ::Set{<:DataType},
+    ::NetworkModel{<:AbstractNetworkModel},
+) where {
+    R <: PSY.OnlineReserve{PSY.ReserveUp},
+    F <: AbstractSecurityConstrainedReservesFormulation,
+}
+    services = _services_with_contributors(model, sys)
+    isempty(services) && return
+    for service in services
+        add_feedforward_constraints!(container, model, service)
+    end
+    procured = [s for s in services if _is_procured(model, s)]
+    if isempty(procured)
+        add_constraint_dual!(container, sys, model)
+        return
+    end
+    service_names = PSY.get_name.(procured)
+    add_constraints_container!(
+        container,
+        RequirementConstraint,
+        R,
+        service_names,
+        get_time_steps(container),
+    )
+    get_use_slacks(model) && add_reserve_slacks!(container, R, service_names)
+    for service in procured
+        contributing_devices = get_contributing_devices_map(model, PSY.get_name(service))
+        add_constraints!(
+            container,
+            RequirementConstraint,
+            service,
+            contributing_devices,
+            model,
+        )
+        for devices in values(contributing_devices)
+            _is_ramp_formulation(F) &&
+                add_constraints!(container, RampConstraint, service, devices, model)
+            add_constraints!(
+                container,
+                ParticipationFractionConstraint,
+                service,
+                devices,
+                model,
+            )
+            add_constraints!(
+                container,
+                PostContingencyDeploymentConstraint,
+                service,
+                devices,
+                model,
+            )
+        end
+        add_to_objective_function!(container, service, model)
+    end
+    add_constraint_dual!(container, sys, model)
+    return
+end
+
+construct_service!(
+    ::OptimizationContainer,
+    ::PSY.System,
+    ::Union{ArgumentConstructStage, ModelConstructStage},
+    ::ServiceModel{<:PSY.AbstractReserve, <:AbstractSecurityConstrainedReservesFormulation},
+    ::Dict{Symbol, DeviceModel},
+    ::Set{<:DataType},
+    ::NetworkModel{<:AbstractNetworkModel},
+) = throw(
+    IS.ConflictingInputsError(
+        "Security-constrained formulations currently only support `OnlineReserve{ReserveUp}` services.",
+    ),
+)

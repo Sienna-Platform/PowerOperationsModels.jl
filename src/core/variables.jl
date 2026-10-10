@@ -841,6 +841,48 @@ Reserve allocated to one side of a hybrid system's storage subcomponent. Paramet
 struct HybridStorageSubcomponentReserveVariable{Sd <: ReserveSide} <:
        AbstractHybridReserveVariableType end
 
+#################################################################################
+# G-1 Variables
+#################################################################################
+
+"""
+Reserve deployed by contributing device ``d`` on security-constrained reserve ``s`` under
+outage ``o``: ``\\delta_{s,d,o,t} \\ge 0``. Devices taken offline by ``o`` get none.
+
+Keyed on `ComponentPairKey{D, S}`, indexed `(service, device, outage, time)`. See
+[`SecurityConstrainedContingencyReserve`](@ref).
+"""
+struct PostContingencyDeploymentVariable <: VariableType end
+
+"""
+Post-contingency change in flow ``\\Delta f_{i,o,t}`` over modeled area interchange ``i``
+under outage ``o``. Free.
+
+Indexed `(interchange, outage, time)` over every modeled interchange. See
+[`SecurityConstrainedContingencyReserve`](@ref).
+"""
+struct PostContingencyDeviationVariable <: VariableType end
+
+"""
+Relaxes the upper post-contingency flow limit of security-constrained reserves when
+`use_slacks = true`: ``f^o_{\\ell,t} - \\sigma^+_{\\ell,o,t} \\le R^{max}_\\ell``,
+``\\sigma^+ \\ge 0``.
+
+A separate type from [`PostContingencyFlowActivePowerSlackUpperBound`](@ref) because variable
+containers take no `meta`, and branch security-constrained models key that one by the same
+branch type.
+"""
+struct PostGeneratorContingencyFlowSlackUpperBound <: VariableType end
+
+"""
+Relaxes the lower post-contingency flow limit of security-constrained reserves when
+`use_slacks = true`: ``f^o_{\\ell,t} + \\sigma^-_{\\ell,o,t} \\ge R^{min}_\\ell``,
+``\\sigma^- \\ge 0``.
+
+See [`PostGeneratorContingencyFlowSlackUpperBound`](@ref).
+"""
+struct PostGeneratorContingencyFlowSlackLowerBound <: VariableType end
+
 const MULTI_START_VARIABLES = (HotStartVariable, WarmStartVariable, ColdStartVariable)
 
 should_write_resulting_value(::Type{PiecewiseLinearCostVariable}) = false
@@ -881,3 +923,5 @@ convert_output_to_natural_units(::Type{HVDCLosses}) = true
 convert_output_to_natural_units(::Type{InterfaceFlowSlackUp}) = true
 convert_output_to_natural_units(::Type{InterfaceFlowSlackDown}) = true
 convert_output_to_natural_units(::Type{ActivePowerPumpVariable}) = true
+convert_output_to_natural_units(::Type{PostContingencyDeploymentVariable}) = true
+convert_output_to_natural_units(::Type{PostContingencyDeviationVariable}) = true
