@@ -344,28 +344,34 @@ end
 
 _with_time_steps(pf::PFS.PSSEExportPowerFlow, ::Int) = pf
 
+function _collect_power_flow_evaluator!(
+    selected::Dict{DataType, POM.PowerFlowEvaluator},
+    T::DataType,
+    evaluator::POM.PowerFlowEvaluator,
+)
+    selected[T] = evaluator
+    return
+end
+
+_collect_power_flow_evaluator!(::Dict, ::DataType, ::IOM.AbstractEvaluator) = nothing
+
 function POM.add_power_flow_data!(
     container::OptimizationContainer,
     network_model::IOM.NetworkModel,
     sys::PSY.System,
 )
     evaluations = get_evaluations(network_model)
-    # The user supplies the power-flow evaluators on the NetworkModel
-    # (`NetworkModel(...; evaluations = ...)`), but IOM.calculate_aux_variables! reads
-    # the evaluations off the OptimizationContainer (see IOM
-    # optimization_container.jl `calculate_aux_variables!`). Alias the container's
-    # field to the NetworkModel's EvaluationContainer so the runtime PF data we register
-    # below via `add_evaluation_data!` is the same object the aux-var calc reads later.
-    # This is a consequence of the IOM/POM split owning evaluators on the NetworkModel
-    # (user config) while the container is the runtime object — not a standalone bugfix.
-    container.evaluations = evaluations
-    isempty(evaluations) && return
+    power_flow_evaluators = Dict{DataType, POM.PowerFlowEvaluator}()
+    for (T, evaluator) in pairs(get_evaluators(evaluations))
+        _collect_power_flow_evaluator!(power_flow_evaluators, T, evaluator)
+    end
+    isempty(power_flow_evaluators) && return
 
     branch_aux_var_components =
         Dict{Type{<:AuxVariableType}, Set{Tuple{<:DataType, String}}}()
     bus_aux_var_components = Dict{Type{<:AuxVariableType}, Set{Tuple{<:DataType, <:Int}}}()
     n_time_steps = length(get_time_steps(container))
-    for (T, evaluator) in pairs(get_evaluators(evaluations))
+    for (T, evaluator) in pairs(power_flow_evaluators)
         # `evaluator` is a `POM.PowerFlowEvaluator` config wrapper; unwrap to the
         # underlying PowerFlows model before building the runtime container.
         evaluator = _with_time_steps(POM.get_power_flow_model(evaluator), n_time_steps)

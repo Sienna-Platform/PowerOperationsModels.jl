@@ -235,6 +235,7 @@ function build_problem!(
     TimerOutputs.@timeit BUILD_PROBLEMS_TIMER "Power Flow Initialization" begin
         add_power_flow_data!(container, transmission_model, sys)
     end
+    add_evaluator_data!(container, transmission_model, sys)
     IOM.check_optimization_container(container)
     _validate_dual_sos_compatibility(container)
     return
