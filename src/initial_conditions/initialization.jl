@@ -82,7 +82,7 @@ function build_initial_conditions_model!(
     end
     set_initial_conditions_model_container!(
         internal,
-        IOM.deepcopy_without_network_model(container),
+        deepcopy(container),
     )
     ic_container = get_initial_conditions_model_container(internal)
     ic_settings = deepcopy(get_settings(ic_container))
