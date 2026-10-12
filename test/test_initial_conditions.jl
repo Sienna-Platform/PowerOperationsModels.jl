@@ -1,3 +1,39 @@
+@testset "reset_initial_conditions! sets each condition to its component default" begin
+    sys = PSB.build_system(PSITestSystems, "c_sys5_uc")
+    template = get_template_dispatch_with_network(NetworkModel(PTDFNetworkModel))
+    set_device_model!(template, ThermalStandard, ThermalStandardUnitCommitment)
+    model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+    ics = IOM.get_initial_conditions(IOM.get_optimization_container(model))
+    all_ics = [ic for v in values(ics) for ic in v]
+    @test !isempty(all_ics)
+    for ic in all_ics
+        IOM.set_ic_quantity!(ic, 12345.0)
+    end
+    n = reset_initial_conditions!(model)
+    @test n == length(all_ics)
+    for (key, v) in ics, ic in v
+        component = IOM.get_component(ic)
+        formulation = IOM.get_formulation(get_model(get_template(model), typeof(component)))
+        expected =
+            POM.initial_condition_default(
+                IOM.get_entry_type(key)(),
+                component,
+                formulation(),
+            )
+        @test IOM.get_condition(ic) == expected
+    end
+
+    # A condition with a `nothing` value is neither set nor counted.
+    key = first(keys(ics))
+    comp = IOM.get_component(first(ics[key]))
+    nothing_ic = IOM.InitialCondition{IOM.get_entry_type(key), Nothing}(comp, nothing)
+    push!(ics[key], nothing_ic)
+    @test reset_initial_conditions!(model) == length(all_ics)
+    @test isnothing(IOM.get_condition(nothing_ic))
+end
+
 @testset "IC network model shares the main model's derived network" begin
     sys = PSB.build_system(PSITestSystems, "c_sys5")
     template = get_thermal_dispatch_template_network(

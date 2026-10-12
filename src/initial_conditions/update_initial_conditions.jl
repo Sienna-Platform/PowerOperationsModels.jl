@@ -72,3 +72,42 @@ function transfer_initial_conditions!(
     end
     return
 end
+
+"""
+Give each initial condition of the model the value a fresh build reads from its component.
+For example, use it to start a step from the data of the components instead of the carried state.
+Return the number of initial conditions set. An initial condition with a `nothing` value is not set.
+The new values take effect only for conditions that are parameters, that is, in a model built for recurrent solves.
+In a model built without recurrent solves, the function changes the stored value and the built problem keeps the old value.
+"""
+function reset_initial_conditions!(model::DecisionModel)
+    container = get_optimization_container(model)
+    template = get_template(model)
+    n = 0
+    for (key, ics) in get_initial_conditions(container)
+        T = IOM.get_entry_type(key)
+        for ic in ics
+            n += _reset_initial_condition!(ic, T, template)
+        end
+    end
+    return n
+end
+
+function _reset_initial_condition!(
+    ::IOM.InitialCondition{U, Nothing},
+    ::Type{T},
+    template::PowerOperationsProblemTemplate,
+) where {U <: IOM.InitialConditionType, T}
+    return 0
+end
+
+function _reset_initial_condition!(
+    ic::IOM.InitialCondition,
+    ::Type{T},
+    template::PowerOperationsProblemTemplate,
+) where {T}
+    component = IOM.get_component(ic)
+    formulation = IOM.get_formulation(get_model(template, typeof(component)))
+    set_ic_quantity!(ic, initial_condition_default(T(), component, formulation()))
+    return 1
+end
