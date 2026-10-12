@@ -1,0 +1,1248 @@
+@testset "Nodal distribution core types" begin
+    @test AggregateClearedInjection <: IOM.ExpressionType
+    @test ClearedPositionVariable <: IOM.VariableType
+    @test ClearedTransferVariable <: IOM.VariableType
+    @test ClearedPositionConstraint <: IOM.ConstraintType
+    @test DistributionFactorParameter <: IOM.LeftHandSideTimeSeriesParameter
+    @test NodalRedistribution <: IOM.AbstractDeviceFormulation
+    @test AggregateBalance <: IOM.AbstractDeviceFormulation
+    @test SpreadBid <: IOM.AbstractDeviceFormulation
+    @test POM.DISTRIBUTION_FACTOR_TS_NAME == "distribution_factor"
+end
+
+@testset "Market construction threads the network model" begin
+    for m in methods(construct_market_component!)
+        params = Base.unwrap_unionall(m.sig).parameters
+        @test length(params) == 7
+        @test params[end] <: NetworkModel
+    end
+end
+
+# A `distribution_factor` matrix: column j is bus `labels[j]`, with one factor per step
+# (`columns[j]` a vector) or a constant (`columns[j]` a number), on the forecast parameters
+# of the system's load forecasts unless `resolution` is given.
+_factor_column(c::Real, horizon) = fill(Float64(c), horizon)
+_factor_column(c::AbstractVector, _) = Vector{Float64}(c)
+
+_load_forecast(sys) = PSY.get_time_series(
+    PSY.Deterministic, first(PSY.get_components(PSY.PowerLoad, sys)), "max_active_power",
+)
+_factor_horizon(sys) = length(first(values(PSY.get_data(_load_forecast(sys)))))
+
+function _factor_matrix(sys, labels, columns; resolution = nothing, axis = "bus")
+    existing = _load_forecast(sys)
+    horizon = _factor_horizon(sys)
+    window = hcat([_factor_column(c, horizon) for c in columns]...)
+    data = SortedDict(ts => copy(window) for ts in keys(PSY.get_data(existing)))
+    return PSY.Deterministic(;
+        name = POM.DISTRIBUTION_FACTOR_TS_NAME,
+        data = data,
+        resolution = something(resolution, PSY.get_resolution(existing)),
+        value_axes = [IS.TimeSeriesAxis(axis, labels)],
+    )
+end
+
+_add_factor_matrix!(sys, location, labels, columns; kwargs...) =
+    PSY.add_time_series!(sys, location, _factor_matrix(sys, labels, columns; kwargs...))
+
+# c_sys5_uc with a two-bus load zone "LZ1" carrying constant 0.6/0.4 factors in one
+# matrix owned by the zone.
+function _build_zone_system()
+    sys = PSB.build_system(PSITestSystems, "c_sys5_uc")
+    zone = PSY.LoadZone(;
+        name = "LZ1",
+        peak_active_power = 10.0,
+        peak_reactive_power = 3.0,
+        input_basis = u"CU",
+    )
+    PSY.add_component!(sys, zone)
+    buses = sort!(collect(PSY.get_components(PSY.ACBus, sys)); by = PSY.get_number)
+    zone_buses = buses[1:2]
+    for b in zone_buses
+        PSY.set_load_zone!(b, zone)
+    end
+    _add_factor_matrix!(sys, zone, PSY.get_number.(zone_buses), [0.6, 0.4])
+    return sys, zone, zone_buses
+end
+
+function _ptdf_market_template()
+    template = get_thermal_dispatch_template_network(NetworkModel(PTDFNetworkModel))
+    set_market_model!(
+        template,
+        IOM.MarketModel(SettlementMarket; settlement_domain = PSY.System),
+    )
+    return template
+end
+
+# A PTDF market model whose load zones and trading hubs distribute through their factors.
+# Attach every series before calling it: the factors are read at build.
+function _build_factor_model(sys, network_model = NetworkModel(PTDFNetworkModel))
+    template = get_thermal_dispatch_template_network(network_model)
+    set_market_model!(
+        template, IOM.MarketModel(SettlementMarket; settlement_domain = PSY.System),
+    )
+    set_market_component_model!(template, DeviceModel(PSY.LoadZone, NodalRedistribution))
+    set_market_component_model!(template, DeviceModel(PSY.TradingHub, NodalRedistribution))
+    model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+    container = get_optimization_container(model)
+    return container, get_network_model(IOM.get_template(model))
+end
+
+@testset "get_distribution_factors" begin
+    sys, zone, zone_buses = _build_zone_system()
+    n1 = PSY.get_number(zone_buses[1])
+    n2 = PSY.get_number(zone_buses[2])
+    hub = PSY.TradingHub(; name = "HUB1", buses = collect(zone_buses))
+    PSY.add_component!(sys, hub)
+    zone2 = PSY.LoadZone(;
+        name = "LZ2",
+        peak_active_power = 5.0,
+        peak_reactive_power = 1.0,
+        input_basis = u"CU",
+    )
+    PSY.add_component!(sys, zone2)
+    buses = sort!(collect(PSY.get_components(PSY.ACBus, sys)); by = PSY.get_number)
+    b3, b4 = buses[3], buses[4]
+    PSY.set_load_zone!(b3, zone2)
+    PSY.set_load_zone!(b4, zone2)
+    _add_factor_matrix!(sys, zone2, [PSY.get_number(b4)], [1.0])
+    container, network_model = _build_factor_model(sys)
+    time_steps = get_time_steps(container)
+    t1 = first(time_steps)
+
+    # LoadZone: series values land on the right retained buses, every timestep.
+    factors = get_distribution_factors(container, sys, zone, network_model)
+    @test sort(collect(axes(factors)[1])) == sort([n1, n2])
+    @test all(factors[n1, t] == 0.6 for t in time_steps)
+    @test all(factors[n2, t] == 0.4 for t in time_steps)
+
+    # ACBus: one-entry identity.
+    bf = get_distribution_factors(container, sys, zone_buses[1], network_model)
+    @test collect(axes(bf)[1]) == [n1]
+    @test all(bf[n1, t] == 1.0 for t in time_steps)
+
+    # TradingHub with no series: uniform 1/N (D9).
+    hf = get_distribution_factors(container, sys, hub, network_model)
+    @test hf[n1, t1] == 0.5
+    @test hf[n2, t1] == 0.5
+
+    # The series labels are the buses that carry factors: a member without a column gets none.
+    zf = get_distribution_factors(container, sys, zone2, network_model)
+    @test collect(axes(zf)[1]) == [PSY.get_number(b4)]
+    @test zf[PSY.get_number(b4), t1] == 1.0
+
+    # A LoadZone with no series on any member bus is a loud error, not a silent zero.
+    zone3 = PSY.LoadZone(;
+        name = "LZ3",
+        peak_active_power = 5.0,
+        peak_reactive_power = 1.0,
+        input_basis = u"CU",
+    )
+    PSY.add_component!(sys, zone3)
+    PSY.set_load_zone!(buses[5], zone3)
+    @test_throws ErrorException get_distribution_factors(
+        container,
+        sys,
+        zone3,
+        network_model,
+    )
+
+    @test POM.assert_numeric_distribution_factors(container) === nothing
+end
+
+@testset "NodalRedistribution builds position machinery for a LoadZone" begin
+    sys, zone, zone_buses = _build_zone_system()
+    template = _ptdf_market_template()
+    set_market_component_model!(template, DeviceModel(PSY.LoadZone, NodalRedistribution))
+    model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+    container = get_optimization_container(model)
+
+    @test IOM.has_container_key(container, AggregateClearedInjection, PSY.LoadZone)
+    @test IOM.has_container_key(container, ClearedPositionVariable, PSY.LoadZone)
+    @test IOM.has_container_key(container, ClearedPositionConstraint, PSY.LoadZone)
+
+    # Fan-out is inline: the position variable appears in each member bus's balance
+    # with its factor as the coefficient, and in no other bus's.
+    position = IOM.get_variable(container, ClearedPositionVariable, PSY.LoadZone)
+    nodal = IOM.get_expression(container, ActivePowerBalance, PSY.ACBus)
+    t1 = first(get_time_steps(container))
+    n1 = PSY.get_number(zone_buses[1])
+    n2 = PSY.get_number(zone_buses[2])
+    @test JuMP.coefficient(nodal[n1, t1], position["LZ1", t1]) == 0.6
+    @test JuMP.coefficient(nodal[n2, t1], position["LZ1", t1]) == 0.4
+    for n in axes(nodal)[1]
+        n in (n1, n2) && continue
+        @test JuMP.coefficient(nodal[n, t1], position["LZ1", t1]) == 0.0
+    end
+    # One constraint per location per timestep ties the variable to the expression, and
+    # the position never enters the settlement row.
+    constraint = IOM.get_constraint(container, ClearedPositionConstraint, PSY.LoadZone)
+    @test size(constraint) == (1, length(get_time_steps(container)))
+    sexpr = IOM.get_expression(container, IOM.SettlementBalance, PSY.System)
+    @test JuMP.coefficient(sexpr[1, t1], position["LZ1", t1]) == 0.0
+end
+
+@testset "Market model without NodalRedistribution still requires CopperPlate" begin
+    template = get_thermal_dispatch_template_network(NetworkModel(PTDFNetworkModel))
+    set_market_model!(
+        template,
+        IOM.MarketModel(SettlementMarket; settlement_domain = PSY.System),
+    )
+    set_market_component_model!(template, PSY.VirtualParticipant, VirtualBidDispatch)
+    @test_throws ArgumentError POM._check_market_model!(template)
+    set_market_component_model!(template, DeviceModel(PSY.LoadZone, NodalRedistribution))
+    @test POM._check_market_model!(template) === nothing
+end
+
+function _add_hub_and_p2p!(sys, zone; spread_bid = PSY.MarketBidCost(nothing))
+    buses = sort!(collect(PSY.get_components(PSY.ACBus, sys)); by = PSY.get_number)
+    hub = PSY.TradingHub(; name = "HUB1", buses = buses[3:4])
+    PSY.add_component!(sys, hub)
+    bid = PSY.PointToPointBid(;
+        name = "P2P1", available = true, from = zone, to = hub,
+        max_active_power = 50.0, price_limits = (min = -100.0, max = 100.0),
+        spread_bid = spread_bid,
+    )
+    PSY.add_component!(sys, bid)
+    return hub, bid
+end
+
+# A single-segment willingness-to-pay curve at a flat `price` (\$/MWh, natural units)
+# across the bid's whole envelope.
+_flat_spread_bid(price, max_mw = 50.0) = PSY.MarketBidCost(;
+    incremental_offer_curves = PSY.CostCurve(
+        PSY.PiecewiseIncrementalCurve(0.0, [0.0, max_mw], [price]),
+        PSY.NU,
+    ),
+)
+
+# A spread bid template with both terminals' location models registered.
+function _p2p_template()
+    template = _ptdf_market_template()
+    set_market_component_model!(template, DeviceModel(PSY.LoadZone, NodalRedistribution))
+    set_market_component_model!(template, DeviceModel(PSY.TradingHub, NodalRedistribution))
+    set_market_component_model!(template, DeviceModel(PSY.PointToPointBid, SpreadBid))
+    return template
+end
+
+@testset "SpreadBid: two signed writes, nets to zero across all buses" begin
+    sys, zone, zone_buses = _build_zone_system()
+    # Priced, so the `max_active_power` envelope is what bounds the award.
+    hub, bid = _add_hub_and_p2p!(sys, zone; spread_bid = _flat_spread_bid(3.0))
+    template = _ptdf_market_template()
+    set_market_component_model!(template, DeviceModel(PSY.LoadZone, NodalRedistribution))
+    set_market_component_model!(template, DeviceModel(PSY.TradingHub, NodalRedistribution))
+    set_market_component_model!(template, DeviceModel(PSY.PointToPointBid, SpreadBid))
+    model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+    container = get_optimization_container(model)
+    time_steps = get_time_steps(container)
+    t1 = first(time_steps)
+
+    q = IOM.get_variable(container, ClearedTransferVariable, PSY.PointToPointBid)
+    @test JuMP.lower_bound(q["P2P1", t1]) == 0.0
+    @test JuMP.upper_bound(q["P2P1", t1]) == 50.0 / PSY.get_base_power(sys)
+    # +q at from (zone expression), -q at to (hub expression).
+    zexpr = IOM.get_expression(container, AggregateClearedInjection, PSY.LoadZone)
+    hexpr = IOM.get_expression(container, AggregateClearedInjection, PSY.TradingHub)
+    @test JuMP.coefficient(zexpr["LZ1", t1], q["P2P1", t1]) == 1.0
+    @test JuMP.coefficient(hexpr["HUB1", t1], q["P2P1", t1]) == -1.0
+
+    # D11: excluded from the settlement row outright.
+    sexpr = IOM.get_expression(container, IOM.SettlementBalance, PSY.System)
+    @test JuMP.coefficient(sexpr[1, t1], q["P2P1", t1]) == 0.0
+
+    # The invariant that catches factor bugs end-to-end: each position's distributed
+    # coefficients sum to one across ALL buses at every timestep, so +q via the zone and
+    # -q via the hub cancel system-wide and the bid acts only through the nodal pattern.
+    zpos = IOM.get_variable(container, ClearedPositionVariable, PSY.LoadZone)
+    hpos = IOM.get_variable(container, ClearedPositionVariable, PSY.TradingHub)
+    nodal = IOM.get_expression(container, ActivePowerBalance, PSY.ACBus)
+    for t in time_steps
+        zsum = sum(JuMP.coefficient(nodal[n, t], zpos["LZ1", t]) for n in axes(nodal)[1])
+        hsum = sum(JuMP.coefficient(nodal[n, t], hpos["HUB1", t]) for n in axes(nodal)[1])
+        @test isapprox(zsum, 1.0; atol = 1e-9)
+        @test isapprox(hsum, 1.0; atol = 1e-9)
+    end
+    # Hub with no series: uniform across its two member buses.
+    hub_numbers = PSY.get_number.(PSY.get_buses(hub))
+    for n in hub_numbers
+        @test JuMP.coefficient(nodal[n, t1], hpos["HUB1", t1]) == 0.5
+    end
+end
+
+@testset "SpreadBid with an ACBus terminal takes the identity path" begin
+    sys, zone, zone_buses = _build_zone_system()
+    buses = sort!(collect(PSY.get_components(PSY.ACBus, sys)); by = PSY.get_number)
+    bus_terminal = buses[5]
+    bid = PSY.PointToPointBid(;
+        name = "P2P_BUS", available = true, from = zone, to = bus_terminal,
+        max_active_power = 20.0, price_limits = (min = -100.0, max = 100.0),
+    )
+    PSY.add_component!(sys, bid)
+    template = _ptdf_market_template()
+    set_market_component_model!(template, DeviceModel(PSY.LoadZone, NodalRedistribution))
+    set_market_component_model!(template, DeviceModel(PSY.ACBus, NodalRedistribution))
+    set_market_component_model!(template, DeviceModel(PSY.PointToPointBid, SpreadBid))
+    model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+    container = get_optimization_container(model)
+    t1 = first(get_time_steps(container))
+    bpos = IOM.get_variable(container, ClearedPositionVariable, PSY.ACBus)
+    nodal = IOM.get_expression(container, ActivePowerBalance, PSY.ACBus)
+    bname = PSY.get_name(bus_terminal)
+    n5 = PSY.get_number(bus_terminal)
+    # Lands entirely on its own bus.
+    for n in axes(nodal)[1]
+        expected = 0.0
+        if n == n5
+            expected = 1.0
+        end
+        @test JuMP.coefficient(nodal[n, t1], bpos[bname, t1]) == expected
+    end
+    q = IOM.get_variable(container, ClearedTransferVariable, PSY.PointToPointBid)
+    bexpr = IOM.get_expression(container, AggregateClearedInjection, PSY.ACBus)
+    @test JuMP.coefficient(bexpr[bname, t1], q["P2P_BUS", t1]) == -1.0
+end
+
+@testset "SpreadBid terminal without a location model fails loudly" begin
+    sys, zone, zone_buses = _build_zone_system()
+    hub, bid = _add_hub_and_p2p!(sys, zone)
+    template = _ptdf_market_template()
+    set_market_component_model!(template, DeviceModel(PSY.LoadZone, NodalRedistribution))
+    set_market_component_model!(template, DeviceModel(PSY.PointToPointBid, SpreadBid))
+    model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.FAILED
+end
+
+@testset "SpreadBid prices its incremental curve into the objective" begin
+    sys, zone, zone_buses = _build_zone_system()
+    # Two segments with distinct, decreasing marginal prices in natural units (\$/MWh),
+    # spanning the bid's full 50 MW envelope. A willingness-to-pay curve is concave: the
+    # bid pays less for each additional MW.
+    slopes = [8.0, 3.0]
+    hub, bid = _add_hub_and_p2p!(
+        sys, zone;
+        spread_bid = PSY.MarketBidCost(;
+            incremental_offer_curves = PSY.CostCurve(
+                PSY.PiecewiseIncrementalCurve(0.0, [0.0, 20.0, 50.0], slopes),
+                PSY.NU,
+            ),
+        ),
+    )
+    model = DecisionModel(_p2p_template(), sys; optimizer = HiGHS_optimizer)
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+    container = get_optimization_container(model)
+    time_steps = get_time_steps(container)
+    t1 = first(time_steps)
+    objective = JuMP.objective_function(get_jump_model(container))
+
+    q = IOM.get_variable(container, ClearedTransferVariable, PSY.PointToPointBid)
+    delta = IOM.get_variable(
+        container, PiecewiseLinearBlockIncrementalOffer, PSY.PointToPointBid,
+    )
+    # The award itself carries no objective coefficient: the price is on the segments.
+    @test JuMP.coefficient(objective, q["P2P1", t1]) == 0.0
+
+    # Independent reference: a curve authored in natural units prices a per-unit award at
+    # slope * base_power, per hour of the model resolution. The sign is NEGATIVE -- the bid
+    # price is a willingness to pay, so a higher price makes the transfer more attractive
+    # to clear, and the bid clears while the cleared spread stays at or below it.
+    base_power = IOM.get_model_base_power(container)
+    dt = Dates.value(IOM.get_resolution(container)) / POM.MILLISECONDS_IN_HOUR
+    for t in time_steps, (segment, slope) in enumerate(slopes)
+        @test isapprox(
+            JuMP.coefficient(objective, delta[("P2P1", segment, t)]),
+            -slope * base_power * dt;
+            atol = 1e-9,
+        )
+    end
+    # One delta per segment per period, and nothing else.
+    @test length(delta.data) == length(slopes) * length(time_steps)
+
+    # The award is the sum of its segments, so the curve -- not just `max_active_power` --
+    # bounds what can clear.
+    pwl_constraint = IOM.get_constraint(
+        container, PiecewiseLinearBlockIncrementalOfferConstraint, PSY.PointToPointBid,
+    )
+    con = JuMP.constraint_object(pwl_constraint["P2P1", t1])
+    @test JuMP.coefficient(con.func, q["P2P1", t1]) == 1.0
+    for segment in eachindex(slopes)
+        @test JuMP.coefficient(con.func, delta[("P2P1", segment, t1)]) == -1.0
+    end
+
+    # The two signed position writes are untouched by pricing.
+    zexpr = IOM.get_expression(container, AggregateClearedInjection, PSY.LoadZone)
+    hexpr = IOM.get_expression(container, AggregateClearedInjection, PSY.TradingHub)
+    @test JuMP.coefficient(zexpr["LZ1", t1], q["P2P1", t1]) == 1.0
+    @test JuMP.coefficient(hexpr["HUB1", t1], q["P2P1", t1]) == -1.0
+end
+
+# Promote a bid's spread_bid to a fully time-series-backed `MarketBidTimeSeriesCost` with
+# constant-valued series on the system's own forecast timestamps. `minimum_energy_offer`,
+# `start_up` and `shut_down` are meaningless for a bid that carries no commitment, but the
+# type requires them, so they get zero-valued series. The decremental side gets a
+# zero-span series: the absent side of a one-sided bid is a real stored inert series, not
+# a missing one.
+function _promote_spread_bid_to_ts!(sys, bid, x_coords, slopes)
+    load = first(PSY.get_components(PSY.PowerLoad, sys))
+    existing = PSY.get_time_series(PSY.Deterministic, load, "max_active_power")
+    resolution = PSY.get_resolution(existing)
+    timestamps = collect(keys(PSY.get_data(existing)))
+    horizon = length(first(values(PSY.get_data(existing))))
+    det(name, value) = PSY.Deterministic(;
+        name = name,
+        data = SortedDict(ts => fill(value, horizon) for ts in timestamps),
+        resolution = resolution,
+    )
+    curve = PSY.PiecewiseStepData(x_coords, slopes)
+    inert = PSY.PiecewiseStepData([0.0, 0.0], [0.0])
+    keys_ = map(
+        args -> PSY.add_time_series!(sys, bid, det(args...)),
+        (
+            ("variable_cost incremental", curve),
+            ("initial_input incremental", 0.0),
+            ("variable_cost decremental", inert),
+            ("initial_input decremental", 0.0),
+            ("minimum_energy_offer", IS.LinearFunctionData(0.0, 0.0)),
+            ("shut_down", IS.LinearFunctionData(0.0, 0.0)),
+            ("start_up", (0.0, 0.0, 0.0)),
+        ),
+    )
+    inc_key, inc_init, dec_key, dec_init, meo_key, sd_key, su_key = keys_
+    PSY.set_spread_bid!(
+        bid,
+        PSY.MarketBidTimeSeriesCost(;
+            minimum_energy_offer = PSY.TimeSeriesLinearCurve(meo_key),
+            start_up = su_key,
+            shut_down = PSY.TimeSeriesLinearCurve(sd_key),
+            incremental_offer_curves = PSY.make_market_bid_ts_curve(inc_key, inc_init),
+            decremental_offer_curves = PSY.make_market_bid_ts_curve(dec_key, dec_init),
+        ),
+    )
+    return bid
+end
+
+@testset "SpreadBid prices a time-series-backed spread curve identically" begin
+    sys, zone, zone_buses = _build_zone_system()
+    slopes = [8.0, 3.0]
+    hub, bid = _add_hub_and_p2p!(sys, zone)
+    _promote_spread_bid_to_ts!(sys, bid, [0.0, 20.0, 50.0], slopes)
+    model = DecisionModel(_p2p_template(), sys; optimizer = HiGHS_optimizer)
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+    container = get_optimization_container(model)
+    time_steps = get_time_steps(container)
+    objective = JuMP.objective_function(get_jump_model(container))
+    delta = IOM.get_variable(
+        container, PiecewiseLinearBlockIncrementalOffer, PSY.PointToPointBid,
+    )
+    # The forecast route reads slopes out of the PWL parameter containers rather than the
+    # struct, so it is the reference the static test is checked against: same curve, same
+    # objective coefficients.
+    base_power = IOM.get_model_base_power(container)
+    dt = Dates.value(IOM.get_resolution(container)) / POM.MILLISECONDS_IN_HOUR
+    for t in time_steps, (segment, slope) in enumerate(slopes)
+        @test isapprox(
+            JuMP.coefficient(objective, delta[("P2P1", segment, t)]),
+            -slope * base_power * dt;
+            atol = 1e-9,
+        )
+    end
+    # The stored inert decremental series is not a demand offer, so the bid is not
+    # rejected as one.
+    @test IOM.has_container_key(
+        container, IncrementalPiecewiseLinearSlopeParameter, PSY.PointToPointBid,
+    )
+end
+
+# Objective coefficient on a flat-priced bid's single offer segment, per unit per period.
+function _flat_price_objective_coefficient(price)
+    sys, zone, zone_buses = _build_zone_system()
+    hub, bid = _add_hub_and_p2p!(sys, zone; spread_bid = _flat_spread_bid(price))
+    model = DecisionModel(_p2p_template(), sys; optimizer = HiGHS_optimizer)
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+    container = get_optimization_container(model)
+    t1 = first(get_time_steps(container))
+    delta = IOM.get_variable(
+        container, PiecewiseLinearBlockIncrementalOffer, PSY.PointToPointBid,
+    )
+    objective = JuMP.objective_function(get_jump_model(container))
+    dt = Dates.value(IOM.get_resolution(container)) / POM.MILLISECONDS_IN_HOUR
+    base_power = IOM.get_model_base_power(container)
+    return JuMP.coefficient(objective, delta[("P2P1", 1, t1)]) / (base_power * dt)
+end
+
+@testset "SpreadBid enters the objective on the sign of its bid price" begin
+    # The economic content of the sign. A minimizing model clears the bid while its
+    # benefit outweighs the congestion it causes, so a willingness to pay must carry a
+    # negative coefficient and a willingness to be paid a positive one. Under a cost sign
+    # both invert, and the awards invert with them.
+    @test isapprox(_flat_price_objective_coefficient(30.0), -30.0; atol = 1e-9)
+    @test isapprox(_flat_price_objective_coefficient(-30.0), 30.0; atol = 1e-9)
+end
+
+@testset "SpreadBid without a curve warns and clears zero" begin
+    sys, zone, zone_buses = _build_zone_system()
+    hub, bid = _add_hub_and_p2p!(sys, zone)
+    model = DecisionModel(_p2p_template(), sys; optimizer = HiGHS_optimizer)
+    output_dir = mktempdir(; cleanup = true)
+    @test build!(model; output_dir = output_dir) == IOM.ModelBuildStatus.BUILT
+    container = get_optimization_container(model)
+    time_steps = get_time_steps(container)
+    q = IOM.get_variable(container, ClearedTransferVariable, PSY.PointToPointBid)
+    @test JuMP.coefficient(JuMP.objective_function(get_jump_model(container)),
+        q["P2P1", first(time_steps)]) == 0.0
+    @test !IOM.has_container_key(
+        container, PiecewiseLinearBlockIncrementalOffer, PSY.PointToPointBid,
+    )
+    # No willingness-to-pay, no transfer: without the zeroed bound the bid would move its
+    # full 50 MW envelope in every hour at zero cost.
+    for t in time_steps
+        @test JuMP.upper_bound(q["P2P1", t]) == 0.0
+    end
+    # An unpriced envelope must be loud. Build warnings land in the build log, not at the
+    # call site, so assert by reading the file.
+    log = read(joinpath(output_dir, "operation_problem.log"), String)
+    @test occursin("No incremental spread_bid curve over the model horizon", log)
+    @test occursin("P2P1", log)
+end
+
+@testset "SpreadBid inert over the horizon clears zero" begin
+    # A block bid whose priced hours all fall outside the modeled window stores a real
+    # time series whose every hour has zero span. It must be held at zero exactly as the
+    # curveless bid is, not left with a free envelope.
+    sys, zone, zone_buses = _build_zone_system()
+    hub, bid = _add_hub_and_p2p!(sys, zone)
+    _promote_spread_bid_to_ts!(sys, bid, [0.0, 0.0], [0.0])
+    model = DecisionModel(_p2p_template(), sys; optimizer = HiGHS_optimizer)
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+    container = get_optimization_container(model)
+    q = IOM.get_variable(container, ClearedTransferVariable, PSY.PointToPointBid)
+    for t in get_time_steps(container)
+        @test JuMP.upper_bound(q["P2P1", t]) == 0.0
+    end
+    @test !IOM.has_container_key(
+        container, PiecewiseLinearBlockIncrementalOffer, PSY.PointToPointBid,
+    )
+end
+
+@testset "SpreadBid rejects an increasing bid curve" begin
+    # A negatively signed curve is only exact in the delta PWL relaxation when it is
+    # concave: increasing bid prices would let the model buy a high-priced MW without
+    # first taking the cheaper ones below it.
+    sys, zone, zone_buses = _build_zone_system()
+    hub, bid = _add_hub_and_p2p!(
+        sys, zone;
+        spread_bid = PSY.MarketBidCost(;
+            incremental_offer_curves = PSY.CostCurve(
+                PSY.PiecewiseIncrementalCurve(0.0, [0.0, 20.0, 50.0], [3.0, 8.0]),
+                PSY.NU,
+            ),
+        ),
+    )
+    model = DecisionModel(_p2p_template(), sys; optimizer = HiGHS_optimizer)
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.FAILED
+end
+
+@testset "SpreadBid rejects block-bid curve styles" begin
+    sys, zone, zone_buses = _build_zone_system()
+    hub, bid = _add_hub_and_p2p!(
+        sys, zone;
+        spread_bid = PSY.MarketBidCost(;
+            incremental_offer_curves = PSY.CostCurve(
+                PSY.PiecewiseIncrementalCurve(0.0, [0.0, 50.0], [3.0]),
+                PSY.NU,
+            ),
+            curve_style = PSY.CurveStyles.FIXED,
+        ),
+    )
+    model = DecisionModel(_p2p_template(), sys; optimizer = HiGHS_optimizer)
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.FAILED
+end
+
+# The settlement row holds market participants only and a spread bid is excluded from it, so
+# a solvable system needs a demand virtual sized above the fleet's summed minimum power.
+function _add_settlement_demand!(sys, zone)
+    vp = PSY.VirtualParticipant(;
+        name = "VD", available = true, max_supply = 0.0, max_demand = 1000.0,
+        settlement_point = zone,
+        operation_cost = PSY.MarketBidCost(;
+            decremental_offer_curves = PSY.CostCurve(
+                PSY.PiecewiseIncrementalCurve(0.0, [0.0, 1000.0], [1000.0]),
+                PSY.NU,
+            ),
+        ),
+    )
+    PSY.add_component!(sys, vp)
+    return vp
+end
+
+function _p2p_and_demand_template()
+    template = _p2p_template()
+    set_market_component_model!(
+        template, DeviceModel(PSY.VirtualParticipant, VirtualBidDispatch),
+    )
+    return template
+end
+
+@testset "SpreadBid MULTI_STEP links the periods of one constant-offer block" begin
+    step_curve =
+        PSY.CostCurve(PSY.PiecewiseIncrementalCurve(0.0, [0.0, 50.0], [3.0]), PSY.NU)
+    sys, zone, zone_buses = _build_zone_system()
+    _add_settlement_demand!(sys, zone)
+    hub, bid = _add_hub_and_p2p!(
+        sys, zone;
+        spread_bid = PSY.MarketBidCost(;
+            incremental_offer_curves = step_curve,
+            curve_multistep = PSY.CurveMultiStep.MULTI_STEP,
+        ),
+    )
+    model = DecisionModel(_p2p_and_demand_template(), sys; optimizer = HiGHS_optimizer)
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+    container = get_optimization_container(model)
+    time_steps = get_time_steps(container)
+    q = IOM.get_variable(container, ClearedTransferVariable, PSY.PointToPointBid)
+    @test IOM.has_container_key(container, BlockBidLinkConstraint, PSY.PointToPointBid)
+    rows = IOM.get_constraint(container, BlockBidLinkConstraint, PSY.PointToPointBid)
+    # One row per consecutive pair: the whole horizon is one block for a constant offer.
+    @test Set(keys(rows.data)) ==
+          Set(("P2P1", t) for t in first(time_steps):(last(time_steps) - 1))
+    t1 = first(time_steps)
+    @test JuMP.normalized_coefficient(rows["P2P1", t1], q["P2P1", t1]) == 1.0
+    @test JuMP.normalized_coefficient(rows["P2P1", t1], q["P2P1", t1 + 1]) == -1.0
+    @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+    res = OptimizationProblemOutputs(model)
+    cleared = read_variable(
+        res, "ClearedTransferVariable__PointToPointBid"; table_format = TableFormat.WIDE,
+    )[
+        !,
+        "P2P1",
+    ]
+    @test maximum(cleared) - minimum(cleared) < 1e-6
+
+    # SINGLE_STEP, the default, adds no link rows.
+    sys2, zone2, _ = _build_zone_system()
+    _add_settlement_demand!(sys2, zone2)
+    _add_hub_and_p2p!(
+        sys2,
+        zone2;
+        spread_bid = PSY.MarketBidCost(; incremental_offer_curves = step_curve),
+    )
+    model2 = DecisionModel(_p2p_and_demand_template(), sys2; optimizer = HiGHS_optimizer)
+    @test build!(model2; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+    @test !IOM.has_container_key(
+        get_optimization_container(model2), BlockBidLinkConstraint, PSY.PointToPointBid)
+end
+
+@testset "SpreadBid rejects a decremental spread curve" begin
+    sys, zone, zone_buses = _build_zone_system()
+    hub, bid = _add_hub_and_p2p!(
+        sys, zone;
+        spread_bid = PSY.MarketBidCost(;
+            decremental_offer_curves = PSY.CostCurve(
+                PSY.PiecewiseIncrementalCurve(0.0, [0.0, 50.0], [3.0]),
+                PSY.NU,
+            ),
+        ),
+    )
+    model = DecisionModel(_p2p_template(), sys; optimizer = HiGHS_optimizer)
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.FAILED
+end
+
+@testset "VirtualBidDispatch writes into its settlement location" begin
+    sys, zone, zone_buses = _build_zone_system()
+    vp = PSY.VirtualParticipant(;
+        name = "V1", available = true, max_supply = 10.0, max_demand = 10.0,
+        settlement_point = zone,
+        operation_cost = PSY.MarketBidCost(;
+            incremental_offer_curves = PSY.CostCurve(
+                PSY.PiecewiseIncrementalCurve(0.0, [0.0, 10.0], [1000.0]),
+                PSY.NU,
+            ),
+            decremental_offer_curves = PSY.CostCurve(
+                PSY.PiecewiseIncrementalCurve(0.0, [0.0, 10.0], [5.0]),
+                PSY.NU,
+            ),
+        ),
+    )
+    PSY.add_component!(sys, vp)
+    template = _ptdf_market_template()
+    set_market_component_model!(template, DeviceModel(PSY.LoadZone, NodalRedistribution))
+    set_market_component_model!(
+        template, DeviceModel(PSY.VirtualParticipant, VirtualBidDispatch),
+    )
+    model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+    container = get_optimization_container(model)
+    t1 = first(get_time_steps(container))
+    p_out = IOM.get_variable(container, ActivePowerOutVariable, PSY.VirtualParticipant)
+    p_in = IOM.get_variable(container, ActivePowerInVariable, PSY.VirtualParticipant)
+    zexpr = IOM.get_expression(container, AggregateClearedInjection, PSY.LoadZone)
+    @test JuMP.coefficient(zexpr["LZ1", t1], p_out["V1", t1]) == 1.0
+    @test JuMP.coefficient(zexpr["LZ1", t1], p_in["V1", t1]) == -1.0
+    # The settlement writes are unchanged: still +out/-in on the System row.
+    sexpr = IOM.get_expression(container, IOM.SettlementBalance, PSY.System)
+    @test JuMP.coefficient(sexpr[1, t1], p_out["V1", t1]) == 1.0
+    @test JuMP.coefficient(sexpr[1, t1], p_in["V1", t1]) == -1.0
+    # And the virtual never touches the nodal balance directly: only through the position.
+    nodal = IOM.get_expression(container, ActivePowerBalance, PSY.ACBus)
+    for n in axes(nodal)[1]
+        @test JuMP.coefficient(nodal[n, t1], p_out["V1", t1]) == 0.0
+        @test JuMP.coefficient(nodal[n, t1], p_in["V1", t1]) == 0.0
+    end
+end
+
+@testset "VirtualBidDispatch writes a FIXED participant's award into its settlement location" begin
+    sys, zone, zone_buses = _build_zone_system()
+    vp = PSY.VirtualParticipant(;
+        name = "VF", available = true, max_supply = 10.0, max_demand = 0.0,
+        settlement_point = zone,
+        operation_cost = PSY.MarketBidCost(;
+            curve_style = PSY.CurveStyles.FIXED,
+            incremental_offer_curves = PSY.CostCurve(
+                PSY.PiecewiseIncrementalCurve(0.0, [0.0, 10.0], [1000.0]),
+                PSY.NU,
+            ),
+        ),
+    )
+    PSY.add_component!(sys, vp)
+    template = _ptdf_market_template()
+    set_market_component_model!(template, DeviceModel(PSY.LoadZone, NodalRedistribution))
+    set_market_component_model!(
+        template, DeviceModel(PSY.VirtualParticipant, VirtualBidDispatch),
+    )
+    model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+    container = get_optimization_container(model)
+    t1 = first(get_time_steps(container))
+    p_out = IOM.get_variable(container, ActivePowerOutVariable, PSY.VirtualParticipant)
+    z = IOM.get_variable(
+        container,
+        BlockBidCommitmentVariable,
+        PSY.VirtualParticipant,
+        "Out",
+    )
+    zexpr = IOM.get_expression(container, AggregateClearedInjection, PSY.LoadZone)
+    # The award variable carries the position; the binary appears nowhere but its own row.
+    @test JuMP.coefficient(zexpr["LZ1", t1], p_out["VF", t1]) == 1.0
+    @test JuMP.coefficient(zexpr["LZ1", t1], z["VF", t1]) == 0.0
+    sexpr = IOM.get_expression(container, IOM.SettlementBalance, PSY.System)
+    @test JuMP.coefficient(sexpr[1, t1], p_out["VF", t1]) == 1.0
+    @test JuMP.coefficient(sexpr[1, t1], z["VF", t1]) == 0.0
+end
+
+@testset "VirtualBidDispatch at a single trading hub writes into the hub" begin
+    sys, zone, zone_buses = _build_zone_system()
+    buses = sort!(collect(PSY.get_components(PSY.ACBus, sys)); by = PSY.get_number)
+    hub = PSY.TradingHub(; name = "HUB1", buses = buses[3:4])
+    PSY.add_component!(sys, hub)
+    vp = PSY.VirtualParticipant(;
+        name = "VH", available = true, max_supply = 10.0, max_demand = 0.0,
+        trading_hubs = [hub],
+        operation_cost = PSY.MarketBidCost(;
+            incremental_offer_curves = PSY.CostCurve(
+                PSY.PiecewiseIncrementalCurve(0.0, [0.0, 10.0], [1000.0]),
+                PSY.NU,
+            ),
+        ),
+    )
+    PSY.add_component!(sys, vp)
+    template = _ptdf_market_template()
+    set_market_component_model!(template, DeviceModel(PSY.TradingHub, NodalRedistribution))
+    set_market_component_model!(
+        template, DeviceModel(PSY.VirtualParticipant, VirtualBidDispatch),
+    )
+    model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+    container = get_optimization_container(model)
+    t1 = first(get_time_steps(container))
+    p_out = IOM.get_variable(container, ActivePowerOutVariable, PSY.VirtualParticipant)
+    hexpr = IOM.get_expression(container, AggregateClearedInjection, PSY.TradingHub)
+    @test JuMP.coefficient(hexpr["HUB1", t1], p_out["VH", t1]) == 1.0
+end
+
+# Demand enters only as the distributed cleared bid: a forecast `StaticPowerLoad` would sit
+# in the physical balance but never in the settlement row, and the system-level slack that
+# reconciles the two is not nodal, so the PTDF flows would be built from unbalanced
+# injections.
+function _congestion_template()
+    template = PowerOperationsProblemTemplate(NetworkModel(PTDFNetworkModel))
+    set_device_model!(template, ThermalStandard, ThermalBasicDispatch)
+    set_market_model!(
+        template,
+        IOM.MarketModel(SettlementMarket; settlement_domain = PSY.System),
+    )
+    set_market_component_model!(template, DeviceModel(PSY.LoadZone, NodalRedistribution))
+    set_market_component_model!(
+        template, DeviceModel(PSY.VirtualParticipant, VirtualBidDispatch),
+    )
+    set_device_model!(
+        template, DeviceModel(PSY.Line, StaticBranch; duals = [FlowRateConstraint]),
+    )
+    return template
+end
+
+function _solve_congestion_model(sys)
+    model = DecisionModel(_congestion_template(), sys; optimizer = HiGHS_optimizer)
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+    @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+    return model
+end
+
+@testset "Distributed demand congests: PTDF · injections matches, binding line has a dual" begin
+    sys, zone, zone_buses = _build_zone_system()
+    # A demand-side virtual at the zone forces a distributed withdrawal, valued highly so
+    # it clears at a positive quantity, and sized above the fleet's summed minimum power
+    # so the settlement row (generation == cleared demand) is feasible.
+    vp = PSY.VirtualParticipant(;
+        name = "VD", available = true, max_supply = 0.0, max_demand = 1000.0,
+        settlement_point = zone,
+        operation_cost = PSY.MarketBidCost(;
+            decremental_offer_curves = PSY.CostCurve(
+                PSY.PiecewiseIncrementalCurve(0.0, [0.0, 1000.0], [1000.0]),
+                PSY.NU,
+            ),
+        ),
+    )
+    PSY.add_component!(sys, vp)
+
+    # Unconstrained pass: find the most loaded line, then rate it just below that flow so
+    # the distributed withdrawal binds it.
+    model = _solve_congestion_model(sys)
+    container = get_optimization_container(model)
+    t1 = first(get_time_steps(container))
+    flows = IOM.get_expression(container, PTDFBranchFlow, PSY.Line)
+    line_names = collect(axes(flows)[1])
+    loaded = argmax(l -> abs(JuMP.value(flows[l, t1])), line_names)
+    rating = 0.9 * abs(JuMP.value(flows[loaded, t1]))
+    PSY.set_rating!(PSY.get_component(PSY.Line, sys, loaded), rating * u"SU")
+
+    model = _solve_congestion_model(sys)
+    container = get_optimization_container(model)
+    network_model = get_network_model(IOM.get_template(model))
+    position = IOM.get_variable(container, ClearedPositionVariable, PSY.LoadZone)
+    pos_val = JuMP.value(position["LZ1", t1])
+    @test pos_val < 0.0  # net withdrawal cleared
+
+    # Independent reference: PTDF times the realized nodal injections (generation, load
+    # parameters, and df ⊙ position) must reproduce every branch flow.
+    factors = get_distribution_factors(container, sys, zone, network_model)
+    ptdf = PNM.PTDF(sys)
+    flows = IOM.get_expression(container, PTDFBranchFlow, PSY.Line)
+    nodal = IOM.get_expression(container, ActivePowerBalance, PSY.ACBus)
+    bus_numbers = collect(axes(nodal)[1])
+    injections = [JuMP.value(nodal[n, t1]) for n in bus_numbers]
+    distributed = sum(factors[n, t1] * pos_val for n in axes(factors)[1])
+    @test isapprox(distributed, pos_val; atol = 1e-9)
+    for lname in line_names
+        expected = sum(ptdf[lname, n] * injections[i] for (i, n) in enumerate(bus_numbers))
+        @test isapprox(JuMP.value(flows[lname, t1]), expected; atol = 1e-6)
+    end
+
+    # Congestion: the tightened line sits at its rating and carries a non-zero dual.
+    @test isapprox(abs(JuMP.value(flows[loaded, t1])), rating; atol = 1e-6)
+    duals = IOM.get_duals(container)
+    dual_value = sum(
+        abs(duals[IOM.ConstraintKey(FlowRateConstraint, PSY.Line, meta)][loaded, t1])
+        for meta in ("lb", "ub")
+    )
+    @test dual_value > 1e-6
+end
+
+# A PTP obligation injects at its source (`from`) and withdraws at its sink (`to`), and
+# clears while the sink-minus-source spread is at or below its bid price. On a congested
+# line the spread is the line's congestion rent times the shift-factor difference, so a
+# bid that relieves the line sees a negative spread and must clear in full, and its mirror
+# image, which loads the line, sees a large positive spread and must not clear at all.
+@testset "SpreadBid clears on the sink-minus-source spread across a congested line" begin
+    sys, zone, zone_buses = _build_zone_system()
+    vp = PSY.VirtualParticipant(;
+        name = "VD", available = true, max_supply = 0.0, max_demand = 1000.0,
+        settlement_point = zone,
+        operation_cost = PSY.MarketBidCost(;
+            decremental_offer_curves = PSY.CostCurve(
+                PSY.PiecewiseIncrementalCurve(0.0, [0.0, 1000.0], [1000.0]),
+                PSY.NU,
+            ),
+        ),
+    )
+    PSY.add_component!(sys, vp)
+
+    model = _solve_congestion_model(sys)
+    container = get_optimization_container(model)
+    t1 = first(get_time_steps(container))
+    flows = IOM.get_expression(container, PTDFBranchFlow, PSY.Line)
+    line_names = collect(axes(flows)[1])
+    loaded = argmax(l -> abs(JuMP.value(flows[l, t1])), line_names)
+    direction = sign(JuMP.value(flows[loaded, t1]))
+    rating = 0.9 * abs(JuMP.value(flows[loaded, t1]))
+    PSY.set_rating!(PSY.get_component(PSY.Line, sys, loaded), rating * u"SU")
+
+    # The bus pair with the largest shift-factor difference on the congested line, ordered
+    # so that injecting at `a` and withdrawing at `b` pushes flow against the congestion.
+    ptdf = PNM.PTDF(sys)
+    buses = sort!(collect(PSY.get_components(PSY.ACBus, sys)); by = PSY.get_number)
+    sf(bus) = ptdf[loaded, PSY.get_number(bus)]
+    pairs = [(x, y) for x in buses for y in buses if x !== y]
+    a, b = argmax(((x, y),) -> abs(sf(x) - sf(y)), pairs)
+    direction * (sf(a) - sf(b)) > 0 && ((a, b) = (b, a))
+    @test direction * (sf(a) - sf(b)) < 0
+
+    # Small envelopes, so relief never unbinds the line: the demand bid refills it.
+    envelope_mw = 5.0
+    for (name, from, to) in (("RELIEVE", a, b), ("AGGRAVATE", b, a))
+        PSY.add_component!(
+            sys,
+            PSY.PointToPointBid(;
+                name = name, available = true, from = from, to = to,
+                max_active_power = envelope_mw,
+                price_limits = (min = -100.0, max = 100.0),
+                spread_bid = _flat_spread_bid(1.0, envelope_mw),
+            ),
+        )
+    end
+
+    template = _congestion_template()
+    set_market_component_model!(template, DeviceModel(PSY.ACBus, NodalRedistribution))
+    set_market_component_model!(template, DeviceModel(PSY.PointToPointBid, SpreadBid))
+    model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+    @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+    container = get_optimization_container(model)
+    q = IOM.get_variable(container, ClearedTransferVariable, PSY.PointToPointBid)
+    flows = IOM.get_expression(container, PTDFBranchFlow, PSY.Line)
+
+    # Each award is an injection at its source and a withdrawal at its sink.
+    bexpr = IOM.get_expression(container, AggregateClearedInjection, PSY.ACBus)
+    for (name, from, to) in (("RELIEVE", a, b), ("AGGRAVATE", b, a))
+        @test JuMP.coefficient(bexpr[PSY.get_name(from), t1], q[name, t1]) == 1.0
+        @test JuMP.coefficient(bexpr[PSY.get_name(to), t1], q[name, t1]) == -1.0
+    end
+
+    @test isapprox(abs(JuMP.value(flows[loaded, t1])), rating; atol = 1e-6)
+    envelope = envelope_mw / PSY.get_base_power(sys)
+    @test isapprox(JuMP.value(q["RELIEVE", t1]), envelope; atol = 1e-6)
+    @test isapprox(JuMP.value(q["AGGRAVATE", t1]), 0.0; atol = 1e-6)
+end
+
+@testset "get_member_buses drops unavailable members" begin
+    sys, zone, zone_buses = _build_zone_system()
+    PSY.set_available!(zone_buses[1], false)
+    @test POM.get_member_buses(sys, zone) == [zone_buses[2]]
+    hub = PSY.TradingHub(; name = "HUB_ISO", buses = collect(zone_buses))
+    PSY.add_component!(sys, hub)
+    @test POM.get_member_buses(sys, hub) == [zone_buses[2]]
+end
+
+@testset "Hourly factors land on each time step" begin
+    sys, zone, zone_buses = _build_zone_system()
+    hub = PSY.TradingHub(; name = "HUB_H", buses = collect(zone_buses))
+    PSY.add_component!(sys, hub)
+    n1, n2 = PSY.get_number.(zone_buses)
+    first_bus = [0.1 * (t % 5) for t in 1:_factor_horizon(sys)]
+    _add_factor_matrix!(sys, hub, [n1, n2], [first_bus, 1.0 .- first_bus])
+    container, network_model = _build_factor_model(sys)
+    hf = get_distribution_factors(container, sys, hub, network_model)
+    @test all(hf[n1, t] ≈ first_bus[t] for t in get_time_steps(container))
+    @test all(hf[n2, t] ≈ 1.0 - first_bus[t] for t in get_time_steps(container))
+end
+
+@testset "An unavailable member's factor column is dropped" begin
+    sys, zone, zone_buses = _build_zone_system()
+    n1, n2 = PSY.get_number.(zone_buses)
+    hub = PSY.TradingHub(; name = "HUB_OFF", buses = collect(zone_buses))
+    PSY.add_component!(sys, hub)
+    _add_factor_matrix!(sys, hub, [n1], [0.9])
+    # After the build: the network matrices reject an unavailable bus with live lines.
+    container, network_model = _build_factor_model(sys)
+    PSY.set_available!(zone_buses[1], false)
+    factors = get_distribution_factors(container, sys, zone, network_model)
+    @test collect(axes(factors)[1]) == [n2]
+    @test all(factors[n2, t] == 0.4 for t in get_time_steps(container))
+
+    # A hub whose only column belongs to an unavailable member falls back to uniform.
+    hf = get_distribution_factors(container, sys, hub, network_model)
+    @test collect(axes(hf)[1]) == [n2]
+    @test all(hf[n2, t] == 1.0 for t in get_time_steps(container))
+end
+
+@testset "A factor column for a bus outside the location is an error" begin
+    sys, _, _ = _build_zone_system()
+    container, _ = _build_factor_model(sys)
+    buses = sort!(collect(PSY.get_components(PSY.ACBus, sys)); by = PSY.get_number)
+    hub = PSY.TradingHub(; name = "HUB_PART", buses = buses[3:4])
+    PSY.add_component!(sys, hub)
+    _add_factor_matrix!(sys, hub, PSY.get_number.(buses[4:5]), [0.7, 0.3])
+    @test_throws ArgumentError POM._factor_bus_labels(
+        container,
+        hub,
+        POM._buses_by_number(sys),
+    )
+    # A zone's members are the buses that name it; bus 4 names no zone.
+    zone = PSY.LoadZone(;
+        name = "LZ_PART",
+        peak_active_power = 1.0,
+        peak_reactive_power = 0.0,
+        input_basis = u"CU",
+    )
+    PSY.add_component!(sys, zone)
+    PSY.set_load_zone!(buses[3], zone)
+    _add_factor_matrix!(sys, zone, PSY.get_number.(buses[3:4]), [0.5, 0.5])
+    @test_throws ArgumentError POM._factor_bus_labels(
+        container,
+        zone,
+        POM._buses_by_number(sys),
+    )
+end
+
+@testset "Factor series must be one [time step, bus] matrix" begin
+    sys, zone, zone_buses = _build_zone_system()
+    container, _ = _build_factor_model(sys)
+    n1, n2 = PSY.get_number.(zone_buses)
+    # IS rejects repeated labels when the series is built, so POM never sees them.
+    @test_throws ArgumentError _factor_matrix(sys, [n1, n1], [0.5, 0.5])
+    hub = PSY.TradingHub(; name = "HUB_AXES", buses = collect(zone_buses))
+    PSY.add_component!(sys, hub)
+    _add_factor_matrix!(sys, hub, ["a", "b"], [0.5, 0.5])
+    @test_throws ArgumentError POM._factor_bus_labels(
+        container,
+        hub,
+        POM._buses_by_number(sys),
+    )
+    hub2 = PSY.TradingHub(; name = "HUB_NODE", buses = collect(zone_buses))
+    PSY.add_component!(sys, hub2)
+    _add_factor_matrix!(sys, hub2, [n1, n2], [0.5, 0.5]; axis = "node")
+    @test_throws ArgumentError POM._factor_bus_labels(
+        container,
+        hub2,
+        POM._buses_by_number(sys),
+    )
+    # A second series on the same location is ambiguous.
+    PSY.add_time_series!(
+        sys, zone, _factor_matrix(sys, [n1, n2], [0.1, 0.9]);
+        features = Dict("year" => 2030),
+    )
+    @test_throws ArgumentError POM._factor_bus_labels(
+        container,
+        zone,
+        POM._buses_by_number(sys),
+    )
+end
+
+@testset "A factor window at another resolution is an error" begin
+    sys, zone, zone_buses = _build_zone_system()
+    container, _ = _build_factor_model(sys)
+    hub = PSY.TradingHub(; name = "HUB_RES", buses = collect(zone_buses))
+    PSY.add_component!(sys, hub)
+    _add_factor_matrix!(
+        sys, hub, PSY.get_number.(zone_buses), [0.5, 0.5]; resolution = Minute(30),
+    )
+    @test_throws IS.ConflictingInputsError POM._factor_bus_labels(
+        container,
+        hub,
+        POM._buses_by_number(sys),
+    )
+end
+
+@testset "A reduced member bus's factor sums into its retained bus" begin
+    sys, zone, zone_buses = _build_zone_system()
+    n1, n2 = PSY.get_number.(zone_buses)
+    leaf = PSY.ACBus(;
+        input_basis = u"CU",
+        number = 99, name = "leaf", available = true, bustype = PSY.ACBusTypes.PQ,
+        angle = 0.0, magnitude = 1.0, voltage_limits = (min = 0.9, max = 1.1),
+        base_voltage = PSY.get_base_voltage(zone_buses[1]),
+        area = PSY.get_area(zone_buses[1]), load_zone = zone,
+    )
+    PSY.add_component!(sys, leaf)
+    arc = PSY.Arc(; from = zone_buses[1], to = leaf)
+    PSY.add_component!(sys, arc)
+    line = PSY.Line(;
+        name = "leaf_line", available = true, active_power_flow = 0.0,
+        reactive_power_flow = 0.0, arc = arc,
+        r = 0.001, x = 0.01, b = (from = 0.0, to = 0.0), rating = 1.0,
+        angle_limits = (min = -1.0, max = 1.0), input_basis = u"CU",
+    )
+    PSY.add_component!(sys, line)
+    PSY.remove_time_series!(sys, PSY.Deterministic, zone, POM.DISTRIBUTION_FACTOR_TS_NAME)
+    _add_factor_matrix!(sys, zone, [n1, n2, 99], [0.6, 0.4, 0.1])
+    container, network_model = _build_factor_model(
+        sys,
+        NetworkModel(
+            PTDFNetworkModel;
+            network_source = SystemNetworkSource(PNM.RadialReduction()),
+        ),
+    )
+    reduction = get_network_reduction(network_model)
+    @test PNM.get_mapped_bus_number(reduction, leaf) == n1
+    factors = get_distribution_factors(container, sys, zone, network_model)
+    @test collect(axes(factors)[1]) == [n1, n2]
+    @test all(factors[n1, t] ≈ 0.7 for t in get_time_steps(container))
+    @test all(factors[n2, t] == 0.4 for t in get_time_steps(container))
+end
+
+# AbstractSecurityConstrainedStaticBranch snapshots the nodal balance into a fixed
+# PTDFBranchFlow AffExpr during its ArgumentConstructStage -- one stage earlier than
+# StaticBranch. The cleared-position fan-out must therefore also land in the argument
+# stage, or the security-constrained flows carry none of the market injections and the
+# LP holds no variable able to relieve the corridor.
+@testset "Cleared position reaches security-constrained branch flows" begin
+    sys, zone, zone_buses = _build_zone_system()
+    all_branches = collect(PSY.get_components(PSY.ACTransmission, sys))
+    for line_name in ["1", "2", "3"]
+        line = PSY.get_component(PSY.ACTransmission, sys, line_name)
+        PSY.add_supplemental_attribute!(
+            sys,
+            line,
+            PSY.GeometricDistributionForcedOutage(;
+                mean_time_to_recovery = 10,
+                outage_transition_probability = 0.9999,
+                monitored_components = all_branches,
+            ),
+        )
+    end
+
+    template = get_thermal_dispatch_template_network(
+        NetworkModel(
+            PTDFNetworkModel;
+            network_source = PrebuiltMatrixSource(PNM.VirtualPTDF(sys)),
+        ),
+    )
+    set_market_model!(
+        template,
+        IOM.MarketModel(SettlementMarket; settlement_domain = PSY.System),
+    )
+    set_market_component_model!(template, DeviceModel(PSY.LoadZone, NodalRedistribution))
+    set_device_model!(template, PSY.Line, POM.SecurityConstrainedStaticBranch)
+
+    model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+    container = get_optimization_container(model)
+    t1 = first(get_time_steps(container))
+    position = IOM.get_variable(container, ClearedPositionVariable, PSY.LoadZone)
+    flows = IOM.get_expression(container, PTDFBranchFlow, PSY.Line)
+
+    # Ground truth: the position enters each branch flow with the PTDF-weighted sum of
+    # its distribution factors over the member buses.
+    ptdf = PNM.PTDF(sys)
+    weights = Dict(PSY.get_number(b) => f for (b, f) in zip(zone_buses, (0.6, 0.4)))
+    nonzero = 0
+    for lname in axes(flows)[1]
+        expected = sum(ptdf[lname, n] * f for (n, f) in weights)
+        @test isapprox(
+            JuMP.coefficient(flows[lname, t1], position["LZ1", t1]),
+            expected;
+            atol = 1e-9,
+        )
+        abs(expected) > 1e-9 && (nonzero += 1)
+    end
+    @test nonzero > 0
+end
+
+@testset "Factors reach the model through DistributionFactorParameter" begin
+    sys, zone, zone_buses = _build_zone_system()
+    n1, n2 = PSY.get_number.(zone_buses)
+    container, _ = _build_factor_model(sys)
+    key = IOM.ParameterKey(DistributionFactorParameter, PSY.LoadZone)
+    pc = IOM.get_parameter(container, key)
+    @test eltype(IOM.get_parameter_array(pc)) == Float64
+    values = IOM.get_lhs_parameter_values(container, key, "LZ1")
+    @test size(values, 1) == 2
+    @test all(values[:, t] == [0.6, 0.4] for t in get_time_steps(container))
+    nodal = IOM.get_expression(container, ActivePowerBalance, PSY.ACBus)
+    position = IOM.get_variable(container, ClearedPositionVariable, PSY.LoadZone)
+    t1 = first(get_time_steps(container))
+    @test JuMP.coefficient(nodal[n1, t1], position["LZ1", t1]) == 0.6
+    @test JuMP.coefficient(nodal[n2, t1], position["LZ1", t1]) == 0.4
+end
+
+@testset "Equal factors on different buses keep their own buses" begin
+    sys, _, _ = _build_zone_system()
+    buses = sort!(collect(PSY.get_components(PSY.ACBus, sys)); by = PSY.get_number)
+    n = PSY.get_number.(buses)
+    for (name, members) in (("H1", buses[2:3]), ("H2", buses[4:5]))
+        hub = PSY.TradingHub(; name = name, buses = members)
+        PSY.add_component!(sys, hub)
+        _add_factor_matrix!(sys, hub, PSY.get_number.(members), [0.7, 0.3])
+    end
+    container, _ = _build_factor_model(sys)
+    pc = IOM.get_parameter(
+        container,
+        IOM.ParameterKey(DistributionFactorParameter, PSY.TradingHub),
+    )
+    @test length(axes(IOM.get_parameter_array(pc), 1)) == 1   # one shared row
+    nodal = IOM.get_expression(container, ActivePowerBalance, PSY.ACBus)
+    position = IOM.get_variable(container, ClearedPositionVariable, PSY.TradingHub)
+    t1 = first(get_time_steps(container))
+    @test JuMP.coefficient(nodal[n[2], t1], position["H1", t1]) == 0.7
+    @test JuMP.coefficient(nodal[n[3], t1], position["H1", t1]) == 0.3
+    @test JuMP.coefficient(nodal[n[4], t1], position["H2", t1]) == 0.7
+    @test JuMP.coefficient(nodal[n[5], t1], position["H2", t1]) == 0.3
+    @test JuMP.coefficient(nodal[n[4], t1], position["H1", t1]) == 0.0
+end
+
+@testset "A location read without its parameter errors" begin
+    sys, zone, _ = _build_zone_system()
+    template = get_thermal_dispatch_template_network(NetworkModel(PTDFNetworkModel))
+    model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+    container = get_optimization_container(model)
+    network_model = get_network_model(IOM.get_template(model))
+    @test_throws ErrorException get_distribution_factors(
+        container,
+        sys,
+        zone,
+        network_model,
+    )
+end
+
+@testset "Factors round trip through the outputs bundle in their own layout" begin
+    sys, zone, zone_buses = _build_zone_system()
+    template = get_thermal_dispatch_template_network(NetworkModel(PTDFNetworkModel))
+    set_market_model!(
+        template, IOM.MarketModel(SettlementMarket; settlement_domain = PSY.System),
+    )
+    set_market_component_model!(template, DeviceModel(PSY.LoadZone, NodalRedistribution))
+    model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+    container = IOM.get_optimization_container(model)
+    windows = POM.run_windows(model)
+    store = POM.ParameterTimeSeriesStore()
+    key_map = POM.copy_cost_time_series!(store, sys, windows)
+    POM.write_model_inputs!(store, sys, container, windows)
+    bundle = joinpath(mktempdir(; cleanup = true), "system-test")
+    POM.write_outputs_system_bundle!(sys, store, key_map, bundle)
+    POM.close_parameter_store!(store)
+    restored = PSY.from_file(bundle; time_series_read_only = true)
+    zone2 = get_component(PSY.LoadZone, restored, "LZ1")
+    got = PSY.get_time_series(PSY.Deterministic, zone2, POM.DISTRIBUTION_FACTOR_TS_NAME)
+    @test IS.get_value_axes(got) ==
+          [IS.TimeSeriesAxis("bus", PSY.get_number.(zone_buses))]
+    window = only(values(PSY.get_data(got)))
+    @test all(window[t, :] == [0.6, 0.4] for t in axes(window, 1))
+    IS.close!(IS.get_data_store(restored.data))
+end

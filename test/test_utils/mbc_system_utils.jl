@@ -254,6 +254,21 @@ function _zero_out_startup_shutdown_costs!(
     return
 end
 
+"""Set everything except the incremental_offer_curves to zero on the static MarketBidCost attached to the unit."""
+function zero_out_non_incremental_curve!(::PSY.System, unit::PSY.Component)
+    cost = deepcopy(get_operation_cost(unit)::MarketBidCost)
+    set_minimum_energy_offer!(cost, LinearCurve(0.0))
+    set_start_up!(cost, (hot = 0.0, warm = 0.0, cold = 0.0))
+    set_shut_down!(cost, LinearCurve(0.0))
+    # set minimum generation cost (but not min gen power) to zero.
+    base_curve = get_value_curve(get_incremental_offer_curves(cost))
+    x_coords = get_x_coords(base_curve)
+    slopes = get_slopes(base_curve)
+    new_curve = PiecewiseIncrementalCurve(0.0, x_coords, slopes)
+    set_incremental_offer_curves!(cost, CostCurve(new_curve))
+    set_operation_cost!(unit, cost)
+end
+
 """
 Move the `minimum_energy_offer` cost onto the incremental offer curve's `initial_input`,
 zeroing `minimum_energy_offer` in exchange (`MEO = no-load cost / P_min`, so the flat dollar
@@ -290,6 +305,81 @@ function adjust_min_power!(sys)
             (min = first(x_coords) * u"MW", max = last(x_coords) * u"MW"),
         )
     end
+end
+
+# Convert the static offer curve at `direction` into a constant time-series-backed curve.
+# Returns a `CostCurve{TimeSeriesPiecewiseIncrementalCurve}` suitable for the corresponding
+# field of a `MarketBidTimeSeriesCost`.
+function _constant_ts_offer_curve!(
+    sys::System,
+    comp::PSY.Component,
+    static_curve::CostCurve{PiecewiseIncrementalCurve},
+    incr_or_decr::String,
+)
+    baseline = get_value_curve(static_curve)::PiecewiseIncrementalCurve
+    init_ts = make_deterministic_ts(
+        sys,
+        "initial_input $(incr_or_decr)",
+        get_initial_input(baseline),
+        0.0,
+        0.0,
+    )
+    pwl_ts = make_deterministic_ts(
+        sys,
+        "variable_cost $(incr_or_decr)",
+        get_function_data(baseline),
+        (0.0, 0.0, 0.0),
+        (0.0, 0.0, 0.0),
+    )
+    init_key = add_time_series!(sys, comp, init_ts)
+    pwl_key = add_time_series!(sys, comp, pwl_ts)
+    return PSY.make_market_bid_ts_curve(pwl_key, init_key)
+end
+
+# Promote `comp`'s static MarketBidCost to a `MarketBidTimeSeriesCost`, with all fields
+# backed by time series. Offer curves and minimum_energy_offer get constant-valued series; startup
+# and shutdown optionally vary per `startup_incr`/`shutdown_incr = (res_incr, interval_incr)`.
+# Returns the startup and shutdown Deterministic objects (callers compare to these).
+function _promote_mbc_to_ts!(
+    sys::System,
+    comp::PSY.Component;
+    startup_incr::Tuple{Float64, Float64} = (0.0, 0.0),
+    shutdown_incr::Tuple{Float64, Float64} = (0.0, 0.0),
+    startup_base::Union{Nothing, NTuple{3, Float64}} = nothing,
+    shutdown_base::Union{Nothing, Float64} = nothing,
+)
+    op_cost = get_operation_cost(comp)::MarketBidCost
+    su_base = isnothing(startup_base) ? Tuple(get_start_up(op_cost)) : startup_base
+    sd_base = if isnothing(shutdown_base)
+        get_proportional_term(get_shut_down(op_cost))
+    else
+        shutdown_base
+    end
+    nl_base = get_proportional_term(get_minimum_energy_offer(op_cost))
+
+    su_ts = make_deterministic_ts(sys, "start_up", su_base, startup_incr...)
+    sd_ts = make_deterministic_ts(sys, "shut_down", sd_base, shutdown_incr...)
+    nl_ts = make_deterministic_ts(sys, "minimum_energy_offer", nl_base, 0.0, 0.0)
+    su_key = add_time_series!(sys, comp, su_ts)
+    sd_key = add_time_series!(sys, comp, sd_ts)
+    nl_key = add_time_series!(sys, comp, nl_ts)
+
+    incr_curve =
+        _constant_ts_offer_curve!(sys, comp, get_incremental_offer_curves(op_cost),
+            "incremental")
+    decr_curve =
+        _constant_ts_offer_curve!(sys, comp, get_decremental_offer_curves(op_cost),
+            "decremental")
+
+    new_cost = MarketBidTimeSeriesCost(;
+        minimum_energy_offer = TimeSeriesLinearCurve(nl_key),
+        start_up = su_key,
+        shut_down = TimeSeriesLinearCurve(sd_key),
+        incremental_offer_curves = incr_curve,
+        decremental_offer_curves = decr_curve,
+    )
+    set_operation_cost!(comp, new_cost)
+    return su_ts, sd_ts
 end
 
 """

@@ -16,15 +16,18 @@ mutable struct PowerOperationsProblemTemplate <: IOM.AbstractProblemTemplate
     devices::DevicesModelContainer
     branches::BranchModelContainer
     services::ServicesModelContainer
+    market_model::Union{Nothing, IOM.MarketModel}
     events::Vector{IOM.AbstractEventModel}
     function PowerOperationsProblemTemplate(
-        network::NetworkModel{T},
+        network::NetworkModel{T};
+        market_model::Union{Nothing, IOM.MarketModel} = nothing,
     ) where {T <: AbstractNetworkModel}
         new(
             network,
             DevicesModelContainer(),
             BranchModelContainer(),
             ServicesModelContainer(),
+            market_model,
             Vector{IOM.AbstractEventModel}(),
         )
     end
@@ -55,6 +58,7 @@ get_network_formulation(template::PowerOperationsProblemTemplate) =
     get_network_formulation(get_network_model(template))
 get_hvdc_network_model(template::PowerOperationsProblemTemplate) =
     template.network_model.hvdc_network_model
+get_market_model(template::PowerOperationsProblemTemplate) = template.market_model
 
 """
 The `IOM.AbstractSolveContext` of one solve of a `PowerOperationsProblemTemplate`.
@@ -122,6 +126,48 @@ function set_network_model!(
     model::NetworkModel{<:AbstractNetworkModel},
 )
     template.network_model = model
+    return
+end
+
+"""
+Sets the market model in a template. Validation (single-settlement domain, network
+formulation compatibility) happens in `validate_template_impl!`, mirroring
+`set_network_model!`.
+"""
+function set_market_model!(
+    template::PowerOperationsProblemTemplate,
+    model::IOM.MarketModel,
+)
+    template.market_model = model
+    return
+end
+
+"""
+Sets a market component model in a template using the component type and formulation.
+Requires a market model to already be set with `set_market_model!`.
+"""
+function set_market_component_model!(
+    template::PowerOperationsProblemTemplate,
+    component_type::Type{<:PSY.Component},
+    formulation::Type{<:IOM.AbstractDeviceFormulation},
+)
+    set_market_component_model!(template, DeviceModel(component_type, formulation))
+    return
+end
+
+"""
+Sets a market component model in a template using a DeviceModel instance.
+Requires a market model to already be set with `set_market_model!`.
+"""
+function set_market_component_model!(
+    template::PowerOperationsProblemTemplate,
+    model::DeviceModel{D},
+) where {D <: PSY.Component}
+    market_model = template.market_model
+    if market_model === nothing
+        throw(ArgumentError("set a market model before adding market component models"))
+    end
+    set_model!(IOM.get_market_component_models(market_model), model)
     return
 end
 
@@ -393,27 +439,49 @@ function _add_services_to_device_model!(template::PowerOperationsProblemTemplate
 end
 
 """
+The market component models registered on the template, keyed like `get_device_models` so a
+component type can be looked up in either. Empty when no market model is set.
+"""
+function _market_component_models(template::PowerOperationsProblemTemplate)
+    market_model = IOM.get_market_model(template)
+    isnothing(market_model) && return Dict{Symbol, DeviceModel}()
+    return IOM.get_market_component_models(market_model)
+end
+
+"""
 Reject a contributing device whose formulation cannot bound a reserve award
 ([`supports_reserve_provision`](@ref)); such a device would sell capacity limited only by
 its nameplate rating, uncoupled from its dispatch and from its other services.
+
+A component type can be registered twice -- a physical `DeviceModel` and a market one (an
+AS-only load is `StaticPowerLoad` physically and `MarketLoadBid` in the market). The award is
+bounded if EITHER registration bounds it, so both are consulted and the device is rejected
+only when neither does.
 """
 function _validate_reserve_provision!(template::PowerOperationsProblemTemplate)
     devices_template = get_device_models(template)
+    market_template = _market_component_models(template)
     for service_model in values(get_service_models(template))
         get_component_type(service_model) <: PSY.AbstractReserve || continue
         for (service_name, by_device_type) in get_contributing_devices_map(service_model)
             for device_type in keys(by_device_type)
-                device_model = get(devices_template, nameof(device_type), nothing)
-                isnothing(device_model) && continue
-                formulation = get_formulation(device_model)
-                supports_reserve_provision(formulation) && continue
+                key = nameof(device_type)
+                models = [
+                    m for m in (get(devices_template, key, nothing),
+                        get(market_template, key, nothing)) if !isnothing(m)
+                ]
+                isempty(models) && continue
+                formulations = get_formulation.(models)
+                any(supports_reserve_provision, formulations) && continue
                 error(
-                    "$(device_type) devices are modeled under $(formulation), which " *
+                    "$(device_type) devices are modeled under " *
+                    "$(join(formulations, " and ")), which " *
                     "cannot bound a reserve award, but they contribute to service " *
                     "\"$(service_name)\" of type $(get_component_type(service_model)). " *
                     "Model them under a formulation that supports reserves " *
-                    "(PowerLoadDispatch or PowerLoadInterruption for loads), or remove " *
-                    "them from the service's contributing devices.",
+                    "(PowerLoadDispatch or PowerLoadInterruption for loads, or " *
+                    "MarketLoadBid via `set_market_component_model!` for an AS-only load), " *
+                    "or remove them from the service's contributing devices.",
                 )
             end
         end

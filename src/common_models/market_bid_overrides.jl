@@ -260,6 +260,50 @@ function add_variable_cost_to_objective!(
 end
 
 #################################################################################
+# Section 6a: VirtualParticipant — incremental (supply) and decremental (demand)
+# offers on a MarketBidCost. Structurally identical two-sided precedent to Source
+# ImportExport above, just keyed on MBC_TYPES instead of IEC_TYPES.
+#################################################################################
+
+function add_variable_cost_to_objective!(
+    container::OptimizationContainer,
+    ::Type{ActivePowerOutVariable},
+    component::PSY.VirtualParticipant,
+    cost_function::MBC_TYPES,
+    ::Type{VirtualBidDispatch},
+)
+    IOM.is_nontrivial_offer(get_output_offer_curves(cost_function)) || return
+    add_pwl_term_delta!(
+        IncrementalOffer(),
+        container,
+        component,
+        cost_function,
+        ActivePowerOutVariable,
+        VirtualBidDispatch,
+    )
+    return
+end
+
+function add_variable_cost_to_objective!(
+    container::OptimizationContainer,
+    ::Type{ActivePowerInVariable},
+    component::PSY.VirtualParticipant,
+    cost_function::MBC_TYPES,
+    ::Type{VirtualBidDispatch},
+)
+    IOM.is_nontrivial_offer(get_input_offer_curves(cost_function)) || return
+    add_pwl_term_delta!(
+        DecrementalOffer(),
+        container,
+        component,
+        cost_function,
+        ActivePowerInVariable,
+        VirtualBidDispatch,
+    )
+    return
+end
+
+#################################################################################
 # Section 6b: Storage — discharge is an incremental (supply) offer, charge is a
 # decremental (demand) offer. Certain market resources bid both sides, so the storage
 # objective (storage_models.jl `add_to_objective_function!`) calls

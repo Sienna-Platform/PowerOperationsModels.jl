@@ -42,6 +42,15 @@ struct EnergyVariable <: VariableType end
 struct LiftVariable <: VariableType end
 
 """
+Binary block-bid commitment variable (``z``) for a FIXED-`curve_style` market bid
+(`PSY.CurveStyles.FIXED`): one per (component, direction, period). The award equals the
+period's offer quantity when ``z = 1`` and zero when ``z = 0``
+([`BlockBidQuantityConstraint`](@ref)); ``z`` prices the block in the objective and never
+enters the settlement row itself.
+"""
+struct BlockBidCommitmentVariable <: VariableType end
+
+"""
 Struct to dispatch the creation of Reactive Power Variables
 
 Docs abbreviation: ``q``
@@ -898,6 +907,19 @@ should_write_resulting_value(::Type{HydroTurbineFlowRateVariable}) = false
 convert_output_to_natural_units(::Type{ActivePowerVariable}) = true
 convert_output_to_natural_units(::Type{PowerAboveMinimumVariable}) = true
 convert_output_to_natural_units(::Type{ActivePowerInVariable}) = true
+"""
+Cleared net position of a settlement location, tied to [`AggregateClearedInjection`](@ref)
+by [`ClearedPositionConstraint`](@ref). Fanning this one variable out onto member buses adds
+one term per bus instead of copying every instrument's terms into every member bus, and it
+doubles as the reportable cleared position per settlement point.
+"""
+struct ClearedPositionVariable <: VariableType end
+
+"""
+Cleared quantity of a `PSY.PointToPointBid`: an injection at `from`, a withdrawal at `to`.
+"""
+struct ClearedTransferVariable <: VariableType end
+
 convert_output_to_natural_units(::Type{ActivePowerOutVariable}) = true
 convert_output_to_natural_units(::Type{EnergyVariable}) = true
 convert_output_to_natural_units(::Type{ReactivePowerVariable}) = true
