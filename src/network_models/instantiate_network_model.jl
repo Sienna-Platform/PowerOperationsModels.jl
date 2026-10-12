@@ -363,22 +363,23 @@ function _derive_contingency_matrix(
 end
 
 """
-This build's branch index. The template's branch filters restrict which branches get flow
-variables -- an optimization concern, so it lives in the build's catalog rather than in the
-reduction, which stays exactly as the matrix produced it.
+This build's branch index. The `filter_selector` of each branch model restricts which
+branches get flow variables -- an optimization concern, so it lives in the build's catalog
+rather than in the reduction, which stays exactly as the matrix produced it.
 
 An unfiltered template reuses the matrix's own catalog; there is nothing to restrict.
 """
-function _build_catalog(matrix, branch_models::BranchModelContainer)
+function _build_catalog(matrix, branch_models::BranchModelContainer, sys::PSY.System)
     base = PNM.get_branch_catalog(matrix)
-    filters = IOM._get_filters(branch_models)
-    isempty(filters) && return base
-    # `IOM._get_filters` hands back a `Dict{DataType, Function}`, so the call through it cannot
-    # be inferred. Pinning the result to `Bool` keeps that `Any` from leaking into
-    # `_entry_matches`, which PNM folds over every branch while building the catalog.
+    selected = Dict{DataType, Set{Int}}()
+    for m in values(branch_models)
+        _has_filter_selector(m) || continue
+        selected[get_component_type(m)] = _selected_ids(m, sys)
+    end
+    isempty(selected) && return base
     function _passes_filter(T, component)
-        if haskey(filters, T)
-            return filters[T](component)::Bool
+        if haskey(selected, T)
+            return IS.get_id(component) in selected[T]
         else
             return true
         end
@@ -417,7 +418,7 @@ function IOM.instantiate_network_model!(
     ybus = _reduced_ybus!(model, sys, exceptions)
     IOM.set_network_data!(
         model,
-        YbusNetworkData(ybus, _build_catalog(ybus, branch_models)),
+        YbusNetworkData(ybus, _build_catalog(ybus, branch_models, sys)),
     )
     _finalize_network_reduction!(model, branch_models)
     return
@@ -437,7 +438,7 @@ function IOM.instantiate_network_model!(
     _validate_network_and_branches(model, branch_models, sys)
     exceptions = _collect_reduction_exceptions(sys, model, branch_models, service_models)
     ybus = _reduced_ybus!(model, sys, exceptions)
-    catalog = _build_catalog(ybus, branch_models)
+    catalog = _build_catalog(ybus, branch_models, sys)
     if IOM._template_has_outage_aware_branch(branch_models)
         core = _model_factor_core(ybus, model, sys)
         IOM.set_network_data!(
@@ -538,7 +539,7 @@ function _assemble_ptdf_data(
     sys::PSY.System,
     branch_models::BranchModelContainer,
 )
-    catalog = _build_catalog(core, branch_models)
+    catalog = _build_catalog(core, branch_models, sys)
     if IOM._template_has_outage_aware_branch(branch_models)
         return PTDFNetworkData(
             ptdf,

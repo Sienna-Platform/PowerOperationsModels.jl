@@ -81,6 +81,7 @@ function validate_template_impl!(model::IOM.AbstractOptimizationModel)
         get_check_components(settings) &&
         branches_modeled(get_network_formulation(network_model))
     for (k, device_model) in template.branches
+        _check_branch_filter(k, device_model)
         make_device_cache!(device_model, system, validate_branches)
         if isempty(get_device_cache(device_model))
             @info "The system data doesn't include Branches of type $(k), consider changing the models in the template" _group =
@@ -103,7 +104,7 @@ function validate_template_impl!(model::IOM.AbstractOptimizationModel)
             _check_operational_flow_limits(device_model)
             push!(network_model.modeled_branch_types, get_component_type(device_model))
         end
-        if get_attribute(device_model, "filter_function") !== nothing
+        if _has_filter_selector(device_model)
             model_has_branch_filters = true
         end
     end
@@ -161,10 +162,37 @@ _interface_contributor_has_flow(::PSY.AreaInterchange, ::Type{<:AbstractNetworkM
     true
 _interface_contributor_has_flow(::PSY.Device, ::Type{<:AbstractNetworkModel}) = false
 
+function _check_branch_filter(key::Symbol, model::DeviceModel)
+    if haskey(get_attributes(model), "filter_function")
+        throw(
+            IS.ConflictingInputsError(
+                "Branch model $(key) sets the `filter_function` attribute. Branch models \
+                select their devices with the `$(FILTER_SELECTOR_KEY)` attribute, an \
+                `IS.ComponentSelector`.",
+            ),
+        )
+    end
+    _has_filter_selector(model) || return
+    _check_filter_selector_value(key, get_attribute(model, FILTER_SELECTOR_KEY))
+    return
+end
+
+_check_filter_selector_value(::Symbol, ::IS.ComponentSelector) = nothing
+
+function _check_filter_selector_value(key::Symbol, value)
+    throw(
+        IS.ConflictingInputsError(
+            "Branch model $(key) sets the `$(FILTER_SELECTOR_KEY)` attribute to a \
+            $(typeof(value)). The attribute takes an `IS.ComponentSelector`, for example \
+            `make_selector(Line, \"1-2\")`.",
+        ),
+    )
+end
+
 """
 Reject a template whose transmission interfaces include a branch the model builds no flow
 for: either the branch's type has no branch model in the template, or that branch model's
-`filter_function` (or subsystem) excludes the branch. Either way the interface's flow
+`filter_selector` (or subsystem) excludes the branch. Either way the interface's flow
 expression would silently omit the branch, so the template is rejected and the user must
 make the filter and the interface definitions consistent.
 """
@@ -233,8 +261,8 @@ function _interface_branch_problems!(
             problems,
             "TransmissionInterface \"$(interface_name)\" includes $(T) branches \
             $(sort!(names)) that the template's $(T) branch model excludes through its \
-            filter_function or subsystem; their flow would be omitted from the interface. \
-            Change the filter_function to admit every branch in the interface, or remove \
+            filter_selector or subsystem; their flow would be omitted from the interface. \
+            Change the filter_selector to select every branch in the interface, or remove \
             the TransmissionInterface service model from the template.",
         )
     end

@@ -1928,14 +1928,14 @@ end
         [get_component(Line, c_sys5_uc, n) for n in interface_line_names],
     )
 
-    function _filtered_template(net, filter_function)
+    function _filtered_template(net, filter_selector)
         template = get_thermal_dispatch_template_network(net)
         set_device_model!(
             template,
             DeviceModel(
                 Line,
                 StaticBranch;
-                attributes = Dict("filter_function" => filter_function),
+                attributes = Dict("filter_selector" => filter_selector),
             ),
         )
         set_service_model!(
@@ -1946,7 +1946,7 @@ end
     end
 
     for net in (DCPNetworkModel, PTDFNetworkModel)
-        template = _filtered_template(net, x -> PSY.get_name(x) == "1")
+        template = _filtered_template(net, make_selector(Line, "1"))
         model = DecisionModel(template, c_sys5_uc; optimizer = HiGHS_optimizer)
         err = try
             POM.validate_template(model)
@@ -1957,7 +1957,7 @@ end
         @test err isa IS.ConflictingInputsError
         message = err.msg
         @test occursin("west_east", message)
-        @test occursin("filter_function", message)
+        @test occursin("filter_selector", message)
         @test occursin("\"2\", \"6\"", message)
         @test !occursin("\"1\"", message)
     end
@@ -1966,7 +1966,7 @@ end
     # every line in the interface.
     template = _filtered_template(
         PTDFNetworkModel,
-        x -> PSY.get_name(x) in ("1", "2", "3", "6"),
+        make_selector(x -> PSY.get_name(x) in ("1", "2", "3", "6"), Line),
     )
     model = DecisionModel(template, c_sys5_uc; optimizer = HiGHS_optimizer)
     @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
@@ -2073,7 +2073,7 @@ end
             AreaInterchange,
             StaticBranch;
             attributes = Dict(
-                "filter_function" => x -> PSY.get_name(x) == "interchange1_2",
+                "filter_selector" => make_selector(AreaInterchange, "interchange1_2"),
             ),
         ),
     )
