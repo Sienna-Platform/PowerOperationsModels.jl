@@ -4,14 +4,7 @@ numbers. `IOM.get_param_eltype` returns `JuMP.VariableRef` for recurrent solves 
 `rebuild_model` off, so guard at build time rather than surface a solver error mid-simulation.
 """
 function assert_numeric_distribution_factors(container::OptimizationContainer)
-    if IOM.get_param_eltype(container) !== Float64
-        error(
-            "Nodal distribution requires rebuild_model = true. With recurrent solves " *
-            "and rebuild_model off, the factors would be JuMP parameters and " *
-            "df * cleared_q would be nonlinear.",
-        )
-    end
-    return
+    return _require_numeric_params(container, "Nodal distribution")
 end
 
 # Membership differs by location type: dispatch, never branch on the type. Only available
@@ -45,20 +38,6 @@ _factor_axes_message(component) =
     "The $(DISTRIBUTION_FACTOR_TS_NAME) series of $(summary(component)) must be one " *
     "[time step, bus] matrix with value_axes = [IS.TimeSeriesAxis(\"bus\", bus numbers)]."
 
-# A factor series has exactly one value axis, named "bus", labeled by bus numbers. Dispatch
-# rejects the three bad layouts with one message: no value axes (`nothing`), another axis
-# name or count, and string labels (`_int_labels`).
-_bus_labels(::Nothing, component) = throw(ArgumentError(_factor_axes_message(component)))
-function _bus_labels(value_axes::Vector{IS.TimeSeriesAxis}, component)
-    if length(value_axes) != 1 || only(value_axes).name != "bus"
-        throw(ArgumentError(_factor_axes_message(component)))
-    end
-    return _int_labels(only(value_axes).labels, component)
-end
-_int_labels(labels::Vector{Int64}, _) = labels
-_int_labels(::Vector{String}, component) =
-    throw(ArgumentError(_factor_axes_message(component)))
-
 """
 Bus-number labels of the `distribution_factor` series `component` owns, read from its metadata
 without loading data, or `nothing` when it owns none. Errors for a second series, a layout
@@ -81,7 +60,9 @@ function _factor_series_labels(container::OptimizationContainer, component::PSY.
     end
     md = only(rows)
     _check_window_resolution(container, md, component)
-    return _bus_labels(IS.get_value_axes(md), component)
+    return _check_series_layout(
+        IS.get_value_axes(md), ["bus"], Int64, _factor_axes_message(component),
+    )
 end
 
 # Bus by number, built once per argument-stage call: factor labels resolve through it, so

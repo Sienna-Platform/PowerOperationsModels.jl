@@ -155,10 +155,8 @@ function add_constraint_dual!(
     sys::PSY.System,
     market_model::IOM.MarketModel,
 )
-    if !isempty(IOM.get_duals(market_model))
-        for constraint_type in IOM.get_duals(market_model)
-            assign_dual_variable!(container, constraint_type, sys, market_model)
-        end
+    for constraint_type in IOM.get_duals(market_model)
+        assign_dual_variable!(container, constraint_type, sys, market_model)
     end
     return
 end

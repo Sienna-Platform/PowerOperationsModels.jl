@@ -164,10 +164,10 @@ end
 @testset "Offer limits need rebuild_model = true" begin
     sys, _ = _ol_system(; up = _OL_TWO_SERVICES)
     container = get_optimization_container(_ol_model(sys))
-    @test POM._require_rebuild_model(container, POM.LINKED_RESERVE_OFFERS_KEY) === nothing
+    @test POM._require_numeric_params(container, "Linked reserve offers") === nothing
     container.built_for_recurrent_solves = true
-    @test_throws ErrorException POM._require_rebuild_model(
-        container, POM.LINKED_RESERVE_OFFERS_KEY,
+    @test_throws ErrorException POM._require_numeric_params(
+        container, "Linked reserve offers",
     )
 end
 

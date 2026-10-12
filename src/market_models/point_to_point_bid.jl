@@ -1,5 +1,4 @@
 #! format: off
-get_variable_binary(::Type{ClearedTransferVariable}, ::Type{PSY.PointToPointBid}, ::Type{SpreadBid}) = false
 get_variable_lower_bound(::Type{ClearedTransferVariable}, ::PSY.PointToPointBid, ::Type{SpreadBid}) = 0.0
 # `max_active_power` is a plain natural-units MW field (not a convertible field), so the
 # bound divides explicitly by the system base power, as `VirtualBidDispatch` does.
@@ -62,7 +61,7 @@ Reject a `spread_bid` that cannot mean what a spread bid means.
 
 A spread bid is always divisible, so `curve_style` FIXED is rejected: its all-or-nothing
 clearing would be priced here as if divisible. `curve_multistep` is honoured
-(`_add_spread_bid_link_rows!`).
+(`_add_link_rows!`).
 
 A willingness-to-pay on the `to`-minus-`from` spread lives on the incremental side (PSY
 documents `spread_bid` as "incremental side only", and see `_vom_offer_direction` for why
@@ -254,7 +253,7 @@ each other as `VirtualBidDispatch`'s block bids are.
 
 A MULTI_STEP bid (`curve_multistep`) also gets [`BlockBidLinkConstraint`](@ref) rows tying
 consecutive periods with identical spread curves to one cleared MW
-(`_add_spread_bid_link_rows!`). Everything else about the instrument is its two signed
+(`_add_link_rows!`). Everything else about the instrument is its two signed
 position writes from the argument stage.
 """
 function construct_market_component!(
@@ -273,38 +272,10 @@ function construct_market_component!(
     _zero_unpriced_transfers!(container, unpriced)
     isempty(priced) && return
     add_variable_cost!(container, ClearedTransferVariable, priced, SpreadBid)
-    _add_spread_bid_link_rows!(container, priced)
-    return
-end
-
-_is_multistep(bid::PSY.PointToPointBid) =
-    PSY.get_curve_multistep(IOM.get_operation_cost(bid)) == PSY.CurveMultiStep.MULTI_STEP
-
-"""
-Link rows for MULTI_STEP spread bids: `q[b, t] - q[b, t + 1] == 0` between consecutive
-periods of each block of identical spread curves (`_block_runs` on the incremental side),
-so a block clears the same MW in every period it covers or nothing.
-"""
-function _add_spread_bid_link_rows!(container::OptimizationContainer, bids)
-    linked = [b for b in bids if _is_multistep(b)]
-    isempty(linked) && return
-    time_steps = get_time_steps(container)
-    blocks = Tuple{String, Vector{UnitRange{Int}}}[]
-    for bid in linked
-        runs = _block_runs(IOM.IncrementalOffer(), container, bid, time_steps)
-        long = UnitRange{Int}[r for r in runs if length(r) > 1]
-        isempty(long) || push!(blocks, (PSY.get_name(bid), long))
-    end
-    isempty(blocks) && return
-    names = String[name for (name, _) in blocks]
-    rows = add_constraints_container!(
-        container, BlockBidLinkConstraint, PSY.PointToPointBid, names, time_steps;
-        sparse = true,
+    _add_link_rows!(
+        container, PSY.PointToPointBid,
+        get_variable(container, ClearedTransferVariable, PSY.PointToPointBid),
+        IOM.IncrementalOffer(), priced, IOM.CONTAINER_KEY_EMPTY_META,
     )
-    q = get_variable(container, ClearedTransferVariable, PSY.PointToPointBid)
-    jump_model = get_jump_model(container)
-    for (name, runs) in blocks, run in runs, t in first(run):(last(run) - 1)
-        rows[name, t] = JuMP.@constraint(jump_model, q[name, t] - q[name, t + 1] == 0)
-    end
     return
 end

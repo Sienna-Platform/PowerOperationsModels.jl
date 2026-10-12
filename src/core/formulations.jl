@@ -89,30 +89,14 @@ Formulation type to enable load shifting
 struct PowerLoadShift <: AbstractControllablePowerLoadFormulation end
 
 """
-Market-container load formulation for an AS-only interruptible load: an `ActivePowerVariable`
-that is fixed to zero every period whenever its market bid is costless (`_is_costless_offer`),
-or priced through the standard decremental `MarketBidCost` path otherwise. Registered via
-`set_market_component_model!`, so it never touches the physical `ActivePowerBalance` — its
-settlement contribution (`-1.0`, like a decremental `VirtualParticipant`) is the load's only
-balance-row entry.
-
-Reserve range expressions (`ActivePowerRangeExpressionLB`/`UB`) are anchored on constant
-baselines, NOT on this formulation's own (possibly zero-fixed) energy variable: a costless
-device dispatching at `P ≡ 0` would otherwise make any up-reserve award infeasible
-(`LB = P - r_up >= 0` forces `r_up <= 0`). Up-reserve sheds load from a `max_active_power`
-baseline and down-reserve adds load from a zero baseline, so each direction is bounded by
-`max_active_power`. A device may serve reserves in one direction only: nothing links the two
-baselines. Constant baselines decouple reserve eligibility from realized market energy,
-matching the "AS-only" intent.
-
-No `DeviceModel` in `template.devices` is needed: the service machinery sees market component
-models too (`get_service_device_models`), so the component contributes reserves while adding
-nothing to any physical balance row. Do not register a `StaticPowerLoad` twin for a component
-that contributes to a reserve: a device model wins in that view, and `StaticPowerLoad` cannot
-bound an award (`supports_reserve_provision`), so template finalization rejects it.
-
-Offline-reserve range placement (`offline_reserve_in_range_ub`) dispatches on this formulation
-in that view and takes the `AbstractDeviceFormulation` default (`true`).
+Market-container load formulation for an AS-only interruptible load, registered via
+`set_market_component_model!`. Its `ActivePowerVariable` is fixed to zero every period when its
+market bid is costless (`_is_costless_offer`) and priced through the decremental `MarketBidCost`
+path otherwise. It never touches the physical `ActivePowerBalance`; its settlement contribution
+(`-1.0`) is its only balance-row entry. Reserve range expressions use constant baselines, not
+the energy variable: up-reserve sheds from `max_active_power`, down-reserve adds from zero, so
+a device may serve one direction only. No `DeviceModel` is needed, and a `StaticPowerLoad` twin
+is rejected because it cannot bound an award (`supports_reserve_provision`).
 """
 struct MarketLoadBid <: AbstractControllablePowerLoadFormulation end
 

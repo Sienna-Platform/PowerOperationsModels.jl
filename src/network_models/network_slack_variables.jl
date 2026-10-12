@@ -122,24 +122,8 @@ end
 
 """
 Cost applied to physical balance slacks (`SystemBalanceSlackUp`/`SystemBalanceSlackDown`).
-Zero when a market model is present: the settlement balance is the binding accounting
-identity there, and the physical slack exists only so the network's own balance stays
-feasible independent of the settlement outcome.
-
-Two consequences of pricing both slack directions at exactly `0.0`, by design, not oversight:
-
-  - The physical balance's own dual is **identically zero** under a market model. LP dual
-    feasibility on `e(x) + s_up - s_dn == 0` with `s_up, s_dn >= 0` and both carrying a zero
-    objective coefficient forces `λ <= 0` (from `s_up`) and `λ >= 0` (from `s_dn`), so
-    `λ ≡ 0`. Requesting `CopperPlateBalanceConstraint` (or the nodal equivalent) in
-    `NetworkModel.duals` alongside a market model is meaningless — the settlement dual
-    (`SettlementBalanceConstraint`) is the price signal in this design, not the physical one.
-  - The individual `(s_up, s_dn)` split is **not unique**: with both free and unpenalized,
-    `(s_up, s_dn) = (a + k, k)` is optimal for every `k >= 0`, an unbounded ray inside the
-    optimal face. Only the **NET** value `s_up - s_dn` is a well-defined unserved-physical-
-    load measure — it equals the true imbalance `-e(x)` regardless of which vertex the
-    solver's presolve/simplex path happens to land on. Never read `s_up` (or `s_dn`) alone as
-    "the" unserved load under a market model; always read the net.
+Zero under a market model: the physical balance dual is identically zero and only the net
+`s_up - s_dn` is meaningful. The settlement balance is the binding identity there.
 """
 _balance_slack_cost(::NetworkModel, ::Nothing) = BALANCE_SLACK_COST
 _balance_slack_cost(::NetworkModel, ::IOM.MarketModel) = 0.0

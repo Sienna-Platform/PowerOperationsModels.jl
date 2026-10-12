@@ -108,24 +108,13 @@ Split market components into the FIXED-style block bids (which get a
 the PWL cost path). Both construct stages need the same split.
 """
 function _partition_by_curve_style(devices)
-    fixed = eltype(devices)[]
-    divisible = eltype(devices)[]
-    for d in devices
-        style = PSY.get_curve_style(PSY.get_operation_cost(d))
-        if style == PSY.CurveStyles.FIXED
-            push!(fixed, d)
-        else
-            push!(divisible, d)
-        end
-    end
-    return fixed, divisible
+    is_fixed(d) = PSY.get_curve_style(PSY.get_operation_cost(d)) == PSY.CurveStyles.FIXED
+    return filter(is_fixed, devices), filter(!is_fixed, devices)
 end
 
-_is_multistep(d::PSY.VirtualParticipant) =
-    PSY.get_curve_multistep(PSY.get_operation_cost(d)) == PSY.CurveMultiStep.MULTI_STEP
+_is_multistep(d::OFFER_CURVE_COMPONENTS) =
+    PSY.get_curve_multistep(IOM.get_operation_cost(d)) == PSY.CurveMultiStep.MULTI_STEP
 
-_bid_settlement_sign(::IOM.IncrementalOffer) = 1.0
-_bid_settlement_sign(::IOM.DecrementalOffer) = -1.0
 _bid_direction_meta(::IOM.IncrementalOffer) = "Out"
 _bid_direction_meta(::IOM.DecrementalOffer) = "In"
 _bid_award_variable_type(::IOM.IncrementalOffer) = ActivePowerOutVariable
@@ -472,34 +461,46 @@ function _block_runs(
 end
 
 """
-Link rows for every MULTI_STEP device: `p[d, t] - p[d, t + 1] == 0` between consecutive
-periods of each block longer than one period, per direction with an offer. The same row
-serves FIXED and VARIABLE devices; for a FIXED block it is `z[t] = z[t + 1]` through the
-quantity row, since a block has one quantity.
+Link rows `q[d, t] - q[d, t + 1] == 0` between consecutive periods of each block of
+identical offers longer than one period, for the MULTI_STEP devices among `devices`, in
+offer direction `dir`. For a FIXED block it is `z[t] = z[t + 1]` through the quantity row,
+since a block has one quantity.
 """
-function _add_block_bid_link_rows!(container::OptimizationContainer, devices)
-    linked = [d for d in devices if _is_multistep(d)]
-    isempty(linked) && return
+function _add_link_rows!(
+    container::OptimizationContainer,
+    ::Type{D},
+    q,
+    dir::IOM.OfferDirection,
+    devices,
+    meta::String,
+) where {D <: OFFER_CURVE_COMPONENTS}
     time_steps = get_time_steps(container)
+    blocks = Tuple{String, Vector{UnitRange{Int}}}[]
+    for d in devices
+        _is_multistep(d) || continue
+        runs = _block_runs(dir, container, d, time_steps)
+        long = UnitRange{Int}[r for r in runs if length(r) > 1]
+        isempty(long) || push!(blocks, (PSY.get_name(d), long))
+    end
+    isempty(blocks) && return
+    names = String[name for (name, _) in blocks]
+    rows = add_constraints_container!(
+        container, BlockBidLinkConstraint, D, names, time_steps;
+        sparse = true, meta = meta,
+    )
     jump_model = get_jump_model(container)
+    for (name, runs) in blocks, run in runs, t in first(run):(last(run) - 1)
+        rows[name, t] = JuMP.@constraint(jump_model, q[name, t] - q[name, t + 1] == 0)
+    end
+    return
+end
+
+function _add_block_bid_link_rows!(container::OptimizationContainer, devices)
     for dir in (IOM.IncrementalOffer(), IOM.DecrementalOffer())
-        blocks = Tuple{String, Vector{UnitRange{Int}}}[]
-        for d in linked
-            runs = _block_runs(dir, container, d, time_steps)
-            long = UnitRange{Int}[r for r in runs if length(r) > 1]
-            isempty(long) || push!(blocks, (PSY.get_name(d), long))
-        end
-        isempty(blocks) && continue
-        names = String[name for (name, _) in blocks]
-        rows = add_constraints_container!(
-            container, BlockBidLinkConstraint, PSY.VirtualParticipant, names,
-            time_steps;
-            sparse = true, meta = _bid_direction_meta(dir),
+        _add_link_rows!(
+            container, PSY.VirtualParticipant, _get_award_variable(container, dir), dir,
+            devices, _bid_direction_meta(dir),
         )
-        p = _get_award_variable(container, dir)
-        for (name, runs) in blocks, run in runs, t in first(run):(last(run) - 1)
-            rows[name, t] = JuMP.@constraint(jump_model, p[name, t] - p[name, t + 1] == 0)
-        end
     end
     return
 end

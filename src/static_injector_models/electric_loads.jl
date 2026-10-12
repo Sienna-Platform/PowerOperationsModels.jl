@@ -8,10 +8,14 @@ get_variable_multiplier(::Type{<:VariableType}, ::Type{<:PSY.ElectricLoad}, ::Ty
 get_variable_binary(::Type{ActivePowerVariable}, ::Type{<:PSY.ElectricLoad}, ::Type{<:AbstractLoadFormulation}) = false
 get_variable_lower_bound(::Type{ActivePowerVariable}, d::PSY.ElectricLoad, ::Type{<:AbstractLoadFormulation}) = 0.0
 get_variable_upper_bound(::Type{ActivePowerVariable}, d::PSY.ElectricLoad, ::Type{<:AbstractLoadFormulation}) = PSY.get_max_active_power(d, u"SU")
-# Dispatch-basis split (see `LoadDispatchBasis`): a priced load keeps its limits, an unoffered
-# load is pinned at zero.
-get_variable_upper_bound(::Type{ActivePowerVariable}, d::PSY.ControllableLoad, ::Type{<:Union{PowerLoadDispatch, PowerLoadInterruption}}) =
-    _active_power_upper_bound(get_dispatch_basis(PSY.get_operation_cost(d)), d)
+# A priced load keeps its limits, an unoffered load is pinned at zero. Runs per (device, t):
+# keep it allocation free.
+function get_variable_upper_bound(::Type{ActivePowerVariable}, d::PSY.ControllableLoad, ::Type{<:Union{PowerLoadDispatch, PowerLoadInterruption}})
+    if _is_costless_offer(PSY.get_operation_cost(d))
+        return 0.0
+    end
+    return PSY.get_max_active_power(d, u"SU")
+end
 
 ########################### ReactivePowerVariable, ElectricLoad ####################################
 
@@ -614,61 +618,26 @@ function add_constraints!(
     return
 end
 
-"""
-What determines a controllable load's dispatch. A load with a priced offer is dispatched
-economically within its limits. A load with no offer is not in the energy market at all: its
-dispatch is pinned at zero, and its limits serve only to set the up-reserve range it can
-shed into. This is the ERCOT AS-only interruptible load.
-"""
-abstract type LoadDispatchBasis end
-struct PricedDispatch <: LoadDispatchBasis end
-struct UnofferedDispatch <: LoadDispatchBasis end
-
-_active_power_upper_bound(::PricedDispatch, d::PSY.ControllableLoad) =
-    PSY.get_max_active_power(d, u"SU")
-_active_power_upper_bound(::UnofferedDispatch, ::PSY.ControllableLoad) = 0.0
-
 # Is this cost curve zero-valued, i.e. it puts no price on the device's dispatch? A market
 # bid with any offer attached (even a supply-side one, which is invalid for a load and is
 # rejected downstream) is an offer, not an absence of one.
 const _ZERO_COST_CURVE = zero(PSY.CostCurve)
 _is_costless_offer(cost::PSY.LoadCost) =
     PSY.get_variable_operation_cost(cost) == _ZERO_COST_CURVE
-_is_costless_offer(cost::PSY.MarketBidCost) = _has_no_offer_curves(cost)
 # A real (non-placeholder) time-series key means a genuine offer is attached; whether its
 # resolved values are all zero is unknowable before the series is read.
-_is_costless_offer(cost::PSY.MarketBidTimeSeriesCost) = _has_no_offer_curves(cost)
-_is_costless_offer(::PSY.OperationalCost) = false
-
-_has_no_offer_curves(cost::Union{PSY.MarketBidCost, PSY.MarketBidTimeSeriesCost}) =
+_is_costless_offer(cost::MBC_TYPES) =
     !IOM.is_nontrivial_offer(get_input_offer_curves(cost)) &&
     !IOM.is_nontrivial_offer(get_output_offer_curves(cost))
-
-# Holy-trait function barrier: dispatches immediately into a concrete method, so the
-# value-dependent return type stays off the hot path. IOM `add_variables!` calls it per
-# (device, time step) through `get_variable_upper_bound`, so keep it allocation free.
-function get_dispatch_basis(cost::PSY.OperationalCost)
-    if _is_costless_offer(cost)
-        return UnofferedDispatch()
-    end
-    return PricedDispatch()
-end
-
-_push_by_basis!(::PricedDispatch, priced, ::Vector, d) = push!(priced, d)
-_push_by_basis!(::UnofferedDispatch, ::Vector, unoffered, d) = push!(unoffered, d)
+_is_costless_offer(::PSY.OperationalCost) = false
 
 """
-Split controllable loads into priced and unoffered.
+Split controllable loads into priced and unoffered. An unoffered load is not in the energy
+market: its dispatch is pinned at zero and its limits only set its up-reserve range.
 """
-function _partition_by_dispatch_basis(
-    devices::Vector{L},
-) where {L <: PSY.ControllableLoad}
-    priced = L[]
-    unoffered = L[]
-    for d in devices
-        basis = get_dispatch_basis(PSY.get_operation_cost(d))
-        _push_by_basis!(basis, priced, unoffered, d)
-    end
+function _partition_by_dispatch_basis(devices)
+    priced = filter(d -> !_is_costless_offer(PSY.get_operation_cost(d)), devices)
+    unoffered = filter(d -> _is_costless_offer(PSY.get_operation_cost(d)), devices)
     return priced, unoffered
 end
 

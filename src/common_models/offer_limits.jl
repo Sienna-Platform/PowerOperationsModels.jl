@@ -82,15 +82,29 @@ get_multiplier_value(
     ::Type{FixedOutput},
 ) = 1.0
 
-# The rows read offer data once, at build.
-function _require_rebuild_model(container::OptimizationContainer, key::String)
+# Rows and factors read their data once, at build, so parameters must be numbers: with
+# `rebuild_model` off, `IOM.get_param_eltype` is `JuMP.VariableRef` and products turn nonlinear.
+function _require_numeric_params(container::OptimizationContainer, what::String)
     if IOM.get_param_eltype(container) !== Float64
-        error(
-            "The \"$(key)\" device model attribute reads offer data at build; recurrent " *
-            "solves need rebuild_model = true.",
-        )
+        error("$(what) reads data at build; recurrent solves need rebuild_model = true.")
     end
     return
+end
+
+# A series layout is the ordered axis names plus the label type of the last axis; any other
+# layout, or no value axes at all, fails with `msg`. Returns the last axis' labels.
+_check_series_layout(::Nothing, names, ::Type, msg::String) = throw(ArgumentError(msg))
+function _check_series_layout(
+    value_axes::Vector{IS.TimeSeriesAxis},
+    names,
+    ::Type{L},
+    msg::String,
+) where {L}
+    if [axis.name for axis in value_axes] != names ||
+       eltype(last(value_axes).labels) != L
+        throw(ArgumentError(msg))
+    end
+    return last(value_axes).labels
 end
 
 """
@@ -116,7 +130,9 @@ function _add_offer_limit_containers!(
     model::DeviceModel{D},
 ) where {D <: PSY.Component}
     if _attribute_on(model, LINKED_RESERVE_OFFERS_KEY)
-        _require_rebuild_model(container, LINKED_RESERVE_OFFERS_KEY)
+        _require_numeric_params(
+            container, "The \"$(LINKED_RESERVE_OFFERS_KEY)\" device model attribute",
+        )
         _add_offer_link_parameters!(container, sys, model)
         add_constraints_container!(
             container, LinkedReserveOfferConstraint, D, String[], Int[], Int[];
@@ -160,7 +176,9 @@ function _add_offer_limit_constraints!(
         _warn_ignored_offer_links(container, sys, model)
     end
     if _attribute_on(model, ENERGY_OFFER_CAP_KEY)
-        _require_rebuild_model(container, ENERGY_OFFER_CAP_KEY)
+        _require_numeric_params(
+            container, "The \"$(ENERGY_OFFER_CAP_KEY)\" device model attribute",
+        )
         add_energy_offer_cap_constraints!(container, sys, model)
         _reassign_dual!(container, sys, EnergyOfferCapConstraint, model)
     end
@@ -203,20 +221,6 @@ _links_message(d) =
     "[time step, block, product] values with value_axes = [IS.TimeSeriesAxis(\"block\", " *
     "1:n), IS.TimeSeriesAxis(\"product\", service names)]."
 
-# A links series has a "block" axis and a "product" axis labeled by service names. Dispatch
-# rejects the bad layouts with one message: no value axes (`nothing`), other axis names or
-# count, and integer product labels (`_string_labels`).
-_product_labels(::Nothing, d) = throw(ArgumentError(_links_message(d)))
-function _product_labels(value_axes::Vector{IS.TimeSeriesAxis}, d)
-    if length(value_axes) != 2 || value_axes[1].name != "block" ||
-       value_axes[2].name != "product"
-        throw(ArgumentError(_links_message(d)))
-    end
-    return _string_labels(value_axes[2].labels, d)
-end
-_string_labels(labels::Vector{String}, _) = labels
-_string_labels(::Vector{Int64}, d) = throw(ArgumentError(_links_message(d)))
-
 """
 Value axes of the `reserve_offer_links` series `d` owns, read from its metadata without
 loading data, or `nothing` when it owns none. Errors for a second series, axes other than
@@ -238,16 +242,9 @@ function _links_value_axes(container::OptimizationContainer, d::PSY.Component)
         )
     end
     md = only(rows)
-    if IS.get_resolution(md) != get_resolution(container)
-        throw(
-            IS.ConflictingInputsError(
-                "$(PSY.get_name(d)): series $(RESERVE_OFFER_LINKS_TS_NAME) has resolution " *
-                "$(IS.get_resolution(md)); the model runs at $(get_resolution(container)).",
-            ),
-        )
-    end
+    _check_window_resolution(container, md, d)
     value_axes = IS.get_value_axes(md)
-    _product_labels(value_axes, d)
+    _check_series_layout(value_axes, ["block", "product"], String, _links_message(d))
     _check_int_links(eltype(md), d)
     return value_axes
 end
@@ -292,7 +289,9 @@ function _linked_services(d::PSY.Component, value_axes::Vector{IS.TimeSeriesAxis
     offered =
         Dict(PSY.get_name(s) => s for s in _offered_services(PSY.get_operation_cost(d)))
     services = PSY.Service[]
-    for label in _product_labels(value_axes, d)
+    labels =
+        _check_series_layout(value_axes, ["block", "product"], String, _links_message(d))
+    for label in labels
         if !haskey(offered, label)
             throw(
                 IS.ConflictingInputsError(
@@ -456,8 +455,6 @@ function add_energy_offer_cap_constraints!(
     )
 end
 
-# Energy is the range expression's variable, plus pmin for compact formulations, whose
-# expression holds only the power above minimum.
 struct NoOnVariable end
 
 _energy_offer_on(::OptimizationContainer, ::Type{<:AbstractThermalFormulation}, ::Type) =
@@ -468,6 +465,8 @@ _energy_offer_on(
     ::Type{D},
 ) where {D <: PSY.ThermalGen} = get_variable(container, OnVariable, D)
 
+# Energy is the range expression's variable, plus pmin for compact formulations, whose
+# expression holds only the power above minimum.
 _energy_offer_floor(
     ::NoOnVariable,
     ::Type{<:AbstractThermalFormulation},

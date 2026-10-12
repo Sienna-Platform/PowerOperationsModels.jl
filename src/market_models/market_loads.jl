@@ -14,12 +14,8 @@ get_min_max_limits(
 #! format: on
 
 """
-`MarketLoadBid` bounds its reserve awards: `_seed_reserve_ranges_on_limits!` gives each
-direction its own constant baseline, and the model stage constrains both range expressions
-within `[0, max_active_power]`. Up-reserve sheds load from a `max_active_power` baseline
-(`LB = pmax - Σ r_up >= 0`); down-reserve adds load from a zero baseline
-(`UB = 0 + Σ r_down <= pmax`). Each direction sells the capability at most once across its
-services, which is what the load-family `false` default guards against.
+`MarketLoadBid` bounds its reserve awards: each direction has its own constant baseline and
+the model stage constrains both range expressions within `[0, max_active_power]`.
 """
 supports_reserve_provision(::Type{MarketLoadBid}) = true
 
@@ -28,11 +24,8 @@ _reserve_direction(::PSY.Reserve{PSY.ReserveDown}) = :down
 _reserve_direction(::PSY.Service) = nothing
 
 """
-The two directions of a `MarketLoadBid` load's reserve range have different baselines
-(`max_active_power` for up, zero for down) and no row links them, so a device serving both
-could sell its whole capability twice. Reject a device with reserve services in both
-directions loudly, naming the device and the services; an AS-only offer is one product, so
-it never has both.
+A device with reserve services in both directions could sell its capability twice, because
+the two baselines differ and no row links them. Reject it, naming the device and services.
 """
 function _validate_single_reserve_direction!(d::PSY.ControllableLoad)
     by_direction = Dict{Symbol, Vector{String}}()
