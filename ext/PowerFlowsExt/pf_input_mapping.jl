@@ -357,11 +357,11 @@ _collect_power_flow_evaluator!(::Vector, ::DataType, ::IOM.AbstractEvaluator) = 
 
 function POM.add_power_flow_data!(
     container::OptimizationContainer,
-    network_model::IOM.NetworkModel,
+    evaluations::IOM.EvaluationContainer,
     sys::PSY.System,
 )
     power_flow_evaluators = Pair{DataType, POM.PowerFlowEvaluator}[]
-    for (T, evaluator) in pairs(get_evaluators(get_evaluations(network_model)))
+    for (T, evaluator) in pairs(get_evaluators(evaluations))
         _collect_power_flow_evaluator!(power_flow_evaluators, T, evaluator)
     end
     isempty(power_flow_evaluators) && return

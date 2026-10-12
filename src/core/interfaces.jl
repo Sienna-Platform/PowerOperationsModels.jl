@@ -151,10 +151,10 @@ errors with guidance to load it.
 """
 function add_power_flow_data!(
     ::IOM.OptimizationContainer,
-    network_model::IOM.NetworkModel,
+    evaluations::IOM.EvaluationContainer,
     ::IS.ComponentContainer,
 )
-    for evaluator in values(IOM.get_evaluators(IOM.get_evaluations(network_model)))
+    for evaluator in values(IOM.get_evaluators(evaluations))
         _check_power_flow_loaded(evaluator)
     end
     return
@@ -163,17 +163,17 @@ end
 _check_power_flow_loaded(::IOM.AbstractEvaluator) = nothing
 
 """
-Register the runtime data of every evaluator that is not a power flow. Read the
-evaluators from `network_model`. Call `IOM.initialize_evaluation_data` for each one
-and store the result in the evaluation data of `container`.
+Register the runtime data of every evaluator in `evaluations` that is not a power flow.
+Call `IOM.initialize_evaluation_data` for each one and store the result in the
+evaluation data of `container`.
 Evaluators run in the order they were added, power flows first.
 """
 function add_evaluator_data!(
     container::IOM.OptimizationContainer,
-    network_model::IOM.NetworkModel,
+    evaluations::IOM.EvaluationContainer,
     sys::IS.ComponentContainer,
 )
-    for (T, evaluator) in pairs(IOM.get_evaluators(IOM.get_evaluations(network_model)))
+    for (T, evaluator) in pairs(IOM.get_evaluators(evaluations))
         _add_evaluator_data!(T, evaluator, container, sys)
     end
     return
@@ -196,7 +196,7 @@ end
 """
 Config-side adapter that wraps a power-flow model (e.g. a PowerFlows
 `PowerFlowEvaluationModel` such as `ACPowerFlow()`) as an `IOM.AbstractEvaluator`
-so it can be stored on a `NetworkModel`'s `EvaluationContainer`. IOM owns the
+so it can be stored in a template's `EvaluationContainer`. IOM owns the
 abstract evaluator interface but carries no PowerFlows dependency, so the concrete
 adapter lives here (and is unwrapped by the PowerFlows extension's
 `add_power_flow_data!`). Kept type-generic so POM core needs no PowerFlows types.
@@ -228,7 +228,7 @@ end
 """
 Build an `EvaluationContainer` holding a single evaluator. Convenience for the
 common single-evaluator case at call sites such as
-`NetworkModel(...; evaluations = power_flow_evaluations(ACPowerFlow()))`.
+`PowerOperationsProblemTemplate(network; evaluations = power_flow_evaluations(ACPowerFlow()))`.
 
 The power-flow model is keyed by its own type and wrapped in a
 [`PowerFlowEvaluator`](@ref) to satisfy IOM's `AbstractEvaluator` interface.

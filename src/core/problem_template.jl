@@ -1,15 +1,23 @@
 """
-    PowerOperationsProblemTemplate(::Type{T}) where {T<:AbstractNetworkModel}
+    PowerOperationsProblemTemplate(::Type{T}; evaluations) where {T<:AbstractNetworkModel}
+    PowerOperationsProblemTemplate(network::NetworkModel; evaluations)
 
 Creates a model reference of the InfrastructureOptimizationModels Optimization Problem.
 
 # Arguments
 
   - `model::Type{T<:AbstractNetworkModel}`:
+  - `evaluations::IOM.EvaluationContainer = IOM.EvaluationContainer()`: the evaluators
+    that run after each solve, such as power flows. Evaluators run in the order they
+    were added.
 
 # Example
 
 template = PowerOperationsProblemTemplate(CopperPlateNetworkModel)
+template = PowerOperationsProblemTemplate(
+    NetworkModel(PTDFNetworkModel);
+    evaluations = power_flow_evaluations(ACPowerFlow()),
+)
 """
 mutable struct PowerOperationsProblemTemplate <: IOM.AbstractProblemTemplate
     network_model::NetworkModel{<:AbstractNetworkModel}
@@ -17,8 +25,10 @@ mutable struct PowerOperationsProblemTemplate <: IOM.AbstractProblemTemplate
     branches::BranchModelContainer
     services::ServicesModelContainer
     events::Vector{IOM.AbstractEventModel}
+    evaluations::IOM.EvaluationContainer
     function PowerOperationsProblemTemplate(
-        network::NetworkModel{T},
+        network::NetworkModel{T};
+        evaluations::IOM.EvaluationContainer = IOM.EvaluationContainer(),
     ) where {T <: AbstractNetworkModel}
         new(
             network,
@@ -26,6 +36,7 @@ mutable struct PowerOperationsProblemTemplate <: IOM.AbstractProblemTemplate
             BranchModelContainer(),
             ServicesModelContainer(),
             Vector{IOM.AbstractEventModel}(),
+            evaluations,
         )
     end
 end
@@ -42,8 +53,8 @@ function Base.isempty(template::PowerOperationsProblemTemplate)
     end
 end
 
-PowerOperationsProblemTemplate(::Type{T}) where {T <: AbstractNetworkModel} =
-    PowerOperationsProblemTemplate(NetworkModel(T))
+PowerOperationsProblemTemplate(::Type{T}; kwargs...) where {T <: AbstractNetworkModel} =
+    PowerOperationsProblemTemplate(NetworkModel(T); kwargs...)
 
 PowerOperationsProblemTemplate() = PowerOperationsProblemTemplate(CopperPlateNetworkModel)
 
@@ -51,6 +62,14 @@ get_device_models(template::PowerOperationsProblemTemplate) = template.devices
 get_branch_models(template::PowerOperationsProblemTemplate) = template.branches
 get_service_models(template::PowerOperationsProblemTemplate) = template.services
 get_network_model(template::PowerOperationsProblemTemplate) = template.network_model
+IOM.get_evaluations(template::PowerOperationsProblemTemplate) = template.evaluations
+function IOM.set_evaluations!(
+    template::PowerOperationsProblemTemplate,
+    evaluations::IOM.EvaluationContainer,
+)
+    template.evaluations = evaluations
+    return
+end
 get_network_formulation(template::PowerOperationsProblemTemplate) =
     get_network_formulation(get_network_model(template))
 get_hvdc_network_model(template::PowerOperationsProblemTemplate) =

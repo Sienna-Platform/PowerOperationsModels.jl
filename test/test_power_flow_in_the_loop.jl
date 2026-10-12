@@ -19,13 +19,11 @@ end
     system = build_system(PSITestSystems, "c_sys5_uc")
 
     template = get_template_dispatch_with_network(
-        NetworkModel(
-            PTDFNetworkModel;
-            evaluations = power_flow_evaluations(
-                ACPowerFlow(;
-                    distribute_slack_proportional_to_headroom = true,
-                    correct_bustypes = true,
-                ),
+        NetworkModel(PTDFNetworkModel);
+        evaluations = power_flow_evaluations(
+            ACPowerFlow(;
+                distribute_slack_proportional_to_headroom = true,
+                correct_bustypes = true,
             ),
         ),
     )
@@ -101,14 +99,11 @@ end
     system = build_system(PSITestSystems, "c_sys5_uc_re")
 
     template = get_template_dispatch_with_network(
-        NetworkModel(
-            PTDFNetworkModel;
-            use_slacks = true,
-            evaluations = power_flow_evaluations(
-                ACPowerFlow(;
-                    distribute_slack_proportional_to_headroom = true,
-                    correct_bustypes = true,
-                ),
+        NetworkModel(PTDFNetworkModel; use_slacks = true);
+        evaluations = power_flow_evaluations(
+            ACPowerFlow(;
+                distribute_slack_proportional_to_headroom = true,
+                correct_bustypes = true,
             ),
         ),
     )
@@ -145,14 +140,11 @@ end
     re_gen.base_power = get_base_power(re_gen, u"NU") / 2
 
     template = get_template_dispatch_with_network(
-        NetworkModel(
-            PTDFNetworkModel;
-            use_slacks = true,
-            evaluations = power_flow_evaluations(
-                ACPowerFlow(;
-                    distribute_slack_proportional_to_headroom = true,
-                    correct_bustypes = true,
-                ),
+        NetworkModel(PTDFNetworkModel; use_slacks = true);
+        evaluations = power_flow_evaluations(
+            ACPowerFlow(;
+                distribute_slack_proportional_to_headroom = true,
+                correct_bustypes = true,
             ),
         ),
     )
@@ -202,13 +194,11 @@ end
     # c_sys5_uc decommits units in some hours under unit commitment.
     system = build_system(PSITestSystems, "c_sys5_uc")
     template = get_template_dispatch_with_network(
-        NetworkModel(
-            PTDFNetworkModel;
-            evaluations = power_flow_evaluations(
-                ACPowerFlow(;
-                    distribute_slack_proportional_to_headroom = true,
-                    correct_bustypes = true,
-                ),
+        NetworkModel(PTDFNetworkModel);
+        evaluations = power_flow_evaluations(
+            ACPowerFlow(;
+                distribute_slack_proportional_to_headroom = true,
+                correct_bustypes = true,
             ),
         ),
     )
@@ -273,11 +263,8 @@ end
     #    remove_component!(system, line)
     #
     #    template = get_template_dispatch_with_network(
-    #        NetworkModel(
-    #            PTDFNetworkModel;
-    #            network_matrix = PTDF(system),
-    #            evaluations = power_flow_evaluations(ACPowerFlow()),
-    #        ),
+    #        NetworkModel(PTDFNetworkModel; network_matrix = PTDF(system));
+    #        evaluations = power_flow_evaluations(ACPowerFlow()),
     #    )
     #    set_device_model!(template, DeviceModel(PhaseShiftingTransformer, PhaseAngleControl))
     #    model_m = DecisionModel(template, system; optimizer = HiGHS_optimizer)
@@ -338,10 +325,8 @@ end
         end
 
         template = get_template_dispatch_with_network(
-            NetworkModel(
-                PTDFNetworkModel;
-                evaluations = power_flow_evaluations(ACPowerFlow()),
-            ),
+            NetworkModel(PTDFNetworkModel);
+            evaluations = power_flow_evaluations(ACPowerFlow()),
         )
         model_m = DecisionModel(template, system; optimizer = HiGHS_optimizer)
         @test build!(model_m; output_dir = mktempdir(; cleanup = true)) ==
@@ -393,10 +378,8 @@ end
     PSY.set_x!(line3, PSY.get_x(line6, u"SU") * u"SU")
 
     template = get_template_dispatch_with_network(
-        NetworkModel(
-            PTDFNetworkModel;
-            evaluations = power_flow_evaluations(ACPowerFlow()),
-        ),
+        NetworkModel(PTDFNetworkModel);
+        evaluations = power_flow_evaluations(ACPowerFlow()),
     )
     model_m = DecisionModel(template, system; optimizer = HiGHS_optimizer)
     @test build!(model_m; output_dir = mktempdir(; cleanup = true)) ==
@@ -409,10 +392,8 @@ end
         sys = build_system(PSISystems, "2Area 5 Bus System")
 
         template_uc = PowerOperationsProblemTemplate(
-            NetworkModel(
-                PTDFNetworkModel;
-                evaluations = power_flow_evaluations(DCPowerFlow()),
-            ),
+            NetworkModel(PTDFNetworkModel);
+            evaluations = power_flow_evaluations(DCPowerFlow()),
         )
         set_device_model!(template_uc, ThermalStandard, ThermalBasicUnitCommitment)
         set_device_model!(template_uc, RenewableDispatch, RenewableFullDispatch)
@@ -430,10 +411,8 @@ end
     system = build_system(PSITestSystems, "c_sys5_uc")
 
     template = get_template_dispatch_with_network(
-        NetworkModel(
-            PTDFNetworkModel;
-            evaluations = power_flow_evaluations(ACPowerFlow()),
-        ),
+        NetworkModel(PTDFNetworkModel);
+        evaluations = power_flow_evaluations(ACPowerFlow()),
     )
     model_m = DecisionModel(template, system; optimizer = HiGHS_optimizer)
     @test build!(model_m; output_dir = mktempdir(; cleanup = true)) ==
@@ -460,10 +439,8 @@ end
 @testset "PowerFlowAuxVariable dispatch guards on key entry-type" begin
     system = build_system(PSITestSystems, "c_sys5_uc")
     template = get_template_dispatch_with_network(
-        NetworkModel(
-            PTDFNetworkModel;
-            evaluations = power_flow_evaluations(ACPowerFlow()),
-        ),
+        NetworkModel(PTDFNetworkModel);
+        evaluations = power_flow_evaluations(ACPowerFlow()),
     )
     model = DecisionModel(template, system; optimizer = HiGHS_optimizer)
     @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
@@ -499,11 +476,8 @@ end
     system = build_system(PSITestSystems, "c_sys5_uc_re")
 
     template = get_template_dispatch_with_network(
-        NetworkModel(
-            PTDFNetworkModel;
-            use_slacks = true,
-            evaluations = power_flow_evaluations(DCPowerFlow()),
-        ),
+        NetworkModel(PTDFNetworkModel; use_slacks = true);
+        evaluations = power_flow_evaluations(DCPowerFlow()),
     )
     # FixedOutput renewables emit `ActivePowerTimeSeriesParameter`, exercising the
     # pre-signed `ParameterKey` injection path in the PF-in-the-loop writer.
@@ -534,11 +508,8 @@ end
     system = build_system(PSITestSystems, "c_sys5_uc_re")
 
     template = get_template_dispatch_with_network(
-        NetworkModel(
-            PTDFNetworkModel;
-            use_slacks = true,
-            evaluations = power_flow_evaluations(ACPowerFlow()),
-        ),
+        NetworkModel(PTDFNetworkModel; use_slacks = true);
+        evaluations = power_flow_evaluations(ACPowerFlow()),
     )
     set_device_model!(template, RenewableDispatch, FixedOutput)
 
@@ -593,7 +564,8 @@ end
     set_active_power_flow!(hvdc, 0.5 * u"SU")   # a stale system seed the optimization won't reproduce
 
     template = PowerOperationsProblemTemplate(
-        NetworkModel(PTDFNetworkModel; evaluations = power_flow_evaluations(DCPowerFlow())),
+        NetworkModel(PTDFNetworkModel);
+        evaluations = power_flow_evaluations(DCPowerFlow()),
     )
     set_device_model!(template, ThermalStandard, ThermalBasicUnitCommitment)
     set_device_model!(template, RenewableDispatch, RenewableFullDispatch)
@@ -655,7 +627,8 @@ function _build_rts_hvdc_acpf_model(hvdc_formulation; loss = nothing, stored_flo
     end
     set_bustype!(get_component(ACBus, sys, "Arthur"), ACBusTypes.REF)
     template = PowerOperationsProblemTemplate(
-        NetworkModel(PTDFNetworkModel; evaluations = power_flow_evaluations(ACPowerFlow())),
+        NetworkModel(PTDFNetworkModel);
+        evaluations = power_flow_evaluations(ACPowerFlow()),
     )
     set_device_model!(template, ThermalStandard, ThermalBasicUnitCommitment)
     set_device_model!(template, RenewableDispatch, RenewableFullDispatch)
@@ -754,10 +727,8 @@ end
     pf_data_for(pf_eval) = begin
         system = build_system(PSITestSystems, "c_sys5_uc")
         template = get_template_dispatch_with_network(
-            NetworkModel(
-                PTDFNetworkModel;
-                evaluations = power_flow_evaluations(pf_eval),
-            ),
+            NetworkModel(PTDFNetworkModel);
+            evaluations = power_flow_evaluations(pf_eval),
         )
         model_m = DecisionModel(template, system; optimizer = HiGHS_optimizer)
         @test build!(model_m; output_dir = mktempdir(; cleanup = true)) ==
@@ -836,10 +807,8 @@ end
 @testset "PF evaluator reports convergence (issue #305)" begin
     system = build_system(PSITestSystems, "c_sys5_uc")
     template = get_template_dispatch_with_network(
-        NetworkModel(
-            PTDFNetworkModel;
-            evaluations = power_flow_evaluations(ACPowerFlow(; correct_bustypes = true)),
-        ),
+        NetworkModel(PTDFNetworkModel);
+        evaluations = power_flow_evaluations(ACPowerFlow(; correct_bustypes = true)),
     )
     model = DecisionModel(template, system; optimizer = HiGHS_optimizer)
     @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
@@ -866,10 +835,8 @@ end
         set_x!(get_component(Line, system, name), 0.35 * u"SU")
     end
     template = get_thermal_dispatch_template_network(
-        NetworkModel(
-            CopperPlateNetworkModel;
-            evaluations = power_flow_evaluations(ACPowerFlow(; correct_bustypes = true)),
-        ),
+        NetworkModel(CopperPlateNetworkModel);
+        evaluations = power_flow_evaluations(ACPowerFlow(; correct_bustypes = true)),
     )
     model = DecisionModel(template, system; optimizer = HiGHS_optimizer)
     @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
@@ -907,7 +874,8 @@ end
         IOM.add_evaluator!(evaluations, typeof(ev), POM.PowerFlowEvaluator(ev))
     end
     template = get_template_dispatch_with_network(
-        NetworkModel(PTDFNetworkModel; evaluations = evaluations),
+        NetworkModel(PTDFNetworkModel);
+        evaluations = evaluations,
     )
     model = DecisionModel(template, system; optimizer = HiGHS_optimizer)
     @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
@@ -932,7 +900,8 @@ end
         IOM.add_evaluator!(evaluations, typeof(ev), POM.PowerFlowEvaluator(ev))
     end
     template = get_template_dispatch_with_network(
-        NetworkModel(PTDFNetworkModel; evaluations = evaluations),
+        NetworkModel(PTDFNetworkModel);
+        evaluations = evaluations,
     )
     model = DecisionModel(template, system; optimizer = HiGHS_optimizer)
     @test build!(model; output_dir = mktempdir(; cleanup = true)) ==

@@ -302,10 +302,8 @@ end
         PSY.set_α!(PSY.get_circuit(transformer), 0.15)
 
         template = get_thermal_dispatch_template_network(
-            NetworkModel(
-                DCPNetworkModel;
-                evaluations = power_flow_evaluations(DCPowerFlow()),
-            ),
+            NetworkModel(DCPNetworkModel);
+            evaluations = power_flow_evaluations(DCPowerFlow()),
         )
         set_device_model!(template, PSY.TwoWindingTransformer, branch_formulation)
         # Ipopt rather than HiGHS: HiGHS errors out on this QP (issue #230).

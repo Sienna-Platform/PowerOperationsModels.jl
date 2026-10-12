@@ -38,8 +38,25 @@ end
 
 function _external_template(evaluations)
     return get_template_dispatch_with_network(
-        NetworkModel(PTDFNetworkModel; evaluations = evaluations),
+        NetworkModel(PTDFNetworkModel);
+        evaluations = evaluations,
     )
+end
+
+@testset "Evaluators live on the template" begin
+    ec = IOM.EvaluationContainer()
+    IOM.add_evaluator!(ec, CountingEvaluator, CountingEvaluator())
+    template = PowerOperationsProblemTemplate(
+        NetworkModel(PTDFNetworkModel);
+        evaluations = ec,
+    )
+    @test IOM.get_evaluations(template) === ec
+    @test !hasfield(NetworkModel, :evaluations)
+
+    replacement = IOM.EvaluationContainer()
+    IOM.set_evaluations!(template, replacement)
+    @test IOM.get_evaluations(template) === replacement
+    @test isempty(IOM.get_evaluations(PowerOperationsProblemTemplate()))
 end
 
 @testset "Evaluator that is not a power flow" begin
@@ -131,10 +148,8 @@ end
 @testset "A rebuild makes new evaluation data and keeps the network data" begin
     sys = build_system(PSITestSystems, "c_sys5_uc")
     template = get_template_dispatch_with_network(
-        NetworkModel(
-            PTDFNetworkModel;
-            evaluations = power_flow_evaluations(ACPowerFlow()),
-        ),
+        NetworkModel(PTDFNetworkModel);
+        evaluations = power_flow_evaluations(ACPowerFlow()),
     )
     # A simulation model rebuilds with these settings.
     model = DecisionModel(template, sys; optimizer = HiGHS_optimizer, rebuild_model = true)
@@ -194,8 +209,8 @@ function _add_line_outages!(sys)
     return
 end
 
-function _sc_pf_template(network_model)
-    template = get_thermal_dispatch_template_network(network_model)
+function _sc_pf_template(network_model; kwargs...)
+    template = get_thermal_dispatch_template_network(network_model; kwargs...)
     set_device_model!(template, PSY.Line, POM.SecurityConstrainedStaticBranch)
     return template
 end
@@ -211,15 +226,11 @@ function _copy_case_system_and_template(sc, klu, outages, evaluations)
     if klu
         network_source = _klu_ptdf_source(sys)
     end
-    network_model = NetworkModel(
-        PTDFNetworkModel;
-        network_source = network_source,
-        evaluations = evaluations,
-    )
+    network_model = NetworkModel(PTDFNetworkModel; network_source = network_source)
     if outages
-        return sys, _sc_pf_template(network_model)
+        return sys, _sc_pf_template(network_model; evaluations = evaluations)
     end
-    return sys, get_template_dispatch_with_network(network_model)
+    return sys, get_template_dispatch_with_network(network_model; evaluations = evaluations)
 end
 
 const TEMPLATE_COPY_CASES = [
