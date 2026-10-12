@@ -122,10 +122,12 @@ function _pin_time_series_branch_buses!(
     ts_names = get_time_series_names(m)
     haskey(ts_names, BranchRatingTimeSeriesParameter) || return
     ts_name = ts_names[BranchRatingTimeSeriesParameter]
-    # TODO workaround since we dont have the container
-    ts_type = PSY.Deterministic
+    # No container here: pin for both forecast types. Extra pins never merge a branch away.
     for branch in PSY.get_available_components(T, sys)
-        PSY.has_time_series(branch, ts_type, ts_name) || continue
+        has_rating_series =
+            PSY.has_time_series(branch, PSY.Deterministic, ts_name) ||
+            PSY.has_time_series(branch, PSY.SingleTimeSeries, ts_name)
+        has_rating_series || continue
         _push_component_buses!(buses, branch)
     end
     return
