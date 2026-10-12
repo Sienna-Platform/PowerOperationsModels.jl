@@ -1674,6 +1674,70 @@ end
     end
 end
 
+# Builds the water model with every reservoir at `initial_level` and returns the terms that
+# read the initial volume: the inventory constant and the turbine flow coefficient.
+function _water_model_initial_volume_terms(initial_level::Float64)
+    sys = PSB.build_system(PSITestSystems, "c_sys5_hy_turbine_energy")
+    for res in PSY.get_components(HydroReservoir, sys)
+        set_head_to_volume_factor!(res, LinearFunctionData(1.0))
+        set_storage_level_limits!(res, (min = 4000, max = 6000))
+        set_level_targets!(res, 0.9)
+        set_initial_level!(res, initial_level)
+    end
+    template = PowerOperationsProblemTemplate(NetworkModel(DCPNetworkModel))
+    set_device_model!(template, ThermalStandard, ThermalBasicDispatch)
+    set_device_model!(template, PowerLoad, StaticPowerLoad)
+    set_device_model!(template, HydroReservoir, HydroWaterFactorModel)
+    set_device_model!(template, HydroTurbine, HydroWaterFactorModel)
+    set_device_model!(template, Line, StaticBranch)
+    model = DecisionModel(
+        template,
+        sys;
+        optimizer = ipopt_optimizer,
+        store_variable_names = true,
+        horizon = Hour(24),
+    )
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          ModelBuildStatus.BUILT
+    container = IOM.get_optimization_container(model)
+    t1 = first(IOM.get_time_steps(container))
+    turbine = first(PSY.get_components(HydroTurbine, sys))
+    reservoir = only(PSY.get_connected_head_reservoirs(sys, turbine))
+
+    inventory =
+        IOM.get_constraint(container, POM.ReservoirInventoryConstraint, HydroReservoir)
+    inventory_constant =
+        JuMP.constraint_object(inventory[PSY.get_name(reservoir), t1]).set.value
+
+    flow = IOM.get_variable(container, HydroTurbineFlowRateVariable, HydroTurbine)
+    power_constraint = IOM.get_constraint(container, POM.HydroPowerConstraint, HydroTurbine)
+    name = PSY.get_name(turbine)
+    flow_coefficient = JuMP.coefficient(
+        JuMP.constraint_object(power_constraint[name, t1]).func,
+        flow[name, t1],
+    )
+    scale =
+        Dates.value(Dates.Minute(IOM.get_resolution(container))) / 60.0 *
+        PSY.get_efficiency(turbine) * POM.WATER_DENSITY * POM.GRAVITATIONAL_CONSTANT /
+        IOM.get_model_base_power(container)
+    return inventory_constant, flow_coefficient, scale
+end
+
+@testset "HydroWaterFactorModel reads the initial level as a fraction of the maximum level" begin
+    max_level = 6000.0
+    constant_a, coefficient_a, scale = _water_model_initial_volume_terms(0.5)
+    constant_b, coefficient_b, _ = _water_model_initial_volume_terms(0.25)
+    volume_step = (0.5 - 0.25) * max_level
+    # ReservoirInventoryConstraint: JuMP moves the initial volume into the EqualTo value.
+    @test isapprox(abs(constant_a - constant_b), volume_step; rtol = 1e-9)
+    # HydroPowerConstraint: the flow coefficient carries 0.5 * initial_volume * h2v (h2v = 1).
+    @test isapprox(
+        abs(coefficient_a - coefficient_b),
+        scale * 0.5 * volume_step;
+        rtol = 1e-9,
+    )
+end
+
 @testset "HydroCommitmentRunOfRiver builds the real model with reactive power on AC networks" begin
     c_sys5_hy = PSB.build_system(PSITestSystems, "c_sys5_hy")
     device_model = DeviceModel(HydroDispatch, HydroCommitmentRunOfRiver)
