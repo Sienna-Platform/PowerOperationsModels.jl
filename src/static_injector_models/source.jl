@@ -59,6 +59,7 @@ function get_default_attributes(
 ) where {U <: PSY.Source, V <: Union{FixedOutput, AbstractSourceFormulation}}
     return Dict{String, Any}(
         "reservation" => true,
+        RELAX_BINARIES_ATTRIBUTE => false,
     )
 end
 

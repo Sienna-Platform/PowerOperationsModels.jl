@@ -406,14 +406,14 @@ function construct_service!(
     end
 
     add_agc_variables!(container, SteadyStateFrequencyDeviation)
-    add_variables!(container, AreaMismatchVariable, services, T)
-    add_variables!(container, SmoothACE, services, T)
-    add_variables!(container, LiftVariable, services, T)
-    add_variables!(container, ActivePowerVariable, areas, T)
-    add_variables!(container, DeltaActivePowerUpVariable, services, T)
-    add_variables!(container, DeltaActivePowerDownVariable, services, T)
-    add_variables!(container, AdditionalDeltaActivePowerUpVariable, areas, T)
-    add_variables!(container, AdditionalDeltaActivePowerDownVariable, areas, T)
+    add_variables!(container, AreaMismatchVariable, services, T, false)
+    add_variables!(container, SmoothACE, services, T, false)
+    add_variables!(container, LiftVariable, services, T, false)
+    add_variables!(container, ActivePowerVariable, areas, T, false)
+    add_variables!(container, DeltaActivePowerUpVariable, services, T, false)
+    add_variables!(container, DeltaActivePowerDownVariable, services, T, false)
+    add_variables!(container, AdditionalDeltaActivePowerUpVariable, areas, T, false)
+    add_variables!(container, AdditionalDeltaActivePowerDownVariable, areas, T, false)
 
     add_initial_condition!(container, services, T(), AreaControlError())
 

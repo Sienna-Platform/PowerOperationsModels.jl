@@ -20,7 +20,13 @@ function _maybe_add_reactive_power_variables!(
     var_types,
 ) where {D <: PSY.Device, F}
     for V in var_types
-        add_variables!(container, V, devices, F)
+        add_variables!(
+            container,
+            V,
+            devices,
+            F,
+            get_attribute(model, RELAX_BINARIES_ATTRIBUTE),
+        )
         add_to_expression!(
             container, ReactivePowerBalance, V, devices, model, network_model,
         )

@@ -75,28 +75,28 @@ function get_default_attributes(
     ::Type{PSY.InterconnectingConverter},
     ::Type{<:AbstractConverterFormulation},
 )
-    return Dict{String, Any}()
+    return Dict{String, Any}(RELAX_BINARIES_ATTRIBUTE => false)
 end
 
 function get_default_attributes(
     ::Type{PSY.InterconnectingConverter},
     ::Type{QuadraticLossConverter},
 )
-    return copy(BILINEAR_APPROX_DEFAULT_ATTRIBUTES)
+    return merge(BILINEAR_APPROX_DEFAULT_ATTRIBUTES, Dict{String, Any}(RELAX_BINARIES_ATTRIBUTE => false))
 end
 
 function get_default_attributes(
     ::Type{PSY.InterconnectingConverter},
     ::Type{VoltageControlConverter},
 )
-    return copy(BILINEAR_APPROX_DEFAULT_ATTRIBUTES)
+    return merge(BILINEAR_APPROX_DEFAULT_ATTRIBUTES, Dict{String, Any}(RELAX_BINARIES_ATTRIBUTE => false))
 end
 
 function get_default_attributes(
     ::Type{PSY.TModelHVDCLine},
     ::Type{<:AbstractBranchFormulation},
 )
-    return Dict{String, Any}()
+    return Dict{String, Any}(RELAX_BINARIES_ATTRIBUTE => false)
 end
 
 

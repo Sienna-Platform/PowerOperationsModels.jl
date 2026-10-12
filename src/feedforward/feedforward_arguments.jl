@@ -144,7 +144,13 @@ function _add_feedforward_arguments!(
 ) where {T <: PSY.HydroReservoir, U <: AbstractDeviceFormulation}
     parameter_type = get_default_parameter_type(ff, T)
     add_parameters!(container, parameter_type, ff, model, devices)
-    add_variables!(container, HydroEnergyShortageVariable, devices, U)
+    add_variables!(
+        container,
+        HydroEnergyShortageVariable,
+        devices,
+        U,
+        get_attribute(model, RELAX_BINARIES_ATTRIBUTE),
+    )
     return
 end
 
@@ -158,7 +164,13 @@ function _add_feedforward_arguments!(
 ) where {T <: PSY.Storage, U <: AbstractStorageFormulation}
     parameter_type = get_default_parameter_type(ff, T)
     add_parameters!(container, parameter_type, ff, model, devices)
-    add_variables!(container, StorageEnergyShortageVariable, devices, U)
+    add_variables!(
+        container,
+        StorageEnergyShortageVariable,
+        devices,
+        U,
+        get_attribute(model, RELAX_BINARIES_ATTRIBUTE),
+    )
     return
 end
 

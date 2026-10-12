@@ -9,7 +9,13 @@ function construct_device!(
     D <: AbstractReactivePowerDeviceFormulation,
 }
     devices = get_device_cache(model)
-    add_variables!(container, ReactivePowerVariable, devices, D)
+    add_variables!(
+        container,
+        ReactivePowerVariable,
+        devices,
+        D,
+        get_attribute(model, RELAX_BINARIES_ATTRIBUTE),
+    )
     add_to_expression!(
         container,
         ReactivePowerBalance,

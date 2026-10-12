@@ -13,9 +13,27 @@ function construct_device!(
 }
     devices = get_device_cache(model)
 
-    add_variables!(container, ActivePowerInVariable, devices, D)
-    add_variables!(container, ActivePowerOutVariable, devices, D)
-    add_variables!(container, ReactivePowerVariable, devices, D)
+    add_variables!(
+        container,
+        ActivePowerInVariable,
+        devices,
+        D,
+        get_attribute(model, RELAX_BINARIES_ATTRIBUTE),
+    )
+    add_variables!(
+        container,
+        ActivePowerOutVariable,
+        devices,
+        D,
+        get_attribute(model, RELAX_BINARIES_ATTRIBUTE),
+    )
+    add_variables!(
+        container,
+        ReactivePowerVariable,
+        devices,
+        D,
+        get_attribute(model, RELAX_BINARIES_ATTRIBUTE),
+    )
     add_expressions!(container, NetActivePower, devices, model)
 
     if haskey(get_time_series_names(model), ActivePowerOutTimeSeriesParameter)
@@ -26,7 +44,13 @@ function construct_device!(
     end
 
     if get_attribute(model, "reservation")
-        add_variables!(container, ReservationVariable, devices, D)
+        add_variables!(
+            container,
+            ReservationVariable,
+            devices,
+            D,
+            get_attribute(model, RELAX_BINARIES_ATTRIBUTE),
+        )
     end
 
     process_import_export_parameters!(container, devices, model)
@@ -191,8 +215,20 @@ function construct_device!(
 }
     devices = get_device_cache(model)
 
-    add_variables!(container, ActivePowerInVariable, devices, D)
-    add_variables!(container, ActivePowerOutVariable, devices, D)
+    add_variables!(
+        container,
+        ActivePowerInVariable,
+        devices,
+        D,
+        get_attribute(model, RELAX_BINARIES_ATTRIBUTE),
+    )
+    add_variables!(
+        container,
+        ActivePowerOutVariable,
+        devices,
+        D,
+        get_attribute(model, RELAX_BINARIES_ATTRIBUTE),
+    )
     add_expressions!(container, NetActivePower, devices, model)
 
     if haskey(get_time_series_names(model), ActivePowerOutTimeSeriesParameter)
@@ -203,7 +239,13 @@ function construct_device!(
     end
 
     if get_attribute(model, "reservation")
-        add_variables!(container, ReservationVariable, devices, D)
+        add_variables!(
+            container,
+            ReservationVariable,
+            devices,
+            D,
+            get_attribute(model, RELAX_BINARIES_ATTRIBUTE),
+        )
     end
 
     process_import_export_parameters!(container, devices, model)
