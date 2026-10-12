@@ -377,6 +377,34 @@ function _directed_modf_sf(model, outage_id::String, name::String, load, sign::F
     return sign * modf[arc, spec][column]
 end
 
+# Independent reference over base-case and post-contingency rows: a post-contingency row
+# whose dual reached 90% of its slack's objective coefficient arms each load whose directed
+# MODF shift factor is below -0.02.
+function _expected_armed_with_contingencies(model, sys)
+    container = IOM.get_optimization_container(model)
+    loads = collect(PSY.get_components(PSY.PowerLoad, sys))
+    expected = _expected_armed(container, sys)
+    objective = JuMP.objective_function(IOM.get_jump_model(container))
+    for (meta, S, sign) in (
+        ("ub", PostContingencyFlowActivePowerSlackUpperBound, 1.0),
+        ("lb", PostContingencyFlowActivePowerSlackLowerBound, -1.0),
+    )
+        dual = IOM.get_duals(container)[IOM.ConstraintKey(
+            PostContingencyFlowRateConstraint, PSY.Line, meta,
+        )]
+        slack = IOM.get_variable(container, S, PSY.Line)
+        for ((o, n, t), value) in dual.data
+            abs(value) >= 0.9 * JuMP.coefficient(objective, slack[o, n, t]) || continue
+            for l in loads
+                if _directed_modf_sf(model, o, n, l, sign) < -0.02
+                    expected[(PSY.get_name(l), t)] = 1.0
+                end
+            end
+        end
+    end
+    return expected
+end
+
 @testset "Security-constrained branches with no outages build and arm nothing" begin
     sys = PSB.build_system(PSITestSystems, "c_sys5")
     model = _solve_n1(sys)
@@ -476,26 +504,7 @@ end
     end
     @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
 
-    # Independent reference over base-case and post-contingency rows.
-    expected = _expected_armed(container, sys)
-    objective = JuMP.objective_function(jump_model)
-    for (meta, S, sign) in (
-        ("ub", PostContingencyFlowActivePowerSlackUpperBound, 1.0),
-        ("lb", PostContingencyFlowActivePowerSlackLowerBound, -1.0),
-    )
-        dual = IOM.get_duals(container)[IOM.ConstraintKey(
-            PostContingencyFlowRateConstraint, PSY.Line, meta,
-        )]
-        slack = IOM.get_variable(container, S, PSY.Line)
-        for ((o, n, t), value) in dual.data
-            abs(value) >= 0.9 * JuMP.coefficient(objective, slack[o, n, t]) || continue
-            for l in loads
-                if _directed_modf_sf(model, o, n, l, sign) < -0.02
-                    expected[(PSY.get_name(l), t)] = 1.0
-                end
-            end
-        end
-    end
+    expected = _expected_armed_with_contingencies(model, sys)
     actual = _armed_values(container)
     @test actual == expected
     @test any(isone, values(actual))
@@ -503,10 +512,12 @@ end
     resolve = PowerOperationsModels._monitored_arcs_by_name
     network_model = IOM.get_network_model(IOM.get_template(model))
     modf = IOM.get_contingency_matrix(network_model)
-    @test resolve(network_model, [name]) == Dict(
+    catalog = POM.get_branch_catalog(network_model)
+    branch_types = IOM.get_modeled_branch_types(network_model)
+    @test resolve(catalog, branch_types, [name]) == Dict(
         name => PNM.get_name_to_arc_map(PNM.get_branch_catalog(modf), PSY.Line)[name],
     )
-    @test_throws r"maps to no arc" resolve(network_model, ["not a branch"])
+    @test_throws r"maps to no arc" resolve(catalog, branch_types, ["not a branch"])
 end
 
 @testset "A counted row with an unreadable dual container errors" begin
@@ -561,4 +572,105 @@ end
     actual = _armed_values(container)
     @test actual == _expected_armed(container, sys)
     @test any(t -> actual[(PSY.get_name(load), t)] == 1.0, IOM.get_time_steps(container))
+end
+
+_is_factorized(::PNM.VirtualPTDF) = true
+_is_factorized(::PNM.VirtualMODF) = true
+_is_factorized(::Any) = false
+
+# Fixed outages of lines "1" to "4" and emergency ratings at 70% leave some
+# post-contingency rows above their ratings at the optimum. Their duals then sit at the
+# slack penalty.
+function _overload_post_contingency_rows!(sys)
+    branches = collect(PSY.get_components(PSY.ACTransmission, sys))
+    for line_name in ("1", "2", "3", "4")
+        PSY.add_supplemental_attribute!(
+            sys,
+            PSY.get_component(PSY.ACTransmission, sys, line_name),
+            PSY.FixedForcedOutage(; outage_status = 1.0, monitored_components = branches),
+        )
+    end
+    for line in PSY.get_components(PSY.Line, sys)
+        rating = PNM.get_equivalent_emergency_rating(line)
+        PSY.set_rating_b!(line, 0.7 * rating * u"SU")
+    end
+    return sys
+end
+
+# Builds and solves with the settings of a simulation model, then rebuilds and solves
+# again as a simulation step does. A rebuild makes a new JuMP model, so `reprice!` runs
+# before each solve.
+function _solve_with_rebuild(sys, template, reprice!)
+    model = DecisionModel(template, sys; optimizer = HiGHS_optimizer, rebuild_model = true)
+    container = IOM.get_optimization_container(model)
+    container.built_for_recurrent_solves = true
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+    reprice!(model)
+    @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+    first_armed = _armed_values(container)
+    network_model = IOM.get_network_model(IOM.get_template(model))
+    network_data = IOM.get_network_data(network_model)
+
+    IOM.reset_optimization_model!(container)
+    POM.build_problem!(container, IOM.get_template(model), IOM.get_system(model))
+    reprice!(model)
+    IOM.solve_model!(model)
+    @test IOM.get_run_status(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+    @test IOM.get_network_data(network_model) === network_data
+    @test _armed_values(container) == first_armed
+    return model
+end
+
+@testset "A rebuild keeps base-case arming from a VirtualPTDF" begin
+    sys = PSB.build_system(PSITestSystems, "c_sys5")
+    line = _congest_line!(sys, 1.0)
+    price = 0.5 * _natural_congestion_price(sys, line)
+    model = _solve_with_rebuild(
+        sys, _bid_adjustment_template(), m -> _price_line_slacks!(m, line, price),
+    )
+    network_model = IOM.get_network_model(IOM.get_template(model))
+    @test _is_factorized(IOM.get_network_matrix(network_model))
+    container = IOM.get_optimization_container(model)
+    actual = _armed_values(container)
+    @test actual == _expected_armed(container, sys)
+    @test any(isone, values(actual))
+    @test any(iszero, values(actual))
+end
+
+@testset "A rebuild keeps post-contingency arming from a VirtualMODF" begin
+    sys = _overload_post_contingency_rows!(PSB.build_system(PSITestSystems, "c_sys5"))
+    model = _solve_with_rebuild(sys, _n1_template(), _ -> nothing)
+    network_model = IOM.get_network_model(IOM.get_template(model))
+    @test _is_factorized(IOM.get_network_matrix(network_model))
+    @test _is_factorized(IOM.get_contingency_matrix(network_model))
+    actual = _armed_values(IOM.get_optimization_container(model))
+    @test actual == _expected_armed_with_contingencies(model, sys)
+    @test any(isone, values(actual))
+    @test any(iszero, values(actual))
+end
+
+@testset "AC power flow in the loop keeps post-contingency arming from a VirtualMODF" begin
+    sys = _overload_post_contingency_rows!(PSB.build_system(PSITestSystems, "c_sys5"))
+    template = _bid_adjustment_template(;
+        network_model = NetworkModel(
+            PTDFNetworkModel;
+            evaluations = power_flow_evaluations(ACPowerFlow()),
+        ),
+        line_model = DeviceModel(PSY.Line, SecurityConstrainedStaticBranch;
+            use_slacks = true),
+    )
+    model, status = _build_bid_adjustment_model(sys, template)
+    @test status == IOM.ModelBuildStatus.BUILT
+    @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+    container = IOM.get_optimization_container(model)
+    network_model = IOM.get_network_model(IOM.get_template(model))
+    @test _is_factorized(IOM.get_contingency_matrix(network_model))
+    flows = IOM.get_aux_variable(container, POM.PowerFlowBranchActivePowerFromTo, PSY.Line)
+    @test all(isfinite, flows.data)
+    @test any(!iszero, flows.data)
+    actual = _armed_values(container)
+    @test actual == _expected_armed_with_contingencies(model, sys)
+    @test any(isone, values(actual))
+    @test any(iszero, values(actual))
 end

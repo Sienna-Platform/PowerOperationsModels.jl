@@ -173,13 +173,13 @@ end
     model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
     POM.build_pre_step!(model)
     IOM.instantiate_network_model!(model)
-    POM.build_initial_conditions!(model)
+    ic_template = POM.build_initial_conditions_model!(model)
     ic_container = IOM.get_initial_conditions_model_container(IOM.get_internal(model))
     main_nm = IOM.get_network_model(IOM.get_template(model))
-    ic_nm = IOM.get_network_model(ic_container)
+    ic_nm = IOM.get_network_model(ic_template)
     @test ic_nm !== main_nm
     @test IOM.get_network_data(ic_nm) === IOM.get_network_data(main_nm)
-    @test isempty(IOM.get_evaluations(ic_container))
+    @test isempty(IOM.get_evaluation_data(ic_container))
     @test !isempty(IOM.get_evaluations(main_nm))
 end
 

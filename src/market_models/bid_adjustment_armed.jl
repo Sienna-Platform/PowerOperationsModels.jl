@@ -257,13 +257,13 @@ end
 
 # Matrix column of each load's bus; a load on a reduced bus uses its retained bus.
 function _load_columns(
-    network_model::NetworkModel,
+    ptdf,
+    reduction,
     ::Type{L},
     names,
     system::PSY.System,
 ) where {L <: PSY.ElectricLoad}
-    lookup = PNM.get_bus_lookup(get_network_matrix(network_model))
-    reduction = get_network_reduction(network_model)
+    lookup = PNM.get_bus_lookup(ptdf)
     columns = Dict{String, Int}()
     for name in names
         load = PSY.get_component(L, system, name)
@@ -288,41 +288,65 @@ function _arm_loads!(
     return
 end
 
+function _arm_base_case_loads!(
+    armed::DenseAxisArray,
+    columns::Dict{String, Int},
+    ptdf,
+    catalog,
+    base_rows::Dict{BaseCaseArmingRow, Set{Int}},
+)
+    for (row, time_steps) in base_rows
+        arc = PNM.get_name_to_arc_map(catalog, row.branch_type)[row.name]
+        _arm_loads!(armed, columns, row.sign, ptdf[arc, :], time_steps)
+    end
+    return
+end
+
+# The function barrier: the network model reads are not type stable, so the row loops
+# run in helpers that specialize on the concrete matrix types.
 function calculate_aux_variable_value!(
     container::OptimizationContainer,
     key::AuxVarKey{BidAdjustmentArmed, L},
     system::PSY.System,
+    context::PowerSolveContext,
 ) where {L <: PSY.ElectricLoad}
     armed = get_aux_variable(container, key)
     fill!(armed, 0.0)
     base_rows, contingency_rows = _rows_at_cap(container)
     isempty(base_rows) && isempty(contingency_rows) && return
-    network_model = get_network_model(container)
-    columns = _load_columns(network_model, L, axes(armed)[1], system)
-    if !isempty(base_rows)
-        ptdf = get_network_matrix(network_model)
-        catalog = get_branch_catalog(network_model)
-        for (row, time_steps) in base_rows
-            arc = PNM.get_name_to_arc_map(catalog, row.branch_type)[row.name]
-            _arm_loads!(armed, columns, row.sign, ptdf[arc, :], time_steps)
-        end
+    network_model = get_network_model(context)
+    ptdf = get_network_matrix(network_model)
+    catalog = get_branch_catalog(network_model)
+    reduction = get_network_reduction(network_model)
+    columns = _load_columns(ptdf, reduction, L, axes(armed)[1], system)
+    _arm_base_case_loads!(armed, columns, ptdf, catalog, base_rows)
+    if !isempty(contingency_rows)
+        _arm_post_contingency_loads!(
+            armed,
+            columns,
+            ptdf,
+            get_contingency_matrix(network_model),
+            catalog,
+            IOM.get_modeled_branch_types(network_model),
+            contingency_rows,
+        )
     end
-    _arm_post_contingency_loads!(armed, columns, network_model, contingency_rows)
     return
 end
 
 # Post-contingency rows key monitored branches by name only, while branch names are unique
 # only per type; a needed name must resolve to one arc across the modeled types.
-function _monitored_arcs_by_name(network_model::NetworkModel, names)
-    catalog = get_branch_catalog(network_model)
-    name_to_arc_maps = [
-        PNM.get_name_to_arc_map(catalog, T) for T in network_model.modeled_branch_types
-    ]
+function _monitored_arcs_by_name(
+    catalog,
+    modeled_branch_types::Vector{DataType},
+    names,
+)
+    name_to_arc_maps = [PNM.get_name_to_arc_map(catalog, T) for T in modeled_branch_types]
     arcs = Dict{String, Tuple{Int, Int}}()
     for name in names
         for name_to_arc in name_to_arc_maps
-            arc = get(name_to_arc, name, nothing)
-            isnothing(arc) && continue
+            haskey(name_to_arc, name) || continue
+            arc = name_to_arc[name]
             existing = get(arcs, name, arc)
             if existing != arc
                 error(
@@ -336,7 +360,7 @@ function _monitored_arcs_by_name(network_model::NetworkModel, names)
         if !haskey(arcs, name)
             error(
                 "A post-contingency row monitors branch \"$(name)\", which maps to no " *
-                "arc of the modeled branch types $(network_model.modeled_branch_types).",
+                "arc of the modeled branch types $(modeled_branch_types).",
             )
         end
     end
@@ -346,12 +370,13 @@ end
 function _arm_post_contingency_loads!(
     armed::DenseAxisArray,
     columns::Dict{String, Int},
-    network_model::NetworkModel,
+    ptdf,
+    modf,
+    catalog,
+    modeled_branch_types::Vector{DataType},
     contingency_rows::Dict{PostContingencyArmingRow, Set{Int}},
 )
-    isempty(contingency_rows) && return
-    modf = get_contingency_matrix(network_model)
-    if PNM.get_bus_lookup(modf) != PNM.get_bus_lookup(get_network_matrix(network_model))
+    if PNM.get_bus_lookup(modf) != PNM.get_bus_lookup(ptdf)
         error(
             "The contingency matrix and the PTDF order buses differently; " *
             "BidAdjustmentArmed indexes both with one column map.",
@@ -359,7 +384,8 @@ function _arm_post_contingency_loads!(
     end
     contingencies = PNM.get_registered_contingencies(modf)
     arcs = _monitored_arcs_by_name(
-        network_model, unique(row.name for row in keys(contingency_rows)),
+        catalog, modeled_branch_types,
+        unique(row.name for row in keys(contingency_rows)),
     )
     # The "ub" and "lb" rows of one monitored branch and outage share a shift-factor vector.
     shift_factors = Dict{Tuple{Int, String}, Vector{Float64}}()
