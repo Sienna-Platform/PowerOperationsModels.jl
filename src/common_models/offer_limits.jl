@@ -26,6 +26,21 @@ const RESERVE_OFFER_LINKS_TS_NAME = "reserve_offer_links"
 
 _attribute_on(model::DeviceModel, key::String) = get_attribute(model, key) === true
 
+# A market component model of a non-Device type (e.g. a `VirtualParticipant`) has no
+# available-device machinery, so the offer-limit rows cannot be built for it.
+_offer_limit_candidate(::DeviceModel{<:PSY.Device}) = true
+function _offer_limit_candidate(model::DeviceModel)
+    for key in (LINKED_RESERVE_OFFERS_KEY, ENERGY_OFFER_CAP_KEY)
+        if _attribute_on(model, key)
+            error(
+                "The \"$(key)\" attribute is not supported on $(get_component_type(model)): " *
+                "offer-limit rows need a PSY.Device model.",
+            )
+        end
+    end
+    return false
+end
+
 _get_time_series_name(::Type{ReserveOfferLinkParameter}, ::PSY.Component, ::DeviceModel) =
     RESERVE_OFFER_LINKS_TS_NAME
 
@@ -87,7 +102,8 @@ function add_offer_limit_containers!(
     sys::PSY.System,
     template::PowerOperationsProblemTemplate,
 )
-    for model in values(get_device_models(template))
+    for model in values(get_service_device_models(template))
+        _offer_limit_candidate(model) || continue
         validate_available_devices(model, sys) || continue
         _add_offer_limit_containers!(container, sys, model)
     end
@@ -116,7 +132,7 @@ function _add_offer_limit_containers!(
 end
 
 """
-Build the opt-in offer-limit rows of every device model and assign the duals it lists. Runs
+Build the opt-in offer-limit rows of every device and market component model and assign the duals it lists. Runs
 after the services model stage, where the per-step reserve offer variables are created.
 """
 function add_offer_limit_constraints!(
@@ -124,7 +140,8 @@ function add_offer_limit_constraints!(
     sys::PSY.System,
     template::PowerOperationsProblemTemplate,
 )
-    for model in values(get_device_models(template))
+    for model in values(get_service_device_models(template))
+        _offer_limit_candidate(model) || continue
         validate_available_devices(model, sys) || continue
         _add_offer_limit_constraints!(container, sys, model)
     end

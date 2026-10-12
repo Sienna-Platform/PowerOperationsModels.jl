@@ -1328,20 +1328,17 @@ end
 
 @testset "MarketLoadBid with a StaticPowerLoad twin is rejected: the twin cannot bound a reserve award" begin
     sys = _market_load_test_system()
-    err = try
-        DecisionModel(
-            _market_load_test_template(; physical_twin = true),
-            sys;
-            optimizer = HiGHS_optimizer,
-        )
-        nothing
-    catch e
-        e
-    end
-    @test err isa ErrorException
-    @test occursin("StaticPowerLoad", err.msg)
-    @test occursin("InterruptiblePowerLoad", err.msg)
-    @test occursin("cannot bound a reserve award", err.msg)
+    build_with_twin() = DecisionModel(
+        _market_load_test_template(; physical_twin = true),
+        sys;
+        optimizer = HiGHS_optimizer,
+    )
+    @test_throws ErrorException build_with_twin()
+    @test_throws [
+        "StaticPowerLoad",
+        "InterruptiblePowerLoad",
+        "cannot bound a reserve award",
+    ] build_with_twin()
 end
 
 @testset "VP and MarketLoadBid costs register in ProductionCostExpression like device costs" begin
@@ -1435,16 +1432,10 @@ end
     PSY.add_service!(sys, reserve_down, [il1])
 
     # Unit-level.
-    err = nothing
-    try
-        POM._validate_single_reserve_direction!(il1)
-    catch e
-        err = e
-    end
-    @test err isa ErrorException
-    @test occursin("il1", err.msg)
-    @test occursin("Reserve1", err.msg)
-    @test occursin("ReserveDown1", err.msg)
+    @test_throws ErrorException POM._validate_single_reserve_direction!(il1)
+    @test_throws ["il1", "Reserve1", "ReserveDown1"] POM._validate_single_reserve_direction!(
+        il1,
+    )
 
     # End-to-end: build fails with the same device/service names in the log.
     template = _market_load_test_template()
@@ -1604,4 +1595,56 @@ end
         @test !IOM.has_container_key(container, SystemBalanceSlackUp, PSY.System)
         @test !IOM.has_container_key(container, SystemBalanceSlackDown, PSY.System)
     end
+end
+
+@testset "Offer limits read market component models: a market-only load takes the attributes" begin
+    sys = _market_load_test_system()
+    template = _market_load_test_template()
+    set_market_component_model!(
+        template,
+        DeviceModel(
+            PSY.InterruptiblePowerLoad, MarketLoadBid;
+            attributes = Dict{String, Any}("linked_reserve_offers" => true),
+        ),
+    )
+    @test !haskey(get_device_models(template), nameof(PSY.InterruptiblePowerLoad))
+    model = DecisionModel(
+        template, sys;
+        optimizer = HiGHS_optimizer, rebuild_model = true,
+    )
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+    @test IOM.has_container_key(
+        get_optimization_container(model),
+        POM.LinkedReserveOfferConstraint,
+        PSY.InterruptiblePowerLoad,
+    )
+
+    cap_template = _market_load_test_template()
+    set_market_component_model!(
+        cap_template,
+        DeviceModel(
+            PSY.InterruptiblePowerLoad, MarketLoadBid;
+            attributes = Dict{String, Any}("energy_offer_cap" => true),
+        ),
+    )
+    cap_model = DecisionModel(
+        cap_template, sys;
+        optimizer = HiGHS_optimizer, rebuild_model = true,
+    )
+    @test build!(cap_model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.FAILED
+end
+
+@testset "Offer-limit attribute on a non-Device market component model is an error" begin
+    model = DeviceModel(
+        PSY.VirtualParticipant, VirtualBidDispatch;
+        attributes = Dict{String, Any}("linked_reserve_offers" => true),
+    )
+    @test_throws ["linked_reserve_offers", "VirtualParticipant"] POM._offer_limit_candidate(
+        model,
+    )
+    @test !POM._offer_limit_candidate(
+        DeviceModel(PSY.VirtualParticipant, VirtualBidDispatch),
+    )
 end
