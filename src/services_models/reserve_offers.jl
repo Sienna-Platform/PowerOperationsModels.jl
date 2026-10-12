@@ -21,6 +21,33 @@ _cost_offers_reserve(cost::Union{PSY.MarketBidCost, PSY.MarketBidTimeSeriesCost}
     service in PSY.get_ancillary_service_offers(cost)
 _cost_offers_reserve(::PSY.OperationalCost, service) = false
 
+# `d`'s offer curve for `service` at every time step, in system per unit:
+# `(breakpoints, slopes)` per step.
+function _reserve_offer_curves(
+    container::OptimizationContainer,
+    ::Type{D},
+    d::D,
+    service::PSY.Service,
+) where {D <: PSY.Component}
+    time_steps = get_time_steps(container)
+    base_p = get_model_base_power(container)
+    dev_name = PSY.get_name(d)
+    bid = PSY.get_services_bid(
+        d, PSY.get_operation_cost(d), service;
+        start_time = IOM.get_initial_time(container), len = length(time_steps),
+    )
+    curves = values(bid)
+    return [
+        IOM.get_piecewise_curve_per_system_unit(
+            IOM._get_raw_pwl_data(
+                IOM.IncrementalOffer(), container, D, dev_name, curves[t], t,
+            )...,
+            base_p,
+            PSY.get_base_power(d),
+        ) for t in time_steps
+    ]
+end
+
 # Price every contributing device that offers into `service` by its offer curve; returns the set of
 # `(device type, device name)` so priced (the flat-cost pass skips them).
 # A group has no contributing devices, so it can carry no per-device offers; with
@@ -48,8 +75,6 @@ function add_reserve_offer_costs!(
     time_steps = get_time_steps(container)
     resolution = get_resolution(container)
     dt = Dates.value(Dates.Second(resolution)) / SECONDS_IN_HOUR
-    base_p = get_model_base_power(container)
-    initial_time = IOM.get_initial_time(container)
     jump_model = get_jump_model(container)
     offered = Set{Tuple{DataType, String}}()
 
@@ -71,17 +96,8 @@ function add_reserve_offer_costs!(
                 [service_name], names, time_steps; sparse = true)
         for d in offering
             dev_name = PSY.get_name(d)
-            cost = PSY.get_operation_cost(d)
-            dev_base = PSY.get_base_power(d)
-            bid = PSY.get_services_bid(
-                d, cost, service; start_time = initial_time, len = length(time_steps))
-            curves = values(bid)
-            for t in time_steps
-                bp_c, slope_c, unit = IOM._get_raw_pwl_data(
-                    IOM.IncrementalOffer(), container, device_type, dev_name, curves[t],
-                    t)
-                breakpoints, slopes = IOM.get_piecewise_curve_per_system_unit(
-                    bp_c, slope_c, unit, base_p, dev_base)
+            steps = _reserve_offer_curves(container, device_type, d, service)
+            for (t, (breakpoints, slopes)) in zip(time_steps, steps)
                 nseg = length(slopes)
                 pwl_vars = Vector{JuMP.VariableRef}(undef, nseg)
                 for k in 1:nseg

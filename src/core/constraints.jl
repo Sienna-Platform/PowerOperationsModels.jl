@@ -28,6 +28,24 @@ struct BalanceAuxConstraint <: ConstraintType end
 # Links a device's per-service reserve OFFER blocks to its reserve award:
 # `Σ_k δ[(service, device, k, t)] == ActivePowerReserveVariable[(service, device, t)]`.
 struct ReserveOfferLinkingConstraint <: ConstraintType end
+
+"""
+Sells a device's reserve offer block once across the services it is linked into. Built when
+the device model sets `"linked_reserve_offers" => true` and the device carries a
+`reserve_offer_links` series. Sparse, keyed `(device_name, block, time_step)`: the block's
+steps (`PiecewiseLinearBlockReserveOffer`) in the services it is linked into sum to at most
+the smallest of their step widths, when it is linked into two or more modeled services.
+"""
+struct LinkedReserveOfferConstraint <: ConstraintType end
+
+"""
+Keeps a device's energy plus upward reserve awards within the top of its energy offer curve.
+Built when a thermal device model sets `"energy_offer_cap" => true`. Sparse, keyed
+`(device_name, time_step)`: `ActivePowerRangeExpressionUB` (plus ``P^\\text{min} u_t`` for
+compact formulations) at most the curve's last breakpoint, for steps whose curve offers
+energy and tops below ``P^\\text{max}``.
+"""
+struct EnergyOfferCapConstraint <: ConstraintType end
 """
 Struct to create the commitment constraint between the on, start, and stop variables.
 For more information check [ThermalGen Formulations](@ref ThermalGen-Formulations).
