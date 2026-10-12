@@ -80,7 +80,10 @@ function build_initial_conditions_model!(
             "conditions model before the main problem.",
         )
     end
-    set_initial_conditions_model_container!(internal, deepcopy(container))
+    set_initial_conditions_model_container!(
+        internal,
+        IOM.deepcopy_without_network_model(container),
+    )
     ic_container = get_initial_conditions_model_container(internal)
     ic_settings = deepcopy(get_settings(ic_container))
     main_problem_horizon = get_horizon(ic_settings)
