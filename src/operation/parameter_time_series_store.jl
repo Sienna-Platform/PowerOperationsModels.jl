@@ -33,7 +33,8 @@ chunk cache (a multi-day market run's cost copies do).
 ParameterTimeSeriesStore(path::AbstractString) = ParameterTimeSeriesStore(IS.Store(; path))
 
 """Run `f` inside one store transaction, so a run of adds is written as whole blocks."""
-_in_transaction(f, store::ParameterTimeSeriesStore) = IS.InfraStore.transaction(f, store.store.inner)
+_in_transaction(f, store::ParameterTimeSeriesStore) =
+    IS.InfraStore.transaction(f, store.store.inner)
 
 """Whether `store` is the on-disk store at `path`."""
 function _stored_at(store::ParameterTimeSeriesStore, path::AbstractString)
