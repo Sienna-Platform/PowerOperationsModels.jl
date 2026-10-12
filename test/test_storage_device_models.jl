@@ -785,3 +785,55 @@ end
     @test JuMP.coefficient(expr[name, first(time_steps)], var[name, first(time_steps)]) !=
           JuMP.coefficient(expr[name, last(time_steps)], var[name, last(time_steps)])
 end
+
+@testset "set_initial_storage_energy!" begin
+    device_model = DeviceModel(EnergyReservoirStorage, StorageDispatchWithReserves)
+    c_sys5_bat = PSB.build_system(PSITestSystems, "c_sys5_bat")
+    storages = collect(PSY.get_components(EnergyReservoirStorage, c_sys5_bat))
+    names = PSY.get_name.(storages)
+    stored_mwh(s) =
+        PSY.get_initial_storage_capacity_level(s) * PSY.get_storage_capacity(s, u"NU")
+
+    function build(; recurrent)
+        model = DecisionModel(MockOperationProblem, DCPNetworkModel, c_sys5_bat)
+        mock_construct_device!(model, device_model; built_for_recurrent_solves = recurrent)
+        return model
+    end
+    ics(model) = IOM.get_initial_condition(
+        IOM.get_optimization_container(model),
+        InitialEnergyLevel(),
+        EnergyReservoirStorage,
+    )
+
+    @testset "constant initial conditions" begin
+        model = build(; recurrent = false)
+        before = IOM.get_condition.(ics(model))
+        same = Dict(PSY.get_name(s) => stored_mwh(s) for s in storages)
+        @test set_initial_storage_energy!(model, same) == length(storages)
+        @test IOM.get_condition.(ics(model)) == before
+        @test set_initial_storage_energy!(model, Dict{String, Float64}()) == 0
+        @test set_initial_storage_energy!(model, Dict("not_a_storage" => 1.0)) == 0
+        @test set_initial_storage_energy!(model, Dict(first(names) => NaN)) == 0
+        different = Dict(first(names) => stored_mwh(first(storages)) + 1.0)
+        @test_throws ErrorException set_initial_storage_energy!(model, different)
+    end
+
+    @testset "parameter initial conditions" begin
+        model = build(; recurrent = true)
+        s = first(storages)
+        per_mwh =
+            PSY.get_storage_capacity(s, u"SU") * PSY.get_conversion_factor(s) /
+            PSY.get_storage_capacity(s, u"NU")
+        limits = PSY.get_storage_level_limits(s)
+        capacity = PSY.get_storage_capacity(s, u"NU")
+        ic = first(ics(model))
+        @test set_initial_storage_energy!(model, Dict(PSY.get_name(s) => 0.5 * capacity)) ==
+              1
+        @test IOM.get_condition(ic) ≈ 0.5 * capacity * per_mwh
+        @test set_initial_storage_energy!(model, Dict(PSY.get_name(s) => 10 * capacity)) ==
+              1
+        @test IOM.get_condition(ic) ≈ limits.max * capacity * per_mwh
+        @test set_initial_storage_energy!(model, Dict(PSY.get_name(s) => -capacity)) == 1
+        @test IOM.get_condition(ic) ≈ limits.min * capacity * per_mwh
+    end
+end
