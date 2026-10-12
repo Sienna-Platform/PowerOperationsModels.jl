@@ -2087,3 +2087,57 @@ end
     @test occursin("1 monitored component(s) across 1 outage(s) are unavailable", log)
     @test occursin("$(outage_id) => 1", log)
 end
+
+@testset "Post-contingency slacks are priced through the post_contingency_slack_cost attribute" begin
+    default_cost = POM.CONSTRAINT_VIOLATION_SLACK_COST
+
+    function slack_costs(attributes)
+        c_sys5 = _attach_some_branch_outages!(PSB.build_system(PSITestSystems, "c_sys5"))
+        template = get_thermal_dispatch_template_network(NetworkModel(PTDFNetworkModel))
+        set_device_model!(
+            template,
+            DeviceModel(
+                PSY.Line,
+                POM.SecurityConstrainedStaticBranch;
+                use_slacks = true,
+                attributes,
+            ),
+        )
+        set_device_model!(
+            template, PSY.TwoWindingTransformer, POM.SecurityConstrainedStaticBranch,
+        )
+        model = DecisionModel(template, c_sys5; optimizer = HiGHS_optimizer)
+        @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+              IOM.ModelBuildStatus.BUILT
+        container = IOM.get_optimization_container(model)
+        invariant = IOM.get_invariant_terms(IOM.get_objective_expression(container))
+        costs = Dict{String, Set{Float64}}()
+        for S in (
+            POM.PostContingencyFlowActivePowerSlackUpperBound,
+            POM.PostContingencyFlowActivePowerSlackLowerBound,
+        )
+            slack = IOM.get_variable(container, S, PSY.Line)
+            for (k, v) in slack.data
+                push!(get!(costs, k[2], Set{Float64}()), JuMP.coefficient(invariant, v))
+            end
+        end
+        return costs
+    end
+
+    costs = slack_costs(Dict{String, Any}())
+    @test !isempty(costs)
+    @test all(c == Set([default_cost]) for c in values(costs))
+
+    priced = first(sort!(collect(keys(costs))))
+    costs = slack_costs(
+        Dict{String, Any}(
+            "post_contingency_slack_cost" =>
+                Dict(priced => 123.0, "no_such_line" => 5.0),
+        ),
+    )
+    @test costs[priced] == Set([123.0])
+    @test all(c == Set([default_cost]) for (n, c) in costs if n != priced)
+
+    costs = slack_costs(Dict{String, Any}("post_contingency_slack_cost" => 7.0))
+    @test all(c == Set([7.0]) for c in values(costs))
+end

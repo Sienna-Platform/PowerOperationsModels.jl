@@ -232,7 +232,8 @@ On `IVRNetworkModel` both mechanisms are present at once, on different equations
 !!! note "Pricing asymmetry between the two slack domains"
     
     Every slack container above is priced identically at `CONSTRAINT_VIOLATION_SLACK_COST` in
-    the objective, but the *domain* being relaxed differs. `StaticBranchBounds`'s
+    the objective by default. The `flow_slack_cost` and `post_contingency_slack_cost` device-model
+    attributes change the price of the base-case and post-contingency flow slacks. The *domain* being relaxed differs. `StaticBranchBounds`'s
     `"p_ft"`/`"p_tf"`/`"q_ft"`/`"q_tf"`/`"cr_*"`/`"ci_*"` pairs are flow-domain (MW / per-unit current); `StaticBranch`'s
     meta-less and `"c_from"`/`"c_to"` slacks relax a **squared** domain (MVA² / A²) because they
     are subtracted directly from a quadratic left-hand side. The same price per unit therefore

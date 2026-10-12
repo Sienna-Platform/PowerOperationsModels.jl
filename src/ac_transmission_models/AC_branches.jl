@@ -898,9 +898,30 @@ end
 
 ############################## Flow Limits Constraints #####################################
 
+"""
+Device-model attribute that sets the penalty of the base-case flow slacks. The value is
+`nothing`, a `Real` for all branches, or a `Dict{String, <:Real}`. The keys are the names on the
+first axis of the slack container. Under a network reduction, these are the names of the
+reduction entries. A name that the dictionary omits keeps `CONSTRAINT_VIOLATION_SLACK_COST`.
+The units are the same as the units of `CONSTRAINT_VIOLATION_SLACK_COST`.
+"""
+const FLOW_SLACK_COST_ATTRIBUTE = "flow_slack_cost"
+
+"""
+Device-model attribute that sets the penalty of the post-contingency flow slacks.
+It takes the same values as `FLOW_SLACK_COST_ATTRIBUTE`.
+"""
+const POST_CONTINGENCY_SLACK_COST_ATTRIBUTE = "post_contingency_slack_cost"
+
+_slack_cost(::Nothing, ::String)::Float64 = CONSTRAINT_VIOLATION_SLACK_COST
+_slack_cost(value::Real, ::String)::Float64 = Float64(value)
+function _slack_cost(value::AbstractDict, name::String)::Float64
+    return Float64(get(value, name, CONSTRAINT_VIOLATION_SLACK_COST))
+end
+
 # Branch slack pricing derives from the pair's `slack_spec` declaration
-# (core/branch_slack_specs.jl): every slack container the spec names is priced at the
-# violation cost, so pricing cannot drift from what the constructors build. There is
+# (core/branch_slack_specs.jl): every slack container the spec names is priced
+# through `_slack_cost`, so pricing cannot drift from what the constructors build. There is
 # deliberately no `NoBranchSlacks` method — validation and the construct-time backstop
 # reject slacked no-machinery pairs, so reaching pricing with one is a bug that must
 # surface as a MethodError.
@@ -911,7 +932,12 @@ function add_to_objective_function!(
     ::Type{N},
 ) where {T <: PSY.ACTransmission, F <: AbstractBranchFormulation, N <: AbstractNetworkModel}
     if get_use_slacks(device_model)
-        _price_slack_spec!(container, T, slack_spec(F, N))
+        _price_slack_spec!(
+            container,
+            T,
+            slack_spec(F, N),
+            get_attribute(device_model, FLOW_SLACK_COST_ATTRIBUTE),
+        )
     end
     return
 end
@@ -920,8 +946,9 @@ function _price_slack_spec!(
     container::OptimizationContainer,
     ::Type{T},
     ::RowPairSlacks,
+    slack_cost,
 ) where {T <: PSY.ACTransmission}
-    _price_slack_pair!(container, T)
+    _price_slack_pair!(container, T, slack_cost)
     return
 end
 
@@ -929,9 +956,10 @@ function _price_slack_spec!(
     container::OptimizationContainer,
     ::Type{T},
     spec::EqualityPairSlacks,
+    slack_cost,
 ) where {T <: PSY.ACTransmission}
     for meta in get_pair_metas(spec)
-        _price_slack_pair!(container, T, meta)
+        _price_slack_pair!(container, T, slack_cost, meta)
     end
     return
 end
@@ -940,46 +968,50 @@ function _price_slack_spec!(
     container::OptimizationContainer,
     ::Type{T},
     spec::QuadraticUpperSlacks,
+    slack_cost,
 ) where {T <: PSY.ACTransmission}
     for meta in get_upper_metas(spec)
-        _price_slack_upper!(container, T, meta)
+        _price_slack_upper!(container, T, slack_cost, meta)
     end
     return
 end
 
-# Price an upper/lower slack pair (equality relaxation) at the violation cost. Iterates
-# container names because there might be a network reduction.
+# Price an upper/lower slack pair (equality relaxation). Iterates container names
+# because there might be a network reduction.
 function _price_slack_pair!(
     container::OptimizationContainer,
     ::Type{T},
+    slack_cost,
     meta::String = IOM.CONTAINER_KEY_EMPTY_META,
 ) where {T <: PSY.ACTransmission}
     variable_up = get_variable(container, FlowActivePowerSlackUpperBound, T, meta)
     variable_dn = get_variable(container, FlowActivePowerSlackLowerBound, T, meta)
     for name in axes(variable_up, 1)
+        cost = _slack_cost(slack_cost, name)
         for t in get_time_steps(container)
             add_to_objective_invariant_expression!(
                 container,
-                (variable_dn[name, t] + variable_up[name, t]) *
-                CONSTRAINT_VIOLATION_SLACK_COST,
+                (variable_dn[name, t] + variable_up[name, t]) * cost,
             )
         end
     end
     return
 end
 
-# Price a one-sided upper slack (quadratic-limit relaxation) at the violation cost.
+# Price a one-sided upper slack (quadratic-limit relaxation).
 function _price_slack_upper!(
     container::OptimizationContainer,
     ::Type{T},
+    slack_cost,
     meta::String = IOM.CONTAINER_KEY_EMPTY_META,
 ) where {T <: PSY.ACTransmission}
     variable_up = get_variable(container, FlowActivePowerSlackUpperBound, T, meta)
     for name in axes(variable_up, 1)
+        cost = _slack_cost(slack_cost, name)
         for t in get_time_steps(container)
             add_to_objective_invariant_expression!(
                 container,
-                variable_up[name, t] * CONSTRAINT_VIOLATION_SLACK_COST,
+                variable_up[name, t] * cost,
             )
         end
     end
