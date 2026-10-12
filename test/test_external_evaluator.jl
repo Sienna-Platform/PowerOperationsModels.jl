@@ -1,15 +1,13 @@
 struct CountingEvaluator <: IOM.AbstractEvaluator end
 
-mutable struct CountingEvaluationData{M} <: IOM.AbstractEvaluationData
-    network_matrix::M
+mutable struct CountingEvaluationData <: IOM.AbstractEvaluationData
     n_init::Int
     n_eval::Int
     solved::Bool
 end
 
 function IOM.initialize_evaluation_data(::CountingEvaluator, container, sys)
-    network_matrix = IOM.get_network_matrix(IOM.get_network_model(container))
-    return CountingEvaluationData(network_matrix, 1, 0, false)
+    return CountingEvaluationData(1, 0, false)
 end
 
 function IOM.evaluate!(d::CountingEvaluationData, container, sys)
@@ -40,36 +38,29 @@ function _build_and_solve_external(evaluations)
     @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
           ModelBuildStatus.BUILT
     @test solve!(model) == RunStatus.SUCCESSFULLY_FINALIZED
-    return model
+    return get_optimization_container(model)
 end
 
 @testset "Evaluator that is not a power flow" begin
     ec = IOM.EvaluationContainer()
     IOM.add_evaluator!(ec, CountingEvaluator, CountingEvaluator())
-    model = _build_and_solve_external(ec)
-    container = get_optimization_container(model)
+    container = _build_and_solve_external(ec)
     data = only(values(get_evaluation_data(get_evaluations(container))))
-    network_model = get_network_model(get_template(model))
-    network_matrix = IOM.get_network_matrix(network_model)
-    @test typeof(data) === CountingEvaluationData{typeof(network_matrix)}
+    @test typeof(data) === CountingEvaluationData
     @test data.n_init == 1
     @test data.n_eval == 1
     @test data.solved
-    @test IOM.get_network_model(container) === network_model
-    @test data.network_matrix === network_matrix
 end
 
 @testset "Evaluator that is not a power flow, next to a power flow" begin
     ec = power_flow_evaluations(ACPowerFlow())
     IOM.add_evaluator!(ec, CountingEvaluator, CountingEvaluator())
-    container = get_optimization_container(_build_and_solve_external(ec))
+    container = _build_and_solve_external(ec)
     evaluation_data = get_evaluation_data(get_evaluations(container))
     @test length(evaluation_data) == 2
     @test evaluation_data[CountingEvaluator].n_eval == 1
 
-    reference = get_optimization_container(
-        _build_and_solve_external(power_flow_evaluations(ACPowerFlow())),
-    )
+    reference = _build_and_solve_external(power_flow_evaluations(ACPowerFlow()))
     key = AuxVarKey(POM.PowerFlowBranchActivePowerFromTo, Line)
     # Repeated AC power flow solves differ at round-off, so compare with a tolerance.
     @test all(
