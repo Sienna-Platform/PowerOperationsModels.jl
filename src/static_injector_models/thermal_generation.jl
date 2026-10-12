@@ -895,7 +895,7 @@ function calculate_aux_variable_value!(
     ::AuxVarKey{TimeDurationOn, T},
     ::PSY.System,
 ) where {T <: PSY.ThermalGen}
-    on_variable_output = get_variable(container, OnVariable, T)
+    on_variable_output = lookup_value(container, OnVariable, T)
     aux_variable_container = get_aux_variable(container, TimeDurationOn, T)
     ini_cond = get_initial_condition(container, InitialTimeDurationOn(), T)
 
@@ -911,7 +911,7 @@ function calculate_aux_variable_value!(
             on_var_name = IOM.get_component_name(ini_cond[ix])
             ini_cond_value = get_condition(ini_cond[ix])
             # On Var doesn't exist for a unit that has must_run = true
-            on_var = jump_value.(on_variable_output[on_var_name, :])
+            on_var = on_variable_output[on_var_name, :]
             aux_variable_container.data[ix, :] .= ini_cond_value
             sum_on_var = sum(on_var)
         end
@@ -942,7 +942,7 @@ function calculate_aux_variable_value!(
     ::AuxVarKey{TimeDurationOff, T},
     ::PSY.System,
 ) where {T <: PSY.ThermalGen}
-    on_variable_output = get_variable(container, OnVariable, T)
+    on_variable_output = lookup_value(container, OnVariable, T)
     aux_variable_container = get_aux_variable(container, TimeDurationOff, T)
     ini_cond = get_initial_condition(container, InitialTimeDurationOff(), T)
 
@@ -955,7 +955,7 @@ function calculate_aux_variable_value!(
         else
             on_var_name = IOM.get_component_name(ini_cond[ix])
             # On Var doesn't exist for a unit that has must run
-            on_var = jump_value.(on_variable_output[on_var_name, :])
+            on_var = on_variable_output[on_var_name, :]
             ini_cond_value = get_condition(ini_cond[ix])
             aux_variable_container.data[ix, :] .= ini_cond_value
             sum_on_var = sum(on_var)
@@ -989,16 +989,17 @@ function calculate_aux_variable_value!(
 ) where {T <: PSY.ThermalGen}
     time_steps = get_time_steps(container)
     if has_container_key(container, OnVariable, T)
-        on_variable_output = get_variable(container, OnVariable, T)
+        on_variable_output = lookup_value(container, OnVariable, T)
     elseif has_container_key(container, OnStatusParameter, T)
-        on_variable_output = get_parameter_array(container, OnStatusParameter, T)
+        on_variable_output =
+            jump_value.(get_parameter_array(container, OnStatusParameter, T))
     else
         error(
             "$T formulation is NOT supported without a Feedforward for CommitmentDecisions,
       please consider changing your simulation setup or adding a SemiContinuousFeedforward.",
         )
     end
-    p_variable_output = get_variable(container, PowerAboveMinimumVariable, T)
+    p_variable_output = lookup_value(container, PowerAboveMinimumVariable, T)
     device_name = axes(p_variable_output, 1)
     aux_variable_container = get_aux_variable(container, PowerOutput, T)
     for d_name in device_name
@@ -1011,13 +1012,12 @@ function calculate_aux_variable_value!(
         if _is_must_run(d)
             for t in time_steps
                 aux_variable_container[name, t] =
-                    min + jump_value(p_variable_output[name, t])
+                    min + p_variable_output[name, t]
             end
         else
             for t in time_steps
                 aux_variable_container[name, t] =
-                    jump_value(on_variable_output[name, t]) * min +
-                    jump_value(p_variable_output[name, t])
+                    on_variable_output[name, t] * min + p_variable_output[name, t]
             end
         end
     end

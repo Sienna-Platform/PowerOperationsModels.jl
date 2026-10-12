@@ -91,9 +91,9 @@ function _accumulate_headroom!(
 
         for t in 1:n_time_steps
             bus_types[bus_ix, t] ∈ (PSY.ACBusTypes.REF, PSY.ACBusTypes.PV) || continue
-            p_setpoint = jump_value(result[device_name, t])
+            p_setpoint = result[device_name, t]
             p_max_t = if has_ts
-                min(p_max_static, jump_value(ts_param_values[device_name, t]))
+                min(p_max_static, ts_param_values[device_name, t])
             else
                 p_max_static
             end

@@ -146,7 +146,7 @@ function _add_sc_feedforward_constraints!(
     upper_bounds = [get_variable_upper_bound(U, d, W) for d in devices]
     lower_bounds = [get_variable_lower_bound(U, d, W) for d in devices]
     if any(isnothing, upper_bounds) || any(isnothing, lower_bounds)
-        throw(IS.InvalidValueError("Bounds for variable $U $V not defined correctly"))
+        throw(IS.InvalidValue("Bounds for variable $U $V not defined correctly"))
     end
     jump_model = get_jump_model(container)
     for (dir, bound_values) in

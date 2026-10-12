@@ -24,7 +24,7 @@ import JuMP.MOI as MOI
 import MathOptInterface.Utilities as MOIU
 using TimeSeries
 using CSV
-import JSON3
+import JSON
 using DataStructures
 import UUIDs
 using Random

@@ -13,6 +13,12 @@ function _build_ic_reactive_sys(;
     reactive_limit = 1.5,
 )
     sys = build_system(PSISystems, "sys10_pjm_ac_dc"; force_build = true)
+    # The fixture stores r = 0.01, a per-unit value, but psy6 reads r in ohm. At 4e-6 pu
+    # the DC network is near-singular and Ipopt does not converge. Restore 0.01 pu.
+    for line in get_components(TModelHVDCLine, sys)
+        v_base = get_base_voltage(get_from(get_arc(line)))
+        set_r!(line, 0.01 * v_base^2 / get_base_power(sys))
+    end
     for ic in get_components(InterconnectingConverter, sys)
         set_loss_function!(ic, PSY.LossCurve(QuadraticCurve(0.01, 0.01, 0.0), PSY.CU))
         # 2.0 pu on the system base, in amperes.
@@ -231,11 +237,17 @@ end
 @testset "VoltageControlConverter AC loss is parameterized on AC apparent current" begin
     # Pin every converter AC bus off nominal voltage so the converters carry reactive
     # power; the loss must then reflect Q via the AC apparent current.
+    setpoint = 1.01
     sys = _build_ic_reactive_sys(;
         ac_control = VSCACControlModes.AC_VOLTAGE,
-        ac_setpoint = 1.04,
+        ac_setpoint = setpoint,
         reactive_limit = 1.5,
     )
+    # IPC-nodeD sits on the REF bus, whose ACP reference constraint pins vm to the bus
+    # magnitude. Match the magnitudes to the setpoint so the two pins agree.
+    for ic in get_components(InterconnectingConverter, sys)
+        set_magnitude!(get_bus(ic), setpoint * u"SU")
+    end
     template = _ic_reactive_template(ACPNetworkModel)
     model = DecisionModel(
         template, sys; store_variable_names = true, optimizer = ipopt_optimizer,

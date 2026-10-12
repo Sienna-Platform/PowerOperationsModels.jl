@@ -556,24 +556,53 @@ function _add_both_terminals_to_nodal_by_device!(
     return
 end
 
+function _hvdc_flow_enters_region_row(
+    network_model::NetworkModel{PTDFNetworkModel},
+    ::Type{W},
+    arc::PSY.Arc,
+) where {W <: AbstractBranchFormulation}
+    return get_reference_bus(network_model, PSY.get_from(arc)) !=
+           get_reference_bus(network_model, PSY.get_to(arc))
+end
+
+# Each terminal injection enters the row of its own area. The AreaInterchange metering
+# of HVDC ties is removed from the area rows in `_remove_metered_hvdc_from_area_rows!`.
+function _hvdc_flow_enters_region_row(
+    ::NetworkModel{AreaPTDFNetworkModel},
+    ::Type{<:AbstractBranchFormulation},
+    ::PSY.Arc,
+)
+    return true
+end
+
+function _hvdc_flow_enters_region_row(
+    ::NetworkModel{PTDFNetworkModel},
+    ::Type{HVDCTwoTerminalPiecewiseLoss},
+    ::PSY.Arc,
+)
+    return true
+end
+
 """
-Add a single directional HVDC flow variable to both the nodal and the
-system/area balance of a PTDF network. The variable contributes `multiplier` at
-the chosen terminal's nodal bus, and the same at that terminal's reference bus
-when the arc crosses subnetworks. The terminal (from/to) is fixed by the variable
-type `U` via [`_terminal_bus`](@ref) for both the nodal and reference-bus entry.
+Add a single directional HVDC flow variable to the nodal balance and to the
+system or area balance of a PTDF network. The variable contributes `multiplier`
+at the nodal row of the terminal bus. It contributes the same value at the system
+or area row of that terminal when `_hvdc_flow_enters_region_row` is true. The
+variable type `U` selects the terminal (from/to) through [`_terminal_bus`](@ref).
 """
 function _add_terminal_flow_to_ptdf_balance!(
     container::OptimizationContainer,
     ::Type{T},
     ::Type{U},
     devices::Vector{V},
+    ::Type{W},
     network_model::NetworkModel{X},
     multiplier::Float64,
 ) where {
     T <: ExpressionType,
     U <: VariableType,
     V <: PSY.Component,
+    W <: AbstractTwoTerminalDCLineFormulation,
     X <: AbstractPTDFNetworkModel,
 }
     var = get_variable(container, U, V)
@@ -586,12 +615,7 @@ function _add_terminal_flow_to_ptdf_balance!(
         arc = PSY.get_arc(d)
         side_bus = _terminal_bus(U, arc)
         bus_no = PNM.get_mapped_bus_number(network_reduction, side_bus)
-        # System/area row key: `_ref_index` yields the reference-bus number for
-        # PTDF (System-keyed) and the area name for AreaPTDF (Area-keyed). The
-        # `ref_bus_from != ref_bus_to` crossing check uses raw reference numbers.
         ref_index = _ref_index(network_model, side_bus)
-        ref_bus_from = get_reference_bus(network_model, PSY.get_from(arc))
-        ref_bus_to = get_reference_bus(network_model, PSY.get_to(arc))
         for t in time_steps
             flow_variable = var[name, t]
             add_proportional_to_jump_expression!(
@@ -599,7 +623,7 @@ function _add_terminal_flow_to_ptdf_balance!(
                 flow_variable,
                 multiplier,
             )
-            if ref_bus_from != ref_bus_to
+            if _hvdc_flow_enters_region_row(network_model, W, arc)
                 add_proportional_to_jump_expression!(
                     sys_expr[ref_index, t],
                     flow_variable,
@@ -906,7 +930,7 @@ function add_to_expression!(
     U <: HVDCLosses,
     V <: PSY.TwoTerminalHVDC,
     W <: HVDCTwoTerminalDispatch,
-    X <: Union{AreaPTDFNetworkModel, AreaBalanceNetworkModel},
+    X <: AreaBalanceNetworkModel,
 }
     variable = get_variable(container, U, V)
     expression = get_expression(container, T, PSY.Area)
@@ -926,6 +950,18 @@ function add_to_expression!(
     return
 end
 
+# The two terminal flows enter the area rows, and their sum already includes the losses.
+function add_to_expression!(
+    ::OptimizationContainer,
+    ::Type{ActivePowerBalance},
+    ::Type{HVDCLosses},
+    ::Vector{V},
+    ::DeviceModel{V, HVDCTwoTerminalDispatch},
+    ::NetworkModel{AreaPTDFNetworkModel},
+) where {V <: PSY.TwoTerminalHVDC}
+    return
+end
+
 """
 Default implementation to add branch variables to SystemBalanceExpressions
 """
@@ -935,15 +971,16 @@ function add_to_expression!(
     ::Type{U},
     devices::Vector{V},
     ::DeviceModel{V, W},
-    network_model::NetworkModel{PTDFNetworkModel},
+    network_model::NetworkModel{X},
 ) where {
     T <: ActivePowerBalance,
     U <: FlowActivePowerToFromVariable,
     V <: PSY.TwoTerminalHVDC,
     W <: AbstractTwoTerminalDCLineFormulation,
+    X <: AbstractPTDFNetworkModel,
 }
     _add_terminal_flow_to_ptdf_balance!(
-        container, T, U, devices, network_model, -1.0,
+        container, T, U, devices, W, network_model, -1.0,
     )
     return
 end
@@ -966,7 +1003,7 @@ function add_to_expression!(
     X <: AbstractPTDFNetworkModel,
 }
     _add_terminal_flow_to_ptdf_balance!(
-        container, T, U, devices, network_model, -1.0,
+        container, T, U, devices, W, network_model, -1.0,
     )
     return
 end
@@ -991,7 +1028,7 @@ function add_to_expression!(
     X <: AbstractPTDFNetworkModel,
 }
     _add_terminal_flow_to_ptdf_balance!(
-        container, T, U, devices, network_model, 1.0,
+        container, T, U, devices, W, network_model, 1.0,
     )
     return
 end
@@ -1833,20 +1870,20 @@ function add_to_expression!(
     U <: FlowActivePowerVariable,
     V <: PSY.TwoTerminalHVDC,
     W <: AbstractBranchFormulation,
-    X <: PTDFNetworkModel,
+    X <: AbstractPTDFNetworkModel,
 }
     var = get_variable(container, U, V)
     nodal_expr = get_expression(container, T, PSY.ACBus)
-    sys_expr = get_expression(container, T, PSY.System)
+    sys_expr = get_expression(container, T, _system_expression_type(X))
     network_reduction = get_network_reduction(network_model)
     time_steps = get_time_steps(container)
     for d in devices
         name = PSY.get_name(d)
-        bus_no_from =
-            PNM.get_mapped_bus_number(network_reduction, PSY.get_from(PSY.get_arc(d)))
-        bus_no_to = PNM.get_mapped_bus_number(network_reduction, PSY.get_to(PSY.get_arc(d)))
-        ref_bus_from = get_reference_bus(network_model, PSY.get_from(PSY.get_arc(d)))
-        ref_bus_to = get_reference_bus(network_model, PSY.get_to(PSY.get_arc(d)))
+        arc = PSY.get_arc(d)
+        bus_no_from = PNM.get_mapped_bus_number(network_reduction, PSY.get_from(arc))
+        bus_no_to = PNM.get_mapped_bus_number(network_reduction, PSY.get_to(arc))
+        row_from = _ref_index(network_model, PSY.get_from(arc))
+        row_to = _ref_index(network_model, PSY.get_to(arc))
         for t in time_steps
             flow_variable = var[name, t]
             add_proportional_to_jump_expression!(
@@ -1859,14 +1896,14 @@ function add_to_expression!(
                 flow_variable,
                 1.0,
             )
-            if ref_bus_from != ref_bus_to
+            if _hvdc_flow_enters_region_row(network_model, W, arc)
                 add_proportional_to_jump_expression!(
-                    sys_expr[ref_bus_from, t],
+                    sys_expr[row_from, t],
                     flow_variable,
                     -1.0,
                 )
                 add_proportional_to_jump_expression!(
-                    sys_expr[ref_bus_to, t],
+                    sys_expr[row_to, t],
                     flow_variable,
                     1.0,
                 )

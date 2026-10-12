@@ -196,7 +196,7 @@ function _write_pf_array!(
 )
     for (device_name, index) in component_map
         for t in get_time_steps(container)
-            value = jump_value(result[device_name, t])
+            value = result[device_name, t]
             if assign
                 arr[index, t] = value
             else
@@ -283,7 +283,7 @@ function _write_component_contributions!(
     sys_base = IOM.get_model_base_power(container)
     for (device_id, device_name) in component_map
         comp = PSY.get_component(U, sys, device_name)
-        val = jump_value(result[device_id, time_step])
+        val = result[device_id, time_step]
         _apply_component_contribution!(comp, c, val, sys_base)
     end
     return

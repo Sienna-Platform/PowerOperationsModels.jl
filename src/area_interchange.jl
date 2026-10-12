@@ -188,19 +188,8 @@ function add_constraints!(
     jm = get_jump_model(container)
     for area_interchange in devices
         inter_change_name = PSY.get_name(area_interchange)
-        area_from_name = PSY.get_name(PSY.get_from_area(area_interchange))
-        area_to_name = PSY.get_name(PSY.get_to_area(area_interchange))
-        direction_branch_map = Dict{Float64, Dict{DataType, Vector{String}}}()
-        if haskey(inter_area_branch_map, (area_from_name, area_to_name))
-            # 1 is the multiplier
-            direction_branch_map[1.0] =
-                inter_area_branch_map[(area_from_name, area_to_name)]
-        end
-        if haskey(inter_area_branch_map, (area_to_name, area_from_name))
-            # -1 is the multiplier because the direction is reversed
-            direction_branch_map[-1.0] =
-                inter_area_branch_map[(area_to_name, area_from_name)]
-        end
+        direction_branch_map =
+            _interchange_direction_branch_map(area_interchange, inter_area_branch_map)
         if isempty(direction_branch_map)
             @warn(
                 "There are no branches modeled in Area InterChange $(summary(area_interchange)) \
@@ -211,24 +200,142 @@ function add_constraints!(
 
         for t in time_steps
             sum_of_flows = JuMP.AffExpr()
-            for (mult, inter_area_branches) in direction_branch_map
-                for (type, names) in inter_area_branches
-                    _add_ptdf_area_tie_flows!(
-                        sum_of_flows,
-                        container,
-                        type,
-                        names,
-                        mult,
-                        branch_catalog,
-                        orientation_sign_cache,
-                        t,
-                    )
-                end
-            end
+            _add_interchange_tie_flows!(
+                sum_of_flows,
+                container,
+                direction_branch_map,
+                branch_catalog,
+                orientation_sign_cache,
+                t,
+            )
             con_ub[inter_change_name, t] =
                 JuMP.@constraint(jm, sum_of_flows <= area_ex_var[inter_change_name, t])
             con_lb[inter_change_name, t] =
                 JuMP.@constraint(jm, sum_of_flows >= area_ex_var[inter_change_name, t])
+        end
+    end
+    return
+end
+
+"""
+Map each tie-line direction of `area_interchange` to its inter-area branches. The key
+is the multiplier: `1.0` for branches keyed (from area, to area) and `-1.0` for
+branches keyed (to area, from area).
+"""
+function _interchange_direction_branch_map(
+    area_interchange::PSY.AreaInterchange,
+    inter_area_branch_map::Dict{Tuple{String, String}, Dict{DataType, Vector{String}}},
+)
+    area_from_name = PSY.get_name(PSY.get_from_area(area_interchange))
+    area_to_name = PSY.get_name(PSY.get_to_area(area_interchange))
+    direction_branch_map = Dict{Float64, Dict{DataType, Vector{String}}}()
+    if haskey(inter_area_branch_map, (area_from_name, area_to_name))
+        direction_branch_map[1.0] = inter_area_branch_map[(area_from_name, area_to_name)]
+    end
+    if haskey(inter_area_branch_map, (area_to_name, area_from_name))
+        direction_branch_map[-1.0] = inter_area_branch_map[(area_to_name, area_from_name)]
+    end
+    return direction_branch_map
+end
+
+"""
+Add the metered flow of every tie line in `direction_branch_map` at time step `t` to
+`sum_of_flows`.
+"""
+function _add_interchange_tie_flows!(
+    sum_of_flows::JuMP.AffExpr,
+    container::OptimizationContainer,
+    direction_branch_map::Dict{Float64, Dict{DataType, Vector{String}}},
+    branch_catalog::PNM.BranchCatalog,
+    orientation_sign_cache::Dict{Tuple{DataType, String}, Float64},
+    t::Int,
+)
+    for (mult, inter_area_branches) in direction_branch_map
+        for (type, names) in inter_area_branches
+            _add_ptdf_area_tie_flows!(
+                sum_of_flows,
+                container,
+                type,
+                names,
+                mult,
+                branch_catalog,
+                orientation_sign_cache,
+                t,
+            )
+        end
+    end
+    return
+end
+
+function _remove_metered_hvdc_from_area_rows!(
+    ::OptimizationContainer,
+    ::PSY.System,
+    ::NetworkModel{PTDFNetworkModel},
+    ::PowerOperationsProblemTemplate,
+)
+    return
+end
+
+# The AreaInterchange flow enters the area rows, and the interchange metering makes it
+# include the HVDC tie flows. The HVDC terminal flows also enter the area rows directly.
+# This removes the HVDC part of the interchange flow from the area rows, so each HVDC
+# flow and its losses count once.
+function _remove_metered_hvdc_from_area_rows!(
+    container::OptimizationContainer,
+    sys::PSY.System,
+    network_model::NetworkModel{AreaPTDFNetworkModel},
+    template::PowerOperationsProblemTemplate,
+)
+    branch_models = get_branch_models(template)
+    haskey(branch_models, nameof(PSY.AreaInterchange)) || return
+    _remove_metered_hvdc_from_area_rows!(
+        container,
+        sys,
+        branch_models[nameof(PSY.AreaInterchange)],
+        network_model,
+    )
+    return
+end
+
+function _remove_metered_hvdc_from_area_rows!(
+    ::OptimizationContainer,
+    ::PSY.System,
+    ::DeviceModel{PSY.AreaInterchange, <:AbstractBranchFormulation},
+    ::NetworkModel{AreaPTDFNetworkModel},
+)
+    return
+end
+
+function _remove_metered_hvdc_from_area_rows!(
+    container::OptimizationContainer,
+    sys::PSY.System,
+    device_model::DeviceModel{PSY.AreaInterchange, F},
+    network_model::NetworkModel{AreaPTDFNetworkModel},
+) where {F <: Union{StaticBranch, StaticBranchUnbounded}}
+    hvdc_branch_map = Dict{Tuple{String, String}, Dict{DataType, Vector{String}}}()
+    _add_hvdc_inter_area_branches!(hvdc_branch_map, sys, network_model)
+    isempty(hvdc_branch_map) && return
+    expression = get_expression(container, ActivePowerBalance, PSY.Area)
+    branch_catalog = get_branch_catalog(network_model)
+    orientation_sign_cache = Dict{Tuple{DataType, String}, Float64}()
+    for area_interchange in get_device_cache(device_model)
+        direction_branch_map =
+            _interchange_direction_branch_map(area_interchange, hvdc_branch_map)
+        isempty(direction_branch_map) && continue
+        area_from_name = PSY.get_name(PSY.get_from_area(area_interchange))
+        area_to_name = PSY.get_name(PSY.get_to_area(area_interchange))
+        for t in get_time_steps(container)
+            metered_hvdc_flow = JuMP.AffExpr()
+            _add_interchange_tie_flows!(
+                metered_hvdc_flow,
+                container,
+                direction_branch_map,
+                branch_catalog,
+                orientation_sign_cache,
+                t,
+            )
+            JuMP.add_to_expression!(expression[area_from_name, t], metered_hvdc_flow)
+            JuMP.add_to_expression!(expression[area_to_name, t], -1.0, metered_hvdc_flow)
         end
     end
     return

@@ -289,6 +289,7 @@ function construct_network!(
     template::PowerOperationsProblemTemplate,
     ::ModelConstructStage,
 )
+    _remove_metered_hvdc_from_area_rows!(container, sys, model, template)
     _construct_copper_plate_model!(container, sys, model, get_market_model(template))
     return
 end

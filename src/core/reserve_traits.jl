@@ -77,74 +77,56 @@ function _service_model_for(device_model::DeviceModel, service::PSY.Service)
 end
 
 """
-Per-time-step deployed fraction for `s`, as `deployed_fraction * profile[t]`.
-
-Returns `fill(scalar, horizon)` when the model declares no deployed-fraction series name or the
-reserve carries no such series, reproducing the constant-coefficient behavior exactly. Always
-returns a `Vector{Float64}` so the multiplier seams stay type-stable.
-
-The name is resolved from the `ServiceModel`'s `time_series_names`, so a user can override it
-there, exactly as for [`RequirementTimeSeriesParameter`](@ref). Unlike `requirement` the series
-backs no parameter container: the fraction multiplies a reserve award, so it is a constraint
-coefficient, and a JuMP parameter in coefficient position would make the energy balance
-bilinear. Repeated calls for a service shared across devices are cheap because IOM caches
-resolved series.
+The deployed-fraction parameter key covering `service` through `device_model`'s registered
+service models, or `nothing` when the reserve's fraction is its fixed scalar: no service model
+covers it, or it carries no deployed-fraction profile.
 """
-function deployed_fraction_values(
+function _deployed_fraction_key(
     container::OptimizationContainer,
-    model::ServiceModel,
-    s::PSY.AbstractReserve,
-)::Vector{Float64}
-    scalar = PSY.get_deployed_fraction(s)
-    time_steps = get_time_steps(container)
-    ts_names = get_time_series_names(model)
-    haskey(ts_names, DeployedFractionTimeSeriesParameter) ||
-        return fill(scalar, length(time_steps))
-    ts_name = ts_names[DeployedFractionTimeSeriesParameter]
-    PSY.has_time_series(s, ts_name) || return fill(scalar, length(time_steps))
-    ts_type = get_default_time_series_type(container)
-    if !PSY.has_time_series(s, ts_type, ts_name)
-        throw(
-            IS.ConflictingInputsError(
-                "Reserve $(PSY.get_name(s)) carries a $(ts_name) time series, but not as \
-                $(ts_type), which is what this model reads. Attach the series before calling \
-                transform_single_time_series!, or add it directly as $(ts_type).",
-            ),
-        )
-    end
-    # `resolution` accompanies `interval` so an off-resolution series is rejected rather than
-    # read at the wrong step length, matching the parameter path in `add_parameters.jl`.
-    settings = get_settings(container)
-    ts_values = IOM.get_time_series_initial_values!(
-        container,
-        ts_type,
-        s,
-        ts_name;
-        interval = get_interval(settings),
-        resolution = get_resolution(settings),
-    )
-    return scalar .* Vector{Float64}(ts_values)
+    device_model::DeviceModel,
+    service::PSY.AbstractReserve,
+)
+    service_model = _service_model_for(device_model, service)
+    isnothing(service_model) && return nothing
+    SR = get_component_type(service_model)
+    has_container_key(container, DeployedFractionParameter, SR) || return nothing
+    key = IOM.ParameterKey(DeployedFractionParameter, SR)
+    has_lhs_parameter_component(container, key, PSY.get_name(service)) || return nothing
+    return key
 end
 
 """
-Per-time-step deployed fraction resolved through `device_model`'s registered service models.
+Per-time-step deployed fraction for `service` as a reserve covered by `device_model`:
+`deployed_fraction * profile[t]` read from the [`DeployedFractionParameter`](@ref) container
+when the reserve carries a profile, otherwise the scalar `deployed_fraction` at every step.
 
-Convenience for the device-side multiplier seams, which hold a `DeviceModel` and reach services
-through `PSY.get_services(d)`. Falls back to the scalar when the device model registers no
-service model covering `s`.
+The values are written into constraints as fixed coefficients. A model holding a profile is
+rebuilt every simulation step, so each build reads the refreshed container.
 """
 function deployed_fraction_values(
     container::OptimizationContainer,
     device_model::DeviceModel,
-    s::PSY.AbstractReserve,
+    service::PSY.AbstractReserve,
 )::Vector{Float64}
-    service_model = _service_model_for(device_model, s)
-    isnothing(service_model) && return fill(
-        PSY.get_deployed_fraction(s),
-        length(get_time_steps(container)),
-    )
-    return deployed_fraction_values(container, service_model, s)
+    key = _deployed_fraction_key(container, device_model, service)
+    isnothing(key) &&
+        return fill(PSY.get_deployed_fraction(service), length(get_time_steps(container)))
+    return get_lhs_parameter_values(container, key, PSY.get_name(service))
 end
+
+"Per-time-step scale of a reserve award per its [`ReserveScale`](@ref)."
+reserve_scale_values(
+    ::Type{UnscaledReserve},
+    container::OptimizationContainer,
+    ::DeviceModel,
+    ::PSY.Service,
+) = ones(Float64, length(get_time_steps(container)))
+reserve_scale_values(
+    ::Type{DeployedReserve},
+    container::OptimizationContainer,
+    device_model::DeviceModel,
+    service::PSY.AbstractReserve,
+) = deployed_fraction_values(container, device_model, service)
 
 # ── ORDC (operating-reserve-demand-curve) predicates ─────────────────────────────────
 # A demand curve lives on a reserve's `variable` field ("is this an ORDC" is

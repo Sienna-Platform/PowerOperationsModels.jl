@@ -1870,15 +1870,14 @@ function _add_hydro_pump_energy_dispatch_constraints!(
         network_model,
     )
 
-    if get_attribute(model, "reservation")
-        add_constraints!(
-            container,
-            ActivePowerPumpReservationConstraint,
-            devices,
-            model,
-            network_model,
-        )
-    end
+    add_constraints!(
+        container,
+        InputActivePowerVariableLimitsConstraint,
+        ActivePowerPumpVariable,
+        devices,
+        model,
+        network_model,
+    )
 
     add_to_objective_function!(container, devices, model, S)
     add_event_constraints!(container, devices, model, network_model)
@@ -2091,7 +2090,7 @@ function _add_hydro_pump_energy_commitment_constraints!(
     if get_attribute(model, "reservation")
         add_constraints!(
             container,
-            ActivePowerPumpReservationConstraint,
+            HydroPumpReservationCommitmentConstraint,
             devices,
             model,
             network_model,

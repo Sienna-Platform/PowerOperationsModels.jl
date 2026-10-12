@@ -623,8 +623,61 @@ end
 
     model = DecisionModel(MockOperationProblem, CopperPlateNetworkModel, c_sys5_bat)
     mock_construct_device!(model, device_model)
-    moi_tests(model, 72, 0, 48, 24, 0, true)
+    moi_tests(model, 72, 0, 48, 48, 0, true)
     psi_checkobjfun_test(model, GAEVF)
+end
+
+@testset "Hydro Pump Energy Dispatch minimum limits" begin
+    sys = PSB.build_system(
+        PSITestSystems,
+        "c_sys5_hydro_pump_energy";
+        add_single_time_series = true,
+    )
+    transform_single_time_series!(sys, Hour(24), Hour(24))
+    pump = first(PSY.get_components(HydroPumpTurbine, sys))
+    PSY.set_active_power_limits!(pump, (min = 0.32 * u"SU", max = 0.43 * u"SU"))
+    PSY.set_active_power_limits_pump!(pump, (min = 0.21 * u"SU", max = 0.37 * u"SU"))
+    name = PSY.get_name(pump)
+
+    for reservation in (true, false)
+        device_model = DeviceModel(
+            HydroPumpTurbine,
+            HydroPumpEnergyDispatch;
+            attributes = Dict{String, Any}("reservation" => reservation),
+        )
+        model = DecisionModel(MockOperationProblem, CopperPlateNetworkModel, sys)
+        mock_construct_device!(model, device_model)
+        container = IOM.get_optimization_container(model)
+        JuMP.set_optimizer(IOM.get_jump_model(container), HiGHS_optimizer)
+        generation = IOM.get_variable(container, ActivePowerVariable, HydroPumpTurbine)
+        pumping = IOM.get_variable(container, ActivePowerPumpVariable, HydroPumpTurbine)
+        t = first(IOM.get_time_steps(container))
+
+        reservation_values = (0,)
+        if reservation
+            reservation_values = (0, 1)
+        end
+        for reservation_value in reservation_values
+            if reservation
+                reservation_variable =
+                    IOM.get_variable(container, ReservationVariable, HydroPumpTurbine)
+                JuMP.fix(reservation_variable[name, t], reservation_value; force = true)
+            end
+            psi_checksolve_test(model, [MOI.OPTIMAL])
+            generation_status = 1
+            pumping_status = 1
+            if reservation
+                generation_status = reservation_value
+                pumping_status = 1 - reservation_value
+            end
+            @test 0.32 * generation_status - 1e-6 <=
+                  JuMP.value(generation[name, t]) <=
+                  0.43 * generation_status + 1e-6
+            @test 0.21 * pumping_status - 1e-6 <=
+                  JuMP.value(pumping[name, t]) <=
+                  0.37 * pumping_status + 1e-6
+        end
+    end
 end
 
 @testset "Test Hydro Pump Energy Dispatch Formulations 2" begin
@@ -1193,6 +1246,99 @@ end
 
     moi_tests(model, 360, 0, 168, 168, 72, false)
     psi_checkobjfun_test(model, AffExpr)
+end
+
+##################################################
+######## Hydro Pump Energy Commitment Tests #######
+##################################################
+
+@testset "Hydro Pump Energy Commitment operating modes" begin
+    sys = PSB.build_system(
+        PSITestSystems,
+        "c_sys5_hydro_pump_energy";
+        add_reserves = false,
+        add_single_time_series = true,
+    )
+    transform_single_time_series!(sys, Hour(24), Hour(24))
+    pump = only(PSY.get_components(HydroPumpTurbine, sys))
+    name = PSY.get_name(pump)
+
+    for (gen_min, pump_min, pump_max) in
+        ((0.32, 0.21, 0.37), (0.0, 0.0, 0.37), (0.0, 0.0, 0.0))
+        PSY.set_active_power_limits!(pump, (min = gen_min * u"SU", max = 0.43 * u"SU"))
+        PSY.set_active_power_limits_pump!(
+            pump,
+            (min = pump_min * u"SU", max = pump_max * u"SU"),
+        )
+        device_model = DeviceModel(
+            HydroPumpTurbine,
+            HydroPumpEnergyCommitment;
+            attributes = Dict{String, Any}("reservation" => true),
+        )
+        model = DecisionModel(MockOperationProblem, CopperPlateNetworkModel, sys)
+        mock_construct_device!(model, device_model)
+        container = IOM.get_optimization_container(model)
+        JuMP.set_optimizer(IOM.get_jump_model(container), HiGHS_optimizer)
+        generation = IOM.get_variable(container, ActivePowerVariable, HydroPumpTurbine)
+        pumping = IOM.get_variable(container, ActivePowerPumpVariable, HydroPumpTurbine)
+        on = IOM.get_variable(container, OnVariable, HydroPumpTurbine)
+        reservation = IOM.get_variable(container, ReservationVariable, HydroPumpTurbine)
+        t = first(IOM.get_time_steps(container))
+
+        for (on_status, reservation_value) in ((0, 0), (1, 0), (1, 1))
+            JuMP.fix(on[name, t], on_status; force = true)
+            JuMP.fix(reservation[name, t], reservation_value; force = true)
+            psi_checksolve_test(model, [MOI.OPTIMAL])
+            pumping_status = on_status - reservation_value
+            @test gen_min * reservation_value - 1e-6 <=
+                  JuMP.value(generation[name, t]) <=
+                  0.43 * reservation_value + 1e-6
+            @test pump_min * pumping_status - 1e-6 <=
+                  JuMP.value(pumping[name, t]) <=
+                  pump_max * pumping_status + 1e-6
+        end
+
+        JuMP.fix(on[name, t], 0; force = true)
+        JuMP.fix(reservation[name, t], 1; force = true)
+        psi_checksolve_test(model, [MOI.INFEASIBLE])
+    end
+end
+
+@testset "Hydro Pump Energy Commitment without reservation" begin
+    sys = PSB.build_system(
+        PSITestSystems,
+        "c_sys5_hydro_pump_energy";
+        add_reserves = false,
+        add_single_time_series = true,
+    )
+    transform_single_time_series!(sys, Hour(24), Hour(24))
+    pump = only(PSY.get_components(HydroPumpTurbine, sys))
+    PSY.set_active_power_limits!(pump, (min = 0.32 * u"SU", max = 0.43 * u"SU"))
+    PSY.set_active_power_limits_pump!(pump, (min = 0.21 * u"SU", max = 0.37 * u"SU"))
+    name = PSY.get_name(pump)
+    device_model = DeviceModel(
+        HydroPumpTurbine,
+        HydroPumpEnergyCommitment;
+        attributes = Dict{String, Any}("reservation" => false),
+    )
+    model = DecisionModel(MockOperationProblem, CopperPlateNetworkModel, sys)
+    mock_construct_device!(model, device_model)
+    container = IOM.get_optimization_container(model)
+    JuMP.set_optimizer(IOM.get_jump_model(container), HiGHS_optimizer)
+    generation = IOM.get_variable(container, ActivePowerVariable, HydroPumpTurbine)
+    pumping = IOM.get_variable(container, ActivePowerPumpVariable, HydroPumpTurbine)
+    on = IOM.get_variable(container, OnVariable, HydroPumpTurbine)
+    t = first(IOM.get_time_steps(container))
+    for on_status in (0, 1)
+        JuMP.fix(on[name, t], on_status; force = true)
+        psi_checksolve_test(model, [MOI.OPTIMAL])
+        @test 0.32 * on_status - 1e-6 <=
+              JuMP.value(generation[name, t]) <=
+              0.43 * on_status + 1e-6
+        @test 0.21 * on_status - 1e-6 <=
+              JuMP.value(pumping[name, t]) <=
+              0.37 * on_status + 1e-6
+    end
 end
 
 ###################################################################
