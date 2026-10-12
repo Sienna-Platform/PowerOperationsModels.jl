@@ -18,7 +18,7 @@
     @test get_network_data(ic) === get_network_data(main)
     @test get_network_reduction(ic) === get_network_reduction(main)
     @test get_subnetworks(ic) == get_subnetworks(main)
-    @test get_reduction_exceptions(ic) == get_reduction_exceptions(main)
+    @test get_irreducible_buses(ic) == get_irreducible_buses(main)
 end
 
 @testset "IC container holds the IC template's network model" begin

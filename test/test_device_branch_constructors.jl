@@ -927,54 +927,53 @@ end
 # are the keys; `get_removed_buses` is unrelated to zero-impedance coalescing here.
 _bus_merged_away(nrd, b) = any(b in s for s in values(PNM.get_bus_reduction_map(nrd)))
 
-@testset "model_all_branches retains a zero-impedance Line" begin
-    function _build_zib_line(model_all_branches)
-        sys = PSB.build_system(PSITestSystems, "c_sys5_ml")
-        line = PSY.get_component(Line, sys, "1")
-        PSY.set_r!(line, 0.0 * u"SU")
-        PSY.set_x!(line, 1e-5 * u"SU")
-        template = get_thermal_dispatch_template_network(NetworkModel(PTDFNetworkModel))
-        set_device_model!(
-            template,
-            DeviceModel(
-                Line,
-                StaticBranch;
-                attributes = Dict{String, Any}("model_all_branches" => model_all_branches),
-            ),
-        )
-        model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
-        status = build!(model; output_dir = mktempdir(; cleanup = true))
-        return model, line, status
-    end
+function _sys5_zib_line()
+    sys = PSB.build_system(PSITestSystems, "c_sys5_ml")
+    line = PSY.get_component(Line, sys, "1")
+    PSY.set_r!(line, 0.0 * u"SU")
+    PSY.set_x!(line, 1e-5 * u"SU")
+    return sys, line
+end
 
+function _build_zib_line(sys, network_model)
+    template = get_thermal_dispatch_template_network(network_model)
+    set_device_model!(template, DeviceModel(Line, StaticBranch))
+    model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
+    output_dir = mktempdir(; cleanup = true)
+    status = build!(model; output_dir = output_dir)
+    return model, status, output_dir
+end
+
+@testset "irreducible_buses selector keeps a zero-impedance Line through the reduction" begin
     for T in (Line, TwoWindingTransformer, ThreeWindingTransformer)
-        @test POM.get_attribute(DeviceModel(T, StaticBranch), "model_all_branches") == false
-        @test POM.get_attribute(
-            DeviceModel(T, StaticBranch), "apply_operational_flow_limits",
-        ) == true
+        attributes = POM.get_attributes(DeviceModel(T, StaticBranch))
+        @test attributes["apply_operational_flow_limits"] == true
+        @test !haskey(attributes, "model_all_branches")
     end
     @test POM.get_attribute(
         DeviceModel(TwoTerminalGenericHVDCLine, HVDCTwoTerminalDispatch),
         "apply_operational_flow_limits",
     ) == true
-    @test isnothing(
-        POM.get_attribute(
-            DeviceModel(DiscreteControlledACBranch, StaticBranch), "model_all_branches",
-        ),
-    )
 
-    model, line, status = _build_zib_line(true)
-    @test status == IOM.ModelBuildStatus.BUILT
+    sys, line = _sys5_zib_line()
     arc = PSY.get_arc(line)
+    from_bus = PSY.get_number(PSY.get_from(arc))
+    to_bus = PSY.get_number(PSY.get_to(arc))
+    model, status, _ = _build_zib_line(
+        sys,
+        NetworkModel(PTDFNetworkModel; irreducible_buses = make_selector(Line, "1")),
+    )
+    @test status == IOM.ModelBuildStatus.BUILT
     nm = IOM.get_network_model(IOM.get_template(model))
     nrd = PNM.get_network_reduction_data(IOM.get_network_matrix(nm))
-    @test !_bus_merged_away(nrd, PSY.get_number(PSY.get_from(arc)))
-    @test !_bus_merged_away(nrd, PSY.get_number(PSY.get_to(arc)))
+    @test !_bus_merged_away(nrd, from_bus)
+    @test !_bus_merged_away(nrd, to_bus)
     container = IOM.get_optimization_container(model)
     rows = axes(IOM.get_constraint(container, FlowRateConstraint, Line, "ub"))[1]
     @test "1" in rows
 
-    model_d, line_d, status_d = _build_zib_line(false)
+    sys_d, line_d = _sys5_zib_line()
+    model_d, status_d, _ = _build_zib_line(sys_d, NetworkModel(PTDFNetworkModel))
     @test status_d == IOM.ModelBuildStatus.BUILT
     nm_d = IOM.get_network_model(IOM.get_template(model_d))
     nrd_d = PNM.get_network_reduction_data(IOM.get_network_matrix(nm_d))
@@ -982,35 +981,61 @@ _bus_merged_away(nrd, b) = any(b in s for s in values(PNM.get_bus_reduction_map(
 end
 
 @testset "Partial reduction warns and names the reduced Line" begin
-    sys = PSB.build_system(PSITestSystems, "c_sys5_ml")
-    line = PSY.get_component(Line, sys, "1")
-    PSY.set_r!(line, 0.0 * u"SU")
-    PSY.set_x!(line, 1e-5 * u"SU")
-    template = get_thermal_dispatch_template_network(NetworkModel(PTDFNetworkModel))
-    set_device_model!(
-        template,
-        DeviceModel(
-            Line,
-            StaticBranch;
-            attributes = Dict{String, Any}("model_all_branches" => false),
-        ),
-    )
-    model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
-    output_dir = mktempdir(; cleanup = true)
-    @test build!(model; output_dir = output_dir) == IOM.ModelBuildStatus.BUILT
+    sys, _ = _sys5_zib_line()
+    model, status, output_dir = _build_zib_line(sys, NetworkModel(PTDFNetworkModel))
+    @test status == IOM.ModelBuildStatus.BUILT
     container = IOM.get_optimization_container(model)
     rows = axes(IOM.get_constraint(container, FlowRateConstraint, Line, "ub"))[1]
     @test !("1" in rows)
     log_contents = read(joinpath(output_dir, "operation_problem.log"), String)
     @test occursin("Line component(s) [\"1\"]", log_contents)
-    @test occursin("model_all_branches", log_contents)
+    @test occursin("irreducible_buses = make_selector(Line, \"1\")", log_contents)
 end
 
-@testset "model_all_branches pins every winding of a ThreeWindingTransformer" begin
+@testset "Partial reduction warns for a branch type without operational limits" begin
+    sys = PSB.build_system(PSITestSystems, "c_sys5_uc")
+    line = PSY.get_component(Line, sys, "2")
+    breaker = PSY.DiscreteControlledACBranch(;
+        name = "breaker",
+        available = true,
+        active_power_flow = 0.0,
+        reactive_power_flow = 0.0,
+        arc = PSY.get_arc(line),
+        r = 0.0,
+        x = 0.0,
+        rating = PSY.get_rating(line, u"SU"),
+        discrete_branch_type = PSY.DiscreteControlledBranchType.BREAKER,
+        branch_status = PSY.DiscreteControlledBranchStatus.CLOSED,
+        input_basis = u"CU",
+    )
+    PSY.add_component!(sys, breaker)
+    model = DeviceModel(DiscreteControlledACBranch, StaticBranch)
+    POM.make_device_cache!(model, sys, false)
+    arc = PSY.get_arc(breaker)
+    removed_arcs =
+        Set([(PSY.get_number(PSY.get_from(arc)), PSY.get_number(PSY.get_to(arc)))])
+    @test_logs (:warn, r"DiscreteControlledACBranch component\(s\) \[\"breaker\"\]") POM._warn_reduced_branches!(
+        removed_arcs,
+        model,
+    )
+end
+
+@testset "irreducible_buses selector keeps every winding of a ThreeWindingTransformer" begin
     sys = _sys5_with_3w()
     t3w = first(PSY.get_components(ThreeWindingTransformer, sys))
-    buses = Set{Int}()
-    POM._push_component_buses!(buses, t3w)
+    template = get_template_dispatch_with_network(
+        NetworkModel(
+            PTDFNetworkModel;
+            irreducible_buses = make_selector(ThreeWindingTransformer, PSY.get_name(t3w)),
+        ),
+    )
+    set_device_model!(template, DeviceModel(ThreeWindingTransformer, StaticBranch))
+    model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+    nm = IOM.get_network_model(IOM.get_template(model))
+    nrd = PNM.get_network_reduction_data(IOM.get_network_matrix(nm))
+    buses = PNM.get_user_irreducible_buses(PNM.get_reductions(nrd))
     for circuit in PSY.get_circuits(t3w)
         arc = PSY.get_arc(circuit)
         @test PSY.get_number(PSY.get_from(arc)) in buses

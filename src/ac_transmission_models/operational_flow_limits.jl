@@ -3,7 +3,6 @@
 
 const _OPERATIONAL_FLOW_LIMIT_ATTRIBUTES = (
     APPLY_OPERATIONAL_FLOW_LIMITS_KEY => true,
-    MODEL_ALL_BRANCHES_KEY => false,
 )
 
 _operational_flow_limit_attributes(::Type{<:PSY.Device}) = ()
@@ -293,8 +292,8 @@ function _check_operational_time_series_entry(
         IS.ConflictingInputsError(
             "Branch $(name) carries an operational_flow_limit time series and is merged \
              into a parallel or series group. An operational limit time series is not \
-             supported on a merged branch. `model_all_branches = true` only prevents \
-             series and radial merging, not parallel grouping.",
+             supported on a merged branch. `irreducible_buses` on the NetworkModel only \
+             prevents series and radial merging, not parallel grouping.",
         ),
     )
 end

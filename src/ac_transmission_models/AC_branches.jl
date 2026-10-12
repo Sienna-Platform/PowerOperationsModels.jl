@@ -96,12 +96,6 @@ function get_default_attributes(
 end
 
 """
-Branch DeviceModel attribute. When `true`, the end buses of every device in the model are
-kept out of the network reduction, so each device keeps its own arc. Defaults to `false`.
-"""
-const MODEL_ALL_BRANCHES_KEY = "model_all_branches"
-
-"""
 Branch DeviceModel attribute. When `true` (the default), the model enforces the
 `operational_flow_limit` of its devices in addition to the rating.
 """
