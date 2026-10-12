@@ -2459,21 +2459,6 @@ end
 
 ################################## DCPLLNetworkModel branch constraints #################
 
-# Tighten a flow variable to ±rate without loosening any bound it already carries.
-function _tighten_flow_bound!(v, rate)
-    if JuMP.has_upper_bound(v)
-        JuMP.set_upper_bound(v, min(JuMP.upper_bound(v), rate))
-    else
-        JuMP.set_upper_bound(v, rate)
-    end
-    if JuMP.has_lower_bound(v)
-        JuMP.set_lower_bound(v, max(JuMP.lower_bound(v), -rate))
-    else
-        JuMP.set_lower_bound(v, -rate)
-    end
-    return
-end
-
 # Bound DCPLL directional active flows by the branch rating (system base). Finite bounds are
 # mandatory for QCP performance (Principle 0). A zero rating is a data error. Bounds are
 # variable tightening (not one-per-arc constraints), so this runs over every branch name
@@ -2492,8 +2477,8 @@ function _set_dcpll_flow_bounds!(
     _foreach_branch(_all_branches(network_model, T)) do rep
         rate = _directional_flow_rating(rep, device_model)
         for t in time_steps
-            _tighten_flow_bound!(pft[rep.name, t], rate)
-            _tighten_flow_bound!(ptf[rep.name, t], rate)
+            _tighten_bounds!(pft[rep.name, t], -rate, rate)
+            _tighten_bounds!(ptf[rep.name, t], -rate, rate)
         end
     end
     return
