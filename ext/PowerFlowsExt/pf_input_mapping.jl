@@ -345,22 +345,22 @@ end
 _with_time_steps(pf::PFS.PSSEExportPowerFlow, ::Int) = pf
 
 function _collect_power_flow_evaluator!(
-    selected::Dict{DataType, POM.PowerFlowEvaluator},
+    selected::Vector{Pair{DataType, POM.PowerFlowEvaluator}},
     T::DataType,
     evaluator::POM.PowerFlowEvaluator,
 )
-    selected[T] = evaluator
+    push!(selected, T => evaluator)
     return
 end
 
-_collect_power_flow_evaluator!(::Dict, ::DataType, ::IOM.AbstractEvaluator) = nothing
+_collect_power_flow_evaluator!(::Vector, ::DataType, ::IOM.AbstractEvaluator) = nothing
 
 function POM.add_power_flow_data!(
     container::OptimizationContainer,
     network_model::IOM.NetworkModel,
     sys::PSY.System,
 )
-    power_flow_evaluators = Dict{DataType, POM.PowerFlowEvaluator}()
+    power_flow_evaluators = Pair{DataType, POM.PowerFlowEvaluator}[]
     for (T, evaluator) in pairs(get_evaluators(get_evaluations(network_model)))
         _collect_power_flow_evaluator!(power_flow_evaluators, T, evaluator)
     end
@@ -370,7 +370,7 @@ function POM.add_power_flow_data!(
         Dict{Type{<:AuxVariableType}, Set{Tuple{<:DataType, String}}}()
     bus_aux_var_components = Dict{Type{<:AuxVariableType}, Set{Tuple{<:DataType, <:Int}}}()
     n_time_steps = length(get_time_steps(container))
-    for (T, evaluator) in pairs(power_flow_evaluators)
+    for (T, evaluator) in power_flow_evaluators
         # `evaluator` is a `POM.PowerFlowEvaluator` config wrapper; unwrap to the
         # underlying PowerFlows model before building the runtime container.
         evaluator = _with_time_steps(POM.get_power_flow_model(evaluator), n_time_steps)
@@ -403,7 +403,7 @@ function POM.add_power_flow_data!(
     _add_aux_variables!(container, bus_aux_var_components)
 
     # Make the input maps after adding aux vars so output of one power flow can be input of another
-    for T in keys(power_flow_evaluators)
+    for (T, _) in power_flow_evaluators
         _make_pf_input_map!(get_evaluation_data(container, T), container, sys)
     end
     return

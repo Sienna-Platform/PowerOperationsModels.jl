@@ -252,3 +252,20 @@ const TEMPLATE_COPY_CASES = [
     end
     _test_template_copy_and_gc(model, get_matrix)
 end
+
+@testset "Power flows run in registration order" begin
+    for evaluators in ((ACPowerFlow(), DCPowerFlow()), (DCPowerFlow(), ACPowerFlow()))
+        ec = IOM.EvaluationContainer()
+        for ev in evaluators
+            IOM.add_evaluator!(ec, typeof(ev), POM.PowerFlowEvaluator(ev))
+        end
+        container = get_optimization_container(
+            _build_and_solve_external(
+                build_system(PSITestSystems, "c_sys5_uc"),
+                _external_template(ec),
+            ),
+        )
+        @test collect(keys(get_evaluation_data(container))) ==
+              collect(map(typeof, evaluators))
+    end
+end

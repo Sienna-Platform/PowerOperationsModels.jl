@@ -166,6 +166,7 @@ _check_power_flow_loaded(::IOM.AbstractEvaluator) = nothing
 Register the runtime data of every evaluator that is not a power flow. Read the
 evaluators from `network_model`. Call `IOM.initialize_evaluation_data` for each one
 and store the result in the evaluation data of `container`.
+Evaluators run in the order they were added, power flows first.
 """
 function add_evaluator_data!(
     container::IOM.OptimizationContainer,
