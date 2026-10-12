@@ -45,6 +45,33 @@ function build_pre_step!(model::DecisionModel{<:AbstractPowerDecisionProblem})
     return
 end
 
+const POST_BUILD_HOOK_KEY = "post_build_hook"
+
+"""
+Store the function `f` in `model` as its post-build hook.
+
+A second call replaces the first hook.
+`f(model)` runs at the end of every `build!` of the model, after POM builds the problem.
+A simulation that rebuilds a model with `build_problem!` alone must call
+`run_post_build_hook!` itself.
+"""
+function set_post_build_hook!(model::DecisionModel, f)
+    IOM.get_internal(model).ext[POST_BUILD_HOOK_KEY] = f
+    return model
+end
+
+"""
+Call the post-build hook of `model`. Return `true` if the model has a hook, and `false` if not.
+"""
+function run_post_build_hook!(model::DecisionModel)
+    ext = IOM.get_internal(model).ext
+    if !haskey(ext, POST_BUILD_HOOK_KEY)
+        return false
+    end
+    ext[POST_BUILD_HOOK_KEY](model)
+    return true
+end
+
 # Called `build_impl!(model)` in PSI (lived in decision_model.jl).
 function build_model!(model::DecisionModel{<:AbstractPowerDecisionProblem})
     build_pre_step!(model)
@@ -56,6 +83,7 @@ function build_model!(model::DecisionModel{<:AbstractPowerDecisionProblem})
         get_template(model),
         get_system(model),
     )
+    run_post_build_hook!(model)
     IOM.serialize_metadata!(get_optimization_container(model), IOM.get_output_dir(model))
     log_values(get_settings(model))
     return

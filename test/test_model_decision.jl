@@ -1014,3 +1014,40 @@ end
           length(collect(get_components(PSY.Line, sys)))
     IS.close!(IS.get_data_store(restored_nr.data))
 end
+
+@testset "DecisionModel post-build hook" begin
+    c_sys5 = PSB.build_system(PSITestSystems, "c_sys5")
+    calls = Ref(0)
+    hook_con = Ref{Any}()
+    model = DecisionModel(
+        get_thermal_dispatch_template_network(),
+        c_sys5;
+        optimizer = HiGHS_optimizer,
+    )
+    @test set_post_build_hook!(
+        model,
+        function (m)
+            calls[] += 1
+            jm = IOM.get_jump_model(IOM.get_optimization_container(m))
+            x = JuMP.@variable(jm, base_name = "hook_var")
+            hook_con[] = JuMP.@constraint(jm, x >= 0)
+            return
+        end,
+    ) === model
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+    @test calls[] == 1
+    jm = IOM.get_jump_model(IOM.get_optimization_container(model))
+    @test JuMP.is_valid(jm, hook_con[])
+
+    c_sys5_plain = PSB.build_system(PSITestSystems, "c_sys5")
+    plain = DecisionModel(
+        get_thermal_dispatch_template_network(),
+        c_sys5_plain;
+        optimizer = HiGHS_optimizer,
+    )
+    @test !run_post_build_hook!(plain)
+    @test build!(plain; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+    @test !run_post_build_hook!(plain)
+end
