@@ -339,7 +339,7 @@ function add_variables!(
         end
     end
     if !isempty(inter_network_branches)
-        add_variables!(container, FlowActivePowerVariable, inter_network_branches, U)
+        add_variables!(container, FlowActivePowerVariable, inter_network_branches, U, false)
     end
     return
 end
@@ -1570,11 +1570,23 @@ _register_vsc_apparent_power_squares!(
 function _add_vsc_loss_current_variables!(
     container::OptimizationContainer,
     devices,
-    ::DeviceModel{PSY.TwoTerminalVSCLine, F},
+    device_model::DeviceModel{PSY.TwoTerminalVSCLine, F},
     ::NetworkModel{<:_ConverterACVoltageNetwork},
 ) where {F <: AbstractTwoTerminalVSCFormulation}
-    add_variables!(container, ConverterACCurrentFromVariable, devices, F)
-    add_variables!(container, ConverterACCurrentToVariable, devices, F)
+    add_variables!(
+        container,
+        ConverterACCurrentFromVariable,
+        devices,
+        F,
+        get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
+    )
+    add_variables!(
+        container,
+        ConverterACCurrentToVariable,
+        devices,
+        F,
+        get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
+    )
     return
 end
 
@@ -1582,10 +1594,16 @@ end
 function _add_vsc_loss_current_variables!(
     container::OptimizationContainer,
     devices,
-    ::DeviceModel{PSY.TwoTerminalVSCLine, F},
+    device_model::DeviceModel{PSY.TwoTerminalVSCLine, F},
     ::NetworkModel{<:AbstractNetworkModel},
 ) where {F <: AbstractTwoTerminalVSCFormulation}
-    add_variables!(container, CurrentAbsoluteValueVariable, devices, F)
+    add_variables!(
+        container,
+        CurrentAbsoluteValueVariable,
+        devices,
+        F,
+        get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
+    )
     return
 end
 
@@ -1971,6 +1989,6 @@ function get_default_attributes(
     # keeps only the box. Ignored when `bilinear_approximation` is "none".
     return merge(
         BILINEAR_APPROX_DEFAULT_ATTRIBUTES,
-        Dict{String, Any}("use_octagon" => true),
+        Dict{String, Any}("use_octagon" => true, RELAX_BINARIES_ATTRIBUTE => false),
     )
 end

@@ -333,6 +333,7 @@ function add_variables!(
     ::Type{T},
     devices::Vector{U},
     ::Type{F},
+    relax_binaries::Bool,
 ) where {
     T <: Union{AncillaryServiceVariableDischarge, AncillaryServiceVariableCharge},
     U <: PSY.Storage,
@@ -371,6 +372,7 @@ function add_variables!(
     ::Type{T},
     devices::Vector{U},
     ::Type{<:AbstractStorageFormulation},
+    relax_binaries::Bool,
 ) where {
     T <: Union{StorageEnergyShortageVariable, StorageEnergySurplusVariable},
     U <: PSY.Storage,
@@ -400,6 +402,7 @@ function add_variables!(
     ::Type{T},
     devices::Vector{U},
     ::Type{<:AbstractStorageFormulation},
+    relax_binaries::Bool,
 ) where {
     T <: Union{StorageChargeCyclingSlackVariable, StorageDischargeCyclingSlackVariable},
     U <: PSY.Storage,

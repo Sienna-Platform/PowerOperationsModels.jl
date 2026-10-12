@@ -12,8 +12,20 @@ function construct_device!(
     devices =
         get_device_cache(model)
 
-    add_variables!(container, ActivePowerVariable, devices, D)
-    add_variables!(container, ReactivePowerVariable, devices, D)
+    add_variables!(
+        container,
+        ActivePowerVariable,
+        devices,
+        D,
+        get_attribute(model, RELAX_BINARIES_ATTRIBUTE),
+    )
+    add_variables!(
+        container,
+        ReactivePowerVariable,
+        devices,
+        D,
+        get_attribute(model, RELAX_BINARIES_ATTRIBUTE),
+    )
 
     process_market_bid_parameters!(container, devices, model, false, true)
 
@@ -138,7 +150,13 @@ function construct_device!(
     devices =
         get_device_cache(model)
 
-    add_variables!(container, ActivePowerVariable, devices, D)
+    add_variables!(
+        container,
+        ActivePowerVariable,
+        devices,
+        D,
+        get_attribute(model, RELAX_BINARIES_ATTRIBUTE),
+    )
 
     # Add Variables to expressions
     add_to_expression!(
@@ -243,14 +261,26 @@ function construct_device!(
     devices =
         get_device_cache(model)
 
-    add_variables!(container, ActivePowerVariable, devices, PowerLoadInterruption)
-    add_variables!(container, ReactivePowerVariable, devices, PowerLoadInterruption)
+    add_variables!(
+        container,
+        ActivePowerVariable,
+        devices,
+        PowerLoadInterruption,
+        get_attribute(model, RELAX_BINARIES_ATTRIBUTE),
+    )
+    add_variables!(
+        container,
+        ReactivePowerVariable,
+        devices,
+        PowerLoadInterruption,
+        get_attribute(model, RELAX_BINARIES_ATTRIBUTE),
+    )
     add_variables!(
         container,
         OnVariable,
         devices,
-        PowerLoadInterruption;
-        relax_binaries = get_attribute(model, RELAX_BINARIES_ATTRIBUTE),
+        PowerLoadInterruption,
+        get_attribute(model, RELAX_BINARIES_ATTRIBUTE),
     )
 
     # Add Variables to expressions
@@ -379,13 +409,19 @@ function construct_device!(
     devices =
         get_device_cache(model)
 
-    add_variables!(container, ActivePowerVariable, devices, PowerLoadInterruption)
+    add_variables!(
+        container,
+        ActivePowerVariable,
+        devices,
+        PowerLoadInterruption,
+        get_attribute(model, RELAX_BINARIES_ATTRIBUTE),
+    )
     add_variables!(
         container,
         OnVariable,
         devices,
-        PowerLoadInterruption;
-        relax_binaries = get_attribute(model, RELAX_BINARIES_ATTRIBUTE),
+        PowerLoadInterruption,
+        get_attribute(model, RELAX_BINARIES_ATTRIBUTE),
     )
 
     process_market_bid_parameters!(container, devices, model, false, true)
@@ -671,9 +707,27 @@ function construct_device!(
 )
     devices = get_device_cache(model)
 
-    add_variables!(container, ShiftUpActivePowerVariable, devices, PowerLoadShift)
-    add_variables!(container, ShiftDownActivePowerVariable, devices, PowerLoadShift)
-    add_variables!(container, ReactivePowerVariable, devices, PowerLoadShift)
+    add_variables!(
+        container,
+        ShiftUpActivePowerVariable,
+        devices,
+        PowerLoadShift,
+        get_attribute(model, RELAX_BINARIES_ATTRIBUTE),
+    )
+    add_variables!(
+        container,
+        ShiftDownActivePowerVariable,
+        devices,
+        PowerLoadShift,
+        get_attribute(model, RELAX_BINARIES_ATTRIBUTE),
+    )
+    add_variables!(
+        container,
+        ReactivePowerVariable,
+        devices,
+        PowerLoadShift,
+        get_attribute(model, RELAX_BINARIES_ATTRIBUTE),
+    )
 
     process_market_bid_parameters!(container, devices, model, false, true)
 
@@ -788,8 +842,20 @@ function construct_device!(
 )
     devices = get_device_cache(model)
 
-    add_variables!(container, ShiftUpActivePowerVariable, devices, PowerLoadShift)
-    add_variables!(container, ShiftDownActivePowerVariable, devices, PowerLoadShift)
+    add_variables!(
+        container,
+        ShiftUpActivePowerVariable,
+        devices,
+        PowerLoadShift,
+        get_attribute(model, RELAX_BINARIES_ATTRIBUTE),
+    )
+    add_variables!(
+        container,
+        ShiftDownActivePowerVariable,
+        devices,
+        PowerLoadShift,
+        get_attribute(model, RELAX_BINARIES_ATTRIBUTE),
+    )
 
     process_market_bid_parameters!(container, devices, model, false, true)
 

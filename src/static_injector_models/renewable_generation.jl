@@ -60,7 +60,7 @@ function get_default_attributes(
     ::Type{<:PSY.RenewableGen},
     ::Type{<:Union{FixedOutput, AbstractRenewableFormulation}},
 )
-    return Dict{String, Any}()
+    return Dict{String, Any}(RELAX_BINARIES_ATTRIBUTE => false)
 end
 
 ####################################### Reactive Power constraint_infos #########################

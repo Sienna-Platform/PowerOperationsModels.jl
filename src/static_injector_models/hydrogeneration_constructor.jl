@@ -96,8 +96,20 @@ function construct_device!(
 }
     devices = get_device_cache(model)
 
-    add_variables!(container, ActivePowerVariable, devices, D)
-    add_variables!(container, ReactivePowerVariable, devices, D)
+    add_variables!(
+        container,
+        ActivePowerVariable,
+        devices,
+        D,
+        get_attribute(model, RELAX_BINARIES_ATTRIBUTE),
+    )
+    add_variables!(
+        container,
+        ReactivePowerVariable,
+        devices,
+        D,
+        get_attribute(model, RELAX_BINARIES_ATTRIBUTE),
+    )
     add_variables!(container, HydroEnergyOutput, devices, D)
     add_to_expression!(
         container,
@@ -120,7 +132,13 @@ function construct_device!(
     if get_attribute(model, "hydro_budget") === true
         add_parameters!(container, EnergyBudgetTimeSeriesParameter, devices, model)
         if get_use_slacks(model)
-            add_variables!(container, HydroEnergyShortageVariable, devices, D)
+            add_variables!(
+                container,
+                HydroEnergyShortageVariable,
+                devices,
+                D,
+                get_attribute(model, RELAX_BINARIES_ATTRIBUTE),
+            )
         end
     end
     process_market_bid_parameters!(container, devices, model)
@@ -240,7 +258,13 @@ function construct_device!(
 }
     devices = get_device_cache(model)
 
-    add_variables!(container, ActivePowerVariable, devices, D)
+    add_variables!(
+        container,
+        ActivePowerVariable,
+        devices,
+        D,
+        get_attribute(model, RELAX_BINARIES_ATTRIBUTE),
+    )
     add_variables!(container, HydroEnergyOutput, devices, D)
     add_to_expression!(
         container,
@@ -255,7 +279,13 @@ function construct_device!(
     if get_attribute(model, "hydro_budget") === true
         add_parameters!(container, EnergyBudgetTimeSeriesParameter, devices, model)
         if get_use_slacks(model)
-            add_variables!(container, HydroEnergyShortageVariable, devices, D)
+            add_variables!(
+                container,
+                HydroEnergyShortageVariable,
+                devices,
+                D,
+                get_attribute(model, RELAX_BINARIES_ATTRIBUTE),
+            )
         end
     end
     process_market_bid_parameters!(container, devices, model)
@@ -304,14 +334,26 @@ function construct_device!(
 ) where {H <: PSY.HydroGen, D <: HydroCommitmentRunOfRiver, S <: AbstractNetworkModel}
     devices = get_device_cache(model)
 
-    add_variables!(container, ActivePowerVariable, devices, D)
-    add_variables!(container, ReactivePowerVariable, devices, D)
+    add_variables!(
+        container,
+        ActivePowerVariable,
+        devices,
+        D,
+        get_attribute(model, RELAX_BINARIES_ATTRIBUTE),
+    )
+    add_variables!(
+        container,
+        ReactivePowerVariable,
+        devices,
+        D,
+        get_attribute(model, RELAX_BINARIES_ATTRIBUTE),
+    )
     add_variables!(
         container,
         OnVariable,
         devices,
-        D;
-        relax_binaries = get_attribute(model, RELAX_BINARIES_ATTRIBUTE),
+        D,
+        get_attribute(model, RELAX_BINARIES_ATTRIBUTE),
     )
     if _excludes_shutdown_step(model)
         # OfflineReserveShutdownConstraint reads the commitment before the first step.
@@ -383,13 +425,19 @@ function construct_device!(
 }
     devices = get_device_cache(model)
 
-    add_variables!(container, ActivePowerVariable, devices, D)
+    add_variables!(
+        container,
+        ActivePowerVariable,
+        devices,
+        D,
+        get_attribute(model, RELAX_BINARIES_ATTRIBUTE),
+    )
     add_variables!(
         container,
         OnVariable,
         devices,
-        D;
-        relax_binaries = get_attribute(model, RELAX_BINARIES_ATTRIBUTE),
+        D,
+        get_attribute(model, RELAX_BINARIES_ATTRIBUTE),
     )
     if _excludes_shutdown_step(model)
         # OfflineReserveShutdownConstraint reads the commitment before the first step.
@@ -551,24 +599,28 @@ function construct_device!(
         EnergyVariable,
         devices,
         T,
+        get_attribute(model, RELAX_BINARIES_ATTRIBUTE),
     )
     add_variables!(
         container,
         WaterSpillageVariable,
         devices,
         T,
+        get_attribute(model, RELAX_BINARIES_ATTRIBUTE),
     )
     add_variables!(
         container,
         HydroEnergyShortageVariable,
         devices,
         T,
+        get_attribute(model, RELAX_BINARIES_ATTRIBUTE),
     )
     add_variables!(
         container,
         HydroEnergySurplusVariable,
         devices,
         T,
+        get_attribute(model, RELAX_BINARIES_ATTRIBUTE),
     )
 
     add_parameters!(container, InflowTimeSeriesParameter, devices, model)
@@ -585,12 +637,14 @@ function construct_device!(
             HydroBalanceSurplusVariable,
             devices,
             T,
+            get_attribute(model, RELAX_BINARIES_ATTRIBUTE),
         )
         add_variables!(
             container,
             HydroBalanceShortageVariable,
             devices,
             T,
+            get_attribute(model, RELAX_BINARIES_ATTRIBUTE),
         )
     end
 
@@ -697,8 +751,20 @@ function construct_device!(
     # why is there no add_parameters here?
     devices = get_device_cache(model)
 
-    add_variables!(container, ActivePowerVariable, devices, D)
-    add_variables!(container, ReactivePowerVariable, devices, D)
+    add_variables!(
+        container,
+        ActivePowerVariable,
+        devices,
+        D,
+        get_attribute(model, RELAX_BINARIES_ATTRIBUTE),
+    )
+    add_variables!(
+        container,
+        ReactivePowerVariable,
+        devices,
+        D,
+        get_attribute(model, RELAX_BINARIES_ATTRIBUTE),
+    )
     add_variables!(container, HydroEnergyOutput, devices, D)
     add_to_expression!(
         container,
@@ -829,7 +895,13 @@ function construct_device!(
 }
     devices = get_device_cache(model)
 
-    add_variables!(container, ActivePowerVariable, devices, D)
+    add_variables!(
+        container,
+        ActivePowerVariable,
+        devices,
+        D,
+        get_attribute(model, RELAX_BINARIES_ATTRIBUTE),
+    )
     add_variables!(container, HydroEnergyOutput, devices, D)
     add_to_expression!(
         container,
@@ -890,14 +962,26 @@ function construct_device!(
 }
     devices = get_device_cache(model)
 
-    add_variables!(container, ActivePowerVariable, devices, D)
-    add_variables!(container, ReactivePowerVariable, devices, D)
+    add_variables!(
+        container,
+        ActivePowerVariable,
+        devices,
+        D,
+        get_attribute(model, RELAX_BINARIES_ATTRIBUTE),
+    )
+    add_variables!(
+        container,
+        ReactivePowerVariable,
+        devices,
+        D,
+        get_attribute(model, RELAX_BINARIES_ATTRIBUTE),
+    )
     add_variables!(
         container,
         OnVariable,
         devices,
-        D;
-        relax_binaries = get_attribute(model, RELAX_BINARIES_ATTRIBUTE),
+        D,
+        get_attribute(model, RELAX_BINARIES_ATTRIBUTE),
     )
     add_variables!(container, HydroEnergyOutput, devices, D)
     add_to_expression!(
@@ -1029,14 +1113,20 @@ function construct_device!(
 }
     devices = get_device_cache(model)
 
-    add_variables!(container, ActivePowerVariable, devices, D)
+    add_variables!(
+        container,
+        ActivePowerVariable,
+        devices,
+        D,
+        get_attribute(model, RELAX_BINARIES_ATTRIBUTE),
+    )
     add_variables!(container, HydroEnergyOutput, devices, D)
     add_variables!(
         container,
         OnVariable,
         devices,
-        D;
-        relax_binaries = get_attribute(model, RELAX_BINARIES_ATTRIBUTE),
+        D,
+        get_attribute(model, RELAX_BINARIES_ATTRIBUTE),
     )
     add_to_expression!(
         container,
@@ -1099,12 +1189,14 @@ function construct_device!(
         WaterSpillageVariable,
         devices,
         HydroWaterFactorModel,
+        get_attribute(model, RELAX_BINARIES_ATTRIBUTE),
     )
     add_variables!(
         container,
         HydroReservoirVolumeVariable,
         devices,
         HydroWaterFactorModel,
+        get_attribute(model, RELAX_BINARIES_ATTRIBUTE),
     )
 
     add_parameters!(container, InflowTimeSeriesParameter, devices, model)
@@ -1160,9 +1252,16 @@ function _add_hydro_water_factor_model_turbine_arguments!(
         HydroTurbineFlowRateVariable,
         devices,
         HydroWaterFactorModel,
+        get_attribute(model, RELAX_BINARIES_ATTRIBUTE),
     )
 
-    add_variables!(container, ActivePowerVariable, devices, D)
+    add_variables!(
+        container,
+        ActivePowerVariable,
+        devices,
+        D,
+        get_attribute(model, RELAX_BINARIES_ATTRIBUTE),
+    )
     add_variables!(container, HydroEnergyOutput, devices, D)
     add_to_expression!(
         container,
@@ -1248,7 +1347,13 @@ function construct_device!(
         network_model,
         devices,
     )
-    add_variables!(container, ReactivePowerVariable, devices, D)
+    add_variables!(
+        container,
+        ReactivePowerVariable,
+        devices,
+        D,
+        get_attribute(model, RELAX_BINARIES_ATTRIBUTE),
+    )
     add_to_expression!(
         container,
         ReactivePowerBalance,
@@ -1368,30 +1473,35 @@ function construct_device!(
         HydroReservoirHeadVariable,
         devices,
         R,
+        get_attribute(model, RELAX_BINARIES_ATTRIBUTE),
     )
     add_variables!(
         container,
         HydroReservoirVolumeVariable,
         devices,
         R,
+        get_attribute(model, RELAX_BINARIES_ATTRIBUTE),
     )
     add_variables!(
         container,
         WaterSpillageVariable,
         devices,
         R,
+        get_attribute(model, RELAX_BINARIES_ATTRIBUTE),
     )
     add_variables!(
         container,
         HydroWaterShortageVariable,
         devices,
         R,
+        get_attribute(model, RELAX_BINARIES_ATTRIBUTE),
     )
     add_variables!(
         container,
         HydroWaterSurplusVariable,
         devices,
         R,
+        get_attribute(model, RELAX_BINARIES_ATTRIBUTE),
     )
 
     add_parameters!(container, InflowTimeSeriesParameter, devices, model)
@@ -1517,8 +1627,8 @@ _maybe_add_on_variables!(
     container,
     OnVariable,
     devices,
-    HydroTurbineWaterLinearCommitment;
-    relax_binaries = get_attribute(model, RELAX_BINARIES_ATTRIBUTE),
+    HydroTurbineWaterLinearCommitment,
+    get_attribute(model, RELAX_BINARIES_ATTRIBUTE),
 )
 _maybe_add_on_variables!(
     ::OptimizationContainer,
@@ -1548,7 +1658,13 @@ function _add_hydro_turbine_water_arguments!(
         D,
     )
 
-    add_variables!(container, ActivePowerVariable, devices, D)
+    add_variables!(
+        container,
+        ActivePowerVariable,
+        devices,
+        D,
+        get_attribute(model, RELAX_BINARIES_ATTRIBUTE),
+    )
     _maybe_add_on_variables!(container, devices, model)
 
     add_to_expression!(
@@ -1634,7 +1750,13 @@ function construct_device!(
         devices,
         reservoirs,
     )
-    add_variables!(container, ReactivePowerVariable, devices, D)
+    add_variables!(
+        container,
+        ReactivePowerVariable,
+        devices,
+        D,
+        get_attribute(model, RELAX_BINARIES_ATTRIBUTE),
+    )
     add_to_expression!(
         container,
         ReactivePowerBalance,
@@ -1759,17 +1881,35 @@ function construct_device!(
     S <: AbstractNetworkModel,
 }
     devices = get_device_cache(model)
-    add_variables!(container, ActivePowerVariable, devices, D)
-    add_variables!(container, ActivePowerPumpVariable, devices, D)
-    add_variables!(container, ReactivePowerVariable, devices, D)
+    add_variables!(
+        container,
+        ActivePowerVariable,
+        devices,
+        D,
+        get_attribute(model, RELAX_BINARIES_ATTRIBUTE),
+    )
+    add_variables!(
+        container,
+        ActivePowerPumpVariable,
+        devices,
+        D,
+        get_attribute(model, RELAX_BINARIES_ATTRIBUTE),
+    )
+    add_variables!(
+        container,
+        ReactivePowerVariable,
+        devices,
+        D,
+        get_attribute(model, RELAX_BINARIES_ATTRIBUTE),
+    )
 
     if get_attribute(model, "reservation")
         add_variables!(
             container,
             ReservationVariable,
             devices,
-            D;
-            relax_binaries = get_attribute(model, RELAX_BINARIES_ATTRIBUTE),
+            D,
+            get_attribute(model, RELAX_BINARIES_ATTRIBUTE),
         )
     end
 
@@ -1834,16 +1974,28 @@ function construct_device!(
     S <: AbstractActivePowerModel,
 }
     devices = get_device_cache(model)
-    add_variables!(container, ActivePowerVariable, devices, D)
-    add_variables!(container, ActivePowerPumpVariable, devices, D)
+    add_variables!(
+        container,
+        ActivePowerVariable,
+        devices,
+        D,
+        get_attribute(model, RELAX_BINARIES_ATTRIBUTE),
+    )
+    add_variables!(
+        container,
+        ActivePowerPumpVariable,
+        devices,
+        D,
+        get_attribute(model, RELAX_BINARIES_ATTRIBUTE),
+    )
 
     if get_attribute(model, "reservation")
         add_variables!(
             container,
             ReservationVariable,
             devices,
-            D;
-            relax_binaries = get_attribute(model, RELAX_BINARIES_ATTRIBUTE),
+            D,
+            get_attribute(model, RELAX_BINARIES_ATTRIBUTE),
         )
     end
 
@@ -1973,15 +2125,33 @@ function construct_device!(
     S <: AbstractNetworkModel,
 }
     devices = get_device_cache(model)
-    add_variables!(container, ActivePowerVariable, devices, D)
-    add_variables!(container, ActivePowerPumpVariable, devices, D)
-    add_variables!(container, ReactivePowerVariable, devices, D)
+    add_variables!(
+        container,
+        ActivePowerVariable,
+        devices,
+        D,
+        get_attribute(model, RELAX_BINARIES_ATTRIBUTE),
+    )
+    add_variables!(
+        container,
+        ActivePowerPumpVariable,
+        devices,
+        D,
+        get_attribute(model, RELAX_BINARIES_ATTRIBUTE),
+    )
+    add_variables!(
+        container,
+        ReactivePowerVariable,
+        devices,
+        D,
+        get_attribute(model, RELAX_BINARIES_ATTRIBUTE),
+    )
     add_variables!(
         container,
         OnVariable,
         devices,
-        D;
-        relax_binaries = get_attribute(model, RELAX_BINARIES_ATTRIBUTE),
+        D,
+        get_attribute(model, RELAX_BINARIES_ATTRIBUTE),
     )
 
     if get_attribute(model, "reservation")
@@ -1989,8 +2159,8 @@ function construct_device!(
             container,
             ReservationVariable,
             devices,
-            D;
-            relax_binaries = get_attribute(model, RELAX_BINARIES_ATTRIBUTE),
+            D,
+            get_attribute(model, RELAX_BINARIES_ATTRIBUTE),
         )
     end
 
@@ -2055,14 +2225,26 @@ function construct_device!(
     S <: AbstractActivePowerModel,
 }
     devices = get_device_cache(model)
-    add_variables!(container, ActivePowerVariable, devices, D)
-    add_variables!(container, ActivePowerPumpVariable, devices, D)
+    add_variables!(
+        container,
+        ActivePowerVariable,
+        devices,
+        D,
+        get_attribute(model, RELAX_BINARIES_ATTRIBUTE),
+    )
+    add_variables!(
+        container,
+        ActivePowerPumpVariable,
+        devices,
+        D,
+        get_attribute(model, RELAX_BINARIES_ATTRIBUTE),
+    )
     add_variables!(
         container,
         OnVariable,
         devices,
-        D;
-        relax_binaries = get_attribute(model, RELAX_BINARIES_ATTRIBUTE),
+        D,
+        get_attribute(model, RELAX_BINARIES_ATTRIBUTE),
     )
 
     if get_attribute(model, "reservation")
@@ -2070,8 +2252,8 @@ function construct_device!(
             container,
             ReservationVariable,
             devices,
-            D;
-            relax_binaries = get_attribute(model, RELAX_BINARIES_ATTRIBUTE),
+            D,
+            get_attribute(model, RELAX_BINARIES_ATTRIBUTE),
         )
     end
 

@@ -98,28 +98,40 @@ function construct_device!(
 }
     devices = get_device_cache(device_model)
 
-    add_variables!(container, ActivePowerVariable, devices, D)
-    add_variables!(container, ReactivePowerVariable, devices, D)
+    add_variables!(
+        container,
+        ActivePowerVariable,
+        devices,
+        D,
+        get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
+    )
+    add_variables!(
+        container,
+        ReactivePowerVariable,
+        devices,
+        D,
+        get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
+    )
     add_variables!(
         container,
         OnVariable,
         devices,
-        D;
-        relax_binaries = get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
+        D,
+        get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
     )
     add_variables!(
         container,
         StartVariable,
         devices,
-        D;
-        relax_binaries = get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
+        D,
+        get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
     )
     add_variables!(
         container,
         StopVariable,
         devices,
-        D;
-        relax_binaries = get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
+        D,
+        get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
     )
 
     add_variables!(container, TimeDurationOn, devices, D)
@@ -176,8 +188,20 @@ function construct_device!(
         device_model,
     )
     if get_use_slacks(device_model)
-        add_variables!(container, RateofChangeConstraintSlackUp, devices, D)
-        add_variables!(container, RateofChangeConstraintSlackDown, devices, D)
+        add_variables!(
+            container,
+            RateofChangeConstraintSlackUp,
+            devices,
+            D,
+            get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
+        )
+        add_variables!(
+            container,
+            RateofChangeConstraintSlackDown,
+            devices,
+            D,
+            get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
+        )
     end
     add_feedforward_arguments!(container, device_model, devices)
     add_event_arguments!(container, devices, device_model, network_model)
@@ -285,27 +309,33 @@ function construct_device!(
 ) where {T <: PSY.ThermalGen, D <: AbstractStandardUnitCommitment}
     devices = get_device_cache(device_model)
 
-    add_variables!(container, ActivePowerVariable, devices, D)
+    add_variables!(
+        container,
+        ActivePowerVariable,
+        devices,
+        D,
+        get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
+    )
     add_variables!(
         container,
         OnVariable,
         devices,
-        D;
-        relax_binaries = get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
+        D,
+        get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
     )
     add_variables!(
         container,
         StartVariable,
         devices,
-        D;
-        relax_binaries = get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
+        D,
+        get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
     )
     add_variables!(
         container,
         StopVariable,
         devices,
-        D;
-        relax_binaries = get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
+        D,
+        get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
     )
 
     add_variables!(container, TimeDurationOn, devices, D)
@@ -354,8 +384,20 @@ function construct_device!(
         device_model,
     )
     if get_use_slacks(device_model)
-        add_variables!(container, RateofChangeConstraintSlackUp, devices, D)
-        add_variables!(container, RateofChangeConstraintSlackDown, devices, D)
+        add_variables!(
+            container,
+            RateofChangeConstraintSlackUp,
+            devices,
+            D,
+            get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
+        )
+        add_variables!(
+            container,
+            RateofChangeConstraintSlackDown,
+            devices,
+            D,
+            get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
+        )
     end
 
     add_feedforward_arguments!(container, device_model, devices)
@@ -440,28 +482,40 @@ function construct_device!(
 ) where {T <: PSY.ThermalGen}
     devices = get_device_cache(device_model)
 
-    add_variables!(container, ActivePowerVariable, devices, ThermalBasicUnitCommitment)
-    add_variables!(container, ReactivePowerVariable, devices, ThermalBasicUnitCommitment)
+    add_variables!(
+        container,
+        ActivePowerVariable,
+        devices,
+        ThermalBasicUnitCommitment,
+        get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
+    )
+    add_variables!(
+        container,
+        ReactivePowerVariable,
+        devices,
+        ThermalBasicUnitCommitment,
+        get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
+    )
     add_variables!(
         container,
         OnVariable,
         devices,
-        ThermalBasicUnitCommitment;
-        relax_binaries = get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
+        ThermalBasicUnitCommitment,
+        get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
     )
     add_variables!(
         container,
         StartVariable,
         devices,
-        ThermalBasicUnitCommitment;
-        relax_binaries = get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
+        ThermalBasicUnitCommitment,
+        get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
     )
     add_variables!(
         container,
         StopVariable,
         devices,
-        ThermalBasicUnitCommitment;
-        relax_binaries = get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
+        ThermalBasicUnitCommitment,
+        get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
     )
 
     add_variables!(container, TimeDurationOn, devices, ThermalBasicUnitCommitment)
@@ -522,12 +576,14 @@ function construct_device!(
             RateofChangeConstraintSlackUp,
             devices,
             ThermalBasicUnitCommitment,
+            get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
         )
         add_variables!(
             container,
             RateofChangeConstraintSlackDown,
             devices,
             ThermalBasicUnitCommitment,
+            get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
         )
     end
 
@@ -621,27 +677,33 @@ function construct_device!(
 ) where {T <: PSY.ThermalGen}
     devices = get_device_cache(device_model)
 
-    add_variables!(container, ActivePowerVariable, devices, ThermalBasicUnitCommitment)
+    add_variables!(
+        container,
+        ActivePowerVariable,
+        devices,
+        ThermalBasicUnitCommitment,
+        get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
+    )
     add_variables!(
         container,
         OnVariable,
         devices,
-        ThermalBasicUnitCommitment;
-        relax_binaries = get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
+        ThermalBasicUnitCommitment,
+        get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
     )
     add_variables!(
         container,
         StartVariable,
         devices,
-        ThermalBasicUnitCommitment;
-        relax_binaries = get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
+        ThermalBasicUnitCommitment,
+        get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
     )
     add_variables!(
         container,
         StopVariable,
         devices,
-        ThermalBasicUnitCommitment;
-        relax_binaries = get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
+        ThermalBasicUnitCommitment,
+        get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
     )
 
     add_variables!(container, TimeDurationOn, devices, ThermalBasicUnitCommitment)
@@ -694,12 +756,14 @@ function construct_device!(
             RateofChangeConstraintSlackUp,
             devices,
             ThermalBasicUnitCommitment,
+            get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
         )
         add_variables!(
             container,
             RateofChangeConstraintSlackDown,
             devices,
             ThermalBasicUnitCommitment,
+            get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
         )
     end
 
@@ -784,8 +848,20 @@ function construct_device!(
 ) where {T <: PSY.ThermalGen}
     devices = get_device_cache(device_model)
 
-    add_variables!(container, ActivePowerVariable, devices, ThermalStandardDispatch)
-    add_variables!(container, ReactivePowerVariable, devices, ThermalStandardDispatch)
+    add_variables!(
+        container,
+        ActivePowerVariable,
+        devices,
+        ThermalStandardDispatch,
+        get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
+    )
+    add_variables!(
+        container,
+        ReactivePowerVariable,
+        devices,
+        ThermalStandardDispatch,
+        get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
+    )
 
     initial_conditions!(container, devices, ThermalStandardDispatch())
 
@@ -839,12 +915,14 @@ function construct_device!(
             RateofChangeConstraintSlackUp,
             devices,
             ThermalStandardDispatch,
+            get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
         )
         add_variables!(
             container,
             RateofChangeConstraintSlackDown,
             devices,
             ThermalStandardDispatch,
+            get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
         )
     end
 
@@ -917,7 +995,13 @@ function construct_device!(
 ) where {T <: PSY.ThermalGen}
     devices = get_device_cache(device_model)
 
-    add_variables!(container, ActivePowerVariable, devices, ThermalStandardDispatch)
+    add_variables!(
+        container,
+        ActivePowerVariable,
+        devices,
+        ThermalStandardDispatch,
+        get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
+    )
 
     initial_conditions!(container, devices, ThermalStandardDispatch())
 
@@ -963,12 +1047,14 @@ function construct_device!(
             RateofChangeConstraintSlackUp,
             devices,
             ThermalStandardDispatch,
+            get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
         )
         add_variables!(
             container,
             RateofChangeConstraintSlackDown,
             devices,
             ThermalStandardDispatch,
+            get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
         )
     end
 
@@ -1033,8 +1119,20 @@ function construct_device!(
 }
     devices = get_device_cache(device_model)
 
-    add_variables!(container, ActivePowerVariable, devices, D)
-    add_variables!(container, ReactivePowerVariable, devices, D)
+    add_variables!(
+        container,
+        ActivePowerVariable,
+        devices,
+        D,
+        get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
+    )
+    add_variables!(
+        container,
+        ReactivePowerVariable,
+        devices,
+        D,
+        get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
+    )
 
     _handle_common_thermal_parameters!(container, devices, device_model)
 
@@ -1081,8 +1179,20 @@ function construct_device!(
         device_model,
     )
     if get_use_slacks(device_model)
-        add_variables!(container, RateofChangeConstraintSlackUp, devices, D)
-        add_variables!(container, RateofChangeConstraintSlackDown, devices, D)
+        add_variables!(
+            container,
+            RateofChangeConstraintSlackUp,
+            devices,
+            D,
+            get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
+        )
+        add_variables!(
+            container,
+            RateofChangeConstraintSlackDown,
+            devices,
+            D,
+            get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
+        )
     end
 
     add_feedforward_arguments!(container, device_model, devices)
@@ -1150,7 +1260,13 @@ function construct_device!(
 }
     devices = get_device_cache(device_model)
 
-    add_variables!(container, ActivePowerVariable, devices, D)
+    add_variables!(
+        container,
+        ActivePowerVariable,
+        devices,
+        D,
+        get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
+    )
 
     _handle_common_thermal_parameters!(container, devices, device_model)
 
@@ -1189,8 +1305,20 @@ function construct_device!(
         device_model,
     )
     if get_use_slacks(device_model)
-        add_variables!(container, RateofChangeConstraintSlackUp, devices, D)
-        add_variables!(container, RateofChangeConstraintSlackDown, devices, D)
+        add_variables!(
+            container,
+            RateofChangeConstraintSlackUp,
+            devices,
+            D,
+            get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
+        )
+        add_variables!(
+            container,
+            RateofChangeConstraintSlackDown,
+            devices,
+            D,
+            get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
+        )
     end
 
     add_feedforward_arguments!(container, device_model, devices)
@@ -1250,54 +1378,56 @@ function construct_device!(
         PowerAboveMinimumVariable,
         devices,
         ThermalMultiStartUnitCommitment,
+        get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
     )
     add_variables!(
         container,
         ReactivePowerVariable,
         devices,
         ThermalMultiStartUnitCommitment,
+        get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
     )
     add_variables!(
         container,
         OnVariable,
         devices,
-        ThermalMultiStartUnitCommitment;
-        relax_binaries = get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
+        ThermalMultiStartUnitCommitment,
+        get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
     )
     add_variables!(
         container,
         StopVariable,
         devices,
-        ThermalMultiStartUnitCommitment;
-        relax_binaries = get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
+        ThermalMultiStartUnitCommitment,
+        get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
     )
     add_variables!(
         container,
         StartVariable,
         devices,
-        ThermalMultiStartUnitCommitment;
-        relax_binaries = get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
+        ThermalMultiStartUnitCommitment,
+        get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
     )
     add_variables!(
         container,
         ColdStartVariable,
         devices,
-        ThermalMultiStartUnitCommitment;
-        relax_binaries = get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
+        ThermalMultiStartUnitCommitment,
+        get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
     )
     add_variables!(
         container,
         WarmStartVariable,
         devices,
-        ThermalMultiStartUnitCommitment;
-        relax_binaries = get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
+        ThermalMultiStartUnitCommitment,
+        get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
     )
     add_variables!(
         container,
         HotStartVariable,
         devices,
-        ThermalMultiStartUnitCommitment;
-        relax_binaries = get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
+        ThermalMultiStartUnitCommitment,
+        get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
     )
 
     add_variables!(container, TimeDurationOn, devices, ThermalMultiStartUnitCommitment)
@@ -1369,12 +1499,14 @@ function construct_device!(
             RateofChangeConstraintSlackUp,
             devices,
             ThermalMultiStartUnitCommitment,
+            get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
         )
         add_variables!(
             container,
             RateofChangeConstraintSlackDown,
             devices,
             ThermalMultiStartUnitCommitment,
+            get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
         )
     end
 
@@ -1491,48 +1623,49 @@ function construct_device!(
         PowerAboveMinimumVariable,
         devices,
         ThermalMultiStartUnitCommitment,
+        get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
     )
     add_variables!(
         container,
         OnVariable,
         devices,
-        ThermalMultiStartUnitCommitment;
-        relax_binaries = get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
+        ThermalMultiStartUnitCommitment,
+        get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
     )
     add_variables!(
         container,
         StopVariable,
         devices,
-        ThermalMultiStartUnitCommitment;
-        relax_binaries = get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
+        ThermalMultiStartUnitCommitment,
+        get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
     )
     add_variables!(
         container,
         StartVariable,
         devices,
-        ThermalMultiStartUnitCommitment;
-        relax_binaries = get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
+        ThermalMultiStartUnitCommitment,
+        get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
     )
     add_variables!(
         container,
         ColdStartVariable,
         devices,
-        ThermalMultiStartUnitCommitment;
-        relax_binaries = get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
+        ThermalMultiStartUnitCommitment,
+        get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
     )
     add_variables!(
         container,
         WarmStartVariable,
         devices,
-        ThermalMultiStartUnitCommitment;
-        relax_binaries = get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
+        ThermalMultiStartUnitCommitment,
+        get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
     )
     add_variables!(
         container,
         HotStartVariable,
         devices,
-        ThermalMultiStartUnitCommitment;
-        relax_binaries = get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
+        ThermalMultiStartUnitCommitment,
+        get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
     )
 
     add_variables!(container, TimeDurationOn, devices, ThermalMultiStartUnitCommitment)
@@ -1594,12 +1727,14 @@ function construct_device!(
             RateofChangeConstraintSlackUp,
             devices,
             ThermalMultiStartUnitCommitment,
+            get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
         )
         add_variables!(
             container,
             RateofChangeConstraintSlackDown,
             devices,
             ThermalMultiStartUnitCommitment,
+            get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
         )
     end
 
@@ -1710,33 +1845,35 @@ function construct_device!(
         PowerAboveMinimumVariable,
         devices,
         ThermalCompactUnitCommitment,
+        get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
     )
     add_variables!(
         container,
         ReactivePowerVariable,
         devices,
         ThermalCompactUnitCommitment,
+        get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
     )
     add_variables!(
         container,
         OnVariable,
         devices,
-        ThermalCompactUnitCommitment;
-        relax_binaries = get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
+        ThermalCompactUnitCommitment,
+        get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
     )
     add_variables!(
         container,
         StartVariable,
         devices,
-        ThermalCompactUnitCommitment;
-        relax_binaries = get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
+        ThermalCompactUnitCommitment,
+        get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
     )
     add_variables!(
         container,
         StopVariable,
         devices,
-        ThermalCompactUnitCommitment;
-        relax_binaries = get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
+        ThermalCompactUnitCommitment,
+        get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
     )
 
     add_variables!(container, TimeDurationOn, devices, ThermalCompactUnitCommitment)
@@ -1807,12 +1944,14 @@ function construct_device!(
             RateofChangeConstraintSlackUp,
             devices,
             ThermalCompactUnitCommitment,
+            get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
         )
         add_variables!(
             container,
             RateofChangeConstraintSlackDown,
             devices,
             ThermalCompactUnitCommitment,
+            get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
         )
     end
 
@@ -1906,27 +2045,28 @@ function construct_device!(
         PowerAboveMinimumVariable,
         devices,
         ThermalCompactUnitCommitment,
+        get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
     )
     add_variables!(
         container,
         OnVariable,
         devices,
-        ThermalCompactUnitCommitment;
-        relax_binaries = get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
+        ThermalCompactUnitCommitment,
+        get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
     )
     add_variables!(
         container,
         StartVariable,
         devices,
-        ThermalCompactUnitCommitment;
-        relax_binaries = get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
+        ThermalCompactUnitCommitment,
+        get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
     )
     add_variables!(
         container,
         StopVariable,
         devices,
-        ThermalCompactUnitCommitment;
-        relax_binaries = get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
+        ThermalCompactUnitCommitment,
+        get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
     )
 
     add_variables!(container, TimeDurationOn, devices, ThermalCompactUnitCommitment)
@@ -1989,12 +2129,14 @@ function construct_device!(
             RateofChangeConstraintSlackUp,
             devices,
             ThermalCompactUnitCommitment,
+            get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
         )
         add_variables!(
             container,
             RateofChangeConstraintSlackDown,
             devices,
             ThermalCompactUnitCommitment,
+            get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
         )
     end
 
@@ -2080,33 +2222,35 @@ function construct_device!(
         PowerAboveMinimumVariable,
         devices,
         ThermalBasicCompactUnitCommitment,
+        get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
     )
     add_variables!(
         container,
         ReactivePowerVariable,
         devices,
         ThermalBasicCompactUnitCommitment,
+        get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
     )
     add_variables!(
         container,
         OnVariable,
         devices,
-        ThermalBasicCompactUnitCommitment;
-        relax_binaries = get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
+        ThermalBasicCompactUnitCommitment,
+        get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
     )
     add_variables!(
         container,
         StartVariable,
         devices,
-        ThermalBasicCompactUnitCommitment;
-        relax_binaries = get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
+        ThermalBasicCompactUnitCommitment,
+        get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
     )
     add_variables!(
         container,
         StopVariable,
         devices,
-        ThermalBasicCompactUnitCommitment;
-        relax_binaries = get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
+        ThermalBasicCompactUnitCommitment,
+        get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
     )
 
     add_variables!(container, PowerOutput, devices, ThermalBasicCompactUnitCommitment)
@@ -2177,12 +2321,14 @@ function construct_device!(
             RateofChangeConstraintSlackUp,
             devices,
             ThermalBasicCompactUnitCommitment,
+            get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
         )
         add_variables!(
             container,
             RateofChangeConstraintSlackDown,
             devices,
             ThermalBasicCompactUnitCommitment,
+            get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
         )
     end
 
@@ -2274,27 +2420,28 @@ function construct_device!(
         PowerAboveMinimumVariable,
         devices,
         ThermalBasicCompactUnitCommitment,
+        get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
     )
     add_variables!(
         container,
         OnVariable,
         devices,
-        ThermalBasicCompactUnitCommitment;
-        relax_binaries = get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
+        ThermalBasicCompactUnitCommitment,
+        get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
     )
     add_variables!(
         container,
         StartVariable,
         devices,
-        ThermalBasicCompactUnitCommitment;
-        relax_binaries = get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
+        ThermalBasicCompactUnitCommitment,
+        get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
     )
     add_variables!(
         container,
         StopVariable,
         devices,
-        ThermalBasicCompactUnitCommitment;
-        relax_binaries = get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
+        ThermalBasicCompactUnitCommitment,
+        get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
     )
 
     add_variables!(container, PowerOutput, devices, ThermalBasicCompactUnitCommitment)
@@ -2356,12 +2503,14 @@ function construct_device!(
             RateofChangeConstraintSlackUp,
             devices,
             ThermalBasicCompactUnitCommitment,
+            get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
         )
         add_variables!(
             container,
             RateofChangeConstraintSlackDown,
             devices,
             ThermalBasicCompactUnitCommitment,
+            get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
         )
     end
     add_feedforward_arguments!(container, device_model, devices)
@@ -2439,8 +2588,20 @@ function construct_device!(
 ) where {T <: PSY.ThermalGen}
     devices = get_device_cache(device_model)
 
-    add_variables!(container, PowerAboveMinimumVariable, devices, ThermalCompactDispatch)
-    add_variables!(container, ReactivePowerVariable, devices, ThermalCompactDispatch)
+    add_variables!(
+        container,
+        PowerAboveMinimumVariable,
+        devices,
+        ThermalCompactDispatch,
+        get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
+    )
+    add_variables!(
+        container,
+        ReactivePowerVariable,
+        devices,
+        ThermalCompactDispatch,
+        get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
+    )
 
     add_variables!(container, PowerOutput, devices, ThermalCompactDispatch)
 
@@ -2508,12 +2669,14 @@ function construct_device!(
             RateofChangeConstraintSlackUp,
             devices,
             ThermalCompactDispatch,
+            get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
         )
         add_variables!(
             container,
             RateofChangeConstraintSlackDown,
             devices,
             ThermalCompactDispatch,
+            get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
         )
     end
     add_event_arguments!(container, devices, device_model, network_model)
@@ -2578,7 +2741,13 @@ function construct_device!(
 ) where {T <: PSY.ThermalGen}
     devices = get_device_cache(device_model)
 
-    add_variables!(container, PowerAboveMinimumVariable, devices, ThermalCompactDispatch)
+    add_variables!(
+        container,
+        PowerAboveMinimumVariable,
+        devices,
+        ThermalCompactDispatch,
+        get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
+    )
 
     add_variables!(container, PowerOutput, devices, ThermalCompactDispatch)
 
@@ -2639,12 +2808,14 @@ function construct_device!(
             RateofChangeConstraintSlackUp,
             devices,
             ThermalCompactDispatch,
+            get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
         )
         add_variables!(
             container,
             RateofChangeConstraintSlackDown,
             devices,
             ThermalCompactDispatch,
+            get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
         )
     end
     add_event_arguments!(container, devices, device_model, network_model)

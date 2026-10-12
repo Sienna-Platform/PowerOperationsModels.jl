@@ -35,8 +35,20 @@ function _add_hybrid_reserve_arguments!(
     time_steps = get_time_steps(container)
 
     # Hybrid PCC reserve variables
-    add_variables!(container, HybridPCCReserveVariable{DischargeSide}, devices, D)
-    add_variables!(container, HybridPCCReserveVariable{ChargeSide}, devices, D)
+    add_variables!(
+        container,
+        HybridPCCReserveVariable{DischargeSide},
+        devices,
+        D,
+        get_attribute(model, RELAX_BINARIES_ATTRIBUTE),
+    )
+    add_variables!(
+        container,
+        HybridPCCReserveVariable{ChargeSide},
+        devices,
+        D,
+        get_attribute(model, RELAX_BINARIES_ATTRIBUTE),
+    )
 
     # Allocate hybrid-boundary aggregation expression containers
     for E in (
@@ -86,10 +98,22 @@ function _add_hybrid_reserve_arguments!(
 
     # Per-subcomponent reserve variables
     if !isempty(hybrids_with_thermal)
-        add_variables!(container, HybridThermalReserveVariable, hybrids_with_thermal, D)
+        add_variables!(
+            container,
+            HybridThermalReserveVariable,
+            hybrids_with_thermal,
+            D,
+            get_attribute(model, RELAX_BINARIES_ATTRIBUTE),
+        )
     end
     if !isempty(hybrids_with_renewable)
-        add_variables!(container, HybridRenewableReserveVariable, hybrids_with_renewable, D)
+        add_variables!(
+            container,
+            HybridRenewableReserveVariable,
+            hybrids_with_renewable,
+            D,
+            get_attribute(model, RELAX_BINARIES_ATTRIBUTE),
+        )
     end
     if !isempty(hybrids_with_storage)
         add_variables!(
@@ -97,12 +121,14 @@ function _add_hybrid_reserve_arguments!(
             HybridStorageSubcomponentReserveVariable{ChargeSide},
             hybrids_with_storage,
             D,
+            get_attribute(model, RELAX_BINARIES_ATTRIBUTE),
         )
         add_variables!(
             container,
             HybridStorageSubcomponentReserveVariable{DischargeSide},
             hybrids_with_storage,
             D,
+            get_attribute(model, RELAX_BINARIES_ATTRIBUTE),
         )
 
         # Storage-side reserve expression containers, keyed by HybridSystem
@@ -213,7 +239,7 @@ _maybe_add_reactive_power_variable!(
     D <: AbstractHybridFormulation,
     U <: Vector{V},
 } where {V <: PSY.HybridSystem} =
-    add_variables!(container, ReactivePowerVariable, devices, D)
+    add_variables!(container, ReactivePowerVariable, devices, D, false)
 
 _maybe_add_reactive_power_balance!(
     container::OptimizationContainer,
@@ -292,16 +318,28 @@ function construct_device!(
     grouped = _filter_hybrids(devices)
 
     # PCC variables
-    add_variables!(container, ActivePowerOutVariable, devices, D)
-    add_variables!(container, ActivePowerInVariable, devices, D)
+    add_variables!(
+        container,
+        ActivePowerOutVariable,
+        devices,
+        D,
+        get_attribute(model, RELAX_BINARIES_ATTRIBUTE),
+    )
+    add_variables!(
+        container,
+        ActivePowerInVariable,
+        devices,
+        D,
+        get_attribute(model, RELAX_BINARIES_ATTRIBUTE),
+    )
     _maybe_add_reactive_power_variable!(container, devices, D, S)
     if get_attribute(model, "reservation")
         add_variables!(
             container,
             ReservationVariable,
             devices,
-            D;
-            relax_binaries = get_attribute(model, RELAX_BINARIES_ATTRIBUTE),
+            D,
+            get_attribute(model, RELAX_BINARIES_ATTRIBUTE),
         )
     end
 
@@ -325,17 +363,29 @@ function construct_device!(
 
     # Subcomponent variables
     if !isempty(grouped.with_thermal)
-        add_variables!(container, HybridThermalActivePower, grouped.with_thermal, D)
+        add_variables!(
+            container,
+            HybridThermalActivePower,
+            grouped.with_thermal,
+            D,
+            get_attribute(model, RELAX_BINARIES_ATTRIBUTE),
+        )
         add_variables!(
             container,
             OnVariable,
             grouped.with_thermal,
-            D;
-            relax_binaries = get_attribute(model, RELAX_BINARIES_ATTRIBUTE),
+            D,
+            get_attribute(model, RELAX_BINARIES_ATTRIBUTE),
         )
     end
     if !isempty(grouped.with_renewable)
-        add_variables!(container, HybridRenewableActivePower, grouped.with_renewable, D)
+        add_variables!(
+            container,
+            HybridRenewableActivePower,
+            grouped.with_renewable,
+            D,
+            get_attribute(model, RELAX_BINARIES_ATTRIBUTE),
+        )
         add_parameters!(
             container,
             HybridRenewableActivePowerTimeSeriesParameter,
@@ -349,21 +399,29 @@ function construct_device!(
             HybridStorageSubcomponentPower{ChargeSide},
             grouped.with_storage,
             D,
+            get_attribute(model, RELAX_BINARIES_ATTRIBUTE),
         )
         add_variables!(
             container,
             HybridStorageSubcomponentPower{DischargeSide},
             grouped.with_storage,
             D,
+            get_attribute(model, RELAX_BINARIES_ATTRIBUTE),
         )
-        add_variables!(container, EnergyVariable, grouped.with_storage, D)
+        add_variables!(
+            container,
+            EnergyVariable,
+            grouped.with_storage,
+            D,
+            get_attribute(model, RELAX_BINARIES_ATTRIBUTE),
+        )
         if get_attribute(model, "storage_reservation")
             add_variables!(
                 container,
                 HybridStorageReservation,
                 grouped.with_storage,
-                D;
-                relax_binaries = get_attribute(model, RELAX_BINARIES_ATTRIBUTE),
+                D,
+                get_attribute(model, RELAX_BINARIES_ATTRIBUTE),
             )
         end
         if get_attribute(model, "regularization")
@@ -372,17 +430,31 @@ function construct_device!(
                 RegularizationVariable{ChargeSide},
                 grouped.with_storage,
                 D,
+                get_attribute(model, RELAX_BINARIES_ATTRIBUTE),
             )
             add_variables!(
                 container,
                 RegularizationVariable{DischargeSide},
                 grouped.with_storage,
                 D,
+                get_attribute(model, RELAX_BINARIES_ATTRIBUTE),
             )
         end
         if get_attribute(model, "energy_target")
-            add_variables!(container, HybridEnergySurplusVariable, grouped.with_storage, D)
-            add_variables!(container, HybridEnergyShortageVariable, grouped.with_storage, D)
+            add_variables!(
+                container,
+                HybridEnergySurplusVariable,
+                grouped.with_storage,
+                D,
+                get_attribute(model, RELAX_BINARIES_ATTRIBUTE),
+            )
+            add_variables!(
+                container,
+                HybridEnergyShortageVariable,
+                grouped.with_storage,
+                D,
+                get_attribute(model, RELAX_BINARIES_ATTRIBUTE),
+            )
         end
         initial_conditions!(container, devices, D())
     end

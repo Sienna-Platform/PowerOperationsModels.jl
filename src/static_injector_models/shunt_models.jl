@@ -218,7 +218,7 @@ function get_default_attributes(
     ::Type{<:PSY.StaticInjection},
     ::Type{<:AbstractShuntFormulation},
 )
-    return Dict{String, Any}()
+    return Dict{String, Any}(RELAX_BINARIES_ATTRIBUTE => false)
 end
 
 function get_default_time_series_names(

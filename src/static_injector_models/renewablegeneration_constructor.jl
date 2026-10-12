@@ -10,8 +10,20 @@ function construct_device!(
 }
     devices = get_device_cache(model)
 
-    add_variables!(container, ActivePowerVariable, devices, D)
-    add_variables!(container, ReactivePowerVariable, devices, D)
+    add_variables!(
+        container,
+        ActivePowerVariable,
+        devices,
+        D,
+        get_attribute(model, RELAX_BINARIES_ATTRIBUTE),
+    )
+    add_variables!(
+        container,
+        ReactivePowerVariable,
+        devices,
+        D,
+        get_attribute(model, RELAX_BINARIES_ATTRIBUTE),
+    )
     if haskey(get_time_series_names(model), ActivePowerTimeSeriesParameter)
         add_parameters!(container, ActivePowerTimeSeriesParameter, devices, model)
     end
@@ -132,7 +144,13 @@ function construct_device!(
 }
     devices = get_device_cache(model)
 
-    add_variables!(container, ActivePowerVariable, devices, D)
+    add_variables!(
+        container,
+        ActivePowerVariable,
+        devices,
+        D,
+        get_attribute(model, RELAX_BINARIES_ATTRIBUTE),
+    )
     # this is always true!! see get_default_time_series_names in renewable_generation.jl
     # and line 62 of device_model.jl
     if haskey(get_time_series_names(model), ActivePowerTimeSeriesParameter)

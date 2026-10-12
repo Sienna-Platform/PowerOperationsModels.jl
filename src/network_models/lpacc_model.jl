@@ -23,6 +23,7 @@ function add_variables!(
         VoltageDeviation,
         _network_buses(sys, network_model),
         LPACCNetworkModel,
+        false,
     )
     return
 end

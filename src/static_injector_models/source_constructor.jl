@@ -13,9 +13,27 @@ function construct_device!(
 }
     devices = get_device_cache(model)
 
-    add_variables!(container, ActivePowerInVariable, devices, D)
-    add_variables!(container, ActivePowerOutVariable, devices, D)
-    add_variables!(container, ReactivePowerVariable, devices, D)
+    add_variables!(
+        container,
+        ActivePowerInVariable,
+        devices,
+        D,
+        get_attribute(model, RELAX_BINARIES_ATTRIBUTE),
+    )
+    add_variables!(
+        container,
+        ActivePowerOutVariable,
+        devices,
+        D,
+        get_attribute(model, RELAX_BINARIES_ATTRIBUTE),
+    )
+    add_variables!(
+        container,
+        ReactivePowerVariable,
+        devices,
+        D,
+        get_attribute(model, RELAX_BINARIES_ATTRIBUTE),
+    )
     add_expressions!(container, NetActivePower, devices, model)
 
     if haskey(get_time_series_names(model), ActivePowerOutTimeSeriesParameter)
@@ -30,8 +48,8 @@ function construct_device!(
             container,
             ReservationVariable,
             devices,
-            D;
-            relax_binaries = get_attribute(model, RELAX_BINARIES_ATTRIBUTE),
+            D,
+            get_attribute(model, RELAX_BINARIES_ATTRIBUTE),
         )
     end
 
@@ -197,8 +215,20 @@ function construct_device!(
 }
     devices = get_device_cache(model)
 
-    add_variables!(container, ActivePowerInVariable, devices, D)
-    add_variables!(container, ActivePowerOutVariable, devices, D)
+    add_variables!(
+        container,
+        ActivePowerInVariable,
+        devices,
+        D,
+        get_attribute(model, RELAX_BINARIES_ATTRIBUTE),
+    )
+    add_variables!(
+        container,
+        ActivePowerOutVariable,
+        devices,
+        D,
+        get_attribute(model, RELAX_BINARIES_ATTRIBUTE),
+    )
     add_expressions!(container, NetActivePower, devices, model)
 
     if haskey(get_time_series_names(model), ActivePowerOutTimeSeriesParameter)
@@ -213,8 +243,8 @@ function construct_device!(
             container,
             ReservationVariable,
             devices,
-            D;
-            relax_binaries = get_attribute(model, RELAX_BINARIES_ATTRIBUTE),
+            D,
+            get_attribute(model, RELAX_BINARIES_ATTRIBUTE),
         )
     end
 

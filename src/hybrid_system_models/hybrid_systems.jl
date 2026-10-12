@@ -260,6 +260,7 @@ function add_variables!(
     ::Type{T},
     devices::Vector{U},
     ::Type{<:AbstractHybridFormulation},
+    relax_binaries::Bool,
 ) where {
     T <: Union{HybridEnergyShortageVariable, HybridEnergySurplusVariable},
     U <: PSY.HybridSystem,
@@ -533,6 +534,7 @@ function add_variables!(
     ::Type{T},
     devices::U,
     ::Type{F},
+    relax_binaries::Bool,
 ) where {
     T <: AbstractHybridReserveVariableType,
     U <: Vector{D},
