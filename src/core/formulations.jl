@@ -514,13 +514,33 @@ Struct to add non spinning reserve requirements larger than specified requiremen
 """
 struct NonSpinningReserve <: AbstractReservesFormulation end
 """
-Struct to add a constant maximum transmission flow for specified interface
+Struct to add minimum and maximum transmission flow limits for a `TransmissionInterface`.
+
+Each limit uses a time series when the interface has one. The time series are
+`min_active_power_flow_limit` and `max_active_power_flow_limit`, of the time-series type of
+the model. Each time series value multiplies the static limit of the interface. Without the
+time series, the model uses the static limit. A time series of another time-series type is an
+error. To keep the static limits, pass an empty dictionary to the `ServiceModel`:
+
+```julia
+ServiceModel(
+    PSY.TransmissionInterface,
+    MaxInterfaceFlow;
+    time_series_names = Dict{Type{<:TimeSeriesParameter}, String}(),
+)
+```
 """
-struct ConstantMaxInterfaceFlow <: AbstractServiceFormulation end
-"""
-Struct to add a variable maximum transmission flow for specified interface
-"""
-struct VariableMaxInterfaceFlow <: AbstractServiceFormulation end
+struct MaxInterfaceFlow <: AbstractServiceFormulation end
+Base.@deprecate_binding ConstantMaxInterfaceFlow MaxInterfaceFlow true """
+`ConstantMaxInterfaceFlow` is deprecated. `MaxInterfaceFlow` replaces it. A limit uses a time \
+series when the interface has one named `min_active_power_flow_limit` or \
+`max_active_power_flow_limit` of the time-series type of the model. To keep the static limits, \
+pass `time_series_names = Dict{Type{<:TimeSeriesParameter}, String}()` to the `ServiceModel`."""
+Base.@deprecate_binding VariableMaxInterfaceFlow MaxInterfaceFlow true """
+`VariableMaxInterfaceFlow` is deprecated. `MaxInterfaceFlow` replaces it. A limit uses a time \
+series when the interface has one named `min_active_power_flow_limit` or \
+`max_active_power_flow_limit` of the time-series type of the model. To keep the static limits, \
+pass `time_series_names = Dict{Type{<:TimeSeriesParameter}, String}()` to the `ServiceModel`."""
 
 ############################ Hydro Generation Formulations #################################
 # Defined in PSI copied here for reference

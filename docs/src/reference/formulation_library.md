@@ -731,8 +731,7 @@ package.
 | `StepwiseCostReserve` (operating reserve demand curve) | `PSY.Reserve`               | `ServiceRequirementVariable` + demand-curve slope/breakpoint parameters                                  | `RequirementConstraint` only — no participation constraint |
 | `GroupRangeReserve`                                    | `PSY.GroupReserve`          | no variables                                                                                             | `RequirementConstraint` across contributing services       |
 | `GroupStepwiseCostReserve` (elastic group)             | `PSY.GroupReserve`          | `ServiceRequirementVariable` + group demand-curve slope/breakpoint parameters                            | `RequirementConstraint`: member awards ≥ the group demand  |
-| `ConstantMaxInterfaceFlow`                             | `PSY.TransmissionInterface` | optional slacks, `InterfaceTotalFlow` expression                                                         | `InterfaceFlowLimit` (`"ub"`/`"lb"`)                       |
-| `VariableMaxInterfaceFlow`                             | `PSY.TransmissionInterface` | as above **+ min/max flow-limit parameters**                                                             | as above, with parameterized limits                        |
+| `MaxInterfaceFlow`                                     | `PSY.TransmissionInterface` | optional slacks, `InterfaceTotalFlow` expression, flow-limit parameters for bounds with a series         | `InterfaceFlowLimit` (`"ub"`/`"lb"`), static if no series  |
 
 The group formulations are deliberately constructed **last** in both stages, because they aggregate
 the other services' award variables. A `PSY.GroupReserve` accepts only the group formulations (and

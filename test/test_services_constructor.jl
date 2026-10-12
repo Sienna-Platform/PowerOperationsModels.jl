@@ -748,7 +748,7 @@ end
         template = get_thermal_dispatch_template_network(net)
         set_service_model!(
             template,
-            ServiceModel(TransmissionInterface, ConstantMaxInterfaceFlow),
+            ServiceModel(TransmissionInterface, MaxInterfaceFlow),
         )
         model = DecisionModel(template, c_sys5_uc; optimizer = HiGHS_optimizer)
         @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
@@ -811,7 +811,7 @@ end
         template = get_thermal_dispatch_template_network(net)
         set_service_model!(
             template,
-            ServiceModel(TransmissionInterface, VariableMaxInterfaceFlow),
+            ServiceModel(TransmissionInterface, MaxInterfaceFlow),
         )
         model = DecisionModel(template, c_sys5_uc; optimizer = HiGHS_optimizer)
         @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
@@ -837,7 +837,7 @@ end
     template = get_thermal_dispatch_template_network(DCPNetworkModel)
     set_service_model!(
         template,
-        ServiceModel(TransmissionInterface, ConstantMaxInterfaceFlow; use_slacks = true),
+        ServiceModel(TransmissionInterface, MaxInterfaceFlow; use_slacks = true),
     )
     model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
     @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
@@ -858,7 +858,7 @@ end
 end
 
 @testset "Interface flow-limit params are one container per type" begin
-    # VariableMaxInterfaceFlow builds Min/MaxInterfaceFlowLimitParameter as one container per type
+    # MaxInterfaceFlow builds Min/MaxInterfaceFlowLimitParameter as one container per type
     # over all interface names; the 3-arg fetch below proves the per-type container.
     sys = deepcopy(PSB.build_system(PSITestSystems, "c_sys5_uc"; add_reserves = true))
     interface = TransmissionInterface(;
@@ -883,7 +883,7 @@ end
     template = get_thermal_dispatch_template_network(DCPNetworkModel)
     set_service_model!(
         template,
-        ServiceModel(TransmissionInterface, VariableMaxInterfaceFlow),
+        ServiceModel(TransmissionInterface, MaxInterfaceFlow),
     )
     model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
     @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
@@ -899,6 +899,161 @@ end
     @test size(
         IOM.get_constraint(container, POM.InterfaceFlowLimit, TransmissionInterface, "ub"),
     ) == (1, 24)
+end
+
+function _add_interface_limit_ts!(sys, interface, ts_name, factor)
+    data = Dict(
+        DateTime("2024-01-01T00:00:00") => fill(factor, 24),
+        DateTime("2024-01-02T00:00:00") => fill(factor, 24),
+    )
+    add_time_series!(sys, interface, Deterministic(ts_name, data, Hour(1)))
+    return
+end
+
+function _add_test_interface!(sys, name, lines)
+    interface = TransmissionInterface(;
+        name = name,
+        available = true,
+        active_power_flow_limits = (min = -300.0, max = 400.0),
+        input_basis = u"CU",
+    )
+    add_service!(sys, interface, [get_component(Line, sys, l) for l in lines])
+    return interface
+end
+
+function _build_interface_model(sys)
+    template = get_thermal_dispatch_template_network(DCPNetworkModel)
+    set_service_model!(template, ServiceModel(TransmissionInterface, MaxInterfaceFlow))
+    model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+    return get_optimization_container(model)
+end
+
+# Under DCP the interface flow has no constant term, so the row RHS is the limit itself.
+@testset "MaxInterfaceFlow uses limit parameters only for interfaces with time series" begin
+    sys = deepcopy(PSB.build_system(PSITestSystems, "c_sys5_uc"; add_reserves = true))
+    with_ts = _add_test_interface!(sys, "west_east", ("1", "2", "6"))
+    static = _add_test_interface!(sys, "north_south", ("3", "4"))
+    _add_interface_limit_ts!(sys, with_ts, "min_active_power_flow_limit", 0.5)
+    _add_interface_limit_ts!(sys, with_ts, "max_active_power_flow_limit", 0.5)
+    container = _build_interface_model(sys)
+
+    for P in (POM.MinInterfaceFlowLimitParameter, POM.MaxInterfaceFlowLimitParameter)
+        multiplier = IOM.get_parameter_multiplier_array(container, P, TransmissionInterface)
+        @test axes(multiplier, 1) == ["west_east"]
+    end
+    ub = IOM.get_constraint(container, POM.InterfaceFlowLimit, TransmissionInterface, "ub")
+    lb = IOM.get_constraint(container, POM.InterfaceFlowLimit, TransmissionInterface, "lb")
+    ts_limits = PSY.get_active_power_flow_limits(with_ts, u"SU")
+    static_limits = PSY.get_active_power_flow_limits(static, u"SU")
+    for t in get_time_steps(container)
+        @test JuMP.normalized_rhs(ub["west_east", t]) ≈ 0.5 * ts_limits.max
+        @test JuMP.normalized_rhs(lb["west_east", t]) ≈ 0.5 * ts_limits.min
+        @test JuMP.normalized_rhs(ub["north_south", t]) == static_limits.max
+        @test JuMP.normalized_rhs(lb["north_south", t]) == static_limits.min
+    end
+end
+
+@testset "MaxInterfaceFlow picks a parameter or the static limit per bound" begin
+    sys = deepcopy(PSB.build_system(PSITestSystems, "c_sys5_uc"; add_reserves = true))
+    interface = _add_test_interface!(sys, "west_east", ("1", "2", "6"))
+    _add_interface_limit_ts!(sys, interface, "max_active_power_flow_limit", 0.5)
+    container = _build_interface_model(sys)
+
+    @test IOM.has_container_key(
+        container,
+        POM.MaxInterfaceFlowLimitParameter,
+        TransmissionInterface,
+    )
+    @test !IOM.has_container_key(
+        container,
+        POM.MinInterfaceFlowLimitParameter,
+        TransmissionInterface,
+    )
+    ub = IOM.get_constraint(container, POM.InterfaceFlowLimit, TransmissionInterface, "ub")
+    lb = IOM.get_constraint(container, POM.InterfaceFlowLimit, TransmissionInterface, "lb")
+    limits = PSY.get_active_power_flow_limits(interface, u"SU")
+    for t in get_time_steps(container)
+        @test JuMP.normalized_rhs(ub["west_east", t]) ≈ 0.5 * limits.max
+        @test JuMP.normalized_rhs(lb["west_east", t]) == limits.min
+    end
+end
+
+@testset "MaxInterfaceFlow rejects a limit series of another time series type" begin
+    sys = deepcopy(PSB.build_system(PSITestSystems, "c_sys5_uc"; add_reserves = true))
+    interface = _add_test_interface!(sys, "west_east", ("1", "2", "6"))
+    stamps = range(DateTime("2024-01-01T00:00:00"); step = Hour(1), length = 48)
+    add_time_series!(
+        sys,
+        interface,
+        SingleTimeSeries("max_active_power_flow_limit", TimeArray(stamps, fill(0.5, 48))),
+    )
+    template = get_thermal_dispatch_template_network(DCPNetworkModel)
+    set_service_model!(template, ServiceModel(TransmissionInterface, MaxInterfaceFlow))
+    model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
+    output_dir = mktempdir(; cleanup = true)
+    @test build!(model; output_dir = output_dir) == IOM.ModelBuildStatus.FAILED
+    # The build wraps its logging, so assert on the log rather than at the call site.
+    log_contents = read(joinpath(output_dir, "operation_problem.log"), String)
+    @test occursin(
+        "TransmissionInterface west_east carries a max_active_power_flow_limit time " *
+        "series as SingleTimeSeries, but this model reads Deterministic.",
+        log_contents,
+    )
+end
+
+@testset "MaxInterfaceFlow builds with an initialized unit commitment device" begin
+    sys = deepcopy(PSB.build_system(PSITestSystems, "c_sys5_uc"; add_reserves = true))
+    interface = _add_test_interface!(sys, "west_east", ("1", "2", "6"))
+    _add_interface_limit_ts!(sys, interface, "min_active_power_flow_limit", 0.0)
+    _add_interface_limit_ts!(sys, interface, "max_active_power_flow_limit", 0.9)
+
+    template = get_thermal_dispatch_template_network(DCPNetworkModel)
+    set_device_model!(template, ThermalStandard, ThermalStandardUnitCommitment)
+    set_service_model!(template, ServiceModel(TransmissionInterface, MaxInterfaceFlow))
+    model = DecisionModel(
+        template,
+        sys;
+        optimizer = HiGHS_optimizer,
+        initialize_model = true,
+    )
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+end
+
+@testset "The initial-conditions model keeps the interface time series names" begin
+    sys = deepcopy(PSB.build_system(PSITestSystems, "c_sys5_uc"; add_reserves = true))
+    interface = _add_test_interface!(sys, "west_east", ("1", "2", "6"))
+    stamps = range(DateTime("2024-01-01T00:00:00"); step = Hour(1), length = 48)
+    add_time_series!(
+        sys,
+        interface,
+        SingleTimeSeries("max_active_power_flow_limit", TimeArray(stamps, fill(0.5, 48))),
+    )
+    template = get_thermal_dispatch_template_network(DCPNetworkModel)
+    set_device_model!(template, ThermalStandard, ThermalStandardUnitCommitment)
+    set_service_model!(
+        template,
+        ServiceModel(
+            TransmissionInterface,
+            MaxInterfaceFlow;
+            time_series_names = Dict{Type{<:IOM.TimeSeriesParameter}, String}(),
+        ),
+    )
+    model = DecisionModel(
+        template,
+        sys;
+        optimizer = HiGHS_optimizer,
+        initialize_model = true,
+    )
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+end
+
+@testset "Old interface formulation names alias MaxInterfaceFlow" begin
+    @test ConstantMaxInterfaceFlow === MaxInterfaceFlow
+    @test VariableMaxInterfaceFlow === MaxInterfaceFlow
 end
 
 @testset "Interface with no available contributing branches errors" begin
@@ -921,7 +1076,7 @@ end
     template = get_thermal_dispatch_template_network(DCPNetworkModel)
     set_service_model!(
         template,
-        ServiceModel(TransmissionInterface, ConstantMaxInterfaceFlow),
+        ServiceModel(TransmissionInterface, MaxInterfaceFlow),
     )
     @test_throws "no available contributing devices/branches" DecisionModel(
         template,
@@ -979,7 +1134,7 @@ end
     set_device_model!(template, AreaInterchange, StaticBranch)
     set_service_model!(
         template,
-        ServiceModel(TransmissionInterface, ConstantMaxInterfaceFlow),
+        ServiceModel(TransmissionInterface, MaxInterfaceFlow),
     )
     ps_model = DecisionModel(
         template,
@@ -1095,7 +1250,7 @@ end
     )
     set_service_model!(
         template,
-        ServiceModel(TransmissionInterface, ConstantMaxInterfaceFlow),
+        ServiceModel(TransmissionInterface, MaxInterfaceFlow),
     )
     ps_model = DecisionModel(
         template,
@@ -1213,7 +1368,7 @@ _reduced_entry_kind(::PNM.BranchesParallel) = :parallel
     )
     set_service_model!(
         template,
-        ServiceModel(TransmissionInterface, ConstantMaxInterfaceFlow),
+        ServiceModel(TransmissionInterface, MaxInterfaceFlow),
     )
     spec_network_model = get_network_model(template)
     ps_model = DecisionModel(
@@ -1940,7 +2095,7 @@ end
         )
         set_service_model!(
             template,
-            ServiceModel(TransmissionInterface, ConstantMaxInterfaceFlow),
+            ServiceModel(TransmissionInterface, MaxInterfaceFlow),
         )
         return template
     end
@@ -2007,7 +2162,7 @@ end
     set_device_model!(template, Line, StaticBranch)
     set_service_model!(
         template,
-        ServiceModel(TransmissionInterface, ConstantMaxInterfaceFlow),
+        ServiceModel(TransmissionInterface, MaxInterfaceFlow),
     )
 
     model = DecisionModel(template, c_sys14; optimizer = HiGHS_optimizer)
@@ -2079,7 +2234,7 @@ end
     )
     set_service_model!(
         template,
-        ServiceModel(TransmissionInterface, ConstantMaxInterfaceFlow),
+        ServiceModel(TransmissionInterface, MaxInterfaceFlow),
     )
     model = DecisionModel(
         template,
