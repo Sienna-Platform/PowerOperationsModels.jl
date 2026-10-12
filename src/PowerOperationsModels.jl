@@ -407,6 +407,7 @@ export add_power_flow_data!
 export power_flow_evaluations
 export get_initial_conditions_device_model
 export add_reserve_variables!
+export set_initial_storage_energy!
 
 #################################################################################
 # Exports - Base Models

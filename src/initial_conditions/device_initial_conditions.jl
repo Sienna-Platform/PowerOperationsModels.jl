@@ -155,3 +155,75 @@ function add_initial_condition!(
     end
     return
 end
+
+"""
+Set the initial energy of each `PSY.EnergyReservoirStorage` in a built `DecisionModel`.
+
+`energy` maps a storage name to the stored energy in MWh. The function clamps each value to the
+storage level limits. A storage that is not in `energy`, or has a non-finite value, keeps its
+initial condition. A name in `energy` that is not a storage in the model is ignored.
+
+A parameter initial condition (a model built for recurrent solves) takes the new value. A constant
+initial condition accepts only a value equal to the current one. Otherwise the function throws an error.
+Return the number of initial conditions set or accepted.
+"""
+function set_initial_storage_energy!(
+    model::DecisionModel,
+    energy::AbstractDict{String, <:Real},
+)
+    container = get_optimization_container(model)
+    if !has_container_key(container, InitialEnergyLevel, PSY.EnergyReservoirStorage)
+        return 0
+    end
+    n = 0
+    for ic in get_initial_condition(
+        container,
+        InitialEnergyLevel(),
+        PSY.EnergyReservoirStorage,
+    )
+        storage = IOM.get_component(ic)
+        mwh = get(energy, PSY.get_name(storage), NaN)
+        if isfinite(mwh)
+            n += _set_storage_energy!(ic, _storage_energy_target(storage, mwh))
+        end
+    end
+    return n
+end
+
+# Same conversion as `initial_condition_default(::InitialEnergyLevel, ::PSY.Storage, ...)`.
+function _storage_energy_target(storage::PSY.EnergyReservoirStorage, mwh::Real)
+    capacity = PSY.get_storage_capacity(storage, u"NU")
+    limits = PSY.get_storage_level_limits(storage)
+    level = clamp(mwh / capacity, limits.min, limits.max)
+    return level * PSY.get_storage_capacity(storage, u"SU") *
+           PSY.get_conversion_factor(storage)
+end
+
+function _set_storage_energy!(
+    ic::InitialCondition{InitialEnergyLevel, JuMP.VariableRef},
+    target::Float64,
+)
+    set_ic_quantity!(ic, target)
+    return 1
+end
+
+function _set_storage_energy!(
+    ic::InitialCondition{InitialEnergyLevel, Float64},
+    target::Float64,
+)
+    if !isapprox(IOM.get_condition(ic), target; atol = 1e-9)
+        error(
+            "Cannot set the initial energy of storage $(PSY.get_name(IOM.get_component(ic))): " *
+            "the initial energy is a constant of the built model. " *
+            "Build the model for recurrent solves to change it.",
+        )
+    end
+    return 1
+end
+
+function _set_storage_energy!(
+    ::InitialCondition{InitialEnergyLevel, Nothing},
+    ::Float64,
+)
+    return 0
+end
