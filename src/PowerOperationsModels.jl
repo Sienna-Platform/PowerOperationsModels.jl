@@ -403,6 +403,7 @@ export add_constraints!
 export get_variable_multiplier
 export get_expression_multiplier
 export get_multiplier_value
+export reset_initial_conditions!
 export add_power_flow_data!
 export power_flow_evaluations
 export get_initial_conditions_device_model
