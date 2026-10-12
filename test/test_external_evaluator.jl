@@ -20,13 +20,37 @@ function IOM.reset!(d::CountingEvaluationData)
     return
 end
 
-# IOM calls every evaluator aux key with every evaluation data.
-IOM.calculate_aux_variable_value!(
-    ::IOM.OptimizationContainer,
-    ::IOM.AuxVarKey{<:POM.PowerFlowAuxVariableType},
-    ::PSY.System,
+struct CountingAux <: IOM.AuxVariableType end
+IOM.is_from_evaluator(::Type{CountingAux}) = true
+
+function IOM.add_evaluator_aux_variables!(
+    container::IOM.OptimizationContainer,
+    T::DataType,
     ::CountingEvaluationData,
-) = nothing
+    sys::PSY.System,
+)
+    names = [PSY.get_name(b) for b in PSY.get_components(PSY.ACBus, sys)]
+    IOM.add_aux_variable_container!(
+        container,
+        CountingAux,
+        PSY.ACBus,
+        names,
+        IOM.get_time_steps(container),
+    )
+    IOM.bind_aux_variable!(container, T, IOM.AuxVarKey(CountingAux, PSY.ACBus))
+    return
+end
+
+# The only method for CountingAux: power flow data reaching it is a MethodError.
+function IOM.calculate_aux_variable_value!(
+    container::IOM.OptimizationContainer,
+    key::IOM.AuxVarKey{CountingAux, PSY.ACBus},
+    ::PSY.System,
+    data::CountingEvaluationData,
+)
+    IOM.get_aux_variable(container, key) .= data.n_eval
+    return
+end
 
 function _build_and_solve_external(system, template)
     model = DecisionModel(template, system; optimizer = HiGHS_optimizer)
@@ -86,6 +110,9 @@ end
     evaluation_data = get_evaluation_data(container)
     @test length(evaluation_data) == 2
     @test evaluation_data[CountingEvaluator].n_eval == 1
+    counting_key = IOM.AuxVarKey(CountingAux, PSY.ACBus)
+    @test all(==(1.0), lookup_value(container, counting_key))
+    @test IOM.get_bound_aux_var_keys(container, CountingEvaluator) == [counting_key]
 
     reference = get_optimization_container(
         _build_and_solve_external(
@@ -163,6 +190,10 @@ end
     flows = lookup_value(container, key)
     data = only(values(get_evaluation_data(container)))
     network_data = get_network_data(get_network_model(get_template(model)))
+    n_bound = length(
+        IOM.get_bound_aux_var_keys(container, only(keys(get_evaluation_data(container)))),
+    )
+    @test n_bound > 0
 
     IOM.reset_optimization_model!(container)
     POM.build_problem!(container, get_template(model), get_system(model))
@@ -170,6 +201,9 @@ end
     @test IOM.get_run_status(model) == RunStatus.SUCCESSFULLY_FINALIZED
 
     @test only(values(get_evaluation_data(container))) !== data
+    @test length(
+        IOM.get_bound_aux_var_keys(container, only(keys(get_evaluation_data(container)))),
+    ) == n_bound
     @test get_network_data(get_network_model(get_template(model))) === network_data
     @test all(isapprox.(lookup_value(container, key), flows; atol = 1e-9))
 end

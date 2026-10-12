@@ -436,7 +436,7 @@ end
     end
 end
 
-@testset "PowerFlowAuxVariable dispatch guards on key entry-type" begin
+@testset "A power flow is bound only to the aux vars it provides" begin
     system = build_system(PSITestSystems, "c_sys5_uc")
     template = get_template_dispatch_with_network(
         NetworkModel(PTDFNetworkModel);
@@ -454,13 +454,14 @@ end
     @test IOM.get_entry_type(supported_key) === POM.PowerFlowBranchActivePowerLoss
 
     # Default ACPowerFlow() has `calculate_loss_factors = false`, so
-    # `PowerFlowLossFactors` is not in `bus_aux_vars(pf_data)` and the guard must
-    # early-return: the container has no `PowerFlowLossFactors` aux var to write.
-    pf_e_data = only(values(get_evaluation_data(container)))
+    # `PowerFlowLossFactors` is not in `bus_aux_vars(pf_data)`: the container has no
+    # such aux var, and the evaluator is not bound to it.
+    T = only(keys(get_evaluation_data(container)))
+    bound = IOM.get_bound_aux_var_keys(container, T)
     unsupported_key = AuxVarKey(POM.PowerFlowLossFactors, PSY.ACBus)
-    @test_nowarn IOM.calculate_aux_variable_value!(
-        container, unsupported_key, system, pf_e_data,
-    )
+    @test supported_key in bound
+    @test unsupported_key ∉ bound
+    @test !haskey(IOM.get_aux_variables(container), unsupported_key)
 end
 
 # Regression for issue #1623 ("PowerFlow in the loop mismatch with Sources"), ported from
@@ -926,15 +927,38 @@ end
     vm = lookup_value(container, vm_key)
     @test all(v -> 0.8 < v < 1.2, vm)
 
-    # Ownership follows the evaluator passed in, not `Dict` iteration order: the DC
-    # evaluator leaves the AC-only key alone, the AC evaluator rewrites it. The two
-    # halves are order-proof together — were the evaluator still picked from the
-    # container, one of them fails whichever of the two happened to be picked.
-    # `.data` because a `DenseAxisArray` over bus numbers has no `copy`/`fill!`.
-    solved_vm = copy(vm.data)
-    fill!(vm.data, NaN)
-    IOM.calculate_aux_variable_value!(container, vm_key, system, dc_e_data)
-    @test all(isnan, vm.data)
-    IOM.calculate_aux_variable_value!(container, vm_key, system, ac_e_data)
-    @test vm.data == solved_vm
+    # Each evaluator is bound only to the aux vars it provides.
+    T_of(d) = only(T for (T, v) in evaluation_data if v === d)
+    @test vm_key in IOM.get_bound_aux_var_keys(container, T_of(ac_e_data))
+    @test vm_key ∉ IOM.get_bound_aux_var_keys(container, T_of(dc_e_data))
+end
+
+@testset "Power flows that share an aux var write it in registration order" begin
+    key = AuxVarKey(POM.PowerFlowBranchActivePowerFromTo, Line)
+    flows_for(evs) = begin
+        system = build_system(PSITestSystems, "c_sys5_uc")
+        evaluations = IOM.EvaluationContainer()
+        for ev in evs
+            IOM.add_evaluator!(evaluations, typeof(ev), POM.PowerFlowEvaluator(ev))
+        end
+        template = get_template_dispatch_with_network(
+            NetworkModel(PTDFNetworkModel);
+            evaluations = evaluations,
+        )
+        model = DecisionModel(template, system; optimizer = HiGHS_optimizer)
+        @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+              ModelBuildStatus.BUILT
+        @test solve!(model) == RunStatus.SUCCESSFULLY_FINALIZED
+        container = get_optimization_container(model)
+        for T in keys(get_evaluation_data(container))
+            @test key in IOM.get_bound_aux_var_keys(container, T)
+        end
+        return lookup_value(container, key)
+    end
+    ac = ACPowerFlow(; correct_bustypes = true)
+    both = flows_for((ac, DCPowerFlow()))
+    dc_only = flows_for((DCPowerFlow(),))
+    ac_only = flows_for((ac,))
+    @test all(isapprox.(both, dc_only; atol = 1e-9))
+    @test !all(isapprox.(both, ac_only; atol = 1e-9))
 end

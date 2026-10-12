@@ -266,9 +266,9 @@ function _add_two_terminal_elements_map!(
     return
 end
 
-# Does this power flow container compute aux variable `T`? Drives both registration
-# (`branch_aux_vars`/`bus_aux_vars`) and the read-back guard. An unspecialized container
-# (e.g. `PSSEExporter`) registers nothing and no-ops on read-back.
+# Does this power flow container compute aux variable `T`? Drives registration
+# (`branch_aux_vars`/`bus_aux_vars`) and binding. An unspecialized container
+# (e.g. `PSSEExporter`) provides no aux variables, so none are bound to it.
 _pf_provides_aux_var(::Type{<:POM.PowerFlowAuxVariableType}, ::PFS.PowerFlowContainer) =
     false
 
@@ -401,6 +401,15 @@ function POM.add_power_flow_data!(
 
     _add_aux_variables!(container, branch_aux_var_components)
     _add_aux_variables!(container, bus_aux_var_components)
+
+    for (T, _) in power_flow_evaluators
+        pf_data = IOM.get_inner_data(get_evaluation_data(container, T))
+        provided = vcat(branch_aux_vars(pf_data), bus_aux_vars(pf_data))
+        for key in keys(get_aux_variables(container))
+            IOM.get_entry_type(key) in provided || continue
+            IOM.bind_aux_variable!(container, T, key)
+        end
+    end
 
     # Make the input maps after adding aux vars so output of one power flow can be input of another
     for (T, _) in power_flow_evaluators

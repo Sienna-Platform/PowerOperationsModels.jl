@@ -164,8 +164,9 @@ _check_power_flow_loaded(::IOM.AbstractEvaluator) = nothing
 
 """
 Register the runtime data of every evaluator in `evaluations` that is not a power flow.
-Call `IOM.initialize_evaluation_data` for each one and store the result in the
-evaluation data of `container`.
+Call `IOM.initialize_evaluation_data` for each one, store the result in the
+evaluation data of `container`, and call `IOM.add_evaluator_aux_variables!` so the
+evaluator can add and bind its aux variables.
 Evaluators run in the order they were added, power flows first.
 """
 function add_evaluator_data!(
@@ -185,11 +186,9 @@ function _add_evaluator_data!(
     container::IOM.OptimizationContainer,
     sys::IS.ComponentContainer,
 )
-    IOM.add_evaluation_data!(
-        container,
-        T,
-        IOM.initialize_evaluation_data(evaluator, container, sys),
-    )
+    data = IOM.initialize_evaluation_data(evaluator, container, sys)
+    IOM.add_evaluation_data!(container, T, data)
+    IOM.add_evaluator_aux_variables!(container, T, data, sys)
     return
 end
 
