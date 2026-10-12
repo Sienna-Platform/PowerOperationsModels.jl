@@ -350,6 +350,44 @@ end
     end
 end
 
+@testset "a rebuilt PTDF model wires its own PhaseShifterAngle into the flows" begin
+    # A simulation's rebuild_model step empties the container and calls build_problem!
+    # again; the network model's reduced-branch tracker must not hand the new build the
+    # previous build's variables, which after the reset point at other variables.
+    fixture = _meshed_fixture()
+    template = _controlled_template(PTDFNetworkModel, PSY.TwoWindingTransformer)
+    model = DecisionModel(template, fixture.sys; optimizer = HiGHS_optimizer,
+        rebuild_model = true)
+    container = IOM.get_optimization_container(model)
+    container.built_for_recurrent_solves = true
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+    bound(has, get, v) = has(v) ? get(v) : nothing
+    bounds(a) = [
+        (bound(JuMP.has_lower_bound, JuMP.lower_bound, v),
+            bound(JuMP.has_upper_bound, JuMP.upper_bound, v)) for v in vec(a.data)
+    ]
+    T = PSY.TwoWindingTransformer
+    built = bounds(IOM.get_variable(container, PhaseShifterAngle, T))
+    IOM.reset_optimization_model!(container)
+    POM.build_problem!(container, IOM.get_template(model), IOM.get_system(model))
+
+    alpha = IOM.get_variable(container, PhaseShifterAngle, T)
+    # A stale ref resolves to whichever new variable took its index: another container's
+    # variable, with that variable's bounds.
+    @test bounds(alpha) == built
+    owners = Dict{JuMP.VariableRef, Int}()
+    for (_, vars) in IOM.get_variables(container), v in vars
+        v isa JuMP.VariableRef && (owners[v] = get(owners, v, 0) + 1)
+    end
+    @test all(==(1), values(owners))
+    flows = IOM.get_expression(container, PTDFBranchFlow, T)
+    name = fixture.axis_name
+    for t in get_time_steps(container)
+        @test JuMP.coefficient(flows[name, t], alpha[name, t]) != 0
+    end
+end
+
 @testset "a phase-controlled circuit merged with a parallel branch fails with a clear error" begin
     # Pinning the endpoint buses keeps the circuit off the radial/degree-two paths, but a
     # parallel branch on the same arc is merged regardless, which would silently drop the

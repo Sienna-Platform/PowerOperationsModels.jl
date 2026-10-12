@@ -81,6 +81,9 @@ function build_problem!(
     transmission = get_network_formulation(template)
     transmission_model = get_network_model(template)
     hvdc_model = get_hvdc_network_model(template)
+    # The tracker holds this build's reduced-arc variables and wiring, so every build starts
+    # a fresh one: a rebuild's previous refs point into the emptied JuMP model.
+    _reset_reduced_branch_tracker!(transmission_model, last(get_time_steps(container)))
 
     initialize_system_expressions!(
         container,
@@ -232,6 +235,7 @@ function build_problem!(
     TimerOutputs.@timeit BUILD_PROBLEMS_TIMER "Power Flow Initialization" begin
         add_power_flow_data!(container, transmission_model, sys)
     end
+    add_evaluator_data!(container, transmission_model, sys)
     IOM.check_optimization_container(container)
     _validate_dual_sos_compatibility(container)
     return

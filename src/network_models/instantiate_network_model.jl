@@ -386,14 +386,12 @@ end
 function _finalize_network_reduction!(
     model::NetworkModel,
     branch_models::BranchModelContainer,
-    number_of_steps::Int,
 )
     # After the network data is set, before the
     # device constructors run: drop branch types fully merged away (else their
     # flow vars/constraints would fail to build) and warn about partial drops.
     _prune_fully_reduced_branch_models!(model, branch_models)
     _warn_partially_reduced_monitored_lines!(model, branch_models)
-    _reset_reduced_branch_tracker!(model, number_of_steps)
     return
 end
 
@@ -415,7 +413,7 @@ function IOM.instantiate_network_model!(
         model,
         YbusNetworkData(ybus, _build_catalog(ybus, branch_models)),
     )
-    _finalize_network_reduction!(model, branch_models, number_of_steps)
+    _finalize_network_reduction!(model, branch_models)
     return
 end
 
@@ -447,7 +445,7 @@ function IOM.instantiate_network_model!(
     else
         IOM.set_network_data!(model, DCPNetworkData(ybus, catalog))
     end
-    _finalize_network_reduction!(model, branch_models, number_of_steps)
+    _finalize_network_reduction!(model, branch_models)
     return
 end
 
@@ -478,7 +476,7 @@ function IOM.instantiate_network_model!(
         @debug "System Contains Multiple Subnetworks. Assigning buses to subnetworks."
         _assign_subnetworks_to_buses(model, sys)
     end
-    _finalize_network_reduction!(model, branch_models, number_of_steps)
+    _finalize_network_reduction!(model, branch_models)
     return
 end
 

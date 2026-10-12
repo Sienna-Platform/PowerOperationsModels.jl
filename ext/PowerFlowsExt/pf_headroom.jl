@@ -45,6 +45,32 @@ _accumulate_headroom!(
 ) = nothing
 
 """
+Commitment status per device name and time step, from the commitment variable result or,
+without one, the on-status parameter. A device in neither (no commitment, or must-run) is
+always on.
+"""
+function _commitment_status(
+    container::OptimizationContainer,
+    ::Type{U},
+) where {U <: PSY.Component}
+    if has_container_key(container, POM.OnVariable, U)
+        return _status_by_name(lookup_value(container, VariableKey(POM.OnVariable, U)))
+    elseif has_container_key(container, POM.OnStatusParameter, U)
+        return _status_by_name(
+            lookup_value(container, ParameterKey(POM.OnStatusParameter, U)),
+        )
+    end
+    return Dict{String, Vector{Float64}}()
+end
+
+function _status_by_name(values)
+    names, time_steps = axes(values)
+    return Dict{String, Vector{Float64}}(
+        name => [values[name, t] for t in time_steps] for name in names
+    )
+end
+
+"""
 Accumulate headroom for a single OptimizationContainerKey into `pf_data` and
 `computed_gspf`. The `where {U}` parameter makes the component type a compile-time
 constant, so `PSY.get_component(U, ...)`, `has_container_key(..., U)`, and the
@@ -77,6 +103,7 @@ function _accumulate_headroom!(
         else
             (nothing, nothing)
         end
+    commitment = _commitment_status(container, U)
 
     for (device_name, bus_ix) in component_map
         comp = PSY.get_component(U, sys, device_name)
@@ -88,6 +115,7 @@ function _accumulate_headroom!(
         # limits.max is already in SYSTEM_BASE because units are set at init
         p_max_static = PFS.get_active_power_limits_for_power_flow(comp).max
         has_ts = ts_axis !== nothing && device_name ∈ ts_axis
+        has_commitment = haskey(commitment, device_name)
 
         for t in 1:n_time_steps
             bus_types[bus_ix, t] ∈ (PSY.ACBusTypes.REF, PSY.ACBusTypes.PV) || continue
@@ -97,7 +125,14 @@ function _accumulate_headroom!(
             else
                 p_max_static
             end
-            headroom = p_max_t - p_setpoint
+            on = if has_commitment
+                commitment[device_name][t]
+            else
+                1.0
+            end
+            # Solver noise can leave an off unit's setpoint slightly negative.
+            on < POM.ABSOLUTE_TOLERANCE && continue
+            headroom = on * p_max_t - p_setpoint
             headroom <= 0.0 && continue
 
             computed_gspf[t][(U, device_name)] = headroom
@@ -112,11 +147,12 @@ Recompute per-time-step headroom-proportional generator slack participation fact
 using optimization results. Only runs if headroom proportional slack was enabled
 during initialization.
 
-For each generator at a REF or PV bus, headroom is `P_max(t) - P_setpoint(t)`, where
-`P_setpoint(t)` comes from the optimization result and `P_max(t)` is the minimum of
-the static device limit and any `ActivePowerTimeSeriesParameter` at time `t`. This
-overwrites the PF-initialized values (which were computed once from static system
-data) with time-varying factors.
+For each generator at a REF or PV bus, headroom is `on(t) * P_max(t) - P_setpoint(t)`,
+where `P_setpoint(t)` comes from the optimization result, `P_max(t)` is the minimum of
+the static device limit and any `ActivePowerTimeSeriesParameter` at time `t`, and `on(t)`
+is the commitment status (1 for a device without commitment). An uncommitted unit gets
+no headroom. This overwrites the PF-initialized values (which were computed once from
+static system data) with time-varying factors.
 """
 function _update_headroom_participation_factors!(
     pf_data::PFS.PowerFlowData,

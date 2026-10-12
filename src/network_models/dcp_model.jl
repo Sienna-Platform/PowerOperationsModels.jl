@@ -10,9 +10,8 @@
 
 # Retained (bus name, bus number) pairs, memoized on the reduced-branch tracker so the
 # O(n_buses) name-resolution scan runs once per build instead of once per network
-# variable/constraint type. The tracker is POM-owned and set unconditionally by
-# instantiate_network_model! (which always runs before any add_*!), so it is present
-# here; its cache is cleared on rebuild via empty!.
+# variable/constraint type. The tracker is POM-owned and created fresh by build_problem!
+# before any add_*!, so it is present here and holds only this build's pairs.
 function _bus_name_number_pairs(sys::PSY.System, network_model::NetworkModel{N}) where {N}
     return _bus_name_number_pairs(
         nodal_active_balance_style(N),
