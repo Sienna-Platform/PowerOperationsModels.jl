@@ -1667,6 +1667,7 @@ function calculate_aux_variable_value!(
     container::OptimizationContainer,
     ::AuxVarKey{StorageEnergyOutput, T},
     system::PSY.System,
+    ::PowerSolveContext,
 ) where {T <: PSY.Storage}
     time_steps = get_time_steps(container)
     resolution = get_resolution(container)

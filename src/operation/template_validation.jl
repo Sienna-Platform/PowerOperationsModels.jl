@@ -101,7 +101,10 @@ function validate_template_impl!(model::IOM.AbstractOptimizationModel)
         else
             _validate_branch_slack_request(k, device_model, network_formulation)
             _warn_unenforced_operational_flow_limits(device_model)
-            push!(network_model.modeled_branch_types, get_component_type(device_model))
+            push!(
+                IOM.get_modeled_branch_types(network_model),
+                get_component_type(device_model),
+            )
         end
         if get_attribute(device_model, "filter_function") !== nothing
             model_has_branch_filters = true

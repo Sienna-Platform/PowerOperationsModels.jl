@@ -144,19 +144,50 @@ function get_multiplier_value(
 end
 
 """
-Default fallback for `add_power_flow_data!`: a no-op when no evaluators are present.
-The PowerFlows extension provides the concrete method that handles real evaluators.
-If evaluators are registered without the PowerFlows extension loaded, this errors
-with guidance to load it.
+Default fallback for `add_power_flow_data!`: a no-op unless a power flow evaluator is
+registered. The PowerFlows extension provides the concrete method that handles them.
+If a power flow evaluator is registered without the PowerFlows extension loaded, this
+errors with guidance to load it.
 """
 function add_power_flow_data!(
     ::IOM.OptimizationContainer,
     network_model::IOM.NetworkModel,
     ::IS.ComponentContainer,
 )
-    isempty(IOM.get_evaluations(network_model)) || error(
-        "PowerFlows extension not loaded; add `using PowerFlows` to enable " *
-        "power flow in-the-loop.",
+    for evaluator in values(IOM.get_evaluators(IOM.get_evaluations(network_model)))
+        _check_power_flow_loaded(evaluator)
+    end
+    return
+end
+
+_check_power_flow_loaded(::IOM.AbstractEvaluator) = nothing
+
+"""
+Register the runtime data of every evaluator that is not a power flow. Read the
+evaluators from `network_model`. Call `IOM.initialize_evaluation_data` for each one
+and store the result in the evaluation data of `container`.
+"""
+function add_evaluator_data!(
+    container::IOM.OptimizationContainer,
+    network_model::IOM.NetworkModel,
+    sys::IS.ComponentContainer,
+)
+    for (T, evaluator) in pairs(IOM.get_evaluators(IOM.get_evaluations(network_model)))
+        _add_evaluator_data!(T, evaluator, container, sys)
+    end
+    return
+end
+
+function _add_evaluator_data!(
+    T::DataType,
+    evaluator::IOM.AbstractEvaluator,
+    container::IOM.OptimizationContainer,
+    sys::IS.ComponentContainer,
+)
+    IOM.add_evaluation_data!(
+        container,
+        T,
+        IOM.initialize_evaluation_data(evaluator, container, sys),
     )
     return
 end
@@ -175,6 +206,23 @@ end
 
 "Return the wrapped power-flow model from a `PowerFlowEvaluator`."
 get_power_flow_model(ev::PowerFlowEvaluator) = ev.model
+
+function _check_power_flow_loaded(::PowerFlowEvaluator)
+    error(
+        "PowerFlows extension not loaded; add `using PowerFlows` to enable " *
+        "power flow in-the-loop.",
+    )
+end
+
+# The PowerFlows extension builds the data of power flow evaluators.
+function _add_evaluator_data!(
+    ::DataType,
+    ::PowerFlowEvaluator,
+    ::IOM.OptimizationContainer,
+    ::IS.ComponentContainer,
+)
+    return
+end
 
 """
 Build an `EvaluationContainer` holding a single evaluator. Convenience for the

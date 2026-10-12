@@ -61,6 +61,22 @@ get_hvdc_network_model(template::PowerOperationsProblemTemplate) =
 get_market_model(template::PowerOperationsProblemTemplate) = template.market_model
 
 """
+The `IOM.AbstractSolveContext` of one solve of a `PowerOperationsProblemTemplate`.
+
+The context holds the network model of the template by reference. A standalone aux
+variable reads the network matrices through `get_network_model(context)`.
+No container, template, or model keeps the context.
+"""
+struct PowerSolveContext{N <: NetworkModel} <: IOM.AbstractSolveContext
+    network_model::N
+end
+
+get_network_model(context::PowerSolveContext) = context.network_model
+
+IOM.make_solve_context(template::PowerOperationsProblemTemplate) =
+    PowerSolveContext(get_network_model(template))
+
+"""
 Return the outage-event models attached to `template` via `set_event_model!`.
 """
 get_event_models(template::PowerOperationsProblemTemplate) = template.events

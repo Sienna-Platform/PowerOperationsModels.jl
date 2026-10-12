@@ -344,19 +344,33 @@ end
 
 _with_time_steps(pf::PFS.PSSEExportPowerFlow, ::Int) = pf
 
+function _collect_power_flow_evaluator!(
+    selected::Dict{DataType, POM.PowerFlowEvaluator},
+    T::DataType,
+    evaluator::POM.PowerFlowEvaluator,
+)
+    selected[T] = evaluator
+    return
+end
+
+_collect_power_flow_evaluator!(::Dict, ::DataType, ::IOM.AbstractEvaluator) = nothing
+
 function POM.add_power_flow_data!(
     container::OptimizationContainer,
     network_model::IOM.NetworkModel,
     sys::PSY.System,
 )
-    evaluations = get_evaluations(network_model)
-    isempty(evaluations) && return
+    power_flow_evaluators = Dict{DataType, POM.PowerFlowEvaluator}()
+    for (T, evaluator) in pairs(get_evaluators(get_evaluations(network_model)))
+        _collect_power_flow_evaluator!(power_flow_evaluators, T, evaluator)
+    end
+    isempty(power_flow_evaluators) && return
 
     branch_aux_var_components =
         Dict{Type{<:AuxVariableType}, Set{Tuple{<:DataType, String}}}()
     bus_aux_var_components = Dict{Type{<:AuxVariableType}, Set{Tuple{<:DataType, <:Int}}}()
     n_time_steps = length(get_time_steps(container))
-    for (T, evaluator) in pairs(get_evaluators(evaluations))
+    for (T, evaluator) in pairs(power_flow_evaluators)
         # `evaluator` is a `POM.PowerFlowEvaluator` config wrapper; unwrap to the
         # underlying PowerFlows model before building the runtime container.
         evaluator = _with_time_steps(POM.get_power_flow_model(evaluator), n_time_steps)
@@ -382,15 +396,15 @@ function POM.add_power_flow_data!(
                 get!(bus_aux_var_components, bus_aux_var, Set{Tuple{<:DataType, <:Int}}())
             push!.(Ref(to_add_to), my_bus_components)
         end
-        add_evaluation_data!(evaluations, T, pf_e_data)
+        add_evaluation_data!(container, T, pf_e_data)
     end
 
     _add_aux_variables!(container, branch_aux_var_components)
     _add_aux_variables!(container, bus_aux_var_components)
 
     # Make the input maps after adding aux vars so output of one power flow can be input of another
-    for pf_e_data in values(get_evaluation_data(evaluations))
-        _make_pf_input_map!(pf_e_data, container, sys)
+    for T in keys(power_flow_evaluators)
+        _make_pf_input_map!(get_evaluation_data(container, T), container, sys)
     end
     return
 end

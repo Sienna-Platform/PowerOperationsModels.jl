@@ -215,11 +215,11 @@ function initialize_system_expressions!(
     end
     area_interchanges = PSY.get_available_components(PSY.AreaInterchange, system)
     if isempty(area_interchanges) ||
-       PSY.AreaInterchange ∉ network_model.modeled_branch_types
+       PSY.AreaInterchange ∉ IOM.get_modeled_branch_types(network_model)
         @warn "The system does not contain any AreaInterchanges. The model won't have any power flowing between the areas."
     end
     if !isempty(area_interchanges) &&
-       PSY.AreaInterchange ∉ network_model.modeled_branch_types
+       PSY.AreaInterchange ∉ IOM.get_modeled_branch_types(network_model)
         @warn "AreaInterchanges are not included in the model template. The model won't have any power flowing between the areas."
     end
     _verify_area_subnetwork_topology(system, subnetworks)
