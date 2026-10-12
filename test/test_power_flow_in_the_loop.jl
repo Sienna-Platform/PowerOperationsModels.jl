@@ -35,7 +35,7 @@ end
     @test solve!(model) == RunStatus.SUCCESSFULLY_FINALIZED
 
     container = get_optimization_container(model)
-    pf_e_data = only(values(get_evaluation_data(get_evaluations(container))))
+    pf_e_data = only(values(get_evaluation_data(container)))
     data = get_inner_data(pf_e_data)
 
     computed_gspf = PFS.get_computed_gspf(data)
@@ -120,7 +120,7 @@ end
     @test solve!(model) == RunStatus.SUCCESSFULLY_FINALIZED
 
     container = get_optimization_container(model)
-    pf_e_data = only(values(get_evaluation_data(get_evaluations(container))))
+    pf_e_data = only(values(get_evaluation_data(container)))
     data = get_inner_data(pf_e_data)
     computed_gspf = PFS.get_computed_gspf(data)
 
@@ -164,7 +164,7 @@ end
     @test solve!(model) == RunStatus.SUCCESSFULLY_FINALIZED
 
     container = get_optimization_container(model)
-    pf_e_data = only(values(get_evaluation_data(get_evaluations(container))))
+    pf_e_data = only(values(get_evaluation_data(container)))
     data = get_inner_data(pf_e_data)
     computed_gspf = PFS.get_computed_gspf(data)
     n_time_steps = length(get_time_steps(container))
@@ -219,7 +219,7 @@ end
     @test solve!(model) == RunStatus.SUCCESSFULLY_FINALIZED
 
     container = get_optimization_container(model)
-    data = get_inner_data(only(values(get_evaluation_data(get_evaluations(container)))))
+    data = get_inner_data(only(values(get_evaluation_data(container))))
     computed_gspf = PFS.get_computed_gspf(data)
     on = lookup_value(container, VariableKey(OnVariable, ThermalStandard))
     p = lookup_value(container, VariableKey(ActivePowerVariable, ThermalStandard))
@@ -286,7 +286,7 @@ end
     #    @test solve!(model_m) == RunStatus.SUCCESSFULLY_FINALIZED
     #
     #    container = get_optimization_container(model_m)
-    #    pf_e_data = only(values(get_evaluation_data(get_evaluations(container))))
+    #    pf_e_data = only(values(get_evaluation_data(container)))
     #    data = get_inner_data(pf_e_data)
     #    bus_lookup = PFS.get_bus_lookup(data)
     #
@@ -479,7 +479,7 @@ end
     # Default ACPowerFlow() has `calculate_loss_factors = false`, so
     # `PowerFlowLossFactors` is not in `bus_aux_vars(pf_data)` and the guard must
     # early-return: the container has no `PowerFlowLossFactors` aux var to write.
-    pf_e_data = only(values(get_evaluation_data(get_evaluations(container))))
+    pf_e_data = only(values(get_evaluation_data(container)))
     unsupported_key = AuxVarKey(POM.PowerFlowLossFactors, PSY.ACBus)
     @test_nowarn IOM.calculate_aux_variable_value!(
         container, unsupported_key, system, pf_e_data,
@@ -574,7 +574,7 @@ end
 # conversion). HVDC injections live in PowerFlows' dedicated `bus_hvdc_net_power` channel,
 # not the generic `bus_active_power_injections`.
 _pf_hvdc_data(container) =
-    get_inner_data(only(values(get_evaluation_data(get_evaluations(container)))))
+    get_inner_data(only(values(get_evaluation_data(container))))
 function _hvdc_flow(container, V, name)
     vals = lookup_value(container, VariableKey(V, TwoTerminalGenericHVDCLine))
     return [JuMP.value(vals[name, t]) for t in 1:length(get_time_steps(container))]
@@ -764,7 +764,7 @@ end
               ModelBuildStatus.BUILT
         @test solve!(model_m) == RunStatus.SUCCESSFULLY_FINALIZED
         container = get_optimization_container(model_m)
-        return get_inner_data(only(values(get_evaluation_data(get_evaluations(container)))))
+        return get_inner_data(only(values(get_evaluation_data(container))))
     end
 
     # Newton-Raphson reference (default `ACPolarPowerFlow` solver).
@@ -847,7 +847,7 @@ end
     @test solve!(model) == RunStatus.SUCCESSFULLY_FINALIZED
 
     container = get_optimization_container(model)
-    pf_e_data = only(values(get_evaluation_data(get_evaluations(container))))
+    pf_e_data = only(values(get_evaluation_data(container)))
 
     # `is_solved` tracks what PowerFlows reported, instead of always `true`.
     @test is_solved(pf_e_data) == all(PFS.get_converged(get_inner_data(pf_e_data)))
@@ -879,7 +879,7 @@ end
     @test solve!(model) == RunStatus.SUCCESSFULLY_FINALIZED
 
     container = get_optimization_container(model)
-    pf_e_data = only(values(get_evaluation_data(get_evaluations(container))))
+    pf_e_data = only(values(get_evaluation_data(container)))
     converged = PFS.get_converged(get_inner_data(pf_e_data))
     # Partial failure, so `all(converged)` is doing real work here.
     @test !all(converged)
@@ -915,9 +915,9 @@ end
     @test solve!(model) == RunStatus.SUCCESSFULLY_FINALIZED
 
     container = get_optimization_container(model)
-    @test length(get_evaluation_data(get_evaluations(container))) == 2
+    @test length(get_evaluation_data(container)) == 2
     # The exporter has nothing to converge, and reports solved either way.
-    @test all(is_solved, values(get_evaluation_data(get_evaluations(container))))
+    @test all(is_solved, values(get_evaluation_data(container)))
     @test !isempty(readdir(export_dir))
 
     # The AC evaluator's aux vars are still written.
@@ -940,7 +940,7 @@ end
     @test solve!(model) == RunStatus.SUCCESSFULLY_FINALIZED
 
     container = get_optimization_container(model)
-    evaluation_data = get_evaluation_data(get_evaluations(container))
+    evaluation_data = get_evaluation_data(container)
     @test length(evaluation_data) == 2
     @test all(is_solved, values(evaluation_data))
     ac_e_data = only(

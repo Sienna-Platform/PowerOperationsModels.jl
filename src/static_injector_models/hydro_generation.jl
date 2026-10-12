@@ -2401,6 +2401,7 @@ function calculate_aux_variable_value!(
     container::OptimizationContainer,
     ::AuxVarKey{HydroEnergyOutput, T},
     ::PSY.System,
+    ::PowerSolveContext,
 ) where {T <: PSY.HydroGen}
     time_steps = get_time_steps(container)
     resolution = get_resolution(container)

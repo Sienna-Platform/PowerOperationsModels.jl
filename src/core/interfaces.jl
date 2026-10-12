@@ -163,30 +163,29 @@ end
 _check_power_flow_loaded(::IOM.AbstractEvaluator) = nothing
 
 """
-Register the runtime data of every evaluator that is not a power flow. Calls
-`IOM.initialize_evaluation_data` for each one and stores the result.
+Register the runtime data of every evaluator that is not a power flow. Read the
+evaluators from `network_model`. Call `IOM.initialize_evaluation_data` for each one
+and store the result in the evaluation data of `container`.
 """
 function add_evaluator_data!(
     container::IOM.OptimizationContainer,
     network_model::IOM.NetworkModel,
     sys::IS.ComponentContainer,
 )
-    evaluations = IOM.get_evaluations(network_model)
-    for (T, evaluator) in pairs(IOM.get_evaluators(evaluations))
-        _add_evaluator_data!(evaluations, T, evaluator, container, sys)
+    for (T, evaluator) in pairs(IOM.get_evaluators(IOM.get_evaluations(network_model)))
+        _add_evaluator_data!(T, evaluator, container, sys)
     end
     return
 end
 
 function _add_evaluator_data!(
-    evaluations::IOM.EvaluationContainer,
     T::DataType,
     evaluator::IOM.AbstractEvaluator,
     container::IOM.OptimizationContainer,
     sys::IS.ComponentContainer,
 )
     IOM.add_evaluation_data!(
-        evaluations,
+        container,
         T,
         IOM.initialize_evaluation_data(evaluator, container, sys),
     )
@@ -217,7 +216,6 @@ end
 
 # The PowerFlows extension builds the data of power flow evaluators.
 function _add_evaluator_data!(
-    ::IOM.EvaluationContainer,
     ::DataType,
     ::PowerFlowEvaluator,
     ::IOM.OptimizationContainer,

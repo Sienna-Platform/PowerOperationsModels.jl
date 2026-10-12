@@ -2552,13 +2552,13 @@ function construct_device!(
 end
 
 function _get_branch_map(network_model::NetworkModel)
-    @assert !isempty(network_model.modeled_branch_types)
+    @assert !isempty(IOM.get_modeled_branch_types(network_model))
     catalog = get_branch_catalog(network_model)
     inter_area_branch_map =
     # This method uses ACBranch to support HVDC
         Dict{Tuple{String, String}, Dict{DataType, Vector{String}}}()
     name_to_arc_maps = PNM.get_name_to_arc_maps(catalog)
-    for br_type in network_model.modeled_branch_types
+    for br_type in IOM.get_modeled_branch_types(network_model)
         !haskey(name_to_arc_maps, br_type) && continue
         name_to_arc_map = PNM.get_name_to_arc_map(catalog, br_type)
         for (name, arc) in name_to_arc_map
@@ -2693,7 +2693,7 @@ function _add_hvdc_inter_area_branches!(
     sys::PSY.System,
     network_model::NetworkModel,
 )
-    for br_type in network_model.modeled_branch_types
+    for br_type in IOM.get_modeled_branch_types(network_model)
         _add_hvdc_inter_area_branches_of_type!(inter_area_branch_map, br_type, sys)
     end
     return
