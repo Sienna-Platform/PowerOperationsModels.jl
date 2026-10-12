@@ -1277,7 +1277,9 @@ function add_constraints!(
         name = PSY.get_name(d)
         reservoir = only(PSY.get_connected_head_reservoirs(sys, d))
         reservoir_name = PSY.get_name(reservoir)
-        initial_level = PSY.get_initial_level(reservoir)
+        initial_level =
+            PSY.get_initial_level(reservoir) *
+            _fixed_level_limits(PSY.get_storage_level_limits(reservoir)).max
         elevation_head =
             PSY.get_intake_elevation(reservoir) - PSY.get_powerhouse_elevation(d)
         efficiency = PSY.get_efficiency(d)
@@ -1360,7 +1362,9 @@ function add_constraints!(
 
     for d in devices
         name = PSY.get_name(d)
-        initial_level = PSY.get_initial_level(d)
+        initial_level =
+            PSY.get_initial_level(d) *
+            _fixed_level_limits(PSY.get_storage_level_limits(d)).max
         target_level = PSY.get_level_targets(d)
 
         turbines = PSY.get_downstream_turbines(d)
