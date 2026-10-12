@@ -6,7 +6,13 @@ function construct_device!(
     network_model::NetworkModel{<:AbstractDCPNetworkModel},
 )
     devices = get_device_cache(model)
-    add_variables!(container, ActivePowerVariable, devices, LosslessConverter)
+    add_variables!(
+        container,
+        ActivePowerVariable,
+        devices,
+        LosslessConverter,
+        get_attribute(model, RELAX_BINARIES_ATTRIBUTE),
+    )
     add_to_expression!(
         container,
         ActivePowerBalance,
@@ -45,10 +51,16 @@ end
 function _add_converter_loss_current_var!(
     container::OptimizationContainer,
     devices,
-    ::DeviceModel{PSY.InterconnectingConverter, F},
+    model::DeviceModel{PSY.InterconnectingConverter, F},
     ::NetworkModel{<:_ConverterACVoltageNetwork},
 ) where {F <: AbstractQuadraticLossConverter}
-    add_variables!(container, ConverterACCurrentVariable, devices, F)
+    add_variables!(
+        container,
+        ConverterACCurrentVariable,
+        devices,
+        F,
+        get_attribute(model, RELAX_BINARIES_ATTRIBUTE),
+    )
     return
 end
 
@@ -56,10 +68,16 @@ end
 function _add_converter_loss_current_var!(
     container::OptimizationContainer,
     devices,
-    ::DeviceModel{PSY.InterconnectingConverter, F},
+    model::DeviceModel{PSY.InterconnectingConverter, F},
     ::NetworkModel{<:AbstractActivePowerModel},
 ) where {F <: AbstractQuadraticLossConverter}
-    add_variables!(container, CurrentAbsoluteValueVariable, devices, F)
+    add_variables!(
+        container,
+        CurrentAbsoluteValueVariable,
+        devices,
+        F,
+        get_attribute(model, RELAX_BINARIES_ATTRIBUTE),
+    )
     return
 end
 
@@ -68,10 +86,16 @@ end
 function _add_converter_loss_current_var!(
     container::OptimizationContainer,
     devices,
-    ::DeviceModel{PSY.InterconnectingConverter, F},
+    model::DeviceModel{PSY.InterconnectingConverter, F},
     ::NetworkModel{LPACCNetworkModel},
 ) where {F <: AbstractQuadraticLossConverter}
-    add_variables!(container, CurrentAbsoluteValueVariable, devices, F)
+    add_variables!(
+        container,
+        CurrentAbsoluteValueVariable,
+        devices,
+        F,
+        get_attribute(model, RELAX_BINARIES_ATTRIBUTE),
+    )
     return
 end
 
@@ -116,8 +140,20 @@ function _add_converter_dc_arguments!(
     model::DeviceModel{PSY.InterconnectingConverter, F},
     network_model::NetworkModel,
 ) where {F <: AbstractQuadraticLossConverter}
-    add_variables!(container, ActivePowerVariable, devices, F)
-    add_variables!(container, ConverterCurrent, devices, F)
+    add_variables!(
+        container,
+        ActivePowerVariable,
+        devices,
+        F,
+        get_attribute(model, RELAX_BINARIES_ATTRIBUTE),
+    )
+    add_variables!(
+        container,
+        ConverterCurrent,
+        devices,
+        F,
+        get_attribute(model, RELAX_BINARIES_ATTRIBUTE),
+    )
     _add_converter_loss_current_var!(container, devices, model, network_model)
     add_to_expression!(
         container, ActivePowerBalance, ActivePowerVariable,
@@ -272,7 +308,13 @@ function construct_device!(
     network_model::NetworkModel{<:NativeACNetworkModel},
 )
     devices = get_device_cache(model)
-    add_variables!(container, ActivePowerVariable, devices, LosslessConverter)
+    add_variables!(
+        container,
+        ActivePowerVariable,
+        devices,
+        LosslessConverter,
+        get_attribute(model, RELAX_BINARIES_ATTRIBUTE),
+    )
     add_to_expression!(
         container,
         ActivePowerBalance,
@@ -319,8 +361,20 @@ function construct_device!(
     network_model::NetworkModel{<:AbstractDCPNetworkModel},
 )
     devices = get_device_cache(model)
-    add_variables!(container, ActivePowerVariable, devices, LinearLossConverter)
-    add_variables!(container, CurrentAbsoluteValueVariable, devices, LinearLossConverter)
+    add_variables!(
+        container,
+        ActivePowerVariable,
+        devices,
+        LinearLossConverter,
+        get_attribute(model, RELAX_BINARIES_ATTRIBUTE),
+    )
+    add_variables!(
+        container,
+        CurrentAbsoluteValueVariable,
+        devices,
+        LinearLossConverter,
+        get_attribute(model, RELAX_BINARIES_ATTRIBUTE),
+    )
     add_to_expression!(
         container,
         ActivePowerBalance,
@@ -364,8 +418,20 @@ function construct_device!(
     network_model::NetworkModel{<:NativeACNetworkModel},
 )
     devices = get_device_cache(model)
-    add_variables!(container, ActivePowerVariable, devices, LinearLossConverter)
-    add_variables!(container, CurrentAbsoluteValueVariable, devices, LinearLossConverter)
+    add_variables!(
+        container,
+        ActivePowerVariable,
+        devices,
+        LinearLossConverter,
+        get_attribute(model, RELAX_BINARIES_ATTRIBUTE),
+    )
+    add_variables!(
+        container,
+        CurrentAbsoluteValueVariable,
+        devices,
+        LinearLossConverter,
+        get_attribute(model, RELAX_BINARIES_ATTRIBUTE),
+    )
     add_to_expression!(
         container,
         ActivePowerBalance,
@@ -415,7 +481,13 @@ function construct_device!(
     network_model::NetworkModel{<:AbstractNetworkModel},
 )
     devices = get_device_cache(model)
-    add_variables!(container, FlowActivePowerVariable, devices, LosslessLine)
+    add_variables!(
+        container,
+        FlowActivePowerVariable,
+        devices,
+        LosslessLine,
+        get_attribute(model, RELAX_BINARIES_ATTRIBUTE),
+    )
     add_to_expression!(
         container,
         ActivePowerBalance,
@@ -446,7 +518,13 @@ function construct_device!(
 )
     devices = get_device_cache(model)
 
-    add_variables!(container, DCLineCurrent, devices, DCLossyLine)
+    add_variables!(
+        container,
+        DCLineCurrent,
+        devices,
+        DCLossyLine,
+        get_attribute(model, RELAX_BINARIES_ATTRIBUTE),
+    )
     add_to_expression!(
         container,
         DCCurrentBalance,

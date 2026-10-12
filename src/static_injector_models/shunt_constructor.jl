@@ -73,8 +73,20 @@ function construct_device!(
     network_model::NetworkModel{<:AbstractNetworkModel},
 ) where {R <: Union{PSY.SwitchedAdmittance, PSY.FACTSControlDevice}}
     devices = get_device_cache(model)
-    add_variables!(container, ShuntSusceptanceVariable, devices, ShuntSusceptanceDispatch)
-    add_variables!(container, ReactivePowerVariable, devices, ShuntSusceptanceDispatch)
+    add_variables!(
+        container,
+        ShuntSusceptanceVariable,
+        devices,
+        ShuntSusceptanceDispatch,
+        get_attribute(model, RELAX_BINARIES_ATTRIBUTE),
+    )
+    add_variables!(
+        container,
+        ReactivePowerVariable,
+        devices,
+        ShuntSusceptanceDispatch,
+        get_attribute(model, RELAX_BINARIES_ATTRIBUTE),
+    )
     _add_shunt_regulated_voltage!(container, devices, sys, network_model)
     add_to_expression!(
         container,
@@ -191,7 +203,13 @@ function construct_device!(
     network_model::NetworkModel{<:AbstractNetworkModel},
 ) where {R <: Union{PSY.SwitchedAdmittance, PSY.FACTSControlDevice}}
     devices = get_device_cache(model)
-    add_variables!(container, ReactivePowerVariable, devices, FixedShuntAdmittance)
+    add_variables!(
+        container,
+        ReactivePowerVariable,
+        devices,
+        FixedShuntAdmittance,
+        get_attribute(model, RELAX_BINARIES_ATTRIBUTE),
+    )
     add_to_expression!(
         container,
         ReactivePowerBalance,

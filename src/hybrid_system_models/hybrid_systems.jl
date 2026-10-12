@@ -23,6 +23,7 @@ function get_default_attributes(
         "storage_reservation" => true,
         "energy_target" => false,
         "regularization" => false,
+        RELAX_BINARIES_ATTRIBUTE => false,
     )
 end
 
@@ -259,6 +260,7 @@ function add_variables!(
     ::Type{T},
     devices::Vector{U},
     ::Type{<:AbstractHybridFormulation},
+    relax_binaries::Bool,
 ) where {
     T <: Union{HybridEnergyShortageVariable, HybridEnergySurplusVariable},
     U <: PSY.HybridSystem,
@@ -532,6 +534,7 @@ function add_variables!(
     ::Type{T},
     devices::U,
     ::Type{F},
+    relax_binaries::Bool,
 ) where {
     T <: AbstractHybridReserveVariableType,
     U <: Vector{D},

@@ -21,7 +21,7 @@ function get_default_attributes(
     ::Type{U},
     ::Type{V},
 ) where {U <: PSY.SynchronousCondenser, V <: AbstractReactivePowerDeviceFormulation}
-    return Dict{String, Any}()
+    return Dict{String, Any}(RELAX_BINARIES_ATTRIBUTE => false)
 end
 
 function get_default_time_series_names(

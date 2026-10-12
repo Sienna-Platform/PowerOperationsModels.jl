@@ -464,12 +464,20 @@ function construct_device!(
 ) where {T <: PSY.TwoTerminalHVDC}
     devices = get_device_cache(device_model)
     _warn_no_hvdc_reactive_capability(devices)
-    add_variables!(container, FlowActivePowerVariable, devices, HVDCTwoTerminalLossless)
+    add_variables!(
+        container,
+        FlowActivePowerVariable,
+        devices,
+        HVDCTwoTerminalLossless,
+        get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
+    )
     add_variables!(
         container, FlowReactivePowerFromToVariable, devices, HVDCTwoTerminalLossless,
+        get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
     )
     add_variables!(
         container, FlowReactivePowerToFromVariable, devices, HVDCTwoTerminalLossless,
+        get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
     )
     add_to_expression!(
         container,
@@ -1433,6 +1441,7 @@ function construct_device!(
             FlowActivePowerSlackUpperBound,
             devices,
             StaticBranch,
+            get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
         )
     end
     add_feedforward_arguments!(container, device_model, devices)
@@ -1488,7 +1497,13 @@ function _add_hvdc_active_flow_arguments!(
     network_model::NetworkModel,
     ::Type{F},
 ) where {F}
-    add_variables!(container, FlowActivePowerVariable, devices, F)
+    add_variables!(
+        container,
+        FlowActivePowerVariable,
+        devices,
+        F,
+        get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
+    )
     add_to_expression!(
         container,
         ActivePowerBalance,
@@ -1587,12 +1602,20 @@ function construct_device!(
     network_model::NetworkModel{ACPNetworkModel},
 ) where {T <: PSY.TwoTerminalHVDC}
     devices = get_device_cache(device_model)
-    add_variables!(container, FlowActivePowerVariable, devices, HVDCTwoTerminalUnbounded)
+    add_variables!(
+        container,
+        FlowActivePowerVariable,
+        devices,
+        HVDCTwoTerminalUnbounded,
+        get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
+    )
     add_variables!(
         container, FlowReactivePowerFromToVariable, devices, HVDCTwoTerminalUnbounded,
+        get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
     )
     add_variables!(
         container, FlowReactivePowerToFromVariable, devices, HVDCTwoTerminalUnbounded,
+        get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
     )
     add_to_expression!(
         container,
@@ -1633,12 +1656,20 @@ function construct_device!(
     },
 ) where {T <: PSY.TwoTerminalHVDC}
     devices = get_device_cache(device_model)
-    add_variables!(container, FlowActivePowerVariable, devices, HVDCTwoTerminalUnbounded)
+    add_variables!(
+        container,
+        FlowActivePowerVariable,
+        devices,
+        HVDCTwoTerminalUnbounded,
+        get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
+    )
     add_variables!(
         container, FlowReactivePowerFromToVariable, devices, HVDCTwoTerminalUnbounded,
+        get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
     )
     add_variables!(
         container, FlowReactivePowerToFromVariable, devices, HVDCTwoTerminalUnbounded,
+        get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
     )
     add_to_expression!(
         container,
@@ -1880,12 +1911,20 @@ function construct_device!(
 ) where {T <: PSY.TwoTerminalHVDC}
     devices = get_device_cache(device_model)
     _warn_no_hvdc_reactive_capability(devices)
-    add_variables!(container, FlowActivePowerVariable, devices, HVDCTwoTerminalLossless)
+    add_variables!(
+        container,
+        FlowActivePowerVariable,
+        devices,
+        HVDCTwoTerminalLossless,
+        get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
+    )
     add_variables!(
         container, FlowReactivePowerFromToVariable, devices, HVDCTwoTerminalLossless,
+        get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
     )
     add_variables!(
         container, FlowReactivePowerToFromVariable, devices, HVDCTwoTerminalLossless,
+        get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
     )
     add_to_expression!(
         container,
@@ -1945,15 +1984,29 @@ function construct_device!(
         FlowActivePowerToFromVariable,
         devices,
         HVDCTwoTerminalDispatch,
+        get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
     )
     add_variables!(
         container,
         FlowActivePowerFromToVariable,
         devices,
         HVDCTwoTerminalDispatch,
+        get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
     )
-    add_variables!(container, HVDCLosses, devices, HVDCTwoTerminalDispatch)
-    add_variables!(container, HVDCFlowDirectionVariable, devices, HVDCTwoTerminalDispatch)
+    add_variables!(
+        container,
+        HVDCLosses,
+        devices,
+        HVDCTwoTerminalDispatch,
+        get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
+    )
+    add_variables!(
+        container,
+        HVDCFlowDirectionVariable,
+        devices,
+        HVDCTwoTerminalDispatch,
+        get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
+    )
     add_to_expression!(
         container,
         ActivePowerBalance,
@@ -2026,15 +2079,29 @@ function construct_device!(
         FlowActivePowerToFromVariable,
         devices,
         HVDCTwoTerminalDispatch,
+        get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
     )
     add_variables!(
         container,
         FlowActivePowerFromToVariable,
         devices,
         HVDCTwoTerminalDispatch,
+        get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
     )
-    add_variables!(container, HVDCFlowDirectionVariable, devices, HVDCTwoTerminalDispatch)
-    add_variables!(container, HVDCLosses, devices, HVDCTwoTerminalDispatch)
+    add_variables!(
+        container,
+        HVDCFlowDirectionVariable,
+        devices,
+        HVDCTwoTerminalDispatch,
+        get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
+    )
+    add_variables!(
+        container,
+        HVDCLosses,
+        devices,
+        HVDCTwoTerminalDispatch,
+        get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
+    )
     add_to_expression!(
         container,
         ActivePowerBalance,
@@ -2105,12 +2172,14 @@ function construct_device!(
         HVDCActivePowerReceivedFromVariable,
         devices,
         HVDCTwoTerminalPiecewiseLoss,
+        get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
     )
     add_variables!(
         container,
         HVDCActivePowerReceivedToVariable,
         devices,
         HVDCTwoTerminalPiecewiseLoss,
+        get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
     )
     _add_sparse_pwl_loss_variables!(container, devices, device_model)
     add_to_expression!(
@@ -2236,102 +2305,119 @@ function construct_device!(
         HVDCRectifierActivePowerVariable,
         devices,
         HVDCTwoTerminalLCC,
+        get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
     )
     add_variables!(
         container,
         HVDCInverterActivePowerVariable,
         devices,
         HVDCTwoTerminalLCC,
+        get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
     )
     add_variables!(
         container,
         HVDCRectifierReactivePowerVariable,
         devices,
         HVDCTwoTerminalLCC,
+        get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
     )
     add_variables!(
         container,
         HVDCInverterReactivePowerVariable,
         devices,
         HVDCTwoTerminalLCC,
+        get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
     )
     add_variables!(
         container,
         HVDCRectifierDelayAngleVariable,
         devices,
         HVDCTwoTerminalLCC,
+        get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
     )
     add_variables!(
         container,
         HVDCInverterExtinctionAngleVariable,
         devices,
         HVDCTwoTerminalLCC,
+        get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
     )
     add_variables!(
         container,
         HVDCRectifierPowerFactorAngleVariable,
         devices,
         HVDCTwoTerminalLCC,
+        get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
     )
     add_variables!(
         container,
         HVDCInverterPowerFactorAngleVariable,
         devices,
         HVDCTwoTerminalLCC,
+        get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
     )
     add_variables!(
         container,
         HVDCRectifierOverlapAngleVariable,
         devices,
         HVDCTwoTerminalLCC,
+        get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
     )
     add_variables!(
         container,
         HVDCInverterOverlapAngleVariable,
         devices,
         HVDCTwoTerminalLCC,
+        get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
     )
     add_variables!(
         container,
         HVDCRectifierDCVoltageVariable,
         devices,
         HVDCTwoTerminalLCC,
+        get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
     )
     add_variables!(
         container,
         HVDCInverterDCVoltageVariable,
         devices,
         HVDCTwoTerminalLCC,
+        get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
     )
     add_variables!(
         container,
         HVDCRectifierACCurrentVariable,
         devices,
         HVDCTwoTerminalLCC,
+        get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
     )
     add_variables!(
         container,
         HVDCInverterACCurrentVariable,
         devices,
         HVDCTwoTerminalLCC,
+        get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
     )
     add_variables!(
         container,
         DCLineCurrentFlowVariable,
         devices,
         HVDCTwoTerminalLCC,
+        get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
     )
     add_variables!(
         container,
         HVDCRectifierTapSettingVariable,
         devices,
         HVDCTwoTerminalLCC,
+        get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
     )
     add_variables!(
         container,
         HVDCInverterTapSettingVariable,
         devices,
         HVDCTwoTerminalLCC,
+        get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
     )
 
     # Expressions
@@ -2786,11 +2872,41 @@ function construct_device!(
 ) where {F <: AbstractTwoTerminalVSCFormulation}
     devices = get_device_cache(device_model)
 
-    add_variables!(container, FlowActivePowerFromToVariable, devices, F)
-    add_variables!(container, FlowActivePowerToFromVariable, devices, F)
-    add_variables!(container, DCLineCurrentFlowVariable, devices, F)
-    add_variables!(container, HVDCFromDCVoltage, devices, F)
-    add_variables!(container, HVDCToDCVoltage, devices, F)
+    add_variables!(
+        container,
+        FlowActivePowerFromToVariable,
+        devices,
+        F,
+        get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
+    )
+    add_variables!(
+        container,
+        FlowActivePowerToFromVariable,
+        devices,
+        F,
+        get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
+    )
+    add_variables!(
+        container,
+        DCLineCurrentFlowVariable,
+        devices,
+        F,
+        get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
+    )
+    add_variables!(
+        container,
+        HVDCFromDCVoltage,
+        devices,
+        F,
+        get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
+    )
+    add_variables!(
+        container,
+        HVDCToDCVoltage,
+        devices,
+        F,
+        get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
+    )
 
     _maybe_add_reactive_power_variables!(
         container, devices, device_model, network_model,

@@ -420,56 +420,69 @@ function get_default_attributes(
     ::Type{T},
     ::Type{D},
 ) where {T <: PSY.HydroGen, D <: Union{FixedOutput, AbstractHydroFormulation}}
-    return Dict{String, Any}("reservation" => false)
+    return Dict{String, Any}("reservation" => false, RELAX_BINARIES_ATTRIBUTE => false)
 end
 
 function get_default_attributes(
     ::Type{T},
     ::Type{HydroDispatchRunOfRiver},
 ) where {T <: PSY.HydroGen}
-    return Dict{String, Any}("reservation" => false, "hydro_budget" => false)
+    return Dict{String, Any}(
+        "reservation" => false,
+        "hydro_budget" => false,
+        RELAX_BINARIES_ATTRIBUTE => false,
+    )
 end
 
 function get_default_attributes(
     ::Type{T},
     ::Type{D},
 ) where {T <: PSY.HydroGen, D <: AbstractHydroUnitCommitment}
-    return Dict{String, Any}("reservation" => false)
+    return Dict{String, Any}("reservation" => false, RELAX_BINARIES_ATTRIBUTE => false)
 end
 
 function get_default_attributes(
     ::Type{T},
     ::Type{D},
 ) where {T <: PSY.HydroGen, D <: AbstractHydroReservoirFormulation}
-    return Dict{String, Any}("reservation" => false)
+    return Dict{String, Any}("reservation" => false, RELAX_BINARIES_ATTRIBUTE => false)
 end
 
 function get_default_attributes(
     ::Type{T},
     ::Type{D},
 ) where {T <: PSY.HydroTurbine, D <: HydroTurbineWaterLinearDispatch}
-    return Dict{String, Any}("head_fraction_usage" => 0.0)
+    return Dict{String, Any}(
+        "head_fraction_usage" => 0.0,
+        RELAX_BINARIES_ATTRIBUTE => false,
+    )
 end
 
 function get_default_attributes(
     ::Type{T},
     ::Type{D},
 ) where {T <: PSY.HydroTurbine, D <: HydroTurbineBilinearDispatch}
-    return copy(BILINEAR_APPROX_DEFAULT_ATTRIBUTES)
+    return merge(
+        BILINEAR_APPROX_DEFAULT_ATTRIBUTES,
+        Dict{String, Any}(RELAX_BINARIES_ATTRIBUTE => false),
+    )
 end
 
 function get_default_attributes(
     ::Type{T},
     ::Type{D},
 ) where {T <: PSY.HydroTurbine, D <: HydroTurbineWaterLinearCommitment}
-    return Dict{String, Any}("head_fraction_usage" => 0.0)
+    return Dict{String, Any}(
+        "head_fraction_usage" => 0.0,
+        RELAX_BINARIES_ATTRIBUTE => false,
+    )
 end
 
 function get_default_attributes(
     ::Type{PSY.HydroReservoir},
     ::Type{HydroWaterFactorModel},
 )
-    return Dict{String, Any}()
+    return Dict{String, Any}(RELAX_BINARIES_ATTRIBUTE => false)
 end
 
 function get_default_attributes(
@@ -479,6 +492,7 @@ function get_default_attributes(
     return Dict{String, Any}(
         "energy_target" => false,
         "hydro_budget" => false,
+        RELAX_BINARIES_ATTRIBUTE => false,
     )
 end
 
@@ -489,6 +503,7 @@ function get_default_attributes(
     return Dict{String, Any}(
         "hydro_target" => false,
         "hydro_budget" => false,
+        RELAX_BINARIES_ATTRIBUTE => false,
     )
 end
 
@@ -498,6 +513,7 @@ function get_default_attributes(
 )
     return Dict{String, Any}(
         "reservation" => false,
+        RELAX_BINARIES_ATTRIBUTE => false,
     )
 end
 

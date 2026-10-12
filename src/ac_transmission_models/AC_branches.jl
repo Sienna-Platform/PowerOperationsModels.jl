@@ -79,6 +79,7 @@ function get_default_attributes(
     return Dict{String, Any}(
         PARALLEL_BRANCH_MAX_RATING_KEY => "single_element_contingency",
         _control_attribute(U, V)...,
+        RELAX_BINARIES_ATTRIBUTE => false,
     )
 end
 
@@ -90,6 +91,7 @@ function get_default_attributes(
         PARALLEL_BRANCH_MAX_RATING_KEY => "single_element_contingency",
         "include_planned_outages" => false,
         _control_attribute(U, V)...,
+        RELAX_BINARIES_ATTRIBUTE => false,
     )
 end
 

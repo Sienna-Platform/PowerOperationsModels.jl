@@ -17,7 +17,7 @@ function add_variables!(
     sys::PSY.System,
     network_model::NetworkModel{N},
 ) where {T <: Union{VoltageReal, VoltageImaginary}, N <: _RectangularVoltageNetworks}
-    add_variables!(container, T, _network_buses(sys, network_model), N)
+    add_variables!(container, T, _network_buses(sys, network_model), N, false)
     return
 end
 
