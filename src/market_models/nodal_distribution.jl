@@ -315,21 +315,30 @@ function get_settlement_locations(
 end
 
 """
-Write a signed contribution into a settlement location's cleared-position expression.
-The single API market transactions use; an unhandled location type (an `Area` or `Arc`)
+Fetch the cleared-position expression container of a settlement location's type. Fetch it
+once per location, outside the time loop. An unhandled location type (an `Area` or `Arc`)
 has no method and fails loudly.
 """
-function add_cleared_position!(
+function get_cleared_position_expression(
     container::OptimizationContainer,
-    location::T,
+    ::T,
+) where {T <: SettlementLocation}
+    return get_expression(container, AggregateClearedInjection, T)
+end
+
+"""
+Write a signed contribution into a settlement location's cleared-position expression.
+`expression` comes from [`get_cleared_position_expression`](@ref) and `name` is the
+location name. The single API market transactions use.
+"""
+function add_cleared_position!(
+    expression,
+    name::String,
     variable::JuMP.VariableRef,
     multiplier::Float64,
     t::Int,
-) where {T <: SettlementLocation}
-    expression = get_expression(container, AggregateClearedInjection, T)
-    add_proportional_to_jump_expression!(
-        expression[PSY.get_name(location), t], variable, multiplier,
-    )
+)
+    add_proportional_to_jump_expression!(expression[name, t], variable, multiplier)
     return
 end
 
@@ -380,7 +389,21 @@ function construct_market_component!(
     constraint = add_constraints_container!(
         container, ClearedPositionConstraint, T, names, time_steps,
     )
-    jump_model = get_jump_model(container)
+    _add_cleared_position_rows!(
+        constraint, variable, expression, names, time_steps, get_jump_model(container),
+    )
+    return
+end
+
+# Function barrier: `variable` and `expression` come from abstractly typed containers.
+function _add_cleared_position_rows!(
+    constraint,
+    variable,
+    expression,
+    names,
+    time_steps,
+    jump_model::JuMP.Model,
+)
     for name in names, t in time_steps
         constraint[name, t] = JuMP.@constraint(
             jump_model, variable[name, t] == expression[name, t],
@@ -407,7 +430,13 @@ function distribute_cleared_position!(
     factors = _distribution_factors(container, sys, location, network_model, buses)
     position = get_variable(container, ClearedPositionVariable, T)
     nodal = get_expression(container, ActivePowerBalance, PSY.ACBus)
-    for bus_no in axes(factors)[1], t in get_time_steps(container)
+    _distribute_position!(nodal, position, factors, name, get_time_steps(container))
+    return
+end
+
+# Function barrier: `nodal` and `position` come from abstractly typed containers.
+function _distribute_position!(nodal, position, factors, name, time_steps)
+    for bus_no in axes(factors)[1], t in time_steps
         add_proportional_to_jump_expression!(
             nodal[bus_no, t], position[name, t], factors[bus_no, t],
         )

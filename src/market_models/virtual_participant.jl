@@ -332,12 +332,22 @@ function _add_block_bid_quantity_rows!(container::OptimizationContainer, devices
         )
         p = _get_award_variable(container, dir)
         z = _get_block_bid_variable(container, dir)
-        for name in names, t in time_steps
-            quantity = _offer_quantity(dir, container, by_name[name], t)
-            rows[name, t] = JuMP.@constraint(
-                jump_model, p[name, t] - quantity * z[name, t] == 0,
-            )
-        end
+        _add_quantity_rows!(
+            rows, p, z, names, by_name, dir, container, time_steps, jump_model,
+        )
+    end
+    return
+end
+
+# Function barrier: `p` and `z` come from abstractly typed containers.
+function _add_quantity_rows!(
+    rows, p, z, names, by_name, dir, container, time_steps, jump_model,
+)
+    for name in names, t in time_steps
+        quantity = _offer_quantity(dir, container, by_name[name], t)
+        rows[name, t] = JuMP.@constraint(
+            jump_model, p[name, t] - quantity * z[name, t] == 0,
+        )
     end
     return
 end
@@ -509,15 +519,17 @@ several hubs is rejected until a per-hub split exists rather than silently over-
 function _add_virtual_location_writes!(
     container::OptimizationContainer,
     d::PSY.VirtualParticipant,
-    p_out::JuMP.VariableRef,
-    p_in::JuMP.VariableRef,
-    t::Int,
+    p_out,
+    p_in,
+    time_steps,
     ::NetworkModel{<:AbstractNetworkModel},
 )
     point = PSY.get_settlement_point(d)
     if point !== nothing
-        add_cleared_position!(container, point, p_out, 1.0, t)
-        add_cleared_position!(container, point, p_in, -1.0, t)
+        _add_location_positions!(
+            get_cleared_position_expression(container, point),
+            PSY.get_name(point), p_out, p_in, PSY.get_name(d), time_steps,
+        )
         return
     end
     hubs = PSY.get_trading_hubs(d)
@@ -529,8 +541,21 @@ function _add_virtual_location_writes!(
         )
     end
     for hub in hubs
-        add_cleared_position!(container, hub, p_out, 1.0, t)
-        add_cleared_position!(container, hub, p_in, -1.0, t)
+        _add_location_positions!(
+            get_cleared_position_expression(container, hub),
+            PSY.get_name(hub), p_out, p_in, PSY.get_name(d), time_steps,
+        )
+    end
+    return
+end
+
+# Function barrier: `expression` comes from an abstractly typed container.
+function _add_location_positions!(
+    expression, location_name, p_out, p_in, name, time_steps,
+)
+    for t in time_steps
+        add_cleared_position!(expression, location_name, p_out[name, t], 1.0, t)
+        add_cleared_position!(expression, location_name, p_in[name, t], -1.0, t)
     end
     return
 end
@@ -538,9 +563,9 @@ end
 function _add_virtual_location_writes!(
     ::OptimizationContainer,
     ::PSY.VirtualParticipant,
-    ::JuMP.VariableRef,
-    ::JuMP.VariableRef,
-    ::Int,
+    p_out,
+    p_in,
+    time_steps,
     ::NetworkModel{CopperPlateNetworkModel},
 )
     return
@@ -594,11 +619,9 @@ function construct_market_component!(
         )
         _add_settlement_terms!(settlement_expr, p_out, name, 1.0, time_steps)
         _add_settlement_terms!(settlement_expr, p_in, name, -1.0, time_steps)
-        for t in time_steps
-            _add_virtual_location_writes!(
-                container, d, p_out[name, t], p_in[name, t], t, network_model,
-            )
-        end
+        _add_virtual_location_writes!(
+            container, d, p_out, p_in, time_steps, network_model,
+        )
     end
 
     _add_block_bid_commitment_variables!(container, fixed_devices)

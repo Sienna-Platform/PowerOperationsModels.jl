@@ -77,6 +77,14 @@ function _seed_reserve_ranges_on_limits!(
     return
 end
 
+# Function barrier: `p` comes from an abstractly typed container.
+function _fix_to_zero!(p, name, time_steps)
+    for t in time_steps
+        JuMP.fix(p[name, t], 0.0; force = true)
+    end
+    return
+end
+
 """
 Argument stage for `MarketLoadBid`: creates `ActivePowerVariable` (bounds `[0, max_active_power]`
 from the generic `PSY.ElectricLoad` getters), fixes it to zero every period for a costless
@@ -110,9 +118,7 @@ function construct_market_component!(
         name = PSY.get_name(d)
         _add_settlement_terms!(settlement_expr, p, name, -1.0, time_steps)
         if _is_costless_offer(PSY.get_operation_cost(d))
-            for t in time_steps
-                JuMP.fix(p[name, t], 0.0; force = true)
-            end
+            _fix_to_zero!(p, name, time_steps)
         else
             push!(priced_devices, d)
         end

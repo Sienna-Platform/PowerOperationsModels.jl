@@ -409,8 +409,24 @@ function add_energy_offer_cap_constraints!(
         container, EnergyOfferCapConstraint, D, String[], Int[]; sparse = true,
     )
     range_ub = get_expression(container, ActivePowerRangeExpressionUB, D)
+    on = _energy_offer_on(container, F, D)
+    _add_energy_offer_cap_rows!(
+        rows, container, F, get_available_components(model, sys), range_ub, on,
+    )
+    return
+end
+
+# Function barrier: `range_ub` and `on` come from abstractly typed containers.
+function _add_energy_offer_cap_rows!(
+    rows,
+    container::OptimizationContainer,
+    ::Type{F},
+    devices,
+    range_ub,
+    on,
+) where {F <: AbstractThermalFormulation}
     jump_model = get_jump_model(container)
-    for d in get_available_components(model, sys)
+    for d in devices
         _has_market_bid_cost(d) || continue
         name = PSY.get_name(d)
         pmax = PSY.get_active_power_limits(d, u"SU").max
@@ -420,7 +436,7 @@ function add_energy_offer_cap_constraints!(
             (top <= first(breakpoints) || top >= pmax) && continue
             rows[(name, t)] = JuMP.@constraint(
                 jump_model,
-                range_ub[name, t] + _energy_offer_floor(container, F, d, t) <= top,
+                range_ub[name, t] + _energy_offer_floor(on, F, d, t) <= top,
             )
         end
     end
@@ -442,28 +458,38 @@ end
 
 # Energy is the range expression's variable, plus pmin for compact formulations, whose
 # expression holds only the power above minimum.
+struct NoOnVariable end
+
+_energy_offer_on(::OptimizationContainer, ::Type{<:AbstractThermalFormulation}, ::Type) =
+    NoOnVariable()
+_energy_offer_on(
+    container::OptimizationContainer,
+    ::Type{<:AbstractCompactUnitCommitment},
+    ::Type{D},
+) where {D <: PSY.ThermalGen} = get_variable(container, OnVariable, D)
+
 _energy_offer_floor(
-    ::OptimizationContainer,
+    ::NoOnVariable,
     ::Type{<:AbstractThermalFormulation},
     ::PSY.ThermalGen,
     ::Int,
 ) = 0.0
 
 function _energy_offer_floor(
-    container::OptimizationContainer,
+    on,
     ::Type{<:AbstractCompactUnitCommitment},
-    d::D,
+    d::PSY.ThermalGen,
     t::Int,
-) where {D <: PSY.ThermalGen}
+)
     pmin = PSY.get_active_power_limits(d, u"SU").min
     if _is_must_run(d)
         return pmin
     end
-    return pmin * get_variable(container, OnVariable, D)[PSY.get_name(d), t]
+    return pmin * on[PSY.get_name(d), t]
 end
 
 _energy_offer_floor(
-    ::OptimizationContainer,
+    ::NoOnVariable,
     ::Type{ThermalCompactDispatch},
     ::PSY.ThermalGen,
     ::Int,

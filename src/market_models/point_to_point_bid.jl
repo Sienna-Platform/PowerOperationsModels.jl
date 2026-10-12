@@ -103,6 +103,31 @@ _spread_bid_is_priced(container::OptimizationContainer, bid::PSY.PointToPointBid
         get_output_offer_curves(IOM.get_operation_cost(bid)),
     )
 
+# Function barrier: `variable` comes from an abstractly typed container.
+function _zero_upper_bounds!(variable, names, time_steps)
+    for name in names, t in time_steps
+        JuMP.set_upper_bound(variable[name, t], 0.0)
+    end
+    return
+end
+
+# Function barrier: the expressions come from abstractly typed containers.
+function _add_transfer_positions!(
+    from_expression,
+    to_expression,
+    from_name,
+    to_name,
+    variable,
+    name,
+    time_steps,
+)
+    for t in time_steps
+        add_cleared_position!(from_expression, from_name, variable[name, t], 1.0, t)
+        add_cleared_position!(to_expression, to_name, variable[name, t], -1.0, t)
+    end
+    return
+end
+
 """
 Hold an unpriced bid's transfer at zero for the whole horizon.
 
@@ -121,9 +146,7 @@ function _zero_unpriced_transfers!(
 )
     isempty(bids) && return
     variable = get_variable(container, ClearedTransferVariable, PSY.PointToPointBid)
-    for bid in bids, t in get_time_steps(container)
-        JuMP.set_upper_bound(variable[PSY.get_name(bid), t], 0.0)
-    end
+    _zero_upper_bounds!(variable, PSY.get_name.(bids), get_time_steps(container))
     shown = PSY.get_name.(bids[1:min(end, 5)])
     @warn "No incremental spread_bid curve over the model horizon for " *
           "$(length(bids)) PointToPointBid(s), $(sum(PSY.get_max_active_power, bids)) MW " *
@@ -196,9 +219,18 @@ function construct_market_component!(
                 upper_bound =
                     get_variable_upper_bound(ClearedTransferVariable, bid, SpreadBid),
             )
-            add_cleared_position!(container, PSY.get_from(bid), variable[name, t], 1.0, t)
-            add_cleared_position!(container, PSY.get_to(bid), variable[name, t], -1.0, t)
         end
+        from = PSY.get_from(bid)
+        to = PSY.get_to(bid)
+        _add_transfer_positions!(
+            get_cleared_position_expression(container, from),
+            get_cleared_position_expression(container, to),
+            PSY.get_name(from),
+            PSY.get_name(to),
+            variable,
+            name,
+            time_steps,
+        )
     end
     process_spread_bid_parameters!(container, bids, model)
     return

@@ -214,6 +214,12 @@ function _collect_rows_at_cap!(
     (_counts_for_bid_adjustment(key) && !isempty(dual)) || return
     sign = _binding_sign(key.meta)
     slack = get_variable(container, _paired_slack(FlowRateConstraint, key.meta), V)
+    _scan_base_rows!(base_rows, dual, slack, objective, key, sign, V)
+    return
+end
+
+# Function barrier: `slack` comes from an abstractly typed container.
+function _scan_base_rows!(base_rows, dual, slack, objective, key, sign, ::Type{V}) where {V}
     names, time_steps = axes(dual)
     for name in names, t in time_steps
         _at_cap(dual[name, t], objective, slack[name, t], key) || continue
@@ -235,6 +241,12 @@ function _collect_rows_at_cap!(
     slack = get_variable(
         container, _paired_slack(PostContingencyFlowRateConstraint, key.meta), V,
     )
+    _scan_contingency_rows!(contingency_rows, dual, slack, objective, key, sign)
+    return
+end
+
+# Function barrier: `slack` comes from an abstractly typed container.
+function _scan_contingency_rows!(contingency_rows, dual, slack, objective, key, sign)
     for ((outage_id, name, t), value) in dual.data
         _at_cap(value, objective, slack[outage_id, name, t], key) || continue
         # Security-constrained models of different branch types share these rows; the

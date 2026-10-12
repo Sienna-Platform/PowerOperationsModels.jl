@@ -631,8 +631,9 @@ _active_power_upper_bound(::UnofferedDispatch, ::PSY.ControllableLoad) = 0.0
 # Is this cost curve zero-valued, i.e. it puts no price on the device's dispatch? A market
 # bid with any offer attached (even a supply-side one, which is invalid for a load and is
 # rejected downstream) is an offer, not an absence of one.
+const _ZERO_COST_CURVE = zero(PSY.CostCurve)
 _is_costless_offer(cost::PSY.LoadCost) =
-    PSY.get_variable_operation_cost(cost) == zero(PSY.CostCurve)
+    PSY.get_variable_operation_cost(cost) == _ZERO_COST_CURVE
 _is_costless_offer(cost::PSY.MarketBidCost) = _has_no_offer_curves(cost)
 # A real (non-placeholder) time-series key means a genuine offer is attached; whether its
 # resolved values are all zero is unknowable before the series is read.
@@ -643,8 +644,9 @@ _has_no_offer_curves(cost::Union{PSY.MarketBidCost, PSY.MarketBidTimeSeriesCost}
     !IOM.is_nontrivial_offer(get_input_offer_curves(cost)) &&
     !IOM.is_nontrivial_offer(get_output_offer_curves(cost))
 
-# Holy-trait function barrier: called once per device at build and dispatched immediately
-# into a concrete method, so the value-dependent return type is not on any hot path.
+# Holy-trait function barrier: dispatches immediately into a concrete method, so the
+# value-dependent return type stays off the hot path. IOM `add_variables!` calls it per
+# (device, time step) through `get_variable_upper_bound`, so keep it allocation free.
 function get_dispatch_basis(cost::PSY.OperationalCost)
     if _is_costless_offer(cost)
         return UnofferedDispatch()
