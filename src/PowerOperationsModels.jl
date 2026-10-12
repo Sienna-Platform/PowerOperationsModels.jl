@@ -347,6 +347,7 @@ include("services_models/reserve_group.jl")
 # include("services_models/agc.jl")  # TODO: needs _get_ace_error
 include("services_models/transmission_interface.jl")
 include("services_models/services_constructor.jl")
+include("services_models/security_constrained_injectors.jl")
 
 # Hybrid System Models (after services_models since they share reserve infrastructure)
 include("hybrid_system_models/hybrid_systems.jl")
@@ -679,6 +680,12 @@ export HVDCReactivePowerToVariable
 export ShiftUpActivePowerVariable
 export ShiftDownActivePowerVariable
 
+# G-1 Variables
+export PostContingencyDeploymentVariable
+export PostContingencyDeviationVariable
+export PostGeneratorContingencyFlowSlackUpperBound
+export PostGeneratorContingencyFlowSlackLowerBound
+
 ######## Hydro Formulations ########
 export HydroDispatchRunOfRiver
 export HydroCommitmentRunOfRiver
@@ -871,6 +878,9 @@ export ShiftDownActivePowerVariableLimitsConstraint
 export RealizedShiftedLoadMinimumBoundConstraint
 export NonAnticipativityConstraint
 export HVDCDCControlConstraint
+export PostContingencyBalanceConstraint
+export PostContingencyGenerationConstraint
+export PostContingencyDeploymentConstraint
 
 #################################################################################
 # Exports - Expression Types (defined in core/expressions.jl)
@@ -903,6 +913,8 @@ export ComponentReserveDownBalanceExpression
 export InterfaceTotalFlow
 export PTDFBranchFlow
 export BThetaBranchFlow
+export PostContingencyLocationalDeployment
+export PostContingencyTotalDeployment
 
 #################################################################################
 # Exports - Parameter Types (defined in core/parameters.jl)
@@ -1010,6 +1022,10 @@ export VariableMaxInterfaceFlow
 # Regulation Formulations
 export ReserveLimitedRegulation
 export DeviceLimitedRegulation
+
+# G-1 Formulations
+export SecurityConstrainedContingencyReserve
+export SecurityConstrainedRampReserve
 
 #################################################################################
 # Exports - Network Formulation Types (defined in core/network_formulations.jl)
