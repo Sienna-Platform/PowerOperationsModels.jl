@@ -475,7 +475,7 @@ _energy_offer_floor(
 ) = 0.0
 
 function _energy_offer_floor(
-    on,
+    on::AbstractArray,
     ::Type{<:AbstractCompactUnitCommitment},
     d::PSY.ThermalGen,
     t::Int,
