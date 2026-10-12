@@ -1125,3 +1125,52 @@ end
         atol = 1e-6,
     )
 end
+
+@testset "Branch flow slacks are priced through the flow_slack_cost attribute" begin
+    system = PSB.build_system(PSITestSystems, "c_sys5")
+    names = sort!(PSY.get_name.(PSY.get_components(Line, system)))
+    priced, other = names[1], names[2]
+    default_cost = POM.CONSTRAINT_VIOLATION_SLACK_COST
+
+    function slack_costs(attributes)
+        template = get_thermal_dispatch_template_network(NetworkModel(PTDFNetworkModel))
+        set_device_model!(
+            template,
+            DeviceModel(Line, StaticBranchBounds; use_slacks = true, attributes),
+        )
+        model = DecisionModel(template, system; optimizer = HiGHS_optimizer)
+        @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+              IOM.ModelBuildStatus.BUILT
+        container = IOM.get_optimization_container(model)
+        invariant = IOM.get_invariant_terms(IOM.get_objective_expression(container))
+        up = IOM.get_variable(container, FlowActivePowerSlackUpperBound, Line)
+        dn = IOM.get_variable(container, FlowActivePowerSlackLowerBound, Line)
+        costs = Dict{String, Set{Float64}}()
+        for name in axes(up, 1)
+            costs[name] = Set{Float64}()
+            for t in IOM.get_time_steps(container)
+                push!(costs[name], JuMP.coefficient(invariant, up[name, t]))
+                push!(costs[name], JuMP.coefficient(invariant, dn[name, t]))
+            end
+        end
+        return costs
+    end
+
+    costs = slack_costs(Dict{String, Any}())
+    @test all(c == Set([default_cost]) for c in values(costs))
+
+    costs = slack_costs(Dict{String, Any}("flow_slack_cost" => Dict(priced => 123.0)))
+    @test costs[priced] == Set([123.0])
+    @test costs[other] == Set([default_cost])
+
+    costs = slack_costs(Dict{String, Any}("flow_slack_cost" => 7.0))
+    @test all(c == Set([7.0]) for c in values(costs))
+
+    costs = slack_costs(
+        Dict{String, Any}(
+            "flow_slack_cost" => Dict(priced => 123.0, "no_such_line" => 5.0),
+        ),
+    )
+    @test costs[priced] == Set([123.0])
+    @test costs[other] == Set([default_cost])
+end
