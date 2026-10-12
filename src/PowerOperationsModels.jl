@@ -420,6 +420,8 @@ export AbstractPowerDecisionProblem
 export AbstractPowerEmulationProblem
 export DefaultPowerDecisionProblem
 export DefaultPowerEmulationProblem
+export set_post_build_hook!
+export run_post_build_hook!
 
 # Network
 export NetworkModel
