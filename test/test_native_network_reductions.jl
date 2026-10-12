@@ -817,7 +817,7 @@ end
         if model_interface
             set_service_model!(
                 template,
-                ServiceModel(TransmissionInterface, ConstantMaxInterfaceFlow),
+                ServiceModel(TransmissionInterface, MaxInterfaceFlow),
             )
         end
         model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
@@ -1007,7 +1007,7 @@ end
     template = get_thermal_dispatch_template_network(NetworkModel(POM.DCPNetworkModel))
     set_service_model!(
         template,
-        ServiceModel(TransmissionInterface, ConstantMaxInterfaceFlow),
+        ServiceModel(TransmissionInterface, MaxInterfaceFlow),
     )
     model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
     @test build!(
