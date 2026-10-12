@@ -217,6 +217,8 @@ function _add_sparse_pwl_loss_variables!(
 
     for d in devices
         name = PSY.get_name(d)
+        ub = get_variable_upper_bound(T, d, formulation)
+        lb = get_variable_lower_bound(T, d, formulation)
         for t in time_steps
             pwlvars = Array{JuMP.VariableRef}(undef, len_segments)
             pwlvars_bin = Array{JuMP.VariableRef}(undef, len_segments)
@@ -227,10 +229,7 @@ function _add_sparse_pwl_loss_variables!(
                         base_name = "$(T)_$(name)_{pwl_$(i), $(t)}",
                         binary = binary_T
                     )
-                ub = get_variable_upper_bound(T, d, formulation)
                 ub !== nothing && JuMP.set_upper_bound(var_container[name, i, t], ub)
-
-                lb = get_variable_lower_bound(T, d, formulation)
                 lb !== nothing && JuMP.set_lower_bound(var_container[name, i, t], lb)
 
                 pwlvars_bin[i] =
