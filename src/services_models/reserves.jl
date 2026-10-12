@@ -155,6 +155,15 @@ function get_default_time_series_names(
     )
 end
 
+function get_default_time_series_names(
+    ::Type{<:PSY.OnlineReserve},
+    ::Type{<:AbstractSecurityConstrainedReservesFormulation},
+)
+    return Dict{Type{<:TimeSeriesParameter}, String}(
+        RequirementTimeSeriesParameter => "requirement",
+    )
+end
+
 function get_default_attributes(
     ::Type{<:PSY.AbstractReserve},
     ::Type{<:AbstractReservesFormulation},

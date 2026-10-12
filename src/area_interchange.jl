@@ -27,7 +27,7 @@ function get_default_attributes(
     ::Type{PSY.AreaInterchange},
     ::Type{V},
 ) where {V <: AbstractBranchFormulation}
-    return Dict{String, Any}()
+    return Dict{String, Any}(RELAX_BINARIES_ATTRIBUTE => false)
 end
 
 function add_variables!(

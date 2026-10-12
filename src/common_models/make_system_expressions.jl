@@ -264,6 +264,6 @@ function initialize_hvdc_system!(
     dc_bus_numbers = sort(PSY.get_number.(dc_buses))
     container.expressions[ExpressionKey(DCCurrentBalance, PSY.DCBus)] =
         make_container_array(dc_bus_numbers, get_time_steps(container))
-    add_variables!(container, DCVoltage, dc_buses, U)
+    add_variables!(container, DCVoltage, dc_buses, U, false)
     return
 end

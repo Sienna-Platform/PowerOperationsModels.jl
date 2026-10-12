@@ -18,6 +18,7 @@ function add_variables!(
         VoltageMagnitude,
         _network_buses(sys, network_model),
         ACPNetworkModel,
+        false,
     )
     return
 end
