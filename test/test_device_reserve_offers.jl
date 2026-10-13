@@ -991,8 +991,9 @@ end
 end
 
 @testset "OfflineReserve band: a compact must-run unit below pmin is infeasible with an offline service" begin
-    # Compact UC's own time-series row bounds only the power above pmin, so a must-run unit
-    # whose hourly max is below pmin stays feasible; the offline band makes it `ts_t - pmin < 0`.
+    # Compact UC's own time-series row bounds total output, so a must-run unit whose hourly
+    # max is below pmin is infeasible without the service too, as under standard UC. The
+    # offline band row is `ts_t - pmin < 0`.
     factor = 0.25
     model, _, offunit = _offline_hourly_model(
         ThermalBasicCompactUnitCommitment; factor, offline = false, mustrun = true,
@@ -1000,7 +1001,10 @@ end
     limits = PSY.get_active_power_limits(offunit, u"SU")
     ts_max = factor * PSY.get_max_active_power(offunit, u"SU")
     @test ts_max < limits.min
-    @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+    jump_model = IOM.get_jump_model(IOM.get_optimization_container(model))
+    JuMP.optimize!(jump_model)
+    @test JuMP.termination_status(jump_model) in
+          (MOI.INFEASIBLE, MOI.INFEASIBLE_OR_UNBOUNDED)
     model, _, offunit = _offline_hourly_model(
         ThermalBasicCompactUnitCommitment; factor, mustrun = true,
     )
