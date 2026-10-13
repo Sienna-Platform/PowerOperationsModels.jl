@@ -87,16 +87,20 @@ function _check_below_upper_series(
     for t in eachindex(values)
         upper_t = upper[t] * multiplier[t]
         if !isfinite(upper_t)
-            error(
-                "MinActivePowerTimeSeriesParameter for $(PSY.get_name(d)) at step $t: \
+            throw(
+                IS.ConflictingInputsError(
+                    "MinActivePowerTimeSeriesParameter for $(PSY.get_name(d)) at step $t: \
                 the maximum active power series value is $(upper_t).",
+                ),
             )
         end
         if values[t] > upper_t + 1e-9
-            error(
-                "MinActivePowerTimeSeriesParameter for $(PSY.get_name(d)) at step $t: \
+            throw(
+                IS.ConflictingInputsError(
+                    "MinActivePowerTimeSeriesParameter for $(PSY.get_name(d)) at step $t: \
                 minimum $(values[t]) is above the maximum active power series value \
                 $(upper_t).",
+                ),
             )
         end
     end
@@ -121,15 +125,19 @@ function _validate_min_active_power!(
     pmax = _static_maximum(P, d)
     for t in eachindex(values)
         if values[t] < 0.0
-            error(
-                "$(nameof(P)) for $(PSY.get_name(d)) at step $t: minimum power \
+            throw(
+                IS.ConflictingInputsError(
+                    "$(nameof(P)) for $(PSY.get_name(d)) at step $t: minimum power \
                 $(values[t]) is below zero.",
+                ),
             )
         end
         if values[t] > pmax + 1e-9
-            error(
-                "$(nameof(P)) for $(PSY.get_name(d)) at step $t: minimum power \
+            throw(
+                IS.ConflictingInputsError(
+                    "$(nameof(P)) for $(PSY.get_name(d)) at step $t: minimum power \
                 $(values[t]) is above the maximum active power $pmax.",
+                ),
             )
         end
     end
