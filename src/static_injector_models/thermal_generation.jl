@@ -123,7 +123,8 @@ initial_condition_variable(::InitialTimeDurationOff, d::PSY.ThermalGen, ::Abstra
 ########################Objective Function##################################################
 # TODO: Decide what is the cost for OnVariable, if fixed or constant term in variable
 function proportional_cost(container::OptimizationContainer, cost::PSY.ThermalGenerationCost, S::Type{OnVariable}, T::PSY.ThermalGen, U::Type{<:AbstractThermalFormulation}, t::Int)
-    return onvar_cost(container, cost, S, T, U, t) + PSY.get_constant_term(PSY.get_vom_cost(PSY.get_variable_operation_cost(cost))) + PSY.get_fixed(cost)
+    variable_cost = PSY.get_variable_operation_cost(cost)
+    return onvar_cost(container, cost, S, T, U, t) + PSY.get_constant_term(PSY.get_vom_cost(variable_cost)) + PSY.get_fixed(cost) + _min_power_cost(container, variable_cost, T, U)
 end
 # Is the OnVariable proportional term's *rate* time-varying? For ThermalGenerationCost
 # that rate is `onvar_cost + vom_constant + fixed`; only `onvar_cost` can vary, and
@@ -219,6 +220,46 @@ function _onvar_cost(container::OptimizationContainer, cost_function::Union{PSY.
 end
 
 #! format: on
+
+# Linear cost rate ($ per power unit per hour) that a compact formulation omits at P_min.
+# PWL linking already includes P_min. A time-series fuel price prices P_min through
+# FuelConsumptionExpression.
+_linear_cost_rate(::PSY.ProductionVariableCostCurve) = 0.0
+_linear_cost_rate(curve::PSY.CostCurve{PSY.LinearCurve}) =
+    PSY.get_proportional_term(PSY.get_value_curve(curve))
+
+function _linear_cost_rate(curve::PSY.FuelCurve{PSY.LinearCurve})
+    if IS.is_time_series_backed(curve)
+        return 0.0
+    end
+    return PSY.get_proportional_term(PSY.get_value_curve(curve)) * PSY.get_fuel_cost(curve)
+end
+
+_min_power_cost(
+    ::OptimizationContainer,
+    ::PSY.ProductionVariableCostCurve,
+    ::PSY.ThermalGen,
+    ::Type{<:AbstractThermalFormulation},
+) = 0.0
+
+# Compact formulations price PowerAboveMinimumVariable only, so the OnVariable rate carries
+# the linear and VOM cost of P_min.
+function _min_power_cost(
+    container::OptimizationContainer,
+    curve::PSY.ProductionVariableCostCurve,
+    d::PSY.ThermalGen,
+    ::Type{<:AbstractCompactUnitCommitment},
+)
+    rate = _linear_cost_rate(curve) + PSY.get_proportional_term(PSY.get_vom_cost(curve))
+    rate_per_unit = get_proportional_cost_per_system_unit(
+        rate,
+        PSY.get_power_units(curve),
+        get_model_base_power(container),
+        PSY.get_base_power(d, u"NU"),
+    )
+    return rate_per_unit * PSY.get_active_power_limits(d, u"SU").min
+end
+
 function get_initial_conditions_device_model(
     model::IOM.AbstractOptimizationModel,
     ::DeviceModel{T, D},
@@ -470,6 +511,83 @@ function _get_data_for_range_ic(
     return ini_conds[1:idx, :]
 end
 
+"""
+Minimum-power part of total output that `PowerAboveMinimumVariable` omits: `P_min·u` under
+compact commitment, `P_min·OnStatusParameter` under compact dispatch, and the constant
+`P_min` for a must-run unit. Zero for formulations that schedule total power.
+"""
+_min_power_term(
+    ::OptimizationContainer,
+    ::Type{<:AbstractDeviceFormulation},
+    ::PSY.Component,
+    ::Int,
+) = JuMP.AffExpr(0.0)
+
+function _min_power_term(
+    container::OptimizationContainer,
+    ::Type{<:AbstractCompactUnitCommitment},
+    d::V,
+    t::Int,
+) where {V <: PSY.ThermalGen}
+    p_min = PSY.get_active_power_limits(d, u"SU").min
+    term = JuMP.AffExpr(0.0)
+    if _is_must_run(d)
+        JuMP.add_to_expression!(term, p_min)
+        return term
+    end
+    on = get_variable(container, OnVariable, V)[PSY.get_name(d), t]
+    add_proportional_to_jump_expression!(term, on, p_min)
+    return term
+end
+
+function _min_power_term(
+    container::OptimizationContainer,
+    ::Type{ThermalCompactDispatch},
+    d::V,
+    t::Int,
+) where {V <: PSY.ThermalGen}
+    p_min = PSY.get_active_power_limits(d, u"SU").min
+    term = JuMP.AffExpr(0.0)
+    # A semicontinuous feedforward does not put must-run units in OnStatusParameter.
+    if _is_must_run(d)
+        JuMP.add_to_expression!(term, p_min)
+        return term
+    end
+    status = get_parameter_array(container, OnStatusParameter, V)[PSY.get_name(d), t]
+    add_proportional_to_jump_expression!(term, status, p_min)
+    return term
+end
+
+"""
+Upper-bound rows on total output: `ActivePowerRangeExpressionUB + _min_power_term <= rhs(P)`.
+Under compact formulations the range expression holds only `PowerAboveMinimumVariable` and
+reserves, so the rows add the minimum-power term.
+"""
+function _add_total_power_upper_bound!(
+    container::OptimizationContainer,
+    ::Type{T},
+    ::Type{P},
+    devices::Vector{V},
+    model::DeviceModel{V, W},
+) where {
+    T <: ConstraintType,
+    P <: ParameterType,
+    V <: PSY.ThermalGen,
+    W <: AbstractThermalFormulation,
+}
+    time_steps = get_time_steps(container)
+    names = PSY.get_name.(devices)
+    range_ub = get_expression(container, ActivePowerRangeExpressionUB, V)
+    lhs = JuMP.Containers.DenseAxisArray{JuMP.AffExpr}(undef, names, time_steps)
+    for d in devices, t in time_steps
+        name = PSY.get_name(d)
+        lhs[name, t] = range_ub[name, t] + _min_power_term(container, W, d, t)
+    end
+    con = add_constraints_container!(container, T, V, names, time_steps; meta = "ub")
+    IOM.upper_bound_range_with_parameter!(container, con, lhs, P, devices, model)
+    return
+end
+
 # commitment formulations: time series upper bounds.
 function add_constraints!(
     container::OptimizationContainer,
@@ -491,6 +609,29 @@ function add_constraints!(
         devices,
         model,
         X,
+    )
+    return
+end
+
+# compact commitment formulations: time series upper bounds on total output.
+function add_constraints!(
+    container::OptimizationContainer,
+    ::Type{ActivePowerVariableTimeSeriesLimitsConstraint},
+    ::Type{ActivePowerRangeExpressionUB},
+    devices::Vector{V},
+    model::DeviceModel{V, W},
+    ::NetworkModel{X},
+) where {
+    V <: PSY.ThermalGen,
+    W <: AbstractCompactUnitCommitment,
+    X <: AbstractNetworkModel,
+}
+    _add_total_power_upper_bound!(
+        container,
+        ActivePowerVariableTimeSeriesLimitsConstraint,
+        ActivePowerTimeSeriesParameter,
+        devices,
+        model,
     )
     return
 end

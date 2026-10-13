@@ -33,6 +33,28 @@ function _add_active_power_outage_constraint!(
     return
 end
 
+# Compact formulations hold P_min outside the range expression, so the outage row bounds
+# total output.
+function _add_active_power_outage_constraint!(
+    container::OptimizationContainer,
+    devices_with_attributes::Vector{U},
+    device_model::DeviceModel{U, F},
+    ::Type{W},
+) where {
+    U <: PSY.ThermalGen,
+    F <: Union{AbstractCompactUnitCommitment, ThermalCompactDispatch},
+    W,
+}
+    _add_total_power_upper_bound!(
+        container,
+        ActivePowerOutageConstraint,
+        AvailableStatusParameter,
+        devices_with_attributes,
+        device_model,
+    )
+    return
+end
+
 function add_event_constraints!(
     container::OptimizationContainer,
     devices::T,

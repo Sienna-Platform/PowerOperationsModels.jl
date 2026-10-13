@@ -1639,3 +1639,155 @@ end
         )
     end
 end
+
+# Standard-vs-compact cases: a fixture and a top-level function that changes it.
+_keep_fixture!(::PSY.System) = nothing
+
+function _add_vom_to_test_unit!(sys::PSY.System)
+    unit = get_component(ThermalStandard, sys, "Test Unit")
+    set_variable_operation_cost!(
+        get_operation_cost(unit),
+        CostCurve(LinearCurve(10.23), LinearCurve(3.0)),
+    )
+    return
+end
+
+function _bind_startup_ramp!(sys::PSY.System)
+    unit = get_component(ThermalStandard, sys, "Test Unit")
+    set_status!(unit, OperationalStates.OFFLINE)
+    set_time_at_status!(unit, 10.0)
+    set_active_power!(unit, 0.0 * u"SU")
+    # 0.12 SU/h is less than P_min = 0.5 SU, so the start-up and shut-down ramps bind.
+    set_ramp_limits!(unit, (up = 0.002 * u"SU/minute", down = 0.002 * u"SU/minute"))
+    return
+end
+
+function _solve_uc_objective(
+    sys::PSY.System,
+    ::Type{F},
+    use_slacks::Bool,
+) where {F <: AbstractThermalFormulation}
+    optimizer = JuMP.optimizer_with_attributes(
+        HiGHS.Optimizer, "mip_rel_gap" => 0.0, "log_to_console" => false,
+    )
+    template = PowerOperationsProblemTemplate(NetworkModel(CopperPlateNetworkModel))
+    set_device_model!(template, DeviceModel(ThermalStandard, F; use_slacks = use_slacks))
+    set_device_model!(template, PowerLoad, StaticPowerLoad)
+    model = DecisionModel(template, sys; optimizer = optimizer, initialize_model = false)
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+    @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+    return JuMP.objective_value(IOM.get_jump_model(IOM.get_optimization_container(model)))
+end
+
+const _COMPACT_EQUIVALENCE_CASES = (
+    (
+        name = "linear cost",
+        fixture = "c_linear_cost_test",
+        modify = _keep_fixture!,
+        slacks = false,
+    ),
+    (
+        name = "static linear fuel",
+        fixture = "c_linear_fuel_test",
+        modify = _keep_fixture!,
+        slacks = false,
+    ),
+    (
+        name = "linear cost with VOM",
+        fixture = "c_linear_cost_test",
+        modify = _add_vom_to_test_unit!,
+        slacks = false,
+    ),
+    (
+        name = "PWL cost",
+        fixture = "c_pwl_io_cost_test",
+        modify = _keep_fixture!,
+        slacks = false,
+    ),
+    (
+        name = "binding start-up ramp",
+        fixture = "c_linear_cost_test",
+        modify = _bind_startup_ramp!,
+        slacks = true,
+    ),
+)
+
+@testset "Standard and compact unit commitment give the same objective" begin
+    @testset "$(case.name)" for case in _COMPACT_EQUIVALENCE_CASES
+        standard_sys = build_system(PSITestSystems, case.fixture)
+        case.modify(standard_sys)
+        standard =
+            _solve_uc_objective(standard_sys, ThermalStandardUnitCommitment, case.slacks)
+        compact_sys = build_system(PSITestSystems, case.fixture)
+        case.modify(compact_sys)
+        compact =
+            _solve_uc_objective(compact_sys, ThermalCompactUnitCommitment, case.slacks)
+        # Relative tolerance: the ramp case carries slack penalties near 2e5.
+        @test isapprox(standard, compact; rtol = 1e-6)
+    end
+end
+
+@testset "Compact PWL linking holds P_min for a must-run unit" begin
+    sys = PSB.build_system(PSITestSystems, "c_sys5_pglib")
+    unit = get_component(ThermalMultiStart, sys, "101_CT_1")
+    set_commitment_mode!(unit, CommitmentModes.MUST_RUN)
+    model = DecisionModel(MockOperationProblem, DCPNetworkModel, sys)
+    mock_construct_device!(
+        model,
+        DeviceModel(ThermalMultiStart, ThermalCompactUnitCommitment),
+    )
+    container = IOM.get_optimization_container(model)
+    link =
+        IOM.get_constraint(container, IOM.PiecewiseLinearCostConstraint, ThermalMultiStart)
+    norm = IOM.get_constraint(
+        container, IOM.PiecewiseLinearCostNormalizationConstraint, ThermalMultiStart,
+    )
+    p_min = get_active_power_limits(unit, u"SU").min
+    for t in IOM.get_time_steps(container)
+        @test JuMP.normalized_rhs(link["101_CT_1", t]) ≈ -p_min
+        @test JuMP.normalized_rhs(norm["101_CT_1", t]) ≈ 1.0
+    end
+end
+
+@testset "Compact UC max_active_power series bounds total output" begin
+    sys = PSB.build_system(PSITestSystems, "c_sys5_pglib")
+    stamps =
+        collect(DateTime("2024-01-01T00:00:00"):Hour(1):DateTime("2024-01-01T23:00:00"))
+    derate = SortedDict{Dates.DateTime, TimeSeries.TimeArray}()
+    for day in 1:2
+        derate[stamps[1] + Day(day - 1)] = TimeArray(stamps .+ Day(day - 1), fill(0.8, 24))
+    end
+    unit = get_component(ThermalMultiStart, sys, "115_STEAM_1")
+    must_run = get_component(ThermalMultiStart, sys, "101_CT_1")
+    set_commitment_mode!(must_run, CommitmentModes.MUST_RUN)
+    for g in (unit, must_run)
+        PSY.add_time_series!(sys, g, PSY.Deterministic("max_active_power", derate))
+    end
+    device_model = DeviceModel(
+        ThermalMultiStart,
+        ThermalCompactUnitCommitment;
+        time_series_names = Dict(ActivePowerTimeSeriesParameter => "max_active_power"),
+    )
+    model = DecisionModel(MockOperationProblem, DCPNetworkModel, sys)
+    mock_construct_device!(model, device_model)
+    container = IOM.get_optimization_container(model)
+    con = IOM.get_constraint(
+        container, ActivePowerVariableTimeSeriesLimitsConstraint, ThermalMultiStart,
+        "ub",
+    )
+    on = IOM.get_variable(container, OnVariable, ThermalMultiStart)
+    p_above = IOM.get_variable(container, PowerAboveMinimumVariable, ThermalMultiStart)
+    p_min = get_active_power_limits(unit, u"SU").min
+    must_run_min = get_active_power_limits(must_run, u"SU").min
+    for t in IOM.get_time_steps(container)
+        row = JuMP.constraint_object(con["115_STEAM_1", t])
+        @test JuMP.coefficient(row.func, on["115_STEAM_1", t]) ≈ p_min
+        @test JuMP.coefficient(row.func, p_above["115_STEAM_1", t]) ≈ 1.0
+        @test JuMP.normalized_rhs(con["115_STEAM_1", t]) ≈
+              0.8 * get_max_active_power(unit, u"SU")
+        # A must-run unit has no OnVariable: the row holds the constant P_min.
+        @test JuMP.normalized_rhs(con["101_CT_1", t]) ≈
+              0.8 * get_max_active_power(must_run, u"SU") - must_run_min
+    end
+end

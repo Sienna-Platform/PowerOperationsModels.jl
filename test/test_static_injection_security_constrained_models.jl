@@ -676,3 +676,47 @@ end
     check_g1_deployment(sys, model, outages)
     check_g1_area_ptdf_flows(sys, model, outages)
 end
+
+@testset "G-1 balance counts the total output of an outaged compact unit" begin
+    sys = PSB.build_system(PSITestSystems, "c_sys5_pglib")
+    reserve = OnlineReserve{ReserveUp}(;
+        name = "G1_compact",
+        available = true,
+        time_frame = 30.0,
+        requirement = 0.0,
+        sustained_time = 3600,
+        max_output_fraction = 1.0,
+        max_participation_factor = 1.0,
+        deployed_fraction = 0.0,
+    )
+    add_service!(sys, reserve, collect(get_components(ThermalStandard, sys)))
+    unit = get_component(ThermalMultiStart, sys, "115_STEAM_1")
+    outage = PSY.FixedForcedOutage(; outage_status = 1.0)
+    add_supplemental_attribute!(sys, unit, outage)
+    add_supplemental_attribute!(sys, reserve, outage)
+    template = PowerOperationsProblemTemplate(NetworkModel(CopperPlateNetworkModel))
+    set_device_model!(template, ThermalStandard, ThermalBasicUnitCommitment)
+    set_device_model!(template, ThermalMultiStart, ThermalMultiStartUnitCommitment)
+    set_device_model!(template, PowerLoad, StaticPowerLoad)
+    set_service_model!(
+        template,
+        ServiceModel(
+            OnlineReserve{ReserveUp},
+            SecurityConstrainedContingencyReserve;
+            use_slacks = true,
+        ),
+    )
+    model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+    container = IOM.get_optimization_container(model)
+    balance = IOM.get_constraint(container, PostContingencyBalanceConstraint, PSY.System)
+    p_above = IOM.get_variable(container, PowerAboveMinimumVariable, ThermalMultiStart)
+    on = IOM.get_variable(container, OnVariable, ThermalMultiStart)
+    p_min = get_active_power_limits(unit, u"SU").min
+    for t in IOM.get_time_steps(container)
+        func = JuMP.constraint_object(balance[IS.get_id(outage), t]).func
+        @test JuMP.coefficient(func, p_above["115_STEAM_1", t]) ≈ -1.0
+        @test JuMP.coefficient(func, on["115_STEAM_1", t]) ≈ -p_min
+    end
+end
