@@ -381,21 +381,30 @@ end
 function _check_lhs_time_series_types(model::IOM.AbstractOptimizationModel)
     ts_type = get_default_time_series_type(get_optimization_container(model))
     system = get_system(model)
-    for (_, service_model) in get_service_models(get_template(model))
-        for (P, ts_name) in get_time_series_names(service_model)
-            P <: LeftHandSideTimeSeriesParameter || continue
-            for service in get_available_components(service_model, system)
-                PSY.has_time_series(service, ts_name) || continue
-                PSY.has_time_series(service, ts_type, ts_name) && continue
-                throw(
-                    IS.ConflictingInputsError(
-                        "$(PSY.get_name(service)) carries a $(ts_name) time series, but not \
-                        as $(ts_type), which is what this model reads. Attach the series \
-                        before calling transform_single_time_series!, or add it directly as \
-                        $(ts_type).",
-                    ),
-                )
-            end
+    template = get_template(model)
+    for component_model in Iterators.flatten((
+        values(get_service_models(template)),
+        values(get_device_models(template)),
+    ))
+        _check_lhs_time_series_types(component_model, system, ts_type)
+    end
+    return
+end
+
+function _check_lhs_time_series_types(component_model, system::PSY.System, ts_type)
+    for (P, ts_name) in get_time_series_names(component_model)
+        P <: LeftHandSideTimeSeriesParameter || continue
+        for component in get_available_components(component_model, system)
+            PSY.has_time_series(component, ts_name) || continue
+            PSY.has_time_series(component, ts_type, ts_name) && continue
+            throw(
+                IS.ConflictingInputsError(
+                    "$(PSY.get_name(component)) carries a $(ts_name) time series, but not \
+                    as $(ts_type), which is what this model reads. Attach the series \
+                    before calling transform_single_time_series!, or add it directly as \
+                    $(ts_type).",
+                ),
+            )
         end
     end
     return
