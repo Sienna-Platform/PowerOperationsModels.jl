@@ -308,16 +308,17 @@ _regulated_number(rep::RepresentativeBranch) = _regulated_number(_get_circuit(re
 
 function _parallel_branches_rating(model::DeviceModel, bp::PNM.BranchesParallel)
     method = get_attribute(model, PARALLEL_BRANCH_MAX_RATING_KEY)
-    if method == "single_element_contingency"
+    if method == SINGLE_ELEMENT_CONTINGENCY_RATING
         return PNM.get_single_element_contingency_rating(bp)
-    elseif method == "sum_of_max"
+    elseif method == SUM_OF_MAX_RATING
         return PNM.get_sum_of_max_rating(bp)
-    elseif method == "impedance_averaged"
+    elseif method == IMPEDANCE_AVERAGED_RATING
         return PNM.get_impedance_averaged_rating(bp)
     else
         error(
             "Unknown $PARALLEL_BRANCH_MAX_RATING_KEY value: $(repr(method)). " *
-            "Valid: \"single_element_contingency\", \"sum_of_max\", \"impedance_averaged\".",
+            "Valid: $(repr(SINGLE_ELEMENT_CONTINGENCY_RATING)), " *
+            "$(repr(SUM_OF_MAX_RATING)), $(repr(IMPEDANCE_AVERAGED_RATING)).",
         )
     end
 end
