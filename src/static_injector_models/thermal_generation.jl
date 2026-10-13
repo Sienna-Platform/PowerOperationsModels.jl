@@ -1186,8 +1186,7 @@ function add_constraints!(
     V <: AbstractCompactUnitCommitment,
     W <: AbstractNetworkModel,
 }
-    _add_ramp_rows_and_level_change!(
-        add_semicontinuous_ramp_constraints!,
+    add_semicontinuous_ramp_constraints!(
         container,
         T,
         PowerAboveMinimumVariable,
@@ -1195,6 +1194,7 @@ function add_constraints!(
         model,
         W,
     )
+    add_min_power_level_change_to_ramps!(container, T, devices, model)
     return
 end
 
@@ -1206,15 +1206,8 @@ function add_constraints!(
     model::DeviceModel{U, ThermalCompactDispatch},
     ::NetworkModel{V},
 ) where {U <: PSY.ThermalGen, V <: AbstractNetworkModel}
-    _add_ramp_rows_and_level_change!(
-        add_linear_ramp_constraints!,
-        container,
-        T,
-        PowerAboveMinimumVariable,
-        devices,
-        model,
-        V,
-    )
+    add_linear_ramp_constraints!(container, T, PowerAboveMinimumVariable, devices, model, V)
+    add_min_power_level_change_to_ramps!(container, T, devices, model)
     return
 end
 
@@ -1242,15 +1235,8 @@ function add_constraints!(
     model::DeviceModel{PSY.ThermalMultiStart, ThermalMultiStartUnitCommitment},
     ::NetworkModel{U},
 ) where {U <: AbstractNetworkModel}
-    _add_ramp_rows_and_level_change!(
-        add_linear_ramp_constraints!,
-        container,
-        T,
-        PowerAboveMinimumVariable,
-        devices,
-        model,
-        U,
-    )
+    add_linear_ramp_constraints!(container, T, PowerAboveMinimumVariable, devices, model, U)
+    add_min_power_level_change_to_ramps!(container, T, devices, model)
     return
 end
 

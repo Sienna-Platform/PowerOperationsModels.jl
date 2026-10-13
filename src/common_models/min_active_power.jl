@@ -417,27 +417,6 @@ function _level_change_steps(pmin::Vector{Float64})
     ]
 end
 
-# Build the ramp rows with `add_ramp_rows!`, then add the change of the minimum power.
-function _add_ramp_rows_and_level_change!(
-    add_ramp_rows!,
-    container::OptimizationContainer,
-    ::Type{T},
-    ::Type{P},
-    devices::Vector{V},
-    model::DeviceModel{V, W},
-    ::Type{X},
-) where {
-    T <: RampConstraint,
-    P <: VariableType,
-    V <: PSY.ThermalGen,
-    W <: AbstractThermalFormulation,
-    X <: AbstractNetworkModel,
-}
-    add_ramp_rows!(container, T, P, devices, model, X)
-    add_min_power_level_change_to_ramps!(container, T, devices, model)
-    return
-end
-
 """
 Add the change of the minimum power to the compact ramp rows. The compact rows are on the
 power above the minimum. The change of total power has the extra term

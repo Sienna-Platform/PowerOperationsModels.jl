@@ -413,7 +413,7 @@ end
     @test JuMP.upper_bound(dp["Alta", 5]) ≈
           PSY.get_active_power_limits(alta, u"SU").max - alta_min
     ics = IOM.get_initial_condition(container, POM.DeviceAboveMinPower(), ThermalStandard)
-    ic = only(filter(i -> IOM.get_component_name(i) == "Brighton", ics))
+    ic = only([i for i in ics if IOM.get_component_name(i) == "Brighton"])
     @test IOM.jump_fixed_value(IOM.get_value(ic)) ≈ max(0.0, p0 - pmin_1)
 end
 
@@ -913,28 +913,29 @@ end
     end
 end
 
+function _compact_dispatch_feedforward_build(s::Float64)
+    sys, unit = _linear_cost_system(MIN_POWER_VALUES; slope = s, constant = 3.0)
+    ff = SemiContinuousFeedforward(;
+        component_type = ThermalStandard,
+        source = OnVariable,
+        affected_values = [PowerAboveMinimumVariable],
+    )
+    device_model = DeviceModel(
+        ThermalStandard,
+        ThermalCompactDispatch;
+        time_series_names = MIN_POWER_UC_NAMES,
+    )
+    attach_feedforward!(device_model, ff)
+    model = DecisionModel(MockOperationProblem, DCPNetworkModel, sys)
+    mock_construct_device!(model, device_model; built_for_recurrent_solves = true)
+    container = IOM.get_optimization_container(model)
+    return unit, container, container.objective_function.invariant_terms
+end
+
 @testset "Compact dispatch with feedforward: the offset term uses the OnStatusParameter" begin
     slope = 17.0
-    objectives = map((0.0, slope)) do s
-        sys, unit = _linear_cost_system(MIN_POWER_VALUES; slope = s, constant = 3.0)
-        ff = SemiContinuousFeedforward(;
-            component_type = ThermalStandard,
-            source = OnVariable,
-            affected_values = [PowerAboveMinimumVariable],
-        )
-        device_model = DeviceModel(
-            ThermalStandard,
-            ThermalCompactDispatch;
-            time_series_names = MIN_POWER_UC_NAMES,
-        )
-        attach_feedforward!(device_model, ff)
-        model = DecisionModel(MockOperationProblem, DCPNetworkModel, sys)
-        mock_construct_device!(model, device_model; built_for_recurrent_solves = true)
-        container = IOM.get_optimization_container(model)
-        return unit, container, container.objective_function.invariant_terms
-    end
-    unit, container0, obj0 = objectives[1]
-    _, container, obj1 = objectives[2]
+    _, container0, obj0 = _compact_dispatch_feedforward_build(0.0)
+    unit, container, obj1 = _compact_dispatch_feedforward_build(slope)
     status0 = IOM.get_parameter_array(container0, OnStatusParameter, ThermalStandard)
     status = IOM.get_parameter_array(container, OnStatusParameter, ThermalStandard)
     pmin = POM.min_active_power_values(container, unit)
