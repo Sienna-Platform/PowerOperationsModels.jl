@@ -432,6 +432,7 @@ end
             POM.OutputActivePowerVariableLimitsConstraint,
             POM.InputActivePowerVariableLimitsConstraint,
         ) || continue
+        ckey.meta == "exclusivity" && continue
         arr = constraints[ckey]
         data = arr isa JuMP.Containers.DenseAxisArray ? arr.data : arr
         for i in eachindex(data)
@@ -784,4 +785,57 @@ end
     end
     @test JuMP.coefficient(expr[name, first(time_steps)], var[name, first(time_steps)]) !=
           JuMP.coefficient(expr[name, last(time_steps)], var[name, last(time_steps)])
+end
+
+@testset "reservation = true, reserve_coverage = false keeps charge/discharge exclusivity" begin
+    template = get_thermal_dispatch_template_network(CopperPlateNetworkModel)
+    set_device_model!(
+        template,
+        DeviceModel(
+            EnergyReservoirStorage,
+            StorageDispatchWithReserves;
+            attributes = Dict{String, Any}(
+                "reservation" => true,
+                "cycling_limits" => false,
+                "energy_target" => false,
+                "reserve_coverage" => false,
+                "complete_coverage" => false,
+                "regularization" => false,
+            ),
+        ),
+    )
+    set_device_model!(template, RenewableDispatch, FixedOutput)
+    set_service_model!(template, ServiceModel(OnlineReserve{ReserveUp}, RangeReserve))
+    set_service_model!(template, ServiceModel(OnlineReserve{ReserveDown}, RangeReserve))
+    sys = PSB.build_system(PSITestSystems, "c_sys5_bat"; add_reserves = true)
+    _deactivate_unmodeled_ordc!(sys)
+    model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          ModelBuildStatus.BUILT
+
+    container = IOM.get_optimization_container(model)
+    ss = IOM.get_variable(container, ReservationVariable, EnergyReservoirStorage)
+    p_out = IOM.get_variable(container, ActivePowerOutVariable, EnergyReservoirStorage)
+    p_in = IOM.get_variable(container, ActivePowerInVariable, EnergyReservoirStorage)
+    bat = PSY.get_component(EnergyReservoirStorage, sys, "Bat")
+    out_max = PSY.get_output_active_power_limits(bat, u"SU").max
+    in_max = PSY.get_input_active_power_limits(bat, u"SU").max
+    out_con = IOM.get_constraints(model)[IOM.ConstraintKey(
+        POM.OutputActivePowerVariableLimitsConstraint,
+        EnergyReservoirStorage,
+        "exclusivity",
+    )]
+    in_con = IOM.get_constraints(model)[IOM.ConstraintKey(
+        POM.InputActivePowerVariableLimitsConstraint,
+        EnergyReservoirStorage,
+        "exclusivity",
+    )]
+    for t in IOM.get_time_steps(container)
+        out_func = JuMP.constraint_object(out_con["Bat", t]).func
+        @test JuMP.coefficient(out_func, p_out["Bat", t]) ≈ 1.0
+        @test JuMP.coefficient(out_func, ss["Bat", t]) ≈ -out_max
+        in_func = JuMP.constraint_object(in_con["Bat", t]).func
+        @test JuMP.coefficient(in_func, p_in["Bat", t]) ≈ 1.0
+        @test JuMP.coefficient(in_func, ss["Bat", t]) ≈ in_max
+    end
 end
