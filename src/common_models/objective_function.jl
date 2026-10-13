@@ -5,8 +5,6 @@
 # fuel path already prices `FuelConsumptionExpression`, which has this term.
 #################################################################################
 
-const _StatusColumn = Union{Vector{Float64}, Vector{JuMP.VariableRef}}
-
 # The status values at each step, read behind a barrier so the loop sees the array type.
 function _status_column(status, name::String, time_steps)
     return [status[name, t] for t in time_steps]
@@ -17,7 +15,7 @@ function _compact_on_status(
     container::OptimizationContainer,
     d::V,
     ::Type{<:AbstractCompactUnitCommitment},
-)::_StatusColumn where {V <: PSY.ThermalGen}
+) where {V <: PSY.ThermalGen}
     time_steps = get_time_steps(container)
     if _is_must_run(d)
         return fill(1.0, length(time_steps))
@@ -35,7 +33,7 @@ function _compact_on_status(
     container::OptimizationContainer,
     d::V,
     ::Type{ThermalCompactDispatch},
-)::_StatusColumn where {V <: PSY.ThermalGen}
+) where {V <: PSY.ThermalGen}
     time_steps = get_time_steps(container)
     name = PSY.get_name(d)
     if name in _on_status_names(container, V)
@@ -75,14 +73,6 @@ function _add_min_power_proportional_cost!(
     end
     return
 end
-
-const _CompactCostCurve =
-    Union{PSY.CostCurve{IS.LinearCurve}, PSY.CostCurve{IS.QuadraticCurve}}
-const _CompactFuelCurve =
-    Union{PSY.FuelCurve{IS.LinearCurve}, PSY.FuelCurve{IS.QuadraticCurve}}
-
-_curve_function_data(cost_function::Union{_CompactCostCurve, _CompactFuelCurve}) =
-    IS.get_function_data(IS.get_value_curve(cost_function))
 
 # The offset term is linear in the status. A quadratic term would need `(Pmin_t u_t + dp_t)^2`.
 function _check_compact_quadratic_term(name::String, data::IS.LinearFunctionData)
@@ -127,14 +117,14 @@ function _add_compact_cost_curve!(
     container::OptimizationContainer,
     ::Type{T},
     component::V,
-    cost_function::_CompactCostCurve,
+    cost_function::PSY.CostCurve,
     ::Type{U},
 ) where {
     T <: PowerAboveMinimumVariable,
     V <: PSY.ThermalGen,
     U <: AbstractDeviceFormulation,
 }
-    data = _curve_function_data(cost_function)
+    data = IS.get_function_data(IS.get_value_curve(cost_function))
     _check_compact_quadratic_term(PSY.get_name(component), data)
     _add_generic_variable_cost!(container, T, component, cost_function, U)
     _add_min_power_proportional_cost!(
@@ -152,14 +142,14 @@ function _add_compact_fuel_curve!(
     container::OptimizationContainer,
     ::Type{T},
     component::V,
-    cost_function::_CompactFuelCurve,
+    cost_function::PSY.FuelCurve,
     ::Type{U},
 ) where {
     T <: PowerAboveMinimumVariable,
     V <: PSY.ThermalGen,
     U <: AbstractDeviceFormulation,
 }
-    data = _curve_function_data(cost_function)
+    data = IS.get_function_data(IS.get_value_curve(cost_function))
     _check_compact_quadratic_term(PSY.get_name(component), data)
     _add_generic_variable_cost!(container, T, component, cost_function, U)
     # A time series fuel cost is priced by `FuelConsumptionExpression`: no offset term here.

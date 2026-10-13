@@ -890,16 +890,12 @@ function get_min_max_limits(
     return (min = 0.0, max = PSY.get_max_active_power(x, u"SU"))
 end
 
-# The pump formulations are not generation formulations: their rows do not change.
-const HydroGenerationFormulation =
-    Union{AbstractHydroDispatchFormulation, AbstractHydroUnitCommitment}
-
 function IOM.get_min_max_limit_values(
     container::OptimizationContainer,
     ::Type{ActivePowerVariableLimitsConstraint},
     d::V,
     ::DeviceModel{V, W},
-) where {V <: PSY.HydroGen, W <: HydroGenerationFormulation}
+) where {V <: PSY.HydroGen, W <: AbstractHydroFormulation}
     return _limit_values_or_static(
         container,
         W,
@@ -913,17 +909,7 @@ function _on_status_multipliers(
     container::OptimizationContainer,
     ::Type{ActivePowerRangeExpressionLB},
     d::PSY.HydroGen,
-    ::Type{<:HydroGenerationFormulation},
-)
-    return min_active_power_values(container, d)
-end
-
-# The pump generation side follows the same rule as the generation formulations.
-function _on_status_multipliers(
-    container::OptimizationContainer,
-    ::Type{ActivePowerRangeExpressionLB},
-    d::PSY.HydroPumpTurbine,
-    ::Type{<:AbstractHydroPumpFormulation},
+    ::Type{<:AbstractHydroFormulation},
 )
     return min_active_power_values(container, d)
 end

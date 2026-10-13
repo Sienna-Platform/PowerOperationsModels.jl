@@ -2,9 +2,6 @@
 # Per-step minimum active power
 #################################################################################
 
-const MinActivePowerParameter =
-    Union{MinActivePowerTimeSeriesParameter, MinActivePowerInTimeSeriesParameter}
-
 """
 Whether `d` has a row in the container of the minimum power parameter `P`.
 """
@@ -12,7 +9,7 @@ function has_min_active_power_series(
     container::OptimizationContainer,
     ::Type{P},
     d::V,
-)::Bool where {P <: MinActivePowerParameter, V <: PSY.Component}
+)::Bool where {P <: AbstractMinActivePowerParameter, V <: PSY.Component}
     has_container_key(container, P, V) || return false
     return has_lhs_parameter_component(container, IOM.ParameterKey(P, V), PSY.get_name(d))
 end
@@ -22,7 +19,7 @@ function _per_step_minimum(
     ::Type{P},
     d::V,
     static_min::Float64,
-)::Vector{Float64} where {P <: MinActivePowerParameter, V <: PSY.Component}
+)::Vector{Float64} where {P <: AbstractMinActivePowerParameter, V <: PSY.Component}
     has_container_key(container, P, V) ||
         return fill(static_min, length(get_time_steps(container)))
     param_container = get_parameter(container, P, V)
@@ -119,7 +116,7 @@ function _validate_min_active_power!(
     ::Type{P},
     d::V,
     model::DeviceModel,
-) where {P <: MinActivePowerParameter, V <: PSY.Component}
+) where {P <: AbstractMinActivePowerParameter, V <: PSY.Component}
     values = get_lhs_parameter_values(container, IOM.ParameterKey(P, V), PSY.get_name(d))
     pmax = _static_maximum(P, d)
     for t in eachindex(values)
@@ -149,7 +146,7 @@ function add_min_active_power_parameters!(
     ::Type{P},
     devices::Vector{V},
     model::DeviceModel,
-) where {P <: MinActivePowerParameter, V <: PSY.Component}
+) where {P <: AbstractMinActivePowerParameter, V <: PSY.Component}
     haskey(get_time_series_names(model), P) || return
     profiled = _add_profiled_parameters!(
         container,
