@@ -757,7 +757,7 @@ function construct_service!(
     container::OptimizationContainer,
     sys::PSY.System,
     ::ArgumentConstructStage,
-    model::ServiceModel{T, ConstantMaxInterfaceFlow},
+    model::ServiceModel{T, MaxInterfaceFlow},
     devices_template::Dict{Symbol, DeviceModel},
     incompatible_device_types::Set{<:DataType},
     network_model::NetworkModel{<:AbstractNetworkModel},
@@ -772,6 +772,18 @@ function construct_service!(
     if get_use_slacks(model)
         transmission_interface_slacks!(container, interfaces)
     end
+    _add_interface_limit_parameters!(
+        container,
+        MinInterfaceFlowLimitParameter,
+        interfaces,
+        model,
+    )
+    _add_interface_limit_parameters!(
+        container,
+        MaxInterfaceFlowLimitParameter,
+        interfaces,
+        model,
+    )
     for interface in interfaces
         add_feedforward_arguments!(container, model, interface)
     end
@@ -782,7 +794,7 @@ function construct_service!(
     container::OptimizationContainer,
     sys::PSY.System,
     ::ArgumentConstructStage,
-    model::ServiceModel{PSY.TransmissionInterface, ConstantMaxInterfaceFlow},
+    model::ServiceModel{PSY.TransmissionInterface, MaxInterfaceFlow},
     devices_template::Dict{Symbol, DeviceModel},
     incompatible_device_types::Set{<:DataType},
     network_model::NetworkModel{AreaBalanceNetworkModel},
@@ -798,6 +810,18 @@ function construct_service!(
     if get_use_slacks(model)
         transmission_interface_slacks!(container, interfaces)
     end
+    _add_interface_limit_parameters!(
+        container,
+        MinInterfaceFlowLimitParameter,
+        interfaces,
+        model,
+    )
+    _add_interface_limit_parameters!(
+        container,
+        MaxInterfaceFlowLimitParameter,
+        interfaces,
+        model,
+    )
     for interface in interfaces
         add_feedforward_arguments!(container, model, interface)
     end
@@ -808,7 +832,7 @@ function construct_service!(
     container::OptimizationContainer,
     sys::PSY.System,
     ::ModelConstructStage,
-    model::ServiceModel{PSY.TransmissionInterface, ConstantMaxInterfaceFlow},
+    model::ServiceModel{PSY.TransmissionInterface, MaxInterfaceFlow},
     devices_template::Dict{Symbol, DeviceModel},
     incompatible_device_types::Set{<:DataType},
     network_model::NetworkModel{<:AbstractActivePowerModel},
@@ -852,10 +876,10 @@ function construct_service!(
     container::OptimizationContainer,
     sys::PSY.System,
     ::ModelConstructStage,
-    model::ServiceModel{PSY.TransmissionInterface, ConstantMaxInterfaceFlow},
+    model::ServiceModel{PSY.TransmissionInterface, MaxInterfaceFlow},
     devices_template::Dict{Symbol, DeviceModel},
     incompatible_device_types::Set{<:DataType},
-    network_model::NetworkModel{PTDFNetworkModel},
+    network_model::NetworkModel{<:AbstractPTDFNetworkModel},
 )
     for service in get_available_components(model, sys)
         add_to_expression!(
@@ -896,7 +920,7 @@ function construct_service!(
     container::OptimizationContainer,
     sys::PSY.System,
     ::ModelConstructStage,
-    model::ServiceModel{PSY.TransmissionInterface, ConstantMaxInterfaceFlow},
+    model::ServiceModel{PSY.TransmissionInterface, MaxInterfaceFlow},
     devices_template::Dict{Symbol, DeviceModel},
     incompatible_device_types::Set{<:DataType},
     network_model::NetworkModel{AreaPTDFNetworkModel},
@@ -951,150 +975,12 @@ function construct_service!(
     container::OptimizationContainer,
     sys::PSY.System,
     ::ModelConstructStage,
-    model::ServiceModel{PSY.TransmissionInterface, VariableMaxInterfaceFlow},
-    devices_template::Dict{Symbol, DeviceModel},
-    incompatible_device_types::Set{<:DataType},
-    network_model::NetworkModel{<:AbstractPTDFNetworkModel},
-)
-    for service in get_available_components(model, sys)
-        # This function makes interfaces for the AC Branches
-        add_to_expression!(
-            container,
-            InterfaceTotalFlow,
-            PTDFBranchFlow,
-            service,
-            model,
-            network_model,
-        )
-
-        if get_use_slacks(model)
-            add_to_expression!(
-                container,
-                InterfaceTotalFlow,
-                InterfaceFlowSlackUp,
-                service,
-                model,
-            )
-            add_to_expression!(
-                container,
-                InterfaceTotalFlow,
-                InterfaceFlowSlackDown,
-                service,
-                model,
-            )
-        end
-
-        add_constraints!(container, InterfaceFlowLimit, service, model)
-        add_feedforward_constraints!(container, model, service)
-        add_to_objective_function!(container, service, model)
-    end
-    add_constraint_dual!(container, sys, model)
-    return
-end
-
-function construct_service!(
-    container::OptimizationContainer,
-    sys::PSY.System,
-    ::ModelConstructStage,
-    model::ServiceModel{PSY.TransmissionInterface, U},
+    model::ServiceModel{PSY.TransmissionInterface, MaxInterfaceFlow},
     devices_template::Dict{Symbol, DeviceModel},
     incompatible_device_types::Set{<:DataType},
     network_model::NetworkModel{T},
-) where {
-    T <: AbstractNetworkModel,
-    U <: Union{ConstantMaxInterfaceFlow, VariableMaxInterfaceFlow},
-}
+) where {T <: AbstractNetworkModel}
     error("TransmissionInterface models not implemented for PowerModel of type $T")
-    return
-end
-
-function construct_service!(
-    container::OptimizationContainer,
-    sys::PSY.System,
-    ::ArgumentConstructStage,
-    model::ServiceModel{PSY.TransmissionInterface, VariableMaxInterfaceFlow},
-    devices_template::Dict{Symbol, DeviceModel},
-    incompatible_device_types::Set{<:DataType},
-    network_model::NetworkModel{<:AbstractNetworkModel},
-)
-    interfaces = collect(get_available_components(model, sys))
-    # Lazy container addition for the expressions.
-    lazy_container_addition!(container, InterfaceTotalFlow,
-        PSY.TransmissionInterface,
-        PSY.get_name.(interfaces),
-        get_time_steps(container),
-    )
-    has_ts = PSY.has_time_series.(interfaces)
-    if any(has_ts) && !all(has_ts)
-        error(
-            "Not all TransmissionInterfaces devices have time series. Check data to complete (or remove) time series.",
-        )
-    end
-    if get_use_slacks(model)
-        transmission_interface_slacks!(container, interfaces)
-    end
-    if !isempty(interfaces) && all(has_ts)
-        for interface in interfaces
-            name = PSY.get_name(interface)
-            num_ts = length(unique(IS.get_name.(IS.list_time_series_metadata(interface))))
-            if num_ts < 2
-                error(
-                    "TransmissionInterface $name has less than two time series. It is required to add both min_flow and max_flow time series.",
-                )
-            end
-        end
-        # One parameter container per type over all interfaces, filled per interface by the
-        # vector `_add_parameters!` path.
-        add_parameters!(container, MinInterfaceFlowLimitParameter, interfaces, model)
-        add_parameters!(container, MaxInterfaceFlowLimitParameter, interfaces, model)
-    end
-    for interface in interfaces
-        add_feedforward_arguments!(container, model, interface)
-    end
-    return
-end
-
-function construct_service!(
-    container::OptimizationContainer,
-    sys::PSY.System,
-    ::ModelConstructStage,
-    model::ServiceModel{PSY.TransmissionInterface, U},
-    devices_template::Dict{Symbol, DeviceModel},
-    incompatible_device_types::Set{<:DataType},
-    network_model::NetworkModel{<:AbstractActivePowerModel},
-) where {U <: Union{ConstantMaxInterfaceFlow, VariableMaxInterfaceFlow}}
-    for service in get_available_components(model, sys)
-        add_to_expression!(
-            container,
-            InterfaceTotalFlow,
-            FlowActivePowerVariable,
-            service,
-            model,
-            network_model,
-        )
-
-        if get_use_slacks(model)
-            add_to_expression!(
-                container,
-                InterfaceTotalFlow,
-                InterfaceFlowSlackUp,
-                service,
-                model,
-            )
-            add_to_expression!(
-                container,
-                InterfaceTotalFlow,
-                InterfaceFlowSlackDown,
-                service,
-                model,
-            )
-        end
-
-        add_constraints!(container, InterfaceFlowLimit, service, model)
-        add_feedforward_constraints!(container, model, service)
-        add_to_objective_function!(container, service, model)
-    end
-    add_constraint_dual!(container, sys, model)
     return
 end
 

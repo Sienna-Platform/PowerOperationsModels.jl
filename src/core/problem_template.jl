@@ -349,15 +349,7 @@ end
 
 function _modify_device_model!(
     ::Dict{Symbol, DeviceModel},
-    ::ServiceModel{PSY.TransmissionInterface, ConstantMaxInterfaceFlow},
-    ::Vector,
-)
-    return
-end
-
-function _modify_device_model!(
-    ::Dict{Symbol, DeviceModel},
-    ::ServiceModel{PSY.TransmissionInterface, VariableMaxInterfaceFlow},
+    ::ServiceModel{PSY.TransmissionInterface, MaxInterfaceFlow},
     ::Vector,
 )
     return

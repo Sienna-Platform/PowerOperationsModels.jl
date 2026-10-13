@@ -1016,6 +1016,7 @@ export RangeReserve
 export StepwiseCostReserve
 export RampReserve
 export NonSpinningReserve
+export MaxInterfaceFlow
 export ConstantMaxInterfaceFlow
 export VariableMaxInterfaceFlow
 
