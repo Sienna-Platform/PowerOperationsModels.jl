@@ -968,7 +968,7 @@ end
     end
 end
 
-@testset "HVDCTwoTerminalDispatch bounds follow the operational limit per end" begin
+@testset "HVDCTwoTerminalDispatch operational limit rows per end" begin
     sys = PSB.build_system(PSITestSystems, "c_sys5")
     arc = PSY.get_arc(PSY.get_component(Line, sys, "1"))
     d = _hvdc_probe(sys, arc, "probe_ofl"; rating = 2.0)
@@ -980,7 +980,11 @@ end
     template = get_thermal_dispatch_template_network(NetworkModel(PTDFNetworkModel))
     set_device_model!(
         template,
-        DeviceModel(TwoTerminalGenericHVDCLine, HVDCTwoTerminalDispatch),
+        DeviceModel(
+            TwoTerminalGenericHVDCLine,
+            HVDCTwoTerminalDispatch;
+            duals = [OperationalFlowLimitConstraint],
+        ),
     )
     model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
     @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
@@ -992,11 +996,21 @@ end
     ptf = IOM.get_variable(
         container, FlowActivePowerToFromVariable, TwoTerminalGenericHVDCLine,
     )
+    con_ft = IOM.get_constraint(
+        container, OperationalFlowLimitConstraint, TwoTerminalGenericHVDCLine, "ft",
+    )
+    con_tf = IOM.get_constraint(
+        container, OperationalFlowLimitConstraint, TwoTerminalGenericHVDCLine, "tf",
+    )
     t = first(IOM.get_time_steps(container))
-    @test JuMP.upper_bound(pft["probe_ofl", t]) ≈ 0.5
+    @test JuMP.normalized_rhs(con_ft["probe_ofl", t]) ≈ 0.5
+    @test JuMP.normalized_coefficient(con_ft["probe_ofl", t], pft["probe_ofl", t]) == 1.0
+    @test JuMP.normalized_rhs(con_tf["probe_ofl", t]) ≈ 0.3
+    @test JuMP.normalized_coefficient(con_tf["probe_ofl", t], ptf["probe_ofl", t]) == 1.0
+    @test JuMP.upper_bound(pft["probe_ofl", t]) ≈ 2.0
     @test JuMP.lower_bound(pft["probe_ofl", t]) ≈ -0.3
-    @test JuMP.upper_bound(ptf["probe_ofl", t]) ≈ 0.3
     @test JuMP.lower_bound(ptf["probe_ofl", t]) ≈ -0.5
+    @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
 
     template_off = get_thermal_dispatch_template_network(NetworkModel(PTDFNetworkModel))
     set_device_model!(
@@ -1010,10 +1024,37 @@ end
     model_off = DecisionModel(template_off, sys; optimizer = HiGHS_optimizer)
     @test build!(model_off; output_dir = mktempdir(; cleanup = true)) ==
           IOM.ModelBuildStatus.BUILT
-    pft_off = IOM.get_variable(
+    @test !IOM.has_container_key(
         IOM.get_optimization_container(model_off),
-        FlowActivePowerFromToVariable,
+        OperationalFlowLimitConstraint,
         TwoTerminalGenericHVDCLine,
+        "ft",
     )
-    @test JuMP.upper_bound(pft_off["probe_ofl", t]) ≈ 2.0
+end
+
+@testset "HVDCTwoTerminalLossless to-from operational limit row negates the flow" begin
+    sys = PSB.build_system(PSITestSystems, "c_sys5")
+    arc = PSY.get_arc(PSY.get_component(Line, sys, "1"))
+    d = _hvdc_probe(sys, arc, "probe_ofl"; rating = 2.0)
+    PSY.set_operational_flow_limit!(
+        d,
+        (from_to = (min = 0.0 * u"MW", max = 50.0 * u"MW"),
+            to_from = (min = 0.0 * u"MW", max = 30.0 * u"MW")),
+    )
+    template = get_thermal_dispatch_template_network(NetworkModel(PTDFNetworkModel))
+    set_device_model!(
+        template,
+        DeviceModel(TwoTerminalGenericHVDCLine, HVDCTwoTerminalLossless),
+    )
+    model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+    container = IOM.get_optimization_container(model)
+    flow = IOM.get_variable(container, FlowActivePowerVariable, TwoTerminalGenericHVDCLine)
+    con_tf = IOM.get_constraint(
+        container, OperationalFlowLimitConstraint, TwoTerminalGenericHVDCLine, "tf",
+    )
+    t = first(IOM.get_time_steps(container))
+    @test JuMP.normalized_coefficient(con_tf["probe_ofl", t], flow["probe_ofl", t]) == -1.0
+    @test JuMP.normalized_rhs(con_tf["probe_ofl", t]) ≈ 0.3
 end

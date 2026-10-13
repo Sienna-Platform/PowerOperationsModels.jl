@@ -72,7 +72,12 @@ function _member_operational_limits(
     to_from = Inf
     for (member, orientation) in zip(bs, PNM.get_segment_orientations(bs))
         lims = _in_frame(
-            _member_operational_limits(member, model, "single_element_contingency", nr),
+            _member_operational_limits(
+                member,
+                model,
+                SINGLE_ELEMENT_CONTINGENCY_RATING,
+                nr,
+            ),
             orientation === :ToFrom,
         )
         from_to = min(from_to, lims.from_to)
@@ -82,14 +87,19 @@ function _member_operational_limits(
 end
 
 # A top-level mixed group always sums; a group inside a chain keeps the chain's N-1.
-_top_level_method(::PNM.MixedBranchesParallel, ::String) = "sum_of_max"
+_top_level_method(::PNM.MixedBranchesParallel, ::String) = SUM_OF_MAX_RATING
 _top_level_method(::PNM.AbstractReductionAggregate, method::String) = method
 _top_level_method(::PSY.ACTransmission, method::String) = method
 
-# Orientation of a parallel member relative to its group arc.
-function _is_reversed_member(m, bp::PNM.AbstractBranchesParallel)
-    key = PNM.get_arc_tuple(bp)
-    arc = PNM.get_arc_tuple(m)
+# Orientation of a parallel member relative to its group arc. A bus merge can put a member
+# with another original arc into the group, so compare the arcs after the bus remap.
+function _is_reversed_member(
+    m,
+    bp::PNM.AbstractBranchesParallel,
+    nr::PNM.NetworkReductionData,
+)
+    key = PNM.get_arc_tuple(bp, nr)
+    arc = PNM.get_arc_tuple(m, nr)
     if arc == key
         return false
     elseif arc == reverse(key)
@@ -107,11 +117,11 @@ function _aggregate_parallel(
     bp::PNM.AbstractBranchesParallel,
     nr::PNM.NetworkReductionData,
 )
-    if method == "single_element_contingency"
+    if method == SINGLE_ELEMENT_CONTINGENCY_RATING
         return sum(values) - maximum(values)
-    elseif method == "sum_of_max"
+    elseif method == SUM_OF_MAX_RATING
         return sum(values)
-    elseif method == "impedance_averaged"
+    elseif method == IMPEDANCE_AVERAGED_RATING
         weights = [PNM.get_effective_series_susceptance(m, nr) for m in bp]
         return sum(weights .* values) / sum(weights)
     end
@@ -128,7 +138,7 @@ function _member_operational_limits(
     members = [
         _in_frame(
             _member_operational_limits(m, model, method, nr),
-            _is_reversed_member(m, bp),
+            _is_reversed_member(m, bp, nr),
         ) for m in bp
     ]
     return (
@@ -242,9 +252,6 @@ function add_operational_flow_limit_arguments!(
     return
 end
 
-const _StaticLimits =
-    Dict{String, NamedTuple{(:from_to, :to_from), Tuple{Float64, Float64}}}
-
 function _check_series_has_static_limit(::Type{T}, carriers, ts_name::String) where {T}
     for d in carriers
         if !_has_device_operational_flow_limit(d)
@@ -286,14 +293,22 @@ function _check_operational_time_series_entry(
     )
 end
 
-function _fill_static_rhs!(rhs, reps, static::_StaticLimits, dir)
-    for rep in reps
-        value = IOM.get_directional_value(static[rep.name], dir)
+# The static limit of direction `dir` per name and time step.
+function _static_rhs(
+    ::Type{E},
+    container::OptimizationContainer,
+    static::Dict{String, <:NamedTuple},
+    names::Vector{String},
+    dir,
+) where {E}
+    rhs = DenseAxisArray{E}(undef, names, get_time_steps(container))
+    for name in names
+        value = IOM.get_directional_value(static[name], dir)
         for t in axes(rhs, 2)
-            rhs[rep.name, t] = value
+            rhs[name, t] = value
         end
     end
-    return
+    return rhs
 end
 
 function _fill_series_rhs!(rhs, reps, param_container, dir)
@@ -316,21 +331,17 @@ function _operational_rhs(
     ::Type{T},
     container,
     dir,
-    static::_StaticLimits,
+    static::Dict{String, <:NamedTuple},
     reps,
     names::Vector{String},
 ) where {T}
-    time_steps = get_time_steps(container)
     P = _operational_parameter(dir)
     if !has_container_key(container, P, T)
-        rhs = DenseAxisArray{Float64}(undef, names, time_steps)
-        _fill_static_rhs!(rhs, reps, static, dir)
-        return rhs
+        return _static_rhs(Float64, container, static, names, dir)
     end
     param_container = get_parameter(container, P, T)
     E = promote_type(Float64, eltype(get_parameter_array(param_container)))
-    rhs = DenseAxisArray{E}(undef, names, time_steps)
-    _fill_static_rhs!(rhs, reps, static, dir)
+    rhs = _static_rhs(E, container, static, names, dir)
     _fill_series_rhs!(rhs, reps, param_container, dir)
     return rhs
 end
@@ -349,12 +360,31 @@ function add_operational_flow_limit_constraints!(
     reps = _operational_limit_reps(network_model, T)
     isempty(reps) && return
     names = _branch_names(reps)
-    static = _StaticLimits(
+    static = Dict{String, NamedTuple{(:from_to, :to_from), Tuple{Float64, Float64}}}(
         rep.name => _operational_flow_limits(rep, device_model) for rep in reps
     )
-    flows = _operational_flows(container, T, network_model)
-    for ((flow, flow_sign), dir) in zip(flows, (IOM.FromTo(), IOM.ToFrom()))
-        limit = _operational_rhs(T, container, dir, static, reps, names)
+    limits = (
+        _operational_rhs(T, container, IOM.FromTo(), static, reps, names),
+        _operational_rhs(T, container, IOM.ToFrom(), static, reps, names),
+    )
+    _add_operational_limit_rows!(
+        container, T, device_model, names,
+        _operational_flows(container, T, network_model), limits,
+    )
+    return
+end
+
+# One `OperationalFlowLimitConstraint` row per name, time step, and direction.
+function _add_operational_limit_rows!(
+    container::OptimizationContainer,
+    ::Type{T},
+    device_model::DeviceModel{T},
+    names::Vector{String},
+    flows,
+    limits,
+) where {T <: PSY.ACBranch}
+    directions = (IOM.FromTo(), IOM.ToFrom())
+    for ((flow, flow_sign), limit, dir) in zip(flows, limits, directions)
         if get_use_slacks(device_model)
             slack = get_variable(
                 container, FlowActivePowerSlackUpperBound, T,
@@ -473,35 +503,17 @@ _time_series_label(::Type{<:TimeSeriesParameter}) = "branch rating time series"
 _time_series_label(::Type{FromToFlowLimitParameter}) = "operational limit time series"
 _time_series_label(::Type{ToFromFlowLimitParameter}) = "operational limit time series"
 
-# Direction that each HVDC variable measures as positive. Received-from power is delivered
-# to the from bus, so it flows to-from. Rectifier and inverter power both move from-to.
-_hvdc_positive_direction(::Type{FlowActivePowerVariable}) = IOM.FromTo()
-_hvdc_positive_direction(::Type{FlowActivePowerFromToVariable}) = IOM.FromTo()
-_hvdc_positive_direction(::Type{FlowActivePowerToFromVariable}) = IOM.ToFrom()
-_hvdc_positive_direction(::Type{HVDCActivePowerReceivedFromVariable}) = IOM.ToFrom()
-_hvdc_positive_direction(::Type{HVDCActivePowerReceivedToVariable}) = IOM.FromTo()
-_hvdc_positive_direction(::Type{HVDCRectifierActivePowerVariable}) = IOM.FromTo()
-_hvdc_positive_direction(::Type{HVDCInverterActivePowerVariable}) = IOM.FromTo()
-
-_opposite_direction(::IOM.FromTo) = IOM.ToFrom()
-_opposite_direction(::IOM.ToFrom) = IOM.FromTo()
-
-const _HVDC_LIMITED_VARIABLES = (
-    FlowActivePowerVariable,
-    FlowActivePowerFromToVariable,
-    FlowActivePowerToFromVariable,
-    HVDCActivePowerReceivedFromVariable,
-    HVDCActivePowerReceivedToVariable,
-    HVDCRectifierActivePowerVariable,
-    HVDCInverterActivePowerVariable,
-)
-
 function _tighten_bounds!(v, lower::Float64, upper::Float64)
     if JuMP.has_upper_bound(v)
         JuMP.set_upper_bound(v, min(JuMP.upper_bound(v), upper))
     else
         JuMP.set_upper_bound(v, upper)
     end
+    _tighten_lower_bound!(v, lower)
+    return
+end
+
+function _tighten_lower_bound!(v, lower::Float64)
     if JuMP.has_lower_bound(v)
         JuMP.set_lower_bound(v, max(JuMP.lower_bound(v), lower))
     else
@@ -510,32 +522,113 @@ function _tighten_bounds!(v, lower::Float64, upper::Float64)
     return
 end
 
+# A pair of end variables can carry more than the limit of the opposite direction: on
+# CopperPlate no loss row couples them, and a bilinear approximation of a VSC can give
+# negative losses. Each end therefore also gets the opposite limit as its lower bound.
+_bound_receiving_ends!(container, devices, ::DeviceModel) = nothing
+
+function _bound_receiving_ends!(
+    container::OptimizationContainer,
+    devices,
+    ::DeviceModel{
+        T,
+        <:Union{HVDCTwoTerminalDispatch, AbstractTwoTerminalVSCFormulation},
+    },
+) where {T <: PSY.TwoTerminalHVDC}
+    pft = get_variable(container, FlowActivePowerFromToVariable, T)
+    ptf = get_variable(container, FlowActivePowerToFromVariable, T)
+    for d in devices
+        _has_device_operational_flow_limit(d) || continue
+        lims = _hvdc_operational_limits(d)
+        name = PSY.get_name(d)
+        for t in get_time_steps(container)
+            _tighten_lower_bound!(pft[name, t], -lims.to_from)
+            _tighten_lower_bound!(ptf[name, t], -lims.from_to)
+        end
+    end
+    return
+end
+
+# The HVDC flow in each direction at its sending end, as `(flow, flow_sign)`. The loss
+# rows keep the receiving end at or below the sending end, except where
+# `_bound_receiving_ends!` adds bounds.
+_hvdc_operational_flows(
+    container,
+    ::Type{T},
+    ::DeviceModel{T, HVDCTwoTerminalLossless},
+) where {T} = _single_flow(get_variable(container, FlowActivePowerVariable, T))
+_hvdc_operational_flows(
+    container,
+    ::Type{T},
+    ::DeviceModel{T, HVDCTwoTerminalDispatch},
+) where {T} = _pair_flows(container, T)
+_hvdc_operational_flows(
+    container,
+    ::Type{T},
+    ::DeviceModel{T, <:AbstractTwoTerminalVSCFormulation},
+) where {T} = _pair_flows(container, T)
+
+# Received power is negative at the sending end.
+function _hvdc_operational_flows(
+    container,
+    ::Type{T},
+    ::DeviceModel{T, HVDCTwoTerminalPiecewiseLoss},
+) where {T}
+    received_from = get_variable(container, HVDCActivePowerReceivedFromVariable, T)
+    received_to = get_variable(container, HVDCActivePowerReceivedToVariable, T)
+    return ((received_from, -1.0), (received_to, -1.0))
+end
+
+function _hvdc_operational_flows(
+    container,
+    ::Type{T},
+    ::DeviceModel{T, HVDCTwoTerminalLCC},
+) where {T}
+    rectifier = get_variable(container, HVDCRectifierActivePowerVariable, T)
+    inverter = get_variable(container, HVDCInverterActivePowerVariable, T)
+    return ((rectifier, 1.0), (inverter, -1.0))
+end
+
+_has_device_operational_flow_limit(d::PSY.TwoTerminalHVDC) =
+    !isnothing(PSY.get_operational_flow_limit(d, u"SU"))
+
+function _hvdc_operational_limits(d::PSY.TwoTerminalHVDC)
+    ofl = PSY.get_operational_flow_limit(d, u"SU")
+    return (
+        from_to = IOM.get_directional_value(ofl, IOM.FromTo()).max,
+        to_from = IOM.get_directional_value(ofl, IOM.ToFrom()).max,
+    )
+end
+
+_hvdc_limited_names(devices) =
+    [PSY.get_name(d) for d in devices if _has_device_operational_flow_limit(d)]
+
 """
-Tighten the HVDC flow variables of `device_model` to the `operational_flow_limit` of each
-device. The end caps from `_hvdc_end_caps` stay as the outer bounds.
+Add `OperationalFlowLimitConstraint` rows for the HVDC devices that carry an
+`operational_flow_limit`. The end caps stay as the variable bounds. The HVDC
+formulations declare no slacks, so these rows are hard.
 """
-function _apply_hvdc_operational_flow_limits!(
+function add_hvdc_operational_flow_limit_constraints!(
     container::OptimizationContainer,
     devices,
     device_model::DeviceModel{T},
 ) where {T <: PSY.TwoTerminalHVDC}
     _operational_flow_limits_enabled(device_model) || return
-    time_steps = get_time_steps(container)
-    for V in _HVDC_LIMITED_VARIABLES
-        has_container_key(container, V, T) || continue
-        var = get_variable(container, V, T)
-        dir = _hvdc_positive_direction(V)
-        for d in devices
-            ofl = PSY.get_operational_flow_limit(d, u"SU")
-            isnothing(ofl) && continue
-            upper = IOM.get_directional_value(ofl, dir).max
-            lower = -IOM.get_directional_value(ofl, _opposite_direction(dir)).max
-            name = PSY.get_name(d)
-            for t in time_steps
-                _tighten_bounds!(var[name, t], lower, upper)
-            end
-        end
-    end
+    names = _hvdc_limited_names(devices)
+    isempty(names) && return
+    static = Dict{String, NamedTuple{(:from_to, :to_from), Tuple{Float64, Float64}}}(
+        PSY.get_name(d) => _hvdc_operational_limits(d) for
+        d in devices if _has_device_operational_flow_limit(d)
+    )
+    limits = (
+        _static_rhs(Float64, container, static, names, IOM.FromTo()),
+        _static_rhs(Float64, container, static, names, IOM.ToFrom()),
+    )
+    _add_operational_limit_rows!(
+        container, T, device_model, names,
+        _hvdc_operational_flows(container, T, device_model), limits,
+    )
+    _bound_receiving_ends!(container, devices, device_model)
     return
 end
 

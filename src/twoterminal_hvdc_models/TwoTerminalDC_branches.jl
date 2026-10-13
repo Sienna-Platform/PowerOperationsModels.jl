@@ -1991,7 +1991,10 @@ function get_default_attributes(
     # keeps only the box. Ignored when `bilinear_approximation` is "none".
     return merge(
         BILINEAR_APPROX_DEFAULT_ATTRIBUTES,
-        Dict{String, Any}("use_octagon" => true, RELAX_BINARIES_ATTRIBUTE => false),
-        Dict{String, Any}(_operational_flow_limit_attributes(PSY.TwoTerminalVSCLine)...),
+        Dict{String, Any}(
+            "use_octagon" => true,
+            RELAX_BINARIES_ATTRIBUTE => false,
+            _operational_flow_limit_attributes(PSY.TwoTerminalVSCLine)...,
+        ),
     )
 end

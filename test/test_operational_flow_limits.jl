@@ -111,6 +111,33 @@ end
     @test lims.to_from ≈ 0.04 + 0.01
 end
 
+# A zero-impedance bus merge maps bus `other` onto the from bus of line "1", so the copy
+# joins the group of line "1" with another original arc.
+@testset "Operational limits: a member from a bus merge contributes in the group frame" begin
+    sys = PSB.build_system(PSITestSystems, "c_sys5")
+    line = PSY.get_component(PSY.Line, sys, "1")
+    arc = PSY.get_arc(line)
+    from_number = PSY.get_number(PSY.get_from(arc))
+    to_number = PSY.get_number(PSY.get_to(arc))
+    other = first(
+        b for b in PSY.get_components(PSY.ACBus, sys) if
+        PSY.get_number(b) ∉ (from_number, to_number)
+    )
+    merged_arc = PSY.Arc(; from = other, to = PSY.get_to(arc))
+    PSY.add_component!(sys, merged_arc)
+    merged = _copy_on_arc!(sys, line, "1_merged", merged_arc)
+    _set_ofl!(line, 2.0, 4.0)
+    _set_ofl!(merged, 1.0, 5.0)
+    _, dm = _rep_for(sys, "1", "sum_of_max")
+    nr = PNM.NetworkReductionData(;
+        reverse_bus_search_map = Dict(PSY.get_number(other) => from_number),
+    )
+    bp = PNM.BranchesParallel([line, merged])
+    lims = POM._member_operational_limits(bp, dm, "sum_of_max", nr)
+    @test lims.from_to ≈ 0.02 + 0.01
+    @test lims.to_from ≈ 0.04 + 0.05
+end
+
 @testset "Operational limits: apply_operational_flow_limits = false" begin
     sys = PSB.build_system(PSITestSystems, "c_sys5")
     _set_ofl!(PSY.get_component(PSY.Line, sys, "1"), 2.0, 4.0)

@@ -425,6 +425,9 @@ function _selected_ids(model::DeviceModel, sys::PSY.System)
     return Set{Int}(IS.get_id(c) for c in PSY.get_components(selector, sys))
 end
 
+# A branch model has two device sets with the same selector. `device_cache` is the
+# validated snapshot that the constructors read. `get_available_components` is the live
+# query for callers without the cache, such as the IOM dual code and template validation.
 function make_device_cache!(
     model::DeviceModel{T, <:AbstractDeviceFormulation},
     system::PSY.System,
@@ -447,6 +450,7 @@ function make_device_cache!(
     return
 end
 
+# Extends the IOM generic so that its callers also apply the selector of a branch model.
 function IOM.get_available_components(
     model::DeviceModel{T, <:AbstractDeviceFormulation},
     sys::PSY.System,

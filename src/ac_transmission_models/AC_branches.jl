@@ -60,6 +60,10 @@ average). `PNM.MixedBranchesParallel` groups always use `sum_of_max`.
 """
 const PARALLEL_BRANCH_MAX_RATING_KEY = "parallel_branch_max_rating_method"
 
+const SINGLE_ELEMENT_CONTINGENCY_RATING = "single_element_contingency"
+const SUM_OF_MAX_RATING = "sum_of_max"
+const IMPEDANCE_AVERAGED_RATING = "impedance_averaged"
+
 """
 Attribute key indicating if transformer controls are enabled. Available on
 any DeviceModel where `_control_supported` is `true`.
@@ -77,7 +81,7 @@ function get_default_attributes(
     ::Type{V},
 ) where {U <: PSY.ACTransmission, V <: AbstractBranchFormulation}
     return Dict{String, Any}(
-        PARALLEL_BRANCH_MAX_RATING_KEY => "single_element_contingency",
+        PARALLEL_BRANCH_MAX_RATING_KEY => SINGLE_ELEMENT_CONTINGENCY_RATING,
         _control_attribute(U, V)...,
         _operational_flow_limit_attributes(U)...,
         RELAX_BINARIES_ATTRIBUTE => false,
@@ -89,7 +93,7 @@ function get_default_attributes(
     ::Type{V},
 ) where {U <: PSY.ACTransmission, V <: AbstractSecurityConstrainedStaticBranch}
     return Dict{String, Any}(
-        PARALLEL_BRANCH_MAX_RATING_KEY => "single_element_contingency",
+        PARALLEL_BRANCH_MAX_RATING_KEY => SINGLE_ELEMENT_CONTINGENCY_RATING,
         "include_planned_outages" => false,
         _control_attribute(U, V)...,
         _operational_flow_limit_attributes(U)...,

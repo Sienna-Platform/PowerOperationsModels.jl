@@ -509,7 +509,6 @@ function construct_device!(
         device_model,
         network_model,
     )
-    _apply_hvdc_operational_flow_limits!(container, devices, device_model)
     add_feedforward_arguments!(container, device_model, devices)
     return
 end
@@ -1563,7 +1562,6 @@ function construct_device!(
             device_model,
             network_model,
         )
-        _apply_hvdc_operational_flow_limits!(container, devices, device_model)
         add_feedforward_arguments!(container, device_model, devices)
     end
     return
@@ -1586,6 +1584,7 @@ function construct_device!(
             device_model,
             network_model,
         )
+        add_hvdc_operational_flow_limit_constraints!(container, devices, device_model)
         add_constraint_dual!(container, sys, device_model)
         add_feedforward_constraints!(container, device_model, devices)
     end
@@ -1877,6 +1876,7 @@ function construct_device!(
 ) where {T <: PSY.TwoTerminalHVDC}
     devices = get_device_cache(device_model)
     add_constraints!(container, FlowRateConstraint, devices, device_model, network_model)
+    add_hvdc_operational_flow_limit_constraints!(container, devices, device_model)
     add_constraint_dual!(container, sys, device_model)
     add_feedforward_constraints!(container, device_model, devices)
     return
@@ -1898,7 +1898,6 @@ function construct_device!(
         network_model,
         HVDCTwoTerminalLossless,
     )
-    _apply_hvdc_operational_flow_limits!(container, devices, device_model)
     return
 end
 
@@ -1922,7 +1921,6 @@ function construct_device!(
         network_model,
         HVDCTwoTerminalLossless,
     )
-    _apply_hvdc_operational_flow_limits!(container, devices, device_model)
     return
 end
 
@@ -1976,7 +1974,6 @@ function construct_device!(
         device_model,
         network_model,
     )
-    _apply_hvdc_operational_flow_limits!(container, devices, device_model)
     add_feedforward_arguments!(container, device_model, devices)
     return
 end
@@ -1993,6 +1990,7 @@ function construct_device!(
 }
     devices = get_device_cache(device_model)
     add_constraints!(container, FlowRateConstraint, devices, device_model, network_model)
+    add_hvdc_operational_flow_limit_constraints!(container, devices, device_model)
     add_constraint_dual!(container, sys, device_model)
     add_feedforward_constraints!(container, device_model, devices)
     return
@@ -2058,7 +2056,6 @@ function construct_device!(
         device_model,
         network_model,
     )
-    _apply_hvdc_operational_flow_limits!(container, devices, device_model)
     add_feedforward_arguments!(container, device_model, devices)
     return
 end
@@ -2086,6 +2083,7 @@ function construct_device!(
         network_model,
     )
     add_constraints!(container, HVDCPowerBalance, devices, device_model, network_model)
+    add_hvdc_operational_flow_limit_constraints!(container, devices, device_model)
     add_constraint_dual!(container, sys, device_model)
     add_feedforward_constraints!(container, device_model, devices)
     return
@@ -2146,7 +2144,6 @@ function construct_device!(
         device_model,
         network_model,
     )
-    _apply_hvdc_operational_flow_limits!(container, devices, device_model)
     add_feedforward_arguments!(container, device_model, devices)
     return
 end
@@ -2174,6 +2171,7 @@ function construct_device!(
         device_model,
         network_model,
     )
+    add_hvdc_operational_flow_limit_constraints!(container, devices, device_model)
     add_constraint_dual!(container, sys, device_model)
     add_feedforward_constraints!(container, device_model, devices)
     return
@@ -2227,7 +2225,6 @@ function construct_device!(
         device_model,
         network_model,
     )
-    _apply_hvdc_operational_flow_limits!(container, devices, device_model)
     add_feedforward_arguments!(container, device_model, devices)
     return
 end
@@ -2264,6 +2261,7 @@ function construct_device!(
         device_model,
         network_model,
     )
+    add_hvdc_operational_flow_limit_constraints!(container, devices, device_model)
     add_feedforward_constraints!(container, device_model, devices)
     return
 end
@@ -2291,6 +2289,7 @@ function construct_device!(
         network_model,
     )
     add_constraints!(container, HVDCPowerBalance, devices, device_model, network_model)
+    add_hvdc_operational_flow_limit_constraints!(container, devices, device_model)
     add_constraint_dual!(container, sys, device_model)
     add_feedforward_constraints!(container, device_model, devices)
     return
@@ -2484,7 +2483,6 @@ function construct_device!(
         network_model,
     )
 
-    _apply_hvdc_operational_flow_limits!(container, devices, device_model)
     add_feedforward_arguments!(container, device_model, devices)
     return
 end
@@ -2575,6 +2573,7 @@ function construct_device!(
         device_model,
         network_model,
     )
+    add_hvdc_operational_flow_limit_constraints!(container, devices, device_model)
     return
 end
 
@@ -2957,7 +2956,6 @@ function construct_device!(
         devices, device_model, network_model,
     )
 
-    _apply_hvdc_operational_flow_limits!(container, devices, device_model)
     add_feedforward_arguments!(container, device_model, devices)
     return
 end
@@ -3034,6 +3032,7 @@ function construct_device!(
     )
     _apply_vsc_control_objective!(container, devices, device_model, network_model)
 
+    add_hvdc_operational_flow_limit_constraints!(container, devices, device_model)
     add_constraint_dual!(container, sys, device_model)
     add_feedforward_constraints!(container, device_model, devices)
     return
