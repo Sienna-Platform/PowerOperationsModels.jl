@@ -95,6 +95,7 @@ get_variable_lower_bound(::Type{RateofChangeConstraintSlackUp}, d::PSY.ThermalGe
 
 ########################### Parameter related set functions ################################
 get_multiplier_value(::Type{ActivePowerTimeSeriesParameter}, d::PSY.ThermalGen, ::Type{<:AbstractThermalFormulation}) = PSY.get_max_active_power(d, u"SU")
+get_multiplier_value(::Type{MinActivePowerTimeSeriesParameter}, d::PSY.ThermalGen, ::Type{<:AbstractThermalFormulation}) = PSY.get_max_active_power(d, u"SU")
 get_multiplier_value(::Type{<:TimeSeriesParameter}, d::PSY.ThermalGen, ::Type{FixedOutput}) = PSY.get_max_active_power(d, u"SU")
 get_multiplier_value(::Type{FuelCostParameter}, d::PSY.ThermalGen, ::Type{<:AbstractThermalFormulation}) = 1.0
 get_parameter_multiplier(::Type{<:VariableValueParameter}, d::PSY.ThermalGen, ::Type{<:AbstractThermalFormulation}) = 1.0
@@ -112,7 +113,8 @@ initial_condition_default(::DeviceStatus, d::PSY.ThermalGen, ::AbstractThermalFo
 initial_condition_variable(::DeviceStatus, d::PSY.ThermalGen, ::AbstractThermalFormulation) = OnVariable()
 initial_condition_default(::DevicePower, d::PSY.ThermalGen, ::AbstractThermalFormulation) = PSY.get_active_power(d, u"SU")
 initial_condition_variable(::DevicePower, d::PSY.ThermalGen, ::AbstractThermalFormulation) = ActivePowerVariable()
-initial_condition_default(::DeviceAboveMinPower, d::PSY.ThermalGen, ::AbstractThermalFormulation) = max(0.0, PSY.get_active_power(d, u"SU") - PSY.get_active_power_limits(d, u"SU").min)
+# The initial power above the minimum uses the minimum of the first step.
+initial_condition_default(::DeviceAboveMinPower, d::PSY.ThermalGen, ::AbstractThermalFormulation, container::OptimizationContainer) = max(0.0, PSY.get_active_power(d, u"SU") - first(min_active_power_values(container, d)))
 initial_condition_variable(::DeviceAboveMinPower, d::PSY.ThermalGen, ::AbstractCompactUnitCommitment) = PowerAboveMinimumVariable()
 initial_condition_variable(::DeviceAboveMinPower, d::PSY.ThermalGen, ::ThermalCompactDispatch) = PowerAboveMinimumVariable()
 initial_condition_default(::InitialTimeDurationOn, d::PSY.ThermalGen, ::AbstractThermalFormulation) = is_online(d) ? PSY.get_time_at_status(d) : 0.0
@@ -331,6 +333,45 @@ function get_min_max_limits(
     return (min = 0.0, max = PSY.get_active_power_limits(device, u"SU").max)
 end
 
+function IOM.get_min_max_limit_values(
+    container::OptimizationContainer,
+    ::Type{ActivePowerVariableLimitsConstraint},
+    d::V,
+    model::DeviceModel{V, W},
+) where {V <: PSY.ThermalGen, W <: AbstractThermalFormulation}
+    return _limit_values_or_static(
+        container,
+        W,
+        d,
+        get_min_max_limits(d, ActivePowerVariableLimitsConstraint, W),
+    )
+end
+
+# ThermalDispatchNoMin ignores the minimum power: its limits stay static.
+function IOM.get_min_max_limit_values(
+    container::OptimizationContainer,
+    ::Type{ActivePowerVariableLimitsConstraint},
+    d::V,
+    ::DeviceModel{V, ThermalDispatchNoMin},
+) where {V <: PSY.ThermalGen}
+    return _static_limit_values(
+        container,
+        get_min_max_limits(d, ActivePowerVariableLimitsConstraint, ThermalDispatchNoMin),
+    )
+end
+
+function set_min_power_variable_bounds!(
+    ::OptimizationContainer,
+    ::Vector{V},
+    ::DeviceModel{V, ThermalDispatchNoMin},
+) where {V <: PSY.ThermalGen}
+    return
+end
+
+# Compact formulations change the minimum power rows in their own methods.
+power_base_kind(::Type{<:AbstractCompactUnitCommitment}) = AboveMinimumBase()
+power_base_kind(::Type{ThermalCompactDispatch}) = AboveMinimumBase()
+
 """
 Compact formulations schedule `PowerAboveMinimumVariable` rather than
 `ActivePowerVariable`, so `has_semicontinuous_feedforward` must check a `SemiContinuousFeedforward`
@@ -495,6 +536,62 @@ function add_constraints!(
     return
 end
 
+# Compact UC: the range expression is the power above the minimum. The row bounds the total
+# power: `dp_t + Pmin_t u_t <= Pmax ts_t`.
+function add_constraints!(
+    container::OptimizationContainer,
+    ::Type{ActivePowerVariableTimeSeriesLimitsConstraint},
+    ::Type{ActivePowerRangeExpressionUB},
+    devices::Vector{V},
+    model::DeviceModel{V, W},
+    ::NetworkModel{X},
+) where {
+    V <: PSY.ThermalGen,
+    W <: AbstractCompactUnitCommitment,
+    X <: AbstractNetworkModel,
+}
+    ts_name = get_time_series_names(model)[ActivePowerTimeSeriesParameter]
+    ts_type = get_default_time_series_type(container)
+    profiled = [d for d in devices if PSY.has_time_series(d, ts_type, ts_name)]
+    isempty(profiled) && return
+    time_steps = get_time_steps(container)
+    constraint = add_constraints_container!(
+        container,
+        ActivePowerVariableTimeSeriesLimitsConstraint,
+        V,
+        [PSY.get_name(d) for d in profiled],
+        time_steps;
+        meta = IOM.constraint_meta(IOM.UpperBound()),
+    )
+    expression = get_expression(container, ActivePowerRangeExpressionUB, V)
+    param_container = get_parameter(container, ActivePowerTimeSeriesParameter, V)
+    multiplier = get_multiplier_array(param_container)
+    on = get_variable(container, OnVariable, V)
+    jump_model = get_jump_model(container)
+    for d in profiled
+        name = PSY.get_name(d)
+        pmin = min_active_power_values(container, d)
+        param_col = get_parameter_column_refs(param_container, name)
+        if _is_must_run(d)
+            # Must-run unit: no on-variable. The minimum power moves to the right side.
+            for t in time_steps
+                rhs = multiplier[name, t] * param_col[t]
+                constraint[name, t] =
+                    JuMP.@constraint(jump_model, expression[name, t] <= rhs - pmin[t])
+            end
+        else
+            for t in time_steps
+                rhs = multiplier[name, t] * param_col[t]
+                constraint[name, t] = JuMP.@constraint(
+                    jump_model,
+                    expression[name, t] + pmin[t] * on[name, t] <= rhs,
+                )
+            end
+        end
+    end
+    return
+end
+
 # FIXME: untested and possibly dead code. The ThermalMultiStart constructor
 # (thermalgeneration_constructor.jl) calls add_constraints! for
 # ActivePowerVariableLimitsConstraint with expression types
@@ -629,7 +726,7 @@ function add_constraints!(
     T::Type{<:ActivePowerVariableLimitsConstraint},
     U::Type{ActivePowerRangeExpressionUB},
     devices::Vector{V},
-    ::DeviceModel{V, W},
+    model::DeviceModel{V, W},
     ::NetworkModel{X},
 ) where {
     V <: PSY.ThermalMultiStart,
@@ -664,7 +761,7 @@ function add_constraints!(
 
     for device in devices
         name = PSY.get_name(device)
-        limits = get_min_max_limits(device, T, W) # depends on constraint type and formulation type
+        limit_values = IOM.get_min_max_limit_values(container, T, device, model)
         startup_shutdown_limits = get_startup_shutdown_limits(device, T, W)
         @assert !isnothing(startup_shutdown_limits) "$(name)"
         # A must-run unit is in none of the On/Start/Stop containers: On is identically 1
@@ -677,12 +774,12 @@ function add_constraints!(
                 end
                 con_on[name, t] = JuMP.@constraint(
                     get_jump_model(container),
-                    expression_products[name, t] <= limits.max - limits.min
+                    expression_products[name, t] <= limit_values.max[t]
                 )
                 if t != length(time_steps)
                     con_off[name, t] = JuMP.@constraint(
                         get_jump_model(container),
-                        expression_products[name, t] <= limits.max - limits.min
+                        expression_products[name, t] <= limit_values.max[t]
                     )
                 end
             end
@@ -695,15 +792,16 @@ function add_constraints!(
             con_on[name, t] = JuMP.@constraint(
                 get_jump_model(container),
                 expression_products[name, t] <=
-                (limits.max - limits.min) * varstatus[name, t] -
-                max(limits.max - startup_shutdown_limits.startup, 0) * varon[name, t]
+                limit_values.max[t] * varstatus[name, t] -
+                max(limit_values.max[t] - startup_shutdown_limits.startup, 0) *
+                varon[name, t]
             )
             if t != length(time_steps)
                 con_off[name, t] = JuMP.@constraint(
                     get_jump_model(container),
                     expression_products[name, t] <=
-                    (limits.max - limits.min) * varstatus[name, t] -
-                    max(limits.max - startup_shutdown_limits.shutdown, 0) *
+                    limit_values.max[t] * varstatus[name, t] -
+                    max(limit_values.max[t] - startup_shutdown_limits.shutdown, 0) *
                     varoff[name, t + 1]
                 )
             end
@@ -740,13 +838,14 @@ function add_constraints!(
         for (ix, ic) in enumerate(ini_conds[:, 1])
             name = IOM.get_component_name(ic)
             device = IOM.get_component(ic)
-            limits = PSY.get_active_power_limits(device, u"SU")
+            pmax = PSY.get_active_power_limits(device, u"SU").max
+            pmin_1 = first(min_active_power_values(container, device))
             lag_ramp_limits = PSY.get_power_trajectory(device, u"SU")
-            val = max(limits.max - lag_ramp_limits.shutdown, 0)
+            val = max(pmax - lag_ramp_limits.shutdown, 0)
             con[name, 1] = JuMP.@constraint(
                 get_jump_model(container),
                 val * varstop[name, 1] <=
-                ini_conds[ix, 2].value * (limits.max - limits.min) - get_value(ic)
+                ini_conds[ix, 2].value * (pmax - pmin_1) - get_value(ic)
             )
         end
     else
@@ -1010,19 +1109,19 @@ function calculate_aux_variable_value!(
     for d_name in device_name
         d = PSY.get_component(T, system, d_name)
         name = PSY.get_name(d)
-        min = PSY.get_active_power_limits(d, u"SU").min
+        pmin = min_active_power_values(container, d)
         # A must-run unit appears in neither the OnVariable container nor the
         # OnStatusParameter array — both are built from the non-must-run devices — while
         # the power axis above carries every device. Its commitment is fixed at 1.
         if _is_must_run(d)
             for t in time_steps
                 aux_variable_container[name, t] =
-                    min + p_variable_output[name, t]
+                    pmin[t] + p_variable_output[name, t]
             end
         else
             for t in time_steps
                 aux_variable_container[name, t] =
-                    on_variable_output[name, t] * min + p_variable_output[name, t]
+                    on_variable_output[name, t] * pmin[t] + p_variable_output[name, t]
             end
         end
     end
@@ -1087,7 +1186,8 @@ function add_constraints!(
     V <: AbstractCompactUnitCommitment,
     W <: AbstractNetworkModel,
 }
-    add_semicontinuous_ramp_constraints!(
+    _add_ramp_rows_and_level_change!(
+        add_semicontinuous_ramp_constraints!,
         container,
         T,
         PowerAboveMinimumVariable,
@@ -1106,7 +1206,15 @@ function add_constraints!(
     model::DeviceModel{U, ThermalCompactDispatch},
     ::NetworkModel{V},
 ) where {U <: PSY.ThermalGen, V <: AbstractNetworkModel}
-    add_linear_ramp_constraints!(container, T, PowerAboveMinimumVariable, devices, model, V)
+    _add_ramp_rows_and_level_change!(
+        add_linear_ramp_constraints!,
+        container,
+        T,
+        PowerAboveMinimumVariable,
+        devices,
+        model,
+        V,
+    )
     return
 end
 
@@ -1134,7 +1242,15 @@ function add_constraints!(
     model::DeviceModel{PSY.ThermalMultiStart, ThermalMultiStartUnitCommitment},
     ::NetworkModel{U},
 ) where {U <: AbstractNetworkModel}
-    add_linear_ramp_constraints!(container, T, PowerAboveMinimumVariable, devices, model, U)
+    _add_ramp_rows_and_level_change!(
+        add_linear_ramp_constraints!,
+        container,
+        T,
+        PowerAboveMinimumVariable,
+        devices,
+        model,
+        U,
+    )
     return
 end
 
@@ -1692,7 +1808,7 @@ function IOM._add_semicontinuous_bound_range_constraints_impl!(
     dir::IOM.BoundDirection,
     array,
     devices::Vector{V},
-    ::DeviceModel{V, W};
+    model::DeviceModel{V, W};
     meta_suffix::String = "",
 ) where {T <: ConstraintType, V <: PSY.ThermalGen, W <: AbstractDeviceFormulation}
     time_steps = IOM.get_time_steps(container)
@@ -1705,18 +1821,19 @@ function IOM._add_semicontinuous_bound_range_constraints_impl!(
 
     for device in devices
         ci_name = IS.get_name(device)
-        limits = IOM.get_min_max_limits(device, T, W)
+        limit_values = IOM.get_min_max_limit_values(container, T, device, model)
         if _is_must_run(device)
             for t in time_steps
                 IOM.add_range_bound_constraint!(
                     dir, jump_model, con, ci_name, t,
-                    array[ci_name, t], IOM.get_bound(dir, limits), 1.0)
+                    array[ci_name, t], IOM.get_bound(dir, limit_values, t), 1.0)
             end
         else
             for t in time_steps
                 IOM.add_range_bound_constraint!(
                     dir, jump_model, con, ci_name, t,
-                    array[ci_name, t], IOM.get_bound(dir, limits), varbin[ci_name, t])
+                    array[ci_name, t], IOM.get_bound(dir, limit_values, t),
+                    varbin[ci_name, t])
             end
         end
     end
@@ -1799,7 +1916,9 @@ function add_constraints!(
         awards = [(sname, v) for (sname, v, members, _, _) in offline if name in members]
         isempty(awards) && continue
         q_limit = PSY.get_active_power_limits(d, u"SU").max
-        gated = IOM.get_min_max_limits(d, ActivePowerVariableLimitsConstraint, W).max
+        gated =
+            IOM.get_min_max_limit_values(
+                container, ActivePowerVariableLimitsConstraint, d, model).max
         # The step's available max (static pmax without a max_active_power series).
         limit = _offline_hourly_limit(container, model, d, q_limit)
         # Time-invariant: only which services opted into each rule contribute.
@@ -1818,7 +1937,7 @@ function add_constraints!(
                     jump_model,
                     expression[name, t] +
                     sum(v[(sname, name, t)] for (sname, v) in awards) <=
-                    limit[t] - (q_limit - gated)
+                    limit[t] - (q_limit - gated[t])
                 )
                 isempty(off_awards) && continue
                 # Always committed: opted-in offline awards must be 0, never cleared.
@@ -1834,7 +1953,7 @@ function add_constraints!(
                     jump_model,
                     expression[name, t] +
                     sum(v[(sname, name, t)] for (sname, v) in awards) <=
-                    limit[t] - (q_limit - gated) * u
+                    limit[t] - (q_limit - gated[t]) * u
                 )
                 isempty(off_awards) && continue
                 # Offline awards need the unit off: q_limit * (1 - u) is 0 once committed.

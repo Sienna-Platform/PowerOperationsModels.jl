@@ -55,6 +55,19 @@ coefficients. A model holding one is rebuilt every simulation step.
 struct DeployedFractionParameter <: LeftHandSideTimeSeriesParameter end
 
 """
+Per-step minimum active power of a device, as a fraction of its maximum active power. The
+value enters the lower limit rows as a fixed coefficient. Default time series name:
+`"min_active_power"`.
+"""
+struct MinActivePowerTimeSeriesParameter <: LeftHandSideTimeSeriesParameter end
+
+"""
+Per-step minimum pump input power of a `HydroPumpTurbine`, as a fraction of its maximum pump
+power. Default time series name: `"min_active_power_pump"`.
+"""
+struct MinActivePowerInTimeSeriesParameter <: LeftHandSideTimeSeriesParameter end
+
+"""
 Abstract type for dynamic ratings of AC branches
 """
 abstract type AbstractBranchRatingTimeSeriesParameter <: TimeSeriesParameter end
