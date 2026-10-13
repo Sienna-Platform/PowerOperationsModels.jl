@@ -646,6 +646,103 @@ end
     @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
 end
 
+function _nonspin_uc_model(sys::PSY.System)
+    template = get_thermal_standard_uc_template()
+    set_device_model!(
+        template,
+        DeviceModel(ThermalMultiStart, ThermalStandardUnitCommitment),
+    )
+    set_service_model!(template, ServiceModel(OfflineReserve, NonSpinningReserve))
+    return DecisionModel(template, sys; optimizer = HiGHS_optimizer)
+end
+
+# time_frame = 30 min. Limit = 0 if 30 < startup, else min(Pmax, Pmin + ramp_up * (30 - startup)).
+const _NONSPIN_EXPECTED_LIMITS = Dict{String, Float64}(
+    "Park City" => 1.535,     # 0.65 + 0.04425 * 20
+    "Alta" => 0.4,            # 0.2 + 0.4 * 25 = 10.2, capped at Pmax 0.4
+    "Sundance" => 1.0,        # startup = time frame: Pmin
+    "Brighton" => 0.0,        # 60 > 30
+    "Solitude" => 0.0,        # 240 > 30
+    "115_STEAM_1" => 0.0536,  # 0.05 + 0.00024 * 15
+    "101_CT_1" => 0.084,      # 0.08 + 0.0004 * 10
+)
+
+function _check_nonspin_rows!(
+    container,
+    sys::PSY.System,
+    ::Type{D},
+    time_steps,
+) where {D <: PSY.ThermalGen}
+    con = IOM.get_constraint(
+        container,
+        IOM.ConstraintKey(
+            POM.ReservePowerConstraint,
+            IOM.ComponentPairKey{D, OfflineReserve},
+        ),
+    )
+    on = IOM.get_variable(container, POM.OnVariable, D)
+    checked = 0
+    for d in PSY.get_components(D, sys)
+        name = PSY.get_name(d)
+        expected = _NONSPIN_EXPECTED_LIMITS[name]
+        for t in time_steps
+            c = con[(PSY.get_name(only(PSY.get_components(OfflineReserve, sys))), name, t)]
+            cobj = JuMP.constraint_object(c)
+            @test isapprox(JuMP.normalized_rhs(c), expected; atol = 1e-9)
+            @test isapprox(JuMP.coefficient(cobj.func, on[name, t]), expected; atol = 1e-9)
+            checked += 1
+        end
+    end
+    return checked
+end
+
+@testset "NonSpinningReserve offline limit uses switching_times, in SU and minutes" begin
+    sys = PSB.build_system(PSITestSystems, "c_sys5_uc_non_spin"; add_reserves = true)
+    set_nonspin_test_data!(sys)
+    model = _nonspin_uc_model(sys)
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+    container = IOM.get_optimization_container(model)
+    time_steps = IOM.get_time_steps(container)
+    checked =
+        _check_nonspin_rows!(container, sys, ThermalStandard, time_steps) +
+        _check_nonspin_rows!(container, sys, ThermalMultiStart, time_steps)
+    @test checked == length(_NONSPIN_EXPECTED_LIMITS) * length(time_steps)
+end
+
+@testset "NonSpinningReserve helpers: values, hydro, and inference" begin
+    p_lims = (min = 0.65, max = 1.7)
+    @test @inferred(POM._nonspin_reserve_limit(nothing, p_lims, 20.0)) == 1.7
+    @test @inferred(
+        POM._nonspin_reserve_limit((up = 0.04425, down = 0.04425), p_lims, 20.0),
+    ) ≈ 1.535
+    @test @inferred(POM._nonspin_reserve_limit((up = 1.0, down = 1.0), p_lims, 20.0)) == 1.7
+
+    sys = PSB.build_system(PSITestSystems, "c_sys5_uc_non_spin"; add_reserves = true)
+    set_nonspin_test_data!(sys)
+    for d in PSY.get_components(PSY.ThermalGen, sys)
+        @test @inferred(POM._nonspin_offline_limit(d, 30.0)) ≈
+              _NONSPIN_EXPECTED_LIMITS[PSY.get_name(d)]
+    end
+
+    # A1-zero: a thermal unit without switching_times starts with no delay.
+    brighton = PSY.get_component(ThermalStandard, sys, "Brighton")
+    PSY.set_switching_times!(brighton, nothing)
+    @test @inferred(POM._nonspin_startup_time(brighton)) == 0.0
+    @test @inferred(POM._nonspin_offline_limit(brighton, 30.0)) ≈
+          min(6.0, 3.0 + 0.01125 * 30.0)
+
+    hydro = only(
+        PSY.get_components(
+            PSY.HydroDispatch,
+            PSB.build_system(PSITestSystems, "c_sys5_hy"),
+        ),
+    )
+    @test @inferred(POM._nonspin_startup_time(hydro)) == 0.0
+    @test @inferred(POM._nonspin_offline_limit(hydro, 30.0)) ==
+          PSY.get_active_power_limits(hydro, u"SU").max
+end
+
 @testset "Test Upwards Reserves from Renewable Dispatch" begin
     template = PowerOperationsProblemTemplate(CopperPlateNetworkModel)
     set_device_model!(template, PowerLoad, StaticPowerLoad)
