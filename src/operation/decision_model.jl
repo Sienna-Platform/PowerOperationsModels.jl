@@ -416,3 +416,54 @@ function make_device_cache!(
         _make_device_cache(filt_func, devices, check_components, system)
     return
 end
+
+_has_filter_selector(model::DeviceModel) =
+    haskey(get_attributes(model), FILTER_SELECTOR_KEY)
+
+function _selected_ids(model::DeviceModel, sys::PSY.System)
+    selector = get_attribute(model, FILTER_SELECTOR_KEY)
+    return Set{Int}(IS.get_id(c) for c in PSY.get_components(selector, sys))
+end
+
+# A branch model has two device sets with the same selector. `device_cache` is the
+# validated snapshot that the constructors read. `get_available_components` is the live
+# query for callers without the cache, such as the IOM dual code and template validation.
+function make_device_cache!(
+    model::DeviceModel{T, <:AbstractDeviceFormulation},
+    system::PSY.System,
+    check_components::Bool,
+) where {T <: PSY.Branch}
+    !PSY.has_components(system, T) && return false
+    devices = PSY.get_components(T, system; subsystem_name = get_subsystem(model))
+    if _has_filter_selector(model)
+        selected = _selected_ids(model, system)
+        model.device_cache = _make_device_cache(
+            d -> IS.get_id(d) in selected,
+            devices,
+            check_components,
+            system,
+        )
+    else
+        model.device_cache =
+            _make_device_cache(nothing, devices, check_components, system)
+    end
+    return
+end
+
+# Extends the IOM generic so that its callers also apply the selector of a branch model.
+function IOM.get_available_components(
+    model::DeviceModel{T, <:AbstractDeviceFormulation},
+    sys::PSY.System,
+) where {T <: PSY.Branch}
+    subsystem = get_subsystem(model)
+    if _has_filter_selector(model)
+        selected = _selected_ids(model, sys)
+        return PSY.get_available_components(
+            d -> IS.get_id(d) in selected,
+            T,
+            sys;
+            subsystem_name = subsystem,
+        )
+    end
+    return PSY.get_available_components(T, sys; subsystem_name = subsystem)
+end
