@@ -906,18 +906,18 @@ function calculate_aux_variable_value!(
         # so there is nothing to do but to add the total number of time steps
         # to the count
         if isnothing(get_value(ini_cond[ix]))
-            sum_on_var = time_steps[end]
+            sum_on_var = float(time_steps[end])
         else
             on_var_name = IOM.get_component_name(ini_cond[ix])
             ini_cond_value = get_condition(ini_cond[ix])
             # On Var doesn't exist for a unit that has must_run = true
             on_var = on_variable_output[on_var_name, :]
             aux_variable_container.data[ix, :] .= ini_cond_value
-            sum_on_var = sum(on_var)
+            sum_on_var = Float64(sum(on_var))
         end
         if sum_on_var == time_steps[end] # Unit was always on
             aux_variable_container.data[ix, :] += time_steps
-        elseif sum_on_var == 0.0 # Unit was always off
+        elseif iszero(sum_on_var) # Unit was always off
             aux_variable_container.data[ix, :] .= 0.0
         else
             previous_condition = ini_cond_value
@@ -958,11 +958,11 @@ function calculate_aux_variable_value!(
             on_var = on_variable_output[on_var_name, :]
             ini_cond_value = get_condition(ini_cond[ix])
             aux_variable_container.data[ix, :] .= ini_cond_value
-            sum_on_var = sum(on_var)
+            sum_on_var = Float64(sum(on_var))
         end
         if sum_on_var == time_steps[end] # Unit was always on
             aux_variable_container.data[ix, :] .= 0.0
-        elseif sum_on_var == 0.0 # Unit was always off
+        elseif iszero(sum_on_var) # Unit was always off
             aux_variable_container.data[ix, :] += time_steps
         else
             previous_condition = ini_cond_value
@@ -1697,11 +1697,18 @@ function IOM._add_semicontinuous_bound_range_constraints_impl!(
     for device in devices
         ci_name = IS.get_name(device)
         limits = IOM.get_min_max_limits(device, T, W)
-        for t in time_steps
-            bin = _is_must_run(device) ? 1.0 : varbin[ci_name, t]
-            IOM.add_range_bound_constraint!(
-                dir, jump_model, con, ci_name, t,
-                array[ci_name, t], IOM.get_bound(dir, limits), bin)
+        if _is_must_run(device)
+            for t in time_steps
+                IOM.add_range_bound_constraint!(
+                    dir, jump_model, con, ci_name, t,
+                    array[ci_name, t], IOM.get_bound(dir, limits), 1.0)
+            end
+        else
+            for t in time_steps
+                IOM.add_range_bound_constraint!(
+                    dir, jump_model, con, ci_name, t,
+                    array[ci_name, t], IOM.get_bound(dir, limits), varbin[ci_name, t])
+            end
         end
     end
     return
