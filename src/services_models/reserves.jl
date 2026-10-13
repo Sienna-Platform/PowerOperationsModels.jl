@@ -105,8 +105,6 @@ get_initial_parameter_value(::Type{<:VariableValueParameter}, d::Type{<:PSY.Abst
 
 objective_function_multiplier(::Type{ServiceRequirementVariable}, ::Type{StepwiseCostReserve}) = -1.0
 objective_function_multiplier(::Type{ServiceRequirementVariable}, ::Type{GroupStepwiseCostReserve}) = -1.0
-uses_compact_power(::PSY.AbstractReserve, ::StepwiseCostReserve)=false
-uses_compact_power(::PSY.AbstractReserve, ::GroupStepwiseCostReserve)=false
 get_multiplier_value(::Type{<:AbstractPiecewiseLinearBreakpointParameter}, ::PSY.AbstractReserve, ::Type{<:AbstractReservesFormulation}) = 1.0
 get_multiplier_value(::Type{<:AbstractPiecewiseLinearSlopeParameter}, ::PSY.AbstractReserve, ::Type{<:AbstractReservesFormulation}) = 1.0
 # Operating reserve demand curves (ORDC) are willingness-to-pay (concave), i.e. a decremental

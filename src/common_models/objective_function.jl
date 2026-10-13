@@ -1,16 +1,17 @@
 function add_variable_cost_to_objective!(
     ::OptimizationContainer,
-    ::T,
+    ::Type{T},
     component::PSY.Component,
     cost_function::PSY.CostCurve{IS.QuadraticCurve},
-    ::U,
+    ::Type{U},
 ) where {
     T <: PowerAboveMinimumVariable,
     U <: Union{AbstractCompactUnitCommitment, ThermalCompactDispatch},
 }
     throw(
         IS.ConflictingInputsError(
-            "Quadratic Cost Curves are not compatible with Compact formulations",
+            "Quadratic cost curves are not compatible with compact formulations. " *
+            "Device $(PSY.get_name(component)) uses $(nameof(U)).",
         ),
     )
     return

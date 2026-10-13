@@ -1639,3 +1639,13 @@ end
         )
     end
 end
+
+@testset "Compact UC rejects a quadratic cost curve" begin
+    sys = PSB.build_system(PSITestSystems, "c_quadratic_cost_test")
+    for F in (ThermalCompactUnitCommitment, ThermalBasicCompactUnitCommitment)
+        model = DecisionModel(MockOperationProblem, CopperPlateNetworkModel, sys)
+        @test_throws IS.ConflictingInputsError mock_construct_device!(
+            model, DeviceModel(PSY.ThermalStandard, F),
+        )
+    end
+end

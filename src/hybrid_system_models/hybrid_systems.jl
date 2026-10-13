@@ -458,27 +458,16 @@ end
 #################################################################################
 
 get_multiplier_value(
-    ::HybridRenewableActivePowerTimeSeriesParameter,
+    ::Type{HybridRenewableActivePowerTimeSeriesParameter},
     d::PSY.HybridSystem,
-    ::AbstractHybridFormulation,
+    ::Type{<:Union{FixedOutput, AbstractHybridFormulation}},
 ) = PSY.get_max_active_power(PSY.get_renewable_unit(d), u"SU")
 
 get_multiplier_value(
-    ::HybridElectricLoadTimeSeriesParameter,
+    ::Type{HybridElectricLoadTimeSeriesParameter},
     d::PSY.HybridSystem,
-    ::AbstractHybridFormulation,
+    ::Type{<:Union{FixedOutput, AbstractHybridFormulation}},
 ) = PSY.get_max_active_power(PSY.get_electric_load(d), u"SU")
-
-get_parameter_multiplier(
-    ::HybridRenewableActivePowerTimeSeriesParameter,
-    ::PSY.HybridSystem,
-    ::AbstractHybridFormulation,
-) = 1.0
-get_parameter_multiplier(
-    ::HybridElectricLoadTimeSeriesParameter,
-    ::PSY.HybridSystem,
-    ::AbstractHybridFormulation,
-) = 1.0
 
 #################################################################################
 # Initial conditions
