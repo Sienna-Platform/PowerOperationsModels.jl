@@ -898,15 +898,15 @@ end
     end
 end
 
-@testset "Caller-supplied reduction_exceptions survive the build's reduction" begin
+@testset "Caller-selected irreducible_buses survive the build's reduction" begin
     # Bus 8 hangs off a radial branch, so RadialReduction absorbs it into bus 1 unless
     # something pins it. Asserted through a real build so the wiring from the
     # NetworkModel keyword to the Ybus's irreducible set is what is under test.
-    function _retained_after_build(exceptions)
+    function _retained_after_build(selector)
         net = NetworkModel(
             POM.DCPNetworkModel;
             network_source = SystemNetworkSource(PNM.RadialReduction()),
-            reduction_exceptions = exceptions,
+            irreducible_buses = selector,
         )
         template = get_thermal_dispatch_template_network(net)
         model = DecisionModel(
@@ -920,14 +920,14 @@ end
             console_level = Logging.Error,
         ) == IOM.ModelBuildStatus.BUILT
         network_model = get_network_model(get_template(model))
-        @test get_reduction_exceptions(network_model) == exceptions
+        @test get_irreducible_buses(network_model) == selector
         return Set(
             keys(PNM.get_bus_reduction_map(get_network_reduction(network_model))),
         )
     end
 
-    @test !(8 in _retained_after_build(Int[]))
-    @test 8 in _retained_after_build([8])
+    @test !(8 in _retained_after_build(make_selector()))
+    @test 8 in _retained_after_build(make_selector(ACBus, "8"))
 end
 
 @testset "Non-PTDF families honour a prebuilt source's reduction" begin

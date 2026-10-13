@@ -53,8 +53,8 @@ function _collect_reduction_exceptions(
 )
     @debug "Collecting reduction exceptions" _group =
         IOM.LOG_GROUP_NETWORK_CONSTRUCTION
-    # Seeded with the caller's own exceptions; the template's rules add to them.
-    buses = Set{Int}(get_reduction_exceptions(network_model))
+    # Seeded with the buses of the components the caller selects; the template's rules add to them.
+    buses = PNM.get_irreducible_bus_numbers(sys, get_irreducible_buses(network_model))
     _pin_dc_converter_buses!(buses, sys)
     for m in values(branch_models)
         _pin_time_series_branch_buses!(buses, m, sys)

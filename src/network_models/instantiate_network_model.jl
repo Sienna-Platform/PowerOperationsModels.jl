@@ -285,13 +285,13 @@ function _validate_prebuilt_exceptions(
     throw(
         IS.ConflictingInputsError(
             "The prebuilt network source eliminated buses $(sort!(collect(dropped))), which \
-            the model pins as reduction exceptions: the NetworkModel's own \
-            `reduction_exceptions`, plus the buses of DC converter terminals, branches with \
-            rating time series, outaged and monitored components, `model_all_branches` \
-            monitored lines, controlled transformer circuits and their regulated buses, and \
-            transmission interface branches. Rebuild the matrix with these buses passed as \
-            `irreducible_buses`, or pass a `SystemNetworkSource` so the build derives the \
-            reduction itself.",
+            the model pins as reduction exceptions: the buses of the components the \
+            NetworkModel's own `irreducible_buses` selects, plus the buses of DC converter \
+            terminals, branches with rating time series, outaged and monitored components, \
+            `model_all_branches` monitored lines, controlled transformer circuits and their \
+            regulated buses, and transmission interface branches. Rebuild the matrix with \
+            these buses in its `irreducible_buses` selector, or pass a \
+            `SystemNetworkSource` so the build derives the reduction itself.",
         ),
     )
 end
