@@ -279,13 +279,8 @@ function _any_component_has_branch_rating_ts(
 ) where {P <: AbstractBranchRatingTimeSeriesParameter}
     haskey(get_time_series_names(device_model), P) || return false
     ts_name = get_time_series_names(device_model)[P]
-    # Only the modeled forecast matters: operations consume a
-    # Deterministic-family forecast, never a bare SingleTimeSeries. Use the
-    # same `ts_type` the reduction path resolves so both pathways agree on
-    # what "has the branch rating time series" means.
-    ts_type = IOM.get_deterministic_time_series_type(sys)
     return any(
-        c -> PSY.has_time_series(c, ts_type, ts_name),
+        c -> _has_rating_time_series(c, ts_name),
         get_device_cache(device_model),
     )
 end

@@ -796,6 +796,43 @@ end
     @test length(exceptions) == 2
 end
 
+@testset "Reduction exceptions pin a branch with a SingleTimeSeries rating series" begin
+    sys = _case11_with_forecast()
+    rating_line = get_component(PSY.Line, sys, "4-5-i_1")
+    rating_ta = TimeSeries.TimeArray(
+        DateTime("2020-01-01T08:00:00"):Dates.Minute(5):DateTime("2020-01-01T09:00:00"),
+        fill(0.9, 13),
+    )
+    add_time_series!(
+        sys,
+        rating_line,
+        SingleTimeSeries("branch_rating", rating_ta),
+    )
+    template = get_thermal_dispatch_template_network(
+        NetworkModel(
+            POM.DCPNetworkModel;
+            network_source = SystemNetworkSource(PNM.RadialReduction()),
+        ),
+    )
+    set_device_model!(
+        template,
+        DeviceModel(
+            PSY.Line,
+            StaticBranch;
+            time_series_names = Dict(BranchRatingTimeSeriesParameter => "branch_rating"),
+        ),
+    )
+    exceptions = POM._collect_reduction_exceptions(
+        sys,
+        get_network_model(template),
+        get_branch_models(template),
+        get_service_models(template),
+    )
+    @test 4 in exceptions
+    @test 5 in exceptions
+    @test length(exceptions) == 2
+end
+
 @testset "Interface branches are pinned from the build's reduction" begin
     # "1-8-i_1" is the radial branch to leaf bus 8, which RadialReduction folds into bus 1
     # unless something pins it. An interface over that branch reads its flow, so modeling
