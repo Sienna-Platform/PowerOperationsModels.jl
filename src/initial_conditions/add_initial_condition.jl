@@ -45,6 +45,20 @@ function initial_condition_default(
     )
 end
 
+"""
+Default value of an initial condition, read with the container. The default calls the method
+without the container. A device whose default depends on the per-step data of the container
+implements this method.
+"""
+function initial_condition_default(
+    ic::InitialConditionType,
+    component::PSY.Component,
+    formulation::Union{AbstractDeviceFormulation, AbstractServiceFormulation},
+    ::OptimizationContainer,
+)
+    return initial_condition_default(ic, component, formulation)
+end
+
 #################################################################################
 # Generic get_initial_conditions_value implementations
 # Device-specific overloads should be defined in POM
@@ -80,7 +94,7 @@ function get_initial_conditions_value(
     ic_data = get_initial_conditions_data(container)
     var_type = initial_condition_variable(U(), component, V())
     if !has_initial_condition_value(ic_data, var_type, W)
-        val = initial_condition_default(U(), component, V())
+        val = initial_condition_default(U(), component, V(), container)
     else
         val = get_initial_condition_value(ic_data, var_type, W)[PSY.get_name(component), 1]
     end
@@ -104,7 +118,7 @@ function get_initial_conditions_value(
     ic_data = get_initial_conditions_data(container)
     var_type = initial_condition_variable(U(), component, V())
     if !has_initial_condition_value(ic_data, var_type, W)
-        val = initial_condition_default(U(), component, V())
+        val = initial_condition_default(U(), component, V(), container)
     else
         val = get_initial_condition_value(ic_data, var_type, W)[PSY.get_name(component), 1]
     end

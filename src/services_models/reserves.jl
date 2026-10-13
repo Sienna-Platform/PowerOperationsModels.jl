@@ -440,6 +440,7 @@ _get_ramp_limits(d::PSY.ThermalGen) = PSY.get_ramp_limits(d, u"SU/minute")
 _get_ramp_limits(d::PSY.HydroGen) = PSY.get_ramp_limits(d, u"SU/minute")
 
 function _get_ramp_constraint_contributing_devices(
+    container::OptimizationContainer,
     service::PSY.Reserve,
     contributing_devices::Vector{D},
 ) where {D <: PSY.Component}
@@ -449,7 +450,9 @@ function _get_ramp_constraint_contributing_devices(
         ramp_limits = _get_ramp_limits(d)
         if ramp_limits !== nothing
             p_lims = PSY.get_active_power_limits(d, u"SU")
-            max_rate = abs(p_lims.min - p_lims.max) / time_frame
+            # The smallest minimum of the horizon gives the widest range that can bind.
+            pmin = minimum(min_active_power_values(container, d))
+            max_rate = abs(pmin - p_lims.max) / time_frame
             if (ramp_limits.up >= max_rate) & (ramp_limits.down >= max_rate)
                 @debug "Generator $(PSY.get_name(d)) has a nonbinding ramp limits. Constraints Skipped"
                 continue
@@ -477,7 +480,8 @@ function add_constraints!(
     V <: AbstractReservesFormulation,
     D <: PSY.Component,
 }
-    ramp_devices = _get_ramp_constraint_contributing_devices(service, contributing_devices)
+    ramp_devices = _get_ramp_constraint_contributing_devices(
+        container, service, contributing_devices)
     service_name = PSY.get_name(service)
     if isempty(ramp_devices)
         @warn "Contributing $(D) devices on service $service_name have no binding ramp limits; no ramp constraints are added for them."
@@ -539,16 +543,19 @@ function _nonspin_reserve_limit(
 end
 
 # Offline capacity (SU) that reaches the system within `time_frame` minutes.
-function _nonspin_offline_limit(d::PSY.Component, time_frame::Float64)
+_nonspin_offline_limit(d::PSY.Component, time_frame::Float64) =
+    _nonspin_offline_limit(d, PSY.get_active_power_limits(d, u"SU"), time_frame)
+
+function _nonspin_offline_limit(
+    d::PSY.Component,
+    p_lims::PSY.MinMax,
+    time_frame::Float64,
+)
     startup = _nonspin_startup_time(d)
     if time_frame < startup
         return 0.0
     end
-    return _nonspin_reserve_limit(
-        _get_ramp_limits(d),
-        PSY.get_active_power_limits(d, u"SU"),
-        time_frame - startup,
-    )
+    return _nonspin_reserve_limit(_get_ramp_limits(d), p_lims, time_frame - startup)
 end
 
 function add_constraints!(
@@ -575,8 +582,11 @@ function add_constraints!(
     jump_model = get_jump_model(container)
     for d in contributing_devices
         name = PSY.get_name(d)
-        reserve_limit = _nonspin_offline_limit(d, time_frame)
+        pmax = PSY.get_active_power_limits(d, u"SU").max
+        pmin = min_active_power_values(container, d)
         for t in time_steps
+            reserve_limit =
+                _nonspin_offline_limit(d, (min = pmin[t], max = pmax), time_frame)
             cons[(service_name, name, t)] = JuMP.@constraint(
                 jump_model,
                 var_r[(service_name, name, t)] <= (1 - varstatus[name, t]) * reserve_limit
