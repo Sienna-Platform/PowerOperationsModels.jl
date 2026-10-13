@@ -635,14 +635,13 @@ end
         delta = pmax * (values[t] - values[t - 1])
         @test JuMP.normalized_coefficient(up["Brighton", t], on["Brighton", t]) ≈ delta
         @test JuMP.normalized_coefficient(up["Brighton", t], start["Brighton", t]) ≈
-              -pmax * values[t] - delta
+              -delta
         @test JuMP.normalized_coefficient(dn["Brighton", t], on["Brighton", t]) ≈ -delta
         @test JuMP.normalized_coefficient(dn["Brighton", t], start["Brighton", t]) ≈
               delta
-        @test JuMP.normalized_coefficient(dn["Brighton", t], stop["Brighton", t]) ≈
-              -pmax * values[t]
+        @test iszero(JuMP.normalized_coefficient(dn["Brighton", t], stop["Brighton", t]))
     end
-    other = first(n for n in axes(up, 1) if n != "Brighton")
+    other = first(setdiff(axes(up, 1), ["Brighton"]))
     for t in 1:24
         @test iszero(JuMP.normalized_coefficient(up[other, t], on[other, t]))
         @test iszero(JuMP.normalized_coefficient(dn[other, t], on[other, t]))
