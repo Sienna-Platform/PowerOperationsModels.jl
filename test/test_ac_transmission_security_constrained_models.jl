@@ -27,6 +27,24 @@ function _affexpr_approx_equal(actual, expected; atol = 1e-8)
     return coeff_resid ≤ atol && abs(JuMP.constant(d)) ≤ atol
 end
 
+# The Line container also holds rows for monitored transformers.
+function _monitored_arc(name_to_arc_maps, name)
+    line_arcs = name_to_arc_maps[PSY.Line]
+    if haskey(line_arcs, name)
+        return line_arcs[name]
+    end
+    return name_to_arc_maps[PSY.TwoWindingTransformer][name]
+end
+
+# The flow of one transformer as the model holds it, by formulation.
+_dcp_transformer_flow(container, ::Type{StaticBranch}, name, t) =
+    IOM.get_expression(container, POM.BThetaBranchFlow, PSY.TwoWindingTransformer)[name, t]
+_dcp_transformer_flow(container, ::Type{POM.SecurityConstrainedStaticBranch}, name, t) =
+    IOM.get_variable(container, POM.FlowActivePowerVariable, PSY.TwoWindingTransformer)[
+        name,
+        t,
+    ]
+
 @testset "Post-contingency expressions and constraints match MODF ground truth" begin
     c_sys5 = PSB.build_system(PSITestSystems, "c_sys5")
     all_branches = collect(get_components(PSY.ACTransmission, c_sys5))
@@ -800,6 +818,99 @@ end
     @test n_checked >= 1
 
     psi_checksolve_test(ps_model, [MOI.OPTIMAL, MOI.ALMOST_OPTIMAL])
+end
+
+@testset "DCP post-contingency flows include StaticBranch transformer flows" begin
+    for transformer_formulation in (StaticBranch, POM.SecurityConstrainedStaticBranch)
+        c_sys14 = PSB.build_system(PSITestSystems, "c_sys14")
+        all_branches = collect(get_components(PSY.ACTransmission, c_sys14))
+        for line_name in ["Line1", "Line9"]
+            line = get_component(PSY.ACTransmission, c_sys14, line_name)
+            PSY.add_supplemental_attribute!(
+                c_sys14,
+                line,
+                PSY.FixedForcedOutage(;
+                    outage_status = 1.0,
+                    monitored_components = all_branches,
+                ),
+            )
+        end
+        template =
+            get_thermal_dispatch_template_network(NetworkModel(POM.DCPNetworkModel))
+        set_device_model!(template, PSY.Line, POM.SecurityConstrainedStaticBranch)
+        set_device_model!(template, PSY.TwoWindingTransformer, transformer_formulation)
+        ps_model = DecisionModel(template, c_sys14; optimizer = HiGHS_optimizer)
+        @test build!(ps_model; output_dir = mktempdir(; cleanup = true)) ==
+              IOM.ModelBuildStatus.BUILT
+
+        container = IOM.get_optimization_container(ps_model)
+        time_steps = IOM.get_time_steps(container)
+        ground_truth_modf = PNM.VirtualMODF(c_sys14)
+        registered = PNM.get_registered_contingencies(ground_truth_modf)
+        bus_axis = PNM.get_bus_axis(ground_truth_modf)
+
+        # KCL oracle over the raw PSY arcs: flow f leaves `from` and arrives at `to`.
+        injection = Dict{Tuple{Int, Int}, JuMP.AffExpr}(
+            (bus_no, t) => zero(JuMP.AffExpr) for bus_no in bus_axis, t in time_steps
+        )
+        line_flows = IOM.get_variable(container, POM.FlowActivePowerVariable, PSY.Line)
+        for line in get_components(PSY.Line, c_sys14), t in time_steps
+            arc = PSY.get_arc(line)
+            flow = line_flows[PSY.get_name(line), t]
+            JuMP.add_to_expression!(
+                injection[(PSY.get_number(PSY.get_from(arc)), t)],
+                1.0,
+                flow,
+            )
+            JuMP.add_to_expression!(
+                injection[(PSY.get_number(PSY.get_to(arc)), t)],
+                -1.0,
+                flow,
+            )
+        end
+        for tr in get_components(PSY.TwoWindingTransformer, c_sys14), t in time_steps
+            arc = PSY.get_arc(tr)
+            flow = _dcp_transformer_flow(
+                container,
+                transformer_formulation,
+                PSY.get_name(tr),
+                t,
+            )
+            JuMP.add_to_expression!(
+                injection[(PSY.get_number(PSY.get_from(arc)), t)],
+                1.0,
+                flow,
+            )
+            JuMP.add_to_expression!(
+                injection[(PSY.get_number(PSY.get_to(arc)), t)],
+                -1.0,
+                flow,
+            )
+        end
+
+        pcbf = IOM.get_expression(container, POM.PostContingencyBranchFlow, PSY.Line)
+        name_to_arc_maps =
+            PNM.get_name_to_arc_maps(
+                POM.get_branch_catalog(
+                    IOM.get_network_model(IOM.get_template(ps_model)),
+                ),
+            )
+        n_checked = 0
+        for (outage_id_str, name, t) in keys(pcbf.data)
+            modf_col = ground_truth_modf[
+                _monitored_arc(name_to_arc_maps, name),
+                registered[parse(Int, outage_id_str)],
+            ]
+            expected = zero(JuMP.AffExpr)
+            for i in eachindex(modf_col)
+                abs(modf_col[i]) > POM.PTDF_ZERO_TOL || continue
+                JuMP.add_to_expression!(expected, modf_col[i], injection[(bus_axis[i], t)])
+            end
+            @test _affexpr_approx_equal(pcbf[outage_id_str, name, t], expected)
+            n_checked += 1
+        end
+        @test n_checked >= 1
+    end
 end
 
 @testset "Security-constrained branches are blocked on AC and lossy network models" begin
