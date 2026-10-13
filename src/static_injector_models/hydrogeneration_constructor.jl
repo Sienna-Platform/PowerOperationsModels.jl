@@ -2,6 +2,41 @@
 ##################################### FixedOutput ##################################################
 ####################################################################################################
 
+function _handle_common_hydro_parameters!(
+    container::OptimizationContainer,
+    devices::Vector{H},
+    model::DeviceModel{H},
+) where {H <: PSY.HydroGen}
+    add_min_active_power_parameters!(
+        container,
+        MinActivePowerTimeSeriesParameter,
+        devices,
+        model,
+    )
+    set_min_power_variable_bounds!(container, devices, model)
+    return
+end
+
+function _handle_pump_min_active_power_parameters!(
+    container::OptimizationContainer,
+    devices::Vector{H},
+    model::DeviceModel{H},
+) where {H <: PSY.HydroPumpTurbine}
+    add_min_active_power_parameters!(
+        container,
+        MinActivePowerTimeSeriesParameter,
+        devices,
+        model,
+    )
+    add_min_active_power_parameters!(
+        container,
+        MinActivePowerInTimeSeriesParameter,
+        devices,
+        model,
+    )
+    return
+end
+
 """
 Construct model for [`PowerSystems.HydroGen``](@extref) with [`PowerSimulations.FixedOutput`](@extref) Formulation
 """
@@ -129,6 +164,7 @@ function construct_device!(
     )
 
     add_parameters!(container, ActivePowerTimeSeriesParameter, devices, model)
+    _handle_common_hydro_parameters!(container, devices, model)
     if get_attribute(model, "hydro_budget") === true
         add_parameters!(container, EnergyBudgetTimeSeriesParameter, devices, model)
         if get_use_slacks(model)
@@ -276,6 +312,7 @@ function construct_device!(
     )
 
     add_parameters!(container, ActivePowerTimeSeriesParameter, devices, model)
+    _handle_common_hydro_parameters!(container, devices, model)
     if get_attribute(model, "hydro_budget") === true
         add_parameters!(container, EnergyBudgetTimeSeriesParameter, devices, model)
         if get_use_slacks(model)
@@ -379,6 +416,7 @@ function construct_device!(
     )
 
     add_parameters!(container, ActivePowerTimeSeriesParameter, devices, model)
+    _handle_common_hydro_parameters!(container, devices, model)
     process_market_bid_parameters!(container, devices, model)
 
     add_expressions!(container, ProductionCostExpression, devices, model)
@@ -454,6 +492,7 @@ function construct_device!(
     )
 
     add_parameters!(container, ActivePowerTimeSeriesParameter, devices, model)
+    _handle_common_hydro_parameters!(container, devices, model)
     process_market_bid_parameters!(container, devices, model)
 
     add_expressions!(container, ProductionCostExpression, devices, model)
@@ -766,6 +805,7 @@ function construct_device!(
         get_attribute(model, RELAX_BINARIES_ATTRIBUTE),
     )
     add_variables!(container, HydroEnergyOutput, devices, D)
+    _handle_common_hydro_parameters!(container, devices, model)
     add_to_expression!(
         container,
         ActivePowerBalance,
@@ -903,6 +943,7 @@ function construct_device!(
         get_attribute(model, RELAX_BINARIES_ATTRIBUTE),
     )
     add_variables!(container, HydroEnergyOutput, devices, D)
+    _handle_common_hydro_parameters!(container, devices, model)
     add_to_expression!(
         container,
         ActivePowerBalance,
@@ -984,6 +1025,7 @@ function construct_device!(
         get_attribute(model, RELAX_BINARIES_ATTRIBUTE),
     )
     add_variables!(container, HydroEnergyOutput, devices, D)
+    _handle_common_hydro_parameters!(container, devices, model)
     add_to_expression!(
         container,
         ActivePowerBalance,
@@ -1128,6 +1170,7 @@ function construct_device!(
         D,
         get_attribute(model, RELAX_BINARIES_ATTRIBUTE),
     )
+    _handle_common_hydro_parameters!(container, devices, model)
     add_to_expression!(
         container,
         ActivePowerBalance,
@@ -1263,6 +1306,7 @@ function _add_hydro_water_factor_model_turbine_arguments!(
         get_attribute(model, RELAX_BINARIES_ATTRIBUTE),
     )
     add_variables!(container, HydroEnergyOutput, devices, D)
+    _handle_common_hydro_parameters!(container, devices, model)
     add_to_expression!(
         container,
         ActivePowerBalance,
@@ -1667,6 +1711,7 @@ function _add_hydro_turbine_water_arguments!(
     )
     _maybe_add_on_variables!(container, devices, model)
 
+    _handle_common_hydro_parameters!(container, devices, model)
     add_to_expression!(
         container,
         ActivePowerBalance,
@@ -1881,6 +1926,7 @@ function construct_device!(
     S <: AbstractNetworkModel,
 }
     devices = get_device_cache(model)
+    _handle_pump_min_active_power_parameters!(container, devices, model)
     add_variables!(
         container,
         ActivePowerVariable,
@@ -1974,6 +2020,7 @@ function construct_device!(
     S <: AbstractActivePowerModel,
 }
     devices = get_device_cache(model)
+    _handle_pump_min_active_power_parameters!(container, devices, model)
     add_variables!(
         container,
         ActivePowerVariable,
@@ -2125,6 +2172,7 @@ function construct_device!(
     S <: AbstractNetworkModel,
 }
     devices = get_device_cache(model)
+    _handle_pump_min_active_power_parameters!(container, devices, model)
     add_variables!(
         container,
         ActivePowerVariable,
@@ -2225,6 +2273,7 @@ function construct_device!(
     S <: AbstractActivePowerModel,
 }
     devices = get_device_cache(model)
+    _handle_pump_min_active_power_parameters!(container, devices, model)
     add_variables!(
         container,
         ActivePowerVariable,
