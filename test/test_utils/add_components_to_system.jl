@@ -248,3 +248,24 @@ function _assert_ic_reactive_power_rejected(template, sys)
     )
     return
 end
+
+# Start-up times (`switching_times.up`, minutes) for the thermal units of `c_sys5_uc_non_spin`.
+const NONSPIN_STARTUP_MINUTES = Dict{String, Float64}(
+    "Park City" => 10.0,
+    "Alta" => 5.0,
+    "Sundance" => 30.0,
+    "Brighton" => 60.0,
+    "Solitude" => 240.0,
+    "115_STEAM_1" => 15.0,
+    "101_CT_1" => 20.0,
+)
+
+# `c_sys5_uc_non_spin` with a 30-minute non-spin time frame and per-unit start-up times.
+function set_nonspin_test_data!(sys::PSY.System)
+    PSY.set_time_frame!(only(PSY.get_components(PSY.OfflineReserve, sys)), 30.0)
+    for d in PSY.get_components(PSY.ThermalGen, sys)
+        startup = NONSPIN_STARTUP_MINUTES[PSY.get_name(d)]
+        PSY.set_switching_times!(d, (up = startup, down = 0.0))
+    end
+    return
+end
