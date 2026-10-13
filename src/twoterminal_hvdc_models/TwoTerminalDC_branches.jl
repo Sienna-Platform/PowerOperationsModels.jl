@@ -171,7 +171,10 @@ function get_default_attributes(
     ::Type{U},
     ::Type{V},
 ) where {U <: PSY.TwoTerminalHVDC, V <: AbstractTwoTerminalDCLineFormulation}
-    return Dict{String, Any}(RELAX_BINARIES_ATTRIBUTE => false)
+    return Dict{String, Any}(
+        RELAX_BINARIES_ATTRIBUTE => false,
+        _operational_flow_limit_attributes(U)...,
+    )
 end
 
 get_initial_conditions_device_model(
@@ -1988,6 +1991,10 @@ function get_default_attributes(
     # keeps only the box. Ignored when `bilinear_approximation` is "none".
     return merge(
         BILINEAR_APPROX_DEFAULT_ATTRIBUTES,
-        Dict{String, Any}("use_octagon" => true, RELAX_BINARIES_ATTRIBUTE => false),
+        Dict{String, Any}(
+            "use_octagon" => true,
+            RELAX_BINARIES_ATTRIBUTE => false,
+            _operational_flow_limit_attributes(PSY.TwoTerminalVSCLine)...,
+        ),
     )
 end

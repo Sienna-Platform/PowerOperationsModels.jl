@@ -854,7 +854,7 @@ end
         if model_interface
             set_service_model!(
                 template,
-                ServiceModel(TransmissionInterface, ConstantMaxInterfaceFlow),
+                ServiceModel(TransmissionInterface, MaxInterfaceFlow),
             )
         end
         model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
@@ -927,7 +927,14 @@ end
     end
 
     @test !(8 in _retained_after_build(make_selector()))
-    @test 8 in _retained_after_build(make_selector(ACBus, "8"))
+    @test 8 in _retained_after_build(make_selector(b -> PSY.get_number(b) == 8, ACBus))
+    # A branch selects both of its end buses.
+    radial_branch = make_selector(
+        b -> 8 in (PSY.get_number(PSY.get_from(PSY.get_arc(b))),
+            PSY.get_number(PSY.get_to(PSY.get_arc(b)))),
+        Line,
+    )
+    @test 8 in _retained_after_build(radial_branch)
 end
 
 @testset "Non-PTDF families honour a prebuilt source's reduction" begin
@@ -1044,7 +1051,7 @@ end
     template = get_thermal_dispatch_template_network(NetworkModel(POM.DCPNetworkModel))
     set_service_model!(
         template,
-        ServiceModel(TransmissionInterface, ConstantMaxInterfaceFlow),
+        ServiceModel(TransmissionInterface, MaxInterfaceFlow),
     )
     model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
     @test build!(
