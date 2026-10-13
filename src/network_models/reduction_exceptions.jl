@@ -2,8 +2,8 @@
 Buses that must survive PNM network reductions because something the template models
 is pinned to them. One rule per method.
 
-This set is the sole authority on reduction exceptions: the buses the caller pinned on the
-`NetworkModel` plus the buses these rules derive. PNM's own `_collect_protected_buses`
+This set is the sole authority on reduction exceptions: the buses of the components that the
+`irreducible_buses` selector of the `NetworkModel` selects, plus the buses these rules derive. PNM's own `_collect_protected_buses`
 protects every system Outage; this protects only what the template actually models, so a
 contingency the model never enforces cannot block a reduction.
 =#
@@ -37,6 +37,14 @@ end
 
 # Warn-skip instead of MethodError so this set stays reconcilable with PNM's
 # `_accumulate_protected_buses!(::PSY.Component)`, which also warn-skips.
+# A ThreeWindingTransformer has no arc of its own; each winding circuit has one.
+function _push_component_buses!(buses::Set{Int}, t::PSY.ThreeWindingTransformer)
+    for circuit in PSY.get_circuits(t)
+        _push_component_buses!(buses, circuit)
+    end
+    return
+end
+
 function _push_component_buses!(::Set{Int}, c::PSY.Component)
     @warn "Outage-monitored component $(typeof(c)) ($(PSY.get_name(c))) has no \
            reduction-protection rule; its bus is not pinned and may be reduced away, so \
@@ -53,13 +61,12 @@ function _collect_reduction_exceptions(
 )
     @debug "Collecting reduction exceptions" _group =
         IOM.LOG_GROUP_NETWORK_CONSTRUCTION
-    # Seeded with the caller's own exceptions; the template's rules add to them.
-    buses = Set{Int}(get_reduction_exceptions(network_model))
+    # Seeded with the caller's own selection; the template's rules add to them.
+    buses = PNM.get_irreducible_bus_numbers(sys, get_irreducible_buses(network_model))
     _pin_dc_converter_buses!(buses, sys)
     for m in values(branch_models)
         _pin_time_series_branch_buses!(buses, m, sys)
         _pin_outage_buses!(buses, m, sys)
-        _pin_model_all_branches!(buses, m)
         _pin_transformer_controls!(buses, m, sys, network_model)
     end
     for m in values(service_models)
@@ -127,11 +134,18 @@ function _pin_time_series_branch_buses!(
     sys::PSY.System,
 ) where {T <: PSY.ACTransmission}
     ts_names = get_time_series_names(m)
-    haskey(ts_names, BranchRatingTimeSeriesParameter) || return
-    ts_name = ts_names[BranchRatingTimeSeriesParameter]
-    for branch in PSY.get_available_components(T, sys)
-        _has_rating_time_series(branch, ts_name) || continue
-        _push_component_buses!(buses, branch)
+    for P in (
+        BranchRatingTimeSeriesParameter,
+        FromToFlowLimitParameter,
+        ToFromFlowLimitParameter,
+    )
+        haskey(ts_names, P) || continue
+        _time_series_enforced(P, m) || continue
+        ts_name = ts_names[P]
+        for branch in PSY.get_available_components(T, sys)
+            _has_rating_time_series(branch, ts_name) || continue
+            _push_component_buses!(buses, branch)
+        end
     end
     return
 end
@@ -164,15 +178,6 @@ function _pin_outage_buses!(buses::Set{Int}, m::DeviceModel, sys::PSY.System)
         for component in PSY.get_associated_components(sys, outage)
             _push_component_buses!(buses, component)
         end
-    end
-    return
-end
-
-# A model with `model_all_branches = true` keeps its devices out of the reduction.
-function _pin_model_all_branches!(buses::Set{Int}, m::DeviceModel)
-    get_attribute(m, MODEL_ALL_BRANCHES_KEY) === true || return
-    for device in get_device_cache(m)
-        _push_component_buses!(buses, device)
     end
     return
 end

@@ -7,7 +7,7 @@ function get_initial_conditions_template(model::IOM.AbstractOptimizationModel)
         get_network_formulation(model.template);
         use_slacks = get_use_slacks(main_network_model),
         network_source = get_network_source(main_network_model),
-        reduction_exceptions = get_reduction_exceptions(main_network_model),
+        irreducible_buses = get_irreducible_buses(main_network_model),
     )
     set_hvdc_network_model!(
         network_model,

@@ -67,12 +67,18 @@ _assign_subnetworks_to_buses(
     ::PSY.System,
 ) where {T <: AbstractNetworkModel} = nothing
 
+function _reduction_hint(branch_type::Type{<:PSY.Component}, names::Vector{String})
+    return "To keep them, select them with the `irreducible_buses` keyword of the \
+            NetworkModel, for example \
+            `irreducible_buses = make_selector($(nameof(branch_type)), \"$(first(names))\")`."
+end
+
 # Drop (and warn about) any branch type whose components were all merged away by the
 # reduction — e.g. a lone zero-impedance monitored line. Such a type has no surviving
 # arc in `name_to_arc_maps`, so building its flow vars/constraints would fail. Absence
 # from the map alone is not enough: types that never use it (e.g. HVDC) are also
 # absent, so we prune only when an endpoint bus was actually removed by the reduction.
-# Uncommon; `model_all_branches` keeps such lines instead.
+# Uncommon; the `irreducible_buses` selector of the NetworkModel keeps such lines instead.
 function _prune_fully_reduced_branch_models!(
     network_model::NetworkModel,
     branch_models::BranchModelContainer,
@@ -99,61 +105,62 @@ function _prune_fully_reduced_branch_models!(
         push!(pruned, branch_type)
     end
     for branch_type in pruned
-        hint = _reduction_hint(branch_models[nameof(branch_type)])
-        @warn "All components of branch type $(branch_type) were merged away by the " *
-              "network reduction (e.g. a zero-impedance branch merge). The " *
-              "$(branch_type) DeviceModel is dropped from the template and will not " *
-              "be modeled.$hint"
+        names =
+            [PSY.get_name(d) for d in get_device_cache(branch_models[nameof(branch_type)])]
+        @warn "All components of branch type $(branch_type) ($(names)) were merged away by \
+               the network reduction (e.g. a zero-impedance branch merge). The \
+               $(branch_type) DeviceModel is dropped from the template and will not be \
+               modeled. $(_reduction_hint(branch_type, names))"
         delete!(branch_models, nameof(branch_type))
         filter!(!=(branch_type), network_model.modeled_branch_types)
     end
     return
 end
 
-function _reduction_hint(m::DeviceModel)
-    if haskey(get_attributes(m), MODEL_ALL_BRANCHES_KEY)
-        return " Set the `model_all_branches` attribute on the DeviceModel to keep \
-                these devices through the reduction."
-    end
-    return " Consider adjusting the network-reduction settings/tolerance to avoid \
-            merging all branches of this type."
-end
-
 # Warn about individual devices the reduction merged away while their type
 # still has surviving members. The whole-type prune above misses this partial case,
-# so without a message the dropped device is silently unmodeled. Suggest
-# `model_all_branches` to retain it.
-function _warn_partially_reduced_monitored_lines!(
+# so without a message the dropped device is silently unmodeled.
+function _warn_partially_reduced_branches!(
     network_model::NetworkModel,
     branch_models::BranchModelContainer,
 )
     removed_arcs = PNM.get_removed_arcs(get_network_reduction(network_model))
     isempty(removed_arcs) && return
     for m in values(branch_models)
-        _warn_reduced_monitored_lines!(removed_arcs, m)
+        _warn_reduced_branches!(removed_arcs, m)
     end
     return
 end
 
-function _warn_reduced_monitored_lines!(removed_arcs::Set{Tuple{Int, Int}}, m::DeviceModel)
-    haskey(get_attributes(m), MODEL_ALL_BRANCHES_KEY) || return
+_warn_reduced_branches!(::Set{Tuple{Int, Int}}, ::DeviceModel) = nothing
+
+function _warn_reduced_branches!(
+    removed_arcs::Set{Tuple{Int, Int}},
+    m::DeviceModel{<:PSY.ACTransmission},
+)
     dropped = [
         PSY.get_name(d) for
         d in get_device_cache(m) if _branch_arc_removed(d, removed_arcs)
     ]
     isempty(dropped) && return
     @warn "$(get_component_type(m)) component(s) $(dropped) were merged away by the \
-           network reduction and are not modeled. Set the `model_all_branches` attribute \
-           on the $(get_component_type(m)) DeviceModel to keep them."
+           network reduction and are not modeled. \
+           $(_reduction_hint(get_component_type(m), dropped))"
     return
 end
 
-function _branch_arc_removed(branch::PSY.Branch, removed_arcs)
+function _branch_arc_removed(
+    branch::Union{PSY.Branch, PSY.TransformerCircuit},
+    removed_arcs,
+)
     arc = PSY.get_arc(branch)
     from = PSY.get_number(PSY.get_from(arc))
     to = PSY.get_number(PSY.get_to(arc))
     return (from, to) in removed_arcs || (to, from) in removed_arcs
 end
+
+_branch_arc_removed(t::PSY.ThreeWindingTransformer, removed_arcs) =
+    any(c -> _branch_arc_removed(c, removed_arcs), PSY.get_circuits(t))
 
 function _get_unmodeled_branch_types(
     branch_models::BranchModelContainer,
@@ -285,13 +292,12 @@ function _validate_prebuilt_exceptions(
     throw(
         IS.ConflictingInputsError(
             "The prebuilt network source eliminated buses $(sort!(collect(dropped))), which \
-            the model pins as reduction exceptions: the NetworkModel's own \
-            `reduction_exceptions`, plus the buses of DC converter terminals, branches with \
-            rating time series, outaged and monitored components, `model_all_branches` \
-            monitored lines, controlled transformer circuits and their regulated buses, and \
-            transmission interface branches. Rebuild the matrix with these buses passed as \
-            `irreducible_buses`, or pass a `SystemNetworkSource` so the build derives the \
-            reduction itself.",
+            the model pins as reduction exceptions: the buses of the components that the \
+            NetworkModel's `irreducible_buses` selector selects, plus the buses of DC converter terminals, branches with \
+            rating time series, outaged and monitored components, controlled transformer \
+            circuits and their regulated buses, and transmission interface branches. \
+            Rebuild the matrix with these buses passed as `irreducible_buses`, or pass a \
+            `SystemNetworkSource` so the build derives the reduction itself.",
         ),
     )
 end
@@ -357,22 +363,23 @@ function _derive_contingency_matrix(
 end
 
 """
-This build's branch index. The template's branch filters restrict which branches get flow
-variables -- an optimization concern, so it lives in the build's catalog rather than in the
-reduction, which stays exactly as the matrix produced it.
+This build's branch index. The `filter_selector` of each branch model restricts which
+branches get flow variables -- an optimization concern, so it lives in the build's catalog
+rather than in the reduction, which stays exactly as the matrix produced it.
 
 An unfiltered template reuses the matrix's own catalog; there is nothing to restrict.
 """
-function _build_catalog(matrix, branch_models::BranchModelContainer)
+function _build_catalog(matrix, branch_models::BranchModelContainer, sys::PSY.System)
     base = PNM.get_branch_catalog(matrix)
-    filters = IOM._get_filters(branch_models)
-    isempty(filters) && return base
-    # `IOM._get_filters` hands back a `Dict{DataType, Function}`, so the call through it cannot
-    # be inferred. Pinning the result to `Bool` keeps that `Any` from leaking into
-    # `_entry_matches`, which PNM folds over every branch while building the catalog.
+    selected = Dict{DataType, Set{Int}}()
+    for m in values(branch_models)
+        _has_filter_selector(m) || continue
+        selected[get_component_type(m)] = _selected_ids(m, sys)
+    end
+    isempty(selected) && return base
     function _passes_filter(T, component)
-        if haskey(filters, T)
-            return filters[T](component)::Bool
+        if haskey(selected, T)
+            return IS.get_id(component) in selected[T]
         else
             return true
         end
@@ -391,7 +398,7 @@ function _finalize_network_reduction!(
     # device constructors run: drop branch types fully merged away (else their
     # flow vars/constraints would fail to build) and warn about partial drops.
     _prune_fully_reduced_branch_models!(model, branch_models)
-    _warn_partially_reduced_monitored_lines!(model, branch_models)
+    _warn_partially_reduced_branches!(model, branch_models)
     return
 end
 
@@ -411,7 +418,7 @@ function IOM.instantiate_network_model!(
     ybus = _reduced_ybus!(model, sys, exceptions)
     IOM.set_network_data!(
         model,
-        YbusNetworkData(ybus, _build_catalog(ybus, branch_models)),
+        YbusNetworkData(ybus, _build_catalog(ybus, branch_models, sys)),
     )
     _finalize_network_reduction!(model, branch_models)
     return
@@ -431,7 +438,7 @@ function IOM.instantiate_network_model!(
     _validate_network_and_branches(model, branch_models, sys)
     exceptions = _collect_reduction_exceptions(sys, model, branch_models, service_models)
     ybus = _reduced_ybus!(model, sys, exceptions)
-    catalog = _build_catalog(ybus, branch_models)
+    catalog = _build_catalog(ybus, branch_models, sys)
     if IOM._template_has_outage_aware_branch(branch_models)
         core = _model_factor_core(ybus, model, sys)
         IOM.set_network_data!(
@@ -532,7 +539,7 @@ function _assemble_ptdf_data(
     sys::PSY.System,
     branch_models::BranchModelContainer,
 )
-    catalog = _build_catalog(core, branch_models)
+    catalog = _build_catalog(core, branch_models, sys)
     if IOM._template_has_outage_aware_branch(branch_models)
         return PTDFNetworkData(
             ptdf,
