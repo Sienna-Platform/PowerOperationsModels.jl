@@ -83,6 +83,7 @@ skip_variable(::Type{<:Union{OnVariable, StartVariable, StopVariable}}, d::PSY.T
 
 ############## ColdStartVariable, WarmStartVariable, HotStartVariable ############
 get_variable_binary(::Type{<:Union{ColdStartVariable, WarmStartVariable, HotStartVariable}}, ::Type{PSY.ThermalMultiStart}, ::Type{<:AbstractThermalFormulation}) = true
+skip_variable(::Type{<:Union{ColdStartVariable, WarmStartVariable, HotStartVariable}}, d::PSY.ThermalMultiStart, ::Type{<:AbstractThermalFormulation}) = _is_must_run(d)
 
 ############## SlackVariables, ThermalGen ####################
 # LB Slack #
@@ -458,11 +459,15 @@ function _get_data_for_range_ic(
     for (ix, ic) in enumerate(initial_conditions_power)
         g = IOM.get_component(ic)
         IS.@assert_op g == IOM.get_component(initial_conditions_status[ix])
+        # A must-run unit never stops and has no StopVariable.
+        if _is_must_run(g)
+            continue
+        end
         idx += 1
         ini_conds[idx, 1] = ic
         ini_conds[idx, 2] = initial_conditions_status[ix]
     end
-    return ini_conds
+    return ini_conds[1:idx, :]
 end
 
 # commitment formulations: time series upper bounds.
@@ -725,7 +730,7 @@ function add_constraints!(
 
     if !isempty(ini_conds)
         varstop = get_variable(container, StopVariable, T)
-        device_name_set = PSY.get_name.(devices)
+        device_name_set = [IOM.get_component_name(ic) for ic in ini_conds[:, 1]]
         con = add_constraints_container!(container, ActiveRangeICConstraint,
             T,
             device_name_set,
@@ -906,18 +911,18 @@ function calculate_aux_variable_value!(
         # so there is nothing to do but to add the total number of time steps
         # to the count
         if isnothing(get_value(ini_cond[ix]))
-            sum_on_var = time_steps[end]
+            sum_on_var = float(time_steps[end])
         else
             on_var_name = IOM.get_component_name(ini_cond[ix])
             ini_cond_value = get_condition(ini_cond[ix])
             # On Var doesn't exist for a unit that has must_run = true
             on_var = on_variable_output[on_var_name, :]
             aux_variable_container.data[ix, :] .= ini_cond_value
-            sum_on_var = sum(on_var)
+            sum_on_var = Float64(sum(on_var))
         end
         if sum_on_var == time_steps[end] # Unit was always on
             aux_variable_container.data[ix, :] += time_steps
-        elseif sum_on_var == 0.0 # Unit was always off
+        elseif iszero(sum_on_var) # Unit was always off
             aux_variable_container.data[ix, :] .= 0.0
         else
             previous_condition = ini_cond_value
@@ -958,11 +963,11 @@ function calculate_aux_variable_value!(
             on_var = on_variable_output[on_var_name, :]
             ini_cond_value = get_condition(ini_cond[ix])
             aux_variable_container.data[ix, :] .= ini_cond_value
-            sum_on_var = sum(on_var)
+            sum_on_var = Float64(sum(on_var))
         end
         if sum_on_var == time_steps[end] # Unit was always on
             aux_variable_container.data[ix, :] .= 0.0
-        elseif sum_on_var == 0.0 # Unit was always off
+        elseif iszero(sum_on_var) # Unit was always off
             aux_variable_container.data[ix, :] += time_steps
         else
             previous_condition = ini_cond_value
@@ -1173,8 +1178,9 @@ function add_constraints!(
         get_variable(container, WarmStartVariable, T),
     ]
     varstop = get_variable(container, StopVariable, T)
-
-    names = PSY.get_name.(devices)
+    # Must-run units never start, so they carry no start or stop variables.
+    committable = filter(!_is_must_run, devices)
+    names = PSY.get_name.(committable)
 
     con = [
         add_constraints_container!(container, StartupTimeLimitTemperatureConstraint,
@@ -1193,7 +1199,7 @@ function add_constraints!(
         ),
     ]
 
-    for t in time_steps, d in devices
+    for t in time_steps, d in committable
         name = PSY.get_name(d)
         startup_types = PSY.get_start_types(d)
         time_limits = _convert_hours_to_timesteps(PSY.get_start_time_limits(d), resolution)
@@ -1246,14 +1252,15 @@ function add_constraints!(
         get_variable(container, ColdStartVariable, T),
     ]
 
-    device_name_set = PSY.get_name.(devices)
+    committable = filter(!_is_must_run, devices)
+    device_name_set = PSY.get_name.(committable)
     con = add_constraints_container!(container, StartTypeConstraint,
         T,
         device_name_set,
         time_steps,
     )
 
-    for t in time_steps, d in devices
+    for t in time_steps, d in committable
         name = PSY.get_name(d)
         startup_types = PSY.get_start_types(d)
         con[name, t] = JuMP.@constraint(
@@ -1288,8 +1295,10 @@ function add_constraints!(
     ::NetworkModel{<:AbstractNetworkModel},
 ) where {T <: PSY.ThermalMultiStart}
     resolution = get_resolution(container)
-    initial_conditions_offtime =
-        get_initial_condition(container, InitialTimeDurationOff(), PSY.ThermalMultiStart)
+    initial_conditions_offtime = filter(
+        ic -> !_is_must_run(IOM.get_component(ic)),
+        get_initial_condition(container, InitialTimeDurationOff(), PSY.ThermalMultiStart),
+    )
 
     time_steps = get_time_steps(container)
     device_name_set = [IOM.get_component_name(ic) for ic in initial_conditions_offtime]
@@ -1697,11 +1706,18 @@ function IOM._add_semicontinuous_bound_range_constraints_impl!(
     for device in devices
         ci_name = IS.get_name(device)
         limits = IOM.get_min_max_limits(device, T, W)
-        for t in time_steps
-            bin = _is_must_run(device) ? 1.0 : varbin[ci_name, t]
-            IOM.add_range_bound_constraint!(
-                dir, jump_model, con, ci_name, t,
-                array[ci_name, t], IOM.get_bound(dir, limits), bin)
+        if _is_must_run(device)
+            for t in time_steps
+                IOM.add_range_bound_constraint!(
+                    dir, jump_model, con, ci_name, t,
+                    array[ci_name, t], IOM.get_bound(dir, limits), 1.0)
+            end
+        else
+            for t in time_steps
+                IOM.add_range_bound_constraint!(
+                    dir, jump_model, con, ci_name, t,
+                    array[ci_name, t], IOM.get_bound(dir, limits), varbin[ci_name, t])
+            end
         end
     end
     return

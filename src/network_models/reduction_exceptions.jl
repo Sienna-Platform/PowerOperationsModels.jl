@@ -108,6 +108,13 @@ function _pin_dc_converter_buses!(buses::Set{Int}, sys::PSY.System)
     return
 end
 
+# The model names its rating series, so a series of that name on a device is the rating
+# series, whatever its time series type. The container, which fixes the type, does not
+# exist yet when the network reduction runs.
+function _has_rating_time_series(device::PSY.Component, ts_name::AbstractString)
+    return PSY.has_time_series(device, ts_name)
+end
+
 # A branch carrying a rating time series pins both its endpoints, so the
 # reduction cannot merge away the bus a time-varying limit is applied at.
 function _pin_time_series_branch_buses!(
@@ -127,8 +134,6 @@ function _pin_time_series_branch_buses!(
     sys::PSY.System,
 ) where {T <: PSY.ACTransmission}
     ts_names = get_time_series_names(m)
-    # TODO workaround since we dont have the container
-    ts_type = PSY.Deterministic
     for P in (
         BranchRatingTimeSeriesParameter,
         FromToFlowLimitParameter,
@@ -138,7 +143,7 @@ function _pin_time_series_branch_buses!(
         _time_series_enforced(P, m) || continue
         ts_name = ts_names[P]
         for branch in PSY.get_available_components(T, sys)
-            PSY.has_time_series(branch, ts_type, ts_name) || continue
+            _has_rating_time_series(branch, ts_name) || continue
             _push_component_buses!(buses, branch)
         end
     end

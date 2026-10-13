@@ -507,6 +507,21 @@ function add_constraints!(
     return
 end
 
+# Devices without `time_limits` (e.g. most hydro units) have no start-up delay, the same
+# reading the thermal duration constraints give a missing `time_limits`.
+_nonspin_startup_time(::Nothing) = 0.0
+_nonspin_startup_time(time_limits::NamedTuple{(:up, :down)}) = time_limits.up
+
+# Without `ramp_limits` the unit is not ramp-bound, so it can supply up to `pmax`.
+_nonspin_reserve_limit(::Nothing, p_lims::PSY.MinMax, ::Real) = p_lims.max
+function _nonspin_reserve_limit(
+    ramp_limits::NamedTuple{(:up, :down)},
+    p_lims::PSY.MinMax,
+    ramp_window::Real,
+)
+    return p_lims.min + ramp_window * ramp_limits.up
+end
+
 function add_constraints!(
     container::OptimizationContainer,
     T::Type{ReservePowerConstraint},
@@ -538,13 +553,13 @@ function add_constraints!(
     jump_model = get_jump_model(container)
     for d in contributing_devices
         name = PSY.get_name(d)
-        startup_time = PSY.get_time_limits(d).up
-        ramp_limits = _get_ramp_limits(d)
+        startup_time = _nonspin_startup_time(PSY.get_time_limits(d))
         if reserve_response_time > startup_time
-            reserve_limit =
-                PSY.get_active_power_limits(d, u"SU").min +
-                (reserve_response_time - startup_time) * minutes_per_period *
-                ramp_limits.up
+            reserve_limit = _nonspin_reserve_limit(
+                _get_ramp_limits(d),
+                PSY.get_active_power_limits(d, u"SU"),
+                (reserve_response_time - startup_time) * minutes_per_period,
+            )
         else
             reserve_limit = 0.0
         end

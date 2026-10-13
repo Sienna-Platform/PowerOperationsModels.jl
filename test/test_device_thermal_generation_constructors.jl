@@ -746,6 +746,71 @@ end
     moi_tests(model, 576, 0, 354, 156, 192, true, 24)
 end
 
+@testset "Thermal MultiStart UC with a must-run unit" begin
+    device_model = DeviceModel(PSY.ThermalMultiStart, ThermalMultiStartUnitCommitment)
+    c_sys5_pglib = PSB.build_system(PSITestSystems, "c_sys5_pglib")
+    must_run = first(PSY.get_components(PSY.ThermalMultiStart, c_sys5_pglib))
+    must_run_name = PSY.get_name(must_run)
+    PSY.set_commitment_mode!(must_run, PSY.CommitmentModes.MUST_RUN)
+    model = DecisionModel(MockOperationProblem, DCPNetworkModel, c_sys5_pglib)
+    mock_construct_device!(model, device_model)
+    container = IOM.get_optimization_container(model)
+
+    for var_type in (OnVariable, StartVariable, StopVariable, POM.MULTI_START_VARIABLES...)
+        var = IOM.get_variable(container, var_type, PSY.ThermalMultiStart)
+        @test must_run_name ∉ axes(var, 1)
+    end
+    for meta in ("hot", "warm")
+        con = IOM.get_constraint(
+            container,
+            IOM.ConstraintKey(
+                StartupTimeLimitTemperatureConstraint,
+                PSY.ThermalMultiStart,
+                meta,
+            ),
+        )
+        @test all(k -> first(k) != must_run_name, keys(con.data))
+    end
+    start_type = IOM.get_constraint(
+        container,
+        IOM.ConstraintKey(StartTypeConstraint, PSY.ThermalMultiStart),
+    )
+    @test must_run_name ∉ axes(start_type, 1)
+
+    template = get_thermal_standard_uc_template()
+    set_device_model!(template, ThermalMultiStart, ThermalMultiStartUnitCommitment)
+    model = DecisionModel(template, c_sys5_pglib; optimizer = HiGHS_optimizer)
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+    @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+end
+
+@testset "Thermal MultiStart UC ramp-down rows bound the decrease" begin
+    device_model = DeviceModel(PSY.ThermalMultiStart, ThermalMultiStartUnitCommitment)
+    c_sys5_pglib = PSB.build_system(PSITestSystems, "c_sys5_pglib")
+    model = DecisionModel(MockOperationProblem, DCPNetworkModel, c_sys5_pglib)
+    mock_construct_device!(model, device_model)
+    container = IOM.get_optimization_container(model)
+    minutes_per_period = Dates.value(Dates.Minute(IOM.get_resolution(container)))
+    power = IOM.get_variable(container, PowerAboveMinimumVariable, PSY.ThermalMultiStart)
+    ramp_dn = IOM.get_constraint(
+        container,
+        IOM.ConstraintKey(RampConstraint, PSY.ThermalMultiStart, "dn"),
+    )
+    for name in axes(ramp_dn, 1)
+        d = PSY.get_component(PSY.ThermalMultiStart, c_sys5_pglib, name)
+        limit = PSY.get_ramp_limits(d, u"SU/minute").down * minutes_per_period
+        for t in axes(ramp_dn, 2)[2:end]
+            # previous - current <= down_rate * dt. Broken until the IOM expression
+            # ramp path stops emitting `previous - current >= -down_rate * dt`.
+            @test_broken JuMP.constraint_object(ramp_dn[name, t]).set ==
+                         MOI.LessThan(limit)
+            @test JuMP.normalized_coefficient(ramp_dn[name, t], power[name, t - 1]) ≈ 1.0
+            @test JuMP.normalized_coefficient(ramp_dn[name, t], power[name, t]) ≈ -1.0
+        end
+    end
+end
+
 ################################ Thermal Compact UC Testing ################################
 @testset "Thermal Standard with Compact UC and DC - PF" begin
     device_model = DeviceModel(PSY.ThermalStandard, ThermalCompactUnitCommitment)
