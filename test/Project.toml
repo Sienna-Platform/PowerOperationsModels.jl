@@ -42,7 +42,7 @@ InfrastructureOptimizationModels = {rev = "fix/audit-compact-pwl-ramp", url = "h
 PowerSystems = {url = "https://github.com/Sienna-Platform/PowerSystems.jl.git", rev = "psy6"}
 PowerSystemCaseBuilder = {url = "https://github.com/Sienna-Platform/PowerSystemCaseBuilder.jl.git", rev = "psy6"}
 PowerFlowFileParser = {url = "https://github.com/Sienna-Platform/PowerFlowFileParser.jl.git", rev = "psy6"}
-PowerFlows = {rev = "psy6", url = "https://github.com/Sienna-Platform/PowerFlows.jl"}
+PowerFlows = {rev = "jd/pnm-irreducible-selector", url = "https://github.com/Sienna-Platform/PowerFlows.jl"}
 PowerNetworkMatrices = {rev = "psy6", url = "https://github.com/Sienna-Platform/PowerNetworkMatrices.jl"}
 PowerTableDataParser = {url = "https://github.com/NLR-Sienna/PowerTableDataParser.jl.git", rev = "psy6"}
 

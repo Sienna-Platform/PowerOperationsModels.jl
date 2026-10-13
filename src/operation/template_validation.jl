@@ -81,6 +81,7 @@ function validate_template_impl!(model::IOM.AbstractOptimizationModel)
         get_check_components(settings) &&
         branches_modeled(get_network_formulation(network_model))
     for (k, device_model) in template.branches
+        _check_branch_filter(k, device_model)
         make_device_cache!(device_model, system, validate_branches)
         if isempty(get_device_cache(device_model))
             @info "The system data doesn't include Branches of type $(k), consider changing the models in the template" _group =
@@ -100,10 +101,10 @@ function validate_template_impl!(model::IOM.AbstractOptimizationModel)
             )
         else
             _validate_branch_slack_request(k, device_model, network_formulation)
-            _warn_unenforced_operational_flow_limits(device_model)
+            _check_operational_flow_limits(device_model)
             push!(network_model.modeled_branch_types, get_component_type(device_model))
         end
-        if get_attribute(device_model, "filter_function") !== nothing
+        if _has_filter_selector(device_model)
             model_has_branch_filters = true
         end
     end
@@ -146,33 +147,6 @@ function _check_converter_ac_control(
 end
 
 #################################################################################
-# Operational flow limits that POM does not enforce yet
-#################################################################################
-
-_sets_operational_flow_limit(::PSY.Device) = false
-_sets_operational_flow_limit(d::PSY.Line) =
-    !isnothing(PSY.get_operational_flow_limit(d, u"SU"))
-_sets_operational_flow_limit(d::PSY.TransformerCircuit) =
-    !isnothing(PSY.get_operational_flow_limit(d, u"SU"))
-_sets_operational_flow_limit(d::PSY.TwoWindingTransformer) =
-    _sets_operational_flow_limit(PSY.get_circuit(d))
-_sets_operational_flow_limit(d::PSY.ThreeWindingTransformer) =
-    any(_sets_operational_flow_limit, PSY.get_circuits(d))
-_sets_operational_flow_limit(d::PSY.TwoTerminalHVDC) =
-    !isnothing(PSY.get_operational_flow_limit(d, u"SU"))
-
-function _warn_unenforced_operational_flow_limits(device_model::DeviceModel)
-    names = [
-        PSY.get_name(d) for
-        d in get_device_cache(device_model) if _sets_operational_flow_limit(d)
-    ]
-    isempty(names) && return
-    @warn "$(length(names)) $(nameof(get_component_type(device_model))) component(s) set operational_flow_limit, which this version of POM does not enforce yet: $(join(first(names, 5), ", "))" _group =
-        IOM.LOG_GROUP_MODELS_VALIDATION
-    return
-end
-
-#################################################################################
 # Transmission interface contributors
 #################################################################################
 
@@ -188,10 +162,37 @@ _interface_contributor_has_flow(::PSY.AreaInterchange, ::Type{<:AbstractNetworkM
     true
 _interface_contributor_has_flow(::PSY.Device, ::Type{<:AbstractNetworkModel}) = false
 
+function _check_branch_filter(key::Symbol, model::DeviceModel)
+    if haskey(get_attributes(model), "filter_function")
+        throw(
+            IS.ConflictingInputsError(
+                "Branch model $(key) sets the `filter_function` attribute. Branch models \
+                select their devices with the `$(FILTER_SELECTOR_KEY)` attribute, an \
+                `IS.ComponentSelector`.",
+            ),
+        )
+    end
+    _has_filter_selector(model) || return
+    _check_filter_selector_value(key, get_attribute(model, FILTER_SELECTOR_KEY))
+    return
+end
+
+_check_filter_selector_value(::Symbol, ::IS.ComponentSelector) = nothing
+
+function _check_filter_selector_value(key::Symbol, value)
+    throw(
+        IS.ConflictingInputsError(
+            "Branch model $(key) sets the `$(FILTER_SELECTOR_KEY)` attribute to a \
+            $(typeof(value)). The attribute takes an `IS.ComponentSelector`, for example \
+            `make_selector(Line, \"1-2\")`.",
+        ),
+    )
+end
+
 """
 Reject a template whose transmission interfaces include a branch the model builds no flow
 for: either the branch's type has no branch model in the template, or that branch model's
-`filter_function` (or subsystem) excludes the branch. Either way the interface's flow
+`filter_selector` (or subsystem) excludes the branch. Either way the interface's flow
 expression would silently omit the branch, so the template is rejected and the user must
 make the filter and the interface definitions consistent.
 """
@@ -260,8 +261,8 @@ function _interface_branch_problems!(
             problems,
             "TransmissionInterface \"$(interface_name)\" includes $(T) branches \
             $(sort!(names)) that the template's $(T) branch model excludes through its \
-            filter_function or subsystem; their flow would be omitted from the interface. \
-            Change the filter_function to admit every branch in the interface, or remove \
+            filter_selector or subsystem; their flow would be omitted from the interface. \
+            Change the filter_selector to select every branch in the interface, or remove \
             the TransmissionInterface service model from the template.",
         )
     end
@@ -276,7 +277,7 @@ function _any_component_has_branch_rating_ts(
     ::Type{P},
     device_model::DeviceModel,
     sys::PSY.System,
-) where {P <: AbstractBranchRatingTimeSeriesParameter}
+) where {P <: TimeSeriesParameter}
     haskey(get_time_series_names(device_model), P) || return false
     ts_name = get_time_series_names(device_model)[P]
     return any(
@@ -285,11 +286,12 @@ function _any_component_has_branch_rating_ts(
     )
 end
 
-# Both `BranchRatingTimeSeriesParameter` and
-# `PostContingencyBranchRatingTimeSeriesParameter` are only honored by the
+# `BranchRatingTimeSeriesParameter`,
+# `PostContingencyBranchRatingTimeSeriesParameter` and the operational-limit time series
+# are only honored by the
 # `StaticBranch` (pre-contingency PTDF / DCP / ACP) and
 # `AbstractSecurityConstrainedStaticBranch` constructors. Any other
-# formulation that carries either series passes validation but never builds a
+# formulation that carries any of these series passes validation but never builds a
 # usable parameter container, so the series would be silently ignored —
 # reject it up front instead. `StaticBranchUnbounded` enforces no flow limits
 # at all, so the series is simply unused there: warn rather than error.
@@ -303,8 +305,11 @@ function _check_branch_rating_time_series_formulation!(
         for P in (
             BranchRatingTimeSeriesParameter,
             PostContingencyBranchRatingTimeSeriesParameter,
+            FromToFlowLimitParameter,
+            ToFromFlowLimitParameter,
         )
             _any_component_has_branch_rating_ts(P, device_model, sys) || continue
+            _time_series_enforced(P, device_model) || continue
             if B <: StaticBranch || B <: AbstractSecurityConstrainedStaticBranch
                 continue
             elseif B <: StaticBranchUnbounded
@@ -319,7 +324,7 @@ function _check_branch_rating_time_series_formulation!(
                         "$(P) is only supported with the StaticBranch or \
                         AbstractSecurityConstrainedStaticBranch formulations, \
                         but branch type $(D) was configured with $(B). Remove \
-                        the branch rating time series from the components or \
+                        the $(_time_series_label(P)) from the components or \
                         change the formulation.",
                     ),
                 )

@@ -1991,7 +1991,7 @@ function add_to_expression!(
     model::ServiceModel{PSY.TransmissionInterface, U},
 ) where {
     T <: Union{InterfaceFlowSlackUp, InterfaceFlowSlackDown},
-    U <: Union{ConstantMaxInterfaceFlow, VariableMaxInterfaceFlow},
+    U <: MaxInterfaceFlow,
     S <: PSY.TransmissionInterface,
 }
     expression = get_expression(container, InterfaceTotalFlow, PSY.TransmissionInterface)
@@ -2077,7 +2077,7 @@ function add_to_expression!(
     service::PSY.TransmissionInterface,
     model::ServiceModel{PSY.TransmissionInterface, V},
     network_model::NetworkModel{<:AbstractActivePowerModel},
-) where {V <: Union{ConstantMaxInterfaceFlow, VariableMaxInterfaceFlow}}
+) where {V <: MaxInterfaceFlow}
     net_reduction_data = get_network_reduction(network_model)
     expression = get_expression(container, InterfaceTotalFlow, PSY.TransmissionInterface)
     service_name = PSY.get_name(service)
@@ -2107,7 +2107,7 @@ function add_to_expression!(
     service::PSY.TransmissionInterface,
     model::ServiceModel{PSY.TransmissionInterface, V},
     network_model::NetworkModel{DCPNetworkModel},
-) where {V <: Union{ConstantMaxInterfaceFlow, VariableMaxInterfaceFlow}}
+) where {V <: MaxInterfaceFlow}
     net_reduction_data = get_network_reduction(network_model)
     expression = get_expression(container, InterfaceTotalFlow, PSY.TransmissionInterface)
     service_name = PSY.get_name(service)
@@ -2148,7 +2148,7 @@ function add_to_expression!(
     service::PSY.TransmissionInterface,
     model::ServiceModel{PSY.TransmissionInterface, V},
     network_model::NetworkModel{AreaPTDFNetworkModel},
-) where {V <: Union{ConstantMaxInterfaceFlow, VariableMaxInterfaceFlow}}
+) where {V <: MaxInterfaceFlow}
     net_reduction_data = get_network_reduction(network_model)
     expression = get_expression(container, InterfaceTotalFlow, PSY.TransmissionInterface)
     service_name = PSY.get_name(service)
@@ -2177,7 +2177,7 @@ function add_to_expression!(
     service::PSY.TransmissionInterface,
     model::ServiceModel{PSY.TransmissionInterface, V},
     network_model::NetworkModel{<:AbstractPTDFNetworkModel},
-) where {V <: Union{ConstantMaxInterfaceFlow, VariableMaxInterfaceFlow}}
+) where {V <: MaxInterfaceFlow}
     net_reduction_data = get_network_reduction(network_model)
     expression = get_expression(container, InterfaceTotalFlow, PSY.TransmissionInterface)
     service_name = PSY.get_name(service)
