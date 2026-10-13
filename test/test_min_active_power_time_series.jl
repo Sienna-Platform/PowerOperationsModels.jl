@@ -526,7 +526,6 @@ end
     sys = PSB.build_system(PSITestSystems, "c_sys5_uc_non_spin"; add_reserves = true)
     unit = first(get_components(ThermalMultiStart, sys))
     name = PSY.get_name(unit)
-    PSY.set_time_limits!(unit, (up = 0.1, down = 1.0))
     add_min_power_series!(sys, unit, MIN_POWER_VALUES)
     template = get_thermal_standard_uc_template()
     set_device_model!(
@@ -552,11 +551,11 @@ end
     )
     service = first(get_components(OfflineReserve, sys))
     ramp_up = PSY.get_ramp_limits(unit, u"SU/minute").up
-    startup = PSY.get_time_limits(unit).up
+    startup = POM._nonspin_startup_time(unit)
     response = PSY.get_time_frame(service)
     @test response > startup
     for t in 1:24
-        expected = pmax * MIN_POWER_VALUES[t] + (response - startup) * 60 * ramp_up
+        expected = min(pmax, pmax * MIN_POWER_VALUES[t] + (response - startup) * ramp_up)
         c = rows[(PSY.get_name(service), name, t)]
         @test JuMP.normalized_coefficient(c, on[name, t]) ≈ expected
     end
@@ -1661,8 +1660,8 @@ end
 
     function limit_at(rows, unit, on, t, pmin)
         name = PSY.get_name(unit)
-        startup = POM._nonspin_startup_time(PSY.get_time_limits(unit))
-        window = (PSY.get_time_frame(service) - startup) * 60
+        startup = POM._nonspin_startup_time(unit)
+        window = PSY.get_time_frame(service) - startup
         expected = POM._nonspin_reserve_limit(
             POM._get_ramp_limits(unit),
             (min = pmin, max = PSY.get_active_power_limits(unit, u"SU").max),
@@ -1679,8 +1678,7 @@ end
     )
     hydro_on = IOM.get_variable(container, OnVariable, HydroDispatch)
     pmax = PSY.get_max_active_power(hydro, u"SU")
-    @test PSY.get_time_frame(service) >
-          POM._nonspin_startup_time(PSY.get_time_limits(hydro))
+    @test PSY.get_time_frame(service) > POM._nonspin_startup_time(hydro)
     for t in 1:24
         actual, expected =
             limit_at(hydro_rows, hydro, hydro_on, t, pmax * HYDRO_MIN_VALUES[t])
