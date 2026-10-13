@@ -599,6 +599,53 @@ end
           IOM.ModelBuildStatus.BUILT
 end
 
+@testset "Test NonSpinningReserve from Hydro Commitment" begin
+    sys = deepcopy(PSB.build_system(PSITestSystems, "c_sys5_hy"))
+    hydros = collect(get_components(HydroDispatch, sys))
+    thermals = collect(get_components(ThermalStandard, sys))
+    service = OfflineReserve(; name = "NSPIN", available = true, time_frame = 30.0,
+        requirement = 0.1)
+    add_service!(sys, service, vcat(thermals, hydros))
+
+    template = PowerOperationsProblemTemplate(CopperPlateNetworkModel)
+    set_device_model!(template, PowerLoad, StaticPowerLoad)
+    set_device_model!(template, ThermalStandard, ThermalBasicUnitCommitment)
+    set_device_model!(template, HydroDispatch, HydroCommitmentRunOfRiver)
+    set_service_model!(template, ServiceModel(OfflineReserve, NonSpinningReserve))
+
+    model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+    container = IOM.get_optimization_container(model)
+    for D in (ThermalStandard, HydroDispatch)
+        cons = IOM.get_constraint(
+            container,
+            IOM.ConstraintKey(
+                POM.ReservePowerConstraint,
+                IOM.ComponentPairKey{D, OfflineReserve},
+            ),
+        )
+        @test length(cons) == length(get_components(D, sys)) * 24
+    end
+    # Hydro has no time or ramp limits: the offline award is bounded by pmax while off.
+    on_var = IOM.get_variable(container, OnVariable, HydroDispatch)
+    hy_cons = IOM.get_constraint(
+        container,
+        IOM.ConstraintKey(
+            POM.ReservePowerConstraint,
+            IOM.ComponentPairKey{HydroDispatch, OfflineReserve},
+        ),
+    )
+    for h in hydros
+        name = get_name(h)
+        con = JuMP.constraint_object(hy_cons[("NSPIN", name, 1)])
+        pmax = PSY.get_active_power_limits(h, u"SU").max
+        @test JuMP.normalized_rhs(hy_cons[("NSPIN", name, 1)]) ≈ pmax
+        @test JuMP.coefficient(con.func, on_var[name, 1]) ≈ pmax
+    end
+    @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+end
+
 @testset "Test Upwards Reserves from Renewable Dispatch" begin
     template = PowerOperationsProblemTemplate(CopperPlateNetworkModel)
     set_device_model!(template, PowerLoad, StaticPowerLoad)

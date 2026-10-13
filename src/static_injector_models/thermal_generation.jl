@@ -83,6 +83,7 @@ skip_variable(::Type{<:Union{OnVariable, StartVariable, StopVariable}}, d::PSY.T
 
 ############## ColdStartVariable, WarmStartVariable, HotStartVariable ############
 get_variable_binary(::Type{<:Union{ColdStartVariable, WarmStartVariable, HotStartVariable}}, ::Type{PSY.ThermalMultiStart}, ::Type{<:AbstractThermalFormulation}) = true
+skip_variable(::Type{<:Union{ColdStartVariable, WarmStartVariable, HotStartVariable}}, d::PSY.ThermalMultiStart, ::Type{<:AbstractThermalFormulation}) = _is_must_run(d)
 
 ############## SlackVariables, ThermalGen ####################
 # LB Slack #
@@ -458,11 +459,15 @@ function _get_data_for_range_ic(
     for (ix, ic) in enumerate(initial_conditions_power)
         g = IOM.get_component(ic)
         IS.@assert_op g == IOM.get_component(initial_conditions_status[ix])
+        # A must-run unit never stops and has no StopVariable.
+        if _is_must_run(g)
+            continue
+        end
         idx += 1
         ini_conds[idx, 1] = ic
         ini_conds[idx, 2] = initial_conditions_status[ix]
     end
-    return ini_conds
+    return ini_conds[1:idx, :]
 end
 
 # commitment formulations: time series upper bounds.
@@ -725,7 +730,7 @@ function add_constraints!(
 
     if !isempty(ini_conds)
         varstop = get_variable(container, StopVariable, T)
-        device_name_set = PSY.get_name.(devices)
+        device_name_set = [IOM.get_component_name(ic) for ic in ini_conds[:, 1]]
         con = add_constraints_container!(container, ActiveRangeICConstraint,
             T,
             device_name_set,
@@ -1173,8 +1178,9 @@ function add_constraints!(
         get_variable(container, WarmStartVariable, T),
     ]
     varstop = get_variable(container, StopVariable, T)
-
-    names = PSY.get_name.(devices)
+    # Must-run units never start, so they carry no start or stop variables.
+    committable = filter(!_is_must_run, devices)
+    names = PSY.get_name.(committable)
 
     con = [
         add_constraints_container!(container, StartupTimeLimitTemperatureConstraint,
@@ -1193,7 +1199,7 @@ function add_constraints!(
         ),
     ]
 
-    for t in time_steps, d in devices
+    for t in time_steps, d in committable
         name = PSY.get_name(d)
         startup_types = PSY.get_start_types(d)
         time_limits = _convert_hours_to_timesteps(PSY.get_start_time_limits(d), resolution)
@@ -1246,14 +1252,15 @@ function add_constraints!(
         get_variable(container, ColdStartVariable, T),
     ]
 
-    device_name_set = PSY.get_name.(devices)
+    committable = filter(!_is_must_run, devices)
+    device_name_set = PSY.get_name.(committable)
     con = add_constraints_container!(container, StartTypeConstraint,
         T,
         device_name_set,
         time_steps,
     )
 
-    for t in time_steps, d in devices
+    for t in time_steps, d in committable
         name = PSY.get_name(d)
         startup_types = PSY.get_start_types(d)
         con[name, t] = JuMP.@constraint(
@@ -1288,8 +1295,10 @@ function add_constraints!(
     ::NetworkModel{<:AbstractNetworkModel},
 ) where {T <: PSY.ThermalMultiStart}
     resolution = get_resolution(container)
-    initial_conditions_offtime =
-        get_initial_condition(container, InitialTimeDurationOff(), PSY.ThermalMultiStart)
+    initial_conditions_offtime = filter(
+        ic -> !_is_must_run(IOM.get_component(ic)),
+        get_initial_condition(container, InitialTimeDurationOff(), PSY.ThermalMultiStart),
+    )
 
     time_steps = get_time_steps(container)
     device_name_set = [IOM.get_component_name(ic) for ic in initial_conditions_offtime]
