@@ -725,7 +725,7 @@ end
               _NONSPIN_EXPECTED_LIMITS[PSY.get_name(d)]
     end
 
-    # A1-zero: a thermal unit without switching_times starts with no delay.
+    # A thermal unit without switching_times starts with no delay.
     brighton = PSY.get_component(ThermalStandard, sys, "Brighton")
     PSY.set_switching_times!(brighton, nothing)
     @test @inferred(POM._nonspin_startup_time(brighton)) == 0.0
