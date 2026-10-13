@@ -84,6 +84,33 @@ _source_tolerance(::IOM.AbstractNetworkSource) = PNM.AutoTolerance()
 _is_radial_reduction(::PNM.NetworkReduction) = false
 _is_radial_reduction(::PNM.RadialReduction) = true
 
+# PNM takes the irreducible buses as a selector. One filter selector over ACBus carries the
+# collected bus numbers back; a selector per bus would make a tuple as long as the bus set.
+struct _BusNumberFilter <: Function
+    numbers::Set{Int}
+end
+
+(f::_BusNumberFilter)(bus::PSY.ACBus) = PSY.get_number(bus) in f.numbers
+
+function _irreducible_bus_selector(sys::PSY.System, exceptions::Vector{Int})
+    numbers = Set{Int}(exceptions)
+    unmatched = copy(numbers)
+    for bus in PSY.get_components(PSY.ACBus, sys)
+        delete!(unmatched, PSY.get_number(bus))
+    end
+    isempty(unmatched) || throw(
+        IS.ConflictingInputsError(
+            "Irreducible bus numbers $(sort!(collect(unmatched))) match no ACBus in the \
+            system.",
+        ),
+    )
+    return PSY.make_selector(
+        _BusNumberFilter(numbers),
+        PSY.ACBus;
+        name = "irreducible_buses",
+    )
+end
+
 function _build_ybus(
     source::SystemNetworkSource,
     sys::PSY.System,
@@ -92,7 +119,7 @@ function _build_ybus(
     return PNM.Ybus(
         sys;
         network_reductions = source.reductions,
-        irreducible_buses = exceptions,
+        irreducible_buses = _irreducible_bus_selector(sys, exceptions),
     )
 end
 
@@ -101,5 +128,5 @@ function _build_ybus(
     sys::PSY.System,
     exceptions::Vector{Int},
 )
-    return PNM.Ybus(sys; irreducible_buses = exceptions)
+    return PNM.Ybus(sys; irreducible_buses = _irreducible_bus_selector(sys, exceptions))
 end
