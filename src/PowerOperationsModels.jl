@@ -275,6 +275,7 @@ include("common_models/objective_function.jl")
 # add_param_container.jl: moved into IOM
 include("common_models/add_parameters.jl")
 include("common_models/lhs_parameters.jl")
+include("common_models/min_active_power.jl")
 include("feedforward/feedforward_arguments.jl")
 include("feedforward/feedforward_constraints.jl")
 include("common_models/make_system_expressions.jl")
@@ -324,6 +325,7 @@ include("common_models/market_bid_overrides.jl")
 # AC Transmission Models
 include("ac_transmission_models/RepresentativeBranch.jl")
 include("ac_transmission_models/AC_branches.jl")
+include("ac_transmission_models/operational_flow_limits.jl")
 include("ac_transmission_models/security_constrained_branch.jl")
 include("ac_transmission_models/branch_constructor.jl")
 
@@ -872,6 +874,7 @@ export HybridRenewableActivePowerTimeSeriesParameter
 export FlowRateConstraint
 export FlowRateConstraintFromTo
 export FlowRateConstraintToFrom
+export OperationalFlowLimitConstraint
 export PostContingencyFlowRateConstraint
 export FlowLimitConstraint
 export FlowLimitFromToConstraint
@@ -962,6 +965,8 @@ export ReactivePowerTimeSeriesParameter
 export RequirementTimeSeriesParameter
 export DistributionFactorParameter
 export DeployedFractionParameter
+export MinActivePowerTimeSeriesParameter
+export MinActivePowerInTimeSeriesParameter
 export UpperBoundValueParameter
 export LowerBoundValueParameter
 export OnStatusParameter

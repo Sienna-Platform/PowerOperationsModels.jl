@@ -980,7 +980,7 @@ rating (`PostContingencyFlowRateConstraint`, metas `"G1_lb"`/`"G1_ub"`):
     carry their flow ``f_{i,t}`` plus the PTDF change over their AC tie lines. HVDC tie
     lines do not change.
 
-Monitored components must be modeled (including by the branch model's `filter_function`), or
+Monitored components must be modeled (including by the `filter_selector` of the branch model), or
 template validation fails. With `use_slacks = true` the flow limits are relaxed by
 [`PostGeneratorContingencyFlowSlackUpperBound`](@ref) and
 [`PostGeneratorContingencyFlowSlackLowerBound`](@ref).

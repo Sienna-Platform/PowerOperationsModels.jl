@@ -341,7 +341,7 @@ function add_variables!(
 }
     @assert !isempty(devices)
     time_steps = get_time_steps(container)
-    services = Set()
+    services = Set{PSY.Service}()
     for d in devices
         union!(services, PSY.get_services(d))
     end
@@ -957,7 +957,7 @@ function add_constraints!(
     initial_conditions = get_initial_condition(container, InitialEnergyLevel(), V)
     energy_var = get_variable(container, EnergyVariable, V)
 
-    services_set = Set()
+    services_set = Set{PSY.Service}()
     for ic in initial_conditions
         storage = IOM.get_component(ic)
         union!(services_set, PSY.get_services(storage))
@@ -1098,7 +1098,7 @@ function add_constraints!(
     initial_conditions = get_initial_condition(container, InitialEnergyLevel(), V)
     energy_var = get_variable(container, EnergyVariable, V)
 
-    services_set = Set()
+    services_set = Set{PSY.Service}()
     for ic in initial_conditions
         storage = IOM.get_component(ic)
         union!(services_set, PSY.get_services(storage))
@@ -1137,8 +1137,8 @@ function add_constraints!(
                   PSY.get_storage_capacity(storage, u"SU") *
                   PSY.get_conversion_factor(storage),
         )
-        expr_up_discharge = Set()
-        expr_dn_charge = Set()
+        expr_up_discharge = Set{JuMP.Containers.DenseAxisArray{JuMP.AffExpr, 1}}()
+        expr_dn_charge = Set{JuMP.Containers.DenseAxisArray{JuMP.AffExpr, 1}}()
         for service in PSY.get_services(storage)
             sustained_time = PSY.get_sustained_time(service)
             num_periods = sustained_time / Dates.value(Dates.Second(resolution))
@@ -1246,7 +1246,7 @@ function add_constraints!(
     model::DeviceModel{V, StorageDispatchWithReserves},
     network_model::NetworkModel{X},
 ) where {V <: PSY.Storage, X <: AbstractNetworkModel}
-    services = Set()
+    services = Set{PSY.Service}()
     for d in devices
         union!(services, PSY.get_services(d))
     end

@@ -66,22 +66,14 @@ function _has_interface_limit_series(
     )
 end
 
-# The limit is the parameter when `interface` is on the axis of `P`, else `static_limit`.
-function _interface_flow_limit(
+function _has_interface_limit_parameter(
     container::OptimizationContainer,
     ::Type{P},
-    interface::T,
-    static_limit::Float64,
+    ::Type{T},
+    name::String,
 ) where {P <: TimeSeriesParameter, T <: PSY.TransmissionInterface}
-    time_steps = get_time_steps(container)
-    fallback = fill(static_limit, length(time_steps))
-    has_container_key(container, P, T) || return fallback
-    param_container = get_parameter(container, P, T)
-    multiplier = get_multiplier_array(param_container)
-    name = PSY.get_name(interface)
-    name in axes(multiplier, 1) || return fallback
-    param = get_parameter_column_refs(param_container, name)
-    return [multiplier[name, t] * param[t] for t in time_steps]
+    has_container_key(container, P, T) || return false
+    return name in axes(get_multiplier_array(get_parameter(container, P, T)), 1)
 end
 
 function add_constraints!(
@@ -106,15 +98,38 @@ function add_constraints!(
     )
     int_name = PSY.get_name(interface)
     min_flow, max_flow = PSY.get_active_power_flow_limits(interface, u"SU")
-    max_limit =
-        _interface_flow_limit(container, MaxInterfaceFlowLimitParameter, interface, max_flow)
-    min_limit =
-        _interface_flow_limit(container, MinInterfaceFlowLimitParameter, interface, min_flow)
-    for t in time_steps
-        constraint_container_ub[int_name, t] =
-            JuMP.@constraint(get_jump_model(container), expr[int_name, t] <= max_limit[t])
-        constraint_container_lb[int_name, t] =
-            JuMP.@constraint(get_jump_model(container), expr[int_name, t] >= min_limit[t])
+    jump_model = get_jump_model(container)
+    if _has_interface_limit_parameter(container, MaxInterfaceFlowLimitParameter, T, int_name)
+        param_container = get_parameter(container, MaxInterfaceFlowLimitParameter, T)
+        param = get_parameter_column_refs(param_container, int_name)
+        mult = get_multiplier_array(param_container)
+        for t in time_steps
+            constraint_container_ub[int_name, t] = JuMP.@constraint(
+                jump_model,
+                expr[int_name, t] <= mult[int_name, t] * param[t]
+            )
+        end
+    else
+        for t in time_steps
+            constraint_container_ub[int_name, t] =
+                JuMP.@constraint(jump_model, expr[int_name, t] <= max_flow)
+        end
+    end
+    if _has_interface_limit_parameter(container, MinInterfaceFlowLimitParameter, T, int_name)
+        param_container = get_parameter(container, MinInterfaceFlowLimitParameter, T)
+        param = get_parameter_column_refs(param_container, int_name)
+        mult = get_multiplier_array(param_container)
+        for t in time_steps
+            constraint_container_lb[int_name, t] = JuMP.@constraint(
+                jump_model,
+                expr[int_name, t] >= mult[int_name, t] * param[t]
+            )
+        end
+    else
+        for t in time_steps
+            constraint_container_lb[int_name, t] =
+                JuMP.@constraint(jump_model, expr[int_name, t] >= min_flow)
+        end
     end
     return
 end

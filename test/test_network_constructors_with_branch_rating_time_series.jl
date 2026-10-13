@@ -803,3 +803,35 @@ end
     multipliers = IOM.get_multiplier_array(param_container)
     @test multipliers["2", 1] == 2 * multipliers["1", 1]
 end
+
+@testset "Rating series of any time series type pins the branch buses" begin
+    sys = PSB.build_system(PSITestSystems, "c_sys5")
+    line = get_component(Line, sys, "1")
+    timestamps =
+        collect(DateTime("2024-01-01T00:00:00"):Hour(1):DateTime("2024-01-01T23:00:00"))
+    PSY.add_time_series!(
+        sys,
+        line,
+        PSY.SingleTimeSeries("branch_rating", TimeArray(timestamps, fill(0.95, 24))),
+    )
+
+    device_model = DeviceModel(
+        Line,
+        StaticBranch;
+        time_series_names = Dict(BranchRatingTimeSeriesParameter => "branch_rating"),
+    )
+    buses = Set{Int}()
+    POM._pin_time_series_branch_buses!(buses, device_model, sys)
+
+    @test PSY.get_number(PSY.get_from(PSY.get_arc(line))) in buses
+    @test PSY.get_number(PSY.get_to(PSY.get_arc(line))) in buses
+
+    absent_model = DeviceModel(
+        Line,
+        StaticBranch;
+        time_series_names = Dict(BranchRatingTimeSeriesParameter => "absent_series"),
+    )
+    absent_buses = Set{Int}()
+    POM._pin_time_series_branch_buses!(absent_buses, absent_model, sys)
+    @test isempty(absent_buses)
+end

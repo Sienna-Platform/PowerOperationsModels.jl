@@ -130,4 +130,10 @@ const OUTPUTS_DIR = "outputs"
 "`DeviceModel` attribute that relaxes the model's binary variables to continuous variables in [0, 1]."
 const RELAX_BINARIES_ATTRIBUTE = "relax_binaries"
 
+"""
+Branch `DeviceModel` attribute. An `IS.ComponentSelector` that selects the branches that the
+model includes. Without the attribute, the model includes all the available branches.
+"""
+const FILTER_SELECTOR_KEY = "filter_selector"
+
 IS.@scoped_enum(COMPACT_PWL_STATUS, VALID = 1, INVALID = 2, UNDETERMINED = 3)

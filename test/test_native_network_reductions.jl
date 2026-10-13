@@ -796,6 +796,43 @@ end
     @test length(exceptions) == 2
 end
 
+@testset "Reduction exceptions pin a branch with a SingleTimeSeries rating series" begin
+    sys = _case11_with_forecast()
+    rating_line = get_component(PSY.Line, sys, "4-5-i_1")
+    rating_ta = TimeSeries.TimeArray(
+        DateTime("2020-01-01T08:00:00"):Dates.Minute(5):DateTime("2020-01-01T09:00:00"),
+        fill(0.9, 13),
+    )
+    add_time_series!(
+        sys,
+        rating_line,
+        SingleTimeSeries("branch_rating", rating_ta),
+    )
+    template = get_thermal_dispatch_template_network(
+        NetworkModel(
+            POM.DCPNetworkModel;
+            network_source = SystemNetworkSource(PNM.RadialReduction()),
+        ),
+    )
+    set_device_model!(
+        template,
+        DeviceModel(
+            PSY.Line,
+            StaticBranch;
+            time_series_names = Dict(BranchRatingTimeSeriesParameter => "branch_rating"),
+        ),
+    )
+    exceptions = POM._collect_reduction_exceptions(
+        sys,
+        get_network_model(template),
+        get_branch_models(template),
+        get_service_models(template),
+    )
+    @test 4 in exceptions
+    @test 5 in exceptions
+    @test length(exceptions) == 2
+end
+
 @testset "Interface branches are pinned from the build's reduction" begin
     # "1-8-i_1" is the radial branch to leaf bus 8, which RadialReduction folds into bus 1
     # unless something pins it. An interface over that branch reads its flow, so modeling
@@ -861,15 +898,15 @@ end
     end
 end
 
-@testset "Caller-supplied reduction_exceptions survive the build's reduction" begin
+@testset "Caller-selected irreducible_buses survive the build's reduction" begin
     # Bus 8 hangs off a radial branch, so RadialReduction absorbs it into bus 1 unless
     # something pins it. Asserted through a real build so the wiring from the
     # NetworkModel keyword to the Ybus's irreducible set is what is under test.
-    function _retained_after_build(exceptions)
+    function _retained_after_build(selector)
         net = NetworkModel(
             POM.DCPNetworkModel;
             network_source = SystemNetworkSource(PNM.RadialReduction()),
-            reduction_exceptions = exceptions,
+            irreducible_buses = selector,
         )
         template = get_thermal_dispatch_template_network(net)
         model = DecisionModel(
@@ -883,14 +920,21 @@ end
             console_level = Logging.Error,
         ) == IOM.ModelBuildStatus.BUILT
         network_model = get_network_model(get_template(model))
-        @test get_reduction_exceptions(network_model) == exceptions
+        @test get_irreducible_buses(network_model) == selector
         return Set(
             keys(PNM.get_bus_reduction_map(get_network_reduction(network_model))),
         )
     end
 
-    @test !(8 in _retained_after_build(Int[]))
-    @test 8 in _retained_after_build([8])
+    @test !(8 in _retained_after_build(make_selector()))
+    @test 8 in _retained_after_build(make_selector(b -> PSY.get_number(b) == 8, ACBus))
+    # A branch selects both of its end buses.
+    radial_branch = make_selector(
+        b -> 8 in (PSY.get_number(PSY.get_from(PSY.get_arc(b))),
+            PSY.get_number(PSY.get_to(PSY.get_arc(b)))),
+        Line,
+    )
+    @test 8 in _retained_after_build(radial_branch)
 end
 
 @testset "Non-PTDF families honour a prebuilt source's reduction" begin

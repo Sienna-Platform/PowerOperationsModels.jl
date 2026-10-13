@@ -814,6 +814,48 @@ end
     @test "Alta" ∉ axes(p_variable, 1)
 end
 
+@testset "Branch filter_selector selects the modeled branches" begin
+    c_sys5 = PSB.build_system(PSITestSystems, "c_sys5")
+    template = get_thermal_dispatch_template_network(PTDFNetworkModel)
+    set_device_model!(
+        template,
+        DeviceModel(
+            Line,
+            StaticBranch;
+            attributes = Dict(
+                "filter_selector" => make_selector(x -> PSY.get_name(x) != "1", Line),
+            ),
+        ),
+    )
+    model = DecisionModel(template, c_sys5; optimizer = HiGHS_optimizer)
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+    @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+    container = IOM.get_optimization_container(model)
+    flow = IOM.get_expression(container, POM.PTDFBranchFlow, Line)
+    @test "1" ∉ axes(flow, 1)
+    @test Set(axes(flow, 1)) ==
+          setdiff(Set(PSY.get_name(l) for l in PSY.get_components(Line, c_sys5)), ["1"])
+    line_model = POM.get_model(IOM.get_template(model), Line)
+    @test "1" ∉ [PSY.get_name(l) for l in IOM.get_available_components(line_model, c_sys5)]
+end
+
+@testset "Branch models reject filter_function and a filter_selector of another type" begin
+    c_sys5 = PSB.build_system(PSITestSystems, "c_sys5")
+    for (key, value) in (
+        ("filter_function", x -> PSY.get_name(x) != "1"),
+        ("filter_selector", x -> PSY.get_name(x) != "1"),
+    )
+        template = get_thermal_dispatch_template_network(PTDFNetworkModel)
+        set_device_model!(
+            template,
+            DeviceModel(Line, StaticBranch; attributes = Dict{String, Any}(key => value)),
+        )
+        model = DecisionModel(template, c_sys5; optimizer = HiGHS_optimizer)
+        @test_throws IS.ConflictingInputsError POM.validate_template(model)
+    end
+end
+
 @testset "Test for isolated buses" begin
     c_sys5 = PSB.build_system(PSITestSystems, "c_sys5")
     add_component!(c_sys5,

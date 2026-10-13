@@ -398,6 +398,15 @@ Struct to create the constraint for branch flow rate limits from the 'to' bus to
 For more information check [Branch Formulations](@ref PowerSystems.Branch-Formulations).
 """
 struct FlowRateConstraintToFrom <: ConstraintType end
+
+"""
+Operational flow limit of a branch in one direction, in addition to the rating:
+`flow_ft ≤ limit_ft` (meta `"ft"`) and `flow_tf ≤ limit_tf` (meta `"tf"`). Flow is
+measured at the sending end of each direction. The limit is the `max` of the device's
+`operational_flow_limit` in that direction, tightened by the rating.
+"""
+struct OperationalFlowLimitConstraint <: ConstraintType end
+
 struct RegulationLimitsConstraint <: ConstraintType end
 
 """
@@ -423,6 +432,20 @@ The constraint is as follows:
 ```math
 r_{d,t} \\le (1 - u_{d,t}^\\text{th}) \\cdot R^\\text{limit}_d, \\quad \\forall d \\in \\mathcal{D}_s, \\forall t \\in \\{1,\\dots, T\\}
 ```
+
+with
+
+```math
+R^\\text{limit}_d = \\begin{cases}
+0 & \\text{if } \\text{TF} < T^\\text{su}_d \\\\
+\\min\\left(P^\\text{max}_d, P^\\text{min}_d + R^\\text{up}_d \\left(\\text{TF} - T^\\text{su}_d\\right)\\right) & \\text{otherwise}
+\\end{cases}
+```
+
+``\\text{TF}`` is the service `time_frame` in minutes. For a thermal unit,
+``T^\\text{su}_d`` is `switching_times.up` in minutes, or 0 when the unit has no
+`switching_times`. For a hydro unit, ``T^\\text{su}_d = 0``. ``R^\\text{up}_d`` is the ramp-up
+limit in SU per minute. A unit without a ramp limit gets ``P^\\text{max}_d``.
 """
 struct ReservePowerConstraint <: ConstraintType end
 struct SACEPIDAreaConstraint <: ConstraintType end

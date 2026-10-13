@@ -61,7 +61,7 @@ function _add_ancillary_services!(
         add_to_expression!(container, exp, AncillaryServiceVariableCharge, devices, model)
     end
 
-    services = Set()
+    services = Set{PSY.Service}()
     for d in devices
         union!(services, PSY.get_services(d))
     end
