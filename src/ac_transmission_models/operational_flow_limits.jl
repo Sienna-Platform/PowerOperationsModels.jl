@@ -156,15 +156,13 @@ function _operational_flow_limits(rep::RepresentativeBranch, model::DeviceModel)
     return _in_frame(lims, PNM.get_arc_tuple(rep.branch, rep.nr) == reverse(rep.arc))
 end
 
-# The flow in each direction, as `(name, t) -> expression`, measured at the sending end.
-function _single_flow(flow)
-    return ((name, t) -> flow[name, t], (name, t) -> -flow[name, t])
-end
+# The flow in each direction, as `(flow, flow_sign)`, measured at the sending end.
+_single_flow(flow) = ((flow, 1.0), (flow, -1.0))
 
 function _pair_flows(container::OptimizationContainer, ::Type{T}) where {T}
     pft = get_variable(container, FlowActivePowerFromToVariable, T)
     ptf = get_variable(container, FlowActivePowerToFromVariable, T)
-    return ((name, t) -> pft[name, t], (name, t) -> ptf[name, t])
+    return ((pft, 1.0), (ptf, 1.0))
 end
 
 _operational_flows(
@@ -244,16 +242,6 @@ function add_operational_flow_limit_arguments!(
     return
 end
 
-function _slacked(container, device_model::DeviceModel{T}, dir, flow) where {T}
-    if !get_use_slacks(device_model)
-        return flow
-    end
-    slack = get_variable(
-        container, FlowActivePowerSlackUpperBound, T, _operational_slack_meta(dir),
-    )
-    return (name, t) -> flow(name, t) - slack[name, t]
-end
-
 const _StaticLimits =
     Dict{String, NamedTuple{(:from_to, :to_from), Tuple{Float64, Float64}}}
 
@@ -298,34 +286,53 @@ function _check_operational_time_series_entry(
     )
 end
 
-function _operational_rhs_value(param_container, series_max, static, dir, name, t)
-    if haskey(series_max, name)
-        return series_max[name] * get_parameter_column_refs(param_container, name)[t]
+function _fill_static_rhs!(rhs, reps, static::_StaticLimits, dir)
+    for rep in reps
+        value = IOM.get_directional_value(static[rep.name], dir)
+        for t in axes(rhs, 2)
+            rhs[rep.name, t] = value
+        end
     end
-    return IOM.get_directional_value(static[name], dir)
+    return
 end
 
+function _fill_series_rhs!(rhs, reps, param_container, dir)
+    ts_names = Set(axes(get_multiplier_array(param_container), 1))
+    for rep in reps
+        rep.name in ts_names || continue
+        _check_operational_time_series_entry(rep.branch, rep.name)
+        scale = _series_limit(rep, dir)
+        refs = get_parameter_column_refs(param_container, rep.name)
+        for t in axes(rhs, 2)
+            rhs[rep.name, t] = scale * refs[t]
+        end
+    end
+    return
+end
+
+# The limit of direction `dir` per name and time step. A name with a time series gets
+# its static `max` times the parameter; the other names get the static `max`.
 function _operational_rhs(
     ::Type{T},
     container,
     dir,
     static::_StaticLimits,
     reps,
+    names::Vector{String},
 ) where {T}
+    time_steps = get_time_steps(container)
     P = _operational_parameter(dir)
     if !has_container_key(container, P, T)
-        return (name, t) -> IOM.get_directional_value(static[name], dir)
+        rhs = DenseAxisArray{Float64}(undef, names, time_steps)
+        _fill_static_rhs!(rhs, reps, static, dir)
+        return rhs
     end
     param_container = get_parameter(container, P, T)
-    ts_names = Set(axes(get_multiplier_array(param_container), 1))
-    series_max = Dict{String, Float64}()
-    for rep in reps
-        rep.name in ts_names || continue
-        _check_operational_time_series_entry(rep.branch, rep.name)
-        series_max[rep.name] = _series_limit(rep, dir)
-    end
-    return (name, t) ->
-        _operational_rhs_value(param_container, series_max, static, dir, name, t)
+    E = promote_type(Float64, eltype(get_parameter_array(param_container)))
+    rhs = DenseAxisArray{E}(undef, names, time_steps)
+    _fill_static_rhs!(rhs, reps, static, dir)
+    _fill_series_rhs!(rhs, reps, param_container, dir)
+    return rhs
 end
 
 """
@@ -346,16 +353,23 @@ function add_operational_flow_limit_constraints!(
         rep.name => _operational_flow_limits(rep, device_model) for rep in reps
     )
     flows = _operational_flows(container, T, network_model)
-    for (flow, dir) in zip(flows, (IOM.FromTo(), IOM.ToFrom()))
-        IOM.add_directional_limit_constraints!(
-            container,
-            OperationalFlowLimitConstraint,
-            T,
-            dir,
-            names,
-            _slacked(container, device_model, dir, flow),
-            _operational_rhs(T, container, dir, static, reps),
-        )
+    for ((flow, flow_sign), dir) in zip(flows, (IOM.FromTo(), IOM.ToFrom()))
+        limit = _operational_rhs(T, container, dir, static, reps, names)
+        if get_use_slacks(device_model)
+            slack = get_variable(
+                container, FlowActivePowerSlackUpperBound, T,
+                _operational_slack_meta(dir),
+            )
+            IOM.add_directional_limit_constraints!(
+                container, OperationalFlowLimitConstraint, T, dir, names,
+                flow, flow_sign, slack, limit,
+            )
+        else
+            IOM.add_directional_limit_constraints!(
+                container, OperationalFlowLimitConstraint, T, dir, names,
+                flow, flow_sign, limit,
+            )
+        end
     end
     if get_use_slacks(device_model)
         _price_slack_upper!(container, T, _operational_slack_meta(IOM.FromTo()))
