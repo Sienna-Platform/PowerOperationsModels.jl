@@ -913,6 +913,18 @@ end
     end
 end
 
+@testset "DCP N-1 rejects a StaticBranch transformer with a phase shift" begin
+    # `_dcp_nodal_injection_expressions` would carry the shift, but validation blocks the case.
+    c_sys14 = PSB.build_system(PSITestSystems, "c_sys14")
+    transformer = get_component(PSY.TwoWindingTransformer, c_sys14, "Trans1")
+    PSY.set_α!(PSY.get_circuit(transformer), 0.1)
+    template = get_thermal_dispatch_template_network(NetworkModel(POM.DCPNetworkModel))
+    set_device_model!(template, PSY.Line, POM.SecurityConstrainedStaticBranch)
+    set_device_model!(template, PSY.TwoWindingTransformer, StaticBranch)
+    model = DecisionModel(template, c_sys14; optimizer = HiGHS_optimizer)
+    @test_throws IS.ConflictingInputsError POM.validate_template(model)
+end
+
 @testset "Security-constrained branches are blocked on AC and lossy network models" begin
     # The MODF post-contingency formulation is a lossless linear DC construct;
     # the AC and lossy networks are rejected at template validation. `build!`
