@@ -807,6 +807,57 @@ end
     end
 end
 
+@testset "OfflineReserve band: a profiled unit gates on Pmin_t under compact UC only" begin
+    values = [0.3 + 0.01 * t for t in 1:24]
+    for (formulation, gated_on_pmin) in
+        ((ThermalCompactUnitCommitment, true), (ThermalStandardUnitCommitment, false))
+        sys, _ = _offline_ordc_uc_system()
+        unit = get_component(ThermalStandard, sys, "Brighton")
+        PSY.add_time_series!(
+            sys,
+            unit,
+            PSY.Deterministic(;
+                name = "min_active_power",
+                data = Dict(it => values for it in PSY.get_forecast_initial_times(sys)),
+                resolution = Hour(1),
+            ),
+        )
+        template = get_thermal_standard_uc_template()
+        set_device_model!(
+            template,
+            DeviceModel(
+                ThermalStandard,
+                formulation;
+                time_series_names = Dict(
+                    POM.MinActivePowerTimeSeriesParameter => "min_active_power",
+                ),
+            ),
+        )
+        set_service_model!(template, ServiceModel(OfflineReserve, StepwiseCostReserve))
+        set_service_model!(
+            template,
+            ServiceModel(OnlineReserve{ReserveUp}, StepwiseCostReserve),
+        )
+        model = DecisionModel(
+            template, sys;
+            optimizer = HiGHS_optimizer, store_variable_names = true,
+        )
+        @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+              IOM.ModelBuildStatus.BUILT
+        container = IOM.get_optimization_container(model)
+        con =
+            IOM.get_constraint(container, POM.OfflineReserveBandConstraint, ThermalStandard)
+        on = IOM.get_variable(container, POM.OnVariable, ThermalStandard)
+        pmax = PSY.get_max_active_power(unit, u"SU")
+        for t in 1:24
+            expected = gated_on_pmin ? pmax * values[t] : 0.0
+            c = con[("Brighton", t)]
+            @test JuMP.normalized_rhs(c) ≈ pmax
+            @test JuMP.normalized_coefficient(c, on["Brighton", t]) ≈ expected atol = 1e-9
+        end
+    end
+end
+
 @testset "OfflineReserve band: ThermalMultiStart under multistart UC" begin
     # `ThermalMultiStartUnitCommitment` is an AbstractCompactUnitCommitment, so its band
     # gates on pmin like the other compact formulations - but it reaches the row through
@@ -990,10 +1041,9 @@ end
     end
 end
 
-@testset "OfflineReserve band: a compact must-run unit below pmin is infeasible with an offline service" begin
-    # Compact UC's own time-series row bounds total output, so a must-run unit whose hourly
-    # max is below pmin is infeasible without the service too, as under standard UC. The
-    # offline band row is `ts_t - pmin < 0`.
+@testset "OfflineReserve band: a compact must-run unit below pmin is infeasible with or without an offline service" begin
+    # The compact time-series row bounds the total power. A must-run unit whose hourly max
+    # is below pmin is infeasible with or without an offline service.
     factor = 0.25
     model, _, offunit = _offline_hourly_model(
         ThermalBasicCompactUnitCommitment; factor, offline = false, mustrun = true,
@@ -1001,10 +1051,7 @@ end
     limits = PSY.get_active_power_limits(offunit, u"SU")
     ts_max = factor * PSY.get_max_active_power(offunit, u"SU")
     @test ts_max < limits.min
-    jump_model = IOM.get_jump_model(IOM.get_optimization_container(model))
-    JuMP.optimize!(jump_model)
-    @test JuMP.termination_status(jump_model) in
-          (MOI.INFEASIBLE, MOI.INFEASIBLE_OR_UNBOUNDED)
+    @test solve!(model) == IOM.RunStatus.FAILED
     model, _, offunit = _offline_hourly_model(
         ThermalBasicCompactUnitCommitment; factor, mustrun = true,
     )

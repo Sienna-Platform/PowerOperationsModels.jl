@@ -13,6 +13,14 @@ end
     devices::Vector{T},
     model::DeviceModel{T},
 ) where {T <: PSY.ThermalGen}
+    add_min_active_power_parameters!(
+        container,
+        MinActivePowerTimeSeriesParameter,
+        devices,
+        model,
+    )
+    set_min_power_variable_bounds!(container, devices, model)
+
     if haskey(get_time_series_names(model), FuelCostParameter)
         add_parameters!(container, FuelCostParameter, devices, model)
     end
@@ -1434,13 +1442,13 @@ function construct_device!(
     add_variables!(container, TimeDurationOff, devices, ThermalMultiStartUnitCommitment)
     add_variables!(container, PowerOutput, devices, ThermalMultiStartUnitCommitment)
 
-    initial_conditions!(container, devices, ThermalMultiStartUnitCommitment())
-
     if haskey(get_time_series_names(device_model), ActivePowerTimeSeriesParameter)
         add_parameters!(container, ActivePowerTimeSeriesParameter, devices, device_model)
     end
 
     _handle_common_thermal_parameters!(container, devices, device_model)
+
+    initial_conditions!(container, devices, ThermalMultiStartUnitCommitment())
 
     add_to_expression!(
         container,
@@ -1896,13 +1904,13 @@ function construct_device!(
     add_variables!(container, TimeDurationOff, devices, ThermalCompactUnitCommitment)
     add_variables!(container, PowerOutput, devices, ThermalCompactUnitCommitment)
 
-    initial_conditions!(container, devices, ThermalCompactUnitCommitment())
-
     if haskey(get_time_series_names(device_model), ActivePowerTimeSeriesParameter)
         add_parameters!(container, ActivePowerTimeSeriesParameter, devices, device_model)
     end
 
     _handle_common_thermal_parameters!(container, devices, device_model)
+
+    initial_conditions!(container, devices, ThermalCompactUnitCommitment())
 
     add_to_expression!(
         container,
@@ -2089,13 +2097,13 @@ function construct_device!(
     add_variables!(container, TimeDurationOff, devices, ThermalCompactUnitCommitment)
     add_variables!(container, PowerOutput, devices, ThermalCompactUnitCommitment)
 
-    initial_conditions!(container, devices, ThermalCompactUnitCommitment())
-
     if haskey(get_time_series_names(device_model), ActivePowerTimeSeriesParameter)
         add_parameters!(container, ActivePowerTimeSeriesParameter, devices, device_model)
     end
 
     _handle_common_thermal_parameters!(container, devices, device_model)
+
+    initial_conditions!(container, devices, ThermalCompactUnitCommitment())
 
     add_to_expression!(
         container,
@@ -2273,13 +2281,13 @@ function construct_device!(
     add_variables!(container, TimeDurationOn, devices, ThermalBasicCompactUnitCommitment)
     add_variables!(container, TimeDurationOff, devices, ThermalBasicCompactUnitCommitment)
 
-    initial_conditions!(container, devices, ThermalBasicCompactUnitCommitment())
-
     if haskey(get_time_series_names(device_model), ActivePowerTimeSeriesParameter)
         add_parameters!(container, ActivePowerTimeSeriesParameter, devices, device_model)
     end
 
     _handle_common_thermal_parameters!(container, devices, device_model)
+
+    initial_conditions!(container, devices, ThermalBasicCompactUnitCommitment())
 
     add_to_expression!(
         container,
@@ -2463,13 +2471,13 @@ function construct_device!(
     add_variables!(container, PowerOutput, devices, ThermalBasicCompactUnitCommitment)
     add_variables!(container, TimeDurationOn, devices, ThermalBasicCompactUnitCommitment)
     add_variables!(container, TimeDurationOff, devices, ThermalBasicCompactUnitCommitment)
-    initial_conditions!(container, devices, ThermalBasicCompactUnitCommitment())
-
     if haskey(get_time_series_names(device_model), ActivePowerTimeSeriesParameter)
         add_parameters!(container, ActivePowerTimeSeriesParameter, devices, device_model)
     end
 
     _handle_common_thermal_parameters!(container, devices, device_model)
+
+    initial_conditions!(container, devices, ThermalBasicCompactUnitCommitment())
 
     add_to_expression!(
         container,

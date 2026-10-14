@@ -84,22 +84,6 @@ _post_contingency_limit(d::PSY.Generator) = PSY.get_max_active_power(d, u"SU")
 _post_contingency_limit(d::PSY.Storage) =
     PSY.get_output_active_power_limits(d, u"SU").max
 
-"""
-Total active power of a generator at `t` under formulation `F`: the scheduled power
-variable plus the minimum-power term that compact formulations omit from it.
-"""
-function _total_active_power(
-    container::OptimizationContainer,
-    ::Type{F},
-    d::V,
-    t::Int,
-) where {F <: AbstractDeviceFormulation, V <: PSY.Generator}
-    power = get_variable(container, _scheduled_power_variable(F), V)[PSY.get_name(d), t]
-    output = _min_power_term(container, F, d, t)
-    add_proportional_to_jump_expression!(output, power, 1.0)
-    return output
-end
-
 function _is_modeled_generator(
     container::OptimizationContainer,
     devices_template::DevicesModelContainer,
@@ -137,15 +121,19 @@ function _add_outaged_output!(
     return
 end
 
+# Total active power of a generator under formulation `F`: the scheduled power variable plus
+# the minimum-power term that compact formulations omit from it.
 function _total_active_power_series(
     container::OptimizationContainer,
     ::Type{F},
     generator::V,
     time_steps::UnitRange{Int},
 ) where {F <: AbstractDeviceFormulation, V <: PSY.Generator}
-    output = Vector{JuMP.AffExpr}(undef, length(time_steps))
+    power = get_variable(container, _scheduled_power_variable(F), V)
+    name = PSY.get_name(generator)
+    output = _min_power_series(container, F, generator)
     for t in time_steps
-        output[t] = _total_active_power(container, F, generator, t)
+        add_proportional_to_jump_expression!(output[t], power[name, t], 1.0)
     end
     return output
 end
