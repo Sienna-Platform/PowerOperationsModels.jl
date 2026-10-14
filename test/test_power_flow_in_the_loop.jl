@@ -867,11 +867,12 @@ end
 @testset "AC power flow alongside a PSS/E export (issue #308)" begin
     system = build_system(PSITestSystems, "c_sys5_uc")
     export_dir = mktempdir(; cleanup = true)
-    evaluations = IOM.EvaluationContainer()
-    for ev in (
+    evaluators = (
         ACPowerFlow(; correct_bustypes = true),
         PSSEExportPowerFlow(:v33, export_dir; overwrite = true),
     )
+    evaluations = IOM.EvaluationContainer()
+    for ev in evaluators
         IOM.add_evaluator!(evaluations, typeof(ev), POM.PowerFlowEvaluator(ev))
     end
     template = get_template_dispatch_with_network(
@@ -890,55 +891,21 @@ end
     @test !isempty(readdir(export_dir))
 
     # The AC evaluator's aux vars are still written.
-    vm = lookup_value(container, AuxVarKey(POM.PowerFlowVoltageMagnitude, PSY.ACBus))
-    @test all(v -> 0.8 < v < 1.2, vm)
-end
-
-@testset "Aux vars are read back per evaluator (issue #308)" begin
-    system = build_system(PSITestSystems, "c_sys5_uc")
-    evaluations = IOM.EvaluationContainer()
-    for ev in (DCPowerFlow(), ACPowerFlow(; correct_bustypes = true))
-        IOM.add_evaluator!(evaluations, typeof(ev), POM.PowerFlowEvaluator(ev))
-    end
-    template = get_template_dispatch_with_network(
-        NetworkModel(PTDFNetworkModel);
-        evaluations = evaluations,
-    )
-    model = DecisionModel(template, system; optimizer = HiGHS_optimizer)
-    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
-          ModelBuildStatus.BUILT
-    @test solve!(model) == RunStatus.SUCCESSFULLY_FINALIZED
-
-    container = get_optimization_container(model)
-    evaluation_data = get_evaluation_data(container)
-    @test length(evaluation_data) == 2
-    @test all(is_solved, values(evaluation_data))
-    ac_e_data = only(
-        d for d in values(evaluation_data) if
-        get_inner_data(d) isa PFS.ACPowerFlowData
-    )
-    dc_e_data = only(
-        d for d in values(evaluation_data) if
-        get_inner_data(d) isa PFS.ABAPowerFlowData
-    )
-
-    # Voltage magnitude is an AC-only aux var.
     vm_key = AuxVarKey(POM.PowerFlowVoltageMagnitude, PSY.ACBus)
     vm = lookup_value(container, vm_key)
     @test all(v -> 0.8 < v < 1.2, vm)
-
-    # Each evaluator is bound only to the aux vars it provides.
-    T_of(d) = only(T for (T, v) in evaluation_data if v === d)
-    @test vm_key in IOM.get_bound_aux_var_keys(container, T_of(ac_e_data))
-    @test vm_key ∉ IOM.get_bound_aux_var_keys(container, T_of(dc_e_data))
+    @test vm_key in IOM.get_bound_aux_var_keys(container, typeof(first(evaluators)))
+    @test isempty(IOM.get_bound_aux_var_keys(container, typeof(last(evaluators))))
 end
 
-@testset "Power flows that share an aux var write it in registration order" begin
-    key = AuxVarKey(POM.PowerFlowBranchActivePowerFromTo, Line)
-    function flows_for(evs)
+# Every DC power flow provides the branch active power flows, and so does the AC power
+# flow: the two cannot both write them.
+@testset "Power flows that provide the same aux var fail the build" begin
+    ac = ACPowerFlow(; correct_bustypes = true)
+    for evaluators in ((DCPowerFlow(), ac), (ac, DCPowerFlow()))
         system = build_system(PSITestSystems, "c_sys5_uc")
         evaluations = IOM.EvaluationContainer()
-        for ev in evs
+        for ev in evaluators
             IOM.add_evaluator!(evaluations, typeof(ev), POM.PowerFlowEvaluator(ev))
         end
         template = get_template_dispatch_with_network(
@@ -946,19 +913,10 @@ end
             evaluations = evaluations,
         )
         model = DecisionModel(template, system; optimizer = HiGHS_optimizer)
-        @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
-              ModelBuildStatus.BUILT
-        @test solve!(model) == RunStatus.SUCCESSFULLY_FINALIZED
-        container = get_optimization_container(model)
-        for T in keys(get_evaluation_data(container))
-            @test key in IOM.get_bound_aux_var_keys(container, T)
-        end
-        return lookup_value(container, key)
+        output_dir = mktempdir(; cleanup = true)
+        @test build!(model; output_dir = output_dir) == ModelBuildStatus.FAILED
+        log = read(joinpath(output_dir, "operation_problem.log"), String)
+        @test occursin("is already bound to $(typeof(first(evaluators)))", log)
+        @test occursin("$(typeof(last(evaluators))) cannot also produce it", log)
     end
-    ac = ACPowerFlow(; correct_bustypes = true)
-    both = flows_for((ac, DCPowerFlow()))
-    dc_only = flows_for((DCPowerFlow(),))
-    ac_only = flows_for((ac,))
-    @test all(isapprox.(both, dc_only; atol = 1e-9))
-    @test !all(isapprox.(both, ac_only; atol = 1e-9))
 end

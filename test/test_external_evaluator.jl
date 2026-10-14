@@ -299,7 +299,9 @@ const TEMPLATE_COPY_CASES = [
 end
 
 @testset "Power flows run in registration order" begin
-    for evaluators in ((ACPowerFlow(), DCPowerFlow()), (DCPowerFlow(), ACPowerFlow()))
+    ac = ACPowerFlow()
+    export_pf = PSSEExportPowerFlow(:v33, mktempdir(; cleanup = true); overwrite = true)
+    for evaluators in ((ac, export_pf), (export_pf, ac))
         ec = IOM.EvaluationContainer()
         for ev in evaluators
             IOM.add_evaluator!(ec, typeof(ev), POM.PowerFlowEvaluator(ev))

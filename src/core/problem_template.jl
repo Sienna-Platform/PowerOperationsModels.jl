@@ -10,6 +10,8 @@ Creates a model reference of the InfrastructureOptimizationModels Optimization P
   - `evaluations::IOM.EvaluationContainer = IOM.EvaluationContainer()`: the evaluators
     that run after each solve, such as power flows. Power flows run first, in the order
     they were added, followed by the other evaluators in the order they were added.
+    Each aux variable comes from exactly one evaluator, so the build fails when two
+    evaluators provide the same one, such as a DC and an AC power flow.
 
 # Example
 
