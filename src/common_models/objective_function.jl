@@ -170,7 +170,7 @@ function _add_compact_fuel_curve!(
 end
 
 # The generic IOM method prices `vom * dp_t`. This method adds the VOM cost of `Pmin_t * u_t`.
-function IOM._add_vom_cost_to_objective!(
+function IOM.add_vom_cost_to_objective!(
     container::OptimizationContainer,
     ::Type{T},
     component::V,

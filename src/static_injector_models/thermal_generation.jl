@@ -1340,17 +1340,6 @@ function _time_at_status_steps(
     return 0.0
 end
 
-# Units that can start and stop. Must-run units have no On, Start, or Stop variables.
-function _committable_devices(devices::Vector{T}) where {T <: PSY.ThermalGen}
-    committable = T[]
-    for d in devices
-        if !_is_must_run(d)
-            push!(committable, d)
-        end
-    end
-    return committable
-end
-
 # The initial conditions of `devices`, in the order of `ics`.
 function _initial_conditions_of(
     ics::Vector{U},
@@ -1431,16 +1420,32 @@ function _add_startup_temperature_rows!(
         limits = _minutes_to_timesteps(PSY.get_start_time_limits(d), resolution)
         first_lag = Int(_start_stage_limit(S, limits))
         last_lag = Int(_start_stage_limit(_next_start_stage(S), limits)) - 1
-        for t in time_steps
-            if t <= last_lag
-                continue
-            end
-            stops = zero(JuMP.AffExpr)
-            for lag in first_lag:last_lag
-                JuMP.add_to_expression!(stops, varstop[name, t - lag])
-            end
-            con[name, t] = JuMP.@constraint(jump_model, start_var[name, t] <= stops)
+        _add_startup_temperature_device_rows!(
+            con, jump_model, start_var, varstop, name, time_steps, first_lag, last_lag,
+        )
+    end
+    return
+end
+
+function _add_startup_temperature_device_rows!(
+    con::JuMP.Containers.SparseAxisArray,
+    jump_model::JuMP.Model,
+    start_var::JuMPVariableArray,
+    varstop::JuMPVariableArray,
+    name::String,
+    time_steps::UnitRange{Int},
+    first_lag::Int,
+    last_lag::Int,
+)
+    for t in time_steps
+        if t <= last_lag
+            continue
         end
+        stops = zero(JuMP.AffExpr)
+        for lag in first_lag:last_lag
+            JuMP.add_to_expression!(stops, varstop[name, t - lag])
+        end
+        con[name, t] = JuMP.@constraint(jump_model, start_var[name, t] <= stops)
     end
     return
 end
@@ -1579,26 +1584,51 @@ function _add_startup_ic_rows!(
     )
     stage_limit = _start_stage_limit(S, limits)
     next_limit = _start_stage_limit(_next_start_stage(S), limits)
-    var = get_variable(container, S, T)
-    varbin = get_variable(container, OnVariable, T)
-    jump_model = get_jump_model(container)
-    for t in get_time_steps(container)
+    _add_startup_ic_device_rows!(
+        con_ub,
+        con_lb,
+        get_jump_model(container),
+        get_variable(container, S, T),
+        get_variable(container, OnVariable, T),
+        get_time_steps(container),
+        name,
+        stage,
+        stage_limit,
+        next_limit,
+        get_value(ic),
+    )
+    return
+end
+
+function _add_startup_ic_device_rows!(
+    con_ub::JuMP.Containers.SparseAxisArray,
+    con_lb::JuMP.Containers.SparseAxisArray,
+    jump_model::JuMP.Model,
+    var::JuMPVariableArray,
+    varbin::JuMPVariableArray,
+    time_steps::UnitRange{Int},
+    name::String,
+    stage::Int,
+    stage_limit::Float64,
+    next_limit::Float64,
+    initial_offtime::Union{Float64, JuMP.VariableRef},
+)
+    offtime = zero(JuMP.AffExpr)
+    JuMP.add_to_expression!(offtime, initial_offtime)
+    for t in time_steps
         if t >= next_limit
             break
         end
-        offtime = zero(JuMP.AffExpr)
-        JuMP.add_to_expression!(offtime, get_value(ic))
-        for i in 1:t
-            JuMP.add_to_expression!(offtime, 1.0)
-            JuMP.add_to_expression!(offtime, -1.0, varbin[name, i])
-        end
+        JuMP.add_to_expression!(offtime, 1.0)
+        JuMP.add_to_expression!(offtime, -1.0, varbin[name, t])
+        row = copy(offtime)
         con_ub[name, t, stage] = JuMP.@constraint(
             jump_model,
-            (next_limit - 1) * var[name, t] + (1 - var[name, t]) * M_VALUE >= offtime
+            (next_limit - 1) * var[name, t] + (1 - var[name, t]) * M_VALUE >= row
         )
         con_lb[name, t, stage] = JuMP.@constraint(
             jump_model,
-            stage_limit * var[name, t] <= offtime
+            stage_limit * var[name, t] <= row
         )
     end
     return
@@ -1735,34 +1765,10 @@ end
 skip_proportional_cost(d::PSY.ThermalGen) = _is_must_run(d)
 
 # A must-run unit has no On variable cost, but its ramp slacks keep their penalty.
-function add_proportional_cost!(
-    container::OptimizationContainer,
-    ::Type{U},
-    devices::Union{Vector{T}, IS.FlattenIteratorWrapper{T}},
-    ::Type{V},
-) where {
-    U <: Union{RateofChangeConstraintSlackUp, RateofChangeConstraintSlackDown},
-    T <: PSY.ThermalGen,
-    V <: AbstractThermalFormulation,
-}
-    multiplier = objective_function_multiplier(U, V)
-    dt = Dates.value(get_resolution(container)) / MILLISECONDS_IN_HOUR
-    slack = get_variable(container, U, T)
-    for d in devices
-        name = PSY.get_name(d)
-        cost_term = proportional_cost(PSY.get_operation_cost(d), U, d, V)
-        if iszero(cost_term)
-            continue
-        end
-        rate = cost_term * multiplier * dt
-        for t in get_time_steps(container)
-            add_cost_term_invariant!(
-                container, slack[name, t], rate, FixedCostExpression, T, name, t,
-            )
-        end
-    end
-    return
-end
+skip_proportional_cost(
+    ::PSY.ThermalGen,
+    ::Type{<:Union{RateofChangeConstraintSlackUp, RateofChangeConstraintSlackDown}},
+) = false
 
 ########################### Objective Function Calls#############################################
 # These functions are custom implementations of the cost data. In the file objective_functions.jl there are default implementations. Define these only if needed.

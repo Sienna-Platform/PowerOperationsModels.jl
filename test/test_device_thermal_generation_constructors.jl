@@ -1728,16 +1728,23 @@ const _COMPACT_EQUIVALENCE_CASES = (
     end
 end
 
+function _mock_container(
+    sys::PSY.System,
+    device_type::Type{<:PSY.Device},
+    formulation::Type{<:AbstractDeviceFormulation};
+    network = DCPNetworkModel,
+    kwargs...,
+)
+    model = DecisionModel(MockOperationProblem, network, sys)
+    mock_construct_device!(model, DeviceModel(device_type, formulation; kwargs...))
+    return IOM.get_optimization_container(model)
+end
+
 @testset "Compact PWL linking holds P_min for a must-run unit" begin
     sys = PSB.build_system(PSITestSystems, "c_sys5_pglib")
     unit = get_component(ThermalMultiStart, sys, "101_CT_1")
     set_commitment_mode!(unit, CommitmentModes.MUST_RUN)
-    model = DecisionModel(MockOperationProblem, DCPNetworkModel, sys)
-    mock_construct_device!(
-        model,
-        DeviceModel(ThermalMultiStart, ThermalCompactUnitCommitment),
-    )
-    container = IOM.get_optimization_container(model)
+    container = _mock_container(sys, ThermalMultiStart, ThermalCompactUnitCommitment)
     link =
         IOM.get_constraint(container, IOM.PiecewiseLinearCostConstraint, ThermalMultiStart)
     norm = IOM.get_constraint(
@@ -1827,11 +1834,7 @@ end
 
 @testset "Multi-start trajectory rows use total power" begin
     sys = PSB.build_system(PSITestSystems, "c_sys5_pglib")
-    model = DecisionModel(MockOperationProblem, DCPNetworkModel, sys)
-    mock_construct_device!(
-        model, DeviceModel(ThermalMultiStart, ThermalMultiStartUnitCommitment),
-    )
-    container = IOM.get_optimization_container(model)
+    container = _mock_container(sys, ThermalMultiStart, ThermalMultiStartUnitCommitment)
     ubon = IOM.get_constraint(
         container, ActivePowerVariableLimitsConstraint, ThermalMultiStart, "ubon",
     )
@@ -1853,11 +1856,7 @@ end
 
 @testset "Multi-start initial-condition rows reach the first temperature row" begin
     sys = PSB.build_system(PSITestSystems, "c_sys5_pglib")
-    model = DecisionModel(MockOperationProblem, DCPNetworkModel, sys)
-    mock_construct_device!(
-        model, DeviceModel(ThermalMultiStart, ThermalMultiStartUnitCommitment),
-    )
-    container = IOM.get_optimization_container(model)
+    container = _mock_container(sys, ThermalMultiStart, ThermalMultiStartUnitCommitment)
     hot = IOM.get_constraint(
         container, StartupTimeLimitTemperatureConstraint, ThermalMultiStart, "hot",
     )
@@ -1911,11 +1910,7 @@ const _START_TYPE_COEFFICIENTS = (
 
 @testset "Multi-start stage rows pair each start variable with its own stage" begin
     sys = PSB.build_system(PSITestSystems, "c_sys5_pglib")
-    model = DecisionModel(MockOperationProblem, DCPNetworkModel, sys)
-    mock_construct_device!(
-        model, DeviceModel(ThermalMultiStart, ThermalMultiStartUnitCommitment),
-    )
-    container = IOM.get_optimization_container(model)
+    container = _mock_container(sys, ThermalMultiStart, ThermalMultiStartUnitCommitment)
     _check_temperature_stage_rows(container, "hot", HotStartVariable, WarmStartVariable)
     _check_temperature_stage_rows(container, "warm", WarmStartVariable, HotStartVariable)
     hot = IOM.get_variable(container, HotStartVariable, ThermalMultiStart)
@@ -1953,12 +1948,7 @@ end
     PSY.set_commitment_mode!(must_run, PSY.CommitmentModes.MUST_RUN)
     steam = PSY.get_component(PSY.ThermalMultiStart, sys, "115_STEAM_1")
     PSY.set_power_trajectory!(steam, nothing)
-    @test POM._committable_devices([must_run, steam]) == [steam]
-    model = DecisionModel(MockOperationProblem, DCPNetworkModel, sys)
-    mock_construct_device!(
-        model, DeviceModel(ThermalMultiStart, ThermalMultiStartUnitCommitment),
-    )
-    container = IOM.get_optimization_container(model)
+    container = _mock_container(sys, ThermalMultiStart, ThermalMultiStartUnitCommitment)
     range_ic = IOM.get_constraint(
         container, IOM.ConstraintKey(ActiveRangeICConstraint, ThermalMultiStart),
     )
@@ -1990,14 +1980,6 @@ function _count_up_window_starts(container, name::String)
     return count
 end
 
-function _duration_container(sys::PSY.System)
-    model = DecisionModel(MockOperationProblem, DCPNetworkModel, sys)
-    mock_construct_device!(
-        model, DeviceModel(ThermalStandard, ThermalStandardUnitCommitment),
-    )
-    return IOM.get_optimization_container(model)
-end
-
 function _duration_ic_value(container, ic_type::IOM.InitialConditionType, name::String)
     for ic in IOM.get_initial_condition(container, ic_type, ThermalStandard)
         if IOM.get_component_name(ic) == name
@@ -2011,7 +1993,7 @@ end
     sys = PSB.build_system(PSITestSystems, "c_duration_test")
     @test PSY.get_time_limits(PSY.get_component(ThermalStandard, sys, "Park City")).up ==
           360.0
-    container = _duration_container(sys)
+    container = _mock_container(sys, ThermalStandard, ThermalStandardUnitCommitment)
     @test _count_up_window_starts(container, "Park City") == 6
     @test _count_up_window_starts(container, "Alta") == 4
     @test _duration_ic_value(container, InitialTimeDurationOff(), "Park City") == 3.0
@@ -2043,7 +2025,7 @@ end
     sys = build_system(PSISystems, "modified_RTS_GMLC_DA_sys")
     unit = PSY.get_component(ThermalStandard, sys, "213_CC_3")
     @test PSY.get_time_limits(unit).up == 480.0
-    container = _duration_container(sys)
+    container = _mock_container(sys, ThermalStandard, ThermalStandardUnitCommitment)
     @test _count_up_window_starts(container, "213_CC_3") == 8
 end
 
@@ -2051,11 +2033,7 @@ end
     sys = PSB.build_system(PSITestSystems, "c_sys5_pglib")
     unit = PSY.get_component(PSY.ThermalMultiStart, sys, "115_STEAM_1")
     @test PSY.get_start_time_limits(unit).hot == 120.0
-    model = DecisionModel(MockOperationProblem, DCPNetworkModel, sys)
-    mock_construct_device!(
-        model, DeviceModel(ThermalMultiStart, ThermalMultiStartUnitCommitment),
-    )
-    container = IOM.get_optimization_container(model)
+    container = _mock_container(sys, ThermalMultiStart, ThermalMultiStartUnitCommitment)
     hot = IOM.get_constraint(
         container, StartupTimeLimitTemperatureConstraint, ThermalMultiStart, "hot",
     )
@@ -2074,12 +2052,12 @@ end
     mustrun = first(get_components(ThermalStandard, sys))
     other = last(collect(get_components(ThermalStandard, sys)))
     PSY.set_commitment_mode!(mustrun, PSY.CommitmentModes.MUST_RUN)
-    model = DecisionModel(MockOperationProblem, DCPNetworkModel, sys)
-    mock_construct_device!(
-        model,
-        DeviceModel(ThermalStandard, ThermalStandardUnitCommitment; use_slacks = true),
+    container = _mock_container(
+        sys,
+        ThermalStandard,
+        ThermalStandardUnitCommitment;
+        use_slacks = true,
     )
-    container = IOM.get_optimization_container(model)
     dt = Dates.value(IOM.get_resolution(container)) / POM.MILLISECONDS_IN_HOUR
     for V in (RateofChangeConstraintSlackUp, RateofChangeConstraintSlackDown)
         for d in (mustrun, other)

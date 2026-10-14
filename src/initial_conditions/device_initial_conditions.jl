@@ -20,13 +20,11 @@ function get_initial_conditions_value(
         val = initial_condition_default(U(), component, V(), container)
     else
         var = get_initial_condition_value(ic_data, var_type, W)[PSY.get_name(component), 1]
-        val = 0.0
-        if !is_online(component) && !(var > ABSOLUTE_TOLERANCE)
-            val = _minutes_to_timesteps(
-                PSY.get_time_at_status(component),
-                get_resolution(container),
-            )
-        end
+        val = _time_at_status_steps(
+            component,
+            container,
+            !is_online(component) && !(var > ABSOLUTE_TOLERANCE),
+        )
     end
     @debug "Device $(PSY.get_name(component)) initialized $U as $val" _group =
         LOG_GROUP_BUILD_INITIAL_CONDITIONS
@@ -50,13 +48,11 @@ function get_initial_conditions_value(
         val = initial_condition_default(U(), component, V(), container)
     else
         var = get_initial_condition_value(ic_data, var_type, W)[PSY.get_name(component), 1]
-        val = 0.0
-        if !is_online(component) && !(var > ABSOLUTE_TOLERANCE)
-            val = _minutes_to_timesteps(
-                PSY.get_time_at_status(component),
-                get_resolution(container),
-            )
-        end
+        val = _time_at_status_steps(
+            component,
+            container,
+            !is_online(component) && !(var > ABSOLUTE_TOLERANCE),
+        )
     end
     @debug "Device $(PSY.get_name(component)) initialized $U as $val" _group =
         LOG_GROUP_BUILD_INITIAL_CONDITIONS
@@ -84,13 +80,11 @@ function get_initial_conditions_value(
         val = initial_condition_default(U(), component, V(), container)
     else
         var = get_initial_condition_value(ic_data, var_type, W)[PSY.get_name(component), 1]
-        val = 0.0
-        if is_online(component) && (var > ABSOLUTE_TOLERANCE)
-            val = _minutes_to_timesteps(
-                PSY.get_time_at_status(component),
-                get_resolution(container),
-            )
-        end
+        val = _time_at_status_steps(
+            component,
+            container,
+            is_online(component) && (var > ABSOLUTE_TOLERANCE),
+        )
     end
     @debug "Device $(PSY.get_name(component)) initialized $U as $val" _group =
         LOG_GROUP_BUILD_INITIAL_CONDITIONS
@@ -115,13 +109,11 @@ function get_initial_conditions_value(
         val = initial_condition_default(U(), component, V(), container)
     else
         var = get_initial_condition_value(ic_data, var_type, W)[PSY.get_name(component), 1]
-        val = 0.0
-        if is_online(component) && (var > ABSOLUTE_TOLERANCE)
-            val = _minutes_to_timesteps(
-                PSY.get_time_at_status(component),
-                get_resolution(container),
-            )
-        end
+        val = _time_at_status_steps(
+            component,
+            container,
+            is_online(component) && (var > ABSOLUTE_TOLERANCE),
+        )
     end
     @debug "Device $(PSY.get_name(component)) initialized $U as $val" _group =
         LOG_GROUP_BUILD_INITIAL_CONDITIONS
