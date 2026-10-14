@@ -379,16 +379,15 @@ end
 _post_contingency_rating(branch::PSY.ACTransmission, ::Set{PSY.ACTransmission}) =
     PNM.get_equivalent_emergency_rating(branch)
 
-# When no member stays in service, the MODF row of the arc is zero, so the intact limit stays.
+# When the outage opens the arc, its MODF row is zero, so the intact limit stays.
 function _post_contingency_rating(
     entry::PNM.AbstractReductionAggregate,
     tripped::Set{PSY.ACTransmission},
 )::Float64
-    surviving = PNM.get_post_outage_emergency_rating(entry, tripped)
-    if iszero(surviving)
+    if PNM.is_open_after_outage(entry, tripped)
         return PNM.get_equivalent_emergency_rating(entry)
     end
-    return surviving
+    return PNM.get_post_outage_emergency_rating(entry, tripped)
 end
 
 # Factor on the arc's post-contingency rating series under one outage. The series
