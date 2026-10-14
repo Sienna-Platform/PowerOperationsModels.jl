@@ -129,13 +129,16 @@ function _monitored_components(
     container::OptimizationContainer,
     network_model::NetworkModel,
 )
+    reduction_name_map = PNM.get_component_to_reduction_name_map(get_branch_catalog(network_model), T)
+    catalog = get_branch_catalog(network_model)
     monitored_components = Dict{Int, Dict{DataType, Set{String}}}()
     for (outage_id, outage) in outages
         monitored = Dict{DataType, Set{String}}()
         for component_uuid in PSY.get_monitored_components(outage)
             component = IS.get_component(sys, component_uuid)
             T = typeof(component)
-            name = PSY.get_name(component)
+            reduction_name_map = PNM.get_component_to_reduction_name_map(catalog, T)
+            name = reduction_name_map[PSY.get_name(component)]
             if !_valid_monitored_component(component, network_model)
                 @warn "Monitored component $name ($T) on outage $outage_id is not supported by network model $(get_network_formulation(network_model)); its post-contingency flow will not be limited." _group =
                     LOG_GROUP_SERVICE_CONSTUCTORS
