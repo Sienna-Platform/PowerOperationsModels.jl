@@ -203,14 +203,14 @@ function _add_feedforward_arguments!(
     add_to_expression!(
         container,
         ActivePowerRangeExpressionUB,
-        parameter_type(),
+        parameter_type,
         devices,
         model,
     )
     add_to_expression!(
         container,
         ActivePowerRangeExpressionLB,
-        parameter_type(),
+        parameter_type,
         devices,
         model,
     )

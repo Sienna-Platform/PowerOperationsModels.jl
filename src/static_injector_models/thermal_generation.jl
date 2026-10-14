@@ -151,9 +151,6 @@ IOM.uses_commitment_variables(::Type{<:PSY.ThermalGen}) = true
 proportional_cost(::Union{MBC_TYPES, PSY.ThermalGenerationCost}, ::Type{<:Union{RateofChangeConstraintSlackUp, RateofChangeConstraintSlackDown}}, ::PSY.ThermalGen, ::Type{<:AbstractThermalFormulation}) = CONSTRAINT_VIOLATION_SLACK_COST
 
 
-has_multistart_variables(::PSY.ThermalGen, ::AbstractThermalFormulation)=false
-has_multistart_variables(::PSY.ThermalMultiStart, ::ThermalMultiStartUnitCommitment)=true
-
 objective_function_multiplier(::Type{<:VariableType}, ::Type{<:AbstractThermalFormulation})=OBJECTIVE_FUNCTION_POSITIVE
 
 # Startup cost interpretations!
@@ -180,10 +177,6 @@ start_up_cost(cost::PSY.StartUpStages, ::Type{WarmStartVariable}) = cost.warm
 start_up_cost(cost::PSY.StartUpStages, ::Type{HotStartVariable}) = cost.hot
 # TODO in the opposite case, do we want to get the maximum or the hot?
 start_up_cost(cost::PSY.StartUpStages, ::Type{StartVariable}) = maximum(cost)
-
-uses_compact_power(::PSY.ThermalGen, ::AbstractThermalFormulation)=false
-uses_compact_power(::PSY.ThermalGen, ::AbstractCompactUnitCommitment )=true
-uses_compact_power(::PSY.ThermalGen, ::ThermalCompactDispatch)=true
 
 """
 Theoretical Cost at power output zero. Mathematically is the intercept with the y-axis
