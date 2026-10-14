@@ -129,7 +129,8 @@ function _monitored_components(
     container::OptimizationContainer,
     network_model::NetworkModel,
 )
-    reduction_name_map = PNM.get_component_to_reduction_name_map(get_branch_catalog(network_model), T)
+    reduction_name_map =
+        PNM.get_component_to_reduction_name_map(get_branch_catalog(network_model), T)
     catalog = get_branch_catalog(network_model)
     monitored_components = Dict{Int, Dict{DataType, Set{String}}}()
     for (outage_id, outage) in outages

@@ -466,7 +466,8 @@ end
     post_flow = IOM.get_expression(container, PostContingencyBranchFlow, Line, "G1")
     @test Set(keys(post_flow.data)) == expected
     for meta in ("G1_ub", "G1_lb")
-        limits = IOM.get_constraint(container, PostContingencyFlowRateConstraint, Line, meta)
+        limits =
+            IOM.get_constraint(container, PostContingencyFlowRateConstraint, Line, meta)
         @test Set(keys(limits.data)) == expected
     end
     @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
