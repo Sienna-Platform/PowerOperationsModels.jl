@@ -248,11 +248,19 @@ function _make_post_contingency_slack!(
     return slack
 end
 
+function _tripped_branches(sys::PSY.System, outage_id::Int)
+    outage = PSY.get_supplemental_attribute(sys, outage_id)
+    return Set{PSY.ACTransmission}(
+        PSY.get_associated_components(sys, outage; component_type = PSY.ACTransmission),
+    )
+end
+
 """
 Add branch post-contingency rate limit constraints for ACBranch considering MODF and Security Constraints
 """
 function add_constraints!(
     container::OptimizationContainer,
+    sys::PSY.System,
     cons_type::Type{T},
     device_model::DeviceModel{V, U},
     network_model::NetworkModel{X},
@@ -282,6 +290,7 @@ function add_constraints!(
     has_other_v = _has_other_v_container(get_constraints(container), T, V)
     for (uuid, reps) in resolved
         outage_id = string(uuid)
+        tripped = _tripped_branches(sys, uuid)
         for rep in reps
             name = rep.name
             if has_other_v
@@ -328,6 +337,7 @@ function add_constraints!(
             if _has_post_contingency_rate(container, _monitored_type(rep), name)
                 param, multiplier =
                     _post_contingency_rate_columns(container, _monitored_type(rep), name)
+                share = _post_contingency_share(rep.branch, tripped)
                 for t in time_steps
                     sub = if use_slacks
                         _make_post_contingency_slack!(
@@ -350,16 +360,16 @@ function add_constraints!(
                     con_ub[outage_id, name, t] = JuMP.@constraint(
                         jump_model,
                         expressions[outage_id, name, t] - sub <=
-                        param[t] * multiplier[t],
+                        share * param[t] * multiplier[t],
                     )
                     con_lb[outage_id, name, t] = JuMP.@constraint(
                         jump_model,
                         expressions[outage_id, name, t] + slb >=
-                        -1.0 * param[t] * multiplier[t],
+                        -1.0 * share * param[t] * multiplier[t],
                     )
                 end
             else
-                limits = _emergency_flow_limits(rep)
+                limits = _emergency_flow_limits(rep, tripped)
                 for t in time_steps
                     sub = if use_slacks
                         _make_post_contingency_slack!(
@@ -925,6 +935,7 @@ function construct_device!(
 
     add_constraints!(
         container,
+        sys,
         PostContingencyFlowRateConstraint,
         device_model,
         network_model,
@@ -1025,6 +1036,7 @@ function construct_device!(
 
     add_constraints!(
         container,
+        sys,
         PostContingencyFlowRateConstraint,
         device_model,
         network_model,

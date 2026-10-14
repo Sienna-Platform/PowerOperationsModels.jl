@@ -2210,3 +2210,147 @@ end
     @test occursin("1 monitored component(s) across 1 outage(s) are unavailable", log)
     @test occursin("$(outage_id) => 1", log)
 end
+
+# Emergency ratings (system base) of line "1" and of its parallel copy "1_copy" in c_sys5.
+const _N1_LINE_RATING_B = 0.6
+const _N1_COPY_RATING_B = 0.4
+
+# c_sys5 with line "1" doubled into a parallel pair. Four outages monitor the pair. They trip
+# "1", "1_copy", line "2", and both members of the pair ("1+1_copy").
+function _n1_parallel_system()
+    sys = PSB.build_system(PSITestSystems, "c_sys5")
+    line = PSY.get_component(PSY.Line, sys, "1")
+    add_equivalent_ac_transmission_with_parallel_circuits!(sys, line, PSY.Line)
+    copy_line = PSY.get_component(PSY.Line, sys, "1_copy")
+    _set_rating_b!(line, _N1_LINE_RATING_B * u"SU")
+    _set_rating_b!(copy_line, _N1_COPY_RATING_B * u"SU")
+    outages = Dict{String, PSY.FixedForcedOutage}()
+    for names in (("1",), ("1_copy",), ("2",), ("1", "1_copy"))
+        outage = PSY.FixedForcedOutage(;
+            outage_status = 1.0,
+            monitored_components = [line, copy_line],
+        )
+        for name in names
+            PSY.add_supplemental_attribute!(
+                sys,
+                PSY.get_component(PSY.Line, sys, name),
+                outage,
+            )
+        end
+        outages[join(names, "+")] = outage
+    end
+    return sys, outages
+end
+
+# Build the model and return its container and the reduction entry that represents line "1".
+function _build_sc_container(template, sys)
+    model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+    catalog = POM.get_branch_catalog(IOM.get_network_model(IOM.get_template(model)))
+    pair = PNM.get_component_to_reduction_name_map(catalog)[PSY.Line]["1"]
+    return IOM.get_optimization_container(model), pair
+end
+
+# Raw post-contingency upper limit of `name` under `outage` at `t` in the `V` container.
+# JuMP moves the affine constant of the flow expression to the RHS; add it back.
+function _pc_upper_limit(container, ::Type{V}, outage, name, t) where {V}
+    key = (string(IS.get_id(outage)), name, t)
+    flow = IOM.get_expression(container, POM.PostContingencyBranchFlow, V)
+    con_ub = IOM.get_constraint(
+        container,
+        IOM.ConstraintKey(POM.PostContingencyFlowRateConstraint, V, "ub"),
+    )
+    return JuMP.normalized_rhs(con_ub[key...]) + JuMP.constant(flow[key...])
+end
+
+# Limits of the pair under each outage of `_n1_parallel_system`, times the rating factor of
+# the time step. A full trip keeps the intact limit because the MODF row is zero.
+function _test_pair_limits(container, outages, pair, factors::Vector{Float64})
+    intact = _N1_LINE_RATING_B + _N1_COPY_RATING_B
+    for t in IOM.get_time_steps(container)
+        f = factors[mod1(t, length(factors))]
+        @test _pc_upper_limit(container, PSY.Line, outages["1"], pair, t) ≈
+              f * _N1_COPY_RATING_B
+        @test _pc_upper_limit(container, PSY.Line, outages["1_copy"], pair, t) ≈
+              f * _N1_LINE_RATING_B
+        @test _pc_upper_limit(container, PSY.Line, outages["2"], pair, t) ≈ f * intact
+        @test _pc_upper_limit(container, PSY.Line, outages["1+1_copy"], pair, t) ≈
+              f * intact
+    end
+    return
+end
+
+@testset "post-contingency limit of a parallel pair counts only the circuits in service" begin
+    for network_model in (NetworkModel(PTDFNetworkModel), NetworkModel(DCPNetworkModel))
+        sys, outages = _n1_parallel_system()
+        template = get_thermal_dispatch_template_network(network_model)
+        set_device_model!(template, PSY.Line, POM.SecurityConstrainedStaticBranch)
+        container, pair = _build_sc_container(template, sys)
+        _test_pair_limits(container, outages, pair, [1.0])
+    end
+end
+
+@testset "post-contingency limit of a mixed parallel pair counts only the circuit in service" begin
+    sys = PSB.build_system(PSITestSystems, "c_sys5")
+    line = PSY.get_component(PSY.Line, sys, "1")
+    add_equivalent_ac_transmission_with_parallel_circuits!(
+        sys,
+        line,
+        PSY.Line,
+        PSY.TwoWindingTransformer,
+    )
+    transformer = PSY.get_component(PSY.TwoWindingTransformer, sys, "1_copy")
+    _set_rating_b!(line, _N1_LINE_RATING_B * u"SU")
+    _set_rating_b!(transformer, _N1_COPY_RATING_B * u"SU")
+    outage = PSY.FixedForcedOutage(;
+        outage_status = 1.0,
+        monitored_components = [line, transformer],
+    )
+    PSY.add_supplemental_attribute!(sys, transformer, outage)
+    template = get_thermal_dispatch_template_network(NetworkModel(PTDFNetworkModel))
+    set_device_model!(template, PSY.Line, POM.SecurityConstrainedStaticBranch)
+    set_device_model!(
+        template,
+        PSY.TwoWindingTransformer,
+        POM.SecurityConstrainedStaticBranch,
+    )
+    container, pair = _build_sc_container(template, sys)
+    outage_id = string(IS.get_id(outage))
+    n_checked = 0
+    for V in (PSY.Line, PSY.TwoWindingTransformer)
+        con_ub = IOM.get_constraint(
+            container,
+            IOM.ConstraintKey(POM.PostContingencyFlowRateConstraint, V, "ub"),
+        )
+        for t in IOM.get_time_steps(container)
+            if !haskey(con_ub.data, (outage_id, pair, t))
+                continue
+            end
+            @test _pc_upper_limit(container, V, outage, pair, t) ≈ _N1_LINE_RATING_B
+            n_checked += 1
+        end
+    end
+    @test n_checked > 0
+end
+
+@testset "post-contingency rating series of a parallel pair scales to the circuits in service" begin
+    sys, outages = _n1_parallel_system()
+    add_branch_rating_time_series_to_system!(
+        sys, ["1"], 2, _PC_RATING_FACTORS;
+        initial_date = "2024-01-01", ts_name = _PC_RATING_TS_NAME,
+    )
+    template = get_thermal_dispatch_template_network(NetworkModel(PTDFNetworkModel))
+    set_device_model!(
+        template,
+        DeviceModel(
+            PSY.Line,
+            POM.SecurityConstrainedStaticBranch;
+            time_series_names = Dict(
+                POM.PostContingencyBranchRatingTimeSeriesParameter => _PC_RATING_TS_NAME,
+            ),
+        ),
+    )
+    container, pair = _build_sc_container(template, sys)
+    _test_pair_limits(container, outages, pair, _PC_RATING_FACTORS)
+end
