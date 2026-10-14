@@ -723,3 +723,56 @@ end
         @test JuMP.coefficient(func, on["115_STEAM_1", t]) ≈ -p_min
     end
 end
+
+@testset "G-1 generation rows count the total output of a compact contributor" begin
+    sys = PSB.build_system(PSITestSystems, "c_sys5_pglib")
+    reserve = OnlineReserve{ReserveUp}(;
+        name = "G1_compact_contributor",
+        available = true,
+        time_frame = 30.0,
+        requirement = 0.0,
+        sustained_time = 3600,
+        max_output_fraction = 1.0,
+        max_participation_factor = 1.0,
+        deployed_fraction = 0.0,
+    )
+    contributors = collect(get_components(ThermalMultiStart, sys))
+    add_service!(sys, reserve, contributors)
+    outaged = first(sort(collect(get_components(ThermalStandard, sys)); by = get_name))
+    outage = PSY.FixedForcedOutage(; outage_status = 1.0)
+    add_supplemental_attribute!(sys, outaged, outage)
+    add_supplemental_attribute!(sys, reserve, outage)
+    template = PowerOperationsProblemTemplate(NetworkModel(CopperPlateNetworkModel))
+    set_device_model!(template, ThermalStandard, ThermalBasicUnitCommitment)
+    set_device_model!(template, ThermalMultiStart, ThermalMultiStartUnitCommitment)
+    set_device_model!(template, PowerLoad, StaticPowerLoad)
+    set_service_model!(
+        template,
+        ServiceModel(
+            OnlineReserve{ReserveUp},
+            SecurityConstrainedContingencyReserve;
+            use_slacks = true,
+        ),
+    )
+    model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+    container = IOM.get_optimization_container(model)
+    rows = IOM.get_constraint(
+        container,
+        PostContingencyGenerationConstraint,
+        ThermalMultiStart,
+    )
+    p_above = IOM.get_variable(container, PowerAboveMinimumVariable, ThermalMultiStart)
+    on = IOM.get_variable(container, OnVariable, ThermalMultiStart)
+    @test !isempty(rows.data)
+    for ((name, _, t), row) in rows.data
+        unit = get_component(ThermalMultiStart, sys, name)
+        p_min = get_active_power_limits(unit, u"SU").min
+        p_max = get_max_active_power(unit, u"SU")
+        func = JuMP.constraint_object(row).func
+        @test JuMP.coefficient(func, p_above[name, t]) ≈ 1.0
+        @test JuMP.coefficient(func, on[name, t]) ≈ p_min - p_max
+    end
+    @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+end

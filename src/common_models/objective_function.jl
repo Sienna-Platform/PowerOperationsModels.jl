@@ -170,7 +170,7 @@ function _add_compact_fuel_curve!(
 end
 
 # The generic IOM method prices `vom * dp_t`. This method adds the VOM cost of `Pmin_t * u_t`.
-function IOM._add_vom_cost_to_objective!(
+function IOM.add_vom_cost_to_objective!(
     container::OptimizationContainer,
     ::Type{T},
     component::V,
@@ -181,9 +181,9 @@ function IOM._add_vom_cost_to_objective!(
     V <: PSY.ThermalGen,
     U <: Union{AbstractCompactUnitCommitment, ThermalCompactDispatch},
 }
-    variable_cost = PSY.get_variable_operation_cost(op_cost)
-    power_units = PSY.get_power_units(variable_cost)
-    vom_term = PSY.get_proportional_term(PSY.get_vom_cost(variable_cost))
+    variable_cost_data = IOM.variable_cost(op_cost, T, V, U)
+    power_units = IS.get_power_units(variable_cost_data)
+    vom_term = IS.get_proportional_term(IS.get_vom_cost(variable_cost_data))
     IOM.add_proportional_cost_invariant!(
         container, T, component, vom_term, power_units, 1.0, VOMCostExpression)
     _add_min_power_proportional_cost!(

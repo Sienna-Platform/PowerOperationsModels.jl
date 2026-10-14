@@ -610,125 +610,13 @@ function add_constraints!(
     ts_type = get_default_time_series_type(container)
     profiled = [d for d in devices if PSY.has_time_series(d, ts_type, ts_name)]
     isempty(profiled) && return
-    time_steps = get_time_steps(container)
-    constraint = add_constraints_container!(
+    _add_total_power_upper_bound!(
         container,
         ActivePowerVariableTimeSeriesLimitsConstraint,
-        V,
-        [PSY.get_name(d) for d in profiled],
-        time_steps;
-        meta = IOM.constraint_meta(IOM.UpperBound()),
+        ActivePowerTimeSeriesParameter,
+        profiled,
+        model,
     )
-    expression = get_expression(container, ActivePowerRangeExpressionUB, V)
-    param_container = get_parameter(container, ActivePowerTimeSeriesParameter, V)
-    multiplier = get_multiplier_array(param_container)
-    on = get_variable(container, OnVariable, V)
-    jump_model = get_jump_model(container)
-    for d in profiled
-        name = PSY.get_name(d)
-        pmin = min_active_power_values(container, d)
-        param_col = get_parameter_column_refs(param_container, name)
-        if _is_must_run(d)
-            # Must-run unit: no on-variable. The minimum power moves to the right side.
-            for t in time_steps
-                rhs = multiplier[name, t] * param_col[t]
-                constraint[name, t] =
-                    JuMP.@constraint(jump_model, expression[name, t] <= rhs - pmin[t])
-            end
-        else
-            for t in time_steps
-                rhs = multiplier[name, t] * param_col[t]
-                constraint[name, t] = JuMP.@constraint(
-                    jump_model,
-                    expression[name, t] + pmin[t] * on[name, t] <= rhs,
-                )
-            end
-        end
-    end
-    return
-end
-
-# FIXME: untested and possibly dead code. The ThermalMultiStart constructor
-# (thermalgeneration_constructor.jl) calls add_constraints! for
-# ActivePowerVariableLimitsConstraint with expression types
-# (ActivePowerRangeExpressionLB/UB), not variable types.
-"""
-This function adds range constraint for the first time period. Constraint (10) from PGLIB formulation
-"""
-function add_constraints!(
-    container::OptimizationContainer,
-    T::Type{<:ActivePowerVariableLimitsConstraint},
-    U::Type{<:VariableType},
-    devices::Vector{V},
-    ::DeviceModel{V, W},
-    ::NetworkModel{X},
-) where {
-    V <: PSY.ThermalMultiStart,
-    W <: ThermalMultiStartUnitCommitment,
-    X <: AbstractNetworkModel,
-}
-    time_steps = get_time_steps(container)
-    varp = get_variable(container, U, V)
-    varstatus = get_variable(container, OnVariable, V)
-    varon = get_variable(container, StartVariable, V)
-    varoff = get_variable(container, StopVariable, V)
-
-    names = [PSY.get_name(x) for x in devices]
-    con_on = add_constraints_container!(
-        container,
-        T,
-        V,
-        names,
-        time_steps;
-        meta = "on",
-    )
-    con_off = add_constraints_container!(
-        container,
-        T,
-        V,
-        names,
-        time_steps[1:(end - 1)];
-        meta = "off",
-    )
-    con_lb = add_constraints_container!(
-        container,
-        T,
-        V,
-        names,
-        time_steps;
-        meta = "lb",
-    )
-
-    for device in devices
-        name = PSY.get_name(device)
-        limits = get_min_max_limits(device, T, W) # depends on constraint type and formulation type
-        startup_shutdown_limits = get_startup_shutdown_limits(device, T, W)
-
-        if JuMP.has_lower_bound(varp[name, t])
-            JuMP.set_lower_bound(varp[name, t], 0.0)
-        end
-        for t in time_steps
-            con_on[name, t] = JuMP.@constraint(
-                get_jump_model(container),
-                varp[name, t] <=
-                (limits.max - limits.min) * varstatus[name, t] -
-                max(limits.max - startup_shutdown_limits.startup, 0.0) * varon[name, t]
-            )
-
-            con_lb[name, t] =
-                JuMP.@constraint(get_jump_model(container), varp[name, t] >= 0.0)
-
-            if t != length(time_steps)
-                con_off[name, t] = JuMP.@constraint(
-                    get_jump_model(container),
-                    varp[name, t] <=
-                    (limits.max - limits.min) * varstatus[name, t] -
-                    max(limits.max - startup_shutdown_limits.shutdown, 0.0) *
-                    varoff[name, t + 1]
-                )
-            end
-        end
-    end
     return
 end
 
@@ -1322,15 +1210,7 @@ function _convert_hours_to_timesteps(
 end
 
 # Units that can start and stop. Must-run units have no On, Start, or Stop variables.
-function _committable_devices(devices::Vector{T}) where {T <: PSY.ThermalGen}
-    committable = T[]
-    for d in devices
-        if !_is_must_run(d)
-            push!(committable, d)
-        end
-    end
-    return committable
-end
+_committable_devices(devices::Vector{<:PSY.ThermalGen}) = filter(!_is_must_run, devices)
 
 # The initial conditions of `devices`, in the order of `ics`.
 function _initial_conditions_of(
