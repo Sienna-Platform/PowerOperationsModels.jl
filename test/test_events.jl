@@ -41,15 +41,15 @@ end
 
     em = EventModel(PSY.FixedForcedOutage, ContinuousCondition())
     d = PSY.ThermalStandard(nothing)
-    @test POM.get_initial_parameter_value(AvailableStatusParameter(), d, em) == 1.0
+    @test POM.get_initial_parameter_value(AvailableStatusParameter, d, em) == 1.0
     @test POM.get_initial_parameter_value(
-        AvailableStatusChangeCountdownParameter(),
+        AvailableStatusChangeCountdownParameter,
         d,
         em,
     ) == 0.0
-    @test POM.get_initial_parameter_value(ActivePowerOffsetParameter(), d, em) == 0.0
-    @test POM.get_initial_parameter_value(ReactivePowerOffsetParameter(), d, em) == 0.0
-    @test POM.get_parameter_multiplier(AvailableStatusParameter(), d, em) == 1.0
+    @test POM.get_initial_parameter_value(ActivePowerOffsetParameter, d, em) == 0.0
+    @test POM.get_initial_parameter_value(ReactivePowerOffsetParameter, d, em) == 0.0
+    @test POM.get_parameter_multiplier(AvailableStatusParameter, d, em) == 1.0
 end
 
 @testset "Template-level event attachment" begin

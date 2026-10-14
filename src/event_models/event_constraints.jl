@@ -208,7 +208,7 @@ function add_reactive_power_contingency_constraint(
         container,
         ReactivePowerOutageConstraint,
         array_reactive,
-        AvailableStatusParameter(),
+        AvailableStatusParameter,
         devices,
         model,
     )
@@ -219,7 +219,7 @@ function _add_reactive_power_contingency_constraint_impl!(
     container::OptimizationContainer,
     ::Type{ReactivePowerOutageConstraint},
     array_reactive,
-    param::AvailableStatusParameter,
+    ::Type{AvailableStatusParameter},
     devices::Vector{V},
     model::DeviceModel{V, W},
 ) where {
@@ -236,7 +236,7 @@ function _add_reactive_power_contingency_constraint_impl!(
         time_steps;
         meta = "ub",
     )
-    param_array = get_parameter_array(container, param, V)
+    param_array = get_parameter_array(container, AvailableStatusParameter, V)
     jump_model = get_jump_model(container)
     for device in devices
         name = PSY.get_name(device)
@@ -338,7 +338,7 @@ function add_pump_turbine_active_power_contingency_constraints!(
         names,
         time_steps,
     )
-    param_array = get_parameter_array(container, AvailableStatusParameter(), U)
+    param_array = get_parameter_array(container, AvailableStatusParameter, U)
     jump_model = get_jump_model(container)
     for device in devices
         name = PSY.get_name(device)
@@ -440,7 +440,7 @@ function add_input_output_active_power_contingency_constraints!(
         time_steps;
         meta = "output",
     )
-    param_array = get_parameter_array(container, AvailableStatusParameter(), U)
+    param_array = get_parameter_array(container, AvailableStatusParameter, U)
     jump_model = get_jump_model(container)
     for device in devices
         name = PSY.get_name(device)

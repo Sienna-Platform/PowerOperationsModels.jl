@@ -12,13 +12,17 @@ function moi_tests(
     greaterthan::Int,
     equalto::Int,
     binary::Bool,
-    lessthan_quadratic::Union{Int, Nothing} = nothing,
+    lessthan_quadratic::Union{Int, Nothing} = nothing;
+    broken_lessthan::Bool = false,
+    broken_greaterthan::Bool = false,
 )
     JuMPmodel = IOM.get_jump_model(model)
     @test JuMP.num_variables(JuMPmodel) == vars
     @test JuMP.num_constraints(JuMPmodel, GAEVF, MOI.Interval{Float64}) == interval
-    @test JuMP.num_constraints(JuMPmodel, GAEVF, MOI.LessThan{Float64}) == lessthan
-    @test JuMP.num_constraints(JuMPmodel, GAEVF, MOI.GreaterThan{Float64}) == greaterthan
+    @test JuMP.num_constraints(JuMPmodel, GAEVF, MOI.LessThan{Float64}) == lessthan broken =
+        broken_lessthan
+    @test JuMP.num_constraints(JuMPmodel, GAEVF, MOI.GreaterThan{Float64}) == greaterthan broken =
+        broken_greaterthan
     @test JuMP.num_constraints(JuMPmodel, GAEVF, MOI.EqualTo{Float64}) == equalto
     @test ((JuMP.VariableRef, MOI.ZeroOne) in JuMP.list_of_constraint_types(JuMPmodel)) ==
           binary
@@ -97,12 +101,18 @@ function psi_checksolve_test(model::DecisionModel, status)
     @test termination_status(model) in status
 end
 
-function psi_checksolve_test(model::DecisionModel, status, expected_output, tol = 0.0)
+function psi_checksolve_test(
+    model::DecisionModel,
+    status,
+    expected_output,
+    tol = 0.0;
+    broken::Bool = false,
+)
     res = solve!(model)
     model = IOM.get_jump_model(model)
-    @test termination_status(model) in status
+    @test termination_status(model) in status broken = broken
     obj_value = JuMP.objective_value(model)
-    @test isapprox(obj_value, expected_output, atol = tol)
+    @test isapprox(obj_value, expected_output, atol = tol) broken = broken
 end
 
 function psi_ptdf_lmps(res::OptimizationProblemOutputs, ptdf)
