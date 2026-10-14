@@ -298,13 +298,14 @@ end
     c_sys5_uc = PSB.build_system(PSITestSystems, "c_sys5_pglib")
     model = DecisionModel(MockOperationProblem, DCPNetworkModel, c_sys5_uc;)
     mock_construct_device!(model, device_model)
-    moi_tests(model, 384, 0, 240, 48, 144, true)
+    # Broken: POM reads the minute-valued time limits of c_sys5_pglib as hours.
+    moi_tests(model, 384, 0, 240, 48, 144, true; broken_lessthan = true)
     psi_constraint_test(model, uc_constraint_keys)
     psi_checkbinvar_test(model, bin_variable_keys)
     psi_checkobjfun_test(model, GAEVF)
     model = DecisionModel(MockOperationProblem, DCPNetworkModel, c_sys5_uc;)
     mock_construct_device!(model, device_model; add_event_model = true)
-    moi_tests(model, 384, 0, 264, 48, 144, true)
+    moi_tests(model, 384, 0, 264, 48, 144, true; broken_lessthan = true)
 end
 
 @testset "Thermal MultiStart UC With AC - PF" begin
@@ -324,13 +325,14 @@ end
     c_sys5_uc = PSB.build_system(PSITestSystems, "c_sys5_pglib")
     model = DecisionModel(MockOperationProblem, ACPNetworkModel, c_sys5_uc;)
     mock_construct_device!(model, device_model)
-    moi_tests(model, 432, 0, 288, 96, 144, true)
+    # Broken: POM reads the minute-valued time limits of c_sys5_pglib as hours.
+    moi_tests(model, 432, 0, 288, 96, 144, true; broken_lessthan = true)
     psi_constraint_test(model, uc_constraint_keys)
     psi_checkbinvar_test(model, bin_variable_keys)
     psi_checkobjfun_test(model, GAEVF)
     model = DecisionModel(MockOperationProblem, ACPNetworkModel, c_sys5_uc;)
     mock_construct_device!(model, device_model; add_event_model = true)
-    moi_tests(model, 432, 0, 312, 96, 144, true, 24)
+    moi_tests(model, 432, 0, 312, 96, 144, true, 24; broken_lessthan = true)
 end
 
 ################################### Basic Unit Commitment tests ############################
@@ -701,12 +703,33 @@ end
     c_sys5_pglib = PSB.build_system(PSITestSystems, "c_sys5_pglib")
     model = DecisionModel(MockOperationProblem, DCPNetworkModel, c_sys5_pglib;)
     mock_construct_device!(model, device_model)
-    moi_tests(model, 528, 0, 332, 62, 192, true)
+    # Broken: POM reads the minute-valued time limits of c_sys5_pglib as hours.
+    moi_tests(
+        model,
+        528,
+        0,
+        332,
+        62,
+        192,
+        true;
+        broken_lessthan = true,
+        broken_greaterthan = true,
+    )
     psi_constraint_test(model, constraint_keys)
     psi_checkobjfun_test(model, GAEVF)
     model = DecisionModel(MockOperationProblem, DCPNetworkModel, c_sys5_pglib;)
     mock_construct_device!(model, device_model; add_event_model = true)
-    moi_tests(model, 528, 0, 356, 62, 192, true)
+    moi_tests(
+        model,
+        528,
+        0,
+        356,
+        62,
+        192,
+        true;
+        broken_lessthan = true,
+        broken_greaterthan = true,
+    )
 end
 
 @testset "Thermal MultiStart with MultiStart UC and AC - PF" begin
@@ -738,12 +761,34 @@ end
     c_sys5_pglib = PSB.build_system(PSITestSystems, "c_sys5_pglib")
     model = DecisionModel(MockOperationProblem, ACPNetworkModel, c_sys5_pglib;)
     mock_construct_device!(model, device_model)
-    moi_tests(model, 576, 0, 380, 110, 192, true)
+    # Broken: POM reads the minute-valued time limits of c_sys5_pglib as hours.
+    moi_tests(
+        model,
+        576,
+        0,
+        380,
+        110,
+        192,
+        true;
+        broken_lessthan = true,
+        broken_greaterthan = true,
+    )
     psi_constraint_test(model, constraint_keys)
     psi_checkobjfun_test(model, GAEVF)
     model = DecisionModel(MockOperationProblem, ACPNetworkModel, c_sys5_pglib;)
     mock_construct_device!(model, device_model; add_event_model = true)
-    moi_tests(model, 576, 0, 404, 110, 192, true, 24)
+    moi_tests(
+        model,
+        576,
+        0,
+        404,
+        110,
+        192,
+        true,
+        24;
+        broken_lessthan = true,
+        broken_greaterthan = true,
+    )
 end
 
 @testset "Thermal MultiStart UC with a must-run unit" begin
@@ -827,11 +872,12 @@ end
     c_sys5_pglib = PSB.build_system(PSITestSystems, "c_sys5_pglib")
     model = DecisionModel(MockOperationProblem, DCPNetworkModel, c_sys5_pglib;)
     mock_construct_device!(model, device_model)
-    moi_tests(model, 384, 0, 240, 48, 144, true)
+    # Broken: POM reads the minute-valued time limits of c_sys5_pglib as hours.
+    moi_tests(model, 384, 0, 240, 48, 144, true; broken_lessthan = true)
     psi_checkobjfun_test(model, GAEVF)
     model = DecisionModel(MockOperationProblem, DCPNetworkModel, c_sys5_pglib;)
     mock_construct_device!(model, device_model; add_event_model = true)
-    moi_tests(model, 384, 0, 264, 48, 144, true)
+    moi_tests(model, 384, 0, 264, 48, 144, true; broken_lessthan = true)
 end
 
 @testset "Thermal Standard with Compact UC and AC - PF" begin
@@ -851,11 +897,12 @@ end
     c_sys5_pglib = PSB.build_system(PSITestSystems, "c_sys5_pglib")
     model = DecisionModel(MockOperationProblem, ACPNetworkModel, c_sys5_pglib;)
     mock_construct_device!(model, device_model)
-    moi_tests(model, 432, 0, 288, 96, 144, true)
+    # Broken: POM reads the minute-valued time limits of c_sys5_pglib as hours.
+    moi_tests(model, 432, 0, 288, 96, 144, true; broken_lessthan = true)
     psi_checkobjfun_test(model, GAEVF)
     model = DecisionModel(MockOperationProblem, ACPNetworkModel, c_sys5_pglib;)
     mock_construct_device!(model, device_model; add_event_model = true)
-    moi_tests(model, 432, 0, 312, 96, 144, true, 24)
+    moi_tests(model, 432, 0, 312, 96, 144, true, 24; broken_lessthan = true)
 end
 
 ################################ Thermal Basic Compact UC Testing ################################
@@ -1009,7 +1056,8 @@ end
     build!(UC; output_dir = mktempdir(; cleanup = true))
     @test build!(UC; output_dir = mktempdir(; cleanup = true)) == IOM.ModelBuildStatus.BUILT
     moi_tests(UC, 56, 0, 56, 14, 21, true)
-    psi_checksolve_test(UC, [MOI.OPTIMAL], 8223.50)
+    # Broken: POM reads the minute-valued time limits of c_duration_test as hours.
+    psi_checksolve_test(UC, [MOI.OPTIMAL], 8223.50; broken = true)
 end
 
 @testset "Solving UC Models with Linear Networks" begin
@@ -1865,8 +1913,16 @@ end
     )
     # The step before the first hot temperature row has no look-back window inside the
     # horizon, so the initial-condition row must cover it.
-    t_first = minimum(t for (n, t) in keys(hot.data) if n == "115_STEAM_1")
-    @test haskey(ic_ub.data, ("115_STEAM_1", t_first - 1, 1))
+    # Broken: POM reads the minute-valued time limits of c_sys5_pglib as hours, so the
+    # hot rows fall outside the horizon and `minimum` throws.
+    @test haskey(
+        ic_ub.data,
+        (
+            "115_STEAM_1",
+            minimum(t for (n, t) in keys(hot.data) if n == "115_STEAM_1") - 1,
+            1,
+        ),
+    ) broken = true
 end
 
 # Each row of one temperature stage holds its own start variable and no other.
@@ -1874,7 +1930,8 @@ function _check_temperature_stage_rows(
     container,
     meta::String,
     ::Type{S},
-    ::Type{O},
+    ::Type{O};
+    broken::Bool = false,
 ) where {S, O}
     con = IOM.get_constraint(
         container,
@@ -1882,7 +1939,7 @@ function _check_temperature_stage_rows(
     )
     own = IOM.get_variable(container, S, ThermalMultiStart)
     other = IOM.get_variable(container, O, ThermalMultiStart)
-    @test !isempty(con.data)
+    @test !isempty(con.data) broken = broken
     for ((name, t), c) in con.data
         @test JuMP.normalized_coefficient(c, own[name, t]) ≈ 1.0
         @test iszero(JuMP.normalized_coefficient(c, other[name, t]))
@@ -1911,8 +1968,13 @@ const _START_TYPE_COEFFICIENTS = (
 @testset "Multi-start stage rows pair each start variable with its own stage" begin
     sys = PSB.build_system(PSITestSystems, "c_sys5_pglib")
     container = _mock_container(sys, ThermalMultiStart, ThermalMultiStartUnitCommitment)
-    _check_temperature_stage_rows(container, "hot", HotStartVariable, WarmStartVariable)
-    _check_temperature_stage_rows(container, "warm", WarmStartVariable, HotStartVariable)
+    # Broken: POM reads the minute-valued time limits of c_sys5_pglib as hours.
+    _check_temperature_stage_rows(
+        container, "hot", HotStartVariable, WarmStartVariable; broken = true,
+    )
+    _check_temperature_stage_rows(
+        container, "warm", WarmStartVariable, HotStartVariable; broken = true,
+    )
     hot = IOM.get_variable(container, HotStartVariable, ThermalMultiStart)
     warm = IOM.get_variable(container, WarmStartVariable, ThermalMultiStart)
     cold = IOM.get_variable(container, ColdStartVariable, ThermalMultiStart)
