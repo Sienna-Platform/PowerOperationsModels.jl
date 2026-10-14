@@ -106,14 +106,14 @@ function g1_template(
     network::Type{<:AbstractNetworkModel};
     online_slacks::Bool = true,
     model_interchanges::Bool = network === AreaBalanceNetworkModel,
-    interchange_filter = nothing,
+    interchange_selector = nothing,
 )
     template = get_thermal_dispatch_template_network(NetworkModel(network))
     set_device_model!(template, RenewableDispatch, RenewableFullDispatch)
     if model_interchanges
         attributes = Dict{String, Any}()
-        isnothing(interchange_filter) ||
-            (attributes["filter_function"] = interchange_filter)
+        isnothing(interchange_selector) ||
+            (attributes["filter_selector"] = interchange_selector)
         set_device_model!(
             template,
             DeviceModel(
@@ -449,11 +449,14 @@ end
     end
 end
 
-@testset "monitored interchange excluded by filter_function warns" begin
+@testset "monitored interchange excluded by filter_selector warns" begin
     sys, _ = g1_system()
     template = g1_template(
         AreaBalanceNetworkModel;
-        interchange_filter = x -> PSY.get_name(x) != "1_2",
+        interchange_selector = make_selector(
+            x -> PSY.get_name(x) != "1_2",
+            AreaInterchange,
+        ),
     )
     model = g1_model(template, sys)
     @test build!(model; output_dir = mktempdir(; cleanup = true)) ==

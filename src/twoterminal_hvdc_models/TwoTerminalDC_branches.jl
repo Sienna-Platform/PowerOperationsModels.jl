@@ -171,7 +171,10 @@ function get_default_attributes(
     ::Type{U},
     ::Type{V},
 ) where {U <: PSY.TwoTerminalHVDC, V <: AbstractTwoTerminalDCLineFormulation}
-    return Dict{String, Any}(RELAX_BINARIES_ATTRIBUTE => false)
+    return Dict{String, Any}(
+        RELAX_BINARIES_ATTRIBUTE => false,
+        _operational_flow_limit_attributes(U)...,
+    )
 end
 
 get_initial_conditions_device_model(
@@ -217,6 +220,8 @@ function _add_sparse_pwl_loss_variables!(
 
     for d in devices
         name = PSY.get_name(d)
+        ub = get_variable_upper_bound(T, d, formulation)
+        lb = get_variable_lower_bound(T, d, formulation)
         for t in time_steps
             pwlvars = Array{JuMP.VariableRef}(undef, len_segments)
             pwlvars_bin = Array{JuMP.VariableRef}(undef, len_segments)
@@ -227,10 +232,7 @@ function _add_sparse_pwl_loss_variables!(
                         base_name = "$(T)_$(name)_{pwl_$(i), $(t)}",
                         binary = binary_T
                     )
-                ub = get_variable_upper_bound(T, d, formulation)
                 ub !== nothing && JuMP.set_upper_bound(var_container[name, i, t], ub)
-
-                lb = get_variable_lower_bound(T, d, formulation)
                 lb !== nothing && JuMP.set_lower_bound(var_container[name, i, t], lb)
 
                 pwlvars_bin[i] =
@@ -1989,6 +1991,10 @@ function get_default_attributes(
     # keeps only the box. Ignored when `bilinear_approximation` is "none".
     return merge(
         BILINEAR_APPROX_DEFAULT_ATTRIBUTES,
-        Dict{String, Any}("use_octagon" => true, RELAX_BINARIES_ATTRIBUTE => false),
+        Dict{String, Any}(
+            "use_octagon" => true,
+            RELAX_BINARIES_ATTRIBUTE => false,
+            _operational_flow_limit_attributes(PSY.TwoTerminalVSCLine)...,
+        ),
     )
 end

@@ -705,6 +705,15 @@ end
     end
 end
 
+function _expected_active_bounds(line)
+    rate = PSY.get_rating(line, u"SU")
+    ofl = PSY.get_operational_flow_limit(line, u"SU")
+    if isnothing(ofl)
+        return rate, -rate
+    end
+    return min(rate, ofl.from_to.max), -min(rate, ofl.to_from.max)
+end
+
 @testset "PTDFNetworkModel/AreaPTDFNetworkModel + StaticBranchBounds with use_slacks wires the flow-definition slacks" begin
     # On PTDF-family networks NetworkFlowConstraint is not a rating constraint but the
     # flow-definition equality `PTDFBranchFlow - flow == slack_ub - slack_lb` (rhs 0.0
@@ -743,12 +752,12 @@ end
             time_steps = IOM.get_time_steps(container)
             for line in PSY.get_components(PSY.Line, sys)
                 name = PSY.get_name(line)
-                rate = PSY.get_rating(line, u"SU")
+                ub, lb = _expected_active_bounds(line)
                 for t in time_steps
                     @test JuMP.has_upper_bound(flow[name, t])
                     @test JuMP.has_lower_bound(flow[name, t])
-                    @test JuMP.upper_bound(flow[name, t]) == rate
-                    @test JuMP.lower_bound(flow[name, t]) == -rate
+                    @test JuMP.upper_bound(flow[name, t]) == ub
+                    @test JuMP.lower_bound(flow[name, t]) == lb
                     @test JuMP.normalized_coefficient(
                         net_flow_con[name, t],
                         flow[name, t],
@@ -921,12 +930,12 @@ end
     time_steps = IOM.get_time_steps(container)
     for line in PSY.get_components(PSY.Line, sys)
         name = PSY.get_name(line)
-        rate = PSY.get_rating(line, u"SU")
+        ub, lb = _expected_active_bounds(line)
         for t in time_steps
             @test JuMP.has_upper_bound(flow[name, t])
             @test JuMP.has_lower_bound(flow[name, t])
-            @test JuMP.upper_bound(flow[name, t]) == rate
-            @test JuMP.lower_bound(flow[name, t]) == -rate
+            @test JuMP.upper_bound(flow[name, t]) == ub
+            @test JuMP.lower_bound(flow[name, t]) == lb
             @test JuMP.normalized_coefficient(net_flow_con[name, t], flow[name, t]) == -1.0
         end
     end
@@ -981,6 +990,65 @@ end
                 end
             end
         end
+    end
+end
+
+@testset "StaticBranchBounds on a Line bounds active power by the operational limit, reactive by rating" begin
+    sys = PSB.build_system(PSITestSystems, "c_sys5_ml")
+    line = PSY.get_component(PSY.Line, sys, "1")
+    PSY.set_operational_flow_limit!(
+        line,
+        (from_to = (min = 0.0 * u"MW", max = 2.0 * u"MW"),
+            to_from = (min = 0.0 * u"MW", max = 4.0 * u"MW")),
+    )
+    ofl = PSY.get_operational_flow_limit(line, u"SU")
+    rating = PSY.get_rating(line, u"SU")
+    @test ofl.from_to.max < rating
+    template = get_thermal_dispatch_template_network(NetworkModel(ACPNetworkModel))
+    set_device_model!(template, DeviceModel(PSY.Line, StaticBranchBounds))
+    model = DecisionModel(template, sys; optimizer = ipopt_optimizer)
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+    container = IOM.get_optimization_container(model)
+    pft = IOM.get_variable(container, FlowActivePowerFromToVariable, PSY.Line)
+    ptf = IOM.get_variable(container, FlowActivePowerToFromVariable, PSY.Line)
+    qft = IOM.get_variable(container, FlowReactivePowerFromToVariable, PSY.Line)
+    t = first(IOM.get_time_steps(container))
+    @test JuMP.upper_bound(pft["1", t]) ≈ ofl.from_to.max
+    @test JuMP.lower_bound(pft["1", t]) ≈ -ofl.to_from.max
+    @test JuMP.upper_bound(ptf["1", t]) ≈ ofl.to_from.max
+    @test JuMP.lower_bound(ptf["1", t]) ≈ -ofl.from_to.max
+    @test JuMP.upper_bound(qft["1", t]) ≈ rating
+    @test JuMP.lower_bound(qft["1", t]) ≈ -rating
+end
+
+@testset "PTDFNetworkModel + StaticBranchBounds: symmetric operational limit equals the old MonitoredLine bound" begin
+    sys = PSB.build_system(PSITestSystems, "c_sys5_ml")
+    line = PSY.get_component(PSY.Line, sys, "1")
+    PSY.set_operational_flow_limit!(
+        line,
+        (from_to = (min = 0.0 * u"MW", max = 3.0 * u"MW"),
+            to_from = (min = 0.0 * u"MW", max = 3.0 * u"MW")),
+    )
+    limit = PSY.get_operational_flow_limit(line, u"SU").from_to.max
+    @test limit < PSY.get_rating(line, u"SU")
+    template = get_thermal_dispatch_template_network(NetworkModel(PTDFNetworkModel))
+    set_device_model!(template, DeviceModel(PSY.Line, StaticBranchBounds))
+    model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+    container = IOM.get_optimization_container(model)
+    flow = IOM.get_variable(container, FlowActivePowerVariable, PSY.Line)
+    for t in IOM.get_time_steps(container)
+        @test JuMP.upper_bound(flow["1", t]) ≈ limit
+        @test JuMP.lower_bound(flow["1", t]) ≈ -limit
+    end
+    for other in PSY.get_components(PSY.Line, sys)
+        name = PSY.get_name(other)
+        name == "1" && continue
+        rating = PSY.get_rating(other, u"SU")
+        t = first(IOM.get_time_steps(container))
+        @test JuMP.upper_bound(flow[name, t]) ≈ rating
     end
 end
 

@@ -23,14 +23,29 @@ function _add_lhs_parameters!(
     model::ServiceModel,
     sys::PSY.System,
 )
-    ts_type = get_default_time_series_type(container)
     for (P, ts_name) in get_time_series_names(model)
         P <: LeftHandSideTimeSeriesParameter || continue
-        profiled = [
-            s for s in get_available_components(model, sys) if
-            PSY.has_time_series(s, ts_type, ts_name)
-        ]
-        isempty(profiled) || add_parameters!(container, P, profiled, model)
+        _add_profiled_parameters!(
+            container,
+            P,
+            get_available_components(model, sys),
+            model,
+            ts_name,
+        )
     end
     return
+end
+
+# Add the parameter `P` for the components that own the series `ts_name`. Returns them.
+function _add_profiled_parameters!(
+    container::OptimizationContainer,
+    ::Type{P},
+    components,
+    model,
+    ts_name::String,
+) where {P <: ParameterType}
+    ts_type = get_default_time_series_type(container)
+    profiled = [c for c in components if PSY.has_time_series(c, ts_type, ts_name)]
+    isempty(profiled) || add_parameters!(container, P, profiled, model)
+    return profiled
 end

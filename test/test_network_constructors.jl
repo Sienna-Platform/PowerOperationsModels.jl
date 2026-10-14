@@ -25,7 +25,7 @@ function _reduced_ptdf_duals_template()
     )
     # Mirror the filter shape from issue #1594: a voltage threshold that selects
     # all lines in this all-230 kV system. The filter is registered (so the
-    # filter_function code path runs) but does not exclude any branch from a
+    # filter_selector code path runs) but does not exclude any branch from a
     # series chain, so reductions still drop lines from the constraint axis.
     set_device_model!(
         template,
@@ -34,8 +34,10 @@ function _reduced_ptdf_duals_template()
             StaticBranch;
             duals = [FlowRateConstraint],
             attributes = Dict(
-                "filter_function" =>
+                "filter_selector" => make_selector(
                     x -> PSY.get_base_voltage(PSY.get_from(PSY.get_arc(x))) >= 230.0,
+                    Line,
+                ),
             ),
         ),
     )

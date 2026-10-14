@@ -599,6 +599,150 @@ end
           IOM.ModelBuildStatus.BUILT
 end
 
+@testset "Test NonSpinningReserve from Hydro Commitment" begin
+    sys = deepcopy(PSB.build_system(PSITestSystems, "c_sys5_hy"))
+    hydros = collect(get_components(HydroDispatch, sys))
+    thermals = collect(get_components(ThermalStandard, sys))
+    service = OfflineReserve(; name = "NSPIN", available = true, time_frame = 30.0,
+        requirement = 0.1)
+    add_service!(sys, service, vcat(thermals, hydros))
+
+    template = PowerOperationsProblemTemplate(CopperPlateNetworkModel)
+    set_device_model!(template, PowerLoad, StaticPowerLoad)
+    set_device_model!(template, ThermalStandard, ThermalBasicUnitCommitment)
+    set_device_model!(template, HydroDispatch, HydroCommitmentRunOfRiver)
+    set_service_model!(template, ServiceModel(OfflineReserve, NonSpinningReserve))
+
+    model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+    container = IOM.get_optimization_container(model)
+    for D in (ThermalStandard, HydroDispatch)
+        cons = IOM.get_constraint(
+            container,
+            IOM.ConstraintKey(
+                POM.ReservePowerConstraint,
+                IOM.ComponentPairKey{D, OfflineReserve},
+            ),
+        )
+        @test length(cons) == length(get_components(D, sys)) * 24
+    end
+    # Hydro has no time or ramp limits: the offline award is bounded by pmax while off.
+    on_var = IOM.get_variable(container, OnVariable, HydroDispatch)
+    hy_cons = IOM.get_constraint(
+        container,
+        IOM.ConstraintKey(
+            POM.ReservePowerConstraint,
+            IOM.ComponentPairKey{HydroDispatch, OfflineReserve},
+        ),
+    )
+    for h in hydros
+        name = get_name(h)
+        con = JuMP.constraint_object(hy_cons[("NSPIN", name, 1)])
+        pmax = PSY.get_active_power_limits(h, u"SU").max
+        @test JuMP.normalized_rhs(hy_cons[("NSPIN", name, 1)]) ≈ pmax
+        @test JuMP.coefficient(con.func, on_var[name, 1]) ≈ pmax
+    end
+    @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+end
+
+function _nonspin_uc_model(sys::PSY.System)
+    template = get_thermal_standard_uc_template()
+    set_device_model!(
+        template,
+        DeviceModel(ThermalMultiStart, ThermalStandardUnitCommitment),
+    )
+    set_service_model!(template, ServiceModel(OfflineReserve, NonSpinningReserve))
+    return DecisionModel(template, sys; optimizer = HiGHS_optimizer)
+end
+
+# time_frame = 30 min. Limit = 0 if 30 < startup, else min(Pmax, Pmin + ramp_up * (30 - startup)).
+const _NONSPIN_EXPECTED_LIMITS = Dict{String, Float64}(
+    "Park City" => 1.535,     # 0.65 + 0.04425 * 20
+    "Alta" => 0.4,            # 0.2 + 0.4 * 25 = 10.2, capped at Pmax 0.4
+    "Sundance" => 1.0,        # startup = time frame: Pmin
+    "Brighton" => 0.0,        # 60 > 30
+    "Solitude" => 0.0,        # 240 > 30
+    "115_STEAM_1" => 0.0536,  # 0.05 + 0.00024 * 15
+    "101_CT_1" => 0.084,      # 0.08 + 0.0004 * 10
+)
+
+function _check_nonspin_rows!(
+    container,
+    sys::PSY.System,
+    ::Type{D},
+    time_steps,
+) where {D <: PSY.ThermalGen}
+    con = IOM.get_constraint(
+        container,
+        IOM.ConstraintKey(
+            POM.ReservePowerConstraint,
+            IOM.ComponentPairKey{D, OfflineReserve},
+        ),
+    )
+    on = IOM.get_variable(container, POM.OnVariable, D)
+    checked = 0
+    for d in PSY.get_components(D, sys)
+        name = PSY.get_name(d)
+        expected = _NONSPIN_EXPECTED_LIMITS[name]
+        for t in time_steps
+            c = con[(PSY.get_name(only(PSY.get_components(OfflineReserve, sys))), name, t)]
+            cobj = JuMP.constraint_object(c)
+            @test isapprox(JuMP.normalized_rhs(c), expected; atol = 1e-9)
+            @test isapprox(JuMP.coefficient(cobj.func, on[name, t]), expected; atol = 1e-9)
+            checked += 1
+        end
+    end
+    return checked
+end
+
+@testset "NonSpinningReserve offline limit uses switching_times, in SU and minutes" begin
+    sys = PSB.build_system(PSITestSystems, "c_sys5_uc_non_spin"; add_reserves = true)
+    set_nonspin_test_data!(sys)
+    model = _nonspin_uc_model(sys)
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+    container = IOM.get_optimization_container(model)
+    time_steps = IOM.get_time_steps(container)
+    checked =
+        _check_nonspin_rows!(container, sys, ThermalStandard, time_steps) +
+        _check_nonspin_rows!(container, sys, ThermalMultiStart, time_steps)
+    @test checked == length(_NONSPIN_EXPECTED_LIMITS) * length(time_steps)
+end
+
+@testset "NonSpinningReserve helpers: values, hydro, and inference" begin
+    p_lims = (min = 0.65, max = 1.7)
+    @test @inferred(POM._nonspin_reserve_limit(nothing, p_lims, 20.0)) == 1.7
+    @test @inferred(
+        POM._nonspin_reserve_limit((up = 0.04425, down = 0.04425), p_lims, 20.0),
+    ) ≈ 1.535
+    @test @inferred(POM._nonspin_reserve_limit((up = 1.0, down = 1.0), p_lims, 20.0)) == 1.7
+
+    sys = PSB.build_system(PSITestSystems, "c_sys5_uc_non_spin"; add_reserves = true)
+    set_nonspin_test_data!(sys)
+    for d in PSY.get_components(PSY.ThermalGen, sys)
+        @test @inferred(POM._nonspin_offline_limit(d, 30.0)) ≈
+              _NONSPIN_EXPECTED_LIMITS[PSY.get_name(d)]
+    end
+
+    # A thermal unit without switching_times starts with no delay.
+    brighton = PSY.get_component(ThermalStandard, sys, "Brighton")
+    PSY.set_switching_times!(brighton, nothing)
+    @test @inferred(POM._nonspin_startup_time(brighton)) == 0.0
+    @test @inferred(POM._nonspin_offline_limit(brighton, 30.0)) ≈
+          min(6.0, 3.0 + 0.01125 * 30.0)
+
+    hydro = only(
+        PSY.get_components(
+            PSY.HydroDispatch,
+            PSB.build_system(PSITestSystems, "c_sys5_hy"),
+        ),
+    )
+    @test @inferred(POM._nonspin_startup_time(hydro)) == 0.0
+    @test @inferred(POM._nonspin_offline_limit(hydro, 30.0)) ==
+          PSY.get_active_power_limits(hydro, u"SU").max
+end
+
 @testset "Test Upwards Reserves from Renewable Dispatch" begin
     template = PowerOperationsProblemTemplate(CopperPlateNetworkModel)
     set_device_model!(template, PowerLoad, StaticPowerLoad)
@@ -748,7 +892,7 @@ end
         template = get_thermal_dispatch_template_network(net)
         set_service_model!(
             template,
-            ServiceModel(TransmissionInterface, ConstantMaxInterfaceFlow),
+            ServiceModel(TransmissionInterface, MaxInterfaceFlow),
         )
         model = DecisionModel(template, c_sys5_uc; optimizer = HiGHS_optimizer)
         @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
@@ -811,7 +955,7 @@ end
         template = get_thermal_dispatch_template_network(net)
         set_service_model!(
             template,
-            ServiceModel(TransmissionInterface, VariableMaxInterfaceFlow),
+            ServiceModel(TransmissionInterface, MaxInterfaceFlow),
         )
         model = DecisionModel(template, c_sys5_uc; optimizer = HiGHS_optimizer)
         @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
@@ -837,7 +981,7 @@ end
     template = get_thermal_dispatch_template_network(DCPNetworkModel)
     set_service_model!(
         template,
-        ServiceModel(TransmissionInterface, ConstantMaxInterfaceFlow; use_slacks = true),
+        ServiceModel(TransmissionInterface, MaxInterfaceFlow; use_slacks = true),
     )
     model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
     @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
@@ -858,7 +1002,7 @@ end
 end
 
 @testset "Interface flow-limit params are one container per type" begin
-    # VariableMaxInterfaceFlow builds Min/MaxInterfaceFlowLimitParameter as one container per type
+    # MaxInterfaceFlow builds Min/MaxInterfaceFlowLimitParameter as one container per type
     # over all interface names; the 3-arg fetch below proves the per-type container.
     sys = deepcopy(PSB.build_system(PSITestSystems, "c_sys5_uc"; add_reserves = true))
     interface = TransmissionInterface(;
@@ -883,7 +1027,7 @@ end
     template = get_thermal_dispatch_template_network(DCPNetworkModel)
     set_service_model!(
         template,
-        ServiceModel(TransmissionInterface, VariableMaxInterfaceFlow),
+        ServiceModel(TransmissionInterface, MaxInterfaceFlow),
     )
     model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
     @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
@@ -899,6 +1043,161 @@ end
     @test size(
         IOM.get_constraint(container, POM.InterfaceFlowLimit, TransmissionInterface, "ub"),
     ) == (1, 24)
+end
+
+function _add_interface_limit_ts!(sys, interface, ts_name, factor)
+    data = Dict(
+        DateTime("2024-01-01T00:00:00") => fill(factor, 24),
+        DateTime("2024-01-02T00:00:00") => fill(factor, 24),
+    )
+    add_time_series!(sys, interface, Deterministic(ts_name, data, Hour(1)))
+    return
+end
+
+function _add_test_interface!(sys, name, lines)
+    interface = TransmissionInterface(;
+        name = name,
+        available = true,
+        active_power_flow_limits = (min = -300.0, max = 400.0),
+        input_basis = u"CU",
+    )
+    add_service!(sys, interface, [get_component(Line, sys, l) for l in lines])
+    return interface
+end
+
+function _build_interface_model(sys)
+    template = get_thermal_dispatch_template_network(DCPNetworkModel)
+    set_service_model!(template, ServiceModel(TransmissionInterface, MaxInterfaceFlow))
+    model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+    return get_optimization_container(model)
+end
+
+# Under DCP the interface flow has no constant term, so the row RHS is the limit itself.
+@testset "MaxInterfaceFlow uses limit parameters only for interfaces with time series" begin
+    sys = deepcopy(PSB.build_system(PSITestSystems, "c_sys5_uc"; add_reserves = true))
+    with_ts = _add_test_interface!(sys, "west_east", ("1", "2", "6"))
+    static = _add_test_interface!(sys, "north_south", ("3", "4"))
+    _add_interface_limit_ts!(sys, with_ts, "min_active_power_flow_limit", 0.5)
+    _add_interface_limit_ts!(sys, with_ts, "max_active_power_flow_limit", 0.5)
+    container = _build_interface_model(sys)
+
+    for P in (POM.MinInterfaceFlowLimitParameter, POM.MaxInterfaceFlowLimitParameter)
+        multiplier = IOM.get_parameter_multiplier_array(container, P, TransmissionInterface)
+        @test axes(multiplier, 1) == ["west_east"]
+    end
+    ub = IOM.get_constraint(container, POM.InterfaceFlowLimit, TransmissionInterface, "ub")
+    lb = IOM.get_constraint(container, POM.InterfaceFlowLimit, TransmissionInterface, "lb")
+    ts_limits = PSY.get_active_power_flow_limits(with_ts, u"SU")
+    static_limits = PSY.get_active_power_flow_limits(static, u"SU")
+    for t in get_time_steps(container)
+        @test JuMP.normalized_rhs(ub["west_east", t]) ≈ 0.5 * ts_limits.max
+        @test JuMP.normalized_rhs(lb["west_east", t]) ≈ 0.5 * ts_limits.min
+        @test JuMP.normalized_rhs(ub["north_south", t]) == static_limits.max
+        @test JuMP.normalized_rhs(lb["north_south", t]) == static_limits.min
+    end
+end
+
+@testset "MaxInterfaceFlow picks a parameter or the static limit per bound" begin
+    sys = deepcopy(PSB.build_system(PSITestSystems, "c_sys5_uc"; add_reserves = true))
+    interface = _add_test_interface!(sys, "west_east", ("1", "2", "6"))
+    _add_interface_limit_ts!(sys, interface, "max_active_power_flow_limit", 0.5)
+    container = _build_interface_model(sys)
+
+    @test IOM.has_container_key(
+        container,
+        POM.MaxInterfaceFlowLimitParameter,
+        TransmissionInterface,
+    )
+    @test !IOM.has_container_key(
+        container,
+        POM.MinInterfaceFlowLimitParameter,
+        TransmissionInterface,
+    )
+    ub = IOM.get_constraint(container, POM.InterfaceFlowLimit, TransmissionInterface, "ub")
+    lb = IOM.get_constraint(container, POM.InterfaceFlowLimit, TransmissionInterface, "lb")
+    limits = PSY.get_active_power_flow_limits(interface, u"SU")
+    for t in get_time_steps(container)
+        @test JuMP.normalized_rhs(ub["west_east", t]) ≈ 0.5 * limits.max
+        @test JuMP.normalized_rhs(lb["west_east", t]) == limits.min
+    end
+end
+
+@testset "MaxInterfaceFlow rejects a limit series of another time series type" begin
+    sys = deepcopy(PSB.build_system(PSITestSystems, "c_sys5_uc"; add_reserves = true))
+    interface = _add_test_interface!(sys, "west_east", ("1", "2", "6"))
+    stamps = range(DateTime("2024-01-01T00:00:00"); step = Hour(1), length = 48)
+    add_time_series!(
+        sys,
+        interface,
+        SingleTimeSeries("max_active_power_flow_limit", TimeArray(stamps, fill(0.5, 48))),
+    )
+    template = get_thermal_dispatch_template_network(DCPNetworkModel)
+    set_service_model!(template, ServiceModel(TransmissionInterface, MaxInterfaceFlow))
+    model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
+    output_dir = mktempdir(; cleanup = true)
+    @test build!(model; output_dir = output_dir) == IOM.ModelBuildStatus.FAILED
+    # The build wraps its logging, so assert on the log rather than at the call site.
+    log_contents = read(joinpath(output_dir, "operation_problem.log"), String)
+    @test occursin(
+        "TransmissionInterface west_east carries a max_active_power_flow_limit time " *
+        "series as SingleTimeSeries, but this model reads Deterministic.",
+        log_contents,
+    )
+end
+
+@testset "MaxInterfaceFlow builds with an initialized unit commitment device" begin
+    sys = deepcopy(PSB.build_system(PSITestSystems, "c_sys5_uc"; add_reserves = true))
+    interface = _add_test_interface!(sys, "west_east", ("1", "2", "6"))
+    _add_interface_limit_ts!(sys, interface, "min_active_power_flow_limit", 0.0)
+    _add_interface_limit_ts!(sys, interface, "max_active_power_flow_limit", 0.9)
+
+    template = get_thermal_dispatch_template_network(DCPNetworkModel)
+    set_device_model!(template, ThermalStandard, ThermalStandardUnitCommitment)
+    set_service_model!(template, ServiceModel(TransmissionInterface, MaxInterfaceFlow))
+    model = DecisionModel(
+        template,
+        sys;
+        optimizer = HiGHS_optimizer,
+        initialize_model = true,
+    )
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+end
+
+@testset "The initial-conditions model keeps the interface time series names" begin
+    sys = deepcopy(PSB.build_system(PSITestSystems, "c_sys5_uc"; add_reserves = true))
+    interface = _add_test_interface!(sys, "west_east", ("1", "2", "6"))
+    stamps = range(DateTime("2024-01-01T00:00:00"); step = Hour(1), length = 48)
+    add_time_series!(
+        sys,
+        interface,
+        SingleTimeSeries("max_active_power_flow_limit", TimeArray(stamps, fill(0.5, 48))),
+    )
+    template = get_thermal_dispatch_template_network(DCPNetworkModel)
+    set_device_model!(template, ThermalStandard, ThermalStandardUnitCommitment)
+    set_service_model!(
+        template,
+        ServiceModel(
+            TransmissionInterface,
+            MaxInterfaceFlow;
+            time_series_names = Dict{Type{<:IOM.TimeSeriesParameter}, String}(),
+        ),
+    )
+    model = DecisionModel(
+        template,
+        sys;
+        optimizer = HiGHS_optimizer,
+        initialize_model = true,
+    )
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+end
+
+@testset "Old interface formulation names alias MaxInterfaceFlow" begin
+    @test ConstantMaxInterfaceFlow === MaxInterfaceFlow
+    @test VariableMaxInterfaceFlow === MaxInterfaceFlow
 end
 
 @testset "Interface with no available contributing branches errors" begin
@@ -921,7 +1220,7 @@ end
     template = get_thermal_dispatch_template_network(DCPNetworkModel)
     set_service_model!(
         template,
-        ServiceModel(TransmissionInterface, ConstantMaxInterfaceFlow),
+        ServiceModel(TransmissionInterface, MaxInterfaceFlow),
     )
     @test_throws "no available contributing devices/branches" DecisionModel(
         template,
@@ -979,7 +1278,7 @@ end
     set_device_model!(template, AreaInterchange, StaticBranch)
     set_service_model!(
         template,
-        ServiceModel(TransmissionInterface, ConstantMaxInterfaceFlow),
+        ServiceModel(TransmissionInterface, MaxInterfaceFlow),
     )
     ps_model = DecisionModel(
         template,
@@ -1095,7 +1394,7 @@ end
     )
     set_service_model!(
         template,
-        ServiceModel(TransmissionInterface, ConstantMaxInterfaceFlow),
+        ServiceModel(TransmissionInterface, MaxInterfaceFlow),
     )
     ps_model = DecisionModel(
         template,
@@ -1213,7 +1512,7 @@ _reduced_entry_kind(::PNM.BranchesParallel) = :parallel
     )
     set_service_model!(
         template,
-        ServiceModel(TransmissionInterface, ConstantMaxInterfaceFlow),
+        ServiceModel(TransmissionInterface, MaxInterfaceFlow),
     )
     spec_network_model = get_network_model(template)
     ps_model = DecisionModel(
@@ -1928,25 +2227,25 @@ end
         [get_component(Line, c_sys5_uc, n) for n in interface_line_names],
     )
 
-    function _filtered_template(net, filter_function)
+    function _filtered_template(net, filter_selector)
         template = get_thermal_dispatch_template_network(net)
         set_device_model!(
             template,
             DeviceModel(
                 Line,
                 StaticBranch;
-                attributes = Dict("filter_function" => filter_function),
+                attributes = Dict("filter_selector" => filter_selector),
             ),
         )
         set_service_model!(
             template,
-            ServiceModel(TransmissionInterface, ConstantMaxInterfaceFlow),
+            ServiceModel(TransmissionInterface, MaxInterfaceFlow),
         )
         return template
     end
 
     for net in (DCPNetworkModel, PTDFNetworkModel)
-        template = _filtered_template(net, x -> PSY.get_name(x) == "1")
+        template = _filtered_template(net, make_selector(Line, "1"))
         model = DecisionModel(template, c_sys5_uc; optimizer = HiGHS_optimizer)
         err = try
             POM.validate_template(model)
@@ -1957,7 +2256,7 @@ end
         @test err isa IS.ConflictingInputsError
         message = err.msg
         @test occursin("west_east", message)
-        @test occursin("filter_function", message)
+        @test occursin("filter_selector", message)
         @test occursin("\"2\", \"6\"", message)
         @test !occursin("\"1\"", message)
     end
@@ -1966,7 +2265,7 @@ end
     # every line in the interface.
     template = _filtered_template(
         PTDFNetworkModel,
-        x -> PSY.get_name(x) in ("1", "2", "3", "6"),
+        make_selector(x -> PSY.get_name(x) in ("1", "2", "3", "6"), Line),
     )
     model = DecisionModel(template, c_sys5_uc; optimizer = HiGHS_optimizer)
     @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
@@ -2007,7 +2306,7 @@ end
     set_device_model!(template, Line, StaticBranch)
     set_service_model!(
         template,
-        ServiceModel(TransmissionInterface, ConstantMaxInterfaceFlow),
+        ServiceModel(TransmissionInterface, MaxInterfaceFlow),
     )
 
     model = DecisionModel(template, c_sys14; optimizer = HiGHS_optimizer)
@@ -2073,13 +2372,13 @@ end
             AreaInterchange,
             StaticBranch;
             attributes = Dict(
-                "filter_function" => x -> PSY.get_name(x) == "interchange1_2",
+                "filter_selector" => make_selector(AreaInterchange, "interchange1_2"),
             ),
         ),
     )
     set_service_model!(
         template,
-        ServiceModel(TransmissionInterface, ConstantMaxInterfaceFlow),
+        ServiceModel(TransmissionInterface, MaxInterfaceFlow),
     )
     model = DecisionModel(
         template,

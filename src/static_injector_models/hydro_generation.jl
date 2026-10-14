@@ -216,6 +216,8 @@ get_multiplier_value(::Type{InflowTimeSeriesParameter}, d::PSY.HydroReservoir, :
 get_multiplier_value(::Type{OutflowTimeSeriesParameter}, d::PSY.HydroReservoir, ::Type{<:AbstractHydroFormulation}) = 1.0 # Data already in m3/s
 get_multiplier_value(::Type{InflowTimeSeriesParameter}, d::PSY.HydroReservoir, ::Type{HydroEnergyModelReservoir}) = PSY.get_inflow(d) # Data normalized
 get_multiplier_value(::Type{InflowTimeSeriesParameter}, d::PSY.HydroReservoir, ::Type{HydroWaterFactorModel}) = PSY.get_inflow(d)
+get_multiplier_value(::Type{MinActivePowerTimeSeriesParameter}, d::PSY.HydroGen, ::Type{<:AbstractHydroFormulation}) = PSY.get_max_active_power(d, u"SU")
+get_multiplier_value(::Type{MinActivePowerInTimeSeriesParameter}, d::PSY.HydroPumpTurbine, ::Type{<:AbstractHydroFormulation}) = PSY.get_active_power_limits_pump(d, u"SU").max
 get_multiplier_value(::Type{<:TimeSeriesParameter}, d::PSY.HydroGen, ::Type{<:AbstractHydroFormulation}) = PSY.get_max_active_power(d, u"SU")
 get_multiplier_value(::Type{<:TimeSeriesParameter}, d::PSY.HydroGen, ::Type{FixedOutput}) = PSY.get_max_active_power(d, u"SU")
 # next 2 needed to avoid ambiguity errors
@@ -888,6 +890,71 @@ function get_min_max_limits(
     return (min = 0.0, max = PSY.get_max_active_power(x, u"SU"))
 end
 
+function IOM.get_min_max_limit_values(
+    container::OptimizationContainer,
+    ::Type{ActivePowerVariableLimitsConstraint},
+    d::V,
+    ::DeviceModel{V, W},
+) where {V <: PSY.HydroGen, W <: AbstractHydroFormulation}
+    return _limit_values_or_static(
+        container,
+        W,
+        d,
+        get_min_max_limits(d, ActivePowerVariableLimitsConstraint, W),
+    )
+end
+
+# The lower row of a feedforward-gated range is `Pmin_t * status_t`.
+function _on_status_multipliers(
+    container::OptimizationContainer,
+    ::Type{ActivePowerRangeExpressionLB},
+    d::PSY.HydroGen,
+    ::Type{<:AbstractHydroFormulation},
+)
+    return min_active_power_values(container, d)
+end
+
+# The variable of a dispatch formulation has no status: its lower bound is the smallest
+# minimum of the horizon.
+function set_min_power_variable_bounds!(
+    container::OptimizationContainer,
+    devices::Vector{V},
+    ::DeviceModel{V, W},
+) where {V <: PSY.HydroGen, W <: AbstractHydroDispatchFormulation}
+    has_container_key(container, MinActivePowerTimeSeriesParameter, V) || return
+    _set_lower_bound_to_smallest_minimum!(container, devices)
+    return
+end
+
+# The pump rows read the minimum of each side per step. Without a series it is the static one.
+function IOM.get_min_max_limit_values(
+    container::OptimizationContainer,
+    ::Type{ActivePowerVariableLimitsConstraint},
+    d::V,
+    ::DeviceModel{V, W},
+) where {V <: PSY.HydroPumpTurbine, W <: AbstractHydroPumpFormulation}
+    return _min_max_limit_values(
+        AbsoluteBase(),
+        get_min_max_limits(d, ActivePowerVariableLimitsConstraint, W),
+        d,
+        min_active_power_values(container, d),
+    )
+end
+
+function IOM.get_min_max_limit_values(
+    container::OptimizationContainer,
+    ::Type{InputActivePowerVariableLimitsConstraint},
+    d::V,
+    ::DeviceModel{V, W},
+) where {V <: PSY.HydroPumpTurbine, W <: AbstractHydroPumpFormulation}
+    return _min_max_limit_values(
+        AbsoluteBase(),
+        get_min_max_limits(d, InputActivePowerVariableLimitsConstraint, W),
+        d,
+        min_active_power_in_values(container, d),
+    )
+end
+
 """
 Min and max active Power Variable limits
 """
@@ -1277,7 +1344,9 @@ function add_constraints!(
         name = PSY.get_name(d)
         reservoir = only(PSY.get_connected_head_reservoirs(sys, d))
         reservoir_name = PSY.get_name(reservoir)
-        initial_level = PSY.get_initial_level(reservoir)
+        initial_level =
+            PSY.get_initial_level(reservoir) *
+            _fixed_level_limits(PSY.get_storage_level_limits(reservoir)).max
         elevation_head =
             PSY.get_intake_elevation(reservoir) - PSY.get_powerhouse_elevation(d)
         efficiency = PSY.get_efficiency(d)
@@ -1360,7 +1429,9 @@ function add_constraints!(
 
     for d in devices
         name = PSY.get_name(d)
-        initial_level = PSY.get_initial_level(d)
+        initial_level =
+            PSY.get_initial_level(d) *
+            _fixed_level_limits(PSY.get_storage_level_limits(d)).max
         target_level = PSY.get_level_targets(d)
 
         turbines = PSY.get_downstream_turbines(d)
@@ -2748,10 +2819,11 @@ function add_constraints!(
         for device in devices
             name = PSY.get_name(device)
             limits = get_min_max_limits(device, T, W)
+            pmin = min_active_power_in_values(container, device)
             for t in time_steps
                 pumping_status = on[name, t] - reservation[name, t]
                 con_lb[name, t] = JuMP.@constraint(
-                    jump_model, pumping[name, t] >= limits.min * pumping_status)
+                    jump_model, pumping[name, t] >= pmin[t] * pumping_status)
                 con_ub[name, t] = JuMP.@constraint(
                     jump_model, pumping[name, t] <= limits.max * pumping_status)
             end
