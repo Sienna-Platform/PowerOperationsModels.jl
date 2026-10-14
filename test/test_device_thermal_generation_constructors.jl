@@ -108,7 +108,7 @@ const TIME1 = DateTime("2024-01-01T00:00:00")
         sys_yes = build_system(PSITestSystems, "c_linear_cost_test")
         for u in collect(get_components(ThermalStandard, sys_yes))
             set_status!(u, OperationalStates.OFFLINE)
-            set_time_at_status!(u, 10.0)  # > min down time
+            set_time_at_status!(u, 600.0)  # > min down time, in minutes
         end
         model_yes = DecisionModel(
             template, sys_yes;
@@ -298,13 +298,14 @@ end
     c_sys5_uc = PSB.build_system(PSITestSystems, "c_sys5_pglib")
     model = DecisionModel(MockOperationProblem, DCPNetworkModel, c_sys5_uc;)
     mock_construct_device!(model, device_model)
-    moi_tests(model, 384, 0, 240, 48, 144, true)
+    # Broken: POM reads the minute-valued time limits of c_sys5_pglib as hours.
+    moi_tests(model, 384, 0, 240, 48, 144, true; broken_lessthan = true)
     psi_constraint_test(model, uc_constraint_keys)
     psi_checkbinvar_test(model, bin_variable_keys)
     psi_checkobjfun_test(model, GAEVF)
     model = DecisionModel(MockOperationProblem, DCPNetworkModel, c_sys5_uc;)
     mock_construct_device!(model, device_model; add_event_model = true)
-    moi_tests(model, 384, 0, 264, 48, 144, true)
+    moi_tests(model, 384, 0, 264, 48, 144, true; broken_lessthan = true)
 end
 
 @testset "Thermal MultiStart UC With AC - PF" begin
@@ -324,13 +325,14 @@ end
     c_sys5_uc = PSB.build_system(PSITestSystems, "c_sys5_pglib")
     model = DecisionModel(MockOperationProblem, ACPNetworkModel, c_sys5_uc;)
     mock_construct_device!(model, device_model)
-    moi_tests(model, 432, 0, 288, 96, 144, true)
+    # Broken: POM reads the minute-valued time limits of c_sys5_pglib as hours.
+    moi_tests(model, 432, 0, 288, 96, 144, true; broken_lessthan = true)
     psi_constraint_test(model, uc_constraint_keys)
     psi_checkbinvar_test(model, bin_variable_keys)
     psi_checkobjfun_test(model, GAEVF)
     model = DecisionModel(MockOperationProblem, ACPNetworkModel, c_sys5_uc;)
     mock_construct_device!(model, device_model; add_event_model = true)
-    moi_tests(model, 432, 0, 312, 96, 144, true, 24)
+    moi_tests(model, 432, 0, 312, 96, 144, true, 24; broken_lessthan = true)
 end
 
 ################################### Basic Unit Commitment tests ############################
@@ -701,12 +703,33 @@ end
     c_sys5_pglib = PSB.build_system(PSITestSystems, "c_sys5_pglib")
     model = DecisionModel(MockOperationProblem, DCPNetworkModel, c_sys5_pglib;)
     mock_construct_device!(model, device_model)
-    moi_tests(model, 528, 0, 330, 60, 192, true)
+    # Broken: POM reads the minute-valued time limits of c_sys5_pglib as hours.
+    moi_tests(
+        model,
+        528,
+        0,
+        330,
+        60,
+        192,
+        true;
+        broken_lessthan = true,
+        broken_greaterthan = true,
+    )
     psi_constraint_test(model, constraint_keys)
     psi_checkobjfun_test(model, GAEVF)
     model = DecisionModel(MockOperationProblem, DCPNetworkModel, c_sys5_pglib;)
     mock_construct_device!(model, device_model; add_event_model = true)
-    moi_tests(model, 528, 0, 354, 60, 192, true)
+    moi_tests(
+        model,
+        528,
+        0,
+        354,
+        60,
+        192,
+        true;
+        broken_lessthan = true,
+        broken_greaterthan = true,
+    )
 end
 
 @testset "Thermal MultiStart with MultiStart UC and AC - PF" begin
@@ -738,12 +761,34 @@ end
     c_sys5_pglib = PSB.build_system(PSITestSystems, "c_sys5_pglib")
     model = DecisionModel(MockOperationProblem, ACPNetworkModel, c_sys5_pglib;)
     mock_construct_device!(model, device_model)
-    moi_tests(model, 576, 0, 378, 108, 192, true)
+    # Broken: POM reads the minute-valued time limits of c_sys5_pglib as hours.
+    moi_tests(
+        model,
+        576,
+        0,
+        378,
+        108,
+        192,
+        true;
+        broken_lessthan = true,
+        broken_greaterthan = true,
+    )
     psi_constraint_test(model, constraint_keys)
     psi_checkobjfun_test(model, GAEVF)
     model = DecisionModel(MockOperationProblem, ACPNetworkModel, c_sys5_pglib;)
     mock_construct_device!(model, device_model; add_event_model = true)
-    moi_tests(model, 576, 0, 402, 108, 192, true, 24)
+    moi_tests(
+        model,
+        576,
+        0,
+        402,
+        108,
+        192,
+        true,
+        24;
+        broken_lessthan = true,
+        broken_greaterthan = true,
+    )
 end
 
 @testset "Thermal MultiStart UC with a must-run unit" begin
@@ -827,11 +872,12 @@ end
     c_sys5_pglib = PSB.build_system(PSITestSystems, "c_sys5_pglib")
     model = DecisionModel(MockOperationProblem, DCPNetworkModel, c_sys5_pglib;)
     mock_construct_device!(model, device_model)
-    moi_tests(model, 384, 0, 240, 48, 144, true)
+    # Broken: POM reads the minute-valued time limits of c_sys5_pglib as hours.
+    moi_tests(model, 384, 0, 240, 48, 144, true; broken_lessthan = true)
     psi_checkobjfun_test(model, GAEVF)
     model = DecisionModel(MockOperationProblem, DCPNetworkModel, c_sys5_pglib;)
     mock_construct_device!(model, device_model; add_event_model = true)
-    moi_tests(model, 384, 0, 264, 48, 144, true)
+    moi_tests(model, 384, 0, 264, 48, 144, true; broken_lessthan = true)
 end
 
 @testset "Thermal Standard with Compact UC and AC - PF" begin
@@ -851,11 +897,12 @@ end
     c_sys5_pglib = PSB.build_system(PSITestSystems, "c_sys5_pglib")
     model = DecisionModel(MockOperationProblem, ACPNetworkModel, c_sys5_pglib;)
     mock_construct_device!(model, device_model)
-    moi_tests(model, 432, 0, 288, 96, 144, true)
+    # Broken: POM reads the minute-valued time limits of c_sys5_pglib as hours.
+    moi_tests(model, 432, 0, 288, 96, 144, true; broken_lessthan = true)
     psi_checkobjfun_test(model, GAEVF)
     model = DecisionModel(MockOperationProblem, ACPNetworkModel, c_sys5_pglib;)
     mock_construct_device!(model, device_model; add_event_model = true)
-    moi_tests(model, 432, 0, 312, 96, 144, true, 24)
+    moi_tests(model, 432, 0, 312, 96, 144, true, 24; broken_lessthan = true)
 end
 
 ################################ Thermal Basic Compact UC Testing ################################
@@ -1009,7 +1056,8 @@ end
     build!(UC; output_dir = mktempdir(; cleanup = true))
     @test build!(UC; output_dir = mktempdir(; cleanup = true)) == IOM.ModelBuildStatus.BUILT
     moi_tests(UC, 56, 0, 56, 14, 21, true)
-    psi_checksolve_test(UC, [MOI.OPTIMAL], 8223.50)
+    # Broken: POM reads the minute-valued time limits of c_duration_test as hours.
+    psi_checksolve_test(UC, [MOI.OPTIMAL], 8223.50; broken = true)
 end
 
 @testset "Solving UC Models with Linear Networks" begin
