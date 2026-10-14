@@ -16,7 +16,7 @@ PowerOperationsModels = {path = ".."}
 InfrastructureSystems = {rev = "IS4", url = "https://github.com/Sienna-Platform/InfrastructureSystems.jl"}
 PowerSystems = {rev = "psy6", url = "https://github.com/Sienna-Platform/PowerSystems.jl"}
 InfrastructureOptimizationModels = {rev = "fix/hydro-commitment-sos-status", url = "https://github.com/Sienna-Platform/InfrastructureOptimizationModels.jl"}
-PowerNetworkMatrices = {rev = "jd/irreducible-selector", url = "https://github.com/Sienna-Platform/PowerNetworkMatrices.jl"}
+PowerNetworkMatrices = {rev = "psy6", url = "https://github.com/Sienna-Platform/PowerNetworkMatrices.jl"}
 
 [compat]
 Documenter = "^1.0"
