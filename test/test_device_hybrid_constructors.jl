@@ -70,9 +70,15 @@ const _EXACT_HIGHS = JuMP.optimizer_with_attributes(
     HiGHS.Optimizer, "mip_rel_gap" => 0.0, "log_to_console" => false,
 )
 
-function _build_and_solve(template, sys; optimizer = HiGHS_optimizer)
+function _build_and_solve(
+    template,
+    sys;
+    optimizer = HiGHS_optimizer,
+    initialize_model::Bool = true,
+)
     m = POM.DecisionModel(template, sys;
-        optimizer = optimizer, horizon = _HYBRID_HORIZON)
+        optimizer = optimizer, horizon = _HYBRID_HORIZON,
+        initialize_model = initialize_model)
     @test POM.build!(m; output_dir = mktempdir(; cleanup = true)) ==
           IOM.ModelBuildStatus.BUILT
     @test POM.solve!(m) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
@@ -328,7 +334,8 @@ end
 end
 
 @testset "Comparison: energy_target on vs. off" begin
-    # One system for both models: two separately built copies can give different optima.
+    # No initialization solve: it has several optima, so each build can start from other
+    # initial conditions and the two objectives become incomparable.
     sys, _ = _build_hybrid_test_system(; energy_target = true)
 
     m_on = _build_and_solve(
@@ -336,12 +343,14 @@ end
             attributes = Dict{String, Any}("energy_target" => true)),
         sys;
         optimizer = _EXACT_HIGHS,
+        initialize_model = false,
     )
     m_off = _build_and_solve(
         _build_hybrid_template(sys;
             attributes = Dict{String, Any}("energy_target" => false)),
         sys;
         optimizer = _EXACT_HIGHS,
+        initialize_model = false,
     )
 
     # Enabling the energy target adds the soft-equality constraint and penalizes the
@@ -354,7 +363,8 @@ end
 end
 
 @testset "Comparison: regularization on vs. off" begin
-    # One system for both models: two separately built copies can give different optima.
+    # No initialization solve: it has several optima, so each build can start from other
+    # initial conditions and the two objectives become incomparable.
     sys, _ = _build_hybrid_test_system()
 
     m_on = _build_and_solve(
@@ -362,12 +372,14 @@ end
             attributes = Dict{String, Any}("regularization" => true)),
         sys;
         optimizer = _EXACT_HIGHS,
+        initialize_model = false,
     )
     m_off = _build_and_solve(
         _build_hybrid_template(sys;
             attributes = Dict{String, Any}("regularization" => false)),
         sys;
         optimizer = _EXACT_HIGHS,
+        initialize_model = false,
     )
 
     # The penalty can only weakly raise the objective; both solves use a zero MIP gap.
