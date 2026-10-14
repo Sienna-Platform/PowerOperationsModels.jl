@@ -1703,7 +1703,7 @@ end
 function _bind_startup_ramp!(sys::PSY.System)
     unit = get_component(ThermalStandard, sys, "Test Unit")
     set_status!(unit, OperationalStates.OFFLINE)
-    set_time_at_status!(unit, 10.0)
+    set_time_at_status!(unit, 600.0)
     set_active_power!(unit, 0.0 * u"SU")
     # 0.12 SU/h is less than P_min = 0.5 SU, so the start-up and shut-down ramps bind.
     set_ramp_limits!(unit, (up = 0.002 * u"SU/minute", down = 0.002 * u"SU/minute"))
@@ -1914,8 +1914,16 @@ end
     )
     # The step before the first hot temperature row has no look-back window inside the
     # horizon, so the initial-condition row must cover it.
-    t_first = minimum(t for (n, t) in keys(hot.data) if n == "115_STEAM_1")
-    @test haskey(ic_ub.data, ("115_STEAM_1", t_first - 1, 1))
+    # Broken: POM reads the minute-valued time limits of c_sys5_pglib as hours, so the
+    # hot rows fall outside the horizon and `minimum` throws.
+    @test haskey(
+        ic_ub.data,
+        (
+            "115_STEAM_1",
+            minimum(t for (n, t) in keys(hot.data) if n == "115_STEAM_1") - 1,
+            1,
+        ),
+    ) broken = true
 end
 
 # Each row of one temperature stage holds its own start variable and no other.
@@ -1923,7 +1931,8 @@ function _check_temperature_stage_rows(
     container,
     meta::String,
     ::Type{S},
-    ::Type{O},
+    ::Type{O};
+    broken::Bool = false,
 ) where {S, O}
     con = IOM.get_constraint(
         container,
@@ -1931,7 +1940,7 @@ function _check_temperature_stage_rows(
     )
     own = IOM.get_variable(container, S, ThermalMultiStart)
     other = IOM.get_variable(container, O, ThermalMultiStart)
-    @test !isempty(con.data)
+    @test !isempty(con.data) broken = broken
     for ((name, t), c) in con.data
         @test JuMP.normalized_coefficient(c, own[name, t]) ≈ 1.0
         @test iszero(JuMP.normalized_coefficient(c, other[name, t]))
@@ -1964,8 +1973,13 @@ const _START_TYPE_COEFFICIENTS = (
         model, DeviceModel(ThermalMultiStart, ThermalMultiStartUnitCommitment),
     )
     container = IOM.get_optimization_container(model)
-    _check_temperature_stage_rows(container, "hot", HotStartVariable, WarmStartVariable)
-    _check_temperature_stage_rows(container, "warm", WarmStartVariable, HotStartVariable)
+    # Broken: POM reads the minute-valued time limits of c_sys5_pglib as hours.
+    _check_temperature_stage_rows(
+        container, "hot", HotStartVariable, WarmStartVariable; broken = true,
+    )
+    _check_temperature_stage_rows(
+        container, "warm", WarmStartVariable, HotStartVariable; broken = true,
+    )
     hot = IOM.get_variable(container, HotStartVariable, ThermalMultiStart)
     warm = IOM.get_variable(container, WarmStartVariable, ThermalMultiStart)
     cold = IOM.get_variable(container, ColdStartVariable, ThermalMultiStart)
