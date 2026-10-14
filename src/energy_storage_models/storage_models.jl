@@ -276,6 +276,39 @@ add_reserve_range_constraint_with_deployment_no_reservation!(
     _add_deployment_upper_bound!(
         container, T, U, devices, model; with_reservation = false)
 
+function add_reservation_exclusivity_constraints!(
+    container::OptimizationContainer,
+    ::Type{T},
+    ::Type{U},
+    devices::Vector{V},
+    model::DeviceModel{V, W},
+    ::NetworkModel,
+) where {
+    T <: Union{
+        OutputActivePowerVariableLimitsConstraint, InputActivePowerVariableLimitsConstraint,
+    },
+    U <: Union{ActivePowerOutVariable, ActivePowerInVariable},
+    V <: PSY.Storage,
+    W <: AbstractStorageFormulation,
+}
+    time_steps = get_time_steps(container)
+    names = [PSY.get_name(x) for x in devices]
+    jump_model = get_jump_model(container)
+    power_var = get_variable(container, U, V)
+    ss_var = get_variable(container, ReservationVariable, V)
+    constraint =
+        add_constraints_container!(container, T, V, names, time_steps; meta = "exclusivity")
+    for d in devices, t in time_steps
+        name = PSY.get_name(d)
+        bound = IOM.get_bound(IOM.UpperBound(), IOM.get_min_max_limits(d, T, W))
+        IOM.add_range_bound_constraint!(
+            IOM.UpperBound(), jump_model, constraint, name, t,
+            power_var[name, t], bound, _reservation_factor(T, ss_var, name, t),
+        )
+    end
+    return
+end
+
 function add_constraints!(
     container::OptimizationContainer,
     T::Type{<:ReactivePowerVariableLimitsConstraint},

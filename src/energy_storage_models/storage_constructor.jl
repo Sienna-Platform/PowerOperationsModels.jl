@@ -248,6 +248,24 @@ function _active_power_and_energy_bounds(
                 network_model,
             )
         else
+            if get_attribute(model, "reservation")
+                add_reservation_exclusivity_constraints!(
+                    container,
+                    OutputActivePowerVariableLimitsConstraint,
+                    ActivePowerOutVariable,
+                    devices,
+                    model,
+                    network_model,
+                )
+                add_reservation_exclusivity_constraints!(
+                    container,
+                    InputActivePowerVariableLimitsConstraint,
+                    ActivePowerInVariable,
+                    devices,
+                    model,
+                    network_model,
+                )
+            end
             add_reserve_range_constraint_with_deployment_no_reservation!(
                 container,
                 OutputActivePowerVariableLimitsConstraint,
