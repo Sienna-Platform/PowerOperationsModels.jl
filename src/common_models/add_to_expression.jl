@@ -2473,11 +2473,10 @@ function add_to_expression!(
     end
     return
 end
-
 function add_to_expression!(
     container::OptimizationContainer,
     ::Type{T},
-    ::U,
+    ::Type{U},
     devices::Vector{V},
     model::DeviceModel{V, W},
 ) where {
@@ -2509,7 +2508,7 @@ end
 function add_to_expression!(
     container::OptimizationContainer,
     ::Type{T},
-    ::U,
+    ::Type{U},
     devices::Vector{V},
     model::DeviceModel{V, W},
 ) where {
@@ -2941,7 +2940,7 @@ end
 function add_to_expression!(
     container::OptimizationContainer,
     ::Type{T},
-    ::U,
+    ::Type{U},
     devices::Vector{V},
     model::DeviceModel{V, W},
 ) where {

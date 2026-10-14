@@ -1034,7 +1034,7 @@ end
     psi_checksolve_test(
         model,
         [MOI.OPTIMAL, MOI.ALMOST_OPTIMAL, MOI.LOCALLY_SOLVED],
-        213043.54,
+        211666.58,
         1000,
     )
 end

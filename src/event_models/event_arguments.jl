@@ -18,13 +18,13 @@ function add_parameters!(
     if get_rebuild_model(get_settings(container)) && has_container_key(container, T, D)
         return
     end
-    _add_parameters!(container, T(), devices, device_model, event_model)
+    _add_parameters!(container, T, devices, device_model, event_model)
     return
 end
 
 function _add_parameters!(
     container::OptimizationContainer,
-    ::T,
+    ::Type{T},
     devices::Vector{U},
     device_model::DeviceModel{U, W},
     event_model::EventModel{V, X},
@@ -49,10 +49,10 @@ function _add_parameters!(
     parent_mult = IOM.get_multiplier_array_data(parameter_container)
     parent_param = IOM.get_parameter_array_data(parameter_container)
     for (i, d) in enumerate(devices)
-        ini_val = get_initial_parameter_value(T(), d, event_model)
+        ini_val = get_initial_parameter_value(T, d, event_model)
         IOM._set_multiplier_at!(
             parent_mult,
-            get_parameter_multiplier(T(), d, event_model),
+            get_parameter_multiplier(T, d, event_model),
             i,
         )
         for t in time_steps

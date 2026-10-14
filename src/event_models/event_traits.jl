@@ -1,9 +1,9 @@
 #! format: off
-get_parameter_multiplier(::EventParameter, ::PSY.Device, ::EventModel) = 1.0
-get_initial_parameter_value(::ActivePowerOffsetParameter, ::PSY.Device, ::EventModel) = 0.0
-get_initial_parameter_value(::ReactivePowerOffsetParameter, ::PSY.Device, ::EventModel) = 0.0
-get_initial_parameter_value(::AvailableStatusChangeCountdownParameter, ::PSY.Device, ::EventModel) = 0.0
-get_initial_parameter_value(::AvailableStatusParameter, ::PSY.Device, ::EventModel) = 1.0
+get_parameter_multiplier(::Type{<:EventParameter}, ::PSY.Device, ::EventModel) = 1.0
+get_initial_parameter_value(::Type{ActivePowerOffsetParameter}, ::PSY.Device, ::EventModel) = 0.0
+get_initial_parameter_value(::Type{ReactivePowerOffsetParameter}, ::PSY.Device, ::EventModel) = 0.0
+get_initial_parameter_value(::Type{AvailableStatusChangeCountdownParameter}, ::PSY.Device, ::EventModel) = 0.0
+get_initial_parameter_value(::Type{AvailableStatusParameter}, ::PSY.Device, ::EventModel) = 1.0
 
 """
 Whether devices of this type support outage events (`EventModel`). This is a device-type
