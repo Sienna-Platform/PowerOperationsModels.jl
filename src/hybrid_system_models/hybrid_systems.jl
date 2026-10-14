@@ -1834,6 +1834,12 @@ _pcc_reserve_lb_expr(::Type{HybridStatusOnConstraint{ChargeSide}}) =
 _pcc_reservation_factor(::Type{HybridStatusOnConstraint{DischargeSide}}, r_val) = r_val
 _pcc_reservation_factor(::Type{HybridStatusOnConstraint{ChargeSide}}, r_val) = 1 - r_val
 
+# Without `reservation` there is no binary: the PCC bound factor is the constant 1.0.
+struct _PCCNoReservation end
+_pcc_rhs_factor(::Type{T}, binary, name, t) where {T} =
+    _pcc_reservation_factor(T, binary[name, t])
+_pcc_rhs_factor(::Type{T}, ::_PCCNoReservation, name, t) where {T} = 1.0
+
 # Helper: do PCC status constraints carry reserve terms? Type-dispatched, no body-level <:.
 _pcc_has_reserves(::Type{<:AbstractHybridFormulationWithReserves}, model) =
     has_service_model(model)
@@ -1851,10 +1857,30 @@ function add_constraints!(
     W <: AbstractHybridFormulation,
     X <: AbstractNetworkModel,
 }
+    if get_attribute(model, "reservation")
+        reservation = get_variable(container, ReservationVariable, V)
+        _add_pcc_status_rows!(container, T, devices, model, reservation)
+    else
+        _add_pcc_status_rows!(container, T, devices, model, _PCCNoReservation())
+    end
+    return
+end
+
+function _add_pcc_status_rows!(
+    container::OptimizationContainer,
+    ::Type{T},
+    devices::Vector{V},
+    model::DeviceModel{V, W},
+    reservation::R,
+) where {
+    T <: HybridStatusOnConstraint,
+    V <: PSY.HybridSystem,
+    W <: AbstractHybridFormulation,
+    R,
+}
     time_steps = get_time_steps(container)
     names = [PSY.get_name(d) for d in devices]
     p_var = get_variable(container, _pcc_power_var(T), V)
-    reservation = get_variable(container, ReservationVariable, V)
     constraint = add_constraints_container!(container, T, V, names, time_steps)
 
     has_reserves = _pcc_has_reserves(W, model)
@@ -1871,7 +1897,7 @@ function add_constraints!(
     for d in devices, t in time_steps
         name = PSY.get_name(d)
         max_p = _pcc_max_limit(T, d)
-        rhs_factor = _pcc_reservation_factor(T, reservation[name, t])
+        rhs_factor = _pcc_rhs_factor(T, reservation, name, t)
         if has_reserves
             constraint[name, t] = JuMP.@constraint(
                 get_jump_model(container),
