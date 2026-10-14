@@ -125,8 +125,7 @@ initial_condition_variable(::InitialTimeDurationOff, d::PSY.ThermalGen, ::Abstra
 ########################Objective Function##################################################
 # TODO: Decide what is the cost for OnVariable, if fixed or constant term in variable
 function proportional_cost(container::OptimizationContainer, cost::PSY.ThermalGenerationCost, S::Type{OnVariable}, T::PSY.ThermalGen, U::Type{<:AbstractThermalFormulation}, t::Int)
-    variable_cost = PSY.get_variable_operation_cost(cost)
-    return onvar_cost(container, cost, S, T, U, t) + PSY.get_constant_term(PSY.get_vom_cost(variable_cost)) + PSY.get_fixed(cost) + _min_power_vom_cost(container, variable_cost, T, U, t)
+    return onvar_cost(container, cost, S, T, U, t) + PSY.get_constant_term(PSY.get_vom_cost(PSY.get_variable_operation_cost(cost))) + PSY.get_fixed(cost)
 end
 # Is the OnVariable proportional term's *rate* time-varying? For ThermalGenerationCost
 # that rate is `onvar_cost + vom_constant + fixed`; only `onvar_cost` can vary, and
@@ -222,34 +221,6 @@ function _onvar_cost(container::OptimizationContainer, cost_function::Union{PSY.
 end
 
 #! format: on
-
-_min_power_vom_cost(
-    ::OptimizationContainer,
-    ::PSY.ProductionVariableCostCurve,
-    ::PSY.ThermalGen,
-    ::Type{<:AbstractThermalFormulation},
-    ::Int,
-) = 0.0
-
-# Compact formulations price VOM on PowerAboveMinimumVariable only, so the OnVariable rate
-# carries the VOM cost of P_min. The objective methods price the curve slope at P_min.
-function _min_power_vom_cost(
-    container::OptimizationContainer,
-    curve::PSY.ProductionVariableCostCurve,
-    d::PSY.ThermalGen,
-    ::Type{<:AbstractCompactUnitCommitment},
-    t::Int,
-)
-    rate_per_unit = get_proportional_cost_per_system_unit(
-        PSY.get_proportional_term(PSY.get_vom_cost(curve)),
-        PSY.get_power_units(curve),
-        get_model_base_power(container),
-        PSY.get_base_power(d, u"NU"),
-    )
-    # ponytail: rebuilds the P_min vector per step (O(T^2) per unit); pass P_min_t if build time shows it.
-    return rate_per_unit * min_active_power_values(container, d)[t]
-end
-
 function get_initial_conditions_device_model(
     model::IOM.AbstractOptimizationModel,
     ::DeviceModel{T, D},

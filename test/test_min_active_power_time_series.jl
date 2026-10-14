@@ -496,6 +496,42 @@ end
     end
 end
 
+@testset "Compact VOM term: coefficient on u_t over coefficient on dp_t is Pmin_t" begin
+    sys = PSB.build_system(PSITestSystems, "c_linear_cost_test")
+    unit = get_component(ThermalStandard, sys, "Test Unit")
+    set_variable_operation_cost!(
+        get_operation_cost(unit),
+        CostCurve(LinearCurve(10.23), LinearCurve(3.0)),
+    )
+    values = MIN_POWER_VALUES[1:5]
+    add_min_power_series!(sys, unit, values)
+    template = PowerOperationsProblemTemplate(CopperPlateNetworkModel)
+    set_device_model!(template, PowerLoad, StaticPowerLoad)
+    set_device_model!(
+        template,
+        DeviceModel(
+            ThermalStandard,
+            ThermalCompactUnitCommitment;
+            time_series_names = Dict(
+                MinActivePowerTimeSeriesParameter => "min_active_power",
+            ),
+        ),
+    )
+    model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) == ModelBuildStatus.BUILT
+    container = IOM.get_optimization_container(model)
+    pmax = PSY.get_max_active_power(unit, u"SU")
+    on = IOM.get_variable(container, OnVariable, ThermalStandard)
+    dp = IOM.get_variable(container, PowerAboveMinimumVariable, ThermalStandard)
+    vom = IOM.get_expression(container, IOM.VOMCostExpression, ThermalStandard)
+    for t in 1:5
+        coef_dp = JuMP.coefficient(vom["Test Unit", t], dp["Test Unit", t])
+        coef_on = JuMP.coefficient(vom["Test Unit", t], on["Test Unit", t])
+        @test !iszero(coef_dp)
+        @test coef_on / coef_dp ≈ pmax * values[t]
+    end
+end
+
 @testset "Compact dispatch with feedforward: range upper row follows the series" begin
     sys, unit = _min_power_system(MIN_POWER_VALUES)
     ff = SemiContinuousFeedforward(;
