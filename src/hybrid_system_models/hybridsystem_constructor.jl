@@ -492,8 +492,9 @@ function construct_device!(
     _maybe_add_reactive_power_limits!(container, devices, model, network_model)
 
     # PCC ↔ subcomponent plumbing. With reservation, mutual-exclusion via ReservationVariable;
-    # without, simple range constraints on the PCC variables (no binary).
-    if get_attribute(model, "reservation")
+    # without it, services use the same rows with a constant factor of 1.0, and no
+    # services use simple range constraints on the PCC variables.
+    if get_attribute(model, "reservation") || has_service_model(model)
         add_constraints!(
             container,
             HybridStatusOnConstraint{DischargeSide},
