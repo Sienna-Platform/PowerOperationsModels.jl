@@ -20,13 +20,37 @@ function IOM.reset!(d::CountingEvaluationData)
     return
 end
 
-# IOM calls every evaluator aux key with every evaluation data.
-IOM.calculate_aux_variable_value!(
-    ::IOM.OptimizationContainer,
-    ::IOM.AuxVarKey{<:POM.PowerFlowAuxVariableType},
-    ::PSY.System,
+struct CountingAux <: IOM.AuxVariableType end
+IOM.is_from_evaluator(::Type{CountingAux}) = true
+
+function IOM.add_evaluator_aux_variables!(
+    container::IOM.OptimizationContainer,
+    T::DataType,
     ::CountingEvaluationData,
-) = nothing
+    sys::PSY.System,
+)
+    names = [PSY.get_name(b) for b in PSY.get_components(PSY.ACBus, sys)]
+    IOM.add_aux_variable_container!(
+        container,
+        CountingAux,
+        PSY.ACBus,
+        names,
+        IOM.get_time_steps(container),
+    )
+    IOM.bind_aux_variable!(container, T, IOM.AuxVarKey(CountingAux, PSY.ACBus))
+    return
+end
+
+# The only method for CountingAux: power flow data reaching it is a MethodError.
+function IOM.calculate_aux_variable_value!(
+    container::IOM.OptimizationContainer,
+    key::IOM.AuxVarKey{CountingAux, PSY.ACBus},
+    ::PSY.System,
+    data::CountingEvaluationData,
+)
+    IOM.get_aux_variable(container, key) .= data.n_eval
+    return
+end
 
 function _build_and_solve_external(system, template)
     model = DecisionModel(template, system; optimizer = HiGHS_optimizer)
@@ -38,8 +62,25 @@ end
 
 function _external_template(evaluations)
     return get_template_dispatch_with_network(
-        NetworkModel(PTDFNetworkModel; evaluations = evaluations),
+        NetworkModel(PTDFNetworkModel);
+        evaluations = evaluations,
     )
+end
+
+@testset "Evaluators live on the template" begin
+    ec = IOM.EvaluationContainer()
+    IOM.add_evaluator!(ec, CountingEvaluator, CountingEvaluator())
+    template = PowerOperationsProblemTemplate(
+        NetworkModel(PTDFNetworkModel);
+        evaluations = ec,
+    )
+    @test IOM.get_evaluations(template) === ec
+    @test !hasfield(NetworkModel, :evaluations)
+
+    replacement = IOM.EvaluationContainer()
+    IOM.set_evaluations!(template, replacement)
+    @test IOM.get_evaluations(template) === replacement
+    @test isempty(IOM.get_evaluations(PowerOperationsProblemTemplate()))
 end
 
 @testset "Evaluator that is not a power flow" begin
@@ -69,6 +110,9 @@ end
     evaluation_data = get_evaluation_data(container)
     @test length(evaluation_data) == 2
     @test evaluation_data[CountingEvaluator].n_eval == 1
+    counting_key = IOM.AuxVarKey(CountingAux, PSY.ACBus)
+    @test all(==(1.0), lookup_value(container, counting_key))
+    @test IOM.get_bound_aux_var_keys(container, CountingEvaluator) == [counting_key]
 
     reference = get_optimization_container(
         _build_and_solve_external(
@@ -131,10 +175,8 @@ end
 @testset "A rebuild makes new evaluation data and keeps the network data" begin
     sys = build_system(PSITestSystems, "c_sys5_uc")
     template = get_template_dispatch_with_network(
-        NetworkModel(
-            PTDFNetworkModel;
-            evaluations = power_flow_evaluations(ACPowerFlow()),
-        ),
+        NetworkModel(PTDFNetworkModel);
+        evaluations = power_flow_evaluations(ACPowerFlow()),
     )
     # A simulation model rebuilds with these settings.
     model = DecisionModel(template, sys; optimizer = HiGHS_optimizer, rebuild_model = true)
@@ -148,6 +190,10 @@ end
     flows = lookup_value(container, key)
     data = only(values(get_evaluation_data(container)))
     network_data = get_network_data(get_network_model(get_template(model)))
+    n_bound = length(
+        IOM.get_bound_aux_var_keys(container, only(keys(get_evaluation_data(container)))),
+    )
+    @test n_bound > 0
 
     IOM.reset_optimization_model!(container)
     POM.build_problem!(container, get_template(model), get_system(model))
@@ -155,6 +201,9 @@ end
     @test IOM.get_run_status(model) == RunStatus.SUCCESSFULLY_FINALIZED
 
     @test only(values(get_evaluation_data(container))) !== data
+    @test length(
+        IOM.get_bound_aux_var_keys(container, only(keys(get_evaluation_data(container)))),
+    ) == n_bound
     @test get_network_data(get_network_model(get_template(model))) === network_data
     @test all(isapprox.(lookup_value(container, key), flows; atol = 1e-9))
 end
@@ -194,8 +243,8 @@ function _add_line_outages!(sys)
     return
 end
 
-function _sc_pf_template(network_model)
-    template = get_thermal_dispatch_template_network(network_model)
+function _sc_pf_template(network_model; kwargs...)
+    template = get_thermal_dispatch_template_network(network_model; kwargs...)
     set_device_model!(template, PSY.Line, POM.SecurityConstrainedStaticBranch)
     return template
 end
@@ -211,15 +260,11 @@ function _copy_case_system_and_template(sc, klu, outages, evaluations)
     if klu
         network_source = _klu_ptdf_source(sys)
     end
-    network_model = NetworkModel(
-        PTDFNetworkModel;
-        network_source = network_source,
-        evaluations = evaluations,
-    )
+    network_model = NetworkModel(PTDFNetworkModel; network_source = network_source)
     if outages
-        return sys, _sc_pf_template(network_model)
+        return sys, _sc_pf_template(network_model; evaluations = evaluations)
     end
-    return sys, get_template_dispatch_with_network(network_model)
+    return sys, get_template_dispatch_with_network(network_model; evaluations = evaluations)
 end
 
 const TEMPLATE_COPY_CASES = [
@@ -251,4 +296,23 @@ const TEMPLATE_COPY_CASES = [
         @test !isempty(PNM.get_registered_contingencies(matrix))
     end
     _test_template_copy_and_gc(model, get_matrix)
+end
+
+@testset "Power flows run in registration order" begin
+    ac = ACPowerFlow()
+    export_pf = PSSEExportPowerFlow(:v33, mktempdir(; cleanup = true); overwrite = true)
+    for evaluators in ((ac, export_pf), (export_pf, ac))
+        ec = IOM.EvaluationContainer()
+        for ev in evaluators
+            IOM.add_evaluator!(ec, typeof(ev), POM.PowerFlowEvaluator(ev))
+        end
+        container = get_optimization_container(
+            _build_and_solve_external(
+                build_system(PSITestSystems, "c_sys5_uc"),
+                _external_template(ec),
+            ),
+        )
+        @test collect(keys(get_evaluation_data(container))) ==
+              collect(map(typeof, evaluators))
+    end
 end

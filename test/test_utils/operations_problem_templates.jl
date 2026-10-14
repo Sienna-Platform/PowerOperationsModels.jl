@@ -10,8 +10,8 @@ function get_thermal_standard_uc_template()
     return template
 end
 
-function get_thermal_dispatch_template_network(network = CopperPlateNetworkModel)
-    template = PowerOperationsProblemTemplate(network)
+function get_thermal_dispatch_template_network(network = CopperPlateNetworkModel; kwargs...)
+    template = PowerOperationsProblemTemplate(network; kwargs...)
     set_device_model!(template, ThermalStandard, ThermalBasicDispatch)
     set_device_model!(template, PowerLoad, StaticPowerLoad)
     set_device_model!(template, Line, StaticBranch)
@@ -73,8 +73,8 @@ end
 #     return template
 # end
 
-function get_template_dispatch_with_network(network = PTDFNetworkModel)
-    template = PowerOperationsProblemTemplate(network)
+function get_template_dispatch_with_network(network = PTDFNetworkModel; kwargs...)
+    template = PowerOperationsProblemTemplate(network; kwargs...)
     set_device_model!(template, PowerLoad, StaticPowerLoad)
     set_device_model!(template, ThermalStandard, ThermalBasicDispatch)
     set_device_model!(template, Line, StaticBranch)
