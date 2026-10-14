@@ -1086,3 +1086,38 @@ end
     )
     @test_throws ErrorException POM._assert_not_aggregate(group, "_get_direction")
 end
+
+@testset "a reduced arc pays the flow slack penalty once" begin
+    sys = _case11_with_forecast()
+    net = NetworkModel(
+        PTDFNetworkModel;
+        network_source = _network_source_from_flags(true, true),
+    )
+    template = get_thermal_dispatch_template_network(net)
+    set_device_model!(template, DeviceModel(PSY.Line, StaticBranch; use_slacks = true))
+    set_device_model!(
+        template,
+        DeviceModel(PSY.TwoWindingTransformer, StaticBranch; use_slacks = true),
+    )
+    model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
+    @test build!(
+        model;
+        output_dir = mktempdir(; cleanup = true),
+        console_level = Logging.Error,
+    ) == IOM.ModelBuildStatus.BUILT
+
+    container = IOM.get_optimization_container(model)
+    objective = JuMP.objective_function(IOM.get_jump_model(container))
+    priced = JuMP.VariableRef[]
+    for V in (PSY.Line, PSY.TwoWindingTransformer),
+        S in (FlowActivePowerSlackUpperBound, FlowActivePowerSlackLowerBound)
+
+        for slack in IOM.get_variable(container, S, V)
+            push!(priced, slack)
+            @test JuMP.coefficient(objective, slack) ==
+                  POM.CONSTRAINT_VIOLATION_SLACK_COST
+        end
+    end
+    # The fixture must share a slack between names, or a double price cannot show.
+    @test !allunique(priced)
+end
