@@ -679,7 +679,9 @@ function add_post_contingency_flow_expressions!(
 }
     modf_matrix = get_contingency_matrix(network_model)
     nodal_injection_expressions =
-        _dcp_nodal_injection_expressions(container, PNM.get_bus_axis(modf_matrix))
+        _dcp_nodal_injection_expressions(
+            container, network_model, PNM.get_bus_axis(modf_matrix),
+        )
     _add_modf_post_contingency_flow_expressions!(
         container, T, model, network_model, nodal_injection_expressions,
     )
@@ -687,9 +689,8 @@ function add_post_contingency_flow_expressions!(
 end
 
 # Every JuMP variable of every `FlowActivePowerVariable` container registered
-# for an AC transmission type. These are exactly the branch-flow terms of the
-# DCP nodal balance; every other balance term (device variables, parameters,
-# constants, HVDC flows, system slacks) is a nodal injection.
+# for an AC transmission type. These are the flow-variable terms of the DCP nodal
+# balance. The `BThetaBranchFlow` expressions hold the other branch flows.
 function _collect_ac_branch_flow_variables!(
     ::Set{JuMP.VariableRef},
     ::OptimizationContainerKey,
@@ -730,23 +731,53 @@ function _negated_flow_terms(
     return injection
 end
 
+_add_btheta_flow_injections!(
+    ::Matrix{JuMP.AffExpr},
+    ::OptimizationContainerKey,
+    ::Any,
+    ::NetworkModel{DCPNetworkModel},
+    ::Dict{Int, Int},
+    ::UnitRange{Int},
+) = nothing
+
+# A StaticBranch flow on DCP is an expression, not a variable: f leaves `from` and
+# arrives at `to`, so it adds +f to the injection at `from` and -f at `to`.
+function _add_btheta_flow_injections!(
+    injections::Matrix{JuMP.AffExpr},
+    ::ExpressionKey{BThetaBranchFlow, T},
+    flow_expressions,
+    network_model::NetworkModel{DCPNetworkModel},
+    row_of_bus::Dict{Int, Int},
+    time_steps::UnitRange{Int},
+) where {T <: PSY.ACTransmission}
+    for name in axes(flow_expressions, 1)
+        rep = _representative_branch(network_model, T, name)
+        from_row = row_of_bus[_from_number(rep)]
+        to_row = row_of_bus[_to_number(rep)]
+        for t in time_steps
+            flow = flow_expressions[name, t]
+            add_proportional_to_jump_expression!(injections[from_row, t], flow, 1.0)
+            add_proportional_to_jump_expression!(injections[to_row, t], flow, -1.0)
+        end
+    end
+    return
+end
+
 """
 Nodal active-power injection expressions on a DCP network, with rows ordered by
 `bus_axis` (the MODF bus axis) so that row `i` multiplies MODF column entry `i`.
 
-The DCP `ActivePowerBalance` cannot be used directly in the MODF product: it
-holds the injections PLUS the branch-flow variables and is constrained to zero,
-so its MODF-weighted sum is identically vacuous. The nodal balance constraint
-enforces `injections[bus] = -flow_terms[bus]` exactly, so the injection is
-recovered by keeping only the balance terms whose variables are AC branch
-`FlowActivePowerVariable`s and negating them.
+The DCP `ActivePowerBalance` holds the injections and the branch flows, and the model
+sets it to zero. The injection at a bus is the sum of the flows that leave the bus minus
+the sum of the flows that arrive. A branch flow is a `FlowActivePowerVariable` term in the
+balance, or a `BThetaBranchFlow` expression for a `StaticBranch` branch.
 
-The DCP balance bus axis comes from Dict-ordered reduction-map keys, so rows are
-resolved through the container's axis lookup by bus number instead of assuming
-positional agreement with the MODF axis.
+The balance bus axis comes from Dict-ordered reduction-map keys. The code resolves rows by
+bus number and does not assume that the balance axis and the MODF axis have the same order.
 """
 function _dcp_nodal_injection_expressions(
     container::OptimizationContainer,
+    network_model::NetworkModel{DCPNetworkModel},
     bus_axis::Vector{Int},
 )
     balance = get_expression(container, ActivePowerBalance, PSY.ACBus)
@@ -759,21 +790,18 @@ function _dcp_nodal_injection_expressions(
         )
     end
     flow_variables = _ac_branch_flow_variables(container)
-    if isempty(flow_variables)
-        error(
-            "No `FlowActivePowerVariable` container exists for any AC " *
-            "transmission type; the DCP nodal injections cannot be recovered " *
-            "from the balance expression. The security-constrained branch " *
-            "ArgumentConstructStage must create the flow variables before the " *
-            "post-contingency expressions are built.",
-        )
-    end
     time_steps = get_time_steps(container)
     injections = Matrix{JuMP.AffExpr}(undef, length(bus_axis), length(time_steps))
     for (i, bus_no) in enumerate(bus_axis)
         for t in time_steps
             injections[i, t] = _negated_flow_terms(balance[bus_no, t], flow_variables)
         end
+    end
+    row_of_bus = Dict(bus_no => i for (i, bus_no) in enumerate(bus_axis))
+    for (key, flow_expressions) in IOM.get_expressions(container)
+        _add_btheta_flow_injections!(
+            injections, key, flow_expressions, network_model, row_of_bus, time_steps,
+        )
     end
     return injections
 end
