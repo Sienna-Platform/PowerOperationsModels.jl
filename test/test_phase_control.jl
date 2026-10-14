@@ -753,7 +753,7 @@ end
     template = _base_flow_model(POM.SecurityConstrainedStaticBranch; enable = true)
     set_service_model!(
         template,
-        ServiceModel(PSY.TransmissionInterface, ConstantMaxInterfaceFlow),
+        ServiceModel(PSY.TransmissionInterface, MaxInterfaceFlow),
     )
     model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
     @test build!(model; output_dir = mktempdir(; cleanup = true)) ==

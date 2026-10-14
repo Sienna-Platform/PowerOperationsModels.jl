@@ -31,9 +31,9 @@ function get_default_time_series_names(
     ::Type{V},
 ) where {U <: PSY.ACTransmission, V <: AbstractBranchFormulation}
     # Branch rating time series are opt-in: the user must explicitly set the
-    # `BranchRatingTimeSeriesParameter` name on the `DeviceModel`. An empty
-    # default routes every branch through the static-rating path.
-    return Dict{Type{<:TimeSeriesParameter}, String}()
+    # `BranchRatingTimeSeriesParameter` name on the `DeviceModel`. Operational-limit time
+    # series have default names; a branch without the series uses its static limit.
+    return _operational_flow_limit_time_series_names(U)
 end
 
 const _TRANSFORMERS = Union{PSY.TwoWindingTransformer, PSY.ThreeWindingTransformer}
@@ -60,6 +60,10 @@ average). `PNM.MixedBranchesParallel` groups always use `sum_of_max`.
 """
 const PARALLEL_BRANCH_MAX_RATING_KEY = "parallel_branch_max_rating_method"
 
+const SINGLE_ELEMENT_CONTINGENCY_RATING = "single_element_contingency"
+const SUM_OF_MAX_RATING = "sum_of_max"
+const IMPEDANCE_AVERAGED_RATING = "impedance_averaged"
+
 """
 Attribute key indicating if transformer controls are enabled. Available on
 any DeviceModel where `_control_supported` is `true`.
@@ -77,8 +81,9 @@ function get_default_attributes(
     ::Type{V},
 ) where {U <: PSY.ACTransmission, V <: AbstractBranchFormulation}
     return Dict{String, Any}(
-        PARALLEL_BRANCH_MAX_RATING_KEY => "single_element_contingency",
+        PARALLEL_BRANCH_MAX_RATING_KEY => SINGLE_ELEMENT_CONTINGENCY_RATING,
         _control_attribute(U, V)...,
+        _operational_flow_limit_attributes(U)...,
         RELAX_BINARIES_ATTRIBUTE => false,
     )
 end
@@ -88,18 +93,19 @@ function get_default_attributes(
     ::Type{V},
 ) where {U <: PSY.ACTransmission, V <: AbstractSecurityConstrainedStaticBranch}
     return Dict{String, Any}(
-        PARALLEL_BRANCH_MAX_RATING_KEY => "single_element_contingency",
+        PARALLEL_BRANCH_MAX_RATING_KEY => SINGLE_ELEMENT_CONTINGENCY_RATING,
         "include_planned_outages" => false,
         _control_attribute(U, V)...,
+        _operational_flow_limit_attributes(U)...,
         RELAX_BINARIES_ATTRIBUTE => false,
     )
 end
 
 """
-Branch DeviceModel attribute. When `true`, the end buses of every device in the model are
-kept out of the network reduction, so each device keeps its own arc. Defaults to `false`.
+Branch DeviceModel attribute. When `true` (the default), the model enforces the
+`operational_flow_limit` of its devices in addition to the rating.
 """
-const MODEL_ALL_BRANCHES_KEY = "model_all_branches"
+const APPLY_OPERATIONAL_FLOW_LIMITS_KEY = "apply_operational_flow_limits"
 
 _control_enabled(m::DeviceModel) =
     _control_supported(m) && get_attribute(m, ENABLE_CONTROLS_KEY) === true
@@ -226,12 +232,22 @@ function _branch_variable_bounds(
     return (-rating, rating)
 end
 
-_static_branch_rate_limits(
-    ::Type{<:AbstractACActivePowerFlow},
+function _static_branch_rate_limits(
+    ::Type{V},
     rep::RepresentativeBranch,
     device_model::DeviceModel,
-) =
-    _flow_limits(rep, device_model)
+) where {V <: AbstractACActivePowerFlow}
+    if !_applies_operational_flow_limits(rep, device_model)
+        return _flow_limits(rep, device_model)
+    end
+    return _directional_bounds(V, _operational_flow_limits(rep, device_model))
+end
+
+# A to-from flow is measured at the to end, so its positive side is the to-from direction.
+_directional_bounds(::Type{FlowActivePowerToFromVariable}, lims) =
+    (min = -lims.from_to, max = lims.to_from)
+_directional_bounds(::Type{<:AbstractACActivePowerFlow}, lims) =
+    (min = -lims.to_from, max = lims.from_to)
 
 function _static_branch_rate_limits(
     ::Type{<:AbstractACReactivePowerFlow},
@@ -424,6 +440,21 @@ function _resolve_branch_multiplier(
 )
     return PNM.get_equivalent_emergency_rating(entry)
 end
+
+# An operational-limit time series is a factor on the static limit. The constraint applies
+# the static limit of the arc, so the stored multiplier is 1.0.
+_resolve_branch_multiplier(
+    ::Type{FromToFlowLimitParameter},
+    ::Any,
+    ::Type{<:AbstractBranchFormulation},
+    ::DeviceModel,
+) = 1.0
+_resolve_branch_multiplier(
+    ::Type{ToFromFlowLimitParameter},
+    ::Any,
+    ::Type{<:AbstractBranchFormulation},
+    ::DeviceModel,
+) = 1.0
 
 function _add_flow_rate_constraint!(
     container::OptimizationContainer,
@@ -2432,21 +2463,6 @@ end
 
 ################################## DCPLLNetworkModel branch constraints #################
 
-# Tighten a flow variable to ±rate without loosening any bound it already carries.
-function _tighten_flow_bound!(v, rate)
-    if JuMP.has_upper_bound(v)
-        JuMP.set_upper_bound(v, min(JuMP.upper_bound(v), rate))
-    else
-        JuMP.set_upper_bound(v, rate)
-    end
-    if JuMP.has_lower_bound(v)
-        JuMP.set_lower_bound(v, max(JuMP.lower_bound(v), -rate))
-    else
-        JuMP.set_lower_bound(v, -rate)
-    end
-    return
-end
-
 # Bound DCPLL directional active flows by the branch rating (system base). Finite bounds are
 # mandatory for QCP performance (Principle 0). A zero rating is a data error. Bounds are
 # variable tightening (not one-per-arc constraints), so this runs over every branch name
@@ -2465,8 +2481,8 @@ function _set_dcpll_flow_bounds!(
     _foreach_branch(_all_branches(network_model, T)) do rep
         rate = _directional_flow_rating(rep, device_model)
         for t in time_steps
-            _tighten_flow_bound!(pft[rep.name, t], rate)
-            _tighten_flow_bound!(ptf[rep.name, t], rate)
+            _tighten_bounds!(pft[rep.name, t], -rate, rate)
+            _tighten_bounds!(ptf[rep.name, t], -rate, rate)
         end
     end
     return

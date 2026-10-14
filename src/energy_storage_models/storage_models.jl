@@ -276,6 +276,39 @@ add_reserve_range_constraint_with_deployment_no_reservation!(
     _add_deployment_upper_bound!(
         container, T, U, devices, model; with_reservation = false)
 
+function add_reservation_exclusivity_constraints!(
+    container::OptimizationContainer,
+    ::Type{T},
+    ::Type{U},
+    devices::Vector{V},
+    model::DeviceModel{V, W},
+    ::NetworkModel,
+) where {
+    T <: Union{
+        OutputActivePowerVariableLimitsConstraint, InputActivePowerVariableLimitsConstraint,
+    },
+    U <: Union{ActivePowerOutVariable, ActivePowerInVariable},
+    V <: PSY.Storage,
+    W <: AbstractStorageFormulation,
+}
+    time_steps = get_time_steps(container)
+    names = [PSY.get_name(x) for x in devices]
+    jump_model = get_jump_model(container)
+    power_var = get_variable(container, U, V)
+    ss_var = get_variable(container, ReservationVariable, V)
+    constraint =
+        add_constraints_container!(container, T, V, names, time_steps; meta = "exclusivity")
+    for d in devices, t in time_steps
+        name = PSY.get_name(d)
+        bound = IOM.get_bound(IOM.UpperBound(), IOM.get_min_max_limits(d, T, W))
+        IOM.add_range_bound_constraint!(
+            IOM.UpperBound(), jump_model, constraint, name, t,
+            power_var[name, t], bound, _reservation_factor(T, ss_var, name, t),
+        )
+    end
+    return
+end
+
 function add_constraints!(
     container::OptimizationContainer,
     T::Type{<:ReactivePowerVariableLimitsConstraint},
@@ -341,7 +374,7 @@ function add_variables!(
 }
     @assert !isempty(devices)
     time_steps = get_time_steps(container)
-    services = Set()
+    services = Set{PSY.Service}()
     for d in devices
         union!(services, PSY.get_services(d))
     end
@@ -957,7 +990,7 @@ function add_constraints!(
     initial_conditions = get_initial_condition(container, InitialEnergyLevel(), V)
     energy_var = get_variable(container, EnergyVariable, V)
 
-    services_set = Set()
+    services_set = Set{PSY.Service}()
     for ic in initial_conditions
         storage = IOM.get_component(ic)
         union!(services_set, PSY.get_services(storage))
@@ -1098,7 +1131,7 @@ function add_constraints!(
     initial_conditions = get_initial_condition(container, InitialEnergyLevel(), V)
     energy_var = get_variable(container, EnergyVariable, V)
 
-    services_set = Set()
+    services_set = Set{PSY.Service}()
     for ic in initial_conditions
         storage = IOM.get_component(ic)
         union!(services_set, PSY.get_services(storage))
@@ -1137,8 +1170,8 @@ function add_constraints!(
                   PSY.get_storage_capacity(storage, u"SU") *
                   PSY.get_conversion_factor(storage),
         )
-        expr_up_discharge = Set()
-        expr_dn_charge = Set()
+        expr_up_discharge = Set{JuMP.Containers.DenseAxisArray{JuMP.AffExpr, 1}}()
+        expr_dn_charge = Set{JuMP.Containers.DenseAxisArray{JuMP.AffExpr, 1}}()
         for service in PSY.get_services(storage)
             sustained_time = PSY.get_sustained_time(service)
             num_periods = sustained_time / Dates.value(Dates.Second(resolution))
@@ -1246,7 +1279,7 @@ function add_constraints!(
     model::DeviceModel{V, StorageDispatchWithReserves},
     network_model::NetworkModel{X},
 ) where {V <: PSY.Storage, X <: AbstractNetworkModel}
-    services = Set()
+    services = Set{PSY.Service}()
     for d in devices
         union!(services, PSY.get_services(d))
     end

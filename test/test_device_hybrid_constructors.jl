@@ -430,3 +430,51 @@ end
     @test JuMP.coefficient(expr[name, first(time_steps)], var[name, first(time_steps)]) !=
           JuMP.coefficient(expr[name, last(time_steps)], var[name, last(time_steps)])
 end
+
+@testset "HybridDispatchWithReserves: reservation = false bounds PCC output plus reserve" begin
+    sys, hybrid = _build_hybrid_test_system()
+    template = _build_hybrid_template(sys;
+        attributes = Dict{String, Any}("reservation" => false))
+    m = POM.DecisionModel(template, sys;
+        optimizer = HiGHS_optimizer, horizon = _HYBRID_HORIZON)
+    @test POM.build!(m; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+
+    container = IOM.get_optimization_container(m)
+    name = PSY.get_name(hybrid)
+    p_out = IOM.get_variable(container, POM.ActivePowerOutVariable, PSY.HybridSystem)
+    p_in = IOM.get_variable(container, POM.ActivePowerInVariable, PSY.HybridSystem)
+    out_max = PSY.get_output_active_power_limits(hybrid, u"SU").max
+    in_max = PSY.get_input_active_power_limits(hybrid, u"SU").max
+    cons = IOM.get_constraints(m)
+    out_up = IOM.get_expression(
+        container,
+        POM.HybridPCCReserveExpression{ReserveUp, POM.UnscaledReserve, POM.DischargeSide},
+        PSY.HybridSystem,
+    )
+    in_down = IOM.get_expression(
+        container,
+        POM.HybridPCCReserveExpression{ReserveDown, POM.UnscaledReserve, POM.ChargeSide},
+        PSY.HybridSystem,
+    )
+    out_con = cons[IOM.ConstraintKey(
+        POM.HybridStatusOnConstraint{POM.DischargeSide}, PSY.HybridSystem, "")]
+    in_con = cons[IOM.ConstraintKey(
+        POM.HybridStatusOnConstraint{POM.ChargeSide}, PSY.HybridSystem, "")]
+    for t in IOM.get_time_steps(container)
+        out_obj = JuMP.constraint_object(out_con[name, t])
+        @test JuMP.coefficient(out_obj.func, p_out[name, t]) ≈ 1.0
+        @test out_obj.set.upper ≈ out_max
+        @test !isempty(out_up[name, t].terms)
+        for (v, c) in out_up[name, t].terms
+            @test JuMP.coefficient(out_obj.func, v) ≈ c
+        end
+        in_obj = JuMP.constraint_object(in_con[name, t])
+        @test JuMP.coefficient(in_obj.func, p_in[name, t]) ≈ 1.0
+        @test in_obj.set.upper ≈ in_max
+        @test !isempty(in_down[name, t].terms)
+        for (v, c) in in_down[name, t].terms
+            @test JuMP.coefficient(in_obj.func, v) ≈ c
+        end
+    end
+end
