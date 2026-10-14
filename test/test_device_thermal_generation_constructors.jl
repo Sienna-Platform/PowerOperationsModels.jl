@@ -108,7 +108,7 @@ const TIME1 = DateTime("2024-01-01T00:00:00")
         sys_yes = build_system(PSITestSystems, "c_linear_cost_test")
         for u in collect(get_components(ThermalStandard, sys_yes))
             set_status!(u, OperationalStates.OFFLINE)
-            set_time_at_status!(u, 10.0)  # > min down time
+            set_time_at_status!(u, 600.0)  # > min down time, in minutes
         end
         model_yes = DecisionModel(
             template, sys_yes;
@@ -1655,7 +1655,7 @@ end
 function _bind_startup_ramp!(sys::PSY.System)
     unit = get_component(ThermalStandard, sys, "Test Unit")
     set_status!(unit, OperationalStates.OFFLINE)
-    set_time_at_status!(unit, 10.0)
+    set_time_at_status!(unit, 600.0)
     set_active_power!(unit, 0.0 * u"SU")
     # 0.12 SU/h is less than P_min = 0.5 SU, so the start-up and shut-down ramps bind.
     set_ramp_limits!(unit, (up = 0.002 * u"SU/minute", down = 0.002 * u"SU/minute"))
@@ -1969,4 +1969,122 @@ end
     @test iszero(
         JuMP.normalized_coefficient(range_ic["115_STEAM_1", 1], stop["115_STEAM_1", 1]),
     )
+end
+
+# Count the start variables in the minimum up-time row of one unit at the last step.
+function _count_up_window_starts(container, name::String)
+    t = last(IOM.get_time_steps(container))
+    row = IOM.get_constraint(
+        container, IOM.ConstraintKey(DurationConstraint, ThermalStandard, "up"),
+    )[
+        name,
+        t,
+    ]
+    start = IOM.get_variable(container, StartVariable, ThermalStandard)
+    count = 0
+    for i in 1:t
+        if isone(JuMP.normalized_coefficient(row, start[name, i]))
+            count += 1
+        end
+    end
+    return count
+end
+
+function _duration_container(sys::PSY.System)
+    model = DecisionModel(MockOperationProblem, DCPNetworkModel, sys)
+    mock_construct_device!(
+        model, DeviceModel(ThermalStandard, ThermalStandardUnitCommitment),
+    )
+    return IOM.get_optimization_container(model)
+end
+
+function _duration_ic_value(container, ic_type::IOM.InitialConditionType, name::String)
+    for ic in IOM.get_initial_condition(container, ic_type, ThermalStandard)
+        if IOM.get_component_name(ic) == name
+            return IOM.jump_value(IOM.get_value(ic))
+        end
+    end
+    return error("No initial condition for $name")
+end
+
+@testset "Duration windows and initial durations convert minutes to steps at 1 h" begin
+    sys = PSB.build_system(PSITestSystems, "c_duration_test")
+    @test PSY.get_time_limits(PSY.get_component(ThermalStandard, sys, "Park City")).up ==
+          360.0
+    container = _duration_container(sys)
+    @test _count_up_window_starts(container, "Park City") == 6
+    @test _count_up_window_starts(container, "Alta") == 4
+    @test _duration_ic_value(container, InitialTimeDurationOff(), "Park City") == 3.0
+    @test _duration_ic_value(container, InitialTimeDurationOn(), "Alta") == 2.0
+end
+
+@testset "Duration windows and initial durations convert minutes to steps at 15 min" begin
+    sys = PSB.build_system(PSITestSystems, "c_duration_test")
+    container = build_test_container(sys, 1:48; resolution = Dates.Minute(15))
+    park_city = PSY.get_component(ThermalStandard, sys, "Park City")
+    alta = PSY.get_component(ThermalStandard, sys, "Alta")
+    default_off = POM.initial_condition_default(
+        InitialTimeDurationOff(), park_city, ThermalStandardUnitCommitment(), container,
+    )
+    default_on = POM.initial_condition_default(
+        InitialTimeDurationOn(), alta, ThermalStandardUnitCommitment(), container,
+    )
+    @test default_off == 12.0
+    @test default_on == 8.0
+    units = [park_city, alta]
+    ics_on = [IOM.InitialCondition{InitialTimeDurationOn, Float64}(u, 0.0) for u in units]
+    ics_off = [IOM.InitialCondition{InitialTimeDurationOff, Float64}(u, 0.0) for u in units]
+    _, windows = POM._get_data_for_tdc(ics_on, ics_off, Dates.Minute(15))
+    @test windows[1] == (up = 24.0, down = 16.0)
+    @test windows[2] == (up = 16.0, down = 8.0)
+end
+
+@testset "An RTS unit gets a duration window of 8 steps at 1 h" begin
+    sys = build_system(PSISystems, "modified_RTS_GMLC_DA_sys")
+    unit = PSY.get_component(ThermalStandard, sys, "213_CC_3")
+    @test PSY.get_time_limits(unit).up == 480.0
+    container = _duration_container(sys)
+    @test _count_up_window_starts(container, "213_CC_3") == 8
+end
+
+@testset "A multi-start stage limit of 120 minutes is 2 steps at 1 h" begin
+    sys = PSB.build_system(PSITestSystems, "c_sys5_pglib")
+    unit = PSY.get_component(PSY.ThermalMultiStart, sys, "115_STEAM_1")
+    @test PSY.get_start_time_limits(unit).hot == 120.0
+    model = DecisionModel(MockOperationProblem, DCPNetworkModel, sys)
+    mock_construct_device!(
+        model, DeviceModel(ThermalMultiStart, ThermalMultiStartUnitCommitment),
+    )
+    container = IOM.get_optimization_container(model)
+    hot = IOM.get_constraint(
+        container, StartupTimeLimitTemperatureConstraint, ThermalMultiStart, "hot",
+    )
+    stop = IOM.get_variable(container, StopVariable, ThermalMultiStart)
+    name = "115_STEAM_1"
+    # The hot stage covers stops 2 to 3 steps earlier. The warm limit of 240 minutes is 4 steps.
+    t = last(IOM.get_time_steps(container))
+    @test iszero(JuMP.normalized_coefficient(hot[name, t], stop[name, t - 1]))
+    @test JuMP.normalized_coefficient(hot[name, t], stop[name, t - 2]) ≈ -1.0
+    @test JuMP.normalized_coefficient(hot[name, t], stop[name, t - 3]) ≈ -1.0
+    @test iszero(JuMP.normalized_coefficient(hot[name, t], stop[name, t - 4]))
+end
+
+@testset "Must-run ramp slack variables carry the slack penalty" begin
+    sys = PSB.build_system(PSITestSystems, "c_sys5_uc")
+    mustrun = first(get_components(ThermalStandard, sys))
+    other = last(collect(get_components(ThermalStandard, sys)))
+    PSY.set_commitment_mode!(mustrun, PSY.CommitmentModes.MUST_RUN)
+    model = DecisionModel(MockOperationProblem, DCPNetworkModel, sys)
+    mock_construct_device!(
+        model,
+        DeviceModel(ThermalStandard, ThermalStandardUnitCommitment; use_slacks = true),
+    )
+    container = IOM.get_optimization_container(model)
+    dt = Dates.value(IOM.get_resolution(container)) / POM.MILLISECONDS_IN_HOUR
+    for V in (RateofChangeConstraintSlackUp, RateofChangeConstraintSlackDown)
+        for d in (mustrun, other)
+            @test obj_coef(container, V, ThermalStandard, get_name(d), 1) ≈
+                  POM.CONSTRAINT_VIOLATION_SLACK_COST * dt
+        end
+    end
 end

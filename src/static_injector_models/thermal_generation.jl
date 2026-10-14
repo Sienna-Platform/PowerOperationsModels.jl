@@ -117,9 +117,9 @@ initial_condition_variable(::DevicePower, d::PSY.ThermalGen, ::AbstractThermalFo
 initial_condition_default(::DeviceAboveMinPower, d::PSY.ThermalGen, ::AbstractThermalFormulation, container::OptimizationContainer) = max(0.0, PSY.get_active_power(d, u"SU") - first(min_active_power_values(container, d)))
 initial_condition_variable(::DeviceAboveMinPower, d::PSY.ThermalGen, ::AbstractCompactUnitCommitment) = PowerAboveMinimumVariable()
 initial_condition_variable(::DeviceAboveMinPower, d::PSY.ThermalGen, ::ThermalCompactDispatch) = PowerAboveMinimumVariable()
-initial_condition_default(::InitialTimeDurationOn, d::PSY.ThermalGen, ::AbstractThermalFormulation) = is_online(d) ? PSY.get_time_at_status(d) : 0.0
+initial_condition_default(::InitialTimeDurationOn, d::PSY.ThermalGen, ::AbstractThermalFormulation, container::OptimizationContainer) = _time_at_status_steps(d, container, is_online(d))
 initial_condition_variable(::InitialTimeDurationOn, d::PSY.ThermalGen, ::AbstractThermalFormulation) = OnVariable()
-initial_condition_default(::InitialTimeDurationOff, d::PSY.ThermalGen, ::AbstractThermalFormulation) = !is_online(d) ? PSY.get_time_at_status(d) : 0.0
+initial_condition_default(::InitialTimeDurationOff, d::PSY.ThermalGen, ::AbstractThermalFormulation, container::OptimizationContainer) = _time_at_status_steps(d, container, !is_online(d))
 initial_condition_variable(::InitialTimeDurationOff, d::PSY.ThermalGen, ::AbstractThermalFormulation) = OnVariable()
 
 ########################Objective Function##################################################
@@ -1338,16 +1338,35 @@ end
 
 ########################### start up trajectory constraints ######################################
 
-function _convert_hours_to_timesteps(
-    start_times_hr::PSY.StartUpStages,
+# PSY holds time limits in minutes. The model counts time in steps.
+function _minutes_to_timesteps(minutes::Float64, resolution::Dates.TimePeriod)
+    step_minutes =
+        Dates.value(Dates.Millisecond(resolution)) /
+        (MILLISECONDS_IN_HOUR / MINUTES_IN_HOUR)
+    return ceil(minutes / step_minutes)
+end
+
+function _minutes_to_timesteps(
+    start_times_min::PSY.StartUpStages,
     resolution::Dates.TimePeriod,
 )
-    _start_times_ts = (
-        round((hr * MINUTES_IN_HOUR) / Dates.value(Dates.Minute(resolution)), RoundUp) for
-        hr in start_times_hr
-    )
-    start_times_ts = PSY.StartUpStages(_start_times_ts)
-    return start_times_ts
+    return PSY.StartUpStages((
+        hot = _minutes_to_timesteps(start_times_min.hot, resolution),
+        warm = _minutes_to_timesteps(start_times_min.warm, resolution),
+        cold = _minutes_to_timesteps(start_times_min.cold, resolution),
+    ))
+end
+
+# `time_at_status` in steps when the unit's current status matches the condition, else zero.
+function _time_at_status_steps(
+    d::PSY.Component,
+    container::OptimizationContainer,
+    status_matches::Bool,
+)
+    if status_matches
+        return _minutes_to_timesteps(PSY.get_time_at_status(d), get_resolution(container))
+    end
+    return 0.0
 end
 
 # Units that can start and stop. Must-run units have no On, Start, or Stop variables.
@@ -1438,7 +1457,7 @@ function _add_startup_temperature_rows!(
             continue
         end
         name = PSY.get_name(d)
-        limits = _convert_hours_to_timesteps(PSY.get_start_time_limits(d), resolution)
+        limits = _minutes_to_timesteps(PSY.get_start_time_limits(d), resolution)
         first_lag = Int(_start_stage_limit(S, limits))
         last_lag = Int(_start_stage_limit(_next_start_stage(S), limits)) - 1
         for t in time_steps
@@ -1583,7 +1602,7 @@ function _add_startup_ic_rows!(
         return
     end
     name = PSY.get_name(d)
-    limits = _convert_hours_to_timesteps(
+    limits = _minutes_to_timesteps(
         PSY.get_start_time_limits(d),
         get_resolution(container),
     )
@@ -1616,16 +1635,13 @@ end
 
 ########################### time duration constraints ######################################
 """
-If the fraction of hours that a generator has a duration constraint is less than
-the fraction of hours that a single time_step represents then it is not binding.
+A generator with up and down limits of at most one time step has no binding duration constraint.
 """
 function _get_data_for_tdc(
     initial_conditions_on::Vector{T},
     initial_conditions_off::Vector{U},
     resolution::Dates.TimePeriod,
 ) where {T <: InitialCondition, U <: InitialCondition}
-    steps_per_hour = 60 / Dates.value(Dates.Minute(resolution))
-    fraction_of_hour = 1 / steps_per_hour
     lenght_devices_on = length(initial_conditions_on)
     lenght_devices_off = length(initial_conditions_off)
     IS.@assert_op lenght_devices_off == lenght_devices_on
@@ -1645,7 +1661,9 @@ function _get_data_for_tdc(
             continue
         end
         if !isnothing(time_limits)
-            if (time_limits.up <= fraction_of_hour) & (time_limits.down <= fraction_of_hour)
+            up_val = _minutes_to_timesteps(time_limits.up, resolution)
+            down_val = _minutes_to_timesteps(time_limits.down, resolution)
+            if (up_val <= 1.0) & (down_val <= 1.0)
                 @debug "Generator $(name) has a nonbinding time limits. Constraints Skipped"
                 continue
             else
@@ -1653,8 +1671,6 @@ function _get_data_for_tdc(
             end
             ini_conds[idx, 1] = ic
             ini_conds[idx, 2] = initial_conditions_off[ix]
-            up_val = round(Float64, time_limits.up * steps_per_hour, RoundUp)
-            down_val = round(Float64, time_limits.down * steps_per_hour, RoundUp)
             time_params[idx] = (up = up_val, down = down_val)
         end
     end
@@ -1746,6 +1762,36 @@ end
 # The OnVariable `add_proportional_cost!` forwarder (thermal + hydro) lives in
 # common_models/objective_function.jl.
 skip_proportional_cost(d::PSY.ThermalGen) = _is_must_run(d)
+
+# A must-run unit has no On variable cost, but its ramp slacks keep their penalty.
+function add_proportional_cost!(
+    container::OptimizationContainer,
+    ::Type{U},
+    devices::Union{Vector{T}, IS.FlattenIteratorWrapper{T}},
+    ::Type{V},
+) where {
+    U <: Union{RateofChangeConstraintSlackUp, RateofChangeConstraintSlackDown},
+    T <: PSY.ThermalGen,
+    V <: AbstractThermalFormulation,
+}
+    multiplier = objective_function_multiplier(U, V)
+    dt = Dates.value(get_resolution(container)) / MILLISECONDS_IN_HOUR
+    slack = get_variable(container, U, T)
+    for d in devices
+        name = PSY.get_name(d)
+        cost_term = proportional_cost(PSY.get_operation_cost(d), U, d, V)
+        if iszero(cost_term)
+            continue
+        end
+        rate = cost_term * multiplier * dt
+        for t in get_time_steps(container)
+            add_cost_term_invariant!(
+                container, slack[name, t], rate, FixedCostExpression, T, name, t,
+            )
+        end
+    end
+    return
+end
 
 ########################### Objective Function Calls#############################################
 # These functions are custom implementations of the cost data. In the file objective_functions.jl there are default implementations. Define these only if needed.

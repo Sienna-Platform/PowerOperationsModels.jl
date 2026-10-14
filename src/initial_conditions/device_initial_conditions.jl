@@ -17,12 +17,15 @@ function get_initial_conditions_value(
     ic_data = get_initial_conditions_data(container)
     var_type = initial_condition_variable(U(), component, V())
     if !has_initial_condition_value(ic_data, var_type, W)
-        val = initial_condition_default(U(), component, V())
+        val = initial_condition_default(U(), component, V(), container)
     else
         var = get_initial_condition_value(ic_data, var_type, W)[PSY.get_name(component), 1]
         val = 0.0
         if !is_online(component) && !(var > ABSOLUTE_TOLERANCE)
-            val = PSY.get_time_at_status(component)
+            val = _minutes_to_timesteps(
+                PSY.get_time_at_status(component),
+                get_resolution(container),
+            )
         end
     end
     @debug "Device $(PSY.get_name(component)) initialized $U as $val" _group =
@@ -44,12 +47,15 @@ function get_initial_conditions_value(
     ic_data = get_initial_conditions_data(container)
     var_type = initial_condition_variable(U(), component, V())
     if !has_initial_condition_value(ic_data, var_type, W)
-        val = initial_condition_default(U(), component, V())
+        val = initial_condition_default(U(), component, V(), container)
     else
         var = get_initial_condition_value(ic_data, var_type, W)[PSY.get_name(component), 1]
         val = 0.0
         if !is_online(component) && !(var > ABSOLUTE_TOLERANCE)
-            val = PSY.get_time_at_status(component)
+            val = _minutes_to_timesteps(
+                PSY.get_time_at_status(component),
+                get_resolution(container),
+            )
         end
     end
     @debug "Device $(PSY.get_name(component)) initialized $U as $val" _group =
@@ -75,12 +81,15 @@ function get_initial_conditions_value(
     var_type = initial_condition_variable(U(), component, V())
     has_ic = has_initial_condition_value(ic_data, var_type, W)
     if !has_ic
-        val = initial_condition_default(U(), component, V())
+        val = initial_condition_default(U(), component, V(), container)
     else
         var = get_initial_condition_value(ic_data, var_type, W)[PSY.get_name(component), 1]
         val = 0.0
         if is_online(component) && (var > ABSOLUTE_TOLERANCE)
-            val = PSY.get_time_at_status(component)
+            val = _minutes_to_timesteps(
+                PSY.get_time_at_status(component),
+                get_resolution(container),
+            )
         end
     end
     @debug "Device $(PSY.get_name(component)) initialized $U as $val" _group =
@@ -103,12 +112,15 @@ function get_initial_conditions_value(
     var_type = initial_condition_variable(U(), component, V())
     has_ic = has_initial_condition_value(ic_data, var_type, W)
     if !has_ic
-        val = initial_condition_default(U(), component, V())
+        val = initial_condition_default(U(), component, V(), container)
     else
         var = get_initial_condition_value(ic_data, var_type, W)[PSY.get_name(component), 1]
         val = 0.0
         if is_online(component) && (var > ABSOLUTE_TOLERANCE)
-            val = PSY.get_time_at_status(component)
+            val = _minutes_to_timesteps(
+                PSY.get_time_at_status(component),
+                get_resolution(container),
+            )
         end
     end
     @debug "Device $(PSY.get_name(component)) initialized $U as $val" _group =
