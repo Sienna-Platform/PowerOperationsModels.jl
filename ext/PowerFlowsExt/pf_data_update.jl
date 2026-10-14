@@ -37,7 +37,8 @@ const _PF_FLOW_ENTRY = Union{VariableType, AuxVariableType}
 const _PF_PARAM_ENTRY = ParameterType
 
 # ---- variable / aux entries: the input category carries the direction ----
-# mirrors `add_to_expression!`: StaticInjection (+1 injection), ElectricLoad (-1 withdrawal).
+# The role already encodes direction: withdrawal arrays hold positive withdrawals. A load
+# variable is non-negative consumption, so it enters its withdrawal array with sign +1.
 pf_contribution(
     ::Val{:active_power},
     ::Type{<:_PF_FLOW_ENTRY},
@@ -47,7 +48,7 @@ pf_contribution(
     ::Val{:active_power},
     ::Type{<:_PF_FLOW_ENTRY},
     ::Type{<:PSY.ElectricLoad},
-) = PFContribution(PFActiveQuantity(), PFWithdrawalRole(), -1.0, false)
+) = PFContribution(PFActiveQuantity(), PFWithdrawalRole(), 1.0, false)
 # ActivePowerOutVariable: power output (positive injection); ActivePowerInVariable: withdrawal.
 pf_contribution(
     ::Val{:active_power_out},
@@ -68,7 +69,7 @@ pf_contribution(
     ::Val{:reactive_power},
     ::Type{<:_PF_FLOW_ENTRY},
     ::Type{<:PSY.ElectricLoad},
-) = PFContribution(PFReactiveQuantity(), PFWithdrawalRole(), -1.0, false)
+) = PFContribution(PFReactiveQuantity(), PFWithdrawalRole(), 1.0, false)
 pf_contribution(
     ::Union{Val{:voltage_angle_export}, Val{:voltage_angle_opf}},
     ::Type{<:_PF_FLOW_ENTRY},
