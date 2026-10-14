@@ -8,8 +8,8 @@ Creates a model reference of the InfrastructureOptimizationModels Optimization P
 
   - `model::Type{T<:AbstractNetworkModel}`:
   - `evaluations::IOM.EvaluationContainer = IOM.EvaluationContainer()`: the evaluators
-    that run after each solve, such as power flows. Evaluators run in the order they
-    were added.
+    that run after each solve, such as power flows. Power flows run first, in the order
+    they were added, followed by the other evaluators in the order they were added.
 
 # Example
 

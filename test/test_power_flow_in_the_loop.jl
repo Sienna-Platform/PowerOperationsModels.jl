@@ -725,7 +725,7 @@ end
 end
 
 @testset "AC Power Flow in the loop: Fast Decoupled (FDNR) matches Newton-Raphson" begin
-    pf_data_for(pf_eval) = begin
+    function pf_data_for(pf_eval)
         system = build_system(PSITestSystems, "c_sys5_uc")
         template = get_template_dispatch_with_network(
             NetworkModel(PTDFNetworkModel);
@@ -935,7 +935,7 @@ end
 
 @testset "Power flows that share an aux var write it in registration order" begin
     key = AuxVarKey(POM.PowerFlowBranchActivePowerFromTo, Line)
-    flows_for(evs) = begin
+    function flows_for(evs)
         system = build_system(PSITestSystems, "c_sys5_uc")
         evaluations = IOM.EvaluationContainer()
         for ev in evs
