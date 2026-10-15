@@ -925,9 +925,32 @@ end
         limits -> limits.min,
         "NSPIN",
     )
-    # Skipped: POM reads the minute-valued time limits of c_sys5_pglib as hours. The
-    # solve then succeeds or fails by platform, so a broken test cannot hold it.
-    @test_skip solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+    @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+
+    res = IOM.OptimizationProblemOutputs(model)
+    on = read_variable(
+        res, OnVariable, PSY.ThermalMultiStart; table_format = TableFormat.WIDE,
+    )
+    power = read_variable(
+        res, PowerAboveMinimumVariable, PSY.ThermalMultiStart;
+        table_format = TableFormat.WIDE,
+    )
+    awards = _read_awards(res, "OfflineReserve")
+    # Committed multistart units honour the compact band in the solved solution.
+    committed = 0
+    for d in multistarts
+        name = PSY.get_name(d)
+        name in names(on) || continue
+        col = "NSPIN__$(name)"
+        col in names(awards) || continue
+        limits = PSY.get_active_power_limits(d, u"NU")
+        for t in 1:24
+            on[t, name] > 0.5 || continue
+            committed += 1
+            @test power[t, name] + awards[t, col] <= limits.max - limits.min + 1e-3
+        end
+    end
+    @test committed > 0
 end
 
 # `_offline_ordc_uc_system` with `offunit`'s `max_active_power` series at `factor` of its

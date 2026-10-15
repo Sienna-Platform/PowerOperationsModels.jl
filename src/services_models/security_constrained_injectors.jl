@@ -1,5 +1,8 @@
 const _G1_META = "G1"
 
+# Outage id => generator type => name => total output per period.
+const _OutagedOutput = Dict{Int, Dict{DataType, Dict{String, Vector{JuMP.AffExpr}}}}
+
 _validate_reserve_formulation(::ServiceModel) = false
 _validate_reserve_formulation(
     ::ServiceModel{
@@ -44,36 +47,37 @@ function _security_constrained_outages(
     return outages, use_slacks
 end
 
+# Output of a device at each time step before it deploys reserve.
 function _post_contingency_output(
     container::OptimizationContainer,
-    ::Type{D},
-    name::String,
-    t::Int,
-) where {D <: PSY.Generator}
-    if !has_container_key(container, ActivePowerVariable, D)
+    ::Type{F},
+    device::D,
+) where {F <: AbstractDeviceFormulation, D <: PSY.Generator}
+    if !has_container_key(container, _scheduled_power_variable(F), D)
         throw(
             IS.ConflictingInputsError(
-                "$(D) contributes to a security-constrained reserve but its formulation has no ActivePowerVariable; use a dispatch or commitment formulation.",
+                "$(D) contributes to a security-constrained reserve but formulation $(F) has no $(_scheduled_power_variable(F)); use a dispatch or commitment formulation.",
             ),
         )
     end
-    power = get_variable(container, ActivePowerVariable, D)
-    output = JuMP.AffExpr(0.0)
-    JuMP.add_to_expression!(output, 1.0, power[name, t])
-    return output
+    return _total_active_power_series(container, F, device, get_time_steps(container))
 end
 
 function _post_contingency_output(
     container::OptimizationContainer,
-    ::Type{D},
-    name::String,
-    t::Int,
+    ::Type{<:AbstractDeviceFormulation},
+    device::D,
 ) where {D <: PSY.Storage}
+    name = PSY.get_name(device)
     discharge = get_variable(container, ActivePowerOutVariable, D)
     charge = get_variable(container, ActivePowerInVariable, D)
-    output = JuMP.AffExpr(0.0)
-    JuMP.add_to_expression!(output, 1.0, discharge[name, t])
-    JuMP.add_to_expression!(output, -1.0, charge[name, t])
+    time_steps = get_time_steps(container)
+    output = Vector{JuMP.AffExpr}(undef, length(time_steps))
+    for t in time_steps
+        output[t] = JuMP.AffExpr(0.0)
+        JuMP.add_to_expression!(output[t], 1.0, discharge[name, t])
+        JuMP.add_to_expression!(output[t], -1.0, charge[name, t])
+    end
     return output
 end
 
@@ -81,25 +85,82 @@ _post_contingency_limit(d::PSY.Generator) = PSY.get_max_active_power(d, u"SU")
 _post_contingency_limit(d::PSY.Storage) =
     PSY.get_output_active_power_limits(d, u"SU").max
 
+function _is_modeled_generator(
+    container::OptimizationContainer,
+    devices_template::DevicesModelContainer,
+    ::Type{T},
+    name::String,
+) where {T <: PSY.Generator}
+    if !haskey(devices_template, nameof(T))
+        return false
+    end
+    U = _scheduled_power_variable(get_formulation(devices_template[nameof(T)]))
+    return has_container_key(container, U, T) &&
+           name in axes(get_variable(container, U, T), 1)
+end
+
+# Function barrier: the generator type `V` and the formulation are known only at run
+# time, so each helper compiles once per type.
+function _add_outaged_output!(
+    outaged::Dict{DataType, Dict{String, Vector{JuMP.AffExpr}}},
+    series_cache::Dict{Tuple{DataType, String}, Vector{JuMP.AffExpr}},
+    container::OptimizationContainer,
+    devices_template::DevicesModelContainer,
+    generator::V,
+    outage_id::Int,
+    time_steps::UnitRange{Int},
+) where {V <: PSY.Generator}
+    name = PSY.get_name(generator)
+    if !_is_modeled_generator(container, devices_template, V, name)
+        @warn "Generator $name ($V) outaged by outage $outage_id is not modeled; it is left out of the post-contingency balance." _group =
+            LOG_GROUP_SERVICE_CONSTUCTORS
+        return
+    end
+    formulation = get_formulation(devices_template[nameof(V)])
+    outputs = get!(Dict{String, Vector{JuMP.AffExpr}}, outaged, V)
+    key = (V, name)
+    if !haskey(series_cache, key)
+        series_cache[key] =
+            _total_active_power_series(container, formulation, generator, time_steps)
+    end
+    outputs[name] = series_cache[key]
+    return
+end
+
+# Total active power of a generator under formulation `F`: the scheduled power variable plus
+# the minimum-power term that compact formulations omit from it.
+function _total_active_power_series(
+    container::OptimizationContainer,
+    ::Type{F},
+    generator::V,
+    time_steps::UnitRange{Int},
+) where {F <: AbstractDeviceFormulation, V <: PSY.Generator}
+    power = get_variable(container, _scheduled_power_variable(F), V)
+    name = PSY.get_name(generator)
+    output = _min_power_series(container, F, generator)
+    for t in time_steps
+        add_proportional_to_jump_expression!(output[t], power[name, t], 1.0)
+    end
+    return output
+end
+
 function _outaged_generators(
     sys::PSY.System,
     outages::Dict{Int, PSY.Outage},
     container::OptimizationContainer,
+    devices_template::DevicesModelContainer,
 )
-    outaged_generators = Dict{Int, Dict{DataType, Set{String}}}()
+    time_steps = get_time_steps(container)
+    outaged_generators = _OutagedOutput()
+    series_cache = Dict{Tuple{DataType, String}, Vector{JuMP.AffExpr}}()
     for (outage_id, outage) in outages
-        outaged = Dict{DataType, Set{String}}()
+        outaged = Dict{DataType, Dict{String, Vector{JuMP.AffExpr}}}()
         for generator in
             PSY.get_associated_components(sys, outage; component_type = PSY.Generator)
-            T = typeof(generator)
-            name = PSY.get_name(generator)
-            if has_container_key(container, ActivePowerVariable, T) &&
-               name in axes(get_variable(container, ActivePowerVariable, T), 1)
-                push!(get!(Set{String}, outaged, T), name)
-            else
-                @warn "Generator $name ($T) outaged by outage $outage_id is not modeled; it is left out of the post-contingency balance." _group =
-                    LOG_GROUP_SERVICE_CONSTUCTORS
-            end
+            _add_outaged_output!(
+                outaged, series_cache, container, devices_template, generator, outage_id,
+                time_steps,
+            )
         end
         outaged_generators[outage_id] = outaged
     end
@@ -207,7 +268,7 @@ function _construct_post_contingency!(
 )
     outages, use_slacks = _security_constrained_outages(sys, services_template)
     isempty(outages) && return
-    outaged_generators = _outaged_generators(sys, outages, container)
+    outaged_generators = _outaged_generators(sys, outages, container, devices_template)
     monitored_components = _monitored_components(sys, outages, container, network_model)
     outage_ids = sort!(collect(keys(outages)))
     # Branch and interchange flows are created by the branch constructors, which run after the
@@ -243,7 +304,7 @@ function _construct_post_contingency_flows!(
     container::OptimizationContainer,
     sys::PSY.System,
     outage_ids::Vector{Int},
-    outaged_generators::Dict{Int, Dict{DataType, Set{String}}},
+    outaged_generators::_OutagedOutput,
     monitored_components::Dict{Int, Dict{DataType, Set{String}}},
     use_slacks::Dict{Int, Bool},
     network_model::NetworkModel{<:Union{AbstractPTDFNetworkModel, AreaBalanceNetworkModel}},
@@ -269,7 +330,7 @@ _construct_post_contingency_flows!(
     ::OptimizationContainer,
     ::PSY.System,
     ::Vector{Int},
-    ::Dict{Int, Dict{DataType, Set{String}}},
+    ::_OutagedOutput,
     ::Dict{Int, Dict{DataType, Set{String}}},
     ::Dict{Int, Bool},
     ::NetworkModel,
@@ -486,7 +547,7 @@ _location_key(component, ::NetworkModel{AreaBalanceNetworkModel}) =
 function _add_post_contingency_locational_deployment!(
     container::OptimizationContainer,
     sys::PSY.System,
-    outaged_generators::Dict{Int, Dict{DataType, Set{String}}},
+    outaged_generators::_OutagedOutput,
     network_model::NetworkModel{<:Union{AbstractPTDFNetworkModel, AreaBalanceNetworkModel}},
 )
     # Keyed `(bus number or area name, outage, time)`, sparse since an outage only touches the
@@ -512,8 +573,8 @@ function _add_post_contingency_locational_deployment!(
     end
 
     for (outage_id, per_type) in outaged_generators
-        for (generator_type, names) in per_type
-            for name in names
+        for (generator_type, outputs) in per_type
+            for (name, output) in outputs
                 key = _location_key(
                     PSY.get_component(generator_type, sys, name),
                     network_model,
@@ -522,7 +583,7 @@ function _add_post_contingency_locational_deployment!(
                     JuMP.add_to_expression!(
                         get!(JuMP.AffExpr, expr.data, (key, outage_id, t)),
                         -1.0,
-                        _post_contingency_output(container, generator_type, name, t),
+                        output[t],
                     )
                 end
             end
@@ -808,7 +869,7 @@ end
 function _add_post_contingency_balance_constraints!(
     container::OptimizationContainer,
     ::PSY.System,
-    outaged_generators::Dict{Int, Dict{DataType, Set{String}}},
+    outaged_generators::_OutagedOutput,
     outage_ids::Vector{Int},
     ::NetworkModel,
 )
@@ -826,14 +887,8 @@ function _add_post_contingency_balance_constraints!(
         (outage_id, t) => JuMP.AffExpr(0.0) for outage_id in outage_ids, t in time_steps
     )
     for (outage_id, per_type) in outaged_generators
-        for (generator_type, names) in per_type
-            for name in names, t in time_steps
-                JuMP.add_to_expression!(
-                    balance[outage_id, t],
-                    -1.0,
-                    _post_contingency_output(container, generator_type, name, t),
-                )
-            end
+        for outputs in values(per_type), output in values(outputs), t in time_steps
+            JuMP.add_to_expression!(balance[outage_id, t], -1.0, output[t])
         end
     end
     for (_, total) in _total_deployments(container)
@@ -850,7 +905,7 @@ end
 function _add_post_contingency_balance_constraints!(
     container::OptimizationContainer,
     sys::PSY.System,
-    ::Dict{Int, Dict{DataType, Set{String}}},
+    ::_OutagedOutput,
     outage_ids::Vector{Int},
     ::NetworkModel{AreaBalanceNetworkModel},
 )
@@ -927,7 +982,9 @@ function _add_post_contingency_generation_constraints!(
                 (outage_id, t, deployed),
             )
         end
+        formulation = get_formulation(model)
         limits = Dict{String, Vector{Float64}}()
+        outputs = Dict{String, Vector{JuMP.AffExpr}}()
         for name in keys(by_device)
             device = PSY.get_component(device_type, sys, name)
             limits[name] = _offline_hourly_limit(
@@ -936,6 +993,7 @@ function _add_post_contingency_generation_constraints!(
                 device,
                 _post_contingency_limit(device),
             )
+            outputs[name] = _post_contingency_output(container, formulation, device)
         end
         _add_device_generation_rows!(
             container,
@@ -943,6 +1001,7 @@ function _add_post_contingency_generation_constraints!(
             device_type,
             by_device,
             limits,
+            outputs,
         )
     end
     return
@@ -954,6 +1013,7 @@ function _add_device_generation_rows!(
     ::Type{D},
     by_device::Dict{String, Vector{Tuple{Int, Int, JuMP.AffExpr}}},
     limits::Dict{String, Vector{Float64}},
+    outputs::Dict{String, Vector{JuMP.AffExpr}},
 ) where {D <: PSY.Component}
     jump_model = get_jump_model(container)
     cons = add_constraints_container!(
@@ -966,7 +1026,7 @@ function _add_device_generation_rows!(
         sparse = true,
     )
     for (name, entries) in by_device, (outage_id, t, deployed) in entries
-        output = _post_contingency_output(container, D, name, t)
+        output = outputs[name][t]
         cons[name, outage_id, t] =
             JuMP.@constraint(jump_model, output + deployed <= limits[name][t])
     end
@@ -979,6 +1039,7 @@ function _add_device_generation_rows!(
     ::Type{D},
     by_device::Dict{String, Vector{Tuple{Int, Int, JuMP.AffExpr}}},
     limits::Dict{String, Vector{Float64}},
+    outputs::Dict{String, Vector{JuMP.AffExpr}},
 ) where {D <: PSY.Component}
     jump_model = get_jump_model(container)
     on = get_variable(container, OnVariable, D)
@@ -992,7 +1053,7 @@ function _add_device_generation_rows!(
         sparse = true,
     )
     for (name, entries) in by_device, (outage_id, t, deployed) in entries
-        output = _post_contingency_output(container, D, name, t)
+        output = outputs[name][t]
         cons[name, outage_id, t] =
             JuMP.@constraint(jump_model, output + deployed <= limits[name][t] * on[name, t])
     end

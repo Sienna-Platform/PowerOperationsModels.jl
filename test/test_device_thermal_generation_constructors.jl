@@ -298,14 +298,13 @@ end
     c_sys5_uc = PSB.build_system(PSITestSystems, "c_sys5_pglib")
     model = DecisionModel(MockOperationProblem, DCPNetworkModel, c_sys5_uc;)
     mock_construct_device!(model, device_model)
-    # Broken: POM reads the minute-valued time limits of c_sys5_pglib as hours.
-    moi_tests(model, 384, 0, 240, 48, 144, true; broken_lessthan = true)
+    moi_tests(model, 384, 0, 240, 48, 144, true)
     psi_constraint_test(model, uc_constraint_keys)
     psi_checkbinvar_test(model, bin_variable_keys)
     psi_checkobjfun_test(model, GAEVF)
     model = DecisionModel(MockOperationProblem, DCPNetworkModel, c_sys5_uc;)
     mock_construct_device!(model, device_model; add_event_model = true)
-    moi_tests(model, 384, 0, 264, 48, 144, true; broken_lessthan = true)
+    moi_tests(model, 384, 0, 264, 48, 144, true)
 end
 
 @testset "Thermal MultiStart UC With AC - PF" begin
@@ -325,14 +324,13 @@ end
     c_sys5_uc = PSB.build_system(PSITestSystems, "c_sys5_pglib")
     model = DecisionModel(MockOperationProblem, ACPNetworkModel, c_sys5_uc;)
     mock_construct_device!(model, device_model)
-    # Broken: POM reads the minute-valued time limits of c_sys5_pglib as hours.
-    moi_tests(model, 432, 0, 288, 96, 144, true; broken_lessthan = true)
+    moi_tests(model, 432, 0, 288, 96, 144, true)
     psi_constraint_test(model, uc_constraint_keys)
     psi_checkbinvar_test(model, bin_variable_keys)
     psi_checkobjfun_test(model, GAEVF)
     model = DecisionModel(MockOperationProblem, ACPNetworkModel, c_sys5_uc;)
     mock_construct_device!(model, device_model; add_event_model = true)
-    moi_tests(model, 432, 0, 312, 96, 144, true, 24; broken_lessthan = true)
+    moi_tests(model, 432, 0, 312, 96, 144, true, 24)
 end
 
 ################################### Basic Unit Commitment tests ############################
@@ -703,33 +701,12 @@ end
     c_sys5_pglib = PSB.build_system(PSITestSystems, "c_sys5_pglib")
     model = DecisionModel(MockOperationProblem, DCPNetworkModel, c_sys5_pglib;)
     mock_construct_device!(model, device_model)
-    # Broken: POM reads the minute-valued time limits of c_sys5_pglib as hours.
-    moi_tests(
-        model,
-        528,
-        0,
-        330,
-        60,
-        192,
-        true;
-        broken_lessthan = true,
-        broken_greaterthan = true,
-    )
+    moi_tests(model, 528, 0, 332, 62, 192, true)
     psi_constraint_test(model, constraint_keys)
     psi_checkobjfun_test(model, GAEVF)
     model = DecisionModel(MockOperationProblem, DCPNetworkModel, c_sys5_pglib;)
     mock_construct_device!(model, device_model; add_event_model = true)
-    moi_tests(
-        model,
-        528,
-        0,
-        354,
-        60,
-        192,
-        true;
-        broken_lessthan = true,
-        broken_greaterthan = true,
-    )
+    moi_tests(model, 528, 0, 356, 62, 192, true)
 end
 
 @testset "Thermal MultiStart with MultiStart UC and AC - PF" begin
@@ -761,34 +738,12 @@ end
     c_sys5_pglib = PSB.build_system(PSITestSystems, "c_sys5_pglib")
     model = DecisionModel(MockOperationProblem, ACPNetworkModel, c_sys5_pglib;)
     mock_construct_device!(model, device_model)
-    # Broken: POM reads the minute-valued time limits of c_sys5_pglib as hours.
-    moi_tests(
-        model,
-        576,
-        0,
-        378,
-        108,
-        192,
-        true;
-        broken_lessthan = true,
-        broken_greaterthan = true,
-    )
+    moi_tests(model, 576, 0, 380, 110, 192, true)
     psi_constraint_test(model, constraint_keys)
     psi_checkobjfun_test(model, GAEVF)
     model = DecisionModel(MockOperationProblem, ACPNetworkModel, c_sys5_pglib;)
     mock_construct_device!(model, device_model; add_event_model = true)
-    moi_tests(
-        model,
-        576,
-        0,
-        402,
-        108,
-        192,
-        true,
-        24;
-        broken_lessthan = true,
-        broken_greaterthan = true,
-    )
+    moi_tests(model, 576, 0, 404, 110, 192, true, 24)
 end
 
 @testset "Thermal MultiStart UC with a must-run unit" begin
@@ -872,12 +827,11 @@ end
     c_sys5_pglib = PSB.build_system(PSITestSystems, "c_sys5_pglib")
     model = DecisionModel(MockOperationProblem, DCPNetworkModel, c_sys5_pglib;)
     mock_construct_device!(model, device_model)
-    # Broken: POM reads the minute-valued time limits of c_sys5_pglib as hours.
-    moi_tests(model, 384, 0, 240, 48, 144, true; broken_lessthan = true)
+    moi_tests(model, 384, 0, 240, 48, 144, true)
     psi_checkobjfun_test(model, GAEVF)
     model = DecisionModel(MockOperationProblem, DCPNetworkModel, c_sys5_pglib;)
     mock_construct_device!(model, device_model; add_event_model = true)
-    moi_tests(model, 384, 0, 264, 48, 144, true; broken_lessthan = true)
+    moi_tests(model, 384, 0, 264, 48, 144, true)
 end
 
 @testset "Thermal Standard with Compact UC and AC - PF" begin
@@ -897,12 +851,11 @@ end
     c_sys5_pglib = PSB.build_system(PSITestSystems, "c_sys5_pglib")
     model = DecisionModel(MockOperationProblem, ACPNetworkModel, c_sys5_pglib;)
     mock_construct_device!(model, device_model)
-    # Broken: POM reads the minute-valued time limits of c_sys5_pglib as hours.
-    moi_tests(model, 432, 0, 288, 96, 144, true; broken_lessthan = true)
+    moi_tests(model, 432, 0, 288, 96, 144, true)
     psi_checkobjfun_test(model, GAEVF)
     model = DecisionModel(MockOperationProblem, ACPNetworkModel, c_sys5_pglib;)
     mock_construct_device!(model, device_model; add_event_model = true)
-    moi_tests(model, 432, 0, 312, 96, 144, true, 24; broken_lessthan = true)
+    moi_tests(model, 432, 0, 312, 96, 144, true, 24)
 end
 
 ################################ Thermal Basic Compact UC Testing ################################
@@ -1056,8 +1009,7 @@ end
     build!(UC; output_dir = mktempdir(; cleanup = true))
     @test build!(UC; output_dir = mktempdir(; cleanup = true)) == IOM.ModelBuildStatus.BUILT
     moi_tests(UC, 56, 0, 56, 14, 21, true)
-    # Broken: POM reads the minute-valued time limits of c_duration_test as hours.
-    psi_checksolve_test(UC, [MOI.OPTIMAL], 8223.50; broken = true)
+    psi_checksolve_test(UC, [MOI.OPTIMAL], 8223.50)
 end
 
 @testset "Solving UC Models with Linear Networks" begin
@@ -1688,12 +1640,440 @@ end
     end
 end
 
-@testset "Compact UC rejects a quadratic cost curve" begin
-    sys = PSB.build_system(PSITestSystems, "c_quadratic_cost_test")
-    for F in (ThermalCompactUnitCommitment, ThermalBasicCompactUnitCommitment)
-        model = DecisionModel(MockOperationProblem, CopperPlateNetworkModel, sys)
-        @test_throws IS.ConflictingInputsError mock_construct_device!(
-            model, DeviceModel(PSY.ThermalStandard, F),
+# Standard-vs-compact cases: a fixture and a top-level function that changes it.
+_keep_fixture!(::PSY.System) = nothing
+
+function _add_vom_to_test_unit!(sys::PSY.System)
+    unit = get_component(ThermalStandard, sys, "Test Unit")
+    set_variable_operation_cost!(
+        get_operation_cost(unit),
+        CostCurve(LinearCurve(10.23), LinearCurve(3.0)),
+    )
+    return
+end
+
+function _bind_startup_ramp!(sys::PSY.System)
+    unit = get_component(ThermalStandard, sys, "Test Unit")
+    set_status!(unit, OperationalStates.OFFLINE)
+    set_time_at_status!(unit, 600.0)
+    set_active_power!(unit, 0.0 * u"SU")
+    # 0.12 SU/h is less than P_min = 0.5 SU, so the start-up and shut-down ramps bind.
+    set_ramp_limits!(unit, (up = 0.002 * u"SU/minute", down = 0.002 * u"SU/minute"))
+    return
+end
+
+function _solve_uc_objective(
+    sys::PSY.System,
+    ::Type{F},
+    use_slacks::Bool,
+) where {F <: AbstractThermalFormulation}
+    optimizer = JuMP.optimizer_with_attributes(
+        HiGHS.Optimizer, "mip_rel_gap" => 0.0, "log_to_console" => false,
+    )
+    template = PowerOperationsProblemTemplate(NetworkModel(CopperPlateNetworkModel))
+    set_device_model!(template, DeviceModel(ThermalStandard, F; use_slacks = use_slacks))
+    set_device_model!(template, PowerLoad, StaticPowerLoad)
+    model = DecisionModel(template, sys; optimizer = optimizer, initialize_model = false)
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+    @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+    return JuMP.objective_value(IOM.get_jump_model(IOM.get_optimization_container(model)))
+end
+
+const _COMPACT_EQUIVALENCE_CASES = (
+    (
+        name = "linear cost",
+        fixture = "c_linear_cost_test",
+        modify = _keep_fixture!,
+        slacks = false,
+    ),
+    (
+        name = "static linear fuel",
+        fixture = "c_linear_fuel_test",
+        modify = _keep_fixture!,
+        slacks = false,
+    ),
+    (
+        name = "linear cost with VOM",
+        fixture = "c_linear_cost_test",
+        modify = _add_vom_to_test_unit!,
+        slacks = false,
+    ),
+    (
+        name = "PWL cost",
+        fixture = "c_pwl_io_cost_test",
+        modify = _keep_fixture!,
+        slacks = false,
+    ),
+    (
+        name = "binding start-up ramp",
+        fixture = "c_linear_cost_test",
+        modify = _bind_startup_ramp!,
+        slacks = true,
+    ),
+)
+
+@testset "Standard and compact unit commitment give the same objective" begin
+    @testset "$(case.name)" for case in _COMPACT_EQUIVALENCE_CASES
+        standard_sys = build_system(PSITestSystems, case.fixture)
+        case.modify(standard_sys)
+        standard =
+            _solve_uc_objective(standard_sys, ThermalStandardUnitCommitment, case.slacks)
+        compact_sys = build_system(PSITestSystems, case.fixture)
+        case.modify(compact_sys)
+        compact =
+            _solve_uc_objective(compact_sys, ThermalCompactUnitCommitment, case.slacks)
+        # Relative tolerance: the ramp case carries slack penalties near 2e5.
+        @test isapprox(standard, compact; rtol = 1e-6)
+    end
+end
+
+function _mock_container(
+    sys::PSY.System,
+    device_type::Type{<:PSY.Device},
+    formulation::Type{<:AbstractDeviceFormulation};
+    network = DCPNetworkModel,
+    kwargs...,
+)
+    model = DecisionModel(MockOperationProblem, network, sys)
+    mock_construct_device!(model, DeviceModel(device_type, formulation; kwargs...))
+    return IOM.get_optimization_container(model)
+end
+
+@testset "Compact PWL linking holds P_min for a must-run unit" begin
+    sys = PSB.build_system(PSITestSystems, "c_sys5_pglib")
+    unit = get_component(ThermalMultiStart, sys, "101_CT_1")
+    set_commitment_mode!(unit, CommitmentModes.MUST_RUN)
+    container = _mock_container(sys, ThermalMultiStart, ThermalCompactUnitCommitment)
+    link =
+        IOM.get_constraint(container, IOM.PiecewiseLinearCostConstraint, ThermalMultiStart)
+    norm = IOM.get_constraint(
+        container, IOM.PiecewiseLinearCostNormalizationConstraint, ThermalMultiStart,
+    )
+    p_min = get_active_power_limits(unit, u"SU").min
+    for t in IOM.get_time_steps(container)
+        @test JuMP.normalized_rhs(link["101_CT_1", t]) ≈ -p_min
+        @test JuMP.normalized_rhs(norm["101_CT_1", t]) ≈ 1.0
+    end
+end
+
+@testset "Compact UC max_active_power series bounds total output" begin
+    sys = PSB.build_system(PSITestSystems, "c_sys5_pglib")
+    stamps =
+        collect(DateTime("2024-01-01T00:00:00"):Hour(1):DateTime("2024-01-01T23:00:00"))
+    derate = SortedDict{Dates.DateTime, TimeSeries.TimeArray}()
+    for day in 1:2
+        derate[stamps[1] + Day(day - 1)] = TimeArray(stamps .+ Day(day - 1), fill(0.8, 24))
+    end
+    unit = get_component(ThermalMultiStart, sys, "115_STEAM_1")
+    must_run = get_component(ThermalMultiStart, sys, "101_CT_1")
+    set_commitment_mode!(must_run, CommitmentModes.MUST_RUN)
+    for g in (unit, must_run)
+        PSY.add_time_series!(sys, g, PSY.Deterministic("max_active_power", derate))
+    end
+    device_model = DeviceModel(
+        ThermalMultiStart,
+        ThermalCompactUnitCommitment;
+        time_series_names = Dict(ActivePowerTimeSeriesParameter => "max_active_power"),
+    )
+    model = DecisionModel(MockOperationProblem, DCPNetworkModel, sys)
+    mock_construct_device!(model, device_model)
+    container = IOM.get_optimization_container(model)
+    con = IOM.get_constraint(
+        container, ActivePowerVariableTimeSeriesLimitsConstraint, ThermalMultiStart,
+        "ub",
+    )
+    on = IOM.get_variable(container, OnVariable, ThermalMultiStart)
+    p_above = IOM.get_variable(container, PowerAboveMinimumVariable, ThermalMultiStart)
+    p_min = get_active_power_limits(unit, u"SU").min
+    must_run_min = get_active_power_limits(must_run, u"SU").min
+    for t in IOM.get_time_steps(container)
+        row = JuMP.constraint_object(con["115_STEAM_1", t])
+        @test JuMP.coefficient(row.func, on["115_STEAM_1", t]) ≈ p_min
+        @test JuMP.coefficient(row.func, p_above["115_STEAM_1", t]) ≈ 1.0
+        @test JuMP.normalized_rhs(con["115_STEAM_1", t]) ≈
+              0.8 * get_max_active_power(unit, u"SU")
+        # A must-run unit has no OnVariable: the row holds the constant P_min.
+        @test JuMP.normalized_rhs(con["101_CT_1", t]) ≈
+              0.8 * get_max_active_power(must_run, u"SU") - must_run_min
+    end
+end
+
+@testset "ThermalCompactDispatch balance on PTDF and AreaPTDF" begin
+    # PTDF, semicontinuous feedforward, one must-run unit.
+    c_sys5 = PSB.build_system(PSITestSystems, "c_sys5")
+    must_run = PSY.get_component(PSY.ThermalStandard, c_sys5, "Park City")
+    PSY.set_commitment_mode!(must_run, PSY.CommitmentModes.MUST_RUN)
+    PSY.set_active_power_limits!(must_run, (min = 0.65 * u"SU", max = 1.70 * u"SU"))
+    device_model = DeviceModel(PSY.ThermalStandard, ThermalCompactDispatch)
+    attach_feedforward!(
+        device_model,
+        SemiContinuousFeedforward(;
+            component_type = PSY.ThermalStandard,
+            source = OnVariable,
+            affected_values = [PowerAboveMinimumVariable],
+        ),
+    )
+    model = DecisionModel(MockOperationProblem, PTDFNetworkModel, c_sys5)
+    mock_construct_device!(model, device_model; built_for_recurrent_solves = true)
+    balance = IOM.get_expression(
+        IOM.get_optimization_container(model), ActivePowerBalance, PSY.System,
+    )
+    # Other units enter as parameters; the must-run unit enters as the constant P_min.
+    @test JuMP.constant(balance[first(axes(balance, 1)), 1]) ≈ 0.65
+
+    # AreaPTDF, no feedforward.
+    sys = PSB.build_system(PSB.PSISystems, "two_area_pjm_DA")
+    transform_single_time_series!(sys, Hour(24), Hour(1))
+    template = get_thermal_dispatch_template_network(NetworkModel(AreaPTDFNetworkModel))
+    set_device_model!(template, ThermalStandard, ThermalCompactDispatch)
+    model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+end
+
+@testset "Multi-start trajectory rows use total power" begin
+    sys = PSB.build_system(PSITestSystems, "c_sys5_pglib")
+    container = _mock_container(sys, ThermalMultiStart, ThermalMultiStartUnitCommitment)
+    ubon = IOM.get_constraint(
+        container, ActivePowerVariableLimitsConstraint, ThermalMultiStart, "ubon",
+    )
+    uboff = IOM.get_constraint(
+        container, ActivePowerVariableLimitsConstraint, ThermalMultiStart, "uboff",
+    )
+    start = IOM.get_variable(container, StartVariable, ThermalMultiStart)
+    stop = IOM.get_variable(container, StopVariable, ThermalMultiStart)
+    unit = get_component(ThermalMultiStart, sys, "115_STEAM_1")
+    p_max = get_active_power_limits(unit, u"SU").max
+    trajectory = get_power_trajectory(unit, u"SU")
+    row_on = JuMP.constraint_object(ubon["115_STEAM_1", 2])
+    row_off = JuMP.constraint_object(uboff["115_STEAM_1", 2])
+    @test JuMP.coefficient(row_on.func, start["115_STEAM_1", 2]) ≈
+          p_max - trajectory.startup
+    @test JuMP.coefficient(row_off.func, stop["115_STEAM_1", 3]) ≈
+          p_max - trajectory.shutdown
+end
+
+@testset "Multi-start start-up limit below the minimum power is rejected" begin
+    sys = PSB.build_system(PSITestSystems, "c_sys5_pglib")
+    unit = get_component(ThermalMultiStart, sys, "115_STEAM_1")
+    p_min = get_active_power_limits(unit, u"SU").min
+    set_power_trajectory!(
+        unit,
+        (startup = 0.5 * p_min * u"SU", shutdown = 0.5 * p_min * u"SU"),
+    )
+    model = DecisionModel(MockOperationProblem, DCPNetworkModel, sys)
+    @test_throws IS.ConflictingInputsError mock_construct_device!(
+        model, DeviceModel(ThermalMultiStart, ThermalMultiStartUnitCommitment),
+    )
+end
+
+@testset "Multi-start initial-condition rows reach the first temperature row" begin
+    sys = PSB.build_system(PSITestSystems, "c_sys5_pglib")
+    container = _mock_container(sys, ThermalMultiStart, ThermalMultiStartUnitCommitment)
+    hot = IOM.get_constraint(
+        container, StartupTimeLimitTemperatureConstraint, ThermalMultiStart, "hot",
+    )
+    ic_ub = IOM.get_constraint(
+        container, POM.StartupInitialConditionConstraint, ThermalMultiStart, "ub",
+    )
+    # The step before the first hot temperature row has no look-back window inside the
+    # horizon, so the initial-condition row must cover it.
+    t_first = minimum(t for (n, t) in keys(hot.data) if n == "115_STEAM_1")
+    @test haskey(ic_ub.data, ("115_STEAM_1", t_first - 1, 1))
+end
+
+# Each row of one temperature stage holds its own start variable and no other.
+function _check_temperature_stage_rows(
+    container,
+    meta::String,
+    ::Type{S},
+    ::Type{O},
+) where {S, O}
+    con = IOM.get_constraint(
+        container,
+        IOM.ConstraintKey(StartupTimeLimitTemperatureConstraint, ThermalMultiStart, meta),
+    )
+    own = IOM.get_variable(container, S, ThermalMultiStart)
+    other = IOM.get_variable(container, O, ThermalMultiStart)
+    @test !isempty(con.data)
+    for ((name, t), c) in con.data
+        @test JuMP.normalized_coefficient(c, own[name, t]) ≈ 1.0
+        @test iszero(JuMP.normalized_coefficient(c, other[name, t]))
+    end
+    return
+end
+
+# An initial-condition row of stage 1 holds the hot start variable; stage 2 the warm one.
+function _check_ic_stage_row(c, stage::Int, hot::JuMP.VariableRef, warm::JuMP.VariableRef)
+    own = hot
+    other = warm
+    if stage == 2
+        own = warm
+        other = hot
+    end
+    @test !iszero(JuMP.normalized_coefficient(c, own))
+    @test iszero(JuMP.normalized_coefficient(c, other))
+    return
+end
+
+const _START_TYPE_COEFFICIENTS = (
+    ("101_CT_1", (-1.0, 0.0, 0.0)),        # one start type: hot only
+    ("115_STEAM_1", (-1.0, -1.0, -1.0)),   # three start types
+)
+
+@testset "Multi-start stage rows pair each start variable with its own stage" begin
+    sys = PSB.build_system(PSITestSystems, "c_sys5_pglib")
+    container = _mock_container(sys, ThermalMultiStart, ThermalMultiStartUnitCommitment)
+    _check_temperature_stage_rows(container, "hot", HotStartVariable, WarmStartVariable)
+    _check_temperature_stage_rows(container, "warm", WarmStartVariable, HotStartVariable)
+    hot = IOM.get_variable(container, HotStartVariable, ThermalMultiStart)
+    warm = IOM.get_variable(container, WarmStartVariable, ThermalMultiStart)
+    cold = IOM.get_variable(container, ColdStartVariable, ThermalMultiStart)
+    start = IOM.get_variable(container, StartVariable, ThermalMultiStart)
+    for meta in ("ub", "lb")
+        con = IOM.get_constraint(
+            container,
+            IOM.ConstraintKey(
+                POM.StartupInitialConditionConstraint,
+                ThermalMultiStart,
+                meta,
+            ),
         )
+        for ((name, t, stage), c) in con.data
+            _check_ic_stage_row(c, stage, hot[name, t], warm[name, t])
+        end
+    end
+    start_type = IOM.get_constraint(
+        container, IOM.ConstraintKey(StartTypeConstraint, ThermalMultiStart),
+    )
+    for (name, expected) in _START_TYPE_COEFFICIENTS
+        row = start_type[name, 1]
+        @test JuMP.normalized_coefficient(row, start[name, 1]) ≈ 1.0
+        @test JuMP.normalized_coefficient(row, hot[name, 1]) ≈ expected[1]
+        @test JuMP.normalized_coefficient(row, warm[name, 1]) ≈ expected[2]
+        @test JuMP.normalized_coefficient(row, cold[name, 1]) ≈ expected[3]
+    end
+end
+
+@testset "Multi-start must-run filter and a unit without a power trajectory" begin
+    sys = PSB.build_system(PSITestSystems, "c_sys5_pglib")
+    must_run = PSY.get_component(PSY.ThermalMultiStart, sys, "101_CT_1")
+    PSY.set_commitment_mode!(must_run, PSY.CommitmentModes.MUST_RUN)
+    steam = PSY.get_component(PSY.ThermalMultiStart, sys, "115_STEAM_1")
+    PSY.set_power_trajectory!(steam, nothing)
+    container = _mock_container(sys, ThermalMultiStart, ThermalMultiStartUnitCommitment)
+    range_ic = IOM.get_constraint(
+        container, IOM.ConstraintKey(ActiveRangeICConstraint, ThermalMultiStart),
+    )
+    @test "101_CT_1" ∉ axes(range_ic, 1)
+    @test "115_STEAM_1" ∈ axes(range_ic, 1)
+    # No trajectory: the shut-down limit falls back to P_max, so the stop coefficient is 0.
+    stop = IOM.get_variable(container, StopVariable, ThermalMultiStart)
+    @test iszero(
+        JuMP.normalized_coefficient(range_ic["115_STEAM_1", 1], stop["115_STEAM_1", 1]),
+    )
+end
+
+# Count the start variables in the minimum up-time row of one unit at the last step.
+function _count_up_window_starts(container, name::String)
+    t = last(IOM.get_time_steps(container))
+    row = IOM.get_constraint(
+        container, IOM.ConstraintKey(DurationConstraint, ThermalStandard, "up"),
+    )[
+        name,
+        t,
+    ]
+    start = IOM.get_variable(container, StartVariable, ThermalStandard)
+    count = 0
+    for i in 1:t
+        if isone(JuMP.normalized_coefficient(row, start[name, i]))
+            count += 1
+        end
+    end
+    return count
+end
+
+function _duration_ic_value(container, ic_type::IOM.InitialConditionType, name::String)
+    for ic in IOM.get_initial_condition(container, ic_type, ThermalStandard)
+        if IOM.get_component_name(ic) == name
+            return IOM.jump_value(IOM.get_value(ic))
+        end
+    end
+    return error("No initial condition for $name")
+end
+
+@testset "Duration windows and initial durations convert minutes to steps at 1 h" begin
+    sys = PSB.build_system(PSITestSystems, "c_duration_test")
+    @test PSY.get_time_limits(PSY.get_component(ThermalStandard, sys, "Park City")).up ==
+          360.0
+    container = _mock_container(sys, ThermalStandard, ThermalStandardUnitCommitment)
+    @test _count_up_window_starts(container, "Park City") == 6
+    @test _count_up_window_starts(container, "Alta") == 4
+    @test _duration_ic_value(container, InitialTimeDurationOff(), "Park City") == 3.0
+    @test _duration_ic_value(container, InitialTimeDurationOn(), "Alta") == 2.0
+end
+
+@testset "Duration windows and initial durations convert minutes to steps at 15 min" begin
+    sys = PSB.build_system(PSITestSystems, "c_duration_test")
+    container = build_test_container(sys, 1:48; resolution = Dates.Minute(15))
+    park_city = PSY.get_component(ThermalStandard, sys, "Park City")
+    alta = PSY.get_component(ThermalStandard, sys, "Alta")
+    default_off =
+        POM._time_at_status_steps(park_city, container, !POM.is_online(park_city))
+    default_on = POM._time_at_status_steps(alta, container, POM.is_online(alta))
+    @test default_off == 12.0
+    @test default_on == 8.0
+    units = [park_city, alta]
+    ics_on = [IOM.InitialCondition{InitialTimeDurationOn, Float64}(u, 0.0) for u in units]
+    ics_off = [IOM.InitialCondition{InitialTimeDurationOff, Float64}(u, 0.0) for u in units]
+    _, windows = POM._get_data_for_tdc(ics_on, ics_off, Dates.Minute(15))
+    @test windows[1] == (up = 24.0, down = 16.0)
+    @test windows[2] == (up = 16.0, down = 8.0)
+end
+
+@testset "An RTS unit gets a duration window of 8 steps at 1 h" begin
+    sys = build_system(PSISystems, "modified_RTS_GMLC_DA_sys")
+    unit = PSY.get_component(ThermalStandard, sys, "213_CC_3")
+    @test PSY.get_time_limits(unit).up == 480.0
+    container = _mock_container(sys, ThermalStandard, ThermalStandardUnitCommitment)
+    @test _count_up_window_starts(container, "213_CC_3") == 8
+end
+
+@testset "A multi-start stage limit of 120 minutes is 2 steps at 1 h" begin
+    sys = PSB.build_system(PSITestSystems, "c_sys5_pglib")
+    unit = PSY.get_component(PSY.ThermalMultiStart, sys, "115_STEAM_1")
+    @test PSY.get_start_time_limits(unit).hot == 120.0
+    container = _mock_container(sys, ThermalMultiStart, ThermalMultiStartUnitCommitment)
+    hot = IOM.get_constraint(
+        container, StartupTimeLimitTemperatureConstraint, ThermalMultiStart, "hot",
+    )
+    stop = IOM.get_variable(container, StopVariable, ThermalMultiStart)
+    name = "115_STEAM_1"
+    # The hot stage covers stops 2 to 3 steps earlier. The warm limit of 240 minutes is 4 steps.
+    t = last(IOM.get_time_steps(container))
+    @test iszero(JuMP.normalized_coefficient(hot[name, t], stop[name, t - 1]))
+    @test JuMP.normalized_coefficient(hot[name, t], stop[name, t - 2]) ≈ -1.0
+    @test JuMP.normalized_coefficient(hot[name, t], stop[name, t - 3]) ≈ -1.0
+    @test iszero(JuMP.normalized_coefficient(hot[name, t], stop[name, t - 4]))
+end
+
+@testset "Must-run ramp slack variables carry the slack penalty" begin
+    sys = PSB.build_system(PSITestSystems, "c_sys5_uc")
+    mustrun = first(get_components(ThermalStandard, sys))
+    other = last(collect(get_components(ThermalStandard, sys)))
+    PSY.set_commitment_mode!(mustrun, PSY.CommitmentModes.MUST_RUN)
+    container = _mock_container(
+        sys,
+        ThermalStandard,
+        ThermalStandardUnitCommitment;
+        use_slacks = true,
+    )
+    dt = Dates.value(IOM.get_resolution(container)) / POM.MILLISECONDS_IN_HOUR
+    for V in (RateofChangeConstraintSlackUp, RateofChangeConstraintSlackDown)
+        for d in (mustrun, other)
+            @test obj_coef(container, V, ThermalStandard, get_name(d), 1) ≈
+                  POM.CONSTRAINT_VIOLATION_SLACK_COST * dt
+        end
     end
 end
