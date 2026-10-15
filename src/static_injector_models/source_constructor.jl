@@ -83,14 +83,14 @@ function construct_device!(
     add_to_expression!(
         container,
         NetActivePower,
-        ActivePowerInVariable(),
+        ActivePowerInVariable,
         devices,
         model,
     )
     add_to_expression!(
         container,
         NetActivePower,
-        ActivePowerOutVariable(),
+        ActivePowerOutVariable,
         devices,
         model,
     )
@@ -270,14 +270,14 @@ function construct_device!(
     add_to_expression!(
         container,
         NetActivePower,
-        ActivePowerInVariable(),
+        ActivePowerInVariable,
         devices,
         model,
     )
     add_to_expression!(
         container,
         NetActivePower,
-        ActivePowerOutVariable(),
+        ActivePowerOutVariable,
         devices,
         model,
     )

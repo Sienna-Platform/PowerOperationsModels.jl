@@ -10,6 +10,9 @@ const PF_INPUT_KEY_PRECEDENCES = Dict(
         POM.PowerOutput,
         POM.ActivePowerTimeSeriesParameter,
     ],
+    :active_power_in => [IOM.ActivePowerInVariable, POM.ActivePowerInTimeSeriesParameter],
+    :active_power_out =>
+        [IOM.ActivePowerOutVariable, POM.ActivePowerOutTimeSeriesParameter],
     :reactive_power =>
         [POM.ReactivePowerVariable, POM.ReactivePowerTimeSeriesParameter],
     :voltage_angle_export => [POM.PowerFlowVoltageAngle, POM.VoltageAngle],
@@ -48,15 +51,27 @@ end
 
 # Trait that determines which types of information are needed for each type of power flow
 pf_input_keys(::PFS.ABAPowerFlowData) =
-    [:active_power]
+    [:active_power, :active_power_in, :active_power_out]
 pf_input_keys(::PFS.PTDFPowerFlowData) =
-    [:active_power]
+    [:active_power, :active_power_in, :active_power_out]
 pf_input_keys(::PFS.vPTDFPowerFlowData) =
-    [:active_power]
-pf_input_keys(::PFS.ACPowerFlowData) =
-    [:active_power, :reactive_power, :voltage_angle_opf, :voltage_magnitude_opf]
-pf_input_keys(::PFS.PSSEExporter) =
-    [:active_power, :reactive_power, :voltage_angle_export, :voltage_magnitude_export]
+    [:active_power, :active_power_in, :active_power_out]
+pf_input_keys(::PFS.ACPowerFlowData) = [
+    :active_power,
+    :active_power_in,
+    :active_power_out,
+    :reactive_power,
+    :voltage_angle_opf,
+    :voltage_magnitude_opf,
+]
+pf_input_keys(::PFS.PSSEExporter) = [
+    :active_power,
+    :active_power_in,
+    :active_power_out,
+    :reactive_power,
+    :voltage_angle_export,
+    :voltage_magnitude_export,
+]
 # HVDC/PST flows feed every `PowerFlowData` solve. They route by component (see the resolver
 # in pf_data_update.jl: HVDC → `bus_hvdc_net_power`, PST → `bus_active_power_injections`);
 # `update_pf_data!` clears the HVDC channel before re-population.

@@ -53,7 +53,8 @@ function _add_min_power_proportional_cost!(
     cost_term::Float64,
     power_units::IS.AbstractUnitSystem,
     multiplier::Float64,
-) where {V <: PSY.ThermalGen, U <: AbstractDeviceFormulation}
+    ::Type{E},
+) where {V <: PSY.ThermalGen, U <: AbstractDeviceFormulation, E <: ExpressionType}
     iszero(cost_term) && return
     cost_per_unit = get_proportional_cost_per_system_unit(
         cost_term,
@@ -69,7 +70,7 @@ function _add_min_power_proportional_cost!(
     for t in get_time_steps(container)
         iszero(pmin[t]) && continue
         IOM.add_cost_term_invariant!(
-            container, status[t], rate * pmin[t], FuelCostExpression, V, name, t)
+            container, status[t], rate * pmin[t], E, V, name, t)
     end
     return
 end
@@ -134,6 +135,7 @@ function _add_compact_cost_curve!(
         IS.get_proportional_term(data),
         IS.get_power_units(cost_function),
         objective_function_multiplier(T, U),
+        FuelCostExpression,
     )
     return
 end
@@ -161,8 +163,31 @@ function _add_compact_fuel_curve!(
             IS.get_proportional_term(data),
             IS.get_power_units(cost_function),
             IS.get_fuel_cost(cost_function),
+            FuelCostExpression,
         )
     end
+    return
+end
+
+# The generic IOM method prices `vom * dp_t`. This method adds the VOM cost of `Pmin_t * u_t`.
+function IOM.add_vom_cost_to_objective!(
+    container::OptimizationContainer,
+    ::Type{T},
+    component::V,
+    op_cost::PSY.ThermalGenerationCost,
+    ::Type{U},
+) where {
+    T <: PowerAboveMinimumVariable,
+    V <: PSY.ThermalGen,
+    U <: Union{AbstractCompactUnitCommitment, ThermalCompactDispatch},
+}
+    variable_cost_data = IOM.variable_cost(op_cost, T, V, U)
+    power_units = IS.get_power_units(variable_cost_data)
+    vom_term = IS.get_proportional_term(IS.get_vom_cost(variable_cost_data))
+    IOM.add_proportional_cost_invariant!(
+        container, T, component, vom_term, power_units, 1.0, VOMCostExpression)
+    _add_min_power_proportional_cost!(
+        container, component, U, vom_term, power_units, 1.0, VOMCostExpression)
     return
 end
 

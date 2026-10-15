@@ -920,3 +920,69 @@ end
         @test occursin("$(typeof(last(evaluators))) cannot also produce it", log)
     end
 end
+
+# DC power flow on PTDF reproduces the optimization's PTDF flows exactly when every device
+# reaches the PF with the injection it has in the nodal balance.
+function _test_dc_pf_matches_ptdf_flows(container)
+    ptdf_flow = IOM.get_expression(container, POM.PTDFBranchFlow, Line)
+    ft_aux = lookup_value(container, AuxVarKey(POM.PowerFlowBranchActivePowerFromTo, Line))
+    for line_name in axes(ptdf_flow, 1), t in get_time_steps(container)
+        @test isapprox(JuMP.value(ptdf_flow[line_name, t]), ft_aux[line_name, t];
+            atol = 1e-3)
+    end
+end
+
+function _solve_dc_pf_model(system, template)
+    model = DecisionModel(template, system; optimizer = HiGHS_optimizer)
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          ModelBuildStatus.BUILT
+    @test solve!(model) == RunStatus.SUCCESSFULLY_FINALIZED
+    return get_optimization_container(model)
+end
+
+_dc_pf_network() = NetworkModel(
+    PTDFNetworkModel;
+    use_slacks = true,
+    evaluations = power_flow_evaluations(DCPowerFlow()),
+)
+
+@testset "PF in the loop includes storage in/out power (issue #379)" begin
+    system = build_system(PSITestSystems, "c_sys5_bat")
+    template = get_template_dispatch_with_network(_dc_pf_network())
+    set_device_model!(template, EnergyReservoirStorage, StorageDispatchWithReserves)
+    container = _solve_dc_pf_model(system, template)
+
+    p_out =
+        lookup_value(container, VariableKey(ActivePowerOutVariable, EnergyReservoirStorage))
+    p_in =
+        lookup_value(container, VariableKey(ActivePowerInVariable, EnergyReservoirStorage))
+    # Without a non-zero net storage injection the flow comparison cannot see the bug.
+    @test any(abs.(p_out .- p_in) .> 1e-3)
+    _test_dc_pf_matches_ptdf_flows(container)
+end
+
+@testset "PF in the loop withdraws controllable load consumption (issue #379)" begin
+    system = build_system(PSITestSystems, "c_sys5_il")
+    # The fixture's willingness to pay is below every generator's cost, so the load would
+    # be dispatched to zero and the flow comparison could not see its sign. The load also
+    # sits on the reference bus, where DC PF absorbs any mismatch without changing a flow,
+    # so move it to a PQ bus.
+    for load in get_components(InterruptiblePowerLoad, system)
+        set_bus!(load, get_component(ACBus, system, "nodeB"))
+        set_operation_cost!(
+            load,
+            LoadCost(;
+                variable_operation_cost = CostCurve(LinearCurve(1000.0)),
+                fixed = 0.0,
+            ),
+        )
+    end
+    template = get_template_dispatch_with_network(_dc_pf_network())
+    set_device_model!(template, InterruptiblePowerLoad, PowerLoadDispatch)
+    container = _solve_dc_pf_model(system, template)
+
+    p_load =
+        lookup_value(container, VariableKey(ActivePowerVariable, InterruptiblePowerLoad))
+    @test any(p_load .> 1e-3)
+    _test_dc_pf_matches_ptdf_flows(container)
+end

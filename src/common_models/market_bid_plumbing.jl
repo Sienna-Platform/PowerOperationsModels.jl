@@ -541,7 +541,7 @@ end
 # Default: most formulations use incremental offers
 IOM._vom_offer_direction(::Type{<:AbstractDeviceFormulation}) = IOM.IncrementalOffer()
 
-function IOM._add_vom_cost_to_objective!(
+function IOM.add_vom_cost_to_objective!(
     container::OptimizationContainer,
     ::Type{T},
     component::IS.InfrastructureSystemsComponent,

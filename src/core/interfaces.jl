@@ -112,21 +112,6 @@ function get_expression_multiplier(
 end
 
 """
-Get multiplier value for a time series parameter.
-"""
-function get_multiplier_value(
-    ::Type{T},
-    ::U,
-    ::Type{F},
-) where {
-    T <: IOM.TimeSeriesParameter,
-    U <: IS.InfrastructureSystemsComponent,
-    F <: IOM.AbstractDeviceFormulation,
-}
-    return 1.0
-end
-
-"""
 Get the multiplier value for a parameter type.
 """
 function get_multiplier_value(
@@ -139,7 +124,9 @@ function get_multiplier_value(
     F <: IOM.AbstractDeviceFormulation,
 }
     error(
-        "get_multiplier_value not implemented for parameter $P, device $D, formulation $F.",
+        "get_multiplier_value is not implemented for parameter $(nameof(P)), " *
+        "device $(nameof(D)), formulation $(nameof(F)). Add a method that " *
+        "returns the multiplier in system base.",
     )
 end
 
