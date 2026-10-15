@@ -245,10 +245,6 @@ initial_condition_variable(::DeviceStatus, d::PSY.HydroGen, ::AbstractHydroReser
 initial_condition_default(::DevicePower, d::PSY.HydroGen, ::AbstractHydroReservoirFormulation) = PSY.get_active_power(d, u"SU")
 initial_condition_variable(::DevicePower, d::PSY.HydroGen, ::AbstractHydroReservoirFormulation) = ActivePowerVariable()
 
-initial_condition_default(::InitialTimeDurationOn, d::PSY.HydroGen, ::AbstractHydroReservoirFormulation, container::OptimizationContainer) = _time_at_status_steps(d, container, is_online(d))
-initial_condition_variable(::InitialTimeDurationOn, d::PSY.HydroGen, ::AbstractHydroReservoirFormulation) = OnVariable()
-initial_condition_default(::InitialTimeDurationOff, d::PSY.HydroGen, ::AbstractHydroReservoirFormulation, container::OptimizationContainer) = _time_at_status_steps(d, container, !is_online(d))
-initial_condition_variable(::InitialTimeDurationOff, d::PSY.HydroGen, ::AbstractHydroReservoirFormulation) = OnVariable()
 # OfflineReserveShutdownConstraint reads the status before the first step (the init solve's, if any).
 initial_condition_default(::DeviceStatus, d::PSY.HydroGen, ::HydroCommitmentRunOfRiver) = Float64(is_online(d))
 initial_condition_variable(::DeviceStatus, d::PSY.HydroGen, ::HydroCommitmentRunOfRiver) = OnVariable()
