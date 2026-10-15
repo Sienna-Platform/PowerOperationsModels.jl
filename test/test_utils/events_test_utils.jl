@@ -32,6 +32,12 @@ fixed_outage_event(; ts_name = "outage_profile") = EventModel(
     timeseries_mapping = Dict{Symbol, Union{String, Nothing}}(:outage_status => ts_name),
 )
 
+# Fill `event_model`'s map from `sys`, as a simulation does from the emulator's system.
+fill_event_model!(event_model, sys) = copy!(
+    get_attribute_device_map(event_model),
+    discover_event_attribute_device_map(event_model, sys),
+)
+
 # Attach a `FixedForcedOutage` to `device`, build a `DecisionModel` for it, and return the
 # model with its build status and event model. `recurrent` makes event parameters JuMP
 # parameters (see `get_param_eltype`), which is what allows a test to fix them to an
@@ -50,6 +56,7 @@ function build_outage_model(
         template = get_thermal_dispatch_template_network(NetworkModel(network))
     end
     set_event_model!(template, event)
+    fill_event_model!(event, sys)
     model = DecisionModel(template, sys; optimizer = optimizer)
     if recurrent
         IOM.get_optimization_container(model).built_for_recurrent_solves = true
