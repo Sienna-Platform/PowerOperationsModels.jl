@@ -117,9 +117,9 @@ initial_condition_variable(::DevicePower, d::PSY.ThermalGen, ::AbstractThermalFo
 initial_condition_default(::DeviceAboveMinPower, d::PSY.ThermalGen, ::AbstractThermalFormulation, container::OptimizationContainer) = max(0.0, PSY.get_active_power(d, u"SU") - first(min_active_power_values(container, d)))
 initial_condition_variable(::DeviceAboveMinPower, d::PSY.ThermalGen, ::AbstractCompactUnitCommitment) = PowerAboveMinimumVariable()
 initial_condition_variable(::DeviceAboveMinPower, d::PSY.ThermalGen, ::ThermalCompactDispatch) = PowerAboveMinimumVariable()
-initial_condition_default(::InitialTimeDurationOn, d::PSY.ThermalGen, ::AbstractThermalFormulation) = is_online(d) ? PSY.get_time_at_status(d) : 0.0
+initial_condition_default(::InitialTimeDurationOn, d::PSY.ThermalGen, ::AbstractThermalFormulation, container::OptimizationContainer) = _time_at_status_steps(d, container, is_online(d))
 initial_condition_variable(::InitialTimeDurationOn, d::PSY.ThermalGen, ::AbstractThermalFormulation) = OnVariable()
-initial_condition_default(::InitialTimeDurationOff, d::PSY.ThermalGen, ::AbstractThermalFormulation) = !is_online(d) ? PSY.get_time_at_status(d) : 0.0
+initial_condition_default(::InitialTimeDurationOff, d::PSY.ThermalGen, ::AbstractThermalFormulation, container::OptimizationContainer) = _time_at_status_steps(d, container, !is_online(d))
 initial_condition_variable(::InitialTimeDurationOff, d::PSY.ThermalGen, ::AbstractThermalFormulation) = OnVariable()
 
 ########################Objective Function##################################################
@@ -1218,20 +1218,36 @@ end
 
 ########################### start up trajectory constraints ######################################
 
-function _convert_hours_to_timesteps(
-    start_times_hr::PSY.StartUpStages,
-    resolution::Dates.TimePeriod,
-)
-    _start_times_ts = (
-        round((hr * MINUTES_IN_HOUR) / Dates.value(Dates.Minute(resolution)), RoundUp) for
-        hr in start_times_hr
-    )
-    start_times_ts = PSY.StartUpStages(_start_times_ts)
-    return start_times_ts
+# PSY holds time limits in minutes. The model counts time in steps.
+function _minutes_to_timesteps(minutes::Float64, resolution::Dates.TimePeriod)
+    step_minutes =
+        Dates.value(Dates.Millisecond(resolution)) /
+        (MILLISECONDS_IN_HOUR / MINUTES_IN_HOUR)
+    return ceil(minutes / step_minutes)
 end
 
-# Units that can start and stop. Must-run units have no On, Start, or Stop variables.
-_committable_devices(devices::Vector{<:PSY.ThermalGen}) = filter(!_is_must_run, devices)
+function _minutes_to_timesteps(
+    start_times_min::PSY.StartUpStages,
+    resolution::Dates.TimePeriod,
+)
+    return PSY.StartUpStages((
+        hot = _minutes_to_timesteps(start_times_min.hot, resolution),
+        warm = _minutes_to_timesteps(start_times_min.warm, resolution),
+        cold = _minutes_to_timesteps(start_times_min.cold, resolution),
+    ))
+end
+
+# `time_at_status` in steps when the unit's current status matches the condition, else zero.
+function _time_at_status_steps(
+    d::PSY.Component,
+    container::OptimizationContainer,
+    status_matches::Bool,
+)
+    if status_matches
+        return _minutes_to_timesteps(PSY.get_time_at_status(d), get_resolution(container))
+    end
+    return 0.0
+end
 
 # The initial conditions of `devices`, in the order of `ics`.
 function _initial_conditions_of(
@@ -1310,19 +1326,35 @@ function _add_startup_temperature_rows!(
             continue
         end
         name = PSY.get_name(d)
-        limits = _convert_hours_to_timesteps(PSY.get_start_time_limits(d), resolution)
+        limits = _minutes_to_timesteps(PSY.get_start_time_limits(d), resolution)
         first_lag = Int(_start_stage_limit(S, limits))
         last_lag = Int(_start_stage_limit(_next_start_stage(S), limits)) - 1
-        for t in time_steps
-            if t <= last_lag
-                continue
-            end
-            stops = zero(JuMP.AffExpr)
-            for lag in first_lag:last_lag
-                JuMP.add_to_expression!(stops, varstop[name, t - lag])
-            end
-            con[name, t] = JuMP.@constraint(jump_model, start_var[name, t] <= stops)
+        _add_startup_temperature_device_rows!(
+            con, jump_model, start_var, varstop, name, time_steps, first_lag, last_lag,
+        )
+    end
+    return
+end
+
+function _add_startup_temperature_device_rows!(
+    con::JuMP.Containers.SparseAxisArray,
+    jump_model::JuMP.Model,
+    start_var::JuMPVariableArray,
+    varstop::JuMPVariableArray,
+    name::String,
+    time_steps::UnitRange{Int},
+    first_lag::Int,
+    last_lag::Int,
+)
+    for t in time_steps
+        if t <= last_lag
+            continue
         end
+        stops = zero(JuMP.AffExpr)
+        for lag in first_lag:last_lag
+            JuMP.add_to_expression!(stops, varstop[name, t - lag])
+        end
+        con[name, t] = JuMP.@constraint(jump_model, start_var[name, t] <= stops)
     end
     return
 end
@@ -1455,32 +1487,57 @@ function _add_startup_ic_rows!(
         return
     end
     name = PSY.get_name(d)
-    limits = _convert_hours_to_timesteps(
+    limits = _minutes_to_timesteps(
         PSY.get_start_time_limits(d),
         get_resolution(container),
     )
     stage_limit = _start_stage_limit(S, limits)
     next_limit = _start_stage_limit(_next_start_stage(S), limits)
-    var = get_variable(container, S, T)
-    varbin = get_variable(container, OnVariable, T)
-    jump_model = get_jump_model(container)
-    for t in get_time_steps(container)
+    _add_startup_ic_device_rows!(
+        con_ub,
+        con_lb,
+        get_jump_model(container),
+        get_variable(container, S, T),
+        get_variable(container, OnVariable, T),
+        get_time_steps(container),
+        name,
+        stage,
+        stage_limit,
+        next_limit,
+        get_value(ic),
+    )
+    return
+end
+
+function _add_startup_ic_device_rows!(
+    con_ub::JuMP.Containers.SparseAxisArray,
+    con_lb::JuMP.Containers.SparseAxisArray,
+    jump_model::JuMP.Model,
+    var::JuMPVariableArray,
+    varbin::JuMPVariableArray,
+    time_steps::UnitRange{Int},
+    name::String,
+    stage::Int,
+    stage_limit::Float64,
+    next_limit::Float64,
+    initial_offtime::Union{Float64, JuMP.VariableRef},
+)
+    offtime = zero(JuMP.AffExpr)
+    JuMP.add_to_expression!(offtime, initial_offtime)
+    for t in time_steps
         if t >= next_limit
             break
         end
-        offtime = zero(JuMP.AffExpr)
-        JuMP.add_to_expression!(offtime, get_value(ic))
-        for i in 1:t
-            JuMP.add_to_expression!(offtime, 1.0)
-            JuMP.add_to_expression!(offtime, -1.0, varbin[name, i])
-        end
+        JuMP.add_to_expression!(offtime, 1.0)
+        JuMP.add_to_expression!(offtime, -1.0, varbin[name, t])
+        row = copy(offtime)
         con_ub[name, t, stage] = JuMP.@constraint(
             jump_model,
-            (next_limit - 1) * var[name, t] + (1 - var[name, t]) * M_VALUE >= offtime
+            (next_limit - 1) * var[name, t] + (1 - var[name, t]) * M_VALUE >= row
         )
         con_lb[name, t, stage] = JuMP.@constraint(
             jump_model,
-            stage_limit * var[name, t] <= offtime
+            stage_limit * var[name, t] <= row
         )
     end
     return
@@ -1488,16 +1545,13 @@ end
 
 ########################### time duration constraints ######################################
 """
-If the fraction of hours that a generator has a duration constraint is less than
-the fraction of hours that a single time_step represents then it is not binding.
+A generator with up and down limits of at most one time step has no binding duration constraint.
 """
 function _get_data_for_tdc(
     initial_conditions_on::Vector{T},
     initial_conditions_off::Vector{U},
     resolution::Dates.TimePeriod,
 ) where {T <: InitialCondition, U <: InitialCondition}
-    steps_per_hour = 60 / Dates.value(Dates.Minute(resolution))
-    fraction_of_hour = 1 / steps_per_hour
     lenght_devices_on = length(initial_conditions_on)
     lenght_devices_off = length(initial_conditions_off)
     IS.@assert_op lenght_devices_off == lenght_devices_on
@@ -1517,7 +1571,9 @@ function _get_data_for_tdc(
             continue
         end
         if !isnothing(time_limits)
-            if (time_limits.up <= fraction_of_hour) & (time_limits.down <= fraction_of_hour)
+            up_val = _minutes_to_timesteps(time_limits.up, resolution)
+            down_val = _minutes_to_timesteps(time_limits.down, resolution)
+            if (up_val <= 1.0) & (down_val <= 1.0)
                 @debug "Generator $(name) has a nonbinding time limits. Constraints Skipped"
                 continue
             else
@@ -1525,8 +1581,6 @@ function _get_data_for_tdc(
             end
             ini_conds[idx, 1] = ic
             ini_conds[idx, 2] = initial_conditions_off[ix]
-            up_val = round(Float64, time_limits.up * steps_per_hour, RoundUp)
-            down_val = round(Float64, time_limits.down * steps_per_hour, RoundUp)
             time_params[idx] = (up = up_val, down = down_val)
         end
     end
@@ -1618,6 +1672,12 @@ end
 # The OnVariable `add_proportional_cost!` forwarder (thermal + hydro) lives in
 # common_models/objective_function.jl.
 skip_proportional_cost(d::PSY.ThermalGen) = _is_must_run(d)
+
+# A must-run unit has no On variable cost, but its ramp slacks keep their penalty.
+skip_proportional_cost(
+    ::PSY.ThermalGen,
+    ::Type{<:Union{RateofChangeConstraintSlackUp, RateofChangeConstraintSlackDown}},
+) = false
 
 ########################### Objective Function Calls#############################################
 # These functions are custom implementations of the cost data. In the file objective_functions.jl there are default implementations. Define these only if needed.

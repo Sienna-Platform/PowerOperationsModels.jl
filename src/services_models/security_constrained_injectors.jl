@@ -103,6 +103,7 @@ end
 # time, so each helper compiles once per type.
 function _add_outaged_output!(
     outaged::Dict{DataType, Dict{String, Vector{JuMP.AffExpr}}},
+    series_cache::Dict{Tuple{DataType, String}, Vector{JuMP.AffExpr}},
     container::OptimizationContainer,
     devices_template::DevicesModelContainer,
     generator::V,
@@ -117,8 +118,12 @@ function _add_outaged_output!(
     end
     formulation = get_formulation(devices_template[nameof(V)])
     outputs = get!(Dict{String, Vector{JuMP.AffExpr}}, outaged, V)
-    outputs[name] =
-        _total_active_power_series(container, formulation, generator, time_steps)
+    key = (V, name)
+    if !haskey(series_cache, key)
+        series_cache[key] =
+            _total_active_power_series(container, formulation, generator, time_steps)
+    end
+    outputs[name] = series_cache[key]
     return
 end
 
@@ -147,12 +152,14 @@ function _outaged_generators(
 )
     time_steps = get_time_steps(container)
     outaged_generators = _OutagedOutput()
+    series_cache = Dict{Tuple{DataType, String}, Vector{JuMP.AffExpr}}()
     for (outage_id, outage) in outages
         outaged = Dict{DataType, Dict{String, Vector{JuMP.AffExpr}}}()
         for generator in
             PSY.get_associated_components(sys, outage; component_type = PSY.Generator)
             _add_outaged_output!(
-                outaged, container, devices_template, generator, outage_id, time_steps,
+                outaged, series_cache, container, devices_template, generator, outage_id,
+                time_steps,
             )
         end
         outaged_generators[outage_id] = outaged

@@ -1532,7 +1532,7 @@ function construct_device!(
 )
     devices = get_device_cache(device_model)
     # Must-run units never start or stop, so the start and initial-condition rows leave them out.
-    committable = _committable_devices(devices)
+    committable = filter(!_is_must_run, devices)
 
     add_constraints!(
         container,
@@ -1768,7 +1768,7 @@ function construct_device!(
 )
     devices = get_device_cache(device_model)
     # Must-run units never start or stop, so the start and initial-condition rows leave them out.
-    committable = _committable_devices(devices)
+    committable = filter(!_is_must_run, devices)
 
     initial_conditions!(container, devices, ThermalMultiStartUnitCommitment())
 
