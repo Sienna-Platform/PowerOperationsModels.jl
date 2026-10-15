@@ -1435,3 +1435,35 @@ end
         ) == -1.0
     end
 end
+
+# A simulation step rebuilds a `rebuild_model` model on its emptied container, keeping the
+# parameters the update step just refreshed; the feedforward's parameter must be reused.
+@testset "A rebuild reuses a FixValueFeedforward's parameter" begin
+    sys = PSB.build_system(PSITestSystems, "c_sys5_uc")
+    template = PowerOperationsProblemTemplate(NetworkModel(CopperPlateNetworkModel))
+    device_model = DeviceModel(PSY.ThermalStandard, ThermalBasicUnitCommitment)
+    attach_feedforward!(
+        device_model,
+        FixValueFeedforward(;
+            component_type = PSY.ThermalStandard,
+            source = OnVariable,
+            affected_values = [OnVariable],
+        ),
+    )
+    set_device_model!(template, device_model)
+    set_device_model!(template, PSY.PowerLoad, StaticPowerLoad)
+    model = DecisionModel(template, sys; optimizer = HiGHS_optimizer, rebuild_model = true)
+    container = IOM.get_optimization_container(model)
+    container.built_for_recurrent_solves = true
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+    key = IOM.ParameterKey(FixValueParameter, PSY.ThermalStandard, "$(nameof(OnVariable))")
+    param = IOM.get_parameters(container)[key]
+
+    IOM.reset_optimization_model!(container)
+    POM.build_problem!(container, IOM.get_template(model), IOM.get_system(model))
+    @test IOM.get_parameters(container)[key] === param
+    @test IOM.has_container_key(
+        container, FeedforwardFixValueConstraint, PSY.ThermalStandard, "$(nameof(OnVariable))",
+    )
+end

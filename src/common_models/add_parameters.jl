@@ -123,7 +123,7 @@ function add_parameters!(
     # `_add_parameters!` stores this container under the source variable type as meta, so the
     # rebuild guard has to look it up with the same meta or it never fires.
     if get_rebuild_model(get_settings(container)) &&
-       has_container_key(container, T, D, "$(get_entry_type(source_key))")
+       has_container_key(container, T, D, "$(nameof(get_entry_type(source_key)))")
         return
     end
     _add_parameters!(container, T, source_key, model, devices)
