@@ -940,15 +940,14 @@ function _solve_dc_pf_model(system, template)
     return get_optimization_container(model)
 end
 
-_dc_pf_network() = NetworkModel(
-    PTDFNetworkModel;
-    use_slacks = true,
+_dc_pf_template() = get_template_dispatch_with_network(
+    NetworkModel(PTDFNetworkModel; use_slacks = true);
     evaluations = power_flow_evaluations(DCPowerFlow()),
 )
 
 @testset "PF in the loop includes storage in/out power (issue #379)" begin
     system = build_system(PSITestSystems, "c_sys5_bat")
-    template = get_template_dispatch_with_network(_dc_pf_network())
+    template = _dc_pf_template()
     set_device_model!(template, EnergyReservoirStorage, StorageDispatchWithReserves)
     container = _solve_dc_pf_model(system, template)
 
@@ -977,7 +976,7 @@ end
             ),
         )
     end
-    template = get_template_dispatch_with_network(_dc_pf_network())
+    template = _dc_pf_template()
     set_device_model!(template, InterruptiblePowerLoad, PowerLoadDispatch)
     container = _solve_dc_pf_model(system, template)
 
