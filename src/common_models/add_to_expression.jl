@@ -2034,6 +2034,33 @@ function add_to_expression!(
     return
 end
 
+"""
+`(name, arc, direction)` of each reduced entry of `br_type` that carries interface flow: the
+terms `InterfaceTotalFlow` sums, shared with the post-solve readers of interface duals.
+"""
+function _interface_arc_directions(
+    br_type::Type{V},
+    branch_catalog::PNM.BranchCatalog,
+    direction_map::Dict{String, Int},
+    contributing_devices::Vector{V},
+) where {V <: PSY.ACTransmission}
+    net_reduction_data = PNM.get_network_reduction_data(branch_catalog)
+    terms = Tuple{String, Tuple{Int, Int}, Float64}[]
+    for (name, arc) in PNM.get_name_to_arc_map(branch_catalog, br_type)
+        reduction_entry = PNM.get_reduction_entry(branch_catalog, arc)
+        _reduced_entry_in_interface(reduction_entry, contributing_devices) || continue
+        if isempty(direction_map)
+            direction = 1.0
+        else
+            direction = Float64(
+                _get_direction(arc, reduction_entry, direction_map, net_reduction_data),
+            )
+        end
+        push!(terms, (name, arc, direction))
+    end
+    return terms
+end
+
 function _handle_nodal_or_zonal_interfaces(
     br_type::Type{V},
     branch_catalog::PNM.BranchCatalog,
@@ -2044,27 +2071,16 @@ function _handle_nodal_or_zonal_interfaces(
     variable::DenseAxisArray,
     expression::DenseAxisArray, # There is no good type for a DenseAxisArray slice
 ) where {V <: PSY.ACTransmission}
-    net_reduction_data = PNM.get_network_reduction_data(branch_catalog)
-    for (name, arc) in PNM.get_name_to_arc_map(branch_catalog, br_type)
-        reduction_entry = PNM.get_reduction_entry(branch_catalog, arc)
-        if _reduced_entry_in_interface(reduction_entry, contributing_devices)
-            if isempty(direction_map)
-                direction = 1.0
-            else
-                direction = _get_direction(
-                    arc,
-                    reduction_entry,
-                    direction_map,
-                    net_reduction_data,
-                )
-            end
-            for t in axes(variable, 2)
-                add_proportional_to_jump_expression!(
-                    expression[t],
-                    variable[name, t],
-                    Float64(direction),
-                )
-            end
+    terms = _interface_arc_directions(
+        br_type, branch_catalog, direction_map, contributing_devices,
+    )
+    for (name, _, direction) in terms
+        for t in axes(variable, 2)
+            add_proportional_to_jump_expression!(
+                expression[t],
+                variable[name, t],
+                direction,
+            )
         end
     end
     return
@@ -2204,7 +2220,6 @@ function add_to_expression!(
     model::ServiceModel{PSY.TransmissionInterface, V},
     network_model::NetworkModel{<:AbstractPTDFNetworkModel},
 ) where {V <: MaxInterfaceFlow}
-    net_reduction_data = get_network_reduction(network_model)
     expression = get_expression(container, InterfaceTotalFlow, PSY.TransmissionInterface)
     service_name = PSY.get_name(service)
     direction_map = PSY.get_direction_mapping(service)
@@ -2214,31 +2229,20 @@ function add_to_expression!(
         return
     end
 
+    catalog = get_branch_catalog(network_model)
     for (br_type, contributing_devices) in contributing_devices_map
         flow_expression = get_expression(container, PTDFBranchFlow, br_type)
-        # nearly identical to _handle_nodal_or_zonal_interfaces: differences are
-        # expression[service_name, t] vs expression[t], flow_expression[name, t] vs variable[name, t]
-        catalog = get_branch_catalog(network_model)
-        for (name, arc) in PNM.get_name_to_arc_map(catalog, br_type)
-            reduction_entry = PNM.get_reduction_entry(catalog, arc)
-            if _reduced_entry_in_interface(reduction_entry, contributing_devices)
-                if isempty(direction_map)
-                    direction = 1.0
-                else
-                    direction = _get_direction(
-                        arc,
-                        reduction_entry,
-                        direction_map,
-                        net_reduction_data,
-                    )
-                end
-                for t in axes(flow_expression, 2)
-                    JuMP.add_to_expression!(
-                        expression[service_name, t],
-                        flow_expression[name, t],
-                        Float64(direction),
-                    )
-                end
+        # The same terms the post-solve price reads (`LocationalMarginalPrice`).
+        terms = _interface_arc_directions(
+            br_type, catalog, direction_map, contributing_devices,
+        )
+        for (name, _, direction) in terms
+            for t in axes(flow_expression, 2)
+                JuMP.add_to_expression!(
+                    expression[service_name, t],
+                    flow_expression[name, t],
+                    direction,
+                )
             end
         end
     end

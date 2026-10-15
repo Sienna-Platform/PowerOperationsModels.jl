@@ -152,6 +152,9 @@ function _check_market_model!(template::PowerOperationsProblemTemplate)
         )
     end
     _check_market_network_formulation!(template, market_model)
+    if IOM.get_locational_prices(market_model)
+        _check_locational_price_network(get_network_model(template))
+    end
     network_model = get_network_model(template)
     if IOM.get_use_slacks(network_model)
         throw(
@@ -177,6 +180,19 @@ function _check_market_model!(template::PowerOperationsProblemTemplate)
         )
     end
     return
+end
+
+_check_locational_price_network(::NetworkModel{PTDFNetworkModel}) = nothing
+
+function _check_locational_price_network(
+    ::NetworkModel{N},
+) where {N <: AbstractNetworkModel}
+    throw(
+        ArgumentError(
+            "MarketModel(...; locational_prices = true) prices buses from PTDF shift " *
+            "factors and supports only PTDFNetworkModel; the template uses $(N).",
+        ),
+    )
 end
 
 #################################################################################

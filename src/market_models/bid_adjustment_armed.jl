@@ -58,10 +58,10 @@ construct_device!(
 _counts_for_bid_adjustment(::ConstraintKey) = false
 _counts_for_bid_adjustment(
     key::ConstraintKey{FlowRateConstraint, <:PSY.ACTransmission},
-) = key.meta == "ub" || key.meta == "lb"
+) = _is_rate_meta(key.meta)
 _counts_for_bid_adjustment(
     key::ConstraintKey{PostContingencyFlowRateConstraint, <:PSY.ACTransmission},
-) = key.meta == "ub" || key.meta == "lb"
+) = _is_rate_meta(key.meta)
 
 function _binding_sign(meta::String)
     if meta == "ub"
@@ -100,35 +100,6 @@ function _check_paired_slack(
         "StaticPowerLoadBidAdjustment caps each $(T) row at its $(S) slack penalty, but " *
         "the $(V) model has no slacks. Set `use_slacks = true` on the $(V) DeviceModel.",
     )
-end
-
-_is_row_less(constraint::DenseAxisArray) = isempty(constraint)
-_is_row_less(constraint::SparseAxisArray) = isempty(constraint.data)
-
-function _add_mirrored_dual_container!(
-    container::OptimizationContainer,
-    key::ConstraintKey{T, V},
-    constraint::DenseAxisArray,
-) where {T <: ConstraintType, V <: PSY.ACTransmission}
-    add_dual_container!(container, T, V, axes(constraint)...; meta = key.meta)
-    return
-end
-
-function _add_mirrored_dual_container!(
-    container::OptimizationContainer,
-    key::ConstraintKey{T, V},
-    constraint::SparseAxisArray,
-) where {T <: ConstraintType, V <: PSY.ACTransmission}
-    # Empty axes fix the key type `Tuple{String, String, Int}`; the keys are then copied
-    # from the constraint so the dual mirrors it exactly.
-    dual = add_dual_container!(
-        container, T, V, String[], String[], get_time_steps(container);
-        sparse = true, meta = key.meta,
-    )
-    for k in keys(constraint.data)
-        dual.data[k] = 0.0
-    end
-    return
 end
 
 function finalize_device_construction!(
@@ -279,7 +250,7 @@ function _load_columns(
     columns = Dict{String, Int}()
     for name in names
         load = PSY.get_component(L, system, name)
-        columns[name] = lookup[PNM.get_mapped_bus_number(reduction, PSY.get_bus(load))]
+        columns[name] = _bus_column(lookup, reduction, PSY.get_bus(load))
     end
     return columns
 end
@@ -308,8 +279,8 @@ function _arm_base_case_loads!(
     base_rows::Dict{BaseCaseArmingRow, Set{Int}},
 )
     for (row, time_steps) in base_rows
-        arc = PNM.get_name_to_arc_map(catalog, row.branch_type)[row.name]
-        _arm_loads!(armed, columns, row.sign, ptdf[arc, :], time_steps)
+        shift_factors = _base_case_shift_factors(ptdf, catalog, row.branch_type, row.name)
+        _arm_loads!(armed, columns, row.sign, shift_factors, time_steps)
     end
     return
 end
@@ -346,39 +317,6 @@ function calculate_aux_variable_value!(
     return
 end
 
-# Post-contingency rows key monitored branches by name only, while branch names are unique
-# only per type; a needed name must resolve to one arc across the modeled types.
-function _monitored_arcs_by_name(
-    catalog,
-    modeled_branch_types::Vector{DataType},
-    names,
-)
-    name_to_arc_maps = [PNM.get_name_to_arc_map(catalog, T) for T in modeled_branch_types]
-    arcs = Dict{String, Tuple{Int, Int}}()
-    for name in names
-        for name_to_arc in name_to_arc_maps
-            haskey(name_to_arc, name) || continue
-            arc = name_to_arc[name]
-            existing = get(arcs, name, arc)
-            if existing != arc
-                error(
-                    "Branch name \"$(name)\" maps to arcs $(existing) and $(arc); " *
-                    "BidAdjustmentArmed cannot tell which one a post-contingency row " *
-                    "monitors.",
-                )
-            end
-            arcs[name] = arc
-        end
-        if !haskey(arcs, name)
-            error(
-                "A post-contingency row monitors branch \"$(name)\", which maps to no " *
-                "arc of the modeled branch types $(modeled_branch_types).",
-            )
-        end
-    end
-    return arcs
-end
-
 function _arm_post_contingency_loads!(
     armed::DenseAxisArray,
     columns::Dict{String, Int},
@@ -388,12 +326,7 @@ function _arm_post_contingency_loads!(
     modeled_branch_types::Vector{DataType},
     contingency_rows::Dict{PostContingencyArmingRow, Set{Int}},
 )
-    if PNM.get_bus_lookup(modf) != PNM.get_bus_lookup(ptdf)
-        error(
-            "The contingency matrix and the PTDF order buses differently; " *
-            "BidAdjustmentArmed indexes both with one column map.",
-        )
-    end
+    _check_same_bus_order(modf, ptdf, "BidAdjustmentArmed")
     contingencies = PNM.get_registered_contingencies(modf)
     arcs = _monitored_arcs_by_name(
         catalog, modeled_branch_types,
@@ -403,7 +336,7 @@ function _arm_post_contingency_loads!(
     shift_factors = Dict{Tuple{Int, String}, Vector{Float64}}()
     for (row, time_steps) in contingency_rows
         vector = get!(shift_factors, (row.outage, row.name)) do
-            modf[arcs[row.name], contingencies[row.outage]]
+            _post_contingency_shift_factors(modf, contingencies, arcs, row.outage, row.name)
         end
         _arm_loads!(armed, columns, row.sign, vector, time_steps)
     end

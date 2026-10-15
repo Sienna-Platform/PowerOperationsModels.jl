@@ -69,12 +69,14 @@ No container, template, or model keeps the context.
 """
 struct PowerSolveContext{N <: NetworkModel} <: IOM.AbstractSolveContext
     network_model::N
+    service_models::ServicesModelContainer
 end
 
 get_network_model(context::PowerSolveContext) = context.network_model
+get_service_models(context::PowerSolveContext) = context.service_models
 
 IOM.make_solve_context(template::PowerOperationsProblemTemplate) =
-    PowerSolveContext(get_network_model(template))
+    PowerSolveContext(get_network_model(template), get_service_models(template))
 
 """
 Device models as the service machinery sees them: `template.devices`, plus every market

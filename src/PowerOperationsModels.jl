@@ -352,7 +352,9 @@ include("market_models/nodal_distribution.jl")
 include("market_models/point_to_point_bid.jl")
 include("market_models/virtual_participant.jl")
 include("market_models/market_loads.jl")
+include("market_models/limit_row_duals.jl")
 include("market_models/bid_adjustment_armed.jl")
+include("market_models/locational_marginal_price.jl")
 
 # Services Models
 include("services_models/service_slacks.jl")
@@ -525,6 +527,7 @@ export get_objective_expression
 export get_formulation
 export TimeDurationOn
 export BidAdjustmentArmed
+export LocationalMarginalPrice
 export BID_ADJUSTMENT_CAP_FRACTION
 export BID_ADJUSTMENT_SHIFT_FACTOR_THRESHOLD
 export TimeDurationOff

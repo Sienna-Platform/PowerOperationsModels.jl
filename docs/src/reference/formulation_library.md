@@ -131,6 +131,24 @@ voltage coordinates:
 The AC models additionally error if the reference-bus setpoint falls outside the bus voltage
 limits.
 
+### Locational marginal prices
+
+`IOM.MarketModel(SettlementMarket; settlement_domain = PSY.System, locational_prices = true)` on a `PTDFNetworkModel` adds the auxiliary variable `LocationalMarginalPrice` on `PSY.ACBus`, in currency per MWh, after each solve.
+It is the objective's change per MW of withdrawal settled at the bus:
+
+```math
+\text{LMP}_{b,t} = \frac{\lambda_t + \pi_t + \sum_k \mu_{k,t}\, \text{SF}_k(m(b))}{S_\text{base}\, \Delta t}
+```
+
+  - ``\lambda_t``: the `SettlementBalanceConstraint` dual.
+  - ``\pi_t``: the `CopperPlateBalanceConstraint` dual of the bus's subnetwork.
+  - ``\mu_{k,t}``: the duals of the `"ub"`/`"lb"` rows of `FlowRateConstraint`, `PostContingencyFlowRateConstraint` (branch outages, each row counted once when an outage spans several branch types) and `InterfaceFlowLimit`, and of the phase-shifter `ActivePowerFlowControlConstraint` rows.
+  - ``\text{SF}_k``: each row's shift factor, from the PTDF or the contingency matrix.
+  - ``m(b)``: the bus that carries ``b`` after network reductions.
+
+A build that also contains `NetworkFlowConstraint` (`StaticBranchBounds`), `OperationalFlowLimitConstraint`, `LineFlowBoundConstraint` (area interchanges) or generator-outage post-contingency rows fails, since the price would ignore them.
+After each solve, every bus that is also a `NodalRedistribution` settlement location is checked against the solver's own price, (settlement dual - `ClearedPositionConstraint` dual) / S; a gap above 0.01 per MWh is an error, so a constraint the price does not read cannot pass silently.
+
 ## [Branch Formulations](@id PowerSystems.Branch-Formulations)
 
 ### AC branch formulations

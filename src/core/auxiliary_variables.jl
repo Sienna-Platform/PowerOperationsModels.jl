@@ -128,3 +128,11 @@ that limit. Computed after the solve for loads modeled with
 [`StaticPowerLoadBidAdjustment`](@ref).
 """
 struct BidAdjustmentArmed <: AuxVariableType end
+
+"""
+Locational marginal price of each energized bus, in \$/MWh: the objective's change per MW of
+withdrawal settled at that bus. Assembled after the solve from the settlement balance, physical
+balance and flow-limit duals with the network's own shift factors. Reported when the market
+model is built with `locational_prices = true`; requires `PTDFNetworkModel`.
+"""
+struct LocationalMarginalPrice <: AuxVariableType end

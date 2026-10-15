@@ -263,6 +263,7 @@ function build_problem!(
             finalize_device_construction!(container, sys, device_model, transmission_model)
         end
     end
+    finalize_market_construction!(container, sys, template)
 
     TimerOutputs.@timeit BUILD_PROBLEMS_TIMER "Objective" begin
         @debug "Building Objective" _group = LOG_GROUP_OPTIMIZATION_CONTAINER
