@@ -1908,3 +1908,39 @@ end
         var[(up_name, hy_name, last(time_steps))],
     )
 end
+
+function _hydro_pwl_normalization_row(sys::PSY.System, ::Type{F}) where {F}
+    model = DecisionModel(MockOperationProblem, CopperPlateNetworkModel, sys)
+    mock_construct_device!(model, DeviceModel(HydroDispatch, F))
+    container = IOM.get_optimization_container(model)
+    name = get_name(only(get_components(HydroDispatch, sys)))
+    con = IOM.get_constraint(
+        container, IOM.PiecewiseLinearCostNormalizationConstraint, HydroDispatch,
+    )
+    return JuMP.constraint_object(con[name, 1]), container, name
+end
+
+@testset "Hydro PWL normalization row holds the on status under commitment" begin
+    sys = PSB.build_system(PSITestSystems, "c_sys5_hy")
+    hydro = only(get_components(HydroDispatch, sys))
+    set_operation_cost!(
+        hydro,
+        HydroGenerationCost(;
+            variable_operation_cost = CostCurve(
+                PiecewisePointCurve([
+                    (x = 0.0, y = 0.0),
+                    (x = 10.0, y = 100.0),
+                    (x = 20.0, y = 300.0),
+                    (x = 30.0, y = 700.0),
+                ]),
+            ),
+            fixed = 0.0,
+        ),
+    )
+    row, container, name = _hydro_pwl_normalization_row(sys, HydroCommitmentRunOfRiver)
+    on = IOM.get_variable(container, OnVariable, HydroDispatch)[name, 1]
+    @test row.set == MOI.EqualTo(0.0)
+    @test JuMP.coefficient(row.func, on) ≈ -1.0
+    row, _, _ = _hydro_pwl_normalization_row(sys, HydroDispatchRunOfRiver)
+    @test row.set == MOI.EqualTo(1.0)
+end

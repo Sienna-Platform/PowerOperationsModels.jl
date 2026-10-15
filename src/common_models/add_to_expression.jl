@@ -1618,48 +1618,6 @@ function add_to_expression!(
     return
 end
 
-function add_to_expression!(
-    container::OptimizationContainer,
-    ::Type{T},
-    ::Type{U},
-    devices::Vector{V},
-    ::DeviceModel{V, W},
-    network_model::NetworkModel{X},
-) where {
-    T <: ActivePowerBalance,
-    U <: OnStatusParameter,
-    V <: PSY.ThermalGen,
-    W <: AbstractDeviceFormulation,
-    X <: AbstractPTDFNetworkModel,
-}
-    parameter = get_parameter_array(container, U, V)
-    sys_expr = get_expression(container, T, PSY.System)
-    nodal_expr = get_expression(container, T, PSY.ACBus)
-    network_reduction = get_network_reduction(network_model)
-    time_steps = get_time_steps(container)
-    for d in devices
-        name = PSY.get_name(d)
-        bus_no_ = PSY.get_number(PSY.get_bus(d))
-        bus_no = PNM.get_mapped_bus_number(network_reduction, bus_no_)
-        mult = get_expression_multiplier(U, T, d, W)
-        device_bus = PSY.get_bus(d)
-        ref_index = _ref_index(network_model, device_bus)
-        for t in time_steps
-            add_proportional_to_jump_expression!(
-                sys_expr[ref_index, t],
-                parameter[name, t],
-                mult,
-            )
-            add_proportional_to_jump_expression!(
-                nodal_expr[bus_no, t],
-                parameter[name, t],
-                mult,
-            )
-        end
-    end
-    return
-end
-
 """
 Default implementation to add variables to SystemBalanceExpressions
 """

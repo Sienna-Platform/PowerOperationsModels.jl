@@ -12,17 +12,13 @@ function moi_tests(
     greaterthan::Int,
     equalto::Int,
     binary::Bool,
-    lessthan_quadratic::Union{Int, Nothing} = nothing;
-    broken_lessthan::Bool = false,
-    broken_greaterthan::Bool = false,
+    lessthan_quadratic::Union{Int, Nothing} = nothing,
 )
     JuMPmodel = IOM.get_jump_model(model)
     @test JuMP.num_variables(JuMPmodel) == vars
     @test JuMP.num_constraints(JuMPmodel, GAEVF, MOI.Interval{Float64}) == interval
-    @test JuMP.num_constraints(JuMPmodel, GAEVF, MOI.LessThan{Float64}) == lessthan broken =
-        broken_lessthan
-    @test JuMP.num_constraints(JuMPmodel, GAEVF, MOI.GreaterThan{Float64}) == greaterthan broken =
-        broken_greaterthan
+    @test JuMP.num_constraints(JuMPmodel, GAEVF, MOI.LessThan{Float64}) == lessthan
+    @test JuMP.num_constraints(JuMPmodel, GAEVF, MOI.GreaterThan{Float64}) == greaterthan
     @test JuMP.num_constraints(JuMPmodel, GAEVF, MOI.EqualTo{Float64}) == equalto
     @test ((JuMP.VariableRef, MOI.ZeroOne) in JuMP.list_of_constraint_types(JuMPmodel)) ==
           binary
@@ -101,18 +97,12 @@ function psi_checksolve_test(model::DecisionModel, status)
     @test termination_status(model) in status
 end
 
-function psi_checksolve_test(
-    model::DecisionModel,
-    status,
-    expected_output,
-    tol = 0.0;
-    broken::Bool = false,
-)
+function psi_checksolve_test(model::DecisionModel, status, expected_output, tol = 0.0)
     res = solve!(model)
     model = IOM.get_jump_model(model)
-    @test termination_status(model) in status broken = broken
+    @test termination_status(model) in status
     obj_value = JuMP.objective_value(model)
-    @test isapprox(obj_value, expected_output, atol = tol) broken = broken
+    @test isapprox(obj_value, expected_output, atol = tol)
 end
 
 function psi_ptdf_lmps(res::OptimizationProblemOutputs, ptdf)
@@ -381,7 +371,10 @@ function check_duration_on_initial_conditions_values(
         ]
         duration_on = IOM.jump_value(IOM.get_value(ic))
         if on_var == 1.0 && POM.is_online(ic.component)
-            @test duration_on == PSY.get_time_at_status(ic.component)
+            @test duration_on == POM._minutes_to_timesteps(
+                PSY.get_time_at_status(ic.component),
+                IOM.get_resolution(IOM.get_optimization_container(model)),
+            )
         elseif on_var == 1.0 && !POM.is_online(ic.component)
             @test duration_on == 0.0
         end
@@ -407,7 +400,10 @@ function check_duration_off_initial_conditions_values(
         ]
         duration_off = IOM.jump_value(IOM.get_value(ic))
         if on_var == 0.0 && !POM.is_online(ic.component)
-            @test duration_off == PSY.get_time_at_status(ic.component)
+            @test duration_off == POM._minutes_to_timesteps(
+                PSY.get_time_at_status(ic.component),
+                IOM.get_resolution(IOM.get_optimization_container(model)),
+            )
         elseif on_var == 0.0 && POM.is_online(ic.component)
             @test duration_off == 0.0
         end
@@ -594,12 +590,10 @@ function check_constraint_count(
 ) where {T <: PSY.Component}
     container = IOM.get_optimization_container(model)
     resolution = IOM.get_resolution(container)
-    steps_per_hour = 60 / Dates.value(Dates.Minute(resolution))
-    fraction_of_hour = 1 / steps_per_hour
     duration_devices = filter!(
         x -> !(
-            PSY.get_time_limits(x).up <= fraction_of_hour &&
-            PSY.get_time_limits(x).down <= fraction_of_hour
+            POM._minutes_to_timesteps(PSY.get_time_limits(x).up, resolution) <= 1.0 &&
+            POM._minutes_to_timesteps(PSY.get_time_limits(x).down, resolution) <= 1.0
         ),
         collect(get_components(PSY.get_available, T, model.sys)),
     )

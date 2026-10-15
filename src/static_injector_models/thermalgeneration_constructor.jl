@@ -1531,6 +1531,8 @@ function construct_device!(
     network_model::NetworkModel{<:AbstractNetworkModel},
 )
     devices = get_device_cache(device_model)
+    # Must-run units never start or stop, so the start and initial-condition rows leave them out.
+    committable = filter(!_is_must_run, devices)
 
     add_constraints!(
         container,
@@ -1573,22 +1575,28 @@ function construct_device!(
     add_constraints!(
         container,
         StartupTimeLimitTemperatureConstraint,
-        devices,
+        committable,
         device_model,
         network_model,
     )
-    add_constraints!(container, StartTypeConstraint, devices, device_model, network_model)
+    add_constraints!(
+        container,
+        StartTypeConstraint,
+        committable,
+        device_model,
+        network_model,
+    )
     add_constraints!(
         container,
         StartupInitialConditionConstraint,
-        devices,
+        committable,
         device_model,
         network_model,
     )
     add_constraints!(
         container,
         ActiveRangeICConstraint,
-        devices,
+        committable,
         device_model,
         network_model,
     )
@@ -1759,6 +1767,8 @@ function construct_device!(
     network_model::NetworkModel{<:AbstractActivePowerModel},
 )
     devices = get_device_cache(device_model)
+    # Must-run units never start or stop, so the start and initial-condition rows leave them out.
+    committable = filter(!_is_must_run, devices)
 
     initial_conditions!(container, devices, ThermalMultiStartUnitCommitment())
 
@@ -1795,22 +1805,28 @@ function construct_device!(
     add_constraints!(
         container,
         StartupTimeLimitTemperatureConstraint,
-        devices,
+        committable,
         device_model,
         network_model,
     )
-    add_constraints!(container, StartTypeConstraint, devices, device_model, network_model)
+    add_constraints!(
+        container,
+        StartTypeConstraint,
+        committable,
+        device_model,
+        network_model,
+    )
     add_constraints!(
         container,
         StartupInitialConditionConstraint,
-        devices,
+        committable,
         device_model,
         network_model,
     )
     add_constraints!(
         container,
         ActiveRangeICConstraint,
-        devices,
+        committable,
         device_model,
         network_model,
     )
