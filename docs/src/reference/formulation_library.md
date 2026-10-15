@@ -561,9 +561,10 @@ respective balances under any `<:AbstractNetworkModel`.
 | `RenewableConstantPowerFactor` | as above                                       | as above, except the reactive limits are replaced by an **`EqualityConstraint`** pinning ``q = p \tan(\arccos(pf))``                                                                                        |
 | `FixedOutput`                  | none                                           | none — the time-series parameter is wired straight into the balance                                                                                                                                         |
 
-Both dispatch formulations support all eleven network models. Renewable injection carries a
-**negative** objective multiplier, and the renewable cost expressions include a
-`CurtailmentCostExpression` (populated only for a `CostCurve{LinearCurve}`).
+Both dispatch formulations support all eleven network models. The renewable variable
+cost enters the objective with a positive sign. The curtailment cost enters the objective as
+`curtailment_cost · (available − dispatched)` and is reported in `CurtailmentCostExpression`
+(`CostCurve{LinearCurve}` only).
 
 Note that `RenewableConstantPowerFactor` emits **no** `ReactivePowerVariableLimitsConstraint` at
 all — the power-factor equality replaces it.
