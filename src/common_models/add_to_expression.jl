@@ -567,6 +567,12 @@ function _hvdc_flow_enters_region_row(
     return true
 end
 
+_hvdc_flow_enters_region_row(
+    ::NetworkModel{PTDFNetworkModel},
+    ::Type{<:AbstractTwoTerminalVSCFormulation},
+    ::PSY.Arc,
+) = true
+
 """
 Add a single directional HVDC flow variable to the nodal balance and to the
 system or area balance of a PTDF network. The variable contributes `multiplier`
