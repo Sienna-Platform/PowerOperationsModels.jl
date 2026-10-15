@@ -21,9 +21,6 @@ function get_initial_conditions_template(model::IOM.AbstractOptimizationModel)
     # the IC build reads the reduction, it does not extend it.
     IOM.set_network_data!(network_model, get_network_data(main_network_model))
     network_model.subnetworks = get_subnetworks(main_network_model)
-    # Initialization builds a fresh, empty EvaluationContainer: no power-flow (or other)
-    # evaluations are run during initialization.
-    network_model.evaluations = IOM.EvaluationContainer()
     bus_area_map = get_bus_area_map(get_network_model(model.template))
 
     if !isempty(bus_area_map)

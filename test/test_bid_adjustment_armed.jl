@@ -3,8 +3,9 @@ function _bid_adjustment_template(;
     thermal_formulation = ThermalBasicDispatch,
     line_model = DeviceModel(PSY.Line, StaticBranch; use_slacks = true),
     load_formulation = StaticPowerLoadBidAdjustment,
+    evaluations = IOM.EvaluationContainer(),
 )
-    template = PowerOperationsProblemTemplate(network_model)
+    template = PowerOperationsProblemTemplate(network_model; evaluations = evaluations)
     set_device_model!(template, PSY.ThermalStandard, thermal_formulation)
     set_device_model!(template, PSY.PowerLoad, load_formulation)
     set_device_model!(template, line_model)
@@ -653,10 +654,8 @@ end
 @testset "AC power flow in the loop keeps post-contingency arming from a VirtualMODF" begin
     sys = _overload_post_contingency_rows!(PSB.build_system(PSITestSystems, "c_sys5"))
     template = _bid_adjustment_template(;
-        network_model = NetworkModel(
-            PTDFNetworkModel;
-            evaluations = power_flow_evaluations(ACPowerFlow()),
-        ),
+        network_model = NetworkModel(PTDFNetworkModel),
+        evaluations = power_flow_evaluations(ACPowerFlow()),
         line_model = DeviceModel(PSY.Line, SecurityConstrainedStaticBranch;
             use_slacks = true),
     )

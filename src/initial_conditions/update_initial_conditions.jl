@@ -87,7 +87,7 @@ function reset_initial_conditions!(model::DecisionModel)
     for (key, ics) in get_initial_conditions(container)
         T = IOM.get_entry_type(key)
         for ic in ics
-            n += _reset_initial_condition!(ic, T, template)
+            n += _reset_initial_condition!(ic, T, template, container)
         end
     end
     return n
@@ -97,6 +97,7 @@ function _reset_initial_condition!(
     ::IOM.InitialCondition{U, Nothing},
     ::Type{T},
     template::PowerOperationsProblemTemplate,
+    ::OptimizationContainer,
 ) where {U <: IOM.InitialConditionType, T}
     return 0
 end
@@ -105,9 +106,13 @@ function _reset_initial_condition!(
     ic::IOM.InitialCondition,
     ::Type{T},
     template::PowerOperationsProblemTemplate,
+    container::OptimizationContainer,
 ) where {T}
     component = IOM.get_component(ic)
     formulation = IOM.get_formulation(get_model(template, typeof(component)))
-    set_ic_quantity!(ic, initial_condition_default(T(), component, formulation()))
+    set_ic_quantity!(
+        ic,
+        initial_condition_default(T(), component, formulation(), container),
+    )
     return 1
 end

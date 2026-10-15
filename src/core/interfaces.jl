@@ -112,21 +112,6 @@ function get_expression_multiplier(
 end
 
 """
-Get multiplier value for a time series parameter.
-"""
-function get_multiplier_value(
-    ::Type{T},
-    ::U,
-    ::Type{F},
-) where {
-    T <: IOM.TimeSeriesParameter,
-    U <: IS.InfrastructureSystemsComponent,
-    F <: IOM.AbstractDeviceFormulation,
-}
-    return 1.0
-end
-
-"""
 Get the multiplier value for a parameter type.
 """
 function get_multiplier_value(
@@ -139,7 +124,9 @@ function get_multiplier_value(
     F <: IOM.AbstractDeviceFormulation,
 }
     error(
-        "get_multiplier_value not implemented for parameter $P, device $D, formulation $F.",
+        "get_multiplier_value is not implemented for parameter $(nameof(P)), " *
+        "device $(nameof(D)), formulation $(nameof(F)). Add a method that " *
+        "returns the multiplier in system base.",
     )
 end
 
@@ -151,10 +138,10 @@ errors with guidance to load it.
 """
 function add_power_flow_data!(
     ::IOM.OptimizationContainer,
-    network_model::IOM.NetworkModel,
+    evaluations::IOM.EvaluationContainer,
     ::IS.ComponentContainer,
 )
-    for evaluator in values(IOM.get_evaluators(IOM.get_evaluations(network_model)))
+    for evaluator in values(IOM.get_evaluators(evaluations))
         _check_power_flow_loaded(evaluator)
     end
     return
@@ -163,16 +150,18 @@ end
 _check_power_flow_loaded(::IOM.AbstractEvaluator) = nothing
 
 """
-Register the runtime data of every evaluator that is not a power flow. Read the
-evaluators from `network_model`. Call `IOM.initialize_evaluation_data` for each one
-and store the result in the evaluation data of `container`.
+Register the runtime data of every evaluator in `evaluations` that is not a power flow.
+Call `IOM.initialize_evaluation_data` for each one, store the result in the
+evaluation data of `container`, and call `IOM.add_evaluator_aux_variables!` so the
+evaluator can add and bind its aux variables.
+Evaluators run in the order they were added, power flows first.
 """
 function add_evaluator_data!(
     container::IOM.OptimizationContainer,
-    network_model::IOM.NetworkModel,
+    evaluations::IOM.EvaluationContainer,
     sys::IS.ComponentContainer,
 )
-    for (T, evaluator) in pairs(IOM.get_evaluators(IOM.get_evaluations(network_model)))
+    for (T, evaluator) in pairs(IOM.get_evaluators(evaluations))
         _add_evaluator_data!(T, evaluator, container, sys)
     end
     return
@@ -184,18 +173,16 @@ function _add_evaluator_data!(
     container::IOM.OptimizationContainer,
     sys::IS.ComponentContainer,
 )
-    IOM.add_evaluation_data!(
-        container,
-        T,
-        IOM.initialize_evaluation_data(evaluator, container, sys),
-    )
+    data = IOM.initialize_evaluation_data(evaluator, container, sys)
+    IOM.add_evaluation_data!(container, T, data)
+    IOM.add_evaluator_aux_variables!(container, T, data, sys)
     return
 end
 
 """
 Config-side adapter that wraps a power-flow model (e.g. a PowerFlows
 `PowerFlowEvaluationModel` such as `ACPowerFlow()`) as an `IOM.AbstractEvaluator`
-so it can be stored on a `NetworkModel`'s `EvaluationContainer`. IOM owns the
+so it can be stored in a template's `EvaluationContainer`. IOM owns the
 abstract evaluator interface but carries no PowerFlows dependency, so the concrete
 adapter lives here (and is unwrapped by the PowerFlows extension's
 `add_power_flow_data!`). Kept type-generic so POM core needs no PowerFlows types.
@@ -227,7 +214,7 @@ end
 """
 Build an `EvaluationContainer` holding a single evaluator. Convenience for the
 common single-evaluator case at call sites such as
-`NetworkModel(...; evaluations = power_flow_evaluations(ACPowerFlow()))`.
+`PowerOperationsProblemTemplate(network; evaluations = power_flow_evaluations(ACPowerFlow()))`.
 
 The power-flow model is keyed by its own type and wrapped in a
 [`PowerFlowEvaluator`](@ref) to satisfy IOM's `AbstractEvaluator` interface.

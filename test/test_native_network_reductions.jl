@@ -1086,3 +1086,105 @@ end
     )
     @test_throws ErrorException POM._assert_not_aggregate(group, "_get_direction")
 end
+
+@testset "a reduced arc pays the flow slack penalty once" begin
+    sys = _case11_with_forecast()
+    net = NetworkModel(
+        PTDFNetworkModel;
+        network_source = _network_source_from_flags(true, true),
+    )
+    template = get_thermal_dispatch_template_network(net)
+    set_device_model!(template, DeviceModel(PSY.Line, StaticBranch; use_slacks = true))
+    set_device_model!(
+        template,
+        DeviceModel(PSY.TwoWindingTransformer, StaticBranch; use_slacks = true),
+    )
+    model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
+    @test build!(
+        model;
+        output_dir = mktempdir(; cleanup = true),
+        console_level = Logging.Error,
+    ) == IOM.ModelBuildStatus.BUILT
+
+    container = IOM.get_optimization_container(model)
+    objective = JuMP.objective_function(IOM.get_jump_model(container))
+    priced = JuMP.VariableRef[]
+    for V in (PSY.Line, PSY.TwoWindingTransformer),
+        S in (FlowActivePowerSlackUpperBound, FlowActivePowerSlackLowerBound)
+
+        for slack in IOM.get_variable(container, S, V)
+            push!(priced, slack)
+            @test JuMP.coefficient(objective, slack) ==
+                  POM.CONSTRAINT_VIOLATION_SLACK_COST
+        end
+    end
+    # The fixture must share a slack between names, or a double price cannot show.
+    @test !allunique(priced)
+end
+
+function _reduced_slack_model(line_costs, transformer_costs)
+    net = NetworkModel(
+        PTDFNetworkModel;
+        network_source = _network_source_from_flags(true, true),
+    )
+    template = get_thermal_dispatch_template_network(net)
+    for (V, costs) in
+        ((PSY.Line, line_costs), (PSY.TwoWindingTransformer, transformer_costs))
+        set_device_model!(
+            template,
+            DeviceModel(
+                V,
+                StaticBranch;
+                use_slacks = true,
+                attributes = Dict{String, Any}("flow_slack_cost" => costs),
+            ),
+        )
+    end
+    model = DecisionModel(template, _case11_with_forecast(); optimizer = HiGHS_optimizer)
+    output_dir = mktempdir(; cleanup = true)
+    status = build!(model; output_dir = output_dir, console_level = Logging.Error)
+    return model, status, output_dir
+end
+
+@testset "branches that share a reduced arc must share its slack cost" begin
+    model, status, _ =
+        _reduced_slack_model(Dict{String, Float64}(), Dict{String, Float64}())
+    @test status == IOM.ModelBuildStatus.BUILT
+    container = IOM.get_optimization_container(model)
+    owners = Dict{JuMP.VariableRef, Vector{Tuple{DataType, String}}}()
+    for V in (PSY.Line, PSY.TwoWindingTransformer)
+        slacks = IOM.get_variable(container, FlowActivePowerSlackUpperBound, V)
+        for name in axes(slacks, 1)
+            push!(get!(owners, slacks[name, 1], Tuple{DataType, String}[]), (V, name))
+        end
+    end
+    shared = first(v for v in values(owners) if length(v) > 1)
+    costs_for(c) = (
+        Dict{String, Float64}(n => c for (V, n) in shared if V === PSY.Line),
+        Dict{String, Float64}(
+            n => c for (V, n) in shared if V === PSY.TwoWindingTransformer
+        ),
+    )
+
+    (V, name) = first(shared)
+    one_side = (
+        Dict{String, Float64}(V === PSY.Line ? (name => 123.0,) : ()),
+        Dict{String, Float64}(V === PSY.Line ? () : (name => 123.0,)),
+    )
+    _, status, output_dir = _reduced_slack_model(one_side...)
+    @test status == IOM.ModelBuildStatus.FAILED
+    log = read(joinpath(output_dir, "operation_problem.log"), String)
+    @test occursin("Branches that share an arc must have the same slack cost", log)
+
+    model, status, _ = _reduced_slack_model(costs_for(123.0)...)
+    @test status == IOM.ModelBuildStatus.BUILT
+    container = IOM.get_optimization_container(model)
+    invariant = IOM.get_invariant_terms(IOM.get_objective_expression(container))
+    slacks = IOM.get_variable(container, FlowActivePowerSlackUpperBound, V)
+    @test JuMP.coefficient(invariant, slacks[name, 1]) == 123.0
+
+    _, status, output_dir = _reduced_slack_model(costs_for(0.0)...)
+    @test status == IOM.ModelBuildStatus.FAILED
+    log = read(joinpath(output_dir, "operation_problem.log"), String)
+    @test occursin("Slack costs must be positive", log)
+end

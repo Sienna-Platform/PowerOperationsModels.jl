@@ -42,8 +42,8 @@ get_variable_binary(::Type{ShiftDownActivePowerVariable}, ::Type{<:PSY.ElectricL
 get_variable_lower_bound(::Type{ShiftDownActivePowerVariable}, d::PSY.ElectricLoad, ::Type{PowerLoadShift}) = 0.0
 get_variable_upper_bound(::Type{ShiftDownActivePowerVariable}, d::PSY.ElectricLoad, ::Type{PowerLoadShift}) = nothing # Unbounded above by default, but can be limited by time series parameters
 
-variable_cost(cost::PSY.OperationalCost, ::Type{ShiftUpActivePowerVariable}, ::PSY.ElectricLoad, ::Type{<:AbstractControllablePowerLoadFormulation})=PSY.get_variable_operation_cost(cost)
-variable_cost(cost::PSY.OperationalCost, ::Type{ShiftDownActivePowerVariable}, ::PSY.ElectricLoad, ::Type{<:AbstractControllablePowerLoadFormulation})=PSY.get_variable_operation_cost(cost)
+variable_cost(cost::PSY.OperationalCost, ::Type{ShiftUpActivePowerVariable}, ::Type{<:PSY.ElectricLoad}, ::Type{<:AbstractControllablePowerLoadFormulation})=PSY.get_variable_operation_cost(cost)
+variable_cost(cost::PSY.OperationalCost, ::Type{ShiftDownActivePowerVariable}, ::Type{<:PSY.ElectricLoad}, ::Type{<:AbstractControllablePowerLoadFormulation})=PSY.get_variable_operation_cost(cost)
 
 ########################### Reserve provision, ElectricLoad ################################
 # The inverse of a generator: up reserve is shed (P - r_up >= 0), down reserve is extra

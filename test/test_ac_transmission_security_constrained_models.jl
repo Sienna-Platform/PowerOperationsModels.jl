@@ -27,6 +27,24 @@ function _affexpr_approx_equal(actual, expected; atol = 1e-8)
     return coeff_resid ≤ atol && abs(JuMP.constant(d)) ≤ atol
 end
 
+# The Line container also holds rows for monitored transformers.
+function _monitored_arc(name_to_arc_maps, name)
+    line_arcs = name_to_arc_maps[PSY.Line]
+    if haskey(line_arcs, name)
+        return line_arcs[name]
+    end
+    return name_to_arc_maps[PSY.TwoWindingTransformer][name]
+end
+
+# The flow of one transformer as the model holds it, by formulation.
+_dcp_transformer_flow(container, ::Type{StaticBranch}, name, t) =
+    IOM.get_expression(container, POM.BThetaBranchFlow, PSY.TwoWindingTransformer)[name, t]
+_dcp_transformer_flow(container, ::Type{POM.SecurityConstrainedStaticBranch}, name, t) =
+    IOM.get_variable(container, POM.FlowActivePowerVariable, PSY.TwoWindingTransformer)[
+        name,
+        t,
+    ]
+
 @testset "Post-contingency expressions and constraints match MODF ground truth" begin
     c_sys5 = PSB.build_system(PSITestSystems, "c_sys5")
     all_branches = collect(get_components(PSY.ACTransmission, c_sys5))
@@ -800,6 +818,111 @@ end
     @test n_checked >= 1
 
     psi_checksolve_test(ps_model, [MOI.OPTIMAL, MOI.ALMOST_OPTIMAL])
+end
+
+@testset "DCP post-contingency flows include StaticBranch transformer flows" begin
+    for transformer_formulation in (StaticBranch, POM.SecurityConstrainedStaticBranch)
+        c_sys14 = PSB.build_system(PSITestSystems, "c_sys14")
+        all_branches = collect(get_components(PSY.ACTransmission, c_sys14))
+        for line_name in ["Line1", "Line9"]
+            line = get_component(PSY.ACTransmission, c_sys14, line_name)
+            PSY.add_supplemental_attribute!(
+                c_sys14,
+                line,
+                PSY.FixedForcedOutage(;
+                    outage_status = 1.0,
+                    monitored_components = all_branches,
+                ),
+            )
+        end
+        template =
+            get_thermal_dispatch_template_network(NetworkModel(POM.DCPNetworkModel))
+        set_device_model!(template, PSY.Line, POM.SecurityConstrainedStaticBranch)
+        set_device_model!(template, PSY.TwoWindingTransformer, transformer_formulation)
+        ps_model = DecisionModel(template, c_sys14; optimizer = HiGHS_optimizer)
+        @test build!(ps_model; output_dir = mktempdir(; cleanup = true)) ==
+              IOM.ModelBuildStatus.BUILT
+
+        container = IOM.get_optimization_container(ps_model)
+        time_steps = IOM.get_time_steps(container)
+        ground_truth_modf = PNM.VirtualMODF(c_sys14)
+        registered = PNM.get_registered_contingencies(ground_truth_modf)
+        bus_axis = PNM.get_bus_axis(ground_truth_modf)
+
+        # KCL oracle over the raw PSY arcs: flow f leaves `from` and arrives at `to`.
+        injection = Dict{Tuple{Int, Int}, JuMP.AffExpr}(
+            (bus_no, t) => zero(JuMP.AffExpr) for bus_no in bus_axis, t in time_steps
+        )
+        line_flows = IOM.get_variable(container, POM.FlowActivePowerVariable, PSY.Line)
+        for line in get_components(PSY.Line, c_sys14), t in time_steps
+            arc = PSY.get_arc(line)
+            flow = line_flows[PSY.get_name(line), t]
+            JuMP.add_to_expression!(
+                injection[(PSY.get_number(PSY.get_from(arc)), t)],
+                1.0,
+                flow,
+            )
+            JuMP.add_to_expression!(
+                injection[(PSY.get_number(PSY.get_to(arc)), t)],
+                -1.0,
+                flow,
+            )
+        end
+        for tr in get_components(PSY.TwoWindingTransformer, c_sys14), t in time_steps
+            arc = PSY.get_arc(tr)
+            flow = _dcp_transformer_flow(
+                container,
+                transformer_formulation,
+                PSY.get_name(tr),
+                t,
+            )
+            JuMP.add_to_expression!(
+                injection[(PSY.get_number(PSY.get_from(arc)), t)],
+                1.0,
+                flow,
+            )
+            JuMP.add_to_expression!(
+                injection[(PSY.get_number(PSY.get_to(arc)), t)],
+                -1.0,
+                flow,
+            )
+        end
+
+        pcbf = IOM.get_expression(container, POM.PostContingencyBranchFlow, PSY.Line)
+        name_to_arc_maps =
+            PNM.get_name_to_arc_maps(
+                POM.get_branch_catalog(
+                    IOM.get_network_model(IOM.get_template(ps_model)),
+                ),
+            )
+        n_checked = 0
+        for (outage_id_str, name, t) in keys(pcbf.data)
+            modf_col = ground_truth_modf[
+                _monitored_arc(name_to_arc_maps, name),
+                registered[parse(Int, outage_id_str)],
+            ]
+            expected = zero(JuMP.AffExpr)
+            for i in eachindex(modf_col)
+                abs(modf_col[i]) > POM.PTDF_ZERO_TOL || continue
+                JuMP.add_to_expression!(expected, modf_col[i], injection[(bus_axis[i], t)])
+            end
+            @test _affexpr_approx_equal(pcbf[outage_id_str, name, t], expected)
+            n_checked += 1
+        end
+        @test n_checked >= 1
+    end
+end
+
+@testset "DCP N-1 rejects a StaticBranch transformer with a phase shift" begin
+    # `_dcp_nodal_injection_expressions` would carry the shift, but validation blocks the case.
+    c_sys14 = PSB.build_system(PSITestSystems, "c_sys14")
+    transformer = get_component(PSY.TwoWindingTransformer, c_sys14, "Trans1")
+    PSY.set_α!(PSY.get_circuit(transformer), 0.1)
+    template = get_thermal_dispatch_template_network(NetworkModel(POM.DCPNetworkModel))
+    set_device_model!(template, PSY.Line, POM.SecurityConstrainedStaticBranch)
+    set_device_model!(template, PSY.TwoWindingTransformer, StaticBranch)
+    model = DecisionModel(template, c_sys14; optimizer = HiGHS_optimizer)
+    @test_throws IS.ConflictingInputsError POM.validate_template(model)
 end
 
 @testset "Security-constrained branches are blocked on AC and lossy network models" begin
@@ -2086,6 +2209,150 @@ end
     log = read(joinpath(output_dir, "operation_problem.log"), String)
     @test occursin("1 monitored component(s) across 1 outage(s) are unavailable", log)
     @test occursin("$(outage_id) => 1", log)
+end
+
+# Emergency ratings (system base) of line "1" and of its parallel copy "1_copy" in c_sys5.
+const _N1_LINE_RATING_B = 0.6
+const _N1_COPY_RATING_B = 0.4
+
+# c_sys5 with line "1" doubled into a parallel pair. Four outages monitor the pair. They trip
+# "1", "1_copy", line "2", and both members of the pair ("1+1_copy").
+function _n1_parallel_system()
+    sys = PSB.build_system(PSITestSystems, "c_sys5")
+    line = PSY.get_component(PSY.Line, sys, "1")
+    add_equivalent_ac_transmission_with_parallel_circuits!(sys, line, PSY.Line)
+    copy_line = PSY.get_component(PSY.Line, sys, "1_copy")
+    _set_rating_b!(line, _N1_LINE_RATING_B * u"SU")
+    _set_rating_b!(copy_line, _N1_COPY_RATING_B * u"SU")
+    outages = Dict{String, PSY.FixedForcedOutage}()
+    for names in (("1",), ("1_copy",), ("2",), ("1", "1_copy"))
+        outage = PSY.FixedForcedOutage(;
+            outage_status = 1.0,
+            monitored_components = [line, copy_line],
+        )
+        for name in names
+            PSY.add_supplemental_attribute!(
+                sys,
+                PSY.get_component(PSY.Line, sys, name),
+                outage,
+            )
+        end
+        outages[join(names, "+")] = outage
+    end
+    return sys, outages
+end
+
+# Build the model and return its container and the reduction entry that represents line "1".
+function _build_sc_container(template, sys)
+    model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+    catalog = POM.get_branch_catalog(IOM.get_network_model(IOM.get_template(model)))
+    pair = PNM.get_component_to_reduction_name_map(catalog)[PSY.Line]["1"]
+    return IOM.get_optimization_container(model), pair
+end
+
+# Raw post-contingency upper limit of `name` under `outage` at `t` in the `V` container.
+# JuMP moves the affine constant of the flow expression to the RHS; add it back.
+function _pc_upper_limit(container, ::Type{V}, outage, name, t) where {V}
+    key = (string(IS.get_id(outage)), name, t)
+    flow = IOM.get_expression(container, POM.PostContingencyBranchFlow, V)
+    con_ub = IOM.get_constraint(
+        container,
+        IOM.ConstraintKey(POM.PostContingencyFlowRateConstraint, V, "ub"),
+    )
+    return JuMP.normalized_rhs(con_ub[key...]) + JuMP.constant(flow[key...])
+end
+
+# Limits of the pair under each outage of `_n1_parallel_system`, times the rating factor of
+# the time step. A full trip keeps the intact limit because the MODF row is zero.
+function _test_pair_limits(container, outages, pair, factors::Vector{Float64})
+    intact = _N1_LINE_RATING_B + _N1_COPY_RATING_B
+    for t in IOM.get_time_steps(container)
+        f = factors[mod1(t, length(factors))]
+        @test _pc_upper_limit(container, PSY.Line, outages["1"], pair, t) ≈
+              f * _N1_COPY_RATING_B
+        @test _pc_upper_limit(container, PSY.Line, outages["1_copy"], pair, t) ≈
+              f * _N1_LINE_RATING_B
+        @test _pc_upper_limit(container, PSY.Line, outages["2"], pair, t) ≈ f * intact
+        @test _pc_upper_limit(container, PSY.Line, outages["1+1_copy"], pair, t) ≈
+              f * intact
+    end
+    return
+end
+
+@testset "post-contingency limit of a parallel pair counts only the circuits in service" begin
+    for network_model in (NetworkModel(PTDFNetworkModel), NetworkModel(DCPNetworkModel))
+        sys, outages = _n1_parallel_system()
+        template = get_thermal_dispatch_template_network(network_model)
+        set_device_model!(template, PSY.Line, POM.SecurityConstrainedStaticBranch)
+        container, pair = _build_sc_container(template, sys)
+        _test_pair_limits(container, outages, pair, [1.0])
+    end
+end
+
+@testset "post-contingency limit of a mixed parallel pair counts only the circuit in service" begin
+    sys = PSB.build_system(PSITestSystems, "c_sys5")
+    line = PSY.get_component(PSY.Line, sys, "1")
+    add_equivalent_ac_transmission_with_parallel_circuits!(
+        sys,
+        line,
+        PSY.Line,
+        PSY.TwoWindingTransformer,
+    )
+    transformer = PSY.get_component(PSY.TwoWindingTransformer, sys, "1_copy")
+    _set_rating_b!(line, _N1_LINE_RATING_B * u"SU")
+    _set_rating_b!(transformer, _N1_COPY_RATING_B * u"SU")
+    outage = PSY.FixedForcedOutage(;
+        outage_status = 1.0,
+        monitored_components = [line, transformer],
+    )
+    PSY.add_supplemental_attribute!(sys, transformer, outage)
+    template = get_thermal_dispatch_template_network(NetworkModel(PTDFNetworkModel))
+    set_device_model!(template, PSY.Line, POM.SecurityConstrainedStaticBranch)
+    set_device_model!(
+        template,
+        PSY.TwoWindingTransformer,
+        POM.SecurityConstrainedStaticBranch,
+    )
+    container, pair = _build_sc_container(template, sys)
+    outage_id = string(IS.get_id(outage))
+    n_checked = 0
+    for V in (PSY.Line, PSY.TwoWindingTransformer)
+        con_ub = IOM.get_constraint(
+            container,
+            IOM.ConstraintKey(POM.PostContingencyFlowRateConstraint, V, "ub"),
+        )
+        for t in IOM.get_time_steps(container)
+            if !haskey(con_ub.data, (outage_id, pair, t))
+                continue
+            end
+            @test _pc_upper_limit(container, V, outage, pair, t) ≈ _N1_LINE_RATING_B
+            n_checked += 1
+        end
+    end
+    @test n_checked > 0
+end
+
+@testset "post-contingency rating series of a parallel pair scales to the circuits in service" begin
+    sys, outages = _n1_parallel_system()
+    add_branch_rating_time_series_to_system!(
+        sys, ["1"], 2, _PC_RATING_FACTORS;
+        initial_date = "2024-01-01", ts_name = _PC_RATING_TS_NAME,
+    )
+    template = get_thermal_dispatch_template_network(NetworkModel(PTDFNetworkModel))
+    set_device_model!(
+        template,
+        DeviceModel(
+            PSY.Line,
+            POM.SecurityConstrainedStaticBranch;
+            time_series_names = Dict(
+                POM.PostContingencyBranchRatingTimeSeriesParameter => _PC_RATING_TS_NAME,
+            ),
+        ),
+    )
+    container, pair = _build_sc_container(template, sys)
+    _test_pair_limits(container, outages, pair, _PC_RATING_FACTORS)
 end
 
 @testset "Post-contingency slacks are priced through the post_contingency_slack_cost attribute" begin

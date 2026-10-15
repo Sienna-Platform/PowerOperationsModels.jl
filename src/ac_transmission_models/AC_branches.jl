@@ -945,9 +945,20 @@ It takes the same values as `FLOW_SLACK_COST_ATTRIBUTE`.
 const POST_CONTINGENCY_SLACK_COST_ATTRIBUTE = "post_contingency_slack_cost"
 
 _slack_cost(::Nothing, ::String)::Float64 = CONSTRAINT_VIOLATION_SLACK_COST
-_slack_cost(value::Real, ::String)::Float64 = Float64(value)
+_slack_cost(value::Real, name::String)::Float64 = _validate_slack_cost(value, name)
 function _slack_cost(value::AbstractDict, name::String)::Float64
-    return Float64(get(value, name, CONSTRAINT_VIOLATION_SLACK_COST))
+    return _validate_slack_cost(get(value, name, CONSTRAINT_VIOLATION_SLACK_COST), name)
+end
+
+function _validate_slack_cost(value::Real, name::String)::Float64
+    if !(value > 0.0)
+        throw(
+            ArgumentError(
+                "The slack cost of branch $name is $value. Slack costs must be positive.",
+            ),
+        )
+    end
+    return Float64(value)
 end
 
 # Branch slack pricing derives from the pair's `slack_spec` declaration
@@ -1007,25 +1018,26 @@ function _price_slack_spec!(
     return
 end
 
-# Price an upper/lower slack pair (equality relaxation). Iterates container names
-# because there might be a network reduction.
+# Price an upper/lower slack pair (equality relaxation).
 function _price_slack_pair!(
     container::OptimizationContainer,
     ::Type{T},
     slack_cost,
     meta::String = IOM.CONTAINER_KEY_EMPTY_META,
 ) where {T <: PSY.ACTransmission}
-    variable_up = get_variable(container, FlowActivePowerSlackUpperBound, T, meta)
-    variable_dn = get_variable(container, FlowActivePowerSlackLowerBound, T, meta)
-    for name in axes(variable_up, 1)
-        cost = _slack_cost(slack_cost, name)
-        for t in get_time_steps(container)
-            add_to_objective_invariant_expression!(
-                container,
-                (variable_dn[name, t] + variable_up[name, t]) * cost,
-            )
-        end
-    end
+    invariant = IOM.get_invariant_terms(IOM.get_objective_expression(container))
+    _price_slacks_once!(
+        container,
+        invariant,
+        get_variable(container, FlowActivePowerSlackUpperBound, T, meta),
+        slack_cost,
+    )
+    _price_slacks_once!(
+        container,
+        invariant,
+        get_variable(container, FlowActivePowerSlackLowerBound, T, meta),
+        slack_cost,
+    )
     return
 end
 
@@ -1036,14 +1048,43 @@ function _price_slack_upper!(
     slack_cost,
     meta::String = IOM.CONTAINER_KEY_EMPTY_META,
 ) where {T <: PSY.ACTransmission}
-    variable_up = get_variable(container, FlowActivePowerSlackUpperBound, T, meta)
-    for name in axes(variable_up, 1)
+    invariant = IOM.get_invariant_terms(IOM.get_objective_expression(container))
+    _price_slacks_once!(
+        container,
+        invariant,
+        get_variable(container, FlowActivePowerSlackUpperBound, T, meta),
+        slack_cost,
+    )
+    return
+end
+
+# All names of a reduced arc hold one slack variable, and a mixed parallel arc shares it
+# across branch types. Price a slack only while its coefficient is zero, so each arc pays
+# its violation cost once. Costs are positive, so a nonzero coefficient means another name
+# of the arc already priced the slack, and that name must have asked for the same cost.
+# `invariant` is a function barrier for the expression type.
+function _price_slacks_once!(
+    container::OptimizationContainer,
+    invariant::E,
+    slacks::DenseAxisArray,
+    slack_cost,
+) where {E <: JuMP.AbstractJuMPScalar}
+    for name in axes(slacks, 1)
         cost = _slack_cost(slack_cost, name)
-        for t in get_time_steps(container)
-            add_to_objective_invariant_expression!(
-                container,
-                variable_up[name, t] * cost,
-            )
+        for t in axes(slacks, 2)
+            slack = slacks[name, t]
+            priced = JuMP.coefficient(invariant, slack)
+            if iszero(priced)
+                add_to_objective_invariant_expression!(container, slack * cost)
+            elseif priced != cost
+                throw(
+                    ArgumentError(
+                        "Branch $name shares the flow slack $slack with another branch " *
+                        "whose slack cost is $priced, but its own slack cost is $cost. " *
+                        "Branches that share an arc must have the same slack cost.",
+                    ),
+                )
+            end
         end
     end
     return
@@ -2525,8 +2566,9 @@ Slacked flow rate limits for the DCPLL directional active-flow pair.
 
 Built only when `use_slacks = true`: without slacks the rating is enforced as hard
 variable bounds (see `_set_dcpll_flow_bounds!`), which keeps the QCP tighter. Both
-directions share the branch's slack pair, so exceeding the rating in either direction
-is priced once.
+directions share the branch's slack pair. An overload of δ in one direction also takes
+the other direction past its lower row by about δ minus the loss, so the objective prices
+the overload at about twice the violation cost.
 """
 function add_constraints!(
     container::OptimizationContainer,

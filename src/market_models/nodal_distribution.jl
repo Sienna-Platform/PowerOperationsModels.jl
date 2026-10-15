@@ -110,6 +110,13 @@ end
 _get_time_series_name(::Type{DistributionFactorParameter}, ::PSY.Component, ::DeviceModel) =
     DISTRIBUTION_FACTOR_TS_NAME
 
+# Factors are fractions of a cleared position, so they take no capacity multiplier.
+get_multiplier_value(
+    ::Type{DistributionFactorParameter},
+    ::Union{PSY.LoadZone, PSY.TradingHub},
+    ::Type{NodalRedistribution},
+) = 1.0
+
 # The extra parameter axis between location and time: positions 1:n, n the most buses any
 # location's series labels. Shorter locations are padded with zeros; position j is the j-th
 # label of that location's own series, read back from its metadata.

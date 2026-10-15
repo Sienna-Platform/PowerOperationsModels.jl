@@ -45,7 +45,13 @@ _get_time_series_name(::Type{ReserveOfferLinkParameter}, ::PSY.Component, ::Devi
     RESERVE_OFFER_LINKS_TS_NAME
 
 # Links are step indices: the capacity multipliers some device families apply to
-# time-series parameters must not scale them.
+# time-series parameters must not scale them. The family-specific methods below are more
+# specific than the families' own time-series multipliers.
+get_multiplier_value(
+    ::Type{ReserveOfferLinkParameter},
+    ::PSY.Device,
+    ::Type{<:AbstractDeviceFormulation},
+) = 1.0
 get_multiplier_value(
     ::Type{ReserveOfferLinkParameter},
     ::PSY.RenewableGen,
@@ -60,6 +66,11 @@ get_multiplier_value(
     ::Type{ReserveOfferLinkParameter},
     ::PSY.ElectricLoad,
     ::Type{StaticPowerLoad},
+) = 1.0
+get_multiplier_value(
+    ::Type{ReserveOfferLinkParameter},
+    ::PSY.ElectricLoad,
+    ::Type{StaticPowerLoadBidAdjustment},
 ) = 1.0
 get_multiplier_value(
     ::Type{ReserveOfferLinkParameter},

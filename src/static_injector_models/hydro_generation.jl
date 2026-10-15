@@ -245,9 +245,9 @@ initial_condition_variable(::DeviceStatus, d::PSY.HydroGen, ::AbstractHydroReser
 initial_condition_default(::DevicePower, d::PSY.HydroGen, ::AbstractHydroReservoirFormulation) = PSY.get_active_power(d, u"SU")
 initial_condition_variable(::DevicePower, d::PSY.HydroGen, ::AbstractHydroReservoirFormulation) = ActivePowerVariable()
 
-initial_condition_default(::InitialTimeDurationOn, d::PSY.HydroGen, ::AbstractHydroReservoirFormulation) = is_online(d) ? PSY.get_time_at_status(d) : 0.0
+initial_condition_default(::InitialTimeDurationOn, d::PSY.HydroGen, ::AbstractHydroReservoirFormulation, container::OptimizationContainer) = _time_at_status_steps(d, container, is_online(d))
 initial_condition_variable(::InitialTimeDurationOn, d::PSY.HydroGen, ::AbstractHydroReservoirFormulation) = OnVariable()
-initial_condition_default(::InitialTimeDurationOff, d::PSY.HydroGen, ::AbstractHydroReservoirFormulation) = is_online(d) ? 0.0 : PSY.get_time_at_status(d)
+initial_condition_default(::InitialTimeDurationOff, d::PSY.HydroGen, ::AbstractHydroReservoirFormulation, container::OptimizationContainer) = _time_at_status_steps(d, container, !is_online(d))
 initial_condition_variable(::InitialTimeDurationOff, d::PSY.HydroGen, ::AbstractHydroReservoirFormulation) = OnVariable()
 # OfflineReserveShutdownConstraint reads the status before the first step (the init solve's, if any).
 initial_condition_default(::DeviceStatus, d::PSY.HydroGen, ::HydroCommitmentRunOfRiver) = Float64(is_online(d))
@@ -296,6 +296,7 @@ objective_function_multiplier(::Type{WaterSpillageVariable}, ::Type{<:AbstractHy
 # objective_function_multiplier(::ActivePowerOutVariable, ::HydroWaterFactorModel)=OBJECTIVE_FUNCTION_POSITIVE
 
 IOM.uses_commitment_variables(::Type{<:PSY.HydroGen}) = true
+IOM.uses_commitment_formulation(::Type{<:AbstractHydroUnitCommitment}) = true
 
 variable_cost(::Nothing, ::Type{ActivePowerVariable}, ::Type{<:PSY.HydroGen}, ::Type{<:AbstractHydroReservoirFormulation})=0.0
 variable_cost(cost::PSY.OperationalCost, ::Type{ActivePowerVariable}, ::Type{<:PSY.HydroGen}, ::Type{<:AbstractHydroFormulation})=PSY.get_variable_operation_cost(cost)
