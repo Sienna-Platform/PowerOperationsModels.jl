@@ -945,9 +945,20 @@ It takes the same values as `FLOW_SLACK_COST_ATTRIBUTE`.
 const POST_CONTINGENCY_SLACK_COST_ATTRIBUTE = "post_contingency_slack_cost"
 
 _slack_cost(::Nothing, ::String)::Float64 = CONSTRAINT_VIOLATION_SLACK_COST
-_slack_cost(value::Real, ::String)::Float64 = Float64(value)
+_slack_cost(value::Real, name::String)::Float64 = _validate_slack_cost(value, name)
 function _slack_cost(value::AbstractDict, name::String)::Float64
-    return Float64(get(value, name, CONSTRAINT_VIOLATION_SLACK_COST))
+    return _validate_slack_cost(get(value, name, CONSTRAINT_VIOLATION_SLACK_COST), name)
+end
+
+function _validate_slack_cost(value::Real, name::String)::Float64
+    if !(value > 0.0)
+        throw(
+            ArgumentError(
+                "The slack cost of branch $name is $value. Slack costs must be positive.",
+            ),
+        )
+    end
+    return Float64(value)
 end
 
 # Branch slack pricing derives from the pair's `slack_spec` declaration
@@ -1049,7 +1060,9 @@ end
 
 # All names of a reduced arc hold one slack variable, and a mixed parallel arc shares it
 # across branch types. Price a slack only while its coefficient is zero, so each arc pays
-# its violation cost once. `invariant` is a function barrier for the expression type.
+# its violation cost once. Costs are positive, so a nonzero coefficient means another name
+# of the arc already priced the slack, and that name must have asked for the same cost.
+# `invariant` is a function barrier for the expression type.
 function _price_slacks_once!(
     container::OptimizationContainer,
     invariant::E,
@@ -1060,8 +1073,17 @@ function _price_slacks_once!(
         cost = _slack_cost(slack_cost, name)
         for t in axes(slacks, 2)
             slack = slacks[name, t]
-            if iszero(JuMP.coefficient(invariant, slack))
+            priced = JuMP.coefficient(invariant, slack)
+            if iszero(priced)
                 add_to_objective_invariant_expression!(container, slack * cost)
+            elseif priced != cost
+                throw(
+                    ArgumentError(
+                        "Branch $name shares the flow slack $slack with another branch " *
+                        "whose slack cost is $priced, but its own slack cost is $cost. " *
+                        "Branches that share an arc must have the same slack cost.",
+                    ),
+                )
             end
         end
     end

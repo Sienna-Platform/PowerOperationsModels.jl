@@ -13,6 +13,7 @@
     end
     n = reset_initial_conditions!(model)
     @test n == length(all_ics)
+    container = IOM.get_optimization_container(model)
     for (key, v) in ics, ic in v
         component = IOM.get_component(ic)
         formulation = IOM.get_formulation(get_model(get_template(model), typeof(component)))
@@ -21,6 +22,7 @@
                 IOM.get_entry_type(key)(),
                 component,
                 formulation(),
+                container,
             )
         @test IOM.get_condition(ic) == expected
     end
