@@ -2272,10 +2272,12 @@ function objective_function!(
         add_proportional_cost!(container, OnVariable, hybrids_with_thermal, W)
     end
 
-    # Renewable: variable cost on HybridRenewableActivePower (typically a curtailment cost)
+    # Renewable: variable cost and curtailment cost on HybridRenewableActivePower
     if !isempty(hybrids_with_renewable)
         _add_hybrid_subcomponent_variable_cost!(container, HybridRenewableActivePower,
             hybrids_with_renewable, PSY.get_renewable_unit, W)
+        add_curtailment_cost!(container, HybridRenewableActivePower,
+            hybrids_with_renewable, W)
     end
 
     # Storage: variable costs on charge/discharge, plus optional regularization penalty.
@@ -2363,13 +2365,13 @@ IOM.variable_cost(
     ::Type{<:AbstractHybridFormulation},
 ) = PSY.get_variable_operation_cost(cost)
 
-# Renewable subcomponent variable cost (typically a curtailment penalty)
+# Renewable subcomponent variable cost
 IOM.variable_cost(
     cost::PSY.RenewableGenerationCost,
     ::Type{HybridRenewableActivePower},
     ::Type{<:PSY.HybridSystem},
     ::Type{<:AbstractHybridFormulation},
-) = PSY.get_curtailment_cost(cost)
+) = PSY.get_variable_operation_cost(cost)
 
 # Storage subcomponent variable costs
 IOM.variable_cost(
