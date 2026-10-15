@@ -122,14 +122,11 @@ end
     make_template =
         duals -> begin
             template = PowerOperationsProblemTemplate(
-                NetworkModel(
-                    PTDFNetworkModel;
-                    duals = duals,
-                    evaluations = power_flow_evaluations(
-                        ACPowerFlow(;
-                            distribute_slack_proportional_to_headroom = true,
-                            correct_bustypes = true,
-                        ),
+                NetworkModel(PTDFNetworkModel; duals = duals);
+                evaluations = power_flow_evaluations(
+                    ACPowerFlow(;
+                        distribute_slack_proportional_to_headroom = true,
+                        correct_bustypes = true,
                     ),
                 ),
             )
