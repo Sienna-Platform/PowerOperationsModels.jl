@@ -371,7 +371,10 @@ function check_duration_on_initial_conditions_values(
         ]
         duration_on = IOM.jump_value(IOM.get_value(ic))
         if on_var == 1.0 && POM.is_online(ic.component)
-            @test duration_on == PSY.get_time_at_status(ic.component)
+            @test duration_on == POM._minutes_to_timesteps(
+                PSY.get_time_at_status(ic.component),
+                IOM.get_resolution(IOM.get_optimization_container(model)),
+            )
         elseif on_var == 1.0 && !POM.is_online(ic.component)
             @test duration_on == 0.0
         end
@@ -397,7 +400,10 @@ function check_duration_off_initial_conditions_values(
         ]
         duration_off = IOM.jump_value(IOM.get_value(ic))
         if on_var == 0.0 && !POM.is_online(ic.component)
-            @test duration_off == PSY.get_time_at_status(ic.component)
+            @test duration_off == POM._minutes_to_timesteps(
+                PSY.get_time_at_status(ic.component),
+                IOM.get_resolution(IOM.get_optimization_container(model)),
+            )
         elseif on_var == 0.0 && POM.is_online(ic.component)
             @test duration_off == 0.0
         end
@@ -584,12 +590,10 @@ function check_constraint_count(
 ) where {T <: PSY.Component}
     container = IOM.get_optimization_container(model)
     resolution = IOM.get_resolution(container)
-    steps_per_hour = 60 / Dates.value(Dates.Minute(resolution))
-    fraction_of_hour = 1 / steps_per_hour
     duration_devices = filter!(
         x -> !(
-            PSY.get_time_limits(x).up <= fraction_of_hour &&
-            PSY.get_time_limits(x).down <= fraction_of_hour
+            POM._minutes_to_timesteps(PSY.get_time_limits(x).up, resolution) <= 1.0 &&
+            POM._minutes_to_timesteps(PSY.get_time_limits(x).down, resolution) <= 1.0
         ),
         collect(get_components(PSY.get_available, T, model.sys)),
     )

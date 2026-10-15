@@ -594,7 +594,7 @@ IOM._vom_offer_direction(
 ) where {U <: AbstractDeviceFormulation} =
     IOM._vom_offer_direction(U)
 
-function IOM._add_vom_cost_to_objective!(
+function IOM.add_vom_cost_to_objective!(
     container::OptimizationContainer,
     ::Type{T},
     component::IS.InfrastructureSystemsComponent,

@@ -60,10 +60,8 @@ end
 @testset "IC build shares the network data and holds no evaluation data" begin
     sys = PSB.build_system(PSITestSystems, "c_sys5_uc")
     template = get_template_dispatch_with_network(
-        NetworkModel(
-            PTDFNetworkModel;
-            evaluations = power_flow_evaluations(ACPowerFlow()),
-        ),
+        NetworkModel(PTDFNetworkModel);
+        evaluations = power_flow_evaluations(ACPowerFlow()),
     )
     set_device_model!(template, ThermalStandard, ThermalStandardUnitCommitment)
     model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
@@ -78,7 +76,8 @@ end
     @test ic !== main
     @test get_network_data(ic) === get_network_data(main)
     @test isempty(get_evaluation_data(ic_container))
-    @test !isempty(get_evaluations(main))
+    @test !isempty(IOM.get_evaluations(get_template(model)))
+    @test isempty(IOM.get_evaluations(ic_template))
     ic_context_network_model = get_network_model(IOM.make_solve_context(ic_template))
     @test ic_context_network_model === ic
     @test ic_context_network_model !== main

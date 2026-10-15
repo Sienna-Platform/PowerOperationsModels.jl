@@ -41,15 +41,15 @@ end
 
     em = EventModel(PSY.FixedForcedOutage, ContinuousCondition())
     d = PSY.ThermalStandard(nothing)
-    @test POM.get_initial_parameter_value(AvailableStatusParameter(), d, em) == 1.0
+    @test POM.get_initial_parameter_value(AvailableStatusParameter, d, em) == 1.0
     @test POM.get_initial_parameter_value(
-        AvailableStatusChangeCountdownParameter(),
+        AvailableStatusChangeCountdownParameter,
         d,
         em,
     ) == 0.0
-    @test POM.get_initial_parameter_value(ActivePowerOffsetParameter(), d, em) == 0.0
-    @test POM.get_initial_parameter_value(ReactivePowerOffsetParameter(), d, em) == 0.0
-    @test POM.get_parameter_multiplier(AvailableStatusParameter(), d, em) == 1.0
+    @test POM.get_initial_parameter_value(ActivePowerOffsetParameter, d, em) == 0.0
+    @test POM.get_initial_parameter_value(ReactivePowerOffsetParameter, d, em) == 0.0
+    @test POM.get_parameter_multiplier(AvailableStatusParameter, d, em) == 1.0
 end
 
 @testset "Template-level event attachment" begin
@@ -707,4 +707,76 @@ end
     # has to actually cost something relative to the intact system.
     sys_intact = PSB.build_system(PSB.PSITestSystems, "c_sys5_uc")
     @test cost_with_outage > _solve_uc(sys_intact)
+end
+
+@testset "Outage zeroes compact commitment output" begin
+    # c_sys5 units have P_min = 0. A positive P_min is the output the outage must remove.
+    sys = PSB.build_system(PSITestSystems, "c_sys5")
+    for g in get_components(ThermalStandard, sys)
+        p_max = get_active_power_limits(g, u"SU").max
+        set_active_power_limits!(g, (min = 0.3 * p_max * u"SU", max = p_max * u"SU"))
+    end
+    container, _ = mock_event_container(
+        DeviceModel(ThermalStandard, ThermalCompactUnitCommitment),
+        DCPNetworkModel;
+        sys = sys,
+        recurrent = true,
+    )
+    status, values = maximize_under_outage(
+        container, ThermalStandard, [OnVariable, PowerAboveMinimumVariable],
+    )
+    @test status in (MOI.OPTIMAL, MOI.LOCALLY_SOLVED)
+    for v in values
+        @test all(abs.(v) .<= 1e-6)
+    end
+end
+
+@testset "Compact UC outage row bounds total output" begin
+    container, sys = mock_event_container(
+        DeviceModel(ThermalMultiStart, ThermalCompactUnitCommitment),
+        DCPNetworkModel,
+        "c_sys5_pglib",
+    )
+    cons =
+        IOM.get_constraint(container, ActivePowerOutageConstraint, ThermalMultiStart, "ub")
+    name = outaged_name(container, ThermalMultiStart)
+    unit = get_component(ThermalMultiStart, sys, name)
+    on = IOM.get_variable(container, OnVariable, ThermalMultiStart)
+    for t in IOM.get_time_steps(container)
+        row = JuMP.constraint_object(cons[name, t])
+        @test JuMP.coefficient(row.func, on[name, t]) ≈
+              get_active_power_limits(unit, u"SU").min
+    end
+end
+
+@testset "Compact dispatch outage row bounds total output" begin
+    # Non-recurrent build: OnStatusParameter is 1.0, so P_min moves to the right-hand side.
+    container, sys = mock_event_container(
+        DeviceModel(ThermalMultiStart, ThermalCompactDispatch),
+        DCPNetworkModel,
+        "c_sys5_pglib",
+    )
+    cons =
+        IOM.get_constraint(container, ActivePowerOutageConstraint, ThermalMultiStart, "ub")
+    name = outaged_name(container, ThermalMultiStart)
+    unit = get_component(ThermalMultiStart, sys, name)
+    limits = get_active_power_limits(unit, u"SU")
+    @test JuMP.normalized_rhs(cons[name, 1]) ≈
+          get_max_active_power(unit, u"SU") - limits.min
+
+    # Recurrent build: OnStatusParameter is a JuMP parameter with coefficient P_min.
+    container, sys = mock_event_container(
+        DeviceModel(ThermalMultiStart, ThermalCompactDispatch),
+        DCPNetworkModel,
+        "c_sys5_pglib";
+        recurrent = true,
+    )
+    cons =
+        IOM.get_constraint(container, ActivePowerOutageConstraint, ThermalMultiStart, "ub")
+    name = outaged_name(container, ThermalMultiStart)
+    unit = get_component(ThermalMultiStart, sys, name)
+    status = IOM.get_parameter_array(container, OnStatusParameter, ThermalMultiStart)
+    row = JuMP.constraint_object(cons[name, 1])
+    @test JuMP.coefficient(row.func, status[name, 1]) ≈
+          get_active_power_limits(unit, u"SU").min
 end

@@ -65,9 +65,20 @@ function _build_hybrid_template(
     return template
 end
 
-function _build_and_solve(template, sys)
+# A zero MIP gap makes "a penalty can only raise the objective" hold exactly.
+const _EXACT_HIGHS = JuMP.optimizer_with_attributes(
+    HiGHS.Optimizer, "mip_rel_gap" => 0.0, "log_to_console" => false,
+)
+
+function _build_and_solve(
+    template,
+    sys;
+    optimizer = HiGHS_optimizer,
+    initialize_model::Bool = true,
+)
     m = POM.DecisionModel(template, sys;
-        optimizer = HiGHS_optimizer, horizon = _HYBRID_HORIZON)
+        optimizer = optimizer, horizon = _HYBRID_HORIZON,
+        initialize_model = initialize_model)
     @test POM.build!(m; output_dir = mktempdir(; cleanup = true)) ==
           IOM.ModelBuildStatus.BUILT
     @test POM.solve!(m) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
@@ -75,6 +86,8 @@ function _build_and_solve(template, sys)
 end
 
 _var_keys(model) = keys(IOM.get_variables(IOM.get_optimization_container(model)))
+# The objective can be negative: the RenewableDispatch variable cost enters the objective
+# with a negative sign, and the hybrid renewable unit displaces thermal output.
 _obj(model) = IOM.get_optimization_container(model).optimizer_stats.objective_value
 
 # ---------------------------------------------------------------------------
@@ -256,15 +269,15 @@ end
     # The standalone "318_CC_1" stays in the system whether or not the hybrid
     # references it as a subcomponent, so the objective-ordering invariant doesn't
     # cleanly hold here. We assert structural changes instead: variable presence,
-    # finite/positive objective.
+    # finite objective.
     sys_t, _ = _build_hybrid_test_system()
     sys_nt, _ = _build_hybrid_test_system(; with_thermal = false)
 
     m_t = _build_and_solve(_build_hybrid_template(sys_t), sys_t)
     m_nt = _build_and_solve(_build_hybrid_template(sys_nt), sys_nt)
 
-    @test isfinite(_obj(m_t)) && _obj(m_t) > 0
-    @test isfinite(_obj(m_nt)) && _obj(m_nt) > 0
+    @test isfinite(_obj(m_t))
+    @test isfinite(_obj(m_nt))
 
     @test any(k -> IOM.get_entry_type(k) === POM.HybridThermalActivePower, _var_keys(m_t))
     @test !any(k -> IOM.get_entry_type(k) === POM.HybridThermalActivePower, _var_keys(m_nt))
@@ -282,8 +295,8 @@ end
     m_s = _build_and_solve(_build_hybrid_template(sys_s; with_reserves = false), sys_s)
     m_ns = _build_and_solve(_build_hybrid_template(sys_ns; with_reserves = false), sys_ns)
 
-    @test isfinite(_obj(m_s)) && _obj(m_s) > 0
-    @test isfinite(_obj(m_ns)) && _obj(m_ns) > 0
+    @test isfinite(_obj(m_s))
+    @test isfinite(_obj(m_ns))
 
     @test any(
         k -> IOM.get_entry_type(k) === POM.HybridStorageSubcomponentPower{ChargeSide},
@@ -304,7 +317,7 @@ end
     sys, _ = _build_hybrid_test_system(; with_reserves = true, with_storage = false)
     template = _build_hybrid_template(sys; with_reserves = true)
     m = _build_and_solve(template, sys)
-    @test isfinite(_obj(m)) && _obj(m) > 0
+    @test isfinite(_obj(m))
 
     # No storage-subcomponent reserve variables exist for a storage-less hybrid...
     @test !any(
@@ -321,54 +334,59 @@ end
 end
 
 @testset "Comparison: energy_target on vs. off" begin
-    sys_on, _ = _build_hybrid_test_system(; energy_target = true)
-    sys_off, _ = _build_hybrid_test_system(; energy_target = true)
+    # No initialization solve: it has several optima, so each build can start from other
+    # initial conditions and the two objectives become incomparable.
+    sys, _ = _build_hybrid_test_system(; energy_target = true)
 
     m_on = _build_and_solve(
-        _build_hybrid_template(sys_on;
+        _build_hybrid_template(sys;
             attributes = Dict{String, Any}("energy_target" => true)),
-        sys_on,
+        sys;
+        optimizer = _EXACT_HIGHS,
+        initialize_model = false,
     )
     m_off = _build_and_solve(
-        _build_hybrid_template(sys_off;
+        _build_hybrid_template(sys;
             attributes = Dict{String, Any}("energy_target" => false)),
-        sys_off,
+        sys;
+        optimizer = _EXACT_HIGHS,
+        initialize_model = false,
     )
 
     # Enabling the energy target adds the soft-equality constraint and penalizes the
     # surplus/shortage slacks, which can only weakly raise the true objective. Confirms
     # the penalty is wired into the objective (the original port had no penalty at all).
     obj_on, obj_off = _obj(m_on), _obj(m_off)
-    @test isfinite(obj_on) && obj_on > 0
-    @test isfinite(obj_off) && obj_off > 0
-    @test obj_on >= obj_off * (1 - 1e-3)
+    @test isfinite(obj_on)
+    @test isfinite(obj_off)
+    @test obj_on >= obj_off - 1e-6 * abs(obj_off)
 end
 
 @testset "Comparison: regularization on vs. off" begin
-    sys_on, _ = _build_hybrid_test_system()
-    sys_off, _ = _build_hybrid_test_system()
+    # No initialization solve: it has several optima, so each build can start from other
+    # initial conditions and the two objectives become incomparable.
+    sys, _ = _build_hybrid_test_system()
 
     m_on = _build_and_solve(
-        _build_hybrid_template(sys_on;
+        _build_hybrid_template(sys;
             attributes = Dict{String, Any}("regularization" => true)),
-        sys_on,
+        sys;
+        optimizer = _EXACT_HIGHS,
+        initialize_model = false,
     )
     m_off = _build_and_solve(
-        _build_hybrid_template(sys_off;
+        _build_hybrid_template(sys;
             attributes = Dict{String, Any}("regularization" => false)),
-        sys_off,
+        sys;
+        optimizer = _EXACT_HIGHS,
+        initialize_model = false,
     )
 
-    # Adding the regularization penalty can only weakly raise the optimal *true*
-    # objective, but HiGHS's default MIP relative gap (~1e-4) lets the solver
-    # accept any feasible solution within that tolerance, so the directional
-    # inequality can flip on either side. Use a generous relative tolerance to
-    # account for that — we just want to confirm the two objectives sit in the
-    # same ballpark (both finite, both positive, within MIP gap of each other).
+    # The penalty can only weakly raise the objective; both solves use a zero MIP gap.
     obj_on, obj_off = _obj(m_on), _obj(m_off)
-    @test isfinite(obj_on) && obj_on > 0
-    @test isfinite(obj_off) && obj_off > 0
-    @test isapprox(obj_on, obj_off; rtol = 1e-3)
+    @test isfinite(obj_on)
+    @test isfinite(obj_off)
+    @test obj_on >= obj_off - 1e-6 * abs(obj_off)
 
     # The slack variables exist only in the on case.
     @test any(
@@ -429,6 +447,30 @@ end
     end
     @test JuMP.coefficient(expr[name, first(time_steps)], var[name, first(time_steps)]) !=
           JuMP.coefficient(expr[name, last(time_steps)], var[name, last(time_steps)])
+end
+
+@testset "Hybrid time-series multipliers use the subcomponent max power" begin
+    sys, hybrid = _build_hybrid_test_system(; with_reserves = false)
+    ren_max = PSY.get_max_active_power(PSY.get_renewable_unit(hybrid), u"SU")
+    load_max = PSY.get_max_active_power(PSY.get_electric_load(hybrid), u"SU")
+    for F in (POM.HybridDispatchWithReserves, POM.FixedOutput)
+        @test POM.get_multiplier_value(
+            POM.HybridRenewableActivePowerTimeSeriesParameter, hybrid, F,
+        ) == ren_max
+        @test POM.get_multiplier_value(
+            POM.HybridElectricLoadTimeSeriesParameter, hybrid, F,
+        ) == load_max
+    end
+    template = _build_hybrid_template(sys; with_reserves = false)
+    m = POM.DecisionModel(template, sys;
+        optimizer = HiGHS_optimizer, horizon = _HYBRID_HORIZON)
+    @test POM.build!(m; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+    container = IOM.get_optimization_container(m)
+    mult = IOM.get_parameter_multiplier_array(
+        container, POM.HybridRenewableActivePowerTimeSeriesParameter, PSY.HybridSystem,
+    )
+    @test all(mult[PSY.get_name(hybrid), :] .== ren_max)
 end
 
 @testset "HybridDispatchWithReserves: reservation = false bounds PCC output plus reserve" begin

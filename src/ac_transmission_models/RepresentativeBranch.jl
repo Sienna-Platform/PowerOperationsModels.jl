@@ -367,6 +367,41 @@ function _emergency_flow_limits(branch::PSY.ACTransmission)
 end
 _emergency_flow_limits(rep::RepresentativeBranch) = _emergency_flow_limits(rep.branch)
 
+"""
+Post-contingency (emergency) flow limits of the arc when the components in `tripped` are out
+of service. An aggregate arc keeps the emergency rating of its members in service.
+"""
+function _emergency_flow_limits(rep::RepresentativeBranch, tripped::Set{PSY.ACTransmission})
+    rating = _post_contingency_rating(rep.branch, tripped)
+    return (min = -rating, max = rating)
+end
+
+_post_contingency_rating(branch::PSY.ACTransmission, ::Set{PSY.ACTransmission}) =
+    PNM.get_equivalent_emergency_rating(branch)
+
+# When the outage opens the arc, its MODF row is zero, so the intact limit stays.
+function _post_contingency_rating(
+    entry::PNM.AbstractReductionAggregate,
+    tripped::Set{PSY.ACTransmission},
+)::Float64
+    if PNM.is_open_after_outage(entry, tripped)
+        return PNM.get_equivalent_emergency_rating(entry)
+    end
+    return PNM.get_post_outage_emergency_rating(entry, tripped)
+end
+
+# Factor on the arc's post-contingency rating series under one outage. The series
+# multiplier of an aggregate is its intact emergency rating.
+_post_contingency_share(::PSY.ACTransmission, ::Set{PSY.ACTransmission}) = 1.0
+
+function _post_contingency_share(
+    entry::PNM.AbstractReductionAggregate,
+    tripped::Set{PSY.ACTransmission},
+)::Float64
+    return _post_contingency_rating(entry, tripped) /
+           PNM.get_equivalent_emergency_rating(entry)
+end
+
 function _min_endpoint_voltage_limit(branch::PSY.ACTransmission)
     arc = PSY.get_arc(branch)
     # bus voltage limits are already per-unit

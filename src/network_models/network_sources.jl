@@ -84,20 +84,18 @@ _source_tolerance(::IOM.AbstractNetworkSource) = PNM.AutoTolerance()
 _is_radial_reduction(::PNM.NetworkReduction) = false
 _is_radial_reduction(::PNM.RadialReduction) = true
 
-# PNM takes the irreducible buses as a selector. One filter selector over ACBus carries the
-# collected bus numbers back; a selector per bus would make a tuple as long as the bus set.
+# PNM takes the irreducible buses only as a selector, and a filter selector needs a
+# `Function`. This callable struct carries the collected bus numbers back to PNM.
 struct _BusNumberFilter <: Function
     numbers::Set{Int}
 end
 
 (f::_BusNumberFilter)(bus::PSY.ACBus) = PSY.get_number(bus) in f.numbers
 
+# The selector drops an unknown bus number without a message, so check the numbers first.
 function _irreducible_bus_selector(sys::PSY.System, exceptions::Vector{Int})
     numbers = Set{Int}(exceptions)
-    unmatched = copy(numbers)
-    for bus in PSY.get_components(PSY.ACBus, sys)
-        delete!(unmatched, PSY.get_number(bus))
-    end
+    unmatched = setdiff(numbers, PSY.get_bus_numbers(sys))
     isempty(unmatched) || throw(
         IS.ConflictingInputsError(
             "Irreducible bus numbers $(sort!(collect(unmatched))) match no ACBus in the \
