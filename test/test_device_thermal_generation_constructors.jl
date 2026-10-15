@@ -1899,6 +1899,20 @@ end
           p_max - trajectory.shutdown
 end
 
+@testset "Multi-start start-up limit below the minimum power is rejected" begin
+    sys = PSB.build_system(PSITestSystems, "c_sys5_pglib")
+    unit = get_component(ThermalMultiStart, sys, "115_STEAM_1")
+    p_min = get_active_power_limits(unit, u"SU").min
+    set_power_trajectory!(
+        unit,
+        (startup = 0.5 * p_min * u"SU", shutdown = 0.5 * p_min * u"SU"),
+    )
+    model = DecisionModel(MockOperationProblem, DCPNetworkModel, sys)
+    @test_throws IS.ConflictingInputsError mock_construct_device!(
+        model, DeviceModel(ThermalMultiStart, ThermalMultiStartUnitCommitment),
+    )
+end
+
 @testset "Multi-start initial-condition rows reach the first temperature row" begin
     sys = PSB.build_system(PSITestSystems, "c_sys5_pglib")
     model = DecisionModel(MockOperationProblem, DCPNetworkModel, sys)

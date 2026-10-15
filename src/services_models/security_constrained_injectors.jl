@@ -47,36 +47,37 @@ function _security_constrained_outages(
     return outages, use_slacks
 end
 
+# Output of a device at each time step before it deploys reserve.
 function _post_contingency_output(
     container::OptimizationContainer,
-    ::Type{D},
-    name::String,
-    t::Int,
-) where {D <: PSY.Generator}
-    if !has_container_key(container, ActivePowerVariable, D)
+    ::Type{F},
+    device::D,
+) where {F <: AbstractDeviceFormulation, D <: PSY.Generator}
+    if !has_container_key(container, _scheduled_power_variable(F), D)
         throw(
             IS.ConflictingInputsError(
-                "$(D) contributes to a security-constrained reserve but its formulation has no ActivePowerVariable; use a dispatch or commitment formulation.",
+                "$(D) contributes to a security-constrained reserve but formulation $(F) has no $(_scheduled_power_variable(F)); use a dispatch or commitment formulation.",
             ),
         )
     end
-    power = get_variable(container, ActivePowerVariable, D)
-    output = JuMP.AffExpr(0.0)
-    JuMP.add_to_expression!(output, 1.0, power[name, t])
-    return output
+    return _total_active_power_series(container, F, device, get_time_steps(container))
 end
 
 function _post_contingency_output(
     container::OptimizationContainer,
-    ::Type{D},
-    name::String,
-    t::Int,
+    ::Type{<:AbstractDeviceFormulation},
+    device::D,
 ) where {D <: PSY.Storage}
+    name = PSY.get_name(device)
     discharge = get_variable(container, ActivePowerOutVariable, D)
     charge = get_variable(container, ActivePowerInVariable, D)
-    output = JuMP.AffExpr(0.0)
-    JuMP.add_to_expression!(output, 1.0, discharge[name, t])
-    JuMP.add_to_expression!(output, -1.0, charge[name, t])
+    time_steps = get_time_steps(container)
+    output = Vector{JuMP.AffExpr}(undef, length(time_steps))
+    for t in time_steps
+        output[t] = JuMP.AffExpr(0.0)
+        JuMP.add_to_expression!(output[t], 1.0, discharge[name, t])
+        JuMP.add_to_expression!(output[t], -1.0, charge[name, t])
+    end
     return output
 end
 
@@ -970,7 +971,9 @@ function _add_post_contingency_generation_constraints!(
                 (outage_id, t, deployed),
             )
         end
+        formulation = get_formulation(model)
         limits = Dict{String, Vector{Float64}}()
+        outputs = Dict{String, Vector{JuMP.AffExpr}}()
         for name in keys(by_device)
             device = PSY.get_component(device_type, sys, name)
             limits[name] = _offline_hourly_limit(
@@ -979,6 +982,7 @@ function _add_post_contingency_generation_constraints!(
                 device,
                 _post_contingency_limit(device),
             )
+            outputs[name] = _post_contingency_output(container, formulation, device)
         end
         _add_device_generation_rows!(
             container,
@@ -986,6 +990,7 @@ function _add_post_contingency_generation_constraints!(
             device_type,
             by_device,
             limits,
+            outputs,
         )
     end
     return
@@ -997,6 +1002,7 @@ function _add_device_generation_rows!(
     ::Type{D},
     by_device::Dict{String, Vector{Tuple{Int, Int, JuMP.AffExpr}}},
     limits::Dict{String, Vector{Float64}},
+    outputs::Dict{String, Vector{JuMP.AffExpr}},
 ) where {D <: PSY.Component}
     jump_model = get_jump_model(container)
     cons = add_constraints_container!(
@@ -1009,7 +1015,7 @@ function _add_device_generation_rows!(
         sparse = true,
     )
     for (name, entries) in by_device, (outage_id, t, deployed) in entries
-        output = _post_contingency_output(container, D, name, t)
+        output = outputs[name][t]
         cons[name, outage_id, t] =
             JuMP.@constraint(jump_model, output + deployed <= limits[name][t])
     end
@@ -1022,6 +1028,7 @@ function _add_device_generation_rows!(
     ::Type{D},
     by_device::Dict{String, Vector{Tuple{Int, Int, JuMP.AffExpr}}},
     limits::Dict{String, Vector{Float64}},
+    outputs::Dict{String, Vector{JuMP.AffExpr}},
 ) where {D <: PSY.Component}
     jump_model = get_jump_model(container)
     on = get_variable(container, OnVariable, D)
@@ -1035,7 +1042,7 @@ function _add_device_generation_rows!(
         sparse = true,
     )
     for (name, entries) in by_device, (outage_id, t, deployed) in entries
-        output = _post_contingency_output(container, D, name, t)
+        output = outputs[name][t]
         cons[name, outage_id, t] =
             JuMP.@constraint(jump_model, output + deployed <= limits[name][t] * on[name, t])
     end

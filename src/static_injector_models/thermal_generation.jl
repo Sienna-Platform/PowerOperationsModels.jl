@@ -657,6 +657,33 @@ function add_constraints!(
     return
 end
 
+# The range row allows a start only when `startup >= Pmin_t` and a stop only when
+# `shutdown >= Pmin_t`.
+function _check_startup_shutdown_limits(
+    container::OptimizationContainer,
+    device::PSY.ThermalGen,
+    limits::NamedTuple{(:startup, :shutdown)},
+)
+    ramp = min(limits.startup, limits.shutdown)
+    static_pmin = PSY.get_active_power_limits(device, u"SU").min
+    if ramp < static_pmin - 1e-9
+        throw(
+            IS.ConflictingInputsError(
+                "$(summary(device)): the startup limit $(limits.startup) or the shutdown \
+                limit $(limits.shutdown) is below the minimum active power $(static_pmin). \
+                The unit can never start or stop.",
+            ),
+        )
+    end
+    blocked = findall(>(ramp + 1e-9), min_active_power_values(container, device))
+    if !isempty(blocked)
+        @warn "$(summary(device)): the minimum active power series is above the startup \
+            or shutdown limit at steps $(blocked). The unit cannot start or stop at those \
+            steps."
+    end
+    return
+end
+
 # multistart devices with commitment formulations: upper bound expression.
 function add_constraints!(
     container::OptimizationContainer,
@@ -723,6 +750,7 @@ function add_constraints!(
             end
             continue
         end
+        _check_startup_shutdown_limits(container, device, startup_shutdown_limits)
         for t in time_steps
             if JuMP.has_lower_bound(varp[name, t])
                 JuMP.set_lower_bound(varp[name, t], 0.0)
