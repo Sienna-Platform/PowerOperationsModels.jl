@@ -2019,12 +2019,9 @@ end
     container = build_test_container(sys, 1:48; resolution = Dates.Minute(15))
     park_city = PSY.get_component(ThermalStandard, sys, "Park City")
     alta = PSY.get_component(ThermalStandard, sys, "Alta")
-    default_off = POM.initial_condition_default(
-        InitialTimeDurationOff(), park_city, ThermalStandardUnitCommitment(), container,
-    )
-    default_on = POM.initial_condition_default(
-        InitialTimeDurationOn(), alta, ThermalStandardUnitCommitment(), container,
-    )
+    default_off =
+        POM._time_at_status_steps(park_city, container, !POM.is_online(park_city))
+    default_on = POM._time_at_status_steps(alta, container, POM.is_online(alta))
     @test default_off == 12.0
     @test default_on == 8.0
     units = [park_city, alta]
