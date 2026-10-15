@@ -449,6 +449,30 @@ end
     end
 end
 
+@testset "G-1 reserves monitoring one circuit of a parallel pair" begin
+    # "4_1_copy" alone is monitored; its reduced entry, shared with "4_1", still gets a row.
+    sys, outages = g1_system(; monitored = s -> [get_component(Line, s, "4_1_copy")])
+    model = g1_model(g1_template(PTDFNetworkModel), sys)
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+
+    container = IOM.get_optimization_container(model)
+    catalog = POM.get_branch_catalog(IOM.get_network_model(IOM.get_template(model)))
+    entry_name = PNM.get_component_to_reduction_name_map(catalog, Line)["4_1_copy"]
+    expected = Set(
+        (entry_name, IS.get_id(o), t) for o in values(outages),
+        t in IOM.get_time_steps(container)
+    )
+    post_flow = IOM.get_expression(container, PostContingencyBranchFlow, Line, "G1")
+    @test Set(keys(post_flow.data)) == expected
+    for meta in ("G1_ub", "G1_lb")
+        limits =
+            IOM.get_constraint(container, PostContingencyFlowRateConstraint, Line, meta)
+        @test Set(keys(limits.data)) == expected
+    end
+    @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+end
+
 @testset "monitored interchange excluded by filter_selector warns" begin
     sys, _ = g1_system()
     template = g1_template(
@@ -547,14 +571,9 @@ end
     @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
           IOM.ModelBuildStatus.BUILT
     container = IOM.get_optimization_container(model)
-    # The optimum commits every unit, so decommit the smallest one.
     on = IOM.get_variable(container, OnVariable, ThermalStandard)
-    smallest = argmin(
-        d -> PSY.get_max_active_power(get_component(ThermalStandard, sys, d), u"SU"),
-        axes(on, 1),
-    )
     for t in IOM.get_time_steps(container)
-        JuMP.fix(on[smallest, t], 0.0; force = true)
+        JuMP.fix(on["Alta_2", t], 0.0; force = true)
     end
     @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
     @test IOM.has_container_key(
@@ -563,6 +582,7 @@ end
         ThermalStandard,
     )
     n_off = 0
+    # Offline generators don't commit reserves
     for ((D, _, _, d, _, t), var) in _deployments(container)
         D === ThermalStandard || continue
         iszero(round(JuMP.value(on[d, t]))) || continue

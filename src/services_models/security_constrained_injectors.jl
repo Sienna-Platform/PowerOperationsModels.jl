@@ -167,14 +167,17 @@ function _outaged_generators(
     return outaged_generators
 end
 
-_monitored_is_modeled(
+function _monitored_is_modeled(
     container::OptimizationContainer,
     T::Type{<:PSY.ACTransmission},
     name::String,
-    ::NetworkModel{<:AbstractPTDFNetworkModel},
-) =
-    has_container_key(container, PTDFBranchFlow, T) &&
-    name in axes(get_expression(container, PTDFBranchFlow, T), 1)
+    network_model::NetworkModel{<:AbstractPTDFNetworkModel},
+)
+    has_container_key(container, PTDFBranchFlow, T) || return false
+    catalog = get_branch_catalog(network_model)
+    reduction_name_map = PNM.get_component_to_reduction_name_map(catalog, T)
+    return reduction_name_map[name] in axes(get_expression(container, PTDFBranchFlow, T), 1)
+end
 _monitored_is_modeled(
     container::OptimizationContainer,
     T::Type{PSY.AreaInterchange},
