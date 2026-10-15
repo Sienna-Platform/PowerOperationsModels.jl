@@ -167,14 +167,17 @@ function _outaged_generators(
     return outaged_generators
 end
 
-_monitored_is_modeled(
+function _monitored_is_modeled(
     container::OptimizationContainer,
     T::Type{<:PSY.ACTransmission},
     name::String,
-    ::NetworkModel{<:AbstractPTDFNetworkModel},
-) =
-    has_container_key(container, PTDFBranchFlow, T) &&
-    name in axes(get_expression(container, PTDFBranchFlow, T), 1)
+    network_model::NetworkModel{<:AbstractPTDFNetworkModel},
+)
+    has_container_key(container, PTDFBranchFlow, T) || return false
+    catalog = get_branch_catalog(network_model)
+    reduction_name_map = PNM.get_component_to_reduction_name_map(catalog, T)
+    return reduction_name_map[name] in axes(get_expression(container, PTDFBranchFlow, T), 1)
+end
 _monitored_is_modeled(
     container::OptimizationContainer,
     T::Type{PSY.AreaInterchange},
@@ -190,17 +193,13 @@ function _monitored_components(
     container::OptimizationContainer,
     network_model::NetworkModel,
 )
-    reduction_name_map =
-        PNM.get_component_to_reduction_name_map(get_branch_catalog(network_model), T)
-    catalog = get_branch_catalog(network_model)
     monitored_components = Dict{Int, Dict{DataType, Set{String}}}()
     for (outage_id, outage) in outages
         monitored = Dict{DataType, Set{String}}()
         for component_uuid in PSY.get_monitored_components(outage)
             component = IS.get_component(sys, component_uuid)
             T = typeof(component)
-            reduction_name_map = PNM.get_component_to_reduction_name_map(catalog, T)
-            name = reduction_name_map[PSY.get_name(component)]
+            name = PSY.get_name(component)
             if !_valid_monitored_component(component, network_model)
                 @warn "Monitored component $name ($T) on outage $outage_id is not supported by network model $(get_network_formulation(network_model)); its post-contingency flow will not be limited." _group =
                     LOG_GROUP_SERVICE_CONSTUCTORS

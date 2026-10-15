@@ -571,14 +571,9 @@ end
     @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
           IOM.ModelBuildStatus.BUILT
     container = IOM.get_optimization_container(model)
-    # The optimum commits every unit, so decommit the smallest one.
     on = IOM.get_variable(container, OnVariable, ThermalStandard)
-    smallest = argmin(
-        d -> PSY.get_max_active_power(get_component(ThermalStandard, sys, d), u"SU"),
-        axes(on, 1),
-    )
     for t in IOM.get_time_steps(container)
-        JuMP.fix(on[smallest, t], 0.0; force = true)
+        JuMP.fix(on["Alta_2", t], 0.0; force = true)
     end
     @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
     @test IOM.has_container_key(
@@ -587,6 +582,7 @@ end
         ThermalStandard,
     )
     n_off = 0
+    # Offline generators don't commit reserves
     for ((D, _, _, d, _, t), var) in _deployments(container)
         D === ThermalStandard || continue
         iszero(round(JuMP.value(on[d, t]))) || continue
