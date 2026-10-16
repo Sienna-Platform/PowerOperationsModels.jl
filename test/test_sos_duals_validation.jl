@@ -56,7 +56,7 @@ end
         # 2.0 pu on the system base, in amperes.
         set_max_dc_current!(
             ipc,
-            2.0 * 1000.0 * get_base_power(sys) / get_base_voltage(get_dc_bus(ipc)),
+            2.0 * get_base_power(sys) / get_base_voltage(get_dc_bus(ipc)),
         )
     end
 
