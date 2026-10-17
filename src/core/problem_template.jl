@@ -171,9 +171,11 @@ end
 """
     set_event_model!(template::PowerOperationsProblemTemplate, event_model)
 
-Attach an outage-event model to the template. At build time the event is validated,
-its `attribute_device_map` is populated from the system's supplemental attributes, and
-it is distributed to every matching `DeviceModel`.
+Attach an outage-event model to the template. At build time the event model is
+distributed to every `DeviceModel` whose device type appears in its
+`attribute_device_map`, which a simulation with an emulation model fills from the
+emulator's system (see [`discover_event_attribute_device_map`](@ref)). Building a model
+whose event models have empty maps throws.
 """
 function IOM.set_event_model!(
     template::PowerOperationsProblemTemplate,
@@ -186,9 +188,8 @@ function IOM.set_event_model!(
     return
 end
 
-# Build-time discovery (`_build_device_model_events!`) mutates each event model's
-# `attribute_device_map`, and callers inspect that mutation on the object they passed to
-# `set_event_model!`, so the build copy shares the event models by reference.
+# The build copy shares the event models by reference: a simulation fills the map of the
+# event model passed to `set_event_model!`, and every build reads that same map.
 function IOM.share_template_references!(
     template_::PowerOperationsProblemTemplate,
     template::PowerOperationsProblemTemplate,
