@@ -253,6 +253,7 @@ function construct_device!(
 
     add_parameters!(container, ActivePowerTimeSeriesParameter, devices, model)
     add_parameters!(container, ReactivePowerTimeSeriesParameter, devices, model)
+    reactive_devices = _reactive_power_series_devices!(container, devices, model)
     process_market_bid_parameters!(container, devices, model)
 
     add_to_expression!(
@@ -267,7 +268,7 @@ function construct_device!(
         container,
         ReactivePowerBalance,
         ReactivePowerTimeSeriesParameter,
-        devices,
+        reactive_devices,
         model,
         network_model,
     )

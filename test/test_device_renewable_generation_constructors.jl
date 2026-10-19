@@ -280,3 +280,39 @@ end
     cons = IOM.get_constraint(container, POM.EqualityConstraint, RenewableDispatch)
     @test JuMP.normalized_coefficient(cons["WindBusA", 1], p["WindBusA", 1]) ≈ -0.75
 end
+
+@testset "Renewable FixedOutput uses a user-mapped reactive power series" begin
+    c_sys5_re = PSB.build_system(PSITestSystems, "c_sys5_re")
+    wind = get_component(RenewableDispatch, c_sys5_re, "WindBusA")
+    forecast = get_time_series(Deterministic, wind, "max_active_power")
+    add_time_series!(
+        c_sys5_re,
+        wind,
+        Deterministic(
+            "max_reactive_power",
+            get_data(forecast),
+            IS.get_resolution(forecast),
+        ),
+    )
+    device_model = DeviceModel(
+        RenewableDispatch,
+        FixedOutput;
+        time_series_names = Dict(
+            ActivePowerTimeSeriesParameter => "max_active_power",
+            ReactivePowerTimeSeriesParameter => "max_reactive_power",
+        ),
+    )
+    model = DecisionModel(MockOperationProblem, ACPNetworkModel, c_sys5_re)
+    # The other RenewableDispatch units lack the series, so they inject no reactive power.
+    @test_logs (:warn, r"lack the reactive power time series") match_mode = :any mock_construct_device!(
+        model,
+        device_model,
+    )
+    mult = IOM.get_parameter_multiplier_array(
+        IOM.get_optimization_container(model),
+        ReactivePowerTimeSeriesParameter,
+        RenewableDispatch,
+    )
+    @test collect(axes(mult)[1]) == ["WindBusA"]
+    @test all(mult["WindBusA", :] .≈ get_reactive_power_limits(wind, u"SU").max)
+end
