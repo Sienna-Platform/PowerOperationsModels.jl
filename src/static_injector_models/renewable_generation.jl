@@ -18,6 +18,9 @@ get_variable_upper_bound(::Type{ActivePowerVariable}, d::PSY.RenewableGen, ::Typ
 get_variable_binary(::Type{ReactivePowerVariable}, ::Type{<:PSY.RenewableGen}, ::Type{<:AbstractRenewableFormulation}) = false
 
 get_multiplier_value(::Type{<:TimeSeriesParameter}, d::PSY.RenewableGen, ::Type{FixedOutput}) = PSY.get_max_active_power(d, u"SU")
+# The default reactive series is the normalized active-power profile, so scale by
+# Q/P = tan(acos(pf)). A custom reactive series must be normalized the same way.
+get_multiplier_value(::Type{ReactivePowerTimeSeriesParameter}, d::PSY.RenewableGen, ::Type{FixedOutput}) = PSY.get_max_active_power(d, u"SU") * tan(acos(PSY.get_power_factor(d)))
 get_multiplier_value(::Type{<:TimeSeriesParameter}, d::PSY.RenewableGen, ::Type{<:AbstractRenewableFormulation}) = PSY.get_max_active_power(d, u"SU")
 
 # To avoid ambiguity with default_interface_methods.jl:
