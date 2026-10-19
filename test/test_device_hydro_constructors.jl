@@ -1945,3 +1945,12 @@ end
     row, _, _ = _hydro_pwl_normalization_row(sys, HydroDispatchRunOfRiver)
     @test row.set == MOI.EqualTo(1.0)
 end
+
+@testset "HydroGen FixedOutput reactive power is opt-in" begin
+    sys = PSB.build_system(PSITestSystems, "c_sys5_hy")
+    model = DecisionModel(MockOperationProblem, ACPNetworkModel, sys)
+    mock_construct_device!(model, DeviceModel(HydroDispatch, FixedOutput))
+    container = IOM.get_optimization_container(model)
+    @test IOM.has_container_key(container, ActivePowerTimeSeriesParameter, HydroDispatch)
+    @test !IOM.has_container_key(container, ReactivePowerTimeSeriesParameter, HydroDispatch)
+end

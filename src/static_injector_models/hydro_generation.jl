@@ -220,6 +220,8 @@ get_multiplier_value(::Type{MinActivePowerTimeSeriesParameter}, d::PSY.HydroGen,
 get_multiplier_value(::Type{MinActivePowerInTimeSeriesParameter}, d::PSY.HydroPumpTurbine, ::Type{<:AbstractHydroFormulation}) = PSY.get_active_power_limits_pump(d, u"SU").max
 get_multiplier_value(::Type{<:TimeSeriesParameter}, d::PSY.HydroGen, ::Type{<:AbstractHydroFormulation}) = PSY.get_max_active_power(d, u"SU")
 get_multiplier_value(::Type{<:TimeSeriesParameter}, d::PSY.HydroGen, ::Type{FixedOutput}) = PSY.get_max_active_power(d, u"SU")
+# FixedOutput has no default reactive series; a user-mapped one is normalized to max reactive power.
+get_multiplier_value(::Type{ReactivePowerTimeSeriesParameter}, d::PSY.HydroGen, ::Type{FixedOutput}) = PSY.get_reactive_power_limits(d, u"SU").max
 # next 2 needed to avoid ambiguity errors
 # Market-bid PWL breakpoints are already expressed in system units (like every other
 # device type: PSY.Device's default and the explicit RenewableGen/ElectricLoad/Source
@@ -360,7 +362,6 @@ function get_default_time_series_names(
 )
     return Dict{Type{<:TimeSeriesParameter}, String}(
         ActivePowerTimeSeriesParameter => "max_active_power",
-        ReactivePowerTimeSeriesParameter => "max_active_power",
     )
 end
 
