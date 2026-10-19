@@ -19,7 +19,8 @@ get_variable_binary(::Type{ReactivePowerVariable}, ::Type{<:PSY.RenewableGen}, :
 
 get_multiplier_value(::Type{<:TimeSeriesParameter}, d::PSY.RenewableGen, ::Type{FixedOutput}) = PSY.get_max_active_power(d, u"SU")
 # The default reactive series is the normalized active-power profile, so scale by
-# Q/P = tan(acos(pf)). A custom reactive series must be normalized the same way.
+# Q/P = tan(acos(pf)). A user-mapped reactive series is rescaled in
+# `_reactive_power_series_devices!`.
 get_multiplier_value(::Type{ReactivePowerTimeSeriesParameter}, d::PSY.RenewableGen, ::Type{FixedOutput}) = PSY.get_max_active_power(d, u"SU") * tan(acos(PSY.get_power_factor(d)))
 get_multiplier_value(::Type{<:TimeSeriesParameter}, d::PSY.RenewableGen, ::Type{<:AbstractRenewableFormulation}) = PSY.get_max_active_power(d, u"SU")
 
@@ -167,4 +168,34 @@ function add_to_objective_function!(
     add_variable_cost!(container, ActivePowerVariable, devices, U)
     add_curtailment_cost!(container, ActivePowerVariable, devices, U)
     return
+end
+
+"""
+A `FixedOutput` renewable reads its reactive parameter from the active-power profile by
+default, holding its power factor. When `time_series_names` maps a different reactive series,
+scale it by the max reactive power instead, and warn about devices that lack that series:
+they get no reactive parameter, so they inject no reactive power. Returns the devices that
+have a reactive parameter.
+"""
+function _reactive_power_series_devices!(
+    container::OptimizationContainer,
+    devices::Vector{V},
+    model::DeviceModel{V, FixedOutput},
+) where {V <: PSY.RenewableGen}
+    ts_names = get_time_series_names(model)
+    ts_name = ts_names[ReactivePowerTimeSeriesParameter]
+    ts_name == get(ts_names, ActivePowerTimeSeriesParameter, nothing) && return devices
+    multiplier =
+        get_parameter_multiplier_array(container, ReactivePowerTimeSeriesParameter, V)
+    names_with_series = Set(axes(multiplier)[1])
+    with_series = filter(d -> PSY.get_name(d) in names_with_series, devices)
+    for d in with_series
+        multiplier[PSY.get_name(d), :] .= PSY.get_reactive_power_limits(d, u"SU").max
+    end
+    if length(with_series) < length(devices)
+        missing_names = setdiff(PSY.get_name.(devices), names_with_series)
+        @warn "$(nameof(V)) devices $(missing_names) lack the reactive power time series \
+               $(ts_name): they inject no reactive power."
+    end
+    return with_series
 end
