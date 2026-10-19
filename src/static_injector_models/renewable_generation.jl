@@ -25,7 +25,7 @@ get_multiplier_value(::Type{<:AbstractPiecewiseLinearBreakpointParameter}, ::PSY
 get_multiplier_value(::Type{<:AbstractPiecewiseLinearBreakpointParameter}, ::PSY.RenewableGen, ::Type{<:AbstractRenewableFormulation}) = 1.0
 
 ########################Objective Function##################################################
-objective_function_multiplier(::Type{ActivePowerVariable}, ::Type{<:AbstractRenewableDispatchFormulation})=OBJECTIVE_FUNCTION_NEGATIVE
+objective_function_multiplier(::Type{ActivePowerVariable}, ::Type{<:AbstractRenewableDispatchFormulation})=OBJECTIVE_FUNCTION_POSITIVE
 #! format: on
 
 get_initial_conditions_device_model(

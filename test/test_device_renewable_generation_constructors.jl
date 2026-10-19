@@ -197,13 +197,10 @@ end
 
     quad_re = get_component(RenewableDispatch, c_sys5_re, "WindBusA")
     base_cost = get_operation_cost(quad_re)
-    # Renewable ActivePowerVariable costs use OBJECTIVE_FUNCTION_NEGATIVE, so the negated
-    # objective term `-cost(p)` is convex (and free of the non-monotonicity warning) when
-    # the raw curve is concave, i.e. negative coefficients.
     set_operation_cost!(
         quad_re,
         RenewableGenerationCost(;
-            variable_operation_cost = CostCurve(QuadraticCurve(-2.0, -1.0, 0.0)),
+            variable_operation_cost = CostCurve(QuadraticCurve(2.0, 1.0, 0.0)),
             curtailment_cost = base_cost.curtailment_cost,
             fixed = base_cost.fixed,
         ),
@@ -219,4 +216,38 @@ end
     # Direct check of the bridge that the issue is about.
     @test IOM.get_active_power_limits(quad_re) ==
           (min = 0.0, max = PSY.get_max_active_power(quad_re, u"SU"))
+end
+
+@testset "Renewable variable and curtailment cost objective coefficient" begin
+    for (c_var, c_curt) in ((10.0, 0.0), (10.0, 4.0))
+        c_sys5_re = PSB.build_system(PSITestSystems, "c_sys5_re")
+        ren = get_component(RenewableDispatch, c_sys5_re, "WindBusB")
+        set_operation_cost!(
+            ren,
+            RenewableGenerationCost(;
+                variable_operation_cost = CostCurve(LinearCurve(c_var)),
+                curtailment_cost = CostCurve(LinearCurve(c_curt)),
+            ),
+        )
+        template = PowerOperationsProblemTemplate(CopperPlateNetworkModel)
+        set_device_model!(template, ThermalStandard, ThermalDispatchNoMin)
+        set_device_model!(template, RenewableDispatch, RenewableFullDispatch)
+        set_device_model!(template, PowerLoad, StaticPowerLoad)
+        model = DecisionModel(
+            template,
+            c_sys5_re;
+            name = "RE_objective_coefficient",
+            optimizer = HiGHS_optimizer,
+        )
+        @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+              IOM.ModelBuildStatus.BUILT
+
+        container = IOM.get_optimization_container(model)
+        p = IOM.get_variable(container, ActivePowerVariable, RenewableDispatch)
+        obj = JuMP.objective_function(IOM.get_jump_model(container))
+        dt = Dates.value(Dates.Millisecond(IOM.get_resolution(container))) / 3.6e6
+        base_power = PSY.get_base_power(c_sys5_re)
+        @test JuMP.coefficient(obj, p["WindBusB", 1]) ≈
+              (c_var - c_curt) * base_power * dt
+    end
 end
