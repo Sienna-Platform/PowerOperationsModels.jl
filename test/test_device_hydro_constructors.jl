@@ -1948,7 +1948,10 @@ end
 @testset "HydroGen FixedOutput reactive power is opt-in" begin
     sys = PSB.build_system(PSITestSystems, "c_sys5_hy")
     model = DecisionModel(MockOperationProblem, ACPNetworkModel, sys)
-    mock_construct_device!(model, DeviceModel(HydroDispatch, FixedOutput))
+    @test_logs (:warn, r"inject no reactive power") match_mode = :any mock_construct_device!(
+        model,
+        DeviceModel(HydroDispatch, FixedOutput),
+    )
     container = IOM.get_optimization_container(model)
     @test IOM.has_container_key(container, ActivePowerTimeSeriesParameter, HydroDispatch)
     @test !IOM.has_container_key(container, ReactivePowerTimeSeriesParameter, HydroDispatch)

@@ -2092,7 +2092,10 @@ end
 
     # No reactive series by default, so FixedOutput injects no reactive power.
     model = DecisionModel(MockOperationProblem, ACPNetworkModel, c_sys5_uc)
-    mock_construct_device!(model, DeviceModel(PSY.ThermalStandard, FixedOutput))
+    @test_logs (:warn, r"inject no reactive power") match_mode = :any mock_construct_device!(
+        model,
+        DeviceModel(PSY.ThermalStandard, FixedOutput),
+    )
     container = IOM.get_optimization_container(model)
     @test !IOM.has_container_key(
         container,
