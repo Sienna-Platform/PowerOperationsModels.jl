@@ -118,9 +118,15 @@ get_condition_function(c::DiscreteEventCondition) = c.condition_function
 
 Container binding a `PSY.Contingency` supplemental-attribute type to a trigger condition
 and time-series mapping. Attach to a template with
-`set_event_model!(template, event_model)`; build-time discovery populates
-`attribute_device_map` (outage attribute id → device type → device names) and
-distributes the event to the matching `DeviceModel`s.
+`set_event_model!(template, event_model)`.
+
+Outage events are applied by a simulation with an emulation model. The simulation fills
+`attribute_device_map` (outage attribute id → device type → device names) from the
+emulator's system with [`discover_event_attribute_device_map`](@ref) before any model is
+built; each model's build then distributes the event to the matching `DeviceModel`s.
+Events take their outages from the emulator's system only: outage attributes in a decision
+model's own system do not affect events (they may serve other formulations, such as
+security-constrained ones).
 """
 mutable struct EventModel{D <: PSY.Contingency, B <: AbstractEventCondition} <:
                IOM.AbstractEventModel
@@ -148,13 +154,11 @@ end
 Reserved time-series mapping keys for a contingency type. `:outage_status` is required
 for `PSY.FixedForcedOutage`.
 """
-# Events model forced outages only. Planned outages are the security-constrained
-# (MODF) outage mechanism and never carry an event model.
+# Event models support the unplanned forced-outage types only.
 function get_empty_timeseries_mapping(::Type{T}) where {T <: PSY.Contingency}
     error(
         "$T is not an event contingency type. Event models support \
-         PSY.FixedForcedOutage and PSY.GeometricDistributionForcedOutage; planned \
-         outages are handled by the security-constrained branch formulations.",
+         PSY.FixedForcedOutage and PSY.GeometricDistributionForcedOutage.",
     )
 end
 
@@ -184,13 +188,15 @@ get_event_condition(
 ) where {D <: PSY.Contingency, B <: AbstractEventCondition} = e.condition
 
 """
-Return `e`'s outage attribute id → device type → device names map, populated by
-build-time discovery.
+Return `e`'s outage attribute id → device type → device names map. A simulation fills it
+from the emulator's system (see [`discover_event_attribute_device_map`](@ref)); every
+model the event model is attached to reads the same map.
 """
 get_attribute_device_map(e::EventModel) = e.attribute_device_map
 
-# Devices come from the map template validation populated (`_build_device_model_events!`)
-# rather than from re-probing every device's supplemental attributes at build time.
+# The outaged devices come from the event model's map, which describes the emulator's
+# system. A model applies the event only to the outaged devices it has; a model with none
+# of them gets no event parameters or constraints for that device type.
 function _for_each_event_devices(f::Function, devices, device_model::DeviceModel)
     for (key, event_model) in get_events(device_model)
         device_type = get_component_type(key)
@@ -201,9 +207,7 @@ function _for_each_event_devices(f::Function, devices, device_model::DeviceModel
             end
         end
         devices_with_attributes = [d for d in devices if PSY.get_name(d) in names]
-        isempty(devices_with_attributes) && error(
-            "no devices found with a supplemental attribute for event $(get_entry_type(key))",
-        )
+        isempty(devices_with_attributes) && continue
         f(devices_with_attributes, event_model)
     end
     return
