@@ -71,6 +71,9 @@ function construct_device!(
             model,
             network_model,
         )
+    else
+        @warn "No ReactivePowerTimeSeriesParameter in time_series_names for $(nameof(H)) with \
+               FixedOutput: these devices inject no reactive power."
     end
     add_event_arguments!(container, devices, model, network_model)
     return
