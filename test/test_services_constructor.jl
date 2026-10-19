@@ -909,6 +909,37 @@ end
     end
 end
 
+# Lines "4" and "5" of c_sys5_uc have PTDF rows that cancel to ~1e-16 on three buses
+# when summed in opposite directions.
+@testset "PTDF interface sum drops cancellation residue" begin
+    c_sys5_uc = PSB.build_system(PSITestSystems, "c_sys5_uc")
+    interface = TransmissionInterface(;
+        name = "cancel",
+        available = true,
+        active_power_flow_limits = (min = -400.0, max = 400.0),
+        direction_mapping = Dict("4" => 1, "5" => -1),
+        input_basis = u"CU",
+    )
+    interface_lines = [
+        get_component(Line, c_sys5_uc, "4"),
+        get_component(Line, c_sys5_uc, "5"),
+    ]
+    add_service!(c_sys5_uc, interface, interface_lines)
+    template = get_thermal_dispatch_template_network(PTDFNetworkModel)
+    set_service_model!(template, ServiceModel(TransmissionInterface, MaxInterfaceFlow))
+    model = DecisionModel(template, c_sys5_uc; optimizer = HiGHS_optimizer)
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+    container = IOM.get_optimization_container(model)
+    expression =
+        IOM.get_expression(container, POM.InterfaceTotalFlow, TransmissionInterface)
+    coefficients = [
+        abs(c) for e in expression["cancel", :] for (c, _) in JuMP.linear_terms(e)
+    ]
+    @test !isempty(coefficients)
+    @test minimum(coefficients) > POM.PTDF_ZERO_TOL
+end
+
 @testset "Test Transmission Interface with TimeSeries" begin
     c_sys5_uc = PSB.build_system(PSITestSystems, "c_sys5_uc"; add_reserves = true)
     interface = TransmissionInterface(;

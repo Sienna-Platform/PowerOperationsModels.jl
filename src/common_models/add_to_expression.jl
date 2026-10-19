@@ -2194,7 +2194,8 @@ function add_to_expression!(
                     JuMP.add_to_expression!(
                         expression[service_name, t],
                         flow_expression[name, t],
-                        Float64(direction),
+                        Float64(direction);
+                        residue_tol = EXPRESSION_RESIDUE_TOL,
                     )
                 end
             end
