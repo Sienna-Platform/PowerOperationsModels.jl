@@ -226,6 +226,42 @@ end
     end
 end
 
+function _area_interchange_limit_rows(; with_time_series)
+    sys = PSB.build_system(PSISystems, "two_area_pjm_DA")
+    interchange = get_component(AreaInterchange, sys, "1_2")
+    set_flow_limits!(interchange, (from_to = 100.0u"MW", to_from = 50.0u"MW"))
+    if with_time_series
+        load_ts = first(get_time_series_multiple(first(get_components(PowerLoad, sys))))
+        stamps = TimeSeries.timestamp(get_data(load_ts))
+        for name in ("from_to_flow_limit", "to_from_flow_limit")
+            add_time_series!(
+                sys,
+                interchange,
+                SingleTimeSeries(name, TimeArray(stamps, ones(length(stamps)))),
+            )
+        end
+    end
+    transform_single_time_series!(sys, Hour(24), Hour(1))
+    template = get_thermal_dispatch_template_network(NetworkModel(AreaBalanceNetworkModel))
+    set_device_model!(template, AreaInterchange, StaticBranch)
+    model = DecisionModel(template, sys; resolution = Hour(1), optimizer = HiGHS_optimizer)
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+    container = IOM.get_optimization_container(model)
+    ub = IOM.get_constraint(container, FlowLimitConstraint, AreaInterchange, "ub")
+    lb = IOM.get_constraint(container, FlowLimitConstraint, AreaInterchange, "lb")
+    return ub["1_2", 1], lb["1_2", 1]
+end
+
+@testset "AreaInterchange flow limits follow from_to and to_from" begin
+    for with_time_series in (false, true)
+        ub, lb = _area_interchange_limit_rows(; with_time_series)
+        # The time series are all ones, so both paths give the static limits.
+        @test JuMP.constraint_object(ub).set == MOI.LessThan(1.0)
+        @test JuMP.constraint_object(lb).set == MOI.GreaterThan(-0.5)
+    end
+end
+
 function _make_hvdc_area_system(; same_area, loss_factor)
     sys = PSB.build_system(
         PSISystems, "two_area_pjm_DA";
