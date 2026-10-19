@@ -355,9 +355,9 @@ end
     end
 end
 
-@testset "G-1 reserves on a degree-two reduced network" begin
-    # `RADIAL1-RADIAL2-i_1` is merged into a degree-two series chain. Series segments keep
-    # their own names but map to the chain's reduced arc.
+@testset "G-1 outages pin buses against network reduction" begin
+    # The outaged generator sits on radial bus 110 and the monitored line joins degree-two
+    # buses 103 and 109; each reduction eliminates them unless pinned.
     sys = PSB.build_system(PSITestSystems, "case10_radial_series_reductions")
     load = first(collect(get_components(StandardLoad, sys)))
     add_time_series!(
@@ -369,7 +369,6 @@ end
             Hour(1),
         ),
     )
-    generators = collect(get_components(ThermalStandard, sys))
     reserve = OnlineReserve{ReserveUp}(;
         name = _G1_RESERVE,
         available = true,
@@ -380,72 +379,43 @@ end
         max_participation_factor = 1.0,
         deployed_fraction = 0.0,
     )
-    add_service!(sys, reserve, generators)
-    monitored_name = "RADIAL1-RADIAL2-i_1"
-    outage = _attach_outage!(
+    add_service!(sys, reserve, collect(get_components(ThermalStandard, sys)))
+    _attach_outage!(
         sys,
-        [first(generators)],
+        [get_component(ThermalStandard, sys, "generator-110-1")],
         [reserve],
-        [get_component(Line, sys, monitored_name)],
+        [get_component(Line, sys, "LV-RADIAL1-i_1")],
     )
 
-    reductions = PNM.NetworkReduction[DegreeTwoReduction()]
-    template = PowerOperationsProblemTemplate(
-        NetworkModel(
-            PTDFNetworkModel;
-            network_source = SystemNetworkSource(reductions...),
-        ),
-    )
-    set_device_model!(template, ThermalStandard, ThermalBasicDispatch)
-    set_device_model!(template, StandardLoad, StaticPowerLoad)
-    set_device_model!(template, Line, StaticBranch)
-    set_service_model!(
-        template,
-        ServiceModel(OnlineReserve{ReserveUp}, SecurityConstrainedContingencyReserve),
-    )
-    model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
-    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
-          IOM.ModelBuildStatus.BUILT
-
-    # Coefficient-level: the post-contingency flow is the pre-contingency flow plus a fresh
-    # reduced PTDF row times the deployment and outaged power, mapped to reduced buses.
-    container = IOM.get_optimization_container(model)
-    network_model = IOM.get_network_model(IOM.get_template(model))
-    catalog = POM.get_branch_catalog(network_model)
-    reduction = POM.get_network_reduction(network_model)
-    entry_name = PNM.get_component_to_reduction_name_map(catalog, Line)[monitored_name]
-    reduced_arc = PNM.get_name_to_arc_map(catalog, Line)[entry_name]
-    line_arc = PSY.get_arc(get_component(Line, sys, monitored_name))
-    @test reduced_arc !=
-          (PSY.get_number(PSY.get_from(line_arc)), PSY.get_number(PSY.get_to(line_arc)))
-
-    ptdf = PNM.VirtualPTDF(sys; network_reductions = reductions)
-    bus_axis = PNM.get_bus_axis(ptdf)
-    row = ptdf[reduced_arc, :]
-    factor(component) =
-        row[findfirst(
-            ==(PNM.get_mapped_bus_number(reduction, PSY.get_bus(component))),
-            bus_axis,
-        )]
-
-    uuid = IS.get_id(outage)
-    deployments = _deployments(container)
-    power = IOM.get_variable(container, ActivePowerVariable, ThermalStandard)
-    post_flow = IOM.get_expression(container, PostContingencyBranchFlow, Line, "G1")
-    pre_flow = IOM.get_expression(container, PTDFBranchFlow, Line)
-    for t in IOM.get_time_steps(container)
-        expected = copy(pre_flow[entry_name, t])
-        for ((D, _, _, d, u, tt), var) in deployments
-            (u == uuid && tt == t) || continue
-            JuMP.add_to_expression!(expected, factor(get_component(D, sys, d)), var)
-        end
-        outaged = first(generators)
-        JuMP.add_to_expression!(
-            expected,
-            -factor(outaged),
-            power[PSY.get_name(outaged), t],
+    for (reduction, pinned) in
+        ((RadialReduction(), [110]), (DegreeTwoReduction(), [103, 109]))
+        # Confirm pinned bus would otherwise be reduced.
+        # The keys of the bus reduction map are retained buses.
+        unpinned = PNM.Ybus(sys; network_reductions = PNM.NetworkReduction[reduction])
+        @test isdisjoint(
+            pinned,
+            keys(PNM.get_bus_reduction_map(PNM.get_network_reduction_data(unpinned))),
         )
-        @test aff_exprs_approx_equal(post_flow[entry_name, uuid, t], expected)
+
+        template = PowerOperationsProblemTemplate(
+            NetworkModel(
+                PTDFNetworkModel;
+                network_source = SystemNetworkSource(reduction),
+            ),
+        )
+        set_device_model!(template, ThermalStandard, ThermalBasicDispatch)
+        set_device_model!(template, StandardLoad, StaticPowerLoad)
+        set_device_model!(template, Line, StaticBranch)
+        set_service_model!(
+            template,
+            ServiceModel(OnlineReserve{ReserveUp}, SecurityConstrainedContingencyReserve),
+        )
+        model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
+        @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+              IOM.ModelBuildStatus.BUILT
+        network_model = IOM.get_network_model(IOM.get_template(model))
+        kept = keys(PNM.get_bus_reduction_map(POM.get_network_reduction(network_model)))
+        @test issubset(pinned, kept)
     end
 end
 
