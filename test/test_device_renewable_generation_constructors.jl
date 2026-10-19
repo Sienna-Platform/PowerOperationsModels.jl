@@ -251,3 +251,19 @@ end
               (c_var - c_curt) * base_power * dt
     end
 end
+
+@testset "Renewable FixedOutput reactive power follows power factor (issue #381)" begin
+    c_sys5_re = PSB.build_system(PSITestSystems, "c_sys5_re")
+    wind = get_component(RenewableDispatch, c_sys5_re, "WindBusA")
+    set_power_factor!(wind, 0.8)
+    device_model = DeviceModel(RenewableDispatch, FixedOutput)
+    model = DecisionModel(MockOperationProblem, ACPNetworkModel, c_sys5_re)
+    mock_construct_device!(model, device_model)
+    container = IOM.get_optimization_container(model)
+    mult = IOM.get_parameter_multiplier_array(
+        container,
+        ReactivePowerTimeSeriesParameter,
+        RenewableDispatch,
+    )
+    @test all(mult["WindBusA", :] .≈ 0.75 * get_max_active_power(wind, u"SU"))
+end
