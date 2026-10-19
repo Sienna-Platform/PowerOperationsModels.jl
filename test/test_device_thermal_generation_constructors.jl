@@ -2077,3 +2077,25 @@ end
         end
     end
 end
+
+@testset "FixedOutput errors clearly when some devices lack the time series" begin
+    c_sys5_uc = PSB.build_system(PSITestSystems, "c_sys5_uc")
+    forecast = PSY.get_time_series(
+        Deterministic,
+        first(PSY.get_components(PSY.PowerLoad, c_sys5_uc)),
+        "max_active_power",
+    )
+    for device in PSY.get_components(PSY.ThermalStandard, c_sys5_uc)
+        PSY.get_name(device) == "Solitude" && continue
+        PSY.add_time_series!(c_sys5_uc, device, forecast)
+    end
+    model = DecisionModel(MockOperationProblem, DCPNetworkModel, c_sys5_uc)
+    err = try
+        mock_construct_device!(model, DeviceModel(PSY.ThermalStandard, FixedOutput))
+        nothing
+    catch e
+        e
+    end
+    @test err isa IS.ConflictingInputsError
+    @test occursin("[\"Solitude\"] lack the max_active_power time series", err.msg)
+end
