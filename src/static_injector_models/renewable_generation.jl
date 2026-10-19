@@ -104,9 +104,9 @@ function add_constraints!(
         add_constraints_container!(container, EqualityConstraint, V, names, time_steps)
     for t in time_steps, d in devices
         name = PSY.get_name(d)
-        pf = sin(acos(PSY.get_power_factor(d)))
+        q_to_p = tan(acos(PSY.get_power_factor(d)))
         constraint[name, t] =
-            JuMP.@constraint(jump_model, q_var[name, t] == p_var[name, t] * pf)
+            JuMP.@constraint(jump_model, q_var[name, t] == p_var[name, t] * q_to_p)
     end
 end
 

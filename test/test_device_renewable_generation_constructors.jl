@@ -267,3 +267,16 @@ end
     )
     @test all(mult["WindBusA", :] .≈ 0.75 * get_max_active_power(wind, u"SU"))
 end
+
+@testset "Renewable constant power factor uses tan(acos(pf)) (issue #381)" begin
+    c_sys5_re = PSB.build_system(PSITestSystems, "c_sys5_re")
+    wind = get_component(RenewableDispatch, c_sys5_re, "WindBusA")
+    set_power_factor!(wind, 0.8)
+    device_model = DeviceModel(RenewableDispatch, RenewableConstantPowerFactor)
+    model = DecisionModel(MockOperationProblem, ACPNetworkModel, c_sys5_re)
+    mock_construct_device!(model, device_model)
+    container = IOM.get_optimization_container(model)
+    p = IOM.get_variable(container, ActivePowerVariable, RenewableDispatch)
+    cons = IOM.get_constraint(container, POM.EqualityConstraint, RenewableDispatch)
+    @test JuMP.normalized_coefficient(cons["WindBusA", 1], p["WindBusA", 1]) ≈ -0.75
+end
