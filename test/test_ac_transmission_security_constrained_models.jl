@@ -378,77 +378,143 @@ end
     @test n_checked >= 1
 end
 
-@testset "SecurityConstrainedStaticBranch auto-discovers all supplemental-attribute outages" begin
-    # ADAPTED from the upstream "respects user-supplied outages on DeviceModel"
-    # testset. The explicit `outages = [...]` kwarg path could NOT be ported:
-    # the IOM `DeviceModel(...; outages)` kwarg is typed
-    # `AbstractVector{<:IS.InfrastructureSystemsComponent}`, but outage objects
-    # (`GeometricDistributionForcedOutage`) are `IS.SupplementalAttribute`s, a
-    # sibling branch of `InfrastructureSystemsType`, so they are rejected at
-    # construction (TypeError). The auto-discover path (empty kwarg) is the
-    # portable, exercised path and is asserted here in full: every outage in
-    # the system's supplemental attributes must land in the DeviceModel and in
-    # the post-contingency constraint container's outage-id axis.
-    c_sys5 = PSB.build_system(PSITestSystems, "c_sys5")
-    all_branches = collect(get_components(PSY.ACTransmission, c_sys5))
-    outage_components = ["1", "2", "3"]
-    outage_ids = Int[]
-    for line_name in outage_components
-        component = get_component(PSY.ACTransmission, c_sys5, line_name)
-        transition_data = PSY.GeometricDistributionForcedOutage(;
-            mean_time_to_recovery = 10,
-            outage_transition_probability = 0.9999,
-            monitored_components = all_branches,
-        )
-        PSY.add_supplemental_attribute!(c_sys5, component, transition_data)
-        push!(outage_ids, IS.get_id(transition_data))
-    end
+function _add_line_outage!(sys::PSY.System, line_name::String)
+    outage = PSY.GeometricDistributionForcedOutage(;
+        mean_time_to_recovery = 10,
+        outage_transition_probability = 0.9999,
+        monitored_components = collect(get_components(PSY.ACTransmission, sys)),
+    )
+    line = get_component(PSY.ACTransmission, sys, line_name)
+    PSY.add_supplemental_attribute!(sys, line, outage)
+    return outage
+end
 
-    auto_template = get_thermal_dispatch_template_network(
-        NetworkModel(PTDFNetworkModel),
-    )
-    set_device_model!(auto_template, PSY.Line, POM.SecurityConstrainedStaticBranch)
+function _sc_branch_template(line_model::DeviceModel)
+    template = get_thermal_dispatch_template_network(NetworkModel(PTDFNetworkModel))
+    set_device_model!(template, line_model)
     set_device_model!(
-        auto_template,
+        template,
         PSY.TwoWindingTransformer,
         POM.SecurityConstrainedStaticBranch,
     )
-    set_device_model!(
-        auto_template,
-        PSY.TwoWindingTransformer,
-        POM.SecurityConstrainedStaticBranch,
-    )
-    auto_model = DecisionModel(auto_template, c_sys5; optimizer = HiGHS_optimizer)
-    @test build!(auto_model; output_dir = mktempdir(; cleanup = true)) ==
+    return template
+end
+
+function _build_sc_model(template, sys::PSY.System)
+    model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
           IOM.ModelBuildStatus.BUILT
-    auto_line_outages =
-        IOM.get_outages(IOM.get_model(IOM.get_template(auto_model), PSY.Line))
-    @test Set(keys(auto_line_outages)) == Set(outage_ids)
+    return model
+end
 
-    container = IOM.get_optimization_container(auto_model)
+_resolved_line_outages(model) =
+    Set(keys(IOM.get_outages(IOM.get_model(IOM.get_template(model), PSY.Line))))
+
+function _post_contingency_outage_axis(model)
+    container = IOM.get_optimization_container(model)
     con_ub = IOM.get_constraint(
         container,
         IOM.ConstraintKey(POM.PostContingencyFlowRateConstraint, PSY.Line, "ub"),
     )
-    ub_outages = Set(k[1] for k in keys(con_ub.data))
-    @test ub_outages == Set(string(u) for u in outage_ids)
+    return Set(k[1] for k in keys(con_ub.data))
 end
 
-@testset "DeviceModel.outages kwarg is dropped with a warning for non-SC formulations" begin
-    # ADAPTED: upstream passes `GeometricDistributionForcedOutage` objects to the
-    # `outages` kwarg, but IOM types it `AbstractVector{<:InfrastructureSystemsComponent}`
-    # and outage objects are `SupplementalAttribute`s, which the kwarg rejects at
-    # construction. The warn-and-drop branch in `_add_device_model_outages`
-    # triggers on *any* non-empty `InfrastructureSystemsComponent` vector when
-    # the formulation is not security-constrained, so we exercise it with a real
-    # `PSY.Line` component (only `IS.get_id` is called on each entry). The
-    # warning is emitted by the `DeviceModel` constructor itself (before any
-    # `build!`/`with_logger` wrapping), so `@test_logs` captures it directly.
+_registered_outages(model) = Set(
+    keys(
+        PNM.get_registered_contingencies(
+            IOM.get_contingency_matrix(IOM.get_network_model(IOM.get_template(model))),
+        ),
+    ),
+)
+
+@testset "SecurityConstrainedStaticBranch auto-discovers all supplemental-attribute outages" begin
     c_sys5 = PSB.build_system(PSITestSystems, "c_sys5")
-    line = first(get_components(PSY.ACTransmission, c_sys5))
+    outage_ids = Set(IS.get_id(_add_line_outage!(c_sys5, name)) for name in ["1", "2", "3"])
+    model = _build_sc_model(
+        _sc_branch_template(DeviceModel(PSY.Line, POM.SecurityConstrainedStaticBranch)),
+        c_sys5,
+    )
+    @test _resolved_line_outages(model) == outage_ids
+    @test _post_contingency_outage_axis(model) == Set(string.(outage_ids))
+end
+
+@testset "SecurityConstrainedStaticBranch models only the selected outages" begin
+    c_sys5 = PSB.build_system(PSITestSystems, "c_sys5")
+    outages = [_add_line_outage!(c_sys5, name) for name in ["1", "2", "3"]]
+    selected = [outages[1], outages[3]]
+    selected_ids = Set(IS.get_id.(selected))
+    model = _build_sc_model(
+        _sc_branch_template(
+            DeviceModel(PSY.Line, POM.SecurityConstrainedStaticBranch; outages = selected),
+        ),
+        c_sys5,
+    )
+    @test _resolved_line_outages(model) == selected_ids
+    @test _post_contingency_outage_axis(model) == Set(string.(selected_ids))
+    @test _registered_outages(model) == selected_ids
+end
+
+@testset "SecurityConstrainedStaticBranch with an empty outage selection models no outages" begin
+    c_sys5 = PSB.build_system(PSITestSystems, "c_sys5")
+    for name in ["1", "2", "3"]
+        _add_line_outage!(c_sys5, name)
+    end
+    model = _build_sc_model(
+        _sc_branch_template(
+            DeviceModel(
+                PSY.Line,
+                POM.SecurityConstrainedStaticBranch;
+                outages = PSY.Outage[],
+            ),
+        ),
+        c_sys5,
+    )
+    @test isempty(_resolved_line_outages(model))
+    @test isempty(_post_contingency_outage_axis(model))
+    @test isempty(_registered_outages(model))
+end
+
+@testset "Rebuilding a model includes outages added to the system between builds" begin
+    c_sys5 = PSB.build_system(PSITestSystems, "c_sys5")
+    first_ids = Set(IS.get_id(_add_line_outage!(c_sys5, name)) for name in ["1", "2"])
+    model = _build_sc_model(
+        _sc_branch_template(DeviceModel(PSY.Line, POM.SecurityConstrainedStaticBranch)),
+        c_sys5,
+    )
+    @test _resolved_line_outages(model) == first_ids
+
+    added_id = IS.get_id(_add_line_outage!(c_sys5, "3"))
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+    @test _resolved_line_outages(model) == union(first_ids, added_id)
+    @test _post_contingency_outage_axis(model) ==
+          Set(string.(union(first_ids, added_id)))
+end
+
+@testset "SecurityConstrainedStaticBranch rejects a selected attribute that is not an outage" begin
+    c_sys5 = PSB.build_system(PSITestSystems, "c_sys5")
+    _add_line_outage!(c_sys5, "1")
+    geo = PSY.GeographicInfo(;
+        geo_json = Dict("type" => "Point", "coordinates" => [0.0, 0.0]),
+    )
+    PSY.add_supplemental_attribute!(
+        c_sys5,
+        get_component(PSY.ACTransmission, c_sys5, "1"),
+        geo,
+    )
+    template = _sc_branch_template(
+        DeviceModel(PSY.Line, POM.SecurityConstrainedStaticBranch; outages = [geo]),
+    )
+    model = DecisionModel(template, c_sys5; optimizer = HiGHS_optimizer)
+    @test_throws IS.ConflictingInputsError POM.validate_template(model)
+end
+
+@testset "DeviceModel outage selection is dropped with a warning for non-SC formulations" begin
+    c_sys5 = PSB.build_system(PSITestSystems, "c_sys5")
+    outage = _add_line_outage!(c_sys5, "1")
     @test_logs (:warn, r"does not support") match_mode = :any begin
-        dm = DeviceModel(PSY.Line, POM.StaticBranch; outages = [line])
-        @test isempty(IOM.get_outages(dm))
+        dm = DeviceModel(PSY.Line, POM.StaticBranch; outages = [outage])
+        @test IOM.get_outage_selection(dm) === nothing
     end
 end
 
