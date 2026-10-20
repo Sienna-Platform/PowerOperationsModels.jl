@@ -218,6 +218,31 @@ function mock_construct_devices!(
     return
 end
 
+# Only used for testing. Rebuilds the devices of a model built by `mock_construct_devices!`
+# the way a simulation step with `rebuild_model = true` does: the container is emptied and
+# rebuilt from the parameter values written since the last build.
+function mock_rebuild_devices!(problem::IOM.DecisionModel{MockOperationProblem}, models)
+    container = IOM.get_optimization_container(problem)
+    template = IOM.get_template(problem)
+    network_model = IOM.get_network_model(template)
+    sys = IOM.get_system(problem)
+    IOM.set_rebuild_model!(IOM.get_settings(container), true)
+    IOM.reset_optimization_model!(container)
+    POM.initialize_system_expressions!(
+        container,
+        network_model,
+        network_model.subnetworks,
+        sys,
+        Dict{Int64, Set{Int64}}(),
+    )
+    for stage in (IOM.ArgumentConstructStage(), IOM.ModelConstructStage())
+        for model in models
+            construct_device!(container, sys, stage, model, network_model)
+        end
+    end
+    return
+end
+
 function mock_construct_network!(problem::IOM.DecisionModel{MockOperationProblem}, model)
     IOM.set_network_model!(problem.template, model)
     IOM.construct_network!(

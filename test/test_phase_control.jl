@@ -483,15 +483,6 @@ function _sc_phase_model(
     return DecisionModel(template, sys; optimizer = HiGHS_optimizer)
 end
 
-# Two independent factorizations of the same ABA matrix differ by ~1e-15 on the Accelerate
-# backend, so compare the affine expressions up to that round-off. See the note in
-# `test_ac_transmission_security_constrained_models.jl`.
-function _phase_affexpr_approx_equal(actual, expected; atol = 1e-8)
-    d = actual - expected
-    coeff_resid = maximum((abs(c) for (c, _) in JuMP.linear_terms(d)); init = 0.0)
-    return coeff_resid <= atol && abs(JuMP.constant(d)) <= atol
-end
-
 @testset "N-1 on a DCP network rejects any transformer phase shift" begin
     # The DCP post-contingency flow is `MODF * injections`, and the injections are recovered
     # from the branch-flow variables of the nodal balance, which carry no phase-shift term
@@ -624,7 +615,7 @@ end
             name == _PST_NAME &&
                 JuMP.add_to_expression!(expected, -b, alpha[name, t])
             actual = pcbf.data[(outage_str, name, t)]
-            @test _phase_affexpr_approx_equal(actual, expected)
+            @test _affexpr_approx_equal(actual, expected)
             if !iszero(JuMP.coefficient(actual, alpha[_PST_NAME, t]))
                 rows_carrying_angle += 1
             end
@@ -723,7 +714,7 @@ end
                         JuMP.add_to_expression!(expected, -b * alpha_static)
                     end
                 end
-                @test _phase_affexpr_approx_equal(flows[name, t], expected)
+                @test _affexpr_approx_equal(flows[name, t], expected)
                 if control && T === PSY.Line &&
                    !iszero(JuMP.coefficient(flows[name, t], alpha_var[_PST_NAME, t]))
                     line_rows_carrying_angle += 1
@@ -772,7 +763,7 @@ end
             JuMP.add_to_expression!(expected, _ptdf_product(ptdf_row, nodal_balance, t))
         end
         actual = total["shifted_interface", t]
-        @test _phase_affexpr_approx_equal(actual, expected)
+        @test _affexpr_approx_equal(actual, expected)
         @test !iszero(JuMP.coefficient(actual, alpha_var[_PST_NAME, t]))
     end
 end
@@ -888,7 +879,7 @@ end
         # The nodal balance still carries the tripped shifter's `±b·α` pair; the reference
         # network has no shifter, so strip it.
         JuMP.add_to_expression!(expected, -injection * (col[from_pos] - col[to_pos]))
-        @test _phase_affexpr_approx_equal(pcbf[(outage_str, name, t)], expected)
+        @test _affexpr_approx_equal(pcbf[(outage_str, name, t)], expected)
         n_rows += 1
     end
     @test n_rows > 0
@@ -934,7 +925,7 @@ end
                 -b * (col[from_pos] - col[to_pos]),
                 angle[_PST_NAME, t],
             )
-            @test _phase_affexpr_approx_equal(actual, expected)
+            @test _affexpr_approx_equal(actual, expected)
             # A tripped shifter has no influence on the network, so its angle must vanish
             # from every row of its own outage.
             @test abs(JuMP.coefficient(actual, angle[_PST_NAME, t])) < 1e-8
@@ -1080,7 +1071,7 @@ end
         # including on the surviving line. The tolerance carries the round-off between the
         # MODF update and the independently factorized reference PTDF, amplified by this
         # arc's 16.9 pu susceptance.
-        @test _phase_affexpr_approx_equal(
+        @test _affexpr_approx_equal(
             pcbf[(outage_str, name, t)],
             expected;
             atol = 1e-7,

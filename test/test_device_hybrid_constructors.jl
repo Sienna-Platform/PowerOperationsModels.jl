@@ -86,8 +86,6 @@ function _build_and_solve(
 end
 
 _var_keys(model) = keys(IOM.get_variables(IOM.get_optimization_container(model)))
-# The objective can be negative: the RenewableDispatch variable cost enters the objective
-# with a negative sign, and the hybrid renewable unit displaces thermal output.
 _obj(model) = IOM.get_optimization_container(model).optimizer_stats.objective_value
 
 # ---------------------------------------------------------------------------
@@ -518,5 +516,30 @@ end
         for (v, c) in in_down[name, t].terms
             @test JuMP.coefficient(in_obj.func, v) ≈ c
         end
+    end
+end
+
+@testset "Hybrid renewable objective coefficient is variable cost minus curtailment cost" begin
+    sys, hybrid = _build_hybrid_test_system(; with_reserves = false)
+    PSY.set_operation_cost!(
+        PSY.get_renewable_unit(hybrid),
+        PSY.RenewableGenerationCost(;
+            variable_operation_cost = PSY.CostCurve(PSY.LinearCurve(20.0)),
+            curtailment_cost = PSY.CostCurve(PSY.LinearCurve(5.0)),
+        ),
+    )
+    template = _build_hybrid_template(sys; with_reserves = false)
+    m = POM.DecisionModel(template, sys;
+        optimizer = HiGHS_optimizer, horizon = _HYBRID_HORIZON)
+    @test POM.build!(m; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+    container = IOM.get_optimization_container(m)
+    p_re = IOM.get_variable(container, POM.HybridRenewableActivePower, PSY.HybridSystem)
+    obj = JuMP.objective_function(IOM.get_jump_model(container))
+    base = IOM.get_model_base_power(container)
+    dt = Dates.value(IOM.get_resolution(container)) / 3.6e6
+    name = PSY.get_name(hybrid)
+    for t in IOM.get_time_steps(container)
+        @test JuMP.coefficient(obj, p_re[name, t]) ≈ (20.0 - 5.0) * base * dt
     end
 end

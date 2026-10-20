@@ -31,13 +31,13 @@ function _security_constrained_outages(
     sys::PSY.System,
     services_template::ServicesModelContainer,
 )
-    outages = Dict{Int, PSY.Outage}()
+    outages = Dict{Int, PSY.UnplannedOutage}()
     use_slacks = Dict{Int, Bool}()
     for model in values(services_template)
         _validate_reserve_formulation(model) || continue
         model_slacks = get_use_slacks(model)
         for service in _services_with_contributors(model, sys)
-            for outage in PSY.get_supplemental_attributes(PSY.Outage, service)
+            for outage in PSY.get_supplemental_attributes(PSY.UnplannedOutage, service)
                 outage_id = IS.get_id(outage)
                 use_slacks[outage_id] = model_slacks
                 outages[outage_id] = outage
@@ -146,7 +146,7 @@ end
 
 function _outaged_generators(
     sys::PSY.System,
-    outages::Dict{Int, PSY.Outage},
+    outages::Dict{Int, PSY.UnplannedOutage},
     container::OptimizationContainer,
     devices_template::DevicesModelContainer,
 )
@@ -186,7 +186,7 @@ _monitored_is_modeled(
 
 function _monitored_components(
     sys::PSY.System,
-    outages::Dict{Int, PSY.Outage},
+    outages::Dict{Int, PSY.UnplannedOutage},
     container::OptimizationContainer,
     network_model::NetworkModel,
 )
@@ -228,15 +228,43 @@ _flow_entries(
     names::Set{String},
 ) = names
 
+# Post-contingency limits of a monitored entry at every time step. Under a topology schedule
+# each step takes the emergency rating of the entry in service on the arc; an out arc keeps
+# its own entry, since its flow is zero.
 function _post_contingency_flow_limits(
     ::PSY.System,
     network_model::NetworkModel{<:AbstractPTDFNetworkModel},
     ::Type{T},
     entry_name::String,
+    time_steps::UnitRange{Int},
 ) where {T <: PSY.ACTransmission}
     catalog = get_branch_catalog(network_model)
     arc = PNM.get_name_to_arc_map(catalog, T)[entry_name]
-    return _emergency_flow_limits(PNM.get_reduction_entry(catalog, arc))
+    entry = PNM.get_reduction_entry(catalog, arc)
+    return _step_post_contingency_flow_limits(
+        entry,
+        arc,
+        get_topology_schedule(network_model),
+        time_steps,
+    )
+end
+
+_step_post_contingency_flow_limits(entry, _, ::Nothing, time_steps) =
+    fill(_emergency_flow_limits(entry), length(time_steps))
+
+function _step_post_contingency_flow_limits(
+    entry,
+    arc::Tuple{Int, Int},
+    ts::PNM.TopologySchedule,
+    time_steps,
+)
+    by_topology = Dict{Int, @NamedTuple{min::Float64, max::Float64}}()
+    return [
+        get!(by_topology, PNM.get_topology_index(ts, t)) do
+            in_service = PNM.get_in_service_entry(ts, arc, t)
+            _emergency_flow_limits(something(in_service, entry))
+        end for t in time_steps
+    ]
 end
 
 function _post_contingency_flow_limits(
@@ -244,9 +272,10 @@ function _post_contingency_flow_limits(
     ::NetworkModel{<:Union{AreaBalanceNetworkModel, AreaPTDFNetworkModel}},
     ::Type{PSY.AreaInterchange},
     name::String,
+    time_steps::UnitRange{Int},
 )
     limits = PSY.get_flow_limits(PSY.get_component(PSY.AreaInterchange, sys, name), u"SU")
-    return (min = -limits.to_from, max = limits.from_to)
+    return fill((min = -limits.to_from, max = limits.from_to), length(time_steps))
 end
 
 ################################## Construction ###########################################
@@ -366,7 +395,7 @@ function _add_post_contingency_deployment!(
         Int[];
         sparse = true,
     )
-    for outage in PSY.get_supplemental_attributes(PSY.Outage, service)
+    for outage in PSY.get_supplemental_attributes(PSY.UnplannedOutage, service)
         outage_id = IS.get_id(outage)
         outaged = Set{String}(
             PSY.get_name(c) for
@@ -591,12 +620,40 @@ end
 _is_branch_flow_type(::Type{<:PSY.ACTransmission}) = true
 _is_branch_flow_type(::Type) = false
 
-function _ptdf_factors(ptdf, bus_axis, arc)
-    ptdf_col = ptdf[arc, :]
+function _ptdf_factors(ptdf_col::AbstractVector{Float64}, bus_axis)
     return Dict{Int, Float64}(
         bus_axis[i] => ptdf_col[i] for
         i in eachindex(ptdf_col) if abs(ptdf_col[i]) > PTDF_ZERO_TOL
     )
+end
+
+# The topology step `t` is resolved on; 0 is the base network.
+_topology_key(::Nothing, ::Int) = 0
+_topology_key(ts::PNM.TopologySchedule, t::Int) = PNM.get_topology_index(ts, t)
+
+#=
+The PTDF column of `arc` at step `t`, which the generator outage shifts flow along: the
+network matrix's without a topology schedule, and the scheduled topology's at `t` with one,
+matching the column of the pre-contingency `PTDFBranchFlow`.
+=#
+_arc_ptdf_column(ptdf, ::Nothing, arc::Tuple{Int, Int}, ::Int) = ptdf[arc, :]
+_arc_ptdf_column(_, ts::PNM.TopologySchedule, arc::Tuple{Int, Int}, t::Int) =
+    only(PNM.get_topology_ptdf_rows(ts, arc, [PNM.get_topology_index(ts, t)]))
+
+# The nonzero factors of `arc` at step `t`, cached per entry and topology.
+function _step_ptdf_factors!(
+    cache::Dict{Tuple{DataType, String, Int}, Dict{Int, Float64}},
+    ::Type{T},
+    name::String,
+    ptdf,
+    ts,
+    bus_axis,
+    arc::Tuple{Int, Int},
+    t::Int,
+) where {T}
+    return get!(cache, (T, name, _topology_key(ts, t))) do
+        _ptdf_factors(_arc_ptdf_column(ptdf, ts, arc, t), bus_axis)
+    end
 end
 
 function _add_post_contingency_flow_change!(
@@ -660,13 +717,14 @@ function _add_post_contingency_branch_flow!(
     catalog = get_branch_catalog(network_model)
     ptdf = get_network_matrix(network_model)
     bus_axis = PNM.get_bus_axis(ptdf)
+    ts = get_topology_schedule(network_model)
 
     nodal = get_expression(container, PostContingencyLocationalDeployment, PSY.ACBus)
     buses = _outage_buses_by_outage(nodal)
 
-    # Per reduced entry, its PTDF row keyed by the nodal bus key, dropping entries below
-    # PTDF_ZERO_TOL.
-    nonzero_factors = Dict{Tuple{DataType, String}, Dict{Int, Float64}}()
+    # Per reduced entry and topology, its PTDF row keyed by the nodal bus key, dropping
+    # entries below PTDF_ZERO_TOL.
+    nonzero_factors = Dict{Tuple{DataType, String, Int}, Dict{Int, Float64}}()
     for (outage_id, per_type) in monitored_components
         outage_buses = get(buses, outage_id, Set{Int}())
         for (line_type, names) in per_type
@@ -685,10 +743,12 @@ function _add_post_contingency_branch_flow!(
             pre_flow = get_expression(container, PTDFBranchFlow, line_type)
             arc_map = PNM.get_name_to_arc_map(catalog, line_type)
             for entry_name in _flow_entries(network_model, line_type, names)
-                factors = get!(nonzero_factors, (line_type, entry_name)) do
-                    _ptdf_factors(ptdf, bus_axis, arc_map[entry_name])
-                end
+                arc = arc_map[entry_name]
                 for t in time_steps
+                    factors = _step_ptdf_factors!(
+                        nonzero_factors, line_type, entry_name, ptdf, ts, bus_axis, arc,
+                        t,
+                    )
                     ex =
                         expr[entry_name, outage_id, t] = IOM.get_hinted_aff_expr(
                             length(JuMP.linear_terms(pre_flow[entry_name, t])) +
@@ -720,11 +780,12 @@ function _add_post_contingency_interchange_flow!(
     catalog = get_branch_catalog(network_model)
     ptdf = get_network_matrix(network_model)
     bus_axis = PNM.get_bus_axis(ptdf)
+    ts = get_topology_schedule(network_model)
     nodal = get_expression(container, PostContingencyLocationalDeployment, PSY.ACBus)
     buses = _outage_buses_by_outage(nodal)
     inter_area_branch_map = _get_branch_map(network_model)
     flow = get_variable(container, FlowActivePowerVariable, PSY.AreaInterchange)
-    nonzero_factors = Dict{Tuple{DataType, String}, Dict{Int, Float64}}()
+    nonzero_factors = Dict{Tuple{DataType, String, Int}, Dict{Int, Float64}}()
     for (outage_id, per_type) in monitored_components
         names = get(per_type, PSY.AreaInterchange, Set{String}())
         isempty(names) && continue
@@ -757,6 +818,7 @@ function _add_post_contingency_interchange_flow!(
                         mult,
                         catalog,
                         ptdf,
+                        ts,
                         bus_axis,
                         nonzero_factors,
                         nodal,
@@ -778,8 +840,9 @@ function _add_tie_flow_change!(
     mult::Float64,
     catalog::PNM.BranchCatalog,
     ptdf,
+    ts,
     bus_axis,
-    nonzero_factors::Dict{Tuple{DataType, String}, Dict{Int, Float64}},
+    nonzero_factors::Dict{Tuple{DataType, String, Int}, Dict{Int, Float64}},
     nodal,
     outage_buses::Set{Int},
     outage_id::Int,
@@ -787,9 +850,9 @@ function _add_tie_flow_change!(
 ) where {T <: PSY.ACTransmission}
     arc_map = PNM.get_name_to_arc_map(catalog, T)
     for tie_name in tie_names
-        factors = get!(nonzero_factors, (T, tie_name)) do
-            _ptdf_factors(ptdf, bus_axis, arc_map[tie_name])
-        end
+        factors = _step_ptdf_factors!(
+            nonzero_factors, T, tie_name, ptdf, ts, bus_axis, arc_map[tie_name], t,
+        )
         _add_post_contingency_flow_change!(
             ex,
             factors,
@@ -812,7 +875,8 @@ function _add_tie_flow_change!(
     ::PNM.BranchCatalog,
     ::Any,
     ::Any,
-    ::Dict{Tuple{DataType, String}, Dict{Int, Float64}},
+    ::Any,
+    ::Dict{Tuple{DataType, String, Int}, Dict{Int, Float64}},
     ::Any,
     ::Set{Int},
     ::Int,
@@ -1107,13 +1171,15 @@ function _add_post_contingency_flow_constraints!(
                 )
             end
             for entry_name in _flow_entries(network_model, component_type, names)
-                lims = _post_contingency_flow_limits(
+                step_limits = _post_contingency_flow_limits(
                     sys,
                     network_model,
                     component_type,
                     entry_name,
+                    time_steps,
                 )
                 for t in time_steps
+                    lims = step_limits[t]
                     f = flow[entry_name, outage_id, t]
                     if slacked
                         cons_ub[entry_name, outage_id, t] = JuMP.@constraint(

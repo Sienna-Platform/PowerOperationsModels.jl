@@ -150,20 +150,53 @@ end
 _has_operational_flow_limit(rep::RepresentativeBranch) =
     _has_device_operational_flow_limit(rep.branch)
 
+_applies_operational_flow_limits(entry::PSY.ACTransmission, model::DeviceModel) =
+    _operational_flow_limits_enabled(model) && _has_device_operational_flow_limit(entry)
 _applies_operational_flow_limits(rep::RepresentativeBranch, model::DeviceModel) =
-    _operational_flow_limits_enabled(model) && _has_operational_flow_limit(rep)
+    _applies_operational_flow_limits(rep.branch, model)
+
+_operational_flow_limits(rep::RepresentativeBranch, model::DeviceModel) =
+    _operational_flow_limits(rep, rep.branch, model)
 
 """
-Operational limit of the arc of `rep` per direction, system base, in the frame of
-`rep.arc`. Call only when `_has_operational_flow_limit(rep)` is `true`.
+Operational limit of the arc of `rep` per direction while `entry` conducts on it, system
+base, in the frame of `rep.arc`. Under a topology schedule `entry` is the entry in service
+at the step, which can be a subset of the arc's own members. An entry without an
+operational limit gives its rating in both directions.
 """
-function _operational_flow_limits(rep::RepresentativeBranch, model::DeviceModel)
-    method = _top_level_method(
-        rep.branch,
-        get_attribute(model, PARALLEL_BRANCH_MAX_RATING_KEY),
-    )
-    lims = _member_operational_limits(rep.branch, model, method, rep.nr)
-    return _in_frame(lims, PNM.get_arc_tuple(rep.branch, rep.nr) == reverse(rep.arc))
+function _operational_flow_limits(
+    rep::RepresentativeBranch,
+    entry::PSY.ACTransmission,
+    model::DeviceModel,
+)
+    method = _top_level_method(entry, get_attribute(model, PARALLEL_BRANCH_MAX_RATING_KEY))
+    lims = _member_operational_limits(entry, model, method, rep.nr)
+    return _in_frame(lims, PNM.get_arc_tuple(entry, rep.nr) == reverse(rep.arc))
+end
+
+const _DirectionalLimits = NamedTuple{(:from_to, :to_from), Tuple{Float64, Float64}}
+
+# Operational limits of the arc at every time step, from the entry in service at each step
+# and resolved once per topology.
+_step_operational_flow_limits(
+    rep::RepresentativeBranch,
+    ::Nothing,
+    time_steps,
+    model::DeviceModel,
+) = fill(_operational_flow_limits(rep, model), length(time_steps))
+
+function _step_operational_flow_limits(
+    rep::RepresentativeBranch,
+    ts::PNM.TopologySchedule,
+    time_steps,
+    model::DeviceModel,
+)
+    by_topology = Dict{Int, _DirectionalLimits}()
+    return [
+        get!(by_topology, PNM.get_topology_index(ts, t)) do
+            _operational_flow_limits(rep, _entry_at(rep, ts, t), model)
+        end for t in time_steps
+    ]
 end
 
 # The flow in each direction, as `(flow, flow_sign)`, measured at the sending end.
@@ -293,25 +326,31 @@ function _check_operational_time_series_entry(
     )
 end
 
+# The static limit of a name at step `t`: one value for the window, or one per step.
+_limit_at(limits::NamedTuple, ::Int) = limits
+_limit_at(limits::AbstractVector{<:NamedTuple}, t::Int) = limits[t]
+
 # The static limit of direction `dir` per name and time step.
 function _static_rhs(
     ::Type{E},
     container::OptimizationContainer,
-    static::Dict{String, <:NamedTuple},
+    static::Dict{String, S},
     names::Vector{String},
     dir,
-) where {E}
+) where {E, S}
     rhs = DenseAxisArray{E}(undef, names, get_time_steps(container))
     for name in names
-        value = IOM.get_directional_value(static[name], dir)
+        limits = static[name]
         for t in axes(rhs, 2)
-            rhs[name, t] = value
+            rhs[name, t] = IOM.get_directional_value(_limit_at(limits, t), dir)
         end
     end
     return rhs
 end
 
-function _fill_series_rhs!(rhs, reps, param_container, dir)
+# A series scales the limit of the branch it is attached to, so it applies at the steps that
+# branch carries the arc's flow; at the other steps the limit of the entry in service holds.
+function _fill_series_rhs!(rhs, reps, param_container, dir, ts)
     ts_names = Set(axes(get_multiplier_array(param_container), 1))
     for rep in reps
         rep.name in ts_names || continue
@@ -319,6 +358,7 @@ function _fill_series_rhs!(rhs, reps, param_container, dir)
         scale = _series_limit(rep, dir)
         refs = get_parameter_column_refs(param_container, rep.name)
         for t in axes(rhs, 2)
+            _entry_at(rep, ts, t) === rep.branch || continue
             rhs[rep.name, t] = scale * refs[t]
         end
     end
@@ -331,9 +371,10 @@ function _operational_rhs(
     ::Type{T},
     container,
     dir,
-    static::Dict{String, <:NamedTuple},
+    static::Dict{String, Vector{_DirectionalLimits}},
     reps,
     names::Vector{String},
+    ts::Union{Nothing, PNM.TopologySchedule},
 ) where {T}
     P = _operational_parameter(dir)
     if !has_container_key(container, P, T)
@@ -342,13 +383,14 @@ function _operational_rhs(
     param_container = get_parameter(container, P, T)
     E = promote_type(Float64, eltype(get_parameter_array(param_container)))
     rhs = _static_rhs(E, container, static, names, dir)
-    _fill_series_rhs!(rhs, reps, param_container, dir)
+    _fill_series_rhs!(rhs, reps, param_container, dir, ts)
     return rhs
 end
 
 """
 Add `OperationalFlowLimitConstraint` rows for the arcs whose devices carry an
-`operational_flow_limit`. The rating rows do not change.
+`operational_flow_limit`. Under a topology schedule each step takes the limit of the entry in
+service on the arc. The rating rows do not change.
 """
 function add_operational_flow_limit_constraints!(
     container::OptimizationContainer,
@@ -360,12 +402,16 @@ function add_operational_flow_limit_constraints!(
     reps = _operational_limit_reps(network_model, T)
     isempty(reps) && return
     names = _branch_names(reps)
-    static = Dict{String, NamedTuple{(:from_to, :to_from), Tuple{Float64, Float64}}}(
-        rep.name => _operational_flow_limits(rep, device_model) for rep in reps
+    ts = get_topology_schedule(network_model)
+    time_steps = get_time_steps(container)
+    static = Dict{String, Vector{_DirectionalLimits}}(
+        rep.name => _step_operational_flow_limits(rep, ts, time_steps, device_model)
+        for
+        rep in reps
     )
     limits = (
-        _operational_rhs(T, container, IOM.FromTo(), static, reps, names),
-        _operational_rhs(T, container, IOM.ToFrom(), static, reps, names),
+        _operational_rhs(T, container, IOM.FromTo(), static, reps, names, ts),
+        _operational_rhs(T, container, IOM.ToFrom(), static, reps, names, ts),
     )
     _add_operational_limit_rows!(
         container, T, device_model, names,
@@ -617,7 +663,7 @@ function add_hvdc_operational_flow_limit_constraints!(
     _operational_flow_limits_enabled(device_model) || return
     names = _hvdc_limited_names(devices)
     isempty(names) && return
-    static = Dict{String, NamedTuple{(:from_to, :to_from), Tuple{Float64, Float64}}}(
+    static = Dict{String, _DirectionalLimits}(
         PSY.get_name(d) => _hvdc_operational_limits(d) for
         d in devices if _has_device_operational_flow_limit(d)
     )

@@ -245,10 +245,6 @@ initial_condition_variable(::DeviceStatus, d::PSY.HydroGen, ::AbstractHydroReser
 initial_condition_default(::DevicePower, d::PSY.HydroGen, ::AbstractHydroReservoirFormulation) = PSY.get_active_power(d, u"SU")
 initial_condition_variable(::DevicePower, d::PSY.HydroGen, ::AbstractHydroReservoirFormulation) = ActivePowerVariable()
 
-initial_condition_default(::InitialTimeDurationOn, d::PSY.HydroGen, ::AbstractHydroReservoirFormulation, container::OptimizationContainer) = _time_at_status_steps(d, container, is_online(d))
-initial_condition_variable(::InitialTimeDurationOn, d::PSY.HydroGen, ::AbstractHydroReservoirFormulation) = OnVariable()
-initial_condition_default(::InitialTimeDurationOff, d::PSY.HydroGen, ::AbstractHydroReservoirFormulation, container::OptimizationContainer) = _time_at_status_steps(d, container, !is_online(d))
-initial_condition_variable(::InitialTimeDurationOff, d::PSY.HydroGen, ::AbstractHydroReservoirFormulation) = OnVariable()
 # OfflineReserveShutdownConstraint reads the status before the first step (the init solve's, if any).
 initial_condition_default(::DeviceStatus, d::PSY.HydroGen, ::HydroCommitmentRunOfRiver) = Float64(is_online(d))
 initial_condition_variable(::DeviceStatus, d::PSY.HydroGen, ::HydroCommitmentRunOfRiver) = OnVariable()
@@ -2425,15 +2421,14 @@ function add_to_balance_expression!(
     param_multiplier = get_parameter_multiplier_array(container, V,
         W,
     )
+    status = get_component_statuses(container, W)
 
     for d in devices
         name = PSY.get_name(d)
         param = get_parameter_column_refs(param_container, name)
         for t in time_steps
-            JuMP.add_to_expression!(
-                expression[ref_bus, t],
-                param_multiplier[name, t] * param[t],
-            )
+            mult = param_multiplier[name, t] * get_component_status(status, name, t)
+            JuMP.add_to_expression!(expression[ref_bus, t], mult * param[t])
         end
     end
 end
@@ -2530,8 +2525,6 @@ function add_to_objective_function!(
     add_proportional_cost!(container, OnVariable, devices, U)
     return
 end
-
-skip_proportional_cost(d::PSY.HydroPumpTurbine) = _is_must_run(d)
 
 # The OnVariable `add_proportional_cost!` forwarder (thermal + hydro) lives in
 # common_models/objective_function.jl: it routes through

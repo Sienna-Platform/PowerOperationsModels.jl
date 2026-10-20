@@ -645,7 +645,7 @@ function _check_offline_band(
         d = get_component(device_type, sys, name)
         limits = PSY.get_active_power_limits(d, u"SU")
         u_coefficient = expected_u_coefficient(limits)
-        if IOM.get_must_run(d)
+        if IOM.is_always_committed(d)
             @test JuMP.normalized_rhs(c) ≈ limits.max - u_coefficient
         else
             @test JuMP.normalized_rhs(c) ≈ limits.max
@@ -1466,7 +1466,7 @@ _has_off_state_rows(container) = any(
 end
 
 @testset "OfflineReserve: must-run units never clear offline_only awards" begin
-    # A must-run unit is always committed (IOM.get_must_run(d) == true, no OnVariable
+    # A must-run unit is always committed (IOM.is_always_committed(d) == true, no OnVariable
     # lower bound of 0), so its opted-in offline awards must stay pinned at 0 - the
     # band row alone would let it clear like any other committed unit.
     sys, offunit = _offline_ordc_uc_system()

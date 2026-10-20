@@ -29,9 +29,9 @@ PowerFlows = "94fada2c-fd9a-4e89-8d82-81405f5cb4f6"
 [sources]
 JuMP = {url = "https://github.com/QXT-Energy/JuMP.jl", rev = "jd/add-to-expression-rtol"}
 InfrastructureSystems = {url = "https://github.com/Sienna-Platform/InfrastructureSystems.jl.git", rev = "IS4"}
-InfrastructureOptimizationModels = {rev = "jd/market_models3", url = "https://github.com/Sienna-Platform/InfrastructureOptimizationModels.jl"}
-PowerSystems = {url = "https://github.com/Sienna-Platform/PowerSystems.jl.git", rev = "psy6"}
-PowerNetworkMatrices = {rev = "psy6", url = "https://github.com/Sienna-Platform/PowerNetworkMatrices.jl"}
+InfrastructureOptimizationModels = {rev = "mb/market_models3_time_varying", url = "https://github.com/Sienna-Platform/InfrastructureOptimizationModels.jl"}
+PowerSystems = {url = "https://github.com/Sienna-Platform/PowerSystems.jl.git", rev = "mb/time-varying-network"}
+PowerNetworkMatrices = {rev = "mb/time-varying-network", url = "https://github.com/Sienna-Platform/PowerNetworkMatrices.jl"}
 
 [extensions]
 PowerFlowsExt = "PowerFlows"

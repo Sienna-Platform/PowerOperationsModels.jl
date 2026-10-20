@@ -75,6 +75,8 @@ function validate_template_impl!(model::IOM.AbstractOptimizationModel)
     end
     foreach(_check_converter_ac_control, values(template.devices))
 
+    # Runs before branch models are dropped, so a dropped model is rejected too.
+    _check_removed_branch_attributes(template.branches)
     model_has_branch_filters = false
     branch_keys_to_delete = Symbol[]
     validate_branches =
@@ -122,6 +124,7 @@ function validate_template_impl!(model::IOM.AbstractOptimizationModel)
     _check_voltage_regulation_conflicts!(template, system, network_model)
     _check_branch_rating_time_series_formulation!(template.branches, system)
     _check_lhs_time_series_types(model)
+    _check_topology_schedule_formulation(network_model, system)
     _resolve_lhs_rebuild!(model)
     validate_network_model(network_model, unmodeled_branch_types, model_has_branch_filters)
     _check_market_model!(template)
@@ -129,7 +132,7 @@ function validate_template_impl!(model::IOM.AbstractOptimizationModel)
     # Must follow `_build_device_model_outages!`: that call is what fills the per-type
     # monitored-name maps this check reads.
     _check_monitored_components(template.branches, system)
-    _build_device_model_events!(template, system)
+    _build_device_model_events!(template)
     return
 end
 
@@ -409,21 +412,99 @@ function _first_lhs_parameter_component(model::IOM.AbstractOptimizationModel)
     return nothing
 end
 
-# Left-hand-side parameter values are fixed coefficients, so under recurrent solves the model
-# must be rebuilt every step to read the refreshed values: `rebuild_model` is switched on, with
-# a warning, whatever it was set to.
+# Left-hand-side parameter values and topology schedules are fixed when the model is built, so
+# under recurrent solves the model must be rebuilt every step to read the refreshed values.
+# Their parameter types declare `IOM.requires_rebuild`, which IOM enforces when the containers
+# are allocated, so `rebuild_model` is switched on here, before any allocation.
 function _resolve_lhs_rebuild!(model::IOM.AbstractOptimizationModel)
     built_for_recurrent_solves(get_optimization_container(model)) || return
     settings = get_settings(model)
     get_rebuild_model(settings) && return
-    found = _first_lhs_parameter_component(model)
-    isnothing(found) && return
-    component, P = found
-    @warn "$(PSY.get_name(component)) carries a $(nameof(P)) time series, a left-hand-side \
-           parameter; setting rebuild_model = true so every step rebuilds the model with the \
+    reason = _rebuild_reason(model)
+    isnothing(reason) && return
+    @info "$reason; setting rebuild_model = true so every step rebuilds the model with the \
            refreshed values." _group = IOM.LOG_GROUP_MODELS_VALIDATION
     IOM.set_rebuild_model!(settings, true)
     return
+end
+
+#################################################################################
+# Topology schedules
+#################################################################################
+
+function _check_topology_schedule_formulation(network_model::NetworkModel, sys::PSY.System)
+    components = PNM.topology_schedule_components(sys).components
+    foreach(_check_scheduled_component, components)
+    branches = [c for c in components if _is_scheduled_branch(c)]
+    isempty(branches) && return
+    _check_power_flow_evaluations(network_model, branches)
+    _check_topology_schedule_formulation(get_network_formulation(network_model), branches)
+    return
+end
+
+_is_scheduled_branch(::PSY.Branch) = true
+_is_scheduled_branch(::PSY.Component) = false
+
+_check_scheduled_component(::PSY.Component) = nothing
+
+function _check_scheduled_component(hybrid::PSY.HybridSystem)
+    throw(
+        IS.ConflictingInputsError(
+            "HybridSystem $(PSY.get_name(hybrid)) carries a schedule, but hybrid \
+             subcomponents are not covered by injector statuses.",
+        ),
+    )
+end
+
+function _check_power_flow_evaluations(network_model::NetworkModel, branches::Vector)
+    isempty(IOM.get_evaluations(network_model)) && return
+    throw(
+        IS.ConflictingInputsError(
+            "Power flow evaluations solve the system's static network and cannot follow \
+             scheduled topology. Scheduled branches: \
+             $(join(PSY.get_name.(branches), ", "))",
+        ),
+    )
+end
+
+_check_topology_schedule_formulation(
+    ::Type{<:Union{AbstractPTDFNetworkModel, DCPNetworkModel}},
+    ::Vector,
+) = nothing
+
+function _check_topology_schedule_formulation(
+    ::Type{<:Union{CopperPlateNetworkModel, AreaBalanceNetworkModel}},
+    branches::Vector,
+)
+    @warn "Branch schedules are ignored by this network formulation, which models no \
+           branches; its subnetworks follow each branch's data, with open switches open: \
+           $(join(PSY.get_name.(branches), ", "))" _group =
+        IOM.LOG_GROUP_MODELS_VALIDATION
+    return
+end
+
+function _check_topology_schedule_formulation(::Type{T}, branches::Vector) where {T}
+    throw(
+        IS.ConflictingInputsError(
+            "Scheduled branch outages and switching are supported by PTDFNetworkModel, \
+             AreaPTDFNetworkModel and DCPNetworkModel; $(T) cannot model them. Scheduled \
+             branches: $(join(PSY.get_name.(branches), ", "))",
+        ),
+    )
+end
+
+function _rebuild_reason(model::IOM.AbstractOptimizationModel)
+    found = _first_lhs_parameter_component(model)
+    if !isnothing(found)
+        component, P = found
+        return "$(PSY.get_name(component)) carries a $(nameof(P)) time series, a \
+                left-hand-side parameter"
+    end
+    if _has_topology_schedules(get_system(model))
+        return "The system carries planned outages or switching schedules, which change \
+                the model's topology and injector availability between steps"
+    end
+    return nothing
 end
 
 # A left-hand-side parameter series stored under a time series type other than the one the
@@ -640,6 +721,27 @@ end
 
 _check_security_constrained_phase_control(::IOM.BranchModelContainer, ::NetworkModel) =
     nothing
+
+# Attributes that no longer exist. `DeviceModel` stores any attribute key, so a removed key
+# would otherwise be accepted silently and change results without notice.
+const _REMOVED_BRANCH_ATTRIBUTES = Dict(
+    "include_planned_outages" => "planned outages are scheduled topology changes, never contingencies",
+)
+
+function _check_removed_branch_attributes(branch_models)
+    for m in values(branch_models)
+        for (key, reason) in _REMOVED_BRANCH_ATTRIBUTES
+            haskey(get_attributes(m), key) || continue
+            throw(
+                IS.ConflictingInputsError(
+                    "DeviceModel{$(get_component_type(m)), $(get_formulation(m))} sets " *
+                    "the removed attribute \"$key\": $reason.",
+                ),
+            )
+        end
+    end
+    return
+end
 
 function _check_security_constrained_network(
     branch_model::DeviceModel{<:PSY.ACTransmission, B},
@@ -912,9 +1014,9 @@ Selection semantics:
 - If `m.outages` is non-empty when this runs, the user explicitly listed UUIDs
   via the constructor kwarg. Restrict to those UUIDs only; warn for any
   user-listed UUID that produced no `D`-type entry.
-- If `m.outages` is empty, auto-discover. Honor `"include_planned_outages"` on
-  `m`'s attributes (default `false`) — `PlannedOutage`s are skipped on the
-  auto-discover path unless the attribute is `true`.
+- If `m.outages` is empty, auto-discover every `PSY.UnplannedOutage`.
+  `PSY.PlannedOutage`s are scheduled topology changes, not contingencies, and
+  are never discovered.
 
 The monitored set is exactly what each outage lists in its
 `monitored_components`; an outage with empty `monitored_components` is treated
@@ -935,7 +1037,7 @@ function _build_device_model_outages!(
     uncovered_types = Dict{DataType, Set{Int}}()
     unavailable_counts = Dict{Int, Int}()
 
-    for outage in PSY.get_supplemental_attributes(PSY.Outage, sys)
+    for outage in PSY.get_supplemental_attributes(PSY.UnplannedOutage, sys)
         outage_id = IS.get_id(outage)
         if isempty(PSY.get_monitored_components(outage))
             @warn "Outage $(outage_id) ($(typeof(outage))) has empty \
@@ -1005,7 +1107,7 @@ end
 # `(per_type, uncovered, unavailable)`: the monitored component types the template
 # does not model, and the names of the de-energized ones.
 function _monitored_components_by_modeled_type(
-    outage::PSY.Outage,
+    outage::PSY.UnplannedOutage,
     outage_id::Int,
     sys::PSY.System,
     modeled_types::Set{Type},
@@ -1033,31 +1135,22 @@ function _monitored_components_by_modeled_type(
     return per_type, uncovered, unavailable
 end
 
-function _attached_component_types(outage::PSY.Outage, sys::PSY.System)
+function _attached_component_types(outage::PSY.UnplannedOutage, sys::PSY.System)
     return Set{DataType}(
         typeof(c) for c in PSY.get_associated_components(sys, outage)
     )
 end
 
 # Whether SC model `m` claims `outage`. `sel` is `m`'s component-type slice of
-# the user's explicit outage allow-list: non-empty restricts to those UUIDs;
-# empty means auto-discover (claim all, skipping `PlannedOutage`s unless the
-# model opts in via the `"include_planned_outages"` attribute).
-# Planned outages are scheduled maintenance rather than contingencies, so a model
-# claims them only by opting in.
-_needs_planned_outage_optin(::PSY.Outage) = false
-_needs_planned_outage_optin(::PSY.PlannedOutage) = true
-
+# the user's explicit outage allow-list: non-empty restricts to those ids;
+# empty means auto-discover every unplanned outage.
 function _sc_model_claims_outage(
-    m::IOM.DeviceModelForBranches,
-    outage::PSY.Outage,
+    ::IOM.DeviceModelForBranches,
+    ::PSY.UnplannedOutage,
     outage_id::Int,
     sel::Set{Int},
 )
     isempty(sel) || return outage_id in sel
-    if _needs_planned_outage_optin(outage)
-        return get_attribute(m, "include_planned_outages") === true
-    end
     return true
 end
 
@@ -1067,7 +1160,7 @@ end
 function _assign_outage_to_sc_models!(
     sc_models::Vector{<:IOM.DeviceModelForBranches},
     selection::Dict{Symbol, Set{Int}},
-    outage::PSY.Outage,
+    outage::PSY.UnplannedOutage,
     outage_id::Int,
     per_type::Dict{DataType, Set{String}},
     attached_types::Set{DataType},
@@ -1176,96 +1269,128 @@ end
 #################################################################################
 
 """
-For each event model attached to the template: validate its time-series mapping,
-populate `attribute_device_map` (attribute id → concrete device type → device names)
-from the system's supplemental attributes, and distribute the event model to every
-`DeviceModel` in the template whose device type carries the attribute and supports
-events.
+    discover_event_attribute_device_map(event_model, sys; warn = true)
+
+Return the outages of `sys` that `event_model` applies: outage attribute id → concrete
+device type → device names, for every attribute of the event model's type attached to at
+least one device whose type supports events. Validates the event model's time-series
+mapping against each of those attributes. Reads `sys` only; the caller decides where the
+result goes.
+
+A simulation calls this on the emulator's system and copies the result into the event
+model's map:
+
+```julia
+outages = discover_event_attribute_device_map(event_model, emulator_system)
+copy!(get_attribute_device_map(event_model), outages)
+```
+
+Throws when `sys` has no attribute of the event type on a device that supports events.
+With `warn = false`, devices whose type does not support events are skipped without a
+warning.
 """
-function _build_device_model_events!(
-    template::PowerOperationsProblemTemplate,
-    sys::PSY.System,
+function discover_event_attribute_device_map(
+    event_model::EventModel,
+    sys::PSY.System;
+    warn::Bool = true,
 )
+    event_type = get_event_type(event_model)
+    attribute_device_map = Dict{Int, Dict{DataType, Set{String}}}()
+    for event in PSY.get_supplemental_attributes(event_type, sys)
+        device_map = Dict{DataType, Set{String}}()
+        for device in PSY.get_associated_components(sys, event)
+            dtype = typeof(device)
+            if !supports_events(dtype)
+                warn && @warn "Device $(PSY.get_name(device)) of type $dtype carries a \
+                       $event_type attribute but the type does not support events; \
+                       it will not be modeled." _group = IOM.LOG_GROUP_MODELS_VALIDATION
+                continue
+            end
+            push!(get!(device_map, dtype, Set{String}()), PSY.get_name(device))
+        end
+        isempty(device_map) && continue
+        _validate_event_timeseries_data(sys, event, event_model)
+        attribute_device_map[IS.get_id(event)] = device_map
+    end
+    if isempty(attribute_device_map)
+        error(
+            "There are no supplemental attributes of type $event_type on devices that \
+             support events in the system. Add the outage data to the system or remove \
+             the event model.",
+        )
+    end
+    return attribute_device_map
+end
+
+"""
+For each event model attached to the template, register it on every `DeviceModel` of the
+template whose device type appears in its `attribute_device_map`. The map must already be
+filled: a simulation with an emulation model fills it from the emulator's system (see
+[`discover_event_attribute_device_map`](@ref)). The model's own system is not searched for
+outages: its outage attributes do not affect events, though they may serve other
+formulations, such as security-constrained ones. Construction applies the event to the
+outaged devices the model has.
+"""
+function _build_device_model_events!(template::PowerOperationsProblemTemplate)
     for event_model in get_event_models(template)
         event_type = get_event_type(event_model)
-        attributes = PSY.get_supplemental_attributes(event_type, sys)
-        if isempty(attributes)
+        attribute_device_map = get_attribute_device_map(event_model)
+        if isempty(attribute_device_map)
             error(
-                "There are no supplemental attributes of type $event_type in the system. \
-                 Add the outage data to the system or remove the event model from the \
-                 template.",
+                "The $event_type event model has no outages to apply. Outage events are \
+                 applied by a Simulation with an emulation model, which fills each event \
+                 model from the emulator's system before building its models. Run the \
+                 model in such a simulation or remove the event model from the template.",
             )
         end
-        for event in attributes
-            _validate_event_timeseries_data(sys, event, event_model)
-            event_id = IS.get_id(event)
-            attribute_device_map = get_attribute_device_map(event_model)
-            attribute_device_map[event_id] = Dict{DataType, Set{String}}()
-            device_types_with_attribute = Set{DataType}()
-            for device in PSY.get_associated_components(sys, event)
-                dtype = typeof(device)
-                if !supports_events(dtype)
-                    @warn "Device $(PSY.get_name(device)) of type $dtype carries a \
-                           $event_type attribute but the type does not support events; \
-                           it will not be modeled." _group =
-                        IOM.LOG_GROUP_MODELS_VALIDATION
-                    continue
-                end
-                push!(device_types_with_attribute, dtype)
-                name_set = get!(
-                    attribute_device_map[event_id],
-                    dtype,
-                    Set{String}(),
+        device_types = Set{DataType}()
+        for device_map in values(attribute_device_map)
+            union!(device_types, keys(device_map))
+        end
+        for device_type in device_types
+            device_model = get_model(template, device_type)
+            if device_model === nothing
+                @warn "Devices of type $device_type carry a $event_type attribute \
+                       but the template has no DeviceModel for that type; the event \
+                       will not be modeled for them." _group =
+                    IOM.LOG_GROUP_MODELS_VALIDATION
+                continue
+            end
+            key = EventKey(event_type, device_type)
+            existing_events = IOM.get_events(device_model)
+            if haskey(existing_events, key)
+                # Re-registering the same event model is a no-op. A *different* event
+                # model targeting the same (contingency type, device type) pair can't
+                # both be honored — the device model has one slot per key — so that
+                # case must fail loudly instead of silently dropping the second
+                # registration.
+                existing_events[key] === event_model && continue
+                error(
+                    "Two distinct event models of contingency type $event_type both \
+                     target device type $device_type. Only one event model per \
+                     (contingency type, device type) pair is supported. Merge the \
+                     event models or remove one from the template.",
                 )
-                push!(name_set, PSY.get_name(device))
+            elseif !isempty(existing_events)
+                # A second event model of a *different* contingency type also can't
+                # coexist on one device model: event parameter containers are keyed
+                # by (parameter type, device type) only — the contingency type is
+                # not part of the key — so the two models' parameters would collide
+                # in the optimization container. Fail here with a clear message
+                # instead of deep in container construction.
+                other_types = join(
+                    unique(get_event_type(m) for m in values(existing_events)),
+                    ", ",
+                )
+                error(
+                    "Device type $device_type is already targeted by an event model \
+                     of contingency type $other_types; a second event model of \
+                     contingency type $event_type cannot be added because event \
+                     parameters are keyed by device type only and would collide. \
+                     Attach at most one event model per device type.",
+                )
             end
-            for device_type in device_types_with_attribute
-                device_model = get_model(template, device_type)
-                if device_model === nothing
-                    @warn "Devices of type $device_type carry a $event_type attribute \
-                           but the template has no DeviceModel for that type; the event \
-                           will not be modeled for them." _group =
-                        IOM.LOG_GROUP_MODELS_VALIDATION
-                    continue
-                end
-                key = EventKey(event_type, device_type)
-                existing_events = IOM.get_events(device_model)
-                if haskey(existing_events, key)
-                    # The same event model can legitimately be discovered again for this
-                    # device type (e.g. a second outage attribute of the same contingency
-                    # type attached to another device of the same type); re-registering it
-                    # is a no-op. A *different* event model targeting the same
-                    # (contingency type, device type) pair can't both be honored — the
-                    # device model has one slot per key — so that case must fail loudly
-                    # instead of silently dropping the second registration.
-                    existing_events[key] === event_model && continue
-                    error(
-                        "Two distinct event models of contingency type $event_type both \
-                         target device type $device_type. Only one event model per \
-                         (contingency type, device type) pair is supported. Merge the \
-                         event models or remove one from the template.",
-                    )
-                elseif !isempty(existing_events)
-                    # A second event model of a *different* contingency type also can't
-                    # coexist on one device model: event parameter containers are keyed
-                    # by (parameter type, device type) only — the contingency type is
-                    # not part of the key — so the two models' parameters would collide
-                    # in the optimization container. Fail here with a clear message
-                    # instead of deep in container construction.
-                    other_types = join(
-                        unique(get_event_type(m) for m in values(existing_events)),
-                        ", ",
-                    )
-                    error(
-                        "Device type $device_type is already targeted by an event model \
-                         of contingency type $other_types; a second event model of \
-                         contingency type $event_type cannot be added because event \
-                         parameters are keyed by device type only and would collide. \
-                         Attach at most one event model per device type.",
-                    )
-                end
-                IOM.set_event_model!(device_model, key, event_model)
-            end
+            IOM.set_event_model!(device_model, key, event_model)
         end
     end
     return

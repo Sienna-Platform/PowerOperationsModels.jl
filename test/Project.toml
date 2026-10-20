@@ -1,4 +1,5 @@
 [deps]
+PowerOperationsOpenAPIModels = "a372b6d7-45a2-44c2-8199-6a724b72e8ff"
 Aqua = "4c88cf16-eb10-579e-8560-4a9242c79595"
 CSV = "336ed68f-0bac-5ca0-87d4-7b16caf5d00b"
 DataFrames = "a93c6f00-e57d-5684-b7b6-d8193f3e46c0"
@@ -39,13 +40,14 @@ UUIDs = "cf7118a7-6976-5b1a-9a39-7adc72f591a4"
 JuMP = {url = "https://github.com/QXT-Energy/JuMP.jl", rev = "jd/add-to-expression-rtol"}
 PowerOperationsModels = {path = ".."}
 InfrastructureSystems = {url = "https://github.com/Sienna-Platform/InfrastructureSystems.jl.git", rev = "IS4"}
-InfrastructureOptimizationModels = {rev = "jd/market_models3", url = "https://github.com/Sienna-Platform/InfrastructureOptimizationModels.jl"}
-PowerSystems = {url = "https://github.com/Sienna-Platform/PowerSystems.jl.git", rev = "psy6"}
+InfrastructureOptimizationModels = {rev = "mb/market_models3_time_varying", url = "https://github.com/Sienna-Platform/InfrastructureOptimizationModels.jl"}
+PowerSystems = {url = "https://github.com/Sienna-Platform/PowerSystems.jl.git", rev = "mb/time-varying-network"}
 PowerSystemCaseBuilder = {url = "https://github.com/Sienna-Platform/PowerSystemCaseBuilder.jl.git", rev = "psy6"}
-PowerFlowFileParser = {url = "https://github.com/Sienna-Platform/PowerFlowFileParser.jl.git", rev = "psy6"}
-PowerFlows = {rev = "psy6", url = "https://github.com/Sienna-Platform/PowerFlows.jl"}
-PowerNetworkMatrices = {rev = "psy6", url = "https://github.com/Sienna-Platform/PowerNetworkMatrices.jl"}
+PowerFlowFileParser = {url = "https://github.com/Sienna-Platform/PowerFlowFileParser.jl.git", rev = "mb/time-varying-network"}
+PowerFlows = {rev = "mb/time-varying-network", url = "https://github.com/Sienna-Platform/PowerFlows.jl"}
+PowerNetworkMatrices = {rev = "mb/time-varying-network", url = "https://github.com/Sienna-Platform/PowerNetworkMatrices.jl"}
 PowerTableDataParser = {url = "https://github.com/NLR-Sienna/PowerTableDataParser.jl.git", rev = "psy6"}
+PowerOperationsOpenAPIModels = {url = "https://github.com/Sienna-Platform/PowerOpenAPIModels.git", rev = "mb/time-varying-network", subdir = "PowerOperationsOpenAPIModels.jl"}
 
 [compat]
 HiGHS = "1"
