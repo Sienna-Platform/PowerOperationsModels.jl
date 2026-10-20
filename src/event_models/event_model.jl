@@ -154,7 +154,8 @@ end
 Reserved time-series mapping keys for a contingency type. `:outage_status` is required
 for `PSY.FixedForcedOutage`.
 """
-# Event models support the unplanned forced-outage types only.
+# Events model unplanned outages only; planned outages and switching schedules are scheduled
+# topology changes and are not contingencies.
 function get_empty_timeseries_mapping(::Type{T}) where {T <: PSY.Contingency}
     error(
         "$T is not an event contingency type. Event models support \

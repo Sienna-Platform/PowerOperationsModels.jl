@@ -104,7 +104,9 @@ import InfrastructureOptimizationModels:
     requires_all_branch_models,
     supports_branch_filtering,
     ignores_branch_filtering,
-    branches_modeled
+    branches_modeled,
+    # Model rebuilds (`IOM.rebuild_model!`) build through this extension point
+    build_problem!
 
 # Import functions that POM extends with device-specific implementations
 import InfrastructureOptimizationModels:
@@ -272,6 +274,9 @@ include("common_models/objective_function.jl")
 include("common_models/add_parameters.jl")
 include("common_models/lhs_parameters.jl")
 include("common_models/min_active_power.jl")
+include("common_models/component_statuses.jl")
+include("common_models/topology.jl")
+include("common_models/out_of_service.jl")
 include("feedforward/feedforward_arguments.jl")
 include("feedforward/feedforward_constraints.jl")
 include("common_models/make_system_expressions.jl")
@@ -468,6 +473,9 @@ export AvailableStatusParameter
 export ActivePowerOffsetParameter
 export ReactivePowerOffsetParameter
 export AvailableStatusChangeCountdownParameter
+export ComponentStatusParameter
+export BranchStatusParameter
+export InjectorStatusParameter
 export ActivePowerOutageConstraint
 export ReactivePowerOutageConstraint
 export ActivePowerPumpOutageConstraint

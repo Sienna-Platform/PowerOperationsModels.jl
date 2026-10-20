@@ -75,6 +75,8 @@ function validate_template_impl!(model::IOM.AbstractOptimizationModel)
     end
     foreach(_check_converter_ac_control, values(template.devices))
 
+    # Runs before branch models are dropped, so a dropped model is rejected too.
+    _check_removed_branch_attributes(template.branches)
     model_has_branch_filters = false
     branch_keys_to_delete = Symbol[]
     validate_branches =
@@ -119,6 +121,7 @@ function validate_template_impl!(model::IOM.AbstractOptimizationModel)
     _check_voltage_regulation_conflicts!(template, system, network_model)
     _check_branch_rating_time_series_formulation!(template.branches, system)
     _check_lhs_time_series_types(model)
+    _check_topology_schedule_formulation(network_model, system)
     _resolve_lhs_rebuild!(model)
     validate_network_model(network_model, unmodeled_branch_types, model_has_branch_filters)
     _build_device_model_outages!(template, system)
@@ -359,21 +362,99 @@ function _first_lhs_parameter_component(model::IOM.AbstractOptimizationModel)
     return nothing
 end
 
-# Left-hand-side parameter values are fixed coefficients, so under recurrent solves the model
-# must be rebuilt every step to read the refreshed values: `rebuild_model` is switched on, with
-# a warning, whatever it was set to.
+# Left-hand-side parameter values and topology schedules are fixed when the model is built, so
+# under recurrent solves the model must be rebuilt every step to read the refreshed values.
+# Their parameter types declare `IOM.requires_rebuild`, which IOM enforces when the containers
+# are allocated, so `rebuild_model` is switched on here, before any allocation.
 function _resolve_lhs_rebuild!(model::IOM.AbstractOptimizationModel)
     built_for_recurrent_solves(get_optimization_container(model)) || return
     settings = get_settings(model)
     get_rebuild_model(settings) && return
-    found = _first_lhs_parameter_component(model)
-    isnothing(found) && return
-    component, P = found
-    @warn "$(PSY.get_name(component)) carries a $(nameof(P)) time series, a left-hand-side \
-           parameter; setting rebuild_model = true so every step rebuilds the model with the \
+    reason = _rebuild_reason(model)
+    isnothing(reason) && return
+    @info "$reason; setting rebuild_model = true so every step rebuilds the model with the \
            refreshed values." _group = IOM.LOG_GROUP_MODELS_VALIDATION
     IOM.set_rebuild_model!(settings, true)
     return
+end
+
+#################################################################################
+# Topology schedules
+#################################################################################
+
+function _check_topology_schedule_formulation(network_model::NetworkModel, sys::PSY.System)
+    components = PNM.topology_schedule_components(sys).components
+    foreach(_check_scheduled_component, components)
+    branches = [c for c in components if _is_scheduled_branch(c)]
+    isempty(branches) && return
+    _check_power_flow_evaluations(network_model, branches)
+    _check_topology_schedule_formulation(get_network_formulation(network_model), branches)
+    return
+end
+
+_is_scheduled_branch(::PSY.Branch) = true
+_is_scheduled_branch(::PSY.Component) = false
+
+_check_scheduled_component(::PSY.Component) = nothing
+
+function _check_scheduled_component(hybrid::PSY.HybridSystem)
+    throw(
+        IS.ConflictingInputsError(
+            "HybridSystem $(PSY.get_name(hybrid)) carries a schedule, but hybrid \
+             subcomponents are not covered by injector statuses.",
+        ),
+    )
+end
+
+function _check_power_flow_evaluations(network_model::NetworkModel, branches::Vector)
+    isempty(IOM.get_evaluations(network_model)) && return
+    throw(
+        IS.ConflictingInputsError(
+            "Power flow evaluations solve the system's static network and cannot follow \
+             scheduled topology. Scheduled branches: \
+             $(join(PSY.get_name.(branches), ", "))",
+        ),
+    )
+end
+
+_check_topology_schedule_formulation(
+    ::Type{<:Union{AbstractPTDFNetworkModel, DCPNetworkModel}},
+    ::Vector,
+) = nothing
+
+function _check_topology_schedule_formulation(
+    ::Type{<:Union{CopperPlateNetworkModel, AreaBalanceNetworkModel}},
+    branches::Vector,
+)
+    @warn "Branch schedules are ignored by this network formulation, which models no \
+           branches; its subnetworks follow each branch's data, with open switches open: \
+           $(join(PSY.get_name.(branches), ", "))" _group =
+        IOM.LOG_GROUP_MODELS_VALIDATION
+    return
+end
+
+function _check_topology_schedule_formulation(::Type{T}, branches::Vector) where {T}
+    throw(
+        IS.ConflictingInputsError(
+            "Scheduled branch outages and switching are supported by PTDFNetworkModel, \
+             AreaPTDFNetworkModel and DCPNetworkModel; $(T) cannot model them. Scheduled \
+             branches: $(join(PSY.get_name.(branches), ", "))",
+        ),
+    )
+end
+
+function _rebuild_reason(model::IOM.AbstractOptimizationModel)
+    found = _first_lhs_parameter_component(model)
+    if !isnothing(found)
+        component, P = found
+        return "$(PSY.get_name(component)) carries a $(nameof(P)) time series, a \
+                left-hand-side parameter"
+    end
+    if _has_topology_schedules(get_system(model))
+        return "The system carries planned outages or switching schedules, which change \
+                the model's topology and injector availability between steps"
+    end
+    return nothing
 end
 
 # A left-hand-side parameter series stored under a time series type other than the one the
@@ -590,6 +671,27 @@ end
 
 _check_security_constrained_phase_control(::IOM.BranchModelContainer, ::NetworkModel) =
     nothing
+
+# Attributes that no longer exist. `DeviceModel` stores any attribute key, so a removed key
+# would otherwise be accepted silently and change results without notice.
+const _REMOVED_BRANCH_ATTRIBUTES = Dict(
+    "include_planned_outages" => "planned outages are scheduled topology changes, never contingencies",
+)
+
+function _check_removed_branch_attributes(branch_models)
+    for m in values(branch_models)
+        for (key, reason) in _REMOVED_BRANCH_ATTRIBUTES
+            haskey(get_attributes(m), key) || continue
+            throw(
+                IS.ConflictingInputsError(
+                    "DeviceModel{$(get_component_type(m)), $(get_formulation(m))} sets " *
+                    "the removed attribute \"$key\": $reason.",
+                ),
+            )
+        end
+    end
+    return
+end
 
 function _check_security_constrained_network(
     branch_model::DeviceModel{<:PSY.ACTransmission, B},
@@ -862,9 +964,9 @@ Selection semantics:
 - If `m.outages` is non-empty when this runs, the user explicitly listed UUIDs
   via the constructor kwarg. Restrict to those UUIDs only; warn for any
   user-listed UUID that produced no `D`-type entry.
-- If `m.outages` is empty, auto-discover. Honor `"include_planned_outages"` on
-  `m`'s attributes (default `false`) — `PlannedOutage`s are skipped on the
-  auto-discover path unless the attribute is `true`.
+- If `m.outages` is empty, auto-discover every `PSY.UnplannedOutage`.
+  `PSY.PlannedOutage`s are scheduled topology changes, not contingencies, and
+  are never discovered.
 
 The monitored set is exactly what each outage lists in its
 `monitored_components`; an outage with empty `monitored_components` is treated
@@ -885,7 +987,7 @@ function _build_device_model_outages!(
     uncovered_types = Dict{DataType, Set{Int}}()
     unavailable_counts = Dict{Int, Int}()
 
-    for outage in PSY.get_supplemental_attributes(PSY.Outage, sys)
+    for outage in PSY.get_supplemental_attributes(PSY.UnplannedOutage, sys)
         outage_id = IS.get_id(outage)
         if isempty(PSY.get_monitored_components(outage))
             @warn "Outage $(outage_id) ($(typeof(outage))) has empty \
@@ -955,7 +1057,7 @@ end
 # `(per_type, uncovered, unavailable)`: the monitored component types the template
 # does not model, and the names of the de-energized ones.
 function _monitored_components_by_modeled_type(
-    outage::PSY.Outage,
+    outage::PSY.UnplannedOutage,
     outage_id::Int,
     sys::PSY.System,
     modeled_types::Set{Type},
@@ -983,31 +1085,22 @@ function _monitored_components_by_modeled_type(
     return per_type, uncovered, unavailable
 end
 
-function _attached_component_types(outage::PSY.Outage, sys::PSY.System)
+function _attached_component_types(outage::PSY.UnplannedOutage, sys::PSY.System)
     return Set{DataType}(
         typeof(c) for c in PSY.get_associated_components(sys, outage)
     )
 end
 
 # Whether SC model `m` claims `outage`. `sel` is `m`'s component-type slice of
-# the user's explicit outage allow-list: non-empty restricts to those UUIDs;
-# empty means auto-discover (claim all, skipping `PlannedOutage`s unless the
-# model opts in via the `"include_planned_outages"` attribute).
-# Planned outages are scheduled maintenance rather than contingencies, so a model
-# claims them only by opting in.
-_needs_planned_outage_optin(::PSY.Outage) = false
-_needs_planned_outage_optin(::PSY.PlannedOutage) = true
-
+# the user's explicit outage allow-list: non-empty restricts to those ids;
+# empty means auto-discover every unplanned outage.
 function _sc_model_claims_outage(
-    m::IOM.DeviceModelForBranches,
-    outage::PSY.Outage,
+    ::IOM.DeviceModelForBranches,
+    ::PSY.UnplannedOutage,
     outage_id::Int,
     sel::Set{Int},
 )
     isempty(sel) || return outage_id in sel
-    if _needs_planned_outage_optin(outage)
-        return get_attribute(m, "include_planned_outages") === true
-    end
     return true
 end
 
@@ -1017,7 +1110,7 @@ end
 function _assign_outage_to_sc_models!(
     sc_models::Vector{<:IOM.DeviceModelForBranches},
     selection::Dict{Symbol, Set{Int}},
-    outage::PSY.Outage,
+    outage::PSY.UnplannedOutage,
     outage_id::Int,
     per_type::Dict{DataType, Set{String}},
     attached_types::Set{DataType},
