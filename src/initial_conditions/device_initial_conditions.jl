@@ -13,13 +13,12 @@ _in_status(::InitialTimeDurationOff, d::PSY.ThermalGen, on) =
 # on-status is the device's own, so the duration is its `time_at_status` when that status
 # matches.
 function get_initial_conditions_value(
-    ::Vector{Union{InitialCondition{U, T}, InitialCondition{U, Nothing}}},
+    ini_conds::InitialConditionVector{U},
     component::W,
     ::U,
     ::V,
     container::OptimizationContainer,
 ) where {
-    T <: Union{Float64, JuMP.VariableRef},
     U <: Union{InitialTimeDurationOn, InitialTimeDurationOff},
     V <: AbstractThermalFormulation,
     W <: PSY.ThermalGen,
@@ -34,7 +33,7 @@ function get_initial_conditions_value(
     val = _time_at_status_steps(component, container, _in_status(U(), component, on))
     @debug "Device $(PSY.get_name(component)) initialized $U as $val" _group =
         LOG_GROUP_BUILD_INITIAL_CONDITIONS
-    return InitialCondition{U, T}(component, _ic_value(T, container, val))
+    return _ic_value(ini_conds, component, container, val)
 end
 
 #################################################################################

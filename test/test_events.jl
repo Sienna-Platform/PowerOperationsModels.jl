@@ -71,42 +71,178 @@ end
     template = get_thermal_dispatch_template_network(NetworkModel(CopperPlateNetworkModel))
     em = fixed_outage_event()
     set_event_model!(template, em)
+    fill_event_model!(em, sys)
 
     model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
     @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
           IOM.ModelBuildStatus.BUILT
 
-    # Discovery populated the map: attribute id -> device type -> names
-    map_ = get_attribute_device_map(em)
-    attribute_id = IS.get_id(outage)
-    @test haskey(map_, attribute_id)
-    @test map_[attribute_id][PSY.ThermalStandard] == Set([PSY.get_name(thermal)])
+    # The build reads the filled map and leaves it as it was: attribute id -> device
+    # type -> names.
+    @test get_attribute_device_map(em) == Dict(
+        IS.get_id(outage) => Dict(PSY.ThermalStandard => Set([PSY.get_name(thermal)])),
+    )
 
     # The caller's template DeviceModels were not mutated (build-copy isolation)
     caller_dm = get_model(template, PSY.ThermalStandard)
     @test isempty(IOM.get_events(caller_dm))
 end
 
-@testset "Event validation errors" begin
-    # Build a c_sys5_uc copperplate model carrying `event_models` and return its status.
-    function build_status_with_events(event_models...; attach_outage = true)
-        sys = PSB.build_system(PSB.PSITestSystems, "c_sys5_uc")
-        if attach_outage
-            thermal = first(PSY.get_components(PSY.ThermalStandard, sys))
-            attach_fixed_forced_outage!(sys, thermal)
-        end
-        template =
-            get_thermal_dispatch_template_network(NetworkModel(CopperPlateNetworkModel))
-        for em in event_models
-            set_event_model!(template, em)
-        end
-        model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
-        return build!(model; output_dir = mktempdir(; cleanup = true))
+# A c_sys5_uc system with the thermal units in `removed` taken out.
+function thermal_system_without(removed...)
+    sys = PSB.build_system(PSB.PSITestSystems, "c_sys5_uc"; force_build = true)
+    for name in removed
+        PSY.remove_component!(sys, PSY.get_component(PSY.ThermalStandard, sys, name))
     end
+    return sys
+end
 
-    # No supplemental attributes in the system -> loud build failure
-    @test build_status_with_events(fixed_outage_event(); attach_outage = false) ==
+function event_device_names(model)
+    container = IOM.get_optimization_container(model)
+    IOM.has_container_key(container, AvailableStatusParameter, PSY.ThermalStandard) ||
+        return Set{String}()
+    return Set(
+        axes(
+            IOM.get_parameter_array(
+                container,
+                AvailableStatusParameter(),
+                PSY.ThermalStandard,
+            ),
+        )[1],
+    )
+end
+
+function outage_constraint_device_names(model)
+    container = IOM.get_optimization_container(model)
+    keys_ = filter(
+        k ->
+            IOM.get_entry_type(k) == ActivePowerOutageConstraint &&
+                IOM.get_component_type(k) == PSY.ThermalStandard,
+        collect(keys(IOM.get_constraints(container))),
+    )
+    return Set(Iterators.flatten(axes(IOM.get_constraint(container, k))[1] for k in keys_))
+end
+
+# A system carrying outages on Alta and Brighton, and an event model filled from it, as a
+# simulation fills it from the emulator's system.
+function filled_alta_brighton_event()
+    sys = thermal_system_without()
+    for name in ("Alta", "Brighton")
+        attach_fixed_forced_outage!(sys, PSY.get_component(PSY.ThermalStandard, sys, name))
+    end
+    em = fixed_outage_event()
+    fill_event_model!(em, sys)
+    return em
+end
+
+function build_with_event(em, sys; kwargs...)
+    template = get_thermal_dispatch_template_network(NetworkModel(CopperPlateNetworkModel))
+    set_event_model!(template, em)
+    model = DecisionModel(template, sys; optimizer = HiGHS_optimizer, kwargs...)
+    status = build!(model; output_dir = mktempdir(; cleanup = true))
+    return model, status
+end
+
+@testset "Each model applies the filled map to the outaged devices it has" begin
+    em = filled_alta_brighton_event()
+    map_before = deepcopy(get_attribute_device_map(em))
+
+    # The models' systems carry no outage data: the map alone decides the outages.
+    model_all, status = build_with_event(em, thermal_system_without())
+    @test status == IOM.ModelBuildStatus.BUILT
+    @test event_device_names(model_all) == Set(["Alta", "Brighton"])
+    @test outage_constraint_device_names(model_all) == Set(["Alta", "Brighton"])
+
+    model_alta, status = build_with_event(em, thermal_system_without("Brighton"))
+    @test status == IOM.ModelBuildStatus.BUILT
+    @test event_device_names(model_alta) == Set(["Alta"])
+    @test outage_constraint_device_names(model_alta) == Set(["Alta"])
+
+    # None of the outaged units: the model builds without event parameters for the type.
+    model_none, status = build_with_event(em, thermal_system_without("Alta", "Brighton"))
+    @test status == IOM.ModelBuildStatus.BUILT
+    @test isempty(event_device_names(model_none))
+    @test isempty(outage_constraint_device_names(model_none))
+
+    @test get_attribute_device_map(em) == map_before
+end
+
+@testset "An event model with an empty map cannot be built" begin
+    sys = thermal_system_without()
+    attach_fixed_forced_outage!(sys, PSY.get_component(PSY.ThermalStandard, sys, "Alta"))
+    template = get_thermal_dispatch_template_network(NetworkModel(CopperPlateNetworkModel))
+    em = fixed_outage_event()
+    set_event_model!(template, em)
+    # The model's own system carries the outage, but it is not searched for outages.
+    @test_throws r"applied by a Simulation with an emulation model" POM._build_device_model_events!(
+        template,
+    )
+    model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
           IOM.ModelBuildStatus.FAILED
+    @test isempty(get_attribute_device_map(em))
+end
+
+@testset "Event discovery reads the system only" begin
+    sys = thermal_system_without()
+    alta = PSY.get_component(PSY.ThermalStandard, sys, "Alta")
+    outage = attach_fixed_forced_outage!(sys, alta)
+    line = first(PSY.get_components(PSY.Line, sys))
+    line_outage = PSY.FixedForcedOutage(; outage_status = 0.0)
+    PSY.add_supplemental_attribute!(sys, line, line_outage)
+    em = fixed_outage_event()
+
+    # An outage on a device type that does not support events is not mapped.
+    map_ =
+        @test_logs (:warn, r"does not support events") match_mode = :any discover_event_attribute_device_map(
+            em,
+            sys,
+        )
+    @test map_ == Dict(IS.get_id(outage) => Dict(PSY.ThermalStandard => Set(["Alta"])))
+    @test_logs min_level = Logging.Warn discover_event_attribute_device_map(
+        em,
+        sys;
+        warn = false,
+    )
+    @test isempty(get_attribute_device_map(em))
+    @test length(PSY.get_supplemental_attributes(PSY.FixedForcedOutage, sys)) == 2
+
+    # Nothing to apply: no attribute of the type, or only on unsupported devices.
+    @test_throws ErrorException discover_event_attribute_device_map(
+        em,
+        thermal_system_without(),
+    )
+    PSY.remove_supplemental_attribute!(sys, alta, outage)
+    @test_throws ErrorException discover_event_attribute_device_map(em, sys; warn = false)
+end
+
+@testset "A rebuild keeps the filled map and the outage constraints" begin
+    em = filled_alta_brighton_event()
+    map_before = deepcopy(get_attribute_device_map(em))
+    sys = thermal_system_without("Brighton")
+    model, status = build_with_event(em, sys; rebuild_model = true)
+    @test status == IOM.ModelBuildStatus.BUILT
+
+    # A simulation rebuilds between steps by resetting the container and running
+    # `build_problem!` without validating the template again.
+    container = IOM.get_optimization_container(model)
+    IOM.reset_optimization_model!(container)
+    POM.build_problem!(container, IOM.get_template(model), sys)
+    @test event_device_names(model) == Set(["Alta"])
+    @test outage_constraint_device_names(model) == Set(["Alta"])
+    @test get_attribute_device_map(em) == map_before
+end
+
+@testset "Event validation errors" begin
+    sys = PSB.build_system(PSB.PSITestSystems, "c_sys5_uc")
+    thermal = first(PSY.get_components(PSY.ThermalStandard, sys))
+    attach_fixed_forced_outage!(sys, thermal)
+
+    # No supplemental attributes in the system
+    @test_throws ErrorException discover_event_attribute_device_map(
+        fixed_outage_event(),
+        PSB.build_system(PSB.PSITestSystems, "c_sys5_uc"),
+    )
 
     # Unknown mapping key rejected
     em_bad = EventModel(
@@ -116,16 +252,22 @@ end
             :not_a_parameter => "outage_profile",
         ),
     )
-    @test build_status_with_events(em_bad) == IOM.ModelBuildStatus.FAILED
+    @test_throws ErrorException discover_event_attribute_device_map(em_bad, sys)
 
     # FixedForcedOutage requires :outage_status mapping
     em_nomapping = EventModel(PSY.FixedForcedOutage, ContinuousCondition())
-    @test build_status_with_events(em_nomapping) == IOM.ModelBuildStatus.FAILED
+    @test_throws ErrorException discover_event_attribute_device_map(em_nomapping, sys)
 
-    # Two distinct event models of the same contingency type both discovering the same
+    # Two distinct event models of the same contingency type both targeting the same
     # device type is a conflict: a DeviceModel has one events slot per (contingency
     # type, device type) key, so the second registration can't be silently dropped.
-    @test build_status_with_events(fixed_outage_event(), fixed_outage_event()) ==
+    template = get_thermal_dispatch_template_network(NetworkModel(CopperPlateNetworkModel))
+    for em in (fixed_outage_event(), fixed_outage_event())
+        set_event_model!(template, em)
+        fill_event_model!(em, sys)
+    end
+    model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
           IOM.ModelBuildStatus.FAILED
 end
 
@@ -136,6 +278,7 @@ end
     template = get_thermal_standard_uc_template()
     em = fixed_outage_event()
     set_event_model!(template, em)
+    fill_event_model!(em, sys)
     model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
     # `build!` discards the initial-conditions container once it is solved and
     # serialized (see `handle_initial_conditions!`), so inspect it directly by
@@ -448,10 +591,12 @@ end
     template = get_thermal_dispatch_template_network(NetworkModel(CopperPlateNetworkModel))
     em_fixed = fixed_outage_event()
     em_geo = EventModel(PSY.GeometricDistributionForcedOutage, ContinuousCondition())
-    set_event_model!(template, em_fixed)
-    set_event_model!(template, em_geo)
+    for em in (em_fixed, em_geo)
+        set_event_model!(template, em)
+        fill_event_model!(em, sys)
+    end
     model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
-    # Discovery must reject the second event model with a clear error instead of letting
+    # Validation must reject the second event model with a clear error instead of letting
     # the two models' parameter containers collide inside the optimization container.
     @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
           IOM.ModelBuildStatus.FAILED
@@ -656,10 +801,9 @@ end
         template = get_thermal_standard_uc_template()
         if !isnothing(outaged)
             attach_fixed_forced_outage!(sys, outaged)
-            set_event_model!(
-                template,
-                fixed_outage_event(),
-            )
+            em = fixed_outage_event()
+            set_event_model!(template, em)
+            fill_event_model!(em, sys)
         end
         model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
         # Event parameters are only JuMP parameters -- and so only fixable to an
