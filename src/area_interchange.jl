@@ -1,6 +1,6 @@
 #! format: off
-get_multiplier_value(::Type{FromToFlowLimitParameter}, d::PSY.AreaInterchange, ::Type{<:AbstractBranchFormulation}) = -1.0 * PSY.get_from_to_flow_limit(d)
-get_multiplier_value(::Type{ToFromFlowLimitParameter}, d::PSY.AreaInterchange, ::Type{<:AbstractBranchFormulation}) = PSY.get_to_from_flow_limit(d)
+get_multiplier_value(::Type{FromToFlowLimitParameter}, d::PSY.AreaInterchange, ::Type{<:AbstractBranchFormulation}) = PSY.get_from_to_flow_limit(d, u"SU")
+get_multiplier_value(::Type{ToFromFlowLimitParameter}, d::PSY.AreaInterchange, ::Type{<:AbstractBranchFormulation}) = -1.0 * PSY.get_to_from_flow_limit(d, u"SU")
 
 get_parameter_multiplier(::Type{FixValueParameter}, ::PSY.AreaInterchange, ::Type{<:AbstractBranchFormulation}) = 1.0
 get_parameter_multiplier(::Type{LowerBoundValueParameter}, ::PSY.AreaInterchange, ::Type{<:AbstractBranchFormulation}) = 1.0
@@ -105,12 +105,12 @@ function add_constraints!(
                 con_lb[ci_name, t] =
                     JuMP.@constraint(
                         get_jump_model(container),
-                        var_array[ci_name, t] >= -1.0 * from_to_limit
+                        var_array[ci_name, t] >= -1.0 * to_from_limit
                     )
                 con_ub[ci_name, t] =
                     JuMP.@constraint(
                         get_jump_model(container),
-                        var_array[ci_name, t] <= to_from_limit
+                        var_array[ci_name, t] <= from_to_limit
                     )
             end
         end
@@ -136,12 +136,12 @@ function add_constraints!(
                 con_lb[name, t] = JuMP.@constraint(
                     jump_model,
                     var_array[name, t] >=
-                    param_multiplier_from_to[name, t] * param_from_to[t]
+                    param_multiplier_to_from[name, t] * param_to_from[t]
                 )
                 con_ub[name, t] = JuMP.@constraint(
                     jump_model,
                     var_array[name, t] <=
-                    param_multiplier_to_from[name, t] * param_to_from[t]
+                    param_multiplier_from_to[name, t] * param_from_to[t]
                 )
             end
         end
