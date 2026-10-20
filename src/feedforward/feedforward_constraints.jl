@@ -46,6 +46,9 @@ end
 # semicontinuous path's zero) or a `Dict` keyed by device name (constant across time, e.g. a
 # variable's own bound) so neither caller has to materialize a dense device x time matrix
 # just to read it back once per entry.
+#
+# `status` (see `_fixed_variable_statuses`) scales the multiplier, so at a step where the
+# device is out of service and its variable is fixed to zero the row bounds it by zero.
 _multiplier_at(m::JuMPFloatArray, name, t) = m[name, t]
 _multiplier_at(m::Real, ::Any, ::Any) = m
 _multiplier_at(m::AbstractDict, name, ::Any) = m[name]
@@ -58,6 +61,7 @@ function _feedforward_bound_range_with_parameter!(
     param_multiplier::Union{JuMPFloatArray, Real, AbstractDict},
     param_array::Union{JuMPVariableArray, JuMPFloatArray},
     devices::Vector{V},
+    status,
 ) where {V <: PSY.Component}
     time_steps = axes(constraint_container)[2]
     for device in devices
@@ -71,7 +75,8 @@ function _feedforward_bound_range_with_parameter!(
                 name,
                 t,
                 lhs_array[name, t],
-                _multiplier_at(param_multiplier, name, t),
+                _multiplier_at(param_multiplier, name, t) *
+                get_component_status(status, name, t),
                 param_array[name, t],
             )
         end
@@ -98,7 +103,8 @@ function _add_sc_feedforward_constraints!(
     parameter = get_parameter_array(container, P, V)
     jump_model = get_jump_model(container)
     # The commitment status already entered through the range expressions (see
-    # `_add_feedforward_arguments!`), so the parameter adds nothing on the right-hand side.
+    # `_add_feedforward_arguments!`), scaled there by the injector status, so the parameter
+    # adds nothing on the right-hand side.
     zero_multiplier = 0.0
     for (dir, expression_type) in (
         (IOM.UpperBound(), ActivePowerRangeExpressionUB),
@@ -120,6 +126,7 @@ function _add_sc_feedforward_constraints!(
             zero_multiplier,
             parameter,
             devices,
+            IOM.AllComponentsActive(),
         )
     end
     return
@@ -129,7 +136,7 @@ function _add_sc_feedforward_constraints!(
     container::OptimizationContainer,
     ::Type{T},
     ::Type{P},
-    ::VariableKey{U, V},
+    key::VariableKey{U, V},
     devices::Vector{V},
     ::DeviceModel{V, W},
 ) where {
@@ -149,6 +156,7 @@ function _add_sc_feedforward_constraints!(
         throw(IS.InvalidValue("Bounds for variable $U $V not defined correctly"))
     end
     jump_model = get_jump_model(container)
+    status = _fixed_variable_statuses(container, key)
     for (dir, bound_values) in
         ((IOM.UpperBound(), upper_bounds), (IOM.LowerBound(), lower_bounds))
         constraint = add_constraints_container!(
@@ -170,6 +178,7 @@ function _add_sc_feedforward_constraints!(
             multiplier,
             parameter,
             devices,
+            status,
         )
     end
     return
@@ -244,6 +253,7 @@ function _add_bound_feedforward_constraints!(
     for var in get_affected_values(ff)
         variable = get_variable(container, var)
         device_name_set = _check_device_time_axes(variable, devices_names, time_steps)
+        status = _fixed_variable_statuses(container, var)
 
         var_type = get_entry_type(var)
         constraint = add_constraints_container!(
@@ -278,7 +288,7 @@ function _add_bound_feedforward_constraints!(
                 name,
                 t,
                 lhs,
-                multiplier[name, t],
+                multiplier[name, t] * get_component_status(status, name, t),
                 param[name, t],
             )
         end
@@ -296,6 +306,9 @@ With `add_slacks = true` the bound is relaxed by a non-negative slack penalized 
 `BALANCE_SLACK_COST`:
 
 ``` variable[name, t] - slack[name, t] <= param[name, t] * multiplier[name, t] ```
+
+At a step where the device is out of service and the variable is fixed to zero, the
+right-hand side is scaled by the device's status, so the bound is zero.
 """
 function add_feedforward_constraints!(
     container::OptimizationContainer,
@@ -317,6 +330,9 @@ With `add_slacks = true` the bound is relaxed by a non-negative slack penalized 
 `BALANCE_SLACK_COST`:
 
 ``` variable[name, t] + slack[name, t] >= param[name, t] * multiplier[name, t] ```
+
+At a step where the device is out of service and the variable is fixed to zero, the
+right-hand side is scaled by the device's status, so the bound is zero.
 """
 function add_feedforward_constraints!(
     container::OptimizationContainer,
@@ -332,6 +348,9 @@ end
 Pins a variable in this model to a quantity read from the system state.
 
 ``` variable[name, t] == param[name, t] * multiplier[name, t] ```
+
+At a step where the device is out of service and the variable is fixed to zero, the
+right-hand side is scaled by the device's status, so the variable is pinned to zero.
 
 NOTE (deviation from PowerSimulations): PSI applies this with `JuMP.fix`. That only
 works when the parameter container holds `Float64`; under `built_for_recurrent_solves`
@@ -369,6 +388,7 @@ function add_feedforward_constraints!(
         end
         variable = get_variable(container, var)
         device_name_set = _check_device_time_axes(variable, devices_names, time_steps)
+        status = _fixed_variable_statuses(container, var)
 
         affected_var_type = get_entry_type(var)
         con = add_constraints_container!(
@@ -382,7 +402,9 @@ function add_feedforward_constraints!(
         for t in time_steps, name in device_name_set
             con[name, t] = JuMP.@constraint(
                 jump_model,
-                variable[name, t] == param[name, t] * multiplier[name, t]
+                variable[name, t] ==
+                param[name, t] * multiplier[name, t] *
+                get_component_status(status, name, t)
             )
         end
     end

@@ -47,7 +47,10 @@ _default_g1_monitored(sys) = [
     get_component(AreaInterchange, sys, "1_2"),
 ]
 
-function g1_system(; monitored::Function = _default_g1_monitored)
+function g1_system(;
+    monitored::Function = _default_g1_monitored,
+    before_transform::Function = sys -> nothing,
+)
     sys = PSB.build_system(PSISystems, "two_area_pjm_DA"; add_reserves = true)
     online = get_component(OnlineReserve{ReserveUp}, sys, _G1_RESERVE)
     static = OnlineReserve{ReserveUp}(;
@@ -95,6 +98,7 @@ function g1_system(; monitored::Function = _default_g1_monitored)
             monitored_components,
         ),
     )
+    before_transform(sys)
     transform_single_time_series!(sys, Hour(24), Hour(1))
     return sys, outages
 end
@@ -446,6 +450,125 @@ end
             power[PSY.get_name(outaged), t],
         )
         @test aff_exprs_approx_equal(post_flow[entry_name, uuid, t], expected)
+    end
+end
+
+# A scheduled outage of the parallel circuit of the monitored "4_1" changes the network the
+# generator outages shift flow on, and the emergency rating of the monitored arc, at the steps
+# it is out. A contributor scheduled out deploys nothing at those steps.
+@testset "G-1 reserves follow the step topology and injector statuses" begin
+    out_steps = 3:5
+    contributor_name = "Solitude_2"
+    # The schedules are single time series over the system's horizon, out at the hours of
+    # `out_steps`, so the first forecast window is out at `out_steps`.
+    function schedule_out!(sys, component, name)
+        load = first(get_components(PowerLoad, sys))
+        timestamps = TimeSeries.timestamp(
+            PSY.get_time_series_array(SingleTimeSeries, load, "max_active_power"),
+        )
+        values = [h in out_steps ? 1.0 : 0.0 for h in eachindex(timestamps)]
+        outage = PSY.PlannedOutage(; outage_schedule = name)
+        PSY.add_supplemental_attribute!(sys, component, outage)
+        PSY.add_time_series!(
+            sys,
+            outage,
+            SingleTimeSeries(name, TimeArray(timestamps, values)),
+        )
+        return
+    end
+    schedule_both! = function (sys)
+        schedule_out!(sys, get_component(Line, sys, "4_1_copy"), "copy_maint")
+        schedule_out!(
+            sys,
+            get_component(ThermalStandard, sys, contributor_name),
+            "gen_maint",
+        )
+        return
+    end
+    sys, outages = g1_system(; before_transform = schedule_both!)
+    contributor = get_component(ThermalStandard, sys, contributor_name)
+    outaged_names = Set(
+        PSY.get_name(g) for o in values(outages) for g in _outaged(sys, o)
+    )
+    @test !(contributor_name in outaged_names)
+    @test contributor in PSY.get_contributing_devices(
+        sys,
+        get_component(OnlineReserve{ReserveUp}, sys, _G1_RESERVE),
+    )
+    model = g1_model(g1_template(PTDFNetworkModel), sys)
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+
+    container = IOM.get_optimization_container(model)
+    time_steps = IOM.get_time_steps(container)
+    network_model = IOM.get_network_model(IOM.get_template(model))
+    catalog = POM.get_branch_catalog(network_model)
+    reduction = POM.get_network_reduction(network_model)
+    entry_name = PNM.get_component_to_reduction_name_map(catalog, Line)["4_1"]
+    arc = PNM.get_name_to_arc_map(catalog, Line)[entry_name]
+
+    reference_sys, _ = g1_system()
+    PSY.set_available!(get_component(Line, reference_sys, "4_1_copy"), false)
+    references = (full = PNM.PTDF(g1_system()[1]), out = PNM.PTDF(reference_sys))
+    factors(ptdf) = Dict(
+        bus => ptdf[arc, bus] for
+        bus in PNM.get_bus_axis(ptdf) if abs(ptdf[arc, bus]) > POM.PTDF_ZERO_TOL
+    )
+    step_factors = (full = factors(references.full), out = factors(references.out))
+    factor(t, component) = get(
+        t in out_steps ? step_factors.out : step_factors.full,
+        PNM.get_mapped_bus_number(reduction, PSY.get_bus(component)),
+        0.0,
+    )
+
+    deployments = _deployments(container)
+    power = IOM.get_variable(container, ActivePowerVariable, ThermalStandard)
+    post_flow = IOM.get_expression(container, PostContingencyBranchFlow, Line, "G1")
+    pre_flow = IOM.get_expression(container, PTDFBranchFlow, Line)
+    for outage in values(outages), t in time_steps
+        uuid = IS.get_id(outage)
+        haskey(post_flow.data, (entry_name, uuid, t)) || continue
+        expected = copy(pre_flow[entry_name, t])
+        for ((D, _, _, d, u, tt), var) in deployments
+            (u == uuid && tt == t) || continue
+            JuMP.add_to_expression!(expected, factor(t, get_component(D, sys, d)), var)
+        end
+        for g in _outaged(sys, outage)
+            JuMP.add_to_expression!(
+                expected,
+                -factor(t, g),
+                power[PSY.get_name(g), t],
+            )
+        end
+        @test aff_exprs_approx_equal(post_flow[entry_name, uuid, t], expected)
+    end
+
+    # The monitored arc takes the emergency rating of the circuits in service.
+    limits = IOM.get_constraint(container, PostContingencyFlowRateConstraint, Line, "G1_ub")
+    full_rating = PNM.get_equivalent_emergency_rating(
+        PNM.get_reduction_entry(catalog, arc),
+    )
+    lone_rating = PNM.get_equivalent_emergency_rating(get_component(Line, sys, "4_1"))
+    @test !isapprox(full_rating, lone_rating)
+    for ((name, uuid, t), con) in limits.data
+        name == entry_name || continue
+        flow = post_flow[name, uuid, t]
+        expected = t in out_steps ? lone_rating : full_rating
+        @test isapprox(
+            JuMP.normalized_rhs(con) + JuMP.constant(flow),
+            expected;
+            atol = 1e-9,
+        )
+    end
+
+    # The contributor scheduled out deploys nothing at the steps it is out.
+    contributor_deployments = [
+        (t, var) for ((D, _, _, d, _, t), var) in deployments if
+        D === ThermalStandard && d == PSY.get_name(contributor)
+    ]
+    @test !isempty(contributor_deployments)
+    for (t, var) in contributor_deployments
+        @test (t in out_steps) == _fixed_at_zero(var)
     end
 end
 

@@ -1534,6 +1534,7 @@ _reduced_entry_kind(::PNM.BranchesParallel) = :parallel
         stale_source,
         sys_rts_da,
         Int[],
+        POM._NO_SCHEDULED_TOPOLOGY,
     )
     set_network_model!(
         template,

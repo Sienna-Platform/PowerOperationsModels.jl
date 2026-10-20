@@ -220,7 +220,12 @@ function _reduced_ybus!(
     sys::PSY.System,
     exceptions::Vector{Int},
 )
-    ybus = _source_ybus(get_network_source(model), sys, exceptions)
+    ybus = _source_ybus(
+        get_network_source(model),
+        sys,
+        exceptions,
+        _scheduled_topology(get_network_formulation(model), sys),
+    )
     model.subnetworks = _make_subnetworks_from_subnetwork_axes(ybus)
     return ybus
 end
@@ -248,9 +253,10 @@ function _source_ybus(
     source::IOM.AbstractNetworkSource,
     sys::PSY.System,
     exceptions::Vector{Int},
+    schedules,
 )
     _warn_ignored_radial_exceptions(source, exceptions)
-    return _build_ybus(source, sys, exceptions)
+    return _build_ybus(source, sys, exceptions, schedules)
 end
 
 _prebuilt_reduction(source::PrebuiltMatrixSource) =
@@ -262,10 +268,12 @@ function _source_ybus(
     source::Union{PrebuiltMatrixSource, PrebuiltCoreSource},
     sys::PSY.System,
     exceptions::Vector{Int},
+    schedules,
 )
     reduction = _prebuilt_reduction(source)
     _validate_prebuilt_exceptions(reduction, exceptions)
-    return _prebuilt_ybus(source, reduction, sys)
+    _validate_prebuilt_topology(reduction, schedules)
+    return _prebuilt_ybus(source, reduction, sys, schedules)
 end
 
 function _warn_ignored_radial_exceptions(
@@ -302,6 +310,32 @@ function _validate_prebuilt_exceptions(
     )
 end
 
+# Scheduled topology changes are resolved against the base network, so a prebuilt source
+# must close exactly the switches the build closes, the scheduled ones, and keep every bus a
+# scheduled branch touches; otherwise the scheduled rows would be computed on a different
+# network. A switch closed in the source but not scheduled would conduct at every step
+# although its data leaves it open.
+function _validate_prebuilt_topology(reduction::PNM.NetworkReductionData, schedules)
+    closed = PNM.get_closed_switches(PNM.get_reductions(reduction))
+    scheduled = Set(PSY.get_name.(schedules.closed_switches))
+    missing_switches = sort!(collect(setdiff(scheduled, closed)))
+    extra_switches = sort!(collect(setdiff(closed, scheduled)))
+    retained = keys(PNM.get_bus_reduction_map(reduction))
+    missing_buses = sort!([b for b in schedules.pinned_buses if !(b in retained)])
+    isempty(missing_switches) && isempty(extra_switches) && isempty(missing_buses) &&
+        return
+    throw(
+        IS.ConflictingInputsError(
+            "The prebuilt network source was not built on the network this model follows \
+             (scheduled switches it leaves open: $(missing_switches); switches it closes \
+             without a switching schedule this model follows: $(extra_switches); buses of \
+             scheduled branches it reduced away: $(missing_buses)). Build its Ybus with \
+             `PNM.Ybus(sys; closed_switches, schedule_pinned_buses)` from \
+             `PNM.topology_schedule_components(sys)`, closing no other switch.",
+        ),
+    )
+end
+
 # A prebuilt source fixed the reduction before the build, so its Ybus is reproduced from
 # the source's own reduction rather than from the model. The result is checked against
 # that reduction: anything the spec cannot reproduce must fail loudly rather than hand
@@ -310,11 +344,13 @@ function _prebuilt_ybus(
     source::IOM.AbstractNetworkSource,
     reduction::PNM.NetworkReductionData,
     sys::PSY.System,
+    schedules,
 )
     ybus = _build_ybus(
         SystemNetworkSource(_source_reductions(source)),
         sys,
         _source_irreducible_buses(reduction),
+        schedules,
     )
     reproduced = PNM.get_network_reduction_data(ybus)
     if PNM.get_bus_reduction_map(reproduced) != PNM.get_bus_reduction_map(reduction)
@@ -360,6 +396,20 @@ function _derive_contingency_matrix(
     end
     _consolidate_device_model_outages_with_modf!(branch_models, modf)
     return modf
+end
+
+_has_branch_schedules(sys::PSY.System) =
+    any(_is_scheduled_branch, PNM.topology_schedule_components(sys).components)
+
+# The low-rank matrix scheduled topologies are resolved on: the contingency matrix when the
+# model has one, so both share their factorization and row caches.
+_topology_matrix(core, sys, contingency_matrix::PNM.VirtualMODF) = contingency_matrix
+_topology_matrix(core, sys, ::NoContingencyMatrix) =
+    PNM.VirtualMODF(core, sys; automatically_register_outages = false)
+
+function _topology_state(core, sys, contingency_matrix)
+    _has_branch_schedules(sys) || return TopologyState()
+    return TopologyState(_topology_matrix(core, sys, contingency_matrix))
 end
 
 """
@@ -439,14 +489,21 @@ function IOM.instantiate_network_model!(
     exceptions = _collect_reduction_exceptions(sys, model, branch_models, service_models)
     ybus = _reduced_ybus!(model, sys, exceptions)
     catalog = _build_catalog(ybus, branch_models, sys)
-    if IOM._template_has_outage_aware_branch(branch_models)
+    outage_aware = IOM._template_has_outage_aware_branch(branch_models)
+    if outage_aware || _has_branch_schedules(sys)
         core = _model_factor_core(ybus, model, sys)
+        if outage_aware
+            contingency_matrix = _derive_contingency_matrix(core, sys, branch_models)
+        else
+            contingency_matrix = NoContingencyMatrix()
+        end
         IOM.set_network_data!(
             model,
             DCPNetworkData(
                 ybus,
-                _derive_contingency_matrix(core, sys, branch_models),
+                contingency_matrix,
                 catalog,
+                _topology_state(core, sys, contingency_matrix),
             ),
         )
     else
@@ -523,10 +580,24 @@ function _ptdf_network_data(
     exceptions::Vector{Int},
 )
     matrix = get_matrix(source)
+    if _has_branch_schedules(sys) && !isempty(PNM.get_dist_slack(matrix))
+        throw(
+            IS.ConflictingInputsError(
+                "Branch schedules cannot be combined with a distributed slack: rows for \
+                 scheduled topologies are referenced to the reference buses. Build the \
+                 VirtualPTDF without `dist_slack`.",
+            ),
+        )
+    end
     core = PNM.get_core(matrix)
     # Called for its reproducibility validation against the source's reduction; the
     # Ybus itself is not stored (nothing downstream reads it for this family).
-    _source_ybus(source, sys, exceptions)
+    _source_ybus(
+        source,
+        sys,
+        exceptions,
+        _scheduled_topology(get_network_formulation(model), sys),
+    )
     # Subnetworks come from the matrix, not the Ybus, because the matrix's own axes are
     # what the PTDF rows are indexed on.
     model.subnetworks = _make_subnetworks_from_subnetwork_axes(matrix)
@@ -541,11 +612,17 @@ function _assemble_ptdf_data(
 )
     catalog = _build_catalog(core, branch_models, sys)
     if IOM._template_has_outage_aware_branch(branch_models)
+        contingency_matrix = _derive_contingency_matrix(core, sys, branch_models)
         return PTDFNetworkData(
             ptdf,
-            _derive_contingency_matrix(core, sys, branch_models),
+            contingency_matrix,
             catalog,
+            _topology_state(core, sys, contingency_matrix),
         )
     end
-    return PTDFNetworkData(ptdf, catalog)
+    return PTDFNetworkData(
+        ptdf,
+        catalog,
+        _topology_state(core, sys, NoContingencyMatrix()),
+    )
 end
