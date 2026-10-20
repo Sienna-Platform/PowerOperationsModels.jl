@@ -786,7 +786,9 @@ end
         "FDDecoupled/BX scheme" =>
             ACPolarPowerFlow{
                 PFS.FastDecoupledACPowerFlow{PFS.FDDecoupled, PFS.FDSchemeBX},
-            }(; solution_parameters = fd_params),
+            }(;
+                solution_parameters = fd_params,
+            ),
         "FDFixedJacobian (polar)" =>
             ACPolarPowerFlow{PFS.FastDecoupledFixed}(),
         "FastDecoupledXB alias" =>
