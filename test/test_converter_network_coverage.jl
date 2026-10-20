@@ -42,7 +42,7 @@ function _build_converter_sys(;
     end
     for ic in get_components(InterconnectingConverter, sys)
         set_loss_function!(ic, loss)
-        # 2.0 pu on the system base, in amperes.
+        # 2.0 pu on the system base, in kA.
         set_max_dc_current!(
             ic,
             2.0 * get_base_power(sys) / get_base_voltage(get_dc_bus(ic)),
@@ -567,7 +567,7 @@ end
     # Converter base_power (50) != system base (100): the DC-side loss constant is on the
     # converter's own base and must be rescaled by base_power/system_base = 0.5 into the
     # system-base DC balance. The proportional loss term is a base-invariant fraction and
-    # must not change. The DC-current limit is in amperes, so the converter base does not
+    # must not change. The DC-current limit is in kA, so the converter base does not
     # scale it.
     b_term = 0.05
     c_term = 0.01

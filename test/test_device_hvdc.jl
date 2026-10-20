@@ -80,7 +80,7 @@ function _generate_test_hvdc_sys()
     for ipc in get_components(InterconnectingConverter, sys)
         new_dc_loss = PSY.LossCurve(QuadraticCurve(0.01, 0.01, 0.0), PSY.CU)
         set_loss_function!(ipc, new_dc_loss)
-        # 2.0 pu on the system base, in amperes.
+        # 2.0 pu on the system base, in kA.
         set_max_dc_current!(
             ipc,
             2.0 * get_base_power(sys) / get_base_voltage(get_dc_bus(ipc)),
