@@ -118,7 +118,9 @@ initial_condition_variable(::DevicePower, d::PSY.ThermalGen, ::AbstractThermalFo
 initial_condition_default(::DeviceAboveMinPower, d::PSY.ThermalGen, ::AbstractThermalFormulation, container::OptimizationContainer) = max(0.0, PSY.get_active_power(d, u"SU") - first(min_active_power_values(container, d)))
 initial_condition_variable(::DeviceAboveMinPower, d::PSY.ThermalGen, ::AbstractCompactUnitCommitment) = PowerAboveMinimumVariable()
 initial_condition_variable(::DeviceAboveMinPower, d::PSY.ThermalGen, ::ThermalCompactDispatch) = PowerAboveMinimumVariable()
+initial_condition_default(::InitialTimeDurationOn, d::PSY.ThermalGen, ::AbstractThermalFormulation, container::OptimizationContainer) = _time_at_status_steps(d, container, is_online(d))
 initial_condition_variable(::InitialTimeDurationOn, d::PSY.ThermalGen, ::AbstractThermalFormulation) = OnVariable()
+initial_condition_default(::InitialTimeDurationOff, d::PSY.ThermalGen, ::AbstractThermalFormulation, container::OptimizationContainer) = _time_at_status_steps(d, container, !is_online(d))
 initial_condition_variable(::InitialTimeDurationOff, d::PSY.ThermalGen, ::AbstractThermalFormulation) = OnVariable()
 
 ########################Objective Function##################################################
