@@ -124,7 +124,7 @@ function validate_template_impl!(model::IOM.AbstractOptimizationModel)
     _check_voltage_regulation_conflicts!(template, system, network_model)
     _check_branch_rating_time_series_formulation!(template.branches, system)
     _check_lhs_time_series_types(model)
-    _check_topology_schedule_formulation(network_model, system)
+    _check_topology_schedule_formulation(template, network_model, system)
     _resolve_lhs_rebuild!(model)
     validate_network_model(network_model, unmodeled_branch_types, model_has_branch_filters)
     _check_market_model!(template)
@@ -432,12 +432,16 @@ end
 # Topology schedules
 #################################################################################
 
-function _check_topology_schedule_formulation(network_model::NetworkModel, sys::PSY.System)
+function _check_topology_schedule_formulation(
+    template::PowerOperationsProblemTemplate,
+    network_model::NetworkModel,
+    sys::PSY.System,
+)
     components = PNM.topology_schedule_components(sys).components
     foreach(_check_scheduled_component, components)
     branches = [c for c in components if _is_scheduled_branch(c)]
     isempty(branches) && return
-    _check_power_flow_evaluations(network_model, branches)
+    _check_power_flow_evaluations(template, branches)
     _check_topology_schedule_formulation(get_network_formulation(network_model), branches)
     return
 end
@@ -456,8 +460,11 @@ function _check_scheduled_component(hybrid::PSY.HybridSystem)
     )
 end
 
-function _check_power_flow_evaluations(network_model::NetworkModel, branches::Vector)
-    isempty(IOM.get_evaluations(network_model)) && return
+function _check_power_flow_evaluations(
+    template::PowerOperationsProblemTemplate,
+    branches::Vector,
+)
+    isempty(IOM.get_evaluations(template)) && return
     throw(
         IS.ConflictingInputsError(
             "Power flow evaluations solve the system's static network and cannot follow \

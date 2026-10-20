@@ -338,6 +338,7 @@ function _scheduled_dispatch_model(;
     schedules = true,
     injector_schedule = false,
     network = NetworkModel(PTDFNetworkModel),
+    evaluations = nothing,
     kwargs...,
 )
     sys = PSB.build_system(PSITestSystems, "c_sys5_uc"; add_forecasts = true)
@@ -356,6 +357,7 @@ function _scheduled_dispatch_model(;
         _attach_forecast_schedule!(sys, outage, "gen_maint", h -> h in 2:3 ? 1.0 : 0.0)
     end
     template = get_thermal_dispatch_template_network(network)
+    isnothing(evaluations) || IOM.set_evaluations!(template, evaluations)
     model = DecisionModel(template, sys; optimizer = HiGHS_optimizer, kwargs...)
     return model, sys
 end
@@ -676,18 +678,15 @@ end
 end
 
 @testset "Power flow in the loop rejects branch schedules but accepts injector schedules" begin
-    network() = NetworkModel(
-        PTDFNetworkModel;
-        evaluations = power_flow_evaluations(ACPowerFlow()),
-    )
-    model, _ = _scheduled_dispatch_model(; network = network())
+    evaluations() = power_flow_evaluations(ACPowerFlow())
+    model, _ = _scheduled_dispatch_model(; evaluations = evaluations())
     @test _build_for_log(model) == IOM.ModelBuildStatus.FAILED
     @test occursin("cannot follow scheduled topology", _read_build_log(model))
 
     injector_model, _ = _scheduled_dispatch_model(;
         schedules = false,
         injector_schedule = true,
-        network = network(),
+        evaluations = evaluations(),
     )
     @test _build_for_log(injector_model) == IOM.ModelBuildStatus.BUILT
 end

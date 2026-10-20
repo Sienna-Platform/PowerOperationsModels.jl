@@ -1079,10 +1079,8 @@ end
 # A DC power flow evaluated on the solution must see the injections the optimizer saw.
 function _pf_model(sys)
     template = PowerOperationsProblemTemplate(
-        NetworkModel(
-            PTDFNetworkModel;
-            evaluations = power_flow_evaluations(DCPowerFlow()),
-        ),
+        NetworkModel(PTDFNetworkModel);
+        evaluations = power_flow_evaluations(DCPowerFlow()),
     )
     set_device_model!(template, ThermalStandard, ThermalDispatchNoMin)
     set_device_model!(template, PowerLoad, StaticPowerLoad)
