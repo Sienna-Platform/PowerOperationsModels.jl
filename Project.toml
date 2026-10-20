@@ -28,12 +28,9 @@ PowerFlows = "94fada2c-fd9a-4e89-8d82-81405f5cb4f6"
 
 [sources]
 InfrastructureSystems = {url = "https://github.com/Sienna-Platform/InfrastructureSystems.jl.git", rev = "IS4"}
-# DEV-ONLY-ORIGINAL: InfrastructureOptimizationModels = {rev = "main", url = "https://github.com/Sienna-Platform/InfrastructureOptimizationModels.jl"}
-InfrastructureOptimizationModels = {path = "/Users/mbossart/sienna/psy6/time-varying-network/InfrastructureOptimizationModels.jl"}  # DEV-ONLY
-# DEV-ONLY-ORIGINAL: PowerSystems = {url = "https://github.com/Sienna-Platform/PowerSystems.jl.git", rev = "psy6"}
-PowerSystems = {path = "/Users/mbossart/sienna/psy6/time-varying-network/PowerSystems.jl"}  # DEV-ONLY
-# DEV-ONLY-ORIGINAL: PowerNetworkMatrices = {rev = "psy6", url = "https://github.com/Sienna-Platform/PowerNetworkMatrices.jl"}
-PowerNetworkMatrices = {path = "/Users/mbossart/sienna/psy6/time-varying-network/PowerNetworkMatrices.jl"}  # DEV-ONLY
+InfrastructureOptimizationModels = {rev = "main", url = "https://github.com/Sienna-Platform/InfrastructureOptimizationModels.jl"}
+PowerSystems = {url = "https://github.com/Sienna-Platform/PowerSystems.jl.git", rev = "psy6"}
+PowerNetworkMatrices = {rev = "psy6", url = "https://github.com/Sienna-Platform/PowerNetworkMatrices.jl"}
 
 [extensions]
 PowerFlowsExt = "PowerFlows"
