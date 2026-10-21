@@ -253,31 +253,40 @@ end
 
 #################################################################################
 # Curtailment cost for renewable generation
-# Renewables can specify a `curtailment_cost` field on their operation cost; this
-# captures the dollar value of unprovided available power per timestep:
+# Renewables, and the renewable unit of a HybridSystem, can specify a `curtailment_cost`
+# field on their operation cost. It is the dollar value of available power that is not
+# dispatched in each time step:
 #     cost(t) = price * dt * (offer_max(t) - dispatch(t))
 # Routed to `CurtailmentCostExpression` (a direct `CostExpressions` subtype, not a
 # `ConstituentCostExpression`), so it is reported standalone and does NOT propagate
 # into `ProductionCostExpression`.
 #################################################################################
 
+_curtailment_unit(d::PSY.RenewableGen) = d
+_curtailment_unit(d::PSY.HybridSystem) = PSY.get_renewable_unit(d)
+_availability_parameter(::Type{<:PSY.RenewableGen}) = ActivePowerTimeSeriesParameter
+_availability_parameter(::Type{<:PSY.HybridSystem}) =
+    HybridRenewableActivePowerTimeSeriesParameter
+
 # Resolve the operating-point upper bound for a renewable at time t. Falls back to the
-# device's static max_active_power when no time-series parameter has been registered.
+# static max_active_power when no time-series parameter has been registered.
 function _renewable_offer_max(
     container::OptimizationContainer,
     component::C,
     name::String,
     t::Int,
-) where {C <: PSY.RenewableGen}
-    has_container_key(container, ActivePowerTimeSeriesParameter, C) ||
-        return PSY.get_max_active_power(component, u"SU")
-    param_container = get_parameter(container, ActivePowerTimeSeriesParameter, C)
+) where {C <: Union{PSY.RenewableGen, PSY.HybridSystem}}
+    unit = _curtailment_unit(component)
+    P = _availability_parameter(C)
+    has_container_key(container, P, C) ||
+        return PSY.get_max_active_power(unit, u"SU")
+    param_container = get_parameter(container, P, C)
     multiplier = get_multiplier_array(param_container)
     # The container can exist for type `C` while this particular device has no
     # time-series entry (mixed TS / no-TS devices of the same type). Fall back to
     # the static max in that case rather than indexing into a missing row.
     name ∈ axes(multiplier, 1) ||
-        return PSY.get_max_active_power(component, u"SU")
+        return PSY.get_max_active_power(unit, u"SU")
     return get_parameter_column_refs(param_container, name)[t] * multiplier[name, t]
 end
 
@@ -289,9 +298,13 @@ function _add_curtailment_cost!(
     component::C,
     cost_function::PSY.CostCurve{PSY.LinearCurve},
     ::Type{U},
-) where {T <: VariableType, C <: PSY.RenewableGen, U <: AbstractDeviceFormulation}
+) where {
+    T <: VariableType,
+    C <: Union{PSY.RenewableGen, PSY.HybridSystem},
+    U <: AbstractDeviceFormulation,
+}
     base_power = get_model_base_power(container)
-    device_base_power = PSY.get_base_power(component, u"NU")
+    device_base_power = PSY.get_base_power(_curtailment_unit(component), u"NU")
     value_curve = PSY.get_value_curve(cost_function)
     power_units = PSY.get_power_units(cost_function)
     cost_component = PSY.get_function_data(value_curve)
@@ -321,7 +334,8 @@ end
 # Other cost-curve shapes don't have a defined curtailment-cost computation here;
 # treat as no-op rather than erroring so renewables with PWL/other costs still build.
 _add_curtailment_cost!(
-    ::OptimizationContainer, ::Type{<:VariableType}, ::PSY.RenewableGen,
+    ::OptimizationContainer, ::Type{<:VariableType},
+    ::Union{PSY.RenewableGen, PSY.HybridSystem},
     ::PSY.OperationalCost, ::Type{<:AbstractDeviceFormulation}) = nothing
 
 #################################################################################
@@ -346,8 +360,8 @@ add_proportional_cost!(
 } = add_proportional_cost_maybe_time_variant!(container, U, devices, V)
 
 """
-Iterate the device set and route each renewable's `curtailment_cost` into
-`CurtailmentCostExpression`. Devices whose operation cost has no `curtailment_cost`
+Iterate the device set and route the `curtailment_cost` of each renewable, or of each
+hybrid renewable unit, into `CurtailmentCostExpression`. Devices whose operation cost has no `curtailment_cost`
 field, or where the field is `nothing`, are skipped.
 """
 function add_curtailment_cost!(
@@ -355,9 +369,13 @@ function add_curtailment_cost!(
     ::Type{T},
     devices::Vector{V},
     ::Type{U},
-) where {T <: VariableType, V <: PSY.RenewableGen, U <: AbstractDeviceFormulation}
+) where {
+    T <: VariableType,
+    V <: Union{PSY.RenewableGen, PSY.HybridSystem},
+    U <: AbstractDeviceFormulation,
+}
     for d in devices
-        op_cost_data = PSY.get_operation_cost(d)
+        op_cost_data = PSY.get_operation_cost(_curtailment_unit(d))
         hasproperty(op_cost_data, :curtailment_cost) || continue
         cost_function = PSY.get_curtailment_cost(op_cost_data)
         isnothing(cost_function) && continue

@@ -79,16 +79,22 @@ function get_initial_conditions_value(
     return InitialCondition{U, Nothing}(component, nothing)
 end
 
-# Wraps an initial-condition value: a constant, or a parameter when the model is built for
-# recurrent solves.
-_initial_condition(
+# The two element types IOM's initial-condition containers are created with. Spelled out
+# per value type (not `InitialCondition{U, T}` with free `T`) so `T` is never unbound.
+const InitialConditionVector{U} = Union{
+    Vector{Union{InitialCondition{U, Float64}, InitialCondition{U, Nothing}}},
+    Vector{Union{InitialCondition{U, JuMP.VariableRef}, InitialCondition{U, Nothing}}},
+}
+
+# Wraps an initial-condition value in the container's element type: a constant, or a
+# parameter when the model is built for recurrent solves.
+_ic_value(
     ::Vector{Union{InitialCondition{U, Float64}, InitialCondition{U, Nothing}}},
     component,
     ::OptimizationContainer,
     val,
-) where {U} =
-    InitialCondition{U, Float64}(component, val)
-_initial_condition(
+) where {U} = InitialCondition{U, Float64}(component, val)
+_ic_value(
     ::Vector{Union{InitialCondition{U, JuMP.VariableRef}, InitialCondition{U, Nothing}}},
     component,
     container::OptimizationContainer,
@@ -100,10 +106,7 @@ _initial_condition(
 
 # Generic implementation: the initial-condition data if present, else the default.
 function get_initial_conditions_value(
-    ini_cond_vector::Union{
-        Vector{Union{InitialCondition{U, Float64}, InitialCondition{U, Nothing}}},
-        Vector{Union{InitialCondition{U, JuMP.VariableRef}, InitialCondition{U, Nothing}}},
-    },
+    ini_conds::InitialConditionVector{U},
     component::W,
     ::U,
     ::V,
@@ -122,7 +125,7 @@ function get_initial_conditions_value(
     end
     @debug "Device $(PSY.get_name(component)) initialized $U as $val" _group =
         LOG_GROUP_BUILD_INITIAL_CONDITIONS
-    return _initial_condition(ini_cond_vector, component, container, val)
+    return _ic_value(ini_conds, component, container, val)
 end
 
 #################################################################################

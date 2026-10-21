@@ -125,7 +125,7 @@ function validate_template_impl!(model::IOM.AbstractOptimizationModel)
     # Must follow `_build_device_model_outages!`: that call is what fills the per-type
     # monitored-name maps this check reads.
     _check_monitored_components(template.branches, system)
-    _build_device_model_events!(template, system)
+    _build_device_model_events!(template)
     return
 end
 
@@ -1085,96 +1085,128 @@ end
 #################################################################################
 
 """
-For each event model attached to the template: validate its time-series mapping,
-populate `attribute_device_map` (attribute id → concrete device type → device names)
-from the system's supplemental attributes, and distribute the event model to every
-`DeviceModel` in the template whose device type carries the attribute and supports
-events.
+    discover_event_attribute_device_map(event_model, sys; warn = true)
+
+Return the outages of `sys` that `event_model` applies: outage attribute id → concrete
+device type → device names, for every attribute of the event model's type attached to at
+least one device whose type supports events. Validates the event model's time-series
+mapping against each of those attributes. Reads `sys` only; the caller decides where the
+result goes.
+
+A simulation calls this on the emulator's system and copies the result into the event
+model's map:
+
+```julia
+outages = discover_event_attribute_device_map(event_model, emulator_system)
+copy!(get_attribute_device_map(event_model), outages)
+```
+
+Throws when `sys` has no attribute of the event type on a device that supports events.
+With `warn = false`, devices whose type does not support events are skipped without a
+warning.
 """
-function _build_device_model_events!(
-    template::PowerOperationsProblemTemplate,
-    sys::PSY.System,
+function discover_event_attribute_device_map(
+    event_model::EventModel,
+    sys::PSY.System;
+    warn::Bool = true,
 )
+    event_type = get_event_type(event_model)
+    attribute_device_map = Dict{Int, Dict{DataType, Set{String}}}()
+    for event in PSY.get_supplemental_attributes(event_type, sys)
+        device_map = Dict{DataType, Set{String}}()
+        for device in PSY.get_associated_components(sys, event)
+            dtype = typeof(device)
+            if !supports_events(dtype)
+                warn && @warn "Device $(PSY.get_name(device)) of type $dtype carries a \
+                       $event_type attribute but the type does not support events; \
+                       it will not be modeled." _group = IOM.LOG_GROUP_MODELS_VALIDATION
+                continue
+            end
+            push!(get!(device_map, dtype, Set{String}()), PSY.get_name(device))
+        end
+        isempty(device_map) && continue
+        _validate_event_timeseries_data(sys, event, event_model)
+        attribute_device_map[IS.get_id(event)] = device_map
+    end
+    if isempty(attribute_device_map)
+        error(
+            "There are no supplemental attributes of type $event_type on devices that \
+             support events in the system. Add the outage data to the system or remove \
+             the event model.",
+        )
+    end
+    return attribute_device_map
+end
+
+"""
+For each event model attached to the template, register it on every `DeviceModel` of the
+template whose device type appears in its `attribute_device_map`. The map must already be
+filled: a simulation with an emulation model fills it from the emulator's system (see
+[`discover_event_attribute_device_map`](@ref)). The model's own system is not searched for
+outages: its outage attributes do not affect events, though they may serve other
+formulations, such as security-constrained ones. Construction applies the event to the
+outaged devices the model has.
+"""
+function _build_device_model_events!(template::PowerOperationsProblemTemplate)
     for event_model in get_event_models(template)
         event_type = get_event_type(event_model)
-        attributes = PSY.get_supplemental_attributes(event_type, sys)
-        if isempty(attributes)
+        attribute_device_map = get_attribute_device_map(event_model)
+        if isempty(attribute_device_map)
             error(
-                "There are no supplemental attributes of type $event_type in the system. \
-                 Add the outage data to the system or remove the event model from the \
-                 template.",
+                "The $event_type event model has no outages to apply. Outage events are \
+                 applied by a Simulation with an emulation model, which fills each event \
+                 model from the emulator's system before building its models. Run the \
+                 model in such a simulation or remove the event model from the template.",
             )
         end
-        for event in attributes
-            _validate_event_timeseries_data(sys, event, event_model)
-            event_id = IS.get_id(event)
-            attribute_device_map = get_attribute_device_map(event_model)
-            attribute_device_map[event_id] = Dict{DataType, Set{String}}()
-            device_types_with_attribute = Set{DataType}()
-            for device in PSY.get_associated_components(sys, event)
-                dtype = typeof(device)
-                if !supports_events(dtype)
-                    @warn "Device $(PSY.get_name(device)) of type $dtype carries a \
-                           $event_type attribute but the type does not support events; \
-                           it will not be modeled." _group =
-                        IOM.LOG_GROUP_MODELS_VALIDATION
-                    continue
-                end
-                push!(device_types_with_attribute, dtype)
-                name_set = get!(
-                    attribute_device_map[event_id],
-                    dtype,
-                    Set{String}(),
+        device_types = Set{DataType}()
+        for device_map in values(attribute_device_map)
+            union!(device_types, keys(device_map))
+        end
+        for device_type in device_types
+            device_model = get_model(template, device_type)
+            if device_model === nothing
+                @warn "Devices of type $device_type carry a $event_type attribute \
+                       but the template has no DeviceModel for that type; the event \
+                       will not be modeled for them." _group =
+                    IOM.LOG_GROUP_MODELS_VALIDATION
+                continue
+            end
+            key = EventKey(event_type, device_type)
+            existing_events = IOM.get_events(device_model)
+            if haskey(existing_events, key)
+                # Re-registering the same event model is a no-op. A *different* event
+                # model targeting the same (contingency type, device type) pair can't
+                # both be honored — the device model has one slot per key — so that
+                # case must fail loudly instead of silently dropping the second
+                # registration.
+                existing_events[key] === event_model && continue
+                error(
+                    "Two distinct event models of contingency type $event_type both \
+                     target device type $device_type. Only one event model per \
+                     (contingency type, device type) pair is supported. Merge the \
+                     event models or remove one from the template.",
                 )
-                push!(name_set, PSY.get_name(device))
+            elseif !isempty(existing_events)
+                # A second event model of a *different* contingency type also can't
+                # coexist on one device model: event parameter containers are keyed
+                # by (parameter type, device type) only — the contingency type is
+                # not part of the key — so the two models' parameters would collide
+                # in the optimization container. Fail here with a clear message
+                # instead of deep in container construction.
+                other_types = join(
+                    unique(get_event_type(m) for m in values(existing_events)),
+                    ", ",
+                )
+                error(
+                    "Device type $device_type is already targeted by an event model \
+                     of contingency type $other_types; a second event model of \
+                     contingency type $event_type cannot be added because event \
+                     parameters are keyed by device type only and would collide. \
+                     Attach at most one event model per device type.",
+                )
             end
-            for device_type in device_types_with_attribute
-                device_model = get_model(template, device_type)
-                if device_model === nothing
-                    @warn "Devices of type $device_type carry a $event_type attribute \
-                           but the template has no DeviceModel for that type; the event \
-                           will not be modeled for them." _group =
-                        IOM.LOG_GROUP_MODELS_VALIDATION
-                    continue
-                end
-                key = EventKey(event_type, device_type)
-                existing_events = IOM.get_events(device_model)
-                if haskey(existing_events, key)
-                    # The same event model can legitimately be discovered again for this
-                    # device type (e.g. a second outage attribute of the same contingency
-                    # type attached to another device of the same type); re-registering it
-                    # is a no-op. A *different* event model targeting the same
-                    # (contingency type, device type) pair can't both be honored — the
-                    # device model has one slot per key — so that case must fail loudly
-                    # instead of silently dropping the second registration.
-                    existing_events[key] === event_model && continue
-                    error(
-                        "Two distinct event models of contingency type $event_type both \
-                         target device type $device_type. Only one event model per \
-                         (contingency type, device type) pair is supported. Merge the \
-                         event models or remove one from the template.",
-                    )
-                elseif !isempty(existing_events)
-                    # A second event model of a *different* contingency type also can't
-                    # coexist on one device model: event parameter containers are keyed
-                    # by (parameter type, device type) only — the contingency type is
-                    # not part of the key — so the two models' parameters would collide
-                    # in the optimization container. Fail here with a clear message
-                    # instead of deep in container construction.
-                    other_types = join(
-                        unique(get_event_type(m) for m in values(existing_events)),
-                        ", ",
-                    )
-                    error(
-                        "Device type $device_type is already targeted by an event model \
-                         of contingency type $other_types; a second event model of \
-                         contingency type $event_type cannot be added because event \
-                         parameters are keyed by device type only and would collide. \
-                         Attach at most one event model per device type.",
-                    )
-                end
-                IOM.set_event_model!(device_model, key, event_model)
-            end
+            IOM.set_event_model!(device_model, key, event_model)
         end
     end
     return

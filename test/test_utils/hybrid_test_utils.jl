@@ -3,14 +3,16 @@
 # (modify_ren_curtailment_cost! and add_hybrid_to_chuhsi_bus!) to PSY 5.3.
 
 """
-Set a flat curtailment penalty on every RenewableDispatch in `sys`. PSY 5.x
-RenewableGenerationCost wraps a CostCurve(LinearCurve(...)).
+Set a flat curtailment cost on every RenewableDispatch in `sys`, with zero variable cost.
 """
 function modify_ren_curtailment_cost!(sys::PSY.System; cost = 15.0)
     for ren in PSY.get_components(PSY.RenewableDispatch, sys)
         PSY.set_operation_cost!(
             ren,
-            PSY.RenewableGenerationCost(PSY.CostCurve(PSY.LinearCurve(cost))),
+            PSY.RenewableGenerationCost(;
+                variable_operation_cost = zero(PSY.CostCurve),
+                curtailment_cost = PSY.CostCurve(PSY.LinearCurve(cost)),
+            ),
         )
     end
     return
