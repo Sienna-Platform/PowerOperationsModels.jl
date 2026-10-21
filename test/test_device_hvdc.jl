@@ -397,6 +397,54 @@ end
     end
 end
 
+@testset "HVDC VSC inside one PTDF island enters the system balance with its loss" begin
+    # The constant converter loss keeps the link loss nonzero even at zero current.
+    sys = _generate_test_vsc_sys(; loss_c = 0.02)
+    model = _build_vsc_model(
+        _vsc_milp("bilinear_relative_tolerance" => 0.1),
+        PTDFNetworkModel, HiGHS_optimizer; sys = sys,
+    )
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+
+    container = IOM.get_optimization_container(model)
+    network_model = IOM.get_network_model(IOM.get_template(model))
+    arc = get_arc(get_component(TwoTerminalVSCLine, sys, "1"))
+    ref = POM.get_reference_bus(network_model, get_from(arc))
+    @test POM.get_reference_bus(network_model, get_to(arc)) == ref
+
+    p_ft = IOM.get_variable(container, FlowActivePowerFromToVariable, TwoTerminalVSCLine)
+    p_tf = IOM.get_variable(container, FlowActivePowerToFromVariable, TwoTerminalVSCLine)
+    sys_balance = IOM.get_expression(container, ActivePowerBalance, PSY.System)
+    for t in IOM.get_time_steps(container)
+        @test JuMP.coefficient(sys_balance[ref, t], p_ft["1", t]) == -1.0
+        @test JuMP.coefficient(sys_balance[ref, t], p_tf["1", t]) == -1.0
+    end
+
+    @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+    res = IOM.OptimizationProblemOutputs(model)
+    _row_sums(df) = sum(Matrix(select(df, Not(:DateTime))); dims = 2)
+    _read_var(key) = _row_sums(read_variable(res, key; table_format = TableFormat.WIDE))
+    generation = sum(
+        _read_var(key) for
+        key in list_variable_names(res) if startswith(key, "ActivePowerVariable__")
+    )
+    # The load parameter output carries the withdrawal sign.
+    load =
+        -_row_sums(
+            read_parameter(
+                res, "ActivePowerTimeSeriesParameter__PowerLoad";
+                table_format = TableFormat.WIDE,
+            ),
+        )
+    # Both flows are drawn from the AC side, so their sum is the power the link burns.
+    link_loss =
+        _read_var("FlowActivePowerFromToVariable__TwoTerminalVSCLine") .+
+        _read_var("FlowActivePowerToFromVariable__TwoTerminalVSCLine")
+    @test all(link_loss .> 1.0)
+    @test isapprox(generation, load .+ link_loss; atol = 1e-4)
+end
+
 @testset "HVDC VSC: higher cable resistance increases cost" begin
     # Smaller g => larger R = 1/g => more losses => optimum should not improve.
     function _solve_with_g(g_value)
