@@ -872,6 +872,9 @@ Selection semantics, per `IOM.get_outage_selection(m)`:
 `m.outages` is rebuilt from scratch on every call, so rebuilding a model
 reflects outages added to or removed from the system since the last build.
 
+When every SC model carries an explicit selection, an outage none of them
+selects is skipped before any validation and emits no warning.
+
 The monitored set is exactly what each outage lists in its
 `monitored_components`; an outage with empty `monitored_components` is treated
 as "monitor nothing" (a warning is emitted). A monitored component whose type
@@ -891,9 +894,11 @@ function _build_device_model_outages!(
     modeled_types = Set{Type}(get_component_types(template))
     uncovered_types = Dict{DataType, Set{Int}}()
     unavailable_counts = Dict{Int, Int}()
+    selected_ids = _selected_outage_ids(sc_models)
 
     for outage in PSY.get_supplemental_attributes(PSY.Outage, sys)
         outage_id = IS.get_id(outage)
+        _is_selected(selected_ids, outage_id) || continue
         if isempty(PSY.get_monitored_components(outage))
             @warn "Outage $(outage_id) ($(typeof(outage))) has empty \
                    monitored_components; no post-contingency variables or \
@@ -965,6 +970,21 @@ function _check_outage_selections(
     end
     return
 end
+
+# Union of the explicit outage selections, or `nothing` when any SC model
+# auto-discovers and so may claim every outage.
+function _selected_outage_ids(sc_models::Vector{<:IOM.DeviceModelForBranches})
+    selected_ids = Set{Int}()
+    for m in sc_models
+        selection = IOM.get_outage_selection(m)
+        isnothing(selection) && return nothing
+        union!(selected_ids, selection)
+    end
+    return selected_ids
+end
+
+_is_selected(::Nothing, ::Int) = true
+_is_selected(selected_ids::Set{Int}, outage_id::Int) = outage_id in selected_ids
 
 # Monitored-component names grouped by their concrete (modeled) type. Returns
 # `(per_type, uncovered, unavailable)`: the monitored component types the template
