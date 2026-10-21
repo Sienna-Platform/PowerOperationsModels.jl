@@ -98,6 +98,23 @@ function _apply_term_to_targets!(
 end
 
 """
+Apply the time-series terms `multiplier[name, t] * refs[t]` of one device to its targets.
+Function barrier. Julia specializes the time loop on the runtime container types.
+"""
+function _apply_ts_terms_to_targets!(
+    targets::Tuple,
+    refs,
+    multiplier,
+    name::String,
+    time_steps,
+)
+    for t in time_steps
+        _apply_term_to_targets!(targets, refs[t], multiplier[name, t], t)
+    end
+    return
+end
+
+"""
 Constant device power for a `StaticPowerLoad`-style injection. Active vs reactive is
 already encoded in the balance-expression type, so it is resolved by dispatch rather than
 by passing a getter.
@@ -207,9 +224,7 @@ function _add_ts_parameter_to_balance!(
         targets = _balance_expression_targets(container, T, network_model, d)
         name = PSY.get_name(d)
         refs = get_parameter_column_refs(param_container, name)
-        for t in time_steps
-            _apply_term_to_targets!(targets, refs[t], multiplier[name, t], t)
-        end
+        _apply_ts_terms_to_targets!(targets, refs, multiplier, name, time_steps)
     end
     return
 end
@@ -237,9 +252,7 @@ function _add_load_ts_parameter_to_balance!(
         name = PSY.get_name(d)
         if PSY.has_time_series(d, ts_type, ts_name)
             refs = get_parameter_column_refs(param_container, name)
-            for t in time_steps
-                _apply_term_to_targets!(targets, refs[t], multiplier[name, t], t)
-            end
+            _apply_ts_terms_to_targets!(targets, refs, multiplier, name, time_steps)
         else
             @warn "Device $(name) does not have time series of type $(ts_type) with name $(ts_name). Using default value of 1.0 for all time steps."
             fallback_multiplier = get_multiplier_value(U, d, W)
@@ -1546,31 +1559,7 @@ function add_to_expression!(
     W <: AbstractDeviceFormulation,
     X <: AbstractPTDFNetworkModel,
 }
-    param_container = get_parameter(container, U, V)
-    multiplier = get_multiplier_array(param_container)
-    sys_expr = get_expression(container, T, _system_expression_type(X))
-    nodal_expr = get_expression(container, T, PSY.ACBus)
-    network_reduction = get_network_reduction(network_model)
-    time_steps = get_time_steps(container)
-    for d in devices
-        name = PSY.get_name(d)
-        device_bus = PSY.get_bus(d)
-        bus_no = PNM.get_mapped_bus_number(network_reduction, PSY.get_number(device_bus))
-        ref_index = _ref_index(network_model, device_bus)
-        param = get_parameter_column_refs(param_container, name)
-        for t in time_steps
-            add_proportional_to_jump_expression!(
-                sys_expr[ref_index, t],
-                param[t],
-                multiplier[name, t],
-            )
-            add_proportional_to_jump_expression!(
-                nodal_expr[bus_no, t],
-                param[t],
-                multiplier[name, t],
-            )
-        end
-    end
+    _add_ts_parameter_to_balance!(container, T, U, devices, network_model, device_model)
     return
 end
 
@@ -1591,36 +1580,14 @@ function add_to_expression!(
     W <: AbstractLoadFormulation,
     X <: AbstractPTDFNetworkModel,
 }
-    param_container = get_parameter(container, U, V)
-    multiplier = get_multiplier_array(param_container)
-    sys_expr = get_expression(container, T, _system_expression_type(X))
-    nodal_expr = get_expression(container, T, PSY.ACBus)
-    network_reduction = get_network_reduction(network_model)
-    ts_name = get_time_series_names(device_model)[U]
-    ts_type = get_default_time_series_type(container)
-    time_steps = get_time_steps(container)
-    for d in devices
-        name = PSY.get_name(d)
-        has_ts = PSY.has_time_series(d, ts_type, ts_name)
-        if !has_ts
-            @warn "Device $(name) does not have time series of type $(ts_type) with name $(ts_name). Using default value of 1.0 for all time steps."
-        end
-        device_bus = PSY.get_bus(d)
-        bus_no_ = PSY.get_number(device_bus)
-        bus_no = PNM.get_mapped_bus_number(network_reduction, bus_no_)
-        ref_index = _ref_index(network_model, device_bus)
-        for t in time_steps
-            if has_ts
-                param = get_parameter_column_refs(param_container, name)[t]
-                mult = multiplier[name, t]
-            else
-                param = 1.0
-                mult = get_multiplier_value(U, d, W)
-            end
-            add_proportional_to_jump_expression!(sys_expr[ref_index, t], param, mult)
-            add_proportional_to_jump_expression!(nodal_expr[bus_no, t], param, mult)
-        end
-    end
+    _add_load_ts_parameter_to_balance!(
+        container,
+        T,
+        U,
+        devices,
+        network_model,
+        device_model,
+    )
     return
 end
 
