@@ -18,6 +18,9 @@ get_variable_upper_bound(::Type{ActivePowerVariable}, d::PSY.RenewableGen, ::Typ
 get_variable_binary(::Type{ReactivePowerVariable}, ::Type{<:PSY.RenewableGen}, ::Type{<:AbstractRenewableFormulation}) = false
 
 get_multiplier_value(::Type{<:TimeSeriesParameter}, d::PSY.RenewableGen, ::Type{FixedOutput}) = PSY.get_max_active_power(d, u"SU")
+# The default reactive series is the normalized active-power profile, so scale by
+# Q/P = tan(acos(pf)). A custom reactive series must be normalized the same way.
+get_multiplier_value(::Type{ReactivePowerTimeSeriesParameter}, d::PSY.RenewableGen, ::Type{FixedOutput}) = PSY.get_max_active_power(d, u"SU") * tan(acos(PSY.get_power_factor(d)))
 get_multiplier_value(::Type{<:TimeSeriesParameter}, d::PSY.RenewableGen, ::Type{<:AbstractRenewableFormulation}) = PSY.get_max_active_power(d, u"SU")
 
 # To avoid ambiguity with default_interface_methods.jl:
@@ -101,9 +104,9 @@ function add_constraints!(
         add_constraints_container!(container, EqualityConstraint, V, names, time_steps)
     for t in time_steps, d in devices
         name = PSY.get_name(d)
-        pf = sin(acos(PSY.get_power_factor(d)))
+        q_to_p = tan(acos(PSY.get_power_factor(d)))
         constraint[name, t] =
-            JuMP.@constraint(jump_model, q_var[name, t] == p_var[name, t] * pf)
+            JuMP.@constraint(jump_model, q_var[name, t] == p_var[name, t] * q_to_p)
     end
 end
 
