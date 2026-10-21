@@ -474,6 +474,81 @@ end
     @test isempty(_registered_outages(model))
 end
 
+function _add_unmonitored_line_outage!(sys::PSY.System, line_name::String)
+    outage = PSY.GeometricDistributionForcedOutage(;
+        mean_time_to_recovery = 10,
+        outage_transition_probability = 0.9999,
+    )
+    line = get_component(PSY.ACTransmission, sys, line_name)
+    PSY.add_supplemental_attribute!(sys, line, outage)
+    return outage
+end
+
+function _selection_only_sc_template(line_outages::Vector{<:PSY.Outage})
+    template = get_thermal_dispatch_template_network(NetworkModel(PTDFNetworkModel))
+    set_device_model!(
+        template,
+        DeviceModel(PSY.Line, POM.SecurityConstrainedStaticBranch; outages = line_outages),
+    )
+    set_device_model!(
+        template,
+        DeviceModel(
+            PSY.TwoWindingTransformer,
+            POM.SecurityConstrainedStaticBranch;
+            outages = PSY.Outage[],
+        ),
+    )
+    return template
+end
+
+const _EMPTY_MONITORED_WARNING = (:warn, r"has empty\s+monitored_components")
+
+@testset "An outage no SC model selects is skipped without warnings" begin
+    c_sys5 = PSB.build_system(PSITestSystems, "c_sys5")
+    selected = _add_line_outage!(c_sys5, "1")
+    _add_unmonitored_line_outage!(c_sys5, "2")
+    PSY.add_supplemental_attribute!(
+        c_sys5,
+        get_component(PSY.ACTransmission, c_sys5, "3"),
+        PSY.GeometricDistributionForcedOutage(;
+            mean_time_to_recovery = 10,
+            outage_transition_probability = 0.9999,
+            monitored_components = [first(get_components(PSY.ThermalStandard, c_sys5))],
+        ),
+    )
+    model = DecisionModel(
+        _selection_only_sc_template([selected]),
+        c_sys5;
+        optimizer = HiGHS_optimizer,
+    )
+    @test_logs min_level = Logging.Warn POM.validate_template(model)
+end
+
+@testset "A selected outage with empty monitored_components still warns" begin
+    c_sys5 = PSB.build_system(PSITestSystems, "c_sys5")
+    selected = _add_unmonitored_line_outage!(c_sys5, "1")
+    model = DecisionModel(
+        _selection_only_sc_template([selected]),
+        c_sys5;
+        optimizer = HiGHS_optimizer,
+    )
+    @test_logs _EMPTY_MONITORED_WARNING (:warn, r"listed on DeviceModel") min_level =
+        Logging.Warn POM.validate_template(model)
+end
+
+@testset "Auto-discovery warns for an outage with empty monitored_components" begin
+    c_sys5 = PSB.build_system(PSITestSystems, "c_sys5")
+    _add_unmonitored_line_outage!(c_sys5, "1")
+    model = DecisionModel(
+        _sc_branch_template(DeviceModel(PSY.Line, POM.SecurityConstrainedStaticBranch)),
+        c_sys5;
+        optimizer = HiGHS_optimizer,
+    )
+    @test_logs _EMPTY_MONITORED_WARNING min_level = Logging.Warn POM.validate_template(
+        model,
+    )
+end
+
 @testset "Rebuilding a model includes outages added to the system between builds" begin
     c_sys5 = PSB.build_system(PSITestSystems, "c_sys5")
     first_ids = Set(IS.get_id(_add_line_outage!(c_sys5, name)) for name in ["1", "2"])
