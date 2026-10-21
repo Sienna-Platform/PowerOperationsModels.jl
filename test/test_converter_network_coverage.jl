@@ -42,10 +42,10 @@ function _build_converter_sys(;
     end
     for ic in get_components(InterconnectingConverter, sys)
         set_loss_function!(ic, loss)
-        # 2.0 pu on the system base, in amperes.
+        # 2.0 pu on the system base, in kA.
         set_max_dc_current!(
             ic,
-            2.0 * 1000.0 * get_base_power(sys) / get_base_voltage(get_dc_bus(ic)),
+            2.0 * get_base_power(sys) / get_base_voltage(get_dc_bus(ic)),
         )
         set_reactive_power_limits!(
             ic, (min = -reactive_limit * u"SU", max = reactive_limit * u"SU"),
@@ -480,7 +480,7 @@ function _vsc_lpacc_sys(;
         )...,
         rated_ac_voltage_from = get_base_voltage(from_bus),
         converter_loss_from = PSY.LossCurve(QuadraticCurve(0.01, 0.0, 0.0), PSY.CU),
-        max_dc_current_from = 5.0 * 1000.0 * s_base / v_dc,
+        max_dc_current_from = 5.0 * s_base / v_dc,
         rating_from = 2.0,
         reactive_power_limits_from = (min = -2.0, max = 2.0),
         power_factor_weighting_fraction_from = 1.0,
@@ -493,7 +493,7 @@ function _vsc_lpacc_sys(;
         )...,
         rated_ac_voltage_to = get_base_voltage(to_bus),
         converter_loss_to = PSY.LossCurve(QuadraticCurve(0.01, 0.0, 0.0), PSY.CU),
-        max_dc_current_to = 5.0 * 1000.0 * s_base / v_dc,
+        max_dc_current_to = 5.0 * s_base / v_dc,
         rating_to = 2.0,
         reactive_power_limits_to = (min = -2.0, max = 2.0),
         power_factor_weighting_fraction_to = 1.0,
@@ -567,7 +567,7 @@ end
     # Converter base_power (50) != system base (100): the DC-side loss constant is on the
     # converter's own base and must be rescaled by base_power/system_base = 0.5 into the
     # system-base DC balance. The proportional loss term is a base-invariant fraction and
-    # must not change. The DC-current limit is in amperes, so the converter base does not
+    # must not change. The DC-current limit is in kA, so the converter base does not
     # scale it.
     b_term = 0.05
     c_term = 0.01
