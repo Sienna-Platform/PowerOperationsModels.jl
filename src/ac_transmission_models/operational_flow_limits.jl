@@ -5,8 +5,12 @@ const _OPERATIONAL_FLOW_LIMIT_ATTRIBUTES = (
     APPLY_OPERATIONAL_FLOW_LIMITS_KEY => true,
 )
 
+# Branches that carry their operational flow limit on the device itself.
+const _DEVICE_LIMITED_BRANCHES = Union{PSY.Line, PSY.SeriesCompensator}
+
 _operational_flow_limit_attributes(::Type{<:PSY.Device}) = ()
-_operational_flow_limit_attributes(::Type{PSY.Line}) = _OPERATIONAL_FLOW_LIMIT_ATTRIBUTES
+_operational_flow_limit_attributes(::Type{<:_DEVICE_LIMITED_BRANCHES}) =
+    _OPERATIONAL_FLOW_LIMIT_ATTRIBUTES
 _operational_flow_limit_attributes(::Type{<:PSY.TwoWindingTransformer}) =
     _OPERATIONAL_FLOW_LIMIT_ATTRIBUTES
 _operational_flow_limit_attributes(::Type{<:PSY.ThreeWindingTransformer}) =
@@ -19,7 +23,7 @@ _operational_flow_limits_enabled(model::DeviceModel) =
 
 # Device level. A transformer keeps its limit on its circuits.
 _has_device_operational_flow_limit(::PSY.ACTransmission) = false
-_has_device_operational_flow_limit(d::PSY.Line) =
+_has_device_operational_flow_limit(d::_DEVICE_LIMITED_BRANCHES) =
     !isnothing(PSY.get_operational_flow_limit(d, u"SU"))
 _has_device_operational_flow_limit(t::PSY.TwoWindingTransformer) =
     !isnothing(PSY.get_operational_flow_limit(PSY.get_circuit(t), u"SU"))
@@ -28,7 +32,8 @@ _has_device_operational_flow_limit(t::PNM.ThreeWindingTransformerCircuit) =
 _has_device_operational_flow_limit(agg::PNM.AbstractReductionAggregate) =
     any(_has_device_operational_flow_limit, agg)
 
-_device_operational_flow_limit(d::PSY.Line) = PSY.get_operational_flow_limit(d, u"SU")
+_device_operational_flow_limit(d::_DEVICE_LIMITED_BRANCHES) =
+    PSY.get_operational_flow_limit(d, u"SU")
 _device_operational_flow_limit(t::PSY.TwoWindingTransformer) =
     PSY.get_operational_flow_limit(PSY.get_circuit(t), u"SU")
 _device_operational_flow_limit(t::PNM.ThreeWindingTransformerCircuit) =
@@ -410,7 +415,7 @@ end
 
 # One validation entry per limited element: (name, limit, rating). A 3W transformer gives
 # one entry per winding that has a limit.
-function _operational_limit_entries(d::PSY.Line, model::DeviceModel)
+function _operational_limit_entries(d::_DEVICE_LIMITED_BRANCHES, model::DeviceModel)
     entries = Tuple{String, IOM.DirectionalMinMax, Float64}[]
     if _has_device_operational_flow_limit(d)
         push!(
@@ -470,7 +475,7 @@ function _ofl_names()
     )
 end
 
-_operational_flow_limit_time_series_names(::Type{PSY.Line}) = _ofl_names()
+_operational_flow_limit_time_series_names(::Type{<:_DEVICE_LIMITED_BRANCHES}) = _ofl_names()
 _operational_flow_limit_time_series_names(::Type{<:PSY.TwoWindingTransformer}) =
     _ofl_names()
 
@@ -637,4 +642,29 @@ function _operational_limit_entries(d::PSY.TwoTerminalHVDC, ::DeviceModel)
     isnothing(ofl) && return Tuple{String, IOM.DirectionalMinMax, Float64}[]
     caps = _hvdc_end_caps(d)
     return [(PSY.get_name(d), ofl, min(caps.from, caps.to))]
+end
+
+# The branch formulations hold a series compensator's reactance fixed, so they cannot model
+# one whose reactance is a decision or a flow control.
+_check_series_compensator_control_modes(::DeviceModel) = nothing
+
+function _check_series_compensator_control_modes(
+    device_model::DeviceModel{PSY.SeriesCompensator},
+)
+    fixed_modes = (
+        PSY.SeriesCompensatorControlMode.FIXED,
+        PSY.SeriesCompensatorControlMode.BYPASSED,
+    )
+    controlled = [
+        "$(PSY.get_name(d)) ($(PSY.get_control_mode(d)))" for
+        d in get_device_cache(device_model) if PSY.get_control_mode(d) ∉ fixed_modes
+    ]
+    isempty(controlled) && return
+    throw(
+        IS.ConflictingInputsError(
+            "SeriesCompensator control modes DISPATCHABLE and ACTIVE_POWER_FLOW are not " *
+            "supported by $(get_formulation(device_model)): $(join(controlled, ", ")). " *
+            "Set their control_mode to FIXED or BYPASSED.",
+        ),
+    )
 end
