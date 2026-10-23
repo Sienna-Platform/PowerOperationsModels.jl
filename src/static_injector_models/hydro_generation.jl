@@ -2421,15 +2421,14 @@ function add_to_balance_expression!(
     param_multiplier = get_parameter_multiplier_array(container, V,
         W,
     )
+    status = get_component_statuses(container, W)
 
     for d in devices
         name = PSY.get_name(d)
         param = get_parameter_column_refs(param_container, name)
         for t in time_steps
-            JuMP.add_to_expression!(
-                expression[ref_bus, t],
-                param_multiplier[name, t] * param[t],
-            )
+            mult = param_multiplier[name, t] * get_component_status(status, name, t)
+            JuMP.add_to_expression!(expression[ref_bus, t], mult * param[t])
         end
     end
 end
@@ -2525,8 +2524,6 @@ function add_to_objective_function!(
     add_proportional_cost!(container, OnVariable, devices, U)
     return
 end
-
-skip_proportional_cost(d::PSY.HydroPumpTurbine) = _is_must_run(d)
 
 # The OnVariable `add_proportional_cost!` forwarder (thermal + hydro) lives in
 # common_models/objective_function.jl: it routes through

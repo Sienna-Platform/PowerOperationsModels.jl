@@ -98,18 +98,21 @@ function _apply_term_to_targets!(
 end
 
 """
-Apply the time-series terms `multiplier[name, t] * refs[t]` of one device to its targets.
+Apply the time-series terms `multiplier[name, t] * refs[t]` of one device, scaled by its
+injector status, to its targets.
 Function barrier. Julia specializes the time loop on the runtime container types.
 """
 function _apply_ts_terms_to_targets!(
     targets::Tuple,
     refs,
     multiplier,
+    status,
     name::String,
     time_steps,
 )
     for t in time_steps
-        _apply_term_to_targets!(targets, refs[t], multiplier[name, t], t)
+        on = get_component_status(status, name, t)
+        _apply_term_to_targets!(targets, refs[t], multiplier[name, t] * on, t)
     end
     return
 end
@@ -151,8 +154,8 @@ end
 
 """
 Add a compact unit-commitment `OnVariable` scaled by per-device `p_min`. Must-run units
-have `On ≡ 1` and are left out of the `OnVariable` container entirely, so their `p_min`
-contribution enters as a constant; all others scale the variable. Used by the CopperPlate
+are on whenever in service and are left out of the `OnVariable` container entirely, so
+their `p_min` contribution enters as a constant scaled by their injector status; all others scale the variable. Used by the CopperPlate
 and PTDF compact-UC methods.
 """
 function _add_pmin_scaled_on_to_balance!(
@@ -169,7 +172,8 @@ end
 
 """
 Add a compact unit-commitment `OnVariable` to a balance expression. Must-run units
-have `On ≡ 1`, so their `p_min` contribution enters as a constant; all others
+are on whenever in service, so their `p_min` contribution enters as a constant scaled by
+their injector status; all others
 contribute `p_min * get_variable_multiplier(U, V, W) * On[name, t]`. Targets come from
 [`_balance_expression_targets`](@ref), so this is correct for every network model
 (nodal, area, system, PTDF).
@@ -185,14 +189,17 @@ function _add_compact_on_to_balance!(
     variable = get_variable(container, U, V)
     base_multiplier = get_variable_multiplier(U, V, W)
     time_steps = get_time_steps(container)
+    status = get_component_statuses(container, V)
     for d in devices
         targets = _balance_expression_targets(container, T, network_model, d)
         name = PSY.get_name(d)
         pmin = min_active_power_values(container, d)
         if _is_must_run(d)
-            # On ≡ 1 for must-run units, so the term is the constant p_min * mult.
+            # A must-run unit is on whenever it is in service, so the term is the
+            # constant p_min * mult scaled by its status.
             for t in time_steps
-                _apply_term_to_targets!(targets, 1.0, pmin[t] * base_multiplier, t)
+                on = get_component_status(status, name, t)
+                _apply_term_to_targets!(targets, on, pmin[t] * base_multiplier, t)
             end
         else
             for t in time_steps
@@ -206,8 +213,8 @@ end
 
 """
 Add a device time-series parameter to a balance expression. The contributed term is
-`multiplier[name, t] * parameter[name, t]`, with targets from
-[`_balance_expression_targets`](@ref).
+`multiplier[name, t] * parameter[name, t]`, scaled by the device's injector status, with
+targets from [`_balance_expression_targets`](@ref).
 """
 function _add_ts_parameter_to_balance!(
     container::OptimizationContainer,
@@ -220,11 +227,12 @@ function _add_ts_parameter_to_balance!(
     param_container = get_parameter(container, U, V)
     multiplier = get_multiplier_array(param_container)
     time_steps = get_time_steps(container)
+    status = get_component_statuses(container, V)
     for d in devices
         targets = _balance_expression_targets(container, T, network_model, d)
         name = PSY.get_name(d)
         refs = get_parameter_column_refs(param_container, name)
-        _apply_ts_terms_to_targets!(targets, refs, multiplier, name, time_steps)
+        _apply_ts_terms_to_targets!(targets, refs, multiplier, status, name, time_steps)
     end
     return
 end
@@ -247,17 +255,19 @@ function _add_load_ts_parameter_to_balance!(
     ts_name = get_time_series_names(model)[U]
     ts_type = get_default_time_series_type(container)
     time_steps = get_time_steps(container)
+    status = get_component_statuses(container, V)
     for d in devices
         targets = _balance_expression_targets(container, T, network_model, d)
         name = PSY.get_name(d)
         if PSY.has_time_series(d, ts_type, ts_name)
             refs = get_parameter_column_refs(param_container, name)
-            _apply_ts_terms_to_targets!(targets, refs, multiplier, name, time_steps)
+            _apply_ts_terms_to_targets!(targets, refs, multiplier, status, name, time_steps)
         else
             @warn "Device $(name) does not have time series of type $(ts_type) with name $(ts_name). Using default value of 1.0 for all time steps."
             fallback_multiplier = get_multiplier_value(U, d, W)
             for t in time_steps
-                _apply_term_to_targets!(targets, 1.0, fallback_multiplier, t)
+                on = get_component_status(status, name, t)
+                _apply_term_to_targets!(targets, on, fallback_multiplier, t)
             end
         end
     end
@@ -265,8 +275,8 @@ function _add_load_ts_parameter_to_balance!(
 end
 
 """
-Add a constant device power (e.g. a `StaticPowerLoad` motor load) to a balance
-expression with multiplier `-1.0`. Active vs reactive power is selected by the expression
+Add a constant device power (e.g. a `StaticPowerLoad` motor load), scaled by the device's
+injector status, to a balance expression with multiplier `-1.0`. Active vs reactive power is selected by the expression
 type `T` via [`_constant_power`](@ref); targets come from
 [`_balance_expression_targets`](@ref).
 """
@@ -277,11 +287,14 @@ function _add_constant_power_to_balance!(
     network_model::NetworkModel,
 ) where {T <: ExpressionType, V <: PSY.Component}
     time_steps = get_time_steps(container)
+    status = get_component_statuses(container, V)
     for d in devices
         targets = _balance_expression_targets(container, T, network_model, d)
+        name = PSY.get_name(d)
         value = _constant_power(T, d)
         for t in time_steps
-            _apply_term_to_targets!(targets, value, -1.0, t)
+            on = get_component_status(status, name, t)
+            _apply_term_to_targets!(targets, value * on, -1.0, t)
         end
     end
     return
@@ -302,22 +315,25 @@ function _add_onstatus_parameter_to_balance!(
 ) where {T <: ExpressionType, U <: OnStatusParameter, V <: PSY.ThermalGen, W}
     parameter = get_parameter_array(container, U, V)
     time_steps = get_time_steps(container)
+    status = get_component_statuses(container, V)
     for d in devices
         targets = _balance_expression_targets(container, T, network_model, d)
         multiplier = _on_status_multipliers(container, T, d, W)
+        name = PSY.get_name(d)
         # A must-run unit is absent from the feedforward-built parameter container -- it
-        # keeps its native bounds and its commitment is fixed at 1. The minimum-power term
-        # still belongs in the balance, so it enters as that constant instead of as a
-        # parameter lookup that would throw a KeyError.
+        # keeps its native bounds and is committed whenever it is in service. The
+        # minimum-power term still belongs in the balance, so it enters as that constant
+        # scaled by its status instead of as a parameter lookup that would throw a KeyError.
         if _is_must_run(d)
             for t in time_steps
-                _apply_term_to_targets!(targets, 1.0, multiplier[t], t)
+                on = get_component_status(status, name, t)
+                _apply_term_to_targets!(targets, on, multiplier[t], t)
             end
             continue
         end
-        name = PSY.get_name(d)
         for t in time_steps
-            _apply_term_to_targets!(targets, parameter[name, t], multiplier[t], t)
+            on = get_component_status(status, name, t)
+            _apply_term_to_targets!(targets, parameter[name, t], multiplier[t] * on, t)
         end
     end
     return
@@ -1633,21 +1649,17 @@ function add_to_expression!(
     nodal_expr = get_expression(container, T, PSY.ACBus)
     network_reduction = get_network_reduction(network_model)
     time_steps = get_time_steps(container)
+    status = get_component_statuses(container, V)
     for d in devices
+        name = PSY.get_name(d)
         device_bus = PSY.get_bus(d)
         bus_no = PNM.get_mapped_bus_number(network_reduction, device_bus)
         ref_index = _ref_index(network_model, device_bus)
+        power = PSY.get_active_power(d, u"SU")
         for t in time_steps
-            add_proportional_to_jump_expression!(
-                sys_expr[ref_index, t],
-                PSY.get_active_power(d, u"SU"),
-                -1.0,
-            )
-            add_proportional_to_jump_expression!(
-                nodal_expr[bus_no, t],
-                PSY.get_active_power(d, u"SU"),
-                -1.0,
-            )
+            value = power * get_component_status(status, name, t)
+            add_proportional_to_jump_expression!(sys_expr[ref_index, t], value, -1.0)
+            add_proportional_to_jump_expression!(nodal_expr[bus_no, t], value, -1.0)
         end
     end
     return
@@ -2446,6 +2458,10 @@ function add_to_expression!(
     end
     return
 end
+
+# The commitment read from an upstream model enters the range rows scaled by the injector
+# status, so a unit that is out of service here is bounded by zero even when the upstream
+# model committed it.
 function add_to_expression!(
     container::OptimizationContainer,
     ::Type{T},
@@ -2464,6 +2480,7 @@ function add_to_expression!(
     end
     expression = get_expression(container, T, V)
     time_steps = get_time_steps(container)
+    status = get_component_statuses(container, V)
     for d in devices
         name = PSY.get_name(d)
         mult = _on_status_multipliers(container, T, d, W)
@@ -2471,7 +2488,7 @@ function add_to_expression!(
             add_proportional_to_jump_expression!(
                 expression[name, t],
                 parameter_array[name, t],
-                -mult[t],
+                -mult[t] * get_component_status(status, name, t),
             )
         end
     end
@@ -2496,6 +2513,7 @@ function add_to_expression!(
     end
     expression = get_expression(container, T, V)
     time_steps = get_time_steps(container)
+    status = get_component_statuses(container, V)
     for d in devices
         if _is_must_run(d)
             continue
@@ -2506,7 +2524,7 @@ function add_to_expression!(
             add_proportional_to_jump_expression!(
                 expression[name, t],
                 parameter_array[name, t],
-                -mult[t],
+                -mult[t] * get_component_status(status, name, t),
             )
         end
     end
@@ -2824,7 +2842,7 @@ function add_to_expression!(
 end
 
 # Compact formulation: dispatch variable is "above-minimum"; constant P_min term is
-# added per-time-step, gated by the SOS status (no_variable / parameter / variable).
+# added per-time-step, gated by the on status of IOM's piecewise linear cost rows.
 
 function _add_compact_fuel_consumption_term!(
     container::OptimizationContainer,
@@ -2847,10 +2865,8 @@ function _add_compact_fuel_consumption_term!(
         proportional_term, power_units, base_power, device_base_power)
     on_var_type = typeof(get_default_on_variable(d))
     for t in time_steps
-        sos_status = _get_sos_value(container, W, d)
-        bin = IOM._determine_bin_lhs(
-            container, sos_status, V, name, t; on_var_type = on_var_type,
-        )
+        bin = IOM.get_on_status(
+            container, W, d, t; on_var_type = on_var_type, commitment_first = true)
         JuMP.add_to_expression!(
             expression[name, t], pmin[t] * prop_term_per_unit * dt, bin)
         JuMP.add_to_expression!(

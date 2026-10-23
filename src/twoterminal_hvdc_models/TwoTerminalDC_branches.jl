@@ -367,33 +367,43 @@ function add_constraints!(
     constraint_binary =
         add_constraints_container!(container, T, U, names, time_steps; meta = "bin")
     system_base = get_model_base_power(container)
+    status = get_component_statuses(container, U)
     for d in devices
         name = PSY.get_name(d)
         loss = _loss_curve_value(PSY.get_loss(d), d, system_base)
         from_to_params, to_from_params = _get_pwl_loss_params(d, loss)
         range_segments = 1:(length(from_to_params) - 1) # 1:(2S+1)
         for t in time_steps
+            # The loss curve's constant term shifts the received flows even at zero sent
+            # power, so an out line drops the curve and keeps its flows at zero.
+            s = get_component_status(status, name, t)
             ## Add Equality Constraints ##
             constraint_from_to[name, t] = JuMP.@constraint(
                 get_jump_model(container),
                 flow_ft[name, t] ==
-                sum(
-                    var_pwl_bin[name, ix, t] * from_to_params[ix] for
-                    ix in range_segments
-                ) + sum(
-                    var_pwl[name, ix, t] * (from_to_params[ix + 1] - from_to_params[ix]) for
-                    ix in range_segments
+                s * (
+                    sum(
+                        var_pwl_bin[name, ix, t] * from_to_params[ix] for
+                        ix in range_segments
+                    ) + sum(
+                        var_pwl[name, ix, t] *
+                        (from_to_params[ix + 1] - from_to_params[ix]) for
+                        ix in range_segments
+                    )
                 )
             )
             constraint_to_from[name, t] = JuMP.@constraint(
                 get_jump_model(container),
                 flow_tf[name, t] ==
-                sum(
-                    var_pwl_bin[name, ix, t] * to_from_params[ix] for
-                    ix in range_segments
-                ) + sum(
-                    var_pwl[name, ix, t] * (to_from_params[ix + 1] - to_from_params[ix]) for
-                    ix in range_segments
+                s * (
+                    sum(
+                        var_pwl_bin[name, ix, t] * to_from_params[ix] for
+                        ix in range_segments
+                    ) + sum(
+                        var_pwl[name, ix, t] *
+                        (to_from_params[ix + 1] - to_from_params[ix]) for
+                        ix in range_segments
+                    )
                 )
             )
             ## Add Binary Bound ###
@@ -732,6 +742,7 @@ function add_constraints!(
     direction_var = get_variable(container, HVDCFlowDirectionVariable, T)
     losses = get_variable(container, HVDCLosses, T)
     system_base = get_model_base_power(container)
+    status = get_component_statuses(container, T)
 
     constraint_ft_ub = add_constraints_container!(container, HVDCPowerBalance,
         T,
@@ -790,10 +801,12 @@ function add_constraints!(
     for d in devices
         name = PSY.get_name(d)
         loss = _loss_curve_value(PSY.get_loss(d), d, system_base)
-        l1, l0 = _hvdc_linear_loss_terms(loss, d)
+        l1, l0_in_service = _hvdc_linear_loss_terms(loss, d)
         R_min_from, R_max_from = _hvdc_from_limits(d)
         R_min_to, R_max_to = _hvdc_to_limits(d)
         for t in get_time_steps(container)
+            # The constant loss follows the line's status: an out line has no losses.
+            l0 = l0_in_service * get_component_status(status, name, t)
             constraint_tf_ub[name, t] = JuMP.@constraint(
                 get_jump_model(container),
                 tf_var[name, t] <= R_max_to * direction_var[name, t]
@@ -1676,6 +1689,8 @@ end
 # sees the converter as a load drawing p_ft / p_tf), so positive values of
 # `FlowActivePower*Variable` correspond to power flowing AC → DC at the
 # respective terminal.
+# An out converter has zero terminal power, which the bilinear approximation of v * I and
+# the constant loss terms cannot reproduce, so both rows read `p == status * (...)`.
 function add_constraints!(
     container::OptimizationContainer,
     ::Type{HVDCVSCConverterPowerConstraint},
@@ -1695,6 +1710,7 @@ function add_constraints!(
 
     abs_i_var = get_variable(container, CurrentAbsoluteValueVariable, U)
     system_base = get_model_base_power(container)
+    status = get_component_statuses(container, U)
 
     cons_ft = add_constraints_container!(
         container, HVDCVSCConverterPowerConstraint, U, names, time_steps; meta = "ft",
@@ -1714,6 +1730,7 @@ function add_constraints!(
         b_t = PSY.get_proportional_term(loss_to)
         c_t = PSY.get_constant_term(loss_to)
         for t in time_steps
+            s = get_component_status(status, name, t)
             abs_i_t = abs_i_var[name, t]
             loss_ft = _quadratic_converter_loss_expr(
                 a_f, b_f, c_f, i_sq_expr[name, t], abs_i_t,
@@ -1723,11 +1740,11 @@ function add_constraints!(
             )
             cons_ft[name, t] = JuMP.@constraint(
                 jump_model,
-                p_ft[name, t] == vi_expr_ft[name, t] + loss_ft,
+                p_ft[name, t] == s * (vi_expr_ft[name, t] + loss_ft),
             )
             cons_tf[name, t] = JuMP.@constraint(
                 jump_model,
-                p_tf[name, t] == -vi_expr_tf[name, t] + loss_tf,
+                p_tf[name, t] == s * (-vi_expr_tf[name, t] + loss_tf),
             )
         end
     end
@@ -1763,6 +1780,7 @@ function add_constraints!(
     i_ac_t = get_variable(container, ConverterACCurrentToVariable, U)
     v_arrays = _fetch_voltage_arrays(container, network_model)
     system_base = get_model_base_power(container)
+    status = get_component_statuses(container, U)
 
     cons_ft = add_constraints_container!(
         container, HVDCVSCConverterPowerConstraint, U, names, time_steps; meta = "ft",
@@ -1790,6 +1808,7 @@ function add_constraints!(
         b_t = PSY.get_proportional_term(loss_to)
         c_t = PSY.get_constant_term(loss_to)
         for t in time_steps
+            s = get_component_status(status, name, t)
             iaf = i_ac_f[name, t]
             iat = i_ac_t[name, t]
             defn_ft[name, t] = _converter_ac_current_definition(
@@ -1802,11 +1821,11 @@ function add_constraints!(
             loss_tf = _quadratic_converter_loss_expr(a_t, b_t, c_t, iat^2, iat)
             cons_ft[name, t] = JuMP.@constraint(
                 jump_model,
-                p_ft[name, t] == vi_expr_ft[name, t] + loss_ft,
+                p_ft[name, t] == s * (vi_expr_ft[name, t] + loss_ft),
             )
             cons_tf[name, t] = JuMP.@constraint(
                 jump_model,
-                p_tf[name, t] == -vi_expr_tf[name, t] + loss_tf,
+                p_tf[name, t] == s * (-vi_expr_tf[name, t] + loss_tf),
             )
         end
     end

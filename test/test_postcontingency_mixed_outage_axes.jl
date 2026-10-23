@@ -1,39 +1,38 @@
 # Ported from PowerSimulations.jl PR #1579 (MODF SCUC migration), adapted to
-# POM / PS6 APIs. Exercises the Phase-4 `_build_device_model_outages!` planned
-# vs. unplanned outage-axis selection and the
+# POM / PS6 APIs. Exercises the `_build_device_model_outages!` unplanned
+# outage-axis selection and the
 # `_pin_outage_buses!` bus-pinning (N3) logic.
 #
 # Adaptation notes:
 #   * internal symbols are namespaced `POM.` / `IOM.` / `PNM.`; expression and
 #     constraint accessors take the *type* (no instance `()`), matching POM's
 #     `IOM.get_expression(container, POM.X, T)` convention.
-#   * the planned/unplanned distinction is driven by the
-#     `"include_planned_outages"` DeviceModel attribute (Phase 2 seeds it to
-#     `false` in `get_default_attributes(::AbstractSecurityConstrainedStaticBranch)`).
+#   * a `PSY.PlannedOutage` is a scheduled topology change, not a contingency, so it never
+#     appears on post-contingency axes.
 #   * the upstream "outages kwarg selects a subset" sub-testset is DEFERRED: the
 #     IOM `DeviceModel(...; outages)` kwarg is typed
 #     `AbstractVector{<:IS.InfrastructureSystemsComponent}`, but outage objects
-#     (`GeometricDistributionForcedOutage` / `PlannedOutage`) are
+#     (`GeometricDistributionForcedOutage` / `FixedForcedOutage`) are
 #     `IS.SupplementalAttribute`s, a sibling branch of
 #     `InfrastructureSystemsType`, so they are rejected at construction
 #     (TypeError). The explicit-subset selection path is therefore not
-#     representable through the public constructor; the auto-discovery + planned
-#     filter path is the portable one and is exercised in full below.
+#     representable through the public constructor; the auto-discovery
+#     path is the portable one and is exercised in full below.
 #   * for the bus-pinning unit tests we populate `IOM.get_outages(dm)` directly
 #     (the same dict `_assign_outage_to_sc_models!` writes), since the kwarg
 #     cannot accept the supplemental attribute.
 
-@testset "Post-contingency outage axes — attribute drives inclusion" begin
+@testset "Post-contingency outage axes — unplanned outages only" begin
     scb_formulation = POM.SecurityConstrainedStaticBranch
 
-    # `PSY.GeometricDistributionForcedOutage` is the concrete unplanned outage;
-    # `PSY.PlannedOutage` is the planned one. The two intentionally monitor
-    # different-sized sets so the `include_planned_outages=true` testset can
+    # `PSY.GeometricDistributionForcedOutage` and `PSY.FixedForcedOutage` are the unplanned
+    # outages; `PSY.PlannedOutage` is not a contingency. The unplanned outages monitor
+    # different-sized sets so the testset can
     # assert that sparse containers carry per-outage axes, not a shared global
     # axis.
     function _build_mixed_outage_system()
         sys = PSB.build_system(PSITestSystems, "c_sys5")
-        lines = collect(PSY.get_components(PSY.Line, sys))
+        lines = sort!(collect(PSY.get_components(PSY.Line, sys)); by = PSY.get_name)
         @assert length(lines) >= 3
         all_branches = collect(PSY.get_components(PSY.ACTransmission, sys))
         unplanned = PSY.GeometricDistributionForcedOutage(;
@@ -41,13 +40,29 @@
             outage_transition_probability = 0.9999,
             monitored_components = all_branches,
         )
-        planned = PSY.PlannedOutage(;
-            outage_schedule = "planned_outage_ts",
+        unplanned_narrow = PSY.FixedForcedOutage(;
+            outage_status = 0.0,
             monitored_components = [lines[3]],
         )
+        planned = PSY.PlannedOutage(; outage_schedule = "planned_outage_ts")
+        planned_schedule = zeros(24)
+        planned_schedule[[3, 4]] .= 1.0
         PSY.add_supplemental_attribute!(sys, lines[1], unplanned)
+        PSY.add_supplemental_attribute!(sys, lines[4], unplanned_narrow)
         PSY.add_supplemental_attribute!(sys, lines[2], planned)
-        return sys, unplanned, planned
+        PSY.add_time_series!(
+            sys,
+            planned,
+            PSY.Deterministic(;
+                name = "planned_outage_ts",
+                data = SortedDict(
+                    Dates.DateTime(2024, 1, 1) => planned_schedule,
+                    Dates.DateTime(2024, 1, 2) => planned_schedule,
+                ),
+                resolution = Dates.Hour(1),
+            ),
+        )
+        return sys, unplanned, unplanned_narrow, planned
     end
 
     function _build_model(sys; attributes = Dict{String, Any}())
@@ -57,7 +72,7 @@
                 use_slacks = false,
             ),
         )
-        set_device_model!(
+        @test_logs (:warn, r"Overwriting Line existing model") set_device_model!(
             template,
             DeviceModel(
                 PSY.Line, scb_formulation;
@@ -83,45 +98,26 @@
         return expr_outages, cons_outages
     end
 
-    @testset "default: only UnplannedOutage appears in axes" begin
-        sys, unplanned, planned = _build_mixed_outage_system()
-        model = _build_model(sys)   # default attributes: include_planned_outages=false
-
-        expr_ax, cons_ax = _axes(model)
-        @test expr_ax == cons_ax
-        @test expr_ax == Set([string(IS.get_id(unplanned))])
-        @test !(string(IS.get_id(planned)) in expr_ax)
-    end
-
-    @testset "include_planned_outages=true: both outages appear in axes" begin
-        sys, unplanned, planned = _build_mixed_outage_system()
-        model = _build_model(
-            sys; attributes = Dict{String, Any}("include_planned_outages" => true),
-        )
+    @testset "planned outages never appear; per-outage axes differ in size" begin
+        sys, unplanned, unplanned_narrow, planned = _build_mixed_outage_system()
+        model = _build_model(sys)
 
         expr_ax, cons_ax = _axes(model)
         @test expr_ax == cons_ax
         @test expr_ax == Set([
             string(IS.get_id(unplanned)),
-            string(IS.get_id(planned)),
+            string(IS.get_id(unplanned_narrow)),
         ])
+        @test !(string(IS.get_id(planned)) in expr_ax)
 
-        # Different-size monitored sets: unplanned monitors all `ACTransmission`
-        # branches in c_sys5 (6 lines, all on distinct arcs), planned monitors
-        # one. Sparse containers must carry per-outage branch sets — not a
-        # shared global axis — so the (outage, branch_name) projection sizes
-        # differ between the two outages.
         container = IOM.get_optimization_container(model)
         expr = IOM.get_expression(container, POM.PostContingencyBranchFlow, PSY.Line)
-        unplanned_id = string(IS.get_id(unplanned))
-        planned_id = string(IS.get_id(planned))
-        unplanned_branches =
-            Set(k[2] for k in keys(expr.data) if k[1] == unplanned_id)
-        planned_branches =
-            Set(k[2] for k in keys(expr.data) if k[1] == planned_id)
-        @test length(unplanned_branches) == 6
-        @test length(planned_branches) == 1
-        @test length(unplanned_branches) != length(planned_branches)
+        wide_id = string(IS.get_id(unplanned))
+        narrow_id = string(IS.get_id(unplanned_narrow))
+        wide_branches = Set(k[2] for k in keys(expr.data) if k[1] == wide_id)
+        narrow_branches = Set(k[2] for k in keys(expr.data) if k[1] == narrow_id)
+        @test length(wide_branches) == 6
+        @test length(narrow_branches) == 1
     end
 
     # DEFERRED: "outages kwarg selects a subset" — passing outage objects to the
@@ -209,4 +205,77 @@ end
     end
 
     @test isempty(irreducible_buses)
+end
+
+@testset "include_planned_outages is rejected" begin
+    sys = PSB.build_system(PSITestSystems, "c_sys5")
+    template = get_thermal_dispatch_template_network(
+        NetworkModel(PTDFNetworkModel; use_slacks = false),
+    )
+    @test_logs (:warn, r"Overwriting Line existing model") set_device_model!(
+        template,
+        DeviceModel(
+            PSY.Line,
+            POM.SecurityConstrainedStaticBranch;
+            attributes = Dict{String, Any}("include_planned_outages" => true),
+        ),
+    )
+    model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
+    output_dir = mktempdir(; cleanup = true)
+    status = build!(model; output_dir = output_dir, console_level = Logging.AboveMaxLevel)
+    @test status == IOM.ModelBuildStatus.FAILED
+    log_text = read(
+        joinpath(IOM.get_output_dir(model), IOM.PROBLEM_LOG_FILENAME),
+        String,
+    )
+    @test occursin(r"removed attribute .*include_planned_outages", log_text)
+    @test occursin("include_planned_outages", log_text)
+    @test occursin("removed", log_text)
+    @test_throws IS.ConflictingInputsError POM.validate_template(model)
+end
+
+@testset "include_planned_outages is rejected on an EmulationModel" begin
+    sys = PSB.build_system(PSITestSystems, "c_sys5"; add_single_time_series = true)
+    template = get_thermal_dispatch_template_network(
+        NetworkModel(PTDFNetworkModel; use_slacks = false),
+    )
+    @test_logs (:warn, r"Overwriting Line existing model") set_device_model!(
+        template,
+        DeviceModel(
+            PSY.Line,
+            POM.SecurityConstrainedStaticBranch;
+            attributes = Dict{String, Any}("include_planned_outages" => true),
+        ),
+    )
+    model = EmulationModel(template, sys; optimizer = HiGHS_optimizer)
+    status = build!(
+        model;
+        output_dir = mktempdir(; cleanup = true),
+        console_level = Logging.AboveMaxLevel,
+    )
+    @test status == IOM.ModelBuildStatus.FAILED
+    log_text = read(
+        joinpath(IOM.get_output_dir(model), IOM.PROBLEM_LOG_FILENAME),
+        String,
+    )
+    @test occursin("include_planned_outages", log_text)
+    @test occursin("removed", log_text)
+end
+
+@testset "include_planned_outages is rejected on a model dropped for having no devices" begin
+    sys = PSB.build_system(PSITestSystems, "c_sys5")
+    @test isempty(PSY.get_components(PSY.TwoWindingTransformer, sys))
+    template = get_thermal_dispatch_template_network(
+        NetworkModel(PTDFNetworkModel; use_slacks = false),
+    )
+    @test_logs (:warn, r"Overwriting TwoWindingTransformer existing model") set_device_model!(
+        template,
+        DeviceModel(
+            PSY.TwoWindingTransformer,
+            POM.StaticBranch;
+            attributes = Dict{String, Any}("include_planned_outages" => true),
+        ),
+    )
+    model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
+    @test_throws r"removed attribute .*include_planned_outages" POM.validate_template(model)
 end

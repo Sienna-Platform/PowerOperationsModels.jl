@@ -254,12 +254,33 @@ normalized by the load's `max_active_power`."
 struct HybridElectricLoadTimeSeriesParameter <: TimeSeriesParameter end
 
 #################################################################################
+# Component Status Parameters
+#################################################################################
+
+"""
+Status of a component at each time step of the model window, derived from its scheduled
+outages and switching schedules: 1.0 in service, 0.0 out. Values are read at build time to
+shape the model, so containers always hold `Float64` and a model carrying them is rebuilt
+every simulation step.
+"""
+abstract type ComponentStatusParameter <: ParameterType end
+
+"""Status of a branch (each parallel member separately)."""
+struct BranchStatusParameter <: ComponentStatusParameter end
+
+"""Status of a static injector."""
+struct InjectorStatusParameter <: ComponentStatusParameter end
+
+IOM.requires_rebuild(::Type{<:ComponentStatusParameter}) = true
+
+#################################################################################
 # Method extensions for should_write_resulting_value
 #################################################################################
 
 should_write_resulting_value(::Type{<:TimeSeriesParameter}) = true
 should_write_resulting_value(::Type{<:VariableValueParameter}) = true
 should_write_resulting_value(::Type{<:EventParameter}) = true
+should_write_resulting_value(::Type{<:ComponentStatusParameter}) = true
 
 should_write_resulting_value(::Type{<:FuelCostParameter}) = true
 should_write_resulting_value(::Type{<:ShutdownCostParameter}) = true
