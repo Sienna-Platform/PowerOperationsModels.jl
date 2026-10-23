@@ -568,3 +568,37 @@ _base_network() = PNM.NetworkModification("", PNM.ArcModification[])
     end
     @test holds_contingencies == [true, true, false, true]
 end
+
+@testset "releasing the contingency caches after build keeps the model's answer" begin
+    sys, ids = _c_sys5_with_scheduled_contingencies(("1", "2", "3"))
+    reference = _built_model(_sc_template(), sys)
+    @test solve!(reference) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+    objective(model) = IOM.get_optimization_container(model).optimizer_stats.objective_value
+
+    sys, ids = _c_sys5_with_scheduled_contingencies(("1", "2", "3"))
+    model = _built_model(_sc_template(), sys)
+    network_model = _network_model(model)
+    matrix = IOM.get_contingency_matrix(network_model)
+    # The union of line "3", out at the maintenance steps, with the contingency on line "1".
+    post_contingency = POM.get_post_contingency_modifications(network_model)
+    union_network = post_contingency[parse(Int, ids["1"])][first(_OUT_STEPS)]
+    monitored = _arc_of(model, PSY.Line, "4")
+    row = only(PNM.get_post_modification_ptdf_rows(matrix, monitored, [union_network]))
+    registered = copy(PNM.get_registered_contingencies(matrix))
+    @test !isempty(PNM.get_woodbury_cache(matrix))
+
+    release_contingency_caches!(model)
+    @test isempty(PNM.get_woodbury_cache(matrix))
+    @test isempty(PNM.get_row_caches(matrix))
+    @test PNM.get_registered_contingencies(matrix) == registered
+    # A row asked for again is recomputed, not lost.
+    @test only(PNM.get_post_modification_ptdf_rows(matrix, monitored, [union_network])) ≈
+          row atol = 1e-12
+    @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+    @test objective(model) ≈ objective(reference) rtol = 1e-9
+end
+
+@testset "releasing the caches of a network model without a contingency matrix does nothing" begin
+    model = _built_model(_sc_template(; sc_types = ()), _c_sys5())
+    @test release_contingency_caches!(model) === nothing
+end

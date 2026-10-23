@@ -503,6 +503,7 @@ export set_hvdc_network_model!
 export validate_time_series!
 export init_optimization_container!
 export get_network_model
+export release_contingency_caches!
 export get_value
 export get_initial_conditions_data
 export get_initial_condition_value

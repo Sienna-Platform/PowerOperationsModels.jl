@@ -167,3 +167,28 @@ _set_topology_schedule!(::Nothing, m::NetworkModel, ::PNM.TopologySchedule, _) =
     "$(nameof(get_network_formulation(m))) holds no network topology, so it cannot store \
      a topology schedule. Only DCP and PTDF network models follow scheduled topology.",
 )
+
+"""
+    release_contingency_caches!(network_model::NetworkModel)
+
+Free the post-contingency PTDF rows and Woodbury factors that `network_model`'s contingency
+and topology matrices cached while the model's constraints were built. The contingency
+registrations stay, so a later query recomputes the rows it asks for.
+
+Under a topology schedule the cache holds one set of factors per step topology and
+contingency, each as wide as the arcs the step and the contingency take out together, and it
+stays resident through the solve unless released. Call this after `build!` on a model that is
+built once. A model rebuilt at each step of a simulation reuses the caches of recurring
+topologies, so leave them in place there.
+"""
+function release_contingency_caches!(network_model::NetworkModel)
+    data = get_network_data(network_model)
+    isnothing(data) && return
+    has_contingency_matrix(data) &&
+        _release_caches!(get_network_data_contingency_matrix(data))
+    _release_caches!(get_topology_matrix(network_model))
+    return
+end
+
+_release_caches!(matrix::PNM.VirtualMODF) = PNM.clear_caches!(matrix)
+_release_caches!(::Any) = nothing
