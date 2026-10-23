@@ -211,8 +211,8 @@ end
 
 """
 Available maximum of `d` in each time step for the offline band: `mult[name, t] * ts_t` from
-its `ActivePowerTimeSeriesParameter`, or `q_limit` (static `pmax`) in every step when `model`
-maps no such series or `d` has none.
+its `ActivePowerTimeSeriesParameter`, scaled by its injector status, or `q_limit` (static
+`pmax`) in every step when `model` maps no such series or `d` has none.
 """
 function _offline_hourly_limit(
     container::OptimizationContainer,
@@ -231,7 +231,11 @@ function _offline_hourly_limit(
     mult = get_multiplier_array(param_container)
     name = PSY.get_name(d)
     param_col = get_parameter_column_refs(param_container, name)
-    return [mult[name, t] * param_col[t] for t in time_steps]
+    status = get_component_statuses(container, V)
+    return [
+        mult[name, t] * get_component_status(status, name, t) * param_col[t] for
+        t in time_steps
+    ]
 end
 
 """

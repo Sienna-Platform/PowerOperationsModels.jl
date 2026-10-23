@@ -258,6 +258,20 @@ N-1 security constraints are built with Modified Outage Distribution Factors (PN
 | `ACPNetworkModel`, `ACRNetworkModel`, `IVRNetworkModel`, `LPACCNetworkModel`, `DCPLLNetworkModel` | **Blocked** at template validation with an `IS.ConflictingInputsError`: the MODF post-contingency formulation is a lossless linear DC construct and is not available on AC or lossy network models                                                                                                                                      |
 | `NFANetworkModel`, `CopperPlateNetworkModel`, `AreaBalanceNetworkModel`                           | Deliberate no-op — a `@warn` states the security constraints are inert                                                                                                                                                                                                                                                                  |
 
+!!! note "Post-contingency flows under planned outages"
+    
+    With planned outages or switching schedules on branches, each step's post-contingency
+    flow is computed on the network in effect at that step with the contingency's components
+    removed.
+    Every `(outage, monitored branch, step)` entry exists, but no post-contingency limit applies
+    at a step where every component of the contingency is already out, or where the monitored
+    branch itself is out.
+    There the `PostContingencyBranchFlow` entry is the zero expression and its
+    `PostContingencyFlowRateConstraint` rows bind nothing.
+    A zero in the outputs at such a step therefore means "no post-contingency limit", not "no
+    post-contingency flow": the monitored branch carries its pre-contingency flow, reported by
+    `PTDFBranchFlow` or `FlowActivePowerVariable`.
+
 #### Transformer tap control
 
 Tap control is **not** a separate formulation. It is an opt-in attribute on the ordinary

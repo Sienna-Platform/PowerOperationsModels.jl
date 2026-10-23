@@ -78,7 +78,8 @@ get_variable_binary(::Type{StartVariable}, d::Type{<:PSY.ThermalGen}, ::Type{<:A
 get_variable_lower_bound(::Type{StartVariable}, d::PSY.ThermalGen, ::Type{<:AbstractThermalFormulation}) = 0.0
 get_variable_upper_bound(::Type{StartVariable}, d::PSY.ThermalGen, ::Type{<:AbstractThermalFormulation}) = 1.0
 
-# Must-run units are always on, so they carry no commitment variables.
+# Must-run units are committed whenever in service, so they carry no commitment variables;
+# their injector status stands in for the commitment.
 skip_variable(::Type{<:Union{OnVariable, StartVariable, StopVariable}}, d::PSY.ThermalGen, ::Type{<:AbstractThermalFormulation}) = _is_must_run(d)
 
 ############## ColdStartVariable, WarmStartVariable, HotStartVariable ############
@@ -729,9 +730,10 @@ function add_constraints!(
         startup_shutdown_limits = get_startup_shutdown_limits(device, T, W)
         @assert !isnothing(startup_shutdown_limits) "$(name)"
         p_max = PSY.get_active_power_limits(device, u"SU").max
-        # A must-run unit is in none of the On/Start/Stop containers: On is identically 1
-        # and Start and Stop identically 0, so both start-up and shut-down ramp terms drop
-        # out and the ceiling is the plain range.
+        # A must-run unit is in none of the On/Start/Stop containers: it is committed
+        # whenever in service and the model never starts or stops it, so both start-up and
+        # shut-down ramp terms drop out and the ceiling is the plain range. Its power is
+        # fixed to zero at the steps it is out.
         if _is_must_run(device)
             for t in time_steps
                 if JuMP.has_lower_bound(varp[name, t])
@@ -976,45 +978,13 @@ function calculate_aux_variable_value!(
     ::PSY.System,
     ::PowerSolveContext,
 ) where {T <: PSY.ThermalGen}
-    on_variable_output = lookup_value(container, OnVariable, T)
-    aux_variable_container = get_aux_variable(container, TimeDurationOn, T)
-    ini_cond = get_initial_condition(container, InitialTimeDurationOn(), T)
-
-    time_steps = get_time_steps(container)
-
-    for ix in eachindex(JuMP.axes(aux_variable_container)[1])
-        # if its nothing it means the thermal unit was on must run
-        # so there is nothing to do but to add the total number of time steps
-        # to the count
-        if isnothing(get_value(ini_cond[ix]))
-            sum_on_var = float(time_steps[end])
-        else
-            on_var_name = IOM.get_component_name(ini_cond[ix])
-            ini_cond_value = get_condition(ini_cond[ix])
-            # On Var doesn't exist for a unit that has must_run = true
-            on_var = on_variable_output[on_var_name, :]
-            aux_variable_container.data[ix, :] .= ini_cond_value
-            sum_on_var = Float64(sum(on_var))
-        end
-        if sum_on_var == time_steps[end] # Unit was always on
-            aux_variable_container.data[ix, :] += time_steps
-        elseif iszero(sum_on_var) # Unit was always off
-            aux_variable_container.data[ix, :] .= 0.0
-        else
-            previous_condition = ini_cond_value
-            for (t, v) in enumerate(on_var)
-                if v < 0.99 # Unit turn off
-                    time_value = 0.0
-                elseif isapprox(v, 1.0; atol = ABSOLUTE_TOLERANCE) # Unit is on
-                    time_value = previous_condition + 1.0
-                else
-                    error("Binary condition returned $v")
-                end
-                previous_condition = aux_variable_container.data[ix, t] = time_value
-            end
-        end
-    end
-
+    _calculate_time_durations!(
+        container,
+        get_aux_variable(container, TimeDurationOn, T),
+        get_initial_condition(container, InitialTimeDurationOn(), T),
+        T,
+        true,
+    )
     return
 end
 
@@ -1024,44 +994,95 @@ function calculate_aux_variable_value!(
     ::PSY.System,
     ::PowerSolveContext,
 ) where {T <: PSY.ThermalGen}
-    on_variable_output = lookup_value(container, OnVariable, T)
-    aux_variable_container = get_aux_variable(container, TimeDurationOff, T)
-    ini_cond = get_initial_condition(container, InitialTimeDurationOff(), T)
+    _calculate_time_durations!(
+        container,
+        get_aux_variable(container, TimeDurationOff, T),
+        get_initial_condition(container, InitialTimeDurationOff(), T),
+        T,
+        false,
+    )
+    return
+end
 
-    time_steps = get_time_steps(container)
-    for ix in eachindex(JuMP.axes(aux_variable_container)[1])
-        # if its nothing it means the thermal unit was on must_run = true
-        # so there is nothing to do but continue
-        if isnothing(get_value(ini_cond[ix]))
-            sum_on_var = 0.0
+#=
+The number of consecutive steps each unit has been on (`counts_on`) or off at each step,
+continuing from its initial condition. A must-run unit has no commitment variable and no
+initial condition: it is on whenever it is in service, starting from a count of zero.
+=#
+function _calculate_time_durations!(
+    container::OptimizationContainer,
+    durations,
+    initial_conditions,
+    ::Type{T},
+    counts_on::Bool,
+) where {T <: PSY.ThermalGen}
+    on_values = if has_container_key(container, OnVariable, T)
+        lookup_value(container, OnVariable, T)
+    else
+        nothing
+    end
+    _calculate_time_durations!(
+        durations,
+        initial_conditions,
+        on_values,
+        get_component_statuses(container, T),
+        get_time_steps(container),
+        counts_on,
+    )
+    return
+end
+
+function _calculate_time_durations!(
+    durations,
+    initial_conditions,
+    on_values,
+    status,
+    time_steps,
+    counts_on::Bool,
+)
+    for ic in initial_conditions
+        name = IOM.get_component_name(ic)
+        if isnothing(get_value(ic))
+            on = [get_component_status(status, name, t) for t in time_steps]
+            _count_durations!(durations, name, on, time_steps, 0.0, counts_on)
         else
-            on_var_name = IOM.get_component_name(ini_cond[ix])
-            # On Var doesn't exist for a unit that has must run
-            on_var = on_variable_output[on_var_name, :]
-            ini_cond_value = get_condition(ini_cond[ix])
-            aux_variable_container.data[ix, :] .= ini_cond_value
-            sum_on_var = Float64(sum(on_var))
-        end
-        if sum_on_var == time_steps[end] # Unit was always on
-            aux_variable_container.data[ix, :] .= 0.0
-        elseif iszero(sum_on_var) # Unit was always off
-            aux_variable_container.data[ix, :] += time_steps
-        else
-            previous_condition = ini_cond_value
-            for (t, v) in enumerate(on_var)
-                if v < 0.99 # Unit turn off
-                    time_value = previous_condition + 1.0
-                elseif isapprox(v, 1.0; atol = ABSOLUTE_TOLERANCE) # Unit is on
-                    time_value = 0.0
-                else
-                    error("Binary condition returned $v")
-                end
-                previous_condition = aux_variable_container.data[ix, t] = time_value
-            end
+            previous = Float64(get_condition(ic))
+            _count_durations!(
+                durations,
+                name,
+                on_values[name, :],
+                time_steps,
+                previous,
+                counts_on,
+            )
         end
     end
-
     return
+end
+
+function _count_durations!(
+    durations,
+    name::String,
+    on,
+    time_steps,
+    previous::Float64,
+    counts_on::Bool,
+)
+    for (t, value) in zip(time_steps, on)
+        if _is_committed(value) == counts_on
+            previous += 1.0
+        else
+            previous = 0.0
+        end
+        durations[name, t] = previous
+    end
+    return
+end
+
+function _is_committed(value::Real)
+    value < 0.99 && return false
+    isapprox(value, 1.0; atol = ABSOLUTE_TOLERANCE) && return true
+    error("Binary condition returned $value")
 end
 
 function calculate_aux_variable_value!(
@@ -1085,22 +1106,26 @@ function calculate_aux_variable_value!(
     p_variable_output = lookup_value(container, PowerAboveMinimumVariable, T)
     device_name = axes(p_variable_output, 1)
     aux_variable_container = get_aux_variable(container, PowerOutput, T)
+    status = get_component_statuses(container, T)
     for d_name in device_name
         d = PSY.get_component(T, system, d_name)
         name = PSY.get_name(d)
         pmin = min_active_power_values(container, d)
         # A must-run unit appears in neither the OnVariable container nor the
         # OnStatusParameter array — both are built from the non-must-run devices — while
-        # the power axis above carries every device. Its commitment is fixed at 1.
+        # the power axis above carries every device. It is committed whenever it is in
+        # service.
         if _is_must_run(d)
             for t in time_steps
                 aux_variable_container[name, t] =
-                    pmin[t] + p_variable_output[name, t]
+                    get_component_status(status, name, t) * pmin[t] +
+                    p_variable_output[name, t]
             end
         else
+            # A commitment read from `OnStatusParameter` is not zeroed by an outage.
             for t in time_steps
-                aux_variable_container[name, t] =
-                    on_variable_output[name, t] * pmin[t] + p_variable_output[name, t]
+                on = on_variable_output[name, t] * get_component_status(status, name, t)
+                aux_variable_container[name, t] = on * pmin[t] + p_variable_output[name, t]
             end
         end
     end
@@ -1673,8 +1698,8 @@ end
 
 # proportional cost: connects to common implementation in IOM
 # The OnVariable `add_proportional_cost!` forwarder (thermal + hydro) lives in
-# common_models/objective_function.jl.
-skip_proportional_cost(d::PSY.ThermalGen) = _is_must_run(d)
+# common_models/objective_function.jl. A must-run unit's proportional cost is skipped through
+# `IOM.is_always_committed` (utils/psy_utils.jl).
 
 # A must-run unit has no On variable cost, but its ramp slacks keep their penalty.
 skip_proportional_cost(
@@ -1876,46 +1901,6 @@ function IOM.add_pwl_term_lambda!(
     return pwl_cost_expressions
 end
 
-# ThermalGen range-constraint specialization: checks must_run to decide whether to use binary variable.
-# Overrides the generic IS.InfrastructureSystemsComponent version in IOM.
-function IOM._add_semicontinuous_bound_range_constraints_impl!(
-    container::OptimizationContainer,
-    ::Type{T},
-    dir::IOM.BoundDirection,
-    array,
-    devices::Vector{V},
-    model::DeviceModel{V, W};
-    meta_suffix::String = "",
-) where {T <: ConstraintType, V <: PSY.ThermalGen, W <: AbstractDeviceFormulation}
-    time_steps = IOM.get_time_steps(container)
-    names = IS.get_name.(devices)
-    jump_model = IOM.get_jump_model(container)
-    con = IOM.add_constraints_container!(
-        container, T, V, names, time_steps;
-        meta = IOM.constraint_meta(dir) * meta_suffix)
-    varbin = IOM.get_variable(container, OnVariable, V)
-
-    for device in devices
-        ci_name = IS.get_name(device)
-        limit_values = IOM.get_min_max_limit_values(container, T, device, model)
-        if _is_must_run(device)
-            for t in time_steps
-                IOM.add_range_bound_constraint!(
-                    dir, jump_model, con, ci_name, t,
-                    array[ci_name, t], IOM.get_bound(dir, limit_values, t), 1.0)
-            end
-        else
-            for t in time_steps
-                IOM.add_range_bound_constraint!(
-                    dir, jump_model, con, ci_name, t,
-                    array[ci_name, t], IOM.get_bound(dir, limit_values, t),
-                    varbin[ci_name, t])
-            end
-        end
-    end
-    return
-end
-
 """
 Offline-capability band row for thermal-UC devices contributing to an `OfflineReserve`.
 The commitment-gated UB expression excludes the offline awards
@@ -1929,7 +1914,8 @@ and the device has it (`q_limit = pmax` otherwise), and
 `gated = get_min_max_limits(d, ActivePowerVariableLimitsConstraint, W).max` is the
 same headroom the semicontinuous range row gates on: `pmax` for standard UC (giving `ts_t`)
 and `pmax - pmin` for compact UC (giving `ts_t - pmin * u`).
-A must-run device is always committed, so its band is `ts_t - (q_limit - gated)` outright.
+A must-run device is committed whenever in service, so its injector status `s_t` stands in
+for `u` and its band is `ts_t - (q_limit - gated) * s_t`.
 
 Committed: offline competes with the online products for the gated band. Off: the
 semi-continuous UB row zeroes `p` and the online awards, leaving `offline <= ts_t`.
@@ -1937,7 +1923,7 @@ Devices contributing to no offline service get no row.
 
 With `"offline_only" = true` on the `OfflineReserve` `ServiceModel`, an extra
 [`OfflineReserveOffStateConstraint`](@ref) row forbids offline awards while committed
-(`offline <= q_limit * (1 - u)`; `0` for must-run). Scope: thermal unit commitment and
+(`offline <= q_limit * (1 - u)`; `q_limit * (1 - s_t)` for must-run). Scope: thermal unit commitment and
 `HydroCommitmentRunOfRiver`; other formulations book `OfflineReserve` awards against
 their headroom and are not restricted. With `"exclude_shutdown_step" = true`,
 [`OfflineReserveShutdownConstraint`](@ref) forbids offline awards in the step the unit goes
@@ -1960,6 +1946,7 @@ function add_constraints!(
     expression = get_expression(container, ActivePowerRangeExpressionUB, V)
     jump_model = get_jump_model(container)
     varbin = get_variable(container, OnVariable, V)
+    status = get_component_statuses(container, V)
     names = [PSY.get_name(d) for d in devices]
     constraint =
         add_constraints_container!(container, T, V, names, time_steps; sparse = true)
@@ -2007,19 +1994,21 @@ function add_constraints!(
             if no_shut && name in members
         ]
         if _is_must_run(d)
-            # Always committed and never goes off, so no shutdown-step row.
+            # Committed whenever in service and never shut down by the model, so no
+            # shutdown-step row; the status stands in for the commitment.
             for t in time_steps
+                u = get_component_status(status, name, t)
                 constraint[(name, t)] = JuMP.@constraint(
                     jump_model,
                     expression[name, t] +
                     sum(v[(sname, name, t)] for (sname, v) in awards) <=
-                    limit[t] - (q_limit - gated[t])
+                    limit[t] - (q_limit - gated[t]) * u
                 )
                 isempty(off_awards) && continue
-                # Always committed: opted-in offline awards must be 0, never cleared.
                 off_rows[(name, t)] = JuMP.@constraint(
                     jump_model,
-                    sum(v[(sname, name, t)] for (sname, v) in off_awards) <= 0.0
+                    sum(v[(sname, name, t)] for (sname, v) in off_awards) <=
+                    q_limit * (1 - u)
                 )
             end
         else

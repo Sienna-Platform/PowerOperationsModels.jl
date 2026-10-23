@@ -116,6 +116,8 @@ function build_problem!(
     end
 
     construct_lhs_parameters!(container, template, sys)
+    construct_component_status_parameters!(container, template, sys)
+    construct_topology_schedule!(container, template, transmission_model, sys)
 
     # Order is required
     for device_model in values(template.devices)
@@ -263,6 +265,8 @@ function build_problem!(
             finalize_device_construction!(container, sys, device_model, transmission_model)
         end
     end
+
+    IOM.fix_inactive_variables!(container)
 
     TimerOutputs.@timeit BUILD_PROBLEMS_TIMER "Objective" begin
         @debug "Building Objective" _group = LOG_GROUP_OPTIMIZATION_CONTAINER

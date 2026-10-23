@@ -296,9 +296,8 @@ Outage modeling notes:
   branch type (either absent from the template, or modeled but not a branch)
   is skipped (warned once per type at template validation; no
   post-contingency constraints are built for it).
-- `PSY.PlannedOutage` instances are excluded by default; set
-  `attributes = Dict("include_planned_outages" => true)` on the
-  `DeviceModel` to include them.
+- Only `PSY.UnplannedOutage`s are contingencies; a `PSY.PlannedOutage` is a
+  scheduled topology change and never contributes post-contingency constraints.
 - Both the monitored AND the outaged component endpoints are pinned in the
   network reduction (added to `irreducible_buses`). This prevents radial /
   degree-two reductions from collapsing the contingency arc out of the
@@ -933,7 +932,7 @@ Security-constrained (G-1) contingency reserve for `PSY.OnlineReserve{PSY.Reserv
 reserves must be deliverable after the loss of any generator outage they respond to.
 `PSY.OfflineReserve` is not supported.
 
-**Sets.** Each reserve ``s`` responds to the `PSY.Outage`s ``O_s`` attached to it with
+**Sets.** Each reserve ``s`` responds to the `PSY.UnplannedOutage`s ``O_s`` attached to it with
 `add_supplemental_attribute!(sys, service, outage)`. Outage ``o`` takes offline the
 generators ``G_o`` associated with it and monitors the components listed in its
 `monitored_components`. ``D_s`` are the contributing devices of ``s``. Outaged generators
@@ -984,6 +983,10 @@ Monitored components must be modeled (including by the `filter_selector` of the 
 template validation fails. With `use_slacks = true` the flow limits are relaxed by
 [`PostGeneratorContingencyFlowSlackUpperBound`](@ref) and
 [`PostGeneratorContingencyFlowSlackLowerBound`](@ref).
+
+**Schedules.** Under planned outages or switching schedules on branches, the PTDF row and the
+emergency rating of each monitored entry at step ``t`` are those of the network in service at
+``t``. A contributor out of service at ``t`` deploys nothing at ``t``.
 
 See also [`SecurityConstrainedRampReserve`](@ref).
 """

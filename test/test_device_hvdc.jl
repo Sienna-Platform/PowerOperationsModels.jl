@@ -478,3 +478,68 @@ end
     tighter = _solve_with_rating(1.0)
     @test tighter >= looser - 1e-6
 end
+
+@testset "An out VSC with constant converter losses carries no flow on $(network)" for (
+    network,
+    converter_model,
+    optimizer,
+) in (
+    (DCPNetworkModel, _vsc_milp("bilinear_relative_tolerance" => 0.1), HiGHS_optimizer),
+    (PTDFNetworkModel, _vsc_milp("bilinear_relative_tolerance" => 0.1), HiGHS_optimizer),
+)
+    sys = _generate_test_vsc_sys(; loss_b = 0.005, loss_c = 0.01)
+    vsc = get_component(TwoTerminalVSCLine, sys, "1")
+    _schedule_outage!(sys, vsc, "out", _out_at(2:2))
+    model = _build_vsc_model(converter_model, network, optimizer; sys = sys)
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+    @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+    c = IOM.get_optimization_container(model)
+    for T in (FlowActivePowerFromToVariable, FlowActivePowerToFromVariable)
+        flow = IOM.get_variable(c, T, TwoTerminalVSCLine)
+        @test abs(JuMP.value(flow["1", 2])) < 1e-6
+        @test !JuMP.is_fixed(flow["1", 1])
+    end
+end
+
+@testset "An out TModelHVDCLine has no current under DCLossyLine" begin
+    sys = deepcopy(_generate_test_hvdc_sys())
+    for (name, cap) in (("Brighton-2", 2.0), ("Solitude-2", 2.0))
+        PSY.set_active_power_limits!(
+            get_component(ThermalStandard, sys, name),
+            (min = 0.0 * u"SU", max = cap * u"SU"),
+        )
+    end
+    line = first(sort!(collect(get_components(TModelHVDCLine, sys)); by = get_name))
+    _schedule_outage!(sys, line, "out", _out_at(2:2))
+    template = PowerOperationsProblemTemplate(NetworkModel(PTDFNetworkModel))
+    set_device_model!(template, ThermalStandard, ThermalDispatchNoMin)
+    set_device_model!(template, PowerLoad, StaticPowerLoad)
+    set_device_model!(template, DeviceModel(Line, StaticBranch))
+    set_device_model!(template, TModelHVDCLine, DCLossyLine)
+    set_device_model!(
+        template,
+        DeviceModel(
+            InterconnectingConverter, QuadraticLossConverter;
+            attributes = Dict(
+                "bilinear_approximation" => "bin2",
+                "bilinear_relative_tolerance" => 0.35,
+            ),
+        ),
+    )
+    set_hvdc_network_model!(template, VoltageDispatchHVDCNetworkModel)
+    model = DecisionModel(
+        template, sys;
+        store_variable_names = true, optimizer = HiGHS_optimizer,
+        horizon = _SHORT_HORIZON,
+    )
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+    container = IOM.get_optimization_container(model)
+    current = IOM.get_variable(container, DCLineCurrent, TModelHVDCLine)
+    name = get_name(line)
+    @test JuMP.is_fixed(current[name, 2]) && JuMP.fix_value(current[name, 2]) == 0.0
+    @test !JuMP.is_fixed(current[name, 1])
+    @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+    @test JuMP.value(current[name, 2]) == 0.0
+end

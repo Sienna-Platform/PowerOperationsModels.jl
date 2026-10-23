@@ -1341,9 +1341,9 @@ forbidden in the time step a unit goes off:
 `sum(those awards) <= q_limit * (1 - u_{t-1} + u_t)`, with `u_0` from the `DeviceStatus`
 initial condition (the initialization solve's commitment when the model initializes, the
 PSY status otherwise). The right-hand side is `0` only when `u_{t-1} = 1` and `u_t = 0`.
-Built for thermal unit commitment (a must-run device never goes off and gets no row) and
-`HydroCommitmentRunOfRiver`, whose constructor adds the `DeviceStatus` initial condition only
-under this attribute. Rows are keyed `(device, t)`.
+Built for thermal unit commitment (the model never shuts a must-run device down, so it gets
+no row) and `HydroCommitmentRunOfRiver`, whose constructor adds the `DeviceStatus` initial
+condition only under this attribute. Rows are keyed `(device, t)`.
 """
 struct OfflineReserveShutdownConstraint <: ConstraintType end
 
@@ -1377,8 +1377,9 @@ struct OfflineReserveBandConstraint <: ConstraintType end
 
 """
 Offline awards of services whose `ServiceModel` sets `"offline_only" = true` need
-the unit off: `sum(those awards) <= q_limit * (1 - u)`. A must-run device has no
-`u` (always committed), so its row fixes those awards to `0` outright. Scope: thermal
+the unit off: `sum(those awards) <= q_limit * (1 - u)`. A must-run device has no `u`: it
+is committed whenever in service, so its injector status stands in for `u` and its row fixes
+those awards to `0` while it is in service. Scope: thermal
 unit commitment and `HydroCommitmentRunOfRiver`; other formulations book `OfflineReserve`
 awards against their headroom and are not restricted.
 """

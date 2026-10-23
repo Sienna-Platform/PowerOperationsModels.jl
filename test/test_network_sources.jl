@@ -1,13 +1,15 @@
 @testset "SystemNetworkSource builds a Ybus with the requested reductions" begin
     sys = PSB.build_system(PSITestSystems, "case11_network_reductions")
 
-    plain = POM._build_ybus(POM.SystemNetworkSource(), sys, Int[])
+    plain =
+        POM._build_ybus(POM.SystemNetworkSource(), sys, Int[], POM._NO_SCHEDULED_TOPOLOGY)
     @test isempty(POM.PNM.get_reductions(POM.PNM.get_network_reduction_data(plain)))
 
     radial = POM._build_ybus(
         POM.SystemNetworkSource(POM.PNM.RadialReduction()),
         sys,
         Int[],
+        POM._NO_SCHEDULED_TOPOLOGY,
     )
     @test POM.PNM.has_radial_reduction(
         POM.PNM.get_reductions(POM.PNM.get_network_reduction_data(radial)),
@@ -16,7 +18,8 @@ end
 
 @testset "DefaultNetworkSource applies no reductions" begin
     sys = PSB.build_system(PSITestSystems, "case11_network_reductions")
-    ybus = POM._build_ybus(IOM.DefaultNetworkSource(), sys, Int[])
+    ybus =
+        POM._build_ybus(IOM.DefaultNetworkSource(), sys, Int[], POM._NO_SCHEDULED_TOPOLOGY)
     @test isempty(POM.PNM.get_reductions(POM.PNM.get_network_reduction_data(ybus)))
 end
 
@@ -27,11 +30,13 @@ end
         POM.SystemNetworkSource(POM.PNM.RadialReduction()),
         sys,
         Int[],
+        POM._NO_SCHEDULED_TOPOLOGY,
     )
     pinned = POM._build_ybus(
         POM.SystemNetworkSource(POM.PNM.RadialReduction()),
         sys,
         [8],
+        POM._NO_SCHEDULED_TOPOLOGY,
     )
     retained(y) = Set(
         keys(POM.PNM.get_bus_reduction_map(POM.PNM.get_network_reduction_data(y))),
@@ -42,7 +47,8 @@ end
 
 @testset "PTDFNetworkData shares one reduction between PTDF and MODF" begin
     sys = PSB.build_system(PSITestSystems, "c_sys5")
-    ybus = POM._build_ybus(POM.SystemNetworkSource(), sys, Int[])
+    ybus =
+        POM._build_ybus(POM.SystemNetworkSource(), sys, Int[], POM._NO_SCHEDULED_TOPOLOGY)
     core = POM.PNM.VirtualFactorCore(
         ybus;
         system_uuid = PSY.get_system_uuid(sys),
@@ -72,7 +78,8 @@ end
 
 @testset "get_network_data_contingency_matrix errors without a contingency matrix" begin
     sys = PSB.build_system(PSITestSystems, "c_sys5")
-    ybus = POM._build_ybus(POM.SystemNetworkSource(), sys, Int[])
+    ybus =
+        POM._build_ybus(POM.SystemNetworkSource(), sys, Int[], POM._NO_SCHEDULED_TOPOLOGY)
 
     dcp_without = POM.DCPNetworkData(
         ybus,
@@ -99,6 +106,7 @@ end
         POM.SystemNetworkSource(POM.PNM.RadialReduction()),
         sys,
         Int[],
+        POM._NO_SCHEDULED_TOPOLOGY,
     )
     core = POM.PNM.VirtualFactorCore(
         ybus;
@@ -109,7 +117,7 @@ end
 
     @test POM.get_matrix(source) === ptdf
     @test POM.PNM.RadialReduction() in POM._source_reductions(source)
-    @test !hasmethod(POM._build_ybus, Tuple{typeof(source), PSY.System, Vector{Int}})
+    @test !hasmethod(POM._build_ybus, Tuple{typeof(source), PSY.System, Vector{Int}, Any})
 
     dense = POM.PNM.PTDF(ybus)
     @test_throws MethodError POM.PrebuiltMatrixSource(dense)
@@ -121,6 +129,7 @@ end
         POM.SystemNetworkSource(POM.PNM.RadialReduction()),
         sys,
         Int[],
+        POM._NO_SCHEDULED_TOPOLOGY,
     )
     core = POM.PNM.VirtualFactorCore(
         ybus;
@@ -132,7 +141,7 @@ end
     @test POM._source_reductions(source) ==
           POM.PNM.get_applied_reductions(POM.PNM.get_network_reduction_data(core))
     @test POM.PNM.RadialReduction() in POM._source_reductions(source)
-    @test !hasmethod(POM._build_ybus, Tuple{typeof(source), PSY.System, Vector{Int}})
+    @test !hasmethod(POM._build_ybus, Tuple{typeof(source), PSY.System, Vector{Int}, Any})
 end
 
 @testset "PTDF and MODF share one reduction after a real build" begin
@@ -294,18 +303,41 @@ _bus_map(y) = POM.PNM.get_bus_reduction_map(POM.PNM.get_network_reduction_data(y
 @testset "ZeroImpedanceBranchReduction is accepted in the spec and reaches the Ybus" begin
     sys = PSB.build_system(PSITestSystems, "case11_network_reductions")
     zibr = _zibr(0.002)
-    ybus = POM._build_ybus(POM.SystemNetworkSource(zibr), sys, Int[])
+    ybus = POM._build_ybus(
+        POM.SystemNetworkSource(zibr),
+        sys,
+        Int[],
+        POM._NO_SCHEDULED_TOPOLOGY,
+    )
     @test POM.PNM.get_zero_impedance_reduction(_reductions(ybus)) == zibr
 end
 
 @testset "The zero-impedance setting selects, rather than merely toggling" begin
     sys = PSB.build_system(PSITestSystems, "case11_network_reductions")
     n(rt) =
-        length(_bus_map(POM._build_ybus(POM.SystemNetworkSource(_zibr(rt)), sys, Int[])))
+        length(
+            _bus_map(
+                POM._build_ybus(
+                    POM.SystemNetworkSource(_zibr(rt)),
+                    sys,
+                    Int[],
+                    POM._NO_SCHEDULED_TOPOLOGY,
+                ),
+            ),
+        )
 
     # The smallest branch resistance here is 0.00064, and the default tolerance is 0.0, so
     # the default and 0.0005 must both merge nothing while 0.002 merges only some.
-    @test length(_bus_map(POM._build_ybus(POM.SystemNetworkSource(), sys, Int[]))) == 11
+    @test length(
+        _bus_map(
+            POM._build_ybus(
+                POM.SystemNetworkSource(),
+                sys,
+                Int[],
+                POM._NO_SCHEDULED_TOPOLOGY,
+            ),
+        ),
+    ) == 11
     @test n(0.0005) == 11
     @test n(0.002) == 7
 end
@@ -313,15 +345,30 @@ end
 @testset "More than one ZeroImpedanceBranchReduction is rejected" begin
     sys = PSB.build_system(PSITestSystems, "case11_network_reductions")
     spec = POM.SystemNetworkSource(_zibr(0.001), _zibr(0.002))
-    @test_throws IS.ConflictingInputsError POM._build_ybus(spec, sys, Int[])
+    @test_throws IS.ConflictingInputsError POM._build_ybus(
+        spec,
+        sys,
+        Int[],
+        POM._NO_SCHEDULED_TOPOLOGY,
+    )
 end
 
 @testset "The zero-impedance entry composes with other reductions, in either order" begin
     sys = PSB.build_system(PSITestSystems, "case11_network_reductions")
     zibr = _zibr(0.001)
     radial = POM.PNM.RadialReduction()
-    first_ybus = POM._build_ybus(POM.SystemNetworkSource(zibr, radial), sys, Int[])
-    last_ybus = POM._build_ybus(POM.SystemNetworkSource(radial, zibr), sys, Int[])
+    first_ybus = POM._build_ybus(
+        POM.SystemNetworkSource(zibr, radial),
+        sys,
+        Int[],
+        POM._NO_SCHEDULED_TOPOLOGY,
+    )
+    last_ybus = POM._build_ybus(
+        POM.SystemNetworkSource(radial, zibr),
+        sys,
+        Int[],
+        POM._NO_SCHEDULED_TOPOLOGY,
+    )
 
     for y in (first_ybus, last_ybus)
         @test POM.PNM.has_radial_reduction(_reductions(y))
@@ -333,7 +380,12 @@ end
 @testset "A non-default zero-impedance setting round-trips through a prebuilt source" begin
     sys = PSB.build_system(PSITestSystems, "case11_network_reductions")
     zibr = _zibr(0.002)
-    ybus = POM._build_ybus(POM.SystemNetworkSource(zibr), sys, Int[])
+    ybus = POM._build_ybus(
+        POM.SystemNetworkSource(zibr),
+        sys,
+        Int[],
+        POM._NO_SCHEDULED_TOPOLOGY,
+    )
     core = POM.PNM.VirtualFactorCore(
         ybus;
         system_uuid = PSY.get_system_uuid(sys),
@@ -342,7 +394,7 @@ end
 
     @test zibr in POM._source_reductions(source)
 
-    rebuilt = POM._source_ybus(source, sys, Int[])
+    rebuilt = POM._source_ybus(source, sys, Int[], POM._NO_SCHEDULED_TOPOLOGY)
     @test _bus_map(rebuilt) == _bus_map(core)
 end
 
@@ -486,7 +538,8 @@ end
 
 @testset "Source tolerance reaches the factorization core" begin
     sys = PSB.build_system(PSITestSystems, "c_sys5")
-    ybus = POM._build_ybus(POM.SystemNetworkSource(), sys, Int[])
+    ybus =
+        POM._build_ybus(POM.SystemNetworkSource(), sys, Int[], POM._NO_SCHEDULED_TOPOLOGY)
 
     absolute = POM._factor_core(ybus, sys, 1e-4)
     @test POM.PNM.get_cutoff(absolute) == POM.PNM.AbsoluteCutoff(1e-4)

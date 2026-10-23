@@ -21,11 +21,25 @@ struct YbusNetworkData <: IOM.AbstractNetworkData
     branch_catalog::PNM.BranchCatalog
 end
 
+# The network's per-step topology: the low-rank matrix built once per model on the base
+# factorization, and the schedule built from the statuses at each build together with the
+# post-contingency network of each registered contingency at every step.
+mutable struct TopologyState
+    matrix::Union{Nothing, PNM.VirtualMODF}
+    schedule::Union{Nothing, PNM.TopologySchedule}
+    post_contingency::_PostContingencyModifications
+end
+
+TopologyState() = TopologyState(nothing, nothing, _PostContingencyModifications())
+TopologyState(matrix::PNM.VirtualMODF) =
+    TopologyState(matrix, nothing, _PostContingencyModifications())
+
 """DCP: a Ybus, plus a MODF derived from that same Ybus when the template is security constrained."""
 struct DCPNetworkData{M} <: IOM.AbstractNetworkData
     ybus::PNM.Ybus
     contingency_matrix::M
     branch_catalog::PNM.BranchCatalog
+    topology::TopologyState
 end
 
 """PTDF families: a PTDF, plus an optional MODF, both wrapping one factorization core."""
@@ -33,6 +47,7 @@ struct PTDFNetworkData{P, M} <: IOM.AbstractNetworkData
     matrix::P
     contingency_matrix::M
     branch_catalog::PNM.BranchCatalog
+    topology::TopologyState
 end
 
 # The no-contingency constructors omit the argument, storing this singleton in
@@ -42,10 +57,18 @@ end
 struct NoContingencyMatrix end
 
 DCPNetworkData(ybus::PNM.Ybus, catalog::PNM.BranchCatalog) =
-    DCPNetworkData(ybus, NoContingencyMatrix(), catalog)
+    DCPNetworkData(ybus, NoContingencyMatrix(), catalog, TopologyState())
+DCPNetworkData(ybus::PNM.Ybus, catalog::PNM.BranchCatalog, topology::TopologyState) =
+    DCPNetworkData(ybus, NoContingencyMatrix(), catalog, topology)
+DCPNetworkData(ybus::PNM.Ybus, contingency_matrix, catalog::PNM.BranchCatalog) =
+    DCPNetworkData(ybus, contingency_matrix, catalog, TopologyState())
 
 PTDFNetworkData(matrix, catalog::PNM.BranchCatalog) =
-    PTDFNetworkData(matrix, NoContingencyMatrix(), catalog)
+    PTDFNetworkData(matrix, NoContingencyMatrix(), catalog, TopologyState())
+PTDFNetworkData(matrix, catalog::PNM.BranchCatalog, topology::TopologyState) =
+    PTDFNetworkData(matrix, NoContingencyMatrix(), catalog, topology)
+PTDFNetworkData(matrix, contingency_matrix, catalog::PNM.BranchCatalog) =
+    PTDFNetworkData(matrix, contingency_matrix, catalog, TopologyState())
 
 get_branch_catalog(nd::YbusNetworkData) = nd.branch_catalog
 get_branch_catalog(nd::DCPNetworkData) = nd.branch_catalog
@@ -93,3 +116,79 @@ IOM.get_contingency_matrix(m::NetworkModel) =
     get_network_data_contingency_matrix(get_network_data(m))
 IOM.get_network_reduction(m::NetworkModel) = get_reduction(get_network_data(m))
 get_branch_catalog(m::NetworkModel) = get_branch_catalog(get_network_data(m))
+
+get_topology_state(nd::Union{PTDFNetworkData, DCPNetworkData}) = nd.topology
+get_topology_state(::IOM.AbstractNetworkData) = nothing
+
+get_topology_matrix(m::NetworkModel) =
+    _topology_matrix(get_topology_state(get_network_data(m)))
+_topology_matrix(::Nothing) = nothing
+_topology_matrix(s::TopologyState) = s.matrix
+
+get_topology_schedule(m::NetworkModel) =
+    _topology_schedule(get_topology_state(get_network_data(m)))
+_topology_schedule(::Nothing) = nothing
+_topology_schedule(s::TopologyState) = s.schedule
+
+"""
+The post-contingency network of each registered contingency at every step of the topology
+schedule, by outage id: `nothing` at a step where every component of the contingency is
+already out.
+"""
+get_post_contingency_modifications(m::NetworkModel) =
+    get_topology_state(get_network_data(m)).post_contingency
+
+function set_topology_schedule!(
+    m::NetworkModel,
+    schedule::PNM.TopologySchedule,
+    post_contingency::_PostContingencyModifications,
+)
+    _set_topology_schedule!(
+        get_topology_state(get_network_data(m)),
+        m,
+        schedule,
+        post_contingency,
+    )
+    return
+end
+
+function _set_topology_schedule!(
+    state::TopologyState,
+    ::NetworkModel,
+    schedule::PNM.TopologySchedule,
+    post_contingency::_PostContingencyModifications,
+)
+    state.schedule = schedule
+    state.post_contingency = post_contingency
+    return
+end
+
+_set_topology_schedule!(::Nothing, m::NetworkModel, ::PNM.TopologySchedule, _) = error(
+    "$(nameof(get_network_formulation(m))) holds no network topology, so it cannot store \
+     a topology schedule. Only DCP and PTDF network models follow scheduled topology.",
+)
+
+"""
+    release_contingency_caches!(network_model::NetworkModel)
+
+Free the post-contingency PTDF rows and Woodbury factors that `network_model`'s contingency
+and topology matrices cached while the model's constraints were built. The contingency
+registrations stay, so a later query recomputes the rows it asks for.
+
+Under a topology schedule the cache holds one set of factors per step topology and
+contingency, each as wide as the arcs the step and the contingency take out together, and it
+stays resident through the solve unless released. Call this after `build!` on a model that is
+built once. A model rebuilt at each step of a simulation reuses the caches of recurring
+topologies, so leave them in place there.
+"""
+function release_contingency_caches!(network_model::NetworkModel)
+    data = get_network_data(network_model)
+    isnothing(data) && return
+    has_contingency_matrix(data) &&
+        _release_caches!(get_network_data_contingency_matrix(data))
+    _release_caches!(get_topology_matrix(network_model))
+    return
+end
+
+_release_caches!(matrix::PNM.VirtualMODF) = PNM.clear_caches!(matrix)
+_release_caches!(::Any) = nothing

@@ -12,20 +12,11 @@
 # auto-populated by `_build_device_model_outages!` during template validation —
 # no manual stand-ins.
 
-# The ground-truth columns below are read from a freshly-built VirtualMODF/
-# VirtualPTDF (intentionally independent of the production matrix). On macOS the
-# default sparse backend is Apple Accelerate, whose factorization is internally
-# multithreaded and NOT bit-reproducible across builds, so two independent
-# factorizations of the identical ABA matrix differ by ~1e-15. That noise is
-# benign (a single production matrix is built once and reused, so it is
-# self-consistent), but it breaks exact `isequal_canonical` on the re-derived
-# coefficients. Compare the affine expressions up to that round-off instead: the
-# tolerance is ~1e7× the observed noise yet far below any real coefficient bug.
-function _affexpr_approx_equal(actual, expected; atol = 1e-8)
-    d = actual - expected            # matching terms cancel to ~1e-15
-    coeff_resid = maximum((abs(c) for (c, _) in JuMP.linear_terms(d)); init = 0.0)
-    return coeff_resid ≤ atol && abs(JuMP.constant(d)) ≤ atol
-end
+# Loading the test systems logs data-validation warnings, and replacing a template's branch
+# models logs an overwrite warning; neither is examined here.
+_quiet(f) = Logging.with_logger(f, Logging.NullLogger())
+_build_system_quiet(args...; kwargs...) = _quiet(() -> PSB.build_system(args...; kwargs...))
+_set_device_model_quiet!(args...) = _quiet(() -> set_device_model!(args...))
 
 # The Line container also holds rows for monitored transformers.
 function _monitored_arc(name_to_arc_maps, name)
@@ -46,7 +37,7 @@ _dcp_transformer_flow(container, ::Type{POM.SecurityConstrainedStaticBranch}, na
     ]
 
 @testset "Post-contingency expressions and constraints match MODF ground truth" begin
-    c_sys5 = PSB.build_system(PSITestSystems, "c_sys5")
+    c_sys5 = _build_system_quiet(PSITestSystems, "c_sys5")
     all_branches = collect(get_components(PSY.ACTransmission, c_sys5))
     for line_name in ["1", "2", "3"]
         line = get_component(PSY.ACTransmission, c_sys5, line_name)
@@ -64,13 +55,13 @@ _dcp_transformer_flow(container, ::Type{POM.SecurityConstrainedStaticBranch}, na
             network_source = PrebuiltMatrixSource(PNM.VirtualPTDF(c_sys5)),
         ),
     )
-    set_device_model!(template, PSY.Line, POM.SecurityConstrainedStaticBranch)
-    set_device_model!(
+    _set_device_model_quiet!(template, PSY.Line, POM.SecurityConstrainedStaticBranch)
+    _set_device_model_quiet!(
         template,
         PSY.TwoWindingTransformer,
         POM.SecurityConstrainedStaticBranch,
     )
-    set_device_model!(
+    _set_device_model_quiet!(
         template,
         PSY.TwoWindingTransformer,
         POM.SecurityConstrainedStaticBranch,
@@ -88,7 +79,8 @@ _dcp_transformer_flow(container, ::Type{POM.SecurityConstrainedStaticBranch}, na
     # a build-time race cannot pass the test by being read identically). The
     # fresh MODF re-registers the same outages from the supplemental
     # attributes, so its ContingencySpec UUIDs match the production matrix's.
-    ground_truth_modf = PNM.VirtualMODF(c_sys5)
+    ground_truth_modf =
+        @test_logs (:info, r"Registered \d+ contingencies") PNM.VirtualMODF(c_sys5)
     ground_truth_registered = PNM.get_registered_contingencies(ground_truth_modf)
     @test !isempty(ground_truth_registered)
 
@@ -168,7 +160,7 @@ end
 @testset "Security Constrained branch formulation Network DC-PF with VirtualPTDF + auto-MODF" begin
     # Exercises the prebuilt-VirtualPTDF code path with a derived MODF: the contingency
     # matrix is always derived from the source's factorization core during instantiate.
-    c_sys5 = PSB.build_system(PSITestSystems, "c_sys5")
+    c_sys5 = _build_system_quiet(PSITestSystems, "c_sys5")
     all_branches = collect(get_components(PSY.ACTransmission, c_sys5))
     for line_name in ["1", "2", "3"]
         transition_data = PSY.GeometricDistributionForcedOutage(;
@@ -185,13 +177,13 @@ end
             network_source = PrebuiltMatrixSource(PNM.VirtualPTDF(c_sys5)),
         ),
     )
-    set_device_model!(template, PSY.Line, POM.SecurityConstrainedStaticBranch)
-    set_device_model!(
+    _set_device_model_quiet!(template, PSY.Line, POM.SecurityConstrainedStaticBranch)
+    _set_device_model_quiet!(
         template,
         PSY.TwoWindingTransformer,
         POM.SecurityConstrainedStaticBranch,
     )
-    set_device_model!(
+    _set_device_model_quiet!(
         template,
         PSY.TwoWindingTransformer,
         POM.SecurityConstrainedStaticBranch,
@@ -215,7 +207,7 @@ end
 @testset "PTDFBranchFlow expressions match ptdf-derived ground truth" begin
     # Validates that every JuMP.AffExpr in the PTDFBranchFlow expression
     # container equals dot(ptdf_matrix[arc, :], nodal_balance[:, t]).
-    c_sys14 = PSB.build_system(PSB.PSITestSystems, "c_sys14")
+    c_sys14 = _build_system_quiet(PSB.PSITestSystems, "c_sys14")
 
     template = get_thermal_dispatch_template_network(
         NetworkModel(
@@ -223,9 +215,9 @@ end
             network_source = PrebuiltMatrixSource(PNM.VirtualPTDF(c_sys14)),
         ),
     )
-    set_device_model!(template, PSY.Line, POM.StaticBranch)
-    set_device_model!(template, PSY.TwoWindingTransformer, POM.StaticBranch)
-    set_device_model!(template, PSY.TwoWindingTransformer, POM.StaticBranch)
+    _set_device_model_quiet!(template, PSY.Line, POM.StaticBranch)
+    _set_device_model_quiet!(template, PSY.TwoWindingTransformer, POM.StaticBranch)
+    _set_device_model_quiet!(template, PSY.TwoWindingTransformer, POM.StaticBranch)
 
     ps_model = DecisionModel(template, c_sys14; optimizer = HiGHS_optimizer)
     @test build!(ps_model; output_dir = mktempdir(; cleanup = true)) ==
@@ -297,7 +289,7 @@ end
     # Same structural ground-truth check as the c_sys5 testset at the top of
     # this file, but on c_sys14 with a subset of outaged lines — guards the
     # parallel `add_post_contingency_flow_expressions!` path on a larger grid.
-    c_sys14 = PSB.build_system(PSB.PSITestSystems, "c_sys14")
+    c_sys14 = _build_system_quiet(PSB.PSITestSystems, "c_sys14")
     outage_line_names = ["Line1", "Line2", "Line9", "Line10"]
     all_branches = collect(get_components(PSY.ACTransmission, c_sys14))
     for line_name in outage_line_names
@@ -316,13 +308,13 @@ end
             network_source = PrebuiltMatrixSource(PNM.VirtualPTDF(c_sys14)),
         ),
     )
-    set_device_model!(template, PSY.Line, POM.SecurityConstrainedStaticBranch)
-    set_device_model!(
+    _set_device_model_quiet!(template, PSY.Line, POM.SecurityConstrainedStaticBranch)
+    _set_device_model_quiet!(
         template,
         PSY.TwoWindingTransformer,
         POM.SecurityConstrainedStaticBranch,
     )
-    set_device_model!(
+    _set_device_model_quiet!(
         template,
         PSY.TwoWindingTransformer,
         POM.SecurityConstrainedStaticBranch,
@@ -336,7 +328,8 @@ end
     network_model = IOM.get_network_model(IOM.get_template(ps_model))
     @test IOM.get_contingency_matrix(network_model) isa PNM.VirtualMODF
 
-    ground_truth_modf = PNM.VirtualMODF(c_sys14)
+    ground_truth_modf =
+        @test_logs (:info, r"Registered \d+ contingencies") PNM.VirtualMODF(c_sys14)
     ground_truth_registered = PNM.get_registered_contingencies(ground_truth_modf)
     @test !isempty(ground_truth_registered)
 
@@ -389,7 +382,7 @@ end
     # portable, exercised path and is asserted here in full: every outage in
     # the system's supplemental attributes must land in the DeviceModel and in
     # the post-contingency constraint container's outage-id axis.
-    c_sys5 = PSB.build_system(PSITestSystems, "c_sys5")
+    c_sys5 = _build_system_quiet(PSITestSystems, "c_sys5")
     all_branches = collect(get_components(PSY.ACTransmission, c_sys5))
     outage_components = ["1", "2", "3"]
     outage_ids = Int[]
@@ -407,13 +400,13 @@ end
     auto_template = get_thermal_dispatch_template_network(
         NetworkModel(PTDFNetworkModel),
     )
-    set_device_model!(auto_template, PSY.Line, POM.SecurityConstrainedStaticBranch)
-    set_device_model!(
+    _set_device_model_quiet!(auto_template, PSY.Line, POM.SecurityConstrainedStaticBranch)
+    _set_device_model_quiet!(
         auto_template,
         PSY.TwoWindingTransformer,
         POM.SecurityConstrainedStaticBranch,
     )
-    set_device_model!(
+    _set_device_model_quiet!(
         auto_template,
         PSY.TwoWindingTransformer,
         POM.SecurityConstrainedStaticBranch,
@@ -444,7 +437,7 @@ end
     # `PSY.Line` component (only `IS.get_id` is called on each entry). The
     # warning is emitted by the `DeviceModel` constructor itself (before any
     # `build!`/`with_logger` wrapping), so `@test_logs` captures it directly.
-    c_sys5 = PSB.build_system(PSITestSystems, "c_sys5")
+    c_sys5 = _build_system_quiet(PSITestSystems, "c_sys5")
     line = first(get_components(PSY.ACTransmission, c_sys5))
     @test_logs (:warn, r"does not support") match_mode = :any begin
         dm = DeviceModel(PSY.Line, POM.StaticBranch; outages = [line])
@@ -456,7 +449,7 @@ end
     # An outage attached to BOTH a Line and a TwoWindingTransformer is owned by both
     # SC DeviceModels. The build dedups: the second DeviceModel's expression and
     # constraint containers reference the first claimer's objects.
-    sys = PSB.build_system(PSITestSystems, "c_sys14")
+    sys = _build_system_quiet(PSITestSystems, "c_sys14")
     line = first(get_components(PSY.Line, sys))
     transformer = first(get_components(PSY.TwoWindingTransformer, sys))
     @test !isnothing(line)
@@ -475,8 +468,8 @@ end
     template = get_thermal_dispatch_template_network(
         NetworkModel(PTDFNetworkModel),
     )
-    set_device_model!(template, PSY.Line, POM.SecurityConstrainedStaticBranch)
-    set_device_model!(
+    _set_device_model_quiet!(template, PSY.Line, POM.SecurityConstrainedStaticBranch)
+    _set_device_model_quiet!(
         template,
         PSY.TwoWindingTransformer,
         POM.SecurityConstrainedStaticBranch,
@@ -541,7 +534,7 @@ end
     # the pre-contingency `FlowRateConstraint` tracker must record the arc once
     # (representative-keyed), and the post-contingency container's name axis must
     # use the representative — never the individual branch names.
-    sys = PSB.build_system(PSITestSystems, "c_sys5")
+    sys = _build_system_quiet(PSITestSystems, "c_sys5")
     parallel_line_name = "1"
     parallel_line = first(
         get_components(b -> get_name(b) == parallel_line_name, PSY.ACTransmission, sys),
@@ -563,7 +556,7 @@ end
     template = get_thermal_dispatch_template_network(
         NetworkModel(PTDFNetworkModel),
     )
-    set_device_model!(template, PSY.Line, POM.SecurityConstrainedStaticBranch)
+    _set_device_model_quiet!(template, PSY.Line, POM.SecurityConstrainedStaticBranch)
     ps_model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
     @test build!(ps_model; output_dir = mktempdir(; cleanup = true)) ==
           IOM.ModelBuildStatus.BUILT
@@ -604,7 +597,7 @@ end
     # Every NetworkModel formulation with a construct_device! dispatch for
     # SecurityConstrainedStaticBranch must build and emit the post-contingency
     # emergency-rate constraint container.
-    sys = PSB.build_system(PSB.PSISystems, "two_area_pjm_DA")
+    sys = _build_system_quiet(PSB.PSISystems, "two_area_pjm_DA")
     transform_single_time_series!(sys, Hour(24), Hour(1))
     all_branches = collect(get_components(PSY.ACTransmission, sys))
     for line in Iterators.take(get_components(PSY.Line, sys), 3)
@@ -637,13 +630,17 @@ end
             template = get_thermal_dispatch_template_network(
                 NetworkModel(NetFormulation),
             )
-            set_device_model!(template, PSY.Line, POM.SecurityConstrainedStaticBranch)
-            set_device_model!(
+            _set_device_model_quiet!(
+                template,
+                PSY.Line,
+                POM.SecurityConstrainedStaticBranch,
+            )
+            _set_device_model_quiet!(
                 template,
                 PSY.TwoWindingTransformer,
                 POM.SecurityConstrainedStaticBranch,
             )
-            set_device_model!(
+            _set_device_model_quiet!(
                 template,
                 PSY.TwoWindingTransformer,
                 POM.SecurityConstrainedStaticBranch,
@@ -663,7 +660,7 @@ end
     # MODF row differs per outage). A formulation that reuses the branch's own
     # base-case flow for every outage produces byte-identical expressions and
     # models zero contingency response — this testset exists to reject that.
-    c_sys5 = PSB.build_system(PSITestSystems, "c_sys5")
+    c_sys5 = _build_system_quiet(PSITestSystems, "c_sys5")
     monitored = get_component(PSY.ACTransmission, c_sys5, "3")
     for line_name in ["1", "2"]
         outaged = get_component(PSY.ACTransmission, c_sys5, line_name)
@@ -679,7 +676,7 @@ end
     end
 
     template = get_thermal_dispatch_template_network(NetworkModel(POM.DCPNetworkModel))
-    set_device_model!(template, PSY.Line, POM.SecurityConstrainedStaticBranch)
+    _set_device_model_quiet!(template, PSY.Line, POM.SecurityConstrainedStaticBranch)
 
     ps_model = DecisionModel(template, c_sys5; optimizer = HiGHS_optimizer)
     @test build!(ps_model; output_dir = mktempdir(; cleanup = true)) ==
@@ -709,7 +706,7 @@ end
     # the PSY arcs) and a freshly-built VirtualMODF — it does NOT go through the
     # production balance-filtering path, so a sign or ordering error there
     # cannot cancel out here.
-    c_sys5 = PSB.build_system(PSITestSystems, "c_sys5")
+    c_sys5 = _build_system_quiet(PSITestSystems, "c_sys5")
     all_branches = collect(get_components(PSY.ACTransmission, c_sys5))
     for line_name in ["1", "2", "3"]
         line = get_component(PSY.ACTransmission, c_sys5, line_name)
@@ -725,7 +722,7 @@ end
     end
 
     template = get_thermal_dispatch_template_network(NetworkModel(POM.DCPNetworkModel))
-    set_device_model!(template, PSY.Line, POM.SecurityConstrainedStaticBranch)
+    _set_device_model_quiet!(template, PSY.Line, POM.SecurityConstrainedStaticBranch)
 
     ps_model = DecisionModel(template, c_sys5; optimizer = HiGHS_optimizer)
     @test build!(ps_model; output_dir = mktempdir(; cleanup = true)) ==
@@ -752,7 +749,8 @@ end
     # Independent oracle, part 1: nodal injection expressions from KCL over the
     # raw PSY arcs. Flow f_b (from -> to) leaves the from-bus and arrives at the
     # to-bus, so injection[from] += f_b and injection[to] -= f_b.
-    ground_truth_modf = PNM.VirtualMODF(c_sys5)
+    ground_truth_modf =
+        @test_logs (:info, r"Registered \d+ contingencies") PNM.VirtualMODF(c_sys5)
     ground_truth_registered = PNM.get_registered_contingencies(ground_truth_modf)
     @test !isempty(ground_truth_registered)
     bus_axis = PNM.get_bus_axis(ground_truth_modf)
@@ -930,7 +928,7 @@ end
     # the AC and lossy networks are rejected at template validation. `build!`
     # swallows the throw into a FAILED status, so assert against
     # `validate_template` directly.
-    c_sys5 = PSB.build_system(PSITestSystems, "c_sys5")
+    c_sys5 = _build_system_quiet(PSITestSystems, "c_sys5")
     all_branches = collect(get_components(PSY.ACTransmission, c_sys5))
     line = get_component(PSY.ACTransmission, c_sys5, "1")
     PSY.add_supplemental_attribute!(
@@ -951,9 +949,10 @@ end
         POM.DCPLLNetworkModel,
     )
         template = get_thermal_dispatch_template_network(NetworkModel(NetFormulation))
-        set_device_model!(template, PSY.Line, POM.SecurityConstrainedStaticBranch)
+        _set_device_model_quiet!(template, PSY.Line, POM.SecurityConstrainedStaticBranch)
         model = DecisionModel(template, c_sys5; optimizer = ipopt_optimizer)
-        @test_throws IS.ConflictingInputsError POM.validate_template(model)
+        # Validation logs the template's unused branch models before rejecting it.
+        @test_throws IS.ConflictingInputsError _quiet(() -> POM.validate_template(model))
     end
 end
 
@@ -962,10 +961,10 @@ end
     # the model builds, no post-contingency containers are created, and a @warn
     # tells the user that the security limits are inert (the warning lands in
     # the build's operation_problem.log, not the console).
-    two_area = PSB.build_system(PSB.PSISystems, "two_area_pjm_DA")
+    two_area = _build_system_quiet(PSB.PSISystems, "two_area_pjm_DA")
     transform_single_time_series!(two_area, Hour(24), Hour(1))
-    c_sys5_nfa = PSB.build_system(PSITestSystems, "c_sys5")
-    c_sys5_cp = PSB.build_system(PSITestSystems, "c_sys5")
+    c_sys5_nfa = _build_system_quiet(PSITestSystems, "c_sys5")
+    c_sys5_cp = _build_system_quiet(PSITestSystems, "c_sys5")
     for sys in (c_sys5_nfa, c_sys5_cp, two_area)
         all_branches = collect(get_components(PSY.ACTransmission, sys))
         line = first(get_components(PSY.Line, sys))
@@ -986,7 +985,7 @@ end
         (POM.AreaBalanceNetworkModel, two_area),
     )
         template = get_thermal_dispatch_template_network(NetworkModel(NetFormulation))
-        set_device_model!(template, PSY.Line, POM.SecurityConstrainedStaticBranch)
+        _set_device_model_quiet!(template, PSY.Line, POM.SecurityConstrainedStaticBranch)
         ps_model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
         output_dir = mktempdir(; cleanup = true)
         @test build!(ps_model; output_dir = output_dir) == IOM.ModelBuildStatus.BUILT
@@ -1018,9 +1017,9 @@ end
 # ---------------------------------------------------------------------------
 
 @testset "Security Constrained branch formulation DC-PF with PTDF/MODF and parallel lines" begin
-    c_sys5 = PSB.build_system(PSITestSystems, "c_sys5")
-    c_sys14 = PSB.build_system(PSITestSystems, "c_sys14")
-    c_sys14_dc = PSB.build_system(PSITestSystems, "c_sys14_dc")
+    c_sys5 = _build_system_quiet(PSITestSystems, "c_sys5")
+    c_sys14 = _build_system_quiet(PSITestSystems, "c_sys14")
+    c_sys14_dc = _build_system_quiet(PSITestSystems, "c_sys14_dc")
     parallel_branches_to_add = IdDict{System, Vector{String}}(
         c_sys5 => ["3", "4"],
         c_sys14 => ["Line1", "Line14"],
@@ -1067,13 +1066,13 @@ end
         template = get_thermal_dispatch_template_network(
             NetworkModel(PTDFNetworkModel),
         )
-        set_device_model!(template, PSY.Line, POM.SecurityConstrainedStaticBranch)
-        set_device_model!(
+        _set_device_model_quiet!(template, PSY.Line, POM.SecurityConstrainedStaticBranch)
+        _set_device_model_quiet!(
             template,
             PSY.TwoWindingTransformer,
             POM.SecurityConstrainedStaticBranch,
         )
-        set_device_model!(
+        _set_device_model_quiet!(
             template,
             PSY.TwoWindingTransformer,
             POM.SecurityConstrainedStaticBranch,
@@ -1090,9 +1089,9 @@ end
 end
 
 @testset "Security Constrained branch formulation DC-PF with PTDF/MODF and parallel lines removing complete arc" begin
-    c_sys5 = PSB.build_system(PSITestSystems, "c_sys5")
-    c_sys14 = PSB.build_system(PSITestSystems, "c_sys14")
-    c_sys14_dc = PSB.build_system(PSITestSystems, "c_sys14_dc")
+    c_sys5 = _build_system_quiet(PSITestSystems, "c_sys5")
+    c_sys14 = _build_system_quiet(PSITestSystems, "c_sys14")
+    c_sys14_dc = _build_system_quiet(PSITestSystems, "c_sys14_dc")
     parallel_branches_to_add = IdDict{System, Vector{String}}(
         c_sys5 => ["3", "4"],
         c_sys14 => ["Line1", "Line14"],
@@ -1142,13 +1141,13 @@ end
         template = get_thermal_dispatch_template_network(
             NetworkModel(PTDFNetworkModel),
         )
-        set_device_model!(template, PSY.Line, POM.SecurityConstrainedStaticBranch)
-        set_device_model!(
+        _set_device_model_quiet!(template, PSY.Line, POM.SecurityConstrainedStaticBranch)
+        _set_device_model_quiet!(
             template,
             PSY.TwoWindingTransformer,
             POM.SecurityConstrainedStaticBranch,
         )
-        set_device_model!(
+        _set_device_model_quiet!(
             template,
             PSY.TwoWindingTransformer,
             POM.SecurityConstrainedStaticBranch,
@@ -1165,9 +1164,9 @@ end
 end
 
 @testset "Security Constrained branch formulation DC-PF with PTDF/MODF and degree-two reductions" begin
-    c_sys5 = PSB.build_system(PSITestSystems, "c_sys5")
-    c_sys14 = PSB.build_system(PSITestSystems, "c_sys14")
-    c_sys14_dc = PSB.build_system(PSITestSystems, "c_sys14_dc")
+    c_sys5 = _build_system_quiet(PSITestSystems, "c_sys5")
+    c_sys14 = _build_system_quiet(PSITestSystems, "c_sys14")
+    c_sys14_dc = _build_system_quiet(PSITestSystems, "c_sys14_dc")
     parallel_branches_to_add = IdDict{System, Vector{String}}(
         c_sys5 => ["4"],
         c_sys14 => ["Line14"],
@@ -1219,13 +1218,13 @@ end
                 network_source = SystemNetworkSource(nr),
             ),
         )
-        set_device_model!(template, PSY.Line, POM.SecurityConstrainedStaticBranch)
-        set_device_model!(
+        _set_device_model_quiet!(template, PSY.Line, POM.SecurityConstrainedStaticBranch)
+        _set_device_model_quiet!(
             template,
             PSY.TwoWindingTransformer,
             POM.SecurityConstrainedStaticBranch,
         )
-        set_device_model!(
+        _set_device_model_quiet!(
             template,
             PSY.TwoWindingTransformer,
             POM.SecurityConstrainedStaticBranch,
@@ -1274,9 +1273,9 @@ end
 end
 
 @testset "Security Constrained branch formulation DC-PF with reductions and separate monitored lines" begin
-    c_sys5 = PSB.build_system(PSITestSystems, "c_sys5")
-    c_sys14 = PSB.build_system(PSITestSystems, "c_sys14")
-    c_sys14_dc = PSB.build_system(PSITestSystems, "c_sys14_dc")
+    c_sys5 = _build_system_quiet(PSITestSystems, "c_sys5")
+    c_sys14 = _build_system_quiet(PSITestSystems, "c_sys14")
+    c_sys14_dc = _build_system_quiet(PSITestSystems, "c_sys14_dc")
     parallel_branches_to_add = IdDict{System, Vector{String}}(
         c_sys5 => ["4"],
         c_sys14 => ["Line14"],
@@ -1334,13 +1333,13 @@ end
                 network_source = SystemNetworkSource(nr),
             ),
         )
-        set_device_model!(template, PSY.Line, POM.SecurityConstrainedStaticBranch)
-        set_device_model!(
+        _set_device_model_quiet!(template, PSY.Line, POM.SecurityConstrainedStaticBranch)
+        _set_device_model_quiet!(
             template,
             PSY.TwoWindingTransformer,
             POM.SecurityConstrainedStaticBranch,
         )
-        set_device_model!(
+        _set_device_model_quiet!(
             template,
             PSY.TwoWindingTransformer,
             POM.SecurityConstrainedStaticBranch,
@@ -1451,11 +1450,11 @@ end
 @testset "Duals of post-contingency flow constraints (sparse dual path)" begin
     # Exercises the sparse dual-assignment path on an LP (thermal dispatch) so
     # HiGHS returns the dual values directly.
-    c_sys5 = _attach_some_branch_outages!(PSB.build_system(PSITestSystems, "c_sys5"))
+    c_sys5 = _attach_some_branch_outages!(_build_system_quiet(PSITestSystems, "c_sys5"))
     template = get_thermal_dispatch_template_network(
         NetworkModel(PTDFNetworkModel),
     )
-    set_device_model!(
+    _set_device_model_quiet!(
         template,
         DeviceModel(
             PSY.Line,
@@ -1463,12 +1462,12 @@ end
             duals = [POM.PostContingencyFlowRateConstraint],
         ),
     )
-    set_device_model!(
+    _set_device_model_quiet!(
         template,
         PSY.TwoWindingTransformer,
         POM.SecurityConstrainedStaticBranch,
     )
-    set_device_model!(
+    _set_device_model_quiet!(
         template,
         PSY.TwoWindingTransformer,
         POM.SecurityConstrainedStaticBranch,
@@ -1486,14 +1485,14 @@ end
     # Unit-commitment binaries make this a MILP, so duals go through the
     # relax-integers / re-solve-LP / copy-duals path rather than the direct LP
     # path of the testset above.
-    c_sys5 = _attach_some_branch_outages!(PSB.build_system(PSITestSystems, "c_sys5"))
+    c_sys5 = _attach_some_branch_outages!(_build_system_quiet(PSITestSystems, "c_sys5"))
     template =
         PowerOperationsProblemTemplate(
             NetworkModel(PTDFNetworkModel),
         )
-    set_device_model!(template, PSY.PowerLoad, StaticPowerLoad)
-    set_device_model!(template, PSY.ThermalStandard, ThermalStandardUnitCommitment)
-    set_device_model!(
+    _set_device_model_quiet!(template, PSY.PowerLoad, StaticPowerLoad)
+    _set_device_model_quiet!(template, PSY.ThermalStandard, ThermalStandardUnitCommitment)
+    _set_device_model_quiet!(
         template,
         DeviceModel(
             PSY.Line,
@@ -1501,12 +1500,12 @@ end
             duals = [POM.PostContingencyFlowRateConstraint],
         ),
     )
-    set_device_model!(
+    _set_device_model_quiet!(
         template,
         PSY.TwoWindingTransformer,
         POM.SecurityConstrainedStaticBranch,
     )
-    set_device_model!(
+    _set_device_model_quiet!(
         template,
         PSY.TwoWindingTransformer,
         POM.SecurityConstrainedStaticBranch,
@@ -1530,7 +1529,7 @@ _sc_retained_buses(nrd) = Set(keys(PNM.get_bus_reduction_map(nrd)))
     # to be able to reduce the PTDF and the MODF onto different bus sets. Both now wrap
     # one factorization core built from one Ybus, so they cannot diverge and the caller
     # never replicates the irreducible-bus computation.
-    sys = PSB.build_system(PSB.PSITestSystems, "test_RTS_GMLC_sys")
+    sys = _build_system_quiet(PSB.PSITestSystems, "test_RTS_GMLC_sys")
     all_lines = collect(get_components(PSY.Line, sys))
     @test length(all_lines) > 1
     monitored = all_lines                       # force many irreducible buses
@@ -1553,7 +1552,7 @@ _sc_retained_buses(nrd) = Set(keys(PNM.get_bus_reduction_map(nrd)))
             network_source = SystemNetworkSource(nr),
         ),
     )
-    set_device_model!(template, PSY.Line, POM.SecurityConstrainedStaticBranch)
+    _set_device_model_quiet!(template, PSY.Line, POM.SecurityConstrainedStaticBranch)
 
     model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
     @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
@@ -1582,13 +1581,13 @@ end
 # containers exist, each post-contingency lb/ub constraint references a slack,
 # the model solves, and that with `use_slacks=false` neither container exists.
 @testset "SecurityConstrainedStaticBranch post-contingency slacks (use_slacks)" begin
-    c_sys5 = _attach_some_branch_outages!(PSB.build_system(PSITestSystems, "c_sys5"))
+    c_sys5 = _attach_some_branch_outages!(_build_system_quiet(PSITestSystems, "c_sys5"))
 
     function _build_sc_slack_model(use_slacks)
         template = get_thermal_dispatch_template_network(
             NetworkModel(PTDFNetworkModel),
         )
-        set_device_model!(
+        _set_device_model_quiet!(
             template,
             DeviceModel(
                 PSY.Line,
@@ -1596,10 +1595,10 @@ end
                 use_slacks = use_slacks,
             ),
         )
-        set_device_model!(
+        _set_device_model_quiet!(
             template, PSY.TwoWindingTransformer, POM.SecurityConstrainedStaticBranch,
         )
-        set_device_model!(
+        _set_device_model_quiet!(
             template, PSY.TwoWindingTransformer, POM.SecurityConstrainedStaticBranch,
         )
         ps_model = DecisionModel(template, c_sys5; optimizer = HiGHS_optimizer)
@@ -1662,7 +1661,7 @@ end
 @testset "post-contingency emergency limits: raw ACTransmission uses rating_b in system pu" begin
     # Pins the numeric behavior of the raw-device emergency-limit method so the
     # delegation refactor to PNM.get_equivalent_emergency_rating stays a no-op on values.
-    sys = PSB.build_system(PSITestSystems, "c_sys5")
+    sys = _build_system_quiet(PSITestSystems, "c_sys5")
     line = first(PSY.get_components(PSY.Line, sys))
     PSY.set_rating_b!(line, 0.9 * u"SU")
     lim = POM._emergency_flow_limits(line)
@@ -1706,14 +1705,89 @@ function _post_contingency_constraints_have_slack(container, slack_refs)
     return n, all_have
 end
 
+@testset "a zero emergency rating on a monitored arc fails the build" begin
+    sys = _build_system_quiet(PSITestSystems, "c_sys5")
+    monitored = PSY.get_component(PSY.Line, sys, "2")
+    PSY.set_rating_b!(monitored, 0.0 * u"SU")
+    outage = PSY.GeometricDistributionForcedOutage(;
+        mean_time_to_recovery = 10,
+        outage_transition_probability = 0.9999,
+        monitored_components = [monitored],
+    )
+    PSY.add_supplemental_attribute!(sys, PSY.get_component(PSY.Line, sys, "1"), outage)
+    template = get_thermal_dispatch_template_network(NetworkModel(PTDFNetworkModel))
+    _set_device_model_quiet!(template, PSY.Line, POM.SecurityConstrainedStaticBranch)
+    model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
+    output_dir = mktempdir(; cleanup = true)
+    @test build!(model; output_dir = output_dir) == IOM.ModelBuildStatus.FAILED
+    log = read(joinpath(output_dir, "operation_problem.log"), String)
+    @test occursin(
+        "Branch 2 has a zero emergency rating; the post-contingency flow limit would " *
+        "force zero flow.",
+        log,
+    )
+end
+
+@testset "post-contingency limits of arcs with a switch" begin
+    sys = _build_system_quiet(PSITestSystems, "c_sys5")
+    line = PSY.get_component(PSY.Line, sys, "1")
+    chain_line = PSY.get_component(PSY.Line, sys, "2")
+    function add_switch!(name, rating, rating_b)
+        switch = PSY.DiscreteControlledACBranch(;
+            name = name, available = true, active_power_flow = 0.0,
+            reactive_power_flow = 0.0, arc = PSY.get_arc(line), r = 0.0, x = 1e-4,
+            rating = rating, rating_b = rating_b, input_basis = u"CU",
+        )
+        PSY.add_component!(sys, switch; skip_validation = true)
+        return switch
+    end
+    function chain(switch)
+        bs = PNM.BranchesSeries((1, 4))
+        PNM.add_branch!(bs, switch, :FromTo)
+        PNM.add_branch!(bs, chain_line, :FromTo)
+        return bs
+    end
+    pair(switch) = PNM.MixedBranchesParallel(PSY.ACTransmission[line, switch])
+    none = Set{PSY.ACTransmission}()
+    line_trips = Set{PSY.ACTransmission}([line])
+    line_b = PNM.get_equivalent_emergency_rating(line)
+    chain_b = PNM.get_equivalent_emergency_rating(chain_line)
+    zero_msg = "has a zero emergency rating"
+
+    # A zero rating is rejected wherever it alone rates the arc after the outage. Beside an
+    # intact line it only adds nothing to the group, which the parser placeholder and the
+    # data-model warning cover.
+    zero = add_switch!("sw_zero", 0.0, nothing)
+    @test_throws zero_msg POM._emergency_flow_limits(zero)
+    @test_throws zero_msg POM._emergency_flow_limits(chain(zero), none)
+    @test POM._emergency_flow_limits(pair(zero), none).max ≈ line_b
+    @test_throws zero_msg POM._emergency_flow_limits(pair(zero), line_trips)
+
+    # The parser's placeholder never binds.
+    unbounded = add_switch!("sw_unbounded", PSY.INFINITE_BOUND, nothing)
+    @test POM._emergency_flow_limits(unbounded).max ≈ PSY.INFINITE_BOUND
+    @test POM._emergency_flow_limits(chain(unbounded), none).max ≈ chain_b
+    @test POM._emergency_flow_limits(pair(unbounded), none).max ≈
+          line_b + PSY.INFINITE_BOUND
+    @test POM._emergency_flow_limits(pair(unbounded), line_trips).max ≈
+          PSY.INFINITE_BOUND
+
+    # A switch's own rating_b takes precedence over its rating.
+    rated = add_switch!("sw_rated", 2.0, 0.05)
+    @test POM._emergency_flow_limits(rated).max ≈ 0.05
+    @test POM._emergency_flow_limits(chain(rated), none).max ≈ min(0.05, chain_b)
+    @test POM._emergency_flow_limits(pair(rated), none).max ≈ line_b + 0.05
+    @test POM._emergency_flow_limits(pair(rated), line_trips).max ≈ 0.05
+end
+
 @testset "Security Constrained branch slacks reach post-contingency flow constraints" begin
-    c_sys5 = _attach_all_branch_outages!(PSB.build_system(PSITestSystems, "c_sys5"))
+    c_sys5 = _attach_all_branch_outages!(_build_system_quiet(PSITestSystems, "c_sys5"))
 
     function _build_sc(use_slacks)
         template = get_thermal_dispatch_template_network(
             NetworkModel(PTDFNetworkModel),
         )
-        set_device_model!(
+        _set_device_model_quiet!(
             template,
             DeviceModel(
                 PSY.Line,
@@ -1721,7 +1795,7 @@ end
                 use_slacks = use_slacks,
             ),
         )
-        set_device_model!(
+        _set_device_model_quiet!(
             template,
             DeviceModel(
                 PSY.TwoWindingTransformer,
@@ -1729,7 +1803,7 @@ end
                 use_slacks = use_slacks,
             ),
         )
-        set_device_model!(
+        _set_device_model_quiet!(
             template,
             DeviceModel(
                 PSY.TwoWindingTransformer,
@@ -1800,7 +1874,7 @@ end
 # registers those slacks under the reusing type too, so `has_container_key` /
 # `get_variable` stay consistent regardless of the Dict-ordered build order.
 @testset "Multi-type outage post-contingency slacks reach every reusing branch type" begin
-    c_sys14 = PSB.build_system(PSITestSystems, "c_sys14")
+    c_sys14 = _build_system_quiet(PSITestSystems, "c_sys14")
     all_branches = collect(PSY.get_components(PSY.ACTransmission, c_sys14))
     line = PSY.get_component(PSY.Line, c_sys14, "Line1")
     transformer = first(PSY.get_components(PSY.TwoWindingTransformer, c_sys14))
@@ -1819,11 +1893,11 @@ end
             network_source = PrebuiltMatrixSource(PNM.VirtualPTDF(c_sys14)),
         ),
     )
-    set_device_model!(
+    _set_device_model_quiet!(
         template,
         DeviceModel(PSY.Line, POM.SecurityConstrainedStaticBranch; use_slacks = true),
     )
-    set_device_model!(
+    _set_device_model_quiet!(
         template,
         DeviceModel(
             PSY.TwoWindingTransformer,
@@ -1831,7 +1905,7 @@ end
             use_slacks = true,
         ),
     )
-    set_device_model!(
+    _set_device_model_quiet!(
         template,
         DeviceModel(
             PSY.TwoWindingTransformer,
@@ -1901,7 +1975,7 @@ _set_rating_b!(t::PSY.TwoWindingTransformer, r) = PSY.set_rating_b!(t.circuit, r
 # `c_sys14` with `rating_b = 1.2 * rating` and a post-contingency rating forecast
 # on Line1, Line2, Line6, and Trans1. Every branch monitored. Line1, Line2, Line3 outaged.
 function _pc_rating_ts_system()
-    sys = PSB.build_system(PSITestSystems, "c_sys14")
+    sys = _build_system_quiet(PSITestSystems, "c_sys14")
     lines_with_ts = ["Line1", "Line2", "Line6", "Trans1"]
     for name in lines_with_ts
         line = PSY.get_component(PSY.ACTransmission, sys, name)
@@ -1933,7 +2007,7 @@ function _build_pc_rating_ts_model(sys)
             network_source = PrebuiltMatrixSource(PNM.VirtualPTDF(sys)),
         ),
     )
-    set_device_model!(
+    _set_device_model_quiet!(
         template,
         DeviceModel(
             PSY.Line,
@@ -1944,7 +2018,7 @@ function _build_pc_rating_ts_model(sys)
             ),
         ),
     )
-    set_device_model!(
+    _set_device_model_quiet!(
         template,
         DeviceModel(
             PSY.TwoWindingTransformer,
@@ -2032,7 +2106,7 @@ end
 end
 
 @testset "pre-contingency rate limit follows the branch rating time series" begin
-    sys = PSB.build_system(PSITestSystems, "c_sys14")
+    sys = _build_system_quiet(PSITestSystems, "c_sys14")
     lines_with_ts = ["Line1", "Line2", "Line6"]
     add_branch_rating_time_series_to_system!(
         sys, lines_with_ts, 2, _PC_RATING_FACTORS;
@@ -2054,7 +2128,7 @@ end
             network_source = PrebuiltMatrixSource(PNM.VirtualPTDF(sys)),
         ),
     )
-    set_device_model!(
+    _set_device_model_quiet!(
         template,
         DeviceModel(
             PSY.Line,
@@ -2096,7 +2170,7 @@ end
     # transformer and only `Line`s monitored, the `Line` model's outage set is empty, so
     # its post-contingency rating parameter has to be built from the full device list --
     # the transformer model reads it cross-type when it builds the rate limits.
-    sys = PSB.build_system(PSITestSystems, "c_sys14")
+    sys = _build_system_quiet(PSITestSystems, "c_sys14")
     branches_with_ts = ["Line1", "Line2"]
     for name in branches_with_ts
         branch = PSY.get_component(PSY.ACTransmission, sys, name)
@@ -2125,7 +2199,7 @@ end
         ),
     )
     for T in (PSY.Line, PSY.TwoWindingTransformer)
-        set_device_model!(
+        _set_device_model_quiet!(
             template,
             DeviceModel(
                 T,
@@ -2175,7 +2249,7 @@ end
     # An unavailable branch is absent from the branch catalog, so a monitored
     # reference to one cannot resolve to a representative arc. Discovery skips it
     # and reports once rather than failing the build.
-    sys = PSB.build_system(PSITestSystems, "c_sys5")
+    sys = _build_system_quiet(PSITestSystems, "c_sys5")
     all_branches = collect(get_components(PSY.ACTransmission, sys))
     outage = PSY.GeometricDistributionForcedOutage(;
         mean_time_to_recovery = 10,
@@ -2193,7 +2267,7 @@ end
     PSY.set_available!(de_energized, false)
 
     template = get_thermal_dispatch_template_network(NetworkModel(PTDFNetworkModel))
-    set_device_model!(template, PSY.Line, POM.SecurityConstrainedStaticBranch)
+    _set_device_model_quiet!(template, PSY.Line, POM.SecurityConstrainedStaticBranch)
     model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
     output_dir = mktempdir(; cleanup = true)
     @test build!(model; output_dir = output_dir) == IOM.ModelBuildStatus.BUILT

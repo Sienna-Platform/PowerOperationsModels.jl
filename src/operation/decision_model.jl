@@ -73,6 +73,15 @@ function run_post_build_hook!(model::DecisionModel)
 end
 
 # Called `build_impl!(model)` in PSI (lived in decision_model.jl).
+"""
+    release_contingency_caches!(model::DecisionModel)
+
+Free the post-contingency rows and Woodbury factors the network model of `model` cached during
+`build!`. See [`release_contingency_caches!(::NetworkModel)`](@ref).
+"""
+release_contingency_caches!(model::DecisionModel{<:AbstractPowerDecisionProblem}) =
+    release_contingency_caches!(get_network_model(get_template(model)))
+
 function build_model!(model::DecisionModel{<:AbstractPowerDecisionProblem})
     build_pre_step!(model)
     @info "Instantiating Network Model"

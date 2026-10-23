@@ -149,10 +149,12 @@ function add_expressions!(
     shift_down = get_variable(container, ShiftDownActivePowerVariable, D)
     param_container = get_parameter(container, ActivePowerTimeSeriesParameter, D)
     multiplier = get_multiplier_array(param_container)
+    status = get_component_statuses(container, D)
     for t in time_steps, d in devices
         name = PSY.get_name(d)
+        mult = multiplier[name, t] * get_component_status(status, name, t)
         expression[name, t] =
-            get_parameter_column_refs(param_container, name)[t] * multiplier[name, t] +
+            get_parameter_column_refs(param_container, name)[t] * mult +
             shift_up[name, t] - shift_down[name, t]
     end
     return
