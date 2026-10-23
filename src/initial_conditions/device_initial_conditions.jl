@@ -3,124 +3,37 @@
 # These extend the generic get_initial_conditions_value from IOM
 #################################################################################
 
-# InitialTimeDurationOff for thermal devices (Float64 version)
-function get_initial_conditions_value(
-    ::Vector{Union{InitialCondition{U, Float64}, InitialCondition{U, Nothing}}},
-    component::W,
-    ::U,
-    ::V,
-    container::OptimizationContainer,
-) where {
-    V <: AbstractThermalFormulation,
-    W <: PSY.Component,
-} where {U <: InitialTimeDurationOff}
-    ic_data = get_initial_conditions_data(container)
-    var_type = initial_condition_variable(U(), component, V())
-    if !has_initial_condition_value(ic_data, var_type, W)
-        val = initial_condition_default(U(), component, V(), container)
-    else
-        var = get_initial_condition_value(ic_data, var_type, W)[PSY.get_name(component), 1]
-        val = _time_at_status_steps(
-            component,
-            container,
-            !is_online(component) && !(var > ABSOLUTE_TOLERANCE),
-        )
-    end
-    @debug "Device $(PSY.get_name(component)) initialized $U as $val" _group =
-        LOG_GROUP_BUILD_INITIAL_CONDITIONS
-    return InitialCondition{U, Float64}(component, val)
-end
+# Whether the unit is in the status that the duration counts, given its initial on-status.
+_in_status(::InitialTimeDurationOn, d::PSY.ThermalGen, on) =
+    is_online(d) && on > ABSOLUTE_TOLERANCE
+_in_status(::InitialTimeDurationOff, d::PSY.ThermalGen, on) =
+    !is_online(d) && !(on > ABSOLUTE_TOLERANCE)
 
-# InitialTimeDurationOff for thermal generators (JuMP.VariableRef version)
+# InitialTimeDurationOn/Off for thermal generators. Without initial-condition data the
+# on-status is the device's own, so the duration is its `time_at_status` when that status
+# matches.
 function get_initial_conditions_value(
-    ::Vector{Union{InitialCondition{U, JuMP.VariableRef}, InitialCondition{U, Nothing}}},
+    ini_conds::InitialConditionVector{U},
     component::W,
     ::U,
     ::V,
     container::OptimizationContainer,
 ) where {
+    U <: Union{InitialTimeDurationOn, InitialTimeDurationOff},
     V <: AbstractThermalFormulation,
     W <: PSY.ThermalGen,
-} where {U <: InitialTimeDurationOff}
+}
     ic_data = get_initial_conditions_data(container)
     var_type = initial_condition_variable(U(), component, V())
-    if !has_initial_condition_value(ic_data, var_type, W)
-        val = initial_condition_default(U(), component, V(), container)
+    if has_initial_condition_value(ic_data, var_type, W)
+        on = get_initial_condition_value(ic_data, var_type, W)[PSY.get_name(component), 1]
     else
-        var = get_initial_condition_value(ic_data, var_type, W)[PSY.get_name(component), 1]
-        val = _time_at_status_steps(
-            component,
-            container,
-            !is_online(component) && !(var > ABSOLUTE_TOLERANCE),
-        )
+        on = Float64(is_online(component))
     end
+    val = _time_at_status_steps(component, container, _in_status(U(), component, on))
     @debug "Device $(PSY.get_name(component)) initialized $U as $val" _group =
         LOG_GROUP_BUILD_INITIAL_CONDITIONS
-    return InitialCondition{U, JuMP.VariableRef}(
-        component,
-        add_jump_parameter(get_jump_model(container), val),
-    )
-end
-
-# InitialTimeDurationOn for thermal generators (Float64 version)
-function get_initial_conditions_value(
-    ::Vector{Union{InitialCondition{U, Float64}, InitialCondition{U, Nothing}}},
-    component::W,
-    ::U,
-    ::V,
-    container::OptimizationContainer,
-) where {
-    V <: AbstractThermalFormulation,
-    W <: PSY.ThermalGen,
-} where {U <: InitialTimeDurationOn}
-    ic_data = get_initial_conditions_data(container)
-    var_type = initial_condition_variable(U(), component, V())
-    has_ic = has_initial_condition_value(ic_data, var_type, W)
-    if !has_ic
-        val = initial_condition_default(U(), component, V(), container)
-    else
-        var = get_initial_condition_value(ic_data, var_type, W)[PSY.get_name(component), 1]
-        val = _time_at_status_steps(
-            component,
-            container,
-            is_online(component) && (var > ABSOLUTE_TOLERANCE),
-        )
-    end
-    @debug "Device $(PSY.get_name(component)) initialized $U as $val" _group =
-        LOG_GROUP_BUILD_INITIAL_CONDITIONS
-    return InitialCondition{U, Float64}(component, val)
-end
-
-# InitialTimeDurationOn for thermal generators (JuMP.VariableRef version)
-function get_initial_conditions_value(
-    ::Vector{Union{InitialCondition{U, JuMP.VariableRef}, InitialCondition{U, Nothing}}},
-    component::W,
-    ::U,
-    ::V,
-    container::OptimizationContainer,
-) where {
-    V <: AbstractThermalFormulation,
-    W <: PSY.ThermalGen,
-} where {U <: InitialTimeDurationOn}
-    ic_data = get_initial_conditions_data(container)
-    var_type = initial_condition_variable(U(), component, V())
-    has_ic = has_initial_condition_value(ic_data, var_type, W)
-    if !has_ic
-        val = initial_condition_default(U(), component, V(), container)
-    else
-        var = get_initial_condition_value(ic_data, var_type, W)[PSY.get_name(component), 1]
-        val = _time_at_status_steps(
-            component,
-            container,
-            is_online(component) && (var > ABSOLUTE_TOLERANCE),
-        )
-    end
-    @debug "Device $(PSY.get_name(component)) initialized $U as $val" _group =
-        LOG_GROUP_BUILD_INITIAL_CONDITIONS
-    return InitialCondition{U, JuMP.VariableRef}(
-        component,
-        add_jump_parameter(get_jump_model(container), val),
-    )
+    return _ic_value(ini_conds, component, container, val)
 end
 
 #################################################################################

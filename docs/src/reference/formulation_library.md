@@ -562,9 +562,10 @@ respective balances under any `<:AbstractNetworkModel`.
 | `RenewableConstantPowerFactor` | as above                                       | as above, except the reactive limits are replaced by an **`EqualityConstraint`** pinning ``q = p \tan(\arccos(pf))``                                                                                        |
 | `FixedOutput`                  | none                                           | none — the time-series parameter is wired straight into the balance                                                                                                                                         |
 
-Both dispatch formulations support all eleven network models. Renewable injection carries a
-**negative** objective multiplier, and the renewable cost expressions include a
-`CurtailmentCostExpression` (populated only for a `CostCurve{LinearCurve}`).
+Both dispatch formulations support all eleven network models. The renewable variable
+cost enters the objective with a positive sign. The curtailment cost enters the objective as
+`curtailment_cost · (available − dispatched)` and is reported in `CurtailmentCostExpression`
+(`CostCurve{LinearCurve}` only).
 
 Note that `RenewableConstantPowerFactor` emits **no** `ReactivePowerVariableLimitsConstraint` at
 all — the power-factor equality replaces it.
@@ -702,6 +703,11 @@ Attaching an `EventModel` for a `PSY.Contingency` supplemental attribute (e.g.
 `FixedForcedOutage`) to a `DeviceModel` in the template adds availability parameters and outage
 constraints to every device of that type carrying the attribute, on top of whatever variables and
 constraints its device formulation already contributes.
+
+Outage events are applied by a simulation with an emulation model.
+The emulator's system decides which outages exist: the simulation fills each event model's map with [`discover_event_attribute_device_map`](@ref) on that system, and every model then applies the event to the outaged devices it has.
+Outage attributes in a decision model's own system do not affect events; they may serve other formulations, such as security-constrained ones.
+A model built without a filled map throws.
 
 Parameters (per device and time step): [`AvailableStatusParameter`](@ref) (1 = available,
 initialized to 1) and [`AvailableStatusChangeCountdownParameter`](@ref); loads and `FixedOutput`

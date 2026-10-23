@@ -746,17 +746,25 @@ end
     @test nr_data isa PFS.ACPowerFlowData
 
     # label => evaluator. Each must converge through the loop and match the NR reference.
+    # Pure B′/B″ FD defaults to a loose 1e-3 tolerance (it converges only linearly), so those
+    # evaluators are tightened to 1e-6. Compare at 10× that: the residual left at 1e-6 shows up
+    # directly in the injections.
+    fd_params = PFS.SolutionParameters(; tol = 1e-6)
     fd_evaluators = [
         "FDNR default (FDDecoupled/XB)" =>
-            ACPolarPowerFlow{PFS.FastDecoupledACPowerFlow}(),
+            ACPolarPowerFlow{PFS.FastDecoupledACPowerFlow}(;
+                solution_parameters = fd_params,
+            ),
         "FDDecoupled/BX scheme" =>
             ACPolarPowerFlow{
                 PFS.FastDecoupledACPowerFlow{PFS.FDDecoupled, PFS.FDSchemeBX},
-            }(),
+            }(;
+                solution_parameters = fd_params,
+            ),
         "FDFixedJacobian (polar)" =>
             ACPolarPowerFlow{PFS.FastDecoupledFixed}(),
         "FastDecoupledXB alias" =>
-            ACPolarPowerFlow{PFS.FastDecoupledXB}(),
+            ACPolarPowerFlow{PFS.FastDecoupledXB}(; solution_parameters = fd_params),
         "FDNR handoff -> NewtonRaphson" =>
             ACPolarPowerFlow{PFS.FastDecoupledACPowerFlow}(;
                 solution_parameters = PFS.SolutionParameters(;
@@ -771,18 +779,18 @@ end
             fd_data = pf_data_for(pf_eval)
             @test all(PFS.get_converged(fd_data))
             @test isapprox(fd_data.bus_magnitude, nr_data.bus_magnitude;
-                atol = 1e-6, rtol = 0)
+                atol = 1e-5, rtol = 0)
             @test isapprox(fd_data.bus_angles, nr_data.bus_angles;
-                atol = 1e-6, rtol = 0)
+                atol = 1e-5, rtol = 0)
             @test isapprox(
                 fd_data.bus_active_power_injections,
                 nr_data.bus_active_power_injections;
-                atol = 1e-6, rtol = 0,
+                atol = 1e-5, rtol = 0,
             )
             @test isapprox(
                 fd_data.bus_reactive_power_injections,
                 nr_data.bus_reactive_power_injections;
-                atol = 1e-6, rtol = 0,
+                atol = 1e-5, rtol = 0,
             )
         end
     end

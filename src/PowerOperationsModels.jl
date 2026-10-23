@@ -465,6 +465,7 @@ export get_empty_timeseries_mapping
 export get_event_type
 export get_event_condition
 export get_attribute_device_map
+export discover_event_attribute_device_map
 export set_event_model!
 export get_event_models
 export supports_events
