@@ -167,11 +167,20 @@ function _outaged_generators(
     return outaged_generators
 end
 
-_flow_entry_name(
+function _flow_entry_name(
     network_model::NetworkModel{<:AbstractPTDFNetworkModel},
     T::Type{<:PSY.ACTransmission},
     name::String,
-) = PNM.get_component_to_reduction_name_map(get_branch_catalog(network_model), T)[name]
+)
+    entry_names =
+        PNM.get_component_to_reduction_name_map(get_branch_catalog(network_model), T)
+    haskey(entry_names, name) || throw(
+        IS.ConflictingInputsError(
+            "Monitored component $name ($T) is not in the network, or the branch or one of its endpoint buses is unavailable.",
+        ),
+    )
+    return entry_names[name]
+end
 _flow_entry_name(
     ::NetworkModel{<:Union{AreaBalanceNetworkModel, AreaPTDFNetworkModel}},
     ::Type{PSY.AreaInterchange},

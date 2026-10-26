@@ -355,9 +355,7 @@ end
     end
 end
 
-@testset "G-1 outages pin buses against network reduction" begin
-    # The outaged generator sits on radial bus 110 and the monitored line joins degree-two
-    # buses 103 and 109; each reduction eliminates them unless pinned.
+function g1_reduction_system()
     sys = PSB.build_system(PSITestSystems, "case10_radial_series_reductions")
     load = first(collect(get_components(StandardLoad, sys)))
     add_time_series!(
@@ -380,42 +378,102 @@ end
         deployed_fraction = 0.0,
     )
     add_service!(sys, reserve, collect(get_components(ThermalStandard, sys)))
-    _attach_outage!(
+    outage = _attach_outage!(
         sys,
         [get_component(ThermalStandard, sys, "generator-110-1")],
         [reserve],
         [get_component(Line, sys, "LV-RADIAL1-i_1")],
     )
+    return sys, outage
+end
 
-    for (reduction, pinned) in
-        ((RadialReduction(), [110]), (DegreeTwoReduction(), [103, 109]))
-        # Confirm pinned bus would otherwise be reduced.
-        # The keys of the bus reduction map are retained buses.
+function g1_reduction_model(sys, reduction)
+    template = PowerOperationsProblemTemplate(
+        NetworkModel(PTDFNetworkModel; network_source = SystemNetworkSource(reduction)),
+    )
+    set_device_model!(template, ThermalStandard, ThermalBasicDispatch)
+    set_device_model!(template, StandardLoad, StaticPowerLoad)
+    set_device_model!(template, Line, StaticBranch)
+    set_service_model!(
+        template,
+        ServiceModel(OnlineReserve{ReserveUp}, SecurityConstrainedContingencyReserve),
+    )
+    model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+    return model
+end
+
+_kept_buses(reduction_data) = keys(PNM.get_bus_reduction_map(reduction_data))
+
+@testset "G-1 monitored branch endpoints are pinned against network reduction" begin
+    # The monitored line joins buses 103 and 109, which each reduction eliminates unless
+    # pinned.
+    sys, _ = g1_reduction_system()
+    monitored_buses = [103, 109]
+    for reduction in (RadialReduction(), DegreeTwoReduction())
         unpinned = PNM.Ybus(sys; network_reductions = PNM.NetworkReduction[reduction])
         @test isdisjoint(
-            pinned,
-            keys(PNM.get_bus_reduction_map(PNM.get_network_reduction_data(unpinned))),
+            monitored_buses,
+            _kept_buses(PNM.get_network_reduction_data(unpinned)),
         )
 
-        template = PowerOperationsProblemTemplate(
-            NetworkModel(
-                PTDFNetworkModel;
-                network_source = SystemNetworkSource(reduction),
-            ),
-        )
-        set_device_model!(template, ThermalStandard, ThermalBasicDispatch)
-        set_device_model!(template, StandardLoad, StaticPowerLoad)
-        set_device_model!(template, Line, StaticBranch)
-        set_service_model!(
-            template,
-            ServiceModel(OnlineReserve{ReserveUp}, SecurityConstrainedContingencyReserve),
-        )
-        model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
-        @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
-              IOM.ModelBuildStatus.BUILT
+        model = g1_reduction_model(sys, reduction)
         network_model = IOM.get_network_model(IOM.get_template(model))
-        kept = keys(PNM.get_bus_reduction_map(POM.get_network_reduction(network_model)))
-        @test issubset(pinned, kept)
+        @test issubset(
+            monitored_buses,
+            _kept_buses(POM.get_network_reduction(network_model)),
+        )
+    end
+end
+
+@testset "G-1 reserves with the outaged generator on a reduced bus" begin
+    # The outaged generator sits on radial bus 110, which folds into the pinned bus 109. Its
+    # lost output must act at bus 109 in the post-contingency flow of the monitored line.
+    sys, outage = g1_reduction_system()
+    reduction = RadialReduction()
+    model = g1_reduction_model(sys, reduction)
+    container = IOM.get_optimization_container(model)
+    network_model = IOM.get_network_model(IOM.get_template(model))
+    @test !(110 in _kept_buses(POM.get_network_reduction(network_model)))
+
+    # An independently built matrix with the same reduction and pinned buses.
+    ybus = PNM.Ybus(
+        sys;
+        network_reductions = PNM.NetworkReduction[reduction],
+        irreducible_buses = make_selector(b -> PSY.get_number(b) in (103, 109), ACBus),
+    )
+    reduction_data = PNM.get_network_reduction_data(ybus)
+    mapped_bus(component) =
+        PNM.get_mapped_bus_number(reduction_data, PSY.get_bus(component))
+    outaged = get_component(ThermalStandard, sys, "generator-110-1")
+    @test mapped_bus(outaged) == 109
+
+    ptdf = PNM.VirtualPTDF(ybus)
+    bus_axis = PNM.get_bus_axis(ptdf)
+    catalog = POM.get_branch_catalog(network_model)
+    entry_name = PNM.get_component_to_reduction_name_map(catalog, Line)["LV-RADIAL1-i_1"]
+    row = ptdf[PNM.get_name_to_arc_map(catalog, Line)[entry_name], :]
+    factor(component) = row[findfirst(==(mapped_bus(component)), bus_axis)]
+    @test factor(outaged) != 0.0
+
+    uuid = IS.get_id(outage)
+    deployments = _deployments(container)
+    power = IOM.get_variable(container, ActivePowerVariable, ThermalStandard)
+    post_flow = IOM.get_expression(container, PostContingencyBranchFlow, Line, "G1")
+    pre_flow = IOM.get_expression(container, PTDFBranchFlow, Line)
+    for t in IOM.get_time_steps(container)
+        expected = copy(pre_flow[entry_name, t])
+        for ((D, _, _, d, u, tt), var) in deployments
+            (u == uuid && tt == t) || continue
+            JuMP.add_to_expression!(expected, factor(get_component(D, sys, d)), var)
+        end
+        JuMP.add_to_expression!(
+            expected,
+            -factor(outaged),
+            power[PSY.get_name(outaged), t],
+        )
+        @test aff_exprs_approx_equal(post_flow[entry_name, uuid, t], expected)
     end
 end
 
@@ -457,6 +515,18 @@ end
           IOM.ModelBuildStatus.BUILT
     log_text = read(IOM.get_log_file(model), String)
     @test occursin(r"Monitored component 1_2 .* is not modeled", log_text)
+end
+
+@testset "unavailable monitored branch is rejected" begin
+    sys, _ = g1_system()
+    PSY.set_available!(get_component(Line, sys, "2_2"), false)
+    model = g1_model(g1_template(PTDFNetworkModel), sys)
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.FAILED
+    @test occursin(
+        r"Monitored component 2_2 .* endpoint buses is unavailable",
+        read(IOM.get_log_file(model), String),
+    )
 end
 
 @testset "monitored interchange without a device model warns" begin

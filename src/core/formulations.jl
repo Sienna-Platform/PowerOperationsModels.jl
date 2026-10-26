@@ -902,8 +902,8 @@ rating (`PostContingencyFlowRateConstraint`, metas `"G1_lb"`/`"G1_ub"`):
     ``f^o_{\\ell,t} = f_{\\ell,t} + \\sum_n PTDF_{\\ell,n} \\Delta P_{n,o,t}``
     (`PostContingencyBranchFlow`, meta `"G1"`), with ``\\Delta P_{n,o,t}`` the nodal change
     in injection ([`PostContingencyLocationalDeployment`](@ref)). Parallel circuits are
-    limited once, on their reduced entry. The buses of outaged generators and the endpoints
-    of monitored branches are kept through network reductions.
+    limited once, on their reduced entry. The endpoints of monitored branches are kept
+    through network reductions; injections on reduced buses act at the bus they map to.
   - `AreaBalanceNetworkModel`: monitored interchanges carry
     ``f^o_{i,t} = f_{i,t} + \\Delta f_{i,o,t}``
     (`PostContingencyBranchFlow`, meta `"G1"`). Deviations exist on every modeled

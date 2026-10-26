@@ -180,10 +180,6 @@ function _pin_outage_buses!(
     for service in _services_with_contributors(m, sys)
         for outage in PSY.get_supplemental_attributes(PSY.Outage, service)
             _pin_monitored_buses!(buses, outage, sys)
-            for generator in
-                PSY.get_associated_components(sys, outage; component_type = PSY.Generator)
-                _push_component_buses!(buses, generator)
-            end
         end
     end
     return
