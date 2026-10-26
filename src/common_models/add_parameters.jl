@@ -195,6 +195,15 @@ end
 _size_wrapper(elem) = size(elem)
 _size_wrapper(::Tuple) = ()
 
+# Function barrier. Julia specializes this method on the runtime type of `series`, so each
+# `_set_parameter_at!` call dispatches statically.
+function _set_parameter_series!(parent_param, jump_model, series, i, time_steps)
+    for t in time_steps
+        IOM._set_parameter_at!(parent_param, jump_model, series[t], i, t)
+    end
+    return
+end
+
 #################################################################################
 # _add_time_series_parameters! — main workhorse
 #################################################################################
@@ -297,9 +306,7 @@ function _add_time_series_parameters!(
         ts_vals = IOM.unwrap_for_param.((param_instance,), raw_ts_vals, (additional_axes,))
         @assert all(_size_wrapper.(ts_vals) .== (length.(additional_axes),))
 
-        for step in time_steps
-            IOM._set_parameter_at!(parent_param, jump_model, ts_vals[step], i, step)
-        end
+        _set_parameter_series!(parent_param, jump_model, ts_vals, i, time_steps)
     end
 
     parent_mult = IOM.get_multiplier_array_data(param_container)
@@ -427,27 +434,27 @@ function _add_time_series_parameters!(
         # would call `PSY.get_rating` on a `BranchesParallel` reduction wrapper.
         multiplier = _resolve_branch_multiplier(T, reduction_entry, W, model)
         IOM._set_multiplier_at!(parent_mult, multiplier, i_mult)
-        for t in time_steps
-            if !has_entry
-                # For non-recurrent builds, store the raw float in the tracker; for
-                # recurrent builds (JuMP parameters), read back the VariableRef the
-                # fast-path setter just created so parallel branch types share it.
-                IOM._set_parameter_at!(parent_param, jump_model, ts_vals[t], i_param, t)
+        if has_entry
+            # Reuse the value (Float64) or VariableRef stored by the first branch
+            # type that processed this arc.
+            _set_parameter_series!(
+                parent_param,
+                jump_model,
+                tracker_container,
+                i_param,
+                time_steps,
+            )
+        else
+            _set_parameter_series!(parent_param, jump_model, ts_vals, i_param, time_steps)
+            # For non-recurrent builds, store the raw float in the tracker; for
+            # recurrent builds (JuMP parameters), read back the VariableRef the
+            # fast-path setter just created so parallel branch types share it.
+            for t in time_steps
                 if built_for_recurrent_solves(container)
                     tracker_container[t] = parent_param[i_param, t]
                 else
                     tracker_container[t] = ts_vals[t]
                 end
-            else
-                # Reuse the value (Float64) or VariableRef stored by the first branch
-                # type that processed this arc.
-                IOM._set_parameter_at!(
-                    parent_param,
-                    jump_model,
-                    tracker_container[t],
-                    i_param,
-                    t,
-                )
             end
         end
         IOM.add_component_name!(
@@ -830,9 +837,7 @@ function _add_objective_function_parameters!(
             get_multiplier_value(T, device, W),
             i,
         )
-        for step in time_steps
-            IOM._set_parameter_at!(parent_param, jump_model, ts_vals[step], i, step)
-        end
+        _set_parameter_series!(parent_param, jump_model, ts_vals, i, time_steps)
     end
     return
 end
@@ -965,10 +970,13 @@ function _add_parameters!(
     # Parameter rows follow `hash_axis`, multiplier rows follow `names`; the two differ in
     # length when services share a series.
     for (i, ts_hash) in enumerate(hash_axis)
-        ts_vector = initial_values[ts_hash]
-        for t in time_steps
-            IOM._set_parameter_at!(parent_param, jump_model, ts_vector[t], i, t)
-        end
+        _set_parameter_series!(
+            parent_param,
+            jump_model,
+            initial_values[ts_hash],
+            i,
+            time_steps,
+        )
     end
     for (i, service) in enumerate(services)
         name = names[i]
