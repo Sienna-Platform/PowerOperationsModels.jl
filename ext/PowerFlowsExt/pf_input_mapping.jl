@@ -281,9 +281,9 @@ function _add_two_terminal_elements_map!(
     return
 end
 
-# Does this power flow container compute aux variable `T`? Drives both registration
-# (`branch_aux_vars`/`bus_aux_vars`) and the read-back guard. An unspecialized container
-# (e.g. `PSSEExporter`) registers nothing and no-ops on read-back.
+# Does this power flow container compute aux variable `T`? Drives registration
+# (`branch_aux_vars`/`bus_aux_vars`) and binding. An unspecialized container
+# (e.g. `PSSEExporter`) provides no aux variables, so none are bound to it.
 _pf_provides_aux_var(::Type{<:POM.PowerFlowAuxVariableType}, ::PFS.PowerFlowContainer) =
     false
 
@@ -360,23 +360,22 @@ end
 _with_time_steps(pf::PFS.PSSEExportPowerFlow, ::Int) = pf
 
 function _collect_power_flow_evaluator!(
-    selected::Dict{DataType, POM.PowerFlowEvaluator},
+    selected::Vector{Pair{DataType, POM.PowerFlowEvaluator}},
     T::DataType,
     evaluator::POM.PowerFlowEvaluator,
 )
-    selected[T] = evaluator
+    push!(selected, T => evaluator)
     return
 end
 
-_collect_power_flow_evaluator!(::Dict, ::DataType, ::IOM.AbstractEvaluator) = nothing
+_collect_power_flow_evaluator!(::Vector, ::DataType, ::IOM.AbstractEvaluator) = nothing
 
 function POM.add_power_flow_data!(
     container::OptimizationContainer,
-    network_model::IOM.NetworkModel,
+    evaluations::IOM.EvaluationContainer,
     sys::PSY.System,
 )
-    evaluations = get_evaluations(network_model)
-    power_flow_evaluators = Dict{DataType, POM.PowerFlowEvaluator}()
+    power_flow_evaluators = Pair{DataType, POM.PowerFlowEvaluator}[]
     for (T, evaluator) in pairs(get_evaluators(evaluations))
         _collect_power_flow_evaluator!(power_flow_evaluators, T, evaluator)
     end
@@ -386,7 +385,7 @@ function POM.add_power_flow_data!(
         Dict{Type{<:AuxVariableType}, Set{Tuple{<:DataType, String}}}()
     bus_aux_var_components = Dict{Type{<:AuxVariableType}, Set{Tuple{<:DataType, <:Int}}}()
     n_time_steps = length(get_time_steps(container))
-    for (T, evaluator) in pairs(power_flow_evaluators)
+    for (T, evaluator) in power_flow_evaluators
         # `evaluator` is a `POM.PowerFlowEvaluator` config wrapper; unwrap to the
         # underlying PowerFlows model before building the runtime container.
         evaluator = _with_time_steps(POM.get_power_flow_model(evaluator), n_time_steps)
@@ -412,15 +411,24 @@ function POM.add_power_flow_data!(
                 get!(bus_aux_var_components, bus_aux_var, Set{Tuple{<:DataType, <:Int}}())
             push!.(Ref(to_add_to), my_bus_components)
         end
-        add_evaluation_data!(evaluations, T, pf_e_data)
+        add_evaluation_data!(container, T, pf_e_data)
     end
 
     _add_aux_variables!(container, branch_aux_var_components)
     _add_aux_variables!(container, bus_aux_var_components)
 
+    for (T, _) in power_flow_evaluators
+        pf_data = IOM.get_inner_data(get_evaluation_data(container, T))
+        provided = vcat(branch_aux_vars(pf_data), bus_aux_vars(pf_data))
+        for key in keys(get_aux_variables(container))
+            IOM.get_entry_type(key) in provided || continue
+            IOM.bind_aux_variable!(container, T, key)
+        end
+    end
+
     # Make the input maps after adding aux vars so output of one power flow can be input of another
-    for pf_e_data in values(get_evaluation_data(evaluations))
-        _make_pf_input_map!(pf_e_data, container, sys)
+    for (T, _) in power_flow_evaluators
+        _make_pf_input_map!(get_evaluation_data(container, T), container, sys)
     end
     return
 end

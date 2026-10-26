@@ -32,14 +32,6 @@ function IOM.evaluate!(
     return
 end
 
-# Currently nothing to write back to the optimization container from a PSSEExporter
-IOM.calculate_aux_variable_value!(
-    ::OptimizationContainer,
-    ::AuxVarKey{T, <:Any} where {T <: POM.PowerFlowAuxVariableType},
-    ::PSY.System,
-    ::PowerFlowEvaluationData{PFS.PSSEExporter},
-) = nothing
-
 _get_pf_result(::Type{POM.PowerFlowVoltageAngle}, pf_data::PFS.PowerFlowData) =
     PFS.get_bus_angles(pf_data)
 _get_pf_result(::Type{POM.PowerFlowVoltageMagnitude}, pf_data::PFS.PowerFlowData) =
@@ -140,10 +132,6 @@ function IOM.calculate_aux_variable_value!(
     ::PSY.System,
     pf_e_data::PowerFlowEvaluationData{<:PFS.PowerFlowData},
 )
-    # With several evaluators registered each owns only part of the aux var keys, so
-    # skip the ones this evaluator isn't meant to update.
-    pf_data = IOM.get_inner_data(pf_e_data)
-    _pf_provides_aux_var(IOM.get_entry_type(key), pf_data) || return
     # Time steps where the power flow didn't converge get NaNs.
     _write_aux_variable_value!(container, key, pf_e_data)
     return

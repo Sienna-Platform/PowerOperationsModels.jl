@@ -286,7 +286,7 @@ end
     # through the full `build!`/`solve!` round trip.
     POM.build_pre_step!(model)
     IOM.instantiate_network_model!(model)
-    POM.build_initial_conditions!(model)
+    POM.build_initial_conditions_model!(model)
     ic_container = IOM.get_initial_conditions_model_container(IOM.get_internal(model))
     @test ic_container !== nothing
     ic_keys = IOM.get_parameter_keys(ic_container)
