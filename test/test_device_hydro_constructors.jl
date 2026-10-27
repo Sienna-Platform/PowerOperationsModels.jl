@@ -1957,3 +1957,32 @@ end
     @test IOM.has_container_key(container, ActivePowerTimeSeriesParameter, HydroDispatch)
     @test !IOM.has_container_key(container, ReactivePowerTimeSeriesParameter, HydroDispatch)
 end
+
+@testset "HydroGen FixedOutput mapped reactive series" begin
+    sys = PSB.build_system(PSITestSystems, "c_sys5_hy")
+    unit = first(PSY.get_components(HydroDispatch, sys))
+    device_model = DeviceModel(
+        HydroDispatch,
+        FixedOutput;
+        time_series_names = Dict(
+            ActivePowerTimeSeriesParameter => "max_active_power",
+            ReactivePowerTimeSeriesParameter => "max_active_power",
+        ),
+    )
+
+    # Without reactive limits there is nothing to scale the series by.
+    PSY.set_reactive_power_limits!(unit, nothing)
+    model = DecisionModel(MockOperationProblem, ACPNetworkModel, sys)
+    @test_throws IS.ConflictingInputsError mock_construct_device!(model, device_model)
+
+    # A mapped reactive series is scaled by the max reactive power.
+    PSY.set_reactive_power_limits!(unit, (min = -0.2 * u"SU", max = 0.3 * u"SU"))
+    model = DecisionModel(MockOperationProblem, ACPNetworkModel, sys)
+    mock_construct_device!(model, device_model)
+    mult = IOM.get_parameter_multiplier_array(
+        IOM.get_optimization_container(model),
+        ReactivePowerTimeSeriesParameter,
+        HydroDispatch,
+    )
+    @test all(mult[PSY.get_name(unit), :] .≈ 0.3)
+end
