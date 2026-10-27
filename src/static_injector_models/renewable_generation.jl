@@ -20,8 +20,22 @@ get_variable_binary(::Type{ReactivePowerVariable}, ::Type{<:PSY.RenewableGen}, :
 get_multiplier_value(::Type{<:TimeSeriesParameter}, d::PSY.RenewableGen, ::Type{FixedOutput}) = PSY.get_max_active_power(d, u"SU")
 # The default reactive series is the normalized active-power profile, so scale by
 # Q/P = tan(acos(pf)). A custom reactive series must be normalized the same way.
-get_multiplier_value(::Type{ReactivePowerTimeSeriesParameter}, d::PSY.RenewableGen, ::Type{FixedOutput}) = PSY.get_max_active_power(d, u"SU") * tan(acos(PSY.get_power_factor(d)))
+get_multiplier_value(::Type{ReactivePowerTimeSeriesParameter}, d::PSY.RenewableGen, ::Type{FixedOutput}) = PSY.get_max_active_power(d, u"SU") * _reactive_to_active_ratio(d)
 get_multiplier_value(::Type{<:TimeSeriesParameter}, d::PSY.RenewableGen, ::Type{<:AbstractRenewableFormulation}) = PSY.get_max_active_power(d, u"SU")
+
+# Q/P at the device's power factor. pf = 0 would make Q/P infinite (tan(acos(0)) ≈ 1.6e16).
+function _reactive_to_active_ratio(d::PSY.RenewableGen)
+    pf = PSY.get_power_factor(d)
+    if iszero(pf)
+        throw(
+            IS.ConflictingInputsError(
+                "$(nameof(typeof(d))) $(PSY.get_name(d)) has power_factor = 0, so its \
+                reactive-to-active power ratio is unbounded.",
+            ),
+        )
+    end
+    return tan(acos(pf))
+end
 
 # To avoid ambiguity with default_interface_methods.jl:
 get_multiplier_value(::Type{<:AbstractPiecewiseLinearBreakpointParameter}, ::PSY.RenewableGen, ::Type{FixedOutput}) = 1.0
@@ -102,11 +116,13 @@ function add_constraints!(
     jump_model = get_jump_model(container)
     constraint =
         add_constraints_container!(container, EqualityConstraint, V, names, time_steps)
-    for t in time_steps, d in devices
+    for d in devices
         name = PSY.get_name(d)
-        q_to_p = tan(acos(PSY.get_power_factor(d)))
-        constraint[name, t] =
-            JuMP.@constraint(jump_model, q_var[name, t] == p_var[name, t] * q_to_p)
+        q_to_p = _reactive_to_active_ratio(d)
+        for t in time_steps
+            constraint[name, t] =
+                JuMP.@constraint(jump_model, q_var[name, t] == p_var[name, t] * q_to_p)
+        end
     end
 end
 

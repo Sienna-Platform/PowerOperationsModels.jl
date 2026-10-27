@@ -280,3 +280,15 @@ end
     cons = IOM.get_constraint(container, POM.EqualityConstraint, RenewableDispatch)
     @test JuMP.normalized_coefficient(cons["WindBusA", 1], p["WindBusA", 1]) ≈ -0.75
 end
+
+@testset "Renewable reactive power errors on power factor 0" begin
+    for formulation in (FixedOutput, RenewableConstantPowerFactor)
+        c_sys5_re = PSB.build_system(PSITestSystems, "c_sys5_re")
+        set_power_factor!(get_component(RenewableDispatch, c_sys5_re, "WindBusA"), 0.0)
+        model = DecisionModel(MockOperationProblem, ACPNetworkModel, c_sys5_re)
+        @test_throws r"WindBusA has power_factor = 0" mock_construct_device!(
+            model,
+            DeviceModel(RenewableDispatch, formulation),
+        )
+    end
+end
