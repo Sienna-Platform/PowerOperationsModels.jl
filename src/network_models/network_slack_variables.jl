@@ -129,10 +129,11 @@ function add_to_objective_function!(
     variable_dn = get_variable(container, SystemBalanceSlackDown, PSY.System)
     reference_buses = get_reference_buses(network_model)
 
+    cost = BALANCE_SLACK_COST * _hours_per_step(container)
     for t in get_time_steps(container), n in reference_buses
         add_to_objective_invariant_expression!(
             container,
-            (variable_dn[n, t] + variable_up[n, t]) * BALANCE_SLACK_COST,
+            (variable_dn[n, t] + variable_up[n, t]) * cost,
         )
     end
     return
@@ -147,10 +148,11 @@ function add_to_objective_function!(
     variable_dn = get_variable(container, SystemBalanceSlackDown, PSY.Area)
     areas = PSY.get_name.(get_available_components(network_model, PSY.Area, sys))
 
+    cost = BALANCE_SLACK_COST * _hours_per_step(container)
     for t in get_time_steps(container), n in areas
         add_to_objective_invariant_expression!(
             container,
-            (variable_dn[n, t] + variable_up[n, t]) * BALANCE_SLACK_COST,
+            (variable_dn[n, t] + variable_up[n, t]) * cost,
         )
     end
     return
@@ -165,10 +167,11 @@ function add_to_objective_function!(
     variable_dn = get_variable(container, SystemBalanceSlackDown, PSY.ACBus)
     bus_numbers = axes(variable_up)[1]
     IS.@assert_op bus_numbers == axes(variable_dn)[1]
+    cost = BALANCE_SLACK_COST * _hours_per_step(container)
     for t in get_time_steps(container), n in bus_numbers
         add_to_objective_invariant_expression!(
             container,
-            (variable_dn[n, t] + variable_up[n, t]) * BALANCE_SLACK_COST,
+            (variable_dn[n, t] + variable_up[n, t]) * cost,
         )
     end
     return
@@ -185,6 +188,7 @@ function add_to_objective_function!(
     variable_q_dn = get_variable(container, SystemBalanceSlackDown, PSY.ACBus, "Q")
     bus_numbers = axes(variable_p_up)[1]
     IS.@assert_op bus_numbers == axes(variable_q_dn)[1]
+    cost = BALANCE_SLACK_COST * _hours_per_step(container)
     for t in get_time_steps(container), n in bus_numbers
         add_to_objective_invariant_expression!(
             container,
@@ -193,7 +197,7 @@ function add_to_objective_function!(
                 variable_p_up[n, t] +
                 variable_q_dn[n, t] +
                 variable_q_up[n, t]
-            ) * BALANCE_SLACK_COST,
+            ) * cost,
         )
     end
     return

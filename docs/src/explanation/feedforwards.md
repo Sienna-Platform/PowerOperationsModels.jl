@@ -206,7 +206,7 @@ UpperBoundFeedforward(;
 ```
 
 This adds a non-negative slack variable that relaxes the bound — subtracted on an upper
-bound, added on a lower bound — and penalizes it in the objective at `BALANCE_SLACK_COST`.
+bound, added on a lower bound — and penalizes it in the objective at `BALANCE_SLACK_COST` per hour of the time step.
 The penalty is set high enough that the slack is only used when the alternative is
 infeasibility.
 

@@ -46,8 +46,8 @@ function _add_feedforward_arguments!(
     return
 end
 
-# Penalized at `BALANCE_SLACK_COST`; PSI leaves the device-path slacks free, which makes
-# the relaxed bound never bind.
+# Penalized at `BALANCE_SLACK_COST` per hour of the step; PSI leaves the device-path slacks
+# free, which makes the relaxed bound never bind.
 function _add_feedforward_slack_variables!(
     container::OptimizationContainer,
     ::Type{T},
@@ -62,6 +62,7 @@ function _add_feedforward_slack_variables!(
     time_steps = get_time_steps(container)
     jump_model = get_jump_model(container)
     devices_names = PSY.get_name.(devices)
+    cost = BALANCE_SLACK_COST * _hours_per_step(container)
     for var in get_affected_values(ff)
         affected_variable = get_variable(container, var)
         device_name_set =
@@ -85,7 +86,7 @@ function _add_feedforward_slack_variables!(
             )
             add_to_objective_invariant_expression!(
                 container,
-                variable[name, t] * BALANCE_SLACK_COST,
+                variable[name, t] * cost,
             )
         end
     end
