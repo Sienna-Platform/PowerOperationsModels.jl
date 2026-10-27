@@ -122,33 +122,51 @@ end
     end
 end
 
-@testset "Feedforward bound slack penalty is per hour" begin
+# The objective coefficient of every bound-feedforward slack on `var` for a mock model.
+function _feedforward_slack_coefs(sys_name::String, formulation, var)
+    device_model = DeviceModel(PSY.ThermalStandard, formulation)
+    attach_feedforward!(
+        device_model,
+        UpperBoundFeedforward(;
+            component_type = PSY.ThermalStandard,
+            source = var,
+            affected_values = [var],
+            add_slacks = true,
+        ),
+    )
+    sys = PSB.build_system(PSITestSystems, sys_name)
+    model = DecisionModel(MockOperationProblem, DCPNetworkModel, sys)
+    mock_construct_device!(model, device_model; built_for_recurrent_solves = true)
+    container = IOM.get_optimization_container(model)
+    slack = IOM.get_variable(
+        container,
+        UpperBoundFeedForwardSlack,
+        PSY.ThermalStandard,
+        "$(nameof(var))",
+    )
+    obj = JuMP.objective_function(IOM.get_jump_model(container))
+    return container, [get(obj.terms, v, 0.0) for v in vec(slack.data)]
+end
+
+@testset "Feedforward bound slack on a power is priced per hour" begin
     for (sys_name, step) in (("c_sys5", Dates.Hour(1)), ("c_sys5_ed", Dates.Minute(5)))
-        device_model = DeviceModel(PSY.ThermalStandard, ThermalStandardDispatch)
-        attach_feedforward!(
-            device_model,
-            UpperBoundFeedforward(;
-                component_type = PSY.ThermalStandard,
-                source = ActivePowerVariable,
-                affected_values = [ActivePowerVariable],
-                add_slacks = true,
-            ),
-        )
-        sys = PSB.build_system(PSITestSystems, sys_name)
-        model = DecisionModel(MockOperationProblem, DCPNetworkModel, sys)
-        mock_construct_device!(model, device_model; built_for_recurrent_solves = true)
-        container = IOM.get_optimization_container(model)
+        container, coefs =
+            _feedforward_slack_coefs(sys_name, ThermalStandardDispatch, ActivePowerVariable)
         @test IOM.get_resolution(container) == Dates.Millisecond(step)
         dt = _step_hours(step)
         @test POM._hours_per_step(container) == dt
-        slack = IOM.get_variable(
-            container,
-            UpperBoundFeedForwardSlack,
-            PSY.ThermalStandard,
-            "$(nameof(ActivePowerVariable))",
-        )
-        obj = JuMP.objective_function(IOM.get_jump_model(container))
-        expected = _expected_cost(POM.BALANCE_SLACK_COST, step, dt)
-        @test all(get(obj.terms, v, 0.0) == expected for v in slack)
+        @test all(c == _expected_cost(POM.BALANCE_SLACK_COST, step, dt) for c in coefs)
+    end
+end
+
+@testset "Feedforward bound slack on a status or energy is priced per step" begin
+    for (sys_name, step) in (("c_sys5", Dates.Hour(1)), ("c_sys5_ed", Dates.Minute(5)))
+        container, coefs =
+            _feedforward_slack_coefs(sys_name, ThermalBasicUnitCommitment, OnVariable)
+        @test IOM.get_resolution(container) == Dates.Millisecond(step)
+        @test !isempty(coefs)
+        @test all(c == POM.FEEDFORWARD_SLACK_COST for c in coefs)
+        @test POM._feedforward_slack_cost(container, EnergyVariable) ==
+              POM.FEEDFORWARD_SLACK_COST
     end
 end
