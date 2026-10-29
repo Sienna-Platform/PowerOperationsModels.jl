@@ -27,12 +27,12 @@ end
 mutable struct TopologyState
     matrix::Union{Nothing, PNM.VirtualMODF}
     schedule::Union{Nothing, PNM.TopologySchedule}
-    post_contingency::_PostContingencyModifications
+    post_contingency::_PostContingencyNetworks
 end
 
-TopologyState() = TopologyState(nothing, nothing, _PostContingencyModifications())
+TopologyState() = TopologyState(nothing, nothing, _PostContingencyNetworks())
 TopologyState(matrix::PNM.VirtualMODF) =
-    TopologyState(matrix, nothing, _PostContingencyModifications())
+    TopologyState(matrix, nothing, _PostContingencyNetworks())
 
 """DCP: a Ybus, plus a MODF derived from that same Ybus when the template is security constrained."""
 struct DCPNetworkData{M} <: IOM.AbstractNetworkData
@@ -131,17 +131,17 @@ _topology_schedule(::Nothing) = nothing
 _topology_schedule(s::TopologyState) = s.schedule
 
 """
-The post-contingency network of each registered contingency at every step of the topology
-schedule, by outage id: `nothing` at a step where every component of the contingency is
-already out.
+The `PNM.PostContingencyNetwork` of each registered contingency at every step of the
+topology schedule, by outage id: `nothing` at a step where every component of the
+contingency is already out.
 """
-get_post_contingency_modifications(m::NetworkModel) =
+get_post_contingency_networks(m::NetworkModel) =
     get_topology_state(get_network_data(m)).post_contingency
 
 function set_topology_schedule!(
     m::NetworkModel,
     schedule::PNM.TopologySchedule,
-    post_contingency::_PostContingencyModifications,
+    post_contingency::_PostContingencyNetworks,
 )
     _set_topology_schedule!(
         get_topology_state(get_network_data(m)),
@@ -156,7 +156,7 @@ function _set_topology_schedule!(
     state::TopologyState,
     ::NetworkModel,
     schedule::PNM.TopologySchedule,
-    post_contingency::_PostContingencyModifications,
+    post_contingency::_PostContingencyNetworks,
 )
     state.schedule = schedule
     state.post_contingency = post_contingency
@@ -175,11 +175,10 @@ Free the post-contingency PTDF rows and Woodbury factors that `network_model`'s 
 and topology matrices cached while the model's constraints were built. The contingency
 registrations stay, so a later query recomputes the rows it asks for.
 
-Under a topology schedule the cache holds one set of factors per step topology and
-contingency, each as wide as the arcs the step and the contingency take out together, and it
-stays resident through the solve unless released. Call this after `build!` on a model that is
-built once. A model rebuilt at each step of a simulation reuses the caches of recurring
-topologies, so leave them in place there.
+Under a topology schedule the cache holds the factors of every step topology and of every
+contingency on each of them, and it stays resident through the solve unless released. Call
+this after `build!` on a model that is built once. A model rebuilt at each step of a
+simulation reuses the caches of recurring topologies, so leave them in place there.
 """
 function release_contingency_caches!(network_model::NetworkModel)
     data = get_network_data(network_model)

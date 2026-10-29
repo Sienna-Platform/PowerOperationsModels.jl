@@ -542,15 +542,25 @@ _base_network() = PNM.NetworkModification("", PNM.ArcModification[])
         _rebuild!(model, sys)
         ts = POM.get_topology_schedule(network_model)
         @test all(t -> PNM.is_arc_out(ts, _arc_of(model, PSY.Line, out), t), steps)
-        in_use = POM._modifications_in_use(
+        in_use = POM._networks_in_use(
             ts,
-            POM.get_post_contingency_modifications(network_model),
+            POM.get_post_contingency_networks(network_model),
             1:n_steps,
         )
-        # One topology with the line out, and its union with each contingency.
-        @test length(setdiff(in_use, contingencies)) == 3
-        @test Set(keys(PNM.get_row_caches(matrix))) == union(in_use, [_base_network()])
-        @test Set(keys(PNM.get_woodbury_cache(matrix))) == in_use
+        topologies = Set(e for e in in_use if e isa PNM.NetworkModification)
+        networks = [e for e in in_use if e isa PNM.PostContingencyNetwork]
+        # A network on the base topology is cached as the registered contingency.
+        on_base = Set(net.tier2 for net in networks if net.topology == _base_network())
+        on_topology = Set(net for net in networks if net.topology != _base_network())
+        # One topology with the line out, and each contingency's network on it.
+        @test length(topologies) == 1
+        @test length(on_topology) == 2
+        @test issubset(on_base, contingencies)
+        @test Set(keys(PNM.get_row_caches(matrix))) ==
+              union(topologies, on_base, [_base_network()])
+        @test Set(keys(PNM.get_woodbury_cache(matrix))) == union(topologies, on_base)
+        @test Set(keys(PNM.get_tier2_row_caches(matrix))) == on_topology
+        @test Set(keys(PNM.get_tier2_factor_cache(matrix))) == on_topology
         push!(
             holds_contingencies,
             issubset(contingencies, keys(PNM.get_row_caches(matrix))),
@@ -579,20 +589,23 @@ end
     model = _built_model(_sc_template(), sys)
     network_model = _network_model(model)
     matrix = IOM.get_contingency_matrix(network_model)
-    # The union of line "3", out at the maintenance steps, with the contingency on line "1".
-    post_contingency = POM.get_post_contingency_modifications(network_model)
-    union_network = post_contingency[parse(Int, ids["1"])][first(_OUT_STEPS)]
+    # The contingency on line "1" with line "3" out, at the maintenance steps.
+    post_contingency = POM.get_post_contingency_networks(network_model)
+    net = post_contingency[parse(Int, ids["1"])][first(_OUT_STEPS)]
     monitored = _arc_of(model, PSY.Line, "4")
-    row = only(PNM.get_post_modification_ptdf_rows(matrix, monitored, [union_network]))
+    row = only(PNM.get_post_contingency_ptdf_rows(matrix, monitored, [net]))
     registered = copy(PNM.get_registered_contingencies(matrix))
     @test !isempty(PNM.get_woodbury_cache(matrix))
+    @test !isempty(PNM.get_tier2_factor_cache(matrix))
 
     release_contingency_caches!(model)
     @test isempty(PNM.get_woodbury_cache(matrix))
     @test isempty(PNM.get_row_caches(matrix))
+    @test isempty(PNM.get_tier2_factor_cache(matrix))
+    @test isempty(PNM.get_tier2_row_caches(matrix))
     @test PNM.get_registered_contingencies(matrix) == registered
     # A row asked for again is recomputed, not lost.
-    @test only(PNM.get_post_modification_ptdf_rows(matrix, monitored, [union_network])) ≈
+    @test only(PNM.get_post_contingency_ptdf_rows(matrix, monitored, [net])) ≈
           row atol = 1e-12
     @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
     @test objective(model) ≈ objective(reference) rtol = 1e-9

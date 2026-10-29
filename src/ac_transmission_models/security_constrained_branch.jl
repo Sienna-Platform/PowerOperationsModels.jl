@@ -193,16 +193,16 @@ function _post_contingency_entries(
 end
 
 # Whether a post-contingency limit applies to the monitored arc `arc` at step `t` of a
-# topology schedule, where `mod` is the step's post-contingency network. None applies when
-# every component of the contingency is already out at `t` (`mod === nothing`) or when the
+# topology schedule, where `net` is the step's post-contingency network. None applies when
+# every component of the contingency is already out at `t` (`net === nothing`) or when the
 # monitored arc itself is out; the entry then keeps a zero flow and inert rating rows, so
 # every step carries an entry.
 _post_contingency_applies(
     ts::PNM.TopologySchedule,
-    mod::Union{Nothing, PNM.NetworkModification},
+    net::Union{Nothing, PNM.PostContingencyNetwork},
     arc::Tuple{Int, Int},
     t::Int,
-) = !isnothing(mod) && !PNM.is_arc_out(ts, arc, t)
+) = !isnothing(net) && !PNM.is_arc_out(ts, arc, t)
 
 """
 Register an empty `SparseAxisArray` keyed by
@@ -511,11 +511,10 @@ before the MODF row multiplies the injections:
 
     expr[m, k, t] += Σ_adj delta[t] · (MODF[m, k][from_pos] − MODF[m, k][to_pos])
 
-`outage_spec` describes the post-contingency network relative to the base network.
-`step_deltas` holds, by arc index, the shift changes the balance already carries (those of
-the step's topology under a schedule), so each `delta` is the change from the network the
-balance describes to the post-contingency one. `out_controlled` lists the phase-controlled
-arcs already out of that network: the balance holds no angle term for them.
+`outage_spec` describes the post-contingency network relative to the network the nodal
+balance describes: the base network, or the step's topology under a schedule, whose tier-2
+modification is that change. `out_controlled` lists the phase-controlled arcs already out of
+the balance's network: the balance holds no angle term for them.
 
 A phase-controlled arc is a single circuit alone on its arc, so its modification is a full
 removal and `-b · PhaseShifterAngle[t]` is the whole injection it loses.
@@ -527,8 +526,7 @@ function _outage_shift_adjustments(
         Tuple{Int, Int},
         Tuple{RepresentativeBranch, Vector{JuMP.VariableRef}},
     },
-    time_steps::UnitRange{Int},
-    step_deltas::Dict{Int, Float64} = Dict{Int, Float64}(),
+    time_steps::UnitRange{Int};
     out_controlled::Set{Tuple{Int, Int}} = Set{Tuple{Int, Int}}(),
 )
     arc_axis = PNM.get_arc_axis(modf_matrix)
@@ -538,7 +536,7 @@ function _outage_shift_adjustments(
         arc = arc_axis[mod.arc_index]
         controlled = get(controlled_rows, arc, nothing)
         if isnothing(controlled)
-            change = mod.delta_shift_injection - get(step_deltas, mod.arc_index, 0.0)
+            change = mod.delta_shift_injection
             iszero(change) && continue
             delta = [JuMP.AffExpr(change) for _ in time_steps]
         else
@@ -565,13 +563,6 @@ function _outage_shift_adjustments(
     end
     return adjustments
 end
-
-# The shift changes a modification makes, by arc index; none for the base network.
-_shift_deltas(::Nothing) = Dict{Int, Float64}()
-_shift_deltas(mod::PNM.NetworkModification) =
-    Dict{Int, Float64}(
-        m.arc_index => m.delta_shift_injection for m in mod.arc_modifications
-    )
 
 # The phase-controlled arcs whose circuit carries no flow at step `t`.
 function _out_controlled_arcs(
@@ -649,13 +640,13 @@ Post-contingency rows solved on the dispatcher, each `(monitored arc, post-conti
 network)` pair once. `rows[k]` is a dense row and `entries[k]` its nonzero indices and values.
 """
 struct _PostContingencyRows
-    index::Dict{Tuple{Tuple{Int, Int}, PNM.NetworkModification}, Int}
+    index::Dict{Tuple{Tuple{Int, Int}, PNM.PostContingencyNetwork}, Int}
     rows::Vector{Vector{Float64}}
     entries::Vector{Tuple{Vector{Int}, Vector{Float64}}}
 end
 
 _PostContingencyRows() = _PostContingencyRows(
-    Dict{Tuple{Tuple{Int, Int}, PNM.NetworkModification}, Int}(),
+    Dict{Tuple{Tuple{Int, Int}, PNM.PostContingencyNetwork}, Int}(),
     Vector{Float64}[],
     Tuple{Vector{Int}, Vector{Float64}}[],
 )
@@ -667,25 +658,25 @@ function _fill_post_contingency_rows!(
     modf_matrix::PNM.VirtualMODF,
     ts::PNM.TopologySchedule,
     resolved::Vector{Pair{Int, Vector{RepresentativeBranch}}},
-    modifications::Dict{Int, Vector{Union{Nothing, PNM.NetworkModification}}},
+    networks::_PostContingencyNetworks,
     time_steps::UnitRange{Int},
 )
-    mods_by_arc = Dict{Tuple{Int, Int}, Vector{PNM.NetworkModification}}()
-    requested = Set{Tuple{Tuple{Int, Int}, PNM.NetworkModification}}()
+    nets_by_arc = Dict{Tuple{Int, Int}, Vector{PNM.PostContingencyNetwork}}()
+    requested = Set{Tuple{Tuple{Int, Int}, PNM.PostContingencyNetwork}}()
     for (uuid, reps) in resolved, rep in reps, t in time_steps
-        mod = modifications[uuid][t]
-        _post_contingency_applies(ts, mod, rep.arc, t) || continue
-        key = (rep.arc, mod)
+        net = networks[uuid][t]
+        _post_contingency_applies(ts, net, rep.arc, t) || continue
+        key = (rep.arc, net)
         key in requested && continue
         push!(requested, key)
-        push!(get!(Vector{PNM.NetworkModification}, mods_by_arc, rep.arc), mod)
+        push!(get!(Vector{PNM.PostContingencyNetwork}, nets_by_arc, rep.arc), net)
     end
-    for (arc, mods) in mods_by_arc
-        for (mod, row) in
-            zip(mods, PNM.get_post_modification_ptdf_rows(modf_matrix, arc, mods))
+    for (arc, nets) in nets_by_arc
+        for (net, row) in
+            zip(nets, PNM.get_post_contingency_ptdf_rows(modf_matrix, arc, nets))
             push!(rows.rows, row)
             push!(rows.entries, _nz_entries(row))
-            rows.index[(arc, mod)] = length(rows.rows)
+            rows.index[(arc, net)] = length(rows.rows)
         end
     end
     return
@@ -733,7 +724,7 @@ function _scheduled_contingency(
     own_by_arc::Dict{Tuple{Int, Int}, Tuple{Vector{Float64}, BitVector}},
     uuid::Int,
     reps::Vector{RepresentativeBranch},
-    step_modifications::Vector{Union{Nothing, PNM.NetworkModification}},
+    step_networks::Vector{Union{Nothing, PNM.PostContingencyNetwork}},
     controlled_rows::Dict{
         Tuple{Int, Int},
         Tuple{RepresentativeBranch, Vector{JuMP.VariableRef}},
@@ -743,19 +734,18 @@ function _scheduled_contingency(
     adjustments_by_topology = Dict{Int, Vector{OutageShiftAdjustment}}()
     adjustments = Vector{Vector{OutageShiftAdjustment}}(undef, length(time_steps))
     for t in time_steps
-        mod = step_modifications[t]
-        if isnothing(mod)
+        net = step_networks[t]
+        if isnothing(net)
             adjustments[t] = OutageShiftAdjustment[]
             continue
         end
         adjustments[t] = get!(adjustments_by_topology, PNM.get_topology_index(ts, t)) do
             _outage_shift_adjustments(
                 modf_matrix,
-                PNM.ContingencySpec(uuid, mod),
+                PNM.ContingencySpec(uuid, net.tier2),
                 controlled_rows,
-                time_steps,
-                _shift_deltas(PNM.get_network_modification(ts, t)),
-                _out_controlled_arcs(controlled_rows, ts, t),
+                time_steps;
+                out_controlled = _out_controlled_arcs(controlled_rows, ts, t),
             )
         end
     end
@@ -768,9 +758,9 @@ function _scheduled_contingency(
             _step_own_shifts(rep, ts, time_steps)
         end
         for t in time_steps
-            mod = step_modifications[t]
-            _post_contingency_applies(ts, mod, rep.arc, t) || continue
-            row_of_step[i][t] = rows.index[(rep.arc, mod)]
+            net = step_networks[t]
+            _post_contingency_applies(ts, net, rep.arc, t) || continue
+            row_of_step[i][t] = rows.index[(rep.arc, net)]
         end
     end
     return _ScheduledContingency(row_of_step, own_shift, own_conducts, adjustments)
@@ -911,7 +901,6 @@ function _add_modf_post_contingency_flow_expressions!(
 }
     time_steps = get_time_steps(container)
     modf_matrix = get_contingency_matrix(network_model)
-    registered_contingencies = PNM.get_registered_contingencies(modf_matrix)
 
     resolved = _resolve_monitored_branches(model, network_model)
 
@@ -934,12 +923,14 @@ function _add_modf_post_contingency_flow_expressions!(
         push!(get!(Vector{Int}, uuids_by_arc, rep.arc), uuid)
     end
     modf_cols = Dict{Tuple{String, Tuple{Int64, Int64}}, Vector{Float64}}()
+    networks = Dict{Int, PNM.PostContingencyNetwork}(
+        uuid => PNM.PostContingencyNetwork(modf_matrix, uuid) for
+        (uuid, _) in fresh_resolved
+    )
     for (arc, uuids) in uuids_by_arc
-        mods = PNM.NetworkModification[
-            registered_contingencies[uuid].modification for uuid in uuids
-        ]
+        nets = PNM.PostContingencyNetwork[networks[uuid] for uuid in uuids]
         for (uuid, row) in
-            zip(uuids, PNM.get_post_modification_ptdf_rows(modf_matrix, arc, mods))
+            zip(uuids, PNM.get_post_contingency_ptdf_rows(modf_matrix, arc, nets))
             modf_cols[(string(uuid), arc)] = row
         end
     end
@@ -949,7 +940,7 @@ function _add_modf_post_contingency_flow_expressions!(
     for (uuid, _) in fresh_resolved
         adjustments[string(uuid)] = _outage_shift_adjustments(
             modf_matrix,
-            registered_contingencies[uuid],
+            PNM.ContingencySpec(uuid, networks[uuid].tier2),
             controlled_rows,
             time_steps,
         )
@@ -1006,7 +997,7 @@ function _add_modf_post_contingency_flow_expressions!(
     modf_matrix = get_contingency_matrix(network_model)
 
     resolved = _resolve_monitored_branches(model, network_model)
-    modifications = get_post_contingency_modifications(network_model)
+    networks = get_post_contingency_networks(network_model)
 
     expression_container = _add_post_contingency_sparse_expression!(
         container, T, V,
@@ -1028,7 +1019,7 @@ function _add_modf_post_contingency_flow_expressions!(
         modf_matrix,
         ts,
         fresh_resolved,
-        modifications,
+        networks,
         time_steps,
     )
     own_by_arc = Dict{Tuple{Int, Int}, Tuple{Vector{Float64}, BitVector}}()
@@ -1040,7 +1031,7 @@ function _add_modf_post_contingency_flow_expressions!(
             own_by_arc,
             uuid,
             reps,
-            modifications[uuid],
+            networks[uuid],
             controlled_rows,
             time_steps,
         ) for (uuid, reps) in fresh_resolved

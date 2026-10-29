@@ -228,6 +228,6 @@ end
     @test_throws r"CopperPlateNetworkModel holds no network topology" POM.set_topology_schedule!(
         _network_model(copper_plate),
         ts,
-        POM._PostContingencyModifications(),
+        POM._PostContingencyNetworks(),
     )
 end

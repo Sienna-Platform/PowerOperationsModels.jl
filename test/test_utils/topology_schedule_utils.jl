@@ -491,3 +491,18 @@ function _dcp_post_contingency_reference(model, builder, arc, t, step_out, ctg_o
     end
     return expected
 end
+
+# The c_sys5 security-constrained model with contingencies on lines "1", "2", "3" and line "3"
+# scheduled out at `_OUT_STEPS`.
+function _c_sys5_scheduled_security_constrained_model()
+    sys = PSB.build_system(PSITestSystems, "c_sys5"; add_forecasts = true)
+    for n in ("1", "2", "3")
+        _add_contingency!(
+            sys,
+            [PSY.get_component(PSY.Line, sys, n)],
+            _sorted(PSY.Line, sys),
+        )
+    end
+    _schedule_outage!(sys, PSY.get_component(PSY.Line, sys, "3"), "maint", _maintenance)
+    return _built_model(_sc_template(), sys)
+end
