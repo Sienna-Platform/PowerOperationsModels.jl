@@ -116,7 +116,7 @@
         @test length(unplanned_branches) != length(planned_branches)
     end
 
-    @testset "outages kwarg selects a subset, planned outages included" begin
+    @testset "selected_outages kwarg selects a subset, planned outages included" begin
         sys, unplanned, planned = _build_mixed_outage_system()
         # include_planned_outages stays false: an explicit selection overrides it.
         model = _build_model(sys; selected_outages = [planned])
