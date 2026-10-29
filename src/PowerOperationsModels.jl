@@ -10,6 +10,7 @@ import InfrastructureSystems: @assert_op, TableFormat
 import JuMP
 import JuMP.Containers: DenseAxisArray, SparseAxisArray
 import Logging
+import MathOptLazy
 import PowerNetworkMatrices
 # Brought into namespace so the `export PTDF` / `export VirtualPTDF` below resolve (re-export to POM users)
 import PowerNetworkMatrices: PTDF, VirtualPTDF
