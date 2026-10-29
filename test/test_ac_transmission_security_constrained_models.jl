@@ -153,6 +153,58 @@ _dcp_transformer_flow(container, ::Type{POM.SecurityConstrainedStaticBranch}, na
     @test n_constraints_checked >= 1
 end
 
+# Reference coefficient dump of the model below.
+const _UNSCHEDULED_FIXTURE =
+    joinpath(@__DIR__, "test_data", "post_contingency_unscheduled_csys5.json")
+
+# The c_sys5 N-1 model with no topology schedule: forced-outage contingencies on lines "1",
+# "2" and "3", each monitoring every AC branch, on a prebuilt VirtualPTDF.
+function _c_sys5_unscheduled_security_constrained_model()
+    sys = _build_system_quiet(PSITestSystems, "c_sys5")
+    all_branches = collect(get_components(PSY.ACTransmission, sys))
+    for name in ("1", "2", "3")
+        PSY.add_supplemental_attribute!(
+            sys,
+            get_component(PSY.ACTransmission, sys, name),
+            PSY.GeometricDistributionForcedOutage(;
+                mean_time_to_recovery = 10,
+                outage_transition_probability = 0.9999,
+                monitored_components = all_branches,
+            ),
+        )
+    end
+    template = get_thermal_dispatch_template_network(
+        NetworkModel(
+            PTDFNetworkModel;
+            network_source = PrebuiltMatrixSource(PNM.VirtualPTDF(sys)),
+        ),
+    )
+    _set_device_model_quiet!(template, PSY.Line, POM.SecurityConstrainedStaticBranch)
+    _set_device_model_quiet!(
+        template,
+        PSY.TwoWindingTransformer,
+        POM.SecurityConstrainedStaticBranch,
+    )
+    model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
+    status = build!(model; output_dir = mktempdir(; cleanup = true))
+    status == IOM.ModelBuildStatus.BUILT || error("c_sys5 N-1 model did not build: $status")
+    return model
+end
+
+@testset "unscheduled post-contingency expressions are unchanged" begin
+    model = _c_sys5_unscheduled_security_constrained_model()
+    mktempdir() do dir
+        path = dump_post_contingency_coefficients(model, joinpath(dir, "current.json"))
+        @test JSON.parsefile(path)["n_entries"] ==
+              JSON.parsefile(_UNSCHEDULED_FIXTURE)["n_entries"]
+        max_diff, cutoff_crossings, failures =
+            compare_post_contingency_coefficients(_UNSCHEDULED_FIXTURE, path; atol = 1e-12)
+        @info "unscheduled post-contingency coefficients" max_diff
+        @test isempty(failures)
+        @test cutoff_crossings == 0
+    end
+end
+
 # Testsets below are ported from PSI PR #1579. They assert physics (containers
 # present, build/solve succeed, structural relationships) rather than PSI's exact
 # MOI-count / objective-value magic numbers, which differ under POM/PS6.

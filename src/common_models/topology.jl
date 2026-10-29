@@ -9,10 +9,10 @@ removed at that step. Does nothing when the network model has no topology matrix
 The topology matrix keeps its caches only for the base network and the networks this
 schedule uses, so a model rebuilt for every window of a simulation holds one window's rows.
 At each step the model queries the network of the components out at the step and, for each
-contingency, the union of those components with the contingency's remaining components. At a
-step with nothing out that union equals the contingency's own network, which is then in use;
-when every step has something out, the contingency's own network is never queried, so its
-caches are evicted while its registration is kept.
+contingency, its `PNM.PostContingencyNetwork` on that topology. At a step with nothing out
+that network is the contingency's own, which is then in use; when every step has something
+out, the contingency's own network is never queried, so its caches are evicted while its
+registration is kept.
 
 Islands are not modeled: throws an `IS.ConflictingInputsError` listing every available
 injector of a modeled device type that is in service at a step where its bus lies outside
@@ -34,13 +34,13 @@ function construct_topology_schedule!(
         _collect_removed!(removed, IOM.get_component_type(key), param, sys)
     end
     ts = PNM.TopologySchedule(matrix, sys, removed)
-    post_contingency = _PostContingencyModifications(
-        uuid => _post_contingency_modifications(ts, sys, uuid, time_steps) for
+    post_contingency = _PostContingencyNetworks(
+        uuid => _post_contingency_networks(ts, uuid, time_steps) for
         uuid in keys(PNM.get_registered_contingencies(matrix))
     )
     PNM.retain_modifications!(
         matrix,
-        _modifications_in_use(ts, post_contingency, time_steps),
+        _networks_in_use(ts, post_contingency, time_steps),
     )
     set_topology_schedule!(network_model, ts, post_contingency)
     _check_island_consistency(container, template, network_model, sys)
@@ -60,36 +60,30 @@ function _check_steps_start_at_one(time_steps)
 end
 
 """
-The post-contingency network of the registered contingency `uuid` at every step of a
-topology schedule: the components already out at the step together with the contingency's
-remaining available components, or `nothing` when every one of them is already out. Steps
-on the same topology share one modification.
+The `PNM.PostContingencyNetwork` of the registered contingency `uuid` at every step of a
+topology schedule, or `nothing` when every one of its components is already out. Steps on
+the same topology share one network object.
 """
-function _post_contingency_modifications(
+function _post_contingency_networks(
     ts::PNM.TopologySchedule,
-    sys::PSY.System,
     uuid::Int,
     time_steps::UnitRange{Int},
 )
-    outage = PSY.get_supplemental_attribute(sys, uuid)
-    components = [
-        c for c in PSY.get_associated_components(sys, outage) if PSY.get_available(c)
-    ]
-    by_topology = Dict{Int, Union{Nothing, PNM.NetworkModification}}()
-    return Union{Nothing, PNM.NetworkModification}[
+    by_topology = Dict{Int, Union{Nothing, PNM.PostContingencyNetwork}}()
+    return Union{Nothing, PNM.PostContingencyNetwork}[
         get!(by_topology, PNM.get_topology_index(ts, t)) do
-            PNM.get_post_contingency_modification(ts, t, components)
+            PNM.get_post_contingency_network(ts, t, uuid)
         end for t in time_steps
     ]
 end
 
-# Every network the schedule and its post-contingency networks resolve rows on.
-function _modifications_in_use(
+# Every step topology and post-contingency network the schedule resolves rows on.
+function _networks_in_use(
     ts::PNM.TopologySchedule,
-    post_contingency::_PostContingencyModifications,
+    post_contingency::_PostContingencyNetworks,
     time_steps::UnitRange{Int},
 )
-    in_use = Set{PNM.NetworkModification}()
+    in_use = Set{Union{PNM.NetworkModification, PNM.PostContingencyNetwork}}()
     for t in time_steps
         mod = PNM.get_network_modification(ts, t)
         isnothing(mod) || push!(in_use, mod)
