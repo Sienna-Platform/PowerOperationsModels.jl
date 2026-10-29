@@ -861,7 +861,7 @@ supplemental attributes. `DeviceModel{D, SC}` claims an outage iff `D` is among
 the types of the outaged (attached) components. The inner dict carries the
 per-modeled-type breakdown of monitored component names.
 
-Selection semantics, per `IOM.get_outage_selection(m)`:
+Selection semantics, per `IOM.get_selected_outage_ids(m)`:
 - A set of ids restricts `m` to exactly those outages, `PlannedOutage`s included;
   warn for any selected id that produced no `D`-type entry. Every selected id
   must name a `PSY.Outage` in the system.
@@ -954,7 +954,7 @@ function _check_outage_selections(
     sys::PSY.System,
 )
     for m in sc_models
-        selection = IOM.get_outage_selection(m)
+        selection = IOM.get_selected_outage_ids(m)
         isnothing(selection) && continue
         for outage_id in selection
             attribute = PSY.get_supplemental_attribute(sys, outage_id)
@@ -976,7 +976,7 @@ end
 function _selected_outage_ids(sc_models::Vector{<:IOM.DeviceModelForBranches})
     selected_ids = Set{Int}()
     for m in sc_models
-        selection = IOM.get_outage_selection(m)
+        selection = IOM.get_selected_outage_ids(m)
         isnothing(selection) && return nothing
         union!(selected_ids, selection)
     end
@@ -1037,7 +1037,7 @@ function _sc_model_claims_outage(
     outage::PSY.Outage,
     outage_id::Int,
 )
-    selection = IOM.get_outage_selection(m)
+    selection = IOM.get_selected_outage_ids(m)
     isnothing(selection) || return outage_id in selection
     if _needs_planned_outage_optin(outage)
         return get_attribute(m, "include_planned_outages") === true
@@ -1094,7 +1094,7 @@ end
 
 function _warn_unmatched_user_outages(sc_models::Vector{<:IOM.DeviceModelForBranches})
     for m in sc_models
-        selection = IOM.get_outage_selection(m)
+        selection = IOM.get_selected_outage_ids(m)
         isnothing(selection) && continue
         D = get_component_type(m)
         for uuid in selection

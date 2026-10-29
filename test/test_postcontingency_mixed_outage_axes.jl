@@ -41,7 +41,7 @@
         return sys, unplanned, planned
     end
 
-    function _build_model(sys; attributes = Dict{String, Any}(), outages = nothing)
+    function _build_model(sys; attributes = Dict{String, Any}(), selected_outages = nothing)
         template = get_thermal_dispatch_template_network(
             NetworkModel(
                 PTDFNetworkModel;
@@ -53,7 +53,7 @@
             DeviceModel(
                 PSY.Line, scb_formulation;
                 attributes = attributes,
-                outages = outages,
+                selected_outages = selected_outages,
             ),
         )
         model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
@@ -119,7 +119,7 @@
     @testset "outages kwarg selects a subset, planned outages included" begin
         sys, unplanned, planned = _build_mixed_outage_system()
         # include_planned_outages stays false: an explicit selection overrides it.
-        model = _build_model(sys; outages = [planned])
+        model = _build_model(sys; selected_outages = [planned])
 
         expr_ax, cons_ax = _axes(model)
         @test expr_ax == cons_ax

@@ -445,7 +445,11 @@ end
     selected_ids = Set(IS.get_id.(selected))
     model = _build_sc_model(
         _sc_branch_template(
-            DeviceModel(PSY.Line, POM.SecurityConstrainedStaticBranch; outages = selected),
+            DeviceModel(
+                PSY.Line,
+                POM.SecurityConstrainedStaticBranch;
+                selected_outages = selected,
+            ),
         ),
         c_sys5,
     )
@@ -464,7 +468,7 @@ end
             DeviceModel(
                 PSY.Line,
                 POM.SecurityConstrainedStaticBranch;
-                outages = PSY.Outage[],
+                selected_outages = PSY.Outage[],
             ),
         ),
         c_sys5,
@@ -488,14 +492,18 @@ function _selection_only_sc_template(line_outages::Vector{<:PSY.Outage})
     template = get_thermal_dispatch_template_network(NetworkModel(PTDFNetworkModel))
     set_device_model!(
         template,
-        DeviceModel(PSY.Line, POM.SecurityConstrainedStaticBranch; outages = line_outages),
+        DeviceModel(
+            PSY.Line,
+            POM.SecurityConstrainedStaticBranch;
+            selected_outages = line_outages,
+        ),
     )
     set_device_model!(
         template,
         DeviceModel(
             PSY.TwoWindingTransformer,
             POM.SecurityConstrainedStaticBranch;
-            outages = PSY.Outage[],
+            selected_outages = PSY.Outage[],
         ),
     )
     return template
@@ -578,7 +586,11 @@ end
         geo,
     )
     template = _sc_branch_template(
-        DeviceModel(PSY.Line, POM.SecurityConstrainedStaticBranch; outages = [geo]),
+        DeviceModel(
+            PSY.Line,
+            POM.SecurityConstrainedStaticBranch;
+            selected_outages = [geo],
+        ),
     )
     model = DecisionModel(template, c_sys5; optimizer = HiGHS_optimizer)
     @test_throws IS.ConflictingInputsError POM.validate_template(model)
@@ -588,8 +600,8 @@ end
     c_sys5 = PSB.build_system(PSITestSystems, "c_sys5")
     outage = _add_line_outage!(c_sys5, "1")
     @test_logs (:warn, r"does not support") match_mode = :any begin
-        dm = DeviceModel(PSY.Line, POM.StaticBranch; outages = [outage])
-        @test IOM.get_outage_selection(dm) === nothing
+        dm = DeviceModel(PSY.Line, POM.StaticBranch; selected_outages = [outage])
+        @test IOM.get_selected_outage_ids(dm) === nothing
     end
 end
 
