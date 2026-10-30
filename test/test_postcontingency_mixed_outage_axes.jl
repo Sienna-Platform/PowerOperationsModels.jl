@@ -10,18 +10,9 @@
 #   * the planned/unplanned distinction is driven by the
 #     `"include_planned_outages"` DeviceModel attribute (Phase 2 seeds it to
 #     `false` in `get_default_attributes(::AbstractSecurityConstrainedStaticBranch)`).
-#   * the upstream "outages kwarg selects a subset" sub-testset is DEFERRED: the
-#     IOM `DeviceModel(...; outages)` kwarg is typed
-#     `AbstractVector{<:IS.InfrastructureSystemsComponent}`, but outage objects
-#     (`GeometricDistributionForcedOutage` / `PlannedOutage`) are
-#     `IS.SupplementalAttribute`s, a sibling branch of
-#     `InfrastructureSystemsType`, so they are rejected at construction
-#     (TypeError). The explicit-subset selection path is therefore not
-#     representable through the public constructor; the auto-discovery + planned
-#     filter path is the portable one and is exercised in full below.
 #   * for the bus-pinning unit tests we populate `IOM.get_outages(dm)` directly
-#     (the same dict `_assign_outage_to_sc_models!` writes), since the kwarg
-#     cannot accept the supplemental attribute.
+#     (the same dict `_assign_outage_to_sc_models!` writes), so the pinning is
+#     tested without a build.
 
 @testset "Post-contingency outage axes — attribute drives inclusion" begin
     scb_formulation = POM.SecurityConstrainedStaticBranch
@@ -50,7 +41,7 @@
         return sys, unplanned, planned
     end
 
-    function _build_model(sys; attributes = Dict{String, Any}())
+    function _build_model(sys; attributes = Dict{String, Any}(), selected_outages = nothing)
         template = get_thermal_dispatch_template_network(
             NetworkModel(
                 PTDFNetworkModel;
@@ -62,6 +53,7 @@
             DeviceModel(
                 PSY.Line, scb_formulation;
                 attributes = attributes,
+                selected_outages = selected_outages,
             ),
         )
         model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
@@ -124,10 +116,16 @@
         @test length(unplanned_branches) != length(planned_branches)
     end
 
-    # DEFERRED: "outages kwarg selects a subset" — passing outage objects to the
-    # `DeviceModel(...; outages = [...])` kwarg is rejected by IOM's
-    # `AbstractVector{<:IS.InfrastructureSystemsComponent}` signature (outages
-    # are SupplementalAttributes). See module-level note.
+    @testset "selected_outages kwarg selects a subset, planned outages included" begin
+        sys, unplanned, planned = _build_mixed_outage_system()
+        # include_planned_outages stays false: an explicit selection overrides it.
+        model = _build_model(sys; selected_outages = [planned])
+
+        expr_ax, cons_ax = _axes(model)
+        @test expr_ax == cons_ax
+        @test expr_ax == Set([string(IS.get_id(planned))])
+        @test !(string(IS.get_id(unplanned)) in expr_ax)
+    end
 end
 
 @testset "Outage pinning includes outaged-component buses (N3)" begin
