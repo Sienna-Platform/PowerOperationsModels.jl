@@ -240,7 +240,8 @@ end
         resolution = Hour(1),
     )
     output_dir = mktempdir(; cleanup = true)
-    @test build!(model; output_dir = output_dir) == IOM.ModelBuildStatus.FAILED
+    @test build!(model; console_level = Logging.AboveMaxLevel, output_dir = output_dir) ==
+          IOM.ModelBuildStatus.FAILED
     # The build wraps its logging, so assert on the log rather than at the call site.
     # The rejection is POM's add_parameters guard; the key-addressed store no longer errors first.
     log_contents = read(joinpath(output_dir, "operation_problem.log"), String)
@@ -1137,7 +1138,8 @@ end
     set_service_model!(template, ServiceModel(TransmissionInterface, MaxInterfaceFlow))
     model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
     output_dir = mktempdir(; cleanup = true)
-    @test build!(model; output_dir = output_dir) == IOM.ModelBuildStatus.FAILED
+    @test build!(model; console_level = Logging.AboveMaxLevel, output_dir = output_dir) ==
+          IOM.ModelBuildStatus.FAILED
     # The build wraps its logging, so assert on the log rather than at the call site.
     log_contents = read(joinpath(output_dir, "operation_problem.log"), String)
     @test occursin(
@@ -1812,7 +1814,11 @@ end
         ServiceModel(GroupReserve{ReserveUp}, GroupRangeReserve),
     )
     model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
-    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+    @test build!(
+        model;
+        console_level = Logging.AboveMaxLevel,
+        output_dir = mktempdir(; cleanup = true),
+    ) ==
           IOM.ModelBuildStatus.FAILED
 end
 

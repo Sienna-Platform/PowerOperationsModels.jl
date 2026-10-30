@@ -149,7 +149,7 @@ end
     set_reactive_power_from!(vsc, 250.0 * u"MVAr")
     model = DecisionModel(template, sys; optimizer = ipopt_optimizer)
     out = mktempdir(; cleanup = true)
-    @test build!(model; output_dir = out, console_level = Logging.Error) ==
+    @test build!(model; output_dir = out, console_level = Logging.AboveMaxLevel) ==
           IOM.ModelBuildStatus.FAILED
     log = read(joinpath(out, "operation_problem.log"), String)
     @test occursin("reactive_power_from = 2.5 pu, outside reactive_power_limits_from", log)
@@ -256,7 +256,11 @@ end
     model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
     # VoltageControlVSC models reactive power, so under an active-power-only DC
     # network it is dropped (with an @info) from the template during validation.
-    build!(model; output_dir = mktempdir(; cleanup = true))
+    build!(
+        model;
+        console_level = Logging.AboveMaxLevel,
+        output_dir = mktempdir(; cleanup = true),
+    )
     @test !haskey(get_branch_models(get_template(model)), :TwoTerminalVSCLine)
 end
 

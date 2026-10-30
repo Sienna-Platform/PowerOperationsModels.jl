@@ -121,7 +121,11 @@ end
         sys, _ = _min_power_system(values)
         model = _min_power_uc_model(sys)
         output_dir = mktempdir(; cleanup = true)
-        @test build!(model; output_dir = output_dir) == ModelBuildStatus.FAILED
+        @test build!(
+            model;
+            console_level = Logging.AboveMaxLevel,
+            output_dir = output_dir,
+        ) == ModelBuildStatus.FAILED
         log = read(joinpath(output_dir, "operation_problem.log"), String)
         @test occursin("MinActivePowerTimeSeriesParameter for Brighton at step 3", log)
     end
@@ -133,7 +137,8 @@ end
     sys, _ = _min_power_system(fill(0.6, 24); max_values)
     model = _min_power_uc_model(sys)
     output_dir = mktempdir(; cleanup = true)
-    @test build!(model; output_dir = output_dir) == ModelBuildStatus.FAILED
+    @test build!(model; console_level = Logging.AboveMaxLevel, output_dir = output_dir) ==
+          ModelBuildStatus.FAILED
     log = read(joinpath(output_dir, "operation_problem.log"), String)
     @test occursin("MinActivePowerTimeSeriesParameter for Brighton at step 5", log)
 end
@@ -1436,7 +1441,8 @@ end
     )
     model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
     output_dir = mktempdir(; cleanup = true)
-    @test build!(model; output_dir = output_dir) == ModelBuildStatus.FAILED
+    @test build!(model; console_level = Logging.AboveMaxLevel, output_dir = output_dir) ==
+          ModelBuildStatus.FAILED
     log = read(joinpath(output_dir, "operation_problem.log"), String)
     @test occursin(
         "MinActivePowerTimeSeriesParameter for $(PSY.get_name(unit)) at step 10",
