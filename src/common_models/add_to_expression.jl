@@ -207,7 +207,8 @@ end
 """
 Add a device time-series parameter to a balance expression. The contributed term is
 `multiplier[name, t] * parameter[name, t]`, with targets from
-[`_balance_expression_targets`](@ref).
+[`_balance_expression_targets`](@ref). Every device must carry the series: `add_parameters!`
+skips devices without it, and there is no value to fall back on.
 """
 function _add_ts_parameter_to_balance!(
     container::OptimizationContainer,
@@ -215,10 +216,22 @@ function _add_ts_parameter_to_balance!(
     ::Type{U},
     devices::Vector{V},
     network_model::NetworkModel,
-    ::DeviceModel{V, W},
+    model::DeviceModel{V, W},
 ) where {T <: ExpressionType, U <: TimeSeriesParameter, V <: PSY.Device, W}
     param_container = get_parameter(container, U, V)
     multiplier = get_multiplier_array(param_container)
+    names_with_series = Set(axes(multiplier)[1])
+    missing_names =
+        [PSY.get_name(d) for d in devices if PSY.get_name(d) ∉ names_with_series]
+    if !isempty(missing_names)
+        throw(
+            IS.ConflictingInputsError(
+                "$(nameof(V)) devices $(missing_names) lack the \
+                $(get_time_series_names(model)[U]) time series that $(nameof(U)) reads. \
+                Under $(nameof(W)), every $(nameof(V)) needs it.",
+            ),
+        )
+    end
     time_steps = get_time_steps(container)
     for d in devices
         targets = _balance_expression_targets(container, T, network_model, d)
