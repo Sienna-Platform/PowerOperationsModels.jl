@@ -167,14 +167,34 @@ function _outaged_generators(
     return outaged_generators
 end
 
+function _flow_entry_name(
+    network_model::NetworkModel{<:AbstractPTDFNetworkModel},
+    T::Type{<:PSY.ACTransmission},
+    name::String,
+)
+    entry_names =
+        PNM.get_component_to_reduction_name_map(get_branch_catalog(network_model), T)
+    haskey(entry_names, name) || throw(
+        IS.ConflictingInputsError(
+            "Monitored component $name ($T) is not in the network, or the branch or one of its endpoint buses is unavailable.",
+        ),
+    )
+    return entry_names[name]
+end
+_flow_entry_name(
+    ::NetworkModel{<:Union{AreaBalanceNetworkModel, AreaPTDFNetworkModel}},
+    ::Type{PSY.AreaInterchange},
+    name::String,
+) = name
+
 _monitored_is_modeled(
     container::OptimizationContainer,
     T::Type{<:PSY.ACTransmission},
-    name::String,
+    entry_name::String,
     ::NetworkModel{<:AbstractPTDFNetworkModel},
 ) =
     has_container_key(container, PTDFBranchFlow, T) &&
-    name in axes(get_expression(container, PTDFBranchFlow, T), 1)
+    entry_name in axes(get_expression(container, PTDFBranchFlow, T), 1)
 _monitored_is_modeled(
     container::OptimizationContainer,
     T::Type{PSY.AreaInterchange},
@@ -200,8 +220,11 @@ function _monitored_components(
             if !_valid_monitored_component(component, network_model)
                 @warn "Monitored component $name ($T) on outage $outage_id is not supported by network model $(get_network_formulation(network_model)); its post-contingency flow will not be limited." _group =
                     LOG_GROUP_SERVICE_CONSTUCTORS
-            elseif _monitored_is_modeled(container, T, name, network_model)
-                push!(get!(Set{String}, monitored, T), name)
+                continue
+            end
+            entry_name = _flow_entry_name(network_model, T, name)
+            if _monitored_is_modeled(container, T, entry_name, network_model)
+                push!(get!(Set{String}, monitored, T), entry_name)
             else
                 @warn "Monitored component $name ($T) on outage $outage_id is not modeled; its post-contingency flow will not be limited." _group =
                     LOG_GROUP_SERVICE_CONSTUCTORS
@@ -211,22 +234,6 @@ function _monitored_components(
     end
     return monitored_components
 end
-
-function _flow_entries(
-    network_model::NetworkModel{<:AbstractPTDFNetworkModel},
-    ::Type{T},
-    names::Set{String},
-) where {T <: PSY.ACTransmission}
-    reduction_name_map =
-        PNM.get_component_to_reduction_name_map(get_branch_catalog(network_model), T)
-    return Set{String}(reduction_name_map[name] for name in names)
-end
-
-_flow_entries(
-    ::NetworkModel{<:Union{AreaBalanceNetworkModel, AreaPTDFNetworkModel}},
-    ::Type{PSY.AreaInterchange},
-    names::Set{String},
-) = names
 
 function _post_contingency_flow_limits(
     ::PSY.System,
@@ -502,9 +509,7 @@ function _add_post_contingency_flow_slacks!(
                 Int[];
                 sparse = true,
             )
-            for entry_name in _flow_entries(network_model, component_type, names),
-                t in time_steps
-
+            for entry_name in names, t in time_steps
                 for (slack, slack_name) in (
                     (slack_ub, "PostGeneratorContingencyFlowSlackUpperBound"),
                     (slack_lb, "PostGeneratorContingencyFlowSlackLowerBound"),
@@ -684,7 +689,7 @@ function _add_post_contingency_branch_flow!(
             )
             pre_flow = get_expression(container, PTDFBranchFlow, line_type)
             arc_map = PNM.get_name_to_arc_map(catalog, line_type)
-            for entry_name in _flow_entries(network_model, line_type, names)
+            for entry_name in names
                 factors = get!(nonzero_factors, (line_type, entry_name)) do
                     _ptdf_factors(ptdf, bus_axis, arc_map[entry_name])
                 end
@@ -1106,7 +1111,7 @@ function _add_post_contingency_flow_constraints!(
                     component_type,
                 )
             end
-            for entry_name in _flow_entries(network_model, component_type, names)
+            for entry_name in names
                 lims = _post_contingency_flow_limits(
                     sys,
                     network_model,

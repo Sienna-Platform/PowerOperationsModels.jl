@@ -355,9 +355,7 @@ end
     end
 end
 
-@testset "G-1 reserves on a degree-two reduced network" begin
-    # `RADIAL1-RADIAL2-i_1` is merged into a degree-two series chain. Series segments keep
-    # their own names but map to the chain's reduced arc.
+function g1_reduction_system()
     sys = PSB.build_system(PSITestSystems, "case10_radial_series_reductions")
     load = first(collect(get_components(StandardLoad, sys)))
     add_time_series!(
@@ -369,7 +367,6 @@ end
             Hour(1),
         ),
     )
-    generators = collect(get_components(ThermalStandard, sys))
     reserve = OnlineReserve{ReserveUp}(;
         name = _G1_RESERVE,
         available = true,
@@ -380,21 +377,19 @@ end
         max_participation_factor = 1.0,
         deployed_fraction = 0.0,
     )
-    add_service!(sys, reserve, generators)
-    monitored_name = "RADIAL1-RADIAL2-i_1"
+    add_service!(sys, reserve, collect(get_components(ThermalStandard, sys)))
     outage = _attach_outage!(
         sys,
-        [first(generators)],
+        [get_component(ThermalStandard, sys, "generator-110-1")],
         [reserve],
-        [get_component(Line, sys, monitored_name)],
+        [get_component(Line, sys, "LV-RADIAL1-i_1")],
     )
+    return sys, outage
+end
 
-    reductions = PNM.NetworkReduction[DegreeTwoReduction()]
+function g1_reduction_model(sys, reduction)
     template = PowerOperationsProblemTemplate(
-        NetworkModel(
-            PTDFNetworkModel;
-            network_source = SystemNetworkSource(reductions...),
-        ),
+        NetworkModel(PTDFNetworkModel; network_source = SystemNetworkSource(reduction)),
     )
     set_device_model!(template, ThermalStandard, ThermalBasicDispatch)
     set_device_model!(template, StandardLoad, StaticPowerLoad)
@@ -406,27 +401,61 @@ end
     model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
     @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
           IOM.ModelBuildStatus.BUILT
+    return model
+end
 
-    # Coefficient-level: the post-contingency flow is the pre-contingency flow plus a fresh
-    # reduced PTDF row times the deployment and outaged power, mapped to reduced buses.
+_kept_buses(reduction_data) = keys(PNM.get_bus_reduction_map(reduction_data))
+
+@testset "G-1 monitored branch endpoints are pinned against network reduction" begin
+    # The monitored line joins buses 103 and 109, which each reduction eliminates unless
+    # pinned.
+    sys, _ = g1_reduction_system()
+    monitored_buses = [103, 109]
+    for reduction in (RadialReduction(), DegreeTwoReduction())
+        unpinned = PNM.Ybus(sys; network_reductions = PNM.NetworkReduction[reduction])
+        @test isdisjoint(
+            monitored_buses,
+            _kept_buses(PNM.get_network_reduction_data(unpinned)),
+        )
+
+        model = g1_reduction_model(sys, reduction)
+        network_model = IOM.get_network_model(IOM.get_template(model))
+        @test issubset(
+            monitored_buses,
+            _kept_buses(POM.get_network_reduction(network_model)),
+        )
+    end
+end
+
+@testset "G-1 reserves with the outaged generator on a reduced bus" begin
+    # The outaged generator sits on radial bus 110, which folds into the pinned bus 109. Its
+    # lost output must act at bus 109 in the post-contingency flow of the monitored line.
+    sys, outage = g1_reduction_system()
+    reduction = RadialReduction()
+    model = g1_reduction_model(sys, reduction)
     container = IOM.get_optimization_container(model)
     network_model = IOM.get_network_model(IOM.get_template(model))
-    catalog = POM.get_branch_catalog(network_model)
-    reduction = POM.get_network_reduction(network_model)
-    entry_name = PNM.get_component_to_reduction_name_map(catalog, Line)[monitored_name]
-    reduced_arc = PNM.get_name_to_arc_map(catalog, Line)[entry_name]
-    line_arc = PSY.get_arc(get_component(Line, sys, monitored_name))
-    @test reduced_arc !=
-          (PSY.get_number(PSY.get_from(line_arc)), PSY.get_number(PSY.get_to(line_arc)))
+    @test !(110 in _kept_buses(POM.get_network_reduction(network_model)))
 
-    ptdf = PNM.VirtualPTDF(sys; network_reductions = reductions)
+    # An independently built matrix with the same reduction and pinned buses.
+    ybus = PNM.Ybus(
+        sys;
+        network_reductions = PNM.NetworkReduction[reduction],
+        irreducible_buses = make_selector(b -> PSY.get_number(b) in (103, 109), ACBus),
+    )
+    reduction_data = PNM.get_network_reduction_data(ybus)
+    mapped_bus(component) =
+        PNM.get_mapped_bus_number(reduction_data, PSY.get_bus(component))
+    outaged = get_component(ThermalStandard, sys, "generator-110-1")
+    @test mapped_bus(outaged) == 109
+
+    ptdf = PNM.VirtualPTDF(ybus)
     bus_axis = PNM.get_bus_axis(ptdf)
-    row = ptdf[reduced_arc, :]
-    factor(component) =
-        row[findfirst(
-            ==(PNM.get_mapped_bus_number(reduction, PSY.get_bus(component))),
-            bus_axis,
-        )]
+    catalog = POM.get_branch_catalog(network_model)
+    entry_name = PNM.get_component_to_reduction_name_map(catalog, Line)["LV-RADIAL1-i_1"]
+    row = ptdf[PNM.get_name_to_arc_map(catalog, Line)[entry_name], :]
+    factor(component) = row[findfirst(==(mapped_bus(component)), bus_axis)]
+    @test factor(outaged) != 0.0
 
     uuid = IS.get_id(outage)
     deployments = _deployments(container)
@@ -439,7 +468,6 @@ end
             (u == uuid && tt == t) || continue
             JuMP.add_to_expression!(expected, factor(get_component(D, sys, d)), var)
         end
-        outaged = first(generators)
         JuMP.add_to_expression!(
             expected,
             -factor(outaged),
@@ -447,6 +475,30 @@ end
         )
         @test aff_exprs_approx_equal(post_flow[entry_name, uuid, t], expected)
     end
+end
+
+@testset "G-1 reserves monitoring one circuit of a parallel pair" begin
+    # "4_1_copy" alone is monitored; its reduced entry, shared with "4_1", still gets a row.
+    sys, outages = g1_system(; monitored = s -> [get_component(Line, s, "4_1_copy")])
+    model = g1_model(g1_template(PTDFNetworkModel), sys)
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+
+    container = IOM.get_optimization_container(model)
+    catalog = POM.get_branch_catalog(IOM.get_network_model(IOM.get_template(model)))
+    entry_name = PNM.get_component_to_reduction_name_map(catalog, Line)["4_1_copy"]
+    expected = Set(
+        (entry_name, IS.get_id(o), t) for o in values(outages),
+        t in IOM.get_time_steps(container)
+    )
+    post_flow = IOM.get_expression(container, PostContingencyBranchFlow, Line, "G1")
+    @test Set(keys(post_flow.data)) == expected
+    for meta in ("G1_ub", "G1_lb")
+        limits =
+            IOM.get_constraint(container, PostContingencyFlowRateConstraint, Line, meta)
+        @test Set(keys(limits.data)) == expected
+    end
+    @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
 end
 
 @testset "monitored interchange excluded by filter_selector warns" begin
@@ -463,6 +515,18 @@ end
           IOM.ModelBuildStatus.BUILT
     log_text = read(IOM.get_log_file(model), String)
     @test occursin(r"Monitored component 1_2 .* is not modeled", log_text)
+end
+
+@testset "unavailable monitored branch is rejected" begin
+    sys, _ = g1_system()
+    PSY.set_available!(get_component(Line, sys, "2_2"), false)
+    model = g1_model(g1_template(PTDFNetworkModel), sys)
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.FAILED
+    @test occursin(
+        r"Monitored component 2_2 .* endpoint buses is unavailable",
+        read(IOM.get_log_file(model), String),
+    )
 end
 
 @testset "monitored interchange without a device model warns" begin
@@ -547,14 +611,9 @@ end
     @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
           IOM.ModelBuildStatus.BUILT
     container = IOM.get_optimization_container(model)
-    # The optimum commits every unit, so decommit the smallest one.
     on = IOM.get_variable(container, OnVariable, ThermalStandard)
-    smallest = argmin(
-        d -> PSY.get_max_active_power(get_component(ThermalStandard, sys, d), u"SU"),
-        axes(on, 1),
-    )
     for t in IOM.get_time_steps(container)
-        JuMP.fix(on[smallest, t], 0.0; force = true)
+        JuMP.fix(on["Alta_2", t], 0.0; force = true)
     end
     @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
     @test IOM.has_container_key(
@@ -563,6 +622,7 @@ end
         ThermalStandard,
     )
     n_off = 0
+    # Offline generators don't commit reserves
     for ((D, _, _, d, _, t), var) in _deployments(container)
         D === ThermalStandard || continue
         iszero(round(JuMP.value(on[d, t]))) || continue
