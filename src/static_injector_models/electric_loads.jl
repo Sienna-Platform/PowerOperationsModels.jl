@@ -185,15 +185,11 @@ function add_to_expression!(
 end
 
 ####################################### Reactive Power Constraints #########################
-# Power factor sin(atan(q/p)) in closed form via the Pythagorean identity.
-function _controllable_load_power_factor(d::PSY.ElectricLoad)
-    q_max = PSY.get_max_reactive_power(d, u"SU")
+# Constant power factor: Q/P is fixed at q_max/p_max.
+function _controllable_load_q_to_p(d::PSY.ElectricLoad)
     p_max = PSY.get_max_active_power(d, u"SU")
-    denom = sqrt(q_max^2 + p_max^2)
-    if iszero(denom)
-        return 0.0
-    end
-    return q_max / denom
+    iszero(p_max) && return 0.0
+    return PSY.get_max_reactive_power(d, u"SU") / p_max
 end
 
 """
@@ -222,10 +218,10 @@ function add_constraints!(
     real = get_variable(container, ActivePowerVariable, V)
     for d in devices
         name = PSY.get_name(d)
-        pf = _controllable_load_power_factor(d)
+        q_to_p = _controllable_load_q_to_p(d)
         for t in time_steps
             constraint[name, t] =
-                JuMP.@constraint(jump_model, reactive[name, t] == real[name, t] * pf)
+                JuMP.@constraint(jump_model, reactive[name, t] == real[name, t] * q_to_p)
         end
     end
     return
@@ -260,11 +256,11 @@ function add_constraints!(
     realized_load = get_expression(container, RealizedShiftedLoad, V)
     for d in devices
         name = PSY.get_name(d)
-        pf = _controllable_load_power_factor(d)
+        q_to_p = _controllable_load_q_to_p(d)
         for t in time_steps
             constraint[name, t] = JuMP.@constraint(
                 jump_model,
-                reactive[name, t] == realized_load[name, t] * pf
+                reactive[name, t] == realized_load[name, t] * q_to_p
             )
         end
     end

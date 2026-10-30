@@ -579,6 +579,23 @@ end
     end
 end
 
+@testset "PowerLoadDispatch constant power factor uses Q/P = q_max/p_max" begin
+    c_sys5_il = PSB.build_system(PSITestSystems, "c_sys5_il")
+    load = get_component(InterruptiblePowerLoad, c_sys5_il, "IloadBus4")
+    set_max_reactive_power!(load, 0.75 * get_max_active_power(load, u"SU") * u"SU")
+    device_model = DeviceModel(InterruptiblePowerLoad, PowerLoadDispatch)
+    model = DecisionModel(MockOperationProblem, ACPNetworkModel, c_sys5_il)
+    mock_construct_device!(model, device_model)
+    container = IOM.get_optimization_container(model)
+    p = IOM.get_variable(container, ActivePowerVariable, InterruptiblePowerLoad)
+    cons = IOM.get_constraint(
+        container,
+        POM.ReactivePowerVariableLimitsConstraint,
+        InterruptiblePowerLoad,
+    )
+    @test JuMP.normalized_coefficient(cons["IloadBus4", 1], p["IloadBus4", 1]) ≈ -0.75
+end
+
 @testset "PowerLoadDispatch AC- PF with MarketBidCost Invalid" begin
     models = [PowerLoadDispatch]
     c_sys5_il = PSB.build_system(PSITestSystems, "c_sys5_il")
