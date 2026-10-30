@@ -444,7 +444,11 @@ end
         set_device_model!(template, DeviceModel(PSY.Line, StaticBranch))
         model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
         output_dir = mktempdir(; cleanup = true)
-        @test build!(model; output_dir = output_dir) == IOM.ModelBuildStatus.FAILED
+        @test build!(
+            model;
+            console_level = Logging.AboveMaxLevel,
+            output_dir = output_dir,
+        ) == IOM.ModelBuildStatus.FAILED
         log_contents = read(joinpath(output_dir, "operation_problem.log"), String)
         @test occursin("InvalidValue", log_contents)
         @test occursin("Line 1 has from_to limit", log_contents)
@@ -498,7 +502,8 @@ end
     set_device_model!(template, DeviceModel(PSY.Line, StaticBranchBounds))
     model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
     output_dir = mktempdir(; cleanup = true)
-    @test build!(model; output_dir = output_dir) == IOM.ModelBuildStatus.FAILED
+    @test build!(model; console_level = Logging.AboveMaxLevel, output_dir = output_dir) ==
+          IOM.ModelBuildStatus.FAILED
     log_contents = read(joinpath(output_dir, "operation_problem.log"), String)
     @test occursin("only supported with the StaticBranch", log_contents)
 end
@@ -515,7 +520,8 @@ end
     set_device_model!(template, DeviceModel(PSY.Line, StaticBranch))
     model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
     output_dir = mktempdir(; cleanup = true)
-    @test build!(model; output_dir = output_dir) == IOM.ModelBuildStatus.FAILED
+    @test build!(model; console_level = Logging.AboveMaxLevel, output_dir = output_dir) ==
+          IOM.ModelBuildStatus.FAILED
     log_contents = read(joinpath(output_dir, "operation_problem.log"), String)
     @test occursin("time step 3", log_contents)
 end
@@ -571,7 +577,8 @@ end
     set_device_model!(template, DeviceModel(PSY.Line, StaticBranch))
     model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
     output_dir = mktempdir(; cleanup = true)
-    @test build!(model; output_dir = output_dir) == IOM.ModelBuildStatus.FAILED
+    @test build!(model; console_level = Logging.AboveMaxLevel, output_dir = output_dir) ==
+          IOM.ModelBuildStatus.FAILED
     log_contents = read(joinpath(output_dir, "operation_problem.log"), String)
     @test occursin("has no operational_flow_limit", log_contents)
     @test occursin("operational_flow_limit_from_to", log_contents)

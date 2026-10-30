@@ -521,7 +521,11 @@ end
     sys, _ = g1_system()
     PSY.set_available!(get_component(Line, sys, "2_2"), false)
     model = g1_model(g1_template(PTDFNetworkModel), sys)
-    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+    @test build!(
+        model;
+        console_level = Logging.AboveMaxLevel,
+        output_dir = mktempdir(; cleanup = true),
+    ) ==
           IOM.ModelBuildStatus.FAILED
     @test occursin(
         r"Monitored component 2_2 .* endpoint buses is unavailable",
@@ -585,14 +589,22 @@ end
         template,
         ServiceModel(OnlineReserve{ReserveDown}, SecurityConstrainedContingencyReserve),
     )
-    @test build!(g1_model(template, sys); output_dir = mktempdir(; cleanup = true)) ==
+    @test build!(
+        g1_model(template, sys);
+        console_level = Logging.AboveMaxLevel,
+        output_dir = mktempdir(; cleanup = true),
+    ) ==
           IOM.ModelBuildStatus.FAILED
 end
 
 @testset "unsupported network formulations are rejected" begin
     sys, _ = g1_system()
     model = g1_model(g1_template(DCPNetworkModel), sys)
-    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+    @test build!(
+        model;
+        console_level = Logging.AboveMaxLevel,
+        output_dir = mktempdir(; cleanup = true),
+    ) ==
           IOM.ModelBuildStatus.FAILED
     @test occursin("AreaBalanceNetworkModel", read(IOM.get_log_file(model), String))
 end

@@ -223,7 +223,11 @@ end
     template = _ic_reactive_template(ACPNetworkModel)
     model = DecisionModel(template, sys; optimizer = ipopt_optimizer)
     # The missing-limit guard surfaces as a failed build (non-finite bound refused).
-    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+    @test build!(
+        model;
+        console_level = Logging.AboveMaxLevel,
+        output_dir = mktempdir(; cleanup = true),
+    ) ==
           IOM.ModelBuildStatus.FAILED
 end
 

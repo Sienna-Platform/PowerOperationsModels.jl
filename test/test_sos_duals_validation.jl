@@ -7,7 +7,8 @@
     set_device_model!(template, PowerLoad, StaticPowerLoad)
     model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
     output_dir = mktempdir(; cleanup = true)
-    @test build!(model; output_dir = output_dir) == IOM.ModelBuildStatus.FAILED
+    @test build!(model; console_level = Logging.AboveMaxLevel, output_dir = output_dir) ==
+          IOM.ModelBuildStatus.FAILED
 
     log_text = read(joinpath(output_dir, IOM.PROBLEM_LOG_FILENAME), String)
     @test occursin("solver SOS1/SOS2 constraint", log_text)
