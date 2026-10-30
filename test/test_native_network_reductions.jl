@@ -635,13 +635,13 @@ end
 
     # Every slack column that exists (one per reduced arc, on the constraint axis) is priced
     # at the violation cost — there are no unpriced or priced-but-unconstrained columns.
+    # The fixture steps 5 minutes, and penalties are per hour of the step.
+    cost = POM.CONSTRAINT_VIOLATION_SLACK_COST * POM._hours_per_step(container)
     for name in constraint_names
         for t in time_steps
             for m in metas
-                @test JuMP.coefficient(objective, slack_up[m][name, t]) ==
-                      POM.CONSTRAINT_VIOLATION_SLACK_COST
-                @test JuMP.coefficient(objective, slack_lo[m][name, t]) ==
-                      POM.CONSTRAINT_VIOLATION_SLACK_COST
+                @test JuMP.coefficient(objective, slack_up[m][name, t]) == cost
+                @test JuMP.coefficient(objective, slack_lo[m][name, t]) == cost
             end
         end
     end
@@ -1108,14 +1108,15 @@ end
 
     container = IOM.get_optimization_container(model)
     objective = JuMP.objective_function(IOM.get_jump_model(container))
+    # The fixture steps 5 minutes, and penalties are per hour of the step.
+    cost = POM.CONSTRAINT_VIOLATION_SLACK_COST * POM._hours_per_step(container)
     priced = JuMP.VariableRef[]
     for V in (PSY.Line, PSY.TwoWindingTransformer),
         S in (FlowActivePowerSlackUpperBound, FlowActivePowerSlackLowerBound)
 
         for slack in IOM.get_variable(container, S, V)
             push!(priced, slack)
-            @test JuMP.coefficient(objective, slack) ==
-                  POM.CONSTRAINT_VIOLATION_SLACK_COST
+            @test JuMP.coefficient(objective, slack) == cost
         end
     end
     # The fixture must share a slack between names, or a double price cannot show.

@@ -1,3 +1,9 @@
+# Step length in hours. Slack penalties are per pu-hour, like device costs, so each
+# penalty term multiplies by it.
+function _hours_per_step(container::OptimizationContainer)
+    return Dates.value(get_resolution(container)) / MILLISECONDS_IN_HOUR
+end
+
 #################################################################################
 # Compact linear cost: the offset `slope * Pmin_t * u_t`
 # The compact power is `Pmin_t * u_t + dp_t`. The generic IOM method prices `slope * dp_t`.

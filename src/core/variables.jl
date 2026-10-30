@@ -594,14 +594,16 @@ struct InterfaceFlowSlackDown <: VariableType end
 
 """
 Struct to dispatch the creation of Slack variables that relax an `UpperBoundFeedforward`
-constraint, penalized in the objective at `BALANCE_SLACK_COST`
+constraint. On a power variable the objective penalty is `BALANCE_SLACK_COST` per hour of
+the step; on any other variable it is `FEEDFORWARD_SLACK_COST` per step.
 
 Docs abbreviation: ``p^\\text{ff,ubsl}``
 """
 struct UpperBoundFeedForwardSlack <: VariableType end
 """
 Struct to dispatch the creation of Slack variables that relax a `LowerBoundFeedforward`
-constraint, penalized in the objective at `BALANCE_SLACK_COST`
+constraint. On a power variable the objective penalty is `BALANCE_SLACK_COST` per hour of
+the step; on any other variable it is `FEEDFORWARD_SLACK_COST` per step.
 
 Docs abbreviation: ``p^\\text{ff,lbsl}``
 """

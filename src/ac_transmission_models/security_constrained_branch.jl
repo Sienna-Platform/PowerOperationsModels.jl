@@ -243,7 +243,7 @@ function _make_post_contingency_slack!(
     slack_container[outage_id, name, t] = slack
     add_to_objective_invariant_expression!(
         container,
-        slack * CONSTRAINT_VIOLATION_SLACK_COST,
+        slack * (CONSTRAINT_VIOLATION_SLACK_COST * _hours_per_step(container)),
     )
     return slack
 end

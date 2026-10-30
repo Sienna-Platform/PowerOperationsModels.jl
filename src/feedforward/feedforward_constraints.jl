@@ -293,7 +293,8 @@ quantity read from the system state.
 ``` variable[name, t] <= param[name, t] * multiplier[name, t] ```
 
 With `add_slacks = true` the bound is relaxed by a non-negative slack penalized at
-`BALANCE_SLACK_COST`:
+`BALANCE_SLACK_COST` per hour of the step on a power variable, else at
+`FEEDFORWARD_SLACK_COST` per step:
 
 ``` variable[name, t] - slack[name, t] <= param[name, t] * multiplier[name, t] ```
 """
@@ -314,7 +315,8 @@ quantity read from the system state.
 ``` variable[name, t] >= param[name, t] * multiplier[name, t] ```
 
 With `add_slacks = true` the bound is relaxed by a non-negative slack penalized at
-`BALANCE_SLACK_COST`:
+`BALANCE_SLACK_COST` per hour of the step on a power variable, else at
+`FEEDFORWARD_SLACK_COST` per step:
 
 ``` variable[name, t] + slack[name, t] >= param[name, t] * multiplier[name, t] ```
 """
