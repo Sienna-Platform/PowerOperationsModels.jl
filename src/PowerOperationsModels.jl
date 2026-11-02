@@ -960,6 +960,7 @@ export PostContingencyTotalDeployment
 #################################################################################
 export ActivePowerTimeSeriesParameter
 export ReserveOfferLinkParameter
+export ReserveOfferBlockParameter
 export ActivePowerOutTimeSeriesParameter
 export ActivePowerInTimeSeriesParameter
 export ReactivePowerTimeSeriesParameter

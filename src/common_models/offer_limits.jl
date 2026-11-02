@@ -24,6 +24,15 @@ service names)]`. A row with fewer than two nonzero entries adds nothing, so pad
 """
 const RESERVE_OFFER_LINKS_TS_NAME = "reserve_offer_links"
 
+"""
+Name of the device series that holds the offered size of each reserve offer block. Float64
+values `[time step, block]` in natural units (MW), with `value_axes =
+[IS.TimeSeriesAxis("block", 1:n)]` on the same blocks as the device's `reserve_offer_links`.
+A linked row caps its block at this size. Without it the row takes the smallest width among
+the linked steps, which is the block's size only while no curve was cut short.
+"""
+const RESERVE_OFFER_BLOCK_MW_TS_NAME = "reserve_offer_block_mw"
+
 _attribute_on(model::DeviceModel, key::String) = get_attribute(model, key) === true
 
 # A market component model of a non-Device type (e.g. a `VirtualParticipant`) has no
@@ -43,55 +52,46 @@ end
 
 _get_time_series_name(::Type{ReserveOfferLinkParameter}, ::PSY.Component, ::DeviceModel) =
     RESERVE_OFFER_LINKS_TS_NAME
+_get_time_series_name(::Type{ReserveOfferBlockParameter}, ::PSY.Component, ::DeviceModel) =
+    RESERVE_OFFER_BLOCK_MW_TS_NAME
 
-# Links are step indices: the capacity multipliers some device families apply to
-# time-series parameters must not scale them. The family-specific methods below are more
-# specific than the families' own time-series multipliers.
-get_multiplier_value(
-    ::Type{ReserveOfferLinkParameter},
-    ::PSY.Device,
-    ::Type{<:AbstractDeviceFormulation},
-) = 1.0
-get_multiplier_value(
-    ::Type{ReserveOfferLinkParameter},
-    ::PSY.RenewableGen,
-    ::Type{FixedOutput},
-) = 1.0
-get_multiplier_value(
-    ::Type{ReserveOfferLinkParameter},
-    ::PSY.RenewableGen,
-    ::Type{<:AbstractRenewableFormulation},
-) = 1.0
-get_multiplier_value(
-    ::Type{ReserveOfferLinkParameter},
-    ::PSY.ElectricLoad,
-    ::Type{StaticPowerLoad},
-) = 1.0
-get_multiplier_value(
-    ::Type{ReserveOfferLinkParameter},
-    ::PSY.ElectricLoad,
-    ::Type{StaticPowerLoadBidAdjustment},
-) = 1.0
-get_multiplier_value(
-    ::Type{ReserveOfferLinkParameter},
-    ::PSY.ElectricLoad,
-    ::Type{<:AbstractControllablePowerLoadFormulation},
-) = 1.0
-get_multiplier_value(
-    ::Type{ReserveOfferLinkParameter},
-    ::PSY.HydroGen,
-    ::Type{<:AbstractHydroFormulation},
-) = 1.0
-get_multiplier_value(
-    ::Type{ReserveOfferLinkParameter},
-    ::PSY.HydroGen,
-    ::Type{FixedOutput},
-) = 1.0
-get_multiplier_value(
-    ::Type{ReserveOfferLinkParameter},
-    ::PSY.ThermalGen,
-    ::Type{FixedOutput},
-) = 1.0
+# Links are step indices and block sizes are MW the rows convert themselves: the capacity
+# multipliers some device families apply to time-series parameters must not scale either.
+# The family-specific methods below are more specific than the families' own time-series
+# multipliers.
+for P in (ReserveOfferLinkParameter, ReserveOfferBlockParameter)
+    @eval begin
+        get_multiplier_value(
+            ::Type{$P},
+            ::PSY.Device,
+            ::Type{<:AbstractDeviceFormulation},
+        ) = 1.0
+        get_multiplier_value(::Type{$P}, ::PSY.RenewableGen, ::Type{FixedOutput}) = 1.0
+        get_multiplier_value(
+            ::Type{$P},
+            ::PSY.RenewableGen,
+            ::Type{<:AbstractRenewableFormulation},
+        ) = 1.0
+        get_multiplier_value(::Type{$P}, ::PSY.ElectricLoad, ::Type{StaticPowerLoad}) = 1.0
+        get_multiplier_value(
+            ::Type{$P},
+            ::PSY.ElectricLoad,
+            ::Type{StaticPowerLoadBidAdjustment},
+        ) = 1.0
+        get_multiplier_value(
+            ::Type{$P},
+            ::PSY.ElectricLoad,
+            ::Type{<:AbstractControllablePowerLoadFormulation},
+        ) = 1.0
+        get_multiplier_value(
+            ::Type{$P},
+            ::PSY.HydroGen,
+            ::Type{<:AbstractHydroFormulation},
+        ) = 1.0
+        get_multiplier_value(::Type{$P}, ::PSY.HydroGen, ::Type{FixedOutput}) = 1.0
+        get_multiplier_value(::Type{$P}, ::PSY.ThermalGen, ::Type{FixedOutput}) = 1.0
+    end
+end
 
 # Rows and factors read their data once, at build, so parameters must be numbers: with
 # `rebuild_model` off, `IOM.get_param_eltype` is `JuMP.VariableRef` and products turn nonlinear.
@@ -232,36 +232,62 @@ _links_message(d) =
     "[time step, block, product] values with value_axes = [IS.TimeSeriesAxis(\"block\", " *
     "1:n), IS.TimeSeriesAxis(\"product\", service names)]."
 
+_block_mw_message(d) =
+    "The $(RESERVE_OFFER_BLOCK_MW_TS_NAME) series of $(PSY.get_name(d)) must hold Float64 " *
+    "[time step, block] MW with value_axes = [IS.TimeSeriesAxis(\"block\", 1:n)], on the " *
+    "blocks of its $(RESERVE_OFFER_LINKS_TS_NAME) series."
+
+# The metadata of the one `name` series `d` owns at the model's resolution, or `nothing`.
+function _offer_series_metadata(container::OptimizationContainer, d::PSY.Component, name)
+    rows = IS.list_time_series_metadata(d; time_series_type = IS.Deterministic, name = name)
+    isempty(rows) && return nothing
+    if length(rows) > 1
+        throw(
+            ArgumentError(
+                "$(PSY.get_name(d)) carries $(length(rows)) $(name) series; keep one.",
+            ),
+        )
+    end
+    md = only(rows)
+    _check_window_resolution(container, md, d)
+    return md
+end
+
 """
 Value axes of the `reserve_offer_links` series `d` owns, read from its metadata without
 loading data, or `nothing` when it owns none. Errors for a second series, axes other than
 `"block"` and `"product"` (service names), values other than Int64, or another resolution.
 """
 function _links_value_axes(container::OptimizationContainer, d::PSY.Component)
-    rows = IS.list_time_series_metadata(
-        d;
-        time_series_type = IS.Deterministic,
-        name = RESERVE_OFFER_LINKS_TS_NAME,
-    )
-    isempty(rows) && return nothing
-    if length(rows) > 1
-        throw(
-            ArgumentError(
-                "$(PSY.get_name(d)) carries $(length(rows)) " *
-                "$(RESERVE_OFFER_LINKS_TS_NAME) series; keep one.",
-            ),
-        )
-    end
-    md = only(rows)
-    _check_window_resolution(container, md, d)
+    md = _offer_series_metadata(container, d, RESERVE_OFFER_LINKS_TS_NAME)
+    md === nothing && return nothing
     value_axes = IS.get_value_axes(md)
     _check_series_layout(value_axes, ["block", "product"], String, _links_message(d))
-    _check_int_links(eltype(md), d)
+    _check_value_type(eltype(md), Int64, _links_message(d))
     return value_axes
 end
 
-_check_int_links(::Type{Int64}, _) = nothing
-_check_int_links(::Type, d) = throw(ArgumentError(_links_message(d)))
+"""
+Value axes of the `reserve_offer_block_mw` series `d` owns, or `nothing` when it owns none.
+Errors for a second series, another resolution, values other than Float64, or a block axis
+other than that of `d`'s `reserve_offer_links` series (`links_axes`).
+"""
+function _block_mw_value_axes(
+    container::OptimizationContainer,
+    d::PSY.Component,
+    links_axes::Vector{IS.TimeSeriesAxis},
+)
+    md = _offer_series_metadata(container, d, RESERVE_OFFER_BLOCK_MW_TS_NAME)
+    md === nothing && return nothing
+    value_axes = IS.get_value_axes(md)
+    blocks = _check_series_layout(value_axes, ["block"], Int, _block_mw_message(d))
+    _check_value_type(eltype(md), Float64, _block_mw_message(d))
+    blocks == first(links_axes).labels || throw(ArgumentError(_block_mw_message(d)))
+    return value_axes
+end
+
+_check_value_type(found::Type, expected::Type, msg::String) =
+    found === expected ? nothing : throw(ArgumentError(msg))
 
 # Links are flattened onto one positional axis, not a (device, block, product, time) container:
 # the 3-D fill setters, parameter writer and input recast have no 4-D methods, and every
@@ -276,17 +302,42 @@ function calc_additional_axes(
     return (1:maximum(lengths),)
 end
 
+function calc_additional_axes(
+    container::OptimizationContainer,
+    ::Type{ReserveOfferBlockParameter},
+    devices::Vector{D},
+    ::DeviceModel{D, W},
+) where {D <: PSY.Component, W <: AbstractDeviceFormulation}
+    lengths = (
+        IOM.get_value_length(
+            _block_mw_value_axes(container, d, _links_value_axes(container, d)),
+        ) for d in devices
+    )
+    return (1:maximum(lengths),)
+end
+
+# Devices with links get `ReserveOfferLinkParameter`; those of them that also state their
+# block sizes get `ReserveOfferBlockParameter`.
 function _add_offer_link_parameters!(
     container::OptimizationContainer,
     sys::PSY.System,
     model::DeviceModel{D},
 ) where {D <: PSY.Component}
-    owners = D[
-        d for d in get_available_components(model, sys) if
-        _links_value_axes(container, d) !== nothing
-    ]
+    owners = D[]
+    sized = D[]
+    for d in get_available_components(model, sys)
+        links_axes = _links_value_axes(container, d)
+        if links_axes === nothing
+            _offer_series_metadata(container, d, RESERVE_OFFER_BLOCK_MW_TS_NAME) === nothing ||
+                throw(ArgumentError(_block_mw_message(d)))
+            continue
+        end
+        push!(owners, d)
+        _block_mw_value_axes(container, d, links_axes) === nothing || push!(sized, d)
+    end
     isempty(owners) && return
     add_parameters!(container, ReserveOfferLinkParameter, owners, model)
+    isempty(sized) || add_parameters!(container, ReserveOfferBlockParameter, sized, model)
     return
 end
 
@@ -340,7 +391,10 @@ _offer_widths(
 """
 Rows of `LinkedReserveOfferConstraint` for the devices of `model` that carry a
 `reserve_offer_links` series. A block linked into two or more modeled services caps the sum
-of its steps at the smallest of their widths; widths agree unless a curve was cut short.
+of its steps at the block's size from the device's `reserve_offer_block_mw` series. A device
+without one caps it at the smallest of the linked step widths, which is the block's size only
+while no curve was cut short: a curve cut at one service's limit would otherwise cap the
+block's awards in every service at that limit.
 """
 function add_linked_reserve_offer_constraints!(
     container::OptimizationContainer,
@@ -357,9 +411,21 @@ function add_linked_reserve_offer_constraints!(
     key = IOM.ParameterKey(ReserveOfferLinkParameter, D)
     for d in get_available_components(model, sys)
         IOM.has_lhs_parameter_component(container, key, PSY.get_name(d)) || continue
-        _add_linked_offer_rows!(container, rows, blk, key, d)
+        _add_linked_offer_rows!(container, rows, blk, key, d, _block_sizes(container, d))
     end
     return
+end
+
+# `[block, time step]` sizes in system units from `d`'s `ReserveOfferBlockParameter` row, or
+# `nothing` when it states none.
+function _block_sizes(container::OptimizationContainer, d::D) where {D <: PSY.Component}
+    has_container_key(container, ReserveOfferBlockParameter, D) || return nothing
+    key = IOM.ParameterKey(ReserveOfferBlockParameter, D)
+    name = PSY.get_name(d)
+    IOM.has_lhs_parameter_component(container, key, name) || return nothing
+    value_axes = _block_mw_value_axes(container, d, _links_value_axes(container, d))
+    mw = IOM.get_lhs_parameter_values(container, key, name, value_axes)::Matrix{Float64}
+    return mw ./ get_model_base_power(container)
 end
 
 function _add_linked_offer_rows!(
@@ -368,6 +434,7 @@ function _add_linked_offer_rows!(
     blk::JuMP.Containers.SparseAxisArray,
     key::IOM.ParameterKey{ReserveOfferLinkParameter, D},
     d::D,
+    sizes::Union{Nothing, Matrix{Float64}},
 ) where {D <: PSY.Component}
     name = PSY.get_name(d)
     value_axes = _links_value_axes(container, d)
@@ -400,7 +467,8 @@ function _add_linked_offer_rows!(
             width = min(width, steps[k])
         end
         length(terms) < 2 && continue
-        rows[(name, b, t)] = JuMP.@constraint(jump_model, sum(terms) <= width)
+        cap = sizes === nothing ? width : sizes[b, t]
+        rows[(name, b, t)] = JuMP.@constraint(jump_model, sum(terms) <= cap)
     end
     return
 end
