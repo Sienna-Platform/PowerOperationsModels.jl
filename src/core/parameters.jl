@@ -177,6 +177,14 @@ sums, so the container holds `Float64`.
 struct ReserveOfferLinkParameter <: IOM.LeftHandSideTimeSeriesParameter end
 
 """
+Reserve offer block sizes of a device: its `reserve_offer_block_mw` series, Float64 `[time
+step, block]` MW with value axis `"block"`, on the blocks of its `reserve_offer_links`. The
+container holds each device's sizes along one positional axis, like
+[`ReserveOfferLinkParameter`](@ref). A size is the right-hand side of the block's linked row.
+"""
+struct ReserveOfferBlockParameter <: IOM.LeftHandSideTimeSeriesParameter end
+
+"""
 Reservoir energy target read from the system state
 """
 struct ReservoirTargetParameter <: VariableValueParameter end

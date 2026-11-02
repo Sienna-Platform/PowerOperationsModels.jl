@@ -119,6 +119,23 @@ function _ol_add_links!(
     return
 end
 
+# A `reserve_offer_block_mw` series for `g`, the same in every step: block b offers `mw[b]` MW.
+function _ol_add_block_mw!(
+    sys, g, mw;
+    resolution = Hour(1), steps = 24, axis_name = "block", labels = collect(1:length(mw)),
+    eltype = Float64,
+)
+    data = Dict(it => repeat(reshape(eltype.(mw), 1, :), steps) for it in _OL_INIT_TIMES)
+    ts = Deterministic(;
+        name = POM.RESERVE_OFFER_BLOCK_MW_TS_NAME,
+        data = data,
+        resolution = resolution,
+        value_axes = [IS.TimeSeriesAxis(axis_name, labels)],
+    )
+    PSY.add_time_series!(sys, g, ts)
+    return
+end
+
 _ol_blk(c) = IOM.get_variable(c, POM.PiecewiseLinearBlockReserveOffer, ThermalStandard)
 _ol_award(c, S = OnlineReserve{ReserveUp}) =
     IOM.get_variable(
@@ -213,6 +230,110 @@ end
     rows = IOM.get_constraint(c, POM.LinkedReserveOfferConstraint, ThermalStandard)
     base = IOM.get_model_base_power(c)
     @test all(JuMP.normalized_rhs(rows[(_OL_UNIT, 1, t)]) ≈ 8.0 / base for t in 1:24)
+end
+
+# One 30 MW block offered into two services. UP_A's curve is cut at a 10 MW limit, as a
+# per-service capability cut does; UP_B keeps the whole block.
+const _OL_CUT_SERVICES =
+    ["UP_A" => ([0.0, 10.0], [5.0]), "UP_B" => ([0.0, 30.0], [6.0])]
+
+@testset "Linked reserve offers: a cut curve caps the block at the cut without block sizes" begin
+    sys, g = _ol_system(; up = _OL_CUT_SERVICES)
+    _ol_add_links!(sys, g, ["UP_A", "UP_B"], [[1, 1]])
+    model = _ol_model(sys; attributes = _OL_LINKED)
+    c = get_optimization_container(model)
+    base = IOM.get_model_base_power(c)
+    rows = IOM.get_constraint(c, POM.LinkedReserveOfferConstraint, ThermalStandard)
+    @test all(JuMP.normalized_rhs(rows[(_OL_UNIT, 1, t)]) ≈ 10.0 / base for t in 1:24)
+    @test _ol_solve!(model)
+    award = _ol_award(c)
+    for t in 1:24
+        total =
+            JuMP.value(award[("UP_A", _OL_UNIT, t)]) +
+            JuMP.value(award[("UP_B", _OL_UNIT, t)])
+        @test isapprox(base * total, 10.0; atol = 1e-6)
+    end
+end
+
+@testset "Linked reserve offers: block sizes cap the block, the cut caps its service" begin
+    sys, g = _ol_system(; up = _OL_CUT_SERVICES)
+    _ol_add_links!(sys, g, ["UP_A", "UP_B"], [[1, 1]])
+    _ol_add_block_mw!(sys, g, [30.0])
+    model = _ol_model(sys; attributes = _OL_LINKED)
+    c = get_optimization_container(model)
+    base = IOM.get_model_base_power(c)
+    rows = IOM.get_constraint(c, POM.LinkedReserveOfferConstraint, ThermalStandard)
+    @test all(JuMP.normalized_rhs(rows[(_OL_UNIT, 1, t)]) ≈ 30.0 / base for t in 1:24)
+    @test _ol_solve!(model)
+    award = _ol_award(c)
+    for t in 1:24
+        a = base * JuMP.value(award[("UP_A", _OL_UNIT, t)])
+        b = base * JuMP.value(award[("UP_B", _OL_UNIT, t)])
+        @test isapprox(a, 10.0; atol = 1e-6)
+        @test isapprox(a + b, 30.0; atol = 1e-6)
+    end
+end
+
+@testset "Linked reserve offers: block sizes hold when every linked curve is cut" begin
+    # Both services cut at 10 MW below a 30 MW block: each sells 10 MW, 20 MW in all.
+    sys, g = _ol_system(;
+        up = ["UP_A" => ([0.0, 10.0], [5.0]), "UP_B" => ([0.0, 10.0], [6.0])],
+    )
+    _ol_add_links!(sys, g, ["UP_A", "UP_B"], [[1, 1]])
+    _ol_add_block_mw!(sys, g, [30.0])
+    model = _ol_model(sys; attributes = _OL_LINKED)
+    c = get_optimization_container(model)
+    base = IOM.get_model_base_power(c)
+    @test _ol_solve!(model)
+    award = _ol_award(c)
+    for t in 1:24
+        total =
+            JuMP.value(award[("UP_A", _OL_UNIT, t)]) +
+            JuMP.value(award[("UP_B", _OL_UNIT, t)])
+        @test isapprox(base * total, 20.0; atol = 1e-6)
+    end
+end
+
+@testset "Linked reserve offers: block sizes reach the model through ReserveOfferBlockParameter" begin
+    sys, g = _ol_system(; up = _OL_TWO_SERVICES)
+    _ol_add_links!(sys, g, ["UP_A", "UP_B"], [[1, 1], [2, 0]])
+    _ol_add_block_mw!(sys, g, [10.0, 20.0])
+    model = _ol_model(sys; attributes = _OL_LINKED)
+    c = get_optimization_container(model)
+    key = IOM.ParameterKey(POM.ReserveOfferBlockParameter, ThermalStandard)
+    axes_ = POM._block_mw_value_axes(c, g, POM._links_value_axes(c, g))
+    mw = IOM.get_lhs_parameter_values(c, key, _OL_UNIT, axes_)
+    @test size(mw) == (2, 24)
+    @test mw[:, 1] == [10.0, 20.0]
+    @test POM._block_sizes(c, g) ≈ mw ./ IOM.get_model_base_power(c)
+end
+
+@testset "Linked reserve offers: bad block sizes are errors" begin
+    sys, g = _ol_system(; up = _OL_TWO_SERVICES)
+    c = get_optimization_container(_ol_model(sys))
+    links_axes = [IS.TimeSeriesAxis("block", [1, 2]), IS.TimeSeriesAxis("product", ["UP_A"])]
+    for (kwargs, E) in (
+        ((axis_name = "blocks",), ArgumentError),
+        ((labels = [1, 3],), ArgumentError),
+        ((eltype = Int64,), ArgumentError),
+        ((resolution = Minute(30),), IS.ConflictingInputsError),
+    )
+        sys2, g2 = _ol_system(; up = _OL_TWO_SERVICES)
+        _ol_add_block_mw!(sys2, g2, [10.0, 20.0]; kwargs...)
+        @test_throws E POM._block_mw_value_axes(c, g2, links_axes)
+    end
+    # Block sizes without links fail the build.
+    sys3, g3 = _ol_system(; up = _OL_TWO_SERVICES)
+    _ol_add_block_mw!(sys3, g3, [10.0])
+    dir = mktempdir(; cleanup = true)
+    model3 =
+        DecisionModel(_ol_template(_OL_LINKED; sys = sys3), sys3; optimizer = HiGHS_optimizer)
+    @test build!(model3; output_dir = dir, console_level = Logging.AboveMaxLevel) ==
+          IOM.ModelBuildStatus.FAILED
+    @test occursin(
+        POM.RESERVE_OFFER_BLOCK_MW_TS_NAME,
+        read(joinpath(dir, IOM.PROBLEM_LOG_FILENAME), String),
+    )
 end
 
 @testset "Linked reserve offers: a service the model does not price is skipped" begin
@@ -395,7 +516,7 @@ end
     @test _ol_rows(c, POM.LinkedReserveOfferConstraint) == [(_OL_UNIT, 1, t) for t in 1:24]
 end
 
-@testset "Links keep multiplier 1.0" begin
+@testset "Links and block sizes keep multiplier 1.0" begin
     # One formulation per family method that scales time-series parameters by capacity.
     for (sys_name, D, F) in (
         ("c_sys5_re", PSY.RenewableDispatch, RenewableFullDispatch),
@@ -409,6 +530,7 @@ end
     )
         device = first(PSY.get_components(D, PSB.build_system(PSITestSystems, sys_name)))
         @test POM.get_multiplier_value(POM.ReserveOfferLinkParameter, device, F) == 1.0
+        @test POM.get_multiplier_value(POM.ReserveOfferBlockParameter, device, F) == 1.0
     end
 end
 
@@ -433,5 +555,30 @@ end
     @test eltype(window) == Int64
     @test window[1, :, :] == [1 1; 2 0]
     @test [a.name for a in IS.get_value_axes(got)] == ["block", "product"]
+    IS.close!(IS.get_data_store(restored.data))
+end
+
+@testset "Block sizes round trip through the outputs bundle as Float64" begin
+    sys, g = _ol_system(; up = _OL_TWO_SERVICES)
+    _ol_add_links!(sys, g, ["UP_A", "UP_B"], [[1, 1], [2, 0]])
+    _ol_add_block_mw!(sys, g, [10.0, 20.0])
+    model = _ol_model(sys; attributes = _OL_LINKED)
+    container = IOM.get_optimization_container(model)
+    windows = POM.run_windows(model)
+    store = POM.ParameterTimeSeriesStore()
+    key_map = POM.copy_cost_time_series!(store, sys, windows)
+    POM.write_model_inputs!(store, sys, container, windows)
+    bundle = joinpath(mktempdir(; cleanup = true), "system-test")
+    @test_logs (:info, r"Serialized") POM.write_outputs_system_bundle!(
+        sys, store, key_map, bundle,
+    )
+    POM.close_parameter_store!(store)
+    restored = PSY.from_file(bundle; time_series_read_only = true)
+    g2 = get_component(ThermalStandard, restored, _OL_UNIT)
+    got = PSY.get_time_series(PSY.Deterministic, g2, POM.RESERVE_OFFER_BLOCK_MW_TS_NAME)
+    window = only(values(PSY.get_data(got)))
+    @test eltype(window) == Float64
+    @test window[1, :] == [10.0, 20.0]
+    @test [a.name for a in IS.get_value_axes(got)] == ["block"]
     IS.close!(IS.get_data_store(restored.data))
 end

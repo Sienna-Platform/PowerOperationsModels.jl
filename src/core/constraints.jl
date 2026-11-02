@@ -34,7 +34,8 @@ Sells a device's reserve offer block once across the services it is linked into.
 the device model sets `"linked_reserve_offers" => true` and the device carries a
 `reserve_offer_links` series. Sparse, keyed `(device_name, block, time_step)`: the block's
 steps (`PiecewiseLinearBlockReserveOffer`) in the services it is linked into sum to at most
-the smallest of their step widths, when it is linked into two or more modeled services.
+the block's size, when it is linked into two or more modeled services. The size comes from
+the device's `reserve_offer_block_mw` series, else the smallest of the linked step widths.
 """
 struct LinkedReserveOfferConstraint <: ConstraintType end
 
