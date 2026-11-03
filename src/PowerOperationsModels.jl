@@ -957,6 +957,15 @@ export ThermalCompactUnitCommitment
 export ThermalBasicCompactUnitCommitment
 export ThermalCompactDispatch
 
+# Logical Generation Unit Formulations
+export AbstractLogicalUnitFormulation
+export AbstractLogicalUnitDispatch
+export AbstractLogicalUnitCommitment
+export LogicalUnitBasicDispatch
+export LogicalUnitStandardDispatch
+export LogicalUnitBasicCommitment
+export LogicalUnitStandardCommitment
+
 # Load Formulations
 export StaticPowerLoad
 export PowerLoadInterruption

@@ -55,6 +55,37 @@ Formulation type to enable thermal compact dispatch
 """
 struct ThermalCompactDispatch <: AbstractThermalDispatchFormulation end
 
+########################### Logical Generation Unit Formulations ###########################
+abstract type AbstractLogicalUnitFormulation <: AbstractDeviceFormulation end
+abstract type AbstractLogicalUnitDispatch <: AbstractLogicalUnitFormulation end
+abstract type AbstractLogicalUnitCommitment <: AbstractLogicalUnitFormulation end
+
+"""
+`ThermalBasicDispatch` for `PSY.LogicalGenerationUnit`
+"""
+struct LogicalUnitBasicDispatch <: AbstractLogicalUnitDispatch end
+"""
+`ThermalStandardDispatch` for `PSY.LogicalGenerationUnit`
+"""
+struct LogicalUnitStandardDispatch <: AbstractLogicalUnitDispatch end
+"""
+`ThermalBasicUnitCommitment` for `PSY.LogicalGenerationUnit`
+"""
+struct LogicalUnitBasicCommitment <: AbstractLogicalUnitCommitment end
+"""
+`ThermalStandardUnitCommitment` for `PSY.LogicalGenerationUnit`
+"""
+struct LogicalUnitStandardCommitment <: AbstractLogicalUnitCommitment end
+
+# Method signatures shared by thermal generators and logical generation units.
+const ThermalOrLogicalUnit = Union{PSY.ThermalGen, PSY.LogicalGenerationUnit}
+const ThermalOrLogicalFormulation =
+    Union{AbstractThermalFormulation, AbstractLogicalUnitFormulation}
+const ThermalOrLogicalCommitment =
+    Union{AbstractThermalUnitCommitment, AbstractLogicalUnitCommitment}
+const ThermalOrLogicalDispatch =
+    Union{AbstractThermalDispatchFormulation, AbstractLogicalUnitDispatch}
+
 ############################# Electric Load Formulations ###################################
 # AbstractLoadFormulation is imported from IS.Optimization via IOM
 abstract type AbstractControllablePowerLoadFormulation <: AbstractLoadFormulation end

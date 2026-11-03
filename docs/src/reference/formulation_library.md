@@ -524,6 +524,8 @@ Nine concrete thermal formulations, under three abstract branches:
 | `AbstractStandardUnitCommitment`     | `ThermalBasicUnitCommitment`, `ThermalStandardUnitCommitment`                                          |
 | `AbstractCompactUnitCommitment`      | `ThermalBasicCompactUnitCommitment`, `ThermalCompactUnitCommitment`, `ThermalMultiStartUnitCommitment` |
 | `AbstractThermalDispatchFormulation` | `ThermalBasicDispatch`, `ThermalStandardDispatch`, `ThermalDispatchNoMin`, `ThermalCompactDispatch`    |
+| `AbstractLogicalUnitDispatch`        | `LogicalUnitBasicDispatch`, `LogicalUnitStandardDispatch`                                              |
+| `AbstractLogicalUnitCommitment`      | `LogicalUnitBasicCommitment`, `LogicalUnitStandardCommitment`                                          |
 
 The *standard* family dispatches `ActivePowerVariable` directly. The *compact* family instead
 dispatches `PowerAboveMinimumVariable` and reconstructs total power as ``p = P_{min} u + \hat{p}``,
@@ -540,6 +542,10 @@ wiring **both** the above-minimum variable and the commitment status into `Activ
 | `ThermalBasicCompactUnitCommitment`                              | compact variable set + commitment variables                                                                                 | range limits + `CommitmentConstraint`. No ramp, no duration                                                                                                      |
 | `ThermalCompactUnitCommitment`                                   | as above                                                                                                                    | as above **+ `RampConstraint` + `DurationConstraint`**                                                                                                           |
 | `ThermalMultiStartUnitCommitment` (`PSY.ThermalMultiStart` only) | compact set **+ `ColdStartVariable`, `WarmStartVariable`, `HotStartVariable`**                                              | as above **+ `StartupTimeLimitTemperatureConstraint` (`"hot"`/`"warm"`), `StartTypeConstraint`, `StartupInitialConditionConstraint`, `ActiveRangeICConstraint`** |
+| `LogicalUnitBasicDispatch`                                       | as `ThermalBasicDispatch`, for `PSY.LogicalGenerationUnit`                                                                  | as `ThermalBasicDispatch`                                                                                                                                        |
+| `LogicalUnitStandardDispatch`                                    | as `ThermalStandardDispatch`, for `PSY.LogicalGenerationUnit`                                                               | as `ThermalStandardDispatch`                                                                                                                                     |
+| `LogicalUnitBasicCommitment`                                     | as `ThermalBasicUnitCommitment`, for `PSY.LogicalGenerationUnit`                                                            | as `ThermalBasicUnitCommitment`                                                                                                                                  |
+| `LogicalUnitStandardCommitment`                                  | as `ThermalStandardUnitCommitment`, for `PSY.LogicalGenerationUnit`                                                         | as `ThermalStandardUnitCommitment`                                                                                                                               |
 
 All nine implement both a `<:AbstractNetworkModel` and a `<:AbstractActivePowerModel` method, so all
 eleven network models are supported. The active-power method simply omits `ReactivePowerVariable`,
