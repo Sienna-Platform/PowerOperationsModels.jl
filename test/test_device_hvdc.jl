@@ -80,10 +80,10 @@ function _generate_test_hvdc_sys()
     for ipc in get_components(InterconnectingConverter, sys)
         new_dc_loss = PSY.LossCurve(QuadraticCurve(0.01, 0.01, 0.0), PSY.CU)
         set_loss_function!(ipc, new_dc_loss)
-        # 2.0 pu on the system base, in amperes.
+        # 2.0 pu on the system base, in kA.
         set_max_dc_current!(
             ipc,
-            2.0 * 1000.0 * get_base_power(sys) / get_base_voltage(get_dc_bus(ipc)),
+            2.0 * get_base_power(sys) / get_base_voltage(get_dc_bus(ipc)),
         )
     end
     return sys
@@ -122,9 +122,9 @@ end
         set_r!(line, 25.0)
         @test POM._tmodel_r_su(line) ≈ 0.01
     end
-    # I_base = 1000 * 100 / 500 = 200 A, so 400 A is 2.0 pu.
+    # I_base = 100 MVA / 500 kV = 0.2 kA, so 0.4 kA is 2.0 pu.
     for ipc in get_components(InterconnectingConverter, sys)
-        @test POM._dc_current_su(ipc, 400.0) ≈ 2.0
+        @test POM._dc_current_su(ipc, 0.4) ≈ 2.0
     end
 end
 
@@ -255,7 +255,7 @@ function _generate_test_vsc_sys(;
         rated_ac_voltage_from = get_base_voltage(get_from(get_arc(line))),
         rated_dc_voltage = v_dc,
         converter_loss_from = PSY.LossCurve(QuadraticCurve(loss_a, loss_b, loss_c), PSY.CU),
-        max_dc_current_from = 5.0 * 1000.0 * s_base / v_dc,
+        max_dc_current_from = 5.0 * s_base / v_dc,
         rating_from = rating_from,
         reactive_power_limits_from = (min = -rating_from, max = rating_from),
         power_factor_weighting_fraction_from = 1.0,
@@ -267,7 +267,7 @@ function _generate_test_vsc_sys(;
         dc_power_setpoint_to = 0.0,
         power_factor_setpoint_to = 1.0,
         converter_loss_to = PSY.LossCurve(QuadraticCurve(loss_a, loss_b, loss_c), PSY.CU),
-        max_dc_current_to = 5.0 * 1000.0 * s_base / v_dc,
+        max_dc_current_to = 5.0 * s_base / v_dc,
         rating_to = rating_to,
         reactive_power_limits_to = (min = -rating_to, max = rating_to),
         power_factor_weighting_fraction_to = 1.0,
@@ -366,7 +366,7 @@ end
         @test lims.min ≈ 0.95
         @test lims.max ≈ 1.05
     end
-    # DC side, I_base = 1000 * 100 MVA / 230 kV; max_dc_current is 5 times it.
+    # DC side, I_base = 100 MVA / 230 kV (kA); max_dc_current is 5 times it.
     @test POM._vsc_cable_i_max(vsc) ≈ 5.0
     # AC side: I_ac <= rating_from / vmin, both in per unit of the from-bus base.
     vmin = get_voltage_limits(get_from(get_arc(vsc)), u"CU").min

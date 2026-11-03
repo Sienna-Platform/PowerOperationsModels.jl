@@ -1435,8 +1435,8 @@ end
 # `rated_dc_voltage`, which is also the base of the DC voltage setpoints.
 _vsc_dc_base_voltage(d::PSY.TwoTerminalVSCLine) =
     _nonzero_base_voltage(PSY.get_rated_dc_voltage(d), "rated_dc_voltage", d)
-_vsc_dc_current_su(d::PSY.TwoTerminalVSCLine, amps::Float64) =
-    _amps_to_su(amps, _vsc_dc_base_voltage(d), PSY._get_system_base_power(d))
+_vsc_dc_current_su(d::PSY.TwoTerminalVSCLine, ka::Float64) =
+    _ka_to_su(ka, _vsc_dc_base_voltage(d), PSY._get_system_base_power(d))
 _vsc_g_su(d::PSY.TwoTerminalVSCLine) =
     _siemens_to_su(PSY.get_g(d), _vsc_dc_base_voltage(d), PSY._get_system_base_power(d))
 function _vsc_voltage_limits_su(d::PSY.TwoTerminalVSCLine, limits::PSY.MinMax)

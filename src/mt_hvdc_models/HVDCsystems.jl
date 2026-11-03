@@ -108,11 +108,11 @@ end
 get_variable_binary(::Type{ConverterCurrent}, ::Type{PSY.InterconnectingConverter}, ::Type{<:AbstractConverterFormulation}) = false
 get_variable_binary(::Type{CurrentAbsoluteValueVariable}, ::Type{PSY.InterconnectingConverter}, ::Type{<:AbstractConverterFormulation}) = false
 
-# PSY stores `dc_current` and `max_dc_current` in amperes. `ConverterCurrent` is the
-# system-base power equivalent at 1.0 pu of the DC bus base voltage (kV * A / 1000 = MW).
-function _dc_current_su(d::PSY.InterconnectingConverter, amps::Float64)
-    return _amps_to_su(
-        amps, _bus_base_voltage(PSY.get_dc_bus(d)), PSY._get_system_base_power(d),
+# PSY stores `dc_current` and `max_dc_current` in kA. `ConverterCurrent` is the
+# system-base power equivalent at 1.0 pu of the DC bus base voltage (kV * kA = MW).
+function _dc_current_su(d::PSY.InterconnectingConverter, ka::Float64)
+    return _ka_to_su(
+        ka, _bus_base_voltage(PSY.get_dc_bus(d)), PSY._get_system_base_power(d),
     )
 end
 _max_dc_current_su(d::PSY.InterconnectingConverter) =
