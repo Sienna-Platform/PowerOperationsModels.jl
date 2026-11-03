@@ -96,7 +96,7 @@ get_variable_lower_bound(::Type{RateofChangeConstraintSlackUp}, d::PSY.ThermalGe
 ########################### Parameter related set functions ################################
 function _fixed_output_max_reactive_power(d::PSY.Generator)
     limits = PSY.get_reactive_power_limits(d, u"SU")
-    if limits === nothing
+    if isnothing(limits)
         throw(
             IS.ConflictingInputsError(
                 "$(nameof(typeof(d))) $(PSY.get_name(d)) has a ReactivePowerTimeSeriesParameter " *
