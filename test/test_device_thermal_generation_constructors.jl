@@ -1419,6 +1419,7 @@ end =#
     new_th_cost = ThermalGenerationCost(;
         variable_operation_cost = FuelCurve(;
             value_curve = quad_curve,
+            fuel_units = PSY.MMBtu,
             fuel_cost = 1.0,
         ),
         fixed = op_cost.fixed,
