@@ -18,6 +18,7 @@ function create_temporary_cost_function_in_system_per_unit(
     return PSY.FuelCurve(;
         value_curve = PSY.PiecewisePointCurve(new_data),
         power_units = PSY.SU,
+        fuel_units = IS.get_fuel_units(original_cost_function),
         fuel_cost = PSY.get_fuel_cost(original_cost_function),
         fuel_cost_time_series = IS.get_fuel_cost_time_series(original_cost_function),
         startup_fuel_offtake = IS.LinearCurve(0.0),  # default of 0

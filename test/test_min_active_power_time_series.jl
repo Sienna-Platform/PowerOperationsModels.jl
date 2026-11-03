@@ -895,6 +895,7 @@ function _fuel_cost_system(
         PSY.FuelCurve(;
             value_curve = PSY.LinearCurve(slope, 3.0),
             power_units = units,
+            fuel_units = PSY.MMBtu,
             fuel_cost = fuel_cost,
         ),
     )
@@ -936,7 +937,7 @@ end
     quad = PSY.QuadraticCurve(0.5, 17.0, 3.0)
     for curve in (
         PSY.CostCurve(quad),
-        PSY.FuelCurve(; value_curve = quad, fuel_cost = 2.5),
+        PSY.FuelCurve(; value_curve = quad, fuel_units = PSY.MMBtu, fuel_cost = 2.5),
     )
         sys, unit = _min_power_system(MIN_POWER_VALUES)
         _set_variable_cost!(unit, curve)
