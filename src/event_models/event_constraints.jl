@@ -5,7 +5,7 @@
 
 # What the active-power outage bound applies to: the range expression when the
 # formulation routes power through one, else the variable itself.
-_active_power_outage_lhs(::DeviceModel{<:Union{ThermalOrLogicalUnit, PSY.HydroGen}}) =
+_active_power_outage_lhs(::DeviceModel{<:Union{PSY.ThermalGen, PSY.HydroGen}}) =
     ActivePowerRangeExpressionUB
 _active_power_outage_lhs(::DeviceModel{<:PSY.ElectricLoad}) = ActivePowerVariable
 function _active_power_outage_lhs(device_model::DeviceModel{<:PSY.RenewableGen})
@@ -41,7 +41,7 @@ function _add_active_power_outage_constraint!(
     device_model::DeviceModel{U, F},
     ::Type{W},
 ) where {
-    U <: ThermalOrLogicalUnit,
+    U <: PSY.ThermalGen,
     F <: Union{AbstractCompactUnitCommitment, ThermalCompactDispatch},
     W,
 }
@@ -64,7 +64,7 @@ function add_event_constraints!(
     T <: Vector{U},
     V <: AbstractDeviceFormulation,
     W <: AbstractActivePowerModel,
-} where {U <: Union{ThermalOrLogicalUnit, PSY.HydroGen}}
+} where {U <: Union{PSY.ThermalGen, PSY.HydroGen}}
     _for_each_event_devices(devices, device_model) do devices_with_attributes, _
         _add_active_power_outage_constraint!(
             container,
@@ -85,7 +85,7 @@ function add_event_constraints!(
     T <: Vector{U},
     V <: AbstractDeviceFormulation,
     W <: AbstractReactivePowerNetworkModel,
-} where {U <: Union{ThermalOrLogicalUnit, PSY.HydroGen}}
+} where {U <: Union{PSY.ThermalGen, PSY.HydroGen}}
     _for_each_event_devices(devices, device_model) do devices_with_attributes, _
         _add_active_power_outage_constraint!(
             container,

@@ -83,8 +83,8 @@ get_variable_upper_bound(::Type{StartVariable}, d::ThermalOrLogicalUnit, ::Type{
 skip_variable(::Type{<:Union{OnVariable, StartVariable, StopVariable}}, d::ThermalOrLogicalUnit, ::Type{<:ThermalOrLogicalFormulation}) = _is_must_run(d)
 
 ############## ColdStartVariable, WarmStartVariable, HotStartVariable ############
-get_variable_binary(::Type{<:Union{ColdStartVariable, WarmStartVariable, HotStartVariable}}, ::Type{PSY.ThermalMultiStart}, ::Type{<:ThermalOrLogicalFormulation}) = true
-skip_variable(::Type{<:Union{ColdStartVariable, WarmStartVariable, HotStartVariable}}, d::PSY.ThermalMultiStart, ::Type{<:ThermalOrLogicalFormulation}) = _is_must_run(d)
+get_variable_binary(::Type{<:Union{ColdStartVariable, WarmStartVariable, HotStartVariable}}, ::Type{PSY.ThermalMultiStart}, ::Type{<:AbstractThermalFormulation}) = true
+skip_variable(::Type{<:Union{ColdStartVariable, WarmStartVariable, HotStartVariable}}, d::PSY.ThermalMultiStart, ::Type{<:AbstractThermalFormulation}) = _is_must_run(d)
 
 ############## SlackVariables, ThermalGen ####################
 # LB Slack #
