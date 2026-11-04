@@ -16,6 +16,7 @@ function replace_thermals_with_logical_units!(sys::PSY.System; names = nothing)
             reactive_power = PSY.get_reactive_power(thermal, u"CU"),
             rating = PSY.get_rating(thermal, u"CU"),
             prime_mover_type = PSY.PrimeMovers.CC,
+            fuel = PSY.get_fuel(thermal),
             active_power_limits = PSY.get_active_power_limits(thermal, u"CU"),
             reactive_power_limits = PSY.get_reactive_power_limits(thermal, u"CU"),
             ramp_limits = PSY.get_ramp_limits(thermal, u"CU/minute"),
