@@ -1195,6 +1195,26 @@ end
 # _add_parameters! for OnStatusParameter (general, non-feedforward)
 #################################################################################
 
+# The semicontinuous feedforward supplies this formulation's only `OnStatusParameter`
+# container, so a device outside its components would have no status.
+function _check_semicontinuous_feedforward_covers(model::DeviceModel, devices::Vector)
+    for ff in get_feedforwards(model)
+        _is_feedforward_type(ff, SemiContinuousFeedforward) || continue
+        names = get_feedforward_components(ff)
+        isnothing(names) && continue
+        outside = [PSY.get_name(d) for d in devices if !(PSY.get_name(d) in names)]
+        isempty(outside) && continue
+        throw(
+            ArgumentError(
+                "$(get_formulation(model)) reads the commitment status of every device from \
+                 its SemiContinuousFeedforward, so the feedforward must apply to every \
+                 device; $(length(outside)) are outside its components, e.g. \
+                 $(first(sort!(outside)))."),
+        )
+    end
+    return
+end
+
 function _add_parameters!(
     container::OptimizationContainer,
     ::Type{T},
@@ -1212,7 +1232,10 @@ function _add_parameters!(
     # semicontinuous feedforward supplies the variable-valued container instead; any other
     # feedforward leaves it to this method, so gating on `!isempty(feedforwards)` would
     # drop the container and break the balance expression that reads it.
-    has_semicontinuous_feedforward(model) && return
+    if has_semicontinuous_feedforward(model)
+        _check_semicontinuous_feedforward_covers(model, devices)
+        return
+    end
     names = [PSY.get_name(device) for device in devices]
     time_steps = get_time_steps(container)
     parameter_container = add_param_container!(container, T,
