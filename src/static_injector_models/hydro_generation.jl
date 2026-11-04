@@ -536,27 +536,32 @@ function add_variables!(
     E <: PSY.HydroReservoir,
 }
     time_steps = get_time_steps(container)
+    # Sparse: a turbine only draws water from its head reservoirs.
     variable = add_variable_container!(
         container,
         variable_type,
         D,
         [PSY.get_name(d) for d in turbines],
         [PSY.get_name(d) for d in reservoirs],
-        time_steps,
+        time_steps;
+        sparse = true,
     )
 
-    for t in time_steps, d in turbines, r in reservoirs
+    for d in turbines, r in reservoirs
+        PSY.has_downstream_turbine(r, d) || continue
         name = PSY.get_name(d)
         name_res = PSY.get_name(r)
-        variable[name, name_res, t] = JuMP.@variable(
-            get_jump_model(container),
-            base_name = "$(T)_$(D)_{$(name), $(name_res), $(t)}",
-        )
         ub = get_variable_upper_bound(variable_type, d, X)
-        ub !== nothing && JuMP.set_upper_bound(variable[name, name_res, t], ub)
-
         lb = get_variable_lower_bound(variable_type, d, X)
-        lb !== nothing && JuMP.set_lower_bound(variable[name, name_res, t], lb)
+        for t in time_steps
+            var = JuMP.@variable(
+                get_jump_model(container),
+                base_name = "$(T)_$(D)_{$(name), $(name_res), $(t)}",
+            )
+            ub !== nothing && JuMP.set_upper_bound(var, ub)
+            lb !== nothing && JuMP.set_lower_bound(var, lb)
+            variable[(name, name_res, t)] = var
+        end
     end
 end
 
@@ -2144,7 +2149,7 @@ function add_expressions!(
     devices::Vector{V},
     model::DeviceModel{V, W},
 ) where {
-    U <: Union{TotalHydroFlowRateReservoirIncoming, TotalHydroFlowRateReservoirOutgoing},
+    U <: TotalHydroFlowRateReservoirOutgoing,
     V <: PSY.HydroReservoir,
     W <: AbstractHydroFormulation,
 }
@@ -2166,6 +2171,44 @@ function add_expressions!(
                 sum(variable[name, reservoir_name, t] for name in turbine_names)
         end
     end
+    return
+end
+
+# Water reaching a tail reservoir is what each upstream turbine draws from its head reservoirs.
+function add_expressions!(
+    container::OptimizationContainer,
+    sys::PSY.System,
+    ::Type{U},
+    devices::Vector{V},
+    model::DeviceModel{V, W},
+) where {
+    U <: TotalHydroFlowRateReservoirIncoming,
+    V <: PSY.HydroReservoir,
+    W <: AbstractHydroFormulation,
+}
+    time_steps = get_time_steps(container)
+    expression = add_expression_container!(container, U,
+        V,
+        [PSY.get_name(d) for d in devices],
+        time_steps,
+    )
+
+    for d in devices
+        flows = Tuple{String, String}[
+            (PSY.get_name(turbine), PSY.get_name(head)) for
+            turbine in get_available_turbines(d, U) for
+            head in PSY.get_connected_head_reservoirs(sys, turbine) if
+            PSY.get_available(head)
+        ]
+        isempty(flows) && continue
+        variable = get_variable(container, HydroTurbineFlowRateVariable, PSY.HydroTurbine)
+        reservoir_name = PSY.get_name(d)
+        for t in time_steps
+            expression[reservoir_name, t] =
+                sum(variable[turbine, head, t] for (turbine, head) in flows)
+        end
+    end
+    return
 end
 
 function add_expressions!(
