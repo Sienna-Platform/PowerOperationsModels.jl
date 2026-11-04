@@ -92,3 +92,29 @@ end
     model = DecisionModel(template, logical; optimizer = HiGHS_optimizer)
     @test build!(model; output_dir = mktempdir()) == IOM.ModelBuildStatus.FAILED
 end
+
+@testset "Logical unit dispatch matches its thermal twin" begin
+    for (lf, tf, name) in (
+            (LogicalUnitBasicDispatch, ThermalBasicDispatch, "c_sys5_uc"),
+            (LogicalUnitStandardDispatch, ThermalStandardDispatch, "c_sys5"),
+        ),
+        network in (CopperPlateNetworkModel, PTDFNetworkModel)
+
+        thermal = PSB.build_system(PSITestSystems, name)
+        logical = replace_thermals_with_logical_units!(
+            PSB.build_system(PSITestSystems, name),
+        )
+        t_obj = thermal_objective(thermal, tf; network)
+        l_obj = logical_unit_objective(logical, lf; network)
+        @test l_obj ≈ t_obj rtol = 1e-6
+    end
+end
+
+@testset "Logical standard dispatch without ramp limits matches thermal" begin
+    thermal = PSB.build_system(PSITestSystems, "c_sys5")
+    PSY.set_ramp_limits!(PSY.get_component(PSY.ThermalStandard, thermal, "Alta"), nothing)
+    logical = replace_thermals_with_logical_units!(deepcopy(thermal))
+    t_obj = thermal_objective(thermal, ThermalStandardDispatch)
+    l_obj = logical_unit_objective(logical, LogicalUnitStandardDispatch)
+    @test l_obj ≈ t_obj rtol = 1e-6
+end
