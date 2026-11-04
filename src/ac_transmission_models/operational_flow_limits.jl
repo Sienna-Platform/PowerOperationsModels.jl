@@ -643,28 +643,3 @@ function _operational_limit_entries(d::PSY.TwoTerminalHVDC, ::DeviceModel)
     caps = _hvdc_end_caps(d)
     return [(PSY.get_name(d), ofl, min(caps.from, caps.to))]
 end
-
-# The branch formulations hold a series compensator's reactance fixed, so they cannot model
-# one whose reactance is a decision or a flow control.
-_check_series_compensator_control_modes(::DeviceModel) = nothing
-
-function _check_series_compensator_control_modes(
-    device_model::DeviceModel{PSY.SeriesCompensator},
-)
-    fixed_modes = (
-        PSY.SeriesCompensatorControlMode.FIXED,
-        PSY.SeriesCompensatorControlMode.BYPASSED,
-    )
-    controlled = [
-        "$(PSY.get_name(d)) ($(PSY.get_control_mode(d)))" for
-        d in get_device_cache(device_model) if PSY.get_control_mode(d) ∉ fixed_modes
-    ]
-    isempty(controlled) && return
-    throw(
-        IS.ConflictingInputsError(
-            "SeriesCompensator control modes DISPATCHABLE and ACTIVE_POWER_FLOW are not " *
-            "supported by $(get_formulation(device_model)): $(join(controlled, ", ")). " *
-            "Set their control_mode to FIXED or BYPASSED.",
-        ),
-    )
-end

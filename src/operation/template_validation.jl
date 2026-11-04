@@ -74,6 +74,7 @@ function validate_template_impl!(model::IOM.AbstractOptimizationModel)
         delete!(template.devices, k)
     end
     foreach(_check_converter_ac_control, values(template.devices))
+    _check_series_compensator_control_modes(system)
 
     model_has_branch_filters = false
     branch_keys_to_delete = Symbol[]
@@ -102,7 +103,6 @@ function validate_template_impl!(model::IOM.AbstractOptimizationModel)
         else
             _validate_branch_slack_request(k, device_model, network_formulation)
             _check_operational_flow_limits(device_model)
-            _check_series_compensator_control_modes(device_model)
             push!(
                 IOM.get_modeled_branch_types(network_model),
                 get_component_type(device_model),
@@ -148,6 +148,32 @@ function _check_converter_ac_control(
         end
     end
     return
+end
+
+#################################################################################
+# SeriesCompensator control mode
+#################################################################################
+
+# No formulation models a controlled reactance yet. Check the system, not the template: the
+# PTDF-family networks fold an unmodeled compensator into the matrices at its stored reactance.
+function _check_series_compensator_control_modes(system::PSY.System)
+    fixed_modes = (
+        PSY.SeriesCompensatorControlMode.FIXED,
+        PSY.SeriesCompensatorControlMode.BYPASSED,
+    )
+    controlled = [
+        "$(PSY.get_name(d)) ($(PSY.get_control_mode(d)))" for
+        d in PSY.get_available_components(PSY.SeriesCompensator, system) if
+        PSY.get_control_mode(d) ∉ fixed_modes
+    ]
+    isempty(controlled) && return
+    throw(
+        IS.ConflictingInputsError(
+            "SeriesCompensator control modes DISPATCHABLE and ACTIVE_POWER_FLOW are not " *
+            "supported: $(join(controlled, ", ")). " *
+            "Set their control_mode to FIXED or BYPASSED.",
+        ),
+    )
 end
 
 #################################################################################
