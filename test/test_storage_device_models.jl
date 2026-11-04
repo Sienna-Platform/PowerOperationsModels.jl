@@ -472,9 +472,13 @@ end
     @test axes(target_con) == (["Bat2"], [time_steps[end]])
 
     d = only(get_components(EnergyReservoirStorage, c_sys5_bat_ems))
-    target = PSY.get_storage_target(d)
+    # storage_target is a ratio of capacity; the RHS is energy in system base.
+    target =
+        PSY.get_storage_target(d) * PSY.get_storage_capacity(d, u"SU") *
+        PSY.get_conversion_factor(d)
+    @test target != PSY.get_storage_target(d)
     con = target_con["Bat2", time_steps[end]]
-    @test JuMP.normalized_rhs(con) == target
+    @test JuMP.normalized_rhs(con) ≈ target
     energy_var = IOM.get_variable(container, EnergyVariable, EnergyReservoirStorage)
     surplus_var =
         IOM.get_variable(container, StorageEnergySurplusVariable, EnergyReservoirStorage)

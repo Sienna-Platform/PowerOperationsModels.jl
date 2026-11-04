@@ -1316,7 +1316,11 @@ function add_constraints!(
 
     for d in devices
         name = PSY.get_name(d)
-        target = PSY.get_storage_target(d)
+        # storage_target is a ratio of capacity; EnergyVariable is energy in system base.
+        target =
+            PSY.get_storage_target(d) *
+            PSY.get_storage_capacity(d, u"SU") *
+            PSY.get_conversion_factor(d)
         constraint_container[name, time_steps[end]] = JuMP.@constraint(
             get_jump_model(container),
             energy_var[name, time_steps[end]] - surplus_var[name, time_steps[end]] +
