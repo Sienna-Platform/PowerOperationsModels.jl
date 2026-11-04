@@ -61,20 +61,7 @@ function construct_device!(
         model,
         network_model,
     )
-    if haskey(get_time_series_names(model), ReactivePowerTimeSeriesParameter)
-        add_parameters!(container, ReactivePowerTimeSeriesParameter, devices, model)
-        add_to_expression!(
-            container,
-            ReactivePowerBalance,
-            ReactivePowerTimeSeriesParameter,
-            devices,
-            model,
-            network_model,
-        )
-    else
-        @warn "No ReactivePowerTimeSeriesParameter in time_series_names for $(nameof(H)) with \
-               FixedOutput: these devices inject no reactive power."
-    end
+    _add_fixed_output_reactive_power!(container, devices, model, network_model)
     add_event_arguments!(container, devices, model, network_model)
     return
 end
