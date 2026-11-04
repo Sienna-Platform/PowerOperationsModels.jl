@@ -35,6 +35,21 @@ function _loss_curve_value(curve::PSY.LossCurve, d::PSY.Component)
     return PSY.get_value_curve(IS.convert_power_units(d, curve, u"SU"))
 end
 
+# PowerSystems puts a branch's kA axis on the AC from-bus base voltage, but the VSC current
+# variables are per unit on `rated_dc_voltage`. A MW-axis VSC curve uses the generic method,
+# which reads power as current at nominal DC voltage.
+function _loss_curve_value(
+    curve::PSY.LossCurve{T, U, typeof(u"kA")},
+    d::PSY.TwoTerminalVSCLine,
+) where {T <: PSY.ValueCurve, U <: IS.AbstractUnitSystem}
+    natural = IS.convert_power_units(d, curve, u"NU")
+    ka_per_su = inv(_vsc_dc_current_su(d, 1.0))
+    system_base = PSY._get_system_base_power(d)
+    return PSY.get_value_curve(
+        IS.convert_power_units(natural, PSY.SU, ka_per_su, system_base),
+    )
+end
+
 #########################################
 ######## AC apparent-current loss #######
 #########################################

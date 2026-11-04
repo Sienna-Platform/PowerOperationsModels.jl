@@ -305,6 +305,25 @@ _vsc_milp(attrs...) = DeviceModel(
 )
 _vsc_nlp() = DeviceModel(TwoTerminalVSCLine, HVDCTwoTerminalVSC)  # default "none"
 
+@testset "HVDC VSC kA converter loss is per unit on rated_dc_voltage" begin
+    sys = _generate_test_vsc_sys()
+    vsc = get_component(TwoTerminalVSCLine, sys, "1")
+    # Differs from the 230 kV AC bus base that PowerSystems uses for a branch's kA axis.
+    v_dc = 400.0
+    PSY.set_rated_dc_voltage!(vsc, v_dc)
+    s_base = get_base_power(sys)
+    ka_per_su = s_base / v_dc
+    a, b, c = 0.002, 0.5, 1.0
+    curve = PSY.LossCurve(QuadraticCurve(a, b, c), PSY.NU, u"kA")
+    loss = POM._loss_curve_value(curve, vsc)
+    @test PSY.get_quadratic_term(loss) ≈ a * ka_per_su^2 / s_base
+    @test PSY.get_proportional_term(loss) ≈ b * ka_per_su / s_base
+    @test PSY.get_constant_term(loss) ≈ c / s_base
+
+    PSY.set_rated_dc_voltage!(vsc, 0.0)
+    @test_throws ErrorException POM._loss_curve_value(curve, vsc)
+end
+
 @testset "HVDC VSC LP vs NLP objective agreement" begin
     function _solve(converter_model, optimizer)
         sys = _generate_test_vsc_sys()
