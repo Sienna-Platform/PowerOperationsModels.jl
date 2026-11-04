@@ -77,6 +77,8 @@ get_parameter_multiplier(::Type{EnergyTargetParameter}, ::PSY.Storage, ::Type{<:
 get_parameter_multiplier(::Type{EnergyLimitParameter}, ::PSY.Storage, ::Type{<:AbstractStorageFormulation}) = 1.0
 get_parameter_multiplier(::Type{LowerBoundValueParameter}, ::PSY.Storage, ::Type{<:AbstractStorageFormulation}) = 1.0
 get_parameter_multiplier(::Type{UpperBoundValueParameter}, ::PSY.Storage, ::Type{<:AbstractStorageFormulation}) = 1.0
+# The storage_target series is a fraction of storage capacity; this scales it to energy in system base.
+get_multiplier_value(::Type{EnergyTargetTimeSeriesParameter}, d::PSY.EnergyReservoirStorage, ::Type{StorageDispatchWithReserves}) = PSY.get_storage_capacity(d, u"SU") * PSY.get_conversion_factor(d)
 
 ############## ReservationVariable, Storage ####################
 get_variable_binary(::Type{<:StorageRegularizationVariable}, ::Type{<:PSY.Storage}, ::Type{<:AbstractStorageFormulation}) = false
@@ -99,6 +101,47 @@ function get_default_time_series_names(
     ::Type{<:Union{FixedOutput, AbstractStorageFormulation}},
 ) where {D <: PSY.Storage}
     return Dict{Type{<:TimeSeriesParameter}, String}()
+end
+
+function get_default_time_series_names(
+    ::Type{PSY.EnergyReservoirStorage},
+    ::Type{StorageDispatchWithReserves},
+)
+    return Dict{Type{<:TimeSeriesParameter}, String}(
+        EnergyTargetTimeSeriesParameter => "storage_target",
+    )
+end
+
+"""
+Return the devices whose energy target comes from the `storage_target` time series. Devices
+without the series use the static `storage_target` field. A series stored only under a type
+the model does not read is an error, so it never falls back to the static field silently.
+"""
+function _storage_target_series_devices(
+    container::OptimizationContainer,
+    devices::Vector{V},
+    model::DeviceModel{V, <:AbstractStorageFormulation},
+) where {V <: PSY.Storage}
+    ts_names = get_time_series_names(model)
+    haskey(ts_names, EnergyTargetTimeSeriesParameter) || return V[]
+    ts_name = ts_names[EnergyTargetTimeSeriesParameter]
+    ts_type = get_default_time_series_type(container)
+    series_devices = V[]
+    for d in devices
+        PSY.has_time_series(d, ts_name) || continue
+        if !PSY.has_time_series(d, ts_type, ts_name)
+            throw(
+                IS.ConflictingInputsError(
+                    "$(PSY.get_name(d)) carries a $(ts_name) time series, but not as \
+                    $(ts_type), which is what this model reads. Attach the series before \
+                    calling transform_single_time_series!, or add it directly as \
+                    $(ts_type).",
+                ),
+            )
+        end
+        push!(series_devices, d)
+    end
+    return series_devices
 end
 
 function get_default_attributes(
@@ -1314,13 +1357,25 @@ function add_constraints!(
             [time_steps[end]],
         )
 
+    series_devices = _storage_target_series_devices(container, devices, model)
+    if !isempty(series_devices)
+        param_container = get_parameter(container, EnergyTargetTimeSeriesParameter, V)
+        multiplier =
+            get_parameter_multiplier_array(container, EnergyTargetTimeSeriesParameter, V)
+    end
+    series_names = Set(PSY.get_name.(series_devices))
+    t_end = time_steps[end]
+
     for d in devices
         name = PSY.get_name(d)
         # storage_target is a ratio of capacity; EnergyVariable is energy in system base.
-        target =
+        target = if name in series_names
+            get_parameter_column_refs(param_container, name)[t_end] * multiplier[name, t_end]
+        else
             PSY.get_storage_target(d) *
             PSY.get_storage_capacity(d, u"SU") *
             PSY.get_conversion_factor(d)
+        end
         constraint_container[name, time_steps[end]] = JuMP.@constraint(
             get_jump_model(container),
             energy_var[name, time_steps[end]] - surplus_var[name, time_steps[end]] +
