@@ -538,7 +538,7 @@ function _add_linear_converter_loss_to_dc_balance!(
     system_base = get_model_base_power(container)
     for d in devices
         name = PSY.get_name(d)
-        loss_function = _loss_curve_value(PSY.get_loss_function(d), d, system_base)
+        loss_function = _loss_curve_value(PSY.get_loss_function(d), d)
         _check_linear_converter_loss(d, loss_function)
         b = PSY.get_proportional_term(loss_function)
         c = PSY.get_constant_term(loss_function)
@@ -640,7 +640,7 @@ function add_constraints!(
     for device in devices
         name = PSY.get_name(device)
         loss_function =
-            _loss_curve_value(PSY.get_loss_function(device), device, system_base)
+            _loss_curve_value(PSY.get_loss_function(device), device)
         a = _get_quadratic_term(loss_function)
         b = PSY.get_proportional_term(loss_function)
         c = PSY.get_constant_term(loss_function)
@@ -690,7 +690,7 @@ function add_constraints!(
         name = PSY.get_name(device)
         bus_name = PSY.get_name(PSY.get_bus(device))
         loss_function =
-            _loss_curve_value(PSY.get_loss_function(device), device, system_base)
+            _loss_curve_value(PSY.get_loss_function(device), device)
         a = _get_quadratic_term(loss_function)
         b = PSY.get_proportional_term(loss_function)
         c = PSY.get_constant_term(loss_function)

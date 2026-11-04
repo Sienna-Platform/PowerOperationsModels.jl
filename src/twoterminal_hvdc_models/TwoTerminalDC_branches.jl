@@ -369,7 +369,7 @@ function add_constraints!(
     system_base = get_model_base_power(container)
     for d in devices
         name = PSY.get_name(d)
-        loss = _loss_curve_value(PSY.get_loss(d), d, system_base)
+        loss = _loss_curve_value(PSY.get_loss(d), d)
         from_to_params, to_from_params = _get_pwl_loss_params(d, loss)
         range_segments = 1:(length(from_to_params) - 1) # 1:(2S+1)
         for t in time_steps
@@ -789,7 +789,7 @@ function add_constraints!(
     )
     for d in devices
         name = PSY.get_name(d)
-        loss = _loss_curve_value(PSY.get_loss(d), d, system_base)
+        loss = _loss_curve_value(PSY.get_loss(d), d)
         l1, l0 = _hvdc_linear_loss_terms(loss, d)
         R_min_from, R_max_from = _hvdc_from_limits(d)
         R_min_to, R_max_to = _hvdc_to_limits(d)
@@ -1705,8 +1705,8 @@ function add_constraints!(
 
     for d in devices
         name = PSY.get_name(d)
-        loss_from = _loss_curve_value(PSY.get_converter_loss_from(d), d, system_base)
-        loss_to = _loss_curve_value(PSY.get_converter_loss_to(d), d, system_base)
+        loss_from = _loss_curve_value(PSY.get_converter_loss_from(d), d)
+        loss_to = _loss_curve_value(PSY.get_converter_loss_to(d), d)
         a_f = _get_quadratic_term(loss_from)
         b_f = PSY.get_proportional_term(loss_from)
         c_f = PSY.get_constant_term(loss_from)
@@ -1781,8 +1781,8 @@ function add_constraints!(
         name = PSY.get_name(d)
         from_bus = PSY.get_name(PSY.get_from(PSY.get_arc(d)))
         to_bus = PSY.get_name(PSY.get_to(PSY.get_arc(d)))
-        loss_from = _loss_curve_value(PSY.get_converter_loss_from(d), d, system_base)
-        loss_to = _loss_curve_value(PSY.get_converter_loss_to(d), d, system_base)
+        loss_from = _loss_curve_value(PSY.get_converter_loss_from(d), d)
+        loss_to = _loss_curve_value(PSY.get_converter_loss_to(d), d)
         a_f = _get_quadratic_term(loss_from)
         b_f = PSY.get_proportional_term(loss_from)
         c_f = PSY.get_constant_term(loss_from)
