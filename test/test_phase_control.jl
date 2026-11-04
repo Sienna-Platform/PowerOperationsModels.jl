@@ -302,10 +302,8 @@ end
         PSY.set_α!(PSY.get_circuit(transformer), 0.15)
 
         template = get_thermal_dispatch_template_network(
-            NetworkModel(
-                DCPNetworkModel;
-                evaluations = power_flow_evaluations(DCPowerFlow()),
-            ),
+            NetworkModel(DCPNetworkModel);
+            evaluations = power_flow_evaluations(DCPowerFlow()),
         )
         set_device_model!(template, PSY.TwoWindingTransformer, branch_formulation)
         # Ipopt rather than HiGHS: HiGHS errors out on this QP (issue #230).
@@ -417,7 +415,7 @@ end
     template = _controlled_template(DCPNetworkModel, PSY.TwoWindingTransformer)
     model = DecisionModel(template, fixture.sys; optimizer = ipopt_optimizer)
     out = mktempdir(; cleanup = true)
-    @test build!(model; output_dir = out, console_level = Logging.Error) ==
+    @test build!(model; output_dir = out, console_level = Logging.AboveMaxLevel) ==
           IOM.ModelBuildStatus.FAILED
     log = read(joinpath(out, "operation_problem.log"), String)
     @test occursin("Controlled transformer circuit", log)

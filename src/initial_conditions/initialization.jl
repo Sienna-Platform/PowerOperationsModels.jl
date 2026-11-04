@@ -21,16 +21,13 @@ function get_initial_conditions_template(model::IOM.AbstractOptimizationModel)
     # the IC build reads the reduction, it does not extend it.
     IOM.set_network_data!(network_model, get_network_data(main_network_model))
     network_model.subnetworks = get_subnetworks(main_network_model)
-    # Initialization builds a fresh, empty EvaluationContainer: no power-flow (or other)
-    # evaluations are run during initialization.
-    network_model.evaluations = IOM.EvaluationContainer()
     bus_area_map = get_bus_area_map(get_network_model(model.template))
 
     if !isempty(bus_area_map)
         network_model.bus_area_map = get_bus_area_map(get_network_model(model.template))
     end
     network_model.modeled_branch_types =
-        get_network_model(model.template).modeled_branch_types
+        IOM.get_modeled_branch_types(get_network_model(model.template))
     ic_template = PowerOperationsProblemTemplate(network_model)
     # Do not copy events here for initialization
     for device_model in values(get_device_models(model.template))
@@ -70,10 +67,17 @@ function build_initial_conditions_model!(
     model::T,
 ) where {T <: IOM.AbstractOptimizationModel}
     internal = get_internal(model)
-    set_initial_conditions_model_container!(
-        internal,
-        deepcopy(get_optimization_container(model)),
-    )
+    container = get_optimization_container(model)
+    # The copy is safe only before `build_problem!` fills the evaluation data.
+    if !isempty(IOM.get_evaluation_data(container))
+        error(
+            "The initial conditions build copies the optimization container, but the " *
+            "container holds runtime evaluation data. Runtime evaluation data can hold " *
+            "PNM factorizations, which must not be copied. Build the initial " *
+            "conditions model before the main problem.",
+        )
+    end
+    set_initial_conditions_model_container!(internal, deepcopy(container))
     ic_container = get_initial_conditions_model_container(internal)
     ic_settings = deepcopy(get_settings(ic_container))
     main_problem_horizon = get_horizon(ic_settings)
@@ -88,7 +92,7 @@ function build_initial_conditions_model!(
     set_horizon!(ic_settings, number_of_steps)
     init_optimization_container!(
         get_initial_conditions_model_container(internal),
-        get_network_model(get_template(model)),
+        get_network_model(template),
         get_system(model),
     )
     JuMP.set_string_names_on_creation(
@@ -103,10 +107,10 @@ function build_initial_conditions_model!(
         get_system(model),
     )
     TimerOutputs.enable_timer!(BUILD_PROBLEMS_TIMER)
-    return
+    return template
 end
 
-function build_initial_conditions!(model::IOM.AbstractOptimizationModel)
+function build_and_solve_initial_conditions!(model::IOM.AbstractOptimizationModel)
     @assert get_initial_conditions_model_container(get_internal(model)) ===
             nothing
     requires_init = false
@@ -115,7 +119,8 @@ function build_initial_conditions!(model::IOM.AbstractOptimizationModel)
         if requires_init
             @debug "initial_conditions required for $device_type" _group =
                 LOG_GROUP_BUILD_INITIAL_CONDITIONS
-            build_initial_conditions_model!(model)
+            ic_template = build_initial_conditions_model!(model)
+            solve_and_write_initial_conditions!(model, ic_template)
             break
         end
     end
@@ -126,15 +131,16 @@ function build_initial_conditions!(model::IOM.AbstractOptimizationModel)
 end
 
 # Called `initialize!` in PSI (lived in operation_model_interface.jl).
-function solve_and_write_initial_conditions!(model::IOM.AbstractOptimizationModel)
+function solve_and_write_initial_conditions!(
+    model::IOM.AbstractOptimizationModel,
+    ic_template::PowerOperationsProblemTemplate,
+)
     container = get_optimization_container(model)
-    if get_initial_conditions_model_container(get_internal(model)) === nothing
-        return
-    end
     @info "Solving Initialization Model for $(get_name(model))"
     status = IOM.execute_optimizer!(
         get_initial_conditions_model_container(get_internal(model)),
         get_system(model),
+        IOM.make_solve_context(ic_template),
     )
     if status == RunStatus.FAILED
         error("Model failed to initialize")

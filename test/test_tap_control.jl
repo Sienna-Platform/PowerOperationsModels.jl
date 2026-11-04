@@ -389,7 +389,8 @@ end
 
 function _solved_dcp_model(sys, device_type, branch_formulation)
     template = get_thermal_dispatch_template_network(
-        NetworkModel(DCPNetworkModel; evaluations = power_flow_evaluations(DCPowerFlow())),
+        NetworkModel(DCPNetworkModel);
+        evaluations = power_flow_evaluations(DCPowerFlow()),
     )
     set_device_model!(template, device_type, branch_formulation)
     # Ipopt rather than HiGHS: HiGHS errors out on this QP (issue #230).

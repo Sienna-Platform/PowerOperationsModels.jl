@@ -347,8 +347,7 @@ function handle_initial_conditions!(model::EmulationModel{<:AbstractPowerEmulati
             @info "Deserialized initial_conditions_data"
         else
             @info "Make Initial Conditions Model"
-            build_initial_conditions!(model)
-            solve_and_write_initial_conditions!(model)
+            build_and_solve_initial_conditions!(model)
         end
         IOM.set_initial_conditions_model_container!(
             get_internal(model),

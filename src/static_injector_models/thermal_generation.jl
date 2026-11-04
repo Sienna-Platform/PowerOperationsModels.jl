@@ -18,6 +18,7 @@ function create_temporary_cost_function_in_system_per_unit(
     return PSY.FuelCurve(;
         value_curve = PSY.PiecewisePointCurve(new_data),
         power_units = PSY.SU,
+        fuel_units = IS.get_fuel_units(original_cost_function),
         fuel_cost = PSY.get_fuel_cost(original_cost_function),
         fuel_cost_time_series = IS.get_fuel_cost_time_series(original_cost_function),
         startup_fuel_offtake = IS.LinearCurve(0.0),  # default of 0
@@ -972,6 +973,7 @@ function calculate_aux_variable_value!(
     container::OptimizationContainer,
     ::AuxVarKey{TimeDurationOn, T},
     ::PSY.System,
+    ::PowerSolveContext,
 ) where {T <: PSY.ThermalGen}
     on_variable_output = lookup_value(container, OnVariable, T)
     aux_variable_container = get_aux_variable(container, TimeDurationOn, T)
@@ -1019,6 +1021,7 @@ function calculate_aux_variable_value!(
     container::OptimizationContainer,
     ::AuxVarKey{TimeDurationOff, T},
     ::PSY.System,
+    ::PowerSolveContext,
 ) where {T <: PSY.ThermalGen}
     on_variable_output = lookup_value(container, OnVariable, T)
     aux_variable_container = get_aux_variable(container, TimeDurationOff, T)
@@ -1064,6 +1067,7 @@ function calculate_aux_variable_value!(
     container::OptimizationContainer,
     ::AuxVarKey{PowerOutput, T},
     system::PSY.System,
+    ::PowerSolveContext,
 ) where {T <: PSY.ThermalGen}
     time_steps = get_time_steps(container)
     if has_container_key(container, OnVariable, T)

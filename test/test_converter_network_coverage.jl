@@ -10,7 +10,7 @@
 # sys10_pjm_ac_dc with the marginal cost of every side-2 thermal unit doubled so
 # the optimum must move power across the DC ties (non-vacuous converter flows).
 function _build_converter_sys(;
-    loss = PSY.LossCurve(QuadraticCurve(0.0, 0.0, 0.0), PSY.CU),
+    loss = PSY.LossCurve(QuadraticCurve(0.0, 0.0, 0.0), PSY.CU, u"kA"),
     reactive_limit = 1.5,
     ac_control = VSCACControlModes.AC_VOLTAGE,
     ac_setpoint = 1.0,
@@ -42,10 +42,10 @@ function _build_converter_sys(;
     end
     for ic in get_components(InterconnectingConverter, sys)
         set_loss_function!(ic, loss)
-        # 2.0 pu on the system base, in amperes.
+        # 2.0 pu on the system base, in kA.
         set_max_dc_current!(
             ic,
-            2.0 * 1000.0 * get_base_power(sys) / get_base_voltage(get_dc_bus(ic)),
+            2.0 * get_base_power(sys) / get_base_voltage(get_dc_bus(ic)),
         )
         set_reactive_power_limits!(
             ic, (min = -reactive_limit * u"SU", max = reactive_limit * u"SU"),
@@ -161,7 +161,7 @@ end
         (DCPLLNetworkModel, ipopt_optimizer),
     )
         sys = _build_converter_sys(;
-            loss = PSY.LossCurve(QuadraticCurve(0.0, b_term, c_term), PSY.CU),
+            loss = PSY.LossCurve(QuadraticCurve(0.0, b_term, c_term), PSY.CU, u"kA"),
             with_areas = true,
         )
         template = _converter_template(
@@ -178,7 +178,7 @@ end
     b_term = 0.05
     c_term = 0.01
     sys = _build_converter_sys(;
-        loss = PSY.LossCurve(QuadraticCurve(0.0, b_term, c_term), PSY.CU),
+        loss = PSY.LossCurve(QuadraticCurve(0.0, b_term, c_term), PSY.CU, u"kA"),
     )
     template = _converter_template(
         DCPNetworkModel, DeviceModel(InterconnectingConverter, LinearLossConverter),
@@ -205,14 +205,15 @@ end
 
 @testset "LinearLossConverter rejects a quadratic loss function" begin
     sys = _build_converter_sys(;
-        loss = PSY.LossCurve(QuadraticCurve(0.01, 0.05, 0.01), PSY.CU),
+        loss = PSY.LossCurve(QuadraticCurve(0.01, 0.05, 0.01), PSY.CU, u"kA"),
     )
     template = _converter_template(
         DCPNetworkModel, DeviceModel(InterconnectingConverter, LinearLossConverter),
     )
     model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
     output_dir = mktempdir(; cleanup = true)
-    @test build!(model; output_dir = output_dir) == IOM.ModelBuildStatus.FAILED
+    @test build!(model; console_level = Logging.AboveMaxLevel, output_dir = output_dir) ==
+          IOM.ModelBuildStatus.FAILED
     log_text = ""
     for (root, _, files) in walkdir(output_dir)
         for f in files
@@ -239,7 +240,7 @@ end
     for net in (ACPNetworkModel, ACRNetworkModel, IVRNetworkModel, LPACCNetworkModel)
         for formulation in (LosslessConverter, LinearLossConverter)
             sys = _build_converter_sys(;
-                loss = PSY.LossCurve(QuadraticCurve(0.0, b_term, c_term), PSY.CU),
+                loss = PSY.LossCurve(QuadraticCurve(0.0, b_term, c_term), PSY.CU, u"kA"),
             )
             template = _converter_template(
                 net, DeviceModel(InterconnectingConverter, formulation),
@@ -303,7 +304,7 @@ _uses_ac_apparent_current(::Type{LPACCNetworkModel}) = false
 @testset "QuadraticLossConverter on AC networks" begin
     for net in (ACPNetworkModel, ACRNetworkModel, IVRNetworkModel, LPACCNetworkModel)
         sys = _build_converter_sys(;
-            loss = PSY.LossCurve(QuadraticCurve(0.01, 0.01, 0.0), PSY.CU),
+            loss = PSY.LossCurve(QuadraticCurve(0.01, 0.01, 0.0), PSY.CU, u"kA"),
         )
         template = _converter_template(
             net,
@@ -356,7 +357,7 @@ end
 
 @testset "QuadraticLossConverter solves on LPACC with the DC-current loss" begin
     sys = _build_converter_sys(;
-        loss = PSY.LossCurve(QuadraticCurve(0.01, 0.01, 0.0), PSY.CU),
+        loss = PSY.LossCurve(QuadraticCurve(0.01, 0.01, 0.0), PSY.CU, u"kA"),
     )
     template = _converter_template(
         LPACCNetworkModel,
@@ -385,7 +386,7 @@ end
     v_sp = 1.01
     dc_sp = 1.0
     sys = _build_converter_sys(;
-        loss = PSY.LossCurve(QuadraticCurve(0.01, 0.01, 0.0), PSY.CU),
+        loss = PSY.LossCurve(QuadraticCurve(0.01, 0.01, 0.0), PSY.CU, u"kA"),
         ac_control = VSCACControlModes.AC_VOLTAGE,
         ac_setpoint = v_sp,
         dc_control = VSCDCControlModes.DC_VOLTAGE,
@@ -435,7 +436,7 @@ end
         hvdc_model = VoltageDispatchHVDCNetworkModel,
         line_formulation = DCLossyLine,
     )
-    loss = PSY.LossCurve(QuadraticCurve(0.01, 0.01, 0.0), PSY.CU)
+    loss = PSY.LossCurve(QuadraticCurve(0.01, 0.01, 0.0), PSY.CU, u"kA")
     sys = _build_converter_sys(; loss = loss, ac_control = VSCACControlModes.AC_VOLTAGE)
     _, status = _build_converter_model(template, sys, ipopt_optimizer)
     @test status == IOM.ModelBuildStatus.BUILT
@@ -480,7 +481,7 @@ function _vsc_lpacc_sys(;
         )...,
         rated_ac_voltage_from = get_base_voltage(from_bus),
         converter_loss_from = PSY.LossCurve(QuadraticCurve(0.01, 0.0, 0.0), PSY.CU),
-        max_dc_current_from = 5.0 * 1000.0 * s_base / v_dc,
+        max_dc_current_from = 5.0 * s_base / v_dc,
         rating_from = 2.0,
         reactive_power_limits_from = (min = -2.0, max = 2.0),
         power_factor_weighting_fraction_from = 1.0,
@@ -493,7 +494,7 @@ function _vsc_lpacc_sys(;
         )...,
         rated_ac_voltage_to = get_base_voltage(to_bus),
         converter_loss_to = PSY.LossCurve(QuadraticCurve(0.01, 0.0, 0.0), PSY.CU),
-        max_dc_current_to = 5.0 * 1000.0 * s_base / v_dc,
+        max_dc_current_to = 5.0 * s_base / v_dc,
         rating_to = 2.0,
         reactive_power_limits_to = (min = -2.0, max = 2.0),
         power_factor_weighting_fraction_to = 1.0,
@@ -567,13 +568,13 @@ end
     # Converter base_power (50) != system base (100): the DC-side loss constant is on the
     # converter's own base and must be rescaled by base_power/system_base = 0.5 into the
     # system-base DC balance. The proportional loss term is a base-invariant fraction and
-    # must not change. The DC-current limit is in amperes, so the converter base does not
+    # must not change. The DC-current limit is in kA, so the converter base does not
     # scale it.
     b_term = 0.05
     c_term = 0.01
     i_max = 2.0
     sys = _build_converter_sys(;
-        loss = PSY.LossCurve(QuadraticCurve(0.0, b_term, c_term), PSY.CU),
+        loss = PSY.LossCurve(QuadraticCurve(0.0, b_term, c_term), PSY.CU, u"kA"),
     )
     system_base = get_base_power(sys)
     converter_base = 50.0

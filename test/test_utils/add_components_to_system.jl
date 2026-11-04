@@ -238,7 +238,7 @@ function _assert_ic_reactive_power_rejected(template, sys)
     end
     model = DecisionModel(template, sys; optimizer = ipopt_optimizer)
     out = mktempdir(; cleanup = true)
-    @test build!(model; output_dir = out, console_level = Logging.Error) ==
+    @test build!(model; output_dir = out, console_level = Logging.AboveMaxLevel) ==
           IOM.ModelBuildStatus.FAILED
     log = read(joinpath(out, "operation_problem.log"), String)
     @test occursin(

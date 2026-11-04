@@ -92,7 +92,7 @@ function _prune_fully_reduced_branch_models!(
     isempty(merged_buses) && return
     name_to_arc_maps = PNM.get_name_to_arc_maps(get_branch_catalog(network_model))
     pruned = DataType[]
-    for branch_type in network_model.modeled_branch_types
+    for branch_type in IOM.get_modeled_branch_types(network_model)
         branch_type <: PSY.ACTransmission || continue
         haskey(branch_models, nameof(branch_type)) || continue
         survived = get(name_to_arc_maps, branch_type, nothing)
@@ -112,7 +112,7 @@ function _prune_fully_reduced_branch_models!(
                $(branch_type) DeviceModel is dropped from the template and will not be \
                modeled. $(_reduction_hint(branch_type, names))"
         delete!(branch_models, nameof(branch_type))
-        filter!(!=(branch_type), network_model.modeled_branch_types)
+        filter!(!=(branch_type), IOM.get_modeled_branch_types(network_model))
     end
     return
 end

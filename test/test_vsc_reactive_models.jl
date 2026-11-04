@@ -40,7 +40,7 @@ function _build_vsc_reactive_sys(;
         )...,
         rated_ac_voltage_from = get_base_voltage(from_bus),
         converter_loss_from = PSY.LossCurve(QuadraticCurve(0.01, 0.0, 0.0), PSY.CU),
-        max_dc_current_from = 5.0 * 1000.0 * s_base / v_dc,
+        max_dc_current_from = 5.0 * s_base / v_dc,
         rating_from = rating,
         reactive_power_limits_from = (min = -rating, max = rating),
         power_factor_weighting_fraction_from = 1.0,
@@ -53,7 +53,7 @@ function _build_vsc_reactive_sys(;
         )...,
         rated_ac_voltage_to = get_base_voltage(to_bus),
         converter_loss_to = PSY.LossCurve(QuadraticCurve(0.01, 0.0, 0.0), PSY.CU),
-        max_dc_current_to = 5.0 * 1000.0 * s_base / v_dc,
+        max_dc_current_to = 5.0 * s_base / v_dc,
         rating_to = rating,
         reactive_power_limits_to = (min = -rating, max = rating),
         power_factor_weighting_fraction_to = 1.0,
@@ -149,7 +149,7 @@ end
     set_reactive_power_from!(vsc, 250.0 * u"MVAr")
     model = DecisionModel(template, sys; optimizer = ipopt_optimizer)
     out = mktempdir(; cleanup = true)
-    @test build!(model; output_dir = out, console_level = Logging.Error) ==
+    @test build!(model; output_dir = out, console_level = Logging.AboveMaxLevel) ==
           IOM.ModelBuildStatus.FAILED
     log = read(joinpath(out, "operation_problem.log"), String)
     @test occursin("reactive_power_from = 2.5 pu, outside reactive_power_limits_from", log)
@@ -256,7 +256,11 @@ end
     model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
     # VoltageControlVSC models reactive power, so under an active-power-only DC
     # network it is dropped (with an @info) from the template during validation.
-    build!(model; output_dir = mktempdir(; cleanup = true))
+    build!(
+        model;
+        console_level = Logging.AboveMaxLevel,
+        output_dir = mktempdir(; cleanup = true),
+    )
     @test !haskey(get_branch_models(get_template(model)), :TwoTerminalVSCLine)
 end
 

@@ -254,7 +254,6 @@ function setup_ic_model_container!(model::DecisionModel)
 
     @info "Make Initial Conditions Model"
     IOM.set_output_dir!(model, mktempdir(; cleanup = true))
-    POM.build_initial_conditions!(model)
-    POM.solve_and_write_initial_conditions!(model)
+    POM.build_and_solve_initial_conditions!(model)
     return
 end

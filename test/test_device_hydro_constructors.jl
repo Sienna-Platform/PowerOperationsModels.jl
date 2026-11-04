@@ -590,6 +590,7 @@ end
         container,
         IOM.AuxVarKey{HydroEnergyOutput, HydroDispatch}(""),
         c_sys5_hy,
+        IOM.make_solve_context(get_template(model)),
     )
 
     @test all(isapprox.([aux[hy_name, t] for t in time_steps], expected; atol = 1e-8))
