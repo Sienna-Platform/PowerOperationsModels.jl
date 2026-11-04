@@ -55,12 +55,13 @@ function solved_commitment_model(
     services = (),
     time_series_names = POM.get_default_time_series_names(T, F),
     output_dir = mktempdir(),
+    initialize_model = true,
 ) where {T, F}
     template = get_thermal_dispatch_template_network(network)
     delete!(IOM.get_device_models(template), :ThermalStandard)
     set_device_model!(template, DeviceModel(T, F; time_series_names))
     foreach(s -> set_service_model!(template, s), services)
-    model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
+    model = DecisionModel(template, sys; optimizer = HiGHS_optimizer, initialize_model)
     @assert build!(model; output_dir) == IOM.ModelBuildStatus.BUILT
     @assert solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
     return model

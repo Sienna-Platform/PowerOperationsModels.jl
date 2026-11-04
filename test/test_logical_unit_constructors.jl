@@ -198,26 +198,33 @@ end
           thermal_objective(thermal, ThermalStandardUnitCommitment) rtol = 1e-6
 end
 
+# Skipping initialization keeps Sundance offline at t0, so it starts once in the horizon.
 @testset "Startup stages on logical units do not warn" begin
     stages = (hot = 300.0, warm = 600.0, cold = 900.0)
-    thermal = market_bid_system("Park City"; start_up = stages)
-    logical = replace_thermals_with_logical_units!(deepcopy(thermal))
     warning = "Multi-start costs detected"
-    function build_log(sys, T, F)
+    function run(start_up, T, F)
+        sys = market_bid_system("Sundance"; start_up)
+        T == PSY.LogicalGenerationUnit && replace_thermals_with_logical_units!(sys)
         dir = mktempdir()
-        model =
-            solved_commitment_model(sys, T, F, CopperPlateNetworkModel; output_dir = dir)
-        return _objective(model), read(joinpath(dir, "operation_problem.log"), String)
+        model = solved_commitment_model(
+            sys, T, F, CopperPlateNetworkModel;
+            output_dir = dir, initialize_model = false,
+        )
+        starts = IOM.get_variable(IOM.get_optimization_container(model), StartVariable, T)
+        n_starts = sum(JuMP.value.(starts["Sundance", :]))
+        log = read(joinpath(dir, "operation_problem.log"), String)
+        return _objective(model), n_starts, log
     end
-    t_obj, t_log = build_log(thermal, PSY.ThermalStandard, ThermalStandardUnitCommitment)
-    l_obj, l_log = build_log(
-        logical,
-        PSY.LogicalGenerationUnit,
-        LogicalUnitStandardCommitment,
-    )
+    lu = (PSY.LogicalGenerationUnit, LogicalUnitStandardCommitment)
+    t_obj, t_starts, t_log = run(stages, PSY.ThermalStandard, ThermalStandardUnitCommitment)
+    l_obj, l_starts, l_log = run(stages, lu...)
+    zero_obj, zero_starts, _ = run((hot = 0.0, warm = 0.0, cold = 0.0), lu...)
     @test occursin(warning, t_log)  # the log does capture this warning
     @test !occursin(warning, l_log)
+    @test l_starts ≈ t_starts ≈ zero_starts ≈ 1
     @test l_obj ≈ t_obj rtol = 1e-6
+    # A single-start formulation charges the costliest (cold) stage per start.
+    @test l_obj - zero_obj ≈ stages.cold * l_starts rtol = 1e-6
 end
 
 # Per-hour `max_active_power` on every thermal, 100% of Pmax for 12 hours, then 80%.
