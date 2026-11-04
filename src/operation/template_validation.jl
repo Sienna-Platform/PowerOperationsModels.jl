@@ -1216,8 +1216,10 @@ function _build_device_model_events!(template::PowerOperationsProblemTemplate)
     return
 end
 
-# Branch constructors other than DCP StaticBranchBounds never apply events, so an event on
-# any other Line model would be silently dropped.
+# DCP+SBU is a no-op.
+# For DCP+SB we either have to make row-updating more complicated, or we make
+# flow a variable. And at that point I'd rather the user use SBB. But if there
+# is need for SB it can be considered.
 _check_event_support(::DeviceModel, ::NetworkModel) = nothing
 _check_event_support(::DeviceModel{PSY.Line}, ::NetworkModel) = error(
     "Line outage events require the StaticBranchBounds formulation under DCPNetworkModel.",
