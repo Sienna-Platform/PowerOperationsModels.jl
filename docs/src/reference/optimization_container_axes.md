@@ -72,6 +72,8 @@ loop, so no bug there; it just isn't part of the "always exactly one column" fam
 | `ActivePowerReserveVariable`                                                  | `services_models/reserves.jl`                  | `SparseAxisArray` keyed `(service_name, device_name, time_step)`. One container per service type; each service fills its own slice. See the service-container section below. |
 | `ParticipationFractionConstraint`, `RampConstraint`, `ReservePowerConstraint` | `services_models/reserves.jl`                  | `SparseAxisArray` keyed `(service_name, device_name, time_step)`, matching the reserve variable above.                                                                       |
 | `ReserveOfferLinkingConstraint`                                               | `services_models/reserve_offers.jl`            | `SparseAxisArray` keyed `(service_name, device_name, time_step)`. Ties a device's reserve award to its offer-curve blocks.                                                   |
+| `LinkedReserveOfferConstraint`                                                | `common_models/offer_limits.jl`                | `SparseAxisArray` keyed `(device_name, block, time_step)`. Sells a linked reserve offer block once across services. Built only with `"linked_reserve_offers" => true`.       |
+| `EnergyOfferCapConstraint`                                                    | `common_models/offer_limits.jl`                | `SparseAxisArray` keyed `(device_name, time_step)`. Keeps energy plus upward reserve within the top of the energy offer curve. Built only with `"energy_offer_cap" => true`. |
 
 ## 4D containers
 
