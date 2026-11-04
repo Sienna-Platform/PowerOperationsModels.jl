@@ -165,3 +165,138 @@ end
     )
     @test issetequal(ramp_rows(model), ["Alta", "Brighton", "Solitude", "Sundance"])
 end
+
+# c_sys5_uc with `name` offering the `add_mbc!` market bid over its 10-100 MW curve range.
+function market_bid_system(name; start_up = nothing)
+    sys = PSB.build_system(PSITestSystems, "c_sys5_uc")
+    add_mbc!(sys, make_selector(PSY.ThermalStandard, name))
+    unit = PSY.get_component(PSY.ThermalStandard, sys, name)
+    PSY.set_active_power_limits!(unit, (min = 10.0 * u"MW", max = 100.0 * u"MW"))
+    isnothing(start_up) || PSY.set_start_up!(PSY.get_operation_cost(unit), start_up)
+    return sys
+end
+
+@testset "Logical units with MarketBidCost match thermal" begin
+    thermal = market_bid_system("Park City")
+    logical = replace_thermals_with_logical_units!(deepcopy(thermal))
+    unit = PSY.get_component(PSY.LogicalGenerationUnit, logical, "Park City")
+    @test PSY.get_operation_cost(unit) isa PSY.MarketBidCost
+    model = solved_commitment_model(
+        logical,
+        PSY.LogicalGenerationUnit,
+        LogicalUnitStandardCommitment,
+        CopperPlateNetworkModel,
+    )
+    @test haskey(
+        IOM.get_variables(IOM.get_optimization_container(model)),
+        IOM.VariableKey(
+            IOM.PiecewiseLinearBlockIncrementalOffer,
+            PSY.LogicalGenerationUnit,
+        ),
+    )
+    @test _objective(model) ≈
+          thermal_objective(thermal, ThermalStandardUnitCommitment) rtol = 1e-6
+end
+
+@testset "Startup stages on logical units do not warn" begin
+    stages = (hot = 300.0, warm = 600.0, cold = 900.0)
+    thermal = market_bid_system("Park City"; start_up = stages)
+    logical = replace_thermals_with_logical_units!(deepcopy(thermal))
+    warning = "Multi-start costs detected"
+    function build_log(sys, T, F)
+        dir = mktempdir()
+        model =
+            solved_commitment_model(sys, T, F, CopperPlateNetworkModel; output_dir = dir)
+        return _objective(model), read(joinpath(dir, "operation_problem.log"), String)
+    end
+    t_obj, t_log = build_log(thermal, PSY.ThermalStandard, ThermalStandardUnitCommitment)
+    l_obj, l_log = build_log(
+        logical,
+        PSY.LogicalGenerationUnit,
+        LogicalUnitStandardCommitment,
+    )
+    @test occursin(warning, t_log)  # the log does capture this warning
+    @test !occursin(warning, l_log)
+    @test l_obj ≈ t_obj rtol = 1e-6
+end
+
+# Per-hour `max_active_power` on every thermal, 100% of Pmax for 12 hours, then 80%.
+function add_max_power_series!(sys)
+    load = first(PSY.get_components(PSY.PowerLoad, sys))
+    load_ts = PSY.get_time_series(PSY.Deterministic, load, "max_active_power")
+    data = OrderedDict(
+        k => [t <= 12 ? 1.0 : 0.8 for t in eachindex(v)] for
+        (k, v) in PSY.get_data(load_ts)
+    )
+    for d in PSY.get_components(PSY.ThermalStandard, sys)
+        ts = PSY.Deterministic(;
+            name = "max_active_power",
+            data,
+            resolution = IS.get_resolution(load_ts),
+            interval = IS.get_interval(load_ts),
+        )
+        PSY.add_time_series!(sys, d, ts)
+    end
+    return sys
+end
+
+@testset "Per-hour max power on logical units" begin
+    thermal = add_max_power_series!(PSB.build_system(PSITestSystems, "c_sys5_uc"))
+    logical = replace_thermals_with_logical_units!(deepcopy(thermal))
+    @test all(
+        PSY.has_time_series(d, PSY.Deterministic, "max_active_power") for
+        d in PSY.get_components(PSY.LogicalGenerationUnit, logical)
+    )
+    ts_names(T, F) = merge(
+        POM.get_default_time_series_names(T, F),
+        Dict(ActivePowerTimeSeriesParameter => "max_active_power"),
+    )
+    lf, tf = LogicalUnitStandardCommitment, ThermalStandardUnitCommitment
+    model = solved_commitment_model(
+        logical,
+        PSY.LogicalGenerationUnit,
+        lf,
+        CopperPlateNetworkModel;
+        time_series_names = ts_names(PSY.LogicalGenerationUnit, lf),
+    )
+    @test haskey(
+        IOM.get_constraints(IOM.get_optimization_container(model)),
+        IOM.ConstraintKey(
+            ActivePowerVariableTimeSeriesLimitsConstraint,
+            PSY.LogicalGenerationUnit,
+            "ub",
+        ),
+    )
+    t_obj = thermal_objective(
+        thermal,
+        tf;
+        time_series_names = ts_names(PSY.ThermalStandard, tf),
+    )
+    @test _objective(model) ≈ t_obj rtol = 1e-6
+    @test !isapprox(_objective(model), logical_unit_objective(logical, lf); rtol = 1e-6)
+end
+
+@testset "Logical units provide reserves" begin
+    reserves = (ServiceModel(OnlineReserve{ReserveUp}, RangeReserve; use_slacks = true),)
+    thermal = PSB.build_system(PSITestSystems, "c_sys5_uc"; add_reserves = true)
+    logical = replace_thermals_with_logical_units!(deepcopy(thermal))
+    for d in PSY.get_components(PSY.LogicalGenerationUnit, logical)
+        twin = PSY.get_component(PSY.ThermalStandard, thermal, PSY.get_name(d))
+        @test issetequal(
+            PSY.get_name.(PSY.get_services(d)),
+            PSY.get_name.(PSY.get_services(twin)),
+        )
+    end
+    t_obj = thermal_objective(thermal, ThermalStandardUnitCommitment; services = reserves)
+    @test logical_unit_objective(
+        logical,
+        LogicalUnitStandardCommitment;
+        services = reserves,
+    ) ≈
+          t_obj rtol = 1e-6
+    @test !isapprox(
+        t_obj,
+        thermal_objective(thermal, ThermalStandardUnitCommitment);
+        rtol = 1e-6,
+    )
+end

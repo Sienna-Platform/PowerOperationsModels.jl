@@ -43,21 +43,33 @@ function replace_thermals_with_logical_units!(sys::PSY.System; names = nothing)
     return sys
 end
 
-"""Build and solve the thermal dispatch template with `T => F` as the only generator model."""
-function solved_commitment_model(sys, ::Type{T}, ::Type{F}, network) where {T, F}
+"""
+Build and solve the thermal dispatch template with `T => F` as the only generator model,
+plus the given service models.
+"""
+function solved_commitment_model(
+    sys,
+    ::Type{T},
+    ::Type{F},
+    network;
+    services = (),
+    time_series_names = POM.get_default_time_series_names(T, F),
+    output_dir = mktempdir(),
+) where {T, F}
     template = get_thermal_dispatch_template_network(network)
     delete!(IOM.get_device_models(template), :ThermalStandard)
-    set_device_model!(template, T, F)
+    set_device_model!(template, DeviceModel(T, F; time_series_names))
+    foreach(s -> set_service_model!(template, s), services)
     model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
-    @assert build!(model; output_dir = mktempdir()) == IOM.ModelBuildStatus.BUILT
+    @assert build!(model; output_dir) == IOM.ModelBuildStatus.BUILT
     @assert solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
     return model
 end
 
 _objective(model) = IOM.get_optimization_container(model).optimizer_stats.objective_value
 
-logical_unit_objective(sys, ::Type{F}; network = CopperPlateNetworkModel) where {F} =
-    _objective(solved_commitment_model(sys, PSY.LogicalGenerationUnit, F, network))
+logical_unit_objective(sys, ::Type{F}; network = CopperPlateNetworkModel, kw...) where {F} =
+    _objective(solved_commitment_model(sys, PSY.LogicalGenerationUnit, F, network; kw...))
 
-thermal_objective(sys, ::Type{F}; network = CopperPlateNetworkModel) where {F} =
-    _objective(solved_commitment_model(sys, PSY.ThermalStandard, F, network))
+thermal_objective(sys, ::Type{F}; network = CopperPlateNetworkModel, kw...) where {F} =
+    _objective(solved_commitment_model(sys, PSY.ThermalStandard, F, network; kw...))
