@@ -524,8 +524,6 @@ Nine concrete thermal formulations, under three abstract branches:
 | `AbstractStandardUnitCommitment`     | `ThermalBasicUnitCommitment`, `ThermalStandardUnitCommitment`                                          |
 | `AbstractCompactUnitCommitment`      | `ThermalBasicCompactUnitCommitment`, `ThermalCompactUnitCommitment`, `ThermalMultiStartUnitCommitment` |
 | `AbstractThermalDispatchFormulation` | `ThermalBasicDispatch`, `ThermalStandardDispatch`, `ThermalDispatchNoMin`, `ThermalCompactDispatch`    |
-| `AbstractLogicalUnitDispatch`        | `LogicalUnitBasicDispatch`, `LogicalUnitStandardDispatch`                                              |
-| `AbstractLogicalUnitCommitment`      | `LogicalUnitBasicCommitment`, `LogicalUnitStandardCommitment`                                          |
 
 The *standard* family dispatches `ActivePowerVariable` directly. The *compact* family instead
 dispatches `PowerAboveMinimumVariable` and reconstructs total power as ``p = P_{min} u + \hat{p}``,
@@ -547,7 +545,7 @@ wiring **both** the above-minimum variable and the commitment status into `Activ
 | `LogicalUnitBasicCommitment`                                     | as `ThermalBasicUnitCommitment`, for `PSY.LogicalGenerationUnit`                                                            | as `ThermalBasicUnitCommitment`                                                                                                                                  |
 | `LogicalUnitStandardCommitment`                                  | as `ThermalStandardUnitCommitment`, for `PSY.LogicalGenerationUnit`                                                         | as `ThermalStandardUnitCommitment`                                                                                                                               |
 
-All nine implement both a `<:AbstractNetworkModel` and a `<:AbstractActivePowerModel` method, so all
+All nine thermal formulations implement both a `<:AbstractNetworkModel` and a `<:AbstractActivePowerModel` method, so all
 eleven network models are supported. The active-power method simply omits `ReactivePowerVariable`,
 the `ReactivePowerBalance` wiring, and `ReactivePowerVariableLimitsConstraint`.
 
@@ -558,6 +556,13 @@ Metas on thermal keys: `"lb"`/`"ub"` (range limits), `"up"`/`"dn"` (ramp and dur
 `FixedOutput` supports AC networks: for thermal devices its `ArgumentConstructStage` wires
 both `ActivePowerTimeSeriesParameter` and `ReactivePowerTimeSeriesParameter` into their
 respective balances under any `<:AbstractNetworkModel`.
+
+The four `LogicalUnit*` rows apply to `PSY.LogicalGenerationUnit` and mirror their thermal counterparts:
+
+| Abstract                        | Concrete                                                      |
+|:------------------------------- |:------------------------------------------------------------- |
+| `AbstractLogicalUnitDispatch`   | `LogicalUnitBasicDispatch`, `LogicalUnitStandardDispatch`     |
+| `AbstractLogicalUnitCommitment` | `LogicalUnitBasicCommitment`, `LogicalUnitStandardCommitment` |
 
 ## [RenewableGen Formulations](@id PowerSystems.RenewableGen-Formulations)
 

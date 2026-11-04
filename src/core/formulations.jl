@@ -56,8 +56,11 @@ Formulation type to enable thermal compact dispatch
 struct ThermalCompactDispatch <: AbstractThermalDispatchFormulation end
 
 ########################### Logical Generation Unit Formulations ###########################
+"Abstract supertype of formulations for `PSY.LogicalGenerationUnit`."
 abstract type AbstractLogicalUnitFormulation <: AbstractDeviceFormulation end
+"Abstract supertype of logical unit formulations without commitment."
 abstract type AbstractLogicalUnitDispatch <: AbstractLogicalUnitFormulation end
+"Abstract supertype of logical unit formulations with commitment."
 abstract type AbstractLogicalUnitCommitment <: AbstractLogicalUnitFormulation end
 
 """
