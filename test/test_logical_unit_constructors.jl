@@ -25,13 +25,39 @@ end
 end
 
 @testset "Must-run and missing ramps match thermal" begin
+    # Sundance is off in every hour of the plain Standard optimum, so must-run changes the cost.
     thermal = PSB.build_system(PSITestSystems, "c_sys5_uc")
-    first_unit = first(PSY.get_components(PSY.ThermalStandard, thermal))
-    PSY.set_commitment_mode!(first_unit, PSY.CommitmentModes.MUST_RUN)
-    PSY.set_ramp_limits!(first_unit, nothing)
+    must_run = PSY.get_component(PSY.ThermalStandard, thermal, "Sundance")
+    PSY.set_commitment_mode!(must_run, PSY.CommitmentModes.MUST_RUN)
+    PSY.set_ramp_limits!(must_run, nothing)
     logical = replace_thermals_with_logical_units!(deepcopy(thermal))
-    @test logical_unit_objective(logical, LogicalUnitStandardCommitment) ≈
-          thermal_objective(thermal, ThermalStandardUnitCommitment) rtol = 1e-6
+    model = solved_commitment_model(
+        logical,
+        PSY.LogicalGenerationUnit,
+        LogicalUnitStandardCommitment,
+        CopperPlateNetworkModel,
+    )
+    @test _objective(model) ≈ thermal_objective(thermal, ThermalStandardUnitCommitment) rtol =
+        1e-6
+    @test !isapprox(
+        _objective(model),
+        thermal_objective(
+            PSB.build_system(PSITestSystems, "c_sys5_uc"),
+            ThermalStandardUnitCommitment,
+        );
+        rtol = 1e-6,
+    )
+
+    container = IOM.get_optimization_container(model)
+    for V in (OnVariable, StartVariable, StopVariable)
+        names = axes(IOM.get_variable(container, V, PSY.LogicalGenerationUnit))[1]
+        @test "Sundance" ∉ names
+        @test issetequal(names, ["Alta", "Brighton", "Park City", "Solitude"])
+    end
+    power = IOM.get_variable(container, ActivePowerVariable, PSY.LogicalGenerationUnit)
+    unit = PSY.get_component(PSY.LogicalGenerationUnit, logical, "Sundance")
+    p_min = PSY.get_active_power_limits(unit, u"SU").min
+    @test all(JuMP.lower_bound(power["Sundance", t]) == p_min for t in axes(power)[2])
 end
 
 @testset "Logical units next to thermal units" begin

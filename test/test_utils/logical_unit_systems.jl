@@ -43,18 +43,21 @@ function replace_thermals_with_logical_units!(sys::PSY.System; names = nothing)
     return sys
 end
 
-function _commitment_objective(sys, ::Type{T}, ::Type{F}, network) where {T, F}
+"""Build and solve the thermal dispatch template with `T => F` as the only generator model."""
+function solved_commitment_model(sys, ::Type{T}, ::Type{F}, network) where {T, F}
     template = get_thermal_dispatch_template_network(network)
     delete!(IOM.get_device_models(template), :ThermalStandard)
     set_device_model!(template, T, F)
     model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
     @assert build!(model; output_dir = mktempdir()) == IOM.ModelBuildStatus.BUILT
     @assert solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
-    return IOM.get_optimization_container(model).optimizer_stats.objective_value
+    return model
 end
 
+_objective(model) = IOM.get_optimization_container(model).optimizer_stats.objective_value
+
 logical_unit_objective(sys, ::Type{F}; network = CopperPlateNetworkModel) where {F} =
-    _commitment_objective(sys, PSY.LogicalGenerationUnit, F, network)
+    _objective(solved_commitment_model(sys, PSY.LogicalGenerationUnit, F, network))
 
 thermal_objective(sys, ::Type{F}; network = CopperPlateNetworkModel) where {F} =
-    _commitment_objective(sys, PSY.ThermalStandard, F, network)
+    _objective(solved_commitment_model(sys, PSY.ThermalStandard, F, network))
