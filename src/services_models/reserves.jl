@@ -434,7 +434,7 @@ function add_constraints!(
 end
 
 _get_ramp_limits(::PSY.Component) = nothing
-_get_ramp_limits(d::PSY.ThermalGen) = PSY.get_ramp_limits(d, u"SU/minute")
+_get_ramp_limits(d::ThermalOrLogicalUnit) = PSY.get_ramp_limits(d, u"SU/minute")
 _get_ramp_limits(d::PSY.HydroGen) = PSY.get_ramp_limits(d, u"SU/minute")
 
 function _get_ramp_constraint_contributing_devices(
@@ -510,12 +510,13 @@ function add_constraints!(
 end
 
 # Start-up time in minutes, from a start command to ONLINE (PSY `switching_times.up`).
-_nonspin_startup_time(d::PSY.ThermalGen) =
+_nonspin_startup_time(d::ThermalOrLogicalUnit) =
     _nonspin_startup_time(d, PSY.get_switching_times(d))
-_nonspin_startup_time(::PSY.ThermalGen, switching_times::PSY.UpDown) = switching_times.up
+_nonspin_startup_time(::ThermalOrLogicalUnit, switching_times::PSY.UpDown) =
+    switching_times.up
 
 # A unit without switching_times starts with no delay.
-_nonspin_startup_time(::PSY.ThermalGen, ::Nothing) = 0.0
+_nonspin_startup_time(::ThermalOrLogicalUnit, ::Nothing) = 0.0
 
 # Hydro data has no start-up time; hydro units start inside the reserve time frame.
 _nonspin_startup_time(::PSY.HydroGen) = 0.0

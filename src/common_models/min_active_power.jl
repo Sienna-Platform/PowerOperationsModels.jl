@@ -273,7 +273,7 @@ function _set_min_power_variable_bounds!(
     container::OptimizationContainer,
     devices::Vector{V},
     ::Type{W},
-) where {V <: PSY.ThermalGen, W <: AbstractDeviceFormulation}
+) where {V <: ThermalOrLogicalUnit, W <: AbstractDeviceFormulation}
     has_container_key(container, MinActivePowerTimeSeriesParameter, V) || return
     variable = get_variable(container, PowerAboveMinimumVariable, V)
     time_steps = get_time_steps(container)
@@ -317,9 +317,9 @@ end
 function _on_status_multipliers(
     container::OptimizationContainer,
     ::Type{ActivePowerRangeExpressionLB},
-    d::PSY.ThermalGen,
+    d::ThermalOrLogicalUnit,
     ::Type{W},
-) where {W <: AbstractThermalFormulation}
+) where {W <: ThermalOrLogicalFormulation}
     return _on_status_lb_multipliers(power_base_kind(W), container, d, W)
 end
 
@@ -327,7 +327,7 @@ end
 function _on_status_multipliers(
     container::OptimizationContainer,
     ::Type{ActivePowerRangeExpressionLB},
-    d::PSY.ThermalGen,
+    d::ThermalOrLogicalUnit,
     ::Type{ThermalDispatchNoMin},
 )
     return _static_on_status_multipliers(
@@ -342,9 +342,9 @@ end
 function _on_status_multipliers(
     container::OptimizationContainer,
     ::Type{ActivePowerBalance},
-    d::PSY.ThermalGen,
+    d::ThermalOrLogicalUnit,
     ::Type{W},
-) where {W <: AbstractThermalFormulation}
+) where {W <: ThermalOrLogicalFormulation}
     return _on_status_balance_multipliers(power_base_kind(W), container, d, W)
 end
 
@@ -352,7 +352,7 @@ end
 function _on_status_multipliers(
     container::OptimizationContainer,
     ::Type{ActivePowerRangeExpressionUB},
-    d::PSY.ThermalGen,
+    d::ThermalOrLogicalUnit,
     ::Type{W},
 ) where {W <: Union{AbstractCompactUnitCommitment, ThermalCompactDispatch}}
     return PSY.get_active_power_limits(d, u"SU").max .-
@@ -362,36 +362,36 @@ end
 function _on_status_balance_multipliers(
     ::AboveMinimumBase,
     container::OptimizationContainer,
-    d::PSY.ThermalGen,
+    d::ThermalOrLogicalUnit,
     ::Type{W},
-) where {W <: AbstractThermalFormulation}
+) where {W <: ThermalOrLogicalFormulation}
     return min_active_power_values(container, d)
 end
 
 function _on_status_balance_multipliers(
     ::AbsoluteBase,
     container::OptimizationContainer,
-    d::PSY.ThermalGen,
+    d::ThermalOrLogicalUnit,
     ::Type{W},
-) where {W <: AbstractThermalFormulation}
+) where {W <: ThermalOrLogicalFormulation}
     return _static_on_status_multipliers(container, ActivePowerBalance, d, W)
 end
 
 function _on_status_lb_multipliers(
     ::AbsoluteBase,
     container::OptimizationContainer,
-    d::PSY.ThermalGen,
+    d::ThermalOrLogicalUnit,
     ::Type{W},
-) where {W <: AbstractThermalFormulation}
+) where {W <: ThermalOrLogicalFormulation}
     return min_active_power_values(container, d)
 end
 
 function _on_status_lb_multipliers(
     ::AboveMinimumBase,
     container::OptimizationContainer,
-    d::PSY.ThermalGen,
+    d::ThermalOrLogicalUnit,
     ::Type{W},
-) where {W <: AbstractThermalFormulation}
+) where {W <: ThermalOrLogicalFormulation}
     return _static_on_status_multipliers(container, ActivePowerRangeExpressionLB, d, W)
 end
 
@@ -433,7 +433,7 @@ function add_min_power_level_change_to_ramps!(
     ::Type{T},
     devices::Vector{V},
     ::DeviceModel{V, W},
-) where {T <: RampConstraint, V <: PSY.ThermalGen, W <: AbstractThermalFormulation}
+) where {T <: RampConstraint, V <: ThermalOrLogicalUnit, W <: ThermalOrLogicalFormulation}
     has_container_key(container, MinActivePowerTimeSeriesParameter, V) || return
     up = IOM.get_constraint(container, IOM.ConstraintKey(T, V, "up"))
     dn = IOM.get_constraint(container, IOM.ConstraintKey(T, V, "dn"))
@@ -454,7 +454,7 @@ function _add_level_change_to_ramps!(
     dn,
     devices::Vector{V},
     ::Type{<:AbstractCompactUnitCommitment},
-) where {V <: PSY.ThermalGen}
+) where {V <: ThermalOrLogicalUnit}
     isempty(devices) && return
     on = IOM.get_variable(container, OnVariable, V)
     start = IOM.get_variable(container, StartVariable, V)
@@ -494,7 +494,7 @@ function _add_level_change_to_ramps!(
     dn,
     devices::Vector{V},
     ::Type{ThermalCompactDispatch},
-) where {V <: PSY.ThermalGen}
+) where {V <: ThermalOrLogicalUnit}
     status_names = _on_status_names(container, V)
     for d in devices
         name = PSY.get_name(d)
@@ -552,5 +552,5 @@ end
 
 IOM.get_min_active_power_values(
     container::OptimizationContainer,
-    d::Union{PSY.ThermalGen, PSY.HydroGen},
+    d::Union{ThermalOrLogicalUnit, PSY.HydroGen},
 ) = min_active_power_values(container, d)

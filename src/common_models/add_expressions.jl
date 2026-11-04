@@ -136,8 +136,8 @@ function add_cost_expressions!(
     model::DeviceModel{D, W},
 ) where {
     U <: Vector{D},
-    W <: AbstractThermalFormulation,
-} where {D <: PSY.ThermalGen}
+    W <: ThermalOrLogicalFormulation,
+} where {D <: ThermalOrLogicalUnit}
     time_steps = get_time_steps(container)
     n = length(devices)
     all_names = Vector{String}(undef, n)

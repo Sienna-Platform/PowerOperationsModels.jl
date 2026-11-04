@@ -15,7 +15,7 @@ function _compact_on_status(
     container::OptimizationContainer,
     d::V,
     ::Type{<:AbstractCompactUnitCommitment},
-) where {V <: PSY.ThermalGen}
+) where {V <: ThermalOrLogicalUnit}
     time_steps = get_time_steps(container)
     if _is_must_run(d)
         return fill(1.0, length(time_steps))
@@ -33,7 +33,7 @@ function _compact_on_status(
     container::OptimizationContainer,
     d::V,
     ::Type{ThermalCompactDispatch},
-) where {V <: PSY.ThermalGen}
+) where {V <: ThermalOrLogicalUnit}
     time_steps = get_time_steps(container)
     name = PSY.get_name(d)
     if name in _on_status_names(container, V)
@@ -54,7 +54,7 @@ function _add_min_power_proportional_cost!(
     power_units::IS.AbstractUnitSystem,
     multiplier::Float64,
     ::Type{E},
-) where {V <: PSY.ThermalGen, U <: AbstractDeviceFormulation, E <: ExpressionType}
+) where {V <: ThermalOrLogicalUnit, U <: AbstractDeviceFormulation, E <: ExpressionType}
     iszero(cost_term) && return
     cost_per_unit = get_proportional_cost_per_system_unit(
         cost_term,
@@ -122,7 +122,7 @@ function _add_compact_cost_curve!(
     ::Type{U},
 ) where {
     T <: PowerAboveMinimumVariable,
-    V <: PSY.ThermalGen,
+    V <: ThermalOrLogicalUnit,
     U <: AbstractDeviceFormulation,
 }
     data = IS.get_function_data(IS.get_value_curve(cost_function))
@@ -148,7 +148,7 @@ function _add_compact_fuel_curve!(
     ::Type{U},
 ) where {
     T <: PowerAboveMinimumVariable,
-    V <: PSY.ThermalGen,
+    V <: ThermalOrLogicalUnit,
     U <: AbstractDeviceFormulation,
 }
     data = IS.get_function_data(IS.get_value_curve(cost_function))
@@ -178,7 +178,7 @@ function IOM.add_vom_cost_to_objective!(
     ::Type{U},
 ) where {
     T <: PowerAboveMinimumVariable,
-    V <: PSY.ThermalGen,
+    V <: ThermalOrLogicalUnit,
     U <: Union{AbstractCompactUnitCommitment, ThermalCompactDispatch},
 }
     variable_cost_data = IOM.variable_cost(op_cost, T, V, U)
@@ -199,7 +199,7 @@ function add_variable_cost_to_objective!(
     ::Type{U},
 ) where {
     T <: PowerAboveMinimumVariable,
-    V <: PSY.ThermalGen,
+    V <: ThermalOrLogicalUnit,
     U <: Union{AbstractCompactUnitCommitment, ThermalCompactDispatch},
 }
     _add_compact_cost_curve!(container, T, component, cost_function, U)
@@ -214,7 +214,7 @@ function add_variable_cost_to_objective!(
     ::Type{U},
 ) where {
     T <: PowerAboveMinimumVariable,
-    V <: PSY.ThermalGen,
+    V <: ThermalOrLogicalUnit,
     U <: Union{AbstractCompactUnitCommitment, ThermalCompactDispatch},
 }
     _add_compact_cost_curve!(container, T, component, cost_function, U)
@@ -229,7 +229,7 @@ function add_variable_cost_to_objective!(
     ::Type{U},
 ) where {
     T <: PowerAboveMinimumVariable,
-    V <: PSY.ThermalGen,
+    V <: ThermalOrLogicalUnit,
     U <: Union{AbstractCompactUnitCommitment, ThermalCompactDispatch},
 }
     _add_compact_fuel_curve!(container, T, component, cost_function, U)
@@ -244,7 +244,7 @@ function add_variable_cost_to_objective!(
     ::Type{U},
 ) where {
     T <: PowerAboveMinimumVariable,
-    V <: PSY.ThermalGen,
+    V <: ThermalOrLogicalUnit,
     U <: Union{AbstractCompactUnitCommitment, ThermalCompactDispatch},
 }
     _add_compact_fuel_curve!(container, T, component, cost_function, U)
@@ -355,8 +355,8 @@ add_proportional_cost!(
     ::Type{V},
 ) where {
     U <: OnVariable,
-    T <: Union{PSY.ThermalGen, PSY.HydroGen},
-    V <: Union{AbstractThermalFormulation, AbstractHydroFormulation},
+    T <: Union{ThermalOrLogicalUnit, PSY.HydroGen},
+    V <: Union{ThermalOrLogicalFormulation, AbstractHydroFormulation},
 } = add_proportional_cost_maybe_time_variant!(container, U, devices, V)
 
 """

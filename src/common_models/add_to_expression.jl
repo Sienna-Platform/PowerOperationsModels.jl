@@ -162,7 +162,7 @@ function _add_pmin_scaled_on_to_balance!(
     devices::Vector{V},
     network_model::NetworkModel,
     device_model::DeviceModel{V, W},
-) where {T <: ExpressionType, U <: OnVariable, V <: PSY.ThermalGen, W}
+) where {T <: ExpressionType, U <: OnVariable, V <: ThermalOrLogicalUnit, W}
     _add_compact_on_to_balance!(container, T, U, devices, network_model, device_model)
     return
 end
@@ -181,7 +181,7 @@ function _add_compact_on_to_balance!(
     devices::Vector{V},
     network_model::NetworkModel,
     ::DeviceModel{V, W},
-) where {T <: ExpressionType, U <: OnVariable, V <: PSY.ThermalGen, W}
+) where {T <: ExpressionType, U <: OnVariable, V <: ThermalOrLogicalUnit, W}
     variable = get_variable(container, U, V)
     base_multiplier = get_variable_multiplier(U, V, W)
     time_steps = get_time_steps(container)
@@ -312,7 +312,7 @@ function _add_onstatus_parameter_to_balance!(
     devices::Vector{V},
     network_model::NetworkModel,
     ::DeviceModel{V, W},
-) where {T <: ExpressionType, U <: OnStatusParameter, V <: PSY.ThermalGen, W}
+) where {T <: ExpressionType, U <: OnStatusParameter, V <: ThermalOrLogicalUnit, W}
     parameter = get_parameter_array(container, U, V)
     time_steps = get_time_steps(container)
     for d in devices
@@ -847,7 +847,7 @@ function add_to_expression!(
 ) where {
     T <: ActivePowerBalance,
     U <: OnStatusParameter,
-    V <: PSY.ThermalGen,
+    V <: ThermalOrLogicalUnit,
     W <: AbstractDeviceFormulation,
     X <: AbstractNetworkModel,
 }
@@ -1365,7 +1365,7 @@ function add_to_expression!(
 ) where {
     T <: SystemBalanceExpressions,
     U <: OnVariable,
-    V <: PSY.ThermalGen,
+    V <: ThermalOrLogicalUnit,
     W <: AbstractCompactUnitCommitment,
 }
     _add_compact_on_to_balance!(
@@ -1389,7 +1389,7 @@ function add_to_expression!(
 ) where {
     T <: SystemBalanceExpressions,
     U <: OnVariable,
-    V <: PSY.ThermalGen,
+    V <: ThermalOrLogicalUnit,
     W <: AbstractCompactUnitCommitment,
     X <: AbstractNetworkModel,
 }
@@ -1414,7 +1414,7 @@ function add_to_expression!(
 ) where {
     T <: SystemBalanceExpressions,
     U <: OnVariable,
-    V <: PSY.ThermalGen,
+    V <: ThermalOrLogicalUnit,
     W <: Union{AbstractCompactUnitCommitment, ThermalCompactDispatch},
 }
     _add_compact_on_to_balance!(container, T, U, devices, network_model, device_model)
@@ -1503,7 +1503,7 @@ function add_to_expression!(
 ) where {
     T <: ActivePowerBalance,
     U <: OnStatusParameter,
-    V <: PSY.ThermalGen,
+    V <: ThermalOrLogicalUnit,
     W <: AbstractDeviceFormulation,
 }
     _add_onstatus_parameter_to_balance!(container, T, U, devices, network_model, model)
@@ -1540,7 +1540,7 @@ function add_to_expression!(
 ) where {
     T <: ActivePowerBalance,
     U <: OnVariable,
-    V <: PSY.ThermalGen,
+    V <: ThermalOrLogicalUnit,
     W <: AbstractCompactUnitCommitment,
 }
     # No must-run branch here (matches PSI); the On variable carries the P_min scale.
@@ -1697,7 +1697,7 @@ function add_to_expression!(
 ) where {
     T <: ActivePowerBalance,
     U <: OnVariable,
-    V <: PSY.ThermalGen,
+    V <: ThermalOrLogicalUnit,
     W <: AbstractCompactUnitCommitment,
     X <: PTDFNetworkModel,
 }
@@ -2500,8 +2500,8 @@ function add_to_expression!(
 ) where {
     T <: Union{ActivePowerRangeExpressionUB, ActivePowerRangeExpressionLB},
     U <: OnStatusParameter,
-    V <: PSY.ThermalGen,
-    W <: AbstractThermalDispatchFormulation,
+    V <: ThermalOrLogicalUnit,
+    W <: ThermalOrLogicalDispatch,
 }
     parameter_array = get_parameter_array(container, U, V)
     if !has_container_key(container, T, V)
@@ -2743,7 +2743,7 @@ function _add_fuel_consumption_term!(
     device_base_power::Float64,
     dt::Float64,
     time_steps,
-) where {C <: PSY.ThermalGen}
+) where {C <: ThermalOrLogicalUnit}
     power_units = PSY.get_power_units(var_cost)
     proportional_term = PSY.get_proportional_term(value_curve)
     prop_term_per_unit = get_proportional_cost_per_system_unit(
@@ -2771,7 +2771,7 @@ function _add_fuel_consumption_term!(
     device_base_power::Float64,
     dt::Float64,
     time_steps,
-) where {C <: PSY.ThermalGen}
+) where {C <: ThermalOrLogicalUnit}
     expression = get_expression(container, FuelConsumptionExpression, C)
     power_units = PSY.get_power_units(var_cost)
     proportional_term = PSY.get_proportional_term(value_curve)
@@ -2794,15 +2794,15 @@ end
 # Piecewise/incremental/average-rate value curves are populated through their own
 # objective paths; no contribution to FuelConsumptionExpression here.
 _add_fuel_consumption_term!(
-    ::OptimizationContainer, ::Type{<:PSY.ThermalGen}, _, ::String,
+    ::OptimizationContainer, ::Type{<:ThermalOrLogicalUnit}, _, ::String,
     ::PSY.FuelCurve, ::PSY.PiecewisePointCurve,
     ::Float64, ::Float64, ::Float64, _) = nothing
 _add_fuel_consumption_term!(
-    ::OptimizationContainer, ::Type{<:PSY.ThermalGen}, _, ::String,
+    ::OptimizationContainer, ::Type{<:ThermalOrLogicalUnit}, _, ::String,
     ::PSY.FuelCurve, ::PSY.IncrementalCurve,
     ::Float64, ::Float64, ::Float64, _) = nothing
 _add_fuel_consumption_term!(
-    ::OptimizationContainer, ::Type{<:PSY.ThermalGen}, _, ::String,
+    ::OptimizationContainer, ::Type{<:ThermalOrLogicalUnit}, _, ::String,
     ::PSY.FuelCurve, ::PSY.AverageRateCurve,
     ::Float64, ::Float64, ::Float64, _) = nothing
 
@@ -2815,7 +2815,7 @@ function add_to_expression!(
 ) where {
     T <: FuelConsumptionExpression,
     U <: ActivePowerVariable,
-    V <: PSY.ThermalGen,
+    V <: ThermalOrLogicalUnit,
     W <: AbstractDeviceFormulation,
 }
     variable = get_variable(container, U, V)
@@ -2851,7 +2851,7 @@ function _add_compact_fuel_consumption_term!(
     device_base_power::Float64,
     dt::Float64,
     time_steps,
-) where {V <: PSY.ThermalGen, W <: AbstractDeviceFormulation}
+) where {V <: ThermalOrLogicalUnit, W <: AbstractDeviceFormulation}
     name = PSY.get_name(d)
     pmin = min_active_power_values(container, d)
     power_units = PSY.get_power_units(var_cost)
@@ -2875,22 +2875,22 @@ end
 # Compact formulation does not accept QuadraticCurve fuel — the SOS gating breaks down
 # for quadratic terms.
 _add_compact_fuel_consumption_term!(
-    ::OptimizationContainer, ::Type{W}, _, _, ::PSY.ThermalGen, ::PSY.FuelCurve,
+    ::OptimizationContainer, ::Type{W}, _, _, ::ThermalOrLogicalUnit, ::PSY.FuelCurve,
     ::PSY.QuadraticCurve, ::Float64, ::Float64, ::Float64, _,
 ) where {W <: AbstractDeviceFormulation} =
     error("Quadratic Curves are not accepted with Compact Formulation: $W")
 
 _add_compact_fuel_consumption_term!(
     ::OptimizationContainer, ::Type{<:AbstractDeviceFormulation},
-    _, _, ::PSY.ThermalGen, ::PSY.FuelCurve, ::PSY.PiecewisePointCurve,
+    _, _, ::ThermalOrLogicalUnit, ::PSY.FuelCurve, ::PSY.PiecewisePointCurve,
     ::Float64, ::Float64, ::Float64, _) = nothing
 _add_compact_fuel_consumption_term!(
     ::OptimizationContainer, ::Type{<:AbstractDeviceFormulation},
-    _, _, ::PSY.ThermalGen, ::PSY.FuelCurve, ::PSY.IncrementalCurve,
+    _, _, ::ThermalOrLogicalUnit, ::PSY.FuelCurve, ::PSY.IncrementalCurve,
     ::Float64, ::Float64, ::Float64, _) = nothing
 _add_compact_fuel_consumption_term!(
     ::OptimizationContainer, ::Type{<:AbstractDeviceFormulation},
-    _, _, ::PSY.ThermalGen, ::PSY.FuelCurve, ::PSY.AverageRateCurve,
+    _, _, ::ThermalOrLogicalUnit, ::PSY.FuelCurve, ::PSY.AverageRateCurve,
     ::Float64, ::Float64, ::Float64, _) = nothing
 
 function add_to_expression!(
@@ -2902,7 +2902,7 @@ function add_to_expression!(
 ) where {
     T <: FuelConsumptionExpression,
     U <: PowerAboveMinimumVariable,
-    V <: PSY.ThermalGen,
+    V <: ThermalOrLogicalUnit,
     W <: AbstractDeviceFormulation,
 }
     variable = get_variable(container, U, V)

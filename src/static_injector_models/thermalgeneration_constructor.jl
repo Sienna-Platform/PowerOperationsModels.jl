@@ -12,7 +12,7 @@ end
     container::OptimizationContainer,
     devices::Vector{T},
     model::DeviceModel{T},
-) where {T <: PSY.ThermalGen}
+) where {T <: ThermalOrLogicalUnit}
     add_min_active_power_parameters!(
         container,
         MinActivePowerTimeSeriesParameter,
@@ -217,7 +217,7 @@ function construct_device!(
 end
 
 # The basic UC formulations drop the ramp and minimum up/down time constraints.
-_has_ramp_and_duration_constraints(::Type{<:AbstractThermalUnitCommitment}) = true
+_has_ramp_and_duration_constraints(::Type{<:ThermalOrLogicalCommitment}) = true
 _has_ramp_and_duration_constraints(::Type{ThermalBasicUnitCommitment}) = false
 _has_ramp_and_duration_constraints(::Type{ThermalBasicCompactUnitCommitment}) = false
 

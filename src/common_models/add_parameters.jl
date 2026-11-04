@@ -574,11 +574,11 @@ _get_expected_time_series_eltype(::Type{StartupCostParameter}) = NTuple{3, Float
 
 _param_to_vars(::Type{FuelCostParameter}, ::Type{<:AbstractDeviceFormulation}) =
     (ActivePowerVariable,)
-_param_to_vars(::Type{StartupCostParameter}, ::Type{<:AbstractThermalFormulation}) =
+_param_to_vars(::Type{StartupCostParameter}, ::Type{<:ThermalOrLogicalFormulation}) =
     (StartVariable,)
 _param_to_vars(::Type{StartupCostParameter}, ::Type{ThermalMultiStartUnitCommitment}) =
     MULTI_START_VARIABLES
-_param_to_vars(::Type{ShutdownCostParameter}, ::Type{<:AbstractThermalFormulation}) =
+_param_to_vars(::Type{ShutdownCostParameter}, ::Type{<:ThermalOrLogicalFormulation}) =
     (StopVariable,)
 _param_to_vars(::Type{<:AbstractCostAtMinParameter}, ::Type{<:AbstractDeviceFormulation}) =
     (OnVariable,)
@@ -1041,8 +1041,8 @@ function _add_parameters!(
     T <: OnStatusParameter,
     U <: OnVariable,
     V <: Vector{D},
-    W <: AbstractThermalFormulation,
-} where {D <: PSY.ThermalGen}
+    W <: ThermalOrLogicalFormulation,
+} where {D <: ThermalOrLogicalUnit}
     @debug "adding" T D U _group = IOM.LOG_GROUP_OPTIMIZATION_CONTAINER
     names = [PSY.get_name(device) for device in devices if !_is_must_run(device)]
     time_steps = get_time_steps(container)
