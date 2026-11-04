@@ -200,7 +200,7 @@ end
     PSY.set_operation_cost!(
         gen,
         PSY.ThermalGenerationCost(
-            PSY.FuelCurve(PSY.LinearCurve(1.0), original_key), 0.0, 0.0, 0.0,
+            PSY.FuelCurve(PSY.LinearCurve(1.0), PSY.MMBtu, original_key), 0.0, 0.0, 0.0,
         ),
     )
 

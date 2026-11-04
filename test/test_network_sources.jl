@@ -406,7 +406,11 @@ end
             sys;
             optimizer = HiGHS_optimizer,
         )
-        @test build!(rejected; output_dir = mktempdir(; cleanup = true)) ==
+        @test build!(
+            rejected;
+            console_level = Logging.AboveMaxLevel,
+            output_dir = mktempdir(; cleanup = true),
+        ) ==
               IOM.ModelBuildStatus.FAILED
 
         accepted = DecisionModel(

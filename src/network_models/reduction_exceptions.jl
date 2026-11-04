@@ -71,6 +71,7 @@ function _collect_reduction_exceptions(
     end
     for m in values(service_models)
         _pin_interface_branch_buses!(buses, m)
+        _pin_outage_buses!(buses, m, sys)
     end
     return collect(buses)
 end
@@ -156,28 +157,46 @@ _pin_time_series_branch_buses!(
     ::PSY.System,
 ) = nothing
 
-# An outage registered on an outage-aware branch model pins both its
-# monitored and its outaged endpoints. The MODF column for a contingency is keyed by
-# the outaged arc's endpoints, and post-contingency flow constraints reference the
-# monitored components' real bus numbers.
 function _pin_outage_buses!(buses::Set{Int}, m::DeviceModel, sys::PSY.System)
     IOM.supports_outages(get_formulation(m)) || return
     for outage_id in keys(get_outages(m))
         outage = PSY.get_supplemental_attribute(sys, outage_id)
-        for uuid in PSY.get_monitored_components(outage)
-            component = IS.get_component(sys, uuid)
-            # Also checked in template validation, but a `validate_template` override can
-            # skip that; a missing component here would surface as a `MethodError`.
-            isnothing(component) && throw(
-                IS.ConflictingInputsError(
-                    "Monitored component with UUID $uuid on outage $outage_id is not found in the system.",
-                ),
-            )
-            _push_component_buses!(buses, component)
-        end
+        _pin_monitored_buses!(buses, outage, sys)
         for component in PSY.get_associated_components(sys, outage)
             _push_component_buses!(buses, component)
         end
+    end
+    return
+end
+
+function _pin_outage_buses!(
+    buses::Set{Int},
+    m::ServiceModel{
+        <:PSY.OnlineReserve{PSY.ReserveUp},
+        <:AbstractSecurityConstrainedReservesFormulation,
+    },
+    sys::PSY.System,
+)
+    for service in _services_with_contributors(m, sys)
+        for outage in PSY.get_supplemental_attributes(PSY.Outage, service)
+            _pin_monitored_buses!(buses, outage, sys)
+        end
+    end
+    return
+end
+
+_pin_outage_buses!(::Set{Int}, ::ServiceModel, ::PSY.System) =
+    nothing
+
+function _pin_monitored_buses!(buses::Set{Int}, outage::PSY.Outage, sys::PSY.System)
+    for uuid in PSY.get_monitored_components(outage)
+        component = IS.get_component(sys, uuid)
+        isnothing(component) && throw(
+            IS.ConflictingInputsError(
+                "Monitored component with UUID $uuid on outage $(IS.get_id(outage)) is not found in the system.",
+            ),
+        )
+        _push_component_buses!(buses, component)
     end
     return
 end

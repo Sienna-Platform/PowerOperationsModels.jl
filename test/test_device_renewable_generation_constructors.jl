@@ -251,3 +251,44 @@ end
               (c_var - c_curt) * base_power * dt
     end
 end
+
+@testset "Renewable FixedOutput reactive power follows power factor (issue #381)" begin
+    c_sys5_re = PSB.build_system(PSITestSystems, "c_sys5_re")
+    wind = get_component(RenewableDispatch, c_sys5_re, "WindBusA")
+    set_power_factor!(wind, 0.8)
+    device_model = DeviceModel(RenewableDispatch, FixedOutput)
+    model = DecisionModel(MockOperationProblem, ACPNetworkModel, c_sys5_re)
+    mock_construct_device!(model, device_model)
+    container = IOM.get_optimization_container(model)
+    mult = IOM.get_parameter_multiplier_array(
+        container,
+        ReactivePowerTimeSeriesParameter,
+        RenewableDispatch,
+    )
+    @test all(mult["WindBusA", :] .≈ 0.75 * get_max_active_power(wind, u"SU"))
+end
+
+@testset "Renewable constant power factor uses tan(acos(pf)) (issue #381)" begin
+    c_sys5_re = PSB.build_system(PSITestSystems, "c_sys5_re")
+    wind = get_component(RenewableDispatch, c_sys5_re, "WindBusA")
+    set_power_factor!(wind, 0.8)
+    device_model = DeviceModel(RenewableDispatch, RenewableConstantPowerFactor)
+    model = DecisionModel(MockOperationProblem, ACPNetworkModel, c_sys5_re)
+    mock_construct_device!(model, device_model)
+    container = IOM.get_optimization_container(model)
+    p = IOM.get_variable(container, ActivePowerVariable, RenewableDispatch)
+    cons = IOM.get_constraint(container, POM.EqualityConstraint, RenewableDispatch)
+    @test JuMP.normalized_coefficient(cons["WindBusA", 1], p["WindBusA", 1]) ≈ -0.75
+end
+
+@testset "Renewable reactive power errors on power factor 0" begin
+    for formulation in (FixedOutput, RenewableConstantPowerFactor)
+        c_sys5_re = PSB.build_system(PSITestSystems, "c_sys5_re")
+        set_power_factor!(get_component(RenewableDispatch, c_sys5_re, "WindBusA"), 0.0)
+        model = DecisionModel(MockOperationProblem, ACPNetworkModel, c_sys5_re)
+        @test_throws r"WindBusA has power_factor = 0" mock_construct_device!(
+            model,
+            DeviceModel(RenewableDispatch, formulation),
+        )
+    end
+end

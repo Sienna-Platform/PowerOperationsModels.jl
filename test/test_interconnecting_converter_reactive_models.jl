@@ -20,11 +20,14 @@ function _build_ic_reactive_sys(;
         set_r!(line, 0.01 * v_base^2 / get_base_power(sys))
     end
     for ic in get_components(InterconnectingConverter, sys)
-        set_loss_function!(ic, PSY.LossCurve(QuadraticCurve(0.01, 0.01, 0.0), PSY.CU))
-        # 2.0 pu on the system base, in amperes.
+        set_loss_function!(
+            ic,
+            PSY.LossCurve(QuadraticCurve(0.01, 0.01, 0.0), PSY.CU, u"kA"),
+        )
+        # 2.0 pu on the system base, in kA.
         set_max_dc_current!(
             ic,
-            2.0 * 1000.0 * get_base_power(sys) / get_base_voltage(get_dc_bus(ic)),
+            2.0 * get_base_power(sys) / get_base_voltage(get_dc_bus(ic)),
         )
         set_reactive_power_limits!(
             ic, (min = -reactive_limit * u"SU", max = reactive_limit * u"SU"),
@@ -223,7 +226,11 @@ end
     template = _ic_reactive_template(ACPNetworkModel)
     model = DecisionModel(template, sys; optimizer = ipopt_optimizer)
     # The missing-limit guard surfaces as a failed build (non-finite bound refused).
-    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+    @test build!(
+        model;
+        console_level = Logging.AboveMaxLevel,
+        output_dir = mktempdir(; cleanup = true),
+    ) ==
           IOM.ModelBuildStatus.FAILED
 end
 

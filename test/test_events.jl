@@ -178,7 +178,11 @@ end
         template,
     )
     model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
-    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+    @test build!(
+        model;
+        console_level = Logging.AboveMaxLevel,
+        output_dir = mktempdir(; cleanup = true),
+    ) ==
           IOM.ModelBuildStatus.FAILED
     @test isempty(get_attribute_device_map(em))
 end
@@ -267,7 +271,11 @@ end
         fill_event_model!(em, sys)
     end
     model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
-    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+    @test build!(
+        model;
+        console_level = Logging.AboveMaxLevel,
+        output_dir = mktempdir(; cleanup = true),
+    ) ==
           IOM.ModelBuildStatus.FAILED
 end
 
@@ -598,7 +606,11 @@ end
     model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
     # Validation must reject the second event model with a clear error instead of letting
     # the two models' parameter containers collide inside the optimization container.
-    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+    @test build!(
+        model;
+        console_level = Logging.AboveMaxLevel,
+        output_dir = mktempdir(; cleanup = true),
+    ) ==
           IOM.ModelBuildStatus.FAILED
 end
 

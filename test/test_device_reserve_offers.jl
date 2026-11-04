@@ -1306,7 +1306,11 @@ end
         _load_reserve_template(:up), sys;
         optimizer = HiGHS_optimizer,
     )
-    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+    @test build!(
+        model;
+        console_level = Logging.AboveMaxLevel,
+        output_dir = mktempdir(; cleanup = true),
+    ) ==
           IOM.ModelBuildStatus.FAILED
 end
 
@@ -1318,7 +1322,11 @@ end
         _load_reserve_template(:up), sys;
         optimizer = HiGHS_optimizer,
     )
-    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+    @test build!(
+        model;
+        console_level = Logging.AboveMaxLevel,
+        output_dir = mktempdir(; cleanup = true),
+    ) ==
           IOM.ModelBuildStatus.FAILED
 end
 

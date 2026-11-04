@@ -161,7 +161,7 @@ end
     PSY.set_operation_cost!(
         gen,
         PSY.ThermalGenerationCost(
-            PSY.FuelCurve(PSY.LinearCurve(1.0), original_key), 0.0, 0.0, 0.0,
+            PSY.FuelCurve(PSY.LinearCurve(1.0), PSY.MMBtu, original_key), 0.0, 0.0, 0.0,
         ),
     )
 
@@ -310,7 +310,7 @@ end
     PSY.set_operation_cost!(
         gen,
         PSY.ThermalGenerationCost(
-            PSY.FuelCurve(PSY.LinearCurve(1.0), original_key), 0.0, 0.0, 0.0,
+            PSY.FuelCurve(PSY.LinearCurve(1.0), PSY.MMBtu, original_key), 0.0, 0.0, 0.0,
         ),
     )
 
@@ -377,7 +377,7 @@ end
     PSY.set_operation_cost!(
         gen,
         PSY.ThermalGenerationCost(
-            PSY.FuelCurve(PSY.LinearCurve(1.0), original_key), 0.0, 0.0, 0.0,
+            PSY.FuelCurve(PSY.LinearCurve(1.0), PSY.MMBtu, original_key), 0.0, 0.0, 0.0,
         ),
     )
 
@@ -414,7 +414,12 @@ end
     )
     PSY.set_operation_cost!(
         gen,
-        PSY.ThermalGenerationCost(PSY.FuelCurve(PSY.LinearCurve(1.0), key), 0.0, 0.0, 0.0),
+        PSY.ThermalGenerationCost(
+            PSY.FuelCurve(PSY.LinearCurve(1.0), PSY.MMBtu, key),
+            0.0,
+            0.0,
+            0.0,
+        ),
     )
 
     store = POM.ParameterTimeSeriesStore()
@@ -457,7 +462,7 @@ end
     PSY.set_operation_cost!(
         gen,
         PSY.ThermalGenerationCost(
-            PSY.FuelCurve(PSY.LinearCurve(1.0), key), 0.0, 0.0, 0.0,
+            PSY.FuelCurve(PSY.LinearCurve(1.0), PSY.MMBtu, key), 0.0, 0.0, 0.0,
         ),
     )
 
@@ -506,7 +511,7 @@ end
     PSY.set_operation_cost!(
         gen,
         PSY.ThermalGenerationCost(
-            PSY.FuelCurve(PSY.LinearCurve(1.0), key), 0.0, 0.0, 0.0,
+            PSY.FuelCurve(PSY.LinearCurve(1.0), PSY.MMBtu, key), 0.0, 0.0, 0.0,
         ),
     )
     store = POM.ParameterTimeSeriesStore()

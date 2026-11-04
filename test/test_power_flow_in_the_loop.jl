@@ -852,7 +852,8 @@ end
           ModelBuildStatus.BUILT
     # A power flow that doesn't converge is an error in the log and NaN in the aux
     # vars, not a failed run: the optimization itself solved fine.
-    @test solve!(model) == RunStatus.SUCCESSFULLY_FINALIZED
+    @test solve!(model; console_level = Logging.AboveMaxLevel) ==
+          RunStatus.SUCCESSFULLY_FINALIZED
 
     container = get_optimization_container(model)
     pf_e_data = only(values(get_evaluation_data(container)))
@@ -922,7 +923,11 @@ end
         )
         model = DecisionModel(template, system; optimizer = HiGHS_optimizer)
         output_dir = mktempdir(; cleanup = true)
-        @test build!(model; output_dir = output_dir) == ModelBuildStatus.FAILED
+        @test build!(
+            model;
+            output_dir = output_dir,
+            console_level = Logging.AboveMaxLevel,
+        ) == ModelBuildStatus.FAILED
         log = read(joinpath(output_dir, "operation_problem.log"), String)
         @test occursin("is already bound to $(typeof(first(evaluators)))", log)
         @test occursin("$(typeof(last(evaluators))) cannot also produce it", log)
