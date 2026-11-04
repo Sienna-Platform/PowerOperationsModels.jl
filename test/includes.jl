@@ -58,6 +58,7 @@ include("test_utils/hydro_testing_utils.jl")
 include("test_utils/hybrid_test_utils.jl")
 include("test_utils/transformer_utils.jl")
 include("test_utils/events_test_utils.jl")
+include("test_utils/reserve_offer_systems.jl")
 include("test_utils/logical_unit_systems.jl")
 
 ENV["RUNNING_SIENNA_TESTS"] = "true"

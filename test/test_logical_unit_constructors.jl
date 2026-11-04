@@ -432,3 +432,106 @@ end
         rtol = 1e-6,
     )
 end
+
+# Awards of `name` into service `S` over the horizon, from a solved model.
+function reserve_awards(model, ::Type{T}, ::Type{S}, service, name) where {T, S}
+    award = IOM.get_variable(
+        IOM.get_optimization_container(model),
+        ActivePowerReserveVariable,
+        IOM.ComponentPairKey{T, S},
+    )
+    return [JuMP.value(award[(service, name, t)]) for t in 1:24]
+end
+
+@testset "Logical units clear reserve offers like thermal" begin
+    thermal = PSB.build_system(PSITestSystems, "c_sys5_uc"; add_reserves = true)
+    R = OnlineReserve{ReserveUp}
+    contributors, _ =
+        add_device_reserve_offers!(thermal, PSY.get_component(R, thermal, "Reserve1"))
+    logical = replace_thermals_with_logical_units!(deepcopy(thermal))
+    services = (ServiceModel(R, RangeReserve),)
+    for (lf, tf) in (
+        (LogicalUnitStandardCommitment, ThermalStandardUnitCommitment),
+        (LogicalUnitBasicCommitment, ThermalBasicUnitCommitment),
+    )
+        t_model = solved_model(
+            thermal,
+            PSY.ThermalStandard,
+            tf,
+            CopperPlateNetworkModel;
+            services,
+        )
+        l_model =
+            solved_model(
+                logical,
+                PSY.LogicalGenerationUnit,
+                lf,
+                CopperPlateNetworkModel;
+                services,
+            )
+        blocks = IOM.get_variable(
+            IOM.get_optimization_container(l_model),
+            POM.PiecewiseLinearBlockReserveOffer,
+            PSY.LogicalGenerationUnit,
+        )
+        @test sum(JuMP.value, blocks) > 1e-3  # the offers clear
+        for g in contributors
+            name = PSY.get_name(g)
+            @test reserve_awards(l_model, PSY.LogicalGenerationUnit, R, "Reserve1", name) ≈
+                  reserve_awards(t_model, PSY.ThermalStandard, R, "Reserve1", name) atol =
+                1e-6
+        end
+        @test _objective(l_model) ≈ _objective(t_model) rtol = 1e-6
+    end
+end
+
+@testset "An off logical unit supplies offline reserve" begin
+    thermal, offunit = _offline_ordc_uc_system()
+    off_name = PSY.get_name(offunit)
+    logical = replace_thermals_with_logical_units!(deepcopy(thermal))
+    services = (
+        ServiceModel(OfflineReserve, StepwiseCostReserve),
+        ServiceModel(OnlineReserve{ReserveUp}, StepwiseCostReserve),
+    )
+    for (lf, tf) in (
+        (LogicalUnitStandardCommitment, ThermalStandardUnitCommitment),
+        (LogicalUnitBasicCommitment, ThermalBasicUnitCommitment),
+    )
+        t_model = solved_model(
+            thermal,
+            PSY.ThermalStandard,
+            tf,
+            CopperPlateNetworkModel;
+            services,
+        )
+        l_model =
+            solved_model(
+                logical,
+                PSY.LogicalGenerationUnit,
+                lf,
+                CopperPlateNetworkModel;
+                services,
+            )
+        container = IOM.get_optimization_container(l_model)
+        @test IOM.has_container_key(
+            container, POM.OfflineReserveBandConstraint, PSY.LogicalGenerationUnit)
+        on = IOM.get_variable(container, OnVariable, PSY.LogicalGenerationUnit)
+        @test all(JuMP.value(on[off_name, t]) < 0.5 for t in 1:24)
+        T = PSY.LogicalGenerationUnit
+        @test sum(reserve_awards(l_model, T, OfflineReserve, "NSPIN", off_name)) > 1.0
+        @test maximum(
+            reserve_awards(l_model, T, OnlineReserve{ReserveUp}, "SPIN", off_name),
+        ) <
+              1e-3
+        @test reserve_awards(l_model, T, OfflineReserve, "NSPIN", off_name) ≈
+              reserve_awards(
+            t_model,
+            PSY.ThermalStandard,
+            OfflineReserve,
+            "NSPIN",
+            off_name,
+        ) atol =
+            1e-6
+        @test _objective(l_model) ≈ _objective(t_model) rtol = 1e-6
+    end
+end
