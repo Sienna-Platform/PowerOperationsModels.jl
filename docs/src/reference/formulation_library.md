@@ -540,10 +540,6 @@ wiring **both** the above-minimum variable and the commitment status into `Activ
 | `ThermalBasicCompactUnitCommitment`                              | compact variable set + commitment variables                                                                                 | range limits + `CommitmentConstraint`. No ramp, no duration                                                                                                      |
 | `ThermalCompactUnitCommitment`                                   | as above                                                                                                                    | as above **+ `RampConstraint` + `DurationConstraint`**                                                                                                           |
 | `ThermalMultiStartUnitCommitment` (`PSY.ThermalMultiStart` only) | compact set **+ `ColdStartVariable`, `WarmStartVariable`, `HotStartVariable`**                                              | as above **+ `StartupTimeLimitTemperatureConstraint` (`"hot"`/`"warm"`), `StartTypeConstraint`, `StartupInitialConditionConstraint`, `ActiveRangeICConstraint`** |
-| `LogicalUnitBasicDispatch`                                       | as `ThermalBasicDispatch`, for `PSY.LogicalGenerationUnit`                                                                  | as `ThermalBasicDispatch`                                                                                                                                        |
-| `LogicalUnitStandardDispatch`                                    | as `ThermalStandardDispatch`, for `PSY.LogicalGenerationUnit`                                                               | as `ThermalStandardDispatch`                                                                                                                                     |
-| `LogicalUnitBasicCommitment`                                     | as `ThermalBasicUnitCommitment`, for `PSY.LogicalGenerationUnit`                                                            | as `ThermalBasicUnitCommitment`                                                                                                                                  |
-| `LogicalUnitStandardCommitment`                                  | as `ThermalStandardUnitCommitment`, for `PSY.LogicalGenerationUnit`                                                         | as `ThermalStandardUnitCommitment`                                                                                                                               |
 
 All nine thermal formulations implement both a `<:AbstractNetworkModel` and a `<:AbstractActivePowerModel` method, so all
 eleven network models are supported. The active-power method simply omits `ReactivePowerVariable`,
@@ -557,12 +553,20 @@ Metas on thermal keys: `"lb"`/`"ub"` (range limits), `"up"`/`"dn"` (ramp and dur
 both `ActivePowerTimeSeriesParameter` and `ReactivePowerTimeSeriesParameter` into their
 respective balances under any `<:AbstractNetworkModel`.
 
-The four `LogicalUnit*` rows apply to `PSY.LogicalGenerationUnit` and mirror their thermal counterparts:
+## [LogicalGenerationUnit Formulations](@id LogicalGenerationUnit-Formulations)
 
-| Abstract                        | Concrete                                                      |
-|:------------------------------- |:------------------------------------------------------------- |
-| `AbstractLogicalUnitDispatch`   | `LogicalUnitBasicDispatch`, `LogicalUnitStandardDispatch`     |
-| `AbstractLogicalUnitCommitment` | `LogicalUnitBasicCommitment`, `LogicalUnitStandardCommitment` |
+Four formulations for `PSY.LogicalGenerationUnit`, each building the same model as its thermal counterpart:
+
+| Abstract                        | Concrete                        | Thermal counterpart             |
+|:------------------------------- |:------------------------------- |:------------------------------- |
+| `AbstractLogicalUnitDispatch`   | `LogicalUnitBasicDispatch`      | `ThermalBasicDispatch`          |
+| `AbstractLogicalUnitDispatch`   | `LogicalUnitStandardDispatch`   | `ThermalStandardDispatch`       |
+| `AbstractLogicalUnitCommitment` | `LogicalUnitBasicCommitment`    | `ThermalBasicUnitCommitment`    |
+| `AbstractLogicalUnitCommitment` | `LogicalUnitStandardCommitment` | `ThermalStandardUnitCommitment` |
+
+Variables, constraints, metas and network support match the thermal counterpart.
+A multi-stage start-up offer (`PSY.StartUpStages`) collapses to its costliest (cold) stage per start under the commitment formulations, and the dispatch formulations charge no start-up.
+Unlike thermal units, logical units do not log the "Multi-start costs detected" warning for such offers.
 
 ## [RenewableGen Formulations](@id PowerSystems.RenewableGen-Formulations)
 

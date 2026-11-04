@@ -64,19 +64,29 @@ abstract type AbstractLogicalUnitDispatch <: AbstractLogicalUnitFormulation end
 abstract type AbstractLogicalUnitCommitment <: AbstractLogicalUnitFormulation end
 
 """
-`ThermalBasicDispatch` for `PSY.LogicalGenerationUnit`
+`ThermalBasicDispatch` for `PSY.LogicalGenerationUnit`.
+
+A multi-stage start-up offer is not charged: dispatch has no start variable.
 """
 struct LogicalUnitBasicDispatch <: AbstractLogicalUnitDispatch end
 """
-`ThermalStandardDispatch` for `PSY.LogicalGenerationUnit`
+`ThermalStandardDispatch` for `PSY.LogicalGenerationUnit`.
+
+A multi-stage start-up offer is not charged: dispatch has no start variable.
 """
 struct LogicalUnitStandardDispatch <: AbstractLogicalUnitDispatch end
 """
-`ThermalBasicUnitCommitment` for `PSY.LogicalGenerationUnit`
+`ThermalBasicUnitCommitment` for `PSY.LogicalGenerationUnit`.
+
+A multi-stage start-up offer collapses to its costliest (cold) stage per start, without the
+"Multi-start costs detected" warning thermal units log.
 """
 struct LogicalUnitBasicCommitment <: AbstractLogicalUnitCommitment end
 """
-`ThermalStandardUnitCommitment` for `PSY.LogicalGenerationUnit`
+`ThermalStandardUnitCommitment` for `PSY.LogicalGenerationUnit`.
+
+A multi-stage start-up offer collapses to its costliest (cold) stage per start, without the
+"Multi-start costs detected" warning thermal units log.
 """
 struct LogicalUnitStandardCommitment <: AbstractLogicalUnitCommitment end
 
