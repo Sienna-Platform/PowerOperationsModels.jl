@@ -43,11 +43,20 @@ function replace_thermals_with_logical_units!(sys::PSY.System; names = nothing)
     return sys
 end
 
+# Twin objectives are compared at rtol 1e-6, so the MIP gap must sit well below that.
+const TWIN_OPTIMIZER = JuMP.optimizer_with_attributes(
+    HiGHS.Optimizer,
+    "time_limit" => 100.0,
+    "random_seed" => 12345,
+    "mip_rel_gap" => 1e-7,
+    "log_to_console" => false,
+)
+
 """
-Build and solve the thermal dispatch template with `T => F` as the only generator model,
-plus the given service models.
+Build and solve the thermal dispatch template with `T => F` (using `time_series_names`) as
+the only generator model, plus the `services` models, on `network`.
 """
-function solved_commitment_model(
+function solved_model(
     sys,
     ::Type{T},
     ::Type{F},
@@ -61,7 +70,7 @@ function solved_commitment_model(
     delete!(IOM.get_device_models(template), :ThermalStandard)
     set_device_model!(template, DeviceModel(T, F; time_series_names))
     foreach(s -> set_service_model!(template, s), services)
-    model = DecisionModel(template, sys; optimizer = HiGHS_optimizer, initialize_model)
+    model = DecisionModel(template, sys; optimizer = TWIN_OPTIMIZER, initialize_model)
     @assert build!(model; output_dir) == IOM.ModelBuildStatus.BUILT
     @assert solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
     return model
@@ -70,7 +79,7 @@ end
 _objective(model) = IOM.get_optimization_container(model).optimizer_stats.objective_value
 
 logical_unit_objective(sys, ::Type{F}; network = CopperPlateNetworkModel, kw...) where {F} =
-    _objective(solved_commitment_model(sys, PSY.LogicalGenerationUnit, F, network; kw...))
+    _objective(solved_model(sys, PSY.LogicalGenerationUnit, F, network; kw...))
 
 thermal_objective(sys, ::Type{F}; network = CopperPlateNetworkModel, kw...) where {F} =
-    _objective(solved_commitment_model(sys, PSY.ThermalStandard, F, network; kw...))
+    _objective(solved_model(sys, PSY.ThermalStandard, F, network; kw...))

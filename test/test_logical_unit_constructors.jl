@@ -30,8 +30,12 @@ end
     must_run = PSY.get_component(PSY.ThermalStandard, thermal, "Sundance")
     PSY.set_commitment_mode!(must_run, PSY.CommitmentModes.MUST_RUN)
     PSY.set_ramp_limits!(must_run, nothing)
+    PSY.set_time_limits!(
+        PSY.get_component(PSY.ThermalStandard, thermal, "Brighton"),
+        nothing,
+    )
     logical = replace_thermals_with_logical_units!(deepcopy(thermal))
-    model = solved_commitment_model(
+    model = solved_model(
         logical,
         PSY.LogicalGenerationUnit,
         LogicalUnitStandardCommitment,
@@ -89,8 +93,19 @@ end
     template = get_thermal_dispatch_template_network(CopperPlateNetworkModel)
     delete!(IOM.get_device_models(template), :ThermalStandard)
     set_device_model!(template, PSY.LogicalGenerationUnit, ThermalStandardUnitCommitment)
-    model = DecisionModel(template, logical; optimizer = HiGHS_optimizer)
-    @test build!(model; output_dir = mktempdir()) == IOM.ModelBuildStatus.FAILED
+    model = DecisionModel(
+        template,
+        logical;
+        optimizer = HiGHS_optimizer,
+        initialize_model = false,
+    )
+    dir = mktempdir()
+    @test build!(model; output_dir = dir) == IOM.ModelBuildStatus.FAILED
+    @test occursin(
+        r"construct_device! not implemented for device type \S*LogicalGenerationUnit " *
+        r"with formulation \S*ThermalStandardUnitCommitment at ArgumentConstructStage",
+        read(joinpath(dir, "operation_problem.log"), String),
+    )
 end
 
 # Ramps of 10% of Pmax per hour, which bind on the c_sys5 load profile; `none` units get no ramps.
@@ -152,7 +167,7 @@ end
     thermal =
         tighten_ramps!(PSB.build_system(PSITestSystems, "c_sys5"); none = ("Park City",))
     logical = replace_thermals_with_logical_units!(deepcopy(thermal))
-    model = solved_commitment_model(
+    model = solved_model(
         logical,
         PSY.LogicalGenerationUnit,
         LogicalUnitStandardDispatch,
@@ -160,15 +175,12 @@ end
     )
     @test _objective(model) ≈
           thermal_objective(thermal, ThermalStandardDispatch) rtol = 1e-6
-    @test isempty(
-        ramp_rows(model) ∩ ["Park City"],
-    )
     @test issetequal(ramp_rows(model), ["Alta", "Brighton", "Solitude", "Sundance"])
 end
 
-# c_sys5_uc with `name` offering the `add_mbc!` market bid over its 10-100 MW curve range.
-function market_bid_system(name; start_up = nothing)
-    sys = PSB.build_system(PSITestSystems, "c_sys5_uc")
+# `case` with `name` offering the `add_mbc!` market bid over its 10-100 MW curve range.
+function market_bid_system(name; start_up = nothing, case = "c_sys5_uc")
+    sys = PSB.build_system(PSITestSystems, case)
     add_mbc!(sys, make_selector(PSY.ThermalStandard, name))
     unit = PSY.get_component(PSY.ThermalStandard, sys, name)
     PSY.set_active_power_limits!(unit, (min = 10.0 * u"MW", max = 100.0 * u"MW"))
@@ -181,7 +193,7 @@ end
     logical = replace_thermals_with_logical_units!(deepcopy(thermal))
     unit = PSY.get_component(PSY.LogicalGenerationUnit, logical, "Park City")
     @test PSY.get_operation_cost(unit) isa PSY.MarketBidCost
-    model = solved_commitment_model(
+    model = solved_model(
         logical,
         PSY.LogicalGenerationUnit,
         LogicalUnitStandardCommitment,
@@ -198,6 +210,96 @@ end
           thermal_objective(thermal, ThermalStandardUnitCommitment) rtol = 1e-6
 end
 
+# The MBC offset by p_min must be the constant first breakpoint: dispatch has no OnVariable.
+function blocks_cover_power_above_min(model, sys, ::Type{T}, name) where {T}
+    container = IOM.get_optimization_container(model)
+    power = IOM.get_variable(container, ActivePowerVariable, T)
+    blocks = IOM.get_variable(container, IOM.PiecewiseLinearBlockIncrementalOffer, T)
+    p_min = 10.0 / PSY.get_base_power(sys)
+    return all(axes(power)[2]) do t
+        delta = sum(JuMP.value(v) for (k, v) in blocks.data if k[1] == name && k[end] == t)
+        isapprox(delta + p_min, JuMP.value(power[name, t]); atol = 1e-6)
+    end
+end
+
+@testset "MarketBidCost under dispatch formulations" begin
+    # c_sys5 for the standard pair: ThermalStandardDispatch is infeasible on c_sys5_uc.
+    for (lf, tf, case) in (
+        (LogicalUnitBasicDispatch, ThermalBasicDispatch, "c_sys5_uc"),
+        (LogicalUnitStandardDispatch, ThermalStandardDispatch, "c_sys5"),
+    )
+        thermal = market_bid_system("Park City"; case)
+        logical = replace_thermals_with_logical_units!(deepcopy(thermal))
+        t_model = solved_model(thermal, PSY.ThermalStandard, tf, CopperPlateNetworkModel)
+        l_model =
+            solved_model(logical, PSY.LogicalGenerationUnit, lf, CopperPlateNetworkModel)
+        @test blocks_cover_power_above_min(
+            t_model,
+            thermal,
+            PSY.ThermalStandard,
+            "Park City",
+        )
+        @test blocks_cover_power_above_min(
+            l_model,
+            logical,
+            PSY.LogicalGenerationUnit,
+            "Park City",
+        )
+        @test _objective(l_model) ≈ _objective(t_model) rtol = 1e-6
+    end
+    # ThermalDispatchNoMin has no constant p_min offset to use, so it still fails to build.
+    template = get_thermal_dispatch_template_network(CopperPlateNetworkModel)
+    set_device_model!(template, PSY.ThermalStandard, ThermalDispatchNoMin)
+    model =
+        DecisionModel(template, market_bid_system("Park City"); optimizer = TWIN_OPTIMIZER)
+    @test build!(model; output_dir = mktempdir()) == IOM.ModelBuildStatus.FAILED
+end
+
+# c_sys5_uc with `name` offering a time-varying `MarketBidTimeSeriesCost`, built on the unit
+# after any conversion so the thermal and logical systems share nothing. Slopes are cut to a
+# third so the offer undercuts the other units and its varying tranches set the dispatch.
+function ts_market_bid_system(name; logical::Bool)
+    sys = PSB.build_system(PSITestSystems, "c_sys5_uc")
+    logical && replace_thermals_with_logical_units!(sys)
+    T = logical ? PSY.LogicalGenerationUnit : PSY.ThermalStandard
+    unit = PSY.get_component(T, sys, name)
+    PSY.set_active_power_limits!(unit, (min = 10.0 * u"MW", max = 100.0 * u"MW"))
+    add_mbc!(sys, make_selector(T, name))
+    extend_mbc!(
+        sys,
+        make_selector(T, name);
+        modify_baseline_pwl = pwl -> PiecewiseStepData(
+            PSY.get_x_coords(pwl),
+            PSY.get_y_coords(pwl) ./ 3,
+        ),
+        initial_varies = true,
+        slopes_vary = true,
+    )
+    return sys
+end
+
+@testset "Logical units with MarketBidTimeSeriesCost match thermal" begin
+    thermal = ts_market_bid_system("Park City"; logical = false)
+    logical = ts_market_bid_system("Park City"; logical = true)
+    unit = PSY.get_component(PSY.LogicalGenerationUnit, logical, "Park City")
+    @test PSY.get_operation_cost(unit) isa PSY.MarketBidTimeSeriesCost
+    for (lf, tf) in (
+        (LogicalUnitStandardCommitment, ThermalStandardUnitCommitment),
+        (LogicalUnitBasicDispatch, ThermalBasicDispatch),
+    )
+        model =
+            solved_model(logical, PSY.LogicalGenerationUnit, lf, CopperPlateNetworkModel)
+        power = IOM.get_variable(
+            IOM.get_optimization_container(model),
+            ActivePowerVariable,
+            PSY.LogicalGenerationUnit,
+        )
+        # The offer's tranches are in use, not just its minimum.
+        @test any(JuMP.value(power["Park City", t]) > 0.1 + 1e-3 for t in axes(power)[2])
+        @test _objective(model) ≈ thermal_objective(thermal, tf) rtol = 1e-6
+    end
+end
+
 # Skipping initialization keeps Sundance offline at t0, so it starts once in the horizon.
 @testset "Startup stages on logical units do not warn" begin
     stages = (hot = 300.0, warm = 600.0, cold = 900.0)
@@ -206,7 +308,7 @@ end
         sys = market_bid_system("Sundance"; start_up)
         T == PSY.LogicalGenerationUnit && replace_thermals_with_logical_units!(sys)
         dir = mktempdir()
-        model = solved_commitment_model(
+        model = solved_model(
             sys, T, F, CopperPlateNetworkModel;
             output_dir = dir, initialize_model = false,
         )
@@ -259,7 +361,7 @@ end
         Dict(ActivePowerTimeSeriesParameter => "max_active_power"),
     )
     lf, tf = LogicalUnitStandardCommitment, ThermalStandardUnitCommitment
-    model = solved_commitment_model(
+    model = solved_model(
         logical,
         PSY.LogicalGenerationUnit,
         lf,
@@ -294,13 +396,36 @@ end
             PSY.get_name.(PSY.get_services(twin)),
         )
     end
-    t_obj = thermal_objective(thermal, ThermalStandardUnitCommitment; services = reserves)
-    @test logical_unit_objective(
-        logical,
-        LogicalUnitStandardCommitment;
+    net = CopperPlateNetworkModel
+    t_model = solved_model(
+        thermal, PSY.ThermalStandard, ThermalStandardUnitCommitment, net;
         services = reserves,
-    ) ≈
-          t_obj rtol = 1e-6
+    )
+    l_model = solved_model(
+        logical, PSY.LogicalGenerationUnit, LogicalUnitStandardCommitment, net;
+        services = reserves,
+    )
+    t_obj = _objective(t_model)
+    @test _objective(l_model) ≈ t_obj rtol = 1e-6
+    container = IOM.get_optimization_container(l_model)
+    R = OnlineReserve{ReserveUp}
+    @test haskey(
+        IOM.get_variables(container),
+        IOM.VariableKey(
+            ActivePowerReserveVariable,
+            IOM.ComponentPairKey{PSY.LogicalGenerationUnit, R},
+        ),
+    )
+    slack(m) =
+        JuMP.value.(
+            IOM.get_variable(
+                IOM.get_optimization_container(m),
+                ReserveRequirementSlack,
+                R,
+            ).data,
+        )
+    @test maximum(abs, slack(l_model)) < 1e-7
+    @test isapprox(slack(l_model), slack(t_model); atol = 1e-7)
     @test !isapprox(
         t_obj,
         thermal_objective(thermal, ThermalStandardUnitCommitment);

@@ -223,6 +223,18 @@ _include_constant_min_gen_power_in_constraint(
     ::Type{ActivePowerVariable},
     ::Type{<:AbstractRenewableDispatchFormulation},
 ) = true
+# Dispatch keeps the unit online at p_min with no OnVariable, so the offset is constant.
+_include_constant_min_gen_power_in_constraint(
+    ::Type{<:ThermalOrLogicalUnit},
+    ::Type{ActivePowerVariable},
+    ::Type{<:ThermalOrLogicalDispatch},
+) = true
+# ThermalDispatchNoMin lets power fall below p_min, so a constant p_min offset would not fit.
+_include_constant_min_gen_power_in_constraint(
+    ::Type{<:ThermalOrLogicalUnit},
+    ::Type{ActivePowerVariable},
+    ::Type{ThermalDispatchNoMin},
+) = false
 
 #################################################################################
 # Section 6: Source ImportExport — both incremental and decremental offers
