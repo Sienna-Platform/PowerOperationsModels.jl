@@ -297,6 +297,7 @@ include("initial_conditions/update_initial_conditions.jl")
 # Device Models - Static Injectors
 include("static_injector_models/thermal_generation.jl")
 include("static_injector_models/thermalgeneration_constructor.jl")
+include("static_injector_models/logical_units.jl")
 include("static_injector_models/renewable_generation.jl")
 include("static_injector_models/renewablegeneration_constructor.jl")
 include("static_injector_models/electric_loads.jl")
