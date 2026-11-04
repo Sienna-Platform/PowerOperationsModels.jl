@@ -339,6 +339,7 @@ include("network_models/dcpll_model.jl")
 include("network_models/acp_model.jl")
 include("network_models/acr_model.jl")
 include("network_models/lpacc_model.jl")
+include("network_models/load_zone_distribution.jl")
 include("network_models/network_constructor.jl")
 
 # Services Models
@@ -416,6 +417,7 @@ export add_reserve_variables!
 export DecisionModel
 export EmulationModel
 export PowerOperationsProblemTemplate
+export get_distribution_factors
 export InitialCondition
 export AbstractPowerOperationProblem
 export AbstractPowerDecisionProblem
@@ -929,6 +931,7 @@ export ActivePowerInTimeSeriesParameter
 export ReactivePowerTimeSeriesParameter
 export RequirementTimeSeriesParameter
 export DeployedFractionParameter
+export DistributionFactorParameter
 export MinActivePowerTimeSeriesParameter
 export MinActivePowerInTimeSeriesParameter
 export UpperBoundValueParameter

@@ -45,6 +45,7 @@ function construct_network!(
     add_variables!(container, VoltageAngle, sys, model)
     add_variables!(container, VoltageMagnitude, sys, model)
     _add_balance_slack_variables!(container, sys, model; reactive = true)
+    add_load_zone_load!(container, sys, model)
     return
 end
 
@@ -58,6 +59,7 @@ function construct_network!(
     add_variables!(container, VoltageReal, sys, model)
     add_variables!(container, VoltageImaginary, sys, model)
     _add_balance_slack_variables!(container, sys, model; reactive = true)
+    add_load_zone_load!(container, sys, model)
     return
 end
 
@@ -71,6 +73,7 @@ function construct_network!(
     add_variables!(container, VoltageAngle, sys, model)
     add_variables!(container, VoltageDeviation, sys, model)
     _add_balance_slack_variables!(container, sys, model; reactive = true)
+    add_load_zone_load!(container, sys, model)
     return
 end
 
@@ -83,6 +86,7 @@ function construct_network!(
 )
     add_variables!(container, VoltageAngle, sys, model)
     _add_balance_slack_variables!(container, sys, model; reactive = false)
+    add_load_zone_load!(container, sys, model)
     return
 end
 
@@ -125,6 +129,7 @@ function construct_network!(
 )
     add_variables!(container, VoltageAngle, sys, model)
     _add_balance_slack_variables!(container, sys, model; reactive = false)
+    add_load_zone_load!(container, sys, model)
     for branch_model in values(get_branch_models(template))
         _add_static_branch_btheta_expression!(container, sys, branch_model, model)
     end
@@ -141,6 +146,7 @@ function construct_network!(
     ::ArgumentConstructStage,
 )
     _add_balance_slack_variables!(container, sys, model; reactive = false)
+    add_load_zone_load!(container, sys, model)
     return
 end
 
@@ -222,6 +228,7 @@ function construct_network!(
     ::ArgumentConstructStage,
 )
     _add_balance_slack_variables!(container, sys, model; reactive = false)
+    add_load_zone_load!(container, sys, model)
     _add_shift_injections!(container, model, template)
     return
 end
