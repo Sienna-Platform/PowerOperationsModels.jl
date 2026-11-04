@@ -208,6 +208,7 @@ function add_constraints!(
                 orientation_sign_cache,
                 t,
             )
+            round_to_zero_or_one!(sum_of_flows)
             con_ub[inter_change_name, t] =
                 JuMP.@constraint(jm, sum_of_flows <= area_ex_var[inter_change_name, t])
             con_lb[inter_change_name, t] =
@@ -474,6 +475,7 @@ function add_constraints!(
                     )
                 end
             end
+            round_to_zero_or_one!(sum_of_flows)
             con_ub[inter_change_name, t] =
                 JuMP.@constraint(jm, sum_of_flows <= area_ex_var[inter_change_name, t])
             con_lb[inter_change_name, t] =
