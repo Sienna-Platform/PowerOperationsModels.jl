@@ -486,7 +486,7 @@ function _add_post_contingency_flow_slacks!(
 )
     jump_model = get_jump_model(container)
     time_steps = get_time_steps(container)
-    cost = CONSTRAINT_VIOLATION_SLACK_COST * _hours_per_step(container)
+    cost = CONSTRAINT_VIOLATION_SLACK_COST * IOM.get_resolution_in_hours(container)
     for (outage_id, per_type) in monitored_components
         use_slacks[outage_id] || continue
         for (component_type, names) in per_type

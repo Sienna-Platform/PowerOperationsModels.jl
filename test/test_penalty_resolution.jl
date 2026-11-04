@@ -6,13 +6,6 @@ const _RESOLUTIONS = (("c_sys5_uc", Dates.Hour(1)), ("c_sys5_ed", Dates.Minute(5
 # Step length in hours, computed apart from POM's helper.
 _step_hours(step::Dates.Period) = Dates.value(Dates.Millisecond(step)) / 3_600_000
 
-function _expected_cost(cost::Float64, step::Dates.Period, dt::Float64)
-    if step == Dates.Hour(1)
-        return cost
-    end
-    return cost * dt
-end
-
 # Every thermal capped at zero, so the balance slack carries the whole load.
 function _balance_slack_model(sys_name::String)
     sys = PSB.build_system(PSITestSystems, sys_name)
@@ -58,9 +51,9 @@ end
         container = IOM.get_optimization_container(model)
         @test IOM.get_resolution(container) == Dates.Millisecond(step)
         dt = _step_hours(step)
-        @test POM._hours_per_step(container) == dt
+        @test IOM.get_resolution_in_hours(container) == dt
         obj = JuMP.objective_function(IOM.get_jump_model(container))
-        expected = _expected_cost(POM.BALANCE_SLACK_COST, step, dt)
+        expected = POM.BALANCE_SLACK_COST * dt
         for S in (SystemBalanceSlackUp, SystemBalanceSlackDown)
             slack = IOM.get_variable(container, S, PSY.System)
             @test all(JuMP.coefficient(obj, v) == expected for v in slack)
@@ -79,10 +72,10 @@ end
         model = _capped_branch_model(sys_name)
         container = IOM.get_optimization_container(model)
         dt = _step_hours(step)
-        @test POM._hours_per_step(container) == dt
+        @test IOM.get_resolution_in_hours(container) == dt
         obj = JuMP.objective_function(IOM.get_jump_model(container))
         slack = IOM.get_variable(container, FlowActivePowerSlackUpperBound, PSY.Line)
-        @test all(JuMP.coefficient(obj, v) == _expected_cost(cost, step, dt) for v in slack)
+        @test all(JuMP.coefficient(obj, v) == cost * dt for v in slack)
         @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
         ub = IOM.get_constraint(container, FlowRateConstraint, PSY.Line, "ub")
         active = [
@@ -100,12 +93,12 @@ end
         sys = PSB.build_system(PSITestSystems, sys_name)
         container = build_test_container(sys, 1:2; resolution = step)
         dt = _step_hours(step)
-        @test POM._hours_per_step(container) == dt
+        @test IOM.get_resolution_in_hours(container) == dt
 
         R = PSY.OnlineReserve{PSY.ReserveUp}
         POM.add_reserve_slacks!(container, R, ["R1"])
         @test obj_coef(container, ReserveRequirementSlack, R, "R1", 2) ==
-              _expected_cost(POM.SERVICES_SLACK_COST, step, dt)
+              POM.SERVICES_SLACK_COST * dt
 
         interface = PSY.TransmissionInterface(;
             name = "i1",
@@ -117,7 +110,7 @@ end
         POM.transmission_interface_slacks!(container, [interface])
         for S in (InterfaceFlowSlackUp, InterfaceFlowSlackDown)
             @test obj_coef(container, S, PSY.TransmissionInterface, "i1", 1) ==
-                  _expected_cost(750.0, step, dt)
+                  750.0 * dt
         end
     end
 end
@@ -145,7 +138,7 @@ function _feedforward_slack_coefs(sys_name::String, formulation, var)
         "$(nameof(var))",
     )
     obj = JuMP.objective_function(IOM.get_jump_model(container))
-    return container, [get(obj.terms, v, 0.0) for v in vec(slack.data)]
+    return container, JuMP.coefficient.(obj, slack)
 end
 
 @testset "Feedforward bound slack on a power is priced per hour" begin
@@ -154,8 +147,8 @@ end
             _feedforward_slack_coefs(sys_name, ThermalStandardDispatch, ActivePowerVariable)
         @test IOM.get_resolution(container) == Dates.Millisecond(step)
         dt = _step_hours(step)
-        @test POM._hours_per_step(container) == dt
-        @test all(c == _expected_cost(POM.BALANCE_SLACK_COST, step, dt) for c in coefs)
+        @test IOM.get_resolution_in_hours(container) == dt
+        @test all(c == POM.BALANCE_SLACK_COST * dt for c in coefs)
     end
 end
 

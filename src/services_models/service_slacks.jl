@@ -11,7 +11,7 @@ function add_reserve_slacks!(
         service_names, time_steps)
 
     jump_model = get_jump_model(container)
-    cost = SERVICES_SLACK_COST * _hours_per_step(container)
+    cost = SERVICES_SLACK_COST * IOM.get_resolution_in_hours(container)
     for name in service_names, t in time_steps
         variable[name, t] = JuMP.@variable(
             jump_model,
@@ -37,6 +37,7 @@ function transmission_interface_slacks!(
     # One dense 2D container per (slack variable type, TransmissionInterface) keyed
     # `[interface_name, time]`, built once over all interfaces (`use_slacks` is per type).
     # Each interface's slacks carry its own violation penalty, per pu-hour.
+    dt = IOM.get_resolution_in_hours(container)
     for variable_type in [InterfaceFlowSlackUp, InterfaceFlowSlackDown]
         variable =
             add_variable_container!(
@@ -48,7 +49,7 @@ function transmission_interface_slacks!(
             )
         for service in services
             name = PSY.get_name(service)
-            penalty = PSY.get_violation_penalty(service) * _hours_per_step(container)
+            penalty = PSY.get_violation_penalty(service) * dt
             for t in time_steps
                 variable[name, t] = JuMP.@variable(
                     jump_model,

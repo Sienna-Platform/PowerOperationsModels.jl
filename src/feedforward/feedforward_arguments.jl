@@ -48,21 +48,23 @@ end
 
 # A slack on a power is priced per pu-hour, like device costs. Any other bounded variable
 # (a commitment status, a stored energy) keeps a per-step price.
-_feedforward_slack_cost(container::OptimizationContainer, ::Type{<:VariableType}) =
-    FEEDFORWARD_SLACK_COST
-_feedforward_slack_cost(
+_slack_bounds_power(::Type{<:VariableType}) = false
+_slack_bounds_power(::Type{ActivePowerVariable}) = true
+_slack_bounds_power(::Type{PowerAboveMinimumVariable}) = true
+_slack_bounds_power(::Type{ReactivePowerVariable}) = true
+_slack_bounds_power(::Type{ActivePowerInVariable}) = true
+_slack_bounds_power(::Type{ActivePowerOutVariable}) = true
+_slack_bounds_power(::Type{ActivePowerPumpVariable}) = true
+
+function _feedforward_slack_cost(
     container::OptimizationContainer,
-    ::Type{
-        <:Union{
-            ActivePowerVariable,
-            PowerAboveMinimumVariable,
-            ReactivePowerVariable,
-            ActivePowerInVariable,
-            ActivePowerOutVariable,
-            ActivePowerPumpVariable,
-        },
-    },
-) = BALANCE_SLACK_COST * _hours_per_step(container)
+    ::Type{T},
+) where {T <: VariableType}
+    if _slack_bounds_power(T)
+        return BALANCE_SLACK_COST * IOM.get_resolution_in_hours(container)
+    end
+    return FEEDFORWARD_SLACK_COST
+end
 
 # Penalized at `_feedforward_slack_cost`; PSI leaves the device-path slacks free, which
 # makes the relaxed bound never bind.
