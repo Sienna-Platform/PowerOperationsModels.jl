@@ -93,28 +93,75 @@ end
     @test build!(model; output_dir = mktempdir()) == IOM.ModelBuildStatus.FAILED
 end
 
-@testset "Logical unit dispatch matches its thermal twin" begin
-    for (lf, tf, name) in (
-            (LogicalUnitBasicDispatch, ThermalBasicDispatch, "c_sys5_uc"),
-            (LogicalUnitStandardDispatch, ThermalStandardDispatch, "c_sys5"),
-        ),
-        network in (CopperPlateNetworkModel, PTDFNetworkModel)
+# Ramps of 10% of Pmax per hour, which bind on the c_sys5 load profile; `none` units get no ramps.
+function tighten_ramps!(sys; none = ())
+    for d in PSY.get_components(PSY.ThermalStandard, sys)
+        if PSY.get_name(d) in none
+            PSY.set_ramp_limits!(d, nothing)
+        else
+            r = PSY.get_active_power_limits(d, u"SU").max / 600
+            PSY.set_ramp_limits!(d, (up = r * u"SU/minute", down = r * u"SU/minute"))
+        end
+    end
+    return sys
+end
 
-        thermal = PSB.build_system(PSITestSystems, name)
+function ramp_rows(model)
+    container = IOM.get_optimization_container(model)
+    rows = Set{String}()
+    for (k, c) in IOM.get_constraints(container)
+        IOM.get_component_type(k) == PSY.LogicalGenerationUnit &&
+            IOM.get_entry_type(k) == RampConstraint &&
+            union!(rows, axes(c)[1])
+    end
+    return rows
+end
+
+@testset "Logical unit basic dispatch matches its thermal twin" begin
+    for network in (CopperPlateNetworkModel, PTDFNetworkModel)
+        thermal = PSB.build_system(PSITestSystems, "c_sys5_uc")
         logical = replace_thermals_with_logical_units!(
-            PSB.build_system(PSITestSystems, name),
+            PSB.build_system(PSITestSystems, "c_sys5_uc"),
         )
-        t_obj = thermal_objective(thermal, tf; network)
-        l_obj = logical_unit_objective(logical, lf; network)
-        @test l_obj ≈ t_obj rtol = 1e-6
+        @test logical_unit_objective(logical, LogicalUnitBasicDispatch; network) ≈
+              thermal_objective(thermal, ThermalBasicDispatch; network) rtol = 1e-6
     end
 end
 
-@testset "Logical standard dispatch without ramp limits matches thermal" begin
-    thermal = PSB.build_system(PSITestSystems, "c_sys5")
-    PSY.set_ramp_limits!(PSY.get_component(PSY.ThermalStandard, thermal, "Alta"), nothing)
+# c_sys5, not c_sys5_uc: the thermal ThermalStandardDispatch twin is infeasible on c_sys5_uc.
+@testset "Logical standard dispatch with binding ramps matches its thermal twin" begin
+    for network in (CopperPlateNetworkModel, PTDFNetworkModel)
+        unramped = PSB.build_system(PSITestSystems, "c_sys5")
+        for d in PSY.get_components(PSY.ThermalStandard, unramped)
+            PSY.set_ramp_limits!(d, nothing)
+        end
+        thermal = tighten_ramps!(PSB.build_system(PSITestSystems, "c_sys5"))
+        logical = replace_thermals_with_logical_units!(deepcopy(thermal))
+        t_obj = thermal_objective(thermal, ThermalStandardDispatch; network)
+        @test logical_unit_objective(logical, LogicalUnitStandardDispatch; network) ≈
+              t_obj rtol = 1e-6
+        @test !isapprox(
+            t_obj,
+            thermal_objective(unramped, ThermalStandardDispatch; network);
+            rtol = 1e-6,
+        )
+    end
+end
+
+@testset "Logical standard dispatch skips ramps for units without ramp limits" begin
+    thermal =
+        tighten_ramps!(PSB.build_system(PSITestSystems, "c_sys5"); none = ("Park City",))
     logical = replace_thermals_with_logical_units!(deepcopy(thermal))
-    t_obj = thermal_objective(thermal, ThermalStandardDispatch)
-    l_obj = logical_unit_objective(logical, LogicalUnitStandardDispatch)
-    @test l_obj ≈ t_obj rtol = 1e-6
+    model = solved_commitment_model(
+        logical,
+        PSY.LogicalGenerationUnit,
+        LogicalUnitStandardDispatch,
+        CopperPlateNetworkModel,
+    )
+    @test _objective(model) ≈
+          thermal_objective(thermal, ThermalStandardDispatch) rtol = 1e-6
+    @test isempty(
+        ramp_rows(model) ∩ ["Park City"],
+    )
+    @test issetequal(ramp_rows(model), ["Alta", "Brighton", "Solitude", "Sundance"])
 end
