@@ -547,7 +547,7 @@ function _build_post_contingency_flow_expressions_for_outage(
                 JuMP.add_to_expression!(expressions[t], sensitivity + own, adj.delta[t])
             end
         end
-        foreach(round_to_zero_or_one!, expressions)
+        foreach(IOM.round_to_zero_or_one!, expressions)
         results[i] = (rep.name, expressions)
     end
     return results

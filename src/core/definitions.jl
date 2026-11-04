@@ -72,9 +72,6 @@ const COST_EPSILON = 1e-3
 # JuMP term to a flow expression. Unrelated to the sparsification cutoff a derived
 # matrix is built with, which `SystemNetworkSource` takes from PNM.
 const PTDF_ZERO_TOL = 1e-9
-# Absolute tolerance for `round_to_zero_or_one!`: a summed affine-expression coefficient
-# within this distance of 0, 1, or -1 is floating-point residue.
-const EXPRESSION_ROUNDING_TOL = 1e-9
 const MISSING_INITIAL_CONDITIONS_TIME_COUNT = 999.0
 
 const MAX_START_STAGES = 3

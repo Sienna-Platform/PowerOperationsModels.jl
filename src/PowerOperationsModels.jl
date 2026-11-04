@@ -308,7 +308,6 @@ include("static_injector_models/reactivepowerdevice_constructor.jl")
 include("static_injector_models/shunt_models.jl")
 include("static_injector_models/shunt_constructor.jl")
 include("utils/psy_utils.jl")
-include("utils/jump_utils.jl")
 include("static_injector_models/hydro_generation.jl")
 include("static_injector_models/hydrogeneration_constructor.jl")
 

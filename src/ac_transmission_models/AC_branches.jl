@@ -759,7 +759,7 @@ function _ptdf_branch_flow(
             )
         end
         JuMP.add_to_expression!(acc, -shift_injection)
-        expressions[t] = round_to_zero_or_one!(acc)
+        expressions[t] = IOM.round_to_zero_or_one!(acc)
     end
     return rep.name, expressions
 end
@@ -796,7 +796,7 @@ function _ptdf_branch_flow(
             )
         end
         JuMP.add_to_expression!(acc, -b, phase_row[t])
-        expressions[t] = round_to_zero_or_one!(acc)
+        expressions[t] = IOM.round_to_zero_or_one!(acc)
     end
     return rep.name, expressions
 end

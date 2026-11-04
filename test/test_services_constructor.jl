@@ -938,7 +938,7 @@ end
         abs(c) for e in expression["cancel", :] for (c, _) in JuMP.linear_terms(e)
     ]
     @test !isempty(coefficients)
-    @test minimum(coefficients) > POM.EXPRESSION_ROUNDING_TOL
+    @test minimum(coefficients) > IOM.EXPRESSION_ROUNDING_TOL
 end
 
 @testset "Test Transmission Interface with TimeSeries" begin
