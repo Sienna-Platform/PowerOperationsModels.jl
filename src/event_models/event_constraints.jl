@@ -481,3 +481,71 @@ function add_input_output_active_power_contingency_constraints!(
     end
     return
 end
+
+#################################################################################
+# Line outages under DCPNetworkModel with StaticBranchBounds
+#################################################################################
+
+# The angle coefficients of the line's Ohm's-law row follow its availability status, so an
+# open line carries `p == 0` and leaves its terminal angles free. The status-scaled bounds
+# keep the flow at zero when slacks relax the Ohm's-law row.
+function add_event_constraints!(
+    container::OptimizationContainer,
+    devices::Vector{PSY.Line},
+    device_model::DeviceModel{PSY.Line, StaticBranchBounds},
+    network_model::NetworkModel{DCPNetworkModel},
+)
+    _for_each_event_devices(devices, device_model) do lines, _
+        _add_line_outage_constraints!(container, lines, device_model, network_model)
+    end
+    return
+end
+
+function _add_line_outage_constraints!(
+    container::OptimizationContainer,
+    lines::Vector{PSY.Line},
+    device_model::DeviceModel{PSY.Line, StaticBranchBounds},
+    network_model::NetworkModel{DCPNetworkModel},
+)
+    time_steps = get_time_steps(container)
+    names = PSY.get_name.(lines)
+    ohms = get_constraint(container, NetworkFlowConstraint, PSY.Line)
+    va = get_variable(container, VoltageAngle, PSY.ACBus)
+    flow = get_variable(container, FlowActivePowerVariable, PSY.Line)
+    status = get_parameter_array(container, AvailableStatusParameter, PSY.Line)
+    status_key = IOM.ParameterKey(AvailableStatusParameter, PSY.Line)
+    con_ub = add_constraints_container!(
+        container, ActivePowerOutageConstraint, PSY.Line, names, time_steps; meta = "ub",
+    )
+    con_lb = add_constraints_container!(
+        container, ActivePowerOutageConstraint, PSY.Line, names, time_steps; meta = "lb",
+    )
+    reps = Dict(
+        rep.name => rep for
+        rep in _representative_branches(network_model, PSY.Line, NetworkFlowConstraint)
+    )
+    jump_model = get_jump_model(container)
+    for line in lines
+        name = PSY.get_name(line)
+        arc = PSY.get_arc(line)
+        from_name = PSY.get_name(PSY.get_from(arc))
+        to_name = PSY.get_name(PSY.get_to(arc))
+        rating = _flow_limits(reps[name], device_model).max
+        for t in time_steps
+            row = ohms[name, t]
+            IOM.add_parameter_coefficient!(
+                container, status_key, name, t, row, va[from_name, t],
+            )
+            IOM.add_parameter_coefficient!(
+                container, status_key, name, t, row, va[to_name, t],
+            )
+            con_ub[name, t] = JuMP.@constraint(
+                jump_model, flow[name, t] <= rating * status[name, t],
+            )
+            con_lb[name, t] = JuMP.@constraint(
+                jump_model, flow[name, t] >= -rating * status[name, t],
+            )
+        end
+    end
+    return
+end

@@ -16,4 +16,5 @@ supports_events(::Type{T}) where {T <: PSY.RenewableGen} = true
 supports_events(::Type{T}) where {T <: PSY.ElectricLoad} = true
 supports_events(::Type{T}) where {T <: PSY.Storage} = true
 supports_events(::Type{T}) where {T <: PSY.HydroGen} = true
+supports_events(::Type{PSY.Line}) = true
 #! format: on

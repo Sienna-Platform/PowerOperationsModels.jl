@@ -1231,6 +1231,7 @@ function construct_device!(
         network_model,
     )
     add_feedforward_arguments!(container, device_model, devices)
+    add_event_arguments!(container, devices, device_model, network_model)
     return
 end
 
@@ -1252,6 +1253,7 @@ function construct_device!(
     add_constraints!(
         container, sys, NetworkFlowConstraint, devices, device_model, network_model,
     )
+    add_event_constraints!(container, devices, device_model, network_model)
     add_constraints!(
         container, sys, AngleDifferenceConstraint, devices, device_model, network_model,
     )

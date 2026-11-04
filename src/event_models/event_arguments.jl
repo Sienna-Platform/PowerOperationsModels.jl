@@ -108,7 +108,7 @@ function _add_status_event_arguments!(
     devices_with_attributes::Vector{U},
     device_model::DeviceModel,
     event_model::EventModel,
-) where {U <: PSY.StaticInjection}
+) where {U <: PSY.Device}
     for p_type in (AvailableStatusChangeCountdownParameter, AvailableStatusParameter)
         add_parameters!(
             container,
@@ -312,6 +312,85 @@ function add_event_arguments!(
             network_model,
             event_model,
             true,
+        )
+    end
+    return
+end
+
+#################################################################################
+# Line outages under DCPNetworkModel with StaticBranchBounds
+#################################################################################
+
+function add_event_arguments!(
+    container::OptimizationContainer,
+    devices::Vector{PSY.Line},
+    device_model::DeviceModel{PSY.Line, StaticBranchBounds},
+    network_model::NetworkModel{DCPNetworkModel},
+)
+    _for_each_event_devices(devices, device_model) do lines, event_model
+        _validate_line_events(lines, network_model)
+        _add_status_event_arguments!(container, lines, device_model, event_model)
+    end
+    return
+end
+
+# Line outages are written per line on the unreduced network: each outaged line must be its
+# own arc, keep its angles unconstrained once open, and leave the network connected.
+function _validate_line_events(
+    lines::Vector{PSY.Line},
+    network_model::NetworkModel{DCPNetworkModel},
+)
+    reduction = get_network_reduction(network_model)
+    if PNM.has_radial_reduction(reduction) || PNM.has_degree_two_reduction(reduction) ||
+       PNM.has_ward_reduction(reduction)
+        error("Line outage events are not supported with network reductions.")
+    end
+    reps = Dict(
+        rep.name => rep for
+        rep in _representative_branches(network_model, PSY.Line, NetworkFlowConstraint)
+    )
+    for line in lines
+        name = PSY.get_name(line)
+        rep = get(reps, name, nothing)
+        if isnothing(rep) || !(_provenance(rep) isa PNM.DirectArc)
+            error(
+                "Line $name carries an outage event but is merged with other branches \
+                 (e.g. in parallel). Outage events require the line to be its own arc.",
+            )
+        end
+        if _constrains_angle_difference(line)
+            error(
+                "Line $name carries an outage event and angle limits; outage events are \
+                 not supported on lines with angle-difference constraints.",
+            )
+        end
+    end
+    _check_line_events_keep_connectivity(lines, network_model)
+    return
+end
+
+# Opens every event line at once: if that keeps the network connected, so does any subset.
+function _check_line_events_keep_connectivity(
+    lines::Vector{PSY.Line},
+    network_model::NetworkModel{DCPNetworkModel},
+)
+    ybus = IOM.get_network_matrix(network_model)
+    adjacency = copy(ybus.adjacency_data)
+    lookup = ybus.lookup[1]
+    for line in lines
+        arc = PSY.get_arc(line)
+        i = lookup[PSY.get_number(PSY.get_from(arc))]
+        j = lookup[PSY.get_number(PSY.get_to(arc))]
+        adjacency[i, j] = 0
+        adjacency[j, i] = 0
+    end
+    SparseArrays.dropzeros!(adjacency)
+    subnetworks = PNM.find_subnetworks(adjacency, ybus.axes[1])
+    if length(subnetworks) > length(network_model.subnetworks)
+        error(
+            "Outaging the lines with outage events ($(join(PSY.get_name.(lines), ", "))) \
+             islands the network. Outage events that can island the network are not \
+             supported.",
         )
     end
     return

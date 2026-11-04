@@ -1175,6 +1175,7 @@ function _build_device_model_events!(template::PowerOperationsProblemTemplate)
                     IOM.LOG_GROUP_MODELS_VALIDATION
                 continue
             end
+            _check_event_support(device_model, get_network_model(template))
             key = EventKey(event_type, device_type)
             existing_events = IOM.get_events(device_model)
             if haskey(existing_events, key)
@@ -1214,6 +1215,17 @@ function _build_device_model_events!(template::PowerOperationsProblemTemplate)
     end
     return
 end
+
+# Branch constructors other than DCP StaticBranchBounds never apply events, so an event on
+# any other Line model would be silently dropped.
+_check_event_support(::DeviceModel, ::NetworkModel) = nothing
+_check_event_support(::DeviceModel{PSY.Line}, ::NetworkModel) = error(
+    "Line outage events require the StaticBranchBounds formulation under DCPNetworkModel.",
+)
+_check_event_support(
+    ::DeviceModel{PSY.Line, StaticBranchBounds},
+    ::NetworkModel{DCPNetworkModel},
+) = nothing
 
 function _validate_event_timeseries_data(
     sys::PSY.System,
