@@ -887,9 +887,6 @@ struct PostGeneratorContingencyFlowSlackLowerBound <: VariableType end
 
 const MULTI_START_VARIABLES = (HotStartVariable, WarmStartVariable, ColdStartVariable)
 
-should_write_resulting_value(::Type{PiecewiseLinearCostVariable}) = false
-should_write_resulting_value(::Type{PiecewiseLinearBlockIncrementalOffer}) = false
-should_write_resulting_value(::Type{PiecewiseLinearBlockDecrementalOffer}) = false
 should_write_resulting_value(::Type{PiecewiseLinearBlockReserveOffer}) = false
 should_write_resulting_value(::Type{HVDCPiecewiseLossVariable}) = false
 should_write_resulting_value(::Type{HVDCPiecewiseBinaryLossVariable}) = false

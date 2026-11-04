@@ -220,6 +220,7 @@ function solve!(
                 TimerOutputs.@timeit RUN_OPERATION_MODEL_TIMER "Outputs processing" begin
                     outputs = OptimizationProblemOutputs(model)
                     serialize_outputs(outputs, IOM.get_output_dir(model))
+                    IOM.write_model_outputs!(model, producer_info())
                     export_problem_outputs && export_outputs(outputs)
                     if IOM.get_system_to_file(IOM.get_settings(model))
                         sys = IOM.get_system(model)

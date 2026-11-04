@@ -560,6 +560,69 @@ end
     @test any(contains.(exported, "ProductionCostExpression"))
 end
 
+function _artifact_matches(
+    a,
+    store,
+    model_name,
+    key,
+    entry_type,
+    component_type,
+    initial_time;
+    shape = permutedims,
+)
+    (values, _) = IS.read_dataset(a, model_name, entry_type, component_type; execution = 1)
+    raw = IOM.read_outputs(store, key; index = initial_time).data
+    return values ≈ shape(raw)
+end
+
+@testset "Outputs artifact round trip" begin
+    path = mktempdir(; cleanup = true)
+    sys = PSB.build_system(PSITestSystems, "c_sys5_re")
+    template = get_template_dispatch_with_network(
+        NetworkModel(CopperPlateNetworkModel; duals = [CopperPlateBalanceConstraint]),
+    )
+    model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
+    @test build!(model; output_dir = path) == IOM.ModelBuildStatus.BUILT
+    @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+    name = string(IOM.get_name(model))
+    store = IOM.get_store(model)
+    initial_time = IOM.get_initial_time(model)
+    power_key = IOM.VariableKey(ActivePowerVariable, ThermalStandard)
+
+    a = IS.open_outputs(IOM.get_output_dir(model))
+    @test IS.list_models(a) == [name]
+    @test _artifact_matches(
+        a, store, name, power_key, "ActivePowerVariable", "ThermalStandard", initial_time,
+    )
+    @test _artifact_matches(
+        a, store, name,
+        IOM.ConstraintKey(CopperPlateBalanceConstraint, PSY.System),
+        "CopperPlateBalanceConstraint", "System", initial_time;
+        shape = raw -> reshape(vec(raw), :, 1),
+    )
+    @test _artifact_matches(
+        a, store, name,
+        IOM.ParameterKey(ActivePowerTimeSeriesParameter, PowerLoad),
+        "ActivePowerTimeSeriesParameter", "PowerLoad", initial_time,
+    )
+    @test _artifact_matches(
+        a, store, name,
+        IOM.ExpressionKey(ProductionCostExpression, ThermalStandard),
+        "ProductionCostExpression", "ThermalStandard", initial_time,
+    )
+    IS.validate_components(a, name, sys.data)
+    @test IS.read_table(a, name, "optimizer_stats").execution == [1]
+
+    @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+    a2 = IS.open_outputs(IOM.get_output_dir(model))
+    @test IS.list_models(a2) == [name]
+    @test _artifact_matches(
+        a2, IOM.get_store(model), name, power_key,
+        "ActivePowerVariable", "ThermalStandard", initial_time,
+    )
+    @test IS.read_table(a2, name, "optimizer_stats").execution == [1]
+end
+
 @testset "Test Numerical Stability of Constraints" begin
     template = get_thermal_dispatch_template_network()
     c_sys5 = PSB.build_system(PSITestSystems, "c_sys5")
