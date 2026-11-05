@@ -122,13 +122,14 @@ function validate_template_impl!(model::IOM.AbstractOptimizationModel)
     _check_voltage_regulation_conflicts!(template, system, network_model)
     _check_branch_rating_time_series_formulation!(template.branches, system)
     _check_lhs_time_series_types(model)
-    _resolve_lhs_rebuild!(model)
     validate_network_model(network_model, unmodeled_branch_types, model_has_branch_filters)
     _build_device_model_outages!(template, system)
     # Must follow `_build_device_model_outages!`: that call is what fills the per-type
     # monitored-name maps this check reads.
     _check_monitored_components(template.branches, system)
     _build_device_model_events!(template)
+    # Must follow `_build_device_model_events!`: event models attach to device models there.
+    _resolve_lhs_rebuild!(model)
     return
 end
 
@@ -362,6 +363,24 @@ function _first_lhs_parameter_component(model::IOM.AbstractOptimizationModel)
     return nothing
 end
 
+# Device models whose event parameters are written into constraints as coefficients.
+_uses_lhs_event_parameters(::DeviceModel, ::NetworkModel) = false
+_uses_lhs_event_parameters(
+    device_model::DeviceModel{PSY.Line, StaticBranchBounds},
+    ::NetworkModel{DCPNetworkModel},
+) = !isempty(IOM.get_events(device_model))
+
+function _first_lhs_event_device_model(template::PowerOperationsProblemTemplate)
+    network_model = get_network_model(template)
+    for device_model in Iterators.flatten((
+        values(get_device_models(template)),
+        values(get_branch_models(template)),
+    ))
+        _uses_lhs_event_parameters(device_model, network_model) && return device_model
+    end
+    return nothing
+end
+
 # Left-hand-side parameter values are fixed coefficients, so under recurrent solves the model
 # must be rebuilt every step to read the refreshed values: `rebuild_model` is switched on, with
 # a warning, whatever it was set to.
@@ -369,14 +388,26 @@ function _resolve_lhs_rebuild!(model::IOM.AbstractOptimizationModel)
     built_for_recurrent_solves(get_optimization_container(model)) || return
     settings = get_settings(model)
     get_rebuild_model(settings) && return
-    found = _first_lhs_parameter_component(model)
-    isnothing(found) && return
-    component, P = found
-    @warn "$(PSY.get_name(component)) carries a $(nameof(P)) time series, a left-hand-side \
-           parameter; setting rebuild_model = true so every step rebuilds the model with the \
+    reason = _lhs_rebuild_reason(model)
+    isnothing(reason) && return
+    @warn "$reason; setting rebuild_model = true so every step rebuilds the model with the \
            refreshed values." _group = IOM.LOG_GROUP_MODELS_VALIDATION
     IOM.set_rebuild_model!(settings, true)
     return
+end
+
+function _lhs_rebuild_reason(model::IOM.AbstractOptimizationModel)
+    found = _first_lhs_parameter_component(model)
+    if !isnothing(found)
+        component, P = found
+        return "$(PSY.get_name(component)) carries a $(nameof(P)) time series, a \
+                left-hand-side parameter"
+    end
+    device_model = _first_lhs_event_device_model(get_template(model))
+    isnothing(device_model) && return nothing
+    return "$(nameof(get_component_type(device_model))) outage events under \
+            $(nameof(get_formulation(device_model))) write AvailableStatusParameter into \
+            constraints as a left-hand-side parameter"
 end
 
 # A left-hand-side parameter series stored under a time series type other than the one the

@@ -2219,6 +2219,7 @@ function add_constraints!(
         from_name = _from_name(rep)
         to_name = _to_name(rep)
         phase_controlled = _phase_controlled(rep, device_model, network_model)
+        status = _branch_status_values(container, T, name)
         for t in time_steps
             flow =
                 if use_slacks
@@ -2232,7 +2233,7 @@ function add_constraints!(
             shift = _shift_term(container, T, phase_controlled, rep.name, t, static_shift)
             cons[name, t] = JuMP.@constraint(
                 jump_model,
-                flow == b * (va[from_name, t] - va[to_name, t] - shift)
+                flow == b * status[t] * (va[from_name, t] - va[to_name, t] - shift)
             )
         end
     end
