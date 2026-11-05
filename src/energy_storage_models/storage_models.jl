@@ -64,8 +64,6 @@ objective_function_multiplier(::Type{StorageEnergyShortageVariable}, ::Type{<:Ab
 
 proportional_cost(cost::PSY.StorageCost, ::Type{StorageEnergySurplusVariable}, ::PSY.EnergyReservoirStorage, ::Type{<:AbstractStorageFormulation})=PSY.get_energy_surplus_cost(cost)
 proportional_cost(cost::PSY.StorageCost, ::Type{StorageEnergyShortageVariable}, ::PSY.EnergyReservoirStorage, ::Type{<:AbstractStorageFormulation})=PSY.get_energy_shortage_cost(cost)
-proportional_cost(::PSY.StorageCost, ::Type{StorageChargeCyclingSlackVariable}, ::PSY.EnergyReservoirStorage, ::Type{<:AbstractStorageFormulation})=CYCLE_VIOLATION_COST
-proportional_cost(::PSY.StorageCost, ::Type{StorageDischargeCyclingSlackVariable}, ::PSY.EnergyReservoirStorage, ::Type{<:AbstractStorageFormulation})=CYCLE_VIOLATION_COST
 
 
 IOM.variable_cost(cost::PSY.StorageCost, ::Type{ActivePowerOutVariable}, ::Type{<:PSY.Storage}, ::Type{<:AbstractStorageFormulation})=PSY.get_discharge_variable_cost(cost)
@@ -151,6 +149,7 @@ function get_default_attributes(
     return Dict{String, Any}(
         "reservation" => true,
         "cycling_limits" => false,
+        "cycling_violation_cost" => CYCLE_VIOLATION_COST,
         "energy_target" => false,
         "reserve_coverage" => true,
         "complete_coverage" => false,
@@ -1688,17 +1687,17 @@ function add_to_objective_function!(
         add_proportional_cost!(container, StorageEnergyShortageVariable, devices, T)
     end
     if get_attribute(model, "cycling_limits")
-        add_proportional_cost!(
+        add_cycling_slack_cost!(
             container,
             StorageChargeCyclingSlackVariable,
             devices,
-            T,
+            model,
         )
-        add_proportional_cost!(
+        add_cycling_slack_cost!(
             container,
             StorageDischargeCyclingSlackVariable,
             devices,
-            T,
+            model,
         )
     end
     if get_attribute(model, "regularization")
@@ -1718,20 +1717,47 @@ function add_to_objective_function!(
     return
 end
 
-# Storage cycling/energy-target slack penalties are applied only at the final timestep
-# (a single horizon-end accumulator), not per-timestep — so we can't delegate to the
-# IOM default `add_proportional_cost!`, which loops over all timesteps.
-# no test coverage
+# The cycling slacks are energy in system base (pu-h) at the final timestep only; the
+# "cycling_violation_cost" attribute is in $/MWh, so it is scaled by the system base power.
+function add_cycling_slack_cost!(
+    container::OptimizationContainer,
+    ::Type{T},
+    devices::Vector{U},
+    model::DeviceModel{U, <:AbstractStorageFormulation},
+) where {
+    T <: Union{StorageChargeCyclingSlackVariable, StorageDischargeCyclingSlackVariable},
+    U <: PSY.EnergyReservoirStorage,
+}
+    cost = get_attribute(model, "cycling_violation_cost")
+    if !(cost >= 0.0)
+        throw(
+            IS.InvalidValue(
+                "cycling_violation_cost must be a non-negative \$/MWh value, got $(cost)",
+            ),
+        )
+    end
+    rate = Float64(cost) * get_model_base_power(container)
+    t_end = last(get_time_steps(container))
+    variable = get_variable(container, T, U)
+    for d in devices
+        name = PSY.get_name(d)
+        IOM.add_cost_term_invariant!(
+            container, variable[name, t_end], rate,
+            ProductionCostExpression, U, name, t_end,
+        )
+    end
+    return
+end
+
+# Energy-target slack penalties are applied only at the final timestep, not per-timestep,
+# so we can't delegate to the IOM default `add_proportional_cost!`.
 function add_proportional_cost!(
     container::OptimizationContainer,
     ::Type{T},
     devices::Vector{U},
     ::Type{F},
 ) where {
-    T <: Union{
-        StorageChargeCyclingSlackVariable, StorageDischargeCyclingSlackVariable,
-        StorageEnergyShortageVariable, StorageEnergySurplusVariable,
-    },
+    T <: Union{StorageEnergyShortageVariable, StorageEnergySurplusVariable},
     U <: PSY.EnergyReservoirStorage,
     F <: AbstractStorageFormulation,
 }
@@ -1746,6 +1772,7 @@ function add_proportional_cost!(
             ProductionCostExpression, U, name, t_end,
         )
     end
+    return
 end
 
 function calculate_aux_variable_value!(

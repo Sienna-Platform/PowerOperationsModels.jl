@@ -92,6 +92,7 @@ const UPPER_BOUND = "ub"
 const LOWER_BOUND = "lb"
 const MAX_OPTIMIZE_TRIES = 2
 
+# Default "cycling_violation_cost" of `StorageDispatchWithReserves`, in $/MWh of violation.
 const CYCLE_VIOLATION_COST = 5e3
 const STORAGE_REG_COST = 0.001
 

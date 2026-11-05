@@ -652,6 +652,79 @@ end
     @test axes(discharge_con) == (["Bat"], [time_steps[end]])
 end
 
+function _build_cycling_model(; use_slacks = false, attributes = Dict{String, Any}())
+    template = get_thermal_dispatch_template_network(CopperPlateNetworkModel)
+    set_device_model!(
+        template,
+        DeviceModel(
+            EnergyReservoirStorage,
+            StorageDispatchWithReserves;
+            attributes = merge(
+                Dict{String, Any}("reservation" => false, "cycling_limits" => true),
+                attributes,
+            ),
+            use_slacks = use_slacks,
+        ),
+    )
+    set_device_model!(template, RenewableDispatch, FixedOutput)
+    model = DecisionModel(template, PSB.build_system(PSITestSystems, "c_sys5_bat"))
+    output_dir = mktempdir(; cleanup = true)
+    return model, build!(model; output_dir = output_dir), output_dir
+end
+
+function _cycling_slack_objective_coefficients(model)
+    container = get_optimization_container(model)
+    obj = JuMP.objective_function(get_jump_model(container))
+    t_end = last(get_time_steps(container))
+    return [
+        JuMP.coefficient(
+            obj,
+            IOM.get_variable(container, T, EnergyReservoirStorage)["Bat", t_end],
+        )
+        for T in (StorageChargeCyclingSlackVariable, StorageDischargeCyclingSlackVariable)
+    ]
+end
+
+@testset "Storage cycling violation cost" begin
+    @test IOM.get_attribute(
+        DeviceModel(EnergyReservoirStorage, StorageDispatchWithReserves),
+        "cycling_violation_cost",
+    ) == 5000.0
+
+    # The slacks are system-base energy (pu-h); the cost is $/MWh on a 100 MVA base.
+    model, status, _ = _build_cycling_model()
+    @test status == ModelBuildStatus.BUILT
+    @test IOM.get_model_base_power(get_optimization_container(model)) == 100.0
+    @test _cycling_slack_objective_coefficients(model) == [5000.0 * 100, 5000.0 * 100]
+
+    model, status, _ = _build_cycling_model(;
+        attributes = Dict{String, Any}("cycling_violation_cost" => 20.0))
+    @test status == ModelBuildStatus.BUILT
+    @test _cycling_slack_objective_coefficients(model) == [20.0 * 100, 20.0 * 100]
+
+    # The cycling limit is always soft: use_slacks does not remove the slacks.
+    for use_slacks in (false, true)
+        model, status, _ = _build_cycling_model(; use_slacks = use_slacks)
+        @test status == ModelBuildStatus.BUILT
+        con = get_constraint(
+            get_optimization_container(model), StorageCyclingCharge,
+            EnergyReservoirStorage)
+        slack = IOM.get_variable(
+            get_optimization_container(model),
+            StorageChargeCyclingSlackVariable,
+            EnergyReservoirStorage,
+        )
+        t_end = last(get_time_steps(get_optimization_container(model)))
+        @test JuMP.normalized_coefficient(con["Bat", t_end], slack["Bat", t_end]) == -1.0
+    end
+
+    _, status, output_dir = _build_cycling_model(;
+        attributes = Dict{String, Any}("cycling_violation_cost" => -1.0))
+    @test status == ModelBuildStatus.FAILED
+    log = read(joinpath(output_dir, "operation_problem.log"), String)
+    @test occursin("cycling_violation_cost must be a non-negative", log)
+end
+
 @testset "Storage with regularization and ACPNetworkModel" begin
     template = get_thermal_dispatch_template_network(ACPNetworkModel)
     device_model = DeviceModel(
