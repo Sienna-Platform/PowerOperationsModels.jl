@@ -1725,6 +1725,60 @@ end
     @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
 end
 
+@testset "Two GroupReserves of one type each get their own requirement row" begin
+    # Regression for #324: every group of the type gets its own row, summing only its members.
+    sys = deepcopy(PSB.build_system(PSITestSystems, "c_sys5_uc"; add_reserves = true))
+    members = Dict("group_a" => "Reserve1", "group_b" => "Reserve11")
+    requirements = Dict("group_a" => 0.1, "group_b" => 0.2)
+    for (name, member) in members
+        group = GroupReserve{ReserveUp}(;
+            name = name,
+            available = true,
+            requirement = requirements[name],
+        )
+        add_service!(
+            sys,
+            group,
+            Service[PSY.get_component(OnlineReserve{ReserveUp}, sys, member)],
+        )
+    end
+
+    template = get_thermal_dispatch_template_network(CopperPlateNetworkModel)
+    set_service_model!(template, ServiceModel(OnlineReserve{ReserveUp}, RangeReserve))
+    set_service_model!(
+        template,
+        ServiceModel(GroupReserve{ReserveUp}, GroupRangeReserve),
+    )
+    model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+
+    container = get_optimization_container(model)
+    rv = IOM.get_variable(
+        container,
+        ActivePowerReserveVariable,
+        IOM.ComponentPairKey{ThermalStandard, OnlineReserve{ReserveUp}},
+    )
+    con = IOM.get_constraint(container, RequirementConstraint, GroupReserve{ReserveUp})
+    @test Set(axes(con)[1]) == Set(keys(members))
+    for (name, member) in members, t in IOM.get_time_steps(container)
+        c = con[name, t]
+        @test JuMP.normalized_rhs(c) ≈ requirements[name]
+        n_member = 0
+        for (key, var) in rv.data
+            key[3] == t || continue
+            expected = 0.0
+            if key[1] == member
+                expected = 1.0
+                n_member += 1
+            end
+            @test JuMP.normalized_coefficient(c, var) == expected
+        end
+        @test n_member > 0
+        @test length(JuMP.constraint_object(c).func.terms) == n_member
+    end
+end
+
 @testset "GroupReserve builds and solves for ReserveDown" begin
     # Direction parity: a GroupReserve{ReserveDown} over a down reserve.
     sys = deepcopy(PSB.build_system(PSITestSystems, "c_sys5_uc"; add_reserves = true))
