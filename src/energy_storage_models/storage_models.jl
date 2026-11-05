@@ -1749,8 +1749,8 @@ function add_cycling_slack_cost!(
     return
 end
 
-# Energy-target slack penalties are applied only at the final timestep, not per-timestep,
-# so we can't delegate to the IOM default `add_proportional_cost!`.
+# Energy-target slacks are energy in system base (pu-h) at the final timestep only; the
+# StorageCost penalties are in $/MWh, so they are scaled by the system base power.
 function add_proportional_cost!(
     container::OptimizationContainer,
     ::Type{T},
@@ -1761,12 +1761,13 @@ function add_proportional_cost!(
     U <: PSY.EnergyReservoirStorage,
     F <: AbstractStorageFormulation,
 }
+    base_power = get_model_base_power(container)
     t_end = last(get_time_steps(container))
     variable = get_variable(container, T, U)
     for d in devices
         name = PSY.get_name(d)
         op_cost_data = PSY.get_operation_cost(d)
-        cost_term = proportional_cost(op_cost_data, T, d, F)
+        cost_term = proportional_cost(op_cost_data, T, d, F) * base_power
         IOM.add_cost_term_invariant!(
             container, variable[name, t_end], cost_term,
             ProductionCostExpression, U, name, t_end,

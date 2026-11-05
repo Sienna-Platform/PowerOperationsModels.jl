@@ -510,6 +510,28 @@ end
     @test JuMP.normalized_coefficient(con, shortfall_var["Bat2", time_steps[end]]) == 1.0
 end
 
+@testset "Storage energy target penalties are \$/MWh" begin
+    sys = PSB.build_system(PSITestSystems, "c_sys5_bat_ems")
+    d = only(get_components(EnergyReservoirStorage, sys))
+    PSY.set_operation_cost!(
+        d,
+        PSY.StorageCost(; energy_shortage_cost = 300.0, energy_surplus_cost = 40.0),
+    )
+    model, status = _build_storage_target_model(sys)
+    @test status == ModelBuildStatus.BUILT
+
+    # The slacks are system-base energy (pu-h); the costs scale by the 100 MVA base.
+    container = get_optimization_container(model)
+    @test IOM.get_model_base_power(container) == 100.0
+    obj = JuMP.objective_function(get_jump_model(container))
+    t_end = last(get_time_steps(container))
+    for (T, cost) in
+        ((StorageEnergyShortageVariable, 300.0), (StorageEnergySurplusVariable, 40.0))
+        var = IOM.get_variable(container, T, EnergyReservoirStorage)
+        @test JuMP.coefficient(obj, var[PSY.get_name(d), t_end]) == cost * 100
+    end
+end
+
 @testset "Storage energy target: storage_target time series follows each window" begin
     sys = PSB.build_system(PSITestSystems, "c_sys5_bat_ems")
     d = only(get_components(EnergyReservoirStorage, sys))
