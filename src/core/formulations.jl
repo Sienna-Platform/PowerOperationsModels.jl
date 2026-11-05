@@ -17,31 +17,34 @@ struct MyCustomDeviceFormulation <: IOM.AbstractDeviceFormulation end
 # device type. They sit under the thermal abstracts so the IOM methods on those apply.
 
 abstract type AbstractStandardUnitCommitment <: AbstractThermalUnitCommitment end
+
+# Device types the Basic/Standard Dispatch/UnitCommitment formulations build.
+const ThermalOrLogicalUnit = Union{PSY.ThermalGen, PSY.LogicalGenerationUnit}
 abstract type AbstractCompactUnitCommitment <: AbstractThermalUnitCommitment end
 
 """
 Formulation type to enable basic unit commitment representation without any intertemporal (ramp, min on/off time) constraints
 
-Currently implemented for `PowerSystems.ThermalGen`.
+Implemented for `PowerSystems.ThermalGen` and `PowerSystems.LogicalGenerationUnit`.
 """
 struct BasicUnitCommitment <: AbstractStandardUnitCommitment end
 """
 Formulation type to enable standard unit commitment with intertemporal constraints and simplified startup profiles
 
-Currently implemented for `PowerSystems.ThermalGen`.
+Implemented for `PowerSystems.ThermalGen` and `PowerSystems.LogicalGenerationUnit`.
 """
 struct StandardUnitCommitment <: AbstractStandardUnitCommitment end
 
 """
 Formulation type to enable basic dispatch without any intertemporal (ramp) constraints
 
-Currently implemented for `PowerSystems.ThermalGen`.
+Implemented for `PowerSystems.ThermalGen` and `PowerSystems.LogicalGenerationUnit`.
 """
 struct BasicDispatch <: AbstractThermalDispatchFormulation end
 """
 Formulation type to enable standard dispatch with a range and enforce intertemporal ramp constraints
 
-Currently implemented for `PowerSystems.ThermalGen`.
+Implemented for `PowerSystems.ThermalGen` and `PowerSystems.LogicalGenerationUnit`.
 """
 struct StandardDispatch <: AbstractThermalDispatchFormulation end
 """

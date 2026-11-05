@@ -12,7 +12,7 @@ end
     container::OptimizationContainer,
     devices::Vector{T},
     model::DeviceModel{T},
-) where {T <: PSY.ThermalGen}
+) where {T <: ThermalOrLogicalUnit}
     add_min_active_power_parameters!(
         container,
         MinActivePowerTimeSeriesParameter,
@@ -93,7 +93,7 @@ function construct_device!(
     device_model::DeviceModel{T, D},
     network_model::NetworkModel{<:AbstractNetworkModel},
 ) where {
-    T <: PSY.ThermalGen,
+    T <: ThermalOrLogicalUnit,
     D <: AbstractStandardUnitCommitment,
 }
     devices = get_device_cache(device_model)
@@ -223,7 +223,7 @@ function construct_device!(
     device_model::DeviceModel{T, U},
     network_model::NetworkModel{<:AbstractNetworkModel},
 ) where {
-    T <: PSY.ThermalGen,
+    T <: ThermalOrLogicalUnit,
     U <: Union{
         AbstractStandardUnitCommitment,
         ThermalCompactUnitCommitment,
@@ -323,7 +323,7 @@ function construct_device!(
     ::ArgumentConstructStage,
     device_model::DeviceModel{T, D},
     network_model::NetworkModel{<:AbstractActivePowerModel},
-) where {T <: PSY.ThermalGen, D <: AbstractStandardUnitCommitment}
+) where {T <: ThermalOrLogicalUnit, D <: AbstractStandardUnitCommitment}
     devices = get_device_cache(device_model)
 
     add_variables!(
@@ -432,7 +432,7 @@ function construct_device!(
     device_model::DeviceModel{T, U},
     network_model::NetworkModel{<:AbstractActivePowerModel},
 ) where {
-    T <: PSY.ThermalGen,
+    T <: ThermalOrLogicalUnit,
     U <: Union{
         AbstractStandardUnitCommitment,
         ThermalCompactUnitCommitment,
@@ -511,7 +511,7 @@ function construct_device!(
     ::ArgumentConstructStage,
     device_model::DeviceModel{T, StandardDispatch},
     network_model::NetworkModel{<:AbstractNetworkModel},
-) where {T <: PSY.ThermalGen}
+) where {T <: ThermalOrLogicalUnit}
     devices = get_device_cache(device_model)
 
     add_variables!(
@@ -606,7 +606,7 @@ function construct_device!(
     ::ModelConstructStage,
     device_model::DeviceModel{T, <:Union{StandardDispatch, ThermalCompactDispatch}},
     network_model::NetworkModel{<:AbstractNetworkModel},
-) where {T <: PSY.ThermalGen}
+) where {T <: ThermalOrLogicalUnit}
     devices = get_device_cache(device_model)
 
     add_constraints!(
@@ -658,7 +658,7 @@ function construct_device!(
     ::ArgumentConstructStage,
     device_model::DeviceModel{T, StandardDispatch},
     network_model::NetworkModel{<:AbstractActivePowerModel},
-) where {T <: PSY.ThermalGen}
+) where {T <: ThermalOrLogicalUnit}
     devices = get_device_cache(device_model)
 
     add_variables!(
@@ -738,7 +738,7 @@ function construct_device!(
     ::ModelConstructStage,
     device_model::DeviceModel{T, <:Union{StandardDispatch, ThermalCompactDispatch}},
     network_model::NetworkModel{<:AbstractActivePowerModel},
-) where {T <: PSY.ThermalGen}
+) where {T <: ThermalOrLogicalUnit}
     devices = get_device_cache(device_model)
 
     add_constraints!(
@@ -780,7 +780,7 @@ function construct_device!(
     device_model::DeviceModel{T, D},
     network_model::NetworkModel{<:AbstractNetworkModel},
 ) where {
-    T <: PSY.ThermalGen,
+    T <: ThermalOrLogicalUnit,
     D <: AbstractThermalDispatchFormulation,
 }
     devices = get_device_cache(device_model)
@@ -872,7 +872,7 @@ function construct_device!(
     ::ModelConstructStage,
     device_model::DeviceModel{T, <:AbstractThermalDispatchFormulation},
     network_model::NetworkModel{<:AbstractNetworkModel},
-) where {T <: PSY.ThermalGen}
+) where {T <: ThermalOrLogicalUnit}
     devices = get_device_cache(device_model)
 
     add_constraints!(
@@ -921,7 +921,7 @@ function construct_device!(
     device_model::DeviceModel{T, D},
     network_model::NetworkModel{<:AbstractActivePowerModel},
 ) where {
-    T <: PSY.ThermalGen,
+    T <: ThermalOrLogicalUnit,
     D <: AbstractThermalDispatchFormulation,
 }
     devices = get_device_cache(device_model)
@@ -998,7 +998,7 @@ function construct_device!(
     ::ModelConstructStage,
     device_model::DeviceModel{T, <:AbstractThermalDispatchFormulation},
     network_model::NetworkModel{<:AbstractActivePowerModel},
-) where {T <: PSY.ThermalGen}
+) where {T <: ThermalOrLogicalUnit}
     devices = get_device_cache(device_model)
 
     add_constraints!(

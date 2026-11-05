@@ -4,9 +4,9 @@
 #################################################################################
 
 # Whether the unit is in the status that the duration counts, given its initial on-status.
-_in_status(::InitialTimeDurationOn, d::PSY.ThermalGen, on) =
+_in_status(::InitialTimeDurationOn, d::ThermalOrLogicalUnit, on) =
     is_online(d) && on > ABSOLUTE_TOLERANCE
-_in_status(::InitialTimeDurationOff, d::PSY.ThermalGen, on) =
+_in_status(::InitialTimeDurationOff, d::ThermalOrLogicalUnit, on) =
     !is_online(d) && !(on > ABSOLUTE_TOLERANCE)
 
 # InitialTimeDurationOn/Off for thermal generators. Without initial-condition data the
@@ -21,7 +21,7 @@ function get_initial_conditions_value(
 ) where {
     U <: Union{InitialTimeDurationOn, InitialTimeDurationOff},
     V <: AbstractThermalFormulation,
-    W <: PSY.ThermalGen,
+    W <: ThermalOrLogicalUnit,
 }
     ic_data = get_initial_conditions_data(container)
     var_type = initial_condition_variable(U(), component, V())
@@ -47,7 +47,7 @@ function add_initial_condition!(
     ::U,
     ::D,
 ) where {
-    T <: PSY.ThermalGen,
+    T <: ThermalOrLogicalUnit,
     U <: AbstractThermalFormulation,
     D <: Union{InitialTimeDurationOff, InitialTimeDurationOn, DeviceStatus},
 }

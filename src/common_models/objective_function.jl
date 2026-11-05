@@ -54,7 +54,7 @@ function _add_min_power_proportional_cost!(
     power_units::IS.AbstractUnitSystem,
     multiplier::Float64,
     ::Type{E},
-) where {V <: PSY.ThermalGen, U <: AbstractDeviceFormulation, E <: ExpressionType}
+) where {V <: ThermalOrLogicalUnit, U <: AbstractDeviceFormulation, E <: ExpressionType}
     iszero(cost_term) && return
     cost_per_unit = get_proportional_cost_per_system_unit(
         cost_term,
@@ -355,7 +355,7 @@ add_proportional_cost!(
     ::Type{V},
 ) where {
     U <: OnVariable,
-    T <: Union{PSY.ThermalGen, PSY.HydroGen},
+    T <: Union{ThermalOrLogicalUnit, PSY.HydroGen},
     V <: Union{AbstractThermalFormulation, AbstractHydroFormulation},
 } = add_proportional_cost_maybe_time_variant!(container, U, devices, V)
 

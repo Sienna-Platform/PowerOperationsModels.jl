@@ -42,7 +42,8 @@ _negated_rating(::Nothing) = nothing
 # with `OperationalStates`. Only MUST_RUN forces a unit on; SELF_SCHEDULED and RELIABILITY
 # stay committable. `HydroTurbine` carries the field too but had no `must_run` before.
 _is_must_run(::PSY.Component) = false
-_is_must_run(d::PSY.ThermalGen) = PSY.get_commitment_mode(d) == PSY.CommitmentModes.MUST_RUN
+_is_must_run(d::ThermalOrLogicalUnit) =
+    PSY.get_commitment_mode(d) == PSY.CommitmentModes.MUST_RUN
 _is_must_run(d::PSY.HydroPumpTurbine) =
     PSY.get_commitment_mode(d) == PSY.CommitmentModes.MUST_RUN
 

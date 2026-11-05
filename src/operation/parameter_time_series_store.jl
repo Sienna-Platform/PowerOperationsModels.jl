@@ -341,7 +341,7 @@ _cost_time_series_keys(c::PSY.StaticInjectionSubsystem) =
     PSY.get_time_series_keys(PSY.get_operation_cost(c))
 _cost_time_series_keys(c::PSY.ControllableLoad) =
     PSY.get_time_series_keys(PSY.get_operation_cost(c))
-_cost_time_series_keys(c::PSY.ThermalGen) =
+_cost_time_series_keys(c::ThermalOrLogicalUnit) =
     PSY.get_time_series_keys(PSY.get_operation_cost(c))
 _cost_time_series_keys(c::PSY.HydroGen) =
     PSY.get_time_series_keys(PSY.get_operation_cost(c))

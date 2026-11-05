@@ -25,7 +25,8 @@ _has_market_bid_cost(device::PSY.ControllableLoad) =
 # by the `_onvar_offer_direction` trait.
 #################################################################################
 
-_onvar_offer_direction(::PSY.Generator) = IncrementalOffer()
+_onvar_offer_direction(::Union{PSY.Generator, PSY.LogicalGenerationUnit}) =
+    IncrementalOffer()
 _onvar_offer_direction(::PSY.ControllableLoad) = DecrementalOffer()
 
 _cost_at_min_param(::IncrementalOffer) = IncrementalCostAtMinParameter()
@@ -36,7 +37,7 @@ proportional_cost(
     ::OptimizationContainer,
     ::PSY.MarketBidCost,
     ::Type{OnVariable},
-    comp::Union{PSY.Generator, PSY.ControllableLoad},
+    comp::Union{PSY.Generator, PSY.LogicalGenerationUnit, PSY.ControllableLoad},
     ::Type{<:AbstractDeviceFormulation},
     ::Int,
 ) = IOM.get_initial_input(_onvar_offer_direction(comp), comp)
@@ -49,7 +50,7 @@ function proportional_cost(
     comp::T,
     ::Type{<:AbstractDeviceFormulation},
     t::Int,
-) where {T <: Union{PSY.Generator, PSY.ControllableLoad}}
+) where {T <: Union{PSY.Generator, PSY.LogicalGenerationUnit, PSY.ControllableLoad}}
     param = _cost_at_min_param(_onvar_offer_direction(comp))
     name = get_name(comp)
     param_arr = get_parameter_array(container, param, T)
@@ -74,10 +75,11 @@ _consider_parameter(
 # Section 3: Device-specific validate_occ_component
 #################################################################################
 
-# ThermalMultiStart: accept NTuple{3, Float64} and PSY.StartUpStages without warning
+# ThermalMultiStart and logical units accept NTuple{3, Float64} and PSY.StartUpStages
+# without warning; single-start formulations charge the cold stage.
 function IOM.validate_occ_component(
     ::Type{StartupCostParameter},
-    device::PSY.ThermalMultiStart,
+    device::Union{PSY.ThermalMultiStart, PSY.LogicalGenerationUnit},
 )
     startup = PSY.get_start_up(PSY.get_operation_cost(device))
     return _validate_startup_eltype(startup, device)
@@ -87,9 +89,15 @@ end
 # Keys carry no element type (`eltype(typeof(key))` is `Any` for every key type, so any
 # check against it is unsatisfiable); the referenced series' element type is validated
 # when the parameter is populated (IOM `time_series_utils`).
-_validate_startup_eltype(::IS.TimeSeriesKey, ::PSY.ThermalMultiStart) = nothing
+_validate_startup_eltype(
+    ::IS.TimeSeriesKey,
+    ::Union{PSY.ThermalMultiStart, PSY.LogicalGenerationUnit},
+) = nothing
 
-function _validate_startup_eltype(startup, device::PSY.ThermalMultiStart)
+function _validate_startup_eltype(
+    startup,
+    device::Union{PSY.ThermalMultiStart, PSY.LogicalGenerationUnit},
+)
     _validate_eltype(
         Union{Float64, NTuple{3, Float64}, PSY.StartUpStages},
         device,
@@ -175,7 +183,7 @@ _include_min_gen_power_in_constraint(
     ::Type{<:AbstractDeviceFormulation},
 ) = false
 _include_min_gen_power_in_constraint(
-    ::Type{<:PSY.Generator},
+    ::Type{<:Union{PSY.Generator, PSY.LogicalGenerationUnit}},
     ::Type{ActivePowerVariable},
     ::Type{<:AbstractDeviceFormulation},
 ) = true

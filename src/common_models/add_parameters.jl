@@ -1042,7 +1042,7 @@ function _add_parameters!(
     U <: OnVariable,
     V <: Vector{D},
     W <: AbstractThermalFormulation,
-} where {D <: PSY.ThermalGen}
+} where {D <: ThermalOrLogicalUnit}
     @debug "adding" T D U _group = IOM.LOG_GROUP_OPTIMIZATION_CONTAINER
     names = [PSY.get_name(device) for device in devices if !_is_must_run(device)]
     time_steps = get_time_steps(container)
