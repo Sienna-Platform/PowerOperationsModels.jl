@@ -936,3 +936,85 @@ end
     @test JuMP.coefficient(row.func, status[name, 1]) ≈
           get_active_power_limits(unit, u"SU").min
 end
+
+# The line-outage status is read into the Ohm's-law row as a fixed coefficient when the model
+# is built, from the event parameter's initial value. This condition opens the line at build,
+# standing in for a runtime that wrote an outage into the status before rebuilding.
+struct LineOpenAtBuild <: AbstractEventCondition end
+POM.get_initial_parameter_value(
+    ::Type{AvailableStatusParameter},
+    ::PSY.Line,
+    ::EventModel{PSY.FixedForcedOutage, LineOpenAtBuild},
+) = 0.0
+
+@testset "A DCP line outage on c_sys5 matches the system without the line" begin
+    # Line "1" (nodeA -> nodeB) is not a bridge and carries flow the dispatch relies on.
+    # Its angle limits are opened in every system because event lines may not carry an
+    # angle-difference constraint.
+    outaged = "1"
+    function line_template()
+        template = get_thermal_dispatch_template_network(NetworkModel(DCPNetworkModel))
+        set_device_model!(template, Line, StaticBranchBounds)
+        return template
+    end
+    function c_sys5_open_angles()
+        sys = PSB.build_system(PSITestSystems, "c_sys5")
+        PSY.set_angle_limits!(PSY.get_component(PSY.Line, sys, outaged), (min = -π, max = π))
+        return sys
+    end
+    function build_and_solve(template, sys)
+        model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
+        @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+              IOM.ModelBuildStatus.BUILT
+        container = IOM.get_optimization_container(model)
+        jm = IOM.get_jump_model(container)
+        JuMP.optimize!(jm)
+        @test JuMP.termination_status(jm) == MOI.OPTIMAL
+        return container, JuMP.objective_value(jm)
+    end
+    function build_with_line_event(condition)
+        sys = c_sys5_open_angles()
+        attach_fixed_forced_outage!(sys, PSY.get_component(PSY.Line, sys, outaged))
+        event = EventModel(
+            PSY.FixedForcedOutage,
+            condition;
+            timeseries_mapping = Dict{Symbol, Union{String, Nothing}}(
+                :outage_status => "outage_profile",
+            ),
+        )
+        template = line_template()
+        set_event_model!(template, event)
+        fill_event_model!(event, sys)
+        return build_and_solve(template, sys)
+    end
+
+    _, cost_intact = build_and_solve(line_template(), c_sys5_open_angles())
+    sys_removed = c_sys5_open_angles()
+    PSY.remove_component!(sys_removed, PSY.get_component(PSY.Line, sys_removed, outaged))
+    _, cost_removed = build_and_solve(line_template(), sys_removed)
+    @test !isapprox(cost_removed, cost_intact; rtol = 1e-3)
+
+    # "Available line matches the intact system" begin
+    _, cost = build_with_line_event(ContinuousCondition())
+    @test cost ≈ cost_intact rtol = 1e-6
+
+    # "Open line matches the system without it" begin
+    container, cost = build_with_line_event(LineOpenAtBuild())
+    @test cost ≈ cost_removed rtol = 1e-6
+
+    flow = IOM.get_variable(container, FlowActivePowerVariable, PSY.Line)
+    va = IOM.get_variable(container, VoltageAngle, PSY.ACBus)
+    ohms = IOM.get_constraint(container, POM.NetworkFlowConstraint, PSY.Line)
+    time_steps = IOM.get_time_steps(container)
+    for t in time_steps
+        row = JuMP.constraint_object(ohms[outaged, t])
+        @test JuMP.coefficient(row.func, va["nodeA", t]) == 0.0
+        @test JuMP.coefficient(row.func, va["nodeB", t]) == 0.0
+        @test abs(JuMP.value(flow[outaged, t])) <= 1e-6
+    end
+    # The open line must not tie its terminal angles together.
+    @test any(
+        abs(JuMP.value(va["nodeA", t]) - JuMP.value(va["nodeB", t])) > 1e-4 for
+        t in time_steps
+    )
+end
