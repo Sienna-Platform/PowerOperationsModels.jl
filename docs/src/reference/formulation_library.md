@@ -523,7 +523,8 @@ The HVDC network model is a separate template slot from the AC network model:
 
 Nine concrete thermal formulations, under three abstract branches.
 `BasicDispatch`, `StandardDispatch`, `BasicUnitCommitment` and `StandardUnitCommitment` carry no device prefix because the `DeviceModel` already names the device type.
-Only `PowerSystems.ThermalGen` implements them today.
+They support `PowerSystems.ThermalGen` and `PowerSystems.LogicalGenerationUnit`, for example `DeviceModel(LogicalGenerationUnit, StandardUnitCommitment)`.
+The other thermal formulations support `PowerSystems.ThermalGen` only, and a template that pairs one of them with `LogicalGenerationUnit` fails validation at `build!`.
 
 | Abstract                             | Concrete                                                                                               |
 |:------------------------------------ |:------------------------------------------------------------------------------------------------------ |
@@ -558,6 +559,13 @@ Metas on thermal keys: `"lb"`/`"ub"` (range limits), `"up"`/`"dn"` (ramp and dur
 `FixedOutput` supports AC networks: for thermal devices its `ArgumentConstructStage` wires
 both `ActivePowerTimeSeriesParameter` and `ReactivePowerTimeSeriesParameter` into their
 respective balances under any `<:AbstractNetworkModel`.
+
+### [LogicalGenerationUnit start-up stages](@id LogicalGenerationUnit-Start-Up)
+
+A logical unit builds the same variables, constraints and metas as a thermal unit under the same formulation.
+One difference is its multi-stage start-up offer (`PSY.StartUpStages` or a `(hot, warm, cold)` tuple).
+`BasicUnitCommitment` and `StandardUnitCommitment` charge its costliest (cold) stage per start, and the dispatch formulations charge no start-up.
+Unlike thermal units, logical units do not log the "Multi-start costs detected" warning for such offers.
 
 ## [RenewableGen Formulations](@id PowerSystems.RenewableGen-Formulations)
 
