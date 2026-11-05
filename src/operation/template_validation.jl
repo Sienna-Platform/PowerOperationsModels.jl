@@ -74,6 +74,7 @@ function validate_template_impl!(model::IOM.AbstractOptimizationModel)
         delete!(template.devices, k)
     end
     foreach(_check_converter_ac_control, values(template.devices))
+    foreach(_check_logical_unit_formulation, values(template.devices))
 
     model_has_branch_filters = false
     branch_keys_to_delete = Symbol[]
@@ -147,6 +148,34 @@ function _check_converter_ac_control(
         end
     end
     return
+end
+
+#################################################################################
+# LogicalGenerationUnit formulations
+#################################################################################
+
+# Logical units match the thermal abstracts, but only these four formulations build them.
+_check_logical_unit_formulation(::DeviceModel) = nothing
+_check_logical_unit_formulation(
+    ::DeviceModel{
+        PSY.LogicalGenerationUnit,
+        <:Union{
+            BasicDispatch,
+            StandardDispatch,
+            BasicUnitCommitment,
+            StandardUnitCommitment,
+        },
+    },
+) = nothing
+
+function _check_logical_unit_formulation(
+    ::DeviceModel{PSY.LogicalGenerationUnit, F},
+) where {F <: AbstractDeviceFormulation}
+    throw(
+        IS.ConflictingInputsError(
+            "PSY.LogicalGenerationUnit does not support formulation $F. Use BasicDispatch, StandardDispatch, BasicUnitCommitment or StandardUnitCommitment.",
+        ),
+    )
 end
 
 #################################################################################
