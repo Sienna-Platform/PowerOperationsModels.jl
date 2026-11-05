@@ -2559,18 +2559,17 @@ _include_min_gen_power_in_constraint(
     ::Type{ActivePowerVariable},
     ::Type{HydroCommitmentRunOfRiver},
 ) = true
-# Dispatch with ActivePower (not PowerAboveMinimum) means generator is on,
-# so add constant breakpoint1 to power constraint.
+# Hydro dispatch has no OnVariable: the blocks start at the offer's first breakpoint.
 _include_min_gen_power_in_constraint(
     ::Type{<:PSY.HydroGen},
     ::Type{ActivePowerVariable},
-    ::Type{HydroDispatchRunOfRiver},
+    ::Type{<:AbstractHydroDispatchFormulation},
 ) = false
 
 _include_constant_min_gen_power_in_constraint(
     ::Type{<:PSY.HydroGen},
     ::Type{ActivePowerVariable},
-    ::Type{HydroDispatchRunOfRiver},
+    ::Type{<:AbstractHydroDispatchFormulation},
 ) = true
 
 _include_min_gen_power_in_constraint(
