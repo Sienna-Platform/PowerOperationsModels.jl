@@ -90,6 +90,27 @@ power. Default time series name: `"min_active_power_pump"`.
 struct MinActivePowerInTimeSeriesParameter <: AbstractMinActivePowerParameter end
 
 """
+Per-step commitment status schedule of a `ThermalGen` under a unit commitment formulation,
+for example scheduled maintenance. Each value is the integer of a `PSY.CommitmentModes`
+value and bounds `OnVariable` in that step through [`CommitmentStatusConstraint`](@ref):
+
+| Value                                        | Bound on `OnVariable` |
+|:-------------------------------------------- |:--------------------- |
+| `UNCOMMITTED`                                | forced off            |
+| `COMMITTED`, `SELF_SCHEDULED`, `RELIABILITY` | free                  |
+| `MUST_RUN`                                   | forced on             |
+
+In the schedule, `UNCOMMITTED` means the unit must be offline in that step, unlike the static
+`commitment_mode` field, where it means the unit is free to be committed.
+The parameter is opt-in: it is built only for devices that carry the series, so a model where
+no device has it is unchanged.
+A unit with a static `commitment_mode` of `MUST_RUN` has no `OnVariable` and cannot carry the
+series.
+Default time series name: `"commitment_status"`.
+"""
+struct StatusScheduleTimeSeriesParameter <: TimeSeriesParameter end
+
+"""
 Abstract type for dynamic ratings of AC branches
 """
 abstract type AbstractBranchRatingTimeSeriesParameter <: TimeSeriesParameter end

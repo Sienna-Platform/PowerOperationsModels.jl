@@ -26,6 +26,8 @@ end
     end
 
     process_market_bid_parameters!(container, devices, model)
+    add_status_schedule_parameters!(container, devices, model)
+    return
 end
 
 function construct_device!(
@@ -267,6 +269,13 @@ function construct_device!(
         network_model,
     )
     add_constraints!(container, CommitmentConstraint, devices, device_model, network_model)
+    add_constraints!(
+        container,
+        CommitmentStatusConstraint,
+        devices,
+        device_model,
+        network_model,
+    )
     if _has_ramp_and_duration_constraints(U)
         add_constraints!(container, RampConstraint, devices, device_model, network_model)
         add_constraints!(
@@ -468,6 +477,13 @@ function construct_device!(
     end
 
     add_constraints!(container, CommitmentConstraint, devices, device_model, network_model)
+    add_constraints!(
+        container,
+        CommitmentStatusConstraint,
+        devices,
+        device_model,
+        network_model,
+    )
     if _has_ramp_and_duration_constraints(U)
         add_constraints!(container, RampConstraint, devices, device_model, network_model)
         add_constraints!(
@@ -1228,6 +1244,13 @@ function construct_device!(
         network_model,
     )
     add_constraints!(container, CommitmentConstraint, devices, device_model, network_model)
+    add_constraints!(
+        container,
+        CommitmentStatusConstraint,
+        devices,
+        device_model,
+        network_model,
+    )
     add_constraints!(container, RampConstraint, devices, device_model, network_model)
     add_constraints!(container, DurationConstraint, devices, device_model, network_model)
     add_constraints!(
@@ -1458,6 +1481,13 @@ function construct_device!(
     end
 
     add_constraints!(container, CommitmentConstraint, devices, device_model, network_model)
+    add_constraints!(
+        container,
+        CommitmentStatusConstraint,
+        devices,
+        device_model,
+        network_model,
+    )
     add_constraints!(container, RampConstraint, devices, device_model, network_model)
     add_constraints!(container, DurationConstraint, devices, device_model, network_model)
     add_constraints!(

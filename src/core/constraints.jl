@@ -59,6 +59,27 @@ v_t^\\text{th} + w_t^\\text{th} \\le 1, \\quad \\forall t \\in \\{1,\\dots,T\\}
 ```
 """
 struct CommitmentConstraint <: ConstraintType end
+
+"""
+Struct to create the constraints that bound the commitment status by the
+[`StatusScheduleTimeSeriesParameter`](@ref) schedule.
+Only devices that carry the schedule get these constraints.
+
+With ``s_t`` the `PSY.CommitmentModes` integer of the schedule at step ``t``, the specified
+constraints are formulated as:
+
+```math
+u_t^\\text{th} \\le s_t - s^\\text{UNCOMMITTED}, \\quad \\forall t \\in \\{1,\\dots,T\\} \\\\
+u_t^\\text{th} \\ge s_t - (s^\\text{MUST\\_RUN} - 1), \\quad \\forall t \\in \\{1,\\dots,T\\}
+```
+
+`UNCOMMITTED` is the smallest value and `MUST_RUN` the largest, so the upper row (meta
+`"ub"`) is ``u \\le 0`` only for `UNCOMMITTED` and the lower row (meta `"lb"`) is ``u \\ge 1``
+only for `MUST_RUN`; every other value leaves ``u \\in [0, 1]`` free.
+Both rows are affine in ``s_t``, so a simulation step that updates the parameter changes the
+forced periods without rebuilding the model.
+"""
+struct CommitmentStatusConstraint <: ConstraintType end
 """
 Struct to create the constraint to balance power in the copperplate model.
 For more information check [Network Formulations](@ref network_formulations).
