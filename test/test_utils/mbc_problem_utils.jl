@@ -12,7 +12,7 @@ const FormulationDict =
     Dict{Type{<:PSY.Device}, Union{DeviceModel, Type{<:IOM.AbstractDeviceFormulation}}}
 const DEFAULT_FORMULATIONS =
     FormulationDict(
-        ThermalStandard => ThermalBasicUnitCommitment,
+        ThermalStandard => BasicUnitCommitment,
         PowerLoad => StaticPowerLoad,
         InterruptiblePowerLoad => PowerLoadInterruption,
         RenewableDispatch => RenewableFullDispatch,
@@ -68,7 +68,7 @@ function build_generic_mbc_model(
 
     set_formulations!(template, sys, device_to_formulation)
     if standard
-        set_device_model!(template, ThermalStandard, ThermalStandardUnitCommitment)
+        set_device_model!(template, ThermalStandard, StandardUnitCommitment)
     end
     if multistart
         set_device_model!(template, ThermalMultiStart, ThermalMultiStartUnitCommitment)

@@ -43,7 +43,7 @@ function _build_hybrid_template(
     with_reserves::Bool = true,
 )
     template = PowerOperationsProblemTemplate(POM.CopperPlateNetworkModel)
-    POM.set_device_model!(template, PSY.ThermalStandard, POM.ThermalStandardUnitCommitment)
+    POM.set_device_model!(template, PSY.ThermalStandard, POM.StandardUnitCommitment)
     POM.set_device_model!(template, PSY.RenewableDispatch, POM.RenewableFullDispatch)
     POM.set_device_model!(template, PSY.PowerLoad, POM.StaticPowerLoad)
     POM.set_device_model!(template,

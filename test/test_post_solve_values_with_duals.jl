@@ -43,7 +43,7 @@ end
                 NetworkModel(CopperPlateNetworkModel; duals = duals),
             )
             set_device_model!(template, ThermalMultiStart, ThermalMultiStartUnitCommitment)
-            set_device_model!(template, ThermalStandard, ThermalBasicUnitCommitment)
+            set_device_model!(template, ThermalStandard, BasicUnitCommitment)
             set_device_model!(template, PowerLoad, StaticPowerLoad)
             template
         end
@@ -66,7 +66,7 @@ end
             template = PowerOperationsProblemTemplate(
                 NetworkModel(CopperPlateNetworkModel; duals = duals),
             )
-            set_device_model!(template, ThermalStandard, ThermalBasicUnitCommitment)
+            set_device_model!(template, ThermalStandard, BasicUnitCommitment)
             set_device_model!(template, RenewableDispatch, RenewableFullDispatch)
             set_device_model!(template, PowerLoad, StaticPowerLoad)
             set_device_model!(template, EnergyReservoirStorage, StorageDispatchWithReserves)
@@ -102,7 +102,7 @@ end
             template = PowerOperationsProblemTemplate(
                 NetworkModel(CopperPlateNetworkModel; duals = duals),
             )
-            set_device_model!(template, ThermalStandard, ThermalBasicUnitCommitment)
+            set_device_model!(template, ThermalStandard, BasicUnitCommitment)
             set_device_model!(template, RenewableDispatch, RenewableFullDispatch)
             set_device_model!(template, PowerLoad, StaticPowerLoad)
             set_device_model!(template, RenewableNonDispatch, FixedOutput)
@@ -130,7 +130,7 @@ end
                     ),
                 ),
             )
-            set_device_model!(template, ThermalStandard, ThermalBasicUnitCommitment)
+            set_device_model!(template, ThermalStandard, BasicUnitCommitment)
             set_device_model!(template, RenewableDispatch, RenewableFullDispatch)
             set_device_model!(template, PowerLoad, StaticPowerLoad)
             set_device_model!(template, Line, StaticBranch)

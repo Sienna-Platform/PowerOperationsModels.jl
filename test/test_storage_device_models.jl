@@ -749,7 +749,7 @@ end
     transform_single_time_series!(sys, Hour(4), Hour(4))
 
     template = PowerOperationsProblemTemplate()
-    set_device_model!(template, ThermalStandard, ThermalBasicUnitCommitment)
+    set_device_model!(template, ThermalStandard, BasicUnitCommitment)
     set_device_model!(template, PowerLoad, StaticPowerLoad)
     set_device_model!(
         template,

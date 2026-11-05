@@ -313,7 +313,7 @@ end
 end
 
 @testset "Event parameters via mock construct - ThermalStandard UC" begin
-    device_model = DeviceModel(PSY.ThermalStandard, ThermalBasicUnitCommitment)
+    device_model = DeviceModel(PSY.ThermalStandard, BasicUnitCommitment)
     sys = PSB.build_system(PSITestSystems, "c_sys5_uc")
     container, _ = mock_event_container(
         device_model,
@@ -409,7 +409,7 @@ end
 end
 
 @testset "Event constraints - thermal UC counts and coefficients" begin
-    device_model = DeviceModel(PSY.ThermalStandard, ThermalBasicUnitCommitment)
+    device_model = DeviceModel(PSY.ThermalStandard, BasicUnitCommitment)
     sys = PSB.build_system(PSITestSystems, "c_sys5_uc")
     container, _ = mock_event_container(
         device_model,
@@ -664,7 +664,7 @@ end
     formulation,
     sysname,
 ) in (
-    (PSY.ThermalStandard, ThermalBasicUnitCommitment, "c_sys5_uc"),
+    (PSY.ThermalStandard, BasicUnitCommitment, "c_sys5_uc"),
     (PSY.RenewableDispatch, RenewableFullDispatch, "c_sys5_re"),
     (PSY.InterruptiblePowerLoad, PowerLoadDispatch, "c_sys5_il"),
     (PSY.HydroDispatch, HydroDispatchRunOfRiver, "c_sys5_hy"),
@@ -735,7 +735,7 @@ end
     # exactly at the reactive limit, symmetric in sign, satisfied inside it and
     # violated outside.
     container, sys = mock_event_container(
-        DeviceModel(PSY.ThermalStandard, ThermalBasicUnitCommitment),
+        DeviceModel(PSY.ThermalStandard, BasicUnitCommitment),
         ACPNetworkModel,
         "c_sys5_uc",
     )

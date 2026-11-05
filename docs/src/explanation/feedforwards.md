@@ -86,7 +86,7 @@ contributes to expressions that constraints later consume.
 Feedforwards attach to a `DeviceModel`, which is then set on the template like any other:
 
 ```julia
-device_model = DeviceModel(ThermalStandard, ThermalStandardDispatch)
+device_model = DeviceModel(ThermalStandard, StandardDispatch)
 
 attach_feedforward!(
     device_model,

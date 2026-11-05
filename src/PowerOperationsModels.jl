@@ -946,11 +946,11 @@ export AbstractLoadFormulation
 export AbstractRenewableFormulation
 export AbstractBranchFormulation
 
-# Thermal Formulations
-export ThermalBasicUnitCommitment
-export ThermalStandardUnitCommitment
-export ThermalBasicDispatch
-export ThermalStandardDispatch
+# Thermal and common Formulations
+export BasicUnitCommitment
+export StandardUnitCommitment
+export BasicDispatch
+export StandardDispatch
 export ThermalDispatchNoMin
 export ThermalMultiStartUnitCommitment
 export ThermalCompactUnitCommitment

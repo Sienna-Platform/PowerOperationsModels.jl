@@ -22,7 +22,7 @@
 
     ab_template = PowerOperationsProblemTemplate(AreaBalanceNetworkModel)
     set_device_model!(ab_template, PSY.PowerLoad, StaticPowerLoad)
-    set_device_model!(ab_template, PSY.ThermalStandard, ThermalBasicDispatch)
+    set_device_model!(ab_template, PSY.ThermalStandard, BasicDispatch)
     ab_model = DecisionModel(ab_template, sys)
     @test POM.validate_template(ab_model) === nothing
 end
@@ -56,7 +56,7 @@ end
 @testset "Manual Operations Template" begin
     template = PowerOperationsProblemTemplate(CopperPlateNetworkModel)
     set_device_model!(template, PowerLoad, StaticPowerLoad)
-    set_device_model!(template, ThermalStandard, ThermalStandardUnitCommitment)
+    set_device_model!(template, ThermalStandard, StandardUnitCommitment)
     set_device_model!(template, Line, StaticBranchUnbounded)
     @test !isempty(template.devices)
     @test !isempty(template.branches)
@@ -67,7 +67,7 @@ end
     sys = PSB.build_system(PSITestSystems, "c_sys5_il")
     @test isempty(PSY.get_components(PSY.HydroDispatch, sys))
     @test POM.validate_available_devices(
-        DeviceModel(PSY.ThermalStandard, ThermalBasicDispatch),
+        DeviceModel(PSY.ThermalStandard, BasicDispatch),
         sys,
     )
     @test !POM.validate_available_devices(
@@ -94,11 +94,11 @@ end
 @testset "Operations Template Overwrite" begin
     template = PowerOperationsProblemTemplate(CopperPlateNetworkModel)
     set_device_model!(template, PowerLoad, StaticPowerLoad)
-    set_device_model!(template, ThermalStandard, ThermalStandardUnitCommitment)
+    set_device_model!(template, ThermalStandard, StandardUnitCommitment)
     @test_logs (:warn, "Overwriting ThermalStandard existing model") set_device_model!(
         template,
-        DeviceModel(ThermalStandard, ThermalBasicUnitCommitment),
+        DeviceModel(ThermalStandard, BasicUnitCommitment),
     )
     @test IOM.get_formulation(template.devices[:ThermalStandard]) ==
-          ThermalBasicUnitCommitment
+          BasicUnitCommitment
 end

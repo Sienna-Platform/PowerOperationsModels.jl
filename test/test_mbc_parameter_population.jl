@@ -88,7 +88,7 @@ end
 const _PP_THERMAL_NAME = "thermal1"
 const _PP_INITIAL_TIME = DateTime("2020-01-01")
 const _PP_MODEL =
-    IOM.DeviceModel(PSY.ThermalStandard, POM.ThermalBasicUnitCommitment)
+    IOM.DeviceModel(PSY.ThermalStandard, POM.BasicUnitCommitment)
 
 # `build_test_container` leaves `initial_time` at its sentinel default; the TS we attach
 # start at 2020-01-01, so align the container's initial_time before reading values.

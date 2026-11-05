@@ -810,7 +810,7 @@ end
 @testset "OfflineReserve band: a profiled unit gates on Pmin_t under compact UC only" begin
     values = [0.3 + 0.01 * t for t in 1:24]
     for (formulation, gated_on_pmin) in
-        ((ThermalCompactUnitCommitment, true), (ThermalStandardUnitCommitment, false))
+        ((ThermalCompactUnitCommitment, true), (StandardUnitCommitment, false))
         sys, _ = _offline_ordc_uc_system()
         unit = get_component(ThermalStandard, sys, "Brighton")
         PSY.add_time_series!(
@@ -905,7 +905,7 @@ end
 
     template = PowerOperationsProblemTemplate(CopperPlateNetworkModel)
     set_device_model!(template, PowerLoad, StaticPowerLoad)
-    set_device_model!(template, ThermalStandard, ThermalStandardUnitCommitment)
+    set_device_model!(template, ThermalStandard, StandardUnitCommitment)
     set_device_model!(
         template,
         DeviceModel(PSY.ThermalMultiStart, ThermalMultiStartUnitCommitment),
@@ -999,7 +999,7 @@ end
 @testset "OfflineReserve band: an off thermal unit's offline award follows its hourly max" begin
     # Neither formulation needs an initialization solve.
     factor = 0.5
-    for formulation in (ThermalBasicUnitCommitment, ThermalBasicCompactUnitCommitment)
+    for formulation in (BasicUnitCommitment, ThermalBasicCompactUnitCommitment)
         model, sys, offunit = _offline_hourly_model(formulation; factor)
         service = PSY.get_name(only(get_components(OfflineReserve, sys)))
         pmax_mw = PSY.get_active_power_limits(offunit, u"NU").max
@@ -1064,7 +1064,7 @@ end
           (MOI.INFEASIBLE, MOI.INFEASIBLE_OR_UNBOUNDED)
 end
 
-# `_offline_ordc_uc_system` under ThermalBasicUnitCommitment, which needs no initialization
+# `_offline_ordc_uc_system` under BasicUnitCommitment, which needs no initialization
 # solve, so `offunit`'s ONLINE status is its commitment before step 1 and the UC turns it
 # off in step 1. With `mustrun`, one other unit is must-run. Returns model, sys, offunit.
 function _offline_shutdown_model(attributes::Dict{String, Any}; mustrun::Bool = false)
@@ -1076,7 +1076,7 @@ function _offline_shutdown_model(attributes::Dict{String, Any}; mustrun::Bool = 
     end
     template = PowerOperationsProblemTemplate(CopperPlateNetworkModel)
     set_device_model!(template, PowerLoad, StaticPowerLoad)
-    set_device_model!(template, ThermalStandard, ThermalBasicUnitCommitment)
+    set_device_model!(template, ThermalStandard, BasicUnitCommitment)
     set_service_model!(
         template,
         ServiceModel(OfflineReserve, StepwiseCostReserve; attributes = attributes),
@@ -1498,11 +1498,11 @@ end
 
 # `c_sys5_hy` with an OfflineReserve ORDC supplied only by its prohibitively priced
 # HydroDispatch (off unless a test fixes its OnVariable); demand exceeds the series in every
-# step. `thermal = ThermalBasicUnitCommitment` skips the initialization solve.
+# step. `thermal = BasicUnitCommitment` skips the initialization solve.
 function _hydro_offline_model(
     attributes::Dict{String, Any};
     status = nothing,
-    thermal = ThermalStandardUnitCommitment,
+    thermal = StandardUnitCommitment,
 )
     sys = deepcopy(PSB.build_system(PSITestSystems, "c_sys5_hy"))
     hydro = only(get_components(HydroDispatch, sys))
@@ -1613,7 +1613,7 @@ end
 @testset "HydroCommitmentRunOfRiver: exclude_shutdown_step blocks the step it goes off" begin
     attrs = Dict{String, Any}("exclude_shutdown_step" => true)
     # No initialization solve, so the status before step 1 is the PSY status.
-    basic = ThermalBasicUnitCommitment
+    basic = BasicUnitCommitment
     # On before step 1 and off throughout: step 1 is the shutdown step.
     model =
         _hydro_offline_model(attrs; status = PSY.OperationalStates.ONLINE, thermal = basic)
@@ -1638,7 +1638,7 @@ end
 end
 
 @testset "HydroCommitmentRunOfRiver: the initialization solve sets the status before step 1" begin
-    # ThermalStandardUnitCommitment initializes the model. The initialization solve leaves the
+    # StandardUnitCommitment initializes the model. The initialization solve leaves the
     # costly hydro off, so u_0 = 0 overrides its ONLINE PSY status and step 1 keeps its award.
     model = _hydro_offline_model(
         Dict{String, Any}("exclude_shutdown_step" => true);

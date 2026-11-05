@@ -239,7 +239,7 @@ end
     # The cost copy is re-windowed to the run: the model's single window, not the System's two.
     @test TimeSeries.values(PSY.get_fuel_cost(gen2)) == fuel_window_1
     @test_throws Exception PSY.get_fuel_cost(gen2; start_time = init_time + Dates.Hour(24))
-    # ThermalStandardUnitCommitment gives ThermalStandard only a FuelCostParameter (not an
+    # StandardUnitCommitment gives ThermalStandard only a FuelCostParameter (not an
     # input-recast type); the input recast in this run lands on PowerLoad's
     # ActivePowerTimeSeriesParameter instead, exercised by the rebuild-equality check below.
     @test [IS.get_name(md) for md in IS.list_time_series_metadata(gen2)] == ["fuel_cost"]
@@ -478,7 +478,7 @@ end
     template = get_thermal_standard_uc_template()
     set_device_model!(
         template,
-        DeviceModel(ThermalMultiStart, ThermalStandardUnitCommitment),
+        DeviceModel(ThermalMultiStart, StandardUnitCommitment),
     )
     set_service_model!(
         template,
@@ -618,10 +618,10 @@ end
 end
 
 @testset "Decision Model initial_conditions test for ThermalGen" begin
-    ######## Test with ThermalStandardUnitCommitment ########
+    ######## Test with StandardUnitCommitment ########
     template = get_thermal_standard_uc_template()
     c_sys5_uc = PSB.build_system(PSITestSystems, "c_sys5_pglib"; force_build = true)
-    set_device_model!(template, ThermalMultiStart, ThermalStandardUnitCommitment)
+    set_device_model!(template, ThermalMultiStart, StandardUnitCommitment)
     model = DecisionModel(template, c_sys5_uc; optimizer = HiGHS_optimizer)
     @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
           IOM.ModelBuildStatus.BUILT
@@ -643,11 +643,11 @@ end
     check_duration_off_initial_conditions_values(model, ThermalMultiStart)
     @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
 
-    ######## Test with ThermalStandardUnitCommitment ########
+    ######## Test with StandardUnitCommitment ########
     template = get_thermal_standard_uc_template()
     c_sys5_uc = PSB.build_system(PSITestSystems, "c_sys5_pglib"; force_build = true)
-    set_device_model!(template, ThermalMultiStart, ThermalStandardUnitCommitment)
-    set_device_model!(template, ThermalStandard, ThermalStandardUnitCommitment)
+    set_device_model!(template, ThermalMultiStart, StandardUnitCommitment)
+    set_device_model!(template, ThermalStandard, StandardUnitCommitment)
     model = DecisionModel(template, c_sys5_uc; optimizer = HiGHS_optimizer)
     @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
           IOM.ModelBuildStatus.BUILT
@@ -792,7 +792,7 @@ end
     template = get_thermal_standard_uc_template()
     new_model = DeviceModel(
         ThermalStandard,
-        ThermalBasicUnitCommitment;
+        BasicUnitCommitment;
         attributes = Dict("filter_function" => x -> PSY.get_name(x) != "Alta"),
     )
     set_device_model!(template, new_model)
@@ -876,7 +876,7 @@ end
     template = get_thermal_standard_uc_template()
     new_model = DeviceModel(
         ThermalStandard,
-        ThermalBasicUnitCommitment;
+        BasicUnitCommitment;
     )
     set_device_model!(template, new_model)
     UC = DecisionModel(

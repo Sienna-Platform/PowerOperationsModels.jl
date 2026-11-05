@@ -1492,7 +1492,7 @@ end
             NetworkModel(PTDFNetworkModel),
         )
     set_device_model!(template, PSY.PowerLoad, StaticPowerLoad)
-    set_device_model!(template, PSY.ThermalStandard, ThermalStandardUnitCommitment)
+    set_device_model!(template, PSY.ThermalStandard, StandardUnitCommitment)
     set_device_model!(
         template,
         DeviceModel(

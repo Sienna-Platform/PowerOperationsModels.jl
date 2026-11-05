@@ -397,7 +397,7 @@ end
     transform_single_time_series!(c_sys5_hy, Hour(24), Hour(24))
 
     template_uc = PowerOperationsProblemTemplate()
-    set_device_model!(template_uc, ThermalStandard, ThermalBasicUnitCommitment)
+    set_device_model!(template_uc, ThermalStandard, BasicUnitCommitment)
     set_device_model!(template_uc, RenewableDispatch, RenewableFullDispatch)
     set_device_model!(template_uc, PowerLoad, StaticPowerLoad)
     set_device_model!(template_uc, RenewableNonDispatch, FixedOutput)
@@ -488,7 +488,7 @@ end
     transform_single_time_series!(c_sys5_hy, Hour(24), Hour(24))
 
     template_uc = PowerOperationsProblemTemplate()
-    set_device_model!(template_uc, ThermalStandard, ThermalBasicUnitCommitment)
+    set_device_model!(template_uc, ThermalStandard, BasicUnitCommitment)
     set_device_model!(template_uc, RenewableDispatch, RenewableFullDispatch)
     set_device_model!(template_uc, PowerLoad, StaticPowerLoad)
     set_device_model!(template_uc, RenewableNonDispatch, FixedOutput)
@@ -539,7 +539,7 @@ end
     transform_single_time_series!(c_sys5_hy, Hour(4), Hour(4))
 
     template = PowerOperationsProblemTemplate()
-    set_device_model!(template, ThermalStandard, ThermalBasicUnitCommitment)
+    set_device_model!(template, ThermalStandard, BasicUnitCommitment)
     set_device_model!(template, RenewableDispatch, RenewableFullDispatch)
     set_device_model!(template, PowerLoad, StaticPowerLoad)
     set_device_model!(template, RenewableNonDispatch, FixedOutput)
@@ -697,7 +697,7 @@ end
     transform_single_time_series!(c_sys5_bat, Hour(24), Hour(24))
 
     template_uc = PowerOperationsProblemTemplate()
-    set_device_model!(template_uc, ThermalStandard, ThermalBasicUnitCommitment)
+    set_device_model!(template_uc, ThermalStandard, BasicUnitCommitment)
     set_device_model!(template_uc, RenewableDispatch, RenewableFullDispatch)
     set_device_model!(template_uc, PowerLoad, StaticPowerLoad)
     set_device_model!(template_uc, RenewableNonDispatch, FixedOutput)
@@ -747,7 +747,7 @@ end
         ),
     )
 
-    set_device_model!(template_ed, ThermalStandard, ThermalBasicDispatch)
+    set_device_model!(template_ed, ThermalStandard, BasicDispatch)
     set_device_model!(template_ed, PowerLoad, StaticPowerLoad)
     set_device_model!(template_ed, HydroReservoir, HydroWaterFactorModel)
     set_device_model!(template_ed, HydroTurbine, HydroWaterFactorModel)
@@ -1510,7 +1510,7 @@ end
 
     # HydroCommitmentRunOfRiver has no duration/ramp constraints and never consumes
     # initial conditions, so it must not force an initialization sub-model (mirrors
-    # ThermalBasicUnitCommitment).
+    # BasicUnitCommitment).
     @test !POM.requires_initialization(POM.HydroCommitmentRunOfRiver())
 
     # The hydro OnVariable proportional cost must route through the market-bid-aware
@@ -1638,7 +1638,7 @@ end
 
     for network_formulation in (ac_networks..., DCPNetworkModel)
         template = PowerOperationsProblemTemplate(NetworkModel(network_formulation))
-        set_device_model!(template, ThermalStandard, ThermalBasicDispatch)
+        set_device_model!(template, ThermalStandard, BasicDispatch)
         set_device_model!(template, PowerLoad, StaticPowerLoad)
         set_device_model!(template, HydroReservoir, HydroWaterFactorModel)
         set_device_model!(template, HydroTurbine, HydroWaterFactorModel)
@@ -1686,7 +1686,7 @@ function _water_model_initial_volume_terms(initial_level::Float64)
         set_initial_level!(res, initial_level)
     end
     template = PowerOperationsProblemTemplate(NetworkModel(DCPNetworkModel))
-    set_device_model!(template, ThermalStandard, ThermalBasicDispatch)
+    set_device_model!(template, ThermalStandard, BasicDispatch)
     set_device_model!(template, PowerLoad, StaticPowerLoad)
     set_device_model!(template, HydroReservoir, HydroWaterFactorModel)
     set_device_model!(template, HydroTurbine, HydroWaterFactorModel)
@@ -1878,7 +1878,7 @@ end
     transform_single_time_series!(c_sys5_hy, Hour(4), Hour(4))
 
     template = PowerOperationsProblemTemplate()
-    set_device_model!(template, ThermalStandard, ThermalBasicUnitCommitment)
+    set_device_model!(template, ThermalStandard, BasicUnitCommitment)
     set_device_model!(template, PowerLoad, StaticPowerLoad)
     set_device_model!(template, HydroDispatch, HydroDispatchRunOfRiver)
     set_service_model!(template, OnlineReserve{ReserveUp}, RangeReserve)

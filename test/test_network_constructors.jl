@@ -296,7 +296,7 @@ end
 
 function _hvdc_area_model(sys, network_type, formulation)
     template = PowerOperationsProblemTemplate(NetworkModel(network_type))
-    set_device_model!(template, ThermalStandard, ThermalBasicDispatch)
+    set_device_model!(template, ThermalStandard, BasicDispatch)
     set_device_model!(template, RenewableDispatch, FixedOutput)
     set_device_model!(template, PowerLoad, StaticPowerLoad)
     set_device_model!(template, Line, StaticBranchUnbounded)

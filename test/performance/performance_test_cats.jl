@@ -31,7 +31,7 @@ try
                 duals = [CopperPlateBalanceConstraint],
             ),
         )
-        set_device_model!(template, ThermalStandard, ThermalBasicUnitCommitment)
+        set_device_model!(template, ThermalStandard, BasicUnitCommitment)
         set_device_model!(template, RenewableDispatch, RenewableFullDispatch)
         set_device_model!(template, HydroDispatch, HydroDispatchRunOfRiver)
         set_device_model!(template, PowerLoad, StaticPowerLoad)

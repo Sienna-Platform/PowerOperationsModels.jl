@@ -3,7 +3,7 @@
 # These methods are defined in PowerSimulations
 requires_initialization(::AbstractHydroReservoirFormulation) = false
 requires_initialization(::AbstractHydroUnitCommitment) = true
-# Like ThermalBasicUnitCommitment: HydroCommitmentRunOfRiver has no min up/down-time or
+# Like BasicUnitCommitment: HydroCommitmentRunOfRiver has no min up/down-time or
 # ramp constraints and its constructors never call `initial_conditions!`, so no
 # initialization sub-model is needed. Inheriting `true` from AbstractHydroUnitCommitment
 # forced a pointless IC solve whose template may not even be feasible/constructible for

@@ -40,7 +40,7 @@ end
             template = PowerOperationsProblemTemplate(
                 NetworkModel(CopperPlateNetworkModel; duals = duals),
             )
-            set_device_model!(template, ThermalStandard, ThermalStandardUnitCommitment)
+            set_device_model!(template, ThermalStandard, StandardUnitCommitment)
             set_device_model!(template, RenewableDispatch, RenewableFullDispatch)
             set_device_model!(template, PowerLoad, StaticPowerLoad)
             template

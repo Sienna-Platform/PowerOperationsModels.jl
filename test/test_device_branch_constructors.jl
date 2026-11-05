@@ -285,7 +285,7 @@ end
         NetworkModel(PTDFNetworkModel),
     )
 
-    set_device_model!(template_uc, ThermalStandard, ThermalStandardUnitCommitment)
+    set_device_model!(template_uc, ThermalStandard, StandardUnitCommitment)
     set_device_model!(template_uc, RenewableDispatch, FixedOutput)
     set_device_model!(template_uc, PowerLoad, StaticPowerLoad)
     set_device_model!(template_uc, DeviceModel(Line, StaticBranch))
@@ -358,7 +358,7 @@ end
                 NetworkModel(net_model; use_slacks = true),
             )
 
-            set_device_model!(template_uc, ThermalStandard, ThermalBasicUnitCommitment)
+            set_device_model!(template_uc, ThermalStandard, BasicUnitCommitment)
             set_device_model!(template_uc, RenewableDispatch, FixedOutput)
             set_device_model!(template_uc, PowerLoad, StaticPowerLoad)
             set_device_model!(template_uc, DeviceModel(Line, StaticBranchBounds))

@@ -13,27 +13,37 @@ struct MyCustomDeviceFormulation <: IOM.AbstractDeviceFormulation end
 ########################### Thermal Generation Formulations ################################
 # AbstractThermalFormulation: in IS
 # AbstractThermalDispatchFormuation, UnitCommentment: in IOM
+# Basic/Standard Dispatch/UnitCommitment carry no device prefix: the DeviceModel names the
+# device type. They sit under the thermal abstracts so the IOM methods on those apply.
 
 abstract type AbstractStandardUnitCommitment <: AbstractThermalUnitCommitment end
 abstract type AbstractCompactUnitCommitment <: AbstractThermalUnitCommitment end
 
 """
 Formulation type to enable basic unit commitment representation without any intertemporal (ramp, min on/off time) constraints
+
+Currently implemented for `PowerSystems.ThermalGen`.
 """
-struct ThermalBasicUnitCommitment <: AbstractStandardUnitCommitment end
+struct BasicUnitCommitment <: AbstractStandardUnitCommitment end
 """
 Formulation type to enable standard unit commitment with intertemporal constraints and simplified startup profiles
+
+Currently implemented for `PowerSystems.ThermalGen`.
 """
-struct ThermalStandardUnitCommitment <: AbstractStandardUnitCommitment end
+struct StandardUnitCommitment <: AbstractStandardUnitCommitment end
 
 """
 Formulation type to enable basic dispatch without any intertemporal (ramp) constraints
+
+Currently implemented for `PowerSystems.ThermalGen`.
 """
-struct ThermalBasicDispatch <: AbstractThermalDispatchFormulation end
+struct BasicDispatch <: AbstractThermalDispatchFormulation end
 """
 Formulation type to enable standard dispatch with a range and enforce intertemporal ramp constraints
+
+Currently implemented for `PowerSystems.ThermalGen`.
 """
-struct ThermalStandardDispatch <: AbstractThermalDispatchFormulation end
+struct StandardDispatch <: AbstractThermalDispatchFormulation end
 """
 Formulation type to enable basic dispatch without any intertemporal constraints and relaxed minimum generation. *May not work with non-convex PWL cost definitions*
 """

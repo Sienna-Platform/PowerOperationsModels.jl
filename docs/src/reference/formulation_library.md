@@ -521,13 +521,15 @@ The HVDC network model is a separate template slot from the AC network model:
 
 ## [ThermalGen Formulations](@id ThermalGen-Formulations)
 
-Nine concrete thermal formulations, under three abstract branches:
+Nine concrete thermal formulations, under three abstract branches.
+`BasicDispatch`, `StandardDispatch`, `BasicUnitCommitment` and `StandardUnitCommitment` carry no device prefix because the `DeviceModel` already names the device type.
+Only `PowerSystems.ThermalGen` implements them today.
 
 | Abstract                             | Concrete                                                                                               |
 |:------------------------------------ |:------------------------------------------------------------------------------------------------------ |
-| `AbstractStandardUnitCommitment`     | `ThermalBasicUnitCommitment`, `ThermalStandardUnitCommitment`                                          |
+| `AbstractStandardUnitCommitment`     | `BasicUnitCommitment`, `StandardUnitCommitment`                                                        |
 | `AbstractCompactUnitCommitment`      | `ThermalBasicCompactUnitCommitment`, `ThermalCompactUnitCommitment`, `ThermalMultiStartUnitCommitment` |
-| `AbstractThermalDispatchFormulation` | `ThermalBasicDispatch`, `ThermalStandardDispatch`, `ThermalDispatchNoMin`, `ThermalCompactDispatch`    |
+| `AbstractThermalDispatchFormulation` | `BasicDispatch`, `StandardDispatch`, `ThermalDispatchNoMin`, `ThermalCompactDispatch`                  |
 
 The *standard* family dispatches `ActivePowerVariable` directly. The *compact* family instead
 dispatches `PowerAboveMinimumVariable` and reconstructs total power as ``p = P_{min} u + \hat{p}``,
@@ -535,12 +537,12 @@ wiring **both** the above-minimum variable and the commitment status into `Activ
 
 | Formulation                                                      | Variables                                                                                                                   | Constraints                                                                                                                                                      |
 |:---------------------------------------------------------------- |:--------------------------------------------------------------------------------------------------------------------------- |:---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `ThermalBasicDispatch`                                           | `ActivePowerVariable`, `ReactivePowerVariable`                                                                              | `ActivePowerVariableLimitsConstraint`, `ReactivePowerVariableLimitsConstraint`                                                                                   |
+| `BasicDispatch`                                                  | `ActivePowerVariable`, `ReactivePowerVariable`                                                                              | `ActivePowerVariableLimitsConstraint`, `ReactivePowerVariableLimitsConstraint`                                                                                   |
 | `ThermalDispatchNoMin`                                           | as above, with lower bound relaxed to 0                                                                                     | as above                                                                                                                                                         |
-| `ThermalStandardDispatch`                                        | as above                                                                                                                    | as above **+ `RampConstraint`**                                                                                                                                  |
+| `StandardDispatch`                                               | as above                                                                                                                    | as above **+ `RampConstraint`**                                                                                                                                  |
 | `ThermalCompactDispatch`                                         | `PowerAboveMinimumVariable`, `ReactivePowerVariable`, `PowerOutput` (aux)                                                   | range limits **+ `RampConstraint`**. Adds `OnStatusParameter` and wires it into `ActivePowerBalance`                                                             |
-| `ThermalBasicUnitCommitment`                                     | `ActivePowerVariable`, `ReactivePowerVariable`, `OnVariable`, `StartVariable`, `StopVariable`, `TimeDurationOn`/`Off` (aux) | range limits **+ `CommitmentConstraint`**. No ramp, no duration                                                                                                  |
-| `ThermalStandardUnitCommitment`                                  | as above                                                                                                                    | as above **+ `RampConstraint` + `DurationConstraint`**                                                                                                           |
+| `BasicUnitCommitment`                                            | `ActivePowerVariable`, `ReactivePowerVariable`, `OnVariable`, `StartVariable`, `StopVariable`, `TimeDurationOn`/`Off` (aux) | range limits **+ `CommitmentConstraint`**. No ramp, no duration                                                                                                  |
+| `StandardUnitCommitment`                                         | as above                                                                                                                    | as above **+ `RampConstraint` + `DurationConstraint`**                                                                                                           |
 | `ThermalBasicCompactUnitCommitment`                              | compact variable set + commitment variables                                                                                 | range limits + `CommitmentConstraint`. No ramp, no duration                                                                                                      |
 | `ThermalCompactUnitCommitment`                                   | as above                                                                                                                    | as above **+ `RampConstraint` + `DurationConstraint`**                                                                                                           |
 | `ThermalMultiStartUnitCommitment` (`PSY.ThermalMultiStart` only) | compact set **+ `ColdStartVariable`, `WarmStartVariable`, `HotStartVariable`**                                              | as above **+ `StartupTimeLimitTemperatureConstraint` (`"hot"`/`"warm"`), `StartTypeConstraint`, `StartupInitialConditionConstraint`, `ActiveRangeICConstraint`** |
@@ -802,7 +804,7 @@ state, which POM does not have.
 Attach one to a device model with `attach_feedforward!`:
 
 ```julia
-device_model = DeviceModel(ThermalStandard, ThermalStandardDispatch)
+device_model = DeviceModel(ThermalStandard, StandardDispatch)
 attach_feedforward!(
     device_model,
     SemiContinuousFeedforward(;

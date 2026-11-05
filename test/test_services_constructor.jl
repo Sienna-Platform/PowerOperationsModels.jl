@@ -587,7 +587,7 @@ end
     template = get_thermal_standard_uc_template()
     set_device_model!(
         template,
-        DeviceModel(ThermalMultiStart, ThermalStandardUnitCommitment),
+        DeviceModel(ThermalMultiStart, StandardUnitCommitment),
     )
     set_service_model!(
         template,
@@ -610,7 +610,7 @@ end
 
     template = PowerOperationsProblemTemplate(CopperPlateNetworkModel)
     set_device_model!(template, PowerLoad, StaticPowerLoad)
-    set_device_model!(template, ThermalStandard, ThermalBasicUnitCommitment)
+    set_device_model!(template, ThermalStandard, BasicUnitCommitment)
     set_device_model!(template, HydroDispatch, HydroCommitmentRunOfRiver)
     set_service_model!(template, ServiceModel(OfflineReserve, NonSpinningReserve))
 
@@ -651,7 +651,7 @@ function _nonspin_uc_model(sys::PSY.System)
     template = get_thermal_standard_uc_template()
     set_device_model!(
         template,
-        DeviceModel(ThermalMultiStart, ThermalStandardUnitCommitment),
+        DeviceModel(ThermalMultiStart, StandardUnitCommitment),
     )
     set_service_model!(template, ServiceModel(OfflineReserve, NonSpinningReserve))
     return DecisionModel(template, sys; optimizer = HiGHS_optimizer)
@@ -1156,7 +1156,7 @@ end
     _add_interface_limit_ts!(sys, interface, "max_active_power_flow_limit", 0.9)
 
     template = get_thermal_dispatch_template_network(DCPNetworkModel)
-    set_device_model!(template, ThermalStandard, ThermalStandardUnitCommitment)
+    set_device_model!(template, ThermalStandard, StandardUnitCommitment)
     set_service_model!(template, ServiceModel(TransmissionInterface, MaxInterfaceFlow))
     model = DecisionModel(
         template,
@@ -1178,7 +1178,7 @@ end
         SingleTimeSeries("max_active_power_flow_limit", TimeArray(stamps, fill(0.5, 48))),
     )
     template = get_thermal_dispatch_template_network(DCPNetworkModel)
-    set_device_model!(template, ThermalStandard, ThermalStandardUnitCommitment)
+    set_device_model!(template, ThermalStandard, StandardUnitCommitment)
     set_service_model!(
         template,
         ServiceModel(
@@ -2307,7 +2307,7 @@ end
     add_service!(c_sys14, interface, [line, transformer])
 
     template = PowerOperationsProblemTemplate(PTDFNetworkModel)
-    set_device_model!(template, ThermalStandard, ThermalBasicDispatch)
+    set_device_model!(template, ThermalStandard, BasicDispatch)
     set_device_model!(template, PowerLoad, StaticPowerLoad)
     set_device_model!(template, Line, StaticBranch)
     set_service_model!(
@@ -2464,7 +2464,7 @@ end
 
 function _nonnested_reserve_template(load_formulation)
     template = PowerOperationsProblemTemplate(NetworkModel(CopperPlateNetworkModel))
-    set_device_model!(template, ThermalStandard, ThermalBasicUnitCommitment)
+    set_device_model!(template, ThermalStandard, BasicUnitCommitment)
     set_device_model!(template, PowerLoad, StaticPowerLoad)
     set_device_model!(template, PSY.InterruptiblePowerLoad, load_formulation)
     set_service_model!(

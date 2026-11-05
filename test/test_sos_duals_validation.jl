@@ -3,7 +3,7 @@
     template = PowerOperationsProblemTemplate(
         NetworkModel(CopperPlateNetworkModel; duals = [CopperPlateBalanceConstraint]),
     )
-    set_device_model!(template, ThermalStandard, ThermalStandardDispatch)
+    set_device_model!(template, ThermalStandard, StandardDispatch)
     set_device_model!(template, PowerLoad, StaticPowerLoad)
     model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
     output_dir = mktempdir(; cleanup = true)
@@ -18,7 +18,7 @@ end
 @testset "Duals + solver SOS2 constraints non-vacuity: SOS2 is actually present without duals" begin
     sys = PSB.build_system(PSITestSystems, "c_sys5_pwl_ed_nonconvex")
     template = PowerOperationsProblemTemplate(NetworkModel(CopperPlateNetworkModel))
-    set_device_model!(template, ThermalStandard, ThermalStandardDispatch)
+    set_device_model!(template, ThermalStandard, StandardDispatch)
     set_device_model!(template, PowerLoad, StaticPowerLoad)
     model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
     @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
@@ -38,7 +38,7 @@ end
     template = PowerOperationsProblemTemplate(
         NetworkModel(CopperPlateNetworkModel; duals = [CopperPlateBalanceConstraint]),
     )
-    set_device_model!(template, ThermalStandard, ThermalBasicUnitCommitment)
+    set_device_model!(template, ThermalStandard, BasicUnitCommitment)
     set_device_model!(template, PowerLoad, StaticPowerLoad)
     model = DecisionModel(
         template,

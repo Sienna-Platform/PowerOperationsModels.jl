@@ -29,7 +29,7 @@ function _min_power_uc_model(
     recurrent = false,
     rebuild_model = false,
     initialize_model = true,
-    formulation = ThermalStandardUnitCommitment,
+    formulation = StandardUnitCommitment,
     names = MIN_POWER_UC_NAMES,
 )
     template = PowerOperationsProblemTemplate(CopperPlateNetworkModel)
@@ -168,7 +168,7 @@ end
     @test POM.get_multiplier_value(
         MinActivePowerTimeSeriesParameter,
         thermal,
-        ThermalStandardUnitCommitment,
+        StandardUnitCommitment,
     ) == PSY.get_max_active_power(thermal, u"SU")
 
     pump_sys = PSB.build_system(PSITestSystems, "c_sys5_hydro_pump_energy")
@@ -213,7 +213,7 @@ end
 
 @testset "Standard dispatch: lower row bound is Pmax * series" begin
     sys, unit = _min_power_system(MIN_POWER_VALUES)
-    _, container = _built_min_power_container(sys; formulation = ThermalStandardDispatch)
+    _, container = _built_min_power_container(sys; formulation = StandardDispatch)
     pmax = PSY.get_max_active_power(unit, u"SU")
     rows = _limit_rows(container, "lb")
     for t in 1:24
@@ -282,7 +282,7 @@ end
         container,
         ActivePowerRangeExpressionLB,
         unit,
-        ThermalStandardUnitCommitment,
+        StandardUnitCommitment,
     )
     @test uc ≈ PSY.get_max_active_power(unit, u"SU") .* MIN_POWER_VALUES
 end
@@ -439,7 +439,7 @@ end
     add_min_power_series!(sys, unit, MIN_POWER_VALUES)
     template = PowerOperationsProblemTemplate(CopperPlateNetworkModel)
     set_device_model!(template, PowerLoad, StaticPowerLoad)
-    set_device_model!(template, ThermalStandard, ThermalStandardDispatch)
+    set_device_model!(template, ThermalStandard, StandardDispatch)
     set_device_model!(
         template,
         DeviceModel(
@@ -572,7 +572,7 @@ end
         template,
         DeviceModel(
             ThermalMultiStart,
-            ThermalStandardUnitCommitment;
+            StandardUnitCommitment;
             time_series_names = Dict(
                 MinActivePowerTimeSeriesParameter => "min_active_power",
             ),
@@ -609,7 +609,7 @@ end
                 template,
                 DeviceModel(
                     ThermalStandard,
-                    ThermalStandardDispatch;
+                    StandardDispatch;
                     time_series_names = names,
                 ),
             )
@@ -717,7 +717,7 @@ end
 # must obey the ramp limit between two steps with the unit on.
 @testset "Compact equals standard: ramp feasible set with a changing minimum series" begin
     sys, unit = _ramp_binding_system(RAMP_LEVEL_VALUES)
-    std_model, std_res = _solved_outputs(ThermalStandardUnitCommitment, sys)
+    std_model, std_res = _solved_outputs(StandardUnitCommitment, sys)
     std_power = read_variable(
         std_res,
         "ActivePowerVariable__ThermalStandard";
@@ -778,7 +778,7 @@ end
 
 @testset "Compact equals standard: power and objective match with a changing minimum series" begin
     sys, _ = _ramp_binding_system(RAMP_LEVEL_VALUES)
-    _, std_res = _solved_outputs(ThermalStandardUnitCommitment, sys)
+    _, std_res = _solved_outputs(StandardUnitCommitment, sys)
     _, cmp_res = _solved_outputs(ThermalCompactUnitCommitment, sys)
     std_power = read_variable(
         std_res,
@@ -1004,7 +1004,7 @@ end
 # level term.
 @testset "Compact ramp: a minimum rise above the ramp limit is infeasible with the unit on" begin
     for (high, feasible) in ((0.3, true), (0.7, false)),
-        formulation in (ThermalStandardUnitCommitment, ThermalCompactUnitCommitment)
+        formulation in (StandardUnitCommitment, ThermalCompactUnitCommitment)
 
         values = vcat(0.2, fill(high, 23))
         sys, unit = _min_power_system(values; max_values = vcat(0.2, ones(23)))
@@ -1029,7 +1029,7 @@ end
     add_min_power_series!(sys, unit, MIN_POWER_VALUES)
     template = PowerOperationsProblemTemplate(CopperPlateNetworkModel)
     set_device_model!(template, PowerLoad, StaticPowerLoad)
-    set_device_model!(template, ThermalStandard, ThermalStandardDispatch)
+    set_device_model!(template, ThermalStandard, StandardDispatch)
     set_device_model!(
         template,
         DeviceModel(
@@ -1640,7 +1640,7 @@ function _multi_start_must_run_container(; profiled)
     profiled && add_min_power_series!(sys, unit, MIN_POWER_VALUES)
     template = PowerOperationsProblemTemplate(CopperPlateNetworkModel)
     set_device_model!(template, PowerLoad, StaticPowerLoad)
-    set_device_model!(template, ThermalStandard, ThermalStandardDispatch)
+    set_device_model!(template, ThermalStandard, StandardDispatch)
     set_device_model!(
         template,
         DeviceModel(
@@ -1686,7 +1686,7 @@ end
     add_service!(sys, service, PSY.Device[hydro, thermal])
     template = PowerOperationsProblemTemplate(CopperPlateNetworkModel)
     set_device_model!(template, PowerLoad, StaticPowerLoad)
-    set_device_model!(template, ThermalStandard, ThermalBasicUnitCommitment)
+    set_device_model!(template, ThermalStandard, BasicUnitCommitment)
     set_device_model!(
         template,
         DeviceModel(

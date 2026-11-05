@@ -194,7 +194,7 @@ end
     # runtime asks rather than assuming, and writes in the order returned: the
     # countdown carries the outage's memory, availability is derived from it.
     container, _ = mock_event_container(
-        DeviceModel(PSY.ThermalStandard, ThermalBasicUnitCommitment),
+        DeviceModel(PSY.ThermalStandard, BasicUnitCommitment),
         DCPNetworkModel,
         "c_sys5_uc",
     )

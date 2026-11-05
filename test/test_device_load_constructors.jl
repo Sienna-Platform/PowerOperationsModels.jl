@@ -638,7 +638,7 @@ end
         ),
     )
     template = PowerOperationsProblemTemplate(NetworkModel(CopperPlateNetworkModel))
-    set_device_model!(template, ThermalStandard, ThermalBasicUnitCommitment)
+    set_device_model!(template, ThermalStandard, BasicUnitCommitment)
     set_device_model!(template, InterruptiblePowerLoad, PowerLoadDispatch)
     model = DecisionModel(template,
         c_sys5_il;
@@ -833,7 +833,7 @@ end
             duals = [CopperPlateBalanceConstraint],
         ),
     )
-    set_device_model!(template, ThermalStandard, ThermalBasicUnitCommitment)
+    set_device_model!(template, ThermalStandard, BasicUnitCommitment)
     set_device_model!(template, PowerLoad, StaticPowerLoad)
     set_device_model!(
         template,

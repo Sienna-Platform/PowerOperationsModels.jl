@@ -30,9 +30,9 @@ end
 
 requires_initialization(::AbstractThermalFormulation) = false
 requires_initialization(::AbstractThermalUnitCommitment) = true
-requires_initialization(::ThermalStandardDispatch) = true
+requires_initialization(::StandardDispatch) = true
 requires_initialization(::ThermalBasicCompactUnitCommitment) = false
-requires_initialization(::ThermalBasicUnitCommitment) = false
+requires_initialization(::BasicUnitCommitment) = false
 
 get_variable_multiplier(::Type{<:VariableType}, ::Type{<:PSY.ThermalGen}, ::Type{<:AbstractThermalFormulation}) = 1.0
 # Per-device P_min multiplier computed inline at add_to_expression! call sites.
@@ -220,9 +220,9 @@ function get_initial_conditions_device_model(
     ::DeviceModel{T, D},
 ) where {T <: PSY.ThermalGen, D <: AbstractThermalDispatchFormulation}
     if supports_milp(get_optimization_container(model))
-        return DeviceModel(T, ThermalBasicUnitCommitment)
+        return DeviceModel(T, BasicUnitCommitment)
     else
-        return DeviceModel(T, ThermalBasicDispatch)
+        return DeviceModel(T, BasicDispatch)
     end
 end
 
@@ -237,7 +237,7 @@ function get_initial_conditions_device_model(
     ::IOM.AbstractOptimizationModel,
     ::DeviceModel{T, D},
 ) where {T <: PSY.ThermalGen, D <: AbstractThermalUnitCommitment}
-    return DeviceModel(T, ThermalBasicUnitCommitment)
+    return DeviceModel(T, BasicUnitCommitment)
 end
 
 function get_initial_conditions_device_model(
@@ -944,7 +944,7 @@ end
 function initial_conditions!(
     container::OptimizationContainer,
     devices::Vector{T},
-    formulation::Union{ThermalBasicUnitCommitment, ThermalBasicCompactUnitCommitment},
+    formulation::Union{BasicUnitCommitment, ThermalBasicCompactUnitCommitment},
 ) where {T <: PSY.ThermalGen}
     add_initial_condition!(container, devices, formulation, DeviceStatus())
     add_initial_condition!(container, devices, formulation, InitialTimeDurationOn())

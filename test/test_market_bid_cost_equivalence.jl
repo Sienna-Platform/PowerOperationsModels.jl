@@ -86,7 +86,7 @@ for decremental in (false, true)
     device_models = if decremental
         [PowerLoadInterruption, PowerLoadDispatch]
     else
-        [ThermalBasicUnitCommitment]
+        [BasicUnitCommitment]
     end
     @testset for device_model in device_models
         device_to_formulation = FormulationDict(comp_type => device_model)

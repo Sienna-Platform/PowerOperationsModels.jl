@@ -144,7 +144,7 @@ end
 @testset "Feedforward bound slack on a power is priced per hour" begin
     for (sys_name, step) in (("c_sys5", Dates.Hour(1)), ("c_sys5_ed", Dates.Minute(5)))
         container, coefs =
-            _feedforward_slack_coefs(sys_name, ThermalStandardDispatch, ActivePowerVariable)
+            _feedforward_slack_coefs(sys_name, StandardDispatch, ActivePowerVariable)
         @test IOM.get_resolution(container) == Dates.Millisecond(step)
         dt = _step_hours(step)
         @test IOM.get_resolution_in_hours(container) == dt
@@ -155,7 +155,7 @@ end
 @testset "Feedforward bound slack on a status or energy is priced per step" begin
     for (sys_name, step) in (("c_sys5", Dates.Hour(1)), ("c_sys5_ed", Dates.Minute(5)))
         container, coefs =
-            _feedforward_slack_coefs(sys_name, ThermalBasicUnitCommitment, OnVariable)
+            _feedforward_slack_coefs(sys_name, BasicUnitCommitment, OnVariable)
         @test IOM.get_resolution(container) == Dates.Millisecond(step)
         @test !isempty(coefs)
         @test all(c == POM.FEEDFORWARD_SLACK_COST for c in coefs)

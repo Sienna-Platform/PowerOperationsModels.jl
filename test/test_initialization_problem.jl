@@ -1,9 +1,9 @@
 sys_rts = PSB.build_system(PSISystems, "modified_RTS_GMLC_DA_sys")
 
 # we only do a single timestep because multi time step stuff is the domain of PSI.
-@testset "Initialization with ThermalStandardUnitCommitment" begin
+@testset "Initialization with StandardUnitCommitment" begin
     template = PowerOperationsProblemTemplate(CopperPlateNetworkModel)
-    set_device_model!(template, ThermalStandard, ThermalStandardUnitCommitment)
+    set_device_model!(template, ThermalStandard, StandardUnitCommitment)
     set_device_model!(template, PowerLoad, StaticPowerLoad)
     set_device_model!(template, RenewableDispatch, RenewableFullDispatch)
     set_device_model!(template, HydroDispatch, HydroDispatchRunOfRiver)

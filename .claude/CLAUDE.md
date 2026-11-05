@@ -10,7 +10,7 @@ Abstraction hierarchy (low → high level of generality):
 
 - **InfrastructureSystems (IS)** — domain-agnostic base: optimization key types (`VariableKey`, `ConstraintKey`, …), time series, generic component abstractions. (`InfrastructureSystems.Optimization` = `ISOPT`.)
 - **InfrastructureOptimizationModels (IOM)** — domain-neutral optimization infrastructure: `OptimizationContainer`, `DeviceModel{D,F}` / `ServiceModel{S,F}` / `NetworkModel{N}`, `ProblemTemplate`, `DecisionModel{M}` / `EmulationModel{M}` (parameterized over the single abstract tag `IOM.AbstractOptimizationProblem`), both stores, settings, the generic `add_*!` builders, objective/initial-condition infra. Reusable beyond power systems.
-- **POM (this repo)** — the "what": device formulations (`ThermalBasicUnitCommitment`, `RenewableFullDispatch`, `StaticBranch`, storage, HVDC, …), variable/constraint/expression/parameter types, network formulations, service models, and the concrete problem taxonomy.
+- **POM (this repo)** — the "what": device formulations (`BasicUnitCommitment`, `RenewableFullDispatch`, `StaticBranch`, storage, HVDC, …), variable/constraint/expression/parameter types, network formulations, service models, and the concrete problem taxonomy.
 
 PSI (the old PowerSimulations.jl) ≈ POM + IOM. Many ports into POM originate from PSI PRs.
 

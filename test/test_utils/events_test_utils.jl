@@ -137,7 +137,7 @@ outage_zero_output_cases() = (
     (
         name = "thermal",
         dtype = PSY.ThermalStandard,
-        device_model = DeviceModel(PSY.ThermalStandard, ThermalBasicUnitCommitment),
+        device_model = DeviceModel(PSY.ThermalStandard, BasicUnitCommitment),
         network = DCPNetworkModel,
         build_sys = () -> PSB.build_system(PSITestSystems, "c_sys5_uc"),
         vars = [ActivePowerVariable],

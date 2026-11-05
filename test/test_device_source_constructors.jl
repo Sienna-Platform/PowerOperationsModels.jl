@@ -100,7 +100,7 @@ end
     transform_single_time_series!(sys, Hour(24), Hour(24))
 
     template = PowerOperationsProblemTemplate(NetworkModel(CopperPlateNetworkModel))
-    set_device_model!(template, ThermalStandard, ThermalStandardUnitCommitment)
+    set_device_model!(template, ThermalStandard, StandardUnitCommitment)
     set_device_model!(template, PowerLoad, StaticPowerLoad)
     set_device_model!(template, DeviceModel(Line, StaticBranch))
     source_model = DeviceModel(
@@ -180,7 +180,7 @@ end
     transform_single_time_series!(sys, Hour(24), Hour(24))
 
     template = PowerOperationsProblemTemplate(NetworkModel(CopperPlateNetworkModel))
-    set_device_model!(template, ThermalStandard, ThermalStandardUnitCommitment)
+    set_device_model!(template, ThermalStandard, StandardUnitCommitment)
     set_device_model!(template, PowerLoad, StaticPowerLoad)
     set_device_model!(template, DeviceModel(Line, StaticBranch))
     set_device_model!(template, DeviceModel(Source, FixedOutput))

@@ -391,7 +391,7 @@ function g1_reduction_model(sys, reduction)
     template = PowerOperationsProblemTemplate(
         NetworkModel(PTDFNetworkModel; network_source = SystemNetworkSource(reduction)),
     )
-    set_device_model!(template, ThermalStandard, ThermalBasicDispatch)
+    set_device_model!(template, ThermalStandard, BasicDispatch)
     set_device_model!(template, StandardLoad, StaticPowerLoad)
     set_device_model!(template, Line, StaticBranch)
     set_service_model!(
@@ -618,7 +618,7 @@ end
 @testset "G-1 reserves under unit commitment" begin
     sys, outages = g1_system()
     template = g1_template(CopperPlateNetworkModel)
-    set_device_model!(template, ThermalStandard, ThermalBasicUnitCommitment)
+    set_device_model!(template, ThermalStandard, BasicUnitCommitment)
     model = g1_model(template, sys)
     @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
           IOM.ModelBuildStatus.BUILT
@@ -770,7 +770,7 @@ end
     add_supplemental_attribute!(sys, unit, outage)
     add_supplemental_attribute!(sys, reserve, outage)
     template = PowerOperationsProblemTemplate(NetworkModel(CopperPlateNetworkModel))
-    set_device_model!(template, ThermalStandard, ThermalBasicUnitCommitment)
+    set_device_model!(template, ThermalStandard, BasicUnitCommitment)
     set_device_model!(template, ThermalMultiStart, ThermalMultiStartUnitCommitment)
     set_device_model!(template, PowerLoad, StaticPowerLoad)
     set_service_model!(
@@ -815,7 +815,7 @@ end
     add_supplemental_attribute!(sys, outaged, outage)
     add_supplemental_attribute!(sys, reserve, outage)
     template = PowerOperationsProblemTemplate(NetworkModel(CopperPlateNetworkModel))
-    set_device_model!(template, ThermalStandard, ThermalBasicUnitCommitment)
+    set_device_model!(template, ThermalStandard, BasicUnitCommitment)
     set_device_model!(template, ThermalMultiStart, ThermalMultiStartUnitCommitment)
     set_device_model!(template, PowerLoad, StaticPowerLoad)
     set_service_model!(

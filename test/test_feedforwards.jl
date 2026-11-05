@@ -22,7 +22,7 @@ function _ff_limits(sys)
 end
 
 @testset "UpperBoundFeedforward on ThermalStandard: constraint coefficients" begin
-    device_model = DeviceModel(PSY.ThermalStandard, ThermalStandardDispatch)
+    device_model = DeviceModel(PSY.ThermalStandard, StandardDispatch)
     ff_ub = UpperBoundFeedforward(;
         component_type = PSY.ThermalStandard,
         source = ActivePowerVariable,
@@ -70,7 +70,7 @@ end
 end
 
 @testset "UpperBoundFeedforward slacks are wired in and penalized" begin
-    device_model = DeviceModel(PSY.ThermalStandard, ThermalStandardDispatch)
+    device_model = DeviceModel(PSY.ThermalStandard, StandardDispatch)
     ff_ub = UpperBoundFeedforward(;
         component_type = PSY.ThermalStandard,
         source = ActivePowerVariable,
@@ -113,7 +113,7 @@ end
 end
 
 @testset "LowerBoundFeedforward on ThermalStandard: constraint coefficients" begin
-    device_model = DeviceModel(PSY.ThermalStandard, ThermalStandardDispatch)
+    device_model = DeviceModel(PSY.ThermalStandard, StandardDispatch)
     ff_lb = LowerBoundFeedforward(;
         component_type = PSY.ThermalStandard,
         source = ActivePowerVariable,
@@ -152,7 +152,7 @@ end
 end
 
 @testset "LowerBoundFeedforward slacks are wired in and penalized" begin
-    device_model = DeviceModel(PSY.ThermalStandard, ThermalStandardDispatch)
+    device_model = DeviceModel(PSY.ThermalStandard, StandardDispatch)
     ff_lb = LowerBoundFeedforward(;
         component_type = PSY.ThermalStandard,
         source = ActivePowerVariable,
@@ -194,8 +194,8 @@ end
     end
 end
 
-@testset "SemiContinuousFeedforward on ThermalStandardDispatch: expression coefficients" begin
-    device_model = DeviceModel(PSY.ThermalStandard, ThermalStandardDispatch)
+@testset "SemiContinuousFeedforward on StandardDispatch: expression coefficients" begin
+    device_model = DeviceModel(PSY.ThermalStandard, StandardDispatch)
     ff_sc = SemiContinuousFeedforward(;
         component_type = PSY.ThermalStandard,
         source = OnVariable,
@@ -317,7 +317,7 @@ end
     end
 end
 
-@testset "SemiContinuousFeedforward on ThermalBasicUnitCommitment: native range constraints are suppressed" begin
+@testset "SemiContinuousFeedforward on BasicUnitCommitment: native range constraints are suppressed" begin
     ff_sc = SemiContinuousFeedforward(;
         component_type = PSY.ThermalStandard,
         source = OnVariable,
@@ -328,7 +328,7 @@ end
     limits = _ff_limits(c_sys5)
 
     # Without the feedforward the formulation builds its own range constraints.
-    plain_model = DeviceModel(PSY.ThermalStandard, ThermalBasicUnitCommitment)
+    plain_model = DeviceModel(PSY.ThermalStandard, BasicUnitCommitment)
     plain = DecisionModel(MockOperationProblem, DCPNetworkModel, c_sys5)
     mock_construct_device!(plain, plain_model; built_for_recurrent_solves = true)
     plain_container = IOM.get_optimization_container(plain)
@@ -343,7 +343,7 @@ end
     # `add_constraints!` for `PowerVariableLimitsConstraint` called
     # `add_semicontinuous_range_constraints!` unconditionally, unlike the dispatch-formulation
     # methods, so the unit ended up double-constrained.
-    device_model = DeviceModel(PSY.ThermalStandard, ThermalBasicUnitCommitment)
+    device_model = DeviceModel(PSY.ThermalStandard, BasicUnitCommitment)
     attach_feedforward!(device_model, ff_sc)
     model = DecisionModel(MockOperationProblem, DCPNetworkModel, c_sys5)
     mock_construct_device!(model, device_model; built_for_recurrent_solves = true)
@@ -384,7 +384,7 @@ end
     # Regression: HydroGen is not a `PSY.ThermalGen`, so the argument-construct path
     # routes the `OnStatusParameter` contribution through the generic (non-thermal)
     # `add_to_expression!` method, not the thermal-specific one exercised by the
-    # ThermalStandardDispatch testset above.
+    # StandardDispatch testset above.
     device_model = DeviceModel(PSY.HydroDispatch, HydroDispatchRunOfRiver)
     ff_sc = SemiContinuousFeedforward(;
         component_type = PSY.HydroDispatch,
@@ -513,9 +513,9 @@ end
     must_run_name = PSY.get_name(must_run_unit)
     PSY.set_commitment_mode!(must_run_unit, PSY.CommitmentModes.MUST_RUN)
 
-    # `ThermalBasicDispatch` has no ramp constraints; see the broken testset below for
-    # why `ThermalStandardDispatch` cannot be used here yet.
-    device_model = DeviceModel(PSY.ThermalStandard, ThermalBasicDispatch)
+    # `BasicDispatch` has no ramp constraints; see the broken testset below for
+    # why `StandardDispatch` cannot be used here yet.
+    device_model = DeviceModel(PSY.ThermalStandard, BasicDispatch)
     ff_sc = SemiContinuousFeedforward(;
         component_type = PSY.ThermalStandard,
         source = OnVariable,
@@ -560,7 +560,7 @@ end
     must_run_name = PSY.get_name(must_run_unit)
     PSY.set_commitment_mode!(must_run_unit, PSY.CommitmentModes.MUST_RUN)
 
-    device_model = DeviceModel(PSY.ThermalStandard, ThermalStandardDispatch)
+    device_model = DeviceModel(PSY.ThermalStandard, StandardDispatch)
     ff_sc = SemiContinuousFeedforward(;
         component_type = PSY.ThermalStandard,
         source = OnVariable,
@@ -650,7 +650,7 @@ end
 end
 
 @testset "FixValueFeedforward pins the affected variable to the parameter" begin
-    device_model = DeviceModel(PSY.ThermalStandard, ThermalStandardDispatch)
+    device_model = DeviceModel(PSY.ThermalStandard, StandardDispatch)
     ff_fix = FixValueFeedforward(;
         component_type = PSY.ThermalStandard,
         source = ActivePowerVariable,
@@ -712,7 +712,7 @@ end
     # source) stored the parameter container under the empty meta, while the read path
     # (`add_feedforward_constraints!`) always looks it up under `"$(source_type)"`. That
     # mismatch made `get_parameter_array` fail to find the container.
-    device_model = DeviceModel(PSY.ThermalStandard, ThermalStandardDispatch)
+    device_model = DeviceModel(PSY.ThermalStandard, StandardDispatch)
     ff_fix = FixValueFeedforward(;
         component_type = PSY.ThermalStandard,
         source = POM.PowerOutput,
@@ -759,7 +759,7 @@ end
 end
 
 @testset "attach_feedforward! is idempotent and rejects ServiceModel" begin
-    device_model = DeviceModel(PSY.ThermalStandard, ThermalStandardDispatch)
+    device_model = DeviceModel(PSY.ThermalStandard, StandardDispatch)
     ff = UpperBoundFeedforward(;
         component_type = PSY.ThermalStandard,
         source = ActivePowerVariable,
@@ -774,7 +774,7 @@ end
 end
 
 @testset "attach_feedforward! rejects a differing feedforward with the same source key" begin
-    device_model = DeviceModel(PSY.ThermalStandard, ThermalStandardDispatch)
+    device_model = DeviceModel(PSY.ThermalStandard, StandardDispatch)
     ff1 = UpperBoundFeedforward(;
         component_type = PSY.ThermalStandard,
         source = ActivePowerVariable,
@@ -800,7 +800,7 @@ end
 end
 
 @testset "attach_feedforward! rejects a second Upper/LowerBoundFeedforward with a different source" begin
-    ub_model = DeviceModel(PSY.ThermalStandard, ThermalStandardDispatch)
+    ub_model = DeviceModel(PSY.ThermalStandard, StandardDispatch)
     attach_feedforward!(
         ub_model,
         UpperBoundFeedforward(;
@@ -822,7 +822,7 @@ end
     )
     @test length(IOM.get_feedforwards(ub_model)) == 1
 
-    lb_model = DeviceModel(PSY.ThermalStandard, ThermalStandardDispatch)
+    lb_model = DeviceModel(PSY.ThermalStandard, StandardDispatch)
     attach_feedforward!(
         lb_model,
         LowerBoundFeedforward(;
@@ -896,7 +896,7 @@ end
 end
 
 @testset "FixValueFeedforward rejects a parameter target on a DeviceModel" begin
-    device_model = DeviceModel(PSY.ThermalStandard, ThermalStandardDispatch)
+    device_model = DeviceModel(PSY.ThermalStandard, StandardDispatch)
     ff_fix = FixValueFeedforward(;
         component_type = PSY.ThermalStandard,
         source = ActivePowerVariable,

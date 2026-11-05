@@ -27,7 +27,7 @@ end
         NetworkModel(PTDFNetworkModel);
         evaluations = power_flow_evaluations(ACPowerFlow()),
     )
-    set_device_model!(template, ThermalStandard, ThermalStandardUnitCommitment)
+    set_device_model!(template, ThermalStandard, StandardUnitCommitment)
     model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
     # `build!` releases the IC container, so run the build steps up to the IC build.
     POM.build_pre_step!(model)
@@ -52,7 +52,7 @@ struct GuardProbeData <: IOM.AbstractEvaluationData end
 @testset "IC build refuses to copy a container that holds evaluation data" begin
     sys = PSB.build_system(PSITestSystems, "c_sys5_uc")
     template = get_template_dispatch_with_network(NetworkModel(PTDFNetworkModel))
-    set_device_model!(template, ThermalStandard, ThermalStandardUnitCommitment)
+    set_device_model!(template, ThermalStandard, StandardUnitCommitment)
     model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
     POM.build_pre_step!(model)
     IOM.instantiate_network_model!(model)

@@ -75,7 +75,7 @@ end
 
     template = PowerOperationsProblemTemplate(NetworkModel(CopperPlateNetworkModel))
     set_device_model!(template, RenewableDispatch, RenewableFullDispatch)
-    set_device_model!(template, ThermalStandard, ThermalStandardDispatch)
+    set_device_model!(template, ThermalStandard, StandardDispatch)
     set_device_model!(template, PowerLoad, StaticPowerLoad)
 
     model = DecisionModel(
@@ -127,7 +127,7 @@ end
 
     template = PowerOperationsProblemTemplate(NetworkModel(CopperPlateNetworkModel))
     set_device_model!(template, RenewableDispatch, RenewableFullDispatch)
-    set_device_model!(template, ThermalStandard, ThermalStandardDispatch)
+    set_device_model!(template, ThermalStandard, StandardDispatch)
     set_device_model!(template, PowerLoad, StaticPowerLoad)
 
     model = DecisionModel(
@@ -158,7 +158,7 @@ end
     )
     template = PowerOperationsProblemTemplate(NetworkModel(CopperPlateNetworkModel))
     set_device_model!(template, RenewableDispatch, RenewableFullDispatch)
-    set_device_model!(template, ThermalStandard, ThermalStandardDispatch)
+    set_device_model!(template, ThermalStandard, StandardDispatch)
     set_device_model!(template, PowerLoad, StaticPowerLoad)
     model = DecisionModel(
         template,

@@ -125,7 +125,7 @@ bid = get_services_bid(first(contributors), cost, reserve; len = 1)
 
 template = PowerOperationsProblemTemplate(CopperPlateNetworkModel)
 set_device_model!(template, PowerLoad, StaticPowerLoad)
-set_device_model!(template, ThermalStandard, ThermalStandardUnitCommitment)
+set_device_model!(template, ThermalStandard, StandardUnitCommitment)
 set_service_model!(template, ServiceModel(VariableReserve{ReserveUp}, RangeReserve))
 
 # ## Build and solve

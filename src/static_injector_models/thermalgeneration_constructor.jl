@@ -210,7 +210,7 @@ end
 
 # The basic UC formulations drop the ramp and minimum up/down time constraints.
 _has_ramp_and_duration_constraints(::Type{<:AbstractThermalUnitCommitment}) = true
-_has_ramp_and_duration_constraints(::Type{ThermalBasicUnitCommitment}) = false
+_has_ramp_and_duration_constraints(::Type{BasicUnitCommitment}) = false
 _has_ramp_and_duration_constraints(::Type{ThermalBasicCompactUnitCommitment}) = false
 
 """
@@ -509,7 +509,7 @@ function construct_device!(
     container::OptimizationContainer,
     sys::PSY.System,
     ::ArgumentConstructStage,
-    device_model::DeviceModel{T, ThermalStandardDispatch},
+    device_model::DeviceModel{T, StandardDispatch},
     network_model::NetworkModel{<:AbstractNetworkModel},
 ) where {T <: PSY.ThermalGen}
     devices = get_device_cache(device_model)
@@ -518,18 +518,18 @@ function construct_device!(
         container,
         ActivePowerVariable,
         devices,
-        ThermalStandardDispatch,
+        StandardDispatch,
         get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
     )
     add_variables!(
         container,
         ReactivePowerVariable,
         devices,
-        ThermalStandardDispatch,
+        StandardDispatch,
         get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
     )
 
-    initial_conditions!(container, devices, ThermalStandardDispatch())
+    initial_conditions!(container, devices, StandardDispatch())
 
     _handle_common_thermal_parameters!(container, devices, device_model)
 
@@ -580,14 +580,14 @@ function construct_device!(
             container,
             RateofChangeConstraintSlackUp,
             devices,
-            ThermalStandardDispatch,
+            StandardDispatch,
             get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
         )
         add_variables!(
             container,
             RateofChangeConstraintSlackDown,
             devices,
-            ThermalStandardDispatch,
+            StandardDispatch,
             get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
         )
     end
@@ -604,7 +604,7 @@ function construct_device!(
     container::OptimizationContainer,
     sys::PSY.System,
     ::ModelConstructStage,
-    device_model::DeviceModel{T, <:Union{ThermalStandardDispatch, ThermalCompactDispatch}},
+    device_model::DeviceModel{T, <:Union{StandardDispatch, ThermalCompactDispatch}},
     network_model::NetworkModel{<:AbstractNetworkModel},
 ) where {T <: PSY.ThermalGen}
     devices = get_device_cache(device_model)
@@ -656,7 +656,7 @@ function construct_device!(
     container::OptimizationContainer,
     sys::PSY.System,
     ::ArgumentConstructStage,
-    device_model::DeviceModel{T, ThermalStandardDispatch},
+    device_model::DeviceModel{T, StandardDispatch},
     network_model::NetworkModel{<:AbstractActivePowerModel},
 ) where {T <: PSY.ThermalGen}
     devices = get_device_cache(device_model)
@@ -665,11 +665,11 @@ function construct_device!(
         container,
         ActivePowerVariable,
         devices,
-        ThermalStandardDispatch,
+        StandardDispatch,
         get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
     )
 
-    initial_conditions!(container, devices, ThermalStandardDispatch())
+    initial_conditions!(container, devices, StandardDispatch())
 
     _handle_common_thermal_parameters!(container, devices, device_model)
 
@@ -712,14 +712,14 @@ function construct_device!(
             container,
             RateofChangeConstraintSlackUp,
             devices,
-            ThermalStandardDispatch,
+            StandardDispatch,
             get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
         )
         add_variables!(
             container,
             RateofChangeConstraintSlackDown,
             devices,
-            ThermalStandardDispatch,
+            StandardDispatch,
             get_attribute(device_model, RELAX_BINARIES_ATTRIBUTE),
         )
     end
@@ -736,7 +736,7 @@ function construct_device!(
     container::OptimizationContainer,
     sys::PSY.System,
     ::ModelConstructStage,
-    device_model::DeviceModel{T, <:Union{ThermalStandardDispatch, ThermalCompactDispatch}},
+    device_model::DeviceModel{T, <:Union{StandardDispatch, ThermalCompactDispatch}},
     network_model::NetworkModel{<:AbstractActivePowerModel},
 ) where {T <: PSY.ThermalGen}
     devices = get_device_cache(device_model)

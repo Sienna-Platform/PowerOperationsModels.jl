@@ -2236,7 +2236,7 @@ function add_proportional_cost!(
         for t in get_time_steps(container)
             cost_term = proportional_cost(
                 container, thermal_cost, OnVariable, thermal,
-                ThermalBasicUnitCommitment, t,
+                BasicUnitCommitment, t,
             )
             iszero(cost_term) && continue
             rate = cost_term * multiplier

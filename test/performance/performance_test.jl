@@ -28,12 +28,12 @@ end
 
 function set_device_models!(template::PowerOperationsProblemTemplate, uc::Bool = true)
     if uc
-        set_device_model!(template, ThermalMultiStart, ThermalStandardUnitCommitment)
-        set_device_model!(template, ThermalStandard, ThermalStandardUnitCommitment)
+        set_device_model!(template, ThermalMultiStart, StandardUnitCommitment)
+        set_device_model!(template, ThermalStandard, StandardUnitCommitment)
         set_device_model!(template, HydroDispatch, FixedOutput)
     else
-        set_device_model!(template, ThermalMultiStart, ThermalBasicDispatch)
-        set_device_model!(template, ThermalStandard, ThermalBasicDispatch)
+        set_device_model!(template, ThermalMultiStart, BasicDispatch)
+        set_device_model!(template, ThermalStandard, BasicDispatch)
         set_device_model!(template, HydroDispatch, HydroDispatchRunOfRiver)
     end
 

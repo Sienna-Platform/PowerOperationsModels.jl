@@ -159,7 +159,7 @@ end
         get_optimization_container(model),
         NetworkMatrixProbe,
         collect(get_components(ThermalStandard, sys)),
-        ThermalBasicDispatch(),
+        BasicDispatch(),
     )
     PROBED_NETWORK_MATRIX[] = nothing
     try

@@ -215,7 +215,7 @@ end
         container, IOM.ActivePowerVariable, load, cost, POM.PowerLoadDispatch)
 end
 
-@testset "ThermalStandard + ThermalBasicUnitCommitment + static MBC" begin
+@testset "ThermalStandard + BasicUnitCommitment + static MBC" begin
     # Distinct values on every dial so a wiring swap is visible.
     mbc = PSY.MarketBidCost(;
         minimum_energy_offer = PSY.LinearCurve(10.0),  # unused by thermal objective; kept as a
@@ -237,13 +237,13 @@ end
     end
 
     IOM.add_variable_cost!(
-        container, IOM.ActivePowerVariable, devs, POM.ThermalBasicUnitCommitment)
+        container, IOM.ActivePowerVariable, devs, POM.BasicUnitCommitment)
     IOM.add_start_up_cost!(
-        container, IOM.StartVariable, devs, POM.ThermalBasicUnitCommitment)
+        container, IOM.StartVariable, devs, POM.BasicUnitCommitment)
     IOM.add_shut_down_cost!(
-        container, IOM.StopVariable, devs, POM.ThermalBasicUnitCommitment)
+        container, IOM.StopVariable, devs, POM.BasicUnitCommitment)
     POM.add_proportional_cost!(
-        container, IOM.OnVariable, devs, POM.ThermalBasicUnitCommitment)
+        container, IOM.OnVariable, devs, POM.BasicUnitCommitment)
 
     # StartVariable takes the max over StartUpStages for basic UC formulations.
     @test obj_coef(
@@ -263,7 +263,7 @@ end
     ) ≈ [3.0, 7.0]
 end
 
-@testset "ThermalStandard + ThermalBasicUnitCommitment + TS MBC" begin
+@testset "ThermalStandard + BasicUnitCommitment + TS MBC" begin
     # A generator has no demand (decremental) offer, so that side is the absent placeholder.
     cost = stub_ts_market_bid_cost(; decremental_trivial = true)
     sys = one_bus_one_thermal(cost; name = _THERMAL_NAME)
@@ -296,13 +296,13 @@ end
         [_THERMAL_NAME], 1:2, reshape([30.0, 45.0], 1, 2))
 
     IOM.add_variable_cost!(
-        container, IOM.ActivePowerVariable, devs, POM.ThermalBasicUnitCommitment)
+        container, IOM.ActivePowerVariable, devs, POM.BasicUnitCommitment)
     IOM.add_start_up_cost!(
-        container, IOM.StartVariable, devs, POM.ThermalBasicUnitCommitment)
+        container, IOM.StartVariable, devs, POM.BasicUnitCommitment)
     IOM.add_shut_down_cost!(
-        container, IOM.StopVariable, devs, POM.ThermalBasicUnitCommitment)
+        container, IOM.StopVariable, devs, POM.BasicUnitCommitment)
     POM.add_proportional_cost!(
-        container, IOM.OnVariable, devs, POM.ThermalBasicUnitCommitment)
+        container, IOM.OnVariable, devs, POM.BasicUnitCommitment)
 
     variant = IOM.get_variant_terms(IOM.get_objective_expression(container))
     for (V, expected_t1, expected_t2) in (

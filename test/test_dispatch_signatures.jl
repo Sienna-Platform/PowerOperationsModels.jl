@@ -91,6 +91,6 @@ end
     sys = PSB.build_system(PSITestSystems, "c_sys5")
     g = first(PSY.get_components(PSY.ThermalStandard, sys))
     @test_throws r"_UnmappedTSParameter" POM.get_multiplier_value(
-        _UnmappedTSParameter, g, ThermalBasicDispatch,
+        _UnmappedTSParameter, g, BasicDispatch,
     )
 end

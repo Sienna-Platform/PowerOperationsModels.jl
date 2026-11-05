@@ -51,7 +51,7 @@ function _deployed_fraction_template(;
     up_model = ServiceModel(OnlineReserve{ReserveUp}, RangeReserve),
 )
     template = PowerOperationsProblemTemplate()
-    set_device_model!(template, ThermalStandard, ThermalBasicUnitCommitment)
+    set_device_model!(template, ThermalStandard, BasicUnitCommitment)
     set_device_model!(template, PowerLoad, StaticPowerLoad)
     set_device_model!(template, HydroDispatch, HydroDispatchRunOfRiver)
     set_service_model!(template, up_model)
@@ -247,7 +247,7 @@ end
     transform_single_time_series!(sys, Hour(4), Hour(4))
 
     template = PowerOperationsProblemTemplate()
-    set_device_model!(template, ThermalStandard, ThermalBasicUnitCommitment)
+    set_device_model!(template, ThermalStandard, BasicUnitCommitment)
     set_device_model!(template, PowerLoad, StaticPowerLoad)
     set_device_model!(
         template,

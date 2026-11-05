@@ -202,7 +202,7 @@ end
             ),
         ),
     )
-    set_device_model!(template, ThermalStandard, ThermalBasicUnitCommitment)
+    set_device_model!(template, ThermalStandard, BasicUnitCommitment)
     model = DecisionModel(template, system; optimizer = HiGHS_optimizer)
     @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
           ModelBuildStatus.BUILT
@@ -395,7 +395,7 @@ end
             NetworkModel(PTDFNetworkModel);
             evaluations = power_flow_evaluations(DCPowerFlow()),
         )
-        set_device_model!(template_uc, ThermalStandard, ThermalBasicUnitCommitment)
+        set_device_model!(template_uc, ThermalStandard, BasicUnitCommitment)
         set_device_model!(template_uc, RenewableDispatch, RenewableFullDispatch)
         set_device_model!(template_uc, PowerLoad, StaticPowerLoad)
         set_device_model!(template_uc, DeviceModel(Line, StaticBranch))
@@ -568,7 +568,7 @@ end
         NetworkModel(PTDFNetworkModel);
         evaluations = power_flow_evaluations(DCPowerFlow()),
     )
-    set_device_model!(template, ThermalStandard, ThermalBasicUnitCommitment)
+    set_device_model!(template, ThermalStandard, BasicUnitCommitment)
     set_device_model!(template, RenewableDispatch, RenewableFullDispatch)
     set_device_model!(template, PowerLoad, StaticPowerLoad)
     set_device_model!(template, DeviceModel(Line, StaticBranch))
@@ -631,7 +631,7 @@ function _build_rts_hvdc_acpf_model(hvdc_formulation; loss = nothing, stored_flo
         NetworkModel(PTDFNetworkModel);
         evaluations = power_flow_evaluations(ACPowerFlow()),
     )
-    set_device_model!(template, ThermalStandard, ThermalBasicUnitCommitment)
+    set_device_model!(template, ThermalStandard, BasicUnitCommitment)
     set_device_model!(template, RenewableDispatch, RenewableFullDispatch)
     set_device_model!(template, PowerLoad, StaticPowerLoad)
     set_device_model!(template, DeviceModel(Line, StaticBranch))
