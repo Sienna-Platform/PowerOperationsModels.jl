@@ -181,6 +181,41 @@ function _write_value_to_pf_data!(
     else
         _write_pf_array!(_pf_array(pf_data, c.quantity, c.role), false, c.sign,
             component_map, container, result)
+        _write_off_area_loads!(pf_data, c.quantity, c.role, c.sign,
+            component_map, container, result)
+    end
+    return
+end
+
+# Off-area loads enter the net interchange of PowerFlows through their own records. They must
+# see the same load as `bus_active_power_withdrawals`. Only the active withdrawal of an
+# `ACPowerFlowData` has such records; every other quantity, role, or data type is a no-op.
+_write_off_area_loads!(
+    ::PFS.PowerFlowData,
+    ::PFQuantity,
+    ::PFRole,
+    ::Float64,
+    component_map,
+    container::OptimizationContainer,
+    result,
+) = nothing
+
+function _write_off_area_loads!(
+    pf_data::PFS.ACPowerFlowData,
+    ::PFActiveQuantity,
+    ::PFWithdrawalRole,
+    value_sign::Float64,
+    component_map,
+    container::OptimizationContainer,
+    result,
+)
+    for (device_name, _) in component_map
+        PFS.has_off_area_load(pf_data, device_name) || continue
+        for t in get_time_steps(container)
+            PFS.set_off_area_load_power!(
+                pf_data, device_name, t, value_sign * result[device_name, t], 0.0, 0.0,
+            )
+        end
     end
     return
 end
@@ -206,6 +241,40 @@ function _write_pf_array!(
         end
     end
     return
+end
+
+# Net-interchange schedules (PDES) per time step. PowerFlows reads the `Area` field once at
+# construction. POM writes the schedule of the optimization (series if the area has one, else the
+# field) for every enrolled area. Only `ACPowerFlowData` has enrolled areas.
+_update_area_schedules!(::PFS.PowerFlowData, ::OptimizationContainer, ::PSY.System) = nothing
+
+function _update_area_schedules!(
+    pf_data::PFS.ACPowerFlowData,
+    container::OptimizationContainer,
+    sys::PSY.System,
+)
+    for area in PSY.get_components(PSY.Area, sys)
+        name = PSY.get_name(area)
+        PFS.has_controlled_area(pf_data, name) || continue
+        for t in get_time_steps(container)
+            PFS.set_scheduled_net_interchange!(
+                pf_data, name, t, _area_schedule_pu(container, area, t),
+            )
+        end
+    end
+    return
+end
+
+# System base, positive for export.
+function _area_schedule_pu(container::OptimizationContainer, area::PSY.Area, t::Int)
+    name = PSY.get_name(area)
+    if POM._has_net_interchange_series_parameter(container, name)
+        series = lookup_value(
+            container, ParameterKey(POM.ScheduledNetInterchangeParameter, PSY.Area),
+        )
+        return Float64(series[name, t])
+    end
+    return PSY.get_scheduled_net_interchange(area, u"SU")
 end
 
 function update_pf_data!(
