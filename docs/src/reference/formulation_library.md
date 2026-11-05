@@ -553,6 +553,23 @@ Metas on thermal keys: `"lb"`/`"ub"` (range limits), `"up"`/`"dn"` (ramp and dur
 (the `CommitmentConstraint` start+stop ≤ 1 container), `"hot"`/`"warm"` (startup temperature), and
 `"ubon"`/`"uboff"` on the MultiStart range limits.
 
+### Commitment status schedule
+
+The unit commitment formulations (`AbstractThermalUnitCommitment`) read an optional per-step commitment status schedule, for example scheduled maintenance.
+A device opts in by carrying a time series named `"commitment_status"` (configurable through the `DeviceModel` `time_series_names` entry for [`StatusScheduleTimeSeriesParameter`](@ref)).
+Each value is the integer of a `PSY.CommitmentModes` value, and [`CommitmentStatusConstraint`](@ref) bounds `OnVariable` in that step:
+
+| Schedule value                               | Constraint          |
+|:-------------------------------------------- |:------------------- |
+| `UNCOMMITTED`                                | ``u_t \le 0``       |
+| `COMMITTED`, `SELF_SCHEDULED`, `RELIABILITY` | ``0 \le u_t \le 1`` |
+| `MUST_RUN`                                   | ``u_t = 1``         |
+
+Start and stop variables follow from `OnVariable`, so a maintenance window forces a shutdown before it and a paid start after it.
+Devices without the series get no parameter and no constraint, so a model where no device carries it is unchanged.
+Both rows are affine in the parameter value, so simulation steps update the forced periods without rebuilding the model.
+A unit whose static `commitment_mode` is `MUST_RUN` has no `OnVariable`, and carrying the series fails the build.
+
 `FixedOutput` supports AC networks: for thermal devices its `ArgumentConstructStage` wires
 both `ActivePowerTimeSeriesParameter` and `ReactivePowerTimeSeriesParameter` into their
 respective balances under any `<:AbstractNetworkModel`.

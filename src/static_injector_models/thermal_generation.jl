@@ -98,6 +98,7 @@ get_variable_lower_bound(::Type{RateofChangeConstraintSlackUp}, d::PSY.ThermalGe
 get_multiplier_value(::Type{ActivePowerTimeSeriesParameter}, d::PSY.ThermalGen, ::Type{<:AbstractThermalFormulation}) = PSY.get_max_active_power(d, u"SU")
 get_multiplier_value(::Type{MinActivePowerTimeSeriesParameter}, d::PSY.ThermalGen, ::Type{<:AbstractThermalFormulation}) = PSY.get_max_active_power(d, u"SU")
 get_multiplier_value(::Type{<:TimeSeriesParameter}, d::PSY.ThermalGen, ::Type{FixedOutput}) = PSY.get_max_active_power(d, u"SU")
+get_multiplier_value(::Type{StatusScheduleTimeSeriesParameter}, ::PSY.ThermalGen, ::Type{<:AbstractThermalUnitCommitment}) = 1.0
 # FixedOutput has no default reactive series; a user-mapped one is normalized to max reactive power.
 get_multiplier_value(::Type{ReactivePowerTimeSeriesParameter}, d::PSY.ThermalGen, ::Type{FixedOutput}) = _fixed_output_max_reactive_power(d)
 get_multiplier_value(::Type{FuelCostParameter}, d::PSY.ThermalGen, ::Type{<:AbstractThermalFormulation}) = 1.0
@@ -253,6 +254,16 @@ function get_default_time_series_names(
 ) where {U <: PSY.ThermalGen, V <: Union{FixedOutput, AbstractThermalFormulation}}
     return Dict{Type{<:ParameterType}, String}(
         FuelCostParameter => "fuel_cost",
+    )
+end
+
+function get_default_time_series_names(
+    ::Type{U},
+    ::Type{V},
+) where {U <: PSY.ThermalGen, V <: AbstractThermalUnitCommitment}
+    return Dict{Type{<:ParameterType}, String}(
+        FuelCostParameter => "fuel_cost",
+        StatusScheduleTimeSeriesParameter => "commitment_status",
     )
 end
 
@@ -909,6 +920,141 @@ function add_constraints!(
                     varstart[name, t] + varstop[name, t] <= 1.0
                 )
             end
+        end
+    end
+    return
+end
+
+######################## Commitment status schedule ########################################
+
+const _COMMITMENT_MODE_VALUES =
+    Set(Float64(Int(m)) for m in instances(PSY.CommitmentModes.Value))
+const _UNCOMMITTED_VALUE = Float64(Int(PSY.CommitmentModes.UNCOMMITTED))
+const _MUST_RUN_VALUE = Float64(Int(PSY.CommitmentModes.MUST_RUN))
+
+"""
+Return the devices that carry the [`StatusScheduleTimeSeriesParameter`](@ref) series. A series
+stored only under a type the model does not read, or on a unit whose static
+`commitment_mode` is `MUST_RUN` (it has no `OnVariable`), is an error.
+"""
+function _status_schedule_devices(
+    container::OptimizationContainer,
+    devices::Vector{V},
+    model::DeviceModel{V, <:AbstractThermalUnitCommitment},
+) where {V <: PSY.ThermalGen}
+    ts_name = get_time_series_names(model)[StatusScheduleTimeSeriesParameter]
+    ts_type = get_default_time_series_type(container)
+    scheduled = V[]
+    for d in devices
+        PSY.has_time_series(d, ts_name) || continue
+        if !PSY.has_time_series(d, ts_type, ts_name)
+            throw(
+                IS.ConflictingInputsError(
+                    "$(PSY.get_name(d)) carries a $(ts_name) time series, but not as \
+                    $(ts_type), which is what this model reads. Attach the series before \
+                    calling transform_single_time_series!, or add it directly as \
+                    $(ts_type).",
+                ),
+            )
+        end
+        if _is_must_run(d)
+            throw(
+                IS.ConflictingInputsError(
+                    "$(PSY.get_name(d)) carries a $(ts_name) time series, but its \
+                    commitment_mode is MUST_RUN, so it has no OnVariable to schedule. Set \
+                    commitment_mode to COMMITTED and use MUST_RUN values in the series.",
+                ),
+            )
+        end
+        push!(scheduled, d)
+    end
+    return scheduled
+end
+
+function _validate_status_schedule(
+    container::OptimizationContainer,
+    devices::Vector{V},
+) where {V <: PSY.ThermalGen}
+    param_container = get_parameter(container, StatusScheduleTimeSeriesParameter, V)
+    for d in devices
+        values = get_parameter_column_values(param_container, PSY.get_name(d))
+        for (t, v) in enumerate(values)
+            v in _COMMITMENT_MODE_VALUES && continue
+            throw(
+                IS.ConflictingInputsError(
+                    "StatusScheduleTimeSeriesParameter for $(PSY.get_name(d)) at step $t: \
+                    $v is not a CommitmentModes value.",
+                ),
+            )
+        end
+    end
+    return
+end
+
+add_status_schedule_parameters!(::OptimizationContainer, ::Vector, ::DeviceModel) = nothing
+
+"""
+Add the [`StatusScheduleTimeSeriesParameter`](@ref) for the devices that carry its series.
+Do nothing when no device has it.
+"""
+function add_status_schedule_parameters!(
+    container::OptimizationContainer,
+    devices::Vector{V},
+    model::DeviceModel{V, <:AbstractThermalUnitCommitment},
+) where {V <: PSY.ThermalGen}
+    haskey(get_time_series_names(model), StatusScheduleTimeSeriesParameter) || return
+    scheduled = _status_schedule_devices(container, devices, model)
+    isempty(scheduled) && return
+    add_parameters!(container, StatusScheduleTimeSeriesParameter, scheduled, model)
+    _validate_status_schedule(container, scheduled)
+    return
+end
+
+# Both rows are affine in the raw CommitmentModes value, so parameter updates need no rebuild.
+function add_constraints!(
+    container::OptimizationContainer,
+    ::Type{CommitmentStatusConstraint},
+    devices::Vector{V},
+    model::DeviceModel{V, W},
+    ::NetworkModel{X},
+) where {
+    V <: PSY.ThermalGen,
+    W <: AbstractThermalUnitCommitment,
+    X <: AbstractNetworkModel,
+}
+    has_container_key(container, StatusScheduleTimeSeriesParameter, V) || return
+    param_container = get_parameter(container, StatusScheduleTimeSeriesParameter, V)
+    names = axes(get_multiplier_array(param_container), 1)
+    time_steps = get_time_steps(container)
+    varon = get_variable(container, OnVariable, V)
+    jump_model = get_jump_model(container)
+    con_ub = add_constraints_container!(
+        container,
+        CommitmentStatusConstraint,
+        V,
+        names,
+        time_steps;
+        meta = "ub",
+    )
+    con_lb = add_constraints_container!(
+        container,
+        CommitmentStatusConstraint,
+        V,
+        names,
+        time_steps;
+        meta = "lb",
+    )
+    for name in names
+        status = get_parameter_column_refs(param_container, name)
+        for t in time_steps
+            con_ub[name, t] = JuMP.@constraint(
+                jump_model,
+                varon[name, t] <= status[t] - _UNCOMMITTED_VALUE
+            )
+            con_lb[name, t] = JuMP.@constraint(
+                jump_model,
+                varon[name, t] >= status[t] - (_MUST_RUN_VALUE - 1.0)
+            )
         end
     end
     return

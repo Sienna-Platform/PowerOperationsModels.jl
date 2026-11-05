@@ -874,6 +874,7 @@ export CosineRelaxationConstraint
 export RequirementConstraint
 export DurationConstraint
 export CommitmentConstraint
+export CommitmentStatusConstraint
 export StartTypeConstraint
 export StartupTimeLimitTemperatureConstraint
 export ShiftedActivePowerBalanceConstraint
@@ -931,6 +932,7 @@ export RequirementTimeSeriesParameter
 export DeployedFractionParameter
 export MinActivePowerTimeSeriesParameter
 export MinActivePowerInTimeSeriesParameter
+export StatusScheduleTimeSeriesParameter
 export UpperBoundValueParameter
 export LowerBoundValueParameter
 export OnStatusParameter
