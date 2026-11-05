@@ -17,10 +17,10 @@ struct MyCustomDeviceFormulation <: IOM.AbstractDeviceFormulation end
 # device type. They sit under the thermal abstracts so the IOM methods on those apply.
 
 abstract type AbstractStandardUnitCommitment <: AbstractThermalUnitCommitment end
+abstract type AbstractCompactUnitCommitment <: AbstractThermalUnitCommitment end
 
 # Device types the Basic/Standard Dispatch/UnitCommitment formulations build.
 const ThermalOrLogicalUnit = Union{PSY.ThermalGen, PSY.LogicalGenerationUnit}
-abstract type AbstractCompactUnitCommitment <: AbstractThermalUnitCommitment end
 
 """
 Formulation type to enable basic unit commitment representation without any intertemporal (ramp, min on/off time) constraints
