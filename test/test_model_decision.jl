@@ -218,11 +218,14 @@ end
     @test isfile(joinpath(sys_dir, PSY.TIME_SERIES_FILE))
     @test isfile(joinpath(sys_dir, PSY.TIME_SERIES_FILE * ".sqlite"))
 
-    # Re-solving into an existing directory must not rewrite the bundle.
+    # Re-solving into an existing directory rewrites the bundle.
+    stale = joinpath(sys_dir, "stale.txt")
+    write(stale, "x")
     mtime_before = mtime(sys_document)
     sleep(1)
     @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
-    @test mtime(sys_document) == mtime_before
+    @test mtime(sys_document) > mtime_before
+    @test !isfile(stale)
 
     # Parameters are in the sidecar, as InfraStore rows.
     store = POM.open_parameter_store(joinpath(sys_dir, PSY.TIME_SERIES_FILE))

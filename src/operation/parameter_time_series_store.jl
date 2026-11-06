@@ -594,11 +594,10 @@ function write_outputs_system_bundle!(
 end
 
 """
-Build `model`'s outputs-system bundle at `sys_dir` and write it, unless one is already there —
-re-solving into an existing directory must not rewrite the bundle.
+Build `model`'s outputs-system bundle at `sys_dir`, replacing any bundle already there.
 """
 function _write_outputs_bundle!(model, sys::PSY.System, sys_dir::AbstractString)
-    ispath(sys_dir) && return nothing
+    rm(sys_dir; recursive = true, force = true)
     store, key_map = parameter_store_from_model(model)
     write_outputs_system_bundle!(sys, store, key_map, sys_dir)
     close_parameter_store!(store)
