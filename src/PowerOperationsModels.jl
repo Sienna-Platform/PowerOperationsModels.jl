@@ -346,6 +346,7 @@ include("network_models/network_constructor.jl")
 include("services_models/service_slacks.jl")
 include("services_models/reserves.jl")
 include("services_models/reserve_offers.jl")
+include("common_models/offer_limits.jl")
 include("services_models/reserve_group.jl")
 # include("services_models/agc.jl")  # TODO: needs _get_ace_error
 include("services_models/transmission_interface.jl")
@@ -798,6 +799,8 @@ export ReserveCompleteCoverageConstraintEndOfPeriod
 export StorageTotalReserveConstraint
 export ReserveDischargeConstraint
 export ReserveChargeConstraint
+export LinkedReserveOfferConstraint
+export EnergyOfferCapConstraint
 
 # expressions
 export TotalReserveOffering
@@ -926,6 +929,7 @@ export PostContingencyTotalDeployment
 # Exports - Parameter Types (defined in core/parameters.jl)
 #################################################################################
 export ActivePowerTimeSeriesParameter
+export ReserveOfferLinkParameter
 export ActivePowerOutTimeSeriesParameter
 export ActivePowerInTimeSeriesParameter
 export ReactivePowerTimeSeriesParameter

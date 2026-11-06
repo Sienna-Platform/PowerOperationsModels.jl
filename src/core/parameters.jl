@@ -158,6 +158,15 @@ Parameter to define energy capacity limits for hydro pump-turbine time series
 struct EnergyCapacityTimeSeriesParameter <: TimeSeriesParameter end
 
 """
+Reserve offer links of a device: its `reserve_offer_links` series, Int64 `[time step, block,
+product]` steps with `value_axes` `"block"` and `"product"`. The container holds each device's
+links flattened column-major along one positional axis, so it stays 3-D and reuses the 3-D
+parameter code; the labels stay in the series metadata. A link selects the offer step a row
+sums, so the container holds `Float64`.
+"""
+struct ReserveOfferLinkParameter <: IOM.LeftHandSideTimeSeriesParameter end
+
+"""
 Reservoir energy target read from the system state
 """
 struct ReservoirTargetParameter <: VariableValueParameter end
