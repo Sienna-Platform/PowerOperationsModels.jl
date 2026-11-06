@@ -1998,7 +1998,8 @@ function _handle_nodal_or_zonal_interfaces(
     direction_map::Dict{String, Int},
     contributing_devices::Vector{V},
     # A `JuMPVariableArray` (StaticBranchBounds) or an `AffExpr` container (DCP StaticBranch's
-    # BThetaBranchFlow); `add_proportional_to_jump_expression!` handles either scalar.
+    # BThetaBranchFlow, or PTDFBranchFlow); `add_proportional_to_jump_expression!` handles
+    # either scalar.
     variable::DenseAxisArray,
     expression::DenseAxisArray, # There is no good type for a DenseAxisArray slice
 ) where {V <: PSY.ACTransmission}
@@ -2020,7 +2021,7 @@ function _handle_nodal_or_zonal_interfaces(
                 add_proportional_to_jump_expression!(
                     expression[t],
                     variable[name, t],
-                    Float64(direction),
+                    direction,
                 )
             end
         end
@@ -2041,13 +2042,13 @@ function _handle_nodal_or_zonal_interfaces(
         if isempty(direction_map)
             direction = 1.0
         else
-            direction = direction_map[name]
+            direction = Float64(direction_map[name])
         end
         for t in axes(variable, 2)
             add_proportional_to_jump_expression!(
                 expression[t],
                 variable[name, t],
-                Float64(direction),
+                direction,
             )
         end
     end
@@ -2062,7 +2063,6 @@ function add_to_expression!(
     model::ServiceModel{PSY.TransmissionInterface, V},
     network_model::NetworkModel{<:AbstractActivePowerModel},
 ) where {V <: MaxInterfaceFlow}
-    net_reduction_data = get_network_reduction(network_model)
     expression = get_expression(container, InterfaceTotalFlow, PSY.TransmissionInterface)
     service_name = PSY.get_name(service)
     direction_map = PSY.get_direction_mapping(service)
@@ -2092,7 +2092,6 @@ function add_to_expression!(
     model::ServiceModel{PSY.TransmissionInterface, V},
     network_model::NetworkModel{DCPNetworkModel},
 ) where {V <: MaxInterfaceFlow}
-    net_reduction_data = get_network_reduction(network_model)
     expression = get_expression(container, InterfaceTotalFlow, PSY.TransmissionInterface)
     service_name = PSY.get_name(service)
     direction_map = PSY.get_direction_mapping(service)
@@ -2133,7 +2132,6 @@ function add_to_expression!(
     model::ServiceModel{PSY.TransmissionInterface, V},
     network_model::NetworkModel{AreaPTDFNetworkModel},
 ) where {V <: MaxInterfaceFlow}
-    net_reduction_data = get_network_reduction(network_model)
     expression = get_expression(container, InterfaceTotalFlow, PSY.TransmissionInterface)
     service_name = PSY.get_name(service)
     direction_map = PSY.get_direction_mapping(service)
