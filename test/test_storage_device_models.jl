@@ -444,7 +444,7 @@ end
     end
 end
 
-function _build_storage_target_model(sys; initial_time = nothing)
+function _build_storage_target_model(sys; kwargs...)
     template = get_thermal_dispatch_template_network(CopperPlateNetworkModel)
     device_model = DeviceModel(
         EnergyReservoirStorage,
@@ -459,7 +459,6 @@ function _build_storage_target_model(sys; initial_time = nothing)
     )
     set_device_model!(template, device_model)
     set_device_model!(template, RenewableDispatch, FixedOutput)
-    kwargs = isnothing(initial_time) ? (;) : (; initial_time = initial_time)
     model = DecisionModel(template, sys; kwargs...)
     return model, build!(model; output_dir = mktempdir(; cleanup = true))
 end

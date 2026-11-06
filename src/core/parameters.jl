@@ -55,6 +55,23 @@ coefficients. A model holding one is rebuilt every simulation step.
 struct DeployedFractionParameter <: LeftHandSideTimeSeriesParameter end
 
 """
+Name of the series that carries the distribution factors of a `LoadZone`: one
+`[time step, bus]` matrix owned by the zone, with
+`value_axes = [IS.TimeSeriesAxis("bus", bus numbers)]`. The factors are read at build as
+`Float64` coefficients (see `get_distribution_factors`), never as JuMP parameters.
+"""
+const DISTRIBUTION_FACTOR_TS_NAME = "distribution_factor"
+
+"""
+Distribution factors of a `LoadZone`. The zone owns one `distribution_factor` series, a
+`[time step, bus]` matrix with `value_axes = [IS.TimeSeriesAxis("bus", bus numbers)]`. The
+container holds the factors of each zone along one positional axis. The bus labels stay in
+the series metadata. The factors multiply a load, so they are fixed coefficients and the
+container holds `Float64`.
+"""
+struct DistributionFactorParameter <: IOM.LeftHandSideTimeSeriesParameter end
+
+"""
 Abstract type for the per-step minimum active power parameters.
 """
 abstract type AbstractMinActivePowerParameter <: LeftHandSideTimeSeriesParameter end
@@ -109,6 +126,13 @@ Parameter to define Min Flow limit for interface time series
 """
 struct MinInterfaceFlowLimitParameter <: TimeSeriesParameter end
 
+"""
+Parameter to define the scheduled net interchange of an `Area` as a time series. The
+default time series name is `"scheduled_net_interchange"`. The values are in MW and
+positive when the area exports. POM converts them to system base.
+"""
+struct ScheduledNetInterchangeParameter <: TimeSeriesParameter end
+
 #################################################################################
 # Hydro Parameters
 #################################################################################
@@ -150,6 +174,15 @@ struct OutflowTimeSeriesParameter <: TimeSeriesParameter end
 Parameter to define energy capacity limits for hydro pump-turbine time series
 """
 struct EnergyCapacityTimeSeriesParameter <: TimeSeriesParameter end
+
+"""
+Reserve offer links of a device: its `reserve_offer_links` series, Int64 `[time step, block,
+product]` steps with `value_axes` `"block"` and `"product"`. The container holds each device's
+links flattened column-major along one positional axis, so it stays 3-D and reuses the 3-D
+parameter code; the labels stay in the series metadata. A link selects the offer step a row
+sums, so the container holds `Float64`.
+"""
+struct ReserveOfferLinkParameter <: IOM.LeftHandSideTimeSeriesParameter end
 
 """
 Reservoir energy target read from the system state

@@ -127,16 +127,8 @@ function _storage_target_series_devices(
     series_devices = V[]
     for d in devices
         PSY.has_time_series(d, ts_name) || continue
-        if !PSY.has_time_series(d, ts_type, ts_name)
-            throw(
-                IS.ConflictingInputsError(
-                    "$(PSY.get_name(d)) carries a $(ts_name) time series, but not as \
-                    $(ts_type), which is what this model reads. Attach the series before \
-                    calling transform_single_time_series!, or add it directly as \
-                    $(ts_type).",
-                ),
-            )
-        end
+        PSY.has_time_series(d, ts_type, ts_name) ||
+            throw(_time_series_type_mismatch(d, ts_name, ts_type))
         push!(series_devices, d)
     end
     return series_devices
@@ -1356,13 +1348,15 @@ function add_constraints!(
             [time_steps[end]],
         )
 
-    series_devices = _storage_target_series_devices(container, devices, model)
-    if !isempty(series_devices)
+    # The parameter exists only for the devices with a storage_target series.
+    if has_container_key(container, EnergyTargetTimeSeriesParameter, V)
         param_container = get_parameter(container, EnergyTargetTimeSeriesParameter, V)
         multiplier =
             get_parameter_multiplier_array(container, EnergyTargetTimeSeriesParameter, V)
+        series_names = Set(axes(multiplier)[1])
+    else
+        series_names = Set{String}()
     end
-    series_names = Set(PSY.get_name.(series_devices))
     t_end = time_steps[end]
 
     for d in devices

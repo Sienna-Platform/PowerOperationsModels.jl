@@ -1570,6 +1570,7 @@ function construct_device!(
 
     add_expressions!(
         container,
+        sys,
         TotalHydroFlowRateReservoirIncoming,
         devices,
         model,

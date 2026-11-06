@@ -475,6 +475,10 @@ end
         )
         @test aff_exprs_approx_equal(post_flow[entry_name, uuid, t], expected)
     end
+    # The lost output cancels the outaged generator's pre-contingency term exactly.
+    coefficients =
+        [c for e in values(post_flow.data) for (c, _) in JuMP.linear_terms(e)]
+    @test !any(c -> 0 < abs(c) <= IOM.EXPRESSION_ROUNDING_TOL, coefficients)
 end
 
 @testset "G-1 reserves monitoring one circuit of a parallel pair" begin
