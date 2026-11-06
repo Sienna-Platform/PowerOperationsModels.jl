@@ -216,6 +216,30 @@ _include_constant_min_gen_power_in_constraint(
     ::Type{ActivePowerVariable},
     ::Type{<:AbstractRenewableDispatchFormulation},
 ) = true
+# Thermal dispatch has no OnVariable: the blocks start at the offer's first breakpoint.
+_include_constant_min_gen_power_in_constraint(
+    ::Type{<:PSY.ThermalGen},
+    ::Type{ActivePowerVariable},
+    ::Type{<:AbstractThermalDispatchFormulation},
+) = true
+
+# ThermalDispatchNoMin lets power reach zero, so an offer starting above zero would
+# silently impose that start as a minimum. Thermal dispatch is incremental-only.
+_validate_offer_start(::IOM.OfferDirection, component, ::Type, breakpoints) = nothing
+function _validate_offer_start(
+    ::IOM.IncrementalOffer,
+    component::PSY.ThermalGen,
+    ::Type{ThermalDispatchNoMin},
+    breakpoints,
+)
+    iszero(IOM.jump_fixed_value(first(breakpoints))) && return
+    throw(
+        ArgumentError(
+            "$(PSY.get_name(component)): ThermalDispatchNoMin needs market offers that \
+            start at zero power. Start the offer at zero or use ThermalBasicDispatch.",
+        ),
+    )
+end
 
 #################################################################################
 # Section 6: Source ImportExport — both incremental and decremental offers
