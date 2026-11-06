@@ -356,24 +356,48 @@ function _flow_limits(rep::RepresentativeBranch, model::DeviceModel)
 end
 
 # PNM has no emergency variants of the parallel-rating methods. Each formula below mirrors
-# its `PNM.get_*_rating` counterpart, applied to the members' emergency ratings.
+# its `PNM.get_*_rating` counterpart, applied to the members' emergency ratings, with the same
+# policy for a member with no known rating.
 function _parallel_branches_emergency_rating(model::DeviceModel, bp::PNM.BranchesParallel)
     method = get_attribute(model, PARALLEL_BRANCH_MAX_RATING_KEY)
-    ratings = Float64[PNM.get_equivalent_emergency_rating(br) for br in bp.branches]
-    if method == SINGLE_ELEMENT_CONTINGENCY_RATING
-        return sum(ratings) - maximum(ratings)
-    elseif method == SUM_OF_MAX_RATING
-        return sum(ratings)
-    elseif method == IMPEDANCE_AVERAGED_RATING
-        susceptances = Float64[PNM.get_series_susceptance(br, u"SU") for br in bp.branches]
-        return sum(susceptances .* ratings) / sum(susceptances)
-    else
+    if method != SINGLE_ELEMENT_CONTINGENCY_RATING && method != SUM_OF_MAX_RATING &&
+       method != IMPEDANCE_AVERAGED_RATING
         error(
             "Unknown $PARALLEL_BRANCH_MAX_RATING_KEY value: $(repr(method)). " *
             "Valid: $(repr(SINGLE_ELEMENT_CONTINGENCY_RATING)), " *
             "$(repr(SUM_OF_MAX_RATING)), $(repr(IMPEDANCE_AVERAGED_RATING)).",
         )
     end
+    total = 0.0
+    largest = 0.0
+    weighted = 0.0
+    n_known = 0
+    for br in bp.branches
+        r = PNM.get_equivalent_emergency_rating(br)
+        if isnothing(r)
+            continue
+        end
+        n_known += 1
+        total += r
+        largest = max(largest, r)
+        if method == IMPEDANCE_AVERAGED_RATING
+            weighted += PNM.compute_parallel_multiplier(bp, br) * r
+        end
+    end
+    if iszero(n_known) ||
+       (method == SINGLE_ELEMENT_CONTINGENCY_RATING && n_known < length(bp.branches))
+        error(
+            "Parallel reduction $(PNM.get_name(bp)) has members with no emergency rating; " *
+            "the `$(method)` post-contingency rating is undefined. Assign `rating_b` or " *
+            "`rating` to every member.",
+        )
+    end
+    if method == SINGLE_ELEMENT_CONTINGENCY_RATING
+        return total - largest
+    elseif method == SUM_OF_MAX_RATING
+        return total
+    end
+    return weighted
 end
 
 """
@@ -393,11 +417,6 @@ Post-contingency (emergency) flow limits of an arc with no member out of service
 """
 function _emergency_flow_limits(branch::PSY.ACTransmission)
     rating = PNM.get_equivalent_emergency_rating(branch)
-    return (min = -rating, max = rating)
-end
-
-function _emergency_flow_limits(rep::RepresentativeBranch, model::DeviceModel)
-    rating = _emergency_rating(rep.branch, model)
     return (min = -rating, max = rating)
 end
 

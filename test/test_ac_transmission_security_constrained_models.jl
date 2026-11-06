@@ -2443,6 +2443,32 @@ end
         single_element = _N1_LINE_RATING_B + _N1_COPY_RATING_B - _N1_LINE_RATING_B
         _test_pair_limits(container, outages, pair, [1.0], single_element)
     end
+    sys, outages = _n1_parallel_system()
+    members = [
+        PSY.get_component(PSY.Line, sys, "1"),
+        PSY.get_component(PSY.Line, sys, "1_copy"),
+    ]
+    b = [PNM.get_series_susceptance(br, u"SU") for br in members]
+    expected = Dict(
+        POM.SUM_OF_MAX_RATING => _N1_LINE_RATING_B + _N1_COPY_RATING_B,
+        POM.IMPEDANCE_AVERAGED_RATING =>
+            (b[1] * _N1_LINE_RATING_B + b[2] * _N1_COPY_RATING_B) / sum(b),
+    )
+    for (method, intact) in expected
+        template = get_thermal_dispatch_template_network(NetworkModel(PTDFNetworkModel))
+        set_device_model!(
+            template,
+            DeviceModel(
+                PSY.Line,
+                POM.SecurityConstrainedStaticBranch;
+                attributes = Dict{String, Any}(
+                    POM.PARALLEL_BRANCH_MAX_RATING_KEY => method,
+                ),
+            ),
+        )
+        container, pair = _build_sc_container(template, sys)
+        _test_pair_limits(container, outages, pair, [1.0], intact)
+    end
 end
 
 @testset "post-contingency limit of a mixed parallel pair counts only the circuit in service" begin
