@@ -74,8 +74,9 @@ get_multiplier_value(
     ::Type{FixedOutput},
 ) = 1.0
 
-# Rows and factors read their data once, at build, so parameters must be numbers: with
-# `rebuild_model` off, `IOM.get_param_eltype` is `JuMP.VariableRef` and products turn nonlinear.
+# Rows read links, step widths and offer curves once, at build, so without a rebuild they go
+# stale. With `rebuild_model` off, time-series offer breakpoints are also `JuMP.VariableRef`,
+# which the energy offer cap cannot compare.
 function _require_numeric_params(container::OptimizationContainer, what::String)
     if IOM.get_param_eltype(container) !== Float64
         error("$(what) reads data at build; recurrent solves need rebuild_model = true.")
@@ -292,11 +293,30 @@ _offered_services(cost::Union{PSY.MarketBidCost, PSY.MarketBidTimeSeriesCost}) =
     PSY.get_ancillary_service_offers(cost)
 _offered_services(::PSY.OperationalCost) = PSY.Service[]
 
+# The services `d` offers into, by name. Service bids are series named after the service, so
+# two offered services with one name cannot carry separate curves.
+function _offered_services_by_name(d::PSY.Component)
+    offered = Dict{String, PSY.Service}()
+    for s in _offered_services(PSY.get_operation_cost(d))
+        name = PSY.get_name(s)
+        if haskey(offered, name)
+            throw(
+                IS.ConflictingInputsError(
+                    "$(PSY.get_name(d)) offers into two services named $(name) " *
+                    "($(nameof(typeof(offered[name]))) and $(nameof(typeof(s)))); service " *
+                    "bids are read by service name, so offered service names must be unique.",
+                ),
+            )
+        end
+        offered[name] = s
+    end
+    return offered
+end
+
 # Services by product label, resolved by name among the services `d` offers into, so the
 # column order need not follow `ancillary_service_offers`.
 function _linked_services(d::PSY.Component, value_axes::Vector{IS.TimeSeriesAxis})
-    offered =
-        Dict(PSY.get_name(s) => s for s in _offered_services(PSY.get_operation_cost(d)))
+    offered = _offered_services_by_name(d)
     services = PSY.Service[]
     labels =
         _check_series_layout(value_axes, ["block", "product"], String, _links_message(d))
@@ -417,35 +437,34 @@ function add_energy_offer_cap_constraints!(
         container, EnergyOfferCapConstraint, D, String[], Int[]; sparse = true,
     )
     range_ub = get_expression(container, ActivePowerRangeExpressionUB, D)
-    on = _energy_offer_on(container, F, D)
     _add_energy_offer_cap_rows!(
-        rows, container, F, get_available_components(model, sys), range_ub, on,
+        rows, container, F, get_available_components(model, sys), range_ub,
     )
     return
 end
 
-# Function barrier: `range_ub` and `on` come from abstractly typed containers.
+# Function barrier: `range_ub` comes from an abstractly typed container. Energy is the range
+# expression's variable plus `_min_power_series`, since compact formulations hold only the
+# power above minimum.
 function _add_energy_offer_cap_rows!(
     rows,
     container::OptimizationContainer,
     ::Type{F},
     devices,
     range_ub,
-    on,
 ) where {F <: AbstractThermalFormulation}
     jump_model = get_jump_model(container)
     for d in devices
         _has_market_bid_cost(d) || continue
         name = PSY.get_name(d)
         pmax = PSY.get_active_power_limits(d, u"SU").max
+        min_power = _min_power_series(container, F, d)
         for t in get_time_steps(container)
             breakpoints, _ = IOM._get_pwl_data(IOM.IncrementalOffer(), container, d, t)
             top = last(breakpoints)
             (top <= first(breakpoints) || top >= pmax) && continue
-            rows[(name, t)] = JuMP.@constraint(
-                jump_model,
-                range_ub[name, t] + _energy_offer_floor(on, F, d, t) <= top,
-            )
+            rows[(name, t)] =
+                JuMP.@constraint(jump_model, range_ub[name, t] + min_power[t] <= top)
         end
     end
     return
@@ -463,44 +482,3 @@ function add_energy_offer_cap_constraints!(
         ),
     )
 end
-
-struct NoOnVariable end
-
-_energy_offer_on(::OptimizationContainer, ::Type{<:AbstractThermalFormulation}, ::Type) =
-    NoOnVariable()
-_energy_offer_on(
-    container::OptimizationContainer,
-    ::Type{<:AbstractCompactUnitCommitment},
-    ::Type{D},
-) where {D <: PSY.ThermalGen} = get_variable(container, OnVariable, D)
-
-# Energy is the range expression's variable, plus pmin for compact formulations, whose
-# expression holds only the power above minimum.
-_energy_offer_floor(
-    ::NoOnVariable,
-    ::Type{<:AbstractThermalFormulation},
-    ::PSY.ThermalGen,
-    ::Int,
-) = 0.0
-
-function _energy_offer_floor(
-    on::AbstractArray,
-    ::Type{<:AbstractCompactUnitCommitment},
-    d::PSY.ThermalGen,
-    t::Int,
-)
-    pmin = PSY.get_active_power_limits(d, u"SU").min
-    if _is_must_run(d)
-        return pmin
-    end
-    return pmin * on[PSY.get_name(d), t]
-end
-
-_energy_offer_floor(
-    ::NoOnVariable,
-    ::Type{ThermalCompactDispatch},
-    ::PSY.ThermalGen,
-    ::Int,
-) = throw(
-    ArgumentError("\"$(ENERGY_OFFER_CAP_KEY)\" does not support ThermalCompactDispatch."),
-)

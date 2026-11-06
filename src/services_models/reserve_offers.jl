@@ -32,7 +32,7 @@ function _reserve_offer_curves(
     time_steps = get_time_steps(container)
     base_p = get_model_base_power(container)
     dev_name = PSY.get_name(d)
-    dev_base = PSY.get_base_power(d)
+    dev_base = PSY.get_base_power(d, u"NU")
     bid = PSY.get_services_bid(
         d, PSY.get_operation_cost(d), service;
         start_time = IOM.get_initial_time(container), len = length(time_steps),
@@ -97,6 +97,8 @@ function add_reserve_offer_costs!(
                 [service_name], names, time_steps; sparse = true)
         for d in offering
             dev_name = PSY.get_name(d)
+            # Blocks are keyed by service name, so a same-name offer would overwrite them.
+            _offered_services_by_name(d)
             steps = _reserve_offer_curves(container, device_type, d, service)
             for (t, (breakpoints, slopes)) in zip(time_steps, steps)
                 nseg = length(slopes)

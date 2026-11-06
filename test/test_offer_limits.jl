@@ -255,6 +255,28 @@ end
     end
 end
 
+# Service bids are read by service name, so a device cannot price two same-name offers apart.
+@testset "Reserve offers: two offered services with one name are an error" begin
+    sys, g = _ol_system(; up = ["R" => ([0.0, 100.0], [5.0])])
+    down = OnlineReserve{ReserveDown}(;
+        name = "R", available = true, time_frame = 10.0, requirement = 0.0,
+        variable = _ol_curve([0.0, 100.0], [1000.0]),
+    )
+    add_service!(sys, down, PSY.Device[g])
+    push!(PSY.get_ancillary_service_offers(get_operation_cost(g)), down)
+    @test_throws IS.ConflictingInputsError POM._offered_services_by_name(g)
+    dir = mktempdir(; cleanup = true)
+    model = DecisionModel(
+        _ol_template(Dict{String, Any}(); sys), sys; optimizer = HiGHS_optimizer,
+    )
+    @test build!(model; output_dir = dir, console_level = Logging.AboveMaxLevel) ==
+          IOM.ModelBuildStatus.FAILED
+    @test occursin(
+        "offers into two services named R",
+        read(joinpath(dir, IOM.PROBLEM_LOG_FILENAME), String),
+    )
+end
+
 const _OL_CAP = Dict{String, Any}("energy_offer_cap" => true)
 const _OL_ONE_SERVICE = ["UP_A" => ([0.0, 100.0], [5.0])]
 
@@ -341,6 +363,56 @@ end
             JuMP.value(award[("UP_A", _OL_UNIT, t)])
         @test isapprox(base * energy, 400.0; atol = 1e-6)
     end
+end
+
+@testset "Energy offer cap: compact UC follows a pmin series" begin
+    sys, g = _ol_system(; up = _OL_ONE_SERVICE, energy_top = 400.0)
+    fractions = [0.55 + 0.005 * t for t in 1:24]
+    PSY.add_time_series!(
+        sys, g,
+        Deterministic(;
+            name = "min_active_power",
+            data = Dict(it => fractions for it in PSY.get_forecast_initial_times(sys)),
+            resolution = Hour(1),
+        ),
+    )
+    template = _ol_template(_OL_CAP; sys)
+    set_device_model!(
+        template,
+        DeviceModel(
+            ThermalStandard, ThermalBasicCompactUnitCommitment;
+            attributes = _OL_CAP,
+            time_series_names = Dict(
+                POM.MinActivePowerTimeSeriesParameter => "min_active_power",
+            ),
+        ),
+    )
+    model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+    c = get_optimization_container(model)
+    rows = IOM.get_constraint(c, POM.EnergyOfferCapConstraint, ThermalStandard)
+    on = IOM.get_variable(c, OnVariable, ThermalStandard)
+    pmax = PSY.get_active_power_limits(g, u"SU").max
+    for t in (1, 24)
+        @test JuMP.normalized_coefficient(rows[(_OL_UNIT, t)], on[_OL_UNIT, t]) ≈
+              pmax * fractions[t]
+    end
+end
+
+@testset "Energy offer cap: compact dispatch adds pmin of a unit that is on" begin
+    sys, g = _ol_system(; up = _OL_ONE_SERVICE, energy_top = 400.0)
+    c = get_optimization_container(
+        _ol_model(sys; formulation = ThermalCompactDispatch, attributes = _OL_CAP),
+    )
+    base = IOM.get_model_base_power(c)
+    row =
+        IOM.get_constraint(c, POM.EnergyOfferCapConstraint, ThermalStandard)[(_OL_UNIT, 1)]
+    above = IOM.get_variable(c, PowerAboveMinimumVariable, ThermalStandard)
+    pmin = PSY.get_active_power_limits(g, u"SU").min
+    @test _ol_rows(c, POM.EnergyOfferCapConstraint) == [(_OL_UNIT, t) for t in 1:24]
+    @test JuMP.normalized_coefficient(row, above[_OL_UNIT, 1]) == 1.0
+    @test JuMP.normalized_rhs(row) ≈ 400.0 / base - pmin
 end
 
 @testset "Energy offer cap: offline and down awards stay out" begin

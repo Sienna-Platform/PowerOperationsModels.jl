@@ -641,8 +641,18 @@ is_input_parameter(::IOM.ParameterKey, pc::IOM.ParameterContainer)::Bool =
     _is_input_attributes(IOM.get_attributes(pc))
 
 # The value axes and element type of `owner`'s own series, read from its metadata, when that
-# series has value axes: the recast writes a parameter row back in this layout.
-function _add_value_layout!(value_axes, value_types, name, owner, attributes)
+# series has value axes: the recast writes a parameter row back in this layout. Only the 3-D
+# recast reads the layout, so 2-D parameters skip the metadata query.
+_add_value_layout!(
+    ::JuMP.Containers.DenseAxisArray{<:Any, 2},
+    value_axes,
+    value_types,
+    name,
+    owner,
+    attributes,
+) = nothing
+
+function _add_value_layout!(raw, value_axes, value_types, name, owner, attributes)
     rows = IS.list_time_series_metadata(
         owner;
         time_series_type = IOM.get_time_series_type(attributes),
@@ -672,6 +682,7 @@ function input_series_descriptor(
     pc::IOM.ParameterContainer,
 )::InputSeriesDescriptor
     attributes = IOM.get_attributes(pc)
+    raw = IOM.get_parameter_values(pc)
     D = IOM.get_component_type(key)
     owners = Dict{String, Tuple{Int64, String}}()
     unresolved = String[]
@@ -682,7 +693,7 @@ function input_series_descriptor(
         if PSY.has_component(sys, D, name)
             c = PSY.get_component(D, sys, name)
             owners[name] = (IS.get_id(c), string(nameof(typeof(c))))
-            _add_value_layout!(value_axes, value_types, name, c, attributes)
+            _add_value_layout!(raw, value_axes, value_types, name, c, attributes)
         else
             push!(unresolved, name)
         end
