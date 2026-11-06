@@ -469,6 +469,7 @@ function IOM.add_pwl_term_delta!(
         else
             (static_breakpoints, static_slopes)
         end
+        _validate_offer_start(dir, component, V, breakpoints)
         pwl_vars =
             add_pwl_variables_delta!(
                 container,

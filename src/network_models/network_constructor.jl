@@ -147,6 +147,7 @@ function construct_network!(
 )
     _add_balance_slack_variables!(container, sys, model; reactive = false)
     add_load_zone_load!(container, sys, model)
+    _add_net_interchange_parameters!(container, sys, model)
     return
 end
 
@@ -229,6 +230,7 @@ function construct_network!(
 )
     _add_balance_slack_variables!(container, sys, model; reactive = false)
     add_load_zone_load!(container, sys, model)
+    _add_net_interchange_parameters!(container, sys, model)
     _add_shift_injections!(container, model, template)
     return
 end
@@ -247,6 +249,7 @@ function _construct_copper_plate_model!(
         add_to_objective_function!(container, sys, model)
     end
     add_constraints!(container, CopperPlateBalanceConstraint, sys, model)
+    add_constraints!(container, NetInterchangeConstraint, sys, model)
     add_constraint_dual!(container, sys, model)
     return
 end

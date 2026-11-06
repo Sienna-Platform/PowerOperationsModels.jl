@@ -334,6 +334,7 @@ include("network_models/instantiate_network_model.jl")
 include("network_models/network_slack_variables.jl")
 include("network_models/copperplate_model.jl")
 include("network_models/area_balance_model.jl")
+include("network_models/net_interchange.jl")
 include("network_models/dcp_model.jl")
 include("network_models/dcpll_model.jl")
 include("network_models/acp_model.jl")
@@ -346,6 +347,7 @@ include("network_models/network_constructor.jl")
 include("services_models/service_slacks.jl")
 include("services_models/reserves.jl")
 include("services_models/reserve_offers.jl")
+include("common_models/offer_limits.jl")
 include("services_models/reserve_group.jl")
 # include("services_models/agc.jl")  # TODO: needs _get_ace_error
 include("services_models/transmission_interface.jl")
@@ -799,6 +801,8 @@ export ReserveCompleteCoverageConstraintEndOfPeriod
 export StorageTotalReserveConstraint
 export ReserveDischargeConstraint
 export ReserveChargeConstraint
+export LinkedReserveOfferConstraint
+export EnergyOfferCapConstraint
 
 # expressions
 export TotalReserveOffering
@@ -862,6 +866,7 @@ export PiecewiseLinearBlockDecrementalOfferConstraint
 export RampConstraint
 export RampLimitConstraint
 export CopperPlateBalanceConstraint
+export NetInterchangeConstraint
 export ActiveRangeICConstraint
 export NodalBalanceActiveConstraint
 export ReferenceBusConstraint
@@ -926,12 +931,14 @@ export PostContingencyTotalDeployment
 # Exports - Parameter Types (defined in core/parameters.jl)
 #################################################################################
 export ActivePowerTimeSeriesParameter
+export ReserveOfferLinkParameter
 export ActivePowerOutTimeSeriesParameter
 export ActivePowerInTimeSeriesParameter
 export ReactivePowerTimeSeriesParameter
 export RequirementTimeSeriesParameter
 export DeployedFractionParameter
 export DistributionFactorParameter
+export ScheduledNetInterchangeParameter
 export MinActivePowerTimeSeriesParameter
 export MinActivePowerInTimeSeriesParameter
 export UpperBoundValueParameter
