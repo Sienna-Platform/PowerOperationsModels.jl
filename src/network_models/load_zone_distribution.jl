@@ -160,14 +160,15 @@ _zone_id(::Nothing) = nothing
 _zone_id(zone::PSY.LoadZone) = IS.get_id(zone)
 
 """
-`_factor_series_labels`, also checking that every label is a member bus of `zone`;
-`buses` maps bus numbers to buses (`_buses_by_number`).
+`_factor_series_labels`, also checking that `zone` has a factor series and that every label
+is a member bus of `zone`; `buses` maps bus numbers to buses (`_buses_by_number`).
 """
 function _factor_bus_labels(
     container::OptimizationContainer,
     zone::PSY.LoadZone,
     buses::Dict{Int, PSY.ACBus},
 )
+    has_distribution_factors(container, zone) || _error_no_factors(zone)
     labels = _factor_series_labels(container, zone)
     is_member = _member_test(zone)
     for bus_no in labels
@@ -209,20 +210,23 @@ function get_distribution_factors(
     sys::PSY.System,
     zone::PSY.LoadZone,
 )
-    return _distribution_factors(container, zone, _buses_by_number(sys))
+    buses = _buses_by_number(sys)
+    return _distribution_factors(
+        container,
+        zone,
+        _factor_bus_labels(container, zone, buses),
+        buses,
+    )
 end
 
-# The reader behind `get_distribution_factors`, with `buses` (`_buses_by_number`) shared by
-# every zone of one construct call.
+# The reader behind `get_distribution_factors`, with the zone's checked factor `labels` and
+# `buses` (`_buses_by_number`) resolved once per construct call.
 function _distribution_factors(
     container::OptimizationContainer,
     zone::PSY.LoadZone,
+    labels::Vector{Int},
     buses::Dict{Int, PSY.ACBus},
 )
-    if !has_distribution_factors(container, zone)
-        return _error_no_factors(zone)
-    end
-    labels = _factor_bus_labels(container, zone, buses)
     name = PSY.get_name(zone)
     key = IOM.ParameterKey(DistributionFactorParameter, PSY.LoadZone)
     if !(
@@ -338,16 +342,17 @@ function _add_load_zone_load!(
     buses = _buses_by_number(sys)
     members = _available_members(buses)
     # A zone whose members share one balance row takes its total there; any other zone
-    # spreads its load with factors, and the reader errors for one without them.
-    rows = Dict(
-        PSY.get_name(z) => _single_balance_row(container, network_model, z, members)
-        for
-        z in zones
-    )
-    owners = [
-        z for z in zones if
-        rows[PSY.get_name(z)] === nothing && has_distribution_factors(container, z)
-    ]
+    # spreads its load with factors, whose labels are read once here.
+    rows = Dict{String, Any}()
+    labels = Dict{String, Vector{Int}}()
+    for zone in zones
+        row = _single_balance_row(container, network_model, zone, members)
+        rows[PSY.get_name(zone)] = row
+        if row === nothing
+            labels[PSY.get_name(zone)] = _factor_bus_labels(container, zone, buses)
+        end
+    end
+    owners = [z for z in zones if haskey(labels, PSY.get_name(z))]
     if !isempty(owners)
         add_parameters!(container, DistributionFactorParameter, owners, model)
     end
@@ -360,7 +365,7 @@ function _add_load_zone_load!(
         refs = get_parameter_column_refs(load, name)
         targets = rows[name]
         if targets === nothing
-            factors = _distribution_factors(container, zone, buses)
+            factors = _distribution_factors(container, zone, labels[name], buses)
             _distribute_zone_load!(
                 container, network_model, buses, factors, refs, multiplier, name,
             )
