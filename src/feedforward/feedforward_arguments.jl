@@ -46,8 +46,28 @@ function _add_feedforward_arguments!(
     return
 end
 
-# Penalized at `BALANCE_SLACK_COST`; PSI leaves the device-path slacks free, which makes
-# the relaxed bound never bind.
+# A slack on a power is priced per pu-hour, like device costs. Any other bounded variable
+# (a commitment status, a stored energy) keeps a per-step price.
+_slack_bounds_power(::Type{<:VariableType}) = false
+_slack_bounds_power(::Type{ActivePowerVariable}) = true
+_slack_bounds_power(::Type{PowerAboveMinimumVariable}) = true
+_slack_bounds_power(::Type{ReactivePowerVariable}) = true
+_slack_bounds_power(::Type{ActivePowerInVariable}) = true
+_slack_bounds_power(::Type{ActivePowerOutVariable}) = true
+_slack_bounds_power(::Type{ActivePowerPumpVariable}) = true
+
+function _feedforward_slack_cost(
+    container::OptimizationContainer,
+    ::Type{T},
+) where {T <: VariableType}
+    if _slack_bounds_power(T)
+        return BALANCE_SLACK_COST * IOM.get_resolution_in_hours(container)
+    end
+    return FEEDFORWARD_SLACK_COST
+end
+
+# Penalized at `_feedforward_slack_cost`; PSI leaves the device-path slacks free, which
+# makes the relaxed bound never bind.
 function _add_feedforward_slack_variables!(
     container::OptimizationContainer,
     ::Type{T},
@@ -68,6 +88,7 @@ function _add_feedforward_slack_variables!(
             _check_device_time_axes(affected_variable, devices_names, time_steps)
 
         var_type = get_entry_type(var)
+        cost = _feedforward_slack_cost(container, var_type)
         variable = add_variable_container!(
             container,
             T,
@@ -85,7 +106,7 @@ function _add_feedforward_slack_variables!(
             )
             add_to_objective_invariant_expression!(
                 container,
-                variable[name, t] * BALANCE_SLACK_COST,
+                variable[name, t] * cost,
             )
         end
     end

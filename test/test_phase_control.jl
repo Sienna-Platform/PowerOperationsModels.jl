@@ -415,7 +415,7 @@ end
     template = _controlled_template(DCPNetworkModel, PSY.TwoWindingTransformer)
     model = DecisionModel(template, fixture.sys; optimizer = ipopt_optimizer)
     out = mktempdir(; cleanup = true)
-    @test build!(model; output_dir = out, console_level = Logging.Error) ==
+    @test build!(model; output_dir = out, console_level = Logging.AboveMaxLevel) ==
           IOM.ModelBuildStatus.FAILED
     log = read(joinpath(out, "operation_problem.log"), String)
     @test occursin("Controlled transformer circuit", log)

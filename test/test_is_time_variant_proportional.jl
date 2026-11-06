@@ -32,7 +32,7 @@ _pwl_vc() = PSY.PiecewisePointCurve([(x = 0.0, y = 0.0), (x = 1.0, y = 2.0)])
 _ts_linear_vc() = PSY.TimeSeriesLinearCurve(_LINEAR_CURVE_KEY)
 _ts_quadratic_vc() = PSY.TimeSeriesQuadraticCurve(_QUADRATIC_CURVE_KEY)
 
-_tgc(variable) = PSY.ThermalGenerationCost(;
+_thermal_gen_cost(variable) = PSY.ThermalGenerationCost(;
     variable_operation_cost = variable,
     fixed = 0.0,
     start_up = 0.0,
@@ -42,12 +42,16 @@ _tgc(variable) = PSY.ThermalGenerationCost(;
 @testset "is_time_variant_proportional: ThermalGenerationCost" begin
     # CostCurve has no `_onvar_cost` overload — the OnVariable term never depends on
     # its value curve, so the trait is false regardless.
-    @test POM.is_time_variant_proportional(_tgc(PSY.CostCurve(_linear_vc()))) == false
+    @test POM.is_time_variant_proportional(
+        _thermal_gen_cost(PSY.CostCurve(_linear_vc())),
+    ) == false
 
     # FuelCurve{PWL}: `_onvar_cost ≡ 0` regardless of fuel_cost — term is static.
-    @test POM.is_time_variant_proportional(_tgc(PSY.FuelCurve(_pwl_vc(), 4.0))) == false
     @test POM.is_time_variant_proportional(
-        _tgc(PSY.FuelCurve(_pwl_vc(), _FUEL_PRICE_KEY)),
+        _thermal_gen_cost(PSY.FuelCurve(_pwl_vc(), PSY.MMBtu, 4.0)),
+    ) == false
+    @test POM.is_time_variant_proportional(
+        _thermal_gen_cost(PSY.FuelCurve(_pwl_vc(), PSY.MMBtu, _FUEL_PRICE_KEY)),
     ) ==
           false
 
@@ -57,28 +61,32 @@ _tgc(variable) = PSY.ThermalGenerationCost(;
     # static vs TS value curve × Float64 vs TimeSeriesKey fuel_cost.
 
     # LinearCurve
-    @test POM.is_time_variant_proportional(_tgc(PSY.FuelCurve(_linear_vc(), 4.0))) == false
     @test POM.is_time_variant_proportional(
-        _tgc(PSY.FuelCurve(_linear_vc(), _FUEL_PRICE_KEY)),
+        _thermal_gen_cost(PSY.FuelCurve(_linear_vc(), PSY.MMBtu, 4.0)),
+    ) == false
+    @test POM.is_time_variant_proportional(
+        _thermal_gen_cost(PSY.FuelCurve(_linear_vc(), PSY.MMBtu, _FUEL_PRICE_KEY)),
     ) == true
     @test POM.is_time_variant_proportional(
-        _tgc(PSY.FuelCurve(_ts_linear_vc(), 4.0)),
+        _thermal_gen_cost(PSY.FuelCurve(_ts_linear_vc(), PSY.MMBtu, 4.0)),
     ) == true
     @test POM.is_time_variant_proportional(
-        _tgc(PSY.FuelCurve(_ts_linear_vc(), _FUEL_PRICE_KEY)),
+        _thermal_gen_cost(PSY.FuelCurve(_ts_linear_vc(), PSY.MMBtu, _FUEL_PRICE_KEY)),
     ) == true
 
     # QuadraticCurve
-    @test POM.is_time_variant_proportional(_tgc(PSY.FuelCurve(_quadratic_vc(), 4.0))) ==
+    @test POM.is_time_variant_proportional(
+        _thermal_gen_cost(PSY.FuelCurve(_quadratic_vc(), PSY.MMBtu, 4.0)),
+    ) ==
           false
     @test POM.is_time_variant_proportional(
-        _tgc(PSY.FuelCurve(_quadratic_vc(), _FUEL_PRICE_KEY)),
+        _thermal_gen_cost(PSY.FuelCurve(_quadratic_vc(), PSY.MMBtu, _FUEL_PRICE_KEY)),
     ) == true
     @test POM.is_time_variant_proportional(
-        _tgc(PSY.FuelCurve(_ts_quadratic_vc(), 4.0)),
+        _thermal_gen_cost(PSY.FuelCurve(_ts_quadratic_vc(), PSY.MMBtu, 4.0)),
     ) == true
     @test POM.is_time_variant_proportional(
-        _tgc(PSY.FuelCurve(_ts_quadratic_vc(), _FUEL_PRICE_KEY)),
+        _thermal_gen_cost(PSY.FuelCurve(_ts_quadratic_vc(), PSY.MMBtu, _FUEL_PRICE_KEY)),
     ) == true
 end
 

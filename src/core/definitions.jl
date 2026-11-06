@@ -60,9 +60,13 @@ const UNSET_INI_TIME = Dates.DateTime(0)
 # Tolerance of comparisons
 # MIP gap tolerances in most solvers are set to 1e-4
 const ABSOLUTE_TOLERANCE = 1.0e-3
+# Slack penalties per pu-hour; objective terms multiply them by the step length in hours.
 const BALANCE_SLACK_COST = 1e6
 const CONSTRAINT_VIOLATION_SLACK_COST = 2e5
 const SERVICES_SLACK_COST = 1e5
+# Per unit of the bounded variable per step, never scaled: feedforward slacks on a
+# variable that is not a power (a commitment status, a stored energy).
+const FEEDFORWARD_SLACK_COST = 1e6
 const COST_EPSILON = 1e-3
 # Structural-zero filter: a PTDF/MODF entry at or below this magnitude contributes no
 # JuMP term to a flow expression. Unrelated to the sparsification cutoff a derived

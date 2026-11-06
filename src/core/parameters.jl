@@ -109,6 +109,13 @@ Parameter to define Min Flow limit for interface time series
 """
 struct MinInterfaceFlowLimitParameter <: TimeSeriesParameter end
 
+"""
+Parameter to define the scheduled net interchange of an `Area` as a time series. The
+default time series name is `"scheduled_net_interchange"`. The values are in MW and
+positive when the area exports. POM converts them to system base.
+"""
+struct ScheduledNetInterchangeParameter <: TimeSeriesParameter end
+
 #################################################################################
 # Hydro Parameters
 #################################################################################

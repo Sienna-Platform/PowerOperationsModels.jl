@@ -732,6 +732,11 @@ end
 _nz_entries(ptdf_col::SparseArrays.SparseVector{Float64, Int}) =
     (SparseArrays.nonzeroinds(ptdf_col), SparseArrays.nonzeros(ptdf_col))
 
+# Upper bound on the merged term count: one variable can appear at several buses.
+_flow_term_hint(nodal::Matrix{JuMP.AffExpr}, nz_idx::Vector{Int}, t::Int) =
+    sum(k -> length(nodal[k, t].terms), nz_idx; init = 0)
+
+# The flow is not rounded here: the MODF path adds outage adjustments first, then rounds.
 # Static shift path
 function _ptdf_branch_flow(
     rep::RepresentativeBranch,
@@ -746,11 +751,10 @@ function _ptdf_branch_flow(
         nodal_balance_expressions,
     )
     nz_idx, nz_val = _nz_entries(ptdf_col)
-    hint = length(nz_idx)
     expressions = Vector{JuMP.AffExpr}(undef, length(time_steps))
     shift_injection = _dc_shift_injection(rep)
     for t in time_steps
-        acc = IOM.get_hinted_aff_expr(hint)
+        acc = IOM.get_hinted_aff_expr(_flow_term_hint(nodal_balance_expressions, nz_idx, t))
         @inbounds for k in eachindex(nz_idx)
             JuMP.add_to_expression!(
                 acc,
@@ -783,11 +787,12 @@ function _ptdf_branch_flow(
         nodal_balance_expressions,
     )
     nz_idx, nz_val = _nz_entries(ptdf_col)
-    hint = length(nz_idx)
     expressions = Vector{JuMP.AffExpr}(undef, length(time_steps))
     b = _dc_susceptance(rep)
     for t in time_steps
-        acc = IOM.get_hinted_aff_expr(hint)
+        acc = IOM.get_hinted_aff_expr(
+            _flow_term_hint(nodal_balance_expressions, nz_idx, t) + 1,
+        )
         @inbounds for k in eachindex(nz_idx)
             JuMP.add_to_expression!(
                 acc,
@@ -836,14 +841,14 @@ function add_expressions!(
         end
         Threads.@spawn try
             if isnothing(phase_row)
-                _ptdf_branch_flow(
+                flow = _ptdf_branch_flow(
                     rep,
                     time_steps,
                     ptdf_col,
                     nodal_balance_expressions.data,
                 )
             else
-                _ptdf_branch_flow(
+                flow = _ptdf_branch_flow(
                     rep,
                     time_steps,
                     ptdf_col,
@@ -851,6 +856,8 @@ function add_expressions!(
                     phase_row,
                 )
             end
+            foreach(IOM.round_to_zero_or_one!, last(flow))
+            flow
         catch e
             @error "PTDF flow-expression task failed" name = rep.name arc = rep.arc exception =
                 (e, catch_backtrace())
@@ -1021,12 +1028,10 @@ function _price_slacks_once!(
     invariant::E,
     slacks::DenseAxisArray,
 ) where {E <: JuMP.AbstractJuMPScalar}
+    cost = CONSTRAINT_VIOLATION_SLACK_COST * IOM.get_resolution_in_hours(container)
     for slack in slacks
         if iszero(JuMP.coefficient(invariant, slack))
-            add_to_objective_invariant_expression!(
-                container,
-                slack * CONSTRAINT_VIOLATION_SLACK_COST,
-            )
+            add_to_objective_invariant_expression!(container, slack * cost)
         end
     end
     return

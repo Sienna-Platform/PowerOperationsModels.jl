@@ -58,7 +58,6 @@ function construct_device!(
 ) where {T <: PSY.ThermalGen}
     devices = get_device_cache(device_model)
     add_parameters!(container, ActivePowerTimeSeriesParameter, devices, device_model)
-    add_parameters!(container, ReactivePowerTimeSeriesParameter, devices, device_model)
     add_to_expression!(
         container,
         ActivePowerBalance,
@@ -67,14 +66,7 @@ function construct_device!(
         device_model,
         network_model,
     )
-    add_to_expression!(
-        container,
-        ReactivePowerBalance,
-        ReactivePowerTimeSeriesParameter,
-        devices,
-        device_model,
-        network_model,
-    )
+    _add_fixed_output_reactive_power!(container, devices, device_model, network_model)
     add_event_arguments!(container, devices, device_model, network_model)
     return
 end

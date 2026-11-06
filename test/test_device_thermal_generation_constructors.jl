@@ -1419,6 +1419,7 @@ end =#
     new_th_cost = ThermalGenerationCost(;
         variable_operation_cost = FuelCurve(;
             value_curve = quad_curve,
+            fuel_units = PSY.MMBtu,
             fuel_cost = 1.0,
         ),
         fixed = op_cost.fixed,
@@ -2076,4 +2077,73 @@ end
                   POM.CONSTRAINT_VIOLATION_SLACK_COST * dt
         end
     end
+end
+
+@testset "FixedOutput errors clearly when some devices lack the time series" begin
+    c_sys5_uc = PSB.build_system(PSITestSystems, "c_sys5_uc")
+    forecast = PSY.get_time_series(
+        Deterministic,
+        first(PSY.get_components(PSY.PowerLoad, c_sys5_uc)),
+        "max_active_power",
+    )
+    for device in PSY.get_components(PSY.ThermalStandard, c_sys5_uc)
+        PSY.get_name(device) == "Solitude" && continue
+        PSY.add_time_series!(c_sys5_uc, device, forecast)
+    end
+    model = DecisionModel(MockOperationProblem, DCPNetworkModel, c_sys5_uc)
+    err = try
+        mock_construct_device!(model, DeviceModel(PSY.ThermalStandard, FixedOutput))
+        nothing
+    catch e
+        e
+    end
+    @test err isa IS.ConflictingInputsError
+    @test occursin("[\"Solitude\"] lack the max_active_power time series", err.msg)
+end
+
+@testset "ThermalGen FixedOutput reactive power is opt-in" begin
+    c_sys5_uc = PSB.build_system(PSITestSystems, "c_sys5_uc")
+    forecast = PSY.get_time_series(
+        Deterministic,
+        first(PSY.get_components(PSY.PowerLoad, c_sys5_uc)),
+        "max_active_power",
+    )
+    for device in PSY.get_components(PSY.ThermalStandard, c_sys5_uc)
+        PSY.add_time_series!(c_sys5_uc, device, forecast)
+    end
+    unit = first(PSY.get_components(PSY.ThermalStandard, c_sys5_uc))
+
+    # No reactive series by default, so FixedOutput injects no reactive power.
+    model = DecisionModel(MockOperationProblem, ACPNetworkModel, c_sys5_uc)
+    @test_logs (:warn, r"inject no reactive power") match_mode = :any mock_construct_device!(
+        model,
+        DeviceModel(PSY.ThermalStandard, FixedOutput),
+    )
+    container = IOM.get_optimization_container(model)
+    @test !IOM.has_container_key(
+        container,
+        ReactivePowerTimeSeriesParameter,
+        PSY.ThermalStandard,
+    )
+
+    # A mapped reactive series is scaled by the max reactive power.
+    device_model = DeviceModel(
+        PSY.ThermalStandard,
+        FixedOutput;
+        time_series_names = Dict(
+            ActivePowerTimeSeriesParameter => "max_active_power",
+            ReactivePowerTimeSeriesParameter => "max_active_power",
+        ),
+    )
+    model = DecisionModel(MockOperationProblem, ACPNetworkModel, c_sys5_uc)
+    mock_construct_device!(model, device_model)
+    mult = IOM.get_parameter_multiplier_array(
+        IOM.get_optimization_container(model),
+        ReactivePowerTimeSeriesParameter,
+        PSY.ThermalStandard,
+    )
+    @test all(
+        mult[PSY.get_name(unit), :] .≈
+        PSY.get_reactive_power_limits(unit, u"SU").max,
+    )
 end

@@ -100,6 +100,10 @@ balance constraint (model stage).
 All network variables, **including the slacks**, are created in the argument stage. System slacks
 are only added when `use_slacks = true` on the `NetworkModel`, and they are penalized in the
 objective at `BALANCE_SLACK_COST` during the model stage.
+Every slack penalty in this library (balance, branch flow, post-contingency, reserve
+requirement, transmission interface `violation_penalty`, and feedforward bound on a power
+variable) is per pu-hour, like device costs, and enters the objective multiplied by the step
+length in hours.
 
 ### System slack containers
 
@@ -824,7 +828,8 @@ attach_feedforward!(
 
 `UpperBoundFeedforward` and `LowerBoundFeedforward` accept `add_slacks = true`, which relaxes the
 bound with a non-negative `UpperBoundFeedForwardSlack` / `LowerBoundFeedForwardSlack` penalized at
-`BALANCE_SLACK_COST`.
+`BALANCE_SLACK_COST` per hour of the time step when the bounded variable is a power, and at
+`FEEDFORWARD_SLACK_COST` per step otherwise.
 
 `SemiContinuousFeedforward` suppresses the affected formulation's own range constraints —
 `has_semicontinuous_feedforward` gates them — because the commitment status arrives as a parameter

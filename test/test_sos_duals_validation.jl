@@ -7,7 +7,8 @@
     set_device_model!(template, PowerLoad, StaticPowerLoad)
     model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
     output_dir = mktempdir(; cleanup = true)
-    @test build!(model; output_dir = output_dir) == IOM.ModelBuildStatus.FAILED
+    @test build!(model; console_level = Logging.AboveMaxLevel, output_dir = output_dir) ==
+          IOM.ModelBuildStatus.FAILED
 
     log_text = read(joinpath(output_dir, IOM.PROBLEM_LOG_FILENAME), String)
     @test occursin("solver SOS1/SOS2 constraint", log_text)
@@ -52,11 +53,14 @@ end
 @testset "Duals retrievable with manual binary SOS2 bilinear approximation" begin
     sys = PSB.build_system(PSISystems, "sys10_pjm_ac_dc")
     for ipc in get_components(InterconnectingConverter, sys)
-        set_loss_function!(ipc, PSY.LossCurve(QuadraticCurve(0.01, 0.01, 0.0), PSY.CU))
-        # 2.0 pu on the system base, in amperes.
+        set_loss_function!(
+            ipc,
+            PSY.LossCurve(QuadraticCurve(0.01, 0.01, 0.0), PSY.CU, u"kA"),
+        )
+        # 2.0 pu on the system base, in kA.
         set_max_dc_current!(
             ipc,
-            2.0 * 1000.0 * get_base_power(sys) / get_base_voltage(get_dc_bus(ipc)),
+            2.0 * get_base_power(sys) / get_base_voltage(get_dc_bus(ipc)),
         )
     end
 

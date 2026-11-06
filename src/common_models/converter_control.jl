@@ -3,10 +3,10 @@
 # InterconnectingConverter (once per converter) reuse them.
 
 # PSY stores HVDC quantities in natural units. System per-unit bases: S in MVA,
-# V in kV, Z = V^2 / S (ohm), Y = 1 / Z (S), I = 1000 * S / V (A).
+# V in kV, Z = V^2 / S (ohm), Y = 1 / Z (S), I = S / V (kA).
 _ohm_to_su(z::Float64, v_base::Float64, s_base::Float64) = z * s_base / v_base^2
 _siemens_to_su(g::Float64, v_base::Float64, s_base::Float64) = g * v_base^2 / s_base
-_amps_to_su(i::Float64, v_base::Float64, s_base::Float64) = i * v_base / (1000.0 * s_base)
+_ka_to_su(i::Float64, v_base::Float64, s_base::Float64) = i * v_base / s_base
 _kv_to_su(v::Float64, v_base::Float64) = v / v_base
 _kv_per_mw_to_su(droop::Float64, v_base::Float64, s_base::Float64) =
     droop * s_base / v_base

@@ -26,41 +26,28 @@ _get_quadratic_term(loss_fn::PSY.ValueCurve) = error(
 ######## Loss-curve unit handling #######
 #########################################
 
-# `PSY.get_loss_function`/`get_loss`/`get_converter_loss_from`/`_to` return a
-# `LossCurve` wrapper that declares its own unit system (`get_power_units`); the
-# ratio to system base depends on that declared system, not on an assumed one.
-# Dispatched on the unit-system instance rather than `isa`. `NaturalUnit` values are
-# absolute (MW), so the x-axis ratio to system base is the system base power itself;
-# `ComponentBaseUnit` values are per-unit on the component's own base; `SystemBaseUnit`
-# is already the target (the ratio is unused — `LossCurve`'s own `convert_power_units`
-# short-circuits same-unit conversions to the identity).
-_loss_curve_ratio_to_system_base(::PSY.NaturalUnit, ::PSY.Component, system_base::Float64) =
-    system_base
-_loss_curve_ratio_to_system_base(
-    ::PSY.SystemBaseUnit, ::PSY.Component, system_base::Float64,
-) = system_base
-_loss_curve_ratio_to_system_base(
-    ::PSY.ComponentBaseUnit,
-    d::PSY.Component,
-    system_base::Float64,
-) =
-    system_base / PSY.get_base_power(d, u"NU")
-_loss_curve_ratio_to_system_base(
-    u::IS.AbstractUnitSystem,
-    d::PSY.Component,
-    ::Float64,
-) = error(
-    "No system-base ratio defined for unit system $(typeof(u)) on component " *
-    "$(PSY.get_name(d)); expected NaturalUnit, SystemBaseUnit or ComponentBaseUnit.",
-)
-
 """
 Unwrap a `LossCurve` to its plain `ValueCurve`, rescaled to system base regardless of the
-unit system it was authored in.
+unit system it was authored in. PowerSystems computes the x and y ratios from the
+component, including the DC base voltage for a `u"kA"` current axis.
 """
-function _loss_curve_value(curve::PSY.LossCurve, d::PSY.Component, system_base::Float64)
-    ratio = _loss_curve_ratio_to_system_base(PSY.get_power_units(curve), d, system_base)
-    return PSY.get_value_curve(IS.convert_power_units(curve, PSY.SU, ratio))
+function _loss_curve_value(curve::PSY.LossCurve, d::PSY.Component)
+    return PSY.get_value_curve(IS.convert_power_units(d, curve, u"SU"))
+end
+
+# PowerSystems puts a branch's kA axis on the AC from-bus base voltage, but the VSC current
+# variables are per unit on `rated_dc_voltage`. A MW-axis VSC curve uses the generic method,
+# which reads power as current at nominal DC voltage.
+function _loss_curve_value(
+    curve::PSY.LossCurve{T, U, typeof(u"kA")},
+    d::PSY.TwoTerminalVSCLine,
+) where {T <: PSY.ValueCurve, U <: IS.AbstractUnitSystem}
+    natural = IS.convert_power_units(d, curve, u"NU")
+    ka_per_su = inv(_vsc_dc_current_su(d, 1.0))
+    system_base = PSY._get_system_base_power(d)
+    return PSY.get_value_curve(
+        IS.convert_power_units(natural, PSY.SU, ka_per_su, system_base),
+    )
 end
 
 #########################################

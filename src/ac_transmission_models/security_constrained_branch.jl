@@ -150,10 +150,9 @@ function _has_other_v_container(
 end
 
 """
-Pre-allocate a `SparseAxisArray` keyed by
-`(outage_id::String, monitored_name::String, t::Int)` holding `JuMP.AffExpr`
-zeros for every entry produced by `_resolve_monitored_branches`. The pre-fill is
-required so the parallel PTDF expression build below cannot race on Dict resize.
+Register an empty `SparseAxisArray` keyed by
+`(outage_id::String, monitored_name::String, t::Int)`, sized for every entry produced
+by `_resolve_monitored_branches`. Only the main thread writes to it.
 """
 function _add_post_contingency_sparse_expression!(
     container::OptimizationContainer,
@@ -163,12 +162,7 @@ function _add_post_contingency_sparse_expression!(
     time_steps::UnitRange{Int},
 ) where {T <: PostContingencyExpressions, V <: PSY.ACTransmission}
     contents = Dict{Tuple{String, String, Int}, JuMP.AffExpr}()
-    for (uuid, reps) in resolved
-        outage_id = string(uuid)
-        for rep in reps, t in time_steps
-            contents[(outage_id, rep.name, t)] = zero(JuMP.AffExpr)
-        end
-    end
+    sizehint!(contents, sum(p -> length(last(p)), resolved; init = 0) * length(time_steps))
     expr_container = SparseAxisArray(contents)
     IOM._assign_container!(container.expressions, ExpressionKey(T, V), expr_container)
     return expr_container
@@ -243,7 +237,7 @@ function _make_post_contingency_slack!(
     slack_container[outage_id, name, t] = slack
     add_to_objective_invariant_expression!(
         container,
-        slack * CONSTRAINT_VIOLATION_SLACK_COST,
+        slack * (CONSTRAINT_VIOLATION_SLACK_COST * IOM.get_resolution_in_hours(container)),
     )
     return slack
 end
@@ -547,6 +541,7 @@ function _build_post_contingency_flow_expressions_for_outage(
                 JuMP.add_to_expression!(expressions[t], sensitivity + own, adj.delta[t])
             end
         end
+        foreach(IOM.round_to_zero_or_one!, expressions)
         results[i] = (rep.name, expressions)
     end
     return results

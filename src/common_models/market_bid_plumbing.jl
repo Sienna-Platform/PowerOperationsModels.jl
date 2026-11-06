@@ -469,6 +469,7 @@ function IOM.add_pwl_term_delta!(
         else
             (static_breakpoints, static_slopes)
         end
+        _validate_offer_start(dir, component, V, breakpoints)
         pwl_vars =
             add_pwl_variables_delta!(
                 container,
@@ -617,6 +618,10 @@ IOM.get_forecast_interval(sys::PSY.System) = PSY.get_forecast_interval(sys)
 IOM.get_forecast_horizon(sys::PSY.System; kwargs...) =
     PSY.get_forecast_horizon(sys; kwargs...)
 IOM.get_forecast_summary_table(sys::PSY.System) = PSY.get_forecast_summary_table(sys)
+IOM.build_forecast_reader(sys::PSY.System, ::Type{T}; kwargs...) where {T} =
+    PSY.build_forecast_reader(sys, T; kwargs...)
+IOM.build_static_time_series_reader(sys::PSY.System; kwargs...) =
+    PSY.build_static_time_series_reader(sys; kwargs...)
 IOM.transform_single_time_series!(
     sys::PSY.System,
     horizon::Dates.Period,

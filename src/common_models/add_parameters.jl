@@ -1285,3 +1285,39 @@ function _add_parameters!(
     end
     return
 end
+
+function _fixed_output_max_reactive_power(d::PSY.Generator)
+    limits = PSY.get_reactive_power_limits(d, u"SU")
+    if isnothing(limits)
+        throw(
+            IS.ConflictingInputsError(
+                "$(nameof(typeof(d))) $(PSY.get_name(d)) has a ReactivePowerTimeSeriesParameter " *
+                "mapped for FixedOutput but no reactive_power_limits to scale it by.",
+            ),
+        )
+    end
+    return limits.max
+end
+
+function _add_fixed_output_reactive_power!(
+    container::OptimizationContainer,
+    devices,
+    model::DeviceModel{D, FixedOutput},
+    network_model::NetworkModel{<:AbstractNetworkModel},
+) where {D <: PSY.Generator}
+    if haskey(get_time_series_names(model), ReactivePowerTimeSeriesParameter)
+        add_parameters!(container, ReactivePowerTimeSeriesParameter, devices, model)
+        add_to_expression!(
+            container,
+            ReactivePowerBalance,
+            ReactivePowerTimeSeriesParameter,
+            devices,
+            model,
+            network_model,
+        )
+    else
+        @warn "No ReactivePowerTimeSeriesParameter in time_series_names for $(nameof(D)) with \
+               FixedOutput: these devices inject no reactive power."
+    end
+    return
+end

@@ -18,6 +18,7 @@ function create_temporary_cost_function_in_system_per_unit(
     return PSY.FuelCurve(;
         value_curve = PSY.PiecewisePointCurve(new_data),
         power_units = PSY.SU,
+        fuel_units = IS.get_fuel_units(original_cost_function),
         fuel_cost = PSY.get_fuel_cost(original_cost_function),
         fuel_cost_time_series = IS.get_fuel_cost_time_series(original_cost_function),
         startup_fuel_offtake = IS.LinearCurve(0.0),  # default of 0
@@ -97,6 +98,8 @@ get_variable_lower_bound(::Type{RateofChangeConstraintSlackUp}, d::PSY.ThermalGe
 get_multiplier_value(::Type{ActivePowerTimeSeriesParameter}, d::PSY.ThermalGen, ::Type{<:AbstractThermalFormulation}) = PSY.get_max_active_power(d, u"SU")
 get_multiplier_value(::Type{MinActivePowerTimeSeriesParameter}, d::PSY.ThermalGen, ::Type{<:AbstractThermalFormulation}) = PSY.get_max_active_power(d, u"SU")
 get_multiplier_value(::Type{<:TimeSeriesParameter}, d::PSY.ThermalGen, ::Type{FixedOutput}) = PSY.get_max_active_power(d, u"SU")
+# FixedOutput has no default reactive series; a user-mapped one is normalized to max reactive power.
+get_multiplier_value(::Type{ReactivePowerTimeSeriesParameter}, d::PSY.ThermalGen, ::Type{FixedOutput}) = _fixed_output_max_reactive_power(d)
 get_multiplier_value(::Type{FuelCostParameter}, d::PSY.ThermalGen, ::Type{<:AbstractThermalFormulation}) = 1.0
 get_parameter_multiplier(::Type{<:VariableValueParameter}, d::PSY.ThermalGen, ::Type{<:AbstractThermalFormulation}) = 1.0
 get_initial_parameter_value(::Type{<:VariableValueParameter}, d::PSY.ThermalGen, ::Type{<:AbstractThermalFormulation}) = 1.0
@@ -261,7 +264,6 @@ function get_default_time_series_names(
 )
     return Dict{Type{<:TimeSeriesParameter}, String}(
         ActivePowerTimeSeriesParameter => "max_active_power",
-        ReactivePowerTimeSeriesParameter => "max_active_power",
     )
 end
 
