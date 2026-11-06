@@ -480,3 +480,70 @@ end
         read(joinpath(dir, "operation_problem.log"), String),
     )
 end
+
+@testset "Market offers with SemiContinuousFeedforward under thermal dispatch" begin
+    # #436: the offset follows OnStatusParameter, so an off unit (status 0) gets p = 0.
+    template = get_thermal_dispatch_template_network(
+        NetworkModel(CopperPlateNetworkModel; use_slacks = true))
+    device_model = DeviceModel(PSY.ThermalStandard, ThermalBasicDispatch)
+    attach_feedforward!(
+        device_model,
+        SemiContinuousFeedforward(;
+            component_type = PSY.ThermalStandard,
+            source = OnVariable,
+            affected_values = [ActivePowerVariable],
+        ),
+    )
+    set_device_model!(template, device_model)
+    model = DecisionModel(
+        template, _dispatch_offer_system(65.0, 5.0); optimizer = HiGHS_optimizer)
+    @test build!(model; output_dir = mktempdir()) == IOM.ModelBuildStatus.BUILT
+    @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+    container = IOM.get_optimization_container(model)
+    on_status = IOM.get_parameter_array(container, OnStatusParameter, PSY.ThermalStandard)
+    p = IOM.get_variable(container, IOM.ActivePowerVariable, PSY.ThermalStandard)
+    for t in axes(p)[2]
+        @test JuMP.value(p["Park City", t]) ≈ 0.0 atol = 1e-6
+        @test on_status["Park City", t] == 0.0
+    end
+end
+
+@testset "Market offers build and solve under hydro turbine dispatch" begin
+    # #436: hydro dispatch has no OnVariable, so the offer offset is a constant.
+    sys = PSB.build_system(PSITestSystems, "c_sys5_hy_turbine_energy")
+    h = first(PSY.get_components(PSY.HydroTurbine, sys))
+    x1 = 0.1 * PSY.get_max_active_power(h, u"NU")
+    PSY.set_operation_cost!(
+        h,
+        PSY.MarketBidCost(;
+            minimum_energy_offer = PSY.LinearCurve(0.0),
+            start_up = (hot = 0.0, warm = 0.0, cold = 0.0),
+            shut_down = PSY.LinearCurve(0.0),
+            incremental_offer_curves = PSY.make_market_bid_curve(
+                [x1, PSY.get_max_active_power(h, u"NU")], [1.0], 0.0;
+                power_units = IS.NaturalUnit(),
+            ),
+        ),
+    )
+    template = get_thermal_dispatch_template_network(
+        NetworkModel(CopperPlateNetworkModel; use_slacks = true))
+    set_device_model!(template, PSY.HydroTurbine, HydroTurbineEnergyDispatch)
+    set_device_model!(
+        template,
+        DeviceModel(
+            PSY.HydroReservoir,
+            HydroEnergyModelReservoir;
+            attributes = Dict{String, Any}(
+                "energy_target" => false, "hydro_budget" => false),
+        ),
+    )
+    model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
+    @test build!(model; output_dir = mktempdir()) == IOM.ModelBuildStatus.BUILT
+    @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+    container = IOM.get_optimization_container(model)
+    con = IOM.get_constraint(
+        container, IOM.PiecewiseLinearBlockIncrementalOfferConstraint, PSY.HydroTurbine,
+    )
+    base = IOM.get_model_base_power(container)
+    @test JuMP.normalized_rhs(con[PSY.get_name(h), 1]) ≈ x1 / base
+end
