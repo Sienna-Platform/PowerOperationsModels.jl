@@ -579,6 +579,21 @@ end
     end
 end
 
+@testset "Capacitive controllable load gets reactive bounds [q_max, 0]" begin
+    c_sys5_il = deepcopy(PSB.build_system(PSITestSystems, "c_sys5_il"))
+    load = get_component(InterruptiblePowerLoad, c_sys5_il, "IloadBus4")
+    set_max_reactive_power!(load, -0.2 * u"SU")
+    device_model = DeviceModel(InterruptiblePowerLoad, PowerLoadDispatch)
+    model = DecisionModel(MockOperationProblem, ACPNetworkModel, c_sys5_il)
+    mock_construct_device!(model, device_model)
+    container = IOM.get_optimization_container(model)
+    q = IOM.get_variable(container, ReactivePowerVariable, InterruptiblePowerLoad)
+    for t in 1:24
+        @test JuMP.lower_bound(q["IloadBus4", t]) ≈ -0.2
+        @test JuMP.upper_bound(q["IloadBus4", t]) == 0.0
+    end
+end
+
 @testset "PowerLoadDispatch constant power factor uses Q/P = q_max/p_max" begin
     c_sys5_il = PSB.build_system(PSITestSystems, "c_sys5_il")
     load = get_component(InterruptiblePowerLoad, c_sys5_il, "IloadBus4")
