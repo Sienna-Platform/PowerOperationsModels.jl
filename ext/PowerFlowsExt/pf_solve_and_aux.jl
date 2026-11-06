@@ -10,6 +10,7 @@ function IOM.evaluate!(
     pf_data = IOM.get_inner_data(pf_e_data)
     if PFS.supports_multi_period(pf_data)
         update_pf_data!(pf_e_data, container)
+        _update_area_schedules!(pf_data, container, sys)
         _update_headroom_participation_factors!(
             pf_data, container, sys, get_input_key_map(pf_e_data),
         )

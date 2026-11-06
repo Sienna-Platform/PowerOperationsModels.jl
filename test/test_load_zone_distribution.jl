@@ -145,15 +145,14 @@ end
     @test all(zf[n2, t] ≈ 1.0 - first_bus[t] for t in get_time_steps(container))
 end
 
-@testset "An unavailable member's factor column is dropped" begin
+@testset "A nonzero share on an unavailable member is an error" begin
     sys, zone, zone_buses = _build_zone_system()
-    n1, n2 = PSY.get_number.(zone_buses)
     # After the build: the network matrices reject an unavailable bus with live lines.
     container, network_model = _build_factor_model(sys)
     PSY.set_available!(zone_buses[1], false)
-    factors = get_distribution_factors(container, sys, zone, network_model)
-    @test collect(axes(factors)[1]) == [n2]
-    @test all(factors[n2, t] == 0.4 for t in get_time_steps(container))
+    @test_throws "unavailable bus $(PSY.get_number(zone_buses[1]))" get_distribution_factors(
+        container, sys, zone, network_model,
+    )
 end
 
 @testset "A factor column for a bus outside the zone is an error" begin
@@ -241,7 +240,7 @@ end
     )
 end
 
-@testset "A reduced member bus's factor sums into its retained bus" begin
+@testset "A reduced member bus keeps its own factor" begin
     sys, zone, zone_buses = _build_zone_system(; with_factors = false)
     n1, n2 = PSY.get_number.(zone_buses)
     leaf = PSY.ACBus(;
@@ -273,9 +272,23 @@ end
     reduction = get_network_reduction(network_model)
     @test PNM.get_mapped_bus_number(reduction, leaf) == n1
     factors = get_distribution_factors(container, sys, zone, network_model)
-    @test collect(axes(factors)[1]) == [n1, n2]
-    @test all(factors[n1, t] ≈ 0.7 for t in get_time_steps(container))
-    @test all(factors[n2, t] == 0.4 for t in get_time_steps(container))
+    @test collect(axes(factors)[1]) == [n1, n2, 99]
+    @test all(factors[99, t] == 0.1 for t in get_time_steps(container))
+    # The leaf's share reaches the nodal row of its retained bus.
+    peak = PSY.get_peak_active_power(zone, u"SU")
+    fraction = _zone_load_fraction(_factor_horizon(sys))
+    nodal = IOM.get_expression(container, ActivePowerBalance, PSY.ACBus)
+    off, _ = _build_factor_model(
+        sys,
+        NetworkModel(
+            PTDFNetworkModel; network_source = SystemNetworkSource(PNM.RadialReduction()),
+        ),
+    )
+    nodal_off = IOM.get_expression(off, ActivePowerBalance, PSY.ACBus)
+    for t in get_time_steps(container)
+        @test JuMP.constant(nodal[n1, t]) - JuMP.constant(nodal_off[n1, t]) ≈
+              -0.7 * peak * fraction[t]
+    end
 end
 
 @testset "Factors reach the model through DistributionFactorParameter" begin
@@ -455,9 +468,9 @@ end
     load = IOM.get_parameter(container, ActivePowerTimeSeriesParameter, PSY.LoadZone)
     err = try
         POM._write_zone_load!(
-            container, sys, network_model, zone, POM._buses_by_number(sys),
-            IOM.get_parameter_column_refs(load, "LZ1"), IOM.get_multiplier_array(load),
-            "LZ1",
+            container, network_model, zone, POM._buses_by_number(sys), zone_buses,
+            Dict{String, Vector{Int}}(), IOM.get_parameter_column_refs(load, "LZ1"),
+            IOM.get_multiplier_array(load), "LZ1",
         )
         nothing
     catch e
@@ -488,8 +501,8 @@ end
     end
 end
 
-@testset "AreaBalance: the zonal load enters the area balance" begin
-    sys, zone, _ = _build_zone_system()
+# Buses numbered up to `last_in_first` sit in area "LZ_A1"; the rest sit in "LZ_A2".
+function _set_two_areas!(sys, last_in_first)
     areas = [
         PSY.Area(; name = "LZ_A$(i)", peak_active_power = 0.0,
             peak_reactive_power = 0.0,
@@ -498,10 +511,17 @@ end
     ]
     PSY.add_components!(sys, areas)
     for b in PSY.get_components(PSY.ACBus, sys)
-        PSY.set_area!(b, areas[PSY.get_number(b) <= 2 ? 1 : 2])
+        if PSY.get_number(b) <= last_in_first
+            PSY.set_area!(b, areas[1])
+        else
+            PSY.set_area!(b, areas[2])
+        end
     end
-    peak = PSY.get_peak_active_power(zone, u"SU")
-    fraction = _zone_load_fraction(_factor_horizon(sys))
+    return
+end
+
+# Change of each area row, by area name, when the attribute is on.
+function _area_load_deltas(sys)
     off = _build_lz_model(sys, NetworkModel(AreaBalanceNetworkModel))
     on = _build_lz_model(
         sys, NetworkModel(AreaBalanceNetworkModel; attributes = LZ_ATTRIBUTES),
@@ -512,10 +532,108 @@ end
     area_on = IOM.get_expression(
         get_optimization_container(on), ActivePowerBalance, PSY.Area,
     )
-    for t in get_time_steps(get_optimization_container(on))
-        @test sum(
-            JuMP.constant(area_on[k, t]) - JuMP.constant(area_off[k, t]) for
-            k in axes(area_on)[1]
-        ) ≈ -peak * fraction[t]
+    ts = get_time_steps(get_optimization_container(on))
+    return Dict(
+        (k, t) => JuMP.constant(area_on[k, t]) - JuMP.constant(area_off[k, t]) for
+        k in axes(area_on)[1], t in ts
+    )
+end
+
+@testset "AreaBalance: a one-area zone writes its total, with or without factors" begin
+    for with_factors in (true, false)
+        sys, zone, _ = _build_zone_system(; with_factors = with_factors)
+        _set_two_areas!(sys, 2)
+        peak = PSY.get_peak_active_power(zone, u"SU")
+        fraction = _zone_load_fraction(_factor_horizon(sys))
+        deltas = _area_load_deltas(sys)
+        for t in eachindex(fraction)
+            @test deltas[("LZ_A1", t)] ≈ -peak * fraction[t]
+            @test iszero(deltas[("LZ_A2", t)])
+        end
+    end
+end
+
+@testset "AreaBalance: a zone that spans areas splits its load with factors" begin
+    sys, zone, _ = _build_zone_system()
+    _set_two_areas!(sys, 1)
+    peak = PSY.get_peak_active_power(zone, u"SU")
+    fraction = _zone_load_fraction(_factor_horizon(sys))
+    deltas = _area_load_deltas(sys)
+    for t in eachindex(fraction)
+        @test deltas[("LZ_A1", t)] ≈ -0.6 * peak * fraction[t]
+        @test deltas[("LZ_A2", t)] ≈ -0.4 * peak * fraction[t]
+    end
+end
+
+@testset "AreaBalance: a zone that spans areas without factors is an error" begin
+    sys, _, _ = _build_zone_system(; with_factors = false)
+    _set_two_areas!(sys, 1)
+    log = _build_failure_log(
+        sys, NetworkModel(AreaBalanceNetworkModel; attributes = LZ_ATTRIBUTES),
+    )
+    @test occursin("Load zone LZ1 spans the areas [\"LZ_A1\", \"LZ_A2\"]", log)
+end
+
+# A `SingleTimeSeries` on the timestamps of the system's load series.
+function _single_series(sys, name, values; value_axes = nothing)
+    existing = PSY.get_time_series(
+        PSY.SingleTimeSeries,
+        first(PSY.get_components(PSY.PowerLoad, sys)),
+        "max_active_power",
+    )
+    stamps = TimeSeries.timestamp(PSY.get_data(existing))
+    return PSY.SingleTimeSeries(
+        name, first(stamps), PSY.get_resolution(existing),
+        _single_values(values, length(stamps)); value_axes = value_axes,
+    )
+end
+_single_values(value::Real, n) = fill(Float64(value), n)
+_single_values(columns::Vector{<:Real}, n) = repeat(permutedims(columns), n)
+
+@testset "A zone series stored only as another type is an error" begin
+    sys = PSB.build_system(PSITestSystems, "c_sys5_uc")
+    zone = PSY.LoadZone(;
+        name = "LZ_SINGLE",
+        peak_active_power = 1.0,
+        peak_reactive_power = 0.0,
+        input_basis = u"CU",
+    )
+    PSY.add_component!(sys, zone)
+    PSY.add_time_series!(sys, zone, _single_series(sys, POM.LOAD_ZONE_LOAD_TS_NAME, 0.5))
+    log = _build_failure_log(
+        sys, NetworkModel(PTDFNetworkModel; attributes = LZ_ATTRIBUTES),
+    )
+    @test occursin("carries a max_active_power time series, but not as", log)
+end
+
+@testset "EmulationModel: the zonal load enters the nodal balance" begin
+    sys, zone, zone_buses = _build_zone_system(; with_factors = false)
+    n1, n2 = PSY.get_number.(zone_buses)
+    PSY.add_time_series!(sys, zone, _single_series(sys, POM.LOAD_ZONE_LOAD_TS_NAME, 0.5))
+    PSY.add_time_series!(
+        sys,
+        zone,
+        _single_series(
+            sys, POM.DISTRIBUTION_FACTOR_TS_NAME, [0.6, 0.4];
+            value_axes = [IS.TimeSeriesAxis("bus", [n1, n2])],
+        ),
+    )
+    peak = PSY.get_peak_active_power(zone, u"SU")
+    nodal = Dict{Bool, Any}()
+    for on in (false, true)
+        attributes = Dict{String, Any}("load_zone_distribution" => on)
+        template = get_thermal_dispatch_template_network(
+            NetworkModel(PTDFNetworkModel; attributes = attributes),
+        )
+        model = EmulationModel(template, sys; optimizer = HiGHS_optimizer)
+        @test build!(model; executions = 1, output_dir = mktempdir(; cleanup = true)) ==
+              IOM.ModelBuildStatus.BUILT
+        nodal[on] = IOM.get_expression(
+            get_optimization_container(model), ActivePowerBalance, PSY.ACBus,
+        )
+    end
+    for (n, factor) in ((n1, 0.6), (n2, 0.4))
+        @test JuMP.constant(nodal[true][n, 1]) - JuMP.constant(nodal[false][n, 1]) ≈
+              -factor * peak * 0.5
     end
 end
