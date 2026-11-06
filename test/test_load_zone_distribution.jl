@@ -286,7 +286,7 @@ end
 end
 
 # `_build_zone_system` plus bus 99, a zone member on a radial line from the zone's first bus;
-# the factors are 0.6, 0.4 and 0.1.
+# the factors are 0.5, 0.4 and 0.1.
 function _build_leaf_zone_system()
     sys, zone, zone_buses = _build_zone_system(; with_factors = false)
     leaf = PSY.ACBus(;
@@ -306,7 +306,7 @@ function _build_leaf_zone_system()
         angle_limits = (min = -1.0, max = 1.0), input_basis = u"CU",
     )
     PSY.add_component!(sys, line)
-    _add_factor_matrix!(sys, zone, [PSY.get_number.(zone_buses); 99], [0.6, 0.4, 0.1])
+    _add_factor_matrix!(sys, zone, [PSY.get_number.(zone_buses); 99], [0.5, 0.4, 0.1])
     return sys, zone, zone_buses, leaf
 end
 
@@ -326,7 +326,7 @@ const RADIAL = SystemNetworkSource(PNM.RadialReduction())
     load =
         -PSY.get_peak_active_power(zone, u"SU") .* _zone_load_fraction(_factor_horizon(sys))
     delta = _zone_load_delta(sys, PTDFNetworkModel, PSY.ACBus; network_source = RADIAL)
-    @test all(delta[(n1, t)] ≈ 0.7 * load[t] for t in _steps(delta))
+    @test all(delta[(n1, t)] ≈ 0.6 * load[t] for t in _steps(delta))
     @test all(delta[(n2, t)] ≈ 0.4 * load[t] for t in _steps(delta))
 end
 
@@ -337,7 +337,7 @@ end
     load =
         -PSY.get_peak_active_power(zone, u"SU") .* _zone_load_fraction(_factor_horizon(sys))
     delta = _zone_load_delta(sys, AreaPTDFNetworkModel, PSY.Area; network_source = RADIAL)
-    @test all(delta[("LZ_A1", t)] ≈ load[t] for t in _steps(delta))
+    @test all(delta[("LZ_A1", t)] ≈ 0.9 * load[t] for t in _steps(delta))
     @test all(delta[("LZ_A2", t)] ≈ 0.1 * load[t] for t in _steps(delta))
 end
 
@@ -477,6 +477,24 @@ end
         sys, NetworkModel(PTDFNetworkModel; attributes = LZ_ATTRIBUTES),
     )
     @test occursin("Load zone LZ1 has no distribution_factor column", log)
+end
+
+@testset "Factors that do not sum to one are an error" begin
+    sys, zone, zone_buses = _build_zone_system(; with_factors = false)
+    _add_factor_matrix!(sys, zone, PSY.get_number.(zone_buses), [0.5, 0.3])
+    log = _build_failure_log(
+        sys, NetworkModel(PTDFNetworkModel; attributes = LZ_ATTRIBUTES),
+    )
+    @test occursin("Load zone LZ1: the distribution_factor values sum to 0.8", log)
+    # Rounded data within the tolerance passes.
+    sys, zone, zone_buses = _build_zone_system(; with_factors = false)
+    _add_factor_matrix!(sys, zone, PSY.get_number.(zone_buses), [0.6, 0.39995])
+    container, _ = _build_factor_model(sys)
+    @test get_distribution_factors(container, sys, zone)[
+        PSY.get_number(zone_buses[2]),
+        1,
+    ] ==
+          0.39995
 end
 
 @testset "A zone with a load but no factors builds under CopperPlate" begin

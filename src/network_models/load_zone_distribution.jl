@@ -199,8 +199,8 @@ end
 """
 Read the distribution factors of `zone` from its `DistributionFactorParameter` row into a
 numeric `(member bus number, time step)` array. The bus labels come from the series
-metadata and are the buses that carry factors. Factor quality, such as summing to one, is an
-ingestion concern. An unavailable member's column is dropped with a warning, and the
+metadata and are the buses that carry factors. The factors of all members must sum to one
+at every time step. An unavailable member's column is dropped with a warning, and the
 available members' factors are scaled per time step to keep the zone total. A column for a
 bus that is not a member is an error. Each share enters the balance rows of its own bus, as
 a device on that bus would.
@@ -239,6 +239,8 @@ function _distribution_factors(
             "\"$(LOAD_ZONE_DISTRIBUTION_ATTRIBUTE)\" attribute of the NetworkModel.",
         )
     end
+    shares = IOM.get_lhs_parameter_values(container, key, name)::Matrix{Float64}
+    _check_factor_sums(shares, name)
     live = Tuple{Int, PSY.ACBus}[]
     for (j, bus_no) in enumerate(labels)
         bus = buses[bus_no]
@@ -253,7 +255,6 @@ function _distribution_factors(
     if isempty(live)
         return _error_no_factors(zone)
     end
-    shares = IOM.get_lhs_parameter_values(container, key, name)::Matrix{Float64}
     time_steps = get_time_steps(container)
     factors = JuMP.Containers.DenseAxisArray(
         zeros(length(live), length(time_steps)),
@@ -270,12 +271,27 @@ function _distribution_factors(
     return factors
 end
 
+const DISTRIBUTION_FACTOR_SUM_TOLERANCE = 1e-4
+
+# Factors that do not sum to one would drop or add load only under networks that read them.
+function _check_factor_sums(shares::Matrix{Float64}, name::String)
+    for t in axes(shares, 2)
+        total = sum(view(shares, :, t))
+        if !isapprox(total, 1.0; atol = DISTRIBUTION_FACTOR_SUM_TOLERANCE)
+            error(
+                "Load zone $(name): the $(DISTRIBUTION_FACTOR_TS_NAME) values sum to " *
+                "$(total) at time step $(t); they must sum to 1.",
+            )
+        end
+    end
+    return
+end
+
 # Scales the available members' factors at `t` so they add up to the factors of all members.
 function _available_scale(shares::Matrix{Float64}, live, t::Int, name::String)
     total = sum(view(shares, :, t))
     available = sum(shares[j, t] for (j, _) in live)
     if iszero(available)
-        iszero(total) && return 0.0
         error(
             "Load zone $(name): at time step $(t) the whole zone load is on unavailable " *
             "member buses.",
