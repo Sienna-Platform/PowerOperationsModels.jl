@@ -199,15 +199,15 @@ end
 """
 Read the distribution factors of `zone` from its `DistributionFactorParameter` row into a
 numeric `(bus number, time step)` array. The bus labels come from the series metadata and
-are the member buses that carry factors. Factor quality, such as summing to one, is an
-ingestion concern. A nonzero share on an unavailable member is an error, because dropping
-it would change the zonal total. A column for a bus that is not a member is an error.
+are the member buses that carry factors. The factors of all members must sum to one at
+every time step. A nonzero share on an unavailable member is an error, because dropping it
+would change the zonal total. A column for a bus that is not a member is an error. Each
+share enters the balance rows of its own bus, as a device on that bus would.
 """
 function get_distribution_factors(
     container::OptimizationContainer,
     sys::PSY.System,
     zone::PSY.LoadZone,
-    network_model::NetworkModel,
 )
     if !has_distribution_factors(zone, get_default_time_series_type(container))
         return _error_no_factors(zone)
@@ -239,6 +239,7 @@ function _distribution_factors(
         )
     end
     shares = IOM.get_lhs_parameter_values(container, key, name)::Matrix{Float64}
+    _check_factor_sums(shares, name)
     time_steps = get_time_steps(container)
     live = Int[]
     for (j, bus_no) in enumerate(labels)
@@ -257,6 +258,22 @@ function _distribution_factors(
     return JuMP.Containers.DenseAxisArray(
         shares[live, time_steps], labels[live], time_steps,
     )
+end
+
+const DISTRIBUTION_FACTOR_SUM_TOLERANCE = 1e-4
+
+# Factors that do not sum to one would drop or add load only under networks that read them.
+function _check_factor_sums(shares::Matrix{Float64}, name::String)
+    for t in axes(shares, 2)
+        total = sum(view(shares, :, t))
+        if !isapprox(total, 1.0; atol = DISTRIBUTION_FACTOR_SUM_TOLERANCE)
+            error(
+                "Load zone $(name): the $(DISTRIBUTION_FACTOR_TS_NAME) values sum to " *
+                "$(total) at time step $(t); they must sum to 1.",
+            )
+        end
+    end
+    return
 end
 
 # A LoadZone with a load but no usable factor column is a data defect. The zone cannot
@@ -327,13 +344,14 @@ function _factor_owners(
 )
     return [
         z for z in zones if _needs_factors(network_model, _zone_members(members, z)) &&
-            has_distribution_factors(z, ts_type)
+        has_distribution_factors(z, ts_type)
     ]
 end
 
-# CopperPlate has one system row per subnetwork, so it needs no factors. AreaBalance needs
-# them only for a zone that spans areas.
-_needs_factors(::NetworkModel, ::Vector{PSY.ACBus}) = true
+# A zone whose available members share one balance row takes its total there, with no
+# factors: one member on a nodal network, one area under AreaBalance, and every zone under
+# CopperPlate, which has one system row per subnetwork.
+_needs_factors(::NetworkModel, members::Vector{PSY.ACBus}) = length(members) > 1
 _needs_factors(::NetworkModel{CopperPlateNetworkModel}, ::Vector{PSY.ACBus}) = false
 _needs_factors(::NetworkModel{AreaBalanceNetworkModel}, members::Vector{PSY.ACBus}) =
     length(_member_areas(members)) > 1
@@ -427,11 +445,11 @@ function _write_zone_load!(
     return
 end
 
-# AreaBalance: a zone inside one area writes its total to that area's row; a zone that
-# spans areas splits its load with factors.
+# A zone whose members share one balance row writes its total there; any other zone splits
+# its load with factors.
 function _write_zone_load!(
     container::OptimizationContainer,
-    network_model::NetworkModel{AreaBalanceNetworkModel},
+    network_model::NetworkModel,
     zone::PSY.LoadZone,
     buses::Dict{Int, PSY.ACBus},
     members::Vector{PSY.ACBus},
@@ -443,34 +461,13 @@ function _write_zone_load!(
     if isempty(members)
         return _error_no_members(name)
     end
-    if !_needs_factors(network_model, members)
+    if _needs_factors(network_model, members)
+        _write_factor_load!(container, network_model, zone, buses, labels, refs, multiplier)
+    else
         _write_zone_total!(
             container, network_model, first(members), refs, multiplier, name,
         )
-        return
     end
-    if !haskey(labels, name)
-        error(
-            "Load zone $(name) spans the areas $(_member_areas(members)), so AreaBalance " *
-            "needs its $(DISTRIBUTION_FACTOR_TS_NAME) series to split the load.",
-        )
-    end
-    _write_factor_load!(container, network_model, zone, buses, labels, refs, multiplier)
-    return
-end
-
-function _write_zone_load!(
-    container::OptimizationContainer,
-    network_model::NetworkModel,
-    zone::PSY.LoadZone,
-    buses::Dict{Int, PSY.ACBus},
-    ::Vector{PSY.ACBus},
-    labels::Dict{String, Vector{Int}},
-    refs,
-    multiplier,
-    ::String,
-)
-    _write_factor_load!(container, network_model, zone, buses, labels, refs, multiplier)
     return
 end
 
