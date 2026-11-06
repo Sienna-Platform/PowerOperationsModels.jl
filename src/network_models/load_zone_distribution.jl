@@ -195,47 +195,28 @@ function calc_additional_axes(
     return (1:maximum(z -> length(_factor_series_labels(container, z)), zones),)
 end
 
-function _zero_factors(
-    container::OptimizationContainer,
-    buses::Vector{PSY.ACBus},
-    network_model::NetworkModel,
-)
-    reduction = get_network_reduction(network_model)
-    bus_numbers = sort!(unique([PNM.get_mapped_bus_number(reduction, b) for b in buses]))
-    time_steps = get_time_steps(container)
-    factors = JuMP.Containers.DenseAxisArray(
-        zeros(length(bus_numbers), length(time_steps)), bus_numbers, time_steps,
-    )
-    return reduction, factors
-end
-
 """
 Read the distribution factors of `zone` from its `DistributionFactorParameter` row into a
-numeric `(retained bus number, time step)` array. The bus labels come from the series
+numeric `(member bus number, time step)` array. The bus labels come from the series
 metadata and are the buses that carry factors. Factor quality, such as summing to one, is an
 ingestion concern. An unavailable member's column is dropped with a warning, and the
-available members' factors are scaled per time step to keep the zone total. A column on a
-bus eliminated by the network reduction adds into its retained bus. A column for a bus that is
-not a member is an error.
+available members' factors are scaled per time step to keep the zone total. A column for a
+bus that is not a member is an error. Each share enters the balance rows of its own bus, as
+a device on that bus would.
 """
 function get_distribution_factors(
     container::OptimizationContainer,
     sys::PSY.System,
     zone::PSY.LoadZone,
-    network_model::NetworkModel,
 )
-    return _distribution_factors(
-        container, sys, zone, network_model, _buses_by_number(sys),
-    )
+    return _distribution_factors(container, zone, _buses_by_number(sys))
 end
 
 # The reader behind `get_distribution_factors`, with `buses` (`_buses_by_number`) shared by
 # every zone of one construct call.
 function _distribution_factors(
     container::OptimizationContainer,
-    sys::PSY.System,
     zone::PSY.LoadZone,
-    network_model::NetworkModel,
     buses::Dict{Int, PSY.ACBus},
 )
     if !has_distribution_factors(container, zone)
@@ -269,13 +250,17 @@ function _distribution_factors(
         return _error_no_factors(zone)
     end
     shares = IOM.get_lhs_parameter_values(container, key, name)::Matrix{Float64}
-    reduction, factors = _zero_factors(container, last.(live), network_model)
-    for t in get_time_steps(container)
+    time_steps = get_time_steps(container)
+    factors = JuMP.Containers.DenseAxisArray(
+        zeros(length(live), length(time_steps)),
+        [PSY.get_number(bus) for (_, bus) in live],
+        time_steps,
+    )
+    for t in time_steps
         scale =
             length(live) == length(labels) ? 1.0 : _available_scale(shares, live, t, name)
         for (j, bus) in live
-            retained = PNM.get_mapped_bus_number(reduction, bus)
-            factors[retained, t] += scale * shares[j, t]
+            factors[PSY.get_number(bus), t] = scale * shares[j, t]
         end
     end
     return factors
@@ -380,7 +365,7 @@ function _add_load_zone_load!(
         refs = get_parameter_column_refs(load, name)
         targets = rows[name]
         if targets === nothing
-            factors = _distribution_factors(container, sys, zone, network_model, buses)
+            factors = _distribution_factors(container, zone, buses)
             _distribute_zone_load!(
                 container, network_model, buses, factors, refs, multiplier, name,
             )

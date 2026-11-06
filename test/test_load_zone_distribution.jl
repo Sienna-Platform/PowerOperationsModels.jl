@@ -88,6 +88,37 @@ function _build_factor_model(sys, network_model = nothing)
     return get_optimization_container(model), get_network_model(IOM.get_template(model))
 end
 
+# The change of each row of `T`'s balance when the zonal load is on, for `network`.
+function _zone_load_delta(sys, network, T; solve = false, kwargs...)
+    off = _build_lz_model(sys, NetworkModel(network; kwargs...))
+    on = _build_lz_model(
+        sys, NetworkModel(network; attributes = LZ_ATTRIBUTES, kwargs...); solve,
+    )
+    e_off = IOM.get_expression(get_optimization_container(off), ActivePowerBalance, T)
+    e_on = IOM.get_expression(get_optimization_container(on), ActivePowerBalance, T)
+    return Dict(
+        (k, t) => JuMP.constant(e_on[k, t]) - JuMP.constant(e_off[k, t]) for
+        k in axes(e_on)[1], t in axes(e_on)[2]
+    )
+end
+
+_steps(delta) = sort!(unique(last.(collect(keys(delta)))))
+
+# Two areas: "LZ_A1" holds the buses numbered up to `last_in_first`, "LZ_A2" the rest.
+function _split_areas!(sys, last_in_first)
+    areas = [
+        PSY.Area(; name = "LZ_A$(i)", peak_active_power = 0.0,
+            peak_reactive_power = 0.0,
+            input_basis = u"CU")
+        for i in 1:2
+    ]
+    PSY.add_components!(sys, areas)
+    for b in PSY.get_components(PSY.ACBus, sys)
+        PSY.set_area!(b, areas[PSY.get_number(b) <= last_in_first ? 1 : 2])
+    end
+    return
+end
+
 @testset "Load zone distribution core types" begin
     @test DistributionFactorParameter <: IOM.LeftHandSideTimeSeriesParameter
     @test POM.DISTRIBUTION_FACTOR_TS_NAME == "distribution_factor"
@@ -111,17 +142,17 @@ end
     PSY.set_load_zone!(b4, zone2)
     _add_zone_load!(sys, zone2)
     _add_factor_matrix!(sys, zone2, [PSY.get_number(b4)], [1.0])
-    container, network_model = _build_factor_model(sys)
+    container, _ = _build_factor_model(sys)
     time_steps = get_time_steps(container)
     t1 = first(time_steps)
 
-    factors = get_distribution_factors(container, sys, zone, network_model)
+    factors = get_distribution_factors(container, sys, zone)
     @test sort(collect(axes(factors)[1])) == sort([n1, n2])
     @test all(factors[n1, t] == 0.6 for t in time_steps)
     @test all(factors[n2, t] == 0.4 for t in time_steps)
 
     # The series labels are the buses that carry factors: a member without a column gets none.
-    zf = get_distribution_factors(container, sys, zone2, network_model)
+    zf = get_distribution_factors(container, sys, zone2)
     @test collect(axes(zf)[1]) == [PSY.get_number(b4)]
     @test zf[PSY.get_number(b4), t1] == 1.0
 end
@@ -138,8 +169,8 @@ end
     n1, n2 = PSY.get_number.(zone_buses)
     first_bus = [0.1 * (t % 5) for t in 1:_factor_horizon(sys)]
     _add_factor_matrix!(sys, zone, [n1, n2], [first_bus, 1.0 .- first_bus])
-    container, network_model = _build_factor_model(sys)
-    zf = get_distribution_factors(container, sys, zone, network_model)
+    container, _ = _build_factor_model(sys)
+    zf = get_distribution_factors(container, sys, zone)
     @test all(zf[n1, t] ≈ first_bus[t] for t in get_time_steps(container))
     @test all(zf[n2, t] ≈ 1.0 - first_bus[t] for t in get_time_steps(container))
 end
@@ -148,11 +179,11 @@ end
     sys, zone, zone_buses = _build_zone_system()
     n1, n2 = PSY.get_number.(zone_buses)
     # After the build: the network matrices reject an unavailable bus with live lines.
-    container, network_model = _build_factor_model(sys)
+    container, _ = _build_factor_model(sys)
     PSY.set_available!(zone_buses[2], false)
     warning = "Load zone LZ1: member bus $(PSY.get_name(zone_buses[2])) is unavailable"
     factors = @test_logs (:warn, Regex(warning)) match_mode = :any get_distribution_factors(
-        container, sys, zone, network_model,
+        container, sys, zone,
     )
     @test collect(axes(factors)[1]) == [n1]
     # The zone total holds, as under CopperPlate.
@@ -162,10 +193,10 @@ end
 @testset "An unavailable member that holds the whole share is an error" begin
     sys, zone, zone_buses = _build_zone_system(; with_factors = false)
     _add_factor_matrix!(sys, zone, PSY.get_number.(zone_buses), [1.0, 0.0])
-    container, network_model = _build_factor_model(sys)
+    container, _ = _build_factor_model(sys)
     PSY.set_available!(zone_buses[1], false)
     @test_throws ErrorException get_distribution_factors(
-        container, sys, zone, network_model,
+        container, sys, zone,
     )
 end
 
@@ -254,9 +285,10 @@ end
     )
 end
 
-@testset "A reduced member bus's factor sums into its retained bus" begin
+# `_build_zone_system` plus bus 99, a zone member on a radial line from the zone's first bus;
+# the factors are 0.6, 0.4 and 0.1.
+function _build_leaf_zone_system()
     sys, zone, zone_buses = _build_zone_system(; with_factors = false)
-    n1, n2 = PSY.get_number.(zone_buses)
     leaf = PSY.ACBus(;
         input_basis = u"CU",
         number = 99, name = "leaf", available = true, bustype = PSY.ACBusTypes.PQ,
@@ -274,21 +306,39 @@ end
         angle_limits = (min = -1.0, max = 1.0), input_basis = u"CU",
     )
     PSY.add_component!(sys, line)
-    _add_factor_matrix!(sys, zone, [n1, n2, 99], [0.6, 0.4, 0.1])
+    _add_factor_matrix!(sys, zone, [PSY.get_number.(zone_buses); 99], [0.6, 0.4, 0.1])
+    return sys, zone, zone_buses, leaf
+end
+
+const RADIAL = SystemNetworkSource(PNM.RadialReduction())
+
+@testset "A reduced member bus's share lands on its retained bus" begin
+    sys, zone, zone_buses, leaf = _build_leaf_zone_system()
+    n1, n2 = PSY.get_number.(zone_buses)
     container, network_model = _build_factor_model(
         sys,
-        NetworkModel(
-            PTDFNetworkModel;
-            network_source = SystemNetworkSource(PNM.RadialReduction()),
-            attributes = LZ_ATTRIBUTES,
-        ),
+        NetworkModel(PTDFNetworkModel; network_source = RADIAL, attributes = LZ_ATTRIBUTES),
     )
-    reduction = get_network_reduction(network_model)
-    @test PNM.get_mapped_bus_number(reduction, leaf) == n1
-    factors = get_distribution_factors(container, sys, zone, network_model)
-    @test collect(axes(factors)[1]) == [n1, n2]
-    @test all(factors[n1, t] ≈ 0.7 for t in get_time_steps(container))
-    @test all(factors[n2, t] == 0.4 for t in get_time_steps(container))
+    @test PNM.get_mapped_bus_number(get_network_reduction(network_model), leaf) == n1
+    factors = get_distribution_factors(container, sys, zone)
+    @test collect(axes(factors)[1]) == [n1, n2, 99]
+    @test all(factors[99, t] ≈ 0.1 for t in get_time_steps(container))
+    load =
+        -PSY.get_peak_active_power(zone, u"SU") .* _zone_load_fraction(_factor_horizon(sys))
+    delta = _zone_load_delta(sys, PTDFNetworkModel, PSY.ACBus; network_source = RADIAL)
+    @test all(delta[(n1, t)] ≈ 0.7 * load[t] for t in _steps(delta))
+    @test all(delta[(n2, t)] ≈ 0.4 * load[t] for t in _steps(delta))
+end
+
+@testset "AreaPTDF: a reduced member bus's share lands in its own area" begin
+    sys, zone, _, leaf = _build_leaf_zone_system()
+    _split_areas!(sys, 5)
+    @test PSY.get_name(PSY.get_area(leaf)) == "LZ_A2"
+    load =
+        -PSY.get_peak_active_power(zone, u"SU") .* _zone_load_fraction(_factor_horizon(sys))
+    delta = _zone_load_delta(sys, AreaPTDFNetworkModel, PSY.Area; network_source = RADIAL)
+    @test all(delta[("LZ_A1", t)] ≈ load[t] for t in _steps(delta))
+    @test all(delta[("LZ_A2", t)] ≈ 0.1 * load[t] for t in _steps(delta))
 end
 
 @testset "Factors reach the model through DistributionFactorParameter" begin
@@ -491,21 +541,6 @@ end
     end
 end
 
-# Two areas: "LZ_A1" holds the buses numbered up to `last_in_first`, "LZ_A2" the rest.
-function _split_areas!(sys, last_in_first)
-    areas = [
-        PSY.Area(; name = "LZ_A$(i)", peak_active_power = 0.0,
-            peak_reactive_power = 0.0,
-            input_basis = u"CU")
-        for i in 1:2
-    ]
-    PSY.add_components!(sys, areas)
-    for b in PSY.get_components(PSY.ACBus, sys)
-        PSY.set_area!(b, areas[PSY.get_number(b) <= last_in_first ? 1 : 2])
-    end
-    return
-end
-
 @testset "AreaBalance: the zonal load enters the area balance" begin
     sys, zone, _ = _build_zone_system()
     _split_areas!(sys, 2)
@@ -650,22 +685,6 @@ end
     model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
     @test_throws IS.ConflictingInputsError POM.validate_template(model)
 end
-
-# The change of each row of `T`'s balance when the zonal load is on, for `network`.
-function _zone_load_delta(sys, network, T; solve = false, kwargs...)
-    off = _build_lz_model(sys, NetworkModel(network; kwargs...))
-    on = _build_lz_model(
-        sys, NetworkModel(network; attributes = LZ_ATTRIBUTES, kwargs...); solve,
-    )
-    e_off = IOM.get_expression(get_optimization_container(off), ActivePowerBalance, T)
-    e_on = IOM.get_expression(get_optimization_container(on), ActivePowerBalance, T)
-    return Dict(
-        (k, t) => JuMP.constant(e_on[k, t]) - JuMP.constant(e_off[k, t]) for
-        k in axes(e_on)[1], t in axes(e_on)[2]
-    )
-end
-
-_steps(delta) = sort!(unique(last.(collect(keys(delta)))))
 
 @testset "One dataset without factors runs under CopperPlate and AreaBalance" begin
     sys, zone, _ = _build_zone_system(; with_factors = false)
