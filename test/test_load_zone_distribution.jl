@@ -126,10 +126,11 @@ end
     @test zf[PSY.get_number(b4), t1] == 1.0
 end
 
-@testset "get_member_buses drops unavailable members" begin
+@testset "Zone members leave out unavailable buses" begin
     sys, zone, zone_buses = _build_zone_system()
     PSY.set_available!(zone_buses[1], false)
-    @test POM.get_member_buses(sys, zone) == [zone_buses[2]]
+    members = POM._available_members(POM._buses_by_number(sys))
+    @test members[IS.get_id(zone)] == [zone_buses[2]]
 end
 
 @testset "Hourly factors land on each time step" begin
@@ -453,30 +454,20 @@ end
     @test occursin("must be a Bool", log)
 end
 
-@testset "CopperPlate: a zone that spans subnetworks is an error" begin
+@testset "CopperPlate: a zone that spans subnetworks needs factors" begin
     sys, zone, zone_buses = _build_zone_system(; with_factors = false)
     model = _build_lz_model(
         sys, NetworkModel(CopperPlateNetworkModel; attributes = LZ_ATTRIBUTES),
     )
     container = get_optimization_container(model)
     network_model = get_network_model(IOM.get_template(model))
+    members = POM._available_members(POM._buses_by_number(sys))
+    @test POM._single_balance_row(container, network_model, zone, members) !== nothing
     network_model.bus_area_map =
         Dict{IS.InfrastructureSystemsComponent, Int}(
             zone_buses[1] => 1, zone_buses[2] => 2,
         )
-    load = IOM.get_parameter(container, ActivePowerTimeSeriesParameter, PSY.LoadZone)
-    err = try
-        POM._write_zone_load!(
-            container, sys, network_model, zone, POM._buses_by_number(sys),
-            IOM.get_parameter_column_refs(load, "LZ1"), IOM.get_multiplier_array(load),
-            "LZ1",
-        )
-        nothing
-    catch e
-        e
-    end
-    @test err isa ErrorException
-    @test occursin("LZ1", err.msg) && occursin("[1, 2]", err.msg)
+    @test POM._single_balance_row(container, network_model, zone, members) === nothing
 end
 
 @testset "DCP: the zonal load enters the nodal balance" begin
@@ -500,8 +491,8 @@ end
     end
 end
 
-@testset "AreaBalance: the zonal load enters the area balance" begin
-    sys, zone, _ = _build_zone_system()
+# Two areas: "LZ_A1" holds the buses numbered up to `last_in_first`, "LZ_A2" the rest.
+function _split_areas!(sys, last_in_first)
     areas = [
         PSY.Area(; name = "LZ_A$(i)", peak_active_power = 0.0,
             peak_reactive_power = 0.0,
@@ -510,8 +501,14 @@ end
     ]
     PSY.add_components!(sys, areas)
     for b in PSY.get_components(PSY.ACBus, sys)
-        PSY.set_area!(b, areas[PSY.get_number(b) <= 2 ? 1 : 2])
+        PSY.set_area!(b, areas[PSY.get_number(b) <= last_in_first ? 1 : 2])
     end
+    return
+end
+
+@testset "AreaBalance: the zonal load enters the area balance" begin
+    sys, zone, _ = _build_zone_system()
+    _split_areas!(sys, 2)
     peak = PSY.get_peak_active_power(zone, u"SU")
     fraction = _zone_load_fraction(_factor_horizon(sys))
     off = _build_lz_model(sys, NetworkModel(AreaBalanceNetworkModel))
@@ -652,4 +649,55 @@ end
     )
     model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
     @test_throws IS.ConflictingInputsError POM.validate_template(model)
+end
+
+# The change of each row of `T`'s balance when the zonal load is on, for `network`.
+function _zone_load_delta(sys, network, T; solve = false, kwargs...)
+    off = _build_lz_model(sys, NetworkModel(network; kwargs...))
+    on = _build_lz_model(
+        sys, NetworkModel(network; attributes = LZ_ATTRIBUTES, kwargs...); solve,
+    )
+    e_off = IOM.get_expression(get_optimization_container(off), ActivePowerBalance, T)
+    e_on = IOM.get_expression(get_optimization_container(on), ActivePowerBalance, T)
+    return Dict(
+        (k, t) => JuMP.constant(e_on[k, t]) - JuMP.constant(e_off[k, t]) for
+        k in axes(e_on)[1], t in axes(e_on)[2]
+    )
+end
+
+_steps(delta) = sort!(unique(last.(collect(keys(delta)))))
+
+@testset "One dataset without factors runs under CopperPlate and AreaBalance" begin
+    sys, zone, _ = _build_zone_system(; with_factors = false)
+    _split_areas!(sys, 2)
+    load =
+        -PSY.get_peak_active_power(zone, u"SU") .* _zone_load_fraction(_factor_horizon(sys))
+    delta = _zone_load_delta(sys, CopperPlateNetworkModel, PSY.System; solve = true)
+    @test all(sum(v for ((_, s), v) in delta if s == t) ≈ load[t] for t in _steps(delta))
+    # Slacks: this test system cannot balance each area on its own.
+    delta = _zone_load_delta(
+        sys, AreaBalanceNetworkModel, PSY.Area; solve = true, use_slacks = true,
+    )
+    @test all(delta[("LZ_A1", t)] ≈ load[t] for t in _steps(delta))
+    @test all(delta[("LZ_A2", t)] == 0.0 for t in _steps(delta))
+end
+
+@testset "AreaBalance: a zone that spans two areas without factors is an error" begin
+    sys, _, _ = _build_zone_system(; with_factors = false)
+    _split_areas!(sys, 1)
+    log = _build_failure_log(
+        sys, NetworkModel(AreaBalanceNetworkModel; attributes = LZ_ATTRIBUTES),
+    )
+    @test occursin("Load zone LZ1 has no distribution_factor column", log)
+end
+
+@testset "PTDF: a one-bus zone needs no factors" begin
+    sys, zone, zone_buses = _build_zone_system(; with_factors = false)
+    PSY.set_load_zone!(zone_buses[2], nothing)
+    n1, n2 = PSY.get_number.(zone_buses)
+    load =
+        -PSY.get_peak_active_power(zone, u"SU") .* _zone_load_fraction(_factor_horizon(sys))
+    delta = _zone_load_delta(sys, PTDFNetworkModel, PSY.ACBus)
+    @test all(delta[(n1, t)] ≈ load[t] for t in _steps(delta))
+    @test all(delta[(n2, t)] == 0.0 for t in _steps(delta))
 end

@@ -87,11 +87,6 @@ function _check_series_layout(
     return last(value_axes).labels
 end
 
-# Only available members receive a share: the nodal balance has no row for a bus out of
-# service.
-get_member_buses(sys::PSY.System, zone::PSY.LoadZone) =
-    [b for b in PSY.get_buses(sys, zone) if PSY.get_available(b)]
-
 # Each step of a factor series multiplies one model time step, so the resolutions must match.
 # Checked on the metadata before the fill, which would otherwise fail with a plain error
 # that names neither the component nor the fix.
@@ -361,73 +356,69 @@ function _add_load_zone_load!(
     end
     model = load_zone_model(network_model)
     buses = _buses_by_number(sys)
-    # A loaded zone without a factor series gets no row, and the reader errors for it.
-    owners = [z for z in zones if has_distribution_factors(container, z)]
-    if !isempty(owners) && _uses_distribution_factors(network_model)
+    members = _available_members(buses)
+    # A zone whose members share one balance row takes its total there; any other zone
+    # spreads its load with factors, and the reader errors for one without them.
+    rows = Dict(
+        PSY.get_name(z) => _single_balance_row(container, network_model, z, members)
+        for
+        z in zones
+    )
+    owners = [
+        z for z in zones if
+        rows[PSY.get_name(z)] === nothing && has_distribution_factors(container, z)
+    ]
+    if !isempty(owners)
         add_parameters!(container, DistributionFactorParameter, owners, model)
     end
     add_parameters!(container, ActivePowerTimeSeriesParameter, zones, model)
     load = get_parameter(container, ActivePowerTimeSeriesParameter, PSY.LoadZone)
     multiplier = get_multiplier_array(load)
+    time_steps = get_time_steps(container)
     for zone in zones
         name = PSY.get_name(zone)
         refs = get_parameter_column_refs(load, name)
-        _write_zone_load!(
-            container, sys, network_model, zone, buses, refs, multiplier, name,
-        )
+        targets = rows[name]
+        if targets === nothing
+            factors = _distribution_factors(container, sys, zone, network_model, buses)
+            _distribute_zone_load!(
+                container, network_model, buses, factors, refs, multiplier, name,
+            )
+        else
+            _apply_ts_terms_to_targets!(targets, refs, multiplier, name, time_steps)
+        end
     end
     return
 end
 
-# CopperPlate has one system row per subnetwork, so it needs no factors.
-_uses_distribution_factors(::NetworkModel) = true
-_uses_distribution_factors(::NetworkModel{CopperPlateNetworkModel}) = false
-
-# CopperPlate: the zonal total goes into the system row of the zone's reference bus.
-function _write_zone_load!(
-    container::OptimizationContainer,
-    sys::PSY.System,
-    network_model::NetworkModel{CopperPlateNetworkModel},
-    zone::PSY.LoadZone,
-    ::Dict{Int, PSY.ACBus},
-    refs,
-    multiplier,
-    name::String,
-)
-    members = get_member_buses(sys, zone)
-    if isempty(members)
-        error("Load zone $(name) has no available member bus.")
+# Available buses by the id of their load zone: the nodal balance has no row for a bus out
+# of service.
+function _available_members(buses::Dict{Int, PSY.ACBus})
+    members = Dict{Int, Vector{PSY.ACBus}}()
+    for bus in values(buses)
+        zone = PSY.get_load_zone(bus)
+        if zone !== nothing && PSY.get_available(bus)
+            push!(get!(members, IS.get_id(zone), PSY.ACBus[]), bus)
+        end
     end
-    reference_buses = sort!(unique([get_reference_bus(network_model, b) for b in members]))
-    if length(reference_buses) > 1
-        error(
-            "Load zone $(name) spans the subnetworks with reference buses " *
-            "$(reference_buses). CopperPlate writes the zonal total to one system row; " *
-            "use a network formulation that distributes the load with factors.",
-        )
-    end
-    targets = _bus_balance_targets(
-        container, ActivePowerBalance, network_model, first(members),
-    )
-    for t in get_time_steps(container)
-        _apply_term_to_targets!(targets, refs[t], multiplier[name, t], t)
-    end
-    return
+    return members
 end
 
-function _write_zone_load!(
+# The balance targets that every available member of `zone` shares, or `nothing` when the
+# members span several rows.
+function _single_balance_row(
     container::OptimizationContainer,
-    sys::PSY.System,
     network_model::NetworkModel,
     zone::PSY.LoadZone,
-    buses::Dict{Int, PSY.ACBus},
-    refs,
-    multiplier,
-    name::String,
+    members::Dict{Int, Vector{PSY.ACBus}},
 )
-    factors = _distribution_factors(container, sys, zone, network_model, buses)
-    _distribute_zone_load!(container, network_model, buses, factors, refs, multiplier, name)
-    return
+    zone_buses = get(members, IS.get_id(zone), PSY.ACBus[])
+    if isempty(zone_buses)
+        error("Load zone $(PSY.get_name(zone)) has no available member bus.")
+    end
+    targets(bus) = _bus_balance_targets(container, ActivePowerBalance, network_model, bus)
+    row = targets(first(zone_buses))
+    return all(b -> targets(b) === row, zone_buses) ? row : nothing
 end
 
 # Function barrier: `refs` and `multiplier` come from abstractly typed containers.
