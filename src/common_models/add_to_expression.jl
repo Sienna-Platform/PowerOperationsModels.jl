@@ -2186,6 +2186,9 @@ function add_to_expression!(
             end
         end
     end
+    for t in axes(expression, 2)
+        IOM.round_to_zero_or_one!(expression[service_name, t])
+    end
     return
 end
 
