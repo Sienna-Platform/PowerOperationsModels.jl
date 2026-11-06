@@ -342,18 +342,45 @@ function _add_load_zone_load!(
     )
 end
 
-# Zones that carry the zonal load series as `ts_type`. The template checks reject a zone
-# whose series exists only as another type, so this filter skips only zones with no load.
+# Zones that carry the zonal load series as `ts_type`, from one catalog query with the
+# model's resolution and interval, as `add_parameters!` reads them. The template checks
+# reject a series of another type. A series at another resolution or interval is an error,
+# so this filter skips only zones with no load.
 function _loaded_zones(
+    container::OptimizationContainer,
     sys::PSY.System,
     network_model::NetworkModel,
     ts_type::Type{<:IS.TimeSeriesData},
 )
-    return [
-        z for z in PSY.get_components(
+    zones = collect(
+        PSY.get_components(
             PSY.LoadZone, sys; subsystem_name = get_subsystem(network_model),
-        ) if PSY.has_time_series(z, ts_type, LOAD_ZONE_LOAD_TS_NAME)
-    ]
+        ),
+    )
+    settings = get_settings(container)
+    resolution = get_resolution(settings)
+    interval = get_interval(settings)
+    hashes = IS.get_time_series_hashes(
+        zones,
+        ts_type,
+        LOAD_ZONE_LOAD_TS_NAME;
+        resolution = _to_is_resolution(resolution),
+        interval = _to_is_interval(interval),
+    )
+    loaded = PSY.LoadZone[]
+    for zone in zones
+        if haskey(hashes, IS.get_id(zone))
+            push!(loaded, zone)
+        elseif PSY.has_time_series(zone, ts_type, LOAD_ZONE_LOAD_TS_NAME)
+            throw(
+                IS.ConflictingInputsError(
+                    "$(summary(zone)): the $(LOAD_ZONE_LOAD_TS_NAME) series does not " *
+                    "match resolution=$(resolution) interval=$(interval).",
+                ),
+            )
+        end
+    end
+    return loaded
 end
 
 # A zone whose available members share one balance row takes its total there, with no
@@ -371,7 +398,7 @@ function _add_load_zone_load!(
     ::NoReactivePower,
 )
     ts_type = get_default_time_series_type(container)
-    zones = _loaded_zones(sys, network_model, ts_type)
+    zones = _loaded_zones(container, sys, network_model, ts_type)
     if isempty(zones)
         return
     end
@@ -584,7 +611,7 @@ function _first_load_zone_lhs_component(
     end
     ts_type = get_default_time_series_type(container)
     members = _members_by_zone(_buses_by_number(sys))
-    for zone in _loaded_zones(sys, network_model, ts_type)
+    for zone in _loaded_zones(container, sys, network_model, ts_type)
         if _needs_factors(network_model, _zone_members(members, zone)) &&
            has_distribution_factors(zone, ts_type)
             return (zone, DistributionFactorParameter)
