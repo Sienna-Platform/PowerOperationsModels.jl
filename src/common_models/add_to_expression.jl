@@ -1989,6 +1989,14 @@ function add_to_expression!(
     return
 end
 
+# Function barrier: `get_expression` returns a non-concrete type.
+function _round_interface_expression!(expression::DenseAxisArray, service_name::String)
+    for t in axes(expression, 2)
+        IOM.round_to_zero_or_one!(expression[service_name, t])
+    end
+    return
+end
+
 function _handle_nodal_or_zonal_interfaces(
     br_type::Type{V},
     branch_catalog::PNM.BranchCatalog,
@@ -2075,6 +2083,7 @@ function add_to_expression!(
             expression[service_name, :],
         )
     end
+    _round_interface_expression!(expression, service_name)
     return
 end
 
@@ -2109,6 +2118,7 @@ function add_to_expression!(
             expression[service_name, :],
         )
     end
+    _round_interface_expression!(expression, service_name)
     return
 end
 
@@ -2148,6 +2158,7 @@ function add_to_expression!(
         variable,
         expression[service_name, :],
     )
+    _round_interface_expression!(expression, service_name)
     return
 end
 
@@ -2197,9 +2208,7 @@ function add_to_expression!(
             end
         end
     end
-    for t in axes(expression, 2)
-        IOM.round_to_zero_or_one!(expression[service_name, t])
-    end
+    _round_interface_expression!(expression, service_name)
     return
 end
 
