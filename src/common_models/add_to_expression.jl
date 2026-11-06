@@ -33,38 +33,49 @@ function _balance_expression_targets(
     network_model::NetworkModel{<:AbstractNetworkModel},
     d::PSY.Component,
 ) where {T <: ExpressionType}
-    bus_no =
-        PNM.get_mapped_bus_number(get_network_reduction(network_model), PSY.get_bus(d))
+    return _bus_balance_targets(container, T, network_model, PSY.get_bus(d))
+end
+
+"""
+The `(expression_matrix, row_index)` entries that an injection at `bus` contributes to.
+[`_balance_expression_targets`](@ref) resolves a device's bus and calls this method.
+"""
+function _bus_balance_targets(
+    container::OptimizationContainer,
+    ::Type{T},
+    network_model::NetworkModel{<:AbstractNetworkModel},
+    bus::PSY.ACBus,
+) where {T <: ExpressionType}
+    bus_no = PNM.get_mapped_bus_number(get_network_reduction(network_model), bus)
     return ((get_expression(container, T, PSY.ACBus), bus_no),)
 end
 
-function _balance_expression_targets(
+function _bus_balance_targets(
     container::OptimizationContainer,
     ::Type{T},
     network_model::NetworkModel{CopperPlateNetworkModel},
-    d::PSY.Component,
+    bus::PSY.ACBus,
 ) where {T <: ExpressionType}
-    ref_bus = get_reference_bus(network_model, PSY.get_bus(d))
+    ref_bus = get_reference_bus(network_model, bus)
     return ((get_expression(container, T, PSY.System), ref_bus),)
 end
 
-function _balance_expression_targets(
+function _bus_balance_targets(
     container::OptimizationContainer,
     ::Type{T},
     ::NetworkModel{AreaBalanceNetworkModel},
-    d::PSY.Component,
+    bus::PSY.ACBus,
 ) where {T <: ExpressionType}
-    area_name = PSY.get_name(PSY.get_area(PSY.get_bus(d)))
+    area_name = PSY.get_name(PSY.get_area(bus))
     return ((get_expression(container, T, PSY.Area), area_name),)
 end
 
-function _balance_expression_targets(
+function _bus_balance_targets(
     container::OptimizationContainer,
     ::Type{T},
     network_model::NetworkModel{X},
-    d::PSY.Component,
+    bus::PSY.ACBus,
 ) where {T <: ExpressionType, X <: Union{PTDFNetworkModel, AreaPTDFNetworkModel}}
-    bus = PSY.get_bus(d)
     bus_no = PNM.get_mapped_bus_number(get_network_reduction(network_model), bus)
     ref_index = _ref_index(network_model, bus)
     return (

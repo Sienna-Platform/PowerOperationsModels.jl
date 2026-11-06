@@ -55,6 +55,23 @@ coefficients. A model holding one is rebuilt every simulation step.
 struct DeployedFractionParameter <: LeftHandSideTimeSeriesParameter end
 
 """
+Name of the series that carries the distribution factors of a `LoadZone`: one
+`[time step, bus]` matrix owned by the zone, with
+`value_axes = [IS.TimeSeriesAxis("bus", bus numbers)]`. The factors are read at build as
+`Float64` coefficients (see `get_distribution_factors`), never as JuMP parameters.
+"""
+const DISTRIBUTION_FACTOR_TS_NAME = "distribution_factor"
+
+"""
+Distribution factors of a `LoadZone`. The zone owns one `distribution_factor` series, a
+`[time step, bus]` matrix with `value_axes = [IS.TimeSeriesAxis("bus", bus numbers)]`. The
+container holds the factors of each zone along one positional axis. The bus labels stay in
+the series metadata. The factors multiply a load, so they are fixed coefficients and the
+container holds `Float64`.
+"""
+struct DistributionFactorParameter <: IOM.LeftHandSideTimeSeriesParameter end
+
+"""
 Abstract type for the per-step minimum active power parameters.
 """
 abstract type AbstractMinActivePowerParameter <: LeftHandSideTimeSeriesParameter end
