@@ -449,8 +449,8 @@ A horizon under two steps cannot hold a re-windowed forecast (InfraStore's own f
 run this short writes no parameter rows either, so nothing downstream depends on this cost
 sharing their grid, and the original series is copied verbatim instead. Skipping it outright
 is not an option: `sys`'s own cost still points at the original series, and every reader of the
-key map (`write_outputs_system_bundle!`'s `PSY.to_openapi` remap, `decision_model.jl`'s
-`system_to_file` path) requires an entry for every association id `sys` still references.
+key map (`write_outputs_system_bundle!`'s `PSY.to_openapi` remap, called by `run!` for every
+outputs artifact) requires an entry for every association id `sys` still references.
 """
 function _copy_cost_time_series!(
     store::ParameterTimeSeriesStore,
@@ -594,11 +594,10 @@ function write_outputs_system_bundle!(
 end
 
 """
-Build `model`'s outputs-system bundle at `sys_dir` and write it, unless one is already there —
-re-solving into an existing directory must not rewrite the bundle.
+Build `model`'s outputs-system bundle at `sys_dir`, replacing any bundle already there.
 """
 function _write_outputs_bundle!(model, sys::PSY.System, sys_dir::AbstractString)
-    ispath(sys_dir) && return nothing
+    rm(sys_dir; recursive = true, force = true)
     store, key_map = parameter_store_from_model(model)
     write_outputs_system_bundle!(sys, store, key_map, sys_dir)
     close_parameter_store!(store)

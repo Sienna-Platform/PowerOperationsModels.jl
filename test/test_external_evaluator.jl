@@ -21,6 +21,9 @@ function IOM.reset!(d::CountingEvaluationData)
 end
 
 struct CountingAux <: IOM.AuxVariableType end
+IS.Optimization.output_unit_system(::Type{CountingAux}) = IS.NU
+IS.Optimization.quantity_kind(::Type{CountingAux}) = "Dimensionless"
+IS.Optimization.natural_units(::Type{CountingAux}) = "1"
 IOM.is_from_evaluator(::Type{CountingAux}) = true
 
 function IOM.add_evaluator_aux_variables!(
@@ -136,6 +139,9 @@ _uses_klu(::PNM.VirtualMODF{<:Any, <:Any, <:PNM.KLUWrapper.KLULinSolveCache}) = 
 _uses_klu(::Any) = false
 
 struct NetworkMatrixProbe <: IOM.AuxVariableType end
+IS.Optimization.output_unit_system(::Type{NetworkMatrixProbe}) = IS.NU
+IS.Optimization.quantity_kind(::Type{NetworkMatrixProbe}) = "Dimensionless"
+IS.Optimization.natural_units(::Type{NetworkMatrixProbe}) = "1"
 
 const PROBED_NETWORK_MATRIX = Ref{Any}(nothing)
 
