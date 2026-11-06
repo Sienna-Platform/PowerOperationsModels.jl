@@ -20,6 +20,11 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: Sienna-Platform/SiennaSchemas
+          ref: main
+          path: SiennaSchemas
       - uses: julia-actions/setup-julia@latest
         with:
           version: ${{ matrix.julia-version }}
@@ -31,6 +36,7 @@ jobs:
         continue-on-error: ${{ matrix.julia-version == 'nightly' }}
         env:
           PYTHON: ""
+          SIENNA_SCHEMAS_DIR: ${{ github.workspace }}/SiennaSchemas
       # Coverage is reported from a single job: the matrix would otherwise submit six
       # reports per commit, and the Windows ones carry backslash paths Codecov cannot
       # match against the repo tree.

@@ -349,7 +349,7 @@ end
 
 @testset "a 1-step-horizon model with a forecast-backed cost still writes its outputs bundle" begin
     # Exercises the real solve! -> parameter_store_from_model -> write_outputs_system_bundle!
-    # path (default system_to_file = true), not a direct call: a dangling association id for
+    # path (the bundle is always written), not a direct call: a dangling association id for
     # the verbatim-copied cost would make PSY.to_openapi's association_id_map remap throw here.
     c_sys5 = deepcopy(PSB.build_system(PSITestSystems, "c_sys5_uc"))
     gen = first(get_components(PSY.ThermalStandard, c_sys5))

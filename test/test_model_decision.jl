@@ -285,7 +285,7 @@ end
         output_dir_no_write,
         IOM.make_system_dirname(IOM.get_system(model_no_write)),
     )
-    @test !ispath(sys_dir_no_write)
+    @test ispath(sys_dir_no_write)
 end
 
 @testset "Test optimization debugging functions" begin
@@ -575,6 +575,27 @@ function _artifact_matches(
     return values ≈ shape(raw)
 end
 
+function _dataset_entry(a, model_name, entry_type, component_type)
+    entries = filter(
+        d -> d.entry_type == entry_type && d.component_type == component_type,
+        IS.get_metadata(a).models[model_name].datasets,
+    )
+    @test length(entries) == 1
+    return only(entries)
+end
+
+function _test_dataset_units(
+    a, model_name, entry_type, component_type, unit_system, base_reference,
+    quantity_kind, units,
+)
+    d = _dataset_entry(a, model_name, entry_type, component_type)
+    @test d.unit_system == unit_system
+    @test d.base_reference == base_reference
+    @test d.quantity_kind == quantity_kind
+    @test d.units == units
+    return
+end
+
 @testset "Outputs artifact round trip" begin
     path = mktempdir(; cleanup = true)
     sys = PSB.build_system(PSITestSystems, "c_sys5_re")
@@ -610,7 +631,23 @@ end
         IOM.ExpressionKey(ProductionCostExpression, ThermalStandard),
         "ProductionCostExpression", "ThermalStandard", initial_time,
     )
-    IS.validate_components(a, name, sys.data)
+    _test_dataset_units(
+        a, name, "ActivePowerVariable", "ThermalStandard",
+        "COMPONENT_BASE", "system", "ActivePower", "pu",
+    )
+    _test_dataset_units(
+        a, name, "CopperPlateBalanceConstraint", "System",
+        "COMPONENT_BASE", "system", "CostPerEnergy", "pu",
+    )
+    _test_dataset_units(
+        a, name, "ActivePowerTimeSeriesParameter", "PowerLoad",
+        "COMPONENT_BASE", "system", "ActivePower", "pu",
+    )
+    _test_dataset_units(
+        a, name, "ProductionCostExpression", "ThermalStandard",
+        "NATURAL_UNITS", "", "Money", "USD",
+    )
+    @test IS.validate_components(a, name, sys.data) === nothing
     @test IS.read_table(a, name, "optimizer_stats").execution == [1]
 
     @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED

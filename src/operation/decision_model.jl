@@ -220,16 +220,14 @@ function solve!(
                 TimerOutputs.@timeit RUN_OPERATION_MODEL_TIMER "Outputs processing" begin
                     outputs = OptimizationProblemOutputs(model)
                     serialize_outputs(outputs, IOM.get_output_dir(model))
-                    IOM.write_model_outputs!(model, producer_info())
                     export_problem_outputs && export_outputs(outputs)
-                    if IOM.get_system_to_file(IOM.get_settings(model))
-                        sys = IOM.get_system(model)
-                        sys_dir = joinpath(
-                            IOM.get_output_dir(model),
-                            IOM.make_system_dirname(sys),
-                        )
-                        _write_outputs_bundle!(model, sys, sys_dir)
-                    end
+                    sys = IOM.get_system(model)
+                    sys_dir = joinpath(
+                        IOM.get_output_dir(model),
+                        IOM.make_system_dirname(sys),
+                    )
+                    _write_outputs_bundle!(model, sys, sys_dir)
+                    IOM.write_model_outputs!(model, producer_info())
                 end
                 @info "\n$(RUN_OPERATION_MODEL_TIMER)\n"
             catch e
