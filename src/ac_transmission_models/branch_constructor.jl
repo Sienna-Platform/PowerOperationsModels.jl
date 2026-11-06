@@ -1319,7 +1319,7 @@ function construct_device!(
 ) where {T <: PSY.ACTransmission}
     devices = get_device_cache(device_model)
 
-    # The order of these methods is important. The add_expressions! must be before the constraints
+    # The order of these methods is important. The add_ptdf_branch_flow_expressions! must be before the constraints
     add_ptdf_branch_flow_expressions!(
         container,
         PTDFBranchFlow,
@@ -1387,7 +1387,7 @@ function construct_device!(
     network_model::NetworkModel{<:AbstractPTDFNetworkModel},
 ) where {T <: PSY.ACTransmission}
     devices = get_device_cache(device_model)
-    # The order of these methods is important. The add_expressions! must be before the constraints
+    # The order of these methods is important. The add_ptdf_branch_flow_expressions! must be before the constraints
     add_ptdf_branch_flow_expressions!(
         container,
         PTDFBranchFlow,
@@ -1430,7 +1430,7 @@ function construct_device!(
     network_model::NetworkModel{<:AbstractPTDFNetworkModel},
 ) where {T <: PSY.ACTransmission}
     devices = get_device_cache(device_model)
-    # The order of these methods is important. The add_expressions! must be before the constraints
+    # The order of these methods is important. The add_ptdf_branch_flow_expressions! must be before the constraints
     add_ptdf_branch_flow_expressions!(
         container,
         PTDFBranchFlow,
