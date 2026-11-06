@@ -106,7 +106,7 @@ end
     # created and left dangling): its objective coefficient should be the penalty cost.
     obj = JuMP.objective_function(get_jump_model(model))
     @test all(
-        JuMP.coefficient(obj, slack_var["Reserve1", t]) == POM.SERVICES_SLACK_COST for
+        JuMP.coefficient(obj, slack_var["Reserve1", t]) == IOM.SERVICES_SLACK_COST for
         t in time_steps
     )
 end
@@ -335,7 +335,7 @@ end
     for name in reserve_names
         @test all(JuMP.lower_bound(slack_var[name, t]) == 0.0 for t in time_steps)
         @test all(
-            JuMP.coefficient(obj, slack_var[name, t]) == POM.SERVICES_SLACK_COST for
+            JuMP.coefficient(obj, slack_var[name, t]) == IOM.SERVICES_SLACK_COST for
             t in time_steps
         )
     end

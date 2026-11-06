@@ -53,7 +53,7 @@ end
         dt = _step_hours(step)
         @test IOM.get_resolution_in_hours(container) == dt
         obj = JuMP.objective_function(IOM.get_jump_model(container))
-        expected = POM.BALANCE_SLACK_COST * dt
+        expected = IOM.BALANCE_SLACK_COST * dt
         for S in (SystemBalanceSlackUp, SystemBalanceSlackDown)
             slack = IOM.get_variable(container, S, PSY.System)
             @test all(JuMP.coefficient(obj, v) == expected for v in slack)
@@ -62,12 +62,12 @@ end
         up = IOM.get_variable(container, SystemBalanceSlackUp, PSY.System)
         @test all(JuMP.value(v) > 1e-6 for v in up)
         balance = IOM.get_constraint(container, CopperPlateBalanceConstraint, PSY.System)
-        @test all(abs(JuMP.dual(c)) / dt ≈ POM.BALANCE_SLACK_COST for c in balance)
+        @test all(abs(JuMP.dual(c)) / dt ≈ IOM.BALANCE_SLACK_COST for c in balance)
     end
 end
 
 @testset "A capped branch row reads its per-hour slack cost" begin
-    cost = POM.CONSTRAINT_VIOLATION_SLACK_COST
+    cost = IOM.CONSTRAINT_VIOLATION_SLACK_COST
     for (sys_name, step) in _RESOLUTIONS
         model = _capped_branch_model(sys_name)
         container = IOM.get_optimization_container(model)
@@ -96,9 +96,10 @@ end
         @test IOM.get_resolution_in_hours(container) == dt
 
         R = PSY.OnlineReserve{PSY.ReserveUp}
-        POM.add_reserve_slacks!(container, R, ["R1"])
+        model = ServiceModel(R, RangeReserve; use_slacks = true)
+        POM.add_reserve_slacks!(container, R, ["R1"], model)
         @test obj_coef(container, ReserveRequirementSlack, R, "R1", 2) ==
-              POM.SERVICES_SLACK_COST * dt
+              IOM.SERVICES_SLACK_COST * dt
 
         interface = PSY.TransmissionInterface(;
             name = "i1",
@@ -148,7 +149,7 @@ end
         @test IOM.get_resolution(container) == Dates.Millisecond(step)
         dt = _step_hours(step)
         @test IOM.get_resolution_in_hours(container) == dt
-        @test all(c == POM.BALANCE_SLACK_COST * dt for c in coefs)
+        @test all(c == IOM.BALANCE_SLACK_COST * dt for c in coefs)
     end
 end
 
