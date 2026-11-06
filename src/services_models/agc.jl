@@ -151,7 +151,7 @@ function add_constraints!(
     R_up_emergency =
         get_variable(container, AdditionalDeltaActivePowerUpVariable, PSY.Area)
     R_dn_emergency =
-        get_variable(container, AdditionalDeltaActivePowerUpVariable, PSY.Area)
+        get_variable(container, AdditionalDeltaActivePowerDownVariable, PSY.Area)
 
     const_container =
         add_constraints_container!(container, T, PSY.System, ["System"], time_steps)
@@ -244,7 +244,7 @@ function add_constraints!(
     R_up_emergency =
         get_variable(container, AdditionalDeltaActivePowerUpVariable, PSY.Area)
     R_dn_emergency =
-        get_variable(container, AdditionalDeltaActivePowerUpVariable, PSY.Area)
+        get_variable(container, AdditionalDeltaActivePowerDownVariable, PSY.Area)
 
     for t in time_steps
         for agc in agcs
