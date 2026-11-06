@@ -228,6 +228,29 @@ _feedforward_slack_type(::IOM.LowerBound) = LowerBoundFeedForwardSlack
 _slack_adjusted(::IOM.UpperBound, variable, slack) = variable - slack
 _slack_adjusted(::IOM.LowerBound, variable, slack) = variable + slack
 
+# A commitment carried in from an upstream model can't be honored by a unit that has since
+# been outaged, and with `p >= p_min * on` the outage row would make the model infeasible.
+# The lower bound on `OnVariable` is lifted by `1 - status`, which is 0 while available.
+_outage_relief(::OptimizationContainer, ::IOM.BoundDirection, ::VariableKey, ::Type) = nothing
+
+function _outage_relief(
+    container::OptimizationContainer,
+    ::IOM.LowerBound,
+    ::VariableKey{OnVariable, T},
+    ::Type{T},
+) where {T <: PSY.Component}
+    has_container_key(container, AvailableStatusParameter, T) || return nothing
+    status = get_parameter_array(container, AvailableStatusParameter, T)
+    return (status, Set(axes(status)[1]))
+end
+
+_relieved(lhs, ::Nothing, ::String, ::Int) = lhs
+function _relieved(lhs, relief::Tuple, name::String, t::Int)
+    status, outage_names = relief
+    name in outage_names || return lhs
+    return lhs + 1.0 - status[name, t]
+end
+
 function _add_bound_feedforward_constraints!(
     container::OptimizationContainer,
     dir::IOM.BoundDirection,
@@ -265,6 +288,7 @@ function _add_bound_feedforward_constraints!(
                 "$(nameof(var_type))",
             )
         end
+        relief = _outage_relief(container, dir, var, T)
         for t in time_steps, name in device_name_set
             if use_slacks
                 lhs = _slack_adjusted(dir, variable[name, t], slack[name, t])
@@ -277,7 +301,7 @@ function _add_bound_feedforward_constraints!(
                 constraint,
                 name,
                 t,
-                lhs,
+                _relieved(lhs, relief, name, t),
                 multiplier[name, t],
                 param[name, t],
             )

@@ -1018,3 +1018,49 @@ POM.get_initial_parameter_value(
         t in time_steps
     )
 end
+
+@testset "An outage lifts the OnVariable lower-bound feedforward" begin
+    # With `p >= p_min * on`, an upstream commitment forced onto an outaged unit would
+    # leave no feasible `p`; the outaged unit must be free to decommit.
+    sys = PSB.build_system(PSITestSystems, "c_sys5_uc")
+    for g in get_components(ThermalStandard, sys)
+        p_max = get_active_power_limits(g, u"SU").max
+        set_active_power_limits!(g, (min = 0.2 * p_max * u"SU", max = p_max * u"SU"))
+    end
+    device_model = DeviceModel(PSY.ThermalStandard, ThermalStandardUnitCommitment)
+    attach_feedforward!(
+        device_model,
+        LowerBoundFeedforward(;
+            component_type = PSY.ThermalStandard,
+            source = OnVariable,
+            affected_values = [OnVariable],
+        ),
+    )
+    container, _ = mock_event_container(device_model, DCPNetworkModel; sys, recurrent = true)
+    outaged = outaged_name(container, PSY.ThermalStandard)
+
+    committed = IOM.get_parameter_array(
+        container,
+        LowerBoundValueParameter,
+        PSY.ThermalStandard,
+    )
+    for idx in eachindex(committed)
+        JuMP.fix(committed[idx], 1.0; force = true)
+    end
+    status = IOM.get_parameter_array(container, AvailableStatusParameter(), PSY.ThermalStandard)
+    for idx in eachindex(status)
+        JuMP.fix(status[idx], 0.0; force = true)
+    end
+
+    on = IOM.get_variable(container, OnVariable, PSY.ThermalStandard)
+    jm = IOM.get_jump_model(container)
+    JuMP.@objective(jm, Min, sum(on))
+    JuMP.set_optimizer(jm, HiGHS.Optimizer)
+    JuMP.set_silent(jm)
+    JuMP.optimize!(jm)
+    @test JuMP.termination_status(jm) == MOI.OPTIMAL
+    names, time_steps = axes(on)
+    for name in names, t in time_steps
+        @test JuMP.value(on[name, t]) ≈ (name == outaged ? 0.0 : 1.0) atol = 1e-6
+    end
+end
