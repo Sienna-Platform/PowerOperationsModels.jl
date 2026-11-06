@@ -806,7 +806,7 @@ function _ptdf_branch_flow(
     return rep.name, expressions
 end
 
-function add_expressions!(
+function add_ptdf_branch_flow_expressions!(
     container::OptimizationContainer,
     ::Type{PTDFBranchFlow},
     devices::Vector{B},
@@ -2252,7 +2252,7 @@ Add the B-θ branch-flow expression for ACBranch StaticBranch under DCPNetworkMo
 with the DC `b`/`shift` pair described on the `NetworkFlowConstraint` builder above, so the
 `b·shift` offset matches PNM's `arc_dc_shift_injection`.
 """
-function add_expressions!(
+function add_btheta_branch_flow_expressions!(
     container::OptimizationContainer,
     ::Type{BThetaBranchFlow},
     sys::PSY.System,

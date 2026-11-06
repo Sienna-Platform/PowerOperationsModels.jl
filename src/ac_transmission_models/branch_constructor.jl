@@ -1320,7 +1320,7 @@ function construct_device!(
     devices = get_device_cache(device_model)
 
     # The order of these methods is important. The add_expressions! must be before the constraints
-    add_expressions!(
+    add_ptdf_branch_flow_expressions!(
         container,
         PTDFBranchFlow,
         devices,
@@ -1388,7 +1388,7 @@ function construct_device!(
 ) where {T <: PSY.ACTransmission}
     devices = get_device_cache(device_model)
     # The order of these methods is important. The add_expressions! must be before the constraints
-    add_expressions!(
+    add_ptdf_branch_flow_expressions!(
         container,
         PTDFBranchFlow,
         devices,
@@ -1431,7 +1431,7 @@ function construct_device!(
 ) where {T <: PSY.ACTransmission}
     devices = get_device_cache(device_model)
     # The order of these methods is important. The add_expressions! must be before the constraints
-    add_expressions!(
+    add_ptdf_branch_flow_expressions!(
         container,
         PTDFBranchFlow,
         devices,

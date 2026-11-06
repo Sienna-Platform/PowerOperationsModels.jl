@@ -112,7 +112,14 @@ function _add_static_branch_btheta_expression!(
 ) where {T <: PSY.ACTransmission}
     devices = get_device_cache(device_model)
     isempty(devices) && return
-    add_expressions!(container, BThetaBranchFlow, sys, devices, device_model, network_model)
+    add_btheta_branch_flow_expressions!(
+        container,
+        BThetaBranchFlow,
+        sys,
+        devices,
+        device_model,
+        network_model,
+    )
     return
 end
 
