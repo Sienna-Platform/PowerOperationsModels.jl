@@ -334,6 +334,7 @@ include("network_models/instantiate_network_model.jl")
 include("network_models/network_slack_variables.jl")
 include("network_models/copperplate_model.jl")
 include("network_models/area_balance_model.jl")
+include("network_models/net_interchange.jl")
 include("network_models/dcp_model.jl")
 include("network_models/dcpll_model.jl")
 include("network_models/acp_model.jl")
@@ -863,6 +864,7 @@ export PiecewiseLinearBlockDecrementalOfferConstraint
 export RampConstraint
 export RampLimitConstraint
 export CopperPlateBalanceConstraint
+export NetInterchangeConstraint
 export ActiveRangeICConstraint
 export NodalBalanceActiveConstraint
 export ReferenceBusConstraint
@@ -933,6 +935,7 @@ export ActivePowerInTimeSeriesParameter
 export ReactivePowerTimeSeriesParameter
 export RequirementTimeSeriesParameter
 export DeployedFractionParameter
+export ScheduledNetInterchangeParameter
 export MinActivePowerTimeSeriesParameter
 export MinActivePowerInTimeSeriesParameter
 export UpperBoundValueParameter

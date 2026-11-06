@@ -709,6 +709,20 @@ struct ImportExportBudgetConstraint <: ConstraintType end
 
 struct LineFlowBoundConstraint <: ConstraintType end
 
+"""
+Struct to create the constraint that fixes the net interchange of an area to its schedule.
+Positive means the area exports. The area exports the flows of the `AreaInterchange`
+devices that leave it and imports the flows that enter it.
+
+```math
+\\sum_{i \\in \\text{from}_a} f_{i,t} - \\sum_{i \\in \\text{to}_a} f_{i,t} = P_{a,t}^\\text{sched}, \\quad \\forall a \\in \\text{areas with a schedule}, t \\in \\{1, \\dots, T\\}
+```
+
+The schedule is the `scheduled_net_interchange` time series of the `Area` if it has one.
+Otherwise it is the `scheduled_net_interchange` field. An area with neither has no constraint.
+"""
+struct NetInterchangeConstraint <: ConstraintType end
+
 abstract type EventConstraint <: ConstraintType end
 
 """
