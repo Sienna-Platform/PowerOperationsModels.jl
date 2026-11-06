@@ -123,6 +123,7 @@ function validate_template_impl!(model::IOM.AbstractOptimizationModel)
     _check_branch_rating_time_series_formulation!(template.branches, system)
     _check_lhs_time_series_types(model)
     _resolve_lhs_rebuild!(model)
+    _warn_mixed_zone_load(model)
     validate_network_model(network_model, unmodeled_branch_types, model_has_branch_filters)
     _build_device_model_outages!(template, system)
     # Must follow `_build_device_model_outages!`: that call is what fills the per-type

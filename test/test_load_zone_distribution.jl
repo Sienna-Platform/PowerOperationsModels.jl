@@ -720,3 +720,35 @@ end
     @test all(delta[(n1, t)] ≈ load[t] for t in _steps(delta))
     @test all(delta[(n2, t)] == 0.0 for t in _steps(delta))
 end
+
+# The build log of a model with the zonal load on, under PTDF.
+function _build_log(sys)
+    template = get_thermal_dispatch_template_network(
+        NetworkModel(PTDFNetworkModel; attributes = LZ_ATTRIBUTES),
+    )
+    model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
+    output_dir = mktempdir(; cleanup = true)
+    @test build!(model; output_dir = output_dir) == IOM.ModelBuildStatus.BUILT
+    return read(joinpath(output_dir, "operation_problem.log"), String)
+end
+
+const MIXED_LOAD_WARNING = r"Load zone LZ1 has a zonal load, and the template also models"
+
+@testset "A zone whose members also hold modeled loads is warned about once" begin
+    # Bus 2 holds a PowerLoad, so its load and the zonal load add up.
+    sys, _, zone_buses = _build_zone_system()
+    @test !isempty(
+        PSY.get_components(d -> PSY.get_bus(d) == zone_buses[2], PSY.PowerLoad, sys),
+    )
+    log = _build_log(sys)
+    @test length(collect(eachmatch(MIXED_LOAD_WARNING, log))) == 1
+end
+
+@testset "A zone whose members hold no modeled loads gets no warning" begin
+    sys, zone, zone_buses = _build_zone_system(; with_factors = false)
+    PSY.set_load_zone!(zone_buses[2], nothing)
+    @test isempty(
+        PSY.get_components(d -> PSY.get_bus(d) == zone_buses[1], PSY.PowerLoad, sys),
+    )
+    @test !occursin(MIXED_LOAD_WARNING, _build_log(sys))
+end

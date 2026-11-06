@@ -330,12 +330,7 @@ function _add_load_zone_load!(
     network_model::NetworkModel,
     ::NoReactivePower,
 )
-    ts_type = get_default_time_series_type(container)
-    zones = [
-        z for z in PSY.get_components(
-            PSY.LoadZone, sys; subsystem_name = get_subsystem(network_model),
-        ) if PSY.has_time_series(z, ts_type, LOAD_ZONE_LOAD_TS_NAME)
-    ]
+    zones = _loaded_zones(sys, network_model, get_default_time_series_type(container))
     if isempty(zones)
         return
     end
@@ -372,6 +367,41 @@ function _add_load_zone_load!(
         else
             _apply_ts_terms_to_targets!(targets, refs, multiplier, name, time_steps)
         end
+    end
+    return
+end
+
+# The zones of the network model's subsystem that carry a zonal load the model reads.
+_loaded_zones(sys::PSY.System, network_model::NetworkModel, ts_type) = [
+    z for z in PSY.get_components(
+        PSY.LoadZone, sys; subsystem_name = get_subsystem(network_model),
+    ) if PSY.has_time_series(z, ts_type, LOAD_ZONE_LOAD_TS_NAME)
+]
+
+# The zonal load adds to the load devices on member buses. A dataset usually means one or
+# the other, so warn once per zone that has both.
+function _warn_mixed_zone_load(model::IOM.AbstractOptimizationModel)
+    template = get_template(model)
+    network_model = get_network_model(template)
+    has_load_zone_distribution(network_model) || return
+    sys = get_system(model)
+    load_types = Dict{Int, Set{Symbol}}()
+    for device_model in values(get_device_models(template))
+        T = get_component_type(device_model)
+        T <: PSY.ElectricLoad || continue
+        for d in get_available_components(device_model, sys)
+            zone = PSY.get_load_zone(PSY.get_bus(d))
+            zone === nothing ||
+                push!(get!(Set{Symbol}, load_types, IS.get_id(zone)), nameof(T))
+        end
+    end
+    ts_type = get_default_time_series_type(get_optimization_container(model))
+    for zone in _loaded_zones(sys, network_model, ts_type)
+        types = get(load_types, IS.get_id(zone), nothing)
+        types === nothing && continue
+        @warn "Load zone $(PSY.get_name(zone)) has a zonal load, and the template also " *
+              "models $(join(sort!(collect(types)), ", ")) on its member buses; the two " *
+              "add up." _group = IOM.LOG_GROUP_MODELS_VALIDATION
     end
     return
 end
