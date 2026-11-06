@@ -88,6 +88,7 @@ function construct_device!(
             model,
             network_model,
         )
+        add_unoffered_up_reserve_constraints!(container, devices, model)
     else
         add_constraints!(
             container,
@@ -193,6 +194,7 @@ function construct_device!(
             model,
             network_model,
         )
+        add_unoffered_up_reserve_constraints!(container, devices, model)
     else
         add_constraints!(
             container,
@@ -269,22 +271,7 @@ function construct_device!(
     )
 
     if has_service_model(model)
-        add_to_expression!(
-            container,
-            ActivePowerRangeExpressionLB,
-            ActivePowerVariable,
-            devices,
-            model,
-            network_model,
-        )
-        add_to_expression!(
-            container,
-            ActivePowerRangeExpressionUB,
-            ActivePowerVariable,
-            devices,
-            model,
-            network_model,
-        )
+        add_reserve_range_expressions!(container, devices, model, network_model)
     end
 
     if haskey(get_time_series_names(model), ActivePowerTimeSeriesParameter)
@@ -325,6 +312,7 @@ function construct_device!(
             model,
             network_model,
         )
+        add_unoffered_up_reserve_constraints!(container, devices, model)
     else
         add_constraints!(
             container,
@@ -402,22 +390,7 @@ function construct_device!(
     )
 
     if has_service_model(model)
-        add_to_expression!(
-            container,
-            ActivePowerRangeExpressionLB,
-            ActivePowerVariable,
-            devices,
-            model,
-            network_model,
-        )
-        add_to_expression!(
-            container,
-            ActivePowerRangeExpressionUB,
-            ActivePowerVariable,
-            devices,
-            model,
-            network_model,
-        )
+        add_reserve_range_expressions!(container, devices, model, network_model)
     end
 
     if haskey(get_time_series_names(model), ActivePowerTimeSeriesParameter)
@@ -456,6 +429,7 @@ function construct_device!(
             model,
             network_model,
         )
+        add_unoffered_up_reserve_constraints!(container, devices, model)
     else
         add_constraints!(
             container,
