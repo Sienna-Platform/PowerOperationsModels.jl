@@ -1056,3 +1056,45 @@ end
           length(collect(get_components(PSY.Line, sys)))
     IS.close!(IS.get_data_store(restored_nr.data))
 end
+
+@testset "init_optimization_container! initial_time branches" begin
+    sys = PSB.build_system(PSITestSystems, "c_sys5_uc")
+    first_time, second_time = PSY.get_forecast_initial_times(sys)
+    @test first_time == PSY.get_forecast_initial_timestamp(sys)
+
+    # Unset initial_time with a deterministic type takes the first forecast timestamp.
+    model = DecisionModel(
+        get_thermal_dispatch_template_network(),
+        sys;
+        optimizer = HiGHS_optimizer,
+    )
+    @test IOM.get_initial_time(IOM.get_settings(model)) == IOM.UNSET_INI_TIME
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+    container = IOM.get_optimization_container(model)
+    @test IOM.get_initial_time(container) == first_time
+
+    # An explicit initial_time skips the default and selects a later window.
+    model = DecisionModel(
+        get_thermal_dispatch_template_network(),
+        sys;
+        optimizer = HiGHS_optimizer,
+        initial_time = second_time,
+    )
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+    container = IOM.get_optimization_container(model)
+    @test IOM.get_initial_time(container) == second_time
+
+    # Unset initial_time with SingleTimeSeries takes the series initial time.
+    settings = IOM.Settings(sys; horizon = Dates.Hour(24), resolution = Dates.Hour(1))
+    container = IOM.OptimizationContainer(sys, settings, JuMP.Model(), PSY.SingleTimeSeries)
+    @test IOM.get_initial_time(container) == IOM.UNSET_INI_TIME
+    IOM.init_optimization_container!(
+        container,
+        NetworkModel(CopperPlateNetworkModel),
+        sys,
+    )
+    ini_time, _ = IS.check_time_series_consistency(sys.data, PSY.SingleTimeSeries)
+    @test IOM.get_initial_time(container) == ini_time
+end
