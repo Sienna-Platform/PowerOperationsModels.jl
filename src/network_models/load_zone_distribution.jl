@@ -115,19 +115,19 @@ _factor_axes_message(component) =
     "The $(DISTRIBUTION_FACTOR_TS_NAME) series of $(summary(component)) must be one " *
     "[time step, bus] matrix with value_axes = [IS.TimeSeriesAxis(\"bus\", bus numbers)]."
 
-function _factor_series_rows(component::PSY.Component)
+function _factor_series_rows(container::OptimizationContainer, component::PSY.Component)
     return IS.list_time_series_metadata(
         component;
-        time_series_type = IS.Deterministic,
+        time_series_type = get_default_time_series_type(container),
         name = DISTRIBUTION_FACTOR_TS_NAME,
     )
 end
 
 """
-Whether `component` owns a `distribution_factor` series.
+Whether `component` owns a `distribution_factor` series of the type the model reads.
 """
-has_distribution_factors(component::PSY.Component) =
-    !isempty(_factor_series_rows(component))
+has_distribution_factors(container::OptimizationContainer, component::PSY.Component) =
+    !isempty(_factor_series_rows(container, component))
 
 """
 Bus-number labels of the `distribution_factor` series that `component` owns, read from its
@@ -136,7 +136,7 @@ metadata without loading data. Call it only when [`has_distribution_factors`](@r
 another resolution.
 """
 function _factor_series_labels(container::OptimizationContainer, component::PSY.Component)
-    rows = _factor_series_rows(component)
+    rows = _factor_series_rows(container, component)
     if length(rows) != 1
         throw(
             ArgumentError(
@@ -242,7 +242,7 @@ function _distribution_factors(
     network_model::NetworkModel,
     buses::Dict{Int, PSY.ACBus},
 )
-    if !has_distribution_factors(zone)
+    if !has_distribution_factors(container, zone)
         return _error_no_factors(zone)
     end
     labels = _factor_bus_labels(container, zone, buses)
@@ -283,8 +283,8 @@ end
 function _error_no_factors(zone::PSY.LoadZone)
     error(
         "Load zone $(PSY.get_name(zone)) has no $(DISTRIBUTION_FACTOR_TS_NAME) column for " *
-        "an available member bus. Attach one Deterministic [time step, bus] matrix to the " *
-        "zone with value_axes = [IS.TimeSeriesAxis(\"bus\", bus numbers)].",
+        "an available member bus. Attach one [time step, bus] matrix to the zone, of the " *
+        "time series type the model reads, with value_axes = [IS.TimeSeriesAxis(\"bus\", bus numbers)].",
     )
 end
 
@@ -340,7 +340,7 @@ function _add_load_zone_load!(
     model = load_zone_model(network_model)
     buses = _buses_by_number(sys)
     # A loaded zone without a factor series gets no row, and the reader errors for it.
-    owners = [z for z in zones if has_distribution_factors(z)]
+    owners = [z for z in zones if has_distribution_factors(container, z)]
     if !isempty(owners) && _uses_distribution_factors(network_model)
         add_parameters!(container, DistributionFactorParameter, owners, model)
     end

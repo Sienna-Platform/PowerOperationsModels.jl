@@ -553,3 +553,89 @@ end
     model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
     @test_throws IS.ConflictingInputsError POM.validate_template(model)
 end
+
+# c_sys5_uc with static series only, and the zone "LZ1" with a static load and 0.6/0.4
+# factors, as an EmulationModel reads them.
+function _build_static_zone_system()
+    sys = PSB.build_system(PSITestSystems, "c_sys5_uc"; add_single_time_series = true)
+    PSY.remove_time_series!(sys, PSY.Deterministic)
+    load = PSY.get_time_series(
+        PSY.SingleTimeSeries, first(PSY.get_components(PSY.PowerLoad, sys)),
+        "max_active_power",
+    )
+    stamps = TimeSeries.timestamp(PSY.get_data(load))
+    zone = PSY.LoadZone(;
+        name = "LZ1",
+        peak_active_power = 2.0,
+        peak_reactive_power = 3.0,
+        input_basis = u"CU",
+    )
+    PSY.add_component!(sys, zone)
+    zone_buses =
+        sort!(collect(PSY.get_components(PSY.ACBus, sys)); by = PSY.get_number)[1:2]
+    for b in zone_buses
+        PSY.set_load_zone!(b, zone)
+    end
+    PSY.add_time_series!(
+        sys, zone,
+        PSY.SingleTimeSeries(;
+            name = POM.LOAD_ZONE_LOAD_TS_NAME,
+            data = TimeArray(stamps, fill(0.5, length(stamps))),
+        ),
+    )
+    PSY.add_time_series!(
+        sys, zone,
+        PSY.SingleTimeSeries(
+            POM.DISTRIBUTION_FACTOR_TS_NAME, first(stamps), PSY.get_resolution(load),
+            repeat([0.6 0.4], length(stamps), 1);
+            value_axes = [IS.TimeSeriesAxis("bus", PSY.get_number.(zone_buses))],
+        ),
+    )
+    return sys, zone, zone_buses
+end
+
+@testset "EmulationModel: the zonal load enters the nodal balance" begin
+    sys, zone, zone_buses = _build_static_zone_system()
+    peak = PSY.get_peak_active_power(zone, u"SU")
+    nodal = Dict()
+    for attributes in (Dict{String, Any}(), LZ_ATTRIBUTES)
+        template = get_thermal_dispatch_template_network(
+            NetworkModel(PTDFNetworkModel; attributes = attributes),
+        )
+        # Numeric parameters in both builds; the factors switch it on anyway.
+        model = EmulationModel(
+            template, sys; optimizer = HiGHS_optimizer, rebuild_model = true,
+        )
+        @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+              IOM.ModelBuildStatus.BUILT
+        nodal[attributes] = IOM.get_expression(
+            get_optimization_container(model), ActivePowerBalance, PSY.ACBus,
+        )
+    end
+    for (b, factor) in zip(zone_buses, (0.6, 0.4))
+        n = PSY.get_number(b)
+        @test JuMP.constant(nodal[LZ_ATTRIBUTES][n, 1]) -
+              JuMP.constant(nodal[Dict{String, Any}()][n, 1]) ≈ -factor * peak * 0.5
+    end
+end
+
+@testset "A zonal load of another time series type is rejected" begin
+    # The DecisionModel reads forecasts; the zone's load exists only as a static series.
+    sys, zone, _ = _build_zone_system(; with_factors = false)
+    forecast = _load_forecast(sys)
+    PSY.remove_time_series!(sys, PSY.Deterministic, zone, POM.LOAD_ZONE_LOAD_TS_NAME)
+    first_stamp = first(keys(PSY.get_data(forecast)))
+    stamps = range(first_stamp; step = PSY.get_resolution(forecast), length = 48)
+    PSY.add_time_series!(
+        sys, zone,
+        PSY.SingleTimeSeries(;
+            name = POM.LOAD_ZONE_LOAD_TS_NAME,
+            data = TimeArray(collect(stamps), fill(0.5, 48)),
+        ),
+    )
+    template = get_thermal_dispatch_template_network(
+        NetworkModel(PTDFNetworkModel; attributes = LZ_ATTRIBUTES),
+    )
+    model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
+    @test_throws IS.ConflictingInputsError POM.validate_template(model)
+end

@@ -399,9 +399,14 @@ function _check_lhs_time_series_types(model::IOM.AbstractOptimizationModel)
     return
 end
 
+# Parameters whose series must exist under the time series type the model reads.
+_type_checked_parameter(_, ::Type{P}) where {P} = P <: LeftHandSideTimeSeriesParameter
+# Zones are selected by their load series, so one of another type would drop the zone.
+_type_checked_parameter(::DeviceModel{PSY.LoadZone, LoadZoneDistribution}, ::Type) = true
+
 function _check_lhs_time_series_types(component_model, system::PSY.System, ts_type)
     for (P, ts_name) in get_time_series_names(component_model)
-        P <: LeftHandSideTimeSeriesParameter || continue
+        _type_checked_parameter(component_model, P) || continue
         for component in get_available_components(component_model, system)
             PSY.has_time_series(component, ts_name) || continue
             PSY.has_time_series(component, ts_type, ts_name) && continue
