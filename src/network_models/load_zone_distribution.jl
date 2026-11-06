@@ -61,20 +61,15 @@ _attribute_flag(value) = throw(
     ),
 )
 
-"""
-Distribution factors and the zonal load are read at build, so parameters must be numbers.
-With `rebuild_model` off, `IOM.get_param_eltype` returns `JuMP.VariableRef` and the
-products turn nonlinear. Guard at build time rather than surface a solver error mid-simulation.
-"""
-function assert_numeric_distribution_factors(container::OptimizationContainer)
-    if IOM.get_param_eltype(container) !== Float64
-        error(
-            "Load zone distribution reads data at build; recurrent solves need " *
-            "rebuild_model = true.",
-        )
-    end
-    return
-end
+# The model of the zones' parameters. The network model creates them, so no template
+# holds it.
+load_zone_model(::NetworkModel) = DeviceModel(PSY.LoadZone, LoadZoneDistribution)
+
+# A LoadZone has no availability flag: every zone of the model's subsystem.
+IOM.get_available_components(
+    model::DeviceModel{PSY.LoadZone, LoadZoneDistribution},
+    sys::PSY.System,
+) = PSY.get_components(PSY.LoadZone, sys; subsystem_name = get_subsystem(model))
 
 # A series layout is the ordered axis names plus the label type of the last axis; any other
 # layout, or no value axes at all, fails with `msg`. Returns the last axis' labels.
@@ -342,12 +337,11 @@ function _add_load_zone_load!(
     if isempty(zones)
         return
     end
-    model = DeviceModel(PSY.LoadZone, LoadZoneDistribution)
+    model = load_zone_model(network_model)
     buses = _buses_by_number(sys)
     # A loaded zone without a factor series gets no row, and the reader errors for it.
     owners = [z for z in zones if has_distribution_factors(z)]
     if !isempty(owners) && _uses_distribution_factors(network_model)
-        assert_numeric_distribution_factors(container)
         add_parameters!(container, DistributionFactorParameter, owners, model)
     end
     add_parameters!(container, ActivePowerTimeSeriesParameter, zones, model)

@@ -124,8 +124,6 @@ end
     zf = get_distribution_factors(container, sys, zone2, network_model)
     @test collect(axes(zf)[1]) == [PSY.get_number(b4)]
     @test zf[PSY.get_number(b4), t1] == 1.0
-
-    @test POM.assert_numeric_distribution_factors(container) === nothing
 end
 
 @testset "get_member_buses drops unavailable members" begin
@@ -518,4 +516,40 @@ end
             k in axes(area_on)[1]
         ) ≈ -peak * fraction[t]
     end
+end
+
+@testset "Factors under recurrent solves turn on rebuild_model with a warning" begin
+    sys, _, _ = _build_zone_system()
+    template = get_thermal_dispatch_template_network(
+        NetworkModel(PTDFNetworkModel; attributes = LZ_ATTRIBUTES),
+    )
+    model = DecisionModel(template, sys; optimizer = HiGHS_optimizer, rebuild_model = false)
+    IOM.get_optimization_container(model).built_for_recurrent_solves = true
+    output_dir = mktempdir(; cleanup = true)
+    @test build!(model; output_dir = output_dir) == IOM.ModelBuildStatus.BUILT
+    @test IOM.get_rebuild_model(IOM.get_settings(model))
+    log = read(joinpath(output_dir, "operation_problem.log"), String)
+    @test occursin("LZ1 carries a DistributionFactorParameter", log)
+end
+
+@testset "A factor series of another time series type is rejected" begin
+    # Attached as a SingleTimeSeries only, which the DecisionModel does not read.
+    sys, zone, zone_buses = _build_zone_system(; with_factors = false)
+    forecast = _load_forecast(sys)
+    PSY.add_time_series!(
+        sys,
+        zone,
+        PSY.SingleTimeSeries(
+            POM.DISTRIBUTION_FACTOR_TS_NAME,
+            first(keys(PSY.get_data(forecast))),
+            PSY.get_resolution(forecast),
+            repeat([0.6 0.4], 48, 1);
+            value_axes = [IS.TimeSeriesAxis("bus", PSY.get_number.(zone_buses))],
+        ),
+    )
+    template = get_thermal_dispatch_template_network(
+        NetworkModel(PTDFNetworkModel; attributes = LZ_ATTRIBUTES),
+    )
+    model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
+    @test_throws IS.ConflictingInputsError POM.validate_template(model)
 end

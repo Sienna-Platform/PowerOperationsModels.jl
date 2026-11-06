@@ -349,13 +349,22 @@ function _first_lhs_parameter_component(model, system::PSY.System)
     return nothing
 end
 
-function _first_lhs_parameter_component(model::IOM.AbstractOptimizationModel)
-    template = get_template(model)
-    system = get_system(model)
-    for m in Iterators.flatten((
+# Service and device models of the template, plus the models of the components whose
+# parameters the network model creates.
+function _parameter_component_models(template::PowerOperationsProblemTemplate)
+    network_model = get_network_model(template)
+    network_models =
+        has_load_zone_distribution(network_model) ? (load_zone_model(network_model),) : ()
+    return Iterators.flatten((
         values(get_service_models(template)),
         values(get_device_models(template)),
+        network_models,
     ))
+end
+
+function _first_lhs_parameter_component(model::IOM.AbstractOptimizationModel)
+    system = get_system(model)
+    for m in _parameter_component_models(get_template(model))
         found = _first_lhs_parameter_component(m, system)
         isnothing(found) || return found
     end
@@ -384,11 +393,7 @@ end
 function _check_lhs_time_series_types(model::IOM.AbstractOptimizationModel)
     ts_type = get_default_time_series_type(get_optimization_container(model))
     system = get_system(model)
-    template = get_template(model)
-    for component_model in Iterators.flatten((
-        values(get_service_models(template)),
-        values(get_device_models(template)),
-    ))
+    for component_model in _parameter_component_models(get_template(model))
         _check_lhs_time_series_types(component_model, system, ts_type)
     end
     return
