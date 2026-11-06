@@ -13,16 +13,18 @@ Reserve-down balance expression type for a component. No code in this package cr
 struct ComponentReserveDownBalanceExpression <: ExpressionType end
 
 """
-Total flow through a [`PowerSystems.TransmissionInterface`](@extref). The expression is indexed
-`[interface name, time]`. It sums the flows of the branches in the interface, plus the interface
-flow slack variables. `MaxInterfaceFlow` constrains it.
+Total flow through a [`PowerSystems.TransmissionInterface`](@extref), indexed
+`[interface name, time]`. It sums the branch flows of the interface, weighted by the direction
+mapping, plus the interface flow slack variables when the model uses slacks. Under
+`MaxInterfaceFlow`, the `InterfaceFlowLimit` constraint bounds it.
 """
 struct InterfaceTotalFlow <: ExpressionType end
 
 """
 Branch active-power flow expression for the PTDF network models. The flow is the PTDF row of the
-branch applied to the bus injections. It is not a decision variable. `FlowRateConstraint` rows
-are written on it. Reportable as an output.
+branch applied to the nodal `ActivePowerBalance` expressions, minus the phase-shift term for a
+phase-controlled branch. It is not a decision variable. `FlowRateConstraint` rows are written
+on it. Reportable as an output.
 """
 struct PTDFBranchFlow <: ExpressionType end
 
