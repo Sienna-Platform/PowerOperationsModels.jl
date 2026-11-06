@@ -1087,14 +1087,17 @@ end
     @test IOM.get_initial_time(container) == second_time
 
     # Unset initial_time with SingleTimeSeries takes the series initial time.
-    settings = IOM.Settings(sys; horizon = Dates.Hour(24), resolution = Dates.Hour(1))
-    container = IOM.OptimizationContainer(sys, settings, JuMP.Model(), PSY.SingleTimeSeries)
+    sys_sts = PSB.build_system(PSITestSystems, "c_sys5_uc"; add_single_time_series = true)
+    load = first(PSY.get_components(PSY.PowerLoad, sys_sts))
+    sts = PSY.get_time_series(PSY.SingleTimeSeries, load, "max_active_power")
+    settings = IOM.Settings(sys_sts; horizon = Dates.Hour(24), resolution = Dates.Hour(1))
+    container =
+        IOM.OptimizationContainer(sys_sts, settings, JuMP.Model(), PSY.SingleTimeSeries)
     @test IOM.get_initial_time(container) == IOM.UNSET_INI_TIME
     IOM.init_optimization_container!(
         container,
         NetworkModel(CopperPlateNetworkModel),
-        sys,
+        sys_sts,
     )
-    ini_time, _ = IS.check_time_series_consistency(sys.data, PSY.SingleTimeSeries)
-    @test IOM.get_initial_time(container) == ini_time
+    @test IOM.get_initial_time(container) == IS.get_initial_timestamp(sts)
 end
