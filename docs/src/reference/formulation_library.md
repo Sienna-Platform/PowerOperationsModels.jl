@@ -626,10 +626,10 @@ DECOUPLES energy and AS for day-ahead-style clearing: no SOC deployment-coverage
 reserve bands bounded by capability instead of the reservation binary's dispatch side, and
 `complete_coverage` ignored with a warning - the binary still governs energy exclusivity),
 `"cycling_limits"`, `"energy_target"`, `"complete_coverage"`, `"regularization"`
-(all default `false`), and `"cycling_violation_cost"` (default `5000.0`).
+(all default `false`).
 The cycling limits and the energy target are always soft, whatever `use_slacks` is.
 Their slacks are energy at the horizon end.
-A cycling slack is penalized at `"cycling_violation_cost"`, in \$/MWh of violation, converted to the system base.
+A cycling slack is penalized at \$5,000/MWh of violation, converted to the system base.
 An energy target slack is penalized at the `StorageCost` `energy_shortage_cost` or `energy_surplus_cost`, in \$/MWh of violation, converted to the system base.
 
 | Stage    | Emits                                                                                                                                                                                                                                                                                                                                               |

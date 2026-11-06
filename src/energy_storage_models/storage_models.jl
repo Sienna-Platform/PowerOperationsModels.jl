@@ -141,7 +141,6 @@ function get_default_attributes(
     return Dict{String, Any}(
         "reservation" => true,
         "cycling_limits" => false,
-        "cycling_violation_cost" => CYCLE_VIOLATION_COST,
         "energy_target" => false,
         "reserve_coverage" => true,
         "complete_coverage" => false,
@@ -1677,22 +1676,25 @@ function add_to_objective_function!(
     add_variable_cost!(container, ActivePowerOutVariable, devices, T)
     add_variable_cost!(container, ActivePowerInVariable, devices, T)
     if get_attribute(model, "energy_target")
-        add_proportional_cost!(container, StorageEnergySurplusVariable, devices, T)
-        add_proportional_cost!(container, StorageEnergyShortageVariable, devices, T)
+        _add_horizon_end_cost!(container, StorageEnergySurplusVariable, devices,
+            d -> proportional_cost(
+                PSY.get_operation_cost(d),
+                StorageEnergySurplusVariable,
+                d,
+                T,
+            ))
+        _add_horizon_end_cost!(container, StorageEnergyShortageVariable, devices,
+            d -> proportional_cost(
+                PSY.get_operation_cost(d),
+                StorageEnergyShortageVariable,
+                d,
+                T,
+            ))
     end
     if get_attribute(model, "cycling_limits")
-        add_cycling_slack_cost!(
-            container,
-            StorageChargeCyclingSlackVariable,
-            devices,
-            model,
-        )
-        add_cycling_slack_cost!(
-            container,
-            StorageDischargeCyclingSlackVariable,
-            devices,
-            model,
-        )
+        for S in (StorageChargeCyclingSlackVariable, StorageDischargeCyclingSlackVariable)
+            _add_horizon_end_cost!(container, S, devices, Returns(CYCLE_VIOLATION_COST))
+        end
     end
     if get_attribute(model, "regularization")
         add_variable_cost!(
@@ -1711,59 +1713,21 @@ function add_to_objective_function!(
     return
 end
 
-# The cycling slacks are energy in system base (pu-h) at the final timestep only; the
-# "cycling_violation_cost" attribute is in $/MWh, so it is scaled by the system base power.
-function add_cycling_slack_cost!(
+# Slacks on energy at the horizon end are system-base pu-h; `cost(d)` is in $/MWh, so it is
+# scaled by the system base power.
+function _add_horizon_end_cost!(
     container::OptimizationContainer,
     ::Type{T},
     devices::Vector{U},
-    model::DeviceModel{U, <:AbstractStorageFormulation},
-) where {
-    T <: Union{StorageChargeCyclingSlackVariable, StorageDischargeCyclingSlackVariable},
-    U <: PSY.EnergyReservoirStorage,
-}
-    cost = get_attribute(model, "cycling_violation_cost")
-    if !(cost >= 0.0)
-        throw(
-            IS.InvalidValue(
-                "cycling_violation_cost must be a non-negative \$/MWh value, got $(cost)",
-            ),
-        )
-    end
-    rate = Float64(cost) * get_model_base_power(container)
-    t_end = last(get_time_steps(container))
-    variable = get_variable(container, T, U)
-    for d in devices
-        name = PSY.get_name(d)
-        IOM.add_cost_term_invariant!(
-            container, variable[name, t_end], rate,
-            ProductionCostExpression, U, name, t_end,
-        )
-    end
-    return
-end
-
-# Energy-target slacks are energy in system base (pu-h) at the final timestep only; the
-# StorageCost penalties are in $/MWh, so they are scaled by the system base power.
-function add_proportional_cost!(
-    container::OptimizationContainer,
-    ::Type{T},
-    devices::Vector{U},
-    ::Type{F},
-) where {
-    T <: Union{StorageEnergyShortageVariable, StorageEnergySurplusVariable},
-    U <: PSY.EnergyReservoirStorage,
-    F <: AbstractStorageFormulation,
-}
+    cost,
+) where {T <: VariableType, U <: PSY.EnergyReservoirStorage}
     base_power = get_model_base_power(container)
     t_end = last(get_time_steps(container))
     variable = get_variable(container, T, U)
     for d in devices
         name = PSY.get_name(d)
-        op_cost_data = PSY.get_operation_cost(d)
-        cost_term = proportional_cost(op_cost_data, T, d, F) * base_power
         IOM.add_cost_term_invariant!(
-            container, variable[name, t_end], cost_term,
+            container, variable[name, t_end], cost(d) * base_power,
             ProductionCostExpression, U, name, t_end,
         )
     end
