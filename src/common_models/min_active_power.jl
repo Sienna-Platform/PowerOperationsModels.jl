@@ -69,7 +69,9 @@ _static_maximum(::Type{MinActivePowerTimeSeriesParameter}, d::PSY.Component) =
 _static_maximum(::Type{MinActivePowerInTimeSeriesParameter}, d::PSY.Component) =
     PSY.get_active_power_limits_pump(d, u"SU").max
 
-# The series upper bound at step `t`, when the device model maps one for `d`.
+# The series upper bound at step `t`, when the device model maps one for `d`. Steps where
+# `d` is out of service are not checked: an out unit has no minimum, and its maximum series
+# multiplier is zero there.
 function _check_below_upper_series(
     ::Type{MinActivePowerTimeSeriesParameter},
     container::OptimizationContainer,
@@ -84,7 +86,9 @@ function _check_below_upper_series(
     haskey(get_attributes(param_container).component_name_to_ts_uuid, name) || return
     upper = IOM.jump_fixed_value.(get_parameter_column_refs(param_container, name))
     multiplier = get_multiplier_array(param_container)[name, :]
+    status = get_component_statuses(container, V)
     for t in eachindex(values)
+        get_component_status(status, name, t) == 0.0 && continue
         upper_t = upper[t] * multiplier[t]
         if !isfinite(upper_t)
             throw(
@@ -115,15 +119,19 @@ _check_below_upper_series(
     ::Vector{Float64},
 ) = nothing
 
+# Checks the minimum of `d` at the steps it is in service.
 function _validate_min_active_power!(
     container::OptimizationContainer,
     ::Type{P},
     d::V,
     model::DeviceModel,
 ) where {P <: AbstractMinActivePowerParameter, V <: PSY.Component}
-    values = get_lhs_parameter_values(container, IOM.ParameterKey(P, V), PSY.get_name(d))
+    name = PSY.get_name(d)
+    values = get_lhs_parameter_values(container, IOM.ParameterKey(P, V), name)
     pmax = _static_maximum(P, d)
+    status = get_component_statuses(container, V)
     for t in eachindex(values)
+        get_component_status(status, name, t) == 0.0 && continue
         if values[t] < 0.0
             throw(
                 IS.ConflictingInputsError(
@@ -422,11 +430,43 @@ function _level_change_steps(pmin::Vector{Float64})
     ]
 end
 
+# Injector status of `d` at the step before the horizon. Without a schedule `d` is in service.
+# With one, the schedule decides wherever it has a value at that step; before its first value,
+# as in the first window of a run, the initial power of `d` does.
+function _status_before_horizon(container::OptimizationContainer, d::V) where {V}
+    PSY.get_name(d) in _injector_schedule_names(container, V) || return 1.0
+    window = status_window(container, get_initial_time(get_settings(container)))
+    before = status_before_window(d, window)
+    isnothing(before) || return before
+    return PSY.get_active_power(d, u"SU") > 0.0 ? 1.0 : 0.0
+end
+
+# The steps `t` where the minimum power of a unit with a constant on status changes, with
+# the change `s_t Pmin_t - s_{t-1} Pmin_{t-1}`, where `s` is the injector status. Before the
+# first step the unit is at its first minimum when it was in service there, and at zero
+# otherwise.
+function _constant_status_level_steps(container::OptimizationContainer, d::V) where {V}
+    pmin = min_active_power_values(container, d)
+    status = get_component_statuses(container, V)
+    name = PSY.get_name(d)
+    level = [get_component_status(status, name, t) * pmin[t] for t in eachindex(pmin)]
+    previous = _status_before_horizon(container, d) * first(pmin)
+    steps = Tuple{Int, Float64}[]
+    for t in eachindex(level)
+        delta = level[t] - previous
+        iszero(delta) || push!(steps, (t, delta))
+        previous = level[t]
+    end
+    return steps
+end
+
 """
 Add the change of the minimum power to the compact ramp rows. The compact rows are on the
 power above the minimum. The change of total power has the extra term
-`(Pmin_t - Pmin_{t-1}) * (u_t - start_t)`. Acts only on devices that have a minimum power
-series and a ramp row. The first step has no term.
+`(Pmin_t - Pmin_{t-1}) * (u_t - start_t)`. For a unit whose on status is a constant, the
+term is the change of `s_t Pmin_t`, with `s` its injector status, so an outage enters its
+ramp rows as the drop to zero and the return from it. Acts only on devices that have a ramp
+row and a minimum power series or a schedule.
 """
 function add_min_power_level_change_to_ramps!(
     container::OptimizationContainer,
@@ -434,15 +474,19 @@ function add_min_power_level_change_to_ramps!(
     devices::Vector{V},
     ::DeviceModel{V, W},
 ) where {T <: RampConstraint, V <: PSY.ThermalGen, W <: AbstractThermalFormulation}
-    has_container_key(container, MinActivePowerTimeSeriesParameter, V) || return
+    has_container_key(container, MinActivePowerTimeSeriesParameter, V) ||
+        has_container_key(container, InjectorStatusParameter, V) || return
     up = IOM.get_constraint(container, IOM.ConstraintKey(T, V, "up"))
     dn = IOM.get_constraint(container, IOM.ConstraintKey(T, V, "dn"))
     ramp_names = Set(axes(up, 1))
-    profiled = [
-        d for d in devices if PSY.get_name(d) in ramp_names &&
-        has_min_active_power_series(container, MinActivePowerTimeSeriesParameter, d)
+    scheduled = _injector_schedule_names(container, V)
+    affected = [
+        d for d in devices if PSY.get_name(d) in ramp_names && (
+            has_min_active_power_series(container, MinActivePowerTimeSeriesParameter, d) ||
+            PSY.get_name(d) in scheduled
+        )
     ]
-    _add_level_change_to_ramps!(container, up, dn, profiled, W)
+    _add_level_change_to_ramps!(container, up, dn, affected, W)
     return
 end
 
@@ -460,11 +504,15 @@ function _add_level_change_to_ramps!(
     start = IOM.get_variable(container, StartVariable, V)
     for d in devices
         name = PSY.get_name(d)
-        steps = _level_change_steps(min_active_power_values(container, d))
         if _is_must_run(d)
-            _add_constant_level_change!(up, dn, name, steps)
+            _add_constant_level_change!(
+                up,
+                dn,
+                name,
+                _constant_status_level_steps(container, d),
+            )
         else
-            for (t, delta) in steps
+            for (t, delta) in _level_change_steps(min_active_power_values(container, d))
                 _add_to_row_coefficient!(up[name, t], on[name, t], delta)
                 _add_to_row_coefficient!(up[name, t], start[name, t], -delta)
                 _add_to_row_coefficient!(dn[name, t], on[name, t], -delta)
@@ -475,7 +523,7 @@ function _add_level_change_to_ramps!(
     return
 end
 
-# The status is 1 in every step: the term is the constant `delta`.
+# The on status is a constant: the term is the constant `delta`.
 function _add_constant_level_change!(up, dn, name::String, steps)
     for (t, delta) in steps
         _add_to_row_coefficient!(up[name, t], 1.0, delta)
@@ -486,8 +534,8 @@ end
 
 # The dispatch ramp rows have no start variable. The status is the `OnStatusParameter`, when
 # a feedforward provides it. The rows are linear in the parameter variables, because the
-# simulation writes the status values after the build. Without the parameter, or for a
-# must-run unit, the status is 1.
+# simulation writes the status values after the build. Without the parameter the status is
+# the injector status.
 function _add_level_change_to_ramps!(
     container::OptimizationContainer,
     up,
@@ -498,11 +546,16 @@ function _add_level_change_to_ramps!(
     status_names = _on_status_names(container, V)
     for d in devices
         name = PSY.get_name(d)
-        steps = _level_change_steps(min_active_power_values(container, d))
         if name in status_names
             status = IOM.get_parameter_array(container, OnStatusParameter, V)
+            steps = _in_service_steps(
+                _level_change_steps(min_active_power_values(container, d)),
+                get_component_statuses(container, V),
+                name,
+            )
             _add_status_level_change!(up, dn, name, steps, status)
         else
+            steps = _constant_status_level_steps(container, d)
             _add_constant_level_change!(up, dn, name, steps)
         end
     end
@@ -539,6 +592,13 @@ function _add_relaxed_product!(row::JuMP.ConstraintRef, q::Float64, s, sp)
     iszero(constant) || JuMP.set_normalized_rhs(row, JuMP.normalized_rhs(row) - constant)
     return
 end
+
+# The level changes at steps where the unit is in service at both `t - 1` and `t`. An out
+# step enters the product `s_t s_{t-1}` as a zero status, as a shutdown does.
+_in_service_steps(steps, status, name::String) = [
+    (t, delta) for (t, delta) in steps if
+    get_component_status(status, name, t) * get_component_status(status, name, t - 1) != 0.0
+]
 
 function _add_status_level_change!(up, dn, name::String, steps, status)
     for (t, delta) in steps
