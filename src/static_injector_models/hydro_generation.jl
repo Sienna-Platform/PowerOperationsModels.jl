@@ -3076,7 +3076,14 @@ function _add_parameters!(
     mult = fraction_of_hour * length(time_steps) / HOURS_IN_DAY
     key = AuxVarKey{HydroEnergyOutput, D}("")
     parameter_container =
-        add_param_container!(container, T, D, key, names, [time_steps[end]])
+        add_variable_value_parameter_container!(
+            container,
+            T,
+            D,
+            key,
+            names,
+            [time_steps[end]],
+        )
     jump_model = get_jump_model(container)
     parent_mult = IOM.get_multiplier_array_data(parameter_container)
     parent_param = IOM.get_parameter_array_data(parameter_container)
@@ -3115,7 +3122,7 @@ function _add_parameters!(
     mult = fraction_of_hour * length(time_steps) / HOURS_IN_DAY
     key = ExpressionKey{TotalHydroFlowRateReservoirOutgoing, D}("")
     parameter_container =
-        add_param_container!(container, T, D, key, names, time_steps)
+        add_variable_value_parameter_container!(container, T, D, key, names, time_steps)
     jump_model = get_jump_model(container)
     parent_mult = IOM.get_multiplier_array_data(parameter_container)
     parent_param = IOM.get_parameter_array_data(parameter_container)
