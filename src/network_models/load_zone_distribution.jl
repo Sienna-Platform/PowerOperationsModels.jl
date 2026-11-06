@@ -218,8 +218,9 @@ end
 Read the distribution factors of `zone` from its `DistributionFactorParameter` row into a
 numeric `(retained bus number, time step)` array. The bus labels come from the series
 metadata and are the buses that carry factors. Factor quality, such as summing to one, is an
-ingestion concern. An unavailable member's column is dropped, and a column on a bus
-eliminated by the network reduction adds into its retained bus. A column for a bus that is
+ingestion concern. An unavailable member's column is dropped with a warning, and the
+available members' factors are scaled per time step to keep the zone total. A column on a
+bus eliminated by the network reduction adds into its retained bus. A column for a bus that is
 not a member is an error.
 """
 function get_distribution_factors(
@@ -258,24 +259,45 @@ function _distribution_factors(
             "\"$(LOAD_ZONE_DISTRIBUTION_ATTRIBUTE)\" attribute of the NetworkModel.",
         )
     end
-    live = [(j, buses[bus_no]) for (j, bus_no) in enumerate(labels)]
-    filter!(((_, bus),) -> PSY.get_available(bus), live)
+    live = Tuple{Int, PSY.ACBus}[]
+    for (j, bus_no) in enumerate(labels)
+        bus = buses[bus_no]
+        if PSY.get_available(bus)
+            push!(live, (j, bus))
+        else
+            @warn "Load zone $(name): member bus $(PSY.get_name(bus)) is unavailable; the " *
+                  "factors of the available members are scaled to keep the zone total." _group =
+                LOG_GROUP_OPTIMIZATION_CONTAINER
+        end
+    end
     if isempty(live)
         return _error_no_factors(zone)
     end
     shares = IOM.get_lhs_parameter_values(container, key, name)::Matrix{Float64}
     reduction, factors = _zero_factors(container, last.(live), network_model)
-    time_steps = get_time_steps(container)
-    for (j, bus) in live
-        retained = PNM.get_mapped_bus_number(reduction, bus)
-        for t in time_steps
-            factors[retained, t] += shares[j, t]
+    for t in get_time_steps(container)
+        scale =
+            length(live) == length(labels) ? 1.0 : _available_scale(shares, live, t, name)
+        for (j, bus) in live
+            retained = PNM.get_mapped_bus_number(reduction, bus)
+            factors[retained, t] += scale * shares[j, t]
         end
     end
-    @debug "Distribution factor sums for $(name)" [
-        sum(factors[:, t]) for t in time_steps
-    ] _group = LOG_GROUP_OPTIMIZATION_CONTAINER
     return factors
+end
+
+# Scales the available members' factors at `t` so they add up to the factors of all members.
+function _available_scale(shares::Matrix{Float64}, live, t::Int, name::String)
+    total = sum(view(shares, :, t))
+    available = sum(shares[j, t] for (j, _) in live)
+    if iszero(available)
+        iszero(total) && return 0.0
+        error(
+            "Load zone $(name): at time step $(t) the whole zone load is on unavailable " *
+            "member buses.",
+        )
+    end
+    return total / available
 end
 
 # A LoadZone with a load but no usable factor column is a data defect. The zone cannot

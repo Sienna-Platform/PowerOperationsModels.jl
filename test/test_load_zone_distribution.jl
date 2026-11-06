@@ -143,15 +143,29 @@ end
     @test all(zf[n2, t] ≈ 1.0 - first_bus[t] for t in get_time_steps(container))
 end
 
-@testset "An unavailable member's factor column is dropped" begin
+@testset "An unavailable member's share goes to the available members" begin
     sys, zone, zone_buses = _build_zone_system()
     n1, n2 = PSY.get_number.(zone_buses)
     # After the build: the network matrices reject an unavailable bus with live lines.
     container, network_model = _build_factor_model(sys)
+    PSY.set_available!(zone_buses[2], false)
+    warning = "Load zone LZ1: member bus $(PSY.get_name(zone_buses[2])) is unavailable"
+    factors = @test_logs (:warn, Regex(warning)) match_mode = :any get_distribution_factors(
+        container, sys, zone, network_model,
+    )
+    @test collect(axes(factors)[1]) == [n1]
+    # The zone total holds, as under CopperPlate.
+    @test all(factors[n1, t] ≈ 1.0 for t in get_time_steps(container))
+end
+
+@testset "An unavailable member that holds the whole share is an error" begin
+    sys, zone, zone_buses = _build_zone_system(; with_factors = false)
+    _add_factor_matrix!(sys, zone, PSY.get_number.(zone_buses), [1.0, 0.0])
+    container, network_model = _build_factor_model(sys)
     PSY.set_available!(zone_buses[1], false)
-    factors = get_distribution_factors(container, sys, zone, network_model)
-    @test collect(axes(factors)[1]) == [n2]
-    @test all(factors[n2, t] == 0.4 for t in get_time_steps(container))
+    @test_throws ErrorException get_distribution_factors(
+        container, sys, zone, network_model,
+    )
 end
 
 @testset "A factor column for a bus outside the zone is an error" begin
