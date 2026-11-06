@@ -1028,7 +1028,7 @@ function _price_slacks_once!(
     invariant::E,
     slacks::DenseAxisArray,
 ) where {E <: JuMP.AbstractJuMPScalar}
-    cost = CONSTRAINT_VIOLATION_SLACK_COST * IOM.get_resolution_in_hours(container)
+    cost = IOM.CONSTRAINT_VIOLATION_SLACK_COST * IOM.get_resolution_in_hours(container)
     for slack in slacks
         if iszero(JuMP.coefficient(invariant, slack))
             add_to_objective_invariant_expression!(container, slack * cost)

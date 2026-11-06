@@ -149,7 +149,7 @@ IOM.uses_commitment_variables(::Type{<:PSY.ThermalGen}) = true
 # MarketBidCost (static + time-series) proportional_cost/is_time_variant_proportional are generic —
 # see common_models/market_bid_overrides.jl.
 
-proportional_cost(::Union{MBC_TYPES, PSY.ThermalGenerationCost}, ::Type{<:Union{RateofChangeConstraintSlackUp, RateofChangeConstraintSlackDown}}, ::PSY.ThermalGen, ::Type{<:AbstractThermalFormulation}) = CONSTRAINT_VIOLATION_SLACK_COST
+proportional_cost(::Union{MBC_TYPES, PSY.ThermalGenerationCost}, ::Type{<:Union{RateofChangeConstraintSlackUp, RateofChangeConstraintSlackDown}}, ::PSY.ThermalGen, ::Type{<:AbstractThermalFormulation}) = IOM.CONSTRAINT_VIOLATION_SLACK_COST
 
 
 objective_function_multiplier(::Type{<:VariableType}, ::Type{<:AbstractThermalFormulation})=OBJECTIVE_FUNCTION_POSITIVE

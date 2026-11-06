@@ -316,7 +316,7 @@ end
     slack = IOM.get_variable(container, FlowActivePowerSlackUpperBound, PSY.Line, "ofl_ft")
     t = first(IOM.get_time_steps(container))
     obj = IOM.get_objective_expression(IOM.get_objective_expression(container))
-    @test JuMP.coefficient(obj, slack["1", t]) == POM.CONSTRAINT_VIOLATION_SLACK_COST
+    @test JuMP.coefficient(obj, slack["1", t]) == IOM.CONSTRAINT_VIOLATION_SLACK_COST
     @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
 end
 

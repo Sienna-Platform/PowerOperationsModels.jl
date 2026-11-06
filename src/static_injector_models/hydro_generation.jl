@@ -271,14 +271,14 @@ proportional_cost(cost::Nothing, ::Type{ActivePowerVariable}, ::PSY.HydroGen, ::
 proportional_cost(cost::PSY.OperationalCost, ::Type{OnVariable}, ::PSY.HydroGen, ::Type{<:AbstractHydroFormulation})=PSY.get_fixed(cost)
 proportional_cost(cost::PSY.OperationalCost, ::Type{HydroEnergySurplusVariable}, ::PSY.HydroGen, ::Type{<:AbstractHydroReservoirFormulation})=0.0
 proportional_cost(cost::PSY.OperationalCost, ::Type{HydroEnergyShortageVariable}, ::PSY.HydroGen, ::Type{<:AbstractHydroReservoirFormulation})=0.0
-proportional_cost(cost::PSY.OperationalCost, ::Type{HydroEnergyShortageVariable}, ::PSY.HydroGen, ::Type{HydroDispatchRunOfRiver})=CONSTRAINT_VIOLATION_SLACK_COST
+proportional_cost(cost::PSY.OperationalCost, ::Type{HydroEnergyShortageVariable}, ::PSY.HydroGen, ::Type{HydroDispatchRunOfRiver})=IOM.CONSTRAINT_VIOLATION_SLACK_COST
 proportional_cost(cost::PSY.HydroReservoirCost, ::Type{HydroEnergySurplusVariable}, ::PSY.HydroReservoir, ::Type{<:AbstractHydroReservoirFormulation})=PSY.get_level_surplus_cost(cost)
 proportional_cost(cost::PSY.HydroReservoirCost, ::Type{HydroEnergyShortageVariable}, ::PSY.HydroReservoir, ::Type{<:AbstractHydroReservoirFormulation})=PSY.get_level_shortage_cost(cost)
 proportional_cost(cost::PSY.HydroReservoirCost, ::Type{HydroWaterSurplusVariable}, ::PSY.HydroReservoir, ::Type{<:AbstractHydroReservoirFormulation})=PSY.get_level_surplus_cost(cost)
 proportional_cost(cost::PSY.HydroReservoirCost, ::Type{HydroWaterShortageVariable}, ::PSY.HydroReservoir, ::Type{<:AbstractHydroReservoirFormulation})=PSY.get_level_shortage_cost(cost)
 proportional_cost(cost::PSY.HydroReservoirCost, ::Type{WaterSpillageVariable}, ::PSY.HydroReservoir, ::Type{<:AbstractHydroReservoirFormulation})=PSY.get_spillage_cost(cost)
-proportional_cost(::PSY.HydroReservoirCost, ::Type{HydroBalanceSurplusVariable}, ::PSY.HydroReservoir, ::Type{<:AbstractHydroReservoirFormulation})=CONSTRAINT_VIOLATION_SLACK_COST
-proportional_cost(::PSY.HydroReservoirCost, ::Type{HydroBalanceShortageVariable}, ::PSY.HydroReservoir, ::Type{<:AbstractHydroReservoirFormulation})=CONSTRAINT_VIOLATION_SLACK_COST
+proportional_cost(::PSY.HydroReservoirCost, ::Type{HydroBalanceSurplusVariable}, ::PSY.HydroReservoir, ::Type{<:AbstractHydroReservoirFormulation})=IOM.CONSTRAINT_VIOLATION_SLACK_COST
+proportional_cost(::PSY.HydroReservoirCost, ::Type{HydroBalanceShortageVariable}, ::PSY.HydroReservoir, ::Type{<:AbstractHydroReservoirFormulation})=IOM.CONSTRAINT_VIOLATION_SLACK_COST
 
 objective_function_multiplier(::Type{ActivePowerVariable}, ::Type{<:AbstractHydroFormulation})=OBJECTIVE_FUNCTION_POSITIVE
 objective_function_multiplier(::Type{ActivePowerPumpVariable}, ::Type{<:AbstractHydroFormulation})=OBJECTIVE_FUNCTION_POSITIVE

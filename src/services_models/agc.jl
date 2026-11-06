@@ -306,7 +306,7 @@ function add_service_proportional_cost!(
     for index in Iterators.product(axes(lift_variable)...)
         add_to_objective_invariant_expression!(
             container,
-            SERVICES_SLACK_COST * lift_variable[index...],
+            IOM.SERVICES_SLACK_COST * lift_variable[index...],
         )
     end
     return
