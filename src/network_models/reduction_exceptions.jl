@@ -188,7 +188,11 @@ end
 _pin_outage_buses!(::Set{Int}, ::ServiceModel, ::PSY.System) =
     nothing
 
-function _pin_monitored_buses!(buses::Set{Int}, outage::PSY.Outage, sys::PSY.System)
+function _pin_monitored_buses!(
+    buses::Set{Int},
+    outage::PSY.Outage,
+    sys::PSY.System,
+)
     for uuid in PSY.get_monitored_components(outage)
         component = IS.get_component(sys, uuid)
         isnothing(component) && throw(

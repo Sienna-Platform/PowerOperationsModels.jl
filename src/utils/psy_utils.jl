@@ -58,4 +58,4 @@ function is_online(d::PSY.Component)
 end
 
 # IOM's own callers (start-up costs, ramps) read the predicate POM's formulations use.
-IOM.get_must_run(c::PSY.Component) = _is_must_run(c)
+IOM.is_always_committed(c::PSY.Component) = _is_must_run(c)

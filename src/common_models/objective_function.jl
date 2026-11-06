@@ -5,45 +5,18 @@
 # fuel path already prices `FuelConsumptionExpression`, which has this term.
 #################################################################################
 
-# The status values at each step, read behind a barrier so the loop sees the array type.
-function _status_column(status, name::String, time_steps)
-    return [status[name, t] for t in time_steps]
-end
-
-# The on status at each step: the `OnVariable`, or the constant 1 for a must-run unit.
+# The on status at each step: the unit's own `OnVariable` under a commitment formulation,
+# otherwise the `OnStatusParameter` scaled by the injector status when a feedforward provides
+# it, and the injector status for a must-run unit or without the parameter.
 function _compact_on_status(
     container::OptimizationContainer,
-    d::V,
-    ::Type{<:AbstractCompactUnitCommitment},
-) where {V <: PSY.ThermalGen}
-    time_steps = get_time_steps(container)
-    if _is_must_run(d)
-        return fill(1.0, length(time_steps))
-    end
-    return _status_column(
-        get_variable(container, OnVariable, V),
-        PSY.get_name(d),
-        time_steps,
-    )
-end
-
-# The on status is the `OnStatusParameter` when present. Otherwise it is the constant 1.
-# The parameter array holds numbers, or variables in a model built for recurrent solves.
-function _compact_on_status(
-    container::OptimizationContainer,
-    d::V,
-    ::Type{ThermalCompactDispatch},
-) where {V <: PSY.ThermalGen}
-    time_steps = get_time_steps(container)
-    name = PSY.get_name(d)
-    if name in _on_status_names(container, V)
-        return _status_column(
-            get_parameter_array(container, OnStatusParameter, V),
-            name,
-            time_steps,
-        )
-    end
-    return fill(1.0, length(time_steps))
+    d::PSY.ThermalGen,
+    ::Type{F},
+) where {F <: Union{AbstractCompactUnitCommitment, ThermalCompactDispatch}}
+    return [
+        IOM.get_on_status(container, F, d, t; commitment_first = true) for
+        t in get_time_steps(container)
+    ]
 end
 
 function _add_min_power_proportional_cost!(
@@ -320,7 +293,10 @@ function _add_curtailment_cost!(
     dispatch_vars = get_variable(container, T, C)
 
     rate = proportional_term_per_unit * dt
+    status = get_component_statuses(container, C)
     for t in get_time_steps(container)
+        # An out unit offers nothing, so it has nothing to curtail.
+        get_component_status(status, name, t) == 0.0 && continue
         offer_max = _renewable_offer_max(container, component, name, t)
         dispatch = dispatch_vars[name, t]
         IOM.add_cost_term_invariant!(

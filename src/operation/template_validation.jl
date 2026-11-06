@@ -75,6 +75,7 @@ function validate_template_impl!(model::IOM.AbstractOptimizationModel)
     end
     foreach(_check_converter_ac_control, values(template.devices))
 
+    # Runs before branch models are dropped, so a dropped model is rejected too.
     model_has_branch_filters = false
     branch_keys_to_delete = Symbol[]
     validate_branches =
@@ -122,6 +123,7 @@ function validate_template_impl!(model::IOM.AbstractOptimizationModel)
     _check_voltage_regulation_conflicts!(template, system, network_model)
     _check_branch_rating_time_series_formulation!(template.branches, system)
     _check_lhs_time_series_types(model)
+    _check_topology_schedule_formulation(template, network_model, system)
     _resolve_lhs_rebuild!(model)
     validate_network_model(network_model, unmodeled_branch_types, model_has_branch_filters)
     _build_device_model_outages!(template, system)
@@ -362,21 +364,106 @@ function _first_lhs_parameter_component(model::IOM.AbstractOptimizationModel)
     return nothing
 end
 
-# Left-hand-side parameter values are fixed coefficients, so under recurrent solves the model
-# must be rebuilt every step to read the refreshed values: `rebuild_model` is switched on, with
-# a warning, whatever it was set to.
+# Left-hand-side parameter values and topology schedules are fixed when the model is built, so
+# under recurrent solves the model must be rebuilt every step to read the refreshed values.
+# Their parameter types declare `IOM.requires_rebuild`, which IOM enforces when the containers
+# are allocated, so `rebuild_model` is switched on here, before any allocation.
 function _resolve_lhs_rebuild!(model::IOM.AbstractOptimizationModel)
     built_for_recurrent_solves(get_optimization_container(model)) || return
     settings = get_settings(model)
     get_rebuild_model(settings) && return
-    found = _first_lhs_parameter_component(model)
-    isnothing(found) && return
-    component, P = found
-    @warn "$(PSY.get_name(component)) carries a $(nameof(P)) time series, a left-hand-side \
-           parameter; setting rebuild_model = true so every step rebuilds the model with the \
+    reason = _rebuild_reason(model)
+    isnothing(reason) && return
+    @info "$reason; setting rebuild_model = true so every step rebuilds the model with the \
            refreshed values." _group = IOM.LOG_GROUP_MODELS_VALIDATION
     IOM.set_rebuild_model!(settings, true)
     return
+end
+
+#################################################################################
+# Topology schedules
+#################################################################################
+
+function _check_topology_schedule_formulation(
+    template::PowerOperationsProblemTemplate,
+    network_model::NetworkModel,
+    sys::PSY.System,
+)
+    components = PNM.topology_schedule_components(sys).components
+    foreach(_check_scheduled_component, components)
+    branches = [c for c in components if _is_scheduled_branch(c)]
+    isempty(branches) && return
+    _check_power_flow_evaluations(template, branches)
+    _check_topology_schedule_formulation(get_network_formulation(network_model), branches)
+    return
+end
+
+_is_scheduled_branch(::PSY.Branch) = true
+_is_scheduled_branch(::PSY.Component) = false
+
+_check_scheduled_component(::PSY.Component) = nothing
+
+function _check_scheduled_component(hybrid::PSY.HybridSystem)
+    throw(
+        IS.ConflictingInputsError(
+            "HybridSystem $(PSY.get_name(hybrid)) carries a schedule, but hybrid \
+             subcomponents are not covered by injector statuses.",
+        ),
+    )
+end
+
+function _check_power_flow_evaluations(
+    template::PowerOperationsProblemTemplate,
+    branches::Vector,
+)
+    isempty(IOM.get_evaluations(template)) && return
+    throw(
+        IS.ConflictingInputsError(
+            "Power flow evaluations solve the system's static network and cannot follow \
+             scheduled topology. Scheduled branches: \
+             $(join(PSY.get_name.(branches), ", "))",
+        ),
+    )
+end
+
+_check_topology_schedule_formulation(
+    ::Type{<:Union{AbstractPTDFNetworkModel, DCPNetworkModel}},
+    ::Vector,
+) = nothing
+
+function _check_topology_schedule_formulation(
+    ::Type{<:Union{CopperPlateNetworkModel, AreaBalanceNetworkModel}},
+    branches::Vector,
+)
+    @warn "Branch schedules are ignored by this network formulation, which models no \
+           branches; its subnetworks follow each branch's data, with open switches open: \
+           $(join(PSY.get_name.(branches), ", "))" _group =
+        IOM.LOG_GROUP_MODELS_VALIDATION
+    return
+end
+
+function _check_topology_schedule_formulation(::Type{T}, branches::Vector) where {T}
+    throw(
+        IS.ConflictingInputsError(
+            "Scheduled branch outages and switching are supported by PTDFNetworkModel, \
+             AreaPTDFNetworkModel and DCPNetworkModel; $(T) cannot model them. Scheduled \
+             branches: $(join(PSY.get_name.(branches), ", "))",
+        ),
+    )
+end
+
+function _rebuild_reason(model::IOM.AbstractOptimizationModel)
+    found = _first_lhs_parameter_component(model)
+    if !isnothing(found)
+        component, P = found
+        return "$(PSY.get_name(component)) carries a $(nameof(P)) time series, a \
+                left-hand-side parameter"
+    end
+    if _has_topology_schedules(get_system(model))
+        return "The system carries availability or switch status schedules, which change \
+                the model's topology and injector availability between steps"
+    end
+    return nothing
 end
 
 # A left-hand-side parameter series stored under a time series type other than the one the

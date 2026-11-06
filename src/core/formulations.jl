@@ -917,6 +917,10 @@ template validation fails. With `use_slacks = true` the flow limits are relaxed 
 [`PostGeneratorContingencyFlowSlackUpperBound`](@ref) and
 [`PostGeneratorContingencyFlowSlackLowerBound`](@ref).
 
+**Schedules.** Under availability or switch status schedules on branches, the PTDF row and the
+emergency rating of each monitored entry at step ``t`` are those of the network in service at
+``t``. A contributor out of service at ``t`` deploys nothing at ``t``.
+
 See also [`SecurityConstrainedRampReserve`](@ref).
 """
 struct SecurityConstrainedContingencyReserve <:

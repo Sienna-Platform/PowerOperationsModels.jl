@@ -71,9 +71,9 @@ _source_reductions(source::PrebuiltMatrixSource) =
 _source_reductions(source::PrebuiltCoreSource) =
     PNM.get_applied_reductions(PNM.get_network_reduction_data(get_core(source)))
 
-"The user-supplied irreducible bus set an already-applied reduction was built with."
+"The buses an already-applied reduction kept: its user irreducible and schedule-pinned sets."
 _source_irreducible_buses(reduction::PNM.NetworkReductionData) =
-    collect(Int, PNM.get_user_irreducible_buses(PNM.get_reductions(reduction)))
+    collect(Int, PNM.get_reduction_exempt_buses(PNM.get_reductions(reduction)))
 
 # The sparsification cutoff for a core this build factorizes itself. A prebuilt source
 # carries a core whose cutoff the caller already fixed, so it falls back to PNM's auto
@@ -109,15 +109,35 @@ function _irreducible_bus_selector(sys::PSY.System, exceptions::Vector{Int})
     )
 end
 
+#=
+The scheduled topology a formulation's base network carries: the scheduled switches closed and
+the buses of scheduled branches kept out of reductions. Only formulations that resolve a
+`PNM.TopologySchedule` carry it; every other formulation ignores branch schedules, so its base
+network holds each switch in its data state.
+=#
+const _NO_SCHEDULED_TOPOLOGY = (
+    closed_switches = PSY.DiscreteControlledACBranch[],
+    pinned_buses = Set{Int}(),
+)
+
+_scheduled_topology(::Type{<:AbstractNetworkModel}, ::PSY.System) = _NO_SCHEDULED_TOPOLOGY
+_scheduled_topology(
+    ::Type{<:Union{DCPNetworkModel, AbstractPTDFNetworkModel}},
+    sys::PSY.System,
+) = PNM.topology_schedule_components(sys)
+
 function _build_ybus(
     source::SystemNetworkSource,
     sys::PSY.System,
     exceptions::Vector{Int},
+    schedules,
 )
     return PNM.Ybus(
         sys;
         network_reductions = source.reductions,
         irreducible_buses = _irreducible_bus_selector(sys, exceptions),
+        closed_switches = schedules.closed_switches,
+        schedule_pinned_buses = schedules.pinned_buses,
     )
 end
 
@@ -125,6 +145,12 @@ function _build_ybus(
     ::IOM.DefaultNetworkSource,
     sys::PSY.System,
     exceptions::Vector{Int},
+    schedules,
 )
-    return PNM.Ybus(sys; irreducible_buses = _irreducible_bus_selector(sys, exceptions))
+    return PNM.Ybus(
+        sys;
+        irreducible_buses = _irreducible_bus_selector(sys, exceptions),
+        closed_switches = schedules.closed_switches,
+        schedule_pinned_buses = schedules.pinned_buses,
+    )
 end
