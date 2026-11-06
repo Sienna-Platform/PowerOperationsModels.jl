@@ -50,7 +50,6 @@ function construct_device!(
     devices = get_device_cache(model)
 
     add_parameters!(container, ActivePowerTimeSeriesParameter, devices, model)
-    add_parameters!(container, ReactivePowerTimeSeriesParameter, devices, model)
     process_market_bid_parameters!(container, devices, model)
 
     # Expression
@@ -62,14 +61,7 @@ function construct_device!(
         model,
         network_model,
     )
-    add_to_expression!(
-        container,
-        ReactivePowerBalance,
-        ReactivePowerTimeSeriesParameter,
-        devices,
-        model,
-        network_model,
-    )
+    _add_fixed_output_reactive_power!(container, devices, model, network_model)
     add_event_arguments!(container, devices, model, network_model)
     return
 end
