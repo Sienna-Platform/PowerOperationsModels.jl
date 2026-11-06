@@ -73,7 +73,8 @@ end
         ),
     )
     template = get_thermal_dispatch_template_network(net)
-    # TODO: fails with HiGHS QP solver, why?
+    # The HiGHS active-set QP solver has known defects (ERGO-Code/HiGHS#3396) and fails on
+    # this convex QP. Use an interior-point solver here.
     model = DecisionModel(template, sys; optimizer = ipopt_optimizer)
     @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
           IOM.ModelBuildStatus.BUILT
