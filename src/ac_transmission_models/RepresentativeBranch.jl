@@ -355,39 +355,104 @@ function _flow_limits(rep::RepresentativeBranch, model::DeviceModel)
     return (min = -rating, max = rating)
 end
 
+# PNM has no emergency variants of the parallel-rating methods. Each formula below mirrors
+# its `PNM.get_*_rating` counterpart, applied to the members' emergency ratings.
+function _parallel_branches_emergency_rating(model::DeviceModel, bp::PNM.BranchesParallel)
+    method = get_attribute(model, PARALLEL_BRANCH_MAX_RATING_KEY)
+    ratings = Float64[PNM.get_equivalent_emergency_rating(br) for br in bp.branches]
+    if method == SINGLE_ELEMENT_CONTINGENCY_RATING
+        return sum(ratings) - maximum(ratings)
+    elseif method == SUM_OF_MAX_RATING
+        return sum(ratings)
+    elseif method == IMPEDANCE_AVERAGED_RATING
+        susceptances = Float64[PNM.get_series_susceptance(br, u"SU") for br in bp.branches]
+        return sum(susceptances .* ratings) / sum(susceptances)
+    else
+        error(
+            "Unknown $PARALLEL_BRANCH_MAX_RATING_KEY value: $(repr(method)). " *
+            "Valid: $(repr(SINGLE_ELEMENT_CONTINGENCY_RATING)), " *
+            "$(repr(SUM_OF_MAX_RATING)), $(repr(IMPEDANCE_AVERAGED_RATING)).",
+        )
+    end
+end
+
 """
-Post-contingency (emergency) flow limits of the arc. `PNM.get_equivalent_emergency_rating`
-covers raw devices, reduction aggregates and three-winding circuits alike — it returns
-`rating_b` and falls back to `rating` where `rating_b` is undefined — and is already
-system-base per-unit, so it takes no `u"SU"`.
+Intact emergency rating of an arc. `PNM.get_equivalent_emergency_rating` covers raw devices,
+reduction aggregates and three-winding circuits alike — it returns `rating_b` and falls back
+to `rating` where `rating_b` is undefined — and is already system-base per-unit, so it takes
+no `u"SU"`. A `PNM.BranchesParallel` follows the `parallel_branch_max_rating_method`
+attribute, like the pre-contingency rating.
+"""
+_emergency_rating(branch::PSY.ACTransmission, ::DeviceModel) =
+    PNM.get_equivalent_emergency_rating(branch)
+_emergency_rating(bp::PNM.BranchesParallel, model::DeviceModel) =
+    _parallel_branches_emergency_rating(model, bp)
+
+"""
+Post-contingency (emergency) flow limits of an arc with no member out of service.
 """
 function _emergency_flow_limits(branch::PSY.ACTransmission)
     rating = PNM.get_equivalent_emergency_rating(branch)
     return (min = -rating, max = rating)
 end
-_emergency_flow_limits(rep::RepresentativeBranch) = _emergency_flow_limits(rep.branch)
+
+function _emergency_flow_limits(rep::RepresentativeBranch, model::DeviceModel)
+    rating = _emergency_rating(rep.branch, model)
+    return (min = -rating, max = rating)
+end
 
 """
 Post-contingency (emergency) flow limits of the arc when the components in `tripped` are out
 of service. An aggregate arc keeps the emergency rating of its members in service.
 """
-function _emergency_flow_limits(rep::RepresentativeBranch, tripped::Set{PSY.ACTransmission})
-    rating = _post_contingency_rating(rep.branch, tripped)
+function _emergency_flow_limits(
+    rep::RepresentativeBranch,
+    tripped::Set{PSY.ACTransmission},
+    model::DeviceModel,
+)
+    rating = _post_contingency_rating(rep.branch, tripped, model)
     return (min = -rating, max = rating)
 end
 
-_post_contingency_rating(branch::PSY.ACTransmission, ::Set{PSY.ACTransmission}) =
-    PNM.get_equivalent_emergency_rating(branch)
+_post_contingency_rating(
+    branch::PSY.ACTransmission,
+    ::Set{PSY.ACTransmission},
+    model::DeviceModel,
+) = _emergency_rating(branch, model)
 
 # When the outage opens the arc, its MODF row is zero, so the intact limit stays.
 function _post_contingency_rating(
     entry::PNM.AbstractReductionAggregate,
     tripped::Set{PSY.ACTransmission},
+    model::DeviceModel,
 )::Float64
     if PNM.is_open_after_outage(entry, tripped)
-        return PNM.get_equivalent_emergency_rating(entry)
+        return _emergency_rating(entry, model)
     end
+    return _post_outage_rating(entry, tripped, model)
+end
+
+# A parallel arc with no member tripped keeps the configured aggregate. Otherwise only the
+# members in service count.
+function _post_outage_rating(
+    entry::PNM.AbstractReductionAggregate,
+    tripped::Set{PSY.ACTransmission},
+    ::DeviceModel,
+)
     return PNM.get_post_outage_emergency_rating(entry, tripped)
+end
+
+function _post_outage_rating(
+    entry::PNM.BranchesParallel,
+    tripped::Set{PSY.ACTransmission},
+    model::DeviceModel,
+)
+    for br in entry.branches
+        if br in tripped
+            return PNM.get_post_outage_emergency_rating(entry, tripped)
+        end
+    end
+    return _emergency_rating(entry, model)
 end
 
 # Factor on the arc's post-contingency rating series under one outage. The series
@@ -398,7 +463,10 @@ function _post_contingency_share(
     entry::PNM.AbstractReductionAggregate,
     tripped::Set{PSY.ACTransmission},
 )::Float64
-    return _post_contingency_rating(entry, tripped) /
+    if PNM.is_open_after_outage(entry, tripped)
+        return 1.0
+    end
+    return PNM.get_post_outage_emergency_rating(entry, tripped) /
            PNM.get_equivalent_emergency_rating(entry)
 end
 

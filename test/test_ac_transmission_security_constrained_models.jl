@@ -2419,8 +2419,7 @@ end
 
 # Limits of the pair under each outage of `_n1_parallel_system`, times the rating factor of
 # the time step. A full trip keeps the intact limit because the MODF row is zero.
-function _test_pair_limits(container, outages, pair, factors::Vector{Float64})
-    intact = _N1_LINE_RATING_B + _N1_COPY_RATING_B
+function _test_pair_limits(container, outages, pair, factors::Vector{Float64}, intact)
     for t in IOM.get_time_steps(container)
         f = factors[mod1(t, length(factors))]
         @test _pc_upper_limit(container, PSY.Line, outages["1"], pair, t) ≈
@@ -2440,7 +2439,9 @@ end
         template = get_thermal_dispatch_template_network(network_model)
         set_device_model!(template, PSY.Line, POM.SecurityConstrainedStaticBranch)
         container, pair = _build_sc_container(template, sys)
-        _test_pair_limits(container, outages, pair, [1.0])
+        # Default `single_element_contingency` method: the pair loses its largest circuit.
+        single_element = _N1_LINE_RATING_B + _N1_COPY_RATING_B - _N1_LINE_RATING_B
+        _test_pair_limits(container, outages, pair, [1.0], single_element)
     end
 end
 
@@ -2505,5 +2506,8 @@ end
         ),
     )
     container, pair = _build_sc_container(template, sys)
-    _test_pair_limits(container, outages, pair, _PC_RATING_FACTORS)
+    _test_pair_limits(
+        container, outages, pair, _PC_RATING_FACTORS,
+        _N1_LINE_RATING_B + _N1_COPY_RATING_B,
+    )
 end
