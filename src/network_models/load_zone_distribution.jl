@@ -103,8 +103,11 @@ metadata without loading data. Call it only when [`has_distribution_factors`](@r
 `true`. Errors for a second series, a layout other than one `"bus"` axis of bus numbers, or
 another resolution.
 """
-function _factor_series_labels(container::OptimizationContainer, component::PSY.Component)
-    rows = _factor_series_rows(component, get_default_time_series_type(container))
+function _factor_series_labels(
+    container::OptimizationContainer,
+    component::PSY.Component,
+    rows,
+)
     if length(rows) != 1
         throw(
             ArgumentError(
@@ -120,6 +123,13 @@ function _factor_series_labels(container::OptimizationContainer, component::PSY.
     )
 end
 
+_factor_series_labels(container::OptimizationContainer, component::PSY.Component) =
+    _factor_series_labels(
+        container,
+        component,
+        _factor_series_rows(component, get_default_time_series_type(container)),
+    )
+
 # Bus by number, built once per argument-stage call: factor labels resolve through it, so
 # membership and availability never scan the system per zone.
 _buses_by_number(sys::PSY.System) =
@@ -127,10 +137,10 @@ _buses_by_number(sys::PSY.System) =
 
 function _member_test(zone::PSY.LoadZone)
     id = IS.get_id(zone)
-    return bus -> _zone_id(PSY.get_load_zone(bus)) == id
+    return bus -> _in_zone(PSY.get_load_zone(bus), id)
 end
-_zone_id(::Nothing) = nothing
-_zone_id(zone::PSY.LoadZone) = IS.get_id(zone)
+_in_zone(::Nothing, ::Int) = false
+_in_zone(zone::PSY.LoadZone, id::Int) = IS.get_id(zone) == id
 
 # Available member buses of every zone, by zone id, from one pass over `buses`.
 function _members_by_zone(buses::Dict{Int, PSY.ACBus})
@@ -167,8 +177,9 @@ function _factor_bus_labels(
     container::OptimizationContainer,
     zone::PSY.LoadZone,
     buses::Dict{Int, PSY.ACBus},
+    rows,
 )
-    labels = _factor_series_labels(container, zone)
+    labels = _factor_series_labels(container, zone, rows)
     is_member = _member_test(zone)
     for bus_no in labels
         if !(haskey(buses, bus_no) && is_member(buses[bus_no]))
@@ -182,6 +193,17 @@ function _factor_bus_labels(
     end
     return Vector{Int}(labels)
 end
+
+_factor_bus_labels(
+    container::OptimizationContainer,
+    zone::PSY.LoadZone,
+    buses::Dict{Int, PSY.ACBus},
+) = _factor_bus_labels(
+    container,
+    zone,
+    buses,
+    _factor_series_rows(zone, get_default_time_series_type(container)),
+)
 
 # The extra parameter axis between zone and time: positions 1:n, n the most buses any
 # zone's series labels. Shorter zones are padded with zeros; position j is the j-th label of
@@ -334,30 +356,13 @@ function _loaded_zones(
     ]
 end
 
-# Zones that get a `DistributionFactorParameter` row. A zone that needs factors but owns
-# none gets no row, and the reader errors for it.
-function _factor_owners(
-    network_model::NetworkModel,
-    zones::Vector{PSY.LoadZone},
-    members::Dict{Int, Vector{PSY.ACBus}},
-    ts_type::Type{<:IS.TimeSeriesData},
-)
-    return [
-        z for z in zones if _needs_factors(network_model, _zone_members(members, z)) &&
-        has_distribution_factors(z, ts_type)
-    ]
-end
-
 # A zone whose available members share one balance row takes its total there, with no
 # factors: one member on a nodal network, one area under AreaBalance, and every zone under
 # CopperPlate, which has one system row per subnetwork.
 _needs_factors(::NetworkModel, members::Vector{PSY.ACBus}) = length(members) > 1
 _needs_factors(::NetworkModel{CopperPlateNetworkModel}, ::Vector{PSY.ACBus}) = false
 _needs_factors(::NetworkModel{AreaBalanceNetworkModel}, members::Vector{PSY.ACBus}) =
-    length(_member_areas(members)) > 1
-
-_member_areas(members::Vector{PSY.ACBus}) =
-    sort!(unique!([PSY.get_name(PSY.get_area(b)) for b in members]))
+    !allequal(PSY.get_area(b) for b in members)
 
 function _add_load_zone_load!(
     container::OptimizationContainer,
@@ -372,10 +377,17 @@ function _add_load_zone_load!(
     end
     buses = _buses_by_number(sys)
     members = _members_by_zone(buses)
-    owners = _factor_owners(network_model, zones, members, ts_type)
-    labels = Dict{String, Vector{Int}}(
-        PSY.get_name(z) => _factor_bus_labels(container, z, buses) for z in owners
-    )
+    labels = Dict{String, Vector{Int}}()
+    for zone in zones
+        if _needs_factors(network_model, _zone_members(members, zone))
+            rows = _factor_series_rows(zone, ts_type)
+            if !isempty(rows)
+                labels[PSY.get_name(zone)] =
+                    _factor_bus_labels(container, zone, buses, rows)
+            end
+        end
+    end
+    owners = [z for z in zones if haskey(labels, PSY.get_name(z))]
     model = DeviceModel(
         PSY.LoadZone,
         LoadZoneDistribution;
@@ -489,6 +501,20 @@ function _write_factor_load!(
     return
 end
 
+# Function barrier: Julia compiles the time loop for the concrete `targets` type.
+function _apply_factor_terms!(
+    targets::Tuple,
+    refs,
+    shares::AbstractVector{Float64},
+    zone_load::Vector{Float64},
+    time_steps,
+)
+    for t in time_steps
+        _apply_term_to_targets!(targets, refs[t], shares[t] * zone_load[t], t)
+    end
+    return
+end
+
 # Each share resolves the balance rows of its own bus, as a device on that bus does: under a
 # reduction, the nodal row is the retained bus and the area row is the bus's own area.
 function _distribute_zone_load!(
@@ -501,15 +527,12 @@ function _distribute_zone_load!(
     name::String,
 )
     time_steps = get_time_steps(container)
-    for bus_no in axes(factors)[1]
+    zone_load = Float64[multiplier[name, t] for t in time_steps]
+    for (i, bus_no) in enumerate(axes(factors, 1))
         targets = _bus_balance_targets(
             container, ActivePowerBalance, network_model, buses[bus_no],
         )
-        for t in time_steps
-            _apply_term_to_targets!(
-                targets, refs[t], factors[bus_no, t] * multiplier[name, t], t,
-            )
-        end
+        _apply_factor_terms!(targets, refs, view(factors.data, i, :), zone_load, time_steps)
     end
     return
 end
@@ -533,8 +556,8 @@ function _check_load_zone_time_series_types(
         PSY.LoadZone, sys; subsystem_name = get_subsystem(network_model),
     )
         for ts_name in (LOAD_ZONE_LOAD_TS_NAME, DISTRIBUTION_FACTOR_TS_NAME)
-            if PSY.has_time_series(zone, ts_name) &&
-               !PSY.has_time_series(zone, ts_type, ts_name)
+            PSY.has_time_series(zone, ts_type, ts_name) && continue
+            if PSY.has_time_series(zone, ts_name)
                 throw(
                     IS.ConflictingInputsError(
                         "$(summary(zone)) carries a $(ts_name) time series, but not as " *
@@ -560,11 +583,12 @@ function _first_load_zone_lhs_component(
         return nothing
     end
     ts_type = get_default_time_series_type(container)
-    zones = _loaded_zones(sys, network_model, ts_type)
     members = _members_by_zone(_buses_by_number(sys))
-    owners = _factor_owners(network_model, zones, members, ts_type)
-    if isempty(owners)
-        return nothing
+    for zone in _loaded_zones(sys, network_model, ts_type)
+        if _needs_factors(network_model, _zone_members(members, zone)) &&
+           has_distribution_factors(zone, ts_type)
+            return (zone, DistributionFactorParameter)
+        end
     end
-    return (first(owners), DistributionFactorParameter)
+    return nothing
 end
