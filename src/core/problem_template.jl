@@ -280,14 +280,7 @@ function _add_contributing_device_by_type!(
     if T ∈ incompatible_device_types || T ∉ modeled_devices
         return
     end
-    # Register in the nested `service_name -> device_type -> devices` map.
-    inner = get!(
-        Dict{DataType, Vector{<:IS.InfrastructureSystemsComponent}},
-        get_contributing_devices_map(service_model),
-        service_name,
-    )
-    # TODO(services stability): See issue #216.
-    push!(get!(Vector{T}, inner, T), contributing_device)
+    IOM.add_contributing_device!(service_model, service_name, contributing_device)
     return
 end
 
@@ -353,10 +346,9 @@ end
 function _modify_device_model!(
     devices_template::Dict{Symbol, DeviceModel},
     service_model::ServiceModel{<:PSY.AbstractReserve, <:AbstractReservesFormulation},
-    contributing_devices::Vector{<:PSY.Component},
+    contributing_device_types::Set{DataType},
 )
-    # Type stability: explicitly type the Set to avoid widening
-    for dt in Set{DataType}(typeof.(contributing_devices))
+    for dt in contributing_device_types
         for device_model in values(devices_template)
             # add message here when it exists
             get_component_type(device_model) != dt && continue
@@ -380,7 +372,7 @@ end
 function _modify_device_model!(
     ::Dict{Symbol, DeviceModel},
     ::ServiceModel{<:PSY.OfflineReserve, NonSpinningReserve},
-    ::Vector{<:PSY.Component},
+    ::Set{DataType},
 )
     return
 end
@@ -388,7 +380,7 @@ end
 function _modify_device_model!(
     ::Dict{Symbol, DeviceModel},
     ::ServiceModel{PSY.TransmissionInterface, MaxInterfaceFlow},
-    ::Vector,
+    ::Set{DataType},
 )
     return
 end
@@ -399,9 +391,14 @@ function _add_services_to_device_model!(template::PowerOperationsProblemTemplate
     for (service_key, service_model) in service_models
         S = get_component_type(service_model)
         (S <: PSY.AGC || S <: PSY.GroupReserve) && continue
-        contributing_devices = get_contributing_devices(service_model)
-        isempty(contributing_devices) && continue
-        _modify_device_model!(devices_template, service_model, contributing_devices)
+        device_types = Set{DataType}()
+        for service_name in keys(get_contributing_devices_map(service_model))
+            for device_type in IOM.contributing_device_types(service_model, service_name)
+                push!(device_types, device_type)
+            end
+        end
+        isempty(device_types) && continue
+        _modify_device_model!(devices_template, service_model, device_types)
     end
     return
 end

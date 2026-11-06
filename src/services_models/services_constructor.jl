@@ -5,8 +5,6 @@
 # are shared per `(device type, service type)` and constraint containers per
 # `(entry type, service type)`, with each service filling its own slice. Group formulations
 # are deferred to last (their members must exist).
-#
-# TODO(services stability): See issue #216.
 
 # Group formulations aggregate other services' award variables, so they construct after
 # every non-group service model.
