@@ -85,10 +85,7 @@ function _pin_interface_branch_buses!(
     buses::Set{Int},
     m::ServiceModel{<:PSY.TransmissionInterface},
 )
-    for by_device_type in values(get_contributing_devices_map(m)),
-        branches in values(by_device_type),
-        branch in branches
-
+    for branch in get_contributing_devices(m)
         _push_component_buses!(buses, branch)
     end
     return

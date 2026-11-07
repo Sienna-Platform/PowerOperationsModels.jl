@@ -179,7 +179,6 @@ supports_reserve_provision(::Type{<:AbstractDeviceFormulation}) = true
 # cannot express.
 supports_reserve_provision(::Type{<:AbstractLoadFormulation}) = false
 
-# Function barrier: dispatches once on the concrete `ServiceModel{S, F}` of each registered model.
 function _push_offline_awards!(
     offline::Vector{Tuple{String, IOM.JuMPArray, Set{String}, Bool, Bool}},
     container::OptimizationContainer,
@@ -187,15 +186,21 @@ function _push_offline_awards!(
     sm::ServiceModel{S},
 ) where {V <: PSY.Device, S <: PSY.Service}
     _is_offline_reserve(S) || return
-    only_off = something(get_attribute(sm, "offline_only"), false)
-    no_shut = something(get_attribute(sm, "exclude_shutdown_step"), false)
+    only_off = something(get_attribute(sm, "offline_only"), false)::Bool
+    no_shut = something(get_attribute(sm, "exclude_shutdown_step"), false)::Bool
     for (service_name, dev_map) in get_contributing_devices_map(sm)
-        members = get(dev_map, V, nothing)
-        isnothing(members) && continue
+        haskey(dev_map, V) || continue
+        members = dev_map[V]::Vector{V}
         variable = _reserve_variable(container, V, S)
         push!(
             offline,
-            (service_name, variable, Set(PSY.get_name.(members)), only_off, no_shut),
+            (
+                service_name,
+                variable,
+                Set(PSY.get_name(m) for m in members),
+                only_off,
+                no_shut,
+            ),
         )
     end
     return

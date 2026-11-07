@@ -2973,8 +2973,11 @@ function add_constraints!(
     )
 end
 
-# Function barrier: `get_services(model)` has an abstract element type, so the dispatch on the
-# concrete `ServiceModel{S, F}` happens once per service model and the inner work is type-stable.
+_served_direction(::Type{<:HydroServedReserveUpExpression}) = PSY.ReserveUp
+_served_direction(::Type{<:HydroServedReserveDownExpression}) = PSY.ReserveDown
+
+# Adds the award of each modeled service of direction R that device d offers.
+# get_services(model) has an abstract element type. This method gives the loop body concrete types.
 function _add_hydro_served_reserve!(
     container::OptimizationContainer,
     expression,
@@ -2989,50 +2992,76 @@ function _add_hydro_served_reserve!(
     S <: PSY.Service,
     R <: PSY.ReserveDirection,
 }
-    name = PSY.get_name(d)
     for service in PSY.get_services(d)
-        typeof(service) <: S || continue
-        isa(service, PSY.Reserve{R}) || continue
-        service_name = PSY.get_name(service)
-        variable = get_variable(container, U, IOM.ComponentPairKey{V, typeof(service)})
-        fractions = deployed_fraction_values(container, model, service)
-        for t in get_time_steps(container)
-            add_proportional_to_jump_expression!(
-                expression[name, t],
-                variable[(service_name, name, t)],
-                fractions[t],
-            )
-        end
+        _add_served_award!(container, expression, U, d, model, S, R, service)
     end
     return
 end
 
-function add_to_expression!(
+function _add_served_award!(
     container::OptimizationContainer,
-    ::Type{T},
+    expression,
     ::Type{U},
-    devices::Vector{V},
-    model::DeviceModel{V, W},
-    network_model::NetworkModel{X},
+    d::V,
+    model::DeviceModel{V},
+    ::Type{S},
+    ::Type{R},
+    service::S,
 ) where {
-    T <: HydroServedReserveUpExpression,
     U <: ActivePowerReserveVariable,
     V <: PSY.HydroGen,
-    W <: AbstractDeviceFormulation,
-    X <: AbstractNetworkModel,
+    S <: PSY.Service,
+    R <: PSY.ReserveDirection,
 }
-    expression = get_expression(container, T, V)
-    for d in devices
-        # One `ServiceModel` per reserve type. Iterate the device's own services and
-        # match those whose type is modeled (a service model of that type is attached),
-        # using each matching service's own name for the reserve-variable index.
-        for service_model in get_services(model)
-            _add_hydro_served_reserve!(
-                container, expression, U, d, model, service_model, PSY.ReserveUp,
-            )
-        end
-    end
+    _add_direction_award!(container, expression, U, d, model, R, service)
+    return
 end
+
+_add_served_award!(
+    ::OptimizationContainer,
+    _,
+    ::Type,
+    ::PSY.HydroGen,
+    ::DeviceModel,
+    ::Type,
+    ::Type,
+    ::PSY.Service,
+) =
+    nothing
+
+function _add_direction_award!(
+    container::OptimizationContainer,
+    expression,
+    ::Type{U},
+    d::V,
+    model::DeviceModel{V},
+    ::Type{R},
+    service::PSY.Reserve{R},
+) where {U <: ActivePowerReserveVariable, V <: PSY.HydroGen, R <: PSY.ReserveDirection}
+    name = PSY.get_name(d)
+    service_name = PSY.get_name(service)
+    variable = get_variable(container, U, IOM.ComponentPairKey{V, typeof(service)})
+    fractions = deployed_fraction_values(container, model, service)
+    for t in get_time_steps(container)
+        add_proportional_to_jump_expression!(
+            expression[name, t],
+            variable[(service_name, name, t)],
+            fractions[t],
+        )
+    end
+    return
+end
+
+_add_direction_award!(
+    ::OptimizationContainer,
+    _,
+    ::Type,
+    ::PSY.HydroGen,
+    ::DeviceModel,
+    ::Type,
+    ::PSY.Service,
+) =
+    nothing
 
 function add_to_expression!(
     container::OptimizationContainer,
@@ -3042,20 +3071,17 @@ function add_to_expression!(
     model::DeviceModel{V, W},
     network_model::NetworkModel{X},
 ) where {
-    T <: HydroServedReserveDownExpression,
+    T <: Union{HydroServedReserveUpExpression, HydroServedReserveDownExpression},
     U <: ActivePowerReserveVariable,
     V <: PSY.HydroGen,
     W <: AbstractDeviceFormulation,
     X <: AbstractNetworkModel,
 }
     expression = get_expression(container, T, V)
+    R = _served_direction(T)
     for d in devices
-        # One `ServiceModel` per reserve type. Iterate the device's own services and
-        # match those whose type is modeled, using each matching service's own name.
         for service_model in get_services(model)
-            _add_hydro_served_reserve!(
-                container, expression, U, d, model, service_model, PSY.ReserveDown,
-            )
+            _add_hydro_served_reserve!(container, expression, U, d, model, service_model, R)
         end
     end
 end

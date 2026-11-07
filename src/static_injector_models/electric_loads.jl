@@ -683,7 +683,6 @@ end
 _is_reserve_down_service_model(::ServiceModel{<:PSY.Reserve{PSY.ReserveDown}}) = true
 _is_reserve_down_service_model(::ServiceModel) = false
 
-# Function barrier: dispatches once on the concrete `ServiceModel{S, F}` of each registered model.
 function _validate_unoffered_service!(
     model::DeviceModel{L, <:AbstractControllablePowerLoadFormulation},
     unoffered_names::Set{String},
@@ -692,8 +691,9 @@ function _validate_unoffered_service!(
     _is_reserve_down_service_model(service_model) || return
     for (service_name, by_device_type) in get_contributing_devices_map(service_model)
         haskey(by_device_type, L) || continue
+        members = by_device_type[L]::Vector{L}
         offered = [
-            PSY.get_name(d) for d in by_device_type[L] if
+            PSY.get_name(d) for d in members if
             PSY.get_name(d) in unoffered_names
         ]
         isempty(offered) && continue
