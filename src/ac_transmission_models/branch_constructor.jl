@@ -1322,7 +1322,6 @@ function construct_device!(
     # The order of these methods is important. The add_ptdf_branch_flow_expressions! must be before the constraints
     add_ptdf_branch_flow_expressions!(
         container,
-        PTDFBranchFlow,
         devices,
         device_model,
         network_model,
@@ -1390,7 +1389,6 @@ function construct_device!(
     # The order of these methods is important. The add_ptdf_branch_flow_expressions! must be before the constraints
     add_ptdf_branch_flow_expressions!(
         container,
-        PTDFBranchFlow,
         devices,
         device_model,
         network_model,
@@ -1433,7 +1431,6 @@ function construct_device!(
     # The order of these methods is important. The add_ptdf_branch_flow_expressions! must be before the constraints
     add_ptdf_branch_flow_expressions!(
         container,
-        PTDFBranchFlow,
         devices,
         device_model,
         network_model,

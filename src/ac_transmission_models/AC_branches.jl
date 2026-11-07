@@ -808,7 +808,6 @@ end
 
 function add_ptdf_branch_flow_expressions!(
     container::OptimizationContainer,
-    ::Type{PTDFBranchFlow},
     devices::Vector{B},
     device_model::DeviceModel{B, <:AbstractBranchFormulation},
     network_model::NetworkModel{<:AbstractPTDFNetworkModel},
@@ -2254,7 +2253,6 @@ with the DC `b`/`shift` pair described on the `NetworkFlowConstraint` builder ab
 """
 function add_btheta_branch_flow_expressions!(
     container::OptimizationContainer,
-    ::Type{BThetaBranchFlow},
     sys::PSY.System,
     devices::Vector{T},
     device_model::DeviceModel{T, StaticBranch},

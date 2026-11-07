@@ -114,7 +114,6 @@ function _add_static_branch_btheta_expression!(
     isempty(devices) && return
     add_btheta_branch_flow_expressions!(
         container,
-        BThetaBranchFlow,
         sys,
         devices,
         device_model,

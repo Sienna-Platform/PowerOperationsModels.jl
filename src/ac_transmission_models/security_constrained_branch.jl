@@ -908,7 +908,6 @@ function construct_device!(
     # ArgumentConstructStage has added the phase-shift injections to it.
     add_ptdf_branch_flow_expressions!(
         container,
-        PTDFBranchFlow,
         devices,
         device_model,
         network_model,
