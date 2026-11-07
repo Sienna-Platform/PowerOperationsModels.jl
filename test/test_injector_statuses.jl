@@ -842,6 +842,24 @@ end
     @test JuMP.value(flow[PSY.get_name(line), 2]) == 0.0
 end
 
+@testset "An out AC line keeps a free flow variable and carries no flow" begin
+    sys = _c_sys5_uc()
+    line = first(_sorted(PSY.Line, sys))
+    _schedule_outage!(sys, line, _out_at(3:5))
+    template = PowerOperationsProblemTemplate(NetworkModel(PTDFNetworkModel))
+    set_device_model!(template, ThermalStandard, ThermalBasicDispatch)
+    set_device_model!(template, PowerLoad, StaticPowerLoad)
+    set_device_model!(template, Line, StaticBranchBounds)
+    set_device_model!(template, TwoWindingTransformer, StaticBranchUnbounded)
+    model = _built_model(template, sys)
+    flow = _var(model, FlowActivePowerVariable, PSY.Line)
+    _check_fixed_only_when_out(flow, PSY.get_name(line), 1:0)
+    @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+    for t in 3:5
+        @test isapprox(JuMP.value(flow[PSY.get_name(line), t]), 0.0; atol = 1e-6)
+    end
+end
+
 struct _StatusProbeConstraint <: POM.PowerVariableLimitsConstraint end
 IOM.get_min_max_limits(
     d::PSY.ThermalStandard,

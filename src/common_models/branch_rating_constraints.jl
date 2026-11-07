@@ -68,3 +68,43 @@ function add_parameterized_rating_constraints!(
     end
     return
 end
+
+"""
+`add_parameterized_rating_constraints!` with the rating of every time step already
+resolved: `flow[name, t] <= ratings[t]` and `flow[name, t] >= -ratings[t]`.
+"""
+function add_parameterized_rating_constraints!(
+    container::OptimizationContainer,
+    con_ub::DenseAxisArray,
+    con_lb::DenseAxisArray,
+    flow::DenseAxisArray,
+    name::AbstractString,
+    ratings::AbstractVector,
+)
+    jump_model = get_jump_model(container)
+    for t in get_time_steps(container)
+        con_ub[name, t] = JuMP.@constraint(jump_model, flow[name, t] <= ratings[t])
+        con_lb[name, t] = JuMP.@constraint(jump_model, flow[name, t] >= -ratings[t])
+    end
+    return
+end
+
+function add_parameterized_rating_constraints!(
+    container::OptimizationContainer,
+    con_ub::DenseAxisArray,
+    con_lb::DenseAxisArray,
+    flow::DenseAxisArray,
+    name::AbstractString,
+    ratings::AbstractVector,
+    slack_ub::DenseAxisArray,
+    slack_lb::DenseAxisArray,
+)
+    jump_model = get_jump_model(container)
+    for t in get_time_steps(container)
+        con_ub[name, t] =
+            JuMP.@constraint(jump_model, flow[name, t] - slack_ub[name, t] <= ratings[t])
+        con_lb[name, t] =
+            JuMP.@constraint(jump_model, flow[name, t] + slack_lb[name, t] >= -ratings[t])
+    end
+    return
+end
