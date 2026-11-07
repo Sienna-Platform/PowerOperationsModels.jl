@@ -1623,8 +1623,8 @@ function add_to_objective_function!(
     add_variable_cost!(container, ActivePowerOutVariable, devices, T)
     add_variable_cost!(container, ActivePowerInVariable, devices, T)
     if get_attribute(model, "energy_target")
-        add_proportional_cost!(container, StorageEnergySurplusVariable, devices, T)
-        add_proportional_cost!(container, StorageEnergyShortageVariable, devices, T)
+        add_proportional_cost!(container, StorageEnergySurplusVariable, devices, model)
+        add_proportional_cost!(container, StorageEnergyShortageVariable, devices, model)
     end
     if get_attribute(model, "cycling_limits")
         add_proportional_cost!(
@@ -1657,17 +1657,32 @@ function add_to_objective_function!(
     return
 end
 
-# Storage energy-target slack penalties are applied only at the final timestep
-# (a single horizon-end accumulator), not per-timestep — so we can't delegate to the
-# IOM default `add_proportional_cost!`, which loops over all timesteps.
-# no test coverage
+# Final-step slack penalties apply at the last time step only, so the IOM default
+# `add_proportional_cost!`, which loops over all time steps, does not fit.
+final_step_cost(
+    model::DeviceModel,
+    ::Any,
+    ::Type{
+        <:Union{StorageChargeCyclingSlackVariable, StorageDischargeCyclingSlackVariable},
+    },
+    ::PSY.EnergyReservoirStorage,
+) = get_slack_penalty(model)
+final_step_cost(
+    ::DeviceModel{U, F},
+    cost,
+    ::Type{T},
+    d::PSY.EnergyReservoirStorage,
+) where {U, F, T <: VariableType} = proportional_cost(cost, T, d, F)
+
+# Horizon-end energy slack: do not scale the penalty by the step length.
 function add_proportional_cost!(
     container::OptimizationContainer,
     ::Type{T},
     devices::Vector{U},
-    ::Type{F},
+    model::DeviceModel{U, F},
 ) where {
     T <: Union{
+        StorageChargeCyclingSlackVariable, StorageDischargeCyclingSlackVariable,
         StorageEnergyShortageVariable, StorageEnergySurplusVariable,
     },
     U <: PSY.EnergyReservoirStorage,
@@ -1677,32 +1692,7 @@ function add_proportional_cost!(
     variable = get_variable(container, T, U)
     for d in devices
         name = PSY.get_name(d)
-        op_cost_data = PSY.get_operation_cost(d)
-        cost_term = proportional_cost(op_cost_data, T, d, F)
-        IOM.add_cost_term_invariant!(
-            container, variable[name, t_end], cost_term,
-            ProductionCostExpression, U, name, t_end,
-        )
-    end
-end
-
-# The cycling slack measures energy over the whole horizon, so the penalty is not scaled by
-# the step length. The penalty comes from the `slack_penalty` of the `DeviceModel`.
-function add_proportional_cost!(
-    container::OptimizationContainer,
-    ::Type{T},
-    devices::Vector{U},
-    model::DeviceModel{U, F},
-) where {
-    T <: Union{StorageChargeCyclingSlackVariable, StorageDischargeCyclingSlackVariable},
-    U <: PSY.EnergyReservoirStorage,
-    F <: AbstractStorageFormulation,
-}
-    t_end = last(get_time_steps(container))
-    variable = get_variable(container, T, U)
-    cost_term = get_slack_penalty(model)
-    for d in devices
-        name = PSY.get_name(d)
+        cost_term = final_step_cost(model, PSY.get_operation_cost(d), T, d)
         IOM.add_cost_term_invariant!(
             container, variable[name, t_end], cost_term,
             ProductionCostExpression, U, name, t_end,

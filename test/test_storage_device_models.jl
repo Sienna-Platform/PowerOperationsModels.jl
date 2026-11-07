@@ -848,7 +848,6 @@ end
         "complete_coverage" => false,
         "regularization" => false,
     )
-    # No step scaling: the slack is a horizon-end energy, so the coefficient is the penalty.
     for (kwargs, expected) in (
         (NamedTuple(), IOM.CONSTRAINT_VIOLATION_SLACK_COST),
         ((slack_penalty = 7.5e3,), 7.5e3),
