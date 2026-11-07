@@ -286,7 +286,7 @@ function _add_time_series_parameters!(
 
     additional_axes =
         calc_additional_axes(container, param, devices_with_time_series, model)
-    param_container = add_param_container!(
+    param_container = add_time_series_parameter_container!(
         container,
         T,
         D,
@@ -370,7 +370,7 @@ function _add_time_series_parameters!(
     # doesn't re-query the store catalog for each branch.
     branch_ts_hashes = Dict{String, String}(zip(device_name_axis, ts_hash_axis))
     additional_axes = ()
-    param_container = add_param_container!(
+    param_container = add_time_series_parameter_container!(
         container,
         T,
         D,
@@ -799,17 +799,17 @@ function _add_objective_function_parameters!(
     jump_model = get_jump_model(container)
 
     additional_axes = _calc_additional_axes(container, T, active_devices, model)
-    param_container = add_param_container!(
+    param_container = add_cost_function_parameter_container!(
         container,
         T,
         D,
         _param_to_vars(T, W),
-        SOSStatusVariable.NO_VARIABLE,
-        false,
-        _get_expected_time_series_eltype(T),
         device_names,
         additional_axes...,
         time_steps;
+        sos_variable = SOSStatusVariable.NO_VARIABLE,
+        uses_compact_power = false,
+        data_type = _get_expected_time_series_eltype(T),
         meta = meta,
     )
 
@@ -1005,7 +1005,8 @@ function _add_parameters!(
     @debug "adding" T D U _group = IOM.LOG_GROUP_OPTIMIZATION_CONTAINER
     names = [PSY.get_name(device) for device in devices]
     time_steps = get_time_steps(container)
-    parameter_container = add_param_container!(container, T, D, key, names, time_steps)
+    parameter_container =
+        add_variable_value_parameter_container!(container, T, D, key, names, time_steps)
     jump_model = get_jump_model(container)
     parent_mult = IOM.get_multiplier_array_data(parameter_container)
     parent_param = IOM.get_parameter_array_data(parameter_container)
@@ -1046,7 +1047,8 @@ function _add_parameters!(
     @debug "adding" T D U _group = IOM.LOG_GROUP_OPTIMIZATION_CONTAINER
     names = [PSY.get_name(device) for device in devices if !_is_must_run(device)]
     time_steps = get_time_steps(container)
-    parameter_container = add_param_container!(container, T, D, key, names, time_steps)
+    parameter_container =
+        add_variable_value_parameter_container!(container, T, D, key, names, time_steps)
     jump_model = get_jump_model(container)
     parent_mult = IOM.get_multiplier_array_data(parameter_container)
     parent_param = IOM.get_parameter_array_data(parameter_container)
@@ -1090,7 +1092,15 @@ function _add_parameters!(
     names = [PSY.get_name(device) for device in devices]
     time_steps = get_time_steps(container)
     parameter_container =
-        add_param_container!(container, T, D, key, names, time_steps; meta = "$(nameof(U))")
+        add_variable_value_parameter_container!(
+            container,
+            T,
+            D,
+            key,
+            names,
+            time_steps;
+            meta = "$(nameof(U))",
+        )
     jump_model = get_jump_model(container)
     parent_mult = IOM.get_multiplier_array_data(parameter_container)
     parent_param = IOM.get_parameter_array_data(parameter_container)
@@ -1131,7 +1141,15 @@ function _add_auxvar_parameter!(
     names = [PSY.get_name(device) for device in devices]
     time_steps = get_time_steps(container)
     parameter_container =
-        add_param_container!(container, T, D, key, names, time_steps; meta = meta)
+        add_variable_value_parameter_container!(
+            container,
+            T,
+            D,
+            key,
+            names,
+            time_steps;
+            meta = meta,
+        )
     jump_model = get_jump_model(container)
     parent_mult = IOM.get_multiplier_array_data(parameter_container)
     parent_param = IOM.get_parameter_array_data(parameter_container)
@@ -1215,7 +1233,7 @@ function _add_parameters!(
     has_semicontinuous_feedforward(model) && return
     names = [PSY.get_name(device) for device in devices]
     time_steps = get_time_steps(container)
-    parameter_container = add_param_container!(container, T,
+    parameter_container = add_variable_value_parameter_container!(container, T,
         D,
         VariableKey(OnVariable, D),
         names,
@@ -1266,7 +1284,7 @@ function _add_parameters!(
     contributing_devices = IOM.get_contributing_devices(model)
     names = [PSY.get_name(device) for device in contributing_devices]
     time_steps = get_time_steps(container)
-    parameter_container = add_param_container!(container, T,
+    parameter_container = add_variable_value_parameter_container!(container, T,
         S,
         key,
         names,

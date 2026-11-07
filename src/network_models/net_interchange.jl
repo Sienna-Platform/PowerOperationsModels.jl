@@ -85,7 +85,7 @@ function _add_net_interchange_series_parameter!(
         end
     end
 
-    param_container = add_param_container!(
+    param_container = add_time_series_parameter_container!(
         container,
         ScheduledNetInterchangeParameter,
         PSY.Area,

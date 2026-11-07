@@ -1978,21 +1978,27 @@ function add_to_expression!(
     expression = get_expression(container, InterfaceTotalFlow, PSY.TransmissionInterface)
     service_name = PSY.get_name(service)
     variable = get_variable(container, T, PSY.TransmissionInterface)
-    time_steps = get_time_steps(container)
-    for t in time_steps
-        add_proportional_to_jump_expression!(
-            expression[service_name, t],
-            variable[service_name, t],
-            get_variable_multiplier(T, S, U),
-        )
-    end
+    _add_interface_slack_to_expression!(
+        expression,
+        variable,
+        service_name,
+        get_variable_multiplier(T, S, U),
+    )
     return
 end
 
-# Function barrier: `get_expression` returns a non-concrete type.
-function _round_interface_expression!(expression::DenseAxisArray, service_name::String)
+function _add_interface_slack_to_expression!(
+    expression::DenseAxisArray,
+    variable::DenseAxisArray,
+    service_name::String,
+    multiplier::Float64,
+)
     for t in axes(expression, 2)
-        IOM.round_to_zero_or_one!(expression[service_name, t])
+        add_proportional_to_jump_expression!(
+            expression[service_name, t],
+            variable[service_name, t],
+            multiplier,
+        )
     end
     return
 end
@@ -2003,7 +2009,8 @@ function _handle_nodal_or_zonal_interfaces(
     direction_map::Dict{String, Int},
     contributing_devices::Vector{V},
     # A `JuMPVariableArray` (StaticBranchBounds) or an `AffExpr` container (DCP StaticBranch's
-    # BThetaBranchFlow); `add_proportional_to_jump_expression!` handles either scalar.
+    # BThetaBranchFlow, or PTDFBranchFlow); `add_proportional_to_jump_expression!` handles
+    # either scalar.
     variable::DenseAxisArray,
     expression::DenseAxisArray, # There is no good type for a DenseAxisArray slice
 ) where {V <: PSY.ACTransmission}
@@ -2019,13 +2026,13 @@ function _handle_nodal_or_zonal_interfaces(
                     reduction_entry,
                     direction_map,
                     net_reduction_data,
-                )
+                )::Float64
             end
             for t in axes(variable, 2)
                 add_proportional_to_jump_expression!(
                     expression[t],
                     variable[name, t],
-                    Float64(direction),
+                    direction,
                 )
             end
         end
@@ -2046,13 +2053,13 @@ function _handle_nodal_or_zonal_interfaces(
         if isempty(direction_map)
             direction = 1.0
         else
-            direction = direction_map[name]
+            direction = Float64(direction_map[name])
         end
         for t in axes(variable, 2)
             add_proportional_to_jump_expression!(
                 expression[t],
                 variable[name, t],
-                Float64(direction),
+                direction,
             )
         end
     end
@@ -2067,7 +2074,6 @@ function add_to_expression!(
     model::ServiceModel{PSY.TransmissionInterface, V},
     network_model::NetworkModel{<:AbstractActivePowerModel},
 ) where {V <: MaxInterfaceFlow}
-    net_reduction_data = get_network_reduction(network_model)
     expression = get_expression(container, InterfaceTotalFlow, PSY.TransmissionInterface)
     service_name = PSY.get_name(service)
     direction_map = PSY.get_direction_mapping(service)
@@ -2098,7 +2104,6 @@ function add_to_expression!(
     model::ServiceModel{PSY.TransmissionInterface, V},
     network_model::NetworkModel{DCPNetworkModel},
 ) where {V <: MaxInterfaceFlow}
-    net_reduction_data = get_network_reduction(network_model)
     expression = get_expression(container, InterfaceTotalFlow, PSY.TransmissionInterface)
     service_name = PSY.get_name(service)
     direction_map = PSY.get_direction_mapping(service)
@@ -2140,7 +2145,6 @@ function add_to_expression!(
     model::ServiceModel{PSY.TransmissionInterface, V},
     network_model::NetworkModel{AreaPTDFNetworkModel},
 ) where {V <: MaxInterfaceFlow}
-    net_reduction_data = get_network_reduction(network_model)
     expression = get_expression(container, InterfaceTotalFlow, PSY.TransmissionInterface)
     service_name = PSY.get_name(service)
     direction_map = PSY.get_direction_mapping(service)
@@ -2162,6 +2166,13 @@ function add_to_expression!(
     return
 end
 
+function _round_interface_expression!(expression::DenseAxisArray, service_name::String)
+    for t in axes(expression, 2)
+        IOM.round_to_zero_or_one!(expression[service_name, t])
+    end
+    return
+end
+
 function add_to_expression!(
     container::OptimizationContainer,
     ::Type{InterfaceTotalFlow},
@@ -2170,7 +2181,6 @@ function add_to_expression!(
     model::ServiceModel{PSY.TransmissionInterface, V},
     network_model::NetworkModel{<:AbstractPTDFNetworkModel},
 ) where {V <: MaxInterfaceFlow}
-    net_reduction_data = get_network_reduction(network_model)
     expression = get_expression(container, InterfaceTotalFlow, PSY.TransmissionInterface)
     service_name = PSY.get_name(service)
     direction_map = PSY.get_direction_mapping(service)
@@ -2182,31 +2192,14 @@ function add_to_expression!(
 
     for (br_type, contributing_devices) in contributing_devices_map
         flow_expression = get_expression(container, PTDFBranchFlow, br_type)
-        # nearly identical to _handle_nodal_or_zonal_interfaces: differences are
-        # expression[service_name, t] vs expression[t], flow_expression[name, t] vs variable[name, t]
-        catalog = get_branch_catalog(network_model)
-        for (name, arc) in PNM.get_name_to_arc_map(catalog, br_type)
-            reduction_entry = PNM.get_reduction_entry(catalog, arc)
-            if _reduced_entry_in_interface(reduction_entry, contributing_devices)
-                if isempty(direction_map)
-                    direction = 1.0
-                else
-                    direction = _get_direction(
-                        arc,
-                        reduction_entry,
-                        direction_map,
-                        net_reduction_data,
-                    )
-                end
-                for t in axes(flow_expression, 2)
-                    JuMP.add_to_expression!(
-                        expression[service_name, t],
-                        flow_expression[name, t],
-                        Float64(direction),
-                    )
-                end
-            end
-        end
+        _handle_nodal_or_zonal_interfaces(
+            br_type,
+            get_branch_catalog(network_model),
+            direction_map,
+            contributing_devices,
+            flow_expression,
+            expression[service_name, :],
+        )
     end
     _round_interface_expression!(expression, service_name)
     return
@@ -2292,7 +2285,7 @@ function _get_direction(
         @warn "Direction not found for $(summary(reduction_entry)). Will use the default from -> to direction"
         return 1.0
     else
-        return direction_map[name]
+        return Float64(direction_map[name])
     end
 end
 
