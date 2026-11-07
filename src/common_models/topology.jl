@@ -6,9 +6,13 @@ parameters, and store it in the network model together with the post-contingency
 each registered contingency at every step. Every AC branch with a status of 0 at a step is
 removed at that step. Does nothing when the network model has no topology matrix.
 
-The topology matrix keeps the Woodbury factors of the base network and of the step
-topologies this schedule uses, so a model rebuilt for every window of a simulation holds
-one window's factors.
+The topology matrix keeps its caches only for the base network and the networks this
+schedule uses, so a model rebuilt for every window of a simulation holds one window's rows.
+At each step the model queries the network of the components out at the step and, for each
+contingency, its `PNM.PostContingencyNetwork` on that topology. At a step with nothing out
+that network is the contingency's own, which is then in use; when every step has something
+out, the contingency's own network is never queried, so its caches are evicted while its
+registration is kept.
 
 Islands are not modeled: throws an `IS.ConflictingInputsError` listing every available
 injector of a modeled device type that is in service at a step where its bus lies outside
@@ -34,7 +38,10 @@ function construct_topology_schedule!(
         uuid => _post_contingency_networks(ts, uuid, time_steps) for
         uuid in keys(PNM.get_registered_contingencies(matrix))
     )
-    PNM.retain_modifications!(matrix, _networks_in_use(ts, time_steps))
+    PNM.retain_modifications!(
+        matrix,
+        _networks_in_use(ts, post_contingency, time_steps),
+    )
     set_topology_schedule!(network_model, ts, post_contingency)
     _check_island_consistency(container, template, network_model, sys)
     return
@@ -70,11 +77,18 @@ function _post_contingency_networks(
     ]
 end
 
-# Every step topology the schedule resolves rows on.
-function _networks_in_use(ts::PNM.TopologySchedule, time_steps::UnitRange{Int})
-    in_use = Set{PNM.NetworkModification}()
+# Every step topology and post-contingency network the schedule resolves rows on.
+function _networks_in_use(
+    ts::PNM.TopologySchedule,
+    post_contingency::_PostContingencyNetworks,
+    time_steps::UnitRange{Int},
+)
+    in_use = Set{Union{PNM.NetworkModification, PNM.PostContingencyNetwork}}()
     for t in time_steps
         mod = PNM.get_network_modification(ts, t)
+        isnothing(mod) || push!(in_use, mod)
+    end
+    for mods in values(post_contingency), mod in mods
         isnothing(mod) || push!(in_use, mod)
     end
     return in_use

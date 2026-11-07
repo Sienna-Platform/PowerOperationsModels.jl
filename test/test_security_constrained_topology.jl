@@ -509,6 +509,121 @@ end
     end
 end
 
+# Statuses of the scheduled lines for one window: `out` is out at `steps`, every other
+# scheduled line is in service throughout.
+function _set_window_statuses!(model, scheduled, out, steps)
+    status = IOM.get_parameter_array(_container(model), POM.BranchStatusParameter, PSY.Line)
+    for name in scheduled
+        status[name, :] .= 1.0
+    end
+    status[out, steps] .= 0.0
+    return
+end
+
+_base_network() = PNM.NetworkModification("", PNM.ArcModification[])
+
+@testset "The topology matrix keeps only the networks of the current window" begin
+    sys, ids = _c_sys5_with_scheduled_contingencies(("1", "2"))
+    # Neither scheduled line islands a bus together with either contingency.
+    scheduled = ["3", "6"]
+    for name in scheduled[2:end]
+        _schedule_outage!(
+            sys,
+            PSY.get_component(PSY.Line, sys, name),
+            h -> 0.0,
+        )
+    end
+    model = _built_model(_sc_template(), sys)
+    network_model = _network_model(model)
+    matrix = POM.get_topology_matrix(network_model)
+    contingencies = Set(
+        spec.modification for spec in values(PNM.get_registered_contingencies(matrix))
+    )
+    @test length(contingencies) == 2
+    n_steps = _n_steps(model)
+    # The third window has a line out at every step, so no step queries a contingency on
+    # its own and the contingency-only caches are evicted; the fourth queries them again.
+    windows = [("3", 2:3), ("6", 2:3), ("3", 1:n_steps), ("6", 2:3)]
+    holds_contingencies = Bool[]
+    for (out, steps) in windows
+        _set_window_statuses!(model, scheduled, out, steps)
+        _rebuild!(model, sys)
+        ts = POM.get_topology_schedule(network_model)
+        @test all(t -> PNM.is_arc_out(ts, _arc_of(model, PSY.Line, out), t), steps)
+        in_use = POM._networks_in_use(
+            ts,
+            POM.get_post_contingency_networks(network_model),
+            1:n_steps,
+        )
+        topologies = Set(e for e in in_use if e isa PNM.NetworkModification)
+        networks = [e for e in in_use if e isa PNM.PostContingencyNetwork]
+        # A network on the base topology is cached as the registered contingency.
+        on_base = Set(net.tier2 for net in networks if net.topology == _base_network())
+        on_topology = Set(net for net in networks if net.topology != _base_network())
+        # One topology with the line out, and each contingency's network on it.
+        @test length(topologies) == 1
+        @test length(on_topology) == 2
+        @test issubset(on_base, contingencies)
+        @test Set(keys(PNM.get_row_caches(matrix))) ==
+              union(topologies, on_base, [_base_network()])
+        @test Set(keys(PNM.get_woodbury_cache(matrix))) == union(topologies, on_base)
+        @test Set(keys(PNM.get_tier2_row_caches(matrix))) == on_topology
+        @test Set(keys(PNM.get_tier2_factor_cache(matrix))) == on_topology
+        push!(
+            holds_contingencies,
+            issubset(contingencies, keys(PNM.get_row_caches(matrix))),
+        )
+        # The rows the rebuilt model holds are the union rebuilds' rows.
+        _check_post_contingency_flows(
+            model,
+            Dict(k => ids[k] for k in ("1", "2")),
+            (arc, t, ctg) -> _ptdf_post_contingency_reference(
+                model, _c_sys5, arc, t,
+                t in steps ? [(PSY.Line, out)] : Tuple{DataType, String}[],
+                [(PSY.Line, ctg)],
+            ),
+        )
+    end
+    @test holds_contingencies == [true, true, false, true]
+end
+
+@testset "releasing the contingency caches after build keeps the model's answer" begin
+    sys, ids = _c_sys5_with_scheduled_contingencies(("1", "2", "3"))
+    reference = _built_model(_sc_template(), sys)
+    @test solve!(reference) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+    objective(model) = IOM.get_optimization_container(model).optimizer_stats.objective_value
+
+    sys, ids = _c_sys5_with_scheduled_contingencies(("1", "2", "3"))
+    model = _built_model(_sc_template(), sys)
+    network_model = _network_model(model)
+    matrix = IOM.get_contingency_matrix(network_model)
+    # The contingency on line "1" with line "3" out, at the maintenance steps.
+    post_contingency = POM.get_post_contingency_networks(network_model)
+    net = post_contingency[parse(Int, ids["1"])][first(_OUT_STEPS)]
+    monitored = _arc_of(model, PSY.Line, "4")
+    row = only(PNM.get_post_contingency_ptdf_rows(matrix, monitored, [net]))
+    registered = copy(PNM.get_registered_contingencies(matrix))
+    @test !isempty(PNM.get_woodbury_cache(matrix))
+    @test !isempty(PNM.get_tier2_factor_cache(matrix))
+
+    release_contingency_caches!(model)
+    @test isempty(PNM.get_woodbury_cache(matrix))
+    @test isempty(PNM.get_row_caches(matrix))
+    @test isempty(PNM.get_tier2_factor_cache(matrix))
+    @test isempty(PNM.get_tier2_row_caches(matrix))
+    @test PNM.get_registered_contingencies(matrix) == registered
+    # A row asked for again is recomputed, not lost.
+    @test only(PNM.get_post_contingency_ptdf_rows(matrix, monitored, [net])) ≈
+          row atol = 1e-12
+    @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+    @test objective(model) ≈ objective(reference) rtol = 1e-9
+end
+
+@testset "releasing the caches of a network model without a contingency matrix does nothing" begin
+    model = _built_model(_sc_template(; sc_types = ()), _c_sys5())
+    @test release_contingency_caches!(model) === nothing
+end
+
 @testset "sparse post-contingency rows give the dense row's entries and shift adjustments" begin
     SA = POM.SparseArrays
     dense = [0.0, 0.5, 5e-10, -0.25, 0.0, 1e-3]
