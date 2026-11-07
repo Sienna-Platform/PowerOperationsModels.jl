@@ -594,7 +594,7 @@ end
 end
 
 @testset "AC branch schedules under $(network) fail the build" for network in
-                                                                 (
+                                                                   (
     PTDFNetworkModel,
     DCPNetworkModel,
 )
