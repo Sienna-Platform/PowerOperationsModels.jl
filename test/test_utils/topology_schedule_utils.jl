@@ -1,6 +1,53 @@
+function _attach_forecast_schedule!(sys, owner, name, pattern)
+    initial_times = collect(PSY.get_forecast_initial_times(sys))
+    horizon = PSY.get_forecast_horizon(sys)
+    resolution = first(PSY.get_time_series_resolutions(sys))
+    steps = Int(horizon ÷ resolution)
+    data = SortedDict{Dates.DateTime, Vector{Float64}}()
+    for t0 in initial_times
+        data[t0] = [Float64(pattern(h)) for h in 1:steps]
+    end
+    PSY.add_time_series!(
+        sys,
+        owner,
+        PSY.Deterministic(; name = name, data = data, resolution = resolution),
+    )
+    return
+end
+
+# A switch "tie" parallel to the first line, scheduled `pattern(h)` (1.0 means closed).
+function _sys_with_scheduled_switch(pattern = h -> 1.0)
+    sys = PSB.build_system(PSITestSystems, "c_sys5_uc"; add_forecasts = true)
+    line = first(sort!(collect(PSY.get_components(PSY.Line, sys)); by = PSY.get_name))
+    switch = PSY.DiscreteControlledACBranch(nothing)
+    switch.name = "tie"
+    switch.arc = PSY.get_arc(line)
+    switch.x = 0.05
+    switch.available = true
+    switch.branch_status = PSY.DiscreteControlledBranchStatus.OPEN
+    PSY.add_component!(sys, switch)
+    _attach_forecast_schedule!(sys, switch, PNM.BRANCH_STATUS_SCHEDULE, pattern)
+    return sys, switch
+end
+
 _c_sys5_uc() = PSB.build_system(PSITestSystems, "c_sys5_uc"; add_forecasts = true)
 
+# An availability schedule on `component` whose forecast windows are out where `pattern(h)`
+# is 1.0, where `h` counts the window's steps from 1.
+function _schedule_outage!(sys, component, pattern)
+    _attach_forecast_schedule!(
+        sys,
+        component,
+        PNM.AVAILABLE_SCHEDULE,
+        h -> 1.0 - pattern(h),
+    )
+    return
+end
+
 _sorted(T, sys) = sort!(collect(PSY.get_components(T, sys)); by = PSY.get_name)
+
+# A `_schedule_outage!` pattern that is out at `steps`.
+_out_at(steps) = h -> h in steps ? 1.0 : 0.0
 
 function _built_model(template, sys; kwargs...)
     model = DecisionModel(template, sys; optimizer = HiGHS_optimizer, kwargs...)
@@ -8,6 +55,20 @@ function _built_model(template, sys; kwargs...)
           IOM.ModelBuildStatus.BUILT
     return model
 end
+
+function _read_build_log(model)
+    return read(joinpath(IOM.get_output_dir(model), IOM.PROBLEM_LOG_FILENAME), String)
+end
+
+function _build_for_log(model)
+    return build!(
+        model;
+        output_dir = mktempdir(; cleanup = true),
+        console_level = Logging.AboveMaxLevel,
+    )
+end
+
+_fixed_at_zero(v::JuMP.VariableRef) = JuMP.is_fixed(v) && JuMP.fix_value(v) == 0.0
 
 _container(model) = IOM.get_optimization_container(model)
 

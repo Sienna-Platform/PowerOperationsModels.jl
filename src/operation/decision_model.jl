@@ -27,6 +27,7 @@ end
 
 function build_pre_step!(model::DecisionModel{<:AbstractPowerDecisionProblem})
     TimerOutputs.@timeit BUILD_PROBLEMS_TIMER "Build pre-step" begin
+        reset_schedule_catalog!(get_template(model))
         validate_template(model)
         if !isempty(model)
             @info "OptimizationProblem status not ModelBuildStatus.EMPTY. Resetting"

@@ -24,9 +24,7 @@ function add_parameters!(
     U <: Vector{D},
     W <: AbstractDeviceFormulation,
 } where {D <: PSY.Component}
-    if get_rebuild_model(get_settings(container)) && has_container_key(container, T, D)
-        return
-    end
+    should_add_parameter(container, ParameterKey(T, D), devices, model) || return
     _add_parameters!(container, T, devices, model)
     return
 end
@@ -50,9 +48,7 @@ function add_parameters!(
     V <: PSY.Service,
     W <: AbstractServiceFormulation,
 }
-    if get_rebuild_model(get_settings(container)) && has_container_key(container, T, V)
-        return
-    end
+    should_add_parameter(container, ParameterKey(T, V), services, model) || return
     _add_parameters!(container, T, services, model)
     return
 end
@@ -74,9 +70,7 @@ function add_parameters!(
     V <: PSY.AbstractReserve,
     W <: AbstractServiceFormulation,
 }
-    if get_rebuild_model(get_settings(container)) && has_container_key(container, T, U)
-        return
-    end
+    should_add_parameter(container, ParameterKey(T, U), services, model) || return
     _add_parameters!(container, T, services, model)
     return
 end
@@ -100,9 +94,7 @@ function add_parameters!(
     V <: Vector{D},
     W <: AbstractDeviceFormulation,
 } where {D <: PSY.Component}
-    if get_rebuild_model(get_settings(container)) && has_container_key(container, T, D)
-        return
-    end
+    should_add_parameter(container, ParameterKey(T, D), devices, model) || return
     source_key = get_optimization_container_key(ff)
     _add_parameters!(container, T, source_key, model, devices)
     return
@@ -121,10 +113,7 @@ function add_parameters!(
 } where {D <: PSY.Component}
     source_key = get_optimization_container_key(ff)
     meta = _fix_value_container_meta(source_key)
-    if get_rebuild_model(get_settings(container)) &&
-       has_container_key(container, T, D, meta)
-        return
-    end
+    should_add_parameter(container, ParameterKey(T, D, meta), devices, model) || return
     _add_parameters!(container, T, source_key, model, devices)
     _set_affected_variables!(container, T, D, ff)
     return
@@ -160,9 +149,7 @@ function add_branch_parameters!(
     U <: Vector{D},
     W <: AbstractDeviceFormulation,
 } where {D <: PSY.ACTransmission}
-    if get_rebuild_model(get_settings(container)) && has_container_key(container, T, D)
-        return
-    end
+    should_add_parameter(container, ParameterKey(T, D), devices, model) || return
     _add_time_series_parameters!(container, T, network_model, devices, model)
     return
 end
