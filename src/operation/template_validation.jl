@@ -864,13 +864,12 @@ supplemental attributes. `DeviceModel{D, SC}` claims an outage iff `D` is among
 the types of the outaged (attached) components. The inner dict carries the
 per-modeled-type breakdown of monitored component names.
 
-Selection semantics, per `IOM.get_selected_outage_ids(m)`:
-- A set of ids restricts `m` to exactly those outages, `PlannedOutage`s included;
-  warn for any selected id that produced no `D`-type entry. Every selected id
-  must name a `PSY.Outage` in the system.
-- `nothing` auto-discovers every outage. Honor `"include_planned_outages"` on
-  `m`'s attributes (default `false`) — `PlannedOutage`s are skipped on the
-  auto-discover path unless the attribute is `true`.
+Only `PSY.UnplannedOutage`s are contingencies; `PSY.PlannedOutage`s are never
+claimed. Selection semantics, per `IOM.get_selected_outage_ids(m)`:
+- A set of ids restricts `m` to exactly those outages; warn for any selected id
+  that produced no `D`-type entry, including a selected `PlannedOutage`. Every
+  selected id must name a `PSY.Outage` in the system.
+- `nothing` auto-discovers every `PSY.UnplannedOutage`.
 
 `m.outages` is rebuilt from scratch on every call, so rebuilding a model
 reflects outages added to or removed from the system since the last build.
@@ -899,7 +898,7 @@ function _build_device_model_outages!(
     unavailable_counts = Dict{Int, Int}()
     selected_ids = _selected_outage_ids(sc_models)
 
-    for outage in PSY.get_supplemental_attributes(PSY.Outage, sys)
+    for outage in PSY.get_supplemental_attributes(PSY.UnplannedOutage, sys)
         outage_id = IS.get_id(outage)
         _is_selected(selected_ids, outage_id) || continue
         if isempty(PSY.get_monitored_components(outage))
@@ -940,7 +939,7 @@ function _build_device_model_outages!(
 
     _warn_uncovered_monitored_types(uncovered_types)
     _warn_unavailable_monitored_components(unavailable_counts)
-    _warn_unmatched_user_outages(sc_models)
+    _warn_unmatched_user_outages(sc_models, sys)
     return
 end
 
@@ -1028,24 +1027,14 @@ function _attached_component_types(outage::PSY.Outage, sys::PSY.System)
 end
 
 # Whether SC model `m` claims `outage`. A selection on `m` restricts it to those
-# ids; without one, `m` auto-discovers (claim all, skipping `PlannedOutage`s
-# unless the model opts in via the `"include_planned_outages"` attribute).
-# Planned outages are scheduled maintenance rather than contingencies, so a model
-# claims them only by opting in.
-_needs_planned_outage_optin(::PSY.Outage) = false
-_needs_planned_outage_optin(::PSY.PlannedOutage) = true
-
+# ids; without one, `m` auto-discovers (claim all).
 function _sc_model_claims_outage(
     m::IOM.DeviceModelForBranches,
-    outage::PSY.Outage,
+    ::PSY.UnplannedOutage,
     outage_id::Int,
 )
     selection = IOM.get_selected_outage_ids(m)
-    isnothing(selection) || return outage_id in selection
-    if _needs_planned_outage_optin(outage)
-        return get_attribute(m, "include_planned_outages") === true
-    end
-    return true
+    return isnothing(selection) || outage_id in selection
 end
 
 # Assign `per_type` to every SC model whose component type is among the outage's
@@ -1053,7 +1042,7 @@ end
 # covered an attached type.
 function _assign_outage_to_sc_models!(
     sc_models::Vector{<:IOM.DeviceModelForBranches},
-    outage::PSY.Outage,
+    outage::PSY.UnplannedOutage,
     outage_id::Int,
     per_type::Dict{DataType, Set{String}},
     attached_types::Set{DataType},
@@ -1095,13 +1084,24 @@ function _warn_unavailable_monitored_components(unavailable_counts::Dict{Int, In
     return
 end
 
-function _warn_unmatched_user_outages(sc_models::Vector{<:IOM.DeviceModelForBranches})
+function _warn_unmatched_user_outages(
+    sc_models::Vector{<:IOM.DeviceModelForBranches},
+    sys::PSY.System,
+)
     for m in sc_models
         selection = IOM.get_selected_outage_ids(m)
         isnothing(selection) && continue
         D = get_component_type(m)
         for uuid in selection
             haskey(get_outages(m), uuid) && continue
+            if PSY.get_supplemental_attribute(sys, uuid) isa PSY.PlannedOutage
+                @warn "Outage $(uuid) listed on DeviceModel{$D, \
+                       $(get_formulation(m))} is a planned outage; planned \
+                       outages are not contingencies and will not contribute \
+                       any post-contingency constraints." _group =
+                    IOM.LOG_GROUP_MODELS_VALIDATION
+                continue
+            end
             @warn "Outage $(uuid) listed on DeviceModel{$D, \
                    $(get_formulation(m))} is not attached to a component \
                    of type $D in the system — it will not contribute any \

@@ -98,7 +98,6 @@ function get_default_attributes(
 ) where {U <: PSY.ACTransmission, V <: AbstractSecurityConstrainedStaticBranch}
     return Dict{String, Any}(
         PARALLEL_BRANCH_MAX_RATING_KEY => SINGLE_ELEMENT_CONTINGENCY_RATING,
-        "include_planned_outages" => false,
         _control_attribute(U, V)...,
         _operational_flow_limit_attributes(U)...,
         RELAX_BINARIES_ATTRIBUTE => false,
