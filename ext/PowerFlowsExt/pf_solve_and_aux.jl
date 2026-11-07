@@ -64,7 +64,6 @@ _get_pf_result(
     pf_data::PFS.PowerFlowData,
 ) =
     PFS.get_voltage_stability_factors(pf_data)
-# PERF: unlike the others, this one requires a bit of computation.
 _get_pf_result(
     ::Type{POM.PowerFlowBranchActivePowerLoss},
     pf_data::PFS.PowerFlowData,
@@ -75,6 +74,7 @@ _get_pf_result(
 function _write_aux_variable_value!(
     container::OptimizationContainer,
     key::AuxVarKey{T, <:PSY.ACBus},
+    ::PSY.System,
     pf_e_data::PowerFlowEvaluationData{<:PFS.PowerFlowData},
 ) where {T <: POM.PowerFlowAuxVariableType}
     @debug "Updating $key from PowerFlowData"
@@ -93,6 +93,7 @@ end
 function _write_aux_variable_value!(
     container::OptimizationContainer,
     key::AuxVarKey{T, U},
+    sys::PSY.System,
     pf_e_data::PowerFlowEvaluationData{<:PFS.PowerFlowData},
 ) where {T <: POM.PowerFlowAuxVariableType, U <: PSY.Branch}
     @debug "Updating $key from PowerFlowData"
@@ -101,27 +102,21 @@ function _write_aux_variable_value!(
     dest = get_aux_variable(container, key)
     nrd = PFS.get_network_reduction_data(pf_data)
     arc_lookup = PFS.get_arc_lookup(pf_data)
-    # PERF: could pre-compute a Dict of branch type to arcs, then intersect the arcs
-    # for the type U with the keys of the branch maps.
-    for (arc, br) in PNM.get_direct_branch_map(nrd)
-        if br isa U
-            name = PSY.get_name(br)
-            arc_ix = arc_lookup[arc]
-            dest[name, :] = src[arc_ix, :]
-        end
-    end
-    for (arc, parallel_brs) in PNM.get_parallel_branch_map(nrd)
-        # `PNM.compute_parallel_multiplier` susceptance-weights each branch, so parallel
-        # branches with unequal impedances are handled correctly.
-        for br in parallel_brs
-            if br isa U
-                name = PSY.get_name(br)
-                IS.@assert_op T <: POM.BranchFlowAuxVariableType ||
-                              (T == POM.PowerFlowBranchActivePowerLoss)
-                multiplier = PNM.compute_parallel_multiplier(parallel_brs, name)
-                arc_ix = arc_lookup[arc]
-                dest[name, :] = multiplier .* src[arc_ix, :]
-            end
+    direct_map = PNM.get_reverse_direct_branch_map(nrd)
+    parallel_map = PNM.get_reverse_parallel_branch_map(nrd)
+    for name in axes(dest, 1)
+        br = PSY.get_component(U, sys, name)
+        if haskey(direct_map, br)
+            dest[name, :] = src[arc_lookup[direct_map[br]], :]
+        elseif haskey(parallel_map, br)
+            # `PNM.compute_parallel_multiplier` susceptance-weights each branch, so parallel
+            # branches with unequal impedances are handled correctly.
+            IS.@assert_op T <: POM.BranchFlowAuxVariableType ||
+                          (T == POM.PowerFlowBranchActivePowerLoss)
+            arc = parallel_map[br]
+            parallel_brs = PNM.get_parallel_branch_map(nrd)[arc]
+            multiplier = PNM.compute_parallel_multiplier(parallel_brs, name)
+            dest[name, :] = multiplier .* src[arc_lookup[arc], :]
         end
     end
     return
@@ -130,10 +125,10 @@ end
 function IOM.calculate_aux_variable_value!(
     container::OptimizationContainer,
     key::AuxVarKey{<:POM.PowerFlowAuxVariableType, <:PSY.Component},
-    ::PSY.System,
+    sys::PSY.System,
     pf_e_data::PowerFlowEvaluationData{<:PFS.PowerFlowData},
 )
     # Time steps where the power flow didn't converge get NaNs.
-    _write_aux_variable_value!(container, key, pf_e_data)
+    _write_aux_variable_value!(container, key, sys, pf_e_data)
     return
 end
