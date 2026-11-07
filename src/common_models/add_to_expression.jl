@@ -288,6 +288,75 @@ function _add_load_ts_parameter_to_balance!(
     return
 end
 
+# The parameter container holds one multiplier-weighted sum per bus (see
+# `_add_time_series_parameter_container!`), so each bus gets one term.
+function _add_load_ts_parameter_to_balance!(
+    container::OptimizationContainer,
+    ::Type{T},
+    ::Type{U},
+    devices::Vector{V},
+    network_model::NetworkModel,
+    model::DeviceModel{V, StaticPowerLoad},
+) where {
+    T <: ExpressionType,
+    U <: Union{ActivePowerTimeSeriesParameter, ReactivePowerTimeSeriesParameter},
+    V <: PSY.ElectricLoad,
+}
+    _add_aggregated_load_terms!(
+        container,
+        T,
+        U,
+        devices,
+        network_model,
+        get_parameter(container, U, V),
+        get_time_series_names(model)[U],
+    )
+    return
+end
+
+# Function barrier: `get_parameter` is not inferable, so specialize on the container here.
+function _add_aggregated_load_terms!(
+    container::OptimizationContainer,
+    ::Type{T},
+    ::Type{U},
+    devices::Vector{V},
+    network_model::NetworkModel,
+    param_container::IOM.ParameterContainer,
+    ts_name::String,
+) where {T <: ExpressionType, U <: TimeSeriesParameter, V <: PSY.ElectricLoad}
+    row_of = IOM.get_row_aggregation(get_attributes(param_container)).row_of
+    time_steps = get_time_steps(container)
+    buses = Dict{Int, PSY.ACBus}()
+    for d in devices
+        name = PSY.get_name(d)
+        if haskey(row_of, name)
+            buses[row_of[name]] = PSY.get_bus(d)
+        else
+            @warn "Device $(name) does not have time series $(ts_name). Using default value of 1.0 for all time steps."
+            targets = _balance_expression_targets(container, T, network_model, d)
+            fallback_multiplier = get_multiplier_value(U, d, StaticPowerLoad)
+            for t in time_steps
+                _apply_term_to_targets!(targets, 1.0, fallback_multiplier, t)
+            end
+        end
+    end
+    for (number, bus) in buses
+        _apply_aggregate_to_targets!(
+            _bus_balance_targets(container, T, network_model, bus),
+            IOM.get_row_aggregate_refs(param_container, number),
+            time_steps,
+        )
+    end
+    return
+end
+
+function _apply_aggregate_to_targets!(targets::Tuple, refs::AbstractVector, time_steps)
+    for t in time_steps
+        _apply_term_to_targets!(targets, refs[t], 1.0, t)
+    end
+    return
+end
+
 """
 Add a constant device power (e.g. a `StaticPowerLoad` motor load) to a balance
 expression with multiplier `-1.0`. Active vs reactive power is selected by the expression

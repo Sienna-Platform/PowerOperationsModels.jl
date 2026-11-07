@@ -332,7 +332,7 @@ function _net_device_injection(container, t)
         param = IOM.get_parameter(container, ActivePowerTimeSeriesParameter, device_type)
         mult = IOM.get_multiplier_array(param)
         total += sum(
-            IOM.jump_value(IOM.get_parameter_column_refs(param, name)[t]) * mult[name, t]
+            IOM.get_parameter_column_values(param, name)[t] * mult[name, t]
             for name in axes(mult, 1)
         )
     end
