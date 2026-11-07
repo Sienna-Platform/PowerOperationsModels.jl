@@ -359,7 +359,9 @@ function _first_lhs_parameter_component(model::IOM.AbstractOptimizationModel)
         found = _first_lhs_parameter_component(m, system)
         isnothing(found) || return found
     end
-    return nothing
+    return _first_load_zone_lhs_component(
+        get_optimization_container(model), get_network_model(template), system,
+    )
 end
 
 # Left-hand-side parameter values are fixed coefficients, so under recurrent solves the model
@@ -391,6 +393,7 @@ function _check_lhs_time_series_types(model::IOM.AbstractOptimizationModel)
     ))
         _check_lhs_time_series_types(component_model, system, ts_type)
     end
+    _check_load_zone_time_series_types(get_network_model(template), system, ts_type)
     return
 end
 
