@@ -1185,6 +1185,214 @@ const STATIC_MIN_NAMES = Dict(ActivePowerTimeSeriesParameter => "max_active_powe
     end
 end
 
+# The level term of a must-run compact unit is the change of `s_t Pmin_t`, with `s` its
+# injector status and the unit in service at its first minimum before step 1.
+function _status_level(pmin, out_steps)
+    level = [t in out_steps ? 0.0 : pmin[t] for t in eachindex(pmin)]
+    return [level[t] - (t == 1 ? pmin[1] : level[t - 1]) for t in eachindex(level)]
+end
+
+@testset "Compact UC must-run ramp level term follows the outage, series $(profiled)" for profiled in
+                                                                                          (
+    true,
+    false,
+)
+    names = profiled ? MIN_POWER_UC_NAMES : STATIC_MIN_NAMES
+    function ramp_rows(out)
+        sys, unit = _min_power_system(MIN_POWER_VALUES)
+        PSY.set_commitment_mode!(unit, PSY.CommitmentModes.MUST_RUN)
+        out && _schedule_outage!(sys, unit, _maintenance)
+        _, container = _built_min_power_container(
+            sys;
+            formulation = ThermalCompactUnitCommitment,
+            names = names,
+        )
+        return _ramp_rows(container, ThermalStandard), unit
+    end
+    rows, unit = ramp_rows(true)
+    ref, _ = ramp_rows(false)
+    pmin = if profiled
+        PSY.get_max_active_power(unit, u"SU") .* MIN_POWER_VALUES
+    else
+        fill(PSY.get_active_power_limits(unit, u"SU").min, 24)
+    end
+    shift = _status_level(pmin, _OUT_STEPS) .- _status_level(pmin, ())
+    @test any(!iszero, shift)
+    for t in 1:24
+        @test JuMP.normalized_rhs(rows.up["Brighton", t]) -
+              JuMP.normalized_rhs(ref.up["Brighton", t]) ≈ -shift[t] atol = 1e-9
+        @test JuMP.normalized_rhs(rows.dn["Brighton", t]) -
+              JuMP.normalized_rhs(ref.dn["Brighton", t]) ≈ shift[t] atol = 1e-9
+    end
+end
+
+# Brighton must-run on c_sys5_uc with loads at 40%, no minimum times, a loose ramp-up and a
+# ramp-down of `ramp_down` times its minimum per hour; at the default of one half, a drop from
+# its minimum to zero in one step is infeasible. `pattern(t0, h)` is 1.0 where the unit is out at step `h` of the forecast window
+# starting at `t0`. The model starts at `initial_time`.
+# Scale every load's forecast by `factor`, keeping the units labels of each series.
+function _scale_load_forecasts!(sys, factor)
+    for load in PSY.get_components(PSY.PowerLoad, sys)
+        ts = PSY.get_time_series(PSY.Deterministic, load, "max_active_power")
+        data = SortedDict(k => factor .* v for (k, v) in PSY.get_data(ts))
+        PSY.remove_time_series!(sys, PSY.Deterministic, load, "max_active_power")
+        PSY.add_time_series!(
+            sys,
+            load,
+            PSY.Deterministic(;
+                name = "max_active_power",
+                data = data,
+                resolution = PSY.get_resolution(ts),
+                units = ts.units,
+                quantity_kind = ts.quantity_kind,
+                per_unit_of = ts.per_unit_of,
+            ),
+        )
+    end
+    return
+end
+
+function _slow_must_run_status(
+    formulation;
+    initial_power,
+    pattern,
+    initial_time = nothing,
+    ramp_down = 0.5,
+)
+    sys = PSB.build_system(PSITestSystems, "c_sys5_uc")
+    _scale_load_forecasts!(sys, 0.4)
+    unit = get_component(ThermalStandard, sys, "Brighton")
+    PSY.set_commitment_mode!(unit, PSY.CommitmentModes.MUST_RUN)
+    PSY.set_time_limits!(unit, nothing)
+    pmin = PSY.get_active_power_limits(unit, u"SU").min
+    PSY.set_ramp_limits!(
+        unit,
+        (up = 100.0 * u"SU/minute", down = ramp_down * pmin / 60 * u"SU/minute"),
+    )
+    PSY.set_active_power!(unit, initial_power(pmin) * u"SU")
+    data = SortedDict{Dates.DateTime, Vector{Float64}}(
+        t0 => [1.0 - pattern(t0, h) for h in 1:24] for
+        t0 in PSY.get_forecast_initial_times(sys)
+    )
+    PSY.add_time_series!(
+        sys,
+        unit,
+        PSY.Deterministic(;
+            name = PNM.AVAILABLE_SCHEDULE,
+            data = data,
+            resolution = Hour(1),
+        ),
+    )
+    template = PowerOperationsProblemTemplate(CopperPlateNetworkModel)
+    set_device_model!(template, ThermalStandard, formulation)
+    set_device_model!(template, PowerLoad, StaticPowerLoad)
+    kwargs = isnothing(initial_time) ? (;) : (; initial_time = initial_time)
+    model = DecisionModel(
+        template,
+        sys;
+        optimizer = HiGHS_optimizer,
+        initialize_model = false,
+        kwargs...,
+    )
+    @test build!(
+        model;
+        output_dir = mktempdir(; cleanup = true),
+        console_level = Logging.AboveMaxLevel,
+    ) == ModelBuildStatus.BUILT
+    return solve!(model; console_level = Logging.AboveMaxLevel)
+end
+
+const _SECOND_WINDOW = DateTime("2024-01-02T00:00:00")
+
+# In the first window the schedule has no value before the start, so the initial power decides
+# whether the unit was in service: from zero there is no drop to ramp down, from the minimum
+# there is. The compact formulation agrees with the standard one in both cases.
+@testset "A must-run unit out at the first step of the first window, initial power $(label)" for (
+    label,
+    initial_power,
+    feasible,
+) in (
+    ("zero", _ -> 0.0, true),
+    ("at the minimum", pmin -> pmin, false),
+)
+    expected =
+        feasible ? IOM.RunStatus.SUCCESSFULLY_FINALIZED : IOM.RunStatus.FAILED
+    for formulation in (ThermalStandardUnitCommitment, ThermalCompactUnitCommitment)
+        @test _slow_must_run_status(
+            formulation;
+            initial_power = initial_power,
+            pattern = (_, _) -> 1.0,
+        ) == expected
+    end
+end
+
+# A later window reads the unit's status before its start from the schedule, not from the
+# stored initial power, which a simulation does not update between windows.
+@testset "A must-run compact unit in a window starting mid-outage follows the schedule" begin
+    # Out through the previous window and this one: no drop at the first step, even with the
+    # stored initial power still at the minimum. The standard formulation, given the initial
+    # power a simulation would carry over (zero), agrees.
+    @test _slow_must_run_status(
+        ThermalCompactUnitCommitment;
+        initial_power = pmin -> pmin,
+        pattern = (_, _) -> 1.0,
+        initial_time = _SECOND_WINDOW,
+    ) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+    @test _slow_must_run_status(
+        ThermalStandardUnitCommitment;
+        initial_power = _ -> 0.0,
+        pattern = (_, _) -> 1.0,
+        initial_time = _SECOND_WINDOW,
+    ) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+    # In service through the previous window and out through this one: the drop from the
+    # minimum at the first step must respect the ramp, even with a stored initial power of
+    # zero. The standard formulation, given the minimum as initial power, agrees.
+    out_from_second_window = (t0, _) -> t0 >= _SECOND_WINDOW ? 1.0 : 0.0
+    @test _slow_must_run_status(
+        ThermalCompactUnitCommitment;
+        initial_power = _ -> 0.0,
+        pattern = out_from_second_window,
+        initial_time = _SECOND_WINDOW,
+    ) == IOM.RunStatus.FAILED
+    @test _slow_must_run_status(
+        ThermalStandardUnitCommitment;
+        initial_power = pmin -> pmin,
+        pattern = out_from_second_window,
+        initial_time = _SECOND_WINDOW,
+    ) == IOM.RunStatus.FAILED
+    # The same window with a ramp-down that covers the drop solves: the failure above is the
+    # ramp, not the outage itself.
+    @test _slow_must_run_status(
+        ThermalCompactUnitCommitment;
+        initial_power = _ -> 0.0,
+        pattern = out_from_second_window,
+        initial_time = _SECOND_WINDOW,
+        ramp_down = 2.0,
+    ) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+end
+
+# The on status of a compact dispatch unit is the `OnStatusParameter`. An out step enters its
+# level term as a zero status, so the terms touching an out step drop.
+@testset "Compact dispatch ramp level term drops at the out steps" begin
+    function ramp_rows(out)
+        sys, unit = _min_power_system(MIN_POWER_VALUES)
+        out && _schedule_outage!(sys, unit, _maintenance)
+        _, container = _built_min_power_container(sys; formulation = ThermalCompactDispatch)
+        return _ramp_rows(container, ThermalStandard), unit
+    end
+    rows, unit = ramp_rows(true)
+    ref, _ = ramp_rows(false)
+    pmin = PSY.get_max_active_power(unit, u"SU") .* MIN_POWER_VALUES
+    dropped = (first(_OUT_STEPS)):(last(_OUT_STEPS) + 1)
+    for t in 2:24
+        delta = t in dropped ? pmin[t] - pmin[t - 1] : 0.0
+        @test JuMP.normalized_rhs(rows.up["Brighton", t]) -
+              JuMP.normalized_rhs(ref.up["Brighton", t]) ≈ delta atol = 1e-9
+        @test JuMP.normalized_rhs(rows.dn["Brighton", t]) -
+              JuMP.normalized_rhs(ref.dn["Brighton", t]) ≈ -delta atol = 1e-9
+    end
+end
+
 # Rises and drops of the minimum. Step 1 has the static minimum 0.5.
 const DISPATCH_VALUES = vcat(0.5, 0.6, 0.6, 0.5, fill(0.5, 20))
 
@@ -1825,5 +2033,207 @@ end
     for t in 1:24
         actual, expected = limit_at(thermal_rows, thermal, thermal_on, t, static_min)
         @test actual ≈ expected
+    end
+end
+
+function _power_of(model, ::Type{V}, name) where {V}
+    res = IOM.OptimizationProblemOutputs(model)
+    power = read_variable(
+        res,
+        "ActivePowerVariable__$(nameof(V))";
+        table_format = TableFormat.WIDE,
+    )
+    return power[!, name]
+end
+
+# Ramp and minimum up and down time rows stay in the model, so the outage is feasible only
+# when every unit can cover its whole range in one step and the out unit has no minimum
+# times.
+function _allow_outage_transitions!(sys, unit)
+    for g in PSY.get_components(PSY.ThermalStandard, sys)
+        ramp = PSY.get_active_power_limits(g, u"SU").max
+        PSY.set_ramp_limits!(g, (up = ramp * u"SU/minute", down = ramp * u"SU/minute"))
+    end
+    PSY.set_time_limits!(unit, nothing)
+    return
+end
+
+@testset "A unit with minimum and maximum series scheduled out builds and is off under $(formulation)" for formulation in
+                                                                                                           (
+    ThermalStandardUnitCommitment,
+    ThermalBasicUnitCommitment,
+    ThermalStandardDispatch,
+)
+    sys, unit = _min_power_system(MIN_POWER_VALUES)
+    _allow_outage_transitions!(sys, unit)
+    _schedule_outage!(sys, unit, _maintenance)
+    model, container = _built_min_power_container(sys; formulation = formulation)
+    pmax = PSY.get_max_active_power(unit, u"SU")
+    rows = _limit_rows(container, "lb")
+    for t in setdiff(1:24, _OUT_STEPS)
+        func = JuMP.constraint_object(rows["Brighton", t]).func
+        if formulation == ThermalStandardDispatch
+            @test JuMP.normalized_rhs(rows["Brighton", t]) ≈ pmax * MIN_POWER_VALUES[t]
+        else
+            on = IOM.get_variable(container, OnVariable, ThermalStandard)
+            @test JuMP.coefficient(func, on["Brighton", t]) ≈ -pmax * MIN_POWER_VALUES[t]
+        end
+    end
+    @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+    power = _power_of(model, ThermalStandard, "Brighton")
+    @test all(iszero, power[collect(_OUT_STEPS)])
+end
+
+@testset "A must-run compact unit with minimum and maximum series scheduled out is off" begin
+    sys, unit = _min_power_system(MIN_POWER_VALUES)
+    PSY.set_commitment_mode!(unit, PSY.CommitmentModes.MUST_RUN)
+    _allow_outage_transitions!(sys, unit)
+    _schedule_outage!(sys, unit, _maintenance)
+    model, container =
+        _built_min_power_container(sys; formulation = ThermalCompactUnitCommitment)
+    pmax = PSY.get_max_active_power(unit, u"SU")
+    ub = _time_series_upper_rows(container)
+    for t in 1:24
+        expected = t in _OUT_STEPS ? 0.0 : pmax - pmax * MIN_POWER_VALUES[t]
+        @test JuMP.normalized_rhs(ub["Brighton", t]) ≈ expected atol = 1e-12
+    end
+    @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+    output = read_aux_variable(
+        IOM.OptimizationProblemOutputs(model),
+        "PowerOutput__ThermalStandard";
+        table_format = TableFormat.WIDE,
+    )[
+        !,
+        "Brighton",
+    ]
+    @test all(t -> isapprox(output[t], 0.0; atol = 1e-6), _OUT_STEPS)
+end
+
+@testset "Minimum above the maximum series: rejected in service, accepted while out" begin
+    for (step, status) in ((7, ModelBuildStatus.FAILED), (4, ModelBuildStatus.BUILT))
+        max_values = ones(24)
+        max_values[step] = 0.5
+        sys, unit = _min_power_system(fill(0.6, 24); max_values)
+        _schedule_outage!(sys, unit, _maintenance)
+        model = _min_power_uc_model(sys)
+        output_dir = mktempdir(; cleanup = true)
+        @test build!(model; output_dir = output_dir) == status
+        log = read(joinpath(output_dir, "operation_problem.log"), String)
+        @test occursin(
+            "MinActivePowerTimeSeriesParameter for Brighton at step $step",
+            log,
+        ) ==
+              (status == ModelBuildStatus.FAILED)
+    end
+end
+
+@testset "A hydro unit with minimum and maximum series scheduled out builds and is off under $(formulation)" for formulation in
+                                                                                                                 (
+    HydroDispatchRunOfRiver,
+    HydroCommitmentRunOfRiver,
+)
+    sys = PSB.build_system(PSITestSystems, "c_sys5_hy")
+    unit = only(get_components(HydroDispatch, sys))
+    add_min_power_series!(sys, unit, HYDRO_MIN_VALUES)
+    _schedule_outage!(sys, unit, _maintenance)
+    template = get_thermal_dispatch_template_network()
+    set_device_model!(
+        template,
+        DeviceModel(HydroDispatch, formulation; time_series_names = HYDRO_MIN_POWER_NAMES),
+    )
+    model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) == ModelBuildStatus.BUILT
+    @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+    power = _power_of(model, HydroDispatch, PSY.get_name(unit))
+    @test all(iszero, power[collect(_OUT_STEPS)])
+end
+
+const _IN_SERVICE_STEPS = setdiff(1:24, _OUT_STEPS)
+
+@testset "Compact linear cost: an out unit pays no minimum power cost under $(formulation), must-run $(must_run)" for (
+    formulation,
+    must_run,
+) in (
+    (ThermalCompactUnitCommitment, true),
+    (ThermalCompactDispatch, false),
+)
+    slope = 17.0
+    objective_constant(s) =
+        let (sys, unit) = _linear_cost_system(
+                MIN_POWER_VALUES;
+                slope = s,
+                constant = 3.0,
+                must_run = must_run,
+            )
+            _allow_outage_transitions!(sys, unit)
+            _schedule_outage!(sys, unit, _maintenance)
+            container, obj = _objective_of(sys; formulation = formulation)
+            (JuMP.constant(obj), IOM.get_model_base_power(container), unit)
+        end
+    constant0, _, _ = objective_constant(0.0)
+    constant1, base, unit = objective_constant(slope)
+    pmax = PSY.get_max_active_power(unit, u"SU")
+    expected = slope * base * pmax * sum(MIN_POWER_VALUES[_IN_SERVICE_STEPS])
+    @test constant1 - constant0 ≈ expected
+end
+
+@testset "Compact fuel term: an out must-run unit consumes no fuel at its minimum" begin
+    sys = PSB.build_system(PSITestSystems, "c_linear_fuel_test")
+    unit = get_component(ThermalStandard, sys, "Test Unit")
+    PSY.set_commitment_mode!(unit, PSY.CommitmentModes.MUST_RUN)
+    values = MIN_POWER_VALUES[1:5]
+    add_min_power_series!(sys, unit, values)
+    _schedule_outage!(sys, unit, _maintenance)
+    template = PowerOperationsProblemTemplate(CopperPlateNetworkModel)
+    set_device_model!(template, PowerLoad, StaticPowerLoad)
+    set_device_model!(
+        template,
+        DeviceModel(
+            ThermalStandard,
+            ThermalCompactUnitCommitment;
+            time_series_names = Dict(
+                MinActivePowerTimeSeriesParameter => "min_active_power",
+            ),
+        ),
+    )
+    # The unit serves the whole load, so only the build is checked: with it out the load
+    # cannot be met.
+    model = DecisionModel(
+        template,
+        sys;
+        optimizer = HiGHS_optimizer,
+        initialize_model = false,
+    )
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) == ModelBuildStatus.BUILT
+    container = IOM.get_optimization_container(model)
+    pmax = PSY.get_max_active_power(unit, u"SU")
+    dp = IOM.get_variable(container, PowerAboveMinimumVariable, ThermalStandard)
+    fuel = IOM.get_expression(container, FuelConsumptionExpression, ThermalStandard)
+    for t in 1:5
+        coef_dp = JuMP.coefficient(fuel["Test Unit", t], dp["Test Unit", t])
+        @test !iszero(coef_dp)
+        expected = t in _OUT_STEPS ? 0.0 : pmax * values[t]
+        @test JuMP.constant(fuel["Test Unit", t]) / coef_dp ≈ expected atol = 1e-12
+    end
+end
+
+@testset "An out must-run unit books no fixed cost at its out steps" begin
+    sys, unit = _min_power_system(MIN_POWER_VALUES)
+    PSY.set_commitment_mode!(unit, PSY.CommitmentModes.MUST_RUN)
+    cost = PSY.get_operation_cost(unit)
+    PSY.set_operation_cost!(
+        unit,
+        PSY.ThermalGenerationCost(;
+            variable_operation_cost = PSY.get_variable_operation_cost(cost),
+            fixed = 5.0,
+            start_up = PSY.get_start_up(cost),
+            shut_down = PSY.get_shut_down(cost),
+        ),
+    )
+    _schedule_outage!(sys, unit, _maintenance)
+    _, container = _built_min_power_container(sys; formulation = ThermalBasicUnitCommitment)
+    costs = IOM.get_expression(container, FixedCostExpression, ThermalStandard)
+    for t in 1:24
+        @test iszero(JuMP.constant(costs["Brighton", t])) == (t in _OUT_STEPS)
     end
 end

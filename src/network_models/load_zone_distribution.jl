@@ -497,7 +497,8 @@ function _write_zone_total!(
 )
     targets = _zone_bus_balance_targets(container, network_model, bus, name)
     _apply_ts_terms_to_targets!(
-        targets, refs, multiplier, name, get_time_steps(container),
+        targets, refs, multiplier, IOM.AllComponentsActive(), name,
+        get_time_steps(container),
     )
     return
 end
