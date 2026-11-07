@@ -917,8 +917,6 @@ export ActivePowerRangeExpressionUB
 export PostContingencyBranchFlow
 export NetActivePower
 export DCCurrentBalance
-export ComponentReserveUpBalanceExpression
-export ComponentReserveDownBalanceExpression
 export InterfaceTotalFlow
 export PTDFBranchFlow
 export BThetaBranchFlow

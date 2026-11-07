@@ -3,16 +3,6 @@
 
 # POM-specific concrete types
 """
-Reserve-up balance expression type for a component. No code in this package creates or reads it.
-"""
-struct ComponentReserveUpBalanceExpression <: ExpressionType end
-
-"""
-Reserve-down balance expression type for a component. No code in this package creates or reads it.
-"""
-struct ComponentReserveDownBalanceExpression <: ExpressionType end
-
-"""
 Total flow through a [`PowerSystems.TransmissionInterface`](@extref), indexed
 `[interface name, time]`. It sums the branch flows of the interface, weighted by the direction
 mapping, plus the interface flow slack variables when the model uses slacks. Under
