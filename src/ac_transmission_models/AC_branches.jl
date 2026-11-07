@@ -469,7 +469,7 @@ end
 _static_arc_rating(
     ::Type{PostContingencyBranchRatingTimeSeriesParameter},
     branch::PSY.ACTransmission,
-) = PNM.get_equivalent_emergency_rating(branch)
+) = _emergency_rating(branch)
 
 function _series_member_names(entry::PSY.ACTransmission, ts_type, ts_name)
     member = get_branch_with_time_series(entry, ts_type, ts_name)

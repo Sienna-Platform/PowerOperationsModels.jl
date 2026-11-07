@@ -2250,6 +2250,81 @@ function _post_contingency_constraints_have_slack(container, slack_refs)
     return n, all_have
 end
 
+@testset "a zero emergency rating on a monitored arc fails the build" begin
+    sys = PSB.build_system(PSITestSystems, "c_sys5")
+    monitored = PSY.get_component(PSY.Line, sys, "2")
+    PSY.set_rating_b!(monitored, 0.0 * u"SU")
+    outage = PSY.GeometricDistributionForcedOutage(;
+        mean_time_to_recovery = 10,
+        outage_transition_probability = 0.9999,
+        monitored_components = [monitored],
+    )
+    PSY.add_supplemental_attribute!(sys, PSY.get_component(PSY.Line, sys, "1"), outage)
+    template = get_thermal_dispatch_template_network(NetworkModel(PTDFNetworkModel))
+    set_device_model!(template, PSY.Line, POM.SecurityConstrainedStaticBranch)
+    model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
+    output_dir = mktempdir(; cleanup = true)
+    @test build!(model; output_dir = output_dir) == IOM.ModelBuildStatus.FAILED
+    log = read(joinpath(output_dir, "operation_problem.log"), String)
+    @test occursin(
+        "Branch 2 has a zero emergency rating; the post-contingency flow limit would " *
+        "force zero flow.",
+        log,
+    )
+end
+
+@testset "post-contingency limits of arcs with a switch" begin
+    sys = PSB.build_system(PSITestSystems, "c_sys5")
+    line = PSY.get_component(PSY.Line, sys, "1")
+    chain_line = PSY.get_component(PSY.Line, sys, "2")
+    function add_switch!(name, rating, rating_b)
+        switch = PSY.DiscreteControlledACBranch(;
+            name = name, available = true, active_power_flow = 0.0,
+            reactive_power_flow = 0.0, arc = PSY.get_arc(line), r = 0.0, x = 1e-4,
+            rating = rating, rating_b = rating_b, input_basis = u"CU",
+        )
+        PSY.add_component!(sys, switch; skip_validation = true)
+        return switch
+    end
+    function chain(switch)
+        bs = PNM.BranchesSeries((1, 4))
+        PNM.add_branch!(bs, switch, :FromTo)
+        PNM.add_branch!(bs, chain_line, :FromTo)
+        return bs
+    end
+    pair(switch) = PNM.MixedBranchesParallel(PSY.ACTransmission[line, switch])
+    none = Set{PSY.ACTransmission}()
+    line_trips = Set{PSY.ACTransmission}([line])
+    line_b = PNM.get_equivalent_emergency_rating(line)
+    chain_b = PNM.get_equivalent_emergency_rating(chain_line)
+    zero_msg = "has a zero emergency rating"
+
+    # A zero rating is rejected wherever it alone rates the arc after the outage. Beside an
+    # intact line it only adds nothing to the group, which the parser placeholder and the
+    # data-model warning cover.
+    zero = add_switch!("sw_zero", 0.0, nothing)
+    @test_throws zero_msg POM._emergency_flow_limits(zero)
+    @test_throws zero_msg POM._emergency_flow_limits(chain(zero), none)
+    @test POM._emergency_flow_limits(pair(zero), none).max ≈ line_b
+    @test_throws zero_msg POM._emergency_flow_limits(pair(zero), line_trips)
+
+    # The parser's placeholder never binds.
+    unbounded = add_switch!("sw_unbounded", PSY.INFINITE_BOUND, nothing)
+    @test POM._emergency_flow_limits(unbounded).max ≈ PSY.INFINITE_BOUND
+    @test POM._emergency_flow_limits(chain(unbounded), none).max ≈ chain_b
+    @test POM._emergency_flow_limits(pair(unbounded), none).max ≈
+          line_b + PSY.INFINITE_BOUND
+    @test POM._emergency_flow_limits(pair(unbounded), line_trips).max ≈
+          PSY.INFINITE_BOUND
+
+    # A switch's own rating_b takes precedence over its rating.
+    rated = add_switch!("sw_rated", 2.0, 0.05)
+    @test POM._emergency_flow_limits(rated).max ≈ 0.05
+    @test POM._emergency_flow_limits(chain(rated), none).max ≈ min(0.05, chain_b)
+    @test POM._emergency_flow_limits(pair(rated), none).max ≈ line_b + 0.05
+    @test POM._emergency_flow_limits(pair(rated), line_trips).max ≈ 0.05
+end
+
 @testset "Security Constrained branch slacks reach post-contingency flow constraints" begin
     c_sys5 = _attach_all_branch_outages!(PSB.build_system(PSITestSystems, "c_sys5"))
 
