@@ -96,6 +96,7 @@ const _OUT_STEPS = 3:5
 _maintenance(h) = h in _OUT_STEPS ? 1.0 : 0.0
 
 _container(model) = IOM.get_optimization_container(model)
+_network_model(model) = IOM.get_network_model(IOM.get_template(model))
 
 # A contingency on `components` monitoring `monitored`; returns its outage id as the
 # post-contingency containers key it.

@@ -102,6 +102,7 @@ function build_problem!(
 
     construct_lhs_parameters!(container, template, sys)
     construct_component_status_parameters!(container, template, sys)
+    construct_topology_schedule!(container, template, transmission_model, sys)
     # The balance writers add to these containers.
     add_balance_contribution_expressions!(container, sys, template)
 
