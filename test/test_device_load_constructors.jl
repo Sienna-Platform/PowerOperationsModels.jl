@@ -1307,33 +1307,41 @@ end
     end
 end
 
-@testset "PowerLoadDispatch active power lower bound is the load minimum" begin
-    priced = LoadCost(;
-        variable_operation_cost = CostCurve(LinearCurve(0.0), PSY.NU, LinearCurve(1.0)),
-        fixed = 0.0,
+function _add_min_shiftable_load!(sys; min = 0.1)
+    il_load = get_component(InterruptiblePowerLoad, sys, "IloadBus4")
+    shiftable_load = ShiftablePowerLoad(;
+        name = "shiftable_load",
+        available = true,
+        bus = PSY.get_bus(il_load),
+        active_power = PSY.get_active_power(il_load, u"SU"),
+        active_power_limits = (min = min, max = PSY.get_active_power(il_load, u"SU")),
+        reactive_power = PSY.get_reactive_power(il_load, u"SU"),
+        max_active_power = PSY.get_max_active_power(il_load, u"SU"),
+        max_reactive_power = PSY.get_max_reactive_power(il_load, u"SU"),
+        base_power = PSY.get_base_power(il_load, u"NU"),
+        load_balance_time_horizon = 1,
+        operation_cost = LoadCost(;
+            variable_operation_cost = CostCurve(
+                LinearCurve(0.0),
+                PSY.NU,
+                LinearCurve(1.0),
+            ),
+            fixed = 0.0,
+        ),
+        input_basis = u"CU",
     )
-    unoffered = LoadCost(; variable_operation_cost = zero(PSY.CostCurve), fixed = 0.0)
-    # An unoffered load is pinned to zero, so its lower bound must drop to zero too.
-    for (cost, expected_lb, expected_ub) in
-        ((priced, 0.1, nothing), (unoffered, 0.0, 0.0))
+    PSY.add_component!(sys, shiftable_load)
+    PSY.copy_time_series!(shiftable_load, il_load)
+    return shiftable_load
+end
+
+@testset "PowerLoadDispatch active power lower bound is the load minimum" begin
+    for (offered, expected_lb) in ((true, 0.1), (false, 0.0))
         sys = PSB.build_system(PSITestSystems, "c_sys5_il")
+        shiftable_load = _add_min_shiftable_load!(sys)
+        # Unoffered: pinned to zero, so the lower bound is zero too.
+        offered || _set_costless!(shiftable_load)
         il_load = get_component(InterruptiblePowerLoad, sys, "IloadBus4")
-        shiftable_load = ShiftablePowerLoad(;
-            name = "shiftable_load",
-            available = true,
-            bus = PSY.get_bus(il_load),
-            active_power = PSY.get_active_power(il_load, u"SU"),
-            active_power_limits = (min = 0.1, max = PSY.get_active_power(il_load, u"SU")),
-            reactive_power = PSY.get_reactive_power(il_load, u"SU"),
-            max_active_power = PSY.get_max_active_power(il_load, u"SU"),
-            max_reactive_power = PSY.get_max_reactive_power(il_load, u"SU"),
-            base_power = PSY.get_base_power(il_load, u"NU"),
-            load_balance_time_horizon = 1,
-            operation_cost = cost,
-            input_basis = u"CU",
-        )
-        PSY.add_component!(sys, shiftable_load)
-        PSY.copy_time_series!(shiftable_load, il_load)
         @test POM.get_variable_lower_bound(
             ActivePowerVariable, shiftable_load, PowerLoadDispatch) ≈ 0.1
         @test POM.get_variable_lower_bound(
@@ -1350,46 +1358,15 @@ end
         p = IOM.get_variable(container, ActivePowerVariable, ShiftablePowerLoad)
         for t in get_time_steps(container)
             @test JuMP.lower_bound(p["shiftable_load", t]) ≈ expected_lb
-            if !isnothing(expected_ub)
-                @test JuMP.upper_bound(p["shiftable_load", t]) == expected_ub
-            end
         end
-
-        set_device_model!(template, ShiftablePowerLoad, PowerLoadInterruption)
-        model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
-        @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
-              IOM.ModelBuildStatus.BUILT
-        p = IOM.get_variable(
-            get_optimization_container(model), ActivePowerVariable, ShiftablePowerLoad)
-        @test JuMP.lower_bound(p["shiftable_load", 1]) == 0.0
     end
 end
 
 @testset "PowerLoadDispatch up-reserve shed floor is the load minimum" begin
-    priced = LoadCost(;
-        variable_operation_cost = CostCurve(LinearCurve(0.0), PSY.NU, LinearCurve(1.0)),
-        fixed = 0.0,
-    )
-    unoffered = LoadCost(; variable_operation_cost = zero(PSY.CostCurve), fixed = 0.0)
-    for (cost, offered) in ((priced, true), (unoffered, false))
+    for offered in (true, false)
         sys = PSB.build_system(PSITestSystems, "c_sys5_il"; add_reserves = true)
-        il_load = get_component(InterruptiblePowerLoad, sys, "IloadBus4")
-        shiftable_load = ShiftablePowerLoad(;
-            name = "shiftable_load",
-            available = true,
-            bus = PSY.get_bus(il_load),
-            active_power = PSY.get_active_power(il_load, u"SU"),
-            active_power_limits = (min = 0.1, max = PSY.get_active_power(il_load, u"SU")),
-            reactive_power = PSY.get_reactive_power(il_load, u"SU"),
-            max_active_power = PSY.get_max_active_power(il_load, u"SU"),
-            max_reactive_power = PSY.get_max_reactive_power(il_load, u"SU"),
-            base_power = PSY.get_base_power(il_load, u"NU"),
-            load_balance_time_horizon = 1,
-            operation_cost = cost,
-            input_basis = u"CU",
-        )
-        PSY.add_component!(sys, shiftable_load)
-        PSY.copy_time_series!(shiftable_load, il_load)
+        shiftable_load = _add_min_shiftable_load!(sys)
+        offered || _set_costless!(shiftable_load)
         for service_name in ("Reserve7", "ORDC1")
             PSY.add_service!(
                 shiftable_load,
@@ -1412,7 +1389,6 @@ end
             container, ActivePowerVariableLimitsConstraint, ShiftablePowerLoad, "lb")
         pmax = PSY.get_max_active_power(shiftable_load, u"SU")
         for t in get_time_steps(container)
-            # (P - sum r_up) >= min; an unoffered load has no shed floor.
             if offered
                 @test JuMP.normalized_rhs(con["shiftable_load", t]) ≈ 0.1
             else

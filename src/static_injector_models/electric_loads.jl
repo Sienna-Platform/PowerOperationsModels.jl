@@ -8,6 +8,7 @@ get_variable_multiplier(::Type{<:VariableType}, ::Type{<:PSY.ElectricLoad}, ::Ty
 get_variable_binary(::Type{ActivePowerVariable}, ::Type{<:PSY.ElectricLoad}, ::Type{<:AbstractLoadFormulation}) = false
 get_variable_lower_bound(::Type{ActivePowerVariable}, d::PSY.ElectricLoad, ::Type{<:AbstractLoadFormulation}) = 0.0
 get_variable_upper_bound(::Type{ActivePowerVariable}, d::PSY.ElectricLoad, ::Type{<:AbstractLoadFormulation}) = PSY.get_max_active_power(d, u"SU")
+
 ########################### ReactivePowerVariable, ElectricLoad ####################################
 
 get_variable_binary(::Type{ReactivePowerVariable}, ::Type{<:PSY.ElectricLoad}, ::Type{<:AbstractLoadFormulation}) = false
@@ -25,12 +26,11 @@ get_multiplier_value(::Type{ReactivePowerTimeSeriesParameter}, d::PSY.ElectricLo
 get_multiplier_value(::Type{<:TimeSeriesParameter}, d::PSY.ElectricLoad, ::Type{<:AbstractControllablePowerLoadFormulation}) = PSY.get_max_active_power(d, u"SU")
 
 ########################### ActivePowerVariable lower bound, PowerLoadDispatch ####################################
-# PowerLoadDispatch throttles a load but does not turn it off: the lower bound is the load minimum.
-# The time-series minimum (MinActivePowerTimeSeriesParameter) does not apply to loads.
+# PowerLoadDispatch keeps a load at or above its minimum; loads have no minimum time series.
 _static_min_active_power(::PSY.ElectricLoad) = 0.0
 _static_min_active_power(d::PSY.ShiftablePowerLoad) = PSY.get_active_power_limits(d, u"SU").min
 
-# pin_unoffered_loads! resets the lower bound of an unoffered load to zero.
+# An unoffered load is pinned to zero by pin_unoffered_loads!.
 get_variable_lower_bound(::Type{ActivePowerVariable}, d::PSY.ControllableLoad, ::Type{PowerLoadDispatch}) = _static_min_active_power(d)
 
 ########################### ShiftablePowerLoad #####################################
@@ -312,16 +312,14 @@ function add_constraints!(
     return
 end
 
-# Only `min` is consumed (shed floor: an up award cannot push the load below its minimum);
-# the upper bound rides the forecast parameter.
+# Only `min` is used: it is the shed floor. The forecast parameter sets the upper bound.
 get_min_max_limits(
     d::PSY.ControllableLoad,
     ::Type{ActivePowerVariableLimitsConstraint},
     ::Type{PowerLoadDispatch},
 ) = (min = _static_min_active_power(d), max = PSY.get_max_active_power(d, u"SU"))
 
-# An unoffered load starts its range from its limits, not from the energy variable, so it has
-# no shed floor.
+# An unoffered load has no shed floor: its power is pinned to zero.
 function IOM.get_min_max_limit_values(
     container::OptimizationContainer,
     ::Type{ActivePowerVariableLimitsConstraint},
@@ -329,11 +327,10 @@ function IOM.get_min_max_limit_values(
     ::DeviceModel{V, PowerLoadDispatch},
 ) where {V <: PSY.ControllableLoad}
     limits = get_min_max_limits(d, ActivePowerVariableLimitsConstraint, PowerLoadDispatch)
-    n = length(get_time_steps(container))
-    if _is_costless_offer(container, d)
-        return (min = zeros(n), max = fill(Float64(limits.max), n))
+    if _is_costless_offer(container, d, PSY.get_operation_cost(d))
+        limits = (min = 0.0, max = limits.max)
     end
-    return (min = fill(Float64(limits.min), n), max = fill(Float64(limits.max), n))
+    return _static_limit_values(container, limits)
 end
 
 # `P + Σ r_down <= forecast`: down awards consume forecast headroom.
@@ -645,10 +642,9 @@ function add_constraints!(
     return
 end
 
-# True if the cost puts no price on the dispatch. Any attached market-bid offer, including
-# a supply-side offer that a later check rejects, counts as an offer. A time-series key counts
-# as an offer only if its series is not inert. A `fixed` cost is not an offer: it prices
-# `OnVariable`, which gates the up award of an unoffered load.
+# True if the cost sets no price on the dispatch. A market-bid cost is costless if both offer
+# curves are trivial. A time-series curve is trivial if its series is inert. A `fixed` cost is
+# not an offer: it prices `OnVariable`.
 const _ZERO_COST_CURVE = zero(PSY.CostCurve)
 _is_costless_offer(::OptimizationContainer, ::PSY.Component, cost::PSY.LoadCost) =
     PSY.get_variable_operation_cost(cost) == _ZERO_COST_CURVE
@@ -661,12 +657,9 @@ function _is_costless_offer(
            !IOM.is_nontrivial_offer(container, d, get_output_offer_curves(cost))
 end
 _is_costless_offer(::OptimizationContainer, ::PSY.Component, ::PSY.OperationalCost) = false
-_is_costless_offer(container::OptimizationContainer, d::PSY.Component) =
-    _is_costless_offer(container, d, PSY.get_operation_cost(d))
 
 """
-Split controllable loads into priced and unoffered loads. The model pins an unoffered load
-at zero dispatch. Its limits only set its up-reserve range.
+Split controllable loads into priced and unoffered loads.
 """
 function _partition_by_dispatch_basis(
     container::OptimizationContainer,
@@ -675,7 +668,7 @@ function _partition_by_dispatch_basis(
     priced = L[]
     unoffered = L[]
     for d in devices
-        if _is_costless_offer(container, d)
+        if _is_costless_offer(container, d, PSY.get_operation_cost(d))
             push!(unoffered, d)
         else
             push!(priced, d)
@@ -685,8 +678,7 @@ function _partition_by_dispatch_basis(
 end
 
 """
-Set the `ActivePowerVariable` bounds of unoffered loads to zero. Other formulations
-keep the bound from `get_variable_upper_bound`.
+Set the `ActivePowerVariable` bounds of unoffered loads to zero.
 """
 function pin_unoffered_loads!(
     container::OptimizationContainer,
