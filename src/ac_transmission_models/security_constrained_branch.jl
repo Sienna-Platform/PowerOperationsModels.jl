@@ -1,22 +1,30 @@
 # MODF security-constrained branch formulation. PC flow is p.u. on system base.
 
-_post_contingency_match(c::SparseAxisArray, target::Tuple) = haskey(c.data, target)
-_post_contingency_match(::AbstractArray, ::Tuple) = false
+# Whether `c` holds an entry for `(outage_id, name)` at any step.
+_post_contingency_match(
+    c::SparseAxisArray,
+    outage_id::String,
+    name::String,
+    time_steps::UnitRange{Int},
+) = any(t -> haskey(c.data, (outage_id, name, t)), time_steps)
+_post_contingency_match(::AbstractArray, ::String, ::String, ::UnitRange{Int}) = false
 
 # A container is a reusable shared post-contingency source iff it has entry type
 # `T`, belongs to a component type *other* than the outaged `V` (a same-`V`
-# container is the one currently being built, not a source), and is keyed by
-# `target`.
+# container is the one currently being built, not a source), and holds an entry for
+# `(outage_id, name)`.
 function _is_shared_post_contingency_source(
     key::OptimizationContainerKey,
     c,
-    target::Tuple,
+    outage_id::String,
+    name::String,
+    time_steps::UnitRange{Int},
     ::Type{T},
     ::Type{V},
 ) where {T, V <: PSY.ACTransmission}
     return get_entry_type(key) === T &&
            get_component_type(key) !== V &&
-           _post_contingency_match(c, target)
+           _post_contingency_match(c, outage_id, name, time_steps)
 end
 
 # True when a `PostContingencyBranchRatingTimeSeriesParameter` column exists for
@@ -39,8 +47,8 @@ function _has_post_contingency_rate(
     return name in axes(get_multiplier_array(param_container))[1]
 end
 
-# The `(parameter column refs, multiplier slice)` for `name`'s post-contingency
-# rate limit. Valid only when `_has_post_contingency_rate` is true.
+# The `(parameter column refs, multiplier slice, parameter container)` of `name`'s
+# post-contingency rate limit. Valid only when `_has_post_contingency_rate` is true.
 function _post_contingency_rate_columns(
     container::OptimizationContainer,
     entry_type::DataType,
@@ -52,7 +60,8 @@ function _post_contingency_rate_columns(
         entry_type,
     )
     return get_parameter_column_refs(param_container, name),
-    get_multiplier_array(param_container)[name, :]
+    get_multiplier_array(param_container)[name, :],
+    param_container
 end
 
 function _find_shared_post_contingency_expression_source(
@@ -61,11 +70,11 @@ function _find_shared_post_contingency_expression_source(
     ::Type{V},
     outage_id::String,
     name::String,
-    t::Int,
+    time_steps::UnitRange{Int},
 ) where {T <: PostContingencyExpressions, V <: PSY.ACTransmission}
-    target = (outage_id, name, t)
     for (key, ec) in IOM.get_expressions(container)
-        _is_shared_post_contingency_source(key, ec, target, T, V) && return ec
+        _is_shared_post_contingency_source(key, ec, outage_id, name, time_steps, T, V) &&
+            return ec
     end
     return
 end
@@ -81,13 +90,13 @@ function _find_shared_post_contingency_constraint_sources(
     ::Type{V},
     outage_id::String,
     name::String,
-    t::Int,
+    time_steps::UnitRange{Int},
 ) where {T <: PostContingencyConstraintType, V <: PSY.ACTransmission}
-    target = (outage_id, name, t)
     src_lb = nothing
     src_ub = nothing
     for (key, cc) in get_constraints(container)
-        _is_shared_post_contingency_source(key, cc, target, T, V) || continue
+        _is_shared_post_contingency_source(key, cc, outage_id, name, time_steps, T, V) ||
+            continue
         if key.meta == "lb"
             src_lb = cc
         elseif key.meta == "ub"
@@ -99,8 +108,8 @@ function _find_shared_post_contingency_constraint_sources(
 end
 
 """
-Locate the post-contingency slack variable containers that a shared constraint for
-`(outage_id, name, t)` already references, registered by the source DeviceModel under
+Locate the post-contingency slack variable containers that the shared constraints for
+`(outage_id, name)` already reference, registered by the source DeviceModel under
 a component type other than `V`. Returns `(ub_source, lb_source)`; either slot is
 `nothing` when the shared constraint was built without that slack (the source model
 had `use_slacks = false`). Lets a reusing model alias those refs into its own slack
@@ -112,19 +121,18 @@ function _find_shared_post_contingency_slack_sources(
     ::Type{V},
     outage_id::String,
     name::String,
-    t::Int,
+    time_steps::UnitRange{Int},
 ) where {V <: PSY.ACTransmission}
-    target = (outage_id, name, t)
     src_ub = nothing
     src_lb = nothing
     for (key, vc) in IOM.get_variables(container)
         get_component_type(key) === V && continue
         entry = get_entry_type(key)
         if entry === PostContingencyFlowActivePowerSlackUpperBound &&
-           haskey(vc.data, target)
+           _post_contingency_match(vc, outage_id, name, time_steps)
             src_ub = vc
         elseif entry === PostContingencyFlowActivePowerSlackLowerBound &&
-               haskey(vc.data, target)
+               _post_contingency_match(vc, outage_id, name, time_steps)
             src_lb = vc
         end
         !isnothing(src_ub) && !isnothing(src_lb) && break
@@ -150,23 +158,52 @@ function _has_other_v_container(
 end
 
 """
-Register an empty `SparseAxisArray` keyed by
-`(outage_id::String, monitored_name::String, t::Int)`, sized for every entry produced
-by `_resolve_monitored_branches`. Only the main thread writes to it.
+Register a `SparseAxisArray` keyed by
+`(outage_id::String, monitored_name::String, t::Int)` holding `JuMP.AffExpr`
+zeros for every entry in `entries`. Only the main thread writes to it. Under a
+topology schedule, a step at which no post-contingency network applies is not
+written and keeps its zero flow.
 """
 function _add_post_contingency_sparse_expression!(
     container::OptimizationContainer,
     ::Type{T},
     ::Type{V},
-    resolved::Vector{Pair{Int, Vector{RepresentativeBranch}}},
-    time_steps::UnitRange{Int},
+    entries::Vector{Tuple{String, String, Int}},
 ) where {T <: PostContingencyExpressions, V <: PSY.ACTransmission}
-    contents = Dict{Tuple{String, String, Int}, JuMP.AffExpr}()
-    sizehint!(contents, sum(p -> length(last(p)), resolved; init = 0) * length(time_steps))
+    contents = Dict{Tuple{String, String, Int}, JuMP.AffExpr}(
+        entry => zero(JuMP.AffExpr) for entry in entries
+    )
     expr_container = SparseAxisArray(contents)
     IOM._assign_container!(container.expressions, ExpressionKey(T, V), expr_container)
     return expr_container
 end
+
+# Every `(outage, monitored)` pair of `resolved` at every step.
+function _post_contingency_entries(
+    resolved::Vector{Pair{Int, Vector{RepresentativeBranch}}},
+    time_steps::UnitRange{Int},
+)
+    entries = Tuple{String, String, Int}[]
+    for (uuid, reps) in resolved
+        outage_id = string(uuid)
+        for rep in reps, t in time_steps
+            push!(entries, (outage_id, rep.name, t))
+        end
+    end
+    return entries
+end
+
+# Whether a post-contingency limit applies to the monitored arc `arc` at step `t` of a
+# topology schedule, where `net` is the step's post-contingency network. None applies when
+# every component of the contingency is already out at `t` (`net === nothing`) or when the
+# monitored arc itself is out; the entry then keeps a zero flow and inert rating rows, so
+# every step carries an entry.
+_post_contingency_applies(
+    ts::PNM.TopologySchedule,
+    net::Union{Nothing, PNM.PostContingencyNetwork},
+    arc::Tuple{Int, Int},
+    t::Int,
+) = !isnothing(net) && !PNM.is_arc_out(ts, arc, t)
 
 """
 Register an empty `SparseAxisArray` keyed by
@@ -312,6 +349,7 @@ function add_constraints!(
 
     expressions = get_expression(container, PostContingencyBranchFlow, V)
     jump_model = get_jump_model(container)
+    ts = get_topology_schedule(network_model)
 
     has_other_v = _has_other_v_container(get_constraints(container), T, V)
     for (uuid, reps) in resolved
@@ -321,12 +359,12 @@ function add_constraints!(
             name = rep.name
             if has_other_v
                 src_lb, src_ub = _find_shared_post_contingency_constraint_sources(
-                    container, T, V, outage_id, name, first(time_steps),
+                    container, T, V, outage_id, name, time_steps,
                 )
                 if !isnothing(src_lb) && !isnothing(src_ub)
                     src_slack_ub, src_slack_lb =
                         _find_shared_post_contingency_slack_sources(
-                            container, V, outage_id, name, first(time_steps),
+                            container, V, outage_id, name, time_steps,
                         )
                     source_has_slacks =
                         !isnothing(src_slack_ub) || !isnothing(src_slack_lb)
@@ -361,10 +399,23 @@ function add_constraints!(
                 end
             end
             if _has_post_contingency_rate(container, _monitored_type(rep), name)
-                param, multiplier =
+                param, multiplier, param_container =
                     _post_contingency_rate_columns(container, _monitored_type(rep), name)
-                share = _post_contingency_share(rep.branch, tripped)
+                shares = _step_post_contingency_shares(rep, ts, time_steps, tripped)
+                by_topology = Dict{Int, Tuple{Bool, Float64}}()
                 for t in time_steps
+                    rating_t = _parameterized_rating_at(
+                        PostContingencyBranchRatingTimeSeriesParameter,
+                        container,
+                        param_container,
+                        rep,
+                        ts,
+                        t,
+                        param[t],
+                        multiplier[t],
+                        device_model,
+                        by_topology,
+                    )
                     sub = if use_slacks
                         _make_post_contingency_slack!(
                             container, jump_model, slack_ub,
@@ -385,17 +436,17 @@ function add_constraints!(
                     end
                     con_ub[outage_id, name, t] = _add_rating_row!(
                         jump_model, expressions[outage_id, name, t], sub, -1.0,
-                        JuMP.MOI.LessThan{Float64}, share * param[t] * multiplier[t],
+                        JuMP.MOI.LessThan{Float64}, shares[t] * rating_t,
                     )
                     con_lb[outage_id, name, t] = _add_rating_row!(
                         jump_model, expressions[outage_id, name, t], slb, 1.0,
-                        JuMP.MOI.GreaterThan{Float64},
-                        -1.0 * share * param[t] * multiplier[t],
+                        JuMP.MOI.GreaterThan{Float64}, -1.0 * shares[t] * rating_t,
                     )
                 end
             else
-                limits = _emergency_flow_limits(rep, tripped)
+                step_limits = _step_emergency_flow_limits(rep, ts, time_steps, tripped)
                 for t in time_steps
+                    limits = step_limits[t]
                     sub = if use_slacks
                         _make_post_contingency_slack!(
                             container, jump_model, slack_ub,
@@ -484,11 +535,16 @@ function _controlled_arc_rows(container::OptimizationContainer, network_model::N
 end
 
 """
-The shift-injection adjustments of one registered contingency. On PTDF networks the nodal
-balance carries every arc's `±b·α` pair, so a tripped shifter's pair must be taken back
-out before the MODF row multiplies the injections:
+The shift-injection adjustments of one contingency. On PTDF networks the nodal balance
+carries every arc's `±b·α` pair, so the change a contingency makes to a pair must be applied
+before the MODF row multiplies the injections:
 
     expr[m, k, t] += Σ_adj delta[t] · (MODF[m, k][from_pos] − MODF[m, k][to_pos])
+
+`outage_spec` describes the post-contingency network relative to the network the nodal
+balance describes: the base network, or the step's topology under a schedule, whose tier-2
+modification is that change. `out_controlled` lists the phase-controlled arcs already out of
+the balance's network: the balance holds no angle term for them.
 
 A phase-controlled arc is a single circuit alone on its arc, so its modification is a full
 removal and `-b · PhaseShifterAngle[t]` is the whole injection it loses.
@@ -500,7 +556,8 @@ function _outage_shift_adjustments(
         Tuple{Int, Int},
         Tuple{RepresentativeBranch, Vector{JuMP.VariableRef}},
     },
-    time_steps::UnitRange{Int},
+    time_steps::UnitRange{Int};
+    out_controlled::Set{Tuple{Int, Int}} = Set{Tuple{Int, Int}}(),
 )
     arc_axis = PNM.get_arc_axis(modf_matrix)
     bus_lookup = PNM.get_bus_lookup(modf_matrix)
@@ -509,9 +566,11 @@ function _outage_shift_adjustments(
         arc = arc_axis[mod.arc_index]
         controlled = get(controlled_rows, arc, nothing)
         if isnothing(controlled)
-            iszero(mod.delta_shift_injection) && continue
-            delta = [JuMP.AffExpr(mod.delta_shift_injection) for _ in time_steps]
+            change = mod.delta_shift_injection
+            iszero(change) && continue
+            delta = [JuMP.AffExpr(change) for _ in time_steps]
         else
+            arc in out_controlled && continue
             rep, row = controlled
             b = _dc_susceptance(rep)
             # The tolerance absorbs PNM's single-precision susceptance recovery while
@@ -533,6 +592,45 @@ function _outage_shift_adjustments(
         )
     end
     return adjustments
+end
+
+# The phase-controlled arcs whose circuit carries no flow at step `t`.
+function _out_controlled_arcs(
+    controlled_rows::Dict{
+        Tuple{Int, Int},
+        Tuple{RepresentativeBranch, Vector{JuMP.VariableRef}},
+    },
+    ts::PNM.TopologySchedule,
+    t::Int,
+)
+    out = Set{Tuple{Int, Int}}()
+    for (arc, (rep, _)) in controlled_rows
+        _own_entry_conducts(rep, ts, t) || push!(out, arc)
+    end
+    return out
+end
+
+# Adds the shift adjustments at step `t` to the post-contingency flow of the monitored arc
+# `arc`, whose post-contingency row is `modf_col`.
+function _add_shift_adjustments!(
+    expression::JuMP.AffExpr,
+    adjustments::Vector{OutageShiftAdjustment},
+    modf_col::AbstractVector{Float64},
+    arc::Tuple{Int, Int},
+    t::Int,
+)
+    for adj in adjustments
+        sensitivity = modf_col[adj.from_pos] - modf_col[adj.to_pos]
+        # A monitored arc that loses a shifted member also loses that member's share of
+        # its own `-b·α` flow offset.
+        if adj.arc == arc
+            own = -1.0
+        else
+            own = 0.0
+        end
+        JuMP.add_to_expression!(expression, sensitivity + own, adj.delta[t])
+    end
+    return
 end
 
 function _build_post_contingency_flow_expressions_for_outage(
@@ -567,21 +665,228 @@ function _build_post_contingency_flow_expressions_for_outage(
                 phase_row,
             )
         end
-        for adj in adjustments
-            sensitivity = modf_col[adj.from_pos] - modf_col[adj.to_pos]
-            # A monitored arc that loses a shifted member also loses that member's share of
-            # its own `-b·α` flow offset.
-            if adj.arc == rep.arc
-                own = -1.0
-            else
-                own = 0.0
-            end
-            for t in time_steps
-                JuMP.add_to_expression!(expressions[t], sensitivity + own, adj.delta[t])
-            end
+        for t in time_steps
+            _add_shift_adjustments!(expressions[t], adjustments, modf_col, rep.arc, t)
         end
         foreach(IOM.round_to_zero_or_one!, expressions)
         results[i] = (rep.name, expressions)
+    end
+    return results
+end
+
+"""
+Post-contingency rows solved on the dispatcher, each `(monitored arc, post-contingency
+network)` pair once. `rows[k]` is the row as the dispatcher returns it (sparse under the
+cutoff) and `entries[k]` its indices and values above `PTDF_ZERO_TOL`.
+"""
+struct _PostContingencyRows
+    index::Dict{Tuple{Tuple{Int, Int}, PNM.PostContingencyNetwork}, Int}
+    rows::Vector{PNM.RowCacheValue}
+    entries::Vector{Tuple{Vector{Int}, Vector{Float64}}}
+end
+
+_PostContingencyRows() = _PostContingencyRows(
+    Dict{Tuple{Tuple{Int, Int}, PNM.PostContingencyNetwork}, Int}(),
+    PNM.RowCacheValue[],
+    Tuple{Vector{Int}, Vector{Float64}}[],
+)
+
+_filtered_entries(row::Vector{Float64}) = _nz_entries(row)
+
+function _filtered_entries(row::SparseArrays.SparseVector{Float64})
+    inds = SparseArrays.nonzeroinds(row)
+    vals = SparseArrays.nonzeros(row)
+    keep = findall(v -> abs(v) > PTDF_ZERO_TOL, vals)
+    return inds[keep], vals[keep]
+end
+
+# Solves every post-contingency row the contingencies need, grouped by monitored arc so each
+# arc's base column is solved once for all its post-contingency networks.
+function _fill_post_contingency_rows!(
+    rows::_PostContingencyRows,
+    modf_matrix::PNM.VirtualMODF,
+    ts::PNM.TopologySchedule,
+    resolved::Vector{Pair{Int, Vector{RepresentativeBranch}}},
+    networks::_PostContingencyNetworks,
+    time_steps::UnitRange{Int},
+)
+    nets_by_arc = Dict{Tuple{Int, Int}, Vector{PNM.PostContingencyNetwork}}()
+    requested = Set{Tuple{Tuple{Int, Int}, PNM.PostContingencyNetwork}}()
+    for (uuid, reps) in resolved, rep in reps, t in time_steps
+        net = networks[uuid][t]
+        _post_contingency_applies(ts, net, rep.arc, t) || continue
+        key = (rep.arc, net)
+        key in requested && continue
+        push!(requested, key)
+        push!(get!(Vector{PNM.PostContingencyNetwork}, nets_by_arc, rep.arc), net)
+    end
+    for (arc, nets) in nets_by_arc
+        for (net, row) in
+            zip(nets, PNM.get_post_contingency_ptdf_rows(modf_matrix, arc, nets))
+            push!(rows.rows, row)
+            push!(rows.entries, _filtered_entries(row))
+            rows.index[(arc, net)] = length(rows.rows)
+        end
+    end
+    return
+end
+
+"""
+One contingency's post-contingency data at every step of a topology schedule, resolved on
+the dispatcher. Per monitored branch `i` and step `t`: `row_of_step[i][t]` indexes the
+post-contingency row (`nothing` where no post-contingency limit applies, leaving the flow
+zero), `own_shift[i][t]` is the
+branch arc's shift injection on the step network and `own_conducts[i][t]` whether its own
+entry carries the flow there. `adjustments[t]` are the step's shift adjustments.
+"""
+struct _ScheduledContingency
+    row_of_step::Vector{Vector{Union{Nothing, Int}}}
+    own_shift::Vector{Vector{Float64}}
+    own_conducts::Vector{BitVector}
+    adjustments::Vector{Vector{OutageShiftAdjustment}}
+end
+
+# A monitored arc's shift injection and whether its own entry conducts, at every step,
+# resolved once per topology.
+function _step_own_shifts(
+    rep::RepresentativeBranch,
+    ts::PNM.TopologySchedule,
+    time_steps::UnitRange{Int},
+)
+    by_topology = Dict{Int, Tuple{Float64, Bool}}()
+    own = [
+        get!(by_topology, PNM.get_topology_index(ts, t)) do
+            entry = PNM.get_in_service_entry(ts, rep.arc, t)
+            (
+                PNM.get_arc_shift_injection(ts, rep.arc, entry),
+                _own_entry_conducts(rep, entry),
+            )
+        end for t in time_steps
+    ]
+    return first.(own), BitVector(last.(own))
+end
+
+function _scheduled_contingency(
+    ts::PNM.TopologySchedule,
+    modf_matrix::PNM.VirtualMODF,
+    rows::_PostContingencyRows,
+    own_by_arc::Dict{Tuple{Int, Int}, Tuple{Vector{Float64}, BitVector}},
+    uuid::Int,
+    reps::Vector{RepresentativeBranch},
+    step_networks::Vector{Union{Nothing, PNM.PostContingencyNetwork}},
+    controlled_rows::Dict{
+        Tuple{Int, Int},
+        Tuple{RepresentativeBranch, Vector{JuMP.VariableRef}},
+    },
+    time_steps::UnitRange{Int},
+)
+    adjustments_by_topology = Dict{Int, Vector{OutageShiftAdjustment}}()
+    adjustments = Vector{Vector{OutageShiftAdjustment}}(undef, length(time_steps))
+    for t in time_steps
+        net = step_networks[t]
+        if isnothing(net)
+            adjustments[t] = OutageShiftAdjustment[]
+            continue
+        end
+        adjustments[t] = get!(adjustments_by_topology, PNM.get_topology_index(ts, t)) do
+            _outage_shift_adjustments(
+                modf_matrix,
+                PNM.ContingencySpec(uuid, net.tier2),
+                controlled_rows,
+                time_steps;
+                out_controlled = _out_controlled_arcs(controlled_rows, ts, t),
+            )
+        end
+    end
+    row_of_step = Vector{Vector{Union{Nothing, Int}}}(undef, length(reps))
+    own_shift = Vector{Vector{Float64}}(undef, length(reps))
+    own_conducts = Vector{BitVector}(undef, length(reps))
+    for (i, rep) in enumerate(reps)
+        row_of_step[i] = Vector{Union{Nothing, Int}}(nothing, length(time_steps))
+        own_shift[i], own_conducts[i] = get!(own_by_arc, rep.arc) do
+            _step_own_shifts(rep, ts, time_steps)
+        end
+        for t in time_steps
+            net = step_networks[t]
+            _post_contingency_applies(ts, net, rep.arc, t) || continue
+            row_of_step[i][t] = rows.index[(rep.arc, net)]
+        end
+    end
+    return _ScheduledContingency(row_of_step, own_shift, own_conducts, adjustments)
+end
+
+# The monitored arc's own flow offset at step `t`: its constant shift injection on a static
+# arc, and its controlled angle term while its own entry conducts.
+function _add_own_shift!(
+    expression::JuMP.AffExpr,
+    ::RepresentativeBranch,
+    ::Nothing,
+    shift::Float64,
+    ::Bool,
+    ::Int,
+)
+    JuMP.add_to_expression!(expression, -shift)
+    return
+end
+
+function _add_own_shift!(
+    expression::JuMP.AffExpr,
+    rep::RepresentativeBranch,
+    phase_row::Vector{JuMP.VariableRef},
+    ::Float64,
+    conducts::Bool,
+    t::Int,
+)
+    conducts || return
+    JuMP.add_to_expression!(expression, -_dc_susceptance(rep), phase_row[t])
+    return
+end
+
+function _build_scheduled_post_contingency_flow_expressions_for_outage(
+    time_steps::UnitRange{Int},
+    rows::_PostContingencyRows,
+    contingency::_ScheduledContingency,
+    nodal_balance_expressions::Matrix{JuMP.AffExpr},
+    term_counts::Matrix{Int},
+    reps::Vector{RepresentativeBranch},
+    phase_vars::Dict{String, Vector{JuMP.VariableRef}},
+)
+    results = Tuple{String, Int, JuMP.AffExpr}[]
+    for (i, rep) in enumerate(reps)
+        phase_row = get(phase_vars, rep.name, nothing)
+        row_of_step = contingency.row_of_step[i]
+        for t in time_steps
+            k = row_of_step[t]
+            isnothing(k) && continue
+            modf_col = rows.rows[k]
+            _assert_flow_expression_dimensions(
+                rep.name,
+                length(modf_col),
+                nodal_balance_expressions,
+            )
+            entries = rows.entries[k]
+            expression = IOM.get_hinted_aff_expr(
+                _term_hint(term_counts, first(entries), t) + !isnothing(phase_row),
+            )
+            _add_column_terms!(expression, entries, nodal_balance_expressions, t)
+            _add_own_shift!(
+                expression,
+                rep,
+                phase_row,
+                contingency.own_shift[i][t],
+                contingency.own_conducts[i][t],
+                t,
+            )
+            _add_shift_adjustments!(
+                expression,
+                contingency.adjustments[t],
+                modf_col,
+                rep.arc,
+                t,
+            )
+            IOM.round_to_zero_or_one!(expression)
+            push!(results, (rep.name, t, expression))
+        end
     end
     return results
 end
@@ -596,17 +901,51 @@ and registered outage `k`,
 `nodal_injection_expressions` must hold the per-bus active-power injections in the same
 bus order as the MODF columns. On PTDF networks the `ActivePowerBalance` expression IS the
 injection vector (flows are not variables there), and it already includes every arc's
-shift-injection pair — the adjustments remove the pairs of the arcs the outage trips. On
+shift-injection pair — the adjustments apply the changes the outage makes to those pairs. On
 DCP the injections are recovered from the balance's branch-flow terms (see
 [`_dcp_nodal_injection_expressions`](@ref)) and carry no shift pairs at all; that is
 consistent only because security-constrained DCP models reject every shifted transformer
 at validation.
+
+Under a topology schedule, `MODF[m, k]` at step `t` is the row on the network with the
+step's out components and the contingency's remaining components removed together, and the
+adjustments start from the step's shift injections, which the balance already holds. Where
+every component of the contingency is already out at `t`, or the monitored arc is out at
+`t`, no limit applies: the entry stays the zero expression, so its rating rows are inert,
+and no row is solved for it. Every `(outage, monitored, t)` keeps an entry, so outputs carry
+one row per step.
 """
 function _add_modf_post_contingency_flow_expressions!(
     container::OptimizationContainer,
     ::Type{T},
     model::DeviceModel{V, F},
     network_model::NetworkModel,
+    sys::PSY.System,
+    nodal_injection_expressions::Matrix{JuMP.AffExpr},
+) where {
+    T <: PostContingencyBranchFlow,
+    V <: PSY.ACTransmission,
+    F <: AbstractSecurityConstrainedStaticBranch,
+}
+    _add_modf_post_contingency_flow_expressions!(
+        container,
+        T,
+        model,
+        network_model,
+        get_topology_schedule(network_model),
+        sys,
+        nodal_injection_expressions,
+    )
+    return
+end
+
+function _add_modf_post_contingency_flow_expressions!(
+    container::OptimizationContainer,
+    ::Type{T},
+    model::DeviceModel{V, F},
+    network_model::NetworkModel,
+    ::Nothing,
+    ::PSY.System,
     nodal_injection_expressions::Matrix{JuMP.AffExpr},
 ) where {
     T <: PostContingencyBranchFlow,
@@ -620,7 +959,7 @@ function _add_modf_post_contingency_flow_expressions!(
     resolved = _resolve_monitored_branches(model, network_model)
 
     expression_container = _add_post_contingency_sparse_expression!(
-        container, T, V, resolved, time_steps,
+        container, T, V, _post_contingency_entries(resolved, time_steps),
     )
 
     fresh_resolved = _copy_existing_post_contingency_expressions!(
@@ -688,6 +1027,97 @@ function _add_modf_post_contingency_flow_expressions!(
     return
 end
 
+function _add_modf_post_contingency_flow_expressions!(
+    container::OptimizationContainer,
+    ::Type{T},
+    model::DeviceModel{V, F},
+    network_model::NetworkModel,
+    ts::PNM.TopologySchedule,
+    sys::PSY.System,
+    nodal_injection_expressions::Matrix{JuMP.AffExpr},
+) where {
+    T <: PostContingencyBranchFlow,
+    V <: PSY.ACTransmission,
+    F <: AbstractSecurityConstrainedStaticBranch,
+}
+    time_steps = get_time_steps(container)
+    modf_matrix = get_contingency_matrix(network_model)
+
+    resolved = _resolve_monitored_branches(model, network_model)
+    networks = get_post_contingency_networks(network_model)
+
+    expression_container = _add_post_contingency_sparse_expression!(
+        container, T, V,
+        _post_contingency_entries(resolved, time_steps),
+    )
+
+    fresh_resolved = _copy_existing_post_contingency_expressions!(
+        container, T, V, expression_container, resolved, time_steps,
+    )
+    isempty(fresh_resolved) && return
+
+    # Serial libklu pass: concurrent libklu calls are unsafe (PNM `_LIBKLU_LOCK`). Each
+    # monitored arc's base column is solved once for all its post-contingency networks, and
+    # steps and contingencies that reach the same network share its row.
+    controlled_rows = _controlled_arc_rows(container, network_model)
+    rows = _PostContingencyRows()
+    _fill_post_contingency_rows!(
+        rows,
+        modf_matrix,
+        ts,
+        fresh_resolved,
+        networks,
+        time_steps,
+    )
+    own_by_arc = Dict{Tuple{Int, Int}, Tuple{Vector{Float64}, BitVector}}()
+    contingencies = [
+        _scheduled_contingency(
+            ts,
+            modf_matrix,
+            rows,
+            own_by_arc,
+            uuid,
+            reps,
+            networks[uuid],
+            controlled_rows,
+            time_steps,
+        ) for (uuid, reps) in fresh_resolved
+    ]
+
+    phase_vars = _phase_variables(container)
+    term_counts = _nodal_term_counts(nodal_injection_expressions)
+
+    # Parallel JuMP `AffExpr` build (no libklu): tasks return results, the main
+    # thread does the serial writes. The try/catch surfaces the inner exception.
+    tasks = map(enumerate(fresh_resolved)) do (i, (uuid, reps))
+        outage_id = string(uuid)
+        contingency = contingencies[i]
+        Threads.@spawn try
+            _build_scheduled_post_contingency_flow_expressions_for_outage(
+                time_steps,
+                rows,
+                contingency,
+                nodal_injection_expressions,
+                term_counts,
+                reps,
+                phase_vars,
+            )
+        catch e
+            @error "Post-contingency flow-expression task failed" outage_id =
+                outage_id exception = (e, catch_backtrace())
+            rethrow()
+        end
+    end
+    for (i, task) in enumerate(tasks)
+        (uuid, _) = fresh_resolved[i]
+        outage_id = string(uuid)
+        for (name, t, expression) in fetch(task)
+            expression_container[outage_id, name, t] = expression
+        end
+    end
+    return
+end
+
 # On a PTDF network the nodal balance expression holds injections and nothing
 # else (branch flows are not variables), so it feeds the MODF product directly.
 function add_post_contingency_flow_expressions!(
@@ -705,7 +1135,7 @@ function add_post_contingency_flow_expressions!(
     nodal_injection_expressions =
         get_expression(container, ActivePowerBalance, PSY.ACBus).data
     _add_modf_post_contingency_flow_expressions!(
-        container, T, model, network_model, nodal_injection_expressions,
+        container, T, model, network_model, sys, nodal_injection_expressions,
     )
     return
 end
@@ -729,7 +1159,7 @@ function add_post_contingency_flow_expressions!(
             container, network_model, PNM.get_bus_axis(modf_matrix),
         )
     _add_modf_post_contingency_flow_expressions!(
-        container, T, model, network_model, nodal_injection_expressions,
+        container, T, model, network_model, sys, nodal_injection_expressions,
     )
     return
 end
@@ -872,7 +1302,7 @@ function _copy_existing_post_contingency_expressions!(
         unresolved = RepresentativeBranch[]
         for rep in reps
             src_ec = _find_shared_post_contingency_expression_source(
-                container, T, V, outage_id, rep.name, first(time_steps),
+                container, T, V, outage_id, rep.name, time_steps,
             )
             if isnothing(src_ec)
                 push!(unresolved, rep)

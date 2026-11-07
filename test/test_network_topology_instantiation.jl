@@ -35,9 +35,13 @@ end
     @test POM.get_topology_matrix(nm) isa PNM.VirtualMODF
 end
 
-@testset "Security-constrained branch models reject AC branch schedules" begin
+@testset "Security-constrained models share their contingency matrix" begin
     sys, switch = _sys_with_scheduled_switch()
     line = first(sort!(collect(PSY.get_components(PSY.Line, sys)); by = PSY.get_name))
+    # The switch rates its arc once the parallel line trips.
+    PSY.set_rating!(switch, PSY.get_rating(line, u"SU") * u"SU")
+    PSY.set_rating_b!(switch, nothing)
+    PSY.set_rating_c!(switch, nothing)
     PSY.add_supplemental_attribute!(
         sys,
         line,
@@ -47,11 +51,10 @@ end
     set_device_model!(template, PSY.Line, SecurityConstrainedStaticBranch)
     set_device_model!(template, PSY.DiscreteControlledACBranch, StaticBranch)
     model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
-    output_dir = mktempdir(; cleanup = true)
-    @test build!(model; output_dir = output_dir) == IOM.ModelBuildStatus.FAILED
-    log = read(joinpath(output_dir, IOM.PROBLEM_LOG_FILENAME), String)
-    @test occursin("Security-constrained branch formulations do not model scheduled", log)
-    @test occursin(PSY.get_name(switch), log)
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+    nm = IOM.get_network_model(IOM.get_template(model))
+    @test POM.get_topology_matrix(nm) === IOM.get_contingency_matrix(nm)
 end
 
 @testset "A prebuilt source without the scheduled switch is rejected" begin

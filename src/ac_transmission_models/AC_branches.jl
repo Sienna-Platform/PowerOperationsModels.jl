@@ -601,6 +601,11 @@ _unparameterized_rating(
     model::DeviceModel,
 ) =
     _branch_rating(entry, model)
+_unparameterized_rating(
+    ::Type{PostContingencyBranchRatingTimeSeriesParameter},
+    entry,
+    ::DeviceModel,
+) = _emergency_rating(entry)
 
 # Rating of parameter `P` at step `t`: `param_t * stored` while the arc's own entry conducts
 # (or the arc is out, which leaves its rating row inert). Otherwise the in-service entry

@@ -2,8 +2,9 @@
     construct_topology_schedule!(container, template, network_model, sys)
 
 Build the `PNM.TopologySchedule` of the model's time steps from the branch status
-parameters, and store it in the network model. Every AC branch with a status of 0 at a step
-is removed at that step. Does nothing when the network model has no topology matrix.
+parameters, and store it in the network model together with the post-contingency network of
+each registered contingency at every step. Every AC branch with a status of 0 at a step is
+removed at that step. Does nothing when the network model has no topology matrix.
 
 The topology matrix keeps the Woodbury factors of the base network and of the step
 topologies this schedule uses, so a model rebuilt for every window of a simulation holds
@@ -29,8 +30,12 @@ function construct_topology_schedule!(
         _collect_removed!(removed, IOM.get_component_type(key), param, sys)
     end
     ts = PNM.TopologySchedule(matrix, sys, removed)
+    post_contingency = _PostContingencyNetworks(
+        uuid => _post_contingency_networks(ts, uuid, time_steps) for
+        uuid in keys(PNM.get_registered_contingencies(matrix))
+    )
     PNM.retain_modifications!(matrix, _networks_in_use(ts, time_steps))
-    set_topology_schedule!(network_model, ts)
+    set_topology_schedule!(network_model, ts, post_contingency)
     _check_island_consistency(container, template, network_model, sys)
     return
 end
@@ -45,6 +50,24 @@ function _check_steps_start_at_one(time_steps)
              got $time_steps.",
         ),
     )
+end
+
+"""
+The `PNM.PostContingencyNetwork` of the registered contingency `uuid` at every step of a
+topology schedule, or `nothing` when every one of its components is already out. Steps on
+the same topology share one network object.
+"""
+function _post_contingency_networks(
+    ts::PNM.TopologySchedule,
+    uuid::Int,
+    time_steps::UnitRange{Int},
+)
+    by_topology = Dict{Int, Union{Nothing, PNM.PostContingencyNetwork}}()
+    return Union{Nothing, PNM.PostContingencyNetwork}[
+        get!(by_topology, PNM.get_topology_index(ts, t)) do
+            PNM.get_post_contingency_network(ts, t, uuid)
+        end for t in time_steps
+    ]
 end
 
 # Every step topology the schedule resolves rows on.

@@ -22,14 +22,17 @@ struct YbusNetworkData <: IOM.AbstractNetworkData
 end
 
 # The network's per-step topology: the low-rank matrix built once per model on the base
-# factorization, and the schedule built from the statuses at each build.
+# factorization, and the schedule built from the statuses at each build together with the
+# post-contingency network of each registered contingency at every step.
 mutable struct TopologyState
     matrix::Union{Nothing, PNM.VirtualMODF}
     schedule::Union{Nothing, PNM.TopologySchedule}
+    post_contingency::_PostContingencyNetworks
 end
 
-TopologyState() = TopologyState(nothing, nothing)
-TopologyState(matrix::PNM.VirtualMODF) = TopologyState(matrix, nothing)
+TopologyState() = TopologyState(nothing, nothing, _PostContingencyNetworks())
+TopologyState(matrix::PNM.VirtualMODF) =
+    TopologyState(matrix, nothing, _PostContingencyNetworks())
 
 """DCP: a Ybus, plus a MODF derived from that same Ybus when the template is security constrained."""
 struct DCPNetworkData{M} <: IOM.AbstractNetworkData
@@ -127,8 +130,25 @@ get_topology_schedule(m::NetworkModel) =
 _topology_schedule(::Nothing) = nothing
 _topology_schedule(s::TopologyState) = s.schedule
 
-function set_topology_schedule!(m::NetworkModel, schedule::PNM.TopologySchedule)
-    _set_topology_schedule!(get_topology_state(get_network_data(m)), m, schedule)
+"""
+The `PNM.PostContingencyNetwork` of each registered contingency at every step of the
+topology schedule, by outage id: `nothing` at a step where every component of the
+contingency is already out.
+"""
+get_post_contingency_networks(m::NetworkModel) =
+    get_topology_state(get_network_data(m)).post_contingency
+
+function set_topology_schedule!(
+    m::NetworkModel,
+    schedule::PNM.TopologySchedule,
+    post_contingency::_PostContingencyNetworks,
+)
+    _set_topology_schedule!(
+        get_topology_state(get_network_data(m)),
+        m,
+        schedule,
+        post_contingency,
+    )
     return
 end
 
@@ -136,12 +156,14 @@ function _set_topology_schedule!(
     state::TopologyState,
     ::NetworkModel,
     schedule::PNM.TopologySchedule,
+    post_contingency::_PostContingencyNetworks,
 )
     state.schedule = schedule
+    state.post_contingency = post_contingency
     return
 end
 
-_set_topology_schedule!(::Nothing, m::NetworkModel, ::PNM.TopologySchedule) = error(
+_set_topology_schedule!(::Nothing, m::NetworkModel, ::PNM.TopologySchedule, _) = error(
     "$(nameof(get_network_formulation(m))) holds no network topology, so it cannot store \
      a topology schedule. Only DCP and PTDF network models follow scheduled topology.",
 )
