@@ -2973,6 +2973,40 @@ function add_constraints!(
     )
 end
 
+# Function barrier: `get_services(model)` has an abstract element type, so the dispatch on the
+# concrete `ServiceModel{S, F}` happens once per service model and the inner work is type-stable.
+function _add_hydro_served_reserve!(
+    container::OptimizationContainer,
+    expression,
+    ::Type{U},
+    d::V,
+    model::DeviceModel{V},
+    ::ServiceModel{S},
+    ::Type{R},
+) where {
+    U <: ActivePowerReserveVariable,
+    V <: PSY.HydroGen,
+    S <: PSY.Service,
+    R <: PSY.ReserveDirection,
+}
+    name = PSY.get_name(d)
+    for service in PSY.get_services(d)
+        typeof(service) <: S || continue
+        isa(service, PSY.Reserve{R}) || continue
+        service_name = PSY.get_name(service)
+        variable = get_variable(container, U, IOM.ComponentPairKey{V, typeof(service)})
+        fractions = deployed_fraction_values(container, model, service)
+        for t in get_time_steps(container)
+            add_proportional_to_jump_expression!(
+                expression[name, t],
+                variable[(service_name, name, t)],
+                fractions[t],
+            )
+        end
+    end
+    return
+end
+
 function add_to_expression!(
     container::OptimizationContainer,
     ::Type{T},
@@ -2989,27 +3023,13 @@ function add_to_expression!(
 }
     expression = get_expression(container, T, V)
     for d in devices
-        name = PSY.get_name(d)
         # One `ServiceModel` per reserve type. Iterate the device's own services and
         # match those whose type is modeled (a service model of that type is attached),
         # using each matching service's own name for the reserve-variable index.
         for service_model in get_services(model)
-            S = get_component_type(service_model)
-            for service in PSY.get_services(d)
-                typeof(service) <: S || continue
-                isa(service, PSY.Reserve{PSY.ReserveUp}) || continue
-                service_name = PSY.get_name(service)
-                variable =
-                    get_variable(container, U, IOM.ComponentPairKey{V, typeof(service)})
-                fractions = deployed_fraction_values(container, model, service)
-                for t in get_time_steps(container)
-                    add_proportional_to_jump_expression!(
-                        expression[name, t],
-                        variable[(service_name, name, t)],
-                        fractions[t],
-                    )
-                end
-            end
+            _add_hydro_served_reserve!(
+                container, expression, U, d, model, service_model, PSY.ReserveUp,
+            )
         end
     end
 end
@@ -3030,26 +3050,12 @@ function add_to_expression!(
 }
     expression = get_expression(container, T, V)
     for d in devices
-        name = PSY.get_name(d)
         # One `ServiceModel` per reserve type. Iterate the device's own services and
         # match those whose type is modeled, using each matching service's own name.
         for service_model in get_services(model)
-            S = get_component_type(service_model)
-            for service in PSY.get_services(d)
-                typeof(service) <: S || continue
-                isa(service, PSY.Reserve{PSY.ReserveDown}) || continue
-                service_name = PSY.get_name(service)
-                variable =
-                    get_variable(container, U, IOM.ComponentPairKey{V, typeof(service)})
-                fractions = deployed_fraction_values(container, model, service)
-                for t in get_time_steps(container)
-                    add_proportional_to_jump_expression!(
-                        expression[name, t],
-                        variable[(service_name, name, t)],
-                        fractions[t],
-                    )
-                end
-            end
+            _add_hydro_served_reserve!(
+                container, expression, U, d, model, service_model, PSY.ReserveDown,
+            )
         end
     end
 end

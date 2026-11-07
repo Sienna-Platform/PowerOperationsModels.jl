@@ -356,9 +356,8 @@ function _modify_device_model!(
             # models by reference and would otherwise attach a second copy of this one.
             S = get_component_type(service_model)
             any(sm -> get_component_type(sm) == S, device_model.services) && continue
-            # TODO(services stability): `device_model.services` has an abstract element type, so
-            # this `push!`/iteration dynamic-dispatch; rooted in the IOM `DeviceModel.services`
-            # field, needs an IOM struct-typing pass (build-time only). See #216.
+            # `device_model.services` has an abstract element type (IOM field), so this `push!`
+            # dispatches dynamically. Build-time only, once per (service, device model) pair.
             push!(device_model.services, service_model)
         end
     end

@@ -1309,13 +1309,17 @@ function _add_parameters!(
 } where {D <: PSY.Component}
     @debug "adding" T D U _group = IOM.LOG_GROUP_OPTIMIZATION_CONTAINER
     # TODO: per-service keying when service feedforwards are ported. Unreachable today, since
-    # service feedforwards are no-op stubs in POM. `get_contributing_devices(model)` flattens
-    # across all services of the type, so this builds a device-name-keyed parameter with no
-    # service axis, inconsistent with the `(service, device, time)` reserve variables it must
-    # feed forward against. Re-key by `(service, device)` reading
-    # `get_contributing_devices(model, service_name)` before wiring service feedforwards.
-    contributing_devices = IOM.get_contributing_devices(model)
-    names = [PSY.get_name(device) for device in contributing_devices]
+    # service feedforwards are no-op stubs in POM. The names below span all services of the
+    # type, so this builds a device-name-keyed parameter with no service axis, inconsistent
+    # with the `(service, device, time)` reserve variables it must feed forward against.
+    # Re-key by `(service, device)` over `get_contributing_devices_map` before wiring them.
+    names = String[]
+    for by_device_type in values(IOM.get_contributing_devices_map(model)),
+        devices in values(by_device_type),
+        device in devices
+
+        push!(names, PSY.get_name(device))
+    end
     time_steps = get_time_steps(container)
     parameter_container = add_variable_value_parameter_container!(container, T,
         S,
