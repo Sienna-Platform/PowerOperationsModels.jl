@@ -104,18 +104,18 @@ function _write_aux_variable_value!(
     arc_lookup = PFS.get_arc_lookup(pf_data)
     direct_map = PNM.get_reverse_direct_branch_map(nrd)
     parallel_map = PNM.get_reverse_parallel_branch_map(nrd)
+    parallel_branch_map = PNM.get_parallel_branch_map(nrd)
     for name in axes(dest, 1)
         br = PSY.get_component(U, sys, name)
         if haskey(direct_map, br)
             dest[name, :] = src[arc_lookup[direct_map[br]], :]
         elseif haskey(parallel_map, br)
-            # `PNM.compute_parallel_multiplier` susceptance-weights each branch, so parallel
-            # branches with unequal impedances are handled correctly.
+            # Multiplier is susceptance-weighted, so unequal parallel impedances split correctly.
             IS.@assert_op T <: POM.BranchFlowAuxVariableType ||
                           (T == POM.PowerFlowBranchActivePowerLoss)
             arc = parallel_map[br]
-            parallel_brs = PNM.get_parallel_branch_map(nrd)[arc]
-            multiplier = PNM.compute_parallel_multiplier(parallel_brs, name)
+            parallel_brs = parallel_branch_map[arc]
+            multiplier = PNM.compute_parallel_multiplier(parallel_brs, br)
             dest[name, :] = multiplier .* src[arc_lookup[arc], :]
         end
     end
