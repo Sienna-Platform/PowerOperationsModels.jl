@@ -593,7 +593,7 @@ end
 
 function add_constraints!(
     container::OptimizationContainer,
-    cons_type::Type{FlowRateConstraint},
+    ::Type{FlowRateConstraint},
     devices::Vector{T},
     device_model::DeviceModel{T, U},
     network_model::NetworkModel{V},
@@ -602,31 +602,35 @@ function add_constraints!(
     U <: AbstractBranchFormulation,
     V <: AbstractPTDFNetworkModel,
 }
+    _add_flow_rate_constraints!(
+        container,
+        get_expression(container, PTDFBranchFlow, T),
+        device_model,
+        network_model,
+    )
+    return
+end
+
+# One lb/ub rating pair per reduced arc on `flow`. A branch carrying a rating time series
+# takes the parameterized rating.
+function _add_flow_rate_constraints!(
+    container::OptimizationContainer,
+    flow::DenseAxisArray,
+    device_model::DeviceModel{T},
+    network_model::NetworkModel,
+) where {T <: PSY.ACTransmission}
     time_steps = get_time_steps(container)
-    reps = _representative_branches(network_model, T, cons_type)
+    reps = _representative_branches(network_model, T, FlowRateConstraint)
     branch_names = _branch_names(reps)
+    con_lb = add_constraints_container!(
+        container, FlowRateConstraint, T, branch_names, time_steps; meta = "lb",
+    )
+    con_ub = add_constraints_container!(
+        container, FlowRateConstraint, T, branch_names, time_steps; meta = "ub",
+    )
 
-    con_lb =
-        add_constraints_container!(
-            container,
-            cons_type,
-            T,
-            branch_names,
-            time_steps;
-            meta = "lb",
-        )
-    con_ub =
-        add_constraints_container!(
-            container,
-            cons_type,
-            T,
-            branch_names,
-            time_steps;
-            meta = "ub",
-        )
-
-    array = get_expression(container, PTDFBranchFlow, T)
-
+    # Gated on the parameter container: a configured rating time series that no branch of
+    # this type carries creates no container, and every branch takes its static rating.
     ts_branch_names = Set{String}()
     if has_container_key(container, BranchRatingTimeSeriesParameter, T)
         param_container = get_parameter(container, BranchRatingTimeSeriesParameter, T)
@@ -642,7 +646,7 @@ function add_constraints!(
                 use_slacks,
                 con_lb,
                 con_ub,
-                array,
+                flow,
                 rep.name,
             )
         else
@@ -652,7 +656,7 @@ function add_constraints!(
                 use_slacks,
                 con_lb,
                 con_ub,
-                array,
+                flow,
                 device_model,
             )
         end
@@ -781,9 +785,23 @@ end
 _nz_entries(ptdf_col::SparseArrays.SparseVector{Float64, Int}) =
     (SparseArrays.nonzeroinds(ptdf_col), SparseArrays.nonzeros(ptdf_col))
 
-# Upper bound on the merged term count: one variable can appear at several buses.
-_flow_term_hint(nodal::Matrix{JuMP.AffExpr}, nz_idx::Vector{Int}, t::Int) =
-    sum(k -> length(nodal[k, t].terms), nz_idx; init = 0)
+"""
+Number of terms of every nodal balance expression, indexed like the expression matrix.
+"""
+function _nodal_term_counts(nodal_balance_expressions::Matrix{JuMP.AffExpr})
+    counts = Matrix{Int}(undef, size(nodal_balance_expressions)...)
+    for i in eachindex(nodal_balance_expressions)
+        counts[i] = length(nodal_balance_expressions[i].terms)
+    end
+    return counts
+end
+
+"""
+Upper bound on the terms of a flow expression at step `t`: the summed term counts of the
+nodal balance expressions of the buses in `nz_idx`.
+"""
+_term_hint(term_counts::Matrix{Int}, nz_idx::AbstractVector{Int}, t::Int) =
+    sum(term_counts[i, t] for i in nz_idx; init = 0)
 
 # The flow is not rounded here: the MODF path adds outage adjustments first, then rounds.
 # Static shift path
@@ -792,6 +810,7 @@ function _ptdf_branch_flow(
     time_steps::UnitRange{Int},
     ptdf_col::Union{Vector{Float64}, SparseArrays.SparseVector{Float64, Int}},
     nodal_balance_expressions::Matrix{JuMP.AffExpr},
+    term_counts::Matrix{Int},
 )
     @debug "Making Flow Expression on thread $(Threads.threadid()) for branch $(rep.name)"
     _assert_flow_expression_dimensions(
@@ -803,7 +822,7 @@ function _ptdf_branch_flow(
     expressions = Vector{JuMP.AffExpr}(undef, length(time_steps))
     shift_injection = _dc_shift_injection(rep)
     for t in time_steps
-        acc = IOM.get_hinted_aff_expr(_flow_term_hint(nodal_balance_expressions, nz_idx, t))
+        acc = IOM.get_hinted_aff_expr(_term_hint(term_counts, nz_idx, t))
         @inbounds for k in eachindex(nz_idx)
             JuMP.add_to_expression!(
                 acc,
@@ -827,6 +846,7 @@ function _ptdf_branch_flow(
     time_steps::UnitRange{Int},
     ptdf_col::Union{Vector{Float64}, SparseArrays.SparseVector{Float64, Int}},
     nodal_balance_expressions::Matrix{JuMP.AffExpr},
+    term_counts::Matrix{Int},
     phase_row::Vector{JuMP.VariableRef},
 )
     @debug "Making Flow Expression on thread $(Threads.threadid()) for branch $(rep.name)"
@@ -839,9 +859,7 @@ function _ptdf_branch_flow(
     expressions = Vector{JuMP.AffExpr}(undef, length(time_steps))
     b = _dc_susceptance(rep)
     for t in time_steps
-        acc = IOM.get_hinted_aff_expr(
-            _flow_term_hint(nodal_balance_expressions, nz_idx, t) + 1,
-        )
+        acc = IOM.get_hinted_aff_expr(_term_hint(term_counts, nz_idx, t) + 1)
         @inbounds for k in eachindex(nz_idx)
             JuMP.add_to_expression!(
                 acc,
@@ -873,6 +891,7 @@ function add_ptdf_branch_flow_expressions!(
 
     ptdf = get_network_matrix(network_model)
     nodal_balance_expressions = get_expression(container, ActivePowerBalance, PSY.ACBus)
+    term_counts = _nodal_term_counts(nodal_balance_expressions.data)
     # `ptdf[arc, :]` is a KLU solve; libklu is not concurrency-safe, so the solves run
     # serially on the dispatcher and only the JuMP `AffExpr` build is parallelized via
     # `Threads.@spawn`. The try/catch below surfaces the inner exception -- the default
@@ -894,6 +913,7 @@ function add_ptdf_branch_flow_expressions!(
                     time_steps,
                     ptdf_col,
                     nodal_balance_expressions.data,
+                    term_counts,
                 )
             else
                 flow = _ptdf_branch_flow(
@@ -901,6 +921,7 @@ function add_ptdf_branch_flow_expressions!(
                     time_steps,
                     ptdf_col,
                     nodal_balance_expressions.data,
+                    term_counts,
                     phase_row,
                 )
             end
@@ -2159,10 +2180,8 @@ end
 ################################## DCP branch constraints ###################################
 
 """
-Add branch flow rate (rating) constraints for ACBranch under DCPNetworkModel.
-
-This is a simple lb/ub pair on the FlowActivePowerVariable that does not depend on the
-PTDF / network-reduction infrastructure used by the AbstractActivePowerModel dispatch.
+Add branch flow rate (rating) constraints for ACBranch under DCPNetworkModel: one lb/ub pair
+per reduced arc on the `FlowActivePowerVariable`.
 """
 function add_constraints!(
     container::OptimizationContainer,
@@ -2171,68 +2190,12 @@ function add_constraints!(
     device_model::DeviceModel{T, U},
     network_model::NetworkModel{DCPNetworkModel},
 ) where {T <: PSY.ACTransmission, U <: AbstractBranchFormulation}
-    time_steps = get_time_steps(container)
-    flow_vars = get_variable(container, FlowActivePowerVariable, T)
-    use_slacks = get_use_slacks(device_model)
-    if use_slacks
-        slack_ub = get_variable(container, FlowActivePowerSlackUpperBound, T)
-        slack_lb = get_variable(container, FlowActivePowerSlackLowerBound, T)
-    end
-    jump_model = get_jump_model(container)
-
-    # Gate on the parameter container existing (not just the TS name being set):
-    # if the name is configured but no branch of this type carries the series, the
-    # container is never created, and an empty `ts_branch_names` then routes every
-    # branch through the static-rating path below.
-    ts_branch_names = Set{String}()
-    local param_container, mult
-    if has_container_key(container, BranchRatingTimeSeriesParameter, T)
-        param_container =
-            get_parameter(container, BranchRatingTimeSeriesParameter, T)
-        mult = get_multiplier_array(param_container)
-        ts_branch_names = Set(axes(mult, 1))
-    end
-
-    # One lb/ub pair per reduced arc — the flow variables are shared per arc — with the
-    # rating from the arc's equivalent parameters. The TS parameter axes are already
-    # reduction-entry names.
-    reps = _representative_branches(network_model, T, FlowRateConstraint)
-    branch_names = _branch_names(reps)
-    con_lb = add_constraints_container!(
-        container, FlowRateConstraint, T, branch_names, time_steps; meta = "lb",
+    _add_flow_rate_constraints!(
+        container,
+        get_variable(container, FlowActivePowerVariable, T),
+        device_model,
+        network_model,
     )
-    con_ub = add_constraints_container!(
-        container, FlowRateConstraint, T, branch_names, time_steps; meta = "ub",
-    )
-    _foreach_branch(reps) do rep
-        name = rep.name
-        if name in ts_branch_names
-            param = get_parameter_column_refs(param_container, name)
-            if use_slacks
-                add_parameterized_rating_constraints!(
-                    container, con_ub, con_lb, flow_vars, name, param, mult,
-                    slack_ub, slack_lb,
-                )
-            else
-                add_parameterized_rating_constraints!(
-                    container, con_ub, con_lb, flow_vars, name, param, mult,
-                )
-            end
-        else
-            limits = _flow_limits(rep, device_model)
-            for t in time_steps
-                if use_slacks
-                    ub_lhs = flow_vars[name, t] - slack_ub[name, t]
-                    lb_lhs = flow_vars[name, t] + slack_lb[name, t]
-                else
-                    ub_lhs = flow_vars[name, t]
-                    lb_lhs = flow_vars[name, t]
-                end
-                con_ub[name, t] = JuMP.@constraint(jump_model, ub_lhs <= limits.max)
-                con_lb[name, t] = JuMP.@constraint(jump_model, lb_lhs >= limits.min)
-            end
-        end
-    end
     return
 end
 
@@ -2360,9 +2323,8 @@ end
 """
 Add branch flow rate (rating) inequalities for ACBranch StaticBranch under
 DCPNetworkModel, directly on the `BThetaBranchFlow` expression (no defining
-equality/variable to bound instead). Walks one representative per reduced arc and reuses
-the shared static/parameterized-rating row builders, mirroring the variable-based
-`FlowRateConstraint` DCP builder above but targeting the expression container.
+equality/variable to bound instead), mirroring the variable-based `FlowRateConstraint` DCP
+builder above.
 """
 function add_constraints!(
     container::OptimizationContainer,
@@ -2371,60 +2333,12 @@ function add_constraints!(
     device_model::DeviceModel{T, StaticBranch},
     network_model::NetworkModel{DCPNetworkModel},
 ) where {T <: PSY.ACTransmission}
-    time_steps = get_time_steps(container)
-    bfe = get_expression(container, BThetaBranchFlow, T)
-    use_slacks = get_use_slacks(device_model)
-    if use_slacks
-        slack_ub = get_variable(container, FlowActivePowerSlackUpperBound, T)
-        slack_lb = get_variable(container, FlowActivePowerSlackLowerBound, T)
-    end
-    jump_model = get_jump_model(container)
-
-    ts_branch_names = Set{String}()
-    local param_container, mult
-    if has_container_key(container, BranchRatingTimeSeriesParameter, T)
-        param_container = get_parameter(container, BranchRatingTimeSeriesParameter, T)
-        mult = get_multiplier_array(param_container)
-        ts_branch_names = Set(axes(mult, 1))
-    end
-
-    reps = _representative_branches(network_model, T, FlowRateConstraint)
-    branch_names = _branch_names(reps)
-    con_lb = add_constraints_container!(
-        container, FlowRateConstraint, T, branch_names, time_steps; meta = "lb",
+    _add_flow_rate_constraints!(
+        container,
+        get_expression(container, BThetaBranchFlow, T),
+        device_model,
+        network_model,
     )
-    con_ub = add_constraints_container!(
-        container, FlowRateConstraint, T, branch_names, time_steps; meta = "ub",
-    )
-
-    _foreach_branch(reps) do rep
-        name = rep.name
-        if name in ts_branch_names
-            param = get_parameter_column_refs(param_container, name)
-            if use_slacks
-                add_parameterized_rating_constraints!(
-                    container, con_ub, con_lb, bfe, name, param, mult, slack_ub, slack_lb,
-                )
-            else
-                add_parameterized_rating_constraints!(
-                    container, con_ub, con_lb, bfe, name, param, mult,
-                )
-            end
-        else
-            limits = _flow_limits(rep, device_model)
-            for t in time_steps
-                if use_slacks
-                    ub_lhs = bfe[name, t] - slack_ub[name, t]
-                    lb_lhs = bfe[name, t] + slack_lb[name, t]
-                else
-                    ub_lhs = bfe[name, t]
-                    lb_lhs = bfe[name, t]
-                end
-                con_ub[name, t] = JuMP.@constraint(jump_model, ub_lhs <= limits.max)
-                con_lb[name, t] = JuMP.@constraint(jump_model, lb_lhs >= limits.min)
-            end
-        end
-    end
     return
 end
 

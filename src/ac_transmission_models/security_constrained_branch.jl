@@ -240,6 +240,39 @@ function _make_post_contingency_slack!(
     return slack
 end
 
+# The row's function is the flow expression without its constant, which moves into the set.
+# Without a slack the row shares the expression's terms; with one it gets its own copy.
+function _add_rating_row!(
+    model::JuMP.Model,
+    expression::JuMP.AffExpr,
+    ::Nothing,
+    ::Float64,
+    ::Type{S},
+    bound::Real,
+) where {S <: Union{JuMP.MOI.LessThan{Float64}, JuMP.MOI.GreaterThan{Float64}}}
+    row = JuMP.AffExpr(0.0, expression.terms)
+    return JuMP.add_constraint(
+        model,
+        JuMP.ScalarConstraint(row, S(Float64(bound) - JuMP.constant(expression))),
+    )
+end
+
+function _add_rating_row!(
+    model::JuMP.Model,
+    expression::JuMP.AffExpr,
+    slack::JuMP.VariableRef,
+    coefficient::Float64,
+    ::Type{S},
+    bound::Real,
+) where {S <: Union{JuMP.MOI.LessThan{Float64}, JuMP.MOI.GreaterThan{Float64}}}
+    row = JuMP.AffExpr(0.0, copy(expression.terms))
+    JuMP.add_to_expression!(row, coefficient, slack)
+    return JuMP.add_constraint(
+        model,
+        JuMP.ScalarConstraint(row, S(Float64(bound) - JuMP.constant(expression))),
+    )
+end
+
 function _tripped_branches(sys::PSY.System, outage_id::Int)
     outage = PSY.get_supplemental_attribute(sys, outage_id)
     return Set{PSY.ACTransmission}(
@@ -339,7 +372,7 @@ function add_constraints!(
                             outage_id, name, t, slack_cost,
                         )
                     else
-                        0.0
+                        nothing
                     end
                     slb = if use_slacks
                         _make_post_contingency_slack!(
@@ -348,16 +381,15 @@ function add_constraints!(
                             outage_id, name, t, slack_cost,
                         )
                     else
-                        0.0
+                        nothing
                     end
-                    con_ub[outage_id, name, t] = JuMP.@constraint(
-                        jump_model,
-                        expressions[outage_id, name, t] - sub <=
-                        share * param[t] * multiplier[t],
+                    con_ub[outage_id, name, t] = _add_rating_row!(
+                        jump_model, expressions[outage_id, name, t], sub, -1.0,
+                        JuMP.MOI.LessThan{Float64}, share * param[t] * multiplier[t],
                     )
-                    con_lb[outage_id, name, t] = JuMP.@constraint(
-                        jump_model,
-                        expressions[outage_id, name, t] + slb >=
+                    con_lb[outage_id, name, t] = _add_rating_row!(
+                        jump_model, expressions[outage_id, name, t], slb, 1.0,
+                        JuMP.MOI.GreaterThan{Float64},
                         -1.0 * share * param[t] * multiplier[t],
                     )
                 end
@@ -371,7 +403,7 @@ function add_constraints!(
                             outage_id, name, t, slack_cost,
                         )
                     else
-                        0.0
+                        nothing
                     end
                     slb = if use_slacks
                         _make_post_contingency_slack!(
@@ -380,15 +412,15 @@ function add_constraints!(
                             outage_id, name, t, slack_cost,
                         )
                     else
-                        0.0
+                        nothing
                     end
-                    con_ub[outage_id, name, t] = JuMP.@constraint(
-                        jump_model,
-                        expressions[outage_id, name, t] - sub <= limits.max,
+                    con_ub[outage_id, name, t] = _add_rating_row!(
+                        jump_model, expressions[outage_id, name, t], sub, -1.0,
+                        JuMP.MOI.LessThan{Float64}, limits.max,
                     )
-                    con_lb[outage_id, name, t] = JuMP.@constraint(
-                        jump_model,
-                        expressions[outage_id, name, t] + slb >= limits.min,
+                    con_lb[outage_id, name, t] = _add_rating_row!(
+                        jump_model, expressions[outage_id, name, t], slb, 1.0,
+                        JuMP.MOI.GreaterThan{Float64}, limits.min,
                     )
                 end
             end
@@ -508,6 +540,7 @@ function _build_post_contingency_flow_expressions_for_outage(
     outage_id::String,
     modf_cols::Dict{Tuple{String, Tuple{Int64, Int64}}, Vector{Float64}},
     nodal_balance_expressions::Matrix{JuMP.AffExpr},
+    term_counts::Matrix{Int},
     reps::Vector{RepresentativeBranch},
     phase_vars::Dict{String, Vector{JuMP.VariableRef}},
     adjustments::Vector{OutageShiftAdjustment},
@@ -517,13 +550,20 @@ function _build_post_contingency_flow_expressions_for_outage(
         modf_col = modf_cols[(outage_id, rep.arc)]
         phase_row = get(phase_vars, rep.name, nothing)
         _, expressions = if isnothing(phase_row)
-            _ptdf_branch_flow(rep, time_steps, modf_col, nodal_balance_expressions)
+            _ptdf_branch_flow(
+                rep,
+                time_steps,
+                modf_col,
+                nodal_balance_expressions,
+                term_counts,
+            )
         else
             _ptdf_branch_flow(
                 rep,
                 time_steps,
                 modf_col,
                 nodal_balance_expressions,
+                term_counts,
                 phase_row,
             )
         end
@@ -613,6 +653,7 @@ function _add_modf_post_contingency_flow_expressions!(
     end
 
     phase_vars = _phase_variables(container)
+    term_counts = _nodal_term_counts(nodal_injection_expressions)
 
     # Parallel JuMP `AffExpr` build (no libklu): tasks return results, the main
     # thread does the serial writes. The try/catch surfaces the inner exception.
@@ -624,6 +665,7 @@ function _add_modf_post_contingency_flow_expressions!(
                 outage_id,
                 modf_cols,
                 nodal_injection_expressions,
+                term_counts,
                 reps,
                 phase_vars,
                 adjustments[outage_id],
