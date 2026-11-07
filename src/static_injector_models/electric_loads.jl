@@ -8,6 +8,7 @@ get_variable_multiplier(::Type{<:VariableType}, ::Type{<:PSY.ElectricLoad}, ::Ty
 get_variable_binary(::Type{ActivePowerVariable}, ::Type{<:PSY.ElectricLoad}, ::Type{<:AbstractLoadFormulation}) = false
 get_variable_lower_bound(::Type{ActivePowerVariable}, d::PSY.ElectricLoad, ::Type{<:AbstractLoadFormulation}) = 0.0
 get_variable_upper_bound(::Type{ActivePowerVariable}, d::PSY.ElectricLoad, ::Type{<:AbstractLoadFormulation}) = PSY.get_max_active_power(d, u"SU")
+
 ########################### ReactivePowerVariable, ElectricLoad ####################################
 
 get_variable_binary(::Type{ReactivePowerVariable}, ::Type{<:PSY.ElectricLoad}, ::Type{<:AbstractLoadFormulation}) = false
@@ -619,10 +620,9 @@ function add_constraints!(
     return
 end
 
-# True if the cost puts no price on the dispatch. Any attached market-bid offer, including
-# a supply-side offer that a later check rejects, counts as an offer. A time-series key counts
-# as an offer only if its series is not inert. A `fixed` cost is not an offer: it prices
-# `OnVariable`, which gates the up award of an unoffered load.
+# True if the cost sets no price on the dispatch. A market-bid cost is costless if both offer
+# curves are trivial. A time-series curve is trivial if its series is inert. A `fixed` cost is
+# not an offer: it prices `OnVariable`.
 const _ZERO_COST_CURVE = zero(PSY.CostCurve)
 _is_costless_offer(::OptimizationContainer, ::PSY.Component, cost::PSY.LoadCost) =
     PSY.get_variable_operation_cost(cost) == _ZERO_COST_CURVE
@@ -635,12 +635,9 @@ function _is_costless_offer(
            !IOM.is_nontrivial_offer(container, d, get_output_offer_curves(cost))
 end
 _is_costless_offer(::OptimizationContainer, ::PSY.Component, ::PSY.OperationalCost) = false
-_is_costless_offer(container::OptimizationContainer, d::PSY.Component) =
-    _is_costless_offer(container, d, PSY.get_operation_cost(d))
 
 """
-Split controllable loads into priced and unoffered loads. The model pins an unoffered load
-at zero dispatch. Its limits only set its up-reserve range.
+Split controllable loads into priced and unoffered loads.
 """
 function _partition_by_dispatch_basis(
     container::OptimizationContainer,
@@ -649,7 +646,7 @@ function _partition_by_dispatch_basis(
     priced = L[]
     unoffered = L[]
     for d in devices
-        if _is_costless_offer(container, d)
+        if _is_costless_offer(container, d, PSY.get_operation_cost(d))
             push!(unoffered, d)
         else
             push!(priced, d)
@@ -659,8 +656,7 @@ function _partition_by_dispatch_basis(
 end
 
 """
-Set the `ActivePowerVariable` upper bound of unoffered loads to zero. Other formulations
-keep the bound from `get_variable_upper_bound`.
+Set the `ActivePowerVariable` upper bound of unoffered loads to zero.
 """
 function pin_unoffered_loads!(
     container::OptimizationContainer,
