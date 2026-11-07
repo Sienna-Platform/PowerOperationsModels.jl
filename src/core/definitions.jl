@@ -123,8 +123,10 @@ const OUTPUTS_DIR = "outputs"
 const RELAX_BINARIES_ATTRIBUTE = "relax_binaries"
 
 """
-Branch `DeviceModel` attribute. An `IS.ComponentSelector` that selects the branches that the
-model includes. Without the attribute, the model includes all the available branches.
+`DeviceModel` attribute. An `IS.ComponentSelector` that selects the devices that the model
+includes. Without the attribute, the model includes all the available devices. The attribute
+and the `filter_function` attribute exclude each other: a model that sets both is an error.
+Branch models accept only this attribute.
 """
 const FILTER_SELECTOR_KEY = "filter_selector"
 

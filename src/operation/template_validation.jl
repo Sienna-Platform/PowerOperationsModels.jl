@@ -52,6 +52,7 @@ function validate_template_impl!(model::IOM.AbstractOptimizationModel)
     device_keys_to_delete = Symbol[]
     network_formulation = get_network_formulation(network_model)
     for (k, device_model) in template.devices
+        _check_device_filter(k, device_model)
         make_device_cache!(device_model, system, get_check_components(settings))
         if isempty(get_device_cache(device_model))
             @info "The system data doesn't include devices of type $(k), consider changing the models in the template" _group =
@@ -82,6 +83,7 @@ function validate_template_impl!(model::IOM.AbstractOptimizationModel)
         branches_modeled(get_network_formulation(network_model))
     for (k, device_model) in template.branches
         _check_branch_filter(k, device_model)
+        _check_device_filter(k, device_model)
         make_device_cache!(device_model, system, validate_branches)
         if isempty(get_device_cache(device_model))
             @info "The system data doesn't include Branches of type $(k), consider changing the models in the template" _group =
@@ -115,6 +117,7 @@ function validate_template_impl!(model::IOM.AbstractOptimizationModel)
         delete!(template.branches, k)
     end
     _check_interface_branches(template, system, network_model)
+    _check_contributing_devices(template)
     _check_security_constrained_three_winding_transformer(template.branches)
     _check_security_constrained_network(template.branches, network_model)
     _check_security_constrained_reserves(get_service_models(template), network_model)
@@ -175,7 +178,19 @@ function _check_branch_filter(key::Symbol, model::DeviceModel)
             ),
         )
     end
+    return
+end
+
+function _check_device_filter(key::Symbol, model::DeviceModel)
     _has_filter_selector(model) || return
+    if haskey(get_attributes(model), "filter_function")
+        throw(
+            IS.ConflictingInputsError(
+                "Model $(key) sets both the `filter_function` and `$(FILTER_SELECTOR_KEY)` \
+                attributes. Set only one of them.",
+            ),
+        )
+    end
     _check_filter_selector_value(key, get_attribute(model, FILTER_SELECTOR_KEY))
     return
 end
@@ -185,7 +200,7 @@ _check_filter_selector_value(::Symbol, ::IS.ComponentSelector) = nothing
 function _check_filter_selector_value(key::Symbol, value)
     throw(
         IS.ConflictingInputsError(
-            "Branch model $(key) sets the `$(FILTER_SELECTOR_KEY)` attribute to a \
+            "Model $(key) sets the `$(FILTER_SELECTOR_KEY)` attribute to a \
             $(typeof(value)). The attribute takes an `IS.ComponentSelector`, for example \
             `make_selector(Line, \"1-2\")`.",
         ),
@@ -217,6 +232,41 @@ function _check_interface_branches(
                 interface,
                 N,
             )
+        end
+    end
+    isempty(problems) && return
+    throw(IS.ConflictingInputsError(join(problems, "\n")))
+end
+
+_has_device_model(
+    template::PowerOperationsProblemTemplate,
+    ::Type{D},
+) where {D <: PSY.Device} =
+    haskey(template.devices, nameof(D)) || haskey(template.branches, nameof(D))
+
+# `finalize_template!` fills the contributing devices before this check. A device that the
+# model of its type excludes would reach service code that indexes it by name and fails.
+function _check_contributing_devices(template::PowerOperationsProblemTemplate)
+    problems = String[]
+    for service_model in values(get_service_models(template))
+        for (service_name, by_device_type) in get_contributing_devices_map(service_model)
+            for (D, devices) in by_device_type
+                _has_device_model(template, D) || continue
+                names = Set{String}(
+                    PSY.get_name(d) for d in get_device_cache(get_model(template, D))
+                )
+                for device in devices
+                    PSY.get_name(device) in names && continue
+                    push!(
+                        problems,
+                        "Service \"$(service_name)\" has the contributing device \
+                        \"$(PSY.get_name(device))\" of type $(D), but the template's $(D) model \
+                        excludes it through its `$(FILTER_SELECTOR_KEY)` or `filter_function` \
+                        attribute or its subsystem. Change the filter to select the device, \
+                        or remove the device from the service in the system data.",
+                    )
+                end
+            end
         end
     end
     isempty(problems) && return

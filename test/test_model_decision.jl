@@ -840,6 +840,94 @@ end
     @test "1" ∉ [PSY.get_name(l) for l in IOM.get_available_components(line_model, c_sys5)]
 end
 
+@testset "filter_selector selects the modeled thermal and load devices" begin
+    c_sys5 = PSB.build_system(PSITestSystems, "c_sys5")
+    template = get_thermal_dispatch_template_network(CopperPlateNetworkModel)
+    set_device_model!(
+        template,
+        DeviceModel(
+            ThermalStandard,
+            ThermalBasicDispatch;
+            attributes = Dict(
+                "filter_selector" =>
+                    make_selector(x -> PSY.get_name(x) != "Alta", ThermalStandard),
+            ),
+        ),
+    )
+    set_device_model!(
+        template,
+        DeviceModel(
+            PowerLoad,
+            StaticPowerLoad;
+            attributes = Dict(
+                "filter_selector" =>
+                    make_selector(x -> PSY.get_name(x) != "Bus2", PowerLoad),
+            ),
+        ),
+    )
+    model = DecisionModel(template, c_sys5; optimizer = HiGHS_optimizer)
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+    @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+    container = IOM.get_optimization_container(model)
+    p_variable = IOM.get_variable(container, ActivePowerVariable, ThermalStandard)
+    @test "Alta" ∉ axes(p_variable, 1)
+    @test length(axes(p_variable, 1)) == 4
+    load_model = POM.get_model(IOM.get_template(model), PowerLoad)
+    @test Set(PSY.get_name(l) for l in get_device_cache(load_model)) ==
+          Set(["Bus3", "Bus4"])
+    @test Set(
+        PSY.get_name(l) for l in IOM.get_available_components(load_model, c_sys5)
+    ) == Set(["Bus3", "Bus4"])
+end
+
+@testset "filter_selector that excludes a reserve contributor is rejected" begin
+    c_sys5_uc = PSB.build_system(PSITestSystems, "c_sys5_uc"; add_reserves = true)
+    template = get_thermal_standard_uc_template()
+    set_service_model!(
+        template,
+        ServiceModel(OnlineReserve{ReserveUp}, RangeReserve),
+    )
+    reserve = first(PSY.get_components(OnlineReserve{ReserveUp}, c_sys5_uc))
+    contributor_names =
+        Set(PSY.get_name(d) for d in PSY.get_contributing_devices(c_sys5_uc, reserve))
+    excluded_name = first(
+        PSY.get_name(d) for d in PSY.get_components(ThermalStandard, c_sys5_uc) if
+        PSY.get_name(d) in contributor_names
+    )
+    set_device_model!(
+        template,
+        DeviceModel(
+            ThermalStandard,
+            ThermalStandardUnitCommitment;
+            attributes = Dict(
+                "filter_selector" =>
+                    make_selector(x -> PSY.get_name(x) != excluded_name, ThermalStandard),
+            ),
+        ),
+    )
+    model = DecisionModel(template, c_sys5_uc; optimizer = HiGHS_optimizer)
+    @test_throws IS.ConflictingInputsError POM.validate_template(model)
+end
+
+@testset "filter_selector and filter_function together are rejected" begin
+    c_sys5 = PSB.build_system(PSITestSystems, "c_sys5")
+    template = get_thermal_dispatch_template_network(CopperPlateNetworkModel)
+    set_device_model!(
+        template,
+        DeviceModel(
+            ThermalStandard,
+            ThermalBasicDispatch;
+            attributes = Dict{String, Any}(
+                "filter_selector" => make_selector(ThermalStandard, "Alta"),
+                "filter_function" => x -> true,
+            ),
+        ),
+    )
+    model = DecisionModel(template, c_sys5; optimizer = HiGHS_optimizer)
+    @test_throws IS.ConflictingInputsError POM.validate_template(model)
+end
+
 @testset "Branch models reject filter_function and a filter_selector of another type" begin
     c_sys5 = PSB.build_system(PSITestSystems, "c_sys5")
     for (key, value) in (
