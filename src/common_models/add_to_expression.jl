@@ -2089,6 +2089,7 @@ function add_to_expression!(
             expression[service_name, :],
         )
     end
+    _round_interface_expression!(expression, service_name)
     return
 end
 
@@ -2122,6 +2123,7 @@ function add_to_expression!(
             expression[service_name, :],
         )
     end
+    _round_interface_expression!(expression, service_name)
     return
 end
 
@@ -2160,6 +2162,7 @@ function add_to_expression!(
         variable,
         expression[service_name, :],
     )
+    _round_interface_expression!(expression, service_name)
     return
 end
 
