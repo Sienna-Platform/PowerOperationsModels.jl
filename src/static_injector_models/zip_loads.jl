@@ -1,13 +1,6 @@
-# `StandardLoad` and `InterruptibleStandardLoad` split their demand into constant power,
-# constant impedance (P_Z |V|^2) and constant current (P_I |V|) parts, given at 1.0 pu voltage.
-#
-# Scope. Under `StaticPowerLoad`, ACPNetworkModel, ACRNetworkModel and IVRNetworkModel model the
-# impedance and current parts as voltage dependent. One forecast (`max_active_power`) scales all
-# three parts equally. The fractions of each part come from the `max_*` fields, so at forecast
-# value 1.0 the load equals the PowerFlows.jl ZIP load. Every other case is constant power.
-# DC, PTDF, CopperPlate and AreaBalance models have |V| = 1, so constant power is exact there.
-# LPACCNetworkModel, and loads under a controllable formulation, stay constant power and log
-# one warning per build.
+# ZIP loads have constant power, constant impedance (|V|^2) and constant current (|V|) parts,
+# given at 1.0 pu voltage. ACP, ACR and IVR with `StaticPowerLoad` model the last two as
+# voltage dependent. All other cases use constant power.
 const ZipLoad = Union{PSY.StandardLoad, PSY.InterruptibleStandardLoad}
 
 has_voltage_dependent_load(::PSY.ElectricLoad) = false
@@ -21,7 +14,7 @@ function has_voltage_dependent_load(d::ZipLoad)
     )
 end
 
-# Whether a network model splits voltage-dependent loads into their own aggregation rows.
+# How a network model assigns static loads to aggregation rows.
 abstract type ZipRowPolicy end
 struct KeepZipLoadsAggregated <: ZipRowPolicy end
 struct SplitZipLoads <: ZipRowPolicy end
@@ -31,8 +24,7 @@ zip_row_policy(
     ::NetworkModel{<:Union{ACPNetworkModel, ACRNetworkModel, IVRNetworkModel}},
 ) = SplitZipLoads()
 
-# Row key of a load in the aggregated time-series parameter. Under `SplitZipLoads` a
-# voltage-dependent load keeps its own row, so its series stays available per load.
+# Voltage-dependent loads under `SplitZipLoads` get their own row.
 function aggregation_row(d::PSY.ElectricLoad, ::Int, ::ZipRowPolicy)
     return PSY.get_number(PSY.get_bus(d))
 end
@@ -44,7 +36,6 @@ function aggregation_row(d::ZipLoad, index::Int, ::SplitZipLoads)
     return PSY.get_number(PSY.get_bus(d))
 end
 
-# (constant power, constant impedance, constant current) maximum demand, system base.
 function zip_load_parts(::Type{ActivePowerTimeSeriesParameter}, d::ZipLoad)
     return (
         PSY.get_max_constant_active_power(d, u"SU"),
@@ -61,7 +52,7 @@ function zip_load_parts(::Type{ReactivePowerTimeSeriesParameter}, d::ZipLoad)
     )
 end
 
-# PSY defines no `get_max_reactive_power` for these loads: the total is the sum of the parts.
+# PSY has no `get_max_reactive_power` for these loads.
 function get_multiplier_value(
     ::Type{ReactivePowerTimeSeriesParameter},
     d::ZipLoad,
@@ -70,16 +61,12 @@ function get_multiplier_value(
     return -sum(zip_load_parts(ReactivePowerTimeSeriesParameter, d))
 end
 
-"""
-Voltage-dependent part of one load at one balance row. `injection[t]` is the signed injection
-at 1.0 pu voltage, already in the balance expression. The balance constraint adds, per bus,
-`sum(injection * impedance_fraction) * (|V|^2 - 1) + sum(injection * current_fraction) * (|V| - 1)`.
-"""
-struct ZipLoadTerm{V <: AbstractVector}
+# Voltage-dependent fractions of one load. `injection[t]` is its signed injection at 1.0 pu voltage.
+struct ZipLoadTerm
     bus_number::Int
     impedance_fraction::Float64
     current_fraction::Float64
-    injection::V
+    injection::Vector{JuMP.AffExpr}
 end
 
 const ZIP_LOAD_TERMS_ATTRIBUTE = "zip_load_terms"
@@ -101,21 +88,18 @@ function _zip_unmodeled_loads(network_model::NetworkModel)
     )::Set{String}
 end
 
-# Drop terms and names left by a build that failed before the reactive balance.
+# Clear the recorded terms and names.
 function reset_zip_load_state!(network_model::NetworkModel)
     empty!(_zip_load_terms(network_model))
     empty!(_zip_unmodeled_loads(network_model))
     return
 end
 
-# The reactive balance is the last consumer of the recorded terms. It logs the loads that
-# stay constant power, once per build, then clears the state.
+# Warn about loads that stay constant power, then clear the state.
 function finish_zip_load_state!(network_model::NetworkModel)
     names = sort!(collect(_zip_unmodeled_loads(network_model)))
     if !isempty(names)
-        @warn "$(length(names)) load(s) have constant impedance or constant current parts " *
-              "that the network or load formulation does not model as voltage dependent. " *
-              "They stay constant power: $(join(names, ", "))."
+        @warn "Loads with constant impedance or current parts stay constant power: $(join(names, ", "))."
     end
     reset_zip_load_state!(network_model)
     return
@@ -134,28 +118,49 @@ function zip_load_terms_by_bus(
     return by_bus
 end
 
-function zip_impedance_sum(terms::Vector{ZipLoadTerm}, t::Int)
-    total = 0.0
+# Networks without a voltage variable have no variables to fetch.
+function _zip_voltage_variables(
+    ::OptimizationContainer,
+    ::NetworkModel,
+    ::Dict{Int, Vector{ZipLoadTerm}},
+)
+    return ()
+end
+
+struct ImpedancePart end
+struct CurrentPart end
+zip_fraction(term::ZipLoadTerm, ::ImpedancePart) = term.impedance_fraction
+zip_fraction(term::ZipLoadTerm, ::CurrentPart) = term.current_fraction
+
+# Sum of `injection * fraction` over the loads of one bus, as a coefficient for the balance.
+function zip_fraction_sum(terms::Vector{ZipLoadTerm}, t::Int, part)
+    total = zero(JuMP.AffExpr)
     for term in terms
-        total = total + term.injection[t] * term.impedance_fraction
+        JuMP.add_to_expression!(total, zip_fraction(term, part), term.injection[t])
+    end
+    return _constant_if_fixed(total)
+end
+
+# A sum of fixed values stays a number, so the balance keeps its quadratic form.
+function _constant_if_fixed(total::JuMP.AffExpr)
+    if isempty(total.terms)
+        return total.constant
     end
     return total
 end
 
-function zip_current_sum(terms::Vector{ZipLoadTerm}, t::Int)
-    total = 0.0
-    for term in terms
-        total = total + term.injection[t] * term.current_fraction
+function _zip_injection(injection::AbstractVector)
+    values = Vector{JuMP.AffExpr}(undef, length(injection))
+    for (t, x) in enumerate(injection)
+        values[t] = JuMP.add_to_expression!(zero(JuMP.AffExpr), x)
     end
-    return total
+    return values
 end
 
-# Networks whose voltage variables could carry a voltage-dependent load term.
 const _ZipModeledNetworks = Union{ACPNetworkModel, ACRNetworkModel, IVRNetworkModel}
 const _ZipVoltageAwareNetworks = Union{_ZipModeledNetworks, LPACCNetworkModel}
 
-# DC, PTDF, copper-plate and area models have no voltage variable: |V| = 1, so the constant
-# injection already in the balance is exact and nothing is recorded.
+# |V| = 1 here: the balance expression is exact.
 function record_zip_load_term!(
     ::NetworkModel,
     ::Type{<:TimeSeriesParameter},
@@ -188,12 +193,17 @@ function record_zip_load_term!(
     )
     push!(
         get!(_zip_load_terms(network_model), U, ZipLoadTerm[]),
-        ZipLoadTerm(bus_number, impedance / total, current / total, injection),
+        ZipLoadTerm(
+            bus_number,
+            impedance / total,
+            current / total,
+            _zip_injection(injection),
+        ),
     )
     return
 end
 
-# LPACC has a voltage variable but no |V|^2 and |V| terms: the load stays constant power.
+# LPACC has no |V|^2 and |V| terms.
 function record_zip_load_term!(
     network_model::NetworkModel{LPACCNetworkModel},
     ::Type{<:TimeSeriesParameter},
@@ -204,8 +214,7 @@ function record_zip_load_term!(
     return
 end
 
-# Loads under a controllable formulation, or any load with a voltage-aware network, stay
-# constant power. No-op for networks with |V| = 1.
+# Warn only for networks that have voltage variables.
 function record_unmodeled_zip_loads!(network_model::NetworkModel, devices)
     for d in devices
         record_unmodeled_zip_load!(network_model, d)

@@ -31,7 +31,7 @@ function add_parameters!(
     return
 end
 
-# Like `add_parameters!`, but the network model picks how static loads share rows.
+# Like `add_parameters!`, with the row choice of the network model.
 function add_load_parameters!(
     container::OptimizationContainer,
     ::Type{T},
@@ -250,7 +250,6 @@ function _add_time_series_parameters!(
     return
 end
 
-# `row_policy` only matters to `StaticPowerLoad`: see `_add_time_series_parameter_container!`.
 function _add_time_series_parameters!(
     container::OptimizationContainer,
     param::Type{T},
@@ -394,8 +393,8 @@ function _add_time_series_parameter_container!(
     )
 end
 
-# A static load enters only the balance rows of its bus, so its series are summed per bus.
-# `SplitZipLoads` gives each voltage-dependent load its own row.
+# A static load enters only the balance rows of its bus: its series are summed per bus,
+# except under `SplitZipLoads`.
 # shortcut: keyed by raw bus number, so buses merged by a network reduction still add one term
 # each; key by the reduced balance row once the network model reaches parameter build.
 function _add_time_series_parameter_container!(

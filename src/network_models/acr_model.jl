@@ -114,15 +114,24 @@ function add_constraints!(
     return
 end
 
-# |V| and |V|^2 at a bus, for the voltage-dependent parts of loads. |V| is nonlinear.
-function _zip_voltage_terms(
+function _zip_voltage_variables(
     container::OptimizationContainer,
     ::NetworkModel{<:Union{ACRNetworkModel, IVRNetworkModel}},
+    ::Dict{Int, Vector{ZipLoadTerm}},
+)
+    return (
+        get_variable(container, VoltageReal, PSY.ACBus),
+        get_variable(container, VoltageImaginary, PSY.ACBus),
+    )
+end
+
+# Returns |V| and |V|^2 at a bus.
+function _zip_voltage_terms(
+    ::NetworkModel{<:Union{ACRNetworkModel, IVRNetworkModel}},
+    variables::Tuple,
     name::String,
     t::Int,
 )
-    vr = get_variable(container, VoltageReal, PSY.ACBus)[name, t]
-    vi = get_variable(container, VoltageImaginary, PSY.ACBus)[name, t]
-    voltage_squared = vr^2 + vi^2
+    voltage_squared = variables[1][name, t]^2 + variables[2][name, t]^2
     return sqrt(voltage_squared), voltage_squared
 end
