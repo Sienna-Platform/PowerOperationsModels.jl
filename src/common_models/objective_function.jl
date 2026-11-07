@@ -293,7 +293,10 @@ function _add_curtailment_cost!(
     dispatch_vars = get_variable(container, T, C)
 
     rate = proportional_term_per_unit * dt
+    status = get_component_statuses(container, C)
     for t in get_time_steps(container)
+        # An out unit offers nothing, so it has nothing to curtail.
+        get_component_status(status, name, t) == 0.0 && continue
         offer_max = _renewable_offer_max(container, component, name, t)
         dispatch = dispatch_vars[name, t]
         IOM.add_cost_term_invariant!(

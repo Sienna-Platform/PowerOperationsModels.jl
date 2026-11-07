@@ -46,6 +46,19 @@ end
 
 _sorted(T, sys) = sort!(collect(PSY.get_components(T, sys)); by = PSY.get_name)
 
+function _ptdf_model(
+    sys;
+    network = PTDFNetworkModel,
+    template = get_thermal_dispatch_template_network(NetworkModel(network)),
+)
+    model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+    return model
+end
+
+_n_steps(model) = length(IOM.get_time_steps(IOM.get_optimization_container(model)))
+
 # A `_schedule_outage!` pattern that is out at `steps`.
 _out_at(steps) = h -> h in steps ? 1.0 : 0.0
 
@@ -69,6 +82,18 @@ function _build_for_log(model)
 end
 
 _fixed_at_zero(v::JuMP.VariableRef) = JuMP.is_fixed(v) && JuMP.fix_value(v) == 0.0
+
+# Rebuild `model` in place, as a simulation step with `rebuild_model = true` does.
+function _rebuild!(model, sys)
+    container = IOM.get_optimization_container(model)
+    IOM.set_rebuild_model!(IOM.get_settings(container), true)
+    IOM.reset_optimization_model!(container)
+    POM.build_problem!(container, IOM.get_template(model), sys)
+    return container
+end
+
+const _OUT_STEPS = 3:5
+_maintenance(h) = h in _OUT_STEPS ? 1.0 : 0.0
 
 _container(model) = IOM.get_optimization_container(model)
 
