@@ -272,13 +272,12 @@ function _add_nodal_reactive_balance!(
             t,
         )
     end
-    # The reactive balance is the last consumer of the recorded terms.
-    clear_zip_load_terms!(network_model)
+    finish_zip_load_state!(network_model)
     return
 end
 
 # Without voltage-dependent loads the balance is the expression alone. Otherwise each term
-# adds its |V|-dependent part on top of the constant injection already in the expression.
+# adds its |V|-dependent part, summed over the loads of the bus, on top of the constant injection already in the expression.
 function _add_nodal_balance_constraint!(
     container::OptimizationContainer,
     network_model::NetworkModel,
@@ -291,14 +290,9 @@ function _add_nodal_balance_constraint!(
         return JuMP.@constraint(get_jump_model(container), expression == 0.0)
     end
     voltage, voltage_squared = _zip_voltage_terms(container, network_model, name, t)
-    balance = expression
-    for term in terms
-        balance =
-            balance +
-            term.injection[t] * (
-                term.impedance_fraction * (voltage_squared - 1.0) +
-                term.current_fraction * (voltage - 1.0)
-            )
-    end
+    balance =
+        expression +
+        zip_impedance_sum(terms, t) * (voltage_squared - 1.0) +
+        zip_current_sum(terms, t) * (voltage - 1.0)
     return JuMP.@constraint(get_jump_model(container), balance == 0.0)
 end

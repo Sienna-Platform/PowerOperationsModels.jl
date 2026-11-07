@@ -31,6 +31,27 @@ function add_parameters!(
     return
 end
 
+# Like `add_parameters!`, but the network model picks how static loads share rows.
+function add_load_parameters!(
+    container::OptimizationContainer,
+    ::Type{T},
+    devices::Vector{D},
+    model::DeviceModel{D, StaticPowerLoad},
+    network_model::NetworkModel,
+) where {T <: TimeSeriesParameter, D <: PSY.ElectricLoad}
+    if get_rebuild_model(get_settings(container)) && has_container_key(container, T, D)
+        return
+    end
+    _add_time_series_parameters!(
+        container,
+        T,
+        devices,
+        model,
+        zip_row_policy(network_model),
+    )
+    return
+end
+
 # Per-type service time-series parameter: all services of the type share one container
 # keyed `(ParameterType, ServiceType)`, axed by service name.
 #
@@ -219,6 +240,29 @@ function _add_time_series_parameters!(
     U <: Vector{D},
     W <: AbstractDeviceFormulation,
 }
+    _add_time_series_parameters!(
+        container,
+        param,
+        devices,
+        model,
+        KeepZipLoadsAggregated(),
+    )
+    return
+end
+
+# `row_policy` only matters to `StaticPowerLoad`: see `_add_time_series_parameter_container!`.
+function _add_time_series_parameters!(
+    container::OptimizationContainer,
+    param::Type{T},
+    devices::U,
+    model::DeviceModel{D, W},
+    row_policy::ZipRowPolicy,
+) where {
+    D <: PSY.Component,
+    T <: TimeSeriesParameter,
+    U <: Vector{D},
+    W <: AbstractDeviceFormulation,
+}
     ts_type = get_default_time_series_type(container)
     if !(ts_type <: Union{PSY.AbstractDeterministic, PSY.StaticTimeSeries})
         error("add_parameters! for TimeSeriesParameter is not compatible with $ts_type")
@@ -290,6 +334,7 @@ function _add_time_series_parameters!(
         container,
         T,
         model,
+        row_policy,
         ts_type,
         ts_name,
         collect(keys(initial_values)),
@@ -328,6 +373,7 @@ function _add_time_series_parameter_container!(
     container::OptimizationContainer,
     ::Type{T},
     ::DeviceModel{D, <:AbstractDeviceFormulation},
+    ::ZipRowPolicy,
     ts_type,
     ts_name,
     param_axs,
@@ -349,12 +395,14 @@ function _add_time_series_parameter_container!(
 end
 
 # A static load enters only the balance rows of its bus, so its series are summed per bus.
+# `SplitZipLoads` gives each voltage-dependent load its own row.
 # shortcut: keyed by raw bus number, so buses merged by a network reduction still add one term
 # each; key by the reduced balance row once the network model reaches parameter build.
 function _add_time_series_parameter_container!(
     container::OptimizationContainer,
     ::Type{T},
     ::DeviceModel{D, StaticPowerLoad},
+    row_policy::ZipRowPolicy,
     ts_type,
     ts_name,
     param_axs,
@@ -366,7 +414,8 @@ function _add_time_series_parameter_container!(
     D <: PSY.ElectricLoad,
 }
     row_of = Dict{String, Int}(
-        PSY.get_name(d) => aggregation_row(d, i) for (i, d) in enumerate(devices)
+        PSY.get_name(d) => aggregation_row(d, i, row_policy) for
+        (i, d) in enumerate(devices)
     )
     return IOM.add_aggregated_time_series_parameter_container!(
         container,

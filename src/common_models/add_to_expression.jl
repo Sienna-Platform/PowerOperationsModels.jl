@@ -283,12 +283,6 @@ function _add_load_ts_parameter_to_balance!(
             for t in time_steps
                 _apply_term_to_targets!(targets, 1.0, fallback_multiplier, t)
             end
-            record_zip_load_term!(
-                network_model,
-                U,
-                d,
-                fill(fallback_multiplier, length(time_steps)),
-            )
         end
     end
     return

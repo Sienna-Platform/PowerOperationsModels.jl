@@ -2,7 +2,7 @@ const ZIP_SPLIT = (constant = 0.5, impedance = 0.3, current = 0.2)
 
 # Component base equals system base here, so CU values equal SU values.
 # Each PowerLoad becomes a StandardLoad with the same totals, split into ZIP parts.
-function _zip_load_system()
+function _zip_load_system(split = ZIP_SPLIT)
     sys = build_system(PSITestSystems, "c_sys5")
     for load in collect(get_components(PowerLoad, sys))
         p = PSY.get_max_active_power(load, u"CU")
@@ -12,12 +12,12 @@ function _zip_load_system()
             available = true,
             bus = PSY.get_bus(load),
             base_power = PSY.get_base_power(load),
-            max_constant_active_power = ZIP_SPLIT.constant * p,
-            max_impedance_active_power = ZIP_SPLIT.impedance * p,
-            max_current_active_power = ZIP_SPLIT.current * p,
-            max_constant_reactive_power = ZIP_SPLIT.constant * q,
-            max_impedance_reactive_power = ZIP_SPLIT.impedance * q,
-            max_current_reactive_power = ZIP_SPLIT.current * q,
+            max_constant_active_power = split.constant * p,
+            max_impedance_active_power = split.impedance * p,
+            max_current_active_power = split.current * p,
+            max_constant_reactive_power = split.constant * q,
+            max_impedance_reactive_power = split.impedance * q,
+            max_current_reactive_power = split.current * q,
             input_basis = u"CU",
         )
         add_component!(sys, zip_load)
@@ -55,33 +55,36 @@ function _bus_voltage_magnitudes(res, ::Type{ACPNetworkModel})
     return Dict(n => vm[1, n] for n in names(vm) if n != "DateTime")
 end
 
-function _bus_voltage_magnitudes(res, ::Type{ACRNetworkModel})
+function _bus_voltage_magnitudes(res, ::Type{<:Union{ACRNetworkModel, IVRNetworkModel}})
     vr = read_variable(res, "VoltageReal__ACBus"; table_format = TableFormat.WIDE)
     vi = read_variable(res, "VoltageImaginary__ACBus"; table_format = TableFormat.WIDE)
     return Dict(n => hypot(vr[1, n], vi[1, n]) for n in names(vr) if n != "DateTime")
+end
+
+function _set_zip_parts!(load, ::Type{ActivePowerTimeSeriesParameter}, demand)
+    set_constant_active_power!(load, ZIP_SPLIT.constant * demand * u"SU")
+    set_impedance_active_power!(load, ZIP_SPLIT.impedance * demand * u"SU")
+    set_current_active_power!(load, ZIP_SPLIT.current * demand * u"SU")
+    return
+end
+
+function _set_zip_parts!(load, ::Type{ReactivePowerTimeSeriesParameter}, demand)
+    set_constant_reactive_power!(load, ZIP_SPLIT.constant * demand * u"SU")
+    set_impedance_reactive_power!(load, ZIP_SPLIT.impedance * demand * u"SU")
+    set_current_reactive_power!(load, ZIP_SPLIT.current * demand * u"SU")
+    return
 end
 
 # Fix each load at its first-step ZIP parts and each generator at its dispatch, then solve
 # the power flow. Its PQ-bus voltages must equal the OPF voltages.
 function _power_flow_voltages(sys, model, res, magnitudes)
     container = IOM.get_optimization_container(model)
-    for name in ("P", "Q")
-        parameter =
-            name == "P" ? ActivePowerTimeSeriesParameter :
-            ReactivePowerTimeSeriesParameter
+    for parameter in (ActivePowerTimeSeriesParameter, ReactivePowerTimeSeriesParameter)
         param_container = IOM.get_parameter(container, parameter, StandardLoad)
         row_of = IOM.get_row_aggregation(IOM.get_attributes(param_container)).row_of
         for load in get_components(StandardLoad, sys)
             demand = -IOM.get_row_aggregate_refs(param_container, row_of[get_name(load)])[1]
-            if name == "P"
-                set_constant_active_power!(load, ZIP_SPLIT.constant * demand * u"SU")
-                set_impedance_active_power!(load, ZIP_SPLIT.impedance * demand * u"SU")
-                set_current_active_power!(load, ZIP_SPLIT.current * demand * u"SU")
-            else
-                set_constant_reactive_power!(load, ZIP_SPLIT.constant * demand * u"SU")
-                set_impedance_reactive_power!(load, ZIP_SPLIT.impedance * demand * u"SU")
-                set_current_reactive_power!(load, ZIP_SPLIT.current * demand * u"SU")
-            end
+            _set_zip_parts!(load, parameter, demand)
         end
     end
     base_power = IOM.get_model_base_power(res)
@@ -102,19 +105,38 @@ function _bus_voltage_angles(res, ::Type{ACPNetworkModel})
     return Dict(n => va[1, n] for n in names(va) if n != "DateTime")
 end
 
-function _bus_voltage_angles(res, ::Type{ACRNetworkModel})
+function _bus_voltage_angles(res, ::Type{<:Union{ACRNetworkModel, IVRNetworkModel}})
     vr = read_variable(res, "VoltageReal__ACBus"; table_format = TableFormat.WIDE)
     vi = read_variable(res, "VoltageImaginary__ACBus"; table_format = TableFormat.WIDE)
     return Dict(n => atan(vi[1, n], vr[1, n]) for n in names(vr) if n != "DateTime")
 end
 
+function _build_log(model)
+    return read(joinpath(IOM.get_output_dir(model), "operation_problem.log"), String)
+end
+
 @testset "ZIP load parts depend on voltage in AC network models (c_sys5)" begin
-    for network_formulation in (ACPNetworkModel, ACRNetworkModel)
+    for network_formulation in (ACPNetworkModel, ACRNetworkModel, IVRNetworkModel)
         sys = _zip_load_system()
         model = _solve_zip_model(sys, network_formulation)
         res = IOM.OptimizationProblemOutputs(model)
         magnitudes = _bus_voltage_magnitudes(res, network_formulation)
         angles = _bus_voltage_angles(res, network_formulation)
+
+        # Negative control: the ZIP parts must matter. A constant power load gives other voltages.
+        @test maximum(abs(v - 1.0) for v in values(magnitudes)) > 1e-2
+        constant_model = _solve_zip_model(
+            _zip_load_system((constant = 1.0, impedance = 0.0, current = 0.0)),
+            network_formulation,
+        )
+        constant_magnitudes = _bus_voltage_magnitudes(
+            IOM.OptimizationProblemOutputs(constant_model),
+            network_formulation,
+        )
+        @test maximum(
+            abs(magnitudes[n] - constant_magnitudes[n]) for n in keys(magnitudes)
+        ) >
+              1e-4
 
         bus_results = _power_flow_voltages(sys, model, res, magnitudes)
         number_to_name =
@@ -125,4 +147,60 @@ end
             @test row.θ ≈ angles[name] atol = 1e-5
         end
     end
+end
+
+@testset "ZIP loads in a recurrent build under ACP (c_sys5)" begin
+    sys = _zip_load_system()
+    model = DecisionModel(
+        _zip_template(ACPNetworkModel),
+        sys;
+        optimizer = ipopt_optimizer,
+        horizon = Dates.Hour(1),
+    )
+    container = IOM.get_optimization_container(model)
+    container.built_for_recurrent_solves = true
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+    @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+    jump_model = IOM.get_jump_model(container)
+    before = JuMP.objective_value(jump_model)
+
+    # Halve every load: the balance must follow the fixed parameter, so the cost falls.
+    param_container =
+        IOM.get_parameter(container, ActivePowerTimeSeriesParameter, StandardLoad)
+    row_of = IOM.get_row_aggregation(IOM.get_attributes(param_container)).row_of
+    for key in values(row_of), t in IOM.get_time_steps(container)
+        ref = IOM.get_row_aggregate_refs(param_container, key)[t]
+        JuMP.fix(ref, 0.5 * JuMP.fix_value(ref); force = true)
+    end
+    JuMP.optimize!(jump_model)
+    @test JuMP.termination_status(jump_model) in
+          (JuMP.MOI.LOCALLY_SOLVED, JuMP.MOI.OPTIMAL)
+    @test JuMP.objective_value(jump_model) < before
+end
+
+@testset "Loads that stay constant power log one warning" begin
+    sys = _zip_load_system()
+    model = DecisionModel(
+        _zip_template(LPACCNetworkModel),
+        sys;
+        optimizer = ipopt_optimizer,
+        horizon = Dates.Hour(1),
+    )
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+    log = _build_log(model)
+    @test occursin("3 load(s) have constant impedance or constant current", log)
+    @test count("stay constant power", log) == 1
+
+    # |V| = 1 is exact for DC: no warning.
+    model = DecisionModel(
+        _zip_template(DCPNetworkModel),
+        _zip_load_system();
+        optimizer = HiGHS_optimizer,
+        horizon = Dates.Hour(1),
+    )
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+    @test !occursin("stay constant power", _build_log(model))
 end
