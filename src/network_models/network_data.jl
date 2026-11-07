@@ -21,11 +21,22 @@ struct YbusNetworkData <: IOM.AbstractNetworkData
     branch_catalog::PNM.BranchCatalog
 end
 
+# The network's per-step topology: the low-rank matrix built once per model on the base
+# factorization, and the sequence built from the statuses at each build.
+mutable struct TopologyState
+    matrix::Union{Nothing, PNM.VirtualMODF}
+    sequence::Union{Nothing, PNM.TopologySequence}
+end
+
+TopologyState() = TopologyState(nothing, nothing)
+TopologyState(matrix::PNM.VirtualMODF) = TopologyState(matrix, nothing)
+
 """DCP: a Ybus, plus a MODF derived from that same Ybus when the template is security constrained."""
 struct DCPNetworkData{M} <: IOM.AbstractNetworkData
     ybus::PNM.Ybus
     contingency_matrix::M
     branch_catalog::PNM.BranchCatalog
+    topology::TopologyState
 end
 
 """PTDF families: a PTDF, plus an optional MODF, both wrapping one factorization core."""
@@ -33,6 +44,7 @@ struct PTDFNetworkData{P, M} <: IOM.AbstractNetworkData
     matrix::P
     contingency_matrix::M
     branch_catalog::PNM.BranchCatalog
+    topology::TopologyState
 end
 
 # The no-contingency constructors omit the argument, storing this singleton in
@@ -42,10 +54,18 @@ end
 struct NoContingencyMatrix end
 
 DCPNetworkData(ybus::PNM.Ybus, catalog::PNM.BranchCatalog) =
-    DCPNetworkData(ybus, NoContingencyMatrix(), catalog)
+    DCPNetworkData(ybus, NoContingencyMatrix(), catalog, TopologyState())
+DCPNetworkData(ybus::PNM.Ybus, catalog::PNM.BranchCatalog, topology::TopologyState) =
+    DCPNetworkData(ybus, NoContingencyMatrix(), catalog, topology)
+DCPNetworkData(ybus::PNM.Ybus, contingency_matrix, catalog::PNM.BranchCatalog) =
+    DCPNetworkData(ybus, contingency_matrix, catalog, TopologyState())
 
 PTDFNetworkData(matrix, catalog::PNM.BranchCatalog) =
-    PTDFNetworkData(matrix, NoContingencyMatrix(), catalog)
+    PTDFNetworkData(matrix, NoContingencyMatrix(), catalog, TopologyState())
+PTDFNetworkData(matrix, catalog::PNM.BranchCatalog, topology::TopologyState) =
+    PTDFNetworkData(matrix, NoContingencyMatrix(), catalog, topology)
+PTDFNetworkData(matrix, contingency_matrix, catalog::PNM.BranchCatalog) =
+    PTDFNetworkData(matrix, contingency_matrix, catalog, TopologyState())
 
 get_branch_catalog(nd::YbusNetworkData) = nd.branch_catalog
 get_branch_catalog(nd::DCPNetworkData) = nd.branch_catalog
@@ -93,3 +113,35 @@ IOM.get_contingency_matrix(m::NetworkModel) =
     get_network_data_contingency_matrix(get_network_data(m))
 IOM.get_network_reduction(m::NetworkModel) = get_reduction(get_network_data(m))
 get_branch_catalog(m::NetworkModel) = get_branch_catalog(get_network_data(m))
+
+get_topology_state(nd::Union{PTDFNetworkData, DCPNetworkData}) = nd.topology
+get_topology_state(::IOM.AbstractNetworkData) = nothing
+
+get_topology_matrix(m::NetworkModel) =
+    _topology_matrix(get_topology_state(get_network_data(m)))
+_topology_matrix(::Nothing) = nothing
+_topology_matrix(s::TopologyState) = s.matrix
+
+get_topology_sequence(m::NetworkModel) =
+    _topology_sequence(get_topology_state(get_network_data(m)))
+_topology_sequence(::Nothing) = nothing
+_topology_sequence(s::TopologyState) = s.sequence
+
+function set_topology_sequence!(m::NetworkModel, sequence::PNM.TopologySequence)
+    _set_topology_sequence!(get_topology_state(get_network_data(m)), m, sequence)
+    return
+end
+
+function _set_topology_sequence!(
+    state::TopologyState,
+    ::NetworkModel,
+    sequence::PNM.TopologySequence,
+)
+    state.sequence = sequence
+    return
+end
+
+_set_topology_sequence!(::Nothing, m::NetworkModel, ::PNM.TopologySequence) = error(
+    "$(nameof(get_network_formulation(m))) holds no network topology, so it cannot store \
+     a topology sequence. Only DCP and PTDF network models follow scheduled topology.",
+)

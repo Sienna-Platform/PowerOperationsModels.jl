@@ -515,17 +515,6 @@ function construct_component_status_parameters!(
     return
 end
 
-# Statuses are stored in vectors indexed by the step itself, so the steps must be the
-# positions 1, 2, ….
-function _check_steps_start_at_one(time_steps)
-    first(time_steps) == 1 && return
-    throw(
-        ArgumentError(
-            "Component statuses need time steps starting at 1; got $time_steps.",
-        ),
-    )
-end
-
 _has_topology_schedules(template::PowerOperationsProblemTemplate, sys::PSY.System) =
     any(_is_status_component, scheduled_components(template, sys).components)
 
