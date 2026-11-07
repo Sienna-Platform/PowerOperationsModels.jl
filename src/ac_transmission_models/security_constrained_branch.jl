@@ -363,7 +363,7 @@ function add_constraints!(
                     )
                 end
             else
-                limits = _emergency_flow_limits(rep, tripped, device_model)
+                limits = _emergency_flow_limits(rep, tripped)
                 for t in time_steps
                     sub = if use_slacks
                         _make_post_contingency_slack!(

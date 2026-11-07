@@ -54,9 +54,13 @@ _control_supported(::DeviceModel) = false
 """
 DeviceModel attribute key selecting which `PowerNetworkMatrices` function aggregates
 the individual circuit ratings of a `PNM.BranchesParallel` into a single maximum flow
-limit. Valid values: `"single_element_contingency"` (default; N-1, post-trip surviving
-capacity), `"sum_of_max"` (plain Σ Sᵢ), `"impedance_averaged"` (susceptance-weighted
-average). `PNM.MixedBranchesParallel` groups always use `sum_of_max`.
+limit. Valid values: `"single_element_contingency"` (default; Σ Sᵢ − max Sᵢ),
+`"sum_of_max"` (plain Σ Sᵢ), `"impedance_averaged"` (susceptance-weighted average).
+`PNM.MixedBranchesParallel` groups always use `sum_of_max`.
+
+The setting applies only to the limit before a contingency. Each circuit trip is its own
+contingency, so a post-contingency limit is the sum of the emergency ratings of the
+circuits in service.
 """
 const PARALLEL_BRANCH_MAX_RATING_KEY = "parallel_branch_max_rating_method"
 
@@ -392,10 +396,10 @@ end
 
 # Branch-rating time-series multiplier at build time. Non-parallel entries use
 # the same aggregation as the static `branch_rating` path. Parallel groups are
-# the exception: a series on one member can't be split across the group, so the
-# summed (emergency) rating is used regardless of the attribute. Every PNM
-# reduction wrapper is `<: PSY.ACTransmission`; the parallel methods are more
-# specific (`<: AbstractBranchesParallel`), so they win for groups.
+# the exception for the pre-contingency rating: a series on one member can't be
+# split across the group, so `sum_of_max` is used regardless of the attribute.
+# Every PNM reduction wrapper is `<: PSY.ACTransmission`; the parallel method is
+# more specific (`<: AbstractBranchesParallel`), so it wins for groups.
 _resolve_branch_multiplier(p, d, f, ::DeviceModel) = get_multiplier_value(p, d, f)
 
 function _resolve_branch_multiplier(
@@ -408,19 +412,6 @@ function _resolve_branch_multiplier(
            time series; using sum_of_max as the multiplier, regardless of the \
            `$PARALLEL_BRANCH_MAX_RATING_KEY` attribute."
     return PNM.get_sum_of_max_rating(d)
-end
-
-function _resolve_branch_multiplier(
-    ::Type{PostContingencyBranchRatingTimeSeriesParameter},
-    d::PNM.AbstractBranchesParallel,
-    ::Type{<:Union{StaticBranch, AbstractSecurityConstrainedStaticBranch}},
-    ::DeviceModel,
-)
-    @warn "Parallel reduction $(PNM.get_name(d)) has a member with a \
-           post-contingency branch rating time series; using the summed emergency \
-           rating as the multiplier, regardless of the \
-           `$PARALLEL_BRANCH_MAX_RATING_KEY` attribute." maxlog = 5
-    return PNM.get_equivalent_emergency_rating(d)
 end
 
 function _resolve_branch_multiplier(

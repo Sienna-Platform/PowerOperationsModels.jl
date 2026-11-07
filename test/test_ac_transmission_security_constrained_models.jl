@@ -2419,7 +2419,8 @@ end
 
 # Limits of the pair under each outage of `_n1_parallel_system`, times the rating factor of
 # the time step. A full trip keeps the intact limit because the MODF row is zero.
-function _test_pair_limits(container, outages, pair, factors::Vector{Float64}, intact)
+function _test_pair_limits(container, outages, pair, factors::Vector{Float64})
+    intact = _N1_LINE_RATING_B + _N1_COPY_RATING_B
     for t in IOM.get_time_steps(container)
         f = factors[mod1(t, length(factors))]
         @test _pc_upper_limit(container, PSY.Line, outages["1"], pair, t) ≈
@@ -2439,22 +2440,18 @@ end
         template = get_thermal_dispatch_template_network(network_model)
         set_device_model!(template, PSY.Line, POM.SecurityConstrainedStaticBranch)
         container, pair = _build_sc_container(template, sys)
-        # Default `single_element_contingency` method: the pair loses its largest circuit.
-        single_element = _N1_LINE_RATING_B + _N1_COPY_RATING_B - _N1_LINE_RATING_B
-        _test_pair_limits(container, outages, pair, [1.0], single_element)
+        _test_pair_limits(container, outages, pair, [1.0])
     end
+end
+
+@testset "parallel rating method changes only the pre-contingency limit of a pair" begin
     sys, outages = _n1_parallel_system()
-    members = [
-        PSY.get_component(PSY.Line, sys, "1"),
-        PSY.get_component(PSY.Line, sys, "1_copy"),
-    ]
-    b = [PNM.get_series_susceptance(br, u"SU") for br in members]
-    expected = Dict(
-        POM.SUM_OF_MAX_RATING => _N1_LINE_RATING_B + _N1_COPY_RATING_B,
-        POM.IMPEDANCE_AVERAGED_RATING =>
-            (b[1] * _N1_LINE_RATING_B + b[2] * _N1_COPY_RATING_B) / sum(b),
+    pre_limits = Dict{String, Float64}()
+    for method in (
+        POM.SINGLE_ELEMENT_CONTINGENCY_RATING,
+        POM.SUM_OF_MAX_RATING,
+        POM.IMPEDANCE_AVERAGED_RATING,
     )
-    for (method, intact) in expected
         template = get_thermal_dispatch_template_network(NetworkModel(PTDFNetworkModel))
         set_device_model!(
             template,
@@ -2467,11 +2464,20 @@ end
             ),
         )
         container, pair = _build_sc_container(template, sys)
-        _test_pair_limits(container, outages, pair, [1.0], intact)
+        _test_pair_limits(container, outages, pair, [1.0])
+        con_ub = IOM.get_constraint(
+            container,
+            IOM.ConstraintKey(FlowRateConstraint, PSY.Line, "ub"),
+        )
+        pre_limits[method] = JuMP.normalized_rhs(con_ub[pair, 1])
     end
+    @test !isapprox(
+        pre_limits[POM.SUM_OF_MAX_RATING],
+        pre_limits[POM.SINGLE_ELEMENT_CONTINGENCY_RATING],
+    )
 end
 
-@testset "post-contingency limit of a mixed parallel pair counts only the circuit in service" begin
+@testset "post-contingency limit of a mixed parallel pair counts only the circuits in service" begin
     sys = PSB.build_system(PSITestSystems, "c_sys5")
     line = PSY.get_component(PSY.Line, sys, "1")
     add_equivalent_ac_transmission_with_parallel_circuits!(
@@ -2483,11 +2489,25 @@ end
     transformer = PSY.get_component(PSY.TwoWindingTransformer, sys, "1_copy")
     _set_rating_b!(line, _N1_LINE_RATING_B * u"SU")
     _set_rating_b!(transformer, _N1_COPY_RATING_B * u"SU")
-    outage = PSY.FixedForcedOutage(;
-        outage_status = 1.0,
-        monitored_components = [line, transformer],
-    )
-    PSY.add_supplemental_attribute!(sys, transformer, outage)
+    # A full trip keeps the intact limit because the MODF row is zero.
+    intact = _N1_LINE_RATING_B + _N1_COPY_RATING_B
+    expected =
+        Dict(("1_copy",) => _N1_LINE_RATING_B, ("2",) => intact, ("1", "1_copy") => intact)
+    outages = Dict{Tuple, PSY.FixedForcedOutage}()
+    for names in keys(expected)
+        outage = PSY.FixedForcedOutage(;
+            outage_status = 1.0,
+            monitored_components = [line, transformer],
+        )
+        for name in names
+            PSY.add_supplemental_attribute!(
+                sys,
+                PSY.get_component(PSY.ACTransmission, sys, name),
+                outage,
+            )
+        end
+        outages[names] = outage
+    end
     template = get_thermal_dispatch_template_network(NetworkModel(PTDFNetworkModel))
     set_device_model!(template, PSY.Line, POM.SecurityConstrainedStaticBranch)
     set_device_model!(
@@ -2496,22 +2516,55 @@ end
         POM.SecurityConstrainedStaticBranch,
     )
     container, pair = _build_sc_container(template, sys)
-    outage_id = string(IS.get_id(outage))
-    n_checked = 0
-    for V in (PSY.Line, PSY.TwoWindingTransformer)
-        con_ub = IOM.get_constraint(
-            container,
-            IOM.ConstraintKey(POM.PostContingencyFlowRateConstraint, V, "ub"),
-        )
-        for t in IOM.get_time_steps(container)
-            if !haskey(con_ub.data, (outage_id, pair, t))
-                continue
+    for (names, outage) in outages
+        outage_id = string(IS.get_id(outage))
+        n_checked = 0
+        for V in (PSY.Line, PSY.TwoWindingTransformer)
+            con_ub = IOM.get_constraint(
+                container,
+                IOM.ConstraintKey(POM.PostContingencyFlowRateConstraint, V, "ub"),
+            )
+            for t in IOM.get_time_steps(container)
+                if !haskey(con_ub.data, (outage_id, pair, t))
+                    continue
+                end
+                @test _pc_upper_limit(container, V, outage, pair, t) ≈ expected[names]
+                n_checked += 1
             end
-            @test _pc_upper_limit(container, V, outage, pair, t) ≈ _N1_LINE_RATING_B
-            n_checked += 1
         end
+        @test n_checked > 0
     end
-    @test n_checked > 0
+end
+
+# A modeled outage pins the buses of its components, so a series chain never carries a
+# post-contingency constraint at build. Check the rating of the chain entry directly.
+@testset "post-contingency rating of a series chain counts only the circuits in service" begin
+    sys = PSB.build_system(PSITestSystems, "c_sys5")
+    add_equivalent_ac_transmission_with_series_parallel_circuits!(
+        sys,
+        PSY.get_component(PSY.Line, sys, "4"),
+        PSY.Line,
+    )
+    for (name, rating_b) in (("4", 0.6), ("4_copy", 0.4), ("4_copy_copy", 0.8))
+        _set_rating_b!(PSY.get_component(PSY.Line, sys, name), rating_b * u"SU")
+    end
+    ybus =
+        PNM.Ybus(sys; network_reductions = PNM.NetworkReduction[PNM.DegreeTwoReduction()])
+    chain = only(values(PNM.get_series_branch_map(PNM.get_network_reduction_data(ybus))))
+    # The chain keeps the minimum over its segments: min(0.6 + 0.4, 0.8).
+    intact = 0.8
+    expected = Dict(
+        ("1",) => intact,
+        ("4",) => 0.4,
+        ("4_copy",) => 0.6,
+        ("4_copy_copy",) => intact,
+        ("4", "4_copy") => intact,
+    )
+    for (names, rating) in expected
+        tripped =
+            Set{PSY.ACTransmission}(PSY.get_component(PSY.Line, sys, n) for n in names)
+        @test POM._post_contingency_rating(chain, tripped) ≈ rating
+    end
 end
 
 @testset "post-contingency rating series of a parallel pair scales to the circuits in service" begin
@@ -2532,8 +2585,5 @@ end
         ),
     )
     container, pair = _build_sc_container(template, sys)
-    _test_pair_limits(
-        container, outages, pair, _PC_RATING_FACTORS,
-        _N1_LINE_RATING_B + _N1_COPY_RATING_B,
-    )
+    _test_pair_limits(container, outages, pair, _PC_RATING_FACTORS)
 end
