@@ -2175,7 +2175,7 @@ function add_expressions!(
 end
 
 # Water reaching a tail reservoir is what each upstream turbine draws from its head reservoirs.
-function add_expressions!(
+function add_hydro_turbine_flow_expressions!(
     container::OptimizationContainer,
     sys::PSY.System,
     ::Type{U},
@@ -2211,7 +2211,7 @@ function add_expressions!(
     return
 end
 
-function add_expressions!(
+function add_hydro_turbine_flow_expressions!(
     container::OptimizationContainer,
     sys::PSY.System,
     ::Type{TotalHydroFlowRateTurbineOutgoing},
@@ -2239,6 +2239,7 @@ function add_expressions!(
                 sum(variable[name, reservoir_name, t] for reservoir_name in reservoir_names)
         end
     end
+    return
 end
 
 function add_expressions!(
