@@ -79,3 +79,14 @@ function add_constraints!(
     end
     return
 end
+
+# |V| and |V|^2 at a bus, for the voltage-dependent parts of loads.
+function _zip_voltage_terms(
+    container::OptimizationContainer,
+    ::NetworkModel{ACPNetworkModel},
+    name::String,
+    t::Int,
+)
+    vm = get_variable(container, VoltageMagnitude, PSY.ACBus)[name, t]
+    return vm, vm^2
+end

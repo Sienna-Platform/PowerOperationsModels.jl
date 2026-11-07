@@ -283,6 +283,12 @@ function _add_load_ts_parameter_to_balance!(
             for t in time_steps
                 _apply_term_to_targets!(targets, 1.0, fallback_multiplier, t)
             end
+            record_zip_load_term!(
+                network_model,
+                U,
+                d,
+                fill(fallback_multiplier, length(time_steps)),
+            )
         end
     end
     return
@@ -331,6 +337,12 @@ function _add_aggregated_load_terms!(
         name = PSY.get_name(d)
         if haskey(row_of, name)
             buses[row_of[name]] = PSY.get_bus(d)
+            record_zip_load_term!(
+                network_model,
+                U,
+                d,
+                IOM.get_row_aggregate_refs(param_container, row_of[name]),
+            )
         else
             @warn "Device $(name) does not have time series $(ts_name). Using default value of 1.0 for all time steps."
             targets = _balance_expression_targets(container, T, network_model, d)
@@ -338,6 +350,12 @@ function _add_aggregated_load_terms!(
             for t in time_steps
                 _apply_term_to_targets!(targets, 1.0, fallback_multiplier, t)
             end
+            record_zip_load_term!(
+                network_model,
+                U,
+                d,
+                fill(fallback_multiplier, length(time_steps)),
+            )
         end
     end
     for (number, bus) in buses

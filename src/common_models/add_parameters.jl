@@ -366,7 +366,7 @@ function _add_time_series_parameter_container!(
     D <: PSY.ElectricLoad,
 }
     row_of = Dict{String, Int}(
-        PSY.get_name(d) => PSY.get_number(PSY.get_bus(d)) for d in devices
+        PSY.get_name(d) => aggregation_row(d, i) for (i, d) in enumerate(devices)
     )
     return IOM.add_aggregated_time_series_parameter_container!(
         container,

@@ -214,10 +214,15 @@ function _add_nodal_active_balance!(
         time_steps,
     )
 
+    zip_terms = zip_load_terms_by_bus(network_model, ActivePowerTimeSeriesParameter)
     for (name, bus_no) in pairs, t in time_steps
-        cons[name, t] = JuMP.@constraint(
-            get_jump_model(container),
-            expressions[bus_no, t] == 0.0,
+        cons[name, t] = _add_nodal_balance_constraint!(
+            container,
+            network_model,
+            expressions[bus_no, t],
+            get(zip_terms, bus_no, NO_ZIP_LOAD_TERMS),
+            name,
+            t,
         )
     end
     return
@@ -256,11 +261,44 @@ function _add_nodal_reactive_balance!(
         time_steps,
     )
 
+    zip_terms = zip_load_terms_by_bus(network_model, ReactivePowerTimeSeriesParameter)
     for (name, bus_no) in pairs, t in time_steps
-        cons[name, t] = JuMP.@constraint(
-            get_jump_model(container),
-            expressions[bus_no, t] == 0.0,
+        cons[name, t] = _add_nodal_balance_constraint!(
+            container,
+            network_model,
+            expressions[bus_no, t],
+            get(zip_terms, bus_no, NO_ZIP_LOAD_TERMS),
+            name,
+            t,
         )
     end
+    # The reactive balance is the last consumer of the recorded terms.
+    clear_zip_load_terms!(network_model)
     return
+end
+
+# Without voltage-dependent loads the balance is the expression alone. Otherwise each term
+# adds its |V|-dependent part on top of the constant injection already in the expression.
+function _add_nodal_balance_constraint!(
+    container::OptimizationContainer,
+    network_model::NetworkModel,
+    expression::JuMP.AffExpr,
+    terms::Vector{ZipLoadTerm},
+    name::String,
+    t::Int,
+)
+    if isempty(terms)
+        return JuMP.@constraint(get_jump_model(container), expression == 0.0)
+    end
+    voltage, voltage_squared = _zip_voltage_terms(container, network_model, name, t)
+    balance = expression
+    for term in terms
+        balance =
+            balance +
+            term.injection[t] * (
+                term.impedance_fraction * (voltage_squared - 1.0) +
+                term.current_fraction * (voltage - 1.0)
+            )
+    end
+    return JuMP.@constraint(get_jump_model(container), balance == 0.0)
 end
