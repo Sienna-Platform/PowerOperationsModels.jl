@@ -238,6 +238,13 @@ function _check_interface_branches(
     throw(IS.ConflictingInputsError(join(problems, "\n")))
 end
 
+function _is_modeled(
+    template::PowerOperationsProblemTemplate,
+    ::Type{D},
+) where {D <: PSY.Device}
+    return haskey(template.devices, nameof(D)) || haskey(template.branches, nameof(D))
+end
+
 # A device that its type model excludes fails later in service code that indexes by name.
 function _check_contributing_devices(template::PowerOperationsProblemTemplate)
     problems = String[]
@@ -245,8 +252,9 @@ function _check_contributing_devices(template::PowerOperationsProblemTemplate)
     for service_model in values(get_service_models(template))
         for (service_name, by_device_type) in get_contributing_devices_map(service_model)
             for (D, devices) in by_device_type
+                # A type without a model is not modeled, so nothing indexes its devices.
+                _is_modeled(template, D) || continue
                 device_model = get_model(template, D)
-                isnothing(device_model) && continue
                 if !haskey(names_by_type, D)
                     names_by_type[D] =
                         Set{String}(PSY.get_name(d) for d in get_device_cache(device_model))
