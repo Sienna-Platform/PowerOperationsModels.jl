@@ -64,8 +64,6 @@ objective_function_multiplier(::Type{StorageEnergyShortageVariable}, ::Type{<:Ab
 
 proportional_cost(cost::PSY.StorageCost, ::Type{StorageEnergySurplusVariable}, ::PSY.EnergyReservoirStorage, ::Type{<:AbstractStorageFormulation})=PSY.get_energy_surplus_cost(cost)
 proportional_cost(cost::PSY.StorageCost, ::Type{StorageEnergyShortageVariable}, ::PSY.EnergyReservoirStorage, ::Type{<:AbstractStorageFormulation})=PSY.get_energy_shortage_cost(cost)
-proportional_cost(::PSY.StorageCost, ::Type{StorageChargeCyclingSlackVariable}, ::PSY.EnergyReservoirStorage, ::Type{<:AbstractStorageFormulation})=CYCLE_VIOLATION_COST
-proportional_cost(::PSY.StorageCost, ::Type{StorageDischargeCyclingSlackVariable}, ::PSY.EnergyReservoirStorage, ::Type{<:AbstractStorageFormulation})=CYCLE_VIOLATION_COST
 
 
 IOM.variable_cost(cost::PSY.StorageCost, ::Type{ActivePowerOutVariable}, ::Type{<:PSY.Storage}, ::Type{<:AbstractStorageFormulation})=PSY.get_discharge_variable_cost(cost)
@@ -1633,13 +1631,13 @@ function add_to_objective_function!(
             container,
             StorageChargeCyclingSlackVariable,
             devices,
-            T,
+            model,
         )
         add_proportional_cost!(
             container,
             StorageDischargeCyclingSlackVariable,
             devices,
-            T,
+            model,
         )
     end
     if get_attribute(model, "regularization")
@@ -1659,7 +1657,7 @@ function add_to_objective_function!(
     return
 end
 
-# Storage cycling/energy-target slack penalties are applied only at the final timestep
+# Storage energy-target slack penalties are applied only at the final timestep
 # (a single horizon-end accumulator), not per-timestep — so we can't delegate to the
 # IOM default `add_proportional_cost!`, which loops over all timesteps.
 # no test coverage
@@ -1670,7 +1668,6 @@ function add_proportional_cost!(
     ::Type{F},
 ) where {
     T <: Union{
-        StorageChargeCyclingSlackVariable, StorageDischargeCyclingSlackVariable,
         StorageEnergyShortageVariable, StorageEnergySurplusVariable,
     },
     U <: PSY.EnergyReservoirStorage,
@@ -1687,6 +1684,31 @@ function add_proportional_cost!(
             ProductionCostExpression, U, name, t_end,
         )
     end
+end
+
+# The cycling slack measures energy over the whole horizon, so the penalty is not scaled by
+# the step length. The penalty comes from the `slack_penalty` of the `DeviceModel`.
+function add_proportional_cost!(
+    container::OptimizationContainer,
+    ::Type{T},
+    devices::Vector{U},
+    model::DeviceModel{U, F},
+) where {
+    T <: Union{StorageChargeCyclingSlackVariable, StorageDischargeCyclingSlackVariable},
+    U <: PSY.EnergyReservoirStorage,
+    F <: AbstractStorageFormulation,
+}
+    t_end = last(get_time_steps(container))
+    variable = get_variable(container, T, U)
+    cost_term = get_slack_penalty(model)
+    for d in devices
+        name = PSY.get_name(d)
+        IOM.add_cost_term_invariant!(
+            container, variable[name, t_end], cost_term,
+            ProductionCostExpression, U, name, t_end,
+        )
+    end
+    return
 end
 
 function calculate_aux_variable_value!(
