@@ -238,32 +238,27 @@ function _check_interface_branches(
     throw(IS.ConflictingInputsError(join(problems, "\n")))
 end
 
-_has_device_model(
-    template::PowerOperationsProblemTemplate,
-    ::Type{D},
-) where {D <: PSY.Device} =
-    haskey(template.devices, nameof(D)) || haskey(template.branches, nameof(D))
-
-# `finalize_template!` fills the contributing devices before this check. A device that the
-# model of its type excludes would reach service code that indexes it by name and fails.
+# A device that its type model excludes fails later in service code that indexes by name.
 function _check_contributing_devices(template::PowerOperationsProblemTemplate)
     problems = String[]
+    names_by_type = Dict{DataType, Set{String}}()
     for service_model in values(get_service_models(template))
         for (service_name, by_device_type) in get_contributing_devices_map(service_model)
             for (D, devices) in by_device_type
-                _has_device_model(template, D) || continue
-                names = Set{String}(
-                    PSY.get_name(d) for d in get_device_cache(get_model(template, D))
-                )
+                device_model = get_model(template, D)
+                isnothing(device_model) && continue
+                if !haskey(names_by_type, D)
+                    names_by_type[D] =
+                        Set{String}(PSY.get_name(d) for d in get_device_cache(device_model))
+                end
+                names = names_by_type[D]
                 for device in devices
                     PSY.get_name(device) in names && continue
                     push!(
                         problems,
-                        "Service \"$(service_name)\" has the contributing device \
-                        \"$(PSY.get_name(device))\" of type $(D), but the template's $(D) model \
-                        excludes it through its `$(FILTER_SELECTOR_KEY)` or `filter_function` \
-                        attribute or its subsystem. Change the filter to select the device, \
-                        or remove the device from the service in the system data.",
+                        "Service \"$(service_name)\" lists the device \"$(PSY.get_name(device))\" \
+                        of type $(D), but the $(D) model excludes it. Change the filter or \
+                        remove the device from the service.",
                     )
                 end
             end

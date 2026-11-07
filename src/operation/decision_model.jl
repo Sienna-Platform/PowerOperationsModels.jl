@@ -402,13 +402,12 @@ function _make_device_cache(
     return device_cache
 end
 
-# Callable that passes the components whose IDs the `FILTER_SELECTOR_KEY` selector selects.
+# Passes the components that the selector selected.
 struct _SelectedIds <: Function
     ids::Set{Int}
 end
 
-_is_selected(f::_SelectedIds, d::PSY.Component) = IS.get_id(d) in f.ids
-(f::_SelectedIds)(d::PSY.Component) = _is_selected(f, d)
+(f::_SelectedIds)(d::PSY.Component) = IS.get_id(d) in f.ids
 
 _has_filter_selector(model::DeviceModel) =
     haskey(get_attributes(model), FILTER_SELECTOR_KEY)
@@ -418,8 +417,7 @@ function _selected_ids(model::DeviceModel, sys::PSY.System)
     return Set{Int}(IS.get_id(c) for c in PSY.get_components(selector, sys))
 end
 
-# Template validation rejects a model that sets both `FILTER_SELECTOR_KEY` and
-# `filter_function`, so at most one of them applies here.
+# Template validation rejects a model with both attributes.
 function _component_filter(model::DeviceModel, sys::PSY.System)
     _has_filter_selector(model) && return _SelectedIds(_selected_ids(model, sys))
     return get_attribute(model, "filter_function")
@@ -428,17 +426,17 @@ end
 _available_components(::Nothing, ::Type{T}, sys::PSY.System, subsystem) where {T} =
     PSY.get_available_components(T, sys; subsystem_name = subsystem)
 
-_available_components(
+function _available_components(
     filter_function::Function,
     ::Type{T},
     sys::PSY.System,
     subsystem,
-) where {T} =
-    PSY.get_available_components(filter_function, T, sys; subsystem_name = subsystem)
+) where {T}
+    return PSY.get_available_components(filter_function, T, sys; subsystem_name = subsystem)
+end
 
-# A model has two device sets with the same filter. `device_cache` is the validated
-# snapshot that the constructors read. `get_available_components` is the live query for
-# callers without the cache, such as the IOM dual code and template validation.
+# `device_cache` is the validated snapshot for the constructors. `get_available_components`
+# is the live query for callers without the cache.
 function make_device_cache!(
     model::DeviceModel{T, <:AbstractDeviceFormulation},
     system::PSY.System,
