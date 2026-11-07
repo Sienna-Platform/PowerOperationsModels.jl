@@ -181,6 +181,16 @@ function _active_power_variables_and_expressions(
             U,
             get_attribute(model, RELAX_BINARIES_ATTRIBUTE),
         )
+        # Only devices carrying the series get the parameter; none means no parameter.
+        series_devices = _storage_target_series_devices(container, devices, model)
+        if !isempty(series_devices)
+            add_parameters!(
+                container,
+                EnergyTargetTimeSeriesParameter,
+                series_devices,
+                model,
+            )
+        end
     end
 
     if get_attribute(model, "cycling_limits")

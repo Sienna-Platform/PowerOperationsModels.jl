@@ -45,6 +45,7 @@ function construct_network!(
     add_variables!(container, VoltageAngle, sys, model)
     add_variables!(container, VoltageMagnitude, sys, model)
     _add_balance_slack_variables!(container, sys, model; reactive = true)
+    add_load_zone_load!(container, sys, model)
     return
 end
 
@@ -58,6 +59,7 @@ function construct_network!(
     add_variables!(container, VoltageReal, sys, model)
     add_variables!(container, VoltageImaginary, sys, model)
     _add_balance_slack_variables!(container, sys, model; reactive = true)
+    add_load_zone_load!(container, sys, model)
     return
 end
 
@@ -71,6 +73,7 @@ function construct_network!(
     add_variables!(container, VoltageAngle, sys, model)
     add_variables!(container, VoltageDeviation, sys, model)
     _add_balance_slack_variables!(container, sys, model; reactive = true)
+    add_load_zone_load!(container, sys, model)
     return
 end
 
@@ -83,6 +86,7 @@ function construct_network!(
 )
     add_variables!(container, VoltageAngle, sys, model)
     _add_balance_slack_variables!(container, sys, model; reactive = false)
+    add_load_zone_load!(container, sys, model)
     return
 end
 
@@ -112,7 +116,13 @@ function _add_static_branch_btheta_expression!(
 ) where {T <: PSY.ACTransmission}
     devices = get_device_cache(device_model)
     isempty(devices) && return
-    add_expressions!(container, BThetaBranchFlow, sys, devices, device_model, network_model)
+    add_btheta_branch_flow_expressions!(
+        container,
+        sys,
+        devices,
+        device_model,
+        network_model,
+    )
     return
 end
 
@@ -125,6 +135,7 @@ function construct_network!(
 )
     add_variables!(container, VoltageAngle, sys, model)
     _add_balance_slack_variables!(container, sys, model; reactive = false)
+    add_load_zone_load!(container, sys, model)
     for branch_model in values(get_branch_models(template))
         _add_static_branch_btheta_expression!(container, sys, branch_model, model)
     end
@@ -141,6 +152,7 @@ function construct_network!(
     ::ArgumentConstructStage,
 )
     _add_balance_slack_variables!(container, sys, model; reactive = false)
+    add_load_zone_load!(container, sys, model)
     _add_net_interchange_parameters!(container, sys, model)
     return
 end
@@ -223,6 +235,7 @@ function construct_network!(
     ::ArgumentConstructStage,
 )
     _add_balance_slack_variables!(container, sys, model; reactive = false)
+    add_load_zone_load!(container, sys, model)
     _add_net_interchange_parameters!(container, sys, model)
     _add_shift_injections!(container, model, template)
     return
