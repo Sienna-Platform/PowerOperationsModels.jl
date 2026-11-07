@@ -881,6 +881,35 @@ end
     ) == Set(["Bus3", "Bus4"])
 end
 
+@testset "filter_selector that excludes a reserve contributor is rejected" begin
+    c_sys5_uc = PSB.build_system(PSITestSystems, "c_sys5_uc"; add_reserves = true)
+    template = get_thermal_standard_uc_template()
+    set_service_model!(
+        template,
+        ServiceModel(OnlineReserve{ReserveUp}, RangeReserve),
+    )
+    reserve = first(PSY.get_components(OnlineReserve{ReserveUp}, c_sys5_uc))
+    contributor_names =
+        Set(PSY.get_name(d) for d in PSY.get_contributing_devices(c_sys5_uc, reserve))
+    excluded_name = first(
+        PSY.get_name(d) for d in PSY.get_components(ThermalStandard, c_sys5_uc) if
+        PSY.get_name(d) in contributor_names
+    )
+    set_device_model!(
+        template,
+        DeviceModel(
+            ThermalStandard,
+            ThermalStandardUnitCommitment;
+            attributes = Dict(
+                "filter_selector" =>
+                    make_selector(x -> PSY.get_name(x) != excluded_name, ThermalStandard),
+            ),
+        ),
+    )
+    model = DecisionModel(template, c_sys5_uc; optimizer = HiGHS_optimizer)
+    @test_throws IS.ConflictingInputsError POM.validate_template(model)
+end
+
 @testset "filter_selector and filter_function together are rejected" begin
     c_sys5 = PSB.build_system(PSITestSystems, "c_sys5")
     template = get_thermal_dispatch_template_network(CopperPlateNetworkModel)
