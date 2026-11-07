@@ -106,6 +106,7 @@ has_distribution_factors(
 Bus-number labels of the `distribution_factor` series that `component` owns, read from its
 metadata without loading data. Call it only when [`has_distribution_factors`](@ref) is
 `true`. Errors for a second series, a layout other than one `"bus"` axis of bus numbers, or
+another resolution.
 """
 function _factor_series_labels(
     container::OptimizationContainer,

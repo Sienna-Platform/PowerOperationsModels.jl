@@ -61,21 +61,38 @@ end
 IOM.get_must_run(c::PSY.Component) = _is_must_run(c)
 
 """
-Metadata rows of the series `name` of `owner` that match the model resolution and interval,
-the same filter `add_parameters!` applies. Another transform of the same series is not listed.
+Metadata rows of the series `name` of `owner` that match the model resolution and interval.
+Returns no rows if `owner` has no such series at all. Throws if it has some, but none match.
 """
 function list_model_series_metadata(
     container::OptimizationContainer,
     owner::IS.InfrastructureSystemsComponent,
     ts_type::Type{<:IS.TimeSeriesData},
     name::AbstractString,
-)
+)::Vector{IS.TimeSeriesMetadata}
     settings = get_settings(container)
-    return IS.list_time_series_metadata(
+    resolution = get_resolution(settings)
+    interval = get_interval(settings)
+    matched = IS.list_time_series_metadata(
         owner;
         time_series_type = ts_type,
         name = name,
-        resolution = _to_is_resolution(get_resolution(settings)),
-        interval = _to_is_interval(get_interval(settings)),
+        resolution = _to_is_resolution(resolution),
+        interval = _to_is_interval(interval),
     )
+    if isempty(matched)
+        available = IS.list_time_series_metadata(
+            owner; time_series_type = ts_type, name = name,
+        )
+        if !isempty(available)
+            throw(
+                IS.ConflictingInputsError(
+                    "$(summary(owner)): series $(name) has no $(ts_type) matching " *
+                    "resolution=$(resolution) interval=$(interval). Available: " *
+                    "$([(IS.get_resolution(md), IS.get_interval(md)) for md in available]).",
+                ),
+            )
+        end
+    end
+    return matched
 end

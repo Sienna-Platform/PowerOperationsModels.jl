@@ -255,11 +255,9 @@ end
     )
 end
 
-@testset "A factor window at another resolution is not the model's series" begin
+@testset "A factor window at another resolution is an error" begin
     sys, zone, zone_buses = _build_zone_system()
     container, _ = _build_factor_model(sys)
-    ts_type = POM.get_default_time_series_type(container)
-    numbers = PSY.get_number.(zone_buses)
     zone2 = PSY.LoadZone(;
         name = "LZ_RES",
         peak_active_power = 1.0,
@@ -267,13 +265,25 @@ end
         input_basis = u"CU",
     )
     PSY.add_component!(sys, zone2)
-    _add_factor_matrix!(sys, zone2, numbers, [0.5, 0.5]; resolution = Minute(30))
-    @test !POM.has_distribution_factors(container, zone2, ts_type)
-    # A same-name series at another resolution does not make the zone's series ambiguous.
+    _add_factor_matrix!(
+        sys, zone2, PSY.get_number.(zone_buses), [0.5, 0.5]; resolution = Minute(30),
+    )
+    @test_throws IS.ConflictingInputsError POM._factor_bus_labels(
+        container,
+        zone2,
+        POM._buses_by_number(sys),
+    )
+end
+
+@testset "A same-name factor series of another resolution is not the model's series" begin
+    sys, zone, zone_buses = _build_zone_system()
+    container, _ = _build_factor_model(sys)
+    numbers = PSY.get_number.(zone_buses)
     PSY.add_time_series!(
         sys, zone, _factor_matrix(sys, numbers, [0.1, 0.9]; resolution = Minute(30));
         features = Dict("year" => 2030),
     )
+    ts_type = POM.get_default_time_series_type(container)
     @test POM.has_distribution_factors(container, zone, ts_type)
     @test POM._factor_bus_labels(container, zone, POM._buses_by_number(sys)) ==
           sort(numbers)
