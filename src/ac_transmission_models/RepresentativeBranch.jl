@@ -169,6 +169,51 @@ _dc_shift(rep::RepresentativeBranch) = _dc_shift(rep.branch, rep.nr)
 # DC susceptance `1/(tap*x)` — tap-divided, not the r-inclusive π-model susceptance.
 _dc_susceptance(rep::RepresentativeBranch) =
     PNM.get_series_susceptance(rep.branch, u"SU")
+# DC susceptance and phase shift of the entry conducting on the arc at step `t`; both are zero
+# when the arc is out. A substitute entry (a lone member, a group of the members in service,
+# or a Ward equivalent) is not registered in `rep.nr` and may be framed opposite to the arc,
+# so its shift is recovered from the schedule's `b·α` injection, which is in the arc's frame.
+_dc_parameters_at(::RepresentativeBranch, ::PNM.TopologySchedule, ::Nothing) = (0.0, 0.0)
+
+function _dc_parameters_at(
+    rep::RepresentativeBranch,
+    ts::PNM.TopologySchedule,
+    entry::PSY.ACTransmission,
+)
+    entry === rep.branch && return (_dc_susceptance(rep), _dc_shift(rep))
+    b = PNM.get_series_susceptance(entry, u"SU")
+    return (b, PNM.get_arc_shift_injection(ts, rep.arc, entry) / b)
+end
+
+const _DCStepParameters = @NamedTuple{b::Float64, shift::JuMP.AffExpr, own::Bool}
+
+# The DC parameters of every time step: susceptance, fixed shift, and whether the arc's own
+# entry conducts. Steps sharing a topology share one entry, so its shift expression is built
+# once per topology.
+_step_dc_parameters(rep::RepresentativeBranch, ::Nothing, time_steps) = fill(
+    _DCStepParameters((_dc_susceptance(rep), JuMP.AffExpr(_dc_shift(rep)), true)),
+    length(time_steps),
+)
+
+function _step_dc_parameters(
+    rep::RepresentativeBranch,
+    ts::PNM.TopologySchedule,
+    time_steps,
+)
+    by_topology = Dict{Int, _DCStepParameters}()
+    return [
+        get!(by_topology, PNM.get_topology_index(ts, t)) do
+            entry = PNM.get_in_service_entry(ts, rep.arc, t)
+            b, shift = _dc_parameters_at(rep, ts, entry)
+            return _DCStepParameters((
+                b,
+                JuMP.AffExpr(shift),
+                _own_entry_conducts(rep, entry),
+            ))
+        end for t in time_steps
+    ]
+end
+
 _dc_resistance(rep::RepresentativeBranch) = PNM.arc_dc_resistance(rep.nr, rep.arc)
 _dc_shift_injection(rep::RepresentativeBranch) =
     PNM.arc_dc_shift_injection(rep.nr, rep.arc)
@@ -337,6 +382,8 @@ _branch_rating(t::PSY.TwoWindingTransformer, ::DeviceModel) =
 _branch_rating(t::PNM.ThreeWindingTransformerCircuit, ::DeviceModel) =
     PSY.get_rating(t.circuit, u"SU")
 _branch_rating(entry::PNM.BranchesSeries, ::DeviceModel) = PNM.get_equivalent_rating(entry)
+_branch_rating(entry::PSY.GenericArcImpedance, ::DeviceModel) =
+    PNM.get_equivalent_rating(entry)
 _branch_rating(entry::PNM.AbstractBranchesParallel, model::DeviceModel) =
     _parallel_branches_rating(model, entry)
 _branch_rating(rep::RepresentativeBranch, model::DeviceModel) =
@@ -356,9 +403,84 @@ function _directional_flow_rating(rep::RepresentativeBranch, model::DeviceModel)
     return rating
 end
 
-function _flow_limits(rep::RepresentativeBranch, model::DeviceModel)
-    rating = _branch_rating(rep, model)
+_flow_limits(rep::RepresentativeBranch, model::DeviceModel) =
+    _flow_limits(rep.branch, model)
+
+function _flow_limits(entry, model::DeviceModel)
+    rating = _branch_rating(entry, model)
     return (min = -rating, max = rating)
+end
+
+# The entry whose rating applies at step `t`. An out arc's flow is identically zero, so its
+# rating row is inert and keeps the arc's own entry.
+_entry_at(rep::RepresentativeBranch, ::Nothing, ::Int) = rep.branch
+
+function _entry_at(rep::RepresentativeBranch, ts::PNM.TopologySchedule, t::Int)
+    entry = PNM.get_in_service_entry(ts, rep.arc, t)
+    isnothing(entry) && return rep.branch
+    return entry
+end
+
+# Whether the arc's own entry carries the flow at step `t`. A branch scheduled out may leave
+# its arc conducting through another entry, such as a Ward equivalent filed on the same arc.
+_own_entry_conducts(::RepresentativeBranch, ::Nothing, ::Int) = true
+_own_entry_conducts(rep::RepresentativeBranch, ts::PNM.TopologySchedule, t::Int) =
+    _own_entry_conducts(rep, PNM.get_in_service_entry(ts, rep.arc, t))
+# `entry` is the entry conducting on the arc, as `PNM.get_in_service_entry` resolves it.
+_own_entry_conducts(rep::RepresentativeBranch, entry) = entry === rep.branch
+
+# Whether the arc's own entry carries the flow at each step, resolved once per topology.
+_step_own_entry_conducts(::RepresentativeBranch, ::Nothing, time_steps) =
+    trues(length(time_steps))
+
+function _step_own_entry_conducts(
+    rep::RepresentativeBranch,
+    ts::PNM.TopologySchedule,
+    time_steps,
+)
+    by_topology = Dict{Int, Bool}()
+    return BitVector([
+        get!(by_topology, PNM.get_topology_index(ts, t)) do
+            _own_entry_conducts(rep, ts, t)
+        end for t in time_steps
+    ])
+end
+
+# Flow limits at every time step, resolved once per topology.
+_step_flow_limits(rep::RepresentativeBranch, ::Nothing, time_steps, model::DeviceModel) =
+    fill(_flow_limits(rep, model), length(time_steps))
+
+function _step_flow_limits(
+    rep::RepresentativeBranch,
+    ts::PNM.TopologySchedule,
+    time_steps,
+    model::DeviceModel,
+)
+    by_topology = Dict{Int, @NamedTuple{min::Float64, max::Float64}}()
+    return [
+        get!(by_topology, PNM.get_topology_index(ts, t)) do
+            _step_entry_flow_limits(rep, _entry_at(rep, ts, t), model)
+        end for t in time_steps
+    ]
+end
+
+_step_entry_flow_limits(rep::RepresentativeBranch, entry, model::DeviceModel) =
+    if entry === rep.branch
+        _flow_limits(entry, model)
+    else
+        _substitute_flow_limits(rep, entry, model)
+    end
+
+# The limits of an entry that conducts on the arc in place of its own entry. A zero rating
+# would pin the arc to zero flow at those steps.
+function _substitute_flow_limits(rep::RepresentativeBranch, entry, model::DeviceModel)
+    limits = _flow_limits(entry, model)
+    iszero(limits.max) && error(
+        "Branch $(PNM.get_name(entry)) carries the flow of arc $(rep.name) at the steps \
+         its other branches are out, and has a zero rating; the flow limit would force \
+         zero flow. Assign a non-zero thermal rating to it or use an unbounded formulation.",
+    )
+    return limits
 end
 
 """

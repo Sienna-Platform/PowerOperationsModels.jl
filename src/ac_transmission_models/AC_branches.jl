@@ -235,15 +235,18 @@ function _branch_variable_bounds(
     return (-rating, rating)
 end
 
+# Active flow limits of `rep` while `entry` conducts on its arc: the rating, tightened per
+# direction by the operational limit when the model applies one.
 function _static_branch_rate_limits(
     ::Type{V},
     rep::RepresentativeBranch,
+    entry::PSY.ACTransmission,
     device_model::DeviceModel,
 ) where {V <: AbstractACActivePowerFlow}
-    if !_applies_operational_flow_limits(rep, device_model)
-        return _flow_limits(rep, device_model)
+    if !_applies_operational_flow_limits(entry, device_model)
+        return _flow_limits(entry, device_model)
     end
-    return _directional_bounds(V, _operational_flow_limits(rep, device_model))
+    return _directional_bounds(V, _operational_flow_limits(rep, entry, device_model))
 end
 
 # A to-from flow is measured at the to end, so its positive side is the to-from direction.
@@ -254,10 +257,11 @@ _directional_bounds(::Type{<:AbstractACActivePowerFlow}, lims) =
 
 function _static_branch_rate_limits(
     ::Type{<:AbstractACReactivePowerFlow},
-    rep::RepresentativeBranch,
+    ::RepresentativeBranch,
+    entry::PSY.ACTransmission,
     device_model::DeviceModel,
 )
-    rating = _branch_rating(rep, device_model)
+    rating = _branch_rating(entry, device_model)
     return (min = -rating, max = rating)
 end
 
@@ -265,6 +269,22 @@ _is_slack(
     ::Union{Type{FlowActivePowerSlackLowerBound}, Type{FlowActivePowerSlackUpperBound}},
 ) = true
 _is_slack(::Type{<:VariableType}) = false
+
+# Flow bounds of `rep` rated by `entry`, the entry in service at the step being bounded.
+function _static_branch_bounds(
+    ::Type{V},
+    rep::RepresentativeBranch,
+    entry::PSY.ACTransmission,
+    device_model::DeviceModel,
+) where {V <: VariableType}
+    _is_slack(V) && return (0.0, nothing)
+    limits = _static_branch_rate_limits(V, rep, entry, device_model)
+    @assert limits.min <= limits.max "Infeasible rate limits for branch $(rep.name)"
+    return (
+        something(get_variable_lower_bound(V, rep.branch, StaticBranchBounds), limits.min),
+        something(get_variable_upper_bound(V, rep.branch, StaticBranchBounds), limits.max),
+    )
+end
 
 function _branch_variable_bounds(
     ::Type{V},
@@ -275,13 +295,74 @@ function _branch_variable_bounds(
     V <: Union{AbstractACActivePowerFlow, AbstractACReactivePowerFlow},
     D <: PSY.ACTransmission,
 }
-    _is_slack(V) && return (0.0, nothing)
-    limits = _static_branch_rate_limits(V, rep, device_model)
-    @assert limits.min <= limits.max "Infeasible rate limits for branch $(rep.name)"
-    return (
-        something(get_variable_lower_bound(V, rep.branch, StaticBranchBounds), limits.min),
-        something(get_variable_upper_bound(V, rep.branch, StaticBranchBounds), limits.max),
-    )
+    return _static_branch_bounds(V, rep, rep.branch, device_model)
+end
+
+const _VariableBounds = Tuple{Union{Nothing, Float64}, Union{Nothing, Float64}}
+
+# Variable bounds at every time step. They are fixed over the window except for the
+# StaticBranchBounds flow bounds, which follow the rating of the entry in service.
+_step_branch_variable_bounds(
+    ::Type{V},
+    rep::RepresentativeBranch,
+    device_model::DeviceModel,
+    network_model::NetworkModel,
+    time_steps,
+) where {V <: VariableType} = fill(
+    _branch_variable_bounds(V, rep, device_model, network_model),
+    length(time_steps),
+)
+
+_step_branch_variable_bounds(
+    ::Type{V},
+    rep::RepresentativeBranch,
+    device_model::DeviceModel{D, StaticBranchBounds},
+    network_model::NetworkModel,
+    time_steps,
+) where {
+    V <: Union{AbstractACActivePowerFlow, AbstractACReactivePowerFlow},
+    D <: PSY.ACTransmission,
+} = _step_static_branch_bounds(
+    V,
+    rep,
+    get_topology_schedule(network_model),
+    device_model,
+    time_steps,
+)
+
+_step_branch_variable_bounds(
+    ::Type{V},
+    rep::RepresentativeBranch,
+    device_model::DeviceModel{D, StaticBranchBounds},
+    network_model::NetworkModel{DCPLLNetworkModel},
+    time_steps,
+) where {V <: AbstractACActivePowerFlow, D <: PSY.ACTransmission} = fill(
+    _branch_variable_bounds(V, rep, device_model, network_model),
+    length(time_steps),
+)
+
+_step_static_branch_bounds(
+    ::Type{V},
+    rep::RepresentativeBranch,
+    ::Nothing,
+    device_model::DeviceModel,
+    time_steps,
+) where {V <: VariableType} =
+    fill(_static_branch_bounds(V, rep, rep.branch, device_model), length(time_steps))
+
+function _step_static_branch_bounds(
+    ::Type{V},
+    rep::RepresentativeBranch,
+    ts::PNM.TopologySchedule,
+    device_model::DeviceModel,
+    time_steps,
+) where {V <: VariableType}
+    by_topology = Dict{Int, _VariableBounds}()
+    return _VariableBounds[
+        get!(by_topology, PNM.get_topology_index(ts, t)) do
+            _static_branch_bounds(V, rep, _entry_at(rep, ts, t), device_model)
+        end for t in time_steps
+    ]
 end
 
 # DCPLL rates its directional pair with `FlowRateConstraint` rows against the loss-coupled
@@ -336,8 +417,15 @@ function add_variables!(
             V,
         )
         if !has_entry
-            (lb, ub) = _branch_variable_bounds(V, branch, device_model, network_model)
+            bounds = _step_branch_variable_bounds(
+                V,
+                branch,
+                device_model,
+                network_model,
+                time_steps,
+            )
             for t in time_steps
+                (lb, ub) = bounds[t]
                 var = JuMP.@variable(
                     jump_model,
                     base_name = "$(nameof(V))_$(nameof(T))_$(_reduction_label(branch))_{$(branch.name), $(t)}",
@@ -505,6 +593,69 @@ _resolve_branch_multiplier(
     ::Any,
 ) = 1.0
 
+# Static rating that replaces a rating time series at a step where no member carrying it is
+# in service.
+_unparameterized_rating(
+    ::Type{BranchRatingTimeSeriesParameter},
+    entry,
+    model::DeviceModel,
+) =
+    _branch_rating(entry, model)
+
+# Rating of parameter `P` at step `t`: `param_t * stored` while the arc's own entry conducts
+# (or the arc is out, which leaves its rating row inert). Otherwise the in-service entry
+# rates the arc, resolved once per topology into `resolved`: `param_t` scaled by the entry's
+# multiplier when the entry holds the arc's one series carrier, and the entry's static rating
+# when the carrier is out.
+_parameterized_rating_at(
+    ::Type{<:ParameterType},
+    ::OptimizationContainer,
+    ::Any,
+    ::RepresentativeBranch,
+    ::Nothing,
+    ::Int,
+    param_t,
+    stored::Float64,
+    ::DeviceModel,
+    ::Dict{Int, Tuple{Bool, Float64}},
+) = param_t * stored
+
+function _parameterized_rating_at(
+    ::Type{P},
+    container::OptimizationContainer,
+    param_container,
+    rep::RepresentativeBranch,
+    ts::PNM.TopologySchedule,
+    t::Int,
+    param_t,
+    stored::Float64,
+    model::DeviceModel,
+    resolved::Dict{Int, Tuple{Bool, Float64}},
+) where {P <: ParameterType}
+    entry = _entry_at(rep, ts, t)
+    entry === rep.branch && return param_t * stored
+    scaled, value = get!(resolved, PNM.get_topology_index(ts, t)) do
+        _in_service_rating(P, container, param_container, entry, model)
+    end
+    return (scaled ? param_t : one(param_t)) * value
+end
+
+function _in_service_rating(
+    ::Type{P},
+    container::OptimizationContainer,
+    param_container,
+    entry,
+    model::DeviceModel{T, F},
+) where {P <: ParameterType, T, F}
+    attributes = IOM.get_attributes(param_container)
+    ts_type = IOM.get_time_series_type(attributes)
+    ts_name = IOM.get_time_series_name(attributes)
+    carrier = get_branch_with_time_series(entry, ts_type, ts_name)
+    isnothing(carrier) && return (false, _unparameterized_rating(P, entry, model))
+    md = get_model_series_metadata(container, carrier, ts_type, ts_name)
+    return (true, _resolve_branch_multiplier(P, entry, F, model, carrier, md))
+end
+
 function _add_flow_rate_constraint!(
     container::OptimizationContainer,
     rep::RepresentativeBranch,
@@ -513,6 +664,7 @@ function _add_flow_rate_constraint!(
     con_ub::DenseAxisArray,
     var::DenseAxisArray,
     device_model::DeviceModel{T},
+    ts::Union{Nothing, PNM.TopologySchedule},
 ) where {T <: PSY.ACTransmission}
     name = rep.name
     time_steps = get_time_steps(container)
@@ -520,8 +672,9 @@ function _add_flow_rate_constraint!(
         slack_ub = get_variable(container, FlowActivePowerSlackUpperBound, T)[name, :]
         slack_lb = get_variable(container, FlowActivePowerSlackLowerBound, T)[name, :]
     end
-    limits = _flow_limits(rep, device_model)
+    step_limits = _step_flow_limits(rep, ts, time_steps, device_model)
     for t in time_steps
+        limits = step_limits[t]
         if use_slacks
             ub_lhs = var[name, t] - slack_ub[t]
             lb_lhs = var[name, t] + slack_lb[t]
@@ -577,6 +730,7 @@ function add_constraints!(
     array = get_variable(container, FlowActivePowerVariable, T)
 
     use_slacks = get_use_slacks(device_model)
+    ts = get_topology_schedule(network_model)
     _foreach_branch(reps) do rep
         _add_flow_rate_constraint!(
             container,
@@ -586,6 +740,7 @@ function add_constraints!(
             con_ub,
             array,
             device_model,
+            ts,
         )
     end
     return
@@ -611,8 +766,8 @@ function add_constraints!(
     return
 end
 
-# One lb/ub rating pair per reduced arc on `flow`. A branch carrying a rating time series
-# takes the parameterized rating.
+# One lb/ub rating pair per reduced arc on `flow`, rated at each step by the entry in service.
+# A branch carrying a rating time series takes the parameterized rating.
 function _add_flow_rate_constraints!(
     container::OptimizationContainer,
     flow::DenseAxisArray,
@@ -638,16 +793,18 @@ function _add_flow_rate_constraints!(
     end
 
     use_slacks = get_use_slacks(device_model)
+    ts = get_topology_schedule(network_model)
     _foreach_branch(reps) do rep
         if rep.name in ts_branch_names
             _add_flow_rate_constraint_with_parameters!(
                 container,
-                T,
+                rep,
                 use_slacks,
                 con_lb,
                 con_ub,
                 flow,
-                rep.name,
+                device_model,
+                ts,
             )
         else
             _add_flow_rate_constraint!(
@@ -658,6 +815,7 @@ function _add_flow_rate_constraints!(
                 con_ub,
                 flow,
                 device_model,
+                ts,
             )
         end
     end
@@ -666,26 +824,44 @@ end
 
 function _add_flow_rate_constraint_with_parameters!(
     container::OptimizationContainer,
-    ::Type{T},
+    rep::RepresentativeBranch,
     use_slacks::Bool,
     con_lb::DenseAxisArray,
     con_ub::DenseAxisArray,
     var::DenseAxisArray,
-    name::String,
+    device_model::DeviceModel{T},
+    ts::Union{Nothing, PNM.TopologySchedule},
 ) where {T <: PSY.ACTransmission}
+    name = rep.name
     param_container =
         get_parameter(container, BranchRatingTimeSeriesParameter, T)
     param = get_parameter_column_refs(param_container, name)
     mult = get_multiplier_array(param_container)
+    resolved = Dict{Int, Tuple{Bool, Float64}}()
+    ratings = [
+        _parameterized_rating_at(
+            BranchRatingTimeSeriesParameter,
+            container,
+            param_container,
+            rep,
+            ts,
+            t,
+            param[t],
+            mult[name, t],
+            device_model,
+            resolved,
+        )
+        for t in get_time_steps(container)
+    ]
     if use_slacks
         add_parameterized_rating_constraints!(
-            container, con_ub, con_lb, var, name, param, mult,
+            container, con_ub, con_lb, var, name, ratings,
             get_variable(container, FlowActivePowerSlackUpperBound, T),
             get_variable(container, FlowActivePowerSlackLowerBound, T),
         )
     else
         add_parameterized_rating_constraints!(
-            container, con_ub, con_lb, var, name, param, mult,
+            container, con_ub, con_lb, var, name, ratings,
         )
     end
     return
@@ -730,16 +906,18 @@ function add_flow_rate_constraint_with_parameters!(
     ts_name = get_time_series_names(device_model)[BranchRatingTimeSeriesParameter]
     ts_type = get_default_time_series_type(container)
     use_slacks = get_use_slacks(device_model)
+    ts = get_topology_schedule(network_model)
     _foreach_branch(reps) do rep
         if PNM.has_time_series(rep.branch, ts_type, ts_name)
             _add_flow_rate_constraint_with_parameters!(
                 container,
-                T,
+                rep,
                 use_slacks,
                 con_lb,
                 con_ub,
                 var_array,
-                rep.name,
+                device_model,
+                ts,
             )
         else
             _add_flow_rate_constraint!(
@@ -750,6 +928,7 @@ function add_flow_rate_constraint_with_parameters!(
                 con_ub,
                 var_array,
                 device_model,
+                ts,
             )
         end
     end
@@ -873,6 +1052,139 @@ function _ptdf_branch_flow(
     return rep.name, expressions
 end
 
+"""
+The PTDF data of one arc under a topology schedule, one entry per distinct topology in the
+window: the nonzero indices and values of its PTDF column, its own shift injection, and
+whether its own entry conducts. `topology_of_step[t]` picks the entry in effect at step `t`;
+`column_length` is the length of every column.
+"""
+struct _TopologyColumns
+    entries::Vector{Tuple{Vector{Int}, Vector{Float64}}}
+    shifts::Vector{Float64}
+    conducting::BitVector
+    topology_of_step::Vector{Int}
+    column_length::Int
+end
+
+function _topology_columns(
+    ts::PNM.TopologySchedule,
+    rep::RepresentativeBranch,
+    time_steps::UnitRange{Int},
+)
+    position_of_topology = Dict{Int, Int}()
+    topologies = Int[]
+    first_step = Int[]
+    topology_of_step = Vector{Int}(undef, length(time_steps))
+    for t in time_steps
+        topology_of_step[t] = get!(position_of_topology, PNM.get_topology_index(ts, t)) do
+            push!(topologies, PNM.get_topology_index(ts, t))
+            push!(first_step, t)
+            length(topologies)
+        end
+    end
+    columns = PNM.get_topology_ptdf_rows(ts, rep.arc, topologies)
+    entries = [_nz_entries(column) for column in columns]
+    in_service = [PNM.get_in_service_entry(ts, rep.arc, t) for t in first_step]
+    shifts = [PNM.get_arc_shift_injection(ts, rep.arc, entry) for entry in in_service]
+    conducting = BitVector([_own_entry_conducts(rep, entry) for entry in in_service])
+    return _TopologyColumns(
+        entries,
+        shifts,
+        conducting,
+        topology_of_step,
+        _column_length(columns),
+    )
+end
+
+# Every column of one arc has the same length; a window with no topology has no columns.
+function _column_length(columns::AbstractVector)
+    isempty(columns) && return 0
+    return length(first(columns))
+end
+
+# The flow data of one arc, read on the dispatcher: the network matrix's column without a
+# topology schedule, and every column the arc takes over the window with one.
+_flow_columns(ptdf, ::Nothing, rep::RepresentativeBranch, ::UnitRange{Int}) =
+    ptdf[rep.arc, :]
+_flow_columns(_, ts::PNM.TopologySchedule, rep::RepresentativeBranch, time_steps) =
+    _topology_columns(ts, rep, time_steps)
+
+function _add_column_terms!(
+    acc::JuMP.AffExpr,
+    entries::Tuple{Vector{Int}, Vector{Float64}},
+    nodal_balance_expressions::Matrix{JuMP.AffExpr},
+    t::Int,
+)
+    nz_idx, nz_val = entries
+    @inbounds for k in eachindex(nz_idx)
+        JuMP.add_to_expression!(acc, nz_val[k], nodal_balance_expressions[nz_idx[k], t])
+    end
+    return
+end
+
+# Static shift path under a topology schedule
+function _ptdf_branch_flow(
+    rep::RepresentativeBranch,
+    time_steps::UnitRange{Int},
+    data::_TopologyColumns,
+    nodal_balance_expressions::Matrix{JuMP.AffExpr},
+    term_counts::Matrix{Int},
+)
+    _assert_flow_expression_dimensions(
+        rep.name,
+        data.column_length,
+        nodal_balance_expressions,
+    )
+    entries = data.entries
+    expressions = Vector{JuMP.AffExpr}(undef, length(time_steps))
+    for t in time_steps
+        k = data.topology_of_step[t]
+        acc = IOM.get_hinted_aff_expr(_term_hint(term_counts, first(entries[k]), t))
+        _add_column_terms!(acc, entries[k], nodal_balance_expressions, t)
+        JuMP.add_to_expression!(acc, -data.shifts[k])
+        expressions[t] = acc
+    end
+    return rep.name, expressions
+end
+
+# Variable shift path under a topology schedule
+function _ptdf_branch_flow(
+    rep::RepresentativeBranch,
+    time_steps::UnitRange{Int},
+    data::_TopologyColumns,
+    nodal_balance_expressions::Matrix{JuMP.AffExpr},
+    term_counts::Matrix{Int},
+    phase_row::Vector{JuMP.VariableRef},
+)
+    _assert_flow_expression_dimensions(
+        rep.name,
+        data.column_length,
+        nodal_balance_expressions,
+    )
+    entries = data.entries
+    expressions = Vector{JuMP.AffExpr}(undef, length(time_steps))
+    b = _dc_susceptance(rep)
+    for t in time_steps
+        k = data.topology_of_step[t]
+        acc = IOM.get_hinted_aff_expr(_term_hint(term_counts, first(entries[k]), t) + 1)
+        _add_column_terms!(acc, entries[k], nodal_balance_expressions, t)
+        if data.conducting[k]
+            JuMP.add_to_expression!(acc, -b, phase_row[t])
+        end
+        expressions[t] = acc
+    end
+    return rep.name, expressions
+end
+
+_ptdf_branch_flow(
+    rep::RepresentativeBranch,
+    time_steps::UnitRange{Int},
+    data,
+    nodal_balance_expressions::Matrix{JuMP.AffExpr},
+    term_counts::Matrix{Int},
+    ::Nothing,
+) = _ptdf_branch_flow(rep, time_steps, data, nodal_balance_expressions, term_counts)
+
 function add_ptdf_branch_flow_expressions!(
     container::OptimizationContainer,
     devices::Vector{B},
@@ -890,14 +1202,17 @@ function add_ptdf_branch_flow_expressions!(
     )
 
     ptdf = get_network_matrix(network_model)
+    # With a topology schedule every column, the base network's included, comes from the
+    # schedule, so all steps share one reference and slack convention.
+    ts = get_topology_schedule(network_model)
     nodal_balance_expressions = get_expression(container, ActivePowerBalance, PSY.ACBus)
     term_counts = _nodal_term_counts(nodal_balance_expressions.data)
-    # `ptdf[arc, :]` is a KLU solve; libklu is not concurrency-safe, so the solves run
-    # serially on the dispatcher and only the JuMP `AffExpr` build is parallelized via
+    # PTDF rows are KLU solves; libklu is not concurrency-safe, so the solves run serially
+    # on the dispatcher and only the JuMP `AffExpr` build is parallelized via
     # `Threads.@spawn`. The try/catch below surfaces the inner exception -- the default
     # handler shows only the wrapping `TaskFailedException`.
     tasks = map(branches) do rep
-        ptdf_col = ptdf[rep.arc, :]
+        data = _flow_columns(ptdf, ts, rep, time_steps)
         # The variable row is materialized on the dispatcher: the container lookup and the
         # `DenseAxisArray` slice are both type-unstable, and keeping them out of the task
         # leaves the spawned body monomorphic.
@@ -907,24 +1222,14 @@ function add_ptdf_branch_flow_expressions!(
             nothing
         end
         Threads.@spawn try
-            if isnothing(phase_row)
-                flow = _ptdf_branch_flow(
-                    rep,
-                    time_steps,
-                    ptdf_col,
-                    nodal_balance_expressions.data,
-                    term_counts,
-                )
-            else
-                flow = _ptdf_branch_flow(
-                    rep,
-                    time_steps,
-                    ptdf_col,
-                    nodal_balance_expressions.data,
-                    term_counts,
-                    phase_row,
-                )
-            end
+            flow = _ptdf_branch_flow(
+                rep,
+                time_steps,
+                data,
+                nodal_balance_expressions.data,
+                term_counts,
+                phase_row,
+            )
             foreach(IOM.round_to_zero_or_one!, last(flow))
             flow
         catch e
@@ -2181,7 +2486,7 @@ end
 
 """
 Add branch flow rate (rating) constraints for ACBranch under DCPNetworkModel: one lb/ub pair
-per reduced arc on the `FlowActivePowerVariable`.
+per reduced arc on the `FlowActivePowerVariable`, rated at each step by the entry in service.
 """
 function add_constraints!(
     container::OptimizationContainer,
@@ -2200,8 +2505,8 @@ function add_constraints!(
 end
 
 # The DC phase-shift term for one (branch, time step): the `PhaseShifterAngle` variable when
-# the circuit is under active-power control, else the branch's fixed shift. `static` is built
-# once per branch by the caller, so the uncontrolled path allocates nothing per time step.
+# the circuit is under active-power control and conducts, else the step's fixed shift, which
+# the caller builds once per topology.
 function _shift_term(
     container::OptimizationContainer,
     ::Type{T},
@@ -2213,6 +2518,42 @@ function _shift_term(
     phase_controlled || return static
     return JuMP.AffExpr(0.0, get_variable(container, PhaseShifterAngle, T)[name, t] => 1.0)
 end
+
+# `b·(θ_from − θ_to − shift)`; an out arc (`b = 0`) carries the zero expression.
+function _btheta_flow(
+    jump_model::JuMP.Model,
+    b::Float64,
+    va_from::JuMP.VariableRef,
+    va_to::JuMP.VariableRef,
+    shift::JuMP.AffExpr,
+)
+    iszero(b) && return JuMP.AffExpr(0.0)
+    return JuMP.@expression(jump_model, b * (va_from - va_to - shift))
+end
+
+function _btheta_flow(
+    container::OptimizationContainer,
+    ::Type{T},
+    rep::RepresentativeBranch,
+    phase_controlled::Bool,
+    step::_DCStepParameters,
+    va::DenseAxisArray,
+    from_name::String,
+    to_name::String,
+    t::Int,
+) where {T <: PSY.ACTransmission}
+    shift = _shift_term(
+        container, T, phase_controlled && step.own, rep.name, t, step.shift,
+    )
+    return _btheta_flow(
+        get_jump_model(container),
+        step.b,
+        va[from_name, t],
+        va[to_name, t],
+        shift,
+    )
+end
+
 function add_constraints!(
     container::OptimizationContainer,
     sys::PSY.System,
@@ -2241,10 +2582,10 @@ function add_constraints!(
     end
 
     jump_model = get_jump_model(container)
+    ts = get_topology_schedule(network_model)
     _foreach_branch(reps) do rep
         name = rep.name
-        b = _dc_susceptance(rep)
-        static_shift = JuMP.AffExpr(_dc_shift(rep))
+        steps = _step_dc_parameters(rep, ts, time_steps)
         from_name = _from_name(rep)
         to_name = _to_name(rep)
         phase_controlled = _phase_controlled(rep, device_model, network_model)
@@ -2258,11 +2599,10 @@ function add_constraints!(
                 else
                     p[name, t]
                 end
-            shift = _shift_term(container, T, phase_controlled, rep.name, t, static_shift)
-            cons[name, t] = JuMP.@constraint(
-                jump_model,
-                flow == b * (va[from_name, t] - va[to_name, t] - shift)
+            btheta = _btheta_flow(
+                container, T, rep, phase_controlled, steps[t], va, from_name, to_name, t,
             )
+            cons[name, t] = JuMP.@constraint(jump_model, flow == btheta)
         end
     end
     return
@@ -2297,9 +2637,9 @@ function add_btheta_branch_flow_expressions!(
     nodal_expr = get_expression(container, ActivePowerBalance, PSY.ACBus)
     jump_model = get_jump_model(container)
 
+    ts = get_topology_schedule(network_model)
     _foreach_branch(reps) do rep
-        b = _dc_susceptance(rep)
-        static_shift = JuMP.AffExpr(_dc_shift(rep))
+        steps = _step_dc_parameters(rep, ts, time_steps)
         from_name = _from_name(rep)
         to_name = _to_name(rep)
         from_no = _from_number(rep)
@@ -2307,10 +2647,8 @@ function add_btheta_branch_flow_expressions!(
 
         phase_controlled = _phase_controlled(rep, device_model, network_model)
         for t in time_steps
-            shift = _shift_term(container, T, phase_controlled, rep.name, t, static_shift)
-            flow = JuMP.@expression(
-                jump_model,
-                b * (va[from_name, t] - va[to_name, t] - shift)
+            flow = _btheta_flow(
+                container, T, rep, phase_controlled, steps[t], va, from_name, to_name, t,
             )
             bfe[rep.name, t] = flow
             add_proportional_to_jump_expression!(nodal_expr[from_no, t], flow, -1.0)
@@ -2363,15 +2701,18 @@ function add_constraints!(
 
     time_steps = get_time_steps(container)
     va = get_variable(container, VoltageAngle, PSY.ACBus)
+    ts = get_topology_schedule(network_model)
     # Angle limits are per-device data, so only direct entries carrying non-default
-    # limits receive a constraint; series/parallel equivalents have none.
-    constrained = filter(
-        _constrains_angle_difference,
-        _representative_branches(
-            network_model, T, AngleDifferenceConstraint;
-            number_to_name = _retained_number_to_name(sys, network_model),
-        ),
+    # limits receive a constraint; series/parallel equivalents have none. With a topology
+    # schedule the entry is the one in service at each step, so an arc gets a row when any
+    # of its steps is limited.
+    reps = _representative_branches(
+        network_model, T, AngleDifferenceConstraint;
+        number_to_name = _retained_number_to_name(sys, network_model),
     )
+    step_limits = [_step_angle_limits(rep, ts, time_steps) for rep in reps]
+    keep = [any(step.active for step in steps) for steps in step_limits]
+    constrained = reps[keep]
     isempty(constrained) && return
 
     branch_names = _branch_names(constrained)
@@ -2379,19 +2720,68 @@ function add_constraints!(
         container, AngleDifferenceConstraint, T, branch_names, time_steps,
     )
 
-    _foreach_branch(constrained) do rep
-        # angle limits are in radians — no per-unit conversion
-        lims = _angle_limits(rep)
+    jump_model = get_jump_model(container)
+    for (rep, steps) in zip(constrained, step_limits[keep])
         from_name = _from_name(rep)
         to_name = _to_name(rep)
         for t in time_steps
-            cons[rep.name, t] = JuMP.@constraint(
-                get_jump_model(container),
-                lims.min <= va[from_name, t] - va[to_name, t] <= lims.max,
-            )
+            step = steps[t]
+            angle_difference = va[from_name, t] - va[to_name, t]
+            if step.active
+                cons[rep.name, t] = JuMP.@constraint(
+                    jump_model,
+                    step.min <= angle_difference <= step.max,
+                )
+            else
+                # The dense container needs a row at every step; a zero-weighted angle
+                # difference leaves the step's angles unconstrained.
+                cons[rep.name, t] = JuMP.@constraint(
+                    jump_model,
+                    step.min <= 0.0 * angle_difference <= step.max,
+                )
+            end
         end
     end
     return
+end
+
+const _AngleStepLimits = @NamedTuple{active::Bool, min::Float64, max::Float64}
+
+const _INERT_ANGLE_LIMITS = _AngleStepLimits((false, -π, π))
+
+# The angle window an entry imposes; angle limits are in radians, so no per-unit conversion.
+function _angle_step_limits(entry::PSY.ACTransmission)
+    _constrains_angle_difference(entry) || return _INERT_ANGLE_LIMITS
+    lims = _angle_limits(entry)
+    return _AngleStepLimits((true, lims.min, lims.max))
+end
+
+# An out arc leaves its endpoints' angles free.
+_angle_step_limits(::Nothing, ::RepresentativeBranch) = _INERT_ANGLE_LIMITS
+
+# The window of the entry conducting on `rep`'s arc, in the arc's frame. A lone member of a
+# parallel group can be filed on the reversed arc; its window bounds the angle difference the
+# other way round.
+function _angle_step_limits(entry::PSY.ACTransmission, rep::RepresentativeBranch)
+    limits = _angle_step_limits(entry)
+    PNM.get_arc_tuple(entry, rep.nr) == reverse(rep.arc) || return limits
+    return _AngleStepLimits((limits.active, -limits.max, -limits.min))
+end
+
+_step_angle_limits(rep::RepresentativeBranch, ::Nothing, time_steps) =
+    fill(_angle_step_limits(rep.branch), length(time_steps))
+
+function _step_angle_limits(
+    rep::RepresentativeBranch,
+    ts::PNM.TopologySchedule,
+    time_steps,
+)
+    by_topology = Dict{Int, _AngleStepLimits}()
+    return [
+        get!(by_topology, PNM.get_topology_index(ts, t)) do
+            _angle_step_limits(PNM.get_in_service_entry(ts, rep.arc, t), rep)
+        end for t in time_steps
+    ]
 end
 
 """

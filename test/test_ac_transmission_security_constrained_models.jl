@@ -12,21 +12,6 @@
 # auto-populated by `_build_device_model_outages!` during template validation —
 # no manual stand-ins.
 
-# The ground-truth columns below are read from a freshly-built VirtualMODF/
-# VirtualPTDF (intentionally independent of the production matrix). On macOS the
-# default sparse backend is Apple Accelerate, whose factorization is internally
-# multithreaded and NOT bit-reproducible across builds, so two independent
-# factorizations of the identical ABA matrix differ by ~1e-15. That noise is
-# benign (a single production matrix is built once and reused, so it is
-# self-consistent), but it breaks exact `isequal_canonical` on the re-derived
-# coefficients. Compare the affine expressions up to that round-off instead: the
-# tolerance is ~1e7× the observed noise yet far below any real coefficient bug.
-function _affexpr_approx_equal(actual, expected; atol = 1e-8)
-    d = actual - expected            # matching terms cancel to ~1e-15
-    coeff_resid = maximum((abs(c) for (c, _) in JuMP.linear_terms(d)); init = 0.0)
-    return coeff_resid ≤ atol && abs(JuMP.constant(d)) ≤ atol
-end
-
 # The Line container also holds rows for monitored transformers.
 function _monitored_arc(name_to_arc_maps, name)
     line_arcs = name_to_arc_maps[PSY.Line]

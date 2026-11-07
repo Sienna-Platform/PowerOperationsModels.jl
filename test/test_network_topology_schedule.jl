@@ -124,6 +124,72 @@ end
     end
 end
 
+# Without the island's load, the minimum generation of the other units exceeds the demand at
+# the low-load steps, which no dispatch can meet. The island's own units keep their minimum,
+# so their outage still has to lift it.
+function _zero_min_generation_outside!(sys, island_gens)
+    island = Set(PSY.get_name.(island_gens))
+    for g in PSY.get_components(PSY.ThermalStandard, sys)
+        PSY.get_name(g) in island && continue
+        limits = PSY.get_active_power_limits(g, u"SU")
+        PSY.set_active_power_limits!(g, (min = 0.0 * u"SU", max = limits.max * u"SU"))
+    end
+    return
+end
+
+@testset "An isolated bus with its injectors out matches a rebuild without them" begin
+    sys, _, lines, gens, loads = _isolated_bus_sys(; gen_steps = 3:5, load_steps = 3:5)
+    @test all(g -> PSY.get_active_power_limits(g, u"SU").min > 0.0, gens)
+    _zero_min_generation_outside!(sys, gens)
+    model, status, _ = _build_ptdf(sys)
+    @test status == IOM.ModelBuildStatus.BUILT
+    @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+    ref_sys = _c_sys5_uc()
+    _zero_min_generation_outside!(ref_sys, gens)
+    for (T, ds) in ((PSY.Line, lines), (PSY.ThermalStandard, gens), (PSY.PowerLoad, loads))
+        for d in ds
+            PSY.set_available!(PSY.get_component(T, ref_sys, PSY.get_name(d)), false)
+        end
+    end
+    ref, ref_status, _ = _build_ptdf(ref_sys)
+    @test ref_status == IOM.ModelBuildStatus.BUILT
+    @test solve!(ref) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+    flows(m) =
+        JuMP.value.(
+            IOM.get_expression(
+                IOM.get_optimization_container(m),
+                POM.PTDFBranchFlow,
+                PSY.Line,
+            ))
+    dispatches(m) =
+        JuMP.value.(
+            IOM.get_variable(
+                IOM.get_optimization_container(m),
+                POM.ActivePowerVariable,
+                PSY.ThermalStandard,
+            ))
+    flow, ref_flow = flows(model), flows(ref)
+    dispatch, ref_dispatch = dispatches(model), dispatches(ref)
+    island = Set(PSY.get_name.(lines))
+    flows_match = all(
+        isapprox(flow[n, t], ref_flow[n, t]; atol = 1e-5) for
+        n in axes(ref_flow, 1), t in 3:5
+    )
+    island_flows_zero =
+        all(isapprox(flow[n, t], 0.0; atol = 1e-5) for n in island, t in 3:5)
+    dispatch_match =
+        all(
+            isapprox(dispatch[n, t], ref_dispatch[n, t]; atol = 1e-5) for
+            n in axes(ref_dispatch, 1), t in 3:5
+        ) && all(
+            isapprox(dispatch[PSY.get_name(g), t], 0.0; atol = 1e-5) for g in gens,
+            t in 3:5
+        )
+    @test island_flows_zero
+    @test dispatch_match
+    @test flows_match
+end
+
 @testset "The island message names reduced buses and injectors that cannot be scheduled" begin
     reduction = PNM.NetworkReductionData(;
         bus_reduction_map = Dict(3 => Set([3, 7, 8]), 4 => Set([4])),
