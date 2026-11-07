@@ -286,14 +286,14 @@ function _add_time_series_parameters!(
 
     additional_axes =
         calc_additional_axes(container, param, devices_with_time_series, model)
-    param_container = add_time_series_parameter_container!(
+    param_container = _add_time_series_parameter_container!(
         container,
         T,
-        D,
+        model,
         ts_type,
         ts_name,
         collect(keys(initial_values)),
-        device_names,
+        devices_with_time_series,
         additional_axes,
         time_steps,
     )
@@ -320,7 +320,65 @@ function _add_time_series_parameters!(
             device_ts_hashes[device_name],
         )
     end
+    IOM.build_row_aggregates!(container, param_container)
     return
+end
+
+function _add_time_series_parameter_container!(
+    container::OptimizationContainer,
+    ::Type{T},
+    ::DeviceModel{D, <:AbstractDeviceFormulation},
+    ts_type,
+    ts_name,
+    param_axs,
+    devices::Vector{D},
+    additional_axes,
+    time_steps,
+) where {T <: TimeSeriesParameter, D <: PSY.Component}
+    return add_time_series_parameter_container!(
+        container,
+        T,
+        D,
+        ts_type,
+        ts_name,
+        param_axs,
+        PSY.get_name.(devices),
+        additional_axes,
+        time_steps,
+    )
+end
+
+# A static load enters only the balance rows of its bus, so its series are summed per bus.
+# shortcut: keyed by raw bus number, so buses merged by a network reduction still add one term
+# each; key by the reduced balance row once the network model reaches parameter build.
+function _add_time_series_parameter_container!(
+    container::OptimizationContainer,
+    ::Type{T},
+    ::DeviceModel{D, StaticPowerLoad},
+    ts_type,
+    ts_name,
+    param_axs,
+    devices::Vector{D},
+    ::Tuple{},
+    time_steps,
+) where {
+    T <: Union{ActivePowerTimeSeriesParameter, ReactivePowerTimeSeriesParameter},
+    D <: PSY.ElectricLoad,
+}
+    row_of = Dict{String, Int}(
+        PSY.get_name(d) => PSY.get_number(PSY.get_bus(d)) for d in devices
+    )
+    return IOM.add_aggregated_time_series_parameter_container!(
+        container,
+        T,
+        D,
+        ts_type,
+        ts_name,
+        param_axs,
+        PSY.get_name.(devices),
+        row_of,
+        time_steps,
+    )
 end
 
 #################################################################################
