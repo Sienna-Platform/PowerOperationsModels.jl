@@ -828,6 +828,7 @@ function _add_objective_function_parameters!(
                 ts_name;
                 interval = ts_interval,
             )
+        _validate_offer_curve_values(T, device, raw_ts_vals)
         ts_vals = IOM.unwrap_for_param.((param_instance,), raw_ts_vals, (additional_axes,))
         @assert all(_size_wrapper.(ts_vals) .== (length.(additional_axes),))
         # PWL/cost-function path: parameter values from `unwrap_for_param` are
@@ -838,6 +839,38 @@ function _add_objective_function_parameters!(
             i,
         )
         _set_parameter_series!(parent_param, jump_model, ts_vals, i, time_steps)
+    end
+    return
+end
+
+# Slopes and breakpoints share one series. Check it once, on the breakpoint parameter.
+_validate_offer_curve_values(::Type{<:ParameterType}, ::PSY.Component, _) = nothing
+
+_validate_offer_curve_values(
+    ::Type{IncrementalPiecewiseLinearBreakpointParameter},
+    device::PSY.StaticInjection,
+    raw_ts_vals,
+) = _validate_offer_curve_values(IOM.IncrementalOffer(), device, raw_ts_vals)
+
+_validate_offer_curve_values(
+    ::Type{DecrementalPiecewiseLinearBreakpointParameter},
+    device::PSY.StaticInjection,
+    raw_ts_vals,
+) = _validate_offer_curve_values(IOM.DecrementalOffer(), device, raw_ts_vals)
+
+function _validate_offer_curve_values(
+    dir::IOM.OfferDirection,
+    device::PSY.StaticInjection,
+    raw_ts_vals,
+)
+    cost_curve_name = nameof(typeof(PSY.get_operation_cost(device)))
+    for (t, curve) in enumerate(raw_ts_vals)
+        IOM.curvity_check(dir, curve) ||
+            throw(
+                ArgumentError(
+                    "$(uppercasefirst(string(dir))) $cost_curve_name for component $(IS.get_name(device)) is non-$(IOM.expected_curvity(dir)) at time step $t",
+                ),
+            )
     end
     return
 end

@@ -208,6 +208,27 @@ end
     end
 end
 
+@testset "Time-varying offer curves are checked for convexity" begin
+    # Incremental offers must be convex (rising slopes); decremental offers must be concave.
+    bad_incr = PiecewiseStepData([0.0, 50.0, 100.0], [30.0, 25.0])
+    bad_decr = PiecewiseStepData([0.0, 50.0, 100.0], [25.0, 30.0])
+    cases = (
+        (IOM.IncrementalPiecewiseLinearBreakpointParameter, :incr_pwl_base, bad_incr),
+        (IOM.DecrementalPiecewiseLinearBreakpointParameter, :decr_pwl_base, bad_decr),
+    )
+    for (P, kw, bad) in cases
+        good_sys, _ = _build_mbtsc_thermal_system(; name = _PP_THERMAL_NAME)
+        good_devs = collect(PSY.get_components(PSY.ThermalStandard, good_sys))
+        container = _pp_build_container(good_sys, 1:3)
+        @test isnothing(POM.add_parameters!(container, P, good_devs, _PP_MODEL))
+
+        bad_sys, _ = _build_mbtsc_thermal_system(; name = _PP_THERMAL_NAME, (kw => bad,)...)
+        bad_devs = collect(PSY.get_components(PSY.ThermalStandard, bad_sys))
+        container = _pp_build_container(bad_sys, 1:3)
+        @test_throws ArgumentError POM.add_parameters!(container, P, bad_devs, _PP_MODEL)
+    end
+end
+
 @testset "process_market_bid_parameters! filters static-cost devices" begin
     # Two thermals on the same system: one with TS MBC (values driven by time series),
     # one with static MBC (scalar cost object). The orchestrator is expected to add
