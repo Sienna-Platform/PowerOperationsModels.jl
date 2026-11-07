@@ -2,9 +2,20 @@
 # Base expression types (SystemBalanceExpressions, CostExpressions, etc.) are imported from IOM
 
 # POM-specific concrete types
-struct ComponentReserveUpBalanceExpression <: ExpressionType end
-struct ComponentReserveDownBalanceExpression <: ExpressionType end
+"""
+Total flow through a [`PowerSystems.TransmissionInterface`](@extref), indexed
+`[interface name, time]`. It sums the branch flows of the interface, weighted by the direction
+mapping, plus the interface flow slack variables when the model uses slacks. Under
+`MaxInterfaceFlow`, the `InterfaceFlowLimit` constraint bounds it.
+"""
 struct InterfaceTotalFlow <: ExpressionType end
+
+"""
+Branch active-power flow expression for the PTDF network models. The flow is the PTDF row of the
+branch applied to the nodal `ActivePowerBalance` expressions, minus the phase-shift term for a
+phase-controlled branch. It is not a decision variable. `FlowRateConstraint` rows are written
+on it. Reportable as an output.
+"""
 struct PTDFBranchFlow <: ExpressionType end
 
 """
@@ -15,6 +26,11 @@ variable); `FlowRateConstraint` rows are written directly on it. Reportable as a
 mirroring `PTDFBranchFlow`.
 """
 struct BThetaBranchFlow <: ExpressionType end
+"""
+Realized active power of a [`PowerSystems.ShiftablePowerLoad`](@extref) under `PowerLoadShift`:
+the `ActivePowerTimeSeriesParameter` value, plus `ShiftUpActivePowerVariable`, minus
+`ShiftDownActivePowerVariable`. It enters `ActivePowerBalance` with multiplier `-1.0`.
+"""
 struct RealizedShiftedLoad <: ExpressionType end
 
 #################################################################################
