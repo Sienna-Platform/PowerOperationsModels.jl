@@ -509,6 +509,28 @@ end
     @test JuMP.normalized_coefficient(con, shortfall_var["Bat2", time_steps[end]]) == 1.0
 end
 
+@testset "Storage energy target penalties are \$/MWh" begin
+    sys = PSB.build_system(PSITestSystems, "c_sys5_bat_ems")
+    d = only(get_components(EnergyReservoirStorage, sys))
+    PSY.set_operation_cost!(
+        d,
+        PSY.StorageCost(; energy_shortage_cost = 300.0, energy_surplus_cost = 40.0),
+    )
+    model, status = _build_storage_target_model(sys)
+    @test status == ModelBuildStatus.BUILT
+
+    # The slacks are system-base energy (pu-h); the costs scale by the 100 MVA base.
+    container = get_optimization_container(model)
+    @test IOM.get_model_base_power(container) == 100.0
+    obj = JuMP.objective_function(get_jump_model(container))
+    t_end = last(get_time_steps(container))
+    for (T, cost) in
+        ((StorageEnergyShortageVariable, 300.0), (StorageEnergySurplusVariable, 40.0))
+        var = IOM.get_variable(container, T, EnergyReservoirStorage)
+        @test JuMP.coefficient(obj, var[PSY.get_name(d), t_end]) == cost * 100
+    end
+end
+
 @testset "Storage energy target: storage_target time series follows each window" begin
     sys = PSB.build_system(PSITestSystems, "c_sys5_bat_ems")
     d = only(get_components(EnergyReservoirStorage, sys))
@@ -649,6 +671,63 @@ end
     time_steps = get_time_steps(container)
     @test axes(charge_con) == (["Bat"], [time_steps[end]])
     @test axes(discharge_con) == (["Bat"], [time_steps[end]])
+end
+
+function _build_cycling_model(; use_slacks = false)
+    template = get_thermal_dispatch_template_network(CopperPlateNetworkModel)
+    set_device_model!(
+        template,
+        DeviceModel(
+            EnergyReservoirStorage,
+            StorageDispatchWithReserves;
+            attributes = Dict{String, Any}(
+                "reservation" => false,
+                "cycling_limits" => true,
+            ),
+            use_slacks = use_slacks,
+        ),
+    )
+    set_device_model!(template, RenewableDispatch, FixedOutput)
+    model = DecisionModel(template, PSB.build_system(PSITestSystems, "c_sys5_bat"))
+    output_dir = mktempdir(; cleanup = true)
+    return model, build!(model; output_dir = output_dir), output_dir
+end
+
+function _cycling_slack_objective_coefficients(model)
+    container = get_optimization_container(model)
+    obj = JuMP.objective_function(get_jump_model(container))
+    t_end = last(get_time_steps(container))
+    return [
+        JuMP.coefficient(
+            obj,
+            IOM.get_variable(container, T, EnergyReservoirStorage)["Bat", t_end],
+        )
+        for T in (StorageChargeCyclingSlackVariable, StorageDischargeCyclingSlackVariable)
+    ]
+end
+
+@testset "Storage cycling violation cost" begin
+    # The slacks are system-base energy (pu-h); the cost is $/MWh on a 100 MVA base.
+    model, status, _ = _build_cycling_model()
+    @test status == ModelBuildStatus.BUILT
+    @test IOM.get_model_base_power(get_optimization_container(model)) == 100.0
+    @test _cycling_slack_objective_coefficients(model) == [5000.0 * 100, 5000.0 * 100]
+
+    # The cycling limit is always soft: use_slacks does not remove the slacks.
+    for use_slacks in (false, true)
+        model, status, _ = _build_cycling_model(; use_slacks = use_slacks)
+        @test status == ModelBuildStatus.BUILT
+        con = get_constraint(
+            get_optimization_container(model), StorageCyclingCharge,
+            EnergyReservoirStorage)
+        slack = IOM.get_variable(
+            get_optimization_container(model),
+            StorageChargeCyclingSlackVariable,
+            EnergyReservoirStorage,
+        )
+        t_end = last(get_time_steps(get_optimization_container(model)))
+        @test JuMP.normalized_coefficient(con["Bat", t_end], slack["Bat", t_end]) == -1.0
+    end
 end
 
 @testset "Storage with regularization and ACPNetworkModel" begin

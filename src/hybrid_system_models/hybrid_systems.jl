@@ -2327,17 +2327,16 @@ function _add_hybrid_regularization_cost!(
     return
 end
 
-# Penalizes the end-of-period energy-target slacks. The per-unit cost comes from the
-# storage subcomponent's `StorageCost` (energy_surplus_cost / energy_shortage_cost),
-# mirroring POM storage's StateofChargeTargetConstraint objective handling. Slacks live
-# only at the final time step.
+# Penalizes the end-of-period energy-target slacks (system-base pu-h, final time step only)
+# at the storage subcomponent's `StorageCost` energy_surplus_cost / energy_shortage_cost,
+# in $/MWh, so the cost is scaled by the system base power.
 function _add_hybrid_energy_target_cost!(
     container::OptimizationContainer,
     ::Type{V},
     devices::Vector{D},
     ::Type{W},
 ) where {V <: VariableType, D <: PSY.HybridSystem, W <: AbstractHybridFormulation}
-    multiplier = objective_function_multiplier(V, W)
+    multiplier = objective_function_multiplier(V, W) * get_model_base_power(container)
     var = get_variable(container, V, D)
     t_end = last(get_time_steps(container))
     for d in devices

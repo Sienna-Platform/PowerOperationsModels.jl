@@ -159,6 +159,17 @@ end
     target_cons = IOM.get_constraints(container)[con_key]
     @test !isempty(target_cons)
     @test all(JuMP.constraint_object(c).set isa MOI.EqualTo for c in target_cons)
+
+    # The slacks are system-base energy (pu-h); the $1000/MWh costs scale by base power.
+    obj = JuMP.objective_function(IOM.get_jump_model(container))
+    t_end = last(IOM.get_time_steps(container))
+    base_power = IOM.get_model_base_power(container)
+    for T in (POM.HybridEnergySurplusVariable, POM.HybridEnergyShortageVariable)
+        var = IOM.get_variable(container, T, PSY.HybridSystem)
+        for name in axes(var)[1]
+            @test JuMP.coefficient(obj, var[name, t_end]) ≈ 1000.0 * base_power
+        end
+    end
 end
 
 @testset "HybridDispatchWithReserves: energy_target = false omits slacks" begin
