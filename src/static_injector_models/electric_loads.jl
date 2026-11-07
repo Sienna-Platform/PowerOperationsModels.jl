@@ -8,14 +8,6 @@ get_variable_multiplier(::Type{<:VariableType}, ::Type{<:PSY.ElectricLoad}, ::Ty
 get_variable_binary(::Type{ActivePowerVariable}, ::Type{<:PSY.ElectricLoad}, ::Type{<:AbstractLoadFormulation}) = false
 get_variable_lower_bound(::Type{ActivePowerVariable}, d::PSY.ElectricLoad, ::Type{<:AbstractLoadFormulation}) = 0.0
 get_variable_upper_bound(::Type{ActivePowerVariable}, d::PSY.ElectricLoad, ::Type{<:AbstractLoadFormulation}) = PSY.get_max_active_power(d, u"SU")
-# An unoffered load has an upper bound of zero. This runs per (device, t): do not allocate.
-function get_variable_upper_bound(::Type{ActivePowerVariable}, d::PSY.ControllableLoad, ::Type{<:Union{PowerLoadDispatch, PowerLoadInterruption}})
-    if _is_costless_offer(PSY.get_operation_cost(d))
-        return 0.0
-    end
-    return PSY.get_max_active_power(d, u"SU")
-end
-
 ########################### ReactivePowerVariable, ElectricLoad ####################################
 
 get_variable_binary(::Type{ReactivePowerVariable}, ::Type{<:PSY.ElectricLoad}, ::Type{<:AbstractLoadFormulation}) = false
@@ -372,7 +364,7 @@ function add_constraints!(
     ::NetworkModel{X},
 ) where {V <: PSY.ControllableLoad, W <: PowerLoadInterruption, X <: AbstractNetworkModel}
     if has_service_model(model)
-        priced, unoffered = _partition_by_dispatch_basis(devices)
+        priced, unoffered = _partition_by_dispatch_basis(container, devices)
         if !isempty(priced)
             _add_interruption_gate!(
                 container,
@@ -629,25 +621,35 @@ end
 
 # True if the cost puts no price on the dispatch. Any attached market-bid offer, including
 # a supply-side offer that a later check rejects, counts as an offer. A time-series key counts
-# as an offer even if its series is inert. A `fixed` cost is not an offer: it prices
+# as an offer only if its series is not inert. A `fixed` cost is not an offer: it prices
 # `OnVariable`, which gates the up award of an unoffered load.
 const _ZERO_COST_CURVE = zero(PSY.CostCurve)
-_is_costless_offer(cost::PSY.LoadCost) =
+_is_costless_offer(::OptimizationContainer, ::PSY.Component, cost::PSY.LoadCost) =
     PSY.get_variable_operation_cost(cost) == _ZERO_COST_CURVE
-_is_costless_offer(cost::MBC_TYPES) =
-    !IOM.is_nontrivial_offer(get_input_offer_curves(cost)) &&
-    !IOM.is_nontrivial_offer(get_output_offer_curves(cost))
-_is_costless_offer(::PSY.OperationalCost) = false
+function _is_costless_offer(
+    container::OptimizationContainer,
+    d::PSY.Component,
+    cost::MBC_TYPES,
+)
+    return !IOM.is_nontrivial_offer(container, d, get_input_offer_curves(cost)) &&
+           !IOM.is_nontrivial_offer(container, d, get_output_offer_curves(cost))
+end
+_is_costless_offer(::OptimizationContainer, ::PSY.Component, ::PSY.OperationalCost) = false
+_is_costless_offer(container::OptimizationContainer, d::PSY.Component) =
+    _is_costless_offer(container, d, PSY.get_operation_cost(d))
 
 """
 Split controllable loads into priced and unoffered loads. The model pins an unoffered load
 at zero dispatch. Its limits only set its up-reserve range.
 """
-function _partition_by_dispatch_basis(devices::Vector{L}) where {L}
+function _partition_by_dispatch_basis(
+    container::OptimizationContainer,
+    devices::Vector{L},
+) where {L}
     priced = L[]
     unoffered = L[]
     for d in devices
-        if _is_costless_offer(PSY.get_operation_cost(d))
+        if _is_costless_offer(container, d)
             push!(unoffered, d)
         else
             push!(priced, d)
@@ -655,6 +657,29 @@ function _partition_by_dispatch_basis(devices::Vector{L}) where {L}
     end
     return priced, unoffered
 end
+
+"""
+Set the `ActivePowerVariable` upper bound of unoffered loads to zero. Other formulations
+keep the bound from `get_variable_upper_bound`.
+"""
+function pin_unoffered_loads!(
+    container::OptimizationContainer,
+    devices::Vector{L},
+    ::Type{<:Union{PowerLoadDispatch, PowerLoadInterruption}},
+) where {L <: PSY.ControllableLoad}
+    _, unoffered = _partition_by_dispatch_basis(container, devices)
+    variable = get_variable(container, ActivePowerVariable, L)
+    for d in unoffered, t in get_time_steps(container)
+        JuMP.set_upper_bound(variable[PSY.get_name(d), t], 0.0)
+    end
+    return
+end
+
+pin_unoffered_loads!(
+    ::OptimizationContainer,
+    ::Vector{<:PSY.ControllableLoad},
+    ::Type{<:AbstractControllablePowerLoadFormulation},
+) = nothing
 
 """
 Seed the reserve range expressions of unoffered loads with constants, not with
@@ -752,7 +777,7 @@ function add_unoffered_up_reserve_constraints!(
     model::DeviceModel{L, <:AbstractControllablePowerLoadFormulation},
 ) where {L <: PSY.ControllableLoad}
     haskey(get_time_series_names(model), ActivePowerTimeSeriesParameter) || return
-    _, unoffered = _partition_by_dispatch_basis(devices)
+    _, unoffered = _partition_by_dispatch_basis(container, devices)
     ts_name = get_time_series_names(model)[ActivePowerTimeSeriesParameter]
     ts_type = get_default_time_series_type(container)
     forecasted = [d for d in unoffered if IS.has_time_series(d, ts_type, ts_name)]
@@ -778,7 +803,7 @@ function add_unoffered_outage_reserve_constraints!(
     container::OptimizationContainer,
     devices_with_attributes::Vector{L},
 ) where {L <: PSY.ControllableLoad}
-    _, unoffered = _partition_by_dispatch_basis(devices_with_attributes)
+    _, unoffered = _partition_by_dispatch_basis(container, devices_with_attributes)
     status = get_parameter_array(container, AvailableStatusParameter, L)
     _add_unoffered_up_reserve_bound!(
         container,
@@ -804,7 +829,7 @@ function add_reserve_range_expressions!(
     for T in (ActivePowerRangeExpressionLB, ActivePowerRangeExpressionUB)
         add_expressions!(container, T, devices, model)
     end
-    priced, unoffered = _partition_by_dispatch_basis(devices)
+    priced, unoffered = _partition_by_dispatch_basis(container, devices)
     _validate_unoffered_no_reserve_down(model, unoffered)
     for T in (ActivePowerRangeExpressionLB, ActivePowerRangeExpressionUB)
         add_to_expression!(container, T, ActivePowerVariable, priced, model, network_model)
@@ -821,7 +846,7 @@ function add_to_objective_function!(
     ::DeviceModel{T, U},
     ::Type{<:AbstractNetworkModel},
 ) where {T <: PSY.ControllableLoad, U <: PowerLoadDispatch}
-    priced, _ = _partition_by_dispatch_basis(devices)
+    priced, _ = _partition_by_dispatch_basis(container, devices)
     add_variable_cost!(container, ActivePowerVariable, priced, U)
     return
 end
@@ -832,7 +857,7 @@ function add_to_objective_function!(
     ::DeviceModel{T, U},
     ::Type{<:AbstractNetworkModel},
 ) where {T <: PSY.ControllableLoad, U <: PowerLoadInterruption}
-    priced, _ = _partition_by_dispatch_basis(devices)
+    priced, _ = _partition_by_dispatch_basis(container, devices)
     add_variable_cost!(container, ActivePowerVariable, priced, U)
     add_proportional_cost!(container, OnVariable, devices, U)
     return

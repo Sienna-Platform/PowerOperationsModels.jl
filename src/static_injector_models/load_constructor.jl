@@ -19,6 +19,7 @@ function construct_device!(
         D,
         get_attribute(model, RELAX_BINARIES_ATTRIBUTE),
     )
+    pin_unoffered_loads!(container, devices, D)
     add_variables!(
         container,
         ReactivePowerVariable,
@@ -141,6 +142,7 @@ function construct_device!(
         D,
         get_attribute(model, RELAX_BINARIES_ATTRIBUTE),
     )
+    pin_unoffered_loads!(container, devices, D)
 
     # Add Variables to expressions
     add_to_expression!(
@@ -236,6 +238,7 @@ function construct_device!(
         PowerLoadInterruption,
         get_attribute(model, RELAX_BINARIES_ATTRIBUTE),
     )
+    pin_unoffered_loads!(container, devices, PowerLoadInterruption)
     add_variables!(
         container,
         ReactivePowerVariable,
@@ -370,6 +373,7 @@ function construct_device!(
         PowerLoadInterruption,
         get_attribute(model, RELAX_BINARIES_ATTRIBUTE),
     )
+    pin_unoffered_loads!(container, devices, PowerLoadInterruption)
     add_variables!(
         container,
         OnVariable,
