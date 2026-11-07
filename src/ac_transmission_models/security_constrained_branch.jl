@@ -979,7 +979,6 @@ function _add_modf_post_contingency_flow_expressions!(
 }
     time_steps = get_time_steps(container)
     modf_matrix = get_contingency_matrix(network_model)
-    registered_contingencies = PNM.get_registered_contingencies(modf_matrix)
 
     resolved = _resolve_monitored_branches(model, network_model)
 
@@ -993,15 +992,24 @@ function _add_modf_post_contingency_flow_expressions!(
     isempty(fresh_resolved) && return
 
     # Serial libklu pass: concurrent libklu calls are unsafe (PNM `_LIBKLU_LOCK`).
-    # Each (outage, arc) pair is solved at most once.
+    # Each monitored arc's base column is solved once for all its contingencies.
+    uuids_by_arc = Dict{Tuple{Int, Int}, Vector{Int}}()
+    requested = Set{Tuple{Int, Tuple{Int, Int}}}()
+    for (uuid, reps) in fresh_resolved, rep in reps
+        (uuid, rep.arc) in requested && continue
+        push!(requested, (uuid, rep.arc))
+        push!(get!(Vector{Int}, uuids_by_arc, rep.arc), uuid)
+    end
     modf_cols = Dict{Tuple{String, Tuple{Int64, Int64}}, Vector{Float64}}()
-    for (uuid, reps) in fresh_resolved
-        outage_spec = registered_contingencies[uuid]
-        outage_id = string(uuid)
-        for rep in reps
-            key = (outage_id, rep.arc)
-            haskey(modf_cols, key) && continue
-            modf_cols[key] = modf_matrix[rep.arc, outage_spec]
+    networks = Dict{Int, PNM.PostContingencyNetwork}(
+        uuid => PNM.PostContingencyNetwork(modf_matrix, uuid) for
+        (uuid, _) in fresh_resolved
+    )
+    for (arc, uuids) in uuids_by_arc
+        nets = PNM.PostContingencyNetwork[networks[uuid] for uuid in uuids]
+        for (uuid, row) in
+            zip(uuids, PNM.get_post_contingency_ptdf_rows(modf_matrix, arc, nets))
+            modf_cols[(string(uuid), arc)] = row
         end
     end
 
@@ -1010,7 +1018,7 @@ function _add_modf_post_contingency_flow_expressions!(
     for (uuid, _) in fresh_resolved
         adjustments[string(uuid)] = _outage_shift_adjustments(
             modf_matrix,
-            registered_contingencies[uuid],
+            PNM.ContingencySpec(uuid, networks[uuid].tier2),
             controlled_rows,
             time_steps,
         )

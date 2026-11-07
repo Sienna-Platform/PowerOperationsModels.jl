@@ -242,3 +242,29 @@ end
 reset_topology_sequence!(::NoTopologySchedule) = nothing
 reset_topology_sequence!(x::Union{IOM.AbstractNetworkData, NetworkModel}) =
     reset_topology_sequence!(get_topology(x))
+
+"""
+    release_contingency_caches!(network_model::NetworkModel)
+
+Free the post-contingency PTDF rows and Woodbury factors that `network_model`'s contingency
+and topology matrices cached while the model's constraints were built. The contingency
+registrations stay, so a later query recomputes the rows it asks for.
+
+Under a topology sequence the cache holds the factors of every step topology and of every
+contingency on each of them, and it stays resident through the solve unless released. Call
+this after `build!` on a model that is built once. A model rebuilt at each step of a
+simulation reuses the caches of recurring topologies, so leave them in place there.
+"""
+function release_contingency_caches!(network_model::NetworkModel)
+    data = get_network_data(network_model)
+    isnothing(data) && return
+    has_contingency_matrix(data) &&
+        _release_caches!(get_network_data_contingency_matrix(data))
+    _release_caches!(get_topology(data))
+    return
+end
+
+_release_caches!(matrix::PNM.VirtualMODF) = PNM.clear_caches!(matrix)
+_release_caches!(topology::TopologySchedule) =
+    _release_caches!(get_topology_matrix(topology))
+_release_caches!(::NoTopologySchedule) = nothing
