@@ -2884,7 +2884,7 @@ function add_to_expression!(
 end
 
 # Compact formulation: dispatch variable is "above-minimum"; constant P_min term is
-# added per-time-step, gated by the SOS status (no_variable / parameter / variable).
+# added per-time-step, gated by the on status of IOM's piecewise linear cost rows.
 
 function _add_compact_fuel_consumption_term!(
     container::OptimizationContainer,
@@ -2907,10 +2907,8 @@ function _add_compact_fuel_consumption_term!(
         proportional_term, power_units, base_power, device_base_power)
     on_var_type = typeof(get_default_on_variable(d))
     for t in time_steps
-        sos_status = _get_sos_value(container, W, d)
-        bin = IOM._determine_bin_lhs(
-            container, sos_status, V, name, t; on_var_type = on_var_type,
-        )
+        bin = IOM.get_on_status(
+            container, W, d, t; on_var_type = on_var_type, commitment_first = true)
         JuMP.add_to_expression!(
             expression[name, t], pmin[t] * prop_term_per_unit * dt, bin)
         JuMP.add_to_expression!(
