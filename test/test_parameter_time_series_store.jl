@@ -680,14 +680,15 @@ end
     key = IOM.ParameterKey(POM.ActivePowerTimeSeriesParameter, PSY.PowerLoad)
     pc = IOM.get_parameters(container)[key]
     @test POM.is_input_parameter(key, pc)
-    d = POM.input_series_descriptor(c_sys5, key, pc)
+    d = POM.input_series_descriptor(c_sys5, container, key, pc)
     @test d.name == "max_active_power"
     @test d.time_series_type <: PSY.Deterministic
     @test Set(keys(d.owners)) == Set(PSY.get_name.(get_components(PSY.PowerLoad, c_sys5)))
     @test isempty(d.unresolved)
     # Review Focus 3: a label that is not a component is reported, not fatal.
     IOM.add_component_name!(IOM.get_attributes(pc), "bogus", "deadbeef")
-    d2 = @test_logs (:warn, r"bogus") POM.input_series_descriptor(c_sys5, key, pc)
+    d2 =
+        @test_logs (:warn, r"bogus") POM.input_series_descriptor(c_sys5, container, key, pc)
     @test d2.unresolved == ["bogus"]
     @test !haskey(d2.owners, "bogus")
     cost_key = IOM.ParameterKey(POM.FuelCostParameter, PSY.ThermalStandard)

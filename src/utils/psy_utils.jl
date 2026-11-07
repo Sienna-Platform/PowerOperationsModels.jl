@@ -59,3 +59,23 @@ end
 
 # IOM's own callers (start-up costs, ramps) read the predicate POM's formulations use.
 IOM.get_must_run(c::PSY.Component) = _is_must_run(c)
+
+"""
+Metadata rows of the series `name` of `owner` that match the model resolution and interval,
+the same filter `add_parameters!` applies. Another transform of the same series is not listed.
+"""
+function list_model_series_metadata(
+    container::OptimizationContainer,
+    owner::IS.InfrastructureSystemsComponent,
+    ts_type::Type{<:IS.TimeSeriesData},
+    name::AbstractString,
+)
+    settings = get_settings(container)
+    return IS.list_time_series_metadata(
+        owner;
+        time_series_type = ts_type,
+        name = name,
+        resolution = _to_is_resolution(get_resolution(settings)),
+        interval = _to_is_interval(get_interval(settings)),
+    )
+end

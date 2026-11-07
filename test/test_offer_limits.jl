@@ -76,10 +76,11 @@ function _ol_template(
     return template
 end
 
-function _ol_model(sys; attributes = Dict{String, Any}(), kwargs...)
+function _ol_model(sys; attributes = Dict{String, Any}(), model_kwargs = (;), kwargs...)
     template = _ol_template(attributes; sys, kwargs...)
     model = DecisionModel(
         template, sys; optimizer = HiGHS_optimizer, store_variable_names = true,
+        model_kwargs...,
     )
     @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
           IOM.ModelBuildStatus.BUILT
@@ -236,7 +237,7 @@ end
     @test_throws ArgumentError POM._links_value_axes(c, g)
     sys2, g2 = _ol_system(; up = _OL_TWO_SERVICES)
     _ol_add_links!(sys2, g2, ["UP_A", "UP_B"], [[1, 1]]; resolution = Minute(30))
-    @test_throws IS.ConflictingInputsError POM._links_value_axes(c, g2)
+    @test !POM._has_offer_links(c, g2)
 
     # Product not offered and a step past the curve fail the build with the message logged.
     for (products, rows, message) in (
@@ -465,6 +466,23 @@ end
     @test size(links) == (2, 2, 24)
     @test links[:, :, 1] == [1.0 1.0; 2.0 0.0]
     @test _ol_rows(c, POM.LinkedReserveOfferConstraint) == [(_OL_UNIT, 1, t) for t in 1:24]
+end
+
+@testset "Links: a same-name series of another resolution is not the model's series" begin
+    sys, g = _ol_system(; up = _OL_TWO_SERVICES)
+    _ol_add_links!(sys, g, ["UP_A", "UP_B"], [[1, 1], [2, 0]])
+    _ol_add_links!(sys, g, ["UP_A", "UP_B"], [[1, 0], [2, 1]]; resolution = Minute(30))
+    model = _ol_model(
+        sys; attributes = _OL_LINKED, model_kwargs = (; resolution = Hour(1)),
+    )
+    c = get_optimization_container(model)
+    key = IOM.ParameterKey(POM.ReserveOfferLinkParameter, ThermalStandard)
+    links = IOM.get_lhs_parameter_values(c, key, _OL_UNIT, POM._links_value_axes(c, g))
+    @test links[:, :, 1] == [1.0 1.0; 2.0 0.0]
+    pc = IOM.get_parameters(c)[key]
+    d = POM.input_series_descriptor(sys, c, key, pc)
+    @test [axis.name for axis in d.value_axes[_OL_UNIT]] == ["block", "product"]
+    @test _ol_solve!(model)
 end
 
 @testset "Links keep multiplier 1.0" begin
