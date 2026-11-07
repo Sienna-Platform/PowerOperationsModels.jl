@@ -467,7 +467,6 @@ function _check_topology_schedule_formulation(
     isempty(branches) && return
     _check_power_flow_evaluations(template, branches)
     _check_topology_schedule_formulation(get_network_formulation(network_model), branches)
-    _check_security_constrained_branch_schedules(template, branches)
     return
 end
 
@@ -540,28 +539,6 @@ function _check_topology_schedule_formulation(::Type{T}, branches::Vector) where
             "Scheduled branch outages and switching are supported by PTDFNetworkModel, \
              AreaPTDFNetworkModel and DCPNetworkModel; $(T) cannot model them. Scheduled \
              branches: $(join(PSY.get_name.(branches), ", "))",
-        ),
-    )
-end
-
-# Security-constrained branch formulations build their post-contingency rows on the base
-# network, while the pre-contingency flows follow the step topology of scheduled AC branches.
-function _check_security_constrained_branch_schedules(
-    template::PowerOperationsProblemTemplate,
-    branches::Vector,
-)
-    ac_branches = [b for b in branches if b isa PSY.ACTransmission]
-    isempty(ac_branches) && return
-    sc_types = [get_component_type(m) for m in _sc_branch_models(template)]
-    isempty(sc_types) && return
-    throw(
-        IS.ConflictingInputsError(
-            "Security-constrained branch formulations do not model scheduled AC branch \
-             outages and switching. Branch types with a security-constrained \
-             formulation: $(join(nameof.(sc_types), ", ")). Scheduled AC branches: \
-             $(join(PSY.get_name.(ac_branches), ", ")). Use a formulation without \
-             security constraints for these branch types, or remove the AC branch \
-             schedules.",
         ),
     )
 end

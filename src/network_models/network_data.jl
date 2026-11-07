@@ -180,29 +180,62 @@ get_step_topology(m::NetworkModel) = _step_topology(get_topology(m))
 _step_topology(t::NoTopologySchedule) = t
 _step_topology(t::TopologySchedule) = get_topology_sequence(t)
 
-function set_topology_sequence!(t::TopologySchedule, sequence::PNM.TopologySequence)
+"""
+The `PNM.PostContingencyNetwork` of each registered contingency at every step of the
+topology sequence, by outage id: `nothing` at a step where every component of the
+contingency is already out. Errors like [`get_topology_sequence`](@ref) when the model has
+no topology schedule or its sequence is not set.
+"""
+function get_post_contingency_networks(t::TopologySchedule)
+    _assigned_sequence(t.sequence)
+    return t.post_contingency
+end
+
+get_post_contingency_networks(::NoTopologySchedule) =
+    _no_topology_schedule("post-contingency networks")
+get_post_contingency_networks(x::Union{IOM.AbstractNetworkData, NetworkModel}) =
+    get_post_contingency_networks(get_topology(x))
+
+function set_topology_sequence!(
+    t::TopologySchedule,
+    sequence::PNM.TopologySequence,
+    post_contingency::_PostContingencyNetworks = _PostContingencyNetworks(),
+)
     t.sequence = sequence
+    t.post_contingency = post_contingency
     return
 end
 
-set_topology_sequence!(::NoTopologySchedule, ::PNM.TopologySequence) = error(
+set_topology_sequence!(
+    ::NoTopologySchedule,
+    ::PNM.TopologySequence,
+    ::_PostContingencyNetworks = _PostContingencyNetworks(),
+) = error(
     "The network model has no topology schedule, so it cannot store a topology sequence.",
 )
 
-set_topology_sequence!(nd::IOM.AbstractNetworkData, sequence::PNM.TopologySequence) =
-    set_topology_sequence!(get_topology(nd), sequence)
+set_topology_sequence!(
+    nd::IOM.AbstractNetworkData,
+    sequence::PNM.TopologySequence,
+    post_contingency::_PostContingencyNetworks = _PostContingencyNetworks(),
+) = set_topology_sequence!(get_topology(nd), sequence, post_contingency)
 
-function set_topology_sequence!(m::NetworkModel, sequence::PNM.TopologySequence)
+function set_topology_sequence!(
+    m::NetworkModel,
+    sequence::PNM.TopologySequence,
+    post_contingency::_PostContingencyNetworks = _PostContingencyNetworks(),
+)
     has_topology_schedule(m) || error(
         "$(nameof(get_network_formulation(m))) holds no network topology schedule, so it \
          cannot store a topology sequence.",
     )
-    set_topology_sequence!(get_topology(m), sequence)
+    set_topology_sequence!(get_topology(m), sequence, post_contingency)
     return
 end
 
 function reset_topology_sequence!(t::TopologySchedule)
     t.sequence = nothing
+    t.post_contingency = _PostContingencyNetworks()
     return
 end
 

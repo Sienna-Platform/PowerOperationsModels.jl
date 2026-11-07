@@ -586,6 +586,53 @@ function _post_contingency_share(
     return _post_contingency_rating(entry, tripped) / _emergency_rating(entry)
 end
 
+# The entry in service at step `t` holds only the members in service at `t`, so tripping
+# the contingency on it rates the arc by the members in service once the components out at
+# `t` and the contingency's components are all removed. Resolved once per topology.
+_step_emergency_flow_limits(
+    rep::RepresentativeBranch,
+    ::NoTopologySchedule,
+    time_steps,
+    tripped::Set{PSY.ACTransmission},
+) = fill(_emergency_flow_limits(rep, tripped), length(time_steps))
+
+function _step_emergency_flow_limits(
+    rep::RepresentativeBranch,
+    ts::PNM.TopologySequence,
+    time_steps,
+    tripped::Set{PSY.ACTransmission},
+)
+    by_topology = Dict{Int, @NamedTuple{min::Float64, max::Float64}}()
+    return [
+        get!(by_topology, PNM.get_topology_index(ts, t)) do
+            _emergency_flow_limits(_entry_at(rep, ts, t), tripped)
+        end for t in time_steps
+    ]
+end
+
+# `_post_contingency_share` of the entry in service at every step, resolved once per
+# topology.
+_step_post_contingency_shares(
+    rep::RepresentativeBranch,
+    ::NoTopologySchedule,
+    time_steps,
+    tripped::Set{PSY.ACTransmission},
+) = fill(_post_contingency_share(rep.branch, tripped), length(time_steps))
+
+function _step_post_contingency_shares(
+    rep::RepresentativeBranch,
+    ts::PNM.TopologySequence,
+    time_steps,
+    tripped::Set{PSY.ACTransmission},
+)
+    by_topology = Dict{Int, Float64}()
+    return [
+        get!(by_topology, PNM.get_topology_index(ts, t)) do
+            _post_contingency_share(_entry_at(rep, ts, t), tripped)
+        end for t in time_steps
+    ]
+end
+
 function _min_endpoint_voltage_limit(branch::PSY.ACTransmission)
     arc = PSY.get_arc(branch)
     # bus voltage limits are already per-unit

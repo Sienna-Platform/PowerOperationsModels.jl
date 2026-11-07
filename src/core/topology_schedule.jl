@@ -9,15 +9,18 @@ struct NoTopologySchedule <: AbstractTopologySchedule end
 
 """
 Scheduled topology: the low-rank matrix built once per model on the base factorization,
-and the step sequence each build derives from the branch statuses. The sequence is empty
-from the start of a build until the build sets it.
+the step sequence each build derives from the branch statuses, and the post-contingency
+network of each registered contingency at every step of that sequence. The sequence is
+empty from the start of a build until the build sets it.
 """
 mutable struct TopologySchedule{M <: PNM.VirtualMODF} <: AbstractTopologySchedule
     const matrix::M
     sequence::Union{Nothing, PNM.TopologySequence{M}}
+    post_contingency::_PostContingencyNetworks
 end
 
-TopologySchedule(matrix::PNM.VirtualMODF) = TopologySchedule(matrix, nothing)
+TopologySchedule(matrix::PNM.VirtualMODF) =
+    TopologySchedule(matrix, nothing, _PostContingencyNetworks())
 
 # What the per-step helpers dispatch on: the sequence under a schedule, the singleton
 # without one.
