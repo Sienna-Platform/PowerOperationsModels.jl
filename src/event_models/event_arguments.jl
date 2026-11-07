@@ -15,9 +15,7 @@ function add_parameters!(
     W <: AbstractDeviceFormulation,
     X <: AbstractEventCondition,
 } where {D <: PSY.Component}
-    if get_rebuild_model(get_settings(container)) && has_container_key(container, T, D)
-        return
-    end
+    should_add_parameter(container, ParameterKey(T, D), devices, device_model) || return
     _add_parameters!(container, T, devices, device_model, event_model)
     return
 end
