@@ -402,19 +402,13 @@ function _make_device_cache(
     return device_cache
 end
 
-function make_device_cache!(
-    model::DeviceModel{T, <:AbstractDeviceFormulation},
-    system::PSY.System,
-    check_components::Bool,
-) where {T <: PSY.Device}
-    subsystem = get_subsystem(model)
-    !PSY.has_components(system, T) && return false
-    devices = PSY.get_components(T, system; subsystem_name = subsystem)
-    filt_func = get_attribute(model, "filter_function")
-    model.device_cache =
-        _make_device_cache(filt_func, devices, check_components, system)
-    return
+# Callable that passes the components whose IDs the `FILTER_SELECTOR_KEY` selector selects.
+struct _SelectedIds <: Function
+    ids::Set{Int}
 end
+
+_is_selected(f::_SelectedIds, d::PSY.Component) = IS.get_id(d) in f.ids
+(f::_SelectedIds)(d::PSY.Component) = _is_selected(f, d)
 
 _has_filter_selector(model::DeviceModel) =
     haskey(get_attributes(model), FILTER_SELECTOR_KEY)
@@ -424,45 +418,52 @@ function _selected_ids(model::DeviceModel, sys::PSY.System)
     return Set{Int}(IS.get_id(c) for c in PSY.get_components(selector, sys))
 end
 
-# A branch model has two device sets with the same selector. `device_cache` is the
-# validated snapshot that the constructors read. `get_available_components` is the live
-# query for callers without the cache, such as the IOM dual code and template validation.
+# Template validation rejects a model that sets both `FILTER_SELECTOR_KEY` and
+# `filter_function`, so at most one of them applies here.
+function _component_filter(model::DeviceModel, sys::PSY.System)
+    _has_filter_selector(model) && return _SelectedIds(_selected_ids(model, sys))
+    return get_attribute(model, "filter_function")
+end
+
+_available_components(::Nothing, ::Type{T}, sys::PSY.System, subsystem) where {T} =
+    PSY.get_available_components(T, sys; subsystem_name = subsystem)
+
+_available_components(
+    filter_function::Function,
+    ::Type{T},
+    sys::PSY.System,
+    subsystem,
+) where {T} =
+    PSY.get_available_components(filter_function, T, sys; subsystem_name = subsystem)
+
+# A model has two device sets with the same filter. `device_cache` is the validated
+# snapshot that the constructors read. `get_available_components` is the live query for
+# callers without the cache, such as the IOM dual code and template validation.
 function make_device_cache!(
     model::DeviceModel{T, <:AbstractDeviceFormulation},
     system::PSY.System,
     check_components::Bool,
-) where {T <: PSY.Branch}
+) where {T <: PSY.Device}
     !PSY.has_components(system, T) && return false
     devices = PSY.get_components(T, system; subsystem_name = get_subsystem(model))
-    if _has_filter_selector(model)
-        selected = _selected_ids(model, system)
-        model.device_cache = _make_device_cache(
-            d -> IS.get_id(d) in selected,
-            devices,
-            check_components,
-            system,
-        )
-    else
-        model.device_cache =
-            _make_device_cache(nothing, devices, check_components, system)
-    end
+    model.device_cache = _make_device_cache(
+        _component_filter(model, system),
+        devices,
+        check_components,
+        system,
+    )
     return
 end
 
-# Extends the IOM generic so that its callers also apply the selector of a branch model.
+# Extends the IOM generic so that its callers also apply the selector of a model.
 function IOM.get_available_components(
     model::DeviceModel{T, <:AbstractDeviceFormulation},
     sys::PSY.System,
-) where {T <: PSY.Branch}
-    subsystem = get_subsystem(model)
-    if _has_filter_selector(model)
-        selected = _selected_ids(model, sys)
-        return PSY.get_available_components(
-            d -> IS.get_id(d) in selected,
-            T,
-            sys;
-            subsystem_name = subsystem,
-        )
-    end
-    return PSY.get_available_components(T, sys; subsystem_name = subsystem)
+) where {T <: PSY.Device}
+    return _available_components(
+        _component_filter(model, sys),
+        T,
+        sys,
+        get_subsystem(model),
+    )
 end

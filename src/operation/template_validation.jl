@@ -52,6 +52,7 @@ function validate_template_impl!(model::IOM.AbstractOptimizationModel)
     device_keys_to_delete = Symbol[]
     network_formulation = get_network_formulation(network_model)
     for (k, device_model) in template.devices
+        _check_device_filter(k, device_model)
         make_device_cache!(device_model, system, get_check_components(settings))
         if isempty(get_device_cache(device_model))
             @info "The system data doesn't include devices of type $(k), consider changing the models in the template" _group =
@@ -82,6 +83,7 @@ function validate_template_impl!(model::IOM.AbstractOptimizationModel)
         branches_modeled(get_network_formulation(network_model))
     for (k, device_model) in template.branches
         _check_branch_filter(k, device_model)
+        _check_device_filter(k, device_model)
         make_device_cache!(device_model, system, validate_branches)
         if isempty(get_device_cache(device_model))
             @info "The system data doesn't include Branches of type $(k), consider changing the models in the template" _group =
@@ -175,7 +177,19 @@ function _check_branch_filter(key::Symbol, model::DeviceModel)
             ),
         )
     end
+    return
+end
+
+function _check_device_filter(key::Symbol, model::DeviceModel)
     _has_filter_selector(model) || return
+    if haskey(get_attributes(model), "filter_function")
+        throw(
+            IS.ConflictingInputsError(
+                "Model $(key) sets both the `filter_function` and `$(FILTER_SELECTOR_KEY)` \
+                attributes. Set only one of them.",
+            ),
+        )
+    end
     _check_filter_selector_value(key, get_attribute(model, FILTER_SELECTOR_KEY))
     return
 end
@@ -185,7 +199,7 @@ _check_filter_selector_value(::Symbol, ::IS.ComponentSelector) = nothing
 function _check_filter_selector_value(key::Symbol, value)
     throw(
         IS.ConflictingInputsError(
-            "Branch model $(key) sets the `$(FILTER_SELECTOR_KEY)` attribute to a \
+            "Model $(key) sets the `$(FILTER_SELECTOR_KEY)` attribute to a \
             $(typeof(value)). The attribute takes an `IS.ComponentSelector`, for example \
             `make_selector(Line, \"1-2\")`.",
         ),
