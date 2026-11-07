@@ -1942,8 +1942,8 @@ end
 
 # proportional cost: connects to common implementation in IOM
 # The OnVariable `add_proportional_cost!` forwarder (thermal + hydro) lives in
-# common_models/objective_function.jl.
-skip_proportional_cost(d::PSY.ThermalGen) = _is_must_run(d)
+# common_models/objective_function.jl. A must-run unit's proportional cost is skipped through
+# `IOM.get_must_run` (utils/psy_utils.jl).
 
 # Ramp slacks cost the `slack_penalty` of the `DeviceModel` per hour of the step, also on
 # a must-run unit.
@@ -2212,46 +2212,6 @@ function IOM.add_pwl_term_lambda!(
         pwl_cost_expressions[t] = pwl_cost
     end
     return pwl_cost_expressions
-end
-
-# ThermalGen range-constraint specialization: checks must_run to decide whether to use binary variable.
-# Overrides the generic IS.InfrastructureSystemsComponent version in IOM.
-function IOM._add_semicontinuous_bound_range_constraints_impl!(
-    container::OptimizationContainer,
-    ::Type{T},
-    dir::IOM.BoundDirection,
-    array,
-    devices::Vector{V},
-    model::DeviceModel{V, W};
-    meta_suffix::String = "",
-) where {T <: ConstraintType, V <: PSY.ThermalGen, W <: AbstractDeviceFormulation}
-    time_steps = IOM.get_time_steps(container)
-    names = IS.get_name.(devices)
-    jump_model = IOM.get_jump_model(container)
-    con = IOM.add_constraints_container!(
-        container, T, V, names, time_steps;
-        meta = IOM.constraint_meta(dir) * meta_suffix)
-    varbin = IOM.get_variable(container, OnVariable, V)
-
-    for device in devices
-        ci_name = IS.get_name(device)
-        limit_values = IOM.get_min_max_limit_values(container, T, device, model)
-        if _is_must_run(device)
-            for t in time_steps
-                IOM.add_range_bound_constraint!(
-                    dir, jump_model, con, ci_name, t,
-                    array[ci_name, t], IOM.get_bound(dir, limit_values, t), 1.0)
-            end
-        else
-            for t in time_steps
-                IOM.add_range_bound_constraint!(
-                    dir, jump_model, con, ci_name, t,
-                    array[ci_name, t], IOM.get_bound(dir, limit_values, t),
-                    varbin[ci_name, t])
-            end
-        end
-    end
-    return
 end
 
 """

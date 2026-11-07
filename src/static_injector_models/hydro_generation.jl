@@ -2575,8 +2575,6 @@ function add_to_objective_function!(
     return
 end
 
-skip_proportional_cost(d::PSY.HydroPumpTurbine) = _is_must_run(d)
-
 # The OnVariable `add_proportional_cost!` forwarder (thermal + hydro) lives in
 # common_models/objective_function.jl: it routes through
 # `add_proportional_cost_maybe_time_variant!`, which dispatches MBC/

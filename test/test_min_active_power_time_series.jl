@@ -593,8 +593,22 @@ end
     end
 end
 
-@testset "Compact dispatch with feedforward: range upper row follows the series" begin
-    sys, unit = _min_power_system(MIN_POWER_VALUES)
+# A model with a minimum power series rebuilds at every step of a recurrent solve, so its
+# `OnStatusParameter` holds numbers that the rows read when they are built. A probe writes a
+# status pattern and rebuilds, as a simulation step does; the term of the status is the
+# change it makes in the rows.
+function _rebuild_with_on_status!(model, device_model, ::Type{D}, name, pattern) where {D}
+    container = IOM.get_optimization_container(model)
+    status = IOM.get_parameter_array(container, OnStatusParameter, D)
+    for t in axes(status, 2)
+        status[name, t] = pattern[t]
+    end
+    mock_rebuild_devices!(model, (device_model,))
+    return container
+end
+
+function _compact_dispatch_ff_model(values)
+    sys, unit = _min_power_system(values)
     ff = SemiContinuousFeedforward(;
         component_type = ThermalStandard,
         source = OnVariable,
@@ -607,14 +621,29 @@ end
     )
     attach_feedforward!(device_model, ff)
     model = DecisionModel(MockOperationProblem, DCPNetworkModel, sys)
-    mock_construct_device!(model, device_model; built_for_recurrent_solves = true)
-    container = IOM.get_optimization_container(model)
+    mock_construct_device!(model, device_model)
+    return unit, model, device_model
+end
+
+@testset "Compact dispatch with feedforward: range upper row follows the series" begin
+    unit, model, device_model = _compact_dispatch_ff_model(MIN_POWER_VALUES)
     pmax = PSY.get_max_active_power(unit, u"SU")
-    param = IOM.get_parameter_array(container, OnStatusParameter, ThermalStandard)
-    expr = IOM.get_expression(container, ActivePowerRangeExpressionUB, ThermalStandard)
+    function constants(pattern)
+        container =
+            _rebuild_with_on_status!(
+                model,
+                device_model,
+                ThermalStandard,
+                "Brighton",
+                pattern,
+            )
+        expr = IOM.get_expression(container, ActivePowerRangeExpressionUB, ThermalStandard)
+        return [JuMP.constant(expr["Brighton", t]) for t in 1:24]
+    end
+    on = constants(ones(24))
+    off = constants(zeros(24))
     for t in 1:24
-        @test JuMP.coefficient(expr["Brighton", t], param["Brighton", t]) ≈
-              -(pmax - pmax * MIN_POWER_VALUES[t])
+        @test on[t] - off[t] ≈ -(pmax - pmax * MIN_POWER_VALUES[t])
     end
 end
 
@@ -1022,23 +1051,28 @@ function _compact_dispatch_feedforward_build(s::Float64)
     )
     attach_feedforward!(device_model, ff)
     model = DecisionModel(MockOperationProblem, DCPNetworkModel, sys)
-    mock_construct_device!(model, device_model; built_for_recurrent_solves = true)
-    container = IOM.get_optimization_container(model)
-    return unit, container, container.objective_function.invariant_terms
+    mock_construct_device!(model, device_model)
+    return unit, model, device_model
 end
 
 @testset "Compact dispatch with feedforward: the offset term uses the OnStatusParameter" begin
     slope = 17.0
-    _, container0, obj0 = _compact_dispatch_feedforward_build(0.0)
-    unit, container, obj1 = _compact_dispatch_feedforward_build(slope)
-    status0 = IOM.get_parameter_array(container0, OnStatusParameter, ThermalStandard)
-    status = IOM.get_parameter_array(container, OnStatusParameter, ThermalStandard)
+    _, model0, device_model0 = _compact_dispatch_feedforward_build(0.0)
+    unit, model1, device_model1 = _compact_dispatch_feedforward_build(slope)
+    function objective_constant(model, device_model, pattern)
+        container = _rebuild_with_on_status!(
+            model, device_model, ThermalStandard, "Brighton", pattern)
+        return JuMP.constant(container.objective_function.invariant_terms)
+    end
+    # The offset of each step is the change one status makes in the objective.
+    offset(model, device_model, t) =
+        objective_constant(model, device_model, [s == t ? 1.0 : 0.0 for s in 1:24]) -
+        objective_constant(model, device_model, zeros(24))
+    container = IOM.get_optimization_container(model1)
     pmin = POM.min_active_power_values(container, unit)
     base = IOM.get_model_base_power(container)
     for t in 1:24
-        delta =
-            JuMP.coefficient(obj1, status["Brighton", t]) -
-            JuMP.coefficient(obj0, status0["Brighton", t])
+        delta = offset(model1, device_model1, t) - offset(model0, device_model0, t)
         @test delta ≈ slope * base * pmin[t]
     end
 end
@@ -1173,56 +1207,34 @@ const DISPATCH_VALUES = vcat(0.5, 0.6, 0.6, 0.5, fill(0.5, 20))
     end
 end
 
-function _compact_dispatch_ff_container(values)
-    sys, unit = _min_power_system(values)
-    ff = SemiContinuousFeedforward(;
-        component_type = ThermalStandard,
-        source = OnVariable,
-        affected_values = [PowerAboveMinimumVariable],
-    )
-    device_model = DeviceModel(
-        ThermalStandard,
-        ThermalCompactDispatch;
-        time_series_names = MIN_POWER_UC_NAMES,
-    )
-    attach_feedforward!(device_model, ff)
-    model = DecisionModel(MockOperationProblem, DCPNetworkModel, sys)
-    mock_construct_device!(model, device_model; built_for_recurrent_solves = true)
-    return unit, IOM.get_optimization_container(model)
-end
-
 const LEVEL_VALUES = vcat(0.5, 0.6, 0.7, 0.5, 0.6, 0.4, 0.5, fill(0.5, 17))
 
 # The compact dispatch rows have a term `Pmin_t - Pmax` on the status s_t in the up row, from
-# the start allowance. The term of the level change is what the pass adds on top of it.
-function _level_term(row, ref_row, status, status_ref, t, base_shift, values)
-    s_t, s_p = status["Brighton", t], status["Brighton", t - 1]
-    r_t, r_p = status_ref["Brighton", t], status_ref["Brighton", t - 1]
-    coef_t =
-        JuMP.normalized_coefficient(row, s_t) -
-        JuMP.normalized_coefficient(ref_row, r_t) - base_shift
-    coef_p =
-        JuMP.normalized_coefficient(row, s_p) -
-        JuMP.normalized_coefficient(ref_row, r_p)
-    rhs = JuMP.normalized_rhs(row) - JuMP.normalized_rhs(ref_row)
-    return coef_t * values[1] + coef_p * values[2] - rhs
+# the start allowance. The term of the level change is what the pass adds on top of it. With
+# the statuses `values = (s_t, s_{t-1})` written before the build, every status term sits on
+# the right-hand side.
+function _level_term(row, ref_row, base_shift, values)
+    rhs = JuMP.normalized_rhs(ref_row) - JuMP.normalized_rhs(row)
+    return rhs - base_shift * values[1]
 end
 
 _relaxes(::JuMP.MOI.LessThan, term, exact) = term <= exact + 1e-9
 _relaxes(::JuMP.MOI.GreaterThan, term, exact) = term >= exact - 1e-9
 _row_set(row) = JuMP.constraint_object(row).set
 
-function _check_level_term(prof, ref, status, status_ref, pmax, t, values)
-    delta = pmax * (LEVEL_VALUES[t] - LEVEL_VALUES[t - 1])
+function _level_terms(prof, ref, pmax, t, values)
     base_shift = pmax * (LEVEL_VALUES[t] - 0.5)
+    up = _level_term(prof.up["Brighton", t], ref.up["Brighton", t], base_shift, values)
+    dn = _level_term(prof.dn["Brighton", t], ref.dn["Brighton", t], 0.0, values)
+    return up, dn
+end
+
+function _check_level_term(prof, ref, pmax, t, values)
+    delta = pmax * (LEVEL_VALUES[t] - LEVEL_VALUES[t - 1])
     exact = delta * values[1] * values[2]
-    up_row, dn_row = prof.up["Brighton", t], prof.dn["Brighton", t]
-    up = _level_term(
-        up_row, ref.up["Brighton", t], status, status_ref, t, base_shift, values,
-    )
-    dn = _level_term(dn_row, ref.dn["Brighton", t], status, status_ref, t, 0.0, values)
-    @test _relaxes(_row_set(up_row), up, exact)
-    @test _relaxes(_row_set(dn_row), dn, -exact)
+    up, dn = _level_terms(prof, ref, pmax, t, values)
+    @test _relaxes(_row_set(prof.up["Brighton", t]), up, exact)
+    @test _relaxes(_row_set(prof.dn["Brighton", t]), dn, -exact)
     if isone(values[1] * values[2])
         @test up ≈ exact
         @test dn ≈ -exact
@@ -1230,56 +1242,67 @@ function _check_level_term(prof, ref, status, status_ref, pmax, t, values)
     return
 end
 
+# The profiled and reference models rebuilt with the same status pattern.
+function _level_rows(profiled, reference, pattern)
+    prof = _ramp_rows(
+        _rebuild_with_on_status!(profiled..., ThermalStandard, "Brighton", pattern),
+        ThermalStandard,
+    )
+    ref = _ramp_rows(
+        _rebuild_with_on_status!(reference..., ThermalStandard, "Brighton", pattern),
+        ThermalStandard,
+    )
+    return prof, ref
+end
+
 @testset "Compact dispatch ramp level term: affine in the status parameters" begin
-    unit, profiled = _compact_dispatch_ff_container(LEVEL_VALUES)
-    _, ref_container = _compact_dispatch_ff_container(fill(0.5, 24))
+    unit, prof_model, prof_device = _compact_dispatch_ff_model(LEVEL_VALUES)
+    _, ref_model, ref_device = _compact_dispatch_ff_model(fill(0.5, 24))
+    profiled = (prof_model, prof_device)
+    reference = (ref_model, ref_device)
     pmax = PSY.get_max_active_power(unit, u"SU")
-    prof = _ramp_rows(profiled, ThermalStandard)
-    ref = _ramp_rows(ref_container, ThermalStandard)
-    status = IOM.get_parameter_array(profiled, OnStatusParameter, ThermalStandard)
-    status_ref = IOM.get_parameter_array(ref_container, OnStatusParameter, ThermalStandard)
-    @test "Brighton" in axes(prof.up, 1)
-    for t in 2:24
-        iszero(LEVEL_VALUES[t] - LEVEL_VALUES[t - 1]) && continue
-        # The coefficients on the parameter variables carry the term, not the right side.
-        @test !iszero(
-            JuMP.normalized_coefficient(prof.dn["Brighton", t], status["Brighton", t]) -
-            JuMP.normalized_coefficient(
-                ref.dn["Brighton", t],
-                status_ref["Brighton", t],
-            ) + JuMP.normalized_coefficient(
-                prof.dn["Brighton", t],
-                status["Brighton", t - 1],
-            ),
-        )
-        for values in Iterators.product((0.0, 1.0), (0.0, 1.0))
-            _check_level_term(prof, ref, status, status_ref, pmax, t, values)
+    steps = [t for t in 2:24 if !iszero(LEVEL_VALUES[t] - LEVEL_VALUES[t - 1])]
+    # Together the four patterns give every pair (s_t, s_{t-1}) at every step.
+    patterns = (
+        ones(24),
+        zeros(24),
+        [isodd(t) ? 1.0 : 0.0 for t in 1:24],
+        [iseven(t) ? 1.0 : 0.0 for t in 1:24],
+    )
+    dn_terms = Dict{Tuple{Int, Float64}, Float64}()
+    for pattern in patterns
+        prof, ref = _level_rows(profiled, reference, pattern)
+        @test "Brighton" in axes(prof.up, 1)
+        for t in steps
+            values = (pattern[t], pattern[t - 1])
+            _check_level_term(prof, ref, pmax, t, values)
+            if values[1] == values[2]
+                dn_terms[(t, values[1])] = last(_level_terms(prof, ref, pmax, t, values))
+            end
         end
+    end
+    # The statuses carry the term, not a constant of the row.
+    for t in steps
+        @test !(dn_terms[(t, 1.0)] ≈ dn_terms[(t, 0.0)])
     end
 end
 
 @testset "Compact dispatch ramp level term: fixed status pattern" begin
-    unit, profiled = _compact_dispatch_ff_container(LEVEL_VALUES)
-    _, ref_container = _compact_dispatch_ff_container(fill(0.5, 24))
+    unit, prof_model, prof_device = _compact_dispatch_ff_model(LEVEL_VALUES)
+    _, ref_model, ref_device = _compact_dispatch_ff_model(fill(0.5, 24))
     pmax = PSY.get_max_active_power(unit, u"SU")
-    prof = _ramp_rows(profiled, ThermalStandard)
-    ref = _ramp_rows(ref_container, ThermalStandard)
-    status = IOM.get_parameter_array(profiled, OnStatusParameter, ThermalStandard)
-    status_ref = IOM.get_parameter_array(ref_container, OnStatusParameter, ThermalStandard)
     # On-on steps 2, 3, 6; shut-downs 4, 7; start-up 5. Each step changes the minimum.
     pattern = vcat(1.0, 1.0, 1.0, 0.0, 1.0, 1.0, 0.0, fill(1.0, 17))
-    for t in 1:24
-        JuMP.fix(status["Brighton", t], pattern[t]; force = true)
-        JuMP.fix(status_ref["Brighton", t], pattern[t]; force = true)
-    end
-    fixed = [IOM.jump_fixed_value(status["Brighton", t]) for t in 1:24]
-    @test fixed == pattern
+    prof, ref = _level_rows((prof_model, prof_device), (ref_model, ref_device), pattern)
+    status = IOM.get_parameter_array(
+        IOM.get_optimization_container(prof_model), OnStatusParameter, ThermalStandard)
+    @test [status["Brighton", t] for t in 1:24] == pattern
     on_on = Int[]
     for t in 2:24
         iszero(LEVEL_VALUES[t] - LEVEL_VALUES[t - 1]) && continue
-        values = (fixed[t], fixed[t - 1])
+        values = (pattern[t], pattern[t - 1])
         isone(values[1] * values[2]) && push!(on_on, t)
-        _check_level_term(prof, ref, status, status_ref, pmax, t, values)
+        _check_level_term(prof, ref, pmax, t, values)
     end
     @test on_on == [2, 3, 6]
 end
@@ -1663,24 +1686,31 @@ function _pump_feedforward_container(; profiled)
     )
     attach_feedforward!(device_model, ff)
     model = DecisionModel(MockOperationProblem, CopperPlateNetworkModel, sys)
-    mock_construct_device!(model, device_model; built_for_recurrent_solves = true)
-    return IOM.get_optimization_container(model), pump
+    # A profiled pump carries a minimum power series, so it rebuilds instead of holding its
+    # statuses as JuMP parameters.
+    mock_construct_device!(model, device_model; built_for_recurrent_solves = !profiled)
+    return IOM.get_optimization_container(model), pump, model, device_model
 end
 
 @testset "Pump with feedforward: lower expression coefficient is -Pmax * series" begin
-    container, pump = _pump_feedforward_container(; profiled = true)
+    _, pump, model, device_model = _pump_feedforward_container(; profiled = true)
     name = PSY.get_name(pump)
     pmax = PSY.get_max_active_power(pump, u"SU")
-    param = IOM.get_parameter_array(container, OnStatusParameter, HydroPumpTurbine)
-    expr = IOM.get_expression(container, ActivePowerRangeExpressionLB, HydroPumpTurbine)
+    function constants(pattern)
+        container =
+            _rebuild_with_on_status!(model, device_model, HydroPumpTurbine, name, pattern)
+        expr = IOM.get_expression(container, ActivePowerRangeExpressionLB, HydroPumpTurbine)
+        return [JuMP.constant(expr[name, t]) for t in 1:24]
+    end
+    on = constants(ones(24))
+    off = constants(zeros(24))
     for t in 1:24
-        @test JuMP.coefficient(expr[name, t], param[name, t]) ≈
-              -pmax * PUMP_GEN_MIN_VALUES[t]
+        @test on[t] - off[t] ≈ -pmax * PUMP_GEN_MIN_VALUES[t]
     end
 end
 
 @testset "Pump with feedforward without a series keeps the static minimum" begin
-    container, pump = _pump_feedforward_container(; profiled = false)
+    container, pump, _, _ = _pump_feedforward_container(; profiled = false)
     name = PSY.get_name(pump)
     pmin = PSY.get_active_power_limits(pump, u"SU").min
     param = IOM.get_parameter_array(container, OnStatusParameter, HydroPumpTurbine)

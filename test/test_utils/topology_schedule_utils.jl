@@ -1,3 +1,5 @@
+_c_sys5_uc() = PSB.build_system(PSITestSystems, "c_sys5_uc"; add_forecasts = true)
+
 _sorted(T, sys) = sort!(collect(PSY.get_components(T, sys)); by = PSY.get_name)
 
 function _built_model(template, sys; kwargs...)
