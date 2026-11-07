@@ -312,12 +312,29 @@ function add_constraints!(
     return
 end
 
-# Only `min` is consumed (shed floor); the upper bound rides the forecast parameter.
+# Only `min` is consumed (shed floor: an up award cannot push the load below its minimum);
+# the upper bound rides the forecast parameter.
 get_min_max_limits(
     d::PSY.ControllableLoad,
     ::Type{ActivePowerVariableLimitsConstraint},
     ::Type{PowerLoadDispatch},
-) = (min = 0.0, max = PSY.get_max_active_power(d, u"SU"))
+) = (min = _static_min_active_power(d), max = PSY.get_max_active_power(d, u"SU"))
+
+# An unoffered load starts its range from its limits, not from the energy variable, so it has
+# no shed floor.
+function IOM.get_min_max_limit_values(
+    container::OptimizationContainer,
+    ::Type{ActivePowerVariableLimitsConstraint},
+    d::V,
+    ::DeviceModel{V, PowerLoadDispatch},
+) where {V <: PSY.ControllableLoad}
+    limits = get_min_max_limits(d, ActivePowerVariableLimitsConstraint, PowerLoadDispatch)
+    n = length(get_time_steps(container))
+    if _is_costless_offer(container, d)
+        return (min = zeros(n), max = fill(Float64(limits.max), n))
+    end
+    return (min = fill(Float64(limits.min), n), max = fill(Float64(limits.max), n))
+end
 
 # `P + Σ r_down <= forecast`: down awards consume forecast headroom.
 function add_constraints!(

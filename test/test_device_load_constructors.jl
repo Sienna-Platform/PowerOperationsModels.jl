@@ -1364,3 +1364,61 @@ end
         @test JuMP.lower_bound(p["shiftable_load", 1]) == 0.0
     end
 end
+
+@testset "PowerLoadDispatch up-reserve shed floor is the load minimum" begin
+    priced = LoadCost(;
+        variable_operation_cost = CostCurve(LinearCurve(0.0), PSY.NU, LinearCurve(1.0)),
+        fixed = 0.0,
+    )
+    unoffered = LoadCost(; variable_operation_cost = zero(PSY.CostCurve), fixed = 0.0)
+    for (cost, offered) in ((priced, true), (unoffered, false))
+        sys = PSB.build_system(PSITestSystems, "c_sys5_il"; add_reserves = true)
+        il_load = get_component(InterruptiblePowerLoad, sys, "IloadBus4")
+        shiftable_load = ShiftablePowerLoad(;
+            name = "shiftable_load",
+            available = true,
+            bus = PSY.get_bus(il_load),
+            active_power = PSY.get_active_power(il_load, u"SU"),
+            active_power_limits = (min = 0.1, max = PSY.get_active_power(il_load, u"SU")),
+            reactive_power = PSY.get_reactive_power(il_load, u"SU"),
+            max_active_power = PSY.get_max_active_power(il_load, u"SU"),
+            max_reactive_power = PSY.get_max_reactive_power(il_load, u"SU"),
+            base_power = PSY.get_base_power(il_load, u"NU"),
+            load_balance_time_horizon = 1,
+            operation_cost = cost,
+            input_basis = u"CU",
+        )
+        PSY.add_component!(sys, shiftable_load)
+        PSY.copy_time_series!(shiftable_load, il_load)
+        for service_name in ("Reserve7", "ORDC1")
+            PSY.add_service!(
+                shiftable_load,
+                get_component(OnlineReserve{ReserveUp}, sys, service_name),
+                sys,
+            )
+        end
+
+        template = get_thermal_dispatch_template_network()
+        set_device_model!(template, ShiftablePowerLoad, PowerLoadDispatch)
+        set_service_model!(
+            template,
+            ServiceModel(OnlineReserve{ReserveUp}, RangeReserve; use_slacks = true),
+        )
+        model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
+        @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+              IOM.ModelBuildStatus.BUILT
+        container = get_optimization_container(model)
+        con = IOM.get_constraint(
+            container, ActivePowerVariableLimitsConstraint, ShiftablePowerLoad, "lb")
+        pmax = PSY.get_max_active_power(shiftable_load, u"SU")
+        for t in get_time_steps(container)
+            # (P - sum r_up) >= min; an unoffered load has no shed floor.
+            if offered
+                @test JuMP.normalized_rhs(con["shiftable_load", t]) ≈ 0.1
+            else
+                @test JuMP.normalized_rhs(con["shiftable_load", t]) ≈ -pmax
+            end
+        end
+        @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+    end
+end
