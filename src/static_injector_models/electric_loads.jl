@@ -24,6 +24,15 @@ get_multiplier_value(::Type{<:TimeSeriesParameter}, d::PSY.ElectricLoad, ::Type{
 get_multiplier_value(::Type{ReactivePowerTimeSeriesParameter}, d::PSY.ElectricLoad, ::Type{StaticPowerLoad}) = -1*PSY.get_max_reactive_power(d, u"SU")
 get_multiplier_value(::Type{<:TimeSeriesParameter}, d::PSY.ElectricLoad, ::Type{<:AbstractControllablePowerLoadFormulation}) = PSY.get_max_active_power(d, u"SU")
 
+########################### ActivePowerVariable lower bound, PowerLoadDispatch ####################################
+# PowerLoadDispatch throttles a load but does not turn it off: the lower bound is the load minimum.
+# The time-series minimum (MinActivePowerTimeSeriesParameter) does not apply to loads.
+_static_min_active_power(::PSY.ElectricLoad) = 0.0
+_static_min_active_power(d::PSY.ShiftablePowerLoad) = PSY.get_active_power_limits(d, u"SU").min
+
+# pin_unoffered_loads! resets the lower bound of an unoffered load to zero.
+get_variable_lower_bound(::Type{ActivePowerVariable}, d::PSY.ControllableLoad, ::Type{PowerLoadDispatch}) = _static_min_active_power(d)
+
 ########################### ShiftablePowerLoad #####################################
 
 get_variable_binary(::Type{ShiftUpActivePowerVariable}, ::Type{<:PSY.ElectricLoad}, ::Type{PowerLoadShift}) = false
@@ -659,7 +668,7 @@ function _partition_by_dispatch_basis(
 end
 
 """
-Set the `ActivePowerVariable` upper bound of unoffered loads to zero. Other formulations
+Set the `ActivePowerVariable` bounds of unoffered loads to zero. Other formulations
 keep the bound from `get_variable_upper_bound`.
 """
 function pin_unoffered_loads!(
@@ -670,6 +679,7 @@ function pin_unoffered_loads!(
     _, unoffered = _partition_by_dispatch_basis(container, devices)
     variable = get_variable(container, ActivePowerVariable, L)
     for d in unoffered, t in get_time_steps(container)
+        JuMP.set_lower_bound(variable[PSY.get_name(d), t], 0.0)
         JuMP.set_upper_bound(variable[PSY.get_name(d), t], 0.0)
     end
     return

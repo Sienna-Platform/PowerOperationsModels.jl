@@ -1306,3 +1306,61 @@ end
         @test JuMP.coefficient(objective, p[name, t]) == 0.0
     end
 end
+
+@testset "PowerLoadDispatch active power lower bound is the load minimum" begin
+    priced = LoadCost(;
+        variable_operation_cost = CostCurve(LinearCurve(0.0), PSY.NU, LinearCurve(1.0)),
+        fixed = 0.0,
+    )
+    unoffered = LoadCost(; variable_operation_cost = zero(PSY.CostCurve), fixed = 0.0)
+    # An unoffered load is pinned to zero, so its lower bound must drop to zero too.
+    for (cost, expected_lb, expected_ub) in
+        ((priced, 0.1, nothing), (unoffered, 0.0, 0.0))
+        sys = PSB.build_system(PSITestSystems, "c_sys5_il")
+        il_load = get_component(InterruptiblePowerLoad, sys, "IloadBus4")
+        shiftable_load = ShiftablePowerLoad(;
+            name = "shiftable_load",
+            available = true,
+            bus = PSY.get_bus(il_load),
+            active_power = PSY.get_active_power(il_load, u"SU"),
+            active_power_limits = (min = 0.1, max = PSY.get_active_power(il_load, u"SU")),
+            reactive_power = PSY.get_reactive_power(il_load, u"SU"),
+            max_active_power = PSY.get_max_active_power(il_load, u"SU"),
+            max_reactive_power = PSY.get_max_reactive_power(il_load, u"SU"),
+            base_power = PSY.get_base_power(il_load, u"NU"),
+            load_balance_time_horizon = 1,
+            operation_cost = cost,
+            input_basis = u"CU",
+        )
+        PSY.add_component!(sys, shiftable_load)
+        PSY.copy_time_series!(shiftable_load, il_load)
+        @test POM.get_variable_lower_bound(
+            ActivePowerVariable, shiftable_load, PowerLoadDispatch) ≈ 0.1
+        @test POM.get_variable_lower_bound(
+            ActivePowerVariable, shiftable_load, PowerLoadInterruption) == 0.0
+        @test POM.get_variable_lower_bound(
+            ActivePowerVariable, il_load, PowerLoadDispatch) == 0.0
+
+        template = get_thermal_dispatch_template_network()
+        set_device_model!(template, ShiftablePowerLoad, PowerLoadDispatch)
+        model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
+        @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+              IOM.ModelBuildStatus.BUILT
+        container = get_optimization_container(model)
+        p = IOM.get_variable(container, ActivePowerVariable, ShiftablePowerLoad)
+        for t in get_time_steps(container)
+            @test JuMP.lower_bound(p["shiftable_load", t]) ≈ expected_lb
+            if !isnothing(expected_ub)
+                @test JuMP.upper_bound(p["shiftable_load", t]) == expected_ub
+            end
+        end
+
+        set_device_model!(template, ShiftablePowerLoad, PowerLoadInterruption)
+        model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
+        @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+              IOM.ModelBuildStatus.BUILT
+        p = IOM.get_variable(
+            get_optimization_container(model), ActivePowerVariable, ShiftablePowerLoad)
+        @test JuMP.lower_bound(p["shiftable_load", 1]) == 0.0
+    end
+end
