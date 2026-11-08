@@ -8,13 +8,6 @@ get_variable_multiplier(::Type{<:VariableType}, ::Type{<:PSY.ElectricLoad}, ::Ty
 get_variable_binary(::Type{ActivePowerVariable}, ::Type{<:PSY.ElectricLoad}, ::Type{<:AbstractLoadFormulation}) = false
 get_variable_lower_bound(::Type{ActivePowerVariable}, d::PSY.ElectricLoad, ::Type{<:AbstractLoadFormulation}) = 0.0
 get_variable_upper_bound(::Type{ActivePowerVariable}, d::PSY.ElectricLoad, ::Type{<:AbstractLoadFormulation}) = PSY.get_max_active_power(d, u"SU")
-# An unoffered load has an upper bound of zero. This runs per (device, t): do not allocate.
-function get_variable_upper_bound(::Type{ActivePowerVariable}, d::PSY.ControllableLoad, ::Type{<:Union{PowerLoadDispatch, PowerLoadInterruption}})
-    if _is_costless_offer(PSY.get_operation_cost(d))
-        return 0.0
-    end
-    return PSY.get_max_active_power(d, u"SU")
-end
 
 ########################### ReactivePowerVariable, ElectricLoad ####################################
 
@@ -627,27 +620,47 @@ function add_constraints!(
     return
 end
 
-# True if the cost puts no price on the dispatch. Any attached market-bid offer, including
-# a supply-side offer that a later check rejects, counts as an offer. A time-series key counts
-# as an offer even if its series is inert. A `fixed` cost is not an offer: it prices
-# `OnVariable`, which gates the up award of an unoffered load.
+# True if the cost sets no price on the dispatch. A market-bid cost is costless if both offer
+# curves are trivial. A time-series curve is trivial if its series is inert in all windows. A
+# `fixed` cost is not an offer: it prices `OnVariable`.
 const _ZERO_COST_CURVE = zero(PSY.CostCurve)
-_is_costless_offer(cost::PSY.LoadCost) =
+_is_costless_offer(::PSY.Component, cost::PSY.LoadCost) =
     PSY.get_variable_operation_cost(cost) == _ZERO_COST_CURVE
-_is_costless_offer(cost::MBC_TYPES) =
-    !IOM.is_nontrivial_offer(get_input_offer_curves(cost)) &&
-    !IOM.is_nontrivial_offer(get_output_offer_curves(cost))
-_is_costless_offer(::PSY.OperationalCost) = false
+function _is_costless_offer(d::PSY.Component, cost::MBC_TYPES)
+    return !_has_offer_in_any_window(d, get_input_offer_curves(cost)) &&
+           !_has_offer_in_any_window(d, get_output_offer_curves(cost))
+end
+_is_costless_offer(::PSY.Component, ::PSY.OperationalCost) = false
+
+_has_offer_in_any_window(::PSY.Component, curve) = IOM.is_nontrivial_offer(curve)
+
+# The pin holds for the full simulation, so a real bid in any later window makes the side an
+# offer. `!iszero` keeps a NaN-first curve as an offer, the same as the IOM check.
+function _has_offer_in_any_window(
+    d::PSY.Component,
+    curve::PSY.CostCurve{<:IS.TimeSeriesPiecewiseIncrementalCurve},
+)
+    IOM.is_nontrivial_offer(curve) || return false
+    forecast = IS.get_time_series(d, IS.get_time_series_key(curve))
+    for it in IS.get_initial_times(forecast),
+        fd in IS.get_time_series_values(d, forecast; start_time = it)
+
+        x = IS.get_x_coords(fd)
+        if !iszero(last(x) - first(x))
+            return true
+        end
+    end
+    return false
+end
 
 """
-Split controllable loads into priced and unoffered loads. The model pins an unoffered load
-at zero dispatch. Its limits only set its up-reserve range.
+Split controllable loads into priced and unoffered loads.
 """
 function _partition_by_dispatch_basis(devices::Vector{L}) where {L}
     priced = L[]
     unoffered = L[]
     for d in devices
-        if _is_costless_offer(PSY.get_operation_cost(d))
+        if _is_costless_offer(d, PSY.get_operation_cost(d))
             push!(unoffered, d)
         else
             push!(priced, d)
@@ -655,6 +668,28 @@ function _partition_by_dispatch_basis(devices::Vector{L}) where {L}
     end
     return priced, unoffered
 end
+
+"""
+Set the `ActivePowerVariable` upper bound of unoffered loads to zero.
+"""
+function pin_unoffered_loads!(
+    container::OptimizationContainer,
+    devices::Vector{L},
+    ::Type{<:Union{PowerLoadDispatch, PowerLoadInterruption}},
+) where {L <: PSY.ControllableLoad}
+    _, unoffered = _partition_by_dispatch_basis(devices)
+    variable = get_variable(container, ActivePowerVariable, L)
+    for d in unoffered, t in get_time_steps(container)
+        JuMP.set_upper_bound(variable[PSY.get_name(d), t], 0.0)
+    end
+    return
+end
+
+pin_unoffered_loads!(
+    ::OptimizationContainer,
+    ::Vector{<:PSY.ControllableLoad},
+    ::Type{<:AbstractControllablePowerLoadFormulation},
+) = nothing
 
 """
 Seed the reserve range expressions of unoffered loads with constants, not with
