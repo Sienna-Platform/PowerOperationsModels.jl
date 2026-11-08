@@ -101,6 +101,16 @@ function _power_flow_voltages(sys, model, res, magnitudes)
     return results["bus_results"]
 end
 
+# Generation per bus number in the OPF solution, in MW or MVAr.
+function _opf_bus_generation(sys, res, variable_name)
+    values = read_variable(res, variable_name; table_format = TableFormat.WIDE)
+    by_bus = Dict(PSY.get_number(b) => 0.0 for b in get_components(ACBus, sys))
+    for gen in get_components(ThermalStandard, sys)
+        by_bus[PSY.get_number(PSY.get_bus(gen))] += values[1, get_name(gen)]
+    end
+    return by_bus
+end
+
 function _build_log(model)
     return read(joinpath(IOM.get_output_dir(model), "operation_problem.log"), String)
 end
@@ -134,6 +144,13 @@ end
             name = number_to_name[row.bus_number]
             @test row.Vm ≈ magnitudes[name] atol = 1e-5
             @test row.θ ≈ angles[name] atol = 1e-5
+        end
+        # The slack P and the PV Q absorb a wrong load term, so compare them too.
+        p_opf = _opf_bus_generation(sys, res, "ActivePowerVariable__ThermalStandard")
+        q_opf = _opf_bus_generation(sys, res, "ReactivePowerVariable__ThermalStandard")
+        for row in eachrow(bus_results)
+            @test row.P_gen ≈ p_opf[row.bus_number] atol = 1e-3
+            @test row.Q_gen ≈ q_opf[row.bus_number] atol = 1e-3
         end
     end
 end
