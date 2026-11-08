@@ -1568,7 +1568,7 @@ function construct_device!(
         model,
     )
 
-    add_expressions!(
+    add_hydro_turbine_flow_expressions!(
         container,
         sys,
         TotalHydroFlowRateReservoirIncoming,
@@ -1817,7 +1817,7 @@ function _add_hydro_turbine_water_constraints!(
     D <: HydroTurbineWaterFormulation,
     S <: AbstractNetworkModel,
 }
-    add_expressions!(
+    add_hydro_turbine_flow_expressions!(
         container,
         sys,
         TotalHydroFlowRateTurbineOutgoing,

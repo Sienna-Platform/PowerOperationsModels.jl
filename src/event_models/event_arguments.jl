@@ -37,7 +37,7 @@ function _add_parameters!(
 }
     @debug "adding" T U V _group = IOM.LOG_GROUP_OPTIMIZATION_CONTAINER
     time_steps = get_time_steps(container)
-    parameter_container = add_param_container!(
+    parameter_container = add_event_parameter_container!(
         container,
         T,
         U,

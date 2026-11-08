@@ -20,8 +20,9 @@ end
 
 get_variable_binary(::Type{ReactivePowerVariable}, ::Type{<:PSY.ElectricLoad}, ::Type{<:AbstractLoadFormulation}) = false
 
-get_variable_lower_bound(::Type{ReactivePowerVariable}, d::PSY.ElectricLoad, ::Type{<:AbstractLoadFormulation}) = 0.0
-get_variable_upper_bound(::Type{ReactivePowerVariable}, d::PSY.ElectricLoad, ::Type{<:AbstractLoadFormulation}) = PSY.get_max_reactive_power(d, u"SU")
+# A capacitive load has a negative max_reactive_power: the range is [q_max, 0].
+get_variable_lower_bound(::Type{ReactivePowerVariable}, d::PSY.ElectricLoad, ::Type{<:AbstractLoadFormulation}) = min(0.0, PSY.get_max_reactive_power(d, u"SU"))
+get_variable_upper_bound(::Type{ReactivePowerVariable}, d::PSY.ElectricLoad, ::Type{<:AbstractLoadFormulation}) = max(0.0, PSY.get_max_reactive_power(d, u"SU"))
 
 ########################### ReactivePowerVariable, ElectricLoad ####################################
 

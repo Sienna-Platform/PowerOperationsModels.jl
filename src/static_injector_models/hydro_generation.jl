@@ -2175,7 +2175,7 @@ function add_expressions!(
 end
 
 # Water reaching a tail reservoir is what each upstream turbine draws from its head reservoirs.
-function add_expressions!(
+function add_hydro_turbine_flow_expressions!(
     container::OptimizationContainer,
     sys::PSY.System,
     ::Type{U},
@@ -2211,7 +2211,7 @@ function add_expressions!(
     return
 end
 
-function add_expressions!(
+function add_hydro_turbine_flow_expressions!(
     container::OptimizationContainer,
     sys::PSY.System,
     ::Type{TotalHydroFlowRateTurbineOutgoing},
@@ -2239,6 +2239,7 @@ function add_expressions!(
                 sum(variable[name, reservoir_name, t] for reservoir_name in reservoir_names)
         end
     end
+    return
 end
 
 function add_expressions!(
@@ -3076,7 +3077,14 @@ function _add_parameters!(
     mult = fraction_of_hour * length(time_steps) / HOURS_IN_DAY
     key = AuxVarKey{HydroEnergyOutput, D}("")
     parameter_container =
-        add_param_container!(container, T, D, key, names, [time_steps[end]])
+        add_variable_value_parameter_container!(
+            container,
+            T,
+            D,
+            key,
+            names,
+            [time_steps[end]],
+        )
     jump_model = get_jump_model(container)
     parent_mult = IOM.get_multiplier_array_data(parameter_container)
     parent_param = IOM.get_parameter_array_data(parameter_container)
@@ -3115,7 +3123,7 @@ function _add_parameters!(
     mult = fraction_of_hour * length(time_steps) / HOURS_IN_DAY
     key = ExpressionKey{TotalHydroFlowRateReservoirOutgoing, D}("")
     parameter_container =
-        add_param_container!(container, T, D, key, names, time_steps)
+        add_variable_value_parameter_container!(container, T, D, key, names, time_steps)
     jump_model = get_jump_model(container)
     parent_mult = IOM.get_multiplier_array_data(parameter_container)
     parent_param = IOM.get_parameter_array_data(parameter_container)

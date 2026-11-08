@@ -907,9 +907,8 @@ function construct_device!(
 
     # The flows copy the nodal balance, so they are built here, after the network
     # ArgumentConstructStage has added the phase-shift injections to it.
-    add_expressions!(
+    add_ptdf_branch_flow_expressions!(
         container,
-        PTDFBranchFlow,
         devices,
         device_model,
         network_model,

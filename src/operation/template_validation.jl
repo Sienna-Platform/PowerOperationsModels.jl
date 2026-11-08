@@ -403,18 +403,18 @@ function _check_lhs_time_series_types(component_model, system::PSY.System, ts_ty
         for component in get_available_components(component_model, system)
             PSY.has_time_series(component, ts_name) || continue
             PSY.has_time_series(component, ts_type, ts_name) && continue
-            throw(
-                IS.ConflictingInputsError(
-                    "$(PSY.get_name(component)) carries a $(ts_name) time series, but not \
-                    as $(ts_type), which is what this model reads. Attach the series \
-                    before calling transform_single_time_series!, or add it directly as \
-                    $(ts_type).",
-                ),
-            )
+            throw(_time_series_type_mismatch(component, ts_name, ts_type))
         end
     end
     return
 end
+
+# A component carries `ts_name` only under a time series type the model does not read.
+_time_series_type_mismatch(component, ts_name, ts_type) = IS.ConflictingInputsError(
+    "$(PSY.get_name(component)) carries a $(ts_name) time series, but not as $(ts_type), \
+    which is what this model reads. Attach the series before calling \
+    transform_single_time_series!, or add it directly as $(ts_type).",
+)
 
 function _check_security_constrained_three_winding_transformer(
     branch_model::DeviceModel{
