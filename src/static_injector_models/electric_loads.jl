@@ -365,7 +365,7 @@ function add_constraints!(
     ::NetworkModel{X},
 ) where {V <: PSY.ControllableLoad, W <: PowerLoadInterruption, X <: AbstractNetworkModel}
     if has_service_model(model)
-        priced, unoffered = _partition_by_dispatch_basis(container, devices)
+        priced, unoffered = _partition_by_dispatch_basis(devices)
         if !isempty(priced)
             _add_interruption_gate!(
                 container,
@@ -621,32 +621,46 @@ function add_constraints!(
 end
 
 # True if the cost sets no price on the dispatch. A market-bid cost is costless if both offer
-# curves are trivial. A time-series curve is trivial if its series is inert. A `fixed` cost is
-# not an offer: it prices `OnVariable`.
+# curves are trivial. A time-series curve is trivial if its series is inert in all windows. A
+# `fixed` cost is not an offer: it prices `OnVariable`.
 const _ZERO_COST_CURVE = zero(PSY.CostCurve)
-_is_costless_offer(::OptimizationContainer, ::PSY.Component, cost::PSY.LoadCost) =
+_is_costless_offer(::PSY.Component, cost::PSY.LoadCost) =
     PSY.get_variable_operation_cost(cost) == _ZERO_COST_CURVE
-function _is_costless_offer(
-    container::OptimizationContainer,
-    d::PSY.Component,
-    cost::MBC_TYPES,
-)
-    return !IOM.is_nontrivial_offer(container, d, get_input_offer_curves(cost)) &&
-           !IOM.is_nontrivial_offer(container, d, get_output_offer_curves(cost))
+function _is_costless_offer(d::PSY.Component, cost::MBC_TYPES)
+    return !_has_offer_in_any_window(d, get_input_offer_curves(cost)) &&
+           !_has_offer_in_any_window(d, get_output_offer_curves(cost))
 end
-_is_costless_offer(::OptimizationContainer, ::PSY.Component, ::PSY.OperationalCost) = false
+_is_costless_offer(::PSY.Component, ::PSY.OperationalCost) = false
+
+_has_offer_in_any_window(::PSY.Component, curve) = IOM.is_nontrivial_offer(curve)
+
+# The pin holds for the full simulation, so a real bid in any later window makes the side an
+# offer. `!iszero` keeps a NaN-first curve as an offer, the same as the IOM check.
+function _has_offer_in_any_window(
+    d::PSY.Component,
+    curve::PSY.CostCurve{<:IS.TimeSeriesPiecewiseIncrementalCurve},
+)
+    IOM.is_nontrivial_offer(curve) || return false
+    forecast = IS.get_time_series(d, IS.get_time_series_key(curve))
+    for it in IS.get_initial_times(forecast),
+        fd in IS.get_time_series_values(d, forecast; start_time = it)
+
+        x = IS.get_x_coords(fd)
+        if !iszero(last(x) - first(x))
+            return true
+        end
+    end
+    return false
+end
 
 """
 Split controllable loads into priced and unoffered loads.
 """
-function _partition_by_dispatch_basis(
-    container::OptimizationContainer,
-    devices::Vector{L},
-) where {L}
+function _partition_by_dispatch_basis(devices::Vector{L}) where {L}
     priced = L[]
     unoffered = L[]
     for d in devices
-        if _is_costless_offer(container, d, PSY.get_operation_cost(d))
+        if _is_costless_offer(d, PSY.get_operation_cost(d))
             push!(unoffered, d)
         else
             push!(priced, d)
@@ -663,7 +677,7 @@ function pin_unoffered_loads!(
     devices::Vector{L},
     ::Type{<:Union{PowerLoadDispatch, PowerLoadInterruption}},
 ) where {L <: PSY.ControllableLoad}
-    _, unoffered = _partition_by_dispatch_basis(container, devices)
+    _, unoffered = _partition_by_dispatch_basis(devices)
     variable = get_variable(container, ActivePowerVariable, L)
     for d in unoffered, t in get_time_steps(container)
         JuMP.set_upper_bound(variable[PSY.get_name(d), t], 0.0)
@@ -773,7 +787,7 @@ function add_unoffered_up_reserve_constraints!(
     model::DeviceModel{L, <:AbstractControllablePowerLoadFormulation},
 ) where {L <: PSY.ControllableLoad}
     haskey(get_time_series_names(model), ActivePowerTimeSeriesParameter) || return
-    _, unoffered = _partition_by_dispatch_basis(container, devices)
+    _, unoffered = _partition_by_dispatch_basis(devices)
     ts_name = get_time_series_names(model)[ActivePowerTimeSeriesParameter]
     ts_type = get_default_time_series_type(container)
     forecasted = [d for d in unoffered if IS.has_time_series(d, ts_type, ts_name)]
@@ -799,7 +813,7 @@ function add_unoffered_outage_reserve_constraints!(
     container::OptimizationContainer,
     devices_with_attributes::Vector{L},
 ) where {L <: PSY.ControllableLoad}
-    _, unoffered = _partition_by_dispatch_basis(container, devices_with_attributes)
+    _, unoffered = _partition_by_dispatch_basis(devices_with_attributes)
     status = get_parameter_array(container, AvailableStatusParameter, L)
     _add_unoffered_up_reserve_bound!(
         container,
@@ -825,7 +839,7 @@ function add_reserve_range_expressions!(
     for T in (ActivePowerRangeExpressionLB, ActivePowerRangeExpressionUB)
         add_expressions!(container, T, devices, model)
     end
-    priced, unoffered = _partition_by_dispatch_basis(container, devices)
+    priced, unoffered = _partition_by_dispatch_basis(devices)
     _validate_unoffered_no_reserve_down(model, unoffered)
     for T in (ActivePowerRangeExpressionLB, ActivePowerRangeExpressionUB)
         add_to_expression!(container, T, ActivePowerVariable, priced, model, network_model)
@@ -842,7 +856,7 @@ function add_to_objective_function!(
     ::DeviceModel{T, U},
     ::Type{<:AbstractNetworkModel},
 ) where {T <: PSY.ControllableLoad, U <: PowerLoadDispatch}
-    priced, _ = _partition_by_dispatch_basis(container, devices)
+    priced, _ = _partition_by_dispatch_basis(devices)
     add_variable_cost!(container, ActivePowerVariable, priced, U)
     return
 end
@@ -853,7 +867,7 @@ function add_to_objective_function!(
     ::DeviceModel{T, U},
     ::Type{<:AbstractNetworkModel},
 ) where {T <: PSY.ControllableLoad, U <: PowerLoadInterruption}
-    priced, _ = _partition_by_dispatch_basis(container, devices)
+    priced, _ = _partition_by_dispatch_basis(devices)
     add_variable_cost!(container, ActivePowerVariable, priced, U)
     add_proportional_cost!(container, OnVariable, devices, U)
     return
