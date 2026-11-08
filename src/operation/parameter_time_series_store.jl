@@ -644,6 +644,7 @@ is_input_parameter(::IOM.ParameterKey, pc::IOM.ParameterContainer)::Bool =
 # series has value axes: the recast writes a parameter row back in this layout. Only the 3-D
 # recast reads the layout, so 2-D parameters skip the metadata query.
 _add_value_layout!(
+    ::OptimizationContainer,
     ::JuMP.Containers.DenseAxisArray{<:Any, 2},
     value_axes,
     value_types,
@@ -652,11 +653,14 @@ _add_value_layout!(
     attributes,
 ) = nothing
 
-function _add_value_layout!(raw, value_axes, value_types, name, owner, attributes)
-    rows = IS.list_time_series_metadata(
-        owner;
-        time_series_type = IOM.get_time_series_type(attributes),
-        name = IOM.get_time_series_name(attributes),
+function _add_value_layout!(
+    container::OptimizationContainer, raw, value_axes, value_types, name, owner, attributes,
+)
+    rows = list_model_series_metadata(
+        container,
+        owner,
+        IOM.get_time_series_type(attributes),
+        IOM.get_time_series_name(attributes),
     )
     # Several transforms of one series (other intervals or horizons) are legal and carry no
     # value axes. Only series with value axes define a layout, and two of them are ambiguous.
@@ -678,6 +682,7 @@ end
 
 function input_series_descriptor(
     sys::PSY.System,
+    container::OptimizationContainer,
     key::IOM.ParameterKey,
     pc::IOM.ParameterContainer,
 )::InputSeriesDescriptor
@@ -693,7 +698,7 @@ function input_series_descriptor(
         if PSY.has_component(sys, D, name)
             c = PSY.get_component(D, sys, name)
             owners[name] = (IS.get_id(c), string(nameof(typeof(c))))
-            _add_value_layout!(raw, value_axes, value_types, name, c, attributes)
+            _add_value_layout!(container, raw, value_axes, value_types, name, c, attributes)
         else
             push!(unresolved, name)
         end
@@ -923,7 +928,7 @@ function write_model_inputs!(
     windows.horizon_count < 2 && return nothing
     for (key, pc) in IOM.get_parameters(container)
         is_input_parameter(key, pc) || continue
-        d = input_series_descriptor(sys, key, pc)
+        d = input_series_descriptor(sys, container, key, pc)
         _write_input!(store, d.time_series_type, d, IOM.get_parameter_values(pc), windows)
     end
     return nothing
