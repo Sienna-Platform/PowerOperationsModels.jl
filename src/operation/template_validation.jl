@@ -55,6 +55,7 @@ function validate_template_impl!(model::IOM.AbstractOptimizationModel)
         _check_device_filter(k, device_model)
         make_device_cache!(device_model, system, get_check_components(settings))
         if isempty(get_device_cache(device_model))
+            _warn_empty_filter(k, device_model)
             @info "The system data doesn't include devices of type $(k), consider changing the models in the template" _group =
                 IOM.LOG_GROUP_MODELS_VALIDATION
             push!(device_keys_to_delete, k)
@@ -86,6 +87,7 @@ function validate_template_impl!(model::IOM.AbstractOptimizationModel)
         _check_device_filter(k, device_model)
         make_device_cache!(device_model, system, validate_branches)
         if isempty(get_device_cache(device_model))
+            _warn_empty_filter(k, device_model)
             @info "The system data doesn't include Branches of type $(k), consider changing the models in the template" _group =
                 IOM.LOG_GROUP_MODELS_VALIDATION
             push!(branch_keys_to_delete, k)
@@ -192,6 +194,16 @@ function _check_device_filter(key::Symbol, model::DeviceModel)
         )
     end
     _check_filter_selector_value(key, get_attribute(model, FILTER_SELECTOR_KEY))
+    return
+end
+
+# A selector of a different component type selects nothing, so the template drops the model.
+function _warn_empty_filter(key::Symbol, model::DeviceModel)
+    attributes = get_attributes(model)
+    if haskey(attributes, FILTER_SELECTOR_KEY) || haskey(attributes, "filter_function")
+        @warn "The filter of model $(key) selects no available device. The template drops the model." _group =
+            IOM.LOG_GROUP_MODELS_VALIDATION
+    end
     return
 end
 
