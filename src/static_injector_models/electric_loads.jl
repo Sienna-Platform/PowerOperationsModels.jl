@@ -683,6 +683,33 @@ end
 _is_reserve_down_service_model(::ServiceModel{<:PSY.Reserve{PSY.ReserveDown}}) = true
 _is_reserve_down_service_model(::ServiceModel) = false
 
+function _validate_unoffered_service!(
+    model::DeviceModel{L, <:AbstractControllablePowerLoadFormulation},
+    unoffered_names::Set{String},
+    service_model::ServiceModel,
+) where {L <: PSY.ControllableLoad}
+    _is_reserve_down_service_model(service_model) || return
+    for (service_name, by_device_type) in get_contributing_devices_map(service_model)
+        haskey(by_device_type, L) || continue
+        members = by_device_type[L]::Vector{L}
+        offered = [
+            PSY.get_name(d) for d in members if
+            PSY.get_name(d) in unoffered_names
+        ]
+        isempty(offered) && continue
+        throw(
+            IS.ConflictingInputsError(
+                "Unoffered (costless) $(L) devices $(offered) contribute to ReserveDown " *
+                "service \"$(service_name)\" of $(get_component_type(service_model)), " *
+                "modeled under $(get_formulation(model)): an unoffered load is pinned " *
+                "at zero and its down-reserve is structurally zero. Price the load's " *
+                "offer, or remove it from the ReserveDown service.",
+            ),
+        )
+    end
+    return
+end
+
 """
 An unoffered load is pinned at zero dispatch. Its down-reserve is zero, because it has no
 dispatch to raise. Throw an error if the template asks such a load for a ReserveDown service.
@@ -693,24 +720,7 @@ function _validate_unoffered_no_reserve_down(
 ) where {L <: PSY.ControllableLoad}
     unoffered_names = Set(PSY.get_name.(unoffered))
     for service_model in get_services(model)
-        _is_reserve_down_service_model(service_model) || continue
-        for (service_name, by_device_type) in get_contributing_devices_map(service_model)
-            haskey(by_device_type, L) || continue
-            offered = [
-                PSY.get_name(d) for d in by_device_type[L] if
-                PSY.get_name(d) in unoffered_names
-            ]
-            isempty(offered) && continue
-            throw(
-                IS.ConflictingInputsError(
-                    "Unoffered (costless) $(L) devices $(offered) contribute to ReserveDown " *
-                    "service \"$(service_name)\" of $(get_component_type(service_model)), " *
-                    "modeled under $(get_formulation(model)): an unoffered load is pinned " *
-                    "at zero and its down-reserve is structurally zero. Price the load's " *
-                    "offer, or remove it from the ReserveDown service.",
-                ),
-            )
-        end
+        _validate_unoffered_service!(model, unoffered_names, service_model)
     end
     return
 end
