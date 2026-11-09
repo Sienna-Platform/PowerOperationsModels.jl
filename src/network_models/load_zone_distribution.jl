@@ -83,19 +83,24 @@ _factor_axes_message(component) =
     "The $(DISTRIBUTION_FACTOR_TS_NAME) series of $(summary(component)) must be one " *
     "[time step, bus] matrix with value_axes = [IS.TimeSeriesAxis(\"bus\", bus numbers)]."
 
-function _factor_series_rows(component::PSY.Component, ts_type::Type{<:IS.TimeSeriesData})
-    return IS.list_time_series_metadata(
-        component;
-        time_series_type = ts_type,
-        name = DISTRIBUTION_FACTOR_TS_NAME,
+function _factor_series_rows(
+    container::OptimizationContainer,
+    component::PSY.Component,
+    ts_type::Type{<:IS.TimeSeriesData},
+)
+    return list_model_series_metadata(
+        container, component, ts_type, DISTRIBUTION_FACTOR_TS_NAME,
     )
 end
 
 """
 Whether `component` owns a `distribution_factor` series of type `ts_type`.
 """
-has_distribution_factors(component::PSY.Component, ts_type::Type{<:IS.TimeSeriesData}) =
-    !isempty(_factor_series_rows(component, ts_type))
+has_distribution_factors(
+    container::OptimizationContainer,
+    component::PSY.Component,
+    ts_type::Type{<:IS.TimeSeriesData},
+) = !isempty(_factor_series_rows(container, component, ts_type))
 
 """
 Bus-number labels of the `distribution_factor` series that `component` owns, read from its
@@ -117,7 +122,6 @@ function _factor_series_labels(
         )
     end
     md = only(rows)
-    _check_window_resolution(container, md, component)
     return _check_series_layout(
         IS.get_value_axes(md), ["bus"], Int64, _factor_axes_message(component),
     )
@@ -127,7 +131,7 @@ _factor_series_labels(container::OptimizationContainer, component::PSY.Component
     _factor_series_labels(
         container,
         component,
-        _factor_series_rows(component, get_default_time_series_type(container)),
+        _factor_series_rows(container, component, get_default_time_series_type(container)),
     )
 
 # Bus by number, built once per argument-stage call: factor labels resolve through it, so
@@ -202,7 +206,7 @@ _factor_bus_labels(
     container,
     zone,
     buses,
-    _factor_series_rows(zone, get_default_time_series_type(container)),
+    _factor_series_rows(container, zone, get_default_time_series_type(container)),
 )
 
 # The extra parameter axis between zone and time: positions 1:n, n the most buses any
@@ -231,7 +235,7 @@ function get_distribution_factors(
     sys::PSY.System,
     zone::PSY.LoadZone,
 )
-    if !has_distribution_factors(zone, get_default_time_series_type(container))
+    if !has_distribution_factors(container, zone, get_default_time_series_type(container))
         return _error_no_factors(zone)
     end
     buses = _buses_by_number(sys)
@@ -407,7 +411,7 @@ function _add_load_zone_load!(
     labels = Dict{String, Vector{Int}}()
     for zone in zones
         if _needs_factors(network_model, _zone_members(members, zone))
-            rows = _factor_series_rows(zone, ts_type)
+            rows = _factor_series_rows(container, zone, ts_type)
             if !isempty(rows)
                 labels[PSY.get_name(zone)] =
                     _factor_bus_labels(container, zone, buses, rows)
@@ -613,7 +617,7 @@ function _first_load_zone_lhs_component(
     members = _members_by_zone(_buses_by_number(sys))
     for zone in _loaded_zones(container, sys, network_model, ts_type)
         if _needs_factors(network_model, _zone_members(members, zone)) &&
-           has_distribution_factors(zone, ts_type)
+           has_distribution_factors(container, zone, ts_type)
             return (zone, DistributionFactorParameter)
         end
     end

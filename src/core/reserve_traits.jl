@@ -179,6 +179,33 @@ supports_reserve_provision(::Type{<:AbstractDeviceFormulation}) = true
 # cannot express.
 supports_reserve_provision(::Type{<:AbstractLoadFormulation}) = false
 
+function _push_offline_awards!(
+    offline::Vector{Tuple{String, IOM.JuMPArray, Set{String}, Bool, Bool}},
+    container::OptimizationContainer,
+    ::Type{V},
+    sm::ServiceModel{S},
+) where {V <: PSY.Device, S <: PSY.Service}
+    _is_offline_reserve(S) || return
+    only_off = something(get_attribute(sm, "offline_only"), false)::Bool
+    no_shut = something(get_attribute(sm, "exclude_shutdown_step"), false)::Bool
+    for (service_name, dev_map) in get_contributing_devices_map(sm)
+        haskey(dev_map, V) || continue
+        members = dev_map[V]::Vector{V}
+        variable = _reserve_variable(container, V, S)
+        push!(
+            offline,
+            (
+                service_name,
+                variable,
+                Set(PSY.get_name(m) for m in members),
+                only_off,
+                no_shut,
+            ),
+        )
+    end
+    return
+end
+
 """
 Offline services on `model` that devices of type `V` contribute to, for the
 [`OfflineReserveBandConstraint`](@ref) builders: `(service name, award variable, member
@@ -192,19 +219,7 @@ function _offline_reserve_awards(
 ) where {V <: PSY.Device}
     offline = Tuple{String, IOM.JuMPArray, Set{String}, Bool, Bool}[]
     for sm in get_services(model)
-        S = get_component_type(sm)
-        _is_offline_reserve(S) || continue
-        only_off = something(get_attribute(sm, "offline_only"), false)
-        no_shut = something(get_attribute(sm, "exclude_shutdown_step"), false)
-        for (service_name, dev_map) in get_contributing_devices_map(sm)
-            members = get(dev_map, V, nothing)
-            isnothing(members) && continue
-            variable = _reserve_variable(container, V, S)
-            push!(
-                offline,
-                (service_name, variable, Set(PSY.get_name.(members)), only_off, no_shut),
-            )
-        end
+        _push_offline_awards!(offline, container, V, sm)
     end
     return offline
 end

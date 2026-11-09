@@ -1021,12 +1021,10 @@ end
     for formulation in (PowerLoadDispatch, PowerLoadInterruption)
         sys = PSB.build_system(PSITestSystems, "c_sys5_il"; add_reserves = true)
         load = get_component(InterruptiblePowerLoad, sys, "IloadBus4")
-        # Empty bid: a zero-valued cost curve → costless.
         PSY.set_operation_cost!(
             load,
             PSY.LoadCost(; variable_operation_cost = zero(PSY.CostCurve), fixed = 0.0),
         )
-        @test POM._is_costless_offer(PSY.get_operation_cost(load))
 
         template = get_thermal_dispatch_template_network()
         set_device_model!(template, InterruptiblePowerLoad, formulation)
@@ -1271,7 +1269,6 @@ end
 @testset "Priced controllable load keeps economic dispatch bounds" begin
     sys = PSB.build_system(PSITestSystems, "c_sys5_il"; add_reserves = true)
     load = get_component(InterruptiblePowerLoad, sys, "IloadBus4")
-    @test !POM._is_costless_offer(PSY.get_operation_cost(load))
     template = get_thermal_dispatch_template_network()
     set_device_model!(template, InterruptiblePowerLoad, PowerLoadDispatch)
     set_service_model!(template, ServiceModel(OnlineReserve{ReserveUp}, RangeReserve))

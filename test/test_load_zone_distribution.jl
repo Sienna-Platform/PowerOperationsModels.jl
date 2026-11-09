@@ -275,6 +275,20 @@ end
     )
 end
 
+@testset "A same-name factor series of another resolution is not the model's series" begin
+    sys, zone, zone_buses = _build_zone_system()
+    container, _ = _build_factor_model(sys)
+    numbers = PSY.get_number.(zone_buses)
+    PSY.add_time_series!(
+        sys, zone, _factor_matrix(sys, numbers, [0.1, 0.9]; resolution = Minute(30));
+        features = Dict("year" => 2030),
+    )
+    ts_type = POM.get_default_time_series_type(container)
+    @test POM.has_distribution_factors(container, zone, ts_type)
+    @test POM._factor_bus_labels(container, zone, POM._buses_by_number(sys)) ==
+          sort(numbers)
+end
+
 # `_build_zone_system` plus bus 99, a zone member on a radial line from the zone's first bus;
 # the factors are 0.5, 0.4 and 0.1.
 function _build_leaf_zone_system()
