@@ -104,8 +104,8 @@ In the schedule, `UNCOMMITTED` means the unit must be offline in that step, unli
 `commitment_mode` field, where it means the unit is free to be committed.
 The parameter is opt-in: it is built only for devices that carry the series, so a model where
 no device has it is unchanged.
-A unit with a static `commitment_mode` of `MUST_RUN` has no `OnVariable` and cannot carry the
-series.
+A unit with a static `commitment_mode` of `MUST_RUN` has no `OnVariable`, so its series is
+ignored with a warning.
 Default time series name: `"commitment_status"`.
 """
 struct StatusScheduleTimeSeriesParameter <: TimeSeriesParameter end

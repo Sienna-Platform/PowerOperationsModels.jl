@@ -934,8 +934,8 @@ const _MUST_RUN_VALUE = Float64(Int(PSY.CommitmentModes.MUST_RUN))
 
 """
 Return the devices that carry the [`StatusScheduleTimeSeriesParameter`](@ref) series. A series
-stored only under a type the model does not read, or on a unit whose static
-`commitment_mode` is `MUST_RUN` (it has no `OnVariable`), is an error.
+stored only under a type the model does not read is an error. A unit whose static
+`commitment_mode` is `MUST_RUN` has no `OnVariable`, so its series is ignored with a warning.
 """
 function _status_schedule_devices(
     container::OptimizationContainer,
@@ -958,13 +958,10 @@ function _status_schedule_devices(
             )
         end
         if _is_must_run(d)
-            throw(
-                IS.ConflictingInputsError(
-                    "$(PSY.get_name(d)) carries a $(ts_name) time series, but its \
-                    commitment_mode is MUST_RUN, so it has no OnVariable to schedule. Set \
-                    commitment_mode to COMMITTED and use MUST_RUN values in the series.",
-                ),
-            )
+            @warn "$(PSY.get_name(d)) carries a $(ts_name) time series, but its \
+                commitment_mode is MUST_RUN, so it has no OnVariable to schedule; the \
+                series is ignored. Set commitment_mode to COMMITTED to apply it."
+            continue
         end
         push!(scheduled, d)
     end

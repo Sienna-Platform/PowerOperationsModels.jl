@@ -568,7 +568,7 @@ Each value is the integer of a `PSY.CommitmentModes` value, and [`CommitmentStat
 Start and stop variables follow from `OnVariable`, so a maintenance window forces a shutdown before it and a paid start after it.
 Devices without the series get no parameter and no constraint, so a model where no device carries it is unchanged.
 Both rows are affine in the parameter value, so simulation steps update the forced periods without rebuilding the model.
-A unit whose static `commitment_mode` is `MUST_RUN` has no `OnVariable`, and carrying the series fails the build.
+A unit whose static `commitment_mode` is `MUST_RUN` has no `OnVariable`, so its series is ignored with a warning.
 
 `FixedOutput` supports AC networks: for thermal devices its `ArgumentConstructStage` wires
 both `ActivePowerTimeSeriesParameter` and `ReactivePowerTimeSeriesParameter` into their

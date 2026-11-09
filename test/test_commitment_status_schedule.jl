@@ -193,16 +193,22 @@ end
     @test all(_on_values(model, ThermalMultiStart, name) .== 0)
 end
 
-@testset "A static MUST_RUN unit with a schedule fails the build" begin
+@testset "A static MUST_RUN unit ignores its schedule with a warning" begin
     sys = PSB.build_system(PSITestSystems, "c_sys5_uc")
     sundance = get_component(ThermalStandard, sys, "Sundance")
     PSY.set_commitment_mode!(sundance, CM.MUST_RUN)
     _add_status_schedule!(sys, sundance, fill(_schedule(CM.UNCOMMITTED, 1:3), 2))
-    status, output_dir = _build_status_model(_status_uc_model(sys))
-    @test status == ModelBuildStatus.FAILED
+    model = _status_uc_model(sys)
+    status, output_dir = _build_status_model(model)
+    @test status == ModelBuildStatus.BUILT
     log = read(joinpath(output_dir, "operation_problem.log"), String)
     @test occursin("Sundance carries a commitment_status time series", log)
-    @test occursin("commitment_mode is MUST_RUN", log)
+    @test occursin("the series is ignored", log)
+    # The only scheduled unit was skipped, so nothing is built for the schedule.
+    container = IOM.get_optimization_container(model)
+    @test !IOM.has_container_key(
+        container, StatusScheduleTimeSeriesParameter, ThermalStandard)
+    @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
 end
 
 @testset "A value that is not a CommitmentModes value fails the build" begin
