@@ -1253,7 +1253,6 @@ function construct_device!(
     add_constraints!(
         container, sys, NetworkFlowConstraint, devices, device_model, network_model,
     )
-    add_event_constraints!(container, devices, device_model, network_model)
     add_constraints!(
         container, sys, AngleDifferenceConstraint, devices, device_model, network_model,
     )
@@ -1407,6 +1406,29 @@ function construct_device!(
         device_model,
         network_model,
     )
+
+    outaged = [
+        d for d in devices if iszero(_branch_status_values(container, B, PSY.get_name(d)))
+    ]
+    if !isempty(outaged)
+        vmodf = get_contingency_matrix(network_model)
+        _, mods = PNM._classify_outage_components(vmodf, outaged)
+        nm = PNM.NetworkModification(join(PSY.get_name.(outaged)), mods)
+        wf = PNM.compute_woodbury_factors(vmodf, nm)
+        islands = Dict{Int,Vector{Int}}()
+        for (bus_index, island_group) in enumerate(wf.bus_island_labels)
+            push!(get!(Vector{Int}, islands, island_group), bus_index)
+        end
+        apb = get_expression(container, ActivePowerBalance, PSY.ACBus)
+        jump_model = get_jump_model(container)
+        time_steps = get_time_steps(container)
+        for buses in values(islands)
+            for t in time_steps
+                JuMP.@constraint(jump_model, sum(apb[bus, t] for bus in buses) == 0.0)
+            end
+        end
+    end
+
     add_feedforward_constraints!(container, device_model, devices)
     add_to_objective_function!(container, devices, device_model, PTDFNetworkModel)
     add_constraint_dual!(container, sys, device_model)
