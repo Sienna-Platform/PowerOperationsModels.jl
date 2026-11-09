@@ -380,8 +380,8 @@ end
 @testset "ThermalStandard + thermal dispatch + static MBC" begin
     # p == Σδ + x1: the offer's first breakpoint is a constant offset.
     for (F, x1) in (
-        (POM.ThermalBasicDispatch, 0.1),
-        (POM.ThermalStandardDispatch, 0.1),
+        (POM.BasicDispatch, 0.1),
+        (POM.StandardDispatch, 0.1),
         (POM.ThermalDispatchNoMin, 0.0),
     )
         container, devs = _dispatch_container(_thermal_offer(x1), F)
@@ -448,10 +448,10 @@ end
 
 @testset "Market offers build and solve under thermal dispatch" begin
     # A dear offer from zero: NoMin backs Park City off below its 65 MW minimum.
-    # ThermalStandardDispatch is infeasible on c_sys5_uc, offers or not.
+    # StandardDispatch is infeasible on c_sys5_uc, offers or not.
     for (F, x1, price, below_min, case) in (
-        (POM.ThermalBasicDispatch, 65.0, 5.0, false, "c_sys5_uc"),
-        (POM.ThermalStandardDispatch, 65.0, 5.0, false, "c_sys5"),
+        (POM.BasicDispatch, 65.0, 5.0, false, "c_sys5_uc"),
+        (POM.StandardDispatch, 65.0, 5.0, false, "c_sys5"),
         (POM.ThermalDispatchNoMin, 0.0, 1.0e4, true, "c_sys5_uc"),
     )
         model = _dispatch_offer_model(_dispatch_offer_system(x1, price; case), F)

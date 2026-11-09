@@ -236,7 +236,7 @@ function _validate_offer_start(
     throw(
         ArgumentError(
             "$(PSY.get_name(component)): ThermalDispatchNoMin needs market offers that \
-            start at zero power. Start the offer at zero or use ThermalBasicDispatch.",
+            start at zero power. Start the offer at zero or use BasicDispatch.",
         ),
     )
 end

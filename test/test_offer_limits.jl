@@ -60,7 +60,7 @@ const _OL_SERVICE_TYPES =
 function _ol_template(
     attributes;
     sys,
-    formulation = ThermalBasicUnitCommitment,
+    formulation = BasicUnitCommitment,
     duals = DataType[],
     service_types = _OL_SERVICE_TYPES,
 )
@@ -514,7 +514,7 @@ end
         ("c_sys5_hy", PSY.HydroDispatch, HydroDispatchRunOfRiver),
         ("c_sys5_hy", PSY.HydroDispatch, FixedOutput),
         ("c_sys5_uc", PSY.ThermalStandard, FixedOutput),
-        ("c_sys5_uc", PSY.ThermalStandard, ThermalBasicUnitCommitment),
+        ("c_sys5_uc", PSY.ThermalStandard, BasicUnitCommitment),
     )
         device = first(PSY.get_components(D, PSB.build_system(PSITestSystems, sys_name)))
         @test POM.get_multiplier_value(POM.ReserveOfferLinkParameter, device, F) == 1.0
