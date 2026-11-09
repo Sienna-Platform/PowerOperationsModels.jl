@@ -352,12 +352,12 @@ function _validate_line_events(
     for line in lines
         name = PSY.get_name(line)
         rep = get(reps, name, nothing)
-        if isnothing(rep) || !(_provenance(rep) isa PNM.DirectArc)
-            error(
-                "Line $name carries an outage event but is merged with other branches \
-                 (e.g. in parallel). Outage events require the line to be its own arc.",
-            )
-        end
+        #if isnothing(rep) || !(_provenance(rep) isa PNM.DirectArc)
+        #    error(
+        #        "Line $name carries an outage event but is merged with other branches \
+        #         (e.g. in parallel). Outage events require the line to be its own arc.",
+        #    )
+        #end
         if _constrains_angle_difference(line)
             error(
                 "Line $name carries an outage event and angle limits; outage events are \

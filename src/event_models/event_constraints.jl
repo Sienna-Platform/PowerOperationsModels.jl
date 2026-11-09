@@ -486,56 +486,13 @@ end
 # Line outages under DCPNetworkModel with StaticBranchBounds
 #################################################################################
 
-# The Ohm's-law row reads the line's status as a coefficient (see `_branch_status_values`),
-# so an open line carries `p == 0` and leaves its terminal angles free. The status-scaled
-# bounds keep the flow at zero when slacks relax the Ohm's-law row.
-function add_event_constraints!(
+# ActivePower is zeroed on an outage. Slacks are ignored.
+add_event_constraints!(
     container::OptimizationContainer,
     devices::Vector{PSY.Line},
     device_model::DeviceModel{PSY.Line, StaticBranchBounds},
     network_model::NetworkModel{DCPNetworkModel},
-)
-    _for_each_event_devices(devices, device_model) do lines, _
-        _add_line_outage_constraints!(container, lines, device_model, network_model)
-    end
-    return
-end
-
-function _add_line_outage_constraints!(
-    container::OptimizationContainer,
-    lines::Vector{PSY.Line},
-    device_model::DeviceModel{PSY.Line, StaticBranchBounds},
-    network_model::NetworkModel{DCPNetworkModel},
-)
-    time_steps = get_time_steps(container)
-    names = PSY.get_name.(lines)
-    flow = get_variable(container, FlowActivePowerVariable, PSY.Line)
-    status = get_parameter_array(container, AvailableStatusParameter, PSY.Line)
-    con_ub = add_constraints_container!(
-        container, ActivePowerOutageConstraint, PSY.Line, names, time_steps; meta = "ub",
-    )
-    con_lb = add_constraints_container!(
-        container, ActivePowerOutageConstraint, PSY.Line, names, time_steps; meta = "lb",
-    )
-    reps = Dict(
-        rep.name => rep for
-        rep in _representative_branches(network_model, PSY.Line, NetworkFlowConstraint)
-    )
-    jump_model = get_jump_model(container)
-    for line in lines
-        name = PSY.get_name(line)
-        rating = _flow_limits(reps[name], device_model).max
-        for t in time_steps
-            con_ub[name, t] = JuMP.@constraint(
-                jump_model, flow[name, t] <= rating * status[name, t],
-            )
-            con_lb[name, t] = JuMP.@constraint(
-                jump_model, flow[name, t] >= -rating * status[name, t],
-            )
-        end
-    end
-    return
-end
+) = nothing
 
 # A branch's availability status at each step, read as a left-hand-side coefficient. Branches
 # without an outage event are always available.
