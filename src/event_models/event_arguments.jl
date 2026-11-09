@@ -365,33 +365,5 @@ function _validate_line_events(
             )
         end
     end
-    _check_line_events_keep_connectivity(lines, network_model)
-    return
-end
-
-# Opens every event line at once: if that keeps the network connected, so does any subset.
-function _check_line_events_keep_connectivity(
-    lines::Vector{PSY.Line},
-    network_model::NetworkModel{DCPNetworkModel},
-)
-    ybus = IOM.get_network_matrix(network_model)
-    adjacency = copy(ybus.adjacency_data)
-    lookup = ybus.lookup[1]
-    for line in lines
-        arc = PSY.get_arc(line)
-        i = lookup[PSY.get_number(PSY.get_from(arc))]
-        j = lookup[PSY.get_number(PSY.get_to(arc))]
-        adjacency[i, j] = 0
-        adjacency[j, i] = 0
-    end
-    SparseArrays.dropzeros!(adjacency)
-    subnetworks = PNM.find_subnetworks(adjacency, ybus.axes[1])
-    if length(subnetworks) > length(network_model.subnetworks)
-        error(
-            "Outaging the lines with outage events ($(join(PSY.get_name.(lines), ", "))) \
-             islands the network. Outage events that can island the network are not \
-             supported.",
-        )
-    end
     return
 end
