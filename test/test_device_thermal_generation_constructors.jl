@@ -2074,7 +2074,7 @@ end
     for V in (RateofChangeConstraintSlackUp, RateofChangeConstraintSlackDown)
         for d in (mustrun, other)
             @test obj_coef(container, V, ThermalStandard, get_name(d), 1) ≈
-                  POM.CONSTRAINT_VIOLATION_SLACK_COST * dt
+                  IOM.CONSTRAINT_VIOLATION_SLACK_COST * dt
         end
     end
 end

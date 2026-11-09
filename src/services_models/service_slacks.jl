@@ -3,6 +3,7 @@ function add_reserve_slacks!(
     container::OptimizationContainer,
     ::Type{T},
     service_names::Vector{String},
+    model::ServiceModel,
 ) where {T <: PSY.AbstractReserve}
     time_steps = get_time_steps(container)
     # Dense 2D container keyed `[service_name, time]`, built once per service type over all
@@ -11,7 +12,7 @@ function add_reserve_slacks!(
         service_names, time_steps)
 
     jump_model = get_jump_model(container)
-    cost = SERVICES_SLACK_COST * IOM.get_resolution_in_hours(container)
+    cost = get_slack_penalty(model) * IOM.get_resolution_in_hours(container)
     for name in service_names, t in time_steps
         variable[name, t] = JuMP.@variable(
             jump_model,

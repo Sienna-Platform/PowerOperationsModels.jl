@@ -936,3 +936,36 @@ end
         @test JuMP.coefficient(in_func, ss["Bat", t]) ≈ in_max
     end
 end
+
+@testset "Storage cycling slack penalty comes from the DeviceModel" begin
+    attributes = Dict{String, Any}(
+        "reservation" => false,
+        "cycling_limits" => true,
+        "energy_target" => false,
+        "complete_coverage" => false,
+        "regularization" => false,
+    )
+    for (kwargs, expected) in (
+        (NamedTuple(), IOM.CONSTRAINT_VIOLATION_SLACK_COST),
+        ((slack_penalty = 7.5e3,), 7.5e3),
+    )
+        device_model = DeviceModel(
+            EnergyReservoirStorage,
+            StorageDispatchWithReserves;
+            attributes = attributes,
+            kwargs...,
+        )
+        c_sys5_bat = PSB.build_system(PSITestSystems, "c_sys5_bat")
+        model = DecisionModel(MockOperationProblem, DCPNetworkModel, c_sys5_bat)
+        mock_construct_device!(model, device_model)
+        container = IOM.get_optimization_container(model)
+        obj = JuMP.objective_function(IOM.get_jump_model(container))
+        t_end = last(IOM.get_time_steps(container))
+        for V in (StorageChargeCyclingSlackVariable, StorageDischargeCyclingSlackVariable)
+            slack = IOM.get_variable(container, V, EnergyReservoirStorage)
+            for name in axes(slack, 1)
+                @test JuMP.coefficient(obj, slack[name, t_end]) == expected
+            end
+        end
+    end
+end

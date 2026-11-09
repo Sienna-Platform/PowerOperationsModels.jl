@@ -338,8 +338,10 @@ end
 ####### Hydro DISPATCH RUN OF RIVER BUDGET TEST ########
 ########################################################
 @testset "Test Hydro Dispatch Run Of River Formulations " begin
+    penalty = 321.0
     device_model = DeviceModel(HydroDispatch, HydroDispatchRunOfRiver;
         use_slacks = true,
+        slack_penalty = penalty,
         attributes = Dict("hydro_budget" => true, "hydro_budget_interval" => Hour(24)))
 
     sys = PSB.build_system(PSITestSystems, "c_sys5_hy"; add_single_time_series = true)
@@ -356,6 +358,12 @@ end
     mock_construct_device!(model, device_model)
     moi_tests(model, 48, 0, 49, 24, 0, false)
     psi_checkobjfun_test(model, GAEVF)
+    # The budget slack reads the penalty of the DeviceModel, on the system base.
+    container = IOM.get_optimization_container(model)
+    base_power = IOM.get_model_base_power(container)
+    name = get_name(hy)
+    coef = obj_coef(container, HydroEnergyShortageVariable, HydroDispatch, name, 1)
+    @test coef == penalty * base_power
 end
 
 @testset "Hydro Dispatch Run Of River without budget omits budget constraint" begin

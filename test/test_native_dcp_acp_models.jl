@@ -636,9 +636,9 @@ end
                     # All eight slack columns are priced.
                     for m in metas
                         @test JuMP.coefficient(objective, slack_up[m][name, t]) ==
-                              POM.CONSTRAINT_VIOLATION_SLACK_COST
+                              IOM.CONSTRAINT_VIOLATION_SLACK_COST
                         @test JuMP.coefficient(objective, slack_lo[m][name, t]) ==
-                              POM.CONSTRAINT_VIOLATION_SLACK_COST
+                              IOM.CONSTRAINT_VIOLATION_SLACK_COST
                     end
                 end
             end
@@ -699,9 +699,9 @@ end
             @test JuMP.normalized_coefficient(ohm[name, t], slack_ub[name, t]) == -1.0
             @test JuMP.normalized_coefficient(ohm[name, t], slack_lb[name, t]) == 1.0
             @test JuMP.coefficient(objective, slack_ub[name, t]) ==
-                  POM.CONSTRAINT_VIOLATION_SLACK_COST
+                  IOM.CONSTRAINT_VIOLATION_SLACK_COST
             @test JuMP.coefficient(objective, slack_lb[name, t]) ==
-                  POM.CONSTRAINT_VIOLATION_SLACK_COST
+                  IOM.CONSTRAINT_VIOLATION_SLACK_COST
         end
     end
 end
@@ -772,9 +772,9 @@ end
                         slack_lb[name, t],
                     ) == 1.0
                     @test JuMP.coefficient(objective, slack_ub[name, t]) ==
-                          POM.CONSTRAINT_VIOLATION_SLACK_COST
+                          IOM.CONSTRAINT_VIOLATION_SLACK_COST
                     @test JuMP.coefficient(objective, slack_lb[name, t]) ==
-                          POM.CONSTRAINT_VIOLATION_SLACK_COST
+                          IOM.CONSTRAINT_VIOLATION_SLACK_COST
                 end
             end
         end
@@ -829,9 +829,9 @@ end
             @test JuMP.normalized_coefficient(con_tf_lb[name, t], slack_lb[name, t]) == 1.0
             @test JuMP.normalized_rhs(con_tf_lb[name, t]) == -rate
             @test JuMP.coefficient(objective, slack_ub[name, t]) ==
-                  POM.CONSTRAINT_VIOLATION_SLACK_COST
+                  IOM.CONSTRAINT_VIOLATION_SLACK_COST
             @test JuMP.coefficient(objective, slack_lb[name, t]) ==
-                  POM.CONSTRAINT_VIOLATION_SLACK_COST
+                  IOM.CONSTRAINT_VIOLATION_SLACK_COST
         end
     end
 end
@@ -1346,7 +1346,7 @@ end
                     name = first(axes(slack, 1))
                     t = first(axes(slack, 2))
                     @test JuMP.coefficient(objective, slack[name, t]) ==
-                          POM.CONSTRAINT_VIOLATION_SLACK_COST
+                          IOM.CONSTRAINT_VIOLATION_SLACK_COST
                 end
                 _assert_slack_row_wiring(container, formulation, network_formulation)
             end
