@@ -947,62 +947,8 @@ POM.get_initial_parameter_value(
     ::EventModel{PSY.FixedForcedOutage, LineOpenAtBuild},
 ) = 0.0
 
-@testset "A DCP line outage on c_sys5 matches the system without the line" begin
-    # Line "1" (nodeA -> nodeB) is not a bridge and carries flow the dispatch relies on.
-    # Its angle limits are opened in every system because event lines may not carry an
-    # angle-difference constraint.
-    outaged = "1"
-    function line_template()
-        template = get_thermal_dispatch_template_network(NetworkModel(DCPNetworkModel))
-        set_device_model!(template, Line, StaticBranchBounds)
-        return template
-    end
-    function c_sys5_open_angles()
-        sys = PSB.build_system(PSITestSystems, "c_sys5")
-        PSY.set_angle_limits!(PSY.get_component(PSY.Line, sys, outaged), (min = -π, max = π))
-        return sys
-    end
-    function build_and_solve(template, sys)
-        model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
-        @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
-              IOM.ModelBuildStatus.BUILT
-        container = IOM.get_optimization_container(model)
-        jm = IOM.get_jump_model(container)
-        JuMP.optimize!(jm)
-        @test JuMP.termination_status(jm) == MOI.OPTIMAL
-        return container, JuMP.objective_value(jm)
-    end
-    function build_with_line_event(condition)
-        sys = c_sys5_open_angles()
-        attach_fixed_forced_outage!(sys, PSY.get_component(PSY.Line, sys, outaged))
-        event = EventModel(
-            PSY.FixedForcedOutage,
-            condition;
-            timeseries_mapping = Dict{Symbol, Union{String, Nothing}}(
-                :outage_status => "outage_profile",
-            ),
-        )
-        template = line_template()
-        set_event_model!(template, event)
-        fill_event_model!(event, sys)
-        return build_and_solve(template, sys)
-    end
-
-    _, cost_intact = build_and_solve(line_template(), c_sys5_open_angles())
-    sys_removed = c_sys5_open_angles()
-    PSY.remove_component!(sys_removed, PSY.get_component(PSY.Line, sys_removed, outaged))
-    _, cost_removed = build_and_solve(line_template(), sys_removed)
-    @test !isapprox(cost_removed, cost_intact; rtol = 1e-3)
-
-    # "Available line matches the intact system" begin
-    _, cost = build_with_line_event(ContinuousCondition())
-    @test cost ≈ cost_intact rtol = 1e-6
-
-    # "Open line matches the system without it" begin
-    container, cost = build_with_line_event(LineOpenAtBuild())
-    @test cost ≈ cost_removed rtol = 1e-6
-
-    flow = IOM.get_variable(container, FlowActivePowerVariable, PSY.Line)
+# Line "1" runs nodeA -> nodeB.
+function test_open_line_decoupled(::Type{DCPNetworkModel}, container, outaged)
     va = IOM.get_variable(container, VoltageAngle, PSY.ACBus)
     ohms = IOM.get_constraint(container, POM.NetworkFlowConstraint, PSY.Line)
     time_steps = IOM.get_time_steps(container)
@@ -1010,7 +956,6 @@ POM.get_initial_parameter_value(
         row = JuMP.constraint_object(ohms[outaged, t])
         @test JuMP.coefficient(row.func, va["nodeA", t]) == 0.0
         @test JuMP.coefficient(row.func, va["nodeB", t]) == 0.0
-        @test abs(JuMP.value(flow[outaged, t])) <= 1e-6
     end
     # The open line must not tie its terminal angles together.
     @test any(
@@ -1019,48 +964,122 @@ POM.get_initial_parameter_value(
     )
 end
 
+function test_open_line_decoupled(::Type{PTDFNetworkModel}, container, outaged)
+    # The post-outage (MODF) flow of the open line carries no injection.
+    flow_expr = IOM.get_expression(container, POM.PTDFBranchFlow, PSY.Line)
+    for t in IOM.get_time_steps(container)
+        @test all(c -> abs(c) <= 1e-8, values(flow_expr[outaged, t].terms))
+    end
+end
+
+@testset "A line outage on c_sys5 matches the system without the line" begin
+    for network_model in (DCPNetworkModel, PTDFNetworkModel)
+        # Line "1" (nodeA -> nodeB) is not a bridge and carries flow the dispatch relies on.
+        # Its angle limits are opened in every system because event lines may not carry an
+        # angle-difference constraint.
+        outaged = "1"
+        function line_template()
+            template = get_thermal_dispatch_template_network(NetworkModel(network_model))
+            set_device_model!(template, Line, StaticBranchBounds)
+            return template
+        end
+        function c_sys5_open_angles()
+            sys = PSB.build_system(PSITestSystems, "c_sys5")
+            PSY.set_angle_limits!(PSY.get_component(PSY.Line, sys, outaged), (min = -π, max = π))
+            return sys
+        end
+        function build_and_solve(template, sys)
+            model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
+            @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+                  IOM.ModelBuildStatus.BUILT
+            container = IOM.get_optimization_container(model)
+            jm = IOM.get_jump_model(container)
+            JuMP.optimize!(jm)
+            @test JuMP.termination_status(jm) == MOI.OPTIMAL
+            return container, JuMP.objective_value(jm)
+        end
+        function build_with_line_event(condition)
+            sys = c_sys5_open_angles()
+            attach_fixed_forced_outage!(sys, PSY.get_component(PSY.Line, sys, outaged))
+            event = EventModel(
+                PSY.FixedForcedOutage,
+                condition;
+                timeseries_mapping = Dict{Symbol, Union{String, Nothing}}(
+                    :outage_status => "outage_profile",
+                ),
+            )
+            template = line_template()
+            set_event_model!(template, event)
+            fill_event_model!(event, sys)
+            return build_and_solve(template, sys)
+        end
+
+        _, cost_intact = build_and_solve(line_template(), c_sys5_open_angles())
+        sys_removed = c_sys5_open_angles()
+        PSY.remove_component!(sys_removed, PSY.get_component(PSY.Line, sys_removed, outaged))
+        _, cost_removed = build_and_solve(line_template(), sys_removed)
+        @test !isapprox(cost_removed, cost_intact; rtol = 1e-3)
+
+        # "Available line matches the intact system" begin
+        _, cost = build_with_line_event(ContinuousCondition())
+        @test cost ≈ cost_intact rtol = 1e-6
+
+        # "Open line matches the system without it" begin
+        container, cost = build_with_line_event(LineOpenAtBuild())
+        @test cost ≈ cost_removed rtol = 1e-6
+
+        flow = IOM.get_variable(container, FlowActivePowerVariable, PSY.Line)
+        for t in IOM.get_time_steps(container)
+            @test abs(JuMP.value(flow[outaged, t])) <= 1e-6
+        end
+        test_open_line_decoupled(network_model, container, outaged)
+    end
+end
+
 @testset "An outage lifts the OnVariable lower-bound feedforward" begin
-    # With `p >= p_min * on`, an upstream commitment forced onto an outaged unit would
-    # leave no feasible `p`; the outaged unit must be free to decommit.
-    sys = PSB.build_system(PSITestSystems, "c_sys5_uc")
-    for g in get_components(ThermalStandard, sys)
-        p_max = get_active_power_limits(g, u"SU").max
-        set_active_power_limits!(g, (min = 0.2 * p_max * u"SU", max = p_max * u"SU"))
-    end
-    device_model = DeviceModel(PSY.ThermalStandard, ThermalStandardUnitCommitment)
-    attach_feedforward!(
-        device_model,
-        LowerBoundFeedforward(;
-            component_type = PSY.ThermalStandard,
-            source = OnVariable,
-            affected_values = [OnVariable],
-        ),
-    )
-    container, _ = mock_event_container(device_model, DCPNetworkModel; sys, recurrent = true)
-    outaged = outaged_name(container, PSY.ThermalStandard)
+    for network_model in (DCPNetworkModel, PTDFNetworkModel)
+        # With `p >= p_min * on`, an upstream commitment forced onto an outaged unit would
+        # leave no feasible `p`; the outaged unit must be free to decommit.
+        sys = PSB.build_system(PSITestSystems, "c_sys5_uc")
+        for g in get_components(ThermalStandard, sys)
+            p_max = get_active_power_limits(g, u"SU").max
+            set_active_power_limits!(g, (min = 0.2 * p_max * u"SU", max = p_max * u"SU"))
+        end
+        device_model = DeviceModel(PSY.ThermalStandard, ThermalStandardUnitCommitment)
+        attach_feedforward!(
+            device_model,
+            LowerBoundFeedforward(;
+                component_type = PSY.ThermalStandard,
+                source = OnVariable,
+                affected_values = [OnVariable],
+            ),
+        )
+        container, _ = mock_event_container(device_model, network_model; sys, recurrent = true)
+        outaged = outaged_name(container, PSY.ThermalStandard)
 
-    committed = IOM.get_parameter_array(
-        container,
-        LowerBoundValueParameter,
-        PSY.ThermalStandard,
-    )
-    for idx in eachindex(committed)
-        JuMP.fix(committed[idx], 1.0; force = true)
-    end
-    status = IOM.get_parameter_array(container, AvailableStatusParameter(), PSY.ThermalStandard)
-    for idx in eachindex(status)
-        JuMP.fix(status[idx], 0.0; force = true)
-    end
+        committed = IOM.get_parameter_array(
+            container,
+            LowerBoundValueParameter,
+            PSY.ThermalStandard,
+        )
+        for idx in eachindex(committed)
+            JuMP.fix(committed[idx], 1.0; force = true)
+        end
+        status = IOM.get_parameter_array(container, AvailableStatusParameter(), PSY.ThermalStandard)
+        for idx in eachindex(status)
+            JuMP.fix(status[idx], 0.0; force = true)
+        end
 
-    on = IOM.get_variable(container, OnVariable, PSY.ThermalStandard)
-    jm = IOM.get_jump_model(container)
-    JuMP.@objective(jm, Min, sum(on))
-    JuMP.set_optimizer(jm, HiGHS.Optimizer)
-    JuMP.set_silent(jm)
-    JuMP.optimize!(jm)
-    @test JuMP.termination_status(jm) == MOI.OPTIMAL
-    names, time_steps = axes(on)
-    for name in names, t in time_steps
-        @test JuMP.value(on[name, t]) ≈ (name == outaged ? 0.0 : 1.0) atol = 1e-6
+        on = IOM.get_variable(container, OnVariable, PSY.ThermalStandard)
+        jm = IOM.get_jump_model(container)
+        JuMP.@objective(jm, Min, sum(on))
+        JuMP.set_optimizer(jm, HiGHS.Optimizer)
+        JuMP.set_silent(jm)
+        JuMP.optimize!(jm)
+        @test JuMP.termination_status(jm) == MOI.OPTIMAL
+        names, time_steps = axes(on)
+        for name in names, t in time_steps
+            @test JuMP.value(on[name, t]) ≈ (name == outaged ? 0.0 : 1.0) atol = 1e-6
+        end
     end
 end

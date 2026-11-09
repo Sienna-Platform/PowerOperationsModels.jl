@@ -318,15 +318,15 @@ function add_event_arguments!(
 end
 
 #################################################################################
-# Line outages under DCPNetworkModel with StaticBranchBounds
+# Transmission events
 #################################################################################
 
 function add_event_arguments!(
     container::OptimizationContainer,
     devices::Vector{PSY.Line},
     device_model::DeviceModel{PSY.Line, StaticBranchBounds},
-    network_model::NetworkModel{DCPNetworkModel},
-)
+    network_model::NetworkModel{N},
+) where {N <: Union{DCPNetworkModel, PTDFNetworkModel}}
     reduction = get_network_reduction(network_model)
     if PNM.has_radial_reduction(reduction) || PNM.has_degree_two_reduction(reduction) ||
        PNM.has_ward_reduction(reduction)
@@ -342,4 +342,16 @@ function add_event_arguments!(
         _add_status_event_arguments!(container, lines, device_model, event_model)
     end
     return
+end
+
+function _branch_status_values(
+    container::OptimizationContainer,
+    ::Type{T},
+    name::String,
+) where {T <: PSY.ACTransmission}
+    n_steps = length(get_time_steps(container))
+    has_container_key(container, AvailableStatusParameter, T) || return ones(n_steps)
+    key = IOM.ParameterKey(AvailableStatusParameter, T)
+    has_lhs_parameter_component(container, key, name) || return ones(n_steps)
+    return get_lhs_parameter_values(container, key, name)
 end

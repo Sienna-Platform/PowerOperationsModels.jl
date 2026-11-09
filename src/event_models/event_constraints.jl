@@ -481,27 +481,3 @@ function add_input_output_active_power_contingency_constraints!(
     end
     return
 end
-
-#################################################################################
-# Line outages under DCPNetworkModel with StaticBranchBounds
-#################################################################################
-
-# We zero flow on a line outage so no further constraints are needed.
-add_event_constraints!(
-    container::OptimizationContainer,
-    devices::Vector{PSY.Line},
-    device_model::DeviceModel{PSY.Line, StaticBranchBounds},
-    network_model::NetworkModel{DCPNetworkModel},
-) = nothing
-
-function _branch_status_values(
-    container::OptimizationContainer,
-    ::Type{T},
-    name::String,
-) where {T <: PSY.ACTransmission}
-    n_steps = length(get_time_steps(container))
-    has_container_key(container, AvailableStatusParameter, T) || return ones(n_steps)
-    key = IOM.ParameterKey(AvailableStatusParameter, T)
-    has_lhs_parameter_component(container, key, name) || return ones(n_steps)
-    return get_lhs_parameter_values(container, key, name)
-end

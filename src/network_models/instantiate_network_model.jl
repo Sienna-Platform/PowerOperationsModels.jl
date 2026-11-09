@@ -533,6 +533,11 @@ function _ptdf_network_data(
     return _assemble_ptdf_data(core, matrix, sys, branch_models)
 end
 
+_has_line_outage(sys::PSY.System) = any(
+    !isempty(PSY.get_associated_components(sys, outage; component_type = PSY.Line))
+    for outage in PSY.get_supplemental_attributes(PSY.Outage, sys)
+)
+
 function _assemble_ptdf_data(
     core::PNM.VirtualFactorCore,
     ptdf,
@@ -540,7 +545,7 @@ function _assemble_ptdf_data(
     branch_models::BranchModelContainer,
 )
     catalog = _build_catalog(core, branch_models, sys)
-    if IOM._template_has_outage_aware_branch(branch_models)
+    if IOM._template_has_outage_aware_branch(branch_models) || _has_line_outage(sys)
         return PTDFNetworkData(
             ptdf,
             _derive_contingency_matrix(core, sys, branch_models),

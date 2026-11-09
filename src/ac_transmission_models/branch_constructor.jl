@@ -1377,6 +1377,7 @@ function construct_device!(
         _add_flow_slacks!(container, devices, device_model, network_model)
     end
 
+    add_event_arguments!(container, devices, device_model, network_model)
     add_feedforward_arguments!(container, device_model, devices)
     return
 end

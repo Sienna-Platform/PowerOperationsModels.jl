@@ -818,14 +818,27 @@ function add_expressions!(
         time_steps,
     )
 
-    ptdf = get_network_matrix(network_model)
+    # TODO(acostare): PNM#423 should make this cleaner
+    outaged = [
+        d for d in devices if iszero(_branch_status_values(container, B, PSY.get_name(d)))
+    ]
+    get_df_col = if !isempty(outaged)
+        vmodf = get_contingency_matrix(network_model)
+        _, mods = PNM._classify_outage_components(vmodf, outaged)
+        nm = PNM.NetworkModification(join(PSY.get_name.(outaged)), mods)
+        arc -> vmodf[arc, nm]
+    else
+        ptdf = get_network_matrix(network_model)
+        arc -> ptdf[arc, :]
+    end
+
     nodal_balance_expressions = get_expression(container, ActivePowerBalance, PSY.ACBus)
     # `ptdf[arc, :]` is a KLU solve; libklu is not concurrency-safe, so the solves run
     # serially on the dispatcher and only the JuMP `AffExpr` build is parallelized via
     # `Threads.@spawn`. The try/catch below surfaces the inner exception -- the default
     # handler shows only the wrapping `TaskFailedException`.
     tasks = map(branches) do rep
-        ptdf_col = ptdf[rep.arc, :]
+        ptdf_col = get_df_col(rep.arc)
         # The variable row is materialized on the dispatcher: the container lookup and the
         # `DenseAxisArray` slice are both type-unstable, and keeping them out of the task
         # leaves the spawned body monomorphic.
