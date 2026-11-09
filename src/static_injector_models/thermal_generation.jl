@@ -149,9 +149,6 @@ IOM.uses_commitment_variables(::Type{<:PSY.ThermalGen}) = true
 # MarketBidCost (static + time-series) proportional_cost/is_time_variant_proportional are generic —
 # see common_models/market_bid_overrides.jl.
 
-proportional_cost(::Union{MBC_TYPES, PSY.ThermalGenerationCost}, ::Type{<:Union{RateofChangeConstraintSlackUp, RateofChangeConstraintSlackDown}}, ::PSY.ThermalGen, ::Type{<:AbstractThermalFormulation}) = IOM.CONSTRAINT_VIOLATION_SLACK_COST
-
-
 objective_function_multiplier(::Type{<:VariableType}, ::Type{<:AbstractThermalFormulation})=OBJECTIVE_FUNCTION_POSITIVE
 
 # Startup cost interpretations!
@@ -1676,11 +1673,30 @@ end
 # common_models/objective_function.jl.
 skip_proportional_cost(d::PSY.ThermalGen) = _is_must_run(d)
 
-# A must-run unit has no On variable cost, but its ramp slacks keep their penalty.
-skip_proportional_cost(
-    ::PSY.ThermalGen,
-    ::Type{<:Union{RateofChangeConstraintSlackUp, RateofChangeConstraintSlackDown}},
-) = false
+# Ramp slacks cost the `slack_penalty` of the `DeviceModel` per hour of the step, also on
+# a must-run unit.
+function add_proportional_cost!(
+    container::OptimizationContainer,
+    ::Type{T},
+    devices::Vector{U},
+    model::DeviceModel{U, F},
+) where {
+    T <: Union{RateofChangeConstraintSlackUp, RateofChangeConstraintSlackDown},
+    U <: PSY.ThermalGen,
+    F <: AbstractThermalFormulation,
+}
+    rate = get_slack_penalty(model) * IOM.get_resolution_in_hours(container)
+    variable = get_variable(container, T, U)
+    for d in devices
+        name = PSY.get_name(d)
+        for t in get_time_steps(container)
+            IOM.add_cost_term_invariant!(
+                container, variable[name, t], rate, FixedCostExpression, U, name, t,
+            )
+        end
+    end
+    return
+end
 
 ########################### Objective Function Calls#############################################
 # These functions are custom implementations of the cost data. In the file objective_functions.jl there are default implementations. Define these only if needed.
@@ -1697,8 +1713,18 @@ function add_to_objective_function!(
     add_shut_down_cost!(container, StopVariable, devices, U)
     add_proportional_cost!(container, OnVariable, devices, U)
     if get_use_slacks(device_model)
-        add_proportional_cost!(container, RateofChangeConstraintSlackUp, devices, U)
-        add_proportional_cost!(container, RateofChangeConstraintSlackDown, devices, U)
+        add_proportional_cost!(
+            container,
+            RateofChangeConstraintSlackUp,
+            devices,
+            device_model,
+        )
+        add_proportional_cost!(
+            container,
+            RateofChangeConstraintSlackDown,
+            devices,
+            device_model,
+        )
     end
     return
 end
@@ -1715,8 +1741,18 @@ function add_to_objective_function!(
     add_shut_down_cost!(container, StopVariable, devices, U)
     add_proportional_cost!(container, OnVariable, devices, U)
     if get_use_slacks(device_model)
-        add_proportional_cost!(container, RateofChangeConstraintSlackUp, devices, U)
-        add_proportional_cost!(container, RateofChangeConstraintSlackDown, devices, U)
+        add_proportional_cost!(
+            container,
+            RateofChangeConstraintSlackUp,
+            devices,
+            device_model,
+        )
+        add_proportional_cost!(
+            container,
+            RateofChangeConstraintSlackDown,
+            devices,
+            device_model,
+        )
     end
     return
 end
@@ -1735,8 +1771,18 @@ function add_to_objective_function!(
     add_shut_down_cost!(container, StopVariable, devices, U)
     add_proportional_cost!(container, OnVariable, devices, U)
     if get_use_slacks(device_model)
-        add_proportional_cost!(container, RateofChangeConstraintSlackUp, devices, U)
-        add_proportional_cost!(container, RateofChangeConstraintSlackDown, devices, U)
+        add_proportional_cost!(
+            container,
+            RateofChangeConstraintSlackUp,
+            devices,
+            device_model,
+        )
+        add_proportional_cost!(
+            container,
+            RateofChangeConstraintSlackDown,
+            devices,
+            device_model,
+        )
     end
     return
 end
@@ -1750,8 +1796,18 @@ function add_to_objective_function!(
 ) where {T <: PSY.ThermalGen, U <: AbstractThermalDispatchFormulation}
     add_variable_cost!(container, ActivePowerVariable, devices, U)
     if get_use_slacks(device_model)
-        add_proportional_cost!(container, RateofChangeConstraintSlackUp, devices, U)
-        add_proportional_cost!(container, RateofChangeConstraintSlackDown, devices, U)
+        add_proportional_cost!(
+            container,
+            RateofChangeConstraintSlackUp,
+            devices,
+            device_model,
+        )
+        add_proportional_cost!(
+            container,
+            RateofChangeConstraintSlackDown,
+            devices,
+            device_model,
+        )
     end
     return
 end
@@ -1765,8 +1821,18 @@ function add_to_objective_function!(
 ) where {T <: PSY.ThermalGen, U <: ThermalCompactDispatch}
     add_variable_cost!(container, PowerAboveMinimumVariable, devices, U)
     if get_use_slacks(device_model)
-        add_proportional_cost!(container, RateofChangeConstraintSlackUp, devices, U)
-        add_proportional_cost!(container, RateofChangeConstraintSlackDown, devices, U)
+        add_proportional_cost!(
+            container,
+            RateofChangeConstraintSlackUp,
+            devices,
+            device_model,
+        )
+        add_proportional_cost!(
+            container,
+            RateofChangeConstraintSlackDown,
+            devices,
+            device_model,
+        )
     end
     return
 end

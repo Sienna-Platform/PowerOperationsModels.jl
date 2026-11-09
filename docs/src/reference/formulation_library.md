@@ -104,6 +104,9 @@ Every slack penalty in this library (balance, branch flow, post-contingency, res
 requirement, transmission interface `violation_penalty`, and feedforward bound on a power
 variable) is per pu-hour, like device costs, and enters the objective multiplied by the step
 length in hours.
+Branch flow, post-contingency branch, thermal ramp and hydro balance slacks read the
+`slack_penalty` of their `DeviceModel`, and reserve requirement slacks read that of their
+`ServiceModel`.
 
 ### System slack containers
 
@@ -235,8 +238,8 @@ On `IVRNetworkModel` both mechanisms are present at once, on different equations
 
 !!! note "Pricing asymmetry between the two slack domains"
     
-    Every slack container above is priced identically at `IOM.CONSTRAINT_VIOLATION_SLACK_COST` in
-    the objective, but the *domain* being relaxed differs. `StaticBranchBounds`'s
+    Every slack container above is priced identically at the `slack_penalty` of the
+    `DeviceModel` in the objective, but the *domain* being relaxed differs. `StaticBranchBounds`'s
     `"p_ft"`/`"p_tf"`/`"q_ft"`/`"q_tf"`/`"cr_*"`/`"ci_*"` pairs are flow-domain (MW / per-unit current); `StaticBranch`'s
     meta-less and `"c_from"`/`"c_to"` slacks relax a **squared** domain (MVA² / A²) because they
     are subtracted directly from a quadratic left-hand side. The same price per unit therefore

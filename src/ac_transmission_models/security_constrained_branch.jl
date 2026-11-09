@@ -228,6 +228,7 @@ function _make_post_contingency_slack!(
     outage_id::String,
     name::String,
     t::Int,
+    cost::Float64,
 ) where {S <: VariableType, V <: PSY.ACTransmission}
     slack = JuMP.@variable(
         jump_model,
@@ -235,11 +236,7 @@ function _make_post_contingency_slack!(
         base_name = "$(S)_$(V)_{$(outage_id), $(name), $(t)}",
     )
     slack_container[outage_id, name, t] = slack
-    add_to_objective_invariant_expression!(
-        container,
-        slack *
-        (IOM.CONSTRAINT_VIOLATION_SLACK_COST * IOM.get_resolution_in_hours(container)),
-    )
+    add_to_objective_invariant_expression!(container, slack * cost)
     return slack
 end
 
@@ -273,6 +270,7 @@ function add_constraints!(
     con_ub = _add_post_contingency_sparse_constraints!(container, T, V; meta = "ub")
 
     use_slacks = get_use_slacks(device_model)
+    slack_cost = _branch_slack_cost(container, device_model)
     # Local relaxation-slack containers keyed by `(outage_id, name, t)`. Built
     # here (not via `add_variables!`) because the post-contingency axes are only
     # known after `_resolve_monitored_branches`; registered after the loop iff used.
@@ -338,7 +336,7 @@ function add_constraints!(
                         _make_post_contingency_slack!(
                             container, jump_model, slack_ub,
                             PostContingencyFlowActivePowerSlackUpperBound, V,
-                            outage_id, name, t,
+                            outage_id, name, t, slack_cost,
                         )
                     else
                         0.0
@@ -347,7 +345,7 @@ function add_constraints!(
                         _make_post_contingency_slack!(
                             container, jump_model, slack_lb,
                             PostContingencyFlowActivePowerSlackLowerBound, V,
-                            outage_id, name, t,
+                            outage_id, name, t, slack_cost,
                         )
                     else
                         0.0
@@ -370,7 +368,7 @@ function add_constraints!(
                         _make_post_contingency_slack!(
                             container, jump_model, slack_ub,
                             PostContingencyFlowActivePowerSlackUpperBound, V,
-                            outage_id, name, t,
+                            outage_id, name, t, slack_cost,
                         )
                     else
                         0.0
@@ -379,7 +377,7 @@ function add_constraints!(
                         _make_post_contingency_slack!(
                             container, jump_model, slack_lb,
                             PostContingencyFlowActivePowerSlackLowerBound, V,
-                            outage_id, name, t,
+                            outage_id, name, t, slack_cost,
                         )
                     else
                         0.0

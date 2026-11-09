@@ -30,7 +30,10 @@ function _balance_slack_model(
 end
 
 # Lines rated near zero, so physics forces flow onto the slacks.
-function _capped_branch_model(sys_name::String)
+function _capped_branch_model(
+    sys_name::String;
+    slack_penalty::Float64 = IOM.CONSTRAINT_VIOLATION_SLACK_COST,
+)
     sys = PSB.build_system(PSITestSystems, sys_name)
     foreach(l -> PSY.set_rating!(l, 1e-3 * u"SU"), PSY.get_components(PSY.Line, sys))
     template = get_thermal_dispatch_template_network(NetworkModel(PTDFNetworkModel))
@@ -40,6 +43,7 @@ function _capped_branch_model(sys_name::String)
             PSY.Line,
             StaticBranch;
             use_slacks = true,
+            slack_penalty = slack_penalty,
             duals = [FlowRateConstraint],
         ),
     )
@@ -140,6 +144,33 @@ end
     for t in 1:2
         @test obj_coef(container, ReserveRequirementSlack, R, "R1", t) ==
               penalty * _step_hours(step)
+    end
+
+    model = _capped_branch_model("c_sys5_uc"; slack_penalty = penalty)
+    container = IOM.get_optimization_container(model)
+    obj = JuMP.objective_function(IOM.get_jump_model(container))
+    for S in (FlowActivePowerSlackUpperBound, FlowActivePowerSlackLowerBound)
+        slack = IOM.get_variable(container, S, PSY.Line)
+        @test !isempty(slack)
+        @test all(JuMP.coefficient(obj, v) == penalty for v in slack)
+    end
+
+    sys = PSB.build_system(PSITestSystems, "c_sys5_uc")
+    model = DecisionModel(MockOperationProblem, DCPNetworkModel, sys)
+    device_model = DeviceModel(
+        PSY.ThermalStandard,
+        ThermalStandardUnitCommitment;
+        use_slacks = true,
+        slack_penalty = penalty,
+    )
+    mock_construct_device!(model, device_model)
+    container = IOM.get_optimization_container(model)
+    for S in (RateofChangeConstraintSlackUp, RateofChangeConstraintSlackDown)
+        slack = IOM.get_variable(container, S, PSY.ThermalStandard)
+        @test !isempty(slack)
+        for name in axes(slack, 1), t in axes(slack, 2)
+            @test obj_coef(container, S, PSY.ThermalStandard, name, t) == penalty
+        end
     end
 end
 
