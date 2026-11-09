@@ -486,7 +486,7 @@ end
 # Line outages under DCPNetworkModel with StaticBranchBounds
 #################################################################################
 
-# ActivePower is zeroed on an outage. Slacks are ignored.
+# We zero flow on a line outage so no further constraints are needed.
 add_event_constraints!(
     container::OptimizationContainer,
     devices::Vector{PSY.Line},
@@ -494,8 +494,6 @@ add_event_constraints!(
     network_model::NetworkModel{DCPNetworkModel},
 ) = nothing
 
-# A branch's availability status at each step, read as a left-hand-side coefficient. Branches
-# without an outage event are always available.
 function _branch_status_values(
     container::OptimizationContainer,
     ::Type{T},

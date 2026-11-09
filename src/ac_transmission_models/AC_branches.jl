@@ -2184,6 +2184,7 @@ function _shift_term(
     phase_controlled || return static
     return JuMP.AffExpr(0.0, get_variable(container, PhaseShifterAngle, T)[name, t] => 1.0)
 end
+
 function add_constraints!(
     container::OptimizationContainer,
     sys::PSY.System,
@@ -2219,10 +2220,25 @@ function add_constraints!(
         from_name = _from_name(rep)
         to_name = _to_name(rep)
         phase_controlled = _phase_controlled(rep, device_model, network_model)
-        status = _branch_status_values(container, T, name)
+        #status = _branch_status_values(container, T, name)
+        statuses = if rep.branch isa PNM.BranchesParallel
+            [_branch_status_values(container, T, PSY.get_name(m)) for m in rep.branch]
+        else
+            [_branch_status_values(container, T, name)]
+        end
         for t in time_steps
-            cons[name, t] = if iszero(status[t])
-                JuMP.@constraint(jump_model, p[name, t] == 0.0)
+            # TODO(acostare): ignore slacks during an outage, open to other opinions.
+            cons[name, t] = if any(iszero, statuses)
+                if rep.branch isa PNM.BranchesParallel
+                    outage_b = 0.0
+                    for member in rep.branch
+                        iszero(_branch_status_values(container, T, PSY.get_name(member))) && continue
+                        outage_b += (1 / PSY.get_x(member, PSY.u"SU"))
+                    end
+                    JuMP.@constraint(jump_model, p[name, t] == outage_b * (va[from_name, t] - va[to_name, t]))
+                else
+                    JuMP.@constraint(jump_model, p[name, t] == 0.0)
+                end
             else
                 flow =
                     if use_slacks
@@ -2236,7 +2252,7 @@ function add_constraints!(
                 shift = _shift_term(container, T, phase_controlled, rep.name, t, static_shift)
                 JuMP.@constraint(
                     jump_model,
-                    flow == b * status[t] * (va[from_name, t] - va[to_name, t] - shift)
+                    flow == b * (va[from_name, t] - va[to_name, t] - shift)
                 )
             end
         end

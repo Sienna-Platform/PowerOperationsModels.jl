@@ -327,43 +327,19 @@ function add_event_arguments!(
     device_model::DeviceModel{PSY.Line, StaticBranchBounds},
     network_model::NetworkModel{DCPNetworkModel},
 )
-    _for_each_event_devices(devices, device_model) do lines, event_model
-        _validate_line_events(lines, network_model)
-        _add_status_event_arguments!(container, lines, device_model, event_model)
-    end
-    return
-end
-
-# Line outages are written per line on the unreduced network: each outaged line must be its
-# own arc, keep its angles unconstrained once open, and leave the network connected.
-function _validate_line_events(
-    lines::Vector{PSY.Line},
-    network_model::NetworkModel{DCPNetworkModel},
-)
     reduction = get_network_reduction(network_model)
     if PNM.has_radial_reduction(reduction) || PNM.has_degree_two_reduction(reduction) ||
        PNM.has_ward_reduction(reduction)
-        error("Line outage events are not supported with network reductions.")
+       error("todo: allow reductions with line outages")
     end
-    reps = Dict(
-        rep.name => rep for
-        rep in _representative_branches(network_model, PSY.Line, NetworkFlowConstraint)
-    )
-    for line in lines
-        name = PSY.get_name(line)
-        rep = get(reps, name, nothing)
-        #if isnothing(rep) || !(_provenance(rep) isa PNM.DirectArc)
-        #    error(
-        #        "Line $name carries an outage event but is merged with other branches \
-        #         (e.g. in parallel). Outage events require the line to be its own arc.",
-        #    )
-        #end
-        if _constrains_angle_difference(line)
-            error(
-                "Line $name carries an outage event and angle limits; outage events are \
-                 not supported on lines with angle-difference constraints.",
-            )
+    _for_each_event_devices(devices, device_model) do lines, event_model
+        for line in lines
+            name = PSY.get_name(line)
+            if _constrains_angle_difference(line)
+                error("todo: allow angle constraints with line outages")
+            end
         end
+        _add_status_event_arguments!(container, lines, device_model, event_model)
     end
     return
 end
