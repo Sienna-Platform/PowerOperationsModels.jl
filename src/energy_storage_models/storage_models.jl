@@ -1713,8 +1713,13 @@ function add_to_objective_function!(
     return
 end
 
-# Slacks on energy at the horizon end are system-base pu-h; `cost(d)` is in $/MWh, so it is
-# scaled by the system base power.
+"""
+Add `cost(d)` times the slack `T` at the last time step to the objective, for each device.
+
+`cost(d)` must return \$/MWh (natural units), the convention for `StorageCost` fields.
+The slack is system-base energy (pu-h), so the term is scaled by the system base power,
+never by the device's own `base_power`.
+"""
 function _add_horizon_end_cost!(
     container::OptimizationContainer,
     ::Type{T},

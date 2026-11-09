@@ -516,12 +516,17 @@ end
         d,
         PSY.StorageCost(; energy_shortage_cost = 300.0, energy_surplus_cost = 40.0),
     )
+    # A device base unlike the system base catches scaling by the wrong one. The target
+    # series is component base and blocks the rebase; the static target is enough here.
+    _remove_storage_target_series!(sys, d)
+    PSY.rebase_component!(d, 50.0)
     model, status = _build_storage_target_model(sys)
     @test status == ModelBuildStatus.BUILT
 
     # The slacks are system-base energy (pu-h); the costs scale by the 100 MVA base.
     container = get_optimization_container(model)
     @test IOM.get_model_base_power(container) == 100.0
+    @test PSY.get_base_power(d) == 50.0
     obj = JuMP.objective_function(get_jump_model(container))
     t_end = last(get_time_steps(container))
     for (T, cost) in
