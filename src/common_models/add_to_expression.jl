@@ -288,8 +288,8 @@ function _add_load_ts_parameter_to_balance!(
     return
 end
 
-# The parameter container holds one multiplier-weighted sum per bus (see
-# `_add_time_series_parameter_container!`), so each bus gets one term.
+# Each bus gets one term from the parameter container: a series parameter shared across
+# buses times a multiplier, or the bus sum (see `_add_time_series_parameter_container!`).
 function _add_load_ts_parameter_to_balance!(
     container::OptimizationContainer,
     ::Type{T},
@@ -353,18 +353,25 @@ function _add_aggregated_load_terms!(
         end
     end
     for (number, bus) in buses
+        refs, coefficient = IOM.get_row_aggregate_refs(param_container, number)
         _apply_aggregate_to_targets!(
             _bus_balance_targets(container, T, network_model, bus),
-            IOM.get_row_aggregate_refs(param_container, number),
+            refs,
+            coefficient,
             time_steps,
         )
     end
     return
 end
 
-function _apply_aggregate_to_targets!(targets::Tuple, refs::AbstractVector, time_steps)
+function _apply_aggregate_to_targets!(
+    targets::Tuple,
+    refs::AbstractVector,
+    coefficient::Float64,
+    time_steps,
+)
     for t in time_steps
-        _apply_term_to_targets!(targets, refs[t], 1.0, t)
+        _apply_term_to_targets!(targets, refs[t], coefficient, t)
     end
     return
 end
