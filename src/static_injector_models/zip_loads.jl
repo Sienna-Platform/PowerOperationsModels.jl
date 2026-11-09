@@ -235,3 +235,83 @@ function record_unmodeled_zip_load!(
     end
     return
 end
+
+# Outputs with each load's consumption at the solved voltage.
+add_zip_load_outputs!(::OptimizationContainer, _, ::DeviceModel, ::NetworkModel) = nothing
+
+function add_zip_load_outputs!(
+    container::OptimizationContainer,
+    devices::Vector{<:ZipLoad},
+    model::DeviceModel,
+    ::NetworkModel{<:_ZipModeledNetworks},
+)
+    names = get_time_series_names(model)
+    if haskey(names, ActivePowerTimeSeriesParameter)
+        add_variables!(container, ZipLoadActivePower, devices, StaticPowerLoad)
+    end
+    if haskey(names, ReactivePowerTimeSeriesParameter)
+        add_variables!(container, ZipLoadReactivePower, devices, StaticPowerLoad)
+    end
+    return
+end
+
+_zip_parameter(::Type{ZipLoadActivePower}) = ActivePowerTimeSeriesParameter
+_zip_parameter(::Type{ZipLoadReactivePower}) = ReactivePowerTimeSeriesParameter
+
+function calculate_aux_variable_value!(
+    container::OptimizationContainer,
+    ::AuxVarKey{T, D},
+    system::PSY.System,
+    context::PowerSolveContext,
+) where {T <: Union{ZipLoadActivePower, ZipLoadReactivePower}, D <: ZipLoad}
+    network_model = get_network_model(context)
+    U = _zip_parameter(T)
+    pairs = _bus_name_number_pairs(system, network_model)
+    bus_names = Dict{Int, String}(n => name for (name, n) in pairs)
+    _calculate_zip_load_consumption!(
+        get_aux_variable(container, T, D),
+        U,
+        IOM.calculate_parameter_values(get_parameter(container, U, D)),
+        _solved_voltage_magnitude(container, network_model),
+        bus_names,
+        get_network_reduction(network_model),
+        system,
+        D,
+    )
+    return
+end
+
+# Function barrier: the containers above are not inferable.
+function _calculate_zip_load_consumption!(
+    consumption::DenseAxisArray{Float64, 2},
+    ::Type{U},
+    injection::DenseAxisArray{Float64, 2},
+    voltage::DenseAxisArray{Float64, 2},
+    bus_names::Dict{Int, String},
+    reduction::PNM.NetworkReductionData,
+    system::PSY.System,
+    ::Type{D},
+) where {U <: TimeSeriesParameter, D <: ZipLoad}
+    has_series = Set{String}(axes(injection, 1))
+    for name in axes(consumption, 1)
+        d = PSY.get_component(D, system, name)
+        constant, impedance, current = zip_load_parts(U, d)
+        total = constant + impedance + current
+        if iszero(total) # A load with no parts consumes nothing; avoid 0/0.
+            total = 1.0
+        end
+        bus = bus_names[PNM.get_mapped_bus_number(reduction, PSY.get_bus(d))]
+        for t in axes(consumption, 2)
+            # Loads without the time series use 1.0, as in the balance.
+            p0 = if name in has_series
+                -injection[name, t]
+            else
+                -get_multiplier_value(U, d, StaticPowerLoad)
+            end
+            v = voltage[bus, t]
+            factor = (constant + impedance * v^2 + current * v) / total
+            consumption[name, t] = p0 * factor
+        end
+    end
+    return
+end

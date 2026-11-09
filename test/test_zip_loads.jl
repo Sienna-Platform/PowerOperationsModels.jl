@@ -111,6 +111,30 @@ function _opf_bus_generation(sys, res, variable_name)
     return by_bus
 end
 
+# Each load's consumption output is P0 * (c + z*V^2 + i*V) at its solved bus voltage.
+function _test_zip_load_outputs(sys, res, magnitudes, split)
+    for (output, parameter) in (
+        (
+            "ZipLoadActivePower__StandardLoad",
+            "ActivePowerTimeSeriesParameter__StandardLoad",
+        ),
+        (
+            "ZipLoadReactivePower__StandardLoad",
+            "ReactivePowerTimeSeriesParameter__StandardLoad",
+        ),
+    )
+        consumption = read_aux_variable(res, output; table_format = TableFormat.WIDE)
+        injection = read_parameter(res, parameter; table_format = TableFormat.WIDE)
+        for load in get_components(StandardLoad, sys)
+            name = get_name(load)
+            v = magnitudes[get_name(PSY.get_bus(load))]
+            factor = split.constant + split.impedance * v^2 + split.current * v
+            @test consumption[1, name] ≈ -injection[1, name] * factor atol = 1e-6
+        end
+    end
+    return
+end
+
 function _build_log(model)
     return read(joinpath(IOM.get_output_dir(model), "operation_problem.log"), String)
 end
@@ -121,16 +145,21 @@ end
         model = _solve_zip_model(sys, network_formulation)
         res = IOM.OptimizationProblemOutputs(model)
         magnitudes, angles = _bus_voltages(res, network_formulation)
+        _test_zip_load_outputs(sys, res, magnitudes, ZIP_SPLIT)
 
         # Constant power gives other voltages.
         @test maximum(abs(v - 1.0) for v in values(magnitudes)) > 1e-2
-        constant_model = _solve_zip_model(
-            _zip_load_system((constant = 1.0, impedance = 0.0, current = 0.0)),
-            network_formulation,
-        )
-        constant_magnitudes, _ = _bus_voltages(
-            IOM.OptimizationProblemOutputs(constant_model),
-            network_formulation,
+        constant_split = (constant = 1.0, impedance = 0.0, current = 0.0)
+        constant_sys = _zip_load_system(constant_split)
+        constant_model = _solve_zip_model(constant_sys, network_formulation)
+        constant_res = IOM.OptimizationProblemOutputs(constant_model)
+        constant_magnitudes, _ = _bus_voltages(constant_res, network_formulation)
+        # Constant power loads consume P0.
+        _test_zip_load_outputs(
+            constant_sys,
+            constant_res,
+            constant_magnitudes,
+            constant_split,
         )
         @test maximum(
             abs(magnitudes[n] - constant_magnitudes[n]) for n in keys(magnitudes)

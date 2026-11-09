@@ -507,6 +507,8 @@ export get_objective_expression
 export get_formulation
 export TimeDurationOn
 export TimeDurationOff
+export ZipLoadActivePower
+export ZipLoadReactivePower
 
 # Alias for InfrastructureSystems.Optimization needed by tests
 export ISOPT

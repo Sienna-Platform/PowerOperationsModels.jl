@@ -98,3 +98,11 @@ function _zip_voltage_terms(
     vm = variables[1][name, t]
     return vm, vm^2
 end
+
+# Solved |V| per bus name and time step.
+function _solved_voltage_magnitude(
+    container::OptimizationContainer,
+    ::NetworkModel{ACPNetworkModel},
+)
+    return lookup_value(container, VoltageMagnitude, PSY.ACBus)
+end

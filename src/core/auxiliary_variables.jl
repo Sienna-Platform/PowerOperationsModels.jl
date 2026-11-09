@@ -20,6 +20,20 @@ Docs abbreviation: ``p_l^{loss}``
 struct DCLineLosses <: AuxVariableType end
 
 """
+Active power consumed by a ZIP load at the solved bus voltage, `P0 * (c + z*|V|^2 + i*|V|)`,
+with `P0` the `ActivePowerTimeSeriesParameter` load and `c`, `z`, `i` its constant power,
+impedance and current fractions. Computed after the solve under `StaticPowerLoad` in
+`ACPNetworkModel`, `ACRNetworkModel` and `IVRNetworkModel`. Positive for consumption.
+"""
+struct ZipLoadActivePower <: AuxVariableType end
+
+"""
+Reactive power analogue of [`ZipLoadActivePower`](@ref), from the
+`ReactivePowerTimeSeriesParameter` load and the reactive ZIP fractions.
+"""
+struct ZipLoadReactivePower <: AuxVariableType end
+
+"""
 Auxiliary Variables that are calculated using a `PowerFlowEvaluationModel`
 """
 abstract type PowerFlowAuxVariableType <: AuxVariableType end
@@ -78,6 +92,8 @@ struct PowerFlowBranchActivePowerLoss <: PowerFlowAuxVariableType end
 # TODO reactive loss?
 
 convert_output_to_natural_units(::Type{PowerOutput}) = true
+convert_output_to_natural_units(::Type{<:Union{ZipLoadActivePower, ZipLoadReactivePower}}) =
+    true
 convert_output_to_natural_units(
     ::Type{
         <:Union{

@@ -135,3 +135,14 @@ function _zip_voltage_terms(
     voltage_squared = variables[1][name, t]^2 + variables[2][name, t]^2
     return sqrt(voltage_squared), voltage_squared
 end
+
+# Solved |V| per bus name and time step.
+function _solved_voltage_magnitude(
+    container::OptimizationContainer,
+    ::NetworkModel{<:Union{ACRNetworkModel, IVRNetworkModel}},
+)
+    return hypot.(
+        lookup_value(container, VoltageReal, PSY.ACBus),
+        lookup_value(container, VoltageImaginary, PSY.ACBus),
+    )
+end

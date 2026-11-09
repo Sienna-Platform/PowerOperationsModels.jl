@@ -492,6 +492,7 @@ function construct_device!(
             network_model,
         )
     end
+    add_zip_load_outputs!(container, devices, model, network_model)
 
     add_to_expression!(
         container,
