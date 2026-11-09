@@ -104,9 +104,10 @@ Every slack penalty in this library (balance, branch flow, post-contingency, res
 requirement, transmission interface `violation_penalty`, and feedforward bound on a power
 variable) is per pu-hour, like device costs, and enters the objective multiplied by the step
 length in hours.
-Branch flow, post-contingency branch, thermal ramp and hydro balance slacks read the
-`slack_penalty` of their `DeviceModel`, and reserve requirement slacks read that of their
-`ServiceModel`.
+Branch flow, operational flow limit, post-contingency branch, thermal ramp, hydro balance and
+budget, and storage cycling slacks read the `slack_penalty` of their `DeviceModel`. Reserve
+requirement and AGC area mismatch slacks read that of their `ServiceModel`.
+Storage cycling slacks are charged once at the horizon end, without the step length.
 
 ### System slack containers
 

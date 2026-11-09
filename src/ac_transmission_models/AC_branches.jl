@@ -1025,7 +1025,7 @@ end
 
 # All names of a reduced arc hold one slack variable, and a mixed parallel arc shares it
 # across branch types. Price a slack only while its coefficient is zero, so each arc pays
-# the violation cost once. `invariant` is a function barrier for the expression type.
+# the slack cost once. `invariant` is a function barrier for the expression type.
 function _price_slacks_once!(
     container::OptimizationContainer,
     invariant::E,
@@ -2517,7 +2517,7 @@ Built only when `use_slacks = true`: without slacks the rating is enforced as ha
 variable bounds (see `_set_dcpll_flow_bounds!`), which keeps the QCP tighter. Both
 directions share the branch's slack pair. An overload of δ in one direction also takes
 the other direction past its lower row by about δ minus the loss, so the objective prices
-the overload at about twice the violation cost.
+the overload at about twice the `slack_penalty`.
 """
 function add_constraints!(
     container::OptimizationContainer,
