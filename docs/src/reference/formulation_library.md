@@ -99,11 +99,15 @@ balance constraint (model stage).
 
 All network variables, **including the slacks**, are created in the argument stage. System slacks
 are only added when `use_slacks = true` on the `NetworkModel`, and they are penalized in the
-objective at `BALANCE_SLACK_COST` during the model stage.
+objective at the `slack_penalty` of the `NetworkModel` during the model stage.
 Every slack penalty in this library (balance, branch flow, post-contingency, reserve
 requirement, transmission interface `violation_penalty`, and feedforward bound on a power
 variable) is per pu-hour, like device costs, and enters the objective multiplied by the step
 length in hours.
+Branch flow, operational flow limit, post-contingency branch, thermal ramp, hydro balance and
+budget, and storage cycling slacks read the `slack_penalty` of their `DeviceModel`. Reserve
+requirement and AGC area mismatch slacks read that of their `ServiceModel`.
+Storage cycling slacks are charged once at the horizon end, without the step length.
 
 ### System slack containers
 
@@ -235,8 +239,8 @@ On `IVRNetworkModel` both mechanisms are present at once, on different equations
 
 !!! note "Pricing asymmetry between the two slack domains"
     
-    Every slack container above is priced identically at `CONSTRAINT_VIOLATION_SLACK_COST` in
-    the objective, but the *domain* being relaxed differs. `StaticBranchBounds`'s
+    Every slack container above is priced identically at the `slack_penalty` of the
+    `DeviceModel` in the objective, but the *domain* being relaxed differs. `StaticBranchBounds`'s
     `"p_ft"`/`"p_tf"`/`"q_ft"`/`"q_tf"`/`"cr_*"`/`"ci_*"` pairs are flow-domain (MW / per-unit current); `StaticBranch`'s
     meta-less and `"c_from"`/`"c_to"` slacks relax a **squared** domain (MVA² / A²) because they
     are subtracted directly from a quadratic left-hand side. The same price per unit therefore
@@ -828,7 +832,7 @@ attach_feedforward!(
 
 `UpperBoundFeedforward` and `LowerBoundFeedforward` accept `add_slacks = true`, which relaxes the
 bound with a non-negative `UpperBoundFeedForwardSlack` / `LowerBoundFeedForwardSlack` penalized at
-`BALANCE_SLACK_COST` per hour of the time step when the bounded variable is a power, and at
+`IOM.BALANCE_SLACK_COST` per hour of the time step when the bounded variable is a power, and at
 `FEEDFORWARD_SLACK_COST` per step otherwise.
 
 `SemiContinuousFeedforward` suppresses the affected formulation's own range constraints —

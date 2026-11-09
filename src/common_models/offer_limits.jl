@@ -100,23 +100,6 @@ function _check_series_layout(
     return last(value_axes).labels
 end
 
-# Each step of a series multiplies one model time step, so the resolutions must match.
-function _check_window_resolution(
-    container::OptimizationContainer,
-    md::IS.TimeSeriesMetadata,
-    component,
-)
-    if IS.get_resolution(md) != get_resolution(container)
-        throw(
-            IS.ConflictingInputsError(
-                "$(summary(component)): series $(IS.get_name(md)) has resolution " *
-                "$(IS.get_resolution(md)); the model runs at $(get_resolution(container)).",
-            ),
-        )
-    end
-    return
-end
-
 """
 Register the empty containers of the opt-in rows before the device model stage: IOM's device
 dual hook throws for a listed constraint type that has no container yet.
@@ -229,13 +212,13 @@ _links_message(d) =
     "[time step, block, product] values with value_axes = [IS.TimeSeriesAxis(\"block\", " *
     "1:n), IS.TimeSeriesAxis(\"product\", service names)]."
 
-_links_metadata(d::PSY.Component) = IS.list_time_series_metadata(
-    d;
-    time_series_type = IS.Deterministic,
-    name = RESERVE_OFFER_LINKS_TS_NAME,
-)
+_links_metadata(container::OptimizationContainer, d::PSY.Component) =
+    list_model_series_metadata(
+        container, d, IS.Deterministic, RESERVE_OFFER_LINKS_TS_NAME,
+    )
 
-_has_offer_links(d::PSY.Component) = !isempty(_links_metadata(d))
+_has_offer_links(container::OptimizationContainer, d::PSY.Component) =
+    !isempty(_links_metadata(container, d))
 
 """
 Value axes of the `reserve_offer_links` series `d` owns, read from its metadata without
@@ -243,7 +226,7 @@ loading data. Errors for a second series, axes other than `"block"` and `"produc
 names), values other than Int64, or another resolution.
 """
 function _links_value_axes(container::OptimizationContainer, d::PSY.Component)
-    rows = _links_metadata(d)
+    rows = _links_metadata(container, d)
     if length(rows) > 1
         throw(
             ArgumentError(
@@ -253,7 +236,6 @@ function _links_value_axes(container::OptimizationContainer, d::PSY.Component)
         )
     end
     md = only(rows)
-    _check_window_resolution(container, md, d)
     value_axes = IS.get_value_axes(md)
     _check_series_layout(value_axes, ["block", "product"], String, _links_message(d))
     _check_int_links(eltype(md), d)
@@ -282,7 +264,7 @@ function _add_offer_link_parameters!(
     model::DeviceModel{D},
 ) where {D <: PSY.Component}
     owners = D[
-        d for d in get_available_components(model, sys) if _has_offer_links(d)
+        d for d in get_available_components(model, sys) if _has_offer_links(container, d)
     ]
     isempty(owners) && return
     add_parameters!(container, ReserveOfferLinkParameter, owners, model)

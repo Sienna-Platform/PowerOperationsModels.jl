@@ -271,14 +271,11 @@ proportional_cost(cost::Nothing, ::Type{ActivePowerVariable}, ::PSY.HydroGen, ::
 proportional_cost(cost::PSY.OperationalCost, ::Type{OnVariable}, ::PSY.HydroGen, ::Type{<:AbstractHydroFormulation})=PSY.get_fixed(cost)
 proportional_cost(cost::PSY.OperationalCost, ::Type{HydroEnergySurplusVariable}, ::PSY.HydroGen, ::Type{<:AbstractHydroReservoirFormulation})=0.0
 proportional_cost(cost::PSY.OperationalCost, ::Type{HydroEnergyShortageVariable}, ::PSY.HydroGen, ::Type{<:AbstractHydroReservoirFormulation})=0.0
-proportional_cost(cost::PSY.OperationalCost, ::Type{HydroEnergyShortageVariable}, ::PSY.HydroGen, ::Type{HydroDispatchRunOfRiver})=CONSTRAINT_VIOLATION_SLACK_COST
 proportional_cost(cost::PSY.HydroReservoirCost, ::Type{HydroEnergySurplusVariable}, ::PSY.HydroReservoir, ::Type{<:AbstractHydroReservoirFormulation})=PSY.get_level_surplus_cost(cost)
 proportional_cost(cost::PSY.HydroReservoirCost, ::Type{HydroEnergyShortageVariable}, ::PSY.HydroReservoir, ::Type{<:AbstractHydroReservoirFormulation})=PSY.get_level_shortage_cost(cost)
 proportional_cost(cost::PSY.HydroReservoirCost, ::Type{HydroWaterSurplusVariable}, ::PSY.HydroReservoir, ::Type{<:AbstractHydroReservoirFormulation})=PSY.get_level_surplus_cost(cost)
 proportional_cost(cost::PSY.HydroReservoirCost, ::Type{HydroWaterShortageVariable}, ::PSY.HydroReservoir, ::Type{<:AbstractHydroReservoirFormulation})=PSY.get_level_shortage_cost(cost)
 proportional_cost(cost::PSY.HydroReservoirCost, ::Type{WaterSpillageVariable}, ::PSY.HydroReservoir, ::Type{<:AbstractHydroReservoirFormulation})=PSY.get_spillage_cost(cost)
-proportional_cost(::PSY.HydroReservoirCost, ::Type{HydroBalanceSurplusVariable}, ::PSY.HydroReservoir, ::Type{<:AbstractHydroReservoirFormulation})=CONSTRAINT_VIOLATION_SLACK_COST
-proportional_cost(::PSY.HydroReservoirCost, ::Type{HydroBalanceShortageVariable}, ::PSY.HydroReservoir, ::Type{<:AbstractHydroReservoirFormulation})=CONSTRAINT_VIOLATION_SLACK_COST
 
 objective_function_multiplier(::Type{ActivePowerVariable}, ::Type{<:AbstractHydroFormulation})=OBJECTIVE_FUNCTION_POSITIVE
 objective_function_multiplier(::Type{ActivePowerPumpVariable}, ::Type{<:AbstractHydroFormulation})=OBJECTIVE_FUNCTION_POSITIVE
@@ -2603,18 +2600,17 @@ _include_min_gen_power_in_constraint(
     ::Type{ActivePowerVariable},
     ::Type{HydroCommitmentRunOfRiver},
 ) = true
-# Dispatch with ActivePower (not PowerAboveMinimum) means generator is on,
-# so add constant breakpoint1 to power constraint.
+# Hydro dispatch has no OnVariable: the blocks start at the offer's first breakpoint.
 _include_min_gen_power_in_constraint(
     ::Type{<:PSY.HydroGen},
     ::Type{ActivePowerVariable},
-    ::Type{HydroDispatchRunOfRiver},
+    ::Type{<:AbstractHydroDispatchFormulation},
 ) = false
 
 _include_constant_min_gen_power_in_constraint(
     ::Type{<:PSY.HydroGen},
     ::Type{ActivePowerVariable},
-    ::Type{HydroDispatchRunOfRiver},
+    ::Type{<:AbstractHydroDispatchFormulation},
 ) = true
 
 _include_min_gen_power_in_constraint(
@@ -2636,7 +2632,7 @@ function add_to_objective_function!(
 ) where {T <: PSY.HydroGen, U <: AbstractHydroDispatchFormulation}
     add_variable_cost!(container, ActivePowerVariable, devices, U)
     if get_attribute(model, "hydro_budget") === true && get_use_slacks(model)
-        add_proportional_cost!(container, HydroEnergyShortageVariable, devices, U)
+        add_proportional_cost!(container, HydroEnergyShortageVariable, devices, model)
     end
     return
 end
@@ -2652,8 +2648,8 @@ function add_to_objective_function!(
     add_proportional_cost!(container, HydroEnergyShortageVariable, devices, U)
     add_proportional_cost!(container, WaterSpillageVariable, devices, U)
     if get_use_slacks(model)
-        add_proportional_cost!(container, HydroBalanceShortageVariable, devices, U)
-        add_proportional_cost!(container, HydroBalanceSurplusVariable, devices, U)
+        add_proportional_cost!(container, HydroBalanceShortageVariable, devices, model)
+        add_proportional_cost!(container, HydroBalanceSurplusVariable, devices, model)
     end
     return
 end
@@ -2695,7 +2691,6 @@ function add_proportional_cost!(
     T <: PSY.Component,
     U <: Union{
         HydroEnergySurplusVariable, HydroEnergyShortageVariable, WaterSpillageVariable,
-        HydroBalanceShortageVariable, HydroBalanceSurplusVariable,
         HydroWaterSurplusVariable, HydroWaterShortageVariable,
     },
     V <: AbstractDeviceFormulation,
@@ -2712,6 +2707,33 @@ function add_proportional_cost!(
             variable = get_variable(container, U, T)[name, t]
             IOM.add_cost_term_invariant!(
                 container, variable, rate, ProductionCostExpression, T, name, t,
+            )
+        end
+    end
+    return
+end
+
+# Balance and budget slacks cost the `slack_penalty` of the `DeviceModel`, scaled by
+# `base_power` like the cost data above.
+function add_proportional_cost!(
+    container::OptimizationContainer,
+    ::Type{U},
+    devices::Vector{T},
+    model::DeviceModel{T, <:AbstractHydroFormulation},
+) where {
+    T <: PSY.Component,
+    U <: Union{
+        HydroBalanceShortageVariable, HydroBalanceSurplusVariable,
+        HydroEnergyShortageVariable,
+    },
+}
+    rate = get_slack_penalty(model) * get_model_base_power(container)
+    variable = get_variable(container, U, T)
+    for d in devices
+        name = PSY.get_name(d)
+        for t in get_time_steps(container)
+            IOM.add_cost_term_invariant!(
+                container, variable[name, t], rate, ProductionCostExpression, T, name, t,
             )
         end
     end
@@ -2973,46 +2995,95 @@ function add_constraints!(
     )
 end
 
-function add_to_expression!(
+_served_direction(::Type{<:HydroServedReserveUpExpression}) = PSY.ReserveUp
+_served_direction(::Type{<:HydroServedReserveDownExpression}) = PSY.ReserveDown
+
+# Adds the award of each modeled service of direction R that device d offers.
+# get_services(model) has an abstract element type. This method gives the loop body concrete types.
+function _add_hydro_served_reserve!(
     container::OptimizationContainer,
-    ::Type{T},
+    expression,
     ::Type{U},
-    devices::Vector{V},
-    model::DeviceModel{V, W},
-    network_model::NetworkModel{X},
+    d::V,
+    model::DeviceModel{V},
+    ::ServiceModel{S},
+    ::Type{R},
 ) where {
-    T <: HydroServedReserveUpExpression,
     U <: ActivePowerReserveVariable,
     V <: PSY.HydroGen,
-    W <: AbstractDeviceFormulation,
-    X <: AbstractNetworkModel,
+    S <: PSY.Service,
+    R <: PSY.ReserveDirection,
 }
-    expression = get_expression(container, T, V)
-    for d in devices
-        name = PSY.get_name(d)
-        # One `ServiceModel` per reserve type. Iterate the device's own services and
-        # match those whose type is modeled (a service model of that type is attached),
-        # using each matching service's own name for the reserve-variable index.
-        for service_model in get_services(model)
-            S = get_component_type(service_model)
-            for service in PSY.get_services(d)
-                typeof(service) <: S || continue
-                isa(service, PSY.Reserve{PSY.ReserveUp}) || continue
-                service_name = PSY.get_name(service)
-                variable =
-                    get_variable(container, U, IOM.ComponentPairKey{V, typeof(service)})
-                fractions = deployed_fraction_values(container, model, service)
-                for t in get_time_steps(container)
-                    add_proportional_to_jump_expression!(
-                        expression[name, t],
-                        variable[(service_name, name, t)],
-                        fractions[t],
-                    )
-                end
-            end
-        end
+    for service in PSY.get_services(d)
+        _add_served_award!(container, expression, U, d, model, S, R, service)
     end
+    return
 end
+
+function _add_served_award!(
+    container::OptimizationContainer,
+    expression,
+    ::Type{U},
+    d::V,
+    model::DeviceModel{V},
+    ::Type{S},
+    ::Type{R},
+    service::S,
+) where {
+    U <: ActivePowerReserveVariable,
+    V <: PSY.HydroGen,
+    S <: PSY.Service,
+    R <: PSY.ReserveDirection,
+}
+    _add_direction_award!(container, expression, U, d, model, R, service)
+    return
+end
+
+_add_served_award!(
+    ::OptimizationContainer,
+    _,
+    ::Type,
+    ::PSY.HydroGen,
+    ::DeviceModel,
+    ::Type,
+    ::Type,
+    ::PSY.Service,
+) =
+    nothing
+
+function _add_direction_award!(
+    container::OptimizationContainer,
+    expression,
+    ::Type{U},
+    d::V,
+    model::DeviceModel{V},
+    ::Type{R},
+    service::PSY.Reserve{R},
+) where {U <: ActivePowerReserveVariable, V <: PSY.HydroGen, R <: PSY.ReserveDirection}
+    name = PSY.get_name(d)
+    service_name = PSY.get_name(service)
+    variable = get_variable(container, U, IOM.ComponentPairKey{V, typeof(service)})
+    fractions = deployed_fraction_values(container, model, service)
+    for t in get_time_steps(container)
+        add_proportional_to_jump_expression!(
+            expression[name, t],
+            variable[(service_name, name, t)],
+            fractions[t],
+        )
+    end
+    return
+end
+
+_add_direction_award!(
+    ::OptimizationContainer,
+    _,
+    ::Type,
+    ::PSY.HydroGen,
+    ::DeviceModel,
+    ::Type,
+    ::PSY.Service,
+) =
+    nothing
 
 function add_to_expression!(
     container::OptimizationContainer,
@@ -3022,34 +3093,17 @@ function add_to_expression!(
     model::DeviceModel{V, W},
     network_model::NetworkModel{X},
 ) where {
-    T <: HydroServedReserveDownExpression,
+    T <: Union{HydroServedReserveUpExpression, HydroServedReserveDownExpression},
     U <: ActivePowerReserveVariable,
     V <: PSY.HydroGen,
     W <: AbstractDeviceFormulation,
     X <: AbstractNetworkModel,
 }
     expression = get_expression(container, T, V)
+    R = _served_direction(T)
     for d in devices
-        name = PSY.get_name(d)
-        # One `ServiceModel` per reserve type. Iterate the device's own services and
-        # match those whose type is modeled, using each matching service's own name.
         for service_model in get_services(model)
-            S = get_component_type(service_model)
-            for service in PSY.get_services(d)
-                typeof(service) <: S || continue
-                isa(service, PSY.Reserve{PSY.ReserveDown}) || continue
-                service_name = PSY.get_name(service)
-                variable =
-                    get_variable(container, U, IOM.ComponentPairKey{V, typeof(service)})
-                fractions = deployed_fraction_values(container, model, service)
-                for t in get_time_steps(container)
-                    add_proportional_to_jump_expression!(
-                        expression[name, t],
-                        variable[(service_name, name, t)],
-                        fractions[t],
-                    )
-                end
-            end
+            _add_hydro_served_reserve!(container, expression, U, d, model, service_model, R)
         end
     end
 end

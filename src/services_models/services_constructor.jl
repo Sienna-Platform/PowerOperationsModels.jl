@@ -256,7 +256,7 @@ function construct_service!(
             demand_names,
             get_time_steps(container),
         )
-        get_use_slacks(model) && add_reserve_slacks!(container, SR, demand_names)
+        get_use_slacks(model) && add_reserve_slacks!(container, SR, demand_names, model)
     end
     for service in services
         contributing_devices = get_contributing_devices_map(model, PSY.get_name(service))
@@ -648,7 +648,7 @@ function construct_service!(
         service_names,
         get_time_steps(container),
     )
-    get_use_slacks(model) && add_reserve_slacks!(container, SR, service_names)
+    get_use_slacks(model) && add_reserve_slacks!(container, SR, service_names, model)
     for service in services
         contributing_devices = get_contributing_devices_map(model, PSY.get_name(service))
         add_constraints!(
@@ -724,7 +724,7 @@ function construct_service!(
         service_names,
         get_time_steps(container),
     )
-    get_use_slacks(model) && add_reserve_slacks!(container, SR, service_names)
+    get_use_slacks(model) && add_reserve_slacks!(container, SR, service_names, model)
     for service in services
         contributing_devices = get_contributing_devices_map(model, PSY.get_name(service))
         add_constraints!(
@@ -1063,7 +1063,7 @@ function construct_service!(
         service_names,
         get_time_steps(container),
     )
-    get_use_slacks(model) && add_reserve_slacks!(container, R, service_names)
+    get_use_slacks(model) && add_reserve_slacks!(container, R, service_names, model)
     for service in procured
         contributing_devices = get_contributing_devices_map(model, PSY.get_name(service))
         add_constraints!(
