@@ -536,27 +536,32 @@ function add_variables!(
     E <: PSY.HydroReservoir,
 }
     time_steps = get_time_steps(container)
+    # Sparse: a turbine only draws water from its head reservoirs.
     variable = add_variable_container!(
         container,
         variable_type,
         D,
         [PSY.get_name(d) for d in turbines],
         [PSY.get_name(d) for d in reservoirs],
-        time_steps,
+        time_steps;
+        sparse = true,
     )
 
-    for t in time_steps, d in turbines, r in reservoirs
+    for d in turbines, r in reservoirs
+        PSY.has_downstream_turbine(r, d) || continue
         name = PSY.get_name(d)
         name_res = PSY.get_name(r)
-        variable[name, name_res, t] = JuMP.@variable(
-            get_jump_model(container),
-            base_name = "$(T)_$(D)_{$(name), $(name_res), $(t)}",
-        )
         ub = get_variable_upper_bound(variable_type, d, X)
-        ub !== nothing && JuMP.set_upper_bound(variable[name, name_res, t], ub)
-
         lb = get_variable_lower_bound(variable_type, d, X)
-        lb !== nothing && JuMP.set_lower_bound(variable[name, name_res, t], lb)
+        for t in time_steps
+            var = JuMP.@variable(
+                get_jump_model(container),
+                base_name = "$(T)_$(D)_{$(name), $(name_res), $(t)}",
+            )
+            ub !== nothing && JuMP.set_upper_bound(var, ub)
+            lb !== nothing && JuMP.set_lower_bound(var, lb)
+            variable[(name, name_res, t)] = var
+        end
     end
 end
 
@@ -2144,7 +2149,7 @@ function add_expressions!(
     devices::Vector{V},
     model::DeviceModel{V, W},
 ) where {
-    U <: Union{TotalHydroFlowRateReservoirIncoming, TotalHydroFlowRateReservoirOutgoing},
+    U <: TotalHydroFlowRateReservoirOutgoing,
     V <: PSY.HydroReservoir,
     W <: AbstractHydroFormulation,
 }
@@ -2166,9 +2171,47 @@ function add_expressions!(
                 sum(variable[name, reservoir_name, t] for name in turbine_names)
         end
     end
+    return
 end
 
-function add_expressions!(
+# Water reaching a tail reservoir is what each upstream turbine draws from its head reservoirs.
+function add_hydro_turbine_flow_expressions!(
+    container::OptimizationContainer,
+    sys::PSY.System,
+    ::Type{U},
+    devices::Vector{V},
+    model::DeviceModel{V, W},
+) where {
+    U <: TotalHydroFlowRateReservoirIncoming,
+    V <: PSY.HydroReservoir,
+    W <: AbstractHydroFormulation,
+}
+    time_steps = get_time_steps(container)
+    expression = add_expression_container!(container, U,
+        V,
+        [PSY.get_name(d) for d in devices],
+        time_steps,
+    )
+
+    for d in devices
+        flows = Tuple{String, String}[
+            (PSY.get_name(turbine), PSY.get_name(head)) for
+            turbine in get_available_turbines(d, U) for
+            head in PSY.get_connected_head_reservoirs(sys, turbine) if
+            PSY.get_available(head)
+        ]
+        isempty(flows) && continue
+        variable = get_variable(container, HydroTurbineFlowRateVariable, PSY.HydroTurbine)
+        reservoir_name = PSY.get_name(d)
+        for t in time_steps
+            expression[reservoir_name, t] =
+                sum(variable[turbine, head, t] for (turbine, head) in flows)
+        end
+    end
+    return
+end
+
+function add_hydro_turbine_flow_expressions!(
     container::OptimizationContainer,
     sys::PSY.System,
     ::Type{TotalHydroFlowRateTurbineOutgoing},
@@ -2196,6 +2239,7 @@ function add_expressions!(
                 sum(variable[name, reservoir_name, t] for reservoir_name in reservoir_names)
         end
     end
+    return
 end
 
 function add_expressions!(
@@ -2928,46 +2972,95 @@ function add_constraints!(
     )
 end
 
-function add_to_expression!(
+_served_direction(::Type{<:HydroServedReserveUpExpression}) = PSY.ReserveUp
+_served_direction(::Type{<:HydroServedReserveDownExpression}) = PSY.ReserveDown
+
+# Adds the award of each modeled service of direction R that device d offers.
+# get_services(model) has an abstract element type. This method gives the loop body concrete types.
+function _add_hydro_served_reserve!(
     container::OptimizationContainer,
-    ::Type{T},
+    expression,
     ::Type{U},
-    devices::Vector{V},
-    model::DeviceModel{V, W},
-    network_model::NetworkModel{X},
+    d::V,
+    model::DeviceModel{V},
+    ::ServiceModel{S},
+    ::Type{R},
 ) where {
-    T <: HydroServedReserveUpExpression,
     U <: ActivePowerReserveVariable,
     V <: PSY.HydroGen,
-    W <: AbstractDeviceFormulation,
-    X <: AbstractNetworkModel,
+    S <: PSY.Service,
+    R <: PSY.ReserveDirection,
 }
-    expression = get_expression(container, T, V)
-    for d in devices
-        name = PSY.get_name(d)
-        # One `ServiceModel` per reserve type. Iterate the device's own services and
-        # match those whose type is modeled (a service model of that type is attached),
-        # using each matching service's own name for the reserve-variable index.
-        for service_model in get_services(model)
-            S = get_component_type(service_model)
-            for service in PSY.get_services(d)
-                typeof(service) <: S || continue
-                isa(service, PSY.Reserve{PSY.ReserveUp}) || continue
-                service_name = PSY.get_name(service)
-                variable =
-                    get_variable(container, U, IOM.ComponentPairKey{V, typeof(service)})
-                fractions = deployed_fraction_values(container, model, service)
-                for t in get_time_steps(container)
-                    add_proportional_to_jump_expression!(
-                        expression[name, t],
-                        variable[(service_name, name, t)],
-                        fractions[t],
-                    )
-                end
-            end
-        end
+    for service in PSY.get_services(d)
+        _add_served_award!(container, expression, U, d, model, S, R, service)
     end
+    return
 end
+
+function _add_served_award!(
+    container::OptimizationContainer,
+    expression,
+    ::Type{U},
+    d::V,
+    model::DeviceModel{V},
+    ::Type{S},
+    ::Type{R},
+    service::S,
+) where {
+    U <: ActivePowerReserveVariable,
+    V <: PSY.HydroGen,
+    S <: PSY.Service,
+    R <: PSY.ReserveDirection,
+}
+    _add_direction_award!(container, expression, U, d, model, R, service)
+    return
+end
+
+_add_served_award!(
+    ::OptimizationContainer,
+    _,
+    ::Type,
+    ::PSY.HydroGen,
+    ::DeviceModel,
+    ::Type,
+    ::Type,
+    ::PSY.Service,
+) =
+    nothing
+
+function _add_direction_award!(
+    container::OptimizationContainer,
+    expression,
+    ::Type{U},
+    d::V,
+    model::DeviceModel{V},
+    ::Type{R},
+    service::PSY.Reserve{R},
+) where {U <: ActivePowerReserveVariable, V <: PSY.HydroGen, R <: PSY.ReserveDirection}
+    name = PSY.get_name(d)
+    service_name = PSY.get_name(service)
+    variable = get_variable(container, U, IOM.ComponentPairKey{V, typeof(service)})
+    fractions = deployed_fraction_values(container, model, service)
+    for t in get_time_steps(container)
+        add_proportional_to_jump_expression!(
+            expression[name, t],
+            variable[(service_name, name, t)],
+            fractions[t],
+        )
+    end
+    return
+end
+
+_add_direction_award!(
+    ::OptimizationContainer,
+    _,
+    ::Type,
+    ::PSY.HydroGen,
+    ::DeviceModel,
+    ::Type,
+    ::PSY.Service,
+) =
+    nothing
 
 function add_to_expression!(
     container::OptimizationContainer,
@@ -2977,34 +3070,17 @@ function add_to_expression!(
     model::DeviceModel{V, W},
     network_model::NetworkModel{X},
 ) where {
-    T <: HydroServedReserveDownExpression,
+    T <: Union{HydroServedReserveUpExpression, HydroServedReserveDownExpression},
     U <: ActivePowerReserveVariable,
     V <: PSY.HydroGen,
     W <: AbstractDeviceFormulation,
     X <: AbstractNetworkModel,
 }
     expression = get_expression(container, T, V)
+    R = _served_direction(T)
     for d in devices
-        name = PSY.get_name(d)
-        # One `ServiceModel` per reserve type. Iterate the device's own services and
-        # match those whose type is modeled, using each matching service's own name.
         for service_model in get_services(model)
-            S = get_component_type(service_model)
-            for service in PSY.get_services(d)
-                typeof(service) <: S || continue
-                isa(service, PSY.Reserve{PSY.ReserveDown}) || continue
-                service_name = PSY.get_name(service)
-                variable =
-                    get_variable(container, U, IOM.ComponentPairKey{V, typeof(service)})
-                fractions = deployed_fraction_values(container, model, service)
-                for t in get_time_steps(container)
-                    add_proportional_to_jump_expression!(
-                        expression[name, t],
-                        variable[(service_name, name, t)],
-                        fractions[t],
-                    )
-                end
-            end
+            _add_hydro_served_reserve!(container, expression, U, d, model, service_model, R)
         end
     end
 end
@@ -3032,7 +3108,14 @@ function _add_parameters!(
     mult = fraction_of_hour * length(time_steps) / HOURS_IN_DAY
     key = AuxVarKey{HydroEnergyOutput, D}("")
     parameter_container =
-        add_param_container!(container, T, D, key, names, [time_steps[end]])
+        add_variable_value_parameter_container!(
+            container,
+            T,
+            D,
+            key,
+            names,
+            [time_steps[end]],
+        )
     jump_model = get_jump_model(container)
     parent_mult = IOM.get_multiplier_array_data(parameter_container)
     parent_param = IOM.get_parameter_array_data(parameter_container)
@@ -3071,7 +3154,7 @@ function _add_parameters!(
     mult = fraction_of_hour * length(time_steps) / HOURS_IN_DAY
     key = ExpressionKey{TotalHydroFlowRateReservoirOutgoing, D}("")
     parameter_container =
-        add_param_container!(container, T, D, key, names, time_steps)
+        add_variable_value_parameter_container!(container, T, D, key, names, time_steps)
     jump_model = get_jump_model(container)
     parent_mult = IOM.get_multiplier_array_data(parameter_container)
     parent_param = IOM.get_parameter_array_data(parameter_container)

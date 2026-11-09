@@ -33,6 +33,28 @@ function _add_active_power_outage_constraint!(
     return
 end
 
+# An unoffered load's energy variable is pinned at 0, so the row above binds no up award.
+function _add_active_power_outage_constraint!(
+    container::OptimizationContainer,
+    devices_with_attributes::Vector{U},
+    device_model::DeviceModel{U, <:AbstractControllablePowerLoadFormulation},
+    ::Type{W},
+) where {U <: PSY.ControllableLoad, W}
+    add_parameterized_upper_bound_range_constraints(
+        container,
+        ActivePowerOutageConstraint,
+        _active_power_outage_lhs(device_model),
+        AvailableStatusParameter,
+        devices_with_attributes,
+        device_model,
+        W,
+    )
+    if has_service_model(device_model)
+        add_unoffered_outage_reserve_constraints!(container, devices_with_attributes)
+    end
+    return
+end
+
 # Compact formulations hold P_min outside the range expression, so the outage row bounds
 # total output.
 function _add_active_power_outage_constraint!(

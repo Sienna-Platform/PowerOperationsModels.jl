@@ -19,6 +19,7 @@ function construct_device!(
         D,
         get_attribute(model, RELAX_BINARIES_ATTRIBUTE),
     )
+    pin_unoffered_loads!(container, devices, D)
     add_variables!(
         container,
         ReactivePowerVariable,
@@ -48,25 +49,8 @@ function construct_device!(
         network_model,
     )
 
-    # With reserves, the dispatch limits move to the range expressions so awards consume
-    # shed/forecast headroom (load direction map in electric_loads.jl).
     if has_service_model(model)
-        add_to_expression!(
-            container,
-            ActivePowerRangeExpressionLB,
-            ActivePowerVariable,
-            devices,
-            model,
-            network_model,
-        )
-        add_to_expression!(
-            container,
-            ActivePowerRangeExpressionUB,
-            ActivePowerVariable,
-            devices,
-            model,
-            network_model,
-        )
+        add_reserve_range_expressions!(container, devices, model, network_model)
     end
 
     if haskey(get_time_series_names(model), ActivePowerTimeSeriesParameter)
@@ -105,6 +89,7 @@ function construct_device!(
             model,
             network_model,
         )
+        add_unoffered_up_reserve_constraints!(container, devices, model)
     else
         add_constraints!(
             container,
@@ -157,6 +142,7 @@ function construct_device!(
         D,
         get_attribute(model, RELAX_BINARIES_ATTRIBUTE),
     )
+    pin_unoffered_loads!(container, devices, D)
 
     # Add Variables to expressions
     add_to_expression!(
@@ -168,25 +154,8 @@ function construct_device!(
         network_model,
     )
 
-    # With reserves, the dispatch limits move to the range expressions so awards consume
-    # shed/forecast headroom (load direction map in electric_loads.jl).
     if has_service_model(model)
-        add_to_expression!(
-            container,
-            ActivePowerRangeExpressionLB,
-            ActivePowerVariable,
-            devices,
-            model,
-            network_model,
-        )
-        add_to_expression!(
-            container,
-            ActivePowerRangeExpressionUB,
-            ActivePowerVariable,
-            devices,
-            model,
-            network_model,
-        )
+        add_reserve_range_expressions!(container, devices, model, network_model)
     end
 
     if haskey(get_time_series_names(model), ActivePowerTimeSeriesParameter)
@@ -227,6 +196,7 @@ function construct_device!(
             model,
             network_model,
         )
+        add_unoffered_up_reserve_constraints!(container, devices, model)
     else
         add_constraints!(
             container,
@@ -268,6 +238,7 @@ function construct_device!(
         PowerLoadInterruption,
         get_attribute(model, RELAX_BINARIES_ATTRIBUTE),
     )
+    pin_unoffered_loads!(container, devices, PowerLoadInterruption)
     add_variables!(
         container,
         ReactivePowerVariable,
@@ -303,22 +274,7 @@ function construct_device!(
     )
 
     if has_service_model(model)
-        add_to_expression!(
-            container,
-            ActivePowerRangeExpressionLB,
-            ActivePowerVariable,
-            devices,
-            model,
-            network_model,
-        )
-        add_to_expression!(
-            container,
-            ActivePowerRangeExpressionUB,
-            ActivePowerVariable,
-            devices,
-            model,
-            network_model,
-        )
+        add_reserve_range_expressions!(container, devices, model, network_model)
     end
 
     if haskey(get_time_series_names(model), ActivePowerTimeSeriesParameter)
@@ -359,6 +315,7 @@ function construct_device!(
             model,
             network_model,
         )
+        add_unoffered_up_reserve_constraints!(container, devices, model)
     else
         add_constraints!(
             container,
@@ -416,6 +373,7 @@ function construct_device!(
         PowerLoadInterruption,
         get_attribute(model, RELAX_BINARIES_ATTRIBUTE),
     )
+    pin_unoffered_loads!(container, devices, PowerLoadInterruption)
     add_variables!(
         container,
         OnVariable,
@@ -436,22 +394,7 @@ function construct_device!(
     )
 
     if has_service_model(model)
-        add_to_expression!(
-            container,
-            ActivePowerRangeExpressionLB,
-            ActivePowerVariable,
-            devices,
-            model,
-            network_model,
-        )
-        add_to_expression!(
-            container,
-            ActivePowerRangeExpressionUB,
-            ActivePowerVariable,
-            devices,
-            model,
-            network_model,
-        )
+        add_reserve_range_expressions!(container, devices, model, network_model)
     end
 
     if haskey(get_time_series_names(model), ActivePowerTimeSeriesParameter)
@@ -490,6 +433,7 @@ function construct_device!(
             model,
             network_model,
         )
+        add_unoffered_up_reserve_constraints!(container, devices, model)
     else
         add_constraints!(
             container,
