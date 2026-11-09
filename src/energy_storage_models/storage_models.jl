@@ -64,8 +64,6 @@ objective_function_multiplier(::Type{StorageEnergyShortageVariable}, ::Type{<:Ab
 
 proportional_cost(cost::PSY.StorageCost, ::Type{StorageEnergySurplusVariable}, ::PSY.EnergyReservoirStorage, ::Type{<:AbstractStorageFormulation})=PSY.get_energy_surplus_cost(cost)
 proportional_cost(cost::PSY.StorageCost, ::Type{StorageEnergyShortageVariable}, ::PSY.EnergyReservoirStorage, ::Type{<:AbstractStorageFormulation})=PSY.get_energy_shortage_cost(cost)
-proportional_cost(::PSY.StorageCost, ::Type{StorageChargeCyclingSlackVariable}, ::PSY.EnergyReservoirStorage, ::Type{<:AbstractStorageFormulation})=CYCLE_VIOLATION_COST
-proportional_cost(::PSY.StorageCost, ::Type{StorageDischargeCyclingSlackVariable}, ::PSY.EnergyReservoirStorage, ::Type{<:AbstractStorageFormulation})=CYCLE_VIOLATION_COST
 
 
 IOM.variable_cost(cost::PSY.StorageCost, ::Type{ActivePowerOutVariable}, ::Type{<:PSY.Storage}, ::Type{<:AbstractStorageFormulation})=PSY.get_discharge_variable_cost(cost)
@@ -1678,21 +1676,21 @@ function add_to_objective_function!(
     add_variable_cost!(container, ActivePowerOutVariable, devices, T)
     add_variable_cost!(container, ActivePowerInVariable, devices, T)
     if get_attribute(model, "energy_target")
-        add_proportional_cost!(container, StorageEnergySurplusVariable, devices, T)
-        add_proportional_cost!(container, StorageEnergyShortageVariable, devices, T)
+        add_proportional_cost!(container, StorageEnergySurplusVariable, devices, model)
+        add_proportional_cost!(container, StorageEnergyShortageVariable, devices, model)
     end
     if get_attribute(model, "cycling_limits")
         add_proportional_cost!(
             container,
             StorageChargeCyclingSlackVariable,
             devices,
-            T,
+            model,
         )
         add_proportional_cost!(
             container,
             StorageDischargeCyclingSlackVariable,
             devices,
-            T,
+            model,
         )
     end
     if get_attribute(model, "regularization")
@@ -1712,15 +1710,29 @@ function add_to_objective_function!(
     return
 end
 
-# Storage cycling/energy-target slack penalties are applied only at the final timestep
-# (a single horizon-end accumulator), not per-timestep — so we can't delegate to the
-# IOM default `add_proportional_cost!`, which loops over all timesteps.
-# no test coverage
+# Final-step slack penalties apply at the last time step only, so the IOM default
+# `add_proportional_cost!`, which loops over all time steps, does not fit.
+final_step_cost(
+    model::DeviceModel,
+    ::Any,
+    ::Type{
+        <:Union{StorageChargeCyclingSlackVariable, StorageDischargeCyclingSlackVariable},
+    },
+    ::PSY.EnergyReservoirStorage,
+) = get_slack_penalty(model)
+final_step_cost(
+    ::DeviceModel{U, F},
+    cost,
+    ::Type{T},
+    d::PSY.EnergyReservoirStorage,
+) where {U, F, T <: VariableType} = proportional_cost(cost, T, d, F)
+
+# Horizon-end energy slack: do not scale the penalty by the step length.
 function add_proportional_cost!(
     container::OptimizationContainer,
     ::Type{T},
     devices::Vector{U},
-    ::Type{F},
+    model::DeviceModel{U, F},
 ) where {
     T <: Union{
         StorageChargeCyclingSlackVariable, StorageDischargeCyclingSlackVariable,
@@ -1733,13 +1745,13 @@ function add_proportional_cost!(
     variable = get_variable(container, T, U)
     for d in devices
         name = PSY.get_name(d)
-        op_cost_data = PSY.get_operation_cost(d)
-        cost_term = proportional_cost(op_cost_data, T, d, F)
+        cost_term = final_step_cost(model, PSY.get_operation_cost(d), T, d)
         IOM.add_cost_term_invariant!(
             container, variable[name, t_end], cost_term,
             ProductionCostExpression, U, name, t_end,
         )
     end
+    return
 end
 
 function calculate_aux_variable_value!(
