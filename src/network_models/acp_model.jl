@@ -79,3 +79,30 @@ function add_constraints!(
     end
     return
 end
+
+function _zip_voltage_variables(
+    container::OptimizationContainer,
+    ::NetworkModel{ACPNetworkModel},
+    ::Dict{Int, Vector{ZipLoadTerm}},
+)
+    return (get_variable(container, VoltageMagnitude, PSY.ACBus),)
+end
+
+# Returns |V| and |V|^2 at a bus.
+function _zip_voltage_terms(
+    ::NetworkModel{ACPNetworkModel},
+    variables::Tuple,
+    name::String,
+    t::Int,
+)
+    vm = variables[1][name, t]
+    return vm, vm^2
+end
+
+# Solved |V| per bus name and time step.
+function _solved_voltage_magnitude(
+    container::OptimizationContainer,
+    ::NetworkModel{ACPNetworkModel},
+)
+    return lookup_value(container, VoltageMagnitude, PSY.ACBus)
+end

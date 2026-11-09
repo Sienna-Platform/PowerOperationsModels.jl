@@ -11,6 +11,7 @@ function construct_device!(
 }
     devices =
         get_device_cache(model)
+    record_unmodeled_zip_loads!(network_model, devices)
 
     add_variables!(
         container,
@@ -228,6 +229,7 @@ function construct_device!(
 ) where {L <: PSY.ControllableLoad}
     devices =
         get_device_cache(model)
+    record_unmodeled_zip_loads!(network_model, devices)
 
     add_variables!(
         container,
@@ -473,11 +475,24 @@ function construct_device!(
         get_device_cache(model)
 
     if haskey(get_time_series_names(model), ActivePowerTimeSeriesParameter)
-        add_parameters!(container, ActivePowerTimeSeriesParameter, devices, model)
+        add_load_parameters!(
+            container,
+            ActivePowerTimeSeriesParameter,
+            devices,
+            model,
+            network_model,
+        )
     end
     if haskey(get_time_series_names(model), ReactivePowerTimeSeriesParameter)
-        add_parameters!(container, ReactivePowerTimeSeriesParameter, devices, model)
+        add_load_parameters!(
+            container,
+            ReactivePowerTimeSeriesParameter,
+            devices,
+            model,
+            network_model,
+        )
     end
+    add_zip_load_outputs!(container, devices, model, network_model)
 
     add_to_expression!(
         container,
@@ -550,6 +565,7 @@ function construct_device!(
 ) where {L <: PSY.StaticLoad}
     devices =
         get_device_cache(model)
+    record_unmodeled_zip_loads!(network_model, devices)
 
     if haskey(get_time_series_names(model), ActivePowerTimeSeriesParameter)
         add_parameters!(container, ActivePowerTimeSeriesParameter, devices, model)
