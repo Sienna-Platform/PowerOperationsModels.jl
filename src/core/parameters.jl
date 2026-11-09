@@ -138,7 +138,8 @@ struct ScheduledNetInterchangeParameter <: TimeSeriesParameter end
 #################################################################################
 
 """
-Parameter to define energy storage target level time series for hydro generators
+Parameter to define energy storage target level time series for hydro reservoirs and
+`EnergyReservoirStorage`
 """
 struct EnergyTargetTimeSeriesParameter <: TimeSeriesParameter end
 

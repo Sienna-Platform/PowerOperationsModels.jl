@@ -402,8 +402,9 @@ function _add_operational_limit_rows!(
         end
     end
     if get_use_slacks(device_model)
-        _price_slack_upper!(container, T, _operational_slack_meta(IOM.FromTo()))
-        _price_slack_upper!(container, T, _operational_slack_meta(IOM.ToFrom()))
+        cost = _branch_slack_cost(container, device_model)
+        _price_slack_upper!(container, T, cost, _operational_slack_meta(IOM.FromTo()))
+        _price_slack_upper!(container, T, cost, _operational_slack_meta(IOM.ToFrom()))
     end
     return
 end

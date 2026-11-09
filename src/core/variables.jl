@@ -97,14 +97,14 @@ struct AdditionalDeltaActivePowerDownVariable <: VariableType end
 struct SmoothACE <: VariableType end
 
 """
-Struct to dispatch the creation of System-wide slack up variables. Used when there is not enough generation.
+Struct to dispatch the creation of System-wide slack up variables. Used when there is not enough generation. Constrained to be non-negative.
 
 Docs abbreviation: ``p^\\text{sl,up}``
 """
 struct SystemBalanceSlackUp <: VariableType end
 
 """
-Struct to dispatch the creation of System-wide slack down variables. Used when there is not enough load curtailment.
+Struct to dispatch the creation of System-wide slack down variables. Used when there is not enough load to balance excess generation. Constrained to be non-negative.
 
 Docs abbreviation: ``p^\\text{sl,dn}``
 """

@@ -146,12 +146,10 @@ function add_constraints!(
     frequency = get_variable(container, SteadyStateFrequencyDeviation, U)
     R_up = get_variable(container, DeltaActivePowerUpVariable, U)
     R_dn = get_variable(container, DeltaActivePowerDownVariable, U)
-    # FIXME dead code, file is unincluded, but likely bug: UpVariable for both.
-    # PSI issue #1593.
     R_up_emergency =
         get_variable(container, AdditionalDeltaActivePowerUpVariable, PSY.Area)
     R_dn_emergency =
-        get_variable(container, AdditionalDeltaActivePowerUpVariable, PSY.Area)
+        get_variable(container, AdditionalDeltaActivePowerDownVariable, PSY.Area)
 
     const_container =
         add_constraints_container!(container, T, PSY.System, ["System"], time_steps)
@@ -244,7 +242,7 @@ function add_constraints!(
     R_up_emergency =
         get_variable(container, AdditionalDeltaActivePowerUpVariable, PSY.Area)
     R_dn_emergency =
-        get_variable(container, AdditionalDeltaActivePowerUpVariable, PSY.Area)
+        get_variable(container, AdditionalDeltaActivePowerDownVariable, PSY.Area)
 
     for t in time_steps
         for agc in agcs
@@ -265,9 +263,9 @@ end
 function add_to_objective_function!(
     container::OptimizationContainer,
     agcs::Vector{T},
-    ::ServiceModel{<:PSY.AGC, U},
+    model::ServiceModel{<:PSY.AGC, U},
 ) where {T <: PSY.AGC, U <: PIDSmoothACE}
-    add_service_proportional_cost!(container, LiftVariable(), agcs, U())
+    add_service_proportional_cost!(container, LiftVariable(), agcs, model)
     return
 end
 
@@ -296,18 +294,18 @@ function add_feedforward_constraints!(
     return
 end
 
+# The area mismatch costs the `slack_penalty` of the `ServiceModel` per step, not
+# scaled by the step length.
 function add_service_proportional_cost!(
     container::OptimizationContainer,
     ::U,
-    agcs::Vector{T},
-    ::PIDSmoothACE,
+    ::Vector{T},
+    model::ServiceModel{<:PSY.AGC, PIDSmoothACE},
 ) where {T <: PSY.AGC, U <: LiftVariable}
+    cost = get_slack_penalty(model)
     lift_variable = get_variable(container, U, T)
     for index in Iterators.product(axes(lift_variable)...)
-        add_to_objective_invariant_expression!(
-            container,
-            IOM.SERVICES_SLACK_COST * lift_variable[index...],
-        )
+        add_to_objective_invariant_expression!(container, cost * lift_variable[index...])
     end
     return
 end

@@ -806,9 +806,8 @@ function _ptdf_branch_flow(
     return rep.name, expressions
 end
 
-function add_expressions!(
+function add_ptdf_branch_flow_expressions!(
     container::OptimizationContainer,
-    ::Type{PTDFBranchFlow},
     devices::Vector{B},
     device_model::DeviceModel{B, <:AbstractBranchFormulation},
     network_model::NetworkModel{<:AbstractPTDFNetworkModel},
@@ -936,12 +935,16 @@ end
 
 ############################## Flow Limits Constraints #####################################
 
+# Cost of one unit of branch slack over one step, from the `slack_penalty` of the model.
+_branch_slack_cost(container::OptimizationContainer, model::DeviceModel) =
+    get_slack_penalty(model) * IOM.get_resolution_in_hours(container)
+
 # Branch slack pricing derives from the pair's `slack_spec` declaration
 # (core/branch_slack_specs.jl): every slack container the spec names is priced at the
-# violation cost, so pricing cannot drift from what the constructors build. There is
-# deliberately no `NoBranchSlacks` method — validation and the construct-time backstop
-# reject slacked no-machinery pairs, so reaching pricing with one is a bug that must
-# surface as a MethodError.
+# `slack_penalty` of the model, so pricing cannot drift from what the constructors build.
+# There is deliberately no `NoBranchSlacks` method: validation and the construct-time
+# backstop reject slacked no-machinery pairs, so reaching pricing with one is a bug that
+# must surface as a MethodError.
 function add_to_objective_function!(
     container::OptimizationContainer,
     ::Vector{T},
@@ -949,7 +952,8 @@ function add_to_objective_function!(
     ::Type{N},
 ) where {T <: PSY.ACTransmission, F <: AbstractBranchFormulation, N <: AbstractNetworkModel}
     if get_use_slacks(device_model)
-        _price_slack_spec!(container, T, slack_spec(F, N))
+        cost = _branch_slack_cost(container, device_model)
+        _price_slack_spec!(container, T, slack_spec(F, N), cost)
     end
     return
 end
@@ -958,8 +962,9 @@ function _price_slack_spec!(
     container::OptimizationContainer,
     ::Type{T},
     ::RowPairSlacks,
+    cost::Float64,
 ) where {T <: PSY.ACTransmission}
-    _price_slack_pair!(container, T)
+    _price_slack_pair!(container, T, cost)
     return
 end
 
@@ -967,9 +972,10 @@ function _price_slack_spec!(
     container::OptimizationContainer,
     ::Type{T},
     spec::EqualityPairSlacks,
+    cost::Float64,
 ) where {T <: PSY.ACTransmission}
     for meta in get_pair_metas(spec)
-        _price_slack_pair!(container, T, meta)
+        _price_slack_pair!(container, T, cost, meta)
     end
     return
 end
@@ -978,17 +984,19 @@ function _price_slack_spec!(
     container::OptimizationContainer,
     ::Type{T},
     spec::QuadraticUpperSlacks,
+    cost::Float64,
 ) where {T <: PSY.ACTransmission}
     for meta in get_upper_metas(spec)
-        _price_slack_upper!(container, T, meta)
+        _price_slack_upper!(container, T, cost, meta)
     end
     return
 end
 
-# Price an upper/lower slack pair (equality relaxation) at the violation cost.
+# Price an upper/lower slack pair (equality relaxation) at `cost` per step.
 function _price_slack_pair!(
     container::OptimizationContainer,
     ::Type{T},
+    cost::Float64,
     meta::String = IOM.CONTAINER_KEY_EMPTY_META,
 ) where {T <: PSY.ACTransmission}
     invariant = IOM.get_invariant_terms(IOM.get_objective_expression(container))
@@ -996,19 +1004,22 @@ function _price_slack_pair!(
         container,
         invariant,
         get_variable(container, FlowActivePowerSlackUpperBound, T, meta),
+        cost,
     )
     _price_slacks_once!(
         container,
         invariant,
         get_variable(container, FlowActivePowerSlackLowerBound, T, meta),
+        cost,
     )
     return
 end
 
-# Price a one-sided upper slack (quadratic-limit relaxation) at the violation cost.
+# Price a one-sided upper slack (quadratic-limit relaxation) at `cost` per step.
 function _price_slack_upper!(
     container::OptimizationContainer,
     ::Type{T},
+    cost::Float64,
     meta::String = IOM.CONTAINER_KEY_EMPTY_META,
 ) where {T <: PSY.ACTransmission}
     invariant = IOM.get_invariant_terms(IOM.get_objective_expression(container))
@@ -1016,6 +1027,7 @@ function _price_slack_upper!(
         container,
         invariant,
         get_variable(container, FlowActivePowerSlackUpperBound, T, meta),
+        cost,
     )
     return
 end
@@ -1027,8 +1039,8 @@ function _price_slacks_once!(
     container::OptimizationContainer,
     invariant::E,
     slacks::DenseAxisArray,
+    cost::Float64,
 ) where {E <: JuMP.AbstractJuMPScalar}
-    cost = IOM.CONSTRAINT_VIOLATION_SLACK_COST * IOM.get_resolution_in_hours(container)
     for slack in slacks
         if iszero(JuMP.coefficient(invariant, slack))
             add_to_objective_invariant_expression!(container, slack * cost)
@@ -2252,9 +2264,8 @@ Add the B-θ branch-flow expression for ACBranch StaticBranch under DCPNetworkMo
 with the DC `b`/`shift` pair described on the `NetworkFlowConstraint` builder above, so the
 `b·shift` offset matches PNM's `arc_dc_shift_injection`.
 """
-function add_expressions!(
+function add_btheta_branch_flow_expressions!(
     container::OptimizationContainer,
-    ::Type{BThetaBranchFlow},
     sys::PSY.System,
     devices::Vector{T},
     device_model::DeviceModel{T, StaticBranch},

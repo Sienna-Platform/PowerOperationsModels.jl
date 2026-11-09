@@ -271,14 +271,11 @@ proportional_cost(cost::Nothing, ::Type{ActivePowerVariable}, ::PSY.HydroGen, ::
 proportional_cost(cost::PSY.OperationalCost, ::Type{OnVariable}, ::PSY.HydroGen, ::Type{<:AbstractHydroFormulation})=PSY.get_fixed(cost)
 proportional_cost(cost::PSY.OperationalCost, ::Type{HydroEnergySurplusVariable}, ::PSY.HydroGen, ::Type{<:AbstractHydroReservoirFormulation})=0.0
 proportional_cost(cost::PSY.OperationalCost, ::Type{HydroEnergyShortageVariable}, ::PSY.HydroGen, ::Type{<:AbstractHydroReservoirFormulation})=0.0
-proportional_cost(cost::PSY.OperationalCost, ::Type{HydroEnergyShortageVariable}, ::PSY.HydroGen, ::Type{HydroDispatchRunOfRiver})=IOM.CONSTRAINT_VIOLATION_SLACK_COST
 proportional_cost(cost::PSY.HydroReservoirCost, ::Type{HydroEnergySurplusVariable}, ::PSY.HydroReservoir, ::Type{<:AbstractHydroReservoirFormulation})=PSY.get_level_surplus_cost(cost)
 proportional_cost(cost::PSY.HydroReservoirCost, ::Type{HydroEnergyShortageVariable}, ::PSY.HydroReservoir, ::Type{<:AbstractHydroReservoirFormulation})=PSY.get_level_shortage_cost(cost)
 proportional_cost(cost::PSY.HydroReservoirCost, ::Type{HydroWaterSurplusVariable}, ::PSY.HydroReservoir, ::Type{<:AbstractHydroReservoirFormulation})=PSY.get_level_surplus_cost(cost)
 proportional_cost(cost::PSY.HydroReservoirCost, ::Type{HydroWaterShortageVariable}, ::PSY.HydroReservoir, ::Type{<:AbstractHydroReservoirFormulation})=PSY.get_level_shortage_cost(cost)
 proportional_cost(cost::PSY.HydroReservoirCost, ::Type{WaterSpillageVariable}, ::PSY.HydroReservoir, ::Type{<:AbstractHydroReservoirFormulation})=PSY.get_spillage_cost(cost)
-proportional_cost(::PSY.HydroReservoirCost, ::Type{HydroBalanceSurplusVariable}, ::PSY.HydroReservoir, ::Type{<:AbstractHydroReservoirFormulation})=IOM.CONSTRAINT_VIOLATION_SLACK_COST
-proportional_cost(::PSY.HydroReservoirCost, ::Type{HydroBalanceShortageVariable}, ::PSY.HydroReservoir, ::Type{<:AbstractHydroReservoirFormulation})=IOM.CONSTRAINT_VIOLATION_SLACK_COST
 
 objective_function_multiplier(::Type{ActivePowerVariable}, ::Type{<:AbstractHydroFormulation})=OBJECTIVE_FUNCTION_POSITIVE
 objective_function_multiplier(::Type{ActivePowerPumpVariable}, ::Type{<:AbstractHydroFormulation})=OBJECTIVE_FUNCTION_POSITIVE
@@ -2175,7 +2172,7 @@ function add_expressions!(
 end
 
 # Water reaching a tail reservoir is what each upstream turbine draws from its head reservoirs.
-function add_expressions!(
+function add_hydro_turbine_flow_expressions!(
     container::OptimizationContainer,
     sys::PSY.System,
     ::Type{U},
@@ -2211,7 +2208,7 @@ function add_expressions!(
     return
 end
 
-function add_expressions!(
+function add_hydro_turbine_flow_expressions!(
     container::OptimizationContainer,
     sys::PSY.System,
     ::Type{TotalHydroFlowRateTurbineOutgoing},
@@ -2239,6 +2236,7 @@ function add_expressions!(
                 sum(variable[name, reservoir_name, t] for reservoir_name in reservoir_names)
         end
     end
+    return
 end
 
 function add_expressions!(
@@ -2635,7 +2633,7 @@ function add_to_objective_function!(
 ) where {T <: PSY.HydroGen, U <: AbstractHydroDispatchFormulation}
     add_variable_cost!(container, ActivePowerVariable, devices, U)
     if get_attribute(model, "hydro_budget") === true && get_use_slacks(model)
-        add_proportional_cost!(container, HydroEnergyShortageVariable, devices, U)
+        add_proportional_cost!(container, HydroEnergyShortageVariable, devices, model)
     end
     return
 end
@@ -2651,8 +2649,8 @@ function add_to_objective_function!(
     add_proportional_cost!(container, HydroEnergyShortageVariable, devices, U)
     add_proportional_cost!(container, WaterSpillageVariable, devices, U)
     if get_use_slacks(model)
-        add_proportional_cost!(container, HydroBalanceShortageVariable, devices, U)
-        add_proportional_cost!(container, HydroBalanceSurplusVariable, devices, U)
+        add_proportional_cost!(container, HydroBalanceShortageVariable, devices, model)
+        add_proportional_cost!(container, HydroBalanceSurplusVariable, devices, model)
     end
     return
 end
@@ -2694,7 +2692,6 @@ function add_proportional_cost!(
     T <: PSY.Component,
     U <: Union{
         HydroEnergySurplusVariable, HydroEnergyShortageVariable, WaterSpillageVariable,
-        HydroBalanceShortageVariable, HydroBalanceSurplusVariable,
         HydroWaterSurplusVariable, HydroWaterShortageVariable,
     },
     V <: AbstractDeviceFormulation,
@@ -2711,6 +2708,33 @@ function add_proportional_cost!(
             variable = get_variable(container, U, T)[name, t]
             IOM.add_cost_term_invariant!(
                 container, variable, rate, ProductionCostExpression, T, name, t,
+            )
+        end
+    end
+    return
+end
+
+# Balance and budget slacks cost the `slack_penalty` of the `DeviceModel`, scaled by
+# `base_power` like the cost data above.
+function add_proportional_cost!(
+    container::OptimizationContainer,
+    ::Type{U},
+    devices::Vector{T},
+    model::DeviceModel{T, <:AbstractHydroFormulation},
+) where {
+    T <: PSY.Component,
+    U <: Union{
+        HydroBalanceShortageVariable, HydroBalanceSurplusVariable,
+        HydroEnergyShortageVariable,
+    },
+}
+    rate = get_slack_penalty(model) * get_model_base_power(container)
+    variable = get_variable(container, U, T)
+    for d in devices
+        name = PSY.get_name(d)
+        for t in get_time_steps(container)
+            IOM.add_cost_term_invariant!(
+                container, variable[name, t], rate, ProductionCostExpression, T, name, t,
             )
         end
     end
@@ -3076,7 +3100,14 @@ function _add_parameters!(
     mult = fraction_of_hour * length(time_steps) / HOURS_IN_DAY
     key = AuxVarKey{HydroEnergyOutput, D}("")
     parameter_container =
-        add_param_container!(container, T, D, key, names, [time_steps[end]])
+        add_variable_value_parameter_container!(
+            container,
+            T,
+            D,
+            key,
+            names,
+            [time_steps[end]],
+        )
     jump_model = get_jump_model(container)
     parent_mult = IOM.get_multiplier_array_data(parameter_container)
     parent_param = IOM.get_parameter_array_data(parameter_container)
@@ -3115,7 +3146,7 @@ function _add_parameters!(
     mult = fraction_of_hour * length(time_steps) / HOURS_IN_DAY
     key = ExpressionKey{TotalHydroFlowRateReservoirOutgoing, D}("")
     parameter_container =
-        add_param_container!(container, T, D, key, names, time_steps)
+        add_variable_value_parameter_container!(container, T, D, key, names, time_steps)
     jump_model = get_jump_model(container)
     parent_mult = IOM.get_multiplier_array_data(parameter_container)
     parent_param = IOM.get_parameter_array_data(parameter_container)

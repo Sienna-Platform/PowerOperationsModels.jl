@@ -7,7 +7,10 @@ const _RESOLUTIONS = (("c_sys5_uc", Dates.Hour(1)), ("c_sys5_ed", Dates.Minute(5
 _step_hours(step::Dates.Period) = Dates.value(Dates.Millisecond(step)) / 3_600_000
 
 # Every thermal capped at zero, so the balance slack carries the whole load.
-function _balance_slack_model(sys_name::String)
+function _balance_slack_model(
+    sys_name::String;
+    slack_penalty::Float64 = IOM.BALANCE_SLACK_COST,
+)
     sys = PSB.build_system(PSITestSystems, sys_name)
     for g in PSY.get_components(PSY.ThermalStandard, sys)
         PSY.set_active_power_limits!(g, (min = 0.0 * u"SU", max = 0.0 * u"SU"))
@@ -15,6 +18,7 @@ function _balance_slack_model(sys_name::String)
     net = NetworkModel(
         CopperPlateNetworkModel;
         use_slacks = true,
+        slack_penalty = slack_penalty,
         duals = [CopperPlateBalanceConstraint],
     )
     model = DecisionModel(
@@ -26,7 +30,10 @@ function _balance_slack_model(sys_name::String)
 end
 
 # Lines rated near zero, so physics forces flow onto the slacks.
-function _capped_branch_model(sys_name::String)
+function _capped_branch_model(
+    sys_name::String;
+    slack_penalty::Float64 = IOM.CONSTRAINT_VIOLATION_SLACK_COST,
+)
     sys = PSB.build_system(PSITestSystems, sys_name)
     foreach(l -> PSY.set_rating!(l, 1e-3 * u"SU"), PSY.get_components(PSY.Line, sys))
     template = get_thermal_dispatch_template_network(NetworkModel(PTDFNetworkModel))
@@ -36,6 +43,7 @@ function _capped_branch_model(sys_name::String)
             PSY.Line,
             StaticBranch;
             use_slacks = true,
+            slack_penalty = slack_penalty,
             duals = [FlowRateConstraint],
         ),
     )
@@ -112,6 +120,56 @@ end
         for S in (InterfaceFlowSlackUp, InterfaceFlowSlackDown)
             @test obj_coef(container, S, PSY.TransmissionInterface, "i1", 1) ==
                   750.0 * dt
+        end
+    end
+end
+
+@testset "A non-default slack penalty reaches the objective" begin
+    penalty = 123.0
+    model = _balance_slack_model("c_sys5_uc"; slack_penalty = penalty)
+    container = IOM.get_optimization_container(model)
+    obj = JuMP.objective_function(IOM.get_jump_model(container))
+    for S in (SystemBalanceSlackUp, SystemBalanceSlackDown)
+        slack = IOM.get_variable(container, S, PSY.System)
+        @test all(JuMP.coefficient(obj, v) == penalty for v in slack)
+    end
+
+    step = Dates.Hour(2)
+    sys = PSB.build_system(PSITestSystems, "c_sys5_uc")
+    container = build_test_container(sys, 1:2; resolution = step)
+    R = PSY.OnlineReserve{PSY.ReserveUp}
+    service_model =
+        ServiceModel(R, RangeReserve; use_slacks = true, slack_penalty = penalty)
+    POM.add_reserve_slacks!(container, R, ["R1"], service_model)
+    for t in 1:2
+        @test obj_coef(container, ReserveRequirementSlack, R, "R1", t) ==
+              penalty * _step_hours(step)
+    end
+
+    model = _capped_branch_model("c_sys5_uc"; slack_penalty = penalty)
+    container = IOM.get_optimization_container(model)
+    obj = JuMP.objective_function(IOM.get_jump_model(container))
+    for S in (FlowActivePowerSlackUpperBound, FlowActivePowerSlackLowerBound)
+        slack = IOM.get_variable(container, S, PSY.Line)
+        @test !isempty(slack)
+        @test all(JuMP.coefficient(obj, v) == penalty for v in slack)
+    end
+
+    sys = PSB.build_system(PSITestSystems, "c_sys5_uc")
+    model = DecisionModel(MockOperationProblem, DCPNetworkModel, sys)
+    device_model = DeviceModel(
+        PSY.ThermalStandard,
+        ThermalStandardUnitCommitment;
+        use_slacks = true,
+        slack_penalty = penalty,
+    )
+    mock_construct_device!(model, device_model)
+    container = IOM.get_optimization_container(model)
+    for S in (RateofChangeConstraintSlackUp, RateofChangeConstraintSlackDown)
+        slack = IOM.get_variable(container, S, PSY.ThermalStandard)
+        @test !isempty(slack)
+        for name in axes(slack, 1), t in axes(slack, 2)
+            @test obj_coef(container, S, PSY.ThermalStandard, name, t) == penalty
         end
     end
 end

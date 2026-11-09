@@ -941,6 +941,37 @@ end
     @test minimum(coefficients) > IOM.EXPRESSION_ROUNDING_TOL
 end
 
+# Lines "1" and "2" of c_sys5_uc share bus 1. With equal reactance and opposite directions,
+# the bus 1 angle coefficient of the DCP interface sum cancels to a near-zero residue.
+@testset "DCP interface sum drops cancellation residue" begin
+    sys = PSB.build_system(PSITestSystems, "c_sys5_uc")
+    line_1 = get_component(Line, sys, "1")
+    line_2 = get_component(Line, sys, "2")
+    PSY.set_x!(line_2, PSY.get_x(line_1, u"SU") * (1 + 1e-12) * u"SU")
+    PSY.set_r!(line_2, PSY.get_r(line_1, u"SU") * u"SU")
+    interface = TransmissionInterface(;
+        name = "cancel",
+        available = true,
+        active_power_flow_limits = (min = -400.0, max = 400.0),
+        direction_mapping = Dict("1" => 1, "2" => -1),
+        input_basis = u"CU",
+    )
+    add_service!(sys, interface, [line_1, line_2])
+    template = get_thermal_dispatch_template_network(DCPNetworkModel)
+    set_service_model!(template, ServiceModel(TransmissionInterface, MaxInterfaceFlow))
+    model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+    container = IOM.get_optimization_container(model)
+    expression =
+        IOM.get_expression(container, POM.InterfaceTotalFlow, TransmissionInterface)
+    coefficients = [
+        abs(c) for e in expression["cancel", :] for (c, _) in JuMP.linear_terms(e)
+    ]
+    @test !isempty(coefficients)
+    @test minimum(coefficients) > IOM.EXPRESSION_ROUNDING_TOL
+end
+
 @testset "Test Transmission Interface with TimeSeries" begin
     c_sys5_uc = PSB.build_system(PSITestSystems, "c_sys5_uc"; add_reserves = true)
     interface = TransmissionInterface(;
