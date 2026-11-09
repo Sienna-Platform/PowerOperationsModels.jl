@@ -1298,36 +1298,73 @@ end
     )
 end
 
-@testset "Costless load offering reserves fails loudly" begin
+# An unoffered (costless) load is not in the energy market: its dispatch is pinned at zero
+# and its limits set the up-reserve range (the ERCOT AS-only interruptible load).
+function _assert_unoffered_load_pinned(sys)
+    il = get_component(PSY.InterruptiblePowerLoad, sys, _IL_NAME)
+    model = DecisionModel(
+        _load_reserve_template(:up), sys;
+        optimizer = HiGHS_optimizer,
+    )
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+    container = get_optimization_container(model)
+    p = IOM.get_variable(container, ActivePowerVariable, PSY.InterruptiblePowerLoad)
+    lb = IOM.get_expression(
+        container, POM.ActivePowerRangeExpressionLB, PSY.InterruptiblePowerLoad,
+    )
+    for t in get_time_steps(container)
+        @test JuMP.upper_bound(p[_IL_NAME, t]) == 0.0
+        @test JuMP.coefficient(lb[_IL_NAME, t], p[_IL_NAME, t]) == 0.0
+        @test JuMP.constant(lb[_IL_NAME, t]) == PSY.get_max_active_power(il, u"SU")
+    end
+    return
+end
+
+@testset "Costless load offering reserves is pinned at zero with its limits as reserve range" begin
     sys = deepcopy(PSB.build_system(PSITestSystems, "c_sys5_il"; add_reserves = true))
     il = get_component(PSY.InterruptiblePowerLoad, sys, _IL_NAME)
     set_operation_cost!(il, PSY.LoadCost(nothing))
-    model = DecisionModel(
-        _load_reserve_template(:up), sys;
-        optimizer = HiGHS_optimizer,
-    )
-    @test build!(
-        model;
-        console_level = Logging.AboveMaxLevel,
-        output_dir = mktempdir(; cleanup = true),
-    ) ==
-          IOM.ModelBuildStatus.FAILED
+    _assert_unoffered_load_pinned(sys)
 end
 
-@testset "Costless market-bid load offering reserves fails loudly" begin
+@testset "Costless market-bid load offering reserves is pinned at zero" begin
     sys = deepcopy(PSB.build_system(PSITestSystems, "c_sys5_il"; add_reserves = true))
     il = get_component(PSY.InterruptiblePowerLoad, sys, _IL_NAME)
     set_operation_cost!(il, MarketBidCost())
-    model = DecisionModel(
-        _load_reserve_template(:up), sys;
-        optimizer = HiGHS_optimizer,
+    _assert_unoffered_load_pinned(sys)
+end
+
+@testset "Time-series market-bid load with inert series on both sides is pinned at zero" begin
+    sys = deepcopy(PSB.build_system(PSITestSystems, "c_sys5_il"; add_reserves = true))
+    il = get_component(PSY.InterruptiblePowerLoad, sys, _IL_NAME)
+    mbc = MarketBidCost()
+    set_operation_cost!(il, mbc)
+    set_operation_cost!(il, to_market_bid_ts_cost(sys, il, mbc))
+    _assert_unoffered_load_pinned(sys)
+end
+
+@testset "Time-series market-bid load inert only in the first window stays priced" begin
+    sys = deepcopy(PSB.build_system(PSITestSystems, "c_sys5_il"; add_reserves = true))
+    il = get_component(PSY.InterruptiblePowerLoad, sys, _IL_NAME)
+    mbc = MarketBidCost()
+    set_operation_cost!(il, mbc)
+    ts = make_deterministic_ts(
+        sys,
+        "decremental_offer_curves",
+        PiecewiseStepData([0.0, 0.0], [0.0]),
+        (0.0, 0.0, 0.0),
+        (0.0, 0.0, 0.0),
     )
-    @test build!(
-        model;
-        console_level = Logging.AboveMaxLevel,
-        output_dir = mktempdir(; cleanup = true),
-    ) ==
-          IOM.ModelBuildStatus.FAILED
+    windows = IS.get_data(ts)
+    later = last(collect(keys(windows)))
+    windows[later] = fill(PiecewiseStepData([0.0, 1.0], [30.0]), length(windows[later]))
+    curve = make_market_bid_ts_curve(add_time_series!(sys, il, ts))
+    set_operation_cost!(
+        il,
+        to_market_bid_ts_cost(sys, il, mbc; new_decremental_offer_curves = curve),
+    )
+    @test !POM._is_costless_offer(il, PSY.get_operation_cost(il))
 end
 
 @testset "Co-provision: two up-services share one shed headroom" begin

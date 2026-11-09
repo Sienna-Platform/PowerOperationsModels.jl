@@ -1214,8 +1214,44 @@ end
 
     outputs = OptimizationProblemOutputs(model)
 
-    moi_tests(model, 504, 0, 216, 216, 120, false)
+    moi_tests(model, 456, 0, 216, 216, 120, false)
     psi_checkobjfun_test(model, AffExpr)
+end
+
+@testset "Cascading HydroWaterModelReservoir: tail inflow is the upstream turbine's head flow" begin
+    sys = PSB.build_system(PSITestSystems, "c_sys5_hy_cascading_turbine_head")
+    template = PowerOperationsProblemTemplate()
+    set_device_model!(template, HydroTurbine, HydroTurbineBilinearDispatch)
+    set_device_model!(template, HydroReservoir, HydroWaterModelReservoir)
+    set_device_model!(template, ThermalStandard, ThermalDispatchNoMin)
+    set_device_model!(template, PowerLoad, StaticPowerLoad)
+    model = DecisionModel(template, sys; optimizer = ipopt_optimizer)
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          ModelBuildStatus.BUILT
+
+    container = IOM.get_optimization_container(model)
+    flow = IOM.get_variable(container, HydroTurbineFlowRateVariable, HydroTurbine)
+    incoming = IOM.get_expression(
+        container, POM.TotalHydroFlowRateReservoirIncoming, HydroReservoir)
+    up, head, tail =
+        "Water_Turbine_upstream", "Water_Reservoir_head", "Water_Reservoir_tail"
+    time_steps = IOM.get_time_steps(container)
+
+    # Flow variables exist only between a turbine and its head reservoirs.
+    @test Set(k[1:2] for k in keys(flow.data)) ==
+          Set([(up, head), ("Water_Turbine_downstream", tail)])
+    for t in time_steps
+        @test JuMP.coefficient(incoming[tail, t], flow[up, head, t]) == 1.0
+        @test length(incoming[tail, t].terms) == 1
+    end
+
+    # With the upstream turbine off, no turbine water reaches the tail reservoir.
+    for t in time_steps
+        JuMP.fix(flow[up, head, t], 0.0; force = true)
+    end
+    @test solve!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IS.Simulation.RunStatus.SUCCESSFULLY_FINALIZED
+    @test all(abs(JuMP.value(incoming[tail, t])) < 1e-6 for t in time_steps)
 end
 
 @testset "Solve Cascading HydroEnergyModelReservoir" begin

@@ -910,6 +910,68 @@ end
     end
 end
 
+# Lines "4" and "5" of c_sys5_uc have PTDF rows that cancel to ~1e-16 on three buses
+# when summed in opposite directions.
+@testset "PTDF interface sum drops cancellation residue" begin
+    c_sys5_uc = PSB.build_system(PSITestSystems, "c_sys5_uc")
+    interface = TransmissionInterface(;
+        name = "cancel",
+        available = true,
+        active_power_flow_limits = (min = -400.0, max = 400.0),
+        direction_mapping = Dict("4" => 1, "5" => -1),
+        input_basis = u"CU",
+    )
+    interface_lines = [
+        get_component(Line, c_sys5_uc, "4"),
+        get_component(Line, c_sys5_uc, "5"),
+    ]
+    add_service!(c_sys5_uc, interface, interface_lines)
+    template = get_thermal_dispatch_template_network(PTDFNetworkModel)
+    set_service_model!(template, ServiceModel(TransmissionInterface, MaxInterfaceFlow))
+    model = DecisionModel(template, c_sys5_uc; optimizer = HiGHS_optimizer)
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+    container = IOM.get_optimization_container(model)
+    expression =
+        IOM.get_expression(container, POM.InterfaceTotalFlow, TransmissionInterface)
+    coefficients = [
+        abs(c) for e in expression["cancel", :] for (c, _) in JuMP.linear_terms(e)
+    ]
+    @test !isempty(coefficients)
+    @test minimum(coefficients) > IOM.EXPRESSION_ROUNDING_TOL
+end
+
+# Lines "1" and "2" of c_sys5_uc share bus 1. With equal reactance and opposite directions,
+# the bus 1 angle coefficient of the DCP interface sum cancels to a near-zero residue.
+@testset "DCP interface sum drops cancellation residue" begin
+    sys = PSB.build_system(PSITestSystems, "c_sys5_uc")
+    line_1 = get_component(Line, sys, "1")
+    line_2 = get_component(Line, sys, "2")
+    PSY.set_x!(line_2, PSY.get_x(line_1, u"SU") * (1 + 1e-12) * u"SU")
+    PSY.set_r!(line_2, PSY.get_r(line_1, u"SU") * u"SU")
+    interface = TransmissionInterface(;
+        name = "cancel",
+        available = true,
+        active_power_flow_limits = (min = -400.0, max = 400.0),
+        direction_mapping = Dict("1" => 1, "2" => -1),
+        input_basis = u"CU",
+    )
+    add_service!(sys, interface, [line_1, line_2])
+    template = get_thermal_dispatch_template_network(DCPNetworkModel)
+    set_service_model!(template, ServiceModel(TransmissionInterface, MaxInterfaceFlow))
+    model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+    container = IOM.get_optimization_container(model)
+    expression =
+        IOM.get_expression(container, POM.InterfaceTotalFlow, TransmissionInterface)
+    coefficients = [
+        abs(c) for e in expression["cancel", :] for (c, _) in JuMP.linear_terms(e)
+    ]
+    @test !isempty(coefficients)
+    @test minimum(coefficients) > IOM.EXPRESSION_ROUNDING_TOL
+end
+
 @testset "Test Transmission Interface with TimeSeries" begin
     c_sys5_uc = PSB.build_system(PSITestSystems, "c_sys5_uc"; add_reserves = true)
     interface = TransmissionInterface(;
@@ -1723,6 +1785,60 @@ end
     end
     @test seen_r1 > 0 && seen_r11 > 0
     @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+end
+
+@testset "Two GroupReserves of one type each get their own requirement row" begin
+    # Regression for #324: every group of the type gets its own row, summing only its members.
+    sys = deepcopy(PSB.build_system(PSITestSystems, "c_sys5_uc"; add_reserves = true))
+    members = Dict("group_a" => "Reserve1", "group_b" => "Reserve11")
+    requirements = Dict("group_a" => 0.1, "group_b" => 0.2)
+    for (name, member) in members
+        group = GroupReserve{ReserveUp}(;
+            name = name,
+            available = true,
+            requirement = requirements[name],
+        )
+        add_service!(
+            sys,
+            group,
+            Service[PSY.get_component(OnlineReserve{ReserveUp}, sys, member)],
+        )
+    end
+
+    template = get_thermal_dispatch_template_network(CopperPlateNetworkModel)
+    set_service_model!(template, ServiceModel(OnlineReserve{ReserveUp}, RangeReserve))
+    set_service_model!(
+        template,
+        ServiceModel(GroupReserve{ReserveUp}, GroupRangeReserve),
+    )
+    model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+
+    container = get_optimization_container(model)
+    rv = IOM.get_variable(
+        container,
+        ActivePowerReserveVariable,
+        IOM.ComponentPairKey{ThermalStandard, OnlineReserve{ReserveUp}},
+    )
+    con = IOM.get_constraint(container, RequirementConstraint, GroupReserve{ReserveUp})
+    @test Set(axes(con)[1]) == Set(keys(members))
+    for (name, member) in members, t in IOM.get_time_steps(container)
+        c = con[name, t]
+        @test JuMP.normalized_rhs(c) ≈ requirements[name]
+        n_member = 0
+        for (key, var) in rv.data
+            key[3] == t || continue
+            expected = 0.0
+            if key[1] == member
+                expected = 1.0
+                n_member += 1
+            end
+            @test JuMP.normalized_coefficient(c, var) == expected
+        end
+        @test n_member > 0
+        @test length(JuMP.constraint_object(c).func.terms) == n_member
+    end
 end
 
 @testset "GroupReserve builds and solves for ReserveDown" begin

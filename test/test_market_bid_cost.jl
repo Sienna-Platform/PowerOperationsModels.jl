@@ -355,3 +355,128 @@ end
         @test JuMP.coefficient(variant, var[ms_name, 1]) ≈ expected
     end
 end
+
+# A static thermal offer with breakpoints starting at `x1` (system base).
+_thermal_offer(x1) = PSY.MarketBidCost(;
+    incremental_offer_curves = PSY.CostCurve(
+        PSY.PiecewiseIncrementalCurve(0.0, [x1, 0.5, 1.0], [3.0, 7.0]),
+        PSY.SU,
+    ),
+    decremental_offer_curves = _ZERO_OFFER_SB,
+)
+
+# Container with only ActivePowerVariable: dispatch formulations have no OnVariable.
+function _dispatch_container(cost, ::Type{F}, time_steps = 1:1) where {F}
+    sys = one_bus_one_thermal(cost; name = _THERMAL_NAME)
+    container = build_test_container(sys, time_steps)
+    for t in time_steps
+        add_jump_var!(
+            container, IOM.ActivePowerVariable, PSY.ThermalStandard, _THERMAL_NAME, t)
+    end
+    devs = collect(PSY.get_components(PSY.ThermalStandard, sys))
+    return container, devs
+end
+
+@testset "ThermalStandard + thermal dispatch + static MBC" begin
+    # p == Σδ + x1: the offer's first breakpoint is a constant offset.
+    for (F, x1) in (
+        (POM.ThermalBasicDispatch, 0.1),
+        (POM.ThermalStandardDispatch, 0.1),
+        (POM.ThermalDispatchNoMin, 0.0),
+    )
+        container, devs = _dispatch_container(_thermal_offer(x1), F)
+        IOM.add_variable_cost!(container, IOM.ActivePowerVariable, devs, F)
+        @test pwl_delta_coefs(
+            container, IOM.IncrementalOffer(), PSY.ThermalStandard, _THERMAL_NAME, 1,
+        ) ≈ [3.0, 7.0]
+        con = IOM.get_constraint(
+            container,
+            IOM.PiecewiseLinearBlockIncrementalOfferConstraint,
+            PSY.ThermalStandard,
+        )[
+            _THERMAL_NAME,
+            1,
+        ]
+        p = IOM.get_variable(container, IOM.ActivePowerVariable, PSY.ThermalStandard)
+        @test JuMP.normalized_coefficient(con, p[_THERMAL_NAME, 1]) ≈ 1.0
+        @test JuMP.normalized_rhs(con) ≈ x1
+    end
+end
+
+@testset "ThermalDispatchNoMin rejects offers starting above zero" begin
+    container, devs = _dispatch_container(_thermal_offer(0.1), POM.ThermalDispatchNoMin)
+    @test_throws "start at zero power" IOM.add_variable_cost!(
+        container, IOM.ActivePowerVariable, devs, POM.ThermalDispatchNoMin)
+
+    # Time-series offers are checked per step: only t = 2 starts above zero.
+    cost = stub_ts_market_bid_cost(; decremental_trivial = true)
+    container, devs = _dispatch_container(cost, POM.ThermalDispatchNoMin, 1:2)
+    setup_delta_pwl_parameters!(
+        container, PSY.ThermalStandard, [_THERMAL_NAME],
+        reshape([[3.0, 7.0], [3.0, 7.0]], 1, 2),
+        reshape([[0.0, 0.5, 1.0], [0.2, 0.5, 1.0]], 1, 2),
+        1:2;
+        dir = IOM.IncrementalOffer())
+    @test_throws "start at zero power" IOM.add_variable_cost!(
+        container, IOM.ActivePowerVariable, devs, POM.ThermalDispatchNoMin)
+end
+
+# `case` with Park City (limits 65-170 MW) offering one block from `x1` MW at `price`.
+function _dispatch_offer_system(x1, price; case = "c_sys5_uc")
+    sys = PSB.build_system(PSITestSystems, case)
+    g = PSY.get_component(PSY.ThermalStandard, sys, "Park City")
+    PSY.set_operation_cost!(
+        g,
+        PSY.MarketBidCost(;
+            minimum_energy_offer = PSY.LinearCurve(0.0),
+            start_up = (hot = 0.0, warm = 0.0, cold = 0.0),
+            shut_down = PSY.LinearCurve(0.0),
+            incremental_offer_curves = PSY.make_market_bid_curve(
+                [x1, PSY.get_max_active_power(g, u"NU")], [price], 0.0;
+                power_units = IS.NaturalUnit(),
+            ),
+        ),
+    )
+    return sys
+end
+
+function _dispatch_offer_model(sys, ::Type{F}) where {F}
+    template = get_thermal_dispatch_template_network(CopperPlateNetworkModel)
+    set_device_model!(template, PSY.ThermalStandard, F)
+    return DecisionModel(template, sys; optimizer = HiGHS_optimizer)
+end
+
+@testset "Market offers build and solve under thermal dispatch" begin
+    # A dear offer from zero: NoMin backs Park City off below its 65 MW minimum.
+    # ThermalStandardDispatch is infeasible on c_sys5_uc, offers or not.
+    for (F, x1, price, below_min, case) in (
+        (POM.ThermalBasicDispatch, 65.0, 5.0, false, "c_sys5_uc"),
+        (POM.ThermalStandardDispatch, 65.0, 5.0, false, "c_sys5"),
+        (POM.ThermalDispatchNoMin, 0.0, 1.0e4, true, "c_sys5_uc"),
+    )
+        model = _dispatch_offer_model(_dispatch_offer_system(x1, price; case), F)
+        @test build!(model; output_dir = mktempdir()) == IOM.ModelBuildStatus.BUILT
+        @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+        container = IOM.get_optimization_container(model)
+        base = IOM.get_model_base_power(container)
+        p = IOM.get_variable(container, IOM.ActivePowerVariable, PSY.ThermalStandard)
+        blocks = IOM.get_variable(
+            container, IOM.PiecewiseLinearBlockIncrementalOffer, PSY.ThermalStandard)
+        for t in axes(p)[2]
+            δ = sum(
+                JuMP.value(v) for (k, v) in blocks.data if k[1] == "Park City" && k[3] == t
+            )
+            @test JuMP.value(p["Park City", t]) * base ≈ δ * base + x1 atol = 1e-4
+        end
+        @test any(JuMP.value(p["Park City", t]) * base < 65.0 - 1e-3 for t in axes(p)[2]) ==
+              below_min
+    end
+    dir = mktempdir()
+    model =
+        _dispatch_offer_model(_dispatch_offer_system(65.0, 5.0), POM.ThermalDispatchNoMin)
+    @test build!(model; output_dir = dir) == IOM.ModelBuildStatus.FAILED
+    @test occursin(
+        "start at zero power",
+        read(joinpath(dir, "operation_problem.log"), String),
+    )
+end

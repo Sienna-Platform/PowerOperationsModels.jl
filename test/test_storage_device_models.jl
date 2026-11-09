@@ -444,7 +444,7 @@ end
     end
 end
 
-@testset "Test Storage Energy Target Constraint" begin
+function _build_storage_target_model(sys; kwargs...)
     template = get_thermal_dispatch_template_network(CopperPlateNetworkModel)
     device_model = DeviceModel(
         EnergyReservoirStorage,
@@ -459,22 +459,46 @@ end
     )
     set_device_model!(template, device_model)
     set_device_model!(template, RenewableDispatch, FixedOutput)
+    model = DecisionModel(template, sys; kwargs...)
+    return model, build!(model; output_dir = mktempdir(; cleanup = true))
+end
 
-    c_sys5_bat_ems = PSB.build_system(PSITestSystems, "c_sys5_bat_ems")
-    model = DecisionModel(template, c_sys5_bat_ems)
-    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
-          ModelBuildStatus.BUILT
+_storage_capacity_energy(d) =
+    PSY.get_storage_capacity(d, u"SU") * PSY.get_conversion_factor(d)
+
+function _remove_storage_target_series!(sys, d)
+    for ts_type in (Deterministic, SingleTimeSeries)
+        PSY.has_time_series(d, ts_type, "storage_target") &&
+            PSY.remove_time_series!(sys, ts_type, d, "storage_target")
+    end
+    return
+end
+
+function _target_rhs(container, name)
+    con = get_constraint(container, StateofChargeTargetConstraint, EnergyReservoirStorage)
+    return JuMP.normalized_rhs(con[name, last(get_time_steps(container))])
+end
+
+@testset "Storage energy target: static storage_target without a time series" begin
+    sys = PSB.build_system(PSITestSystems, "c_sys5_bat_ems")
+    d = only(get_components(EnergyReservoirStorage, sys))
+    _remove_storage_target_series!(sys, d)
+    model, status = _build_storage_target_model(sys)
+    @test status == ModelBuildStatus.BUILT
 
     container = get_optimization_container(model)
+    @test !IOM.has_container_key(
+        container, EnergyTargetTimeSeriesParameter, EnergyReservoirStorage)
     target_con =
         get_constraint(container, StateofChargeTargetConstraint, EnergyReservoirStorage)
     time_steps = get_time_steps(container)
     @test axes(target_con) == (["Bat2"], [time_steps[end]])
 
-    d = only(get_components(EnergyReservoirStorage, c_sys5_bat_ems))
-    target = PSY.get_storage_target(d)
+    # storage_target is a ratio of capacity; the RHS is energy in system base.
+    target = PSY.get_storage_target(d) * _storage_capacity_energy(d)
+    @test target != PSY.get_storage_target(d)
     con = target_con["Bat2", time_steps[end]]
-    @test JuMP.normalized_rhs(con) == target
+    @test JuMP.normalized_rhs(con) ≈ target
     energy_var = IOM.get_variable(container, EnergyVariable, EnergyReservoirStorage)
     surplus_var =
         IOM.get_variable(container, StorageEnergySurplusVariable, EnergyReservoirStorage)
@@ -483,6 +507,79 @@ end
     @test JuMP.normalized_coefficient(con, energy_var["Bat2", time_steps[end]]) == 1.0
     @test JuMP.normalized_coefficient(con, surplus_var["Bat2", time_steps[end]]) == -1.0
     @test JuMP.normalized_coefficient(con, shortfall_var["Bat2", time_steps[end]]) == 1.0
+end
+
+@testset "Storage energy target: storage_target time series follows each window" begin
+    sys = PSB.build_system(PSITestSystems, "c_sys5_bat_ems")
+    d = only(get_components(EnergyReservoirStorage, sys))
+    _remove_storage_target_series!(sys, d)
+    initial_times = collect(PSY.get_forecast_initial_times(sys))
+    # The series is a fraction of storage capacity; each window ends at a different value.
+    end_fraction = Dict(zip(initial_times, (0.3, 0.6)))
+    horizon = 24
+    data = SortedDict(
+        it => vcat(fill(0.0, horizon - 1), end_fraction[it]) for it in initial_times
+    )
+    PSY.add_time_series!(sys, d, Deterministic("storage_target", data, Hour(1)))
+
+    for it in initial_times
+        model, status = _build_storage_target_model(sys; initial_time = it)
+        @test status == ModelBuildStatus.BUILT
+        container = get_optimization_container(model)
+        multiplier = IOM.get_parameter_multiplier_array(
+            container, EnergyTargetTimeSeriesParameter, EnergyReservoirStorage)
+        @test axes(multiplier)[1] == ["Bat2"]
+        @test _target_rhs(container, "Bat2") ≈
+              end_fraction[it] * _storage_capacity_energy(d)
+    end
+end
+
+@testset "Storage energy target: mixed batteries with and without a time series" begin
+    sys = PSB.build_system(PSITestSystems, "c_sys5_bat_ems")
+    static_bat = _build_hybrid_storage(
+        get_component(ACBus, sys, "nodeC"), 400.0, 100.0, 0.9, 0.9;
+        storage_target = 0.5,
+    )
+    add_component!(sys, static_bat)
+    model, status = _build_storage_target_model(sys)
+    @test status == ModelBuildStatus.BUILT
+
+    container = get_optimization_container(model)
+    multiplier = IOM.get_parameter_multiplier_array(
+        container, EnergyTargetTimeSeriesParameter, EnergyReservoirStorage)
+    @test axes(multiplier)[1] == ["Bat2"]
+
+    ts_bat = get_component(EnergyReservoirStorage, sys, "Bat2")
+    it = first(PSY.get_forecast_initial_times(sys))
+    ts_end = last(
+        PSY.get_time_series_values(
+            Deterministic, ts_bat, "storage_target"; start_time = it),
+    )
+    @test _target_rhs(container, "Bat2") ≈ ts_end * _storage_capacity_energy(ts_bat)
+    @test _target_rhs(container, get_name(static_bat)) ≈
+          0.5 * _storage_capacity_energy(static_bat)
+end
+
+@testset "Storage energy target: a series of the wrong type fails the build" begin
+    sys = PSB.build_system(PSITestSystems, "c_sys5_bat_ems")
+    d = only(get_components(EnergyReservoirStorage, sys))
+    # Only the SingleTimeSeries remains; the model reads Deterministic.
+    PSY.remove_time_series!(sys, Deterministic, d, "storage_target")
+    output_dir = mktempdir(; cleanup = true)
+    template = get_thermal_dispatch_template_network(CopperPlateNetworkModel)
+    set_device_model!(
+        template,
+        DeviceModel(
+            EnergyReservoirStorage,
+            StorageDispatchWithReserves;
+            attributes = Dict{String, Any}("energy_target" => true),
+        ),
+    )
+    set_device_model!(template, RenewableDispatch, FixedOutput)
+    model = DecisionModel(template, sys)
+    @test build!(model; output_dir = output_dir) == ModelBuildStatus.FAILED
+    log = read(joinpath(output_dir, "operation_problem.log"), String)
+    @test occursin("Bat2 carries a storage_target time series", log)
 end
 
 @testset "Test Storage Cycling Limits without Reserves" begin

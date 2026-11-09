@@ -579,6 +579,21 @@ end
     end
 end
 
+@testset "Capacitive controllable load gets reactive bounds [q_max, 0]" begin
+    c_sys5_il = deepcopy(PSB.build_system(PSITestSystems, "c_sys5_il"))
+    load = get_component(InterruptiblePowerLoad, c_sys5_il, "IloadBus4")
+    set_max_reactive_power!(load, -0.2 * u"SU")
+    device_model = DeviceModel(InterruptiblePowerLoad, PowerLoadDispatch)
+    model = DecisionModel(MockOperationProblem, ACPNetworkModel, c_sys5_il)
+    mock_construct_device!(model, device_model)
+    container = IOM.get_optimization_container(model)
+    q = IOM.get_variable(container, ReactivePowerVariable, InterruptiblePowerLoad)
+    for t in 1:24
+        @test JuMP.lower_bound(q["IloadBus4", t]) ≈ -0.2
+        @test JuMP.upper_bound(q["IloadBus4", t]) == 0.0
+    end
+end
+
 @testset "PowerLoadDispatch constant power factor uses Q/P = q_max/p_max" begin
     c_sys5_il = PSB.build_system(PSITestSystems, "c_sys5_il")
     load = get_component(InterruptiblePowerLoad, c_sys5_il, "IloadBus4")
@@ -999,5 +1014,295 @@ _shiftable_load_balance_row(::NetworkModel, container, bus) =
         @test JuMP.coefficient(balance[row, t1], dn_var["shiftable_load", t1]) == 1.0
 
         @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+    end
+end
+
+@testset "Unoffered controllable load: pinned at zero, up-reserve range from its limits" begin
+    for formulation in (PowerLoadDispatch, PowerLoadInterruption)
+        sys = PSB.build_system(PSITestSystems, "c_sys5_il"; add_reserves = true)
+        load = get_component(InterruptiblePowerLoad, sys, "IloadBus4")
+        PSY.set_operation_cost!(
+            load,
+            PSY.LoadCost(; variable_operation_cost = zero(PSY.CostCurve), fixed = 0.0),
+        )
+
+        template = get_thermal_dispatch_template_network()
+        set_device_model!(template, InterruptiblePowerLoad, formulation)
+        set_service_model!(template, ServiceModel(OnlineReserve{ReserveUp}, RangeReserve))
+        model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
+        @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+              IOM.ModelBuildStatus.BUILT
+
+        container = get_optimization_container(model)
+        p = IOM.get_variable(container, ActivePowerVariable, InterruptiblePowerLoad)
+        name = PSY.get_name(load)
+        objective = JuMP.objective_function(get_jump_model(container))
+        for t in get_time_steps(container)
+            @test JuMP.upper_bound(p[name, t]) == 0.0
+            @test JuMP.lower_bound(p[name, t]) == 0.0
+            @test JuMP.coefficient(objective, p[name, t]) == 0.0
+        end
+        # Its limits still set the up-reserve range: the shed range is anchored on the
+        # constant max_active_power, not on the pinned energy variable.
+        r = IOM.get_variable(
+            container,
+            ActivePowerReserveVariable,
+            IOM.ComponentPairKey{InterruptiblePowerLoad, OnlineReserve{ReserveUp}},
+        )
+        t1 = first(get_time_steps(container))
+        @test ("Reserve7", name, t1) in eachindex(r)
+        pmax = PSY.get_max_active_power(load, u"SU")
+        lb = IOM.get_expression(
+            container, ActivePowerRangeExpressionLB, InterruptiblePowerLoad,
+        )
+        @test JuMP.constant(lb[name, t1]) == pmax
+        @test JuMP.coefficient(lb[name, t1], p[name, t1]) == 0.0
+        @test JuMP.coefficient(lb[name, t1], r[("Reserve7", name, t1)]) == -1.0
+    end
+end
+
+@testset "Unoffered controllable load rejects a ReserveDown service model" begin
+    sys = PSB.build_system(PSITestSystems, "c_sys5_il"; add_reserves = true)
+    load = get_component(InterruptiblePowerLoad, sys, "IloadBus4")
+    PSY.set_operation_cost!(
+        load,
+        PSY.LoadCost(; variable_operation_cost = zero(PSY.CostCurve), fixed = 0.0),
+    )
+    template = get_thermal_dispatch_template_network()
+    set_device_model!(template, InterruptiblePowerLoad, PowerLoadDispatch)
+    set_service_model!(template, ServiceModel(OnlineReserve{ReserveDown}, RangeReserve))
+    model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
+    output_dir = mktempdir(; cleanup = true)
+    @test build!(model; output_dir = output_dir) == IOM.ModelBuildStatus.FAILED
+    log_contents = read(joinpath(output_dir, "operation_problem.log"), String)
+    @test occursin("an unoffered load is pinned at zero", log_contents)
+    @test occursin("ConflictingInputsError", log_contents)
+    @test_throws IS.ConflictingInputsError POM._validate_unoffered_no_reserve_down(
+        POM.get_device_models(IOM.get_template(model))[:InterruptiblePowerLoad],
+        [load],
+    )
+end
+
+function _set_costless!(load; fixed = 0.0)
+    PSY.set_operation_cost!(
+        load,
+        PSY.LoadCost(; variable_operation_cost = zero(PSY.CostCurve), fixed = fixed),
+    )
+    return
+end
+
+function _add_second_load!(sys, load_a, name)
+    load_b = PSY.InterruptiblePowerLoad(;
+        name = name,
+        available = true,
+        bus = PSY.get_bus(load_a),
+        active_power = PSY.get_active_power(load_a, u"SU"),
+        reactive_power = PSY.get_reactive_power(load_a, u"SU"),
+        max_active_power = PSY.get_max_active_power(load_a, u"SU"),
+        max_reactive_power = PSY.get_max_reactive_power(load_a, u"SU"),
+        base_power = PSY.get_base_power(load_a),
+        operation_cost = deepcopy(PSY.get_operation_cost(load_a)),
+        input_basis = u"CU",
+    )
+    PSY.add_component!(sys, load_b)
+    PSY.copy_time_series!(load_b, load_a)
+    return load_b
+end
+
+@testset "ReserveDown check fails only for an unoffered contributor" begin
+    # Reserve8 (ReserveDown) contains only the priced IloadBus4.
+    sys = PSB.build_system(PSITestSystems, "c_sys5_il"; add_reserves = true)
+    load_a = get_component(InterruptiblePowerLoad, sys, "IloadBus4")
+    load_b = _add_second_load!(sys, load_a, "IL_B")
+    _set_costless!(load_b)
+    template = get_thermal_dispatch_template_network()
+    set_device_model!(template, InterruptiblePowerLoad, PowerLoadDispatch)
+    set_service_model!(template, ServiceModel(OnlineReserve{ReserveDown}, RangeReserve))
+    model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+
+    # The unoffered load joins the ReserveDown service: the build fails.
+    PSY.add_service!(
+        load_b,
+        get_component(OnlineReserve{ReserveDown}, sys, "Reserve8"),
+        sys,
+    )
+    model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
+    output_dir = mktempdir(; cleanup = true)
+    @test build!(model; output_dir = output_dir) == IOM.ModelBuildStatus.FAILED
+    log_contents = read(joinpath(output_dir, "operation_problem.log"), String)
+    @test occursin("IL_B", log_contents)
+end
+
+# Maximize the total up award of the unoffered load. Returns the award per time step.
+function _max_up_award(container, name)
+    r = IOM.get_variable(
+        container,
+        ActivePowerReserveVariable,
+        IOM.ComponentPairKey{InterruptiblePowerLoad, OnlineReserve{ReserveUp}},
+    )
+    jm = get_jump_model(container)
+    JuMP.@objective(jm, Max, sum(r[i] for i in eachindex(r)))
+    JuMP.set_optimizer(jm, HiGHS.Optimizer)
+    JuMP.set_silent(jm)
+    JuMP.optimize!(jm)
+    @test JuMP.termination_status(jm) == MOI.OPTIMAL
+    return [
+        sum(JuMP.value(r[i]) for i in eachindex(r) if last(i) == t) for
+        t in get_time_steps(container)
+    ]
+end
+
+function _build_unoffered_up_model(formulation; outage = false, fixed = 0.0)
+    sys = PSB.build_system(PSITestSystems, "c_sys5_il"; add_reserves = true)
+    load = get_component(InterruptiblePowerLoad, sys, "IloadBus4")
+    _set_costless!(load; fixed = fixed)
+    template = get_thermal_dispatch_template_network()
+    set_device_model!(template, InterruptiblePowerLoad, formulation)
+    set_service_model!(
+        template,
+        ServiceModel(OnlineReserve{ReserveUp}, RangeReserve; use_slacks = true),
+    )
+    if outage
+        model, status, _ =
+            build_outage_model(sys, load; template = template, recurrent = true)
+    else
+        model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
+        status = build!(model; output_dir = mktempdir(; cleanup = true))
+    end
+    @test status == IOM.ModelBuildStatus.BUILT
+    return get_optimization_container(model), load
+end
+
+@testset "Unoffered load in an outage sells no up-reserve" begin
+    for formulation in (PowerLoadDispatch, PowerLoadInterruption)
+        container, load = _build_unoffered_up_model(formulation; outage = true)
+        status = IOM.get_parameter_array(
+            container, AvailableStatusParameter(), InterruptiblePowerLoad,
+        )
+        for idx in eachindex(status)
+            JuMP.fix(status[idx], 1.0; force = true)
+        end
+        @test sum(_max_up_award(container, PSY.get_name(load))) > 1e-3
+        for idx in eachindex(status)
+            JuMP.fix(status[idx], 0.0; force = true)
+        end
+        @test all(abs.(_max_up_award(container, PSY.get_name(load))) .<= 1e-6)
+    end
+end
+
+@testset "Unoffered load up-reserve is capped by its forecast" begin
+    for formulation in (PowerLoadDispatch, PowerLoadInterruption)
+        container, load = _build_unoffered_up_model(formulation)
+        name = PSY.get_name(load)
+        pmax = PSY.get_max_active_power(load, u"SU")
+        param =
+            IOM.get_parameter(
+                container,
+                ActivePowerTimeSeriesParameter,
+                InterruptiblePowerLoad,
+            )
+        cap =
+            IOM.get_multiplier_array(param)[name, :] .*
+            IOM.get_parameter_column_values(param, name)
+        @test any(cap .< pmax - 1e-3)
+        awards = _max_up_award(container, name)
+        @test isapprox(awards, collect(cap); atol = 1e-6)
+    end
+end
+
+@testset "Unoffered PowerLoadInterruption: on = 0 gives a zero up award" begin
+    container, load = _build_unoffered_up_model(PowerLoadInterruption)
+    name = PSY.get_name(load)
+    on = IOM.get_variable(container, OnVariable, InterruptiblePowerLoad)
+    for t in get_time_steps(container)
+        JuMP.fix(on[name, t], 0.0; force = true)
+    end
+    @test all(abs.(_max_up_award(container, name)) .<= 1e-6)
+end
+
+@testset "Unoffered PowerLoadInterruption keeps its fixed cost on OnVariable" begin
+    container, load = _build_unoffered_up_model(PowerLoadInterruption; fixed = 5.0)
+    name = PSY.get_name(load)
+    on = IOM.get_variable(container, OnVariable, InterruptiblePowerLoad)
+    objective = JuMP.objective_function(get_jump_model(container))
+    t1 = first(get_time_steps(container))
+    @test !iszero(JuMP.coefficient(objective, on[name, t1]))
+end
+
+@testset "Unoffered controllable load with forecast and up-reserve solves" begin
+    for formulation in (PowerLoadDispatch, PowerLoadInterruption)
+        sys = PSB.build_system(PSITestSystems, "c_sys5_il"; add_reserves = true)
+        load = get_component(InterruptiblePowerLoad, sys, "IloadBus4")
+        PSY.set_operation_cost!(
+            load,
+            PSY.LoadCost(; variable_operation_cost = zero(PSY.CostCurve), fixed = 0.0),
+        )
+        template = get_thermal_dispatch_template_network()
+        set_device_model!(template, InterruptiblePowerLoad, formulation)
+        set_service_model!(
+            template,
+            ServiceModel(OnlineReserve{ReserveUp}, RangeReserve; use_slacks = true),
+        )
+        model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
+        @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+              IOM.ModelBuildStatus.BUILT
+        @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+        container = get_optimization_container(model)
+        name = PSY.get_name(load)
+        pmax = PSY.get_max_active_power(load, u"SU")
+        p = IOM.get_variable(container, ActivePowerVariable, InterruptiblePowerLoad)
+        r = IOM.get_variable(
+            container,
+            ActivePowerReserveVariable,
+            IOM.ComponentPairKey{InterruptiblePowerLoad, OnlineReserve{ReserveUp}},
+        )
+        for t in get_time_steps(container)
+            @test JuMP.value(p[name, t]) == 0.0
+            award = JuMP.value(r[("Reserve7", name, t)])
+            @test -1e-6 <= award <= pmax + 1e-6
+        end
+    end
+end
+
+@testset "Priced controllable load keeps economic dispatch bounds" begin
+    sys = PSB.build_system(PSITestSystems, "c_sys5_il"; add_reserves = true)
+    load = get_component(InterruptiblePowerLoad, sys, "IloadBus4")
+    template = get_thermal_dispatch_template_network()
+    set_device_model!(template, InterruptiblePowerLoad, PowerLoadDispatch)
+    set_service_model!(template, ServiceModel(OnlineReserve{ReserveUp}, RangeReserve))
+    model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+    container = get_optimization_container(model)
+    p = IOM.get_variable(container, ActivePowerVariable, InterruptiblePowerLoad)
+    name = PSY.get_name(load)
+    t1 = first(get_time_steps(container))
+    @test JuMP.upper_bound(p[name, t1]) == PSY.get_max_active_power(load, u"SU")
+    lb = IOM.get_expression(container, ActivePowerRangeExpressionLB, InterruptiblePowerLoad)
+    @test JuMP.coefficient(lb[name, t1], p[name, t1]) == 1.0
+    @test JuMP.constant(lb[name, t1]) == 0.0
+end
+
+@testset "Unoffered PowerLoadDispatch load without services: upper bound 0, no objective term" begin
+    sys = PSB.build_system(PSITestSystems, "c_sys5_il")
+    load = get_component(InterruptiblePowerLoad, sys, "IloadBus4")
+    PSY.set_operation_cost!(
+        load,
+        PSY.LoadCost(; variable_operation_cost = zero(PSY.CostCurve), fixed = 0.0),
+    )
+    template = get_thermal_dispatch_template_network()
+    set_device_model!(template, InterruptiblePowerLoad, PowerLoadDispatch)
+    model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+    container = get_optimization_container(model)
+    p = IOM.get_variable(container, ActivePowerVariable, InterruptiblePowerLoad)
+    name = PSY.get_name(load)
+    objective = JuMP.objective_function(get_jump_model(container))
+    for t in get_time_steps(container)
+        @test JuMP.upper_bound(p[name, t]) == 0.0
+        @test JuMP.coefficient(objective, p[name, t]) == 0.0
     end
 end

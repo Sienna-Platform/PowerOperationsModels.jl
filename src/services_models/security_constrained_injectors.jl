@@ -709,6 +709,7 @@ function _add_post_contingency_branch_flow!(
                         outage_id,
                         t,
                     )
+                    IOM.round_to_zero_or_one!(ex)
                 end
             end
         end
@@ -771,6 +772,7 @@ function _add_post_contingency_interchange_flow!(
                         t,
                     )
                 end
+                IOM.round_to_zero_or_one!(ex)
             end
         end
     end

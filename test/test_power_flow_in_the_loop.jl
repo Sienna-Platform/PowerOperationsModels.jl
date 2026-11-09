@@ -998,3 +998,119 @@ end
     @test any(p_load .> 1e-3)
     _test_dc_pf_matches_ptdf_flows(container)
 end
+
+@testset "PF in the loop updates off-area load power per time step" begin
+    sys = PSB.build_system(
+        PSB.PSISystems,
+        "two_area_pjm_DA_off_area_load";
+        add_reserves = false,
+        force_build = true,
+    )
+    # Area1 holds the REF bus; Area2 needs its own area slack to be controlled.
+    set_bustype!(get_component(ACBus, sys, "Bus_nodeA_2"), PSY.ACBusTypes.SLACK)
+    # Area1 owns a load that sits at a bus of Area2. The load has a time series.
+    load = get_component(PowerLoad, sys, "Bus2_2")
+    set_out_of_area_loads!(get_component(Area, sys, "Area1"), PSY.ElectricLoad[load])
+    set_scheduled_net_interchange!(get_component(Area, sys, "Area1"), 30.0u"MW")
+    set_scheduled_net_interchange!(get_component(Area, sys, "Area2"), -30.0u"MW")
+    transform_single_time_series!(sys, Hour(24), Hour(1))
+
+    template = get_template_dispatch_with_network(
+        NetworkModel(PTDFNetworkModel);
+        evaluations = power_flow_evaluations(
+            ACPolarPowerFlow(;
+                correct_bustypes = true,
+                net_interchange_control = true,
+                tie_definition = PFS.LinesAndLoads(),
+            ),
+        ),
+    )
+    model = DecisionModel(
+        template,
+        sys;
+        resolution = Hour(1),
+        optimizer = HiGHS_optimizer,
+    )
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          ModelBuildStatus.BUILT
+    @test solve!(model) == RunStatus.SUCCESSFULLY_FINALIZED
+
+    container = get_optimization_container(model)
+    data = get_inner_data(only(values(get_evaluation_data(container))))
+    @test PFS.has_off_area_load(data, "Bus2_2")
+    @test !PFS.has_off_area_load(data, "Bus3_2")
+
+    bus_ix = PFS.get_bus_lookup(data)[get_number(get_bus(load))]
+    record = only(
+        r for r in PFS.get_area_interchange_data(data).pristine_off_area_loads if
+        r.name == "Bus2_2"
+    )
+    time_steps = get_time_steps(container)
+    # The load changes between time steps, so a stale record would fail this.
+    @test length(unique(round.(record.p_constant_power; digits = 8))) > 1
+    for t in time_steps
+        @test record.p_constant_power[t] ≈ data.bus_active_power_withdrawals[bus_ix, t]
+        @test iszero(record.p_constant_current[t])
+        @test iszero(record.p_constant_impedance[t])
+    end
+end
+
+@testset "PF in the loop writes the area schedule per time step" begin
+    sys = PSB.build_system(
+        PSB.PSISystems,
+        "two_area_pjm_DA_off_area_load";
+        add_reserves = false,
+        force_build = true,
+    )
+    # Area1 holds the REF bus; Area2 needs its own area slack to be controlled.
+    set_bustype!(get_component(ACBus, sys, "Bus_nodeA_2"), PSY.ACBusTypes.SLACK)
+    set_scheduled_net_interchange!(get_component(Area, sys, "Area1"), 0.0u"MW")
+    set_scheduled_net_interchange!(get_component(Area, sys, "Area2"), 0.0u"MW")
+    load_ts = first(get_time_series_multiple(first(get_components(PowerLoad, sys))))
+    stamps = TimeSeries.timestamp(get_data(load_ts))
+    series_mw = [10.0, 20.0, 30.0, 40.0, 50.0, 60.0]
+    values_mw = repeat(series_mw; outer = cld(length(stamps), length(series_mw)))
+    for (area_name, sign) in (("Area1", 1.0), ("Area2", -1.0))
+        add_time_series!(
+            sys,
+            get_component(Area, sys, area_name),
+            SingleTimeSeries(
+                "scheduled_net_interchange",
+                TimeArray(stamps, sign .* values_mw[1:length(stamps)]),
+            ),
+        )
+    end
+    transform_single_time_series!(sys, Hour(24), Hour(1))
+
+    template = get_template_dispatch_with_network(
+        NetworkModel(AreaPTDFNetworkModel);
+        evaluations = power_flow_evaluations(
+            ACPolarPowerFlow(;
+                correct_bustypes = true,
+                net_interchange_control = true,
+            ),
+        ),
+    )
+    set_device_model!(template, AreaInterchange, StaticBranch)
+    model = DecisionModel(
+        template,
+        sys;
+        resolution = Hour(1),
+        optimizer = HiGHS_optimizer,
+    )
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          ModelBuildStatus.BUILT
+    @test solve!(model) == RunStatus.SUCCESSFULLY_FINALIZED
+
+    container = get_optimization_container(model)
+    data = get_inner_data(only(values(get_evaluation_data(container))))
+    @test PFS.has_controlled_area(data, "Area2")
+    @test !PFS.has_controlled_area(data, "Area1")
+    base = get_model_base_power(container)
+    area2 = only(
+        a for a in PFS.get_area_interchange_data(data).pristine_areas if a.name == "Area2"
+    )
+    expected = -repeat(series_mw; outer = 4)[1:24] ./ base
+    @test length(area2.pdes) == length(expected)
+    @test area2.pdes ≈ expected
+end

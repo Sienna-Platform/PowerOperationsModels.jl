@@ -28,6 +28,24 @@ struct BalanceAuxConstraint <: ConstraintType end
 # Links a device's per-service reserve OFFER blocks to its reserve award:
 # `Σ_k δ[(service, device, k, t)] == ActivePowerReserveVariable[(service, device, t)]`.
 struct ReserveOfferLinkingConstraint <: ConstraintType end
+
+"""
+Sells a device's reserve offer block once across the services it is linked into. Built when
+the device model sets `"linked_reserve_offers" => true` and the device carries a
+`reserve_offer_links` series. Sparse, keyed `(device_name, block, time_step)`: the block's
+steps (`PiecewiseLinearBlockReserveOffer`) in the services it is linked into sum to at most
+the smallest of their step widths, when it is linked into two or more modeled services.
+"""
+struct LinkedReserveOfferConstraint <: ConstraintType end
+
+"""
+Keeps a device's energy plus upward reserve awards within the top of its energy offer curve.
+Built when a thermal device model sets `"energy_offer_cap" => true`. Sparse, keyed
+`(device_name, time_step)`: `ActivePowerRangeExpressionUB` (plus ``P^\\text{min} u_t`` for
+compact formulations) at most the curve's last breakpoint, for steps whose curve offers
+energy and tops below ``P^\\text{max}``.
+"""
+struct EnergyOfferCapConstraint <: ConstraintType end
 """
 Struct to create the commitment constraint between the on, start, and stop variables.
 For more information check [ThermalGen Formulations](@ref ThermalGen-Formulations).
@@ -690,6 +708,20 @@ For more information check [Device Formulations](@ref formulation_intro).
 struct ImportExportBudgetConstraint <: ConstraintType end
 
 struct LineFlowBoundConstraint <: ConstraintType end
+
+"""
+Struct to create the constraint that fixes the net interchange of an area to its schedule.
+Positive means the area exports. The area exports the flows of the `AreaInterchange`
+devices that leave it and imports the flows that enter it.
+
+```math
+\\sum_{i \\in \\text{from}_a} f_{i,t} - \\sum_{i \\in \\text{to}_a} f_{i,t} = P_{a,t}^\\text{sched}, \\quad \\forall a \\in \\text{areas with a schedule}, t \\in \\{1, \\dots, T\\}
+```
+
+The schedule is the `scheduled_net_interchange` time series of the `Area` if it has one.
+Otherwise it is the `scheduled_net_interchange` field. An area with neither has no constraint.
+"""
+struct NetInterchangeConstraint <: ConstraintType end
 
 abstract type EventConstraint <: ConstraintType end
 
