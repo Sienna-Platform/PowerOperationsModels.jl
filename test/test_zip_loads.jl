@@ -84,7 +84,9 @@ function _power_flow_voltages(sys, model, res, magnitudes)
         param_container = IOM.get_parameter(container, parameter, StandardLoad)
         row_of = IOM.get_row_aggregation(IOM.get_attributes(param_container)).row_of
         for load in get_components(StandardLoad, sys)
-            demand = -IOM.get_row_aggregate_refs(param_container, row_of[get_name(load)])[1]
+            refs, coefficient =
+                IOM.get_row_aggregate_refs(param_container, row_of[get_name(load)])
+            demand = -coefficient * refs[1]
             _set_zip_parts!(load, parameter, demand)
         end
     end
@@ -203,8 +205,12 @@ end
     param_container =
         IOM.get_parameter(container, ActivePowerTimeSeriesParameter, StandardLoad)
     row_of = IOM.get_row_aggregation(IOM.get_attributes(param_container)).row_of
-    for key in values(row_of), t in IOM.get_time_steps(container)
-        ref = IOM.get_row_aggregate_refs(param_container, key)[t]
+    # Rows can share a series parameter, so halve each parameter once.
+    refs = unique(
+        first(IOM.get_row_aggregate_refs(param_container, key))[t] for
+        key in values(row_of) for t in IOM.get_time_steps(container)
+    )
+    for ref in refs
         JuMP.fix(ref, 0.5 * JuMP.fix_value(ref); force = true)
     end
     JuMP.optimize!(jump_model)

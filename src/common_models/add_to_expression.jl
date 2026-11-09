@@ -331,12 +331,8 @@ function _add_aggregated_load_terms!(
         name = PSY.get_name(d)
         if haskey(row_of, name)
             buses[row_of[name]] = PSY.get_bus(d)
-            record_zip_load_term!(
-                network_model,
-                U,
-                d,
-                IOM.get_row_aggregate_refs(param_container, row_of[name]),
-            )
+            refs, coefficient = IOM.get_row_aggregate_refs(param_container, row_of[name])
+            record_zip_load_term!(network_model, U, d, coefficient .* refs)
         else
             @warn "Device $(name) does not have time series $(ts_name). Using default value of 1.0 for all time steps."
             targets = _balance_expression_targets(container, T, network_model, d)
