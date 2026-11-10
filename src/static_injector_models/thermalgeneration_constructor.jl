@@ -276,6 +276,13 @@ function construct_device!(
         device_model,
         network_model,
     )
+    add_constraints!(
+        container,
+        OperationalStatusConstraint,
+        devices,
+        device_model,
+        network_model,
+    )
     if _has_ramp_and_duration_constraints(U)
         add_constraints!(container, RampConstraint, devices, device_model, network_model)
         add_constraints!(
@@ -480,6 +487,13 @@ function construct_device!(
     add_constraints!(
         container,
         CommitmentStatusConstraint,
+        devices,
+        device_model,
+        network_model,
+    )
+    add_constraints!(
+        container,
+        OperationalStatusConstraint,
         devices,
         device_model,
         network_model,
@@ -1251,6 +1265,13 @@ function construct_device!(
         device_model,
         network_model,
     )
+    add_constraints!(
+        container,
+        OperationalStatusConstraint,
+        devices,
+        device_model,
+        network_model,
+    )
     add_constraints!(container, RampConstraint, devices, device_model, network_model)
     add_constraints!(container, DurationConstraint, devices, device_model, network_model)
     add_constraints!(
@@ -1484,6 +1505,13 @@ function construct_device!(
     add_constraints!(
         container,
         CommitmentStatusConstraint,
+        devices,
+        device_model,
+        network_model,
+    )
+    add_constraints!(
+        container,
+        OperationalStatusConstraint,
         devices,
         device_model,
         network_model,

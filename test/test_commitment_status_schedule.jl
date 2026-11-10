@@ -1,22 +1,38 @@
-# Commitment status schedule: StatusScheduleTimeSeriesParameter and CommitmentStatusConstraint.
+# Commitment and operational status schedules: CommitmentStatusTimeSeriesParameter,
+# OperationalStatusTimeSeriesParameter, CommitmentStatusConstraint and
+# OperationalStatusConstraint.
 
 const CM = PSY.CommitmentModes
+const OS = PSY.OperationalStates
 
-# Adds a "commitment_status" Deterministic to `d`, one vector of modes per forecast window.
-function _add_status_schedule!(sys, d, modes_by_window::Vector{Vector{CM.Value}})
+# Adds a Deterministic named `ts_name` to `d`, one vector of enum values per forecast window.
+function _add_enum_series!(sys, d, ts_name, values_by_window)
     initial_times = collect(PSY.get_forecast_initial_times(sys))
     data = SortedDict(
-        it => Float64.(Int.(modes)) for (it, modes) in zip(initial_times, modes_by_window)
+        it => Float64.(Int.(values)) for
+        (it, values) in zip(initial_times, values_by_window)
     )
-    PSY.add_time_series!(sys, d, Deterministic("commitment_status", data, Hour(1)))
+    PSY.add_time_series!(sys, d, Deterministic(ts_name, data, Hour(1)))
     return
 end
 
-# All COMMITTED (free) except `mode` at `steps`.
-function _schedule(mode::CM.Value, steps)
-    modes = fill(CM.COMMITTED, 24)
-    modes[steps] .= mode
-    return modes
+_add_commitment_status!(sys, d, windows) =
+    _add_enum_series!(sys, d, "commitment_status", windows)
+_add_status!(sys, d, windows) = _add_enum_series!(sys, d, "status", windows)
+
+# `default` everywhere except `value` at `steps`.
+function _schedule(default, value, steps)
+    values = fill(default, 24)
+    values[steps] .= value
+    return values
+end
+
+# A planned outage at `steps` as the two series encode it: OFFLINE and UNCOMMITTED there,
+# ONLINE and UNCOMMITTED (free) elsewhere.
+function _add_outage!(sys, d, steps)
+    _add_status!(sys, d, fill(_schedule(OS.ONLINE, OS.OFFLINE, steps), 2))
+    _add_commitment_status!(sys, d, fill(fill(CM.UNCOMMITTED, 24), 2))
+    return
 end
 
 function _status_uc_model(
@@ -27,11 +43,16 @@ function _status_uc_model(
     initial_time = nothing,
     time_series_names = nothing,
     other_models = (),
+    service_models = (),
+    initialize_model = true,
 )
     template = PowerOperationsProblemTemplate(CopperPlateNetworkModel)
     set_device_model!(template, PowerLoad, StaticPowerLoad)
     for other in other_models
         set_device_model!(template, other)
+    end
+    for service_model in service_models
+        set_service_model!(template, service_model)
     end
     device_model = if isnothing(time_series_names)
         DeviceModel(device_type, formulation)
@@ -44,7 +65,10 @@ function _status_uc_model(
     else
         (; initial_time = initial_time)
     end
-    model = DecisionModel(template, sys; optimizer = HiGHS_optimizer, kwargs...)
+    model = DecisionModel(
+        template, sys;
+        optimizer = HiGHS_optimizer, store_variable_names = true, initialize_model,
+        kwargs...)
     IOM.get_optimization_container(model).built_for_recurrent_solves = recurrent
     return model
 end
@@ -55,6 +79,11 @@ function _build_status_model(model)
     return status, output_dir
 end
 
+function _build_log(model)
+    status, output_dir = _build_status_model(model)
+    return status, read(joinpath(output_dir, "operation_problem.log"), String)
+end
+
 _on_values(model, T, name) =
     round.(
         Int,
@@ -63,13 +92,32 @@ _on_values(model, T, name) =
         ).data,
     )
 
-@testset "CommitmentModes ordering assumed by CommitmentStatusConstraint" begin
-    # The rows are affine in the raw value only while UNCOMMITTED is the smallest value and
-    # MUST_RUN the largest, with integer spacing.
-    values = sort(Int.(collect(instances(CM.Value))))
-    @test first(values) == Int(CM.UNCOMMITTED)
-    @test last(values) == Int(CM.MUST_RUN)
-    @test values == collect(first(values):last(values))
+_status_meta(::Type{CommitmentStatusConstraint}) = "lb"
+_status_meta(::Type{OperationalStatusConstraint}) = "ub"
+_status_constraint(model, C) = IOM.get_constraint(
+    IOM.get_optimization_container(model), C, ThermalStandard, _status_meta(C))
+
+@testset "Status series values map to bounds" begin
+    commitment = CommitmentStatusTimeSeriesParameter()
+    status = OperationalStatusTimeSeriesParameter()
+    lower = Dict(
+        CM.UNCOMMITTED => 0.0, CM.SELF_SCHEDULED => 0.0,
+        CM.COMMITTED => 1.0, CM.RELIABILITY => 1.0, CM.MUST_RUN => 1.0,
+    )
+    upper = Dict(
+        OS.OFFLINE => 0.0, OS.ONLINE => 1.0, OS.STARTUP => 1.0, OS.SHUTDOWN => 1.0,
+    )
+    # Every enum value has a bound, so a new value added to PSY fails here first.
+    @test Set(keys(lower)) == Set(instances(CM.Value))
+    @test Set(keys(upper)) == Set(instances(OS.Value))
+    for (mode, bound) in lower
+        @test IOM.unwrap_for_param(commitment, Float64(Int(mode)), ()) == bound
+    end
+    for (state, bound) in upper
+        @test IOM.unwrap_for_param(status, Float64(Int(state)), ()) == bound
+    end
+    @test_throws IS.ConflictingInputsError IOM.unwrap_for_param(commitment, 2.5, ())
+    @test_throws IS.ConflictingInputsError IOM.unwrap_for_param(status, 4.0, ())
 end
 
 @testset "No schedule: no parameter, no constraint, same model" begin
@@ -77,17 +125,16 @@ end
     model = _status_uc_model(sys)
     @test first(_build_status_model(model)) == ModelBuildStatus.BUILT
     container = IOM.get_optimization_container(model)
-    @test !IOM.has_container_key(
-        container, StatusScheduleTimeSeriesParameter, ThermalStandard)
-    @test !IOM.has_container_key(
-        container,
-        CommitmentStatusConstraint,
-        ThermalStandard,
-        "ub",
+    for (P, C) in (
+        (CommitmentStatusTimeSeriesParameter, CommitmentStatusConstraint),
+        (OperationalStatusTimeSeriesParameter, OperationalStatusConstraint),
     )
+        @test !IOM.has_container_key(container, P, ThermalStandard)
+        @test !IOM.has_container_key(container, C, ThermalStandard, _status_meta(C))
+    end
     @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
 
-    # Same model as one that does not map the series at all.
+    # Same model as one that does not map either series.
     sys_ref = PSB.build_system(PSITestSystems, "c_sys5_uc")
     ref = _status_uc_model(
         sys_ref;
@@ -104,8 +151,7 @@ end
     @test JuMP.objective_value(jm) ≈ JuMP.objective_value(jm_ref)
 end
 
-@testset "Maintenance window forces a shutdown and a paid restart ($formulation)" for formulation in
-                                                                                      (
+@testset "OFFLINE forces a shutdown and a paid restart ($formulation)" for formulation in (
     ThermalBasicUnitCommitment,
     ThermalStandardUnitCommitment,
     ThermalCompactUnitCommitment,
@@ -113,63 +159,91 @@ end
     # Brighton is online at the start and committed all day without a schedule.
     sys = PSB.build_system(PSITestSystems, "c_sys5_uc")
     brighton = get_component(ThermalStandard, sys, "Brighton")
-    maintenance = 7:12
-    _add_status_schedule!(sys, brighton, fill(_schedule(CM.UNCOMMITTED, maintenance), 2))
+    outage = 7:12
+    _add_outage!(sys, brighton, outage)
     model = _status_uc_model(sys; formulation = formulation)
     @test first(_build_status_model(model)) == ModelBuildStatus.BUILT
     container = IOM.get_optimization_container(model)
 
-    # Mixed system: only the scheduled unit gets the parameter and the rows.
-    multiplier = IOM.get_parameter_multiplier_array(
-        container, StatusScheduleTimeSeriesParameter, ThermalStandard)
-    @test axes(multiplier, 1) == ["Brighton"]
-    for meta in ("ub", "lb")
-        con = IOM.get_constraint(
-            container, CommitmentStatusConstraint, ThermalStandard, meta)
-        @test axes(con, 1) == ["Brighton"]
+    # Mixed system: only the scheduled unit gets the parameters and the rows.
+    for (P, C) in (
+        (CommitmentStatusTimeSeriesParameter, CommitmentStatusConstraint),
+        (OperationalStatusTimeSeriesParameter, OperationalStatusConstraint),
+    )
+        @test axes(IOM.get_parameter_multiplier_array(container, P, ThermalStandard), 1) ==
+              ["Brighton"]
+        @test axes(_status_constraint(model, C), 1) == ["Brighton"]
     end
-    ub = IOM.get_constraint(container, CommitmentStatusConstraint, ThermalStandard, "ub")
+    ub = _status_constraint(model, OperationalStatusConstraint)
     @test JuMP.normalized_rhs(ub["Brighton", 7]) == 0.0
     @test JuMP.normalized_rhs(ub["Brighton", 6]) == 1.0
+    lb = _status_constraint(model, CommitmentStatusConstraint)
+    @test all(JuMP.normalized_rhs(lb["Brighton", t]) == 0.0 for t in 1:24)
 
     @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
     on = _on_values(model, ThermalStandard, "Brighton")
-    @test all(on[maintenance] .== 0)
-    @test on[first(maintenance) - 1] == 1
-    @test any(on[(last(maintenance) + 1):end] .== 1)
+    @test all(on[outage] .== 0)
+    @test on[first(outage) - 1] == 1
+    @test any(on[(last(outage) + 1):end] .== 1)
 
     jm = IOM.get_jump_model(container)
     start = IOM.get_variable(container, StartVariable, ThermalStandard)
     stop = IOM.get_variable(container, StopVariable, ThermalStandard)
-    @test round(Int, JuMP.value(stop["Brighton", first(maintenance)])) == 1
-    restart = first(maintenance) - 1 + findfirst(==(1), on[first(maintenance):end])
+    @test round(Int, JuMP.value(stop["Brighton", first(outage)])) == 1
+    restart = first(outage) - 1 + findfirst(==(1), on[first(outage):end])
     @test round(Int, JuMP.value(start["Brighton", restart])) == 1
     # The restart is paid: the start variable carries the startup cost in the objective.
     @test JuMP.coefficient(JuMP.objective_function(jm), start["Brighton", restart]) > 0.0
 end
 
-@testset "MUST_RUN period forces the unit on" begin
+@testset "OFFLINE from step 1 stops a unit that starts online" begin
+    # Alta starts online at its minimum; its fast ramp lets it stop in one step.
+    sys = PSB.build_system(PSITestSystems, "c_sys5_uc")
+    alta = get_component(ThermalStandard, sys, "Alta")
+    PSY.set_status!(alta, OS.ONLINE)
+    PSY.set_active_power!(alta, PSY.get_active_power_limits(alta, u"SU").min * u"SU")
+    _add_outage!(sys, alta, 1:3)
+    # The initialization solve would see the outage and start Alta off; read its PSY
+    # status instead.
+    model = _status_uc_model(sys; initialize_model = false)
+    @test first(_build_status_model(model)) == ModelBuildStatus.BUILT
+    @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+    @test all(_on_values(model, ThermalStandard, "Alta")[1:3] .== 0)
+    stop = IOM.get_variable(
+        IOM.get_optimization_container(model), StopVariable, ThermalStandard)
+    @test round(Int, JuMP.value(stop["Alta", 1])) == 1
+end
+
+@testset "COMMITTED, RELIABILITY and MUST_RUN force the unit on" begin
     # Sundance stays offline all day without a schedule.
     sys = PSB.build_system(PSITestSystems, "c_sys5_uc")
     sundance = get_component(ThermalStandard, sys, "Sundance")
-    must_run = 10:12
-    _add_status_schedule!(sys, sundance, fill(_schedule(CM.MUST_RUN, must_run), 2))
+    modes = fill(CM.UNCOMMITTED, 24)
+    modes[10:12] .= CM.MUST_RUN
+    modes[14:15] .= CM.RELIABILITY
+    modes[17:18] .= CM.COMMITTED
+    _add_commitment_status!(sys, sundance, fill(modes, 2))
+    _add_status!(sys, sundance, fill(fill(OS.ONLINE, 24), 2))
     model = _status_uc_model(sys)
     @test first(_build_status_model(model)) == ModelBuildStatus.BUILT
-    container = IOM.get_optimization_container(model)
-    lb = IOM.get_constraint(container, CommitmentStatusConstraint, ThermalStandard, "lb")
-    @test JuMP.normalized_rhs(lb["Sundance", 10]) == 1.0
-    @test JuMP.normalized_rhs(lb["Sundance", 9]) <= 0.0
+    lb = _status_constraint(model, CommitmentStatusConstraint)
+    forced = vcat(10:12, 14:15, 17:18)
+    for t in 1:24
+        @test JuMP.normalized_rhs(lb["Sundance", t]) == Float64(t in forced)
+    end
     @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
-    @test all(_on_values(model, ThermalStandard, "Sundance")[must_run] .== 1)
+    @test all(_on_values(model, ThermalStandard, "Sundance")[forced] .== 1)
 end
 
-@testset "SELF_SCHEDULED and RELIABILITY leave the unit free" begin
+@testset "UNCOMMITTED and SELF_SCHEDULED with ONLINE, STARTUP or SHUTDOWN leave the unit free" begin
     sys = PSB.build_system(PSITestSystems, "c_sys5_uc")
     sundance = get_component(ThermalStandard, sys, "Sundance")
-    modes = fill(CM.SELF_SCHEDULED, 24)
-    modes[13:24] .= CM.RELIABILITY
-    _add_status_schedule!(sys, sundance, fill(modes, 2))
+    modes = _schedule(CM.SELF_SCHEDULED, CM.UNCOMMITTED, 13:24)
+    states = fill(OS.ONLINE, 24)
+    states[5:8] .= OS.STARTUP
+    states[15:18] .= OS.SHUTDOWN
+    _add_commitment_status!(sys, sundance, fill(modes, 2))
+    _add_status!(sys, sundance, fill(states, 2))
     model = _status_uc_model(sys)
     @test first(_build_status_model(model)) == ModelBuildStatus.BUILT
     @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
@@ -177,11 +251,49 @@ end
     @test all(_on_values(model, ThermalStandard, "Sundance") .== 0)
 end
 
-@testset "Multi-start unit commitment honors the schedule" begin
+@testset "OFFLINE with $mode fails the build" for mode in
+                                                  (
+    CM.COMMITTED,
+    CM.SELF_SCHEDULED,
+    CM.RELIABILITY,
+    CM.MUST_RUN,
+)
+    # The contradiction sits in the second window, which the build window does not read.
+    sys = PSB.build_system(PSITestSystems, "c_sys5_uc")
+    alta = get_component(ThermalStandard, sys, "Alta")
+    _add_status!(sys, alta, fill(_schedule(OS.ONLINE, OS.OFFLINE, 5:6), 2))
+    _add_commitment_status!(
+        sys, alta, [fill(CM.UNCOMMITTED, 24), _schedule(CM.UNCOMMITTED, mode, 6:6)])
+    status, log = _build_log(_status_uc_model(sys))
+    @test status == ModelBuildStatus.FAILED
+    second = last(collect(PSY.get_forecast_initial_times(sys)))
+    @test occursin(
+        "Alta, window $second, step 6: status is OFFLINE but commitment_status is $mode",
+        log,
+    )
+end
+
+@testset "A value outside the enum fails the build ($ts_name)" for (ts_name, P) in (
+    ("commitment_status", CommitmentStatusTimeSeriesParameter),
+    ("status", OperationalStatusTimeSeriesParameter),
+)
+    sys = PSB.build_system(PSITestSystems, "c_sys5_uc")
+    sundance = get_component(ThermalStandard, sys, "Sundance")
+    initial_times = collect(PSY.get_forecast_initial_times(sys))
+    values = ones(24)
+    values[5] = 2.5
+    data = SortedDict(it => values for it in initial_times)
+    PSY.add_time_series!(sys, sundance, Deterministic(ts_name, data, Hour(1)))
+    status, log = _build_log(_status_uc_model(sys))
+    @test status == ModelBuildStatus.FAILED
+    @test occursin("$(nameof(P)) for Sundance, window $(first(initial_times)), step 5", log)
+end
+
+@testset "Multi-start unit commitment honors OFFLINE" begin
     sys = PSB.build_system(PSITestSystems, "c_sys5_pglib")
     unit = first(get_components(ThermalMultiStart, sys))
     name = get_name(unit)
-    _add_status_schedule!(sys, unit, fill(_schedule(CM.UNCOMMITTED, 1:24), 2))
+    _add_outage!(sys, unit, 1:24)
     model = _status_uc_model(
         sys;
         formulation = ThermalMultiStartUnitCommitment,
@@ -193,56 +305,40 @@ end
     @test all(_on_values(model, ThermalMultiStart, name) .== 0)
 end
 
-@testset "A static MUST_RUN unit ignores its schedule with a warning" begin
+@testset "A static MUST_RUN unit ignores both series with a warning" begin
     sys = PSB.build_system(PSITestSystems, "c_sys5_uc")
     sundance = get_component(ThermalStandard, sys, "Sundance")
     PSY.set_commitment_mode!(sundance, CM.MUST_RUN)
-    _add_status_schedule!(sys, sundance, fill(_schedule(CM.UNCOMMITTED, 1:3), 2))
-    model = _status_uc_model(sys)
-    status, output_dir = _build_status_model(model)
+    _add_outage!(sys, sundance, 1:3)
+    status, log = _build_log(_status_uc_model(sys))
     @test status == ModelBuildStatus.BUILT
-    log = read(joinpath(output_dir, "operation_problem.log"), String)
-    @test occursin("Sundance carries a commitment_status time series", log)
+    for ts_name in ("commitment_status", "status")
+        @test occursin("Sundance carries a $(ts_name) time series", log)
+    end
     @test occursin("the series is ignored", log)
-    # The only scheduled unit was skipped, so nothing is built for the schedule.
-    container = IOM.get_optimization_container(model)
-    @test !IOM.has_container_key(
-        container, StatusScheduleTimeSeriesParameter, ThermalStandard)
-    @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
-end
-
-@testset "A value that is not a CommitmentModes value fails the build" begin
-    sys = PSB.build_system(PSITestSystems, "c_sys5_uc")
-    sundance = get_component(ThermalStandard, sys, "Sundance")
-    initial_times = collect(PSY.get_forecast_initial_times(sys))
-    values = ones(24)
-    values[5] = 2.5
-    data = SortedDict(it => values for it in initial_times)
-    PSY.add_time_series!(sys, sundance, Deterministic("commitment_status", data, Hour(1)))
-    status, output_dir = _build_status_model(_status_uc_model(sys))
-    @test status == ModelBuildStatus.FAILED
-    log = read(joinpath(output_dir, "operation_problem.log"), String)
-    @test occursin("StatusScheduleTimeSeriesParameter for Sundance at step 5", log)
 end
 
 @testset "Each window reads its own schedule" begin
     sys = PSB.build_system(PSITestSystems, "c_sys5_uc")
     alta = get_component(ThermalStandard, sys, "Alta")
-    windows = [_schedule(CM.UNCOMMITTED, 7:9), _schedule(CM.MUST_RUN, 3:5)]
-    _add_status_schedule!(sys, alta, windows)
-    for (it, modes) in zip(PSY.get_forecast_initial_times(sys), windows)
+    states = [_schedule(OS.ONLINE, OS.OFFLINE, 7:9), _schedule(OS.ONLINE, OS.OFFLINE, 3:5)]
+    modes = [
+        _schedule(CM.UNCOMMITTED, CM.RELIABILITY, 12:13),
+        _schedule(CM.UNCOMMITTED, CM.MUST_RUN, 20:21),
+    ]
+    _add_status!(sys, alta, states)
+    _add_commitment_status!(sys, alta, modes)
+    for (it, window_states, window_modes) in
+        zip(PSY.get_forecast_initial_times(sys), states, modes)
         model = _status_uc_model(sys; initial_time = it)
         @test first(_build_status_model(model)) == ModelBuildStatus.BUILT
-        container = IOM.get_optimization_container(model)
-        ub =
-            IOM.get_constraint(container, CommitmentStatusConstraint, ThermalStandard, "ub")
-        lb =
-            IOM.get_constraint(container, CommitmentStatusConstraint, ThermalStandard, "lb")
+        ub = _status_constraint(model, OperationalStatusConstraint)
+        lb = _status_constraint(model, CommitmentStatusConstraint)
         for t in 1:24
-            forced_off = JuMP.normalized_rhs(ub["Alta", t]) <= 0.0
-            forced_on = JuMP.normalized_rhs(lb["Alta", t]) >= 1.0
-            @test forced_off == (modes[t] == CM.UNCOMMITTED)
-            @test forced_on == (modes[t] == CM.MUST_RUN)
+            @test (JuMP.normalized_rhs(ub["Alta", t]) == 0.0) ==
+                  (window_states[t] == OS.OFFLINE)
+            @test (JuMP.normalized_rhs(lb["Alta", t]) == 1.0) ==
+                  (window_modes[t] != CM.UNCOMMITTED)
         end
     end
 end
@@ -251,33 +347,131 @@ end
     # Without a schedule, Alta is on at steps 7:9 and off at steps 3:5.
     sys = PSB.build_system(PSITestSystems, "c_sys5_uc")
     alta = get_component(ThermalStandard, sys, "Alta")
-    _add_status_schedule!(
-        sys, alta, [_schedule(CM.UNCOMMITTED, 7:9), _schedule(CM.MUST_RUN, 3:5)])
+    _add_status!(
+        sys, alta, [_schedule(OS.ONLINE, OS.OFFLINE, 7:9), fill(OS.ONLINE, 24)])
+    _add_commitment_status!(
+        sys, alta,
+        [fill(CM.UNCOMMITTED, 24), _schedule(CM.UNCOMMITTED, CM.RELIABILITY, 3:5)])
     model = _status_uc_model(sys; recurrent = true)
     @test first(_build_status_model(model)) == ModelBuildStatus.BUILT
     container = IOM.get_optimization_container(model)
     jm = IOM.get_jump_model(container)
-    refs = get_parameter_column_refs(
-        IOM.get_parameter(container, StatusScheduleTimeSeriesParameter, ThermalStandard),
-        "Alta",
-    )
-    @test eltype(refs) == JuMP.VariableRef
 
     JuMP.optimize!(jm)
     on = _on_values(model, ThermalStandard, "Alta")
     @test all(on[7:9] .== 0)
     @test any(on[3:5] .== 0)
 
-    # Write the second window's values, as a simulation step does, and re-solve.
+    # Write the second window's values through the same hook a simulation step uses.
     second = last(collect(PSY.get_forecast_initial_times(sys)))
-    values = PSY.get_time_series_values(
-        Deterministic, alta, "commitment_status"; start_time = second)
-    for t in 1:24
-        IOM.fix_parameter_value(refs[t], values[t])
+    for (P, ts_name) in (
+        (CommitmentStatusTimeSeriesParameter, "commitment_status"),
+        (OperationalStatusTimeSeriesParameter, "status"),
+    )
+        refs = get_parameter_column_refs(
+            IOM.get_parameter(container, P, ThermalStandard),
+            "Alta",
+        )
+        @test eltype(refs) == JuMP.VariableRef
+        values =
+            PSY.get_time_series_values(Deterministic, alta, ts_name; start_time = second)
+        for t in 1:24
+            IOM.fix_parameter_value(refs[t], IOM.unwrap_for_param(P(), values[t], ()))
+        end
     end
     JuMP.optimize!(jm)
     @test JuMP.termination_status(jm) == JuMP.MOI.OPTIMAL
     on = _on_values(model, ThermalStandard, "Alta")
     @test all(on[3:5] .== 1)
     @test any(on[7:9] .== 1)
+end
+
+# c_sys5_uc on MarketBidCost with an OfflineReserve ORDC ("NSPIN") that every thermal offers
+# into. `cheap` units offer at almost no cost, so their offline offer clears when allowed.
+function _nspin_system(cheap)
+    sys = PSB.build_system(PSITestSystems, "c_sys5_uc")
+    thermals = collect(get_components(ThermalStandard, sys))
+    for g in thermals
+        slope = PSY.get_proportional_term(
+            PSY.get_value_curve(PSY.get_variable_operation_cost(get_operation_cost(g))),
+        )
+        PSY.set_operation_cost!(
+            g,
+            MarketBidCost(;
+                minimum_energy_offer = LinearCurve(0.0),
+                start_up = (hot = 0.0, warm = 0.0, cold = 0.0),
+                shut_down = LinearCurve(0.0),
+                incremental_offer_curves = make_market_bid_curve(
+                    [0.0, PSY.get_max_active_power(g, u"NU")], [slope], 0.0;
+                    power_units = IS.NaturalUnit(),
+                ),
+            ),
+        )
+    end
+    nspin = OfflineReserve(;
+        name = "NSPIN",
+        available = true,
+        time_frame = 30.0,
+        variable = make_market_bid_curve(
+            [0.0, 100.0, 200.0], [65.0, 11.0], 0.0; power_units = IS.NaturalUnit()),
+    )
+    add_service!(sys, nspin, PSY.Device[thermals...])
+    initial_times = PSY.get_forecast_initial_times(sys)
+    for (i, g) in enumerate(thermals)
+        price = PSY.get_name(g) in cheap ? 0.01 : 6.0 + i
+        offer = Deterministic(
+            "NSPIN",
+            Dict(
+                it => [IS.PiecewiseStepData([0.0, 80.0], [price]) for _ in 1:24]
+                for it in initial_times
+            ),
+            Hour(1),
+        )
+        PSY.set_service_bid!(sys, g, nspin, offer, IS.NaturalUnit())
+    end
+    return sys
+end
+
+function _add_max_active_power!(sys, d, values)
+    data = SortedDict(it => values for it in PSY.get_forecast_initial_times(sys))
+    PSY.add_time_series!(sys, d, Deterministic("max_active_power", data, Hour(1)))
+    return
+end
+
+@testset "OFFLINE units supply offline NSPIN only up to max_active_power" begin
+    # ERCOT COP: Alta is OUT (no energy, no reserves) and Sundance is EMR (off for energy,
+    # still offers offline NSPIN) in steps 7:12. Both are OFFLINE and UNCOMMITTED there;
+    # only OUT also sets max_active_power to 0.
+    window = 7:12
+    sys = _nspin_system(("Alta", "Sundance"))
+    alta = get_component(ThermalStandard, sys, "Alta")
+    sundance = get_component(ThermalStandard, sys, "Sundance")
+    for d in (alta, sundance)
+        _add_outage!(sys, d, window)
+    end
+    _add_max_active_power!(sys, alta, _schedule(1.0, 0.0, window))
+    _add_max_active_power!(sys, sundance, ones(24))
+    model = _status_uc_model(
+        sys;
+        time_series_names = Dict{Type{<:ParameterType}, String}(
+            ActivePowerTimeSeriesParameter => "max_active_power",
+            CommitmentStatusTimeSeriesParameter => "commitment_status",
+            OperationalStatusTimeSeriesParameter => "status",
+        ),
+        service_models = (ServiceModel(OfflineReserve, StepwiseCostReserve),),
+    )
+    @test first(_build_status_model(model)) == ModelBuildStatus.BUILT
+    @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+
+    res = IOM.OptimizationProblemOutputs(model)
+    awards = read_variable(
+        res, "ActivePowerReserveVariable__ThermalStandard__OfflineReserve";
+        table_format = TableFormat.WIDE,
+    )
+    @test all(_on_values(model, ThermalStandard, "Alta")[window] .== 0)
+    @test all(_on_values(model, ThermalStandard, "Sundance")[window] .== 0)
+    for t in window
+        @test awards[t, "NSPIN__Alta"] ≈ 0.0 atol = 1e-6
+        @test awards[t, "NSPIN__Sundance"] > 1.0
+    end
 end

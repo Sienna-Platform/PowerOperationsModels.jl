@@ -882,6 +882,7 @@ export RequirementConstraint
 export DurationConstraint
 export CommitmentConstraint
 export CommitmentStatusConstraint
+export OperationalStatusConstraint
 export StartTypeConstraint
 export StartupTimeLimitTemperatureConstraint
 export ShiftedActivePowerBalanceConstraint
@@ -940,7 +941,8 @@ export DistributionFactorParameter
 export ScheduledNetInterchangeParameter
 export MinActivePowerTimeSeriesParameter
 export MinActivePowerInTimeSeriesParameter
-export StatusScheduleTimeSeriesParameter
+export CommitmentStatusTimeSeriesParameter
+export OperationalStatusTimeSeriesParameter
 export UpperBoundValueParameter
 export LowerBoundValueParameter
 export OnStatusParameter
