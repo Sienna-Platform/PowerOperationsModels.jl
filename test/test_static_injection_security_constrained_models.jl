@@ -113,7 +113,7 @@ function g1_template(
     if model_interchanges
         attributes = Dict{String, Any}()
         isnothing(interchange_selector) ||
-            (attributes["filter_selector"] = interchange_selector)
+            (attributes["device_filter"] = interchange_selector)
         set_device_model!(
             template,
             DeviceModel(
@@ -505,7 +505,7 @@ end
     @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
 end
 
-@testset "monitored interchange excluded by filter_selector warns" begin
+@testset "monitored interchange excluded by device_filter warns" begin
     sys, _ = g1_system()
     template = g1_template(
         AreaBalanceNetworkModel;
@@ -851,4 +851,51 @@ end
         @test JuMP.coefficient(func, on[name, t]) ≈ p_min - p_max
     end
     @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+end
+
+@testset "G-1 reserves ignore a planned outage" begin
+    sys = PSB.build_system(PSITestSystems, "c_sys5_pglib")
+    reserve = OnlineReserve{ReserveUp}(;
+        name = "G1_planned",
+        available = true,
+        time_frame = 30.0,
+        requirement = 0.0,
+        sustained_time = 3600,
+        max_output_fraction = 1.0,
+        max_participation_factor = 1.0,
+        deployed_fraction = 0.0,
+    )
+    add_service!(sys, reserve, collect(get_components(ThermalMultiStart, sys)))
+    units = sort(collect(get_components(ThermalStandard, sys)); by = get_name)
+    forced = PSY.FixedForcedOutage(; outage_status = 1.0)
+    planned = PSY.PlannedOutage(; outage_schedule = "planned_g1_ts")
+    add_supplemental_attribute!(sys, units[1], forced)
+    add_supplemental_attribute!(sys, reserve, forced)
+    add_supplemental_attribute!(sys, units[2], planned)
+    add_supplemental_attribute!(sys, reserve, planned)
+    template = PowerOperationsProblemTemplate(NetworkModel(CopperPlateNetworkModel))
+    set_device_model!(template, ThermalStandard, ThermalBasicUnitCommitment)
+    set_device_model!(template, ThermalMultiStart, ThermalMultiStartUnitCommitment)
+    set_device_model!(template, PowerLoad, StaticPowerLoad)
+    set_service_model!(
+        template,
+        ServiceModel(
+            OnlineReserve{ReserveUp},
+            SecurityConstrainedContingencyReserve;
+            use_slacks = true,
+        ),
+    )
+    model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
+    @test build!(model; output_dir = mktempdir(; cleanup = true)) ==
+          IOM.ModelBuildStatus.BUILT
+    container = IOM.get_optimization_container(model)
+    rows = IOM.get_constraint(
+        container,
+        PostContingencyGenerationConstraint,
+        ThermalMultiStart,
+    )
+    outage_ids = Set(k[2] for k in keys(rows.data))
+    @test !isempty(outage_ids)
+    @test IS.get_id(forced) in outage_ids
+    @test !(IS.get_id(planned) in outage_ids)
 end

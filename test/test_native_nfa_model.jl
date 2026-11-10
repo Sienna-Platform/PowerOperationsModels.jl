@@ -79,9 +79,9 @@ end
             @test JuMP.normalized_coefficient(con_lb[name, t], slack_ub[name, t]) == 0.0
             @test JuMP.normalized_rhs(con_lb[name, t]) == -rate
             @test JuMP.coefficient(objective, slack_ub[name, t]) ==
-                  POM.CONSTRAINT_VIOLATION_SLACK_COST
+                  IOM.CONSTRAINT_VIOLATION_SLACK_COST
             @test JuMP.coefficient(objective, slack_lb[name, t]) ==
-                  POM.CONSTRAINT_VIOLATION_SLACK_COST
+                  IOM.CONSTRAINT_VIOLATION_SLACK_COST
         end
     end
 end

@@ -52,6 +52,60 @@ function _add_active_power_outage_constraint!(
     if has_service_model(device_model)
         add_unoffered_outage_reserve_constraints!(container, devices_with_attributes)
     end
+    _add_outage_load_floor!(container, devices_with_attributes, device_model)
+    return
+end
+
+_add_outage_load_floor!(
+    ::OptimizationContainer,
+    ::Vector{<:PSY.ControllableLoad},
+    ::DeviceModel{<:PSY.ControllableLoad, <:AbstractControllablePowerLoadFormulation},
+) = nothing
+
+function _load_floor_array(
+    container::OptimizationContainer,
+    device_model::DeviceModel{U},
+) where {U <: PSY.ControllableLoad}
+    if has_service_model(device_model)
+        return get_expression(container, ActivePowerRangeExpressionLB, U)
+    end
+    return get_variable(container, ActivePowerVariable, U)
+end
+
+# The minimum of a priced load follows the status: P >= min * status. The static
+# floor is 0 for these loads (see `get_min_max_limit_values`).
+function _add_outage_load_floor!(
+    container::OptimizationContainer,
+    devices_with_attributes::Vector{U},
+    device_model::DeviceModel{U, PowerLoadDispatch},
+) where {U <: PSY.ControllableLoad}
+    priced, _ = _partition_by_dispatch_basis(devices_with_attributes)
+    floored = [d for d in priced if !iszero(_static_min_active_power(d))]
+    isempty(floored) && return
+    time_steps = get_time_steps(container)
+    variable = get_variable(container, ActivePowerVariable, U)
+    status = get_parameter_array(container, AvailableStatusParameter(), U)
+    lhs = _load_floor_array(container, device_model)
+    constraint = add_constraints_container!(
+        container,
+        ActivePowerOutageConstraint,
+        U,
+        PSY.get_name.(floored),
+        time_steps;
+        meta = "lb",
+    )
+    jump_model = get_jump_model(container)
+    for d in floored
+        name = PSY.get_name(d)
+        min_power = _static_min_active_power(d)
+        for t in time_steps
+            JuMP.set_lower_bound(variable[name, t], 0.0)
+            constraint[name, t] = JuMP.@constraint(
+                jump_model,
+                lhs[name, t] >= min_power * status[name, t]
+            )
+        end
+    end
     return
 end
 

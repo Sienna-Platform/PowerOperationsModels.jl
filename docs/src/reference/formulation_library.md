@@ -90,7 +90,7 @@ balance constraint (model stage).
 | `NFANetworkModel`         | system slacks (active only); no voltage variables                     | `NodalBalanceActiveConstraint` **only** — no `ReferenceBusConstraint`                                                        |
 | `PTDFNetworkModel`        | system slacks (active only); no voltage variables                     | `CopperPlateBalanceConstraint`                                                                                               |
 | `AreaPTDFNetworkModel`    | system slacks (active only); no voltage variables                     | `CopperPlateBalanceConstraint` (keyed on `PSY.Area`)                                                                         |
-| `CopperPlateNetworkModel` | system slacks (active only); no voltage variables                     | `CopperPlateBalanceConstraint`                                                                                               |
+| `CopperPlateNetworkModel` | system slacks (active only); no voltage variables                     | `CopperPlateBalanceConstraint` (one row per synchronous island)                                                              |
 | `AreaBalanceNetworkModel` | system slacks (active only); no voltage variables                     | `CopperPlateBalanceConstraint` (keyed on `PSY.Area`)                                                                         |
 | `ACPNetworkModel`         | `VoltageAngle`, `VoltageMagnitude`, system slacks (active + reactive) | `ReferenceBusConstraint`, `NodalBalanceActiveConstraint`, `NodalBalanceReactiveConstraint`                                   |
 | `ACRNetworkModel`         | `VoltageReal`, `VoltageImaginary`, system slacks (active + reactive)  | `ReferenceBusConstraint`, `VoltageMagnitudeConstraint`, `NodalBalanceActiveConstraint`, `NodalBalanceReactiveConstraint`     |
@@ -99,11 +99,21 @@ balance constraint (model stage).
 
 All network variables, **including the slacks**, are created in the argument stage. System slacks
 are only added when `use_slacks = true` on the `NetworkModel`, and they are penalized in the
-objective at `BALANCE_SLACK_COST` during the model stage.
+objective at the `slack_penalty` of the `NetworkModel` during the model stage.
 Every slack penalty in this library (balance, branch flow, post-contingency, reserve
 requirement, transmission interface `violation_penalty`, and feedforward bound on a power
 variable) is per pu-hour, like device costs, and enters the objective multiplied by the step
 length in hours.
+
+Under ACR and IVR, a bus with a constant-current ZIP load part also gets a `ZipVoltageMagnitude`
+variable ``v^\text{zip}``, created in the model stage and tied to the bus by
+`VoltageMagnitudeConstraint` (meta `"zip"`): ``(v^\text{zip})^2 = v_r^2 + v_i^2``.
+The current part of the balance uses ``v^\text{zip}`` for ``|V|``, which keeps the row
+differentiable at ``v_r = v_i = 0``.
+Branch flow, operational flow limit, post-contingency branch, thermal ramp, hydro balance and
+budget, and storage cycling slacks read the `slack_penalty` of their `DeviceModel`. Reserve
+requirement and AGC area mismatch slacks read that of their `ServiceModel`.
+Storage cycling slacks are charged once at the horizon end, without the step length.
 
 ### System slack containers
 
@@ -235,8 +245,8 @@ On `IVRNetworkModel` both mechanisms are present at once, on different equations
 
 !!! note "Pricing asymmetry between the two slack domains"
     
-    Every slack container above is priced identically at `CONSTRAINT_VIOLATION_SLACK_COST` in
-    the objective, but the *domain* being relaxed differs. `StaticBranchBounds`'s
+    Every slack container above is priced identically at the `slack_penalty` of the
+    `DeviceModel` in the objective, but the *domain* being relaxed differs. `StaticBranchBounds`'s
     `"p_ft"`/`"p_tf"`/`"q_ft"`/`"q_tf"`/`"cr_*"`/`"ci_*"` pairs are flow-domain (MW / per-unit current); `StaticBranch`'s
     meta-less and `"c_from"`/`"c_to"` slacks relax a **squared** domain (MVA² / A²) because they
     are subtracted directly from a quadratic left-hand side. The same price per unit therefore
@@ -317,15 +327,17 @@ equivalent is a hard error rather than a silent demotion.
 | `HVDCTwoTerminalVSC`           | all except `AreaBalanceNetworkModel`                                                                                     | `FlowActivePower{FromTo,ToFrom}Variable`, `DCLineCurrentFlowVariable`, `HVDC{From,To}DCVoltage`                                                                                          | `HVDCCableOhmsLawConstraint`, `HVDCVSCConverterPowerConstraint` (`"ft"`/`"tf"`), `HVDCVSCApparentPowerLimitConstraint` |
 | `VoltageControlVSC`            | `ACPNetworkModel`, `ACRNetworkModel`, `IVRNetworkModel`, `LPACCNetworkModel` (auto-dropped from active-power templates)  | as `HVDCTwoTerminalVSC`, plus `RegulatedVoltageMagnitude` (`"from"`/`"to"`) on ACR/IVR                                                                                                   | as above, plus `HVDCDCControlConstraint` (`"from"`/`"to"`)                                                             |
 
-!!! warning "HVDCTwoTerminalDispatch loses its losses on CopperPlate"
+!!! note "Two-terminal HVDC between CopperPlate islands"
     
-    On `CopperPlateNetworkModel` the constructor warns, then skips `HVDCPowerBalance` entirely:
-    `HVDCLosses` and `HVDCFlowDirectionVariable` are created but left unconstrained and unwired,
-    so the line's losses vanish from the single system balance. Use
-    `HVDCTwoTerminalPiecewiseLoss` on CopperPlate when the losses matter. On every other
-    supported network the losses are accounted for: the nodal models
-    (NFA/DCP/DCPLL/ACP/ACR/IVR/LPACC) carry them implicitly through the `HVDCPowerBalance`
-    coupling `ft + tf == losses` with both directional flows entering their terminal balances.
+    `CopperPlateNetworkModel` builds one balance row per synchronous island, and each bus
+    injects into the row of its own island.
+    Each HVDC terminal enters the row of its own island, so a link between islands moves power
+    between their rows and a link inside one island nets to its loss in that row.
+    `HVDCTwoTerminalLossless` builds only the links between islands.
+    `HVDCTwoTerminalDispatch` couples its two directional flows through `HVDCPowerBalance`
+    (`ft + tf == losses`), as on the nodal models.
+    An island without a link must balance on its own.
+    
     On `PTDFNetworkModel`, `HVDCLosses` enters the system row when both terminals share one
     reference bus; otherwise the two directional flows enter the rows of their reference buses.
     On `AreaPTDFNetworkModel`, both directional flows always enter the rows of their areas, so
@@ -501,9 +513,9 @@ and each tie and its losses count once in the area balance.
 
 | Formulation               | Supported networks                                                           | Key variables                                                                                                                                                             | Key constraints                                                                                                                                                             |
 |:------------------------- |:---------------------------------------------------------------------------- |:------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |:--------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `LosslessConverter`       | all                                                                          | `ActivePowerVariable` (+ `ReactivePowerVariable` on AC networks)                                                                                                          | `ConverterPowerCapabilityConstraint` on AC networks                                                                                                                         |
-| `LinearLossConverter`     | all                                                                          | `ActivePowerVariable`, `CurrentAbsoluteValueVariable` (+ `ReactivePowerVariable` on AC networks)                                                                          | `CurrentAbsoluteValueConstraint` (`"ge_pos"`/`"ge_neg"`); `ConverterPowerCapabilityConstraint` on AC networks                                                               |
-| `QuadraticLossConverter`  | all                                                                          | `ActivePowerVariable`, `ConverterCurrent`, `CurrentAbsoluteValueVariable` (`ConverterACCurrentVariable` instead on ACP/ACR/IVR; + `ReactivePowerVariable` on AC networks) | `ConverterLossConstraint`, `CurrentAbsoluteValueConstraint` (`"ge_pos"`/`"ge_neg"`); `ConverterACCurrentConstraint` and `ConverterPowerCapabilityConstraint` on AC networks |
+| `LosslessConverter`       | all except CopperPlate and AreaBalance                                       | `ActivePowerVariable` (+ `ReactivePowerVariable` on AC networks)                                                                                                          | `ConverterPowerCapabilityConstraint` on AC networks                                                                                                                         |
+| `LinearLossConverter`     | all except CopperPlate and AreaBalance                                       | `ActivePowerVariable`, `CurrentAbsoluteValueVariable` (+ `ReactivePowerVariable` on AC networks)                                                                          | `CurrentAbsoluteValueConstraint` (`"ge_pos"`/`"ge_neg"`); `ConverterPowerCapabilityConstraint` on AC networks                                                               |
+| `QuadraticLossConverter`  | all except CopperPlate and AreaBalance                                       | `ActivePowerVariable`, `ConverterCurrent`, `CurrentAbsoluteValueVariable` (`ConverterACCurrentVariable` instead on ACP/ACR/IVR; + `ReactivePowerVariable` on AC networks) | `ConverterLossConstraint`, `CurrentAbsoluteValueConstraint` (`"ge_pos"`/`"ge_neg"`); `ConverterACCurrentConstraint` and `ConverterPowerCapabilityConstraint` on AC networks |
 | `VoltageControlConverter` | `ACPNetworkModel`, `ACRNetworkModel`, `IVRNetworkModel`, `LPACCNetworkModel` | `ActivePowerVariable`, `ReactivePowerVariable`, `ConverterCurrent`, `ConverterACCurrentVariable` (ACP/ACR/IVR) or `CurrentAbsoluteValueVariable` (LPACC)                  | `ConverterLossConstraint`, `ConverterPowerCapabilityConstraint`, `HVDCDCControlConstraint`; `ConverterACCurrentConstraint` on ACP/ACR/IVR                                   |
 | `LosslessLine`            | all                                                                          | `FlowActivePowerVariable`                                                                                                                                                 | none                                                                                                                                                                        |
 | `DCLossyLine`             | all                                                                          | `DCLineCurrent`                                                                                                                                                           | `DCLineCurrentConstraint`                                                                                                                                                   |
@@ -864,7 +876,7 @@ attach_feedforward!(
 
 `UpperBoundFeedforward` and `LowerBoundFeedforward` accept `add_slacks = true`, which relaxes the
 bound with a non-negative `UpperBoundFeedForwardSlack` / `LowerBoundFeedForwardSlack` penalized at
-`BALANCE_SLACK_COST` per hour of the time step when the bounded variable is a power, and at
+`IOM.BALANCE_SLACK_COST` per hour of the time step when the bounded variable is a power, and at
 `FEEDFORWARD_SLACK_COST` per step otherwise.
 
 `SemiContinuousFeedforward` suppresses the affected formulation's own range constraints —

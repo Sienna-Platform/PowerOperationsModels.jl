@@ -338,8 +338,10 @@ end
 ####### Hydro DISPATCH RUN OF RIVER BUDGET TEST ########
 ########################################################
 @testset "Test Hydro Dispatch Run Of River Formulations " begin
+    penalty = 321.0
     device_model = DeviceModel(HydroDispatch, HydroDispatchRunOfRiver;
         use_slacks = true,
+        slack_penalty = penalty,
         attributes = Dict("hydro_budget" => true, "hydro_budget_interval" => Hour(24)))
 
     sys = PSB.build_system(PSITestSystems, "c_sys5_hy"; add_single_time_series = true)
@@ -356,6 +358,12 @@ end
     mock_construct_device!(model, device_model)
     moi_tests(model, 48, 0, 49, 24, 0, false)
     psi_checkobjfun_test(model, GAEVF)
+    # The budget slack reads the penalty of the DeviceModel, on the system base.
+    container = IOM.get_optimization_container(model)
+    base_power = IOM.get_model_base_power(container)
+    name = get_name(hy)
+    coef = obj_coef(container, HydroEnergyShortageVariable, HydroDispatch, name, 1)
+    @test coef == penalty * base_power
 end
 
 @testset "Hydro Dispatch Run Of River without budget omits budget constraint" begin
@@ -852,6 +860,35 @@ end
         210949.49,
         1000,
     )
+end
+
+@testset "Hydro reservoir and turbine models reject device_filter" begin
+    sys = PSB.build_system(PSITestSystems, "c_sys5_hy_turbine_head")
+    for (filtered, formulation) in (
+        (HydroTurbine, HydroTurbineBilinearDispatch),
+        (HydroReservoir, HydroWaterModelReservoir),
+    )
+        template = PowerOperationsProblemTemplate()
+        set_device_model!(template, HydroTurbine, HydroTurbineBilinearDispatch)
+        set_device_model!(template, HydroReservoir, HydroWaterModelReservoir)
+        set_device_model!(
+            template,
+            DeviceModel(
+                filtered,
+                formulation;
+                attributes = Dict{String, Any}(
+                    "device_filter" => make_selector(
+                        filtered,
+                        PSY.get_name(first(get_components(filtered, sys))),
+                    ),
+                ),
+            ),
+        )
+        set_device_model!(template, ThermalStandard, ThermalDispatchNoMin)
+        set_device_model!(template, PowerLoad, StaticPowerLoad)
+        model = DecisionModel(template, sys; optimizer = ipopt_optimizer)
+        @test_throws IS.ConflictingInputsError POM.validate_template(model)
+    end
 end
 
 @testset "HydroTurbineBilinearDispatch (MILP): variable-bound plumbing to IOM" begin

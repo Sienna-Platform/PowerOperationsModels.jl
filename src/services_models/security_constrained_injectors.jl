@@ -31,13 +31,13 @@ function _security_constrained_outages(
     sys::PSY.System,
     services_template::ServicesModelContainer,
 )
-    outages = Dict{Int, PSY.Outage}()
+    outages = Dict{Int, PSY.UnplannedOutage}()
     use_slacks = Dict{Int, Bool}()
     for model in values(services_template)
         _validate_reserve_formulation(model) || continue
         model_slacks = get_use_slacks(model)
         for service in _services_with_contributors(model, sys)
-            for outage in PSY.get_supplemental_attributes(PSY.Outage, service)
+            for outage in PSY.get_supplemental_attributes(PSY.UnplannedOutage, service)
                 outage_id = IS.get_id(outage)
                 use_slacks[outage_id] = model_slacks
                 outages[outage_id] = outage
@@ -146,7 +146,7 @@ end
 
 function _outaged_generators(
     sys::PSY.System,
-    outages::Dict{Int, PSY.Outage},
+    outages::Dict{Int, PSY.UnplannedOutage},
     container::OptimizationContainer,
     devices_template::DevicesModelContainer,
 )
@@ -206,7 +206,7 @@ _monitored_is_modeled(
 
 function _monitored_components(
     sys::PSY.System,
-    outages::Dict{Int, PSY.Outage},
+    outages::Dict{Int, PSY.UnplannedOutage},
     container::OptimizationContainer,
     network_model::NetworkModel,
 )
@@ -373,7 +373,7 @@ function _add_post_contingency_deployment!(
         Int[];
         sparse = true,
     )
-    for outage in PSY.get_supplemental_attributes(PSY.Outage, service)
+    for outage in PSY.get_supplemental_attributes(PSY.UnplannedOutage, service)
         outage_id = IS.get_id(outage)
         outaged = Set{String}(
             PSY.get_name(c) for
@@ -486,7 +486,9 @@ function _add_post_contingency_flow_slacks!(
 )
     jump_model = get_jump_model(container)
     time_steps = get_time_steps(container)
-    cost = CONSTRAINT_VIOLATION_SLACK_COST * IOM.get_resolution_in_hours(container)
+    # Not the `ServiceModel` penalty: that one prices the reserve requirement slack, whose
+    # default (`SERVICES_SLACK_COST`) differs from this one.
+    cost = IOM.CONSTRAINT_VIOLATION_SLACK_COST * IOM.get_resolution_in_hours(container)
     for (outage_id, per_type) in monitored_components
         use_slacks[outage_id] || continue
         for (component_type, names) in per_type

@@ -61,7 +61,7 @@ function _feedforward_slack_cost(
     ::Type{T},
 ) where {T <: VariableType}
     if _slack_bounds_power(T)
-        return BALANCE_SLACK_COST * IOM.get_resolution_in_hours(container)
+        return IOM.BALANCE_SLACK_COST * IOM.get_resolution_in_hours(container)
     end
     return FEEDFORWARD_SLACK_COST
 end

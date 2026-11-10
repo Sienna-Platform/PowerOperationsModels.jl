@@ -178,7 +178,7 @@ function _pin_outage_buses!(
     sys::PSY.System,
 )
     for service in _services_with_contributors(m, sys)
-        for outage in PSY.get_supplemental_attributes(PSY.Outage, service)
+        for outage in PSY.get_supplemental_attributes(PSY.UnplannedOutage, service)
             _pin_monitored_buses!(buses, outage, sys)
         end
     end
