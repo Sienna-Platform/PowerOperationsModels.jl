@@ -439,9 +439,9 @@ function _add_max_active_power!(sys, d, values)
 end
 
 @testset "OFFLINE units supply offline NSPIN only up to max_active_power" begin
-    # ERCOT COP: Alta is OUT (no energy, no reserves) and Sundance is EMR (off for energy,
-    # still offers offline NSPIN) in steps 7:12. Both are OFFLINE and UNCOMMITTED there;
-    # only OUT also sets max_active_power to 0.
+    # Alta is on outage (no energy, no reserves) and Sundance is off for energy but still
+    # offers offline NSPIN in steps 7:12. Both are OFFLINE and UNCOMMITTED there; only
+    # Alta also sets max_active_power to 0.
     window = 7:12
     sys = _nspin_system(("Alta", "Sundance"))
     alta = get_component(ThermalStandard, sys, "Alta")
