@@ -929,42 +929,132 @@ function _c_sys5_two_islands_with_hvdc()
     return sys, "hvdc_tie", "hvdc_intra"
 end
 
-# Characterization of the CopperPlate HVDC subnetwork filter: records which flow-rate
-# constraints each formulation emits and whether the intra-subnetwork line leaks in.
-# The @info observations are read from CI output before tightening into assertions.
-@testset "CopperPlate HVDC subnetwork filtering behavior" begin
-    for formulation in (
-        HVDCTwoTerminalLossless,
-        HVDCTwoTerminalDispatch,
-        HVDCTwoTerminalPiecewiseLoss,
+function _copperplate_islands_model(sys, hvdc_formulations...; kwargs...)
+    template = get_thermal_dispatch_template_network(
+        NetworkModel(CopperPlateNetworkModel; kwargs...))
+    for formulation in hvdc_formulations
+        set_device_model!(template, DeviceModel(TwoTerminalGenericHVDCLine, formulation))
+    end
+    model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
+    @test build!(model; output_dir = mktempdir(; cleanup = true),
+        console_level = Logging.Error) == IOM.ModelBuildStatus.BUILT
+    container = IOM.get_optimization_container(model)
+    island = Dict(
+        bus => ref for (ref, buses) in
+        IOM.get_network_model(IOM.get_template(model)).subnetworks for bus in buses
     )
-        sys, tie_name, intra_name = _c_sys5_two_islands_with_hvdc()
-        template = get_thermal_dispatch_template_network(
-            NetworkModel(CopperPlateNetworkModel))
-        set_device_model!(
-            template, DeviceModel(TwoTerminalGenericHVDCLine, formulation))
-        model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
-        outdir = mktempdir(; cleanup = true)
-        status = build!(model; output_dir = outdir, console_level = Logging.Error)
-        @test status == IOM.ModelBuildStatus.BUILT
+    balance = IOM.get_constraint(container, CopperPlateBalanceConstraint(), PSY.System)
+    return model, container, island, balance
+end
 
-        container = IOM.get_optimization_container(model)
-        @info "CopperPlate characterization" formulation status
-        for con_type in (POM.FlowRateConstraint,
-            POM.FlowRateConstraintFromTo, POM.FlowRateConstraintToFrom)
-            for meta in ("ub", "lb")
-                key_exists = try
-                    con = IOM.get_constraint(
-                        container, con_type, TwoTerminalGenericHVDCLine, meta)
-                    names = string.(axes(con, 1))
-                    @info "  constraint present" con_type meta names
-                    true
-                catch
-                    false
-                end
-                key_exists || @info "  constraint absent" con_type meta
+function _c_sys5_two_islands_without_hvdc()
+    sys, tie, intra = _c_sys5_two_islands_with_hvdc()
+    for name in (tie, intra)
+        PSY.remove_component!(
+            sys, PSY.get_component(TwoTerminalGenericHVDCLine, sys, name))
+    end
+    return sys
+end
+
+@testset "CopperPlate gives each synchronous island its own balance row" begin
+    sys = _c_sys5_two_islands_without_hvdc()
+    model, container, island, balance = _copperplate_islands_model(sys)
+    @test sort(collect(axes(balance, 1))) == sort(unique(values(island)))
+    @test length(axes(balance, 1)) == 2
+    p = IOM.get_variable(container, ActivePowerVariable, ThermalStandard)
+    t = first(IOM.get_time_steps(container))
+    for g in PSY.get_components(ThermalStandard, sys)
+        own = island[PSY.get_number(PSY.get_bus(g))]
+        for row in axes(balance, 1)
+            @test JuMP.normalized_coefficient(balance[row, t], p[PSY.get_name(g), t]) ==
+                  Float64(row == own)
+        end
+    end
+    # Island {1,2} holds 2.1 pu of capacity and peaks above it, so it cannot balance alone.
+    psi_checksolve_test(model, [MOI.INFEASIBLE, MOI.INFEASIBLE_OR_UNBOUNDED])
+end
+
+@testset "CopperPlate island slacks and duals are per island" begin
+    sys = _c_sys5_two_islands_without_hvdc()
+    model, container, island, balance = _copperplate_islands_model(
+        sys; use_slacks = true, duals = [CopperPlateBalanceConstraint])
+    @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+    short, rest = island[1], island[3]
+    slack = IOM.get_variable(container, SystemBalanceSlackUp, PSY.System)
+    short_hours =
+        filter(t -> JuMP.value(slack[short, t]) > 1e-6, IOM.get_time_steps(container))
+    @test !isempty(short_hours)
+    @test all(t -> isapprox(JuMP.value(slack[rest, t]), 0.0; atol = 1e-6),
+        IOM.get_time_steps(container))
+    for t in short_hours
+        @test !isapprox(JuMP.dual(balance[short, t]), JuMP.dual(balance[rest, t]))
+    end
+end
+
+# The tie runs 2 -> 3 across the islands; the intra line runs 3 -> 5 inside island {3,4,5}.
+@testset "CopperPlate HVDC terminals enter their own island row" begin
+    cases = (
+        (
+            HVDCTwoTerminalLossless,
+            (
+                (FlowActivePowerVariable, "hvdc_tie", (2 => -1.0, 3 => 1.0)),
+            ),
+        ),
+        (
+            HVDCTwoTerminalDispatch,
+            (
+                (FlowActivePowerFromToVariable, "hvdc_tie", (2 => -1.0,)),
+                (FlowActivePowerToFromVariable, "hvdc_tie", (3 => -1.0,)),
+                (FlowActivePowerFromToVariable, "hvdc_intra", (3 => -1.0,)),
+                (FlowActivePowerToFromVariable, "hvdc_intra", (5 => -1.0,)),
+            ),
+        ),
+        (
+            HVDCTwoTerminalPiecewiseLoss,
+            (
+                (POM.HVDCActivePowerReceivedFromVariable, "hvdc_tie", (2 => 1.0,)),
+                (POM.HVDCActivePowerReceivedToVariable, "hvdc_tie", (3 => 1.0,)),
+                (POM.HVDCActivePowerReceivedFromVariable, "hvdc_intra", (3 => 1.0,)),
+                (POM.HVDCActivePowerReceivedToVariable, "hvdc_intra", (5 => 1.0,)),
+            ),
+        ),
+    )
+    for (formulation, terms) in cases
+        sys, _, _ = _c_sys5_two_islands_with_hvdc()
+        model, container, island, balance = _copperplate_islands_model(sys, formulation)
+        t = first(IOM.get_time_steps(container))
+        # Each variable enters the row of each listed terminal bus with that coefficient.
+        for (var_type, name, entries) in terms
+            var = IOM.get_variable(container, var_type, TwoTerminalGenericHVDCLine)
+            for row in axes(balance, 1)
+                expected = sum(c for (bus, c) in entries if island[bus] == row; init = 0.0)
+                @test JuMP.normalized_coefficient(balance[row, t], var[name, t]) == expected
             end
         end
+        @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+    end
+end
+
+# Dispatch links its two terminal flows through the loss, so the tie cannot inject free power.
+@testset "CopperPlate HVDCTwoTerminalDispatch couples both terminals" begin
+    sys, tie, _ = _c_sys5_two_islands_with_hvdc()
+    model, container, _, _ = _copperplate_islands_model(sys, HVDCTwoTerminalDispatch)
+    @test solve!(model) == IOM.RunStatus.SUCCESSFULLY_FINALIZED
+    ft = IOM.get_variable(
+        container,
+        FlowActivePowerFromToVariable,
+        TwoTerminalGenericHVDCLine,
+    )
+    tf = IOM.get_variable(
+        container,
+        FlowActivePowerToFromVariable,
+        TwoTerminalGenericHVDCLine,
+    )
+    losses = IOM.get_variable(container, HVDCLosses, TwoTerminalGenericHVDCLine)
+    for t in IOM.get_time_steps(container)
+        @test JuMP.value(ft[tie, t]) + JuMP.value(tf[tie, t]) ≈
+              JuMP.value(losses[tie, t]) atol = 1e-6
+        @test JuMP.value(losses[tie, t]) > 0.0
     end
 end
 

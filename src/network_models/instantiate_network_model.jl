@@ -31,7 +31,7 @@ end
 function _assign_subnetworks_to_buses(
     model::NetworkModel{T},
     sys::PSY.System,
-) where {T <: AbstractPTDFNetworkModel}
+) where {T <: Union{AbstractPTDFNetworkModel, CopperPlateNetworkModel}}
     subnetworks = model.subnetworks
     temp_bus_map = Dict{Int, Int}()
     network_reduction = get_network_reduction(model)
@@ -420,6 +420,9 @@ function IOM.instantiate_network_model!(
         model,
         YbusNetworkData(ybus, _build_catalog(ybus, branch_models, sys)),
     )
+    if length(model.subnetworks) > 1
+        _assign_subnetworks_to_buses(model, sys)
+    end
     _finalize_network_reduction!(model, branch_models)
     return
 end
