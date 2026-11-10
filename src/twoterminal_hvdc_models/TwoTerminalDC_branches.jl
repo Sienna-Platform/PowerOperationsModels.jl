@@ -596,32 +596,10 @@ function add_constraints!(
     container::OptimizationContainer,
     ::Type{T},
     devices::Vector{U},
-    model::DeviceModel{U, HVDCTwoTerminalDispatch},
-    network_model::NetworkModel{CopperPlateNetworkModel},
-) where {
-    T <: Union{FlowRateConstraintFromTo, FlowRateConstraintToFrom},
-    U <: PSY.TwoTerminalHVDC,
-}
-    inter_network_branches = U[]
-    for d in devices
-        ref_bus_from = get_reference_bus(network_model, PSY.get_from(PSY.get_arc(d)))
-        ref_bus_to = get_reference_bus(network_model, PSY.get_to(PSY.get_arc(d)))
-        if ref_bus_from != ref_bus_to
-            push!(inter_network_branches, d)
-        end
-    end
-    if !isempty(inter_network_branches)
-        _add_hvdc_flow_constraints!(container, devices, T)
-    end
-    return
-end
-
-function add_constraints!(
-    container::OptimizationContainer,
-    ::Type{T},
-    devices::Vector{U},
     ::DeviceModel{U, HVDCTwoTerminalDispatch},
-    ::NetworkModel{<:Union{AbstractDCPNetworkModel, NativeACNetworkModel}},
+    ::NetworkModel{
+        <:Union{AbstractDCPNetworkModel, NativeACNetworkModel, CopperPlateNetworkModel},
+    },
 ) where {
     T <: Union{FlowRateConstraintToFrom, FlowRateConstraintFromTo},
     U <: PSY.TwoTerminalHVDC,
@@ -723,7 +701,9 @@ function add_constraints!(
     ::Type{HVDCPowerBalance},
     devices::Vector{T},
     ::DeviceModel{T, <:AbstractTwoTerminalDCLineFormulation},
-    ::NetworkModel{<:Union{AbstractDCPNetworkModel, NativeACNetworkModel}},
+    ::NetworkModel{
+        <:Union{AbstractDCPNetworkModel, NativeACNetworkModel, CopperPlateNetworkModel},
+    },
 ) where {T <: PSY.TwoTerminalHVDC}
     time_steps = get_time_steps(container)
     names = PSY.get_name.(devices)

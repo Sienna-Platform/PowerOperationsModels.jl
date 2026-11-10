@@ -497,3 +497,23 @@ end
     tighter = _solve_with_rating(1.0)
     @test tighter >= looser - 1e-6
 end
+
+# Converters inject at their AC bus, so the aggregated balances reject them at validation.
+@testset "Multi-terminal converters gated on CopperPlate and AreaBalance" begin
+    sys = build_system(PSISystems, "sys10_pjm_ac_dc")
+    for network in (CopperPlateNetworkModel, AreaBalanceNetworkModel, PTDFNetworkModel),
+        converter in (LosslessConverter, LinearLossConverter, QuadraticLossConverter)
+
+        template = PowerOperationsProblemTemplate(NetworkModel(network))
+        set_device_model!(template, ThermalStandard, ThermalDispatchNoMin)
+        set_device_model!(template, PowerLoad, StaticPowerLoad)
+        set_device_model!(template, DeviceModel(InterconnectingConverter, converter))
+        model = DecisionModel(template, sys; optimizer = HiGHS_optimizer)
+        if network == PTDFNetworkModel
+            @test POM.validate_template(model) === nothing
+        else
+            err = @test_throws IS.ConflictingInputsError POM.validate_template(model)
+            @test occursin("no construct path", sprint(showerror, err.value))
+        end
+    end
+end

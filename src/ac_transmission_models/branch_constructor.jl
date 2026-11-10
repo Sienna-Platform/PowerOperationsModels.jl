@@ -2145,35 +2145,6 @@ function construct_device!(
     return
 end
 
-function construct_device!(
-    container::OptimizationContainer,
-    sys::PSY.System,
-    ::ModelConstructStage,
-    device_model::DeviceModel{T, HVDCTwoTerminalDispatch},
-    network_model::NetworkModel{CopperPlateNetworkModel},
-) where {T <: PSY.TwoTerminalHVDC}
-    devices = get_device_cache(device_model)
-    @warn "CopperPlateNetworkModel models with HVDC ignores inter-area losses"
-    add_constraints!(
-        container,
-        FlowRateConstraintFromTo,
-        devices,
-        device_model,
-        network_model,
-    )
-    add_constraints!(
-        container,
-        FlowRateConstraintToFrom,
-        devices,
-        device_model,
-        network_model,
-    )
-    add_hvdc_operational_flow_limit_constraints!(container, devices, device_model)
-    add_constraint_dual!(container, sys, device_model)
-    add_feedforward_constraints!(container, device_model, devices)
-    return
-end
-
 # Shared by the PTDF path, every native nodal network model (AC and DC), and the
 # aggregated CopperPlate/AreaBalance balances: the received-power variables and PWL loss
 # segments are identical across all of them; only the add_to_expression! wiring differs
