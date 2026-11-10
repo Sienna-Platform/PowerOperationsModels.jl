@@ -52,12 +52,10 @@ function validate_template_impl!(model::IOM.AbstractOptimizationModel)
     device_keys_to_delete = Symbol[]
     network_formulation = get_network_formulation(network_model)
     for (k, device_model) in template.devices
-        _check_device_filter(k, device_model)
+        _check_filter(k, device_model)
         make_device_cache!(device_model, system, get_check_components(settings))
         if isempty(get_device_cache(device_model))
-            _warn_empty_filter(k, device_model)
-            @info "The system data doesn't include devices of type $(k), consider changing the models in the template" _group =
-                IOM.LOG_GROUP_MODELS_VALIDATION
+            _log_empty_model(k, device_model)
             push!(device_keys_to_delete, k)
         elseif models_reactive_power(get_formulation(device_model)) &&
                !network_has_reactive_power(network_formulation)
@@ -83,13 +81,10 @@ function validate_template_impl!(model::IOM.AbstractOptimizationModel)
         get_check_components(settings) &&
         branches_modeled(get_network_formulation(network_model))
     for (k, device_model) in template.branches
-        _check_branch_filter(k, device_model)
-        _check_device_filter(k, device_model)
+        _check_filter(k, device_model)
         make_device_cache!(device_model, system, validate_branches)
         if isempty(get_device_cache(device_model))
-            _warn_empty_filter(k, device_model)
-            @info "The system data doesn't include Branches of type $(k), consider changing the models in the template" _group =
-                IOM.LOG_GROUP_MODELS_VALIDATION
+            _log_empty_model(k, device_model)
             push!(branch_keys_to_delete, k)
         elseif models_reactive_power(get_formulation(device_model)) &&
                !network_has_reactive_power(network_formulation)
@@ -111,7 +106,7 @@ function validate_template_impl!(model::IOM.AbstractOptimizationModel)
                 get_component_type(device_model),
             )
         end
-        if _has_device_filter(device_model)
+        if _has_filter(device_model)
             model_has_branch_filters = true
         end
     end
@@ -170,49 +165,40 @@ _interface_contributor_has_flow(::PSY.AreaInterchange, ::Type{<:AbstractNetworkM
     true
 _interface_contributor_has_flow(::PSY.Device, ::Type{<:AbstractNetworkModel}) = false
 
-function _check_branch_filter(key::Symbol, model::DeviceModel)
+function _check_filter(key::Symbol, model::Union{DeviceModel, ServiceModel})
+    # Without this check, the model ignores the attribute and includes every component.
     if haskey(get_attributes(model), "filter_function")
         throw(
             IS.ConflictingInputsError(
-                "Branch model $(key) sets the `filter_function` attribute. Branch models \
-                select their devices with the `$(DEVICE_FILTER_KEY)` attribute, an \
-                `IS.ComponentSelector`.",
+                "Model $(key) sets the `filter_function` attribute. Use the \
+                `$(_filter_key(model))` attribute, an `IS.ComponentSelector`, to select \
+                the components of the model.",
             ),
         )
     end
-    return
-end
-
-function _check_device_filter(key::Symbol, model::DeviceModel)
-    _has_device_filter(model) || return
-    if haskey(get_attributes(model), "filter_function")
-        throw(
-            IS.ConflictingInputsError(
-                "Model $(key) sets both the `filter_function` and `$(DEVICE_FILTER_KEY)` \
-                attributes. Set only one of them.",
-            ),
-        )
-    end
-    _check_device_filter_value(key, get_attribute(model, DEVICE_FILTER_KEY))
+    _has_filter(model) || return
+    _check_filter_value(key, _filter_key(model), get_attribute(model, _filter_key(model)))
     return
 end
 
 # A selector of a different component type selects nothing, so the template drops the model.
-function _warn_empty_filter(key::Symbol, model::DeviceModel)
-    attributes = get_attributes(model)
-    if haskey(attributes, DEVICE_FILTER_KEY) || haskey(attributes, "filter_function")
+function _log_empty_model(key::Symbol, model::DeviceModel)
+    if _has_filter(model)
         @warn "The filter of model $(key) selects no available device. The template drops the model." _group =
+            IOM.LOG_GROUP_MODELS_VALIDATION
+    else
+        @info "The system data doesn't include devices of type $(key), consider changing the models in the template" _group =
             IOM.LOG_GROUP_MODELS_VALIDATION
     end
     return
 end
 
-_check_device_filter_value(::Symbol, ::IS.ComponentSelector) = nothing
+_check_filter_value(::Symbol, ::String, ::IS.ComponentSelector) = nothing
 
-function _check_device_filter_value(key::Symbol, value)
+function _check_filter_value(key::Symbol, filter_key::String, value)
     throw(
         IS.ConflictingInputsError(
-            "Model $(key) sets the `$(DEVICE_FILTER_KEY)` attribute to a \
+            "Model $(key) sets the `$(filter_key)` attribute to a \
             $(typeof(value)). The attribute takes an `IS.ComponentSelector`, for example \
             `make_selector(Line, \"1-2\")`.",
         ),

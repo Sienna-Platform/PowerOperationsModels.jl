@@ -371,30 +371,14 @@ function validate_time_series!(model::DecisionModel{<:GenericPowerDecisionProble
 end
 
 function _make_device_cache(
-    filter_function::Function,
+    is_selected::Function,
     devices::IS.FlattenIteratorWrapper{T},
     check_components::Bool,
     sys::PSY.System,
 ) where {T <: PSY.Device}
     device_cache = sizehint!(Vector{T}(), length(devices))
     for device in devices
-        if PSY.get_available(device) && filter_function(device)
-            check_components && PSY.check_component(sys, device)
-            push!(device_cache, device)
-        end
-    end
-    return device_cache
-end
-
-function _make_device_cache(
-    ::Nothing,
-    devices::IS.FlattenIteratorWrapper{T},
-    check_components::Bool,
-    sys::PSY.System,
-) where {T <: PSY.Device}
-    device_cache = sizehint!(Vector{T}(), length(devices))
-    for device in devices
-        if PSY.get_available(device)
+        if PSY.get_available(device) && is_selected(device)
             check_components && PSY.check_component(sys, device)
             push!(device_cache, device)
         end
@@ -409,30 +393,20 @@ end
 
 (f::_SelectedIds)(d::PSY.Component) = IS.get_id(d) in f.ids
 
-_has_device_filter(model::DeviceModel) =
-    haskey(get_attributes(model), DEVICE_FILTER_KEY)
+_filter_key(::DeviceModel) = DEVICE_FILTER_KEY
+_filter_key(::ServiceModel) = SERVICE_FILTER_KEY
 
-function _selected_ids(model::DeviceModel, sys::PSY.System)
-    selector = get_attribute(model, DEVICE_FILTER_KEY)
+_has_filter(model::Union{DeviceModel, ServiceModel}) =
+    haskey(get_attributes(model), _filter_key(model))
+
+function _selected_ids(model::Union{DeviceModel, ServiceModel}, sys::PSY.System)
+    selector = get_attribute(model, _filter_key(model))
     return Set{Int}(IS.get_id(c) for c in PSY.get_components(selector, sys))
 end
 
-# Template validation rejects a model with both attributes.
-function _component_filter(model::DeviceModel, sys::PSY.System)
-    _has_device_filter(model) && return _SelectedIds(_selected_ids(model, sys))
-    return get_attribute(model, "filter_function")
-end
-
-_available_components(::Nothing, ::Type{T}, sys::PSY.System, subsystem) where {T} =
-    PSY.get_available_components(T, sys; subsystem_name = subsystem)
-
-function _available_components(
-    filter_function::Function,
-    ::Type{T},
-    sys::PSY.System,
-    subsystem,
-) where {T}
-    return PSY.get_available_components(filter_function, T, sys; subsystem_name = subsystem)
+function _component_filter(model::Union{DeviceModel, ServiceModel}, sys::PSY.System)
+    _has_filter(model) && return _SelectedIds(_selected_ids(model, sys))
+    return Returns(true)
 end
 
 # `device_cache` is the validated snapshot for the constructors. `get_available_components`
@@ -458,10 +432,22 @@ function IOM.get_available_components(
     model::DeviceModel{T, <:AbstractDeviceFormulation},
     sys::PSY.System,
 ) where {T <: PSY.Device}
-    return _available_components(
+    return PSY.get_available_components(
         _component_filter(model, sys),
         T,
-        sys,
-        get_subsystem(model),
+        sys;
+        subsystem_name = get_subsystem(model),
+    )
+end
+
+function IOM.get_available_components(
+    model::ServiceModel{T, <:AbstractServiceFormulation},
+    sys::PSY.System,
+) where {T <: PSY.Service}
+    return PSY.get_available_components(
+        _component_filter(model, sys),
+        T,
+        sys;
+        subsystem_name = get_subsystem(model),
     )
 end

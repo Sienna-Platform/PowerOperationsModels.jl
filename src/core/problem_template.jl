@@ -433,6 +433,9 @@ function _validate_reserve_provision!(template::PowerOperationsProblemTemplate)
 end
 
 function finalize_template!(template::PowerOperationsProblemTemplate, sys::PSY.System)
+    for (k, service_model) in get_service_models(template)
+        _check_filter(k, service_model)
+    end
     _populate_contributing_devices!(template, sys)
     _validate_reserve_provision!(template)
     _add_services_to_device_model!(template)

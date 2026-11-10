@@ -124,9 +124,14 @@ const RELAX_BINARIES_ATTRIBUTE = "relax_binaries"
 
 """
 `DeviceModel` attribute. An `IS.ComponentSelector` that selects the devices that the model
-includes. Without it, the model includes all available devices. Do not set it together with
-the `filter_function` attribute. Branch models accept only this attribute.
+includes. Without it, the model includes all available devices.
 """
 const DEVICE_FILTER_KEY = "device_filter"
+
+"""
+`ServiceModel` attribute. An `IS.ComponentSelector` that selects the services that the model
+includes. Without it, the model includes all available services.
+"""
+const SERVICE_FILTER_KEY = "service_filter"
 
 IS.@scoped_enum(COMPACT_PWL_STATUS, VALID = 1, INVALID = 2, UNDETERMINED = 3)

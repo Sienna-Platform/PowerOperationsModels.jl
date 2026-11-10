@@ -373,7 +373,7 @@ function _build_catalog(matrix, branch_models::BranchModelContainer, sys::PSY.Sy
     base = PNM.get_branch_catalog(matrix)
     selected = Dict{DataType, Set{Int}}()
     for m in values(branch_models)
-        _has_device_filter(m) || continue
+        _has_filter(m) || continue
         selected[get_component_type(m)] = _selected_ids(m, sys)
     end
     isempty(selected) && return base
